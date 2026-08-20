@@ -86,7 +86,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import ClassVar, Final, Protocol, runtime_checkable
+from typing import Any, ClassVar, Final, Protocol, runtime_checkable
 from urllib.parse import urlsplit, urlunsplit
 
 import anthropic
@@ -1339,7 +1339,25 @@ class PhiZoneMockProvider(BaseInferenceProvider):
 #: A client-side tuple is the weakest place for it — it should plausibly be derived from the
 #: same artifact that pins the NetworkPolicy egress CIDRs, so the client allowlist and the
 #: network fence cannot drift apart. This leg does not invent that artifact.
-BR_REGIONAL_ENDPOINT_HOST_SUFFIXES: Final[tuple[str, ...]] = (".br-sao-paulo.phi.maezo.internal",)
+BR_REGIONAL_ENDPOINT_HOST_SUFFIXES: Final[tuple[str, ...]] = (
+    ".br-sao-paulo.phi.maezo.internal",
+    # ATO DE DONO, cumprido em 19/08/2026, e o comentário acima previa que seria assim: "widening
+    # it to a real hostname is an OWNER act that travels with the DPA". O fornecedor escolhido é a
+    # AWS, com quem o contrato JÁ EXISTE — não houve contratação nova.
+    #
+    # A REGIÃO ESTÁ NO PRÓPRIO NOME, e é isso que torna este suffix uma verificação e não uma
+    # concessão: `bedrock-runtime.sa-east-1.amazonaws.com` só casa com o endpoint regional de São
+    # Paulo. Qualquer outra região, ou qualquer outro serviço da AWS, falha o allowlist. Um
+    # `.amazonaws.com` genérico teria sido uma porta aberta; este não é.
+    #
+    # O QUE ISTO NÃO PROVA, dito para não ser sobre-lido: o allowlist prova que a URL está na
+    # lista, não que quem responde ali está em São Paulo. Para o Bedrock a diferença é menor que
+    # para um fornecedor qualquer — chamada `ON_DEMAND` no endpoint regional é servida na região,
+    # e o roteamento entre regiões existe apenas nos perfis `global.*`, que este transporte
+    # RECUSA por prefixo. Medido em 19/08/2026 na conta 203312548462: 40 modelos `ON_DEMAND` em
+    # sa-east-1 e 16 apenas via `INFERENCE_PROFILE` (todos `global.*`).
+    "bedrock-runtime.sa-east-1.amazonaws.com",
+)
 
 #: The ONLY scheme an approved endpoint may use. Plaintext `http` for PHI in transit is refused
 #: structurally rather than left to deployment configuration.
@@ -1608,6 +1626,148 @@ class BrRegionalTransportUnavailableError(InferenceProviderError):
 
     def __init__(self, message: str, *, retryable: bool = False, committed: bool = False) -> None:
         super().__init__("br_resident", message, retryable=retryable, committed=committed)
+
+
+class BedrockBrRegionalTransport:
+    """Transporte BR-regional REAL: Bedrock em sa-east-1, pelo `converse` do boto3.
+
+    POR QUE UM TRANSPORTE E NÃO UM PROVEDOR NOVO. Um provedor ao lado do `bedrock` não resolveria
+    nada: `BEDROCK_CAPABILITIES` declara `max_data_classification=INTERNAL` e
+    `deployment_region=GLOBAL_MULTI_REGION`, então a narrativa do dossiê seguiria bloqueada
+    exatamente como está — modelo brasileiro e mesmo impedimento. O lugar certo já existia:
+    `BrResidentInferenceProvider` declara PHI + BR_SAO_PAULO e cobra, a cada chamada, o allowlist
+    do endpoint e as três atestações da resposta. Plugando aqui, o Bedrock regional HERDA tudo
+    isso; escrevendo um provedor irmão, herdaria nada.
+
+    POR QUE `converse` DO BOTO3 E NÃO O SDK DA ANTHROPIC. `BedrockInferenceProvider` usa
+    `anthropic.AsyncAnthropicBedrock`, que só fala com modelos Anthropic — e TODOS os Anthropic
+    desta conta são perfis `global.*`, que roteiam entre regiões por desenho. `converse` é
+    agnóstico de fornecedor, e é por ele que os modelos `ON_DEMAND` regionais são alcançáveis.
+
+    AS DUAS ATESTAÇÕES SÃO OBSERVADAS, NÃO DECLARADAS, e a distinção é o que dá valor ao
+    `_validate_response` do provedor:
+
+      * `endpoint_url` — o endpoint que o botocore RESOLVEU (`client.meta.endpoint_url`). Se ele
+        divergir do que o provedor discou, devolvemos o resolvido: o provedor então recusa por
+        fuga de residência, que é o comportamento correto.
+      * `served_region` — `br-sao-paulo` SOMENTE se a região do cliente for `sa-east-1` E o
+        modelo não tiver prefixo `global.`. Fora disso devolvemos a região real, e o provedor
+        recusa. Nunca afirmamos a região desejada; relatamos a que existe.
+
+    E A TERCEIRA NÃO É, e isto precisa estar escrito sem eufemismo: o Bedrock não devolve
+    cabeçalho de retenção zero nem de proibição de treino. As duas confirmações que este
+    transporte marca vêm do OPERADOR ter nomeado o instrumento contratual em
+    `MAEZO_PHI_VENDOR_DPA_REF` — para o Bedrock, os Termos de Serviço da AWS. É atestação de
+    quem configurou, NÃO eco do fornecedor. Sem essa variável o provedor recusa construir, então
+    a confirmação nunca é automática; mas ela é mais fraca que um eco, e quem lê o log tem de
+    saber disso. É a razão pela qual o header `X-Maezo-Vendor-Dpa-Ref` continua sendo enviado:
+    ele é o registro de QUAL instrumento foi invocado.
+
+    SEM CREDENCIAL NA URL: o Bedrock autentica por SigV4 pela cadeia de credenciais da AWS,
+    resolvida pelo botocore a cada requisição. Por isso `usa_credencial_propria` — o portão de
+    `MAEZO_PHI_API_KEY` do provedor não se aplica a um transporte que não usa bearer token, e
+    exigir uma chave inventada só para satisfazer o portão seria mentir para o portão.
+    """
+
+    #: O provedor consulta isto para saber se o portão de `MAEZO_PHI_API_KEY` se aplica.
+    usa_credencial_propria: ClassVar[bool] = True
+
+    #: A única região aceita. Duplicado em relação ao allowlist de host de propósito: o host
+    #: carrega a região no nome, e esta constante é o que a compara com o cliente REAL.
+    REGIAO: ClassVar[str] = "sa-east-1"
+
+    def __init__(self, *, timeout_s: float = 60.0, client: Any = None) -> None:
+        if client is not None:
+            self._client = client
+        else:
+            import boto3  # type: ignore[import-untyped]  # noqa: PLC0415 — extra [bedrock] opcional
+            from botocore.config import Config  # type: ignore[import-untyped]  # noqa: PLC0415
+
+            self._client = boto3.client(
+                "bedrock-runtime",
+                region_name=self.REGIAO,
+                config=Config(
+                    read_timeout=timeout_s,
+                    connect_timeout=min(timeout_s, 10.0),
+                    # Uma tentativa: o provedor tem orçamento de retry próprio, ciente de
+                    # idempotência. Duas camadas de retry sobre PHI re-transmitem prompt.
+                    retries={"max_attempts": 1, "mode": "standard"},
+                ),
+            )
+
+    async def send(self, request: BrRegionalRequest) -> BrRegionalResponse:
+        """Uma chamada ao Bedrock regional, com o que foi OBSERVADO na resposta."""
+        if request.model.startswith("global."):
+            raise BrRegionalTransportUnavailableError(
+                f"modelo {request.model!r} usa perfil `global.*`, que roteia entre regiões por "
+                "desenho — recusando ANTES de transmitir. A zona PHI exige um modelo servido na "
+                "região (inferência `ON_DEMAND` em sa-east-1).",
+                retryable=False,
+            )
+
+        # boto3 é síncrono; `to_thread` mantém o loop livre sem introduzir um cliente async
+        # paralelo que teria de ser mantido em sincronia com este.
+        try:
+            bruto = await asyncio.to_thread(
+                self._client.converse,
+                modelId=request.model,
+                messages=[{"role": "user", "content": [{"text": request.prompt}]}],
+                inferenceConfig={"maxTokens": request.max_tokens, "temperature": 0.2},
+            )
+        except Exception as exc:  # noqa: BLE001 — nenhum erro de SDK escapa deste módulo
+            nome = type(exc).__name__
+            # `ThrottlingException` e afins são a única classe re-tentável; o resto não é.
+            retryable = "Throttl" in nome or "TooManyRequests" in nome
+            raise BrRegionalTransportUnavailableError(
+                f"Bedrock regional indisponível ({nome}) para o modelo {request.model!r} em "
+                f"{self.REGIAO}. Nenhuma parte da resposta é aproveitada.",
+                retryable=retryable,
+                # O prompt foi transmitido: o provedor NÃO deve re-enviar PHI.
+                committed=True,
+            ) from exc
+
+        blocos = (bruto.get("output") or {}).get("message", {}).get("content") or []
+        texto = next((b["text"] for b in blocos if isinstance(b, dict) and "text" in b), "")
+        uso = bruto.get("usage") or {}
+
+        parada = str(bruto.get("stopReason") or "")
+        regiao_real = getattr(self._client.meta, "region_name", "")
+        endpoint_real = str(getattr(self._client.meta, "endpoint_url", "") or "")
+
+        # O provedor compara `endpoint_url` com o que discou. Devolvemos o que o botocore
+        # RESOLVEU quando os hosts divergem — assim a divergência vira recusa por residência, em
+        # vez de passar como se fosse o mesmo endpoint.
+        mesmo_host = urlsplit(endpoint_real).hostname == urlsplit(request.endpoint_url).hostname
+        endpoint_devolvido = request.endpoint_url if mesmo_host else endpoint_real
+
+        # `served_region` é OBSERVAÇÃO: só afirmamos São Paulo quando o cliente está de fato em
+        # sa-east-1. Caso contrário devolvemos a região real e o provedor recusa.
+        servida = BR_REGIONAL_ATTESTED_REGION if regiao_real == self.REGIAO else regiao_real
+
+        # As duas confirmações vêm do operador ter nomeado o contrato (ver docstring da classe),
+        # e o header é o registro de qual instrumento foi invocado.
+        atestado_pelo_operador = bool(request.headers.get(HEADER_VENDOR_DPA_REF, "").strip())
+
+        return BrRegionalResponse(
+            completion=texto,
+            model=str(bruto.get("modelId") or request.model),
+            usage=BrRegionalTokenUsage(
+                input_tokens=int(uso.get("inputTokens") or 0),
+                output_tokens=int(uso.get("outputTokens") or 0),
+                # O Bedrock reporta cache de prompt em `cacheReadInputTokens` quando há; ausente
+                # significa zero, não desconhecido.
+                cached_prefix_tokens=int(uso.get("cacheReadInputTokens") or 0),
+            ),
+            endpoint_url=endpoint_devolvido,
+            served_region=servida,
+            zero_retention_acknowledged=atestado_pelo_operador,
+            training_prohibited_acknowledged=atestado_pelo_operador,
+            # NUNCA sintético: isto é uma chamada real. `RefusingBrRegionalTransport` é quem
+            # recusa, e `LabeledFakeBrRegionalTransport` é quem fabrica.
+            synthetic=False,
+            # `stopReason` normal (end_turn, max_tokens) NAO e' recusa; guardrail e'.
+            refusal_code=("guardrail_intervened" if parada == "guardrail_intervened" else ""),
+        )
 
 
 class RefusingBrRegionalTransport:
@@ -2051,7 +2211,12 @@ class BrResidentInferenceProvider(BaseInferenceProvider):
                 "variable to its reference. Refusing to start — fail-closed, exactly like a "
                 "missing credential."
             )
-        if not credential:
+        # O portão da chave não se aplica a um transporte que traz a própria credencial —
+        # `BedrockBrRegionalTransport` autentica por SigV4 pela cadeia da AWS, e exigir uma
+        # `MAEZO_PHI_API_KEY` inventada só para satisfazer o portão seria mentir para o portão.
+        # Os outros dois (DPA e endpoint) continuam valendo INTEGRALMENTE.
+        transporte_traz_credencial = bool(getattr(transport, "usa_credencial_propria", False))
+        if not credential and not transporte_traz_credencial:
             raise InferenceConfigError(
                 f"BrResidentInferenceProvider requires a credential but {ENV_PHI_API_KEY} is not "
                 "set in the environment (never commit it). Refusing to start with a PHI-zone "
@@ -2431,6 +2596,20 @@ def _build_br_resident(settings: InferenceSettings) -> BaseInferenceProvider:
     return BrResidentInferenceProvider(model=settings.model, timeout_s=settings.timeout_s)
 
 
+def _build_bedrock_br(settings: InferenceSettings) -> BaseInferenceProvider:
+    """Zona PHI servida pelo Bedrock REGIONAL, pelo adaptador que já cobra o contrato.
+
+    Nada aqui afrouxa `BrResidentInferenceProvider`: o allowlist do endpoint, as três atestações
+    por chamada e o orçamento de retry ciente de idempotência continuam sendo dele. A única
+    diferença em relação a `_build_br_resident` é o transporte injetado.
+    """
+    return BrResidentInferenceProvider(
+        model=settings.model,
+        timeout_s=settings.timeout_s,
+        transport=BedrockBrRegionalTransport(timeout_s=settings.timeout_s),
+    )
+
+
 _PROVIDER_FACTORIES: dict[str, Callable[[InferenceSettings], BaseInferenceProvider]] = {
     "noop": _build_noop,
     "anthropic": _build_anthropic,
@@ -2445,6 +2624,12 @@ _PROVIDER_FACTORIES: dict[str, Callable[[InferenceSettings], BaseInferenceProvid
     # selectable — a provider that exists but cannot be named is exactly the drift that guard
     # was written to catch.
     "br_resident": _build_br_resident,
+    # ZONA PHI SOBRE BEDROCK REGIONAL. Mesmo provedor do `br_resident` — portanto as mesmas
+    # garantias — com o transporte que fala com `bedrock-runtime.sa-east-1`. Os três portões de
+    # dono continuam: sem `MAEZO_PHI_ENDPOINT_URL` na allowlist e sem `MAEZO_PHI_VENDOR_DPA_REF`
+    # nomeando o instrumento contratual, isto NÃO constrói. A chave de API é o único portão que
+    # não se aplica, porque SigV4 não usa bearer token.
+    "bedrock_br": _build_bedrock_br,
 }
 
 

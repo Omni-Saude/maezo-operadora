@@ -122,6 +122,56 @@ variable "fhir_scope" {
   default     = "fhir/Patient.read fhir/Coverage.read fhir/Encounter.read fhir/Condition.read"
 }
 
+variable "phi_vendor_dpa_ref" {
+  description = <<-EOT
+    Referência ao INSTRUMENTO CONTRATUAL que garante residência e retenção zero para a
+    inferência da zona PHI. O adaptador RECUSA construir sem isto, e o motivo está escrito
+    no próprio `inference.py`: para que a declaração de capacidade "não chegue à produção
+    por decisão de um agente".
+
+    SEM DEFAULT, de propósito, e isso é o ponto: quem preenche é quem tem autoridade para
+    afirmar que o instrumento existe. Um default aqui transformaria a atestação numa linha
+    de código, que é exatamente o que o portão foi escrito para impedir.
+
+    Para `bedrock_br` o instrumento são os Termos de Serviço da AWS — o contrato que a
+    empresa já tem, sem fornecedor novo. Para `br_resident` com endpoint de terceiro, é o
+    DPA assinado com aquele fornecedor.
+
+    O valor viaja para o container e aparece no header `X-Maezo-Vendor-Dpa-Ref` de cada
+    requisição: é o registro de QUAL instrumento foi invocado naquela chamada.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "phi_endpoint_url" {
+  description = <<-EOT
+    Endpoint da inferência da zona PHI. Precisa passar `br_endpoint_denial_reasons`, que
+    exige https, sem userinfo, sem query, e host na allowlist.
+
+    Para `bedrock_br`: `https://bedrock-runtime.sa-east-1.amazonaws.com`. A REGIÃO ESTÁ NO
+    NOME DO HOST, e é isso que faz a allowlist ser uma verificação de residência — outra
+    região simplesmente não casa.
+  EOT
+  type        = string
+  default     = "https://bedrock-runtime.sa-east-1.amazonaws.com"
+}
+
+variable "phi_model_id" {
+  description = <<-EOT
+    Modelo da zona PHI. O adaptador exige explícito: `BR_RESIDENT_CAPABILITIES` declara
+    `supported_model_versions` VAZIO de propósito, porque a repo não sanciona nenhum id —
+    então escolher é um ato registrado, não um default herdado.
+
+    `mistral.mistral-large-3-675b-instruct`: medido em 19/08/2026 na conta 203312548462,
+    é `ON_DEMAND` em sa-east-1 (servido na região, sem perfil `global.*`) e produziu o
+    texto mais bem estruturado entre os quatro testados com prompt de dossiê real — os
+    outros foram `deepseek.v3.2`, `zai.glm-5` e `qwen.qwen3-next-80b-a3b`, todos viáveis.
+  EOT
+  type        = string
+  default     = "mistral.mistral-large-3-675b-instruct"
+}
+
 variable "hapi_internal_alb_name" {
   description = "ALB interno do HAPI FHIR — por onde o maezo consome FHIR sem sair para a internet."
   type        = string
@@ -264,7 +314,7 @@ variable "phi_zone_provider" {
   default     = "phi_zone_mock"
 
   validation {
-    condition     = contains(["phi_zone_mock", "br_resident"], var.phi_zone_provider)
+    condition     = contains(["phi_zone_mock", "br_resident", "bedrock_br"], var.phi_zone_provider)
     error_message = "phi_zone_provider deve ser 'phi_zone_mock' ou 'br_resident' — nenhum provedor de zona geral satisfaz o contrato PHI."
   }
 }

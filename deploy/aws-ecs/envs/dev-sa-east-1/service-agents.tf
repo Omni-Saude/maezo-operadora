@@ -203,6 +203,16 @@ resource "aws_ecs_task_definition" "agente" {
       # E' o que impede alguem de apontar um agente PHI para o provedor geral e
       # descobrir isso no primeiro paciente.
       { name = "MAEZO_INFERENCE_PHI_ZONE_REQUIRED", value = tostring(each.value.phi_zone_required) },
+      # Os tres portoes da zona PHI. Sao lidos SO' quando o provedor e' `bedrock_br` ou
+      # `br_resident`; para os outros o adaptador nem e' construido, e valores vazios aqui
+      # nao afrouxam nada — o provedor recusa por conta propria.
+      #
+      # `MAEZO_INFERENCE_MODEL` vem junto porque o adaptador da zona PHI EXIGE modelo
+      # explicito: `supported_model_versions` e' vazio de proposito, ja que a repo nao
+      # sanciona nenhum id para a zona de saude. Escolher e' ato registrado.
+      { name = "MAEZO_PHI_ENDPOINT_URL", value = var.phi_endpoint_url },
+      { name = "MAEZO_PHI_VENDOR_DPA_REF", value = var.phi_vendor_dpa_ref },
+      { name = "MAEZO_INFERENCE_MODEL", value = local._provider_phi == "bedrock_br" || local._provider_phi == "br_resident" ? var.phi_model_id : "" },
       # A chave viaja para o container SO' quando ligada. Assim ela aparece — ou nao —
       # no diff da task definition, e "quem ligou isso?" tem resposta no historico.
       { name = "MAEZO_DOSSIER_NARRATIVE_GENERAL_ZONE_SYNTHETIC_ONLY", value = var.caso_sintetico_zona_geral ? "1" : "0" },

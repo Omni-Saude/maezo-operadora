@@ -79,6 +79,12 @@ data "aws_iam_policy_document" "task_bedrock" {
       # Perfil global (cross-region) e o inference profile correspondente.
       "arn:${data.aws_partition.current.partition}:bedrock:*::foundation-model/anthropic.claude-opus-5*",
       "arn:${data.aws_partition.current.partition}:bedrock:*:${var.aws_account_id}:inference-profile/global.anthropic.claude-opus-5*",
+      # ZONA PHI: modelo REGIONAL, e a regiao esta FIXA no ARN — nao e' `*` como as duas
+      # linhas acima. Aquelas usam `*` porque um perfil `global.*` roteia entre regioes por
+      # desenho e restringir a regiao ali quebraria a invocacao de forma intermitente. Aqui e'
+      # o oposto: a regiao presa em `sa-east-1` e' a propria garantia de residencia, e um
+      # `*` desfaria o que este provedor existe para dar.
+      "arn:${data.aws_partition.current.partition}:bedrock:sa-east-1::foundation-model/${var.phi_model_id}",
     ]
   }
 }
