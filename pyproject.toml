@@ -51,7 +51,7 @@ dependencies = [
     # `[bedrock]` extra (boto3/botocore) powers the SigV4-signed AWS Bedrock provider added in
     # W-BEDROCK (`BedrockInferenceProvider`) — GENERAL ZONE ONLY. The base package still serves
     # `AnthropicInferenceProvider`; the extra only adds the AWS signing stack, no new import point.
-    "anthropic[bedrock]>=0.40,<1.0",  # T1.7: real provider behind InferenceProvider
+    "anthropic[bedrock]>=0.40,<2.0",  # T1.7: real provider behind InferenceProvider
 ]
 
 [project.optional-dependencies]
