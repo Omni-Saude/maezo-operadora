@@ -56,7 +56,7 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 import structlog
 from langgraph.graph import END, START, StateGraph
@@ -286,6 +286,58 @@ def gate_inbound_state(raw: Mapping[str, Any]) -> RafaelState:
     if dropped:
         logger.warning("rafael_inbound_output_fields_dropped", dropped=dropped)
     return cast(RafaelState, {k: raw[k] for k in RAFAEL_INPUT_FIELDS if k in raw})
+
+
+#: Fatos BOOLEANOS do caso, com o nome que o medico-auditor reconhece.
+#:
+#: POR QUE ESTE MAPA EXISTE (achado de 24/08/2026, caso com prestador fora da rede)
+#:
+#: O dossie escreveu "Nao ha registro de verificacao de teto L2 ou rede credenciada" para um
+#: caso em que a rede FOI verificada e deu FALSO. Verificado-e-desfavoravel virou
+#: nao-verificado, e o texto apagou a unica informacao contraria do caso.
+#:
+#: A causa NAO era descarte na montagem — `_build_dossier` sempre passou `False` e `None`
+#: adiante, os dois. A distincao morria na PASSAGEM PARA O MODELO: os fatos iam para o prompt
+#: como repr de dicionario Python (`'rede_credenciada': False, 'dentro_teto_l2': None`) e nada
+#: dizia ao modelo que um deles e fato apurado desfavoravel e o outro e ausencia de apuracao.
+#: Num repr os dois parecem a mesma coisa: um valor "vazio".
+#:
+#: Entao o conserto e de RENDERIZACAO, nao de montagem. `_build_dossier` continua devolvendo o
+#: dicionario `fatos` intacto — a procedencia de auditoria (ADR-0007) nao muda; muda o que o
+#: modelo LE. Quem for procurar o "descarte" no codigo nao vai achar, porque ele nunca existiu.
+_FATOS_BOOLEANOS: Final[dict[str, str]] = {
+    "beneficiario_ativo": "beneficiario com plano ativo",
+    "carencia_cumprida": "carencia cumprida",
+    "dut_atendida": "diretriz de utilizacao (DUT) atendida",
+    "dentro_teto_l2": "valor dentro do teto de aprovacao automatica",
+    "rede_credenciada": "prestador na rede credenciada",
+    "documentacao_completa": "documentacao completa",
+}
+
+
+def render_fatos_para_prompt(facts: dict[str, Any]) -> str:
+    """Serializa os fatos NOMEANDO o estado de cada booleano, em vez de despejar o dicionario.
+
+    Tres estados, tres formas visualmente distintas — e so o desfavoravel carrega instrucao,
+    porque foi exatamente esse que sumiu do texto quando os tres colapsavam num `repr()`.
+
+    O `is True` / `is False` e deliberado: `1`, `"nao"` e `[]` NAO sao fatos apurados, e um
+    `bool()` os converteria em afirmacao. Qualquer coisa que nao seja booleano cai em NAO
+    VERIFICADO, que e a leitura segura.
+    """
+    linhas: list[str] = []
+    for chave, rotulo in _FATOS_BOOLEANOS.items():
+        valor = facts.get(chave)
+        if valor is True:
+            linhas.append(f"  VERIFICADO / SIM  - {rotulo}")
+        elif valor is False:
+            linhas.append(f"  VERIFICADO / NAO  - {rotulo}  [FATO DESFAVORAVEL: cite nomeando]")
+        else:
+            linhas.append(f"  NAO VERIFICADO    - {rotulo}")
+
+    contexto = {k: v for k, v in facts.items() if k not in _FATOS_BOOLEANOS}
+    corpo = "\n".join(linhas)
+    return f"fatos apurados:\n{corpo}\n\ndemais dados do caso: {contexto}"
 
 
 class RafaelGraph:
@@ -578,7 +630,12 @@ class RafaelGraph:
             "sla_analise": state.get("sla_analise", ""),
             "lacunas_enriquecimento": state.get("gather_notes", []),
         }
-        prompt = f"{dossier_prompt()}\n\nroute={route} motivo_auditor={motivo_auditor}\nfatos={facts}"
+        # `render_fatos_para_prompt` no lugar de `fatos={facts}`: ver `_FATOS_BOOLEANOS`.
+        # O dicionario `facts` segue intacto no dossie devolvido logo abaixo.
+        prompt = (
+            f"{dossier_prompt()}\n\nroute={route} motivo_auditor={motivo_auditor}\n"
+            f"{render_fatos_para_prompt(facts)}"
+        )
         try:
             # `phi` NAO e' mais literal aqui. A pergunta "a narrativa do dossie e'
             # dado da zona PHI ou dado pseudonimizado da zona geral?" e' juridica e

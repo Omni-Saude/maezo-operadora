@@ -63,11 +63,18 @@ def _chave_de_pseudonimo(monkeypatch: pytest.MonkeyPatch) -> None:
     reset_egress_pseudonymizer_cache()
 
 
+#: O pedido mínimo CRESCEU em 24/08/2026, de quatro campos para seis, e o crescimento é o
+#: conserto: `categoria_procedimento` e `carater_atendimento` tinham default no agente
+#: ("consulta" e "eletivo"), então uma chamada sem eles era aceita e o prazo regulatório saía
+#: calculado sobre valores que ninguém informou.
 _PEDIDO_MINIMO = {
     "tenant_id": "amh",
     "numero_guia_tiss": "12345678",
     "canal": "portal_tiss",
     "codigo_procedimento_tuss": "40901114",
+    "categoria_procedimento": "exame_especial",
+    "carater_atendimento": "eletivo",
+    "requer_autorizacao": True,
 }
 
 
@@ -160,3 +167,54 @@ def test_falha_dentro_do_turno_vira_502_com_o_tipo_do_erro() -> None:
     assert r.status_code == 502
     assert "RuntimeError" in r.json()["detail"]
     assert "cibseven indisponivel" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------------------------------
+# Campos cujo default era uma SUPOSICAO (achado de 24/08/2026, passo 5 do plano de teste)
+# ---------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("campo", ["categoria_procedimento", "carater_atendimento"])
+def test_campo_com_default_de_suposicao_e_recusado_vazio(campo: str) -> None:
+    """Sem isto, a DMN de prazo roda sobre um valor que ninguem informou.
+
+    `carater_atendimento` ausente virava "eletivo" — o prazo LONGO. Um caso de urgencia que
+    chegasse sem o campo ganhava 5 dias uteis em vez de 2 horas, e nada avisava. Recusar e' a
+    postura que o resto da repo ja adota; assumir e' o que produziu o teste "rodou sem
+    significado" de 19/08.
+    """
+    harness = _HarnessFalso()
+    pedido = {k: v for k, v in _PEDIDO_MINIMO.items() if k != campo}
+
+    r = _cliente(_EstadoFalso(harness=harness)).post("/v1/autorizacoes", json=pedido)
+
+    assert r.status_code == 422
+    assert campo in r.json()["detail"]
+    assert harness.chamadas == [], "gastou um turno de LLM para descobrir que faltava campo"
+
+
+def test_booleano_falso_e_resposta_legitima_e_nao_ausencia() -> None:
+    """O `is not bool` existe por causa deste caso, e um teste de veracidade o quebraria.
+
+    `requer_autorizacao=False` diz "este pedido NAO precisa de autorizacao" — informacao, nao
+    ausencia. Tratado como faltante, o default `True` entraria por cima e o caso percorreria o
+    fluxo inteiro a toa, invertendo a resposta de quem chamou.
+    """
+    harness = _HarnessFalso()
+    pedido = {**_PEDIDO_MINIMO, "requer_autorizacao": False}
+
+    r = _cliente(_EstadoFalso(harness=harness)).post("/v1/autorizacoes", json=pedido)
+
+    assert r.status_code == 200
+    assert harness.chamadas, "recusou um booleano falso legitimo"
+    assert harness.chamadas[0][0]["requer_autorizacao"] is False
+
+
+def test_booleano_obrigatorio_ausente_e_recusado() -> None:
+    """Ausente e' diferente de falso: o default `True` e' o valor que MANDA seguir."""
+    pedido = {k: v for k, v in _PEDIDO_MINIMO.items() if k != "requer_autorizacao"}
+
+    r = _cliente(_EstadoFalso(harness=_HarnessFalso())).post("/v1/autorizacoes", json=pedido)
+
+    assert r.status_code == 422
+    assert "requer_autorizacao" in r.json()["detail"]

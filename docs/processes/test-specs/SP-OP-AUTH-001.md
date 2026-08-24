@@ -14,7 +14,31 @@ Stubs de integracao (pytest, marker `integration`) contra CIB Seven real. Arquiv
 ### test_negar_exige_campos_obrigatorios
 - **Given** `UT_AnaliseMedicoAuditor` aberta
 - **When** complete com `decisao_auditor=NEGAR` sem `justificativa_clinica`/`cid10_referencia`/`fundamentacao_dut`
-- **Then** task NAO completa (validacao de formulario/listener) — negativa sem fundamentacao e impossivel
+- **Then** a negativa NAO e transmitida, e o caso fica retido e visivel a um humano
+
+> **Mecanismo real, corrigido em 24/08/2026 apos medicao no ambiente da AWS.**
+> Esta linha dizia "task NAO completa (validacao de formulario/listener)". Nao e o que
+> acontece, e a diferenca importa para quem escreve o teste.
+>
+> A User Task **e** concluida. O bloqueio acontece DEPOIS, em `ST_EnviarNegativaFormal`:
+> `send_denial_notice` levanta `ERR_AUTH_DENIAL_INCOMPLETE` com "fundamentacao incompleta,
+> campos ausentes: [...] — negativa formal NAO transmitida (RN 395 art. 10, L0 hard
+> ADR-0005)". Medido: external task com `retries=0`, incident aberto, instancia ACTIVE
+> parada em `ST_EnviarNegativaFormal`, nenhum end event alcancado.
+>
+> A garantia que esta linha protege continua valendo por inteiro — nada e transmitido sem
+> fundamentacao. O que muda e ONDE conferir: **o incident e o historico da instancia**, nao
+> o estado da tarefa. Um teste que asserte "a task nao completou" falha contra um sistema
+> que esta funcionando exatamente como projetado.
+>
+> **O incident e deliberado, nao um defeito a consertar.** `ERR_AUTH_DENIAL_INCOMPLETE` e
+> reconhecido como consumption-covered e mesmo assim filtrado do allowlist de producao pelo
+> portao T-E (ADR-0030 §4): ativa-lo antes do T-E trocaria um incident garantidamente
+> visivel a um humano por um fim limpo e silencioso num terminal neutro. Ha teste unitario
+> (`tests/unit/runtime/test_worker_runtime_bpmn_error_allowlist.py`) que falha se alguem
+> remover o filtro. O caminho de volta a mesa do auditor (`BE_NegativaIncompleta` ->
+> `End_FundamentacaoIncompletaBloqueada`) so passa a ser alcancado quando o T-E aterrissar;
+> ate la, o incident E o desfecho esperado deste caso de aceite.
 
 ### test_inelegibilidade_roteia_para_humano_nao_nega
 - **Given** start com `beneficiario_ativo=false`

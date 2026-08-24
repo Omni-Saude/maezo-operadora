@@ -90,7 +90,8 @@ details summary{cursor:pointer;color:#58a6ff;font-size:12px;outline:none;margin-
 .spin{display:inline-block;width:12px;height:12px;border:2px solid #30363d;border-top-color:#58a6ff;border-radius:50%;animation:g .8s linear infinite;vertical-align:-2px}
 @keyframes g{to{transform:rotate(360deg)}}
 label{display:block;margin:8px 0 3px;font-size:12.5px;color:#8b949e}
-input{width:100%;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:7px 9px;color:#c9d1d9;font-size:13px}
+input,select{width:100%;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:7px 9px;color:#c9d1d9;font-size:13px}
+select:focus-visible,input:focus-visible,button:focus-visible{outline:2px solid #58a6ff;outline-offset:2px}
 </style>
 
 <header>
@@ -104,7 +105,44 @@ input{width:100%;background:#0d1117;border:1px solid #30363d;border-radius:6px;p
       <h2>1 &middot; Escolha um caso real</h2>
       <div class="sub" id="proc"></div>
       <div id="casos" style="margin-top:10px"></div>
-      <button id="b1" onclick="enviar()" disabled>Enviar ao Rafael</button>
+
+      <!-- AJUSTE 5 (24/08/2026) — DOIS CAMPOS QUE ANTES NAO EXISTIAM AQUI.
+           `categoria_procedimento` nao era enviada e `carater_atendimento` era fixo em
+           "eletivo" dentro do codigo. Os dois tinham DEFAULT no agente: categoria ausente
+           virava "consulta" e carater ausente virava "eletivo" — o prazo LONGO. Resultado
+           medido em 19/08: a DMN de prazo "rodou sem significado", devolvendo sempre 5 dias
+           uteis pela regra generica, e a regra de urgencia de 2h nunca foi exercitada.
+           Agora a rota de entrada RECUSA os dois vazios, e eles estao aqui, visiveis.
+           A categoria vem pre-preenchida com uma SUGESTAO por caso — sugestao, nao de-para:
+           o de-para real (TUSS -> categoria) nao existe e e' tarefa do medico auditor. -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
+        <div>
+          <label for="cat">Categoria do procedimento</label>
+          <select id="cat">
+            <option value="consulta">consulta</option>
+            <option value="exame_simples">exame simples</option>
+            <option value="exame_especial">exame especial</option>
+            <option value="terapia">terapia</option>
+            <option value="internacao">internacao</option>
+            <option value="opme">OPME</option>
+            <option value="alta_complexidade">alta complexidade</option>
+          </select>
+        </div>
+        <div>
+          <label for="car">Carater do atendimento</label>
+          <select id="car">
+            <option value="eletivo">eletivo — 5 dias uteis (RN 395)</option>
+            <option value="urgencia">urgencia — 2 horas (Lei 9.656 art. 35-C)</option>
+          </select>
+        </div>
+      </div>
+      <div class="sub" style="margin-top:7px;font-size:12px">
+        A categoria vem sugerida pelo caso e e' <b>editavel de proposito</b>: o de-para real
+        TUSS &rarr; categoria ainda nao existe. Trocar o carater para urgencia exercita a
+        regra de 2 horas, que nunca rodou.
+      </div>
+
+      <button id="b1" onclick="enviar()" style="margin-top:14px" disabled>Enviar ao Rafael</button>
       <div id="s1"></div>
     </div>
     <div id="area"></div>
@@ -123,7 +161,7 @@ input{width:100%;background:#0d1117;border:1px solid #30363d;border-radius:6px;p
 </div>
 
 <script>
-var CASOS = [{"guia": "172906", "procedimento": "10102019", "nome_proc": "Visita Hospitalar (Paciente Internado)", "valor": 0.0, "dt": "2022-07-03", "prestador": "1650", "pseudo": "bnf-0b639907183d", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": true, "exige_dut": false, "taxa_negativa": 10.428, "volume_historico": 33745, "gabarito": "APROVADO"}, {"guia": "172906", "procedimento": "60000694", "nome_proc": "Diária de Enfermaria de 3 Leitos com Banheiro Privativo", "valor": 0.0, "dt": "2022-07-03", "prestador": "1650", "pseudo": "bnf-0b639907183d", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": false, "exige_dut": false, "taxa_negativa": 5.743, "volume_historico": 41288, "gabarito": "APROVADO"}, {"guia": "173505", "procedimento": "30306027", "nome_proc": "Facectomia com Lente Intra-Ocular com Facoemulsificação", "valor": 0.0, "dt": "2022-07-15", "prestador": "1036", "pseudo": "bnf-a119fe5f30d6", "beneficiario_ativo": true, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": true, "exige_dut": false, "taxa_negativa": 3.317, "volume_historico": 4281, "gabarito": "APROVADO"}, {"guia": "173598", "procedimento": "60001038", "nome_proc": "Diária de UTI Adulto Geral", "valor": 0.0, "dt": "2022-07-18", "prestador": "2027", "pseudo": "bnf-b53fe7645290", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": false, "exige_dut": false, "taxa_negativa": 6.235, "volume_historico": 4459, "gabarito": "APROVADO"}, {"guia": "173598", "procedimento": "30913012", "nome_proc": "Implante de Cateter Venoso Central por Punção, para NPP, QT, Hemodepuração ou Infusão de Soros/Drogas", "valor": 0.0, "dt": "2022-07-18", "prestador": "2027", "pseudo": "bnf-b53fe7645290", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": true, "exige_dut": false, "taxa_negativa": 46.881, "volume_historico": 2020, "gabarito": "APROVADO"}];
+var CASOS = [{"guia": "172906", "procedimento": "10102019", "nome_proc": "Visita Hospitalar (Paciente Internado)", "valor": 0.0, "dt": "2022-07-03", "prestador": "1650", "pseudo": "bnf-0b639907183d", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": true, "exige_dut": false, "taxa_negativa": 10.428, "volume_historico": 33745, "gabarito": "APROVADO", "categoria_sugerida": "consulta"}, {"guia": "172906", "procedimento": "60000694", "nome_proc": "Diária de Enfermaria de 3 Leitos com Banheiro Privativo", "valor": 0.0, "dt": "2022-07-03", "prestador": "1650", "pseudo": "bnf-0b639907183d", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": false, "exige_dut": false, "taxa_negativa": 5.743, "volume_historico": 41288, "gabarito": "APROVADO", "categoria_sugerida": "internacao"}, {"guia": "173505", "procedimento": "30306027", "nome_proc": "Facectomia com Lente Intra-Ocular com Facoemulsificação", "valor": 0.0, "dt": "2022-07-15", "prestador": "1036", "pseudo": "bnf-a119fe5f30d6", "beneficiario_ativo": true, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": true, "exige_dut": false, "taxa_negativa": 3.317, "volume_historico": 4281, "gabarito": "APROVADO", "categoria_sugerida": "opme"}, {"guia": "173598", "procedimento": "60001038", "nome_proc": "Diária de UTI Adulto Geral", "valor": 0.0, "dt": "2022-07-18", "prestador": "2027", "pseudo": "bnf-b53fe7645290", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": false, "exige_dut": false, "taxa_negativa": 6.235, "volume_historico": 4459, "gabarito": "APROVADO", "categoria_sugerida": "internacao"}, {"guia": "173598", "procedimento": "30913012", "nome_proc": "Implante de Cateter Venoso Central por Punção, para NPP, QT, Hemodepuração ou Infusão de Soros/Drogas", "valor": 0.0, "dt": "2022-07-18", "prestador": "2027", "pseudo": "bnf-b53fe7645290", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": true, "exige_dut": false, "taxa_negativa": 46.881, "volume_historico": 2020, "gabarito": "APROVADO", "categoria_sugerida": "opme"}];
 var META = {"extraido_em": "2026-08-19T15:00:00", "fonte": "amh_omni_gold (guias_historico, guias_procedimento, rol_procedimento_historico, rede_credenciada, carencia_beneficiario) + amh_omni_fhir.fhir_coverage + amh_omni_mpi.patient_source"};
 var sel = null, ultimo = null;
 
@@ -204,6 +242,10 @@ function pintaCasos(){
 function escolher(i){
   sel = i;
   for (var k=0;k<CASOS.length;k++){ $("c"+k).className = "caso" + (k===i ? " sel" : ""); }
+  // Pre-preenche a categoria com a sugestao DESTE caso. E' sugestao e continua editavel:
+  // se virasse valor fixo no envio, seria um de-para escondido — que e' justamente a tarefa
+  // que ninguem fez ainda e que so' o medico auditor pode fechar.
+  $("cat").value = CASOS[i].categoria_sugerida || "consulta";
   $("b1").disabled = false;
   $("honesto").innerHTML =
      '<div class="linha"><span>Ambiente</span><b class="ok">AWS</b></div>'
@@ -244,7 +286,8 @@ function enviar(){
     codigo_procedimento_tuss: String(c.procedimento),
     beneficiario_pseudo_id: c.pseudo,
     prestador_id: String(c.prestador),
-    carater_atendimento: "eletivo",
+    categoria_procedimento: $("cat").value,
+    carater_atendimento: $("car").value,
     valor_estimado_brl: c.valor,
     requer_autorizacao: true,
     documentacao_completa: true,

@@ -71,8 +71,41 @@ if TYPE_CHECKING:  # pragma: no cover - só para tipo; evita import circular com
 
 logger = structlog.get_logger(__name__)
 
-#: Campos que o ingresso EXIGE, porque sem eles não há business key nem idempotência.
-CAMPOS_OBRIGATORIOS: tuple[str, ...] = ("tenant_id", "numero_guia_tiss")
+#: Campos de texto que o ingresso EXIGE preenchidos.
+#:
+#: O CRITÉRIO PARA ESTAR NESTA LISTA (e não é "todo campo do contrato"):
+#: um campo entra aqui quando a AUSÊNCIA dele produz uma SUPOSIÇÃO. Fica de fora quando a
+#: ausência produz um valor que já falha seguro.
+#:
+#: Medido em 24/08/2026, e foi o que motivou a lista crescer de dois campos para cinco:
+#:
+#:   - `carater_atendimento` ausente vira `"eletivo"` — o prazo LONGO. Um caso de urgência
+#:     que chegue sem o campo ganha 5 dias úteis em vez de 2 horas, e ninguém é avisado.
+#:     É a falha mais cara da lista, porque é regulatória (RN 259) e silenciosa.
+#:   - `categoria_procedimento` ausente vira `"consulta"` — e o prazo é calculado como se
+#:     fosse consulta. Foi exatamente o que aconteceu no teste de 19/08: a DMN de SLA
+#:     "rodou sem significado", devolvendo a regra genérica.
+#:   - `requer_autorizacao` ausente vira `True` (ver `CAMPOS_BOOLEANOS_OBRIGATORIOS`).
+#:
+#: Ficam FORA, de propósito: `documentacao_completa`, `beneficiario_ativo` e
+#: `carencia_cumprida`. Os três já assumem `False` quando ausentes — o valor DESFAVORÁVEL,
+#: que roteia para análise humana. Exigi-los agora também cimentaria o contrato errado: eles
+#: são os fatos que o worker de apuração deve produzir, e quem chama não deveria enviá-los.
+CAMPOS_OBRIGATORIOS: tuple[str, ...] = (
+    "tenant_id",
+    "numero_guia_tiss",
+    "codigo_procedimento_tuss",
+    "categoria_procedimento",
+    "carater_atendimento",
+)
+
+#: Booleanos que precisam CHEGAR, e cuja ausência não pode ser lida como um valor.
+#:
+#: Checado por `is not bool`, NUNCA por veracidade: `False` é resposta legítima e um teste de
+#: veracidade o trataria como ausente. `requer_autorizacao` está aqui porque o default é
+#: `True` — o valor que MANDA o caso seguir para análise. Um pedido que não requer
+#: autorização e chega sem o campo entra no fluxo inteiro à toa.
+CAMPOS_BOOLEANOS_OBRIGATORIOS: tuple[str, ...] = ("requer_autorizacao",)
 
 #: Campos de saída que a resposta devolve. Lista fechada de propósito: devolver o estado
 #: inteiro exporia campos internos do grafo e faria a resposta mudar de forma a cada nó
@@ -118,10 +151,20 @@ def build_ingress_router(state: AgentState) -> APIRouter:
             )
 
         faltando = [c for c in CAMPOS_OBRIGATORIOS if not str(payload.get(c) or "").strip()]
+        # Booleano ausente NÃO é o mesmo que booleano falso, e a diferença é o ponto: sem esta
+        # checagem separada, `requer_autorizacao=False` seria lido como "não veio" e o default
+        # `True` entraria por cima — invertendo a resposta de quem chamou.
+        faltando += [
+            c for c in CAMPOS_BOOLEANOS_OBRIGATORIOS if not isinstance(payload.get(c), bool)
+        ]
         if faltando:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"campos obrigatórios ausentes ou vazios: {faltando}",
+                detail=(
+                    f"campos obrigatórios ausentes, vazios ou de tipo errado: {sorted(faltando)}. "
+                    "Esta rota não assume valor por campo faltante: um default aqui vira prazo "
+                    "regulatório errado sem ninguém perceber."
+                ),
             )
 
         try:
