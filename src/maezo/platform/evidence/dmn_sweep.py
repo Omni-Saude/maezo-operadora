@@ -27,7 +27,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-import httpx
+from maezo.gateway.tool_registry import build_dmn_seam, build_worker_seam_context
+from maezo.tools.workers.dmn_transport import DmnEvaluationError, evaluate_sync
 
 #: Casos por tabela: (chave DMN, título legível, [(rótulo, entradas)]).
 #: Editar esta lista é a forma de acrescentar cobertura — sem tocar no motor.
@@ -198,56 +199,65 @@ def _base_url() -> str:
     return os.environ.get("ENGINE_REST_URL", "http://localhost:8080/engine-rest").rstrip("/")
 
 
-def _tipar(valor: Any) -> dict[str, Any]:
-    """O engine exige tipo explícito; `bool` antes de `int` porque bool É int em Python."""
-    if isinstance(valor, bool):
-        return {"value": valor, "type": "Boolean"}
-    if isinstance(valor, int):
-        return {"value": valor, "type": "Integer"}
-    return {"value": valor, "type": "String"}
+def avaliar(chave: str, entradas: dict[str, Any], *, dmn: Any) -> list[dict[str, Any]] | str:
+    """Avalia uma tabela pelo transporte SANCIONADO. Devolve as linhas, ou um texto da falha.
 
+    MUDOU EM 25/08/2026: antes montava `"/decision-definition/key/" + chave + "/evaluate"` com
+    um `httpx.Client` proprio. Duas razoes para trocar, e a segunda e' a que importa mais:
 
-def avaliar(
-    chave: str, entradas: dict[str, Any], *, client: httpx.Client, base: str
-) -> list[dict[str, Any]] | str:
-    """Avalia uma tabela. Devolve as linhas de saída, ou um texto explicando a falha."""
-    resposta = client.post(
-        base + "/decision-definition/key/" + chave + "/evaluate",
-        json={"variables": {nome: _tipar(valor) for nome, valor in entradas.items()}},
-    )
-    if resposta.status_code >= 300:
-        return "ERRO HTTP " + str(resposta.status_code) + ": " + resposta.text[:200]
-    linhas = resposta.json()
+      - o portao `effect-chokepoint-fence` reprovava, e com razao: caminho de efeito duplicado
+        fora do modulo que o possui e' exatamente como duas implementacoes do mesmo POST
+        divergem — uma ganha retry, a outra nao, e ninguem nota ate' o dia em que importa;
+      - `CibSevenDmnTransport` resolve a VERSAO autoritativa da tabela antes de avaliar
+        (ADR-0028 §2). Para um sweep de cobertura de DMN isso nao e' detalhe: sem a versao, o
+        relatorio diz "esta regra disparou" sem dizer de qual tabela — e uma tabela redeployada
+        no meio do sweep produziria um relatorio que mistura duas.
+
+    O `_tipar` local tambem saiu: o transporte faz a conversao para o formato do engine, e
+    manter uma segunda copia da tabela de tipos era a mesma classe de duplicacao.
+    """
+    try:
+        linhas, versao = evaluate_sync(dmn, chave, entradas)
+    except DmnEvaluationError as exc:
+        return "ERRO DE AVALIACAO: " + str(exc)[:200]
+
     if not linhas:
-        # Tabela UNIQUE/FIRST sem linha casada. Não é erro do engine — é lacuna de
-        # cobertura da tabela, e saber disso é metade do valor deste sweep.
-        return "NENHUMA REGRA DISPAROU — a tabela não cobre esta entrada"
-    return [{nome: célula.get("value") for nome, célula in linha.items()} for linha in linhas]
+        # Tabela UNIQUE/FIRST sem linha casada. Nao e' erro do engine — e' lacuna de
+        # cobertura da tabela, e saber disso e' metade do valor deste sweep.
+        return (
+            "NENHUMA REGRA DISPAROU — a tabela nao cobre esta entrada  (versao " + str(versao.version) + ")"
+        )
+    return linhas
 
 
 def main() -> int:
     base = _base_url()
     total = 0
     sem_regra = 0
-    with httpx.Client(timeout=30.0) as client:
-        for chave, titulo, casos in CASOS:
+    # Pelo REGISTRO, nao construindo o transporte direto: e' o registro que aplica o portao de
+    # autorizacao de acao antes de cada chamada, e importar o provedor concreto aqui
+    # reintroduziria a dependencia que o portao `effect-chokepoint-fence` existe para impedir.
+    # `tenant="amh"` porque este sweep e' de diagnostico do tenant unico de dev; um sweep
+    # multi-tenant precisaria de um contexto por tenant, e seria outra ferramenta.
+    dmn = build_dmn_seam(seam=build_worker_seam_context(tenant="amh"), base_url=base)
+    for chave, titulo, casos in CASOS:
+        print("")
+        print("=" * 78)
+        print(chave + "  —  " + titulo)
+        print("=" * 78)
+        for rotulo, entradas in casos:
+            total += 1
+            resultado = avaliar(chave, entradas, dmn=dmn)
             print("")
-            print("=" * 78)
-            print(chave + "  —  " + titulo)
-            print("=" * 78)
-            for rotulo, entradas in casos:
-                total += 1
-                resultado = avaliar(chave, entradas, client=client, base=base)
-                print("")
-                print("  CASO: " + rotulo)
-                print("    entrada -> " + str(entradas))
-                if isinstance(resultado, str):
-                    if resultado.startswith("NENHUMA"):
-                        sem_regra += 1
-                    print("    SAIDA   -> " + resultado)
-                else:
-                    for saida in resultado:
-                        print("    SAIDA   -> " + str(saida))
+            print("  CASO: " + rotulo)
+            print("    entrada -> " + str(entradas))
+            if isinstance(resultado, str):
+                if resultado.startswith("NENHUMA"):
+                    sem_regra += 1
+                print("    SAIDA   -> " + resultado)
+            else:
+                for saida in resultado:
+                    print("    SAIDA   -> " + str(saida))
 
     print("")
     print("=" * 78)
