@@ -486,9 +486,8 @@ def test_detector_contem_o_gate() -> None:
     Ou seja: todo codigo gated e' auditado, e um codigo habilitado continua auditado. O que o
     teste proibe e' o inverso — um codigo gated que NAO seja auditado.
     """
-    from scripts.ci.check_bpmn_error_allowlist import TE_ENABLED_CODES
     from scripts.ci.check_bpmn_error_allowlist import _DENIAL_BLOCK_CODES as GATE_DENIAL_BLOCK
-    from scripts.ci.check_bpmn_error_allowlist import is_te_gated
+    from scripts.ci.check_bpmn_error_allowlist import TE_ENABLED_CODES, is_te_gated
 
     assert _DENIAL_BLOCK_CODES == GATE_DENIAL_BLOCK  # the two denial-block sets cannot drift
 

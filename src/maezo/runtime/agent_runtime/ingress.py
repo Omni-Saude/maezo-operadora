@@ -154,9 +154,7 @@ def build_ingress_router(state: AgentState) -> APIRouter:
         # Booleano ausente NÃO é o mesmo que booleano falso, e a diferença é o ponto: sem esta
         # checagem separada, `requer_autorizacao=False` seria lido como "não veio" e o default
         # `True` entraria por cima — invertendo a resposta de quem chamou.
-        faltando += [
-            c for c in CAMPOS_BOOLEANOS_OBRIGATORIOS if not isinstance(payload.get(c), bool)
-        ]
+        faltando += [c for c in CAMPOS_BOOLEANOS_OBRIGATORIOS if not isinstance(payload.get(c), bool)]
         if faltando:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

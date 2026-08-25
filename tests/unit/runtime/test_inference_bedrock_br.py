@@ -31,7 +31,9 @@ MODELO = "mistral.mistral-large-3-675b-instruct"
 class _ClienteFalso:
     """Imita o `bedrock-runtime` do boto3: `converse` + `meta.{region_name,endpoint_url}`."""
 
-    def __init__(self, *, regiao: str = "sa-east-1", endpoint: str = ENDPOINT, erro: Exception | None = None) -> None:
+    def __init__(
+        self, *, regiao: str = "sa-east-1", endpoint: str = ENDPOINT, erro: Exception | None = None
+    ) -> None:
         self.meta = SimpleNamespace(region_name=regiao, endpoint_url=endpoint)
         self._erro = erro
         self.chamadas: list[dict[str, Any]] = []
@@ -134,11 +136,11 @@ async def test_as_confirmacoes_vem_do_operador_ter_nomeado_o_contrato() -> None:
 async def test_falha_do_bedrock_e_committed_para_nao_reenviar_phi() -> None:
     """O prompt foi transmitido: re-enviar é exposição de dado + gasto duplicado."""
 
-    class _Throttling(Exception):
+    class _ThrottlingError(Exception):
         pass
 
-    _Throttling.__name__ = "ThrottlingException"
-    cliente = _ClienteFalso(erro=_Throttling("slow down"))
+    _ThrottlingError.__name__ = "ThrottlingException"
+    cliente = _ClienteFalso(erro=_ThrottlingError("slow down"))
 
     with pytest.raises(BrRegionalTransportUnavailableError) as exc:
         await BedrockBrRegionalTransport(client=cliente).send(_pedido())
@@ -149,12 +151,12 @@ async def test_falha_do_bedrock_e_committed_para_nao_reenviar_phi() -> None:
 
 @pytest.mark.asyncio
 async def test_erro_nao_transitorio_nao_e_retryable() -> None:
-    class _Negado(Exception):
+    class _NegadoError(Exception):
         pass
 
-    _Negado.__name__ = "AccessDeniedException"
+    _NegadoError.__name__ = "AccessDeniedException"
     with pytest.raises(BrRegionalTransportUnavailableError) as exc:
-        await BedrockBrRegionalTransport(client=_ClienteFalso(erro=_Negado("no"))).send(_pedido())
+        await BedrockBrRegionalTransport(client=_ClienteFalso(erro=_NegadoError("no"))).send(_pedido())
 
     assert exc.value.retryable is False
 

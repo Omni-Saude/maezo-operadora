@@ -42,7 +42,7 @@ from maezo.agents.rafael.prompts import dossier_prompt
 
 
 def _linha(saida: str, trecho: str) -> str:
-    return next(l for l in saida.splitlines() if trecho in l)
+    return next(linha for linha in saida.splitlines() if trecho in linha)
 
 
 def test_apurado_negativo_e_sem_dado_nao_se_parecem() -> None:

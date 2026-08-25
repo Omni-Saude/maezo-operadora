@@ -399,9 +399,7 @@ def test_registry_and_class_hierarchy_agree_on_the_provider_population(
     # ALIAS resolvido antes da comparacao: um segundo nome para o mesmo provedor nao e' drift, e
     # a guarda nao deve exigir injetividade — ela existe para pegar provedor definido e nao
     # registrado (infla A) e provedor registrado de fora do modulo (infla B).
-    canonico = {
-        _ALIASES_DE_PROVEDOR.get(nome, nome): cls for nome, cls in built_by_the_registry.items()
-    }
+    canonico = {_ALIASES_DE_PROVEDOR.get(nome, nome): cls for nome, cls in built_by_the_registry.items()}
     for alias, alvo in _ALIASES_DE_PROVEDOR.items():
         assert built_by_the_registry[alias] is built_by_the_registry[alvo], (
             f"{alias!r} deixou de construir a mesma classe que {alvo!r} — se isso foi deliberado, "
