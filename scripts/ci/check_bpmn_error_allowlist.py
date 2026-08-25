@@ -129,13 +129,44 @@ _DENIAL_BLOCK_CODES: frozenset[str] = frozenset({"ERR_AUTH_DENIAL_INCOMPLETE"})
 _BPMN_ERROR_EXC = "WorkerBpmnError"
 
 
+#: Codigos que JA CUMPRIRAM a habilitacao T-E (ADR-0030 §4, "per-family enablement follow-ups").
+#:
+#: O T-E (recusa auditada) aterrissou em 24/07/2026 — `harness.py::_audit_guard_refusal` esta'
+#: ligado nos TRES ramos de recusa do `_handle`, incluindo o do incident rebaixado, e o registro
+#: de evidencias tem a prova ponta-a-ponta (linha de auditoria `decision=REFUSED`, cadeia de hash
+#: ligada, varredura de PHI zerada). Mas aquele mesmo registro declarava "ZERO allowlist
+#: enablements": o mecanismo existia e nenhum codigo tinha sido habilitado.
+#:
+#: `ERR_AUTH_DENIAL_INCOMPLETE` foi habilitado em 25/08/2026. Antes disso, uma negativa sem
+#: fundamentacao terminava em INCIDENT — nada era transmitido (a garantia continua), mas o caso
+#: nao voltava a mesa do auditor e cada ocorrencia virava chamado de suporte. Com o T-E no ar, o
+#: desfecho roteado (`BE_NegativaIncompleta` -> `End_FundamentacaoIncompletaBloqueada`) continua
+#: AUDITADO — que era a unica razao para o gate existir.
+#:
+#: SAIR desta lista devolve o codigo ao caminho de incident. E' reversivel, e de proposito.
+TE_ENABLED_CODES: frozenset[str] = frozenset({"ERR_AUTH_DENIAL_INCOMPLETE"})
+
+
 def is_te_gated(code: str) -> bool:
-    """True iff ``code`` is a business-outcome code hard-gated on T-E (ADR-0030 §4).
+    """True iff ``code`` AINDA esta' hard-gated em T-E (ADR-0030 §4) — nao apenas se e' adverso.
 
     Pattern, not a hand-list: ALL ``*_NOT_HUMAN`` guard codes (blocking an adverse L0 action and
-    routing to a neutral terminal) plus the denial-block ``ERR_AUTH_DENIAL_INCOMPLETE``. Enabling
-    any of these pre-T-E converts a guaranteed-human-visible incident into a silent clean end.
+    routing to a neutral terminal) plus the denial-block codes — MENOS os que ja' cumpriram a
+    habilitacao (``TE_ENABLED_CODES``).
+
+    ATENCAO A UMA CONFUSAO QUE CUSTA CARO: "nao esta' mais gated" NAO significa "nao precisa mais
+    ser auditado". O detector do harness (``is_guard_refusal_code``) continua reconhecendo o codigo
+    e continua emitindo a recusa auditada. Os dois predicados eram IGUAIS enquanto nada estava
+    habilitado, e a partir da primeira habilitacao a relacao correta e' CONTENCAO:
+
+        {gated em T-E}  SUBSET-DE  {precisa de auditoria de recusa}
+
+    `test_detector_contem_o_gate` (harness) trava essa direcao. Trocar contencao por igualdade de
+    novo faria a habilitacao DESLIGAR a auditoria do codigo habilitado — silenciosamente, e com o
+    teste passando.
     """
+    if code in TE_ENABLED_CODES:
+        return False
     return code.endswith("_NOT_HUMAN") or code in _DENIAL_BLOCK_CODES
 
 

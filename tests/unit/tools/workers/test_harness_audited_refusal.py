@@ -467,14 +467,31 @@ def test_detector_recognizes_every_guard_code_in_the_tree() -> None:
     assert not missed, f"guard/denial codes the T-E detector does NOT recognize: {sorted(missed)}"
 
 
-def test_detector_pinned_equal_to_ci_gate_is_te_gated() -> None:
-    """The harness detector and the boundary-proof CI gate MUST agree on which codes are T-E-gated —
-    otherwise a code the gate defers to T-E could go un-audited here (or vice-versa). Pin them equal
-    over the whole tree census + explicit negatives, and pin the denial-block sets equal."""
+def test_detector_contem_o_gate() -> None:
+    """A relacao entre os dois predicados e' CONTENCAO, e a direcao importa mais que a igualdade.
+
+    ANTES (ate' 24/08/2026) este teste exigia IGUALDADE, e estava certo enquanto nenhum codigo
+    tinha sido habilitado: "gated em T-E" e "precisa de recusa auditada" eram o mesmo conjunto.
+
+    A partir da primeira habilitacao eles DIVERGEM, e a igualdade se torna perigosa. Habilitar
+    `ERR_AUTH_DENIAL_INCOMPLETE` (25/08/2026) o tira do gate — e ele PRECISA continuar auditado,
+    porque a auditoria da recusa e' justamente o que permitiu habilitar. Com o teste exigindo
+    igualdade, alguem "consertaria" o vermelho tirando o codigo do detector tambem, e a
+    habilitacao DESLIGARIA a auditoria em silencio, com a suite verde.
+
+    A invariante que sobrevive a habilitacao:
+
+        {ainda gated em T-E}  SUBSET-DE  {precisa de recusa auditada}
+
+    Ou seja: todo codigo gated e' auditado, e um codigo habilitado continua auditado. O que o
+    teste proibe e' o inverso — um codigo gated que NAO seja auditado.
+    """
+    from scripts.ci.check_bpmn_error_allowlist import TE_ENABLED_CODES
     from scripts.ci.check_bpmn_error_allowlist import _DENIAL_BLOCK_CODES as GATE_DENIAL_BLOCK
     from scripts.ci.check_bpmn_error_allowlist import is_te_gated
 
     assert _DENIAL_BLOCK_CODES == GATE_DENIAL_BLOCK  # the two denial-block sets cannot drift
+
     probe = _worker_source_guard_codes() | {
         "ERR_PAGTO_ORDEM_INVALIDA",  # origin-validation — NOT gated
         "ERR_EVENT_PUBLISH_FAILED",  # fail-safe — NOT gated
@@ -482,9 +499,18 @@ def test_detector_pinned_equal_to_ci_gate_is_te_gated() -> None:
         "NOT_A_CODE",
     }
     for code in probe:
-        assert is_guard_refusal_code(code) == is_te_gated(code), (
-            f"detector/gate disagree on {code!r}: harness={is_guard_refusal_code(code)} "
-            f"gate={is_te_gated(code)}"
+        if is_te_gated(code):
+            assert is_guard_refusal_code(code), (
+                f"{code!r} esta' gated em T-E e NAO seria auditado — e' exatamente a recusa "
+                "silenciosa que o gate existe para impedir"
+            )
+
+    # E a metade que a habilitacao criou: codigo habilitado sai do gate e FICA na auditoria.
+    for code in TE_ENABLED_CODES:
+        assert not is_te_gated(code), f"{code!r} esta' em TE_ENABLED_CODES e ainda aparece gated"
+        assert is_guard_refusal_code(code), (
+            f"{code!r} foi habilitado e deixou de ser auditado — a habilitacao virou uma recusa "
+            "silenciosa, que e' o pior desfecho possivel desta mudanca"
         )
 
 
