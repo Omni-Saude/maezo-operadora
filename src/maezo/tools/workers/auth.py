@@ -261,6 +261,25 @@ _DMN_CRITERIA_CONTRATUAL = "auth_criteria_contratual"
 #: FINANCEIRO — source is the governance autonomy matrix (already ratified, CODEOWNERS-gated).
 _FIN_TENANT_AUSENTE = "FINANCEIRO_TENANT_AUSENTE"
 _FIN_VALOR_INVALIDO = "FINANCEIRO_VALOR_INVALIDO"
+#: Valor ZERO — distinto de invalido, e o motivo esta medido no lago (25/08/2026).
+#:
+#: `vl_procedimento` em `amh_omni_gold.guias_procedimento`: 16.865.850 itens, dos quais apenas
+#: 113.031 (0,67%) tem valor maior que zero. Medido tambem por status do item (0,3% a 4,4%) e
+#: por data de liberacao (0,64% sem, 0,70% com) — ou seja, o valor NAO aparece depois, ele
+#: simplesmente nao e' registrado.
+#:
+#: Consequencia que so' aparece quando o teto sai do zero: `within_l2_ceiling` compara
+#: `valor <= teto`, entao um zero satisfaz QUALQUER teto positivo. Com o teto em R$ 500, 99,33%
+#: das guias passariam o criterio financeiro por AUSENCIA DE DADO — nao por serem baratas. O
+#: portao pareceria avaliado e nao estaria.
+#:
+#: POR QUE AQUI E NAO EM `_ceiling_valor_cents`: aquela primitiva declara, com teste explicito
+#: (`test_ceiling_valor_cents_matrix`, entrada `(0, 0)`), que "a zero value is TRUSTWORTHY;
+#: whether it issues is the teto's call". E' decisao deliberada e compartilhada com pagto,
+#: reembolso e o PEP de efeitos. Muda-la aqui alteraria tres dominios de uma vez para resolver
+#: um problema de UM. A leitura de que zero significa "nao precificado" e' conhecimento da
+#: autorizacao previa, e e' onde ela mora.
+_FIN_VALOR_ZERO = "FINANCEIRO_VALOR_NAO_PRECIFICADO"
 _FIN_RESOLVER_INDISPONIVEL = "FINANCEIRO_RESOLVER_INDISPONIVEL"
 _FIN_TETO_NAO_AUTORIZA = "FINANCEIRO_TETO_NAO_AUTORIZA"
 #: TECNICO — DUT/ROL coverage + the procedure-specific clinical criteria table.
@@ -460,10 +479,19 @@ class ValidateAutoCriteriaWorker(WorkerBase):
         `authorization_approval.max_value_brl` lives in the CODEOWNERS-gated autonomy matrix
         (`spec/policies/autonomy/L0-core.yaml` + `tenants-amh.yaml`), resolved through the SAME
         `CeilingResolver.within_l2_ceiling(action, param)` call `AnalyzeRequestWorker` already
-        makes — so there is no DMN table to ratify and no shadow to record. Its value is 0 today
-        (decision D-07 open), and `within_l2_ceiling` fail-closes a 0 ceiling to False even for a
-        0-value request: nothing is financially eligible for automatic approval until the
-        diretoria sets a real teto.
+        makes — so there is no DMN table to ratify and no shadow to record.
+
+        TETO DEFINIDO EM 25/08/2026: R$ 500 (`tenants-amh.yaml`), fechando a decisao D-07 que
+        estava aberta. Antes disso o teto era 0 e `within_l2_ceiling` fail-closava tudo, inclusive
+        um pedido de valor 0 — nada era financeiramente elegivel, por construcao.
+
+        DUAS GUARDAS, e a segunda so' passou a ser necessaria quando o teto saiu do zero:
+          - valor nao confiavel (ausente, bool, nao numerico, NaN/inf, negativo) -> REFUSE, via
+            `_ceiling_valor_cents`;
+          - valor ZERO -> REFUSE, aqui, porque no lago 99,33% das guias nao tem valor e um zero
+            satisfaz qualquer teto positivo. Ver `_FIN_VALOR_ZERO` para os numeros medidos.
+        Sem a segunda, subir o teto para R$ 500 teria convertido o criterio financeiro de
+        "reprova tudo" para "aprova quase tudo", sobre dado que nao existe.
 
         Centavos come from `_ceiling_valor_cents` — the STRICT derivation already in this module
         (rejects bool, non-numeric, unparseable, NaN/inf, negative; CEILs rather than rounds, so
@@ -477,6 +505,11 @@ class ValidateAutoCriteriaWorker(WorkerBase):
         valor_cents = _ceiling_valor_cents(process_vars.get("valor_estimado_brl"))
         if valor_cents is None:
             return _CriterionOutcome(ok=False, falhas=(_FIN_VALOR_INVALIDO,))
+        if valor_cents == 0:
+            # Um pedido sem preco nao e' um pedido barato — ver `_FIN_VALOR_ZERO`. Sem esta
+            # linha, o teto de R$ 500 aprovaria 99,33% das guias sem olhar dinheiro nenhum.
+            # Vai para o auditor, que e' a leitura conservadora e a que o resto da repo adota.
+            return _CriterionOutcome(ok=False, falhas=(_FIN_VALOR_ZERO,))
 
         try:
             within = self._resolver.within_l2_ceiling(
