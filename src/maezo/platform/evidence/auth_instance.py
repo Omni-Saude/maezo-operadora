@@ -6,18 +6,24 @@ diretoria pediu.
 Uso:
 
     ENGINE_REST_URL=http://cibseven.<cluster>.internal:8080/engine-rest \\
+    AGENT_INGRESS_URL=http://agent-rafael.<cluster>.internal:8000 \\
         python -m maezo.platform.evidence
+
+As DUAS variáveis são necessárias desde 25/08/2026: a solicitação entra pela rota
+de ingresso do agente (que a inicia com auditoria) e a evidência é lida do engine.
 
 O que este módulo deliberadamente NÃO faz:
 
 - **Não conclui que algo "passou".** Imprime o que o engine registrou e deixa a
   leitura para quem confere. Um validador que conclui sozinho é um validador que
   ninguém pode auditar.
-- **Não mede inferência de agente.** A única chamada de LLM do fluxo de
-  autorização está em `agents/rafael/graph.py:583` e passa ``phi=True``; com o
-  provedor Bedrock (``phi_allowed=False``) a fachada recusa ANTES do egresso
-  (`PhiZoneRoutingError`). Isso é o controle funcionando, não uma falha desta
-  validação — e provar a conexão com o Bedrock é trabalho do probe de inferência.
+- **Não mede inferência de agente.** A única chamada de LLM do fluxo é a narrativa
+  do dossiê e passa ``phi=True``. Isto mudou em 20/08/2026: a zona PHI passou a ser
+  servida por um provedor REGIONAL (``bedrock_br``, São Paulo, ``phi_allowed=True``),
+  então a narrativa é escrita por modelo real em vez de recusada. A frase anterior
+  aqui dizia que a fachada recusava antes do egresso — era verdade com o provedor
+  global e deixou de ser. Provar a conexão continua sendo trabalho do probe de
+  inferência, não deste coletor.
 - **Não inventa dado clínico.** Usa o mesmo `beneficiario_pseudo_id`
   pseudonimizado do teste de integração (ADR-0006 — nunca CPF ou nome).
 """
@@ -68,11 +74,13 @@ def _base_url() -> str:
     return os.environ.get("ENGINE_REST_URL", "http://localhost:8080/engine-rest").rstrip("/")
 
 
-def _tipar(valor: Any) -> dict[str, Any]:
-    """Envelopa um valor no formato `variables` do engine."""
-    if isinstance(valor, bool):
-        return {"value": valor, "type": "Boolean"}
-    return {"value": valor, "type": "String"}
+def _ingress_url() -> str:
+    """Rota de ingresso do agente — por onde a solicitacao entra desde 25/08/2026.
+
+    O default aponta para o compose local; na AWS o nome vem do Cloud Map e e' passado por
+    `AGENT_INGRESS_URL`, o mesmo nome de variavel que o Canal de Teste ja' usa.
+    """
+    return os.environ.get("AGENT_INGRESS_URL", "http://localhost:8000").rstrip("/")
 
 
 def _bloco(titulo: str) -> None:
@@ -90,16 +98,37 @@ def coletar(*, client: httpx.Client | None = None, espera_s: float = 25.0) -> di
     business_key = "AUTH-amh-" + guia
 
     _bloco("1. ABERTURA DA SOLICITACAO  (guia " + guia + ")")
-    print("Canal: REST do engine. NAO houve portal, WhatsApp nem TISS — nenhum canal")
-    print("de entrada esta implantado, e o quadro da diretoria registra isso.")
-    variaveis = {chave: _tipar(valor) for chave, valor in PAYLOAD_BASE.items()}
-    variaveis["numero_guia_tiss"] = _tipar(guia)
-    resposta = http.post(
-        base + "/process-definition/key/SP-OP-AUTH-001/start",
-        json={"businessKey": business_key, "variables": variaveis},
-    )
+    # MUDOU EM 25/08/2026, e a frase antiga ficou falsa antes de ficar feia.
+    #
+    # Este bloco dizia "Canal: REST do engine. NAO houve portal, WhatsApp nem TISS — nenhum
+    # canal de entrada esta implantado". Isso era verdade quando o coletor foi escrito e
+    # deixou de ser: a rota de ingresso do agente existe, esta no ar e e' por ela que o
+    # processo nasce agora.
+    #
+    # A troca conserta duas coisas de uma vez. A primeira e' factual — a evidencia passa a
+    # mostrar o caminho que a producao usaria, com o agente avaliando e iniciando, em vez de
+    # um POST cru que nenhum canal real faria. A segunda e' de invariante: iniciar processo
+    # direto no REST contorna `start_process_idempotent`, e com ele a auditoria-antes-do-efeito
+    # (ADR-0007/T-C2) e a idempotencia pela business key. O portao
+    # `check-start-process-fence` reprovava o repo por causa desta linha, e reprovava com razao.
+    print("Canal: rota de ingresso do agente (portal_tiss). O agente avalia e INICIA o")
+    print("processo por start_process_idempotent — com auditoria e idempotencia.")
+    pedido = {
+        **{k: v for k, v in PAYLOAD_BASE.items() if k != "documentos_refs"},
+        "numero_guia_tiss": guia,
+        "canal": "portal_tiss",
+        "valor_estimado_brl": float(PAYLOAD_BASE["valor_estimado_brl"]),
+    }
+    resposta = http.post(_ingress_url() + "/v1/autorizacoes", json=pedido)
     resposta.raise_for_status()
-    pid = resposta.json()["id"]
+    resultado = resposta.json().get("resultado") or {}
+    referencia = resultado.get("process_ref") or {}
+    pid = referencia.get("instance_id")
+    if not pid:
+        raise RuntimeError(
+            "o agente respondeu sem instancia de processo — "
+            f"rota={resultado.get('route')!r} erro={resultado.get('error')!r}"
+        )
     print("processInstanceId = " + pid)
     print("businessKey       = " + business_key)
 

@@ -146,19 +146,17 @@ a{color:var(--accent)}
 </section>
 
 <section class="card">
-  <h2>Lançar solicitação direto no motor</h2>
-  <label>Processo</label>
-  <select id="proc" onchange="preset()"></select>
-  <label>Business key (auto)</label>
-  <input id="bk">
-  <label>Variáveis de entrada <span style="text-transform:none;letter-spacing:0">— deixe vazio p/ testar a Rodada A</span></label>
-  <table class="vars" id="vars"></table>
-  <div class="row">
-    <button class="ghost" onclick="addRow('','','String')">+ campo</button>
-    <button class="primary" onclick="lancar()">Lançar no motor</button>
-  </div>
-  <div id="resultado"></div>
-  <p class="hint">Valores vazios não são enviados. Tipos: texto → String, true/false → Boolean, número → Integer/Double. Dado real: use os IDs pseudonimizados da amostra (patient-…), nunca nome/CPF.</p>
+  <h2>Lançar direto no motor — removido</h2>
+  <p class="hint">Este formulário iniciava processo chamando o motor direto do navegador,
+  e isso <b>contorna a trava auditada de início de processo</b> (ADR-0007/T-C2: auditar
+  antes do efeito). O portão <code>check-start-process-fence</code> reprova o repo por
+  causa dele, e com razão: um início não auditado é um efeito no mundo sem registro.</p>
+  <p class="hint">O caminho sancionado é o painel acima: o pedido vai ao <b>agente</b>, que
+  avalia e inicia o processo por <code>start_process_idempotent</code> — com auditoria e
+  idempotência. Para o SP-OP-AUTH-001 ele cobre o mesmo teste.</p>
+  <p class="hint">Os outros 14 processos ficaram sem atalho de teste por aqui. Devolver essa
+  capacidade é construir um endpoint de início que passe pela trava — trabalho próprio,
+  não um botão.</p>
 </section>
 <section class="card ev">
   <h2>Evidência da instância <button class="ghost" style="float:right" onclick="verEvidencia()">atualizar</button></h2>
@@ -170,23 +168,6 @@ a{color:var(--accent)}
 </section>
 </main>
 <script>
-const PRESETS = {
- "SP-OP-AUTH-001":{pre:"AUTH",vars:{numero_guia_tiss:"",prestador_id:"",codigo_procedimento_tuss:"",carater_atendimento:""}},
- "SP-OP-CONTAS-001":{pre:"CONTAS",vars:{numero_lote_tiss:"",prestador_id:"",competencia:"",tipo_lote:""}},
- "SP-OP-RECURSO-001":{pre:"RECURSO",vars:{numero_guia_tiss:"",glosa_id:"",prestador_id:"",glosa_type:""}},
- "SP-OP-NIP-001":{pre:"NIP",vars:{protocolo_ans:"",beneficiario_id:""}},
- "SP-OP-INADIMPLENCIA-001":{pre:"INAD",vars:{numero_contrato:"",beneficiario_id:""}},
- "SP-OP-CRED-001":{pre:"CRED",vars:{prestador_id:"",tipo_prestador:""}},
- "SP-OP-REEMBOLSO-001":{pre:"REEMB",vars:{beneficiario_id:"",protocolo:""}},
- "SP-OP-CANCEL-001":{pre:"CANCEL",vars:{numero_contrato:"",beneficiario_id:"",motivo:""}},
- "SP-OP-ADEQUACAO-001":{pre:"ADEQ",vars:{beneficiario_id:"",municipio:""}},
- "SP-OP-FRAUDE-001":{pre:"FRAUDE",vars:{prestador_id:""}},
- "SP-OP-PROGRAMA-001":{pre:"PROG",vars:{beneficiario_id:"",programa:""}},
- "SP-OP-PAGTO-001":{pre:"PAGTO",vars:{prestador_id:"",competencia:""}},
- "SP-OP-ESCALATION-001":{pre:"ESC",vars:{origem:"",motivo:""}},
- "SP-OP-LGPD-DSR-001":{pre:"DSR",vars:{titular_pseudo_id:"",tipo_solicitacao:""}},
- "SP-OP-ANS-SUBMIT-001":{pre:"ANSSUB",vars:{report_type:"",competencia:""}}
-};
 const $=id=>document.getElementById(id);
 
 // ---- painel do agente -------------------------------------------------------
@@ -254,28 +235,8 @@ async function pedirAoRafael(){
   }
 }
 
-function opt(){const s=$("proc");for(const k of Object.keys(PRESETS)){const o=document.createElement("option");o.value=o.textContent=k;s.appendChild(o)}}
-function addRow(n,v,t){const tr=document.createElement("tr");
- tr.innerHTML=`<td><input placeholder="nome" value="${n}"></td><td><input placeholder="valor" value="${v}"></td>
- <td><select><option>String</option><option>Boolean</option><option>Integer</option><option>Double</option></select></td>
- <td><button class="del" onclick="this.closest('tr').remove()">×</button></td>`;
- tr.cells[2].firstElementChild.value=t;$("vars").appendChild(tr)}
-function preset(){const p=PRESETS[$("proc").value];$("vars").innerHTML="";addRow("tenant_id","amh","String");
- for(const k of Object.keys(p.vars))addRow(k,"","String");
- $("bk").value=`${p.pre}-amh-TESTE-${new Date().toISOString().slice(5,16).replace(/[-:T]/g,"")}`}
 async function api(path,opts){const r=await fetch("/engine"+path,opts);
  if(!r.ok)throw new Error(r.status+" "+await r.text());return r.status==204?null:r.json()}
-function coerce(v,t){if(t=="Boolean")return v.trim().toLowerCase()=="true";
- if(t=="Integer")return parseInt(v,10);if(t=="Double")return parseFloat(v);return v}
-async function lancar(){const vars={};
- for(const tr of $("vars").rows){const[n,v]=[tr.cells[0].firstElementChild.value.trim(),tr.cells[1].firstElementChild.value.trim()];
-  const t=tr.cells[2].firstElementChild.value;if(n&&v!=="")vars[n]={value:coerce(v,t),type:t}}
- const body={businessKey:$("bk").value,variables:vars};const out=$("resultado");
- try{const r=await api(`/process-definition/key/${$("proc").value}/start`,
-  {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-  out.innerHTML=`<div class="okmsg">Instância iniciada: <span class="mono">${r.id}</span></div>`;
-  $("iid").value=r.id;setTimeout(verEvidencia,2500);setTimeout(verEvidencia,9000);recentes()}
- catch(e){out.innerHTML=`<div class="errmsg">Falha ao iniciar:\n${e.message}</div>`}}
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 async function verEvidencia(){const id=$("iid").value.trim();if(!id)return;const box=$("evidencia");
  box.innerHTML="<p class='hint'>carregando…</p>";
@@ -313,7 +274,7 @@ async function recentes(){try{
   <td class="mono">${esc((r.startTime||"").slice(5,19).replace("T"," "))}</td><td>${esc(r.processDefinitionKey)}</td>
   <td class="mono">${esc(r.businessKey)}</td><td>${esc(r.state)}</td></tr>`;
  $("recentes").innerHTML=h+"</table>"}catch(e){}}
-opt();preset();recentes();setInterval(recentes,15000);
+recentes();setInterval(recentes,15000);
 </script></body></html>"""
 
 
