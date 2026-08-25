@@ -4,6 +4,19 @@ version: 1
 tenant: amh
 overrides:
   authorization_approval:
-    params: { max_value_brl: 0 }   # D-07 em aberto: definir teto inicial com diretoria AMH
+    params: { max_value_brl: 500 }
+    # D-07 FECHADA em 25/08/2026: teto inicial R$ 500, escolhido sobre a distribuicao real de
+    # valor das guias (Athena, amh_omni_gold.guias_procedimento): das 113.031 guias que TEM
+    # valor, R$ 500 alcanca 72% (82 mil), e fica abaixo da media de R$ 701 — primeira exposicao
+    # modesta por caso, com volume suficiente para o backtest medir o criterio.
+    #
+    # LEIA JUNTO com `_FIN_VALOR_ZERO` em tools/workers/auth.py: 99,33% dos 16,8M de itens NAO
+    # tem valor, e um zero satisfaz qualquer teto positivo (`valor <= teto`). Subir este numero
+    # sem a guarda de valor-zero converteria o criterio financeiro de "reprova tudo" para
+    # "aprova quase tudo" sobre dado ausente. As duas mudancas andam juntas; separar as duas e'
+    # abrir o portao.
+    #
+    # E o teto NAO abre a aprovacao automatica por si: o criterio financeiro e' UM de quatro, e
+    # tecnico/regulatorio/contratual seguem falsos por falta de fonte ratificada.
   reembolso_auto_approval:
     params: { max_value_brl: 0 }   # D-07 em aberto: definir teto de auto-aprovacao de reembolso (AMH)

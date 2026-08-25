@@ -13,6 +13,7 @@ Two layers, mirroring `test_check_bpmn_error_allowlist.py`:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from scripts.ci.check_start_process_fence import (
@@ -201,7 +202,13 @@ def test_gate_exempts_only_the_pinned_allowlisted_relative_path(tmp_path: Path) 
     result = scan_tree(tmp_path)
 
     assert not result.ok
-    offending_files = {v.split(":", 1)[0] for v in result.violations}
+    # Cortar no PRIMEIRO ":" quebra no Windows: num caminho absoluto o primeiro ":" e o da
+    # LETRA DE UNIDADE, e o conjunto virava {"C"}. O teste passava no CI (Linux, sem letra de
+    # unidade) e falhava na maquina de quem desenvolve — o pior lugar para um teste falhar,
+    # porque quem ve o vermelho nao e quem o causou.
+    # Cortar pelo padrao ":<linha>: " e inequivoco nas duas plataformas, e sobrevive a um
+    # detalhe que contenha ":" — o que e o caso de todos eles.
+    offending_files = {re.sub(r":\d+: .*$", "", v) for v in result.violations}
     assert str(tmp_path / "tools" / "workers" / "not_sanctioned.py") in offending_files
     assert str(tmp_path / sanctioned_rel) not in offending_files
 

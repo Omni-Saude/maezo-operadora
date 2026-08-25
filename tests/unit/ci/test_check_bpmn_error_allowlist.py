@@ -94,11 +94,16 @@ def test_real_tree_passes_and_reproduces_adr_census() -> None:
             "ERR_CRED_INVALID_PRESTADOR",
             "ERR_ANS_PROTOCOLO_NACK",
             "ERR_ANS_DATASET_INCOMPLETO",
+            # Habilitado em 25/08/2026: o unico codigo ADVERSO no tier0, e o unico que exigiu
+            # o T-E aterrissar antes. Continua auditado pelo harness — ver TE_ENABLED_CODES.
+            "ERR_AUTH_DENIAL_INCOMPLETE",
         }
     )
+    # `ERR_AUTH_DENIAL_INCOMPLETE` SAIU do deferido em 25/08/2026 — habilitado, e por isso
+    # aparece no tier0 acima. Os tres que restam sao da familia `*_NOT_HUMAN`, cuja habilitacao
+    # e' follow-up por familia e nao aconteceu.
     assert result.te_deferred == frozenset(
         {
-            "ERR_AUTH_DENIAL_INCOMPLETE",
             "ERR_CANCEL_MANTER_NOT_HUMAN",
             "ERR_DECRED_NOT_HUMAN",
             "ERR_CRED_DENIAL_NOT_HUMAN",
@@ -255,7 +260,10 @@ def test_is_te_gated_matches_adr_pattern() -> None:
     assert is_te_gated("ERR_CANCEL_MANTER_NOT_HUMAN")
     assert is_te_gated("ERR_DECRED_NOT_HUMAN")
     assert is_te_gated("ERR_CONTRACT_SUSPENSION_NOT_HUMAN")
-    assert is_te_gated("ERR_AUTH_DENIAL_INCOMPLETE")  # denial-block, by name
+    # HABILITADO em 25/08/2026 (TE_ENABLED_CODES): sai do gate e CONTINUA auditado pelo
+    # harness. Ver `is_te_gated` e `test_detector_contem_o_gate`.
+    assert not is_te_gated("ERR_AUTH_DENIAL_INCOMPLETE")
+    assert is_te_gated("ERR_OUTRO_DENIAL_BLOCK_HIPOTETICO_NOT_HUMAN")
     assert not is_te_gated("ERR_EVENT_PUBLISH_FAILED")
     assert not is_te_gated("ERR_PAGTO_ORDEM_INVALIDA")
 

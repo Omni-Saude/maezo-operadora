@@ -76,7 +76,13 @@ PSEUDONYMIZED_MESSAGE_KEY_FAMILIES: frozenset[str] = frozenset({"CANCEL", "INAD"
 #: whose leading token is not here is pseudonymized WHOLE (fail-closed: an unknown shape is not
 #: assumed to be safe to partially reveal).
 _KNOWN_KEY_FAMILIES: frozenset[str] = frozenset(
-    {"CANCEL", "INAD", "RECURSO", "CRED", "FRAUDE", "PROG", "ESC", "DSR", "ANS", "NIP"}
+    # "AUTH" entrou em 19/08/2026 junto com a rota de ingresso do Rafael
+    # (`runtime/agent_runtime/ingress.py`). Sem ela, `scrub_key_value("AUTH-amh-123")` devolvia
+    # um `hk1_<hmac>` PELADO — que passa no validador de thread PHI-safe, mas perde o marcador
+    # de familia e deixa a linha de checkpoint anonima quanto ao processo a que pertence.
+    # Efeito colateral, e e' pequeno: chave AUTH em log scrubbed passa de `hk1_...` para
+    # `AUTH-hk1_...`. `scrub_key_value` nao e' usado em nenhum outro lugar do repo.
+    {"CANCEL", "INAD", "RECURSO", "CRED", "FRAUDE", "PROG", "ESC", "DSR", "ANS", "NIP", "AUTH"}
 )
 
 

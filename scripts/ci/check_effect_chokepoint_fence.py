@@ -298,6 +298,28 @@ _HTTPX_CLIENT_ADDITIONAL_MODULES: Final[frozenset[str]] = frozenset(
         # /deployment`) that pushes `spec/processes/**` to the engine at deploy time. Never part of
         # a live agent/worker request path a beneficiary or agent triggers.
         "platform/deploy/engine_deploy.py",
+        # ADICOES DE 25/08/2026 — tres modulos da MESMA categoria que `engine_deploy.py` acima:
+        # ferramenta de operacao/diagnostico, invocada por gente por linha de comando, nunca
+        # alcancada por um pedido de beneficiario ou por um turno de agente. Nenhuma delas
+        # produz efeito de negocio: uma configura identidade, duas LEEM para imprimir.
+        #
+        # A distincao que justifica admitir aqui e recusar no `check_start_process_fence`, onde
+        # eu NAO estendi o allowlist no mesmo dia: la' a lista e' de modulos que IMPLEMENTAM a
+        # trava (transporte), e entrar nela seria dizer "este arquivo e' o chokepoint", o que
+        # seria falso. Aqui a lista e' CATEGORICA — "tem cliente HTTP por outra finalidade que
+        # nao os selos de efeito" — e essas tres se encaixam na categoria de verdade. Allowlists
+        # diferentes, perguntas diferentes.
+        #
+        # `EngineIdentityBootstrap` — bootstrap de identidade do motor (apaga usuario `demo`,
+        # cria o admin real, concede o grupo de leitura). Roda uma vez por ambiente, como tarefa.
+        "platform/engine_bootstrap/bootstrap.py",
+        # Coletor de evidencia de uma instancia: LE historico, variaveis e decisoes para
+        # imprimir. Desde 25/08 nem inicia mais o processo — entra pela rota do agente.
+        "platform/evidence/auth_instance.py",
+        # Sweep de cobertura de DMN: avalia tabelas com entradas conhecidas e imprime o que
+        # disparou. O caminho REST dele foi trocado pelo transporte sancionado no mesmo commit,
+        # entao o cliente que resta aqui e' so' o que o transporte constroi por dentro.
+        "platform/evidence/dmn_sweep.py",
     }
 )
 

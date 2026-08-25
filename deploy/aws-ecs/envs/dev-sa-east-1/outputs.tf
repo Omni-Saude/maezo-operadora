@@ -49,3 +49,17 @@ output "run_migrations_command" {
     "--network-configuration 'awsvpcConfiguration={subnets=[${join(",", data.aws_subnets.private_app.ids)}],securityGroups=[${aws_security_group.tasks.id}],assignPublicIp=DISABLED}'",
   ])
 }
+
+output "cloudflared_tunnel_token_secret" {
+  description = <<-EOT
+    Onde gravar o token do tunel Cloudflare. Formato {"token":"<TOKEN>"}, e use
+    `--secret-string file://arquivo.json`: JSON inline pelo PowerShell perde as aspas
+    e o ECS rejeita com "invalid character 'k'" (ja aconteceu aqui em 13/08).
+  EOT
+  value       = aws_secretsmanager_secret.cloudflared_token.name
+}
+
+output "destino_interno_do_cockpit" {
+  description = "O que declarar como Public Hostname -> Service no painel do tunel."
+  value       = "http://cibseven.${local.name}.internal:8080"
+}

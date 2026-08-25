@@ -1,0 +1,17 @@
+# Copie para terraform.tfvars (gitignored) e preencha.
+# NADA aqui e' segredo: ids de conta/zona/tunel sao identificadores.
+# O TOKEN do tunel NAO entra aqui — ele vive no Secrets Manager da AWS.
+
+account_id = "PREENCHER"   # descoberto por criar-tunel.sh
+zone_id    = "PREENCHER"   # zona austa.com.br
+tunnel_id  = "PREENCHER"   # UUID devolvido por criar-tunel.sh
+
+hostname = "maezo-dev.austa.com.br"
+
+# Quem entra, por e-mail nominal. Cada um recebe um codigo de uso unico por e-mail.
+emails_autorizados = [
+  "lsilva@austa.com.br",
+]
+
+# 8h por default: a aplicacao da acesso administrativo ao motor de processos.
+sessao_duracao = "8h"

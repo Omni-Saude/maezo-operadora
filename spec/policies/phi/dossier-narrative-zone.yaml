@@ -1,0 +1,86 @@
+# =============================================================================
+# DRAFT — NÃO RATIFICADO — A NARRATIVA DO DOSSIÊ CONTINUA NA ZONA PHI
+# =============================================================================
+#
+# Este arquivo é o INTERRUPTOR de uma única pergunta:
+#
+#     a narrativa do dossiê que o Rafael monta é dado de saúde de um indivíduo
+#     (zona PHI), ou é dado pseudonimizado que pode ser servido pela zona geral?
+#
+# Enquanto `ratificado` não for literalmente `true`, `zona_declarada` não for
+# literalmente `GERAL`, e as duas revisões não estiverem `APPROVED`,
+# `maezo.platform.privacy.dossier_zone.dossier_narrative_requires_phi_zone()`
+# devolve `True` e a chamada em `agents/rafael/graph.py` continua sendo `phi=True`
+# — ou seja, o comportamento de hoje, sem mudança nenhuma.
+#
+# NÃO HÁ MODO DEGRADADO. Não existe "avisa e continua": um arquivo pela metade,
+# com placeholder, ou com digest que não bate, é tratado como DRAFT.
+#
+# QUEM PODE RATIFICAR — E QUEM NÃO PODE
+#
+# Somente o DPO **e** o corpo clínico (médico auditor responsável), juntos.
+# Nenhum agente, nenhum orquestrador, nenhum automatismo pode preencher estes
+# campos. Fazê-lo fabrica uma aprovação — que neste repositório é evento de
+# compliance, não conflito de merge. Foi por isso que este arquivo nasceu DRAFT
+# em vez de eu simplesmente trocar `phi=True` por `phi=False` no código.
+#
+# POR QUE A PERGUNTA É REAL, E NÃO BUROCRACIA
+#
+# A favor de GERAL: o envelope A2A que chega ao Rafael carrega apenas referências
+# e pseudo-ids — `agents/rafael/delegation.py` é explícito, "Rafael never receives
+# a CPF/name over this seam". E `BEDROCK_CAPABILITIES` diz, no próprio código, que
+# o Bedrock é "sanctioned for the GENERAL (pseudonymized) zone only".
+#
+# Contra: o prompt da narrativa (`graph.py::_build_dossier`) leva os FATOS do caso
+# — admissibilidade, DUT atendida, teto, rede, lacunas de enriquecimento — e o
+# `payload_ref` é o recurso FHIR de cobertura/beneficiário. Fato clínico sobre uma
+# pessoa continua sendo dado de saúde mesmo sem o nome, se o pseudônimo é
+# re-identificável por quem detém a chave — e o tenant detém.
+#
+# Essa é a decisão. Ela não é técnica.
+#
+# O QUE MUDA SE FOR RATIFICADO
+#
+# A narrativa passa a ser servida pelo provedor da ZONA GERAL. Hoje isso significa
+# Bedrock com perfil `global.anthropic.claude-opus-5`, que **roteia entre regiões
+# por desenho** — medido em 18/08/2026 na conta 203312548462: em `sa-east-1` o
+# modelo só aceita INFERENCE_PROFILE e **todos** os perfis disponíveis são
+# `global.*`; não existe perfil BR-resident de Claude nessa região. Ratificar
+# GERAL é, na prática, aceitar transferência internacional para essa narrativa.
+#
+# COMO RATIFICAR (sem mudar código e sem novo deploy de código)
+#
+#   1. Ler o prompt que será enviado: `agents/rafael/graph.py::_build_dossier`
+#      (a f-string `prompt = f"{dossier_prompt()}..."`) e `spec/agents/rafael/`.
+#   2. Calcular o digest do arquivo revisado e escrevê-lo em `graph_sha256`:
+#          sha256sum src/maezo/agents/rafael/graph.py
+#      Isso AMARRA a aprovação aos bytes revisados. Se o grafo for editado depois,
+#      o digest para de bater e o loader volta a recusar — uma ratificação nunca
+#      se estende silenciosamente a um prompt diferente.
+#   3. Trocar TODO placeholder `PENDING-*` por valor real (o loader recusa
+#      qualquer valor que ainda pareça placeholder).
+#   4. `zona_declarada: GERAL`, `dpo_review: APPROVED`,
+#      `medico_auditor_review: APPROVED`, `ratificado: true`, `status: RATIFICADO`.
+#
+# PARA REVERTER: `ratificado: false`. Volta a `phi=True` no próximo boot.
+# =============================================================================
+
+status: DRAFT
+ratificado: false
+
+# GERAL para ativar. Qualquer outro valor mantém a zona PHI.
+zona_declarada: PENDING-ZONA
+
+# APPROVED nos dois. Um só não basta: a pergunta é jurídica E clínica.
+dpo_review: PENDING-DPO-REVIEW
+medico_auditor_review: PENDING-CLINICAL-REVIEW
+
+# Quem assina, com nome e função. "equipe" não é pessoa.
+ratificado_por: PENDING-NOME-E-FUNCAO
+data_ratificacao: PENDING-AAAA-MM-DD
+
+# sha256 de src/maezo/agents/rafael/graph.py, o arquivo que constrói o prompt.
+graph_sha256: PENDING-SHA256
+
+# Por que a decisão foi essa. Fica no repositório para quem auditar depois.
+fundamentacao: PENDING-FUNDAMENTACAO

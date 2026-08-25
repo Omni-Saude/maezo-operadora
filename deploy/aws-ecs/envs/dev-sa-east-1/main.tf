@@ -28,9 +28,23 @@ locals {
   # dependencia cross-repo).
   aurora_security_group_id = tolist(data.aws_rds_cluster.shared.vpc_security_group_ids)[0]
 
+  # Segredo mestre gerido pela AWS (`manage_master_user_password = true` no modulo
+  # aurora-cluster da plataforma). Lido do data source em vez de fixado: o ARN
+  # carrega sufixo aleatorio e mudaria se o segredo fosse recriado.
+  aurora_master_secret_arn = data.aws_rds_cluster.shared.master_user_secret[0].secret_arn
+
+  # Endereco do broker de dev, pelo Cloud Map. Sem esta variavel o codigo cai no
+  # default `localhost:9092` (adapters/amh/settings.py:49) e o primeiro passo do
+  # processo morre em KafkaConnectionError.
+  kafka_bootstrap = "kafka.${local.name}.internal:9092"
+
   fhir_base_url = "http://${data.aws_lb.hapi_internal.dns_name}/fhir"
 
   # Descoberta de servico interna: o worker fala com o engine BPMN por nome DNS
   # estavel, nao por IP de task (que muda a cada deploy).
   cibseven_base_url = "http://cibseven.${local.name}.internal:8080/engine-rest"
+
+  # Ingresso do agente que executa turnos. O rafael e' o unico com a rota ligada
+  # (ver `service-agents.tf`), por isso o endereco e' dele e nao de um agente qualquer.
+  agent_ingress_url = "http://agent-rafael.${local.name}.internal:8000"
 }

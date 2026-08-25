@@ -26,12 +26,14 @@ _WORKERS_DIR = _REPO_ROOT / "src" / "maezo" / "tools" / "workers"
 
 # The four business-outcome codes ADR-0030 §4 hard-gates on T-E (all consumption-covered or
 # modeled, all MUST stay out of the production allowlist until audited-refusal lands).
+#: Codigos que CONTINUAM hard-gated em T-E. `ERR_AUTH_DENIAL_INCOMPLETE` SAIU desta lista em
+#: 25/08/2026 (habilitado; ver `_TE_ENABLED_CODES` em service.py) — os quatro que restam sao a
+#: familia `*_NOT_HUMAN`, cuja habilitacao e' follow-up por familia e nao aconteceu.
 _TE_GATED_CODES = (
     "ERR_CANCEL_MANTER_NOT_HUMAN",
     "ERR_DECRED_NOT_HUMAN",
     "ERR_CRED_DENIAL_NOT_HUMAN",
     "ERR_CONTRACT_SUSPENSION_NOT_HUMAN",
-    "ERR_AUTH_DENIAL_INCOMPLETE",
 )
 
 
@@ -76,17 +78,36 @@ def test_production_allowlist_is_exactly_the_non_adverse_failsafes() -> None:
                 "ERR_CRED_INVALID_PRESTADOR",
                 "ERR_ANS_PROTOCOLO_NACK",
                 "ERR_ANS_DATASET_INCOMPLETO",
+                # HABILITADO em 25/08/2026 (ADR-0030 §4, "per-family enablement follow-up"):
+                # o T-E aterrissou em 24/07 e o desfecho roteado continua auditado, que era a
+                # unica condicao do gate. Antes disso a negativa sem fundamentacao parava como
+                # incident — nada transmitido, mas sem volta a mesa do auditor, e cada
+                # ocorrencia virava chamado de suporte.
+                # E' o UNICO codigo adverso nesta lista; os outros nove sao nao-adversos.
+                "ERR_AUTH_DENIAL_INCOMPLETE",
             }
         )
         == PRODUCTION_BPMN_ERROR_ALLOWLIST
     )
 
 
-def test_te_denial_code_is_proven_but_excluded_from_production() -> None:
-    # ERR_AUTH_DENIAL_INCOMPLETE is gate-proven (present in the union) yet filtered OUT — this is
-    # the live regression fence: drop the T-E filter and the denial-block code leaks into prod.
+def test_te_denial_code_habilitado_e_ainda_auditado() -> None:
+    """A cerca MUDOU DE LADO em 25/08/2026, e o que ela protege agora e' o outro risco.
+
+    Antes: o codigo era gate-proven e filtrado FORA de producao, e o teste impedia que ele
+    vazasse para o allowlist antes do T-E.
+
+    Agora: o T-E aterrissou (24/07) e o codigo esta' habilitado. O risco deixou de ser "vazar
+    para producao" e passou a ser "estar em producao SEM auditoria de recusa" — que e' pior,
+    porque troca um incident visivel por um fim limpo e silencioso. E' isso que se trava aqui.
+    """
+    from maezo.tools.workers.harness import is_guard_refusal_code
+
     assert "ERR_AUTH_DENIAL_INCOMPLETE" in _GATE_PROVEN_BPMN_ERROR_CODES
-    assert "ERR_AUTH_DENIAL_INCOMPLETE" not in PRODUCTION_BPMN_ERROR_ALLOWLIST
+    assert "ERR_AUTH_DENIAL_INCOMPLETE" in PRODUCTION_BPMN_ERROR_ALLOWLIST
+    assert is_guard_refusal_code("ERR_AUTH_DENIAL_INCOMPLETE"), (
+        "habilitado E sem auditoria de recusa — a habilitacao virou recusa silenciosa"
+    )
 
 
 def test_no_not_human_guard_code_in_production() -> None:

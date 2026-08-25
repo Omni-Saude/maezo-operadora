@@ -65,6 +65,18 @@ COPY spec/policies/autonomy ./spec/policies/autonomy
 # `FileNotFoundError: Forced include not found: /app/spec/policies/amh`. The AWS-gated cd.yml
 # build still never runs in CI, which is why this surfaced only on a local boot.
 COPY spec/policies/amh ./spec/policies/amh
+# TERCEIRA e QUARTA ocorrências da mesma falha das duas linhas acima (13/08/2026):
+# o force-include passou a incluir `spec/agents` e `spec/processes` — as definições
+# de agente que `resolve_spec_agents_dir()` procura ao lado do pacote, e os 16 BPMN
+# + 62 DMN que o CLI de deploy publica no engine. Sem estas duas COPY o
+# `uv sync --no-editable` abaixo falha fechado com
+# `FileNotFoundError: Forced include not found: /app/spec/agents`.
+#
+# O padrão já se repetiu quatro vezes: TODO force-include novo no pyproject exige
+# uma COPY correspondente aqui. Ao adicionar um, adicione a outra.
+COPY spec/policies/phi ./spec/policies/phi
+COPY spec/agents ./spec/agents
+COPY spec/processes ./spec/processes
 COPY src/ ./src/
 COPY config/ ./config/
 RUN uv sync --frozen --no-dev --no-editable
@@ -105,6 +117,19 @@ COPY --from=builder --chown=maezo:maezo /app/pyproject.toml ./
 # alembic.ini — necessário para o Job de migrations (`alembic upgrade head`); script_location
 # aponta para src/maezo/platform/migrations (relativo a /app).
 COPY --chown=maezo:maezo alembic.ini ./
+
+# NÃO copie `spec/` para dentro da imagem por aqui.
+#
+# `spec/agents` e `spec/processes` viajam no WHEEL, via
+# `[tool.hatch.build.targets.wheel.force-include]` no pyproject.toml, e aterrissam
+# adjacentes ao pacote (`maezo/spec/...`). É de lá que o código os resolve:
+# `resolve_spec_agents_dir()` procura a árvore spec/ ao lado do pacote, não um
+# caminho arbitrário da imagem.
+#
+# Isto está escrito porque eu tentei o caminho errado primeiro (copiar para
+# /opt/maezo/spec): o agente subia, carregava a definição e depois morria em
+# `effect_seam_capabilities_unavailable` — existia sem ferramenta nenhuma. Uma cópia
+# aqui, hoje, só criaria uma SEGUNDA fonte de verdade que divergiria da do wheel.
 
 USER 1000
 

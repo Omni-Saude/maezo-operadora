@@ -956,3 +956,47 @@ def test_dmn_evaluation_error_is_the_fake_transports_unregistered_signal() -> No
         import asyncio
 
         asyncio.run(FakeDmnTransport().evaluate("nope", {}))
+
+
+# ---------------------------------------------------------------------------------------
+# Valor ZERO no criterio financeiro (medido no lago em 25/08/2026)
+# ---------------------------------------------------------------------------------------
+
+
+def test_valor_zero_nao_satisfaz_o_teto_mesmo_com_teto_positivo() -> None:
+    """O furo que o teto de R$ 500 abriria, e a guarda que o fecha.
+
+    `within_l2_ceiling` compara `valor <= teto`, entao um ZERO satisfaz qualquer teto positivo.
+    Medido em `amh_omni_gold.guias_procedimento`: de 16.865.850 itens, apenas 113.031 (0,67%)
+    tem valor maior que zero — e a ausencia nao e' "ainda nao liberado" (por status: 0,3% a
+    4,4%; por data de liberacao: 0,64% sem contra 0,70% com).
+
+    Sem esta guarda, fechar a decisao D-07 converteria o criterio financeiro de "reprova tudo"
+    para "aprova 99,33% das guias" sobre dado que nao existe — e pareceria avaliado.
+
+    A guarda vive AQUI e nao em `_ceiling_valor_cents` de proposito: aquela primitiva declara,
+    com teste proprio, que zero e' um valor confiavel e que a decisao e' do teto. Ela e'
+    compartilhada com pagto, reembolso e o PEP de efeitos; mudar a semantica dela para resolver
+    um problema da autorizacao previa mexeria em tres dominios de uma vez.
+    """
+    from maezo.tools.workers.auth import _FIN_VALOR_ZERO, _UNAVAILABILITY_TOKENS
+
+    # O token e' de REGRA ("nao ha preco"), nao de mecanismo indisponivel — entao NAO deve
+    # inflar a metrica de erro de worker, que existe para tornar outage visivel.
+    assert _FIN_VALOR_ZERO not in _UNAVAILABILITY_TOKENS
+    assert _FIN_VALOR_ZERO != "FINANCEIRO_VALOR_INVALIDO", "zero e' distinto de invalido"
+
+
+def test_o_teto_do_tenant_saiu_do_zero_e_o_do_reembolso_nao() -> None:
+    """D-07 fechada para autorizacao, deliberadamente NAO para reembolso.
+
+    Sao duas decisoes de alcada diferentes, e o arquivo tinha as duas em zero com o mesmo
+    comentario. Fechar uma nao fecha a outra; este teste impede que a proxima edicao arraste o
+    reembolso junto por simetria visual.
+    """
+    matriz = yaml.safe_load(Path("spec/policies/autonomy/tenants-amh.yaml").read_text(encoding="utf-8"))
+    # A chave e' `overrides`: este arquivo REFINA o L0-core, nunca o substitui.
+    over = matriz["overrides"]
+
+    assert over["authorization_approval"]["params"]["max_value_brl"] == 500
+    assert over["reembolso_auto_approval"]["params"]["max_value_brl"] == 0

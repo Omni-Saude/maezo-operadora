@@ -120,13 +120,30 @@ logger = structlog.get_logger(__name__)
 # adverso" per the BPMN's own documentation); NOT a `*_NOT_HUMAN` guard, so NOT T-E-gated).
 
 
-def _is_te_gated(code: str) -> bool:
-    """True iff `code` is a business-outcome code hard-gated on T-E (ADR-0030 §4).
+#: Codigos que ja' cumpriram a habilitacao T-E — espelha `TE_ENABLED_CODES` do gate do CI.
+#:
+#: `ERR_AUTH_DENIAL_INCOMPLETE` habilitado em 25/08/2026: o T-E (recusa auditada) aterrissou em
+#: 24/07 e o desfecho roteado continua emitindo linha de auditoria. Antes disso a negativa sem
+#: fundamentacao parava como incident — nada transmitido, mas sem volta a mesa do auditor.
+#:
+#: NAO CONFUNDA com "nao precisa ser auditado": `harness.is_guard_refusal_code` continua
+#: reconhecendo este codigo e continua auditando a recusa. Ver o docstring de `_is_te_gated`.
+_TE_ENABLED_CODES: frozenset[str] = frozenset({"ERR_AUTH_DENIAL_INCOMPLETE"})
 
-    The `*_NOT_HUMAN` guard family (matched by suffix) plus the denial-block
-    `ERR_AUTH_DENIAL_INCOMPLETE`. Mirrors the boundary-proof gate's `is_te_gated`, kept a tiny
-    local predicate so the runtime carries no import dependency on the CI script.
+
+def _is_te_gated(code: str) -> bool:
+    """True iff `code` AINDA esta' hard-gated em T-E (ADR-0030 §4).
+
+    The `*_NOT_HUMAN` guard family (matched by suffix) plus the denial-block codes, MENOS os que
+    ja' foram habilitados (`_TE_ENABLED_CODES`). Mirrors the boundary-proof gate's `is_te_gated`,
+    kept a tiny local predicate so the runtime carries no import dependency on the CI script.
+
+    A relacao com o detector de auditoria do harness e' CONTENCAO, nao igualdade: um codigo
+    habilitado sai DESTE predicado e permanece no de auditoria. Eram iguais so' enquanto nada
+    estava habilitado.
     """
+    if code in _TE_ENABLED_CODES:
+        return False
     return code.endswith("_NOT_HUMAN") or code == "ERR_AUTH_DENIAL_INCOMPLETE"
 
 

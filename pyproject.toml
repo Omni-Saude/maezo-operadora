@@ -117,6 +117,30 @@ packages = ["src/maezo"]
 # contract pin each had. Runtime discovery is `resolve_ratification_path()`, which checks the repo
 # checkout, then this package-adjacent copy, with $MAEZO_AMH_INBOX_RATIFICATION overriding both.
 "spec/policies/amh" = "maezo/spec/policies/amh"
+# TERCEIRA ocorrencia da mesma classe das duas linhas acima, encontrada subindo a
+# helena de verdade na AWS em 13/08/2026 (agent-helena, ECS):
+#   FileNotFoundError: spec/agents/ directory not found at
+#   /app/.venv/lib/python3.12/site-packages/maezo/spec/agents
+# `gateway.tool_registry.build_agent_seam_context` chama
+# `AgentLoader().load_by_id()` -> `resolve_spec_agents_dir()`, que procura a arvore
+# spec/ ADJACENTE AO PACOTE — nao um diretorio arbitrario. Sem esta linha o agente
+# sobe, carrega a definicao apontada por AGENT_DEFINITION_PATH e depois falha em
+# `effect_seam_capabilities_unavailable`: ele existe, mas sem ferramenta nenhuma.
+#
+# Colocar as definicoes em outro caminho da imagem NAO resolve (foi minha primeira
+# tentativa): quem resolve e' o proprio pacote. E MAEZO_SPEC_DIR nao e' saida —
+# produção o RECUSA (Wave-1 Q-6), corretamente.
+#
+# `spec/processes` entra junto porque e' a MESMA arvore: com ela aqui, o CLI de
+# deploy (`maezo.platform.deploy`) resolve os 16 BPMN + 62 DMN sem flag nenhuma, e
+# passa a existir UMA fonte de verdade para o plano de politica dentro do wheel —
+# que e' exatamente o que o comentario no topo deste bloco descreve.
+# O interruptor de zona da narrativa do dossie (DPO + medico auditor). Mesma
+# classe das linhas acima: sem force-include o artefato nunca chega ao container e
+# a ratificacao seria impossivel de ativar num deploy empacotado.
+"spec/policies/phi" = "maezo/spec/policies/phi"
+"spec/agents" = "maezo/spec/agents"
+"spec/processes" = "maezo/spec/processes"
 
 [tool.uv]
 # W9 (Onda 2, supply-chain aging): dependency-age quarantine. `exclude-newer` makes resolution
@@ -144,6 +168,18 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "ASYNC"]
+
+[tool.ruff.lint.per-file-ignores]
+# O Canal de Teste carrega a pagina inteira (HTML + CSS + JS) numa string r""" — e' um
+# servidor de UM arquivo, sem dependencia fora da stdlib, exatamente para poder rodar
+# em qualquer container sem instalar nada. As 24 violacoes de E501 sao TODAS linhas do
+# template, nao de logica Python.
+#
+# Quebrar CSS e JS em 110 colunas para agradar o linter deixaria o template pior de ler
+# e mais facil de quebrar numa edicao futura. A regra de comprimento e' suprimida SO'
+# neste arquivo; todas as outras (F/I/N/W/UP/B/SIM/ASYNC) continuam valendo, e o codigo
+# Python dele respeita o limite.
+"src/maezo/platform/testchannel/server.py" = ["E501"]
 
 [tool.ruff.format]
 # bpmn.py exhibits a cross-platform / non-deterministic `ruff format` divergence under the
