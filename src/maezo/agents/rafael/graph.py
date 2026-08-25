@@ -328,12 +328,18 @@ def render_fatos_para_prompt(facts: dict[str, Any]) -> str:
     linhas: list[str] = []
     for chave, rotulo in _FATOS_BOOLEANOS.items():
         valor = facts.get(chave)
+        # A marcacao e' curta e SEM instrucao embutida, e isso e' conserto de 25/08/2026:
+        # a versao anterior escrevia `[FATO DESFAVORAVEL: cite nomeando]` no fim da linha, e o
+        # modelo COPIAVA a frase em caixa alta para a narrativa. Medido em 4 casos: vazou em 1
+        # ("FATO DESFAVORAVEL: beneficiario sem plano ativo"). Marcacao que parece frase pronta
+        # convida a ser reproduzida; token curto nao. A regra de como tratar cada estado mora
+        # no prompt, que tambem proibe copiar a marcacao.
         if valor is True:
-            linhas.append(f"  VERIFICADO / SIM  - {rotulo}")
+            linhas.append(f"  SIM       {rotulo}")
         elif valor is False:
-            linhas.append(f"  VERIFICADO / NAO  - {rotulo}  [FATO DESFAVORAVEL: cite nomeando]")
+            linhas.append(f"  NAO       {rotulo}")
         else:
-            linhas.append(f"  NAO VERIFICADO    - {rotulo}")
+            linhas.append(f"  SEM DADO  {rotulo}")
 
     contexto = {k: v for k, v in facts.items() if k not in _FATOS_BOOLEANOS}
     corpo = "\n".join(linhas)
