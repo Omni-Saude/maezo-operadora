@@ -77,6 +77,23 @@ def test_o_prompt_proibe_reproduzir_a_marcacao() -> None:
     assert "Escreva prosa" in p
 
 
+def test_o_prompt_proibe_a_frase_que_apagava_o_fato() -> None:
+    """A terceira camada, e a que ataca o defeito de origem pela LINGUAGEM.
+
+    Medido em 25/08 depois de tirar o vazamento do marcador: em 1 de 4 casos o modelo ainda
+    escreveu "nao ha registro de que o prestador esteja na rede credenciada" para um fato
+    apurado como falso. E' a construcao que o dossie original usava — a que faz o medico
+    conferir em vez de ler um motivo de negativa.
+
+    Marcacao distinguivel e regra dos tres estados nao bastaram: era preciso PROIBIR a frase
+    e dar a alternativa pronta. Este teste trava as duas metades.
+    """
+    p = dossier_prompt()
+    assert "FRASE PROIBIDA" in p
+    assert "nao ha registro" in p
+    assert "nao esta na rede" in p, "a alternativa correta precisa vir junto da proibicao"
+
+
 def test_o_fato_desfavoravel_e_nomeado_e_nao_apenas_marcado() -> None:
     """Nomear so' funciona se o nome do fato estiver na linha."""
     saida = render_fatos_para_prompt({"carencia_cumprida": False})
