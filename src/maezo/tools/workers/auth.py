@@ -1091,10 +1091,17 @@ class RequestDocumentsWorker(WorkerBase):
         tenant_id = process_vars.get("tenant_id", "")
         prestador_id = process_vars.get("prestador_id", "")
         missing = process_vars.get("missing_docs", [])
+        # `guia` no registro: este era o UNICO marcador do fluxo AUTH que nao gravava a guia
+        # (os outros cinco deste modulo gravam — 750, 802, 998, 1242, 1603). A consequencia
+        # nao e' cosmetica: quem filtra o log por numero de guia para reconstruir o que
+        # aconteceu com um caso NAO encontrava o pedido de documento, e o caso aparecia como
+        # se tivesse pulado direto da admissibilidade para a espera.
+        guia = process_vars.get("numero_guia_tiss", "unknown")
 
         self.logger.info(
             "auth_documents_pended",
             tenant_id=tenant_id,
+            guia=guia,
             prestador_id=prestador_id,
             missing_docs=missing,
         )

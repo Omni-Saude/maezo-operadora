@@ -45,6 +45,11 @@ possivel neste texto:
   - SEM DADO  -> nao ha informacao apurada. Diga que aquele ponto nao foi verificado, e
                  NAO afirme nem negue o fato.
 
+  - APURADO PELO MOTOR -> este ponto NAO e' apurado pelo agente e o valor ainda nao existe
+                 quando este texto e' escrito. Diga que o criterio de teto e' avaliado pelo
+                 motor e consta nos criterios da instancia. NAO diga que "nao foi verificado" —
+                 seria afirmar uma ausencia que nao existe, e o motor pode ter aprovado.
+
 A MARCACAO E' INTERNA: nao escreva "SIM", "NAO", "SEM DADO" nem nenhum rotulo em caixa alta
 no resumo. Escreva prosa. Um leitor recebe um parecer, nao a planilha que voce leu.
 
