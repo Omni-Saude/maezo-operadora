@@ -227,14 +227,32 @@ curl -X POST http://cibseven:8080/engine-rest/task/$TASK_ID/complete \
   -d '{"variables": {"approval": {"value": true}}}'
 
 # Correlate a message (trigger message event)
+#
+# ATENCAO — `documentacao_completa` NAO e' opcional nesta mensagem.
+#
+# Correlacionar sem ele reavalia `BRT_Admissibilidade` com o valor ANTIGO (false), a
+# admissibilidade volta a PENDENTE_DOCUMENTACAO e o fluxo repete tudo: novo pedido de
+# documento ao prestador, novo prazo, novo evento. A instancia volta ao MESMO ponto de
+# espera e nada sinaliza que houve laco — medido 4x seguidas em 26/08/2026.
+#
+# O `docs_url` sozinho nao destrava: ele registra ONDE o documento esta'. Quem muda a
+# decisao e' o FATO, e o fato e' `documentacao_completa`.
 curl -X POST http://cibseven:8080/engine-rest/message \
   -H "Content-Type: application/json" \
   -d '{
     "messageName": "msg.auth.docs_received",
     "businessKey": "AUTH-amh-GUIA123456",
-    "processVariables": {"docs_url": {"value": "s3://..."}}
+    "processVariables": {
+      "documentacao_completa": {"value": true, "type": "Boolean"},
+      "docs_url": {"value": "s3://..."}
+    }
   }'
 ```
+
+> A especificacao de teste (`docs/processes/test-specs/SP-OP-AUTH-001.md`, caso
+> `test_pendencia_docs_recebidos_reavalia`) sempre disse isto corretamente — "correlacionada
+> com `documentacao_completa=true`". Era este runbook que ensinava o comando incompleto, e
+> quem copiava daqui causava o laco.
 
 ### Suspend or terminate instance
 

@@ -35,9 +35,15 @@ instrucao de nao as copiar — que e' a parte deterministica.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from maezo.agents.rafael.graph import _FATOS_BOOLEANOS, render_fatos_para_prompt
+from maezo.agents.rafael.graph import (
+    _FATOS_BOOLEANOS,
+    CATEGORIA_PROCEDIMENTO_AUSENTE,
+    render_fatos_para_prompt,
+)
 from maezo.agents.rafael.prompts import dossier_prompt
 
 
@@ -47,14 +53,16 @@ def _linha(saida: str, trecho: str) -> str:
 
 def test_apurado_negativo_e_sem_dado_nao_se_parecem() -> None:
     """O caso exato que falhou: rede verificada-e-falsa ao lado de teto sem valor."""
-    saida = render_fatos_para_prompt({"rede_credenciada": False, "dentro_teto_l2": None})
+    # `carencia_cumprida` como exemplo de ausencia, e nao o teto: desde C-02 o teto NAO e'
+    # fato do agente — ele e' apurado pelo motor e tem rotulo proprio (teste abaixo).
+    saida = render_fatos_para_prompt({"rede_credenciada": False, "carencia_cumprida": None})
 
     rede = _linha(saida, "rede credenciada")
-    teto = _linha(saida, "teto")
+    ausente = _linha(saida, "carencia cumprida")
 
     assert rede.strip().startswith("NAO")
-    assert teto.strip().startswith("SEM DADO")
-    assert rede != teto
+    assert ausente.strip().startswith("SEM DADO")
+    assert rede != ausente
 
 
 def test_a_marcacao_nao_carrega_instrucao_para_o_modelo_copiar() -> None:
@@ -127,11 +135,11 @@ def test_todo_fato_booleano_do_contrato_aparece_mesmo_ausente() -> None:
 def test_os_tres_estados_convivem_no_mesmo_caso() -> None:
     """O caso real tem os tres ao mesmo tempo, e e' ai' que a confusao aparecia."""
     saida = render_fatos_para_prompt(
-        {"beneficiario_ativo": True, "rede_credenciada": False, "dentro_teto_l2": None}
+        {"beneficiario_ativo": True, "rede_credenciada": False, "carencia_cumprida": None}
     )
     assert _linha(saida, "plano ativo").strip().startswith("SIM")
     assert _linha(saida, "rede credenciada").strip().startswith("NAO")
-    assert _linha(saida, "teto").strip().startswith("SEM DADO")
+    assert _linha(saida, "carencia cumprida").strip().startswith("SEM DADO")
 
 
 def test_dados_que_nao_sao_booleanos_seguem_no_texto() -> None:
@@ -141,3 +149,65 @@ def test_dados_que_nao_sao_booleanos_seguem_no_texto() -> None:
     )
     assert "30306027" in saida
     assert "1234.5" in saida
+
+
+def test_o_default_de_categoria_vive_em_um_lugar_so() -> None:
+    """C-13: quatro sitios com dois valores produziam dois textos que se contradiziam.
+
+    Reportado pelo time de automacoes em 27/08: o dossie dizia "categoria nao informada"
+    enquanto a DMN de prazo era avaliada como consulta e devolvia 5 dias uteis. Mesmo turno,
+    mesmo caso, duas afirmacoes incompativeis — porque tres sitios assumiam "consulta" e o que
+    alimenta o dossie assumia "".
+
+    O default agora e VAZIO e mora numa constante. Vazio, e nao "consulta", porque assumir uma
+    categoria e' afirmar o que ninguem informou — e a categoria decide o prazo legal.
+
+    Este teste falha se alguem reintroduzir um literal, que e' exatamente como a divergencia
+    nasceu: um sitio novo escrito por copia de outro.
+    """
+    import re
+
+    assert CATEGORIA_PROCEDIMENTO_AUSENTE == ""
+
+    for arq in ("src/maezo/agents/rafael/graph.py", "src/maezo/agents/rafael/delegation.py"):
+        fonte = Path(arq).read_text(encoding="utf-8")
+        # So' dentro de um `.get(...)`: o padrao frouxo `categoria_procedimento",\s*"..."`
+        # casa com a CHAVE SEGUINTE de um dicionario literal e acusa falso positivo — foi o
+        # que a primeira versao deste teste fez, apontando `carater_atendimento`.
+        literais = re.findall(r'\.get\(\s*"categoria_procedimento",\s*"([^"]*)"', fonte)
+        assert not literais, (
+            f"{arq} voltou a ter default literal de categoria: {literais}. "
+            "Use CATEGORIA_PROCEDIMENTO_AUSENTE — a divergencia de C-13 nasceu assim."
+        )
+
+
+def test_o_teto_nao_e_fato_do_agente(caplog: object = None) -> None:
+    """C-02: o dossie afirmava sobre um fato que o MOTOR apura, e apura DEPOIS.
+
+    Reportado pelo time de automacoes em 27/08: o dossie dizia "nao foi verificado se o valor
+    esta dentro do teto" enquanto o motor tinha verificado e aprovado — e era o unico criterio
+    que passava naquele caso. As duas frases eram verdadeiras em momentos diferentes: o dossie
+    e' escrito ANTES de `ST_ValidateAutoApprovalCriteria`, e o motor COMPUTA `dentro_teto_l2`
+    por conta propria, sobrescrevendo qualquer valor de entrada.
+
+    O agente para de afirmar. A linha continua no texto — o auditor precisa saber que o
+    criterio existe — mas dizendo de quem e' a apuracao.
+    """
+    # Mesmo com o chamador MANDANDO o valor, o agente nao o trata como fato seu.
+    saida = render_fatos_para_prompt({"dentro_teto_l2": True})
+
+    assert "dentro_teto_l2" not in _FATOS_BOOLEANOS, (
+        "o teto voltou a ser fato do agente — e' territorio de ceilings.py, "
+        "e o docstring do modulo o declara PROIBIDO para este grafo"
+    )
+    linha = _linha(saida, "teto")
+    assert linha.strip().startswith("APURADO PELO MOTOR")
+    assert "SEM DADO" not in linha, "dizer 'sem dado' sobre o teto e' o defeito C-02"
+    assert "SIM" not in linha and "NAO " not in linha
+
+
+def test_o_prompt_ensina_o_rotulo_do_motor() -> None:
+    """Sem a regra, o modelo trataria o rotulo novo como texto ou o ignoraria."""
+    p = dossier_prompt()
+    assert "APURADO PELO MOTOR" in p
+    assert "NAO diga que" in p and "nao foi verificado" in p

@@ -48,7 +48,14 @@ from maezo.a2a import DelegationEnvelope, HandlerOutput
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.dmn_transport import DmnTransport
 
-from .graph import FhirReader, RafaelState, _business_key, build, new_rafael_state
+from .graph import (
+    CATEGORIA_PROCEDIMENTO_AUSENTE,
+    FhirReader,
+    RafaelState,
+    _business_key,
+    build,
+    new_rafael_state,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -96,7 +103,7 @@ def state_from_envelope(envelope: DelegationEnvelope) -> RafaelState:
         "prestador_id": meta.get("prestador_id", ""),
         "canal": "a2a",
         "codigo_procedimento_tuss": meta.get("codigo_procedimento_tuss", ""),
-        "categoria_procedimento": meta.get("categoria_procedimento", "consulta"),
+        "categoria_procedimento": meta.get("categoria_procedimento", CATEGORIA_PROCEDIMENTO_AUSENTE),
         "carater_atendimento": meta.get("carater_atendimento", "eletivo"),
         "valor_estimado_brl": float(meta.get("valor_estimado_brl", 0.0) or 0.0),
         "coverage_ref": envelope.payload_ref,

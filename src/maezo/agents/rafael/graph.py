@@ -89,6 +89,21 @@ CategoriaProcedimento = Literal[
     "consulta", "exame_simples", "exame_especial", "terapia", "internacao", "opme", "alta_complexidade"
 ]
 
+#: O que `categoria_procedimento` vale quando o chamador NAO informa — UM lugar, de proposito.
+#:
+#: Havia quatro sitios com dois valores diferentes: tres assumiam `"consulta"` e o que alimenta
+#: o dossie assumia `""`. A divergencia produzia o sintoma exato que o time de automacoes
+#: reportou em 27/08 — o dossie dizia "categoria nao informada" enquanto a DMN de prazo era
+#: avaliada como consulta e devolvia 5 dias uteis. Dois textos sobre o mesmo caso, os dois
+#: gerados pelo mesmo turno, discordando entre si.
+#:
+#: O valor escolhido e' VAZIO, e nao `"consulta"`. Assumir consulta e' afirmar uma categoria
+#: que ninguem informou, e a categoria decide o prazo legal; vazio cai na linha fail-safe da
+#: tabela de SLA ("prazo conservador na ausencia de classificacao"), que e' o que a ausencia
+#: merece. A rota de ingresso ja' RECUSA o campo vazio desde 25/08, entao este default so' e'
+#: alcancavel pela delegacao A2A — e la' tambem e' melhor cair no conservador.
+CATEGORIA_PROCEDIMENTO_AUSENTE: Final[str] = ""
+
 DMN_ADMISSIBILITY = "auth_admissibility"
 DMN_AUTO_APPROVAL = "auth_auto_approval"
 DMN_SLA = "auth_sla"
@@ -309,7 +324,6 @@ _FATOS_BOOLEANOS: Final[dict[str, str]] = {
     "beneficiario_ativo": "beneficiario com plano ativo",
     "carencia_cumprida": "carencia cumprida",
     "dut_atendida": "diretriz de utilizacao (DUT) atendida",
-    "dentro_teto_l2": "valor dentro do teto de aprovacao automatica",
     "rede_credenciada": "prestador na rede credenciada",
     "documentacao_completa": "documentacao completa",
 }
@@ -340,6 +354,20 @@ def render_fatos_para_prompt(facts: dict[str, Any]) -> str:
             linhas.append(f"  NAO       {rotulo}")
         else:
             linhas.append(f"  SEM DADO  {rotulo}")
+
+    # O TETO NAO E' FATO DO AGENTE, e por isso nao esta em `_FATOS_BOOLEANOS`.
+    #
+    # C-02, reportado pelo time de automacoes em 27/08: o dossie dizia "nao foi verificado se o
+    # valor esta dentro do teto" enquanto o motor tinha verificado e aprovado — e era o unico
+    # criterio que passava. As duas afirmacoes eram verdadeiras em momentos diferentes, e e' ai'
+    # que estava o defeito: o dossie e' escrito ANTES de `ST_ValidateAutoApprovalCriteria`
+    # rodar, e o motor COMPUTA `dentro_teto_l2` por conta propria (`ceilings.py`), sobrescrevendo
+    # qualquer valor de entrada. O docstring deste modulo ja' declarava o teto como territorio
+    # PROIBIDO para este grafo.
+    #
+    # Entao o agente para de afirmar sobre ele. A linha continua no dossie, porque o auditor
+    # precisa saber que o criterio existe — mas dizendo de quem e' a apuracao.
+    linhas.append("  APURADO PELO MOTOR  valor dentro do teto de aprovacao automatica")
 
     contexto = {k: v for k, v in facts.items() if k not in _FATOS_BOOLEANOS}
     corpo = "\n".join(linhas)
@@ -454,7 +482,9 @@ class RafaelGraph:
             DMN_SLA,
             {
                 "carater_atendimento": str(state.get("carater_atendimento", "eletivo")),
-                "categoria_procedimento": str(state.get("categoria_procedimento", "consulta")),
+                "categoria_procedimento": str(
+                    state.get("categoria_procedimento", CATEGORIA_PROCEDIMENTO_AUSENTE)
+                ),
             },
         )
         sla_row = sla_result.get("row", {}) if not sla_result.get("error") else {}
@@ -620,7 +650,7 @@ class RafaelGraph:
         facts = {
             "numero_guia_tiss": state.get("numero_guia_tiss", ""),
             "codigo_procedimento_tuss": state.get("codigo_procedimento_tuss", ""),
-            "categoria_procedimento": state.get("categoria_procedimento", ""),
+            "categoria_procedimento": state.get("categoria_procedimento", CATEGORIA_PROCEDIMENTO_AUSENTE),
             "carater_atendimento": state.get("carater_atendimento", ""),
             "valor_estimado_brl": state.get("valor_estimado_brl", 0.0),
             "cid10": state.get("cid10"),
@@ -682,7 +712,9 @@ class RafaelGraph:
             "beneficiario_pseudo_id": state.get("beneficiario_pseudo_id", ""),
             "prestador_id": state.get("prestador_id", ""),
             "codigo_procedimento_tuss": state.get("codigo_procedimento_tuss", ""),
-            "categoria_procedimento": str(state.get("categoria_procedimento", "consulta")),
+            "categoria_procedimento": str(
+                state.get("categoria_procedimento", CATEGORIA_PROCEDIMENTO_AUSENTE)
+            ),
             "carater_atendimento": str(state.get("carater_atendimento", "eletivo")),
             "valor_estimado_brl": float(state.get("valor_estimado_brl", 0.0)),
             "documentos_refs": state.get("documentos_refs") or [],
