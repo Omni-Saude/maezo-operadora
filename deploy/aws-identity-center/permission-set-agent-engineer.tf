@@ -185,6 +185,63 @@ data "aws_iam_policy_document" "agent_engineer" {
   }
 
   # -------------------------------------------------------------------------
+  # Observabilidade — CUSTO
+  # -------------------------------------------------------------------------
+  # Adicionado em 02/09/2026. O permission set prometia "medir custo" no README desde 18/08 e
+  # NAO entregava: dava metrica do CloudWatch, que mostra USO (token, invocacao) e nao
+  # DINHEIRO. Trocar modelo sem ver a conta e' escolher no escuro — um perfil global e um
+  # regional podem diferir mais no preco que na latencia.
+  #
+  # POR QUE AQUI E NAO NUM PERMISSION SET DA CONTA DE GESTAO
+  #
+  # O dado de custo e' consolidado no payer, e o instinto e' pedir acesso la'. Medido em
+  # 02/09/2026: a conta de dados VE O PROPRIO custo pelo Cost Explorer — `get-cost-and-usage`
+  # de dentro de 203312548462 devolveu US$ 4.487,33 para julho, exatamente o valor que o payer
+  # atribui a ela. O acesso de conta vinculada esta' habilitado.
+  #
+  # Entao este statement da' o que ele precisa sem nenhuma pegada na conta de gestao — que a
+  # AWS isenta de SCP por desenho e e' o unico lugar da organizacao sem rede de protecao. Ele
+  # ve o custo da conta onde os agentes rodam, e NAO ve o das outras sete (prod, auditoria,
+  # arquivo). Para um engenheiro de agentes isso nao e' limitacao: e' o escopo.
+  statement {
+    sid = "LerCusto"
+
+    actions = [
+      # O basico: quanto se gastou, por servico, por periodo.
+      "ce:GetCostAndUsage",
+      "ce:GetDimensionValues",
+      "ce:GetTags",
+      "ce:GetCostCategories",
+      # Projecao — "se eu deixar este modelo ligado, quanto fecha o mes".
+      "ce:GetCostForecast",
+      "ce:GetUsageForecast",
+      # Custo por RECURSO, e e' a que mais serve aqui: e' como se separa o gasto de um
+      # modelo do de outro em vez de ver "Bedrock" como uma linha so'. Depende de o
+      # payer ter ligado dado em nivel de recurso; sem isso a API responde vazia, nao
+      # nega — e vazio e' resposta honesta.
+      "ce:GetCostAndUsageWithResources",
+      # Anomalia: e' o que avisa que um agente entrou em loop antes da fatura.
+      "ce:GetAnomalies",
+      "ce:GetAnomalyMonitors",
+      "ce:GetAnomalySubscriptions",
+      # Orcamento, somente leitura. `budgets:ModifyBudget` fica FORA de proposito: mudar o
+      # teto de alerta e' o mesmo que desligar o alarme, e nao e' papel de quem e' medido
+      # por ele.
+      "budgets:ViewBudget",
+      "budgets:DescribeBudgets",
+      # Preco de tabela, para comparar modelo ANTES de trocar. E' dado publico da AWS.
+      "pricing:GetProducts",
+      "pricing:DescribeServices",
+      "pricing:GetAttributeValues",
+    ]
+
+    # `*` porque nenhuma destas APIs tem ARN de recurso — o escopo delas e' a CONTA, e a
+    # conta ja' e' a fronteira: este permission set esta' atribuido somente a 203312548462.
+    # Uma condicao aqui nao teria o que restringir.
+    resources = ["*"]
+  }
+
+  # -------------------------------------------------------------------------
   # Observabilidade — logs dos agentes
   # -------------------------------------------------------------------------
   statement {
