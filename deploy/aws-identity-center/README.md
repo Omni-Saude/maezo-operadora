@@ -45,6 +45,23 @@ Remover o acesso é `delete-group-membership`. A identidade continua existindo, 
 ## O que cada um pode
 
 `MaezoAgentEngineer` — trocar modelo, criar guardrail, medir custo, reiniciar um agente.
+
+> **"Medir custo" só passou a ser verdade em 02/09/2026.** Esta linha existia desde 18/08 e o
+> permission set entregava apenas métrica do CloudWatch — que mostra **uso** (token, invocação)
+> e não **dinheiro**. Trocar modelo sem ver a conta é escolher no escuro: um perfil global e um
+> regional podem diferir mais no preço que na latência.
+>
+> Agora o statement `LerCusto` dá Cost Explorer, previsão, anomalia, orçamento em leitura e
+> preço de tabela — **na conta de dados**, não na de gestão. Medido antes de escolher o
+> caminho: `get-cost-and-usage` de dentro de `203312548462` devolve o custo daquela conta
+> (US$ 4.487,33 em julho, o mesmo valor que o payer lhe atribui), então o acesso de conta
+> vinculada está habilitado e não é preciso nenhuma pegada na conta de gestão — a única da
+> organização que a AWS isenta de SCP.
+>
+> Consequência a saber: ele vê o custo de `amh-data-dev` e **não** o das outras sete contas.
+> Para engenheiro de agentes isso é o escopo, não uma limitação. E `budgets:ModifyBudget` ficou
+> de fora de propósito — mudar o teto de alerta é desligar o alarme, e não é papel de quem é
+> medido por ele. Simulado: `ViewBudget` allowed, `ModifyBudget` implicitDeny.
 `MaezoOperadoraLeitura` — ver a forma e a saúde do ambiente. **Nenhum log**, porque log de
 agente carrega prompt e narrativa, e log de worker carrega variável de processo do fluxo
 AUTH.
