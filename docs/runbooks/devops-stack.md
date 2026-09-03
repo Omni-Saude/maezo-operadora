@@ -312,6 +312,16 @@ See `tests/unit/runtime/test_metrics.py` for the stability contract test suite.
 
 ### DLQ alert
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoDLQRateHigh` rule exists in
+`deploy/observability/alert-rules.yml` (RUNBOOK-PHANTOM-ALERTS-5-MORE, verified 2026-09-03:
+`grep -n 'alert: MaezoDLQRateHigh' deploy/observability/alert-rules.yml` — 0 hits). The rule
+belongs in `deploy/observability/alert-rules.yml` (owner-gated). The closest shipped rules today
+are `MaezoDeadLetterBacklog` (`maezo_dead_letter_queue_size > 0` for 10m, warning) and
+`MaezoDeadLetterGrowth` (`rate(maezo_dead_letter_queue_size[5m]) > 5`, critical) — same family,
+different name/threshold, and both read a metric the rules file's own comment calls synthetic
+pending a real Kafka DLQ exporter (`alert-rules.yml:118-120`). Meanwhile, operators should treat
+`MaezoDeadLetterBacklog`/`MaezoDeadLetterGrowth` as the live signal for this condition, and use
+the steps below as manual triage guidance once either fires.  
 **Alert:** `MaezoDLQRateHigh`  
 **Meaning:** A Kafka Dead Letter Queue is accumulating messages (failed processing).  
 **Steps:**
@@ -324,6 +334,13 @@ See `tests/unit/runtime/test_metrics.py` for the stability contract test suite.
 
 ### Kafka lag
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoKafkaConsumerLagHigh` rule exists in
+`deploy/observability/alert-rules.yml`, and no consumer-lag metric is scraped anywhere in this
+repo today (RUNBOOK-PHANTOM-ALERTS-5-MORE, verified 2026-09-03: `grep -n 'alert:
+MaezoKafkaConsumerLagHigh' deploy/observability/alert-rules.yml` and `grep -rni consumer.lag
+deploy/observability/` both 0 hits). The rule belongs in `deploy/observability/alert-rules.yml`
+(owner-gated). Meanwhile, operators should check consumer-group lag directly against the broker
+(`kafka-consumer-groups.sh --describe --group <group>`) rather than rely on an alert.  
 **Alert:** `MaezoKafkaConsumerLagHigh`  
 **Meaning:** Event processing is behind; agents may receive delayed CDC events.  
 **Steps:**
@@ -369,6 +386,13 @@ of a gap while lag is high.
 
 ### Service down
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. Neither `MaezoAgentRuntimeDown` nor `MaezoFhirSyncDown`
+exists in `deploy/observability/alert-rules.yml` — there is no `up{job=...}`-based rule at all
+today (RUNBOOK-PHANTOM-ALERTS-5-MORE, verified 2026-09-03: `grep -n 'alert: MaezoAgentRuntimeDown\|alert:
+MaezoFhirSyncDown' deploy/observability/alert-rules.yml` — 0 hits). The rule belongs in
+`deploy/observability/alert-rules.yml` (owner-gated). Meanwhile, operators should watch
+`up{job=...}` directly in Prometheus/Grafana, or run `kubectl get pods` for the affected
+component, rather than rely on an alert.  
 **Alert:** `MaezoAgentRuntimeDown` / `MaezoFhirSyncDown`  
 **Meaning:** Prometheus has been unable to scrape the named job for > 1 minute — the
 service is unreachable (crashed, crash-looping, network-partitioned, or never started).  
@@ -697,6 +721,16 @@ below is retained for when the L1 approval wiring lands and the alert is re-adde
 
 ### Crash loop
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoPodCrashLooping` rule exists in
+`deploy/observability/alert-rules.yml` — the two shipped crash-loop rules
+(`MaezoAgentCrashLoop`/`MaezoWorkerCrashLoop`) fire on APPLICATION error rates
+(`maezo_agent_errors_total`/`maezo_worker_error_count_total`), not on
+`kube_pod_container_status_restarts_total` as this section describes
+(RUNBOOK-PHANTOM-ALERTS-5-MORE, verified 2026-09-03: `grep -n 'alert: MaezoPodCrashLooping'
+deploy/observability/alert-rules.yml` — 0 hits). The rule belongs in
+`deploy/observability/alert-rules.yml` (owner-gated). Meanwhile, operators should run `kubectl
+get pods` / watch `kube_pod_container_status_restarts_total` directly, or use
+`MaezoAgentCrashLoop`/`MaezoWorkerCrashLoop` as an application-level proxy.  
 **Alert:** `MaezoPodCrashLooping`  
 **Meaning:** A container has restarted ≥ 3 times in the last 15 minutes — the standard
 CrashLoopBackOff signature. This is the general-purpose detector for the "fails on
