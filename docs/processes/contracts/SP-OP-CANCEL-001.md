@@ -1,7 +1,7 @@
 # Contrato — SP-OP-CANCEL-001 (Cancelamento / Rescisao Contratual)
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
-**Fase:** 2 (Wave C — WC.1) · **BPMN:** `spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contratual.bpmn`
+**Fase:** 2 (Wave C — WC.1) · **BPMN:** `spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn` (GAP-FAB-NOTIF fix: o nome anterior citado aqui, `..._Cancelamento_Contratual.bpmn`, nao existe — `ls spec/processes/bpmn/ | grep -i cancel` confirma o unico arquivo real; drift ja sinalizado em `docs/sme-dispatch/juridico/PACKAGE.md:139`)
 **Gatilho regulatorio:** RN 593/2023 (regras de cancelamento/rescisao e suspensao por inadimplencia — consolida/substitui RN 412/2016: **DRAFT/verify**), RN 412/2016 (cancelamento a pedido do beneficiario: **DRAFT/verify**), Lei 9.656/1998 art. 13 (rescisao unilateral / rol taxativo de hipoteses). **TODAS as citacoes e prazos sao DRAFT/verify <RN> com regulatorio/juridico antes de qualquer timer em producao.**
 
 ## Invariante L0 hard (nao negociavel)
