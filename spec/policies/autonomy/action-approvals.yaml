@@ -337,7 +337,7 @@ acoes:
       de prova adicional). Toca o titular diretamente e é a superfície natural de vazamento de
       PHI para fora da plataforma.
     superficies:
-      - referencia: "src/maezo/tools/workers/programa.py:673"
+      - referencia: "src/maezo/tools/workers/programa.py:656"
         detalhe: "topic operadora.programa.proactive_contact (raw handler)"
         choked: true
       - referencia: "src/maezo/tools/workers/lgpd.py:765"

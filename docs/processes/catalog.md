@@ -35,5 +35,15 @@ quadrupla existem: BPMN, `contracts/SP-OP-ANS-CRON-001.md` e `test-specs/SP-OP-A
 O processo tambem NAO esta em `KNOWN_PROCESS_KEYS` por design (e iniciado por TimerStartEvent,
 nunca por `start_process_idempotent`).
 
+**Registro de decisao — `operadora.programa.monitor_programa` REMOVIDO** (PERSP-C5-MONITOR-PROGRAMA):
+o worker estava registrado sob um topico derivado do nome da funcao que NENHUM `serviceTask` de
+`SP-OP-PROGRAMA-001` declara — orfao inalcancavel — e o seu unico output era
+`monitoramento_atualizado: True`, um fato fabricado (a funcao so logava; nao executava
+monitoramento algum). Escolha: **remover** funcao e registro, em vez de criar um `serviceTask`
+para servi-lo — nao ha atividade de monitoramento modelada no BPMN, e inventar uma seria modelar
+processo regulatorio sem dono. `register_programa_workers` passa de 8 para 7 topicos, todos
+declarados pelo BPMN; pinado por
+`tests/unit/tools/workers/test_programa.py::test_register_programa_workers_registers_all_7_topics`.
+
 > Validar prazos exatos das RNs com regulatorio antes de modelar timers.
 Redesign completo: ver `operadora-process-redesign.md` no projeto de arquitetura.
