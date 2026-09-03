@@ -80,8 +80,10 @@ from maezo.tools.workers.harness import (
 )
 from maezo.tools.workers.lgpd import LGPD_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.nip import NIP_BPMN_ERROR_ALLOWLIST
+from maezo.tools.workers.pagto import PAGTO_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.programa import PROGRAMA_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.recurso import RECURSO_BPMN_ERROR_ALLOWLIST
+from maezo.tools.workers.reembolso import REEMBOLSO_BPMN_ERROR_ALLOWLIST
 
 from .settings import WorkerRuntimeSettings
 
@@ -193,7 +195,18 @@ def _is_te_gated(code: str) -> bool:
 #: operadora -> regulador and has no adverse output at all), neither is `*_NOT_HUMAN`, so neither is
 #: T-E-gated and both land directly. `ERR_ANS_RETRY_ESGOTADO` is deliberately NOT here: it is thrown
 #: by the MODEL (`End_RetryEsgotado` inside `SUB_RetryEnvio`), not by a worker — see the note in
-#: `tools/workers/ans_submit.py`.
+#: `tools/workers/ans_submit.py`. `PAGTO_BPMN_ERROR_ALLOWLIST` contributes `ERR_PAGTO_ORDEM_INVALIDA`
+#: (WP-ADR-0030-COMPLETION, D3-01) — pagto's G2-val origin/consistency guard (blank/absent
+#: `ordem_pagamento_id` at `validate_pagto`) routed via `BE_PagtoOrdemInvalida` to the neutral
+#: terminal `End_PagtoOrdemInvalida`; NOT `*_NOT_HUMAN`, so NOT T-E-gated, lands directly.
+#: `REEMBOLSO_BPMN_ERROR_ALLOWLIST` contributes `ERR_REEMBOLSO_INVALID_PROTOCOLO`
+#: (WP-ADR-0030-COMPLETION, D3-01) — reembolso's G2-val origin/consistency guard (blank/absent
+#: `protocolo_reembolso` at `check_coverage`) routed via `BE_ReembolsoProtocoloInvalido` to the
+#: neutral terminal `End_ReembolsoProtocoloInvalido`; also NOT `*_NOT_HUMAN`, also lands directly.
+#: Both were previously dead models (spec declared the boundary, no worker raised the code) that
+#: this work package closed at the root by moving the raise off the coded
+#: `PagtoError`/`ReembolsoProtocoloInvalidoError` and onto `WorkerBpmnError` at the exact
+#: boundary-carrying task each code is declared on.
 _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
     ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
     | AUTH_BPMN_ERROR_ALLOWLIST
@@ -202,16 +215,21 @@ _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
     | EVENTS_BPMN_ERROR_ALLOWLIST
     | LGPD_BPMN_ERROR_ALLOWLIST
     | NIP_BPMN_ERROR_ALLOWLIST
+    | PAGTO_BPMN_ERROR_ALLOWLIST
     | PROGRAMA_BPMN_ERROR_ALLOWLIST
     | RECURSO_BPMN_ERROR_ALLOWLIST
+    | REEMBOLSO_BPMN_ERROR_ALLOWLIST
 )
 
 #: The production allowlist wired into the harness: gate-proven codes MINUS the T-E-gated
 #: business-outcome codes. Resolves to `{ERR_EVENT_PUBLISH_FAILED, ERR_DSR_IDENTITY_UNVERIFIED,
 #: ERR_RECURSO_INVALID_GLOSA, ERR_ESC_NOTIFY_FAILED, ERR_NIP_PROTOCOLO_INVALIDO,
-#: ERR_PROGRAMA_NO_CONSENT, ERR_CRED_INVALID_PRESTADOR}` today (Tier-0 pair + T3.1 P2b's Tier-2
-#: addition + t8-escalation-boundary's Tier-1 addition + item-9 bucket-3's three Tier-2 G2-val
-#: origin/consent guards).
+#: ERR_PROGRAMA_NO_CONSENT, ERR_CRED_INVALID_PRESTADOR, ERR_ANS_PROTOCOLO_NACK,
+#: ERR_ANS_DATASET_INCOMPLETO, ERR_AUTH_DENIAL_INCOMPLETE, ERR_PAGTO_ORDEM_INVALIDA,
+#: ERR_REEMBOLSO_INVALID_PROTOCOLO}` today (Tier-0 pair + T3.1 P2b's Tier-2 addition +
+#: t8-escalation-boundary's Tier-1 addition + item-9 bucket-3's three Tier-2 G2-val origin/consent
+#: guards + t2-ans-submit's two + the T-E-enabled denial-block code +
+#: WP-ADR-0030-COMPLETION's two Tier-2 G2-val origin/consistency guards).
 PRODUCTION_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset(
     code for code in _GATE_PROVEN_BPMN_ERROR_CODES if not _is_te_gated(code)
 )
