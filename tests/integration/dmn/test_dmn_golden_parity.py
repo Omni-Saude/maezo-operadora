@@ -332,10 +332,16 @@ async def test_recurso_admissibility_parity(
 @pytest.mark.parametrize(
     ("glosa_type", "expected_roteamento", "expected_grupo"),
     [
-        ("clinica", "RECORRIVEL", "medico-auditor"),
-        ("administrativa", "RECORRIVEL", "analista-recurso-glosa"),
+        # PERSPECTIVA (ADR-0040 / REDESIGN-SP-OP-RECURSO-001.md:478,:480,:481, que prescreve
+        # nominalmente estas duas linhas): `RECORRIVEL` respondia "o prestador PODE recorrer" — um
+        # juizo sobre o direito do RECORRENTE. A operadora nao decide se cabe recurso; ela decide
+        # se o recurso que RECEBEU segue ao merito e quem o julga. `SEGUE_MERITO` diz isso. O
+        # dominio continua sendo de dois valores e continua sem saida de indeferimento: `r_catchall`
+        # -> `ANALISE_HUMANA` (nunca indeferimento automatico, L0 hard).
+        ("clinica", "SEGUE_MERITO", "medico-auditor"),
+        ("administrativa", "SEGUE_MERITO", "analista-recurso-glosa"),
         # DIVERGENCE: old Python's `recorivel` was a tautology (roteamento == "SEGUE_ANALISE"),
-        # never consulting this table's real RECORRIVEL/ANALISE_HUMANA output.
+        # never consulting this table's real SEGUE_MERITO/ANALISE_HUMANA output.
         ("outra", "ANALISE_HUMANA", "analista-recurso-glosa"),
     ],
 )
