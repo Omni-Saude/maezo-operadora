@@ -65,13 +65,13 @@ from maezo.tools.workers.recurso import (
     make_comunicar_resposta_handler,
     make_escalate_ans_timeout_handler,
     make_notify_sla_risk_handler,
-    notify_prestador,
     notify_sla_risk,
     prepare_dossier,
     publish_completed,
     publish_completed_entry,
     registrar_indeferimento,
     registrar_indeferimento_entry,
+    request_documents,
     request_documents_entry,
     validate_recurso,
     validate_recurso_entry,
@@ -416,15 +416,47 @@ def test_prepare_dossier() -> None:
 
 
 # ---------------------------------------------------------------------------
-# notify_prestador
+# request_documents (GAP-RECURSO-5 / FAB-NOTIFIED-TRIO: was `notify_prestador`, which returned an
+# unconditional `notified=True` with no channel; now returns `{}` and asserts nothing)
 # ---------------------------------------------------------------------------
 
 
-def test_notify_prestador() -> None:
-    """notify_prestador sends notification to the prestador."""
-    result = notify_prestador("PREST-001", "GLOSA-001", message_type="pendencia_documentacao")
-    assert result["notified"] is True
-    assert result["prestador_id"] == "PREST-001"
+def test_request_documents_nao_afirma_notificacao() -> None:
+    """The pendency STEP returns `{}` — never `notified=True`.
+
+    The old `notify_prestador` returned `{"notified": True, "prestador_id": ..., "glosa_id": ...,
+    "message_type": ...}` on every delivery, with no channel contacted and no delivery observed.
+    The harness loads a handler's return into process scope on `complete`
+    (`harness.py:1778-1782`), so that constant became an audit-trail claim inside the instance.
+    """
+    assert request_documents("PREST-001", "GLOSA-001", message_type="pendencia_documentacao") == {}
+
+
+@pytest.mark.parametrize(
+    "prestador_id,glosa_id,message_type",
+    [
+        ("PREST-001", "GLOSA-001", "pendencia_documentacao"),
+        ("", "", ""),
+        ("P-2", "G-2", "outro_tipo"),
+    ],
+)
+def test_request_documents_nenhuma_entrada_produz_afirmacao(
+    prestador_id: str, glosa_id: str, message_type: str
+) -> None:
+    """No input shape may produce a `notified` claim (or any other key)."""
+    out = request_documents(prestador_id, glosa_id, message_type)
+    assert out == {}
+    assert "notified" not in out
+
+
+def test_request_documents_registra_a_etapa_sem_afirmar_entrega() -> None:
+    """Observability survives the fix: the step still logs, and the log states plainly that no
+    notification fact was asserted (so a reader of the trail cannot infer one)."""
+    with structlog.testing.capture_logs() as logs:
+        request_documents("PREST-001", "GLOSA-001")
+    events = [entry for entry in logs if entry.get("event") == "recurso.request_documents"]
+    assert events, "a etapa TEM de continuar observavel no log"
+    assert events[0]["notified_asserted"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -714,11 +746,25 @@ def test_validate_recurso_entry_achata_erros_em_escalar() -> None:
     assert not isinstance(result["errors_validacao"], list)
 
 
-def test_request_documents_entry_round_trips_notify_prestador_default_pendencia() -> None:
-    """notify_prestador's default message_type ("pendencia_documentacao") IS what makes this
-    the request_documents topic's handler (see recurso.py bootstrap docstring)."""
+def test_request_documents_entry_aplica_o_default_pendencia_e_nao_afirma_nada() -> None:
+    """The default message_type ("pendencia_documentacao") IS what makes this the
+    request_documents topic's handler (see recurso.py bootstrap docstring) — it now reaches only
+    the LOG, never the process scope, and the entry returns `{}` like the function it wraps.
+
+    Asserted against the observable log line rather than against
+    `request_documents(...) == request_documents_entry(...)`: with both sides `{}` an equality
+    round-trip would be vacuous and would pass even if the entry stopped applying the default.
+    """
     variables = {"prestador_id": "P-1", "glosa_id": "G-1"}
-    assert request_documents_entry(variables) == notify_prestador("P-1", "G-1", "pendencia_documentacao")
+    assert request_documents_entry(variables) == {}
+
+
+def test_request_documents_entry_default_message_type_chega_ao_log() -> None:
+    """The `pendencia_documentacao` default is really applied by the entry (non-vacuous check)."""
+    with structlog.testing.capture_logs() as logs:
+        request_documents_entry({"prestador_id": "P-1", "glosa_id": "G-1"})
+    events = [entry for entry in logs if entry.get("event") == "recurso.request_documents"]
+    assert events and events[0]["message_type"] == "pendencia_documentacao"
 
 
 def test_analyze_request_entry_round_trips_analyze_merits() -> None:
@@ -748,7 +794,7 @@ def test_require_glosa_id_accepts_non_empty() -> None:
 
 
 def test_request_documents_entry_raises_before_notifying_prestador_when_glosa_id_absent() -> None:
-    """The guard fires BEFORE `notify_prestador` — test-spec invariant
+    """The guard fires BEFORE `request_documents` — test-spec invariant
     (`test_glosa_id_ausente_pendencia_termina_limpo_sem_incidente_travado`: no
     `notifications_of_type("recurso.request_documents")` may be observed)."""
     with pytest.raises(WorkerBpmnError) as exc:
