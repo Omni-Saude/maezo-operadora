@@ -1,7 +1,7 @@
 """Process Key Allowlist — validates process keys against known universe (ADR-0016).
 
 ADR-0016 mandates structural enforcement of process_key validation:
-- KNOWN_PROCESS_KEYS: all 15 SP-OP-* keys (16th BPMN excluded: ANS-CRON-001, timer-started; AF-05).
+- KNOWN_PROCESS_KEYS is a frozen set of all 15 SP-OP-* keys the platform knows.
 - DEFAULT_ALLOWED_PROCESS_KEYS is the subset every tenant can use.
 - ensure_allowed() validates format and membership, raising ProcessKeyNotAllowedError
   (a PermissionError subclass) on failure.
@@ -17,7 +17,7 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-# Universe of all known process keys (ADR-0016: 15 SP-OP-* keys; ANS-CRON excluded, timer-started)
+# Universe of all known process keys (ADR-0016: 15 SP-OP-* keys)
 KNOWN_PROCESS_KEYS: Final[frozenset[str]] = frozenset(
     {
         # Phase 0-1: governance processes
