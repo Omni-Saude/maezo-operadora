@@ -109,7 +109,7 @@ consulta a business key antes de iniciar — start idempotente, sem duplicar adj
 | External task | `operadora.reembolso.check_prazo` | consome | resolve `dentro_prazo` (calendario util → ISO conservador) |
 | External task | `operadora.reembolso.calculate_amount` | consome | **CONSOME** `valor_calculado_tabela_cents`/`multiplo_tabela_aplicado`/`fonte_tabela` da DMN `reembolso_calculo` (achatados de `calculo` por `camunda:inputParameter` em `ST_CalculateAmount`) e computa apenas `dentro_tabela` e `dentro_teto_l2` (duas comparacoes; sem decisao, sem aritmetica sobre dinheiro). Saida da DMN ausente/malformada => `ERR_REEMBOLSO_CALCULO_DMN_INDISPONIVEL` |
 | External task | `operadora.reembolso.analyze_request` | consome | convoca o agente analista (Marina-classe) para montar dossie de analise |
-| External task | `operadora.reembolso.request_documents` | consome | pendencia de documentacao ao beneficiario (publica tambem `reembolso.pended`) |
+| External task | `operadora.reembolso.request_documents` | consome | worker `request_documents`: registra que a ETAPA de abertura da pendencia de documentacao ao beneficiario rodou e retorna `{}` — **NAO afirma `notified`/`status`, nao contata canal algum e nao publica evento** (GAP-REEMBOLSO-8 / FAB-NOTIFIED-TRIO; antes retornava `{"notified": True, "status": "pended", ...}` constante). O evento `agents.events.reembolso.pended` e publicado pelo **proprio BPMN**, uma task adiante, em `ST_PublishReembolsoPended` (`:151-161`, T3.1 event-gap remedy B); o `event_topic_pended` que a docstring antiga do worker citava foi removido deste BPMN na mesma t3.1 |
 | External task | `operadora.reembolso.issue_payment` | consome | emite o pagamento do reembolso aprovado (integra CNAB/conciliacao) |
 | External task | `operadora.reembolso.send_reembolso_denial` | consome | **efeito adverso** — comunica negativa/reducao em nome do analista/auditor (worker-guard `ERR_REEMBOLSO_DENIAL_NOT_HUMAN`) |
 | External task | `operadora.reembolso.notify_sla_risk` | consome | alerta coordenacao (timer nao-interruptivo) |
@@ -189,8 +189,9 @@ e a instancia aguarda em `GW_AguardarDocs` (mesmo sub-fluxo de pendencia do AUTH
 ## Reuso do sub-fluxo de pendencia de documentacao (AUTH-001)
 
 O sub-fluxo de pendencia de documentacao e portado **estruturalmente** do AUTH-001 (nao
-reimplementado): `operadora.reembolso.request_documents` abre a pendencia e publica
-`reembolso.pended`; a instancia aguarda em `GW_AguardarDocs`; a message BPMN
+reimplementado): `operadora.reembolso.request_documents` registra a etapa de abertura da pendencia
+(retorna `{}` — nao publica nada, GAP-REEMBOLSO-8) e `ST_PublishReembolsoPended`, a task seguinte,
+publica `reembolso.pended`; a instancia aguarda em `GW_AguardarDocs`; a message BPMN
 `msg.reembolso.docs_received` (correlacionada por `REEMB-{tenant}-{protocolo}`) destrava e
 reavalia `BRT_Admissibilidade`; no estouro do timer `ICE_PrazoPendencia` (ref `P5D`) cria-se
 `UT_DecidirPendenciaExpirada` (`analise-reembolso`) — humano decide

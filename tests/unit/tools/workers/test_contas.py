@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog
 
 from maezo.agents.andre.keys import key_segment
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance, start_dedup_key
@@ -42,6 +43,7 @@ from maezo.tools.workers.contas import (
     identify_glosa,
     identify_glosa_entry,
     notify_sla_risk,
+    notify_sla_risk_entry,
     prepare_triage_dossier,
     publish,
     publish_entry,
@@ -649,11 +651,53 @@ def test_entry_selects_the_anchors_from_the_process_variables() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_notify_sla_risk() -> None:
-    """notify_sla_risk alerts the coordination group."""
-    result = notify_sla_risk("amh", "LOTE-009", sla_remaining="P2D")
-    assert result["notified"] is True
-    assert result["grupo"] == "coordenacao-contas"
+def test_notify_sla_risk_nao_afirma_notificacao() -> None:
+    """GAP-CONTAS-7 / FAB-NOTIFIED-TRIO: the SLA-alert STEP returns `{}` — never `notified=True`.
+
+    The old return was `{"notified": True, "grupo": ..., "sla_remaining": ...,
+    "numero_lote_tiss": ...}` on every delivery of the non-interruptive `BT_AlertaSlaContas`
+    branch, with no channel contacted — coordenacao-contas may never have been told. The harness
+    loads a handler's return into process scope on `complete` (`harness.py:1778-1782`), so that
+    constant became an audit-trail claim inside the instance.
+    """
+    assert notify_sla_risk("amh", "LOTE-009", sla_remaining="P2D") == {}
+
+
+@pytest.mark.parametrize(
+    "tenant_id,numero_lote_tiss,sla_remaining,grupo",
+    [
+        ("amh", "LOTE-009", "P2D", "coordenacao-contas"),
+        ("", "", "", ""),
+        ("t2", "LOTE-1", "PT4H", "outro-grupo"),
+    ],
+)
+def test_notify_sla_risk_nenhuma_entrada_produz_afirmacao(
+    tenant_id: str, numero_lote_tiss: str, sla_remaining: str, grupo: str
+) -> None:
+    """No input shape may produce a `notified` claim (or any other key)."""
+    result = notify_sla_risk(tenant_id, numero_lote_tiss, sla_remaining, grupo)
+    assert result == {}
+    assert "notified" not in result
+
+
+def test_notify_sla_risk_registra_a_etapa_sem_afirmar_entrega() -> None:
+    """Observability survives the fix: the step still logs, and the log states plainly that no
+    notification fact was asserted (so a reader of the trail cannot infer one)."""
+    with structlog.testing.capture_logs() as logs:
+        notify_sla_risk("amh", "LOTE-009", sla_remaining="P2D")
+    events = [entry for entry in logs if entry.get("event") == "contas.notify_sla_risk"]
+    assert events, "a etapa TEM de continuar observavel no log"
+    assert events[0]["notified_asserted"] is False
+    assert events[0]["sla_remaining"] == "P2D"
+
+
+def test_notify_sla_risk_entry_aplica_o_default_do_grupo_no_log() -> None:
+    """The `coordenacao-contas` default is really applied by the entry (non-vacuous check: with
+    both sides `{}` an equality round-trip would pass even if the default were dropped)."""
+    with structlog.testing.capture_logs() as logs:
+        assert notify_sla_risk_entry({"tenant_id": "amh", "numero_lote_tiss": "LOTE-009"}) == {}
+    events = [entry for entry in logs if entry.get("event") == "contas.notify_sla_risk"]
+    assert events and events[0]["grupo"] == "coordenacao-contas"
 
 
 # ---------------------------------------------------------------------------

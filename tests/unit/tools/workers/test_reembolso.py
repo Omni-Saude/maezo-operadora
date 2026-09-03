@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog
 
 from maezo.tools.workers import reembolso
 from maezo.tools.workers.base import FunctionWorker, pick_fields
@@ -1137,14 +1138,36 @@ def test_worker_speaks_the_dmn_catch_all_token_and_nothing_of_its_own(teto_zero:
 # ---------------------------------------------------------------------------
 
 
-def test_request_documents_happy_path() -> None:
-    """request_documents opens the documentation pendency to the beneficiario."""
-    result = request_documents("BEN-PSEUDO-001", "REEMB-010")
-    assert result["notified"] is True
-    assert result["status"] == "pended"
-    assert result["beneficiario_pseudo_id"] == "BEN-PSEUDO-001"
-    assert result["protocolo_reembolso"] == "REEMB-010"
-    assert result["message_type"] == "pendencia_documentacao"
+def test_request_documents_nao_afirma_notificacao() -> None:
+    """GAP-REEMBOLSO-8 / FAB-NOTIFIED-TRIO: the pendency STEP returns `{}` — never `notified=True`.
+
+    The old return was `{"notified": True, "beneficiario_pseudo_id": ..., "protocolo_reembolso":
+    ..., "status": "pended", "message_type": ...}` on every delivery, with no channel contacted
+    and no delivery observed — while the SAME docstring disclosed the worker never publishes. The
+    harness loads a handler's return into process scope on `complete` (`harness.py:1778-1782`), so
+    that constant became an audit-trail claim inside the instance.
+    """
+    assert request_documents("BEN-PSEUDO-001", "REEMB-010") == {}
+
+
+@pytest.mark.parametrize(
+    "beneficiario_pseudo_id,protocolo_reembolso,message_type",
+    [
+        ("BEN-PSEUDO-001", "REEMB-010", "pendencia_documentacao"),
+        ("", "", ""),
+        ("B-2", "R-2", "outro_tipo"),
+    ],
+)
+def test_request_documents_nenhuma_entrada_produz_afirmacao(
+    beneficiario_pseudo_id: str, protocolo_reembolso: str, message_type: str
+) -> None:
+    """No input shape may produce a `notified`/`status` claim (or any other key)."""
+    result = request_documents(beneficiario_pseudo_id, protocolo_reembolso, message_type)
+    assert result == {}
+    assert "notified" not in result
+    # `status: "pended"` was the only key that WROTE a new value into process scope, under a
+    # generic name with no declared owner — it is gone with the rest.
+    assert "status" not in result
 
 
 def test_request_documents_never_carries_a_decision() -> None:
@@ -1156,35 +1179,51 @@ def test_request_documents_never_carries_a_decision() -> None:
     result = request_documents("", "")
     assert "decisao_reembolso" not in result
     assert "decisao_pendencia" not in result
-    assert set(result.keys()) == {
-        "notified",
-        "beneficiario_pseudo_id",
-        "protocolo_reembolso",
-        "status",
-        "message_type",
-    }
+    assert result == {}
 
 
-def test_request_documents_entry_round_trips_default_pendencia() -> None:
+def test_request_documents_registra_a_etapa_sem_afirmar_entrega() -> None:
+    """Observability survives the fix: the step still logs, and the log states plainly that no
+    notification fact was asserted (so a reader of the trail cannot infer one)."""
+    with structlog.testing.capture_logs() as logs:
+        request_documents("BEN-PSEUDO-001", "REEMB-010")
+    events = [entry for entry in logs if entry.get("event") == "reembolso.request_documents"]
+    assert events, "a etapa TEM de continuar observavel no log"
+    assert events[0]["notified_asserted"] is False
+
+
+def test_request_documents_entry_aplica_o_default_pendencia_no_log() -> None:
     """Default message_type is 'pendencia_documentacao' (the pendency-open semantics of
-    ST_SolicitarDocumentos; mirrors recurso's request_documents idiom)."""
+    ST_SolicitarDocumentos; mirrors recurso's request_documents idiom). It now reaches only the
+    LOG, never process scope — asserted against the log line because a `{} == {}` round-trip
+    would be vacuous and would still pass if the entry stopped applying the default."""
     variables = {"beneficiario_pseudo_id": "B-1", "protocolo_reembolso": "R-1"}
-    assert request_documents_entry(variables) == request_documents("B-1", "R-1", "pendencia_documentacao")
+    with structlog.testing.capture_logs() as logs:
+        assert request_documents_entry(variables) == {}
+    events = [entry for entry in logs if entry.get("event") == "reembolso.request_documents"]
+    assert events and events[0]["message_type"] == "pendencia_documentacao"
 
 
 def test_request_documents_entry_missing_inputs_fail_safe() -> None:
     """Missing inputs degrade to empty identifiers — never an exception, never a decision."""
-    result = request_documents_entry({})
-    assert result["notified"] is True
-    assert result["beneficiario_pseudo_id"] == ""
-    assert result["protocolo_reembolso"] == ""
+    with structlog.testing.capture_logs() as logs:
+        assert request_documents_entry({}) == {}
+    events = [entry for entry in logs if entry.get("event") == "reembolso.request_documents"]
+    assert events
+    assert events[0]["beneficiario_pseudo_id"] == ""
+    assert events[0]["protocolo_reembolso"] == ""
 
 
 def test_request_documents_entry_ignores_kafka_seam() -> None:
-    """Entry accepts the kafka seam (donor contract) but never publishes (documented gap)."""
+    """Entry accepts the kafka seam (donor contract) but never publishes.
+
+    The domain event this branch owes (`agents.events.reembolso.pended`) IS published — by the
+    BPMN's own `ST_PublishReembolsoPended` (`:151-161`), one task downstream, through the generic
+    `operadora.events.publish`. So the worker publishing nothing is CORRECT, not a gap; what was
+    wrong was returning `notified=True` as if it had.
+    """
     kafka = FakeKafkaPublisher()
-    result = request_documents_entry({"protocolo_reembolso": "R-2"}, kafka=kafka)
-    assert result["notified"] is True
+    assert request_documents_entry({"protocolo_reembolso": "R-2"}, kafka=kafka) == {}
     assert kafka.published == []
 
 
