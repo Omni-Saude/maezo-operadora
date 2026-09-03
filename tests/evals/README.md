@@ -41,14 +41,19 @@ tests/evals/
   conftest.py                      # ReplayInferenceProvider, FakeWhatsAppSender, load_golden,
                                     # live_key_skip  (OWNED BY B0 — do not edit from a family wave)
   _harness.py                      # run_case, assert_expect, assert_no_leak, score_live,
-                                    # assert_live_score, mutation-check helpers
-                                    # (OWNED BY B0 — do not edit from a family wave)
+                                    # assert_live_score, score_clarity, assert_clarity,
+                                    # mutation-check helpers
+                                    # (OWNED BY B0 — do not edit from a family wave; extended by
+                                    # WP-EVALS for gap 10.3's clarity/legibility check, see below)
   README.md                        # this file (OWNED BY B0)
   test_classifier_evals.py         # helena (B0 reference) + fernando/lucas (B1 extends this file)
   test_dossier_adverse_evals.py    # rafael/valentina/marina/andre (B2)
   test_dossier_admin_evals.py      # carolina/beatriz/gustavo (B3)
+  test_helena_clarity_evals.py     # helena CLAREZA-* clarity/legibility evals (WP-EVALS, gap 10.3)
+  test_helena_journey_evals.py     # helena JOURNEY-* end-to-end journey eval (WP-EVALS, gap 11.5)
   golden/
-    helena/EVL-HELENA-01.json ... EVL-HELENA-08.json
+    helena/EVL-HELENA-01.json ... EVL-HELENA-08.json,
+           EVL-HELENA-CLAREZA-01..03.json (gap 10.3), EVL-HELENA-JOURNEY-01.json (gap 11.5)
     fernando/EVL-FERNANDO-01.json ...
     lucas/ ... rafael/ ... valentina/ ... marina/ ... carolina/ ... andre/ ... beatriz/ ...
     gustavo/ ...
@@ -56,7 +61,10 @@ tests/evals/
 
 Each family builder wave owns its own test module + its own `golden/<agent>/` subdirectories —
 disjoint files, so B1/B2/B3 can run in parallel with zero collisions. Nobody but B0 edits
-`conftest.py` / `_harness.py` / this README.
+`conftest.py` / `_harness.py` / this README — WP-EVALS (gaps 10.3/11.5, 2026-09) is the one
+documented exception: it ADDS (never edits existing lines in) `_harness.py`'s clarity helpers
+and this README's own documentation of them, per its brief ("if the runner cannot express it,
+extend the runner at the root"). See "Clarity/legibility checks" and "Journey evals" below.
 
 ## Golden case JSON schema
 
@@ -86,8 +94,10 @@ Field notes:
 
 - `id` / `agent` / `class` / `tier`: bookkeeping. `class` is one of `CE` (correct_extraction),
   `FC` (fail-closed-on-garbage), `EU` (escalation-on-uncertainty), `PL` (no-PHI-leak), `GC`
-  (guard-compliance), `DD` (dmn-input-discipline). `tier` is `["A"]` or `["A", "B"]` — Tier B
-  alone (no A) is not a supported shape; every eval has a deterministic baseline.
+  (guard-compliance), `DD` (dmn-input-discipline), `CL` (clarity_legibility — WP-EVALS gap
+  10.3, see below), `JN` (journey_end_to_end — WP-EVALS gap 11.5, see below). `tier` is `["A"]`
+  or `["A", "B"]` — Tier B alone (no A) is not a supported shape; every eval has a deterministic
+  baseline.
 - `input.state`: the plain dict passed to the compiled graph's `.ainvoke(...)` (or to a single
   node method directly, for a Tier-B live variant) — this is NOT validated against the agent's
   `TypedDict` at load time; an agent-specific field typo will surface as a graph-behavior
@@ -181,6 +191,78 @@ currently reach `maezo.runtime.inference` (it reads `MAEZO_ANTHROPIC_API_KEY`/
 `ANTHROPIC_API_KEY`), so Tier B skips loudly in CI until the separate, reviewed wiring change
 lands. Tier A is completely unaffected by that gap: it injects its own provider and needs no key,
 ever.
+
+## Clarity/legibility checks (gap 10.3, WP-EVALS)
+
+`tests/evals/golden/helena/EVL-HELENA-CLAREZA-{01,02,03}.json` + `test_helena_clarity_evals.py`
+close `docs/audits/maezo-deep-audit/reports/domain-10-accessibility.md:32` ("vocabulario de
+triagem nao e auditado para clareza linguistica ... sem eval de legibilidade nos golden
+datasets"). This is a NEW pass-criterion type, `CL`, alongside RT/SF/ABS/TH — added at the root
+(`_harness.py`'s `score_clarity`/`assert_clarity`, `mutate_extend_last_sentence`/
+`mutate_replace_last_response`) rather than in a family test module, since it is generic,
+agent-agnostic text scoring on whatever field a golden names.
+
+It judges ONLY the CLARITY of the wording a graph drafts for a beneficiary (Helena's
+`response_text`) — three independent, deterministic, reproducible checks, no LLM-as-judge, no
+learned/constant score:
+
+1. **Sentence length** — any sentence (split on `.`/`!`/`?`) whose word count exceeds
+   `clarity.max_words_per_sentence` is flagged.
+2. **Forbidden jargon** — any `clarity.forbidden_jargon` term found in the text
+   (case-insensitive substring) is flagged: internal/engine vocabulary (DMN table names, raw
+   `sintoma_codigo` values, `motivo_categoria` tokens, severity codes like `P1`) must never leak
+   verbatim into a beneficiary-facing message.
+3. **Mandatory disclaimers** — `clarity.required_disclaimers` is a list of alternative-phrase
+   GROUPS (e.g. a human-handoff group, an emergency-escalation group); each group needs >=1
+   alternative present (case-insensitive substring) or it is flagged as missing.
+
+A golden case opts in with an OPTIONAL top-level `"clarity"` block (`load_golden`'s required-key
+check does not require it, so every pre-existing golden that omits it is unaffected):
+
+```json
+"clarity": {
+  "field": "response_text",
+  "max_words_per_sentence": 20,
+  "forbidden_jargon": ["red_flag", "DMN", "P1", "sintoma_codigo"],
+  "required_disclaimers": [["profissional", "humano", "atendente"], ["emergencia"]]
+}
+```
+
+This checks ONLY the wording Helena emits to the beneficiary — never the clinical CONTENT of
+the SME-gated `triage_redflag_*` DMN tables themselves (their `red_flag`/`conduta`/`prioridade`/
+`motivo` vocabulary is DRAFT/verify content owned by a clinical reviewer, out of scope by
+design). Non-vacuousness (§7.1) is proven per check kind in `test_helena_clarity_evals.py`
+(`mutate_plant_canary` for the jargon check, `mutate_extend_last_sentence` for the
+sentence-length check, `mutate_replace_last_response` for the disclaimer check) plus pure-logic
+unit tests in `tests/unit/evals/test_harness_clarity.py` that exercise `score_clarity`/
+`assert_clarity` directly, with no golden file or agent graph involved.
+
+## Journey evals (gap 11.5, WP-EVALS)
+
+`tests/evals/golden/helena/EVL-HELENA-JOURNEY-01.json` + `test_helena_journey_evals.py` close
+`docs/audits/maezo-deep-audit/reports/domain-11-product-fit.md:32` ("os 44 golden evals ...
+sao finos ... nenhum eval de jornada ponta a ponta"). Every pre-existing golden (via
+`test_classifier_evals.py`/`test_dossier_adverse_evals.py`/`test_dossier_admin_evals.py`)
+asserts only a turn's FINAL route/fields (`assert_expect(result.state, case["expect"])`). This
+is a new ASSERTION SHAPE (class `JN`), not a new harness path: it drives the exact same
+`run_case`/`build()` mechanism, but asserts an observable checkpoint at EACH of the three
+stages `docs/processes/journeys/AGJ-HELENA-TRIAGE.md` names for one beneficiary turn —
+**intake** (`saudacao_identificacao` — the turn started with no runtime-context/transport
+error), **triage** (`coleta_sintomas` + `avaliacao_red_flag` — the classify LLM's extraction AND
+the red-flag DMN's decision both reached the state correctly), and **routing/hand-off outcome**
+(`escalado` — `SP-OP-ESCALATION-001` actually started idempotently, its engine-bound variables
+carry the bounded routing tokens, and the beneficiary actually received the WhatsApp handoff
+confirmation).
+
+This is possible from ONE `run_case`/`ainvoke` call (not three separate turns) because
+`HelenaGraph`'s compiled `StateGraph` merges every node's return dict into one cumulative state
+with a plain dict-update reducer — `escalate()`'s return never clears the keys `classify()` set,
+so the final state already carries a checkpoint from every stage the turn passed through. A
+golden case names what to check at each stage via an OPTIONAL top-level `"journey"` block
+(`intake.no_error`, `triage.fields`/`triage.dmn_decision_fields`, `handoff.fields`/
+`handoff.business_key`/`handoff.process_key`/`handoff.engine_variables`/
+`handoff.whatsapp_delivered`) — see `EVL-HELENA-JOURNEY-01.json` for the full shape and
+`test_helena_journey_evals.py`'s module docstring for how each block is interpreted.
 
 ## Markers
 
