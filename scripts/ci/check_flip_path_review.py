@@ -45,6 +45,53 @@ Tested by `test_codeowners_is_read_from_base_not_head`,
 `test_a_failed_base_codeowners_fetch_propagates_and_never_falls_back_to_head` and
 `test_main_is_red_end_to_end_when_the_base_codeowners_fetch_fails`.
 
+DESIGN DECISION — TOUCHED PATHS ARE MERGE-BASE RELATIVE, NEVER `pull_request.base.sha`-RELATIVE
+-------------------------------------------------------------------------------------------------
+Defect #254 (evidence: CI run 33766180283 on PR #254, dependabot `anthropic <2.0`, 2026-09-03
+14:19Z). The PR changed 2 files (`pyproject.toml`, `uv.lock`). Its `pull_request.base.sha` was the
+WEEKS-STALE `181fc827…` — GitHub does not refresh a PR's recorded base.sha as the base branch moves,
+it only reflects the commit the branch pointed at when the PR was opened — and the PR's head
+(`55b5bb1…`) contained a MERGE of current `main` into the branch. `pulls/{n}/files`, which the old
+`changed_paths` read, computes its diff relative to that stale, recorded `base.sha`. Since the head
+contained every commit `main` had gained since `181fc827…`, ALL 266 of those paths appeared as
+"touched" by a 2-file PR — including `scripts/ci/check_bpmn_error_allowlist.py`, an owned path this
+PR never came near — producing 3 false "owned" hits and a false RED. Sibling PR #263 (freshly
+rebased, base.sha not yet stale) was green at the same moment: the defect only bites long-lived,
+stale-base PRs, which is exactly the shape of the owner-review PRs this gate exists to gate.
+
+THE FIX. Touched paths are no longer read relative to `pull_request.base.sha` at all. They are
+computed as the diff between the base branch's CURRENT tip and the head — the git equivalent of
+`git diff $(git merge-base origin/<base.ref> HEAD)..HEAD --name-only` — via GitHub's three-dot
+COMPARE (`repos/{repo}/compare/{base}...{head}`; three dots is merge-base semantics, two dots is not).
+Concretely: `GitHubAPI.branch_tip(base.ref)` resolves the base branch's current tip via
+`repos/{repo}/branches/{ref}` ONCE, at run start, and is logged; `GitHubAPI.changed_paths(base_tip,
+head_sha)` then reads `compare/{base_tip}...{head_sha}`'s `files` (paginated: this endpoint pages
+`files` via `page`/`per_page`, up to 300 per page — `_paginate` is not reused because it assumes a
+top-level JSON list, and compare returns an object with a nested `files` list), including a rename's
+`previous_filename` exactly as `pulls/N/files` did. Any non-2xx or unexpected shape is RED — never a
+silent fallback to `pulls/N/files`, which is precisely the shape of the bug being fixed here.
+
+THIS DOES NOT MOVE DECISION 1. CODEOWNERS content is still read from `pull_request.base.sha` — the
+STALE, RECORDED base commit — exactly as Decision 1 above requires and for the same reason: a moving
+base ref must not change which ownership RULES govern a PR mid-run, and Decision 1's own docstring
+argument ("a tip pinned once per run satisfies it") is about the rules text, not the touched-path
+set. The two are orthogonal: WHICH FILES a PR touches is a property of the diff and must track where
+the base branch actually is now (a moving target that was making PR #254 look at 266 unrelated
+files); WHICH RULES apply to that diff is a property of governance and must stay pinned to what was
+already reviewed and merged at the PR's base commit. Conflating them either way reopens a hole:
+reading touched paths from the stale base.sha is defect #254; reading CODEOWNERS from a moving tip
+would let ownership rules change answers mid-run for reasons unrelated to the PR's own content.
+
+`EventContext` and `GitHubAPI.pull_request()` (the local `--repo/--pr` dry-run path) both now also
+carry `base_ref` and `head_sha`, alongside the pre-existing `base_sha`, so the touched-path
+computation has what it needs in either context-acquisition mode (ambient event payload, or a direct
+API fetch) — see CONTEXT PRECEDENCE below.
+
+Tested by `test_stale_base_sha_no_longer_produces_a_false_owned_hit_defect_254`,
+`test_changed_paths_include_a_renames_previous_filename_via_compare`,
+`test_compare_api_failure_is_red_not_an_empty_list`, `test_changed_paths_paginates_beyond_300_files`,
+`test_branch_tip_resolves_the_current_sha` and `test_branch_tip_failure_is_red`.
+
 DESIGN DECISION 2 — CHANGES_REQUESTED FROM AN OWNER OF A TOUCHED OWNED PATH ⇒ RED
 --------------------------------------------------------------------------------
 ADOPTED (the brief asked for a ruling; this is it, with the reasoning, not a coin flip).
@@ -644,10 +691,15 @@ def decide(
     membership: MembershipResolver,
     require_single_reviewer_covers_all: bool = False,
     pr_label: str = "PR",
+    touched_paths_source: str = "unspecified",
 ) -> Decision:
     """The whole contract, as a pure function. Never raises for ordinary input; RED instead.
 
     `codeowners_text` MUST come from the PR's BASE commit — see Decision 1 in the module docstring.
+    `touched_paths_source` is a purely-cosmetic provenance string for the rendered report (e.g. which
+    two shas a compare was run between) — it plays no role in the decision itself, so direct callers
+    (tests) may omit it. `changed_paths` itself MUST already be merge-base relative, never relative to
+    a PR's stale `base.sha` — see "DESIGN DECISION — touched paths are merge-base relative".
     """
     try:
         rules = parse_codeowners(codeowners_text)
@@ -669,6 +721,7 @@ def decide(
 
     header = [
         f"  CODEOWNERS source: {codeowners_source} ({len(rules)} rule(s))",
+        f"  touched-paths source: {touched_paths_source}",
         f"  {pr_label} author: @{author_login}",
         f"  changed paths: {len(set(changed_paths))}   owned: {len(owned)}",
     ]
@@ -894,35 +947,103 @@ class GitHubAPI:
         return base64.b64decode(payload["content"]).decode("utf-8")
 
     def pull_request(self, pr_number: int) -> EventContext:
-        """Fetch the PR's base sha + author directly, for the no-event-payload (local dry-run) mode."""
+        """Fetch the PR's base sha/ref + head sha + author directly, for the no-event-payload (local
+        dry-run) mode.
+
+        Must supply everything `load_event_context` would from a real Actions payload, including
+        `base.ref` and `head.sha`: the direct-mode context feeds the same merge-base-relative
+        touched-path computation in `main()` as the event-payload path does — see "DESIGN DECISION —
+        touched paths are merge-base relative" in the module docstring.
+        """
         status, payload = self._request(f"repos/{self.repo}/pulls/{pr_number}")
         if status != 200 or not isinstance(payload, dict):
             raise GateError(f"GET pulls/{pr_number} returned HTTP {status} — fail-closed.")
         base = payload.get("base") or {}
+        head = payload.get("head") or {}
         user = payload.get("user") or {}
         base_sha = base.get("sha") if isinstance(base, dict) else None
+        base_ref = base.get("ref") if isinstance(base, dict) else None
+        head_sha = head.get("sha") if isinstance(head, dict) else None
         author = user.get("login") if isinstance(user, dict) else None
-        if not base_sha or not author:
-            raise GateError(f"pulls/{pr_number} has no readable base.sha / user.login — fail-closed.")
+        if not base_sha or not base_ref or not head_sha or not author:
+            raise GateError(
+                f"pulls/{pr_number} has no readable base.sha / base.ref / head.sha / user.login — "
+                "fail-closed."
+            )
         return EventContext(
-            repo=self.repo, pr_number=pr_number, base_sha=str(base_sha), author_login=str(author)
+            repo=self.repo,
+            pr_number=pr_number,
+            base_sha=str(base_sha),
+            base_ref=str(base_ref),
+            head_sha=str(head_sha),
+            author_login=str(author),
         )
 
-    def changed_paths(self, pr_number: int) -> list[str]:
-        """Every path the diff touches, INCLUDING a rename's previous path.
+    def branch_tip(self, ref: str) -> str:
+        """Resolve `ref`'s CURRENT tip commit sha via `repos/{repo}/branches/{ref}`.
 
-        A rename out of an owned directory is a change to an owned path; counting only the new name
-        would let `git mv spec/policies/autonomy/x.yaml /tmp-ish/x.yaml` escape ownership.
+        Deliberately re-fetched on every run, never cached across runs and never taken from a PR's
+        recorded `base.sha`: the touched-path computation below must always diff against where the
+        base branch actually IS right now, not wherever it was when the PR was opened. See "DESIGN
+        DECISION — touched paths are merge-base relative" in the module docstring — this is the fix
+        for defect #254 (CI run 33766180283).
+        """
+        status, payload = self._request(f"repos/{self.repo}/branches/{urllib.parse.quote(ref)}")
+        if status != 200 or not isinstance(payload, dict):
+            raise GateError(
+                f"GET branches/{ref} returned HTTP {status} — cannot resolve {ref}'s current tip, so "
+                "the gate cannot compute a merge-base-relative diff. Fail-closed."
+            )
+        commit = payload.get("commit")
+        sha = commit.get("sha") if isinstance(commit, dict) else None
+        if not isinstance(sha, str) or not sha:
+            raise GateError(f"branches/{ref} has no readable commit.sha — fail-closed.")
+        return sha
+
+    def changed_paths(self, base_tip: str, head_sha: str) -> list[str]:
+        """Every path touched between `base_tip` (the base branch's CURRENT tip, resolved ONCE by
+        `branch_tip` at run start) and `head_sha`, INCLUDING a rename's previous path.
+
+        Sourced from GitHub's three-dot COMPARE (`compare/{base}...{head}` — three dots is MERGE-BASE
+        semantics, the git equivalent of `git diff $(git merge-base base_tip head_sha)..head_sha
+        --name-only`), never from `pulls/N/files` (which diffs from the PR's possibly-weeks-stale
+        recorded `base.sha` and is exactly what produced defect #254 — see the module docstring's
+        "DESIGN DECISION — touched paths are merge-base relative"). A rename out of an owned directory
+        is a change to an owned path; counting only the new name would let
+        `git mv spec/policies/autonomy/x.yaml /tmp-ish/x.yaml` escape ownership.
+
+        The compare endpoint pages its `files` list via `page`/`per_page` (up to 300 per page) rather
+        than returning a bare top-level list, so `_paginate` (built for list endpoints) is not reused
+        here. Any non-2xx response or unexpected shape is RED — never a silent fallback to
+        `pulls/N/files`, which is precisely the bug being fixed.
         """
         paths: list[str] = []
-        for entry in self._paginate(f"repos/{self.repo}/pulls/{pr_number}/files"):
-            if not isinstance(entry, dict) or not isinstance(entry.get("filename"), str):
-                raise GateError(f"unexpected entry in pulls/{pr_number}/files: {entry!r} — fail-closed.")
-            paths.append(entry["filename"])
-            previous = entry.get("previous_filename")
-            if isinstance(previous, str) and previous:
-                paths.append(previous)
-        return paths
+        per_page = 300  # GitHub's documented max page size for this endpoint's `files` list
+        compare = f"repos/{self.repo}/compare/{base_tip}...{head_sha}"
+        for page in range(1, 51):  # generous bound; refuse to guess past it, same discipline as _paginate
+            status, payload = self._request(f"{compare}?per_page={per_page}&page={page}")
+            if status != 200 or not isinstance(payload, dict):
+                raise GateError(
+                    f"GET {compare} (page {page}) returned HTTP {status} — the gate cannot compute "
+                    "this PR's true touched-path set, so it fails CLOSED rather than falling back to "
+                    "pulls/N/files or assuming an empty diff."
+                )
+            files = payload.get("files")
+            if not isinstance(files, list):
+                raise GateError(
+                    f"{compare} (page {page}) has no readable `files` list "
+                    f"({type(files).__name__ if files is not None else 'missing'}) — fail-closed."
+                )
+            for entry in files:
+                if not isinstance(entry, dict) or not isinstance(entry.get("filename"), str):
+                    raise GateError(f"unexpected entry in {compare} files: {entry!r} — fail-closed.")
+                paths.append(entry["filename"])
+                previous = entry.get("previous_filename")
+                if isinstance(previous, str) and previous:
+                    paths.append(previous)
+            if len(files) < per_page:
+                return paths
+        raise GateError(f"{compare} exceeded 50 pages of files — refusing to guess, fail-closed.")
 
     def reviews(self, pr_number: int) -> list[Review]:
         """Every submitted review, normalized. A malformed entry is RED, not a skip."""
@@ -1007,11 +1128,19 @@ def resolve_codeowners(fetch: Callable[[str, str], str | None], base_sha: str) -
 
 @dataclass(frozen=True)
 class EventContext:
-    """The pull-request facts the gate needs, from the Actions event payload."""
+    """The pull-request facts the gate needs, from the Actions event payload.
+
+    `base_sha` is the PR's RECORDED (possibly weeks-stale) base commit — used ONLY to resolve
+    CODEOWNERS (Decision 1). `base_ref` is the base branch's NAME, used to resolve its CURRENT tip at
+    run start for the touched-path computation. `head_sha` is the PR's head commit. See "DESIGN
+    DECISION — touched paths are merge-base relative" in the module docstring.
+    """
 
     repo: str
     pr_number: int
     base_sha: str
+    base_ref: str
+    head_sha: str
     author_login: str
 
 
@@ -1039,6 +1168,9 @@ def load_event_context(event_path: Path, repo_override: str | None) -> EventCont
     number = pull_request.get("number")
     base = pull_request.get("base") or {}
     base_sha = base.get("sha") if isinstance(base, dict) else None
+    base_ref = base.get("ref") if isinstance(base, dict) else None
+    head = pull_request.get("head") or {}
+    head_sha = head.get("sha") if isinstance(head, dict) else None
     user = pull_request.get("user") or {}
     author = user.get("login") if isinstance(user, dict) else None
     repo_full = repo_override or (payload.get("repository") or {}).get("full_name")
@@ -1048,6 +1180,8 @@ def load_event_context(event_path: Path, repo_override: str | None) -> EventCont
         for name, value in (
             ("pull_request.number", number),
             ("pull_request.base.sha", base_sha),
+            ("pull_request.base.ref", base_ref),
+            ("pull_request.head.sha", head_sha),
             ("pull_request.user.login", author),
             ("repository.full_name", repo_full),
         )
@@ -1060,6 +1194,8 @@ def load_event_context(event_path: Path, repo_override: str | None) -> EventCont
         repo=str(repo_full),
         pr_number=int(number),  # type: ignore[arg-type]
         base_sha=str(base_sha),
+        base_ref=str(base_ref),
+        head_sha=str(head_sha),
         author_login=str(author),
     )
 
@@ -1154,10 +1290,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         source, codeowners_text = resolve_codeowners(api.file_at, context.base_sha)
+
+        # Touched paths are computed relative to the base branch's CURRENT tip, resolved ONCE here,
+        # never from the PR's (possibly weeks-stale) recorded `base.sha`. See "DESIGN DECISION —
+        # touched paths are merge-base relative" in the module docstring — the fix for defect #254
+        # (CI run 33766180283: a stale base.sha made 266 unrelated paths look "touched", 3 falsely
+        # "owned", on a PR that only changed 2 files). Decision 1 (CODEOWNERS content) is unaffected:
+        # that still reads `context.base_sha` above, unchanged.
+        current_base_tip = api.branch_tip(context.base_ref)
+        print(
+            f"[{GATE_NAME}] base {context.base_ref!r} current tip resolved once at run start: "
+            f"{current_base_tip} (PR's recorded base.sha, used only for CODEOWNERS: {context.base_sha})"
+        )
+        touched_paths_source = (
+            f"compare {current_base_tip[:12]}...{context.head_sha[:12]} (merge-base, three-dot; base "
+            f"branch {context.base_ref!r} resolved to its current tip at run start)"
+        )
+
         decision = decide(
             codeowners_text=codeowners_text,
             codeowners_source=source,
-            changed_paths=api.changed_paths(pr_number),
+            changed_paths=api.changed_paths(current_base_tip, context.head_sha),
+            touched_paths_source=touched_paths_source,
             reviews=api.reviews(pr_number),
             author_login=context.author_login,
             membership=api.membership,
