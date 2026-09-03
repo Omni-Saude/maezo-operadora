@@ -19,13 +19,13 @@ type:
 	uv run mypy
 
 test:             ## unit + invariantes de arquitetura (rapido, sem engine)
-	uv run pytest tests/ -q
+	uv run python -m pytest tests/ -q
 
 test-integration: ## contra engine real (docker compose up antes)
-	uv run pytest tests/integration -q -m integration
+	uv run python -m pytest tests/integration -q -m integration
 
 evals:            ## golden datasets por agente (gate de promocao de prompt/modelo)
-	uv run pytest tests/evals -q -m eval || [ $$? -eq 5 ]  # exit 5 = nenhum eval coletado ainda (scaffold); vira erro quando o 1o golden dataset entrar
+	uv run python -m pytest tests/evals -q -m eval || [ $$? -eq 5 ]  # exit 5 = nenhum eval coletado ainda (scaffold); vira erro quando o 1o golden dataset entrar
 
 validate-artifacts: ## BPMN/DMN/policies/agent-definitions (blocker de CI)
 	# T2.1: validate_artifacts() is now a real, fail-closed gate (XML/YAML parsing,
