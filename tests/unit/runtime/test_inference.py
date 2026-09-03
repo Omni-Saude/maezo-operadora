@@ -3,6 +3,18 @@
 All SDK calls are mocked at the SDK boundary (``anthropic.AsyncAnthropic``
 construction + ``messages.create``) — no network I/O. Live-API coverage
 (when a real key is present) lives in ``test_inference_live.py``.
+
+D2-02 SPLIT NOTE (docs/reports/inference-split-plan.md §5 step 6): the metering tests below
+patch ``"maezo.runtime._inference_split.providers.logger"``, not
+``"maezo.runtime.inference.logger"``. A ``structlog`` call inside a function resolves the free
+variable ``logger`` from that FUNCTION's own defining module's globals (Python's normal LEGB
+lookup, unaffected by where the function is later imported/re-exported from) — since
+``AnthropicInferenceProvider``/``_emit_llm_token_usage`` physically moved to ``providers.py`` in
+step 6, patching ``inference.py``'s own (now separate) ``logger`` object no longer intercepts
+anything, and a mock-logger assertion would either fail loudly (as it did, reproduced live this
+session before this fix) or — worse — silently stop proving what it claims for a test that only
+asserts an event's ABSENCE. This target moves again to ``maezo.runtime.inference.providers.logger``
+at step 8, when ``_inference_split`` is promoted to the real package.
 """
 
 from __future__ import annotations
@@ -481,7 +493,7 @@ async def test_generate_with_usage_emits_structured_log_with_total(
         return_value=_fake_message(usage=_fake_usage(input_tokens=10, output_tokens=7))
     )
     mock_logger = MagicMock()
-    monkeypatch.setattr("maezo.runtime.inference.logger", mock_logger)
+    monkeypatch.setattr("maezo.runtime._inference_split.providers.logger", mock_logger)
 
     await impl.generate("hello")
 
@@ -511,7 +523,7 @@ async def test_generate_prefers_response_model_over_configured_model(
         )
     )
     mock_logger = MagicMock()
-    monkeypatch.setattr("maezo.runtime.inference.logger", mock_logger)
+    monkeypatch.setattr("maezo.runtime._inference_split.providers.logger", mock_logger)
 
     await impl.generate("hello")
 
@@ -534,7 +546,7 @@ async def test_generate_without_usage_does_not_crash_and_emits_nothing(
     impl = AnthropicInferenceProvider(model="claude-opus-4-8")
     impl._client.messages.create = AsyncMock(return_value=_fake_message("hi there"))  # type: ignore[method-assign]
     mock_logger = MagicMock()
-    monkeypatch.setattr("maezo.runtime.inference.logger", mock_logger)
+    monkeypatch.setattr("maezo.runtime._inference_split.providers.logger", mock_logger)
 
     collector = MetricsCollector()
     with patch("maezo.platform.observability._get_metrics_collector", return_value=collector):
@@ -630,7 +642,7 @@ async def test_generate_passes_through_correlation_ids_when_supplied(
         return_value=_fake_message(usage=_fake_usage())
     )
     mock_logger = MagicMock()
-    monkeypatch.setattr("maezo.runtime.inference.logger", mock_logger)
+    monkeypatch.setattr("maezo.runtime._inference_split.providers.logger", mock_logger)
 
     await impl.generate("hello", agent_id="helena", tenant_id="tenant-amh")
 
@@ -667,7 +679,7 @@ async def test_llm_token_usage_event_field_set_is_pinned(monkeypatch: pytest.Mon
         return_value=_fake_message(usage=_fake_usage(input_tokens=10, output_tokens=7))
     )
     mock_logger = MagicMock()
-    monkeypatch.setattr("maezo.runtime.inference.logger", mock_logger)
+    monkeypatch.setattr("maezo.runtime._inference_split.providers.logger", mock_logger)
 
     await impl.generate("hello", agent_id="helena", tenant_id="tenant-amh")
 
@@ -693,7 +705,7 @@ async def test_noop_and_phi_zone_mock_providers_emit_no_metering(monkeypatch: py
     from maezo.runtime.metrics import MetricsCollector
 
     mock_logger = MagicMock()
-    monkeypatch.setattr("maezo.runtime.inference.logger", mock_logger)
+    monkeypatch.setattr("maezo.runtime._inference_split.providers.logger", mock_logger)
     collector = MetricsCollector()
 
     with patch("maezo.platform.observability._get_metrics_collector", return_value=collector):
@@ -715,7 +727,7 @@ async def test_generate_correlation_ids_default_to_none(monkeypatch: pytest.Monk
         return_value=_fake_message(usage=_fake_usage())
     )
     mock_logger = MagicMock()
-    monkeypatch.setattr("maezo.runtime.inference.logger", mock_logger)
+    monkeypatch.setattr("maezo.runtime._inference_split.providers.logger", mock_logger)
 
     await impl.generate("hello")
 
