@@ -117,3 +117,89 @@ Mudancas exatas:
 ## Supersedes
 
 — (Concretiza o seam duravel que ADR-0003/DL-0014 anteciparam para os drivers; reusa o padrao Postgres de `a2a/idempotency.py` sem reusar a classe A2A — protocolos distintos. Resolve o deferral DL-0025 `res-resume-idempotency-durable`. ADR-0023 esta alocada para a politica de merge/union-green do programa predeploy.)
+
+---
+
+## Emenda 2026-09-03 — o `PostgresDedupeStore` nunca existiu e o SUJEITO da ADR foi removido (GAP AF-02)
+
+**Status:** Proposto (amendment) — DRAFT/verify · **Data:** 2026-09-03 · **Autor:** `adr-reconciler` (R1, AGENTE)
+**Marcadores:** `amended-by`: esta Emenda 2026-09-03 (WP-ADR-RECONCILIACAO, GAP AF-02) · `obsolete-section`: Contexto §"Fatos verificados" 1-3 + Decisao 2, 3 e 5 + "Fiacao + recomendacao GO/DEFER" 1-4
+**Base de verificacao:** worktree em `71dd4da` (branch `fix/adr-reconciliacao-emendas`).
+
+> APPEND-ONLY. Nenhuma linha do texto original acima foi alterada ou removida — a decisao de 2026-07-04
+> continua sendo o registro do que foi decidido naquela data. Um AGENTE nao ratifica nada: enquanto este
+> bloco carregar `DRAFT/verify`, ele e um fato reconciliado com o codigo, nao uma decisao ratificada.
+> Assinatura humana pendente (`.github/CODEOWNERS:61` — `/docs/adr/` e dono-gated).
+
+### 1. O que a ADR afirma
+
+1. `:44` (Decisao 2) — "Introduzimos um store novo e pequeno `PostgresDedupeStore` que implementa
+   `IdempotencyGuard` DIRETAMENTE".
+2. `:46` (Decisao 3) — "Nova migracao `0008_driver_idempotency` (down_revision `0007_audit_chain_partitioning`
+   — a ultima)".
+3. `:62` (Decisao 5) — "Fiacao nos dois sitios (`service.py:807` inbound, `:855` resume)".
+4. `:7-12` (Contexto) — o sujeito da ADR sao os dois drivers Kafka->grafo `InboundDriver`/`ResumeDriver`,
+   consumindo o seam `IdempotencyGuard` (`runtime/inbound_driver.py:114`) com `InMemoryIdempotencyStore()`.
+5. `:22` (Contexto, fato 3) — "`RedisIdempotencyStore` (`platform/webhooks/whatsapp/idempotency.py:55`)".
+
+### 2. O que e verdade hoje
+
+**(a) A classe nunca existiu, em nenhum ponto da historia deste repo.**
+
+- `grep -rn PostgresDedupeStore src/` -> 0 linhas; `grep -rn --include='*.py' PostgresDedupeStore .` -> 0.
+- `git log --all -S PostgresDedupeStore --oneline -- src/` -> 0 commits.
+
+**(b) A tabela existe, mas na migracao 0003 — nao na 0008 — e o `down_revision` citado nomeia uma revisao
+inexistente.**
+
+- `driver_idempotency` e criada em `src/maezo/platform/migrations/versions/0003_a2a_idempotency.py:58-72`,
+  e o comentario `:58` credita explicitamente esta ADR ("driver_idempotency — InboundDriver/ResumeDriver
+  dedup (ADR-0024)").
+- A migracao `0008` real e `0008_a2a_fact_outbox.py` (`revision: "0008"`, `:120-121`) — outro assunto.
+- Os identificadores de revisao deste repo sao numericos nus (`grep -n '^revision' .../versions/*.py` ->
+  `"0001"`..`"0008"`). Nao existe, nem nunca existiu, `0007_audit_chain_partitioning`: a `0007` real e
+  `0007_amh_inbox.py:113-114`.
+
+**(c) O SUJEITO da ADR foi REMOVIDO do codigo — os dois drivers nao existem mais.**
+
+- `src/maezo/runtime/inbound_driver.py` NAO EXISTE (`ls src/maezo/runtime/` -> `__init__.py`,
+  `agent_runtime/`, `checkpoint.py`, `harness.py`, `inference.py`, `metrics.py`, `prompt_format.py`,
+  `worker_runtime/`).
+- `grep -rn 'class InboundDriver\|class ResumeDriver\|IdempotencyGuard\|InMemoryIdempotencyStore' src/
+  --include='*.py'` -> 0 linhas.
+- `platform/webhooks/whatsapp/idempotency.py` (o `RedisIdempotencyStore` do Contexto fato 3) tambem nao
+  existe mais.
+- O caminho inbound hoje e dispatch IN-PROCESS do webhook:
+  `src/maezo/platform/webhooks/whatsapp/dispatch.py:161` (`async def dispatch`).
+
+**(d) `driver_idempotency` e hoje uma tabela ORFA.** Fora das proprias migracoes, a unica referencia em
+`src/` e o inventario de retencao LGPD `src/maezo/platform/lifecycle/erasure_plan.py:415-420` — que ja a
+classifica `SEM_COLUNA_DE_TITULAR` (`:420`). Nenhum dedup a le ou escreve.
+
+**(e) Residuo documental: dois documentos afirmam uma entrega que nao existe.**
+
+- `docs/archive/predeploy-dl-rows-STAGED.md:6` (DL-0028): "Slice landou como PR #181 (T3-verificado ...)".
+- `docs/reports/predeploy-audit-report.md:317`: "ADR-0024 ... -> PR #181, T3-PASS. New `PostgresDedupeStore`
+  ... + migration `0008_driver_idempotency` + wiring at both ... call sites."
+- O PR #181 real deste repo e `03c6437` — "Item 9 wave-2: pagto bucket-1 (12/12) + ADR-0030 guard migration
+  (nip/programa) (#181)" — conteudo nao relacionado. Ambos os documentos recebem, nesta mesma leva, uma
+  NOTA DE CORRECAO in-loco (append-only, sem apagar o texto original).
+
+### 3. Consequencia
+
+1. **Decisao 2, 3 e 5 sao `obsolete-section`.** Nao ha o que implementar como escrito: a interface alvo
+   (`IdempotencyGuard`), os dois call sites (`service.py:807`/`:855`) e a numeracao de migracao prescrita
+   nao existem mais. Reabrir esta ADR "como esta" produziria codigo sem consumidor.
+2. **O PROBLEMA de DL-0014 nao esta provado fechado — mudou de forma.** O risco original (re-entrega
+   at-least-once do Kafka re-dirigindo o grafo) desapareceu com os drivers; o risco equivalente no
+   desenho atual e a re-entrega HTTP do webhook da Meta. Nesta reconciliacao NAO foi encontrado nenhum
+   dedup por `message_id` no caminho inbound:
+   `grep -rniE 'idempot|dedup|wamid' src/maezo/platform/webhooks/ --include='*.py'` -> 2 linhas, ambas
+   nao relacionadas (`service.py:100`, `:297`); o `message_id` e capturado
+   (`dispatch.py:65`, `:94`, `:231`) mas nao e usado como chave de dedup. A idempotencia que existe hoje
+   e a de INICIO DE PROCESSO (`start_process_idempotent`, business key) e a continuidade de thread do
+   checkpointer — nenhuma das duas e um dedup por mensagem. **Isto e um item de DECISAO DO DONO
+   (`OWNER-DECISIONS.md`), nao uma correcao de documentacao**, e esta fora do escopo deste WP.
+3. **A tabela orfa `driver_idempotency` fica registrada como tal.** Remover, reaproveitar ou manter e
+   decisao do dono; ate la, `erasure_plan.py:415-420` continua sendo a unica coisa que a conhece.
+4. Nenhum comportamento de runtime muda com esta emenda: ela e documental.
