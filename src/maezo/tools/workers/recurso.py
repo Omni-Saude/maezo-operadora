@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.tools.workers.base import FunctionWorker, pick_fields
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import WorkerBpmnError
@@ -744,9 +745,14 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "glosa_type": input_data.glosa_type,
         }
         # best_effort=False — see factory docstring (no boundary declared -> raw propagate).
-        await kafka.publish(
-            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-        )
+        # GAP-SC-04-a: the partition key comes from the ONE shared chain (task business key ->
+        # payload anchors -> `{tenant}|{process_instance_id}`), never from `task.business_key or
+        # None` — that idiom degraded a blank business key into an UNKEYED publish, i.e.
+        # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
+        # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
+        # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         return result
 
     return handler
@@ -820,7 +826,9 @@ def make_escalate_ans_timeout_handler(kafka: KafkaPublisher | None) -> TaskHandl
             "glosa_id": input_data.glosa_id,
             "glosa_type": input_data.glosa_type,
         }
-        await kafka.publish(event_topic, payload, key=task.business_key or None)
+        # GAP-SC-04-a partition key — see the shared chain in `partition_key.py`.
+        message_key = partition_key_for_task(task, event_topic, payload)
+        await kafka.publish(event_topic, payload, key=message_key)
         return result
 
     return handler
@@ -908,9 +916,14 @@ def make_submit_appeal_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "protocolo_recurso": result["protocolo_recurso"],
         }
         # best_effort=False — see factory docstring (no boundary declared -> raw propagate).
-        await kafka.publish(
-            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-        )
+        # GAP-SC-04-a: the partition key comes from the ONE shared chain (task business key ->
+        # payload anchors -> `{tenant}|{process_instance_id}`), never from `task.business_key or
+        # None` — that idiom degraded a blank business key into an UNKEYED publish, i.e.
+        # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
+        # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
+        # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         return result
 
     return handler
@@ -969,7 +982,9 @@ def make_track_status_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         # publish re-fires EVERY P5D `ICE_AguardarResposta` loop iteration, so a swallowed broker
         # failure self-heals on the next tick; forcing fail-closed would incident an advisory
         # re-tick. Deliberately NOT best_effort=False — pinned by test_recurso.py.
-        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+        # GAP-SC-04-a partition key — see the shared chain in `partition_key.py`.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key)
         return result
 
     return handler

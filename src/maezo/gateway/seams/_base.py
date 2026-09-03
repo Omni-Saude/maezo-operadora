@@ -347,6 +347,29 @@ async def _pre_effect_audit(seam: SeamContext, decision: EffectDecision, operati
         raise denial_for(decision)
 
 
+def _count_tool_call(operation: str) -> None:
+    """Increment `maezo_tool_calls_total` for ONE gated invocation. Never raises onto the effect path.
+
+    ALERTS-WITHOUT-METRICS-a: `deploy/observability/alert-rules.yml:36-52`'s
+    `MaezoSLAAgentErrorRateHigh` divides `maezo_agent_errors_total` by this counter, and NOTHING in
+    `src/` incremented either of them — the alert could not fire, in any deployment, ever. This is
+    the tool-call half of the repair, placed in `gate` because that is the ONE function every gated
+    seam calls exactly once per invocation; a seam that skipped the counter would also have skipped
+    the decision, so coverage is structural rather than a convention.
+
+    The local import mirrors the module's own discipline of keeping `maezo.gateway`'s policy core
+    free of import-time coupling to the observability stack (`effect_pep.py`'s note on
+    `maezo.tools`), and the broad guard mirrors `_emit`'s: telemetry never reaches a care path.
+    Proof: `tests/unit/platform/test_alert_metrics_fence.py::test_gate_counts_a_tool_call`.
+    """
+    try:
+        from maezo.platform.observability import record_tool_call  # noqa: PLC0415 — lazy
+
+        record_tool_call()
+    except Exception:  # noqa: BLE001 — a metric error must never break an effect call.
+        logger.debug("effect_seam_tool_call_metric_failed", operation=operation, exc_info=True)
+
+
 async def gate(
     seam: SeamContext,
     operation: str,
@@ -365,7 +388,12 @@ async def gate(
         operation: a catalogue token (`effect_classes.OPERATIONS`). Unknown => L-0 DENY.
         process_key: `SP-OP-*` for the engine start only; a bounded, non-PHI ADR-0016 shape.
         value_cents: the ceiling leg's number. No catalogued operation declares a teto today.
+
+    Also increments `maezo_tool_calls_total` (ALERTS-WITHOUT-METRICS-a) BEFORE deciding, so a
+    denied call still counts as an attempted invocation — the alert's denominator is "tool calls
+    the agents made", not "tool calls the policy allowed".
     """
+    _count_tool_call(operation)
     decision = decide_effect(
         tenant=seam.tenant,
         principal=seam.principal,

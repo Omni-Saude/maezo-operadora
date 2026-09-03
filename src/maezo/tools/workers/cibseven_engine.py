@@ -93,10 +93,13 @@ class FreshClientCibSevenTransport:
 
     async def find_any_instance(self, business_key: str, *, process_key: str = "") -> ProcessInstance | None:
         """`HistoryQueryingTransport` delegation — a decorator that DROPPED this capability would
-        silently downgrade any strict start routed through the worker daemon into a fail-closed
-        refusal (`StartDedupGateUnavailableError`), because `start_process_idempotent` probes the
-        OUTER transport. Production's inner is always `CibSevenHttpTransport`, which implements it;
-        a test `transport_factory` injecting a history-blind double raises here rather than
+        turn any GATED start routed through the worker daemon into a fail-closed refusal
+        (`StartDedupGateUnavailableError`), because `start_process_idempotent` probes the OUTER
+        transport. NOT hypothetical since GAP-D3-02: the two CANCEL-001 starts this daemon owns
+        (`inadimplencia.handoff_rescisao`, `fraude.start_contratual`) target an `EXCLUSIVE` family,
+        so this delegation is now load-bearing for a live path rather than a future one.
+        Production's inner is always `CibSevenHttpTransport`, which implements it; a test
+        `transport_factory` injecting a history-blind double raises here rather than
         `AttributeError`-ing mid-gate."""
         inner = self._new_transport()
         try:

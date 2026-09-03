@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
 from maezo.tools.workers.adequacao_shadow import record_shadow_divergence
 from maezo.tools.workers.base import FunctionWorker, non_blank
@@ -746,11 +747,17 @@ def update_monitoring_plan(variables: dict[str, Any]) -> dict[str, Any]:
 _UPDATE_MONITORING_PLAN_NOTIFICATION_TYPE = "adequacao.update_monitoring_plan"
 
 
-# GK-adequacao finding 3 (divulgacao): mover `update_monitoring_plan` de `FunctionWorker`
-# para raw handler contorna `WorkerBase.run`, entao as metricas M11 POR WORKER
-# (`record_worker_execution`/`record_worker_error`) deixam de ser emitidas para este topico.
-# O `_emit_worker_task_outcome` do harness continua disparando. Mesmo trade-off ja aceito e
-# divulgado em programa.py para os seus 4 raw handlers.
+# GK-adequacao finding 3 (divulgacao) — CORRIGIDO em WORKER-METRICS-COVERAGE (2026-09-03).
+# ERA: "mover `update_monitoring_plan` de `FunctionWorker` para raw handler contorna
+# `WorkerBase.run`, entao as metricas M11 POR WORKER (`record_worker_execution`/
+# `record_worker_error`) deixam de ser emitidas para este topico". Era verdade e nao e' mais:
+# `WorkerHarness._handle` passou a emitir as MESMAS duas metricas, com os mesmos rotulos
+# `{worker,topic}`/`{worker,topic,error_type}`, para todo topico que NAO e' servido por um
+# `WorkerBase` — o rotulo `worker` aqui e' `adequacao.make_update_monitoring_plan_handler`
+# (`harness.derive_handler_name`). O `_emit_worker_task_outcome` continua disparando como antes.
+# Diferenca de semantica divulgada em `harness._emit_raw_handler_worker_metrics`: o harness mede
+# o despacho inteiro e conta um erro por TAREFA; `WorkerBase.run` mede so' o corpo do `execute`
+# e conta um erro por TENTATIVA.
 def make_update_monitoring_plan_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     """Raw-handler factory for `operadora.adequacao.update_monitoring_plan` (serves
     `ST_UpdateMonitoringPlanL3`).
@@ -787,9 +794,14 @@ def make_update_monitoring_plan_handler(kafka: KafkaPublisher | None) -> TaskHan
             "gap_adequacao": result.get("gap_adequacao", ""),
         }
         # best_effort=False — see factory docstring (no boundary declared -> raw propagate).
-        await kafka.publish(
-            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-        )
+        # GAP-SC-04-a: the partition key comes from the ONE shared chain (task business key ->
+        # payload anchors -> `{tenant}|{process_instance_id}`), never from `task.business_key or
+        # None` — that idiom degraded a blank business key into an UNKEYED publish, i.e.
+        # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
+        # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
+        # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         return result
 
     return handler
