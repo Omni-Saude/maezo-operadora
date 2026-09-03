@@ -45,10 +45,15 @@ pseudonimizado `bnf-teste-0001`, tenant `amh`, CPF de teste em faixa invalida
 ### test_pagar_parcial_exige_valor_liberado
 - **Given** `UT_AnalistaContas` aberta
 - **When** completar com `decisao_contas=PAGAR_PARCIAL` e todos os campos de glosa, mas **sem**
-  `valor_liberado_brl`
+  `valor_liberado_brl` — ou com ele **`<= 0`** (`0.0`, `"0"`, `"0,00"`, negativo)
 - **Then** o worker `registrar_glosa` recusa (`ERR_CONTAS_GLOSA_NOT_HUMAN`). Uma reducao declara as
   duas metades: sem o valor liberado o demonstrativo nao fecha `apresentado = liberado + glosa` e o
-  handoff de pagamento nao tem valor.
+  handoff de pagamento nao tem valor. **`> 0`, nao `>= 0`:** um "parcial" que libera R$ 0,00 e,
+  materialmente, um `GLOSAR` integral — aceita-lo registrava o efeito adverso, emitia ao prestador um
+  demonstrativo de "pagamento parcial" que nao paga nada, e depois travava a instancia em
+  `ST_HandoffPagamentoParcial`, que recusa `<= 0`. Controle negativo emparelhado
+  (`test_registrar_glosa_pagar_parcial_aceita_valor_liberado_positivo`) para que a recusa nao valha
+  por construcao.
 
 ### test_glosa_tecnica_roteia_para_humano_nao_glosa
 - **Given** start com `categoria_normalizada=tecnica` (glosa tecnica/formatacao)
@@ -110,6 +115,19 @@ pseudonimizado `bnf-teste-0001`, tenant `amh`, CPF de teste em faixa invalida
   `HistoryQueryingTransport` e recusa sem eles — um handoff mal-cabeado falha, nunca paga duas vezes.
 
 ## Happy paths
+
+### test_lote_sem_data_vencimento_nao_gera_ordem_de_pagamento
+*(NOVO — par negativo do happy path integral.)*
+- **Given** lote sem `data_vencimento` (o campo que o intake `operadora.contas.identify_glosa` ecoa
+  do lote/termo contratual e **nunca** defaulta), na perna AUTOMATICA — a mais perigosa, porque nada
+  nela e humano
+- **When** a instancia chega a `ST_HandoffPagamentoAuto` (asserido: sem chegar la a prova valeria por
+  construcao)
+- **Then** `ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`: **nenhuma** instancia PAGTO sob
+  `PAGTO-amh-{lote}-{prestador_id}`, nenhum `contas.completed`, `End_ContaAprovadaIntegral` NAO
+  alcancado, e um **incidente aberto** no engine — a recusa e visivel, nunca um no-op silencioso. Um
+  vencimento inventado seria um prazo falso lido pelo revisor de `UT_AnaliseAdmissibilidade` como se
+  viesse do termo contratual (ADR-0040 OQ-2).
 
 ### test_happy_path_pagamento_integral
 *(RESCRITO de `test_happy_path_sem_glosa`.)*
@@ -218,10 +236,15 @@ propria glosa.)*
   ADR-0040**), com a fonte registrada em `sla.fonte_regulatoria` = prazo contratual + RN 501/2022
   (valor DRAFT/verify; a atribuicao a RN 424/2017 foi retirada).
 
-## DMN — shape e fail-safe
+## DMN/BPMN — shape e fail-safe (gate UNITARIO, `tests/unit/spec/test_sp_op_contas_001_artefatos.py`)
+
+> Estas asercoes nao precisam de engine e **sairam** de `tests/integration/processes/` para
+> `tests/unit/spec/`: o modulo de integracao carrega `pytestmark = pytest.mark.integration`, entao
+> `make test` as DESELECIONAVA — foi por isso que a asercao de dominio da `glosa_triage` ficou
+> afirmando o vocabulario antigo sem ninguem ver.
 
 ### test_glosa_triage_sem_saida_de_glosa
-*(RENOMEADO de `test_glosa_triage_sem_saida_de_aceite`.)*
+*(RENOMEADO de `test_glosa_triage_sem_saida_de_aceite`; movido para o gate unitario.)*
 - **Given** a definicao da DMN `glosa_triage`
 - **Then** o dominio de `roteamento` e exatamente `{PAGAR, ANALISE_HUMANA}` — **nenhum valor que
   glose**; e existe row catch-all → `ANALISE_HUMANA`. Na perspectiva do pagador o adverso E a
@@ -232,6 +255,21 @@ propria glosa.)*
   `glosa_triage`, `contas_sla`)
 - **Then** todo `typeRef` ∈ {string, boolean, integer, long, double, date}; nenhuma coluna usa
   `"number"`; valores BRL sao `double`; prazos sao string ISO. (gate `validate-artifacts`)
+
+### test_variaveis_de_decisao_humana_sao_inicializadas_no_primeiro_service_task
+*(NOVO.)*
+- **Given** o BPMN de SP-OP-CONTAS-001
+- **Then** `decisao_contas` e inicializada com `${""}` em `ST_PublishReceived`. Sem isso o CIB Seven
+  2.1.0 avalia as `conditionExpression` de `GW_DecisaoContas` ANTES do `default` e lanca
+  `Cannot resolve identifier` (HTTP 500 no complete da User Task): o caso «decisao AUSENTE» que
+  `End_ErrContasDecisaoInvalida` declara cobrir deixava a instancia PARADA na UT.
+
+### test_toda_variavel_lida_por_gateway_decisorio_esta_inicializada
+*(NOVO — fecha a CLASSE.)*
+- **Then** todo identificador lido por uma `conditionExpression` de `GW_DecisaoContas` esta
+  inicializado em `ST_PublishReceived`; o valor inicializado (`""`) nao casa com nenhuma rota de
+  acao (senao a inicializacao criaria um ato por omissao); e `GW_DecisaoContas` continua tendo
+  `default=Flow_GWDec_Invalida` (controle de nao-vacuidade).
 
 ## Idempotencia
 

@@ -31,18 +31,20 @@
 # the W3 finding: a PERMISSIVE rule sits at position 1 and its condition is a NEGATIVE set, so it
 # preempts the conservative fail-safe the table itself declares.
 #
-# `r_sem_glosa` (glosa_triage.dmn:53-62) is row 1 under `hitPolicy="FIRST"` (:35) and gates
-# `categoria_normalizada` on `not("tecnica","clinica")` (:56). A negative set admits EVERY literal
+# `r_pagar` (glosa_triage.dmn:61-70; named `r_sem_glosa` before ADR-0040) is row 1 under
+# `hitPolicy="FIRST"` (:43) and gates `categoria_normalizada` on `not("tecnica","clinica")`
+# (:64). A negative set admits EVERY literal
 # outside those two — including `"desconhecida"`, which is precisely the value the UPSTREAM table
 # emits for an unmapped TISS reason code, and which that table's own description declares must go
 # to a human:
 #
-#   glosa_reason_normalization.dmn:13-15 — "Codigo desconhecido -> categoria_normalizada=
-#   'desconhecida' (rota conservadora a humano A JUSANTE NA GLOSA_TRIAGE, nunca aceite automatico)"
+#   glosa_reason_normalization.dmn:14-16 — "Codigo desconhecido -> categoria_normalizada=
+#   'desconhecida' (rota conservadora a humano a jusante na glosa_triage, nunca desfecho
+#   automatico adverso)"
 #
 # The live `glosa_triage` does not honour that declaration. And `glosa_triage`'s OWN catch-all says
-# the same thing in its own words: "Catch-all FAIL-SAFE: qualquer ambiguidade/inelegibilidade/
-# CATEGORIA DESCONHECIDA -> analise humana. NUNCA aceite." (:94) — a fail-safe that `r_sem_glosa`
+# the same thing in its own words: "Catch-all FAIL-SAFE: qualquer ambiguidade/categoria
+# desconhecida -> analise humana. NUNCA glosa automatica." (:102) — a fail-safe that `r_pagar`
 # makes unreachable for the whole {conforme=true, divergencia=false, docs=true} subspace.
 #
 # GOVERNING SOURCE: this file cites NO external norm and INVENTS NO value. Its entire basis is the
@@ -106,7 +108,7 @@
 #    "not ratified" (tests/support/dmn_first_hit.py::load_candidate_ratification).
 #
 # 2. The OWNER applies `regras_candidatas` to the LIVE TABLE `spec/processes/dmn/glosa_triage.dmn`
-#    (rule order + the `categoria_normalizada` column of `r_sem_glosa`). PER ADR-0028 (:214-216)
+#    (rule order + the `categoria_normalizada` column of `r_pagar`). PER ADR-0028 (:214-216)
 #    THE LIVE-TABLE EDIT ITSELF IS THE OWNER'S ACT. It is a spec DATA change: no Python changes, no
 #    worker redeploy.
 #
@@ -160,8 +162,8 @@ modo_operacao: sombra
 # =================================================================================================
 # THE DEFECT, STATED AS A REACHABILITY FACT ABOUT THE LIVE TABLE
 # =================================================================================================
-# Read directly off spec/processes/dmn/glosa_triage.dmn (hitPolicy=FIRST, :35). Columns, in
-# declaration order (:36-50): tipo_item / categoria_normalizada / item_conforme_tabela /
+# Read directly off spec/processes/dmn/glosa_triage.dmn (hitPolicy=FIRST, :43). Columns, in
+# declaration order (:44-58): tipo_item / categoria_normalizada / item_conforme_tabela /
 # divergencia_valor / documentacao_anexa. Live rules in evaluation order:
 #
 #   1 r_pagar             cat not("tecnica","clinica") AND conforme=true AND
@@ -209,7 +211,7 @@ achados_adicionais:
     regras_afetadas: glosa_reason_normalization.r_catchall vs glosa_triage.r_pagar (row 1)
     classe: declaracao a montante que a tabela a jusante nao honra
     achado: >-
-      `glosa_reason_normalization` declara, na sua propria descricao (:13-15), que
+      `glosa_reason_normalization` declara, na sua propria descricao (:14-16), que
       `categoria_normalizada="desconhecida"` e uma "rota conservadora a humano A JUSANTE NA
       GLOSA_TRIAGE, nunca desfecho automatico adverso". A glosa_triage viva quebra essa
       declaracao: para {conforme=true, divergencia=false, docs=true} ela devolve PAGAR, que no BPMN
@@ -231,7 +233,7 @@ achados_adicionais:
       negocio. FINDING, NAO FIX.
 
   - id: ACHADO-4-documental-administrativa-com-anexos
-    regras_afetadas: r_documental_humano (:73-82) e r_sem_glosa (:53-62)
+    regras_afetadas: r_documental_humano (:81-90) e r_pagar (:61-70)
     classe: complemento nao declarado de uma regra especifica
     achado: >-
       `r_documental_humano` cobre {documental, administrativa} SOMENTE com `documentacao_anexa=false`.
@@ -252,14 +254,14 @@ achados_adicionais:
       pergunta que a fila de revisao ja enderecou ao dono. DECISAO DO DONO, nao da engenharia.
 
   - id: ACHADO-5-catchall-tem-duas-populacoes
-    regra_afetada: r_catchall (:93-102)
+    regra_afetada: r_catchall (:101-109)
     classe: fail-safe que so e alcancado por acidente de ordem
     achado: >-
       A descricao do catch-all promete cobrir duas coisas distintas: ambiguidade e categoria
       desconhecida. Hoje ele so recebe a PRIMEIRA delas de forma confiavel (combinacoes que nenhuma
       regra especifica cobre, como cat="valor" com divergencia=true e docs=false). A segunda —
       categoria desconhecida — e capturada antes por `r_pagar` sempre que os tres booleanos sao
-      favoraveis. O candidato devolve a terceira
+      favoraveis. O candidato devolve essa SEGUNDA
       populacao ao catch-all; a glosa de merito clinico continua sem regra propria e depende de a
       categoria "clinica" (que cobre CARENCIA/EXCLUSAO_CONTRATUAL/BENEFICIARIO_INATIVO na
       glosa_reason_normalization) chegar corretamente da normalizacao.
