@@ -9,6 +9,7 @@ NOT (and cannot) cross: `AioKafkaBridgeConsumer` actually talking to a real brok
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import pytest
@@ -289,6 +290,10 @@ class _DlqPublisherSpy:
 
     def __init__(self, *, fail_with: Exception | None = None) -> None:
         self.published: list[tuple[str, bytes, bytes | None, dict[str, bytes]]] = []
+        #: The header SEQUENCE as sent, duplicates intact. `published`'s `dict()` view collapses a
+        #: repeated name onto its last value, which is exactly the distinction the forged-header
+        #: test has to make (dropped vs merely re-stated later).
+        self.header_lists: list[list[tuple[str, bytes]]] = []
         self.started = False
         self.stopped = False
         self._fail_with = fail_with
@@ -309,6 +314,7 @@ class _DlqPublisherSpy:
     ) -> None:
         if self._fail_with is not None:
             raise self._fail_with
+        self.header_lists.append(list(headers))
         self.published.append((topic, raw, key, dict(headers)))
 
 
@@ -399,13 +405,45 @@ async def test_dlq_headers_are_bounded_diagnostic_tokens_only() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_producer_forged_dlq_header_is_dropped_rather_than_carried_through() -> None:
+    """`maezo_dlq_*` is the bridge's OWN namespace on this path. Kafka header lists admit
+    duplicates and which copy a consumer keeps is consumer-dependent, so carrying a producer's
+    forged `maezo_dlq_reason` through — even placed before ours — would let a first-wins reader
+    attribute the producer's label to the bridge. Dropped; every other producer header survives."""
+    bridge, _spy = _bridge_with_spy()
+    publisher = _DlqPublisherSpy()
+    consumer = FakeBridgeKafkaConsumer(
+        [
+            BridgeMessage.from_value(
+                dict(_MALFORMED_NO_TYPE),
+                partition=1,
+                offset=7,
+                headers=(
+                    ("maezo_dlq_reason", b"forjado_pelo_produtor"),
+                    ("maezo_dlq_tenant", b"outro_tenant"),
+                    ("traceparent", b"00-abc-def-01"),
+                ),
+            )
+        ]
+    )
+    await consumer.start()
+
+    await run_consumer_loop(consumer, bridge, dlq=_shunt(publisher=publisher))
+
+    sent = publisher.header_lists[0]
+    assert [value for name, value in sent if name == "maezo_dlq_reason"] == [REASON_MISSING_TYPE.encode()], (
+        "the forged copy is GONE from the list, not merely outranked by ours"
+    )
+    assert [value for name, value in sent if name == "maezo_dlq_tenant"] == [b"amh"]
+    assert ("traceparent", b"00-abc-def-01") in sent, "non-reserved producer headers survive"
+
+
+@pytest.mark.asyncio
 async def test_audit_fact_is_phi_safe_and_content_free_beyond_a_one_way_hash() -> None:
     """The durable chain gets bounded class tokens plus a one-way `raw_sha256` — never the bytes.
     The hash is what makes the row EVIDENCE (an operator can match it to the DLQ record) without
     putting unvalidated, possibly-PHI-bearing content into the chain — the same discipline
     `build_start_audit_record` applies with its own `input_sha256`."""
-    import hashlib
-
     bridge, _spy = _bridge_with_spy()
     sink = FakeAuditSink()
     message = BridgeMessage.from_value(dict(_MALFORMED_NO_TYPE), partition=0, offset=3)
@@ -425,14 +463,14 @@ async def test_audit_fact_is_phi_safe_and_content_free_beyond_a_one_way_hash() -
     assert "no" not in record.details and "tenant_id" not in record.details
     serialized = repr(record.details)
     assert "type-field" not in serialized, "no byte of the offending payload reaches the chain"
-    assert dedup_key == f"amh:bridge_dlq:{NOTIFICATIONS_TOPIC}:0:3"
+    expected_sha = hashlib.sha256(message.raw).hexdigest()
+    assert dedup_key == f"amh:bridge_dlq:{NOTIFICATIONS_TOPIC}:0:3:{expected_sha}"
 
 
 @pytest.mark.asyncio
 async def test_redelivered_poison_message_writes_one_audit_row() -> None:
-    """The at-least-once cost of publish-then-audit, bounded: the dedup key is derived from the
-    record's BROKER COORDINATES (stable across every redelivery), so a re-shunt collapses onto one
-    chain row. Content-derived keys could not do this — the content is what failed to parse."""
+    """The at-least-once cost of publish-then-audit, bounded: the dedup key pins the record's
+    coordinates AND its bytes, so the SAME record redelivered collapses onto one chain row."""
     bridge, _spy = _bridge_with_spy()
     sink = FakeAuditSink()
     dlq = _shunt(sink=sink)
@@ -445,6 +483,66 @@ async def test_redelivered_poison_message_writes_one_audit_row() -> None:
 
     assert len(dlq.shunted) == 3, "each redelivery really did re-publish to the DLQ"
     assert len(sink.emitted) == 1, "and they converge on ONE durable audit row"
+    assert dlq.deduped_audits == [dlq.dedup_key(message)] * 2, (
+        "the two collapsed emits are OBSERVED (`emit_once_status`), not discarded — the whole "
+        "point of MAJOR-2: a shunt must never commit on a dedup outcome it cannot see"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_different_payload_at_a_reused_coordinate_writes_its_own_audit_row() -> None:
+    """MAJOR-2's root cause, pinned. Broker coordinates are REUSED after a topic recreation
+    (`docker compose down -v` in dev/CI; a DR recreate in production) while `audit_emit_dedup`
+    survives. Under a coordinates-only dedup key the NEW poison message hit the OLD claim,
+    `emit_once` no-op'd (`audit_postgres.py:317-320`), the loop committed the offset and the
+    quarantine had NO row in the chain — a silent drop with extra steps.
+
+    Same tenant, same topic, same `(partition, offset)`, DIFFERENT bytes -> TWO chain rows."""
+    bridge, _spy = _bridge_with_spy()
+    sink = FakeAuditSink()
+    dlq = _shunt(sink=sink)
+    first = BridgeMessage.from_value({"tenant_id": "amh", "sem": "tipo-1"}, partition=2, offset=0)
+    second = BridgeMessage.from_value({"tenant_id": "amh", "sem": "tipo-2"}, partition=2, offset=0)
+    assert (first.topic, first.partition, first.offset) == (second.topic, second.partition, second.offset)
+    assert first.raw != second.raw
+
+    for message in (first, second):
+        consumer = FakeBridgeKafkaConsumer([message])
+        await consumer.start()
+        await run_consumer_loop(consumer, bridge, dlq=dlq)
+
+    assert len(sink.emitted) == 2, "a NEW poison message at a reused coordinate is a NEW fact"
+    assert [key for _record, key in sink.emitted] == [dlq.dedup_key(first), dlq.dedup_key(second)]
+    assert dlq.deduped_audits == [], "neither emit was a dedup no-op"
+    assert {record.details["raw_sha256"] for record, _key in sink.emitted} == {
+        hashlib.sha256(first.raw).hexdigest(),
+        hashlib.sha256(second.raw).hexdigest(),
+    }
+
+
+def test_dedup_key_folds_the_content_hash_into_the_broker_coordinates() -> None:
+    """The shape itself, stated once: `{tenant}:bridge_dlq:{topic}:{partition}:{offset}:{sha256}`,
+    with the SAME digest `details["raw_sha256"]` carries — key and evidence name the same bytes."""
+    dlq = _shunt()
+    message = BridgeMessage.from_value(dict(_MALFORMED_NO_TYPE), partition=7, offset=13)
+
+    assert dlq.dedup_key(message) == (
+        f"amh:bridge_dlq:{NOTIFICATIONS_TOPIC}:7:13:{hashlib.sha256(message.raw).hexdigest()}"
+    )
+
+
+def test_shunt_refuses_a_sink_that_cannot_report_its_dedup_outcome() -> None:
+    """FAIL-CLOSED at CONSTRUCTION. An emit-only sink cannot tell "chain row written" from "a prior
+    claim already owned this key", so it would silently restore the defect the content-bound dedup
+    key closes. Refused where the mistake is made, not on the first poison message."""
+
+    class _EmitOnlySink:
+        async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str:
+            return "hash"
+
+    emit_only: Any = _EmitOnlySink()
+    with pytest.raises(TypeError, match="emit_once_status"):
+        BridgeDlqShunt(publisher=_DlqPublisherSpy(), audit_sink=emit_only, tenant_id="amh")
 
 
 @pytest.mark.asyncio

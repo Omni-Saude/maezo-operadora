@@ -281,8 +281,8 @@ async def test_dlq_shunt_redelivery_writes_exactly_one_audit_row(
     pg_tenant_schema: tuple[str, str],
 ) -> None:
     """The at-least-once cost of publish-then-audit, bounded against the REAL `audit_emit_dedup`
-    table: three redeliveries of the same record re-publish to the DLQ three times and converge on
-    ONE chain row, because the dedup key is the record's broker coordinates."""
+    table: three redeliveries of the SAME record re-publish to the DLQ three times and converge on
+    ONE chain row, because the dedup key pins both the record's broker coordinates and its bytes."""
     dsn, tenant_id = pg_tenant_schema
     audit_sink = PostgresAuditSink(dsn, tenant_id)
     publisher = _RecordingDlqPublisher()
@@ -301,5 +301,48 @@ async def test_dlq_shunt_redelivery_writes_exactly_one_audit_row(
         assert len(publisher.published) == 3
         rows = await _fetch_dlq_rows(dsn, tenant_id)
         assert len(rows) == 1, "a re-shunted record must not write a second audit-chain link"
+        assert len(dlq.deduped_audits) == 2, (
+            "and the two collapsed emits were OBSERVED via `emit_once_status`, not discarded"
+        )
+    finally:
+        await audit_sink.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_reused_broker_coordinate_with_new_bytes_writes_a_second_audit_row(
+    pg_tenant_schema: tuple[str, str],
+) -> None:
+    """The other half of the dedup contract, against the REAL `audit_emit_dedup` table.
+
+    Broker coordinates are NOT unique over time: deleting and recreating a topic restarts its
+    offsets at 0 while the dedup claims survive in Postgres. Under a coordinates-only dedup key
+    the second, DIFFERENT poison message hit the first one's claim, `emit_once` no-op'd, the loop
+    committed the offset and the quarantine left NO row in the chain. Same tenant, same topic,
+    same `(partition, offset)`, different bytes must produce TWO chain rows."""
+    dsn, tenant_id = pg_tenant_schema
+    audit_sink = PostgresAuditSink(dsn, tenant_id)
+    publisher = _RecordingDlqPublisher()
+    bridge = NotificationBridge(
+        cibseven_starter=build_cibseven_process_starter(FakeCibSevenTransport(), audit_sink)
+    )
+    dlq = BridgeDlqShunt(publisher=publisher, audit_sink=audit_sink, tenant_id=tenant_id)
+    antes = BridgeMessage.from_value(
+        {"tenant_id": tenant_id, "sem_tipo": "ANTES"}, topic=NOTIFICATIONS_TOPIC, partition=2, offset=0
+    )
+    depois = BridgeMessage.from_value(
+        {"tenant_id": tenant_id, "sem_tipo": "DEPOIS"}, topic=NOTIFICATIONS_TOPIC, partition=2, offset=0
+    )
+    assert antes.raw != depois.raw
+
+    try:
+        for message in (antes, depois):
+            consumer = FakeBridgeKafkaConsumer([message])
+            await consumer.start()
+            await run_consumer_loop(consumer, bridge, dlq=dlq)
+
+        assert len(publisher.published) == 2
+        assert dlq.deduped_audits == [], "neither emit may collapse onto the other's claim"
+        rows = await _fetch_dlq_rows(dsn, tenant_id)
+        assert len(rows) == 2, "a NEW poison message at a reused coordinate is a NEW ADR-0007 fact"
     finally:
         await audit_sink.aclose()

@@ -112,7 +112,7 @@ from maezo.platform.notification_bridge import (
     build_cibseven_process_starter,
 )
 from maezo.platform.topic_registry import dlq_topic_for
-from maezo.tools.mcp_cibseven.transport import AuditStartSink
+from maezo.tools.mcp_cibseven.transport import DedupReportingAuditSink
 from maezo.tools.workers.phi_vars import redact_error_message
 
 if TYPE_CHECKING:
@@ -530,6 +530,10 @@ _DLQ_AGENT_VERSION: Final[str] = "notification_bridge@v1"
 _DLQ_ACTION_PREFIX: Final[str] = "bridge_dlq"
 _DLQ_DECISION: Final[str] = "DENY"
 
+#: Reserved header-name prefix for the bridge's own quarantine annotations. A producer header
+#: carrying it is dropped rather than forwarded — see `BridgeDlqShunt._headers`.
+_DLQ_HEADER_PREFIX: Final[str] = "maezo_dlq_"
+
 #: Cap on the free-text reason carried in a DLQ header. The reason can embed a JSON parser's own
 #: message, which is derived from bytes nobody validated — bounded here, and additionally passed
 #: through `redact_error_message` (the repo's PHI-shaped-substring backstop) before it is written.
@@ -556,28 +560,75 @@ class BridgeDlqShunt:
     DLQ publish, `shunt` raises, the offset is NOT committed, and the redelivery publishes the same
     record to the DLQ a second time. That is at-least-once — the same tradeoff, for the same
     reason, that `a2a/outbox_relay.py`'s publish-then-mark order documents. The duplicate is bounded
-    and self-collapsing on the audit side: `dedup_key` is derived from
-    `{tenant}:bridge:dlq:{topic}:{partition}:{offset}`, which is identical across every redelivery,
-    so `emit_once` writes ONE chain row no matter how many times the record is re-shunted.
+    and self-collapsing on the audit side: `dedup_key` (below) is identical across every redelivery
+    OF THE SAME BYTES, so `emit_once_status` writes ONE chain row no matter how many times that
+    record is re-shunted — while a DIFFERENT record occupying the same broker coordinates gets its
+    own key and therefore its own chain row.
+
+    THE SINK MUST REPORT ITS DEDUP OUTCOME (`DedupReportingAuditSink`, not the bare
+    `AuditStartSink`). `emit_once` returns a hash on BOTH paths, so a shunt built on it cannot tell
+    "chain row written" from "a prior claim already owned this key, nothing was written" — and a
+    silent second outcome is precisely the ADR-0007 fact this class exists to guarantee. The
+    Protocol is checked in `__post_init__`, so a non-reporting sink is refused at construction
+    rather than at the first poison message.
     """
 
     publisher: BridgeDlqPublisher
-    audit_sink: AuditStartSink
+    audit_sink: DedupReportingAuditSink
     tenant_id: str
     #: Populated by `shunt` — `(dlq_topic, reason_code)` per shunted message. In-process
     #: observability/test surface only, never a durable trail (the audit chain is that).
     shunted: list[tuple[str, str]] = field(default_factory=list)
+    #: Populated by `shunt` — the `dedup_key` of every emit that hit a PRIOR claim (a redelivery
+    #: of bytes already audited). Same in-process-only status as `shunted`; the point is that the
+    #: outcome is OBSERVED rather than discarded.
+    deduped_audits: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """FAIL-CLOSED on a sink that cannot report its dedup outcome.
+
+        `isinstance` against a `runtime_checkable` Protocol (the same probe
+        `start_process_idempotent` uses for its strict families) — structural, so any sink that
+        really implements `emit_once_status` passes, and an emit-only sink is refused HERE instead
+        of degrading `shunt` back to a discarded dedup flag.
+        """
+        if not isinstance(self.audit_sink, DedupReportingAuditSink):
+            raise TypeError(
+                "BridgeDlqShunt: audit_sink must implement `emit_once_status` "
+                "(DedupReportingAuditSink) — a sink that cannot report whether the chain row was "
+                "written would make a deduped emit indistinguishable from a fresh one, i.e. a "
+                "quarantine committed with no ADR-0007 fact"
+            )
 
     def dedup_key(self, message: BridgeMessage) -> str:
-        """`{tenant}:bridge:dlq:{topic}:{partition}:{offset}` — stable across every redelivery.
+        """`{tenant}:bridge_dlq:{topic}:{partition}:{offset}:{sha256(raw)}` — the record's IDENTITY.
 
-        Derived from the record's BROKER COORDINATES, not from its content: the content is exactly
-        what could not be parsed, and a content-derived key would change with a byte the producer
-        retried differently. Mirrors `transport.start_dedup_key`'s "stable across re-delivery
-        because it is derived from the business key, not a per-call id" reasoning, with the only
-        stable identity a poison message has.
+        Broker coordinates alone are NOT an identity. They are stable across redelivery (which is
+        the property this key needs), but they are also REUSED: deleting and recreating a topic
+        restarts its offsets at 0 while `audit_emit_dedup` (migration 0005) survives, so a brand
+        new poison message can land on `(topic, partition, offset)` that an old quarantine already
+        claimed. `emit_once_status` on a claimed key writes NO second chain link
+        (`audit_postgres.py:317-320`), so a coordinates-only key would let that new message commit
+        its offset with no fact in the chain — the silent drop this class exists to prevent,
+        reachable by an ordinary operational event (`docker compose down -v` in dev/CI, a topic
+        recreation during a production DR).
+
+        Folding the content hash in fixes that at the root and keeps BOTH properties:
+
+          - same bytes at the same coordinates (a genuine redelivery) -> same key -> ONE chain row;
+          - different bytes at the same coordinates (a reused offset) -> different key -> its OWN
+            chain row.
+
+        The hash is the one `_audit_record` already computes for `details["raw_sha256"]`, so the
+        key and the durable evidence name the same bytes. The FULL digest is used, not a prefix:
+        the key is a `text` column (`0005_audit_emit_dedup.py:61`) with no length pressure, and a
+        truncation would trade a proven property for an unnecessary birthday-bound argument.
         """
-        return f"{self.tenant_id}:{_DLQ_ACTION_PREFIX}:{message.topic}:{message.partition}:{message.offset}"
+        raw_sha256 = hashlib.sha256(message.raw).hexdigest()
+        return (
+            f"{self.tenant_id}:{_DLQ_ACTION_PREFIX}:{message.topic}:"
+            f"{message.partition}:{message.offset}:{raw_sha256}"
+        )
 
     def _headers(self, message: BridgeMessage, error: MalformedBridgeMessageError) -> list[tuple[str, bytes]]:
         """DLQ headers: bounded diagnostic tokens ONLY.
@@ -585,16 +636,27 @@ class BridgeDlqShunt:
         The offending PAYLOAD is the record's value (carried verbatim, which is the point of a
         DLQ); the headers must not add anything derived from it beyond the bounded, redacted
         reason. `maezo_dlq_reason` is the closed-vocabulary code; `maezo_dlq_detail` is the
-        human-readable reason run through `redact_error_message` (PHI-shaped substrings ->
-        class tokens) and capped — the parser's message can quote a fragment of the bytes.
+        human-readable reason run through `redact_error_message` and capped — the parser's message
+        can quote a fragment of the bytes. What that backstop actually covers is narrow and stated
+        narrowly (`phi_vars.redact_error_message`): separated CPF/CNPJ digit-group shapes and any
+        run of 11+ contiguous digits -> `[REDACTED_DIGITS]`. It does NOT recognise e-mail
+        addresses, names or free-text identifiers. It is a backstop for a message shape that is
+        already bounded by construction here — `json.JSONDecodeError`/`UnicodeDecodeError` state a
+        position and a codec, not payload content — never a general-purpose PHI scrubber.
 
-        The producer's ORIGINAL headers are carried through unchanged and FIRST, so a header the
-        producer set can never overwrite one of ours (last write wins in Kafka's header list is
-        consumer-dependent, so the order is chosen rather than assumed).
+        The producer's OWN `maezo_dlq_*` headers are DROPPED and every other producer header is
+        carried through unchanged and FIRST. Dropping is what makes ours authoritative: Kafka's
+        header list admits duplicates, and which one a consumer keeps (first-wins vs last-wins) is
+        consumer-dependent — so a producer-forged `maezo_dlq_reason` preceding ours would be read
+        as the bridge's own verdict by a first-wins reader. The `maezo_dlq_` prefix is OURS on this
+        path; a producer setting it is either a mistake or an attempt to mislabel a quarantine.
         """
         detail = redact_error_message(error.reason)[:_DLQ_REASON_HEADER_MAX]
+        carried = [
+            (name, value) for name, value in message.headers if not name.startswith(_DLQ_HEADER_PREFIX)
+        ]
         return [
-            *message.headers,
+            *carried,
             ("maezo_dlq_reason", error.code.encode("utf-8")),
             ("maezo_dlq_detail", detail.encode("utf-8")),
             ("maezo_dlq_source_topic", message.topic.encode("utf-8")),
@@ -657,6 +719,17 @@ class BridgeDlqShunt:
         `dlq_topic_for` validates the SOURCE topic through the registry's own convention on this
         hot path, so a malformed source topic raises here rather than minting a valid-looking DLQ
         name — also a fail-closed outcome (no commit).
+
+        THE DEDUP OUTCOME IS OBSERVED, NEVER DISCARDED. `emit_once_status` reports whether this
+        call wrote the chain link or found a prior claim. Because `dedup_key` binds the record's
+        CONTENT to its coordinates, `deduped=True` has exactly one meaning here — these same bytes,
+        at these same coordinates, were already quarantined and already audited — which is the
+        legitimate at-least-once redelivery this order's tradeoff predicts. So it is a normal
+        return (the offset may advance: the fact exists), logged rather than swallowed. It is NOT
+        the "someone else already committed to the effect" gate `start_process_idempotent` reads
+        the same flag for: re-publishing identical bytes to a quarantine topic is idempotent by
+        nature, so refusing the commit would only stall the partition on a message whose fact is
+        already in the chain.
         """
         dlq_topic = dlq_topic_for(message.topic)
         await self.publisher.publish_dlq(
@@ -665,9 +738,21 @@ class BridgeDlqShunt:
             key=message.key,
             headers=self._headers(message, error),
         )
-        await self.audit_sink.emit_once(
-            self._audit_record(message, error, dlq_topic), dedup_key=self.dedup_key(message)
+        dedup_key = self.dedup_key(message)
+        outcome = await self.audit_sink.emit_once_status(
+            self._audit_record(message, error, dlq_topic), dedup_key=dedup_key
         )
+        if outcome.deduped:
+            self.deduped_audits.append(dedup_key)
+            logger.warning(
+                "notifications_bridge.dlq_audit_deduped",
+                dlq_topic=dlq_topic,
+                source_topic=message.topic,
+                partition=message.partition,
+                offset=message.offset,
+                reason=error.code,
+                record_hash=outcome.record_hash,
+            )
         self.shunted.append((dlq_topic, error.code))
         self._record_metric(message.topic, error.code)
         logger.warning(
@@ -801,7 +886,9 @@ def build_bridge(
     return bridge, transport, audit_sink
 
 
-def build_dlq_shunt(settings: NotificationsBridgeSettings, audit_sink: AuditStartSink) -> BridgeDlqShunt:
+def build_dlq_shunt(
+    settings: NotificationsBridgeSettings, audit_sink: DedupReportingAuditSink
+) -> BridgeDlqShunt:
     """Construct the production dead-letter shunt (GAP-SC-04-a).
 
     Takes the audit sink `build_bridge` already constructed rather than building its own — see
