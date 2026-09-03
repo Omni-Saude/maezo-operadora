@@ -130,9 +130,14 @@ Convencao `{dominio}.{contexto}.{acao}`. Kafka = fatos de dominio (`agents.event
 
 Shape engine-deployavel (§4-bis-A): `typeRef ∈ {string, boolean, integer, long, double, date}` — **`number` e invalido** (inverte o `score: number` do reference); score → `integer`; dias/SLA → string ISO 8601. Toda `decisionTable` com `hitPolicy`; toda tabela com row catch-all → caminho humano conservador. **Nenhuma DMN tem coluna de saida de acusacao/veredito/bloqueio de fraude.** `camunda:historyTimeToLive` namespaced (`P###D`) em cada `<decision>`.
 
-> **Porta INVERTIDA do scoring de referencia:** as 7 DMNs de score do reference (`upcoding_complexity_ceiling`, `unbundling_partial_bundles`, `phantom_no_diagnosis`, `phantom_suspicious_prefix`, `frequency_zscore_threshold`, `provider_peer_deviation`, `risk_thresholds`) sao portadas (copiar+adaptar+possuir aqui — ADR-0011, nunca importar) **apenas para montar `indicadores_presentes`/`score_indicadores`** dentro de `operadora.fraude.score_indicators`. O `recommendation="flag"`→`FRAUD_DETECTED` do reference e **REMOVIDO**: nenhuma dessas tabelas portadas alimenta um veredito; alimentam o dossie. `fraud_detection.dmn` (output `score: number` + `recommendation`) e `fraud_clearance.dmn` (output `BLOQUEAR`/`PROSSEGUIR`) **nao sao portadas** (sao o anti-padrao puro). O `typeRef="number"` do reference e corrigido para `integer` na portabilidade.
+> **Porta INVERTIDA do scoring de referencia:** as 7 DMNs de score do reference (`upcoding_complexity_ceiling`, `unbundling_partial_bundles`, `phantom_no_diagnosis`, `phantom_suspicious_prefix`, `frequency_zscore_threshold`, `provider_peer_deviation`, `risk_thresholds`) sao portadas (copiar+adaptar+possuir aqui — ADR-0011, nunca importar) **apenas para montar `indicadores_presentes`/`score_indicadores`** dentro de `operadora.fraude.score_indicators`. O `recommendation="flag"`→`FRAUD_DETECTED` do reference e **REMOVIDO**: nenhuma dessas tabelas portadas alimenta um veredito; alimentam o dossie. `fraud_detection.dmn` (output `score: number` + `recommendation`) e `fraud_clearance.dmn` (output `BLOQUEAR`/`PROSSEGUIR`) **nao sao portadas** (sao o anti-padrao puro). O `typeRef="number"` do reference e corrigido para `integer` na portabilidade. **GAP-PERSP-DMN-DEAD-INPUTS:** a portabilidade 1:1 trouxe do doador duas colunas DECORATIVAS — `encounter_class` em `frequency_zscore_threshold` e `tuss_codes` em `unbundling_partial_bundles` — declaradas como input e usadas como `-` em TODA row (efeito zero, e nao lidas por nenhuma saida FEEL). As duas foram REMOVIDAS: a avaliacao no motor e identica e a assinatura de cada tabela passa a declarar exatamente o que ela le. Depois disso `_SCORING_INPUT_KEYS` (`src/maezo/tools/workers/fraude.py`) e a uniao dos `inputExpression` das 7 tabelas coincidem exatamente (10 sinais). Nenhuma regra nova foi escrita: se o z-score deve variar por regime de atendimento, ou se codigos TUSS devem caracterizar desagrupamento, e conteudo de SME — registrado em `docs/review-queue.md`.
 
-### `fraude_indicadores` (hitPolicy COLLECT — DRAFT) — monta indicadores, nao acusa
+### `fraude_indicadores` (hitPolicy FIRST — DRAFT) — monta indicadores, nao acusa
+
+GAP-FAB-NOTIF fix: esta linha marcava `COLLECT`; a tabela deployada (`fraude_indicadores.dmn`,
+`hitPolicy="FIRST"`) e a real fonte de verdade — o proprio arquivo documenta o motivo do
+rebaixamento (`COLLECT` colide com `mapDecisionResult="singleResult"`+`resultVariable` no engine,
+"landmine 7"), rows ordenadas mais-intensas-primeiro, catch-all conservador na ultima linha.
 - **in:** `indicadores_presentes: json` (rotulos de regra presentes), `score_indicadores: integer`, `entidade_tipo: string`
 - **out:** `intensidade_investigacao: string` (`LEVE` | `APROFUNDADA` | `PRIORITARIA`), `motivo: string`
 - **Sem saida `ACUSAR`/`FRAUD_DETECTED`/`BLOQUEAR` por design.** Define apenas a **intensidade** da montagem de dossie/investigacao (mais evidencia a coletar, prioridade na fila), NUNCA um veredito. Score alto → `PRIORITARIA` (investiga mais), **nunca** acusacao. Catch-all → `PRIORITARIA` (conservador: na duvida, investiga mais e leva a humano).
@@ -142,7 +147,12 @@ Shape engine-deployavel (§4-bis-A): `typeRef ∈ {string, boolean, integer, lon
 - **out:** `roteamento: string` (`INVESTIGACAO_HUMANA`), `grupo_investigador: string`, `motivo: string`
 - O dominio de `roteamento` e **exatamente `{INVESTIGACAO_HUMANA}`** — **toda** instancia roteia para o humano (`UT_DecisaoInvestigador`); nao existe rota automatizada de acusacao nem de "encerrar sem humano". A DMN apenas escolhe o **grupo/tier** investigador e a prioridade. Catch-all (ultima row) → `INVESTIGACAO_HUMANA` + `grupo_investigador` mais senior (conservador). **Sem saida de acusacao.** (Espelha a postura "tudo roteia ao humano" do `nip_routing`/`glosa_triage`, levada ao limite porque fraude e 100% human-gated.)
 
-### `fraude_sla` (hitPolicy UNIQUE — DRAFT; todos os prazos DRAFT/verify)
+### `fraude_sla` (hitPolicy FIRST — DRAFT; todos os prazos DRAFT/verify)
+
+GAP-FAB-NOTIF fix: esta linha marcava `UNIQUE`; a tabela deployada (`fraude_sla.dmn`,
+`hitPolicy="FIRST"`) e a real fonte de verdade — o proprio arquivo documenta o motivo do
+rebaixamento (uma row catch-all sob `UNIQUE` colide com qualquer row especifica no engine,
+"landmine 7", idioma `cancel_sla`).
 - **in:** `intensidade_investigacao: string`, `entidade_tipo: string`, `origem_encaminhamento: string`
 - **out:** `sla_investigacao: string` (ISO 8601), `sla_alerta: string` (ISO 8601), `sla_diligencia: string` (ISO 8601), `fonte_regulatoria: string`
 - Prazos como string ISO; converter dias uteis→ISO conservadoramente no worker. Prazo de investigacao/referral **DRAFT/verify** com juridico/compliance (obrigacoes de referral a ANS/civel/penal nao estao pinadas — ver Pendencias).

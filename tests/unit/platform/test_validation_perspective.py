@@ -792,8 +792,11 @@ class TestVerifierGateReviewAttackSentences:
     holes are closed in this PR — see `TestBoundaryDiscipline` and
     `test_nip_is_no_longer_an_actor_cue_...` above for the mechanism — so all
     10 probes below are now asserted **caught**, with the live-tree pin
-    (`test_two_chains_hit_count_is_pinned`) unchanged at 295/7: no new false
-    positive was introduced to close them. The one gap that remains open
+    (`test_two_chains_hit_count_is_pinned`) unchanged at 295/7 **as measured
+    on `main 35cffd3`**: no new false positive was introduced to close them.
+    (The pin has since descended to 63/4 with PR-3's RECURSO rebuild and to
+    0/0 with PR-4's CONTAS rebuild — because the artifacts changed, not
+    because the lexicon moved.) The one gap that remains open
     after this PR — the `Start_Recurso<Capitalized>` shape — is not one of
     these 18; it is disclosed separately by
     `test_start_recurso_group_boundary_declared_residual`.
@@ -1012,7 +1015,12 @@ class TestXmlSurface:
         assert "R1/ciclo-recorrente:ReconcilePayment" in _rules(declaring)
 
     def test_dmn_input_label_is_a_surface(self, tmp_path: Path) -> None:
-        """`label` is DMN's `name`; `recurso_sla.dmn:52` depends on it being read."""
+        """`label` is DMN's `name`; `recurso_sla.dmn:52` on `main 35cffd3` depended on it.
+
+        That live citation is historical from PR-3 onward: `eada778` removed
+        the `fail-safe data_ciencia_glosa` anchor from the `label`, so the
+        surface is now proved on the synthetic file below only.
+        """
         path = tmp_path / "labelled.dmn"
         path.write_text(
             _DMN_WRAPPER.format(fragment="").replace(
@@ -1150,40 +1158,77 @@ class TestNoExceptionMechanism:
 # 4. The live tree — the descending pin and the clean-outside proof
 # ---------------------------------------------------------------------------
 
-#: Tier A, ZERO. The pin's whole life is a DESCENT: it was 295 hits in 7 files at PR-1 (measured
-#: on `main 35cffd3`), dropped to 68 in 4 when PR-3 rebuilt the RECURSO chain, and reaches EMPTY
-#: here — which is the same PR that wires the fence into `cli.py`. From this commit on, the
-#: assertion below is no longer "the residue is what we said it was" but "there is no residue",
-#: and `make validate-artifacts` is what enforces it on every future change.
+#: Tier A, ZERO. The pin's whole life is a DESCENT, and the descent is the point: PR-1 measured
+#: 295 hits in 7 files on `main 35cffd3`; PR-3 rebuilt the RECURSO chain and it fell to 63 in 3
+#: files; PR-4 rebuilds CONTAS and it reaches EMPTY — which is the same PR that wires the fence
+#: into `cli.py`. From this commit on, the assertion below is no longer "the residue is what we
+#: said it was" but "there is no residue", and `make validate-artifacts` is what enforces it on
+#: every future change.
 #:
 #: The dict is kept (rather than deleted along with the test) because an EMPTY expectation is the
-#: strongest form of this assertion: `_measure(...) == {}` fails loudly and names the file the
+#: strongest form of this assertion: `_measure(...) == {}` fails loudly and NAMES the file the
 #: moment any artifact regains provider vocabulary.
 TIER_A_PIN: dict[str, int] = {}
 
-#: Tier B, ZERO. `action-approvals.yaml`'s four hits were exactly the hanging policy surfaces of
-#: finding M5 — removed in two halves (RECURSO in PR-3, CONTAS here). `marina/agent.yaml:34` was
-#: the `recurso_recovery_rate` KPI (a creditor's metric), and the shadow-candidate's two were the
-#: fields §2.4 rewrote when the live table changed.
+#: Tier B, ZERO. PR-1 measured 7 hits in 3 files; PR-3 took it to 4 in 2; PR-4 to none.
 TIER_B_PIN: dict[str, int] = {}
+
+#: THE RATCHET'S TERMINAL STATE. Both chains' artifacts, mapped to the hit count each carried on
+#: `main 35cffd3`, all of them now at ZERO. This generalises PR-3's `_RECURSO_CLEARED` (which held
+#: the five artifacts that branch cleared) to the ten the two branches clear between them: the
+#: mechanism is identical and it is what arms the ratchet. Because these files are ABSENT from the
+#: (now empty) pins, any hit that reappears in one of them makes it an unpinned dirty file and
+#: turns `test_non_chain_artifacts_are_clean` red; `test_both_chains_are_clean` below names them
+#: so that failure is legible instead of anonymous, and prints the vocabulary that came back.
+#:
+#: Cleared by PR-3 (`eada778` rebuilt, `a37783f` closed the residuals, `e320b7b` the fail-closed
+#: defaults):
+#:   * `SP-OP-RECURSO-001_Recurso_Glosa.bpmn` 196 -> 0. The 16 elements of the appellant's branch
+#:     are gone: `ST_SubmitAppeal`, `ST_TrackStatus`, `ST_ReconcilePayment*`,
+#:     `ST_RegisterDesistencia`, `ST_PublishNaoInterposto`, `GW_AguardarResposta`,
+#:     `ICE_RespostaRecebida`, the `RECORRER`/`NAO_RECORRER`/`ACEITAR_GLOSA`/`MANTER_RECURSO`/
+#:     `RECURSO_PARCIAL` decision values, the `ERR_DESISTENCIA_NOT_HUMAN` boundary error and
+#:     `data_ciencia_glosa` (renamed `data_ciencia_alegada_prestador` — the payer's clock, not the
+#:     appellant's).
+#:   * `recurso_eligibility.dmn` 18 -> 0: `RECORRIVEL`/`NAO_RECORRIVEL` -> `SEGUE_MERITO`, and
+#:     `DESISTIR`/`ACEITAR_GLOSA`/`MANTER_RECURSO`/`RECURSO_PARCIAL` are no longer decision values.
+#:   * `recurso_admissibility.dmn` 11 -> 0: same, plus the
+#:     `operadora.recurso.register_desistencia` topic.
+#:   * `recurso_sla.dmn` 7 -> 0: the six `data_ciencia_glosa` fail-safe anchors and one `desisten*`.
+#:   * `spec/agents/marina/agent.yaml` 1 -> 0: the `recurso_recovery_rate` KPI — a *creditor's*
+#:     revenue-recovery metric. The literal survives only in the YAML comment that records the
+#:     deletion, and Tier B walks PARSED nodes, so a comment is not a node — a real Tier A / Tier B
+#:     asymmetry, asserted out loud by `test_marina_kpi_removal_survives_only_as_a_comment`.
+#:
+#: Cleared by PR-4 (this branch):
+#:   * `SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn` 52 -> 0: `decisao_contas` becomes
+#:     `{PAGAR, GLOSAR, PAGAR_PARCIAL, DEVOLVER, ENCAMINHAR_FRAUDE}` and the `ST_StartRecurso`/
+#:     `ST_ReconcilePayment`/`ST_RegisterGlosaAccept`/`End_SemGlosa` elements are gone.
+#:   * `glosa_triage.dmn` 10 -> 0: the routing domain `{SEM_GLOSA, RECORRER, ANALISE_HUMANA}`
+#:     becomes `{PAGAR, ANALISE_HUMANA}`.
+#:   * `contas_sla.dmn` 1 -> 0: labels and `fonte_regulatoria` only; no duration, FEEL or row moved.
+#:   * `action-approvals.yaml` 4 -> 0: the RECURSO half (`operadora.recurso.submit_appeal`, two
+#:     entries) went with PR-3; the CONTAS half (`operadora.contas.start_recurso`, two entries)
+#:     goes here — the topic itself was deleted without a shim.
+#:   * `glosa-triage-shadow-candidate.yaml` 2 -> 0: the candidate rule's `roteamento: RECORRER` and
+#:     its `motivo`, reauthored when the live table changed. `ratificado` stays `false`.
+_CHAINS_CLEARED: dict[str, int] = {
+    "spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn": 196,
+    "spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn": 52,
+    "spec/processes/dmn/recurso_eligibility.dmn": 18,
+    "spec/processes/dmn/recurso_admissibility.dmn": 11,
+    "spec/processes/dmn/glosa_triage.dmn": 10,
+    "spec/processes/dmn/recurso_sla.dmn": 7,
+    "spec/processes/dmn/contas_sla.dmn": 1,
+    "spec/policies/autonomy/action-approvals.yaml": 4,
+    "spec/processes/dmn/glosa-triage-shadow-candidate.yaml": 2,
+    "spec/agents/marina/agent.yaml": 1,
+}
 
 #: The ten artifacts of the two chains. They are no longer "the dirty files" — every one of them
 #: is now clean — but the list stays, because `test_the_pinned_files_are_exactly_the_two_chains`
 #: is what proves the CLEAN-OUTSIDE assertion still covers the right corpus.
-_CHAIN_ARTIFACTS = frozenset(
-    {
-        "spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn",
-        "spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn",
-        "spec/processes/dmn/contas_sla.dmn",
-        "spec/processes/dmn/glosa_triage.dmn",
-        "spec/processes/dmn/recurso_admissibility.dmn",
-        "spec/processes/dmn/recurso_eligibility.dmn",
-        "spec/processes/dmn/recurso_sla.dmn",
-        "spec/processes/dmn/glosa-triage-shadow-candidate.yaml",
-        "spec/agents/marina/agent.yaml",
-        "spec/policies/autonomy/action-approvals.yaml",
-    }
-)
+_CHAIN_ARTIFACTS = frozenset(_CHAINS_CLEARED)
 
 
 def _tier_a_paths() -> list[Path]:
@@ -1226,10 +1271,59 @@ class TestLiveTree:
         `make validate-artifacts` calls the fence, so from here on a
         regression is a red BUILD, not only a red test.
 
-        295 (PR-1, `main 35cffd3`) -> 68 (after PR-3's RECURSO rebuild) -> 0.
+        The ratchet, end to end: 295 Tier A + 7 Tier B = 302 (PR-1, measured on
+        `main 35cffd3`) -> 63 + 4 = 67 (PR-3's RECURSO rebuild) -> 0 + 0 (PR-4's
+        CONTAS rebuild). Equality (not `<=`) is what makes it a ratchet: a hit
+        that reappears fails here, and so does a hit removed without lowering
+        the literal.
         """
         assert _measure(_tier_a_paths(), scan_xml_file) == TIER_A_PIN == {}
         assert _measure(_tier_b_paths(), scan_yaml_file) == TIER_B_PIN == {}
+
+    def test_both_chains_are_clean(self) -> None:
+        """The two chains' result, asserted BY NAME: ten artifacts at exactly 0.
+
+        Generalises PR-3's `test_the_recurso_chain_is_clean` (five artifacts, 233 hits) to the ten
+        that carried all 302 of `main 35cffd3`'s hits, now that PR-4 has cleared the CONTAS half
+        too. They are absent from the (empty) pins, so `test_non_chain_artifacts_are_clean` already
+        fails if one regresses — this test exists so the failure *names the artifact* and prints
+        the vocabulary that came back, rather than reporting an anonymous dirty file.
+        """
+        assert sum(_CHAINS_CLEARED.values()) == 302
+        assert len(_CHAINS_CLEARED) == 10
+        measured = {
+            path: [
+                f"{hit.line}:{hit.rule_id}:{hit.matched}"
+                for hit in (scan_xml_file if path.endswith((".bpmn", ".dmn")) else scan_yaml_file)(
+                    _REPO_ROOT / path, Report()
+                )
+            ]
+            for path in _CHAINS_CLEARED
+        }
+        assert measured == dict.fromkeys(_CHAINS_CLEARED, [])
+
+    def test_marina_kpi_removal_survives_only_as_a_comment(self) -> None:
+        """Why `agent.yaml` scores 0 while the literal is still in the file.
+
+        `eada778` deleted the `recurso_recovery_rate` KPI from `kpis` and left
+        a comment saying why. Tier B walks **parsed** YAML nodes, so the
+        comment is not a node and does not score — which is correct here, but
+        is a real Tier A / Tier B asymmetry (Tier A reads XML comments), so it
+        is asserted out loud rather than left to be rediscovered: the same
+        text *does* hit under a raw-line scan.
+        """
+        source = (_REPO_ROOT / "spec" / "agents" / "marina" / "agent.yaml").read_text(encoding="utf-8")
+        commented = [line for line in source.splitlines() if "recurso_recovery_rate" in line and "#" in line]
+        assert len(commented) == 1, source
+        assert "ancora-kpi:recurso_recovery_rate" in {r for _, r, _ in scan_line(commented[0], tier=TIER_B)}
+        # …but it is a comment, not a node, so the file is clean, and the KPI
+        # list now names payer metrics only.
+        assert scan_yaml_file(_REPO_ROOT / "spec" / "agents" / "marina" / "agent.yaml", Report()) == []
+        assert "recurso_recovery_rate" not in [
+            line.split("name:")[1].split(",")[0].strip()
+            for line in source.splitlines()
+            if line.lstrip().startswith("- {") and "name:" in line
+        ]
 
     def test_non_chain_artifacts_are_clean(self) -> None:
         """0 hits in the 71 BPMN/DMN outside the two chains, and in every other YAML.
@@ -1242,7 +1336,9 @@ class TestLiveTree:
         be a defect of the **lexicon**, not of the artifact (§6.7), and would
         have to be fixed in the lexicon before merge. It covers AUTH, PAGTO,
         REEMBOLSO, NIP, CANCEL, CRED, FRAUDE, LGPD, ANS, ADEQUACAO,
-        INADIMPLENCIA, PROGRAMA and ESCALATION.
+        INADIMPLENCIA, PROGRAMA and ESCALATION — and, from PR-3 and PR-4 onward,
+        the ten artifacts of the two chains themselves, which is the half of the
+        ratchet that makes a reappearing hit fail rather than pass.
         """
         dirty_a = {name for name in _measure(_tier_a_paths(), scan_xml_file) if name not in TIER_A_PIN}
         dirty_b = {name for name in _measure(_tier_b_paths(), scan_yaml_file) if name not in TIER_B_PIN}
@@ -1250,6 +1346,13 @@ class TestLiveTree:
         assert dirty_b == set()
 
     def test_the_pinned_files_are_exactly_the_two_chains(self) -> None:
+        """The two chains no longer OVERLAP the pin — they exhaust it.
+
+        PR-3 renamed this `…_are_exactly_what_pr4_still_owes` because its pin held only the CONTAS
+        half; with PR-4 the pin is empty and the ten artifacts are all in `_CHAINS_CLEARED`, so the
+        original name is true again in a stronger sense: what the two chains contain is exactly
+        what the fence has already cleared.
+        """
         expected = {
             "spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn",
             "spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn",
@@ -1263,6 +1366,10 @@ class TestLiveTree:
             "spec/policies/autonomy/action-approvals.yaml",
         }
         assert expected == _CHAIN_ARTIFACTS
+        # PR-3's disjointness check, in its terminal form: the cleared set and the pin cannot
+        # overlap because the pin is EMPTY — every chain artifact has moved from one to the other.
+        assert _CHAIN_ARTIFACTS.isdisjoint(TIER_A_PIN)
+        assert _CHAIN_ARTIFACTS.isdisjoint(TIER_B_PIN)
 
     def test_the_non_chain_corpus_is_the_size_it_should_be(self) -> None:
         """Guards the clean-outside proof against a silently shrinking corpus."""
@@ -1287,6 +1394,9 @@ class TestLiveTree:
         }
         assert report.ok, [f.message for f in report.findings]
         assert located == set()
+        # PR-3 asserted, more weakly, that `ciclo-recorrente:submit_appeal` and
+        # `ancora-kpi:recurso_recovery_rate` were not among the remaining hits. `== set()`
+        # subsumes that: NO rule fires on any Tier-B artifact any more.
 
 
 # ---------------------------------------------------------------------------

@@ -86,15 +86,50 @@ class EngineDefinitionProvenanceError(EngineRestError):
     """
 
 
-def is_variable_absent_response(status_code: int, body: str) -> bool:
-    """A resposta do engine diz "esta variavel nunca foi setada" (e nao "falhei")?
+#: `type` do corpo de erro que o CIB Seven 2.1.0 devolve para uma variavel NUNCA setada de uma
+#: instancia VIVA. Colhido verbatim do log da janela 6
+#: (`integ-br-recurso-v2-test_sp_op_recurso_001.log`):
+#: `{"type":"InvalidRequestException","message":"process instance variable with name <n> does
+#: not exist","code":null}`.
+_TIPO_404_VARIAVEL_AUSENTE = "InvalidRequestException"
+_PREFIXO_404_VARIAVEL_AUSENTE = "process instance variable with name"
+_SUFIXO_404_VARIAVEL_AUSENTE = "does not exist"
 
-    O CIB Seven responde `404 InvalidRequestException: process instance variable with name <n>
-    does not exist` para uma variavel ausente de uma instancia VIVA. Predicado PURO (sem rede)
-    para que a traducao status->ausencia seja exercitavel sem mockar o engine (AGENTS.md regra
-    3): so ESTE par (404 + a frase) e ausencia; todo o resto e falha e continua levantando.
+
+def is_variable_absent_response(status_code: int, body: str) -> bool:
+    """A resposta do engine diz "esta VARIAVEL nunca foi setada" (e nao "falhei")?
+
+    Predicado PURO (sem rede) para que a traducao status->ausencia seja exercitavel sem mockar
+    o engine (AGENTS.md regra 3). So o par EXATO e ausencia:
+
+    - `status_code == 404`, **e**
+    - corpo JSON com `type == "InvalidRequestException"` e `message` da forma
+      `process instance variable with name <n> does not exist`.
+
+    Todo o resto e falha e continua levantando `EngineRestError` — inclusive outros 404 do
+    proprio engine cuja mensagem tambem termina em "does not exist" mas fala de OUTRO recurso
+    (`Process instance with id <x> does not exist`, `Deployment with id <x> does not exist`).
+    Isso importa: o casamento por substring que este predicado tinha antes mapeava esses dois
+    corpos para "ausente", e uma instancia MORTA/inexistente teria satisfeito por vacuidade a
+    varredura de vazamento de I-PAGTO-1. Um corpo nao-JSON, ou sem essas chaves, tambem e
+    falha — fail-closed: um engine fora do ar nunca pode ser lido como "a variavel esta ausente".
     """
-    return status_code == 404 and "does not exist" in body
+    if status_code != 404:
+        return False
+    try:
+        payload = json.loads(body)
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("type") != _TIPO_404_VARIAVEL_AUSENTE:
+        return False
+    message = payload.get("message")
+    if not isinstance(message, str):
+        return False
+    return message.startswith(_PREFIXO_404_VARIAVEL_AUSENTE) and message.endswith(
+        _SUFIXO_404_VARIAVEL_AUSENTE
+    )
 
 
 def assert_definition_provenance(
@@ -345,7 +380,10 @@ class EngineRest:
 
         Este metodo traduz ESSE 404 (e so ele) para `None`; qualquer outro status nao-200
         continua levantando com o corpo do engine verbatim, para que um engine fora do ar ou
-        uma instancia inexistente jamais sejam lidos como "variavel ausente". Uma instancia ja
+        uma instancia inexistente jamais sejam lidos como "variavel ausente". A discriminacao
+        e do predicado `is_variable_absent_response`, que casa o `type` E a forma da `message`:
+        os outros 404 do engine que tambem terminam em "does not exist" (`Process instance with
+        id <x> ...`, `Deployment with id <x> ...`) sao FALHA, nao ausencia. Uma instancia ja
         CONCLUIDA responde 500 "execution is null" no endpoint de runtime — tambem levanta
         (use `get_history_variable` nesse caso): ausencia e uma resposta do engine sobre uma
         instancia viva, nunca um efeito colateral de a instancia ter acabado.

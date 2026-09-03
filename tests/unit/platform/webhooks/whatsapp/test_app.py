@@ -232,3 +232,17 @@ async def test_post_webhook_non_text_message_skipped_acks_200() -> None:
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok", "dispatched": 0}
     assert dispatcher.dispatched == []
+
+
+async def test_get_webhook_non_ascii_token_is_403_not_an_unhandled_500(app: FastAPI) -> None:
+    """`hub.verify_token` is attacker-controlled, and `hmac.compare_digest` REFUSES a
+    non-ASCII `str` with a TypeError. Comparing the raw query param turned
+    `?hub.verify_token=café` into an unhandled 500; the comparison is now on UTF-8 bytes,
+    so every input takes the same fail-closed 403 path."""
+    async with await _client(app) as client:
+        response = await client.get(
+            "/webhook",
+            params={"hub.mode": "subscribe", "hub.challenge": "chal123", "hub.verify_token": "café"},
+        )
+    assert response.status_code == 403
+    assert VERIFY_TOKEN not in response.text
