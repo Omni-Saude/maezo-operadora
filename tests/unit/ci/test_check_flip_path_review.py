@@ -676,7 +676,13 @@ HEAD_CODEOWNERS = "# (ownership line deleted by this very PR)\n"
 
 
 class FakeAPI:
-    """Stands in for `GitHubAPI`: serves per-ref file content plus fixed files/reviews."""
+    """Stands in for `GitHubAPI`: serves per-ref file content plus fixed files/reviews.
+
+    `base_tip` stands in for `GitHubAPI.branch_tip`'s resolved CURRENT tip of the base branch — a
+    fixed default (equal to `BASE_SHA`, i.e. "no drift") so every existing caller of this fixture
+    keeps working unmodified; a test exercising the merge-base-relative fix explicitly passes a
+    DIFFERENT `base_tip` (see `MergeBaseFakeAPI` below, and `test_stale_base_sha_no_longer_...`).
+    """
 
     def __init__(
         self,
@@ -685,18 +691,23 @@ class FakeAPI:
         changed: list[str],
         reviews: list[Review],
         membership_state: MembershipState = MembershipState.NOT_MEMBER,
+        base_tip: str = BASE_SHA,
     ) -> None:
         self.files_by_ref = files_by_ref
         self._changed = changed
         self._reviews = reviews
         self._membership_state = membership_state
+        self._base_tip = base_tip
         self.refs_asked: list[str] = []
 
     def file_at(self, ref: str, path: str) -> str | None:
         self.refs_asked.append(ref)
         return self.files_by_ref.get(ref, {}).get(path)
 
-    def changed_paths(self, pr_number: int) -> list[str]:
+    def branch_tip(self, ref: str) -> str:
+        return self._base_tip
+
+    def changed_paths(self, base_tip: str, head_sha: str) -> list[str]:
         return self._changed
 
     def reviews(self, pr_number: int) -> list[Review]:
@@ -795,7 +806,7 @@ def test_main_dry_run_mode_fetches_the_pr_context_and_still_reads_codeowners_fro
         reviews=[],
     )
     api.pull_request = lambda pr: gate.EventContext(  # type: ignore[attr-defined]
-        repo="o/r", pr_number=pr, base_sha=BASE_SHA, author_login=AUTHOR
+        repo="o/r", pr_number=pr, base_sha=BASE_SHA, base_ref="main", head_sha=HEAD_SHA, author_login=AUTHOR
     )
     monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
     monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
@@ -833,7 +844,7 @@ def _direct_mode_api() -> FakeAPI:
         reviews=[],
     )
     api.pull_request = lambda pr: gate.EventContext(  # type: ignore[attr-defined]
-        repo="o/r", pr_number=pr, base_sha=BASE_SHA, author_login=AUTHOR
+        repo="o/r", pr_number=pr, base_sha=BASE_SHA, base_ref="main", head_sha=HEAD_SHA, author_login=AUTHOR
     )
     return api
 
@@ -906,14 +917,19 @@ def test_the_workflow_really_does_invoke_the_gate_with_no_arguments() -> None:
 def test_a_lone_pr_override_still_applies_on_top_of_the_ambient_payload(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`--pr` alone is an OVERRIDE, not a mode switch: the ambient payload still supplies context."""
+    """`--pr` alone is an OVERRIDE, not a mode switch: the ambient payload still supplies context.
+
+    Touched paths are no longer keyed by `pr_number` at all (they come from `context.base_ref` /
+    `context.head_sha`, both sourced from the ambient payload regardless of `--pr`) — the PR-number
+    override now shows up in which PR's REVIEWS are fetched, so that is what this test tracks.
+    """
     api = FakeAPI(
         files_by_ref={BASE_SHA: {".github/CODEOWNERS": BASE_CODEOWNERS}},
         changed=["spec/policies/autonomy/matrix.yaml"],
         reviews=[],
     )
     seen: list[int] = []
-    api.changed_paths = lambda pr_number: (seen.append(pr_number), ["spec/policies/autonomy/x.yaml"])[1]  # type: ignore[assignment]
+    api.reviews = lambda pr_number: (seen.append(pr_number), [])[1]  # type: ignore[assignment]
     monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
     monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(write_event(tmp_path)))
@@ -1049,6 +1065,8 @@ def test_event_context_reads_the_pull_request_object(tmp_path: Path) -> None:
     assert context.repo == "Omni-Saude/maezo-operadora"
     assert context.pr_number == 244
     assert context.base_sha == BASE_SHA
+    assert context.base_ref == "main"
+    assert context.head_sha == HEAD_SHA
     assert context.author_login == AUTHOR
 
 
@@ -1058,6 +1076,24 @@ def test_event_context_reads_the_pull_request_object(tmp_path: Path) -> None:
         {"pull_request": {}},  # no number/base/user
         {"pull_request": {"number": 1, "user": {"login": "x"}}},  # no base.sha
         {"pull_request": {"number": 1, "base": {"sha": BASE_SHA}}},  # no author
+        # no base.ref (base.sha present) — needed for `branch_tip`, see DESIGN DECISION
+        {
+            "pull_request": {
+                "number": 1,
+                "base": {"sha": BASE_SHA},
+                "head": {"sha": HEAD_SHA, "ref": "x"},
+                "user": {"login": "x"},
+            }
+        },
+        # no head.sha — needed for the compare-based touched-path computation
+        {
+            "pull_request": {
+                "number": 1,
+                "base": {"sha": BASE_SHA, "ref": "main"},
+                "head": {"ref": "x"},
+                "user": {"login": "x"},
+            }
+        },
     ],
 )
 def test_malformed_event_payload_fails_closed(tmp_path: Path, overrides: dict[str, Any]) -> None:
@@ -1109,18 +1145,32 @@ def test_membership_transport_failure_is_unverifiable_not_a_crash(
     assert api.membership("Omni-Saude", "security-team", OUTSIDER) is MembershipState.UNVERIFIABLE
 
 
-def test_changed_paths_include_a_renames_previous_filename(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A rename OUT of an owned directory is a change to an owned path."""
+def test_changed_paths_include_a_renames_previous_filename_via_compare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rename OUT of an owned directory is a change to an owned path — sourced from the three-dot
+    COMPARE endpoint's `files`, not `pulls/N/files` (see "DESIGN DECISION — touched paths are
+    merge-base relative")."""
     api = gate.GitHubAPI(repo="o/r", token="t")
-    monkeypatch.setattr(
-        api,
-        "_paginate",
-        lambda path: [
-            {"filename": "elsewhere/matrix.yaml", "previous_filename": "spec/policies/autonomy/matrix.yaml"},
-            {"filename": "README.md"},
-        ],
-    )
-    paths = api.changed_paths(1)
+
+    def fake_request(path: str) -> tuple[int, Any]:
+        assert path.startswith(f"repos/o/r/compare/{CURRENT_MAIN_TIP}...{REGRESSION_HEAD_SHA}")
+        return (
+            200,
+            {
+                "status": "ahead",
+                "files": [
+                    {
+                        "filename": "elsewhere/matrix.yaml",
+                        "previous_filename": "spec/policies/autonomy/matrix.yaml",
+                    },
+                    {"filename": "README.md"},
+                ],
+            },
+        )
+
+    monkeypatch.setattr(api, "_request", fake_request)
+    paths = api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
     rules = parse_codeowners(BASE_CODEOWNERS)
     # The NEW name escapes ownership; the PREVIOUS name does not — and it is the previous name that
     # makes this a change to an owned path, so it must be in the list.
@@ -1130,12 +1180,136 @@ def test_changed_paths_include_a_renames_previous_filename(monkeypatch: pytest.M
     assert paths == ["elsewhere/matrix.yaml", "spec/policies/autonomy/matrix.yaml", "README.md"]
 
 
-def test_api_list_endpoint_failure_is_red_not_an_empty_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The single most dangerous silent-green: an errored list read must never read as 'no files'."""
+def test_compare_api_failure_is_red_not_an_empty_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The single most dangerous silent-green: an errored compare read must never read as 'no
+    files' — and must never fall back to `pulls/N/files`, which is exactly the shape of defect #254."""
     api = gate.GitHubAPI(repo="o/r", token="t")
     monkeypatch.setattr(api, "_request", lambda path: (403, None))
     with pytest.raises(GateError, match="fails CLOSED"):
-        api.changed_paths(1)
+        api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+
+
+def test_changed_paths_paginates_beyond_300_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The compare endpoint pages `files` via `page`/`per_page` (max 300/page) rather than returning
+    a bare top-level list — so a diff with more than 300 files must fetch a second page."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    page_1 = [{"filename": f"a/{i}.txt"} for i in range(300)]
+    page_2 = [{"filename": "a/300.txt"}]
+    calls: list[str] = []
+
+    def fake_request(path: str) -> tuple[int, Any]:
+        calls.append(path)
+        if "page=2" in path:
+            return 200, {"files": page_2}
+        return 200, {"files": page_1}
+
+    monkeypatch.setattr(api, "_request", fake_request)
+    paths = api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+    assert len(paths) == 301
+    assert paths[-1] == "a/300.txt"
+    assert len(calls) == 2, f"expected exactly 2 pages fetched, got {calls}"
+
+
+def test_branch_tip_resolves_the_current_sha(monkeypatch: pytest.MonkeyPatch) -> None:
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    monkeypatch.setattr(api, "_request", lambda path: (200, {"name": "main", "commit": {"sha": "deadbeef"}}))
+    assert api.branch_tip("main") == "deadbeef"
+
+
+def test_branch_tip_failure_is_red(monkeypatch: pytest.MonkeyPatch) -> None:
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    monkeypatch.setattr(api, "_request", lambda path: (404, None))
+    with pytest.raises(GateError, match="cannot resolve"):
+        api.branch_tip("main")
+
+
+# =============================================================================================
+# 3b. Defect #254 (CI run 33766180283, PR #254, 2026-09-03 14:19Z) — end-to-end regression
+#
+# The PR's `pull_request.base.sha` was WEEKS-stale and its head contained a merge of current `main`.
+# The OLD `pulls/N/files` computation (a diff relative to that stale base.sha) surfaced 266 paths
+# `main` had touched since — 3 falsely "owned" — for a PR that only ever changed 2 files. See "DESIGN
+# DECISION — touched paths are merge-base relative" in the module docstring.
+# =============================================================================================
+
+#: The PR's actual recorded base.sha — weeks-stale, exactly as #254's was. Used ONLY for CODEOWNERS
+#: (Decision 1 is unaffected by this fix).
+STALE_BASE_SHA = "181fc82700000000000000000000000000000000"
+#: The base branch's CURRENT tip, as `branch_tip` would resolve it live at run start — deliberately
+#: a DIFFERENT sha from `STALE_BASE_SHA`, so a test that accidentally used the stale base.sha for the
+#: touched-path computation (the regression this fix closes) fails loudly.
+CURRENT_MAIN_TIP = "43722b9300000000000000000000000000000000"
+#: The PR's actual head sha (it contained a merge of `main`, per the defect writeup).
+REGRESSION_HEAD_SHA = "55b5bb1b00000000000000000000000000000000"
+
+
+class MergeBaseFakeAPI(FakeAPI):
+    """A `FakeAPI` whose `branch_tip` / `changed_paths` assert they are called with the CURRENT base
+    tip and the head sha — never the PR's stale `base.sha` — so a regression back to
+    `pulls/N/files`-shaped (pr_number-keyed) touched paths fails here immediately, not just silently
+    returns the fixture's canned list the way the generic `FakeAPI` would.
+    """
+
+    def __init__(
+        self,
+        *,
+        files_by_ref: dict[str, dict[str, str]],
+        reviews: list[Review],
+        current_tip: str,
+        expected_head_sha: str,
+        compare_files: list[str],
+    ) -> None:
+        super().__init__(files_by_ref=files_by_ref, changed=[], reviews=reviews, base_tip=current_tip)
+        self._expected_head_sha = expected_head_sha
+        self._compare_files = compare_files
+        self.compare_calls: list[tuple[str, str]] = []
+
+    def changed_paths(self, base_tip: str, head_sha: str) -> list[str]:
+        self.compare_calls.append((base_tip, head_sha))
+        assert base_tip == self._base_tip, "touched paths must diff from the CURRENT tip, never a stale base.sha"
+        assert head_sha == self._expected_head_sha
+        return list(self._compare_files)
+
+
+def test_stale_base_sha_no_longer_produces_a_false_owned_hit_defect_254(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """THE REGRESSION PIN for #254 (CI run 33766180283): a weeks-stale `pull_request.base.sha` plus a
+    head that contains a merge of current `main` used to make every path `main` had touched since
+    look "touched" by the PR (266 paths, 3 falsely "owned"). Touched paths must now come from a
+    three-dot COMPARE between the base branch's CURRENT tip and the head sha — reproduced here with
+    the PR's REAL 2 files, neither of which is owned, so the fixed gate must be GREEN."""
+    api = MergeBaseFakeAPI(
+        files_by_ref={STALE_BASE_SHA: {".github/CODEOWNERS": BASE_CODEOWNERS}},
+        reviews=[],
+        current_tip=CURRENT_MAIN_TIP,
+        expected_head_sha=REGRESSION_HEAD_SHA,
+        compare_files=["pyproject.toml", "uv.lock"],  # the PR's REAL 2 files — neither owned
+    )
+    monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
+    monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
+    event = write_event(
+        tmp_path,
+        pull_request={
+            "number": 254,
+            "user": {"login": "dependabot[bot]"},
+            "base": {"sha": STALE_BASE_SHA, "ref": "main"},
+            "head": {"sha": REGRESSION_HEAD_SHA, "ref": "dependabot/pip/anthropic-gte-0.40-and-lt-2.0"},
+        },
+    )
+
+    exit_code = gate.main(["--event-path", str(event)])
+    out = capsys.readouterr().out
+
+    assert exit_code == 0, out
+    assert "changed paths: 2   owned: 0" in out, out
+    assert api.refs_asked == [STALE_BASE_SHA], (
+        "CODEOWNERS is still read from the recorded base.sha — Decision 1 is unaffected by this fix"
+    )
+    assert api.compare_calls == [(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)], (
+        "touched paths must be computed from the CURRENT base tip and the head sha, never the "
+        "PR's stale recorded base.sha"
+    )
 
 
 # =============================================================================================
