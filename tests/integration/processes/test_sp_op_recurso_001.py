@@ -84,7 +84,7 @@ from maezo.tools.workers.recurso import (
 )
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
-from .engine_rest import EngineRest
+from .engine_rest import EngineRest, assert_definition_provenance
 
 pytestmark = pytest.mark.integration
 
@@ -99,6 +99,33 @@ _DMN_SLA = _REPO / "spec/processes/dmn/recurso_sla.dmn"
 _BPMN_PAGTO = _REPO / "spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn"
 _DMN_PAGTO_ADMISSIBILITY = _REPO / "spec/processes/dmn/pagto_admissibility.dmn"
 _DMN_PAGTO_ALCADA = _REPO / "spec/processes/dmn/pagto_alcada.dmn"
+
+_PROCESS_KEY = "SP-OP-RECURSO-001"
+
+#: PROVENIENCIA DA DEFINICAO (guard de contaminacao do engine compartilhado). O dev-stack tem UM
+#: engine; `POST /deployment/create` cria uma VERSAO NOVA da mesma key e `start_by_key` sempre
+#: instancia a latest. Um `make deploy-artifacts` de OUTRO checkout (ou outra suite) rodando
+#: contra o mesmo `ENGINE_REST_URL` NO MEIO desta sessao passa a ser a latest, e a partir dali
+#: esta suite executa a definicao ALHEIA — falhando com sintomas que parecem defeitos do
+#: artefato sob teste (terminais nao alcancados; `Unknown property used in expression` citando
+#: expressoes inexistentes na arvore). Verificar o deploy UMA VEZ antes do pytest nao basta: a
+#: contaminacao chega depois. Por isso a proveniencia e reasserida (a) no setup de
+#: `deploy_artifacts`, (b) a cada deploy de PAGTO e (c) contra a definicao EXATA de cada
+#: instancia iniciada. Os seis marcadores discriminam 6/6 entre esta arvore e a definicao da
+#: `main` (pinado estaticamente por `test_marcadores_de_proveniencia_discriminam_o_bpmn` em
+#: tests/unit/tools/workers/test_recurso.py).
+_MARCADORES_DO_CHECKOUT: tuple[str, ...] = ("Start_RecursoRecebido", "ST_ValidarRecurso")
+_MARCADORES_DE_OUTRA_DEFINICAO: tuple[str, ...] = (
+    "Start_RecursoSolicitado",
+    "ST_SubmitAppeal",
+    "NAO_RECORRER",
+    "ACEITAR_GLOSA",
+)
+
+#: Ids de process-definition ja verificados nesta sessao (uma leitura de XML por VERSAO). Uma
+#: versao nova — i.e. um deploy no meio da sessao — nunca esta neste conjunto, entao ela e
+#: sempre verificada; o cache so evita re-ler a MESMA versao 40+ vezes.
+_definicoes_verificadas: set[str] = set()
 
 # External task topics do contrato SP-OP-RECURSO-001 que TEM worker real registrado E aparecem no
 # BPMN (a intersecao pratica — ver finding 2 no docstring do modulo para os dois lados do drift).
@@ -228,12 +255,62 @@ class RecursoEngineProbe:
         )
 
 
+async def _assert_definicao_latest_e_do_checkout(
+    engine: EngineRest, *, contexto: str, exigir_deployada: bool = True
+) -> None:
+    """A versao LATEST de SP-OP-RECURSO-001 no engine e a desta arvore (ver `_MARCADORES_*`).
+
+    `exigir_deployada=False` para os pontos de checagem que NAO acabaram de deployar RECURSO: se
+    a key nem existe neste engine (404), nao ha definicao alheia para contaminar nada — e o
+    unico teste nessa situacao (`test_controle_negativo_...`, que so exercita SP-OP-PAGTO-001)
+    nao pode falhar por um guard sobre um processo que ele nao usa. Onde RECURSO ESTA deployado,
+    a checagem e a mesma; e todo start passa pelo guard por instancia de `start_recurso`, que
+    nao depende deste.
+    """
+    xml = await engine.latest_definition_xml_or_none(_PROCESS_KEY)
+    if xml is None:
+        if exigir_deployada:
+            raise AssertionError(
+                f"{contexto}: {_PROCESS_KEY} nao esta deployada logo apos o proprio deploy — "
+                "o engine aceitou o POST e nao registrou a definicao"
+            )
+        return
+    assert_definition_provenance(
+        xml,
+        must_contain=_MARCADORES_DO_CHECKOUT,
+        must_not_contain=_MARCADORES_DE_OUTRA_DEFINICAO,
+        context=contexto,
+    )
+
+
+async def _deploy_pagto(engine: EngineRest) -> None:
+    """Deploya SP-OP-PAGTO-001 (destino do handoff) e REASSERE a proveniencia de RECURSO.
+
+    O deploy de PAGTO e um ponto de sincronizacao barato no meio do teste: se outra definicao de
+    RECURSO tiver sido deployada depois do setup, a divergencia e apanhada AQUI, antes de a
+    instancia ser iniciada, em vez de virar uma assercao de terminal que nao fecha.
+    """
+    await engine.deploy(
+        _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
+    )
+    await _assert_definicao_latest_e_do_checkout(
+        engine, contexto="deploy de SP-OP-PAGTO-001", exigir_deployada=False
+    )
+
+
 @pytest_asyncio.fixture
 async def deploy_artifacts(engine: EngineRest) -> str:
-    """Deploya BPMN + 3 DMN de recurso de glosa da arvore no engine real."""
-    return await engine.deploy(
+    """Deploya BPMN + 3 DMN de recurso de glosa da arvore no engine real.
+
+    Guard de contaminacao (ver `_MARCADORES_DO_CHECKOUT`): apos o deploy, a versao LATEST da key
+    e lida de volta do engine e tem de carregar os marcadores desta arvore. Assim um deploy
+    alheio falha ALTO no SETUP, com a mensagem certa, em vez de se disfarcar de defeito do PR.
+    """
+    deployment_id = await engine.deploy(
         _BPMN, _DMN_ADMISSIBILITY, _DMN_ELIGIBILITY, _DMN_SLA, name="SP-OP-RECURSO-001-qa"
     )
+    await _assert_definicao_latest_e_do_checkout(engine, contexto="setup de deploy_artifacts")
+    return deployment_id
 
 
 @pytest_asyncio.fixture
@@ -422,7 +499,20 @@ async def iniciar_recurso(engine: EngineRest, deploy_artifacts: str) -> Callable
         variables.update(overrides)
         variables = {k: v for k, v in variables.items() if v is not None}
         business_key = f"RECURSO-amh-{guia}-{glosa}"
-        return await engine.start_by_key("SP-OP-RECURSO-001", business_key, variables)
+        inst = await engine.start_by_key(_PROCESS_KEY, business_key, variables)
+        # Proveniencia da definicao que ESTA instancia carrega (nao a latest do momento): imune a
+        # um deploy alheio que chegue depois do start, e o unico ponto onde a versao executada e
+        # observavel. Cache por definitionId — uma leitura de XML por versao, nao por teste.
+        definition_id = str(inst["definitionId"])
+        if definition_id not in _definicoes_verificadas:
+            assert_definition_provenance(
+                await engine.definition_xml(definition_id),
+                must_contain=_MARCADORES_DO_CHECKOUT,
+                must_not_contain=_MARCADORES_DE_OUTRA_DEFINICAO,
+                context=f"instancia {inst['id']} iniciada na definicao {definition_id}",
+            )
+            _definicoes_verificadas.add(definition_id)
+        return inst
 
     return _start
 
@@ -611,9 +701,7 @@ async def test_happy_path_deferir_pelo_analista(
     SP-OP-PAGTO-001 e deployado por este teste (o handoff roda o chokepoint fenceado contra ele;
     nao dependa de vazamento de deploy entre testes).
     """
-    await engine.deploy(
-        _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
-    )
+    await _deploy_pagto(engine)
     glosa_id = _unique_glosa()
     inst = await iniciar_recurso(glosa_type="administrativa", glosa_id=glosa_id)
     iid = inst["id"]
@@ -665,9 +753,7 @@ async def test_handoff_pagamento_glosa_revertida_inicia_pagto_idempotente(
     """O handoff semeia `tipo_pagamento=glosa_revertida` + a EVIDENCIA do lastro, e e idempotente
     por business key (SP-OP-PAGTO-001 e a UNICA familia STRICT de dedup — um deferimento nunca
     vira pagamento duplicado)."""
-    await engine.deploy(
-        _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
-    )
+    await _deploy_pagto(engine)
     glosa_id = _unique_glosa()
     inst = await iniciar_recurso(glosa_type="administrativa", glosa_id=glosa_id)
     iid = inst["id"]
@@ -703,9 +789,7 @@ async def test_handoff_pagamento_nunca_semeia_os_fatos_de_admissibilidade_de_pag
 ) -> None:
     """I-PAGTO-1, engine-side: o processo de ORIGEM fornece a EVIDENCIA do lastro; so PAGTO
     resolve o FATO. As quatro variaveis de admissibilidade NAO chegam a instancia de PAGTO."""
-    await engine.deploy(
-        _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
-    )
+    await _deploy_pagto(engine)
     glosa_id = _unique_glosa()
     inst = await iniciar_recurso(glosa_type="administrativa", glosa_id=glosa_id)
     iid = inst["id"]
@@ -727,10 +811,17 @@ async def test_handoff_pagamento_nunca_semeia_os_fatos_de_admissibilidade_de_pag
     assert len(pagto) == 1
     pagto_iid = pagto[0]["id"]
 
+    # AUSENCIA, nao `None`: o engine responde 404 "process instance variable ... does not exist"
+    # para uma variavel nunca setada, e `get_variable` levanta em qualquer status != 200 — este
+    # `for` NUNCA podia passar por ele (o 404 e a prova, e virava EngineRestError).
+    # `get_variable_or_none` traduz ESSE 404 para `None` e continua levantando em todo o resto,
+    # entao a assercao segue discriminante: um vazamento devolve o valor vazado, e um engine
+    # fora do ar levanta em vez de se disfarcar de ausencia.
     for proibida in sorted(HANDOFF_PAGTO_FORBIDDEN_KEYS):
-        assert await engine.get_variable(pagto_iid, proibida) is None, (
-            f"{proibida} vazou de RECURSO para PAGTO — I-PAGTO-1 violada (quem julgou o recurso "
-            "teria confirmado o lastro da ordem que ele proprio gerou)"
+        vazada = await engine.get_variable_or_none(pagto_iid, proibida)
+        assert vazada is None, (
+            f"{proibida} vazou de RECURSO para PAGTO (valor {vazada!r}) — I-PAGTO-1 violada (quem "
+            "julgou o recurso teria confirmado o lastro da ordem que ele proprio gerou)"
         )
     assert await engine.get_variable(pagto_iid, "lastro_origem") == "recurso_deferimento_humano"
     assert await engine.get_variable(pagto_iid, "lastro_decisor_id") == "analista-sintetico-001"
@@ -760,9 +851,7 @@ async def test_glosa_revertida_nunca_alcanca_liberacao_automatica_sem_ut(
     `test_controle_negativo_lastro_confirmado_libera_pela_faixa_clerical` prova que o MESMO dreno
     e as MESMAS assercoes mudam de resultado quando o lastro chega confirmado.
     """
-    await engine.deploy(
-        _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
-    )
+    await _deploy_pagto(engine)
     glosa_id = _unique_glosa()
     inst = await iniciar_recurso(glosa_type="administrativa", glosa_id=glosa_id)
     iid = inst["id"]
@@ -825,9 +914,7 @@ async def test_controle_negativo_lastro_confirmado_libera_pela_faixa_clerical(
     worker e estruturalmente impossivel (`HANDOFF_PAGTO_SEEDED_KEYS`), que e o que
     `test_handoff_pagamento_nunca_semeia_os_fatos_de_admissibilidade_de_pagto` prova.
     """
-    await engine.deploy(
-        _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
-    )
+    await _deploy_pagto(engine)
     glosa_id = _unique_glosa()
     ordem = f"ORDEM-GLOSAREV-amh-GUIA-TESTE-0001-{glosa_id}"
     pagto_bk = f"PAGTO-amh-GUIA-TESTE-0001-{glosa_id}"
@@ -887,9 +974,7 @@ async def test_happy_path_escalar_auditor_defere(
     merito tecnico-clinico. `Flow_GWMerito_Deferir` converge no MESMO `ST_ComunicarDeferimento` do
     canal do analista.
     """
-    await engine.deploy(
-        _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
-    )
+    await _deploy_pagto(engine)
     inst = await iniciar_recurso(glosa_type="tecnica")
     iid = inst["id"]
 
@@ -978,9 +1063,7 @@ async def test_recurso_parcialmente_deferido(
     espelhar `End_ReembolsoParcial` ("reducao adversa") — parte da glosa e MANTIDA contra o
     prestador, entao ele passa pelo mesmo worker gated do indeferimento.
     """
-    await engine.deploy(
-        _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
-    )
+    await _deploy_pagto(engine)
     inst = await iniciar_recurso(glosa_type="administrativa")
     iid = inst["id"]
 

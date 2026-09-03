@@ -128,6 +128,22 @@ ate la, o teto e absoluto e CONSERVADOR.
                sobrescreve com "inadmissivel" na UT (coordenacao/escalonamento) para o terminal
                humano-gated; o default "" preserva a logica de gating do inadmissivel intacta. -->
           <camunda:outputParameter name="desfecho_humano">${""}</camunda:outputParameter>
+          <!-- MESMA mecanica, e pela MESMA razao de engine, para as DUAS variaveis de decisao
+               humana. Sem elas inicializadas, o default fail-closed dos gateways decisorios e
+               INALCANCAVEL no caso "decisao AUSENTE": o engine avalia as conditionExpressions
+               ANTES de cair no default e lanca `Unknown property used in expression: ${decisao_
+               recurso == 'DEFERIR'} — Cannot resolve identifier 'decisao_recurso'` (HTTP 500 no
+               complete da User Task), deixando a instancia parada na UT em vez de terminar em
+               End_ErrRecursoDecisaoInvalida. O terminal de erro existe para "ausente OU
+               desconhecida" (ver a sua documentacao); so o segundo caso funcionava. Com ""
+               nenhuma condicao casa (nem DEFERIR/DEFERIR_PARCIAL/INDEFERIR/SOLICITAR_INFO/
+               ESCALAR_AUDITOR, nem o par INDEFERIR+inadmissivel), o token cai no default e o
+               erro fica VISIVEL — sem nenhum efeito materializado. O guard do worker
+               registrar_indeferimento (ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN) recusa "" como
+               recusa qualquer nao-INDEFERIR: a inicializacao NAO afrouxa o L0 hard, ela apenas
+               torna a omissao um ERRO em vez de um travamento. -->
+          <camunda:outputParameter name="decisao_recurso">${""}</camunda:outputParameter>
+          <camunda:outputParameter name="decisao_auditor_recurso">${""}</camunda:outputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>

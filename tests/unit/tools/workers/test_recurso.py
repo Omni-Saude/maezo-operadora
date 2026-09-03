@@ -10,6 +10,9 @@ renamed. What replaces them is `comunicar_resposta` (the payer's answer) and `ha
 """
 
 import asyncio
+import re
+from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import pytest
 import structlog
@@ -662,6 +665,44 @@ def test_validate_recurso_entry_round_trips_validate_recurso() -> None:
     assert "errors" not in result
     assert result["errors_validacao"] == ""
     assert all(isinstance(v, str | bool) for v in result.values()), result
+
+
+def test_validate_recurso_entry_escreve_de_volta_a_ancora_quando_ausente_do_start() -> None:
+    """GAP-RECURSO-1, metade ENGINE-INDEPENDENTE de `test_prazo_max_ancora_defaultada_pelo_intake`.
+
+    O cenario vivo remove `data_recebimento_recurso_iso` das variaveis de start (o fixture
+    dropa `None`), e o BPMN nao tem mais fail-safe para a data do RECORRENTE: se o intake nao
+    escrevesse a ancora de volta, `recurso_sla` receberia nulo e os tres boundary de teto
+    (`timeDate ${sla.prazo_max_absoluto_iso}`) nao teriam instante — a instancia nem alcancaria
+    a User Task. Aqui a chave esta AUSENTE do dict (nao vazia): `pick_fields` cai no default do
+    dataclass, o worker defaulta fail-safe para HOJE/UTC com warning e a ancora SAI no payload
+    de completion, que e como ela vira variavel de processo.
+
+    A data alegada pelo prestador nao pode virar a ancora: e o relogio do recorrente, e a
+    tempestividade continua sendo o fato separado `dentro_prazo_recurso`.
+    """
+    from datetime import UTC, datetime, timedelta  # noqa: PLC0415 — convencao local deste modulo
+
+    hoje = datetime.now(UTC).strftime("%Y-%m-%d")
+    ciencia = (datetime.now(UTC) - timedelta(days=5)).strftime("%Y-%m-%d")
+
+    with structlog.testing.capture_logs() as logs:
+        result = validate_recurso_entry(
+            {
+                "glosa_id": "G-1",
+                "glosa_existe": True,
+                "dentro_prazo_recurso": True,
+                "data_ciencia_alegada_prestador": ciencia,
+            }
+        )
+
+    assert result["data_recebimento_recurso_iso"] == hoje
+    assert result["data_recebimento_recurso_iso"] != ciencia
+    warnings = [
+        entry for entry in logs if entry.get("event") == "recurso.validate_recurso.data_recebimento_defaulted"
+    ]
+    assert warnings, "o default fail-safe da ancora TEM de logar warning — nunca silencioso"
+    assert warnings[0]["log_level"] == "warning"
 
 
 def test_validate_recurso_entry_achata_erros_em_escalar() -> None:
@@ -1470,3 +1511,100 @@ def test_register_recurso_workers_registers_all_12_topics() -> None:
         "operadora.recurso.register_desistencia",
     ):
         assert dead not in harness.registered_topics, f"{dead} nao deveria existir (sem shim)"
+
+
+# ---------------------------------------------------------------------------
+# BPMN — inicializacao das variaveis de decisao humana (defeito de engine, prova estatica)
+# ---------------------------------------------------------------------------
+
+_BPMN_RECURSO = Path(__file__).resolve().parents[4] / (
+    "spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn"
+)
+
+#: Variaveis humanas OPCIONAIS que as conditionExpressions dos dois gateways decisorios leem.
+#: Toda uma delas TEM de ser inicializada por `ST_PublishReceived` (a primeira service task de
+#: TODO caminho) — ver `_publish_received_output_parameters` abaixo.
+_VARS_DE_DECISAO_HUMANA = ("decisao_recurso", "decisao_auditor_recurso", "desfecho_humano")
+
+
+def _bpmn_root() -> ET.Element:
+    return ET.parse(_BPMN_RECURSO).getroot()
+
+
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _publish_received_output_parameters() -> dict[str, str]:
+    """`name -> texto` dos `camunda:outputParameter` de `ST_PublishReceived`."""
+    for el in _bpmn_root().iter():
+        if _local(el.tag) == "serviceTask" and el.get("id") == "ST_PublishReceived":
+            return {
+                str(p.get("name")): (p.text or "")
+                for p in el.iter()
+                if _local(p.tag) == "outputParameter" and p.get("name")
+            }
+    raise AssertionError("ST_PublishReceived nao existe no BPMN")
+
+
+def _condition_expressions() -> dict[str, str]:
+    """`sequenceFlow id -> texto da conditionExpression` (so os flows condicionais)."""
+    out: dict[str, str] = {}
+    for el in _bpmn_root().iter():
+        if _local(el.tag) != "sequenceFlow":
+            continue
+        for child in el:
+            if _local(child.tag) == "conditionExpression" and child.text:
+                out[str(el.get("id"))] = child.text
+    return out
+
+
+def test_variaveis_de_decisao_humana_sao_inicializadas_no_primeiro_service_task() -> None:
+    """CIB Seven 2.1.0 lanca `Unknown property used in expression ... Cannot resolve identifier`
+    quando uma conditionExpression le uma variavel que NUNCA foi setada — e o faz ANTES de cair
+    no default do gateway. Sem esta inicializacao, o caso "decisao AUSENTE" nao alcanca
+    `End_ErrRecursoDecisaoInvalida`: o `POST /task/{id}/complete` devolve 500 e a instancia fica
+    PARADA na User Task. O terminal de erro cobre "ausente OU desconhecida" (documentacao do
+    proprio end event); so o segundo caso funcionava.
+
+    `""` e o valor certo: nenhuma condicao do dominio casa com ele, entao o token cai no default
+    fail-closed, e o guard do worker (`ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN`) recusa `""` como
+    recusa qualquer nao-INDEFERIR — a inicializacao nao afrouxa o L0 hard.
+    """
+    outputs = _publish_received_output_parameters()
+    for var in _VARS_DE_DECISAO_HUMANA:
+        assert outputs.get(var) == '${""}', (
+            f'{var} tem de ser inicializada como ${{""}} em ST_PublishReceived; veio '
+            f"{outputs.get(var)!r}. Sem isso o default fail-closed do gateway e INALCANCAVEL "
+            "para uma decisao ausente (a instancia trava na UT com HTTP 500)."
+        )
+
+
+def test_toda_variavel_lida_por_gateway_decisorio_esta_inicializada() -> None:
+    """Fecha a classe inteira, nao so as tres variaveis de hoje: qualquer identificador que as
+    conditionExpressions dos gateways decisorios leiam tem de estar inicializado em
+    `ST_PublishReceived` — senao um autor futuro reintroduz o mesmo travamento."""
+    inicializadas = set(_publish_received_output_parameters())
+    condicoes = _condition_expressions()
+    lidas: set[str] = set()
+    for flow_id, expr in condicoes.items():
+        if not flow_id.startswith(("Flow_GWDec_", "Flow_GWMerito_")):
+            continue
+        lidas.update(re.findall(r"\b([a-z_][a-z0-9_]*)\s*(?:==|!=)", expr))
+    assert lidas, "nenhuma conditionExpression de gateway decisorio encontrada — teste inerte"
+    assert lidas <= inicializadas, (
+        f"variaveis lidas pelos gateways decisorios sem inicializacao em ST_PublishReceived: "
+        f"{sorted(lidas - inicializadas)}"
+    )
+
+
+def test_a_inicializacao_nao_casa_com_nenhuma_rota_de_acao() -> None:
+    """O valor inicializado (`""`) nao pode satisfazer NENHUMA condicao de acao — se casasse,
+    a inicializacao teria criado um ato por omissao, o anti-padrao que o default existe para
+    impedir."""
+    for flow_id, expr in _condition_expressions().items():
+        if not flow_id.startswith(("Flow_GWDec_", "Flow_GWMerito_")):
+            continue
+        assert "== ''" not in expr.replace('"', "'"), (
+            f"{flow_id} casa com a string vazia — a inicializacao viraria uma acao por omissao"
+        )

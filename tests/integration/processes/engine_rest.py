@@ -72,6 +72,58 @@ class EngineRestError(RuntimeError):
     """Falha na comunicacao com o engine REST."""
 
 
+class EngineDefinitionProvenanceError(EngineRestError):
+    """A definicao VIVA no engine nao e a da arvore que o teste esta exercitando.
+
+    O engine do dev-stack e COMPARTILHADO e `POST /deployment/create` cria uma VERSAO NOVA da
+    mesma process-definition-key. Qualquer `make deploy-artifacts` (ou outra suite) rodando de
+    OUTRO checkout contra o mesmo `ENGINE_REST_URL` passa a ser a `latestVersion`, e
+    `start_by_key` — que sempre instancia a latest — comeca a executar a definicao ALHEIA no
+    meio da sessao de pytest. As falhas resultantes se parecem com defeitos do PR (terminais
+    que nao sao alcancados, `Unknown property used in expression` citando expressoes que nao
+    existem na arvore). Esta excecao existe para que essa confusao seja impossivel: a
+    contaminacao falha ALTO, com o marcador que divergiu.
+    """
+
+
+def is_variable_absent_response(status_code: int, body: str) -> bool:
+    """A resposta do engine diz "esta variavel nunca foi setada" (e nao "falhei")?
+
+    O CIB Seven responde `404 InvalidRequestException: process instance variable with name <n>
+    does not exist` para uma variavel ausente de uma instancia VIVA. Predicado PURO (sem rede)
+    para que a traducao status->ausencia seja exercitavel sem mockar o engine (AGENTS.md regra
+    3): so ESTE par (404 + a frase) e ausencia; todo o resto e falha e continua levantando.
+    """
+    return status_code == 404 and "does not exist" in body
+
+
+def assert_definition_provenance(
+    xml: str,
+    *,
+    must_contain: tuple[str, ...],
+    must_not_contain: tuple[str, ...],
+    context: str,
+) -> None:
+    """Falha ALTO se o XML deployado nao carregar os marcadores exclusivos do checkout.
+
+    Funcao PURA (sem rede) para ser exercitavel como teste unitario. `must_contain` sao ids/
+    literais que SO existem na arvore sob teste; `must_not_contain` sao ids/literais que SO
+    existem na definicao concorrente (tipicamente a da `main`). Ambos os lados sao verificados:
+    um deploy alheio pode coincidir num id compartilhado, mas nao nos dois conjuntos.
+    """
+    faltando = [marker for marker in must_contain if marker not in xml]
+    intrusos = [marker for marker in must_not_contain if marker in xml]
+    if faltando or intrusos:
+        raise EngineDefinitionProvenanceError(
+            f"{context}: a definicao VIVA no engine nao e a desta arvore — "
+            f"marcadores ausentes: {faltando or 'nenhum'}; "
+            f"marcadores de outra definicao presentes: {intrusos or 'nenhum'}. "
+            "Alguem deployou outra versao desta process-definition-key no MESMO engine "
+            "(ex.: `make deploy-artifacts` de outro checkout). Redeploye a partir desta arvore "
+            "e re-rode; NAO trate as falhas seguintes como defeitos do artefato sob teste."
+        )
+
+
 class EngineRest:
     """Wrapper REST fino sobre o CIB Seven `engine-rest` (engine real)."""
 
@@ -282,6 +334,33 @@ class EngineRest:
             )
         return resp.json().get("value")
 
+    async def get_variable_or_none(self, instance_id: str, name: str, *, deserialize: bool = True) -> Any:
+        """Le uma variavel de processo que PODE nao existir — AUSENCIA devolve `None`.
+
+        `get_variable` acima levanta em QUALQUER status != 200, e o engine responde
+        **404 `InvalidRequestException: process instance variable with name <n> does not
+        exist`** quando a variavel nunca foi setada. Uma assercao de AUSENCIA
+        (`assert await engine.get_variable(iid, proibida) is None`) por isso nunca podia passar:
+        o 404 — que E a prova de que a chave nao vazou — virava `EngineRestError`.
+
+        Este metodo traduz ESSE 404 (e so ele) para `None`; qualquer outro status nao-200
+        continua levantando com o corpo do engine verbatim, para que um engine fora do ar ou
+        uma instancia inexistente jamais sejam lidos como "variavel ausente". Uma instancia ja
+        CONCLUIDA responde 500 "execution is null" no endpoint de runtime — tambem levanta
+        (use `get_history_variable` nesse caso): ausencia e uma resposta do engine sobre uma
+        instancia viva, nunca um efeito colateral de a instancia ter acabado.
+        """
+        params = {} if deserialize else {"deserializeValue": "false"}
+        resp = await self._client.get(f"/process-instance/{instance_id}/variables/{name}", params=params)
+        if is_variable_absent_response(resp.status_code, resp.text):
+            return None
+        if resp.status_code != 200:
+            raise EngineRestError(
+                f"get variable `{name}` da instancia {instance_id} falhou "
+                f"[{resp.status_code}]: {resp.text[:300]}"
+            )
+        return resp.json().get("value")
+
     async def get_history_variable(self, instance_id: str, name: str) -> Any:
         """Le o VALOR historico de uma variavel de processo (instancia ATIVA ou JA CONCLUIDA).
 
@@ -381,6 +460,43 @@ class EngineRest:
         )
         resp.raise_for_status()
         return {str(i["id"]) for i in resp.json()}
+
+    async def latest_definition_xml(self, process_definition_key: str) -> str:
+        """XML da versao LATEST de uma process-definition-key — a que `start_by_key` instancia."""
+        xml = await self.latest_definition_xml_or_none(process_definition_key)
+        if xml is None:
+            raise EngineRestError(f"process-definition-key `{process_definition_key}` nao esta deployada")
+        return xml
+
+    async def latest_definition_xml_or_none(self, process_definition_key: str) -> str | None:
+        """Como `latest_definition_xml`, mas `None` quando a KEY nao esta deployada (404).
+
+        Distingue "esta key nao existe neste engine" (fato sobre o estado do engine, util para um
+        guard que so faz sentido se a definicao estiver la) de "a consulta falhou" (que continua
+        levantando). Nao e um skip silencioso: quem chama declara qual dos dois quer.
+        """
+        resp = await self._client.get(f"/process-definition/key/{process_definition_key}/xml")
+        if resp.status_code == 404:
+            return None
+        if resp.status_code != 200:
+            raise EngineRestError(
+                f"xml da definicao latest `{process_definition_key}` falhou "
+                f"[{resp.status_code}]: {resp.text[:300]}"
+            )
+        return str(resp.json().get("bpmn20Xml", ""))
+
+    async def definition_xml(self, process_definition_id: str) -> str:
+        """XML da versao EXATA que uma instancia esta executando (`definitionId` do start).
+
+        Diferente de `latest_definition_xml`: prova a proveniencia da definicao que a INSTANCIA
+        carrega, imune a um deploy alheio que chegue depois do start.
+        """
+        resp = await self._client.get(f"/process-definition/{process_definition_id}/xml")
+        if resp.status_code != 200:
+            raise EngineRestError(
+                f"xml da definicao `{process_definition_id}` falhou [{resp.status_code}]: {resp.text[:300]}"
+            )
+        return str(resp.json().get("bpmn20Xml", ""))
 
     # --- decision-definition / decision-instance (ADR-0012: decision_version real) -----
 
