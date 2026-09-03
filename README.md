@@ -30,7 +30,7 @@ Plataforma **agents-first** completa para operadoras de saúde (payer). Reconstr
 | MCP Servers | 5 | CIB Seven, DMN, FHIR, WhatsApp, Memory |
 | Testes | CI workflow | Unitários cobrindo workers, gateway, agents, platform, tools (veja CI para count atual) |
 | Código fonte | ~79K LOC | Arquivos Python em `src/maezo/` (`find src -name '*.py' \| xargs wc -l` -> 79462, 2026-09-03 pós-merge com `main` `0db53dd`; veja a árvore para count atual) |
-| Documentação | ~205K palavras | 16 contratos SP-OP, 40 ADRs (35 Accepted + 5 Proposed), 45 DLs, 22 runbooks (14 gerais + 8 de alerta; exclui os 2 drills em `docs/runbooks/drills/`) |
+| Documentação | ~205K palavras | 16 contratos SP-OP, 41 ADRs (35 Accepted + 6 Proposed), 45 DLs, 22 runbooks (14 gerais + 8 de alerta; exclui os 2 drills em `docs/runbooks/drills/`) |
 
 ### Princípios inegociáveis
 
