@@ -470,6 +470,12 @@ async def start_reembolso(engine: EngineRest, deploy_artifacts: str) -> Callable
             "dentro_tabela": True,
             "dentro_teto_l2": True,
             "requer_avaliacao_clinica": False,
+            # GAP F-1: este seed de ESCOPO DE PROCESSO e' INERTE para o worker desde que
+            # `ST_CalculateAmount` passou a achatar `${calculo.*}` em variaveis LOCAIS da
+            # activity (que sombreiam o homonimo de processo). Mantido de proposito: e' a
+            # prova viva de que um valor semeado no start NAO decide dinheiro. O numero
+            # coincide com o que a DMN `reembolso_calculo` emite para `consulta` (r_consulta =
+            # 12000), entao ele tambem nao mascara divergencia.
             "valor_calculado_tabela_cents": 12000,
         }
         variables.update(overrides)
@@ -618,9 +624,69 @@ async def test_fora_de_tabela_nao_auto_aprova(
     ut = await _drive_to_analista(engine, reembolso_probe, iid)
     assert "analise-reembolso" in ut.candidate_groups
 
+    # GAP F-1: `opme` nao tem row na `reembolso_calculo` -> catch-all -> o worker LE
+    # SEM_TABELA da DMN e escreve dentro_tabela=false. `dmn_decisao_id` so existe como saida
+    # do worker (nenhum seed, nenhum input mapping), entao le-lo prova que o caminho novo
+    # executou; `dentro_tabela` vive num unico escopo (processo), entao o historico devolve o
+    # valor final — o do worker, nao o seed.
+    assert await engine.get_history_variable(iid, "dmn_decisao_id") == "reembolso_calculo"
+    assert await engine.get_history_variable(iid, "dentro_tabela") is False
+
     ended = await engine.activity_instances_ended(iid)
     assert _END_AUTO not in ended, "Fora de tabela NAO pode auto-aprovar (L0)"
     assert not (ended & _END_ADVERSOS), "Fora de tabela NAO pode produzir adverso automatico (L0)"
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+async def test_valor_de_referencia_vem_da_dmn_e_nao_da_tabela_python_removida(
+    engine: EngineRest,
+    reembolso_probe: ReembolsoEngineProbe,
+    start_reembolso: Callable[..., Any],
+) -> None:
+    """GAP F-1 (auditoria D1): o valor de referencia e' o da DMN, provado ENGINE-SIDE.
+
+    DISCRIMINANTE por construcao. `consulta` @ `valor_solicitado_cents=20000`:
+
+    - sob a tabela em Python REMOVIDA (`_BASE_VALUES_CENTS["consulta"] = 35000`) o worker
+      escreveria `dentro_tabela=true` (20000 <= 35000);
+    - sob a DMN `reembolso_calculo` (`r_consulta` = 12000, o valor que `BRT_Calculo` realmente
+      emite) o worker escreve `dentro_tabela=false` (20000 > 12000).
+
+    O seed de start manda `dentro_tabela=True` e `valor_calculado_tabela_cents=35000` (o numero da
+    tabela morta) DE PROPOSITO: nenhum dos dois pode sobreviver — o primeiro e' recomputado, o
+    segundo e' sombreado pela variavel LOCAL que o `camunda:inputParameter` de `ST_CalculateAmount`
+    escreve a partir de `${calculo.valor_calculado_tabela_cents}`.
+
+    Le `dentro_tabela` (escopo unico: processo; o historico devolve o valor final) e
+    `dmn_decisao_id` (produzido SO pelo worker — nem seed nem input mapping o escrevem), evitando
+    de proposito `valor_calculado_tabela_cents`/`fonte_tabela`, que passam a existir em DOIS
+    escopos (local da activity + processo) e cuja ordem de linhas no `/history/variable-instance`
+    nao e' garantida.
+    """
+    inst = await start_reembolso(
+        categoria_procedimento="consulta",
+        tipo_reembolso="livre_escolha",
+        valor_solicitado_cents=20000,
+        dentro_tabela=True,  # seed hostil — deve ser recomputado
+        valor_calculado_tabela_cents=35000,  # o valor da tabela Python REMOVIDA — deve ser sombreado
+    )
+    iid = inst["id"]
+
+    ut = await _drive_to_analista(engine, reembolso_probe, iid)
+    assert "analise-reembolso" in ut.candidate_groups
+
+    assert await engine.get_history_variable(iid, "dmn_decisao_id") == "reembolso_calculo", (
+        "o worker de calculo nao emitiu a citacao da DMN — ST_CalculateAmount nao executou o caminho GAP F-1"
+    )
+    assert await engine.get_history_variable(iid, "dmn_atividade_bpmn") == "BRT_Calculo"
+    assert await engine.get_history_variable(iid, "dentro_tabela") is False, (
+        "dentro_tabela=true com solicitado=20000 so e' possivel a partir de um valor de referencia "
+        ">= 20000 — i.e. a tabela em Python removida (consulta 35000), nao a DMN (12000)"
+    )
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _END_AUTO not in ended, "acima da tabela da DMN NAO pode auto-aprovar (L0)"
+    assert not (ended & _END_ADVERSOS)
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
