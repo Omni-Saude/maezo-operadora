@@ -4,9 +4,13 @@
 # generic-api-key sobre identificadores BPM em documentacao (NAO segredos).
 # Politica fail-closed: estende o ruleset default (useDefault = true) e
 # permite APENAS os shapes exatos abaixo, ancorados no valor detectado
-# (regexTarget = "secret"). NAO ha allowlist por path — um segredo real
-# plantado nos mesmos arquivos de docs continua sendo detectado
-# (prova de mutacao no PR #28).
+# (regexTarget = "secret"). Nenhuma entrada allowlista por path SOZINHO:
+# quando uma entrada abaixo usa `paths`, o path e so mais um criterio
+# dentro de `condition = "AND"`, sempre casado com o shape do secret (e,
+# nas duas entradas datadas 2026-09-03, tambem com o commit) — nunca um
+# path aberto por si so. Um segredo real plantado nos MESMOS paths
+# continua sendo detectado porque o shape nao casa (prova de mutacao no
+# PR #28; provas de mutacao equivalentes em cada entrada mais nova).
 
 [extend]
 # Mantem TODAS as regras default do gitleaks; este arquivo apenas adiciona
@@ -171,14 +175,17 @@ paths = [
 # SEC-GITLEAKS-HISTORY-ALLOWLIST 2026-09-03: o job `gitleaks / secrets` em
 # `push` (.github/workflows/security.yml, fetch-depth 0) varre o HISTORICO
 # INTEIRO (`gitleaks detect --source . --exit-code 1`), diferente do lane de
-# `pull_request` que varre so `base..head`. Duas fixtures sinteticas de teste
-# (variaveis locais parecidas com app_secret/whatsapp_token em asserts de
-# nao-vazamento) foram substituidas por construcoes de baixa entropia
-# ("seg-" + "z"*24 / "tok-" + "x"*24) NOS DOIS ARQUIVOS ja em main — mas os
-# valores antigos permanecem, imutaveis, nos dois commits historicos que os
-# introduziram, e continuam disparando generic-api-key numa varredura de
-# historico completo. Como o conteudo de um commit ja mesclado nao pode ser
-# editado, a correcao so pode ser feita aqui (allowlist), nunca no arquivo.
+# `pull_request` que varre so `base..head`. Tres fixtures sinteticas de
+# teste (variaveis locais parecidas com app_secret/whatsapp_token em
+# asserts de nao-vazamento, espalhadas em DOIS arquivos) foram substituidas
+# por construcoes de baixa entropia ja em main: `secret` em
+# test_settings.py vira "seg-"+"z"*24; `_SECRET` e `token`, ambos em
+# test_mcp_whatsapp.py, viram respectivamente "seg-"+"q"*24 e
+# "tok-"+"x"*24 — mas os valores antigos permanecem, imutaveis, nos dois
+# commits historicos que os introduziram, e continuam disparando
+# generic-api-key numa varredura de historico completo. Como o conteudo de
+# um commit ja mesclado nao pode ser editado, a correcao so pode ser feita
+# aqui (allowlist), nunca no arquivo.
 #
 # CONTENCAO TRIPLA — condition = "AND" exige que OS TRES criterios casem
 # (commit especifico E path exato E shape do secret); qualquer um sozinho
@@ -241,8 +248,9 @@ regexes = [
 # _SECRET (test_mcp_whatsapp.py:111) e token (test_mcp_whatsapp.py:188,214),
 # dois valores fake distintos de 24 caracteres alfanumericos mistos no mesmo
 # commit; um unico regex de shape+tamanho cobre os tres achados (nao ha
-# stanza por linha). main hoje ja usa "tok-" + "x"*24 (baixa entropia); o
-# valor antigo so existe neste commit historico.
+# stanza por linha). main hoje ja usa baixa entropia nos dois: `_SECRET`
+# vira "seg-" + "q"*24 e `token` vira "tok-" + "x"*24; os valores antigos
+# so existem neste commit historico.
 # Data: 2026-09-03 | Task: SEC-GITLEAKS-HISTORY-ALLOWLIST
 description = "SEC-GITLEAKS-HISTORY-ALLOWLIST 2026-09-03: fixtures sinteticas _SECRET/token (24 chars) em test_mcp_whatsapp.py, historico imutavel (nao credencial; AND commit+path+shape)"
 condition = "AND"
