@@ -138,7 +138,13 @@ _NONDETERMINISM_BASELINE: dict[str, str] = {
     # Pinned by `test_contas_glosa_id_m9_landed_deterministic` below.
     "inadimplencia": "dossier_ref = uuid4 — latent; same P1 caveat.",
     "lgpd": "package_ref = uuid4 — latent; same P1 caveat.",
-    "recurso": "protocolo = sha256(time_ns()) — latent; same P1 caveat.",
+    # `recurso` REMOVIDO (ADR-0040): o unico mint de relogio do modulo era
+    # `register_desistencia`'s `RECDESIST-{sha256(time_ns())}`, e ele morreu com a reescrita de
+    # perspectiva. Os dois protocolos que sobraram sao DETERMINISTICOS por business key —
+    # `RECIND-{business_key}` (`registrar_indeferimento`) e `RECRESP-{business_key}`
+    # (`_mint_protocolo_resposta`) — entao uma re-entrega da mesma task cunha o MESMO protocolo em
+    # vez de uma identidade nova para uma unica decisao. Pinado por
+    # `test_recurso_protocolos_sao_deterministicos_por_business_key` abaixo.
     "reembolso": "comprovante_ref = sha256(time_ns()) — latent; same P1 caveat.",
 }
 
@@ -263,4 +269,24 @@ def test_contas_glosa_id_m9_landed_deterministic() -> None:
     assert not _nondeterministic_calls(tree), (
         "contas re-introduced a non-deterministic identifier source — M-9 made `glosa_id` a pure "
         "function of the contract facts; nothing in this module may use time_ns/uuid/random."
+    )
+
+
+def test_recurso_protocolos_sao_deterministicos_por_business_key() -> None:
+    """ADR-0040 LANDED: `recurso` no longer mints anything from the wall clock.
+
+    `register_desistencia`'s `RECDESIST-{sha256(time.time_ns())}` died with the appellant branch.
+    The two protocols that remain are pure functions of the instance's own business identity:
+    `RECIND-{business_key}` (`registrar_indeferimento`) and `RECRESP-{business_key}`
+    (`_mint_protocolo_resposta`) — so an engine re-delivery of the SAME human decision reproduces
+    the SAME protocol instead of minting a second identity for one act. Mirrors the `contas` pin
+    above: a regression trips BOTH this pin and the baseline fence (which would then flag
+    `recurso` as NEW).
+    """
+    assert "recurso" not in _NONDETERMINISM_BASELINE
+    path = _domain_worker_modules()["recurso"]
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    assert not _nondeterministic_calls(tree), (
+        "recurso re-introduced a non-deterministic identifier source — both protocolos are pure "
+        "functions of the business key; nothing in this module may use time_ns/uuid/random."
     )

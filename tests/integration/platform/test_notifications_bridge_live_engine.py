@@ -25,7 +25,7 @@ from maezo.gateway.audit_postgres import (
     schema_for_tenant,
 )
 from maezo.platform.notification_bridge import (
-    CONTAS_COMPLETED_EVENT,
+    RECURSO_INTAKE_EVENT,
     NotificationBridge,
     build_cibseven_process_starter,
 )
@@ -165,9 +165,13 @@ def test_worker_start_recurso_starts_real_instance_and_audits(
 async def test_bridge_reconciled_event_starts_real_instance_and_audits(
     live_tenant: tuple[str, str, str],
 ) -> None:
-    """The reconciled bridge (agents.events.contas.completed, desfecho=encaminhada_recurso) starts
-    a REAL RECURSO-001 instance through the fence with agent_id=notification_bridge; a non-matching
-    desfecho starts nothing (negative)."""
+    """The intake bridge rule (agents.events.recurso.intake_recebido, ADR-0040 §3.1) starts a REAL
+    RECURSO-001 instance through the fence with agent_id=notification_bridge; a payload without
+    the business-key anchors starts nothing (negative).
+
+    The event has no publisher in `main` (OQ-R1) — this proves the RULE works when one exists;
+    the absence of a publisher is proved by
+    `test_regra_intake_recurso_e_dormente_ate_o_adaptador_existir`."""
     dsn, tenant, engine_url = live_tenant
     suffix = uuid.uuid4().hex[:8]
     guia, glosa = f"GUIAB-{suffix}", f"GLOSAB-{suffix}"
@@ -179,9 +183,8 @@ async def test_bridge_reconciled_event_starts_real_instance_and_audits(
         bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, sink))
         # Positive: matching desfecho + anchors -> real start.
         pos = await bridge.on_event(
-            CONTAS_COMPLETED_EVENT,
+            RECURSO_INTAKE_EVENT,
             {
-                "desfecho": "encaminhada_recurso",
                 "tenant_id": tenant,
                 "numero_guia_tiss": guia,
                 "glosa_id": glosa,
@@ -191,10 +194,10 @@ async def test_bridge_reconciled_event_starts_real_instance_and_audits(
         assert len(triggered) == 1
         assert await _engine_instance(engine_url, bk) == triggered[0].process_instance_id
 
-        # Negative: non-matching desfecho -> nothing starts, nothing audited for it.
+        # Negative: missing business-key anchor -> nothing starts, nothing audited for it.
         neg = await bridge.on_event(
-            CONTAS_COMPLETED_EVENT,
-            {"desfecho": "reenviada", "tenant_id": tenant, "numero_guia_tiss": "X", "glosa_id": "Y"},
+            RECURSO_INTAKE_EVENT,
+            {"tenant_id": tenant, "numero_guia_tiss": "X"},
         )
         assert not [r for r in neg if r.handoff_triggered]
     finally:

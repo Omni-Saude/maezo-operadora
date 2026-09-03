@@ -3,7 +3,7 @@
   "agent": "marina",
   "class": "CE",
   "tier": ["A"],
-  "description": "RECURSO-flagged input (flow=recurso) with RECORRIVEL eligibility and a non-medico-auditor reviewer group -> auto_route AND, critically, `start_process` must anchor SP-OP-RECURSO-001 (never SP-OP-CONTAS-001) -- proven by inspecting the recorded CibSeven process_key directly, not just the business_key string prefix.",
+  "description": "RECURSO-flagged input (flow=recurso) with SEGUE_MERITO eligibility and a non-medico-auditor reviewer group -> auto_route AND, critically, `start_process` must anchor SP-OP-RECURSO-001 (never SP-OP-CONTAS-001) -- proven by inspecting the recorded CibSeven process_key directly, not just the business_key string prefix.",
   "input": {
     "state": {
       "flow": "recurso",
@@ -32,13 +32,13 @@
   "dmn_fixture": {
     "recurso_admissibility": { "roteamento": "SEGUE_ANALISE" },
     "recurso_sla": { "sla_analise": "7d", "sla_alerta": "3d" },
-    "recurso_eligibility": { "roteamento": "RECORRIVEL", "grupo_revisor": "analista-recurso-glosa" }
+    "recurso_eligibility": { "roteamento": "SEGUE_MERITO", "grupo_revisor": "analista-recurso-glosa" }
   },
   "expect": {
     "fields": {
       "route": "auto_route",
       "desfecho": "recurso_segue_analise",
-      "elegibilidade_recurso": "RECORRIVEL"
+      "elegibilidade_recurso": "SEGUE_MERITO"
     }
   },
   "leak_canaries": []
