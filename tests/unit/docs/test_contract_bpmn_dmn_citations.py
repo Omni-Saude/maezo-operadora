@@ -112,7 +112,7 @@ def test_fraude_contract_hit_policy_claims_match_the_deployed_dmn() -> None:
 # FRAUDE contract's two claims). Two of these six (`SP-OP-CRED-001.md::cred_prior_notice`/
 # `cred_sla`, `SP-OP-ADEQUACAO-001.md::adequacao_sla`) were already confirmed by the R1 verifier
 # (part-B verification report §6, finding D-B6, "CONFIRMADO 3/3"). The other two
-# (`SP-OP-PAGTO-001.md::pagto_sla`, `SP-OP-REEMBOLSO-001.md::reembolso_calculo`/`reembolso_sla`)
+# (`SP-OP-PAGTO-001.md::pagto_sla`, `SP-OP-REEMBOLSO-001.md::reembolso_sla` (`reembolso_calculo` corrigido pelo PR #271))
 # are NEW — outside Part-B's own 6-process scope — surfaced by this test and reported, not fixed,
 # here (see this WP's final report "found beyond scope"). Tracked, not silently fixed: a NEW
 # contract adopting the pattern (not listed here) still fails the fence below.
@@ -122,7 +122,6 @@ _HIT_POLICY_DRIFT_BASELINE: frozenset[str] = frozenset(
         "SP-OP-CRED-001.md::cred_sla",  # D-B6
         "SP-OP-ADEQUACAO-001.md::adequacao_sla",  # D-B6
         "SP-OP-PAGTO-001.md::pagto_sla",  # NEW — found by this test, out of GAP-FAB-NOTIF scope
-        "SP-OP-REEMBOLSO-001.md::reembolso_calculo",  # NEW — found by this test, out of scope
         "SP-OP-REEMBOLSO-001.md::reembolso_sla",  # NEW — found by this test, out of scope
     }
 )
