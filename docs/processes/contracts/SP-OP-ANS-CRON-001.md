@@ -63,7 +63,9 @@ por `find`/`grep`) mapeia `ans.cron_due` -> start de **SP-OP-ANS-SUBMIT-001** vi
   invoca (as 5 definitions ligam `ST_PublishCronDue*` direto a `operadora.events.publish` com o
   literal estatico). Isso e **GAP-ANS-1** (remodelagem de scheduler per-report-type necessaria
   para religar isso — `docs/reports/business-logic-audit-improvement-plan.md:445`, fora do
-  escopo deste fix) — nao um "residuo resolvido". Consequencia pratica: **toda instancia
+  escopo deste fix; no registro vivo de gaps rastreado como `ANS-CRON-DEAD-CODE`, work package
+  `WP-ANS-CRON-COMPETENCIA` — PERSP-CONTRACT-FUNCS/WP-CONTRATOS-SYNC: esta secao aponta para o
+  codigo morto, nunca declara a competencia como resolvida) — nao um "residuo resolvido". Consequencia pratica: **toda instancia
   SP-OP-ANS-SUBMIT-001 aberta pelo caminho cron hoje nasce com `competencia=COMPETENCIA_PENDENTE`**
   — no maximo UMA instancia pendente-de-competencia ativa por report_type por tenant (re-tick do
   timer e reentrega Kafka reconvergem para a instancia ativa, nunca duplica ciclo/filing). Um

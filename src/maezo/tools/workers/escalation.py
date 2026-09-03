@@ -92,6 +92,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 import structlog
 
+from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.tools.workers.harness import WorkerBpmnError
 
 if TYPE_CHECKING:
@@ -435,15 +436,31 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             notification["prioridade"] = prioridade
         if motivo is not None:
             notification["motivo_categoria"] = motivo
+        # GAP-SC-04-a: the partition key is resolved HERE, deliberately ABOVE the `try`. Two
+        # reasons, both load-bearing. (1) `task.business_key or None` degraded a blank business key
+        # into an UNKEYED publish — round-robin across the topic's 3 default partitions, so two
+        # notifications about the SAME escalation could reorder once the bridge is scaled past one
+        # replica. (2) Under a ratified DL-0043 `scrub_only` with no provisioned `PHI_HMAC_KEY`,
+        # `egress_message_key` raises `PseudonymizerKeyMissingError` — a CONFIGURATION fault. Inside
+        # the `try` below it would be caught and converted into `ERR_ESC_NOTIFY_FAILED`, routing a
+        # key-provisioning problem to the notify-fallback boundary under a channel-failure
+        # diagnosis, forever. Hoisted, it propagates raw to the harness ladder with its own type
+        # intact — the same hoist `events.py:326-344` documents for the same raise.
+        # MERGE NOTE (this branch x GAP-ESC-SEVERITY-GROUP): the derivation is deliberately the
+        # LAST statement before the `try`, i.e. AFTER the optional `prioridade`/`motivo_*`
+        # enrichment above, so the key is always derived from the payload as it is actually
+        # PUBLISHED. Today the two orders are equivalent (`escalation` is not an `ENTITY_ANCHORS`
+        # family, so arm (3) reads nothing but `type`/`tenant_id`, both set unconditionally); the
+        # order is pinned so that adding an escalation anchor group later cannot silently derive a
+        # key from a payload that is missing fields the message carries.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
         try:
             # best_effort=False (t8-escalation-boundary ROOT-CAUSE fix): _NOTIFICATIONS_TOPIC is in
             # the producer's BEST_EFFORT_TOPICS, so the DEFAULT posture would SWALLOW a broker-down
             # publish failure one layer below and this try/except would never see it (the hollow
             # bug). Forcing best_effort=False makes the real producer PROPAGATE, so the failure
             # reaches the except below and the modeled boundary actually fires.
-            await kafka.publish(
-                _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-            )
+            await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         except Exception as exc:
             # ADR-0030 Tier-1 (G2-fs): a notify-channel failure is a MODELED fail-safe, NOT an
             # incident. Raise ERR_ESC_NOTIFY_FAILED so `BE_FalhaNotificacao` (attached to
@@ -556,13 +573,29 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             notification["prioridade"] = prioridade
         if motivo_alerta is not None:
             notification["motivo_alerta"] = motivo_alerta
+        # GAP-SC-04-a: the partition key is resolved HERE, deliberately ABOVE the `try`. Two
+        # reasons, both load-bearing. (1) `task.business_key or None` degraded a blank business key
+        # into an UNKEYED publish — round-robin across the topic's 3 default partitions, so two
+        # notifications about the SAME escalation could reorder once the bridge is scaled past one
+        # replica. (2) Under a ratified DL-0043 `scrub_only` with no provisioned `PHI_HMAC_KEY`,
+        # `egress_message_key` raises `PseudonymizerKeyMissingError` — a CONFIGURATION fault. Inside
+        # the `try` below it would be caught and converted into `ERR_ESC_NOTIFY_FAILED`, routing a
+        # key-provisioning problem to the notify-fallback boundary under a channel-failure
+        # diagnosis, forever. Hoisted, it propagates raw to the harness ladder with its own type
+        # intact — the same hoist `events.py:326-344` documents for the same raise.
+        # MERGE NOTE (this branch x GAP-ESC-SEVERITY-GROUP): the derivation is deliberately the
+        # LAST statement before the `try`, i.e. AFTER the optional `prioridade`/`motivo_*`
+        # enrichment above, so the key is always derived from the payload as it is actually
+        # PUBLISHED. Today the two orders are equivalent (`escalation` is not an `ENTITY_ANCHORS`
+        # family, so arm (3) reads nothing but `type`/`tenant_id`, both set unconditionally); the
+        # order is pinned so that adding an escalation anchor group later cannot silently derive a
+        # key from a payload that is missing fields the message carries.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
         try:
             # best_effort=False (t8-escalation-boundary ROOT-CAUSE fix): force the real producer to
             # PROPAGATE a broker-down failure on _NOTIFICATIONS_TOPIC (otherwise topic-default
             # best-effort would swallow it below and this except would never fire).
-            await kafka.publish(
-                _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-            )
+            await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         except Exception as exc:
             # ADR-0030 Tier-1 (G2-fs): this handler serves BOTH ST_NotificarSupervisor (SLA breach)
             # AND ST_NotificarFallback (the notify_team channel fallback). On a publish failure raise
