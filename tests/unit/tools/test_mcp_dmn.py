@@ -20,6 +20,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -100,3 +102,42 @@ def test_deprecated_server_still_importable_for_the_deprecation_cycle() -> None:
     warning + a working import, not a bare ImportError mid-cycle."""
     module = importlib.import_module("maezo.tools.mcp_dmn")
     assert hasattr(module, "DmnServer")
+
+
+def test_no_match_fails_closed_not_open(tmp_path: Path) -> None:
+    """AF-08: the donor's original no-match tail was `return {}` — a silent fail-OPEN non-decision
+    (ADR-0028 §3 requires raise/route-to-human). This is NOT a decision-behavior test (the class
+    of test this module's docstring says was deliberately removed): it asserts the deprecation
+    SAFETY CONTRACT — if this dead evaluator is ever re-adopted by mistake, it refuses to fail
+    open — the same kind of fence as `test_no_production_module_imports_mcp_dmn` above, not a
+    second FEEL engine under test.
+    """
+    from maezo.tools.mcp_dmn.server import DmnServer, DmnSettings
+
+    dmn_file = tmp_path / "test_no_match.dmn"
+    dmn_file.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             id="defs_test_no_match" name="Test No Match"
+             namespace="http://maezo.health/dmn/test">
+  <decision id="test_no_match" name="Test No Match">
+    <decisionTable id="dt_test_no_match" hitPolicy="FIRST">
+      <input id="i1" label="flag">
+        <inputExpression id="ie1" typeRef="boolean">
+          <text>flag</text>
+        </inputExpression>
+      </input>
+      <output id="o1" label="result" name="result" />
+      <rule id="r1">
+        <inputEntry id="ie_r1"><text>true</text></inputEntry>
+        <outputEntry id="oe_r1"><text>"matched"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
+""",
+        encoding="utf-8",
+    )
+    server = DmnServer(DmnSettings(dmn_dir=str(tmp_path)))
+    with pytest.raises(RuntimeError, match="refuses to fail open"):
+        server.evaluate_decision("test_no_match", {"flag": False})

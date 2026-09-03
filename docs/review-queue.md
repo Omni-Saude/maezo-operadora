@@ -745,6 +745,22 @@ only) — registra o desfecho para quem consultar as entradas antigas de `GAP-CR
 
 ---
 
+## PERSP-C5-ANSCRON-TESTSPEC — colisao de merge com `feat/ans-cron-timers-por-report-type` (regra registrada pelo verificador)
+
+Esta branch (`fix/docs-hygiene-contadores-runbooks`) e a branch paralela
+`feat/ans-cron-timers-por-report-type` (remodelagem dos timers de SP-OP-ANS-CRON-001 por
+`report_type`) tocam os mesmos tres arquivos de forma que `git merge-tree` confirma como conflito
+real (nao mecanico) em um deles. Isto NAO e um achado de conteudo — nao mexe em
+`docs/processes/test-specs/SP-OP-ANS-CRON-001.md` nem em `catalog.md`, so registra a regra de
+merge que o verificador independente (VER-DOCS-HYG) derivou, para quem integrar as duas branches
+depois desta:
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| Colisao de merge `fix/docs-hygiene-contadores-runbooks` × `feat/ans-cron-timers-por-report-type` (3 arquivos, `git merge-tree --write-tree --merge-base=71dd4da HEAD feat/ans-cron-timers-por-report-type`, reproduzido por VER-DOCS-HYG) | **Regra de merge, nao correcao de conteudo — quem integrar decide, nao esta branch:** (1) `docs/processes/test-specs/SP-OP-ANS-CRON-001.md` — conflito add/add, as duas branches criam o arquivo do zero. A versao desta branch (75 linhas) documenta o estado ATUAL/pre-remodelagem, incl. `FINDING #1 — topicos registrados por ans_cron.py sao inalcancaveis a partir do BPMN` (achado de codigo-morto). A versao de `feat/ans-cron-timers-por-report-type` (222 linhas) documenta o estado POS-remodelagem onde esse mesmo achado esta corrigido. Manter as duas e autocontraditorio (uma afirma que os topicos sao inalcancaveis, a outra que foi corrigido) — **a versao ans-cron deve vencer INTEIRA; a versao desta branch deve ser descartada**, nao porque esta errada hoje, mas porque documenta um estado que a outra branch ativamente remedia. (2) `docs/processes/catalog.md` — as duas branches adicionam uma linha para `SP-OP-ANS-CRON-001` na mesma posicao da tabela com status/rodape diferentes (`DRAFT` nesta branch vs `modelado` em ans-cron) MAIS rodapes independentes sem sobreposicao real: esta branch acrescenta o rodape `SP-OP-REEMBOLSO-001**` (PERSP-REEMBOLSO-BINDING) que ans-cron nao toca; ans-cron acrescenta `PERSP-C5-MONITOR-PROGRAMA` que esta branch nao toca. **Merge manual: tomar a linha/paragrafo ANS-CRON de ans-cron, manter o rodape REEMBOLSO desta branch, manter o rodape MONITOR-PROGRAMA de ans-cron** — tres blocos independentes, nenhum e descartado. (3) `docs/evidence-ledger.md` — as duas branches so acrescentam linhas (append/append) apos a mesma ultima linha; conflito puramente mecanico, concatenar os dois blocos de linhas em qualquer ordem, nenhum bloco referencia o outro. | orquestrador/integrador (decisao de ordem de merge; nenhuma decisao de conteudo tecnico/regulatorio pendente) | `NOTA — regra de merge registrada, nao acao pendente; aplicavel so no momento em que as duas branches forem integradas` |
+
+---
+
 ## Auditoria 09 — achado 9.4 residuo: `WHATSAPP_PHONE_NUMBER_ID` nao e injetado por nenhum deployment
 
 `fix/whatsapp-token-vazamento`: o achado 9.4 (token WABA no PATH da URL) foi fechado trocando a URL
