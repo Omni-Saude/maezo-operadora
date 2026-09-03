@@ -254,7 +254,7 @@ _NOTIFY_SLA_RISK_UNOBSERVABLE_REASON = (
     "history (ST_NotificarRiscoSla ended), live-proven PASS; zero xfail call sites remain."
 )
 
-# SP-OP-INADIMPLENCIA-001.md:109's "produz" obligation for agents.events.inadimplencia.notified
+# SP-OP-INADIMPLENCIA-001.md:111's "produz" obligation for agents.events.inadimplencia.notified
 # RESOLVED by t3.1-event-gap-w4-reemb-inad (T3.1 event-gap remedy B, wave 4 latent conformance) —
 # ST_PublishInadimplenciaNotified (boundary-free operadora.events.publish task between
 # ST_CheckPriorNotice and GW_CureWindow) now emits it. LIVE-PROVEN against a real CIB Seven 2.1.0
@@ -575,7 +575,7 @@ async def test_notificacao_previa_publica_inadimplencia_notified(
     dentro_janela_purga=True => BRT_Status roteia AGUARDA_PURGA => BRT_PurgaPrazos =>
     ST_CheckPriorNotice roda => ST_PublishInadimplenciaNotified (novo, boundary-free) publica
     agents.events.inadimplencia.notified com os business keys do processo. NENHUM teste
-    pre-existente pinava esta obrigacao de contrato (SP-OP-INADIMPLENCIA-001.md:109 "produz") —
+    pre-existente pinava esta obrigacao de contrato (SP-OP-INADIMPLENCIA-001.md:111 "produz") —
     regressao NOVA, nao adaptacao de um xfail vermelho ja existente (contraste com o padrao
     recurso/cancel/auth Wave 1). LIVE-PROVEN (t3.1-event-gap-w4 live validation):
     ST_PublishInadimplenciaNotified completou no engine history, o token avancou ao GW_CureWindow

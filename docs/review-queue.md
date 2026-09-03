@@ -704,14 +704,33 @@ das seis (a quinta, `reembolso_calculo`, esta sendo corrigida pela branch parale
 
 ---
 
-## GAP-FAB-NOTIF followup (2/2) — GAP-INAD-8: `inadimplencia.notify_beneficiario` fato fabricado, NAO corrigido nesta PR
+## GAP-FAB-NOTIF followup (2/2) — GAP-INAD-8: `inadimplencia.notify_beneficiario` fato fabricado — **CORRIGIDO** (WP-FATOS-FABRICADOS slice 2)
 
 `fix/fatos-fabricados-notificacao` (WP-FABRICATED-FACTS, R2) corrigiu dois fatos regulatorios
 fabricados (CRED `dispatch_prior_notice`, ADEQUACAO `notify_coordenacao`, ambos zero-consumidores
 — agora retornam `{}`) e deliberadamente NAO corrigiu um terceiro, de risco maior, tracked apenas
 no comentario de codigo do ratchet AST `_FABRICATED_FACT_BASELINE["inadimplencia"]`
 (`tests/unit/tools/workers/test_worker_handler_purity.py:190-202`). Esta linha promove esse
-achado a uma entrada formal da fila:
+achado a uma entrada formal da fila.
+
+> **STATUS 2026-09-03 — CORRIGIDO em `fix/fatos-fabricados-inadimplencia-notify` (WP-FATOS-FABRICADOS
+> slice 2, R1).** A linha abaixo fica como REGISTRO do defeito e da sua analise; o que mudou:
+> `notify_beneficiario` virou `dispatch_prior_notice` e retorna `{}` (`inadimplencia.py`);
+> `handoff_rescisao` deixou de repassar `notificacao_previa_feita` e passou a DERIVA-lo de
+> `comprovacao_notificacao_previa` (`_notificacao_previa_comprovada`) — de modo que o valor lido por
+> `cancel_admissibility.dmn` e por `cancel.assess_admissibility` sai da comprovacao humana, nao de uma
+> constante; e `cancel.validate_cancel`/`assess_admissibility` passaram a exigir `is True` estrito
+> (fail-closed em `PENDENTE_NOTIFICACAO`, que NAO e negativa — o timer daquele ramo converge na User
+> Task humana). A entrada `_FABRICATED_FACT_BASELINE["inadimplencia"]` foi REMOVIDA, como a catraca
+> exige. **Correcao de uma premissa desta linha:** ela afirmava que "INADIMPLENCIA nao parece ter um
+> campo equivalente [ao `comprovacao_notificacao_previa` do CRED] ja religado" — tem: o campo existe,
+> e coletado em `UT_AnaliseInadimplencia` e ja era exigido fail-closed pelo guard de
+> `_register_contract_suspension` (`inadimplencia.py`, `errors.append("comprovacao_notificacao_previa
+> ausente (RN 593)")`; contrato `SP-OP-INADIMPLENCIA-001.md:98,157`). Era exatamente o sinal honesto
+> que faltava, e e o que a correcao usa. **RN 593 e o art. 13, par. unico, II da Lei 9.656/98
+> permanecem DRAFT/verify** — nenhuma ancora regulatoria foi confirmada por esta correcao; o
+> sign-off medico/juridico/regulatorio continua PENDENTE.
+
 
 | Artefato | O que precisa de revisao humana | Revisor | Status |
 |---|---|---|---|
@@ -944,3 +963,104 @@ As tres linhas abaixo sao o que esta fatia NAO decide e nao pode decidir sozinha
 | Metrica-gauge `maezo_dead_letter_queue_size` (lida por `MaezoDeadLetterBacklog`/`MaezoDeadLetterGrowth`, `deploy/observability/alert-rules.yml`) | **A distincao, declarada para nao virar falsa equivalencia.** SC-04-a passa a emitir o CONTADOR `maezo_bridge_dlq_total{topic,reason}` (`src/maezo/runtime/metrics.py`, `src/maezo/platform/observability.py::record_bridge_dlq`) — o fluxo de entrada de mensagens em quarentena, com `reason` de vocabulario FECHADO (`BRIDGE_DLQ_REASONS`), sem conteudo de payload. Isso **nao** e o gauge que os dois alertas leem: `maezo_dead_letter_queue_size` e PROFUNDIDADE ATUAL da fila, um fato do lado do broker (produzidas menos consumidas pelo leitor do proprio DLQ) que nenhum processo em `src/` observa — emiti-lo do src fabricaria um numero que diverge do broker no instante em que alguem drenar o DLQ. Fechar o gauge exige um job de scrape de exporter Kafka/JMX que nao existe em `deploy/observability/prometheus.yml` (owner-gated). **A MESMA constatacao, com o MESMO dono, ja esta registrada duas vezes: sob a fatia `ALERTS-WITHOUT-METRICS-b` na secao WP-COMPOSICAO-V2 fatia 1 (branch `fix/composicao-root-wiring-v2`, que declara `maezo_dead_letter_queue_size` como EXTERNAL na allowlist de `test_alert_metrics_fence.py`) e aqui sob `SC-04-b`. NAO sao dois itens: sao um so, e no merge as duas linhas devem colapsar em UMA, sob `ALERTS-WITHOUT-METRICS-b` — que e quem tem a fence. Esta linha fica com o que e proprio da SC-04-a (a distincao contador-vs-gauge e a opcao (b) de reapontamento) e DELEGA a titularidade do gauge aquela fatia.** `docs/observability/SLO.md` registra a mesma coisa mas AINDA NAO EXISTE nesta branch nem na main — vive so' em `docs/slo-runbooks-alertas` (PR #270, aberta); se SC-04-a mergear primeiro, esta citacao fica pendurada ate #270 entrar. Decisao pendente: (a) subir o exporter e manter os dois alertas como estao, ou (b) reapontar os alertas para `rate(maezo_bridge_dlq_total[5m])`, que ja funciona hoje sem exporter mas alerta sobre FLUXO, nao sobre BACKLOG — semanticamente diferente e a diferenca precisa ser aceita por quem opera | owner/operacoes (plataforma) + SRE (observabilidade) | `owner-gated — contador src-side entregue; gauge de exporter NAO existe e nao foi fabricado` |
 | `docs/design/wave1-effect-chokepoint.md` §8.1 — `FORBIDDEN_CONSTRUCTION_NAMES` (fence `scripts/ci/check_effect_chokepoint_fence.py:116-141`) | **Um produtor Kafka novo fora da cerca — escalado, nao alargado em silencio** (achado MINOR-8 do gatekeeper). SC-04-a adiciona `AioKafkaDlqPublisher` (`src/maezo/platform/integrations/notifications_bridge.py:480`), uma classe de efeito externo real. A cerca PASSA porque so' guarda os nomes ENUMERADOS em §8.1, e essa lista e verbatim do documento de design — entao inclui-la exige editar o design, o que esta fatia deliberadamente NAO faz. A razao de nao reusar `AioKafkaEventsProducer` e solida (o DLQ precisa dos bytes VERBATIM, e alargar o allowlist dele seria pior), mas a consequencia — um produtor sem cerca — fica declarada aqui em vez de silenciosa. Decisao pendente: acrescentar `AioKafkaDlqPublisher` a §8.1 e a `FORBIDDEN_CONSTRUCTION_NAMES` (com a composicao ja fenceada por `build_dlq_shunt`), ou registrar por escrito por que a classe fica de fora | owner/orquestrador (documento de design) + plataforma | `ESCALADO — cerca intocada por SC-04-a; nenhum arquivo de fence alterado` |
 | `docs/design/requisitos-acessibilidade-ui.md` (NOVO — GAP 10.1) | **Tres ancoras regulatorias brasileiras citadas como DRAFT/verify: Lei 13.146/2015 (LBI), eMAG, ABNT NBR 17060.** O baseline tecnico (WCAG 2.2 AA) foi confirmado ao vivo contra `https://www.w3.org/TR/WCAG22/` nesta sessao; as tres ancoras brasileiras NAO foram — nem a aplicabilidade direta de cada uma a uma operadora PRIVADA de plano de saude (em oposicao a orgao publico/eMAG), nem o texto/numero exato de cada uma foi confirmado contra fonte juridica. `docs/compliance/` nao contem nenhum documento sobre acessibilidade (verificado: `grep -rli acessibilidade\|wcag\|13.146\|eMAG\|17060 docs/compliance/` so retorna `lgpd-topic-reconciliation.md`, que nao trata do tema). Promover o documento a ADR (`docs/adr/`, owner-gated) e' follow-up explicito, nao feito aqui | juridico/regulatorio + especialista em acessibilidade | `DRAFT — requires human review before any deploy/ADR` |
+
+---
+
+## GAP-INAD-8 followup — tres fabricacoes `notified=True` reveladas pelo alargamento do fence (NAO corrigidas)
+
+WP-FATOS-FABRICADOS slice 2 adicionou `notified` ao `_FABRICATED_FACT_KEYS` do ratchet AST
+(`tests/unit/tools/workers/test_worker_handler_purity.py`), porque `cancel.notify_beneficiario`
+fabricava exatamente essa chave. O alargamento revelou **tres instancias identicas em tres outras
+familias de processo**, que este pacote NAO corrigiu (escopo declarado: INADIMPLENCIA->CANCEL) e que
+ficam registradas no `_FABRICATED_FACT_BASELINE` com as linhas abaixo — nunca so num comentario de
+codigo.
+
+Todas as tres foram verificadas **zero-consumidores** no momento desta entrada:
+`grep -rn '\bnotified\b' src/ spec/` nao encontra nenhum `conditionExpression` de BPMN, nenhum
+`inputExpression` de DMN e nenhuma leitura Python da chave — os unicos hits nao-produtores sao prosa.
+Isso as torna correcoes mecanicas (`return {}`, o precedente do ADEQUACAO), nao problemas de dois
+consumidores como o do INADIMPLENCIA. Baratas para quem detem o processo; ainda assim, nao deste
+pacote.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `src/maezo/tools/workers/recurso.py:358-376` (`notify_prestador` — GAP-RECURSO-5) | Retorna incondicionalmente `{"notified": True, "prestador_id": ..., "glosa_id": ..., "message_type": ...}` no topico `operadora.recurso.notify_prestador`: afirma que o prestador foi avisado sem nenhum canal contatado e sem entrega observada. A harness grava o retorno no escopo do processo no `complete` (`harness.py:1778-1782`), entao a afirmacao entra na instancia. Zero consumidores hoje (ver grep acima) — o risco e de trilha/auditoria, nao de roteamento. Confirmar se algum relatorio/dashboard de SLA da RN 424/2017 (**DRAFT/verify** — prazo da RESPOSTA da operadora ao recurso, nao do prestador) le esse campo fora da arvore antes de trocar por `{}` | dono do processo RECURSO + regulatorio (RN 424/2017 permanece **DRAFT/verify**) | `DRAFT — nao corrigido; rastreado em _FABRICATED_FACT_BASELINE["recurso"]` |
+| `src/maezo/tools/workers/reembolso.py:578-602` (`request_documents` — GAP-REEMBOLSO-8) | Retorna `{"notified": True, "status": "pended", ...}`. **A propria docstring da funcao ja divulga** que este worker NAO publica o evento `agents.events.reembolso.pended` que o `event_topic_pended` do BPMN documenta ("this worker does not publish either, it only returns the notify signal") — e entao devolve `notified=True` assim mesmo: a divulgacao e o retorno se contradizem no mesmo corpo de funcao. Zero consumidores. Corrigir junto com a tarefa de wiring do produtor Kafka que a propria docstring aponta como dona do fix | dono do processo REEMBOLSO + wiring Kafka | `DRAFT — nao corrigido; rastreado em _FABRICATED_FACT_BASELINE["reembolso"]` |
+| `src/maezo/tools/workers/contas.py:449-472` (`notify_sla_risk` — GAP-CONTAS-7) | Retorna `{"notified": True, "grupo": ..., "sla_remaining": ..., "numero_lote_tiss": ...}` no timer nao-interruptivo de risco de SLA. Informativo e nunca adverso — a menor aposta das tres — mas a mesma afirmacao falsa: nenhum canal e contatado e a coordenacao-contas pode nao ter sido avisada. Zero consumidores | dono do processo CONTAS | `DRAFT — nao corrigido; rastreado em _FABRICATED_FACT_BASELINE["contas"]` |
+
+---
+
+## GAP-INAD-9 — `agents.events.inadimplencia.notified` e um asserto sem lastro, publicado incondicionalmente pelo proprio BPMN (mesma especie das tres fabricacoes acima, uma camada acima)
+
+Achado do gatekeeper VER-FAB2 (`VERIFY-WP-FAB2.md`, veredito REVISE MINOR sobre
+`fix/fatos-fabricados-inadimplencia-notify`). WP-FATOS-FABRICADOS slice 2 corrigiu
+`inadimplencia.dispatch_prior_notice` para nao mais fabricar `notificacao_previa_feita=True`
+(GAP-INAD-8) — a task agora **nao afirma nada** sobre a notificacao ter ocorrido. Um passo depois
+dela, porem, a propria BPMN publica incondicionalmente `agents.events.inadimplencia.notified` via
+`ST_PublishInadimplenciaNotified`
+(`spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn:149-158`), em toda instancia,
+numa arvore onde **nenhum worker tem canal para notificar um beneficiario** — o unico seam de
+WhatsApp (`maezo.tools.mcp_whatsapp.server.WhatsAppServer`) so e alcancavel pelos agentes
+conversacionais/webhook (`agents/helena/adapters.py`, `agents/lucas/adapters.py`,
+`platform/webhooks/whatsapp/dispatch.py`), nunca por um worker BPMN, e
+`platform/notification_bridge.py` e uma ponte processo-a-processo (inicia processos a partir de
+eventos), nao um canal de mensageria. O topico esta no particípio passado ("notified") mas nenhum
+componente desta arvore de fato notifica ninguem — o evento e um rastro de disparo de tarefa, nunca
+uma prova de entrega.
+
+**Zero consumidores hoje**, verificado com o comando exato do brief:
+`grep -rn "inadimplencia.notified" src/ spec/ tests/` retorna apenas: o produtor na propria BPMN
+(`SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn:60,133,139,149,153` — documentacao + declaracao
+do `serviceTask` + `event_topic`); e o teste de integracao que so' AFIRMA a publicacao
+(`tests/integration/processes/test_sp_op_inadimplencia_001.py:211,257,568,577,597`); mais a propria
+prosa corrigida em `src/maezo/tools/workers/inadimplencia.py:389` (ver abaixo). Ampliando para
+`docs/` o mesmo grep so acrescenta a linha "produz" do contrato
+(`docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md:111,116`) e a entrada historica do ledger
+(`docs/evidence-ledger.md:125`). Nenhum `conditionExpression` de BPMN, nenhum `inputExpression` de
+DMN, nenhuma leitura Python em lugar nenhum da arvore.
+
+**Pre-existente, nao adverso.** O evento foi introduzido em t3.1 (`docs/evidence-ledger.md:125`,
+2026-07-25), muito antes de GAP-INAD-8; este pacote NAO o criou e NAO o corrigiu — apenas parou de
+agravar a situacao (a task que o antecede, `dispatch_prior_notice`, parou de fabricar o fato interno
+correspondente). Nao roteia nada, nao bloqueia nada, nao produz efeito adverso ao beneficiario por
+si so — o risco e de trilha/auditoria, a mesma especie das tres fabricacoes de worker registradas na
+secao "GAP-INAD-8 followup" logo acima (GAP-RECURSO-5/GAP-REEMBOLSO-8/GAP-CONTAS-7), so que uma
+camada acima: la e o worker que fabrica o fato interno; aqui e o proprio BPMN que publica um evento
+externo sem lastro.
+
+**Correcao de prosa feita nesta mesma entrada:** `src/maezo/tools/workers/inadimplencia.py:387-395`
+(docstring de `dispatch_prior_notice`) chamava esse evento de "the notice requested event that DOES
+exist" — caracterizacao otimista demais: o evento nao e um "pedido de notificacao", e publicado
+incondicionalmente e nao afirma que nenhum pedido foi de fato feito a nenhum canal. A prosa foi
+corrigida para descrever o evento com precisao (publicado incondicionalmente pela BPMN, nao afirma
+nada sobre entrega) e para apontar para esta linha da fila (GAP-INAD-9). Nenhuma linha executavel
+mudou (`git diff` do arquivo mostra so' docstring).
+
+**Resolucao recomendada (decisao do dono do processo + regulatorio, NAO feita aqui):** renomear/
+re-semantizar o topico para algo que afirme so' o que aconteceu (ex.: algo como
+"...prior_notice_dispatch_requested" ou "...prior_notice_step_completed", nunca ".notified"), OU
+condicionar a publicacao a `comprovacao_notificacao_previa` (o campo humano ja existente, coletado
+em `UT_AnaliseInadimplencia` e exigido fail-closed por `_register_contract_suspension`,
+`inadimplencia.py:569,588`) — nesse caso o evento so dispararia quando houvesse, de fato, uma
+notificacao comprovada. Qualquer uma das duas opcoes toca a BPMN, o contrato
+(`SP-OP-INADIMPLENCIA-001.md:111`), o catalogo de processos e a asserção de integracao existente
+(`test_sp_op_inadimplencia_001.py:568-597`) — fora do escopo de um pacote de docs/comentario. RN 593
+permanece **DRAFT/verify**; nenhuma ancora regulatoria foi confirmada ou alterada por esta entrada.
+
+**Regra de merge do ratchet `_FABRICATED_FACT_BASELINE` (achado do VER-FAB2, item informativo do
+merge rule).** `_FABRICATED_FACT_BASELINE` (`tests/unit/tools/workers/test_worker_handler_purity.py
+:221-238`) e shrink-only: `resolved = baseline_modules - actual_modules; assert not resolved`
+(`test_worker_handler_purity.py:389-393`). As branches paralelas `feat/perspectiva-operadora-
+recurso` (PR #288) e `feat/perspectiva-operadora-contas-recurso` (PR #294) **DELETAM**
+`recurso.notify_prestador` e `contas.notify_sla_risk` (as duas fontes das entradas
+`_FABRICATED_FACT_BASELINE["recurso"]`/`["contas"]`). **Quem integrar qualquer uma delas nesta
+arvore deve, no MESMO commit de integracao**, remover a entrada `_FABRICATED_FACT_BASELINE["recurso"]`
+e/ou `["contas"]` correspondente (`test_worker_handler_purity.py:221-238`) e marcar
+GAP-RECURSO-5/GAP-CONTAS-7 resolvidas na secao "GAP-INAD-8 followup" acima — senao
+`test_no_domain_worker_returns_unconditional_true_for_fabricated_fact_keys` fica RED por design
+(`:389-393`). Isso e a catraca fazendo o trabalho dela, nao um defeito; e a regra de merge que
+precisa ser seguida quando #288/#294 chegarem.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn:149-158` (`ST_PublishInadimplenciaNotified`) | Publica `agents.events.inadimplencia.notified` incondicionalmente, em toda instancia, logo apos `ST_CheckPriorNotice`/`dispatch_prior_notice` (que desde GAP-INAD-8 nao afirma nada sobre a notificacao ter ocorrido). Nenhum worker desta arvore tem canal para notificar um beneficiario. Zero consumidores hoje (`grep -rn "inadimplencia.notified" src/ spec/ tests/` — so producer na BPMN + prosa/teste-que-afirma-publicacao, ver acima). Pre-existente (introduzido em t3.1, `docs/evidence-ledger.md:125`), nao corrigido nem agravado por WP-FATOS-FABRICADOS slice 2. Mesma especie das tres fabricacoes de worker registradas na secao "GAP-INAD-8 followup" acima (GAP-RECURSO-5/GAP-REEMBOLSO-8/GAP-CONTAS-7), uma camada acima (BPMN publicando, nao worker fabricando). Resolucao recomendada: renomear/re-semantizar o topico (nunca ".notified") OU condicionar a publicacao a `comprovacao_notificacao_previa` (campo humano ja exigido fail-closed por `_register_contract_suspension`, `inadimplencia.py:569,588`) — decisao do dono do processo INADIMPLENCIA + regulatorio (RN 593, **DRAFT/verify**), toca BPMN + contrato + catalogo + teste de integracao, fora do escopo de um pacote de docs/comentario. Regra de merge relacionada: quando PR #288/#294 (que deletam `recurso.notify_prestador`/`contas.notify_sla_risk`) integrarem, as entradas `_FABRICATED_FACT_BASELINE["recurso"]`/`["contas"]` (`test_worker_handler_purity.py:221-238`) devem ser removidas no MESMO commit, ou o ratchet (`:389-393`) fica RED por design | dono do processo INADIMPLENCIA + regulatorio (RN 593, **DRAFT/verify**) + arquitetura (registro de topico/nomenclatura de eventos) | `DRAFT — nao corrigido; residuo pre-existente registrado nesta entrada, nao renomeado nem regated aqui` |
