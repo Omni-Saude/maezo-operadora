@@ -4,14 +4,32 @@ Provides BPMN external task handlers for the Escalonamento Humano Universal proc
 
 Handlers (DL-0034 — RAW ASYNC KAFKA HANDLERS, the #55 R-B / events.py sanctioned form, NOT
 `WorkerBase`; see `register_escalation_workers`):
-- notify_team: routes escalation to the correct human group + emits the internal notification.
+- notify_team: notifies the human group the `escalation_routing` DMN routed to.
 - notify_supervisor: supervisor alert on SLA breach (also serves `ST_NotificarFallback` — the
   BPMN's fallback-channel task publishes to this SAME topic,
   `operadora.escalation.notify_supervisor`; there is no separate `notify_fallback` topic in the
   BPMN, `spec/processes/bpmn/SP-OP-ESCALATION-001_*.bpmn:112,203`).
 
-CRITICAL: handlers NEVER make adverse decisions (L0 hard). They only route and notify.
-Escalation resolution is always a human decision.
+CRITICAL: handlers NEVER make adverse decisions (L0 hard). They only notify. Escalation
+resolution is always a human decision. They do not ROUTE either — routing is the
+`escalation_routing` DMN's, evaluated engine-side by `BRT_RotearEscalonamento` (ADR-0028); these
+handlers only READ its output.
+
+GAP-ESC-SEVERITY-GROUP (root cause, fixed here): both handlers used to read the ENGLISH variable
+`severity` (`v.get("severity", "leve")`) while the BPMN, the DMN and the FINAL contract all
+declare `severidade` (contract `docs/processes/contracts/SP-OP-ESCALATION-001.md:27,:57`; BPMN
+`:49,:66,:85,:188,:243`). `severity` is set by NOBODY (the only starter, `helena/graph.py:651`,
+sends `severidade`), so the read ALWAYS missed and ALWAYS fell to the `"leve"` default; a private
+`_SEVERITY_TO_GROUP` table then mapped that phantom `leve` to `atendimento-humano` and shipped
+both wrong values inside the internal notification. A P1 `red_flag_clinico`/`grave` escalation
+under the PT5M art. 35-C SLA was therefore announced to the clinical team as
+`severity=leve, group=atendimento-humano`. The private table ALSO competed with the DMN, which
+routes primarily on `motivo_categoria` (only `r1` reads `severidade`): `risco_psicossocial`+`leve`
+is `plantao-clinico`/P1 in the DMN (`escalation_routing.dmn:37-45`) and `atendimento-humano` in
+the deleted table. The fix: consume `severidade` (process variable) and `grupo_atendimento` (the
+BPMN's `camunda:inputParameter` fed from `${roteamento.grupo_atendimento}`, `:96,:115,:206`),
+never re-derive routing, never default a clinical severity, and FAIL CLOSED when either is
+missing or outside its contractual domain (see `_exigir_severidade`/`_exigir_grupo_atendimento`).
 
 WHY RAW ASYNC HANDLERS (DL-0034, ratified by orchestrator 2026-07-26, built in t5): for
 escalation, NOTIFYING *is* the business effect (there is no domain computation beyond
@@ -62,7 +80,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import structlog
 
@@ -77,17 +95,42 @@ logger = structlog.get_logger(__name__)
 _stdlib_logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Routing maps (extracted from DMN escalation_routing — contract SP-OP-ESCALATION-001)
+# Contractual domains — VALIDATORS of what the engine hands us, NEVER a routing table.
+#
+# GAP-ESC-SEVERITY-GROUP: the deleted `_SEVERITY_TO_GROUP`/`_DEFAULT_GROUP` pair was a PRIVATE
+# severidade->grupo map competing with `escalation_routing.dmn`, which is the single source of
+# routing truth (ADR-0012 deterministic rules outside the LLM; ADR-0028 engine-side evaluation).
+# What survives here is only the CLOSED DOMAIN of each field, used to fail closed on values the
+# engine could not have produced — no fallback, no default, no re-derivation.
 # ---------------------------------------------------------------------------
 
-_SEVERITY_TO_GROUP: dict[str, str] = {
-    "grave": "plantao-clinico",
-    "moderada": "enfermagem-triagem",
-    "leve": "atendimento-humano",
-}
+#: `severidade` domain — contract `docs/processes/contracts/SP-OP-ESCALATION-001.md:27,:57`
+#: (obligatory input variable) and `escalation_routing.dmn:21-23` (the DMN's 2nd input).
+_SEVERIDADES_CONTRATUAIS: frozenset[str] = frozenset({"grave", "moderada", "leve"})
 
-# Fallback default when severity is unknown (fail-safe, never P1)
-_DEFAULT_GROUP: str = "atendimento-humano"
+#: `grupo_atendimento` domain — the `escalation_routing` DMN's `out_grupo` output values
+#: (`spec/processes/dmn/escalation_routing.dmn:33,42,51,60,69,78,87`), ratified by the contract's
+#: §Papeis humanos table (`:59`, `:69-71`). `supervisao-atendimento` (`:72`) is NOT here: it is
+#: the alert TARGET of `UT_SupervisorAssume`, never a DMN routing output.
+_GRUPOS_ATENDIMENTO_DMN: frozenset[str] = frozenset(
+    {"plantao-clinico", "enfermagem-triagem", "atendimento-humano"}
+)
+
+#: English aliases of contract variables. NONE of these is ever set by SP-OP-ESCALATION-001 —
+#: their presence in a task's variables means either the pre-fix worker wrote them back into
+#: process scope (`{"group": ..., "severity": ...}` in its completion payload) or a caller is
+#: speaking a vocabulary the contract does not define. Either way the clinical severity of the
+#: case is AMBIGUOUS, and a clinical severity is never guessed: refuse, fail-safe to the
+#: supervisor/HITL, and make the drift loud instead of silently authoritative.
+#: MIGRATION NOTE: an instance started under the pre-fix worker carries `group`/`severity` in
+#: process scope; its next notify task refuses here. That refusal is NON-adverse — it routes to
+#: `ST_NotificarFallback` -> `UT_TratarEscalonamento` (or, on the non-interruptive ack branch, to
+#: `End_SupervisorAlertado` AFTER `ST_PublishAckBreach` already published the breach event), so
+#: nothing is lost silently. New instances never carry these keys.
+_ALIASES_INGLES_PROIBIDOS: tuple[str, ...] = ("severity", "group", "priority")
+
+#: The supervisor group alerted on SLA breach / channel fallback (contract `:72`).
+_GRUPO_SUPERVISAO: str = "supervisao-atendimento"
 
 # Topics + notification channel/types (mirrors lgpd.py / recurso.py's per-worker notification idiom;
 # the notification `type` is what the integration probe's `notified_teams`/`notified_supervisors`
@@ -114,9 +157,132 @@ _ERR_ESC_NOTIFY_FAILED = "ERR_ESC_NOTIFY_FAILED"
 ESCALATION_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({_ERR_ESC_NOTIFY_FAILED})
 
 
-def _resolve_group(severity: str) -> str:
-    """Route severity -> human group (fail-safe default `atendimento-humano`, never P1)."""
-    return _SEVERITY_TO_GROUP.get(severity, _DEFAULT_GROUP)
+def _recusar(task: ExternalTask, motivo: str, detalhe: str) -> NoReturn:
+    """Fail closed on unusable escalation-routing input (GAP-ESC-SEVERITY-GROUP).
+
+    Raises the ALREADY-MODELED `ERR_ESC_NOTIFY_FAILED` (ADR-0030 Tier-1, G2-fs). Semantics hold
+    exactly: a notification we cannot address correctly is a notification of the human team that
+    FAILED (`bpmn:error@name="Falha na notificacao do time humano"`, BPMN `:13`). No new error
+    code is invented, so the boundary-proof gate's consumption coverage is unchanged.
+
+    Why a modeled BPMN error and NOT a raw exception: a raw exception becomes a harness incident,
+    and `Flow_Notificar_UT` is the ONLY edge from `ST_NotificarTime` to `UT_TratarEscalonamento` —
+    an incident there would HANG the escalation short of its mandatory HITL (ADR-0005), the one
+    outcome the module forbids. The modeled error instead drives `BE_FalhaNotificacao` ->
+    `ST_NotificarFallback` -> (and, if that refuses too) `BE_NotifFallbackFailed` ->
+    `UT_TratarEscalonamento`. Fail CLOSED on the payload, fail SAFE on the flow.
+    """
+    logger.error(
+        "escalation_routing_input_recusado",
+        motivo=motivo,
+        detalhe=detalhe,
+        topic=task.topic,
+        business_key=task.business_key,
+        process_instance_id=task.process_instance_id,
+    )
+    _stdlib_logger.error(
+        "escalation_routing_input_recusado business_key=%s topic=%s motivo=%s — %s; recusa "
+        "fail-closed (ERR_ESC_NOTIFY_FAILED), NENHUMA notificacao publicada com dado inventado",
+        task.business_key,
+        task.topic,
+        motivo,
+        detalhe,
+    )
+    raise WorkerBpmnError(
+        _ERR_ESC_NOTIFY_FAILED,
+        f"Entrada de roteamento inutilizavel ({motivo}): {detalhe}",
+    )
+
+
+def _recusar_aliases_ingles(task: ExternalTask, v: Mapping[str, Any]) -> None:
+    """Refuse a task whose variables carry an English alias of a contract variable.
+
+    GAP-ESC-SEVERITY-GROUP: `severity`/`group`/`priority` are the exact names the pre-fix worker
+    read and wrote. Accepting them silently is what let a phantom `leve` look authoritative for
+    months. This is a hard refusal, not a warning: the contract's vocabulary is Portuguese
+    (`severidade`, `grupo_atendimento`, `prioridade`) and there is no legitimate producer of the
+    English names anywhere in the chain: `grep -rn 'severity' src/ --include='*.py'` returns only
+    this module plus 6 unrelated PROSE hits (docstrings/comments in `adequacao*.py`,
+    `platform/validation/result.py`, `agents/helena/*`, `agents/fernando/graph.py`) — zero
+    variable writes. `grep -rn 'severity' spec/` returns 4 hits, all English PROSE inside two
+    `triage-redflag-*-shadow-candidate.yaml` comment blocks — no BPMN/DMN element is named it.
+    """
+    presentes = [alias for alias in _ALIASES_INGLES_PROIBIDOS if alias in v]
+    if presentes:
+        _recusar(
+            task,
+            "alias_ingles_proibido",
+            f"variaveis {presentes} usam vocabulario ingles; o contrato declara "
+            "severidade/grupo_atendimento/prioridade (SP-OP-ESCALATION-001.md:27,:57,:58,:59)",
+        )
+
+
+def _exigir_severidade(task: ExternalTask, v: Mapping[str, Any]) -> str:
+    """Read the CONTRACT variable `severidade` — never defaulted, never guessed.
+
+    A clinical severity that is absent or outside `{grave, moderada, leve}` is not `leve`: it is
+    unknown, and an unknown clinical severity must never be announced as the mildest one.
+    """
+    bruta = v.get("severidade")
+    if not isinstance(bruta, str) or not bruta.strip():
+        _recusar(
+            task,
+            "severidade_ausente",
+            "variavel de contrato `severidade` ausente/vazia (obrigatoria, "
+            "SP-OP-ESCALATION-001.md:27) — severidade clinica NUNCA e' assumida como `leve`",
+        )
+    severidade = bruta.strip()
+    if severidade not in _SEVERIDADES_CONTRATUAIS:
+        _recusar(
+            task,
+            "severidade_fora_do_dominio",
+            f"`severidade`={severidade!r} fora do dominio contratual "
+            f"{sorted(_SEVERIDADES_CONTRATUAIS)} (SP-OP-ESCALATION-001.md:27,:57)",
+        )
+    return severidade
+
+
+def _exigir_grupo_atendimento(task: ExternalTask, v: Mapping[str, Any]) -> str:
+    """Read the DMN-derived `grupo_atendimento` the BPMN injects — never re-derive it.
+
+    `ST_NotificarTime` (`:96`), `ST_NotificarFallback` (`:115`) and `ST_NotificarSupervisor`
+    (`:206`) each declare `<camunda:inputParameter name="grupo_atendimento">
+    ${roteamento.grupo_atendimento}</camunda:inputParameter>`, i.e. the `escalation_routing` DMN
+    output that ALSO sets `UT_TratarEscalonamento`'s `candidateGroups` (`:134`). Reading it is the
+    only way the notification can be guaranteed not to contradict who is actually paged.
+    """
+    bruto = v.get("grupo_atendimento")
+    if not isinstance(bruto, str) or not bruto.strip():
+        _recusar(
+            task,
+            "grupo_atendimento_ausente",
+            "`grupo_atendimento` ausente/vazio — a DMN escalation_routing e' a UNICA fonte de "
+            "roteamento (BPMN :96,:115,:206 <- ${roteamento.grupo_atendimento}); sem ela a "
+            "notificacao contradiria o candidateGroups da User Task (:134)",
+        )
+    grupo = bruto.strip()
+    if grupo not in _GRUPOS_ATENDIMENTO_DMN:
+        _recusar(
+            task,
+            "grupo_atendimento_fora_do_dominio",
+            f"`grupo_atendimento`={grupo!r} fora do dominio da DMN "
+            f"{sorted(_GRUPOS_ATENDIMENTO_DMN)} (escalation_routing.dmn:33,42,51,60,69,78,87; "
+            "contrato :59)",
+        )
+    return grupo
+
+
+def _rotulo_opcional(v: Mapping[str, Any], nome: str) -> str | None:
+    """Return a bounded routing label the BPMN may set, or `None` — never a fabricated value.
+
+    Used for `prioridade`/`motivo_categoria`/`motivo`/`motivo_fallback`: when the engine did not
+    provide one, the notification OMITS the field rather than inventing a domain value (the
+    `motivo_categoria="outro"` / `sla_status="unknown"` class of dishonesty).
+    """
+    bruto = v.get(nome)
+    if not isinstance(bruto, str) or not bruto.strip():
+        return None
+    return bruto.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -127,28 +293,40 @@ def _resolve_group(severity: str) -> str:
 def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     """Create the handler for `operadora.escalation.notify_team` (DL-0034; mirrors #55 R-B).
 
-    Serves `ST_NotificarTime`. Routes escalation to the correct human group by severity
-    (grave -> plantao-clinico, moderada -> enfermagem-triagem, leve/unknown -> atendimento-humano
-    fail-safe) and emits the internal notification (`type=escalation.notify_team`). NEVER decides
-    the escalation OUTCOME — only routes+notifies. The routing `group` is returned for
-    observability; the human task's `candidateGroups` is engine-set from
-    `${roteamento.grupo_atendimento}` (the `escalation_routing` DMN), NOT this output (verified:
-    `${group}` appears in NO BPMN expression), so this worker's return never drives assignment.
+    Serves `ST_NotificarTime`. Emits the internal notification (`type=escalation.notify_team`) to
+    the group the `escalation_routing` DMN already chose. It NEVER decides the escalation OUTCOME
+    and — since GAP-ESC-SEVERITY-GROUP — it never decides the ROUTE either: `grupo_atendimento`
+    comes from the BPMN's `camunda:inputParameter` (`:96` <- `${roteamento.grupo_atendimento}`),
+    the SAME expression that sets `UT_TratarEscalonamento`'s `candidateGroups` (`:134`), so the
+    notification is structurally incapable of contradicting who is paged. `severidade` is the
+    contract's own process variable (`:27`), read verbatim, never defaulted.
+
+    Variables consumed (all set by SP-OP-ESCALATION-001, none invented here):
+      - `severidade`         — process variable, contract `:27`; REQUIRED, fail-closed.
+      - `grupo_atendimento`  — inputParameter BPMN `:96`, DMN output; REQUIRED, fail-closed.
+      - `prioridade`         — inputParameter BPMN `:97`, DMN output; optional, omitted if absent.
+      - `motivo_categoria`   — process variable, contract `:26`; optional, omitted if absent.
+      - `tenant_id`          — process variable, contract `:20`.
     """
 
     async def handler(task: ExternalTask) -> Mapping[str, Any]:
         v = task.variables
-        severity = v.get("severity", "leve")
-        motivo = v.get("motivo_categoria", "outro")
+        _recusar_aliases_ingles(task, v)
+        severidade = _exigir_severidade(task, v)
+        grupo = _exigir_grupo_atendimento(task, v)
+        prioridade = _rotulo_opcional(v, "prioridade")
+        motivo = _rotulo_opcional(v, "motivo_categoria")
         tenant_id = v.get("tenant_id", "")
-        group = _resolve_group(severity)
         result: dict[str, Any] = {
             "status": "teams_notified",
-            "group": group,
-            "severity": severity,
-            "motivo_categoria": motivo,
+            "grupo_atendimento": grupo,
+            "severidade": severidade,
             "event": "agents.events.escalation.requested",
         }
+        if prioridade is not None:
+            result["prioridade"] = prioridade
+        if motivo is not None:
+            result["motivo_categoria"] = motivo
 
         if kafka is None:
             # No producer wired yet (T1.2/ADR-0026 gap, same reality as events.py). Log LOUDLY and
@@ -157,8 +335,9 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             logger.warning(
                 "escalation_notify_team_no_producer",
                 tenant_id=tenant_id,
-                severity=severity,
-                group=group,
+                severidade=severidade,
+                grupo_atendimento=grupo,
+                prioridade=prioridade,
                 business_key=task.business_key,
             )
             _stdlib_logger.warning(
@@ -169,15 +348,19 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             )
             return result
 
-        # No PHI: motivo_categoria/severity/group are bounded routing labels; beneficiario_pseudo_id
-        # is a pseudonym and free-text fields are never copied into the notification (ADR-0006).
-        notification = {
+        # No PHI: motivo_categoria/severidade/grupo_atendimento/prioridade are bounded routing
+        # labels validated against their contractual domains above; beneficiario_pseudo_id is a
+        # pseudonym and free-text fields are never copied into the notification (ADR-0006).
+        notification: dict[str, Any] = {
             "type": _NOTIFY_TEAM_NOTIFICATION_TYPE,
             "tenant_id": tenant_id,
-            "severity": severity,
-            "motivo_categoria": motivo,
-            "group": group,
+            "severidade": severidade,
+            "grupo_atendimento": grupo,
         }
+        if prioridade is not None:
+            notification["prioridade"] = prioridade
+        if motivo is not None:
+            notification["motivo_categoria"] = motivo
         try:
             # best_effort=False (t8-escalation-boundary ROOT-CAUSE fix): _NOTIFICATIONS_TOPIC is in
             # the producer's BEST_EFFORT_TOPICS, so the DEFAULT posture would SWALLOW a broker-down
@@ -198,20 +381,22 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             logger.error(
                 "escalation_notify_team_failed",
                 tenant_id=tenant_id,
-                severity=severity,
-                group=group,
+                severidade=severidade,
+                grupo_atendimento=grupo,
+                prioridade=prioridade,
                 business_key=task.business_key,
                 error=str(exc),
             )
             raise WorkerBpmnError(
                 _ERR_ESC_NOTIFY_FAILED,
-                f"Falha ao notificar time humano ({group}): {exc}",
+                f"Falha ao notificar time humano ({grupo}): {exc}",
             ) from exc
         logger.info(
             "escalation_notify_team_sent",
             tenant_id=tenant_id,
-            severity=severity,
-            group=group,
+            severidade=severidade,
+            grupo_atendimento=grupo,
+            prioridade=prioridade,
             business_key=task.business_key,
         )
         return result
@@ -232,26 +417,48 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     to this SAME topic (`:112,203`); there is no separate `notify_fallback` topic anywhere in
     spec/. Alerts the supervisor (`type=escalation.notify_supervisor`). NEVER makes any decision
     about the case — the supervisor (human) decides the next action.
+
+    Variables consumed (GAP-ESC-SEVERITY-GROUP — every one of them is actually SET by the BPMN):
+      - `severidade`        — process variable, contract `:27`; REQUIRED, fail-closed.
+      - `grupo_atendimento` — inputParameter BPMN `:115` (fallback) / `:206` (SLA breach), from
+        `${roteamento.grupo_atendimento}`; REQUIRED, fail-closed. It tells the supervisor WHICH
+        team is (or was) on the hook — it is never the supervisor's own group.
+      - `prioridade`        — inputParameter BPMN `:116`/`:207`; optional.
+      - `motivo` (`:208` = `sla_ack_breached`) / `motivo_fallback` (`:117` =
+        `notificacao_primaria_falhou`) — the alert reason, reported as `motivo_alerta`. This
+        REPLACES the removed `sla_status`, which read a variable NO BPMN task ever sets
+        (`grep -n sla_status spec/` -> 0 hits) and therefore reported the literal `"unknown"` on
+        every single supervisor alert ever raised.
     """
 
     async def handler(task: ExternalTask) -> Mapping[str, Any]:
         v = task.variables
+        _recusar_aliases_ingles(task, v)
+        severidade = _exigir_severidade(task, v)
+        grupo = _exigir_grupo_atendimento(task, v)
+        prioridade = _rotulo_opcional(v, "prioridade")
+        motivo_alerta = _rotulo_opcional(v, "motivo") or _rotulo_opcional(v, "motivo_fallback")
         tenant_id = v.get("tenant_id", "")
-        sla_status = v.get("sla_status", "unknown")
-        severity = v.get("severity", "leve")
         result: dict[str, Any] = {
             "status": "supervisor_notified",
-            "sla_status": sla_status,
-            "alert_to": "supervisao-atendimento",
+            "severidade": severidade,
+            "grupo_atendimento": grupo,
+            "alert_to": _GRUPO_SUPERVISAO,
             "require_human_resolution": True,
             "event": "agents.events.escalation.sla_breached",
         }
+        if prioridade is not None:
+            result["prioridade"] = prioridade
+        if motivo_alerta is not None:
+            result["motivo_alerta"] = motivo_alerta
 
         if kafka is None:
             logger.warning(
                 "escalation_supervisor_notify_no_producer",
                 tenant_id=tenant_id,
-                sla_status=sla_status,
+                severidade=severidade,
+                grupo_atendimento=grupo,
+                motivo_alerta=motivo_alerta,
                 business_key=task.business_key,
             )
             _stdlib_logger.warning(
@@ -262,13 +469,17 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             )
             return result
 
-        notification = {
+        notification: dict[str, Any] = {
             "type": _NOTIFY_SUPERVISOR_NOTIFICATION_TYPE,
             "tenant_id": tenant_id,
-            "sla_status": sla_status,
-            "severity": severity,
-            "alert_to": "supervisao-atendimento",
+            "severidade": severidade,
+            "grupo_atendimento": grupo,
+            "alert_to": _GRUPO_SUPERVISAO,
         }
+        if prioridade is not None:
+            notification["prioridade"] = prioridade
+        if motivo_alerta is not None:
+            notification["motivo_alerta"] = motivo_alerta
         try:
             # best_effort=False (t8-escalation-boundary ROOT-CAUSE fix): force the real producer to
             # PROPAGATE a broker-down failure on _NOTIFICATIONS_TOPIC (otherwise topic-default
@@ -287,8 +498,9 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             logger.error(
                 "escalation_supervisor_notify_failed",
                 tenant_id=tenant_id,
-                sla_status=sla_status,
-                severity=severity,
+                severidade=severidade,
+                grupo_atendimento=grupo,
+                motivo_alerta=motivo_alerta,
                 business_key=task.business_key,
                 error=str(exc),
             )
@@ -299,8 +511,9 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         logger.warning(
             "escalation_supervisor_notified",
             tenant_id=tenant_id,
-            sla_status=sla_status,
-            severity=severity,
+            severidade=severidade,
+            grupo_atendimento=grupo,
+            motivo_alerta=motivo_alerta,
             business_key=task.business_key,
         )
         return result
