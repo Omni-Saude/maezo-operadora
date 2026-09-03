@@ -80,18 +80,12 @@ _BASELINE_SHA256: dict[str, str] = {
     ),
     "0006-phi-two-zones.md": ("c530273e5d362a5734801b3d3350e68ce98e92c2abfeeed614e4d9511f46e56a"),
     "0008-autonomy-levels.md": ("a318ea85ce1b94bb4a82f8834ba9c9870cf6af2774209c3decfde7d621fe3da1"),
-    "0012-dmn-deterministic-tool.md": (
-        "d82de0050495f259c28c2bb69f4354e6777eb57dde3bf2e6111ca3478b0176f7"
-    ),
-    "0015-a2a-delegation-runtime.md": (
-        "a4a1ed108310170ab886ba0e8da0e70b84fce4f6ed284070f67a0496994ac9a4"
-    ),
+    "0012-dmn-deterministic-tool.md": ("d82de0050495f259c28c2bb69f4354e6777eb57dde3bf2e6111ca3478b0176f7"),
+    "0015-a2a-delegation-runtime.md": ("a4a1ed108310170ab886ba0e8da0e70b84fce4f6ed284070f67a0496994ac9a4"),
     "0024-durable-idempotency-resume-inbound-drivers.md": (
         "ca0690ed63f1ca9eed1124a8d63249b6e41483df0b0b54a90fbead5e6c49f961"
     ),
-    "0032-adr0015-status-correction.md": (
-        "a0737c13b4e329fffe40d0ae62636fec3e0a3e6a7bb5672d5731c431e84b608f"
-    ),
+    "0032-adr0015-status-correction.md": ("a0737c13b4e329fffe40d0ae62636fec3e0a3e6a7bb5672d5731c431e84b608f"),
 }
 
 #: (ADR filename, the ORIGINAL claim's own text, the line ADR-0041 cites for it).
@@ -222,9 +216,7 @@ def test_the_seven_accepted_adrs_are_byte_identical_to_the_base_commit() -> None
 
 def test_no_reconciled_adr_carries_an_in_place_amendment_block() -> None:
     """The specific breach this work package had to undo, asserted by name so the failure reads."""
-    offenders = [
-        name for name in _RECONCILED_ADRS.values() if "## Emenda" in _read(_ADR_DIR / name)
-    ]
+    offenders = [name for name in _RECONCILED_ADRS.values() if "## Emenda" in _read(_ADR_DIR / name)]
     assert not offenders, (
         "in-place `## Emenda` block(s) found inside `Accepted` ADR(s): "
         f"{offenders} — the correction of record belongs in {_ADR_0041}"
