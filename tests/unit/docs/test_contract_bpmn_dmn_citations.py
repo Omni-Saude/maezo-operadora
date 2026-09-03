@@ -120,7 +120,6 @@ def test_fraude_contract_hit_policy_claims_match_the_deployed_dmn() -> None:
 _HIT_POLICY_DRIFT_BASELINE: frozenset[str] = frozenset(
     {
         "SP-OP-PAGTO-001.md::pagto_sla",  # out of scope — SP-OP-PAGTO-001.md owned by PR-3/PR-4
-        "SP-OP-REEMBOLSO-001.md::reembolso_calculo",  # out of scope — owned by fix/reembolso-consome-dmn
     }
 )
 

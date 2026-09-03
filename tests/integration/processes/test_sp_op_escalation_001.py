@@ -436,6 +436,46 @@ async def test_dmn_routing_catchall_fail_safe(
     assert task.candidate_groups == frozenset({"atendimento-humano"})
 
 
+@pytest.mark.parametrize(
+    ("motivo_categoria", "severidade", "grupo_esperado"),
+    [
+        ("red_flag_clinico", "grave", "plantao-clinico"),  # DMN r1 — P1, PT5M (art. 35-C)
+        # DMN r2: risco_psicossocial e P1/plantao-clinico para QUALQUER severidade. Este e o par
+        # que uma tabela privada severidade->grupo erra: `leve` iria para atendimento-humano.
+        ("risco_psicossocial", "leve", "plantao-clinico"),
+        ("solicitacao_humano", "leve", "atendimento-humano"),  # DMN r5 — P3
+    ],
+)
+async def test_notificacao_nunca_contradiz_o_grupo_da_dmn(
+    engine: EngineRest,
+    probe: EngineProbe,
+    start_escalation: StartEscalation,
+    motivo_categoria: str,
+    severidade: str,
+    grupo_esperado: str,
+) -> None:
+    """GAP-ESC-SEVERITY-GROUP (prova ao vivo): a notificacao interna carrega EXATAMENTE a
+    severidade contratual e o `grupo_atendimento` da DMN — o mesmo valor que o engine usa em
+    `candidateGroups="${roteamento.grupo_atendimento}"` (BPMN :134). Antes do fix o worker lia a
+    variavel INGLESA `severity` (que ninguem define) e caia em `severity=leve` +
+    `group=atendimento-humano` para TODA escalacao, inclusive a P1 clinica sob SLA PT5M.
+    """
+    inst = await start_escalation(motivo_categoria=motivo_categoria, severidade=severidade)
+    await probe.drain()
+
+    task = await engine.await_user_task(inst["id"], "UT_TratarEscalonamento")
+    assert task.candidate_groups == frozenset({grupo_esperado})
+
+    assert probe.notified_teams, "notify_team nao publicou a notificacao interna"
+    notificacao = probe.notified_teams[0]
+    assert notificacao["grupo_atendimento"] == grupo_esperado  # nunca contradiz o candidateGroups
+    assert notificacao["severidade"] == severidade  # nunca o default `leve`
+    assert notificacao["motivo_categoria"] == motivo_categoria
+    # O vocabulario ingles do defeito nao volta pelo payload.
+    assert "severity" not in notificacao
+    assert "group" not in notificacao
+
+
 # --- Timers (job execution, sem sleep) -----------------------------------------------
 
 
