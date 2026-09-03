@@ -40,7 +40,7 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 | M2 BPMN/DMN Regeneration | **◑** | BPMN/DMN existem + `validate-artifacts` verde; **MAS contratos ainda DRAFT — o gap<5% e a validação por SME NÃO foram feitos** (G2-bloqueado). |
 | M3 Core Runtime | **✅** | G1 fechado; runtime spine verified-complete. |
 | M4 Gateway & Security | **◑** | Cadeia de auditoria real e wired **nesta sessão** (T1.10 wave). PEP/pseudonymizer/vault/custody existem com lacunas — ex.: o gate de identidade LGPD estava **fail-OPEN** (corrigindo #113). |
-| M5 Agent Framework + MCP + A2A | **◑→✅** | 10 grafos de agente reais (B6 fechado). **A2A dispatcher + card-signing COMPLETO (#156, 2026-07-27).** Resíduo: ToolRegistry ainda inexistente (ADR-0022 stale, T2.4). |
+| M5 Agent Framework + MCP + A2A | **◑→✅** | 10 grafos de agente reais (B6 fechado). **A2A dispatcher + card-signing COMPLETO (#156, 2026-07-27).** ToolRegistry implementado desde 2026-08-11 (`gateway/tool_registry.py`, 534 linhas — D-M3-1; residuo ADR-0022/T2.4 fechado). |
 | M6 Foundation Processes | **◑** | ESCALATION/AUTH/LGPD com workers; invariante L0 do AUTH provado. LGPD identity fail-open (#113); workers LGPD faltantes (`compile_data_package`/`execute_request`/`send_response`, #55 R-C/R-D/R-F). |
 | M7 Core Compliance | **◑→✅** | Workers existem. Protocolo ANS fabricado removido (#109). **Recurso: caminho auditor `ACEITAR_GLOSA` (#123) + `recurso.pended` (#138) + 5 tópicos (#128) LANDARAM (2026-07-27).** T2.6 ANS XSD/TISS fail-closed (#132). |
 | M8 Advanced Processes | **◑** | Anti-dupla corrigido real (#108); fraude DMN-input endurecido (#111). Lacunas/workers de família restantes. |
@@ -271,6 +271,7 @@ DL-0045 (qualificação MZO-040) em `docs/decisions-log.md`.
 | W7 | **P2** | Concentração de conhecimento/autoria: 212/244 commits = 1 identidade humana (+orquestradores); sem 2º operador independente p/ runtime, DMN deploy, recovery de audit, rotação de chaves | censo git 2026-08-10 |
 | W8 | **P2** | Hardening operacional do cliente de inferência: sem retry/backoff com budget de rate-limit, sem cache-aware prompt formatting, telemetria de turno fina | comparativo nooa |
 | W9 | **P2** | Supply-chain: sem quarentena de idade de dependência (`exclude-newer` do uv — o repo JÁ usa uv) | ausência verificada em `pyproject.toml` |
+| W10 | **P2** | Fan-in critico concentrado em 4 modulos (harness/mcp_cibseven.transport/dmn_transport/workers.base) — o numero do recon (32/30/27/23) nunca foi reproduzido (HX-14, status UNREPRODUCED); remedido por AST em 2026-09-03 (`grep -rn`/import-walk restrito a `src/`, sem testes): harness=19, mcp_cibseven.transport=24, dmn_transport=28, workers.base=19. **Regra**: qualquer refactor que toque um destes 4 exige replay da suite de integracao antes do merge — nao usar o numero do recon como criterio ate ser remedido de novo com o metodo aqui citado. | recon/as-built-map.md:114 (achado HIGH, sem metodologia registrada); remedicao 2026-09-03 nesta linha |
 
 ### Estratégia — ondas (agent-executável vs teto humano SEMPRE separado)
 
