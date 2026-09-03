@@ -32,6 +32,7 @@ below in this same file and in the worker-metrics file.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 from typing import Any, Final
@@ -156,6 +157,36 @@ def _all_alert_series() -> set[str]:
     return {name for _alert, expr in _alert_exprs() for name in _metric_names(expr)}
 
 
+def _emitter_call_sites() -> dict[str, list[str]]:
+    """Emitter name -> the `src/` files that actually CALL it, outside the observability module.
+
+    AST, not `substring in text`, and the difference IS the fence. A textual match is satisfied by
+    a docstring that merely NAMES the helper — which is precisely the state a dead library is in:
+    extensively described, never invoked. Verified by construction: deleting the real call from
+    `gateway/seams/_base.py` while leaving its docstring intact keeps a textual check GREEN and
+    turns this one RED.
+    """
+    observability = _SRC / "platform" / "observability.py"
+    wanted = set(ALERT_METRIC_EMITTERS.values())
+    sites: dict[str, list[str]] = {name: [] for name in wanted}
+    for path in sorted(_SRC.rglob("*.py")):
+        if path == observability:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name: str | None = None
+            if isinstance(func, ast.Name):
+                name = func.id
+            elif isinstance(func, ast.Attribute):
+                name = func.attr
+            if name in wanted:
+                sites[str(name)].append(str(path.relative_to(_SRC)))
+    return sites
+
+
 # =================================================================================================
 # 1-3: the fence
 # =================================================================================================
@@ -226,15 +257,12 @@ def test_every_alert_metric_emitter_has_a_caller_outside_the_observability_modul
     stays red for any future emitter that is defined and then never called — the exact shape
     `setup_observability` had for a year.
     """
-    observability = _SRC / "platform" / "observability.py"
-    sources = [path for path in _SRC.rglob("*.py") if path != observability]
-    orphans: list[str] = []
-    for metric, emitter in sorted(ALERT_METRIC_EMITTERS.items()):
-        callers = [
-            str(path.relative_to(_SRC)) for path in sources if emitter in path.read_text(encoding="utf-8")
-        ]
-        if not callers:
-            orphans.append(f"{metric} (emitter {emitter}())")
+    called = _emitter_call_sites()
+    orphans = [
+        f"{metric} (emitter {emitter}())"
+        for metric, emitter in sorted(ALERT_METRIC_EMITTERS.items())
+        if not called[emitter]
+    ]
     assert not orphans, (
         f"no caller anywhere in src/ for: {orphans}. The metric is declared, the helper exists, "
         "and nothing writes it — the alert built on it can never fire."
