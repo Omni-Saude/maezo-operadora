@@ -1030,6 +1030,37 @@ def test_every_started_process_key_is_explicitly_classified(process_key: str) ->
     assert process_key in _START_DEDUP_POLICY
 
 
+def test_every_known_process_key_is_classified_in_the_policy_map() -> None:
+    """COMPLETENESS AS A BUILD-TIME FACT, not a runtime warning (GK MINOR F9).
+
+    Three LIVE production keys — `SP-OP-LGPD-DSR-001`, `SP-OP-REEMBOLSO-001`,
+    `SP-OP-ADEQUACAO-001` — were simply absent from the map and fell to `start_dedup_posture`'s
+    default plus a log line nobody reads. Making the DEFAULT fail-closed would have been the wrong
+    repair: all three would become unstartable today, and refusing to start an LGPD data-subject
+    request is itself a compliance breach — the same "adverse outcome manufactured by an
+    idempotency gate" this whole work package exists to refuse. So the omission is made
+    impossible instead: every key the platform knows must appear here, and a NEW key is a failing
+    build until someone classifies it under the two-step criterion in the map's comment block.
+
+    This assertion is the ONLY thing that makes `_START_DEDUP_POLICY` a decision record rather
+    than a partial one.
+    """
+    from maezo.tools.mcp_cibseven.transport import _START_DEDUP_POLICY
+    from maezo.tools.process_allowlist import KNOWN_PROCESS_KEYS
+
+    unclassified = set(KNOWN_PROCESS_KEYS) - set(_START_DEDUP_POLICY)
+    assert not unclassified, (
+        "these KNOWN_PROCESS_KEYS have no start-dedup posture — classify them in "
+        f"`_START_DEDUP_POLICY` (with evidence, per its comment block): {sorted(unclassified)}"
+    )
+    unknown = set(_START_DEDUP_POLICY) - set(KNOWN_PROCESS_KEYS)
+    assert not unknown, (
+        "these keys are classified but are not process keys the platform knows — a typo or a "
+        f"stale entry: {sorted(unknown)}"
+    )
+    assert set(_START_DEDUP_POLICY) == set(KNOWN_PROCESS_KEYS)
+
+
 def test_unclassified_process_key_defaults_to_todays_behaviour() -> None:
     """A surprise permanent gate on an unknown flow would silently swallow real cases, which is
     the worse of the two failures — so an unclassified key defaults NON-strict (and warns)."""

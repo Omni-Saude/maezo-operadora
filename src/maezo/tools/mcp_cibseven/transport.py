@@ -343,7 +343,7 @@ class CibSevenHttpTransport:
         """Query the engine's HISTORY for ANY instance with this business key — active OR finished.
 
         `HistoryQueryingTransport` implementation (F3 BLOCKER-1). Same endpoint
-        `get_process_status` already falls back to (`:406-413`); unlike `find_active_instance` it
+        `get_process_status` already falls back to (`:474-481`); unlike `find_active_instance` it
         carries NO `active=true`, so a COMPLETED / EXTERNALLY_TERMINATED / SUSPENDED instance is
         visible. The returned `state` is the engine's own historic state token, verbatim.
 
@@ -875,7 +875,7 @@ class StartDedupPosture(StrEnum):
     independently:
 
       (a) MUTUAL EXCLUSION between CONCURRENT starts — closing the TOCTOU window that
-          `find_active_instance` (a plain GET, `:278-284`) structurally cannot close. Safe for
+          `find_active_instance` (a plain GET, `:313-320`) structurally cannot close. Safe for
           every family: it can only make a re-delivery converge on the instance a racer is
           creating, never swallow a case.
       (b) A PERMANENT CROSS-TIME GATE — a key that has EVER been started is never started again,
@@ -942,20 +942,21 @@ class StartDedupPosture(StrEnum):
 #: `SP-OP-CANCEL-001` — CONTRACT TERMINATION REVIEW. Key `CANCEL-{tenant}-{numero_contrato}`,
 #:   matricula fallback for individual/familiar plans — three composers, all delegating to the
 #:   one shared minter `tools/workers/base.py:mint_contract_business_key` (`base.py:500`):
-#:   `tools/workers/inadimplencia.py:56` (`_cancel_business_key`, WITH the matricula fallback),
-#:   `tools/workers/fraude.py:828` and `platform/notification_bridge.py:417` (both WITHOUT it —
+#:   `tools/workers/inadimplencia.py:57` (`_cancel_business_key`, WITH the matricula fallback),
+#:   `tools/workers/fraude.py:838` and `platform/notification_bridge.py:417` (both WITHOUT it —
 #:   the B-2 asymmetry, swept by `base.contract_business_key_forms`).
-#:   THREE START SITES TODAY: `tools/workers/inadimplencia.py:722` (`handoff_rescisao`, the
-#:   ENCAMINHAR_RESCISAO handoff), `tools/workers/fraude.py:918` (`start_contratual` via
-#:   `_fenced_start`, `fraude.py:741`), and the bridge's FRAUDE→CANCEL rule
-#:   (`notification_bridge.py:639`) through `build_cibseven_process_starter` (`:983` -> `:1034`).
+#:   THREE START SITES TODAY: `tools/workers/inadimplencia.py:762` (`handoff_rescisao`'s
+#:   `start_process_idempotent` call, the ENCAMINHAR_RESCISAO handoff; def at `:599`),
+#:   `tools/workers/fraude.py:928` (`start_contratual`'s CANCEL leg via `_fenced_start`, def at
+#:   `fraude.py:699`), and the bridge's FRAUDE→CANCEL rule (`notification_bridge.py:639`) through
+#:   `build_cibseven_process_starter` (`:983` -> `:1041`).
 #:   WHY `EXCLUSIVE` (criterion step 1 — YES): two of those three are RE-DELIVERABLE by
 #:   construction (a CIB Seven external-task lock expiry re-dispatches the same handoff; a Kafka
 #:   re-delivery re-fires the bridge rule), and a second CONCURRENT instance is the BLOCKING L0
 #:   double-termination risk `docs/processes/harmonization-inadimplencia-cancel.md` §1 is written
 #:   to prevent — two parallel `UT_AnaliseRescisao` reviews for one contract. Before GAP-D3-02
 #:   the only thing standing between a racer and that outcome was `find_active_instance`, whose
-#:   TOCTOU window is documented at `:1259-1263` and is exactly what the durable claim closes.
+#:   TOCTOU window is documented at `:1444-1448` and is exactly what the durable claim closes.
 #:   WHY NOT `PERMANENT` (criterion step 2 — NO, and this is load-bearing): this key is NOT
 #:   one-shot, and the evidence is in the process's own terminals. THREE of CANCEL-001's end
 #:   events leave the contract ALIVE — `End_ContratoMantido`
@@ -964,28 +965,51 @@ class StartDedupPosture(StrEnum):
 #:   serves all four `tipo_solicitacao` triggers (`pedido_beneficiario` | `inadimplencia` |
 #:   `for_cause_operadora` | `fraude_referida`, `docs/processes/contracts/SP-OP-CANCEL-001.md`
 #:   § Variaveis de entrada). So a titular whose cancellation request was DENIED today, or a
-#:   contract kept alive by a human MANTER decision, legitimately produces a SECOND case under
-#:   the SAME key later. Under `PERMANENT` that second case would be refused with
-#:   `ALREADY_COMPLETED` — an adverse outcome against a beneficiary, produced by an idempotency
-#:   gate, with NO human in the loop. That is a worse defect than the one being closed, and it is
-#:   the same recurrence argument that keeps `SP-OP-INADIMPLENCIA-001` non-permanent below (RN 593
-#:   delinquency recurs, and INADIMPLENCIA's own handoff is what mints this CANCEL key).
+#:   contract kept alive by a human MANTER decision, PLAUSIBLY produces a SECOND case under the
+#:   SAME key later.
+#:   ⚠️ DRAFT/verify — THE RECURRENCE PREMISE IS NOT AN ENGINEERING FACT. What the BPMN and the
+#:   contract PROVE is only the mechanism: three terminals leave the contract alive, and one key
+#:   serves four triggers. That a recurrent case under the same `numero_contrato` is LEGALLY
+#:   EXPECTED is a contratos/juridico question, and the accompanying "inadimplencia RN 593 recorre"
+#:   (below) is a regulatory anchor that is itself `DRAFT/verify` everywhere it appears in the
+#:   BPMN (`SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn:25-28`) and unconfirmed from
+#:   `docs/compliance/`. DECIDERS: juridico/contratos (recurrence), ANS-regulatorio (RN 593 /
+#:   RN 412). See DL-0046.
+#:   WHY THE UNCERTAINTY DOES NOT WEAKEN THIS CHOICE — it is the reason for it. `EXCLUSIVE` is the
+#:   CONSERVATIVE posture UNDER that open question: it neither denies a second case (which
+#:   `PERMANENT` would) nor leaves concurrent starts unseparated (which `NON_STRICT` does). It is
+#:   the only one of the three that does not need the SME answer in order to be safe. If the SMEs
+#:   later rule the key one-shot, moving it to `PERMANENT` is a reviewed one-line change.
+#:   Under `PERMANENT` today that second case would be refused with `ALREADY_COMPLETED` — an
+#:   adverse outcome against a beneficiary, produced by an idempotency gate, with NO human in the
+#:   loop. That is a worse defect than the one being closed, and it is the same recurrence
+#:   argument that keeps `SP-OP-INADIMPLENCIA-001` non-permanent below (RN 593 delinquency recurs
+#:   — `DRAFT/verify`, same deciders; and INADIMPLENCIA's own handoff is what mints this CANCEL
+#:   key).
 #:   WHY THE IRREVERSIBLE EFFECT DOES NOT ARGUE FOR `PERMANENT`. Rescisao IS irreversible — but it
 #:   is NOT produced by the start. `contract_termination` is L0 hard and every adverse terminal is
 #:   reachable ONLY through the human `UT_AnaliseRescisao` (contract § Terminais humano-gated);
 #:   a duplicate START buys a duplicate human REVIEW, not a duplicate rescisao. That is the exact
 #:   asymmetry with `SP-OP-PAGTO-001`, where the effect FOLLOWS from the start.
-#:   RESIDUAL, disclosed: `EXCLUSIVE` excludes concurrent starts within the claimed GENERATION.
-#:   Once the claimed instance is proven finished the key becomes re-startable, and exclusivity
-#:   for the NEXT generation rests on `find_active_instance` again — closing that needs a
-#:   generation-scoped durable token, i.e. the same XRD-10/MZO-060 outbox this module cannot build.
-#:   The dominant re-delivery burst (lock expiry / broker retry, seconds after the handoff) lands
-#:   inside the claimed generation, which is the window this posture actually closes.
+#:   RESIDUAL, disclosed — AND IT IS BIGGER THAN "THE NEXT GENERATION" (corrected at the
+#:   gatekeeper's F3; the earlier wording understated it). The dedup key is
+#:   `(tenant, process_key, business_key)` with NO generation component, so the durable claim is
+#:   minted exactly ONCE in a business key's LIFETIME and is never re-minted. `EXCLUSIVE`
+#:   therefore supplies mutual exclusion for GENERATION 1 ONLY: from generation 2 onward, for
+#:   EVERY later generation, FOREVER, two concurrent starts both see `deduped=True`, both resolve
+#:   to "generation closed", and both fall through to the TOCTOU-prone `find_active_instance` —
+#:   i.e. exactly main's `NON_STRICT` behaviour, no worse and no better. Closing it needs a
+#:   GENERATION-SCOPED durable token, i.e. the same XRD-10/MZO-060 outbox this module cannot
+#:   build. The mechanism is pinned by
+#:   `test_the_durable_claim_is_minted_once_per_key_never_once_per_generation`.
+#:   WHY IT IS STILL WORTH SHIPPING: the dominant re-delivery burst (external-task lock expiry /
+#:   broker retry, seconds after the handoff) lands inside generation 1, which is the window this
+#:   posture does close — and every generation-2+ racer is left no worse off than before.
 #: └────────────────────────────────────────────────────────────────────────────────────────────
 #:
 #: ┌ NON_STRICT (classified — legitimate re-run across time, or genuinely ambiguous) ────────────
 #: `SP-OP-INADIMPLENCIA-001` — key `INAD-{tenant}-{numero_contrato}` (`agents/fernando/graph.py:
-#:   290-298`), started at `agents/fernando/graph.py:548`. A contract that cured a delinquency can
+#:   290-298`), started at `agents/fernando/graph.py:560`. A contract that cured a delinquency can
 #:   go delinquent AGAIN; the key repeats by design. Gating would block the second, real case.
 #: `SP-OP-ESCALATION-001` — key `ESC-{tenant}-{conversation_id}` (`agents/helena/graph.py:304-306`,
 #:   `agents/lucas/graph.py:313-316`), started at `agents/helena/graph.py:673` /
@@ -993,14 +1017,18 @@ class StartDedupPosture(StrEnum):
 #:   escalation closed.
 #: `SP-OP-CRED-001` — key `CRED-{tenant}-{prestador}` or `CRED-{tenant}-{prestador}-{protocolo}`
 #:   (`agents/carolina/graph.py:286-297`), started at `agents/carolina/graph.py:626` and, for the
-#:   fraude handoff, `tools/workers/fraude.py:735` via `_cred_business_key` (`fraude.py:754`).
+#:   fraude handoff, `tools/workers/fraude.py:813` (`start_credenciamento`'s `_fenced_start` call)
+#:   via `_cred_business_key` (`fraude.py:770`).
 #:   AMBIGUOUS: the `-{protocolo}` variant IS per-request, but the bare variant repeats across
 #:   RECREDENCIAMENTO cycles — gating it would block a periodic re-accreditation. Human call.
 #: `SP-OP-FRAUDE-001` — key `FRAUDE-{tenant}-{numero_caso|prestador_id}` (contract, quoted at
 #:   `spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:260`), started at
-#:   `tools/workers/contas.py:750` and `tools/workers/fraude.py:735`. AMBIGUOUS: keyed by
-#:   `numero_caso` it is one-shot, but the `prestador_id` fallback repeats — a genuinely NEW fraud
-#:   case against the same provider must still open. Human call.
+#:   `tools/workers/contas.py:750` (`start_fraude`) and through the bridge's CONTAS→FRAUDE rule
+#:   (`platform/notification_bridge.py:595`). [`tools/workers/fraude.py:735`, cited by an earlier
+#:   revision, is NOT a FRAUDE-001 start site — `fraude.py` starts CRED/CANCEL/INADIMPLENCIA only.
+#:   Re-pinned at the GAP-D3-02 gatekeeper pass.] AMBIGUOUS: keyed by `numero_caso` it is
+#:   one-shot, but the `prestador_id` fallback repeats — a genuinely NEW fraud case against the
+#:   same provider must still open. Human call.
 #: `SP-OP-CONTAS-001` — key `CONTAS-{tenant}-{lote}` / `CONTAS-{tenant}-{guia}-{conta}`
 #:   (`agents/marina/graph.py:311-332`), started at `agents/marina/graph.py:704`. AMBIGUOUS: the
 #:   contract says a re-sent lote must NOT create a new instance
@@ -1015,7 +1043,7 @@ class StartDedupPosture(StrEnum):
 #:   (see M-9 note in `tools/workers/contas.py`), so its stability is not this module's to assert.
 #:   Human call.
 #: `SP-OP-AUTH-001` — key `AUTH-{tenant}-{numero_guia_tiss}` (`agents/rafael/graph.py:167-169`),
-#:   started at `agents/rafael/graph.py:509`. AMBIGUOUS: a TISS guia is normally one-shot, but
+#:   started at `agents/rafael/graph.py:598`. AMBIGUOUS: a TISS guia is normally one-shot, but
 #:   whether a re-submitted/reopened guia may reuse its number is a MEDICAL/ANS semantics question,
 #:   explicitly out of an engineering agent's authority. Human call.
 #: `SP-OP-ANS-SUBMIT-001` — key `ANSSUB-{tenant}-{report_type}-{competencia}`
@@ -1028,6 +1056,29 @@ class StartDedupPosture(StrEnum):
 #:   (`agents/valentina/graph.py:277-288`), started at `agents/valentina/graph.py:648`.
 #:   CYCLE-SCOPED (`ciclo`): a new enrolment cycle already mints a new key, so the gate would be
 #:   harmless — left off only because it buys nothing today.
+#:
+#: THE THREE KEYS WITH NO AGENT-SIDE START SITE (classified at the GAP-D3-02 gatekeeper pass, F9).
+#: These are LIVE production keys in `process_allowlist.KNOWN_PROCESS_KEYS`, not future ones, and
+#: they were simply ABSENT from this map — which meant they fell to `start_dedup_posture`'s
+#: runtime default plus a warning. Absence is now impossible: the completeness assertion in
+#: `tests/unit/tools/test_start_process_dedup_gate.py`
+#: (`test_every_known_process_key_is_classified_in_the_policy_map`) fails the build if a key of
+#: `KNOWN_PROCESS_KEYS` is unclassified, so a future key must be decided HERE rather than defaulted
+#: silently. Classifying them `NON_STRICT` is a ZERO-BEHAVIOUR-CHANGE act (it is exactly what the
+#: default already gave them) — deliberately NOT a fail-closed default, which would make all three
+#: unstartable today and is the same adverse-outcome-by-gate anti-pattern this whole WP refuses.
+#: `SP-OP-LGPD-DSR-001` — DATA-SUBJECT REQUEST. Workers exist (`tools/workers/lgpd.py`) but NO
+#:   call site starts it through this chokepoint (`check_start_process_fence` lists 13 calling
+#:   files; none passes this key), so there is no key composer to classify against and nothing for
+#:   a gate to protect. `NON_STRICT` until a start site exists — and refusing to START an LGPD DSR
+#:   would itself be a compliance breach, so a gate here needs a DPO/legal decision, not a
+#:   refactor.
+#: `SP-OP-REEMBOLSO-001` — REIMBURSEMENT. Same status: workers (`tools/workers/reembolso.py`), no
+#:   chokepoint start site. Would be a criterion-step-2 question (money, like PAGTO) the day one
+#:   appears; there is nothing to decide while nothing starts it.
+#: `SP-OP-ADEQUACAO-001` — NETWORK ADEQUACY. Same status: workers
+#:   (`tools/workers/adequacao.py`), no chokepoint start site. Adequacy review recurs by
+#:   construction across periods, so `NON_STRICT` is also the substantively right answer.
 #: └────────────────────────────────────────────────────────────────────────────────────────────
 #:
 #: OPERATIONAL CO-REQUISITES (must be settled before a GATED posture — `EXCLUSIVE` or
@@ -1043,6 +1094,18 @@ class StartDedupPosture(StrEnum):
 #:    An `EXCLUSIVE` key is NOT exposed to this: its claim is only ever a mutual-exclusion token
 #:    for an in-flight generation, so a sweep older than the re-delivery window costs it nothing —
 #:    the documented sweep horizon is already the right one for `SP-OP-CANCEL-001`.
+#:    HOW A SWEEP CAN ACTUALLY TELL THEM APART (gatekeeper F6 — the relaxation above is useless to
+#:    a DBA without this). `audit_emit_dedup` has NO posture column: migration 0005 is
+#:    `(tenant, dedup_key, record_hash, created_at)`. The ONLY discriminator available to SQL is
+#:    the process-key SEGMENT of `dedup_key`, whose format is fixed by `start_dedup_key` as
+#:    `{tenant}:start:{process_key}:{business_key}`. So the retention job's exclusion predicate is
+#:    a string match on that segment, e.g. keep rows where
+#:    `dedup_key LIKE '%:start:SP-OP-PAGTO-001:%'` (one clause per `PERMANENT` key in the map
+#:    above) and age out the rest. If a posture column is ever added, THAT becomes the predicate
+#:    and this note is what should be deleted.
+#:    WHERE THE RELAXATION LIVES: in THIS comment block, and nowhere else. `gateway/audit_postgres.py`
+#:    was touched at GAP-D3-02 for its DOCSTRING only (`FreshSinkAuditEmitter.emit_once_status`) —
+#:    no retention code was widened, because none exists in this repo to widen.
 #: 2. DBA/ENGINE — CIB Seven HISTORY retention. `_resolve_strict_dedup_hit` reads the engine's
 #:    history as the proof that the claimed start actually took effect. If the engine's history
 #:    cleanup removes a finished `SP-OP-PAGTO-001` instance while its claim survives, the gate can
@@ -1065,6 +1128,12 @@ _START_DEDUP_POLICY: Mapping[str, StartDedupPosture] = {
     "SP-OP-ANS-SUBMIT-001": StartDedupPosture.NON_STRICT,
     "SP-OP-NIP-001": StartDedupPosture.NON_STRICT,
     "SP-OP-PROGRAMA-001": StartDedupPosture.NON_STRICT,
+    # No agent-side start site through this chokepoint today (F9). Classified rather than left to
+    # the runtime default, so the map is COMPLETE against `KNOWN_PROCESS_KEYS` and a future key
+    # cannot slip in unclassified — zero behaviour change, see the block above.
+    "SP-OP-LGPD-DSR-001": StartDedupPosture.NON_STRICT,
+    "SP-OP-REEMBOLSO-001": StartDedupPosture.NON_STRICT,
+    "SP-OP-ADEQUACAO-001": StartDedupPosture.NON_STRICT,
 }
 
 
@@ -1372,7 +1441,7 @@ async def start_process_idempotent(
     B-3 — WHY THE ENGINE ACTIVE QUERY IS NOT ENOUGH (the duplicate-payment class this closes). The
     pre-B-3 code discarded the `emit_once` result and relied SOLELY on step 3, which has two
     holes:
-      * TOCTOU. `find_active_instance` is a plain GET (`:278-284`); two concurrent callers with
+      * TOCTOU. `find_active_instance` is a plain GET (`:313-320`); two concurrent callers with
         the same business key can BOTH read "no active instance" and BOTH start. The durable
         claim has no such window — the lookup, the claim and the chain insert share one
         per-tenant advisory-locked transaction (`PostgresAuditSink.emit_once_status`), so exactly
