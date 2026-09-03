@@ -1,15 +1,19 @@
 """Unit tests for maezo.tools.workers.ans_cron (SP-OP-ANS-CRON-001).
 
 TDD London School: tests verify the per-report_type dispatch resolution the scheduler's FIRST
-service task (`ST_ResolverCompetencia*`) performs. The engine-side halves of the same contract —
-that the BPMN really binds this topic, that the timeCycle agrees with the taxonomy, and that the
-fact really carries the computed competencia — live in
+service task (`ST_ResolverCompetencia*`) performs. The STATIC halves of the same contract — that
+the BPMN really binds this topic and that the timeCycle agrees with the taxonomy — are fences in
+`tests/unit/spec/test_ans_cron_timers_taxonomy.py` (they need no engine, so they run in the
+REQUIRED unit job). Only what genuinely needs a running engine — that a real timer tick produces
+a fact carrying the computed competencia, and that no SUBMIT instance is auto-started — lives in
 `tests/integration/processes/test_sp_op_ans_cron_001.py`; the Python<->DMN taxonomy agreement
 lives in `tests/integration/dmn/test_dmn_golden_parity.py`.
 """
 
+import importlib.util
 from datetime import date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -261,6 +265,26 @@ def _freeze_business_clock(monkeypatch: pytest.MonkeyPatch, utc_instant: str) ->
     """Congela `ans_cron._now_business` no instante UTC dado, convertido para `_BUSINESS_TZ`."""
     momento = datetime.fromisoformat(utc_instant).astimezone(_BUSINESS_TZ)
     monkeypatch.setattr(ans_cron, "_now_business", lambda: momento)
+
+
+def test_tzdata_esta_instalado_e_a_chave_iana_resolve() -> None:
+    """A base IANA precisa estar DISPONIVEL EM RUNTIME, nao so na maquina de quem desenvolve.
+
+    `_BUSINESS_TZ = ZoneInfo("America/Sao_Paulo")` roda no IMPORT de `ans_cron`, entao um ambiente
+    sem tzdb derruba o registro do agendador inteiro com `ZoneInfoNotFoundError` — nao e um erro
+    tardio e localizado, e um import que morre. Imagens slim (`python:3.12-slim`) nao trazem o
+    tzdb do sistema, e ate REP-ANS-CRON `tzdata` so aparecia no lock como transitiva de `psycopg`
+    sob `marker = "sys_platform == 'win32'"` — ou seja, AUSENTE justamente em Linux.
+
+    Este teste guarda as duas metades: (a) o pacote declarado esta de fato instalado (pega a
+    regressao de alguem remover a dependencia de `pyproject.toml`), e (b) a chave IANA que o
+    worker usa realmente resolve.
+    """
+    assert importlib.util.find_spec("tzdata") is not None, (
+        "tzdata nao instalado: `_BUSINESS_TZ` depende da base IANA em runtime e imagens slim nao "
+        "trazem o tzdb do sistema — mantenha `tzdata` em [project].dependencies do pyproject.toml"
+    )
+    assert ZoneInfo("America/Sao_Paulo").key == "America/Sao_Paulo"
 
 
 def test_business_tz_e_o_fuso_civil_brasileiro() -> None:

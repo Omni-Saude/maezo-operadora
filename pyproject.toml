@@ -33,6 +33,14 @@ dependencies = [
     "asyncpg>=0.29,<1.0",
     "alembic>=1.13,<2.0",
     "pgvector>=0.3,<1.0",
+    # --- Tempo / calendario civil ---
+    # A base IANA para `zoneinfo`. Necessaria em RUNTIME, nao so em dev:
+    # `ans_cron._BUSINESS_TZ = ZoneInfo("America/Sao_Paulo")` e avaliada no IMPORT do modulo, e
+    # imagens slim (p.ex. `python:3.12-slim`) nao trazem o tzdb do sistema - sem este pacote o
+    # import do worker morre com `ZoneInfoNotFoundError` e o agendador ANS nem registra. Ate
+    # aqui `tzdata` so aparecia no lock como transitiva de `psycopg` sob
+    # `marker = "sys_platform == 'win32'"`, ou seja AUSENTE em Linux, que e onde isto roda.
+    "tzdata>=2024.1",
     # --- Eventos ---
     "aiokafka>=0.11,<1.0",
     # --- API (gateway, webhooks) ---

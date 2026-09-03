@@ -318,8 +318,7 @@ def _ans_submit_variables_from_cron_due(payload: dict[str, Any]) -> dict[str, An
     timezone `ans_cron._BUSINESS_TZ`); the
     `COMPETENCIA_PENDENTE` sentinel now only survives fail-closed for a `report_type` OUTSIDE the
     ratified taxonomy — a case the 5 BPMN literals cannot emit (pinned by
-    `test_ans_cron_timecycle_do_bpmn_bate_com_a_taxonomia_do_worker`,
-    `tests/integration/processes/test_sp_op_ans_cron_001.py`). This mapping falls back to the
+    `test_ans_cron_timecycle_do_bpmn_bate_com_a_taxonomia_do_worker`). This mapping falls back to the
     sentinel only if the fact is missing `competencia` entirely (never silently invents a period).
 
     `tenant_id` (EB-3 part 3 — SOURCE fixed at the generic publisher; t2-notify-integrity item 3
@@ -339,7 +338,8 @@ def _ans_submit_variables_from_cron_due(payload: dict[str, Any]) -> dict[str, An
     process-var-sourced tenant like SP-OP-NIP-001's). Deployment truth, not fabrication: there is
     no PER-INSTANCE tenant on a TimerStartEvent-triggered scheduler — the per-tenant worker
     deployment's identity IS the fact's tenant. So the REAL live fact now carries `tenant_id`
-    (`test_sp_op_ans_cron_001.py` pins it) and this rule ARMS under the tenant anchor with a
+    (`test_cron_dispara_fato_e_nao_inicia_submit_automaticamente` pins it, engine-side) and this
+    rule ARMS under the tenant anchor with a
     proper `ANSSUB-{tenant}-...` key. HONEST no-seam boundary: a registration WITHOUT the seam
     (legacy/tests) still emits tenant-less facts — this mapping then defaults to `""` fail-closed
     and the rule's `_anchored` predicate keeps it DORMANT (never an `ANSSUB--...` orphan);

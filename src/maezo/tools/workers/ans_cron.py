@@ -41,7 +41,7 @@ das rows de `ans_calendar.dmn`. A taxonomia paralela anterior (`MAPEAMENTO_REDE`
 acordo Python<->DMN e provado engine-side em
 `tests/integration/dmn/test_dmn_golden_parity.py::test_ans_calendar_periodicidade_paridade_com_
 taxonomia_do_worker`, e o acordo Python<->BPMN (timeCycle) em
-`tests/integration/processes/test_sp_op_ans_cron_001.py`.
+`test_ans_cron_timecycle_do_bpmn_bate_com_a_taxonomia_do_worker` (fence estatico, sem engine).
 
 `check_calendar` FOI REMOVIDA (nao renomeada, nao desativada): era uma re-implementacao Python da
 `ans_calendar.dmn` que a propria docstring declarava bloqueada pela divergencia de taxonomia. Com a
@@ -268,7 +268,7 @@ def trigger_submissions(variables: dict[str, Any], *, tenant_id: str = "") -> di
     `setdefault`) — e por isso `tenant_id` NAO esta em `event_payload_vars` no BPMN: se estivesse,
     o "" devolvido por uma composicao sem seam viajaria no payload e DESARMARIA o carimbo do
     publicador (a regra `ans.cron_due` da ponte exige tenant nao-vazio). Ha fence estatico para
-    isso em `tests/integration/processes/test_sp_op_ans_cron_001.py`.
+    isso em `test_ans_cron_payload_vars_nao_carregam_tenant_id`.
     """
     report_type = str(variables.get("ans_cron_report_type", "")).strip()
     periodicidade, periodicidade_iso = _REPORT_PERIODICIDADE.get(

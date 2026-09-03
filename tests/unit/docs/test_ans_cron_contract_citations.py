@@ -55,6 +55,11 @@ _FIXED_DOCS: tuple[Path, ...] = (
     _CONTRACTS_DIR / "SP-OP-ANS-SUBMIT-001.md",
     _CONTRACTS_DIR / "SP-OP-NIP-001.md",
     _TEST_SPECS_DIR / "SP-OP-ANS-SUBMIT-001.md",
+    # Added by REP-ANS-CRON (gatekeeper MINOR-2): ANS-CRON-DEAD-CODE created this test-spec — a
+    # doc in exactly the family this fence protects — and did not enrol it, so a phantom citation
+    # could have been introduced there with nothing to catch it. Verified safe when added: zero
+    # occurrences of any `_PHANTOM_TOKENS` entry in the file.
+    _TEST_SPECS_DIR / "SP-OP-ANS-CRON-001.md",
 )
 
 
