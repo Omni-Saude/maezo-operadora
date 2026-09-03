@@ -1418,6 +1418,44 @@ def test_contas_lote_invalido_is_value_error() -> None:
     assert issubclass(ContasLoteInvalidoError, ValueError)
 
 
+def test_contas_nunca_levanta_worker_bpmn_error() -> None:
+    """No CONTAS code path may signal a `bpmnError` — the counterpart of the BPMN having no
+    error-boundary (`tests/unit/spec/test_sp_op_contas_001_artefatos.py`).
+
+    Why this is worth a test. `Error_ContasLoteInvalido` and `Error_ContasGlosaNotHuman` are
+    declared in the BPMN root catalog with no `errorEventDefinition` referencing them. That reads
+    as "dead entries" until you check ADR-0030, which ratifies exactly this state — §5: *"a guard
+    code with no modeled boundary (... cancel's `ERR_CANCELLATION_NOT_HUMAN`, declared-uncaught) →
+    incident, unchanged"* — and whose ADR-0040 amendment names `ERR_CONTAS_GLOSA_NOT_HUMAN` as
+    *"Tier-3 declared-and-uncaught"* that *"keep[s] raising `PermissionError` on the
+    audited-incident path (never `WorkerBpmnError`/`bpmnError`)"*.
+
+    The half that a reader cannot see from the BPMN is the worker half: the posture only holds
+    while `contas.py` raises NO `WorkerBpmnError` at all. If it ever did, the gate's clause (b)
+    would fire (`check_bpmn_error_allowlist.evaluate`: a raise whose code has no external-task
+    boundary anywhere is *"an uncatalogued raise relying on demote-to-incident"*) — so this test
+    fails BEFORE the CI gate does, with the reason attached."""
+    import inspect
+
+    from maezo.tools.workers import contas as contas_module
+    from maezo.tools.workers.harness import WorkerBpmnError
+
+    source = inspect.getsource(contas_module)
+    assert "WorkerBpmnError" not in source, (
+        "contas.py must not raise or import WorkerBpmnError: SP-OP-CONTAS-001 models no "
+        "error-boundary on any external task, so every such raise would be an uncatalogued raise "
+        "under ADR-0030 §2 clause (b)."
+    )
+
+    # The two catalogued codes travel the incident ladder by BASE CLASS, and neither is a bpmnError.
+    for exc_type in (ContasGlosaNotHumanError, ContasLoteInvalidoError):
+        assert not issubclass(exc_type, WorkerBpmnError), (
+            f"{exc_type.__name__} must never be a WorkerBpmnError (ADR-0030 §1/§5)"
+        )
+    assert issubclass(ContasGlosaNotHumanError, PermissionError)  # L0 guard -> audited incident
+    assert issubclass(ContasLoteInvalidoError, ValueError)  # bad input -> incident
+
+
 # ---------------------------------------------------------------------------
 # Dict-boundary entry functions (T1.2/ADR-0026 §2b) — round-trip vs calling the
 # typed function directly; fail-closed marshalling on invalid/missing input.
