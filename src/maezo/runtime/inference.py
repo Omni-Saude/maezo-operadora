@@ -91,7 +91,6 @@ from urllib.parse import urlsplit, urlunsplit
 
 import anthropic
 import structlog
-from pydantic_settings import BaseSettings
 
 from maezo.runtime._inference_split.capabilities import (
     _CLASSIFICATION_ORDER,
@@ -125,6 +124,8 @@ from maezo.runtime._inference_split.settings import (
     DEFAULT_ANTHROPIC_MODEL,
     DEFAULT_BEDROCK_MODEL,
     DEFAULT_BEDROCK_REGION,
+    BedrockSettings,
+    InferenceSettings,
 )
 from maezo.runtime.prompt_format import FormattedPrompt
 
@@ -265,76 +266,6 @@ TIER_UNDECLARED: Final[str] = "nao_declarado"
 #: the day an owner supplies a real per-tier map the two cases are distinguishable in the same
 #: series rather than needing a new metric.
 TIER_RESOLUTIONS: Final[frozenset[str]] = frozenset({"modelo_unico", "modelo_por_tier"})
-
-
-# ---------------------------------------------------------------------------
-# Settings
-# ---------------------------------------------------------------------------
-
-
-class InferenceSettings(BaseSettings):
-    """Configuration for the inference provider.
-
-    Environment variables prefixed with MAEZO_INFERENCE_ (default).
-
-    Note: the LLM API key is intentionally NOT a field here. It is read
-    directly from the environment inside the concrete provider (see
-    ``_ANTHROPIC_API_KEY_ENV_VARS``) so it never round-trips through a
-    settings object that might be logged, serialized, or defaulted.
-    """
-
-    model_config = {"env_prefix": "MAEZO_INFERENCE_", "extra": "ignore"}
-
-    provider: str = "noop"
-    model: str = ""
-    timeout_s: float = 60.0
-    max_retries: int = 2
-
-    #: MAEZO_INFERENCE_PHI_ZONE_REQUIRED — declares that THIS deployment is
-    #: expected to serve PHI-tagged traffic (ADR-0006 PHI zone).
-    #:
-    #: Default False, so this whole check is INERT until a deployment opts in;
-    #: nothing about today's general-zone behaviour changes. When True,
-    #: :class:`InferenceProvider` validates the configured provider's
-    #: :class:`ProviderCapabilities` AT CONSTRUCTION and refuses to start on any
-    #: shortfall — deliberately the same posture, error type and moment as a
-    #: missing API key. A deployment that intends to handle PHI and is wired to a
-    #: general-zone provider is a misconfiguration, and it must be caught at
-    #: startup rather than at the first PHI request in production.
-    #:
-    #: This does NOT replace, gate or feed the per-call ``phi=True`` refusal in
-    #: :meth:`InferenceProvider.generate` (invariant I-6). That raise reads
-    #: ``phi_capable`` and fires regardless of this flag; this flag only adds an
-    #: EARLIER, louder failure for a deployment that declared its intent up front.
-    phi_zone_required: bool = False
-
-
-class BedrockSettings(BaseSettings):
-    """Bedrock-specific configuration. Environment variables prefixed ``MAEZO_BEDROCK_``.
-
-    A SEPARATE settings class rather than two more fields on :class:`InferenceSettings`,
-    because these are provider-specific knobs and folding them in would spell them
-    ``MAEZO_INFERENCE_BEDROCK_*`` — implying every provider reads them.
-
-    Note what is NOT here, for the same reason :class:`InferenceSettings` has no API key
-    field: no credential. Bedrock authenticates via SigV4 through the standard AWS
-    credential chain, resolved by botocore at request time; nothing credential-shaped ever
-    round-trips through a settings object that might be logged or serialized.
-    """
-
-    # ``protected_namespaces=()`` is REQUIRED, not cosmetic: pydantic v2 reserves the
-    # ``model_`` prefix for its own API, and a field named ``model_id`` emits a
-    # ``UserWarning`` at class-creation time without this. The name is fixed by the
-    # operator-facing env var (``MAEZO_BEDROCK_MODEL_ID``), so the setting yields.
-    model_config = {"env_prefix": "MAEZO_BEDROCK_", "extra": "ignore", "protected_namespaces": ()}
-
-    #: ``MAEZO_BEDROCK_MODEL_ID``. Empty == fall back to :data:`DEFAULT_BEDROCK_MODEL`.
-    model_id: str = ""
-
-    #: ``MAEZO_BEDROCK_REGION``. An EXPLICITLY EMPTY value is not silently replaced by the
-    #: default — :class:`BedrockInferenceProvider` refuses to construct, because an operator
-    #: who blanked the region asked a question this module must not answer by guessing.
-    region: str = DEFAULT_BEDROCK_REGION
 
 
 # ---------------------------------------------------------------------------

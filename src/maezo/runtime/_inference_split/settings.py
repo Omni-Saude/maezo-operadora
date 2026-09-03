@@ -1,18 +1,19 @@
-"""Inference settings (D2-02 split, step 2/8 — constants; the ``BaseSettings`` classes land in
-step 3, added to this SAME file rather than moved a second time).
+"""Inference settings (D2-02 split, steps 2-3/8).
 
 Moved verbatim out of ``maezo/runtime/inference.py`` — cut-and-paste, never a redefinition
-(``docs/reports/inference-split-plan.md`` §5). These 4 default/precedence constants are pulled
-forward from the plan's step 3 into this step, ahead of the ``InferenceSettings``/
-``BedrockSettings`` classes that will join them here, because :mod:`capabilities` (step 2's other
-new module) reads :data:`DEFAULT_ANTHROPIC_MODEL`/:data:`DEFAULT_BEDROCK_MODEL` to declare each
-provider's ``supported_model_versions`` — a real forward dependency the plan's §4 table did not
-carry (written against an earlier tree state; reconfirmed this session with ``grep -n`` before
-acting on it, not copied from the plan without reproduction). Keeping ``capabilities`` importing
-FROM this module (never the reverse) avoids a cycle with ``runtime/inference.py`` in the interim.
+(``docs/reports/inference-split-plan.md`` §5). Step 2 landed the 4 default/precedence constants
+here ahead of schedule (pulled forward from the plan's step 3) because :mod:`capabilities` reads
+:data:`DEFAULT_ANTHROPIC_MODEL`/:data:`DEFAULT_BEDROCK_MODEL` to declare each provider's
+``supported_model_versions`` — a real forward dependency the plan's §4 table did not carry
+(reconfirmed this session with ``ruff check``, not assumed). Step 3 (this addition) lands
+:class:`InferenceSettings`/:class:`BedrockSettings` in the SAME file, per the plan's original
+step-3 scope — the pydantic-settings configuration for the ``noop``/``anthropic``/``bedrock``
+providers.
 """
 
 from __future__ import annotations
+
+from pydantic_settings import BaseSettings
 
 #: Default Anthropic model id used when neither MAEZO_ANTHROPIC_MODEL nor
 #: MAEZO_INFERENCE_MODEL is set. Overridable — see AnthropicInferenceProvider.
@@ -60,3 +61,73 @@ DEFAULT_BEDROCK_MODEL = "global.anthropic.claude-opus-5"
 #: not necessarily the region inference EXECUTES in. :data:`BEDROCK_CAPABILITIES` therefore does
 #: NOT declare ``BR_SAO_PAULO`` on the strength of it; see that constant's comment.
 DEFAULT_BEDROCK_REGION = "sa-east-1"
+
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+
+
+class InferenceSettings(BaseSettings):
+    """Configuration for the inference provider.
+
+    Environment variables prefixed with MAEZO_INFERENCE_ (default).
+
+    Note: the LLM API key is intentionally NOT a field here. It is read
+    directly from the environment inside the concrete provider (see
+    ``_ANTHROPIC_API_KEY_ENV_VARS``) so it never round-trips through a
+    settings object that might be logged, serialized, or defaulted.
+    """
+
+    model_config = {"env_prefix": "MAEZO_INFERENCE_", "extra": "ignore"}
+
+    provider: str = "noop"
+    model: str = ""
+    timeout_s: float = 60.0
+    max_retries: int = 2
+
+    #: MAEZO_INFERENCE_PHI_ZONE_REQUIRED — declares that THIS deployment is
+    #: expected to serve PHI-tagged traffic (ADR-0006 PHI zone).
+    #:
+    #: Default False, so this whole check is INERT until a deployment opts in;
+    #: nothing about today's general-zone behaviour changes. When True,
+    #: :class:`InferenceProvider` validates the configured provider's
+    #: :class:`ProviderCapabilities` AT CONSTRUCTION and refuses to start on any
+    #: shortfall — deliberately the same posture, error type and moment as a
+    #: missing API key. A deployment that intends to handle PHI and is wired to a
+    #: general-zone provider is a misconfiguration, and it must be caught at
+    #: startup rather than at the first PHI request in production.
+    #:
+    #: This does NOT replace, gate or feed the per-call ``phi=True`` refusal in
+    #: :meth:`InferenceProvider.generate` (invariant I-6). That raise reads
+    #: ``phi_capable`` and fires regardless of this flag; this flag only adds an
+    #: EARLIER, louder failure for a deployment that declared its intent up front.
+    phi_zone_required: bool = False
+
+
+class BedrockSettings(BaseSettings):
+    """Bedrock-specific configuration. Environment variables prefixed ``MAEZO_BEDROCK_``.
+
+    A SEPARATE settings class rather than two more fields on :class:`InferenceSettings`,
+    because these are provider-specific knobs and folding them in would spell them
+    ``MAEZO_INFERENCE_BEDROCK_*`` — implying every provider reads them.
+
+    Note what is NOT here, for the same reason :class:`InferenceSettings` has no API key
+    field: no credential. Bedrock authenticates via SigV4 through the standard AWS
+    credential chain, resolved by botocore at request time; nothing credential-shaped ever
+    round-trips through a settings object that might be logged or serialized.
+    """
+
+    # ``protected_namespaces=()`` is REQUIRED, not cosmetic: pydantic v2 reserves the
+    # ``model_`` prefix for its own API, and a field named ``model_id`` emits a
+    # ``UserWarning`` at class-creation time without this. The name is fixed by the
+    # operator-facing env var (``MAEZO_BEDROCK_MODEL_ID``), so the setting yields.
+    model_config = {"env_prefix": "MAEZO_BEDROCK_", "extra": "ignore", "protected_namespaces": ()}
+
+    #: ``MAEZO_BEDROCK_MODEL_ID``. Empty == fall back to :data:`DEFAULT_BEDROCK_MODEL`.
+    model_id: str = ""
+
+    #: ``MAEZO_BEDROCK_REGION``. An EXPLICITLY EMPTY value is not silently replaced by the
+    #: default — :class:`BedrockInferenceProvider` refuses to construct, because an operator
+    #: who blanked the region asked a question this module must not answer by guessing.
+    region: str = DEFAULT_BEDROCK_REGION
