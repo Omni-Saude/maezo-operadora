@@ -17,6 +17,21 @@ query-then-act `find_active_instance` TOCTOU). The invariant under proof: a re-d
 converges to EXACTLY ONE active CANCEL-001 instance and EXACTLY ONE `start:SP-OP-CANCEL-001:...`
 audit chain link (never a double-effect, never a double-audit).
 
+GAP-D3-02 UPDATE (what this suite now also proves, and what did NOT change). `SP-OP-CANCEL-001`
+is a GATED start-dedup family since GAP-D3-02 — `StartDedupPosture.EXCLUSIVE`
+(`mcp_cibseven/transport.py`'s `_START_DEDUP_POLICY`). The GREEN assertions below are UNCHANGED
+and had to be: a re-delivery while the first instance is still ACTIVE returned the same instance
+before, and returns the same instance now. What changed is WHY — the convergence no longer rests
+on the TOCTOU-prone `find_active_instance` GET alone; the durable claim is now a mutual-exclusion
+token, and a claim with NO instance anywhere is a LOUD `StartClaimWithoutInstanceError` instead of
+a silent duplicate. `EXCLUSIVE` is deliberately NOT a permanent gate, so this suite must also stay
+green for a legitimate SECOND case after the first CANCEL-001 instance ends (unit-proven in
+`tests/unit/tools/workers/test_inadimplencia.py::
+test_handoff_rescisao_second_case_after_a_finished_cancel_is_not_swallowed`; not re-proven here
+because ending an instance would mean mutating engine state this suite does not otherwise touch).
+The seams this file already injects — `FreshClientCibSevenTransport` + `FreshSinkAuditEmitter` —
+are exactly the ones the gate requires, which the new fail-closed test at the bottom pins.
+
 HARNESS: placed under `tests/integration/processes/` (NOT `tests/integration/chaos/`) because A1
 needs the REAL CIB Seven engine — unlike the PG-only seam-fault suites in
 `tests/integration/chaos/` (B1a/B1b/C1-down), which explicitly override the engine-reachability
@@ -57,6 +72,7 @@ from typing import Any
 import pytest
 
 from maezo.gateway.audit_postgres import FreshSinkAuditEmitter, verify_chain
+from maezo.tools.mcp_cibseven.transport import StartDedupGateUnavailableError
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.inadimplencia import handoff_rescisao
 from tests.integration.chaos.mutations import broken_start_process_always_start, mutation_active
@@ -209,3 +225,72 @@ async def test_a1_mutation_check_broken_idempotency_creates_a_second_instance(
         f"MUTATION EXPECTED TO TURN THIS RED: exactly one ACTIVE CANCEL-001 instance expected, "
         f"found {len(active)} (the broken always-start variant should have created a duplicate)"
     )
+
+
+class _HistoryBlindEngineSeam:
+    """A `CibSevenTransport` WITHOUT `find_any_instance` — the shape a composition root produces
+    if a decorator drops the capability (`tools/workers/cibseven_engine.py`'s delegation guard
+    exists to prevent exactly that). The capability must be GENUINELY absent, not stubbed: the
+    `HistoryQueryingTransport` probe is attribute-presence."""
+
+    def __init__(self, base_url: str) -> None:
+        self._inner = FreshClientCibSevenTransport(base_url)
+        self.start_attempts: list[str] = []
+
+    async def find_active_instance(self, business_key: str) -> Any:
+        return await self._inner.find_active_instance(business_key)
+
+    async def start_process_instance(
+        self, process_key: str, business_key: str, variables: dict[str, Any]
+    ) -> Any:
+        self.start_attempts.append(business_key)
+        return await self._inner.start_process_instance(process_key, business_key, variables)
+
+    async def correlate_message(self, *a: Any, **k: Any) -> None:
+        return await self._inner.correlate_message(*a, **k)
+
+    async def get_process_status(self, business_key: str) -> Any:
+        return await self._inner.get_process_status(business_key)
+
+    async def close(self) -> None:
+        await self._inner.close()
+
+
+async def test_a1_handoff_fails_closed_when_the_engine_seam_cannot_answer_history(
+    engine: EngineRest,
+    audit_pg: tuple[str, str],
+    audit_tenant: str,
+) -> None:
+    """GAP-D3-02 fail-closed, against the REAL engine + REAL durable sink.
+
+    `SP-OP-CANCEL-001` is `EXCLUSIVE`, so the chokepoint needs BOTH gate seams. Strip the engine
+    seam's `find_any_instance` and the handoff must REFUSE — never silently fall back to the
+    TOCTOU-only path this posture exists to close. The refusal precedes the durable claim, so the
+    contract is left with no instance AND no orphan claim to wedge it later.
+
+    Deliberately does NOT mutate engine state: the only engine reads are the before/after
+    active-instance assertions, so this test cannot leave residue for its siblings."""
+    await engine.deploy(*_CANCEL_ARTIFACTS, name="SP-OP-CANCEL-001-qa-t33-a1-failclosed")
+
+    tenant_id = "amh"
+    contrato = _unique_contrato()
+    cancel_bk = f"CANCEL-{tenant_id}-{contrato}"
+    variables = _redelivery_variables(tenant_id=tenant_id, numero_contrato=contrato)
+
+    blind_seam = _HistoryBlindEngineSeam(CIBSEVEN_BASE_URL)
+    handoff_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
+
+    assert not await engine.find_active_instances(cancel_bk)
+    chain_before = await count_chain_rows(audit_pg[0], audit_tenant)
+
+    with pytest.raises(StartDedupGateUnavailableError):
+        await asyncio.to_thread(handoff_rescisao, dict(variables), engine=blind_seam, audit_sink=handoff_sink)
+
+    assert blind_seam.start_attempts == [], "an un-gateable rescisao handoff reached the engine"
+    assert not await engine.find_active_instances(cancel_bk), (
+        "no CANCEL-001 instance may exist for a refused handoff"
+    )
+    assert await count_chain_rows(audit_pg[0], audit_tenant) - chain_before == 0, (
+        "the refusal must precede the durable claim — no orphan claim, no audit link"
+    )
+    await blind_seam.close()
