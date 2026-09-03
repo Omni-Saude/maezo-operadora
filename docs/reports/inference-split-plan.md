@@ -25,9 +25,14 @@ continua no mesmo tamanho em `71dd4da`).
 
 Dois mecanismos de CI **pinam o caminho literal do arquivo `runtime/inference.py`**, não apenas o
 caminho de import `maezo.runtime.inference`. Um split que mova classes para submódulos sem tocar
-esses dois pontos **quebra silenciosamente uma cerca de segurança e um teste estrutural PHI** — o
-achado mais importante deste documento, porque muda a ordem e o custo de revisão de qualquer split
-real:
+esses dois pontos **quebra os dois — e quebra RUIDOSAMENTE, não em silêncio**: a cerca
+`effect-chokepoint-fence` é fail-closed e reprova o gate diante de um caminho relativo não listado
+(§1.1), e as três asserções de completude do guard PHI que de fato comparam a população por
+igualdade contra uma referência independente (§1.2) falham no `assert` assim que `cls.__module__`
+deixa de bater. O achado mais importante deste documento não é que a quebra seja silenciosa — não
+é —, e sim que ela é **inevitável e tem que ser corrigida na mesma PR do split**: qualquer split
+real que mova essas classes tem que atualizar os dois pontos NA MESMA PR só para a suíte voltar a
+ficar verde, o que muda a ordem e o custo de revisão de qualquer split real:
 
 ### 1.1 `scripts/ci/check_effect_chokepoint_fence.py` (CODEOWNED, junto com `/Makefile`, ver `.github/CODEOWNERS:246-247`)
 
@@ -73,11 +78,38 @@ PhiZoneMock, BrResident) seja varrido pelas checagens de completude PHI, mesmo n
 `NoopInferenceProvider`/`PhiZoneMockProvider` tiverem sua definição física movida para, por
 exemplo, `maezo.runtime.inference.providers`, `cls.__module__` passa a ser
 `"maezo.runtime.inference.providers"` — DIFERENTE de `_INFERENCE_MODULE` — e
-`_concrete_providers_defined_in_module()` retorna um **conjunto vazio**, desarmando silenciosamente
-o guard PHI sem nenhum teste falhar (os testes que usam esse helper simplesmente passam a iterar
-zero providers). Isto é uma classe de regressão P0/P1 — reduz de "prova ativa" para "vácuo que
-finge provar" exatamente o padrão que o `release-floor-check` do Makefile (linha 118-132) e a
-`REASONINGBANK` deste programa tratam como pior que uma falha aberta.
+`_concrete_providers_defined_in_module()` para de enxergar essas 4 classes. **Isto NÃO passa em
+silêncio.** Reproduzido ao vivo nesta sessão com um monkeypatch de `__module__` nas 4 classes (a
+suíte real, não modificada, contra a árvore desta PR — script descartável fora do repo, não
+commitado, disponível em
+`/private/tmp/claude-501/-Users-familia-code-maezo-operadora/13ef4a80-e764-47e0-b6b2-0784b9747ef7/scratchpad/repbuild/repro_vacuity_4of5.py`):
+o conjunto encolhe para
+`{BrResidentInferenceProvider}` (a única das 5 que ainda não teria migrado neste ponto da
+sequência §5) e a suíte de `test_inference_capabilities.py` responde com **`3 failed, 49 passed`**,
+não um PASS silencioso:
+
+- `test_capability_table_covers_every_provider_in_the_module` (linha 308) — compara o conjunto por
+  igualdade contra `_EXPECTED`, um dict HARDCODED keyed pelos próprios objetos de classe (não
+  recalculado a partir de `__module__`) — falha no `assert`;
+- `test_registry_and_class_hierarchy_agree_on_the_provider_population` (linha 410) — compara contra
+  a população construída INVOCANDO `_PROVIDER_FACTORIES` e lendo `type(...)` do objeto construído,
+  também independente de `__module__` — falha no `assert`;
+- `test_exactly_two_providers_are_phi_eligible_today` (`def` na linha 440, `assert` na linha 471) — `PhiZoneMockProvider` some do
+  conjunto elegível — falha no `assert`.
+
+Repetir o mesmo experimento com as 5 classes movidas (cenário em que o conjunto fica genuinamente
+vazio, como aconteceria depois do passo 7 sem correção) dá o mesmo resultado — `3 failed, 49
+passed`, as mesmas três. O único teste do arquivo que permaneceria vácuo nesse cenário é
+`test_the_provider_population_is_walked_transitively` (linha 259), e ele não é um guard de
+completude: prova apenas que a travessia é transitiva (netos incluídos), usando classes-sonda
+definidas dentro do próprio arquivo de teste — nunca afirma que os providers REAIS estão presentes,
+então não é ele quem "finge provar" nada aqui.
+
+Isto continua sendo uma classe de regressão P0/P1 — não porque passe em silêncio, mas porque o
+split NÃO FECHA (a suíte fica vermelha, `make test` reprova) até o filtro ser generalizado na MESMA
+PR — o mesmo motivo, mudança de disciplina, pelo qual o `release-floor-check` do Makefile (linha
+118-132) e a `REASONINGBANK` deste programa tratam sequenciamento de commit como parte do
+contrato, não como detalhe.
 
 **Correção obrigatória, na MESMA PR do split que move essas 4 classes:** trocar o filtro por
 `cls.__module__.startswith("maezo.runtime.inference")` (ou por um frozenset explícito dos
@@ -180,7 +212,7 @@ andre, lucas) e 3 `agents/*/delegation.py` (rafael, carolina, andre) importam `I
 só para type hint / repassar ao seam — nenhum constrói diretamente (a construção é sempre nos 4
 composition-roots acima, que entregam a instância já gateada por `build_inference_seam`).
 
-### 3.2 `tests/` — 16 arquivos, com a superfície bem mais ampla (ver tabela completa abaixo)
+### 3.2 `tests/` — 15 arquivos, com a superfície bem mais ampla (ver tabela completa abaixo)
 
 | Arquivo | Símbolos importados de `maezo.runtime.inference` |
 |---|---|
@@ -268,7 +300,7 @@ avançar — nunca empilhar dois moves sem gate verde entre eles.
      `runtime.inference`".
 
 Depois do passo 8, rodar TODA a suíte (`make test`), `make type`, `make effect-chokepoint-fence`,
-`make check-start-process-fence`, e os 16 arquivos de teste da tabela §3.2 isoladamente com
+`make check-start-process-fence`, e os 15 arquivos de teste da tabela §3.2 isoladamente com
 `-v --tb=short` para conferir contagem de teste-a-teste idêntica ao antes.
 
 ## 6. Testes que pinam cada seam (não podem regredir silenciosamente)
@@ -276,7 +308,7 @@ Depois do passo 8, rodar TODA a suíte (`make test`), `make type`, `make effect-
 | Seam | Teste(s) que prova(m) | O que quebra se o split for feito errado |
 |---|---|---|
 | Construção de `Anthropic/BedrockInferenceProvider`/`InferenceProvider` só via registry/composition-roots sancionados | `tests/unit/ci/test_check_effect_chokepoint_fence.py` (roda o scanner contra a árvore real) + `make effect-chokepoint-fence` | Passo 8 sem atualizar os 2 dicts → false positive (`make effect-chokepoint-fence` reprova PR legítimo) OU, pior, se a entrada for apagada em vez de atualizada, false negative (buraco na cerca) |
-| Toda subclasse concreta de `BaseInferenceProvider` é varrida pelo guard PHI, mesmo netos | `tests/unit/runtime/test_inference_capabilities.py::test_the_provider_population_is_walked_transitively` + os testes que chamam `_concrete_providers_defined_in_module()` | Passo 6/7 sem generalizar `_INFERENCE_MODULE` → guard silenciosamente varre 0 classes, PASS falso |
+| Toda subclasse concreta de `BaseInferenceProvider` é varrida pelo guard PHI, mesmo netos | `tests/unit/runtime/test_inference_capabilities.py::test_capability_table_covers_every_provider_in_the_module` + `::test_registry_and_class_hierarchy_agree_on_the_provider_population` + `::test_exactly_two_providers_are_phi_eligible_today` | Passo 6/7 sem generalizar `_INFERENCE_MODULE` → guard varre uma população encolhida/vazia, e as 3 asserções de completude acima FALHAM NO ASSERT (`3 failed, 49 passed`, reproduzido nesta sessão) — ruidoso, não um PASS falso; a suíte só fecha de novo depois do filtro ser generalizado |
 | Superfície pública do facade gateado (`generate`/`health_check`/`model_id`/`provider_name`) | `tests/unit/gateway/seams/test_seam_proofs.py` (linha 827 e a suíte de `GatedInferenceProvider`) | Qualquer passo que renomeie/remova um desses 4 membros de `InferenceProvider` quebra o seam — nenhum passo desta sequência toca a assinatura, só o arquivo |
 | `PhiZoneRoutingError` continua sendo a MESMA classe (identidade), independente/não-curto-circuitada pelo PEP (I-6) | `test_seam_proofs.py:233,678` (`test_phi_zone_routing_fail_close_is_independent_of_the_pep`) | Mover a exceção para `errors.py` é seguro (import por nome, não por caminho) — mas se por engano ela for REDEFINIDA em vez de movida (2 classes com o mesmo nome em módulos diferentes), o `except PhiZoneRoutingError` deixa de casar entre o produtor e o consumidor. Regra: mover é `git mv`-like (cortar e colar o texto), nunca reescrever |
 | Todos os providers reais mantêm `phi_capable`/`capabilities` corretos por classe | `tests/unit/runtime/test_inference_capabilities.py` (bateria completa, ~20 testes) | Qualquer reordenação de import que crie um ciclo (`providers.py` importando `br_resident_provider.py` por engano, por exemplo) quebra na importação, não silenciosamente — mypy/pytest pegam isso no primeiro `make test` do passo |
