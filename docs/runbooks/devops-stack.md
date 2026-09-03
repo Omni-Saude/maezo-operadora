@@ -315,7 +315,10 @@ See `tests/unit/runtime/test_metrics.py` for the stability contract test suite.
 **Alert:** `MaezoDLQRateHigh`  
 **Meaning:** A Kafka Dead Letter Queue is accumulating messages (failed processing).  
 **Steps:**
-1. `kubectl logs -n maezo-{tenant} deploy/agent-{agent} | grep ERROR`
+1. `kubectl logs -n maezo-{tenant} deploy/agent-{agent} | grep -i '\[error'`
+   (structlog renderiza o nível em MINÚSCULAS, entre colchetes — `[error    ]`; `grep ERROR`
+   nunca casou. O token de nível é emitido por `structlog.processors.add_log_level`, pinado por
+   `tests/unit/platform/test_observability_bootstrap.py::test_an_error_line_carries_its_severity_so_level_triage_works`.)
 2. Check CIB Seven for failed external tasks: `GET /engine-rest/external-task?errorMessageLike=%25`
 3. Re-process DLQ: replay from the DLQ topic using the kafka-consumer CLI in the pod
 

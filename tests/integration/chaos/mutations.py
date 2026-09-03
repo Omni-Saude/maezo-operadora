@@ -23,7 +23,11 @@ mutation active, e.g.:
 
 That run is EXPECTED TO FAIL — the failure IS the proof the corresponding green test would have
 caught the same defect in the real code. See scratchpad/t33-w0w1-report.md for the captured
-red/green transcript for each of the three mutations this branch ships (b1a, b1b, c1_down).
+red/green transcript for each of the three mutations that branch shipped (b1a, b1b, c1_down).
+
+`b1b_posture` was added later, by GAP-D3-02, and is NOT in that transcript: it covers the
+per-posture split of B1b (`StartDedupPosture`, DL-0046), which the original `b1b` mutation
+structurally cannot reach — see its own comment block below.
 """
 
 from __future__ import annotations
@@ -43,8 +47,10 @@ from maezo.tools.mcp_cibseven.transport import (
     AuditStartSink,
     CibSevenTransport,
     ProcessInstance,
+    StartClaimWithoutInstanceError,
     build_start_audit_record,
     start_dedup_key,
+    start_process_idempotent,
 )
 
 if TYPE_CHECKING:
@@ -206,3 +212,54 @@ async def broken_start_process_always_start(
     )
     # MUTATION: no `find_active_instance` check — always starts, never returns an existing hit.
     return await transport.start_process_instance(process_key, business_key, variables)
+
+
+# ---------------------------------------------------------------------------------------------
+# B1b-posture mutation: "a GATED key whose claim has no instance anywhere is RECLAIMABLE" — i.e.
+# case 3 of `_resolve_strict_dedup_hit` auto-restarts instead of raising
+# `StartClaimWithoutInstanceError`. This is the posture split's OWN mutation row (GAP-D3-02 /
+# DL-0046). The pre-existing `b1b` mutation reorders emit and effect, so it tests the audit-
+# ORDERING invariant; NOTHING in it can tell whether a gated key is allowed to restart after a
+# crash, which is the entire claim the `EXCLUSIVE`/`PERMANENT` tests make.
+#
+# The defect reproduced is the one the gate exists to prevent, in its most seductive form: a
+# "recovery" that reads ABSENCE OF EVIDENCE as PERMISSION. After a crash between the durable claim
+# and the engine POST, the state is indistinguishable from a racer whose POST is still in flight —
+# so restarting buys a SECOND concurrent `UT_AnaliseRescisao` under `SP-OP-CANCEL-001`, or a
+# SECOND payment release under `SP-OP-PAGTO-001`.
+#
+# It deliberately does NOT re-implement the gate: it calls the REAL `start_process_idempotent` and
+# flips exactly ONE verdict, by catching the refusal and starting anyway. Every other branch of
+# the real gate still runs, so this double cannot drift away from the code it mutates — and
+# `src/` is never edited (T3.3 constraint).
+# ---------------------------------------------------------------------------------------------
+
+
+async def broken_start_process_restart_on_claim_without_instance(
+    transport: CibSevenTransport,
+    *,
+    process_key: str,
+    business_key: str,
+    variables: dict[str, Any],
+    audit_sink: AuditStartSink,
+    provenance: AgentDecisionProvenance,
+) -> ProcessInstance:
+    """B1b-posture MUTATION double for `start_process_idempotent` — see module docstring.
+
+    Behaves EXACTLY like the real chokepoint until the gate refuses an undecidable claim; then,
+    instead of propagating that refusal, it starts the process — the "just retry it, there is no
+    instance anyway" "fix" the wedge's own docstring calls "the duplicate-payment defect wearing a
+    recovery costume".
+    """
+    try:
+        return await start_process_idempotent(
+            transport,
+            process_key=process_key,
+            business_key=business_key,
+            variables=variables,
+            audit_sink=audit_sink,
+            provenance=provenance,
+        )
+    except StartClaimWithoutInstanceError:
+        # MUTATION: absence of evidence treated as permission to perform the effect.
+        return await transport.start_process_instance(process_key, business_key, variables)

@@ -107,23 +107,19 @@ def test_fraude_contract_hit_policy_claims_match_the_deployed_dmn() -> None:
 
 # DOCUMENTED baseline (same "grandfather with a ticket" pattern as
 # `test_worker_handler_purity.py`'s `_NONDETERMINISM_BASELINE`/`_FABRICATED_FACT_BASELINE`) — the
-# same COLLECT/UNIQUE-vs-real-FIRST drift confirmed for FRAUDE (this fix) also exists in these
-# OTHER contracts, which are OUT OF SCOPE for GAP-FAB-NOTIF item D (the WP brief names only the
-# FRAUDE contract's two claims). Two of these six (`SP-OP-CRED-001.md::cred_prior_notice`/
-# `cred_sla`, `SP-OP-ADEQUACAO-001.md::adequacao_sla`) were already confirmed by the R1 verifier
-# (part-B verification report §6, finding D-B6, "CONFIRMADO 3/3"). The other two
-# (`SP-OP-PAGTO-001.md::pagto_sla`, `SP-OP-REEMBOLSO-001.md::reembolso_sla`;
-# `reembolso_calculo` foi corrigido pelo PR #271 e saiu da baseline)
-# are NEW — outside Part-B's own 6-process scope — surfaced by this test and reported, not fixed,
-# here (see this WP's final report "found beyond scope"). Tracked, not silently fixed: a NEW
-# contract adopting the pattern (not listed here) still fails the fence below.
+# same COLLECT/UNIQUE-vs-real-FIRST drift confirmed for FRAUDE (fixed by GAP-FAB-NOTIF) also
+# existed in six other contract claims. WP-CONTRATOS-SYNC (PERSP-B5-HITPOLICY / CONTRACT-HITPOLICY-
+# DRIFT) closed four of them: `SP-OP-CRED-001.md::cred_prior_notice`/`cred_sla` and
+# `SP-OP-ADEQUACAO-001.md::adequacao_sla` (D-B6, part-B verification report §6, "CONFIRMADO 3/3")
+# plus `SP-OP-REEMBOLSO-001.md::reembolso_sla` (CONTRACT-HITPOLICY-DRIFT). Two remain OUT OF SCOPE
+# for this WP and stay grandfathered: `SP-OP-PAGTO-001.md::pagto_sla` (`SP-OP-PAGTO-001.md` is
+# owned by the parallel PR-3/PR-4 perspective-programme branches — WP-CONTRATOS-SYNC's brief
+# forbids editing it) and `SP-OP-REEMBOLSO-001.md::reembolso_calculo` (owned by the parallel
+# `fix/reembolso-consome-dmn` branch, only its own header changes there). Tracked, not silently
+# fixed: a NEW contract adopting the pattern (not listed here) still fails the fence below.
 _HIT_POLICY_DRIFT_BASELINE: frozenset[str] = frozenset(
     {
-        "SP-OP-CRED-001.md::cred_prior_notice",  # D-B6 (part-B verification report)
-        "SP-OP-CRED-001.md::cred_sla",  # D-B6
-        "SP-OP-ADEQUACAO-001.md::adequacao_sla",  # D-B6
-        "SP-OP-PAGTO-001.md::pagto_sla",  # NEW — found by this test, out of GAP-FAB-NOTIF scope
-        "SP-OP-REEMBOLSO-001.md::reembolso_sla",  # NEW — found by this test, out of scope
+        "SP-OP-PAGTO-001.md::pagto_sla",  # out of scope — SP-OP-PAGTO-001.md owned by PR-3/PR-4
     }
 )
 

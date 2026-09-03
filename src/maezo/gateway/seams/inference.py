@@ -1,7 +1,7 @@
 """Gated LLM inference seam — action class `inferencia_llm` (C2, design §6.1), SPLIT BY ZONE.
 
-Satisfies the surface every graph uses of `runtime/inference.py:899`'s `InferenceProvider`:
-`generate(prompt, *, phi=…, agent_id=…, tenant_id=…)` (15 call sites, all `self._llm.generate`),
+Satisfies the surface every graph uses of `runtime/inference.py`'s `InferenceProvider`:
+`generate(prompt, *, phi=…, agent_id=…, tenant_id=…, task_kind=…)` (all `self._llm.generate`),
 plus the three read-only accessors the composition roots touch (`provider_name`, `model_id`,
 `health_check`) so the gated object is a drop-in wherever the raw provider went.
 
@@ -84,10 +84,16 @@ class GatedInferenceProvider(GatedSeam, InferenceProvider):
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         await gate(self._seam, _OP_GENERATE_PHI if phi else _OP_GENERATE)
         # BARE delegation: `PhiZoneRoutingError` and every provider error propagate untouched (I-6).
-        result: str = await self._inner.generate(prompt, phi=phi, agent_id=agent_id, tenant_id=tenant_id)
+        # `task_kind` (AF-12) is forwarded UNCHANGED and is never read here: which catalogue token
+        # this call records under is chosen from `phi` and from nothing else, exactly as before —
+        # a tier must not be able to move a call between the two C2 operations.
+        result: str = await self._inner.generate(
+            prompt, phi=phi, agent_id=agent_id, tenant_id=tenant_id, task_kind=task_kind
+        )
         return result
 
 

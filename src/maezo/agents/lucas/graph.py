@@ -83,10 +83,17 @@ DIVERGENCES FROM THE v1 DONOR (disclosed, not hidden — `spec/` wins per this t
 - No `resume_ack`/GAP-XHITL-4B retomada node: v2 has no `resume_driver`/`RESUME_STATE_BUILDERS`
   infrastructure yet (Helena's graph does not implement this either — same labeled boundary,
   "no multi-turn conversation checkpointing across separate webhook deliveries").
-- No model-tier routing (`task_default`/`reasoning`): v2's `InferenceProvider.generate(prompt,
-  phi=True)` has no `task_kind` parameter (ADR-0009's tiering is not wired to agents yet, same
-  boundary Helena/Rafael already disclose) — every LLM call here uses the same single-method
-  seam.
+- Model-tier routing (`task_default`/`reasoning`) — DISCLOSURE CORRECTED, AF-12 (2026-09-03).
+  WAS: "v2's `InferenceProvider.generate(prompt, phi=True)` has no `task_kind` parameter
+  (ADR-0009's tiering is not wired to agents yet)". The parameter now exists and this graph
+  passes it: `_build_message`/`_build_escalation_ack` are `task_default` (phrasing already-known
+  facts), `_build_dossier` is `reasoning` (it narrates over the assembled facts for a human).
+  WHAT THAT DOES AND DOES NOT BUY, precisely: `lucas/agent.yaml`'s declared tiers now reach the
+  provider, are validated fail-closed against the ADR-0009 vocabulary at construction, and are
+  counted per call on `maezo_llm_tier_resolution_total`. It does NOT change which model runs —
+  the repo configures exactly ONE model and no per-tier map exists, so both kinds resolve to it
+  (`InferenceProvider._resolve_task_model`, and `docs/review-queue.md` for the owner decision the
+  per-tier model values are).
 - No `mcp-memory.read_write` episodic write in `finalize`: same disclosed boundary as
   Helena/Rafael ("no episodic memory write (ADR-0002) — a follow-up once that schema exists").
   The terminal node is a no-op `complete`, matching Rafael's naming/shape exactly.
@@ -739,7 +746,13 @@ class LucasGraph:
         prompt = f"{message_prompt()}\n\nfatos={facts}"
         try:
             texto = await self._llm.generate(
-                prompt, phi=True, agent_id="lucas", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="lucas",
+                tenant_id=state.get("tenant_id", ""),
+                # AF-12: phrasing facts the DMN already decided — `task_default` (ADR-0009 §2
+                # "classificacao -> modelo rapido/barato").
+                task_kind="task_default",
             )
         except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
             texto = "Recebemos sua solicitacao. Em breve enviaremos os detalhes por aqui."
@@ -784,7 +797,13 @@ class LucasGraph:
         prompt = f"{dossier_prompt()}\n\nmotivo_humano={state.get('motivo_humano')}\nfatos={facts}"
         try:
             narrativa = await self._llm.generate(
-                prompt, phi=True, agent_id="lucas", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="lucas",
+                tenant_id=state.get("tenant_id", ""),
+                # AF-12: the escalation narrative is what a human reads before deciding —
+                # `reasoning` (ADR-0009 §2 "raciocinio critico -> fronteira").
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the escalation.
             narrativa = ""
@@ -806,7 +825,11 @@ class LucasGraph:
         prompt = f"{escalation_ack_prompt()}\n\nmotivo_humano={state.get('motivo_humano')}"
         try:
             return await self._llm.generate(
-                prompt, phi=True, agent_id="lucas", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="lucas",
+                tenant_id=state.get("tenant_id", ""),
+                task_kind="task_default",  # AF-12: a short fixed-shape acknowledgement.
             )
         except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
             return "Recebemos sua solicitacao. Um atendente humano vai continuar por aqui em breve."

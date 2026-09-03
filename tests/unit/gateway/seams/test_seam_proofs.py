@@ -229,10 +229,14 @@ class FakeInference(_Recorder):
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         from maezo.runtime.inference import PhiZoneRoutingError
 
-        self._record("generate", prompt, phi=phi, agent_id=agent_id, tenant_id=tenant_id)
+        # AF-12: `task_kind` is recorded so the parity/telemetry proofs see the SAME argument list
+        # the gated wrapper forwards. It must never change the refusal below — that is the I-6
+        # property `test_phi_zone_routing_fail_close_is_independent_of_the_pep` asserts.
+        self._record("generate", prompt, phi=phi, agent_id=agent_id, tenant_id=tenant_id, task_kind=task_kind)
         if phi and not self._phi_capable:
             # The REAL provider's structural refusal (`runtime/inference.py:1059`), reproduced so
             # the I-6 proof exercises the same control flow without a network provider.
