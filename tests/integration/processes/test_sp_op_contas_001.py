@@ -187,7 +187,7 @@ from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublis
 from maezo.tools.workers.pagto import register_pagto_workers
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
-from .engine_rest import EngineRest
+from .engine_rest import EngineRest, assert_definition_provenance
 
 pytestmark = pytest.mark.integration
 
@@ -204,6 +204,41 @@ _DMN_PAGTO_ADMISSIBILITY = _REPO / "spec/processes/dmn/pagto_admissibility.dmn"
 _DMN_PAGTO_ALCADA = _REPO / "spec/processes/dmn/pagto_alcada.dmn"
 
 # External task topics do contrato SP-OP-CONTAS-001.
+_PROCESS_KEY = "SP-OP-CONTAS-001"
+
+#: Marcadores que SO existem na definicao desta arvore (SP-OP-CONTAS-001 reconstruido na
+#: perspectiva do pagador) e marcadores que SO existem na definicao da `main`. Verificados
+#: 11/11 discriminantes contra `git show main:<bpmn>`.
+#:
+#: Por que este guard existe (licao do 2o reparo do PR-3, e visivel nesta suite tambem): o engine
+#: do dev-stack e COMPARTILHADO e `POST /deployment/create` cria uma VERSAO NOVA da mesma
+#: process-definition-key. Um `make deploy-artifacts` — ou um `make release-floor-check`, que roda
+#: `pytest tests/` INTEIRO — disparado de OUTRO checkout contra o mesmo `ENGINE_REST_URL` vira a
+#: `latestVersion` no meio da sessao, e `start_by_key` passa a instanciar a definicao ALHEIA. As
+#: falhas resultantes se parecem exatamente com defeitos do PR: terminais que nao sao alcancados,
+#: eventos de dominio que nao aparecem. Verificar o deploy UMA VEZ antes do pytest nao basta — a
+#: contaminacao chega depois. Aqui ela falha ALTO, com o marcador que divergiu.
+_MARCADORES_DO_CHECKOUT: tuple[str, ...] = (
+    "Start_LoteTissRecebido",
+    "ST_ApurarDivergencias",
+    "ST_DevolverConta",
+    "End_ContaAprovadaIntegral",
+)
+_MARCADORES_DE_OUTRA_DEFINICAO: tuple[str, ...] = (
+    "Start_LoteRecebido",
+    "ST_IdentifyGlosa",
+    "ST_StartRecurso",
+    "End_SemGlosa",
+    "End_GlosaAceitaHumano",
+    "ACEITAR_GLOSA",
+    "ST_ReconcilePayment",
+)
+
+#: Ids de process-definition ja verificados nesta sessao (uma leitura de XML por VERSAO). Uma
+#: versao nova — i.e. um deploy no meio da sessao — nunca esta neste conjunto, entao e sempre
+#: verificada; o cache so evita re-ler a MESMA versao 26 vezes.
+_definicoes_verificadas: set[str] = set()
+
 _PUBLISH_TOPIC = "operadora.events.publish"
 _IDENTIFY_TOPIC = "operadora.contas.identify_glosa"
 _ANALYZE_TOPIC = "operadora.contas.analyze_reason"
@@ -425,12 +460,40 @@ class ContasEngineProbe:
         await drain_topics(self.transport, self.harness, self.worker_id, _CONTAS_WORKER_TOPICS, rounds=rounds)
 
 
+async def _assert_definicao_latest_e_do_checkout(
+    engine: EngineRest, *, contexto: str, exigir_deployada: bool = True
+) -> None:
+    """A versao LATEST de SP-OP-CONTAS-001 no engine e a desta arvore (ver `_MARCADORES_*`).
+
+    `exigir_deployada=False` para os pontos de checagem que NAO acabaram de deployar CONTAS: se a
+    key nem existe neste engine (404) nao ha definicao alheia para contaminar nada. Onde CONTAS
+    ESTA deployada, a checagem e a mesma — e todo start passa pelo guard POR INSTANCIA de
+    `start_contas`, que nao depende deste.
+    """
+    xml = await engine.latest_definition_xml_or_none(_PROCESS_KEY)
+    if xml is None:
+        if exigir_deployada:
+            raise AssertionError(
+                f"{contexto}: {_PROCESS_KEY} nao esta deployada logo apos o proprio deploy — "
+                "o engine aceitou o POST e nao registrou a definicao"
+            )
+        return
+    assert_definition_provenance(
+        xml,
+        must_contain=_MARCADORES_DO_CHECKOUT,
+        must_not_contain=_MARCADORES_DE_OUTRA_DEFINICAO,
+        context=contexto,
+    )
+
+
 @pytest_asyncio.fixture
 async def deploy_artifacts(engine: EngineRest) -> str:
-    """Deploya BPMN + 4 DMN de contas/glosa da arvore no engine real."""
-    return await engine.deploy(
+    """Deploya BPMN + 4 DMN de contas/glosa da arvore no engine real, e PROVA a proveniencia."""
+    deployment_id = await engine.deploy(
         _BPMN, _DMN_REASON, _DMN_CLASS, _DMN_TRIAGE, _DMN_SLA, name="SP-OP-CONTAS-001-qa"
     )
+    await _assert_definicao_latest_e_do_checkout(engine, contexto="setup de deploy_artifacts")
+    return deployment_id
 
 
 @pytest_asyncio.fixture
@@ -540,6 +603,15 @@ async def pagto_drain(audit_sink: Any, audit_tenant: str) -> AsyncIterator[Pagto
         await transport.close()
 
 
+def _data_vencimento_futura(days: int = 60) -> str:
+    """Vencimento sintetico no futuro (ISO `YYYY-MM-DD`), coerente com a ancora de recebimento.
+
+    `handoff_pagamento` so exige que NAO esteja em branco (nunca a defaulta); a data e dinamica
+    para que a suite nao dependa de um calendario fixo.
+    """
+    return (datetime.now(UTC) + timedelta(days=days)).strftime("%Y-%m-%d")
+
+
 def _unique_lote(prefix: str = "LOTE-TESTE") -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8].upper()}"
 
@@ -582,6 +654,13 @@ async def start_contas(engine: EngineRest, deploy_artifacts: str) -> Callable[..
             "competencia": "2026-05",
             # GAP-CONTAS-4: ancora dinamica no futuro.
             "data_recebimento_lote": _data_recebimento_futura(),
+            # MAJOR-1 (VERIFY-PR4-CONTAS): o vencimento da obrigacao de pagamento, vindo do
+            # lote/termo contratual (contrato `:69`, "sim*"; origem DRAFT/verify — ADR-0040 OQ-2).
+            # SEM ela, TODA perna que chega a `operadora.contas.handoff_pagamento` morria com
+            # `ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO` — a recusa fail-closed do worker esta certa,
+            # faltava o dado no lote sintetico. Dinamica no futuro pelo mesmo motivo da ancora:
+            # uma data fixa envelhece e o teste passa a provar outra coisa.
+            "data_vencimento": _data_vencimento_futura(),
             "valor_apresentado_brl": _double_var(valor_apresentado_brl),
             "tipo_lote": "sadt",
             "linhas_conta_refs": _json_var(linhas),
@@ -593,7 +672,20 @@ async def start_contas(engine: EngineRest, deploy_artifacts: str) -> Callable[..
         }
         variables.update(overrides)
         business_key = f"CONTAS-amh-{lote}"
-        return await engine.start_by_key("SP-OP-CONTAS-001", business_key, variables)
+        inst = await engine.start_by_key(_PROCESS_KEY, business_key, variables)
+        # Proveniencia da definicao que ESTA instancia carrega (nao a latest do momento): imune a
+        # um deploy alheio que chegue depois do start, e o unico ponto onde a versao executada e
+        # observavel. Cache por definitionId — uma leitura de XML por versao, nao por teste.
+        definition_id = str(inst["definitionId"])
+        if definition_id not in _definicoes_verificadas:
+            assert_definition_provenance(
+                await engine.definition_xml(definition_id),
+                must_contain=_MARCADORES_DO_CHECKOUT,
+                must_not_contain=_MARCADORES_DE_OUTRA_DEFINICAO,
+                context=f"instancia {inst['id']} iniciada na definicao {definition_id}",
+            )
+            _definicoes_verificadas.add(definition_id)
+        return inst
 
     return _start
 
@@ -782,6 +874,49 @@ async def test_happy_path_pagamento_integral(
     assert contas_probe.has_event(_CONTAS_COMPLETED, desfecho="pagar_integral")
 
 
+async def test_lote_sem_data_vencimento_nao_gera_ordem_de_pagamento(
+    engine: EngineRest,
+    contas_probe: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """FAIL-CLOSED de `data_vencimento` (ADR-0040 OQ-2), provado ponta-a-ponta.
+
+    A perna automatica e a mais perigosa: nada nela e humano. Se o handoff DEFAULTASSE um
+    vencimento ausente, SP-OP-PAGTO-001 receberia uma ordem com um prazo INVENTADO e o revisor de
+    `UT_AnaliseAdmissibilidade` leria esse prazo como se viesse do termo contratual. O worker
+    recusa (`ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`) e a instancia para de forma VISIVEL —
+    incidente no engine — em vez de emitir uma ordem falsa.
+
+    Este teste e o par negativo de `test_happy_path_pagamento_integral`: com a data, a perna fecha
+    em `End_ContaAprovadaIntegral`; sem ela, NENHUMA ordem de pagamento existe. Sem este par, a
+    semeadura de `data_vencimento` na fixture poderia estar escondendo a recusa em vez de
+    satisfazendo-a.
+    """
+    await _deploy_pagto(engine)
+    lote = _unique_lote("LOTE-SEM-VENC")
+    inst = await start_contas(numero_lote_tiss=lote, has_glosas=False, data_vencimento="")
+    iid = inst["id"]
+
+    await contas_probe.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert "ST_HandoffPagamentoAuto" in ended, (
+        "o teste tem de CHEGAR ao handoff para ser discriminante — senao a ausencia de ordem "
+        f"valeria por construcao. ended={ended}"
+    )
+    assert _END_APROVADA_INTEGRAL not in ended, (
+        "sem vencimento contratual a conta NAO pode ser dada por aprovada e encaminhada"
+    )
+    assert not await engine.find_active_instances(f"PAGTO-amh-{lote}-PRESTADOR-TESTE-001"), (
+        "nenhuma ordem de pagamento pode nascer de um lote sem vencimento — um prazo inventado "
+        "e um prazo falso (ADR-0040 OQ-2)"
+    )
+    assert not contas_probe.has_event(_CONTAS_COMPLETED, desfecho="pagar_integral")
+    assert await engine.incidents(iid), (
+        "a recusa tem de ser VISIVEL: um incidente aberto no engine, nunca um no-op silencioso"
+    )
+
+
 async def test_sem_detalhe_de_linha_fail_closed_roteia_a_humano(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
@@ -808,12 +943,19 @@ async def _deploy_pagto(engine: EngineRest) -> str:
     instance to reach its terminal (mirrors the inadimplencia->CANCEL handoff test's own
     downstream deploy; do NOT rely on cross-test engine leakage).
     """
-    return await engine.deploy(
+    deployment_id = await engine.deploy(
         _BPMN_PAGTO,
         _DMN_PAGTO_ADMISSIBILITY,
         _DMN_PAGTO_ALCADA,
         name="SP-OP-PAGTO-001-qa-contas-handoff",
     )
+    # Ponto de sincronizacao barato no meio do teste: se outra definicao de CONTAS tiver sido
+    # deployada depois do setup, a divergencia e apanhada AQUI, antes de a instancia ser iniciada,
+    # em vez de virar uma assercao de terminal que nao fecha.
+    await _assert_definicao_latest_e_do_checkout(
+        engine, contexto="deploy de SP-OP-PAGTO-001", exigir_deployada=False
+    )
+    return deployment_id
 
 
 async def test_happy_path_glosar_pelo_analista(
@@ -939,13 +1081,18 @@ async def test_conta_originada_em_contas_nunca_alcanca_liberacao_automatica_sem_
         "conta nao confirma o lastro da ordem que ela produziu (I-PAGTO-1)"
     )
 
-    lastro = await engine.get_variable(pagto_iid, "lastro_confirmado")
+    # `get_variable_or_none`, nao `get_variable`: a AUSENCIA e que E a prova de I-PAGTO-1, e o
+    # engine responde `404 ... does not exist` para uma variavel nunca setada — com
+    # `get_variable` a resposta que prova o invariante virava `EngineRestError` e o ramo `None`
+    # destas duas assercoes era INALCANCAVEL (mesmo defeito de harness que o 2o reparo do PR-3
+    # corrigiu em `test_sp_op_recurso_001.py`). 500/503 continuam levantando.
+    lastro = await engine.get_variable_or_none(pagto_iid, "lastro_confirmado")
     assert lastro in (False, None), (
         f"`lastro_confirmado` tem de chegar ausente/false a pagto_admissibility; veio {lastro!r}"
     )
     origem = await engine.get_variable(pagto_iid, "lastro_origem")
     assert origem == "contas_adjudicacao_automatica"
-    decisor = await engine.get_variable(pagto_iid, "lastro_decisor_id")
+    decisor = await engine.get_variable_or_none(pagto_iid, "lastro_decisor_id")
     assert decisor in ("", None), "a perna automatica nao tem decisor humano — e nao inventa um"
 
     pagto_ended = await engine.activity_instances_ended(pagto_iid)
@@ -1653,53 +1800,16 @@ async def test_sla_ancora_em_data_recebimento_lote_nao_em_attach_da_ut(
 
 
 # ===========================================================================
-# DMN — shape e fail-safe (sem engine; varredura estatica do XML)
+# DMN/BPMN — asserções ESTÁTICAS: movidas para o gate unitário
 # ===========================================================================
-
-
-def test_glosa_triage_sem_saida_de_aceite() -> None:
-    """O dominio de roteamento da glosa_triage e EXATAMENTE {SEM_GLOSA, RECORRER, ANALISE_HUMANA}."""
-    from xml.etree import ElementTree as ET
-
-    tree = ET.parse(_DMN_TRIAGE)
-    root = tree.getroot()
-
-    def _local(tag: str) -> str:
-        return tag.rsplit("}", 1)[-1]
-
-    roteamentos: set[str] = set()
-    last_rule_first_output: str | None = None
-    for rule in (e for e in root.iter() if _local(e.tag) == "rule"):
-        outputs = [c for c in rule if _local(c.tag) == "outputEntry"]
-        assert outputs, "cada rule deve ter outputEntry"
-        text_el = next((c for c in outputs[0] if _local(c.tag) == "text"), None)
-        assert text_el is not None and text_el.text
-        val = text_el.text.strip().strip('"')
-        roteamentos.add(val)
-        last_rule_first_output = val
-
-    assert roteamentos == {"SEM_GLOSA", "RECORRER", "ANALISE_HUMANA"}, (
-        f"dominio de roteamento inesperado: {roteamentos} — NAO pode conter ACEITAR/CONFIRMAR (L0)"
-    )
-    assert "ACEITAR" not in " ".join(roteamentos)
-    assert "CONFIRMAR" not in " ".join(roteamentos)
-    assert last_rule_first_output == "ANALISE_HUMANA", "row catch-all deve rotear a ANALISE_HUMANA"
-
-
-def test_dmn_typeref_allowlist() -> None:
-    """Toda DMN do processo usa typeRef in {string, boolean, integer, long, double, date}."""
-    from xml.etree import ElementTree as ET
-
-    allowed = {"string", "boolean", "integer", "long", "double", "date"}
-    for dmn_path in (_DMN_REASON, _DMN_CLASS, _DMN_TRIAGE, _DMN_SLA):
-        tree = ET.parse(dmn_path)
-        for el in tree.getroot().iter():
-            type_ref = el.get("typeRef")
-            if type_ref is not None:
-                assert type_ref in allowed, (
-                    f"{dmn_path.name}: typeRef invalido '{type_ref}' (allowlist={sorted(allowed)})"
-                )
-                assert type_ref != "number", f"{dmn_path.name}: 'number' e proibido (use double)"
+# `test_glosa_triage_sem_saida_de_glosa` (era `…_sem_saida_de_aceite`) e
+# `test_dmn_typeref_allowlist` NAO precisam de engine e viviam aqui sob o
+# `pytestmark = pytest.mark.integration` do modulo — logo, DESELECIONADAS de `make test`. Ficaram
+# meses afirmando o dominio ANTIGO da `glosa_triage` sem ninguem ver (VERIFY-PR4-CONTAS MAJOR-2).
+# Vivem agora em `tests/unit/spec/test_sp_op_contas_001_artefatos.py`, com as tres provas novas de
+# inicializacao das variaveis lidas por `GW_DecisaoContas`. Nada foi afrouxado na mudanca de casa:
+# o dominio foi corrigido para o que o desenho de registro prescreve, e a lista de vocabulario
+# proibido CRESCEU (agora tambem `GLOSAR`, `RECORRER` e `SEM_GLOSA`).
 
 
 # ===========================================================================
