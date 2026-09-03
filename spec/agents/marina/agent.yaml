@@ -11,9 +11,9 @@ reports_to: "coordenacao-faturamento@amh"
 security_zone: phi
 graph: graph.py:build
 prompt_versions:
-  system: system-v1
+  system: system-v2
   dossier: dossier-v1
-  recurso: recurso-v1
+  recurso: recurso-v2
   reembolso: reembolso-v1
 model:
   task_default: { tier: fast }
@@ -30,8 +30,13 @@ autonomy_actions:
   - start_compliance_process
   - read_write_memory
 kpis:
+  # KPIs de PAGADOR. `recurso_recovery_rate` (taxa de recuperacao de receita glosada) foi
+  # REMOVIDA: e metrica do CREDOR que recorre, nao de quem julga o recurso (ADR-0040).
+  # `target: "track"` = medir, nao atingir — nenhum alvo numerico foi validado (exige PO +
+  # financas).
   - { name: dossier_completeness, target: ">0.95" }
-  - { name: recurso_recovery_rate, target: "track" }
+  - { name: taxa_deferimento_recurso, target: "track" }
+  - { name: prazo_medio_resposta_recurso, target: "track" }
   - { name: human_routing_precision, target: "track" }
   - { name: eval_score, target: ">0.9" }
   - { name: false_denial_rate, target: "==0" }
