@@ -196,7 +196,7 @@ class TestNonVacuity:
             if ref.surface == "bpmn_declared_input":
                 per_file[ref.path.name] = per_file.get(ref.path.name, 0) + 1
         assert per_file == {
-            "SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn": 12,
+            "SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn": 14,
             "SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn": 10,
             "SP-OP-AUTH-001_Autorizacao_Previa.bpmn": 10,
             "SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn": 14,
@@ -324,6 +324,37 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         occurrence_delta=2,
         reason="same PR/task as `calculo` above — flattened from the same DMN result map.",
     ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#295",
+        name="prestador_id",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "fix/coreografia-xproc-handoff-adequacao-cred (PERSP-ADEQ-CRED-HANDOFF) added "
+            "`prestador_id` to SP-OP-ADEQUACAO-001's `VARIAVEIS DE ENTRADA` declared-input roll "
+            "(the candidate provider ST_StartCredenciamentoL3 requires to hand off to "
+            "SP-OP-CRED-001; fail-closed without it). Already a corpus name via "
+            "SP-OP-CRED-001_Descredenciamento.bpmn's own roll, so the name does not enter — one "
+            "new occurrence in ADEQUACAO's roll (12->14 per-file). Provider cadastral identifier, "
+            "not beneficiary PHI: absent from PHI_PROCESS_VARS (ADR-0006 'PHI em duas zonas', "
+            "phi_vars.py:52-63 — clinical/beneficiary names only) and classified CLEAN by the "
+            "fence's own shape heuristic, so no LISTED/SHAPE_SUSPECT membership moves."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#295",
+        name="tipo_prestador",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "same PR/task as `prestador_id` above — `tipo_prestador` added to the same "
+            "ADEQUACAO roll (carried in the handoff payload when known). Already a corpus name "
+            "via SP-OP-CRED-001's own roll; one new occurrence, provider cadastral data (not in "
+            "PHI_PROCESS_VARS, ADR-0006), CLEAN bucket, no LISTED/SHAPE_SUSPECT movement."
+        ),
+    ),
 )
 
 
@@ -343,7 +374,7 @@ class TestBuckets:
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
 
     def test_the_occurrence_count_is_pinned(self, live_sweep: Sweep) -> None:
-        """328 names over 1623 occurrences — the number the ledger row quotes.
+        """328 names over 1625 occurrences — the number the ledger row quotes.
 
         Pinned because the first ledger draft quoted 1637, a figure no state of
         this branch produced. A number reported to a reader and reproducible by
@@ -355,7 +386,7 @@ class TestBuckets:
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
         assert len(live_sweep.names) == expected_names == 328
-        assert len(live_sweep.refs) == expected_refs == 1623
+        assert len(live_sweep.refs) == expected_refs == 1625
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
