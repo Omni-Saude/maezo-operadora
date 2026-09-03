@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -230,25 +231,150 @@ class TestNonVacuity:
 # ---------------------------------------------------------------------------
 
 
+class CorpusDelta(NamedTuple):
+    """One explained move of the corpus-wide name/occurrence pins below.
+
+    `name_delta` is +1/-1 when NAME entered or left `live_sweep.names` entirely
+    (zero occurrences left anywhere in `spec/`), 0 when the name stays but its
+    occurrence count shifts. `occurrence_delta` is the net change in
+    `live_sweep.refs` attributable to this name. The two pinned-count tests
+    below SUM this log against the baseline this fence measured when GAP-DU-07
+    first landed (commit `26724a8`: 329 names / 1616 occurrences) and assert
+    the arithmetic lands exactly on the literal pins — so a future pin edit
+    that is not accompanied by a matching logged entry (or whose deltas do not
+    add up) fails loudly here instead of landing as a silent two-line diff.
+    """
+
+    date: str
+    pr: str
+    name: str
+    name_delta: int
+    occurrence_delta: int
+    reason: str
+
+
+#: Baseline this log's deltas are summed against — the counts `26724a8` measured,
+#: before main's onda-0 train (#270/#275/#271/#272/#276/#277) merged into this branch.
+_BASELINE_NAMES = 329
+_BASELINE_OCCURRENCES = 1616
+
+CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#276",
+        name="tuss_codes",
+        name_delta=-1,
+        occurrence_delta=-1,
+        reason=(
+            "fix/dmn-higiene-inputs-mortos (GAP-PERSP-DMN-DEAD-INPUTS, docs/review-queue.md:636) "
+            "removed the `tuss_codes` input column from unbundling_partial_bundles.dmn: dead on "
+            "BOTH ends — every rule read it as `-` and the worker stopped sending it at T1.5 "
+            "(`_SCORING_INPUT_KEYS`, src/maezo/tools/workers/fraude.py). The declaration was the "
+            "name's only occurrence anywhere in spec/, so it leaves the corpus entirely."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#276",
+        name="encounter_class",
+        name_delta=0,
+        occurrence_delta=-1,
+        reason=(
+            "same PR, docs/review-queue.md:635 — removed the equally-dead `encounter_class` "
+            "input column from frequency_zscore_threshold.dmn (also `-` on every rule, read by "
+            "no output expression). The name stays in the corpus: "
+            "upcoding_complexity_ceiling.dmn still declares and genuinely reads it "
+            "(docs/review-queue.md:637). Only the one dead declaration's occurrence is gone."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#271",
+        name="calculo",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "fix/reembolso-consome-dmn (GAP F-1 / ADR-0012) added camunda:inputParameter "
+            "bindings on ST_CalculateAmount in SP-OP-REEMBOLSO-001 that read "
+            "`${calculo.valor_calculado_tabela_cents}` etc. off the DMN result map — three new "
+            "occurrences of an already-corpus name, no new PHI-shaped surface."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#271",
+        name="valor_calculado_tabela_cents",
+        name_delta=0,
+        occurrence_delta=2,
+        reason="same PR/task as `calculo` above — the inputParameter's own name, already a DMN output.",
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#271",
+        name="multiplo_tabela_aplicado",
+        name_delta=0,
+        occurrence_delta=2,
+        reason="same PR/task as `calculo` above — flattened from the same DMN result map.",
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#271",
+        name="fonte_tabela",
+        name_delta=0,
+        occurrence_delta=2,
+        reason="same PR/task as `calculo` above — flattened from the same DMN result map.",
+    ),
+)
+
+
 class TestBuckets:
     def test_bucket_counts_are_pinned(self, live_sweep: Sweep) -> None:
         buckets = live_sweep.by_bucket()
+        expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
+        # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
+        # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
+        expected_clean = expected_names - 6 - 9
+        assert expected_clean == 313
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 9,
-            CLEAN: 314,
+            CLEAN: expected_clean,
         }
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
 
     def test_the_occurrence_count_is_pinned(self, live_sweep: Sweep) -> None:
-        """329 names over 1616 occurrences — the number the ledger row quotes.
+        """328 names over 1623 occurrences — the number the ledger row quotes.
 
         Pinned because the first ledger draft quoted 1637, a figure no state of
         this branch produced. A number reported to a reader and reproducible by
-        nobody is worse than no number.
+        nobody is worse than no number. The two literals are re-derived from
+        `_BASELINE_NAMES`/`_BASELINE_OCCURRENCES` plus `CORPUS_DELTA_LOG` so a
+        future move must come with a logged, reasoned entry: an unexplained
+        edit to the bare literal fails the cross-check chain below.
         """
-        assert len(live_sweep.names) == 329
-        assert len(live_sweep.refs) == 1616
+        expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
+        expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
+        assert len(live_sweep.names) == expected_names == 328
+        assert len(live_sweep.refs) == expected_refs == 1623
+
+    def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
+        self, live_sweep: Sweep
+    ) -> None:
+        """The log is evidence, not narration: every entry must name a real, current name.
+
+        Guards the log itself against rotting the way the pins it explains
+        once did — an entry for a name that has since left the corpus a
+        SECOND time, or that was never in it, would be undetectable prose.
+        """
+        for delta in CORPUS_DELTA_LOG:
+            if delta.name_delta >= 0:
+                assert delta.name in live_sweep.names, (
+                    f"CORPUS_DELTA_LOG: {delta.name!r} ({delta.pr}) is not in the live corpus"
+                )
+        pr_pattern = re.compile(r"^#\d+$")
+        for delta in CORPUS_DELTA_LOG:
+            assert pr_pattern.match(delta.pr), f"CORPUS_DELTA_LOG: {delta.pr!r} is not a `#NNN` PR reference"
+            assert len(delta.reason) > 40, f"CORPUS_DELTA_LOG: {delta.name!r} reason is too thin to audit"
 
     def test_the_shape_suspect_list_is_pinned_exactly(self, live_sweep: Sweep) -> None:
         """The DPO questions. Each one has a `DISPOSITIONS` entry with evidence."""
@@ -325,7 +451,7 @@ class TestBuckets:
         rendered = render_buckets(live_sweep)
         assert f"## {LISTED} (6)" in rendered
         assert f"## {SHAPE_SUSPECT} (9)" in rendered
-        assert f"## {CLEAN} (314)" in rendered
+        assert f"## {CLEAN} (313)" in rendered  # see CORPUS_DELTA_LOG — tuss_codes left the corpus (#276)
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to
@@ -632,16 +758,29 @@ class TestDispositionTable:
 
 class TestShapeHeuristic:
     def test_every_shape_token_cites_a_live_source(self) -> None:
-        """Re-read each citation: a rotted `file:line` fails the build."""
+        """Re-read each citation: a rotted quote fails the build.
+
+        Content-anchored, not line-anchored (the ADR-0041 reconciliation fence,
+        `tests/unit/docs/test_adr_amendments.py`, applied the same lesson): the
+        assertion is that `quote` still appears SOMEWHERE in `source`, not that
+        it sits on a specific line. A citation pinned to a line number breaks
+        the instant anything ELSE in that file gains or loses a line above the
+        cited text — the exact failure `docs/review-queue.md` produced when an
+        unrelated edit reflowed rows above :436 and pushed `data_nascimento`
+        and `cep` down to :438 without the citation going stale in any sense a
+        reader cares about.
+        """
         for token in SHAPE_TOKENS:
             if token.source == ATTESTED_NOWHERE:
                 assert token.quote == ""
                 continue
-            path_text, _, lineno = token.source.rpartition(":")
-            lines = (_REPO_ROOT / path_text).read_text(encoding="utf-8").splitlines()
-            assert token.quote in lines[int(lineno) - 1], (
-                f"{token.token}: {token.source} no longer contains {token.quote!r}"
+            path = _REPO_ROOT / token.source
+            assert path.is_file(), (
+                f"{token.token}: source {token.source!r} is not a file — SHAPE_TOKENS "
+                "sources are file paths only, no trailing `:line`"
             )
+            text = path.read_text(encoding="utf-8")
+            assert token.quote in text, f"{token.token}: {token.source} no longer contains {token.quote!r}"
 
     def test_the_unattested_tokens_are_named_not_hidden(self) -> None:
         """Pinned exactly, because growing this set quietly is the failure mode.
