@@ -2,7 +2,7 @@
 
 Exposes 2 tools:
 - send_message(to, text) -> response_dict
-- verify_webhook(challenge) -> challenge_str
+- verify_webhook(verify_token, challenge) -> challenge_str
 
 Uses httpx.AsyncClient for REST calls to WhatsApp Cloud API.
 WhatsApp is BLOCKED for PHI per ADR-0006 — only non-PHI messages allowed.

@@ -34,8 +34,12 @@ engine real numa wave posterior). Arquivo alvo:
 - **Then** o worker recusa com `ERR_REEMBOLSO_DENIAL_NOT_HUMAN`; nenhum efeito adverso e emitido; a instancia nao alcanca `End_ReembolsoNegado`/`End_ReembolsoParcial`
 
 ### test_fora_de_tabela_nao_auto_aprova
-- **Given** procedimento sem tabela de referencia → `reembolso_calculo` retorna `valor_calculado_tabela_cents=0`, `fonte_tabela="SEM_TABELA"` → `dentro_tabela=false`
+- **Given** procedimento sem tabela de referencia (ex.: `categoria_procedimento=opme`, que nao tem row na `reembolso_calculo`) → `reembolso_calculo` retorna `valor_calculado_tabela_cents=0`, `multiplo_tabela_aplicado=0.0`, `fonte_tabela="SEM_TABELA"` → o worker `calculate_amount` LE esses valores e escreve `dentro_tabela=false`
 - **Then** `reembolso_auto_approval` retorna `ANALISE_HUMANA`; nenhuma auto-aprovacao fora de tabela; vai a `UT_AnaliseReembolso`
+
+### test_calculo_sem_saida_da_dmn_falha_fechado (GAP F-1)
+- **Given** `operadora.reembolso.calculate_amount` recebe a task sem as saidas de `BRT_Calculo` (nem as variaveis achatadas `valor_calculado_tabela_cents`/`multiplo_tabela_aplicado`/`fonte_tabela`, nem um `calculo` desserializavel) — ou com elas mal tipadas (dinheiro `float`/`string`, `fonte_tabela` vazia)
+- **Then** o worker recusa com `ERR_REEMBOLSO_CALCULO_DMN_INDISPONIVEL` (`ValueError` → `failure(retries=0)` → incidente); **nenhum valor e' inventado**; `dentro_tabela`/`dentro_teto_l2` nao sao escritos, `BRT_AutoApproval` nao ve combinacao `AUTO_APROVAR` e nenhum pagamento e' emitido. Nao ha boundary de erro em `ST_CalculateAmount` por design (ADR-0030 §2)
 
 ## Happy paths
 
@@ -97,6 +101,12 @@ engine real numa wave posterior). Arquivo alvo:
 ### test_dmn_reembolso_calculo_retorna_valor_nao_decide
 - **Given/When** `reembolso_calculo` avaliada para um procedimento com tabela
 - **Then** retorna `valor_calculado_tabela_cents` (integer, centavos) e `multiplo_tabela_aplicado` (double) e `fonte_tabela`; **nenhuma saida de decisao** (sem APROVAR/NEGAR/REDUZIR). typeRef de dinheiro e `integer` (centavos), nunca `number`
+
+### test_worker_relaia_o_valor_da_dmn_sem_recalcular (GAP F-1 — ADR-0012)
+- **Given** `BRT_Calculo` avaliado e `ST_CalculateAmount` com o mapeamento `camunda:inputParameter` que achata `${calculo.valor_calculado_tabela_cents}` / `${calculo.multiplo_tabela_aplicado}` / `${calculo.fonte_tabela}` para variaveis LOCAIS da activity
+- **When** o worker `operadora.reembolso.calculate_amount` executa
+- **Then** `valor_calculado_tabela_cents`, `multiplo_tabela_aplicado` e `fonte_tabela` de saida sao IDENTICOS aos da DMN (relaio, sem re-derivacao, sem re-aplicacao de multiplo, sem arredondamento) e o worker so' computa `dentro_tabela` (comparacao) e `dentro_teto_l2` (`CeilingResolver`). A **DMN e' a unica fonte dos valores** — o worker nao possui tabela em Python (a que existia, com `consulta=35000`, foi REMOVIDA; a DMN paga 12000). Os valores da DMN permanecem **DRAFT/verify** (sign-off atuarial + regulatorio pendente, `docs/review-queue.md`)
+- **E** a saida cita a decisao que originou o valor: `dmn_decisao_id=reembolso_calculo`, `dmn_atividade_bpmn=BRT_Calculo`. **Limite conhecido:** a VERSAO da decision definition nao e' afirmada pelo worker (`mapDecisionResult=singleResult` nao a entrega); ela vive no historico de decision-instance do motor
 
 ### test_dmn_nenhuma_tem_saida_de_negativa
 - **Given** as DMNs `reembolso_admissibility`, `reembolso_calculo`, `reembolso_auto_approval`, `reembolso_sla`
