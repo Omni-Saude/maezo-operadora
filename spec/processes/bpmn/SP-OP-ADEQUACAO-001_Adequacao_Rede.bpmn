@@ -57,8 +57,9 @@ o topico e INICIARIA este processo via mcp-cibseven.start_process, correlacionan
 tenant_id+regiao_saude+especialidade (bk ADEQ-{tenant}-{regiao}-{especialidade}-{ciclo};
 ciclo_avaliacao = trimestre de data_efeito_iso, deterministico — a reentrega do mesmo fato
 reconvergeria para a mesma instancia, sem duplo start). Essa ponte NAO EXISTE em src/
-(find src -type d -name '*bridge*' -> 0 resultados; ja registrado em docs/review-queue.md:209,218
-e docs/design/T3.3-chaos-resilience.md:43-44, que chama os 3 bridges declarados no Helm de
+(grep -rn "network_change_bridge" src/ -> 1 hit, docstring em
+src/maezo/agents/carolina/graph.py:101; find src -name '*network_change*' -> 0; ja registrado em
+docs/review-queue.md:209,218 e docs/design/T3.3-chaos-resilience.md:43-44, que chama os 3 bridges declarados no Helm de
 "dangling entrypoints"). O Helm ainda assim deploya um Deployment apontando para esse modulo
 inexistente (networkChangeBridge.enabled: true, deploy/helm/maezo-tenant/values.yaml:281) —
 achado AF-01 (P0, owner-decision, fora do escopo docs/spec). HOJE: nenhum caminho de producao
@@ -96,7 +97,8 @@ Contrato completo: docs/processes/contracts/SP-OP-ADEQUACAO-001.md.
     <!-- Start: none-start MODELADO para nascer de uma network_change_bridge (fato
          cred.network_changed — GAP-XPROC-2) OU de monitoramento periodico / reclamacao / auditoria
          (gatilho discrimina a origem) — DRAFT/verify, PERSP-NETBRIDGE/AF-01: a network_change_bridge
-         NAO EXISTE em src/ (find src -type d -name '*bridge*' -> 0); hoje NENHUM caminho de producao
+         NAO EXISTE em src/ (grep -rn "network_change_bridge" src/ -> 1 hit, docstring em
+         src/maezo/agents/carolina/graph.py:101; find src -name '*network_change*' -> 0); hoje NENHUM caminho de producao
          inicia esta instancia para nenhum dos 4 gatilhos (grep -rn "SP-OP-ADEQUACAO-001" src/ |
          grep -v test). Ver a nota completa no bpmn:documentation acima e docs/review-queue.md. -->
     <bpmn:startEvent id="Start_AvaliacaoAdequacao" name="Avaliacao de adequacao iniciada (mudanca de rede / monitoramento)">

@@ -67,7 +67,8 @@ DRAFT/verify AF-01): operadora.cred.register_descredenciamento e
 operadora.cred.register_credenciamento emitem agents.events.cred.network_changed. O DESENHO (nao
 construido) e uma network_change_bridge que consumiria esse fato e INICIARIA SP-OP-ADEQUACAO-001 —
 adequacao geografica/dimensionamento RN 259/566. Essa ponte NAO EXISTE em src/
-(find src -type d -name '*bridge*' -> 0 resultados; ja registrado em docs/review-queue.md:209,218) —
+(grep -rn "network_change_bridge" src/ -> 1 hit, docstring em src/maezo/agents/carolina/graph.py:101;
+find src -name '*network_change*' -> 0; ja registrado em docs/review-queue.md:209,218) —
 hoje o fato e publicado sem nenhum consumidor de producao. O fato carrega a IDENTIDADE DA CELULA
 (regiao_saude + especialidade) alem de tenant_id/prestador_id/tipo_prestador/data_efeito_iso: SE a
 ponte vier a existir (decisao owner, AF-01), ela correlacionaria por

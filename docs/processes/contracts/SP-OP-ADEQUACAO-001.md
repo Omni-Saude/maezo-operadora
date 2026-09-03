@@ -57,7 +57,8 @@ byte-a-byte com o que `SP-OP-CRED-001.md` §Topicos declara produzir. **O que NA
 consumidor.** O DESENHO (nao construido) e uma **ponte de runtime** — `network_change_bridge` —
 que consumiria o topico Kafka e INICIARIA esta avaliacao via `mcp-cibseven.start_process` (mesmo
 padrao pretendido para a `notifications_bridge`, idempotente, fail-closed na allowlist). Essa
-ponte **NAO EXISTE em `src/`** (`find src -type d -name '*bridge*'` -> 0 resultados;
+ponte **NAO EXISTE em `src/`** (`grep -rn "network_change_bridge" src/` -> 1 hit, um docstring em
+`src/maezo/agents/carolina/graph.py:101`; `find src -name '*network_change*'` -> 0;
 `src/maezo/platform/integrations/` contem apenas `__init__.py`, `amh_inbox.py`,
 `events_kafka_producer.py`, `notifications_bridge.py`) — achado JA REGISTRADO antes deste contrato
 ser sincronizado (`docs/review-queue.md` linhas 209/218; `docs/design/T3.3-chaos-resilience.md:43-44`,
@@ -166,7 +167,7 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 
 | Tipo | Topico | Sentido | Quando |
 |---|---|---|---|
-| Kafka | `agents.events.cred.network_changed` | **DESENHADO — consumiria via `network_change_bridge`; SEM consumidor real hoje (DRAFT/verify, PERSP-NETBRIDGE/AF-01)** | **Fato HARMONIZADO (GAP-XPROC-2)** — o payload que SP-OP-CRED-001 produz e o que esta tabela documenta ja casam; o que falta e o modulo consumidor (`find src -type d -name '*bridge*'` -> 0). SE a ponte for construida (decisao owner, AF-01), o desenho e: correlacionar por `tenant_id`+`regiao_saude`+`especialidade` e iniciar com `gatilho=mudanca_rede` (bk `ADEQ-{tenant}-{regiao}-{especialidade}-{ciclo}`; DLQ `agents.events.cred.network_changed.bridge.dlq`) |
+| Kafka | `agents.events.cred.network_changed` | **DESENHADO — consumiria via `network_change_bridge`; SEM consumidor real hoje (DRAFT/verify, PERSP-NETBRIDGE/AF-01)** | **Fato HARMONIZADO (GAP-XPROC-2)** — o payload que SP-OP-CRED-001 produz e o que esta tabela documenta ja casam; o que falta e o modulo consumidor (`grep -rn "network_change_bridge" src/` -> 1 hit, docstring em `src/maezo/agents/carolina/graph.py:101`; `find src -name '*network_change*'` -> 0). SE a ponte for construida (decisao owner, AF-01), o desenho e: correlacionar por `tenant_id`+`regiao_saude`+`especialidade` e iniciar com `gatilho=mudanca_rede` (bk `ADEQ-{tenant}-{regiao}-{especialidade}-{ciclo}`; DLQ `agents.events.cred.network_changed.bridge.dlq`) |
 | Kafka | `agents.events.adequacao.received` | produz | apos start (avaliacao de adequacao iniciada) |
 | Kafka | `agents.events.adequacao.gap_detected` | produz | gap de adequacao detectado (payload `gap_adequacao`, `regiao_saude`, `especialidade`; **sem PHI**) (payload: `tenant_id`, `regiao_saude`, `especialidade`, `gap_adequacao`; publicado por `ST_PublishGapDetected` SOMENTE quando `gap_adequacao != CONFORME`) |
 | Kafka | `agents.events.adequacao.sla_breached` | produz | SLA de remediacao estourado |
