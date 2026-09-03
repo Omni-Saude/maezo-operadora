@@ -26,11 +26,28 @@ SCOPE (per this task's own boundary — no CIB Seven engine; another agent owns 
       exactly-once dedup + `find_active_instance` hit, proven end-to-end through THIS module's
       wiring rather than re-deriving it).
 
-Bring-up: this suite expects its OWN isolated stack (repo convention: a scratchpad-only lean
-compose, NEVER committed — mirrors `eb4-lean-compose.yml`'s precedent) at
-`KAFKA_BOOTSTRAP_SERVERS` (default `localhost:19092`) and `MAEZO_TEST_DATABASE_URL` /
-`MAEZO_PG_HOST_PORT` (default port `5659`) — distinct ports from every other lane's stack so
-concurrent agent worktrees never collide. Skips LOUDLY (never fakes) when either is unreachable.
+Bring-up: this suite runs against the REPO'S shared compose stack (`docker-compose.yml`, profile
+`core`) — the same stack `.github/workflows/ci.yml`'s `integration tests (real engine)` job
+(~:339-420) brings up via `docker compose --profile core up -d`, with no
+`KAFKA_BOOTSTRAP_SERVERS` override for pytest. This paragraph used to describe this suite's own
+"isolated stack" at `KAFKA_BOOTSTRAP_SERVERS` default `localhost:19092` / `MAEZO_PG_HOST_PORT`
+default `5659` — that stack was never built (gap `PRODUCER-LIVE-19092-DEFAULT`, register
+arbitration): CI never overrode either default, so 6 of this suite's 7 tests reported "COULD NOT
+VERIFY" forever while the job stayed green (the suite has carried `pytest.mark.integration`, and
+so been collected in CI, since #282). Fixed at the root, aligned with the sibling live suites in
+this same directory: `KAFKA_BOOTSTRAP_SERVERS` now defaults to `localhost:9092` (the compose
+Kafka service's `EXTERNAL` listener, advertised as `localhost:9092` — `docker-compose.yml`
+~:96-101; matches `test_notifications_bridge_live_kafka.py`'s own default), and Postgres
+resolution mirrors `tests/integration/conftest.py::_audit_pg_dsn`'s convention:
+`MAEZO_TEST_DATABASE_URL` wins; otherwise
+`postgresql://maezo:maezo@localhost:${MAEZO_PG_HOST_PORT:-5433}/maezo` — the compose local-dev
+default, byte-for-byte the CI lane's Postgres once CI pins `MAEZO_PG_HOST_PORT=5432`
+(ci.yml ~:350, ~:484), and the isolated-validation harness's own export. Still skips LOUDLY
+(never fakes) when either is unreachable — see `kafka_bootstrap_servers` / `pg_tenant_schema`
+below. Cold-broker/cold-topic readiness (topic auto-create + consumer-group rebalance latency,
+gap `CI-KAFKA-HEALTH-WAIT`) is handled the same way as the sibling suites: `_await_topic_ready` +
+`_await_assigned` + `seek_to_end()` run BEFORE every strict timed consume below, so that timeout
+measures only the publish->consume round trip, never Kafka's own warm-up.
 """
 
 from __future__ import annotations
@@ -39,6 +56,7 @@ import asyncio
 import contextlib
 import json
 import os
+import time
 import uuid
 from collections.abc import Iterator
 from typing import Any
@@ -77,13 +95,27 @@ pytestmark = pytest.mark.integration
 
 _CONNECT_TIMEOUT_S = 5.0
 
+#: Total bound for `_await_topic_ready`'s pre-flight poll — mirrors
+#: `test_notifications_bridge_live_kafka.py::_READINESS_TIMEOUT_S`, kept entirely SEPARATE from
+#: every test's own strict publish->consume deadline below (typically 15-45s) so that window
+#: measures only the round trip, never Kafka's own topic-creation/group-join latency.
+_READINESS_TIMEOUT_S = 90.0
+
+#: Kafka protocol error codes `_await_topic_ready` tolerates as "topic is fine, proceed": NONE (0)
+#: and TOPIC_ALREADY_EXISTS (36) — every other code is a genuine failure worth raising on. Mirrors
+#: `test_notifications_bridge_live_kafka.py::_TOLERATED_CREATE_ERROR_CODES`.
+_TOLERATED_CREATE_ERROR_CODES = (0, 36)
+
 #: The two constants must be the SAME literal (module docstring, `events_kafka_producer.py`'s own
 #: "duplicated, not imported" rationale) — asserted once here so drift is caught immediately.
 assert PRODUCER_NOTIFICATIONS_TOPIC == NOTIFICATIONS_TOPIC
 
 
 def _kafka_bootstrap_servers() -> str:
-    return os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:19092")
+    # PRODUCER-LIVE-19092-DEFAULT: aligned with `test_notifications_bridge_live_kafka.py`'s own
+    # default — the compose stack's real `EXTERNAL` listener (`docker-compose.yml` ~:96-101,
+    # advertised as `localhost:9092`), not a fictional isolated stack this repo never builds.
+    return os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
 
 def _kafka_reachable(bootstrap_servers: str) -> bool:
@@ -108,10 +140,15 @@ def _kafka_reachable(bootstrap_servers: str) -> bool:
 
 
 def _pg_dsn() -> str:
+    # PRODUCER-LIVE-19092-DEFAULT: mirrors `tests/integration/conftest.py::_audit_pg_dsn`'s
+    # convention exactly — `MAEZO_TEST_DATABASE_URL` wins; otherwise the compose local-dev
+    # default (5433), which is byte-for-byte the CI lane's Postgres once CI pins
+    # `MAEZO_PG_HOST_PORT=5432` (`.github/workflows/ci.yml` ~:350, ~:484) and the isolated
+    # validation harness's own export — not a fictional isolated-stack-only port.
     explicit = os.environ.get("MAEZO_TEST_DATABASE_URL")
     if explicit:
         return explicit
-    port = os.environ.get("MAEZO_PG_HOST_PORT", "5659")
+    port = os.environ.get("MAEZO_PG_HOST_PORT", "5433")
     return f"postgresql://maezo:maezo@localhost:{port}/maezo"
 
 
@@ -122,8 +159,8 @@ def kafka_bootstrap_servers() -> str:
         pytest.skip(
             f"COULD NOT VERIFY: no reachable Kafka broker at {servers!r} (override with "
             "KAFKA_BOOTSTRAP_SERVERS). T4 producer-leg live proof needs a real broker — bring one "
-            "up (e.g. the lean KRaft compose profile at scratchpad/producer-lean-compose.yml, port "
-            "19092) to run this for real."
+            "up via the repo's own compose stack (`docker compose --profile core up -d`, port "
+            "9092 EXTERNAL listener) to run this for real."
         )
     return servers
 
@@ -137,7 +174,9 @@ def pg_tenant_schema() -> Iterator[tuple[str, str]]:
         pytest.skip(
             f"COULD NOT VERIFY: no reachable Postgres at {dsn!r} (override with "
             "MAEZO_TEST_DATABASE_URL / MAEZO_PG_HOST_PORT). T4 producer-leg live proof needs a "
-            "real Postgres with migrations applied — bring one up (port 5659) to run this for real."
+            "real Postgres with migrations applied — bring one up via the repo's own compose "
+            "stack (`docker compose --profile core up -d`, port 5433 local-dev default) to run "
+            "this for real."
         )
 
     tenant_id = f"t4pl{uuid.uuid4().hex[:10]}"  # [a-z][a-z0-9]* — no cross-run dedup residue
@@ -188,6 +227,120 @@ async def _consume_message(consumer: AioKafkaBridgeConsumer, *, timeout_s: float
 
 
 # ---------------------------------------------------------------------------
+# Cold-broker/cold-topic readiness (gap CI-KAFKA-HEALTH-WAIT, ported from
+# `test_notifications_bridge_live_kafka.py::_await_topic_ready` /
+# `_await_consumer_assigned` — see that module's docstrings for the full empirical rationale: a
+# brand-new topic pays `auto.create.topics.enable`'s async-creation race, and a brand-new
+# consumer group pays Kafka's own `group.initial.rebalance.delay.ms`, neither bounded by the
+# strict per-test consume deadlines below). Every test in THIS file that consumes from a topic no
+# earlier test in the run has touched runs these BEFORE its own timed consume, then
+# `seek_to_end()`s to pin the starting position strictly before its own publish — replacing the
+# previous unbounded `await asyncio.sleep(1.0)` guess with a bounded, logged, FAILING (never
+# skipping) wait: `kafka_bootstrap_servers` already proved the broker itself reachable, so a
+# topic/assignment that never becomes ready is a genuine defect, not a skip condition.
+# ---------------------------------------------------------------------------
+
+
+async def _await_topic_ready(
+    bootstrap_servers: str, topic: str, *, timeout_s: float = _READINESS_TIMEOUT_S
+) -> None:
+    from aiokafka import AIOKafkaProducer  # type: ignore[import-untyped]
+    from aiokafka.admin import AIOKafkaAdminClient, NewTopic  # type: ignore[import-untyped]
+    from aiokafka.errors import KafkaError  # type: ignore[import-untyped]
+
+    deadline = time.monotonic() + timeout_s
+    attempt = 0
+    last_reason = "not attempted"
+    while time.monotonic() < deadline:
+        attempt += 1
+        try:
+            admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
+            try:
+                await admin.start()
+                response = await asyncio.wait_for(
+                    admin.create_topics([NewTopic(topic, num_partitions=1, replication_factor=1)]),
+                    timeout=10.0,
+                )
+                for _name, error_code, error_message in response.topic_errors:
+                    if error_code not in _TOLERATED_CREATE_ERROR_CODES:
+                        raise KafkaError(
+                            f"create_topics({topic!r}) failed: code={error_code} {error_message}"
+                        )
+            finally:
+                with contextlib.suppress(Exception):  # best-effort cleanup only
+                    await admin.close()
+
+            probe = AIOKafkaProducer(bootstrap_servers=bootstrap_servers)
+            try:
+                await probe.start()
+                partitions = await asyncio.wait_for(probe.partitions_for(topic), timeout=10.0)
+                leader_partitions = probe.client.cluster.available_partitions_for_topic(topic)
+            finally:
+                with contextlib.suppress(Exception):  # best-effort cleanup only
+                    await probe.stop()
+
+            if leader_partitions:
+                elapsed = timeout_s - (deadline - time.monotonic())
+                print(
+                    f"[producer_live readiness] attempt {attempt}: topic {topic!r} ready "
+                    f"(partitions with an elected leader: {sorted(leader_partitions)}) after "
+                    f"{elapsed:.1f}s",
+                    flush=True,
+                )
+                return
+            last_reason = (
+                f"create_topics succeeded and partitions {sorted(partitions or ())} exist in "
+                "metadata, but none report an elected leader yet"
+            )
+        except Exception as exc:  # noqa: BLE001 - any failure here is retried until the deadline
+            last_reason = f"{type(exc).__name__}: {exc}"
+        print(
+            f"[producer_live readiness] attempt {attempt}: topic {topic!r} not ready yet "
+            f"({last_reason}) — retrying",
+            flush=True,
+        )
+        await asyncio.sleep(1.0)
+
+    raise AssertionError(
+        f"producer_live readiness: topic {topic!r} on {bootstrap_servers!r} still not ready after "
+        f"{timeout_s}s ({attempt} attempts) — last reason: {last_reason}. The broker itself is "
+        "reachable (the kafka_bootstrap_servers fixture already proved that); a topic that never "
+        "gets a leader is a genuine defect, not a skip condition. See gap "
+        "PRODUCER-LIVE-19092-DEFAULT / CI-KAFKA-HEALTH-WAIT in docs/evidence-ledger.md."
+    )
+
+
+async def _await_assigned(real_consumer: Any, *, timeout_s: float = 15.0) -> None:
+    """Poll a real `aiokafka` consumer's own `assignment()` until non-empty. Pass the WRAPPED
+    consumer directly (`AIOKafkaConsumer`) or, for `AioKafkaBridgeConsumer`, its `_consumer`
+    (mirrors `test_notifications_bridge_live_kafka.py::_await_consumer_assigned` — no public seam
+    on the bridge wrapper for this readiness-only reach-through). Raises (fails, never skips) if
+    the bound expires: an already-proven-reachable broker never handing a partition is a real
+    defect."""
+    deadline = time.monotonic() + timeout_s
+    attempt = 0
+    while time.monotonic() < deadline:
+        attempt += 1
+        assignment = real_consumer.assignment()
+        if assignment:
+            print(
+                f"[producer_live readiness] attempt {attempt}: consumer.assignment()={assignment!r}",
+                flush=True,
+            )
+            return
+        print(
+            f"[producer_live readiness] attempt {attempt}: consumer.assignment() still empty — retrying",
+            flush=True,
+        )
+        await asyncio.sleep(0.5)
+    raise AssertionError(
+        f"producer_live readiness: consumer.assignment() still empty after {timeout_s}s "
+        f"({attempt} attempts) despite start() returning and the topic already having a leader — "
+        "a genuine defect, not a skip condition."
+    )
+
+
+# ---------------------------------------------------------------------------
 # (a) producer publish -> message lands on the topic (consumed back, shape asserted) — both legs.
 # ---------------------------------------------------------------------------
 
@@ -211,6 +364,9 @@ async def test_producer_publish_mirrors_contas_completed_onto_notifications_topi
         "not_allowlisted_marker": "must-not-cross-into-the-mirror",
     }
 
+    await _await_topic_ready(kafka_bootstrap_servers, primary_topic)
+    await _await_topic_ready(kafka_bootstrap_servers, NOTIFICATIONS_TOPIC)
+
     primary_consumer = AIOKafkaConsumer(
         primary_topic,
         bootstrap_servers=kafka_bootstrap_servers,
@@ -226,10 +382,13 @@ async def test_producer_publish_mirrors_contas_completed_onto_notifications_topi
     await bridge_consumer.start()
     producer = AioKafkaEventsProducer(bootstrap_servers=kafka_bootstrap_servers)
     try:
-        # `auto_offset_reset=latest` needs the consumer group's initial position committed
-        # BEFORE the message is produced, or a slow join can miss it — a short settle delay
-        # mirrors the existing live-kafka suite's own polling pattern for a fresh consumer group.
-        await asyncio.sleep(1.0)
+        # Cold-broker readiness (gap CI-KAFKA-HEALTH-WAIT): bound + confirm BOTH consumers'
+        # assignment, then pin each starting position to the log end AS OF NOW — strictly before
+        # the producer below ever sends — replacing the previous unbounded settle-delay guess.
+        await _await_assigned(primary_consumer)
+        await _await_assigned(bridge_consumer._consumer)  # noqa: SLF001 - readiness-only reach-through
+        await primary_consumer.seek_to_end()
+        await bridge_consumer._consumer.seek_to_end()  # noqa: SLF001 - see above
         await producer.publish(primary_topic, payload, key=f"bk-{suffix}")
 
         primary_record = await asyncio.wait_for(primary_consumer.__anext__(), timeout=15.0)
@@ -270,6 +429,8 @@ async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_doe
     guia, glosa = f"GUIA-{suffix}", f"GLOSA-{suffix}"
     group_id = f"t4-pipeline-{suffix}"
 
+    await _await_topic_ready(kafka_bootstrap_servers, NOTIFICATIONS_TOPIC)
+
     producer = AioKafkaEventsProducer(bootstrap_servers=kafka_bootstrap_servers)
     consumer = AioKafkaBridgeConsumer(
         bootstrap_servers=kafka_bootstrap_servers, topic=NOTIFICATIONS_TOPIC, group_id=group_id
@@ -280,7 +441,8 @@ async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_doe
 
     await consumer.start()
     try:
-        await asyncio.sleep(1.0)
+        await _await_assigned(consumer._consumer)  # noqa: SLF001 - readiness-only reach-through
+        await consumer._consumer.seek_to_end()  # noqa: SLF001 - see above
 
         # Dormant first: today's REAL minimal payload for a `sem_glosa` outcome — no anchors.
         await producer.publish(
@@ -390,6 +552,8 @@ async def test_redelivered_message_is_idempotent_one_audit_row_same_instance(
     guia, glosa = f"GUIAD-{suffix}", f"GLOSAD-{suffix}"
     group_id = f"t4-dedup-{suffix}"
 
+    await _await_topic_ready(kafka_bootstrap_servers, NOTIFICATIONS_TOPIC)
+
     producer = AioKafkaEventsProducer(bootstrap_servers=kafka_bootstrap_servers)
     consumer = AioKafkaBridgeConsumer(
         bootstrap_servers=kafka_bootstrap_servers, topic=NOTIFICATIONS_TOPIC, group_id=group_id
@@ -400,7 +564,8 @@ async def test_redelivered_message_is_idempotent_one_audit_row_same_instance(
 
     await consumer.start()
     try:
-        await asyncio.sleep(1.0)
+        await _await_assigned(consumer._consumer)  # noqa: SLF001 - readiness-only reach-through
+        await consumer._consumer.seek_to_end()  # noqa: SLF001 - see above
         await producer.publish(
             CONTAS_COMPLETED_EVENT,
             {
@@ -450,6 +615,7 @@ async def test_ans_cron_due_reaches_notifications_topic_unmirrored(
     this task). Once a real producer exists, that fact reaches the bridge's consumer with ZERO
     additional mirroring — a single publish, one message, no duplicate."""
     suffix = uuid.uuid4().hex[:8]
+    await _await_topic_ready(kafka_bootstrap_servers, NOTIFICATIONS_TOPIC)
     consumer = AioKafkaBridgeConsumer(
         bootstrap_servers=kafka_bootstrap_servers,
         topic=NOTIFICATIONS_TOPIC,
@@ -458,7 +624,8 @@ async def test_ans_cron_due_reaches_notifications_topic_unmirrored(
     await consumer.start()
     producer = AioKafkaEventsProducer(bootstrap_servers=kafka_bootstrap_servers)
     try:
-        await asyncio.sleep(1.0)
+        await _await_assigned(consumer._consumer)  # noqa: SLF001 - readiness-only reach-through
+        await consumer._consumer.seek_to_end()  # noqa: SLF001 - see above
         # CHANGED (GAP-SC-04-a): an explicit key is now required. This payload is the BPMN's own
         # literal shape and carries neither `_business_key` nor an `anssubmit`-family anchor
         # (`report_type`+`competencia` without a `tenant_id`), so the derivation yields nothing and
@@ -506,6 +673,7 @@ async def test_same_entity_events_land_on_the_same_partition(
 
     suffix = uuid.uuid4().hex[:8]
     topic = CONTAS_COMPLETED_EVENT
+    await _await_topic_ready(kafka_bootstrap_servers, topic)
     consumer = AIOKafkaConsumer(
         topic,
         bootstrap_servers=kafka_bootstrap_servers,
@@ -515,7 +683,8 @@ async def test_same_entity_events_land_on_the_same_partition(
     await consumer.start()
     producer = AioKafkaEventsProducer(bootstrap_servers=kafka_bootstrap_servers)
     try:
-        await asyncio.sleep(1.0)
+        await _await_assigned(consumer)
+        await consumer.seek_to_end()
         entity = {"tenant_id": "amh", "numero_guia_tiss": f"GUIA-{suffix}", "glosa_id": f"GLOSA-{suffix}"}
         await producer.publish(topic, {**entity, "fase": "recebido"})
         await producer.publish(topic, {**entity, "desfecho": "encaminhada_recurso"})
@@ -563,6 +732,9 @@ async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_contin
     dlq_topic = dlq_topic_for(NOTIFICATIONS_TOPIC)
     poison_raw = json.dumps({"tenant_id": tenant_id, "sem_tipo": guia}).encode("utf-8")
 
+    await _await_topic_ready(kafka_bootstrap_servers, NOTIFICATIONS_TOPIC)
+    await _await_topic_ready(kafka_bootstrap_servers, dlq_topic)
+
     consumer = AioKafkaBridgeConsumer(
         bootstrap_servers=kafka_bootstrap_servers,
         topic=NOTIFICATIONS_TOPIC,
@@ -589,7 +761,10 @@ async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_contin
     seed = AIOKafkaProducer(bootstrap_servers=kafka_bootstrap_servers)
     await seed.start()
     try:
-        await asyncio.sleep(1.0)
+        await _await_assigned(consumer._consumer)  # noqa: SLF001 - readiness-only reach-through
+        await _await_assigned(dlq_consumer)
+        await consumer._consumer.seek_to_end()  # noqa: SLF001 - see above
+        await dlq_consumer.seek_to_end()
         await seed.send_and_wait(NOTIFICATIONS_TOPIC, poison_raw, key=b"poison-probe")
         await seed.send_and_wait(
             NOTIFICATIONS_TOPIC,
