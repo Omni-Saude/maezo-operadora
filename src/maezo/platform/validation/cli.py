@@ -36,7 +36,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from . import agent_def, bpmn, crossref, dmn, policy, signoff
+from . import agent_def, bpmn, crossref, dmn, perspective, policy, signoff
 from .result import Report
 
 
@@ -130,14 +130,22 @@ def _validate_processes_root(path: Path, report: Report) -> None:
         allowlist_path = dmn_dir / crossref.ALLOWLIST_FILENAME
         crossref.check(decision_refs, defined_ids, allowlist_path, report)
 
+    # ADR-0040 perspective fence (Tier A: raw BPMN/DMN text; Tier B: parsed spec YAML). Every hit
+    # is a BLOCKING `report.error` — the module has no severity a caller could downgrade and no
+    # per-file exception mechanism. Wired HERE, and only from PR-4, because the fence could not be
+    # switched on while the two chains were still dirty: it exists (PR-1) before it gates (PR-4).
+    perspective.check_processes(bpmn_files, dmn_files, sorted(dmn_dir.glob("*.yaml")), report)
+
 
 def _validate_policies_root(path: Path, report: Report) -> None:
     policy.validate_dir(path / "autonomy", report)
+    perspective.check_policies_root(path, report)
 
 
 def _validate_agents_root(path: Path, report: Report) -> None:
     tools_root = _find_repo_root(path.resolve()) / "src" / "maezo" / "tools"
     agent_def.validate_dir(path, tools_root, report)
+    perspective.check_agents_root(path, report)
 
 
 def validate_artifacts(paths: Sequence[str]) -> int:

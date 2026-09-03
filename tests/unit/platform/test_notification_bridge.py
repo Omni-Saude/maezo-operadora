@@ -16,6 +16,7 @@ from maezo.platform.notification_bridge import (
     CONTAS_COMPLETED_EVENT,
     FRAUDE_COMPLETED_EVENT,
     PROCESS_KEY_ANS_SUBMIT,
+    RECURSO_INTAKE_EVENT,
     HandoffEvent,
     HandoffResult,
     NotificationBridge,
@@ -126,20 +127,27 @@ def test_bridge_register_custom_handoff() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_bridge_contas_to_recurso_triggered() -> None:
-    """Handoff CONTAS→RECURSO triggers on the REAL agents.events.contas.completed
-    (desfecho=encaminhada_recurso) with the business-key anchors (incl. tenant) present."""
+def test_regra_intake_recurso_dispara_com_payload_ancorado() -> None:
+    """ADR-0040 §3.1 amarra 3: com um envelope sintetico completo a regra FUNCIONA — a dormencia e
+    falta de PUBLICADOR, nao regra quebrada.
+
+    Substitui `test_bridge_contas_to_recurso_triggered`: a aresta CONTAS→RECURSO codificava a
+    perspectiva invertida (RECURSO como algo que CONTAS entrega quando a propria operadora decide
+    recorrer). A operadora nao recorre da sua propria glosa; ela RECEBE o recurso.
+    """
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type=CONTAS_COMPLETED_EVENT,
+        event_type=RECURSO_INTAKE_EVENT,
         payload={
             "tenant_id": "amh",
-            "desfecho": "encaminhada_recurso",
-            "glosa_id": "GLOSA-001",
             "numero_guia_tiss": "GUIA-123",
-            "glosa_type": "tecnica",
-            "documentacao_anexa": True,
+            "glosa_id": "GLOSA-001",
             "numero_lote_tiss": "LOTE-001",
+            "prestador_id": "PREST-001",
+            "glosa_type": "tecnica",
+            "glosa_existe": True,
+            "dentro_prazo_recurso": True,
+            "documentacao_recurso_completa": True,
         },
     )
     result = bridge.evaluate(event)
@@ -148,40 +156,119 @@ def test_bridge_contas_to_recurso_triggered() -> None:
     assert result.target_process == "SP-OP-RECURSO-001"
     assert result.variables["glosa_id"] == "GLOSA-001"
     assert result.variables["numero_guia_tiss"] == "GUIA-123"
-    assert result.variables["glosa_type"] == "tecnica"
-    assert result.variables["glosa_existe"] is True
-    assert result.variables["documentacao_anexa"] is True
+    assert result.variables["prestador_id"] == "PREST-001"
+    assert result.variables["business_key"] == "RECURSO-amh-GUIA-123-GLOSA-001"
 
 
-def test_bridge_contas_to_recurso_not_triggered_when_not_recorrer() -> None:
-    """Does NOT trigger on a non-recurso desfecho (e.g. reenviada)."""
-    bridge = _make_bridge()
-    event = HandoffEvent(
-        event_type=CONTAS_COMPLETED_EVENT,
-        payload={
-            "tenant_id": "amh",
-            "desfecho": "reenviada",
-            "glosa_id": "GLOSA-001",
-            "numero_guia_tiss": "GUIA-123",
-        },
-    )
-    result = bridge.evaluate(event)
-    assert result.evaluated is True
-    assert result.handoff_triggered is False
-    assert "No handoff rule matched" in result.reason
-
-
-def test_bridge_contas_to_recurso_dormant_when_anchor_missing() -> None:
-    """EB-4 fail-closed anchor: the right desfecho (and tenant) but WITHOUT
-    numero_guia_tiss/glosa_id stays DORMANT — never a divergent-key start."""
+def test_regra_intake_recurso_nao_dispara_no_evento_de_contas() -> None:
+    """A aresta antiga MORREU: `agents.events.contas.completed` com desfecho
+    `glosa_aplicada_humano` (o desfecho que carrega o `glosa_id`) nao inicia RECURSO-001 —
+    nem sob outro nome. A operadora nao recorre da propria glosa."""
     bridge = _make_bridge()
     result = bridge.evaluate(
         HandoffEvent(
             event_type=CONTAS_COMPLETED_EVENT,
-            payload={"tenant_id": "amh", "desfecho": "encaminhada_recurso"},
+            payload={
+                "tenant_id": "amh",
+                "desfecho": "glosa_aplicada_humano",
+                "glosa_id": "GLOSA-001",
+                "numero_guia_tiss": "GUIA-123",
+            },
         )
     )
     assert result.handoff_triggered is False
+    assert "No handoff rule matched" in result.reason
+
+
+def test_regra_intake_recurso_dormant_when_anchor_missing() -> None:
+    """Ancora fail-closed: sem `numero_guia_tiss`/`glosa_id` a regra fica DORMENTE — nunca um
+    start sob business key divergente/degenerada."""
+    bridge = _make_bridge()
+    result = bridge.evaluate(HandoffEvent(event_type=RECURSO_INTAKE_EVENT, payload={"tenant_id": "amh"}))
+    assert result.handoff_triggered is False
+
+
+def test_regra_intake_recurso_facts_sao_fail_closed_nao_tautologias() -> None:
+    """`glosa_existe`/`dentro_prazo_recurso` deixaram de ser tautologias e sao FAIL-CLOSED.
+
+    A regra antiga semeava `glosa_existe=True` incondicionalmente ("so alcanca o handoff apos
+    RECORRER sobre uma glosa ativa") — uma premissa que nao sobrevive a um recurso interposto de
+    FORA, cujo `glosa_id` pode nao referenciar nada que a operadora tenha cunhado. Ausente => False
+    => `ANALISE_HUMANA` pela DMN de admissibilidade, nunca uma afirmacao de que a glosa existe.
+    """
+    bridge = _make_bridge()
+    result = bridge.evaluate(
+        HandoffEvent(
+            event_type=RECURSO_INTAKE_EVENT,
+            payload={"tenant_id": "amh", "numero_guia_tiss": "GUIA-123", "glosa_id": "GLOSA-001"},
+        )
+    )
+    assert result.handoff_triggered is True
+    assert result.variables["glosa_existe"] is False
+    assert result.variables["dentro_prazo_recurso"] is False
+    assert result.variables["documentacao_recurso_completa"] is False
+
+
+def test_regra_intake_recurso_e_dormente_ate_o_adaptador_existir() -> None:
+    """ADR-0040 §3.1 amarra 2 (OQ-R1): NENHUM publicador conhecido emite
+    `agents.events.recurso.intake_recebido`.
+
+    Varre os publicadores do repo — os `event_topic`/`event_topic_*` de TODO BPMN em
+    `spec/processes/bpmn/**` (o trilho `operadora.events.publish`), os tópicos que os workers
+    publicam via `kafka.publish` e os do proprio bridge. QUANDO o adaptador de intake TISS chegar,
+    ESTE TESTE FICA VERMELHO — e essa e a sua funcao: forcar a atualizacao da divulgacao de
+    dormencia no MESMO PR que liga o publicador. Nenhum stub, nenhum publicador sintetico.
+    """
+    from pathlib import Path
+    from xml.etree import ElementTree as ET
+
+    repo = Path(__file__).resolve().parents[3]
+    publicados: set[str] = set()
+    for bpmn in sorted((repo / "spec/processes/bpmn").glob("*.bpmn")):
+        root = ET.parse(bpmn).getroot()
+        for el in root.iter():
+            if el.tag.rsplit("}", 1)[-1] == "inputParameter" and el.text:
+                name = el.get("name") or ""
+                if name.startswith("event_topic"):
+                    publicados.add(el.text.strip())
+    assert publicados, "a varredura de publicadores nao pode vir vazia"
+    assert RECURSO_INTAKE_EVENT not in publicados, (
+        f"{RECURSO_INTAKE_EVENT} ganhou um publicador — atualize a divulgacao de dormencia em "
+        "`notification_bridge._register_default_handoffs` e feche OQ-R1 em docs/review-queue.md "
+        "NO MESMO PR"
+    )
+
+    src_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((repo / "src/maezo").rglob("*.py"))
+        if path.name != "notification_bridge.py"
+    )
+    assert RECURSO_INTAKE_EVENT not in src_text, (
+        f"{RECURSO_INTAKE_EVENT} apareceu em src/ fora do proprio bridge — se e um publicador, "
+        "atualize a divulgacao de dormencia e OQ-R1 no mesmo PR"
+    )
+
+    # m5 (gatekeeper R1 do PR-3): a exclusao acima e do ARQUIVO inteiro — o bridge tem de poder
+    # NOMEAR o evento que consome. Isso deixava um buraco: um publicador acrescentado DENTRO do
+    # proprio bridge escapava do tripwire. Aqui o arquivo excluido volta, com a forma certa de
+    # pergunta: nao «o nome aparece?» (aparece, 3x, por construcao) e sim «o nome aparece como
+    # ARGUMENTO de uma chamada de publicacao?». Residual declarado: um publicador que montasse o
+    # topico por concatenacao/variavel intermediaria escaparia — a cerca lexica nao le fluxo de
+    # dados; o que ela garante e que a forma OBVIA nao passa despercebida.
+    import re
+
+    bridge_src = (repo / "src/maezo/platform/notification_bridge.py").read_text(encoding="utf-8")
+    alvo = f"(?:RECURSO_INTAKE_EVENT|{re.escape(RECURSO_INTAKE_EVENT)})"
+    publicador = re.compile(rf"\b(?:publish|produce|send|emit)\w*\s*\([^)]*{alvo}", re.DOTALL)
+    assert not publicador.search(bridge_src), (
+        f"{RECURSO_INTAKE_EVENT} passou a ser PUBLICADO de dentro do proprio notification_bridge "
+        "— atualize a divulgacao de dormencia e feche OQ-R1 em docs/review-queue.md NO MESMO PR"
+    )
+    # NAO-VACUIDADE do regex acima: a mesma forma, com um evento que o bridge realmente publica,
+    # tem de casar — senao este assert seria verde por nunca casar nada.
+    assert publicador.search("await kafka.publish(RECURSO_INTAKE_EVENT, payload)"), (
+        "o detector de publicador nao reconhece a forma que ele existe para reconhecer"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +332,7 @@ def test_bridge_contas_to_fraude_not_triggered_when_other_desfecho() -> None:
     bridge = _make_bridge()
     event = HandoffEvent(
         event_type=CONTAS_COMPLETED_EVENT,
-        payload={"tenant_id": "amh", "desfecho": "encaminhada_recurso", "prestador_id": "PREST-001"},
+        payload={"tenant_id": "amh", "desfecho": "glosa_aplicada_humano", "prestador_id": "PREST-001"},
     )
     result = bridge.evaluate(event)
     assert result.target_process != "SP-OP-FRAUDE-001"
@@ -391,10 +478,9 @@ def test_evaluate_all_single_match() -> None:
     """evaluate_all returns one result when only one rule matches."""
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type=CONTAS_COMPLETED_EVENT,
+        event_type=RECURSO_INTAKE_EVENT,
         payload={
             "tenant_id": "amh",
-            "desfecho": "encaminhada_recurso",
             "glosa_id": "GLOSA-001",
             "numero_guia_tiss": "GUIA-123",
             "glosa_type": "tecnica",
@@ -500,9 +586,8 @@ async def test_on_event_propagates_when_matched_rule_start_fails() -> None:
     bridge = NotificationBridge(cibseven_starter=spy)
     with pytest.raises(NotificationBridgeHandoffFailedError):
         await bridge.on_event(
-            event_type=CONTAS_COMPLETED_EVENT,
+            event_type=RECURSO_INTAKE_EVENT,
             payload={
-                "desfecho": "encaminhada_recurso",
                 "glosa_id": "GLOSA-002",
                 "numero_guia_tiss": "GUIA-456",
                 "tenant_id": "amh",
@@ -541,14 +626,12 @@ async def test_on_event_full_pipeline() -> None:
     """on_event evaluates and executes in one call."""
     bridge, spy = _make_bridge_with_spy()
     results = await bridge.on_event(
-        event_type=CONTAS_COMPLETED_EVENT,
+        event_type=RECURSO_INTAKE_EVENT,
         payload={
             "tenant_id": "amh",
-            "desfecho": "encaminhada_recurso",
             "glosa_id": "GLOSA-002",
             "numero_guia_tiss": "GUIA-456",
             "glosa_type": "clinica",
-            "documentacao_anexa": False,
             "numero_lote_tiss": "LOTE-002",
         },
     )
@@ -597,11 +680,14 @@ def test_list_handoffs_returns_all() -> None:
 
 
 def test_get_handoff_returns_rules() -> None:
-    """get_handoff returns all rules for an event type. agents.events.contas.completed now carries
-    2 rules (RECURSO + the Phase-3 FRAUDE handoff)."""
+    """get_handoff returns all rules for an event type. `agents.events.contas.completed` now
+    carries ONE rule (the Phase-3 FRAUDE handoff) — the RECURSO edge moved to the intake event
+    (ADR-0040)."""
     bridge = _make_bridge()
-    rules = bridge.get_handoff(CONTAS_COMPLETED_EVENT)
-    assert len(rules) == 2
+    assert len(bridge.get_handoff(CONTAS_COMPLETED_EVENT)) == 1
+
+    rules = bridge.get_handoff(RECURSO_INTAKE_EVENT)
+    assert len(rules) == 1
     recurso = [(t, p) for t, p in rules if t == "SP-OP-RECURSO-001"]
     assert len(recurso) == 1
     _, predicate = recurso[0]
@@ -610,23 +696,16 @@ def test_get_handoff_returns_rules() -> None:
         predicate(
             {
                 "tenant_id": "amh",
-                "desfecho": "encaminhada_recurso",
                 "numero_guia_tiss": "G-1",
                 "glosa_id": "GL-1",
             }
         )
         is True
     )
-    assert (
-        predicate(
-            {"tenant_id": "amh", "desfecho": "reenviada", "numero_guia_tiss": "G-1", "glosa_id": "GL-1"}
-        )
-        is False
-    )
+    # Ancora fail-closed: sem `glosa_id` a regra nao dispara.
+    assert predicate({"tenant_id": "amh", "numero_guia_tiss": "G-1"}) is False
     # t2-notify-integrity item 3: tenant is a required anchor — same payload minus tenant is dormant.
-    assert (
-        predicate({"desfecho": "encaminhada_recurso", "numero_guia_tiss": "G-1", "glosa_id": "GL-1"}) is False
-    )
+    assert predicate({"numero_guia_tiss": "G-1", "glosa_id": "GL-1"}) is False
 
 
 def test_get_handoff_multiple_rules() -> None:
@@ -928,7 +1007,7 @@ async def test_on_event_cron_due_executes_via_starter_spy() -> None:
 # ---------------------------------------------------------------------------
 # t2-notify-integrity item 3 — tenant anchor: ALL 7 default rules stay DORMANT on a payload
 # whose per-rule anchors are present but whose tenant_id is absent/blank/None. Restores the
-# fail-closed symmetry with the in-flow fenced-start workers (contas.start_recurso/start_fraude,
+# fail-closed symmetry with the in-flow fenced-start workers (contas.handoff_pagamento/start_fraude,
 # fraude.start_credenciamento/start_contratual all REFUSE a tenant-less start via the shared
 # non_blank) and kills the degenerate business-key class (`RECURSO--…`, `FRAUDE--…`, `CRED--…`,
 # `CANCEL--…`, `INAD--…`, `ANSSUB--…`) that a tenant-less trigger used to mint.
@@ -936,9 +1015,9 @@ async def test_on_event_cron_due_executes_via_starter_spy() -> None:
 
 _TENANTLESS_RULE_PAYLOADS: list[tuple[str, str, dict[str, Any]]] = [
     (
-        "contas-recurso",
-        CONTAS_COMPLETED_EVENT,
-        {"desfecho": "encaminhada_recurso", "numero_guia_tiss": "G-1", "glosa_id": "GL-1"},
+        "intake-recurso",
+        RECURSO_INTAKE_EVENT,
+        {"numero_guia_tiss": "G-1", "glosa_id": "GL-1"},
     ),
     (
         "contas-fraude",
@@ -1234,13 +1313,12 @@ async def test_a_blank_instance_id_is_never_reported_as_a_completed_handoff() ->
 # ---------------------------------------------------------------------------
 
 
-def test_contas_to_recurso_derives_business_key() -> None:
+def test_intake_recurso_derives_business_key() -> None:
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type=CONTAS_COMPLETED_EVENT,
+        event_type=RECURSO_INTAKE_EVENT,
         payload={
             "tenant_id": "amh",
-            "desfecho": "encaminhada_recurso",
             "glosa_id": "GLOSA-001",
             "numero_guia_tiss": "GUIA-123",
         },
@@ -1346,12 +1424,11 @@ def test_5_rules_business_key_deterministic_across_redelivery() -> None:
     bridge = _make_bridge()
     payload = {
         "tenant_id": "amh",
-        "desfecho": "encaminhada_recurso",
         "glosa_id": "GLOSA-9",
         "numero_guia_tiss": "GUIA-9",
     }
-    r1 = bridge.evaluate(HandoffEvent(event_type=CONTAS_COMPLETED_EVENT, payload=dict(payload)))
-    r2 = bridge.evaluate(HandoffEvent(event_type=CONTAS_COMPLETED_EVENT, payload=dict(payload)))
+    r1 = bridge.evaluate(HandoffEvent(event_type=RECURSO_INTAKE_EVENT, payload=dict(payload)))
+    r2 = bridge.evaluate(HandoffEvent(event_type=RECURSO_INTAKE_EVENT, payload=dict(payload)))
     assert r1.variables["business_key"] == r2.variables["business_key"] == "RECURSO-amh-GUIA-9-GLOSA-9"
 
 
@@ -1365,10 +1442,9 @@ async def test_5_rules_now_start_through_the_fenced_starter() -> None:
     bridge = NotificationBridge(cibseven_starter=starter)
 
     results = await bridge.on_event(
-        event_type=CONTAS_COMPLETED_EVENT,
+        event_type=RECURSO_INTAKE_EVENT,
         payload={
             "tenant_id": "amh",
-            "desfecho": "encaminhada_recurso",
             "glosa_id": "GLOSA-42",
             "numero_guia_tiss": "GUIA-42",
         },

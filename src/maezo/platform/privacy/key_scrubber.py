@@ -56,6 +56,7 @@ BUSINESS_KEY_LOG_FIELDS: frozenset[str] = frozenset(
         "cred_business_key",
         "fraude_business_key",
         "recurso_business_key",
+        "pagto_business_key",
         "escalation_business_key",
         "engine_business_key",
     }
@@ -82,7 +83,23 @@ _KNOWN_KEY_FAMILIES: frozenset[str] = frozenset(
     # de familia e deixa a linha de checkpoint anonima quanto ao processo a que pertence.
     # Efeito colateral, e e' pequeno: chave AUTH em log scrubbed passa de `hk1_...` para
     # `AUTH-hk1_...`. `scrub_key_value` nao e' usado em nenhum outro lugar do repo.
-    {"CANCEL", "INAD", "RECURSO", "CRED", "FRAUDE", "PROG", "ESC", "DSR", "ANS", "NIP", "AUTH"}
+    # "PAGTO" entrou com o handoff RECURSO->PAGTO (`operadora.recurso.handoff_pagamento`,
+    # ADR-0040 I-PAGTO-1): sem ela, `scrub_key_value("PAGTO-amh-GUIA-1-GLOSA-1")` devolvia um
+    # `hk1_<hmac>` PELADO e a linha de log perdia o marcador de familia.
+    {
+        "CANCEL",
+        "INAD",
+        "RECURSO",
+        "PAGTO",
+        "CRED",
+        "FRAUDE",
+        "PROG",
+        "ESC",
+        "DSR",
+        "ANS",
+        "NIP",
+        "AUTH",
+    }
 )
 
 

@@ -547,8 +547,9 @@ def is_guard_refusal_code(code: str | None) -> bool:
     """True iff `code` is a guard/denial refusal the T-E audited-refusal chokepoint must record.
 
     ADR-0030 finding F4 (pattern, not a hand-list): ALL `*_NOT_HUMAN` guard codes (a worker refusing
-    to perform an adverse L0 action automatically — negativa, descredenciamento, suspensão, glosa
-    acceptance, desistência, …) PLUS the denial-block `ERR_AUTH_DENIAL_INCOMPLETE`. A NEW guard code
+    to perform an adverse L0 action automatically — negativa, descredenciamento, suspensão,
+    aplicação de glosa, indeferimento de recurso, …) PLUS the denial-block
+    `ERR_AUTH_DENIAL_INCOMPLETE`. A NEW guard code
     is recognized automatically by the `_NOT_HUMAN` suffix — that is what makes the chokepoint
     drift-proof (a future guard cannot bypass the audit emit without also breaking this predicate,
     which the arch-test pins against the CI gate's `is_te_gated`).

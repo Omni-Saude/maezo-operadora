@@ -3,23 +3,28 @@
              xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
              xmlns:camunda="http://camunda.org/schema/1.0/dmn"
              id="defs_contas_sla"
-             name="SLA de triagem/analise de conta (glosa)"
+             name="SLA de analise da conta apresentada (glosa)"
              namespace="http://maezo.health/dmn/operadora">
   <description>
     contas_sla v0.2.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar texto
-    vigente com regulatorio (RN 424/2017 sobre analise/recurso de conta; consolidacoes ANS;
-    docs/review-queue.md). Consumida por SP-OP-CONTAS-001 e mcp-dmn.
+    vigente com regulatorio e financas (prazo CONTRATUAL de analise de conta; RN 501/2022 para o
+    fluxo TISS lote/demonstrativo — docs/compliance/rn-currency-review.md:188-193;
+    docs/review-queue.md). A atribuicao anterior a RN 424/2017 foi RETIRADA: aquela norma rege
+    junta medica/odontologica, nao o prazo de analise de conta (rn-currency-review.md:45,85-87).
+    NENHUM valor numerico mudou nesta correcao — so a fonte declarada.
+    Consumida por SP-OP-CONTAS-001 e mcp-dmn.
     NOTA: prazos regulatorios sao em dias UTEIS; ISO 8601 usa dias corridos — valores abaixo
     sao aproximacao conservadora (menor ou igual ao prazo legal). Resolver calendario util no
     worker. Prazo regulatorio vive AQUI (DMN) e no timer BPMN — nunca em Python (CONTRIBUTING).
     valor_apresentado_brl em double (BRL — NUNCA "number"). Saidas de prazo sao string ISO 8601.
     Esta tabela NAO tem saida adversa; no estouro de SLA a coordenacao humana assume (nunca
-    auto-aceite por timeout — inversao do Task_AutoApprove/48h do reference).
+    desfecho automatico por timeout — inversao do Task_AutoApprove/48h do reference).
     hitPolicy FIRST (catch-all conservador como ultima row).
 
-    GAP-CONTAS-4 (v0.2.0): o prazo regulatorio conta de `data_recebimento_lote` (contrato
-    SP-OP-CONTAS-001.md §"Variaveis de entrada": "Recebimento do demonstrativo (ancora dos
-    prazos)"), NUNCA da data em que a User Task UT_AnalistaContas foi criada — o BPMN so alcanca
+    GAP-CONTAS-4 (v0.2.0): o prazo conta de `data_recebimento_lote` — a data em que a OPERADORA
+    recebeu o lote de guias do prestador (contrato SP-OP-CONTAS-001.md §"Variaveis de entrada":
+    ancora contratual do prazo de analise) — NUNCA da data em que a User Task UT_AnalistaContas
+    foi criada — o BPMN so alcanca
     a UT depois de identify/impact + 4 BusinessRuleTasks + dossie de Marina, e pode reentrar via
     msg.contas.linhas_atualizadas, entao "ancorar no attach da UT" desalinha o prazo do contrato
     regulatorio a cada rodada. Alem das duracoes relativas legadas (`sla_analise` / `sla_alerta`
@@ -52,7 +57,7 @@
       <input id="in_valor" label="Valor apresentado BRL (valor_apresentado_brl)">
         <inputExpression id="ie_valor" typeRef="double"><text>valor_apresentado_brl</text></inputExpression>
       </input>
-      <input id="in_data_recebimento" label="Data de recebimento do lote (ancora regulatoria do prazo)">
+      <input id="in_data_recebimento" label="Data de recebimento do lote pela operadora (ancora contratual do prazo de analise)">
         <inputExpression id="ie_data_recebimento" typeRef="string"><text>data_recebimento_lote</text></inputExpression>
       </input>
       <output id="out_sla_analise" label="sla_analise (duracao relativa — legado/observabilidade)" name="sla_analise" typeRef="string"/>
@@ -69,7 +74,7 @@
         <outputEntry id="r_internacao_o2"><text>string(date and time(data_recebimento_lote + "T00:00:00") + duration("P30D"))</text></outputEntry>
         <outputEntry id="r_internacao_o3"><text>"P20D"</text></outputEntry>
         <outputEntry id="r_internacao_o4"><text>string(date and time(data_recebimento_lote + "T00:00:00") + duration("P20D"))</text></outputEntry>
-        <outputEntry id="r_internacao_o5"><text>"RN 424/2017 — analise/recurso de conta (internacao/OPME) ~30 dias: DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r_internacao_o5"><text>"Prazo contratual de analise de conta (internacao/OPME) ~30 dias + RN 501/2022 (fluxo TISS): DRAFT/verify"</text></outputEntry>
       </rule>
       <rule id="r_alto_valor">
         <description>Lote de alto valor (acima de R$ 50.000) -> prazo padrao com alerta antecipado, ancorado em data_recebimento_lote</description>
@@ -80,7 +85,7 @@
         <outputEntry id="r_alto_valor_o2"><text>string(date and time(data_recebimento_lote + "T00:00:00") + duration("P30D"))</text></outputEntry>
         <outputEntry id="r_alto_valor_o3"><text>"P18D"</text></outputEntry>
         <outputEntry id="r_alto_valor_o4"><text>string(date and time(data_recebimento_lote + "T00:00:00") + duration("P18D"))</text></outputEntry>
-        <outputEntry id="r_alto_valor_o5"><text>"RN 424/2017 — alto valor, alerta antecipado: DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r_alto_valor_o5"><text>"Prazo contratual — alto valor, alerta antecipado: DRAFT/verify"</text></outputEntry>
       </rule>
       <rule id="r_padrao">
         <description>Consulta/SADT/honorario/misto padrao, ancorado em data_recebimento_lote</description>
@@ -91,7 +96,7 @@
         <outputEntry id="r_padrao_o2"><text>string(date and time(data_recebimento_lote + "T00:00:00") + duration("P30D"))</text></outputEntry>
         <outputEntry id="r_padrao_o3"><text>"P20D"</text></outputEntry>
         <outputEntry id="r_padrao_o4"><text>string(date and time(data_recebimento_lote + "T00:00:00") + duration("P20D"))</text></outputEntry>
-        <outputEntry id="r_padrao_o5"><text>"RN 424/2017 — analise/recurso de conta padrao ~30 dias: DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r_padrao_o5"><text>"Prazo contratual de analise de conta padrao ~30 dias + RN 501/2022: DRAFT/verify"</text></outputEntry>
       </rule>
       <rule id="r_catchall">
         <description>Catch-all FAIL-SAFE: tipo_lote desconhecido -> prazo conservador padrao, ancorado em data_recebimento_lote</description>
