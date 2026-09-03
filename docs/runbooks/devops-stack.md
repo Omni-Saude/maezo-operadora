@@ -428,6 +428,14 @@ by the inbound/resume drivers on each real turn) — neither exists in
 
 ### SLA breach
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoUserTaskSLABreach` rule exists in
+`deploy/observability/alert-rules.yml`, and no User-Task-SLA metric is emitted anywhere in
+`src/maezo/` today (RUNBOOK-PHANTOM-ALERTS-REMAINING-14, verified 2026-09-03: `grep -n 'alert:
+MaezoUserTaskSLABreach' deploy/observability/alert-rules.yml` — 0 hits; the full declared-metric
+list in `src/maezo/runtime/metrics.py` carries no User-Task/SLA series). The rule belongs in
+`deploy/observability/alert-rules.yml` (owner-gated). Meanwhile, operators should track RN259
+deadlines via the CIB Seven Tasklist UI/cockpit directly (see [HITL pending](#hitl-pending)) —
+there is no automated compliance alert for this today.  
 **Alert:** `MaezoUserTaskSLABreach`  
 **Meaning:** A User Task in CIB Seven exceeded its RN259 deadline. Compliance event.  
 **Steps:**
@@ -439,6 +447,14 @@ by the inbound/resume drivers on each real turn) — neither exists in
 
 ### Eval score drop
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoEvalScoreDrop` rule exists in
+`deploy/observability/alert-rules.yml` (RUNBOOK-PHANTOM-ALERTS-REMAINING-14, verified 2026-09-03:
+`grep -n 'alert: MaezoEvalScoreDrop' deploy/observability/alert-rules.yml` — 0 hits), nor is a
+golden-eval-score metric emitted to Prometheus by anything in `src/maezo/` — the nightly eval
+artifact this section's steps reference lives in GitHub Actions, not the metrics pipeline. The
+rule belongs in `deploy/observability/alert-rules.yml` (owner-gated). Meanwhile, operators should
+check the nightly eval artifact in GitHub Actions directly (step 1 below) rather than rely on an
+alert.  
 **Alert:** `MaezoEvalScoreDrop`  
 **Meaning:** An agent's golden dataset score has fallen below 0.70.  
 **Steps:**
@@ -450,6 +466,16 @@ by the inbound/resume drivers on each real turn) — neither exists in
 
 ### A2A budget
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoA2ATaskBudgetExceeded` rule exists in
+`deploy/observability/alert-rules.yml`, and no A2A-delegation-spend metric is emitted anywhere in
+`src/maezo/` — nor does `maezo_llm_cost_usd_total` (named in step 6 below) exist; only
+`maezo_llm_tokens_total` (token COUNTS, not cost) is a real, emitted metric
+(RUNBOOK-PHANTOM-ALERTS-REMAINING-14, verified 2026-09-03: `grep -n 'alert:
+MaezoA2ATaskBudgetExceeded' deploy/observability/alert-rules.yml` — 0 hits; `grep -rn
+'maezo_llm_cost_usd_total\|a2a.*budget' src/maezo/` — 0 hits). The rule belongs in
+`deploy/observability/alert-rules.yml` (owner-gated). Meanwhile, operators should watch
+`maezo_llm_tokens_total` (rate, by agent+model) as an imperfect proxy for spend, and grep
+worker/agent logs for delegation-chain depth per the steps below.  
 **Alert:** `MaezoA2ATaskBudgetExceeded`  
 **Meaning:** An agent's A2A (agent-to-agent) delegation is spending > $0.10/min, indicating a runaway task loop.  
 **Context:** A2A budget is $0.50 per conversation window (configurable in `inference_routing.yaml`). The alert fires when the spend rate exceeds $6/hr on a single agent+model_id.
@@ -512,6 +538,16 @@ below is retained for when the L1 approval wiring lands and the alert is re-adde
 
 ### HITL pending
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. Neither `MaezoHITLPendingTooLong` nor
+`MaezoBpmnUserTaskDecisionStalled` exists in `deploy/observability/alert-rules.yml`, and neither
+metric named below (`cibseven_user_task_pending_total`, `maezo_bpmn_usertask_decision_total`) is
+emitted anywhere in `src/maezo/` today (RUNBOOK-PHANTOM-ALERTS-REMAINING-14, verified 2026-09-03:
+`grep -n 'alert: MaezoHITLPendingTooLong\|alert: MaezoBpmnUserTaskDecisionStalled'
+deploy/observability/alert-rules.yml` and `grep -rn 'cibseven_user_task_pending_total\|
+maezo_bpmn_usertask_decision_total' src/maezo/` both 0 hits). Both rules belong in
+`deploy/observability/alert-rules.yml` (owner-gated). Meanwhile, operators should check the CIB
+Seven cockpit/Tasklist UI directly per the steps below — there is no automated queue-age alert
+today.  
 **Alert:** `MaezoHITLPendingTooLong` or `MaezoBpmnUserTaskDecisionStalled`  
 **Meaning:** Human tasks have been pending in the queue for > 30 minutes (SLA breach risk).  
 **Context:** This alert has two related triggers:
@@ -554,6 +590,17 @@ below is retained for when the L1 approval wiring lands and the alert is re-adde
 
 ### LLM cost spike
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. Neither `MaezoLLMCostSpike` nor
+`MaezoLLMTokenRateHigh` exists in `deploy/observability/alert-rules.yml`
+(RUNBOOK-PHANTOM-ALERTS-REMAINING-14, verified 2026-09-03: `grep -n 'alert: MaezoLLMCostSpike\|
+alert: MaezoLLMTokenRateHigh' deploy/observability/alert-rules.yml` — 0 hits). Of the two metrics
+named below, only `maezo_llm_tokens_total` is real and emitted (`src/maezo/runtime/metrics.py`,
+`src/maezo/runtime/inference.py:875`); `maezo_llm_cost_usd_total` does not exist anywhere in
+`src/maezo/` (`grep -rn maezo_llm_cost_usd_total src/maezo/` — 0 hits) — there is no USD-cost
+series today, only token counts. Both rules belong in `deploy/observability/alert-rules.yml`
+(owner-gated). Meanwhile, operators can watch `maezo_llm_tokens_total` (rate, by agent+model) in
+Grafana as the only real signal; cost tracking requires deriving spend from token counts and the
+provider's published per-token price out of band.  
 **Alert:** `MaezoLLMCostSpike` or `MaezoLLMTokenRateHigh`  
 **Meaning:** LLM token consumption or spend rate has exceeded budgeted thresholds.  
 **Context:** 
@@ -587,6 +634,13 @@ below is retained for when the L1 approval wiring lands and the alert is re-adde
 
 ### Trace sampler stalled
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoTraceSamplerStalled` rule exists in
+`deploy/observability/alert-rules.yml` (RUNBOOK-PHANTOM-ALERTS-REMAINING-14, verified 2026-09-03:
+`grep -n 'alert: MaezoTraceSamplerStalled' deploy/observability/alert-rules.yml` — 0 hits).
+`otelcol_exporter_sent_spans` (named below) is the OTel Collector's own self-instrumentation
+metric, not something `src/maezo/` emits — it exists once the collector is deployed and scraped,
+independent of this rule. The rule belongs in `deploy/observability/alert-rules.yml`
+(owner-gated). Meanwhile, operators should check the collector directly per the steps below.  
 **Alert:** `MaezoTraceSamplerStalled`  
 **Meaning:** The OpenTelemetry collector has exported zero spans for > 5 minutes, indicating the trace pipeline is broken.  
 **Context:** 
@@ -635,6 +689,13 @@ below is retained for when the L1 approval wiring lands and the alert is re-adde
 
 ### Collector drop rate
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoCollectorDropRateHigh` rule exists in
+`deploy/observability/alert-rules.yml` (RUNBOOK-PHANTOM-ALERTS-REMAINING-14, verified
+2026-09-03: `grep -n 'alert: MaezoCollectorDropRateHigh' deploy/observability/alert-rules.yml` —
+0 hits). `otelcol_processor_dropped_spans` (named below), like the trace-sampler metric above, is
+the OTel Collector's own self-instrumentation series, not something `src/maezo/` emits. The rule
+belongs in `deploy/observability/alert-rules.yml` (owner-gated). Meanwhile, operators should
+check collector memory/drop metrics directly per the steps below.  
 **Alert:** `MaezoCollectorDropRateHigh`  
 **Meaning:** The OpenTelemetry collector is dropping > 10 spans/second at the processor layer (memory pressure).  
 **Context:** Span drops are typically triggered by the `memory_limiter` processor when the collector reaches its memory ceiling. A high drop rate indicates the trace volume exceeds the collector's capacity. Same namespace caveat as above — the collector runs in `observability`, not `maezo-{tenant}`.
@@ -669,6 +730,15 @@ below is retained for when the L1 approval wiring lands and the alert is re-adde
 
 ### pgvector scale
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. Neither `MaezoMemoryRowcountApproachingCeiling` nor
+`MaezoMemoryRowcountCritical` exists in `deploy/observability/alert-rules.yml`, and
+`maezo_memory_rowcount` (named below, claimed emitted by `mcp_memory/server.py` after each
+`store_episodic`) does not exist anywhere in `src/maezo/` (RUNBOOK-PHANTOM-ALERTS-REMAINING-14,
+verified 2026-09-03: `grep -n 'alert: MaezoMemoryRowcountApproachingCeiling\|alert:
+MaezoMemoryRowcountCritical' deploy/observability/alert-rules.yml` and `grep -rn
+'maezo_memory_rowcount\|rowcount' src/maezo/` both 0 hits). Both rules belong in
+`deploy/observability/alert-rules.yml` (owner-gated). Meanwhile, operators should check the row
+count directly via the `psql` steps below — there is no automated ceiling alert today.  
 **Alert:** `MaezoMemoryRowcountApproachingCeiling` or `MaezoMemoryRowcountCritical`  
 **Meaning:** The agent_memory pgvector table is approaching or exceeding the scaling ceiling for its index configuration.  
 **Context:**
@@ -754,6 +824,22 @@ together in kube-prometheus-stack on tenant clusters that run the operator).
 
 ### Worker task failures
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. Neither `MaezoWorkerTaskFailureRateHigh` nor
+`MaezoWorkerTaskBpmnError` exists in `deploy/observability/alert-rules.yml`
+(RUNBOOK-PHANTOM-ALERTS-REMAINING-14, verified 2026-09-03: `grep -n 'alert:
+MaezoWorkerTaskFailureRateHigh\|alert: MaezoWorkerTaskBpmnError'
+deploy/observability/alert-rules.yml` — 0 hits) — unlike most sections in this document, the
+underlying metric `maezo_worker_task_total` (named below) IS real and emitted
+(`src/maezo/tools/workers/harness.py:99`, `src/maezo/platform/observability.py:562`); only the
+alert RULE is missing, the same shape as the DLQ gap above. The closest shipped rules,
+[`MaezoWorkerCrashLoop`](#maezoworkercrashloop)/[`MaezoSLAWorkerErrorRateHigh`](#maezoslaworkererratehigh),
+read a DIFFERENT metric (`maezo_worker_error_count_total`/`maezo_worker_execution_time_seconds`,
+from `WorkerBase.run()`, not `WorkerHarness._handle`'s dispatch-outcome counter) — related
+family, not a substitute; in particular neither reads the `outcome="bpmn_error"` label this
+section's `ERR_*_NOT_HUMAN` no-denial-guard check (step 3) depends on. Both rules belong in
+`deploy/observability/alert-rules.yml` (owner-gated). Meanwhile, operators should query
+`maezo_worker_task_total{outcome="bpmn_error"}` directly in Grafana/Prometheus and grep
+worker-daemon logs per the steps below.  
 **Alert:** `MaezoWorkerTaskFailureRateHigh` or `MaezoWorkerTaskBpmnError`  
 **Meaning:** The external-task worker harness (worker-daemon) is reporting failures or throwing BPMN errors on a topic.  
 **Context:**
@@ -771,6 +857,18 @@ together in kube-prometheus-stack on tenant clusters that run the operator).
 
 ### ANS submission failed
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoAnsSubmissionFailed` rule exists in
+`deploy/observability/alert-rules.yml`, and `maezo_ans_submission_outcome_total` (named below,
+claimed emitted by the `ans_submit` worker) does not exist anywhere in `src/maezo/`
+(RUNBOOK-PHANTOM-ALERTS-REMAINING-14, verified 2026-09-03: `grep -n 'alert:
+MaezoAnsSubmissionFailed' deploy/observability/alert-rules.yml` and `grep -rn
+maezo_ans_submission_outcome_total src/maezo/` both 0 hits). This is a compliance-relevant gap:
+[`MaezoLifecycleJobFailed`](#maezolifecyclejobfailed) is the closest shipped alert in spirit
+(also a regulatory/compliance CronJob-failure signal, ADR-0020/ADR-0029) but reads an unrelated
+metric (`kube_job_status_failed{job_name=~"lifecycle-.*"}`) and does not cover ANS submission
+outcomes. The rule belongs in `deploy/observability/alert-rules.yml` (owner-gated). Meanwhile,
+operators should check the ans_submit worker logs and CIB Seven cockpit directly per the steps
+below — there is no automated compliance alert for a rejected/late ANS submission today.  
 **Alert:** `MaezoAnsSubmissionFailed`  
 **Meaning:** A regulatory ANS periodic submission was rejected (`nacked`) or missed its deadline (`late`). Compliance event.  
 **Context:** `maezo_ans_submission_outcome_total` (labels: tenant, process_key, outcome) is emitted by the `ans_submit` worker for the SP-OP-ANS-SUBMIT / SP-OP-ANS-CRON cycles (RN124/SIP, RN209, RN388, RN424/TISS, DIOPS).
@@ -782,3 +880,159 @@ together in kube-prometheus-stack on tenant clusters that run the operator).
 4. For `nacked`: inspect the ANS gateway rejection reason and the submission payload; correct and resubmit within the regulatory window
 5. For `late`: identify why the cycle ran late (crashed cron process, stuck User Task, engine downtime) and document the delay for the compliance record
 6. Confirm the corresponding SP-OP-ANS-CRON-001-* process instances are healthy in CIB Seven cockpit
+
+### Alertas implementados
+
+As 9 secoes abaixo (esta nota + 8 alertas) cobrem os alertas REALMENTE existentes em
+`deploy/observability/alert-rules.yml` (RUNBOOK-PHANTOM-ALERTS-REMAINING-14, gap reverso: os
+alertas *shipped* nao tinham nenhuma secao de runbook). Cada secao e derivada ESTRITAMENTE da
+regra (`expr`, `for`, `labels`, `annotations`) — nenhum limiar ou procedimento foi inventado alem
+do que a regra e o padrao das secoes acima ja sustentam. `annotations.runbook_url`: NENHUMA das 8
+regras carrega esse campo hoje (`grep -n runbook_url deploy/observability/alert-rules.yml` — 0
+hits); dito explicitamente em cada secao abaixo em vez de omitido em silencio.
+
+### MaezoSLAWorkerLatencyHigh
+
+**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_sla`).  
+**Alert:** `MaezoSLAWorkerLatencyHigh`  
+**Expr:** `histogram_quantile(0.95, rate(maezo_worker_execution_time_seconds_bucket[5m])) > 5`
+**For:** `5m`
+**Labels:** `severity: warning`, `category: sla`, `component: workers`
+**Annotations:**
+- `summary`: "Worker execution latency P95 exceeds 5s (SLA breach)"
+- `description`: "Worker {{ $labels.worker }} on topic {{ $labels.topic }} has P95 latency of {{ $value }}s over the last 5 minutes. SLA threshold: 5s. Investigate upstream dependency or resource contention."
+- `runbook_url`: ausente na regra.
+
+**Resposta do operador:**
+1. Identificar `worker`/`topic` pelos labels do alerta e checar `kubectl logs -n maezo-{tenant} deploy/worker-daemon | grep {topic}` para latencia de dependencia (engine REST, DB, Kafka).
+2. Correlacionar com `MaezoSLAWorkerErrorRateHigh` (mesmo topic) — latencia alta seguida de erro costuma ser a MESMA causa (dependencia degradada), nao duas.
+3. Se sustentado: escalar como investigacao de performance, nao como incidente de disponibilidade (nao ha `for` curto o bastante para pager imediato — 5m e alerta de tendencia).
+
+### MaezoSLAAgentErrorRateHigh
+
+**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_sla`).  
+**Alert:** `MaezoSLAAgentErrorRateHigh`  
+**Expr:** `(rate(maezo_agent_errors_total[5m]) / rate(maezo_tool_calls_total[5m])) > 0.01`
+**For:** `5m`
+**Labels:** `severity: critical`, `category: sla`, `component: agents`
+**Annotations:**
+- `summary`: "Agent error rate exceeds 1% (SLA breach)"
+- `description`: "Agent error rate is {{ $value | humanizePercentage }} over the last 5 minutes. SLA threshold: 1%. Check agent logs and LLM provider health."
+- `runbook_url`: ausente na regra.
+
+**Resposta do operador:**
+1. Identificar o agente pelo label `agent` e checar `kubectl logs -n maezo-{tenant} deploy/agent-{agent} | grep -i '\[error'` (nota de nivel minusculo, ver secao "DLQ alert" acima).
+2. Checar saude do provedor LLM (rate limit, timeout, erro 5xx) — o denominador e `maezo_tool_calls_total`, entao o numero cru de erros pode ser pequeno mesmo com a razao alta se `tool_calls` tambem caiu.
+3. Se persistente: correlacionar com [`MaezoAgentCrashLoop`](#maezoagentcrashloop) (mesma metrica-fonte `maezo_agent_errors_total`, janela mais curta).
+
+### MaezoSLAWorkerErrorRateHigh
+
+**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_sla`).  
+**Alert:** `MaezoSLAWorkerErrorRateHigh`  
+**Expr:** `(rate(maezo_worker_error_count_total[5m]) / rate(maezo_worker_execution_time_seconds_count[5m])) > 0.05`
+**For:** `5m`
+**Labels:** `severity: warning`, `category: sla`, `component: workers`
+**Annotations:**
+- `summary`: "Worker error rate exceeds 5% (SLA breach)"
+- `description`: "Worker {{ $labels.worker }} on topic {{ $labels.topic }} has error rate of {{ $value | humanizePercentage }} over last 5m. Error type: {{ $labels.error_type }}. Check worker logs."
+- `runbook_url`: ausente na regra.
+
+**Resposta do operador:**
+1. Identificar `worker`/`topic`/`error_type` pelos labels do alerta; `kubectl logs -n maezo-{tenant} deploy/worker-daemon | grep {topic}` para o traceback.
+2. `error_type` distingue falha de negocio (BPMN error esperado) de falha de infra — so a segunda deve virar incidente.
+3. Se sustentado por > 2 janelas de 5m: tratar como o inicio de um crash-loop e checar [`MaezoWorkerCrashLoop`](#maezoworkercrashloop) (mesma metrica de contagem de erro, limiar absoluto em vez de razao).
+
+### MaezoWorkerCrashLoop
+
+**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_crash_loop`).  
+**Alert:** `MaezoWorkerCrashLoop`  
+**Expr:** `rate(maezo_worker_error_count_total[5m]) > 0.01`
+**For:** `5m`
+**Labels:** `severity: critical`, `category: crash_loop`, `component: workers`
+**Annotations:**
+- `summary`: "Worker crash-loop detected: {{ $labels.worker }}"
+- `description`: "Worker {{ $labels.worker }} on topic {{ $labels.topic }} is experiencing sustained error rate of {{ $value }} errors/s (error type: {{ $labels.error_type }}). This may indicate a crash-loop. Check worker health and recent deployments."
+- `runbook_url`: ausente na regra.
+
+**Resposta do operador:**
+1. Checar deployments recentes do worker-daemon: `kubectl rollout history deployment/worker-daemon -n maezo-{tenant}`.
+2. `kubectl logs -n maezo-{tenant} deploy/worker-daemon --previous` para o erro anterior ao restart mais recente, se o pod tambem estiver reiniciando (ver [Crash loop](#crash-loop) para o sinal a nivel de POD, que e um alerta diferente, ainda nao implementado).
+3. Se o erro for `outcome="bpmn_error"` com codigo `ERR_*_NOT_HUMAN`: tratar como INCIDENTE (guard de nao-negacao disparou), nao como crash-loop comum — ver [Worker task failures](#worker-task-failures).
+
+### MaezoAgentCrashLoop
+
+**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_crash_loop`).  
+**Alert:** `MaezoAgentCrashLoop`  
+**Expr:** `rate(maezo_agent_errors_total[1m]) > 0`
+**For:** `2m`
+**Labels:** `severity: critical`, `category: crash_loop`, `component: agents`
+**Annotations:**
+- `summary`: "Agent crash-loop detected"
+- `description`: "Agent errors detected at rate {{ $value }}/s sustained for 2 minutes. Possible crash-loop or persistent upstream failure. Check agent health endpoint and restart policy."
+- `runbook_url`: ausente na regra.
+
+**Resposta do operador:**
+1. Identificar o agente pelo label `agent`; checar `kubectl get pods -n maezo-{tenant} -l app.kubernetes.io/component=agent-{agent}` para status de restart.
+2. `kubectl logs -n maezo-{tenant} deploy/agent-{agent} --previous` para a excecao antes do ultimo restart.
+3. Limiar `> 0` sustentado por 2m e agressivo por design (qualquer erro sustentado dispara) — confirmar se e falha real do agente vs. upstream (provedor LLM) antes de reiniciar o deployment.
+
+### MaezoDeadLetterBacklog
+
+**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_dead_letter`). A
+propria regra se declara sobre uma metrica SINTETICA: "Uses a synthetic metric — replace with
+actual Kafka DLQ metric from the OTel Collector's JMX exporter or Kafka Exporter when available"
+(`alert-rules.yml:118-120`).  
+**Alert:** `MaezoDeadLetterBacklog`  
+**Expr:** `maezo_dead_letter_queue_size > 0`
+**For:** `10m`
+**Labels:** `severity: warning`, `category: dead_letter`, `component: messaging`
+**Annotations:**
+- `summary`: "Dead-letter queue backlog detected"
+- `description`: "Dead-letter queue has {{ $value }} unprocessed messages for more than 10 minutes. Investigate message payloads and consumer health. Topics affected may need manual replay or purge."
+- `runbook_url`: ausente na regra.
+
+**Resposta do operador:**
+1. Ver [DLQ alert](#dlq-alert) acima — os passos manuais de triagem (logs de erro, external tasks travadas no CIB Seven, replay do topico DLQ) se aplicam aqui tambem; este e o alerta REAL para essa condicao, `MaezoDLQRateHigh` (a secao acima) e o planejado.
+2. Confirmar se a fonte da metrica sintetica ja foi substituida por um exporter real (`ALERTS-WITHOUT-METRICS-b`) antes de confiar no valor absoluto de `{{ $value }}`.
+
+### MaezoDeadLetterGrowth
+
+**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_dead_letter`).
+Mesma metrica sintetica de `MaezoDeadLetterBacklog` acima.  
+**Alert:** `MaezoDeadLetterGrowth`  
+**Expr:** `rate(maezo_dead_letter_queue_size[5m]) > 5`
+**For:** `5m`
+**Labels:** `severity: critical`, `category: dead_letter`, `component: messaging`
+**Annotations:**
+- `summary`: "Dead-letter queue growing rapidly"
+- `description`: "Dead-letter queue is growing at {{ $value }}/s. This indicates a systemic consumer failure. Pause producer if necessary and investigate root cause immediately."
+- `runbook_url`: ausente na regra.
+
+**Resposta do operador:**
+1. Este e `critical`, ao contrario de `MaezoDeadLetterBacklog` (`warning`) — crescimento rapido indica falha SISTEMICA de consumidor, nao so um backlog estatico; priorizar sobre o alerta irmao se ambos dispararem juntos.
+2. Considerar pausar o produtor (a regra o sugere explicitamente na `description`) enquanto se investiga a causa raiz do consumidor.
+3. Mesma ressalva de metrica sintetica do alerta acima.
+
+### MaezoLifecycleJobFailed
+
+**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_lifecycle`, T2.9).
+A propria regra documenta que as tres subcommands (`expurgo-working`/`verify-erasure`/
+`audit-retention`) hoje recusam e saem com codigo 78 POR DESIGN (stub fail-closed T2.8) — o
+alerta torna essa recusa visivel no MESMO caminho de alerta dos demais, em vez de exigir
+`kubectl get jobs` manual. Depende de `kube_job_status_failed`
+(kube-state-metrics) — a propria regra registra que NAO ha scrape target configurado em
+`prometheus.yml` ainda, entao a regra nao tem serie para avaliar ate esse scrape existir (nao
+dispara falso-positivo; so nao tem o que alertar ainda).  
+**Alert:** `MaezoLifecycleJobFailed`  
+**Expr:** `kube_job_status_failed{job_name=~"lifecycle-.*"} > 0`
+**For:** `5m`
+**Labels:** `severity: warning`, `category: lifecycle`, `component: lifecycle`
+**Annotations:**
+- `summary`: "Lifecycle CronJob failed: {{ $labels.job_name }}"
+- `description`: "Kubernetes Job {{ $labels.job_name }} (a lifecycle-* CronJob — expurgo-working/verify-erasure/audit-retention) reported a failed status. Every lifecycle subcommand is an intentional fail-closed refusal today (exit 78, T2.8/T2.9) — this confirms the failure is visible beyond `kubectl get jobs`. Check pod logs for the precise blocker (ADR-0020/ADR-0029 for audit-retention; the DPO legal-bases/retention matrix, plus the thread_id->fhir_patient_id mapping gap for verify-erasure, for the other two)."
+- `runbook_url`: ausente na regra.
+
+**Resposta do operador:**
+1. Identificar `job_name` pelo label do alerta; `kubectl logs -n maezo-{tenant} job/{job_name}` para o motivo exato da recusa fail-closed.
+2. A recusa em si e ESPERADA hoje (T2.8) — o alerta confirma visibilidade, nao indica regressao; nao tratar como incidente a menos que o motivo da recusa tenha mudado.
+3. Confirmar que o kube-state-metrics scrape target existe em `prometheus.yml` antes de assumir que a ausencia de disparo significa "sem falhas" — a propria regra avisa que pode nao ter serie para avaliar.

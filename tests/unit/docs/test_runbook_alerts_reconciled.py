@@ -1,34 +1,46 @@
-"""RUNBOOK-PHANTOM-ALERTS-5-MORE — the runbook<->alert-rules fence.
+"""RUNBOOK-PHANTOM-ALERTS-5-MORE / RUNBOOK-PHANTOM-ALERTS-REMAINING-14 — the bidirectional
+runbook<->alert-rules fence, with NO baseline/allowlist.
 
 `docs/runbooks/devops-stack.md` documents Prometheus alert runbooks (`## 6. Alert runbooks`).
-Before this change, five of those alert names had no corresponding rule anywhere in
-`deploy/observability/alert-rules.yml` and nothing in the doc said so: `MaezoDLQRateHigh`,
-`MaezoKafkaConsumerLagHigh`, `MaezoAgentRuntimeDown`, `MaezoFhirSyncDown`, `MaezoPodCrashLooping`
-(the pattern is the same class of defect as `RUNBOOK-PHANTOM-METRICS`, commit `2353d25`, which
-reconciled three others: `MaezoPEPDenySpike`, `MaezoAuditLagHigh`, `MaezoEscalationRateHigh`). A
-reader has no way to tell "this alert exists and can fire" from "this alert is aspirational prose"
-without independently grepping `alert-rules.yml` — exactly the defect class ALERTS-WITHOUT-METRICS-a
-names for metrics, applied here to alert RULES.
+Two distinct defects were found here across two passes:
 
-WHAT THIS FENCE ASSERTS: every `Maezo<Name>` token that names an alert on an `**Alert:**` line in
-the runbook is either (a) a real, shipped rule in `alert-rules.yml`, or (b) named on an `**Alert:**`
-line whose `###` section carries an explicit disclosure marker — `PLANNED — NOT YET IMPLEMENTED`
-(the convention `2353d25` established, reused by this fix) or `**REMOVED**` (the convention the
-pre-existing "HITL approval drop" section uses for an alert that shipped and was later pulled). The
-check is scoped to the `**Alert:**` line specifically (not "anywhere the name is mentioned in the
-section"), because a section's prose routinely cross-references an alert covered by a DIFFERENT
-section (e.g. "HITL approval drop" names `MaezoHITLPendingTooLong` only to point the reader at it —
-that is not a disclosure that the pending-alert name is itself phantom).
+  FORWARD gap (a runbook section claims an alert that does not exist): originally 5 names
+  (`MaezoDLQRateHigh`, `MaezoKafkaConsumerLagHigh`, `MaezoAgentRuntimeDown`, `MaezoFhirSyncDown`,
+  `MaezoPodCrashLooping`), then a fuller census (built alongside this fence's first version) found
+  14 MORE (`MaezoA2ATaskBudgetExceeded`, `MaezoAnsSubmissionFailed`,
+  `MaezoBpmnUserTaskDecisionStalled`, `MaezoCollectorDropRateHigh`, `MaezoEvalScoreDrop`,
+  `MaezoHITLPendingTooLong`, `MaezoLLMCostSpike`, `MaezoLLMTokenRateHigh`,
+  `MaezoMemoryRowcountApproachingCeiling`, `MaezoMemoryRowcountCritical`, `MaezoTraceSamplerStalled`,
+  `MaezoUserTaskSLABreach`, `MaezoWorkerTaskBpmnError`, `MaezoWorkerTaskFailureRateHigh`) — all 19
+  are now disclosed with the `PLANNED — NOT YET IMPLEMENTED` marker (the convention `2353d25`
+  established for 3 originals), or `**REMOVED**` for the one alert (`MaezoHITLApprovalRateDrop`)
+  that shipped and was later pulled.
 
-It does NOT assert the runbook covers every SHIPPED alert (a documentation-coverage gap in the
-other direction — most of the 8 real alerts are not mentioned in the runbook at all — is a
-separate, undisclosed gap, out of scope here) and it does NOT assert every remaining phantom name
-in the file is disclosed: the full census this fence's construction required turned up 14 MORE
-undisclosed phantom alert names beyond the 5 this change fixes (see
-`_KNOWN_UNRECONCILED_PHANTOM_ALERTS` below) — reconciling those is out of scope for
-RUNBOOK-PHANTOM-ALERTS-5-MORE and is disclosed here, not silently swallowed, so this fence does not
-regress further (a FRESH undisclosed name still fails it) without claiming a completeness this
-change does not deliver.
+  REVERSE gap (a real, shipped alert has no runbook section at all): all 8 alerts in
+  `deploy/observability/alert-rules.yml` had zero runbook coverage before this fix. Each now has
+  its own `###` section under "Alertas implementados", derived strictly from the rule's own
+  `expr`/`for`/`labels`/`annotations` — no invented threshold or procedure.
+
+There is deliberately NO allowlist/baseline/grandfather-list anywhere in this file — a prior
+version of this fence carried one for the 14-name gap while it was open; closing that gap deleted
+it, per this program's standing rule that a baseline in a fence is itself the defect it exists to
+remove. The two directions below are individually assertable and together leave nothing
+unaccounted: every name that appears anywhere in the runbook must be shipped or disclosed, and
+every shipped name must appear in the runbook.
+
+DISCLOSURE, precisely defined (two independent forms):
+  1. SECTION disclosure: the name is named on a `**Alert:**` line, and that line's own `###`
+     section (not any other section that happens to mention the name in passing — see the
+     docstring on `_alert_line_names` for the false positive this scoping was built to avoid)
+     contains `PLANNED — NOT YET IMPLEMENTED` or `**REMOVED**` (or, for a shipped alert, the
+     section documents it as `IMPLEMENTADO`).
+  2. IN-PROSE disclosure (for a name that never gets a dedicated `**Alert:**` line/section of its
+     own): the name is wrapped in the fixed phrase `alerta planejado` (pt-BR) or `planned alert`
+     (English), case-insensitive, on the SAME line — e.g. "alerta planejado `MaezoX`" or "a
+     planned alert, `MaezoX`, ...". This form does not exist in the runbook today (every name
+     currently has its own `**Alert:**` line), so it is unused in practice, but it is defined and
+     unit-tested here precisely because the fence must not silently regress into needing a
+     baseline again the next time someone adds a name only in passing prose without a section.
 """
 
 from __future__ import annotations
@@ -43,54 +55,45 @@ _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
 _RUNBOOK: Final[Path] = _REPO_ROOT / "docs" / "runbooks" / "devops-stack.md"
 _ALERT_RULES: Final[Path] = _REPO_ROOT / "deploy" / "observability" / "alert-rules.yml"
 
-#: The disclosure markers this repo uses, in this file, to say "this named alert cannot fire
-#: today" — either it was never built (PLANNED) or it was built and later pulled (REMOVED). A
-#: section carrying either, anywhere in it, discloses every alert name named on that section's own
-#: `**Alert:**` line(s) — matching the existing house style (RUNBOOK-PHANTOM-METRICS, `2353d25`)
-#: of one **Status:** paragraph per `###` section.
-_DISCLOSURE_MARKERS: Final[tuple[str, ...]] = (
+#: The disclosure markers this repo uses to say "this named alert cannot fire today" — never
+#: built (PLANNED) or built-then-pulled (REMOVED) — plus the marker a shipped alert's own section
+#: carries instead (IMPLEMENTADO). A section carrying any of the three, anywhere in it, discloses
+#: every alert name named on that section's own `**Alert:**` line(s).
+_SECTION_DISCLOSURE_MARKERS: Final[tuple[str, ...]] = (
     "PLANNED — NOT YET IMPLEMENTED",
     "**REMOVED**",
+    "IMPLEMENTADO",
 )
 
-#: Alert names the runbook mentions on an `**Alert:**` line with NEITHER a shipped rule NOR a
-#: disclosure marker in that line's own section, found by this fence's own construction
-#: (2026-09-03) and confirmed OUT OF SCOPE for RUNBOOK-PHANTOM-ALERTS-5-MORE (which reconciles
-#: exactly 5 named gaps: `MaezoDLQRateHigh`, `MaezoKafkaConsumerLagHigh`, `MaezoAgentRuntimeDown`,
-#: `MaezoFhirSyncDown`, `MaezoPodCrashLooping` — all NOT in this set, all disclosed by this same
-#: change). Each entry is disclosed debt, not a silent pass: it is checked against the LIVE
-#: runbook content below, not a frozen copy, so removing an entry's disclosure without adding a
-#: marker makes this fence catch it immediately. A brand-new undisclosed name is NOT covered by
-#: this allowlist and fails the fence — this list is a closed, dated inventory, not an open escape
-#: hatch (widening it is a reviewed edit, exactly like `EXTERNAL_ALERT_METRICS` in
-#: `test_alert_metrics_fence.py`). Suggested follow-up gap id for reconciling these:
-#: `RUNBOOK-PHANTOM-ALERTS-REMAINING-14`.
-_KNOWN_UNRECONCILED_PHANTOM_ALERTS: Final[frozenset[str]] = frozenset(
+#: The fixed phrases that make an in-prose mention self-disclosing (see module docstring, form 2).
+_IN_PROSE_MARKERS: Final[tuple[str, ...]] = (
+    "alerta planejado",
+    "planned alert",
+)
+
+#: The 8 real alerts, pinned exactly (not merely "at least") — both a non-vacuity floor and a
+#: change-detector: if `alert-rules.yml` gains or loses an alert, this test fails until a human
+#: updates both this constant and the corresponding runbook section, so the two can never quietly
+#: drift apart again the way they did before this fix (reverse gap: zero of the 8 had a section).
+_SHIPPED_ALERT_NAMES_FLOOR: Final[frozenset[str]] = frozenset(
     {
-        "MaezoA2ATaskBudgetExceeded",
-        "MaezoAnsSubmissionFailed",
-        "MaezoBpmnUserTaskDecisionStalled",
-        "MaezoCollectorDropRateHigh",
-        "MaezoEvalScoreDrop",
-        "MaezoHITLPendingTooLong",
-        "MaezoLLMCostSpike",
-        "MaezoLLMTokenRateHigh",
-        "MaezoMemoryRowcountApproachingCeiling",
-        "MaezoMemoryRowcountCritical",
-        "MaezoTraceSamplerStalled",
-        "MaezoUserTaskSLABreach",
-        "MaezoWorkerTaskBpmnError",
-        "MaezoWorkerTaskFailureRateHigh",
+        "MaezoSLAWorkerLatencyHigh",
+        "MaezoSLAAgentErrorRateHigh",
+        "MaezoSLAWorkerErrorRateHigh",
+        "MaezoWorkerCrashLoop",
+        "MaezoAgentCrashLoop",
+        "MaezoDeadLetterBacklog",
+        "MaezoDeadLetterGrowth",
+        "MaezoLifecycleJobFailed",
     }
 )
 
-#: Names this fence must find in the live runbook for its own non-vacuity check — proof the parse
-#: still works, not the closed set of names the file may contain.
-_MUST_BE_IMPLEMENTED_FLOOR: Final[str] = "MaezoAgentCrashLoop"
+#: Names this fence must find in the live runbook for its own non-vacuity check.
 _MUST_BE_PLANNED_FLOOR: Final[str] = "MaezoDLQRateHigh"
 
 #: `[A-Za-z0-9]`, not just letters — several real alert names carry digits (`MaezoA2ATaskBudget
-#: Exceeded`). A letters-only class silently truncates those to a wrong, shorter token.
+#: Exceeded`). A letters-only class silently truncates those to a wrong, shorter token (caught
+#: during this fence's construction: an earlier draft matched only `MaezoA`).
 _ALERT_NAME_RE: Final[re.Pattern[str]] = re.compile(r"\bMaezo[A-Za-z][A-Za-z0-9]*\b")
 _ALERT_LINE_RE: Final[re.Pattern[str]] = re.compile(r"^\*\*Alert:\*\*.*$", re.MULTILINE)
 
@@ -116,36 +119,59 @@ def _names_in(text: str) -> set[str]:
 
 
 def _alert_line_names(section: str) -> set[str]:
-    """Names named on this section's own `**Alert:**` line(s) — the section's SUBJECT alerts."""
+    """Names named on this section's own `**Alert:**` line(s) — the section's SUBJECT alerts.
+
+    Scoped to the `**Alert:**` line specifically, not "anywhere the name is mentioned in the
+    section": a section's prose routinely cross-references an alert covered by a DIFFERENT
+    section (e.g. "HITL approval drop" names `MaezoHITLPendingTooLong` only to point the reader at
+    it — that must not be read as a claim that the pending-alert name is itself defined here, nor
+    as this section disclosing it).
+    """
     return {name for line in _ALERT_LINE_RE.findall(section) for name in _names_in(line)}
 
 
-def _all_runbook_subject_alert_names() -> set[str]:
-    """Every name that appears on an `**Alert:**` line anywhere in the runbook.
+def _all_runbook_alert_names() -> set[str]:
+    """Every Maezo* token anywhere in the runbook — the full accountability set.
 
-    This is the set the fence holds accountable — a name mentioned only in passing prose (a
-    cross-reference, a metric name that happens to share the `Maezo` prefix pattern) is not itself
-    a claim that the alert exists, so it is not required to be shipped or disclosed.
+    Whole-document, not just `**Alert:**` lines: the point of removing the baseline is that
+    NOTHING gets a free pass, including a name that might show up only in passing prose. (Verified
+    while building this fence: every current occurrence outside `## 6. Alert runbooks` is zero —
+    `grep` the section-6-vs-whole-file diff in the construction notes — so this is not currently
+    pulling in unrelated noise from earlier sections of the doc.)
     """
-    return {name for section in _runbook_sections() for name in _alert_line_names(section)}
+    return _names_in(_RUNBOOK.read_text(encoding="utf-8"))
 
 
-def _disclosed_subject_alert_names() -> set[str]:
-    """Subject alert names whose OWN section carries a disclosure marker."""
+def _section_disclosed_names() -> set[str]:
+    """Subject alert names (on an `**Alert:**` line) whose OWN section carries a marker."""
     disclosed: set[str] = set()
     for section in _runbook_sections():
-        if any(marker in section for marker in _DISCLOSURE_MARKERS):
+        if any(marker in section for marker in _SECTION_DISCLOSURE_MARKERS):
             disclosed |= _alert_line_names(section)
+    return disclosed
+
+
+def _in_prose_disclosed_names() -> set[str]:
+    """Names wrapped in an in-prose disclosure phrase on the same line (form 2, module docstring).
+
+    Line-scoped, not section-scoped: the phrase and the name must appear together as a single,
+    self-contained disclosure — "alerta planejado `MaezoX`" — not merely somewhere in a section
+    that happens to also discuss something else planned.
+    """
+    disclosed: set[str] = set()
+    for line in _RUNBOOK.read_text(encoding="utf-8").splitlines():
+        lowered = line.lower()
+        if any(marker in lowered for marker in _IN_PROSE_MARKERS):
+            disclosed |= _names_in(line)
     return disclosed
 
 
 def test_the_parse_is_non_vacuous() -> None:
     """A fence that found nothing would pass everything — anchor it to known-good and known-bad."""
-    names = _all_runbook_subject_alert_names()
-    assert names, "no **Alert:** line with a Maezo* name found — the regex or file path broke"
+    names = _all_runbook_alert_names()
+    assert names, "no Maezo* alert name found in the runbook — the regex or file path broke"
     shipped = _shipped_alert_names()
     assert shipped, "no alert parsed from alert-rules.yml — the yaml parse broke"
-    assert _MUST_BE_IMPLEMENTED_FLOOR in shipped, sorted(shipped)
     assert _MUST_BE_PLANNED_FLOOR in names, sorted(names)
     assert _MUST_BE_PLANNED_FLOOR not in shipped, (
         f"{_MUST_BE_PLANNED_FLOOR} is a PLANNED example for this test and must stay phantom for "
@@ -154,55 +180,96 @@ def test_the_parse_is_non_vacuous() -> None:
     )
 
 
-def test_every_runbook_alert_name_is_shipped_disclosed_or_known_debt() -> None:
-    """The fence: every `**Alert:**`-line name in the runbook is accounted for by one of three
-    buckets — shipped, disclosed in its own section, or dated known debt.
+def test_shipped_alerts_are_exactly_the_pinned_eight() -> None:
+    """Non-vacuity + change-detector for the reverse-gap fence below.
 
-    A name that is none of the three is a FRESH undisclosed phantom alert and fails here.
+    Deliberately an EXACT match, not `<=`/`>=`: `alert-rules.yml` is owner-gated, so a change to it
+    is already a reviewed edit — this test forces that review to also touch this file (and, via
+    the next test, the runbook section), instead of the reverse gap re-opening silently the way it
+    did before this fix (all 8 existing alerts had zero runbook coverage).
     """
-    names = _all_runbook_subject_alert_names()
-    shipped = _shipped_alert_names()
-    disclosed = _disclosed_subject_alert_names()
-
-    unaccounted = names - shipped - disclosed - _KNOWN_UNRECONCILED_PHANTOM_ALERTS
-    assert not unaccounted, (
-        f"alert name(s) {sorted(unaccounted)} on an **Alert:** line in {_RUNBOOK} are neither a "
-        f"shipped rule in {_ALERT_RULES}, nor disclosed with a PLANNED/REMOVED marker in their own "
-        "section, nor in the dated known-debt allowlist. Either the rule needs to ship, or the "
-        "section needs a disclosure marker (see RUNBOOK-PHANTOM-ALERTS-5-MORE for the wording)."
+    assert _shipped_alert_names() == _SHIPPED_ALERT_NAMES_FLOOR, (
+        f"alert-rules.yml now defines {sorted(_shipped_alert_names())}, not the pinned "
+        f"{sorted(_SHIPPED_ALERT_NAMES_FLOOR)} — update _SHIPPED_ALERT_NAMES_FLOOR AND add/remove "
+        "the corresponding runbook section under 'Alertas implementados'."
     )
 
 
-def test_the_five_gaps_this_change_fixes_are_disclosed_not_shipped() -> None:
-    """RUNBOOK-PHANTOM-ALERTS-5-MORE's own five names: still phantom, now disclosed as such."""
+def test_every_shipped_alert_has_a_runbook_section() -> None:
+    """The REVERSE gap fence: every real alert must be named on some `**Alert:**` line.
+
+    Before this change all 8 shipped alerts had ZERO runbook coverage — this is the fence that
+    keeps that from happening again silently.
+    """
+    subject_names = {name for section in _runbook_sections() for name in _alert_line_names(section)}
+    missing = _SHIPPED_ALERT_NAMES_FLOOR - subject_names
+    assert not missing, (
+        f"shipped alert(s) {sorted(missing)} have no '**Alert:**' line anywhere in {_RUNBOOK} — "
+        "add a runbook section for them under 'Alertas implementados', derived strictly from "
+        "their alert-rules.yml rule."
+    )
+
+
+def test_every_runbook_alert_name_is_shipped_or_disclosed_with_no_baseline() -> None:
+    """The FORWARD gap fence, with NO allowlist: every name anywhere in the runbook is either a
+    shipped rule or disclosed (section- or in-prose-form). A name that is neither fails here —
+    there is no escape hatch to add it to."""
+    names = _all_runbook_alert_names()
     shipped = _shipped_alert_names()
-    disclosed = _disclosed_subject_alert_names()
-    five = {
+    disclosed = _section_disclosed_names() | _in_prose_disclosed_names()
+
+    unaccounted = names - shipped - disclosed
+    assert not unaccounted, (
+        f"alert name(s) {sorted(unaccounted)} in {_RUNBOOK} are neither a shipped rule in "
+        f"{_ALERT_RULES}, nor disclosed (PLANNED/REMOVED/IMPLEMENTADO marker in their own "
+        "section, or an in-prose 'alerta planejado'/'planned alert' phrase on the same line). "
+        "There is no baseline/allowlist for this fence — either the rule needs to ship, or the "
+        "runbook needs a disclosure."
+    )
+
+
+def test_the_nineteen_forward_gap_names_are_disclosed_not_shipped() -> None:
+    """The specific 19 names both reconciliation passes fixed: still phantom, now disclosed."""
+    shipped = _shipped_alert_names()
+    disclosed = _section_disclosed_names() | _in_prose_disclosed_names()
+    nineteen = {
         "MaezoDLQRateHigh",
         "MaezoKafkaConsumerLagHigh",
         "MaezoAgentRuntimeDown",
         "MaezoFhirSyncDown",
         "MaezoPodCrashLooping",
+        "MaezoA2ATaskBudgetExceeded",
+        "MaezoAnsSubmissionFailed",
+        "MaezoBpmnUserTaskDecisionStalled",
+        "MaezoCollectorDropRateHigh",
+        "MaezoEvalScoreDrop",
+        "MaezoHITLPendingTooLong",
+        "MaezoLLMCostSpike",
+        "MaezoLLMTokenRateHigh",
+        "MaezoMemoryRowcountApproachingCeiling",
+        "MaezoMemoryRowcountCritical",
+        "MaezoTraceSamplerStalled",
+        "MaezoUserTaskSLABreach",
+        "MaezoWorkerTaskBpmnError",
+        "MaezoWorkerTaskFailureRateHigh",
     }
-    assert five <= disclosed, sorted(five - disclosed)
-    assert not (five & shipped), sorted(five & shipped)
+    assert nineteen <= disclosed, sorted(nineteen - disclosed)
+    assert not (nineteen & shipped), sorted(nineteen & shipped)
 
 
-def test_known_debt_allowlist_names_are_genuinely_absent_from_both_shipped_and_disclosed() -> None:
-    """The allowlist is a closed, honest inventory — not a mislabel hiding a name that IS fine.
+def test_in_prose_disclosure_form_is_detected_when_present() -> None:
+    """Unit-proves form 2 (module docstring) in isolation, since no real runbook name needs it
+    today — a synthetic sample, not a read of the live file, so this stays green regardless of
+    what the runbook currently contains."""
+    sample_pt = "Este e um alerta planejado, `MaezoSyntheticExampleOnly`, ainda sem regra."
+    sample_en = "This is a planned alert, `MaezoAnotherSyntheticExample`, with no rule yet."
+    sample_bare = "This section merely mentions `MaezoBareMentionNotDisclosed` in passing."
 
-    If a name here were actually shipped or disclosed, it should not be on this list (a stale
-    allowlist entry hides nothing dangerous, but it is dead weight this test should catch). If a
-    name here no longer appears in the runbook at all, it should also be removed.
-    """
-    shipped = _shipped_alert_names()
-    disclosed = _disclosed_subject_alert_names()
-    names = _all_runbook_subject_alert_names()
-
-    stale = _KNOWN_UNRECONCILED_PHANTOM_ALERTS & (shipped | disclosed)
-    assert not stale, f"allowlist entry now shipped or disclosed — remove from the list: {stale}"
-
-    vanished = _KNOWN_UNRECONCILED_PHANTOM_ALERTS - names
-    assert not vanished, (
-        f"allowlist entry no longer names an **Alert:** line in the runbook — remove: {vanished}"
+    assert "MaezoSyntheticExampleOnly" in _names_in(sample_pt)
+    assert any(marker in sample_pt.lower() for marker in _IN_PROSE_MARKERS)
+    assert "MaezoAnotherSyntheticExample" in _names_in(sample_en)
+    assert any(marker in sample_en.lower() for marker in _IN_PROSE_MARKERS)
+    assert not any(marker in sample_bare.lower() for marker in _IN_PROSE_MARKERS), (
+        "a bare mention with neither phrase must NOT be treated as self-disclosing — that would "
+        "defeat the whole point of requiring the fixed phrase"
     )
