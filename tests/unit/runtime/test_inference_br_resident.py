@@ -778,7 +778,15 @@ async def test_i6_still_fires_with_this_legs_code_fully_neutered(
     permission. Mirrors ``test_per_call_phi_refusal_is_unchanged_when_the_flag_is_off``.
     """
     monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-test")
-    monkeypatch.setattr("maezo.runtime.inference.br_endpoint_denial_reasons", lambda _url: ())
+    # D2-02 split (docs/reports/inference-split-plan.md §5 step 7): `BrResidentInferenceProvider`
+    # resolves `br_endpoint_denial_reasons` as a free variable from ITS OWN defining module's
+    # globals (`_inference_split.br_resident_provider`, since step 7), not from
+    # `maezo.runtime.inference` — patching the old path stopped intercepting anything the moment
+    # the class moved (same LEGB finding as step 6's logger fix).
+    monkeypatch.setattr(
+        "maezo.runtime._inference_split.br_resident_provider.br_endpoint_denial_reasons",
+        lambda _url: (),
+    )
     monkeypatch.setattr(BrResidentInferenceProvider, "_validate_response", lambda self, response: response)
 
     provider = InferenceProvider(settings=InferenceSettings(provider="anthropic"))

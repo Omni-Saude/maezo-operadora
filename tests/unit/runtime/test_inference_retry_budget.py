@@ -35,6 +35,7 @@ import pytest
 import structlog
 
 from maezo.runtime import inference as inf
+from maezo.runtime._inference_split import br_resident_provider as br_resident_impl
 from maezo.runtime.inference import (
     BR_REGIONAL_ATTESTED_REGION,
     ENV_PHI_API_KEY,
@@ -352,7 +353,12 @@ async def test_red_control_neutered_commit_guard_re_sends_phi_after_bytes_sent(
     sleep = _RecordingSleep()
     budget = RetryBudget(max_attempts=3, base_backoff_s=0.5, jitter_ratio=0.0)
     adapter = _retry_adapter(monkeypatch, transport=transport, budget=budget, sleep=sleep)
-    monkeypatch.setattr(inf, "retry_denial_reason", _committed_blind_denial_reason)
+    # D2-02 split (docs/reports/inference-split-plan.md §5 step 7): `BrResidentInferenceProvider`
+    # resolves `retry_denial_reason` as a free variable from ITS OWN defining module
+    # (`_inference_split.br_resident_provider`, since step 7), not from the `inf` (=
+    # `maezo.runtime.inference`) alias — patching the old module object stopped intercepting
+    # anything the moment the class moved (same LEGB finding as step 6's logger fix).
+    monkeypatch.setattr(br_resident_impl, "retry_denial_reason", _committed_blind_denial_reason)
 
     with pytest.raises(BrRegionalTransportUnavailableError):
         await adapter.generate(_PROMPT_CANARY)
@@ -440,7 +446,8 @@ async def test_red_control_neutered_attempt_bound_runs_past_the_budget(
     sleep = _RecordingSleep()
     budget = RetryBudget(max_attempts=3, base_backoff_s=0.0, jitter_ratio=0.0)
     adapter = _retry_adapter(monkeypatch, transport=transport, budget=budget, sleep=sleep)
-    monkeypatch.setattr(inf, "retry_denial_reason", _attempt_blind_denial_reason)
+    # D2-02 split note: see the RED-control test above for why this targets `br_resident_impl`.
+    monkeypatch.setattr(br_resident_impl, "retry_denial_reason", _attempt_blind_denial_reason)
 
     completion = await adapter.generate(_PROMPT_CANARY)
 

@@ -62,7 +62,7 @@ import yaml
 
 from maezo.gateway.seams import SeamContext, is_gated_seam
 from maezo.gateway.seams.inference import GatedInferenceProvider, gate_inference
-from maezo.runtime import inference as inf
+from maezo.runtime._inference_split import br_resident_provider as br_resident_impl
 from maezo.runtime.inference import (
     BR_REGIONAL_ATTESTED_REGION,
     BR_REGIONAL_ENDPOINT_HOST_SUFFIXES,
@@ -178,7 +178,12 @@ def _gated_br_stack(
     """
     _set_owner_acts(monkeypatch)
     transport = LabeledFakeBrRegionalTransport(outcome=outcome)
-    monkeypatch.setattr(inf, "resolve_br_regional_transport", lambda _t: transport)
+    # D2-02 split (docs/reports/inference-split-plan.md §5 step 7): `BrResidentInferenceProvider`
+    # resolves `resolve_br_regional_transport` as a free variable from ITS OWN defining module
+    # (`_inference_split.br_resident_provider`, since step 7), not from the `inf` (=
+    # `maezo.runtime.inference`) alias — patching the old module object stopped intercepting
+    # anything the moment the class moved (same LEGB finding as step 6's logger fix).
+    monkeypatch.setattr(br_resident_impl, "resolve_br_regional_transport", lambda _t: transport)
     facade = InferenceProvider(settings=InferenceSettings(provider="br_resident", model=_MODEL))
     gated = gate_inference(facade, _canary_seam())
     return gated, transport
@@ -254,7 +259,8 @@ class _LyingUsageTransport:
 
 def _neuter_endpoint_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
     """Turn the endpoint allowlist into an always-approve — the shape a fallback would need."""
-    monkeypatch.setattr(inf, "br_endpoint_denial_reasons", lambda _url: ())
+    # D2-02 split note: see `_seam_over_fake`'s comment above — same module-move reasoning.
+    monkeypatch.setattr(br_resident_impl, "br_endpoint_denial_reasons", lambda _url: ())
 
 
 # =================================================================================================
