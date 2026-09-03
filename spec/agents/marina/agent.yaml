@@ -1,19 +1,21 @@
-# Marina Andrade — Analista de Contas Medicas e Recurso de Glosa (Phase 2)
+# Marina Andrade — Analista de Contas Medicas e de Recurso de Glosa da OPERADORA (Phase 2)
 id: marina
 name: "Marina Andrade"
-role: "Analista de Contas Medicas e Recurso de Glosa — instrui SP-OP-CONTAS-001/RECURSO-001 e monta o dossie do analista/auditor"
+role: "Analista de Contas Medicas e de Recurso de Glosa da operadora — instrui SP-OP-CONTAS-001/RECURSO-001 e monta o dossie do analista/auditor"
 phase: 2
 autonomy_level: L2
 process_keys:
   - SP-OP-CONTAS-001
   - SP-OP-RECURSO-001
-reports_to: "coordenacao-faturamento@amh"
+# `faturamento` e a funcao de COBRANCA do prestador; a operadora tem analise/auditoria de contas.
+# Alinhado ao candidate group que o BPMN ja usa em UT_CoordenacaoContasAssume (ADR-0040).
+reports_to: "coordenacao-contas@amh"
 security_zone: phi
 graph: graph.py:build
 prompt_versions:
-  system: system-v1
-  dossier: dossier-v1
-  recurso: recurso-v1
+  system: system-v2
+  dossier: dossier-v2
+  recurso: recurso-v2
   reembolso: reembolso-v1
 model:
   task_default: { tier: fast }
@@ -30,15 +32,22 @@ autonomy_actions:
   - start_compliance_process
   - read_write_memory
 kpis:
+  # KPIs de PAGADOR. `recurso_recovery_rate` (taxa de recuperacao de receita glosada) foi
+  # REMOVIDA: e metrica do CREDOR que recorre, nao de quem julga o recurso (ADR-0040).
+  # `target: "track"` = medir, nao atingir — nenhum alvo numerico foi validado (exige PO +
+  # financas).
   - { name: dossier_completeness, target: ">0.95" }
-  - { name: recurso_recovery_rate, target: "track" }
+  - { name: glosa_rate, target: "track" }
+  - { name: prazo_medio_analise_conta, target: "track" }
+  - { name: taxa_deferimento_recurso, target: "track" }
+  - { name: prazo_medio_resposta_recurso, target: "track" }
   - { name: human_routing_precision, target: "track" }
   - { name: eval_score, target: ">0.9" }
   - { name: false_denial_rate, target: "==0" }
 escalation:
   process: SP-OP-CONTAS-001
   secondary_process: SP-OP-RECURSO-001
-  human_manager: coordenacao-faturamento
+  human_manager: coordenacao-contas
   triggers:
     - dmn: glosa_triage=ANALISE_HUMANA
     - dmn: recurso_admissibility=PENDENTE_DOCUMENTACAO

@@ -134,25 +134,35 @@ key `ANSSUB-amh-RN_124_SIP-2026-01`.
 
 ## Cron per-report_type (SP-OP-ANS-CRON-001 — GAP-ANS-1)
 
-### test_cron_dispara_envio_por_report_type
+### test_cron_competencia_computada_por_report_type
+> Correcao de citacao fantasma: ate ANS-CRON-DEAD-CODE este cabecalho nomeava
+> `test_cron_dispara_envio_por_report_type`, teste que NAO existe (nem existia em `71dd4da`) —
+> defeito PRE-EXISTENTE, nao introduzido por aquele WP. Os ids reais estao em
+> `tests/integration/processes/test_sp_op_ans_cron_001.py`; a spec canonica do cron e
+> `docs/processes/test-specs/SP-OP-ANS-CRON-001.md`.
+
 - **Given** SP-OP-ANS-CRON-001 deployado (5 definitions, um TimerStartEvent por `report_type`)
-- **When** os jobs dos timer starts de DOIS tipos (`RN124SIP` mensal e `DIOPS` trimestral,
-  parametrizado) sao executados via job-execution (**NUNCA `sleep`**)
-- **Then** cada cron publica o fato `ans.cron_due` (`operadora.notifications.internal`) com
-  `report_type`/`periodicidade` do SEU proprio start; o fato AINDA carrega o literal BPMN
-  `competencia="COMPETENCIA_PENDENTE"`, mas o worker REAL (`operadora.events.publish`) tambem grava
-  a ancora `ans_cron_reference_date_iso`; o planejador REAL da ponte (`plan_start`, em
-  `notification_bridge._ans_submit_variables_from_cron_due`) deriva o start de
-  SP-OP-ANS-SUBMIT-001 com bk deterministica `ANSSUB-{tenant}-{report_type}-{competencia}`, onde
-  `competencia` HOJE **permanece a sentinela `COMPETENCIA_PENDENTE`** (GAP-FAB-NOTIF fix: a versao
-  anterior deste caso citava `_competencia_from_anchor`, que nao existe no repo — GAP-ANS-1
-  continua ABERTO; a implementacao real do calculo, `ans_cron._compute_competencia`
-  `src/maezo/tools/workers/ans_cron.py:37`, existe mas e codigo morto, inalcancavel a partir do
-  BPMN deployado — ver `docs/processes/contracts/SP-OP-ANS-CRON-001.md` §"res-ans-competencia-
-  sentinel"); fatos de admissibilidade permanecem fail-closed; `ans_calendar` resolve
-  calendarios DISTINTOS por tipo; a admissibilidade roteia `PENDENTE` → `UT_CorrigirPendenciaEnvio`
-  (humano permanece o gate — a sentinela NAO auto-transmite); **nenhum** caminho cron
-  transmite (`ST_SubmeterEnvio` ausente do historico — HITL)
+- **When** os jobs dos timer starts sao executados via job-execution (**NUNCA `sleep`**) — o teste
+  e parametrizado sobre os 5 `report_type` da taxonomia
+- **Then** cada cron resolve a competencia em `ST_ResolverCompetencia*`
+  (`operadora.ans_cron.trigger_submissions`) e so entao publica o fato `ans.cron_due`
+  (`operadora.notifications.internal`) com `report_type`/`periodicidade` do SEU proprio start; o
+  fato carrega um periodo FECHADO real em `competencia` (NAO mais o literal
+  `COMPETENCIA_PENDENTE`, que deixou de existir nos `camunda:inputParameter`) mais a ancora
+  `competencia_referencia_iso` de que foi derivado; o worker REAL (`operadora.events.publish`)
+  tambem grava `ans_cron_reference_date_iso` (instante da publicacao); o planejador REAL da ponte
+  (`plan_start`, em `notification_bridge._ans_submit_variables_from_cron_due`) deriva o start de
+  SP-OP-ANS-SUBMIT-001 com bk deterministica `ANSSUB-{tenant}-{report_type}-{competencia}`
+  (GAP-FAB-NOTIF fix: a versao anterior deste caso citava `_competencia_from_anchor`, que nao
+  existe no repo; a implementacao real do calculo e `ans_cron._compute_competencia`
+  `src/maezo/tools/workers/ans_cron.py:127`, hoje ALCANCAVEL — GAP-ANS-1 FECHADO por
+  ANS-CRON-DEAD-CODE). A sentinela so sobrevive fail-closed para `report_type` fora da taxonomia,
+  caso que os 5 literais do BPMN nao conseguem emitir. **DRAFT/verify regulatorio**: cadencia,
+  mapeamento periodo->competencia e o fuso da ancora seguem NAO confirmados. Fatos de
+  admissibilidade permanecem fail-closed; `ans_calendar` resolve calendarios DISTINTOS por tipo; a
+  admissibilidade roteia `PENDENTE` → `UT_CorrigirPendenciaEnvio` (humano permanece o gate);
+  **nenhum** caminho cron transmite (`ST_SubmeterEnvio` ausente do historico — HITL, provado por
+  `test_cron_dispara_fato_e_nao_inicia_submit_automaticamente`)
 
 ### test_dmn_ans_calendar_diferencia_due_date_por_competencia
 - **Given/When** `ans_calendar` avaliada no engine real com o MESMO `report_type` e competencias

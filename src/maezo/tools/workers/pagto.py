@@ -509,7 +509,7 @@ def _norm_str(value: Any) -> str:
     R1 live-validation finding (t2.5-p2b-round2, wave2a, 3 of 12 bypass vectors): the guard's
     original bare `if not aprovador_id` / `if not justificativa` checks let WHITESPACE-ONLY
     accountability fields REGISTER a refusal — defeating ADR-0007 (a refusal recorded with a
-    non-identifying approver) — whereas the claimed mirror `recurso.register_desistencia`
+    non-identifying approver) — whereas the claimed mirror `recurso.registrar_indeferimento`
     `.strip()`s every human field. This helper closes that class:
     - a `str` normalizes to `value.strip()` — whitespace-only ("   ", "\\t", "\\n", ...)
       becomes "" and is treated EXACTLY like an absent field (refusal, never registration);
@@ -659,8 +659,8 @@ def register_payment_refusal(variables: dict[str, Any]) -> dict[str, Any]:
     IS adverse-SHAPED for the counterparty (a formal refusal/return-for-review record) and is
     channel-gated identically to a genuine adverse effect -- so this worker GUARDS it exactly
     like `release_high_value_payment` guards a release, refusing to register anything absent a
-    genuine human decision (mirrors `recurso.register_desistencia`'s dual-channel
-    refuse-if-no-human pattern, `DesistenciaNotHumanError`).
+    genuine human decision (mirrors `recurso.registrar_indeferimento`'s dual-channel
+    refuse-if-no-human pattern, `RecursoIndeferimentoNotHumanError`).
 
     GUARDED, dual channel -- ONE of TWO human decisions must be attempted:
     - alcada channel (`Flow_GWDec_Recusar`, GW_DecisaoPagamento's OWN conservative default --
@@ -686,7 +686,7 @@ def register_payment_refusal(variables: dict[str, Any]) -> dict[str, Any]:
 
     NORMALIZATION (R1 live-validation fix, t2.5-p2b-round2 wave2a finding): ALL decision and
     human-accountability fields are normalized via `_norm_str` (strip; non-string -> "") BEFORE
-    any guard check -- mirroring `recurso.register_desistencia`'s `.strip()` treatment of every
+    any guard check -- mirroring `recurso.registrar_indeferimento`'s `.strip()` treatment of every
     human field. Consequences, all fail-closed:
     - whitespace-only `aprovador_id`/`justificativa_recusa` (space/tab/newline) REFUSES exactly
       like an absent field (was the 3-of-12-vector bypass: V4/V5/V12 previously REGISTERED);

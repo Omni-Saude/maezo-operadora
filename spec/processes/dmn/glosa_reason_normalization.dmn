@@ -9,10 +9,11 @@
     glosa_reason_normalization v0.1.0 — status: DRAFT (mapa reason_code TISS -> categoria
     requer SME faturamento/auditoria de contas + tabela TISS vigente ANS; docs/review-queue.md).
     Consumida por SP-OP-CONTAS-001 e mcp-dmn.
-    INVARIANTE L0 HARD: esta tabela NAO possui saida de aceite/negativa de glosa. Apenas
-    normaliza o reason_code bruto TISS em uma categoria interna. Codigo desconhecido ->
+    INVARIANTE L0 HARD: esta tabela NAO possui saida que glose nem que libere pagamento. Apenas
+    normaliza em uma categoria interna o codigo TISS de motivo de glosa apurado pela analise de
+    contas da operadora sobre a conta apresentada pelo prestador. Codigo desconhecido ->
     categoria_normalizada="desconhecida" (rota conservadora a humano a jusante na
-    glosa_triage, nunca aceite automatico).
+    glosa_triage, nunca desfecho automatico adverso).
     NOTA hitPolicy: o contrato (DRAFT) cita UNIQUE, mas uma row catch-all (`-`) sob UNIQUE
     colide com qualquer row especifica no engine (violacao de UNIQUE em runtime). Para
     preservar o catch-all conservador "desconhecida" mantendo a tabela ENGINE-DEPLOYAVEL,
@@ -23,7 +24,7 @@
   </description>
   <decision id="glosa_reason_normalization" name="Normalizacao do reason code de glosa" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_glosa_reason_normalization" hitPolicy="FIRST">
-      <input id="in_reason_code" label="Reason code TISS bruto (reason_code_tiss)">
+      <input id="in_reason_code" label="Codigo TISS de motivo de glosa apurado pela analise de contas (reason_code_tiss)">
         <inputExpression id="ie_reason_code" typeRef="string"><text>reason_code_tiss</text></inputExpression>
       </input>
       <output id="out_categoria" label="categoria_normalizada" name="categoria_normalizada" typeRef="string"/>

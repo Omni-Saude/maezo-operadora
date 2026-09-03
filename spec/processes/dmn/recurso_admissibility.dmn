@@ -7,21 +7,23 @@
              namespace="http://maezo.health/dmn/operadora">
   <description>
     recurso_admissibility v0.1.0 — status: DRAFT (conteudo requer SME faturamento/auditoria de
-    recurso + juridico/regulatorio; prazos RN 424/2017 DRAFT/verify; docs/review-queue.md).
-    Consumida por SP-OP-RECURSO-001 e mcp-dmn. Coracao negativa-like (admissibilidade do recurso).
+    recurso + juridico/regulatorio; prazo contratual de resposta ao recurso + RN 501/2022 DRAFT/verify; docs/review-queue.md).
+    Consumida por SP-OP-RECURSO-001 e mcp-dmn. Coracao negativa-like (admissibilidade do recurso
+    que o prestador interpos, julgada pela OPERADORA).
     INVARIANTE L0 HARD (nao negociavel): o dominio de `roteamento` e EXATAMENTE
     {SEGUE_ANALISE, PENDENTE_DOCUMENTACAO, ANALISE_HUMANA}. NAO existe — por design — saida
-    NEGAR/DESISTIR/INADMISSIVEL. Nenhuma combinacao de input produz desistencia/manutencao de
-    glosa: a desistencia (nao interpor) SO nasce na User Task humana UT_AnaliseRecursoAnalista
-    (decisao_recurso=NAO_RECORRER), materializada pelo worker gated
-    operadora.recurso.register_desistencia (ERR_DESISTENCIA_NOT_HUMAN), e o terminal humano-gated
-    End_RecursoInadmissivel exige decisao humana.
+    de INDEFERIMENTO/INADMISSIBILIDADE. Nenhuma combinacao de input indefere o recurso nem mantem
+    a glosa: o INDEFERIMENTO SO nasce nas User Tasks humanas (decisao_recurso in
+    {INDEFERIR, DEFERIR_PARCIAL}), materializado pelo worker gated
+    operadora.recurso.registrar_indeferimento (ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN), e o terminal
+    humano-gated End_RecursoInadmissivel exige decisao humana.
     Inadmissibilidade procedural aparente (dentro_prazo_recurso=false), glosa inexistente
     (glosa_existe=false), e qualquer ambiguidade -> ANALISE_HUMANA (fail-safe, R5: inadmissibilidade
     por prazo procedural duro e decidida por humano; auto-route de prazo-expirado puro so com
     sign-off do juridico, ausente no fluxo DRAFT). A row catch-all (ultima) -> ANALISE_HUMANA.
-    Inputs booleanos pre-resolvidos por worker deterministico (calculo de prazo / conferencia de
-    anexos) — nunca por LLM, nunca decisao adversa.
+    Inputs booleanos pre-resolvidos pelo worker deterministico operadora.recurso.validate_recurso
+    (ST_ValidarRecurso — calculo de prazo / conferencia de anexos) — nunca por LLM, nunca decisao
+    adversa.
     hitPolicy FIRST (catch-all conservador como ultima row).
   </description>
   <decision id="recurso_admissibility" name="Admissibilidade do recurso de glosa" camunda:historyTimeToLive="P180D">
@@ -38,15 +40,15 @@
       <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
       <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
       <rule id="r_glosa_inexistente_humano">
-        <description>Glosa nao confirmada/ativa em CONTAS -> analise humana (inadmissibilidade aparente; nunca auto-desiste)</description>
+        <description>Glosa nao confirmada/ativa em CONTAS -> analise humana (inadmissibilidade aparente; nunca inadmite automaticamente)</description>
         <inputEntry id="r_glosa_inexistente_humano_i1"><text>false</text></inputEntry>
         <inputEntry id="r_glosa_inexistente_humano_i2"><text>-</text></inputEntry>
         <inputEntry id="r_glosa_inexistente_humano_i3"><text>-</text></inputEntry>
         <outputEntry id="r_glosa_inexistente_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
-        <outputEntry id="r_glosa_inexistente_humano_o2"><text>"Glosa referida nao confirmada/ativa em CONTAS — analise humana obrigatoria (R5; nunca auto-desistencia)"</text></outputEntry>
+        <outputEntry id="r_glosa_inexistente_humano_o2"><text>"Glosa referida nao confirmada/ativa em CONTAS — analise humana obrigatoria (R5; nunca inadmissibilidade automatica)"</text></outputEntry>
       </rule>
       <rule id="r_fora_prazo_humano">
-        <description>Inadmissibilidade procedural aparente (fora do prazo) -> analise humana (R5; nunca auto-desiste)</description>
+        <description>Inadmissibilidade procedural aparente (fora do prazo) -> analise humana (R5; nunca inadmite automaticamente)</description>
         <inputEntry id="r_fora_prazo_humano_i1"><text>-</text></inputEntry>
         <inputEntry id="r_fora_prazo_humano_i2"><text>false</text></inputEntry>
         <inputEntry id="r_fora_prazo_humano_i3"><text>-</text></inputEntry>

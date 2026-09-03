@@ -148,10 +148,11 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
     THIRD category — a raw `harness.register()` handler, excluded here (see its module
     docstring for why it cannot use the dict-first `FunctionWorker` boundary).
 
-    SHARED FILE (T3.1 P2b flag for merge-time reconciliation): `raw_handler_topics` also excludes
-    recurso's 4 NEW raw handlers (`notify_sla_risk`/`escalate_ans_timeout`/`submit_appeal`/
-    `track_status`, Finding 2 — need the async Kafka seam for their test-spec-demanded
-    `notifications_of_type`/domain-event observability; recurso.py's module-level rationale).
+    SHARED FILE: `raw_handler_topics` also excludes recurso's THREE raw handlers
+    (`notify_sla_risk`/`escalate_ans_timeout`/`comunicar_resposta` — the async Kafka seam for
+    their `notifications_of_type`/domain-event observability, plus `task.business_key` for
+    `comunicar_resposta`'s deterministic protocolo; recurso.py's module-level rationale). ADR-0040
+    deleted `submit_appeal`/`track_status` with the appellant branch — 4 became 3.
 
     item-9 wave-5 (event-wiring): `raw_handler_topics` also excludes programa's 4 raw handlers —
     `stratify_risk`/`stop_processing` (item A, root fix — moved off `FunctionWorker` so they can
@@ -172,8 +173,7 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
         "operadora.events.publish",
         "operadora.recurso.notify_sla_risk",
         "operadora.recurso.escalate_ans_timeout",
-        "operadora.recurso.submit_appeal",
-        "operadora.recurso.track_status",
+        "operadora.recurso.comunicar_resposta",
         # notify_regulatorio (t5 FINDING A fix): raw async handler (needs the Kafka seam to emit
         # the anssubmit.notify_regulatorio notification), harness.register not register_worker —
         # mirrors recurso's raw handlers above.
@@ -212,8 +212,8 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
 
 def test_raw_handler_module_registers_outside_the_worker_registry() -> None:
     """`events` (T3.1 R2) populates `_handlers` (dispatch-reachable) but NOT `WorkerRegistry` —
-    it is registered via `harness.register()`, not `harness.register_worker()`. Recurso's 4 NEW
-    raw handlers (Finding 2, T3.1 P2b) follow the SAME shape. item-9 wave-5: programa's 4 raw
+    it is registered via `harness.register()`, not `harness.register_worker()`. Recurso's THREE
+    raw handlers follow the SAME shape. item-9 wave-5: programa's 4 raw
     handlers (`stratify_risk`/`stop_processing`/`proactive_contact`/`notify_sla_risk`) follow the
     SAME shape too (module-level rationale in programa.py). item-9 notify-wiring fix:
     `operadora.adequacao.update_monitoring_plan` follows the SAME shape (module-level rationale
@@ -227,8 +227,7 @@ def test_raw_handler_module_registers_outside_the_worker_registry() -> None:
     for topic in (
         "operadora.recurso.notify_sla_risk",
         "operadora.recurso.escalate_ans_timeout",
-        "operadora.recurso.submit_appeal",
-        "operadora.recurso.track_status",
+        "operadora.recurso.comunicar_resposta",
         # DL-0033 real wiring: the dossier A2A raw handlers follow the same shape.
         "operadora.cred.prepare_dossier",
         "operadora.adequacao.prepare_remediation_dossier",
@@ -283,13 +282,27 @@ def test_spot_check_fraude_register_fraud_accusation_matches_spec() -> None:
     assert "operadora.fraude.register_fraud_accusation" in harness.registered_topics
 
 
-def test_spot_check_contas_register_glosa_accept_matches_spec() -> None:
+def test_spot_check_contas_registrar_glosa_matches_spec() -> None:
+    """The GUARDED CONTAS surface, post-ADR-0040: the payer APPLIES the glosa (two elements,
+    `ST_RegistrarGlosa` and `ST_RegistrarGlosaParcial`, one topic)."""
     spec_topics = _spec_topics("SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn")
-    assert "operadora.contas.register_glosa_accept" in spec_topics
+    assert "operadora.contas.registrar_glosa" in spec_topics
 
     harness = _fresh_harness()
     register_all_workers(harness)
-    assert "operadora.contas.register_glosa_accept" in harness.registered_topics
+    assert "operadora.contas.registrar_glosa" in harness.registered_topics
+
+
+def test_spot_check_contas_handoff_pagamento_matches_spec() -> None:
+    """The CONTAS→PAGTO leg that replaced the deleted CONTAS→RECURSO edge."""
+    spec_topics = _spec_topics("SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn")
+    assert "operadora.contas.handoff_pagamento" in spec_topics
+    assert "operadora.contas.start_recurso" not in spec_topics
+
+    harness = _fresh_harness()
+    register_all_workers(harness)
+    assert "operadora.contas.handoff_pagamento" in harness.registered_topics
+    assert "operadora.contas.start_recurso" not in harness.registered_topics
 
 
 def test_spot_check_reembolso_send_denial_matches_spec() -> None:

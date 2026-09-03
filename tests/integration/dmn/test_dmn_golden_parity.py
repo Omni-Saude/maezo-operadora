@@ -26,9 +26,19 @@ from typing import Any
 
 import pytest
 
+from maezo.tools.workers.ans_cron import (
+    _REPORT_PERIODICIDADE,
+    PERIODICIDADE_INDETERMINADA,
+)
 from maezo.tools.workers.credenciamento import assess_admissibility as cred_assess_admissibility
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport, DmnVersion
 from maezo.tools.workers.pagto import route_aprovacao
+
+#: report_type -> periodicidade pt-BR, derivado da UNICA fonte Python da taxonomia
+#: (`ans_cron._REPORT_PERIODICIDADE`). Nao ha segunda lista a manter em sincronia aqui.
+_ANS_CRON_TAXONOMIA: dict[str, str] = {
+    report_type: periodicidade for report_type, (periodicidade, _iso) in _REPORT_PERIODICIDADE.items()
+}
 
 pytestmark = pytest.mark.integration
 
@@ -259,17 +269,31 @@ async def test_glosa_reason_normalization_parity(
 @pytest.mark.parametrize(
     ("tipo_item", "categoria", "item_conforme", "divergencia_valor", "documentacao_anexa", "expected"),
     [
-        ("consulta", "administrativa", True, False, True, "SEM_GLOSA"),
+        # PERSPECTIVA (ADR-0040 / REDESIGN-SP-OP-CONTAS-001.md:291,:493,:499): a row 1 e a MESMA
+        # (`r_sem_glosa` -> `r_pagar`, cinco condicoes byte-identicas: `-` / not("tecnica",
+        # "clinica") / true / false / true), mas a SAIDA deixou de ser `SEM_GLOSA` e passou a ser
+        # `PAGAR`. Nao e renomeacao cosmetica: `SEM_GLOSA` era a moldura do PRESTADOR ("nao houve
+        # glosa") e terminava sem efeito nenhum; `PAGAR` e o ato do PAGADOR — emite demonstrativo
+        # e encaminha a ordem a SP-OP-PAGTO-001, que a segura em `UT_AnaliseAdmissibilidade`.
+        # Com estes cinco inputs a row 1 e a primeira a casar (hitPolicy FIRST).
+        ("consulta", "administrativa", True, False, True, "PAGAR"),
         # DIVERGENCE (MAJOR): old Python said "no glosas -> SEM_GLOSA" checking only
         # has_glosas/divergencia_valor. The DMN ALSO requires item_conforme_tabela=true AND
-        # documentacao_anexa=true for SEM_GLOSA — with both False (old GlosaInput defaults)
-        # it now correctly escalates instead.
+        # documentacao_anexa=true for the favourable row — with both False (old GlosaInput
+        # defaults) it now correctly escalates instead.
         ("", "administrativa", False, False, False, "ANALISE_HUMANA"),
         ("consulta", "tecnica", True, False, True, "ANALISE_HUMANA"),
         ("consulta", "documental", True, False, False, "ANALISE_HUMANA"),
-        # DIVERGENCE (MAJOR): RECORRER was structurally unreachable dead code in the old
-        # Python (its own docstring: "For now, always route to ANALISE_HUMANA"). Reachable now.
-        ("consulta", "valor", True, True, True, "RECORRER"),
+        # PERSPECTIVA (REDESIGN-SP-OP-CONTAS-001.md:502): row 4 (`r_valor_recorrer` ->
+        # `r_valor_humano`, condicoes `-`/"valor"/true/true/true VERBATIM) saia `RECORRER` — um ato
+        # do RECORRENTE, que a operadora nao pratica contra a propria glosa. A saida passa a ser
+        # `ANALISE_HUMANA`: divergencia de valor com item conforme e documentado e uma glosa
+        # CANDIDATA, e a decisao de glosar (ou de pagar parcialmente) e humana, L0 hard. Nao ha
+        # (nem pode haver) uma saida `PAGAR_PARCIAL` aqui: o dominio tem exatamente dois valores
+        # porque nenhuma saida de DMN deste processo pode glosar (REDESIGN:505-508).
+        # `r_pagar` nao casa porque exige `divergencia_valor=false`; `r_tecnica_humano` e
+        # `r_documental_humano` nao casam pela categoria; `r_valor_humano` e a primeira a casar.
+        ("consulta", "valor", True, True, True, "ANALISE_HUMANA"),
         ("consulta", "clinica", False, True, False, "ANALISE_HUMANA"),
     ],
 )
@@ -332,10 +356,16 @@ async def test_recurso_admissibility_parity(
 @pytest.mark.parametrize(
     ("glosa_type", "expected_roteamento", "expected_grupo"),
     [
-        ("clinica", "RECORRIVEL", "medico-auditor"),
-        ("administrativa", "RECORRIVEL", "analista-recurso-glosa"),
+        # PERSPECTIVA (ADR-0040 / REDESIGN-SP-OP-RECURSO-001.md:478,:480,:481, que prescreve
+        # nominalmente estas duas linhas): `RECORRIVEL` respondia "o prestador PODE recorrer" — um
+        # juizo sobre o direito do RECORRENTE. A operadora nao decide se cabe recurso; ela decide
+        # se o recurso que RECEBEU segue ao merito e quem o julga. `SEGUE_MERITO` diz isso. O
+        # dominio continua sendo de dois valores e continua sem saida de indeferimento: `r_catchall`
+        # -> `ANALISE_HUMANA` (nunca indeferimento automatico, L0 hard).
+        ("clinica", "SEGUE_MERITO", "medico-auditor"),
+        ("administrativa", "SEGUE_MERITO", "analista-recurso-glosa"),
         # DIVERGENCE: old Python's `recorivel` was a tautology (roteamento == "SEGUE_ANALISE"),
-        # never consulting this table's real RECORRIVEL/ANALISE_HUMANA output.
+        # never consulting this table's real SEGUE_MERITO/ANALISE_HUMANA output.
         ("outra", "ANALISE_HUMANA", "analista-recurso-glosa"),
     ],
 )
@@ -538,25 +568,51 @@ async def test_lgpd_dsr_routing_parity(
 
 
 # ---------------------------------------------------------------------------
-# ans_calendar — BLOCKED (NOT cut over, ans_cron.check_calendar left as pure Python)
+# ans_calendar — CUT OVER (ADR-0028 §7): a taxonomia foi reconciliada e o
+# ans_cron.check_calendar (re-implementacao Python) foi DELETADO
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "report_type", ["MAPEAMENTO_REDE", "DIOPS", "SIP", "RPC", "ANS_TISS", "QUALIFICACAO"]
-)
-async def test_ans_calendar_domain_mismatch_evidence(dmn: CibSevenDmnTransport, report_type: str) -> None:
-    """Evidence-of-block test (T1.5, NOT a parity assertion): proves every `report_type` value
-    `ans_cron.py` actually produces/consumes hits the DMN's catch-all
-    (`fonte_regulatoria="REVISAO_HUMANA"`), because the deployed table's literals are RN-citation
-    style (`RN_124_SIP`, `DIOPS_TRIMESTRAL`, ...) — zero overlap. This is WHY `check_calendar`
-    was left as pure Python (ADR-0028 §7 gate: 100% parity required before deletion; it does not
-    hold here) rather than a functional regression masquerading as a "safe" cutover. If this test
-    ever starts failing (a real rule match appears), the `report_type` taxonomies have been
-    reconciled upstream in `spec/` and `check_calendar` should be re-evaluated for cutover.
+@pytest.mark.parametrize(("report_type", "periodicidade_esperada"), sorted(_ANS_CRON_TAXONOMIA.items()))
+async def test_ans_calendar_periodicidade_paridade_com_taxonomia_do_worker(
+    dmn: CibSevenDmnTransport, report_type: str, periodicidade_esperada: str
+) -> None:
+    """PARIDADE (PERSP-B5-ANSCRON-TOPICS / ANS-CRON-DEAD-CODE) — substitui o antigo
+    `test_ans_calendar_domain_mismatch_evidence`, que era uma evidencia-de-BLOQUEIO.
+
+    Historia: `ans_cron.py` mantinha uma taxonomia paralela de `report_type`
+    (`MAPEAMENTO_REDE`/`DIOPS`/`SIP`/`RPC`/`ANS_TISS`/`QUALIFICACAO`) com intersecao VAZIA com os
+    literais RN-citation da tabela deployada, e por isso a sua `check_calendar` NAO podia ser
+    cortada para a DMN (o gate do ADR-0028 §7 exige 100% de paridade antes de deletar a
+    re-implementacao Python). A taxonomia foi reconciliada — `_REPORT_PERIODICIDADE` passou a ser
+    exatamente os literais do BPMN/contrato/DMN — e `check_calendar` foi DELETADA.
+
+    Este teste e a evidencia engine-side dessa paridade: para cada report_type da taxonomia do
+    worker, a tabela REAL (avaliada no CIB Seven) casa uma row propria — nao a catch-all — e a
+    `periodicidade` que ela devolve e a MESMA string pt-BR que o worker usa. Os valores de
+    `due_date`/`sla_alerta` permanecem DRAFT (`DRAFT_DUE_DATE`/`DRAFT_ALERTA`) e nao sao
+    asseridos como conteudo regulatorio.
     """
     row = await _eval(dmn, "ans_calendar", {"report_type": report_type, "competencia": "2026-06"})
-    assert row["fonte_regulatoria"].startswith("REVISAO_HUMANA"), (
-        f"report_type={report_type!r} unexpectedly matched a non-catch-all ans_calendar rule — "
-        "the taxonomy mismatch may have been reconciled; re-evaluate check_calendar for cutover"
+    assert not row["fonte_regulatoria"].startswith("REVISAO_HUMANA"), (
+        f"report_type={report_type!r} caiu na catch-all — a taxonomia do worker "
+        "(_REPORT_PERIODICIDADE) e a da tabela deployada divergiram de novo"
     )
+    assert row["periodicidade"] == periodicidade_esperada, (
+        f"drift de periodicidade para {report_type!r}: DMN={row['periodicidade']!r} vs "
+        f"worker={periodicidade_esperada!r}"
+    )
+
+
+@pytest.mark.parametrize("report_type", ["MAPEAMENTO_REDE", "QUALIFICACAO", "TIPO_INEXISTENTE"])
+async def test_ans_calendar_report_type_fora_da_taxonomia_cai_no_catchall(
+    dmn: CibSevenDmnTransport, report_type: str
+) -> None:
+    """Fail-closed preservado: um `report_type` fora da taxonomia ratificada (incluindo os
+    literais da taxonomia paralela ELIMINADA) continua caindo na row catch-all — `REVISAO_HUMANA`
+    + `periodicidade="indeterminada"`, o MESMO literal que `ans_cron.trigger_submissions` devolve
+    nesse caso. Nunca um prazo inventado."""
+    assert report_type not in _ANS_CRON_TAXONOMIA
+    row = await _eval(dmn, "ans_calendar", {"report_type": report_type, "competencia": "2026-06"})
+    assert row["fonte_regulatoria"].startswith("REVISAO_HUMANA")
+    assert row["periodicidade"] == PERIODICIDADE_INDETERMINADA

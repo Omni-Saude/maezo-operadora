@@ -449,7 +449,17 @@ def _scan_tokens(text: str) -> Iterator[tuple[str, str, str]]:
 
 #: The object a contextual (R2-CTX) rule needs within `PROXIMITY_WINDOW` for
 #: an otherwise ambiguous verb to be an inversion.
-OBJETO_RECURSAL = r"\b(recursos?|glosas?|contas?|guias?|lote|decisao|negativa|indeferimento|demonstrativo)\b"
+OBJETO_RECURSAL = (
+    r"\b(recursos?|glosas?|contas?|guias?|lote|decisao|negativa|indeferimento|demonstrativo"
+    # `pleito` (PR-4, PR-1 gatekeeper residual): X4 already names the noun, but X4 is
+    # absolved by `DECISAO_PAGADOR`, so a sentence that pairs a payer decision verb with an
+    # appellant verb — "Julgar o pleito que interpusemos contra a glosa" — cleared X4 and had
+    # no other rule to catch it. Adding `pleito` here gives X1 the object it needs, so the
+    # appellant VERB is caught on its own terms while the payer's decision verb keeps
+    # absolving X4. The one live occurrence (`SP-OP-NIP-001_Resposta_NIP.bpmn:482`,
+    # "conceder o pleito") still passes: it carries no X1 verb at all.
+    r"|pleito)\b"
+)
 
 #: The actor cue that *absolves* an R2-CTX match: the sentence is describing
 #: what the prestador/beneficiario does, which a payer spec may say freely.
@@ -558,9 +568,14 @@ R2_CTX_RULES: tuple[ProseRule, ...] = (
     _rule(
         "X1",
         R2_CTX,
+        # `interpus[a-z]*` (PR-4, PR-1 gatekeeper residual): the alternation carried only the
+        # infinitive/gerund/participle of `interpor`, so the PRETERITE — and in particular the
+        # first-person plural the platform would use about itself, "o pleito que interpusemos" —
+        # had no rule at all. It is the same verb, in the tense a self-describing inversion
+        # actually uses. Measured: 0 new hits on the live tree.
         r"\b(recorrer|recorrendo|recorrivel|interpor|interpoe|interpondo|interposto"
-        r"|interposicao|impugnar|contestar|contestacao|contestavel|reapresentar|reenviar"
-        r"|retransmitir|pleitear)\b",
+        r"|interposicao|interpus[a-z]*|impugnar|contestar|contestacao|contestavel|reapresentar"
+        r"|reenviar|retransmitir|pleitear)\b",
         near=OBJETO_RECURSAL,
         actor_absolves=True,
     ),

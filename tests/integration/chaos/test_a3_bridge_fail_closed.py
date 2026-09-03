@@ -2,7 +2,7 @@
 
 Extends the T3.3 W0/W1 seam-fault harness (`tests/integration/chaos/conftest.py`,
 `test_sink_down_failclosed.py`'s C1-down precedent) to the bridge's FOUR real, LIVE, fenced-start
-in-flow handoff workers (`contas.start_recurso`, `contas.start_fraude` [T4 Phase-3 leg],
+in-flow handoff workers (`contas.handoff_pagamento`, `contas.start_fraude` [T4 Phase-3 leg],
 `fraude.start_credenciamento`, `fraude.start_contratual`) and to the bridge's own fenced starter
 (`notification_bridge.build_cibseven_process_starter`):
 
@@ -58,37 +58,44 @@ class _CountingCibSevenTransport(FakeCibSevenTransport):
 # ---------------------------------------------------------------------------------------------
 
 
-def test_contas_start_recurso_fail_closed_when_audit_sink_down(
+def test_contas_handoff_pagamento_fail_closed_when_audit_sink_down(
     chaos_tenant_schema: str, dead_dsn: str
 ) -> None:
-    """`contas.start_recurso` (operadora.contas.start_recurso, CONTAS bpmn :267) must raise
-    `AuditPersistenceError` when the audit sink is down and NEVER attempt the RECURSO-001 engine
+    """`contas.handoff_pagamento` (`operadora.contas.handoff_pagamento`) must raise
+    `AuditPersistenceError` when the audit sink is down and NEVER attempt the PAGTO-001 engine
     start — the ADR-0007 durable-audit-before-effect fence, proven at THIS real handoff worker
-    (not just the generic `start_process_idempotent` unit fence)."""
+    (not just the generic `start_process_idempotent` unit fence).
+
+    SUBSTITUI `test_contas_start_recurso_fail_closed_when_audit_sink_down`: the CONTAS→RECURSO edge
+    was deleted by ADR-0040. The property is identical and the stake is higher — this handoff
+    creates a PAYMENT ORDER, and PAGTO is the STRICT dedup family."""
     dead_sink = PostgresAuditSink(dead_dsn, chaos_tenant_schema)
     transport = _CountingCibSevenTransport()
     variables = {
         "tenant_id": chaos_tenant_schema,
-        "glosa_id": "GLOSA-A3-C1",
-        "numero_guia_tiss": "GUIA-A3-C1",
-        "glosa_type": "tecnica",
-        "documentacao_anexa": True,
         "numero_lote_tiss": "LOTE-A3-C1",
+        "numero_guia_tiss": "GUIA-A3-C1",
+        "prestador_id": "PREST-A3-C1",
+        "competencia": "2026-06",
+        "data_vencimento": "2026-07-10",
+        "valor_apresentado_brl": 480.0,
     }
 
     try:
         with pytest.raises(AuditPersistenceError):
-            contas.start_recurso(variables, engine=transport, audit_sink=dead_sink)
+            contas.handoff_pagamento(
+                variables, fonte_valor="apresentado", engine=transport, audit_sink=dead_sink
+            )
     finally:
-        # aclose() is async; start_recurso itself uses asyncio.run internally and has already
+        # aclose() is async; handoff_pagamento itself uses asyncio.run internally and has already
         # returned/raised by the time we get here, so a fresh asyncio.run is safe (no nested loop).
         import asyncio
 
         asyncio.run(dead_sink.aclose())
 
     assert transport.start_call_count == 0, (
-        "contas.start_recurso attempted an engine start despite the audit sink being down "
-        "(un-audited RECURSO-001 start — ADR-0007 L0 violation)"
+        "contas.handoff_pagamento attempted an engine start despite the audit sink being down "
+        "(un-audited PAGTO-001 start — ADR-0007 L0 violation)"
     )
 
 

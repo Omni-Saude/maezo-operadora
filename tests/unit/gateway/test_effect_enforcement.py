@@ -352,7 +352,7 @@ def test_a_malformed_action_map_value_refuses_rather_than_silently_dropping(
     not be able to disable a class by looking correct.
 
     ASYMMETRY, deliberate and out of scope here: `mapeamento_topicos` keeps the legacy dropping
-    comprehension (pre-existing behaviour, 26 byte-unchanged reviewed lines). New data, new
+    comprehension (pre-existing behaviour, byte-unchanged reviewed lines). New data, new
     contract — see the note at the refusal site in `action_execution._parse`.
     """
     manifest = _manifest(action_map={_REF: value})
@@ -971,8 +971,19 @@ def test_leitura_populacional_stays_unchoked_for_the_recorded_reason(shipped: di
 
 
 def test_mapeamento_topicos_is_byte_unchanged_in_content(shipped: dict[str, Any]) -> None:
-    """§5.8 / the brief's hard limit: 26 entries, none touched, none reclassified."""
-    assert len(shipped[TOPIC_MAP_KEY]) == 26
+    """§5.8 / the brief's hard limit: none touched, none reclassified.
+
+    30 entries as of ADR-0040 (was 26), in two halves, one per PR:
+      RECURSO (PR-3): REMOVED `operadora.recurso.submit_appeal` (the topic itself was deleted —
+        interpor um recurso nao e ato da operadora); ADDED `registrar_indeferimento` +
+        `comunicar_resposta` (`negativa_notificacao`) and `handoff_pagamento`
+        (`inicio_processo_regulatorio`).
+      CONTAS (PR-4): REMOVED `operadora.contas.start_recurso` (same reason, other chain); ADDED
+        `registrar_glosa` + `emitir_demonstrativo` (`negativa_notificacao`) and
+        `handoff_pagamento` (`inicio_processo_regulatorio`).
+    No EXISTING entry was touched or reclassified, and no class was invented.
+    """
+    assert len(shipped[TOPIC_MAP_KEY]) == 30
     assert not set(shipped[TOPIC_MAP_KEY]) & set(shipped[ACTION_MAP_KEY])
 
 

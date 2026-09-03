@@ -12,16 +12,17 @@ Marina serves THREE flows, distinguished by `flow` in state (`contas` | `recurso
                 SP-OP-CONTAS-001). `assess` evaluates the DMN chain
                 `glosa_reason_normalization` -> `glosa_classification` -> `glosa_triage` (+
                 `contas_sla`, purely informative — never gates routing, mirrors Rafael's
-                `auth_sla`). Triage produces `SEM_GLOSA` | `RECORRER` | `ANALISE_HUMANA` — this
-                is ROUTING, never a merit decision (no DMN in this chain has an accept/confirm
-                output). Marina STARTS SP-OP-CONTAS-001 idempotently (business key
+                `auth_sla`). Triage produces `PAGAR` | `ANALISE_HUMANA` — this is ROUTING, never a
+                merit decision: the payer's decision to glosa is born solely in
+                `UT_AnalistaContas`, and no DMN in this chain has an output that gloses.
+                Marina STARTS SP-OP-CONTAS-001 idempotently (business key
                 `CONTAS-{tenant}-{numero_lote_tiss}` or, when adjudicating by guia/conta,
                 `CONTAS-{tenant}-{numero_guia_tiss}-{numero_conta}`).
 - `recurso`   : convoked by `operadora.recurso.analyze_request` (A2A `recurso.analyze`,
                 SP-OP-RECURSO-001). `assess` evaluates `recurso_admissibility` ->
                 `recurso_eligibility` (+ `recurso_sla`, purely informative). Admissibility/
                 eligibility produce `SEGUE_ANALISE` | `PENDENTE_DOCUMENTACAO` | `ANALISE_HUMANA`
-                / `RECORRIVEL` | `ANALISE_HUMANA` — no NEGAR/DESISTIR output exists by design.
+                / `SEGUE_MERITO` | `ANALISE_HUMANA` — no INDEFERIR output exists by design.
                 Marina STARTS SP-OP-RECURSO-001 idempotently (business key
                 `RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}`).
 - `reembolso` : convoked by `operadora.reembolso.analyze_request` (A2A `reembolso.analyze`,
@@ -39,15 +40,16 @@ Marina serves THREE flows, distinguished by `flow` in state (`contas` | `recurso
 REASONS over the DMN result to assemble the dossier — it NEVER substitutes or re-decides it.
 
 L0 HARD STRUCTURAL GUARDRAIL (contracts SP-OP-CONTAS-001/RECURSO-001/REEMBOLSO-001 invariant;
-ADR-0005/0008, CI-enforced): Marina NEVER accepts nor denies a glosa, NEVER gives up a recurso
-(maintains the glosa), NEVER approves/denies/reduces a reembolso, NEVER decides clinically, NEVER
-accuses fraud. `Route` has NO adverse variant — only `auto_route` (neutral routing determined by
+ADR-0005/0008, CI-enforced): Marina NEVER applies nor waives a glosa, NEVER grants nor denies a
+recurso (defere/indefere), NEVER approves/denies/reduces a reembolso, NEVER decides clinically,
+NEVER accuses fraud. `Route` has NO adverse variant — only `auto_route` (neutral routing determined by
 the DMN, `contas`/`recurso` only) and `human_review` (fail-safe/instructive, the ONLY path in
-`reembolso`). No automatic outcome ever confirms a glosa, denies a recurso, or approves/denies/
-reduces a reembolso: glosa acceptance is born SOLELY in `UT_AnalistaContas`
-(`operadora.contas.register_glosa_accept`, guarded `ERR_GLOSA_ACCEPT_NOT_HUMAN`); recurso
-desistencia SOLELY in `UT_AnaliseRecursoAnalista` (`operadora.recurso.register_desistencia`,
-guarded `ERR_DESISTENCIA_NOT_HUMAN`); reembolso denial/reduction SOLELY in `UT_AnaliseReembolso`/
+`reembolso`). No automatic outcome ever gloses a conta, indefere a recurso, or approves/denies/
+reduces a reembolso: the APPLICATION of a glosa is born SOLELY in `UT_AnalistaContas`
+(`operadora.contas.registrar_glosa`, guarded `ERR_CONTAS_GLOSA_NOT_HUMAN`); the
+INDEFERIMENTO of a recurso SOLELY in `UT_AnaliseRecursoAnalista`/`UT_RevisaoAuditorMedico`
+(`operadora.recurso.registrar_indeferimento`, guarded
+`ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN`); reembolso denial/reduction SOLELY in `UT_AnaliseReembolso`/
 `UT_RevisaoAuditorMedico`/`UT_CoordenacaoReembolso` (`operadora.reembolso.send_reembolso_denial`,
 guarded `ERR_REEMBOLSO_DENIAL_NOT_HUMAN`) — all three worker guards untouched by this build
 (T1.5 already cut these workers over to engine-side DMN; this graph CONSUMES their outputs,
@@ -152,21 +154,21 @@ from .prompts import (
 
 Flow = Literal["contas", "recurso", "reembolso"]
 
-# Graph routing. STRUCTURALLY WITHOUT AN ADVERSE VARIANT — no value here accepts a glosa, denies
+# Graph routing. STRUCTURALLY WITHOUT AN ADVERSE VARIANT — no value here gloses a conta, denies
 # a recurso, or approves/denies/reduces a reembolso.
 Route = Literal["auto_route", "human_review"]
 
-# `glosa_triage` output domain (CONTAS) — no ACEITAR/CONFIRMAR output by design.
-TriagemGlosa = Literal["SEM_GLOSA", "RECORRER", "ANALISE_HUMANA"]
-# `recurso_admissibility` output domain (RECURSO) — no NEGAR/INADMISSIVEL output by design.
+# `glosa_triage` output domain (CONTAS) — no output that gloses, by design (ADR-0040).
+TriagemGlosa = Literal["PAGAR", "ANALISE_HUMANA"]
+# `recurso_admissibility` output domain (RECURSO) — no INDEFERIR/INADMISSIVEL output by design.
 AdmissibilidadeRecurso = Literal["SEGUE_ANALISE", "PENDENTE_DOCUMENTACAO", "ANALISE_HUMANA"]
-# `recurso_eligibility` output domain (RECURSO) — no NAO_RECORRIVEL output by design.
-ElegibilidadeRecurso = Literal["RECORRIVEL", "ANALISE_HUMANA"]
+# `recurso_eligibility` output domain (RECURSO) — no INDEFERIR output by design.
+ElegibilidadeRecurso = Literal["SEGUE_MERITO", "ANALISE_HUMANA"]
 
 # Why the case went to human review — attached to the dossier/contract variables. NONE of these
 # is an accept/deny — they are all reasons FOR human review.
 MotivoHumano = Literal[
-    "triagem_analise_humana",  # glosa_triage = ANALISE_HUMANA (tecnica/clinica/ambiguidade)
+    "triagem_analise_humana",  # glosa_triage = ANALISE_HUMANA (tecnica/clinica/valor/ambiguidade)
     "documentacao_pendente",  # recurso_admissibility = PENDENTE_DOCUMENTACAO
     "recurso_analise_humana",  # recurso_admissibility/eligibility = ANALISE_HUMANA (or medico-auditor)
     "indicio_fraude",  # fraud signal — informative only, human decides the referral
@@ -237,7 +239,7 @@ class MarinaState(TypedDict, total=False):
     codigo_procedimento_tuss: str
     cid10: str
     documentos_recurso_refs: list[dict[str, Any]]
-    data_ciencia_glosa: str
+    data_ciencia_alegada_prestador: str
     data_recebimento_recurso_iso: str
     # Pre-resolved by worker (deterministic input to the RECURSO DMN chain).
     glosa_existe: bool
@@ -295,7 +297,7 @@ class MarinaState(TypedDict, total=False):
     process_ref: dict[str, Any]
 
     # Output.
-    desfecho: str  # sem_glosa | encaminhada_recurso_triagem | triagem_humana |
+    desfecho: str  # pagar_integral | triagem_humana |
     #                 recurso_segue_analise | recurso_humano | reembolso_dossie_humano
     error: str  # technical failure (routes human, for safety)
 
@@ -471,7 +473,7 @@ class MarinaGraph:
         """Evaluate the flow's deterministic DMN chain and decide ROUTING (neutral vs human).
 
         ADR-0012: the DMN decides; the LLM reasons over the result (dossier). NO branch here ever
-        produces a glosa acceptance, a recurso denial, or a reembolso approval/denial/reduction —
+        gloses a conta, denies a recurso, or approves/denies/reduces a reembolso —
         only `auto_route` (neutral routing) or `human_review` (fail-safe/instructive).
 
         FAIL-SAFE: any DMN in the chain being unavailable NEVER becomes an adverse outcome by
@@ -555,13 +557,12 @@ class MarinaGraph:
         base["triagem"] = triagem
         base["dmn_refs"] = dmn_refs
 
-        # FAIL-SAFE (closed allowlist): ONLY the known neutral values proceed to auto_route.
-        # SEM_GLOSA/RECORRER -> neutral routing (never an acceptance). ANY other value
+        # FAIL-SAFE (closed allowlist): ONLY the known neutral value proceeds to auto_route.
+        # PAGAR -> neutral routing, and the FAVOURABLE outcome (never a glosa). ANY other value
         # (ANALISE_HUMANA, an unexpected/unknown value, empty) -> human. Mirrors Rafael: nothing
         # ambiguous falls through to automatic by omission (L0 hard invariant).
-        if triagem in ("SEM_GLOSA", "RECORRER"):
-            desfecho = "sem_glosa" if triagem == "SEM_GLOSA" else "encaminhada_recurso_triagem"
-            return {**base, "route": "auto_route", "desfecho": desfecho, "dmn_refs": dmn_refs}
+        if triagem == "PAGAR":
+            return {**base, "route": "auto_route", "desfecho": "pagar_integral", "dmn_refs": dmn_refs}
         return {**base, **self._route_human("triagem_analise_humana", dmn_refs, "auditoria-contas")}
 
     async def _assess_recurso(self, state: MarinaState) -> dict[str, Any]:
@@ -596,7 +597,7 @@ class MarinaGraph:
         if admissibilidade != "SEGUE_ANALISE":
             return {**base, **self._route_human("recurso_analise_humana", dmn_refs, "analista-recurso-glosa")}
 
-        # 3) Eligibility — NO NAO_RECORRIVEL output.
+        # 3) Eligibility — NO INDEFERIR output.
         elig = await self._evaluate_dmn(
             DMN_RECURSO_ELIGIBILITY,
             {
@@ -619,10 +620,10 @@ class MarinaGraph:
         base["grupo_revisor"] = grupo_revisor
         base["dmn_refs"] = dmn_refs
 
-        # FAIL-SAFE (closed allowlist): ONLY `RECORRIVEL` with a non-medico-auditor reviewer
+        # FAIL-SAFE (closed allowlist): ONLY `SEGUE_MERITO` with a non-medico-auditor reviewer
         # proceeds to auto_route. Glosa tecnica/clinica (grupo_revisor=medico-auditor) always
         # goes human for merit review. ANALISE_HUMANA / any unexpected value -> human by omission.
-        if elegibilidade == "RECORRIVEL" and grupo_revisor != "medico-auditor":
+        if elegibilidade == "SEGUE_MERITO" and grupo_revisor != "medico-auditor":
             return {**base, "route": "auto_route", "desfecho": "recurso_segue_analise", "dmn_refs": dmn_refs}
         grupo = "medico-auditor" if grupo_revisor == "medico-auditor" else "analista-recurso-glosa"
         return {**base, **self._route_human("recurso_analise_humana", dmn_refs, grupo)}
@@ -647,9 +648,9 @@ class MarinaGraph:
         }
 
     async def auto_route(self, state: MarinaState) -> dict[str, Any]:
-        """Neutral routing (SEM_GLOSA/RECORRER/RECORRIVEL). Only reachable for `contas`/`recurso`.
+        """Neutral routing (PAGAR/SEGUE_ANALISE/SEGUE_MERITO). Only reachable for `contas`/`recurso`.
 
-        GUARDRAIL: this path NEVER produces a glosa acceptance nor a recurso denial. It only
+        GUARDRAIL: this path NEVER gloses a conta nor indefere a recurso. It only
         assembles the dossier and records the routing outcome; `start_process` (next node) opens
         the instance, whose human User Task is where any substantive decision is made.
         """
@@ -660,8 +661,8 @@ class MarinaGraph:
 
         This is the route for ANY ambiguous/technical/clinical/pending/fraud-signal/
         DMN-unavailable case, and the ONLY route in `reembolso`. NONE of these is an accept/deny:
-        glosa acceptance is born SOLELY in `UT_AnalistaContas`; recurso desistencia SOLELY in
-        `UT_AnaliseRecursoAnalista`/medico-auditor merit review; reembolso approval/denial/
+        the APPLICATION of a glosa is born SOLELY in `UT_AnalistaContas`; the recurso INDEFERIMENTO SOLELY
+        in `UT_AnaliseRecursoAnalista`/medico-auditor merit review; reembolso approval/denial/
         reduction SOLELY in `UT_AnaliseReembolso`/`UT_RevisaoAuditorMedico`/
         `UT_CoordenacaoReembolso`. Marina instructs; the human decides.
         """
@@ -679,7 +680,7 @@ class MarinaGraph:
 
         Idempotent business key (the start checks the key before creating — a resend returns the
         active instance). A start failure never loses the case: it records the error and keeps
-        the routing. NEVER emits a glosa acceptance or a recurso denial "on the side".
+        the routing. NEVER emits a glosa nor a recurso denial "on the side".
         """
         if _flow(state) == "reembolso":
             return {}  # SP-OP-REEMBOLSO-001 is already running — Marina NEVER starts a 2nd instance.
@@ -818,7 +819,7 @@ class MarinaGraph:
         """Assembles the flow's process start variables (exactly the contract's own input set).
 
         Includes Marina's dossier as `dossie_marina` (instruction) and `motivo_encaminhamento`/
-        `grupo_destino` when routed to human — NEVER a glosa acceptance nor a recurso denial.
+        `grupo_destino` when routed to human — NEVER a glosa applied nor a recurso denied.
         Never called for `reembolso` (`start_process` no-ops before this for that flow).
         """
         flow = _flow(state)
@@ -850,10 +851,20 @@ class MarinaGraph:
             )
             if state.get("cid10"):
                 variables["cid10"] = state["cid10"]
-            if state.get("data_ciencia_glosa"):
-                variables["data_ciencia_glosa"] = state["data_ciencia_glosa"]
-            if state.get("data_recebimento_recurso_iso"):
-                variables["data_recebimento_recurso_iso"] = state["data_recebimento_recurso_iso"]
+            # `data_ciencia_alegada_prestador` stays a PLEITO datum (the date the prestador
+            # ALLEGES in the appeal he filed), never an SLA anchor: `recurso_sla` no longer
+            # falls back to it (ADR-0040 §2.3). Renamed from the old identifier in the PR-3
+            # gate repair (M1): that one named the APPELLANT's clock, and the perspective
+            # fence (PR-1, family `ancora-kpi`) flags it as such.
+            if state.get("data_ciencia_alegada_prestador"):
+                variables["data_ciencia_alegada_prestador"] = state["data_ciencia_alegada_prestador"]
+            # ALWAYS seeded — it is the SINGLE anchor of the analysis SLA and of the absolute
+            # ceiling, and `recurso_sla`'s FEEL has no other branch to fall into. Blank here is
+            # fine and deliberate: `operadora.recurso.validate_recurso` (ST_ValidarRecurso, the
+            # first task on every path) normalises it and defaults fail-safe to TODAY/UTC with a
+            # warning. Seeding it conditionally would leave the variable UNDEFINED in process
+            # scope, which is what ENGINE-16004 ("Cannot resolve identifier") is about.
+            variables["data_recebimento_recurso_iso"] = state.get("data_recebimento_recurso_iso", "")
         else:
             variables.update(
                 {
@@ -929,8 +940,8 @@ class MarinaGraph:
             "narrativa": narrativa,
             "documentos_refs": self._documentos_refs_for(flow, state),
             # STRUCTURAL GUARDRAIL (L0 hard): the dossier NEVER carries an adverse decision.
-            "decisao_glosa": None,  # glosa acceptance: SOLELY UT_AnalistaContas
-            "decisao_recurso": None,  # desistencia/recurso: SOLELY UT_AnaliseRecursoAnalista
+            "decisao_glosa": None,  # glosa APPLICATION: SOLELY UT_AnalistaContas
+            "decisao_recurso": None,  # recurso deferimento/indeferimento: SOLELY UT_AnaliseRecursoAnalista
             "decisao_reembolso": None,  # approval/denial/reduction: ALWAYS human (UT_AnaliseReembolso+)
         }
 

@@ -270,16 +270,16 @@ async def test_aiokafka_bridge_consumer_consumes_a_real_published_message(
     kafka_bootstrap_servers: str,
 ) -> None:
     """PENDING KAFKA RUNTIME (skips loudly above when unreachable): publish a real
-    `agents.events.contas.completed` message (T4 producer-leg update — this test previously used
-    the pre-EB-4-reconciliation `contas.glosa_confirmed` literal, which `notification_bridge.py`
-    no longer registers AT ALL post-reconciliation; kept it dormant/misleading rather than a
-    genuine live proof) via `AIOKafkaProducer`, consume it via `AioKafkaBridgeConsumer`, and
+    `agents.events.recurso.intake_recebido` message (ADR-0040: the CONTAS→RECURSO edge was
+    deleted with the appellant perspective; RECURSO-001 is started by the INTAKE of the appeal the
+    prestador filed) via `AIOKafkaProducer`, consume it via `AioKafkaBridgeConsumer`, and
     dispatch it through `handle_bridge_message` against a spy bridge — proving the REAL consumer
     (not the fake) actually receives and correctly shapes a message a real broker delivered. The
     payload is a SYNTHETIC enriched one (carries `numero_guia_tiss`, the business-key anchor
-    today's real minimal `event_payload_vars` does not yet emit — see the EB-4 "arming" follow-up
-    note in `notification_bridge.py`), matching
-    `tests/unit/platform/integrations/test_notifications_bridge.py`'s `_CONTAS_MESSAGE` fixture.
+    no publisher emits at all yet — OQ-R1, see the dormancy disclosure in
+    `notification_bridge._register_default_handoffs`), matching
+    `tests/unit/platform/integrations/test_notifications_bridge.py`'s
+    `_INTAKE_RECURSO_MESSAGE` fixture.
 
     GAP CI-KAFKA-HEALTH-WAIT: before any of the above, `_await_topic_ready` + `_await_consumer_
     assigned` (both bounded, both logged, both FAIL rather than skip on genuine broker trouble)
@@ -292,9 +292,8 @@ async def test_aiokafka_bridge_consumer_consumes_a_real_published_message(
     group_id = f"eb3-live-probe-{uuid.uuid4().hex[:8]}"
     business_key_suffix = uuid.uuid4().hex[:8]
     message = {
-        "type": "agents.events.contas.completed",
+        "type": "agents.events.recurso.intake_recebido",
         "tenant_id": "amh",
-        "desfecho": "encaminhada_recurso",
         "glosa_id": f"GLOSA-{business_key_suffix}",
         "numero_guia_tiss": f"GUIA-{business_key_suffix}",
     }

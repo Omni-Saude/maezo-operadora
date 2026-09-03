@@ -109,24 +109,24 @@ async def test_permission_error_guard_refusal_emits_once_phi_safe() -> None:
 
     async def handler(task: ExternalTask) -> dict[str, Any]:
         # The real *NotHumanError message convention: "ERR_<CODE>: <detail>".
-        raise PermissionError("ERR_DESISTENCIA_NOT_HUMAN: desistencia requires human decision")
+        raise PermissionError("ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN: indeferimento requires human decision")
 
-    harness.register("operadora.recurso.register_desistencia", handler)
+    harness.register("operadora.recurso.registrar_indeferimento", handler)
     phi_vars = {"cpf": "12345678900", "numero_guia_tiss": "G-777", "nome": "João da Silva"}
-    await harness._handle(_task(topic="operadora.recurso.register_desistencia", variables=phi_vars))
+    await harness._handle(_task(topic="operadora.recurso.registrar_indeferimento", variables=phi_vars))
 
     # exactly one refusal record.
     assert len(sink.emitted) == 1
     record, dedup_key = sink.emitted[0]
     assert record.agent_id == AUDIT_AGENT_ID != "pod-xyz"  # stable service identity, not the pod
     assert record.tenant_id == "amh"
-    assert record.action == "operadora.recurso.register_desistencia"
+    assert record.action == "operadora.recurso.registrar_indeferimento"
     assert record.decision == AUDIT_DECISION_REFUSED
     assert record.model_id is None and record.prompt_version is None
     assert dedup_key == "amh:refuse:task-1"  # distinct refuse: namespace
     # guard code recorded; raw PHI inputs hashed, NEVER stored.
     basis = record.details
-    assert basis["guard_code"] == "ERR_DESISTENCIA_NOT_HUMAN"
+    assert basis["guard_code"] == "ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN"
     assert len(basis["input_sha256"]) == 64
     blob = str(basis)
     for leak in ("12345678900", "G-777", "João", "numero_guia_tiss", "cpf"):
@@ -552,7 +552,10 @@ def test_every_guard_except_branch_invokes_the_refusal_chokepoint() -> None:
 @pytest.mark.parametrize(
     ("exc", "expected_code"),
     [
-        (PermissionError("ERR_DESISTENCIA_NOT_HUMAN: x"), "ERR_DESISTENCIA_NOT_HUMAN"),
+        (
+            PermissionError("ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN: x"),
+            "ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN",
+        ),
         (ValueError("ERR_DECRED_NOT_HUMAN: y"), "ERR_DECRED_NOT_HUMAN"),
         (WorkerBpmnError("ERR_CANCEL_MANTER_NOT_HUMAN"), "ERR_CANCEL_MANTER_NOT_HUMAN"),
         (ValueError("bad input"), None),  # non-guard

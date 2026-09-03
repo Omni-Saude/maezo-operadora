@@ -2,7 +2,7 @@
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review (medico-auditor/juridico/DPO/regulatorio/financas/PO) before any deploy` (docs/review-queue.md)
 **Fase:** 3 (Wave W-B; modelado uma fase a frente — playbook 5-bis) · **BPMN (alvo, autorado em wave posterior):** `spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn`
-**Gatilho regulatorio:** **Politica financeira interna** da operadora (escada de alcada / segregacao de funcoes / SOX-like controls — **DRAFT/verify** com financas). Nao ha RN ANS especifica que defina o teto; o teto e governanca financeira interna. Interage com Lei 9.656/1998 (pagamento a prestador) e com SP-OP-CONTAS-001 (a conta adjudicada gera a obrigacao de pagamento) — **DRAFT/verify**.
+**Gatilho regulatorio:** **Politica financeira interna** da operadora (escada de alcada / segregacao de funcoes / SOX-like controls — **DRAFT/verify** com financas). Nao ha RN ANS especifica que defina o teto; o teto e governanca financeira interna. Interage com Lei 9.656/1998 (pagamento a prestador) e com SP-OP-CONTAS-001 (a conta adjudicada gera a obrigacao de pagamento — desde ADR-0040 isto **e verdade**: o handoff real e `operadora.contas.handoff_pagamento`) — **DRAFT/verify**.
 
 > Este contrato e o ponto de sincronizacao (§4-bis-F): o BPMN/DMN/worker/agente de PAGTO derivam dele. A mecanica no-adverse de cinco partes (ADR-0018) esta materializada abaixo. **Clona o esqueleto de auto-aprovacao `dentro_teto` do SP-OP-AUTH-001** (`auth_auto_approval`), mas e o **UNICO processo da plataforma com candidate-groups dirigidos por valor**: uma DMN `pagto_alcada` emite `grupo_aprovador` que alimenta `camunda:candidateGroups` da User Task de aprovacao.
 
@@ -52,7 +52,11 @@ PAGTO-{tenant_id}-{ordem_pagamento_id}
 ```
 
 Alternativa quando o pagamento e disparado por uma conta adjudicada do CONTAS-001:
-`PAGTO-{tenant_id}-{numero_lote_tiss}-{prestador_id}`. Uma instancia ativa por ordem de
+`PAGTO-{tenant_id}-{numero_lote_tiss}-{prestador_id}` (cunhada por
+`contas.handoff_pagamento`). **Terceira forma da familia**, cunhada por
+`recurso.handoff_pagamento` quando a operadora **reverte** uma glosa ao deferir um recurso:
+`PAGTO-{tenant_id}-{numero_guia_tiss}-{glosa_id}` — uma glosa revertida nao tem `ordem_pagamento_id`
+pre-existente e nao e escopada por lote; a sua identidade E a glosa (ADR-0040). Uma instancia ativa por ordem de
 pagamento; reenvio da mesma ordem retorna a instancia ativa. `mcp-cibseven.start_process` DEVE
 consultar a business key antes de iniciar (start idempotente — **evita liberacao duplicada de
 pagamento**, risco financeiro direto).
@@ -73,7 +77,9 @@ pagamento**, risco financeiro direto).
 | `conta_origem_ref` | string | sim | Referencia (token) da conta pagadora — **nunca numero de conta cru em Zona Geral** |
 | `instrumento_pagamento` | string | sim | `cnab` \| `pix` \| `ted` \| `compensacao` (forma de liquidacao) |
 | `dados_pagamento_validos` | boolean | sim* | Pre-resolvido por worker (`operadora.pagto.validate_payment_data`): credor/instrumento/lastro consistentes |
-| `lastro_confirmado` | boolean | sim* | Pre-resolvido por worker: ha obrigacao real por tras (conta adjudicada / reembolso aprovado / ordem valida) |
+| `lastro_confirmado` | boolean | sim* | Pre-resolvido por worker: ha obrigacao real por tras (conta adjudicada / reembolso aprovado / ordem valida). Resolvido **dentro de PAGTO** (`operadora.pagto.validate_payment_data`) ou por humano em `UT_AnaliseAdmissibilidade`. **Um processo de origem NUNCA semeia este booleano**; ele semeia `lastro_origem`/`lastro_decisor_id` como evidencia (ADR-0040 **I-PAGTO-1**) |
+| `lastro_origem` | string | nao | **Evidencia** do lastro, semeada pelo processo de origem: `contas_adjudicacao_automatica` \| `contas_adjudicacao_humana` \| `recurso_deferimento_humano`. Alimenta o formulario de `UT_AnaliseAdmissibilidade`; **nunca substitui** `lastro_confirmado`, que PAGTO resolve |
+| `lastro_decisor_id` | string | nao | **Evidencia**: o `analista_id`/`auditor_id` que adjudicou a conta ou deferiu o recurso. **String vazia** na perna automatica de CONTAS — nunca inventada (ADR-0007) |
 | `dentro_teto_l2` | boolean | sim* | Pre-resolvido: `valor_pagamento_cents <= teto de auto-liberacao L2 do tenant` (tenants-amh.yaml) |
 | `duplicidade_suspeita` | boolean | nao | Sinal **informativo** de worker (detecta ordem ja paga/similar; NUNCA decide; so roteia a humano) |
 
@@ -251,7 +257,7 @@ tarefa de coordenacao.
   pode exigir aprovacao colegiada (multiplas User Tasks / quorum) — a detalhar.
 - Confirmacao de que `aprovacao colegiada` do comite e modelada como quorum (parallel/multi-instance
   User Task) vs aprovador unico de tier maximo.
-- Interacao com SP-OP-CONTAS-001 (conta adjudicada → ordem de pagamento) e prazos de pagamento a
+- Interacao com SP-OP-CONTAS-001 (conta adjudicada → ordem de pagamento, via `operadora.contas.handoff_pagamento` desde ADR-0040) e prazos de pagamento a
   prestador (contratuais — **DRAFT/verify**).
 - Politica de duplicidade/idempotencia de tesouraria (evitar dupla liberacao) e reconciliacao
   CNAB/PIX/TED com o sistema de tesouraria externo.
