@@ -36,7 +36,7 @@ Business key `RECURSO-amh-{guia}-{glosa}`. Process key: SP-OP-RECURSO-001 (exato
 ## Notas de fixture
 
   - `engine` NAO e redefinida localmente — o `conftest.py` compartilhado a iça centralmente.
-    `deploy_artifacts`/`recurso_probe`/`start_recurso` ficam LOCAIS (o contrato de construcao do
+    `deploy_artifacts`/`recurso_probe`/`iniciar_recurso` ficam LOCAIS (o contrato de construcao do
     probe NAO e identico entre familias).
   - `recurso_probe` wira `bpmn_error_allowlist=RECURSO_BPMN_ERROR_ALLOWLIST` (GAP-RECURSO-3): o
     `WorkerBpmnError(ERR_RECURSO_INVALID_GLOSA)` alcanca o boundary catch modelado em vez de
@@ -311,7 +311,7 @@ def _future_anchor_iso(days: int = 40) -> str:
 
 
 @pytest_asyncio.fixture
-async def start_recurso(engine: EngineRest, deploy_artifacts: str) -> Callable[..., Any]:
+async def iniciar_recurso(engine: EngineRest, deploy_artifacts: str) -> Callable[..., Any]:
     """Inicia uma instancia com business key RECURSO-amh-{guia}-{glosa} e payload canonico.
 
     Overrides via kwargs. Dados sinteticos obvios (GUIA-TESTE-0001, GLOSA-TESTE-NNNN, tenant amh).
@@ -446,7 +446,7 @@ def _parse_due(due: str) -> datetime:
 async def test_nenhum_caminho_automatizado_indeferimento(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """INVARIANTE L0: NENHUM caminho automatizado indefere o recurso (nem mantem parte da glosa,
     nem inadmite).
@@ -466,7 +466,7 @@ async def test_nenhum_caminho_automatizado_indeferimento(
     checked = 0
 
     for existe, prazo, docs, gtype, valor in itertools.product(bools, bools, bools, glosa_types, valores):
-        inst = await start_recurso(
+        inst = await iniciar_recurso(
             glosa_existe=existe,
             dentro_prazo_recurso=prazo,
             documentacao_recurso_completa=docs,
@@ -491,11 +491,11 @@ async def test_nenhum_caminho_automatizado_indeferimento(
 async def test_inadmissibilidade_aparente_roteia_para_humano(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """dentro_prazo_recurso=false (inadmissibilidade procedural aparente — R5) => ANALISE_HUMANA."""
     for override in ({"dentro_prazo_recurso": False}, {"glosa_existe": False}):
-        inst = await start_recurso(**override)
+        inst = await iniciar_recurso(**override)
         iid = inst["id"]
 
         ut = await _drive_to_analista(engine, recurso_probe, iid)
@@ -511,7 +511,7 @@ async def test_inadmissibilidade_aparente_roteia_para_humano(
 async def test_inelegibilidade_roteia_para_humano_nao_nega(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """glosa_type=tecnica (merito clinico/tecnico) => recurso_eligibility -> medico-auditor.
 
@@ -519,7 +519,7 @@ async def test_inelegibilidade_roteia_para_humano_nao_nega(
     HITL — candidateGroups hardcoded no BPMN, independente do grupo_revisor da DMN), que pode
     ESCALAR_AUDITOR. NUNCA um fim adverso automatico.
     """
-    inst = await start_recurso(glosa_type="tecnica")
+    inst = await iniciar_recurso(glosa_type="tecnica")
     iid = inst["id"]
 
     ut = await _drive_to_analista(engine, recurso_probe, iid)
@@ -538,7 +538,7 @@ async def test_inelegibilidade_roteia_para_humano_nao_nega(
 async def test_happy_path_deferir_pelo_analista(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """DEFERIR humano => comunica a resposta ao prestador + encaminha o pagamento da glosa
     revertida a SP-OP-PAGTO-001 => End_RecursoDeferido (desfecho=deferido_humano).
@@ -554,7 +554,7 @@ async def test_happy_path_deferir_pelo_analista(
         _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
     )
     glosa_id = _unique_glosa()
-    inst = await start_recurso(glosa_type="administrativa", glosa_id=glosa_id)
+    inst = await iniciar_recurso(glosa_type="administrativa", glosa_id=glosa_id)
     iid = inst["id"]
 
     ut = await _drive_to_analista(engine, recurso_probe, iid)
@@ -599,7 +599,7 @@ async def test_happy_path_deferir_pelo_analista(
 async def test_handoff_pagamento_glosa_revertida_inicia_pagto_idempotente(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """O handoff semeia `tipo_pagamento=glosa_revertida` + a EVIDENCIA do lastro, e e idempotente
     por business key (SP-OP-PAGTO-001 e a UNICA familia STRICT de dedup — um deferimento nunca
@@ -608,7 +608,7 @@ async def test_handoff_pagamento_glosa_revertida_inicia_pagto_idempotente(
         _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
     )
     glosa_id = _unique_glosa()
-    inst = await start_recurso(glosa_type="administrativa", glosa_id=glosa_id)
+    inst = await iniciar_recurso(glosa_type="administrativa", glosa_id=glosa_id)
     iid = inst["id"]
 
     ut = await _drive_to_analista(engine, recurso_probe, iid)
@@ -638,7 +638,7 @@ async def test_handoff_pagamento_glosa_revertida_inicia_pagto_idempotente(
 async def test_handoff_pagamento_nunca_semeia_os_fatos_de_admissibilidade_de_pagto(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """I-PAGTO-1, engine-side: o processo de ORIGEM fornece a EVIDENCIA do lastro; so PAGTO
     resolve o FATO. As quatro variaveis de admissibilidade NAO chegam a instancia de PAGTO."""
@@ -646,7 +646,7 @@ async def test_handoff_pagamento_nunca_semeia_os_fatos_de_admissibilidade_de_pag
         _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
     )
     glosa_id = _unique_glosa()
-    inst = await start_recurso(glosa_type="administrativa", glosa_id=glosa_id)
+    inst = await iniciar_recurso(glosa_type="administrativa", glosa_id=glosa_id)
     iid = inst["id"]
 
     ut = await _drive_to_analista(engine, recurso_probe, iid)
@@ -678,7 +678,7 @@ async def test_handoff_pagamento_nunca_semeia_os_fatos_de_admissibilidade_de_pag
 async def test_glosa_revertida_nunca_alcanca_liberacao_automatica_sem_ut(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """M1 / I-PAGTO-1: a ordem originada num deferimento humano NAO alcanca
     `End_PagamentoLiberadoAutomatico` sem `UT_AnaliseAdmissibilidade` concluida.
@@ -696,7 +696,7 @@ async def test_glosa_revertida_nunca_alcanca_liberacao_automatica_sem_ut(
         _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
     )
     glosa_id = _unique_glosa()
-    inst = await start_recurso(glosa_type="administrativa", glosa_id=glosa_id)
+    inst = await iniciar_recurso(glosa_type="administrativa", glosa_id=glosa_id)
     iid = inst["id"]
 
     ut = await _drive_to_analista(engine, recurso_probe, iid)
@@ -728,7 +728,7 @@ async def test_glosa_revertida_nunca_alcanca_liberacao_automatica_sem_ut(
 async def test_happy_path_escalar_auditor_defere(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """ESCALAR_AUDITOR (glosa tecnica/clinica); auditor DEFERIR => comunica + handoff de pagamento.
 
@@ -740,7 +740,7 @@ async def test_happy_path_escalar_auditor_defere(
     await engine.deploy(
         _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
     )
-    inst = await start_recurso(glosa_type="tecnica")
+    inst = await iniciar_recurso(glosa_type="tecnica")
     iid = inst["id"]
 
     ut = await _drive_to_analista(engine, recurso_probe, iid)
@@ -772,7 +772,7 @@ async def test_happy_path_escalar_auditor_defere(
 async def test_happy_path_auditor_indefere_humano(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """ESCALAR_AUDITOR; auditor INDEFERIR com campos => End_RecursoIndeferidoAuditor (humano-gated).
 
@@ -781,7 +781,7 @@ async def test_happy_path_auditor_indefere_humano(
     dominio (`ST_PublishIndeferidoAuditor`'s `event_payload_vars`), que e a evidencia
     engine-observavel de que o guard executou com o humano acusado.
     """
-    inst = await start_recurso(glosa_type="clinica")
+    inst = await iniciar_recurso(glosa_type="clinica")
     iid = inst["id"]
 
     ut = await _drive_to_analista(engine, recurso_probe, iid)
@@ -818,7 +818,7 @@ async def test_happy_path_auditor_indefere_humano(
 async def test_recurso_parcialmente_deferido(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """DEFERIR_PARCIAL humano => guard + comunica + handoff da parcela revertida =>
     End_RecursoDeferidoParcial (desfecho=deferido_parcial_humano).
@@ -831,7 +831,7 @@ async def test_recurso_parcialmente_deferido(
     await engine.deploy(
         _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
     )
-    inst = await start_recurso(glosa_type="administrativa")
+    inst = await iniciar_recurso(glosa_type="administrativa")
     iid = inst["id"]
 
     ut = await _drive_to_analista(engine, recurso_probe, iid)
@@ -857,7 +857,7 @@ async def test_recurso_parcialmente_deferido(
 async def test_indeferir_exige_campos_obrigatorios(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """INDEFERIR sem fundamentacao/valor/referencia/analista_id => worker guard recusa.
 
@@ -865,7 +865,7 @@ async def test_indeferir_exige_campos_obrigatorios(
     `RecursoIndeferimentoNotHumanError` (defesa em profundidade); a instancia NAO atinge nenhum
     terminal adverso (incidente no worker).
     """
-    inst = await start_recurso(glosa_type="administrativa")
+    inst = await iniciar_recurso(glosa_type="administrativa")
     iid = inst["id"]
 
     ut = await _drive_to_analista(engine, recurso_probe, iid)
@@ -882,11 +882,11 @@ async def test_indeferir_exige_campos_obrigatorios(
 async def test_deferir_parcial_exige_valor_deferido(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """DEFERIR_PARCIAL sem `valor_deferido_brl` => guard recusa (o valor alimenta a ordem de
     pagamento da parcela revertida; sem ele nao ha o que encaminhar)."""
-    inst = await start_recurso(glosa_type="administrativa")
+    inst = await iniciar_recurso(glosa_type="administrativa")
     iid = inst["id"]
 
     ut = await _drive_to_analista(engine, recurso_probe, iid)
@@ -988,7 +988,7 @@ async def test_worker_guard_registrar_indeferimento_auditor_path() -> None:
 async def test_glosa_id_ausente_pendencia_termina_limpo_sem_incidente_travado(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """glosa_id ausente + PENDENTE_DOCUMENTACAO => o boundary catch BE_GlosaInvalidaDocs termina a
     instancia LIMPO em End_RecursoGlosaInvalidaOrigem.
@@ -998,7 +998,7 @@ async def test_glosa_id_ausente_pendencia_termina_limpo_sem_incidente_travado(
     compartilhado e o mesmo, e e ele que este teste assere; o boundary especifico e coberto por
     `test_glosa_id_ausente_validacao_termina_limpo_sem_incidente_travado` abaixo.
     """
-    inst = await start_recurso(
+    inst = await iniciar_recurso(
         glosa_id="",
         numero_guia_tiss=f"GUIA-TESTE-INVALIDO-DOCS-{uuid.uuid4().hex[:8]}",
         documentacao_recurso_completa=False,
@@ -1024,7 +1024,7 @@ async def test_glosa_id_ausente_pendencia_termina_limpo_sem_incidente_travado(
 async def test_glosa_id_ausente_analise_termina_limpo_sem_incidente_travado(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """glosa_id ausente + SEGUE_ANALISE => BE_GlosaInvalidaDossie (ou, a montante,
     BE_GlosaInvalidaValidacao) termina em End_RecursoGlosaInvalidaOrigem.
@@ -1032,7 +1032,7 @@ async def test_glosa_id_ausente_analise_termina_limpo_sem_incidente_travado(
     Mesma nota de ORDEM da irma acima: com o intake no lugar, o token e barrado ja em
     `ST_ValidarRecurso`. O terminal compartilhado continua sendo a evidencia.
     """
-    inst = await start_recurso(
+    inst = await iniciar_recurso(
         glosa_id="",
         numero_guia_tiss=f"GUIA-TESTE-INVALIDO-DOSSIE-{uuid.uuid4().hex[:8]}",
         documentacao_recurso_completa=True,
@@ -1058,7 +1058,7 @@ async def test_glosa_id_ausente_analise_termina_limpo_sem_incidente_travado(
 async def test_glosa_id_ausente_validacao_termina_limpo_sem_incidente_travado(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """3o site de ERR_RECURSO_INVALID_GLOSA — e o PRIMEIRO em todo caminho.
 
@@ -1067,7 +1067,7 @@ async def test_glosa_id_ausente_validacao_termina_limpo_sem_incidente_travado(
     sequer avaliar `recurso_admissibility`. Prova que o novo boundary esta wired (o gate ADR-0030
     exige o codigo consumption-covered nos TRES topicos).
     """
-    inst = await start_recurso(
+    inst = await iniciar_recurso(
         glosa_id="",
         numero_guia_tiss=f"GUIA-TESTE-INVALIDO-VALID-{uuid.uuid4().hex[:8]}",
     )
@@ -1095,7 +1095,7 @@ async def test_glosa_id_ausente_validacao_termina_limpo_sem_incidente_travado(
 async def test_pendencia_docs_recebidos_reavalia(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """documentacao_recurso_completa=false => PENDENTE_DOCUMENTACAO; docs_received => reavalia.
 
@@ -1110,7 +1110,7 @@ async def test_pendencia_docs_recebidos_reavalia(
     vars against a real CIB Seven 2.1.0 engine — strict-xfail mark removed on that proof.
     """
     glosa_id = _unique_glosa()
-    inst = await start_recurso(documentacao_recurso_completa=False, glosa_id=glosa_id)
+    inst = await iniciar_recurso(documentacao_recurso_completa=False, glosa_id=glosa_id)
     iid = inst["id"]
 
     await recurso_probe.drain()
@@ -1147,10 +1147,10 @@ async def test_pendencia_docs_recebidos_reavalia(
 async def test_pendencia_expira_decisao_humana(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """Prazo de pendencia (ICE_PrazoPendencia P5D) expira => UT_AnaliseRecursoAnalista (humano decide)."""
-    inst = await start_recurso(documentacao_recurso_completa=False)
+    inst = await iniciar_recurso(documentacao_recurso_completa=False)
     iid = inst["id"]
 
     await recurso_probe.drain()
@@ -1174,10 +1174,10 @@ async def test_pendencia_expira_decisao_humana(
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """Timer BT_AlertaSlaRecurso (nao-interruptivo): notify_sla_risk recebe task; UT segue aberta."""
-    inst = await start_recurso(glosa_type="administrativa")
+    inst = await iniciar_recurso(glosa_type="administrativa")
     iid = inst["id"]
 
     await _drive_to_analista(engine, recurso_probe, iid)
@@ -1196,7 +1196,7 @@ async def test_timer_alerta_sla_nao_interruptivo(
 async def test_timer_sla_estourado_coordenacao_assume_nao_auto_aprova(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """Timer BT_SlaAnaliseRecurso (interruptivo): UT_AnaliseRecursoAnalista cancelada; coordenacao assume.
 
@@ -1204,7 +1204,7 @@ async def test_timer_sla_estourado_coordenacao_assume_nao_auto_aprova(
     operadora.events.publish, real kafka.publish call site — works). NAO ha auto-aprovacao/
     auto-desistencia por timeout.
     """
-    inst = await start_recurso(glosa_type="administrativa")
+    inst = await iniciar_recurso(glosa_type="administrativa")
     iid = inst["id"]
 
     await _drive_to_analista(engine, recurso_probe, iid)
@@ -1231,7 +1231,7 @@ async def test_timer_sla_estourado_coordenacao_assume_nao_auto_aprova(
 async def test_coordenacao_assume_e_indefere_humano(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """SLA estourado; coordenacao assume e INDEFERIR => End_RecursoIndeferido com UT humana.
 
@@ -1239,7 +1239,7 @@ async def test_coordenacao_assume_e_indefere_humano(
     seta `valor_glosa_mantido_brl="150.00"` (string, a convencao BRL-como-string do fixture) — o
     valor monetario e parseado fail-closed antes do guard `<= 0`.
     """
-    inst = await start_recurso(glosa_type="administrativa")
+    inst = await iniciar_recurso(glosa_type="administrativa")
     iid = inst["id"]
 
     await _drive_to_analista(engine, recurso_probe, iid)
@@ -1269,7 +1269,7 @@ async def test_coordenacao_assume_e_indefere_humano(
 async def test_coordenacao_inadmissivel_humano_gated(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """SLA estourado; coordenacao decide inadmissibilidade humana => End_RecursoInadmissivel (gated).
 
@@ -1279,7 +1279,7 @@ async def test_coordenacao_inadmissivel_humano_gated(
     pagador do qual ela deriva. A mecanica de `desfecho_humano` (inicializada em
     `ST_PublishReceived` para ser resolvivel no engine) e preservada verbatim.
     """
-    inst = await start_recurso(glosa_type="administrativa", dentro_prazo_recurso=False)
+    inst = await iniciar_recurso(glosa_type="administrativa", dentro_prazo_recurso=False)
     iid = inst["id"]
 
     await _drive_to_analista(engine, recurso_probe, iid)
@@ -1324,10 +1324,10 @@ async def test_coordenacao_inadmissivel_humano_gated(
 async def test_prazo_max_recurso_escala_humano(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """Timer BT_PrazoMaxRecurso (teto absoluto): escalate_ans_timeout; UT_EscalonamentoPrazo."""
-    inst = await start_recurso(glosa_type="administrativa")
+    inst = await iniciar_recurso(glosa_type="administrativa")
     iid = inst["id"]
 
     await _drive_to_analista(engine, recurso_probe, iid)
@@ -1356,13 +1356,13 @@ async def test_prazo_max_recurso_escala_humano(
 async def test_prazo_max_ancora_absoluta_nao_no_attach_da_ut(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """GAP-RECURSO-1: o teto P30D ancora em data_recebimento_recurso_iso, NAO no attach da UT."""
     anchor_date = (datetime.now(UTC) + timedelta(days=40)).date()
     anchor_midnight = datetime.combine(anchor_date, datetime.min.time())
 
-    inst = await start_recurso(
+    inst = await iniciar_recurso(
         glosa_type="administrativa",
         data_recebimento_recurso_iso=anchor_date.isoformat(),
     )
@@ -1399,7 +1399,7 @@ async def test_prazo_max_ancora_absoluta_nao_no_attach_da_ut(
 async def test_prazo_max_ancora_defaultada_pelo_intake_com_warning(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """Sem `data_recebimento_recurso_iso` no start, o INTAKE a normaliza — nao a DMN.
 
@@ -1417,7 +1417,7 @@ async def test_prazo_max_ancora_defaultada_pelo_intake_com_warning(
     hoje = datetime.now(UTC).date()
     ciencia_date = hoje - timedelta(days=5)
 
-    inst = await start_recurso(
+    inst = await iniciar_recurso(
         glosa_type="administrativa",
         data_ciencia_glosa=ciencia_date.isoformat(),
         data_recebimento_recurso_iso=None,
@@ -1451,7 +1451,7 @@ async def test_prazo_max_ancora_defaultada_pelo_intake_com_warning(
 async def test_prazo_max_coord_mesmo_instante_absoluto(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """GAP-RECURSO-1: BT_SlaAnaliseRecurso mata BT_PrazoMaxRecurso; BT_PrazoMaxCoord reanexa o teto
     no MESMO instante absoluto (nunca janela nova).
@@ -1459,7 +1459,7 @@ async def test_prazo_max_coord_mesmo_instante_absoluto(
     The due-date-equality proof (before the final `execute_job`) is independent of finding 2 —
     only the trailing execution (-> ST_EscalateAnsTimeout) is blocked.
     """
-    inst = await start_recurso(glosa_type="administrativa")
+    inst = await iniciar_recurso(glosa_type="administrativa")
     iid = inst["id"]
 
     await _drive_to_analista(engine, recurso_probe, iid)
@@ -1497,12 +1497,12 @@ async def test_prazo_max_coord_mesmo_instante_absoluto(
 async def test_prazo_max_auditor_mesmo_instante_absoluto(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """GAP-RECURSO-1: ESCALAR_AUDITOR roteia sem teto proprio; BT_PrazoMaxAuditor reanexa o teto
     no MESMO instante absoluto (o hop analista->auditor nao estende o teto contratual).
     """
-    inst = await start_recurso(glosa_type="administrativa")
+    inst = await iniciar_recurso(glosa_type="administrativa")
     iid = inst["id"]
 
     ut = await _drive_to_analista(engine, recurso_probe, iid)
@@ -1543,14 +1543,14 @@ async def test_prazo_max_auditor_mesmo_instante_absoluto(
 async def test_prazo_max_escalonamento_sem_cascata(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """GAP-RECURSO-1 (guard adversarial): UT_EscalonamentoPrazo NAO carrega boundary de teto.
 
     Executes BT_PrazoMaxRecurso immediately -> ST_EscalateAnsTimeout, which has zero registered
     worker (finding 2): UT_EscalonamentoPrazo never appears.
     """
-    inst = await start_recurso(glosa_type="administrativa")
+    inst = await iniciar_recurso(glosa_type="administrativa")
     iid = inst["id"]
 
     await _drive_to_analista(engine, recurso_probe, iid)
@@ -1589,7 +1589,7 @@ async def test_prazo_max_escalonamento_sem_cascata(
 async def test_dmn_recurso_sla_valores(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """glosa_type=clinica, valor alto => DMN recurso_sla resolve sla_analise (ISO); timers existem.
 
@@ -1597,7 +1597,7 @@ async def test_dmn_recurso_sla_valores(
     resposta ao recurso e contratual (DRAFT/verify), com RN 501/2022 pelo fluxo TISS; RN 424/2017
     permanece citada APENAS na row tecnico-clinica e ainda assim condicionada a junta medica.
     """
-    inst = await start_recurso(glosa_type="clinica", valor_glosado_brl="75000.00")
+    inst = await iniciar_recurso(glosa_type="clinica", valor_glosado_brl="75000.00")
     iid = inst["id"]
 
     await _drive_to_analista(engine, recurso_probe, iid)
@@ -1903,12 +1903,12 @@ def test_decisao_invalida_termina_em_erro_sem_efeito(
 async def test_decisao_invalida_termina_em_erro_sem_efeito_no_engine(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """Contra o engine real: o analista conclui a UT sem `decisao_recurso` => o default leva a
     `End_ErrRecursoDecisaoInvalida`, e NENHUM efeito e materializado (nem indeferimento, nem
     comunicacao, nem ordem de pagamento)."""
-    inst = await start_recurso(glosa_type="administrativa")
+    inst = await iniciar_recurso(glosa_type="administrativa")
     iid = inst["id"]
 
     ut = await _drive_to_analista(engine, recurso_probe, iid)
@@ -1928,11 +1928,11 @@ async def test_decisao_invalida_termina_em_erro_sem_efeito_no_engine(
 async def test_merito_auditor_invalido_termina_em_erro_sem_efeito(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """Mesmo default fail-closed no gateway do auditor: `decisao_auditor_recurso` fora do dominio
     termina em erro, nao numa acao por omissao."""
-    inst = await start_recurso(glosa_type="tecnica")
+    inst = await iniciar_recurso(glosa_type="tecnica")
     iid = inst["id"]
 
     ut = await _drive_to_analista(engine, recurso_probe, iid)
@@ -1954,7 +1954,7 @@ async def test_merito_auditor_invalido_termina_em_erro_sem_efeito(
 async def test_escalonamento_prazo_emite_vocabulario_de_pagador(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """`UT_EscalonamentoPrazo` e o TERCEIRO canal humano, e ele fala o mesmo vocabulario de pagador.
 
@@ -1963,7 +1963,7 @@ async def test_escalonamento_prazo_emite_vocabulario_de_pagador(
     escalonamento do teto e a instancia alcanca o terminal adverso humano-gated — provando que o
     canal aceita o dominio de pagador de ponta a ponta.
     """
-    inst = await start_recurso(glosa_type="administrativa")
+    inst = await iniciar_recurso(glosa_type="administrativa")
     iid = inst["id"]
 
     await _drive_to_analista(engine, recurso_probe, iid)
@@ -1998,7 +1998,7 @@ async def test_escalonamento_prazo_emite_vocabulario_de_pagador(
 async def test_solicitar_info_repetido_nao_sobrevive_ao_teto_absoluto(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """m10: o ciclo `SOLICITAR_INFO` NAO tem contador — e isso e deliberado (um teto por contagem
     produziria um auto-desfecho por esgotamento, o anti-padrao que ADR-0018 proibe). O que o
@@ -2008,7 +2008,7 @@ async def test_solicitar_info_repetido_nao_sobrevive_ao_teto_absoluto(
     `prazo_max_absoluto_iso`, o token tem de estar em `UT_EscalonamentoPrazo` — NUNCA num terminal
     adverso, e NUNCA num quarto ciclo.
     """
-    inst = await start_recurso(glosa_type="administrativa")
+    inst = await iniciar_recurso(glosa_type="administrativa")
     iid = inst["id"]
     business_key = inst["businessKey"]
 
@@ -2059,7 +2059,7 @@ async def test_solicitar_info_repetido_nao_sobrevive_ao_teto_absoluto(
 async def test_business_key_uma_instancia_por_glosa(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
-    start_recurso: Callable[..., Any],
+    iniciar_recurso: Callable[..., Any],
 ) -> None:
     """Mesmo business key: consultar antes de iniciar; nao criar 2a instancia ativa.
 
@@ -2072,7 +2072,7 @@ async def test_business_key_uma_instancia_por_glosa(
     business key produced TWO active instances, confirmed via `GET
     /process-instance?businessKey=...&active=true` — grepped the repo for any custom engine plugin
     that might enforce this; none exists). So `len(existing) == 1` genuinely fails on a 2nd+ run
-    against the same engine. Minted via `_unique_glosa()` now (mirrors `start_recurso`'s own
+    against the same engine. Minted via `_unique_glosa()` now (mirrors `iniciar_recurso`'s own
     default and every other test in this file).
 
     CORRECTED (t3.1-followup-nits): the paragraph that used to sit here claimed this test
@@ -2105,7 +2105,7 @@ async def test_business_key_uma_instancia_por_glosa(
         "fresh unique BK deve comecar sem instancia ativa"
     )
 
-    first = await start_recurso(numero_guia_tiss=guia, glosa_id=glosa, glosa_type="tecnica")
+    first = await iniciar_recurso(numero_guia_tiss=guia, glosa_id=glosa, glosa_type="tecnica")
     existing = await engine.find_active_instances(business_key)
     assert len(existing) == 1
     assert existing[0]["id"] == first["id"]
@@ -2116,7 +2116,7 @@ async def test_business_key_uma_instancia_por_glosa(
     # to document what a real idempotency guard would do, not to exercise a duplicate start.
     guard_check = await engine.find_active_instances(business_key)
     if not guard_check:  # pragma: no cover - provably unreachable given the assert above
-        await start_recurso(numero_guia_tiss=guia, glosa_id=glosa, glosa_type="tecnica")
+        await iniciar_recurso(numero_guia_tiss=guia, glosa_id=glosa, glosa_type="tecnica")
     after_second_check = await engine.find_active_instances(business_key)
     assert len(after_second_check) == 1, (
         "re-checar a mesma BK apos o primeiro start deve continuar reportando 1 instancia ativa"

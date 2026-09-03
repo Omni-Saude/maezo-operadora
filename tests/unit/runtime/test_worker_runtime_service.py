@@ -99,7 +99,7 @@ def test_register_default_workers_topics_match_expected_prefixes() -> None:
     assert "operadora.ans_cron.check_calendar" in topics
     assert "regulatorio.anssubmit.submit" in topics
     assert "operadora.cancel.send_cancellation_notice" in topics
-    assert "operadora.contas.register_glosa_accept" in topics
+    assert "operadora.contas.registrar_glosa" in topics
     assert "operadora.cred.register_cred_denial" in topics
     assert "operadora.events.publish" in topics
     assert "operadora.fraude.register_fraud_accusation" in topics

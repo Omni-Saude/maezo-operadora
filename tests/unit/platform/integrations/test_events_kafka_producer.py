@@ -109,7 +109,7 @@ async def test_publish_mirror_topic_sends_primary_and_scrubbed_mirror() -> None:
     producer = AioKafkaEventsProducer(raw_producer=raw)
     payload = {
         "tenant_id": "amh",
-        "desfecho": "encaminhada_recurso",
+        "desfecho": "glosa_aplicada_humano",
         "numero_guia_tiss": "GUIA-1",
         "glosa_id": "GLOSA-1",
         "numero_lote_tiss": "LOTE-1",
@@ -133,7 +133,7 @@ async def test_publish_mirror_topic_sends_primary_and_scrubbed_mirror() -> None:
     assert mirror_key == "bk-1"
     assert mirror_value["type"] == _CONTAS_TOPIC
     assert mirror_value["tenant_id"] == "amh"
-    assert mirror_value["desfecho"] == "encaminhada_recurso"
+    assert mirror_value["desfecho"] == "glosa_aplicada_humano"
     assert mirror_value["numero_guia_tiss"] == "GUIA-1"
     assert mirror_value["glosa_id"] == "GLOSA-1"
     assert "not_allowlisted_field" not in mirror_value
@@ -171,7 +171,7 @@ async def test_mirror_envelope_type_cannot_be_shadowed_by_a_source_payload_type_
 
     await producer.publish(
         _CONTAS_TOPIC,
-        {"type": "attacker_injected", "tenant_id": "amh", "desfecho": "encaminhada_recurso"},
+        {"type": "attacker_injected", "tenant_id": "amh", "desfecho": "glosa_aplicada_humano"},
     )
 
     assert len(raw.sent) == 2

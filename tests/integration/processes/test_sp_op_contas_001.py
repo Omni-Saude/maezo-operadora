@@ -21,10 +21,12 @@ Process key: SP-OP-CONTAS-001 (exato — nao alterar).
 
 ## Invariante L0 (DoD deliverable)
 
-test_nenhum_caminho_automatizado_aceita_glosa:
+test_nenhum_caminho_automatizado_glosa:
   Varredura de TODAS as combinacoes de input da DMN glosa_triage. A instancia NUNCA atinge
-  End_GlosaAceitaHumano sem que UT_AnalistaContas / UT_CoordenacaoContasAssume tenha sido
-  completada por humano com decisao_contas=ACEITAR_GLOSA. Prova via history/activity-instance.
+  End_GlosaAplicadaHumano nem End_PagamentoParcialHumano sem que UT_AnalistaContas /
+  UT_CoordenacaoContasAssume tenha sido
+  completada por humano com decisao_contas in {GLOSAR, PAGAR_PARCIAL}. Prova via
+  history/activity-instance.
 
 PORT NOTES (fixture adaptation only — port rule 1; logic/assertions verbatim from donor where
 the underlying mechanism is unchanged; see FINDINGS for the cases where it is NOT unchanged):
@@ -77,11 +79,11 @@ the underlying mechanism is unchanged; see FINDINGS for the cases where it is NO
   - `contas_probe` wires `dmn=CibSevenDmnTransport(CIBSEVEN_BASE_URL)` into `register_contas_
     workers` (ADR-0028 §1 seam) — `analyze_reason_entry`/`prepare_triage_dossier_entry` both
     `require_dmn(...)` and raise `DmnEvaluationError` (transient) without it.
-  - `test_worker_register_glosa_accept_recusa_sem_humano`: donor's `make_register_glosa_accept_
+  - `test_worker_registrar_glosa_recusa_sem_humano`: donor's `make_register_glosa_accept_
     handler(kafka) -> Callable[[ExternalTask], ...]` + `WorkerBpmnError` do not exist on v2 main
     (ADR-0026 §2b replaced the class/factory-per-topic shape with dict-boundary entry functions
-    for this module). Adapted to call `register_glosa_accept_entry(variables: dict, *,
-    kafka=None) -> dict` directly; the guard raises `GlosaAcceptNotHumanError` (a `PermissionError`
+    for this module). Adapted to call `registrar_glosa_entry(variables: dict, *,
+    kafka=None) -> dict` directly; the guard raises `ContasGlosaNotHumanError` (a `PermissionError`
     subclass), not a modeled `WorkerBpmnError`. The 4 guard scenarios are preserved verbatim
     (decision missing / wrong decision / missing analista_id / success); the "success" shape
     changed to check the RETURNED dict (v2's entry function does not itself call `kafka.publish`
@@ -92,8 +94,9 @@ FINDINGS (root-cause, file:line evidence; see PR body / evidence-ledger for full
   1. **Kafka-publish gap (systemic, T3.1 events.publish-fix ledger row).** `contas.py`'s 9
      dict-boundary entry functions (`identify_glosa_entry` contas.py:549, `analyze_reason_entry`
      :557, `calculate_impact_entry`:569, `prepare_triage_dossier_entry`:579,
-     `register_glosa_accept_entry`:603, `notify_sla_risk_entry`:619, `start_recurso_entry`:631,
-     `reconcile_payment_entry`:641, `publish_entry`:652) EVERY one does `del kafka  # unused` —
+     `registrar_glosa_entry`, `emitir_demonstrativo_entry`, `devolver_conta_entry`,
+     `notify_sla_risk_entry`, `handoff_pagamento_entry`, `publish_entry`) EVERY one does
+     `del kafka  # unused` —
      none calls `kafka.publish`. `contas_probe.notifications_of_type("contas.<fn>")` can
      therefore never observe any of these workers' executions. Distinct from the GENERIC
      `operadora.events.publish` path (events.py:247, already fixed/merged, registered here too)
@@ -108,7 +111,7 @@ FINDINGS (root-cause, file:line evidence; see PR body / evidence-ledger for full
      `test_sla_ancora_em_data_recebimento_lote_nao_em_attach_da_ut`) were re-expressed against the
      strongest available engine-side equivalent: `has_event(_CONTAS_COMPLETED, ...)` on the real
      `operadora.events.publish` path where a downstream `ST_Publish*` task exists
-     (register_glosa_accept/start_recurso/reconcile_payment all feed one), or
+     (registrar_glosa/emitir_demonstrativo/devolver_conta/handoff_pagamento all feed one), or
      `engine.get_variable`/`activity_instances_ended` where none does (analyze_reason's
      `categoria_normalizada`, prepare_triage_dossier's execution, and BOTH `notify_sla_risk`
      non-interruptive alert tests — `ST_NotificarRiscoSla` routes straight to
@@ -121,7 +124,7 @@ FINDINGS (root-cause, file:line evidence; see PR body / evidence-ledger for full
      — that assert is structurally vacuous (always true; the channel is always empty regardless of
      whether the worker guard fired) and was deliberately left UNCHANGED here per this batch's
      policy against silently altering a passing test's semantics; the test's real coverage of the
-     guard already comes from the `_END_GLOSA_ACEITA not in ended` / `_assert_no_accept_without_
+     guard already comes from the `_ENDS_ADVERSOS` check / `_assert_no_glosa_without_
      human_task` checks alongside it.
   2. **Registry drift (mild, opposite direction from cancel's): 1 orphan registration.**
      `register_contas_workers` (contas.py:661-719) registers `operadora.contas.publish` (line
@@ -133,19 +136,19 @@ FINDINGS (root-cause, file:line evidence; see PR body / evidence-ledger for full
      orphan topic is simply never dispatched to), but `_CONTAS_WORKER_TOPICS` below includes it
      for the drift-guard to pass naturally, and this is called out rather than silently ignored.
   3. **Guard errors never reach a BPMN boundary catch (both declared boundaries are DEAD code).**
-     `GlosaAcceptNotHumanError` (contas.py:34, `PermissionError` subclass) and
+     `ContasGlosaNotHumanError` (a `PermissionError` subclass) and
      `ContasLoteInvalidoError` (contas.py:50, `ValueError` subclass) are BOTH in `base.py`'s
      `_HARNESS_CLASSIFIED` tuple -> re-raised unchanged by `FunctionWorker.execute` ->
      `harness._handle` (harness.py:948-954) routes `PermissionError`/`ValueError` STRAIGHT to
      `_report_failure(..., retries_override=0)` — an immediate engine incident via
      `handle_failure`, NEVER via `handle_bpmn_error`/the `bpmn_error_allowlist` path (that path
      is reserved for `WorkerBpmnError`, which neither of these classes subclasses). Consequently
-     the BPMN's own `Error_GlosaAcceptNotHuman`/`Error_ContasLoteInvalido` declarations
+     the BPMN's own `Error_ContasGlosaNotHuman`/`Error_ContasLoteInvalido` declarations
      (`SP-OP-CONTAS-001_...bpmn:16`) have NO matching `boundaryEvent`/`errorEventDefinition`
      ANYWHERE in the process (grep confirms only 3 boundary events total: `BT_AlertaSlaContas`,
-     `BT_SlaTriagem`, `BME_LinhasAtualizadas` — a timer/timer/message trio, none an error
+     `BT_SlaAnaliseContas`, `BME_LinhasAtualizadas` — a timer/timer/message trio, none an error
      boundary) — even if one existed, it could never fire for these exception types. Guard
-     failures therefore surface as an OPEN ENGINE INCIDENT at `ST_RegisterGlosaAccept`, not a
+     failures therefore surface as an OPEN ENGINE INCIDENT at `ST_RegistrarGlosa`, not a
      graceful boundary-catch terminal (unlike cancel's `End_ManterNaoConfirmado` /
      auth's `End_FundamentacaoIncompletaBloqueada`). This does NOT block
      `test_aceitar_glosa_exige_campos` below (the donor's own assertions there are compatible
@@ -174,9 +177,9 @@ import pytest_asyncio
 from maezo.gateway.audit_postgres import FreshSinkAuditEmitter
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.contas import (
-    GlosaAcceptNotHumanError,
+    ContasGlosaNotHumanError,
     register_contas_workers,
-    register_glosa_accept_entry,
+    registrar_glosa_entry,
 )
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
@@ -201,10 +204,11 @@ _ANALYZE_TOPIC = "operadora.contas.analyze_reason"
 _IMPACT_TOPIC = "operadora.contas.calculate_impact"
 _DOSSIER_TOPIC = "operadora.contas.prepare_triage_dossier"
 _NOTIFY_SLA_TOPIC = "operadora.contas.notify_sla_risk"
-_REGISTER_ACCEPT_TOPIC = "operadora.contas.register_glosa_accept"
-_START_RECURSO_TOPIC = "operadora.contas.start_recurso"
+_REGISTRAR_GLOSA_TOPIC = "operadora.contas.registrar_glosa"
+_EMITIR_DEMONSTRATIVO_TOPIC = "operadora.contas.emitir_demonstrativo"
+_DEVOLVER_CONTA_TOPIC = "operadora.contas.devolver_conta"
+_HANDOFF_PAGAMENTO_TOPIC = "operadora.contas.handoff_pagamento"
 _START_FRAUDE_TOPIC = "operadora.contas.start_fraude"  # T4 Phase-3 CONTAS→FRAUDE in-flow worker.
-_RECONCILE_TOPIC = "operadora.contas.reconcile_payment"
 _ORPHAN_PUBLISH_TOPIC = "operadora.contas.publish"  # FINDING 2: registered, no BPMN consumer.
 
 # Topicos servidos pelos workers REAIS registrados no harness (drain generico). Inclui o orfao
@@ -216,10 +220,11 @@ _CONTAS_WORKER_TOPICS = [
     _IMPACT_TOPIC,
     _DOSSIER_TOPIC,
     _NOTIFY_SLA_TOPIC,
-    _REGISTER_ACCEPT_TOPIC,
-    _START_RECURSO_TOPIC,
+    _REGISTRAR_GLOSA_TOPIC,
+    _EMITIR_DEMONSTRATIVO_TOPIC,
+    _DEVOLVER_CONTA_TOPIC,
+    _HANDOFF_PAGAMENTO_TOPIC,
     _START_FRAUDE_TOPIC,
-    _RECONCILE_TOPIC,
     _ORPHAN_PUBLISH_TOPIC,
 ]
 
@@ -233,11 +238,17 @@ _CONTAS_COMPLETED = "agents.events.contas.completed"
 _UT_ANALISTA = "UT_AnalistaContas"
 _UT_COORDENACAO = "UT_CoordenacaoContasAssume"
 
-_END_SEM_GLOSA = "End_SemGlosa"
-_END_ENCAMINHADA_RECURSO = "End_EncaminhadaRecurso"
-_END_GLOSA_ACEITA = "End_GlosaAceitaHumano"
-_END_REENVIADA = "End_Reenviada"
+_END_APROVADA_INTEGRAL = "End_ContaAprovadaIntegral"
+_END_APROVADA_HUMANO = "End_ContaAprovadaHumano"
+_END_GLOSA_APLICADA = "End_GlosaAplicadaHumano"
+_END_PAGAMENTO_PARCIAL = "End_PagamentoParcialHumano"
+_END_CONTA_DEVOLVIDA = "End_ContaDevolvidaPrestador"
 _END_ENCAMINHADA_FRAUDE = "End_EncaminhadaFraude"  # T4 Phase-3 CONTAS→FRAUDE leg terminal.
+_END_ERR_DECISAO = "End_ErrContasDecisaoInvalida"
+
+#: The TWO adverse terminals (ADR-0040): applying a glosa in full, and reducing the payment.
+#: Neither is reachable without a completed human User Task — that is the L0 invariant.
+_ENDS_ADVERSOS = frozenset({_END_GLOSA_APLICADA, _END_PAGAMENTO_PARCIAL})
 
 _UT_HUMANAS_ACEITE = frozenset({_UT_ANALISTA, _UT_COORDENACAO})
 
@@ -250,8 +261,9 @@ _WORKER_KAFKA_GAP_REASON = (
     "v2 systemic drift (T3.1 finding 1, same class as escalation/auth/cancel's Kafka-gap "
     "residuals — ledger row 'T3.1 (events.publish fix)'): contas.py's dict-boundary entry "
     "functions (identify_glosa_entry/analyze_reason_entry/calculate_impact_entry/"
-    "prepare_triage_dossier_entry/register_glosa_accept_entry/notify_sla_risk_entry/"
-    "start_recurso_entry/reconcile_payment_entry) all accept a `kafka` kwarg but `del kafka` it "
+    "prepare_triage_dossier_entry/registrar_glosa_entry/emitir_demonstrativo_entry/"
+    "devolver_conta_entry/notify_sla_risk_entry/handoff_pagamento_entry) all accept a `kafka` "
+    "kwarg but `del kafka` it "
     "unused — none calls kafka.publish. contas_probe.notifications_of_type('contas.<fn>') can "
     "therefore never observe any of these workers' executions, even though the worker itself "
     "runs and completes against the live engine (verified: the instance reaches its correct "
@@ -264,7 +276,7 @@ _WORKER_KAFKA_GAP_REASON = (
     "`notifications_of_type(...)` checks below have been replaced with the strongest available "
     "engine-side equivalent per assert — `has_event(_CONTAS_COMPLETED, ...)` on the real "
     "`operadora.events.publish` path where a matching ST_Publish* task exists downstream "
-    "(register_glosa_accept/start_recurso/reconcile_payment), `engine.get_variable(...)`/"
+    "(registrar_glosa/emitir_demonstrativo/devolver_conta/handoff_pagamento), `engine.get_variable(...)`/"
     "`activity_instances_ended(...)` where no domain event carries the fact at all "
     "(analyze_reason's categoria_normalizada value, prepare_triage_dossier's execution, "
     "notify_sla_risk's non-interruptive alert branch — none has a downstream ST_Publish task in "
@@ -280,7 +292,7 @@ _WORKER_KAFKA_GAP_REASON = (
     "in-step. Right-reason evidence (engine /history, independent of the tests' own asserts): "
     "ST_PublishEncaminhadaRecurso/ST_PublishGlosaAceita/ST_PublishReenviada completed in the "
     "respective instances (has_event matched the REAL publish-task payloads: desfecho + "
-    "glosa_id/codigo_glosa_aceito+analista_id/prestador_id), ST_NotificarRiscoSla completed in "
+    "glosa_id/codigo_glosa_tiss+analista_id/prestador_id), ST_NotificarRiscoSla completed in "
     "both SLA-alert instances, and the recorrer instance's engine-recorded variables were "
     "categoria_normalizada=valor + glosa_id=GLOSA-TESTE-001. This constant is retained (no test "
     "references it anymore) purely because the module docstring/FINDING prose above cites it; the "
@@ -436,8 +448,9 @@ async def contas_probe(
     )
     kafka = FakeKafkaPublisher()
     dmn = CibSevenDmnTransport(CIBSEVEN_BASE_URL, timeout=30.0)
-    # EB-4: start_recurso now runs the fenced `start_process_idempotent` chokepoint against
-    # SP-OP-RECURSO-001, so it REQUIRES the engine seam (`engine=`) + a loop-agnostic durable audit
+    # EB-4/ADR-0040: handoff_pagamento runs the fenced `start_process_idempotent` chokepoint
+    # against SP-OP-PAGTO-001 (the STRICT dedup family), so it REQUIRES the engine seam
+    # (`engine=`) + a loop-agnostic durable audit
     # sink (`audit_sink=`, FreshSinkAuditEmitter — the sync worker emits on its own asyncio.run loop,
     # NOT the harness's pooled sink). Same split the live worker-daemon + the inadimplencia probe use.
     engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
@@ -535,17 +548,23 @@ async def _await_end(engine: EngineRest, iid: str, *, attempts: int = 60, delay:
     return await engine.activity_instances_ended(iid)
 
 
-async def _assert_no_accept_without_human_task(engine: EngineRest, iid: str) -> None:
-    """INVARIANTE L0: prova que End_GlosaAceitaHumano nao existe sem UT humana."""
+async def _assert_no_glosa_without_human_task(engine: EngineRest, iid: str) -> None:
+    """INVARIANTE L0: prova que NENHUM dos dois terminais adversos existe sem UT humana.
+
+    ADR-0040: sao DOIS agora — `End_GlosaAplicadaHumano` (glosa integral) e
+    `End_PagamentoParcialHumano` (reducao). Ambos so nascem de `decisao_contas ∈
+    {GLOSAR, PAGAR_PARCIAL}` numa User Task humana.
+    """
     ended = await engine.activity_instances_ended(iid)
-    if _END_GLOSA_ACEITA in ended:
+    reached = ended & _ENDS_ADVERSOS
+    if reached:
         human_tasks_in_history = ended & _UT_HUMANAS_ACEITE
         assert human_tasks_in_history, (
-            f"INVARIANTE L0 VIOLADA: End_GlosaAceitaHumano atingido para instancia {iid} "
-            f"SEM nenhuma User Task humana no historico. "
+            f"INVARIANTE L0 VIOLADA: terminal adverso {sorted(reached)} atingido para instancia "
+            f"{iid} SEM nenhuma User Task humana no historico. "
             f"User Tasks esperadas (qualquer uma de): {_UT_HUMANAS_ACEITE}. "
             f"Atividades historicas encontradas: {ended}. "
-            "Isto indica um caminho automatizado de aceite de glosa — violacao do L0 hard (ADR-0005)."
+            "Isto indica um caminho automatizado que glosa — violacao do L0 hard (ADR-0005)."
         )
 
 
@@ -560,12 +579,17 @@ async def _drive_to_analista(engine: EngineRest, probe: ContasEngineProbe, iid: 
 # ===========================================================================
 
 
-async def test_nenhum_caminho_automatizado_aceita_glosa(
+async def test_nenhum_caminho_automatizado_glosa(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """INVARIANTE L0: NENHUM caminho automatizado aceita glosa substantiva.
+    """INVARIANTE L0: NENHUM caminho automatizado APLICA glosa substantiva (ADR-0040).
+
+    RENOMEADO de `test_nenhum_caminho_automatizado_aceita_glosa`. Mesma varredura, objeto
+    invertido: o ato adverso do pagador e GLOSAR/PAGAR_PARCIAL, e os DOIS terminais adversos
+    (`End_GlosaAplicadaHumano`, `End_PagamentoParcialHumano`) sao verificados.
+    E a prova das 5 partes de ADR-0018 e o item que ADR-0018 cita nominalmente.
 
     Varredura de TODAS as combinacoes de input da DMN glosa_triage:
       categoria_normalizada in {tecnica, administrativa, clinica, valor, documental, desconhecida}
@@ -591,17 +615,17 @@ async def test_nenhum_caminho_automatizado_aceita_glosa(
         await contas_probe.drain()
 
         ended = await engine.activity_instances_ended(iid)
-        assert _END_GLOSA_ACEITA not in ended, (
+        assert not (ended & _ENDS_ADVERSOS), (
             f"L0 VIOLADO: categoria={categoria} conforme={conforme} divergencia={divergencia} "
-            f"docs={docs} atingiu End_GlosaAceitaHumano automaticamente. ended={ended}"
+            f"docs={docs} atingiu um terminal adverso automaticamente. ended={ended}"
         )
-        await _assert_no_accept_without_human_task(engine, iid)
+        await _assert_no_glosa_without_human_task(engine, iid)
         checked += 1
 
     assert checked == 48, f"Esperava 48 combinacoes varridas; varri {checked}"
 
 
-async def test_inelegibilidade_roteia_para_humano_nao_aceita(
+async def test_inelegibilidade_roteia_para_humano_nao_glosa(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
@@ -620,11 +644,11 @@ async def test_inelegibilidade_roteia_para_humano_nao_aceita(
     assert "auditoria-contas" in ut.candidate_groups
 
     ended = await engine.activity_instances_ended(iid)
-    assert _END_GLOSA_ACEITA not in ended, "Inelegibilidade nao deve produzir aceite automatico (L0)"
-    await _assert_no_accept_without_human_task(engine, iid)
+    assert not (ended & _ENDS_ADVERSOS), "Inelegibilidade nao deve produzir glosa automatica (L0)"
+    await _assert_no_glosa_without_human_task(engine, iid)
 
 
-async def test_glosa_tecnica_roteia_para_humano_nao_aceita(
+async def test_glosa_tecnica_roteia_para_humano_nao_glosa(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
@@ -637,8 +661,8 @@ async def test_glosa_tecnica_roteia_para_humano_nao_aceita(
     assert "auditoria-contas" in ut.candidate_groups
 
     ended = await engine.activity_instances_ended(iid)
-    assert _END_GLOSA_ACEITA not in ended, "Glosa tecnica nao deve produzir aceite automatico (L0)"
-    await _assert_no_accept_without_human_task(engine, iid)
+    assert not (ended & _ENDS_ADVERSOS), "Glosa tecnica nao deve produzir glosa automatica (L0)"
+    await _assert_no_glosa_without_human_task(engine, iid)
 
 
 async def test_indicio_fraude_nunca_auto_flag(
@@ -656,8 +680,8 @@ async def test_indicio_fraude_nunca_auto_flag(
     assert "auditoria-contas" in ut.candidate_groups
 
     ended = await engine.activity_instances_ended(iid)
-    assert _END_GLOSA_ACEITA not in ended
-    await _assert_no_accept_without_human_task(engine, iid)
+    assert not (ended & _ENDS_ADVERSOS)
+    await _assert_no_glosa_without_human_task(engine, iid)
 
 
 # ===========================================================================
@@ -665,25 +689,32 @@ async def test_indicio_fraude_nunca_auto_flag(
 # ===========================================================================
 
 
-async def test_happy_path_sem_glosa(
+async def test_happy_path_pagamento_integral(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """has_glosas=false => fluxo chega a End_SemGlosa; contas.completed desfecho=sem_glosa.
+    """RESCRITO de `test_happy_path_sem_glosa`. `has_glosas=false` => a conta e adjudicada
+    integralmente: demonstrativo emitido ao prestador + handoff a SP-OP-PAGTO-001 +
+    `contas.completed` com `desfecho=pagar_integral` + `End_ContaAprovadaIntegral`.
 
-    Via events.publish generico (FIXED, T3.1 R2) — nao depende de contas.py's proprios workers.
+    O que mudou em relacao ao teste que substitui: antes esta perna terminava sem efeito nenhum.
+    Agora ela COMUNICA e ENCAMINHA — e continua sem criar User Task NESTE processo, porque a
+    humana esta em PAGTO (I-PAGTO-1).
     """
+    await _deploy_pagto(engine)
     inst = await start_contas(has_glosas=False)
     iid = inst["id"]
 
     await contas_probe.drain()
     ended = await _await_end(engine, iid)
 
-    assert _END_SEM_GLOSA in ended, f"Deve atingir End_SemGlosa. ended={ended}"
-    assert not await engine.list_user_tasks(iid), "Sem glosa nao cria User Tasks"
+    assert _END_APROVADA_INTEGRAL in ended, f"Deve atingir End_ContaAprovadaIntegral. ended={ended}"
+    assert "ST_EmitirDemonstrativoIntegral" in ended, "M6: o prestador tem de ser comunicado"
+    assert "ST_HandoffPagamentoAuto" in ended, "a conta adjudicada gera a ordem de pagamento"
+    assert not await engine.list_user_tasks(iid), "conta sem divergencia nao cria User Task em CONTAS"
     assert contas_probe.has_event(_CONTAS_RECEIVED)
-    assert contas_probe.has_event(_CONTAS_COMPLETED, desfecho="sem_glosa")
+    assert contas_probe.has_event(_CONTAS_COMPLETED, desfecho="pagar_integral")
 
 
 async def test_sem_detalhe_de_linha_fail_closed_roteia_a_humano(
@@ -699,38 +730,40 @@ async def test_sem_detalhe_de_linha_fail_closed_roteia_a_humano(
     assert "auditoria-contas" in ut.candidate_groups
 
     ended = await engine.activity_instances_ended(iid)
-    assert _END_SEM_GLOSA not in ended, "Sem detalhe de linha NUNCA pode auto-clear (fail-closed)"
-    assert _END_GLOSA_ACEITA not in ended
-    await _assert_no_accept_without_human_task(engine, iid)
+    assert _END_APROVADA_INTEGRAL not in ended, "Sem detalhe de linha NUNCA pode auto-clear (fail-closed)"
+    assert not (ended & _ENDS_ADVERSOS)
+    await _assert_no_glosa_without_human_task(engine, iid)
 
 
-async def test_happy_path_recorrer_handoff_recurso(
+async def _deploy_pagto(engine: EngineRest) -> str:
+    """Deploy SP-OP-PAGTO-001 — the handoff target of every paying leg of CONTAS.
+
+    `handoff_pagamento` runs the fenced `start_process_idempotent` chokepoint against
+    SP-OP-PAGTO-001, so its BPMN + DMNs MUST be deployed for the handoff to complete and the
+    instance to reach its terminal (mirrors the inadimplencia->CANCEL handoff test's own
+    downstream deploy; do NOT rely on cross-test engine leakage).
+    """
+    return await engine.deploy(
+        _REPO / "spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn",
+        _REPO / "spec/processes/dmn/pagto_admissibility.dmn",
+        _REPO / "spec/processes/dmn/pagto_alcada.dmn",
+        _REPO / "spec/processes/dmn/pagto_sla.dmn",
+        name="SP-OP-PAGTO-001-qa-contas-handoff",
+    )
+
+
+async def test_happy_path_glosar_pelo_analista(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """Analista completa RECORRER => start_recurso (handoff); End_EncaminhadaRecurso.
+    """SUBSTITUI `test_happy_path_recorrer_handoff_recurso`, que MORRE: a operadora nao recorre da
+    propria glosa (a aresta CONTAS->RECURSO foi deletada por ADR-0040).
 
-    ADAPTED (t3.1-event-gap-a-contas, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE): the 3
-    `notifications_of_type(...)` checks below were dead (FINDING 1). `ST_AnalyzeReason` and
-    `ST_PrepareTriageDossier` have NO downstream `ST_Publish*` task in the BPMN (they feed
-    `BRT_Classification`/`UT_AnalistaContas` directly) — no `has_event(...)` equivalent exists for
-    either; re-expressed via `engine.get_variable` (real process variable) and
-    `activity_instances_ended` (real engine history) respectively. `ST_StartRecurso` IS
-    immediately followed by `ST_PublishEncaminhadaRecurso` (bpmn:272-283), whose
-    `event_payload_vars` (bpmn:278) carry `glosa_id` — folded into the existing `has_event` call.
+    O analista completa `GLOSAR` com os campos obrigatorios => `registrar_glosa` (guard satisfeito,
+    `glosa_id` cunhado) -> `emitir_demonstrativo` (M6) -> `contas.completed` com
+    `desfecho=glosa_aplicada_humano` -> `End_GlosaAplicadaHumano`.
     """
-    # EB-4: start_recurso runs the fenced start_process_idempotent chokepoint against
-    # SP-OP-RECURSO-001, so its BPMN + DMNs MUST be deployed for the handoff to reach
-    # End_EncaminhadaRecurso (mirrors the inadimplencia->CANCEL handoff test's own downstream deploy;
-    # do NOT rely on cross-test engine leakage).
-    await engine.deploy(
-        _REPO / "spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn",
-        _REPO / "spec/processes/dmn/recurso_admissibility.dmn",
-        _REPO / "spec/processes/dmn/recurso_eligibility.dmn",
-        _REPO / "spec/processes/dmn/recurso_sla.dmn",
-        name="SP-OP-RECURSO-001-qa-contas-handoff",
-    )
     inst = await start_contas(categoria_normalizada="valor", has_glosas=True)
     iid = inst["id"]
 
@@ -743,32 +776,48 @@ async def test_happy_path_recorrer_handoff_recurso(
     )
     # categoria_normalizada is a REAL engine process variable (module docstring PORT NOTE 2:
     # ST_AnalyzeReason's return dict unconditionally overwrites it) — reading it directly from the
-    # live engine is strictly stronger than the dead notifications_of_type echo it replaces.
+    # live engine is strictly stronger than a worker-side echo.
     categoria_var = await engine.get_variable(iid, "categoria_normalizada")
     assert categoria_var == "valor", (
         f"categoria_normalizada (variavel de processo, engine-side) deve ser 'valor'; veio {categoria_var!r}"
     )
-
-    # `ended_pre_ut` is captured AFTER `_drive_to_analista` (i.e. after UT_AnalistaContas already
-    # exists) — ST_PrepareTriageDossier is its ONLY predecessor on Flow_Dossie_UTAnalista, so it
-    # must already be in the engine's activity history if the UT was reached at all.
+    # `ended_pre_ut` is captured AFTER `_drive_to_analista` — ST_PrepareTriageDossier is the UT's
+    # ONLY predecessor on Flow_Dossie_UTAnalista, so it must already be in the engine history.
     assert "ST_PrepareTriageDossier" in ended_pre_ut, (
         f"ST_PrepareTriageDossier (Marina) deve aparecer na historia. ended={ended_pre_ut}"
     )
 
-    await engine.complete_task_as_human(ut.id, {"decisao_contas": "RECORRER", "glosa_id": "GLOSA-TESTE-001"})
+    await engine.complete_task_as_human(
+        ut.id,
+        {
+            "decisao_contas": "GLOSAR",
+            "justificativa_glosa": "Item sintetico glosado por divergencia de valor (teste L0)",
+            "codigo_glosa_tiss": "VALOR_ACIMA_TABELA",
+            "valor_glosado_brl": _double_var(900.00),
+            "analista_id": "analista-sintetico-001",
+        },
+    )
     await contas_probe.drain()
 
     ended = await _await_end(engine, iid)
-    assert _END_ENCAMINHADA_RECURSO in ended, f"RECORRER => End_EncaminhadaRecurso. ended={ended}"
-    assert _END_GLOSA_ACEITA not in ended
-    # ST_PublishEncaminhadaRecurso (bpmn:272-283) is the ONLY task downstream of ST_StartRecurso on
-    # Flow_Recurso_Pub; its event_payload_vars (bpmn:278) carry glosa_id — asserting it here proves
-    # start_recurso ran AND correlates the handoff (replaces the dead `notifications_of_type
-    # ("contas.start_recurso")` check that used to sit here).
+    await _assert_no_glosa_without_human_task(engine, iid)
+    assert _END_GLOSA_APLICADA in ended, f"GLOSAR => End_GlosaAplicadaHumano. ended={ended}"
+    assert "ST_RegistrarGlosa" in ended, "o efeito adverso passa pelo worker gated"
+    assert "ST_EmitirDemonstrativo" in ended, "M6: a glosa e comunicada ao prestador"
+    assert _END_PAGAMENTO_PARCIAL not in ended
+    # `Flow_GWDec_Glosar`'s own condition (`${decisao_contas == 'GLOSAR'}`) is the ONLY route to
+    # ST_RegistrarGlosa/End_GlosaAplicadaHumano — reaching this end event already proves the
+    # decision engine-side (gateway-gated, not worker-echoed). The completed event additionally
+    # carries the glosa identity the RECURSO intake needs.
     assert contas_probe.has_event(
-        _CONTAS_COMPLETED, desfecho="encaminhada_recurso", glosa_id="GLOSA-TESTE-001"
-    ), "ST_PublishEncaminhadaRecurso deve emitir completed(desfecho=encaminhada_recurso, glosa_id=...)"
+        _CONTAS_COMPLETED,
+        desfecho="glosa_aplicada_humano",
+        codigo_glosa_tiss="VALOR_ACIMA_TABELA",
+        analista_id="analista-sintetico-001",
+    ), (
+        "ST_PublishGlosaAplicada deve emitir completed(desfecho=glosa_aplicada_humano) com "
+        "codigo_glosa_tiss/analista_id da decisao humana"
+    )
 
 
 async def test_happy_path_encaminhar_fraude_handoff_fraude(
@@ -819,7 +868,7 @@ async def test_happy_path_encaminhar_fraude_handoff_fraude(
 
     ended = await _await_end(engine, iid)
     assert _END_ENCAMINHADA_FRAUDE in ended, f"ENCAMINHAR_FRAUDE => End_EncaminhadaFraude. ended={ended}"
-    assert _END_GLOSA_ACEITA not in ended  # never the adverse terminal
+    assert not (ended & _ENDS_ADVERSOS)  # never an adverse terminal
     assert "ST_StartFraude" in ended, "start_fraude deve ter executado nesta instancia"
     # ST_PublishEncaminhadaFraude (the only task downstream of ST_StartFraude) emits the enriched
     # completed event that ARMS the bridge's CONTAS→FRAUDE rule.
@@ -852,26 +901,25 @@ async def test_happy_path_encaminhar_fraude_handoff_fraude(
     )
 
 
-async def test_happy_path_aceitar_glosa_pelo_analista(
+async def test_happy_path_pagar_parcial_pelo_analista(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """Analista completa ACEITAR_GLOSA com campos obrigatorios => End_GlosaAceitaHumano.
+    """SUBSTITUI `test_happy_path_aceitar_glosa_pelo_analista`, que MORRE: aceitar uma glosa e o
+    ato de quem a SOFRE.
 
-    Este e o UNICO caminho ao terminal adverso.
+    `PAGAR_PARCIAL` e o SEGUNDO terminal adverso (uma reducao): `registrar_glosa` ->
+    `emitir_demonstrativo` (misto) -> `handoff_pagamento` da parcela LIBERADA ->
+    `End_PagamentoParcialHumano`. O valor encaminhado e `valor_liberado_brl`, nunca o apresentado
+    (que ainda inclui a parte glosada) — `fonte_valor=liberado`, declarado pelo elemento chamador.
 
-    PORT FIX (T3.1 phase-2, test-harness-only bug — src/** untouched, PORT NOTE 1 class):
-    `valor_glosa_aceito_brl` uses `_double_var()`, not a bare string literal — a bare string (or
-    a bare float) falls into `EngineRest._to_camunda_vars`'s catch-all `else` branch and is sent
-    as a Camunda String, and `contas.py::register_glosa_accept`'s `<= 0` guard then raises
-    `TypeError` on the str before this test's own blocking assertion (the Kafka-gap
-    `_WORKER_KAFKA_GAP_REASON` above) is ever reached. See `test_coordenacao_assume_e_aceita`
-    below for the full writeup (same bug, live-confirmed there as an unmarked failure). This test
-    stays `xfail` either way (`contas.register_glosa_accept_entry` never calls `kafka.publish` —
-    the reason above) — this fix only makes it fail for the REASON ACTUALLY DOCUMENTED instead of
-    an earlier, unrelated TypeError.
+    PORT FIX (T3.1 phase-2, test-harness-only, PORT NOTE 1 class): os campos monetarios usam
+    `_double_var()`, nao literais — um literal cai no catch-all `String` de
+    `EngineRest._to_camunda_vars` e o guard monetario do worker teria de lidar com uma `str`
+    (`_parse_valor_monetario` lida, mas o teste ficaria testando a coercao, nao o caminho).
     """
+    await _deploy_pagto(engine)
     inst = await start_contas(categoria_normalizada="valor", has_glosas=True)
     iid = inst["id"]
 
@@ -881,54 +929,73 @@ async def test_happy_path_aceitar_glosa_pelo_analista(
     await engine.complete_task_as_human(
         ut.id,
         {
-            "decisao_contas": "ACEITAR_GLOSA",
-            "justificativa_glosa": "Item sintetico glosado por divergencia de valor (teste L0)",
-            "codigo_glosa_aceito": "VALOR_ACIMA_TABELA",
-            "valor_glosa_aceito_brl": _double_var(900.00),
+            "decisao_contas": "PAGAR_PARCIAL",
+            "justificativa_glosa": "Duas linhas fora da tabela contratada (teste L0)",
+            "codigo_glosa_tiss": "VALOR_ACIMA_TABELA",
+            "valor_glosado_brl": _double_var(900.00),
+            "valor_liberado_brl": _double_var(900.00),
             "analista_id": "analista-sintetico-001",
         },
     )
     await contas_probe.drain()
 
     ended = await _await_end(engine, iid)
-    await _assert_no_accept_without_human_task(engine, iid)
-    assert _END_GLOSA_ACEITA in ended, f"Aceite humano deve atingir End_GlosaAceitaHumano. ended={ended}"
-    # ADAPTED (t3.1-event-gap-a-contas, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE): the
-    # trailing `notifications_of_type("contas.register_glosa_accept")` check (+ its 3 field
-    # asserts) was dead (FINDING 1: register_glosa_accept_entry does `del kafka`).
-    # Flow_GWDec_Aceitar's own condition (bpmn:363, `${decisao_contas == 'ACEITAR_GLOSA'}`) is the
-    # ONLY route to ST_RegisterGlosaAccept/End_GlosaAceitaHumano — reaching this end event already
-    # proves decisao_contas=='ACEITAR_GLOSA' engine-side (gateway-gated, not worker-echoed). The
-    # real _CONTAS_COMPLETED event (ST_PublishGlosaAceita, bpmn:295-306) carries codigo_glosa_
-    # aceito/analista_id in its own event_payload_vars (bpmn:301) — asserting them here is
-    # strictly stronger than the dead notification echo (same field names, real kafka.publish
-    # call site instead of a fabricated worker-side capture).
+    await _assert_no_glosa_without_human_task(engine, iid)
+    assert _END_PAGAMENTO_PARCIAL in ended, (
+        f"PAGAR_PARCIAL => End_PagamentoParcialHumano. ended={ended}"
+    )
+    assert "ST_RegistrarGlosaParcial" in ended
+    assert "ST_EmitirDemonstrativoParcial" in ended, "M6: o demonstrativo misto e emitido"
+    assert "ST_HandoffPagamentoParcial" in ended, "a parcela liberada vira ordem de pagamento"
+    assert _END_GLOSA_APLICADA not in ended
     assert contas_probe.has_event(
         _CONTAS_COMPLETED,
-        desfecho="glosa_aceita_humano",
-        codigo_glosa_aceito="VALOR_ACIMA_TABELA",
+        desfecho="pagamento_parcial_humano",
+        codigo_glosa_tiss="VALOR_ACIMA_TABELA",
         analista_id="analista-sintetico-001",
-    ), (
-        "ST_PublishGlosaAceita deve emitir completed(desfecho=glosa_aceita_humano) com "
-        "codigo_glosa_aceito/analista_id do aceite humano"
     )
 
 
-async def test_happy_path_reenviar(
+async def test_happy_path_pagar_pelo_analista(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """Analista completa REENVIAR => reconcile_payment (sem efeito adverso); End_Reenviada.
+    """A decisao humana FAVORAVEL: `PAGAR` -> demonstrativo -> handoff (`fonte_valor=liberado`)
+    -> `End_ContaAprovadaHumano`. Nao passa pelo worker adverso em momento algum."""
+    await _deploy_pagto(engine)
+    inst = await start_contas(categoria_normalizada="valor", has_glosas=True)
+    iid = inst["id"]
 
-    ADAPTED (t3.1-event-gap-a-contas, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE): the
-    trailing `notifications_of_type("contas.reconcile_payment")` check was dead (FINDING 1).
-    ST_PublishReenviada (bpmn:318-329) is the ONLY task downstream of ST_ReconcilePayment on
-    Flow_Reenvio_Pub, gated by Flow_GWDec_Reenviar's condition (bpmn:365,
-    `${decisao_contas == 'REENVIAR'}`) — the has_event assert below already proves
-    reconcile_payment ran; strengthened with `prestador_id` (in ST_PublishReenviada's own
-    event_payload_vars, bpmn:324) since no reconcile-specific payload field exists to
-    distinguish further.
+    ut = await _drive_to_analista(engine, contas_probe, iid)
+    await engine.complete_task_as_human(
+        ut.id,
+        {
+            "decisao_contas": "PAGAR",
+            "valor_liberado_brl": _double_var(1800.00),
+            "analista_id": "analista-sintetico-001",
+        },
+    )
+    await contas_probe.drain()
+
+    ended = await _await_end(engine, iid)
+    assert _END_APROVADA_HUMANO in ended, f"PAGAR => End_ContaAprovadaHumano. ended={ended}"
+    assert "ST_RegistrarGlosa" not in ended, "uma decisao favoravel nunca toca o worker adverso"
+    assert not (ended & _ENDS_ADVERSOS)
+    assert contas_probe.has_event(_CONTAS_COMPLETED, desfecho="pagamento_aprovado_humano")
+
+
+async def test_happy_path_devolver_conta(
+    engine: EngineRest,
+    contas_probe: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """SUBSTITUI `test_happy_path_reenviar`, que MORRE: reapresentar a conta e ato do prestador.
+
+    `DEVOLVER` => `devolver_conta` (sem efeito adverso L0) -> `ST_ComunicarDevolucao`
+    (`tipo_comunicacao=devolucao_para_correcao`, M6) -> `End_ContaDevolvidaPrestador`. Sem a
+    comunicacao o prestador nunca saberia que a conta voltou, e `msg.contas.linhas_atualizadas`
+    ficaria sem gatilho.
     """
     inst = await start_contas(
         categoria_normalizada="administrativa", documentacao_anexa=False, has_glosas=True
@@ -938,15 +1005,55 @@ async def test_happy_path_reenviar(
     ut = await _drive_to_analista(engine, contas_probe, iid)
     assert "auditoria-contas" in ut.candidate_groups
 
-    await engine.complete_task_as_human(ut.id, {"decisao_contas": "REENVIAR"})
+    await engine.complete_task_as_human(
+        ut.id,
+        {
+            "decisao_contas": "DEVOLVER",
+            "justificativa_devolucao": "Anexos das linhas 3 e 4 ausentes (sintetico)",
+            "analista_id": "analista-sintetico-001",
+        },
+    )
     await contas_probe.drain()
 
     ended = await _await_end(engine, iid)
-    assert _END_REENVIADA in ended, f"REENVIAR => End_Reenviada. ended={ended}"
-    assert _END_GLOSA_ACEITA not in ended
+    assert _END_CONTA_DEVOLVIDA in ended, f"DEVOLVER => End_ContaDevolvidaPrestador. ended={ended}"
+    assert "ST_ComunicarDevolucao" in ended, "M6: a devolucao TEM de ser comunicada ao prestador"
+    assert not (ended & _ENDS_ADVERSOS)
     assert contas_probe.has_event(
-        _CONTAS_COMPLETED, desfecho="reenviada", prestador_id="PRESTADOR-TESTE-001"
-    ), "ST_PublishReenviada deve emitir completed(desfecho=reenviada, prestador_id=...)"
+        _CONTAS_COMPLETED, desfecho="conta_devolvida_humano", prestador_id="PRESTADOR-TESTE-001"
+    ), "ST_PublishContaDevolvida deve emitir completed(desfecho=conta_devolvida_humano, prestador_id=...)"
+
+
+async def test_decisao_invalida_termina_em_erro_sem_efeito(
+    engine: EngineRest,
+    contas_probe: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """O default de `GW_DecisaoContas` deixou de ser uma ACAO (ADR-0040).
+
+    Uma decisao ausente ou fora do dominio cai em `End_ErrContasDecisaoInvalida` e NENHUM efeito e
+    materializado — nem glosa, nem comunicacao, nem ordem de pagamento. Antes, uma variavel
+    ausente PRODUZIA um ato.
+    """
+    inst = await start_contas(categoria_normalizada="valor", has_glosas=True)
+    iid = inst["id"]
+
+    ut = await _drive_to_analista(engine, contas_probe, iid)
+    await engine.complete_task_as_human(ut.id, {"decisao_contas": "VALOR_INEXISTENTE"})
+    await contas_probe.drain()
+
+    ended = await _await_end(engine, iid)
+    assert _END_ERR_DECISAO in ended, f"decisao invalida => End_ErrContasDecisaoInvalida. ended={ended}"
+    assert not (ended & _ENDS_ADVERSOS)
+    for efeito in (
+        "ST_RegistrarGlosa",
+        "ST_RegistrarGlosaParcial",
+        "ST_EmitirDemonstrativo",
+        "ST_EmitirDemonstrativoAprovado",
+        "ST_DevolverConta",
+        "ST_HandoffPagamentoHumano",
+    ):
+        assert efeito not in ended, f"{efeito} nao pode executar sob decisao invalida"
 
 
 # ===========================================================================
@@ -954,109 +1061,144 @@ async def test_happy_path_reenviar(
 # ===========================================================================
 
 
-async def test_aceitar_glosa_exige_campos(
+async def test_glosar_exige_campos(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """ACEITAR_GLOSA sem justificativa/codigo/valor/analista_id => worker guard recusa.
+    """RENOMEADO de `test_aceitar_glosa_exige_campos`. `GLOSAR` sem
+    justificativa/codigo/valor/analista_id => o worker guard recusa.
 
-    O engine despacha register_glosa_accept; o worker lanca GlosaAcceptNotHumanError. FINDING 3
+    O engine despacha `registrar_glosa`; o worker lanca `ContasGlosaNotHumanError`. FINDING 3
     (module docstring): isso vira um INCIDENTE aberto no engine (nao um boundary-catch limpo —
-    Error_GlosaAcceptNotHuman e declarado no BPMN mas SEM boundaryEvent correspondente, e mesmo
-    se houvesse, PermissionError nunca dispara o caminho bpmnError). As assercoes abaixo NAO
-    dependem de qual mecanismo produz o bloqueio — apenas que o terminal adverso nao e atingido e
-    que nada foi registrado, ambos verdadeiros sob incidente OU boundary-catch.
-
-    STRENGTHENED (t3.1-test-hygiene-batch): the original `assert not
-    contas_probe.notifications_of_type("contas.register_glosa_accept")` was structurally vacuous —
-    that channel is ALWAYS empty regardless of whether the guard fired (FINDING 1: the entry
-    function never calls `kafka.publish` at all, guard-refused or not), so the assert could never
-    fail either way; it proved nothing about the guard. Replaced with the REAL, positive observable
-    FINDING 3 identifies: a guard refusal here has no boundary catch, so it surfaces as an OPEN
-    ENGINE INCIDENT at `ST_RegisterGlosaAccept` carrying the guard's own `ERR_GLOSA_ACCEPT_NOT_HUMAN`
-    message (`harness.py`'s `PermissionError` branch -> `_report_failure(..., retries_override=0)`
-    -> immediate incident, `harness.py:1372-1383`) — this is the guard ACTUALLY REFUSING, not an
-    absence of evidence. Mirrors how sibling guard tests elsewhere in this suite family assert
-    refusals live (recurso/pagto precedent: observe the engine-side refusal artifact directly,
-    never an always-empty proxy channel).
+    `Error_ContasGlosaNotHuman` e declarado no BPMN mas SEM boundaryEvent correspondente, e mesmo
+    se houvesse, `PermissionError` nunca dispara o caminho `bpmnError` — ADR-0030 §5). As
+    assercoes abaixo NAO dependem de qual mecanismo produz o bloqueio — apenas que o terminal
+    adverso nao e atingido e que nada foi registrado, ambos verdadeiros sob incidente OU
+    boundary-catch.
     """
     inst = await start_contas(categoria_normalizada="valor", has_glosas=True)
     iid = inst["id"]
 
     ut = await _drive_to_analista(engine, contas_probe, iid)
-    await engine.complete_task_as_human(ut.id, {"decisao_contas": "ACEITAR_GLOSA"})
+    await engine.complete_task_as_human(ut.id, {"decisao_contas": "GLOSAR"})
     await contas_probe.drain()
 
     ended = await engine.activity_instances_ended(iid)
-    assert _END_GLOSA_ACEITA not in ended, (
-        "Aceite sem campos obrigatorios NAO pode atingir End_GlosaAceitaHumano (guard do worker)"
+    assert _END_GLOSA_APLICADA not in ended, (
+        "GLOSAR sem campos obrigatorios NAO pode atingir End_GlosaAplicadaHumano (guard do worker)"
     )
     incidents = await engine.incidents(iid)
-    guard_incidents = [i for i in incidents if i.get("activityId") == "ST_RegisterGlosaAccept"]
+    guard_incidents = [i for i in incidents if i.get("activityId") == "ST_RegistrarGlosa"]
     assert guard_incidents, (
-        "register_glosa_accept sem campos obrigatorios deve abrir um INCIDENTE real em "
-        f"ST_RegisterGlosaAccept (FINDING 3 — sem boundary catch para PermissionError). "
+        "registrar_glosa sem campos obrigatorios deve abrir um INCIDENTE real em "
+        f"ST_RegistrarGlosa (FINDING 3 — sem boundary catch para PermissionError). "
         f"incidentes encontrados: {incidents}"
     )
-    assert any("ERR_GLOSA_ACCEPT_NOT_HUMAN" in (i.get("incidentMessage") or "") for i in guard_incidents), (
-        f"incidente deve carregar a mensagem do guard ERR_GLOSA_ACCEPT_NOT_HUMAN: {guard_incidents}"
+    assert any("ERR_CONTAS_GLOSA_NOT_HUMAN" in (i.get("incidentMessage") or "") for i in guard_incidents), (
+        f"incidente deve carregar a mensagem do guard ERR_CONTAS_GLOSA_NOT_HUMAN: {guard_incidents}"
     )
-    await _assert_no_accept_without_human_task(engine, iid)
+    await _assert_no_glosa_without_human_task(engine, iid)
 
 
-async def test_worker_register_glosa_accept_recusa_sem_humano() -> None:
-    """Invocacao direta de register_glosa_accept_entry sem decisao humana => GlosaAcceptNotHumanError.
+async def test_pagar_parcial_exige_valor_liberado(
+    engine: EngineRest,
+    contas_probe: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """`PAGAR_PARCIAL` com todos os campos de glosa mas SEM `valor_liberado_brl` => guard recusa.
 
-    Unit-style sobre o entry function real (SEM engine — nao depende do contas_probe/engine, roda
-    mesmo sem o dev-stack). ADAPTADO (port rule 1): v2's dict-boundary
-    `register_glosa_accept_entry(variables: dict, *, kafka=None) -> dict` (ADR-0026 §2b) substitui
-    o donor's `make_register_glosa_accept_handler(kafka) -> Callable[[ExternalTask], ...]`; o
-    guard lanca `GlosaAcceptNotHumanError` (`PermissionError` subclass), nao `WorkerBpmnError`. Os
-    4 cenarios do guard sao preservados verbatim; a asserçao de "sucesso" verifica o dict
-    RETORNADO (v2's entry function nao chama kafka.publish — FINDING 1, mesmo gap sistemico).
+    Uma reducao declara as DUAS metades. Sem o valor liberado o demonstrativo misto nao fecha
+    `apresentado = liberado + glosa` e o handoff nao tem valor a encaminhar.
+    """
+    inst = await start_contas(categoria_normalizada="valor", has_glosas=True)
+    iid = inst["id"]
+
+    ut = await _drive_to_analista(engine, contas_probe, iid)
+    await engine.complete_task_as_human(
+        ut.id,
+        {
+            "decisao_contas": "PAGAR_PARCIAL",
+            "justificativa_glosa": "Duas linhas fora da tabela (sintetico)",
+            "codigo_glosa_tiss": "VALOR_ACIMA_TABELA",
+            "valor_glosado_brl": _double_var(900.00),
+            "analista_id": "analista-sintetico-001",
+        },
+    )
+    await contas_probe.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _END_PAGAMENTO_PARCIAL not in ended
+    incidents = await engine.incidents(iid)
+    guard_incidents = [i for i in incidents if i.get("activityId") == "ST_RegistrarGlosaParcial"]
+    assert guard_incidents, f"incidentes encontrados: {incidents}"
+    assert any(
+        "valor_liberado_brl" in (i.get("incidentMessage") or "") for i in guard_incidents
+    ), f"o incidente deve nomear o campo faltante: {guard_incidents}"
+    await _assert_no_glosa_without_human_task(engine, iid)
+
+
+async def test_worker_registrar_glosa_recusa_sem_humano() -> None:
+    """Invocacao direta de `registrar_glosa_entry` sem decisao humana => `ContasGlosaNotHumanError`.
+
+    RENOMEADO do teste de guard anterior. O guard mudou de OBJETO,
+    nao de mecanismo: `PermissionError` subclass, nao `WorkerBpmnError` — caminho de incidente
+    auditado (ADR-0030 §5). Os quatro casos abaixo sao os quatro modos de recusa.
     """
     kafka = FakeKafkaPublisher()
 
-    # (a) decisao_contas ausente -> recusa
-    with pytest.raises(GlosaAcceptNotHumanError) as exc_a:
-        register_glosa_accept_entry({}, kafka=kafka)
-    assert "ERR_GLOSA_ACCEPT_NOT_HUMAN" in str(exc_a.value)
+    # (a) sem decisao nenhuma -> recusa
+    with pytest.raises(ContasGlosaNotHumanError) as exc_a:
+        registrar_glosa_entry({}, kafka=kafka)
+    assert "decisao_contas" in str(exc_a.value)
 
-    # (b) decisao_contas != ACEITAR_GLOSA -> recusa
-    with pytest.raises(GlosaAcceptNotHumanError) as exc_b:
-        register_glosa_accept_entry({"decisao_contas": "RECORRER"}, kafka=kafka)
-    assert "ERR_GLOSA_ACCEPT_NOT_HUMAN" in str(exc_b.value)
+    # (b) decisao FAVORAVEL (PAGAR) -> recusa: uma decisao favoravel nunca toca o worker adverso
+    with pytest.raises(ContasGlosaNotHumanError) as exc_b:
+        registrar_glosa_entry({"decisao_contas": "PAGAR"}, kafka=kafka)
+    assert "decisao_contas" in str(exc_b.value)
 
-    # (c) ACEITAR_GLOSA mas faltando analista_id -> recusa
-    with pytest.raises(GlosaAcceptNotHumanError) as exc_c:
-        register_glosa_accept_entry(
+    # (c) GLOSAR mas faltando analista_id -> recusa
+    with pytest.raises(ContasGlosaNotHumanError) as exc_c:
+        registrar_glosa_entry(
             {
-                "decisao_contas": "ACEITAR_GLOSA",
-                "justificativa_glosa": "x",
-                "codigo_glosa_aceito": "VALOR_ACIMA_TABELA",
-                "valor_glosa_aceito_brl": 900.00,
+                "decisao_contas": "GLOSAR",
+                "justificativa_glosa": "Divergencia de valor (sintetico)",
+                "codigo_glosa_tiss": "VALOR_ACIMA_TABELA",
+                "valor_glosado_brl": 900.00,
             },
             kafka=kafka,
         )
-    assert "ERR_GLOSA_ACCEPT_NOT_HUMAN" in str(exc_c.value)
-    assert not kafka.published, "Nenhum registro deve ser publicado quando o guard recusa"
+    assert "analista_id" in str(exc_c.value)
 
-    # (d) decisao humana completa -> registra e carrega analista_id (no dict RETORNADO)
-    result = register_glosa_accept_entry(
+    # (d) PAGAR_PARCIAL sem valor_liberado_brl -> recusa
+    with pytest.raises(ContasGlosaNotHumanError) as exc_d:
+        registrar_glosa_entry(
+            {
+                "decisao_contas": "PAGAR_PARCIAL",
+                "justificativa_glosa": "Duas linhas fora da tabela (sintetico)",
+                "codigo_glosa_tiss": "VALOR_ACIMA_TABELA",
+                "valor_glosado_brl": 900.00,
+                "analista_id": "analista-sintetico-001",
+            },
+            kafka=kafka,
+        )
+    assert "valor_liberado_brl" in str(exc_d.value)
+
+    # (e) decisao humana completa -> registra, com glosa_id DETERMINISTICO
+    result = registrar_glosa_entry(
         {
-            "decisao_contas": "ACEITAR_GLOSA",
-            "justificativa_glosa": "Aceite fundamentado (teste)",
-            "codigo_glosa_aceito": "VALOR_ACIMA_TABELA",
-            "valor_glosa_aceito_brl": 900.00,
+            "decisao_contas": "GLOSAR",
+            "justificativa_glosa": "Divergencia de valor (sintetico)",
+            "codigo_glosa_tiss": "VALOR_ACIMA_TABELA",
+            "valor_glosado_brl": 900.00,
             "analista_id": "analista-sintetico-001",
             "tenant_id": "amh",
-            "numero_lote_tiss": "LOTE-TESTE-GUARD",
+            "numero_lote_tiss": "LOTE-TESTE-0001",
         },
         kafka=kafka,
     )
     assert result["registered"] is True
-    assert result["glosa_id"].startswith("GLOSA-")
+    assert result["glosa_id"].startswith("GLOSA-analista-sintetico-001-")
 
 
 # ===========================================================================
@@ -1098,9 +1240,9 @@ async def test_linhas_atualizadas_reavalia(
     await contas_probe.drain()
 
     ended = await engine.activity_instances_ended(iid)
-    assert _END_GLOSA_ACEITA not in ended, "Reavaliacao por mensagem nunca auto-aceita glosa (L0)"
-    await _assert_no_accept_without_human_task(engine, iid)
-    assert await engine.instance_is_active(iid) or _END_SEM_GLOSA in ended, (
+    assert not (ended & _ENDS_ADVERSOS), "Reavaliacao por mensagem nunca glosa sozinha (L0)"
+    await _assert_no_glosa_without_human_task(engine, iid)
+    assert await engine.instance_is_active(iid) or _END_APROVADA_INTEGRAL in ended, (
         "Apos a mensagem, a instancia deve reavaliar a triagem (ativa) ou chegar a fim neutro"
     )
 
@@ -1148,13 +1290,13 @@ async def test_timer_sla_estourado_coordenacao_assume(
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """Timer BT_SlaTriagem (interruptivo): UT_AnalistaContas cancelada; UT_CoordenacaoContasAssume criada."""
+    """Timer BT_SlaAnaliseContas (interruptivo): UT_AnalistaContas cancelada; UT_CoordenacaoContasAssume criada."""
     inst = await start_contas(categoria_normalizada="tecnica", has_glosas=True)
     iid = inst["id"]
 
     await _drive_to_analista(engine, contas_probe, iid)
 
-    job = await engine.await_timer_job(iid, "BT_SlaTriagem")
+    job = await engine.await_timer_job(iid, "BT_SlaAnaliseContas")
     await engine.execute_job(job.id)
     await contas_probe.drain()
 
@@ -1167,37 +1309,34 @@ async def test_timer_sla_estourado_coordenacao_assume(
     assert _UT_ANALISTA not in open_keys, "UT_AnalistaContas deve ser cancelada (interruptivo)"
 
     ended = await engine.activity_instances_ended(iid)
-    assert _END_GLOSA_ACEITA not in ended, "Estouro de SLA nunca auto-aceita glosa (L0)"
-    await _assert_no_accept_without_human_task(engine, iid)
+    assert not (ended & _ENDS_ADVERSOS), "Estouro de SLA nunca glosa sozinho (L0)"
+    await _assert_no_glosa_without_human_task(engine, iid)
 
 
-async def test_coordenacao_assume_e_aceita(
+async def test_coordenacao_assume_e_glosa(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """SLA estourado; coordenacao assume e ACEITAR_GLOSA => End_GlosaAceitaHumano com UT humana.
+    """RENOMEADO de `test_coordenacao_assume_e_aceita`. SLA estourado; a coordenacao assume e
+    decide `GLOSAR` => `End_GlosaAplicadaHumano`, com User Task humana na historia.
 
-    PORT FIX (T3.1 phase-2, test-harness-only bug — src/** untouched, PORT NOTE 1 class):
-    `valor_glosa_aceito_brl` MUST go through `_double_var()`, not a bare Python literal.
-    `EngineRest._to_camunda_vars` (this package's OWN test-only helper, not src/) has branches
-    for dict-passthrough/bool/int only; a bare string OR a bare float both fall into its
-    catch-all `else` branch and get sent to the engine as a Camunda **String** variable —
-    `contas.py::register_glosa_accept`'s `if input_data.valor_glosa_aceito_brl <= 0:` guard then
-    raises `TypeError: '<=' not supported between instances of 'str' and 'int'` (confirmed live:
-    the original `"900.00"` string literal here reproduced this exactly). `_double_var()` is
-    already the established fix for this exact class in this same file (see
-    `valor_apresentado_brl` above) — it wraps the value as an explicit
-    `{"value": ..., "type": "Double"}`, which `_to_camunda_vars`'s dict-passthrough branch sends
-    verbatim, round-tripping as a real Python float on the worker side (`harness.py`'s own
-    `_from_camunda_var`/`_to_camunda_var` fully support `Double`). Not a src/ change, not a
-    weakening — same assertions, same intent, just correct engine-variable typing.
+    E o SEGUNDO canal humano do MESMO guard: `registrar_glosa` le a decisao, nao o elemento que a
+    produziu. Ainda assim NAO ha desfecho automatico por timeout — o timeout troca de humano, nunca
+    dispensa um.
+
+    PORT FIX (T3.1 phase-2, test-harness-only, PORT NOTE 1 class): `valor_glosado_brl` MUST go
+    through `_double_var()`, not a bare Python literal. `EngineRest._to_camunda_vars` (this
+    package's OWN test-only helper, not src/) has branches for dict-passthrough/bool/int only; a
+    bare float falls into its catch-all `else` and is sent as a Camunda **String**. O worker lida
+    com isso hoje (`_parse_valor_monetario` aceita a string), mas ai o teste estaria exercitando a
+    coercao em vez do caminho — `_double_var()` mantem o tipo real no wire.
     """
     inst = await start_contas(categoria_normalizada="valor", has_glosas=True)
     iid = inst["id"]
 
     await _drive_to_analista(engine, contas_probe, iid)
-    job = await engine.await_timer_job(iid, "BT_SlaTriagem")
+    job = await engine.await_timer_job(iid, "BT_SlaAnaliseContas")
     await engine.execute_job(job.id)
     await contas_probe.drain()
 
@@ -1205,19 +1344,19 @@ async def test_coordenacao_assume_e_aceita(
     await engine.complete_task_as_human(
         ut_coord.id,
         {
-            "decisao_contas": "ACEITAR_GLOSA",
-            "justificativa_glosa": "Prazo esgotado — coordenacao aceita (sintetico)",
-            "codigo_glosa_aceito": "VALOR_ACIMA_TABELA",
-            "valor_glosa_aceito_brl": _double_var(900.00),
+            "decisao_contas": "GLOSAR",
+            "justificativa_glosa": "Prazo esgotado — coordenacao glosa (sintetico)",
+            "codigo_glosa_tiss": "VALOR_ACIMA_TABELA",
+            "valor_glosado_brl": _double_var(900.00),
             "analista_id": "coordenacao-sintetica-001",
         },
     )
     await contas_probe.drain()
 
     ended = await _await_end(engine, iid)
-    assert _END_GLOSA_ACEITA in ended
-    await _assert_no_accept_without_human_task(engine, iid)
-    assert contas_probe.has_event(_CONTAS_COMPLETED, desfecho="glosa_aceita_humano")
+    assert _END_GLOSA_APLICADA in ended
+    await _assert_no_glosa_without_human_task(engine, iid)
+    assert contas_probe.has_event(_CONTAS_COMPLETED, desfecho="glosa_aplicada_humano")
 
 
 async def test_dmn_contas_sla_internacao(
@@ -1233,8 +1372,8 @@ async def test_dmn_contas_sla_internacao(
 
     job = await engine.await_timer_job(iid, "BT_AlertaSlaContas")
     assert job.activity_id == "BT_AlertaSlaContas"
-    job_sla = await engine.await_timer_job(iid, "BT_SlaTriagem")
-    assert job_sla.activity_id == "BT_SlaTriagem"
+    job_sla = await engine.await_timer_job(iid, "BT_SlaAnaliseContas")
+    assert job_sla.activity_id == "BT_SlaAnaliseContas"
 
 
 async def test_sla_ancora_em_data_recebimento_lote_nao_em_attach_da_ut(
@@ -1265,7 +1404,7 @@ async def test_sla_ancora_em_data_recebimento_lote_nao_em_attach_da_ut(
     await _drive_to_analista(engine, contas_probe, iid)
 
     job_alerta = await engine.await_timer_job(iid, "BT_AlertaSlaContas")
-    job_sla = await engine.await_timer_job(iid, "BT_SlaTriagem")
+    job_sla = await engine.await_timer_job(iid, "BT_SlaAnaliseContas")
     assert job_alerta.due_date, "dueDate do job de alerta deve estar presente (timeDate absoluto)"
     assert job_sla.due_date, "dueDate do job de SLA deve estar presente (timeDate absoluto)"
 
@@ -1283,7 +1422,7 @@ async def test_sla_ancora_em_data_recebimento_lote_nao_em_attach_da_ut(
     far_enough = timedelta(days=20)
 
     assert abs(due_sla - expected_sla_anchor_based) < tolerance, (
-        f"BT_SlaTriagem.dueDate={due_sla} nao bate com a ancora "
+        f"BT_SlaAnaliseContas.dueDate={due_sla} nao bate com a ancora "
         f"data_recebimento_lote+P30D={expected_sla_anchor_based} (GAP-CONTAS-4)"
     )
     assert abs(due_alerta - expected_alerta_anchor_based) < tolerance, (
@@ -1291,7 +1430,7 @@ async def test_sla_ancora_em_data_recebimento_lote_nao_em_attach_da_ut(
         f"data_recebimento_lote+P20D={expected_alerta_anchor_based} (GAP-CONTAS-4)"
     )
     assert abs(due_sla - attach_based_sla) > far_enough, (
-        "BT_SlaTriagem.dueDate esta perto do attach da UT — regressao GAP-CONTAS-4"
+        "BT_SlaAnaliseContas.dueDate esta perto do attach da UT — regressao GAP-CONTAS-4"
     )
     assert abs(due_alerta - attach_based_alerta) > far_enough, (
         "BT_AlertaSlaContas.dueDate esta perto do attach da UT — regressao GAP-CONTAS-4"
@@ -1313,7 +1452,7 @@ async def test_sla_ancora_em_data_recebimento_lote_nao_em_attach_da_ut(
     assert "coordenacao-contas" in ut_coord.candidate_groups
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert _UT_ANALISTA not in open_keys, "Timer interruptivo deve cancelar UT_AnalistaContas"
-    await _assert_no_accept_without_human_task(engine, iid)
+    await _assert_no_glosa_without_human_task(engine, iid)
 
 
 # ===========================================================================

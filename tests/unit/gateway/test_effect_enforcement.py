@@ -973,13 +973,17 @@ def test_leitura_populacional_stays_unchoked_for_the_recorded_reason(shipped: di
 def test_mapeamento_topicos_is_byte_unchanged_in_content(shipped: dict[str, Any]) -> None:
     """§5.8 / the brief's hard limit: none touched, none reclassified.
 
-    28 entries as of ADR-0040 (was 26): the RECURSO half of the perspective delta REMOVED
-    `operadora.recurso.submit_appeal` (the topic itself was deleted — interpor um recurso nao e
-    ato da operadora) and ADDED `registrar_indeferimento` + `comunicar_resposta`
-    (`negativa_notificacao`) and `handoff_pagamento` (`inicio_processo_regulatorio`). No EXISTING
-    entry was touched or reclassified, and no class was invented.
+    30 entries as of ADR-0040 (was 26), in two halves, one per PR:
+      RECURSO (PR-3): REMOVED `operadora.recurso.submit_appeal` (the topic itself was deleted —
+        interpor um recurso nao e ato da operadora); ADDED `registrar_indeferimento` +
+        `comunicar_resposta` (`negativa_notificacao`) and `handoff_pagamento`
+        (`inicio_processo_regulatorio`).
+      CONTAS (PR-4): REMOVED `operadora.contas.start_recurso` (same reason, other chain); ADDED
+        `registrar_glosa` + `emitir_demonstrativo` (`negativa_notificacao`) and
+        `handoff_pagamento` (`inicio_processo_regulatorio`).
+    No EXISTING entry was touched or reclassified, and no class was invented.
     """
-    assert len(shipped[TOPIC_MAP_KEY]) == 28
+    assert len(shipped[TOPIC_MAP_KEY]) == 30
     assert not set(shipped[TOPIC_MAP_KEY]) & set(shipped[ACTION_MAP_KEY])
 
 

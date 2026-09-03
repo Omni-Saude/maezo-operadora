@@ -191,7 +191,7 @@ async def test_producer_publish_mirrors_contas_completed_onto_notifications_topi
     primary_topic = CONTAS_COMPLETED_EVENT
     payload = {
         "tenant_id": "amh",
-        "desfecho": "encaminhada_recurso",
+        "desfecho": "glosa_aplicada_humano",
         "numero_lote_tiss": f"LOTE-{suffix}",
         "glosa_id": f"GLOSA-{suffix}",
         "not_allowlisted_marker": "must-not-cross-into-the-mirror",
@@ -226,7 +226,7 @@ async def test_producer_publish_mirrors_contas_completed_onto_notifications_topi
         await bridge_consumer.commit()
         assert mirror_received["type"] == primary_topic
         assert mirror_received["tenant_id"] == "amh"
-        assert mirror_received["desfecho"] == "encaminhada_recurso"
+        assert mirror_received["desfecho"] == "glosa_aplicada_humano"
         assert mirror_received["glosa_id"] == f"GLOSA-{suffix}"
         assert "not_allowlisted_marker" not in mirror_received
     finally:
@@ -287,7 +287,7 @@ async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_doe
             CONTAS_COMPLETED_EVENT,
             {
                 "tenant_id": tenant_id,
-                "desfecho": "encaminhada_recurso",
+                "desfecho": "glosa_aplicada_humano",
                 "numero_guia_tiss": guia,
                 "glosa_id": glosa,
             },
@@ -338,7 +338,7 @@ async def test_producer_failure_kafka_down_does_not_block_source_process() -> No
         worker_id="w1",
         variables={
             "event_topic": CONTAS_COMPLETED_EVENT,
-            "event_desfecho": "encaminhada_recurso",
+            "event_desfecho": "glosa_aplicada_humano",
             "event_payload_vars": "tenant_id",
             "tenant_id": "amh",
         },
@@ -391,7 +391,7 @@ async def test_redelivered_message_is_idempotent_one_audit_row_same_instance(
             CONTAS_COMPLETED_EVENT,
             {
                 "tenant_id": tenant_id,
-                "desfecho": "encaminhada_recurso",
+                "desfecho": "glosa_aplicada_humano",
                 "numero_guia_tiss": guia,
                 "glosa_id": glosa,
             },

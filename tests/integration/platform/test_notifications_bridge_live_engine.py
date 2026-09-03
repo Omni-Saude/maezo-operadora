@@ -31,7 +31,7 @@ from maezo.platform.notification_bridge import (
 )
 from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
-from maezo.tools.workers.contas import start_recurso
+from maezo.tools.workers.contas import handoff_pagamento
 from tests.integration.conftest import _apply_migrations, _engine_reachable, _pg_reachable
 
 _REPO_RECURSO_BPMN = "spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn"
@@ -117,48 +117,55 @@ async def _engine_instance(engine_url: str, business_key: str) -> str | None:
         await t.close()
 
 
-def test_worker_start_recurso_starts_real_instance_and_audits(
+def test_worker_handoff_pagamento_starts_real_instance_and_audits(
     live_tenant: tuple[str, str, str],
 ) -> None:
-    """The un-stubbed in-flow worker starts a REAL RECURSO-001 instance + emits the audit row;
-    a redelivery is idempotent (same instance, no second start).
+    """The in-flow CONTAS handoff starts a REAL PAGTO-001 instance + emits the audit row;
+    a redelivery is idempotent (same instance, no second order).
 
-    SYNC test: `start_recurso` drives its own `asyncio.run(start_process_idempotent(...))`, so it
-    must NOT be called from inside a running event loop (the query helpers use `asyncio.run` too).
+    SUBSTITUI `test_worker_start_recurso_starts_real_instance_and_audits`: the CONTAS→RECURSO edge
+    was deleted by ADR-0040 (the operadora does not appeal its own glosa). The property under test
+    is unchanged — an in-flow fenced-start worker really starts, really audits, and converges on
+    redelivery — and it is now proved on the edge that actually exists.
+
+    SYNC test: `handoff_pagamento` drives its own `asyncio.run(start_process_idempotent(...))`, so
+    it must NOT be called from inside a running event loop (the query helpers use `asyncio.run`).
     """
     import asyncio
 
     dsn, tenant, engine_url = live_tenant
     suffix = uuid.uuid4().hex[:8]
-    guia, glosa = f"GUIA-{suffix}", f"GLOSA-{suffix}"
-    bk = f"RECURSO-{tenant}-{guia}-{glosa}"
+    lote, prestador = f"LOTE-{suffix}", f"PREST-{suffix}"
+    bk = f"PAGTO-{tenant}-{lote}-{prestador}"
     variables = {
         "tenant_id": tenant,
-        "glosa_id": glosa,
-        "numero_guia_tiss": guia,
-        "glosa_type": "administrativa",
-        "documentacao_anexa": True,
-        "numero_lote_tiss": "LOTE-1",
+        "numero_lote_tiss": lote,
+        "numero_guia_tiss": f"GUIA-{suffix}",
+        "prestador_id": prestador,
+        "competencia": "2026-06",
+        "data_vencimento": "2026-07-10",
+        "valor_apresentado_brl": 480.0,
     }
 
     def _run() -> dict[str, object]:
-        return start_recurso(
+        return handoff_pagamento(
             variables,
+            fonte_valor="apresentado",
             engine=FreshClientCibSevenTransport(engine_url),
             audit_sink=FreshSinkAuditEmitter(dsn, tenant),
         )
 
     res = _run()
-    assert res["recurso_business_key"] == bk
-    assert res["recurso_already_existed"] is False
-    assert asyncio.run(_engine_instance(engine_url, bk)) == res["recurso_instance_id"]
-    assert asyncio.run(_audit_count(dsn, tenant, "start_process:SP-OP-RECURSO-001")) == 1
+    assert res["pagto_business_key"] == bk
+    assert res["pagto_already_existed"] is False
+    assert asyncio.run(_engine_instance(engine_url, bk)) == res["pagto_instance_id"]
+    assert asyncio.run(_audit_count(dsn, tenant, "start_process:SP-OP-PAGTO-001")) == 1
 
     # Idempotent redelivery: same instance, still exactly one durable chain link.
     res2 = _run()
-    assert res2["recurso_instance_id"] == res["recurso_instance_id"]
-    assert res2["recurso_already_existed"] is True
-    assert asyncio.run(_audit_count(dsn, tenant, "start_process:SP-OP-RECURSO-001")) == 1
+    assert res2["pagto_instance_id"] == res["pagto_instance_id"]
+    assert res2["pagto_already_existed"] is True
+    assert asyncio.run(_audit_count(dsn, tenant, "start_process:SP-OP-PAGTO-001")) == 1
 
 
 @pytest.mark.asyncio

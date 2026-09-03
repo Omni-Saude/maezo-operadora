@@ -1,11 +1,19 @@
 """M-4 — `glosa_triage`: the permissive terminal at position 1 (divergence evidence).
 
-`spec/processes/dmn/glosa_triage.dmn` row 1 (`r_sem_glosa`, :53-62) gates `categoria_normalizada`
-on the NEGATIVE set `not("tecnica","clinica")` (:56), which admits `"desconhecida"` — the value the
-upstream table declares must route to a human downstream IN THIS VERY TABLE
-(`glosa_reason_normalization.dmn:13-15`) and which this table's own catch-all names (:94). Under
+`spec/processes/dmn/glosa_triage.dmn` row 1 (`r_pagar`) gates `categoria_normalizada` on the
+NEGATIVE set `not("tecnica","clinica")`, which admits `"desconhecida"` — the value the upstream
+table declares must route to a human downstream IN THIS VERY TABLE
+(`glosa_reason_normalization.dmn`) and which this table's own catch-all names. Under
 `hitPolicy=FIRST` the fail-safe is unreachable for the whole {conforme, no divergence, docs}
-subspace, and `SEM_GLOSA` is a TERMINAL end state with no user task.
+subspace, and `PAGAR` is a terminal outcome with no user task on the payer's side.
+
+ADR-0040 (Proposed) rebuilt the live table in the PAYER's vocabulary — `roteamento` is now the
+closed set `{PAGAR, ANALISE_HUMANA}` and there is no output value that gloses. M-4 IS UNCHANGED by
+that: the same defective input still reaches the same permissive row, and the candidate still
+routes it to a human. What changed is the NAME of the value and the BLAST RADIUS: the input now
+emits a demonstrativo and creates an order in SP-OP-PAGTO-001 which STOPS in the human
+`UT_AnaliseAdmissibilidade` (invariant I-PAGTO-1 — the handoff never seeds `lastro_confirmado`).
+More visibility, no automatic money — and the residue on the payer's own side is ADR-0040 OQ-10.
 
 Every "the live table says X" below is DERIVED from the artifact by `tests/support/dmn_first_hit`.
 """
@@ -32,7 +40,7 @@ _NORMALIZATION = DMN_DIR / "glosa_reason_normalization.dmn"
 _MANIFEST = DMN_DIR / "glosa-triage-shadow-candidate.yaml"
 _BPMN = REPO_ROOT / "spec" / "processes" / "bpmn" / "SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn"
 
-#: The categories the candidate keeps eligible for `SEM_GLOSA` — derived, never typed by hand:
+#: The categories the candidate keeps eligible for `PAGAR` — derived, never typed by hand:
 #: the closed domain `glosa_reason_normalization` emits, MINUS the two the live table already
 #: excludes, MINUS the fail-safe value that table declares must go to a human.
 _ALREADY_EXCLUDED = ("tecnica", "clinica")
@@ -65,9 +73,9 @@ def _inputs(categoria: str, conforme: bool, divergencia: bool, docs: bool, tipo:
 def test_live_row_1_is_the_permissive_rule_with_a_negative_category_set() -> None:
     live = _live()
     first = live.rules[0]
-    assert first.rule_id == "r_sem_glosa"
+    assert first.rule_id == "r_pagar"
     assert first.inputs[live.input_names.index("categoria_normalizada")] == 'not("tecnica","clinica")'
-    assert first.outputs[0] == "SEM_GLOSA"
+    assert first.outputs[0] == "PAGAR"
 
 
 def test_live_catchall_is_last_and_declares_the_human_fail_safe() -> None:
@@ -90,8 +98,8 @@ def test_the_candidate_positive_set_is_the_declared_domain_minus_the_three_human
     expected = domain - set(_ALREADY_EXCLUDED) - {_FAILSAFE_CATEGORY}
 
     candidate = _candidate()
-    sem_glosa = next(rule for rule in candidate.rules if rule.rule_id == "c_sem_glosa")
-    entry = sem_glosa.inputs[candidate.input_names.index("categoria_normalizada")]
+    pagar = next(rule for rule in candidate.rules if rule.rule_id == "c_pagar")
+    entry = pagar.inputs[candidate.input_names.index("categoria_normalizada")]
     assert set(entry.replace('"', "").split(",")) == expected
     assert expected == {"documental", "administrativa", "valor"}
 
@@ -103,31 +111,46 @@ def test_upstream_table_declares_desconhecida_must_be_routed_to_a_human_here() -
     assert "glosa_triage" in text
 
 
-def test_sem_glosa_is_a_terminal_end_state_with_no_user_task() -> None:
-    """Derived from the BPMN: `SEM_GLOSA` -> a service task whose only outgoing flow is an endEvent,
-    while every other routing value is the default flow into the human dossier task."""
+def test_pagar_reaches_its_terminal_without_any_user_task() -> None:
+    """Derived from the BPMN: the `PAGAR` flow reaches an endEvent through a chain of SERVICE tasks
+    only — no `userTask` anywhere on it — while every other routing value is the default flow into
+    the human dossier task.
+
+    SUBSTITUI `test_sem_glosa_is_a_terminal_end_state_with_no_user_task`. Under ADR-0040 the
+    permissive leg is no longer a bare publish->end pair: it emits a demonstrativo and hands the
+    payment off. The PROPERTY the test exists to prove is unchanged and is what M-4 is about —
+    no analista de contas ever sees the conta on this path."""
     root = ET.parse(_BPMN).getroot()
 
     def local(tag: str) -> str:
         return tag.rpartition("}")[2]
 
     flows = [el for el in root.iter() if local(el.tag) == "sequenceFlow"]
-    sem_glosa_flow = next(
+    pagar_flow = next(
         flow
         for flow in flows
         if any(
-            "SEM_GLOSA" in (child.text or "") for child in flow if local(child.tag) == "conditionExpression"
+            "'PAGAR'" in (child.text or "") for child in flow if local(child.tag) == "conditionExpression"
         )
     )
-    target = sem_glosa_flow.get("targetRef")
-    assert target == "ST_PublishSemGlosa"
-
-    downstream = [flow.get("targetRef") for flow in flows if flow.get("sourceRef") == target]
     end_events = {el.get("id") for el in root.iter() if local(el.tag) == "endEvent"}
-    assert downstream and set(downstream) <= end_events
-
     user_tasks = {el.get("id") for el in root.iter() if local(el.tag) == "userTask"}
-    assert target not in user_tasks
+
+    # Walk the chain from the PAGAR target to its terminal; nothing on it may be a User Task.
+    node = pagar_flow.get("targetRef")
+    visited: list[str | None] = []
+    while node not in end_events:
+        assert node not in user_tasks, node
+        visited.append(node)
+        outgoing = [flow.get("targetRef") for flow in flows if flow.get("sourceRef") == node]
+        assert len(outgoing) == 1, (node, outgoing)
+        node = outgoing[0]
+    assert visited == [
+        "ST_EmitirDemonstrativoIntegral",
+        "ST_HandoffPagamentoAuto",
+        "ST_PublishPagamentoIntegral",
+    ]
+    assert node == "End_ContaAprovadaIntegral"
 
 
 # =================================================================================================
@@ -139,32 +162,32 @@ _DIVERGENCIAS: tuple[tuple[str, dict[str, Any], str, str, str, str], ...] = (
     (
         "MISSION REPRO — categoria 'desconhecida' with the three favourable facts closes the case",
         _inputs("desconhecida", True, False, True),
-        "SEM_GLOSA",
-        "r_sem_glosa",
+        "PAGAR",
+        "r_pagar",
         "ANALISE_HUMANA",
         "c_catchall",
     ),
     (
         "same, with a non-empty tipo_item — the column is `-` in every rule, so it cannot matter",
         _inputs("desconhecida", True, False, True, tipo="material"),
-        "SEM_GLOSA",
-        "r_sem_glosa",
+        "PAGAR",
+        "r_pagar",
         "ANALISE_HUMANA",
         "c_catchall",
     ),
     (
         "empty categoria — an upstream analysis that returns a blank instead of a category",
         _inputs("", True, False, True),
-        "SEM_GLOSA",
-        "r_sem_glosa",
+        "PAGAR",
+        "r_pagar",
         "ANALISE_HUMANA",
         "c_catchall",
     ),
     (
         "a literal outside the declared domain entirely",
         _inputs("fraude_suspeita", True, False, True),
-        "SEM_GLOSA",
-        "r_sem_glosa",
+        "PAGAR",
+        "r_pagar",
         "ANALISE_HUMANA",
         "c_catchall",
     ),
@@ -195,17 +218,17 @@ def test_live_closes_the_case_where_the_candidate_routes_to_a_human(
 _INALTERADOS: tuple[tuple[str, dict[str, Any], str], ...] = (
     ("tecnica -> human in both", _inputs("tecnica", True, False, True), "ANALISE_HUMANA"),
     ("clinica -> human in both", _inputs("clinica", True, False, True), "ANALISE_HUMANA"),
-    ("valor + divergence -> RECORRER in both", _inputs("valor", True, True, True), "RECORRER"),
-    ("valor, no divergence -> SEM_GLOSA in both", _inputs("valor", True, False, True), "SEM_GLOSA"),
+    ("valor + divergence -> human in both", _inputs("valor", True, True, True), "ANALISE_HUMANA"),
+    ("valor, no divergence -> PAGAR in both", _inputs("valor", True, False, True), "PAGAR"),
     (
-        "documental + anexos -> SEM_GLOSA in both (ACHADO-4)",
+        "documental + anexos -> PAGAR in both (ACHADO-4)",
         _inputs("documental", True, False, True),
-        "SEM_GLOSA",
+        "PAGAR",
     ),
     (
-        "administrativa + anexos -> SEM_GLOSA in both",
+        "administrativa + anexos -> PAGAR in both",
         _inputs("administrativa", True, False, True),
-        "SEM_GLOSA",
+        "PAGAR",
     ),
     ("documental, no anexos -> human in both", _inputs("documental", True, False, False), "ANALISE_HUMANA"),
     (
@@ -265,15 +288,15 @@ def test_candidate_and_live_diverge_exactly_on_the_declared_subspace() -> None:
                         )
                         assert (live_out != cand_out) is expected_divergence, values
                         if live_out != cand_out:
-                            assert (live_out, cand_out) == ("SEM_GLOSA", "ANALISE_HUMANA"), values
+                            assert (live_out, cand_out) == ("PAGAR", "ANALISE_HUMANA"), values
                             diverged.append(values)
     # The 3 grid categories outside the declared domain-minus-{tecnica,clinica} x 3 tipo_item values.
     assert len(diverged) == 9
 
 
 def test_reordering_alone_would_not_have_closed_the_hole_achado_1() -> None:
-    """ACHADO-1, proved rather than asserted: with the LIVE negative set, moving `r_sem_glosa` below
-    the three specific rules still emits SEM_GLOSA for `desconhecida`."""
+    """ACHADO-1, proved rather than asserted: with the LIVE negative set, moving `r_pagar` below
+    the three specific rules still emits PAGAR for `desconhecida`."""
     live = _live()
     by_id = {rule.rule_id: rule for rule in live.rules}
     reordered = DecisionTable(
@@ -284,13 +307,13 @@ def test_reordering_alone_would_not_have_closed_the_hole_achado_1() -> None:
         rules=(
             by_id["r_tecnica_humano"],
             by_id["r_documental_humano"],
-            by_id["r_valor_recorrer"],
-            by_id["r_sem_glosa"],
+            by_id["r_valor_humano"],
+            by_id["r_pagar"],
             by_id["r_catchall"],
         ),
     )
     values = _inputs("desconhecida", True, False, True)
-    assert evaluate(reordered, values).saidas["roteamento"] == "SEM_GLOSA"
+    assert evaluate(reordered, values).saidas["roteamento"] == "PAGAR"
     assert evaluate(_candidate(), values).saidas["roteamento"] == "ANALISE_HUMANA"
 
 
@@ -299,14 +322,18 @@ def test_reordering_alone_would_not_have_closed_the_hole_achado_1() -> None:
 # =================================================================================================
 
 
-def test_candidate_emits_only_the_three_declared_routing_values_and_never_an_acceptance() -> None:
+def test_candidate_emits_only_the_two_declared_routing_values_and_never_gloses() -> None:
+    """ADR-0018 part 2, now trivially checkable: the domain contains NO adverse value at all.
+
+    Under the payer perspective the adverse act IS `GLOSAR`, so it cannot be a DMN output. The
+    live domain shrank from three values to two, and the candidate emits a subset of those."""
     live, candidate = _live(), _candidate()
     live_domain = {rule.outputs[0] for rule in live.rules}
     cand_domain = {rule.outputs[0] for rule in candidate.rules}
-    assert live_domain == {"SEM_GLOSA", "RECORRER", "ANALISE_HUMANA"}
+    assert live_domain == {"PAGAR", "ANALISE_HUMANA"}
     assert cand_domain <= live_domain
     text = _MANIFEST.read_text(encoding="utf-8").upper()
-    for forbidden in ("ACEITAR", "CONFIRMAR"):
+    for forbidden in ("GLOSAR", "PAGAR_PARCIAL", "ACEITAR", "CONFIRMAR"):
         assert f'"{forbidden}"' not in text
         assert f"ROTEAMENTO: {forbidden}" not in text
 

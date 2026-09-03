@@ -870,7 +870,7 @@ def test_submit_entry_happy_path() -> None:
 
 def test_ans_business_key_returns_stripped_explicit_key() -> None:
     """`_ans_business_key` returns the STRIPPED explicit `business_key` (item 2 fix) — mirrors
-    `recurso.py`'s `_mint_protocolo_recurso` sibling (`business_key.strip() or f"RECURSO-..."`).
+    `recurso.py`'s `_mint_protocolo_resposta` sibling, which derives from the same stripped key.
 
     Pre-fix this tested `bk.strip()` for non-blankness but then returned the UNSTRIPPED `bk` — a
     whitespace-padded engine business key would derive a DIFFERENT synthetic protocol than its

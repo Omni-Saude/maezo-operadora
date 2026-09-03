@@ -114,7 +114,7 @@ async def test_bridge_handoff_through_fenced_starter_emits_durable_audit_row(
     pg_tenant_schema: tuple[str, str],
 ) -> None:
     """A REAL bridge handoff (CONTAS->RECURSO, the reconciled EB-4 `agents.events.contas.
-    completed`/`desfecho=encaminhada_recurso` rule — this test previously drove the
+    completed`/`desfecho=glosa_aplicada_humano` payload — this test previously drove the
     pre-reconciliation `contas.glosa_confirmed` literal, which `notification_bridge.py` no longer
     registers at all) through the fenced starter durably persists the ADR-0007 audit row BEFORE
     the (faked) engine effect — proven by querying `audit_chain` directly, not merely by
@@ -131,7 +131,7 @@ async def test_bridge_handoff_through_fenced_starter_emits_durable_audit_row(
             event_type=CONTAS_COMPLETED_EVENT,
             payload={
                 "tenant_id": tenant_id,
-                "desfecho": "encaminhada_recurso",
+                "desfecho": "glosa_aplicada_humano",
                 "glosa_id": "GLOSA-LIVE-001",
                 "numero_guia_tiss": "GUIA-LIVE-001",
             },
@@ -162,7 +162,7 @@ async def test_bridge_handoff_redelivery_is_idempotent_at_the_audit_layer(
 
     payload = {
         "tenant_id": tenant_id,
-        "desfecho": "encaminhada_recurso",
+        "desfecho": "glosa_aplicada_humano",
         "glosa_id": "GLOSA-LIVE-002",
         "numero_guia_tiss": "GUIA-LIVE-002",
     }

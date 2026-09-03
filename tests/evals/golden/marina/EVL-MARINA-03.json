@@ -29,18 +29,18 @@
     }
   },
   "recorded_llm": [
-    "Conta em conformidade com a tabela contratada; sem divergencia de valor ou glosa a registrar."
+    "Conta em conformidade com a tabela contratada; sem divergencia de valor — segue para pagamento integral."
   ],
   "dmn_fixture": {
     "glosa_reason_normalization": { "categoria_normalizada": "documental" },
     "glosa_classification": { "glosa_type": "administrativa" },
     "contas_sla": { "sla_analise": "10d", "sla_alerta": "5d" },
-    "glosa_triage": { "roteamento": "SEM_GLOSA" }
+    "glosa_triage": { "roteamento": "PAGAR" }
   },
   "expect": {
     "fields": {
       "route": "auto_route",
-      "desfecho": "sem_glosa"
+      "desfecho": "pagar_integral"
     }
   },
   "leak_canaries": ["123.456.789-09", "Fulano Teste Canario"],

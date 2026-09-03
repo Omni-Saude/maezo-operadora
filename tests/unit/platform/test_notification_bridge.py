@@ -156,14 +156,15 @@ def test_regra_intake_recurso_dispara_com_payload_ancorado() -> None:
 
 def test_regra_intake_recurso_nao_dispara_no_evento_de_contas() -> None:
     """A aresta antiga MORREU: `agents.events.contas.completed` com desfecho
-    `encaminhada_recurso` nao inicia mais RECURSO-001 (nem sob outro nome)."""
+    `glosa_aplicada_humano` (o desfecho que carrega o `glosa_id`) nao inicia RECURSO-001 —
+    nem sob outro nome. A operadora nao recorre da propria glosa."""
     bridge = _make_bridge()
     result = bridge.evaluate(
         HandoffEvent(
             event_type=CONTAS_COMPLETED_EVENT,
             payload={
                 "tenant_id": "amh",
-                "desfecho": "encaminhada_recurso",
+                "desfecho": "glosa_aplicada_humano",
                 "glosa_id": "GLOSA-001",
                 "numero_guia_tiss": "GUIA-123",
             },
@@ -303,7 +304,7 @@ def test_bridge_contas_to_fraude_not_triggered_when_other_desfecho() -> None:
     bridge = _make_bridge()
     event = HandoffEvent(
         event_type=CONTAS_COMPLETED_EVENT,
-        payload={"tenant_id": "amh", "desfecho": "encaminhada_recurso", "prestador_id": "PREST-001"},
+        payload={"tenant_id": "amh", "desfecho": "glosa_aplicada_humano", "prestador_id": "PREST-001"},
     )
     result = bridge.evaluate(event)
     assert result.target_process != "SP-OP-FRAUDE-001"
@@ -978,7 +979,7 @@ async def test_on_event_cron_due_executes_via_starter_spy() -> None:
 # ---------------------------------------------------------------------------
 # t2-notify-integrity item 3 — tenant anchor: ALL 7 default rules stay DORMANT on a payload
 # whose per-rule anchors are present but whose tenant_id is absent/blank/None. Restores the
-# fail-closed symmetry with the in-flow fenced-start workers (contas.start_recurso/start_fraude,
+# fail-closed symmetry with the in-flow fenced-start workers (contas.handoff_pagamento/start_fraude,
 # fraude.start_credenciamento/start_contratual all REFUSE a tenant-less start via the shared
 # non_blank) and kills the degenerate business-key class (`RECURSO--…`, `FRAUDE--…`, `CRED--…`,
 # `CANCEL--…`, `INAD--…`, `ANSSUB--…`) that a tenant-less trigger used to mint.
