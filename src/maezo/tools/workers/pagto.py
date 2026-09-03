@@ -16,6 +16,7 @@ import structlog
 from maezo.tools.workers.base import FunctionWorker, non_blank
 from maezo.tools.workers.ceilings import CeilingResolver
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
+from maezo.tools.workers.harness import WorkerBpmnError
 from maezo.tools.workers.phi_vars import redact_error_message
 
 if TYPE_CHECKING:
@@ -90,8 +91,26 @@ _JAVA_LONG_MAX = 2**63 - 1
 # ---------------------------------------------------------------
 
 ERR_PAYMENT_RELEASE_NOT_HUMAN = "ERR_PAYMENT_RELEASE_NOT_HUMAN"
+#: `validate_pagto` raises this when `ordem_pagamento_id` arrives absent/blank — a TECHNICAL
+#: origin/consistency guard (G2-val, ADR-0030 §2 + migration Tier-2: the worker never decides to
+#: release/refuse a payment, it only signals bad-at-source order data — a dead-model gap the ADR
+#: itself catalogued: the code was declared here and the boundary modeled, but the worker raised
+#: the coded `PagtoError` instead of the modeled `WorkerBpmnError`). MODELED boundary error:
+#: `BE_PagtoOrdemInvalida` (Error_PagtoOrdemInvalida) on `ST_ValidatePaymentData` routes to the
+#: NEUTRO terminal `End_PagtoOrdemInvalida`. NOT a `*_NOT_HUMAN` guard, so NOT T-E-gated (ADR-0030
+#: §4) — lands directly in `PRODUCTION_BPMN_ERROR_ALLOWLIST` (mirrors `credenciamento`'s
+#: `ERR_CRED_INVALID_PRESTADOR` / `nip`'s `ERR_NIP_PROTOCOLO_INVALIDO`, the item-9 bucket-3
+#: precedent).
 ERR_PAGTO_ORDEM_INVALIDA = "ERR_PAGTO_ORDEM_INVALIDA"
 ERR_PAYMENT_REFUSAL_NOT_HUMAN = "ERR_PAYMENT_REFUSAL_NOT_HUMAN"
+
+#: Consumption-covered (`scripts/ci/check_bpmn_error_allowlist.py`'s "simple rule"):
+#: `operadora.pagto.validate_payment_data` is consumed ONLY by SP-OP-PAGTO-001, which declares
+#: this errorCode on `BE_PagtoOrdemInvalida`. Unioned into `worker_runtime/service.py`'s
+#: `_GATE_PROVEN_BPMN_ERROR_CODES`. `ERR_PAYMENT_RELEASE_NOT_HUMAN` / `ERR_PAYMENT_REFUSAL_NOT_HUMAN`
+#: are DELIBERATELY excluded: neither has a modeled boundary catch anywhere in
+#: `SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn` (both stay coded `PagtoError` -> incident, unchanged).
+PAGTO_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_PAGTO_ORDEM_INVALIDA})
 
 # Decision values (UT_AprovacaoAlcada / UT_CoordenacaoAlcada — `decisao_pagamento`)
 DECISAO_APROVAR = "APROVAR"
@@ -130,7 +149,13 @@ def validate_pagto(variables: dict[str, Any]) -> dict[str, Any]:
 
     if not dados_validos:
         logger.error("pagto_ordem_invalida", ordem_id=ordem_id)
-        raise PagtoError(ERR_PAGTO_ORDEM_INVALIDA, "ordem_pagamento_id ausente/invalido")
+        # MODELED boundary error (BE_PagtoOrdemInvalida) — WorkerBpmnError, not PagtoError; ADR-0030
+        # §2 Tier-2 G2-val (fail-safe, nao adverso). `ST_ValidatePaymentData` (topic
+        # `operadora.pagto.validate_payment_data`) is the boundary-carrying external task and
+        # `validate_pagto` IS the handler registered on that exact topic (see the bootstrap topic
+        # map below) — mirrors `credenciamento.validate_cred` / `nip` / `programa` (item-9 bucket-3
+        # precedent).
+        raise WorkerBpmnError(ERR_PAGTO_ORDEM_INVALIDA, "ordem_pagamento_id ausente/invalido")
 
     logger.info(
         "pagto_validate",
@@ -232,10 +257,13 @@ def _valor_pagamento_cents_or_none(valor_cents: Any) -> tuple[int | None, str]:
     this task must fail NEUTRALLY on two independent grounds: (a) this function is
     `FunctionWorker`-registered, so any raise reclassifies to `ValueError` ->
     `failure(retries=0)` -> an incident (ADR-0030 Layer 1), allowlist-independent; (b) even a
-    `WorkerBpmnError` would find no admitting code — `PRODUCTION_BPMN_ERROR_ALLOWLIST`
+    `WorkerBpmnError` would find no admitting code for THIS task — `PRODUCTION_BPMN_ERROR_ALLOWLIST`
     (`src/maezo/runtime/worker_runtime/service.py:179-181`, wired at `:697`) admits only codes
-    proven consumption-covered against `spec/**` boundaries, `ST_CalculateFacts` has none, and no
-    `PAGTO_BPMN_ERROR_ALLOWLIST` exists (grep=0) — so the caller routes conservatively through the
+    proven consumption-covered against `spec/**` boundaries, and `ST_CalculateFacts` has NONE.
+    `PAGTO_BPMN_ERROR_ALLOWLIST` DOES now exist (it contributes `ERR_PAGTO_ORDEM_INVALIDA`,
+    ADR-0030 Tier-2), but that code is declared on a DIFFERENT task/topic
+    (`ST_ValidatePaymentData` / `operadora.pagto.validate_payment_data`, `validate_pagto`'s own
+    guard above) — it admits nothing here, so the caller still routes conservatively through the
     DMN's own catch-all instead of raising. The SAME posture
     `IssueAuthorizationWorker`'s ceiling gate takes at the equally boundary-less
     `ST_EmitirAutorizacaoAuto` (`spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:228`) —
@@ -283,10 +311,13 @@ def route_aprovacao(
     boundary — ADR-0030; two independent grounds close it: this function is
     `FunctionWorker`-registered, so any raise reclassifies to `ValueError` ->
     `failure(retries=0)` -> an incident (ADR-0030 Layer 1), allowlist-independent, and even a
-    `WorkerBpmnError` would find no admitting code — `PRODUCTION_BPMN_ERROR_ALLOWLIST`
+    `WorkerBpmnError` would find no admitting code for THIS task — `PRODUCTION_BPMN_ERROR_ALLOWLIST`
     (`src/maezo/runtime/worker_runtime/service.py:179-181`, wired at `:697`) admits only codes
-    proven consumption-covered against `spec/**` boundaries, `ST_CalculateFacts` has none, and no
-    `PAGTO_BPMN_ERROR_ALLOWLIST` exists — grep=0) and
+    proven consumption-covered against `spec/**` boundaries, and `ST_CalculateFacts` has NONE.
+    `PAGTO_BPMN_ERROR_ALLOWLIST` DOES now exist (`ERR_PAGTO_ORDEM_INVALIDA`, ADR-0030 Tier-2), but
+    it is declared on `ST_ValidatePaymentData` / `operadora.pagto.validate_payment_data` — a
+    DIFFERENT task/topic than this one (`ST_CalculateFacts` / `operadora.pagto.calculate_facts`) —
+    so it admits nothing here either) and
     does NOT invent a route: it forces `dentro_teto_l2=False`, which structurally closes the
     auto-release band FOR THIS FUNCTION'S OWN in-process DMN call (`r_dentro_teto_l2` requires
     `true` — spec/processes/dmn/pagto_alcada.dmn:65), and hands that call

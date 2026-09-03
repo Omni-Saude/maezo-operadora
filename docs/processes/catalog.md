@@ -13,8 +13,9 @@ de agente (AGJ-*), documentada no `agent.yaml` de cada agente.
 | SP-OP-RECURSO-001 | Análise de recurso de glosa (resposta ao recurso) | Prazo contratual de resposta; Padrão TISS (RN 501/2022 — DRAFT/verify) | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-NIP-001 | Resposta a NIP | Prazos ANS | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-ANS-SUBMIT-001 | Envios periodicos ANS | Calendario regulatorio | 2 | modelado (suite de integração planejada — T3.1; DMN ans_sla adicionado ao contrato) |
+| SP-OP-ANS-CRON-001* | Agendador per-report_type dos envios ANS | Calendario regulatorio (dispara SP-OP-ANS-SUBMIT-001) | 2 | DRAFT — agendador puro, sem User Task/DMN propria; test spec + suite de integração existentes (PERSP-C5-ANSCRON-TESTSPEC) |
 | SP-OP-CANCEL-001 | Cancelamento de contrato | RN 412 | 2 | modelado (suite de integração planejada — T3.1) |
-| SP-OP-REEMBOLSO-001 | Reembolso | RN 259 | 2 | modelado (suite de integração planejada — T3.1) |
+| SP-OP-REEMBOLSO-001** | Reembolso | RN 259 | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-INADIMPLENCIA-001 | Suspensao/rescisao | RN 593 | 3 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-CRED-001 | (Des)credenciamento | RN 567 | 3 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-ADEQUACAO-001 | Adequacao de rede | RN 259 geografia | 3 | modelado (suite de integração planejada — T3.1) |
@@ -25,6 +26,27 @@ de agente (AGJ-*), documentada no `agent.yaml` de cada agente.
 Quadrupla obrigatoria por processo: `.bpmn` + contrato (`docs/processes/contracts/`) +
 DMNs derivadas (`spec/processes/dmn/`) + test spec (`docs/processes/test-specs/`).
 Jornadas de agente (sem BPMN): `docs/processes/journeys/` (Phase 0: AGJ-HELENA-TRIAGE).
+
+\* SP-OP-ANS-CRON-001 e timer-started (5 process definitions, um `TimerStartEvent` cada; nenhum
+caller chama `start_process`) — por isso fica FORA de `KNOWN_PROCESS_KEYS`
+(`process_allowlist.py:4,20`, invariante de 15 chaves; exclusao por desenho, nao lacuna). Contava
+com contrato (`docs/processes/contracts/SP-OP-ANS-CRON-001.md`) mas nao com esta linha nem com
+test spec ate PERSP-C5-ANSCRON-TESTSPEC.
+
+\*\* SP-OP-REEMBOLSO-001: nenhum `agent.yaml` declara este processo em `process_keys`
+(`grep -rn REEMBOLSO spec/agents/*/agent.yaml` -> 0 hits) — arbitrado como MENOR PRIVILEGIO
+CORRETO, nao lacuna (PERSP-REEMBOLSO-BINDING, WP-AGENT-BINDINGS-EXEC). Marina serve o processo
+via A2A (`operadora.reembolso.analyze_request`) mas nunca o INICIA: seu node `start_process` é
+NO-OP nesse fluxo — `grep -n start_process src/maezo/agents/marina/graph.py` mostra o comentario
+"`start_process` is a NO-OP (Marina never starts a second instance)" na linha 33, e o corpo real
+do guard em `graph.py:685` (`if _flow(state) == "reembolso": return {}  # SP-OP-REEMBOLSO-001 is
+already running`). Ela é convocada de DENTRO de uma instância já em execução
+(`ST_PrepararDossie`, depois de `BRT_Admissibilidade`/`BRT_Calculo`/`BRT_AutoApproval` já terem
+rodado) — nunca abre uma instância nova. `process_keys` é o allowlist do effect-PEP
+(`effect_pep.py:487,493-494` — `declared_keys & KNOWN_PROCESS_KEYS`, consultado por
+`allows_process_key`), logo a ausência de SP-OP-REEMBOLSO-001 ali é exatamente o comportamento
+correto para um agente que nunca chama `start_process_idempotent` para esse processo. Fechado
+como NÃO-DEFEITO nesta linha, para que a próxima auditoria não a reabra.
 
 > Validar prazos exatos das RNs com regulatorio antes de modelar timers.
 Redesign completo: ver `operadora-process-redesign.md` no projeto de arquitetura.

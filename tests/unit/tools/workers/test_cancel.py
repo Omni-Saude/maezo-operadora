@@ -14,9 +14,9 @@ from maezo.tools.workers.cancel import (
     assess_admissibility,
     confirm_maintained_decision,
     confirm_maintained_decision_entry,
+    dispatch_prior_notice,
     effectuate_member_request,
     effectuate_member_request_entry,
-    notify_beneficiario,
     notify_sla_risk,
     notify_sla_risk_entry,
     prepare_dossier_entry,
@@ -174,14 +174,134 @@ def test_assess_admissibility_segue_analise() -> None:
 
 
 # ---------------------------------------------------------------------------
-# notify_beneficiario
+# GAP-INAD-8 — the CONSUMER side: no for-cause advance without a PROVEN notice
+#
+# Every test below drives the REAL dict boundary (`resolve_facts_entry` /
+# `prepare_dossier_entry`), not hand-built dataclasses: that is the path the engine actually
+# takes, and it is where `pick_fields` (`base.py:606-620` — a pure key filter with NO type
+# coercion) hands whatever sits in process scope straight to the dataclass.
+# ---------------------------------------------------------------------------
+
+#: Shapes a bare `if not validation.notificacao_previa_feita:` would have BELIEVED as proof.
+#: `"false"` is the worst of them — a truthy string spelling the opposite of what it means.
+_FATOS_IMPOSTORES: list[object] = ["true", "True", "false", "0", 1, [0], {"value": True}]
+
+
+@pytest.mark.parametrize("tipo_sol", ["inadimplencia", "for_cause_operadora"])
+@pytest.mark.parametrize("fato_impostor", _FATOS_IMPOSTORES)
+def test_admissibility_fails_closed_on_a_non_boolean_notification_fact(
+    tipo_sol: str, fato_impostor: object
+) -> None:
+    """GAP-INAD-8: only a real boolean `True` proves the prior notice — everything else waits.
+
+    Under the old `if not validation.notificacao_previa_feita:` every value above (`"false"`
+    included) routed SEGUE_ANALISE — an UNPROVEN prior notice advancing a for-cause termination,
+    the art. 13 par. unico II / RN 593 precondition (**DRAFT/verify**). `is not True` routes them
+    all to the non-adverse `PENDENTE_NOTIFICACAO` wait instead.
+
+    Reverting either strict check to `not ...` turns this test RED.
+    """
+    result = prepare_dossier_entry(
+        {
+            "tipo_solicitacao": tipo_sol,
+            "tipo_plano": "individual",
+            "numero_contrato": "C-1",
+            "valid": True,
+            "notificacao_previa_feita": fato_impostor,
+        }
+    )
+    assert result["roteamento"] == "PENDENTE_NOTIFICACAO"
+    assert "RN 593" in result["motivo"]
+
+
+@pytest.mark.parametrize("tipo_sol", ["inadimplencia", "for_cause_operadora"])
+def test_admissibility_still_advances_on_a_genuine_boolean_true(tipo_sol: str) -> None:
+    """Regression guard on the hardening: a REAL proven notice must still reach SEGUE_ANALISE.
+
+    Without this, "fail closed" could silently become "never advance" — a functional regression
+    rather than an honesty fix.
+    """
+    result = prepare_dossier_entry(
+        {
+            "tipo_solicitacao": tipo_sol,
+            "tipo_plano": "individual",
+            "numero_contrato": "C-1",
+            "valid": True,
+            "notificacao_previa_feita": True,
+        }
+    )
+    assert result["roteamento"] == "SEGUE_ANALISE"
+
+
+@pytest.mark.parametrize("tipo_sol", ["inadimplencia", "for_cause_operadora"])
+@pytest.mark.parametrize("fato", [*_FATOS_IMPOSTORES, False, True])
+def test_admissibility_never_produces_an_adverse_route_whatever_the_fact(tipo_sol: str, fato: object) -> None:
+    """HITL no-denial: hardening the fact can never manufacture an adverse decision.
+
+    `assess_admissibility`'s codomain excludes RESCINDIR/NEGAR/RETER/SUSPENDER by design (L0
+    hard); this pins that no input shape — proven, unproven or malformed — escapes the neutral set.
+    """
+    result = prepare_dossier_entry(
+        {
+            "tipo_solicitacao": tipo_sol,
+            "tipo_plano": "individual",
+            "numero_contrato": "C-1",
+            "valid": True,
+            "notificacao_previa_feita": fato,
+        }
+    )
+    assert result["roteamento"] in {
+        "EFETIVAR_PEDIDO",
+        "SEGUE_ANALISE",
+        "PENDENTE_NOTIFICACAO",
+        "ANALISE_HUMANA",
+    }
+
+
+@pytest.mark.parametrize(
+    ("fato", "esperado"),
+    [(True, True), (False, False), ("true", False), ("false", False), (1, False), (None, False)],
+)
+def test_resolve_facts_entry_normalizes_the_notification_fact_to_a_strict_boolean(
+    fato: object, esperado: bool
+) -> None:
+    """The fact-resolution worker normalizes ONCE, where facts are resolved.
+
+    The harness LOADS this return dict into process scope on `complete`
+    (`harness.py:1778-1782`), so the normalized value is what `cancel_admissibility.dmn` and the
+    dossier task read next — the un-normalized shape never survives the round trip.
+    """
+    out = resolve_facts_entry(
+        {
+            "tipo_solicitacao": "inadimplencia",
+            "numero_contrato": "C-1",
+            "notificacao_previa_feita": fato,
+        }
+    )
+    assert out["notificacao_previa_feita"] is esperado
+
+
+# ---------------------------------------------------------------------------
+# dispatch_prior_notice — GAP-INAD-8 (was notify_beneficiario)
 # ---------------------------------------------------------------------------
 
 
-def test_notify_beneficiario_cancel() -> None:
-    """notify_beneficiario sends status notification."""
-    result = notify_beneficiario("BEN-001", "CONT-001", "rescindido")
-    assert result["notified"] is True
+def test_dispatch_prior_notice_cancel_asserts_no_fact() -> None:
+    """GAP-INAD-8 adjacent leg: the CANCEL prior-notice STEP returns `{}`, never `notified=True`.
+
+    The old `notify_beneficiario` returned an unconditional `{"notified": True, ...}` with no
+    channel contacted — the same fabricated-fact shape as `inadimplencia`'s. Restoring that
+    literal turns this test RED.
+    """
+    assert dispatch_prior_notice("BEN-001", "CONT-001", "rescindido") == {}
+
+
+def test_dispatch_prior_notice_cancel_never_asserts_under_any_input() -> None:
+    """No input shape may produce a `notified` claim (or any other key)."""
+    for args in (("", "", ""), ("BEN-1", "C-1", ""), ("BEN-1", "C-1", "aviso")):
+        out = dispatch_prior_notice(*args)
+        assert out == {}
+        assert "notified" not in out
 
 
 # ---------------------------------------------------------------------------
@@ -373,9 +493,11 @@ def test_prepare_dossier_entry_round_trips_assess_admissibility() -> None:
     assert result["roteamento"] == direct.roteamento
 
 
-def test_request_notification_entry_round_trips_notify_beneficiario() -> None:
+def test_request_notification_entry_round_trips_dispatch_prior_notice() -> None:
     variables = {"matricula_beneficiario": "M-1", "numero_contrato": "C-1", "message_type": "aviso"}
-    assert request_notification_entry(variables) == notify_beneficiario("M-1", "C-1", "aviso")
+    assert request_notification_entry(variables) == dispatch_prior_notice("M-1", "C-1", "aviso")
+    # And the entry point writes NOTHING into process scope (harness loads the return on complete).
+    assert request_notification_entry(variables) == {}
 
 
 def test_send_cancellation_notice_entry_guards_missing_human_decision() -> None:

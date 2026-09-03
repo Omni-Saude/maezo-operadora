@@ -1,0 +1,46 @@
+{
+  "id": "EVL-HELENA-CLAREZA-03",
+  "agent": "helena",
+  "class": "CL",
+  "tier": ["A"],
+  "description": "Clarity/legibility (gap 10.3, WP-EVALS): scheduling hand-off (same intent shape as EVL-HELENA-08) -- checks that the reply stays short-sentenced, free of leaked internal/engine jargon, and names that a human will follow up (response_prompt()'s own instruction for response_kind=schedule). Synthetic data only (tenant amh, pseudo id).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-clareza-03",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-C03",
+      "message_body": "Preciso remarcar minha consulta"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"scheduling\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
+    "Beneficiario pediu reagendamento; canal nao agenda diretamente, encaminhado para atendimento humano.",
+    "Ainda nao conseguimos remarcar consultas direto por aqui. Um atendente vai entrar em contato em breve para ajudar."
+  ],
+  "expect": {
+    "next_kind": "schedule",
+    "fields": {
+      "intent": "scheduling"
+    }
+  },
+  "leak_canaries": [],
+  "clarity": {
+    "field": "response_text",
+    "max_words_per_sentence": 20,
+    "forbidden_jargon": [
+      "DMN",
+      "dmn_table",
+      "dmn_decision_ref",
+      "motivo_categoria",
+      "escalation_motivo",
+      "sintoma_codigo",
+      "business_key",
+      "resumo_contexto",
+      "next_kind"
+    ],
+    "required_disclaimers": [
+      ["atendente", "humano", "profissional"]
+    ]
+  }
+}

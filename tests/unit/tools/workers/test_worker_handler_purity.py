@@ -183,28 +183,64 @@ def _nondeterministic_calls(tree: ast.AST) -> set[str]:
 #     no conditionExpression/resultVariable/DMN input ever read it (D-N1).
 #   - `adequacao.notify_coordenacao` -> `{"notificacao_enviada": True}` — one line in the whole
 #     repo, zero consumers (D-N2).
-# Both now return `{}`. This static fence keeps them fixed and catches the same shape (a `return
-# {...}` mapping one of these keys straight to the literal `True`, no computation, no input
-# dependency) anywhere else in the domain worker tree.
-_FABRICATED_FACT_KEYS: frozenset[str] = frozenset({"notificacao_previa_feita", "notificacao_enviada"})
+# GAP-INAD-8 (WP-FATOS-FABRICADOS slice 2) closed the two REMAINING instances, both on the RN-593
+# prior-notice step and both now returning `{}`:
+#   - `inadimplencia.notify_beneficiario` (renamed `dispatch_prior_notice`) ->
+#     `{"notificacao_previa_feita": True, "notificacao_previa_registrada_em": "now"}`. UNLIKE the
+#     two above this one had REAL consumers — `inadimplencia_status.dmn:37-38` and, via the
+#     CANCEL-001 handoff, `cancel_admissibility.dmn:63-64` + `cancel.assess_admissibility` — so
+#     the constant made their `PENDENTE_NOTIFICACAO` branch unreachable for every
+#     inadimplencia-originated case.
+#   - `cancel.notify_beneficiario` (renamed `dispatch_prior_notice`) -> `{"notified": True, ...}`,
+#     the same step on the consumer process, zero consumers; fixed with it because the slice-2 fix
+#     is what first routes real traffic into that branch.
+# `notified` joins the key set with them: the fence is only as wide as the shapes it has seen, and
+# leaving it out would let the identical fabrication return under a name already used once.
+#
+# All four now return `{}` and `_FABRICATED_FACT_BASELINE` below is EMPTY. This static fence keeps
+# them fixed and catches the same shape (a `return {...}` mapping one of these keys straight to
+# the literal `True`, no computation, no input dependency) anywhere else in the domain worker tree.
+_FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
+    {"notificacao_previa_feita", "notificacao_enviada", "notified"}
+)
 
 # DOCUMENTED baseline (same "grandfather with a ticket" pattern as `_NONDETERMINISM_BASELINE`
-# above) — a module with a pre-existing, STRUCTURALLY IDENTICAL instance of this shape that is
-# OUT OF SCOPE for GAP-FAB-NOTIF (which fixes only `credenciamento`/`adequacao`, per the R1
-# verifier's part-B report §6 D-N1/D-N2) and therefore intentionally NOT touched by this fix.
-# A NEW module adopting the pattern (not listed here) still fails the fence below.
+# above) — modules with a pre-existing, STRUCTURALLY IDENTICAL instance of this shape that a given
+# fix deliberately left alone. A NEW module adopting the pattern still fails the fence below.
+#
+# GAP-INAD-8 (WP-FATOS-FABRICADOS slice 2) removed the one entry slice 1 had grandfathered
+# (`"inadimplencia": "notify_beneficiario -> {'notificacao_previa_feita': True}"`) — its R1
+# package landed, so the ratchet below required the entry gone, as it should.
+#
+# The SAME commit widened `_FABRICATED_FACT_KEYS` with `notified`, and that immediately surfaced
+# THREE more instances of the identical shape in three OTHER processes. They are NOT fixed here —
+# each is a different process family with its own contract, BPMN and regulatory anchor, and
+# WP-FATOS-FABRICADOS slice 2 is scoped to INADIMPLENCIA->CANCEL. Each has a tracked row in
+# `docs/review-queue.md` (the slice-1 gatekeeper's standing requirement: a baseline entry is
+# legitimate only as a ratchet whose entries are tracked gaps, never a code comment).
+#
+# All three were verified ZERO-CONSUMER at the time of writing — `grep -rn '\bnotified\b' src/
+# spec/` finds no BPMN `conditionExpression`, no DMN `inputExpression` and no Python read of the
+# key anywhere; the only non-producer hits are prose. That makes each a mechanical `{}` fix like
+# `adequacao`'s, not an INADIMPLENCIA-style two-consumer problem — cheap for whoever owns the
+# process, but still not this package's to make.
 _FABRICATED_FACT_BASELINE: dict[str, str] = {
-    # `inadimplencia.notify_beneficiario` -> `{"notificacao_previa_feita": True,
-    # "notificacao_previa_registrada_em": "now"}` (RN 593, SP-OP-INADIMPLENCIA-001) — same
-    # unconditional-constant shape as the two GAP-FAB-NOTIF instances, PLUS a literal string
-    # `"now"` placeholder instead of a real timestamp. Deliberately excluded from the R1
-    # verifier's own `notificacao_previa_feita` grep for the CRED finding (part-B verification
-    # report §6 D-B1: "grep -v inadimplencia | grep -vi cancel") — a different process, a
-    # different (legitimate) consumer (`cancel.py` reads the field as a real input via
-    # `CancelabilityInput.notificacao_previa_feita`), and NOT one of this task's assigned items
-    # (A-D). Tracked here, not fixed here — a future GAP-FAB-NOTIF-2-style ticket owns it.
-    "inadimplencia": "notify_beneficiario -> {'notificacao_previa_feita': True} (RN 593) — "
-    "out of scope for GAP-FAB-NOTIF (credenciamento/adequacao only); tracked, not fixed.",
+    # GAP-RECURSO-5 — `recurso.notify_prestador` (`recurso.py:358-376`) ->
+    # `{"notified": True, ...}` on `operadora.recurso.notify_prestador`. RN 424/2017 is the
+    # payer's answer deadline (DRAFT/verify); this asserts a prestador was told, with no channel.
+    "recurso": "notify_prestador -> {'notified': True} — zero consumers; tracked GAP-RECURSO-5, "
+    "out of scope for WP-FATOS-FABRICADOS slice 2 (INADIMPLENCIA->CANCEL only).",
+    # GAP-REEMBOLSO-8 — `reembolso.request_documents` (`reembolso.py:578-602`) ->
+    # `{"notified": True, "status": "pended", ...}`. Its OWN docstring already discloses that it
+    # never publishes the `event_topic_pended` event the BPMN documents, and then returns
+    # `notified=True` anyway — the disclosure and the return contradict each other.
+    "reembolso": "request_documents -> {'notified': True} — zero consumers; tracked "
+    "GAP-REEMBOLSO-8, out of scope for WP-FATOS-FABRICADOS slice 2.",
+    # GAP-CONTAS-7 — `contas.notify_sla_risk` (`contas.py:449-472`) -> `{"notified": True, ...}`
+    # on the non-interruptive SLA timer. Informational, never adverse — the lowest-stakes of the
+    # three, but the same false assertion.
+    "contas": "notify_sla_risk -> {'notified': True} — zero consumers; tracked GAP-CONTAS-7, "
+    "out of scope for WP-FATOS-FABRICADOS slice 2.",
 }
 
 
@@ -361,10 +397,14 @@ def test_no_domain_worker_returns_unconditional_true_for_fabricated_fact_keys() 
         f"baseline modules no longer return the fabricated-fact literal: {sorted(resolved)} — "
         "remove them from _FABRICATED_FACT_BASELINE (the fabrication is fixed there)."
     )
-    # Confirm the two GAP-FAB-NOTIF instances this task fixes are ACTUALLY fixed (not merely
-    # absent from `actual` because the module failed to parse, etc.).
+    # Confirm the four fixed instances are ACTUALLY fixed (not merely absent from `actual`
+    # because the module failed to parse, etc.): GAP-FAB-NOTIF's two, then GAP-INAD-8's two.
     assert "credenciamento" not in actual
     assert "adequacao" not in actual
+    assert "inadimplencia" not in actual
+    assert "cancel" not in actual
+    # The grandfathered entry slice 1 left behind is GONE — the ratchet shrank, never rubber-stamped.
+    assert "inadimplencia" not in _FABRICATED_FACT_BASELINE
 
 
 def test_recurso_protocolos_sao_deterministicos_por_business_key() -> None:

@@ -290,6 +290,12 @@ class AgentDefinition(BaseModel):
     graph: str = Field(default="graph.py:build", description="Module path for the build() function")
     prompt_versions: dict[str, str] = Field(default_factory=dict, description="Prompt version map (ADR-0009)")
     model: dict[str, Any] = Field(default_factory=dict, description="Model tier configuration")
+    # ^ CONSUMED since AF-12 — see `model_tiers()` below. Until then this field was parsed
+    #   (`AgentLoader._parse`) and read by nothing: `spec/agents/*/agent.yaml` has declared
+    #   `task_default: {tier: fast}` / `reasoning: {tier: frontier}` for all 10 agents plus the
+    #   `_template` since Phase 0, ADR-0009 §2/§3 mandate the routing, and no code path ever
+    #   looked at it. Dead config that LOOKS live is worse than absent config, which is why this
+    #   is either consumed or deleted — it is now consumed.
     autonomy_policy: str | None = Field(default=None, description="Path to autonomy policy directory")
     autonomy_actions: list[str] = Field(
         default_factory=list, description="Autonomy actions this agent exercises"
@@ -298,6 +304,38 @@ class AgentDefinition(BaseModel):
     escalation: dict[str, Any] = Field(default_factory=dict, description="Escalation configuration")
     memory: dict[str, Any] = Field(default_factory=dict, description="Memory configuration (ADR-0002)")
     a2a: dict[str, Any] = Field(default_factory=dict, description="Agent-to-Agent configuration (ADR-0003)")
+
+    def model_tiers(self) -> dict[str, str]:
+        """The declared `task_kind -> tier` map from this agent's `model:` block (AF-12, ADR-0009).
+
+        Reads `agent.yaml`'s shipped shape and nothing else::
+
+            model:
+              task_default: { tier: fast }
+              reasoning:    { tier: frontier }
+
+        returns ``{"task_default": "fast", "reasoning": "frontier"}``.
+
+        SCOPE, DELIBERATELY NARROW: this reports what the SPEC declares. It does not validate the
+        tier vocabulary and does not decide which model a tier means — both belong to
+        :class:`maezo.runtime.inference.InferenceProvider`, which is where a bad tier has to fail
+        closed (at provider construction, isolated by each composition root into a red readiness
+        check). Splitting it this way keeps `maezo.agents` free of a dependency on the runtime
+        package, and keeps ONE place that can refuse a tier.
+
+        A malformed entry (a non-mapping, or a mapping with no string `tier`) is SKIPPED here and
+        surfaces as an UNDECLARED task_kind downstream, which the provider counts explicitly on
+        `maezo_llm_tier_resolution_total`. Raising here would turn a cosmetic YAML slip into a
+        failure to load the agent at all, and the loader is the one thing that must keep working.
+        """
+        tiers: dict[str, str] = {}
+        for task_kind, block in self.model.items():
+            if not isinstance(task_kind, str) or not isinstance(block, dict):
+                continue
+            tier = block.get("tier")
+            if isinstance(tier, str) and tier:
+                tiers[task_kind] = tier
+        return tiers
 
 
 class AgentLoader:

@@ -34,26 +34,7 @@ from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.contas import start_recurso
 from tests.integration.conftest import _apply_migrations, _engine_reachable, _pg_reachable
 
-# ---------------------------------------------------------------------------
-# m10 (gatekeeper R1 do PR-3) — ESTE ARQUIVO NAO RODA EM NENHUMA PERNA DE CI HOJE.
-#
-# Nao ha `pytestmark = pytest.mark.integration` aqui — e nenhum arquivo de
-# `tests/integration/platform/` tem, e a convencao do diretorio e auto-skip pelas fixtures de
-# alcancabilidade (`_engine_reachable`/`_pg_reachable`), nao marker. O efeito medido pelo
-# gatekeeper: sob `pytest -m integration` estas suites saem como `deselected` (rc=5) e sob
-# `-m "not integration"` elas sao coletadas mas SKIPPAM (sem stack). Resultado liquido: elas
-# nunca executam de verdade.
-#
-# Isso importa em particular para `test_bridge_reconciled_event_starts_real_instance_and_audits`
-# abaixo: e o UNICO teste que provaria a regra `agents.events.recurso.intake_recebido` iniciando
-# uma instancia REAL de SP-OP-RECURSO-001 (ADR-0040 §3.1, OQ-R1).
-#
-# NAO corrigido aqui de proposito: a condicao e PRE-EXISTENTE (nao introduzida pelo PR-3) e vale
-# para os quatro arquivos do diretorio, incluindo dois que este PR nao toca
-# (`test_notifications_bridge_live_pg.py`, `test_events_kafka_producer_live.py`). Marcar so os
-# dois que o PR-3 toca deixaria o diretorio com duas convencoes; a correcao e do harness e vai
-# como item do orquestrador. Divulgado aqui, no ponto do defeito, e nao apenas no corpo do PR.
-# ---------------------------------------------------------------------------
+pytestmark = pytest.mark.integration
 
 _REPO_RECURSO_BPMN = "spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn"
 

@@ -58,7 +58,7 @@ class WorkerRuntimeSettings(BaseSettings):
     # terminationGracePeriodSeconds (Helm-side contract, not enforced here).
     drain_deadline_s: float = Field(default=20.0, alias="WORKER_DRAIN_DEADLINE_S")
 
-    # --- OTel (accepted for parity; not wired by this build — see module docstring) -----------
+    # --- OTel (WIRED since AF-13 — `service.py` STEP 0 feeds `bootstrap_observability`) -------
     otel_exporter_otlp_endpoint: str | None = Field(default=None, alias="OTEL_EXPORTER_OTLP_ENDPOINT")
 
     # --- Operational ----------------------------------------------------------------------------
