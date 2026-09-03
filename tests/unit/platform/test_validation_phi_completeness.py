@@ -360,21 +360,46 @@ class TestBuckets:
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
     ) -> None:
-        """The log is evidence, not narration: every entry must name a real, current name.
+        """The log is evidence, not narration: every entry must name a real, current move.
 
         Guards the log itself against rotting the way the pins it explains
-        once did — an entry for a name that has since left the corpus a
-        SECOND time, or that was never in it, would be undetectable prose.
+        once did. Three directions, named so a future thinning of this check
+        reads as a deliberate choice, not an oversight:
+          - `name_delta >= 0` (added, or present with a shifted occurrence
+            count) must still be a name the live sweep actually has — an
+            entry for a name that has since left the corpus a SECOND time,
+            or that was never in it, would be undetectable prose.
+          - `name_delta < 0` (claimed to have LEFT the corpus) is checked the
+            other way: the name must be ABSENT — an entry that claims a
+            removal for a name still present would let a future edit that
+            never happened stand unaudited.
+          - every entry must move at least one of the two counters — an
+            inert `name_delta=0, occurrence_delta=0` row would pass no
+            matter what PR or reason it named, since it contributes nothing
+            either pinned-count test can observe.
+        (A rename — one name leaves as another, same-PR, replacement enters —
+        nets to `name_delta=0` in aggregate with no per-entry way to tell it
+        apart from "no move at all"; CORPUS_DELTA_LOG does not model that
+        case today, a documented limitation, not a bug this test papers over.)
         """
         for delta in CORPUS_DELTA_LOG:
             if delta.name_delta >= 0:
                 assert delta.name in live_sweep.names, (
                     f"CORPUS_DELTA_LOG: {delta.name!r} ({delta.pr}) is not in the live corpus"
                 )
+            else:
+                assert delta.name not in live_sweep.names, (
+                    f"CORPUS_DELTA_LOG: {delta.name!r} ({delta.pr}) is logged as having LEFT the "
+                    "corpus (name_delta < 0) but is still present in the live sweep"
+                )
         pr_pattern = re.compile(r"^#\d+$")
         for delta in CORPUS_DELTA_LOG:
             assert pr_pattern.match(delta.pr), f"CORPUS_DELTA_LOG: {delta.pr!r} is not a `#NNN` PR reference"
             assert len(delta.reason) > 40, f"CORPUS_DELTA_LOG: {delta.name!r} reason is too thin to audit"
+            assert delta.name_delta != 0 or delta.occurrence_delta != 0, (
+                f"CORPUS_DELTA_LOG: {delta.name!r} ({delta.pr}) moves neither counter — an inert "
+                "entry is unfalsifiable narration, not an audited delta"
+            )
 
     def test_the_shape_suspect_list_is_pinned_exactly(self, live_sweep: Sweep) -> None:
         """The DPO questions. Each one has a `DISPOSITIONS` entry with evidence."""

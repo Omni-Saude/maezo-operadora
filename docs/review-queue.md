@@ -759,9 +759,17 @@ A cerca `src/maezo/platform/validation/phi_completeness.py` mecaniza a prova: ex
 variavel de dez superficies de `spec/processes/` com proveniencia `arquivo:linha`, classifica em
 tres baldes (LISTED / SHAPE-SUSPECT-UNLISTED / CLEAN) e **falha fechado** em todo nome PHI-shaped
 que nao esteja listado NEM disposto. Medicao sobre o `spec/` vivo: **6 LISTED, 9
-SHAPE-SUSPECT-UNLISTED, 314 CLEAN** (329 nomes, **1616 ocorrencias** — pinado por
+SHAPE-SUSPECT-UNLISTED, 313 CLEAN** (328 nomes, **1623 ocorrencias** — pinado por
 `test_the_occurrence_count_is_pinned`; uma versao anterior desta secao dizia 1637, numero que
-nenhum estado da branch produz e que nenhum teste sustentava).
+nenhum estado da branch produz e que nenhum teste sustentava). **(corrigido 2026-09-03: era 314
+CLEAN / 329 nomes / 1616 ocorrencias — o trem onda-0 mexeu no corpus depois da medicao original:
+`#276` removeu a coluna morta `tuss_codes`, unica ocorrencia do nome em `spec/`, entao ele SAI do
+corpus inteiro — CLEAN 314->313, nomes 329->328; `#271` acrescentou net +7 ocorrencias de nomes
+ja-corpus ao achatar `calculo.*` em `SP-OP-REEMBOLSO-001` — 1616-1(tuss_codes)-1(encounter_class,
+mesma PR de #276, nome sobrevive)+9(calculo/valor_calculado_tabela_cents/multiplo_tabela_aplicado/
+fonte_tabela) = 1623. Detalhe completo em `CORPUS_DELTA_LOG`,
+`tests/unit/platform/test_validation_phi_completeness.py:261-327`, e na linha GAP-DU-07 mais
+recente de `docs/evidence-ledger.md`.)**
 
 **A classificacao usa DOIS sinais, e so um deles le o nome.** (a) SINAL ESTRUTURAL: um
 `camunda:formField` cujo tipo nao e limitado e que nao declara dominio `camunda:value` e uma caixa
