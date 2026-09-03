@@ -1072,7 +1072,12 @@ async def test_conta_originada_em_contas_nunca_alcanca_liberacao_automatica_sem_
     assert _END_APROVADA_INTEGRAL in ended
     assert not await engine.list_user_tasks(iid), "nenhum humano do lado da ORIGEM nesta perna"
 
-    lote = await engine.get_variable(iid, "numero_lote_tiss")
+    # `get_history_variable`, nao `get_variable`: a instancia de CONTAS JA TERMINOU
+    # (`End_ContaAprovadaIntegral` acima) e o endpoint de runtime responde
+    # `500 ... execution is null` para uma instancia concluida. Antes do reparo de
+    # `data_vencimento` esta linha nunca era alcancada porque a instancia travava no handoff e
+    # continuava viva — o defeito de harness so aparece quando o processo passa a FUNCIONAR.
+    lote = await engine.get_history_variable(iid, "numero_lote_tiss")
     pagto_bk = f"PAGTO-amh-{lote}-PRESTADOR-TESTE-001"
     pagto = await engine.find_active_instances(pagto_bk)
     assert len(pagto) == 1, f"o handoff deve ter criado UMA ordem sob {pagto_bk}; veio {pagto}"
@@ -1159,7 +1164,9 @@ async def test_m4_categoria_desconhecida_para_em_admissibilidade_humana(
 
     # O QUE MELHOROU: existe artefato, e ele para num humano.
     assert "ST_EmitirDemonstrativoIntegral" in ended, "o prestador passa a ser comunicado"
-    lote = await engine.get_variable(iid, "numero_lote_tiss")
+    # `get_history_variable` pelo mesmo motivo do teste anterior: a instancia de CONTAS ja
+    # terminou em `End_ContaAprovadaIntegral` e o endpoint de runtime devolve 500.
+    lote = await engine.get_history_variable(iid, "numero_lote_tiss")
     pagto = await engine.find_active_instances(f"PAGTO-amh-{lote}-PRESTADOR-TESTE-001")
     assert len(pagto) == 1
     await pagto_drain.drain()
