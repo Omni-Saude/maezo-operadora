@@ -587,12 +587,44 @@ def test_calculate_amount_entry_ignores_an_opaque_calculo_object() -> None:
         calculate_amount_entry(only_opaque)
 
 
-def test_flattened_locals_win_over_a_stale_calculo_map() -> None:
-    """Precedence: the activity-LOCAL variables the engine just wrote beat any process-scope map.
+def test_both_channels_present_and_agreeing_is_used_normally() -> None:
+    """When the flat locals and the `calculo` Mapping AGREE, the (single) triple is used.
 
-    The flattened parameters are rewritten from `calculo` on every entry into
-    `ST_CalculateAmount`, so they are the freshest statement of the decision; a `calculo` that
-    disagrees (a seeded or stale one) must not displace them.
+    On a correctly configured engine the two channels are two views of the SAME `BRT_Calculo`
+    result, so agreement is the expected shape and must not be penalized.
+    """
+    rule = _rule("r_consulta")
+    out = calculate_amount_entry(_entry_vars(rule, calculo=_dmn_flat_vars(rule)))
+    assert out["valor_calculado_tabela_cents"] == rule.valor_calculado_tabela_cents
+    assert out["fonte_tabela"] == rule.fonte_tabela
+
+
+def test_only_flat_channel_present_is_used_normally() -> None:
+    """Precedence when only ONE channel is complete: the flat locals alone are used."""
+    rule = _rule("r_consulta")
+    variables = _entry_vars(rule)
+    assert "calculo" not in variables
+    out = calculate_amount_entry(variables)
+    assert out["valor_calculado_tabela_cents"] == rule.valor_calculado_tabela_cents
+
+
+def test_only_calculo_mapping_present_is_used_normally() -> None:
+    """Precedence when only ONE channel is complete: the `calculo` Mapping alone is used."""
+    rule = _rule("r_exame_simples")
+    variables = _entry_vars(rule, calculo=_dmn_flat_vars(rule))
+    for name in _DMN_OUTPUT_NAMES:
+        del variables[name]
+    out = calculate_amount_entry(variables)
+    assert out["valor_calculado_tabela_cents"] == rule.valor_calculado_tabela_cents
+
+
+def test_disagreeing_channels_fail_closed_instead_of_silently_preferring_flat() -> None:
+    """VERIFY-WP-REEMBOLSO MINOR-1: a DISAGREEMENT between channels must not be resolved silently.
+
+    Before this fix, the flat locals silently won over a `calculo` Mapping that disagreed (e.g. a
+    stale or seeded one) — exactly the drift/deserialize-mode case the module's own docstring
+    claims cannot happen ("both channels carry the DMN's own answer or there is no answer"). Now
+    it raises, and the reason names the disagreement.
     """
     fresh = _rule("r_consulta")
     stale = {
@@ -600,9 +632,33 @@ def test_flattened_locals_win_over_a_stale_calculo_map() -> None:
         "multiplo_tabela_aplicado": 9.0,
         "fonte_tabela": "STALE",
     }
-    out = calculate_amount_entry(_entry_vars(fresh, calculo=stale))
-    assert out["valor_calculado_tabela_cents"] == fresh.valor_calculado_tabela_cents
-    assert out["fonte_tabela"] == fresh.fonte_tabela
+    with pytest.raises(ReembolsoCalculoIndisponivelError) as exc:
+        calculate_amount_entry(_entry_vars(fresh, calculo=stale))
+    message = str(exc.value)
+    assert "divergentes" in message
+    assert str(fresh.valor_calculado_tabela_cents) in message
+    assert "999999" in message
+
+
+@pytest.mark.parametrize(
+    ("differing_field", "override_value"),
+    [
+        ("valor_calculado_tabela_cents", 1),
+        ("multiplo_tabela_aplicado", 2.0),
+        ("fonte_tabela", "OUTRA_FONTE"),
+    ],
+)
+def test_disagreeing_channels_fail_closed_on_a_single_differing_field(
+    differing_field: str, override_value: Any
+) -> None:
+    """Disagreement on ANY one of the three fields is enough to refuse — not just a full mismatch."""
+    rule = _rule("r_exame_simples")
+    mismatched_map = dict(_dmn_flat_vars(rule))
+    assert mismatched_map[differing_field] != override_value
+    mismatched_map[differing_field] = override_value
+    with pytest.raises(ReembolsoCalculoIndisponivelError) as exc:
+        calculate_amount_entry(_entry_vars(rule, calculo=mismatched_map))
+    assert "divergentes" in str(exc.value)
 
 
 # --- (d) no rounding / overflow regression --------------------------------------------------
@@ -704,6 +760,56 @@ def test_dentro_tabela_is_false_when_a_hit_carries_a_zero_reference_value(
             valor_calculado_tabela_cents=0,
             multiplo_tabela_aplicado=1.0,
             fonte_tabela="TABELA_REFERENCIA_CONSULTA",
+        ),
+        resolver=teto_alto,
+    )
+    assert result.dentro_tabela is False
+
+
+@pytest.mark.parametrize(
+    "fonte_tabela",
+    [" SEM_TABELA", "sem_tabela", "SEM_TABELA\n", "SEM_TABELA ", " sem_tabela \n"],
+)
+def test_categoria_na_tabela_treats_whitespace_and_case_variants_as_the_catch_all(
+    fonte_tabela: str,
+) -> None:
+    """VERIFY-WP-REEMBOLSO MINOR-2: a whitespace/case variant of `SEM_TABELA` must NEVER read as a hit.
+
+    `_require_dmn_fonte` validates non-blank with `.strip()`, so any of these pass validation; the
+    comparison against the catch-all literal must normalize the SAME way (and case-fold too, on
+    the deny side — see `_is_sem_tabela`) so it is treated as no-table, never as a table hit. This
+    is a fail-OPEN direction in a money gate: a hit inflates `dentro_tabela`, potentially feeding
+    auto-approval.
+    """
+    calculo = ReembolsoCalculoDmn(
+        valor_calculado_tabela_cents=0,
+        multiplo_tabela_aplicado=0.0,
+        fonte_tabela=fonte_tabela,
+    )
+    assert calculo.categoria_na_tabela is False
+    # the raw, un-normalized value is still what the audit trail records verbatim
+    assert calculo.fonte_tabela == fonte_tabela
+
+
+@pytest.mark.parametrize(
+    "fonte_tabela",
+    [" SEM_TABELA", "sem_tabela", "SEM_TABELA\n"],
+)
+def test_dentro_tabela_is_false_for_whitespace_and_case_variants_of_sem_tabela(
+    fonte_tabela: str, teto_alto: CeilingResolver
+) -> None:
+    """End-to-end: the whitespace/case variant reaches `calculate_value` and still forces False.
+
+    Even with a nonzero reference value and a solicited amount at or below it — the shape that
+    would otherwise satisfy `dentro_tabela` — the catch-all token (however mangled its spacing or
+    case) must still force `dentro_tabela=False`, never a hit.
+    """
+    result = calculate_value(
+        _request(categoria_procedimento="categoria_que_nao_existe", valor_solicitado_cents=100),
+        ReembolsoCalculoDmn(
+            valor_calculado_tabela_cents=12_000,
+            multiplo_tabela_aplicado=1.0,
+            fonte_tabela=fonte_tabela,
         ),
         resolver=teto_alto,
     )

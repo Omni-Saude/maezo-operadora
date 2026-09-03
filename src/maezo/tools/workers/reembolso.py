@@ -98,6 +98,33 @@ _DMN_ATIVIDADE_BPMN = "BRT_Calculo"
 #: needs to recognise this one to force `dentro_tabela=False`.
 _FONTE_SEM_TABELA = "SEM_TABELA"
 
+
+def _is_sem_tabela(fonte_tabela: str) -> bool:
+    """True iff ``fonte_tabela`` denotes the DMN's `SEM_TABELA` catch-all — normalized ONCE, here.
+
+    Whitespace and case are folded before the comparison — and nowhere else in the module — so
+    the single deny-token check cannot be fooled the way it was before VERIFY-WP-REEMBOLSO MINOR-2:
+    ``_require_dmn_fonte`` validated with ``.strip()`` while this comparison used the raw string,
+    so `" SEM_TABELA "` or `"sem_tabela"` validated as non-blank yet compared UNEQUAL to the exact
+    literal and therefore read as a table HIT — a fail-OPEN direction in a money gate.
+
+    Same STRUCTURE as the cited precedent (`auth.py::_auto_approval_sanctioned`: normalize once,
+    compare the normalized form to a single literal), but the opposite polarity of normalization
+    on purpose: `auth.py` normalizes its ALLOW literal (`AUTO_APROVAR`) with `.strip()` only, no
+    case fold — fewer matches there means fewer auto-approvals, which is fail-closed for an ALLOW
+    token. Here the literal is a DENY token feeding an allow-by-default vocabulary (any non-
+    `SEM_TABELA` token with a positive value reads as a table hit, deliberately, per
+    VERIFY-WP-REEMBOLSO §3(d) — an allowlist of hit tokens would break the next
+    `TABELA_REFERENCIA_*` category the DMN grows). For a deny token under allow-by-default, MORE
+    matches means fewer hits, so folding whitespace AND case here is the fail-closed choice: any
+    token that could plausibly BE the catch-all, however the DMN or a decoding hop mangled its
+    spacing or case, must be read as "no table" (human review), never as "a table hit" (potential
+    auto-approval). The raw ``fonte_tabela`` is never mutated — only this comparison's input is
+    normalized — so the audit trail still records exactly what the DMN emitted.
+    """
+    return fonte_tabela.strip().upper() == _FONTE_SEM_TABELA
+
+
 #: The three activity-LOCAL variables `ST_CalculateAmount`'s `camunda:inputParameter` mapping
 #: flattens out of `calculo`. Names are the DMN's OWN output names (`reembolso_calculo.dmn:37-39`).
 _DMN_VAR_VALOR = "valor_calculado_tabela_cents"
@@ -106,7 +133,8 @@ _DMN_VAR_FONTE = "fonte_tabela"
 #: The un-flattened `singleResult` map — a belt-and-braces SECOND channel, exactly as
 #: `auth.py::_auto_approval_sanctioned` keeps one: it is what in-process fixtures carry and what
 #: an engine configured to deserialize Object variables would deliver. Never a fallback to a
-#: Python table: both channels carry the DMN's own answer or there is no answer.
+#: Python table: both channels carry the DMN's own answer, or there is no answer, or — when both
+#: are present and DISAGREE — neither is trusted (see `_pick_calculo_channel`).
 _DMN_RESULT_VAR = "calculo"
 
 
@@ -130,9 +158,11 @@ class ReembolsoCalculoDmn:
 
         Derived from ``fonte_tabela`` rather than stored, so the flag the fail-closed
         ``dentro_tabela`` gate reads can never contradict the provenance token the audit chain
-        records.
+        records. The comparison itself is delegated to :func:`_is_sem_tabela` — the ONE place in
+        this module that normalizes the catch-all token (VERIFY-WP-REEMBOLSO MINOR-2) — so this
+        property can never drift back to a raw, un-normalized comparison.
         """
-        return self.fonte_tabela != _FONTE_SEM_TABELA
+        return not _is_sem_tabela(self.fonte_tabela)
 
 
 # ---------------------------------------------------------------------------
@@ -395,7 +425,8 @@ def calculate_value(
 
     - ``dentro_tabela`` — "the claimed amount is within the REFERENCE TABLE". FAIL-CLOSED on three
       independent conditions, all of which must hold: the DMN matched a real row
-      (``fonte_tabela != "SEM_TABELA"``), that row carries a positive reference value, and
+      (``categoria_na_tabela``, i.e. not :func:`_is_sem_tabela` on the normalized token), that
+      row carries a positive reference value, and
       ``valor_solicitado_cents <= valor_calculado_tabela_cents``. With no row there is nothing to
       be within, so the claim is False BY CONSTRUCTION and never merely by arithmetic — the `<=`
       alone would read True for a `valor_solicitado_cents=0` request against the catch-all's 0.
@@ -737,7 +768,7 @@ def _require_calculo_dmn(process_vars: dict[str, Any]) -> ReembolsoCalculoDmn:
     compute an amount and cannot: it only ACCEPTS what
     `spec/processes/dmn/reembolso_calculo.dmn` produced, or refuses.
 
-    THE CHANNEL, in order (mirrors `auth.py::_auto_approval_sanctioned`):
+    THE CHANNELS (mirrors `auth.py::_auto_approval_sanctioned`):
 
       1. the three activity-LOCAL flat variables `ST_CalculateAmount`'s `camunda:inputParameter`
          mapping flattens out of `calculo` — the channel that actually works on a real engine,
@@ -746,12 +777,16 @@ def _require_calculo_dmn(process_vars: dict[str, Any]) -> ReembolsoCalculoDmn:
       2. `calculo` as a real `Mapping` — belt-and-braces for in-process fixtures and for any
          engine/config that DOES deserialize the `singleResult` Object.
 
-    Both channels carry the DMN's own answer. Neither is a fallback to a Python table: when
-    NEITHER yields a well-formed triple this raises `ReembolsoCalculoIndisponivelError` and the
-    task becomes an engine incident with no `dentro_tabela` / `dentro_teto_l2` written, hence no
-    `AUTO_APROVAR` input for `BRT_AutoApproval` and no automatic payment. Absence is a model or
-    deploy defect (`ST_CalculateAmount` is reachable ONLY from `BRT_Calculo`), never a value to
-    guess at.
+    Both channels carry the DMN's own answer, never a fallback to a Python table. When only ONE
+    channel is complete, that one is used (see `_pick_calculo_channel`). When BOTH are complete
+    they must AGREE — on a correctly configured engine they are two views of the same
+    `BRT_Calculo` result — and a DISAGREEMENT fails the money path CLOSED
+    (`ReembolsoCalculoIndisponivelError`, VERIFY-WP-REEMBOLSO MINOR-1) rather than silently
+    preferring the flat channel. When NEITHER yields a well-formed triple this raises the same
+    error, and the task becomes an engine incident with no `dentro_tabela` / `dentro_teto_l2`
+    written, hence no `AUTO_APROVAR` input for `BRT_AutoApproval` and no automatic payment.
+    Absence is a model or deploy defect (`ST_CalculateAmount` is reachable ONLY from
+    `BRT_Calculo`), never a value to guess at.
 
     VALIDATION, field by field — every rejection returns the same safe outcome:
 
@@ -786,25 +821,52 @@ def _require_calculo_dmn(process_vars: dict[str, Any]) -> ReembolsoCalculoDmn:
 
 
 def _pick_calculo_channel(process_vars: dict[str, Any]) -> tuple[Any, Any, Any] | None:
-    """The raw `(valor, multiplo, fonte)` triple from the flat channel, else the `calculo` Mapping.
+    """The raw `(valor, multiplo, fonte)` triple, reconciled across the flat and `calculo` channels.
 
     A channel counts as PRESENT only when it carries all three keys — a partial delivery is a
     defect, not a channel to complete from another one (mixing halves of two deliveries is how a
     value and its provenance drift apart). Returns `None` when neither channel is complete;
     validation of the values themselves is the caller's.
+
+    RECONCILIATION (VERIFY-WP-REEMBOLSO MINOR-1). When only one channel is complete, that one is
+    used — the documented precedence is unaffected. When BOTH are complete, they must AGREE
+    (identical triple, by `==`, before either is validated): on a correctly configured engine they
+    are two views of the SAME `BRT_Calculo` result, so agreement costs nothing. A DISAGREEMENT
+    means the flat locals and the `calculo` Mapping are telling two different stories about what
+    the DMN decided — exactly the drift/deserialize-mode case the module docstring warns is not a
+    fallback to paper over — so this fails the money path CLOSED
+    (`ReembolsoCalculoIndisponivelError`) instead of silently preferring the flat channel, which is
+    what this module used to do before this fix.
     """
     flat_keys = (_DMN_VAR_VALOR, _DMN_VAR_MULTIPLO, _DMN_VAR_FONTE)
+    flat: tuple[Any, Any, Any] | None = None
     if all(key in process_vars for key in flat_keys):
-        return (
+        flat = (
             process_vars[_DMN_VAR_VALOR],
             process_vars[_DMN_VAR_MULTIPLO],
             process_vars[_DMN_VAR_FONTE],
         )
 
     nested = process_vars.get(_DMN_RESULT_VAR)
+    mapping: tuple[Any, Any, Any] | None = None
     if isinstance(nested, Mapping) and all(key in nested for key in flat_keys):
-        return (nested[_DMN_VAR_VALOR], nested[_DMN_VAR_MULTIPLO], nested[_DMN_VAR_FONTE])
+        mapping = (nested[_DMN_VAR_VALOR], nested[_DMN_VAR_MULTIPLO], nested[_DMN_VAR_FONTE])
 
+    if flat is not None and mapping is not None:
+        if flat != mapping:
+            raise ReembolsoCalculoIndisponivelError(
+                "canais divergentes: os `camunda:inputParameter` achatados "
+                f"({_DMN_VAR_VALOR}={flat[0]!r}, {_DMN_VAR_MULTIPLO}={flat[1]!r}, "
+                f"{_DMN_VAR_FONTE}={flat[2]!r}) discordam do Mapping `{_DMN_RESULT_VAR}` "
+                f"({_DMN_VAR_VALOR}={mapping[0]!r}, {_DMN_VAR_MULTIPLO}={mapping[1]!r}, "
+                f"{_DMN_VAR_FONTE}={mapping[2]!r}) — nenhum dos dois e' preferido silenciosamente"
+            )
+        return flat
+
+    if flat is not None:
+        return flat
+    if mapping is not None:
+        return mapping
     return None
 
 
