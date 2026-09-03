@@ -219,7 +219,27 @@ class Harness:
             messages_count=len(msgs) if isinstance(msgs, list) else 0,
             thread_id=thread_id,
         )
-        result = await self._compiled.ainvoke(state, config=config)
+        try:
+            result = await self._compiled.ainvoke(state, config=config)
+        except Exception:
+            # ALERTS-WITHOUT-METRICS-a: `maezo_agent_errors_total` is the numerator of
+            # `MaezoSLAAgentErrorRateHigh` and the whole of `MaezoAgentCrashLoop`
+            # (`deploy/observability/alert-rules.yml:36-52,:97-111`), and NOTHING in `src/`
+            # incremented it — both alerts were unfireable. This is one of the TWO turn-execution
+            # seams in the repo (the other is `platform/webhooks/whatsapp/dispatch.py`); counting
+            # here rather than inside any agent graph is what keeps coverage independent of how
+            # each of the ten graphs handles its own errors.
+            #
+            # `Exception`, NOT `BaseException`, ON PURPOSE: `asyncio.CancelledError` is a
+            # BaseException and means "the pod is draining / the client hung up", not "the agent
+            # failed". Counting it would make `MaezoAgentCrashLoop` (`rate(...[1m]) > 0` for 2m)
+            # fire critical on every rolling deploy — a false positive that would train the
+            # on-call to ignore exactly the alert this repair exists to make fireable.
+            # The bare `raise` re-raises regardless, so nothing is swallowed either way.
+            from maezo.platform.observability import record_agent_error  # noqa: PLC0415
+
+            record_agent_error()
+            raise
 
         # G3: emit ONE PHI-gated turn-telemetry record now that the turn has completed — message
         # COUNTS and a HASHED conversation token only (never message content, never the raw

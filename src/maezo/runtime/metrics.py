@@ -16,6 +16,17 @@ T1.1 dispatch-outcome metrics (design docs/design/T1.1-runtime-spine.md §13, GA
 T8 LLM token-metering (ADR-0009 single seam, maezo.runtime.inference):
 - maezo_llm_tokens_total (Counter) — token COUNTS consumed by {provider,model,token_type};
   never a cost/dollar value (pricing is finance-gated — see inference.py's extension-point note)
+
+AF-12 model-tier routing (ADR-0009 §2, maezo.runtime.inference.InferenceProvider.generate):
+- maezo_llm_tier_resolution_total (Counter) — how a declared {task_kind,tier} actually resolved
+  to a model. Exists because this repo configures ONE model and no per-tier map: the fallback is
+  legitimate but must never be silent.
+
+WHICH OF THESE THE SHIPPED ALERTS READ (deploy/observability/alert-rules.yml, read-only here):
+`maezo_worker_execution_time_seconds`, `maezo_worker_error_count_total`, `maezo_agent_errors_total`
+and `maezo_tool_calls_total`. The last two had NO emitter in `src/` at all until AF-13
+(ALERTS-WITHOUT-METRICS-a) — `MaezoSLAAgentErrorRateHigh` and `MaezoAgentCrashLoop` could not fire.
+`tests/unit/platform/test_alert_metrics_fence.py` is the gate that keeps that from recurring.
 """
 
 from __future__ import annotations
@@ -127,6 +138,18 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # AF-12 (ADR-0009 §2 "Routing por tarefa"): how each declared tier actually resolved.
+        # CLOSED vocabularies only — `task_kind` in `inference.MODEL_TASK_KINDS`, `tier` in
+        # `inference.MODEL_TIERS` plus the two sentinels, `resolution` in
+        # `inference.TIER_RESOLUTIONS`. No agent id, no tenant, no prompt: same discipline
+        # `llm_tokens` and `phi_business_key_mint` document above.
+        self._llm_tier_resolution = Counter(
+            "maezo_llm_tier_resolution_total",
+            "Model-tier resolutions by task_kind/tier/resolution (ADR-0009 routing; COUNTS ONLY)",
+            labelnames=["task_kind", "tier", "resolution"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -191,6 +214,15 @@ class MetricsCollector:
         incremented with, or converted to, a cost/dollar value.
         """
         return self._llm_tokens
+
+    @property
+    def llm_tier_resolution(self) -> Counter:
+        """Counter for model-tier resolutions (AF-12, ADR-0009 §2).
+
+        Labels: task_kind ("task_default" | "reasoning" | "batch"), tier ("fast" | "frontier" |
+        "batch" | "nao_declarado" | "sem_mapa"), resolution (see `inference.TIER_RESOLUTIONS`).
+        """
+        return self._llm_tier_resolution
 
     @property
     def phi_business_key_mint(self) -> Counter:
