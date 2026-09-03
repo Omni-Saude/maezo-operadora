@@ -9,37 +9,48 @@ Dados sempre sintéticos: guia `GUIA-TESTE-0001`, glosa `GLOSA-TESTE-0001`, lote
 tenant `amh`. CPFs/identificadores reais NUNCA — usar faixas de CPF inválidas (`000.000.000-00`).
 Business key `RECURSO-amh-GUIA-TESTE-0001-GLOSA-TESTE-0001`.
 
+> **Perspectiva (ADR-0040).** O dono do processo é a **OPERADORA**: ela recebe o recurso do
+> prestador e emite a resposta. Os cenários de recorrente que este spec descrevia — interpor o
+> recurso, seguir o andamento, reconciliar o crédito recebido — **desapareceram sem
+> substituto**, junto com o `test_loop_acompanhamento_limitado`. É a única perda líquida de
+> cobertura do pacote, e é correta: o comportamento testado não deve existir.
+
 ## Convenções de fixture
 
 - `engine`: cliente REST CIB Seven do dev-stack (`make dev-stack`).
 - `deploy_artifacts`: deploya o BPMN + `recurso_admissibility.dmn` + `recurso_eligibility.dmn` + `recurso_sla.dmn`.
-- `start_recurso(**overrides)`: inicia com a business key canônica e payload sintético (glosa
+- `iniciar_recurso(**overrides)`: inicia com a business key canônica e payload sintético (glosa
   `administrativa`, `valor_glosado_brl=150.00`, `glosa_existe=true`, `dentro_prazo_recurso=true`,
-  `documentacao_recurso_completa=true`).
+  `documentacao_recurso_completa=true`, `data_recebimento_recurso_iso` dinâmica no futuro,
+  `data_vencimento`/`competencia`/`conta_origem_ref`/`instrumento_pagamento` herdados do intake).
+- `recurso_probe`: além do `bpmn_error_allowlist`, wira os seams de start fenceado
+  (`engine=`/`audit_sink=`) — `handoff_pagamento` roda `start_process_idempotent` contra
+  SP-OP-PAGTO-001, a única família **STRICT** de dedup.
 - `kafka_probe(topic)`: consumidor de teste; o worker genérico `operadora.events.publish` roda no dev-stack.
 - `history(instance)`: consulta `history/activity-instance` do engine (base do teste de invariante).
 - Timers: executar via API de gerenciamento de jobs do engine (executar o job do timer), **nunca `sleep`**.
 
 ## Invariante L0 (testes de segurança — PRIORITARIOS)
 
-### test_nenhum_caminho_automatizado_produz_desistencia
+### test_nenhum_caminho_automatizado_indeferimento
 - **Given** varredura de TODAS as combinações dos inputs das DMNs:
   `glosa_existe`, `dentro_prazo_recurso`, `documentacao_recurso_completa` ∈ {true,false};
   `glosa_type` ∈ {administrativa, tecnica, clinica, linha_duplicada, formatacao};
   `valor_glosado_brl` em {baixo, médio, alto}
 - **When** cada instância percorre até estabilizar (executar todos os jobs assíncronos)
 - **Then** para CADA combinação, a `history/activity-instance` do engine **NUNCA** contém
-  `End_RecursoNaoInterposto` nem `End_GlosaMantida` **sem** uma User Task humana
-  (`UT_AnaliseRecursoAnalista` / `UT_RevisaoAuditorMedico` / `UT_CoordenacaoRecursoAssume`)
-  concluída na mesma history com `decisao_recurso=NAO_RECORRER` (ou `decisao_auditor_recurso=ACEITAR_GLOSA`).
-  Nenhuma combinação de DMN produz desistência por automação. **(verifica os 5 componentes no-denial)**
+  `End_RecursoIndeferido`, `End_RecursoIndeferidoAuditor`, `End_RecursoDeferidoParcial` nem
+  `End_RecursoInadmissivel` **sem** uma User Task humana (`UT_AnaliseRecursoAnalista` /
+  `UT_RevisaoAuditorMedico` / `UT_CoordenacaoRecursoAssume` / `UT_EscalonamentoPrazo`) concluída na
+  mesma history com `decisao_recurso ∈ {INDEFERIR, DEFERIR_PARCIAL}` (ou o equivalente do auditor).
+  Nenhuma combinação de DMN indefere por automação. **(verifica os 5 componentes no-denial)**
 
 ### test_inadmissibilidade_aparente_roteia_para_humano
 - **Given** start com `dentro_prazo_recurso=false` (inadmissibilidade procedural aparente — R5)
 - **When** instância percorre
 - **Then** DMN `recurso_admissibility` retorna `ANALISE_HUMANA` (NUNCA um desfecho de inadmissibilidade
-  automático); o fluxo chega a `UT_AnaliseRecursoAnalista` — não a `End_RecursoNaoInterposto`.
-  Idem para `glosa_existe=false`: roteia a humano, não auto-desiste.
+  automático); o fluxo chega a `UT_AnaliseRecursoAnalista` — não a `End_RecursoInadmissivel`.
+  Idem para `glosa_existe=false`: roteia a humano, não inadmite automaticamente.
 
 ### test_inelegibilidade_roteia_para_humano_nao_nega
 - **Given** start com `glosa_type=tecnica` (mérito clínico/técnico)
@@ -47,53 +58,90 @@ Business key `RECURSO-amh-GUIA-TESTE-0001-GLOSA-TESTE-0001`.
 - **Then** DMN `recurso_eligibility` roteia para `grupo_revisor=medico-auditor` (`UT_RevisaoAuditorMedico`)
   — NUNCA para um fim adverso automático. O mérito é decidido por humano (auditor).
 
-### test_nao_recorrer_exige_campos_obrigatorios
+### test_indeferir_exige_campos_obrigatorios
 - **Given** `UT_AnaliseRecursoAnalista` aberta
-- **When** completar com `decisao_recurso=NAO_RECORRER` SEM `justificativa_desistencia` /
-  `valor_glosa_aceito` / `referencia_contratual`
-- **Then** a task **NÃO completa** (validação de formulário/listener) — manter glosa sem
-  fundamentação é impossível (espelha `NEGAR` de AUTH exigindo justificativa).
+- **When** completar com `decisao_recurso=INDEFERIR` SEM `fundamentacao_indeferimento` /
+  `valor_glosa_mantido_brl` / `referencia_contratual`
+- **Then** o guard do worker **RECUSA** — manter a glosa sem fundamentação é impossível (espelha
+  `NEGAR` de AUTH exigindo justificativa); a instância não atinge terminal adverso.
 
-### test_worker_guard_register_desistencia_recusa_sem_humano
-- **Given** o worker `operadora.recurso.register_desistencia` recebe uma external task SEM
-  `decisao_recurso=NAO_RECORRER` setado por humano (ou sem `analista_id`)
+### test_deferir_parcial_exige_valor_deferido
+- **Given** `UT_AnaliseRecursoAnalista` aberta
+- **When** completar com `decisao_recurso=DEFERIR_PARCIAL` sem `valor_deferido_brl`
+- **Then** o guard **RECUSA** — sem o valor revertido não há ordem de pagamento a emitir.
+  A soma `valor_deferido_brl + valor_glosa_mantido_brl == valor_glosado_brl` é conferida em
+  **centavos-inteiros, igualdade exata** (arredondamento/tolerância é **OQ-R2**).
+
+### test_worker_guard_registrar_indeferimento_recusa_sem_humano
+- **Given** o worker `operadora.recurso.registrar_indeferimento` recebe uma external task sem que
+  nenhum dos dois canais humanos case (analista: `decisao_recurso ∈ {INDEFERIR, DEFERIR_PARCIAL}` +
+  `analista_id`; auditor: `decisao_auditor_recurso ∈ {…}` + `auditor_id`)
 - **When** o worker processa
-- **Then** lança `ERR_DESISTENCIA_NOT_HUMAN`; NÃO registra a desistência; a glosa não é mantida
-  por automação. Com `analista_id` + campos obrigatórios presentes, registra e carrega `analista_id`
-  na trilha de auditoria (ADR-0007).
+- **Then** lança `ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN` (`PermissionError` → **incidente auditado**);
+  NÃO registra o indeferimento. Com os campos obrigatórios presentes, registra e carrega o id do
+  decisor humano na trilha de auditoria (ADR-0007), cunhando um protocolo **determinístico** pela
+  business key.
+
+### test_decisao_invalida_termina_em_erro_sem_efeito
+- **Given** `UT_AnaliseRecursoAnalista` (ou `UT_RevisaoAuditorMedico`) aberta
+- **When** o humano conclui a task SEM `decisao_recurso` (ou com valor fora do domínio)
+- **Then** o **default fail-closed** do gateway leva a `End_ErrRecursoDecisaoInvalida`
+  (`ERR_RECURSO_DECISAO_INVALIDA`) — nenhum efeito é materializado: nem indeferimento, nem
+  comunicação, nem ordem de pagamento. Antes, o default de `GW_DecisaoRecurso` era uma **ação**.
 
 ## Happy paths
 
-### test_happy_path_recorrer_e_deferido
+### test_happy_path_deferir_pelo_analista
 - **Given** dossiê preparado (worker `operadora.recurso.analyze_request` / Marina completa)
-- **When** `analista-recurso-glosa` completa `UT_AnaliseRecursoAnalista` com `decisao_recurso=RECORRER`;
-  `operadora.recurso.submit_appeal` executa; `msg.recurso.resposta_recebida` correlaciona com deferimento
-- **Then** `operadora.recurso.reconcile_payment` executado; `recurso.completed` com `desfecho=deferido`;
-  re-pagamento conciliado ao prestador.
+- **When** `analista-recurso-glosa` completa `UT_AnaliseRecursoAnalista` com `decisao_recurso=DEFERIR`
+  + `valor_deferido_brl` + `analista_id`
+- **Then** `operadora.recurso.comunicar_resposta` emite a resposta ao prestador;
+  `operadora.recurso.handoff_pagamento` **encaminha o pagamento da glosa revertida** a
+  SP-OP-PAGTO-001 (`tipo_pagamento=glosa_revertida`, business key
+  `PAGTO-{tenant}-{guia}-{glosa}`); `recurso.completed` com `desfecho=deferido_humano`; fim em
+  `End_RecursoDeferido`.
 
-### test_happy_path_recurso_indeferido_pela_operadora
-- **Given** recurso interposto (`RECORRER`), aguardando em `ICE_AguardarResposta`
-- **When** `msg.recurso.resposta_recebida` correlaciona com indeferimento pela operadora
-- **Then** `recurso.completed` com `desfecho=indeferido`. (Indeferimento pela operadora externa NÃO é
-  uma desistência da Maezo — é resposta de terceiro; não requer worker-guard, mas é registrado.)
-
-### test_happy_path_nao_recorrer_humano
+### test_happy_path_indeferir_pelo_analista
 - **Given** `UT_AnaliseRecursoAnalista` aberta
-- **When** analista completa `decisao_recurso=NAO_RECORRER` com `justificativa_desistencia` +
-  `valor_glosa_aceito` + `referencia_contratual` (campos obrigatórios presentes)
-- **Then** `operadora.recurso.register_desistencia` executa (guard satisfeito); `recurso.completed`
-  com `desfecho=nao_interposto_humano`; fim em `End_RecursoNaoInterposto` (ou `End_GlosaMantida`);
-  `analista_id` na trilha. **Único caminho que mantém a glosa — e é humano.**
+- **When** analista completa `decisao_recurso=INDEFERIR` com `fundamentacao_indeferimento` +
+  `valor_glosa_mantido_brl` + `referencia_contratual` + `analista_id`
+- **Then** `operadora.recurso.registrar_indeferimento` executa (guard satisfeito);
+  `comunicar_resposta` emite a resposta; `recurso.completed` com `desfecho=indeferido_humano`; fim
+  em `End_RecursoIndeferido`; `analista_id` na trilha.
+  **Único caminho que mantém a glosa — e é humano.**
 
-### test_happy_path_escalar_auditor_mantem_recurso
+### test_happy_path_escalar_auditor_defere
 - **Given** `decisao_recurso=ESCALAR_AUDITOR` (glosa técnica/clínica)
-- **When** `UT_RevisaoAuditorMedico` (`medico-auditor`) completa com `decisao_auditor_recurso=MANTER_RECURSO`
-- **Then** `operadora.recurso.submit_appeal` executa; segue o fluxo de recurso normal; `auditor_id` registrado.
+- **When** `UT_RevisaoAuditorMedico` (`medico-auditor`) completa com `decisao_auditor_recurso=DEFERIR`
+  + `valor_deferido_brl` + `auditor_id`
+- **Then** converge no MESMO `ST_ComunicarDeferimento` do canal do analista + handoff de pagamento;
+  `auditor_id` registrado.
+
+### test_happy_path_auditor_indefere_humano
+- **Given** `decisao_recurso=ESCALAR_AUDITOR`
+- **When** o auditor completa `decisao_auditor_recurso=INDEFERIR` com os campos obrigatórios
+- **Then** `registrar_indeferimento` (canal auditor) + `comunicar_resposta`; `recurso.completed`
+  com `desfecho=indeferido_humano` carregando `auditor_id`; fim em `End_RecursoIndeferidoAuditor`.
 
 ### test_recurso_parcialmente_deferido
-- **Given** recurso interposto
-- **When** `msg.recurso.resposta_recebida` correlaciona com deferimento parcial
-- **Then** `recurso.completed` com `desfecho=parcialmente_deferido`; conciliação parcial.
+- **Given** `UT_AnaliseRecursoAnalista` aberta
+- **When** o humano decide `DEFERIR_PARCIAL` (parte da glosa é MANTIDA — adverso L0) com a soma
+  fechando em centavos-inteiros
+- **Then** `registrar_indeferimento` (guard) + `comunicar_resposta` + `handoff_pagamento` da
+  **parcela revertida**; `recurso.completed` com `desfecho=deferido_parcial_humano`; fim em
+  `End_RecursoDeferidoParcial`.
+
+### test_glosa_revertida_nunca_alcanca_liberacao_automatica_sem_ut
+- **Given** um deferimento humano que gerou uma ordem em SP-OP-PAGTO-001
+- **When** a instância de PAGTO percorre
+- **Then** ela **NÃO** alcança `End_PagamentoLiberadoAutomatico` sem `UT_AnaliseAdmissibilidade`
+  concluída. É a prova da **segregação de funções** (invariante **I-PAGTO-1**): quem julga o
+  recurso não confirma o lastro da ordem que ele próprio gerou.
+
+### test_todos_os_fins_comunicam_o_prestador
+- **Given** os 5 terminais de negócio
+- **Then** cada um é precedido por `operadora.recurso.comunicar_resposta` ANTES do `ST_Publish*` —
+  a operadora responde ao prestador em TODO desfecho que o afeta, favorável ou adverso.
 
 ## Pendência de documentação
 
@@ -106,8 +154,8 @@ Business key `RECURSO-amh-GUIA-TESTE-0001-GLOSA-TESTE-0001`.
 ### test_pendencia_expira_decisao_humana
 - **Given** aguardando docs
 - **When** job do timer `ICE_PrazoPendencia` (ref P5D) executado
-- **Then** roteia para `UT_AnaliseRecursoAnalista` (humano decide destino) — **nunca** auto-desiste por
-  pendência expirada.
+- **Then** roteia para `UT_AnaliseRecursoAnalista` (humano decide destino) — **nunca** auto-indefere
+  por pendência expirada.
 
 ## Timers de SLA (auto-approve-on-timeout INVERTIDO)
 
@@ -120,26 +168,37 @@ Business key `RECURSO-amh-GUIA-TESTE-0001-GLOSA-TESTE-0001`.
 - **Given** análise aberta além de `sla.sla_analise`
 - **When** job do timer `BT_SlaAnaliseRecurso` executado
 - **Then** `recurso.sla_breached` (fase=`analise`) publicado; `UT_AnaliseRecursoAnalista` **CANCELADA**;
-  `UT_CoordenacaoRecursoAssume` criada (`coordenacao-recurso`). **NÃO** há auto-aprovação nem
-  auto-desistência por timeout (o `Task_AutoApprove` 48h do reference foi removido/invertido) — a
+  `UT_CoordenacaoRecursoAssume` criada (`coordenacao-recurso`). **NÃO** há auto-deferimento nem
+  auto-indeferimento por timeout (o `Task_AutoApprove` 48h do reference foi removido/invertido) — a
   decisão continua humana.
 
-### test_loop_acompanhamento_limitado
-- **Given** recurso interposto, aguardando em `ICE_AguardarResposta` (ref P5D)
-- **When** o timer dispara e `GW_RecursoResolvido` ainda não resolveu, repetidamente
-- **Then** `operadora.recurso.track_status` é reexecutado; `loopCounter` é limitado (ref `< 6`); ao
-  exceder, roteia a humano (`UT_CoordenacaoRecursoAssume`) — nunca loop infinito nem auto-desfecho.
+### test_solicitar_info_repetido_nao_sobrevive_ao_teto_absoluto
+- **Given** o único ciclo remanescente (`SOLICITAR_INFO → pendência → docs recebidos → UT`)
+- **When** o ciclo é percorrido três vezes e o relógio passa de `sla.prazo_max_absoluto_iso`
+- **Then** o token está em `UT_EscalonamentoPrazo`, **nunca** num terminal adverso e **nunca** num
+  quarto ciclo. Não há contador — **por desenho**: um teto por contagem produziria um auto-desfecho
+  por esgotamento (anti-padrão proibido por ADR-0018). O que limita é o **teto absoluto**, que
+  reentrar no ciclo NÃO adia (o `dueDate` é idêntico a cada volta).
 
 ### test_prazo_max_recurso_escala_humano
-- **Given** instância ativa além de `sla.prazo_regulatorio` (ref P30D, RN 424 — DRAFT/verify)
+- **Given** instância ativa além do teto absoluto (ref P30D, prazo contratual — DRAFT/verify)
 - **When** job do timer `BT_PrazoMaxRecurso` executado
 - **Then** `operadora.recurso.escalate_ans_timeout` recebeu task; `UT_EscalonamentoPrazo` criada
   (`coordenacao-recurso`) — escalonamento humano, **nunca** auto-desfecho adverso por prazo.
 
 ### test_dmn_recurso_sla_valores
 - **Given/When** start com `glosa_type=clinica`, `valor_glosado_brl` alto
-- **Then** `sla.sla_analise` é string ISO 8601 válida; `sla.prazo_regulatorio` presente; `fonte_regulatoria`
-  registrada na variável (todos DRAFT/verify).
+- **Then** `sla.sla_analise` é string ISO 8601 válida; `sla.prazo_regulatorio` presente;
+  `fonte_regulatoria` nomeia o **prazo contratual de resposta ao recurso** (+ RN 501/2022), com
+  RN 424/2017 aparecendo apenas na row técnico-clínica e condicionada à junta médica (todos
+  DRAFT/verify).
+
+### test_prazo_max_ancora_defaultada_pelo_intake_com_warning
+- **Given** start SEM `data_recebimento_recurso_iso`
+- **When** `ST_ValidarRecurso` (intake) roda
+- **Then** a âncora é normalizada e **defaultada fail-safe para HOJE/UTC com warning**, escrita de
+  volta como variável de processo, e o teto ancora nela. **Nunca** na data de ciência da glosa pelo
+  prestador — essa é a âncora do recorrente, e ela saiu de `recurso_sla` inteira.
 
 ## Roteamento DMN (catch-all fail-safe)
 
@@ -150,26 +209,31 @@ Business key `RECURSO-amh-GUIA-TESTE-0001-GLOSA-TESTE-0001`.
 
 ### test_dmn_eligibility_glosa_tecnica_vai_ao_auditor
 - **Given/When** start com `glosa_type=tecnica` ou `clinica`
-- **Then** `recurso_eligibility.grupo_revisor == medico-auditor`; a User Task de mérito é do auditor.
+- **Then** `recurso_eligibility.grupo_revisor == medico-auditor` e `roteamento == SEGUE_MERITO`
+  (o domínio nomeia o roteamento ao MÉRITO, não a "recorribilidade"); a User Task de mérito é do
+  auditor.
 
 ## Idempotência
 
 ### test_business_key_uma_instancia_por_glosa
 - **Given** instância ativa `RECURSO-amh-GUIA-TESTE-0001-GLOSA-TESTE-0001`
-- **When** reenvio da mesma glosa (re-handoff de CONTAS ou redelegação a Marina, via `mcp-cibseven.start_process`)
+- **When** re-intake da mesma glosa (o prestador retransmite, a operação abre manualmente, ou
+  Marina redelega — via `mcp-cibseven.start_process`)
 - **Then** sem segunda instância ativa; resposta referencia a instância existente.
 
-### test_glosa_inexistente_lanca_erro
-- **Given** start com `glosa_id` que não referencia glosa confirmada em CONTAS (`glosa_existe=false`
-  no worker de pré-resolução)
-- **When** o worker valida a origem
-- **Then** lança `ERR_RECURSO_INVALID_GLOSA` (`Error_RecursoGlosaInvalida`) — não inicia recurso órfão.
+### test_glosa_id_ausente_termina_limpo_sem_incidente_travado
+- **Given** start com `glosa_id` ausente/vazio (defeito **TÉCNICO** de origem — distinto do fato de
+  negócio `glosa_existe`, que roteia a `ANALISE_HUMANA` pela DMN, nunca erro)
+- **When** `ST_ValidarRecurso` (o **primeiro** dos três sites) valida a origem
+- **Then** lança `ERR_RECURSO_INVALID_GLOSA`; o boundary `BE_GlosaInvalidaValidacao` termina a
+  instância **LIMPO** em `End_RecursoGlosaInvalidaOrigem` (terminal NEUTRO), sem sequer avaliar
+  `recurso_admissibility` e sem nenhum efeito adverso.
 
 ## Auditoria
 
 ### test_todos_os_fins_emitem_evento_de_dominio
-- **Given** os caminhos de fim (`deferido`, `indeferido`, `parcialmente_deferido`, `inadmissivel`,
-  `nao_interposto_humano`)
+- **Given** os caminhos de fim (`deferido_humano`, `deferido_parcial_humano`, `indeferido_humano`,
+  `inadmissivel_humano`)
 - **When** cada um é percorrido
 - **Then** há evento Kafka `recurso.completed` correspondente publicado ANTES do end event (sem fim
   silencioso; auditoria dupla engine + Kafka, ADR-0007).

@@ -896,7 +896,7 @@ def test_register_payment_refusal_admissibilidade_channel_happy_path() -> None:
 
 
 def test_register_payment_refusal_refuses_neither_channel() -> None:
-    """Refuse-if-no-human (mirrors recurso.register_desistencia): neither decisao_pagamento==
+    """Refuse-if-no-human (mirrors recurso.registrar_indeferimento): neither decisao_pagamento==
     RECUSAR nor decisao_admissibilidade==DEVOLVER present -- e.g. an omitted/empty decision, or
     a forged direct dispatch of this topic."""
     with pytest.raises(PagtoError) as excinfo:
@@ -982,7 +982,7 @@ def test_register_payment_refusal_never_releases() -> None:
 # ---------------------------------------------------------------
 # register_payment_refusal — whitespace-bypass vectors (R1 live-validation finding,
 # t2.5-p2b-round2 wave2a: 3 of 12 vectors REGISTERED with whitespace-only accountability
-# fields because the guard lacked .strip(), unlike its mirror recurso.register_desistencia).
+# fields because the guard lacked .strip(), unlike its mirror recurso.registrar_indeferimento).
 # Every vector below MUST refuse with ERR_PAYMENT_REFUSAL_NOT_HUMAN — whitespace-only is
 # the SAME as absent (ADR-0007: a refusal must carry an identifying human approver).
 # ---------------------------------------------------------------
@@ -1086,7 +1086,7 @@ def test_register_payment_refusal_non_string_aprovador_id_refuses(non_string: ob
 def test_register_payment_refusal_padded_exact_decision_literal_registers() -> None:
     """A whitespace-PADDED but otherwise exact decision literal (' RECUSAR ') normalizes to the
     literal and selects its channel (directive-mandated normalization of decision fields,
-    mirroring register_desistencia's strip treatment) — still requiring the stripped
+    mirroring registrar_indeferimento's strip treatment) — still requiring the stripped
     accountability fields. Case variants/substrings still refuse (next test)."""
     result = register_payment_refusal(
         {

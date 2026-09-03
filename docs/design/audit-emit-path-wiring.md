@@ -845,8 +845,10 @@ postgres+cibseven stack (engine :18195, PG :5650, `-Xmx900m`).
 
 Two mechanisms could start a downstream process from a CONTAS/FRAUDE handoff:
 
-1. **Dedicated in-flow BPMN service-task workers** — `operadora.contas.start_recurso`
-   (`ST_StartRecurso`), `operadora.fraude.start_credenciamento` (`ST_StartCredenciamento`),
+1. **Dedicated in-flow BPMN service-task workers** — the CONTAS handoff of the day
+   (`operadora.contas.start_recurso` / `ST_StartRecurso`, **deleted by ADR-0040**: the operadora
+   does not appeal its own glosa; the CONTAS handoff is now `operadora.contas.handoff_pagamento`
+   → SP-OP-PAGTO-001), `operadora.fraude.start_credenciamento` (`ST_StartCredenciamento`),
    `operadora.fraude.start_contratual` (`ST_StartContratual`). They run *synchronously inside the
    source process* with the full process-variable context. They were **STUBS** (log + a marker
    dict; NO `start_process` call).

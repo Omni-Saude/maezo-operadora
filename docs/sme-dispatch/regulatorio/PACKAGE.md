@@ -93,13 +93,24 @@ doesn't replace it.
      "qualidade", and NIP is event-driven, not a periodic timer). For each, state the correct
      in-force norm and cadence, or confirm the timer should be dropped.
   2. **Confirm the competência-derivation mapping** (for the surviving timers): the implemented
-     rule (`_ans_cron_competencia`) assumes the calendar period (month/quarter/**year**, per
-     periodicidade) **immediately prior** to the anchor month — is that the correct regulatory
-     mapping, or should it be the period containing the anchor? **Annual case (P12M —
-     `QUALIFICACAO`/`RN_388_QUALIDADE`, contingent on it surviving Q1's re-derivation above):**
-     the prior calendar year is represented `"YYYY-01"` (not bare `"YYYY"`), for format-
-     consistency with the monthly/quarterly `"YYYY-MM"` competências (`ans_cron.py`'s
-     `_compute_competencia`) — confirm this representation is acceptable, or state the correct one.
+     rule (`ans_cron._compute_competencia`, `src/maezo/tools/workers/ans_cron.py:127`) assumes the
+     calendar period (month/quarter/**year**, per periodicidade) **immediately prior** to the
+     anchor month — is that the correct regulatory mapping, or should it be the period containing
+     the anchor? **Annual case (P12M — `RN_388_QUALIDADE`, contingent on it surviving Q1's
+     re-derivation above):** the prior calendar year is represented `"YYYY-01"` (not bare
+     `"YYYY"`), for format-consistency with the monthly/quarterly `"YYYY-MM"` competências —
+     confirm this representation is acceptable, or state the correct one.
+     *(Citação corrigida: até ANS-CRON-DEAD-CODE esta pergunta citava `_ans_cron_competencia`,
+     nome que **não existe** no repositório — o nome real é `_compute_competencia`.)*
+  2b. **Confirm the civil timezone that defines the anchor "today".** The scheduler anchors the
+     derivation on the operadora's business timezone **`America/Sao_Paulo`** (`ans_cron.py`'s
+     `_BUSINESS_TZ`), not UTC. Why it matters: a tick at 00:30 UTC on the 1st of a month is
+     21:30 BRT of the **last day of the previous month** — under a UTC anchor the scheduler would
+     name that previous month as the competência even though it has **not yet closed** in
+     Brazilian civil time. The same ~3h window exists at every quarter and year boundary. This
+     timezone choice is an **engineering default, DRAFT/verify**
+     — confirm that the ANS calendar/period boundaries are defined in Brazilian civil time
+     (and, if the operadora spans other UTC offsets, which one governs).
   3. Confirm this scheduler requires no ANS filing of its own (it only dispatches surviving
      obligations to SP-OP-ANS-SUBMIT-001, which carries the actual HITL pre-filing gate).
 

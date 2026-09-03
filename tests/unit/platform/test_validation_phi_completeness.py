@@ -200,7 +200,7 @@ class TestNonVacuity:
             "SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn": 10,
             "SP-OP-AUTH-001_Autorizacao_Previa.bpmn": 10,
             "SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn": 14,
-            "SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn": 19,
+            "SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn": 22,
             "SP-OP-CRED-001_Descredenciamento.bpmn": 18,
             "SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn": 10,
             "SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn": 15,
@@ -209,7 +209,7 @@ class TestNonVacuity:
             "SP-OP-NIP-001_Resposta_NIP.bpmn": 12,
             "SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn": 15,
             "SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn": 11,
-            "SP-OP-RECURSO-001_Recurso_Glosa.bpmn": 18,
+            "SP-OP-RECURSO-001_Recurso_Glosa.bpmn": 19,
             "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn": 21,
         }
         # SP-OP-ANS-CRON-001 is timer-started and declares no roll — its absence
@@ -355,6 +355,356 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "PHI_PROCESS_VARS, ADR-0006), CLEAN bucket, no LISTED/SHAPE_SUSPECT movement."
         ),
     ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#288",
+        name="data_ciencia_glosa",
+        name_delta=-1,
+        occurrence_delta=-1,
+        reason=(
+            "feat/perspectiva-operadora-recurso (ADR-0040) removed the appellant-side fallback "
+            "anchor from SP-OP-RECURSO-001's SLA computation: the prestador-declared date was a "
+            "recorrente-perspective clock and the payer's SLA anchor is exclusively "
+            "`data_recebimento_recurso_iso` (when the OPERADORA received the appeal). Its only "
+            "occurrence anywhere in spec/ was this one declaration, so the name leaves the corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#288",
+        name="loop_counter",
+        name_delta=-1,
+        occurrence_delta=-4,
+        reason=(
+            "same PR — `loop_counter` tracked iterations of `ICE_AguardarResposta`/"
+            "`GW_LoopLimite`, the recorrente's wait-for-the-operadora's-answer loop. That whole "
+            "16-element appellant branch was deleted with no shim (ADR-0040 §2), so all 4 "
+            "occurrences of the loop's own counter variable leave the corpus with it."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#288",
+        name="resposta_operadora",
+        name_delta=-1,
+        occurrence_delta=-2,
+        reason=(
+            "same PR — `resposta_operadora` was the recorrente-side variable naming the payer's "
+            "answer as an inbound fact the appellant tracks (`ST_TrackStatus`/`msg.recurso."
+            "resposta_recebida`, also deleted). The payer-perspective rewrite emits its own "
+            "answer via `ST_Comunicar*` instead of receiving/tracking one; both occurrences leave "
+            "the corpus with the deleted branch."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#288",
+        name="data_ciencia_alegada_prestador",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "same PR — replaces `data_ciencia_glosa` as the (optional, non-authoritative) record "
+            "of the date the prestador ALLEGES in the appeal, named so it cannot be mistaken for "
+            "the payer's own SLA anchor (BPMN documentation at ST_ValidarRecurso: 'aquele relogio "
+            "e do recorrente, e o da operadora comeca no recebimento'). Provider/appeal metadata, "
+            "not beneficiary PHI — absent from PHI_PROCESS_VARS (ADR-0006) and CLEAN by the "
+            "fence's shape heuristic; one declaration, no LISTED/SHAPE_SUSPECT movement."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#288",
+        name="fonte_valor",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "same PR — new `camunda:inputParameter` on the two PAGTO handoff service tasks "
+            "(`ST_HandoffPagamentoRecurso`, `ST_HandoffPagamentoParcial`), both pinned to the "
+            "literal `deferido` so SP-OP-PAGTO-001 always sees where the reverted value came "
+            "from. Two declarations, a financial-flow tag (not PHI), CLEAN bucket."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#288",
+        name="tipo_comunicacao",
+        name_delta=1,
+        occurrence_delta=5,
+        reason=(
+            "same PR — new `camunda:inputParameter` on the five `ST_Comunicar*` service tasks "
+            "(deferimento, deferimento_parcial, indeferimento x2, inadmissibilidade), each pinned "
+            "to a literal tagging what is being communicated to the prestador. Five declarations, "
+            "a communication-type tag (not PHI), CLEAN bucket."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#288",
+        name="decisao_recurso",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "same PR — `GW_DecisaoRecurso`'s branching widened from the recorrente's {RECORRER, "
+            "NAO_RECORRER x2, SOLICITAR_INFO, ESCALAR_AUDITOR} (4 conditionExpressions) to the "
+            "payer's {DEFERIR, DEFERIR_PARCIAL, INDEFERIR x2 (incl. inadmissivel), "
+            "SOLICITAR_INFO, ESCALAR_AUDITOR} (6 conditionExpressions), plus one new "
+            '`camunda:outputParameter name="decisao_recurso">${""}` fail-closed initializer '
+            "(bpmn:145) so an absent human decision reaches the dedicated error terminal "
+            "`End_ErrRecursoDecisaoInvalida` instead of stalling the User Task on an engine "
+            "'Unknown property' HTTP 500. 4 -> 7 occurrences, name stays in the corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#288",
+        name="decisao_auditor_recurso",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "same PR — same fail-closed-initializer mechanism on `GW_MeritoAuditor` "
+            "(bpmn:146): one new `camunda:outputParameter` plus 3 conditionExpressions "
+            "(DEFERIR/DEFERIR_PARCIAL/INDEFERIR) replacing the recorrente's single "
+            "`ACEITAR_GLOSA` condition. 1 -> 4 occurrences, name stays in the corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#288",
+        name="event_desfecho",
+        name_delta=0,
+        occurrence_delta=-1,
+        reason=(
+            "same PR — the 6 recorrente-perspective outcome tasks (`deferido`, "
+            "`parcialmente_deferido`, `indeferido`, `nao_interposto_humano` x2, `inadmissivel`) "
+            "became the 5 payer-perspective `ST_Comunicar*` tasks (`deferido_humano`, "
+            "`deferido_parcial_humano`, `indeferido_humano` x2, `inadmissivel_humano`) — one "
+            "fewer terminal-communication task in the rebuilt flow. 6 -> 5 in RECURSO; corpus-wide "
+            "60 -> 59, name stays (still declared by every other process's own event tasks)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#288",
+        name="event_fase",
+        name_delta=0,
+        occurrence_delta=-1,
+        reason=(
+            "same PR — RECURSO declared this on 2 tasks before (the SLA-risk notifier's "
+            "`analise` and the P30D-ceiling escalator's `prazo_max`); the rebuilt escalator's "
+            "input parameter for the prazo_max path was renamed to the more specific "
+            "`event_topic_breach` (`recurso.py::make_escalate_ans_timeout_handler`, "
+            "`_ESCALATE_ANS_TIMEOUT_FASE` is now a Python-side constant, not a BPMN declaration), "
+            "so only the `analise` declaration still uses the generic `event_fase` name. RECURSO "
+            "2 -> 1; corpus-wide 4 -> 3 (ESCALATION-001's own 2 untouched), name stays."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#288",
+        name="event_payload_vars",
+        name_delta=0,
+        occurrence_delta=-2,
+        reason=(
+            "same PR — same rename as `event_fase` above: the prazo_max escalation task's "
+            "`event_payload_vars`/`event_topic` input parameters were dropped from the BPMN in "
+            "favour of the worker building the sla_breached payload itself from "
+            "`EscalateAnsTimeoutInput` and reading `event_topic_breach` (a distinct variable "
+            "name, not counted here). RECURSO 10 -> 8 for each of the two names; corpus-wide "
+            "126 -> 124 for each, names stay (declared by every other process's own event tasks)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#288",
+        name="event_topic",
+        name_delta=0,
+        occurrence_delta=-2,
+        reason="same PR/task/mechanism as `event_payload_vars` immediately above.",
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#288",
+        name="data_vencimento",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "same PR — RECURSO's own `VARIAVEIS DE ENTRADA` roll gains this name "
+            "(ST_ValidarRecurso documentation, bpmn:90): the new PAGTO handoff (invariant "
+            "I-PAGTO-1) requires the origin conta's due date and the worker refuses a blank "
+            "value (`RecursoHandoffPagamentoInvalidoError`, see probe D in the gatekeeper "
+            "report). Already a corpus name via SP-OP-PAGTO-001's own declared-input roll "
+            "(`PAGTO-001:69`), so the name does not enter — one new occurrence, CLEAN bucket, "
+            "no LISTED/SHAPE_SUSPECT movement."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="lastro_origem",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "feat/perspectiva-operadora-contas-recurso (ADR-0040) added 3 new "
+            "`camunda:inputParameter` on CONTAS's own PAGTO handoff sites "
+            "(`ST_HandoffPagamentoAuto`, `ST_HandoffPagamentoHumano`, and a third adjudication "
+            "path), each tagging WHO decided the value being paid "
+            "(`contas_adjudicacao_automatica`/`contas_adjudicacao_humana`/...) without ever "
+            "seeding `lastro_confirmado` itself — invariant I-PAGTO-1's segregation-of-duties "
+            "discipline: the adjudicator who decided the value never confirms the payment's "
+            "backing fact, only SP-OP-PAGTO-001's own User Task does that. New name, provider/"
+            "process metadata (not PHI), CLEAN bucket."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="conta_origem_ref",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "same PR — CONTAS's own `VARIAVEIS DE ENTRADA` roll gains this name (bpmn:80), "
+            "joining SP-OP-PAGTO-001's own declared-input roll (`PAGTO-001:69`) — the alternate "
+            "handoff shape the PAGTO contract documents. One new occurrence, CLEAN bucket."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="data_vencimento",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "same PR — CONTAS's own `VARIAVEIS DE ENTRADA` roll gains this name too (bpmn:77, "
+            "'obrigatoria no handoff a SP-OP-PAGTO-001, que a RECUSA em branco') — now declared "
+            "by all three processes that feed SP-OP-PAGTO-001 (PAGTO/RECURSO/CONTAS). One new "
+            "occurrence, CLEAN bucket."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="instrumento_pagamento",
+        name_delta=0,
+        occurrence_delta=1,
+        reason="same PR/task as `conta_origem_ref` above — same roll line, bpmn:80.",
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="decisao_contas",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "same PR — `GW_DecisaoContas`'s branching widened (3 -> 5 conditionExpressions), "
+            'plus one new `camunda:outputParameter name="decisao_contas">${""}` fail-closed '
+            "initializer on `ST_PublishReceived` (bpmn:111) — the SAME mechanic as RECURSO's "
+            "`decisao_recurso`/`decisao_auditor_recurso` (#288 above): CIB Seven 2.1.0 evaluates "
+            "conditionExpressions BEFORE the gateway default, so an uninitialised variable HTTP "
+            "500s the User Task's complete instead of reaching `End_ErrContasDecisaoInvalida`. "
+            "3 -> 6 occurrences, name stays in the corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="event_desfecho",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "same PR — one more CONTAS outcome-publishing task declares this name than before "
+            "(the rebuilt payer-perspective flow's own new terminal). CONTAS-scoped 59 -> 60 "
+            "corpus-wide (RECURSO's own count from #288 above unaffected), name stays."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="event_payload_vars",
+        name_delta=0,
+        occurrence_delta=1,
+        reason="same PR/task/mechanism as `event_desfecho` immediately above.",
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="event_topic",
+        name_delta=0,
+        occurrence_delta=1,
+        reason="same PR/task/mechanism as `event_desfecho` two entries above.",
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="fonte_valor",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "same PR — new `camunda:inputParameter` on the same 3 CONTAS PAGTO handoff sites as "
+            "`lastro_origem` above, each pinned to a literal naming where the paid value came "
+            "from (`apresentado`/`liberado`/...) — the SAME discipline RECURSO's own two PAGTO "
+            "handoffs already carry (#288 above). 2 -> 5 occurrences, name stays in the corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="tipo_comunicacao",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "same PR — new `camunda:inputParameter` on 5 CONTAS communication tasks (two "
+            "`demonstrativo_analise` emissions plus three more outcome-communication tasks), "
+            "mirroring RECURSO's own 5 `ST_Comunicar*` tasks (#288 above). 5 -> 10 occurrences, "
+            "name stays in the corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#287",
+        name="ans_cron_report_type",
+        name_delta=1,
+        occurrence_delta=5,
+        reason=(
+            "feat/ans-cron-timers-por-report-type consolidates the 3 separate "
+            "`camunda:inputParameter` names each of SP-OP-ANS-CRON-001's 5 process definitions "
+            "declared on its `ST_ResolverCompetencia*`/`ST_PublishCronDue*` chain (`report_type`, "
+            "`periodicidade`, `competencia` — one triple per definition, GAP-ANS-2's per-"
+            "report_type timer remodel) into a SINGLE new name, `ans_cron_report_type` (one per "
+            "definition, bpmn:81,121,161,201,241), from which `ans_cron.py`'s worker now derives "
+            "`periodicidade`/`competencia` internally instead of the BPMN declaring them "
+            "statically. New name, regulatory-calendar metadata (not PHI), CLEAN bucket."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#287",
+        name="competencia",
+        name_delta=0,
+        occurrence_delta=-5,
+        reason=(
+            "same PR/mechanism as `ans_cron_report_type` above — the 5 per-definition "
+            "`competencia` declarations in SP-OP-ANS-CRON-001 are replaced by the single "
+            "`ans_cron_report_type` seed; every OTHER file's own `competencia` (ANS-SUBMIT, "
+            "CONTAS, FRAUDE, PAGTO, `ans_calendar.dmn`) is untouched. 10 -> 5 occurrences, name "
+            "stays in the corpus (still declared by those 5 other artifacts)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#287",
+        name="periodicidade",
+        name_delta=0,
+        occurrence_delta=-5,
+        reason="same PR/mechanism/file as `competencia` immediately above. 7 -> 2 occurrences.",
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#287",
+        name="report_type",
+        name_delta=0,
+        occurrence_delta=-5,
+        reason="same PR/mechanism/file as `competencia` two entries above. 8 -> 3 occurrences.",
+    ),
 )
 
 
@@ -365,7 +715,7 @@ class TestBuckets:
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 9
-        assert expected_clean == 313
+        assert expected_clean == 315
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 9,
@@ -374,7 +724,7 @@ class TestBuckets:
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
 
     def test_the_occurrence_count_is_pinned(self, live_sweep: Sweep) -> None:
-        """328 names over 1625 occurrences — the number the ledger row quotes.
+        """330 names over 1637 occurrences — the number the ledger row quotes.
 
         Pinned because the first ledger draft quoted 1637, a figure no state of
         this branch produced. A number reported to a reader and reproducible by
@@ -385,8 +735,8 @@ class TestBuckets:
         """
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
-        assert len(live_sweep.names) == expected_names == 328
-        assert len(live_sweep.refs) == expected_refs == 1625
+        assert len(live_sweep.names) == expected_names == 330
+        assert len(live_sweep.refs) == expected_refs == 1637
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -460,7 +810,7 @@ class TestBuckets:
             ],
             "cid10": [
                 "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59 (bpmn_declared_input)",
-                "SP-OP-RECURSO-001_Recurso_Glosa.bpmn:69 (bpmn_declared_input)",
+                "SP-OP-RECURSO-001_Recurso_Glosa.bpmn:86 (bpmn_declared_input)",
                 "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:61 (bpmn_declared_input)",
             ],
             "detalhes_requisicao": [
@@ -507,7 +857,9 @@ class TestBuckets:
         rendered = render_buckets(live_sweep)
         assert f"## {LISTED} (6)" in rendered
         assert f"## {SHAPE_SUSPECT} (9)" in rendered
-        assert f"## {CLEAN} (313)" in rendered  # see CORPUS_DELTA_LOG — tuss_codes left the corpus (#276)
+        assert (
+            f"## {CLEAN} (315)" in rendered
+        )  # see CORPUS_DELTA_LOG — lastro_origem entered the corpus (#294)
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to
@@ -1479,4 +1831,4 @@ class TestNotWiredYet:
             assert not re.search(r"<camunda:(in|out)\s", source), path.name
             for element in re.findall(r"<bpmn:message\s[^>]*>", source):
                 assert set(re.findall(r"([\w:]+)=", element)) <= {"id", "name"}, element
-        assert messages == 22
+        assert messages == 21
