@@ -118,6 +118,47 @@ Convencao `{dominio}.{contexto}.{acao}` (ADR-0016 portado). Contexto = `cancel`.
 > `msg.cancel.notification_ack` foi implementado ainda (fora de escopo Phase 2 — a promocao a
 > FINAL deve materializa-la em um worker/listener real que seta o fato antes de correlacionar).
 
+## Canal de entrada (GAP 11.7 — verificado nesta sessao)
+
+`origem_solicitacao=agente_lucas` (§Variaveis de entrada) e o UNICO ponto em que Lucas aparece
+neste contrato: ele e um *originador* — quando a jornada de cobranca detecta um pedido/indicio
+de cancelamento, `spec/agents/lucas/agent.yaml`'s `secondary_process: SP-OP-CANCEL-001` inicia
+(ou correlaciona) esta instancia. **Nao existe o caminho inverso.** Nenhuma resposta do
+beneficiario a uma mensagem de Lucas e roteada de volta a Lucas — o UNICO webhook receptivo do
+canal WhatsApp e `HelenaDispatcher` (`src/maezo/platform/webhooks/whatsapp/dispatch.py:126`),
+que despacha toda mensagem recebida para o grafo de Helena, sem contexto de cobranca/
+cancelamento.
+
+Verificado nesta sessao, com quoting correto (uma tentativa anterior sem aspas no `--include`
+do shell produziu falsos "0 hits" por erro do proprio shell, nao do grep — registrado aqui
+para nao repetir o erro): `grep -rn "agents\.lucas\|agents\.fernando" src/maezo/ --include='*.py'`
+retorna exatamente 1 resultado fora dos proprios pacotes dos agentes
+(`gateway/tool_registry.py:351`, um adaptador de ENVIO de WhatsApp para Lucas — nunca de
+recebimento). Nem `agents.lucas.graph` nem `agents.fernando.graph` sao importados por nenhum
+codigo de producao fora de seus proprios pacotes; o unico mecanismo que PODERIA invoca-los
+dinamicamente (`runtime.harness.Harness.create_graph`/`runtime.agent_runtime.service.
+_load_agent_graph`) e usado EXCLUSIVAMENTE pelo daemon de readiness-check
+(`runtime/agent_runtime/service.py`'s own comment: "Construction only — no node ever runs from
+this check") — nunca por um turno real.
+
+A plataforma TEM um padrao real, ao vivo, de canal de entrada TURN-EXECUTING:
+`runtime/agent_runtime/ingress.py::build_ingress_router` (montado atras de
+`settings.agent_ingress_enabled`), mas existe hoje SO para o canal `portal_tiss` de Rafael. Para
+Fernando, esta sessao construiu o lado ALVO de um canal de entrada AGENTE-A-AGENTE real e testado
+(`src/maezo/agents/fernando/delegation.py::make_fernando_handler`, GAP 11.7) — mas o lado ORIGEM
+(`operadora.inadimplencia.prepare_dossier` chamando `delegate_arrears_followup`) fica em
+`tools/workers/inadimplencia.py`, fora da superficie editavel deste work package (restricao
+dura), e o registro do handler no dispatcher AO VIVO
+(`runtime.agent_runtime.a2a_composition`, ao lado de Carolina/Andre) nao foi feito — e'
+composition-root de producao compartilhado com 3 agentes ja ligados, fora do escopo seguro de
+uma mudanca sem verificacao de engine nesta sessao. **Para Lucas, nem isso existe ainda:**
+`LucasState` nao tem o gate de fronteira de entrada (`_CALLER_INPUT_FIELDS`) que Helena/Rafael/
+Carolina/Fernando ja tem — pre-requisito de seguranca para qualquer canal de entrada futuro,
+tambem nao construido aqui. Ver `spec/agents/lucas/agent.yaml` e
+`spec/agents/fernando/agent.yaml` para a mesma nota, e `docs/processes/contracts/
+SP-OP-INADIMPLENCIA-001.md` para a correcao da alegacao "GAP-INAD-6, PR #134" (estava falsa
+contra o codigo shipped).
+
 ## DMN referenciadas
 
 Shape engine-deployavel (§4-bis-A): `typeRef ∈ {string, boolean, integer, long, double, date}`

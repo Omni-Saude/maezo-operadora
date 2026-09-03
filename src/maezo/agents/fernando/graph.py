@@ -112,10 +112,37 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   does not exist in this repo's migrations yet). The donor's `finalize`/memory node has no v2
   analog here.
 - A2A inbound delegation (`arrears.followup`, Lucas -> Fernando, `spec/agents/fernando/
-  agent.yaml`'s `accepted_task_types`) is NOT wired: v2's `a2a/` package has no
-  `DelegationEnvelope`/`DelegationDispatcher` yet (same boundary Rafael's module docstring
-  discloses for Helena -> Rafael). This graph is invoked directly with an already-assembled
-  `FernandoState` (as the unit tests do), not via a live delegation.
+  agent.yaml`'s `accepted_task_types`) is NOT wired. CORRECTED (GAP 11.7, re-checked this
+  session): the reason is NOT that `v2`'s `a2a/` package lacks `DelegationEnvelope`/
+  `DelegationDispatcher` — both exist and are fully built/tested (`a2a/delegation.py`,
+  `a2a/dispatcher.py`, exported from `maezo.a2a`), and THREE agents (Rafael/Carolina/Andre) DO
+  have a real `make_<agent>_handler` wired into a real `build_dispatcher(...)` call
+  (`runtime/agent_runtime/a2a_composition.py:618,672,762,765,808`). What is missing for Fernando
+  specifically is its own handler: no `make_fernando_handler` exists anywhere in this repo
+  (`grep -rn 'make_fernando_handler' src/maezo/` — 0 hits) — mirrors the shape of Rafael's/
+  Carolina's/Andre's, none built yet. Two further, more consequential findings this correction
+  surfaces: (1) even where a handler IS wired (Rafael/Carolina/Andre), `a2a_composition.py`
+  only CONSTRUCTS the dispatcher as a daemon readiness check — the ORIGINATION side is real for
+  three agents (Rafael/Carolina/Andre each have a `delegate_<x>(...)` helper that DOES call
+  `dispatcher.delegate(envelope)`, called in turn from a real BPMN external-task worker —
+  `tools/workers/credenciamento.py`/`adequacao.py`/`pagto.py` — so those three DO execute live,
+  engine-triggered delegations in production) but NO SUCH ORIGIN EXISTS for Fernando: this
+  session ADDS the missing TARGET half (`agents/fernando/delegation.py`,
+  `make_fernando_handler`/`state_from_envelope`, mirroring Carolina's exact pattern) but the
+  ORIGIN call (`operadora.inadimplencia.prepare_dossier` actually calling a new
+  `delegate_arrears_followup(...)`) lives in `tools/workers/inadimplencia.py`, which this work
+  package's hard constraints explicitly forbid editing — STOPPED there, listed precisely in the
+  gap-closure report; (2) neither this graph nor `agents/lucas/graph.py` is ever invoked (a
+  turn executed) by ANY production code path at all — not through a static import (0 hits
+  outside each package's own directory) and not through the dynamic `Harness.create_graph`/
+  `_load_agent_graph` path either, which is used EXCLUSIVELY by `runtime/agent_runtime/
+  service.py`'s health-only readiness daemon (`graph_loaded`'s own comment: "Construction only —
+  no node ever runs from this check"). The platform DOES have a real, LIVE, turn-EXECUTING HTTP
+  ingress pattern (`runtime/agent_runtime/ingress.py::build_ingress_router`, mounted behind
+  `settings.agent_ingress_enabled` in `service.py`) — but it exists ONLY for Rafael's
+  `portal_tiss` channel today; no equivalent exists for Fernando or Lucas. This graph is invoked
+  directly with an already-assembled `FernandoState` (as the unit tests do), not via any live
+  channel, inbound or outbound.
 - `tipo_plano`/`canal` are consumed as opaque strings (passed straight to the DMN / dossier /
   engine variables) with NO closed-allowlist validation of their own — unlike `intencao`. The
   DMN's own catch-all rows (`spec/processes/dmn/inadimplencia_status.dmn`'s `r_catchall`,
@@ -373,6 +400,39 @@ def _output_field_resets() -> dict[str, Any]:
         # Turn output.
         "desfecho": "",
     }
+
+
+#: GAP 11.7 — the ONLY fields a caller (or an A2A delegation seam, `agents/fernando/
+#: delegation.py::state_from_envelope`) may legitimately seed on the initial state. Everything
+#: else in `FernandoState` is OUTPUT-ONLY (`_output_field_resets()` above). Mirrors `carolina/
+#: graph.py::_CALLER_INPUT_FIELDS` exactly — Fernando already resets every output field on
+#: `receive` (defense at the WRITE side); this is the matching READ-side/construction-time
+#: allowlist a delegation handler needs so a malformed/malicious envelope cannot seed an
+#: output-only key before `receive` even runs. Single-sourced against `FernandoState` by
+#: `test_output_field_partition_is_complete` (`tests/unit/agents/test_fernando.py`) — a new
+#: state field must be classified into exactly one of the two sets or that test fails.
+_CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
+    {
+        "tenant_id",
+        "intencao",
+        "canal",
+        "numero_contrato",
+        "matricula_beneficiario",
+        "beneficiario_pseudo_id",
+        "to_hash",
+        "tipo_plano",
+        "origem_solicitacao",
+        "data_solicitacao_iso",
+        "competencias_em_aberto",
+        "meses_inadimplencia",
+        "valor_total_devido_cents",
+        "dentro_periodo_minimo",
+        "notificacao_previa_feita",
+        "dentro_janela_purga",
+        "ja_em_rescisao_cancel",
+        "documentos_refs",
+    }
+)
 
 
 # --- Graph ------------------------------------------------------------------------------------
