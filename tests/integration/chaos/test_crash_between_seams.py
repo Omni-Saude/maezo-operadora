@@ -19,11 +19,14 @@ table names still holds across the simulated crash + a retry:
 Each suite ships a MUTATION-CHECK companion (skipped unless `MAEZO_CHAOS_MUTATE=<id>` is set —
 see `mutations.py`'s docstring) that reproduces the design's §4 mutation for that suite and
 re-asserts the SAME invariant, proving it is non-vacuous: that companion is EXPECTED TO FAIL when
-actually run with the mutation active.
+actually run with the mutation active. B1b ships TWO, because it asserts two independent claims:
+`b1b` mutates the emit/effect ORDER, and `b1b_posture` (GAP-D3-02) mutates the POSTURE VERDICT —
+the first is structurally blind to the second.
 """
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
@@ -246,7 +249,16 @@ class _B1bSeam:
     async def deliver(self, sink: PostgresAuditSink) -> ProcessInstance:
         """One delivery of THIS start through the real chokepoint. A re-delivery is simply this
         called again — same process key, business key, variables and provenance."""
-        return await start_process_idempotent(
+        return await self.deliver_through(start_process_idempotent, sink)
+
+    async def deliver_through(
+        self, chokepoint: Callable[..., Awaitable[ProcessInstance]], sink: PostgresAuditSink
+    ) -> ProcessInstance:
+        """The same delivery, through an arbitrary chokepoint-shaped callable — the seam the
+        mutation-check companion uses to swap in a broken variant from `mutations.py` while
+        keeping the inputs, the counters and the crash injection byte-identical to the green
+        tests. Green tests always go through `deliver`."""
+        return await chokepoint(
             self.transport,
             process_key=self.process_key,
             business_key=self.business_key,
@@ -375,6 +387,52 @@ async def test_b1b_crash_between_emit_and_engine_start_wedges_loudly_for_gated_p
     await assert_chain_valid(chaos_pg_dsn, chaos_tenant_schema, expected_records=1)
 
 
+@pytest.mark.skipif(
+    not mutations.mutation_active("b1b_posture"),
+    reason="mutation-check only runs when MAEZO_CHAOS_MUTATE=b1b_posture "
+    "(see docs/design/T3.3-chaos-resilience.md §4 / tests/integration/chaos/mutations.py)",
+)
+async def test_b1b_posture_mutation_check_restart_on_missing_instance_turns_suite_red(
+    chaos_pg_dsn: str,
+    chaos_tenant_schema: str,
+    chaos_sink: PostgresAuditSink,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MUTATION-CHECK for the POSTURE SPLIT: reproduces "a gated key whose claim has no instance
+    anywhere is reclaimable" via `mutations.broken_start_process_restart_on_claim_without_instance`
+    — case 3 of `_resolve_strict_dedup_hit` auto-restarting instead of raising. `src/` is never
+    edited. EXPECTED TO FAIL when run with `MAEZO_CHAOS_MUTATE=b1b_posture`.
+
+    WHY THIS EXISTS SEPARATELY FROM `b1b`. The pre-existing `b1b` mutation reorders emit and
+    effect, so it can only ever prove the audit-ORDERING invariant; it is structurally blind to
+    WHICH POSTURES may restart after a crash, which is the whole claim the two gated tests above
+    make. Without this companion those tests would assert a contract with no mutation behind it —
+    exactly the vacuity this package's convention exists to forbid.
+
+    The invariant re-asserted below is the SAME one the green gated test asserts: ZERO engine
+    starts behind an unresolved claim. Under the mutation a second start occurs, which is the
+    duplicate irreversible effect (a second concurrent `UT_AnaliseRescisao`) the `EXCLUSIVE`
+    posture exists to prevent.
+    """
+    seam = _B1bSeam(
+        monkeypatch,
+        process_key="SP-OP-CANCEL-001",
+        tenant_id=chaos_tenant_schema,
+        route="CANCEL",
+        marker="posture-mutation",
+    )
+    await _crash_the_first_delivery(seam, chaos_sink, chaos_pg_dsn, chaos_tenant_schema)
+
+    # Re-delivery through the BROKEN variant instead of the real chokepoint.
+    await seam.deliver_through(mutations.broken_start_process_restart_on_claim_without_instance, chaos_sink)
+
+    assert seam.start_calls["n"] == 0, (
+        "the gate restarted a GATED key whose durable claim had no engine instance behind it "
+        "(mutation reproduced the absence-of-evidence-as-permission bug): a concurrent racer's "
+        "in-flight POST would now have a SECOND instance racing it"
+    )
+
+
 async def test_b1b_operator_rearm_after_the_gated_wedge_starts_exactly_once(
     chaos_pg_dsn: str,
     chaos_tenant_schema: str,
@@ -406,8 +464,13 @@ async def test_b1b_operator_rearm_after_the_gated_wedge_starts_exactly_once(
     with pytest.raises(StartClaimWithoutInstanceError):
         await seam.deliver(chaos_sink)
 
-    # The runbook step. (Its precondition — "the engine really has no instance" — is what the
-    # gate itself just proved by exhausting `_resolve_strict_dedup_hit`'s bounded re-poll.)
+    # The runbook step. Its precondition is the runbook's FIRST step — a human confirming against
+    # the engine that no instance exists, active or historic. This test SIMULATES that
+    # precondition and does not substitute for it: the exhausted bounded re-poll inside
+    # `_resolve_strict_dedup_hit` is only what makes the precondition TRUE here, in a fixture
+    # where the Fake engine provably holds nothing. It is not evidence a human can skip step 1 in
+    # production, where a racer's POST may land after the re-poll gives up — which is precisely
+    # why the gate refuses to decide on its own and hands the call to an operator.
     assert await delete_dedup_row(chaos_pg_dsn, chaos_tenant_schema, seam.dedup_key) is True
     assert await count_dedup_rows(chaos_pg_dsn, chaos_tenant_schema) == 0
 

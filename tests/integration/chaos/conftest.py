@@ -192,8 +192,8 @@ async def count_dedup_rows(dsn: str, tenant_id: str) -> int:
 async def delete_dedup_row(dsn: str, tenant_id: str, dedup_key: str) -> bool:
     """Delete THE ONE `audit_emit_dedup` row named by `dedup_key` — the operator gesture
     `StartClaimWithoutInstanceError`'s own message prescribes ("delete that single
-    audit_emit_dedup row to re-arm the gate"), and the one
-    `docs/runbooks/engine-processes.md` §5.1 documents.
+    audit_emit_dedup row to re-arm the gate"), and the one documented by
+    `docs/runbooks/engine-processes.md` §5, "Chave travada: claim duravel sem instancia".
 
     Exists so a chaos suite can EXECUTE that runbook step instead of merely asserting the wedge
     exists — a documented recovery nobody ever runs is indistinguishable from a wedge with no
