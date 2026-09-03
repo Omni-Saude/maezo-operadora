@@ -34,33 +34,41 @@ payload: { report_type, periodicidade, origem_envio: "calendario",
            (identificadores nao-PHI; sem tenant)
 ```
 
-**res-ans-competencia-sentinel (Wave-1 residue, resolvido):** o worker generico
-`operadora.events.publish` (`tools/workers/phase0.py::make_publish_event_handler`) tambem GRAVA
+**res-ans-competencia-sentinel (GAP-ANS-1/GAP-ANS-3 — ABERTO, NAO resolvido; GAP-FAB-NOTIF fix
+corrige esta secao, que antes descrevia um mecanismo que nao existe no repo):** o worker generico
+`operadora.events.publish` (nome real: `src/maezo/tools/workers/events.py::
+make_publish_event_handler` — `tools/workers/phase0.py` NAO existe em v2) GRAVA
 `ans_cron_reference_date_iso` no payload sempre que `event_type == ans.cron_due` — a data (UTC) do
-INSTANTE em que o serviceTask de publish executa (o tick acabou de disparar). Um `camunda:
-inputParameter` do BPMN e LITERAL/estatico por deploy (nao pode carregar "hoje"), entao a ancora so
-pode ser produzida em runtime por este worker — nenhum topico/worker/serviceTask novo (o agendador
-continua "puro": um unico serviceTask por definition, sempre o publish generico). O literal
-`competencia: "COMPETENCIA_PENDENTE"` do BPMN permanece INALTERADO — quem resolve a competencia
-REAL e o `notifications_bridge` (abaixo), nao este worker.
+INSTANTE em que o serviceTask de publish executa (o tick acabou de disparar). Isso e REAL e
+confere. O que NAO e real: nada consome essa ancora para calcular uma competencia. O literal
+`competencia: "COMPETENCIA_PENDENTE"` do BPMN permanece INALTERADO por todo o caminho —
+NAO existe um `notifications_bridge` que a resolva depois.
 
-O **`notifications_bridge`** (consumidor unico do topico, deployment per-tenant) mapeia
-`ans.cron_due` -> start de **SP-OP-ANS-SUBMIT-001** via `plan_start` ->
-`mcp-cibseven.start_process` (PEP + auditoria + `find_active_instance` — idempotente):
+O **`notification_bridge`** (`src/maezo/platform/notification_bridge.py` — modulo unico, singular;
+NAO um pacote `notifications_bridge/consumer.py`, que nao existe em lugar nenhum do repo, confirmado
+por `find`/`grep`) mapeia `ans.cron_due` -> start de **SP-OP-ANS-SUBMIT-001** via `plan_start` ->
+`mcp-cibseven.start_process` (PEP + auditoria + `find_active_instance` — idempotente), na regra
+`_ans_submit_variables_from_cron_due` (`:308-343`):
 
-- **business key DETERMINISTICA** = `ANSSUB-{tenant}-{report_type}-{competencia}` (a
-  calendar-key do contrato de envio; NUNCA uuid4). `competencia` e COMPUTADA por
-  `_ans_cron_competencia` (`notifications_bridge/consumer.py`) a partir de
-  `ans_cron_reference_date_iso` — **DRAFT — requires human review (regulatorio-ANS,
-  docs/review-queue.md)**: mapeamento assumido = o periodo de calendario (mes ou trimestre, por
-  `periodicidade`) IMEDIATAMENTE ANTERIOR ao mes da ancora. NUNCA do relogio de processamento da
-  ponte (a ancora ja vem FIXA no fato — reler o MESMO fato Kafka, mesmo em reentrega/redelivery
-  meses depois, produz sempre a MESMA competencia/bk). Sem a ancora (fato antigo/legado sem o
-  campo), cai fail-closed na sentinela `COMPETENCIA_PENDENTE`: **no maximo UMA instancia
-  pendente-de-competencia ativa por report_type por tenant** nesse caso — re-tick do timer e
-  reentrega Kafka reconvergem para a instancia ativa (nunca duplica ciclo/filing). Um
+- **business key DETERMINISTICA** = `ANSSUB-{tenant}-{report_type}-{competencia}`
+  (`_ans_cron_business_key`, `:189-197`; a calendar-key do contrato de envio; NUNCA uuid4). Essa
+  parte da formula e real. `competencia`, porem, NAO e computada por nada chamado
+  `_ans_cron_competencia` (essa funcao nao existe) — a regra so REPASSA o que o fato carrega
+  (`str(payload.get("competencia","")).strip() or _COMPETENCIA_PENDENTE`, `:341`), e hoje o fato
+  SEMPRE carrega o literal `COMPETENCIA_PENDENTE` (nenhum caminho do BPMN deployado o substitui —
+  ver nota acima). A funcao que FARIA esse calculo existe de verdade, so que noutro modulo e
+  desconectada: `ans_cron._compute_competencia` (`src/maezo/tools/workers/ans_cron.py:37`,
+  chamada apenas por `trigger_submissions:132`) — mas `trigger_submissions` esta registrada no
+  topico `operadora.ans_cron.trigger_submissions`, que NENHUM serviceTask do BPMN deployado
+  invoca (as 5 definitions ligam `ST_PublishCronDue*` direto a `operadora.events.publish` com o
+  literal estatico). Isso e **GAP-ANS-1** (remodelagem de scheduler per-report-type necessaria
+  para religar isso — `docs/reports/business-logic-audit-improvement-plan.md:445`, fora do
+  escopo deste fix) — nao um "residuo resolvido". Consequencia pratica: **toda instancia
+  SP-OP-ANS-SUBMIT-001 aberta pelo caminho cron hoje nasce com `competencia=COMPETENCIA_PENDENTE`**
+  — no maximo UMA instancia pendente-de-competencia ativa por report_type por tenant (re-tick do
+  timer e reentrega Kafka reconvergem para a instancia ativa, nunca duplica ciclo/filing). Um
   `tenant_id`/`competencia` explicitos no fato (scheduler futuro/override, ou humano resolvendo em
-  `UT_CorrigirPendenciaEnvio`) sempre tem precedencia sobre o valor computado.
+  `UT_CorrigirPendenciaEnvio`) sempre tem precedencia quando presentes.
 - o **tenant NAO viaja no fato** (o BPMN do agendador e tenant-agnostico): a ponte injeta o
   proprio tenant (`ans_cron_business_key`/`ans_cron_variables`, param `bridge_tenant`). Um
   `tenant_id` explicito no fato (scheduler futuro) tem precedencia.
@@ -72,7 +80,7 @@ O **`notifications_bridge`** (consumidor unico do topico, deployment per-tenant)
 | `report_type` | do fato (literal por tipo) | input de `ans_calendar`/`ans_sla` |
 | `periodicidade` | do fato (literal por tipo) | payload de eventos |
 | `origem_envio` | `calendario` (**forcado pela ponte**, nunca lido do wire) | condicao `${origem_envio == 'nip_filing'}` resolve |
-| `competencia` | COMPUTADA de `ans_cron_reference_date_iso` (res-ans-competencia-sentinel — DRAFT/verify regulatorio); default `COMPETENCIA_PENDENTE` (sentinela) quando a ancora esta ausente | fail-closed: sem ancora, humano resolve em `UT_CorrigirPendenciaEnvio` e o fluxo reavalia `ans_calendar` (row de fallback conservadora por tipo enquanto pendente) |
+| `competencia` | SEMPRE o literal `COMPETENCIA_PENDENTE` hoje (GAP-FAB-NOTIF fix: NAO ha computo real no caminho deployado — GAP-ANS-1 aberto, ver secao acima); repassado sem alteracao por `notification_bridge._ans_submit_variables_from_cron_due` | fail-closed: sem competencia real, humano resolve em `UT_CorrigirPendenciaEnvio` e o fluxo reavalia `ans_calendar` (row de fallback conservadora por tipo enquanto pendente) |
 | `tenant_id` | tenant da ponte (fato tem precedencia se presente) | identidade multi-tenant |
 | `dataset_ref` | `""` | resolvido por humano/worker; workers usam `.get` com default |
 | `dataset_complete`, `schema_valid`, `lgpd_anonimizado` | `false` (**fail-closed, seedados pela ponte** — nunca lidos do fato) | fatos ainda nao resolvidos => admissibilidade `PENDENTE` => humano; **nunca auto-transmite** |
@@ -88,9 +96,13 @@ processo de envio).
 
 - Confirmar os `timeCycle` reais por report_type (RN 124/209/388/424, DIOPS — **DRAFT/verify**),
   incluindo ancora de data (ex.: `R/P1M` a partir de que dia do mes).
-- **Resolucao automatica da `competencia` no caminho cron: IMPLEMENTADA**
-  (res-ans-competencia-sentinel) — `notifications_bridge/consumer.py::_ans_cron_competencia`
-  deriva a competencia real de `ans_cron_reference_date_iso`; a sentinela so sobrevive fail-closed
-  quando a ancora esta ausente. Pendente: **confirmacao regulatoria do mapeamento** (mes/trimestre
-  ANTERIOR ao da ancora — assuncao DRAFT, ver docs/review-queue.md).
+- **Resolucao automatica da `competencia` no caminho cron: NAO IMPLEMENTADA (GAP-ANS-1, ABERTO)**
+  — GAP-FAB-NOTIF fix: a linha anterior desta secao citava `notifications_bridge/consumer.py::
+  _ans_cron_competencia`, que nao existe. A implementacao real do calculo
+  (`ans_cron._compute_competencia`, `src/maezo/tools/workers/ans_cron.py:37`) existe mas e
+  codigo morto — nenhum serviceTask do BPMN deployado a alcanca (ver secao "res-ans-competencia-
+  sentinel" acima). Ate GAP-ANS-1 religar o scheduler per-report-type, TODA instancia aberta pelo
+  caminho cron carrega `competencia=COMPETENCIA_PENDENTE`. Pendente: wiring de GAP-ANS-1 +
+  **confirmacao regulatoria do mapeamento** (mes/trimestre ANTERIOR ao da ancora — assuncao
+  DRAFT, ver docs/review-queue.md) quando esse wiring acontecer.
 - Revisao humana registrada (regulatorio-ANS) antes de qualquer deploy.

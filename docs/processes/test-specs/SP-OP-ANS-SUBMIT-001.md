@@ -141,13 +141,17 @@ key `ANSSUB-amh-RN_124_SIP-2026-01`.
 - **Then** cada cron publica o fato `ans.cron_due` (`operadora.notifications.internal`) com
   `report_type`/`periodicidade` do SEU proprio start; o fato AINDA carrega o literal BPMN
   `competencia="COMPETENCIA_PENDENTE"`, mas o worker REAL (`operadora.events.publish`) tambem grava
-  a ancora `ans_cron_reference_date_iso` (res-ans-competencia-sentinel — DRAFT/verify regulatorio);
-  o planejador REAL da ponte (`plan_start`) deriva o start de SP-OP-ANS-SUBMIT-001 com bk
-  deterministica `ANSSUB-{tenant}-{report_type}-{competencia}`, onde `competencia` e COMPUTADA da
-  ancora (`_competencia_from_anchor`, mes/trimestre imediatamente anterior ao da ancora) — nao mais
-  a sentinela fixa; fatos de admissibilidade permanecem fail-closed; `ans_calendar` resolve
+  a ancora `ans_cron_reference_date_iso`; o planejador REAL da ponte (`plan_start`, em
+  `notification_bridge._ans_submit_variables_from_cron_due`) deriva o start de
+  SP-OP-ANS-SUBMIT-001 com bk deterministica `ANSSUB-{tenant}-{report_type}-{competencia}`, onde
+  `competencia` HOJE **permanece a sentinela `COMPETENCIA_PENDENTE`** (GAP-FAB-NOTIF fix: a versao
+  anterior deste caso citava `_competencia_from_anchor`, que nao existe no repo — GAP-ANS-1
+  continua ABERTO; a implementacao real do calculo, `ans_cron._compute_competencia`
+  `src/maezo/tools/workers/ans_cron.py:37`, existe mas e codigo morto, inalcancavel a partir do
+  BPMN deployado — ver `docs/processes/contracts/SP-OP-ANS-CRON-001.md` §"res-ans-competencia-
+  sentinel"); fatos de admissibilidade permanecem fail-closed; `ans_calendar` resolve
   calendarios DISTINTOS por tipo; a admissibilidade roteia `PENDENTE` → `UT_CorrigirPendenciaEnvio`
-  (humano permanece o gate — a competencia computada NAO auto-transmite); **nenhum** caminho cron
+  (humano permanece o gate — a sentinela NAO auto-transmite); **nenhum** caminho cron
   transmite (`ST_SubmeterEnvio` ausente do historico — HITL)
 
 ### test_dmn_ans_calendar_diferencia_due_date_por_competencia

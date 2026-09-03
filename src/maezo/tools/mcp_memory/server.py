@@ -1,53 +1,133 @@
 """MCP Memory server — Agent Memory (3-layer architecture, ADR-0002).
 
-Provides store_episodic(agent_id, event) and recall_semantic(query).
-Uses PostgreSQL with pgvector for episodic storage and semantic search.
+GAP-DU-01-a (fail-closed remediation, 2026-09): this server used to FABRICATE both of its
+tools. `recall_semantic` queried a `semantic_memory` table that no Alembic migration ever
+creates and hard-coded `1.0 AS similarity` on every row — a constant fake score, not a real
+pgvector cosine search, and it used `ILIKE` text matching instead of an embedding at all.
+`store_episodic` inserted into an `episodic_events` table that likewise exists in no
+migration. Neither table is reachable: `src/maezo/platform/migrations/versions/0001_schema_
+agents.py:64-74` creates the actual episodic/semantic relation, `agent_memory` (columns
+`tenant_id`, `agent_id`, `thread_id`, `fhir_patient_id`, `event_type`, `payload`, `embedding
+vector(1536)`), and it has ZERO writers anywhere in `src/` (grep-verified). Both tools now
+REFUSE fail-closed with a typed, documented error instead of raising a bare
+`UndefinedTableError` (the pre-existing behaviour if this dead code were ever actually
+invoked) or, worse, returning a fabricated similarity score. This module has 0 production
+consumers today (no `register_tools` call site outside its own tests) — the refusal is
+therefore a documentation/safety fix, not a behavioural regression for any live caller.
 
-Per ADR-0002:
+The STRATEGIC CHOICE of whether to wire a real pgvector/embedding path onto `agent_memory`
+(new migration, HNSW index, `inference.py` embedding call, per-tenant `search_path` pool) or
+to instead retire this dead server outright is an OWNER decision (GAP-DU-01-b) and is
+deliberately NOT made here — see `EpisodicMemoryUnavailableError` / `SemanticMemoryUnavailableError`
+below, and their `reason` codes, for exactly what is missing and why this module stops short
+of building it.
+
+Per ADR-0002 (`docs/adr/0002-agent-state-three-layers.md`):
 - Working memory: managed by LangGraph checkpointer (not exposed here)
-- Episodic memory: event log in PostgreSQL, partitioned by agent_id
+- Episodic memory: event log in PostgreSQL, partitioned by tenant + fhir_patient_id
 - Semantic memory: text embeddings + pgvector similarity search
 
-Tools:
-- store_episodic(agent_id, event) -> event_dict
-- recall_semantic(query) -> list[memory_dict]
+Tools (surface unchanged by the GAP-DU-01-a fix — both now refuse rather than fabricate):
+- store_episodic(agent_id, event) -> raises EpisodicMemoryUnavailableError
+- recall_semantic(query) -> raises SemanticMemoryUnavailableError
 """
 
 from __future__ import annotations
 
-import json
-import uuid
-from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Final
 
 import structlog
 from pydantic_settings import BaseSettings
 
 logger = structlog.get_logger(__name__)
 
+#: `store_episodic` refusal reason: the donor schema (`episodic_events`) this handler was
+#: written against does not exist in any Alembic migration. The table Alembic DOES create for
+#: this layer, `agent_memory` (0001:64-74), requires `tenant_id` and `thread_id` (both `text
+#: NOT NULL`, 0001:66,68) — neither is part of this tool's `(agent_id, event)` signature, so
+#: there is no honest value to bind them to. Writing `NULL`/a placeholder would silently
+#: violate the NOT NULL constraint's intent (multi-tenant isolation, ADR-0002 "particionadas
+#: por tenant") rather than honor it. Closing this gap means either widening the tool's
+#: signature to carry `tenant_id`/`thread_id` (and wiring a real per-tenant `search_path` pool,
+#: DL-0017) or retiring the table — GAP-DU-01-b, an owner decision.
+REASON_EPISODIC_SCHEMA_DRIFT: Final[str] = "episodic_schema_drift"
+
+#: `recall_semantic` refusal reason: there is no embedding path. The donor code queried
+#: `semantic_memory` (a table no migration creates) with `ILIKE` text matching and returned a
+#: hard-coded `1.0 AS similarity` on every row — never a real pgvector cosine distance. The
+#: schema that DOES exist, `agent_memory.embedding vector(1536)` (0001:72, pgvector extension
+#: 0001:28), has no writer that ever populates it and this module has no embedding provider
+#: (per its own prior docstring: "the runtime's inference.py (ADR-0009) ... computes" the
+#: vector, and nothing here calls it). Returning any similarity value — real-looking or not —
+#: without a real embedding would still be fabrication.
+REASON_SEMANTIC_SEARCH_NOT_WIRED: Final[str] = "semantic_search_not_wired"
+
+
+class EpisodicMemoryUnavailableError(RuntimeError):
+    """Fail-closed sentinel: no migration creates a schema `store_episodic` can honestly write.
+
+    Raised by `MemoryServer.store_episodic` for every call that passes its own input
+    validation — there is no fallback table and no partial/best-effort write. `reason` is
+    `REASON_EPISODIC_SCHEMA_DRIFT` (the only reason defined today); `detail` is a
+    human-readable, file-path-qualified explanation suitable for an operator-facing log field.
+    """
+
+    def __init__(self, reason: str, detail: str) -> None:
+        self.reason = reason
+        self.detail = detail
+        super().__init__(f"episodic memory unavailable ({reason}): {detail}")
+
+
+class SemanticMemoryUnavailableError(RuntimeError):
+    """Fail-closed sentinel: no real embedding/pgvector search path exists yet.
+
+    Raised by `MemoryServer.recall_semantic` for every call — there is no fallback text
+    search and no constant/placeholder similarity score. `reason` is
+    `REASON_SEMANTIC_SEARCH_NOT_WIRED` (the only reason defined today); `detail` is a
+    human-readable, file-path-qualified explanation suitable for an operator-facing log field.
+    """
+
+    def __init__(self, reason: str, detail: str) -> None:
+        self.reason = reason
+        self.detail = detail
+        super().__init__(f"semantic memory unavailable ({reason}): {detail}")
+
 
 class MemorySettings(BaseSettings):
     """Configuration for the agent memory store.
 
     Environment variables prefixed with MEMORY_ (default).
+
+    NOTE (GAP-DU-01-a): `database_url` is currently UNUSED at runtime — neither
+    `store_episodic` nor `recall_semantic` opens a connection any more (both refuse
+    fail-closed before needing one; the bare, hygiene-defective asyncpg pool this module used
+    to open unconditionally — no `search_path` pin per DL-0017, and a default database name
+    (`maezo_memory`) that matches no other component's `DATABASE_URL` — has been removed
+    rather than "fixed" for a code path nothing reaches). It is kept only as documentation of
+    the settings shape a future honest implementation would need; GAP-DU-01-b decides whether
+    that implementation reuses the app's own `DATABASE_URL` (the house pattern — see
+    `src/maezo/a2a/idempotency.py`, `src/maezo/a2a/outbox.py`) or a dedicated DSN.
     """
 
     model_config = {"env_prefix": "MEMORY_", "extra": "ignore"}
 
     database_url: str = "postgresql://maezo:maezo@localhost:5432/maezo_memory"
-    memory_embedding_dim: int = 1536  # OpenAI text-embedding-3-small default
+    memory_embedding_dim: int = 1536  # matches agent_memory.embedding vector(1536), 0001:72
 
 
 class MemoryServer:
     """MCP server for agent memory — in-process (ADR-0022).
 
-    Manages episodic (event log) and semantic (vector search) memory.
-    Working memory is handled by the LangGraph checkpointer (not here).
+    Both tools currently REFUSE fail-closed (GAP-DU-01-a) rather than fabricate a result:
+    neither table their original implementation targeted (`episodic_events`,
+    `semantic_memory`) exists in any migration, and `recall_semantic` additionally returned a
+    constant `similarity: 1.0` regardless of query. See `EpisodicMemoryUnavailableError` /
+    `SemanticMemoryUnavailableError` for the exact, cited reason each refuses.
 
     Usage:
         server = MemoryServer()
-        event = await server.store_episodic("agent-1", {"type": "decision", ...})
-        memories = await server.recall_semantic("autorizacao similar")
+        await server.store_episodic("agent-1", {"type": "decision", ...})  # raises
+        await server.recall_semantic("autorizacao similar")                # raises
     """
 
     def __init__(self, settings: MemorySettings | None = None) -> None:
@@ -55,6 +135,7 @@ class MemoryServer:
 
         Args:
             settings: Optional MemorySettings; defaults to localhost:5432/maezo_memory.
+                Currently informational only — see `MemorySettings` docstring.
         """
         self._settings = settings or MemorySettings()
         logger.info(
@@ -89,130 +170,90 @@ class MemoryServer:
         registry.register("recall_semantic", self.recall_semantic)
         logger.info("memory_tools_registered", count=2)
 
-    async def _get_pool(self) -> Any:
-        """Get an asyncpg connection pool (lazy import to avoid hard dependency)."""
-        import asyncpg  # type: ignore  # noqa: PLC0415 — lazy import per ADR-0021
-
-        if not hasattr(self, "_pool"):
-            self._pool = await asyncpg.create_pool(
-                self._settings.database_url,
-                min_size=1,
-                max_size=5,
-            )
-        return self._pool
-
     async def store_episodic(
         self,
         agent_id: str,
         event: dict[str, Any],
     ) -> dict[str, Any]:
-        """Store an episodic memory event.
-
-        Inserts into the episodic_events table, partitioned by agent_id.
-        Returns a dict with the stored event_id, agent_id, timestamp, and event payload.
+        """Refuse to store an episodic memory event (GAP-DU-01-a — see module docstring).
 
         Args:
             agent_id: The agent identifier (e.g., "agent-auth-1").
             event: The event payload as a dict with at least a "type" field.
 
         Returns:
-            Dict with event_id, agent_id, timestamp, and event data.
+            Never returns — always raises.
 
         Raises:
-            ValueError: If agent_id is empty.
+            ValueError: If agent_id is empty (input validation, checked before the refusal).
+            EpisodicMemoryUnavailableError: Always, for any valid input — reason
+                `REASON_EPISODIC_SCHEMA_DRIFT`. No migration creates a table this call can
+                honestly write to; see `REASON_EPISODIC_SCHEMA_DRIFT`'s docstring.
         """
         if not agent_id or not agent_id.strip():
             raise ValueError("agent_id must not be empty")
 
-        event_id = str(uuid.uuid4())
-        timestamp = datetime.now(UTC).isoformat()
-
-        logger.info(
-            "memory_store_episodic",
+        logger.warning(
+            "memory_store_episodic_refused",
             agent_id=agent_id,
             event_type=event.get("type", "unknown"),
+            reason=REASON_EPISODIC_SCHEMA_DRIFT,
         )
-
-        try:
-            pool = await self._get_pool()
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO episodic_events (event_id, agent_id, event_type, event_payload, created_at)
-                    VALUES ($1, $2, $3, $4, $5)
-                    ON CONFLICT (event_id) DO NOTHING
-                    """,
-                    event_id,
-                    agent_id,
-                    event.get("type", "unknown"),
-                    json.dumps(event),
-                    timestamp,
-                )
-        except Exception:
-            logger.exception("memory_store_episodic_failed", agent_id=agent_id)
-            raise
-
-        result = {
-            "event_id": event_id,
-            "agent_id": agent_id,
-            "timestamp": timestamp,
-            "event": event,
-        }
-        return result
+        raise EpisodicMemoryUnavailableError(
+            REASON_EPISODIC_SCHEMA_DRIFT,
+            "store_episodic: no migration creates a table this call can honestly write to. "
+            "The real episodic/semantic relation is `agent_memory` "
+            "(src/maezo/platform/migrations/versions/0001_schema_agents.py:64-74), which "
+            "requires tenant_id and thread_id (both `text NOT NULL`, 0001:66,68) — neither is "
+            "part of this tool's (agent_id, event) signature. Refusing rather than inventing a "
+            "placeholder tenant/thread or writing to a table (`episodic_events`) that does not "
+            "exist. Wiring an honest write (or retiring this tool) is GAP-DU-01-b.",
+        )
 
     async def recall_semantic(
         self,
         query: str,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
-        """Recall semantically similar memories.
-
-        Searches the semantic_memory table using pgvector cosine similarity.
-        Returns the top-k most similar memory entries.
-
-        Note: In production, the embedding is computed by the runtime's
-        inference.py (ADR-0009), not here. This server expects embeddings
-        to be pre-computed and stored.
+        """Refuse to recall semantically similar memories (GAP-DU-01-a — see module docstring).
 
         Args:
             query: The natural language query string.
-            limit: Maximum number of results to return (default: 10).
+            limit: Maximum number of results to return (default: 10). Unused — kept in the
+                signature so a future real implementation is a drop-in.
 
         Returns:
-            List of memory dicts with id, content, metadata, and similarity score.
+            Never returns — always raises.
+
+        Raises:
+            SemanticMemoryUnavailableError: Always — reason `REASON_SEMANTIC_SEARCH_NOT_WIRED`.
+                There is no embedding provider wired into this module and no pgvector query is
+                issued; no code path in this method returns a `similarity` value, real or
+                fabricated. See `REASON_SEMANTIC_SEARCH_NOT_WIRED`'s docstring.
         """
-        logger.info("memory_recall_semantic", query=query[:100])
+        logger.warning(
+            "memory_recall_semantic_refused",
+            query=query[:100],
+            reason=REASON_SEMANTIC_SEARCH_NOT_WIRED,
+        )
+        raise SemanticMemoryUnavailableError(
+            REASON_SEMANTIC_SEARCH_NOT_WIRED,
+            "recall_semantic: no real embedding/pgvector search path is wired. This tool used "
+            "to ILIKE-match a nonexistent `semantic_memory` table and return a hard-coded "
+            "`similarity: 1.0` on every row; that fabrication has been removed. The real "
+            "column is agent_memory.embedding vector(1536) "
+            "(src/maezo/platform/migrations/versions/0001_schema_agents.py:72, pgvector "
+            "extension 0001:28), which has no writer today. Wiring a real embedding call "
+            "(ADR-0009 inference.py) and cosine-similarity query (or retiring this tool) is "
+            "GAP-DU-01-b.",
+        )
 
-        try:
-            pool = await self._get_pool()
-            async with pool.acquire() as conn:
-                # For now, use a simple ILIKE fallback since we don't have
-                # the actual embedding. In production, the runtime injects
-                # the embedding vector computed by inference.py.
-                rows = await conn.fetch(
-                    """
-                    SELECT id, content, metadata, created_at,
-                           1.0 AS similarity
-                    FROM semantic_memory
-                    WHERE content ILIKE $1
-                    ORDER BY created_at DESC
-                    LIMIT $2
-                    """,
-                    f"%{query}%",
-                    limit,
-                )
 
-            results = [
-                {
-                    "id": row["id"],
-                    "content": row["content"],
-                    "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
-                    "similarity": row["similarity"],
-                }
-                for row in rows
-            ]
-            return results
-
-        except Exception:
-            logger.exception("memory_recall_semantic_failed", query=query[:100])
-            raise
+__all__ = [
+    "EpisodicMemoryUnavailableError",
+    "MemoryServer",
+    "MemorySettings",
+    "REASON_EPISODIC_SCHEMA_DRIFT",
+    "REASON_SEMANTIC_SEARCH_NOT_WIRED",
+    "SemanticMemoryUnavailableError",
+]
