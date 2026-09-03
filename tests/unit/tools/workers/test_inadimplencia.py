@@ -15,8 +15,18 @@ from maezo.tools.mcp_cibseven.transport import (
     ProcessInstance,
     start_dedup_key,
 )
+from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
-from maezo.tools.workers.harness import AUDIT_AGENT_ID
+from maezo.tools.workers.harness import (
+    AUDIT_AGENT_ID,
+    ExternalTask,
+    FakeWorkerTransport,
+    WorkerBpmnError,
+    WorkerHarness,
+)
+from maezo.tools.workers.harness import (
+    FakeAuditSink as HarnessFakeAuditSink,
+)
 from maezo.tools.workers.inadimplencia import (
     CANCEL_PROCESS_KEY,
     DECISAO_ENCAMINHAR_RESCISAO,
@@ -235,7 +245,12 @@ def test_inadimplencia_guard_suspension_happy_path() -> None:
 
 
 def test_inadimplencia_guard_rejects_wrong_decisao() -> None:
-    with pytest.raises(InadimplenciaError) as excinfo:
+    """Root-cause proof (ADR-0030 Tier-3, WP-ADR-0030-COMPLETION D3-01): the suspension guard now
+    raises WorkerBpmnError (a MODELED bpmn error), NOT InadimplenciaError (which FunctionWorker
+    reclassifies to a bare ValueError -> incident, leaving BE_SuspensaoNaoHumano structurally
+    unreachable) — mirrors credenciamento's two `*_NOT_HUMAN` guards and cancel's
+    ERR_CANCEL_MANTER_NOT_HUMAN."""
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension(
             {
                 "decisao_inadimplencia": DECISAO_MANTER,
@@ -247,12 +262,13 @@ def test_inadimplencia_guard_rejects_wrong_decisao() -> None:
                 "ja_em_rescisao_cancel": False,
             }
         )
-    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
-    assert "MANTER" in excinfo.value.message
+    assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert "MANTER" in str(excinfo.value)
+    assert not isinstance(excinfo.value, InadimplenciaError)
 
 
 def test_inadimplencia_guard_rejects_missing_responsavel() -> None:
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension(
             {
                 "decisao_inadimplencia": DECISAO_SUSPENDER,
@@ -264,12 +280,12 @@ def test_inadimplencia_guard_rejects_missing_responsavel() -> None:
                 "ja_em_rescisao_cancel": False,
             }
         )
-    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
-    assert "responsavel_id" in excinfo.value.message
+    assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert "responsavel_id" in str(excinfo.value)
 
 
 def test_inadimplencia_guard_rejects_missing_fundamentacao() -> None:
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension(
             {
                 "decisao_inadimplencia": DECISAO_SUSPENDER,
@@ -281,12 +297,12 @@ def test_inadimplencia_guard_rejects_missing_fundamentacao() -> None:
                 "ja_em_rescisao_cancel": False,
             }
         )
-    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
 
 
 def test_inadimplencia_guard_rejects_ja_em_rescisao() -> None:
     """Anti-double-termination: se ja_em_rescisao_cancel, recusa suspensao."""
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension(
             {
                 "decisao_inadimplencia": DECISAO_SUSPENDER,
@@ -298,8 +314,8 @@ def test_inadimplencia_guard_rejects_ja_em_rescisao() -> None:
                 "ja_em_rescisao_cancel": True,
             }
         )
-    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
-    assert "ja_em_rescisao_cancel" in excinfo.value.message
+    assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert "ja_em_rescisao_cancel" in str(excinfo.value)
 
 
 def test_inadimplencia_register_suspension_alias() -> None:
@@ -316,6 +332,79 @@ def test_inadimplencia_register_suspension_alias() -> None:
         }
     )
     assert result["suspensao_registrada"] is True
+
+
+# ---------------------------------------------------------------------------
+# Boundary REACHABILITY (WP-ADR-0030-COMPLETION, D3-01) — the suspension guard raises
+# WorkerBpmnError so its modeled BPMN boundary catch (BE_SuspensaoNaoHumano) CAN fire, instead of
+# an InadimplenciaError -> ValueError reclassification that could ONLY ever demote to an uncaught
+# engine incident. Mutation-minded: allowlisted -> boundary (handle_bpmn_error); NOT allowlisted
+# (the actual production posture today — the code stays T-E-deferred) -> the fail-closed incident
+# (handle_failure, retries=0), so the runtime behavior is UNCHANGED by this raise-side migration.
+# Drives the REAL harness dispatch path (harness._handle) end-to-end, no live engine. Mirrors
+# test_credenciamento.py's `_drive_guard_failure`.
+# ---------------------------------------------------------------------------
+
+
+def _drive_suspension_guard_failure(variables: dict, *, allowlist: frozenset[str]):
+    """Run register_contract_suspension through the real harness; return (bpmn_errors, failures)."""
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(
+        transport,
+        worker_id="inad-boundary-test",
+        tenant="amh",
+        audit_sink=HarnessFakeAuditSink(),
+        bpmn_error_allowlist=allowlist,
+    )
+    harness.register_worker(
+        FunctionWorker("operadora.inadimplencia.register_contract_suspension", register_contract_suspension)
+    )
+    task = ExternalTask(
+        task_id="task-1",
+        topic="operadora.inadimplencia.register_contract_suspension",
+        process_instance_id="proc-1",
+        business_key="INAD-amh-C-123",
+        worker_id="inad-boundary-test",
+        variables=variables,
+    )
+    asyncio.run(harness._handle(task))
+    return transport.bpmn_errors, transport.failures
+
+
+_SUSPENSION_GUARD_FAIL = {
+    "decisao_inadimplencia": DECISAO_MANTER,  # != SUSPENDER -> guard refuses
+    "responsavel_id": "j-001",
+    "fundamentacao_contratual": "x",
+    "referencia_regulatoria": "x",
+    "comprovacao_notificacao_previa": "x",
+    "comprovacao_periodo_minimo": "x",
+    "ja_em_rescisao_cancel": False,
+}
+
+
+def test_suspension_guard_reaches_boundary_when_allowlisted() -> None:
+    """ALLOWLISTED (hypothetical post-T-E production wiring): the adverse suspension guard routes
+    to handle_bpmn_error (BE_SuspensaoNaoHumano fires), NEVER to a failure/incident — the boundary
+    is now REACHABLE (was unreachable pre-fix, at ANY allowlist state)."""
+    bpmn_errors, failures = _drive_suspension_guard_failure(
+        _SUSPENSION_GUARD_FAIL,
+        allowlist=frozenset({ERR_CONTRACT_SUSPENSION_NOT_HUMAN}),
+    )
+    assert bpmn_errors == [("task-1", ERR_CONTRACT_SUSPENSION_NOT_HUMAN, bpmn_errors[0][2])]
+    assert failures == []
+
+
+def test_suspension_guard_demotes_to_incident_when_not_allowlisted() -> None:
+    """NOT ALLOWLISTED (the ACTUAL production posture today — T-E-deferred, ADR-0030 §4): fail-
+    closed by construction — demotes to a failure/incident, never a silent scope-end. This is the
+    UNCHANGED runtime behavior this raise-side migration preserves."""
+    bpmn_errors, failures = _drive_suspension_guard_failure(
+        _SUSPENSION_GUARD_FAIL,
+        allowlist=frozenset(),
+    )
+    assert bpmn_errors == []
+    assert len(failures) == 1
+    assert failures[0][0] == "task-1"
 
 
 # ---------------------------------------------------------------
@@ -361,10 +450,10 @@ def _suspension_baseline(**overrides: object) -> dict[str, object]:
 def test_suspension_whitespace_only_accountability_field_refuses(field: str, whitespace: str) -> None:
     """Bare-truthiness bypass (pre-fix): whitespace-only accountability field must refuse and
     be named in the guard's error message."""
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension(_suspension_baseline(**{field: whitespace}))
-    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
-    assert field in excinfo.value.message
+    assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert field in str(excinfo.value)
 
 
 @pytest.mark.parametrize("field", _SUSPENSION_ACCOUNTABILITY_FIELDS)
@@ -372,10 +461,10 @@ def test_suspension_whitespace_only_accountability_field_refuses(field: str, whi
 def test_suspension_non_string_accountability_field_refuses(field: str, non_string: object) -> None:
     """A NON-string accountability field normalizes to '' and refuses -- the pre-fix bare
     truthiness check would have silently PASSED a truthy non-string (e.g. 123)."""
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension(_suspension_baseline(**{field: non_string}))
-    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
-    assert field in excinfo.value.message
+    assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert field in str(excinfo.value)
 
 
 @pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
@@ -383,22 +472,22 @@ def test_suspension_both_responsavel_and_fundamentacao_whitespace_refuses(
     whitespace: str,
 ) -> None:
     """Both responsavel_id AND fundamentacao_contratual whitespace-only -- both named."""
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension(
             _suspension_baseline(responsavel_id=whitespace, fundamentacao_contratual=whitespace)
         )
-    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
-    assert "responsavel_id" in excinfo.value.message
-    assert "fundamentacao_contratual" in excinfo.value.message
+    assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert "responsavel_id" in str(excinfo.value)
+    assert "fundamentacao_contratual" in str(excinfo.value)
 
 
 @pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "  \t\n"])
 def test_suspension_whitespace_only_decisao_refuses(whitespace: str) -> None:
     """Whitespace-only decisao_inadimplencia normalizes to '' -> != SUSPENDER -> refuses."""
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension(_suspension_baseline(decisao_inadimplencia=whitespace))
-    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
-    assert "decisao_inadimplencia" in excinfo.value.message
+    assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert "decisao_inadimplencia" in str(excinfo.value)
 
 
 def test_suspension_padded_valid_literal_normalizes_and_registers() -> None:
@@ -421,9 +510,9 @@ def test_suspension_padded_valid_literal_normalizes_and_registers() -> None:
 @pytest.mark.parametrize("decision", ["suspender", "Suspender", "SUSPENDER_X", "XSUSPENDER", "MANTER "])
 def test_suspension_non_exact_decisao_literal_still_refuses(decision: str) -> None:
     """Exact-match discipline survives normalization: case variants/substrings never pass."""
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension(_suspension_baseline(decisao_inadimplencia=decision))
-    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
 
 
 def test_suspension_anti_dupla_guard_unchanged_by_normalization() -> None:
@@ -433,10 +522,10 @@ def test_suspension_anti_dupla_guard_unchanged_by_normalization() -> None:
     STILL refuses, proving normalization touched only the string inputs."""
     variables = _suspension_baseline()
     del variables["ja_em_rescisao_cancel"]
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension(variables)
-    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
-    assert "ja_em_rescisao_cancel" in excinfo.value.message
+    assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert "ja_em_rescisao_cancel" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------
@@ -738,10 +827,10 @@ def test_anti_dupla_terminacao_blocks_suspension_when_cancel_active() -> None:
     # Invariant, asserted directly: the cross-process correlation is a resolved FACT == True.
     assert facts["ja_em_rescisao_cancel"] is True
 
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension({**_VALID_SUSPENSION_HUMAN_FIELDS, "numero_contrato": "C-123", **facts})
-    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
-    assert "ja_em_rescisao_cancel" in excinfo.value.message
+    assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert "ja_em_rescisao_cancel" in str(excinfo.value)
 
 
 def test_anti_dupla_terminacao_proceeds_when_no_active_cancel() -> None:
@@ -789,12 +878,12 @@ def test_fail_closed_when_contract_identity_missing() -> None:
 def test_register_suspension_fail_closed_when_fact_absent() -> None:
     """Defense in depth at the adverse boundary: register REFUSES when ja_em_rescisao_cancel was
     never resolved (absent) — 'inability to decide = do not suspend'. Only explicit False proceeds."""
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension(
             {**_VALID_SUSPENSION_HUMAN_FIELDS, "numero_contrato": "C-9"}  # ja_em_rescisao_cancel absent
         )
-    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
-    assert "ja_em_rescisao_cancel" in excinfo.value.message
+    assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert "ja_em_rescisao_cancel" in str(excinfo.value)
 
 
 def test_resolve_facts_default_engine_is_fail_closed_true() -> None:
@@ -849,9 +938,9 @@ def test_b2_guard_blocks_the_suspension_end_to_end_under_the_matricula_form() ->
     fake = FakeCibSevenTransport()
     _seed_active_cancel(fake, "CANCEL-t1-mat-99")
     facts = resolve_facts(dict(_BOTH_IDS), engine=fake)
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension({**_VALID_SUSPENSION_HUMAN_FIELDS, **_BOTH_IDS, **facts})
-    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
 
 
 def test_b2_guard_queries_every_derivable_form() -> None:

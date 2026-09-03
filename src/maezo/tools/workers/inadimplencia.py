@@ -22,7 +22,7 @@ from maezo.tools.workers.base import (
     mint_contract_business_key,
 )
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
-from maezo.tools.workers.harness import AUDIT_AGENT_ID, _resolve_app_version
+from maezo.tools.workers.harness import AUDIT_AGENT_ID, WorkerBpmnError, _resolve_app_version
 
 if TYPE_CHECKING:
     from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
@@ -34,6 +34,31 @@ logger = structlog.get_logger(__name__)
 # Error codes
 # ---------------------------------------------------------------
 
+# ERR_CONTRACT_SUSPENSION_NOT_HUMAN is a MODELED BPMN boundary error (spec/processes/bpmn/
+# SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn: `Error_ContractSuspensionNotHuman`, caught by
+# `BE_SuspensaoNaoHumano` on `ST_RegisterSuspension` -> the NEUTRO terminal
+# `End_SuspensaoBloqueadaNaoHumano`). The guard below therefore raises `WorkerBpmnError(code)` —
+# NOT a `.code`/`.message` `InadimplenciaError` — mirroring `cancel.confirm_maintained_decision`
+# (`ERR_CANCEL_MANTER_NOT_HUMAN`) and `credenciamento`'s two adverse `*_NOT_HUMAN` guards
+# (ADR-0030 §2/§4, Tier-3 G2-guard; this family was the ADR's own disclosed "unmigrated" example —
+# ADR-0030 ratification amendment note). Rationale (unchanged from cred/cancel): an
+# `InadimplenciaError` is reclassified by `FunctionWorker.execute` (base.py:284-293) into a bare
+# `ValueError`, which `WorkerHarness._handle`'s `except ValueError` branch reports as a generic
+# `failure(retries=0)` incident and NEVER consults the `bpmn_error_allowlist` — so the modeled
+# boundary could NEVER fire (the guard blocked the suspension, but the clean neutral terminal was
+# structurally UNREACHABLE, left as an opaque engine incident). `WorkerBpmnError` propagates
+# unchanged through `execute` (it exposes `.error_code`, not `.code`/`.message`) to the harness's
+# `except WorkerBpmnError` branch, which routes it to `handle_bpmn_error` (the boundary) when the
+# code is allowlisted. `_NOT_HUMAN` adverse guard -> T-E-gated (ADR-0030 §4): consumption-covered
+# by the boundary-proof gate (`scripts/ci/check_bpmn_error_allowlist.py`), yet DEFERRED out of
+# `PRODUCTION_BPMN_ERROR_ALLOWLIST` until T-E audited-refusal is production-activated for THIS
+# code (the harness's T-E guard-refusal audit already recognizes it — `is_guard_refusal_code`
+# matches on the `_NOT_HUMAN` suffix — so the refusal stays audited either way); the runtime
+# behavior is UNCHANGED today (still an incident) — this closes only the raise-side migration, the
+# same phased split cred's two guard codes went through (PR #166). No
+# `INADIMPLENCIA_BPMN_ERROR_ALLOWLIST` constant is added: with only a T-E-deferred code to
+# contribute, there is nothing to wire into `service.py` yet — mirrors `cancel`, whose sole
+# gate-proven code (`ERR_CANCEL_MANTER_NOT_HUMAN`) also exposes no allowlist constant.
 ERR_CONTRACT_SUSPENSION_NOT_HUMAN = "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
 ERR_INAD_INVALID_CONTRATO = "ERR_INAD_INVALID_CONTRATO"
 
@@ -515,10 +540,9 @@ def _register_contract_suspension(variables: dict[str, Any]) -> dict[str, Any]:
             errors=errors,
             numero_contrato=variables.get("numero_contrato"),
         )
-        raise InadimplenciaError(
-            ERR_CONTRACT_SUSPENSION_NOT_HUMAN,
-            "; ".join(errors),
-        )
+        # MODELED boundary error (BE_SuspensaoNaoHumano) — WorkerBpmnError, not InadimplenciaError;
+        # see the error-codes section above and cancel.confirm_maintained_decision for the rationale.
+        raise WorkerBpmnError(ERR_CONTRACT_SUSPENSION_NOT_HUMAN, "; ".join(errors))
 
     logger.info(
         "inadimplencia_contract_suspension_registered",

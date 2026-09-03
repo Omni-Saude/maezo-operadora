@@ -18,6 +18,7 @@ import structlog
 
 from maezo.tools.workers.base import FunctionWorker, pick_fields
 from maezo.tools.workers.ceilings import CeilingResolver
+from maezo.tools.workers.harness import WorkerBpmnError
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -135,6 +136,31 @@ class _TabelaLookup:
 
 
 # ---------------------------------------------------------------------------
+# Error codes
+# ---------------------------------------------------------------------------
+
+#: `check_coverage` raises this (as a `WorkerBpmnError`, below) when `protocolo_reembolso` arrives
+#: absent/blank — a TECHNICAL origin/consistency guard (G2-val, ADR-0030 §2 + migration Tier-2:
+#: the worker never decides to pay/deny, it only signals bad-at-source request data). MODELED
+#: boundary error: `BE_ReembolsoProtocoloInvalido` (Error_ReembolsoProtocoloInvalido) on
+#: `ST_CheckCoverage` routes to the NEUTRO terminal `End_ReembolsoProtocoloInvalido` — the BPMN's
+#: own documentation on `ST_CheckCoverage`: "protocolo_reembolso inconsistente na origem lanca
+#: ERR_REEMBOLSO_INVALID_PROTOCOLO ... capturado pelo boundary BE_ReembolsoProtocoloInvalido".
+#: NOT a `*_NOT_HUMAN` guard, so NOT T-E-gated (ADR-0030 §4) — lands directly in
+#: `PRODUCTION_BPMN_ERROR_ALLOWLIST` (mirrors `pagto`'s `ERR_PAGTO_ORDEM_INVALIDA` /
+#: `credenciamento`'s `ERR_CRED_INVALID_PRESTADOR`, the item-9 bucket-3 precedent).
+ERR_REEMBOLSO_INVALID_PROTOCOLO = "ERR_REEMBOLSO_INVALID_PROTOCOLO"
+
+#: Consumption-covered (`scripts/ci/check_bpmn_error_allowlist.py`'s "simple rule"):
+#: `operadora.reembolso.check_coverage` is consumed ONLY by SP-OP-REEMBOLSO-001, which declares
+#: this errorCode on `BE_ReembolsoProtocoloInvalido`. Unioned into `worker_runtime/service.py`'s
+#: `_GATE_PROVEN_BPMN_ERROR_CODES`. `ERR_REEMBOLSO_DENIAL_NOT_HUMAN` is DELIBERATELY excluded: it
+#: has no modeled boundary catch anywhere in `SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn`
+#: (`send_reembolso_denial` stays a `PermissionError` -> incident, unchanged).
+REEMBOLSO_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_REEMBOLSO_INVALID_PROTOCOLO})
+
+
+# ---------------------------------------------------------------------------
 # Error types
 # ---------------------------------------------------------------------------
 
@@ -156,11 +182,27 @@ class ReembolsoDenialNotHumanError(PermissionError):
 
 
 class ReembolsoProtocoloInvalidoError(ValueError):
-    """Raised when protocolo/guia is inconsistent (ERR_REEMBOLSO_INVALID_PROTOCOLO)."""
+    """Raised by `validate_reembolso` (topic `operadora.reembolso.check_prazo`) when protocolo/guia
+    is inconsistent (ERR_REEMBOLSO_INVALID_PROTOCOLO) — kept as a defensive, non-modeled fallback.
+
+    DEFENSE IN DEPTH, not the modeled boundary path (ADR-0030): the actual `bpmn:error@errorCode=
+    ERR_REEMBOLSO_INVALID_PROTOCOLO` boundary (`BE_ReembolsoProtocoloInvalido`) is declared on
+    `ST_CheckCoverage` (topic `operadora.reembolso.check_coverage`), NOT on `ST_CheckPrazo`
+    (this raise's own topic) — `check_coverage` (below) now carries the MODELED
+    `WorkerBpmnError(ERR_REEMBOLSO_INVALID_PROTOCOLO)` guard for that condition, and
+    `ST_CheckCoverage` runs BEFORE `ST_CheckPrazo` in the modeled flow
+    (`Flow_PubReceived_Coverage -> ST_CheckCoverage -> Flow_Coverage_Prazo -> ST_CheckPrazo`), so a
+    blank `protocolo_reembolso` is refused there first and this function is never reached with one
+    via the live process. This `ValueError` subclass therefore stays a plain coded exception
+    (`FunctionWorker` never reclassifies an already-`ValueError` subclass, `base.py:276-293`) ->
+    `failure(retries=0)` incident if ever reached directly (e.g. a direct unit call, or a future
+    reordering) — never a `WorkerBpmnError`, since raising one on THIS topic would be a
+    clause-(b) violation (no boundary is declared on `ST_CheckPrazo`).
+    """
 
     def __init__(self, detail: str = "") -> None:
         super().__init__(
-            f"ERR_REEMBOLSO_INVALID_PROTOCOLO: {detail}" if detail else "ERR_REEMBOLSO_INVALID_PROTOCOLO"
+            f"{ERR_REEMBOLSO_INVALID_PROTOCOLO}: {detail}" if detail else ERR_REEMBOLSO_INVALID_PROTOCOLO
         )
 
 
@@ -313,7 +355,23 @@ def check_coverage(input_data: ReembolsoInput) -> dict[str, Any]:
 
     Resolves cobertura_prevista flag. Never decides NEGAR —
     absent coverage routes to ANALISE_HUMANA.
+
+    ORIGIN GUARD (ADR-0030 Tier-2 G2-val, root-cause fix): `ST_CheckCoverage` is the boundary-
+    carrying external task for `ERR_REEMBOLSO_INVALID_PROTOCOLO` (`BE_ReembolsoProtocoloInvalido`
+    -> `End_ReembolsoProtocoloInvalido`, a NEUTRO fail-safe terminal — the BPMN's own
+    documentation: "protocolo/guia inconsistente na origem ... NUNCA decide pagar/negar/reduzir").
+    A blank/absent `protocolo_reembolso` therefore raises the MODELED `WorkerBpmnError` here —
+    checked BEFORE any coverage resolution, so an inconsistent request never reaches the DMN chain.
+    See `ReembolsoProtocoloInvalidoError`'s docstring for why `validate_reembolso`'s own (different
+    topic, no modeled boundary) check of the same field is a defensive fallback, not the fix.
     """
+    if not input_data.protocolo_reembolso.strip():
+        logger.error(
+            "reembolso.check_coverage.protocolo_invalido",
+            protocolo_reembolso=input_data.protocolo_reembolso,
+        )
+        raise WorkerBpmnError(ERR_REEMBOLSO_INVALID_PROTOCOLO, "protocolo_reembolso ausente")
+
     logger.info(
         "reembolso.check_coverage.start",
         codigo_procedimento_tuss=input_data.codigo_procedimento_tuss,

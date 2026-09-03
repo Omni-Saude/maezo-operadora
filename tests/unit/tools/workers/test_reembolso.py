@@ -3,19 +3,26 @@
 TDD London School: tests exercise the external task contracts.
 """
 
+import asyncio
 import dataclasses
 from pathlib import Path
 
 import pytest
 
+from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.ceilings import CeilingResolver
 from maezo.tools.workers.harness import (
+    ExternalTask,
+    FakeAuditSink,
     FakeKafkaPublisher,
     FakeWorkerTransport,
+    WorkerBpmnError,
     WorkerHarness,
 )
 from maezo.tools.workers.reembolso import (
     _BASE_VALUES_CENTS,
+    ERR_REEMBOLSO_INVALID_PROTOCOLO,
+    REEMBOLSO_BPMN_ERROR_ALLOWLIST,
     ReembolsoDenialInput,
     ReembolsoDenialNotHumanError,
     ReembolsoInput,
@@ -142,6 +149,7 @@ def test_check_coverage_prevista() -> None:
     """check_coverage returns cobertura_prevista flag."""
     inp = ReembolsoInput(
         tenant_id="amh",
+        protocolo_reembolso="REEMB-COV-1",
         codigo_procedimento_tuss="10101012",
         tipo_reembolso="livre_escolha",
         cobertura_prevista=True,
@@ -154,12 +162,86 @@ def test_check_coverage_nao_prevista() -> None:
     """check_coverage returns False for uncovered procedures."""
     inp = ReembolsoInput(
         tenant_id="amh",
+        protocolo_reembolso="REEMB-COV-2",
         codigo_procedimento_tuss="99999999",
         tipo_reembolso="livre_escolha",
         cobertura_prevista=False,
     )
     result = check_coverage(inp)
     assert result["cobertura_prevista"] is False
+
+
+def test_check_coverage_raises_workerbpmnerror_on_blank_protocolo() -> None:
+    """Root-cause proof (ADR-0030 Tier-2, WP-ADR-0030-COMPLETION D3-01): check_coverage — the
+    ACTUAL boundary-carrying task (ST_CheckCoverage / BE_ReembolsoProtocoloInvalido) — raises the
+    MODELED WorkerBpmnError when protocolo_reembolso is blank/absent. Previously the coded
+    ReembolsoProtocoloInvalidoError was raised on the WRONG topic (check_prazo/validate_reembolso,
+    which carries no boundary at all), so the modeled boundary could never fire."""
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        check_coverage(ReembolsoInput(tenant_id="amh", protocolo_reembolso=""))
+    assert excinfo.value.error_code == ERR_REEMBOLSO_INVALID_PROTOCOLO
+    assert not isinstance(excinfo.value, ReembolsoProtocoloInvalidoError)
+
+
+def test_reembolso_invalid_protocolo_is_gate_proven_and_tier0() -> None:
+    assert ERR_REEMBOLSO_INVALID_PROTOCOLO in REEMBOLSO_BPMN_ERROR_ALLOWLIST
+
+
+# ---------------------------------------------------------------------------
+# Boundary REACHABILITY (WP-ADR-0030-COMPLETION, D3-01) — check_coverage raises WorkerBpmnError so
+# its modeled BPMN boundary catch (BE_ReembolsoProtocoloInvalido) can fire, instead of the
+# coded-exception path (which, raised from the wrong topic, could never reach it). Mutation-minded:
+# allowlisted -> boundary (handle_bpmn_error); NOT allowlisted -> the fail-closed incident
+# (handle_failure, retries=0). Drives the REAL harness dispatch path (harness._handle) end-to-end,
+# no live engine. Mirrors test_credenciamento.py's `_drive_guard_failure`.
+# ---------------------------------------------------------------------------
+
+
+def _drive_check_coverage_failure(variables: dict, *, allowlist: frozenset[str]):
+    """Run check_coverage_entry through the real harness; return (bpmn_errors, failures)."""
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(
+        transport,
+        worker_id="reembolso-boundary-test",
+        tenant="amh",
+        audit_sink=FakeAuditSink(),
+        bpmn_error_allowlist=allowlist,
+    )
+    harness.register_worker(FunctionWorker("operadora.reembolso.check_coverage", check_coverage_entry))
+    task = ExternalTask(
+        task_id="task-1",
+        topic="operadora.reembolso.check_coverage",
+        process_instance_id="proc-1",
+        business_key="REEMB-amh-1",
+        worker_id="reembolso-boundary-test",
+        variables=variables,
+    )
+    asyncio.run(harness._handle(task))
+    return transport.bpmn_errors, transport.failures
+
+
+def test_check_coverage_reaches_boundary_when_allowlisted() -> None:
+    """ALLOWLISTED: the origin-validation guard routes to handle_bpmn_error
+    (BE_ReembolsoProtocoloInvalido fires), NEVER to a failure/incident — the boundary is now
+    REACHABLE at its OWN task (was unreachable at ANY task pre-fix)."""
+    bpmn_errors, failures = _drive_check_coverage_failure(
+        {"protocolo_reembolso": ""},
+        allowlist=frozenset({ERR_REEMBOLSO_INVALID_PROTOCOLO}),
+    )
+    assert bpmn_errors == [("task-1", ERR_REEMBOLSO_INVALID_PROTOCOLO, bpmn_errors[0][2])]
+    assert failures == []
+
+
+def test_check_coverage_demotes_to_incident_when_not_allowlisted() -> None:
+    """NOT ALLOWLISTED: fail-closed by construction — demotes to a failure/incident, never a
+    silent scope-end."""
+    bpmn_errors, failures = _drive_check_coverage_failure(
+        {"protocolo_reembolso": ""},
+        allowlist=frozenset(),
+    )
+    assert bpmn_errors == []
+    assert len(failures) == 1
+    assert failures[0][0] == "task-1"
 
 
 # ---------------------------------------------------------------------------
@@ -1033,7 +1115,11 @@ def test_reembolso_protocolo_invalido_is_value_error() -> None:
 
 
 def test_check_coverage_entry_round_trips_check_coverage() -> None:
-    variables = {"codigo_procedimento_tuss": "10101012", "cobertura_prevista": True}
+    variables = {
+        "protocolo_reembolso": "REEMB-2",
+        "codigo_procedimento_tuss": "10101012",
+        "cobertura_prevista": True,
+    }
     assert check_coverage_entry(variables) == check_coverage(ReembolsoInput(**variables))
 
 
