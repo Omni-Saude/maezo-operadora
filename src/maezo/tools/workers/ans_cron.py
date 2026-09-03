@@ -56,8 +56,9 @@ nenhum worker, nenhum agente).
 from __future__ import annotations
 
 import functools
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 import structlog
 
@@ -80,6 +81,34 @@ logger = structlog.get_logger(__name__)
 # `periodicidade` (mensal/anual/trimestral); a metade ISO e o que `_compute_competencia` consome.
 # ---------------------------------------------------------------
 
+#: Fuso civil de negocio da operadora — a ancora temporal de que a competencia e derivada.
+#:
+#: POR QUE NAO UTC: `_compute_competencia` promete nomear o periodo JA FECHADO na ancora. Com
+#: `datetime.now(UTC)`, um tick entre 00:00 e 02:59 UTC do dia 1 (= 21:00-23:59 do ULTIMO dia do
+#: mes anterior no horario civil brasileiro, UTC-3) leria o mes NOVO enquanto o Brasil ainda esta
+#: no ANTIGO — e o "mes imediatamente anterior" por UTC seria entao um mes que AINDA NAO FECHOU
+#: para o regulador. A mesma janela de ~3h existe em cada virada de trimestre e de ano.
+#:
+#: DRAFT/verify regulatorio: a ESCOLHA do fuso e um default de ENGENHARIA (a operadora e
+#: brasileira e os prazos ANS sao publicados em horario civil brasileiro), NAO confirmada com o
+#: regulatorio — pergunta 2b de SP-OP-ANS-CRON-001 em `docs/sme-dispatch/regulatorio/PACKAGE.md`.
+#:
+#: Nao existe helper canonico de fuso de negocio no repo (`grep -rn "Sao_Paulo|BUSINESS_TZ|
+#: zoneinfo" src/maezo` -> 0 antes desta mudanca); esta e a UNICA definicao e deve ser reusada
+#: (nao reescrita) por qualquer outro worker que precise do mesmo conceito.
+_BUSINESS_TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def _now_business() -> datetime:
+    """Instante corrente no fuso civil de negocio (seam unica de relogio deste modulo).
+
+    Existe como funcao — e nao como chamada inline — para que os testes de fronteira de periodo
+    possam fixar o instante sem monkeypatch em `datetime` (ver
+    `tests/unit/tools/workers/test_ans_cron.py`, casos de virada de mes/trimestre/ano).
+    """
+    return datetime.now(_BUSINESS_TZ)
+
+
 #: Sentinela de competencia nao resolvida (o humano resolve em UT_CorrigirPendenciaEnvio).
 COMPETENCIA_PENDENTE = "COMPETENCIA_PENDENTE"
 
@@ -100,7 +129,11 @@ def _compute_competencia(reference_date_iso: str, periodicidade: str) -> str:
 
     The competencia is the calendar period IMMEDIATELY BEFORE — i.e. already CLOSED as of — the
     reference date. The still-OPEN period containing the reference date is never itself a valid
-    answer (it has not finished yet):
+    answer (it has not finished yet). "Closed" is judged in the CIVIL calendar of the anchor it is
+    given: the caller (`trigger_submissions`) anchors on `_BUSINESS_TZ`, not UTC, precisely so that
+    this invariant holds in Brazilian civil time — see `_BUSINESS_TZ`'s note. This function itself
+    is pure and timezone-agnostic: it reads the year/month of whatever ISO instant it is handed
+    (with or without offset) and never consults a clock.
       - P1M (monthly):   the previous month, "YYYY-MM".
       - P3M (quarterly): the most recently CLOSED quarter's start month, "YYYY-MM" — e.g. a
         reference date anywhere in Apr/May/Jun (all of Q2, still open) resolves to the SAME
@@ -175,10 +208,14 @@ def trigger_submissions(variables: dict[str, Any], *, tenant_id: str = "") -> di
                                     `ans_calendar`; `indeterminada` fora da taxonomia.
       competencia                 — periodo FECHADO imediatamente anterior a ancora, ou
                                     `COMPETENCIA_PENDENTE` fail-closed.
-      competencia_referencia_iso  — a ancora (data UTC do tick) de que a competencia foi
-                                    derivada; viaja no fato para que a derivacao seja auditavel
-                                    e reproduzivel (distinta de `ans_cron_reference_date_iso`,
-                                    que `events.py` carimba no INSTANTE DA PUBLICACAO).
+      competencia_referencia_iso  — a ancora de que a competencia foi derivada, em ISO-8601 COM
+                                    OFFSET no fuso civil de negocio (`_BUSINESS_TZ`,
+                                    America/Sao_Paulo) — p.ex. `2026-02-28T21:30:00-03:00`. O
+                                    offset viaja junto de proposito: sem ele o leitor nao sabe em
+                                    que calendario civil o periodo foi fechado. Viaja no fato para
+                                    que a derivacao seja auditavel e reproduzivel (distinta de
+                                    `ans_cron_reference_date_iso`, que `events.py` carimba como
+                                    data UTC do INSTANTE DA PUBLICACAO).
 
     NAO publica nada (o publicador e o task seguinte) e NAO devolve nenhum `*_publicado`: o antigo
     `fato_publicado: True` deste worker era um fato FABRICADO — afirmava uma publicacao que esta
@@ -201,7 +238,7 @@ def trigger_submissions(variables: dict[str, Any], *, tenant_id: str = "") -> di
     periodicidade, periodicidade_iso = _REPORT_PERIODICIDADE.get(
         report_type, (PERIODICIDADE_INDETERMINADA, "")
     )
-    reference_date = datetime.now(UTC).strftime("%Y-%m-%d")
+    reference_date = _now_business().isoformat(timespec="seconds")
 
     competencia = _compute_competencia(reference_date, periodicidade_iso)
 

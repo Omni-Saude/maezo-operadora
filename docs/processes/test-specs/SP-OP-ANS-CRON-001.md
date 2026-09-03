@@ -1,10 +1,20 @@
 # Test spec — SP-OP-ANS-CRON-001 (DRAFT — acompanha o processo)
 
 Stubs de integracao (pytest, marker `integration`) contra CIB Seven **real** (doutrina
-"nunca mockar o engine", Phase 0/1). Arquivo alvo:
-`tests/integration/processes/test_sp_op_ans_cron_001.py`; as metades puras (taxonomia e
-aritmetica de competencia) vivem em `tests/unit/tools/workers/test_ans_cron.py`, e a paridade
-Python<->DMN em `tests/integration/dmn/test_dmn_golden_parity.py`.
+"nunca mockar o engine", Phase 0/1). Arquivos alvo:
+
+| Arquivo | O que vive la | Roda em CI obrigatorio? |
+|---|---|---|
+| `tests/integration/processes/test_sp_op_ans_cron_001.py` | o tick real do timer, a competencia no fato, a ausencia de auto-start | nao (job `integration tests (real engine)`, nao obrigatorio) |
+| `tests/unit/spec/test_ans_cron_timers_taxonomy.py` | os 3 fences **estaticos** BPMN<->worker (topicos, `timeCycle`x taxonomia, `tenant_id` fora de `event_payload_vars`) | **sim** (job unitario) |
+| `tests/unit/tools/workers/test_ans_cron.py` | taxonomia, aritmetica de competencia, fail-closed, ancora temporal | **sim** |
+| `tests/integration/dmn/test_dmn_golden_parity.py` | paridade Python<->DMN | nao |
+
+Os tres fences estaticos foram MOVIDOS para `tests/unit/spec/` (eles nao tocam engine): sob o
+marker `integration` + o autouse `_skip_if_engine_unreachable` da conftest, nenhum contexto
+OBRIGATORIO de CI os executava, e uma regressao (p.ex. `tenant_id` de volta em
+`event_payload_vars`, ou um `timeCycle` fora de sincronia) passaria **verde** nos quatro checks
+exigidos.
 
 Dados sinteticos: tenant do deployment (fixture `audit_tenant`), `report_type` nos literais
 RN-citation (`RN_124_SIP`, `RN_209_UTILIZACAO`, `RN_388_QUALIDADE`, `RN_424_TISS_MONITORAMENTO`,
@@ -18,10 +28,22 @@ toca PHI.
 > processo: o agendador so publica um FATO; nada nele transmite a ANS.
 
 > **DRAFT/verify regulatorio.** Nenhum teste desta spec assere conteudo regulatorio. As
-> periodicidades (`timeCycle` `R/P1M`/`R/P3M`/`R/P1Y`) e o mapeamento periodo->competencia
-> (mes/trimestre/ano ANTERIOR ao da ancora do tick) seguem **nao confirmados** com o regulatorio
-> (`docs/review-queue.md`). Os testes provam **coerencia interna** (BPMN <-> worker <-> DMN) e
-> **fail-closed**, nunca correcao regulatoria.
+> periodicidades (`timeCycle` `R/P1M`/`R/P3M`/`R/P1Y`), o mapeamento periodo->competencia
+> (mes/trimestre/ano ANTERIOR ao da ancora do tick) e o **fuso civil da ancora**
+> (`America/Sao_Paulo`) seguem **nao confirmados** com o regulatorio (`docs/review-queue.md`,
+> `docs/sme-dispatch/regulatorio/PACKAGE.md`). Os testes provam **coerencia interna**
+> (BPMN <-> worker <-> DMN) e **fail-closed**, nunca correcao regulatoria.
+
+> **DRAFT/verify — `RN_124_SIP` agenda uma obrigacao EXTINTA.** `docs/decisions-log.md:26-27`
+> (**DL-0029**, com **DL-0028**) registra, de fonte primaria, que a **RN 639/2025** revoga a RN
+> 551/2022, desobriga o envio do **SIP** apos o 4o trimestre/2025 e vigora desde 02/03/2026. O
+> despacho ao SME coloca o timer `SP-OP-ANS-CRON-001-RN124SIP` em **retirada cirurgica** e
+> **exclui a sua cadencia da revisao** (`docs/sme-dispatch/regulatorio/PACKAGE.md:79-82`). O
+> literal aparece nos casos abaixo apenas como **chave de taxonomia compartilhada** (BPMN, DMN,
+> contrato, worker) — nenhum caso aqui afirma que a obrigacao esta vigente, e troca-lo/remove-lo e
+> decisao de SME/re-scope (T2.6), nao de engenharia. Mesma classe, tambem no despacho
+> (`:90-94`): `RN_209_UTILIZACAO` e `RN_388_QUALIDADE` sao citacoes **miscitadas** que precisam de
+> re-derivacao.
 
 ## Topologia sob teste
 
@@ -41,7 +63,7 @@ localiza o job de timer-START pendente e o executa na marra
 
 ## Alcancabilidade de topico e taxonomia (GAP-ANS-1 / ANS-CRON-DEAD-CODE / PERSP-B5-ANSCRON-TOPICS)
 
-### test_ans_cron_registered_topics_reachable_from_bpmn
+### test_ans_cron_registered_topics_reachable_from_bpmn (unit/spec, estatico)
 - **Given** o XML do BPMN e o `harness` real com `register_ans_cron_workers` aplicado
 - **Then** os topicos declarados pelo BPMN sao exatamente
   {`operadora.ans_cron.trigger_submissions`, `operadora.events.publish`}; o unico topico
@@ -51,7 +73,7 @@ localiza o job de timer-START pendente e o executa na marra
   topicos registrados (`trigger_submissions` e `check_calendar`) nao apareciam no BPMN, o que
   tornava `_compute_competencia` codigo morto. `check_calendar` foi **removida** (ver abaixo)
 
-### test_ans_cron_timecycle_do_bpmn_bate_com_a_taxonomia_do_worker
+### test_ans_cron_timecycle_do_bpmn_bate_com_a_taxonomia_do_worker (unit/spec, estatico)
 - **Given** as 5 process definitions
 - **Then** cada uma tem **exatamente um** TimerStartEvent com `timeCycle`, e esse `timeCycle`
   corresponde ao periodo ISO que `ans_cron._REPORT_PERIODICIDADE` associa ao `report_type` literal
@@ -91,7 +113,7 @@ localiza o job de timer-START pendente e o executa na marra
   `operadora.notifications.internal` carrega `periodicidade` pt-BR do tipo, `origem_envio=calendario`
   e uma `competencia` **igual** a `_compute_competencia(competencia_referencia_iso, <ISO do tipo>)`
   — derivada da ancora que o proprio fato carrega, nunca de uma data de hoje hardcoded (a assercao
-  segue valida se o tick cruzar a meia-noite UTC); (e) `competencia != COMPETENCIA_PENDENTE`
+  segue valida se o tick cruzar qualquer virada de dia); (e) `competencia != COMPETENCIA_PENDENTE`
 - **Racional** ate este WP o fato viajava com o literal `COMPETENCIA_PENDENTE` embutido no BPMN e
   **toda** instancia SP-OP-ANS-SUBMIT-001 aberta pelo caminho cron nascia pendente de competencia
 
@@ -111,6 +133,33 @@ localiza o job de timer-START pendente e o executa na marra
 - **Then** periodicidade fora de {`P1M`,`P3M`,`P12M`} ou ancora nao parseavel -> sentinela; nunca
   excecao, nunca competencia plausivel
 
+### test_ancora_mensal_na_virada_do_mes_usa_o_calendario_brasileiro (unit)
+### test_ancora_mensal_depois_da_virada_no_brasil_fecha_o_mes (unit)
+### test_ancora_mensal_no_fim_do_mes_nunca_nomeia_o_mes_aberto (unit)
+### test_ancora_trimestral_na_virada_do_trimestre_usa_o_calendario_brasileiro (unit)
+### test_ancora_anual_na_virada_do_ano_usa_o_calendario_brasileiro (unit)
+- **Given** o relogio congelado (seam `ans_cron._now_business`) num instante das fronteiras de
+  mes, trimestre e ano
+- **Then** a competencia e a do ultimo periodo fechado no **horario civil brasileiro**: a 00:30
+  UTC do dia 1 (= 21:30 do ultimo dia do mes anterior no Brasil) o mes anterior segundo o UTC
+  ainda esta **ABERTO** no Brasil, e a resposta correta e o mes ANTERIOR A ELE; a 03:00 UTC do dia
+  1 (= 00:00 no Brasil) o mes fecha e passa a ser a competencia
+- **Racional** o defeito nao estava no mapeamento (esse ja era correto) e sim na **ancora**: com
+  `datetime.now(UTC)` havia uma janela de ~3h em cada virada de mes/trimestre/ano em que o
+  agendador nomeava um periodo que ainda **nao havia fechado** para o regulador — violando o
+  invariante documentado do proprio `_compute_competencia`. Cada caso compara explicitamente o
+  resultado com o que a ancora UTC teria produzido no MESMO instante
+- **DRAFT/verify** a **escolha** do fuso (`America/Sao_Paulo`) e um default de engenharia — ver a
+  pergunta 2b em `docs/sme-dispatch/regulatorio/PACKAGE.md`
+
+### test_ancora_carrega_offset_explicito_e_nao_e_data_nua (unit)
+### test_business_tz_e_o_fuso_civil_brasileiro (unit)
+### test_now_business_devolve_instante_aware_no_fuso_de_negocio (unit)
+- **Then** `competencia_referencia_iso` viaja em ISO-8601 **com offset**
+  (`2026-02-28T20:30:00-03:00`), a constante `_BUSINESS_TZ` e `America/Sao_Paulo` e a seam de
+  relogio devolve sempre um `datetime` **aware** — sem offset o consumidor do fato nao consegue
+  dizer em que calendario civil o periodo foi fechado
+
 ### test_trigger_submissions_nao_devolve_fato_fabricado (unit)
 - **Then** o retorno tem exatamente
   {`report_type`, `periodicidade`, `competencia`, `competencia_referencia_iso`, `tenant_id`} —
@@ -124,7 +173,7 @@ localiza o job de timer-START pendente e o executa na marra
 
 ## Tenant e fronteira com a ponte
 
-### test_ans_cron_payload_vars_nao_carregam_tenant_id
+### test_ans_cron_payload_vars_nao_carregam_tenant_id (unit/spec, estatico)
 - **Then** nenhum `event_payload_vars` das 5 definitions lista `tenant_id` (e todos listam
   `report_type`/`periodicidade`/`competencia`)
 - **Racional** o agendador e tenant-agnostico; o tenant do fato vem do carimbo `setdefault` do
@@ -167,3 +216,7 @@ nao esta em `KNOWN_PROCESS_KEYS` por design** (e iniciado por timer, nunca por
   periodo->competencia, incluindo a ancora de dia do mes de cada `R/P1M` (**DRAFT/verify**,
   `docs/review-queue.md`).
 - Conteudo de `due_date`/`sla_alerta` de `ans_calendar` (`DRAFT_*`, ratificacao humana pendente).
+- Confirmacao regulatoria do **fuso civil** que define a ancora (`America/Sao_Paulo` e um default
+  de engenharia — pergunta 2b do despacho regulatorio).
+- **Retirada** do timer `RN_124_SIP` (obrigacao extinta, RN 639/2025 — DL-0028/DL-0029) e
+  re-derivacao de `RN_209_UTILIZACAO`/`RN_388_QUALIDADE`: decisao de SME/re-scope T2.6.

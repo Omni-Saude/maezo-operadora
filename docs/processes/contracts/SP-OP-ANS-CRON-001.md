@@ -40,7 +40,7 @@ declarado) e devolve, como **variaveis de processo**:
 | `report_type` | ecoado sob o nome canonico (o literal local nao viaja) |
 | `periodicidade` | pt-BR (`mensal`/`trimestral`/`anual`) — MESMO vocabulario dos outputs de `ans_calendar.dmn`; `indeterminada` fora da taxonomia |
 | `competencia` | o periodo FECHADO imediatamente anterior a ancora do tick (`_compute_competencia`), ou `COMPETENCIA_PENDENTE` fail-closed |
-| `competencia_referencia_iso` | a ancora (data UTC do tick) de que a competencia foi derivada — torna a derivacao auditavel/reproduzivel |
+| `competencia_referencia_iso` | a ancora de que a competencia foi derivada, em **ISO-8601 com offset** no fuso civil de negocio (`America/Sao_Paulo`, constante `_BUSINESS_TZ`) — ex.: `2026-02-28T21:30:00-03:00`. Torna a derivacao auditavel/reproduzivel E explicita sobre o calendario civil em que o periodo foi fechado |
 | `tenant_id` | seam de deployment (T2.6-EB3); **nao** viaja no fato — ver abaixo |
 
 O nome do literal e `ans_cron_report_type`, **nao** `report_type`, por uma razao de engine:
@@ -58,14 +58,17 @@ topico : operadora.notifications.internal        (ja registrado; nenhum topico n
 type   : ans.cron_due
 payload: { report_type, periodicidade, origem_envio: "calendario",
            competencia, competencia_referencia_iso,
-           ans_cron_reference_date_iso: <YYYY-MM-DD do instante da PUBLICACAO>,
+           ans_cron_reference_date_iso: <YYYY-MM-DD UTC do instante da PUBLICACAO>,
            tenant_id: <carimbo de deployment, setdefault> }
            (identificadores nao-PHI)
 ```
 
 `ans_cron_reference_date_iso` e carimbado pelo publicador generico sempre que
-`event_type == ans.cron_due` (instante da publicacao). `competencia_referencia_iso` e a ancora do
-RESOLVER — as duas normalmente coincidem; a segunda e a que explica a competencia.
+`event_type == ans.cron_due` (data **UTC** do instante da publicacao, sem offset).
+`competencia_referencia_iso` e a ancora do RESOLVER, em **horario civil brasileiro com offset**.
+As duas normalmente designam o mesmo dia, mas **podem divergir** na janela de 00:00-02:59 UTC
+(21:00-23:59 do dia anterior no Brasil) — e nesse caso a segunda e a correta, porque e ela que
+explica a competencia. Ver "Ancora temporal" abaixo.
 
 **`tenant_id` NAO esta em `event_payload_vars`, de proposito.** O agendador e tenant-agnostico
 (TimerStartEvent, sem contexto de caso). O tenant do fato vem do carimbo `setdefault` do publicador
@@ -73,7 +76,10 @@ generico (seam `deployment_tenant_id`, sourced de `WorkerRuntimeSettings.tenant_
 `tenant_id` fosse listado, o `""` de uma composicao sem seam viajaria no payload, o `setdefault`
 nao sobrescreveria, e a regra `ans.cron_due` da ponte — que exige tenant nao-vazio — ficaria
 dormente (ou produziria a chave degenerada `ANSSUB--...`). Ha fence estatico para isso em
-`tests/integration/processes/test_sp_op_ans_cron_001.py`.
+`tests/unit/spec/test_ans_cron_timers_taxonomy.py::test_ans_cron_payload_vars_nao_carregam_tenant_id`
+— deliberadamente em `tests/unit/` (e nao sob `tests/integration/`, onde vivia): sob o marker
+`integration` + o autouse `_skip_if_engine_unreachable` nenhum contexto OBRIGATORIO de CI o
+executava.
 
 ## Dispatch por FATO (ADR-0003 — event-choreographed; ZERO callActivity no repo)
 
@@ -138,6 +144,39 @@ ENGINE-SIDE por `BRT_Calendario` no processo de ENVIO, ADR-0028), nenhuma User T
 ADR-0028 §7 ("only after 100% parity in CI: delete the Python re-implementation") passou a valer —
 a paridade e provada engine-side em `tests/integration/dmn/test_dmn_golden_parity.py`.
 
+## Ancora temporal — fuso civil de negocio (nao UTC)
+
+A competencia e derivada da ancora do tick tomada em **`America/Sao_Paulo`** (`_BUSINESS_TZ` em
+`src/maezo/tools/workers/ans_cron.py`), **nao** em UTC. Razao: `_compute_competencia` promete
+nomear o periodo JA FECHADO; com uma ancora UTC, um tick entre 00:00 e 02:59 UTC do dia 1 (=
+21:00-23:59 do ultimo dia do mes anterior no horario civil brasileiro) leria o mes NOVO enquanto o
+Brasil ainda esta no ANTIGO, e o "mes imediatamente anterior" segundo o UTC seria um mes que ainda
+**nao fechou** para o regulador. A mesma janela de ~3h existe em cada virada de trimestre e de ano.
+Fences de fronteira: `tests/unit/tools/workers/test_ans_cron.py`
+(`test_ancora_mensal_na_virada_do_mes_usa_o_calendario_brasileiro` e vizinhos).
+
+> **DRAFT/verify regulatorio.** A **escolha do fuso** e um default de ENGENHARIA (a operadora e
+> brasileira e os prazos ANS sao publicados em horario civil brasileiro); NAO foi confirmada com o
+> regulatorio. Pergunta 2b de SP-OP-ANS-CRON-001 em `docs/sme-dispatch/regulatorio/PACKAGE.md`.
+
+## RN 639/2025 — o timer `RN_124_SIP` agenda uma obrigacao EXTINTA (DRAFT/verify)
+
+> **DRAFT/verify regulatorio.** `docs/decisions-log.md:26-27` (**DL-0029**, com **DL-0028**)
+> registra, de fonte primaria, que a **RN 639/2025** revoga a RN 551/2022, desobriga o envio do
+> **SIP** apos o 4o trimestre/2025 e vigora desde 02/03/2026 — a obrigacao esta **extinta**. O
+> despacho ao SME e explicito: o timer `SP-OP-ANS-CRON-001-RN124SIP` esta em **retirada cirurgica**
+> e a sua cadencia **NAO deve ser revisada**
+> (`docs/sme-dispatch/regulatorio/PACKAGE.md:79-82`). O literal `RN_124_SIP` continua neste
+> contrato, no BPMN e em `ans_calendar.dmn` porque e a **chave compartilhada** entre esses
+> artefatos: troca-lo ou remove-lo e decisao de SME/re-scope (T2.6), nao de engenharia. Nada aqui
+> afirma que a obrigacao esta vigente.
+>
+> Mesma classe, tambem **DRAFT/verify** e tambem levantada no despacho
+> (`docs/sme-dispatch/regulatorio/PACKAGE.md:90-94`): `RN_209_UTILIZACAO` (RN 209/2009 e
+> financeira, revogada pela RN 451/2020) e `RN_388_QUALIDADE` (RN 388/2015 e fiscalizacao/NIP,
+> superseded pela RN 483/2022) sao **citacoes miscitadas** que precisam de re-derivacao, nao de
+> confirmacao.
+
 ## Pendencias para promocao a FINAL
 
 - Confirmar os `timeCycle` reais por report_type (RN 124/209/388/424, DIOPS — **DRAFT/verify**),
@@ -151,4 +190,9 @@ a paridade e provada engine-side em `tests/integration/dmn/test_dmn_golden_parit
 - **Consumidor vivo da ponte (FINDING #2, ABERTO):** nenhum processo le
   `operadora.notifications.internal` e chama `NotificationBridge.on_event(...)`, entao nenhum
   tick abre de fato uma instancia de SP-OP-ANS-SUBMIT-001 hoje. Fora do escopo deste processo.
+- **Retirada do timer `RN_124_SIP`** (obrigacao extinta por RN 639/2025 — DL-0028/DL-0029) e
+  **re-derivacao** dos literais miscitados `RN_209_UTILIZACAO` / `RN_388_QUALIDADE`: decisao de
+  SME/re-scope T2.6, nao de engenharia (a taxonomia e chave compartilhada BPMN/DMN/contrato).
+- **Confirmacao do fuso civil da ancora** (`America/Sao_Paulo`, hoje um default de engenharia —
+  pergunta 2b do despacho regulatorio).
 - Revisao humana registrada (regulatorio-ANS) antes de qualquer deploy.

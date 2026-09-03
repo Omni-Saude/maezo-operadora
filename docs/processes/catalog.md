@@ -35,6 +35,16 @@ quadrupla existem: BPMN, `contracts/SP-OP-ANS-CRON-001.md` e `test-specs/SP-OP-A
 O processo tambem NAO esta em `KNOWN_PROCESS_KEYS` por design (e iniciado por TimerStartEvent,
 nunca por `start_process_idempotent`).
 
+**DRAFT/verify — um dos 5 timers agenda obrigacao EXTINTA.** `docs/decisions-log.md:26-27`
+(DL-0029/DL-0028) registra de fonte primaria que a **RN 639/2025** desobriga o envio do **SIP**
+apos o 4o trimestre/2025 (vigencia 02/03/2026); o despacho regulatorio poe
+`SP-OP-ANS-CRON-001-RN124SIP` em **retirada cirurgica** e **exclui a sua cadencia da revisao**
+(`docs/sme-dispatch/regulatorio/PACKAGE.md:79-82`). `RN_209_UTILIZACAO` e `RN_388_QUALIDADE` sao
+citacoes **miscitadas** que precisam de re-derivacao (`:90-94`). Os literais permanecem no BPMN/
+DMN/contrato porque sao a **chave compartilhada** entre esses artefatos — troca-los e decisao de
+SME/re-scope (T2.6), nao de engenharia. A ancora temporal da competencia usa o fuso civil
+`America/Sao_Paulo` (`ans_cron._BUSINESS_TZ`), tambem **DRAFT/verify** (default de engenharia).
+
 **Registro de decisao — `operadora.programa.monitor_programa` REMOVIDO** (PERSP-C5-MONITOR-PROGRAMA):
 o worker estava registrado sob um topico derivado do nome da funcao que NENHUM `serviceTask` de
 `SP-OP-PROGRAMA-001` declara — orfao inalcancavel — e o seu unico output era

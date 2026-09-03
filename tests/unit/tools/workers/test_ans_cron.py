@@ -8,15 +8,19 @@ fact really carries the computed competencia — live in
 lives in `tests/integration/dmn/test_dmn_golden_parity.py`.
 """
 
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
 
+from maezo.tools.workers import ans_cron
 from maezo.tools.workers.ans_cron import (
+    _BUSINESS_TZ,
     _REPORT_PERIODICIDADE,
     COMPETENCIA_PENDENTE,
     PERIODICIDADE_INDETERMINADA,
     _compute_competencia,
+    _now_business,
     register_ans_cron_workers,
     trigger_submissions,
 )
@@ -236,3 +240,115 @@ def test_compute_competencia_invalid_reference_date_is_pending_not_a_crash() -> 
     never raises, never silently defaults to a real-looking competencia."""
     for periodicidade in ("P1M", "P3M", "P12M"):
         assert _compute_competencia("not-a-date", periodicidade) == COMPETENCIA_PENDENTE
+
+
+# ---------------------------------------------------------------
+# Ancora temporal — fuso civil de negocio (nao UTC)
+#
+# O bug corrigido aqui NAO esta no mapeamento periodo->competencia (esse ja era correto), e sim
+# na ANCORA: com `datetime.now(UTC)` havia uma janela de ~3h em CADA virada de mes/trimestre/ano
+# em que o UTC ja estava no periodo novo enquanto o Brasil ainda estava no antigo — e o "periodo
+# imediatamente anterior" segundo o UTC era um periodo que AINDA NAO havia fechado para o
+# regulador, violando o proprio invariante documentado de `_compute_competencia`.
+#
+# Os casos abaixo fixam o instante do relogio pela seam `_now_business` e comparam o resultado
+# com o que o UTC teria produzido no MESMO instante.
+# ---------------------------------------------------------------
+
+
+def _freeze_business_clock(monkeypatch: pytest.MonkeyPatch, utc_instant: str) -> None:
+    """Congela `ans_cron._now_business` no instante UTC dado, convertido para `_BUSINESS_TZ`."""
+    momento = datetime.fromisoformat(utc_instant).astimezone(_BUSINESS_TZ)
+    monkeypatch.setattr(ans_cron, "_now_business", lambda: momento)
+
+
+def test_business_tz_e_o_fuso_civil_brasileiro() -> None:
+    """A constante e America/Sao_Paulo e produz offset UTC-3 fora do horario de verao (extinto no
+    Brasil desde 2019). DRAFT/verify regulatorio: a ESCOLHA do fuso e um default de engenharia —
+    ver `docs/sme-dispatch/regulatorio/PACKAGE.md` (SP-OP-ANS-CRON-001, pergunta 2b)."""
+    assert str(_BUSINESS_TZ) == "America/Sao_Paulo"
+    assert datetime(2026, 2, 28, 21, 30, tzinfo=_BUSINESS_TZ).utcoffset() == timedelta(hours=-3)
+
+
+def test_ancora_carrega_offset_explicito_e_nao_e_data_nua(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`competencia_referencia_iso` viaja em ISO-8601 COM OFFSET: sem o offset o consumidor do
+    fato nao consegue dizer em que calendario civil o periodo foi fechado."""
+    _freeze_business_clock(monkeypatch, "2026-02-28T23:30:00+00:00")
+    ancora = trigger_submissions({"ans_cron_report_type": "RN_124_SIP"})["competencia_referencia_iso"]
+
+    assert ancora == "2026-02-28T20:30:00-03:00"
+    momento = datetime.fromisoformat(ancora)
+    assert momento.utcoffset() == timedelta(hours=-3), "a ancora precisa carregar o offset"
+
+
+def test_ancora_mensal_na_virada_do_mes_usa_o_calendario_brasileiro(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """00:30 UTC do dia 1 = 21:30 BRT do ULTIMO dia do mes anterior. Em horario civil brasileiro
+    fevereiro AINDA ESTA ABERTO, logo a ultima competencia FECHADA e janeiro. Com a ancora UTC
+    (o defeito) o resultado seria `2026-02` — um mes ainda aberto para o regulador."""
+    _freeze_business_clock(monkeypatch, "2026-03-01T00:30:00+00:00")
+    result = trigger_submissions({"ans_cron_report_type": "RN_124_SIP"})
+
+    assert result["competencia_referencia_iso"] == "2026-02-28T21:30:00-03:00"
+    assert result["competencia"] == "2026-01"
+    # O que a ancora UTC teria produzido no MESMO instante — o periodo ainda aberto no Brasil.
+    assert _compute_competencia("2026-03-01T00:30:00+00:00", "P1M") == "2026-02"
+
+
+def test_ancora_mensal_depois_da_virada_no_brasil_fecha_o_mes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """03:00 UTC do dia 1 = 00:00 BRT do dia 1: marco COMECOU tambem no Brasil, entao fevereiro
+    fechou e passa a ser a competencia. O outro lado da mesma fronteira."""
+    _freeze_business_clock(monkeypatch, "2026-03-01T03:00:00+00:00")
+    result = trigger_submissions({"ans_cron_report_type": "RN_124_SIP"})
+
+    assert result["competencia_referencia_iso"] == "2026-03-01T00:00:00-03:00"
+    assert result["competencia"] == "2026-02"
+
+
+def test_ancora_mensal_no_fim_do_mes_nunca_nomeia_o_mes_aberto(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """23:30 UTC do ULTIMO dia do mes = 20:30 BRT do MESMO dia: UTC e BRT concordam no mes, e o
+    mes corrente (ainda aberto) nunca e a resposta."""
+    _freeze_business_clock(monkeypatch, "2026-03-31T23:30:00+00:00")
+    result = trigger_submissions({"ans_cron_report_type": "RN_124_SIP"})
+
+    assert result["competencia_referencia_iso"] == "2026-03-31T20:30:00-03:00"
+    assert result["competencia"] == "2026-02"
+
+
+def test_ancora_trimestral_na_virada_do_trimestre_usa_o_calendario_brasileiro(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mesma janela na virada de TRIMESTRE: 00:30 UTC de 01/abr = 21:30 BRT de 31/mar, com o Q1
+    ainda aberto no Brasil — a ultima competencia trimestral FECHADA e o Q4/2025 (`2025-10`).
+    Pela ancora UTC seria `2026-01` (o proprio Q1, ainda aberto)."""
+    _freeze_business_clock(monkeypatch, "2026-04-01T00:30:00+00:00")
+    result = trigger_submissions({"ans_cron_report_type": "DIOPS_TRIMESTRAL"})
+
+    assert result["competencia"] == "2025-10"
+    assert _compute_competencia("2026-04-01T00:30:00+00:00", "P3M") == "2026-01"
+
+
+def test_ancora_anual_na_virada_do_ano_usa_o_calendario_brasileiro(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mesma janela na virada de ANO: 01:00 UTC de 01/jan/2026 = 22:00 BRT de 31/dez/2025, com
+    2025 ainda aberto no Brasil — o ultimo ano FECHADO e 2024 (`2024-01`). Pela ancora UTC seria
+    `2025-01` (o proprio 2025, ainda aberto)."""
+    _freeze_business_clock(monkeypatch, "2026-01-01T01:00:00+00:00")
+    result = trigger_submissions({"ans_cron_report_type": "RN_388_QUALIDADE"})
+
+    assert result["competencia"] == "2024-01"
+    assert _compute_competencia("2026-01-01T01:00:00+00:00", "P12M") == "2025-01"
+
+
+def test_now_business_devolve_instante_aware_no_fuso_de_negocio() -> None:
+    """A seam real (nao congelada) devolve um datetime AWARE no fuso de negocio — nunca naive
+    (um naive faria `isoformat()` perder o offset e a ancora voltaria a ser ambigua)."""
+    agora = _now_business()
+    assert agora.tzinfo is not None
+    assert agora.utcoffset() == timedelta(hours=-3)
