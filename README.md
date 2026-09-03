@@ -30,7 +30,7 @@ Plataforma **agents-first** completa para operadoras de saúde (payer). Reconstr
 | MCP Servers | 6 | CIB Seven, DMN, FHIR, WhatsApp, Memory, Process Allowlist |
 | Testes | CI workflow | Unitários cobrindo workers, gateway, agents, platform, tools (veja CI para count atual) |
 | Código fonte | ~10K LOC | Arquivos Python em `src/maezo/` (veja a árvore para count atual) |
-| Documentação | ~205K palavras | 16 contratos SP-OP, 38 ADRs (34 Accepted + 4 Proposed), 45 DLs, 8 runbooks |
+| Documentação | ~205K palavras | 16 contratos SP-OP, 38 ADRs (34 Accepted + 4 Proposed), 45 DLs, 21 runbooks (13 gerais + 8 de alerta) |
 
 ### Princípios inegociáveis
 
@@ -147,7 +147,8 @@ src/maezo/
 | [docs/processes/catalog.md](docs/processes/catalog.md) | Catálogo de 15 processos SP-OP |
 | [docs/processes/contracts/](docs/processes/contracts/) | 16 contratos — ~1000 regras de negócio |
 | [docs/decisions-log.md](docs/decisions-log.md) | 45 decisões operacionais |
-| [docs/runbooks/](docs/runbooks/) | 8 runbooks operacionais |
+| [docs/runbooks/](docs/runbooks/) | 21 runbooks operacionais (13 gerais + 8 de alerta em `alerts/`) |
+| [docs/observability/SLO.md](docs/observability/SLO.md) | SLIs/SLOs (DRAFT) para worker-runtime, agent-runtime e gateway; trace metrica→emissor dos 8 alertas |
 | [AGENTS.md](AGENTS.md) | Guia para desenvolvimento assistido por IA |
 | [PLANS.md](PLANS.md) | Plano de implementação greenfield |
 | [PROJECT.md](PROJECT.md) | Arquitetura em 30s |

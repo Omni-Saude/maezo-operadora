@@ -29,6 +29,27 @@ the established convention rather than introducing a second language into this d
 | [`phi-inference-ops.md`](phi-inference-ops.md) | LLM provider selection, fail-closed PHI routing, credential handling | Platform, security, PHI operations |
 | [`a2a-key-rotation.md`](a2a-key-rotation.md) | Agent Card signing key today, registry verification, what's pending | Security, platform |
 
+## Alert runbooks
+
+One runbook per Prometheus alert in [`deploy/observability/alert-rules.yml`](../../deploy/observability/alert-rules.yml)
+(GAP-D12-01-a) — every `runbook_url` annotation the owner adds to that file (a separate,
+owner-gated change) has a real target here. Companion document:
+[`docs/observability/SLO.md`](../observability/SLO.md) — SLI definitions, the metric→emitter
+trace for every metric these alerts reference (several are DEAD or DO-NOT-EXIST metrics; read
+that document before trusting an alert at face value), proposed SLOs, and the burn-rate
+alerting shape that would replace these static thresholds.
+
+| Alert | Rule (`alert-rules.yml:line`) | Runbook |
+|---|---|---|
+| `MaezoSLAWorkerLatencyHigh` | :18 | [`alerts/MaezoSLAWorkerLatencyHigh.md`](alerts/MaezoSLAWorkerLatencyHigh.md) |
+| `MaezoSLAAgentErrorRateHigh` | :36 | [`alerts/MaezoSLAAgentErrorRateHigh.md`](alerts/MaezoSLAAgentErrorRateHigh.md) |
+| `MaezoSLAWorkerErrorRateHigh` | :56 | [`alerts/MaezoSLAWorkerErrorRateHigh.md`](alerts/MaezoSLAWorkerErrorRateHigh.md) |
+| `MaezoWorkerCrashLoop` | :81 | [`alerts/MaezoWorkerCrashLoop.md`](alerts/MaezoWorkerCrashLoop.md) |
+| `MaezoAgentCrashLoop` | :98 | [`alerts/MaezoAgentCrashLoop.md`](alerts/MaezoAgentCrashLoop.md) |
+| `MaezoDeadLetterBacklog` | :121 | [`alerts/MaezoDeadLetterBacklog.md`](alerts/MaezoDeadLetterBacklog.md) |
+| `MaezoDeadLetterGrowth` | :138 | [`alerts/MaezoDeadLetterGrowth.md`](alerts/MaezoDeadLetterGrowth.md) |
+| `MaezoLifecycleJobFailed` | :171 | [`alerts/MaezoLifecycleJobFailed.md`](alerts/MaezoLifecycleJobFailed.md) |
+
 ## Drills
 
 Quarterly operational drills — see [`drills/README.md`](drills/README.md).
