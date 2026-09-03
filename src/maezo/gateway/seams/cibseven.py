@@ -15,9 +15,9 @@ NOT gate `start_process_instance`, and the manifest's agent-start surface theref
 `choked: false`. That is a truth claim, not an omission:
 
 `start_process_instance` is only ever reached from INSIDE `start_process_idempotent`
-(`transport.py:1069-1219`; the CI fence makes every other call site a build failure). By the time
-control gets there, step 1 has ALREADY written the durable ADR-0007 claim (`:1152-1157`). A
-refusal raised at `:1194` lands in the `except CibSevenError` at `:1178`, which for a STRICT
+(`transport.py:1212-1391`; the CI fence makes every other call site a build failure). By the time
+control gets there, step 1 has ALREADY written the durable ADR-0007 claim (`:1303-1307`). A
+refusal raised at `:1352` lands in the `except CibSevenError` at `:1353`, which for a gated
 family logs `cibseven_start_claim_orphaned` and re-raises — i.e. a POLICY denial would wedge a
 business key exactly as an engine outage does. Gating there means changing
 `start_process_idempotent`'s internals, which design §5.8 / I-6 forbids and the B2 brief repeats.
@@ -27,7 +27,7 @@ flipped. Wiring it is a design act (a decision point BEFORE the claim, inside th
 wrapper act — recorded for the Onda-1 PR ledger and §9.2's residuals list.
 
 RESIDUAL ON THE READ LEG, ALSO DISCLOSED. `find_active_instance` IS gated, and it is called at
-`transport.py:1182` — step 3, i.e. AFTER the claim. Under a future `consulta_processo` flip a
+`transport.py:1340` — step 3, i.e. AFTER the claim. Under a future `consulta_processo` flip a
 denial there propagates out of `start_process_idempotent` and NO instance is created, which is
 the fail-closed direction the `LEITURA_INCONCLUSIVA` shape demands. For a STRICT family it would
 also leave a claim with no engine instance and no `cibseven_start_claim_orphaned` announcement
@@ -108,7 +108,7 @@ class GatedCibSevenTransport(GatedSeam):
 class GatedHistoryQueryingCibSevenTransport(GatedCibSevenTransport):
     """Adds `find_any_instance` — built ONLY when the inner transport actually has it.
 
-    Load-bearing: `_require_strict_gate_seams` (`transport.py:940-947`) probes the injected
+    Load-bearing: `_require_strict_gate_seams` (`transport.py:1035-1049`) probes the injected
     transport with `isinstance(..., HistoryQueryingTransport)` and REFUSES a strict-family start
     when it fails. A wrapper that always exposed `find_any_instance` would make a mis-wired root
     pass that probe and fail later — turning a fail-closed refusal into a fail-late one, i.e. a

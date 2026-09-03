@@ -90,6 +90,36 @@ class WebhookState:
         return self.live
 
 
+def _helena_model_tiers() -> dict[str, str]:
+    """Helena's `task_kind -> tier` map from `spec/agents/helena/agent.yaml` (AF-12). TOTAL.
+
+    LOUD, NOT SILENT, AND DELIBERATELY NOT FAIL-CLOSED. Unlike `agent_runtime`, this receiver has
+    no `AGENT_DEFINITION_PATH` ConfigMap contract, so whether `spec/agents/` is readable here is a
+    deployment property this function cannot assume. Refusing to build the dispatcher over a
+    missing tier map would take Helena's live WhatsApp path to a 501 for a telemetry-grade config
+    fact — a far worse failure than the one it would prevent, given that the map cannot change
+    which model is used while exactly one is configured (`InferenceProvider._resolve_task_model`).
+
+    So a load failure logs at ERROR and returns `{}`, and every subsequent call is counted under
+    the `sem_mapa` tier on `maezo_llm_tier_resolution_total` — visible in both the log stream and
+    the metric, which is what makes this a disclosed degrade rather than a silent fallback. A
+    tier OUTSIDE the ADR-0009 vocabulary is NOT absorbed here: `InferenceProvider` still refuses
+    to construct on it, and that refusal still takes `/webhook` to its explicit 501.
+    """
+    from maezo.agents import AgentLoader
+
+    try:
+        return AgentLoader().load_by_id("helena").model_tiers()
+    except Exception as exc:  # noqa: BLE001 — see the docstring: total by design, never silent.
+        logger.error(
+            "helena_model_tiers_unavailable",
+            error=f"{type(exc).__name__}: {exc}",
+            detail="spec/agents/helena/agent.yaml could not be read; LLM calls will be counted "
+            "under the `sem_mapa` tier sentinel. This does NOT change which model is used.",
+        )
+        return {}
+
+
 def _build_dispatcher(
     settings: WhatsAppWebhookSettings,
 ) -> tuple[HelenaDispatcher, GatedCibSevenTransport]:
@@ -118,7 +148,14 @@ def _build_dispatcher(
     # `_bring_up_dependencies`, which leaves `state.dispatcher` None and degrades `/webhook` to
     # its explicit 501 — the identical refuse-to-serve shape a missing DSN or a missing PHI key
     # already triggers. There is no path where this receiver serves a turn with an ungated seam.
-    seams = build_agent_seams(settings=settings, agent_id="helena", inference=InferenceProvider())
+    seams = build_agent_seams(
+        settings=settings,
+        agent_id="helena",
+        # AF-12: the LIVE agent path gets Helena's declared tier map too. Without this, the one
+        # process that actually runs turns would report every LLM call under the `sem_mapa`
+        # sentinel, and the tiering wire would be true only of the health-only daemon.
+        inference=InferenceProvider(model_tiers=_helena_model_tiers()),
+    )
     seam_context = build_agent_seam_context(tenant=settings.tenant_id, agent_id="helena")
     whatsapp_client = WhatsAppServer()
     dispatcher = HelenaDispatcher(
