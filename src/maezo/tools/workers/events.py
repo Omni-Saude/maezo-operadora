@@ -91,13 +91,13 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-# MODULE-SCOPE deliberately (not a lazy in-function import): the handler's `egress_message_key`
-# call sits OUTSIDE its publish-`try` (see the comment at that call), so an ImportError here must
-# surface at import time as an import failure — never as a mid-dispatch exception the publish
-# error path could re-label. `key_scrubber` imports `gateway.{log_scrubber,pseudonymizer}` only,
-# and defers `phi_key_policy` lazily inside the function body, so there is no cycle back into
-# `tools.workers`.
-from maezo.platform.privacy.key_scrubber import egress_message_key
+# MODULE-SCOPE deliberately (not a lazy in-function import): the handler's key derivation sits
+# OUTSIDE its publish-`try` (see the comment at that call), so an ImportError here must surface at
+# import time as an import failure — never as a mid-dispatch exception the publish error path could
+# re-label. `partition_key` re-exports the same discipline for `key_scrubber`, which imports
+# `gateway.{log_scrubber,pseudonymizer}` only and defers `phi_key_policy` lazily inside the function
+# body, so there is no cycle back into `tools.workers`.
+from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.tools.workers.harness import ExternalTask, WorkerBpmnError
 
 if TYPE_CHECKING:
@@ -341,7 +341,15 @@ def make_publish_event_handler(
         # who ratified the flag without provisioning the key needs to see. Under the shipped
         # (`off`) policy this line cannot raise at all: `egress_message_key` returns the key
         # untouched without ever constructing a pseudonymizer.
-        message_key = egress_message_key(task.business_key) or None
+        #
+        # GAP-SC-04-a: the key is now derived through the ONE shared chain
+        # (`partition_key.partition_key_for_task`), which applies `egress_message_key` to the
+        # business key exactly as the line it replaces did, and — when the task carries NO business
+        # key — falls back to the payload's own PHI-free anchors and then to
+        # `{tenant}|{process_instance_id}` instead of degrading to `None` (round-robin, no
+        # per-entity ordering). The hoist above the `try` is preserved verbatim for the reason the
+        # paragraph above gives.
+        message_key = partition_key_for_task(task, str(event_topic), payload)
         try:
             event_delivered = await kafka.publish(
                 str(event_topic),

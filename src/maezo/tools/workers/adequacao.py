@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.tools.workers.adequacao_shadow import record_shadow_divergence
 from maezo.tools.workers.base import FunctionWorker, non_blank
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
@@ -586,9 +587,14 @@ def make_update_monitoring_plan_handler(kafka: KafkaPublisher | None) -> TaskHan
             "gap_adequacao": result.get("gap_adequacao", ""),
         }
         # best_effort=False — see factory docstring (no boundary declared -> raw propagate).
-        await kafka.publish(
-            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-        )
+        # GAP-SC-04-a: the partition key comes from the ONE shared chain (task business key ->
+        # payload anchors -> `{tenant}|{process_instance_id}`), never from `task.business_key or
+        # None` — that idiom degraded a blank business key into an UNKEYED publish, i.e.
+        # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
+        # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
+        # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         return result
 
     return handler

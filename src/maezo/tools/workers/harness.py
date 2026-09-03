@@ -1007,6 +1007,14 @@ class KafkaPublisher(Protocol):
     variable like `events.py`'s `event_published` can stop lying about a swallowed failure. A
     non-best-effort failure raises instead of returning. Mirror-leg outcomes never affect the
     return value.
+
+    `unordered` is the GAP-SC-04-a fail-closed partition-key escape hatch. The real producer
+    REFUSES a publish for which no partition key can be resolved (`MissingPartitionKeyError`,
+    `platform/integrations/partition_key.py`) — a keyless record is assigned round-robin across the
+    topic's partitions, which loses per-entity ordering the moment a consumer is scaled past one
+    replica. `unordered=True` is the caller DECLARING that ordering is meaningless for this
+    publish; no call site in this build passes it (see
+    `AioKafkaEventsProducer.resolve_partition_key`'s enumeration).
     """
 
     async def publish(
@@ -1016,6 +1024,7 @@ class KafkaPublisher(Protocol):
         *,
         key: str | None = None,
         best_effort: bool | None = None,
+        unordered: bool = False,
     ) -> bool: ...
 
 
@@ -1023,14 +1032,20 @@ class FakeKafkaPublisher:
     """In-memory `KafkaPublisher` double for unit tests. NEVER imported by production code.
 
     Records each call's `best_effort` posture in `best_effort_calls` (parallel to `published`) so
-    callers can assert they opted into propagate-on-failure where a lost publish is unacceptable.
-    Always reports delivery (`True`) — a recorded publish IS a delivered publish here; failure
-    modes are exercised by dedicated failing doubles in the individual test modules.
+    callers can assert they opted into propagate-on-failure where a lost publish is unacceptable,
+    and each call's `unordered` declaration in `unordered_calls` (GAP-SC-04-a). Always reports
+    delivery (`True`) — a recorded publish IS a delivered publish here; failure modes are
+    exercised by dedicated failing doubles in the individual test modules.
+
+    DELIBERATELY NOT a partition-key gate: this double records what the caller asked for; the
+    fail-closed refusal lives in exactly ONE place (`AioKafkaEventsProducer.resolve_partition_key`)
+    and is proven there, never re-implemented in a test double that could drift from it.
     """
 
     def __init__(self) -> None:
         self.published: list[tuple[str, dict[str, Any], str | None]] = []
         self.best_effort_calls: list[bool | None] = []
+        self.unordered_calls: list[bool] = []
 
     async def publish(
         self,
@@ -1039,9 +1054,11 @@ class FakeKafkaPublisher:
         *,
         key: str | None = None,
         best_effort: bool | None = None,
+        unordered: bool = False,
     ) -> bool:
         self.published.append((topic, value, key))
         self.best_effort_calls.append(best_effort)
+        self.unordered_calls.append(unordered)
         return True
 
 
