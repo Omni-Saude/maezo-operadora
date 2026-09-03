@@ -204,8 +204,11 @@ def test_bridge_root_constructs_when_the_engine_seam_is_gated(monkeypatch: pytes
         lambda **_k: gate_cibseven(FakeCibSevenTransport(), _seam("helena")),
     )
 
-    bridge, transport = bridge_mod.build_bridge(_bridge_settings())
+    # 3-tuple since GAP-SC-04-a: the root also hands out the `PostgresAuditSink` it owns, so the
+    # dead-letter shunt shares ONE sink (and one audit chain) with the fenced starter.
+    bridge, transport, audit_sink = bridge_mod.build_bridge(_bridge_settings())
     assert bridge is not None
+    assert audit_sink is not None
     from maezo.gateway.seams import is_gated_seam
 
     assert is_gated_seam(transport)

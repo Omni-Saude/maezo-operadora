@@ -27,6 +27,7 @@ elsewhere never blocks this file — only Postgres unreachability does, and that
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import uuid
 from collections.abc import Iterator
@@ -36,6 +37,14 @@ import asyncpg  # type: ignore[import-untyped]
 import pytest
 
 from maezo.gateway.audit_postgres import PostgresAuditSink, normalize_dsn, schema_for_tenant
+from maezo.platform.integrations.notifications_bridge import (
+    NOTIFICATIONS_TOPIC,
+    REASON_MISSING_TYPE,
+    BridgeDlqShunt,
+    BridgeMessage,
+    FakeBridgeKafkaConsumer,
+    run_consumer_loop,
+)
 from maezo.platform.notification_bridge import (
     CONTAS_COMPLETED_EVENT,
     NotificationBridge,
@@ -179,3 +188,118 @@ async def test_bridge_handoff_redelivery_is_idempotent_at_the_audit_layer(
     finally:
         await audit_sink.aclose()
         await transport.close()
+
+
+# ---------------------------------------------------------------------------
+# GAP-SC-04-a — the dead-letter shunt's DURABLE half, against a real Postgres.
+#
+# The unit suite proves the shunt's control flow against `FakeAuditSink`. What it cannot prove is
+# that the audit fact actually PERSISTS: `AuditRecord.details` must survive the real `decision_basis`
+# jsonb column, and the dedup key must actually collapse a redelivery in the real
+# `audit_emit_dedup` table (migration 0005) rather than only in a dict.
+# ---------------------------------------------------------------------------
+
+
+class _RecordingDlqPublisher:
+    """In-memory `BridgeDlqPublisher` — the KAFKA leg is proven live in
+    `test_events_kafka_producer_live.py`; this suite is scoped to the PG lane (module docstring's
+    own boundary), so the publisher is a recorder and the AUDIT SINK is real."""
+
+    def __init__(self) -> None:
+        self.published: list[tuple[str, bytes]] = []
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def publish_dlq(self, topic: str, *, raw: bytes, key: bytes | None, headers: Any) -> None:
+        self.published.append((topic, raw))
+
+
+async def _fetch_dlq_rows(dsn: str, tenant_id: str) -> list[Any]:
+    schema = schema_for_tenant(tenant_id)
+    conn = await asyncpg.connect(normalize_dsn(dsn))
+    try:
+        return await conn.fetch(
+            f'SELECT action, agent_id, decision, decision_basis FROM "{schema}".audit_chain '
+            "WHERE action LIKE 'bridge_dlq:%' ORDER BY id"
+        )
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_dlq_shunt_writes_a_durable_phi_safe_audit_row(
+    pg_tenant_schema: tuple[str, str],
+) -> None:
+    """A poison message shunted through `run_consumer_loop` leaves a REAL `audit_chain` row whose
+    `decision_basis` carries bounded tokens plus the one-way `raw_sha256` — and NOT a byte of the
+    offending payload. Queried straight out of Postgres, not inferred from `emit_once` returning."""
+    import hashlib
+
+    dsn, tenant_id = pg_tenant_schema
+    audit_sink = PostgresAuditSink(dsn, tenant_id)
+    publisher = _RecordingDlqPublisher()
+    bridge = NotificationBridge(
+        cibseven_starter=build_cibseven_process_starter(FakeCibSevenTransport(), audit_sink)
+    )
+    dlq = BridgeDlqShunt(publisher=publisher, audit_sink=audit_sink, tenant_id=tenant_id)
+
+    poison = {"tenant_id": tenant_id, "sem_tipo": "GUIA-DLQ-LIVE-001"}
+    message = BridgeMessage.from_value(poison, topic=NOTIFICATIONS_TOPIC, partition=0, offset=11)
+    consumer = FakeBridgeKafkaConsumer([message])
+    await consumer.start()
+
+    try:
+        await run_consumer_loop(consumer, bridge, dlq=dlq)
+
+        assert consumer.commits == 1, "the offset advances ONLY after the shunt confirmed"
+        assert publisher.published == [(f"{NOTIFICATIONS_TOPIC}.dlq", message.raw)]
+
+        rows = await _fetch_dlq_rows(dsn, tenant_id)
+        assert len(rows) == 1
+        assert rows[0]["action"] == f"bridge_dlq:{NOTIFICATIONS_TOPIC}"
+        assert rows[0]["agent_id"] == "notification_bridge"
+        assert rows[0]["decision"] == "DENY"
+
+        basis = rows[0]["decision_basis"]
+        basis_text = basis if isinstance(basis, str) else json.dumps(basis)
+        assert REASON_MISSING_TYPE in basis_text
+        assert hashlib.sha256(message.raw).hexdigest() in basis_text
+        assert "GUIA-DLQ-LIVE-001" not in basis_text, (
+            "no byte of the quarantined payload may reach the durable chain — the sha256 is the "
+            "evidence, the content is not"
+        )
+    finally:
+        await audit_sink.aclose()
+
+
+@pytest.mark.asyncio
+async def test_dlq_shunt_redelivery_writes_exactly_one_audit_row(
+    pg_tenant_schema: tuple[str, str],
+) -> None:
+    """The at-least-once cost of publish-then-audit, bounded against the REAL `audit_emit_dedup`
+    table: three redeliveries of the same record re-publish to the DLQ three times and converge on
+    ONE chain row, because the dedup key is the record's broker coordinates."""
+    dsn, tenant_id = pg_tenant_schema
+    audit_sink = PostgresAuditSink(dsn, tenant_id)
+    publisher = _RecordingDlqPublisher()
+    bridge = NotificationBridge(
+        cibseven_starter=build_cibseven_process_starter(FakeCibSevenTransport(), audit_sink)
+    )
+    dlq = BridgeDlqShunt(publisher=publisher, audit_sink=audit_sink, tenant_id=tenant_id)
+    message = BridgeMessage.from_value({"no": "type"}, topic=NOTIFICATIONS_TOPIC, partition=1, offset=42)
+
+    try:
+        for _attempt in range(3):
+            consumer = FakeBridgeKafkaConsumer([message])
+            await consumer.start()
+            await run_consumer_loop(consumer, bridge, dlq=dlq)
+
+        assert len(publisher.published) == 3
+        rows = await _fetch_dlq_rows(dsn, tenant_id)
+        assert len(rows) == 1, "a re-shunted record must not write a second audit-chain link"
+    finally:
+        await audit_sink.aclose()
