@@ -492,7 +492,7 @@ class TestRuleInventoryIsPinned:
 
     def test_rule_counts_are_pinned(self) -> None:
         assert len(R1_FAMILIES) == 9
-        assert len(R1_TOKENS) == 75
+        assert len(R1_TOKENS) == 79
         assert len(R2_CORE_RULES) == 12
         assert len(R2_CTX_RULES) == 4
 
@@ -576,6 +576,10 @@ class TestRuleInventoryIsPinned:
             "protocolo_recurso",
             "start_recurso",
             "StartRecurso",
+            "acompanhar_recurso",
+            "AcompanharRecurso",
+            "acompanhar_status",
+            "AcompanharStatus",
             # ancora-kpi
             "data_ciencia_glosa",
             "recurso_recovery_rate",
@@ -590,7 +594,7 @@ class TestRuleInventoryIsPinned:
 
 
 class TestBoundaryDiscipline:
-    """`whole` / `segment` / `tail` — the three boundary modes of §6.4."""
+    """`whole` / `segment` / `tail` / `group` — the four boundary modes."""
 
     def test_whole_boundary_does_not_match_a_longer_identifier(self) -> None:
         assert {r for _, r, _ in scan_line("recurso_recovery_rate", tier=TIER_A)} == {
@@ -610,22 +614,71 @@ class TestBoundaryDiscipline:
         }
         assert scan_line("resposta_recebida_ans", tier=TIER_A) == []
 
-    def test_start_recurso_is_tail_bound_so_an_inbound_start_event_is_clean(self) -> None:
-        """`ST_StartRecurso` is the payer filing an appeal; `Start_RecursoRecebido`
-        is the payer receiving one — and the redesign needs the second name.
+    def test_start_recurso_group_boundary_catches_the_payer_action(self) -> None:
+        """`ST_StartRecurso` / `operadora.contas.start_recurso` are the payer
+        filing an appeal against its own glosa (D-m3) — they must stay caught.
 
-        D-m3 added the token; a `segment` boundary would have made it reject
-        the gate's own payer-legitimate sentence NFP2, so it carries `tail`,
-        the discipline §6.4 already invented for `resposta_recebida`.
+        `StartRecurso` (CamelCase) uses `group`; `start_recurso` (snake_case)
+        uses the plain `segment` default (m1, verifier gate review: a bare
+        `tail` bound on both, PR-1's first cut, over-corrected — see the two
+        tests below).
         """
         assert "ciclo-recorrente:StartRecurso" in {r for _, r, _ in scan_line("ST_StartRecurso", tier=TIER_A)}
         assert "ciclo-recorrente:start_recurso" in {
             r for _, r, _ in scan_line("operadora.contas.start_recurso", tier=TIER_A)
         }
+
+    def test_start_recurso_group_boundary_releases_the_inbound_bpmn_id(self) -> None:
+        """`Start_RecursoRecebido` is the payer *receiving* an appeal — the
+        redesign renames `Start_RecursoSolicitado` (live today at
+        `SP-OP-RECURSO-001_Recurso_Glosa.bpmn:86`, the inbound start event) to
+        exactly this. Both must stay clean.
+        """
         assert scan_line("Start_RecursoRecebido", tier=TIER_A) == []
-        # Not hypothetical: this id is on `main` today, at
-        # SP-OP-RECURSO-001_Recurso_Glosa.bpmn:86 — the inbound start event.
         assert scan_line("Start_RecursoSolicitado", tier=TIER_A) == []
+
+    def test_start_recurso_group_boundary_catches_the_suffixed_evasions(self) -> None:
+        """m1, verifier gate review (EV-1/2/3): the `tail` bound PR-1 shipped
+        first let every *suffixed* provider-perspective id in this family
+        walk past — `ST_StartRecursoGlosa`, `ST_StartRecursoDeGlosa`,
+        `operadora.contas.start_recurso_glosa` — while the `segment`-bound
+        siblings of the same family (`SubmitAppeal`, `TrackStatus`) caught
+        their own suffixed forms (`ST_SubmitAppealGlosa`,
+        `ST_TrackStatusRecurso`, asserted below as the contrast). `group`
+        closes the hole: it only releases a `Start`/`Recurso` pair that the
+        identifier's *own* delimiter splits apart, which none of these do.
+        """
+        assert "ciclo-recorrente:StartRecurso" in {
+            r for _, r, _ in scan_line("ST_StartRecursoGlosa", tier=TIER_A)
+        }
+        assert "ciclo-recorrente:StartRecurso" in {
+            r for _, r, _ in scan_line("ST_StartRecursoDeGlosa", tier=TIER_A)
+        }
+        assert "ciclo-recorrente:start_recurso" in {
+            r for _, r, _ in scan_line("operadora.contas.start_recurso_glosa", tier=TIER_A)
+        }
+        # The contrast: this family's other, already-`segment`-bound tokens
+        # were never fooled by a suffix. Not hypothetical regressions — the
+        # gate review's own EV-8/EV-9 attack sentences.
+        assert "ciclo-recorrente:TrackStatus" in {
+            r for _, r, _ in scan_line("ST_TrackStatusRecurso", tier=TIER_A)
+        }
+        assert "ciclo-recorrente:SubmitAppeal" in {
+            r for _, r, _ in scan_line("ST_SubmitAppealGlosa", tier=TIER_A)
+        }
+
+    def test_start_recurso_group_boundary_declared_residual(self) -> None:
+        """Declared residual (m1, verifier gate review) — not silently accepted.
+
+        An id of the *exact* shape `Start_Recurso<Capitalized>` is structurally
+        indistinguishable from the legitimate rename
+        (`Start_RecursoSolicitado`/`Start_RecursoRecebido`): both put the
+        identifier's own `_` between `Start` and `Recurso`. Closing this would
+        require reading what the suffix *means*, which is a perspective
+        judgement, not a vocabulary one (ADR-0040 D7) — so it stays open, and
+        this test is the record that it is known, not missed.
+        """
+        assert scan_line("Start_RecursoGlosa", tier=TIER_A) == []
 
     def test_r1_is_case_sensitive(self) -> None:
         """`r_valor_recorrer` (a lowercase DMN rule id) is not the decision value."""
@@ -663,10 +716,209 @@ class TestDisambiguationRules:
             r for _, r, _ in scan_line("sem anexos; contestacao de negativa protocolada", tier=TIER_A)
         }
 
-    def test_nip_is_an_actor_cue_because_the_nip_is_the_beneficiarys_instrument(self) -> None:
-        """RN 483: only a beneficiary opens a NIP; the operadora only answers one."""
+    def test_nip_is_no_longer_an_actor_cue_because_it_names_an_instrument_not_a_party(self) -> None:
+        """m2/m3 (verifier gate review): `nip` used to sit in `PISTA_DE_ATOR`,
+        but it names an instrument (the NIP protocol), not a party — as an
+        actor cue it absolved *all four* R2-CTX rules near any mention of
+        NIP regardless of who the sentence's subject was, which laundered
+        real inversions. Proof: a provider-perspective sentence that merely
+        mentions NIP is now caught (it used to escape — the gate review's
+        EV-6/EV-7).
+        """
+        hits = scan_line("Registrar o protocolo NIP e reapresentar a conta glosada", tier=TIER_A)
+        assert "X1" in {r for _, r, _ in hits}
+        hits = scan_line("Fluxo NIP: interpor o recurso e aguardar 30 dias", tier=TIER_A)
+        assert "X1" in {r for _, r, _ in hits}
+
+    def test_decisao_pagador_absolves_x4_for_the_nip_grant_line_not_nip_itself(self) -> None:
+        """`SP-OP-NIP-001_Resposta_NIP.bpmn:482`'s actual text is the payer
+        *conceding* a request — cleared by naming the payer's own decision
+        verb (`DECISAO_PAGADOR`: conceder/deferir/indeferir/julgar/responder),
+        not by naming the NIP instrument (m2/m3). This generalises correctly:
+        any sentence stating the payer's own decision on a `pleito` is
+        payer-legitimate, with or without `nip` in it.
+        """
         assert scan_line("Submeter resposta NIP (conceder o pleito)", tier=TIER_A) == []
-        assert "X4" in {r for _, r, _ in scan_line("Conceder o pleito", tier=TIER_A)}
+        assert scan_line("Conceder o pleito", tier=TIER_A) == []
+        # X4 still fires with no decision verb nearby...
+        assert "X4" in {r for _, r, _ in scan_line("Pleito em analise pela area tecnica", tier=TIER_A)}
+        # ...and a bare participle (not the infinitive `DECISAO_PAGADOR` lists)
+        # is *not* absolved — `test_flags_fonte_pagadora_framing` depends on
+        # this staying caught.
+        assert "X4" in {r for _, r, _ in scan_line("Pleito indeferido pela fonte pagadora", tier=TIER_A)}
+
+
+# ---------------------------------------------------------------------------
+# 1e. Verifier gate review (VERIFY-PR1-FENCE.md §3) — 18 attack sentences on
+#     the rebuilt lexicon, none reused from the design gate's own corpus above
+# ---------------------------------------------------------------------------
+
+
+class TestVerifierGateReviewAttackSentences:
+    """`VERIFY-PR1-FENCE.md` §3: the fence-gatekeeper's own adversarial pass.
+
+    Three groups: 8 payer-legitimate lines that must stay clean (§3.1), 7
+    provider-perspective lines that must be caught (§3.2), and 10 evasion
+    probes hunting specifically for gaps (§3.3). The review found 5 of the 10
+    probes escaping: EV-1/EV-2/EV-3 via the `start_recurso`/`StartRecurso`
+    `tail` boundary (m1), and EV-6/EV-7 via the `nip` actor cue (m3). Both
+    holes are closed in this PR — see `TestBoundaryDiscipline` and
+    `test_nip_is_no_longer_an_actor_cue_...` above for the mechanism — so all
+    10 probes below are now asserted **caught**, with the live-tree pin
+    (`test_two_chains_hit_count_is_pinned`) unchanged at 295/7: no new false
+    positive was introduced to close them. The one gap that remains open
+    after this PR — the `Start_Recurso<Capitalized>` shape — is not one of
+    these 18; it is disclosed separately by
+    `test_start_recurso_group_boundary_declared_residual`.
+    """
+
+    # -- §3.1: payer-legitimate, must stay clean (8/8) -----------------------
+
+    def test_nfp_a_prestador_may_resend_within_30_days(self) -> None:
+        hits = scan_line(
+            "O prestador pode reenviar a conta corrigida dentro do prazo de 30 dias", tier=TIER_A
+        )
+        assert hits == [], hits
+
+    def test_nfp_b_beneficiario_may_appeal_to_ans_via_nip(self) -> None:
+        hits = scan_line("Beneficiario pode recorrer a ANS via NIP (RN 483) apos a negativa", tier=TIER_A)
+        assert hits == [], hits
+
+    def test_nfp_c_escalation_naming_the_answer_to_an_appeal(self) -> None:
+        """ "resposta ao recurso" is exactly the construction C1 forces the
+        redesign to adopt — an ESCALATION line naming it must not be punished.
+        """
+        hits = scan_line(
+            "Escalar para a coordenacao quando o SLA regulatorio da resposta ao recurso vencer",
+            tier=TIER_A,
+        )
+        assert hits == [], hits
+
+    def test_nfp_d_authorization_granted_and_denial_communicated(self) -> None:
+        hits = scan_line(
+            "Autorizacao concedida; negativa comunicada ao beneficiario com o codigo TISS", tier=TIER_A
+        )
+        assert hits == [], hits
+
+    def test_nfp_e_start_recursosolicitado_is_the_live_inbound_id(self) -> None:
+        """Same claim as `TestBoundaryDiscipline`, named for §3's own id (NFP-E)."""
+        assert scan_line("Start_RecursoSolicitado", tier=TIER_A) == []
+
+    def test_nfp_f_resposta_recebida_ans_is_the_ans_not_the_payer(self) -> None:
+        """Same claim as FP8, named for §3's own id (NFP-F)."""
+        assert scan_line("resposta_recebida_ans", tier=TIER_A) == []
+
+    def test_nfp_g_st_registrarnegativaautorizacao_is_clean(self) -> None:
+        assert scan_line("ST_RegistrarNegativaAutorizacao", tier=TIER_A) == []
+
+    def test_nfp_h_emitting_a_demonstrativo_to_the_prestador_is_clean(self) -> None:
+        """Emission is the payer's direction of travel; X2 needs *reception*."""
+        hits = scan_line("Emitir o demonstrativo de analise da conta ao prestador", tier=TIER_A)
+        assert hits == [], hits
+
+    # -- §3.2: provider-perspective, must be caught (7/7) --------------------
+
+    def test_nfn_a_appellant_synonyms_as_decision_values(self) -> None:
+        hits = [
+            *scan_line('${decisao_contas == "IMPUGNAR"}', tier=TIER_A),
+            *scan_line('${decisao_contas == "CONFORMAR_GLOSA"}', tier=TIER_A),
+            *scan_line('${decisao_contas == "RETRANSMITIR"}', tier=TIER_A),
+        ]
+        assert {
+            "verbo-recorrente:IMPUGNAR",
+            "aquiescencia:CONFORMAR_GLOSA",
+            "reapresentacao:RETRANSMITIR",
+        } <= {r for _, r, _ in hits}
+
+    def test_nfn_b_first_person_appeal_against_a_glosa(self) -> None:
+        hits = scan_line("Registrar o nosso recurso contra a glosa aplicada", tier=TIER_A)
+        assert "C5" in {r for _, r, _ in hits}
+
+    def test_nfn_c_petition_addressed_to_the_operadora(self) -> None:
+        hits = scan_line("Peticao dirigida a operadora para revisao da glosa", tier=TIER_A)
+        assert "C7" in {r for _, r, _ in hits}
+
+    def test_nfn_d_tracking_the_appeal_status(self) -> None:
+        hits = scan_line("Acompanhar o status do recurso ate a decisao final", tier=TIER_A)
+        assert "C12" in {r for _, r, _ in hits}
+
+    def test_nfn_e_st_acompanharrecurso_is_now_caught(self) -> None:
+        """NFN-E: the review found this escaping (pt-BR gap, m5) — fixed by
+        extending `ciclo-recorrente` with `AcompanharRecurso`/`acompanhar_recurso`
+        (and the `AcompanharStatus`/`acompanhar_status` analogues).
+        """
+        assert "ciclo-recorrente:AcompanharRecurso" in {
+            r for _, r, _ in scan_line("ST_AcompanharRecurso", tier=TIER_A)
+        }
+
+    def test_nfn_f_recursar_and_refaturar_as_requests(self) -> None:
+        hits = scan_line("Solicitar o RECURSAR da glosa e o REFATURAR da guia", tier=TIER_A)
+        assert {"verbo-recorrente:RECURSAR", "reapresentacao:REFATURAR"} <= {r for _, r, _ in hits}
+
+    def test_nfn_g_waiting_for_the_operadoras_decision_on_the_glosa(self) -> None:
+        hits = scan_line("Aguardar a decisao da operadora sobre a glosa apresentada", tier=TIER_A)
+        assert {"C1", "C6"} <= {r for _, r, _ in hits}
+
+    # -- §3.3: evasion probes — all 10 caught, 0 residual from this set -----
+
+    def test_ev1_lowercase_start_recurso_glosa_topic_is_now_caught(self) -> None:
+        """EV-1: escaped under `tail` (m1); `start_recurso` is now `segment`."""
+        assert "ciclo-recorrente:start_recurso" in {
+            r for _, r, _ in scan_line("operadora.contas.start_recurso_glosa", tier=TIER_A)
+        }
+
+    def test_ev2_st_startrecursoglosa_is_now_caught(self) -> None:
+        """EV-2: escaped under `tail` (m1); `StartRecurso` is now `group`."""
+        assert "ciclo-recorrente:StartRecurso" in {
+            r for _, r, _ in scan_line("ST_StartRecursoGlosa", tier=TIER_A)
+        }
+
+    def test_ev3_st_startrecursodeglosa_is_now_caught(self) -> None:
+        """EV-3: escaped under `tail` (m1); `StartRecurso` is now `group`."""
+        assert "ciclo-recorrente:StartRecurso" in {
+            r for _, r, _ in scan_line("ST_StartRecursoDeGlosa", tier=TIER_A)
+        }
+
+    def test_ev4_sem_duvida_abuse_does_not_reach_the_negation_anchor(self) -> None:
+        """The abuse the negation rule's `$` anchor is built to refuse: "sem
+        duvida" is not *adjacent* to the verb, so X1 still fires.
+        """
+        hits = scan_line("sem duvida, contestar a glosa junto ao setor de faturamento", tier=TIER_A)
+        assert "X1" in {r for _, r, _ in hits}
+
+    def test_ev5_sem_contestar_is_correctly_absolved(self) -> None:
+        """States the *absence* of the act, not the act — correctly clean."""
+        assert scan_line("sem contestar a glosa", tier=TIER_A) == []
+
+    def test_ev6_nip_protocol_and_reapresentar_is_now_caught(self) -> None:
+        """EV-6: escaped because `nip` absolved X1 as an actor cue (m3);
+        `nip` is no longer in `PISTA_DE_ATOR`.
+        """
+        hits = scan_line("Registrar o protocolo NIP e reapresentar a conta glosada", tier=TIER_A)
+        assert "X1" in {r for _, r, _ in hits}
+
+    def test_ev7_nip_flow_and_interpor_is_now_caught(self) -> None:
+        """EV-7: the same laundering vector as EV-6, via `interpor` (m3)."""
+        hits = scan_line("Fluxo NIP: interpor o recurso e aguardar 30 dias", tier=TIER_A)
+        assert "X1" in {r for _, r, _ in hits}
+
+    def test_ev8_st_trackstatusrecurso_is_the_segment_contrast(self) -> None:
+        """The family's already-`segment`-bound sibling was never fooled by a
+        suffix — the contrast that shows the pre-m1 `tail` bound was
+        `start_recurso`'s own defect, not a property the family needed.
+        """
+        assert "ciclo-recorrente:TrackStatus" in {
+            r for _, r, _ in scan_line("ST_TrackStatusRecurso", tier=TIER_A)
+        }
+
+    def test_ev9_st_submitappealglosa_is_the_segment_contrast(self) -> None:
+        assert "ciclo-recorrente:SubmitAppeal" in {
+            r for _, r, _ in scan_line("ST_SubmitAppealGlosa", tier=TIER_A)
+        }
+
+    def test_ev10_acompanhar_o_andamento_do_recurso(self) -> None:
+        hits = scan_line("Acompanhar o andamento do recurso", tier=TIER_A)
+        assert "C12" in {r for _, r, _ in hits}
 
 
 # ---------------------------------------------------------------------------
@@ -1018,9 +1270,16 @@ class TestFenceIsNotWiredYet:
         assert "perspective" not in cli
 
     def test_validate_artifacts_stays_green_on_the_dirty_tree(self) -> None:
-        """`make validate-artifacts` must still pass at PR-1, with 291 latent hits."""
+        """`make validate-artifacts` must still pass at PR-1, with 302 latent hits.
+
+        302 = `sum(TIER_A_PIN.values())` (295) + `sum(TIER_B_PIN.values())` (7)
+        — the same two pinned tables `test_two_chains_hit_count_is_pinned`
+        asserts against, not a number restated independently (m4, verifier
+        gate review: the prior "291" here had drifted from the pin).
+        """
         from maezo.platform.validation.cli import validate_artifacts
 
+        assert sum(TIER_A_PIN.values()) + sum(TIER_B_PIN.values()) == 302
         assert validate_artifacts(["spec/processes", "spec/policies", "spec/agents"]) == 0
 
 
