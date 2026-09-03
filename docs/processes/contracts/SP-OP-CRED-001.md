@@ -113,9 +113,9 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 Shape engine-deployavel (§4-bis-A): `typeRef ∈ {string, boolean, integer, long, double, date}` — **`number` e invalido**; dias/SLA → string ISO 8601. Toda `decisionTable` com `hitPolicy`; toda tabela com row catch-all (`frozenset` fechado) → caminho humano conservador. `camunda:historyTimeToLive` namespaced (`P###D`) em cada `<decision>`. **Nenhuma DMN tem coluna de saida que negue credenciamento ou descredencie (sem variante adversa nas duas direcoes).**
 
 ### `cred_admissibility` (hitPolicy FIRST — DRAFT)
-- **in:** `direcao: string`, `tipo_prestador: string`, `documentacao_completa: boolean`, `licenca_valida: boolean`, `dentro_criterios_rede: boolean`
-- **out:** `roteamento: string` (`SEGUE_ANALISE` \| `PENDENTE_DOCUMENTACAO` \| `ANALISE_HUMANA`), `motivo: string`
-- **Sem saida `NEGAR`/`DESCREDENCIAR` por design.** `documentacao_completa=false` → `PENDENTE_DOCUMENTACAO` (nunca negativa). Licenca aparentemente invalida / fora de criterios de rede NAO produzem negativa: roteiam para `ANALISE_HUMANA` (so o humano nega/descredencia). Catch-all (row final) → `ANALISE_HUMANA`.
+- **in:** `direcao: string`, `tipo_prestador: string`, `documentacao_completa: boolean`, `licenca_valida: boolean`, `dentro_criterios_rede: boolean`, `indicio_irregularidade_sinalizado: boolean` (PERSP-B5-INPUTS: input que faltava aqui — `spec/processes/dmn/cred_admissibility.dmn:53-55`; intercepta o sinal ANTES do bypass clerical, `:58-68`)
+- **out:** `roteamento: string` (`CLERICAL_CREDENCIAR` \| `SEGUE_ANALISE` \| `PENDENTE_DOCUMENTACAO` \| `ANALISE_HUMANA`), `motivo: string` (PERSP-B5-INPUTS: dominio de saida completado com `CLERICAL_CREDENCIAR`, que a tabela emite — `cred_admissibility.dmn:91-101` — e a BPMN consome — `SP-OP-CRED-001_Descredenciamento.bpmn:689`)
+- **Sem saida `NEGAR`/`DESCREDENCIAR` por design.** `documentacao_completa=false` → `PENDENTE_DOCUMENTACAO` (nunca negativa). Licenca aparentemente invalida / fora de criterios de rede NAO produzem negativa: roteiam para `ANALISE_HUMANA` (so o humano nega/descredencia). `CLERICAL_CREDENCIAR` e a excecao favoravel (credenciamento de prestador novo com documentacao completa, licenca valida, dentro de criterios de rede e SEM indicio de irregularidade — direcao NAO adversa). Catch-all (row final) → `ANALISE_HUMANA`.
 
 ### `cred_route` (hitPolicy FIRST — DRAFT; coracao adverso-like)
 - **in:** `direcao: string`, `tipo_prestador: string`, `origem_solicitacao: string`, `indicio_irregularidade_sinalizado: boolean`
@@ -124,12 +124,12 @@ Shape engine-deployavel (§4-bis-A): `typeRef ∈ {string, boolean, integer, lon
 
 > **Nota (inversao do reference):** este e o lugar onde o `Gateway_Approval` bare do `SP-PS-002_Credentialing` (`${credential_approved}`) e substituido. A DMN **nao** emite `credential_approved`; ela roteia para a User Task humana, que e a unica origem das variantes adversas.
 
-### `cred_prior_notice` (hitPolicy UNIQUE — DRAFT; **so descredenciamento** — RN 567)
+### `cred_prior_notice` (hitPolicy FIRST — DRAFT; **so descredenciamento** — RN 567; PERSP-B5-HITPOLICY: corrigido de UNIQUE, DMN shippada e FIRST — `spec/processes/dmn/cred_prior_notice.dmn:28`)
 - **in:** `tipo_prestador: string`, `tem_beneficiarios_vinculados: boolean`
 - **out:** `exige_notificacao_previa: boolean`, `exige_substituto_equivalente: boolean`, `prazo_notificacao: string` (ISO 8601, ex.: `P30D` — **DRAFT/verify** RN 567), `fonte_regulatoria: string`
 - **Apenas determina obrigacoes regulatorias de notificacao/substituicao** (RN 567 — antecedencia minima e substituicao por equivalente em descredenciamento hospitalar). **Nao decide descredenciar.** O cure-window (event gateway) e dirigido por `prazo_notificacao`. Catch-all → `exige_notificacao_previa=true` (conservador: na duvida, exige notificacao).
 
-### `cred_sla` (hitPolicy UNIQUE — DRAFT; todos os prazos DRAFT/verify)
+### `cred_sla` (hitPolicy FIRST — DRAFT; todos os prazos DRAFT/verify; PERSP-B5-HITPOLICY: corrigido de UNIQUE, DMN shippada e FIRST — `spec/processes/dmn/cred_sla.dmn:21`)
 - **in:** `direcao: string`, `tipo_prestador: string`
 - **out:** `sla_analise: string` (ISO 8601), `sla_alerta: string` (ISO 8601), `fonte_regulatoria: string`
 - Prazos como string ISO; converter dias uteis→ISO conservadoramente no worker.

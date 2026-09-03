@@ -135,7 +135,7 @@ consulta a business key antes de iniciar — start idempotente, sem duplicar adj
 - **out:** `recomendacao: string` (`AUTO_APROVAR` | `ANALISE_HUMANA`), `motivo: string`
 - `AUTO_APROVAR` apenas com `dentro_tabela=true` E `dentro_teto_l2=true` E `requer_avaliacao_clinica=false`. **Sem saida de negativa/reducao.** Catch-all → `ANALISE_HUMANA`. O caminho `AUTO_APROVAR` produz **somente aprovacao integral** (`valor_reembolso_aprovado_cents = valor_calculado_tabela_cents` e, por construcao do gate `dentro_tabela`, `= valor_solicitado_cents`).
 
-### `reembolso_sla` (hitPolicy UNIQUE — DRAFT, todos os prazos DRAFT/verify)
+### `reembolso_sla` (hitPolicy FIRST — DRAFT, todos os prazos DRAFT/verify; CONTRACT-HITPOLICY-DRIFT: corrigido de UNIQUE, DMN shippada e FIRST — `spec/processes/dmn/reembolso_sla.dmn:24`)
 - **in:** `tipo_reembolso: string`, `categoria_procedimento: string`
 - **out:** `sla_analise: string` (ISO 8601), `sla_alerta: string` (ISO 8601), `fonte_regulatoria: string`
 
