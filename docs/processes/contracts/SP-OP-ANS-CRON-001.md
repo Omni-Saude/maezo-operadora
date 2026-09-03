@@ -40,7 +40,7 @@ declarado) e devolve, como **variaveis de processo**:
 | `report_type` | ecoado sob o nome canonico (o literal local nao viaja) |
 | `periodicidade` | pt-BR (`mensal`/`trimestral`/`anual`) — MESMO vocabulario dos outputs de `ans_calendar.dmn`; `indeterminada` fora da taxonomia |
 | `competencia` | o periodo FECHADO imediatamente anterior a ancora do tick (`_compute_competencia`), ou `COMPETENCIA_PENDENTE` fail-closed |
-| `competencia_referencia_iso` | a ancora de que a competencia foi derivada, em **ISO-8601 com offset** no fuso civil de negocio (`America/Sao_Paulo`, constante `_BUSINESS_TZ`) — ex.: `2026-02-28T21:30:00-03:00`. Torna a derivacao auditavel/reproduzivel E explicita sobre o calendario civil em que o periodo foi fechado |
+| `competencia_referencia_iso` | a ancora de que a competencia foi derivada, em **ISO-8601 com offset** no fuso civil de negocio (`America/Sao_Paulo`, constante `_BUSINESS_TZ`) — ex.: `2026-02-28T21:30:00-03:00`. Torna a derivacao auditavel/reproduzivel E explicita sobre o calendario civil em que o periodo foi fechado. **Leitor autorizado: `ans_cron.parse_competencia_referencia_iso`** — `date.fromisoformat` REJEITA um instante com offset e nao pode ser usado neste campo (ver "Ancora temporal") |
 | `tenant_id` | seam de deployment (T2.6-EB3); **nao** viaja no fato — ver abaixo |
 
 O nome do literal e `ans_cron_report_type`, **nao** `report_type`, por uma razao de engine:
@@ -154,6 +154,18 @@ Brasil ainda esta no ANTIGO, e o "mes imediatamente anterior" segundo o UTC seri
 **nao fechou** para o regulador. A mesma janela de ~3h existe em cada virada de trimestre e de ano.
 Fences de fronteira: `tests/unit/tools/workers/test_ans_cron.py`
 (`test_ancora_mensal_na_virada_do_mes_usa_o_calendario_brasileiro` e vizinhos).
+
+**Forma do campo e quem pode le-lo.** Com a mudanca de ancora, `competencia_referencia_iso` deixou
+de ser a data nua `YYYY-MM-DD` (UTC) e passou a ser um INSTANTE COM OFFSET. `date.fromisoformat`
+aceita a primeira forma e **rejeita** a segunda
+(`ValueError: Invalid isoformat string: '2026-09-03T06:08:06-03:00'`), entao todo leitor passa
+obrigatoriamente por `ans_cron.parse_competencia_referencia_iso` — a UNICA dona do formato, que
+aceita as duas formas (a canonica com offset e a legada nua, para fatos ja em transito) e LEVANTA
+em lixo, deixando o fail-closed com quem chama. O campo IRMAO `ans_cron_reference_date_iso`
+(carimbo do publicador generico) continua sendo DATA NUA UTC de proposito e continua sendo lido com
+`date.fromisoformat`: a assimetria entre os dois campos e intencional e esta pinada em
+`tests/unit/tools/workers/test_ans_cron.py` (laco produtor->leitor sobre os 5 report_types) e na
+suite de integracao.
 
 > **DRAFT/verify regulatorio.** A **escolha do fuso** e um default de ENGENHARIA (a operadora e
 > brasileira e os prazos ANS sao publicados em horario civil brasileiro); NAO foi confirmada com o

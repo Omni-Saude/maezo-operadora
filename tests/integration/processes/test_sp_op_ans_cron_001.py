@@ -76,6 +76,7 @@ from maezo.tools.workers.ans_cron import (
     _REPORT_PERIODICIDADE,
     COMPETENCIA_PENDENTE,
     _compute_competencia,
+    parse_competencia_referencia_iso,
     register_ans_cron_workers,
 )
 from maezo.tools.workers.events import register_events_workers
@@ -343,7 +344,14 @@ async def test_cron_competencia_computada_por_report_type(
     assert fact["origem_envio"] == "calendario"
 
     ancora = fact["competencia_referencia_iso"]
-    assert date.fromisoformat(ancora)
+    # NAO usar `date.fromisoformat` aqui: a ancora e um INSTANTE COM OFFSET no fuso civil de
+    # negocio, e `date.fromisoformat` rejeita essa forma (foi exatamente assim que este teste
+    # quebrou no engine real apos REP-ANS-CRON). O leitor autorizado da forma e
+    # `ans_cron.parse_competencia_referencia_iso`, o MESMO por onde `_compute_competencia` passa.
+    momento = parse_competencia_referencia_iso(ancora)
+    assert momento.utcoffset() is not None, (
+        f"a ancora precisa carregar o offset do fuso civil de negocio; veio {ancora!r}"
+    )
     esperada = _compute_competencia(ancora, periodicidade_iso)
     assert esperada != COMPETENCIA_PENDENTE, "vetor de teste degenerado"
     assert fact["competencia"] == esperada, (
@@ -353,6 +361,10 @@ async def test_cron_competencia_computada_por_report_type(
     # A sentinela deixou de ser o valor de regime para os tipos conhecidos.
     assert fact["competencia"] != COMPETENCIA_PENDENTE
     # Ancora mecanica do publicador generico (instante da publicacao) segue presente e distinta.
+    # Aqui `date.fromisoformat` e o parser CORRETO e a assercao fica ESTRITA de proposito: este
+    # campo irmao e, por contrato, uma DATA NUA UTC (`events.py` carimba
+    # `datetime.now(UTC).date().isoformat()`), nao um instante com offset. A assimetria entre as
+    # duas linhas e intencional e e o pin da diferenca entre os dois campos.
     assert date.fromisoformat(fact["ans_cron_reference_date_iso"])
 
 

@@ -109,6 +109,42 @@ def _now_business() -> datetime:
     return datetime.now(_BUSINESS_TZ)
 
 
+def parse_competencia_referencia_iso(value: object) -> datetime:
+    """Parse a `competencia_referencia_iso` anchor. UNICO leitor autorizado dessa forma.
+
+    Esta funcao e o DONO do formato do campo: quem produz (`trigger_submissions`) e quem le
+    (`_compute_competencia`, os testes de unidade, a suite de integracao contra o engine) passam
+    todos por aqui, entao a forma esta definida em UM lugar so e uma mudanca de forma futura
+    atualiza uma funcao — nao N call sites espalhados.
+
+    Existe porque a forma MUDOU e um leitor ficou para tras: ate ANS-CRON-DEAD-CODE/REP-ANS-CRON o
+    campo era a data nua `YYYY-MM-DD` (ancora UTC), e havia call sites usando
+    `date.fromisoformat`, que aceita a data nua mas REJEITA um instante com offset
+    (`date.fromisoformat("2026-09-03T06:08:06-03:00")` -> `ValueError: Invalid isoformat string`).
+    Com a ancora migrada para o fuso civil de negocio, o campo passou a ser um instante COM
+    OFFSET e esses leitores quebraram contra o engine real.
+
+    Aceita, portanto, as DUAS formas:
+      - canonica: instante ISO-8601 COM offset, p.ex. `2026-02-28T21:30:00-03:00` (o que
+        `trigger_submissions` emite hoje) -> devolve um `datetime` AWARE;
+      - legado/tolerada: data nua `YYYY-MM-DD` -> devolve um `datetime` NAIVE a meia-noite.
+        Mantida porque fatos `ans.cron_due` ja em transito (ou fixtures antigas) ainda podem
+        carregar a forma antiga, e porque o campo IRMAO `ans_cron_reference_date_iso`
+        (`events.py`, carimbo do publicador) segue sendo data nua UTC de proposito.
+
+    `_compute_competencia` so le `.year`/`.month`, entao a diferenca aware/naive nao muda a
+    competencia derivada — o que importa e que o offset, quando presente, seja RESPEITADO e nao
+    cause excecao.
+
+    LEVANTA `ValueError`/`TypeError` em qualquer outra coisa: o tratamento fail-closed (sentinela)
+    e decisao de quem chama, nao desta funcao (ver `_compute_competencia`), para que um leitor
+    novo nao herde silenciosamente um fallback que nao pediu.
+    """
+    if not isinstance(value, str):
+        raise TypeError(f"competencia_referencia_iso deve ser str, veio {type(value).__name__}")
+    return datetime.fromisoformat(value.strip())
+
+
 #: Sentinela de competencia nao resolvida (o humano resolve em UT_CorrigirPendenciaEnvio).
 COMPETENCIA_PENDENTE = "COMPETENCIA_PENDENTE"
 
@@ -152,7 +188,7 @@ def _compute_competencia(reference_date_iso: str, periodicidade: str) -> str:
     ancora) NAO foi confirmado com o regulatorio — ver `docs/review-queue.md`.
     """
     try:
-        ref_date = datetime.fromisoformat(reference_date_iso)
+        ref_date = parse_competencia_referencia_iso(reference_date_iso)
     except (ValueError, TypeError):
         return COMPETENCIA_PENDENTE
 

@@ -8,7 +8,7 @@ fact really carries the computed competencia — live in
 lives in `tests/integration/dmn/test_dmn_golden_parity.py`.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -21,6 +21,7 @@ from maezo.tools.workers.ans_cron import (
     PERIODICIDADE_INDETERMINADA,
     _compute_competencia,
     _now_business,
+    parse_competencia_referencia_iso,
     register_ans_cron_workers,
     trigger_submissions,
 )
@@ -277,7 +278,7 @@ def test_ancora_carrega_offset_explicito_e_nao_e_data_nua(monkeypatch: pytest.Mo
     ancora = trigger_submissions({"ans_cron_report_type": "RN_124_SIP"})["competencia_referencia_iso"]
 
     assert ancora == "2026-02-28T20:30:00-03:00"
-    momento = datetime.fromisoformat(ancora)
+    momento = parse_competencia_referencia_iso(ancora)
     assert momento.utcoffset() == timedelta(hours=-3), "a ancora precisa carregar o offset"
 
 
@@ -352,3 +353,78 @@ def test_now_business_devolve_instante_aware_no_fuso_de_negocio() -> None:
     agora = _now_business()
     assert agora.tzinfo is not None
     assert agora.utcoffset() == timedelta(hours=-3)
+
+
+# ---------------------------------------------------------------
+# parse_competencia_referencia_iso — o UNICO leitor autorizado da forma da ancora
+#
+# Regressao de um defeito REAL: apos a migracao da ancora para o fuso civil de negocio, o campo
+# passou de data nua `YYYY-MM-DD` para instante COM OFFSET, e um leitor que usava
+# `date.fromisoformat` ficou para tras. `date.fromisoformat` aceita a data nua e REJEITA o
+# instante com offset, entao a quebra so apareceu contra o ENGINE REAL — nenhum gate unitario a
+# pegava. Estes testes fecham o laco produtor->leitor DENTRO do gate unitario obrigatorio.
+# ---------------------------------------------------------------
+
+#: A string EXATA que quebrou `test_cron_competencia_computada_por_report_type` no engine real.
+_ANCORA_DO_ENGINE = "2026-09-03T06:08:06-03:00"
+
+
+def test_parse_competencia_referencia_iso_aceita_a_ancora_exata_que_quebrou_no_engine() -> None:
+    """A forma canonica (instante com offset) e aceita e o offset e PRESERVADO."""
+    momento = parse_competencia_referencia_iso(_ANCORA_DO_ENGINE)
+
+    assert momento.utcoffset() == timedelta(hours=-3)
+    assert (momento.year, momento.month, momento.day) == (2026, 9, 3)
+    # A prova do defeito: o parser ANTIGO deste call site rejeita exatamente esta string.
+    with pytest.raises(ValueError):
+        date.fromisoformat(_ANCORA_DO_ENGINE)
+
+
+@pytest.mark.parametrize(
+    ("periodicidade_iso", "esperada"),
+    [("P1M", "2026-08"), ("P3M", "2026-04"), ("P12M", "2025-01")],
+)
+def test_compute_competencia_aceita_a_ancora_exata_que_quebrou_no_engine(
+    periodicidade_iso: str, esperada: str
+) -> None:
+    """O leitor de producao (`_compute_competencia`) consome a forma com offset sem cair na
+    sentinela — em TODAS as periodicidades da taxonomia."""
+    assert _compute_competencia(_ANCORA_DO_ENGINE, periodicidade_iso) == esperada
+
+
+def test_parse_competencia_referencia_iso_aceita_a_forma_legada_de_data_nua() -> None:
+    """Fatos `ans.cron_due` ja em transito (e o campo irmao `ans_cron_reference_date_iso`, que
+    `events.py` carimba como data nua UTC de proposito) ainda usam `YYYY-MM-DD`."""
+    momento = parse_competencia_referencia_iso("2026-09-03")
+
+    assert momento.utcoffset() is None
+    assert (momento.year, momento.month, momento.day) == (2026, 9, 3)
+    assert _compute_competencia("2026-09-03", "P1M") == "2026-08"
+
+
+def test_parse_competencia_referencia_iso_levanta_em_lixo_em_vez_de_devolver_sentinela() -> None:
+    """O parser NAO tem fallback proprio: quem chama decide o fail-closed (`_compute_competencia`
+    devolve a sentinela). Assim um leitor novo nao herda em silencio um fallback que nao pediu."""
+    for ruim in ("", "   ", "not-a-date", "2026-13-01", "2026-02-30"):
+        with pytest.raises(ValueError):
+            parse_competencia_referencia_iso(ruim)
+    for nao_str in (None, 20260903, 3.14, ["2026-09-03"]):
+        with pytest.raises(TypeError):
+            parse_competencia_referencia_iso(nao_str)
+
+
+@pytest.mark.parametrize("report_type", sorted(_TAXONOMIA_CANONICA))
+def test_ancora_produzida_e_lida_de_volta_pelo_parser_autorizado(report_type: str) -> None:
+    """LACO PRODUTOR->LEITOR (a cerca que torna esta classe de defeito impossivel no gate
+    unitario): o que `trigger_submissions` EMITE tem de ser parseavel pelo leitor autorizado, e a
+    competencia recomputada a partir dessa ancora tem de bater com a do proprio retorno — a
+    MESMA assercao que a suite de integracao faz contra o engine real, agora tambem aqui."""
+    result = trigger_submissions({"ans_cron_report_type": report_type})
+    ancora = result["competencia_referencia_iso"]
+
+    momento = parse_competencia_referencia_iso(ancora)
+    assert momento.utcoffset() is not None, f"ancora sem offset: {ancora!r}"
+
+    _periodicidade_ptbr, periodicidade_iso = _TAXONOMIA_CANONICA[report_type]
+    assert result["competencia"] == _compute_competencia(ancora, periodicidade_iso)
+    assert result["competencia"] != COMPETENCIA_PENDENTE

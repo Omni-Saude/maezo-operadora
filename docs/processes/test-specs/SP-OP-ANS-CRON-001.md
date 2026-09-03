@@ -152,6 +152,26 @@ localiza o job de timer-START pendente e o executa na marra
 - **DRAFT/verify** a **escolha** do fuso (`America/Sao_Paulo`) e um default de engenharia — ver a
   pergunta 2b em `docs/sme-dispatch/regulatorio/PACKAGE.md`
 
+### test_parse_competencia_referencia_iso_aceita_a_ancora_exata_que_quebrou_no_engine (unit)
+### test_compute_competencia_aceita_a_ancora_exata_que_quebrou_no_engine (unit, x3 periodicidades)
+### test_parse_competencia_referencia_iso_aceita_a_forma_legada_de_data_nua (unit)
+### test_parse_competencia_referencia_iso_levanta_em_lixo_em_vez_de_devolver_sentinela (unit)
+### test_ancora_produzida_e_lida_de_volta_pelo_parser_autorizado (unit, x5 report_types)
+- **Given** a string EXATA `2026-09-03T06:08:06-03:00` que quebrou
+  `test_cron_competencia_computada_por_report_type` contra o engine real
+- **Then** `ans_cron.parse_competencia_referencia_iso` — o UNICO leitor autorizado da forma — a
+  aceita preservando o offset; `_compute_competencia` a consome nas 3 periodicidades sem cair na
+  sentinela; a forma LEGADA de data nua continua aceita; lixo LEVANTA (o fail-closed e de quem
+  chama, nao do parser); e o **laco produtor->leitor** fecha para os 5 `report_type`: o que
+  `trigger_submissions` emite e parseavel pelo leitor autorizado e recomputa a mesma competencia
+- **Racional** a ancora migrou de data nua `YYYY-MM-DD` para instante COM OFFSET e um call site
+  ficou para tras usando `date.fromisoformat`, que aceita a primeira forma e **rejeita** a
+  segunda. Como esse leitor vivia na suite de integracao, NENHUM gate unitario pegava a quebra —
+  ela so apareceu contra o engine real. Estes testes trazem a assercao para dentro do gate
+  obrigatorio (incluindo o `pytest.raises(ValueError)` sobre `date.fromisoformat`, que pina o
+  defeito em vez de descreve-lo). O campo IRMAO `ans_cron_reference_date_iso` segue sendo data
+  nua UTC e segue lido com `date.fromisoformat`: a assimetria e deliberada
+
 ### test_ancora_carrega_offset_explicito_e_nao_e_data_nua (unit)
 ### test_business_tz_e_o_fuso_civil_brasileiro (unit)
 ### test_now_business_devolve_instante_aware_no_fuso_de_negocio (unit)
