@@ -233,7 +233,19 @@ class HelenaDispatcher:
         )
         # `thread_config` scopes the checkpoint thread when a saver is attached; None (stateless
         # compile) is passed through as a no-op config, so this call site is single-path.
-        result = await compiled.ainvoke(initial_state, thread_config)
+        try:
+            result = await compiled.ainvoke(initial_state, thread_config)
+        except Exception:
+            # ALERTS-WITHOUT-METRICS-a. This receiver is the SECOND turn-execution seam in the
+            # repo — it compiles and invokes Helena's graph directly rather than through
+            # `runtime.harness.Harness.invoke`, so instrumenting only the harness would have left
+            # the ONE live agent path uncounted. `asyncio.CancelledError` is deliberately excluded
+            # (BaseException): a drained turn is not a failed agent. See
+            # `maezo.platform.observability.record_agent_error` for the full contract.
+            from maezo.platform.observability import record_agent_error  # noqa: PLC0415
+
+            record_agent_error()
+            raise
         logger.info(
             "helena_dispatch_turn_completed",
             tenant_id=self.tenant_id,

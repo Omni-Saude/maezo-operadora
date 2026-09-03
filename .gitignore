@@ -54,3 +54,14 @@ docs/reports/amh-integration-forensics-summary.md
 # Plano de execucao do Terraform: pode conter valores resolvidos (endpoints, ARNs)
 # e nao deve viajar no repositorio.
 *.tfplan
+
+# Agent-session working outputs — engagement deliverables produced by local agent runs from this
+# cwd, NOT platform source (verified unrelated to maezo code 2026-08-24: self-contained regulatory-
+# analysis bundle, ~421 MB of downloaded public sources + rendered artifacts + agent-run state).
+# Local-only by design; never `git add` wholesale.
+/outputs/
+
+# Claude Code ephemera: session worktrees (branch refs live in the main .git) and the
+# per-user local settings override that must never carry credentials into the repo.
+.claude/worktrees/
+.claude/settings.local.json

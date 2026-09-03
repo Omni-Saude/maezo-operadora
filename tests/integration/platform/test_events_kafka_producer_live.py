@@ -55,18 +55,25 @@ from maezo.platform.integrations.events_kafka_producer import (
 )
 from maezo.platform.integrations.notifications_bridge import (
     NOTIFICATIONS_TOPIC,
+    REASON_MISSING_TYPE,
     AioKafkaBridgeConsumer,
+    AioKafkaDlqPublisher,
+    BridgeDlqShunt,
     handle_bridge_message,
+    run_consumer_loop,
 )
 from maezo.platform.notification_bridge import (
     CONTAS_COMPLETED_EVENT,
     NotificationBridge,
     build_cibseven_process_starter,
 )
+from maezo.platform.topic_registry import dlq_topic_for
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.events import make_publish_event_handler
 from maezo.tools.workers.harness import ExternalTask
 from tests.integration.conftest import _apply_migrations, _pg_reachable
+
+pytestmark = pytest.mark.integration
 
 _CONNECT_TIMEOUT_S = 5.0
 
@@ -170,6 +177,13 @@ async def _fetch_start_process_rows(dsn: str, tenant_id: str) -> list[Any]:
 
 
 async def _consume_one(consumer: AioKafkaBridgeConsumer, *, timeout_s: float = 15.0) -> Any:
+    """The parsed VALUE of the next record (GAP-SC-04-a: the consumer now yields a
+    `BridgeMessage` carrying the raw bytes alongside the parsed value — see its docstring for why
+    the DLQ made that necessary). Tests that need the envelope itself use `_consume_message`."""
+    return (await _consume_message(consumer, timeout_s=timeout_s)).value
+
+
+async def _consume_message(consumer: AioKafkaBridgeConsumer, *, timeout_s: float = 15.0) -> Any:
     return await asyncio.wait_for(consumer.__aiter__().__anext__(), timeout=timeout_s)
 
 
@@ -445,6 +459,12 @@ async def test_ans_cron_due_reaches_notifications_topic_unmirrored(
     producer = AioKafkaEventsProducer(bootstrap_servers=kafka_bootstrap_servers)
     try:
         await asyncio.sleep(1.0)
+        # CHANGED (GAP-SC-04-a): an explicit key is now required. This payload is the BPMN's own
+        # literal shape and carries neither `_business_key` nor an `anssubmit`-family anchor
+        # (`report_type`+`competencia` without a `tenant_id`), so the derivation yields nothing and
+        # the producer fails closed — which is the gate working. In production the same publish
+        # comes from `events.py`, whose payload always carries `_business_key`/
+        # `_process_instance_id`; here the key is supplied explicitly to stand in for that.
         await producer.publish(
             NOTIFICATIONS_TOPIC,
             {
@@ -454,6 +474,7 @@ async def test_ans_cron_due_reaches_notifications_topic_unmirrored(
                 "origem_envio": "calendario",
                 "competencia": "COMPETENCIA_PENDENTE",
             },
+            key=f"ANSSUB-amh-RN_TEST_{suffix}",
         )
         received = await _consume_one(consumer)
         await consumer.commit()
@@ -462,3 +483,208 @@ async def test_ans_cron_due_reaches_notifications_topic_unmirrored(
     finally:
         await producer.close()
         await consumer.stop()
+
+
+# ---------------------------------------------------------------------------
+# GAP-SC-04-a — the two halves of the ordering/DLQ slice, against a REAL broker.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_same_entity_events_land_on_the_same_partition(
+    kafka_bootstrap_servers: str,
+) -> None:
+    """THE ORDERING PROPERTY, proven against a real broker rather than against the key derivation.
+
+    Two `agents.events.contas.completed` events about the SAME guia+glosa are published with no
+    explicit key; the producer derives one from the family anchors. Consume both back from the
+    per-domain topic and assert they carry the same key AND landed on the SAME partition — which
+    is what makes their relative order survive any number of consumer replicas. A third event
+    about a DIFFERENT entity is published as the control: the derivation must not collapse a whole
+    tenant onto one partition."""
+    from aiokafka import AIOKafkaConsumer  # type: ignore[import-untyped]
+
+    suffix = uuid.uuid4().hex[:8]
+    topic = CONTAS_COMPLETED_EVENT
+    consumer = AIOKafkaConsumer(
+        topic,
+        bootstrap_servers=kafka_bootstrap_servers,
+        group_id=f"sc04a-order-{suffix}",
+        auto_offset_reset="latest",
+    )
+    await consumer.start()
+    producer = AioKafkaEventsProducer(bootstrap_servers=kafka_bootstrap_servers)
+    try:
+        await asyncio.sleep(1.0)
+        entity = {"tenant_id": "amh", "numero_guia_tiss": f"GUIA-{suffix}", "glosa_id": f"GLOSA-{suffix}"}
+        await producer.publish(topic, {**entity, "fase": "recebido"})
+        await producer.publish(topic, {**entity, "desfecho": "encaminhada_recurso"})
+        await producer.publish(
+            topic,
+            {"tenant_id": "amh", "numero_guia_tiss": f"GUIA-OTHER-{suffix}", "glosa_id": f"GLOSA-{suffix}"},
+        )
+
+        records = [await asyncio.wait_for(consumer.__anext__(), timeout=15.0) for _ in range(3)]
+        first, second, other = records
+
+        expected_key = f"amh|GUIA-{suffix}|GLOSA-{suffix}".encode()
+        assert first.key == second.key == expected_key
+        assert first.partition == second.partition, (
+            "same entity -> same key -> same partition; this is the whole ordering guarantee"
+        )
+        assert other.key != expected_key, "a different entity must not share the first one's key"
+    finally:
+        await producer.close()
+        await consumer.stop()
+
+
+@pytest.mark.asyncio
+async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_continues(
+    kafka_bootstrap_servers: str,
+    pg_tenant_schema: tuple[str, str],
+) -> None:
+    """THE DLQ, END TO END, ON REAL INFRASTRUCTURE. Publish a MALFORMED record (no `type`) and a
+    well-formed armed one onto `NOTIFICATIONS_TOPIC`; drive the REAL `AioKafkaBridgeConsumer`
+    through `run_consumer_loop` with the REAL `AioKafkaDlqPublisher` and a REAL `PostgresAuditSink`.
+
+    Asserts every half of the claim:
+      - the poison record lands on `operadora.notifications.internal.dlq`, RAW bytes verbatim,
+        with the bounded reason header;
+      - a durable `bridge_dlq:` audit row exists in the real `audit_chain`;
+      - the loop CONTINUED — the well-formed message behind the poison one still started its
+        handoff (this is the head-of-line blocking that used to kill the daemon);
+      - the consumer offsets advanced (no re-delivery storm on restart).
+    """
+    from aiokafka import AIOKafkaConsumer, AIOKafkaProducer  # type: ignore[import-untyped]
+
+    dsn, tenant_id = pg_tenant_schema
+    suffix = uuid.uuid4().hex[:8]
+    guia, glosa = f"GUIAQ-{suffix}", f"GLOSAQ-{suffix}"
+    dlq_topic = dlq_topic_for(NOTIFICATIONS_TOPIC)
+    poison_raw = json.dumps({"tenant_id": tenant_id, "sem_tipo": guia}).encode("utf-8")
+
+    consumer = AioKafkaBridgeConsumer(
+        bootstrap_servers=kafka_bootstrap_servers,
+        topic=NOTIFICATIONS_TOPIC,
+        group_id=f"sc04a-dlq-{suffix}",
+    )
+    dlq_consumer = AIOKafkaConsumer(
+        dlq_topic,
+        bootstrap_servers=kafka_bootstrap_servers,
+        group_id=f"sc04a-dlq-probe-{suffix}",
+        auto_offset_reset="latest",
+    )
+    audit_sink = PostgresAuditSink(dsn, tenant_id)
+    transport = FakeCibSevenTransport()
+    bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, audit_sink))
+    dlq = BridgeDlqShunt(
+        publisher=AioKafkaDlqPublisher(bootstrap_servers=kafka_bootstrap_servers),
+        audit_sink=audit_sink,
+        tenant_id=tenant_id,
+    )
+
+    await consumer.start()
+    await dlq_consumer.start()
+    await dlq.publisher.start()
+    seed = AIOKafkaProducer(bootstrap_servers=kafka_bootstrap_servers)
+    await seed.start()
+    try:
+        await asyncio.sleep(1.0)
+        await seed.send_and_wait(NOTIFICATIONS_TOPIC, poison_raw, key=b"poison-probe")
+        await seed.send_and_wait(
+            NOTIFICATIONS_TOPIC,
+            json.dumps(
+                {
+                    "type": CONTAS_COMPLETED_EVENT,
+                    "tenant_id": tenant_id,
+                    "desfecho": "encaminhada_recurso",
+                    "numero_guia_tiss": guia,
+                    "glosa_id": glosa,
+                }
+            ).encode("utf-8"),
+            key=b"armed-probe",
+        )
+
+        stop_event = asyncio.Event()
+        stop_event.set()  # end the loop after the 2nd message rather than blocking on poll
+
+        async def _drive_two() -> None:
+            consumed = 0
+            async for message in consumer:
+                consumed += 1
+                await run_consumer_loop(_SingleMessageConsumer(message, consumer), bridge, dlq=dlq)
+                if consumed == 2:
+                    return
+
+        await asyncio.wait_for(_drive_two(), timeout=45.0)
+
+        # 1. the poison record reached the REAL DLQ topic, bytes verbatim.
+        dlq_record = await asyncio.wait_for(dlq_consumer.__anext__(), timeout=20.0)
+        assert dlq_record.value == poison_raw
+        headers = dict(dlq_record.headers)
+        assert headers["maezo_dlq_reason"] == REASON_MISSING_TYPE.encode()
+        assert headers["maezo_dlq_source_topic"] == NOTIFICATIONS_TOPIC.encode()
+        assert dlq_record.key == b"poison-probe", "the producer's own key rides along"
+
+        # 2. a durable audit fact exists for the quarantine.
+        dlq_rows = await _fetch_audit_rows(dsn, tenant_id, f"bridge_dlq:{NOTIFICATIONS_TOPIC}")
+        assert len(dlq_rows) == 1
+        assert dlq_rows[0]["agent_id"] == "notification_bridge"
+
+        # 3. THE LOOP CONTINUED — the message BEHIND the poison one still started its handoff.
+        start_rows = await _fetch_start_process_rows(dsn, tenant_id)
+        assert len(start_rows) == 1, (
+            "a poison message must no longer block every message behind it (head-of-line blocking)"
+        )
+    finally:
+        await seed.stop()
+        await dlq.publisher.stop()
+        await dlq_consumer.stop()
+        await consumer.stop()
+        await audit_sink.aclose()
+        await transport.close()
+
+
+class _SingleMessageConsumer:
+    """Feeds ONE already-consumed `BridgeMessage` into `run_consumer_loop` while delegating the
+    commit to the REAL consumer.
+
+    Why it exists rather than handing `run_consumer_loop` the live consumer directly: the loop is
+    an unbounded `async for` that only ends on a `stop_event` checked BETWEEN messages, so a test
+    driving a fixed number of records would block on the next poll forever. This keeps the loop's
+    real dispatch/shunt/commit path — including a REAL `consumer.commit()` against the broker — and
+    only bounds the iteration. Test-local by design (it is not a production seam).
+    """
+
+    def __init__(self, message: Any, real_consumer: AioKafkaBridgeConsumer) -> None:
+        self._message = message
+        self._real = real_consumer
+        self.commits = 0
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def commit(self) -> None:
+        self.commits += 1
+        await self._real.commit()
+
+    def __aiter__(self) -> Any:
+        return self._iter()
+
+    async def _iter(self) -> Any:
+        yield self._message
+
+
+async def _fetch_audit_rows(dsn: str, tenant_id: str, action: str) -> list[Any]:
+    schema = schema_for_tenant(tenant_id)
+    conn = await asyncpg.connect(normalize_dsn(dsn))
+    try:
+        return await conn.fetch(
+            f'SELECT action, agent_id FROM "{schema}".audit_chain WHERE action = $1 ORDER BY id',
+            action,
+        )
+    finally:
+        await conn.close()

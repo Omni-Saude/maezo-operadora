@@ -8,6 +8,9 @@ Kafka broker. Proves the THREE decisions the module docstring documents:
      behavior (needed for SP-OP-ESCALATION-001's `ERR_EVENT_PUBLISH_FAILED` boundary-catch).
   3. PHI/scrub allowlist backstop applies ONLY to the mirrored envelope, never the primary
      per-domain payload.
+  4. GAP-SC-04-a partition-key chokepoint: `publish()` REFUSES a keyless publish (before touching
+     the broker) unless the caller declares `unordered=True`, and derives a deterministic,
+     PHI-free key from the payload when the caller passes none.
 
 See `tests/integration/platform/test_events_kafka_producer_live.py` for the real-broker proof
 (topic-landing, consumer round-trip, bridge dispatch, live-PG audit, dedup, kafka-down isolation).
@@ -26,6 +29,7 @@ from maezo.platform.integrations.events_kafka_producer import (
     FakeRawKafkaProducer,
     scrub_mirror_payload,
 )
+from maezo.platform.integrations.partition_key import MissingPartitionKeyError
 
 _CONTAS_TOPIC = "agents.events.contas.completed"
 _FRAUDE_TOPIC = "agents.events.fraude.completed"
@@ -93,7 +97,7 @@ async def test_publish_non_best_effort_topic_failure_propagates() -> None:
     producer = AioKafkaEventsProducer(raw_producer=raw)
 
     with pytest.raises(RuntimeError, match="broker down"):
-        await producer.publish(_ESCALATION_TOPIC, {"conversation_id": "c1"})
+        await producer.publish(_ESCALATION_TOPIC, {"conversation_id": "c1"}, key="bk-esc")
 
     assert producer.failed_publishes == []  # not best-effort -> not recorded, just raised
 
@@ -147,6 +151,7 @@ async def test_publish_fraude_completed_is_also_mirrored() -> None:
     await producer.publish(
         _FRAUDE_TOPIC,
         {"tenant_id": "amh", "desfecho": "encaminhado_credenciamento", "prestador_id": "PREST-1"},
+        key="bk-fraude",
     )
 
     assert len(raw.sent) == 2
@@ -172,6 +177,7 @@ async def test_mirror_envelope_type_cannot_be_shadowed_by_a_source_payload_type_
     await producer.publish(
         _CONTAS_TOPIC,
         {"type": "attacker_injected", "tenant_id": "amh", "desfecho": "glosa_aplicada_humano"},
+        key="bk-shadow",
     )
 
     assert len(raw.sent) == 2
@@ -224,7 +230,7 @@ async def test_publish_mirror_topic_mirror_leg_failure_is_swallowed() -> None:
 
     raw.send_and_wait = _send_and_wait  # type: ignore[method-assign]
 
-    await producer.publish(_CONTAS_TOPIC, {"tenant_id": "amh", "desfecho": "sem_glosa"})
+    await producer.publish(_CONTAS_TOPIC, {"tenant_id": "amh", "desfecho": "sem_glosa"}, key="bk-3")
 
     assert len(raw.sent) == 1  # only the primary leg landed
     assert producer.failed_publishes == [(NOTIFICATIONS_TOPIC, "RuntimeError('mirror send failed')")]
@@ -238,7 +244,9 @@ async def test_publish_direct_notifications_topic_is_not_double_mirrored() -> No
     raw = FakeRawKafkaProducer()
     producer = AioKafkaEventsProducer(raw_producer=raw)
 
-    await producer.publish(NOTIFICATIONS_TOPIC, {"type": "ans.cron_due", "report_type": "RN_124_SIP"})
+    await producer.publish(
+        NOTIFICATIONS_TOPIC, {"type": "ans.cron_due", "report_type": "RN_124_SIP"}, key="bk-cron"
+    )
 
     assert len(raw.sent) == 1
     assert raw.sent[0][0] == NOTIFICATIONS_TOPIC
@@ -250,7 +258,7 @@ async def test_publish_direct_notifications_topic_failure_is_swallowed() -> None
     raw.always_fail = RuntimeError("broker down")
     producer = AioKafkaEventsProducer(raw_producer=raw)
 
-    await producer.publish(NOTIFICATIONS_TOPIC, {"type": "ans.cron_due"})  # must not raise
+    await producer.publish(NOTIFICATIONS_TOPIC, {"type": "ans.cron_due"}, key="bk-cron")  # no raise
 
     assert producer.failed_publishes == [(NOTIFICATIONS_TOPIC, "RuntimeError('broker down')")]
 
@@ -276,6 +284,7 @@ async def test_notifications_topic_best_effort_false_propagates_on_send_failure(
         await producer.publish(
             NOTIFICATIONS_TOPIC,
             {"type": "escalation.notify_team", "severidade": "grave"},
+            key="bk-esc",
             best_effort=False,
         )
 
@@ -290,7 +299,9 @@ async def test_notifications_topic_best_effort_none_still_swallows() -> None:
     raw.always_fail = RuntimeError("broker down")
     producer = AioKafkaEventsProducer(raw_producer=raw)
 
-    await producer.publish(NOTIFICATIONS_TOPIC, {"type": "ans.cron_due"}, best_effort=None)  # no raise
+    await producer.publish(
+        NOTIFICATIONS_TOPIC, {"type": "ans.cron_due"}, key="bk-cron", best_effort=None
+    )  # no raise
 
     assert producer.failed_publishes == [(NOTIFICATIONS_TOPIC, "RuntimeError('broker down')")]
 
@@ -304,7 +315,9 @@ async def test_mirror_topic_best_effort_none_still_swallows_primary_and_mirror()
     raw.always_fail = RuntimeError("broker down")
     producer = AioKafkaEventsProducer(raw_producer=raw)
 
-    await producer.publish(_CONTAS_TOPIC, {"tenant_id": "amh", "desfecho": "sem_glosa"})  # no raise
+    await producer.publish(
+        _CONTAS_TOPIC, {"tenant_id": "amh", "desfecho": "sem_glosa"}, key="bk-4"
+    )  # no raise
 
     assert producer.failed_publishes == [
         (_CONTAS_TOPIC, "RuntimeError('broker down')"),
@@ -322,7 +335,7 @@ async def test_best_effort_false_on_mirror_source_forces_primary_propagate_mirro
     producer = AioKafkaEventsProducer(raw_producer=raw)
 
     with pytest.raises(RuntimeError, match="broker down"):
-        await producer.publish(_CONTAS_TOPIC, {"tenant_id": "amh"}, best_effort=False)
+        await producer.publish(_CONTAS_TOPIC, {"tenant_id": "amh"}, key="bk-5", best_effort=False)
 
     assert producer.failed_publishes == []  # primary forced-propagate; mirror never recorded
     assert raw.sent == []
@@ -341,8 +354,8 @@ async def test_publish_returns_true_when_primary_delivered() -> None:
     raw = FakeRawKafkaProducer()
     producer = AioKafkaEventsProducer(raw_producer=raw)
 
-    assert await producer.publish(NOTIFICATIONS_TOPIC, {"type": "ans.cron_due"}) is True
-    assert await producer.publish(_ESCALATION_TOPIC, {"conversation_id": "c1"}) is True
+    assert await producer.publish(NOTIFICATIONS_TOPIC, {"type": "ans.cron_due"}, key="bk-a") is True
+    assert await producer.publish(_ESCALATION_TOPIC, {"conversation_id": "c1"}, key="bk-b") is True
 
 
 @pytest.mark.asyncio
@@ -353,7 +366,7 @@ async def test_publish_returns_false_when_best_effort_failure_swallowed() -> Non
     raw.always_fail = RuntimeError("broker down")
     producer = AioKafkaEventsProducer(raw_producer=raw)
 
-    assert await producer.publish(NOTIFICATIONS_TOPIC, {"type": "ans.cron_due"}) is False
+    assert await producer.publish(NOTIFICATIONS_TOPIC, {"type": "ans.cron_due"}, key="bk-c") is False
     assert producer.failed_publishes == [(NOTIFICATIONS_TOPIC, "RuntimeError('broker down')")]
 
 
@@ -363,7 +376,7 @@ async def test_publish_returns_false_on_forced_best_effort_true_failure() -> Non
     raw.always_fail = RuntimeError("broker down")
     producer = AioKafkaEventsProducer(raw_producer=raw)
 
-    assert await producer.publish(_ESCALATION_TOPIC, {"x": 1}, best_effort=True) is False
+    assert await producer.publish(_ESCALATION_TOPIC, {"x": 1}, key="bk-d", best_effort=True) is False
 
 
 @pytest.mark.asyncio
@@ -383,7 +396,7 @@ async def test_mirror_leg_failure_does_not_affect_return_value() -> None:
 
     raw.send_and_wait = _send_and_wait  # type: ignore[method-assign]
 
-    assert await producer.publish(_CONTAS_TOPIC, {"tenant_id": "amh"}) is True
+    assert await producer.publish(_CONTAS_TOPIC, {"tenant_id": "amh"}, key="bk-e") is True
     assert producer.failed_publishes == [(NOTIFICATIONS_TOPIC, "RuntimeError('mirror send failed')")]
 
 
@@ -395,7 +408,7 @@ async def test_primary_swallowed_failure_returns_false_even_when_mirror_succeeds
     raw.fail_next = RuntimeError("broker down for primary")
     producer = AioKafkaEventsProducer(raw_producer=raw)
 
-    assert await producer.publish(_CONTAS_TOPIC, {"tenant_id": "amh"}) is False
+    assert await producer.publish(_CONTAS_TOPIC, {"tenant_id": "amh"}, key="bk-f") is False
     assert len(raw.sent) == 1
     assert raw.sent[0][0] == NOTIFICATIONS_TOPIC  # mirror landed; primary still honestly False
 
@@ -443,7 +456,7 @@ async def test_close_before_start_is_a_noop() -> None:
 async def test_close_after_publish_stops_the_raw_producer() -> None:
     raw = FakeRawKafkaProducer()
     producer = AioKafkaEventsProducer(raw_producer=raw)
-    await producer.publish(_ESCALATION_TOPIC, {"x": 1})
+    await producer.publish(_ESCALATION_TOPIC, {"x": 1}, key="bk-g")
     await producer.close()
     assert raw.stopped is True
 
@@ -452,10 +465,162 @@ async def test_close_after_publish_stops_the_raw_producer() -> None:
 async def test_close_never_raises_even_if_stop_fails() -> None:
     raw = FakeRawKafkaProducer()
     producer = AioKafkaEventsProducer(raw_producer=raw)
-    await producer.publish(_ESCALATION_TOPIC, {"x": 1})
+    await producer.publish(_ESCALATION_TOPIC, {"x": 1}, key="bk-h")
 
     async def _boom() -> None:
         raise RuntimeError("stop failed")
 
     raw.stop = _boom  # type: ignore[method-assign]
     await producer.close()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# GAP-SC-04-a — the partition-key chokepoint. `publish()` REFUSES a keyless publish unless the
+# caller declares `unordered=True`; a keyless record is assigned round-robin across the topic's
+# partitions (registry default 3, `topic_registry.py:75,142`), which loses per-entity ordering the
+# moment the notifications-bridge is scaled past one replica.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_publish_fails_closed_without_a_key_or_a_derivable_payload() -> None:
+    """THE DEFECT, as a gate: a payload with no business key, no family anchor and no
+    process-instance id used to publish UNKEYED and silently. It now raises — before any send."""
+    raw = FakeRawKafkaProducer()
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+
+    with pytest.raises(MissingPartitionKeyError, match="refusing to publish unkeyed"):
+        await producer.publish(_ESCALATION_TOPIC, {"severity": "grave"})
+
+    assert raw.sent == [], "the refusal must happen BEFORE the broker is touched"
+    assert producer.failed_publishes == [], "a missing key is bad input, not a publish failure"
+
+
+@pytest.mark.asyncio
+async def test_key_refusal_is_not_swallowed_by_a_best_effort_topic() -> None:
+    """`NOTIFICATIONS_TOPIC` is topic-default best-effort — but best-effort covers BROKER faults,
+    never bad input. A missing key must raise even here (the raise is outside `_publish_one`)."""
+    raw = FakeRawKafkaProducer()
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+
+    with pytest.raises(MissingPartitionKeyError):
+        await producer.publish(NOTIFICATIONS_TOPIC, {"type": "ans.cron_due"})
+
+    assert raw.sent == []
+
+
+@pytest.mark.asyncio
+async def test_key_refusal_is_not_swallowed_by_an_explicit_best_effort_true() -> None:
+    raw = FakeRawKafkaProducer()
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+
+    with pytest.raises(MissingPartitionKeyError):
+        await producer.publish(NOTIFICATIONS_TOPIC, {"type": "ans.cron_due"}, best_effort=True)
+
+    assert raw.sent == []
+
+
+@pytest.mark.asyncio
+async def test_blank_key_is_treated_as_absent_not_as_a_key() -> None:
+    """A whitespace key would partition every blank-keyed event onto ONE partition and look like
+    a working key. Treated as absent -> derivation -> refusal."""
+    raw = FakeRawKafkaProducer()
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+
+    with pytest.raises(MissingPartitionKeyError):
+        await producer.publish(_ESCALATION_TOPIC, {"severity": "grave"}, key="   ")
+
+
+@pytest.mark.asyncio
+async def test_publish_unordered_true_publishes_unkeyed() -> None:
+    """The declared escape hatch: `unordered=True` is the caller stating that per-entity ordering
+    is meaningless for this stream. No production call site passes it in this build (see
+    `resolve_partition_key`'s enumeration) — it exists so the claim must be WRITTEN, not implied
+    by a silent `key=None`."""
+    raw = FakeRawKafkaProducer()
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+
+    assert await producer.publish(_ESCALATION_TOPIC, {"severity": "grave"}, unordered=True) is True
+
+    assert len(raw.sent) == 1
+    assert raw.sent[0][2] is None
+
+
+@pytest.mark.asyncio
+async def test_publish_derives_the_key_from_the_payload_business_key() -> None:
+    """Arm (2): every `operadora.events.publish` payload carries `_business_key`, so a caller that
+    passes no key still gets the source instance's own identity on the wire."""
+    raw = FakeRawKafkaProducer()
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+
+    await producer.publish(
+        _ESCALATION_TOPIC,
+        {"_business_key": "ESC-amh-CASO-1", "_process_instance_id": "pi-1", "tenant_id": "amh"},
+    )
+
+    assert raw.sent[0][2] == "ESC-amh-CASO-1"
+
+
+@pytest.mark.asyncio
+async def test_publish_derives_the_key_from_family_anchors_when_there_is_no_business_key() -> None:
+    raw = FakeRawKafkaProducer()
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+
+    await producer.publish(
+        _CONTAS_TOPIC,
+        {
+            "tenant_id": "amh",
+            "desfecho": "encaminhada_recurso",
+            "numero_guia_tiss": "GUIA-1",
+            "glosa_id": "GLOSA-1",
+        },
+    )
+
+    assert raw.sent[0][2] == "amh|GUIA-1|GLOSA-1"
+
+
+@pytest.mark.asyncio
+async def test_mirror_leg_reuses_the_resolved_key_not_the_callers_raw_key() -> None:
+    """The mirror must be keyed by the SAME entity as its primary — a derived primary key and an
+    unkeyed mirror would put the bridge's copy back on round-robin, which is the leg that actually
+    reaches a scaled consumer."""
+    raw = FakeRawKafkaProducer()
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+
+    await producer.publish(
+        _CONTAS_TOPIC,
+        {
+            "tenant_id": "amh",
+            "desfecho": "encaminhada_recurso",
+            "numero_guia_tiss": "GUIA-1",
+            "glosa_id": "GLOSA-1",
+        },
+    )
+
+    assert len(raw.sent) == 2
+    assert raw.sent[0][2] == raw.sent[1][2] == "amh|GUIA-1|GLOSA-1"
+
+
+@pytest.mark.asyncio
+async def test_two_events_about_the_same_entity_publish_under_the_same_key() -> None:
+    """The ordering property, proven at the producer seam rather than only at the derivation."""
+    raw = FakeRawKafkaProducer()
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+    base = {"tenant_id": "amh", "numero_caso": "CASO-9"}
+
+    await producer.publish(_FRAUDE_TOPIC, {**base, "fase": "intake"})
+    await producer.publish(_FRAUDE_TOPIC, {**base, "desfecho": "encaminhado_credenciamento"})
+
+    primary_keys = [key for topic, _value, key in raw.sent if topic == _FRAUDE_TOPIC]
+    assert primary_keys == ["amh|CASO-9", "amh|CASO-9"]
+
+
+def test_resolve_partition_key_prefers_the_explicit_caller_key() -> None:
+    producer = AioKafkaEventsProducer(raw_producer=FakeRawKafkaProducer())
+    resolved = producer.resolve_partition_key(
+        _CONTAS_TOPIC,
+        {"tenant_id": "amh", "numero_guia_tiss": "GUIA-1", "glosa_id": "GLOSA-1"},
+        key="explicit-bk",
+        unordered=False,
+    )
+    assert resolved == "explicit-bk"

@@ -1084,13 +1084,23 @@ def test_handoff_pagamento_recusa_ancora_que_normaliza_para_vazio() -> None:
 
 
 def test_handoff_pagamento_targets_the_strict_dedup_family() -> None:
-    """SP-OP-PAGTO-001 is the ONE STRICT start-dedup family: the chokepoint additionally demands a
-    dedup-reporting sink + history-querying transport, so a mis-wired handoff FAILS rather than
-    paying twice. This test pins the process key the policy is keyed on."""
-    from maezo.tools.mcp_cibseven.transport import _START_DEDUP_POLICY
+    """SP-OP-PAGTO-001 is the ONE PERMANENT start-dedup family: the chokepoint additionally
+    demands a dedup-reporting sink + history-querying transport, so a mis-wired handoff FAILS
+    rather than paying twice. This test pins the process key the policy is keyed on.
+
+    GAP-D3-02 replaced the original boolean `_START_DEDUP_POLICY` with the 3-valued
+    `StartDedupPosture` (`NON_STRICT`/`EXCLUSIVE`/`PERMANENT`) — the old `True` meant exactly what
+    `PERMANENT` means now (mutual exclusion AND a one-shot cross-time gate); `EXCLUSIVE` is the
+    new intermediate posture GAP-D3-02 introduced for `SP-OP-CANCEL-001` (mutual exclusion only,
+    no permanent gate). PAGTO staying the ONLY `PERMANENT` key is asserted explicitly so this test
+    still catches a future key silently joining the strictest tier."""
+    from maezo.tools.mcp_cibseven.transport import _START_DEDUP_POLICY, StartDedupPosture
 
     assert PAGTO_PROCESS_KEY == "SP-OP-PAGTO-001"
-    assert _START_DEDUP_POLICY[PAGTO_PROCESS_KEY] is True
+    assert _START_DEDUP_POLICY[PAGTO_PROCESS_KEY] is StartDedupPosture.PERMANENT
+    assert [k for k, v in _START_DEDUP_POLICY.items() if v is StartDedupPosture.PERMANENT] == [
+        PAGTO_PROCESS_KEY
+    ]
 
 
 # ---------------------------------------------------------------------------

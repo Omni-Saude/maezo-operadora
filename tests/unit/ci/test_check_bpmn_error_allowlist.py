@@ -7,10 +7,11 @@ Two layers:
    the b1/b2 dispatch-filter escape passes and its drift/leak variants fail, (c) is warn-only
    unless ``--strict-dead-models``, and ambiguity (an unresolvable raise) fails closed.
 2. **Real-tree** tests run the full parser against ``spec/**`` + ``src/maezo/tools/workers`` and
-   assert the gate PASSES and independently reproduces the ADR-0030 census (5 consumption-covered
-   codes after T3.1 P2b; the three non-adverse technical fail-safes ``ERR_EVENT_PUBLISH_FAILED`` +
-   ``ERR_DSR_IDENTITY_UNVERIFIED`` + ``ERR_RECURSO_INVALID_GLOSA`` Tier-0/Tier-2-enabled; the two
-   guard/denial codes T-E-deferred; 10 dead-model warnings → 15 distinct spec codes).
+   assert the gate PASSES and independently reproduces the ADR-0030 census: 16 consumption-covered
+   codes (WP-ADR-0030-COMPLETION, D3-01, closed the last 3 dead models — ``ERR_CONTRACT_SUSPENSION_
+   NOT_HUMAN`` / ``ERR_PAGTO_ORDEM_INVALIDA`` / ``ERR_REEMBOLSO_INVALID_PROTOCOLO``), 12 Tier-0/
+   Tier-1/Tier-2-enabled, 4 T-E-deferred guard/denial codes, ZERO dead-model warnings → 16 distinct
+   spec codes, all raised.
 
 SHARED FILE (T3.1 P2b flag for merge-time reconciliation): the census counts below
 (``_G1_COVERED``, ``dead_models`` counts) move every time a branch wires a NEW ``WorkerBpmnError``
@@ -54,7 +55,15 @@ _WORKERS_DIR = _REPO_ROOT / "src" / "maezo" / "tools" / "workers"
 # BE_SubmitNack was modeled but no worker could produce a NACK) and ERR_ANS_DATASET_INCOMPLETO
 # (ans_submit prepare_submission, previously declared at definitions level with NO boundary at all —
 # that branch adds BE_AssembleDatasetIncompleto on ST_AssembleDataset). Both are non-adverse
-# technical/origin fail-safes routed to human remediation, NOT T-E-gated, so both land in tier0.
+# technical/origin fail-safes routed to human remediation, NOT T-E-gated, so both land in tier0 +
+# WP-ADR-0030-COMPLETION's (D3-01) last three: ERR_PAGTO_ORDEM_INVALIDA (pagto validate_pagto,
+# previously a DEAD MODEL — BE_PagtoOrdemInvalida was modeled but validate_pagto raised the coded
+# PagtoError) and ERR_REEMBOLSO_INVALID_PROTOCOLO (reembolso check_coverage, previously a DEAD
+# MODEL — BE_ReembolsoProtocoloInvalido was modeled on ST_CheckCoverage but the coded raise lived
+# on the WRONG task/topic, check_prazo/validate_reembolso) — both G2-val, NOT T-E-gated, land in
+# tier0; and ERR_CONTRACT_SUSPENSION_NOT_HUMAN (inadimplencia register_contract_suspension,
+# previously a DEAD MODEL — BE_SuspensaoNaoHumano was modeled but the guard raised the coded
+# InadimplenciaError) — a `*_NOT_HUMAN` guard, so T-E-deferred like cred's two.
 _G1_COVERED = frozenset(
     {
         "ERR_AUTH_DENIAL_INCOMPLETE",
@@ -70,6 +79,9 @@ _G1_COVERED = frozenset(
         "ERR_CRED_INVALID_PRESTADOR",
         "ERR_ANS_PROTOCOLO_NACK",
         "ERR_ANS_DATASET_INCOMPLETO",
+        "ERR_PAGTO_ORDEM_INVALIDA",
+        "ERR_REEMBOLSO_INVALID_PROTOCOLO",
+        "ERR_CONTRACT_SUSPENSION_NOT_HUMAN",
     }
 )
 
@@ -97,37 +109,55 @@ def test_real_tree_passes_and_reproduces_adr_census() -> None:
             # Habilitado em 25/08/2026: o unico codigo ADVERSO no tier0, e o unico que exigiu
             # o T-E aterrissar antes. Continua auditado pelo harness — ver TE_ENABLED_CODES.
             "ERR_AUTH_DENIAL_INCOMPLETE",
+            # WP-ADR-0030-COMPLETION (D3-01): dois G2-val novos, nenhum `*_NOT_HUMAN`.
+            "ERR_PAGTO_ORDEM_INVALIDA",
+            "ERR_REEMBOLSO_INVALID_PROTOCOLO",
         }
     )
     # `ERR_AUTH_DENIAL_INCOMPLETE` SAIU do deferido em 25/08/2026 — habilitado, e por isso
-    # aparece no tier0 acima. Os tres que restam sao da familia `*_NOT_HUMAN`, cuja habilitacao
-    # e' follow-up por familia e nao aconteceu.
+    # aparece no tier0 acima. `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` ENTROU no deferido agora
+    # (WP-ADR-0030-COMPLETION): raise-side migrado, mas e' `*_NOT_HUMAN` — mesma fase que os
+    # dois guards de cred, habilitacao de producao e' follow-up por familia (T-E).
     assert result.te_deferred == frozenset(
         {
             "ERR_CANCEL_MANTER_NOT_HUMAN",
             "ERR_DECRED_NOT_HUMAN",
             "ERR_CRED_DENIAL_NOT_HUMAN",
+            "ERR_CONTRACT_SUSPENSION_NOT_HUMAN",
         }
     )
-    # ADR-0030 census: 16 distinct external-task boundary codes = 13 covered + 3 dead-model.
-    # t2-ans-submit moved the needle twice: ERR_ANS_PROTOCOLO_NACK went dead-model -> covered (the
-    # worker can now produce a NACK), and ERR_ANS_DATASET_INCOMPLETO is a NEW boundary (+1 to the
-    # census total) that arrives already covered — so 15 -> 16 total and 4 -> 3 dead models.
-    assert len(result.dead_models) == 3
+    # ADR-0030 census: 16 distinct external-task boundary codes, ALL covered now.
+    # WP-ADR-0030-COMPLETION (D3-01) closed the last 3 dead models: ERR_PAGTO_ORDEM_INVALIDA
+    # (pagto validate_pagto), ERR_REEMBOLSO_INVALID_PROTOCOLO (reembolso check_coverage — moved to
+    # the CORRECT boundary-carrying task, not just re-typed) and ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    # (inadimplencia register_contract_suspension) — 13 -> 16 covered, 3 -> 0 dead models.
+    assert len(result.dead_models) == 0
     assert len(result.consumption_covered | result.dead_models) == 16
 
 
 def test_real_tree_dead_models_are_warn_only_at_tier0() -> None:
+    # WP-ADR-0030-COMPLETION (D3-01) closed the last 3 dead models against the CURRENT spec/**
+    # census, so this real-tree run now carries zero clause-(c) warnings — a positive signal that
+    # `--strict-dead-models` (Tier-3 close) would already pass today (see the strict-mode test
+    # below). The WARN-vs-FAIL mechanism itself (not this census) is covered generically by
+    # `test_dead_model_is_warn_only_then_strict` (synthetic fixtures) further down this file.
     result = run_gate(_BPMN_DIR, _WORKERS_DIR)
     assert result.ok
     assert not result.violations
-    assert result.warnings  # the 3 dead models are reported, but non-blocking (F5)
+    assert not result.warnings
 
 
 def test_real_tree_strict_mode_hardens_dead_models_to_failure() -> None:
+    # With zero dead models left in the current census (WP-ADR-0030-COMPLETION, D3-01), Tier-3's
+    # hardened clause (c) (`--strict-dead-models`) now PASSES against the real tree too — there is
+    # nothing left to harden to a failure. This does not by itself declare Tier-3 CLOSED (other
+    # ADR-0030 co-requisites, e.g. T-E production enablement for the `*_NOT_HUMAN` codes, are
+    # tracked separately and remain open) — it only proves clause (c) has nothing left to flag
+    # for the boundary codes raised today. The FAIL-on-dead-model mechanism itself is covered
+    # generically by `test_dead_model_is_warn_only_then_strict` (synthetic fixtures) below.
     result = run_gate(_BPMN_DIR, _WORKERS_DIR, strict_dead_models=True)
-    assert not result.ok  # Tier-3 posture: a dead model is a hard failure
-    assert len(result.violations) == 3
+    assert result.ok
+    assert not result.violations
     assert not result.warnings
 
 

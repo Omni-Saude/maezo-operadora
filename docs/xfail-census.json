@@ -21,7 +21,7 @@
   "markers": [
     {
       "file": "tests/integration/processes/test_sp_op_adequacao_001.py",
-      "line": 714,
+      "line": 758,
       "test": "test_l3_conforme_atinge_neutro_sem_user_task",
       "reason_constant": "_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON",
       "classification": "ADEQUACAO_RN259"
@@ -168,7 +168,7 @@
     },
     {
       "file": "tests/integration/processes/test_sp_op_reembolso_001.py",
-      "line": 693,
+      "line": 726,
       "test": "test_happy_path_aprovacao_automatica_l2_com_teto_positivo",
       "reason_constant": "_REEMBOLSO_CEILING_D07_REASON",
       "classification": "REEMBOLSO_D07"

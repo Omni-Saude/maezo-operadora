@@ -190,17 +190,26 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      reference anywhere in the donor file) — nothing to note-and-skip here.
 
   7. Minor additional observation (NOT tested here — no donor test exercises this path, so no new
-     test is authored for it; porting-only discipline): `PagtoError` (raised by `validate_pagto`
-     for `ERR_PAGTO_ORDEM_INVALIDA` and by `release_high_value_payment` for
-     `ERR_PAYMENT_RELEASE_NOT_HUMAN`) is a plain `Exception` with duck-typed `.code`/`.message` —
-     NOT a `harness.WorkerBpmnError` subclass. Per `FunctionWorker.execute()`'s own docstring
-     (`base.py:255-270`), such "coded" exceptions are ALWAYS reclassified into a `ValueError` ->
-     `failure(retries=0)` (an incident) before the harness's `_handle` ever sees them — meaning
-     the BPMN's own `BE_PagtoOrdemInvalida` boundary event (`errorRef=Error_PagtoOrdemInvalida`,
-     the ONE error in this BPMN with a matching boundary — `Error_PaymentReleaseNotHuman` has NO
-     boundary event anywhere, grep-confirmed) can never actually fire from pagto.py's real code
-     path: an invalid `ordem_pagamento_id` always becomes an open incident, never a clean
-     `End_PagtoOrdemInvalida` termination. Independent of findings 1/2 above.
+     test is authored for it; porting-only discipline). **UPDATED (WP-ADR-0030-COMPLETION D3-01)
+     — this finding's original conclusion is SUPERSEDED for `ERR_PAGTO_ORDEM_INVALIDA`, still
+     current for `ERR_PAYMENT_RELEASE_NOT_HUMAN`:**
+     `validate_pagto`'s guard (`pagto.py:158`) now raises `WorkerBpmnError(ERR_PAGTO_ORDEM_
+     INVALIDA)` — NOT the coded `PagtoError` it raised when this finding was first written — and
+     `ERR_PAGTO_ORDEM_INVALIDA` is now `tier0_enabled` via `PAGTO_BPMN_ERROR_ALLOWLIST`
+     (`pagto.py:113`), wired into `PRODUCTION_BPMN_ERROR_ALLOWLIST`
+     (`worker_runtime/service.py`). The BPMN's `BE_PagtoOrdemInvalida` boundary event
+     (`errorRef=Error_PagtoOrdemInvalida`) therefore CAN and DOES fire in production: an invalid
+     `ordem_pagamento_id` now reaches the harness's `handle_bpmn_error` path and terminates
+     cleanly at `End_PagtoOrdemInvalida` (documented `"fail-safe, nao adverso"` — no service task,
+     no negativa/glosa/ordem-de-pagamento effect between the boundary and the end event), instead
+     of becoming an open incident.
+     `release_high_value_payment` for `ERR_PAYMENT_RELEASE_NOT_HUMAN` is UNCHANGED by D3-01 and
+     the ORIGINAL finding still applies to it: it still raises the coded `PagtoError` (a plain
+     `Exception` with duck-typed `.code`/`.message`, NOT a `harness.WorkerBpmnError` subclass),
+     which `FunctionWorker.execute()` (`base.py:255-270`) still reclassifies into a `ValueError`
+     -> `failure(retries=0)` incident; `Error_PaymentReleaseNotHuman` still has NO boundary event
+     anywhere in this BPMN (grep-confirmed), so this second code remains structurally unreachable
+     via any boundary, migrated or not. Independent of findings 1/2 above.
 """
 
 from __future__ import annotations
@@ -219,7 +228,7 @@ import pytest_asyncio
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
-from maezo.tools.workers.pagto import register_pagto_workers
+from maezo.tools.workers.pagto import PAGTO_BPMN_ERROR_ALLOWLIST, register_pagto_workers
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest
@@ -307,6 +316,7 @@ _END_LIBERADO_HUMANO = "End_PagamentoLiberadoHumano"
 _END_LIBERADO_AUTOMATICO = "End_PagamentoLiberadoAutomatico"
 _END_RECUSADO_HUMANO = "End_PagamentoRecusadoHumano"
 _END_RISCO_SLA = "End_RiscoSlaNotificado"
+_END_ORDEM_INVALIDA = "End_PagtoOrdemInvalida"
 
 # Boundary timers (em UT_AprovacaoAlcada).
 _BT_ALERTA = "BT_AlertaSlaPagto"
@@ -429,12 +439,19 @@ async def pagto_probe(
     # T1.10 wave: emit-before-complete is FAIL-CLOSED (harness.py _emit_audit) — a real
     # PostgresAuditSink (lane PG, migrations 0001->0005) is REQUIRED or the harness refuses
     # to complete. `tenant` scopes the durable audit chain / dedup key to the per-run schema.
+    # WP-ADR-0030-COMPLETION D3-01: wire `PAGTO_BPMN_ERROR_ALLOWLIST` to mirror
+    # `worker_runtime/service.py`'s production allowlist — this only affects
+    # `ERR_PAGTO_ORDEM_INVALIDA` (the sole member of `PAGTO_BPMN_ERROR_ALLOWLIST`), a scenario no
+    # OTHER test in this file exercises (no test overrides `ordem_pagamento_id` to blank), so this
+    # is behavior-neutral for every pre-existing test and only activates the new boundary-proof
+    # test below.
     harness = WorkerHarness(
         transport,
         worker_id=worker_id,
         tenant=audit_tenant,
         lock_duration_ms=10_000,
         audit_sink=audit_sink,
+        bpmn_error_allowlist=PAGTO_BPMN_ERROR_ALLOWLIST,
     )
     kafka = FakeKafkaPublisher()
     # ADR-0028 T1.5 seam (module docstring PORT NOTES): route_aprovacao/assess_admissibility
@@ -643,6 +660,50 @@ async def test_nenhum_pagamento_acima_teto_auto_libera(
         checked += 1
 
     assert checked == 20, f"Esperava 20 combinacoes varridas; varri {checked}"
+
+
+# ===========================================================================
+# NEW BOUNDARY PROOF (WP-ADR-0030-COMPLETION D3-01) — ERR_PAGTO_ORDEM_INVALIDA
+# ===========================================================================
+
+
+async def test_ordem_pagamento_id_invalida_atinge_end_pagto_ordem_invalida(
+    engine: EngineRest,
+    pagto_probe: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """D3-01 ENGINE PROOF: `ordem_pagamento_id` ausente => `WorkerBpmnError(ERR_PAGTO_ORDEM_
+    INVALIDA)` agora atravessa `BE_PagtoOrdemInvalida` de ponta a ponta contra o engine REAL e
+    termina em `End_PagtoOrdemInvalida` — SEM abrir incidente, SEM User Task, SEM negativa/glosa/
+    ordem-de-pagamento (terminal `"fail-safe, nao adverso"` per o BPMN). Antes de D3-01 este
+    boundary era um dead model (censo do gate) porque `validate_pagto` lancava o `PagtoError`
+    codificado, reclassificado para `ValueError` -> incidente pelo `FunctionWorker.execute`;
+    `pagto_probe`'s harness agora wireia `PAGTO_BPMN_ERROR_ALLOWLIST` (mirroring
+    `worker_runtime/service.py`), entao esta e uma prova de alcancabilidade fiel a producao, nao
+    so ao harness-fake usado nos testes unitarios de `tests/unit/tools/workers/test_pagto.py`.
+    """
+    inst = await start_pagto(ordem_pagamento_id="")
+    iid = inst["id"]
+    await pagto_probe.drain()
+
+    ended = await _await_end(engine, iid)
+    assert _END_ORDEM_INVALIDA in ended, (
+        f"ordem_pagamento_id ausente deveria atingir End_PagtoOrdemInvalida via o boundary "
+        f"BE_PagtoOrdemInvalida. ended={ended}"
+    )
+    assert not (ended & _ENDS_ADVERSOS), "End_PagtoOrdemInvalida e fail-safe, nunca adverso"
+    incidentes = await engine.incidents(iid)
+    assert not incidentes, (
+        f"O boundary catch DEVE consumir o WorkerBpmnError sem abrir incidente de engine — "
+        f"achado(s): {incidentes}"
+    )
+    # Nenhum evento de conclusao normal de pagamento foi publicado — a instancia terminou pelo
+    # boundary (Flow_PagtoOrdemInvalida_End direto para End_PagtoOrdemInvalida, sem service task
+    # intermediario), nunca por release_low_value_payment/release_high_value_payment.
+    assert not pagto_probe.events_on(_PAGTO_COMPLETED), (
+        "ordem_pagamento_id invalida NUNCA deve produzir um evento pagto.completed "
+        "(ST_CalculateFacts/release_*_payment nunca sao alcancados apos o boundary)"
+    )
 
 
 # ===========================================================================

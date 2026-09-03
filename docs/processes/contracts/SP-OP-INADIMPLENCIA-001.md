@@ -78,13 +78,15 @@ INAD-{tenant_id}-{numero_contrato}
 | `meses_inadimplencia` | integer | sim* | Pre-resolvido por worker (`operadora.inadimplencia.resolve_facts`): contagem de meses em aberto (integer — **nunca `number`**) |
 | `valor_total_devido_cents` | integer | sim* | Pre-resolvido por worker: debito total em centavos de BRL (inteiro — **nunca `number`**) |
 | `dentro_periodo_minimo` | boolean | sim* | Pre-resolvido por worker: inadimplencia atingiu o periodo minimo legal (ex.: 60 dias — **DRAFT/verify** RN 593/Lei 9.656) |
-| `notificacao_previa_feita` | boolean | sim* | Pre-resolvido por worker (`operadora.inadimplencia.check_prior_notice`): notificacao previa ao beneficiario comprovada (ate o 50o dia de inadimplencia — RN 593 — **DRAFT/verify**) |
+| `notificacao_previa_feita` | boolean | nao‡ | **NAO e resolvido nem confirmado por nenhum worker** (GAP-INAD-8). Seedavel por quem inicia o processo e atualizavel pela correlacao `msg.inadimplencia.notificacao_ack` (`processVariables`) — a mesma exigencia que `SP-OP-CANCEL-001.md:107-117` (GAP-CANCEL-4) ja documenta para o processo irmao. Ausente ⇒ tratado como `false` pela `inadimplencia_status` (row `r_pendente_notificacao` ⇒ `PENDENTE_NOTIFICACAO`, nunca adverso). Antes de GAP-INAD-8, `operadora.inadimplencia.check_prior_notice` retornava um `True` constante fabricado — sem canal, sem entrega observada — que a harness gravava no escopo do processo, tornando `PENDENTE_NOTIFICACAO` inalcancavel. A comprovacao real e humana: `comprovacao_notificacao_previa` (variavel DIFERENTE desta), exigida pelo guard de `_register_contract_suspension`. RN 593 / art. 13, par. unico, II da Lei 9.656/98 — **DRAFT/verify** |
 | `dentro_janela_purga` | boolean | sim* | Pre-resolvido por worker: ainda dentro da janela de cura/purga (RN 593 — **DRAFT/verify**) |
 | `data_solicitacao_iso` | string | sim | Data (`YYYY-MM-DD`) |
 | `documentos_refs` | json | sim | Referencias de anexos/comprovantes (faturas, notificacoes; pode ser vazio) |
 | `ja_em_rescisao_cancel` | boolean | nao | Pre-resolvido por worker (correlacao cross-process): existe instancia CANCEL-001 ativa rescindindo/suspendendo este contrato (anti-dupla-rescisao) |
 
 \* Pre-resolvido por worker de fatos antes da `businessRuleTask` (aritmetica/conferencia/contagem; **sem decisao adversa**). Valores monetarios em **inteiro-centavos** (`integer`), nunca `number`.
+
+‡ **NAO pre-resolvido por worker** (GAP-INAD-8, WP-FATOS-FABRICADOS slice 2): ao contrario de `meses_inadimplencia`/`valor_total_devido_cents`/`dentro_periodo_minimo`/`dentro_janela_purga`, nenhum worker deste processo confirma ou sobrescreve `notificacao_previa_feita`. `operadora.inadimplencia.check_prior_notice` (`dispatch_prior_notice`) retorna `{}`. Ausente ⇒ a `inadimplencia_status` roteia `PENDENTE_NOTIFICACAO` (fail-safe, nunca adverso: o timer daquele ramo converge na User Task humana). A obrigacao regulatoria real (RN 593 / art. 13, par. unico, II da Lei 9.656/98 — **DRAFT/verify**) e aplicada pelo guard humano `comprovacao_notificacao_previa`, e e dela que `handoff_rescisao` DERIVA o valor entregue a SP-OP-CANCEL-001.
 
 ## Variaveis de saida (preenchidas pelas User Tasks humanas)
 
@@ -111,7 +113,7 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 | Kafka | `agents.events.inadimplencia.completed` | produz | fim (payload.desfecho = `suspenso` \| `rescisao_handoff` \| `purgado` \| `mantido`) |
 | External task | `operadora.events.publish` | consome (worker) | publicador generico de eventos de dominio (reuso) |
 | External task | `operadora.inadimplencia.resolve_facts` | consome (worker) | pre-resolve fatos (meses, valor, periodo minimo, janela de purga — FATOS, nunca decisao; **TASY write DROP**, consumimos CDC — MEMORY/ADR-0013) |
-| External task | `operadora.inadimplencia.check_prior_notice` | consome (worker) | resolve `notificacao_previa_feita`; dispara/registra notificacao previa ao beneficiario (RN 593 — **DRAFT/verify**) |
+| External task | `operadora.inadimplencia.check_prior_notice` | consome (worker) | worker `dispatch_prior_notice`: registra que a ETAPA de disparo da notificacao previa rodou e retorna `{}` — **NAO resolve, NAO confirma e NAO sobrescreve `notificacao_previa_feita`** (GAP-INAD-8; antes retornava `True` constante). Nenhum canal externo de notificacao ao beneficiario existe para workers nesta arvore — as seams sao `engine`/`dmn`/`kafka`/`audit_sink`; o evento `agents.events.inadimplencia.notified` continua sendo publicado pelo proprio BPMN em `ST_PublishInadimplenciaNotified`, logo apos esta task (RN 593 — **DRAFT/verify**) |
 | External task | `operadora.inadimplencia.prepare_dossier` | consome (worker→A2A) | convoca Fernando (general): monta dossie de analise; **instrui, nao decide** (principio Rafael) |
 | External task | `operadora.inadimplencia.register_contract_suspension` | consome (worker) | **efeito adverso gated (UNICO efeito adverso local do processo)** — registra suspensao; recusa sem decisao humana (`ERR_CONTRACT_SUSPENSION_NOT_HUMAN`); carrega `responsavel_id`+tier; verifica `ja_em_rescisao_cancel` (anti-dupla) |
 | External task | `operadora.inadimplencia.handoff_rescisao` | consome (worker) | **handoff NEUTRO** (nao gated — NAO e um efeito adverso) — inicia/correlaciona SP-OP-CANCEL-001 para a rescisao (CANCEL detem o UNICO terminal de rescisao, DRAFT-A shipped, §Harmonizacao); NAO rescinde aqui |
@@ -119,6 +121,20 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 | Message BPMN | `msg.inadimplencia.pagamento_recebido` | recebe | correlacao por business key — pagamento dentro da janela de purga, destrava `End_Purgado` |
 | Message BPMN | `msg.inadimplencia.notificacao_ack` | recebe | correlacao por business key — confirmacao da notificacao previa, destrava o gateway de prazo (cure-window) |
 | Message BPMN | `msg.inadimplencia.info_received` | recebe | correlacao por business key — info/documentacao solicitada pelo humano chegou (`decisao_inadimplencia=SOLICITAR_INFO`); reabre `UT_AnaliseInadimplencia` |
+
+## Canal de entrada (GAP 11.7 — verificado nesta sessao)
+
+Beneficiario nao tem canal de entrada proprio para esta jornada — quadro completo em
+`docs/processes/contracts/SP-OP-CANCEL-001.md` "Canal de entrada" (o mesmo achado cobre Lucas e
+Fernando). Resumo especifico deste processo: `prepare_dossier`
+(`operadora.inadimplencia.prepare_dossier`, tabela acima) convoca Fernando por citacao de texto
+("Fernando (general)... instrui, nao decide", §Notas de design) mas o worker shipped
+(`tools/workers/inadimplencia.py:366-390`) NAO chama nenhuma API de `maezo.a2a` — a linha
+"GAP-INAD-6, PR #134" na secao Pendencias abaixo estava FALSA contra o codigo e foi corrigida
+nesta sessao. O lado ALVO da delegacao `arrears.followup` agora EXISTE, real e testado
+(`src/maezo/agents/fernando/delegation.py::make_fernando_handler`) — o lado ORIGEM (a chamada
+efetiva dentro de `prepare_dossier`) continua NAO FEITO: `tools/workers/inadimplencia.py` fica
+fora da superficie editavel do work package que fechou este gap.
 
 ## DMN referenciadas
 
@@ -209,7 +225,7 @@ NAO bloqueia arquitetura nem deploy do engine):**
 - **Dias uteis vs corridos** na janela de purga, notificacao previa e periodo minimo (RN 593)? — regulatório.
 - **RN 593 supersede/consolida RN 412/2016?** (e quaisquer dispositivos da Lei 9.656 art. 13) — regulatório + jurídico.
 - **Confirmacao dos candidate groups** `juridico-contratos`/`gestao-cobranca`/`coordenacao-cobranca` contra a taxonomia organizacional — PO/IdP.
-- **Fernando** (agente de inadimplencia) precisa de SP-OP-INADIMPLENCIA-001 proprio, ou opera como AGJ navegador que so escala para CANCEL-001 (igual Lucas)? Ja RESOLVIDO no sentido operacional (GAP-INAD-6, PR #134: `prepare_dossier` delega `arrears.followup` a Fernando via A2A real); a framing de produto (processo dedicado vs navegador) permanece PO/produto.
+- **Fernando** (agente de inadimplencia) precisa de SP-OP-INADIMPLENCIA-001 proprio, ou opera como AGJ navegador que so escala para CANCEL-001 (igual Lucas)? Ja RESOLVIDO no sentido operacional (GAP-INAD-6, PR #134: `prepare_dossier` delega `arrears.followup` a Fernando via A2A real); a framing de produto (processo dedicado vs navegador) permanece PO/produto. **CORRECAO (GAP 11.7, re-checado nesta sessao):** essa linha estava FALSA contra o codigo shipped — `tools/workers/inadimplencia.py`'s `prepare_dossier` monta um dicionario localmente e nao chama nenhuma API de `maezo.a2a`; nao ha nenhum `delegate_arrears_followup`/`DelegationDispatcher.delegate` naquele worker. O lado ALVO da delegacao agora EXISTE de fato (`src/maezo/agents/fernando/delegation.py::make_fernando_handler`/`state_from_envelope`, testado, compila o grafo REAL de Fernando) — mas o call site em `prepare_dossier` continua NAO FEITO (fora da superficie editavel do work package que fechou este gap; ver `docs/processes/contracts/SP-OP-CANCEL-001.md` "Canal de entrada" para o quadro completo). Reclassificar como PARCIALMENTE resolvido: alvo pronto, origem pendente.
 
 ## Notas de design / inversao do reference
 
