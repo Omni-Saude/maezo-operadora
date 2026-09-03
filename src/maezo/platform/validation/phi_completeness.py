@@ -276,65 +276,65 @@ class ShapeToken:
     match: str = SEGMENT_MATCH
 
 
-#: The heuristic's vocabulary. Each entry's `source` is a `file:line` in THIS
+#: The heuristic's vocabulary. Each entry's `source` is a file path in THIS
 #: repo that already treats the token as PHI, and `quote` is a substring that
-#: must still be present at that location — `test_every_shape_token_cites_a_live_source`
-#: re-reads every one, so a citation that rots fails the build instead of
-#: decaying into folklore.
+#: must still be present SOMEWHERE in that file — content-anchored, not
+#: line-anchored, since `git blame`-neutral edits elsewhere in the file (a
+#: docstring reflow, a new comment above the cited line) used to fail a
+#: correct citation for a reason that had nothing to do with the citation.
+#: `test_every_shape_token_cites_a_live_source` re-reads every one, so a
+#: citation that rots (the FILE stops mentioning the token) still fails the
+#: build; only the fragile exact-line requirement is gone.
 SHAPE_TOKENS: tuple[ShapeToken, ...] = (
     # --- gateway.pseudonymizer.PHI_FIELDS (the canonical four) ---
-    ShapeToken("cpf", "src/maezo/gateway/pseudonymizer.py:43", '"cpf"'),
-    ShapeToken("nome", "src/maezo/gateway/pseudonymizer.py:44", '"nome"'),
-    ShapeToken("telefon", "src/maezo/gateway/pseudonymizer.py:45", '"telefone"', STEM_MATCH),
-    ShapeToken("email", "src/maezo/gateway/pseudonymizer.py:46", '"email"'),
+    ShapeToken("cpf", "src/maezo/gateway/pseudonymizer.py", '"cpf"'),
+    ShapeToken("nome", "src/maezo/gateway/pseudonymizer.py", '"nome"'),
+    ShapeToken("telefon", "src/maezo/gateway/pseudonymizer.py", '"telefone"', STEM_MATCH),
+    ShapeToken("email", "src/maezo/gateway/pseudonymizer.py", '"email"'),
     # `e_mail` splits into segments ("e", "mail"), so the attested `email` never fires on it.
     # Same attestation, folded to the segment the evasion actually produces.
-    ShapeToken("mail", "src/maezo/gateway/pseudonymizer.py:46", '"email"'),
+    ShapeToken("mail", "src/maezo/gateway/pseudonymizer.py", '"email"'),
     # --- tools.workers.phi_vars.PHI_PROCESS_VARS (the clinical-free-text eight) ---
     # Stems, not whole segments: `justificativas`/`laudos`/`resumos`/`diagnostica` are
     # one-character evasions of the very names the runtime control is keyed on.
-    ShapeToken(
-        "justificativ", "src/maezo/tools/workers/phi_vars.py:54", '"justificativa_clinica"', STEM_MATCH
-    ),
+    ShapeToken("justificativ", "src/maezo/tools/workers/phi_vars.py", '"justificativa_clinica"', STEM_MATCH),
     # `cid` stays SEGMENT_MATCH: as a stem it would swallow `cidade`/`cidadao`, and the
     # digit fold already carries `cid10` -> `cid`.
-    ShapeToken("cid", "src/maezo/tools/workers/phi_vars.py:55", '"cid10_referencia"'),
-    ShapeToken("fundamentac", "src/maezo/tools/workers/phi_vars.py:56", '"fundamentacao_dut"', STEM_MATCH),
-    ShapeToken("nota", "src/maezo/tools/workers/phi_vars.py:57", '"notas_resolucao"', STEM_MATCH),
-    ShapeToken("resumo", "src/maezo/tools/workers/phi_vars.py:58", '"resumo_contexto"', STEM_MATCH),
-    ShapeToken("matricula", "src/maezo/tools/workers/phi_vars.py:59", '"matricula_beneficiario"', STEM_MATCH),
-    ShapeToken("laudo", "src/maezo/tools/workers/phi_vars.py:60", '"laudo"', STEM_MATCH),
-    ShapeToken("diagnostic", "src/maezo/tools/workers/phi_vars.py:61", '"diagnostico"', STEM_MATCH),
+    ShapeToken("cid", "src/maezo/tools/workers/phi_vars.py", '"cid10_referencia"'),
+    ShapeToken("fundamentac", "src/maezo/tools/workers/phi_vars.py", '"fundamentacao_dut"', STEM_MATCH),
+    ShapeToken("nota", "src/maezo/tools/workers/phi_vars.py", '"notas_resolucao"', STEM_MATCH),
+    ShapeToken("resumo", "src/maezo/tools/workers/phi_vars.py", '"resumo_contexto"', STEM_MATCH),
+    ShapeToken("matricula", "src/maezo/tools/workers/phi_vars.py", '"matricula_beneficiario"', STEM_MATCH),
+    ShapeToken("laudo", "src/maezo/tools/workers/phi_vars.py", '"laudo"', STEM_MATCH),
+    ShapeToken("diagnostic", "src/maezo/tools/workers/phi_vars.py", '"diagnostico"', STEM_MATCH),
     # --- beatriz's raw-PHI refusal set (an item carrying any of these is refused whole) ---
-    ShapeToken("cns", "src/maezo/agents/beatriz/graph.py:143", '"cns"'),
-    ShapeToken("rg", "src/maezo/agents/beatriz/graph.py:143", '"rg"'),
-    ShapeToken("endereco", "src/maezo/agents/beatriz/graph.py:143", '"endereco"', STEM_MATCH),
+    ShapeToken("cns", "src/maezo/agents/beatriz/graph.py", '"cns"'),
+    ShapeToken("rg", "src/maezo/agents/beatriz/graph.py", '"rg"'),
+    ShapeToken("endereco", "src/maezo/agents/beatriz/graph.py", '"endereco"', STEM_MATCH),
     # --- fraude's evidence-reference PHI markers ---
-    ShapeToken("social", "src/maezo/tools/workers/fraude.py:65", '"nome_social"'),
+    ShapeToken("social", "src/maezo/tools/workers/fraude.py", '"nome_social"'),
     # --- the WhatsApp payload force-tokenization vocabulary (review-queue, res-xphi-raw-dict-payloads) ---
     # `nasc` rather than `nascimento`: the abbreviation `dt_nasc` is the form an intake
     # field actually takes, and the stem covers the spelled-out name too.
-    ShapeToken("nasc", "docs/review-queue.md:436", "data_nascimento", STEM_MATCH),
-    ShapeToken("cep", "docs/review-queue.md:436", "cep"),
+    ShapeToken("nasc", "docs/review-queue.md", "data_nascimento", STEM_MATCH),
+    ShapeToken("cep", "docs/review-queue.md", "cep"),
     # --- clinical-record vocabulary named as PHI-in-a-bounded-token by the harness fence ---
-    ShapeToken("prontuario", "src/maezo/tools/workers/harness.py:282", "prontuario number", STEM_MATCH),
+    ShapeToken("prontuario", "src/maezo/tools/workers/harness.py", "prontuario number", STEM_MATCH),
     # --- LGPD DSR free-text request detail, named PHI in the worker that refuses to forward it ---
     ShapeToken(
-        "detalhe", "src/maezo/tools/workers/lgpd.py:483", "detalhes_requisicao (free-text PHI)", STEM_MATCH
+        "detalhe", "src/maezo/tools/workers/lgpd.py", "detalhes_requisicao (free-text PHI)", STEM_MATCH
     ),
     # --- fraud-dossier free narrative written by an LLM over case facts ---
-    ShapeToken("narrativ", "src/maezo/agents/beatriz/prompts.py:61", "narrativa", STEM_MATCH),
+    ShapeToken("narrativ", "src/maezo/agents/beatriz/prompts.py", "narrativa", STEM_MATCH),
     # --- "texto livre" named PHI verbatim by the process that carries it ---
     ShapeToken(
         "livre",
-        "spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn:145",
+        "spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn",
         "texto livre PHI",
         STEM_MATCH,
     ),
     # --- "dado de paciente" as the category the dossier-zone ratification is ABOUT ---
-    ShapeToken(
-        "paciente", "src/maezo/platform/privacy/dossier_zone.py:43", "dado de paciente real", STEM_MATCH
-    ),
+    ShapeToken("paciente", "src/maezo/platform/privacy/dossier_zone.py", "dado de paciente real", STEM_MATCH),
     # --- declared extrapolations (no repo attestation; named so a reader can see the seam) ---
     # Each carries the basis of the extrapolation inline; none is dressed up with a
     # plausible-looking citation. They exist because the adversarial battery in
