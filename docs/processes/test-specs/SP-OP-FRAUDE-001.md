@@ -186,6 +186,22 @@ pseudonimizados sinteticos (**NUNCA PHI bruto**).
   prazos em string ISO. Nenhuma das 7 DMNs portadas emite `recommendation→FRAUD_DETECTED` nem coluna
   de veredito/bloqueio. (gate `validate-artifacts`)
 
+### test_dmn_sem_coluna_morta (GAP-PERSP-DMN-DEAD-INPUTS)
+- **Given** todas as 62 DMNs de `spec/processes/dmn/` (fence generica de corpus, nao so as deste
+  processo — `tests/unit/spec/test_dmn_dead_inputs_fence.py`)
+- **Then** nenhuma tabela declara um `<input>` que use `-` em TODA row E nao seja lido por nenhuma
+  expressao FEEL de `<outputEntry>`, fora do baseline congelado `KNOWN_DEAD_INPUTS` (21 achados
+  divulgados, nenhum ratificado). O baseline e ratchet nos dois sentidos: coluna morta nova FALHA,
+  e linha de baseline que deixou de valer FALHA (tem de ser apagada). `frequency_zscore_threshold`
+  e `unbundling_partial_bundles` NAO estao no baseline — as suas colunas mortas (`encounter_class`
+  e `tuss_codes`) foram removidas e nao podem voltar.
+- **Then** `_SCORING_INPUT_KEYS` (`src/maezo/tools/workers/fraude.py`) e a uniao dos
+  `inputExpression` das 7 tabelas `fraude_scoring/*` sao o MESMO conjunto (lido dos `.dmn` reais):
+  nenhum sinal coletado sem tabela que o leia, nenhuma coluna declarada sem chamador que a alimente
+  (`tests/unit/tools/workers/test_fraude.py::test_scoring_input_keys_are_exactly_the_seven_tables_inputs`).
+- **Then** toda tabela `hitPolicy=FIRST` continua terminando em row catch-all `-` (ADR-0028 §3):
+  remover coluna morta nunca pode custar o fail-closed.
+
 ## A2A (Beatriz — human-gated)
 
 ### test_beatriz_instrui_nao_decide
