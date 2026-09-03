@@ -238,7 +238,7 @@ class MarinaState(TypedDict, total=False):
     codigo_procedimento_tuss: str
     cid10: str
     documentos_recurso_refs: list[dict[str, Any]]
-    data_ciencia_glosa: str
+    data_ciencia_alegada_prestador: str
     data_recebimento_recurso_iso: str
     # Pre-resolved by worker (deterministic input to the RECURSO DMN chain).
     glosa_existe: bool
@@ -851,10 +851,13 @@ class MarinaGraph:
             )
             if state.get("cid10"):
                 variables["cid10"] = state["cid10"]
-            # `data_ciencia_glosa` stays a PLEITO datum (what the prestador declared), never an
-            # SLA anchor: `recurso_sla` no longer falls back to it (ADR-0040 §2.3).
-            if state.get("data_ciencia_glosa"):
-                variables["data_ciencia_glosa"] = state["data_ciencia_glosa"]
+            # `data_ciencia_alegada_prestador` stays a PLEITO datum (the date the prestador
+            # ALLEGES in the appeal he filed), never an SLA anchor: `recurso_sla` no longer
+            # falls back to it (ADR-0040 §2.3). Renamed from the old identifier in the PR-3
+            # gate repair (M1): that one named the APPELLANT's clock, and the perspective
+            # fence (PR-1, family `ancora-kpi`) flags it as such.
+            if state.get("data_ciencia_alegada_prestador"):
+                variables["data_ciencia_alegada_prestador"] = state["data_ciencia_alegada_prestador"]
             # ALWAYS seeded — it is the SINGLE anchor of the analysis SLA and of the absolute
             # ceiling, and `recurso_sla`'s FEEL has no other branch to fall into. Blank here is
             # fine and deliberate: `operadora.recurso.validate_recurso` (ST_ValidarRecurso, the
