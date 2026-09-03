@@ -24,7 +24,13 @@ reduced to what a health-only process needs:
 
   STEP 0  Configure observability (AF-13) — `platform.observability.bootstrap_observability`,
           before the first log line. Isolated; reported by `observability_configured`.
-  STEP A  Bind the health app IMMEDIATELY — `/healthz` 200 before any dependency is touched.
+  STEP A  Bind the health app IMMEDIATELY — `/healthz` 200 before any DEPENDENCY is touched.
+          "Dependency" means anything outside this process (engine, database, broker, policy
+          files). STEP 0 precedes it deliberately and is not one: it configures structlog and
+          builds an OTel provider in-process, opens no connection (the OTLP exporter's channel is
+          lazy), is isolated, and was measured non-blocking (~9 ms even with a malformed
+          endpoint). The alternative — health first — would mean this daemon's own first log
+          lines are written under a configuration it is about to replace.
   STEP B  ONE bounded, non-fatal check: autonomy policies loadable
           (`maezo.gateway.pep.build_pep()` — the fail-closed factory, ADR-0025 D5). Failure logs
           + leaves `/readyz` unhealthy; liveness stays up (no CrashLoop over a bad policy file —

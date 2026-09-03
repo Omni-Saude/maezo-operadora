@@ -10,8 +10,12 @@ Bring-up order (design §3/§10/§12), 0 -> E:
           first log line. Isolated (a raise leaves `observability_configured` red, never
           CrashLoops) and EXPLICIT about the no-op exporter case.
   STEP A  Bind the health app IMMEDIATELY in an asyncio task. `/healthz` answers 200 right away
-          (liveness) BEFORE any dependency comes up — the pod never CrashLoops because the
+          (liveness) BEFORE any DEPENDENCY comes up — the pod never CrashLoops because the
           engine is slow/unavailable. Signal ownership (SIGTERM/SIGINT) is claimed here.
+          STEP 0 runs first and is deliberately NOT a dependency: in-process only (structlog +
+          an OTel provider whose OTLP channel is lazy), isolated, measured non-blocking (~9 ms
+          even with a malformed endpoint). Ordering it after the bind would mean this daemon's
+          own first log lines run under a configuration it is about to replace.
   STEP B  Bring up dependencies BOUNDED and NON-FATAL: build the CIB Seven transport (pure
           construction — no network until the first fetch) and register every worker this build
           serves — as of T1.2/ADR-0026 (+ T3.1 R2's `events` module) this is the FULL 17-module

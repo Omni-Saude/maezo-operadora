@@ -15,8 +15,12 @@ that require graphs:
           about the no-op case: with no OTLP endpoint the check is healthy and its detail says, in
           words, that no span leaves this process.
   STEP A  Bind the health app IMMEDIATELY in an asyncio task. `/healthz` answers 200 right away
-          (liveness) before any dependency is touched — the pod never CrashLoops because a
-          spec file is missing or a policy fails to parse.
+          (liveness) before any DEPENDENCY is touched — the pod never CrashLoops because a
+          spec file is missing or a policy fails to parse. STEP 0 runs first and is
+          deliberately NOT a dependency: in-process only (structlog + an OTel provider whose
+          OTLP channel is lazy), isolated, measured non-blocking (~9 ms even with a malformed
+          endpoint). Ordering it after the bind would mean this daemon's own first log lines
+          run under a configuration it is about to replace.
   STEP B  Bring up the FOUR things this build can honestly check, bounded and non-fatal
           (failure logs + leaves the corresponding readiness check unhealthy — liveness stays
           up, per constraint 2 "readiness honest", never a silent 200):

@@ -19,7 +19,9 @@ Design decisions (ADR-0010, ADR-0014):
 
 from __future__ import annotations
 
+import logging
 import os
+import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
@@ -79,9 +81,18 @@ def _build_key_scrubber() -> Any | None:
     That was true and is no longer: the three composition roots (`runtime/agent_runtime/service.py`,
     `runtime/worker_runtime/service.py`, `gateway/service.py`) now call
     :func:`bootstrap_observability` as the FIRST act of `run()`, before their own first log line,
-    so this seam is on the live path of every daemon. The log-FORMATTING change that made wiring a
-    separate change (ConsoleRenderer + PrintLoggerFactory replacing structlog's default) is exactly
-    what that commit accepted, deliberately and visibly, rather than letting a flag do it silently.
+    so this seam is on the live path of every daemon.
+
+    WHAT THE WIRING DOES *NOT* CHANGE, corrected after the WP-COMPOSICAO-V2 review (MAJOR-1). An
+    earlier version of this note claimed the wiring "replaces structlog's default with
+    ConsoleRenderer + PrintLoggerFactory". That was WRONG: structlog 25.5.0's own default IS
+    `ConsoleRenderer` over `PrintLoggerFactory`. The renderer family never changed. What the first
+    cut of the wiring actually changed — and what is now repaired above — was that it DROPPED
+    `add_log_level` and `merge_contextvars` and FORCED ANSI colours regardless of TTY, which broke
+    both `grep ERROR`-style level triage and `key=value` field greps in containers. The chain now
+    carries both processors and asks stdout whether it is a terminal. The remaining, deliberate
+    delta from the default is the ISO-8601/UTC timestamp (vs local `%Y-%m-%d %H:%M:%S`) plus this
+    scrubber slot; it is disclosed to SRE in `docs/review-queue.md`.
 
     WHAT THAT DOES NOT CLOSE: this function is still gated on the policy, and the policy is still
     `off`. Ratifying `scrub_only` now DOES reach the log egress (it did not before) — but the
@@ -120,6 +131,73 @@ def _build_key_scrubber() -> Any | None:
 
 
 # ---------------------------------------------------------------------------
+# Console rendering: TTY-aware, and never silently different from structlog's default
+# ---------------------------------------------------------------------------
+
+#: `MAEZO_LOG_LEVEL` values this module accepts. Anything else is refused loudly rather than
+#: silently downgraded to INFO — a log level that is quietly ignored is exactly the defect
+#: minor-7 of the WP-COMPOSICAO-V2 review named.
+_LOG_LEVELS: Final[dict[str, int]] = {
+    "CRITICAL": logging.CRITICAL,
+    "ERROR": logging.ERROR,
+    "WARNING": logging.WARNING,
+    "INFO": logging.INFO,
+    "DEBUG": logging.DEBUG,
+    "NOTSET": logging.NOTSET,
+}
+
+
+def _console_colors_enabled() -> bool:
+    """Whether `ConsoleRenderer` may emit ANSI escapes. TTY-aware, exactly like structlog's default.
+
+    WHY THIS EXISTS AT ALL (WP-COMPOSICAO-V2 review, MAJOR-1). `structlog.dev.ConsoleRenderer`'s
+    own parameter default is `colors=True`, whereas the renderer structlog builds for its DEFAULT
+    configuration is TTY-aware. So constructing a bare `ConsoleRenderer()` here — which is what
+    this module used to do — does NOT reproduce the default: it FORCES colours, and a container
+    with no TTY (every one of the three daemons, in every deployment) then writes escape sequences
+    into `kubectl logs` / CloudWatch. That breaks field-level greps too, not just colour: the
+    escapes sit BETWEEN key, `=` and value, so `topic=t` stops being a substring of the line.
+
+    `NO_COLOR` (https://no-color.org) is honoured for the case an operator pipes a TTY session
+    into a file. `sys.stdout` is the stream `PrintLoggerFactory()` writes to, so it is the stream
+    whose TTY-ness decides — reading `sys.stdout` at CONFIGURE time, which is also when
+    `PrintLogger` captures it.
+    """
+    if os.environ.get("NO_COLOR"):
+        return False
+    isatty = getattr(getattr(sys, "stdout", None), "isatty", None)
+    if isatty is None:
+        return False
+    try:
+        return bool(isatty())
+    except (ValueError, OSError):
+        # A detached/closed stream is not a terminal. Never a reason to fail bring-up.
+        return False
+
+
+def _log_level_wrapper_class(log_level: str) -> Any:
+    """The structlog `wrapper_class` for `MAEZO_LOG_LEVEL`. UNSET == no filtering, as before.
+
+    MAJOR-1/minor-7 pair. `MAEZO_LOG_LEVEL` was read into a variable, emitted as a log FIELD, and
+    then never applied: `structlog.stdlib.BoundLogger` over `PrintLoggerFactory` performs no level
+    filtering at all, so `MAEZO_LOG_LEVEL=ERROR` printed every DEBUG line just the same. Now it is
+    real — and the DEFAULT is deliberately `NOTSET` (no filtering), which is byte-identical to the
+    behaviour of both the pre-AF-13 world and structlog's own default. Setting the variable is an
+    opt-in; not setting it changes nothing. An unknown value raises rather than falling back,
+    because a silently-ignored log level is the very thing being repaired here.
+    """
+    try:
+        level = _LOG_LEVELS[log_level]
+    except KeyError:
+        raise ValueError(
+            f"MAEZO_LOG_LEVEL={log_level!r} is not a log level. Accepted: "
+            f"{', '.join(sorted(_LOG_LEVELS))}. Refusing to fall back to a default, because a "
+            "log level that is silently ignored is indistinguishable from one that is applied."
+        ) from None
+    return structlog.make_filtering_bound_logger(level)
+
+
+# ---------------------------------------------------------------------------
 # setup_observability
 # ---------------------------------------------------------------------------
 
@@ -142,7 +220,10 @@ def setup_observability(
     Environment variables used:
         OTEL_SERVICE_NAME: overrides service_name if set.
         OTEL_EXPORTER_OTLP_ENDPOINT: OTLP endpoint (overrides otlp_endpoint arg).
-        MAEZO_LOG_LEVEL: structlog log level (default: INFO).
+        MAEZO_LOG_LEVEL: minimum level to EMIT. Unset == `NOTSET` == no filtering (the
+                         pre-existing behaviour); an unknown value raises `ValueError`.
+        NO_COLOR: disables ANSI colours even on a TTY (https://no-color.org). Colours are off
+                  by default whenever stdout is not a terminal — i.e. in every container.
 
     ADR-0010: OTel with agent semantics. Traces are per-conversation/task;
     spans represent LangGraph nodes, tool calls, and LLM calls.
@@ -150,9 +231,20 @@ def setup_observability(
     via OTel Collector with SigV4 remote-write.
     """
     # --- Structlog configuration ---
-    log_level = os.environ.get("MAEZO_LOG_LEVEL", "INFO").upper()
+    #
+    # THE RULE THIS CHAIN OBEYS (WP-COMPOSICAO-V2 review, MAJOR-1): wiring the daemons must not
+    # silently change what an operator's `grep` finds. Everything structlog's own default chain
+    # provides is provided here too — `merge_contextvars`, `add_log_level`, TTY-aware colours —
+    # and the only deliberate deltas are the ISO-8601/UTC timestamp and the DL-0043 scrubber slot.
+    # Concretely: `add_log_level` is what puts the `[error    ]` token on the line that
+    # `docs/runbooks/devops-stack.md:318` and the SLA-alert runbook grep for (structlog renders it
+    # LOWER-case — `grep -i` — which was already true of the pre-wiring default), and TTY-aware
+    # colours are what keep `topic=t` an unbroken substring in a container's log stream.
+    log_level = os.environ.get("MAEZO_LOG_LEVEL", "NOTSET").upper()
     scrubber = _build_key_scrubber()
     processors: list[Any] = [
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
@@ -161,10 +253,11 @@ def setup_observability(
         # Scrub LAST before rendering: every earlier processor may still ADD fields to the
         # event dict, so a scrubber placed before them would miss whatever they contribute.
         processors.append(scrubber)
-    processors.append(structlog.dev.ConsoleRenderer())
+    colors = _console_colors_enabled()
+    processors.append(structlog.dev.ConsoleRenderer(colors=colors))
     structlog.configure(
         processors=processors,
-        wrapper_class=structlog.stdlib.BoundLogger,
+        wrapper_class=_log_level_wrapper_class(log_level),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,
@@ -172,6 +265,7 @@ def setup_observability(
     structlog.get_logger(__name__).info(
         "observability_structlog_configured",
         log_level=log_level,
+        colors=colors,
         key_scrubber_installed=scrubber is not None,
     )
 
@@ -253,7 +347,15 @@ class ObservabilityStatus:
         if not self.configured:
             return f"observability bootstrap FAILED: {self.error or 'unknown error'}"
         if self.traces_exported:
-            return f"service={self.service_name} traces=otlp:{self.otlp_endpoint}"
+            # "configured, delivery unverified" and NOT "traces are flowing": nothing in this
+            # process validates the endpoint. A malformed or unroutable `OTEL_EXPORTER_OTLP_ENDPOINT`
+            # builds an exporter that never raises here (gRPC fails later, on a background thread,
+            # to stderr). Saying `traces=otlp:<endpoint>` alone would re-create AF-13's own defect
+            # one level up — a positive statement about export that was never checked.
+            return (
+                f"service={self.service_name} traces=otlp:{self.otlp_endpoint} "
+                "(exporter configured; DELIVERY NOT VERIFIED by this process)"
+            )
         return (
             f"service={self.service_name} traces=NOT EXPORTED — no OTLP endpoint configured "
             "(OTEL_EXPORTER_OTLP_ENDPOINT unset). Spans are built and dropped; this is the "
