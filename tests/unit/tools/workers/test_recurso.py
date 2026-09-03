@@ -11,7 +11,9 @@ renamed. What replaces them is `comunicar_resposta` (the payer's answer) and `ha
 
 import asyncio
 import re
+from itertools import product
 from pathlib import Path
+from typing import Any
 from xml.etree import ElementTree as ET
 
 import pytest
@@ -1547,16 +1549,302 @@ def _publish_received_output_parameters() -> dict[str, str]:
     raise AssertionError("ST_PublishReceived nao existe no BPMN")
 
 
-def _condition_expressions() -> dict[str, str]:
-    """`sequenceFlow id -> texto da conditionExpression` (so os flows condicionais)."""
-    out: dict[str, str] = {}
+_CAMUNDA_NS = "http://camunda.org/schema/1.0/bpmn"
+
+#: Topico da service task de handoff de pagamento — a rota do dinheiro, que uma decisao humana
+#: TEM de preceder.
+_TOPICO_HANDOFF_PAGAMENTO = "operadora.recurso.handoff_pagamento"
+
+#: No do AST produzido por `_parse_juel` (`(tag, *filhos)`).
+_JuelNode = tuple[Any, ...]
+
+
+class _JuelUnsupportedExpressionError(AssertionError):
+    """Construto JUEL que este avaliador NAO entende.
+
+    Falha ALTO de proposito. Um oraculo que "assume False" no que nao consegue ler aprova em
+    silencio o mutante que introduziu o construto — foi assim que `!x.equals('ZZZ')` passaria
+    por um teste que so procura `== ''`.
+    """
+
+
+class _JuelUnresolvedIdentifierError(AssertionError):
+    """Identificador lido por uma condicao e ausente do ambiente inicializado.
+
+    E exatamente o `Unknown property used in expression ... Cannot resolve identifier` que o
+    CIB Seven lanca (HTTP 500 no complete da User Task) ANTES de cair no default do gateway.
+    """
+
+
+_JUEL_TOKENS = re.compile(
+    r"""(?P<ws>\s+)
+       |(?P<str>'[^']*'|"[^"]*")
+       |(?P<op>==|!=|&&|\|\||[!()])
+       |(?P<name>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)""",
+    re.VERBOSE,
+)
+
+
+def _juel_tokenize(inner: str) -> list[tuple[str, str]]:
+    tokens: list[tuple[str, str]] = []
+    pos = 0
+    while pos < len(inner):
+        match = _JUEL_TOKENS.match(inner, pos)
+        if match is None:
+            raise _JuelUnsupportedExpressionError(
+                f"construto JUEL nao suportado por este oraculo em {inner!r}, coluna {pos}: "
+                f"{inner[pos:]!r}. Estenda o avaliador — nao o silencie."
+            )
+        pos = match.end()
+        kind = str(match.lastgroup)
+        if kind != "ws":
+            tokens.append((kind, match.group()))
+    return tokens
+
+
+class _JuelParser:
+    """Descida recursiva sobre o subconjunto de JUEL realmente usado neste BPMN.
+
+    Precedencia crescente: `||` < `&&` < (`==` | `!=`) < (`!` | `empty`) < primario.
+    Primarios: literal de string, `null`, `true`/`false`, identificador, `( ... )`.
+    Qualquer outra coisa -> `_JuelUnsupportedExpressionError`.
+    """
+
+    def __init__(self, tokens: list[tuple[str, str]], source: str) -> None:
+        self._tokens = tokens
+        self._pos = 0
+        self._source = source
+
+    def _peek(self) -> tuple[str, str] | None:
+        return self._tokens[self._pos] if self._pos < len(self._tokens) else None
+
+    def _take(self) -> tuple[str, str]:
+        token = self._peek()
+        if token is None:
+            raise _JuelUnsupportedExpressionError(f"expressao JUEL truncada: {self._source!r}")
+        self._pos += 1
+        return token
+
+    def parse(self) -> _JuelNode:
+        node = self._or()
+        if self._peek() is not None:
+            raise _JuelUnsupportedExpressionError(
+                f"sobra nao consumida no fim de {self._source!r}: {self._tokens[self._pos :]!r} "
+                "(chamada de metodo? operador aritmetico? ternario?)"
+            )
+        return node
+
+    def _or(self) -> _JuelNode:
+        node = self._and()
+        while self._peek() == ("op", "||"):
+            self._take()
+            node = ("or", node, self._and())
+        return node
+
+    def _and(self) -> _JuelNode:
+        node = self._equality()
+        while self._peek() == ("op", "&&"):
+            self._take()
+            node = ("and", node, self._equality())
+        return node
+
+    def _equality(self) -> _JuelNode:
+        node = self._unary()
+        token = self._peek()
+        if token is not None and token[0] == "op" and token[1] in ("==", "!="):
+            self._take()
+            return ("eq" if token[1] == "==" else "ne", node, self._unary())
+        return node
+
+    def _unary(self) -> _JuelNode:
+        token = self._peek()
+        if token == ("op", "!"):
+            self._take()
+            return ("not", self._unary())
+        if token is not None and token[0] == "name" and token[1] == "empty":
+            self._take()
+            return ("empty", self._unary())
+        return self._primary()
+
+    def _primary(self) -> _JuelNode:
+        kind, text = self._take()
+        if (kind, text) == ("op", "("):
+            node = self._or()
+            if self._peek() != ("op", ")"):
+                raise _JuelUnsupportedExpressionError(f"parentese nao fechado em {self._source!r}")
+            self._take()
+            return node
+        if kind == "str":
+            return ("lit", text[1:-1])
+        if kind == "name":
+            if text == "null":
+                return ("lit", None)
+            if text in ("true", "false"):
+                return ("lit", text == "true")
+            return ("var", text)
+        raise _JuelUnsupportedExpressionError(f"token inesperado {text!r} em {self._source!r}")
+
+
+def _parse_juel(expr_text: str) -> _JuelNode:
+    text = expr_text.strip()
+    if not (text.startswith("${") and text.endswith("}")):
+        raise _JuelUnsupportedExpressionError(f"conditionExpression fora da forma ${{...}}: {expr_text!r}")
+    inner = text[2:-1]
+    if "${" in inner or "}" in inner:
+        raise _JuelUnsupportedExpressionError(f"expressao JUEL composta/aninhada: {expr_text!r}")
+    return _JuelParser(_juel_tokenize(inner), inner).parse()
+
+
+def _juel_identifiers(node: _JuelNode) -> set[str]:
+    if node[0] == "lit":
+        return set()
+    if node[0] == "var":
+        return {str(node[1])}
+    lidos: set[str] = set()
+    for child in node[1:]:
+        lidos |= _juel_identifiers(child)
+    return lidos
+
+
+def _juel_equals(left: Any, right: Any) -> bool:
+    """`==` de EL restrito ao que o dominio usa: string, `null` e booleano.
+
+    `null` so e igual a `null` (logo `"" == null` e False, como no engine) e um booleano nunca e
+    igual a uma string.
+    """
+    if left is None or right is None:
+        return left is None and right is None
+    if isinstance(left, bool) != isinstance(right, bool):
+        return False
+    return bool(left == right)
+
+
+def _juel_require_bool(value: Any, onde: str, source: str) -> bool:
+    if not isinstance(value, bool):
+        raise _JuelUnsupportedExpressionError(
+            f"operando nao-booleano em {onde} ({value!r}) na expressao {source!r} — a coercao "
+            "implicita de EL nao e suportada por este oraculo; escreva a comparacao explicita."
+        )
+    return value
+
+
+def _juel_eval(node: _JuelNode, env: dict[str, Any], source: str) -> Any:
+    """Avalia o AST.
+
+    SEM curto-circuito, de proposito: um identificador nao resolvivel do lado direito de um `&&`
+    tem de aparecer como falha, nao ser escondido por um lado esquerdo falso.
+    """
+    tag = node[0]
+    if tag == "lit":
+        return node[1]
+    if tag == "var":
+        name = str(node[1])
+        if name not in env:
+            raise _JuelUnresolvedIdentifierError(
+                f"{name!r} nao esta entre as variaveis inicializadas por ST_PublishReceived; no "
+                "engine isto e `Cannot resolve identifier` (HTTP 500) e NAO o default do gateway. "
+                f"Expressao: {source!r}"
+            )
+        return env[name]
+    if tag == "not":
+        return not _juel_require_bool(_juel_eval(node[1], env, source), "'!'", source)
+    if tag == "empty":
+        value = _juel_eval(node[1], env, source)
+        return value is None or value == "" or (isinstance(value, (list, dict, set)) and not value)
+    if tag in ("and", "or"):
+        esquerda = _juel_require_bool(_juel_eval(node[1], env, source), f"'{tag}'", source)
+        direita = _juel_require_bool(_juel_eval(node[2], env, source), f"'{tag}'", source)
+        return (esquerda and direita) if tag == "and" else (esquerda or direita)
+    if tag in ("eq", "ne"):
+        iguais = _juel_equals(_juel_eval(node[1], env, source), _juel_eval(node[2], env, source))
+        return iguais if tag == "eq" else not iguais
+    raise _JuelUnsupportedExpressionError(f"no de AST desconhecido {tag!r} em {source!r}")
+
+
+def _sequence_flows() -> list[dict[str, str | None]]:
+    """Todo `sequenceFlow` com `sourceRef`, `targetRef` e o texto da condicao (ou None)."""
+    flows: list[dict[str, str | None]] = []
     for el in _bpmn_root().iter():
         if _local(el.tag) != "sequenceFlow":
             continue
+        condicao: str | None = None
         for child in el:
             if _local(child.tag) == "conditionExpression" and child.text:
-                out[str(el.get("id"))] = child.text
-    return out
+                condicao = child.text
+        flows.append(
+            {
+                "id": str(el.get("id")),
+                "source": str(el.get("sourceRef")),
+                "target": str(el.get("targetRef")),
+                "condition": condicao,
+            }
+        )
+    return flows
+
+
+def _gateways_de_decisao_humana() -> dict[str, str | None]:
+    """`exclusiveGateway id -> id do flow default`, para os gateways alimentados DIRETAMENTE por
+    uma User Task — i.e. os que roteiam uma decisao humana.
+
+    Resolvido por `sourceRef`/`targetRef`, NUNCA por prefixo de id de flow: renomear
+    `Flow_GWDec_*`/`Flow_GWMerito_*` nao esconde o gateway deste oraculo. Foi exatamente por essa
+    costura que o mutante M_G (flow renomeado + variavel nunca inicializada) reintroduziu o
+    defeito debaixo da versao anterior destes testes sem acender nada.
+    """
+    root = _bpmn_root()
+    user_tasks = {str(el.get("id")) for el in root.iter() if _local(el.tag) == "userTask"}
+    gateways: dict[str, str | None] = {}
+    for el in root.iter():
+        if _local(el.tag) == "exclusiveGateway":
+            default = el.get("default")
+            gateways[str(el.get("id"))] = None if default is None else str(default)
+    alimentados = {
+        str(flow["target"])
+        for flow in _sequence_flows()
+        if flow["source"] in user_tasks and flow["target"] in gateways
+    }
+    return {gid: default for gid, default in gateways.items() if gid in alimentados}
+
+
+def _tarefas_de_handoff_de_pagamento() -> set[str]:
+    return {
+        str(el.get("id"))
+        for el in _bpmn_root().iter()
+        if _local(el.tag) == "serviceTask" and el.get(f"{{{_CAMUNDA_NS}}}topic") == _TOPICO_HANDOFF_PAGAMENTO
+    }
+
+
+def _alcanca(origem: str, alvos: set[str]) -> bool:
+    """Alcancabilidade por `sequenceFlow` (fecho transitivo, ignorando as condicoes).
+
+    Conservador de proposito: uma rota so e considerada FORA da rota do dinheiro quando NENHUM
+    caminho dela chega a uma task de handoff de pagamento.
+    """
+    adjacencia: dict[str, set[str]] = {}
+    for flow in _sequence_flows():
+        adjacencia.setdefault(str(flow["source"]), set()).add(str(flow["target"]))
+    vistos = {origem}
+    fila = [origem]
+    while fila:
+        atual = fila.pop()
+        if atual in alvos:
+            return True
+        for proximo in adjacencia.get(atual, set()):
+            if proximo not in vistos:
+                vistos.add(proximo)
+                fila.append(proximo)
+    return False
+
+
+def _e_fim_de_erro(element_id: str) -> bool:
+    """O elemento e um `endEvent` com `errorEventDefinition` (terminal fail-closed)?"""
+    for el in _bpmn_root().iter():
+        if str(el.get("id")) != element_id:
+            continue
+        return _local(el.tag) == "endEvent" and any(
+            _local(child.tag) == "errorEventDefinition" for child in el
+        )
+    return False
 
 
 def test_variaveis_de_decisao_humana_sao_inicializadas_no_primeiro_service_task() -> None:
@@ -1581,30 +1869,149 @@ def test_variaveis_de_decisao_humana_sao_inicializadas_no_primeiro_service_task(
 
 
 def test_toda_variavel_lida_por_gateway_decisorio_esta_inicializada() -> None:
-    """Fecha a classe inteira, nao so as tres variaveis de hoje: qualquer identificador que as
-    conditionExpressions dos gateways decisorios leiam tem de estar inicializado em
-    `ST_PublishReceived` — senao um autor futuro reintroduz o mesmo travamento."""
+    """Fecha a CLASSE, nao so as tres variaveis de hoje: todo identificador lido por qualquer
+    `conditionExpression` de um gateway de decisao humana tem de estar inicializado em
+    `ST_PublishReceived`.
+
+    O gateway e resolvido semanticamente — pelo `sourceRef` de quem o alimenta (uma User Task) —
+    e os identificadores saem do AST da expressao. Nem prefixo de id de flow, nem regex sobre
+    `==`/`!=`: um mutante que renomeie os flows e leia uma variavel nunca inicializada (M_G) fica
+    VERMELHO aqui, e passava debaixo da versao anterior deste teste.
+    """
     inicializadas = set(_publish_received_output_parameters())
-    condicoes = _condition_expressions()
+    gateways = _gateways_de_decisao_humana()
+    assert gateways, (
+        "nenhum exclusiveGateway alimentado por User Task — o oraculo ficou inerte; o BPMN mudou "
+        "de forma e este teste precisa ser reancorado, nao apagado"
+    )
     lidas: set[str] = set()
-    for flow_id, expr in condicoes.items():
-        if not flow_id.startswith(("Flow_GWDec_", "Flow_GWMerito_")):
+    condicoes_por_gateway = dict.fromkeys(gateways, 0)
+    for flow in _sequence_flows():
+        origem = str(flow["source"])
+        if origem not in gateways or flow["condition"] is None:
             continue
-        lidas.update(re.findall(r"\b([a-z_][a-z0-9_]*)\s*(?:==|!=)", expr))
-    assert lidas, "nenhuma conditionExpression de gateway decisorio encontrada — teste inerte"
+        condicoes_por_gateway[origem] += 1
+        lidas |= _juel_identifiers(_parse_juel(str(flow["condition"])))
+    mudos = sorted(gid for gid, n in condicoes_por_gateway.items() if n == 0)
+    assert not mudos, f"gateway(s) de decisao humana sem nenhuma saida condicional: {mudos}"
+    assert lidas, "nenhum identificador lido pelas condicoes — teste inerte"
     assert lidas <= inicializadas, (
-        f"variaveis lidas pelos gateways decisorios sem inicializacao em ST_PublishReceived: "
-        f"{sorted(lidas - inicializadas)}"
+        "variaveis lidas por gateway de decisao humana e NAO inicializadas em ST_PublishReceived: "
+        f"{sorted(lidas - inicializadas)}. Sem a inicializacao o engine lanca `Cannot resolve "
+        "identifier` (HTTP 500) e a instancia trava na User Task em vez de cair no default."
     )
 
 
 def test_a_inicializacao_nao_casa_com_nenhuma_rota_de_acao() -> None:
-    """O valor inicializado (`""`) nao pode satisfazer NENHUMA condicao de acao — se casasse,
-    a inicializacao teria criado um ato por omissao, o anti-padrao que o default existe para
-    impedir."""
-    for flow_id, expr in _condition_expressions().items():
-        if not flow_id.startswith(("Flow_GWDec_", "Flow_GWMerito_")):
-            continue
-        assert "== ''" not in expr.replace('"', "'"), (
-            f"{flow_id} casa com a string vazia — a inicializacao viraria uma acao por omissao"
+    """ORACULO SEMANTICO, nao sintatico: parseia e AVALIA cada `conditionExpression` dos gateways
+    de decisao humana com as variaveis inicializadas ligadas a `""`.
+
+    Prova tres coisas:
+
+    (a) toda condicao de acao e False sobre a inicializacao — o token cai no default e nenhum ato
+        nasce por omissao;
+    (b) cada gateway declara um `default` sem condicao, e esse default termina num `endEvent` com
+        `errorEventDefinition` (fail-closed: erro visivel, nenhum efeito materializado);
+    (c) nenhuma rota que ALCANCA o handoff de pagamento dispara enquanto as variaveis que ela le
+        nao tiverem valor humano — verificado por enumeracao de TODAS as atribuicoes sobre
+        {`""`, `null`}, nao so a inicializacao.
+
+    E por AVALIAR — e nao por procurar `== ''` — que ele fica vermelho em `!= 'ZZZ'` (M_B) e em
+    `!x.equals('ZZZ')` (M_E), mutantes em que a rota DEFERIR -> `ST_ComunicarDeferimento` ->
+    `ST_HandoffPagamentoRecurso` dispara com a decisao humana AUSENTE: uma ordem de pagamento por
+    omissao. O avaliador falha ALTO no que nao entende; ele nunca assume False.
+    """
+    outputs = _publish_received_output_parameters()
+    env: dict[str, Any] = {nome: "" for nome, texto in outputs.items() if texto.strip() == '${""}'}
+    assert env, 'ST_PublishReceived nao inicializa nenhuma variavel com ${""} — teste inerte'
+    gateways = _gateways_de_decisao_humana()
+    assert gateways, "nenhum gateway de decisao humana — teste inerte"
+    pagamento = _tarefas_de_handoff_de_pagamento()
+    assert pagamento, f"nenhuma service task com topic {_TOPICO_HANDOFF_PAGAMENTO} — teste inerte"
+
+    flows = _sequence_flows()
+    avaliadas = 0
+    for gid, default_id in gateways.items():
+        saidas = [flow for flow in flows if flow["source"] == gid]
+
+        # (b) o default existe, e incondicional e termina no erro fail-closed
+        assert default_id is not None, (
+            f"{gid} nao declara default=... — uma decisao ausente/desconhecida ficaria sem rota"
         )
+        defaults = [flow for flow in saidas if flow["id"] == default_id]
+        assert len(defaults) == 1, f"o default {default_id!r} de {gid} nao e uma saida do proprio gateway"
+        assert defaults[0]["condition"] is None, (
+            f"o default {default_id!r} de {gid} carrega conditionExpression — deixa de ser default"
+        )
+        alvo_default = str(defaults[0]["target"])
+        assert _e_fim_de_erro(alvo_default), (
+            f"o default de {gid} vai para {alvo_default!r}, que nao e um endEvent de erro — o "
+            "fail-closed exige terminar em erro visivel, sem efeito materializado"
+        )
+
+        for flow in saidas:
+            if flow["condition"] is None:
+                continue
+            texto = str(flow["condition"])
+            ast = _parse_juel(texto)
+            avaliadas += 1
+
+            # (a) nenhuma rota de acao casa com a inicializacao
+            casou = _juel_require_bool(_juel_eval(ast, env, texto), "a condicao inteira", texto)
+            assert casou is False, (
+                f"{flow['id']} ({gid}) casa com a inicializacao {env!r}: {texto!r}. A inicializacao "
+                "teria criado um ATO POR OMISSAO — exatamente o que o default fail-closed existe "
+                "para impedir."
+            )
+
+            # (c) nenhuma rota do dinheiro dispara sem valor humano nenhum
+            if not _alcanca(str(flow["target"]), pagamento):
+                continue
+            lidas = sorted(_juel_identifiers(ast))
+            for combinacao in product(("", None), repeat=len(lidas)):
+                ambiente: dict[str, Any] = dict(zip(lidas, combinacao, strict=True))
+                disparou = _juel_require_bool(_juel_eval(ast, ambiente, texto), "a condicao inteira", texto)
+                assert disparou is False, (
+                    f"{flow['id']} alcanca {sorted(pagamento)} e dispara com {ambiente!r} — i.e. "
+                    "SEM nenhum valor humano. Seria uma ordem de pagamento por omissao."
+                )
+
+    assert avaliadas >= 9, (
+        f"apenas {avaliadas} condicoes de gateway decisorio avaliadas (esperado >= 9) — o oraculo "
+        "perdeu cobertura ou o BPMN encolheu sem que este teste fosse reancorado"
+    )
+
+
+def test_o_oraculo_juel_avalia_e_recusa_alto_o_que_nao_entende() -> None:
+    """O oraculo dos dois testes acima e codigo, e codigo sem teste nao e prova.
+
+    Pinos positivos e negativos do avaliador, mais a garantia de que ele FALHA ALTO no que nao
+    suporta — nunca "assume False", que e por onde um mutante entraria sem acender nada.
+    """
+    base: dict[str, Any] = {"x": "", "y": ""}
+
+    def ev(expr: str, env: dict[str, Any] | None = None) -> Any:
+        return _juel_eval(_parse_juel(expr), base if env is None else env, expr)
+
+    assert ev("${x == 'DEFERIR'}") is False
+    assert ev("${x != 'ZZZ'}") is True  # M_B: e por isto que a rota DEFERIR acenderia
+    assert ev("${x == ''}") is True  # M_C
+    assert ev("${x == null}") is False  # "" nao e null
+    assert ev("${empty x}") is True
+    assert ev("${!(x == 'A')}") is True
+    assert ev("${x == 'A' && y == 'B'}") is False
+    assert ev("${x == 'A' || y == ''}") is True
+    assert ev("${x == 'INDEFERIR' && (y == null || y != 'inadmissivel')}") is False
+    assert ev("${x == 'A'}", {"x": None}) is False
+    assert ev("${x == 'A'}", {"x": "A"}) is True
+
+    with pytest.raises(_JuelUnresolvedIdentifierError):
+        ev("${z == 'A'}")
+    with pytest.raises(_JuelUnsupportedExpressionError):
+        ev("${!x.equals('ZZZ')}")  # M_E: chamada de metodo
+    with pytest.raises(_JuelUnsupportedExpressionError):
+        ev("${x + 1 == 2}")  # aritmetica
+    with pytest.raises(_JuelUnsupportedExpressionError):
+        ev("${x == 'A' ? true : false}")  # ternario
+    with pytest.raises(_JuelUnsupportedExpressionError):
+        _juel_require_bool(ev("${x}"), "a condicao inteira", "${x}")  # coercao implicita

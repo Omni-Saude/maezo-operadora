@@ -9,11 +9,15 @@ returned, and the async methods that call them stay in the integration lane.
 What is pinned, and why each exists:
 
 1. `is_variable_absent_response` — `get_variable` raises on ANY status != 200, and the engine
-   answers **404 `process instance variable with name <n> does not exist`** for a variable that
-   was never set. So `assert await engine.get_variable(iid, forbidden) is None` — the shape
-   I-PAGTO-1's engine-side proof used — could NEVER pass: the 404 that IS the proof of absence
-   became an `EngineRestError`. Only that one pair means absence; every other status stays a
-   failure, so an engine that is down can never be read as "the variable is absent".
+   answers **404 `InvalidRequestException: process instance variable with name <n> does not
+   exist`** for a variable that was never set. So `assert await engine.get_variable(iid,
+   forbidden) is None` — the shape I-PAGTO-1's engine-side proof used — could NEVER pass: the
+   404 that IS the proof of absence became an `EngineRestError`. Only that one EXACT pair means
+   absence (status **and** the body's `type` + `message` shape), so an engine that is down can
+   never be read as "the variable is absent". The predicate used to match `404` plus the bare
+   substring `"does not exist"`, which ALSO swallowed the engine's 404s about the *instance* and
+   about a *deployment* — a dead or nonexistent instance would then have satisfied the
+   leak sweep by vacuity. Those two adversarial bodies are pinned below as FAILURES.
 
 2. `assert_definition_provenance` — the dev-stack engine is SHARED and
    `POST /deployment/create` creates a NEW VERSION of the same process-definition-key, which
@@ -72,13 +76,40 @@ def test_200_nunca_e_ausencia() -> None:
         (503, "engine indisponivel"),
         (404, '{"type":"RestException","message":"Process instance not found"}'),
         (401, "unauthorized"),
+        # --- os dois corpos ADVERSARIAIS: 404 do proprio engine, mensagem terminando em
+        # "does not exist", mas falando de OUTRO recurso. O casamento por substring anterior
+        # mapeava ambos para ausencia; sao os que a checagem de `type` + forma da `message`
+        # passa a recusar.
+        (
+            404,
+            '{"type":"RestException","message":"Process instance with id foo does not exist"}',
+        ),
+        (
+            404,
+            '{"type":"RestException","message":"Deployment with id X does not exist"}',
+        ),
+        # corpo nao-JSON e corpo JSON sem as chaves: fail-closed
+        (404, "does not exist"),
+        (404, '{"message":"process instance variable with name x does not exist"}'),
+        (404, '{"type":"InvalidRequestException","message":null}'),
     ],
 )
 def test_falhas_nunca_viram_ausencia(status: int, corpo: str) -> None:
     """FAIL-CLOSED: engine fora do ar, instancia inexistente ou ja concluida (500 "execution is
     null") NAO podem se disfarcar de "variavel ausente" — senao uma assercao de vazamento
-    passaria por vacuidade. So o par (404 + "does not exist") e ausencia."""
+    passaria por vacuidade. So o par EXATO (404 + `type` InvalidRequestException + `message` da
+    forma `process instance variable with name <n> does not exist`) e ausencia."""
     assert is_variable_absent_response(status, corpo) is False
+
+
+def test_404_de_outra_variavel_continua_sendo_ausencia() -> None:
+    """A checagem e da FORMA da mensagem, nao do nome da variavel: qualquer variavel ausente de
+    uma instancia viva continua sendo lida como ausencia (o aperto nao quebrou o caso real)."""
+    corpo = (
+        '{"type":"InvalidRequestException","message":"process instance variable with name '
+        'lastro_confirmado does not exist","code":null}'
+    )
+    assert is_variable_absent_response(404, corpo) is True
 
 
 # ---------------------------------------------------------------------------
