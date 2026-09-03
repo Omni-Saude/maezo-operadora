@@ -2,9 +2,13 @@
 
 Provides:
 - setup_observability(): initializes structured logging and OpenTelemetry tracing
+- bootstrap_observability(): the COMPOSITION-ROOT wrapper around it (AF-13) — isolated,
+  never propagates, and returns the `ObservabilityStatus` each daemon's readiness check reads
 - WorkerBase instrumentation: worker_execution_time, worker_error_count
 - MetricsCollector extensions for worker metrics (M11)
 - record_llm_token_usage(): LLM token-metering (T8) — COUNTS ONLY, never a cost value
+- record_tool_call()/record_agent_error(): the two counters `deploy/observability/alert-rules.yml`
+  reads for `MaezoSLAAgentErrorRateHigh` / `MaezoAgentCrashLoop` (AF-13 / ALERTS-WITHOUT-METRICS-a)
 
 Design decisions (ADR-0010, ADR-0014):
 - OTel with agent semantics: trace per conversation, span per node/tool/LLM call
@@ -16,6 +20,7 @@ Design decisions (ADR-0010, ADR-0014):
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
 import structlog
@@ -69,14 +74,18 @@ def _build_key_scrubber() -> Any | None:
     the scrubber matters here is that business keys can carry `matricula_beneficiario`, and
     whether that gets pseudonymized is the OWNER's call, not this function's.
 
-    KNOWN GAP, RECORDED NOT PAPERED OVER: `setup_observability` has NO production caller today
-    (repo-wide sweep — only tests call it), so the daemons run structlog's DEFAULT configuration,
-    which renders every kwarg to stdout just the same. Installing the scrubber here is the right
-    SEAM, but ratifying `scrub_only` without also invoking this bootstrap from each daemon's
-    composition root would close the Kafka/mirror egress and NOT the log egress. The manifest
-    carries this as an explicit ratification pre-requisite; wiring the composition roots is a
-    separate change because it also changes log FORMATTING, which is not byte-identical and
-    therefore not something this flag may do silently.
+    GAP CLOSED (AF-13, 2026-09-03) — WAS: "`setup_observability` has NO production caller today
+    (repo-wide sweep — only tests call it), so the daemons run structlog's DEFAULT configuration".
+    That was true and is no longer: the three composition roots (`runtime/agent_runtime/service.py`,
+    `runtime/worker_runtime/service.py`, `gateway/service.py`) now call
+    :func:`bootstrap_observability` as the FIRST act of `run()`, before their own first log line,
+    so this seam is on the live path of every daemon. The log-FORMATTING change that made wiring a
+    separate change (ConsoleRenderer + PrintLoggerFactory replacing structlog's default) is exactly
+    what that commit accepted, deliberately and visibly, rather than letting a flag do it silently.
+
+    WHAT THAT DOES NOT CLOSE: this function is still gated on the policy, and the policy is still
+    `off`. Ratifying `scrub_only` now DOES reach the log egress (it did not before) — but the
+    ratification itself remains the owner's, unchanged by this wiring.
 
     Returns None (no processor, byte-identical logging) whenever the effective policy mode is
     `off` — which is the shipped state. When the policy IS active the pseudonymizer is built
@@ -84,17 +93,17 @@ def _build_key_scrubber() -> Any | None:
     runtime with no `PHI_HMAC_KEY` raises `PseudonymizerKeyMissingError` here rather than
     installing a scrubber that would pseudonymize with a publicly-known dev key.
 
-    WHERE THAT RAISE ACTUALLY SURFACES — NOT here, and not at boot, TODAY. It is a direct
-    consequence of the gap recorded just above: with no composition root calling
-    `setup_observability`, nothing in production ever reaches this function, so this raise is
-    UNREACHABLE in production and no daemon "fails at boot" on it. The one production-reachable
-    construction of the same pseudonymizer is `key_scrubber.egress_message_key`, called by the
-    `operadora.events.publish` worker handler — so an operator who ratifies `scrub_only` without
-    provisioning `PHI_HMAC_KEY` finds out on the FIRST publish external task after the restart,
-    as a raw `PseudonymizerKeyMissingError` on the harness retry/incident ladder (that handler
-    hoists the call out of its publish-`try` precisely so the fault is not re-labelled as a Kafka
-    publish failure). The boot-time reading becomes true only once a composition root wires this
-    bootstrap — which is the same pre-requisite the manifest already carries.
+    WHERE THAT RAISE SURFACES, RE-DERIVED AFTER AF-13. It used to be unreachable in production
+    (no composition root called `setup_observability`). It is now reachable at BOOT: each root
+    calls this through :func:`bootstrap_observability`, whose guard catches the raise, leaves the
+    root's `observability_configured` readiness check RED with the error text, and lets liveness
+    stay up — the same bounded/non-fatal posture every other bring-up block in those daemons uses.
+    So under a ratified `scrub_only` with no `PHI_HMAC_KEY`, the daemon now reports NOT READY at
+    boot instead of only failing later. The second, independent surface is unchanged:
+    `key_scrubber.egress_message_key`, called by the `operadora.events.publish` worker handler,
+    still raises `PseudonymizerKeyMissingError` onto the harness retry/incident ladder (that
+    handler hoists the call out of its publish-`try` precisely so the fault is not re-labelled as
+    a Kafka publish failure).
     """
     from maezo.platform.privacy.phi_key_policy import phi_key_policy  # noqa: PLC0415 — lazy
 
@@ -201,6 +210,193 @@ def setup_observability(
     )
 
     return provider
+
+
+# ---------------------------------------------------------------------------
+# Composition-root bootstrap (AF-13)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityStatus:
+    """What a composition root learned when it brought observability up.
+
+    The daemons already isolate every bring-up block into a NAMED readiness check rather than
+    letting it kill liveness (`agent_runtime/service.py` STEP B, `worker_runtime/service.py`
+    STEP B). This value object is that block's result for observability, so `/readyz` can state
+    the truth instead of the absence of a complaint.
+
+    `traces_exported` is the field that exists because of the specific dishonesty AF-13 named: a
+    no-op exporter and a working exporter were indistinguishable from outside the pod. `configured`
+    True + `traces_exported` False is the SHIPPED dev/no-endpoint posture the module documents
+    ("If None or empty, traces are exported to a no-op backend (dev mode)") — it is healthy, and it
+    says so in words, which is the whole point.
+    """
+
+    #: `setup_observability` completed without raising. False means structlog/OTel are NOT
+    #: configured for this process — a real misconfiguration (e.g. ADR-0035's fail-closed
+    #: `PseudonymizerKeyMissingError` under a ratified `pseudo_keys`), and the readiness check
+    #: for it is RED.
+    configured: bool
+    #: The OTel resource `service.name` this process booted under.
+    service_name: str
+    #: The resolved OTLP endpoint, or None when none was configured.
+    otlp_endpoint: str | None
+    #: True only when a real `BatchSpanProcessor`/OTLP exporter was installed. False = no-op.
+    traces_exported: bool
+    #: `type(exc).__name__: exc` when `configured` is False; None otherwise.
+    error: str | None = None
+
+    @property
+    def detail(self) -> str:
+        """One line for the readiness check — never silent about a no-op exporter."""
+        if not self.configured:
+            return f"observability bootstrap FAILED: {self.error or 'unknown error'}"
+        if self.traces_exported:
+            return f"service={self.service_name} traces=otlp:{self.otlp_endpoint}"
+        return (
+            f"service={self.service_name} traces=NOT EXPORTED — no OTLP endpoint configured "
+            "(OTEL_EXPORTER_OTLP_ENDPOINT unset). Spans are built and dropped; this is the "
+            "documented dev/no-op posture (ADR-0014), NOT a working trace pipeline."
+        )
+
+
+def bootstrap_observability(
+    *,
+    service_name: str,
+    otlp_endpoint: str | None = None,
+) -> ObservabilityStatus:
+    """Bring observability up at a COMPOSITION ROOT. The AF-13 wire; never propagates.
+
+    AF-13, stated plainly: `setup_observability` was a complete, tested library function with zero
+    production callers, so every daemon ran structlog's default configuration and built no tracer
+    provider at all. This is the call the three roots make, and the reason it is a wrapper rather
+    than a bare `setup_observability(...)` at each root is that a root needs THREE things the bare
+    function does not give it: isolation (a bad PHI-key policy must leave the pod not-ready, never
+    CrashLooping), an explicit statement of whether traces actually leave the process, and one
+    shape for all three roots so they cannot drift.
+
+    NOT FAIL-OPEN, NOT FAIL-FATAL. A raise here is contained and reported RED
+    (`ObservabilityStatus.configured=False`) — the same posture as every other bring-up block in
+    those daemons (`docs/design/T1.1-runtime-spine.md` §10 / I-2: "the failure mode is 'replica not
+    ready', never 'replica ready and ungated'"). An ABSENT OTLP endpoint is NOT an error: the
+    module's own contract documents the no-op exporter as the dev mode, so this returns
+    `configured=True, traces_exported=False` and says so in `detail` and in a WARNING log —
+    explicit, per AF-13's "no silent no-op".
+
+    Args:
+        service_name: OTel resource `service.name` (a bounded, non-PHI token — a daemon/agent id).
+        otlp_endpoint: the endpoint from the root's SETTINGS class (never a fresh `os.environ`
+            read at the root — `check_effect_chokepoint_fence.py` §8.3 discipline). Note that
+            `setup_observability` still lets `OTEL_EXPORTER_OTLP_ENDPOINT` win, and the settings
+            field is aliased to exactly that variable, so the two agree by construction.
+    """
+    try:
+        setup_observability(service_name=service_name, otlp_endpoint=otlp_endpoint)
+    except Exception as exc:  # noqa: BLE001 — isolated: a telemetry fault must not CrashLoop a pod.
+        status = ObservabilityStatus(
+            configured=False,
+            service_name=service_name,
+            otlp_endpoint=otlp_endpoint,
+            traces_exported=False,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        logger.error("observability_bootstrap_failed", service_name=service_name, exc_info=True)
+        return status
+
+    endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", otlp_endpoint or "") or None
+    status = ObservabilityStatus(
+        configured=True,
+        service_name=os.environ.get("OTEL_SERVICE_NAME", service_name),
+        otlp_endpoint=endpoint,
+        traces_exported=endpoint is not None,
+    )
+    if status.traces_exported:
+        logger.info("observability_bootstrapped", service_name=status.service_name, detail=status.detail)
+    else:
+        # WARNING, not info: "we are emitting no traces" is an operational fact an on-call needs to
+        # be able to find, and the pre-AF-13 world's defect was precisely that it was unfindable.
+        logger.warning(
+            "observability_bootstrapped_without_trace_export",
+            service_name=status.service_name,
+            detail=status.detail,
+        )
+    return status
+
+
+# ---------------------------------------------------------------------------
+# Agent counters the SLA/crash-loop alerts read (AF-13 / ALERTS-WITHOUT-METRICS-a)
+# ---------------------------------------------------------------------------
+
+
+def record_tool_call() -> None:
+    """Count ONE gated tool/effect invocation — `maezo_tool_calls_total`.
+
+    Called from `maezo.gateway.seams._base.gate` — the ONE per-call chokepoint every gated seam
+    (dmn, cibseven, fhir, whatsapp, inference, population, a2a) passes through, agent-side and
+    worker-side. Counting here rather than in each wrapper is what makes coverage structural: a
+    seam that skipped this counter would also have skipped the policy decision.
+
+    NO LABELS, DELIBERATELY, and this is not laziness — it is read off the alert. The shipped
+    `MaezoSLAAgentErrorRateHigh` expr is
+    `rate(maezo_agent_errors_total[5m]) / rate(maezo_tool_calls_total[5m])`
+    (`deploy/observability/alert-rules.yml:38-42`), a binary operation whose default vector
+    matching requires the two operands to carry IDENTICAL label sets. Giving this counter a
+    `tool`/`principal` label that `maezo_agent_errors_total` cannot also carry would produce an
+    empty result — an alert that can never fire, which is the exact defect class
+    ALERTS-WITHOUT-METRICS-a exists to close. Widening both counters to a shared label set is a
+    real option and is recorded in `docs/review-queue.md` as an owner decision, because it is only
+    safe together with an `alert-rules.yml` edit and `deploy/` is owner-gated.
+
+    Best-effort: telemetry must never break an effect call, so the caller guards it.
+    """
+    _get_metrics_collector().tool_calls.inc()
+
+
+def record_agent_error() -> None:
+    """Count ONE failed agent turn — `maezo_agent_errors_total`.
+
+    Called from the TWO turn-execution seams this repo has, both of them platform composition code
+    and neither of them inside an agent graph:
+      * `maezo.runtime.harness.Harness.invoke` (the agent-runtime ingress path), and
+      * `maezo.platform.webhooks.whatsapp.dispatch.HelenaDispatcher.dispatch` (the live WhatsApp
+        receiver, which compiles and `ainvoke`s Helena's graph directly rather than through
+        `Harness`).
+    `tests/unit/platform/test_alert_metrics_fence.py::test_every_turn_execution_seam_counts_agent_errors`
+    pins that enumeration so a THIRD turn seam cannot appear un-instrumented.
+
+    WHAT IS AND IS NOT AN "AGENT ERROR" HERE. A turn that raised out of the graph is one. A policy
+    DENIAL at the effect chokepoint is NOT — `gate()` refusing an effect is the system working, and
+    counting it would make `MaezoAgentCrashLoop` (`rate(maezo_agent_errors_total[1m]) > 0`) fire on
+    correct refusals. That distinction is a judgement, so it is written down rather than implied.
+
+    Label-free for the same vector-matching reason as :func:`record_tool_call`.
+
+    GUARDED INTERNALLY (unlike :func:`record_tool_call`, whose caller guards it): every call site
+    is an `except` block that is about to RE-RAISE the real failure, and a metrics fault there
+    would replace the turn's genuine exception with a telemetry one — the worst possible trade.
+    """
+    try:
+        _get_metrics_collector().errors.inc()
+    except Exception:  # noqa: BLE001 — never mask the turn failure this is counting.
+        logger.debug("agent_error_metric_emit_failed", exc_info=True)
+
+
+def record_llm_tier_resolution(*, task_kind: str, tier: str, resolution: str) -> None:
+    """Record how ONE `task_kind` resolved to a model — `maezo_llm_tier_resolution_total` (AF-12).
+
+    The "explicit metric" half of AF-12's fail-closed tier resolution: this repo's inference
+    configuration has exactly ONE model (`MAEZO_INFERENCE_MODEL` / the provider default) and no
+    per-tier model map, so every declared tier resolves to that same model. That is a legitimate
+    resolution, but it must be VISIBLE — a tier that silently means nothing is how ADR-0009's
+    routing stayed decorative for a year.
+
+    All three labels are closed vocabularies (`inference.MODEL_TASK_KINDS`, `inference.MODEL_TIERS`
+    plus the two sentinels, `inference.TIER_RESOLUTIONS`). No prompt, no tenant, no agent id.
+    """
+    _get_metrics_collector().llm_tier_resolution.labels(
+        task_kind=task_kind, tier=tier, resolution=resolution
+    ).inc()
 
 
 # ---------------------------------------------------------------------------

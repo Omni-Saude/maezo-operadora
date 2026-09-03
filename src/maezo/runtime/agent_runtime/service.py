@@ -8,6 +8,12 @@ agent pod (helena/rafael/marina) CrashLoopBackOff'd. This module closes that haz
 SAME health-first daemon pattern as `worker_runtime` (T1.1 design §3/§10/§12), minus the parts
 that require graphs:
 
+  STEP 0  Configure observability (AF-13) — `platform.observability.bootstrap_observability`
+          installs structlog's processor chain and the OTel TracerProvider BEFORE the daemon's
+          first log line. Isolated like every other bring-up block (a raise leaves the
+          `observability_configured` readiness check red, never CrashLoops the pod), and EXPLICIT
+          about the no-op case: with no OTLP endpoint the check is healthy and its detail says, in
+          words, that no span leaves this process.
   STEP A  Bind the health app IMMEDIATELY in an asyncio task. `/healthz` answers 200 right away
           (liveness) before any dependency is touched — the pod never CrashLoops because a
           spec file is missing or a policy fails to parse.
@@ -63,7 +69,11 @@ from maezo.agents import AgentDefinition, AgentLoader
 from maezo.gateway.action_execution import action_approvals
 from maezo.gateway.pep import PEP, PolicyError, build_pep
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
-from maezo.platform.observability import get_metrics_collector
+from maezo.platform.observability import (
+    ObservabilityStatus,
+    bootstrap_observability,
+    get_metrics_collector,
+)
 from maezo.runtime.checkpoint import Checkpointer, provision_checkpointer
 from maezo.runtime.harness import Harness, UnknownAgentError
 from maezo.runtime.inference import InferenceProvider
@@ -99,6 +109,12 @@ class AgentState:
 
     settings: AgentRuntimeSettings
     live: bool = True
+    # AF-13: structlog + OTel are configured by `run()` BEFORE this daemon's first log line, and
+    # the result is kept here so `/readyz` can state whether traces actually leave this process
+    # instead of leaving "no OTLP endpoint" indistinguishable from "exporter working". None means
+    # `run()` has not reached the bootstrap yet (only observable in a unit test that builds the
+    # checks directly) — reported RED, because "not evaluated" is not "healthy".
+    observability: ObservabilityStatus | None = None
     agent_definition: AgentDefinition | None = None
     agent_definition_error: str | None = None
     pep: PEP | None = None
@@ -159,6 +175,22 @@ class AgentState:
 # --- STEP C: readiness checks (read AgentState) ------------------------------------------------
 
 
+def _ensure_observability(state: AgentState) -> ObservabilityStatus:
+    """Guarantee STEP 0 ran, once (AF-13). Same contract as the other two composition roots.
+
+    `run()` calls it FIRST, before this daemon's own first log line; `_bring_up_dependencies` calls
+    it again so the invariant "a brought-up daemon has observability configured" holds for the
+    other way bring-up is reached (a test driving it directly) — without calling
+    `setup_observability` twice in production, which OTel would refuse and warn about.
+    """
+    if state.observability is None:
+        state.observability = bootstrap_observability(
+            service_name=f"maezo-agent-runtime-{state.settings.agent_id}",
+            otlp_endpoint=state.settings.otel_exporter_otlp_endpoint,
+        )
+    return state.observability
+
+
 def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[CheckResult]]]:
     """Assemble the NAMED readiness checks the health app runs concurrently on every `/readyz`.
 
@@ -166,6 +198,21 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
     network/file I/O (that already happened, bounded and non-fatal, in `_bring_up_dependencies`),
     so `/readyz` stays cheap regardless of how these checks are implemented.
     """
+
+    async def observability_configured(_state: AgentState = state) -> CheckResult:
+        # AF-13. RED only on a real misconfiguration (the bootstrap RAISED — e.g. ADR-0035's
+        # fail-closed missing `PHI_HMAC_KEY` under a ratified key policy). An absent OTLP endpoint
+        # is the module's DOCUMENTED dev no-op, so it stays healthy — but the detail says, in
+        # words, that no span leaves this process. That sentence is the deliverable: before this
+        # wiring the two states were indistinguishable from outside the pod.
+        status = _state.observability
+        if status is None:
+            return CheckResult(
+                name="observability_configured",
+                healthy=False,
+                detail="observability bootstrap has not run (run() has not reached STEP 0)",
+            )
+        return CheckResult(name="observability_configured", healthy=status.configured, detail=status.detail)
 
     async def agent_definition_loaded(_state: AgentState = state) -> CheckResult:
         # Config loadable (T0.3 loader) — design §10/Q-6, first of the three scaffold checks.
@@ -321,6 +368,7 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
         return CheckResult(name="effect_seams_gated", healthy=False, detail=_state.effect_seams_detail)
 
     return [
+        observability_configured,
         agent_definition_loaded,
         policies_loadable,
         inference_provider_ready,
@@ -334,6 +382,20 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
 
 
 # --- STEP B: dependency bring-up (bounded, non-fatal) -------------------------------------------
+
+
+def _declared_model_tiers(definition: AgentDefinition | None) -> dict[str, str]:
+    """This replica's `task_kind -> tier` map (AF-12), or `{}` when no definition loaded.
+
+    Total by construction: a malformed `model:` block is already skipped by
+    `AgentDefinition.model_tiers`, and a definition that failed to load leaves the map empty
+    rather than blocking the inference provider — the definition's own failure is already
+    reported by the `agent_definition_loaded` readiness check, and reporting it twice would make
+    two red checks out of one fault.
+    """
+    if definition is None:
+        return {}
+    return definition.model_tiers()
 
 
 def _load_agent_definition(settings: AgentRuntimeSettings) -> AgentDefinition:
@@ -456,6 +518,7 @@ async def _bring_up_dependencies(state: AgentState) -> None:
     """Run the four STEP B checks. Each block is isolated: failure logs + leaves the
     corresponding readiness check unhealthy, but NEVER propagates (liveness must stay up — this
     is precisely what kills the CrashLoop, Q-6)."""
+    _ensure_observability(state)  # AF-13 — no-op when `run()` already did it at STEP 0.
     settings = state.settings
 
     try:
@@ -493,7 +556,16 @@ async def _bring_up_dependencies(state: AgentState) -> None:
         logger.error("effect_policy_pin_failed", exc_info=True)
 
     try:
-        state.inference_provider = InferenceProvider()
+        # AF-12: the provider is built WITH this replica's agent-declared tier map, so
+        # `agent.yaml`'s `model: {task_default: {tier: fast}, reasoning: {tier: frontier}}` finally
+        # reaches the thing that could act on it. `_declared_model_tiers` yields {} when the
+        # definition failed to load above — the provider then reports every call under the
+        # `sem_mapa` sentinel rather than pretending a tier was declared. A tier outside the
+        # ADR-0009 vocabulary raises here and lands on `inference_provider_ready` (red), which is
+        # the same fail-closed shape a missing credential already has.
+        state.inference_provider = InferenceProvider(
+            model_tiers=_declared_model_tiers(state.agent_definition)
+        )
     except Exception as exc:  # noqa: BLE001 — same isolation as above.
         state.inference_error = f"{type(exc).__name__}: {exc}"
         logger.error("agent_inference_provider_build_failed", exc_info=True)
@@ -619,15 +691,24 @@ async def _bring_up_dependencies(state: AgentState) -> None:
 
 
 async def run(settings: AgentRuntimeSettings) -> None:
-    """Run the agent-runtime until SIGTERM/SIGINT. See the module docstring for STEP A..D."""
+    """Run the agent-runtime until SIGTERM/SIGINT. See the module docstring for STEP 0/A..D."""
+    state = AgentState(settings=settings)
+
+    # STEP 0 (AF-13): configure structlog + OpenTelemetry BEFORE this daemon writes its first log
+    # line. Ordered first on purpose — a bootstrap run after `agent_runtime_starting` would leave
+    # the daemon's own start-up record on structlog's DEFAULT configuration, which is the state
+    # AF-13 found the whole fleet in. `bootstrap_observability` never propagates; a failure lands
+    # on the `observability_configured` readiness check.
+    observability = _ensure_observability(state)
+
     logger.info(
         "agent_runtime_starting",
         tenant=settings.tenant_id,
         agent_id=settings.agent_id,
         security_zone=settings.agent_security_zone,
         health_port=settings.health_port,
+        observability=observability.detail,
     )
-    state = AgentState(settings=settings)
     shutdown = asyncio.Event()
     loop = asyncio.get_running_loop()
 
