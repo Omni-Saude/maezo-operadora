@@ -153,11 +153,19 @@ security/crypto approver track referenced in `PLANS.md` §0.8, not to on-call.
 
 ## 8. False-alarm checks
 
-- The presence of this alert firing (once the scrape target exists) is, itself, close to a
-  guaranteed monthly occurrence given the CronJob schedule (`"0 5 1 * *"`,
-  `deploy/helm/maezo-tenant/values.yaml` `lifecycle.jobs`) — do not treat every firing as needing
-  fresh investigation; confirm the message still matches §3's table (a quick log read) and move
-  on if so.
+- The alert's selector (`job_name=~"lifecycle-.*"`) matches all three CronJobs, and they run on
+  different schedules, so firing frequency (once the scrape target exists) is dominated by the
+  daily job, not the monthly ones — do not assume "roughly once a month":
+  - `lifecycle-expurgo-working`: **daily**, `"0 3 * * *"` (`deploy/helm/maezo-tenant/values.yaml:559`)
+  - `lifecycle-verify-erasure`: monthly, `"0 4 1 * *"` (`deploy/helm/maezo-tenant/values.yaml:565`)
+  - `lifecycle-audit-retention`: monthly, `"0 5 1 * *"` (`deploy/helm/maezo-tenant/values.yaml:592`)
+
+  Given every invocation of all three fails by design today (§3), expect this alert to fire
+  **daily** (from `expurgo-working` alone), with two additional monthly firings (`verify-erasure`
+  on the 1st at 04:00, `audit-retention` on the 1st at 05:00) landing on top of that — do not
+  treat every firing as needing fresh investigation; confirm the message still matches §3's
+  table (a quick log read, checking `job_name` to know which of the three fired) and move on if
+  so.
 - The one thing that WOULD change this from "expected, low-effort" to "needs attention": any of
   the three refusal messages changing shape, or a subcommand starting to exit 0 (which would mean
   someone shipped an implementation without going through this runbook — worth a deliberate
