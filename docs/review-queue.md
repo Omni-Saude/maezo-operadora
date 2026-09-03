@@ -674,3 +674,32 @@ deliberately left undecided this wave.
 | `spec/policies/ans/tiss-schema-pin.yaml` + `spec/policies/ans/synthetic-tiss-v1.xsd` | O manifesto de ratificacao (DRAFT — `status: DRAFT`, `ratificado: false`, campos de responsabilidade nulos) + o artefato XSD referenciado (SINTETICO — `schema_artifact.synthetic: true` — para estrutura apenas, NAO o schema real da ANS). Ativacao exige TODOS os quatro campos independentes (o loader recusa uma ratificacao forjada com `ratificado: true` enquanto `status` permanece `DRAFT` — pinado por `test_forged_ratificado_true_with_status_still_draft_refuses`): SME (regulatorio-TISS) substitui o XSD sintetico pelo XSD real publicado pela ANS (Padrao TISS / Componente de Comunicacao, RN 501/2022 — versao exata SME-gated, ver `docs/design/T2.6-ans-submission-rescope.md` §2.B/§7) + `schema_artifact.synthetic: false` + `status: RATIFIED` + `ratificado: true` + `revisor` + `ratificado_em`. Isso e mudanca de DADOS, sem codigo, sem redeploy — mesma logica do manifesto GAP-AUTH-4. Depois da ratificacao, decidir COMO (e SE) `ans_submit.validate_data` consome este portao, e como ele se reconcilia com o `TissSchemaValidator`/`MAEZO_TISS_SCHEMA_VERSION` ja wired (T2.6-2), e trabalho de uma mudanca revisada separada — nao decidido aqui | regulatorio-ANS + juridico/regulatorio (schema real + versao) + seguranca/compliance (CODEOWNERS do pin, `.github/CODEOWNERS`) | `DRAFT — dark build, nao wired em ans_submit.py; nada ratificado` |
 
 
+
+---
+
+## Auditoria 09 — achado 9.4 residuo: `WHATSAPP_PHONE_NUMBER_ID` nao e injetado por nenhum deployment
+
+`fix/whatsapp-token-vazamento`: o achado 9.4 (token WABA no PATH da URL) foi fechado trocando a URL
+para `POST {base_url}/{phone_number_id}/messages` com o token so no header `Authorization`
+(`src/maezo/tools/mcp_whatsapp/server.py:168,177`) e uma recusa fail-closed quando
+`phone_number_id` esta vazio (`:163-164`). O residuo e OPERACIONAL, nao de codigo, e esta declarado
+aqui para nao virar um brick silencioso: **reply path inoperative in Helm until
+`WHATSAPP_PHONE_NUMBER_ID` is provisioned (owner-gated, see OWNER-DECISIONS)**.
+
+Fato de deploy, verificado: `deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml`
+injeta `WHATSAPP_TOKEN` (`:38`), `WHATSAPP_APP_SECRET` (`:47`) e `WHATSAPP_VERIFY_TOKEN` (`:52`) —
+e nenhum `WHATSAPP_PHONE_NUMBER_ID`. `docker-compose.yml:252-253` injeta dois dos tres; so
+`.env.example:72` (dev local) declara o phone-number id. Consequencia hoje: TODA resposta da Helena
+pelo caminho vivo (`src/maezo/platform/webhooks/service.py:123` -> `HelenaDispatcher` -> `dispatch.py:122`
+`_ScopedWhatsAppSender.send` -> `server.py:111 send_message`) recusa em `server.py:163-164`. Esse e
+o modo de falha CORRETO (nunca um envio com URL malformada ou credencial vazia), mas e' uma recusa
+de 100% do trafego de resposta ate a variavel existir. Nada em `deploy/` foi tocado por este pacote
+— `deploy/`, `.github/` e `spec/policies/` sao owner-gated.
+
+Nota de honestidade sobre a referencia: `OWNER-DECISIONS` e o registro de decisoes do dono do
+pacote de gap-closure de 2026-09-02; nao existe arquivo com esse nome nesta arvore hoje. A linha
+acima e' o registro em-repo do item ate que esse registro exista.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml` (env do container) + ExternalSecret `maezo-whatsapp-config` | Provisionar `WHATSAPP_PHONE_NUMBER_ID` (o id Graph do numero remetente da WABA — dado de configuracao, NAO um segredo) e injeta-lo no deployment, na mesma forma dos tres `WHATSAPP_*` ja presentes (`:38,47,52`). Decidir tambem se ele entra como `value:` literal por tenant ou como chave do secret. Enquanto nao entrar, `send_message` recusa toda resposta da Helena (fail-closed, `server.py:163-164`) | dono/ops (mudanca em `deploy/` e owner-gated; sem conteudo clinico ou regulatorio) | `PENDENTE — caminho de resposta inoperante em Helm ate o provisionamento` |
