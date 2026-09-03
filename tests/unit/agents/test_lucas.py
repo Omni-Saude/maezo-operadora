@@ -46,6 +46,9 @@ class _FakeInference:
     def __init__(self, responses: list[str] | None = None) -> None:
         self._responses = list(responses) if responses else []
         self.calls: list[tuple[str, bool]] = []
+        #: AF-12: the `task_kind` of each call, in order. Recorded so a test can assert Lucas
+        #: routes the dossier narrative differently from the informational message.
+        self.task_kinds: list[str | None] = []
 
     async def generate(
         self,
@@ -54,8 +57,10 @@ class _FakeInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         self.calls.append((prompt, phi))
+        self.task_kinds.append(task_kind)
         return self._responses.pop(0) if self._responses else "texto padrao"
 
 
@@ -70,6 +75,7 @@ class _RaisingInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         raise RuntimeError("LLM provider unavailable")
 

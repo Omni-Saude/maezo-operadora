@@ -73,7 +73,7 @@ class AgentRuntimeSettings(BaseSettings):
     llm_phi_api_key: str | None = Field(default=None, alias="LLM_PHI_API_KEY")
     llm_general_api_key: str | None = Field(default=None, alias="LLM_GENERAL_API_KEY")
 
-    # --- OTel (accepted for parity; not wired by this build) ----------------------------------
+    # --- OTel (WIRED since AF-13: `service.py` STEP 0 passes this to `bootstrap_observability`) -
     otel_exporter_otlp_endpoint: str | None = Field(default=None, alias="OTEL_EXPORTER_OTLP_ENDPOINT")
 
     # --- Operational ----------------------------------------------------------------------------

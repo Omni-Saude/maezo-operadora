@@ -34,6 +34,8 @@ from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.contas import start_recurso
 from tests.integration.conftest import _apply_migrations, _engine_reachable, _pg_reachable
 
+pytestmark = pytest.mark.integration
+
 _REPO_RECURSO_BPMN = "spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn"
 
 

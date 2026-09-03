@@ -274,7 +274,7 @@ _CANCEL_COMPLETED_RUNTIME_VAR_GAP = (
 # per the #108/#123 precedent (that internal-notification channel is structurally always-empty in
 # v2's dict-first workers, ADR-0026) — see the test body below.
 _CANCEL_PENDED_PUBLISH_ADDED_REASON = (
-    "T3.1 Wave 1 remedy B (event-gap design doc §2.2, contract SP-OP-CANCEL-001.md:91 'produz'): "
+    "T3.1 Wave 1 remedy B (event-gap design doc §2.2, contract SP-OP-CANCEL-001.md:93 'produz'): "
     "ST_PublishCancelPended now exists on Flow_Request_WaitNotif — the BPMN-side gap that blocked "
     "has_event(_CANCEL_PENDED) is closed (mirrors ST_PublishSlaBreach; boundary-free per the 15/16 "
     "convention, check-bpmn-error-allowlist unaffected). Publish task added, pending live-proof "

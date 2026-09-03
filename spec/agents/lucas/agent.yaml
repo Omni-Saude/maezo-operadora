@@ -48,6 +48,19 @@ escalation:
 memory:
   episodic: true
   semantic: true
+# GAP 11.7 (canal de entrada — verificado nesta sessao, ver docs/processes/contracts/
+# SP-OP-CANCEL-001.md "Canal de entrada"): Lucas declara `mcp-whatsapp.send_message` (saida) mas
+# NAO tem canal de entrada proprio, nem do beneficiario nem agente-a-agente. Diferenca precisa
+# vs Fernando (mesmo gap 11.7): Fernando ganhou um alvo A2A real e testado nesta sessao
+# (`agents/fernando/delegation.py`) porque `spec/agents/fernando/agent.yaml` ja' declarava
+# `accepted_task_types: [arrears.followup]` — Lucas declara `accepted_task_types: []` (nunca foi
+# alvo de delegacao por design) e nenhuma contrato cita um handler futuro para ele, entao nao ha'
+# o mesmo gancho pronto para espelhar sem inventar um novo contrato de produto. Resposta do
+# beneficiario a um lembrete de Lucas chega (se chegar) apenas pelo webhook unico de Helena
+# (`HelenaDispatcher`, `src/maezo/platform/webhooks/whatsapp/dispatch.py`), sem contexto de
+# cobranca. `LucasState` tambem nao tem o gate de fronteira de entrada
+# (`_CALLER_INPUT_FIELDS`/`new_lucas_state`) que Helena/Rafael/Carolina/Fernando ja' tem —
+# pre-requisito de seguranca para qualquer canal de entrada futuro, ainda nao construido aqui.
 a2a:
   capabilities:
     - member_billing_navigation
