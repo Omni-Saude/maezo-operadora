@@ -150,9 +150,19 @@ async def _await_topic_ready(
     while time.monotonic() < deadline:
         attempt += 1
         try:
+            # `start()` can itself raise (a connection refused mid-retry, a transient bootstrap
+            # failure — exactly the case this loop exists to retry through); `start()` therefore
+            # sits INSIDE the `try` here, mirroring `_kafka_reachable`'s own shape above
+            # (`:76-84`): started-or-not, cleanup always runs in `finally`, best-effort
+            # (`contextlib.suppress`) because closing a client that never finished starting can
+            # itself raise, and that secondary failure must never mask the real one or skip
+            # cleanup on the NEXT attempt. Without this, every failed `start()` leaked an
+            # unclosed `AIOKafkaAdminClient`/`AIOKafkaProducer` — up to ~90 of them over the bound
+            # — polluting CI output with "Unclosed AIOKafkaProducer" warnings exactly when the log
+            # most needs to stay legible.
             admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
-            await admin.start()
             try:
+                await admin.start()
                 response = await asyncio.wait_for(
                     admin.create_topics([NewTopic(topic, num_partitions=1, replication_factor=1)]),
                     timeout=10.0,
@@ -163,27 +173,38 @@ async def _await_topic_ready(
                             f"create_topics({topic!r}) failed: code={error_code} {error_message}"
                         )
             finally:
-                await admin.close()
+                with contextlib.suppress(Exception):  # best-effort cleanup only
+                    await admin.close()
 
-            # Confirm a leader exists for the topic's partition(s). A short-lived producer's
-            # `partitions_for` does its own internal metadata-wait/retry
-            # (`AIOKafkaClient._wait_on_metadata`), bounded here to 10s per attempt.
+            # `partitions_for` (`AIOKafkaClient._wait_on_metadata`) proves the partition EXISTS in
+            # metadata — aiokafka's own docstring: "whether available or not" — it does NOT check
+            # for a leader. The real leader check is `ClusterMetadata.available_partitions_for_
+            # topic`: "set of partitions with known leaders" (excludes `leader == -1`). It is
+            # synchronous and reads the SAME cluster-metadata snapshot `partitions_for` just
+            # populated — no extra round trip — so call it right after, on the same `probe`,
+            # before `finally` tears it down.
             probe = AIOKafkaProducer(bootstrap_servers=bootstrap_servers)
-            await probe.start()
             try:
+                await probe.start()
                 partitions = await asyncio.wait_for(probe.partitions_for(topic), timeout=10.0)
+                leader_partitions = probe.client.cluster.available_partitions_for_topic(topic)
             finally:
-                await probe.stop()
+                with contextlib.suppress(Exception):  # best-effort cleanup only
+                    await probe.stop()
 
-            if partitions:
+            if leader_partitions:
                 elapsed = timeout_s - (deadline - time.monotonic())
                 print(
                     f"[live_kafka readiness] attempt {attempt}: topic {topic!r} ready "
-                    f"(partitions with a leader: {sorted(partitions)}) after {elapsed:.1f}s",
+                    f"(partitions with an elected leader: {sorted(leader_partitions)}) after "
+                    f"{elapsed:.1f}s",
                     flush=True,
                 )
                 return
-            last_reason = "create_topics succeeded but no partition reports a leader yet"
+            last_reason = (
+                f"create_topics succeeded and partitions {sorted(partitions or ())} exist in "
+                "metadata, but none report an elected leader yet"
+            )
         except Exception as exc:  # noqa: BLE001 - any failure here is retried until the deadline
             last_reason = f"{type(exc).__name__}: {exc}"
         print(
