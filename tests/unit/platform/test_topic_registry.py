@@ -17,9 +17,11 @@ from typing import Any
 import pytest
 
 from maezo.platform.topic_registry import (
+    DLQ_SUFFIX,
     TopicDuplicateError,
     TopicRegistry,
     TopicValidationError,
+    dlq_topic_for,
 )
 
 # tests/unit/platform/<this file> -> parents[3] is the repository root.
@@ -417,3 +419,162 @@ class TestAmhBoundaryTopicsFromLock:
             dominio, contexto, _acao = TopicRegistry.parse(name)
             expected_dominio, expected_contexto = name.split(".")[:2]
             assert (dominio, contexto) == (expected_dominio, expected_contexto), name
+
+
+# ---------------------------------------------------------------------------
+# GAP-SC-04-a — the internal `.dlq` dead-letter convention (audit D5 / gvr-d05).
+#
+# The notifications-bridge's poison-message shunt needs `operadora.notifications.internal.dlq`,
+# a 4-segment name that matched NEITHER pre-existing pattern. It is admitted by DELEGATION to the
+# base topic, never by a reserved-prefix carve-out — so a DLQ name can never be more permissive
+# than the traffic it quarantines. These tests pin exactly that asymmetry.
+# ---------------------------------------------------------------------------
+
+
+class TestInternalDlqTopicConvention:
+    """The `.dlq` suffix: admitted honestly, never as a bypass."""
+
+    def test_bridge_dlq_topic_is_valid(self) -> None:
+        assert TopicRegistry.validate("operadora.notifications.internal.dlq") is True
+
+    def test_dlq_over_a_reserved_prefix_topic_is_valid(self) -> None:
+        assert TopicRegistry.validate("agents.events.contas.completed.dlq") is True
+
+    def test_dlq_over_a_versioned_boundary_topic_is_valid(self) -> None:
+        assert TopicRegistry.validate("amh.maezo.work-items.v1.dlq") is True
+
+    def test_dlq_suffix_does_not_rescue_an_invalid_base(self) -> None:
+        """THE ANTI-BYPASS PIN. If `.dlq` were a prefix/suffix carve-out rather than a delegation,
+        an otherwise-illegal name would become legal simply by appending the suffix — the exact
+        "reserved-prefix bypass" this convention was required not to be."""
+        assert TopicRegistry.validate("Invalid.Topic") is False
+        assert TopicRegistry.validate("Invalid.Topic.dlq") is False
+        assert TopicRegistry.validate("nosegments") is False
+        assert TopicRegistry.validate("nosegments.dlq") is False
+        assert TopicRegistry.validate("agents.events.BADSEGMENT.completed") is False
+        assert TopicRegistry.validate("agents.events.BADSEGMENT.completed.dlq") is False
+
+    def test_nested_dlq_is_refused(self) -> None:
+        """A dead-letter of a dead-letter has no consumer in this platform and would hide an
+        operator mistake behind a valid-looking name."""
+        assert TopicRegistry.validate("operadora.notifications.internal.dlq.dlq") is False
+
+    def test_bare_dlq_suffix_is_refused(self) -> None:
+        assert TopicRegistry.validate(DLQ_SUFFIX) is False
+
+    def test_dlq_topic_for_derives_and_validates_the_base(self) -> None:
+        assert dlq_topic_for("operadora.notifications.internal") == "operadora.notifications.internal.dlq"
+
+    def test_dlq_topic_for_refuses_an_invalid_base(self) -> None:
+        """The derivation validates the BASE before minting a name, so a malformed source topic
+        can never acquire a valid-looking DLQ name (what a bare f-string at the call site would
+        allow)."""
+        with pytest.raises(TopicValidationError):
+            dlq_topic_for("Invalid.Topic")
+
+    def test_dlq_topic_for_refuses_to_nest(self) -> None:
+        with pytest.raises(TopicValidationError, match="refusing to nest"):
+            dlq_topic_for("operadora.notifications.internal.dlq")
+
+    def test_is_dlq_topic(self) -> None:
+        assert TopicRegistry.is_dlq_topic("operadora.notifications.internal.dlq") is True
+        assert TopicRegistry.is_dlq_topic("operadora.notifications.internal") is False
+
+    def test_register_dlq_records_the_full_name_and_the_base_segments(self) -> None:
+        """A DLQ entry groups with the traffic it quarantines: `name` is the FULL `.dlq` name,
+        while dominio/contexto/acao are the BASE topic's — never "dlq" parsed as an acao."""
+        registry = TopicRegistry(strict=True)
+        registry.register("operadora.notifications.internal")
+        entry = registry.register_dlq(
+            "operadora.notifications.internal", description="poison-message shunt (GAP-SC-04-a)"
+        )
+        assert entry.name == "operadora.notifications.internal.dlq"
+        assert (entry.dominio, entry.contexto, entry.acao) == ("operadora", "notifications", "internal")
+        assert registry.get("operadora.notifications.internal.dlq") is entry
+
+    def test_register_dlq_over_a_reserved_prefix_topic_keeps_the_base_segments(self) -> None:
+        registry = TopicRegistry(strict=True)
+        registry.register("agents.events.contas.completed")
+        entry = registry.register_dlq("agents.events.contas.completed")
+        assert entry.name == "agents.events.contas.completed.dlq"
+        assert (entry.dominio, entry.contexto, entry.acao) == ("agents.events", "contas", "completed")
+
+    # --- ADR-0006: a DLQ carries the payload VERBATIM, so it inherits the base topic's zone ----
+
+    def test_register_dlq_inherits_a_phi_base_topics_zone(self) -> None:
+        """The MAJOR of this rule: a poison message from a `zona_phi` topic IS PHI — the bytes are
+        carried through untouched. Before this, `register_dlq` fell through to `register`'s
+        `zona_geral` default and silently downgraded the one topic nobody validated."""
+        registry = TopicRegistry(strict=True)
+        registry.register("operadora.notifications.internal", pii_zone="zona_phi")
+
+        entry = registry.register_dlq("operadora.notifications.internal")
+
+        assert entry.pii_zone == "zona_phi"
+
+    def test_register_dlq_inherits_a_general_base_topics_zone(self) -> None:
+        registry = TopicRegistry(strict=True)
+        registry.register("agents.events.contas.completed", pii_zone="zona_geral")
+
+        assert registry.register_dlq("agents.events.contas.completed").pii_zone == "zona_geral"
+
+    def test_register_dlq_refuses_to_downgrade_a_phi_base_topics_zone(self) -> None:
+        """An explicit laxer zone is a REFUSAL, not an override — the caller cannot opt a DLQ out
+        of the zone of the traffic it quarantines."""
+        registry = TopicRegistry(strict=True)
+        registry.register("operadora.notifications.internal", pii_zone="zona_phi")
+
+        with pytest.raises(TopicValidationError, match="laxer"):
+            registry.register_dlq("operadora.notifications.internal", pii_zone="zona_geral")
+
+        assert registry.get("operadora.notifications.internal.dlq") is None
+
+    def test_register_dlq_allows_raising_the_zone_above_the_base(self) -> None:
+        """Raising is always allowed — only downgrades are refused."""
+        registry = TopicRegistry(strict=True)
+        registry.register("agents.events.contas.completed", pii_zone="zona_geral")
+
+        entry = registry.register_dlq("agents.events.contas.completed", pii_zone="zona_phi")
+
+        assert entry.pii_zone == "zona_phi"
+
+    def test_register_dlq_fails_closed_when_the_base_topic_is_unregistered(self) -> None:
+        """FAIL CLOSED rather than assume. With no base entry the zone is unknowable, and assuming
+        `zona_geral` is exactly the silent downgrade this rule exists to prevent — so the zone must
+        be stated."""
+        registry = TopicRegistry(strict=True)
+
+        with pytest.raises(TopicValidationError, match="cannot be inherited"):
+            registry.register_dlq("operadora.notifications.internal")
+
+        assert registry.get("operadora.notifications.internal.dlq") is None
+
+    def test_register_dlq_accepts_an_explicit_zone_when_the_base_is_unregistered(self) -> None:
+        registry = TopicRegistry(strict=True)
+
+        entry = registry.register_dlq("operadora.notifications.internal", pii_zone="zona_phi")
+
+        assert entry.pii_zone == "zona_phi"
+
+    def test_register_dlq_refuses_an_unknown_zone_rather_than_ranking_it(self) -> None:
+        """A typo must not pass as "not laxer" — an unrecognised zone is refused outright."""
+        registry = TopicRegistry(strict=True)
+        registry.register("operadora.notifications.internal", pii_zone="zona_phi")
+
+        with pytest.raises(TopicValidationError, match="unknown pii_zone"):
+            registry.register_dlq("operadora.notifications.internal", pii_zone="zona_phy")
+
+    def test_parse_of_a_dlq_topic_is_base_relative(self) -> None:
+        assert TopicRegistry.parse("operadora.notifications.internal.dlq") == (
+            "operadora",
+            "notifications",
+            "internal",
+        )
+
+    def test_dlq_name_still_respects_the_kafka_length_limit(self) -> None:
+        """The suffix is part of the name Kafka sees — a base that fits but whose DLQ does not
+        must be refused, not silently truncated."""
+        base = "a" + "b" * 244 + ".c.d"  # 249 chars exactly
+        assert len(base) == 249
+        assert TopicRegistry.validate(base) is True
+        assert TopicRegistry.validate(base + DLQ_SUFFIX) is False

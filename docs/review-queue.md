@@ -683,6 +683,34 @@ deliberately left undecided this wave.
 
 ---
 
+## PR-2 — ADR-0040 perspectiva-operadora (SP-OP-CONTAS-001 / SP-OP-RECURSO-001) — pontos DRAFT/verify
+
+As dezessete linhas abaixo espelham, uma a uma, a tabela "O que permanece `DRAFT/verify` (SME /
+juridico / owner)" de `docs/adr/0040-perspectiva-operadora-contas-recurso.md` (ADR **Status:
+Proposed**, nao ratificado). Nenhum item e fechado por este PR — ele apenas cumpre o registro
+obrigatorio desta fila. Texto integral, evidencia `file:line` e a tabela de emendas a ADR-0018/0030
+ficam no proprio ADR; aqui vai o resumo + revisor de cada item.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `docs/adr/0040-...md` OQ-1 | Nomes de componentes TISS ("Demonstrativo de Analise de Conta", "Recurso de Glosa", "Protocolo de recebimento") e estrutura de campos por linha (`valor_apresentado`/`valor_processado`/`valor_liberado`/`valor_glosa`/`codigo_glosa`); acrescido pelo discriminador `tipo_comunicacao ∈ {demonstrativo_analise, devolucao_para_correcao}` — a devolucao de conta para correcao e um demonstrativo, ou um artefato TISS proprio? | regulatorio + faturamento/auditoria de contas | `DRAFT — requires human review before any deploy` |
+| `docs/adr/0040-...md` OQ-2 | Prazo de analise da conta — substituir a citacao RN 424/2017 por «prazo contratual + RN 501/2022 (fluxo TISS)» e confirmar o valor (hoje P30D/P20D em `contas_sla.dmn`), o marco inicial (recebimento do lote vs. protocolo) e dias uteis vs. corridos; de onde vem `data_vencimento`, obrigatoria e recusada em branco pelos dois handoffs a PAGTO (D6-bis) | juridico/regulatorio + financas | `DRAFT — requires human review before any deploy` |
+| `docs/adr/0040-...md` OQ-3 | Prazo de resposta ao recurso de glosa (`recurso_sla.dmn`, P10D/P15D analise, P30D teto) — o teto hoje e atribuido a RN 424/2017, que `docs/compliance/rn-currency-review.md:85-87` refuta | juridico/regulatorio | `DRAFT — requires human review before any deploy` |
+| `docs/adr/0040-...md` OQ-4 | Quando RN 424/2017 se aplica de fato (so junta medica/odontologica para divergencia tecnico-assistencial); confirmar se o merito de glosa tecnico-clinica decidido por `UT_RevisaoAuditorMedico` configura essa hipotese | medico-auditor + juridico | `DRAFT — requires human review before any deploy` |
+| `docs/adr/0040-...md` OQ-5 | Tabela TISS de codigos de glosa — `glosa_reason_normalization.dmn` e um mapa SINTETICO auto-declarado `DRAFT/verify`; o redesign nao o valida | faturamento/auditoria de contas | `DRAFT — requires human review before any deploy` |
+| `docs/adr/0040-...md` OQ-6 | Candidate groups `auditoria-contas`, `coordenacao-contas`, `analista-recurso-glosa`, `coordenacao-recurso` seguem PROPOSTOS; o redesign os mantem verbatim para nao introduzir uma segunda pendencia | PO/IdP + operacao | `DRAFT — requires human review before any deploy` |
+| `docs/adr/0040-...md` OQ-7 | `DEVOLVER` e adverso? Classificado aqui como L1 neutro→prestador-adjacente (espelha `End_PagamentoRecusadoHumano` de PAGTO); se auditoria de contas entender que e uma glosa administrativa de fato, precisa do mesmo guard L0 de `GLOSAR` | auditoria de contas + compliance | `DRAFT — requires human review before any deploy` |
+| `docs/adr/0040-...md` OQ-8 | `DEFERIR_PARCIAL` como adverso — classificado L0 por espelhar `APROVAR_PARCIAL` de REEMBOLSO (guard `reembolso.py:564-572`); confirmar que a analogia se sustenta para prestador, nao so para beneficiario | compliance + juridico | `DRAFT — requires human review before any deploy` |
+| `docs/adr/0040-...md` OQ-9 | Suspensao de prazo durante pendencia documental — ja aberta em `SP-OP-RECURSO-001.md:204`; nao fechada por este redesign | juridico/regulatorio | `DRAFT — requires human review before any deploy` |
+| `docs/adr/0040-...md` OQ-10 | Achado M-4 de `glosa_triage` — o conjunto negativo `not("tecnica","clinica")` na row permissiva (agora `r_pagar`) admite `"desconhecida"`. Preservado verbatim de proposito; corrigir e ato do dono da tabela (ADR-0028 §7) | auditoria de contas + compliance | `DRAFT — candidato nao ratificado; a edicao da tabela viva e ato do dono` |
+| `docs/adr/0040-...md` OQ-11 | `cid10` fora de `PHI_PROCESS_VARS` — Marina semeia `cid10` nas variaveis de start de RECURSO, mas `PHI_PROCESS_VARS` contem `cid10_referencia`, nao `cid10`. Achado pre-existente, nao criado nem fechado por este redesign | DPO/seguranca | `DRAFT — requires human review before any deploy` |
+| `docs/adr/0040-...md` OQ-12 | MZO-040 / `action-approvals.yaml` — as superficies novas de CONTAS/RECURSO sao declaradas, mas o arquivo continua `status: DRAFT`, `modo: shadow`, todas as aprovacoes `false`/`PENDENTE`. Nenhuma ratificacao e afirmada por este ADR | medica + ANS + seguranca (MZO-040) | `DRAFT — nada ratificado` |
+| `docs/adr/0040-...md` OQ-13 | `process_keys` de Andre esta vazio (`spec/agents/andre/agent.yaml`) e contradiz as tools/acoes que o arquivo ja concede para `SP-OP-PAGTO-001` — hoje fail-closed (nega), lacuna funcional latente, nao dependencia deste redesign. **Se adotada, a mesma decisao deve, no mesmo PR, vincular `_contract_variables` de Andre a I-PAGTO-1 (D6-bis)** — conceder a chave sem essa amarra reabriria o caminho automatico que I-PAGTO-1 fecha | seguranca + PO | `DRAFT — requires human review before any deploy` |
+| `docs/adr/0040-...md` OQ-14 | Comunicacao ao prestador no terminal de fraude — `End_EncaminhadaFraude` e a excecao deliberada de D6-ter (notificar um prestador sob investigacao o alertaria). Existe dever de comunicar? Em que momento? Ha forma de comunicar sem comprometer a investigacao? | fraude/investigacao + juridico + compliance | `DRAFT — requires human review before any deploy` |
+| `docs/adr/0040-...md` OQ-15 | Ma-classificacao em `action-approvals.yaml:649` — `operadora.recurso.submit_appeal: submissao_regulatoria_ans` tratava interpor recurso junto a operadora como submissao regulatoria a ANS; a matriz MZO-040 nao apanhou. A remocao da linha (exigida pela delecao do topico) nao e a correcao da classificacao — e a remocao do objeto classificado | seguranca + ANS (MZO-040) | `DRAFT — requires human review before any deploy` |
+| `docs/adr/0040-...md` OQ-R1 | O adaptador de intake TISS do recurso nao existe. `REDESIGN-SP-OP-RECURSO-001.md` §3.1 especifica a forma do evento `agents.events.recurso.intake_recebido` e a regra de bridge que o consome, mas nao constroi o adaptador; a regra fica DORMENTE de proposito, com teste que assere a ausencia de publicador (fica vermelho quando o adaptador chegar). Ate la, RECURSO-001 continua iniciado por Marina ou pela operacao | PO + integracoes | `DRAFT — requires human review before any deploy` |
+| `docs/adr/0040-...md` OQ-R2 | Arredondamento em `DEFERIR_PARCIAL` — a invariante `valor_deferido_brl + valor_glosa_mantido_brl == valor_glosado_brl` e imposta em centavos-inteiros com igualdade exata. Se a operacao usa tolerancia ou arredondamento contratual, o guard do worker precisa refletir isso; ate la o guard recusa a soma que nao fecha | financas + auditoria de contas | `DRAFT — requires human review before any deploy` |
+
 ## GAP-FAB-NOTIF followup (1/2) — hitPolicy drift ainda aberto (GAP-CRED-7/GAP-ADEQ-9/GAP-PAGTO-9/GAP-REEMBOLSO-7)
 
 `fix/fatos-fabricados-notificacao` (WP-FABRICATED-FACTS, R2) introduziu
@@ -704,20 +732,111 @@ das seis (a quinta, `reembolso_calculo`, esta sendo corrigida pela branch parale
 
 ---
 
-## GAP-FAB-NOTIF followup (2/2) — GAP-INAD-8: `inadimplencia.notify_beneficiario` fato fabricado, NAO corrigido nesta PR
+## GAP-FAB-NOTIF followup (2/2) — GAP-INAD-8: `inadimplencia.notify_beneficiario` fato fabricado — **CORRIGIDO** (WP-FATOS-FABRICADOS slice 2)
 
 `fix/fatos-fabricados-notificacao` (WP-FABRICATED-FACTS, R2) corrigiu dois fatos regulatorios
 fabricados (CRED `dispatch_prior_notice`, ADEQUACAO `notify_coordenacao`, ambos zero-consumidores
 — agora retornam `{}`) e deliberadamente NAO corrigiu um terceiro, de risco maior, tracked apenas
 no comentario de codigo do ratchet AST `_FABRICATED_FACT_BASELINE["inadimplencia"]`
 (`tests/unit/tools/workers/test_worker_handler_purity.py:190-202`). Esta linha promove esse
-achado a uma entrada formal da fila:
+achado a uma entrada formal da fila.
+
+> **STATUS 2026-09-03 — CORRIGIDO em `fix/fatos-fabricados-inadimplencia-notify` (WP-FATOS-FABRICADOS
+> slice 2, R1).** A linha abaixo fica como REGISTRO do defeito e da sua analise; o que mudou:
+> `notify_beneficiario` virou `dispatch_prior_notice` e retorna `{}` (`inadimplencia.py`);
+> `handoff_rescisao` deixou de repassar `notificacao_previa_feita` e passou a DERIVA-lo de
+> `comprovacao_notificacao_previa` (`_notificacao_previa_comprovada`) — de modo que o valor lido por
+> `cancel_admissibility.dmn` e por `cancel.assess_admissibility` sai da comprovacao humana, nao de uma
+> constante; e `cancel.validate_cancel`/`assess_admissibility` passaram a exigir `is True` estrito
+> (fail-closed em `PENDENTE_NOTIFICACAO`, que NAO e negativa — o timer daquele ramo converge na User
+> Task humana). A entrada `_FABRICATED_FACT_BASELINE["inadimplencia"]` foi REMOVIDA, como a catraca
+> exige. **Correcao de uma premissa desta linha:** ela afirmava que "INADIMPLENCIA nao parece ter um
+> campo equivalente [ao `comprovacao_notificacao_previa` do CRED] ja religado" — tem: o campo existe,
+> e coletado em `UT_AnaliseInadimplencia` e ja era exigido fail-closed pelo guard de
+> `_register_contract_suspension` (`inadimplencia.py`, `errors.append("comprovacao_notificacao_previa
+> ausente (RN 593)")`; contrato `SP-OP-INADIMPLENCIA-001.md:98,157`). Era exatamente o sinal honesto
+> que faltava, e e o que a correcao usa. **RN 593 e o art. 13, par. unico, II da Lei 9.656/98
+> permanecem DRAFT/verify** — nenhuma ancora regulatoria foi confirmada por esta correcao; o
+> sign-off medico/juridico/regulatorio continua PENDENTE.
+
 
 | Artefato | O que precisa de revisao humana | Revisor | Status |
 |---|---|---|---|
 | `src/maezo/tools/workers/inadimplencia.py:325-342` (`notify_beneficiario` — GAP-INAD-8, fato fabricado, NAO corrigido nesta PR) | `notify_beneficiario` retorna incondicionalmente `{"notificacao_previa_feita": True, "notificacao_previa_registrada_em": "now"}` (`:339-342`) — mesmo formato dos dois fatos ja corrigidos, mais um placeholder literal `"now"` no lugar de um timestamp real. **Ao contrario dos dois casos corrigidos (zero consumidores), este fato tem DOIS consumidores DMN reais:** (1) `spec/processes/dmn/inadimplencia_status.dmn:37-38` (`in_notificacao_previa` le `notificacao_previa_feita` diretamente para rotear `AGUARDA_PURGA`/`PENDENTE_NOTIFICACAO`); (2) o valor e' carregado por `_HANDOFF_CARRY_KEYS` (`inadimplencia.py:552-567`, chave `notificacao_previa_feita` em `:558`) para o payload de start do CANCEL-001 via `handoff_rescisao`, onde `spec/processes/dmn/cancel_admissibility.dmn:63-64` TAMBEM le `in_notificacao_previa`, e `src/maezo/tools/workers/cancel.py:252-260` (`assess_admissibility`) ramifica sobre ele: para `tipo_solicitacao in ("inadimplencia", "for_cause_operadora")`, `if not validation.notificacao_previa_feita: roteamento = "PENDENTE_NOTIFICACAO"` (`:255-256`) senao `"SEGUE_ANALISE"` (`:258-259`); tambem aparece no `decision_basis` da trilha de auditoria ADR-0007 do start do CANCEL-001 (`inadimplencia.py:713`). **Efeito liquido:** como o fato e' sempre `True`, o ramo `PENDENTE_NOTIFICACAO` NUNCA pode disparar para um caso originado em inadimplencia, em nenhum dos dois processos — supressao silenciosa de um sinal de compliance da RN 593 (suspensao/rescisao por inadimplencia, efeito adverso ao beneficiario). **Escopo/owner recomendado:** pacote R1 separado (`WP-FATOS-FABRICADOS` slice 2) — toca `inadimplencia.py` + `cancel.py` + duas DMNs, exige prova de regressao nos dois processos, e exige definicao (com sign-off regulatorio RN 593) de como seria um sinal honesto de "beneficiario efetivamente notificado" para o fluxo INADIMPLENCIA, ja que — ao contrario do CRED, que tem o campo `comprovacao_notificacao_previa` confirmado por humano — INADIMPLENCIA nao parece ter um campo equivalente ja religado alimentando esta variavel; trocar a constante ingenuamente (para `False`/removida) poderia travar toda rescisao por inadimplencia em `PENDENTE_NOTIFICACAO` sem caminho adiante, uma regressao funcional, nao so uma correcao de honestidade. RN 593 permanece DRAFT/verify — nao alterado por esta entrada. Rastreado em `_FABRICATED_FACT_BASELINE["inadimplencia"]` (`tests/unit/tools/workers/test_worker_handler_purity.py:190-202`) — remover a entrada de la quando corrigido | medico auditor + juridico/regulatorio (RN 593) + arquitetura (design do sinal honesto de notificacao para INADIMPLENCIA) | `DRAFT — requires human review (RN 593) before any fix; pacote R1 separado recomendado (WP-FATOS-FABRICADOS slice 2)` |
 
+---
 
+## WP-CONTRATOS-SYNC — fechamento dos 7 drifts contrato/test-spec vs artefato vivo
+
+`fix/contratos-sync-artefatos-vivos` (WP-CONTRATOS-SYNC, R2) sincronizou contratos/test-specs com
+os artefatos vivos para os gaps `PERSP-CONTRACT-FUNCS`, `PERSP-C5-CANCEL-FILENAME`,
+`PERSP-LGPD-ROLE`, `PERSP-B5-HITPOLICY`, `PERSP-B5-INPUTS`, `PERSP-B5-TESTSPEC-AUTH` e
+`CONTRACT-HITPOLICY-DRIFT`. Esta entrada NAO reabre nem edita as linhas acima desta PR (append-
+only) — registra o desfecho para quem consultar as entradas antigas de `GAP-CRED-7`/`GAP-ADEQ-9`/
+`GAP-REEMBOLSO-7` (secao "GAP-FAB-NOTIF followup (1/2)" acima).
+
+| Artefato | O que foi corrigido | Revisor | Status |
+|---|---|---|---|
+| `docs/processes/contracts/SP-OP-CRED-001.md` (GAP-CRED-7, hitPolicy `cred_prior_notice`/`cred_sla`) | Cabecalhos corrigidos de `UNIQUE` para `FIRST` (as DMNs shippadas `spec/processes/dmn/cred_prior_notice.dmn:28` e `spec/processes/dmn/cred_sla.dmn:21` ja eram `FIRST`) — texto apenas, nenhuma DMN alterada. Entrada removida de `_HIT_POLICY_DRIFT_BASELINE` (`tests/unit/docs/test_contract_bpmn_dmn_citations.py`); `test_no_new_contract_claims_collect_or_unique_for_a_dmn_actually_deployed_as_first` PASSED confirma a ausencia de regressao | docs-verifier (R2) | `RESOLVIDO — texto do contrato corrigido para FIRST nesta PR` |
+| `docs/processes/contracts/SP-OP-ADEQUACAO-001.md` (GAP-ADEQ-9, hitPolicy `adequacao_sla`) | Cabecalho corrigido de `UNIQUE` para `FIRST` (`spec/processes/dmn/adequacao_sla.dmn:29` ja era `FIRST`) — texto apenas. Entrada removida de `_HIT_POLICY_DRIFT_BASELINE` | docs-verifier (R2) | `RESOLVIDO — texto do contrato corrigido para FIRST nesta PR` |
+| `docs/processes/contracts/SP-OP-REEMBOLSO-001.md` (GAP-REEMBOLSO-7, hitPolicy `reembolso_sla`; CONTRACT-HITPOLICY-DRIFT) | Cabecalho corrigido de `UNIQUE` para `FIRST` (`spec/processes/dmn/reembolso_sla.dmn:24` ja era `FIRST`) — texto apenas. Entrada removida de `_HIT_POLICY_DRIFT_BASELINE`. **`reembolso_calculo` (a entrada irma no mesmo ratchet) permanece FORA DO ESCOPO desta PR** — pertence a branch paralela `fix/reembolso-consome-dmn` — e continua grandfathered em `_HIT_POLICY_DRIFT_BASELINE` | docs-verifier (R2) | `RESOLVIDO (reembolso_sla) — reembolso_calculo permanece aberto, fora de escopo` |
+| `docs/processes/contracts/SP-OP-PAGTO-001.md` (GAP-PAGTO-9, hitPolicy `pagto_sla`) | **NAO CORRIGIDO nesta PR** — `SP-OP-PAGTO-001.md` e propriedade das branches paralelas PR-3/PR-4 do programa de perspectiva (`WP-PERSP-CONTAS-RECURSO-EXEC`/`-DECISAO`); o brief de WP-CONTRATOS-SYNC proibe explicitamente editar este arquivo. Continua grandfathered em `_HIT_POLICY_DRIFT_BASELINE` ate essa branch fechar a correcao | — | `DEFERIDO — aguarda a arvore PR-4 (SP-OP-PAGTO-001.md fora do escopo desta WP)` |
+| `docs/processes/contracts/SP-OP-CRED-001.md` (PERSP-B5-INPUTS, inputs/saida de `cred_admissibility`) | `in:` completado com `indicio_irregularidade_sinalizado` (6º input; faltava — `spec/processes/dmn/cred_admissibility.dmn:53-55`); `out:` do dominio de `roteamento` completado com `CLERICAL_CREDENCIAR` (faltava; `cred_admissibility.dmn:91-101`, consumido por `spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn:689`) — texto apenas, nenhuma DMN/BPMN alterada | dmn-semantics-verifier (R1) | `RESOLVIDO nesta PR` |
+| `docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md` (PERSP-B5-INPUTS, inputs/saida de `ans_sla`) | Removida a alegacao de `origem_envio` como input e `fonte_regulatoria` como output de `ans_sla` — a DMN shippada (`spec/processes/dmn/ans_sla.dmn`) so declara `report_type` como input (`:34-36`) e `sla_analise`/`sla_alerta` como outputs (`:37-38`); confirmado tambem `grep -rl origem_envio spec/processes/dmn/*.dmn` -> 0 arquivos. `origem_envio` e real como variavel de processo (seed no start) e condicao de gateway BPMN (`:611`), nunca como input de DMN — texto apenas | dmn-semantics-verifier (R1) | `RESOLVIDO nesta PR` |
+| `docs/processes/contracts/SP-OP-LGPD-DSR-001.md` (PERSP-LGPD-ROLE) | Adicionada secao "Papel LGPD (controlador/operador) — DRAFT/verify": registra que a cadeia SP-OP-LGPD-DSR-001 nunca declarou `controlador`/`operador` (art. 5 VI/VII; 0 ocorrencias antes desta PR em contrato/BPMN/DMN/worker) e que o papel de controladora e' INFERIDO do comportamento (`ST_ExecutarRequisicao` bpmn:270, `ST_EnviarResposta` bpmn:277, `ESP_SlaGlobal` bpmn:307-311) — marcado explicitamente `DRAFT/verify pendente do DPO`, nunca como fato ratificado. Nenhum artefato `spec/` (BPMN/DMN) foi editado (fora do escopo/permissao desta WP) | regulatory-verifier (R1) | `DRAFT/verify — declaracao textual adicionada ao contrato; ratificacao formal do papel permanece pendente do DPO (WP-GOVERNANCA-DPO)` |
+| `docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md` + `SP-OP-ANS-CRON-001.md` (PERSP-CONTRACT-FUNCS) | As tres funcoes fantasma (`_competencia_from_anchor`, `_ans_cron_competencia`, `_nip_protocolo_origem`) e o modulo fantasma `notifications_bridge/consumer.py` ja tinham sido corrigidos por `fix/fatos-fabricados-notificacao` (commit `71dd4da`, GAP-FAB-NOTIF) ANTES desta PR comecar — confirmado nesta PR por `grep -rn 'def _competencia_from_anchor\|def _ans_cron_competencia\|def _nip_protocolo_origem' src/` (0 linhas) e `find src -iname consumer.py` (0 arquivos). Esta PR apenas ACRESCENTA, nos dois pontos que citam `GAP-ANS-1`, o apontamento para o gap/WP correntes do registro (`ANS-CRON-DEAD-CODE`/`WP-ANS-CRON-COMPETENCIA`), para que a declaracao nao fique presa a um tag antigo | docs-verifier (R2) | `RESOLVIDO (substancialmente por commit anterior 71dd4da) — esta PR so atualiza o apontamento de gap` |
+| `docs/processes/contracts/SP-OP-CANCEL-001.md` (PERSP-C5-CANCEL-FILENAME) | Ja corrigido por `fix/fatos-fabricados-notificacao` (commit `71dd4da`) ANTES desta PR comecar — confirmado nesta PR por `sed -n '4p' docs/processes/contracts/SP-OP-CANCEL-001.md` (cita `..._Cancelamento_Contrato.bpmn`, o arquivo real) e pelas 14 suites verdes de `tests/unit/docs/test_contract_bpmn_dmn_citations.py`. Nenhuma edicao necessaria nesta PR | docs-verifier (R3) | `JA RESOLVIDO por 71dd4da antes desta PR — nenhuma acao necessaria` |
+| `docs/processes/test-specs/SP-OP-AUTH-001.md` (PERSP-B5-TESTSPEC-AUTH) | Linhas `:10`, `:50` e `:55` (achado adicional na mesma varredura, mesma classe de drift) reescritas: `dut_atendida`/`dentro_teto_l2`/`rede_credenciada` substituidos por `auto_criteria_verificado`/`criterio_tecnico_ok`/`criterio_financeiro_ok`/`criterio_regulatorio_ok`/`criterio_contratual_ok` (os inputs reais de `auth_auto_approval` v0.2.0 — `spec/processes/dmn/auth_auto_approval.dmn:60-77`), conforme o contrato ja documentava (`SP-OP-AUTH-001.md:47-49`) — texto apenas | docs-verifier (R2) | `RESOLVIDO nesta PR` |
+## WP-COREOGRAFIA-XPROC — PERSP-ADEQ-CRED-HANDOFF (handoff real) + PERSP-NETBRIDGE (bridge fantasma, docs/spec)
+
+Duas linhas do `GAP-REGISTER.md` (`:121-122`) fechadas por este WP (worktree `coreografia-xproc`,
+branch `fix/coreografia-xproc-handoff-adequacao-cred`):
+
+**PERSP-ADEQ-CRED-HANDOFF (terceira variante de fato fabricado — junto de GAP-FAB-NOTIF item B/A
+acima):** `adequacao.execute_remediation` (`ST_StartCredenciamentoL3`, topico
+`operadora.adequacao.start_credenciamento`) retornava incondicionalmente `{handoff_credenciamento:
+True, processo_destino: "SP-OP-CRED-001"}` sem nunca chamar `start_process_idempotent` — BPMN
+(`SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn:247-249` antes da correcao) e contrato
+(`SP-OP-ADEQUACAO-001.md:152` antes da correcao) afirmavam "dispara SP-OP-CRED-001". Corrigido:
+agora chama o chokepoint fenced de verdade, com business key `CRED-{tenant}-{prestador_id}`
+(identica a `fraude._cred_business_key`/`notification_bridge._cred_business_key`). **Achado novo,
+nao coberto por nenhuma linha anterior desta fila:** o handoff so pode executar quando um
+`prestador_id` candidato ja foi identificado — e ESTA fonte (quem/o que identifica o candidato
+antes deste task disparar) **nao e definida por nenhum contrato**. A propria contrato ADEQUACAO ja
+tinha uma pendencia adjacente ("a fonte cadastral de regiao_saude/especialidade do prestador no
+start de CRED", secao Pendencias) que aponta na mesma direcao sem a resolver.
+
+**PERSP-NETBRIDGE (nao-novo como fato — ja registrado nas entradas Wave-1B/GR-B2 acima; o defeito
+vivo era os CONTRATOS/BPMN nunca terem sido sincronizados com esse registro):** `network_change_bridge`
+era afirmada como ponte de runtime viva em 2 contratos e 2 BPMN
+(`SP-OP-ADEQUACAO-001.md:55-56,74,107,141,256,270`, `SP-OP-CRED-001.md:70,96`,
+`SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn:55,76,84`, `SP-OP-CRED-001_Descredenciamento.bpmn:67`) —
+o modulo nao existe (`grep -rn "network_change_bridge" src/` -> 1 hit, docstring em `src/maezo/agents/carolina/graph.py:101`; `find src -name '*network_change*'` -> 0 resultados). Corrigido: toda
+assercao agora diz a verdade (o PAYLOAD do fato `network_changed` esta harmonizado; o CONSUMIDOR
+nao existe) e cita **AF-01** como a decisao do owner que resolve o futuro (construir a ponte,
+adotar outro mecanismo, ou aceitar que ADEQUACAO nao tem starter de producao hoje).
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `docs/processes/contracts/SP-OP-ADEQUACAO-001.md` (novo campo `prestador_id`/`tipo_prestador`, secao Variaveis de entrada) — PERSP-ADEQ-CRED-HANDOFF | Este WP nao define a fonte de `prestador_id` (quem/o que identifica um prestador candidato para fechar o gap da celula ANTES de `ST_StartCredenciamentoL3` disparar) — hoje NENHUM worker de ADEQUACAO resolve esse valor; sem ele, o handoff recusa (fail-closed, `ERR_ADEQUACAO_SEM_PRESTADOR_CANDIDATO`). Precisa de decisao de produto/arquitetura: um novo worker de prospeccao (analytics/Andre?), um campo semeado por humano na `UT_DecisaoFallback`/dossie, ou uma integracao com a base de rede | produto + arquitetura (base de rede) | `DRAFT — requires human review before any deploy` |
+| `docs/processes/contracts/SP-OP-ADEQUACAO-001.md`, `SP-OP-CRED-001.md`, `spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn`, `SP-OP-CRED-001_Descredenciamento.bpmn` (`network_change_bridge`) — PERSP-NETBRIDGE, ja tratado como AF-01/Wave-1B acima; entrada aqui SO para registrar que o texto dos 4 artefatos foi corrigido nesta PR (deixou de afirmar a ponte como viva) | A decisao de negocio (construir `network_change_bridge`, adotar outro mecanismo de starter para SP-OP-ADEQUACAO-001, ou aceitar a lacuna) continua em aberto — ver a entrada Wave-1B acima e **AF-01** (registro `GAP-REGISTER`, linha `AF-01`, P0, `owner-decision`, fora do escopo docs/spec deste WP) | arquitetura + PO (mesma revisao de AF-01) | `DRAFT — requires human review before any deploy (texto corrigido; decisao de negocio pendente)` |
+
+
+---
+
+## PERSP-C5-ANSCRON-TESTSPEC — colisao de merge com `feat/ans-cron-timers-por-report-type` (regra registrada pelo verificador)
+
+Esta branch (`fix/docs-hygiene-contadores-runbooks`) e a branch paralela
+`feat/ans-cron-timers-por-report-type` (remodelagem dos timers de SP-OP-ANS-CRON-001 por
+`report_type`) tocam os mesmos tres arquivos de forma que `git merge-tree` confirma como conflito
+real (nao mecanico) em um deles. Isto NAO e um achado de conteudo — nao mexe em
+`docs/processes/test-specs/SP-OP-ANS-CRON-001.md` nem em `catalog.md`, so registra a regra de
+merge que o verificador independente (VER-DOCS-HYG) derivou, para quem integrar as duas branches
+depois desta:
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| Colisao de merge `fix/docs-hygiene-contadores-runbooks` × `feat/ans-cron-timers-por-report-type` (3 arquivos, `git merge-tree --write-tree --merge-base=71dd4da HEAD feat/ans-cron-timers-por-report-type`, reproduzido por VER-DOCS-HYG) | **Regra de merge, nao correcao de conteudo — quem integrar decide, nao esta branch:** (1) `docs/processes/test-specs/SP-OP-ANS-CRON-001.md` — conflito add/add, as duas branches criam o arquivo do zero. A versao desta branch (75 linhas) documenta o estado ATUAL/pre-remodelagem, incl. `FINDING #1 — topicos registrados por ans_cron.py sao inalcancaveis a partir do BPMN` (achado de codigo-morto). A versao de `feat/ans-cron-timers-por-report-type` (222 linhas) documenta o estado POS-remodelagem onde esse mesmo achado esta corrigido. Manter as duas e autocontraditorio (uma afirma que os topicos sao inalcancaveis, a outra que foi corrigido) — **a versao ans-cron deve vencer INTEIRA; a versao desta branch deve ser descartada**, nao porque esta errada hoje, mas porque documenta um estado que a outra branch ativamente remedia. (2) `docs/processes/catalog.md` — as duas branches adicionam uma linha para `SP-OP-ANS-CRON-001` na mesma posicao da tabela com status/rodape diferentes (`DRAFT` nesta branch vs `modelado` em ans-cron) MAIS rodapes independentes sem sobreposicao real: esta branch acrescenta o rodape `SP-OP-REEMBOLSO-001**` (PERSP-REEMBOLSO-BINDING) que ans-cron nao toca; ans-cron acrescenta `PERSP-C5-MONITOR-PROGRAMA` que esta branch nao toca. **Merge manual: tomar a linha/paragrafo ANS-CRON de ans-cron, manter o rodape REEMBOLSO desta branch, manter o rodape MONITOR-PROGRAMA de ans-cron** — tres blocos independentes, nenhum e descartado. (3) `docs/evidence-ledger.md` — as duas branches so acrescentam linhas (append/append) apos a mesma ultima linha; conflito puramente mecanico, concatenar os dois blocos de linhas em qualquer ordem, nenhum bloco referencia o outro. | orquestrador/integrador (decisao de ordem de merge; nenhuma decisao de conteudo tecnico/regulatorio pendente) | `NOTA — regra de merge registrada, nao acao pendente; aplicavel so no momento em que as duas branches forem integradas` |
 
 ---
 
@@ -747,3 +866,262 @@ acima e' o registro em-repo do item ate que esse registro exista.
 | Artefato | O que precisa de revisao humana | Revisor | Status |
 |---|---|---|---|
 | `deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml` (env do container) + ExternalSecret `maezo-whatsapp-config` | Provisionar `WHATSAPP_PHONE_NUMBER_ID` (o id Graph do numero remetente da WABA — dado de configuracao, NAO um segredo) e injeta-lo no deployment, na mesma forma dos tres `WHATSAPP_*` ja presentes (`:38,47,52`). Decidir tambem se ele entra como `value:` literal por tenant ou como chave do secret. Enquanto nao entrar, `send_message` recusa toda resposta da Helena (fail-closed, `server.py:163-164`) | dono/ops (mudanca em `deploy/` e owner-gated; sem conteudo clinico ou regulatorio) | `PENDENTE — caminho de resposta inoperante em Helm ate o provisionamento` |
+## WP-COMPOSICAO-V2 fatia 1 — raizes de composicao (AF-13 / ALERTS-WITHOUT-METRICS-a / WORKER-METRICS-COVERAGE / AF-12)
+
+O que esta fatia fechou e' WIRING: `setup_observability` passou a ter chamadores de producao nas
+tres raizes de daemon (`gateway/service.py`, `runtime/worker_runtime/service.py`,
+`runtime/agent_runtime/service.py`); `maezo_tool_calls_total`/`maezo_agent_errors_total` passaram a
+ser incrementados; os topicos servidos por handler cru voltaram a emitir as metricas M11; e
+`task_kind` atravessa `InferenceProvider.generate()` a partir do `model:` do `agent.yaml` nas DUAS
+raizes que servem agente — `runtime/agent_runtime/service.py` e `platform/webhooks/service.py`.
+Sao, portanto, QUATRO raizes de composicao tocadas, nao tres.
+
+O que NAO foi decidido aqui, e por que cada item e' humano — nenhum deles bloqueia o que foi
+entregue, todos limitam o quanto ele vale:
+
+| Artefato | O que precisa de decisao humana | Revisor | Status |
+|---|---|---|---|
+| `deploy/observability/alert-rules.yml` — `MaezoSLAAgentErrorRateHigh` (`:36-52`) | **Rotulos dos dois contadores de agente.** `maezo_agent_errors_total` e `maezo_tool_calls_total` ficaram SEM rotulo, deliberadamente: a expr do alerta DIVIDE um pelo outro, e o casamento de vetores do PromQL exige conjuntos de rotulos IDENTICOS — dar `{tool}` so' ao denominador produziria vetor vazio, isto e', um alerta que nunca dispara (exatamente o defeito que ALERTS-WITHOUT-METRICS-a existe para fechar). Um rotulo `{agent}` em AMBOS e' viavel e mais util, mas exige editar a regra, e `deploy/` e' owner-gated neste pacote de trabalho. Pinado por `test_alert_metrics_fence.py::test_the_two_agent_counters_are_label_free_so_the_ratio_alert_can_match` | SRE/observabilidade + owner (`deploy/` gated) | `PENDENTE — decisao de owner; contadores label-free ate la` |
+| `deploy/observability/alert-rules.yml` — `MaezoDeadLetterBacklog`/`MaezoDeadLetterGrowth` (`:121-151`) e `MaezoLifecycleJobFailed` (`:171-189`) | **Exporters ausentes (fatia ALERTS-WITHOUT-METRICS-b, do owner).** `maezo_dead_letter_queue_size` e `kube_job_status_failed` sao series de EXPORTER (Kafka/JMX e kube-state-metrics), nao telemetria da aplicacao — emiti-las de `src/` seria fabricar um fato de infraestrutura. Declaradas explicitamente na allowlist da fence (`test_alert_metrics_fence.py::EXTERNAL_ALERT_METRICS`) em vez de silenciosamente ignoradas. Fechar exige alvo de scrape em `deploy/`, owner-gated | SRE/plataforma + owner (`deploy/` gated) | `DECLARADO EXTERNO — nao emitido, nao fabricado` |
+| `src/maezo/runtime/inference.py` — `InferenceSettings.model` / `_resolve_task_model` | **Quais modelos cada tier nomeia (ADR-0009 §2/§3).** Hoje ha' UM modelo configurado e nenhum mapa por tier, entao `fast` e `frontier` resolvem para o mesmo modelo — resolucao fail-closed, registrada em log e no contador `maezo_llm_tier_resolution_total{resolution="modelo_unico"}`, nunca um default silencioso para OUTRO modelo. Escolher os ids por tier e' decisao de owner/financeiro (ADR-0009: "precos variam 10x") e de qualidade (o gate de eval golden por agente, ADR-0009 §4, precisa rodar contra o modelo novo antes de promover). Nenhuma linha de codigo muda quando a decisao vier: e' config | owner/financeiro + engenharia de agentes (gate de eval golden) | `PENDENTE — tier declarado e roteado; valores por tier nao decididos` |
+| `spec/agents/*/agent.yaml` — bloco `model:` | **Tier `batch` nao e' declarado por nenhum agente.** ADR-0009 §2 nomeia tres tiers ("lote -> batch tier"); os 10 agentes + `_template` declaram apenas `task_default` e `reasoning`. O vocabulario aceita `batch` (`inference.MODEL_TIERS`), mas NENHUM `agent.yaml` foi editado para introduzi-lo: qual trabalho pode ser diferido para lote e' decisao de produto/assistencial, nao detalhe de implementacao, e inventar a declaracao recriaria a config-morta que AF-12 acabou de remover | PO + gestao assistencial | `PENDENTE — vocabulario pronto, nenhuma declaracao inventada` |
+| `src/maezo/platform/observability.py` — `setup_observability` (FORMATO DE LOG) | **Mudanca de formato de log em producao, ja' aplicada — DESCRICAO CORRIGIDA apos a revisao (MAJOR-1).** A versao anterior desta linha dizia que ligar as raizes "troca a configuracao DEFAULT do structlog pelo `ConsoleRenderer` + `PrintLoggerFactory` do modulo". Isso e' **materialmente falso**: `ConsoleRenderer` sobre `PrintLoggerFactory` JA' E' o default do structlog 25.5.0 — a familia de renderer nunca mudou, e SRE teria assinado uma descricao que nao corresponde ao diff. O delta que existia de fato era (a) `add_log_level` derrubado — nenhuma linha carregava token de severidade, (b) `merge_contextvars` derrubado — latente, nada em `src/` usa contextvars hoje, (c) cores ANSI FORCADAS independentemente de TTY (o default de PARAMETRO do `ConsoleRenderer` e' `colors=True`, ao contrario do renderer que o structlog constroi para si), e (d) timestamp local -> ISO-8601/UTC. (a) e (c) quebravam `kubectl logs \| grep` de duas maneiras: nivel e CAMPO (os escapes ficam ENTRE chave, `=` e valor, entao `topic=t` deixa de ser substring). **(a), (b) e (c) foram corrigidos na raiz** — processors de volta na cadeia, cores perguntando ao stdout se ele e' terminal, `NO_COLOR` honrado — e ficam pinados por `test_observability_bootstrap.py`. **O que resta para SRE:** (i) o timestamp passa a ser ISO-8601/UTC em vez de local — deliberado, nao byte-identico; (ii) o nivel e' renderizado em MINUSCULAS entre colchetes (`[error    ]`), o que ja' era verdade do default pre-wiring, entao runbook com `grep ERROR` precisa de `-i` (`docs/runbooks/devops-stack.md:318` corrigido); (iii) trocar por um renderer JSON continua decisao aberta — nenhum parser deste repo depende de JSON (o collector de dev nao tem receiver `filelog`, o chart nao tem sidecar de parsing e o ECS usa o driver `awslogs` puro) | SRE/observabilidade | `APLICADO com o delta corrigido — add_log_level e cores TTY-aware restaurados; timestamp UTC e renderer JSON seguem decisao aberta` |
+| `src/maezo/platform/observability.py` — `MAEZO_LOG_LEVEL` | **Variavel que era lida, logada e nunca aplicada (revisao, minor-7) — agora e' real.** `structlog.stdlib.BoundLogger` sobre `PrintLoggerFactory` nao filtra nada, entao `MAEZO_LOG_LEVEL=ERROR` imprimia todo DEBUG do mesmo jeito; o wiring e' o que colocou essa docstring no caminho de producao. Passou a usar `make_filtering_bound_logger`, com default **`NOTSET` (sem filtragem)** — identico ao comportamento pre-AF-13 e ao proprio default do structlog, porque ligar o wiring nao pode, ele mesmo, comecar a descartar linha de log. Valor invalido LEVANTA (o bootstrap contem e deixa `observability_configured` vermelho) em vez de cair para INFO. **Decisao de SRE:** se os tres daemons devem passar a declarar `MAEZO_LOG_LEVEL=INFO` no `deploy/` (owner-gated) — hoje nenhuma task definition de `deploy/aws-ecs/envs/dev-sa-east-1/` a define | SRE/observabilidade + owner (`deploy/` gated) | `IMPLEMENTADO — default sem filtragem; declarar o nivel em deploy/ e' decisao pendente` |
+## Completude da classificacao de PHI por NOME (GAP-DU-07) — perguntas ao DPO
+
+A redacao de PHI da plataforma e **ancorada em nome**: `redact_phi_vars` so age quando a CHAVE
+esta entre os 8 nomes de `PHI_PROCESS_VARS` (`src/maezo/tools/workers/phi_vars.py:52-61`) e o
+`LogScrubber` quando esta entre os 4 de `PHI_FIELDS` (`src/maezo/gateway/pseudonymizer.py:41-47`).
+Os dois conjuntos vieram do doador e sao CI-enforced — mas nada jamais provou que esses 12 nomes
+COBREM as variaveis de processo que os 16 BPMN e 62 DMN de fato declaram e leem.
+
+A cerca `src/maezo/platform/validation/phi_completeness.py` mecaniza a prova: extrai todo nome de
+variavel de dez superficies de `spec/processes/` com proveniencia `arquivo:linha`, classifica em
+tres baldes (LISTED / SHAPE-SUSPECT-UNLISTED / CLEAN) e **falha fechado** em todo nome PHI-shaped
+que nao esteja listado NEM disposto. Medicao sobre o `spec/` vivo: **6 LISTED, 9
+SHAPE-SUSPECT-UNLISTED, 313 CLEAN** (328 nomes, **1623 ocorrencias** — pinado por
+`test_the_occurrence_count_is_pinned`; uma versao anterior desta secao dizia 1637, numero que
+nenhum estado da branch produz e que nenhum teste sustentava). **(corrigido 2026-09-03: era 314
+CLEAN / 329 nomes / 1616 ocorrencias — o trem onda-0 mexeu no corpus depois da medicao original:
+`#276` removeu a coluna morta `tuss_codes`, unica ocorrencia do nome em `spec/`, entao ele SAI do
+corpus inteiro — CLEAN 314->313, nomes 329->328; `#271` acrescentou net +7 ocorrencias de nomes
+ja-corpus ao achatar `calculo.*` em `SP-OP-REEMBOLSO-001` — 1616-1(tuss_codes)-1(encounter_class,
+mesma PR de #276, nome sobrevive)+9(calculo/valor_calculado_tabela_cents/multiplo_tabela_aplicado/
+fonte_tabela) = 1623. Detalhe completo em `CORPUS_DELTA_LOG`,
+`tests/unit/platform/test_validation_phi_completeness.py:261-327`, e na linha GAP-DU-07 mais
+recente de `docs/evidence-ledger.md`.)**
+
+**A classificacao usa DOIS sinais, e so um deles le o nome.** (a) SINAL ESTRUTURAL: um
+`camunda:formField` cujo tipo nao e limitado e que nao declara dominio `camunda:value` e uma caixa
+livre onde um humano digita prosa — SUSPECT independentemente de como se chame. Medido no corpus
+vivo: 14 ocorrencias, 5 nomes, 4 ja LISTED e **exatamente um novo (`auditor_id`)** — todo o custo
+de ruido do sinal hoje. O mesmo vale para uma entrada do rol `VARIAVEIS DE ENTRADA` cuja propria
+anotacao diz `(texto livre)`; esse braco dispara ZERO vezes hoje e o zero esta pinado por teste.
+(b) VOCABULARIO PHI-SHAPE, agora com casamento por RADICAL (fecha `laudos`/`resumos`/
+`justificativas`/`diagnostica_*`, que eram evasoes de um caractere). **A recall foi MEDIDA e esta
+declarada** (`TestClassificationRecall`, bateria adversarial ponta a ponta sobre uma copia do
+BPMN vivo): todos os nomes PHI-shaped da bateria sao pegos; os 5 deliberadamente limpos
+(`numero_lote_tiss`, `prazo_dias`, `codigo_tuss`, `valor_cents`, `cnpj_prestador`) seguem limpos.
+Residuo declarado, ainda NAO pego por nome: `descricao_procedimento`, `sexo`, `gestante`, `idade`
+(este ultimo deixado de fora com custo medido — incluiria `idade_anos`/`idade_meses`/
+`idade_gestacional_semanas`, tres criterios DUT).
+
+Tres observacoes de fato, registradas sem interpretacao:
+
+- `laudo` e `diagnostico` (`phi_vars.py:60-61`) **nao sao declarados por artefato nenhum** de
+  `spec/` — sao heranca do doador que os 16 BPMN nunca usam. **Isso NAO os torna entradas mortas**:
+  `phi_vars.py:48-51` diz que o conjunto e "kept aligned with the donor's `PHI_PROCESS_VARS` so the
+  invariant's coverage does not drift between codebases", e `:24` os enumera entre o conteudo
+  clinico que o conjunto existe para cobrir — remove-los criaria exatamente o drift que o docstring
+  proibe. Custo de mante-los: zero (redigir uma chave que nunca aparece e no-op). Sao defesa em
+  profundidade PRE-POSICIONADA: se um BPMN futuro declarar `laudo`, ele nasce coberto.
+  Nenhum dos 4 `PHI_FIELDS` (`cpf`/`nome`/`telefone`/`email`) aparece como variavel de processo: e
+  a fronteira do gateway funcionando (uma variavel carrega `beneficiario_pseudo_id`, nunca um CPF).
+- Nenhum dos candidatos do relatorio de auditoria (`data_nascimento`, `cns`, `nome_mae`,
+  `endereco`, `cpf_titular`) existe hoje em `spec/`. A cerca os reconhece pela heuristica — se um
+  deles for adicionado a qualquer BPMN/DMN/manifesto, o build fica vermelho ate haver disposicao.
+- **Limite de escopo declarado (nao-objetivo):** a varredura le a arvore `spec/processes`, entao
+  variavel que NENHUM artefato declara e um worker inventa em runtime e invisivel por construcao —
+  `contas.py:330` devolve `total_glosado_candidato_brl` e `:334` `impacto_percentual`, nenhuma
+  declarada em `spec/`. Elas nao estao fora da PERGUNTA da DU-07 (trafegam a mesma borda
+  worker->engine em que `redact_phi_vars` age, e um nome que aquele conjunto nao carrega tambem nao
+  e redigido la) — estao fora da ENTRADA desta cerca. Estender a varredura as chaves de
+  `return {...}` de `src/maezo/tools/workers/*.py` foi considerado e **recusado**: exigiria uma
+  passagem de AST sobre 31 modulos com historia propria de falso-positivo e mudaria o contrato da
+  cerca de "os artefatos declaram X" para "os artefatos e o codigo declaram X" — outro portao, com
+  outro dono. Fica como item de acompanhamento nomeado abaixo, nao como lacuna silenciosa.
+
+**As 6 perguntas abaixo sao do DPO. A recomendacao ao lado e da ENGENHARIA, com evidencia — nunca
+uma decisao tomada.** O texto completo de cada uma esta em `phi_completeness.DISPOSITIONS`, onde
+todo item nasce e permanece `DRAFT/verify (DPO)` (o `__post_init__` recusa qualquer outro status).
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `detalhes_requisicao` (`spec/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn:55`, rol VARIAVEIS DE ENTRADA) | Texto livre com o detalhe da requisicao do titular. **Recomendacao da engenharia:** listar em `PHI_PROCESS_VARS` — o caso mais forte da tabela, porque o proprio codigo da casa ja o chama de "(free-text PHI)" (`src/maezo/tools/workers/lgpd.py:483`) e o exclui A MAO de UMA saida; hoje a protecao e uma omissao manual num unico call site, nao o controle ancorado em nome. Qualquer outro worker que copie process vars para um dict de saida o emite cru. Nenhuma DMN o le, entao listar nao custa decisao nenhuma | DPO + juridico-privacidade | `DRAFT/verify (DPO) — pergunta aberta` |
+| `fundamentacao_legal` (`SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn:78` outputParameter, `:378` conditionExpression do `GW_GuardFundamentacao`) | Texto livre que fundamenta uma negativa de DSR. Essas duas superficies BPMN sao TODA a proveniencia: **nenhuma DMN de `spec/processes/dmn/` declara saida com esse nome**, entao nada limita o valor alem da prosa de `:195`. **Recomendacao da engenharia:** mesma classe do irmao ja listado `fundamentacao_dut` (`phi_vars.py:56`) — ambos sao texto livre que um humano escreve para justificar um desfecho ADVERSO sobre um titular identificado; o campo e ilimitado por construcao (sem enum, sem dominio `camunda:value`, sem tabela de decisao que o escreva) e a prosa do proprio BPMN espera fundamento CLINICO dentro dele ("NEGAR_FUNDAMENTADO exige fundamentacao_legal (ex.: retencao obrigatoria de prontuario)", `:195`). **Contraevidencia que o DPO precisa pesar, na forca real que ela tem:** essa linha de prosa e a UNICA coisa que sugere o que o revisor digita, e nada MECANICAMENTE prende o campo a ela. **Contraevidencia RETIRADA** (registrada porque uma versao anterior desta linha a colocou diante do DPO): dizia que os valores em `spec/processes/dmn/lgpd_dsr_routing.dmn` sao citacoes estatutarias, nao narrativa. E FALSO — as saidas daquela tabela sao `fluxo`/`grupo_revisor`/`sla_resposta`/`sla_alerta` (`:40-43`), com valores `"EXPORTACAO"`/`"dpo"`/`"P15D"`/`"P7D"` (`:48-51`); as citacoes estatutarias sao prosa do `<description>` (`:11-19`) sobre roteamento/SLA, e aquela DMN nao emite `fundamentacao_legal` alguma | DPO + juridico-privacidade | `DRAFT/verify (DPO) — pergunta aberta` |
+| `cid10` (`SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59`, `SP-OP-RECURSO-001_Recurso_Glosa.bpmn:69`, `SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:61` — os tres rois VARIAVEIS DE ENTRADA, i.e. variavel que o CHAMADOR seta no start) | OQ-11 do redesenho CONTAS/RECURSO. **Recomendacao da engenharia:** listar. `cid10_referencia` JA esta em `PHI_PROCESS_VARS` (`phi_vars.py:55`) e o `cid10` nu e O MESMO DADO sob uma segunda grafia — exatamente o modo de falha que a DU-07 nomeia, ja que um controle ancorado em nome nao dobra grafias; `phi_vars.py:24` nomeia CID-10 entre o conteudo clinico que o conjunto existe para cobrir, e essa e toda a ancoragem no repo em que esta linha se apoia. **Custo de listar, medido: ZERO decisoes o leem** — nenhuma `inputExpression` de `spec/processes/dmn/` avalia `cid10`. **Contraevidencia:** um codigo CID-10 e codigo limitado, nao texto livre; se o DPO ler codigos limitados como fora de escopo, entao a inconsistencia a revisitar e a listagem do proprio `cid10_referencia` — os dois nao podem ser classificados de forma diferente. **Apoio RETIRADO** (registrado porque uma versao anterior desta linha o colocou diante do DPO): dizia que "a ADR-0006 poe diagnostico na Zona PHI". Nao poe — `docs/adr/0006-phi-two-zones.md` particiona por AGENTE ("Zona PHI/Financeira (Rafael, Marina, Beatriz...)", `:12`) e nunca nomeia diagnostico, laudo ou CID; era inferencia apresentada como afirmacao de ADR ratificada | DPO + medico auditor | `DRAFT/verify (DPO) — pergunta aberta` |
+| `diagnostico_oncologico_confirmado` (`spec/processes/dmn/dut_criteria_oncologia_pet_ct.dmn:56`, `typeRef="boolean"`) | **Recomendacao da engenharia:** listar. O valor e booleano, nao texto livre, entao nao e para isso que `redact_phi_vars` foi escrito — mas "este beneficiario tem diagnostico oncologico confirmado" e dado de saude sobre titular identificado (LGPD art. 5, II — sensivel), e o booleano viaja ao lado do pseudo-id que diz de quem e. **Custo de listar, medido: nenhum para a decisao** — a avaliacao de DMN e engine-side (ADR-0028) e `redact_phi_vars` so roda na SAIDA do worker rumo a Zona Geral. **Contraevidencia:** um booleano redigido no payload de auditoria tira do operador um fato que ele pode precisar para explicar uma negativa | DPO + medico auditor | `DRAFT/verify (DPO) — pergunta aberta` |
+| `diagnostico_tea_ou_neurodesenvolvimento` (`spec/processes/dmn/dut_criteria_terapias_especiais.dmn:62`, `typeRef="boolean"`) | Mesma leitura da linha acima — asserção booleana de diagnostico, aqui de neurodesenvolvimento (F84.0 pela prosa da propria tabela, `:26`). **Recomendacao da engenharia:** listar; se algo, o caso e mais forte — diagnostico de neurodesenvolvimento de menor e o dado sensivel arquetipico. Mesmo custo medido e mesma contraevidencia | DPO + medico auditor | `DRAFT/verify (DPO) — pergunta aberta` |
+| `has_cid10_codes` (`spec/processes/dmn/phantom_no_diagnosis.dmn:30`, `typeRef="boolean"`) | **Recomendacao da engenharia: registrar como NAO-PHI** — a unica entrada da tabela em que a leitura da engenharia e que a heuristica disparou so pelo token `cid`. O valor e flag de presenca sobre uma submissao de cobranca ("esta conta documenta codigos CID-10?"), pontuada como um INDICADOR de phantom billing para SP-OP-FRAUDE-001 (`:20`, "NUNCA um veredito"); nao carrega codigo nem diagnostico. **Ainda assim quem diz isso e o DPO**: esta cerca registra a pergunta, nao a resposta | DPO + medico auditor | `DRAFT/verify (DPO) — pergunta aberta` |
+| `exames_convencionais_inconclusivos` (`spec/processes/dmn/dut_criteria_oncologia_pet_ct.dmn:74`, `typeRef="boolean"` em `:73`) | NOVO nesta revisao: o nome era CLEAN ate o vocabulario PHI-shape ganhar radical para `exame` — a pergunta sempre esteve la e nao estava sendo feita. A prosa da propria tabela descreve o dado como "TC/RM/cintilografia convencionais realizados e inconclusivos para a finalidade solicitada" (`:34-36`). **Recomendacao da engenharia:** listar, pela MESMA leitura dos dois booleanos `diagnostico_*` acima — "exame convencional foi feito neste beneficiario e veio inconclusivo" afirma um evento de cuidado e seu resultado sobre titular identificado (LGPD art. 5, II), ao lado do pseudo-id que diz de quem. **Custo medido:** nenhum para a decisao (avaliacao DMN e engine-side, ADR-0028; `redact_phi_vars` age so na saida do worker). **Contraevidencia:** e criterio DUT booleano, nao texto livre, e os criterios DUT sao a base a partir da qual uma negativa e explicada — redigi-lo custa essa explicacao ao operador | DPO + medico auditor | `DRAFT/verify (DPO) — pergunta aberta` |
+| `sintoma_codigo` (`spec/processes/dmn/triage_redflag_adult.dmn:26`, `triage_redflag_gestante.dmn:19`, `triage_redflag_pediatric.dmn:19`, `triage_redflag_mental_health.dmn:22` — quatro `inputExpression`, `typeRef="string"`) | NOVO nesta revisao (radical `sintoma`). **Recomendacao da engenharia: registrar a pergunta E a tensao, nao uma listagem** — e a linha em que a leitura da engenharia esta menos assentada. A FAVOR de tratar como dado de saude: sintoma normalizado de beneficiario identificado e dado de saude (LGPD art. 5, II) por mais limitado que seja o codigo, e as quatro tabelas que o leem decidem escalonamento de red flag clinico. CONTRA: e codigo normalizado FECHADO, nunca narrativa (schema comum declarado em `triage_redflag_adult.dmn:16-20`), e o repo poe DELIBERADAMENTE o agente que o produz (Helena, `src/maezo/agents/helena/graph.py:12-13`, ADR-0012) na ZONA GERAL, onde todo campo e pseudonimizado ponta a ponta (`graph.py:157`) — listar contradiria uma escolha arquitetural viva, e por isso mesmo e pergunta de DPO e nao edicao de engenharia | DPO + medico auditor + arquitetura | `DRAFT/verify (DPO) — pergunta aberta` |
+| `auditor_id` (`spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:324`, `:409`, `:547` — `camunda:formField type="string"` sem dominio `camunda:value`) | NOVO nesta revisao, e o unico item da tabela levantado pelo SINAL ESTRUTURAL: nenhum token de nome dispara nele. **Recomendacao da engenharia: registrar como NAO-PHI**, e registrar POR QUE ele esta aqui. O rotulo do proprio artefato e "Id do medico auditor responsavel (obrigatorio se NEGAR)" (`:324`), e o BPMN o exige justamente para que uma decisao adversa carregue a identidade do humano que a tomou (trilha de auditoria, ADR-0007, `:272-273`) — identifica EQUIPE DA OPERADORA, nao beneficiario, e nao carrega conteudo clinico. E tambem TODO o custo de ruido do sinal estrutural no corpus de hoje (14 ocorrencias de campo ilimitado, 5 nomes, os outros 4 ja LISTED), e foi disposto em vez de recortado da heuristica: regra que exclui os proprios falsos positivos deixa de ser auditavel. **Contraevidencia:** identificador de operador continua sendo dado pessoal (LGPD art. 5, I) mesmo nao sendo dado de saude, e o campo ser ilimitado e o ponto — nada estruturalmente impede um revisor de digitar um nome ali | DPO | `DRAFT/verify (DPO) — pergunta aberta` |
+
+**Item de MIGRACAO (ato do dono, nao da engenharia).** A tabela `DISPOSITIONS` mora HOJE dentro de
+`src/maezo/platform/validation/phi_completeness.py`, e nao em `spec/policies/privacy/`, por um
+motivo unico: aquele diretorio e CODEOWNED pelos revisores de DPO/seguranca
+(`.github/CODEOWNERS:116` — `/spec/policies/privacy/ @rodaquino-OMNI @Omni-Saude/security-team
+@lucasreisEvah`; `spec/policies/privacy/phi-business-key-remediation.yaml:48-49` afirma o mesmo
+fato mas cita `@rodrigotaquino`/`@Omni-Saude/security`, dois handles que o cabecalho de auditoria
+do proprio CODEOWNERS prova inexistentes, `.github/CODEOWNERS:8-20`),
+e uma tabela de recomendacoes NAO RATIFICADAS nao pode ser lavada para dentro de um caminho de
+politica do DPO pelo mesmo commit que a escreve. **Quando o DPO ratificar as 9 perguntas acima, a
+tabela deve MIGRAR para um manifesto de privacidade CODEOWNED** (nos moldes de
+`phi-business-key-remediation.yaml`: `status`/`ratificacao.ratificado`/`revisor`/`ratificado_em`,
+com o carregador recusando rascunho), e a constante no modulo e substituida pelo carregador desse
+manifesto. Enquanto a migracao nao acontece, uma disposicao **nao adiciona o nome a conjunto PHI
+algum e nao muda um byte de redacao em runtime** — so silencia a cerca e registra a pergunta.
+
+**Item de ACOMPANHAMENTO (engenharia, escopo declarado acima).** Variaveis de processo CRIADAS POR
+WORKER e declaradas por nenhum artefato de `spec/` ficam fora da varredura por construcao
+(`contas.py:330` `total_glosado_candidato_brl`, `:334` `impacto_percentual`; e a sub-coleta do rol
+em prosa perde `total_glosado_candidato_centavos` em
+`SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:48`, embora `contas.py:263` a compute e `:331` a
+devolva). Todas sao CLEAN hoje, entao nao ha consequencia de balde — mas a pergunta da DU-07 ("os
+12 nomes cobrem as variaveis que a plataforma manipula?") as alcanca. Decisao registrada: **nao
+estender esta cerca**; se a cobertura dessa classe for exigida, ela e um portao separado sobre
+`src/maezo/tools/workers/*.py`, com dono e contrato proprios.
+
+---
+
+## SC-04 — escala do notifications-bridge: chave de particao + DLQ (GAP-SC-04-a; fatia SC-04-b e do owner)
+
+Fatia **SC-04-a** (engenharia, entregue): `publish()` recusa publicacao sem chave de particao
+derivavel (`platform/integrations/partition_key.py`), e o notifications-bridge desvia mensagem
+malformada para `<topic>.dlq` com publicacao confirmada + fato ADR-0007 duravel antes do commit do
+offset (`platform/integrations/notifications_bridge.py`). Nenhum contrato de processo mudou: os
+`variables_fn` das 7 regras do bridge, os `event_payload_vars` das BPMN e as variaveis de start de
+RECURSO/ANS-SUBMIT/CANCEL estao intocados — logo nenhum `docs/processes/contracts/*.md` nem
+test-spec precisa de revisao por esta fatia.
+
+**Garantia de ordenacao, dita com precisao** (correcao de uma afirmacao anterior que era falsa —
+achado MAJOR-3 do gatekeeper). Em `agents.events.{familia}.{acao}` a familia vem do TOPICO. No canal
+compartilhado `operadora.notifications.internal` ela vem do `type` do payload
+(`{familia}.{acao}`, carimbado de constante de modulo em todos os 16 call sites de notificacao) —
+o nome do topico ali nao nomeia entidade nenhuma. Consequencia pratica: com business key em branco,
+`recurso.*` e `anssubmit.*` ordenam POR ENTIDADE tambem no canal compartilhado, enquanto
+`lgpd`/`escalation`/`programa`/`adequacao` ordenam POR INSTANCIA de processo — este repo nao tem
+derivacao de business key por entidade verificada para essas quatro familias, e inventar uma seria
+fabricar uma ancora. Isso e estritamente melhor que o round-robin da main em todos os casos, mas nao
+e ordenacao por entidade em todos eles.
+
+As tres linhas abaixo sao o que esta fatia NAO decide e nao pode decidir sozinha.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `deploy/helm/maezo-tenant/` — `replicaCount` do `deployment-bridge.yaml` (**fatia SC-04-b**, nao tocada por SC-04-a) | Subir o notifications-bridge acima de UMA replica. SC-04-a removeu os dois bloqueios tecnicos: (a) toda publicacao carrega chave de particao deterministica por entidade, entao a semantica de consumer-group da ordenacao por entidade para qualquer numero de replicas do MESMO `NOTIFICATIONS_BRIDGE_KAFKA_GROUP_ID`; (b) uma mensagem-veneno nao trava mais a particao atras dela. O que continua sendo decisao de operacao/owner: **o numero em si**, e os dois fatos que o limitam — o paralelismo e limitado pela contagem de particoes do topico (default do registry = 3, `src/maezo/platform/topic_registry.py:75`; replicas acima disso ficam ociosas), e cada replica mantem entrega at-least-once (`enable_auto_commit=False` + commit-apos-dispatch), sendo o fence `start_process_idempotent` o que faz uma reentrega CONVERGIR em vez de duplicar o start. Exige tambem confirmar que o topico realmente foi criado com >1 particao no cluster alvo (o default do registry e uma declaracao do repo, nao um fato do broker) | owner/operacoes (plataforma) + SRE | `owner-gated — nao alterado por SC-04-a; deploy/ e fora do escopo desta fatia` |
+| Metrica-gauge `maezo_dead_letter_queue_size` (lida por `MaezoDeadLetterBacklog`/`MaezoDeadLetterGrowth`, `deploy/observability/alert-rules.yml`) | **A distincao, declarada para nao virar falsa equivalencia.** SC-04-a passa a emitir o CONTADOR `maezo_bridge_dlq_total{topic,reason}` (`src/maezo/runtime/metrics.py`, `src/maezo/platform/observability.py::record_bridge_dlq`) — o fluxo de entrada de mensagens em quarentena, com `reason` de vocabulario FECHADO (`BRIDGE_DLQ_REASONS`), sem conteudo de payload. Isso **nao** e o gauge que os dois alertas leem: `maezo_dead_letter_queue_size` e PROFUNDIDADE ATUAL da fila, um fato do lado do broker (produzidas menos consumidas pelo leitor do proprio DLQ) que nenhum processo em `src/` observa — emiti-lo do src fabricaria um numero que diverge do broker no instante em que alguem drenar o DLQ. Fechar o gauge exige um job de scrape de exporter Kafka/JMX que nao existe em `deploy/observability/prometheus.yml` (owner-gated). **A MESMA constatacao, com o MESMO dono, ja esta registrada duas vezes: sob a fatia `ALERTS-WITHOUT-METRICS-b` na secao WP-COMPOSICAO-V2 fatia 1 (branch `fix/composicao-root-wiring-v2`, que declara `maezo_dead_letter_queue_size` como EXTERNAL na allowlist de `test_alert_metrics_fence.py`) e aqui sob `SC-04-b`. NAO sao dois itens: sao um so, e no merge as duas linhas devem colapsar em UMA, sob `ALERTS-WITHOUT-METRICS-b` — que e quem tem a fence. Esta linha fica com o que e proprio da SC-04-a (a distincao contador-vs-gauge e a opcao (b) de reapontamento) e DELEGA a titularidade do gauge aquela fatia.** `docs/observability/SLO.md` registra a mesma coisa mas AINDA NAO EXISTE nesta branch nem na main — vive so' em `docs/slo-runbooks-alertas` (PR #270, aberta); se SC-04-a mergear primeiro, esta citacao fica pendurada ate #270 entrar. Decisao pendente: (a) subir o exporter e manter os dois alertas como estao, ou (b) reapontar os alertas para `rate(maezo_bridge_dlq_total[5m])`, que ja funciona hoje sem exporter mas alerta sobre FLUXO, nao sobre BACKLOG — semanticamente diferente e a diferenca precisa ser aceita por quem opera | owner/operacoes (plataforma) + SRE (observabilidade) | `owner-gated — contador src-side entregue; gauge de exporter NAO existe e nao foi fabricado` |
+| `docs/design/wave1-effect-chokepoint.md` §8.1 — `FORBIDDEN_CONSTRUCTION_NAMES` (fence `scripts/ci/check_effect_chokepoint_fence.py:116-141`) | **Um produtor Kafka novo fora da cerca — escalado, nao alargado em silencio** (achado MINOR-8 do gatekeeper). SC-04-a adiciona `AioKafkaDlqPublisher` (`src/maezo/platform/integrations/notifications_bridge.py:480`), uma classe de efeito externo real. A cerca PASSA porque so' guarda os nomes ENUMERADOS em §8.1, e essa lista e verbatim do documento de design — entao inclui-la exige editar o design, o que esta fatia deliberadamente NAO faz. A razao de nao reusar `AioKafkaEventsProducer` e solida (o DLQ precisa dos bytes VERBATIM, e alargar o allowlist dele seria pior), mas a consequencia — um produtor sem cerca — fica declarada aqui em vez de silenciosa. Decisao pendente: acrescentar `AioKafkaDlqPublisher` a §8.1 e a `FORBIDDEN_CONSTRUCTION_NAMES` (com a composicao ja fenceada por `build_dlq_shunt`), ou registrar por escrito por que a classe fica de fora | owner/orquestrador (documento de design) + plataforma | `ESCALADO — cerca intocada por SC-04-a; nenhum arquivo de fence alterado` |
+| `docs/design/requisitos-acessibilidade-ui.md` (NOVO — GAP 10.1) | **Tres ancoras regulatorias brasileiras citadas como DRAFT/verify: Lei 13.146/2015 (LBI), eMAG, ABNT NBR 17060.** O baseline tecnico (WCAG 2.2 AA) foi confirmado ao vivo contra `https://www.w3.org/TR/WCAG22/` nesta sessao; as tres ancoras brasileiras NAO foram — nem a aplicabilidade direta de cada uma a uma operadora PRIVADA de plano de saude (em oposicao a orgao publico/eMAG), nem o texto/numero exato de cada uma foi confirmado contra fonte juridica. `docs/compliance/` nao contem nenhum documento sobre acessibilidade (verificado: `grep -rli acessibilidade\|wcag\|13.146\|eMAG\|17060 docs/compliance/` so retorna `lgpd-topic-reconciliation.md`, que nao trata do tema). Promover o documento a ADR (`docs/adr/`, owner-gated) e' follow-up explicito, nao feito aqui | juridico/regulatorio + especialista em acessibilidade | `DRAFT — requires human review before any deploy/ADR` |
+
+---
+
+## GAP-INAD-8 followup — tres fabricacoes `notified=True` reveladas pelo alargamento do fence (NAO corrigidas)
+
+WP-FATOS-FABRICADOS slice 2 adicionou `notified` ao `_FABRICATED_FACT_KEYS` do ratchet AST
+(`tests/unit/tools/workers/test_worker_handler_purity.py`), porque `cancel.notify_beneficiario`
+fabricava exatamente essa chave. O alargamento revelou **tres instancias identicas em tres outras
+familias de processo**, que este pacote NAO corrigiu (escopo declarado: INADIMPLENCIA->CANCEL) e que
+ficam registradas no `_FABRICATED_FACT_BASELINE` com as linhas abaixo — nunca so num comentario de
+codigo.
+
+Todas as tres foram verificadas **zero-consumidores** no momento desta entrada:
+`grep -rn '\bnotified\b' src/ spec/` nao encontra nenhum `conditionExpression` de BPMN, nenhum
+`inputExpression` de DMN e nenhuma leitura Python da chave — os unicos hits nao-produtores sao prosa.
+Isso as torna correcoes mecanicas (`return {}`, o precedente do ADEQUACAO), nao problemas de dois
+consumidores como o do INADIMPLENCIA. Baratas para quem detem o processo; ainda assim, nao deste
+pacote.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `src/maezo/tools/workers/recurso.py:358-376` (`notify_prestador` — GAP-RECURSO-5) | Retorna incondicionalmente `{"notified": True, "prestador_id": ..., "glosa_id": ..., "message_type": ...}` no topico `operadora.recurso.notify_prestador`: afirma que o prestador foi avisado sem nenhum canal contatado e sem entrega observada. A harness grava o retorno no escopo do processo no `complete` (`harness.py:1778-1782`), entao a afirmacao entra na instancia. Zero consumidores hoje (ver grep acima) — o risco e de trilha/auditoria, nao de roteamento. Confirmar se algum relatorio/dashboard de SLA da RN 424/2017 (**DRAFT/verify** — prazo da RESPOSTA da operadora ao recurso, nao do prestador) le esse campo fora da arvore antes de trocar por `{}` | dono do processo RECURSO + regulatorio (RN 424/2017 permanece **DRAFT/verify**) | `DRAFT — nao corrigido; rastreado em _FABRICATED_FACT_BASELINE["recurso"]` |
+| `src/maezo/tools/workers/reembolso.py:578-602` (`request_documents` — GAP-REEMBOLSO-8) | Retorna `{"notified": True, "status": "pended", ...}`. **A propria docstring da funcao ja divulga** que este worker NAO publica o evento `agents.events.reembolso.pended` que o `event_topic_pended` do BPMN documenta ("this worker does not publish either, it only returns the notify signal") — e entao devolve `notified=True` assim mesmo: a divulgacao e o retorno se contradizem no mesmo corpo de funcao. Zero consumidores. Corrigir junto com a tarefa de wiring do produtor Kafka que a propria docstring aponta como dona do fix | dono do processo REEMBOLSO + wiring Kafka | `DRAFT — nao corrigido; rastreado em _FABRICATED_FACT_BASELINE["reembolso"]` |
+| `src/maezo/tools/workers/contas.py:449-472` (`notify_sla_risk` — GAP-CONTAS-7) | Retorna `{"notified": True, "grupo": ..., "sla_remaining": ..., "numero_lote_tiss": ...}` no timer nao-interruptivo de risco de SLA. Informativo e nunca adverso — a menor aposta das tres — mas a mesma afirmacao falsa: nenhum canal e contatado e a coordenacao-contas pode nao ter sido avisada. Zero consumidores | dono do processo CONTAS | `DRAFT — nao corrigido; rastreado em _FABRICATED_FACT_BASELINE["contas"]` |
+
+---
+
+## GAP-INAD-9 — `agents.events.inadimplencia.notified` e um asserto sem lastro, publicado incondicionalmente pelo proprio BPMN (mesma especie das tres fabricacoes acima, uma camada acima)
+
+Achado do gatekeeper VER-FAB2 (`VERIFY-WP-FAB2.md`, veredito REVISE MINOR sobre
+`fix/fatos-fabricados-inadimplencia-notify`). WP-FATOS-FABRICADOS slice 2 corrigiu
+`inadimplencia.dispatch_prior_notice` para nao mais fabricar `notificacao_previa_feita=True`
+(GAP-INAD-8) — a task agora **nao afirma nada** sobre a notificacao ter ocorrido. Um passo depois
+dela, porem, a propria BPMN publica incondicionalmente `agents.events.inadimplencia.notified` via
+`ST_PublishInadimplenciaNotified`
+(`spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn:149-158`), em toda instancia,
+numa arvore onde **nenhum worker tem canal para notificar um beneficiario** — o unico seam de
+WhatsApp (`maezo.tools.mcp_whatsapp.server.WhatsAppServer`) so e alcancavel pelos agentes
+conversacionais/webhook (`agents/helena/adapters.py`, `agents/lucas/adapters.py`,
+`platform/webhooks/whatsapp/dispatch.py`), nunca por um worker BPMN, e
+`platform/notification_bridge.py` e uma ponte processo-a-processo (inicia processos a partir de
+eventos), nao um canal de mensageria. O topico esta no particípio passado ("notified") mas nenhum
+componente desta arvore de fato notifica ninguem — o evento e um rastro de disparo de tarefa, nunca
+uma prova de entrega.
+
+**Zero consumidores hoje**, verificado com o comando exato do brief:
+`grep -rn "inadimplencia.notified" src/ spec/ tests/` retorna apenas: o produtor na propria BPMN
+(`SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn:60,133,139,149,153` — documentacao + declaracao
+do `serviceTask` + `event_topic`); e o teste de integracao que so' AFIRMA a publicacao
+(`tests/integration/processes/test_sp_op_inadimplencia_001.py:211,257,568,577,597`); mais a propria
+prosa corrigida em `src/maezo/tools/workers/inadimplencia.py:389` (ver abaixo). Ampliando para
+`docs/` o mesmo grep so acrescenta a linha "produz" do contrato
+(`docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md:111,116`) e a entrada historica do ledger
+(`docs/evidence-ledger.md:125`). Nenhum `conditionExpression` de BPMN, nenhum `inputExpression` de
+DMN, nenhuma leitura Python em lugar nenhum da arvore.
+
+**Pre-existente, nao adverso.** O evento foi introduzido em t3.1 (`docs/evidence-ledger.md:125`,
+2026-07-25), muito antes de GAP-INAD-8; este pacote NAO o criou e NAO o corrigiu — apenas parou de
+agravar a situacao (a task que o antecede, `dispatch_prior_notice`, parou de fabricar o fato interno
+correspondente). Nao roteia nada, nao bloqueia nada, nao produz efeito adverso ao beneficiario por
+si so — o risco e de trilha/auditoria, a mesma especie das tres fabricacoes de worker registradas na
+secao "GAP-INAD-8 followup" logo acima (GAP-RECURSO-5/GAP-REEMBOLSO-8/GAP-CONTAS-7), so que uma
+camada acima: la e o worker que fabrica o fato interno; aqui e o proprio BPMN que publica um evento
+externo sem lastro.
+
+**Correcao de prosa feita nesta mesma entrada:** `src/maezo/tools/workers/inadimplencia.py:387-395`
+(docstring de `dispatch_prior_notice`) chamava esse evento de "the notice requested event that DOES
+exist" — caracterizacao otimista demais: o evento nao e um "pedido de notificacao", e publicado
+incondicionalmente e nao afirma que nenhum pedido foi de fato feito a nenhum canal. A prosa foi
+corrigida para descrever o evento com precisao (publicado incondicionalmente pela BPMN, nao afirma
+nada sobre entrega) e para apontar para esta linha da fila (GAP-INAD-9). Nenhuma linha executavel
+mudou (`git diff` do arquivo mostra so' docstring).
+
+**Resolucao recomendada (decisao do dono do processo + regulatorio, NAO feita aqui):** renomear/
+re-semantizar o topico para algo que afirme so' o que aconteceu (ex.: algo como
+"...prior_notice_dispatch_requested" ou "...prior_notice_step_completed", nunca ".notified"), OU
+condicionar a publicacao a `comprovacao_notificacao_previa` (o campo humano ja existente, coletado
+em `UT_AnaliseInadimplencia` e exigido fail-closed por `_register_contract_suspension`,
+`inadimplencia.py:569,588`) — nesse caso o evento so dispararia quando houvesse, de fato, uma
+notificacao comprovada. Qualquer uma das duas opcoes toca a BPMN, o contrato
+(`SP-OP-INADIMPLENCIA-001.md:111`), o catalogo de processos e a asserção de integracao existente
+(`test_sp_op_inadimplencia_001.py:568-597`) — fora do escopo de um pacote de docs/comentario. RN 593
+permanece **DRAFT/verify**; nenhuma ancora regulatoria foi confirmada ou alterada por esta entrada.
+
+**Regra de merge do ratchet `_FABRICATED_FACT_BASELINE` (achado do VER-FAB2, item informativo do
+merge rule).** `_FABRICATED_FACT_BASELINE` (`tests/unit/tools/workers/test_worker_handler_purity.py
+:221-238`) e shrink-only: `resolved = baseline_modules - actual_modules; assert not resolved`
+(`test_worker_handler_purity.py:389-393`). As branches paralelas `feat/perspectiva-operadora-
+recurso` (PR #288) e `feat/perspectiva-operadora-contas-recurso` (PR #294) **DELETAM**
+`recurso.notify_prestador` e `contas.notify_sla_risk` (as duas fontes das entradas
+`_FABRICATED_FACT_BASELINE["recurso"]`/`["contas"]`). **Quem integrar qualquer uma delas nesta
+arvore deve, no MESMO commit de integracao**, remover a entrada `_FABRICATED_FACT_BASELINE["recurso"]`
+e/ou `["contas"]` correspondente (`test_worker_handler_purity.py:221-238`) e marcar
+GAP-RECURSO-5/GAP-CONTAS-7 resolvidas na secao "GAP-INAD-8 followup" acima — senao
+`test_no_domain_worker_returns_unconditional_true_for_fabricated_fact_keys` fica RED por design
+(`:389-393`). Isso e a catraca fazendo o trabalho dela, nao um defeito; e a regra de merge que
+precisa ser seguida quando #288/#294 chegarem.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn:149-158` (`ST_PublishInadimplenciaNotified`) | Publica `agents.events.inadimplencia.notified` incondicionalmente, em toda instancia, logo apos `ST_CheckPriorNotice`/`dispatch_prior_notice` (que desde GAP-INAD-8 nao afirma nada sobre a notificacao ter ocorrido). Nenhum worker desta arvore tem canal para notificar um beneficiario. Zero consumidores hoje (`grep -rn "inadimplencia.notified" src/ spec/ tests/` — so producer na BPMN + prosa/teste-que-afirma-publicacao, ver acima). Pre-existente (introduzido em t3.1, `docs/evidence-ledger.md:125`), nao corrigido nem agravado por WP-FATOS-FABRICADOS slice 2. Mesma especie das tres fabricacoes de worker registradas na secao "GAP-INAD-8 followup" acima (GAP-RECURSO-5/GAP-REEMBOLSO-8/GAP-CONTAS-7), uma camada acima (BPMN publicando, nao worker fabricando). Resolucao recomendada: renomear/re-semantizar o topico (nunca ".notified") OU condicionar a publicacao a `comprovacao_notificacao_previa` (campo humano ja exigido fail-closed por `_register_contract_suspension`, `inadimplencia.py:569,588`) — decisao do dono do processo INADIMPLENCIA + regulatorio (RN 593, **DRAFT/verify**), toca BPMN + contrato + catalogo + teste de integracao, fora do escopo de um pacote de docs/comentario. Regra de merge relacionada: quando PR #288/#294 (que deletam `recurso.notify_prestador`/`contas.notify_sla_risk`) integrarem, as entradas `_FABRICATED_FACT_BASELINE["recurso"]`/`["contas"]` (`test_worker_handler_purity.py:221-238`) devem ser removidas no MESMO commit, ou o ratchet (`:389-393`) fica RED por design | dono do processo INADIMPLENCIA + regulatorio (RN 593, **DRAFT/verify**) + arquitetura (registro de topico/nomenclatura de eventos) | `DRAFT — nao corrigido; residuo pre-existente registrado nesta entrada, nao renomeado nem regated aqui` |
+| `.github/workflows/ci.yml` — passo "Wait for stack to be healthy" (~:414-423) | **O gap CI-KAFKA-HEALTH-WAIT: o job `integration tests (real engine)` espera postgres/cibseven/hapi ficarem saudaveis antes de rodar `make test-integration`, mas NUNCA espera pelo Kafka — mesmo o `docker-compose.yml` declarando um healthcheck proprio do servico `kafka` (`kafka-broker-api-versions --bootstrap-server kafka:29092`, `start_period: 45s`, `docker-compose.yml:96-129`).** Consequencia observada: CI run 33740368677 falhou (`TimeoutError`) em `test_notifications_bridge_live_kafka.py::test_aiokafka_bridge_consumer_consumes_a_real_published_message` — o topico `operadora.notifications.internal` nunca e pre-criado em lugar nenhum do repo, entao esse teste e a primeira coisa a toca-lo no broker compartilhado de CI, e a corrida de auto-criacao + o `group.initial.rebalance.delay.ms` (~3s, todo grupo consumidor novo paga) competem com o deadline fixo de 15s do teste sob a carga especifica do job (~487 testes / ~90min dentro do mesmo processo pytest). **Mitigacao TEST-SIDE ja aplicada** (`tests/integration/platform/test_notifications_bridge_live_kafka.py`, gap `CI-KAFKA-HEALTH-WAIT` no ledger, worktree `live-kafka-fix`): o proprio teste agora cria o topico explicitamente e confirma lider+atribuicao ANTES do deadline estrito — o job deve voltar a passar sem esta mudanca de workflow. Mas o gap estrutural do workflow (nenhuma espera por Kafka) permanece: qualquer OUTRO teste live-Kafka futuro sob este job herda a mesma corrida, e a garantia atual (cibseven/hapi custarem >45s e por acidente aquecerem o Kafka de brinde) e' **incidental, nao projetada** — a mesma classificacao que este proprio gatekeeper (`VERIFY-WP-ESCALA.md §Delta 990df53`) ja tinha registrado ao descobrir o defeito. `.github/` e owner-gated (nao tocado por esta mitigacao, nem por nenhum agente REP). **Correcao de uma linha, pronta para o dono aplicar:** acrescentar `kafka` ao loop de "Wait for stack to be healthy" (ex.: `timeout 120 bash -c 'until docker compose exec -T kafka kafka-broker-api-versions --bootstrap-server kafka:29092; do sleep 5; done'`), espelhando o padrao ja usado para os outros tres servicos do mesmo passo | owner/plataforma (`.github/workflows/ci.yml`) | `owner-gated — mitigacao test-side aplicada (gap CI-KAFKA-HEALTH-WAIT); correcao do workflow em si NAO aplicada, .github/ intocado por design` |

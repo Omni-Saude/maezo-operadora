@@ -293,7 +293,7 @@ It is the **single source of truth** for all metric names, label schemas, and ty
 | Domain | Metric prefix | Emitter service (future PR) |
 |---|---|---|
 | Agent runtime | `maezo_conversation_*`, `maezo_escalation_*`, `maezo_response_*`, `maezo_eval_*`, `maezo_hitl_*`, `maezo_llm_*` | each `agent-{name}` Deployment (port 8000) |
-| Gateway / PEP | `maezo_gateway_pep_*`, `maezo_gateway_pseudonymizer_*`, `maezo_gateway_audit_*` | emitted **in-process** by the runtime pods that import the `maezo.gateway` library (each `agent-{name}`, worker-daemon) — scraped from those pods' `/metrics` (port 8000); there is no standalone gateway service |
+| Gateway / PEP | `maezo_gateway_pep_*`, `maezo_gateway_pseudonymizer_*`, `maezo_gateway_audit_*` | **NOT YET IMPLEMENTED** (RUNBOOK-PHANTOM-METRICS, 2026-09-03: 0 hits for any of the three prefixes under `src/maezo/gateway/`). Would be emitted **in-process** by the runtime pods that import the `maezo.gateway` library (each `agent-{name}`, worker-daemon) — scraped from those pods' `/metrics` (port 8000); there is no standalone gateway service |
 | Engine / BPMN | `cibseven_process_*`, `cibseven_user_task_*` | `webhook` / engine worker (port 8002) |
 
 Scrape targets are configured in `config/prometheus.yml`.  All labels are bounded
@@ -315,7 +315,10 @@ See `tests/unit/runtime/test_metrics.py` for the stability contract test suite.
 **Alert:** `MaezoDLQRateHigh`  
 **Meaning:** A Kafka Dead Letter Queue is accumulating messages (failed processing).  
 **Steps:**
-1. `kubectl logs -n maezo-{tenant} deploy/agent-{agent} | grep ERROR`
+1. `kubectl logs -n maezo-{tenant} deploy/agent-{agent} | grep -i '\[error'`
+   (structlog renderiza o nível em MINÚSCULAS, entre colchetes — `[error    ]`; `grep ERROR`
+   nunca casou. O token de nível é emitido por `structlog.processors.add_log_level`, pinado por
+   `tests/unit/platform/test_observability_bootstrap.py::test_an_error_line_carries_its_severity_so_level_triage_works`.)
 2. Check CIB Seven for failed external tasks: `GET /engine-rest/external-task?errorMessageLike=%25`
 3. Re-process DLQ: replay from the DLQ topic using the kafka-consumer CLI in the pod
 
@@ -330,6 +333,13 @@ See `tests/unit/runtime/test_metrics.py` for the stability contract test suite.
 
 ### PEP deny spike
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoPEPDenySpike` rule exists in
+`deploy/observability/alert-rules.yml`, and no `maezo_gateway_pep_*` metric is emitted anywhere
+in `src/maezo/gateway/` (RUNBOOK-PHANTOM-METRICS, verified 2026-09-03: `grep -rn
+MaezoPEPDenySpike deploy/observability/alert-rules.yml` and `grep -rn maezo_gateway_pep
+src/maezo/gateway/` both 0 hits). The steps below describe the intended response once the alert
+and its emitter exist (see `ALERTS-WITHOUT-METRICS-a`/`WP-OBSERVABILITY-WIRING-EXEC`) — this
+alert cannot fire today.  
 **Alert:** `MaezoPEPDenySpike`  
 **Meaning:** The Policy Enforcement Point is denying > 1 req/s — attack, misconfiguration, or policy regression.  
 **Steps:**
@@ -341,6 +351,12 @@ See `tests/unit/runtime/test_metrics.py` for the stability contract test suite.
 
 ### Audit lag
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoAuditLagHigh` rule exists in
+`deploy/observability/alert-rules.yml`, and no `maezo_gateway_audit_*` metric (including
+`maezo_gateway_audit_lag_seconds`, referenced in step 3 below) is emitted anywhere in
+`src/maezo/gateway/` (RUNBOOK-PHANTOM-METRICS, verified 2026-09-03, same method as above). The
+steps below describe the intended response once the alert and its emitter exist — this alert
+cannot fire today.  
 **Alert:** `MaezoAuditLagHigh`  
 **Meaning:** Audit event Kafka consumer lag has exceeded 120 seconds. The ADR-0007
 non-repudiation guarantee (every gateway PEP decision is durably audited) is at risk
@@ -365,13 +381,20 @@ service is unreachable (crashed, crash-looping, network-partitioned, or never st
 
 ### Escalation rate
 
+**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoEscalationRateHigh` rule exists in
+`deploy/observability/alert-rules.yml`, and neither `maezo_escalation_total` nor
+`maezo_conversation_total` is defined in `src/maezo/runtime/metrics.py` today
+(RUNBOOK-PHANTOM-METRICS, verified 2026-09-03: `grep -rn 'maezo_escalation_total\|maezo_conversation_total'
+src/maezo/` — 0 hits). The "Context" paragraph below describes the intended wiring — this alert
+cannot fire today.  
 **Alert:** `MaezoEscalationRateHigh`  
 **Meaning:** An agent is escalating > 30% of its conversations to a human for a given
 tenant over a 1-hour window.  
-**Context:** Relies on `maezo_escalation_total` (emitted by `CibSevenServer.start_process`
-on each NEW `SP-OP-ESCALATION-001` instance, label `escalation_reason` = the contract's
-`motivo_categoria`) / `maezo_conversation_total` (emitted by the inbound/resume drivers on
-each real turn). Both live in `src/maezo/runtime/metrics.py`.  
+**Context (intended, not yet wired):** Relies on `maezo_escalation_total` (emitted by
+`CibSevenServer.start_process` on each NEW `SP-OP-ESCALATION-001` instance, label
+`escalation_reason` = the contract's `motivo_categoria`) / `maezo_conversation_total` (emitted
+by the inbound/resume drivers on each real turn) — neither exists in
+`src/maezo/runtime/metrics.py` yet.  
 **Steps:**
 1. Identify the agent and tenant from the alert labels
 2. Check recent eval scores for the agent — see [Eval score drop](#eval-score-drop)

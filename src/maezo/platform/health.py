@@ -90,6 +90,13 @@ def create_health_app(
     live = is_live if is_live is not None else (lambda: True)
     reg = registry if registry is not None else REGISTRY
 
+    # 9.7: OpenAPI/docs/redoc are disabled on purpose, not an oversight — this app exposes
+    # exactly the three fixed, internal ops endpoints named in this function's docstring
+    # (`/healthz`, `/readyz`, `/metrics`), never a public/evolving API surface, so a generated
+    # schema would document nothing a k8s probe or a scrape config needs and would be one more
+    # internal-topology surface reachable without auth. The published "contract" for these
+    # endpoints is this docstring + `docs/runbooks/worker-runtime.md` (probe URLs, k8s
+    # liveness/readiness wiring), not an OpenAPI document.
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.get("/healthz", include_in_schema=False)

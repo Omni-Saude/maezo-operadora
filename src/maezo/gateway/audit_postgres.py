@@ -509,10 +509,11 @@ class FreshSinkAuditEmitter:
     async def emit_once_status(self, record: AuditRecord, *, dedup_key: str) -> EmitOnceOutcome:
         """`emit_once` plus the durable dedup FLAG — satisfies `DedupReportingAuditSink` (B-3).
 
-        Forwarded rather than dropped so this adapter can front a STRICT-family process start
-        (`mcp_cibseven.transport._START_DEDUP_POLICY`). An adapter that exposed only the hash
-        would make such a start fail closed at the gate probe — correct, but a latent trap for
-        whichever seam is wired through here next; the delegate already computes the flag.
+        Forwarded rather than dropped so this adapter can front a GATED-posture process start
+        (`mcp_cibseven.transport._START_DEDUP_POLICY`). No longer merely latent: the seam wired
+        through here — `inadimplencia.handoff_rescisao`'s CANCEL-001 start — targets an
+        `EXCLUSIVE` family since GAP-D3-02, so an adapter that exposed only the hash would make
+        that start fail closed at the gate probe (`StartDedupGateUnavailableError`).
         """
         sink = PostgresAuditSink(self._dsn, self._tenant_id)
         try:

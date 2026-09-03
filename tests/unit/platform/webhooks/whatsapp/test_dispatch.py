@@ -336,3 +336,31 @@ async def test_dispatch_stateless_when_no_checkpointer_starts_fresh_each_turn() 
     dispatcher = _info_dispatcher(None, turns=2)
     r1 = await dispatcher.dispatch(InboundMessage(from_number="5511999999999", text="oi", message_id="m1"))
     assert await saver.aget_tuple(checkpoint_thread_config(r1["conversation_id"])) is None
+
+
+# ---------------------------------------------------------------------------
+# GAP 11.7 living fence — verified this session: `HelenaDispatcher` is the ONLY dispatch class in
+# this module, and this module (plus `HelenaGraph`) is the ONLY thing an inbound WhatsApp message
+# ever reaches. Lucas/Fernando declare `mcp-whatsapp.send_message`/`send_beneficiary_message` in
+# their own `agent.yaml` (an outbound INTENT — see `docs/processes/contracts/SP-OP-CANCEL-001.md`
+# "Canal de entrada" for the full picture, including why building a live inbound route for either
+# needs a decision/wiring outside this module's editable surface). This is a DELIBERATE regression
+# fence, not an accident of what happens to exist today: when someone wires a second dispatcher (or
+# routes a beneficiary reply here by agent), this test MUST fail and force an explicit update to it
+# and to the contracts' "Canal de entrada" sections — never a silent drift.
+# ---------------------------------------------------------------------------
+
+
+def test_helena_dispatcher_is_the_only_dispatch_class_gap_11_7() -> None:
+    import inspect
+
+    dispatcher_classes = sorted(
+        name
+        for name, obj in vars(dispatch_module).items()
+        if inspect.isclass(obj) and name.endswith("Dispatcher")
+    )
+    assert dispatcher_classes == ["HelenaDispatcher"], dispatcher_classes
+
+    source = inspect.getsource(dispatch_module).lower()
+    assert "lucas" not in source
+    assert "fernando" not in source

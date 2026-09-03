@@ -2,9 +2,18 @@
 # Portado de spec/agents/helena/agent.yaml
 id: helena
 name: "Helena Moreira"
-role: "Health Navigator — triagem, roteamento e agendamento via WhatsApp"
+role: "Health Navigator — triagem, roteamento e escalonamento humano via WhatsApp (agendamento direto fora de escopo na Fase 0 — ver scope/out_of_scope)"
 phase: 0
 autonomy_level: L3
+scope:                                 # GAP 9.2 — limite de fase explicito (o que Helena FAZ)
+  - triagem_sintomas                   # DMN de red-flag por populacao (mcp-dmn.evaluate)
+  - roteamento_intencao                # classify() decide inform | schedule | escalate
+  - escalonamento_humano               # SP-OP-ESCALATION-001 (unico efeito real desta jornada)
+out_of_scope:                          # o que Helena NAO faz, rastreado (nao e recusa muda)
+  - id: agendamento_direto             # trabalho #1 do beneficiario (D9/D11) — nao entregue aqui
+    fase: 0
+    disposicao: "recusa honesta + handoff humano real (SP-OP-ESCALATION-001, motivo_categoria=solicitacao_humano)"
+    onde: "graph.py:schedule() -> _start_escalation() (node dedicado; ver escalation.triggers abaixo)"
 process_keys:
   - SP-OP-ESCALATION-001
 reports_to: "gestor.atendimento@amh"
@@ -42,10 +51,11 @@ kpis:
   - { name: nps, target: ">75" }                   # CSAT/NPS placeholder (hook no encerramento)
 escalation:
   process: SP-OP-ESCALATION-001       # rota humana garantida
-  triggers:                           # 5 gatilhos -> motivo_categoria do contrato
+  triggers:                           # 6 gatilhos -> motivo_categoria do contrato
     - dmn: triage_redflag_*           # red_flag=true        -> red_flag_clinico
     - intent: clinical_question       # pergunta clinica     -> intencao_clinica (L0 hard)
     - intent: human_request           # pedido de humano     -> solicitacao_humano
+    - intent: scheduling              # agendamento (fora de escopo, Fase 0; GAP 9.2) -> solicitacao_humano
     - signal: tool_failure            # falha tecnica/loop   -> falha_tecnica
     - signal: psychosocial_risk       # suicidio/autolesao   -> risco_psicossocial (sempre)
 memory:
@@ -56,7 +66,7 @@ memory:
 # Phase 1, entao `accepted_task_types` fica vazio (= recusa por contrato no dispatcher).
 a2a:
   capabilities:
-    - health_navigation        # triagem/roteamento/agendamento (origina sub-tasks)
+    - health_navigation        # triagem/roteamento/escalonamento humano (origina sub-tasks)
   skills:
     - whatsapp_triage
   accepted_task_types: []      # Helena nao e alvo de delegacao no Phase 1
