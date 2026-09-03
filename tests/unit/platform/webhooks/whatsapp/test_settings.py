@@ -31,3 +31,17 @@ def test_construct_with_required_fields() -> None:
 def test_construct_by_field_name_populate_by_name() -> None:
     settings = WhatsAppWebhookSettings(app_secret="s", verify_token="v", tenant_id="omni")
     assert settings.tenant_id == "omni"
+
+
+def test_fail_closed_empty_app_secret() -> None:
+    """An EMPTY secret is not a configured secret: `WHATSAPP_APP_SECRET=""` used to pass
+    validation and key `verify_hub_signature`'s HMAC with b"" — a signature anyone can forge."""
+    with pytest.raises(ValidationError):
+        WhatsAppWebhookSettings(WHATSAPP_APP_SECRET="", WHATSAPP_VERIFY_TOKEN="verify-token")
+
+
+def test_fail_closed_empty_verify_token() -> None:
+    """Same, on the handshake side: an empty configured token made `?hub.verify_token=`
+    (or a missing param) a VALID registration handshake for any caller."""
+    with pytest.raises(ValidationError):
+        WhatsAppWebhookSettings(WHATSAPP_APP_SECRET="secret", WHATSAPP_VERIFY_TOKEN="")

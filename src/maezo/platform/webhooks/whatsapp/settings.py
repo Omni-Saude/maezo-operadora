@@ -33,9 +33,15 @@ class WhatsAppWebhookSettings(BaseSettings):
     phi_hmac_key: str | None = Field(default=None, alias="PHI_HMAC_KEY")
 
     # Meta app secret (HMAC-SHA256 signature validation, POST /webhook) — REQUIRED, no default.
-    app_secret: str = Field(alias="WHATSAPP_APP_SECRET")
-    # Meta verify token (GET /webhook handshake) — REQUIRED, no default.
-    verify_token: str = Field(alias="WHATSAPP_VERIFY_TOKEN")
+    # `min_length=1`: an EMPTY secret is not a configured secret. Without it, `WHATSAPP_APP_SECRET=""`
+    # passed validation and keyed `verify_hub_signature`'s HMAC with b"" — a signature anyone can
+    # forge, reached through the same "silently accept an unverifiable signature" path this module's
+    # docstring calls a real security defect. Fail at boot (CrashLoopBackOff), never at the edge.
+    app_secret: str = Field(alias="WHATSAPP_APP_SECRET", min_length=1)
+    # Meta verify token (GET /webhook handshake) — REQUIRED, no default. `min_length=1` for the same
+    # reason: an empty configured token made `?hub.verify_token=` (or a missing param) a VALID
+    # handshake, i.e. the endpoint would register itself to any caller.
+    verify_token: str = Field(alias="WHATSAPP_VERIFY_TOKEN", min_length=1)
     # WABA send-side token — accepted for Helm/env parity; NOT consumed by this build (this
     # scaffold only receives; it never calls the WhatsApp Cloud API to send a message).
     whatsapp_token: str | None = Field(default=None, alias="WHATSAPP_TOKEN")
