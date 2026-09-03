@@ -30,7 +30,7 @@ Plataforma **agents-first** completa para operadoras de saúde (payer). Reconstr
 | MCP Servers | 6 | CIB Seven, DMN, FHIR, WhatsApp, Memory, Process Allowlist |
 | Testes | CI workflow | Unitários cobrindo workers, gateway, agents, platform, tools (veja CI para count atual) |
 | Código fonte | ~10K LOC | Arquivos Python em `src/maezo/` (veja a árvore para count atual) |
-| Documentação | ~205K palavras | 16 contratos SP-OP, 38 ADRs (34 Accepted + 4 Proposed), 45 DLs, 8 runbooks |
+| Documentação | ~205K palavras | 16 contratos SP-OP, 40 ADRs (35 Accepted + 5 Proposed), 45 DLs, 8 runbooks |
 
 ### Princípios inegociáveis
 
@@ -59,7 +59,7 @@ make type   → Success: no issues found (mypy --strict; veja CI para output atu
 | Workers implementados | 16 (15 processos + registry) |
 | MCP servers | 6 |
 | Agentes AI | 10 (2 com graph.py completo) |
-| ADRs | 38 (34 Accepted, 4 Proposed) |
+| ADRs | 40 (35 Accepted, 5 Proposed) |
 | DLs (Decisions Log) | 45 |
 | Contratos SP-OP | 16 |
 | Runbooks | 8 |
@@ -143,7 +143,7 @@ src/maezo/
 |-----------|----------|
 | [docs/Tarefas_Pendentes.md](docs/Tarefas_Pendentes.md) | **Tarefas humanas pendentes por time (deploy, segredos, ratificações, sign-offs) — pré go-live** |
 | [docs/architecture/overview.md](docs/architecture/overview.md) | Visão arquitetural completa |
-| [docs/adr/](docs/adr/) | 38 ADRs (0001–0038; 34 Accepted, 4 Proposed) |
+| [docs/adr/](docs/adr/) | 40 ADRs (0001–0040; 35 Accepted, 5 Proposed) |
 | [docs/processes/catalog.md](docs/processes/catalog.md) | Catálogo de 15 processos SP-OP |
 | [docs/processes/contracts/](docs/processes/contracts/) | 16 contratos — ~1000 regras de negócio |
 | [docs/decisions-log.md](docs/decisions-log.md) | 45 decisões operacionais |
