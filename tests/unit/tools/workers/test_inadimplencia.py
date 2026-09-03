@@ -8,13 +8,20 @@ from typing import Any
 
 import pytest
 
-from maezo.gateway.audit_postgres import AuditPersistenceError
+from maezo.gateway.audit_postgres import AuditPersistenceError, FreshSinkAuditEmitter
 from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
+    DedupReportingAuditSink,
     FakeCibSevenTransport,
+    HistoryQueryingTransport,
     ProcessInstance,
+    StartDedupGateUnavailableError,
+    StartDedupPosture,
+    is_strict_start_dedup,
     start_dedup_key,
+    start_dedup_posture,
 )
+from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
 from maezo.tools.workers.harness import AUDIT_AGENT_ID
 from maezo.tools.workers.inadimplencia import (
@@ -641,6 +648,56 @@ def test_handoff_rescisao_fail_closed_no_contract_identity() -> None:
     assert sink.calls == []  # refused BEFORE any audit emit — no record for a refused handoff
 
 
+@pytest.mark.parametrize("tenant_id", [None, "", "   "])
+def test_handoff_rescisao_fail_closed_blank_tenant_anchor(tenant_id: object) -> None:
+    """GK MINOR F7 — the TENANT anchor is validated with the SHARED `non_blank`, like every other
+    CANCEL-001 composer (`fraude.start_contratual`, the bridge's `_anchored`).
+
+    This call site did not. A blank/whitespace/explicit-`None` tenant mints the degenerate key
+    `CANCEL--C-1`: EVERY tenant's contract `C-1` collapses onto ONE business key, ONE dedup claim
+    and — since GAP-D3-02 — ONE `EXCLUSIVE` mutual-exclusion token, so tenant A's in-flight
+    rescisao review would gate tenant B's. `str(None)` is the truthy `"None"` and `"   "` is
+    truthy, so plain truthiness let both through; `non_blank` is what refuses them.
+    """
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    variables: dict[str, object] = {
+        "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+        "numero_contrato": "C-1",
+    }
+    if tenant_id is not None:
+        variables["tenant_id"] = tenant_id
+
+    with pytest.raises(InadimplenciaError) as excinfo:
+        handoff_rescisao(variables, engine=engine, audit_sink=sink)
+
+    assert excinfo.value.code == ERR_INAD_INVALID_CONTRATO
+    assert sink.calls == [], "refused BEFORE any audit emit — no claim on a degenerate key"
+    assert asyncio.run(engine.find_active_instance("CANCEL--C-1")) is None
+    assert asyncio.run(engine.find_active_instance("CANCEL-None-C-1")) is None
+
+
+def test_handoff_rescisao_explicit_none_tenant_is_refused_not_stringified() -> None:
+    """The `str(None) == "None"` trap, pinned on its own: an explicit `None` must REFUSE, never
+    mint `CANCEL-None-C-1`. Same rule the shared `non_blank` already enforced at the other two
+    CANCEL composers."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+
+    with pytest.raises(InadimplenciaError):
+        handoff_rescisao(
+            {
+                "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+                "tenant_id": None,
+                "numero_contrato": "C-1",
+            },
+            engine=engine,
+            audit_sink=sink,
+        )
+
+    assert sink.calls == []
+
+
 def test_handoff_rescisao_transport_error_propagates() -> None:
     """A transport/engine error during the start propagates (transient -> engine retry -> incident),
     never a silent success. The audit record was already durably emitted (emit-before-effect):
@@ -659,6 +716,131 @@ def test_handoff_rescisao_transport_error_propagates() -> None:
     # Emit happened BEFORE the failing engine call — the audited-decision-without-effect direction
     # is the SAFE one (idempotent start + emit_once dedup make the retry converge).
     assert sink.dedup_keys == [start_dedup_key("t1", CANCEL_PROCESS_KEY, "CANCEL-t1-C-1")]
+
+
+def test_handoff_rescisao_supplies_the_exclusive_gate_prerequisites() -> None:
+    """GAP-D3-02 caller inventory, proven not asserted. SP-OP-CANCEL-001 is an `EXCLUSIVE`
+    start-dedup family, so this handoff's two seams must satisfy `HistoryQueryingTransport` and
+    `DedupReportingAuditSink` or the chokepoint refuses the start. The doubles used by every test
+    in this file mirror the live daemon's seams (`FreshClientCibSevenTransport` /
+    `FreshSinkAuditEmitter`), and this pins that they really do carry the capabilities — a double
+    that quietly lost one would turn the whole suite green for the wrong reason."""
+    assert is_strict_start_dedup(CANCEL_PROCESS_KEY) is True
+    assert start_dedup_posture(CANCEL_PROCESS_KEY) is StartDedupPosture.EXCLUSIVE
+    assert isinstance(FakeCibSevenTransport(), HistoryQueryingTransport)
+    assert isinstance(FakeStartAuditSink(), DedupReportingAuditSink)
+    # The PRODUCTION seams the worker daemon injects (`runtime/worker_runtime/service.py:787-790`).
+    assert isinstance(FreshClientCibSevenTransport("http://engine.invalid"), HistoryQueryingTransport)
+    assert isinstance(FreshSinkAuditEmitter("postgresql://x/y", "amh"), DedupReportingAuditSink)
+
+
+def test_handoff_rescisao_fails_closed_behind_a_history_blind_engine_seam() -> None:
+    """NEVER FALL BACK. A composition root whose engine seam cannot answer the engine-history
+    question cannot gate an `EXCLUSIVE` CANCEL-001 start — so the handoff refuses outright rather
+    than silently reverting to the TOCTOU-only path GAP-D3-02 closed. The refusal happens BEFORE
+    the durable claim, so a mis-wired root leaves no orphan claim to wedge the contract."""
+    engine = _HistoryBlindCibSevenTransport()
+    sink = FakeStartAuditSink()
+
+    with pytest.raises(StartDedupGateUnavailableError):
+        handoff_rescisao(
+            {
+                "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+                "tenant_id": "t1",
+                "numero_contrato": "C-1",
+            },
+            engine=engine,
+            audit_sink=sink,
+        )
+
+    assert engine.starts == [], "an un-gateable rescisao handoff must not start CANCEL-001"
+    assert sink.calls == [], "the refusal must precede the durable claim (no orphan claim)"
+
+
+def test_handoff_rescisao_fails_closed_behind_a_sink_that_cannot_report_dedup() -> None:
+    """The sink half of the same rule: without `emit_once_status` the durable claim cannot be
+    observed, so the gate cannot exist and the handoff must not start CANCEL-001."""
+
+    class _HashOnlySink:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def emit_once(self, record: Any, *, dedup_key: str) -> str:
+            self.calls.append(dedup_key)
+            return "hash"
+
+    engine = FakeCibSevenTransport()
+    sink = _HashOnlySink()
+
+    with pytest.raises(StartDedupGateUnavailableError):
+        handoff_rescisao(
+            {
+                "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+                "tenant_id": "t1",
+                "numero_contrato": "C-1",
+            },
+            engine=engine,
+            audit_sink=sink,
+        )
+
+    assert sink.calls == []
+    assert asyncio.run(engine.find_active_instance("CANCEL-t1-C-1")) is None
+
+
+def test_handoff_rescisao_redelivery_returns_the_same_instance_never_a_second() -> None:
+    """The `EXCLUSIVE` posture at the CALLER level: a re-delivered ENCAMINHAR_RESCISAO handoff
+    (external-task lock expiry) reports the SAME CANCEL-001 instance, and the worker's own return
+    dict stays honest — `handoff_executado` True with `cancel_already_existed` True, which is a
+    true statement (a rescisao review IS open for this contract), never a swallowed decision."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    variables = {
+        "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+        "tenant_id": "t1",
+        "numero_contrato": "C-909",
+    }
+
+    first = handoff_rescisao(dict(variables), engine=engine, audit_sink=sink)
+    second = handoff_rescisao(dict(variables), engine=engine, audit_sink=sink)
+
+    assert first["cancel_already_existed"] is False
+    assert second["cancel_already_existed"] is True
+    assert second["cancel_instance_id"] == first["cancel_instance_id"]
+    assert second["handoff_executado"] is True
+    # ONE dedup key across both deliveries -> one chain link (the durable sink's own invariant).
+    assert set(sink.dedup_keys) == {start_dedup_key("t1", CANCEL_PROCESS_KEY, "CANCEL-t1-C-909")}
+
+
+def test_handoff_rescisao_second_case_after_a_finished_cancel_is_not_swallowed() -> None:
+    """THE ANTI-SWALLOW PIN AT THE CALLER. The first CANCEL-001 ended with the contract ALIVE (the
+    human decided MANTER). A LATER delinquency cycle reaches ENCAMINHAR_RESCISAO again and mints
+    the SAME business key — that human decision MUST reach the engine. Under a `PERMANENT` posture
+    this returns `handoff_executado: True` while starting nothing: the decision silently dropped.
+    `EXCLUSIVE` starts the second, real case."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    variables = {
+        "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+        "tenant_id": "t1",
+        "numero_contrato": "C-909",
+    }
+
+    first = handoff_rescisao(dict(variables), engine=engine, audit_sink=sink)
+    # The CANCEL-001 instance ends (End_ContratoMantido) — contract alive, key re-usable.
+    engine.seed_instance(
+        ProcessInstance(
+            instance_id=first["cancel_instance_id"],
+            process_key=CANCEL_PROCESS_KEY,
+            business_key="CANCEL-t1-C-909",
+            state="COMPLETED",
+        )
+    )
+
+    second = handoff_rescisao(dict(variables), engine=engine, audit_sink=sink)
+
+    assert second["cancel_already_existed"] is False, "the second, legitimate rescisao was swallowed"
+    assert second["cancel_instance_id"] != ""
+    assert asyncio.run(engine.find_active_instance("CANCEL-t1-C-909")) is not None
 
 
 def test_handoff_rescisao_noop_for_other_decisao() -> None:
@@ -687,10 +869,57 @@ _VALID_SUSPENSION_HUMAN_FIELDS: dict[str, Any] = {
 
 
 class _RaisingCibSevenTransport:
-    """Test double whose engine query ALWAYS raises — proves the fail-closed path (query error)."""
+    """Test double whose engine queries ALWAYS raise — proves the fail-closed path (query error).
+
+    `find_any_instance` is present (and equally raising) because SP-OP-CANCEL-001 is an
+    `EXCLUSIVE` start-dedup family since GAP-D3-02: the chokepoint probes the injected transport
+    for `HistoryQueryingTransport` and REFUSES the start outright when it is absent. A double
+    without this method would therefore prove the fail-closed SEAM check, not the engine-error
+    propagation this class exists for — and an unreachable engine is unreachable on both reads,
+    so raising here is the faithful shape (`_HistoryBlindCibSevenTransport` below is the double
+    for the missing-capability case)."""
 
     async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
         raise CibSevenError(f"engine unreachable querying `{business_key}`")
+
+    async def find_any_instance(self, business_key: str, *, process_key: str = "") -> ProcessInstance | None:
+        raise CibSevenError(f"engine unreachable querying history for `{business_key}`")
+
+
+class _HistoryBlindCibSevenTransport:
+    """A transport that CANNOT answer "did an instance for this key EVER exist?".
+
+    Structurally a `CibSevenTransport` but NOT a `HistoryQueryingTransport` (no
+    `find_any_instance` attribute at all — the `runtime_checkable` probe is attribute-presence,
+    so the method must be genuinely absent, not stubbed). This is the shape a composition root
+    produces if a decorator drops the capability, which `tools/workers/cibseven_engine.py`'s own
+    delegation guard exists to prevent."""
+
+    def __init__(self) -> None:
+        self.starts: list[str] = []
+
+    async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
+        return None
+
+    async def start_process_instance(
+        self, process_key: str, business_key: str, variables: dict[str, Any]
+    ) -> ProcessInstance:
+        self.starts.append(business_key)
+        return ProcessInstance(
+            instance_id=f"blind-{business_key}",
+            process_key=process_key,
+            business_key=business_key,
+            state="ACTIVE",
+        )
+
+    async def correlate_message(self, *a: Any, **k: Any) -> None:
+        return None
+
+    async def get_process_status(self, business_key: str) -> Any:
+        raise NotImplementedError
+
+    async def close(self) -> None:
+        return None
 
 
 class _RecordingHarness:

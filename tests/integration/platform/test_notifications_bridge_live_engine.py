@@ -54,6 +54,7 @@ from tests.integration.conftest import _apply_migrations, _engine_reachable, _pg
 # dois que o PR-3 toca deixaria o diretorio com duas convencoes; a correcao e do harness e vai
 # como item do orquestrador. Divulgado aqui, no ponto do defeito, e nao apenas no corpo do PR.
 # ---------------------------------------------------------------------------
+pytestmark = pytest.mark.integration
 
 _REPO_RECURSO_BPMN = "spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn"
 

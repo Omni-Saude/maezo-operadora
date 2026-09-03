@@ -20,6 +20,8 @@ import structlog
 from maezo.agents.andre.keys import key_segment
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
 from maezo.tools.workers.base import FunctionWorker, non_blank, pick_fields
+from maezo.platform.integrations.partition_key import partition_key_for_task
+from maezo.tools.workers.base import FunctionWorker, pick_fields
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import AUDIT_AGENT_ID, WorkerBpmnError, _resolve_app_version
 
@@ -903,9 +905,14 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "glosa_type": input_data.glosa_type,
         }
         # best_effort=False — see factory docstring (no boundary declared -> raw propagate).
-        await kafka.publish(
-            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-        )
+        # GAP-SC-04-a: the partition key comes from the ONE shared chain (task business key ->
+        # payload anchors -> `{tenant}|{process_instance_id}`), never from `task.business_key or
+        # None` — that idiom degraded a blank business key into an UNKEYED publish, i.e.
+        # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
+        # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
+        # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         return result
 
     return handler
@@ -979,7 +986,9 @@ def make_escalate_ans_timeout_handler(kafka: KafkaPublisher | None) -> TaskHandl
             "glosa_id": input_data.glosa_id,
             "glosa_type": input_data.glosa_type,
         }
-        await kafka.publish(event_topic, payload, key=task.business_key or None)
+        # GAP-SC-04-a partition key — see the shared chain in `partition_key.py`.
+        message_key = partition_key_for_task(task, event_topic, payload)
+        await kafka.publish(event_topic, payload, key=message_key)
         return result
 
     return handler
@@ -1087,9 +1096,14 @@ def make_comunicar_resposta_handler(kafka: KafkaPublisher | None) -> TaskHandler
             "protocolo_resposta_recurso": result["protocolo_resposta_recurso"],
         }
         # best_effort=False — see factory docstring (no boundary declared -> raw propagate).
-        await kafka.publish(
-            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-        )
+        # GAP-SC-04-a: the partition key comes from the ONE shared chain (task business key ->
+        # payload anchors -> `{tenant}|{process_instance_id}`), never from `task.business_key or
+        # None` — that idiom degraded a blank business key into an UNKEYED publish, i.e.
+        # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
+        # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
+        # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         return result
 
     return handler
@@ -1277,6 +1291,25 @@ def handoff_pagamento(
             "handoff_pagamento: valor_deferido_brl ausente, em branco, nao-numerico ou <= 0 "
             "(fonte_valor=deferido) — recusado; o valor NUNCA e defaultado para 0"
         )
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        input_data = TrackStatusInput(**pick_fields(task.variables, TrackStatusInput))
+        result = track_status(input_data)
+        if kafka is None:
+            logger.warning("recurso_track_status_no_producer", business_key=task.business_key)
+            return result
+        notification = {
+            "type": _TRACK_STATUS_NOTIFICATION_TYPE,
+            "glosa_id": input_data.glosa_id,
+            "protocolo_recurso": input_data.protocolo_recurso,
+        }
+        # Posture: topic-default best-effort BY DESIGN (DL-0038, t2-notify-integrity keep) — this
+        # publish re-fires EVERY P5D `ICE_AguardarResposta` loop iteration, so a swallowed broker
+        # failure self-heals on the next tick; forcing fail-closed would incident an advisory
+        # re-tick. Deliberately NOT best_effort=False — pinned by test_recurso.py.
+        # GAP-SC-04-a partition key — see the shared chain in `partition_key.py`.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key)
+        return result
 
     data_vencimento = str(variables.get("data_vencimento") or "").strip()
     if not data_vencimento:

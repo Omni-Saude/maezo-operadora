@@ -14,12 +14,21 @@ Pass-criterion types (T3.2 design §5/§6), each backed by one assertion helper 
     TH  (live threshold >= 0.9)   -> `score_live(...)` + `assert_live_score(...)` (Tier B only)
 `assert_expect`'s `expect` mapping may carry `next_kind` and/or `fields` together, so a single
 call covers RT+SF combined cases (e.g. EVL-HELENA-01: RT+SF).
+
+CL  (clarity/legibility, WP-EVALS gap 10.3) -> `score_clarity(...)` + `assert_clarity(...)`.
+A NEW pass-criterion type added by WP-EVALS (gaps 10.3/11.5) alongside the five above — kept
+here rather than in a family test module because it is generic, agent-agnostic text scoring
+(sentence length / forbidden jargon / mandatory disclaimers) on whatever field a golden names,
+exactly the shared plumbing this module exists to hold. It judges ONLY the clarity of the
+wording a graph emits to a beneficiary (e.g. Helena's `response_text`) — never the clinical
+content of any SME-gated DMN table.
 """
 
 from __future__ import annotations
 
 import copy
 import json
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -32,16 +41,21 @@ from .conftest import ReplayInferenceProvider, load_golden
 
 # Re-exported so family test modules need only `from tests.evals._harness import ...`.
 __all__ = [
+    "ClarityReport",
     "RunResult",
+    "assert_clarity",
     "assert_expect",
     "assert_live_score",
     "assert_no_leak",
     "load_golden",
     "mutate_expected_route",
+    "mutate_extend_last_sentence",
     "mutate_plant_canary",
+    "mutate_replace_last_response",
     "register_dmn_fixture",
     "run_case",
     "run_mutation_check",
+    "score_clarity",
     "score_live",
 ]
 
@@ -193,6 +207,231 @@ def assert_live_score(score: float, threshold: float) -> None:
 
 
 # ---------------------------------------------------------------------------
+# CL — clarity/legibility (WP-EVALS gap 10.3): an objective, reproducible, deterministic check
+# on the wording a graph emits to a beneficiary. No LLM-as-judge, no learned/constant score —
+# every field on `ClarityReport` is computed straight from the actual text a run produced, so a
+# report can never "pass" without the text actually satisfying every rule.
+#
+# A golden case opts in with an OPTIONAL top-level `"clarity"` block (`load_golden`'s
+# `_REQUIRED_CASE_KEYS` does not require it, so every existing golden that omits it is
+# unaffected):
+#
+#     "clarity": {
+#       "field": "response_text",
+#       "max_words_per_sentence": 20,
+#       "forbidden_jargon": ["red_flag", "DMN", "P1", "sintoma_codigo"],
+#       "required_disclaimers": [["profissional", "humano", "atendente"], ["emergencia"]]
+#     }
+#
+# `required_disclaimers` is a list of alternative-phrase GROUPS: each group needs AT LEAST ONE
+# of its alternatives present (case-insensitive, word/phrase-boundary match — see
+# `_phrase_present` below) — a group with none present is a missing mandatory disclaimer.
+#
+# Hardening note (REP-EVALS repair, post VER-EVALS review of this branch): the original
+# `score_clarity` had three reproducible robustness gaps in this shared, reusable primitive,
+# fixed here at the root (VERIFY-WP-EVALS.md §2a/§2b/§2c):
+#   1. an EMPTY `response_text` passed vacuously whenever a golden's `required_disclaimers` was
+#      `[]` (CLAREZA-02's own shape) — fixed with a `min_words` floor (default 3), surfaced on
+#      `ClarityReport.word_count`/`.min_words` and enforced by `assert_clarity`.
+#   2. the `.`-based sentence splitter was fooled by PT-BR title abbreviations ("Dra.", "Sr.",
+#      "Sra.", "Dr.", "p. ex.", "etc.") — fixed by protecting a documented abbreviation list
+#      (plus digit-dot-digit decimals) before splitting, so a genuinely long utterance can no
+#      longer hide under the word cap by fragmenting at a title abbreviation.
+#   3. the disclaimer check matched ANY substring, so "sobre-humano" satisfied the "humano"
+#      alternative — fixed with a word/phrase-boundary match (`_phrase_present`) that treats a
+#      hyphen as word-joining, so a disclaimer alternative only counts when it appears as its
+#      own standalone word or phrase, never as a fragment of a larger/hyphenated word.
+# ---------------------------------------------------------------------------
+
+#: PT-BR title/etc. abbreviations whose trailing "." must NOT be read as a sentence boundary
+#: (e.g. "a Dra. Fernanda vai..." is one clause, not two sentences). Matched case-insensitively
+#: at a word boundary, immediately before the period. Deliberately errs toward UNDER-splitting —
+#: treating the abbreviation's period as non-terminal always, even in the rare case it truly
+#: does end a sentence — because under-splitting is the fail-closed direction for this module's
+#: purpose: a merged sentence can only make the word-count cap MORE likely to trip, never less.
+_ABBREVIATIONS: tuple[str, ...] = ("dr", "dra", "sr", "sra", "srta", "prof", "profa", "etc")
+_ABBREVIATION_PERIOD_RE = re.compile(r"\b(?:" + "|".join(_ABBREVIATIONS) + r")\.", re.IGNORECASE)
+
+#: "p. ex." (PT-BR "por exemplo") has TWO internal periods to protect (after "p" and after
+#: "ex"); handled as its own two-token phrase rather than via `_ABBREVIATIONS` because "ex" alone
+#: is not abbreviation-only — it can legitimately end a real sentence on its own.
+_P_EX_RE = re.compile(r"\bp\.\s*ex\.", re.IGNORECASE)
+
+#: A "." between two digits is a decimal separator ("37.5"), never a sentence boundary.
+_DECIMAL_PERIOD_RE = re.compile(r"(?<=\d)\.(?=\d)")
+
+#: Placeholder swapped in for a protected "." — a Unicode Private Use Area code point that
+#: legitimate beneficiary-facing prose never produces — so the sentence-boundary regex below can
+#: never mistake it for a terminator; swapped back to "." before a sentence is returned to the
+#: caller.
+_PROTECTED_PERIOD = ""
+
+#: Sentence boundary: split right after a `.`/`!`/`?`/`…` followed by whitespace (this
+#: intentionally covers line breaks too, since `\s` matches `\n`) — the tail after the last
+#: boundary becomes the final sentence regardless of whether it ends in punctuation, so "end of
+#: string" needs no separate regex alternative. A text with NO terminal punctuation at all (e.g.
+#: a line-break-joined run-on) is correctly treated as ONE sentence spanning every line — the
+#: fail-closed direction, since it can only make a too-long sentence MORE likely to be flagged,
+#: never less. This is a reproducible PROXY for reading difficulty (long sentences are hard to
+#: parse), not a full readability formula (a syllable-counting formula like Flesch would need
+#: Portuguese hyphenation rules this module does not attempt to get right). Actual splitting
+#: happens in `_split_sentences`, which protects abbreviations/decimals first — never call this
+#: regex directly on unprotected text.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…])\s+")
+
+#: A "word" for counting purposes: a run of non-digit, non-underscore word characters. Unicode
+#: word matching is the `str`-pattern default in Python's `re`, so accented Portuguese letters
+#: (á, ç, ã, ...) count correctly without an explicit flag.
+_WORD_RE = re.compile(r"[^\W\d_]+")
+
+#: A character that "joins" a word for disclaimer-boundary purposes: a Unicode letter OR a
+#: hyphen. Including the hyphen is what makes a hyphenated compound like "sobre-humano" NOT
+#: satisfy a bare "humano" alternative — a plain regex `\b` word boundary alone would still treat
+#: "humano" inside "sobre-humano" as a standalone word, since "-" is already a non-word character
+#: to `re`'s default `\w`.
+_DISCLAIMER_BOUNDARY_CHAR = r"(?:[^\W\d_]|-)"
+
+
+def _protect_non_terminal_periods(text: str) -> str:
+    """Swap every "." that is part of a known abbreviation, "p. ex.", or a decimal number for
+    `_PROTECTED_PERIOD`, so `_SENTENCE_SPLIT_RE` never treats it as a sentence boundary. Restored
+    verbatim by `_split_sentences` after splitting.
+    """
+    text = _ABBREVIATION_PERIOD_RE.sub(lambda m: m.group(0)[:-1] + _PROTECTED_PERIOD, text)
+    text = _P_EX_RE.sub(lambda m: m.group(0).replace(".", _PROTECTED_PERIOD), text)
+    text = _DECIMAL_PERIOD_RE.sub(_PROTECTED_PERIOD, text)
+    return text
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Split `text` into sentences, immune to PT-BR title abbreviations, "p. ex.", and decimal
+    numbers (see `_protect_non_terminal_periods`) — the correct replacement for a bare
+    `_SENTENCE_SPLIT_RE.split(text)`, which a title abbreviation could fool into a false
+    boundary (VERIFY-WP-EVALS.md §2b)."""
+    protected = _protect_non_terminal_periods(text.strip())
+    return [
+        s.strip().replace(_PROTECTED_PERIOD, ".") for s in _SENTENCE_SPLIT_RE.split(protected) if s.strip()
+    ]
+
+
+def _phrase_present(text: str, phrase: str) -> bool:
+    """True if `phrase` appears in `text` as a standalone word/phrase, case-insensitively —
+    never as a fragment of a larger word or of a hyphenated compound
+    (`_DISCLAIMER_BOUNDARY_CHAR`). So "humano" matches "Um atendente humano vai continuar" but
+    NOT "esforco sobre-humano" (VERIFY-WP-EVALS.md §2c).
+
+    Deliberately accent-SENSITIVE, not accent-folded: the goldens that need both spellings
+    already list each accented/unaccented form as its own alternative (e.g.
+    `["emergencia", "emergência"]`), so folding accents here would only add risk (two distinct
+    PT-BR words can differ by accent alone) for no gain on the goldens this repo actually ships.
+
+    `phrase` may be multi-word (e.g. "fale com um atendente") — matched literally as one phrase;
+    the boundary check applies only at the phrase's own start/end, never between its internal
+    words.
+    """
+    if not phrase:
+        return False
+    pattern = re.compile(
+        rf"(?<!{_DISCLAIMER_BOUNDARY_CHAR}){re.escape(phrase)}(?!{_DISCLAIMER_BOUNDARY_CHAR})",
+        re.IGNORECASE,
+    )
+    return pattern.search(text) is not None
+
+
+@dataclass
+class ClarityReport:
+    """Everything `assert_clarity` needs to explain a failure precisely — no bare True/False."""
+
+    text: str
+    sentences: list[str]
+    long_sentences: list[tuple[str, int]]
+    jargon_hits: list[str]
+    missing_disclaimer_groups: list[tuple[str, ...]]
+    word_count: int
+    min_words: int
+
+
+def score_clarity(
+    text: str,
+    *,
+    max_words_per_sentence: int,
+    forbidden_jargon: Sequence[str] = (),
+    required_disclaimers: Sequence[Sequence[str]] = (),
+    min_words: int = 3,
+) -> ClarityReport:
+    """Compute an objective, reproducible clarity report for `text` (e.g. Helena's
+    `response_text` — the free text a graph drafts for the beneficiary, never the SME-gated DMN
+    table content itself).
+
+    Four independent, deterministic checks, each a pure function of `text`:
+
+    0. Minimum length — `text` must contain at least `min_words` words (default 3, unicode-aware
+       count via `_WORD_RE`). An empty or near-empty beneficiary-facing reply is never clear,
+       regardless of what the other checks say — this closes the vacuous pass a golden with
+       `required_disclaimers=[]` would otherwise allow on an empty string
+       (VERIFY-WP-EVALS.md §2a). Surfaced as `ClarityReport.word_count`/`.min_words`; enforced by
+       `assert_clarity`.
+    1. Sentence length — any sentence (via `_split_sentences`, which protects PT-BR title
+       abbreviations, "p. ex.", and decimal numbers from being misread as sentence boundaries —
+       VERIFY-WP-EVALS.md §2b) whose WORD count exceeds `max_words_per_sentence` is flagged in
+       `long_sentences`.
+    2. Forbidden jargon — any `forbidden_jargon` term found in `text` (case-insensitive
+       substring) is flagged in `jargon_hits`: internal/engine vocabulary (DMN table names, raw
+       `sintoma_codigo` values, `motivo_categoria` tokens, severity codes like `P1`) must never
+       leak verbatim into a beneficiary-facing message. (Deliberately still substring-based,
+       unlike the disclaimer check below — a leaked engine token is a real leak wherever it
+       appears, even mid-word.)
+    3. Mandatory disclaimers — each `required_disclaimers` group needs >=1 alternative present
+       as a standalone word/phrase (`_phrase_present`, case-insensitive, hyphen-aware boundary —
+       VERIFY-WP-EVALS.md §2c); an unsatisfied group is flagged in `missing_disclaimer_groups`.
+    """
+    sentences = _split_sentences(text)
+    long_sentences: list[tuple[str, int]] = []
+    for sentence in sentences:
+        word_count = len(_WORD_RE.findall(sentence))
+        if word_count > max_words_per_sentence:
+            long_sentences.append((sentence, word_count))
+
+    lowered = text.lower()
+    jargon_hits = [term for term in forbidden_jargon if term.lower() in lowered]
+
+    missing_disclaimer_groups = [
+        tuple(group) for group in required_disclaimers if not any(_phrase_present(text, alt) for alt in group)
+    ]
+
+    return ClarityReport(
+        text=text,
+        sentences=sentences,
+        long_sentences=long_sentences,
+        jargon_hits=jargon_hits,
+        missing_disclaimer_groups=missing_disclaimer_groups,
+        word_count=len(_WORD_RE.findall(text)),
+        min_words=min_words,
+    )
+
+
+def assert_clarity(report: ClarityReport) -> None:
+    """CL: raise with EVERY violation `score_clarity` found — never a bare pass/fail, so a
+    failure names exactly which sentence/term/disclaimer group is the problem."""
+    problems: list[str] = []
+    if report.word_count < report.min_words:
+        problems.append(
+            f"beneficiary-facing text is empty or too short ({report.word_count} word(s), "
+            f"need >= {report.min_words})"
+        )
+    if report.long_sentences:
+        detail = "; ".join(f"{count} words: {sentence!r}" for sentence, count in report.long_sentences)
+        problems.append(f"sentence(s) exceed the max-words-per-sentence limit ({detail})")
+    if report.jargon_hits:
+        problems.append(f"forbidden jargon leaked into beneficiary-facing text: {report.jargon_hits!r}")
+    if report.missing_disclaimer_groups:
+        problems.append(
+            f"missing mandatory disclaimer (need >=1 phrase per group): {report.missing_disclaimer_groups!r}"
+        )
+    assert not problems, f"CLARITY violation(s) in {report.text!r}: " + " | ".join(problems)
+
+
+# ---------------------------------------------------------------------------
 # Mutation-check helper (T3.2 design §7.1 — the non-vacuousness proof).
 #
 # A verifier (or a family builder proving their own golden isn't a rubber stamp) perturbs a
@@ -242,6 +481,46 @@ def mutate_plant_canary(case: Mapping[str, Any], canary: str) -> dict[str, Any]:
     responses[-1] = f"{responses[-1]} {canary}"
     mutated["recorded_llm"] = responses
     mutated["leak_canaries"] = [*list(mutated.get("leak_canaries") or []), canary]
+    return mutated
+
+
+def mutate_extend_last_sentence(case: Mapping[str, Any], extra_words: int) -> dict[str, Any]:
+    """Return a deep copy of `case` with `extra_words` filler words appended to the LAST
+    `recorded_llm` response's FINAL sentence (same sentence — the trailing `.`/`!`/`?` is
+    removed and re-appended after the filler, so no new sentence boundary is introduced).
+
+    For a CL-class (clarity) golden: non-vacuousness proof for `score_clarity`'s long-sentence
+    check — pushes that sentence's word count past the case's own
+    `clarity.max_words_per_sentence` and confirms `assert_clarity` now fails. Mirrors
+    `mutate_plant_canary`'s shape (same last-response target, same deep-copy discipline).
+    """
+    mutated = copy.deepcopy(dict(case))
+    responses = list(mutated.get("recorded_llm") or [])
+    if not responses:
+        raise ValueError(f"case {case.get('id')!r} has no `recorded_llm` entries to extend")
+    last = responses[-1].rstrip()
+    trailing_punct = last[-1] if last and last[-1] in ".!?" else ""
+    base = last[:-1] if trailing_punct else last
+    filler = " ".join(["adicional"] * extra_words)
+    responses[-1] = f"{base} {filler}{trailing_punct or '.'}"
+    mutated["recorded_llm"] = responses
+    return mutated
+
+
+def mutate_replace_last_response(case: Mapping[str, Any], replacement: str) -> dict[str, Any]:
+    """Return a deep copy of `case` with the LAST `recorded_llm` entry replaced VERBATIM by
+    `replacement`.
+
+    For a CL-class (clarity) golden: non-vacuousness proof for `score_clarity`'s
+    mandatory-disclaimer check — swap in a plausible-looking reply that omits every disclaimer
+    group and confirm `assert_clarity` now flags it as missing.
+    """
+    mutated = copy.deepcopy(dict(case))
+    responses = list(mutated.get("recorded_llm") or [])
+    if not responses:
+        raise ValueError(f"case {case.get('id')!r} has no `recorded_llm` entries to replace")
+    responses[-1] = replacement
+    mutated["recorded_llm"] = responses
     return mutated
 
 

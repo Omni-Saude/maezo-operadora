@@ -24,7 +24,13 @@ from maezo.platform.notification_bridge import (
     NotificationBridgeMissingBusinessKeyError,
     build_cibseven_process_starter,
 )
-from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, StartOutcome
+from maezo.tools.mcp_cibseven.transport import (
+    FakeCibSevenTransport,
+    StartDedupPosture,
+    StartOutcome,
+    is_strict_start_dedup,
+    start_dedup_posture,
+)
 from tests.support.audit_fakes import FakeStartAuditSink
 
 # EB-4 event_type reconciliation — the REAL emitted domain events the bridge now consumes
@@ -1447,3 +1453,94 @@ async def test_5_rules_now_start_through_the_fenced_starter() -> None:
     assert results[0].process_instance_id  # a real (fake) instance id — never fail-closed refused
     assert len(transport.start_calls) == 1
     assert transport.start_calls[0][1] == "RECURSO-amh-GUIA-42-GLOSA-42"
+
+
+# ---------------------------------------------------------------------------
+# GAP-D3-02 — the FRAUDE→CANCEL rule now fronts a GATED (`EXCLUSIVE`) family
+#
+# `SP-OP-CANCEL-001` is the FIRST gated family any bridge rule targets. The fenced starter is
+# posture-agnostic by construction, but its INJECTED seams are not: an `EXCLUSIVE` start requires
+# `HistoryQueryingTransport` + `DedupReportingAuditSink`, and the bridge's composition root
+# (`platform/integrations/notifications_bridge.py:355`) must keep supplying both.
+# ---------------------------------------------------------------------------
+
+
+class _HistoryBlindStarterTransport:
+    """`CibSevenTransport` WITHOUT `find_any_instance` — the capability a decorator could drop.
+
+    Genuinely absent (not stubbed): the `runtime_checkable` probe is attribute-presence."""
+
+    def __init__(self) -> None:
+        self.start_calls: list[str] = []
+
+    async def find_active_instance(self, business_key: str) -> Any:
+        return None
+
+    async def start_process_instance(
+        self, process_key: str, business_key: str, variables: dict[str, Any]
+    ) -> Any:
+        self.start_calls.append(business_key)
+        raise AssertionError("an un-gateable EXCLUSIVE start must never reach the engine")
+
+    async def correlate_message(self, *a: Any, **k: Any) -> None:
+        return None
+
+    async def get_process_status(self, business_key: str) -> Any:
+        raise NotImplementedError
+
+    async def close(self) -> None:
+        return None
+
+
+_FRAUDE_TO_CANCEL_PAYLOAD = {
+    "tenant_id": "amh",
+    "desfecho": "encaminhado_contratual",
+    "numero_contrato": "C-42",
+    "entidade_tipo": "beneficiario",
+}
+
+
+def test_fraude_to_cancel_is_the_only_bridge_rule_targeting_a_gated_family() -> None:
+    """Scope pin. Exactly one of the 7 registered rules targets a gated start-dedup family, and it
+    is FRAUDE→CANCEL. If a future rule targets another one, this test names it — so the seam
+    requirements above get re-checked instead of being discovered in production."""
+    bridge = _make_bridge()
+    registered = bridge.list_handoffs()
+    assert len(registered) == bridge.count_handoffs() == 7
+    gated = sorted({r["target_process"] for r in registered if is_strict_start_dedup(r["target_process"])})
+    assert gated == ["SP-OP-CANCEL-001"]
+    assert start_dedup_posture("SP-OP-CANCEL-001") is StartDedupPosture.EXCLUSIVE
+
+
+@pytest.mark.asyncio
+async def test_fraude_to_cancel_starts_through_the_gate_and_dedupes_a_redelivery() -> None:
+    """A Kafka re-delivery of the same `fraude.completed` event converges on ONE CANCEL-001
+    instance — the property the durable claim buys over the bare `find_active_instance` GET."""
+    transport = _RecordingCibSevenTransport()
+    audit_sink = FakeStartAuditSink()
+    bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, audit_sink))
+
+    first = await bridge.on_event(event_type=FRAUDE_COMPLETED_EVENT, payload=dict(_FRAUDE_TO_CANCEL_PAYLOAD))
+    second = await bridge.on_event(event_type=FRAUDE_COMPLETED_EVENT, payload=dict(_FRAUDE_TO_CANCEL_PAYLOAD))
+
+    assert [r.target_process for r in first] == ["SP-OP-CANCEL-001"]
+    assert len(transport.start_calls) == 1, "a re-delivery started a SECOND rescisao review"
+    assert transport.start_calls[0][1] == "CANCEL-amh-C-42"
+    assert second[0].start_outcome == StartOutcome.ALREADY_ACTIVE
+    assert second[0].process_instance_id == first[0].process_instance_id
+
+
+@pytest.mark.asyncio
+async def test_fraude_to_cancel_fails_closed_behind_a_history_blind_transport() -> None:
+    """NEVER FALL BACK. A bridge root whose transport lost `find_any_instance` cannot gate the
+    CANCEL start — `execute_handoff` surfaces the failure (EB-3 fail-closed: no swallow) and the
+    engine is never asked to start anything."""
+    transport = _HistoryBlindStarterTransport()
+    audit_sink = FakeStartAuditSink()
+    bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, audit_sink))
+
+    with pytest.raises(NotificationBridgeHandoffFailedError):
+        await bridge.on_event(event_type=FRAUDE_COMPLETED_EVENT, payload=dict(_FRAUDE_TO_CANCEL_PAYLOAD))
+
+    assert transport.start_calls == []
+    assert audit_sink.calls == [], "the refusal must precede the durable claim (no orphan claim)"
