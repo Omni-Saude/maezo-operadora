@@ -308,4 +308,63 @@ que tocam `scripts/ci/check_effect_chokepoint_fence.py` (CODEOWNED).
 
 ## Apêndice — D2-03: reconfirmação do mypy --strict
 
-_(preenchido no commit seguinte desta mesma PR — ver `docs/evidence-ledger.md` linha `D2-03`)_
+**Gap:** `GAP-REGISTER.md:147` — "mypy --strict com 4 erros: artefato do ambiente de execução da
+auditoria, não defeito de código", status `UNREPRODUCED` (não `CLOSED-BY`: a arbitragem A-02 do
+próprio registro já concluía que a premissa original nunca foi um defeito de código — ver
+`GAP-REGISTER.md:201`). Esta seção reconfirma isso numa árvore sincronizada nesta sessão, com
+versões de ferramenta explícitas, em vez de reafirmar a arbitragem sem rodar nada.
+
+**Ambiente:**
+
+```
+$ env -u VIRTUAL_ENV uv run mypy --version
+mypy 1.20.2 (compiled: yes)
+$ env -u VIRTUAL_ENV uv run python --version
+Python 3.12.13
+```
+
+`pyproject.toml` (`[tool.mypy]`, linhas 193-197): `python_version = "3.12"`, `strict = true`,
+`packages = ["maezo"]`, `mypy_path = "src"` — byte-idêntico ao que `main`@`71dd4da` já tinha (sem
+mudança de configuração nesta PR).
+
+**Comando do `make type` (`Makefile:19`, `uv run mypy`, resolve via `[tool.mypy]` acima):**
+
+```
+$ env -u VIRTUAL_ENV uv run mypy
+Success: no issues found in 223 source files
+```
+
+**Comando alternativo citado no prompt desta tarefa (`uv run mypy --strict src/maezo`):**
+
+```
+$ env -u VIRTUAL_ENV uv run mypy --strict src/maezo
+Success: no issues found in 221 source files
+```
+
+As duas invocações resolvem para **0 erros** — nenhuma reproduz os "4 erros" do relatório de
+auditoria original. A diferença de contagem de arquivos entre as duas (223 vs 221) vem do modo de
+descoberta (`packages = ["maezo"]` via instalação editável do pacote vs. varredura direta do
+diretório `src/maezo`) — não de nenhum arquivo com erro sendo silenciado num modo e não no outro
+(ambos terminam em `Success`, que é fail-closed: qualquer erro real apareceria em QUALQUER um dos
+dois modos).
+
+**Confirmação de que o `pyproject.toml`'s bloco de stubs de dev não mudou desde a auditoria** (a
+arbitragem A-02 do registro cita isso como a segunda perna da prova):
+
+```
+$ git diff 181fc82..HEAD -- pyproject.toml | grep -A3 -B3 "lxml-stubs\|types-PyYAML\|mypy>="
+```
+
+confirma que as linhas `types-PyYAML>=6.0,<7.0`, `lxml-stubs>=0.5,<1.0` e `mypy>=1.10,<3.0`
+aparecem em ambos os lados do diff com o MESMO texto — o diff de 358 linhas do arquivo inteiro é
+reflow/reordenação de outras seções (`[project]`, `[project.optional-dependencies]`,
+`[project.scripts]`), não uma mudança na declaração de stubs de tipo que alimentam o mypy strict.
+
+**Veredito:** `D2-03` reconfirma a arbitragem A-02 do `GAP-REGISTER.md` — os "4 erros" citados pelo
+relatório de auditoria original não reproduzem em nenhuma árvore sincronizada com
+`uv sync --extra dev` desta sessão, com `mypy 1.20.2`/`Python 3.12.13`. Não há root-cause fix a
+fazer porque não há defeito de código a corrigir; nenhum `type: ignore` foi adicionado (nem seria
+necessário). Ação residual do próprio registro ("garantir que o CI instale as dev extras") já é o
+caso hoje — confirmado por leitura (sem edição; `.github/workflows/` é intocável por este WP) de
+`.github/workflows/ci.yml`, que roda `uv sync --locked --extra dev` em todos os jobs relevantes
+(linhas 41, 94, 180, 216, 292, 366, 500, 744, 833) — o mypy strict do CI não é decorativo.
