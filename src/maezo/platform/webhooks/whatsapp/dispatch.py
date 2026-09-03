@@ -250,9 +250,17 @@ class HelenaDispatcher:
         over the `SeamContext` frozen at bring-up.
 
         ONE helper for BOTH outbound paths (a Helena turn and the non-text acknowledgement) so the
-        acknowledgement cannot grow a second, ungated way out: a new outbound path that forgot the
-        gate would have to duplicate this body, and `make effect-chokepoint-fence` plus
-        `tests/unit/gateway/seams/test_live_dispatch_wiring.py` watch that surface.
+        acknowledgement cannot grow a second, ungated way out silently: a duplicated, ungated
+        build of `_ScopedWhatsAppSender` inside `acknowledge_non_text` is caught ONLY by
+        `tests/unit/platform/webhooks/whatsapp/test_dispatch.py
+        ::test_acknowledge_non_text_goes_through_the_effect_gate` and
+        `::test_acknowledge_non_text_without_a_seam_context_announces_it_loudly`. It is NOT caught
+        by `make effect-chokepoint-fence` (its §8.1 fenced-name list does not include
+        `_ScopedWhatsAppSender`, an in-module class) nor by
+        `tests/unit/gateway/seams/test_live_dispatch_wiring.py` (it only ever calls
+        `HelenaDispatcher.dispatch`, never `acknowledge_non_text`) — both stay green on that
+        mutant. The effect-chokepoint fence does NOT cover this seam; the two tests above are the
+        only guard.
         """
         sender: WhatsAppSender = _ScopedWhatsAppSender(
             raw_to=raw_to, expected_hash=phone_hash, client=self.whatsapp_client

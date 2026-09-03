@@ -207,6 +207,16 @@ def create_app(
             if non_text_present:
                 content["acked"] = acked
             return JSONResponse(status_code=500, content=content)
+        # MIXED-BATCH TRADE-OFF (disclosed here): a batch with e.g. 1 failing TEXT turn + 1
+        # successfully-acked non-text message falls through to 200 here,
+        # not 500 — on `main` (before non-text acks existed), the same batch returned 500 and
+        # Meta re-delivered the whole batch, giving that TEXT turn another chance. Returning 500
+        # here instead would make Meta re-deliver the WHOLE batch, which would re-send the
+        # non-text ack ALREADY delivered to the beneficiary; there is no `wamid` dedup to absorb
+        # that duplicate (`WEBHOOK-WAMID-DEDUP`, owner-gated — see docs/review-queue.md). So a
+        # partially successful batch returns 200, the failed text turn is logged above as
+        # `whatsapp_dispatch_failed` and is NOT retried — that beneficiary's message is lost
+        # unless they resend it themselves.
         # EXACTLY ONE counter increment per request, as everywhere else in this handler.
         status = "non_text_acked" if dispatched == 0 and acked > 0 and failed == 0 else "ok"
         WEBHOOK_REQUESTS_TOTAL.labels(tenant=settings.tenant_id, status=status).inc()
