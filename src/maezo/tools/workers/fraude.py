@@ -715,6 +715,16 @@ def _fenced_start(
     and the human's accusation decision can never be silently dropped. Returns
     `(instance_id, already_existed)`; the business-key idempotency makes a re-delivery an active hit
     (no double-start, P1-safe).
+
+    GATE PREREQUISITES (GAP-D3-02) — asymmetric across this helper's three targets. `SP-OP-CANCEL-001`
+    is an `EXCLUSIVE` start-dedup family (`mcp_cibseven.transport._START_DEDUP_POLICY`), so for the
+    `start_contratual` CANCEL leg the chokepoint additionally requires `engine` to satisfy
+    `HistoryQueryingTransport` and `audit_sink` to satisfy `DedupReportingAuditSink`; absent either
+    it raises `StartDedupGateUnavailableError` before writing anything durable and NEVER degrades to
+    the un-gated path. `SP-OP-INADIMPLENCIA-001` and `SP-OP-CRED-001` remain `NON_STRICT` and are
+    unaffected. The live daemon satisfies both capabilities for every leg — same
+    `engine=`/`audit_sink=` seams as `inadimplencia.handoff_rescisao`
+    (`runtime/worker_runtime/service.py:787-790`).
     """
     if engine is None:
         logger.error("fraude_handoff_engine_seam_not_wired", process_key=process_key)

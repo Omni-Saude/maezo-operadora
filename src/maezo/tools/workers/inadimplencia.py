@@ -626,6 +626,20 @@ def handoff_rescisao(
     The business key is a DETERMINISTIC function of process variables (no wall-clock / uuid), so a
     re-run keys the same instance (and its audit emit dedups to the same chain link).
 
+    GATE PREREQUISITES (GAP-D3-02). ``SP-OP-CANCEL-001`` is an ``EXCLUSIVE`` start-dedup family
+    (`mcp_cibseven.transport._START_DEDUP_POLICY`), so the chokepoint requires TWO seam
+    capabilities beyond a bare transport/sink: ``engine`` must satisfy ``HistoryQueryingTransport``
+    (``find_any_instance``) and ``audit_sink`` must satisfy ``DedupReportingAuditSink``
+    (``emit_once_status``). Both hold in the live daemon: the ``engine=`` seam is a
+    ``GatedHistoryQueryingCibSevenTransport`` over ``FreshClientCibSevenTransport``
+    (`gateway/seams/cibseven.py:128` `gate_cibseven` preserves the inner's history-querying
+    capability; `runtime/worker_runtime/service.py:647`), and the ``audit_sink=`` seam is a
+    ``FreshSinkAuditEmitter`` (`gateway/audit_postgres.py:473`), wired at
+    `runtime/worker_runtime/service.py:787-790`. If a
+    composition root ever supplies a seam WITHOUT them, the chokepoint raises
+    ``StartDedupGateUnavailableError`` BEFORE writing anything durable and NEVER falls back to the
+    un-gated (TOCTOU-only) path — an un-gateable contract-termination start does not run.
+
     FAIL-CLOSED (never a silent no-op — mirrors fraude's ``start_contratual`` handoff intent):
       - a transport/engine error propagates from ``start_process_idempotent`` (``CibSevenError`` ->
         transient -> engine retry -> incident);
