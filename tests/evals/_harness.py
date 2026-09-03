@@ -14,12 +14,21 @@ Pass-criterion types (T3.2 design §5/§6), each backed by one assertion helper 
     TH  (live threshold >= 0.9)   -> `score_live(...)` + `assert_live_score(...)` (Tier B only)
 `assert_expect`'s `expect` mapping may carry `next_kind` and/or `fields` together, so a single
 call covers RT+SF combined cases (e.g. EVL-HELENA-01: RT+SF).
+
+CL  (clarity/legibility, WP-EVALS gap 10.3) -> `score_clarity(...)` + `assert_clarity(...)`.
+A NEW pass-criterion type added by WP-EVALS (gaps 10.3/11.5) alongside the five above — kept
+here rather than in a family test module because it is generic, agent-agnostic text scoring
+(sentence length / forbidden jargon / mandatory disclaimers) on whatever field a golden names,
+exactly the shared plumbing this module exists to hold. It judges ONLY the clarity of the
+wording a graph emits to a beneficiary (e.g. Helena's `response_text`) — never the clinical
+content of any SME-gated DMN table.
 """
 
 from __future__ import annotations
 
 import copy
 import json
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -32,16 +41,21 @@ from .conftest import ReplayInferenceProvider, load_golden
 
 # Re-exported so family test modules need only `from tests.evals._harness import ...`.
 __all__ = [
+    "ClarityReport",
     "RunResult",
+    "assert_clarity",
     "assert_expect",
     "assert_live_score",
     "assert_no_leak",
     "load_golden",
     "mutate_expected_route",
+    "mutate_extend_last_sentence",
     "mutate_plant_canary",
+    "mutate_replace_last_response",
     "register_dmn_fixture",
     "run_case",
     "run_mutation_check",
+    "score_clarity",
     "score_live",
 ]
 
@@ -193,6 +207,114 @@ def assert_live_score(score: float, threshold: float) -> None:
 
 
 # ---------------------------------------------------------------------------
+# CL — clarity/legibility (WP-EVALS gap 10.3): an objective, reproducible, deterministic check
+# on the wording a graph emits to a beneficiary. No LLM-as-judge, no learned/constant score —
+# every field on `ClarityReport` is computed straight from the actual text a run produced, so a
+# report can never "pass" without the text actually satisfying every rule.
+#
+# A golden case opts in with an OPTIONAL top-level `"clarity"` block (`load_golden`'s
+# `_REQUIRED_CASE_KEYS` does not require it, so every existing golden that omits it is
+# unaffected):
+#
+#     "clarity": {
+#       "field": "response_text",
+#       "max_words_per_sentence": 20,
+#       "forbidden_jargon": ["red_flag", "DMN", "P1", "sintoma_codigo"],
+#       "required_disclaimers": [["profissional", "humano", "atendente"], ["emergencia"]]
+#     }
+#
+# `required_disclaimers` is a list of alternative-phrase GROUPS: each group needs AT LEAST ONE
+# of its alternatives present (case-insensitive substring match) — a group with none present is
+# a missing mandatory disclaimer.
+# ---------------------------------------------------------------------------
+
+#: Sentence boundary: split right after a `.`/`!`/`?` followed by whitespace. Good enough for
+#: the short, single-idea-per-sentence prose Helena's `response_prompt()` asks for — this is a
+#: reproducible PROXY for reading difficulty (long sentences are hard to parse), not a full
+#: readability formula (a syllable-counting formula like Flesch would need Portuguese
+#: hyphenation rules this module does not attempt to get right).
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+#: A "word" for counting purposes: a run of non-digit, non-underscore word characters. Unicode
+#: word matching is the `str`-pattern default in Python's `re`, so accented Portuguese letters
+#: (á, ç, ã, ...) count correctly without an explicit flag.
+_WORD_RE = re.compile(r"[^\W\d_]+")
+
+
+@dataclass
+class ClarityReport:
+    """Everything `assert_clarity` needs to explain a failure precisely — no bare True/False."""
+
+    text: str
+    sentences: list[str]
+    long_sentences: list[tuple[str, int]]
+    jargon_hits: list[str]
+    missing_disclaimer_groups: list[tuple[str, ...]]
+
+
+def score_clarity(
+    text: str,
+    *,
+    max_words_per_sentence: int,
+    forbidden_jargon: Sequence[str] = (),
+    required_disclaimers: Sequence[Sequence[str]] = (),
+) -> ClarityReport:
+    """Compute an objective, reproducible clarity report for `text` (e.g. Helena's
+    `response_text` — the free text a graph drafts for the beneficiary, never the SME-gated DMN
+    table content itself).
+
+    Three independent, deterministic checks, each a pure function of `text`:
+
+    1. Sentence length — any sentence (split on `.`/`!`/`?`) whose WORD count exceeds
+       `max_words_per_sentence` is flagged in `long_sentences`.
+    2. Forbidden jargon — any `forbidden_jargon` term found in `text` (case-insensitive
+       substring) is flagged in `jargon_hits`: internal/engine vocabulary (DMN table names, raw
+       `sintoma_codigo` values, `motivo_categoria` tokens, severity codes like `P1`) must never
+       leak verbatim into a beneficiary-facing message.
+    3. Mandatory disclaimers — each `required_disclaimers` group needs >=1 alternative present
+       (case-insensitive substring); an unsatisfied group is flagged in
+       `missing_disclaimer_groups`.
+    """
+    sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.split(text.strip()) if s.strip()]
+    long_sentences: list[tuple[str, int]] = []
+    for sentence in sentences:
+        word_count = len(_WORD_RE.findall(sentence))
+        if word_count > max_words_per_sentence:
+            long_sentences.append((sentence, word_count))
+
+    lowered = text.lower()
+    jargon_hits = [term for term in forbidden_jargon if term.lower() in lowered]
+
+    missing_disclaimer_groups = [
+        tuple(group) for group in required_disclaimers if not any(alt.lower() in lowered for alt in group)
+    ]
+
+    return ClarityReport(
+        text=text,
+        sentences=sentences,
+        long_sentences=long_sentences,
+        jargon_hits=jargon_hits,
+        missing_disclaimer_groups=missing_disclaimer_groups,
+    )
+
+
+def assert_clarity(report: ClarityReport) -> None:
+    """CL: raise with EVERY violation `score_clarity` found — never a bare pass/fail, so a
+    failure names exactly which sentence/term/disclaimer group is the problem."""
+    problems: list[str] = []
+    if report.long_sentences:
+        detail = "; ".join(f"{count} words: {sentence!r}" for sentence, count in report.long_sentences)
+        problems.append(f"sentence(s) exceed the max-words-per-sentence limit ({detail})")
+    if report.jargon_hits:
+        problems.append(f"forbidden jargon leaked into beneficiary-facing text: {report.jargon_hits!r}")
+    if report.missing_disclaimer_groups:
+        problems.append(
+            f"missing mandatory disclaimer (need >=1 phrase per group): {report.missing_disclaimer_groups!r}"
+        )
+    assert not problems, f"CLARITY violation(s) in {report.text!r}: " + " | ".join(problems)
+
+
+# ---------------------------------------------------------------------------
 # Mutation-check helper (T3.2 design §7.1 — the non-vacuousness proof).
 #
 # A verifier (or a family builder proving their own golden isn't a rubber stamp) perturbs a
@@ -242,6 +364,46 @@ def mutate_plant_canary(case: Mapping[str, Any], canary: str) -> dict[str, Any]:
     responses[-1] = f"{responses[-1]} {canary}"
     mutated["recorded_llm"] = responses
     mutated["leak_canaries"] = [*list(mutated.get("leak_canaries") or []), canary]
+    return mutated
+
+
+def mutate_extend_last_sentence(case: Mapping[str, Any], extra_words: int) -> dict[str, Any]:
+    """Return a deep copy of `case` with `extra_words` filler words appended to the LAST
+    `recorded_llm` response's FINAL sentence (same sentence — the trailing `.`/`!`/`?` is
+    removed and re-appended after the filler, so no new sentence boundary is introduced).
+
+    For a CL-class (clarity) golden: non-vacuousness proof for `score_clarity`'s long-sentence
+    check — pushes that sentence's word count past the case's own
+    `clarity.max_words_per_sentence` and confirms `assert_clarity` now fails. Mirrors
+    `mutate_plant_canary`'s shape (same last-response target, same deep-copy discipline).
+    """
+    mutated = copy.deepcopy(dict(case))
+    responses = list(mutated.get("recorded_llm") or [])
+    if not responses:
+        raise ValueError(f"case {case.get('id')!r} has no `recorded_llm` entries to extend")
+    last = responses[-1].rstrip()
+    trailing_punct = last[-1] if last and last[-1] in ".!?" else ""
+    base = last[:-1] if trailing_punct else last
+    filler = " ".join(["adicional"] * extra_words)
+    responses[-1] = f"{base} {filler}{trailing_punct or '.'}"
+    mutated["recorded_llm"] = responses
+    return mutated
+
+
+def mutate_replace_last_response(case: Mapping[str, Any], replacement: str) -> dict[str, Any]:
+    """Return a deep copy of `case` with the LAST `recorded_llm` entry replaced VERBATIM by
+    `replacement`.
+
+    For a CL-class (clarity) golden: non-vacuousness proof for `score_clarity`'s
+    mandatory-disclaimer check — swap in a plausible-looking reply that omits every disclaimer
+    group and confirm `assert_clarity` now flags it as missing.
+    """
+    mutated = copy.deepcopy(dict(case))
+    responses = list(mutated.get("recorded_llm") or [])
+    if not responses:
+        raise ValueError(f"case {case.get('id')!r} has no `recorded_llm` entries to replace")
+    responses[-1] = replacement
+    mutated["recorded_llm"] = responses
     return mutated
 
 
