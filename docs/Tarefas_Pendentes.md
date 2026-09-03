@@ -111,6 +111,96 @@
 > **Reframe de infra (supersede parcial de §1.2):** a casa opera **ECS/Fargate**, não EKS — o cluster
 > EKS que o Terraform legado de staging referenciava **nunca existiu**. §1.2 (EKS via `terraform
 > apply`) segue válida só para o caminho legado/staging; o caminho vivo é §1.8.
+>
+> **Atualização 2026-09-03 (programa de fechamento de gaps — trens 1–3 mergeados, ADR-0040
+> mergeado (Proposed), 6 PRs de revisão do dono pendentes; base `main`@`93d4467`).** Entre a última
+> atualização (2026-08-13, `b9e4383`) e hoje, uma auditoria forense profunda (178 gaps catalogados)
+> gerou um programa de remediação executado em três "trens" de PRs, cada um com a cadeia zero-trust
+> completa (autor tier-routed → gatekeeper adversarial independente → reparo por 3º agente → delta
+> re-veredito → prova live → squash pinado → linha no ledger), mais dois PRs solo de correção de
+> fatos fabricados/honestidade de memória, mais o ADR-0040 (perspectiva da operadora). Lineage
+> completa desde `35cffd3`:
+> - **#268** honestidade de memória → `00db3d3`; **#269** correção de fatos fabricados, fatia 1 →
+>   `71dd4da`.
+> - **Trem 1** (#279 → `d7d8558`): #270 docs de SLO/runbooks, #275 vazamento de token WhatsApp +
+>   prefixo de env, #271 reembolso passa a consumir a DMN (F-1-a), #272 severidade/grupo de
+>   escalation, #276 inputs mortos de DMN, #277 cerca de perspectiva PR-1 (unwired, pinada).
+> - **Trem 2** (#289 → `0641265`): #281 raiz de composição fatia 1, #283 sincronia
+>   contratos/test-specs, #280 cerca de completude PHI, #278 CANCEL → idempotência EXCLUSIVE + chaos
+>   por postura, #286 clareza da Helena + evals de jornada, #282 chave de partição Kafka + DLQ shunt
+>   + marcadores/cerca das suítes live.
+> - **Trem 3** (#297 → `0db53dd`): #290 fechamento do ADR-0030, #292 metade autônoma da higiene de
+>   docs, #293 superfície humana 9.2/10.1/11.7, #295 handoff real ADEQUACAO→CRED + ponte fantasma,
+>   #296 fatos fabricados fatia 2 (notificação INAD → prova atestada por humano) + CANCEL
+>   fail-closed, mais o fix de prontidão da suíte live-Kafka.
+> - **#260** (`.gitignore` de artefatos locais) → `2011002`.
+> - **#274** ADR-0040 "perspectiva da operadora" (Proposed) → `3ced9b9`.
+> - **#263 #254 #259 #266** (dependências) → `93d4467` — **HEAD atual de `main`**.
+>
+> **PRs de revisão do dono ainda pendentes (paths CODEOWNED; `flip-path-review-gate` vermelho por
+> design; ordem de aprovação — cada PR já empilhado sobre `main` + seus predecessores):**
+> - **#288** — PR-3 RECURSO reconstruído na perspectiva do pagador. Toca
+>   `spec/policies/autonomy/action-approvals.yaml` (CODEOWNED) → exige aprovação do dono.
+> - **#294** — PR-4 CONTAS reconstruído + cerca de perspectiva finalmente CONECTADA (contém #288).
+>   Toca `glosa_triage.dmn`, YAML de shadow-candidate, `action-approvals.yaml` e o pacote MZO-040 →
+>   CODEOWNED.
+> - **#287** — ANS-CRON: competência, taxonomia e órfãs + test spec novo. Toca a âncora
+>   `action-approvals.yaml:340` → CODEOWNED.
+> - **#291** — metade do dono da higiene de docs (anotação de allowlist, linhas de shadow,
+>   metadados de upcoding). Toca `process_allowlist.py` + 3 arquivos `spec/.../dmn/` → CODEOWNED.
+> - **#285** — ADR-0041, reconciliação de 7 ADRs (Proposed, DRAFT/verify). Toca `docs/adr/` +
+>   índice do README → CODEOWNED.
+> - **#284** — Makefile migra para `python -m pytest` + mypy strict + plano de split de inferência.
+>   Toca o `Makefile` → CODEOWNED.
+>
+> **Dependências (upgrades de biblioteca) — verificadas pelo dono às 16:05Z, todas com
+> `integration tests (real engine)` = success no head antes do merge e `uv lock --check` limpo em
+> `main` depois; todas MERGEADAS:**
+> - **#263** `mcp>=1.9,<3.0` (lock regenerado; versão resolvida permanece `1.28.1`; zero
+>   `import mcp` em `src`/`tests`) → `c192c3c`.
+> - **#254** `anthropic[bedrock]>=0.40,<2.0` (conflito era só CRLF vs LF no `pyproject.toml`,
+>   resolvido byte-a-byte; versão resolvida permanece `0.117.0`) → `e645d59`.
+> - **#259** lote de actions do dono: `setup-uv` v10.0.1 (v10 só muda cache em triggers
+>   `pull_request_target`/`workflow_run`/`release`, não usados aqui), `docker/setup-buildx-action`
+>   v4.3.0, `aws-actions/amazon-ecr-login` v2.1.7, `github/codeql-action` v4.37.9 (consolidado, SHA
+>   `cdf488f` verificado contra a tag) → `6515359`.
+> - **#266** `anchore/sbom-action` 0.24.2 → `93d4467`.
+> - **#264** e **#265** (codeql-action analyze/init 4.37.9) — FECHADOS como substituídos por #259,
+>   sem merge.
+>
+> Contexto: 4 desses PRs ficaram "vermelhos" por CI morta (lapso de cobrança do GitHub Actions em
+> 2026-08-31, jobs sem passos), não por defeito real. O `flip-path-review-gate` (advisório, não
+> requerido pelo ruleset) ficou vermelho em #254 por comparar contra a base original obsoleta
+> `181fc82` — defeito do gate registrado como follow-up, não bloqueou o merge.
+>
+> **O que continua HUMANO/gated (resumo condensado; nenhum item novo de código — todos são
+> ratificação/nomeação/decisão; detalhe pré-existente permanece nas seções por time abaixo):**
+> - **Eng/Infra/Plataforma:** gate de aprovação do ambiente `production` (o plano *team* da org não
+>   permite exigir revisores); estreitamento de `DEFAULT_ALLOWED_PROCESS_KEYS`; tabela órfã
+>   `driver_idempotency`; CI Kafka health-wait; AF-01 (`networkChangeBridge` do Helm aponta para
+>   módulo fantasma); call site A2A do Fernando + registro em `a2a_composition`; ampliação do
+>   marcador de relock do tzdata (reconhecimento); habilitação T-E de
+>   `ERR_CONTRACT_SUSPENSION_NOT_HUMAN`; D7-01 (PHI em chaves de negócio); supersessão do ADR-0018
+>   §CONTAS; declarações desatualizadas nos ADR-0025/0026/0028/0029.
+> - **Médico/ANS:** G2 — sign-off de SME do conteúdo DMN (`glosa_triage` segue sombra/
+>   `ratificado: false`; `adequacao_gap`; `dut_criteria`; `valor_estimado` de AUTH); aposentadoria
+>   do `RN_124_SIP`.
+> - **Jurídico/DPO:** G4 (DPO/RIPD/violação/DPAs/acesso AWS-prod); precondição do flip
+>   sombra→enforcing da política de autonomia (4 de 7 sítios de composição negam 100% em L-1 —
+>   ADR-0041 §2); deduplicação de entrada WhatsApp por `wamid` (risco de resposta duplicada);
+>   contrato de entrada (inbound) do Lucas.
+> - **Finanças/Atuarial:** valores atuariais em `reembolso_calculo` (F-1-b); OQ-2 — origem
+>   contratual de `data_vencimento` (ponto fail-closed a jusante do demonstrativo).
+> - **PO:** decisões de produto 9.1/9.6/10.2/11.1; timezone de negócio para a competência ANS; quem
+>   identifica o candidato a prestador no handoff ADEQUACAO→CRED.
+>
+> **Onde estão as evidências:** o ledger vivo é [`docs/evidence-ledger.md`](evidence-ledger.md)
+> (cada linha "verified" carrega reprodução independente) + [`docs/review-queue.md`](review-queue.md)
+> para os itens de revisão SME/DMN. Os artefatos de remediação deste programa (GAP-REGISTER — 178
+> gaps: P0 14/P1 60/P2 104; OWNER-DECISIONS — 70 memos/95 perguntas; EXECUTION-PLAN D-1..D-10;
+> HANDOFF.yaml) **não estão neste repositório**: vivem local-only em
+> `docs/audits/maezo-deep-audit/remediation/` no checkout principal do dono, porque `docs/audits/` é
+> gitignored por decisão do próprio dono — não são caminhos deste repo, sem link.
 
 ---
 
