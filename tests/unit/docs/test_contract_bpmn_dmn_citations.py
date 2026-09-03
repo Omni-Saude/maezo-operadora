@@ -147,7 +147,9 @@ def test_no_new_contract_claims_collect_or_unique_for_a_dmn_actually_deployed_as
                 actual[f"{contract.name}::{decision_id}"] = (claimed, "FIRST")
 
     new_violations = {k: v for k, v in actual.items() if k not in _HIT_POLICY_DRIFT_BASELINE}
-    assert not new_violations, f"NEW contract(s) claim COLLECT/UNIQUE for a table deployed as FIRST: {new_violations}"
+    assert not new_violations, (
+        f"NEW contract(s) claim COLLECT/UNIQUE for a table deployed as FIRST: {new_violations}"
+    )
 
     resolved = _HIT_POLICY_DRIFT_BASELINE - set(actual)
     assert not resolved, (

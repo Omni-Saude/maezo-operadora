@@ -214,7 +214,7 @@ def _unconditional_true_fact_keys(tree: ast.AST) -> set[str]:
         value = node.value
         if not isinstance(value, ast.Dict):
             continue
-        for key_node, val_node in zip(value.keys, value.values):
+        for key_node, val_node in zip(value.keys, value.values, strict=True):
             if (
                 isinstance(key_node, ast.Constant)
                 and isinstance(key_node.value, str)
