@@ -1,5 +1,7 @@
 """SP-OP-ANS-CRON-001 — suite de integracao executavel (engine CIB Seven REAL).
 
+Test spec: `docs/processes/test-specs/SP-OP-ANS-CRON-001.md`.
+
 Ported from the v1 donor (READ-ONLY `Maezo-Healthcare-Plan`,
 `tests/integration/processes/test_sp_op_ans_submit_001.py`, lines ~1400-1557 — the "GAP-ANS-1
 seam cron" section: `SP-OP-ANS-CRON-001 -> fato ans.cron_due -> bridge -> SP-OP-ANS-SUBMIT-001`)
@@ -20,109 +22,46 @@ convention; only the shared `engine` fixture + `drain_topics()` helper are reuse
 `.conftest` (v2 convention, see `test_sp_op_ans_submit_001.py`'s own PORT NOTES for the same
 choice).
 
-Synthetic data mirrors the donor's obviously-fake identifiers (competencia sentinel
-`COMPETENCIA_PENDENTE`, report_type literals `RN_124_SIP`/`DIOPS_TRIMESTRAL`).
+Dados sinteticos: tenant do deployment (fixture `audit_tenant`), literais de `report_type`
+RN-citation (`RN_124_SIP` ... `DIOPS_TRIMESTRAL`).
 
-PORT NOTES (fixture adaptation only — port rule 1):
-  - artifact path -> `spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn`. NO DMN:
-    `grep -o 'camunda:decisionRef="[^"]*"' spec/processes/bpmn/SP-OP-ANS-CRON-001_*.bpmn` returns
-    ZERO matches — every one of the 5 process definitions has exactly ONE service task
-    (`ST_PublishCronDue*`), and its `report_type`/`periodicidade`/`origem_envio`/`competencia`
-    values are BAKED IN as literal `camunda:inputParameter`s directly on that task (verified by
-    reading the BPMN in full) — no business-rule task, no DMN evaluation of any kind for this
-    family. `deploy_artifacts` therefore deploys the BPMN alone.
-  - `deploy_cron_and_submit_artifacts` (used ONLY by the seam test below) additionally deploys
-    SP-OP-ANS-SUBMIT-001's BPMN + its 4 DMNs, mirroring the donor's own `deploy_cron_artifacts`
-    fixture — needed so `engine.instance_ids_of_definition("SP-OP-ANS-SUBMIT-001")` queries a
-    genuinely-deployed definition (a meaningful "zero new instances" proof, not a vacuous one
-    against an undeployed key).
-  - `plan_start`/`PROCESS_KEY_ANS_SUBMIT`/`_competencia_from_anchor`/`NOTIFICATIONS_TOPIC`
-    (imported by the donor from `maezo.platform.integrations.notifications_bridge.consumer`) do
-    NOT exist anywhere on v2 (`find`/`grep` confirm no such module path, no such symbols anywhere
-    under `src/`). v2's equivalent is `maezo.platform.notification_bridge.NotificationBridge` — a
-    much simpler pure rule-registry with NO competencia-computation helper and (see FINDING #2
-    below) no rule for this fact at all. The donor's seam test (which calls `plan_start` itself,
-    acting as the bridge invoker, then starts SP-OP-ANS-SUBMIT-001 and asserts it reaches
-    `UT_CorrigirPendenciaEnvio` fail-closed) is NOT portable as-is: there is neither a real
-    competencia-computation function nor a live auto-start path to invoke or observe. Rather than
-    fabricate either (which would test behavior no production code implements), the ported seam
-    test below asserts what v2 ACTUALLY does: the fact publishes correctly (verbatim assertions
-    on `report_type`/`periodicidade`/`origem_envio`/`competencia`/`ans_cron_reference_date_iso`),
-    and — replacing the donor's `plan_start`+start-by-key steps — statically proves via
-    `engine.instance_ids_of_definition("SP-OP-ANS-SUBMIT-001")` diffed before/after that NOTHING
-    auto-starts a SUBMIT instance from this fact today (FINDING #2). This is an honest adaptation
-    of a cross-process CHOREOGRAPHY/seam test to the real v2 architecture (constraint 1's
-    "never weaken" applies to L0/L1 HITL GUARD tests specifically; this is not one — no guard
-    exists to weaken, since the mechanism it would guard is simply absent).
+TOPOLOGIA ATUAL (ANS-CRON-DEAD-CODE / PERSP-B5-ANSCRON-TOPICS, fechados) — cada definition:
 
-FINDINGS (grep-confirmed on this v2 main). #1 is the NEW, prominent finding for this family —
-see the PR body / evidence-ledger for the full write-up.
+    TimerStartEvent -> ST_ResolverCompetencia* -> ST_PublishCronDue* -> End_Cron*
 
-  FINDING #1 (NEW — topic-registration/dispatch-binding gap, DISTINCT from any governance or
-  DMN-taxonomy gap): `spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn` declares
-  `camunda:topic="operadora.events.publish"` for ALL FIVE of its service tasks (one per process
-  definition) — verified:
-      grep -o 'camunda:topic="[^"]*"' spec/processes/bpmn/SP-OP-ANS-CRON-001_*.bpmn | sort -u
-      -> operadora.events.publish   (ONLY this one topic, 5 occurrences collapsed by sort -u)
-  BUT `ans_cron.py`'s `register_ans_cron_workers` (near the bottom of that module) registers its
-  two `FunctionWorker`s under topic keys `"operadora.ans_cron.trigger_submissions"` and
-  `"operadora.ans_cron.check_calendar"` — topic names that appear NOWHERE in the BPMN (confirmed
-  by the same grep). `WorkerHarness` dispatches by exact topic-string match (`harness.py`'s
-  `_handlers` dict is topic-keyed, one handler per topic). CONSEQUENCE: `ans_cron.py`'s OWN
-  business logic — `trigger_submissions`'s `_compute_competencia`/periodicidade computation,
-  `check_calendar`'s `deve_enviar`/`motivo` computation — is a registration that can NEVER be
-  reached by the live engine's actual external tasks for this BPMN; ONLY the generic
-  `operadora.events.publish` handler (`register_events_workers`, wired into `cron_probe` below)
-  ever drains SP-OP-ANS-CRON-001's tasks. Reading `events.py` (the generic handler) shows it has a
-  SPECIFIC carve-out for this family: when `event_type == "ans.cron_due"` it stamps
-  `payload["ans_cron_reference_date_iso"]` (the tick-instant date) but does NOT compute/set
-  `periodicidade`/`competencia`/`deve_enviar`/`motivo` — those come only from `ans_cron.py`'s own
-  unreachable functions. Net effect, verified by reading the BPMN's literal `inputParameter`s
-  (`ST_PublishCronDueRn124Sip` etc.): the external task itself completes NORMALLY via the generic
-  handler (no incident — a handler for `operadora.events.publish` genuinely exists); the fact it
-  publishes carries `report_type`/`periodicidade`/`origem_envio`/`competencia` as LITERAL BPMN
-  values (e.g. `competencia="COMPETENCIA_PENDENTE"`, a fixed sentinel, NEVER computed — see
-  `test_cron_dispara_fato_e_nao_inicia_submit_automaticamente` below, which asserts exactly this)
-  plus the worker-stamped `ans_cron_reference_date_iso`; any test that instead asserted
-  `deve_enviar`/`motivo` (check_calendar's outputs) would fail, since nothing reachable ever sets
-  them — the donor's own test in this section never asserts those fields either (it only checks
-  `report_type`/`periodicidade`/`origem_envio`/`competencia`/`ans_cron_reference_date_iso`), so no
-  xfail is needed for that specific gap in THIS file; `test_ans_cron_registered_topics_
-  unreachable_from_bpmn` below proves the registration/topic mismatch directly and precisely
-  (concrete, always-green evidence, not just prose).
+O primeiro task e servido por `ans_cron.trigger_submissions` (`operadora.ans_cron.
+trigger_submissions`): le o literal LOCAL `ans_cron_report_type` e devolve `report_type`/
+`periodicidade`/`competencia`/`competencia_referencia_iso` como variaveis de PROCESSO. O segundo e
+o publicador generico (`operadora.events.publish`), que copia essas variaveis para o fato tipado
+`ans.cron_due`.
 
-  FINDING #2 (Step-3 fact #3, originally confirmed by reading `notification_bridge.py` directly;
-  UPDATED by T2.6-7, `docs/design/T2.6-ans-submission-rescope.md` §1.5/§5): v2's
-  `NotificationBridge._register_default_handoffs` used to register EXACTLY 5 rules — CONTAS->
-  RECURSO, CONTAS->FRAUDE, FRAUDE->CRED, FRAUDE->CANCEL, FRAUDE->INADIMPLENCIA — NONE keyed on
-  `event_type="ans.cron_due"` and none targeting `SP-OP-ANS-SUBMIT-001`. T2.6-7 added a 6th/7th
-  rule pair (NIP->ANS-SUBMIT + `ans.cron_due`->ANS-SUBMIT, `count_handoffs() == 7`) — the RULE
-  (predicate + deterministic business-key derivation + variable mapping) now exists and is
-  exercised directly in `tests/unit/platform/test_notification_bridge.py`. What remains ABSENT
-  (this file's own scope, unchanged by T2.6-7) is a LIVE CONSUMER that reads
-  `operadora.notifications.internal` and calls `NotificationBridge.on_event(...)` — nothing in
-  `cron_probe`/`register_ans_cron_workers`/`register_events_workers` wires the drained fact to
-  the bridge, so the seam test below (`test_cron_dispara_fato_e_nao_inicia_submit_automaticamente`)
-  still correctly proves NO SUBMIT instance is auto-started against the real engine — now because
-  no consumer invokes the (existing) rule, not because the rule itself is missing. See
-  `test_notification_bridge_ans_cron_rule_now_wired` below (replaces the old "has no rule" static
-  proof) and the xfail-strict end-to-end coverage T2.6-7 adds for the still-missing live-consumer
-  leg.
+HISTORICO (FINDING #1, RESOLVIDA por este WP — mantida aqui porque explica o formato dos testes
+abaixo): ate ANS-CRON-DEAD-CODE, as 5 definitions ligavam `ST_PublishCronDue*` DIRETO ao topico
+generico `operadora.events.publish` com `camunda:inputParameter` literais, e os 2 topicos que
+`register_ans_cron_workers` registrava (`operadora.ans_cron.trigger_submissions` e
+`.check_calendar`) nao apareciam em lugar nenhum do BPMN — `WorkerHarness` despacha por match
+EXATO de string de topico, logo `_compute_competencia` era codigo morto e o fato viajava com o
+literal `competencia="COMPETENCIA_PENDENTE"`. Hoje: `trigger_submissions` e alcancavel de verdade
+(provado abaixo contra o engine real) e `check_calendar` foi DELETADA (re-implementacao Python da
+`ans_calendar.dmn`, hoje avaliada engine-side por `BRT_Calendario` em SP-OP-ANS-SUBMIT-001; ver
+`tests/integration/dmn/test_dmn_golden_parity.py`).
 
-  ans_calendar DMN taxonomy mismatch (Step-3 fact #4, PRIOR ART — NOT re-ported here): already
-  guarded by `tests/integration/dmn/test_dmn_golden_parity.py::test_ans_calendar_domain_mismatch_
-  evidence`. Doubly moot for this file: `ans_cron.py`'s `check_calendar` (the function whose
-  hand-rolled `_REPORT_PERIODICIDADE` literals collide with the DMN's RN-citation literals) is
-  ALSO unreachable per FINDING #1 — this BPMN never evaluates any DMN at all (zero decisionRefs),
-  so the mismatch cannot even be exercised from this file's tests.
+FINDING #2 (Step-3 fact #3, confirmada por leitura de `notification_bridge.py`; UPDATED por
+T2.6-7, `docs/design/T2.6-ans-submission-rescope.md` §1.5/§5): a `NotificationBridge` TEM a regra
+`ans.cron_due` -> SP-OP-ANS-SUBMIT-001 (predicado + business key deterministica + mapeamento de
+variaveis), exercitada em `tests/unit/platform/test_notification_bridge.py`. O que continua
+AUSENTE (fora do escopo deste WP) e um CONSUMIDOR VIVO que leia
+`operadora.notifications.internal` e chame `NotificationBridge.on_event(...)` — por isso
+`test_cron_dispara_fato_e_nao_inicia_submit_automaticamente` continua observando, contra o engine
+real, ZERO instancias de SP-OP-ANS-SUBMIT-001 nascidas do tick.
 
-  Kafka-publish gap (Step-3 fact #1): not cited per-test here — this file's only kafka-publish
-  assertions are on the GENERIC `operadora.events.publish` handler's output (which DOES call
-  `kafka.publish`, `events.py:247`), not on any per-worker notification pattern.
+Kafka-publish gap (Step-3 fact #1): as unicas assercoes de kafka aqui sao sobre o publicador
+GENERICO `operadora.events.publish` (que de fato chama `kafka.publish`, `events.py:247`).
 """
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -134,7 +73,12 @@ import pytest
 import pytest_asyncio
 
 from maezo.platform.notification_bridge import NotificationBridge
-from maezo.tools.workers.ans_cron import register_ans_cron_workers
+from maezo.tools.workers.ans_cron import (
+    _REPORT_PERIODICIDADE,
+    COMPETENCIA_PENDENTE,
+    _compute_competencia,
+    register_ans_cron_workers,
+)
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
 
@@ -153,50 +97,45 @@ _DMN_RETRY = _REPO / "spec/processes/dmn/ans_retry_policy.dmn"
 
 _PUBLISH_TOPIC = "operadora.events.publish"
 
-# The two topics ans_cron.py's OWN register_ans_cron_workers registers — UNREACHABLE from this
-# BPMN (FINDING #1). Registered on the harness below for fidelity (mirrors what a production
-# register_all_workers bootstrap composition would wire), but deliberately EXCLUDED from
-# `_CRON_WORKER_TOPICS` (the drain list): unlike auth's `_ANALYZE_TOPIC` exclusion (a donor FIXTURE
-# choice for a topic a REAL v2 worker also serves elsewhere), these two are excluded because the
-# BPMN genuinely never produces a task on either — there is nothing to drain.
+#: O topico proprio de `ans_cron.py` — declarado por `ST_ResolverCompetencia*` nas 5 definitions.
 _ANS_CRON_TRIGGER_TOPIC = "operadora.ans_cron.trigger_submissions"
-_ANS_CRON_CHECK_CALENDAR_TOPIC = "operadora.ans_cron.check_calendar"
 
-# Topico servido pelo drain generico — o UNICO topico que este BPMN de fato produz tasks para.
-_CRON_WORKER_TOPICS = [_PUBLISH_TOPIC]
+#: Os DOIS topicos que este BPMN produz tasks para (ambos precisam ser drenados, em ordem).
+_CRON_WORKER_TOPICS = [_ANS_CRON_TRIGGER_TOPIC, _PUBLISH_TOPIC]
 
 # Topico interno de notificacoes (onde o fato tipado ans.cron_due e publicado).
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
 
 _PROCESS_KEY_ANS_SUBMIT = "SP-OP-ANS-SUBMIT-001"
 
-# (cron_definition_key, activity_id do TimerStartEvent, report_type, periodicidade) esperados por
-# tipo — mirrors o donor's `_CRON_DISPATCH_CASES` exatamente (2 dos 5 process ids, provando
-# periodicidades distintas: mensal R/P1M e trimestral R/P3M).
+#: `R/<ISO period>` do BPMN -> periodo ISO da taxonomia do worker. `R/P1Y` e a forma que o CIB
+#: Seven aceita para o ciclo anual; a taxonomia Python usa `P12M` para o mesmo periodo.
+_TIMECYCLE_PARA_ISO = {"R/P1M": "P1M", "R/P3M": "P3M", "R/P1Y": "P12M"}
+
+#: (definition key, TimerStartEvent id, ST_ResolverCompetencia id, report_type) — os 5 tipos.
+#: Cobre 3 periodicidades DISTINTAS (mensal/trimestral/anual), acima do minimo de 2 exigido pelo
+#: AC de GAP-ANS-1.
 _CRON_DISPATCH_CASES = [
-    ("SP-OP-ANS-CRON-001-RN124SIP", "Start_CronRn124Sip", "RN_124_SIP", "mensal"),
-    ("SP-OP-ANS-CRON-001-DIOPS", "Start_CronDiops", "DIOPS_TRIMESTRAL", "trimestral"),
+    ("SP-OP-ANS-CRON-001-RN124SIP", "Start_CronRn124Sip", "ST_ResolverCompetenciaRn124Sip", "RN_124_SIP"),
+    ("SP-OP-ANS-CRON-001-RN209", "Start_CronRn209", "ST_ResolverCompetenciaRn209", "RN_209_UTILIZACAO"),
+    ("SP-OP-ANS-CRON-001-RN388", "Start_CronRn388", "ST_ResolverCompetenciaRn388", "RN_388_QUALIDADE"),
+    (
+        "SP-OP-ANS-CRON-001-RN424TISS",
+        "Start_CronRn424Tiss",
+        "ST_ResolverCompetenciaRn424Tiss",
+        "RN_424_TISS_MONITORAMENTO",
+    ),
+    ("SP-OP-ANS-CRON-001-DIOPS", "Start_CronDiops", "ST_ResolverCompetenciaDiops", "DIOPS_TRIMESTRAL"),
 ]
 
-# FINDING #1 (see module docstring for full grep evidence) — used as the assertion message in
-# test_ans_cron_registered_topics_unreachable_from_bpmn so the constant has a real code usage
-# (not just documentation) and any assertion failure surfaces the full citation inline.
-_ANS_CRON_TOPIC_BINDING_GAP_REASON = (
-    "T3.1 phase-2 FINDING #1 (new): SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn declares "
-    "camunda:topic='operadora.events.publish' for ALL 5 of its service tasks (grep -o "
-    "'camunda:topic=\"[^\"]*\"' ... | sort -u returns exactly that one topic) — but ans_cron.py's "
-    "register_ans_cron_workers registers its two FunctionWorkers under "
-    "'operadora.ans_cron.trigger_submissions'/'operadora.ans_cron.check_calendar', topic names "
-    "that appear NOWHERE in the BPMN. WorkerHarness dispatches by exact topic-string match, so "
-    "trigger_submissions'/check_calendar's own periodicidade/competencia/deve_enviar/motivo "
-    "computation can never be reached by the live engine — only the generic operadora.events."
-    "publish handler ever drains this BPMN's tasks."
-)
+
+def _bpmn_xml() -> str:
+    return _BPMN_CRON.read_text(encoding="utf-8")
 
 
 @dataclass
 class CronEngineProbe:
-    """Driva o worker generico (events.publish) + ans_cron.py contra o engine CIB Seven."""
+    """Driva os workers reais do agendador (ans_cron + events.publish) contra o CIB Seven."""
 
     engine: EngineRest
     harness: WorkerHarness
@@ -214,8 +153,8 @@ class CronEngineProbe:
 
 @pytest_asyncio.fixture
 async def deploy_artifacts(engine: EngineRest) -> str:
-    """Deploya o agendador CRON (5 process definitions, 1 arquivo BPMN, ZERO DMN — verificado por
-    grep no docstring do modulo) no engine real."""
+    """Deploya o agendador CRON (5 process definitions, 1 arquivo BPMN, ZERO DMN — o agendador nao
+    tem `camunda:decisionRef` algum) no engine real."""
     return await engine.deploy(_BPMN_CRON, name="SP-OP-ANS-CRON-001-qa")
 
 
@@ -223,7 +162,7 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 async def deploy_cron_and_submit_artifacts(engine: EngineRest) -> str:
     """Deploya o agendador CRON + o processo de envio (SUBMIT) + suas 4 DMNs num unico deployment.
 
-    Usado APENAS pelo teste de seam abaixo — precisa de SP-OP-ANS-SUBMIT-001 genuinamente
+    Usado APENAS pelos testes de seam abaixo — precisa de SP-OP-ANS-SUBMIT-001 genuinamente
     deployado para que a prova "nenhuma instancia nova" (`instance_ids_of_definition`) seja
     significativa (nao vacua contra uma definition-key inexistente). Mirrors o donor's
     `deploy_cron_artifacts`.
@@ -257,16 +196,15 @@ async def cron_probe(
         audit_sink=audit_sink,
     )
     kafka = FakeKafkaPublisher()
-    # Registered for fidelity (mirrors a production register_all_workers composition) — genuinely
-    # UNREACHABLE from this BPMN (FINDING #1); NOT in _CRON_WORKER_TOPICS, so cron_probe.drain()
-    # never subscribes to either topic key.
+    # ST_ResolverCompetencia* — o topico proprio de ans_cron.py, hoje REALMENTE alcancavel.
+    # Deliberadamente registrado SEM o seam `tenant_id` (composicao legada): prova que o tenant do
+    # fato vem do carimbo do publicador generico, nao deste worker.
     register_ans_cron_workers(harness, kafka)
-    # The ONLY worker this BPMN's tasks actually reach. `tenant_id` seam threaded for production
-    # fidelity (t2-notify-integrity item 3 follow-up): the live composition root
-    # (`worker_runtime/service.py::register_default_workers`) passes `tenant_id=settings.
-    # tenant_id` into every bootstrap's `**seams`; the generic publisher stamps it
-    # (setdefault-only) into payloads the process variables left tenant-less — which is exactly
-    # this BPMN's case (its `event_payload_vars` literal carries no tenant).
+    # ST_PublishCronDue*. `tenant_id` seam threaded for production fidelity: a composicao viva
+    # (`worker_runtime/service.py::register_default_workers`) passa `tenant_id=settings.tenant_id`
+    # para todos os bootstraps; o publicador generico carimba (setdefault) o tenant nos payloads
+    # que as variaveis de processo deixaram sem tenant — exatamente o caso deste BPMN (o seu
+    # `event_payload_vars` nao carrega tenant, e nao pode carregar — ver o fence abaixo).
     register_events_workers(harness, kafka, tenant_id=audit_tenant)
     probe = CronEngineProbe(
         engine=engine,
@@ -282,51 +220,135 @@ async def cron_probe(
 
 
 # ===========================================================================
-# FINDING #1 — proof by static introspection (no engine; always green)
+# Fences estaticos (sem engine; sempre verdes) — PERSP-B5-ANSCRON-TOPICS
 # ===========================================================================
 
 
-def test_ans_cron_registered_topics_unreachable_from_bpmn() -> None:
-    """Prova estatica e concreta da FINDING #1: os topicos que `register_ans_cron_workers`
-    registra NAO tem overlap algum com os topicos que o BPMN de fato declara.
+def test_ans_cron_registered_topics_reachable_from_bpmn() -> None:
+    """PERSP-B5-ANSCRON-TOPICS (substitui `..._unreachable_from_bpmn`): TODO topico
+    `operadora.ans_cron.*` que `register_ans_cron_workers` registra e declarado por algum
+    serviceTask do BPMN — e o BPMN nao declara nenhum topico `operadora.ans_cron.*` sem worker.
 
     Varredura do XML (sem engine) + introspeccao real de `harness.registered_topics` (o MESMO
     harness real usado pelos testes de seam abaixo, nao um mock).
     """
-    import re
-
     from maezo.tools.workers.harness import FakeWorkerTransport
 
-    bpmn_xml = _BPMN_CRON.read_text(encoding="utf-8")
-    bpmn_topics = set(re.findall(r'camunda:topic="([^"]*)"', bpmn_xml))
-    assert bpmn_topics == {_PUBLISH_TOPIC}, (
-        f"BPMN deveria declarar EXATAMENTE {{{_PUBLISH_TOPIC!r}}}; encontrado: {bpmn_topics}"
+    bpmn_topics = set(re.findall(r'camunda:topic="([^"]*)"', _bpmn_xml()))
+    assert bpmn_topics == {_ANS_CRON_TRIGGER_TOPIC, _PUBLISH_TOPIC}, (
+        f"topicos declarados pelo BPMN mudaram: {bpmn_topics}"
     )
 
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="qa-static-probe")
     register_ans_cron_workers(harness, FakeKafkaPublisher())
     ans_cron_registered = {t for t in harness.registered_topics if t.startswith("operadora.ans_cron.")}
-    assert ans_cron_registered == {_ANS_CRON_TRIGGER_TOPIC, _ANS_CRON_CHECK_CALENDAR_TOPIC}, (
-        f"register_ans_cron_workers deveria registrar exatamente estes 2 topicos; "
+    assert ans_cron_registered == {_ANS_CRON_TRIGGER_TOPIC}, (
+        f"register_ans_cron_workers deveria registrar exatamente {_ANS_CRON_TRIGGER_TOPIC!r}; "
         f"encontrado: {ans_cron_registered}"
     )
 
-    overlap = ans_cron_registered & bpmn_topics
-    assert not overlap, _ANS_CRON_TOPIC_BINDING_GAP_REASON
+    # Bidirecional: nenhum registro orfao, nenhum topico ans_cron do BPMN sem worker.
+    assert ans_cron_registered <= bpmn_topics, (
+        f"topico registrado sem serviceTask: {ans_cron_registered - bpmn_topics}"
+    )
+    bpmn_ans_cron = {t for t in bpmn_topics if t.startswith("operadora.ans_cron.")}
+    assert bpmn_ans_cron <= ans_cron_registered, (
+        f"serviceTask sem worker registrado: {bpmn_ans_cron - ans_cron_registered}"
+    )
+
+
+def test_ans_cron_timecycle_do_bpmn_bate_com_a_taxonomia_do_worker() -> None:
+    """Fence anti-drift: o `timeCycle` do TimerStartEvent de cada definition e o periodo ISO que
+    `_REPORT_PERIODICIDADE` associa ao `report_type` literal do `ST_ResolverCompetencia*` da MESMA
+    definition. Sao as duas metades do agendamento per-report_type (GAP-ANS-1) — se uma mudar sem
+    a outra, a competencia deixa de corresponder ao ciclo que a disparou.
+
+    Todas as periodicidades permanecem **DRAFT/verify regulatorio** (nem os `timeCycle` nem o
+    mapeamento periodo->competencia foram confirmados com o regulatorio — `docs/review-queue.md`);
+    este teste prova COERENCIA INTERNA, nunca correcao regulatoria.
+    """
+    import xml.etree.ElementTree as ET
+
+    ns = {
+        "b": "http://www.omg.org/spec/BPMN/20100524/MODEL",
+        "c": "http://camunda.org/schema/1.0/bpmn",
+    }
+    root = ET.fromstring(_bpmn_xml())
+    processes = root.findall("b:process", ns)
+    assert len(processes) == len(_REPORT_PERIODICIDADE) == 5, (
+        "uma process definition por report_type (GAP-ANS-1): "
+        f"{len(processes)} definitions vs {len(_REPORT_PERIODICIDADE)} tipos"
+    )
+
+    vistos: dict[str, str] = {}
+    for proc in processes:
+        starts = proc.findall("b:startEvent", ns)
+        assert len(starts) == 1, f"{proc.get('id')}: exatamente 1 TimerStartEvent por definition"
+        cycles = starts[0].findall("b:timerEventDefinition/b:timeCycle", ns)
+        assert len(cycles) == 1, f"{proc.get('id')}: TimerStartEvent sem timeCycle"
+        time_cycle = (cycles[0].text or "").strip()
+
+        resolvers = [
+            st
+            for st in proc.findall("b:serviceTask", ns)
+            if st.get(f"{{{ns['c']}}}topic") == _ANS_CRON_TRIGGER_TOPIC
+        ]
+        assert len(resolvers) == 1, f"{proc.get('id')}: exatamente 1 ST_ResolverCompetencia*"
+        literais = {
+            p.get("name"): (p.text or "").strip()
+            for p in resolvers[0].findall("b:extensionElements/c:inputOutput/c:inputParameter", ns)
+        }
+        report_type = literais.get("ans_cron_report_type", "")
+
+        assert report_type in _REPORT_PERIODICIDADE, (
+            f"{proc.get('id')}: report_type {report_type!r} fora da taxonomia do worker"
+        )
+        _periodicidade_ptbr, iso = _REPORT_PERIODICIDADE[report_type]
+        assert _TIMECYCLE_PARA_ISO.get(time_cycle) == iso, (
+            f"{proc.get('id')} ({report_type}): timeCycle {time_cycle!r} nao corresponde a "
+            f"periodicidade {iso!r} da taxonomia do worker"
+        )
+        vistos[report_type] = time_cycle
+
+    assert set(vistos) == set(_REPORT_PERIODICIDADE)
+    assert len(set(vistos.values())) >= 2, (
+        "AC de GAP-ANS-1: pelo menos 2 periodicidades DISTINTAS entre os report_types"
+    )
+
+
+def test_ans_cron_payload_vars_nao_carregam_tenant_id() -> None:
+    """Fence de regressao: `tenant_id` NAO pode entrar no `event_payload_vars` deste BPMN.
+
+    O agendador e tenant-agnostico (TimerStartEvent, sem contexto de caso). O tenant do fato vem
+    do carimbo `setdefault` do publicador generico (`events.py`, seam `deployment_tenant_id`). Se
+    `tenant_id` fosse listado aqui, a variavel de processo `tenant_id` que
+    `trigger_submissions` devolve (`""` numa composicao sem seam) viajaria no payload, o
+    `setdefault` nao sobrescreveria, e a regra `ans.cron_due` da ponte — que exige tenant
+    nao-vazio — ficaria permanentemente dormente (ou produziria a chave degenerada `ANSSUB--...`).
+    """
+    payload_var_lists = re.findall(r'name="event_payload_vars">([^<]*)</camunda:inputParameter>', _bpmn_xml())
+    assert len(payload_var_lists) == 5, f"esperado 1 event_payload_vars por definition; {payload_var_lists}"
+    for raw in payload_var_lists:
+        nomes = [n.strip() for n in raw.split(",") if n.strip()]
+        assert "tenant_id" not in nomes, (
+            "tenant_id em event_payload_vars desarma o carimbo de tenant do publicador generico"
+        )
+        assert {"report_type", "periodicidade", "competencia"} <= set(nomes), (
+            f"event_payload_vars perdeu identificadores do despacho: {nomes}"
+        )
 
 
 def test_notification_bridge_ans_cron_rule_now_wired() -> None:
     """FINDING #2 UPDATED (T2.6-7, `docs/design/T2.6-ans-submission-rescope.md` §1.5/§5):
-    NotificationBridge NOW has exactly one rule for `event_type=ans.cron_due`, targeting
-    SP-OP-ANS-SUBMIT-001 — replaces the pre-T2.6-7 "has no rule" static proof.
+    NotificationBridge tem exatamente uma regra para `event_type=ans.cron_due`, alvo
+    SP-OP-ANS-SUBMIT-001.
 
-    This test intentionally does NOT prove the seam is live end-to-end: no running consumer in
-    this codebase reads `operadora.notifications.internal` and calls
-    `NotificationBridge.on_event(...)` — that is why
-    `test_cron_dispara_fato_e_nao_inicia_submit_automaticamente` above (against the real engine)
-    still correctly observes zero auto-started SP-OP-ANS-SUBMIT-001 instances. The rule's own
-    predicate/business-key/variable-mapping logic is unit-tested against manually constructed
-    events in `tests/unit/platform/test_notification_bridge.py` (no engine needed there either).
+    Este teste intencionalmente NAO prova o seam ao vivo ponta a ponta: nenhum consumidor rodando
+    neste codebase le `operadora.notifications.internal` e chama `NotificationBridge.on_event(...)`
+    — e por isso que `test_cron_dispara_fato_e_nao_inicia_submit_automaticamente` (contra o engine
+    real) continua observando zero instancias de SP-OP-ANS-SUBMIT-001 auto-iniciadas. O
+    predicado/business-key/mapeamento da propria regra e unit-testado em
+    `tests/unit/platform/test_notification_bridge.py`.
     """
     bridge = NotificationBridge()
     rules = bridge.get_handoff("ans.cron_due")
@@ -336,9 +358,9 @@ def test_notification_bridge_ans_cron_rule_now_wired() -> None:
     target_process, predicate = rules[0]
     assert target_process == _PROCESS_KEY_ANS_SUBMIT
     assert callable(predicate)
-    # Anchor (t2-notify-integrity item 3): a regra agora exige tenant_id ALEM de report_type
-    # (as 7 regras do bridge exigem non_blank(tenant_id) — simetrico com os workers in-flow). Na
-    # producao o tenant chega no fato via o stamp de deployment do publisher generico
+    # Anchor (t2-notify-integrity item 3): a regra exige tenant_id ALEM de report_type (as 7
+    # regras do bridge exigem non_blank(tenant_id) — simetrico com os workers in-flow). Na
+    # producao o tenant chega no fato via o stamp de deployment do publicador generico
     # (`register_events_workers` -> `make_publish_event_handler`), entao a regra ARMA ao vivo.
     assert predicate({"tenant_id": "amh", "report_type": "DIOPS_TRIMESTRAL"}) is True
     # Fail-closed: fato sem tenant_id (ou sem report_type) NAO dispara — nenhuma business key sensata.
@@ -352,44 +374,19 @@ def test_notification_bridge_ans_cron_rule_now_wired() -> None:
 
 
 # ===========================================================================
-# Seam: TimerStartEvent -> fato ans.cron_due (engine REAL)
+# Seam: TimerStartEvent -> ST_ResolverCompetencia -> fato ans.cron_due (engine REAL)
 # ===========================================================================
 
 
-@pytest.mark.parametrize(
-    ("cron_key", "activity_id", "report_type", "periodicidade"),
-    _CRON_DISPATCH_CASES,
-    ids=[c[2] for c in _CRON_DISPATCH_CASES],
-)
-async def test_cron_dispara_fato_e_nao_inicia_submit_automaticamente(
+async def _tick_e_drena(
     engine: EngineRest,
-    deploy_cron_and_submit_artifacts: str,
     cron_probe: CronEngineProbe,
-    audit_tenant: str,
     cron_key: str,
     activity_id: str,
-    report_type: str,
-    periodicidade: str,
-) -> None:
-    """Executar o TimerStartEvent de um cron per-tipo faz o WORKER REAL (generic events.publish)
-    emitir o fato tipado `ans.cron_due` com os valores LITERAIS que o BPMN embute como
-    `inputParameter` (FINDING #1c) — mas NENHUMA instancia de SP-OP-ANS-SUBMIT-001 nasce disso
-    automaticamente (FINDING #2, UPDATED por T2.6-7): a `NotificationBridge` GANHOU uma regra para
-    este fato (`ans.cron_due` -> SP-OP-ANS-SUBMIT-001, `notification_bridge.py`), mas nenhum
-    consumidor rodando le `operadora.notifications.internal` e chama `bridge.on_event(...)` — este
-    `cron_probe` drena so `operadora.events.publish` (o publicador generico), nunca invoca a ponte.
-    A conclusao do donor ("nenhuma instancia nasce") permanece verdadeira, agora por essa razao
-    mais estreita (consumidor ausente, nao mais regra ausente) — ver PORT NOTES no docstring do
-    modulo (a asserction de "instancia efetivamente iniciada" do donor foi substituida por esta
-    prova estatica de ausencia, honestamente refletindo v2).
-
-    Tecnica de job-execution do test-spec (NUNCA sleep): o timeCycle (R/P1M / R/P3M) agenda o
-    primeiro tick adiante; localizamos o job-start pendente e o executamos na marra
-    (`engine.start_timer_job_id`/`execute_job`, construidos especificamente para esta familia —
-    ver `engine_rest.py`).
-    """
-    # 1) Tick do timer: diff antes/depois isola a instancia de cron criada por ESTA execucao
-    #    (robusto a leftovers de runs anteriores contra um engine de dev compartilhado).
+) -> tuple[str, list[dict[str, Any]]]:
+    """Executa o job do TimerStartEvent, drena os 2 tasks e devolve (instance_id, fatos)."""
+    # Tick do timer: diff antes/depois isola a instancia criada por ESTA execucao (robusto a
+    # leftovers de runs anteriores contra um engine de dev compartilhado).
     before_cron = await engine.instance_ids_of_definition(cron_key)
     job_id = await engine.start_timer_job_id(activity_id)
     await engine.execute_job(job_id)
@@ -400,50 +397,122 @@ async def test_cron_dispara_fato_e_nao_inicia_submit_automaticamente(
         f"executar o timer-start {activity_id} deveria criar EXATAMENTE 1 instancia de {cron_key}; "
         f"criadas={novas}"
     )
-    cron_instance_id = novas.pop()
+    instance_id = novas.pop()
 
-    # 2) O worker REAL (operadora.events.publish) serve o ST_PublishCronDue* e publica o fato
-    #    tipado no topico interno de notificacoes; o agendador entao TERMINA (ciclo concluido).
-    #    Diff de instancias de SP-OP-ANS-SUBMIT-001 ao redor do drain: nada deve nascer (FINDING #2).
-    before_submit = await engine.instance_ids_of_definition(_PROCESS_KEY_ANS_SUBMIT)
     await cron_probe.drain()
-    after_submit = await engine.instance_ids_of_definition(_PROCESS_KEY_ANS_SUBMIT)
-    assert after_submit == before_submit, (
-        f"FINDING #2 violada: uma instancia de {_PROCESS_KEY_ANS_SUBMIT} apareceu sem nenhuma "
-        f"ponte/regra viva para isso. novas={after_submit - before_submit}"
-    )
 
-    cron_ended = await engine.activity_instances_ended(cron_instance_id)
-    assert any(a.startswith("End_Cron") for a in cron_ended), (
-        f"o agendador {cron_key} deveria concluir o ciclo apos publicar o fato. ended={cron_ended}"
-    )
-
-    facts = [
+    fatos = [
         payload
         for (topic, payload, _key) in cron_probe._captured
-        if topic == _NOTIFICATIONS_TOPIC
-        and payload.get("type") == "ans.cron_due"
-        and payload.get("report_type") == report_type
+        if topic == _NOTIFICATIONS_TOPIC and payload.get("type") == "ans.cron_due"
     ]
-    assert facts, (
-        f"o tick de {cron_key} deveria publicar o fato ans.cron_due de {report_type} "
-        f"em {_NOTIFICATIONS_TOPIC}"
+    return instance_id, fatos
+
+
+@pytest.mark.parametrize(
+    ("cron_key", "activity_id", "resolver_id", "report_type"),
+    _CRON_DISPATCH_CASES,
+    ids=[c[3] for c in _CRON_DISPATCH_CASES],
+)
+async def test_cron_competencia_computada_por_report_type(
+    engine: EngineRest,
+    deploy_artifacts: str,
+    cron_probe: CronEngineProbe,
+    cron_key: str,
+    activity_id: str,
+    resolver_id: str,
+    report_type: str,
+) -> None:
+    """ANS-CRON-DEAD-CODE (AC principal): o tick de CADA report_type percorre
+    `ST_ResolverCompetencia*` no engine REAL, e o fato `ans.cron_due` publicado carrega uma
+    `competencia` REALMENTE COMPUTADA a partir da periodicidade daquele tipo — nunca mais o
+    literal sentinela `COMPETENCIA_PENDENTE` que o BPMN embutia.
+
+    Cobre os 5 tipos (3 periodicidades distintas: mensal, trimestral, anual), acima do minimo de
+    2 exigido pelo AC de GAP-ANS-1. Os valores esperados sao derivados pela MESMA funcao pura
+    (`_compute_competencia`) a partir da ancora que o proprio fato carrega
+    (`competencia_referencia_iso`) — nao ha data de hoje hardcoded, e a asserção continua valida
+    se o tick cruzar a meia-noite UTC.
+
+    DRAFT/verify regulatorio: a periodicidade de cada tipo e o mapeamento periodo->competencia
+    (mes/trimestre/ano ANTERIOR ao da ancora) seguem NAO confirmados com o regulatorio.
+    """
+    periodicidade_ptbr, periodicidade_iso = _REPORT_PERIODICIDADE[report_type]
+
+    instance_id, fatos = await _tick_e_drena(engine, cron_probe, cron_key, activity_id)
+
+    # O resolver REALMENTE executou (topico alcancavel — a prova viva de PERSP-B5-ANSCRON-TOPICS).
+    ended = await engine.activity_instances_ended(instance_id)
+    assert resolver_id in ended, f"{resolver_id} deveria ter executado antes do publish; ended={ended}"
+    assert any(a.startswith("End_Cron") for a in ended), (
+        f"o agendador {cron_key} deveria concluir o ciclo apos publicar o fato. ended={ended}"
     )
-    fact = facts[0]
-    assert fact["periodicidade"] == periodicidade
+
+    meus = [f for f in fatos if f.get("report_type") == report_type]
+    assert meus, f"o tick de {cron_key} deveria publicar o fato ans.cron_due de {report_type}"
+    fact = meus[0]
+
+    assert fact["periodicidade"] == periodicidade_ptbr
     assert fact["origem_envio"] == "calendario"
-    # FINDING #1c: o fato carrega o literal BPMN "COMPETENCIA_PENDENTE" — NAO computado por
-    # ans_cron.py's trigger_submissions (inalcancavel); o worker generico so grava a ancora
-    # mecanica (ans_cron_reference_date_iso).
-    assert fact["competencia"] == "COMPETENCIA_PENDENTE"
-    # FLIPPED (t2-notify-integrity item 3 follow-up — fecha o residual live-wire da EB-3 parte 3):
-    # o publicador generico agora CARIMBA o tenant do DEPLOYMENT (seam `tenant_id` do
-    # `register_events_workers`, espelhando `register_default_workers` em producao) num payload
-    # que as variaveis de processo deixaram sem tenant — verdade do deployment, nunca fabricacao
-    # (setdefault: um tenant vindo de variavel de processo jamais e sobrescrito). O fato agora
-    # viaja COM tenant, entao a regra cron→ANSSUB da bridge (que exige a ancora de tenant) arma
-    # com chave `ANSSUB-{tenant}-...` — nunca a degenerada `ANSSUB--...`.
+
+    ancora = fact["competencia_referencia_iso"]
+    assert date.fromisoformat(ancora)
+    esperada = _compute_competencia(ancora, periodicidade_iso)
+    assert esperada != COMPETENCIA_PENDENTE, "vetor de teste degenerado"
+    assert fact["competencia"] == esperada, (
+        f"{report_type}: competencia do fato {fact['competencia']!r} != computada {esperada!r} "
+        f"a partir da ancora {ancora!r} (periodicidade {periodicidade_iso})"
+    )
+    # A sentinela deixou de ser o valor de regime para os tipos conhecidos.
+    assert fact["competencia"] != COMPETENCIA_PENDENTE
+    # Ancora mecanica do publicador generico (instante da publicacao) segue presente e distinta.
+    assert date.fromisoformat(fact["ans_cron_reference_date_iso"])
+
+
+@pytest.mark.parametrize(
+    ("cron_key", "activity_id", "resolver_id", "report_type"),
+    [_CRON_DISPATCH_CASES[0], _CRON_DISPATCH_CASES[-1]],
+    ids=[_CRON_DISPATCH_CASES[0][3], _CRON_DISPATCH_CASES[-1][3]],
+)
+async def test_cron_dispara_fato_e_nao_inicia_submit_automaticamente(
+    engine: EngineRest,
+    deploy_cron_and_submit_artifacts: str,
+    cron_probe: CronEngineProbe,
+    audit_tenant: str,
+    cron_key: str,
+    activity_id: str,
+    resolver_id: str,
+    report_type: str,
+) -> None:
+    """O tick faz os WORKERS REAIS emitirem o fato tipado `ans.cron_due` — mas NENHUMA instancia
+    de SP-OP-ANS-SUBMIT-001 nasce disso automaticamente (FINDING #2): a `NotificationBridge` TEM a
+    regra, mas nenhum consumidor rodando le `operadora.notifications.internal` e chama
+    `bridge.on_event(...)` — este `cron_probe` drena apenas os topicos de external task, nunca
+    invoca a ponte.
+
+    Tecnica de job-execution do test-spec (NUNCA sleep): o timeCycle agenda o primeiro tick
+    adiante; localizamos o job-start pendente e o executamos na marra
+    (`engine.start_timer_job_id`/`execute_job`, construidos especificamente para esta familia —
+    ver `engine_rest.py`).
+    """
+    del resolver_id
+    before_submit = await engine.instance_ids_of_definition(_PROCESS_KEY_ANS_SUBMIT)
+    _instance_id, fatos = await _tick_e_drena(engine, cron_probe, cron_key, activity_id)
+    after_submit = await engine.instance_ids_of_definition(_PROCESS_KEY_ANS_SUBMIT)
+
+    assert after_submit == before_submit, (
+        f"FINDING #2 violada: uma instancia de {_PROCESS_KEY_ANS_SUBMIT} apareceu sem nenhum "
+        f"consumidor vivo da ponte. novas={after_submit - before_submit}"
+    )
+
+    meus = [f for f in fatos if f.get("report_type") == report_type]
+    assert meus, f"o tick de {cron_key} deveria publicar o fato ans.cron_due de {report_type}"
+    fact = meus[0]
+    # O publicador generico CARIMBA o tenant do DEPLOYMENT (seam `tenant_id` de
+    # `register_events_workers`) num payload que as variaveis de processo deixaram sem tenant —
+    # verdade do deployment, nunca fabricacao (setdefault: um tenant vindo de variavel de processo
+    # jamais e sobrescrito). O fato viaja COM tenant, entao a regra cron->ANSSUB da ponte arma com
+    # chave `ANSSUB-{tenant}-{report_type}-{competencia}` — nunca a degenerada `ANSSUB--...`.
     assert fact["tenant_id"] == audit_tenant, (
         "o fato deveria carregar o tenant do deployment (seam tenant_id do register_events_workers)"
     )
-    assert date.fromisoformat(fact["ans_cron_reference_date_iso"])

@@ -94,7 +94,7 @@ def test_register_default_workers_topics_match_expected_prefixes() -> None:
     assert "operadora.escalation.notify_team" in topics
     assert "operadora.lgpd.execute_erasure" in topics
     assert "operadora.adequacao.register_fallback_commitment" in topics
-    assert "operadora.ans_cron.check_calendar" in topics
+    assert "operadora.ans_cron.trigger_submissions" in topics
     assert "regulatorio.anssubmit.submit" in topics
     assert "operadora.cancel.send_cancellation_notice" in topics
     assert "operadora.contas.register_glosa_accept" in topics
