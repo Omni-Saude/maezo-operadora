@@ -1,0 +1,43 @@
+{
+  "id": "EVL-HELENA-CLAREZA-02",
+  "agent": "helena",
+  "class": "CL",
+  "tier": ["A"],
+  "description": "Clarity/legibility (gap 10.3, WP-EVALS): administrative inform response (same intent shape as EVL-HELENA-02) -- checks that the plain-language answer stays short-sentenced and free of leaked internal/engine jargon. No mandatory disclaimer applies to a non-escalation informational reply. Synthetic data only (tenant amh, pseudo id).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-clareza-02",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-C02",
+      "message_body": "Quero saber qual e o meu limite de carencia"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"information\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
+    "Voce pode consultar os prazos de carencia no aplicativo ou falando com um atendente. Qualquer duvida, estamos por aqui."
+  ],
+  "expect": {
+    "next_kind": "inform",
+    "fields": {
+      "intent": "information"
+    }
+  },
+  "leak_canaries": [],
+  "clarity": {
+    "field": "response_text",
+    "max_words_per_sentence": 20,
+    "forbidden_jargon": [
+      "DMN",
+      "dmn_table",
+      "dmn_decision_ref",
+      "motivo_categoria",
+      "escalation_motivo",
+      "sintoma_codigo",
+      "business_key",
+      "resumo_contexto",
+      "next_kind"
+    ],
+    "required_disclaimers": []
+  }
+}

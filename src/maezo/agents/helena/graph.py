@@ -15,13 +15,23 @@ the LLM extracts + normalizes `sintoma_codigo`/`intensidade`/a population field;
 true -> `escalate`, which starts SP-OP-ESCALATION-001 (idempotent, business key
 `ESC-{tenant}-{conversation_id}`) via the CibSeven transport.
 
-Five escalation triggers (each maps to a distinct `motivo_categoria`, contract
+Six escalation triggers (each maps to a distinct `motivo_categoria`, contract
 SP-OP-ESCALATION-001):
 1. DMN red_flag=true                       -> red_flag_clinico (or risco_psicossocial if the
                                                mental_health table fired)
 2. intent = clinical question              -> intencao_clinica (L0 hard — Helena never answers)
 3. explicit request for a human            -> solicitacao_humano
-4. technical failure                       -> falha_tecnica — DMN down/no-result, OR any
+4. intent = scheduling                     -> solicitacao_humano (GAP 9.2 — direct scheduling is
+                                               OUT OF SCOPE this phase; the `schedule` node drafts
+                                               its own honest, scheduling-specific reply, then
+                                               hands off through the SAME SP-OP-ESCALATION-001
+                                               start `escalate` uses, via the shared
+                                               `_start_escalation` helper — the beneficiary is
+                                               actually routed to a human, not just told one will
+                                               follow up. See `spec/agents/helena/agent.yaml`'s
+                                               `scope`/`out_of_scope` block for the phase-boundary
+                                               declaration this trigger implements.)
+5. technical failure                       -> falha_tecnica — DMN down/no-result, OR any
                                                classify-LLM failure: exception, unparseable
                                                JSON, or schema-invalid JSON (unknown intent,
                                                invalid population, non-allow-listed
@@ -32,12 +42,12 @@ SP-OP-ESCALATION-001):
                                                live-reproduced by the verifier); it now
                                                escalates, symmetric with every other failure
                                                path in this graph.
-5. psychosocial risk in ANY message        -> risco_psicossocial (always evaluated, highest
+6. psychosocial risk in ANY message        -> risco_psicossocial (always evaluated, highest
                                                priority — never gated behind `intent`)
 
 L0 HARD INVARIANT: Helena NEVER resolves a clinical concern herself. Every path ends in either
-a human task (`escalate` -> SP-OP-ESCALATION-001's `UT_TratarEscalonamento`) or an explicit,
-non-clinical response (`inform`/`schedule`) drafted by an LLM that is instructed to never give
+a human task (`escalate`/`schedule` -> SP-OP-ESCALATION-001's `UT_TratarEscalonamento`) or an
+explicit, non-clinical response (`inform`) drafted by an LLM that is instructed to never give
 clinical guidance (see `prompts.py`).
 
 PHI discipline (ADR-0006/ADR-0017, T1.7's gate): every LLM call in this module passes
@@ -616,9 +626,23 @@ class HelenaGraph:
         return {"response_text": text, "response_kind": "inform"}
 
     async def schedule(self, state: HelenaState) -> dict[str, Any]:
-        """Direct scheduling is not yet available on this channel -> offers a human follow-up."""
-        text = await self._respond_llm(state, "schedule")
-        return {"response_text": text, "response_kind": "schedule"}
+        """GAP 9.2 fix: direct scheduling is out of scope this phase, but the beneficiary is
+        actually HANDED OFF to a human, not just told one will follow up. Pre-fix this node only
+        drafted the honest "not available on this channel" reply and ended the turn — the
+        promise of a human follow-up (`prompts.py`'s `response_kind="schedule"` instructions)
+        was never backed by a real SP-OP-ESCALATION-001 start, so a beneficiary asking to
+        (re)schedule got a dead end unless they asked again in words `classify` recognizes as
+        `human_request`. This now routes through the SAME `_start_escalation` helper `escalate`
+        uses (`motivo_categoria="solicitacao_humano"` — the contract vocabulary's closest fit for
+        "needs a human to act", `spec/agents/helena/agent.yaml`'s `escalation.triggers`), just
+        with the scheduling-specific reply text (`response_kind="schedule"`) instead of the
+        generic escalate one."""
+        return await self._start_escalation(
+            state,
+            motivo="solicitacao_humano",
+            severidade=state.get("escalation_severidade", "leve"),
+            response_kind="schedule",
+        )
 
     async def escalate(self, state: HelenaState) -> dict[str, Any]:
         """Start SP-OP-ESCALATION-001 idempotently and draft the handoff response.
@@ -631,6 +655,26 @@ class HelenaGraph:
             "falha_tecnica" if state.get("error") else "outro"
         )
         severidade: Severidade = state.get("escalation_severidade", "leve")
+        return await self._start_escalation(
+            state, motivo=motivo, severidade=severidade, response_kind="escalate"
+        )
+
+    async def _start_escalation(
+        self,
+        state: HelenaState,
+        *,
+        motivo: MotivoCategoria,
+        severidade: Severidade,
+        response_kind: ResponseKind,
+    ) -> dict[str, Any]:
+        """Shared SP-OP-ESCALATION-001 start, factored out of `escalate` (GAP 9.2) so `schedule`
+        can hand off to a human through the EXACT SAME audited/idempotent path instead of a
+        second, parallel (and easy-to-drift) implementation. `response_kind` is the only thing
+        that varies downstream: it selects which honest reply `prompts.py.response_prompt()`
+        drafts (`"escalate"`'s generic handoff text vs `"schedule"`'s scheduling-specific one) —
+        the escalation itself (business key, audit-before-effect, idempotent start, provenance)
+        is identical regardless of caller.
+        """
         business_key = _business_key(state)
 
         resumo = await self._resumo_contexto(state, motivo)
@@ -655,7 +699,7 @@ class HelenaGraph:
         if ref:
             variables["dmn_decision_ref"] = ref
 
-        response_text = await self._respond_llm(state, "escalate")
+        response_text = await self._respond_llm(state, response_kind)
         provenance = AgentDecisionProvenance(
             agent_id="helena",
             agent_version=self._agent_version,
@@ -686,7 +730,7 @@ class HelenaGraph:
                 "escalation_business_key": business_key,
                 "error": f"start_process indisponivel: {exc}",
                 "response_text": response_text,
-                "response_kind": "escalate",
+                "response_kind": response_kind,
             }
 
         return {
@@ -700,7 +744,7 @@ class HelenaGraph:
                 "already_existed": instance.already_existed,
             },
             "response_text": response_text,
-            "response_kind": "escalate",
+            "response_kind": response_kind,
         }
 
     async def respond(self, state: HelenaState) -> dict[str, Any]:

@@ -20,9 +20,10 @@ from maezo.tools.workers.base import (
     FunctionWorker,
     contract_business_key_forms,
     mint_contract_business_key,
+    non_blank,
 )
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
-from maezo.tools.workers.harness import AUDIT_AGENT_ID, _resolve_app_version
+from maezo.tools.workers.harness import AUDIT_AGENT_ID, WorkerBpmnError, _resolve_app_version
 
 if TYPE_CHECKING:
     from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
@@ -34,6 +35,31 @@ logger = structlog.get_logger(__name__)
 # Error codes
 # ---------------------------------------------------------------
 
+# ERR_CONTRACT_SUSPENSION_NOT_HUMAN is a MODELED BPMN boundary error (spec/processes/bpmn/
+# SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn: `Error_ContractSuspensionNotHuman`, caught by
+# `BE_SuspensaoNaoHumano` on `ST_RegisterSuspension` -> the NEUTRO terminal
+# `End_SuspensaoBloqueadaNaoHumano`). The guard below therefore raises `WorkerBpmnError(code)` —
+# NOT a `.code`/`.message` `InadimplenciaError` — mirroring `cancel.confirm_maintained_decision`
+# (`ERR_CANCEL_MANTER_NOT_HUMAN`) and `credenciamento`'s two adverse `*_NOT_HUMAN` guards
+# (ADR-0030 §2/§4, Tier-3 G2-guard; this family was the ADR's own disclosed "unmigrated" example —
+# ADR-0030 ratification amendment note). Rationale (unchanged from cred/cancel): an
+# `InadimplenciaError` is reclassified by `FunctionWorker.execute` (base.py:284-293) into a bare
+# `ValueError`, which `WorkerHarness._handle`'s `except ValueError` branch reports as a generic
+# `failure(retries=0)` incident and NEVER consults the `bpmn_error_allowlist` — so the modeled
+# boundary could NEVER fire (the guard blocked the suspension, but the clean neutral terminal was
+# structurally UNREACHABLE, left as an opaque engine incident). `WorkerBpmnError` propagates
+# unchanged through `execute` (it exposes `.error_code`, not `.code`/`.message`) to the harness's
+# `except WorkerBpmnError` branch, which routes it to `handle_bpmn_error` (the boundary) when the
+# code is allowlisted. `_NOT_HUMAN` adverse guard -> T-E-gated (ADR-0030 §4): consumption-covered
+# by the boundary-proof gate (`scripts/ci/check_bpmn_error_allowlist.py`), yet DEFERRED out of
+# `PRODUCTION_BPMN_ERROR_ALLOWLIST` until T-E audited-refusal is production-activated for THIS
+# code (the harness's T-E guard-refusal audit already recognizes it — `is_guard_refusal_code`
+# matches on the `_NOT_HUMAN` suffix — so the refusal stays audited either way); the runtime
+# behavior is UNCHANGED today (still an incident) — this closes only the raise-side migration, the
+# same phased split cred's two guard codes went through (PR #166). No
+# `INADIMPLENCIA_BPMN_ERROR_ALLOWLIST` constant is added: with only a T-E-deferred code to
+# contribute, there is nothing to wire into `service.py` yet — mirrors `cancel`, whose sole
+# gate-proven code (`ERR_CANCEL_MANTER_NOT_HUMAN`) also exposes no allowlist constant.
 ERR_CONTRACT_SUSPENSION_NOT_HUMAN = "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
 ERR_INAD_INVALID_CONTRATO = "ERR_INAD_INVALID_CONTRATO"
 
@@ -318,28 +344,88 @@ def calculate_purge(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
-# notify_beneficiario — register prior notice
+# dispatch_prior_notice — cure-window kickoff step (asserts NOTHING)
 # ---------------------------------------------------------------
 
 
-def notify_beneficiario(variables: dict[str, Any]) -> dict[str, Any]:
-    """Register/dispatch prior notice to the beneficiary (RN 593).
+def dispatch_prior_notice(variables: dict[str, Any]) -> dict[str, Any]:
+    """Log that the RN-593 prior-notice STEP ran. Returns `{}` — asserts NO fact.
 
-    This is a NEUTRAL action — it informs, it does NOT suspend/rescind.
+    NEUTRAL action — it never suspends/rescinds. Bound to
+    `operadora.inadimplencia.check_prior_notice` (`ST_CheckPriorNotice`,
+    `spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn:131-136`).
+
+    GAP-INAD-8 / WP-FATOS-FABRICADOS slice 2 (the fix this docstring exists for). This handler
+    used to be named `notify_beneficiario` and returned, unconditionally and on every delivery::
+
+        {"notificacao_previa_feita": True, "notificacao_previa_registrada_em": "now"}
+
+    Neither key was computed from anything: no channel was contacted, no delivery was observed,
+    and `"now"` was a literal placeholder, not a timestamp. The harness LOADS a handler's return
+    dict into process scope on `complete` (`harness.py:1778-1782`), so that constant genuinely
+    reached the engine and its TWO real consumers:
+
+      1. `spec/processes/dmn/inadimplencia_status.dmn:37-38` — `in_notificacao_previa` reads
+         `notificacao_previa_feita`; row `r_pendente_notificacao` (`:68-77`) routes
+         `PENDENTE_NOTIFICACAO` only on `false`.
+      2. The CANCEL-001 handoff (`handoff_rescisao` below): `cancel_admissibility.dmn:63-64` reads
+         the same name, and `cancel.assess_admissibility` (`cancel.py`) branches on it for
+         `tipo_solicitacao in ("inadimplencia", "for_cause_operadora")`.
+
+    Because the constant was always `True`, NEITHER consumer could ever take its
+    `PENDENTE_NOTIFICACAO` branch for an inadimplencia-originated case — the automation asserted
+    the very regulatory precondition it exists to check (art. 13, par. unico, II da Lei 9.656/98:
+    "comprovada notificacao ate o quinquagesimo dia de inadimplencia"; RN 593 — **DRAFT/verify**).
+
+    WHY `{}` AND NOT A REAL PUBLISH (option (a) evaluated and rejected on evidence). A worker's
+    seams are `engine`, `dmn`, `kafka` and `audit_sink` (`harness.py`); there is NO outbound
+    beneficiary channel among them. The one WhatsApp seam in the tree
+    (`maezo.tools.mcp_whatsapp.server.WhatsAppServer`) is reachable only from the conversational
+    agents and the webhook service (`agents/helena/adapters.py`, `agents/lucas/adapters.py`,
+    `platform/webhooks/whatsapp/dispatch.py`), never from a BPMN worker; and
+    `platform/notification_bridge.py` is a process-to-process HANDOFF bridge (it STARTS processes
+    from events), not a messaging channel. One task later, the BPMN itself DOES already publish an
+    event on this path, via the generic `operadora.events.publish`
+    (`ST_PublishInadimplenciaNotified` -> `agents.events.inadimplencia.notified`, BPMN `:149-158`)
+    — but that publish is UNCONDITIONAL and asserts NOTHING about delivery: it fires on every
+    instance, right after this task, in a tree where no worker can notify a beneficiary (see WHY
+    above). It is not a safe "notice requested" fact this handler could duplicate; it is the same
+    false-assertion species this fix exists to remove, one layer up, with zero consumers today and
+    left untouched here — renaming/re-semanticising a live BPMN topic is an owner/spec decision,
+    not a worker-handler fix (tracked as GAP-INAD-9, `docs/review-queue.md`). Re-publishing from
+    here would add nothing either way: an internal Kafka record is at best a dispatch trace, never
+    the `comprovada notificacao` the statute requires.
+
+    WHERE THE HONEST FACT COMES FROM INSTEAD (both pre-existing, neither invented here):
+      - `msg.inadimplencia.notificacao_ack` (BPMN `:14,:180-184`) — the receipt-confirmation
+        correlation. Its `processVariables` payload is what may legitimately set
+        `notificacao_previa_feita=true`, exactly as `SP-OP-CANCEL-001.md:107-117` (GAP-CANCEL-4)
+        already specifies for the sibling process.
+      - `comprovacao_notificacao_previa` — the human's proof REFERENCE, collected on
+        `UT_AnaliseInadimplencia` and enforced fail-closed by `_register_contract_suspension`
+        (`errors.append("comprovacao_notificacao_previa ausente (RN 593)")`). This is the exact
+        equivalent of CRED's human-confirmed field (`SP-OP-CRED-001.md:62,71`), and it is what
+        `handoff_rescisao` now DERIVES the CANCEL-001 fact from.
+
+    NO LIVELOCK from returning `{}` (checked against the shipped BPMN, not assumed): both
+    `AGUARDA_PURGA` and `PENDENTE_NOTIFICACAO` converge on `BRT_PurgaPrazos` (`:120-128`, two
+    incoming flows) -> this task -> `ST_PublishInadimplenciaNotified` -> `GW_CureWindow`, an
+    event-based gateway whose THIRD branch is the `ICE_PrazoPurga` timer (`:187-193`) routing to
+    SLA + the human `UT_AnaliseInadimplencia`. Every path out of the wait either ends neutral
+    (payment/purge) or reaches a human; none auto-suspends and none spins without an external
+    message.
     """
     numero_contrato = variables.get("numero_contrato", "")
     matricula = variables.get("matricula_beneficiario", "")
 
     logger.info(
-        "inadimplencia_notify_beneficiario",
+        "inadimplencia_dispatch_prior_notice",
         numero_contrato=numero_contrato,
         matricula=matricula,
+        notificacao_previa_feita_asserted=False,
     )
 
-    return {
-        "notificacao_previa_feita": True,
-        "notificacao_previa_registrada_em": "now",  # placeholder
-    }
+    return {}
 
 
 # ---------------------------------------------------------------
@@ -469,7 +555,7 @@ def _register_contract_suspension(variables: dict[str, Any]) -> dict[str, Any]:
     NORMALIZATION (t3.1-guard-input-hardening): ALL decision + human-accountability STRING
     fields (`decisao_inadimplencia`, `responsavel_id`, `fundamentacao_contratual`,
     `referencia_regulatoria`, `comprovacao_notificacao_previa`, `comprovacao_periodo_minimo` —
-    contract SP-OP-INADIMPLENCIA-001.md:94-98,155,174) are normalized via `_norm_str` (strip;
+    contract SP-OP-INADIMPLENCIA-001.md:96-100,157,176) are normalized via `_norm_str` (strip;
     non-string -> "") BEFORE any guard check, mirroring `pagto.register_payment_refusal`'s fix.
     Whitespace-only/non-string refuses exactly like absent; a whitespace-PADDED exact
     `decisao_inadimplencia` literal still passes (exact `!=` match, no folding). The
@@ -515,10 +601,9 @@ def _register_contract_suspension(variables: dict[str, Any]) -> dict[str, Any]:
             errors=errors,
             numero_contrato=variables.get("numero_contrato"),
         )
-        raise InadimplenciaError(
-            ERR_CONTRACT_SUSPENSION_NOT_HUMAN,
-            "; ".join(errors),
-        )
+        # MODELED boundary error (BE_SuspensaoNaoHumano) — WorkerBpmnError, not InadimplenciaError;
+        # see the error-codes section above and cancel.confirm_maintained_decision for the rationale.
+        raise WorkerBpmnError(ERR_CONTRACT_SUSPENSION_NOT_HUMAN, "; ".join(errors))
 
     logger.info(
         "inadimplencia_contract_suspension_registered",
@@ -549,13 +634,17 @@ register_contract_suspension = _register_contract_suspension
 #: SEGUE_ANALISE without re-opening the cure-window — INADIMPLENCIA owns the cure-window, CANCEL
 #: must not re-run it (harmonization-inadimplencia-cancel.md §2). Explicit allowlist (never a
 #: passthrough of the full variable dict): only bounded identifiers/enums/refs, no raw PHI.
+#:
+#: GAP-INAD-8: `notificacao_previa_feita` is DELIBERATELY NOT in this tuple — see
+#: `_notificacao_previa_comprovada` and `handoff_rescisao`'s payload below. It is no longer a
+#: passthrough of whatever sits in process scope; it is DERIVED from the human's proof reference,
+#: so the value CANCEL branches on cannot be inherited from a fabrication.
 _HANDOFF_CARRY_KEYS = (
     "numero_contrato",
     "matricula_beneficiario",
     "tenant_id",
     "tipo_plano",
     "meses_inadimplencia",
-    "notificacao_previa_feita",
     "comprovacao_notificacao_previa",
     "comprovacao_periodo_minimo",
     "referencia_regulatoria",
@@ -565,6 +654,40 @@ _HANDOFF_CARRY_KEYS = (
     # trail; CANCEL's OWN human gate (UT_AnaliseRescisao) re-confirms the rescisao decision.
     "responsavel_id",
 )
+
+
+def _notificacao_previa_comprovada(variables: dict[str, Any]) -> bool:
+    """The HONEST `notificacao_previa_feita` handed to CANCEL-001: was the prior notice PROVEN?
+
+    GAP-INAD-8 (WP-FATOS-FABRICADOS slice 2). Before this fix the handoff passed
+    `notificacao_previa_feita` straight through from process scope, where
+    `notify_beneficiario` (now `dispatch_prior_notice`) had just written the unconditional
+    constant `True`. So `cancel.assess_admissibility`'s `PENDENTE_NOTIFICACAO` branch was
+    structurally unreachable for every inadimplencia-originated case, and CANCEL-001's
+    `cancel_admissibility.dmn:63-64` read a fabricated input.
+
+    The honest source is the SAME artifact the adverse-effect guard in this module already
+    requires from the human: `comprovacao_notificacao_previa`, the proof reference collected on
+    `UT_AnaliseInadimplencia` (contract `SP-OP-INADIMPLENCIA-001.md:98,157`) and enforced
+    fail-closed by `_register_contract_suspension`. This is not a re-fabrication under a new name:
+    the value is `True` only when a human actually recorded a proof reference for THIS case, and
+    `False` — routing CANCEL to its non-adverse `PENDENTE_NOTIFICACAO` wait — whenever they did
+    not. It mirrors CRED's design, where `comprovacao_notificacao_previa` is likewise named as
+    "a comprovacao real de recebimento" while `notificacao_previa_feita` is never worker-resolved
+    (`SP-OP-CRED-001.md:62,71`).
+
+    FAIL CLOSED in both directions: a missing, blank, whitespace-only or non-string value yields
+    `False` (`_norm_str` strips and maps non-strings to `""`). `False` is never adverse — CANCEL's
+    `PENDENTE_NOTIFICACAO` branch runs `BRT_CancelSlaPreNotif` -> `ST_RequestNotification` ->
+    `ST_PublishCancelPended` -> `GW_AguardarNotificacao`, whose timer branch converges on the human
+    `UT_AnaliseRescisao` (`SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn:156-200,479-492`). No
+    automatic rescission exists on any of those paths.
+
+    Legal anchor stays **DRAFT/verify**: art. 13, par. unico, II da Lei 9.656/98 requires
+    "comprovada notificacao ate o quinquagesimo dia de inadimplencia"; RN 593 is the operational
+    reading used across this process and is not confirmed from `docs/compliance/` here.
+    """
+    return bool(_norm_str(variables.get("comprovacao_notificacao_previa", "")))
 
 
 def _contract_identity_log_fields(numero_contrato: str, matricula_beneficiario: str) -> dict[str, str]:
@@ -626,6 +749,20 @@ def handoff_rescisao(
     The business key is a DETERMINISTIC function of process variables (no wall-clock / uuid), so a
     re-run keys the same instance (and its audit emit dedups to the same chain link).
 
+    GATE PREREQUISITES (GAP-D3-02). ``SP-OP-CANCEL-001`` is an ``EXCLUSIVE`` start-dedup family
+    (`mcp_cibseven.transport._START_DEDUP_POLICY`), so the chokepoint requires TWO seam
+    capabilities beyond a bare transport/sink: ``engine`` must satisfy ``HistoryQueryingTransport``
+    (``find_any_instance``) and ``audit_sink`` must satisfy ``DedupReportingAuditSink``
+    (``emit_once_status``). Both hold in the live daemon: the ``engine=`` seam is a
+    ``GatedHistoryQueryingCibSevenTransport`` over ``FreshClientCibSevenTransport``
+    (`gateway/seams/cibseven.py:128` `gate_cibseven` preserves the inner's history-querying
+    capability; `runtime/worker_runtime/service.py:647`), and the ``audit_sink=`` seam is a
+    ``FreshSinkAuditEmitter`` (`gateway/audit_postgres.py:473`), wired at
+    `runtime/worker_runtime/service.py:787-790`. If a
+    composition root ever supplies a seam WITHOUT them, the chokepoint raises
+    ``StartDedupGateUnavailableError`` BEFORE writing anything durable and NEVER falls back to the
+    un-gated (TOCTOU-only) path — an un-gateable contract-termination start does not run.
+
     FAIL-CLOSED (never a silent no-op — mirrors fraude's ``start_contratual`` handoff intent):
       - a transport/engine error propagates from ``start_process_idempotent`` (``CibSevenError`` ->
         transient -> engine retry -> incident);
@@ -635,7 +772,12 @@ def handoff_rescisao(
       - a missing audit seam (``audit_sink is None``) raises (transient) — the handoff can never
         start CANCEL-001 un-audited (ADR-0007 L0);
       - a missing contract identity raises ``InadimplenciaError`` (deterministic -> immediate
-        incident) — the handoff can never target an empty CANCEL business key.
+        incident) — the handoff can never target an empty CANCEL business key;
+      - a missing/blank/``None`` ``tenant_id`` raises ``InadimplenciaError`` the same way (GK
+        MINOR F7, validated with the SHARED ``base.non_blank`` — the same idiom
+        ``fraude.start_contratual`` and the bridge's ``_anchored`` already used): a degenerate
+        ``CANCEL--{contrato}`` key would collapse every tenant's contract onto ONE business key,
+        one dedup claim and — since GAP-D3-02 — ONE ``EXCLUSIVE`` mutual-exclusion token.
     """
     decisao = variables.get("decisao_inadimplencia", "")
     if decisao != DECISAO_ENCAMINHAR_RESCISAO:
@@ -645,9 +787,29 @@ def handoff_rescisao(
         )
         return {"handoff_executado": False}
 
-    tenant_id = str(variables.get("tenant_id", ""))
     numero_contrato = str(variables.get("numero_contrato", ""))
     matricula_beneficiario = str(variables.get("matricula_beneficiario", ""))
+
+    # `non_blank` BEFORE `str()`: explicit `None` must refuse, never stringify to the truthy
+    # "None". SAME idiom as `fraude.start_contratual` and the bridge's `_anchored` — this call
+    # site was the one CANCEL-001 composer that did not validate its tenant anchor (GK MINOR F7).
+    # A blank/whitespace/None tenant mints the degenerate key `CANCEL--{contrato}` and a dedup key
+    # `:start:SP-OP-CANCEL-001:...`, collapsing EVERY tenant's contract `C-001` onto ONE business
+    # key — and since GAP-D3-02 that degenerate key also carries an EXCLUSIVE mutual-exclusion
+    # token, so one tenant's in-flight rescisao review would gate another tenant's.
+    if not non_blank(variables.get("tenant_id")):
+        logger.error(
+            "inadimplencia_handoff_rescisao_no_tenant_anchor",
+            **_contract_identity_log_fields(numero_contrato, matricula_beneficiario),
+        )
+        raise InadimplenciaError(
+            ERR_INAD_INVALID_CONTRATO,
+            "handoff_rescisao: tenant_id ausente, em branco ou None — nao ha ancora de tenant "
+            "para a business key de CANCEL-001 (recusado, nunca inicia com chave degenerada "
+            "'CANCEL--{contrato}' que colapsaria tenants distintos numa unica chave)",
+        )
+
+    tenant_id = str(variables.get("tenant_id", ""))
     beneficiario_pseudo_id = str(variables.get("beneficiario_pseudo_id", ""))
 
     if not (numero_contrato or matricula_beneficiario):
@@ -693,10 +855,16 @@ def handoff_rescisao(
     cancel_business_key = _cancel_business_key(
         tenant_id, numero_contrato, matricula_beneficiario, beneficiario_pseudo_id
     )
+    # GAP-INAD-8: DERIVED, never inherited. Computed BEFORE the payload so the same value feeds
+    # both the CANCEL-001 start variables and the ADR-0007 `decision_basis` below — the audit row
+    # and the process it starts can never disagree about whether the notice was proven.
+    notificacao_previa_comprovada = _notificacao_previa_comprovada(variables)
+
     payload: dict[str, Any] = {
         "tipo_solicitacao": "inadimplencia",
         "origem_solicitacao": "operadora",  # handoff origin (harmonization §2)
         **{k: variables[k] for k in _HANDOFF_CARRY_KEYS if k in variables},
+        "notificacao_previa_feita": notificacao_previa_comprovada,
     }
 
     # ADR-0007 provenance for the fenced start (T-C2, 10th site). Deterministic worker context:
@@ -710,7 +878,7 @@ def handoff_rescisao(
         decision_basis={
             "decisao_inadimplencia": decisao,
             "origem_solicitacao": "operadora",
-            "notificacao_previa_feita": bool(variables.get("notificacao_previa_feita", False)),
+            "notificacao_previa_feita": notificacao_previa_comprovada,
         },
         model_id=None,
         prompt_version=None,
@@ -767,8 +935,9 @@ class InadimplenciaError(Exception):
 # (excl. shared/out-of-scope `operadora.events.publish`):
 #   resolve_facts       -> operadora.inadimplencia.resolve_facts (exact spec match; threads the
 #     `engine=` seam for the anti-dupla-terminacao CANCEL-001 correlation query, GAP-INAD-1)
-#   notify_beneficiario -> operadora.inadimplencia.check_prior_notice
-#     (spec match: RN 593 prior-notice dispatch)
+#   dispatch_prior_notice -> operadora.inadimplencia.check_prior_notice
+#     (spec match: RN 593 prior-notice dispatch STEP; asserts no fact — GAP-INAD-8, was
+#     `notify_beneficiario`, which returned a constant `notificacao_previa_feita=True`)
 #   prepare_dossier -> operadora.inadimplencia.prepare_dossier (exact spec match; INSTRUCTS the
 #     human User Task, never originates an adverse decision — cancel/auth dossier pattern)
 #   register_suspension (alias register_contract_suspension)
@@ -823,7 +992,9 @@ def register_inadimplencia_workers(
         FunctionWorker("operadora.inadimplencia.assess_status", functools.partial(assess_status, dmn=dmn))
     )
     harness.register_worker(FunctionWorker("operadora.inadimplencia.calculate_purge", calculate_purge))
-    harness.register_worker(FunctionWorker("operadora.inadimplencia.check_prior_notice", notify_beneficiario))
+    harness.register_worker(
+        FunctionWorker("operadora.inadimplencia.check_prior_notice", dispatch_prior_notice)
+    )
     harness.register_worker(FunctionWorker("operadora.inadimplencia.prepare_dossier", prepare_dossier))
     harness.register_worker(
         FunctionWorker("operadora.inadimplencia.register_contract_suspension", register_contract_suspension)

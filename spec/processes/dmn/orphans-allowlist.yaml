@@ -10,8 +10,11 @@
 #
 # Each entry needs a one-line justification. The three recurring legitimate
 # reasons observed in this tree:
-#   - "agent-consumed": the DMN is evaluated directly by an agent via
-#     mcp-dmn.evaluate (ADR-0012), not wired into a BPMN businessRuleTask.
+#   - "agent-consumed": the DMN is evaluated directly by an agent via the
+#     engine-side DmnTransport.evaluate seam (ADR-0028; ADR-0012 for the
+#     triage use), not wired into a BPMN businessRuleTask. PERSP-C5-ORPHANS-
+#     MECHANISM: this used to say "mcp-dmn.evaluate", naming the deprecated
+#     fail-open in-process evaluator (AF-08) instead of the real mechanism.
 #   - "pending wiring": the decision table was drafted ahead of the BPMN
 #     process/branch that will eventually call it.
 #   - "worker-consumed": the DMN is evaluated directly by a Python worker via
@@ -93,28 +96,32 @@ orphans:
     (juridico/contratos + financas + medico auditor — docs/review-queue.md).
   lucas_billing_admissibility: >-
     Agent-consumed: evaluated directly by the Lucas agent via
-    mcp-dmn.evaluate (agents/lucas/graph.py), not through a BPMN
-    businessRuleTask.
+    DmnTransport.evaluate (ADR-0028 seam; agents/lucas/graph.py), not through a
+    BPMN businessRuleTask.
   lucas_escalation_routing: >-
     Agent-consumed: evaluated directly by the Lucas agent via
-    mcp-dmn.evaluate (agents/lucas/graph.py), not through a BPMN
-    businessRuleTask.
+    DmnTransport.evaluate (ADR-0028 seam; agents/lucas/graph.py), not through a
+    BPMN businessRuleTask.
   triage_redflag_adult: >-
     Agent-consumed: evaluated directly by the Helena agent via
-    mcp-dmn.evaluate (ADR-0012) for informal triage red-flag screening, not
-    through a BPMN businessRuleTask — no SP-OP-TRIAGE-* process exists yet.
+    DmnTransport.evaluate (ADR-0028 seam; ADR-0012 for the informal triage
+    red-flag use) — not through a BPMN businessRuleTask; no SP-OP-TRIAGE-*
+    process exists yet.
   triage_redflag_gestante: >-
     Agent-consumed: evaluated directly by the Helena agent via
-    mcp-dmn.evaluate (ADR-0012) for informal triage red-flag screening, not
-    through a BPMN businessRuleTask — no SP-OP-TRIAGE-* process exists yet.
+    DmnTransport.evaluate (ADR-0028 seam; ADR-0012 for the informal triage
+    red-flag use) — not through a BPMN businessRuleTask; no SP-OP-TRIAGE-*
+    process exists yet.
   triage_redflag_mental_health: >-
     Agent-consumed: evaluated directly by the Helena agent via
-    mcp-dmn.evaluate (ADR-0012) for informal triage red-flag screening, not
-    through a BPMN businessRuleTask — no SP-OP-TRIAGE-* process exists yet.
+    DmnTransport.evaluate (ADR-0028 seam; ADR-0012 for the informal triage
+    red-flag use) — not through a BPMN businessRuleTask; no SP-OP-TRIAGE-*
+    process exists yet.
   triage_redflag_pediatric: >-
     Agent-consumed: evaluated directly by the Helena agent via
-    mcp-dmn.evaluate (ADR-0012) for informal triage red-flag screening, not
-    through a BPMN businessRuleTask — no SP-OP-TRIAGE-* process exists yet.
+    DmnTransport.evaluate (ADR-0028 seam; ADR-0012 for the informal triage
+    red-flag use) — not through a BPMN businessRuleTask; no SP-OP-TRIAGE-*
+    process exists yet.
   upcoding_complexity_ceiling: >-
     Worker-consumed via DmnTransport since T2.7 phase 2
     (operadora.fraude.score_indicators, ADR-0028 dmn= seam) — evaluated

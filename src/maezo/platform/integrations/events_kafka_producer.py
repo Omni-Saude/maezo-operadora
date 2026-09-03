@@ -69,6 +69,18 @@ escalation's modeled `ERR_ESC_NOTIFY_FAILED` boundary or lgpd's harness retry/in
 `best_effort=True` forces swallow. The MIRROR leg is ALWAYS best-effort regardless (unchanged) — a
 mirror failure must never break a source BPMN.
 
+PARTITION-KEY CHOKEPOINT (GAP-SC-04-a, audit D5 / gateway gvr-d05 — the ordering fix): `publish()`
+used to accept `key=None` as a silent default, and every call site spelled the key
+`key=task.business_key or None`, so a blank business key degraded — silently — into "no partition
+key at all". With the registry's default `partitions=3` (`topic_registry.py:75,142`) a keyless
+record is assigned round-robin, so two events about the SAME beneficiary/process can land on
+DIFFERENT partitions. One consumer replica hides that; scaling the notifications-bridge past one
+replica would expose it as reordering. `publish()` now REFUSES a keyless publish
+(`partition_key.MissingPartitionKeyError`) unless the caller declares `unordered=True`, and derives
+a deterministic, PHI-free key from the payload when the caller passes none — see
+`maezo.platform.integrations.partition_key` for the derivation chain and the PHI proof. The refusal
+is the point: absence of a key is never again read as "ordering does not matter here".
+
 PHI/scrub backstop (task's own ask — "if the convention requires one"): the per-domain payload
 `events.py` builds is untouched (BPMN `event_payload_vars` authors already curated it — verified,
 zero free-text vars in any `event_payload_vars` list, per `events.py`'s own docstring). The
@@ -88,6 +100,11 @@ from collections.abc import Mapping
 from typing import Any, Protocol
 
 import structlog
+
+from maezo.platform.integrations.partition_key import (
+    MissingPartitionKeyError,
+    derive_partition_key,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -338,6 +355,35 @@ class AioKafkaEventsProducer:
         assert self._raw is not None  # narrows for mypy — set immediately above under the lock
         return self._raw
 
+    def resolve_partition_key(
+        self, topic: str, value: Mapping[str, Any], *, key: str | None, unordered: bool
+    ) -> str | None:
+        """The GAP-SC-04-a fail-closed key gate. Returns the key to publish with.
+
+        `key` when the caller supplied a non-blank one (arm (1) — every existing call site);
+        otherwise `partition_key.derive_partition_key(topic, value)`. When BOTH are empty:
+          - `unordered=True` -> `None` is returned and the record is published unkeyed. The caller
+            has DECLARED that per-entity ordering is meaningless for this publish. Enumerated
+            users in this build: NONE. Every production call site routes through
+            `partition_key.partition_key_for_task`, which always yields a key for a real external
+            task (the engine always assigns a `process_instance_id`), so no topic in this build
+            has entity-free ordering semantics and no caller passes the flag. It exists so that a
+            future caller with a genuinely unordered stream must WRITE THAT DOWN at the call site
+            instead of silently passing `key=None` — the exact silence this gate removes.
+          - `unordered=False` (the default) -> `MissingPartitionKeyError`. Fail-closed.
+        """
+        explicit = key.strip() if isinstance(key, str) else ""
+        if explicit:
+            return explicit
+        derived = derive_partition_key(topic, value)
+        if derived:
+            logger.debug("kafka_partition_key_derived", topic=topic)
+            return derived
+        if unordered:
+            logger.warning("kafka_publish_unordered", topic=topic)
+            return None
+        raise MissingPartitionKeyError(topic)
+
     async def publish(
         self,
         topic: str,
@@ -345,12 +391,22 @@ class AioKafkaEventsProducer:
         *,
         key: str | None = None,
         best_effort: bool | None = None,
+        unordered: bool = False,
     ) -> bool:
         """`KafkaPublisher.publish` — the ONE seam `events.py`/`lgpd.py`/`escalation.py` call.
 
         Publishes to `topic` (primary). If `topic` is in `MIRROR_TOPICS`, ALSO republishes a
         scrubbed envelope (`{**scrub_mirror_payload(value), "type": topic}`) onto
         `NOTIFICATIONS_TOPIC`.
+
+        PARTITION KEY (GAP-SC-04-a): `key` is resolved by `resolve_partition_key` BEFORE any send
+        is attempted, so a keyless publish raises `MissingPartitionKeyError` instead of reaching
+        the broker round-robin. The raise happens OUTSIDE `_publish_one`'s try/except, so it is
+        never swallowed by a best-effort posture nor mislabelled `kafka_publish_failed`: a missing
+        key is bad input to this producer, not a broker fault. The mirror leg reuses the SAME
+        resolved key, so a mirrored event and its primary share a partition-key value (they are
+        different topics, so they are different partitions — what matters is that BOTH are keyed
+        by the same entity, and that redeliveries of one entity keep landing together).
 
         Returns whether the PRIMARY publish was actually delivered (t2-notify-integrity — the
         false-success fix): `True` = the primary send reached the broker; `False` = the primary
@@ -377,8 +433,12 @@ class AioKafkaEventsProducer:
         The MIRROR leg is ALWAYS best-effort (a mirror failure must never break a source BPMN —
         no BPMN boundary anywhere expects a "mirror publish failed" error).
         """
+        # GAP-SC-04-a: resolve (and fail closed on) the partition key BEFORE the first send.
+        resolved_key = self.resolve_partition_key(topic, value, key=key, unordered=unordered)
         primary_best_effort = best_effort if best_effort is not None else (topic in BEST_EFFORT_TOPICS)
-        primary_delivered = await self._publish_one(topic, value, key=key, best_effort=primary_best_effort)
+        primary_delivered = await self._publish_one(
+            topic, value, key=resolved_key, best_effort=primary_best_effort
+        )
 
         if topic in MIRROR_TOPICS:
             # R1 F1: `type` is stamped LAST so the envelope's discriminator always wins — a
@@ -394,7 +454,7 @@ class AioKafkaEventsProducer:
             await self._publish_one(
                 NOTIFICATIONS_TOPIC,
                 envelope,
-                key=key,
+                key=resolved_key,
                 best_effort=True,
                 failure_event="kafka_mirror_publish_failed",
             )

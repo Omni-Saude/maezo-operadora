@@ -48,16 +48,25 @@ busca de prestador para credenciamento (handoff a SP-OP-CRED-001), publicar metr
 Handoff a SP-OP-CRED-001 NAO e adverso (busca de prestador); a direcao adversa do credenciamento
 (descredenciar / negar credenciamento) pertence a CRED-001 e e human-gated LA, nunca aqui.
 
-CONSUMO DO FATO DE MUDANCA DE REDE (HARMONIZADO — GAP-XPROC-2): consome
-agents.events.cred.network_changed (produzido por SP-OP-CRED-001 — (des)credenciamento; payload
-tenant_id, tipo_mudanca, prestador_id, tipo_prestador, regiao_saude, especialidade,
-data_efeito_iso). O consumo NAO e um message-start no BPMN: a ponte de runtime
-network_change_bridge (src/maezo/platform/integrations/network_change_bridge/) consome o topico e
-INICIA este processo via mcp-cibseven.start_process, correlacionando por
+CONSUMO DO FATO DE MUDANCA DE REDE (fato PAYLOAD harmonizado — GAP-XPROC-2; CONSUMIDOR FANTASMA —
+PERSP-NETBRIDGE, DRAFT/verify AF-01): SP-OP-CRED-001 produz agents.events.cred.network_changed
+((des)credenciamento; payload tenant_id, tipo_mudanca, prestador_id, tipo_prestador, regiao_saude,
+especialidade, data_efeito_iso) e este contrato ja casa com esse payload. O que NAO existe e o
+consumidor: o DESENHO (nao construido) e uma ponte de runtime network_change_bridge que consumiria
+o topico e INICIARIA este processo via mcp-cibseven.start_process, correlacionando por
 tenant_id+regiao_saude+especialidade (bk ADEQ-{tenant}-{regiao}-{especialidade}-{ciclo};
 ciclo_avaliacao = trimestre de data_efeito_iso, deterministico — a reentrega do mesmo fato
-reconverge para a mesma instancia, sem duplo start). Start_AvaliacaoAdequacao permanece um
-none-start (nascido pela ponte).
+reconvergeria para a mesma instancia, sem duplo start). Essa ponte NAO EXISTE em src/
+(grep -rn "network_change_bridge" src/ -> 1 hit, docstring em
+src/maezo/agents/carolina/graph.py:101; find src -name '*network_change*' -> 0; ja registrado em
+docs/review-queue.md:209,218 e docs/design/T3.3-chaos-resilience.md:43-44, que chama os 3 bridges declarados no Helm de
+"dangling entrypoints"). O Helm ainda assim deploya um Deployment apontando para esse modulo
+inexistente (networkChangeBridge.enabled: true, deploy/helm/maezo-tenant/values.yaml:281) —
+achado AF-01 (P0, owner-decision, fora do escopo docs/spec). HOJE: nenhum caminho de producao
+inicia SP-OP-ADEQUACAO-001 para NENHUM dos 4 gatilhos declarados (grep -rn
+"SP-OP-ADEQUACAO-001" src/ | grep -v test -> so a allowlist e leituras do agente Andre).
+Start_AvaliacaoAdequacao permanece modelado como um none-start (nascido por uma ponte, SE ela
+vier a existir — decisao do owner em AF-01) — sem message event no BPMN.
 
 BUSINESS KEY (idempotente): "ADEQ-{tenant_id}-{regiao_saude}-{especialidade}-{ciclo_avaliacao}".
 Uma instancia ativa por celula (regiao x especialidade x ciclo); re-disparo retorna/atualiza a
@@ -73,16 +82,25 @@ EVENTOS DE DOMINIO (worker operadora.events.publish):
 
 VARIAVEIS DE ENTRADA: tenant_id, regiao_saude, especialidade, ciclo_avaliacao, gatilho
 (mudanca_rede | monitoramento_periodico | reclamacao_beneficiario | auditoria_ans), network_change_ref
-(opc; preenchida pela network_change_bridge com a bk da instancia CRED de origem),
+(opc; a network_change_bridge preencheria com a bk da instancia CRED de origem SE existisse —
+DRAFT/verify, PERSP-NETBRIDGE/AF-01; hoje nenhum caminho de producao seta este campo),
 tempo_acesso_apurado_min (integer), distancia_apurada_km (double),
 prestadores_disponiveis (integer), cobertura_geo_suficiente (bool), dados_geo_completos (bool),
-tipo_carater (eletivo | urgencia_emergencia). Geografia em granularidade de regiao/municipio (IBGE) —
+tipo_carater (eletivo | urgencia_emergencia), prestador_id (opc — PERSP-ADEQ-CRED-HANDOFF: prestador
+candidato ja identificado, exigido SO para o handoff real ST_StartCredenciamentoL3 executar;
+sem ele, RECUSA fail-closed), tipo_prestador (opc, carregado no payload do handoff quando conhecido).
+Geografia em granularidade de regiao/municipio (IBGE) —
 NUNCA endereco cru de beneficiario (ADR-0006). TASY write DROP em todo worker (ADR-0013).
 Contrato completo: docs/processes/contracts/SP-OP-ADEQUACAO-001.md.
 ]]></bpmn:documentation>
 
-    <!-- Start: none-start NASCIDO PELA network_change_bridge (fato cred.network_changed — GAP-XPROC-2)
-         OU por monitoramento periodico / reclamacao / auditoria (gatilho discrimina a origem). -->
+    <!-- Start: none-start MODELADO para nascer de uma network_change_bridge (fato
+         cred.network_changed — GAP-XPROC-2) OU de monitoramento periodico / reclamacao / auditoria
+         (gatilho discrimina a origem) — DRAFT/verify, PERSP-NETBRIDGE/AF-01: a network_change_bridge
+         NAO EXISTE em src/ (grep -rn "network_change_bridge" src/ -> 1 hit, docstring em
+         src/maezo/agents/carolina/graph.py:101; find src -name '*network_change*' -> 0); hoje NENHUM caminho de producao
+         inicia esta instancia para nenhum dos 4 gatilhos (grep -rn "SP-OP-ADEQUACAO-001" src/ |
+         grep -v test). Ver a nota completa no bpmn:documentation acima e docs/review-queue.md. -->
     <bpmn:startEvent id="Start_AvaliacaoAdequacao" name="Avaliacao de adequacao iniciada (mudanca de rede / monitoramento)">
       <bpmn:outgoing>Flow_Start_PubReceived</bpmn:outgoing>
     </bpmn:startEvent>
@@ -246,7 +264,7 @@ PROMOCAO DE SAIDAS (engine-correct): mapDecisionResult=singleResult guarda o obj
     <!-- Ramo L3 ENCAMINHAR_CREDENCIAMENTO: handoff a SP-OP-CRED-001 (busca de prestador; NAO adverso) -->
     <bpmn:serviceTask id="ST_StartCredenciamentoL3" name="Disparar credenciamento (handoff SP-OP-CRED-001)"
                       camunda:type="external" camunda:topic="operadora.adequacao.start_credenciamento">
-      <bpmn:documentation>Handoff NEUTRO: dispara SP-OP-CRED-001 para credenciar prestador na celula (fechar o gap). Sem compromisso de caixa. A direcao adversa do credenciamento pertence a CRED-001 e e human-gated LA.</bpmn:documentation>
+      <bpmn:documentation>Handoff NEUTRO, REAL (PERSP-ADEQ-CRED-HANDOFF fix): worker execute_remediation idempotentemente inicia SP-OP-CRED-001 via start_process_idempotent (business key CRED-{tenant}-{prestador_id}) para credenciar prestador candidato na celula (fechar o gap). Sem compromisso de caixa. A direcao adversa do credenciamento pertence a CRED-001 e e human-gated LA. Exige prestador_id (candidato ja identificado) seedado nas variaveis do processo; ausente, RECUSA fail-closed (ERR_ADEQUACAO_SEM_PRESTADOR_CANDIDATO) em vez de fabricar o handoff. Antes desta correcao retornava um fato fabricado sem nunca chamar o chokepoint.</bpmn:documentation>
       <bpmn:incoming>Flow_GW_EncaminharCred</bpmn:incoming>
       <bpmn:incoming>Flow_GWDec_EncaminharCred</bpmn:incoming>
       <bpmn:outgoing>Flow_StartCred_Pub</bpmn:outgoing>
