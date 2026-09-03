@@ -88,14 +88,24 @@ output declarado mas estruturalmente inalcancavel). O protocolo de filing real e
 `protocolo_ans` — saida de **SP-OP-ANS-SUBMIT-001** (ver
 `docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md` §"Variaveis de saida"), correlacionado de
 volta a esta NIP via `nip_protocolo_origem` (input obrigatorio de ANS-SUBMIT quando
-`origem_envio==nip_filing`). A correlacao E IMPLEMENTADA: o worker `make_handoff_ans_submit_handler`
-(`src/maezo/tools/workers/nip.py`) publica `protocolo_ans`/`numero_nip_ans` no payload de handoff;
-o consumidor de runtime `notifications_bridge/consumer.py::_nip_protocolo_origem` mapeia esse
-payload para `nip_protocolo_origem` (FIELD-DRIFT FIX documentada no proprio modulo) ao iniciar
-SP-OP-ANS-SUBMIT-001; e o seam `tests/integration/processes/test_cross_process_handoff_seam.py::
-test_seam_nip_conceder_to_ans_submit` prova, contra o engine real, a cadeia completa: handoff NIP
-→ start ANS-SUBMIT (`origem_envio=nip_filing` + `nip_protocolo_origem`) → `UT_RevisarEnvioJuridico`
-→ `ST_SubmeterEnvio` emite `protocolo_ans`. Para obter "o protocolo de filing de uma NIP", consulte
+`origem_envio==nip_filing`). GAP-FAB-NOTIF fix (citacao corrigida — os nomes abaixo NAO existem
+no repo: `make_handoff_ans_submit_handler`, `notifications_bridge/consumer.py::
+_nip_protocolo_origem`, e o arquivo de teste `test_cross_process_handoff_seam.py` citado como
+prova nunca existiu — `find`/`grep` confirmam todos os tres ausentes). A correlacao E IMPLEMENTADA
+sob os nomes REAIS: o worker `handoff_ans_submit_entry` (dict-boundary entry sobre a funcao pura
+`handoff_ans_submit`, `src/maezo/tools/workers/nip.py:254,492`, registrado no topico
+`operadora.nip.handoff_ans_submit`) publica `protocolo_ans`/`numero_nip_ans`/`tenant_id` no
+payload de handoff; o consumidor de runtime — que vive em
+`src/maezo/platform/notification_bridge.py` (NAO num pacote `notifications_bridge/consumer.py`,
+que nao existe em lugar nenhum do repo), na regra `_ans_submit_variables_from_nip_handoff`
+(`:266-304`) — mapeia esse payload para `nip_protocolo_origem` (`:298`) ao iniciar
+SP-OP-ANS-SUBMIT-001. Prova REAL disponivel (unitaria, sem engine):
+`tests/unit/platform/test_notification_bridge.py::test_nip_handoff_triggers_ans_submit` (`:659-681`)
+exercita `_ans_submit_variables_from_nip_handoff` isoladamente e afirma
+`result.variables["nip_protocolo_origem"] == "PROTO-TESTE-0001"`. Isso prova a FUNCAO DE
+MAPEAMENTO — nao a cadeia completa contra um engine real (`UT_RevisarEnvioJuridico` ->
+`ST_SubmeterEnvio` emitindo `protocolo_ans`); nenhum teste desse tipo foi encontrado no repo
+(UNREPRODUCED, nao fechado). Para obter "o protocolo de filing de uma NIP", consulte
 `protocolo_ans` em SP-OP-ANS-SUBMIT-001 filtrando por `nip_protocolo_origem`/business key
 `ANSSUB-{tenant}-nipfiling-{submit_id}` — nunca uma variavel `protocolo_filing` em SP-OP-NIP-001.
 
@@ -262,7 +272,7 @@ apenas a prosa do contrato foi corrigida para refletir o comportamento real e a 
 | Codigo | Onde | Tratamento |
 |---|---|---|
 | `ERR_NIP_NEGATIVA_NOT_HUMAN` | `operadora.nip.submit_response` | worker recusa transmitir/arquivar resposta com `decisao_nip==MANTER_NEGATIVA` sem decisao humana (sem `revisor_id`/grupo humano na cadeia); lanca BPMN error. **Guard L0 hard do negativa-like.** |
-| `ERR_NIP_PROTOCOLO_INVALIDO` | `operadora.nip.handoff_ans_submit` (GAP-NIP-6, implementado) | `protocolo_ans` e **opcional** (`obrigatoria=nao` — correlacao com ANS-SUBMIT); AUSENTE (`None`) e legitimo e nunca lanca. Worker recusa (BPMN error) se `protocolo_ans` chegar **presente porem vazio/em branco** (ex.: `"   "`) — valor truthy em Python que quebraria o fallback `or`-chain de `notifications_bridge/consumer.py::_nip_protocolo_origem` (`nip_protocolo_origem > protocolo_ans > numero_nip_ans`), corrompendo a correlacao com SP-OP-ANS-SUBMIT-001. Capturado por tres boundary events (um por serviceTask de handoff — `ST_HandoffAnsManter`/`ST_HandoffAnsConceder`/`ST_HandoffAnsNaoAssistencial`, mesmo handler) roteados a um terminal neutro compartilhado `End_NipProtocoloInvalido` (fail-safe TECNICO, nao decisao de merito — `decisao_nip` ja foi fixada pela User Task humana antes deste handoff). |
+| `ERR_NIP_PROTOCOLO_INVALIDO` | `operadora.nip.handoff_ans_submit` (GAP-NIP-6, implementado) | `protocolo_ans` e **opcional** (`obrigatoria=nao` — correlacao com ANS-SUBMIT); AUSENTE (`None`) e legitimo e nunca lanca. Worker recusa (BPMN error) se `protocolo_ans` chegar **presente porem vazio/em branco** (ex.: `"   "`) — valor truthy em Python que quebraria a leitura direta `nip_protocolo_origem = protocolo_ans if isinstance(protocolo_ans, str) else ""` em `notification_bridge._ans_submit_variables_from_nip_handoff` (`src/maezo/platform/notification_bridge.py:298` — GAP-FAB-NOTIF fix: NAO existe `notifications_bridge/consumer.py`, e NAO ha fallback para `numero_nip_ans` nessa linha, ao contrario do que a versao anterior deste contrato afirmava), corrompendo a correlacao com SP-OP-ANS-SUBMIT-001. Capturado por tres boundary events (um por serviceTask de handoff — `ST_HandoffAnsManter`/`ST_HandoffAnsConceder`/`ST_HandoffAnsNaoAssistencial`, mesmo handler) roteados a um terminal neutro compartilhado `End_NipProtocoloInvalido` (fail-safe TECNICO, nao decisao de merito — `decisao_nip` ja foi fixada pela User Task humana antes deste handoff). |
 
 ## Pendencias para promocao a FINAL
 
