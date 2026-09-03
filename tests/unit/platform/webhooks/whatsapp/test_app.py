@@ -12,8 +12,9 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from maezo.platform.observability import get_metrics_collector
 from maezo.platform.webhooks.whatsapp.app import create_app
-from maezo.platform.webhooks.whatsapp.dispatch import InboundMessage
+from maezo.platform.webhooks.whatsapp.dispatch import InboundMessage, InboundNonTextMessage
 from maezo.platform.webhooks.whatsapp.settings import WhatsAppWebhookSettings
 
 APP_SECRET = "test-app-secret"
@@ -159,14 +160,24 @@ async def test_post_webhook_valid_signature_message_no_dispatcher_returns_501(ap
 
 
 class _FakeDispatcher:
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(self, *, fail: bool = False, fail_ack: bool = False) -> None:
         self.dispatched: list[InboundMessage] = []
+        self.acknowledged: list[InboundNonTextMessage] = []
         self._fail = fail
+        self._fail_ack = fail_ack
 
     async def dispatch(self, message: InboundMessage) -> dict[str, Any]:
         if self._fail:
             raise RuntimeError("dispatch boom")
         self.dispatched.append(message)
+        return {"ok": True}
+
+    async def acknowledge_non_text(self, message: InboundNonTextMessage) -> dict[str, Any]:
+        if self._fail_ack:
+            # The live shape of this failure today: `WhatsAppServer.send_message` refuses while
+            # `WHATSAPP_PHONE_NUMBER_ID` is unprovisioned in Helm (owner-gated).
+            raise ValueError("WhatsApp phone_number_id is not configured — refusing to send")
+        self.acknowledged.append(message)
         return {"ok": True}
 
 
@@ -218,12 +229,56 @@ async def test_post_webhook_dispatch_failure_returns_500_never_fabricates_succes
     assert resp.json()["status"] == "dispatch_failed"
 
 
-async def test_post_webhook_non_text_message_skipped_acks_200() -> None:
+def _non_text_payload(
+    *, from_number: str = "5511999999999", message_type: str = "image", msg_id: str = "wamid.9"
+) -> bytes:
+    envelope = {
+        "entry": [
+            {
+                "changes": [
+                    {"value": {"messages": [{"from": from_number, "id": msg_id, "type": message_type}]}}
+                ]
+            }
+        ]
+    }
+    return json.dumps(envelope).encode()
+
+
+def _webhook_requests_total(status: str) -> float:
+    value = get_metrics_collector().registry.get_sample_value(
+        "maezo_webhook_requests_total", {"tenant": "amh", "status": status}
+    )
+    return float(value or 0.0)
+
+
+async def test_post_webhook_non_text_message_is_acknowledged_not_dropped() -> None:
+    """Gap `WHATSAPP-NON-TEXT-DROPPED`: a voice note / photo used to be swallowed here with
+    `{"dispatched": 0}` and no reply of any kind. It now takes the acknowledgement path — one
+    fixed message through the same gated seam — and NEVER a Helena turn."""
     dispatcher = _FakeDispatcher()
     app = create_app(_settings(), dispatcher=dispatcher)  # type: ignore[arg-type]
-    envelope = {
-        "entry": [{"changes": [{"value": {"messages": [{"from": "5511999999999", "type": "image"}]}}]}]
-    }
+    payload = _non_text_payload(message_type="audio")
+    before = _webhook_requests_total("non_text_acked")
+
+    async with await _client(app) as client:
+        resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "dispatched": 0, "failed": 0, "acked": 1}
+    assert dispatcher.dispatched == []  # no Helena turn over a bodyless message
+    assert dispatcher.acknowledged == [
+        InboundNonTextMessage(from_number="5511999999999", message_type="audio", message_id="wamid.9")
+    ]
+    # The distinct metric status is what tells operators how much inbound volume this channel
+    # cannot actually process (label cardinality unchanged: `message_type` is NOT a label).
+    assert _webhook_requests_total("non_text_acked") == before + 1
+
+
+async def test_post_webhook_status_callback_still_acks_without_any_send() -> None:
+    """A delivery-status callback is NOT a message: nothing dispatched, nothing acknowledged."""
+    dispatcher = _FakeDispatcher()
+    app = create_app(_settings(), dispatcher=dispatcher)  # type: ignore[arg-type]
+    envelope = {"entry": [{"changes": [{"value": {"statuses": [{"status": "delivered"}]}}]}]}
     payload = json.dumps(envelope).encode()
 
     async with await _client(app) as client:
@@ -232,6 +287,100 @@ async def test_post_webhook_non_text_message_skipped_acks_200() -> None:
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok", "dispatched": 0}
     assert dispatcher.dispatched == []
+    assert dispatcher.acknowledged == []
+
+
+async def test_post_webhook_mixed_batch_dispatches_text_and_acknowledges_non_text() -> None:
+    dispatcher = _FakeDispatcher()
+    app = create_app(_settings(), dispatcher=dispatcher)  # type: ignore[arg-type]
+    envelope = {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "messages": [
+                                {"from": "551199", "id": "wamid.1", "type": "text", "text": {"body": "oi"}},
+                                {"from": "551199", "id": "wamid.2", "type": "image"},
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    payload = json.dumps(envelope).encode()
+    before_ok = _webhook_requests_total("ok")
+
+    async with await _client(app) as client:
+        resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "dispatched": 1, "failed": 0, "acked": 1}
+    assert len(dispatcher.dispatched) == 1
+    assert len(dispatcher.acknowledged) == 1
+    # A mixed batch is an ordinary "ok" request — `non_text_acked` means ONLY-non-text.
+    assert _webhook_requests_total("ok") == before_ok + 1
+
+
+async def test_post_webhook_acknowledgement_failure_never_escapes_the_webhook() -> None:
+    """A refused ack (today's live shape: no `WHATSAPP_PHONE_NUMBER_ID` in Helm) is counted and
+    logged, never raised out of `receive_event` — and, with nothing in the batch succeeding, the
+    request answers 500 so Meta retries, exactly as a failed Helena turn does."""
+    dispatcher = _FakeDispatcher(fail_ack=True)
+    app = create_app(_settings(), dispatcher=dispatcher)  # type: ignore[arg-type]
+    payload = _non_text_payload()
+
+    async with await _client(app) as client:
+        resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
+
+    assert resp.status_code == 500
+    assert resp.json() == {"status": "dispatch_failed", "dispatched": 0, "failed": 1, "acked": 0}
+    assert dispatcher.acknowledged == []
+
+
+async def test_post_webhook_partially_failed_batch_is_not_reported_as_total_failure() -> None:
+    """One acknowledged message and one failed Helena turn is NOT `dispatch_failed`: something in
+    the batch really happened, and a 500 would make Meta re-deliver the message already answered."""
+    dispatcher = _FakeDispatcher(fail=True)
+    app = create_app(_settings(), dispatcher=dispatcher)  # type: ignore[arg-type]
+    envelope = {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "messages": [
+                                {"from": "551199", "id": "wamid.1", "type": "text", "text": {"body": "oi"}},
+                                {"from": "551199", "id": "wamid.2", "type": "image"},
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    payload = json.dumps(envelope).encode()
+
+    async with await _client(app) as client:
+        resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "dispatched": 0, "failed": 1, "acked": 1}
+
+
+async def test_post_webhook_non_text_without_a_dispatcher_returns_501_never_a_silent_drop() -> None:
+    """No dispatcher on this replica means it can no more ACKNOWLEDGE than it can dispatch. The
+    honest answer is the same explicit 501 a text message gets — not a 200 that pretends the
+    beneficiary was answered."""
+    app = create_app(_settings())
+    payload = _non_text_payload()
+
+    async with await _client(app) as client:
+        resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
+
+    assert resp.status_code == 501
+    assert resp.json()["status"] == "not_implemented"
 
 
 async def test_get_webhook_non_ascii_token_is_403_not_an_unhandled_500(app: FastAPI) -> None:
