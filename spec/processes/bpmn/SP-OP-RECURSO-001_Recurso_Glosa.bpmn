@@ -31,8 +31,8 @@ SP-OP-RECURSO-001 — Analise de Recurso de Glosa (resposta ao recurso). Status:
 Phase 2, Wave A. Requer revisao humana (auditoria de recurso + regulatorio/juridico) antes de
 qualquer deploy — ver docs/review-queue.md.
 
-PERSPECTIVA: o dono do processo e a OPERADORA. Ela RECEBE o recurso de glosa que o prestador
-interpoe contra uma glosa que ela propria aplicou em SP-OP-CONTAS-001, julga a ADMISSIBILIDADE,
+PERSPECTIVA: o dono do processo e a OPERADORA. Ela RECEBE do prestador o recurso de glosa contra
+uma glosa que ela propria aplicou em SP-OP-CONTAS-001, julga a ADMISSIBILIDADE,
 analisa o MERITO (administrativo pelo analista de recurso; tecnico-clinico pelo medico auditor) e
 EMITE a resposta ao prestador: deferir, deferir parcialmente, indeferir — ou inadmitir.
 (ADR-0040, Proposed — nao ratificada.)
@@ -463,7 +463,7 @@ prazo de resposta ao recurso (docs/compliance/rn-currency-review.md:87, 190-193)
          pagamento da glosa revertida a SP-OP-PAGTO-001 (I-PAGTO-1). -->
     <bpmn:serviceTask id="ST_ComunicarDeferimento" name="Comunicar deferimento do recurso ao prestador"
                       camunda:type="external" camunda:topic="operadora.recurso.comunicar_resposta">
-      <bpmn:documentation>Emite ao prestador a resposta da operadora ao recurso (componente TISS "Resposta ao Recurso de Glosa" — nome PROPOSTO, DRAFT/verify OQ-1). Cunha `protocolo_resposta_recurso` deterministicamente pela business key (idempotente em re-entrega). Nao decide nada — a decisao ja foi humana.</bpmn:documentation>
+      <bpmn:documentation>Emite ao prestador a resposta ao recurso (componente TISS "Resposta ao Recurso de Glosa" — nome PROPOSTO, DRAFT/verify OQ-1). Cunha `protocolo_resposta_recurso` deterministicamente pela business key (idempotente em re-entrega). Nao decide nada — a decisao ja foi humana.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="tipo_comunicacao">deferimento</camunda:inputParameter>
@@ -648,7 +648,7 @@ prazo de resposta ao recurso (docs/compliance/rn-currency-review.md:87, 190-193)
     <!-- Default fail-closed dos DOIS gateways decisorios: uma decisao ausente/desconhecida termina
          em ERRO visivel, NUNCA numa acao por omissao (espelha SP-OP-AUTH-001's throw-end). -->
     <bpmn:endEvent id="End_ErrRecursoDecisaoInvalida" name="Erro: decisao do recurso ausente ou desconhecida (ERR_RECURSO_DECISAO_INVALIDA)">
-      <bpmn:documentation>Terminal de ERRO (nao adverso e nao favoravel): a decisao humana chegou ausente ou fora do dominio declarado. NENHUM efeito e materializado — nem indeferimento, nem comunicacao, nem ordem de pagamento. Antes desta correcao, o default de GW_DecisaoRecurso era uma ACAO (Flow_GWDec_Recorrer) e o de GW_MeritoAuditor tambem (Flow_GWMerito_Manter): uma variavel ausente produzia um ato. Agora produz um erro visivel.</bpmn:documentation>
+      <bpmn:documentation>Terminal de ERRO (nao adverso e nao favoravel): a decisao humana chegou ausente ou fora do dominio declarado. NENHUM efeito e materializado — nem indeferimento, nem comunicacao, nem ordem de pagamento. Antes desta correcao, o default dos dois gateways decisorios era uma ACAO (os ramos do antigo vocabulario do recorrente): uma variavel ausente produzia um ato. Agora produz um erro visivel.</bpmn:documentation>
       <bpmn:incoming>Flow_GWDec_Invalida</bpmn:incoming>
       <bpmn:incoming>Flow_GWMerito_Invalida</bpmn:incoming>
       <bpmn:errorEventDefinition id="EED_RecursoDecisaoInvalida" errorRef="Error_RecursoDecisaoInvalida"/>
