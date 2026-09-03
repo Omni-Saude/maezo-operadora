@@ -36,13 +36,18 @@ PORT NOTES (fixture adaptation only — port rule 1; logic/assertions verbatim f
     cancel.py's own adaptation of its guard unit-test). The guard raises
     `ReembolsoDenialNotHumanError` (a `PermissionError` subclass — harness routes any
     `PermissionError` straight to an engine incident, `harness.py` `_handle`), NOT donor's
-    `WorkerBpmnError(error_code=...)` (a modeled BPMN error routed to a boundary catch) — reembolso.py
-    does not raise `WorkerBpmnError` anywhere (verified by reading): both
-    `ReembolsoDenialNotHumanError` and `ReembolsoProtocoloInvalidoError` are plain
-    `PermissionError`/`ValueError` subclasses, so the harness's OWN generic classification
-    (immediate incident, `retries=0`) applies without any `bpmn_error_allowlist` entry — UNLIKE
-    auth/cancel/escalation, this probe wires NO `bpmn_error_allowlist` (verified: no
-    `WorkerBpmnError` call site in reembolso.py). `test_worker_send_reembolso_denial_recusa_sem_humano`
+    `WorkerBpmnError(error_code=...)` (a modeled BPMN error routed to a boundary catch): both
+    `ReembolsoDenialNotHumanError` and `ReembolsoProtocoloInvalidoError` remain plain
+    `PermissionError`/`ValueError` subclasses today, so the harness's OWN generic classification
+    (immediate incident, `retries=0`) applies to both without any `bpmn_error_allowlist` entry.
+    **UPDATED (WP-ADR-0030-COMPLETION D3-01): reembolso.py DOES now raise `WorkerBpmnError`** —
+    `check_coverage` raises `WorkerBpmnError(ERR_REEMBOLSO_INVALID_PROTOCOLO)` (`reembolso.py:373`,
+    see finding 6 below), a THIRD guard, distinct from the two `PermissionError`/`ValueError`
+    guards above. This probe (below) now wires `REEMBOLSO_BPMN_ERROR_ALLOWLIST`, mirroring
+    production's `service.py` wiring, so that `WorkerBpmnError` reaches its clean boundary end
+    (`End_ReembolsoProtocoloInvalido`) HERE too, instead of demoting to a generic incident — see
+    the new engine-boundary-proof test near the end of this file.
+    `test_worker_send_reembolso_denial_recusa_sem_humano`
     is adapted the same way as cancel's guard test: call the entry function directly with a plain
     dict, assert on the returned dict for the success cases (v2's entry function does not itself
     call `kafka.publish` — see finding 1 below).
@@ -120,16 +125,36 @@ FINDINGS (module docstring; see PR body / evidence-ledger for full detail):
   5. `notification_bridge.py`'s 5 rules (CONTAS→RECURSO, CONTAS→FRAUDE, FRAUDE→CRED, FRAUDE→CANCEL,
      FRAUDE→INADIMPLENCIA): verified — reembolso is neither source nor target. N/A.
 
-  6. Also worth flagging (NOT tested by the donor, so no new test added here — porting only):
+  6. Also worth flagging (NOT tested by the donor, so no new test added here — porting only).
+     **UPDATED (WP-ADR-0030-COMPLETION D3-01) — this finding's original "never fire" conclusion
+     is SUPERSEDED; also corrects an ordering error in the original text.**
      `BE_ReembolsoProtocoloInvalido` (boundary event, `errorRef=Error_ReembolsoProtocoloInvalido`,
      `errorCode=ERR_REEMBOLSO_INVALID_PROTOCOLO`) is attached to `ST_CheckCoverage`
-     (`operadora.reembolso.check_coverage`), but the ONLY function that can raise
-     `ReembolsoProtocoloInvalidoError` is `validate_reembolso` — wired to `check_prazo_entry`
-     (`operadora.reembolso.check_prazo`), a DIFFERENT service task earlier in the flow. Even were
-     this rewired, the exception is a plain `ValueError` subclass (not `WorkerBpmnError`), so the
-     boundary catch could never fire regardless — a fail-closed incident is the only reachable
-     outcome today. Since the donor itself never exercises this boundary, no test is added/altered
-     for it here (would be new coverage, out of port scope).
+     (`operadora.reembolso.check_coverage`, BPMN line 84), and `check_coverage` (`reembolso.py:373`)
+     now itself raises `WorkerBpmnError(ERR_REEMBOLSO_INVALID_PROTOCOLO)` for a blank/absent
+     `protocolo_reembolso` — BEFORE any coverage/DMN resolution, as the first statement in the
+     function body. `ERR_REEMBOLSO_INVALID_PROTOCOLO` is now `tier0_enabled` via
+     `REEMBOLSO_BPMN_ERROR_ALLOWLIST` (`reembolso.py:160`), wired into
+     `PRODUCTION_BPMN_ERROR_ALLOWLIST`, so this boundary DOES fire in production, reaching
+     `End_ReembolsoProtocoloInvalido` cleanly for that condition.
+     The OLD `ReembolsoProtocoloInvalidoError` raise still lives in `validate_reembolso` — wired
+     to `check_prazo_entry` (`operadora.reembolso.check_prazo`), a DIFFERENT service task
+     (correction: `ST_CheckPrazo` runs AFTER `ST_CheckCoverage` in this BPMN —
+     `Flow_PubReceived_Coverage` then `Flow_Coverage_Prazo`, line 450-451 — not "earlier" as
+     originally written here). Because `ST_CheckCoverage`'s guard now fires first on the identical
+     blank-`protocolo_reembolso` condition, and no flow skips `ST_CheckCoverage` to reach
+     `ST_CheckPrazo` directly, `validate_reembolso`'s `ReembolsoProtocoloInvalidoError` raise is
+     genuinely unreachable via the modeled flow today — but as defense-in-depth, not as a "can
+     never fire regardless" boundary limitation: it remains a plain `ValueError` subclass (not
+     `WorkerBpmnError`), so it cannot mis-fire a boundary it has no BPMN declaration for, and its
+     own docstring (`reembolso.py:184-218`) discloses this. Since the donor itself never exercised
+     either boundary there was originally no engine-level test for it; REP-ADR0030 (D3-01 repair,
+     see evidence-ledger row D3-01) added ONE new engine-boundary-proof test near the end of this
+     file, `test_protocolo_reembolso_invalido_atinge_end_reembolso_protocolo_invalido`, proving
+     `End_ReembolsoProtocoloInvalido` is reached cleanly (no incident, no adverse terminal) — on
+     top of the D3-01 unit coverage in `tests/unit/tools/workers/test_reembolso.py`. The dead
+     `validate_reembolso` raise-site remains untested at the engine level (would be new coverage
+     of an admittedly-dead path, still out of scope).
 """
 
 from __future__ import annotations
@@ -152,6 +177,7 @@ from maezo.tools.workers.harness import (
     WorkerHarness,
 )
 from maezo.tools.workers.reembolso import (
+    REEMBOLSO_BPMN_ERROR_ALLOWLIST,
     ReembolsoDenialNotHumanError,
     register_reembolso_workers,
     send_reembolso_denial_entry,
@@ -221,6 +247,7 @@ _END_ANALISTA = "End_ReembolsoAprovadoAnalista"
 _END_NEGADO = "End_ReembolsoNegado"
 _END_PARCIAL = "End_ReembolsoParcial"
 _END_CANCELADO = "End_ReembolsoCancelado"
+_END_PROTOCOLO_INVALIDO = "End_ReembolsoProtocoloInvalido"
 
 _END_ADVERSOS = frozenset({_END_NEGADO, _END_PARCIAL})
 _UT_HUMANAS_ADVERSA = frozenset({_UT_ANALISTA, _UT_AUDITOR, _UT_COORDENACAO})
@@ -359,10 +386,15 @@ async def reembolso_probe(
     Resolver de teto DEFAULT (matriz real, sem seam de injecao — finding 3):
     `reembolso_auto_approval.max_value_brl=0` para amh (D-07 em aberto) => `calculate_amount`
     recomputa `dentro_teto_l2=False` SEMPRE (fail-closed) — nenhuma instancia auto-aprova por este
-    probe. Nenhum `bpmn_error_allowlist` e necessario (PORT NOTES): reembolso.py nao lanca
-    `WorkerBpmnError` em lugar nenhum — os 2 guards (`ReembolsoDenialNotHumanError`,
-    `ReembolsoProtocoloInvalidoError`) sao `PermissionError`/`ValueError` puros, roteados pela
-    classificacao GENERICA do harness (incidente imediato).
+    probe. Os 2 guards `PermissionError`/`ValueError` puros (`ReembolsoDenialNotHumanError`,
+    `ReembolsoProtocoloInvalidoError`) sempre viram incidente imediato via classificacao GENERICA
+    do harness (nenhum `bpmn_error_allowlist` os cobre — nao sao `WorkerBpmnError`). O 3o guard,
+    `WorkerBpmnError(ERR_REEMBOLSO_INVALID_PROTOCOLO)` (`check_coverage`) — **WP-ADR-0030-COMPLETION
+    D3-01: este probe agora wireia `REEMBOLSO_BPMN_ERROR_ALLOWLIST`**, mirroring
+    `worker_runtime/service.py`'s production allowlist; nenhum teste PRE-EXISTENTE neste arquivo
+    seta `protocolo_reembolso` em branco, entao esta mudanca e comportamentalmente neutra para
+    todo teste anterior e so ativa a nova prova de fronteira abaixo (ver module docstring
+    finding 6).
     """
     worker_id = f"qa-reembolso-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
@@ -375,6 +407,7 @@ async def reembolso_probe(
         tenant=audit_tenant,
         lock_duration_ms=10_000,
         audit_sink=audit_sink,
+        bpmn_error_allowlist=REEMBOLSO_BPMN_ERROR_ALLOWLIST,
     )
     kafka = FakeKafkaPublisher()
     register_reembolso_workers(harness, kafka)
@@ -1294,3 +1327,47 @@ async def test_business_key_uma_instancia_por_protocolo(
 
     existing = await engine.find_active_instances(business_key)
     assert len(existing) == 1
+
+
+# ===========================================================================
+# NEW BOUNDARY PROOF (WP-ADR-0030-COMPLETION D3-01) — ERR_REEMBOLSO_INVALID_PROTOCOLO
+# ===========================================================================
+
+
+async def test_protocolo_reembolso_invalido_atinge_end_reembolso_protocolo_invalido(
+    engine: EngineRest,
+    reembolso_probe: ReembolsoEngineProbe,
+    start_reembolso: Callable[..., Any],
+) -> None:
+    """D3-01 ENGINE PROOF: `protocolo_reembolso` ausente => `WorkerBpmnError(ERR_REEMBOLSO_
+    INVALID_PROTOCOLO)` atravessa `BE_ReembolsoProtocoloInvalido` de ponta a ponta contra o
+    engine REAL e termina em `End_ReembolsoProtocoloInvalido` — SEM abrir incidente, SEM User
+    Task, sem nenhuma decisao de pagar/negar (terminal `"fail-safe, nao adverso"` per o BPMN).
+    Antes de D3-01 este boundary era um dead model (censo do gate): o unico raise codificado
+    (`ReembolsoProtocoloInvalidoError`) vivia no topico ERRADO (`check_prazo`, nao
+    `check_coverage`, que e onde o boundary esta de fato anexado). `reembolso_probe`'s harness
+    agora wireia `REEMBOLSO_BPMN_ERROR_ALLOWLIST` (mirroring `worker_runtime/service.py`), entao
+    esta e uma prova de alcancabilidade fiel a producao, nao so ao harness-fake dos testes
+    unitarios de `tests/unit/tools/workers/test_reembolso.py`.
+    """
+    inst = await start_reembolso(protocolo_reembolso="")
+    iid = inst["id"]
+    await reembolso_probe.drain()
+
+    ended = await _await_end(engine, iid)
+    assert _END_PROTOCOLO_INVALIDO in ended, (
+        f"protocolo_reembolso ausente deveria atingir End_ReembolsoProtocoloInvalido via o "
+        f"boundary BE_ReembolsoProtocoloInvalido. ended={ended}"
+    )
+    assert not (ended & _END_ADVERSOS), "End_ReembolsoProtocoloInvalido e fail-safe, nunca adverso"
+    incidentes = await engine.incidents(iid)
+    assert not incidentes, (
+        f"O boundary catch DEVE consumir o WorkerBpmnError sem abrir incidente de engine — "
+        f"achado(s): {incidentes}"
+    )
+    # A instancia terminou no boundary de ST_CheckCoverage — nunca alcancou ST_CheckPrazo,
+    # calculate_amount ou qualquer decisao de reembolso.completed.
+    assert not reembolso_probe.events_on(_REEMBOLSO_COMPLETED), (
+        "protocolo_reembolso invalido NUNCA deve produzir um evento reembolso.completed "
+        "(a instancia termina antes de ST_CheckPrazo/BRT_Calculo)"
+    )

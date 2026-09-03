@@ -168,7 +168,7 @@
     },
     {
       "file": "tests/integration/processes/test_sp_op_reembolso_001.py",
-      "line": 627,
+      "line": 660,
       "test": "test_happy_path_aprovacao_automatica_l2_com_teto_positivo",
       "reason_constant": "_REEMBOLSO_CEILING_D07_REASON",
       "classification": "REEMBOLSO_D07"

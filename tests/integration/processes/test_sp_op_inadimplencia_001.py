@@ -71,8 +71,10 @@ PORT NOTES (fixture adaptation only — port rule 1):
     (variables: dict) -> dict` takes NO `kafka` parameter at all (confirmed: `register_
     inadimplencia_workers` does `del kafka  # unused — no inadimplencia.py worker declares a
     Kafka dependency`, inadimplencia.py:348). Adapted to call `register_contract_suspension
-    (variables)` directly; the guard raises `InadimplenciaError` (a bespoke `.code`/`.message`
-    exception, NOT `WorkerBpmnError`). The 6 guard scenarios are preserved verbatim; the
+    (variables)` directly; at port time the guard raised `InadimplenciaError` (a bespoke
+    `.code`/`.message` exception, NOT `WorkerBpmnError`) — **superseded by WP-ADR-0030-COMPLETION
+    D3-01: the guard now raises `WorkerBpmnError` (`.error_code`), see FINDING 3 below for the
+    current mechanism.** The 6 guard scenarios are preserved verbatim; the
     "success" case's assertions are adapted to the ACTUAL v2 return shape (`{"suspensao_
     registrada": True, "data_efeito_iso": ...}` — v2 does NOT generate a `suspensao_id`, and does
     NOT echo `responsavel_id`/`tier` in its own return value; those flow to the ADR-0007 audit
@@ -102,24 +104,34 @@ FINDINGS (root-cause, file:line evidence; see PR body / evidence-ledger for full
      L0 guarantee is proven end-to-end against the real engine (was a spurious fail-closed XPASS
      before wiring: every instance refused regardless of CANCEL — a FALSE L0 claim, now real).
   3. **`End_SuspensaoBloqueadaNaoHumano` (GAP-INAD-7) is an ADDITIVE end-event vs the donor's
-     topology expectation, but is itself STRUCTURALLY UNREACHABLE.** The BPMN declares
-     `BE_SuspensaoNaoHumano` (line 313, `errorRef="Error_ContractSuspensionNotHuman"`) as a
-     boundary catch on `ST_RegisterSuspension`, routing to `End_SuspensaoBloqueadaNaoHumano`
-     (line 317) — added after the donor's file was written (GAP-INAD-7). The donor's topology
-     test (`test_inadimplencia_nao_tem_terminal_de_rescisao_proprio`) enumerates an EXACT
-     end-event set that does not include it; adapted to add it (mechanical, still enforces "no
-     rescission-local terminal" — the added end-event's id contains none of the forbidden
-     tokens). HOWEVER: `_register_contract_suspension`'s guard raises `InadimplenciaError`
-     (inadimplencia.py:309-315), a bespoke `.code`/`.message` exception that `FunctionWorker.
-     execute` (base.py:272-282) reclassifies into a plain `ValueError` — which `harness._handle`
-     (harness.py:952-954) routes STRAIGHT to `_report_failure(..., retries_override=0)` (an
-     immediate incident via `handle_failure`), NEVER via `handle_bpmn_error`/the `bpmn_error_
-     allowlist` path (reserved for `WorkerBpmnError`, which `InadimplenciaError` does not
-     subclass). `BE_SuspensaoNaoHumano`'s boundary can therefore NEVER fire given v2's actual
-     exception shape — the SAME structural pattern documented in `test_sp_op_contas_001.py`'s
-     FINDING 3 for `Error_GlosaAcceptNotHuman`. This does not block any specific donor assertion
-     here (none probes `engine.incidents(iid)` for this scenario), so no xfail is attached beyond
-     FINDING 1's blocking of the whole HITL path; flagged for the record.
+     topology expectation, and remains UNREACHABLE IN PRODUCTION TODAY, but the mechanism changed
+     (WP-ADR-0030-COMPLETION D3-01 — UPDATE, supersedes the paragraph below as originally
+     written).** The BPMN declares `BE_SuspensaoNaoHumano` (line 313,
+     `errorRef="Error_ContractSuspensionNotHuman"`) as a boundary catch on `ST_RegisterSuspension`,
+     routing to `End_SuspensaoBloqueadaNaoHumano` (line 317) — added after the donor's file was
+     written (GAP-INAD-7). The donor's topology test
+     (`test_inadimplencia_nao_tem_terminal_de_rescisao_proprio`) enumerates an EXACT end-event set
+     that does not include it; adapted to add it (mechanical, still enforces "no rescission-local
+     terminal" — the added end-event's id contains none of the forbidden tokens). AS OF D3-01,
+     `_register_contract_suspension`'s guard raises `WorkerBpmnError(ERR_CONTRACT_SUSPENSION_
+     NOT_HUMAN)` (inadimplencia.py:545), NOT `InadimplenciaError` — it no longer goes through
+     `FunctionWorker.execute`'s ValueError reclassification. Instead, `ERR_CONTRACT_SUSPENSION_
+     NOT_HUMAN` is a `_NOT_HUMAN`-suffixed guard code that `service.py`'s `_is_te_gated` keeps
+     T-E-deferred (outside `PRODUCTION_BPMN_ERROR_ALLOWLIST`); `harness.py`'s
+     `except WorkerBpmnError` branch (harness.py:1674-1731) checks `error_code not in
+     self._bpmn_error_allowlist` and, finding it absent, demotes to the SAME
+     `_report_failure(..., retries_override=0)` incident path the old `ValueError` branch used —
+     never reaching `handle_bpmn_error`. **`BE_SuspensaoNaoHumano`'s boundary therefore still
+     cannot fire today — the OBSERVABLE outcome (open incident, HITL no-denial intact) is
+     unchanged — but the reason is now "modeled error, deliberately deferred out of the
+     allowlist", not "unmodeled exception type that could never reach the allowlist path" as
+     originally written here.** Activating this boundary in production requires only adding
+     `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` to a future `INADIMPLENCIA_BPMN_ERROR_ALLOWLIST` wired
+     into `service.py` (same phased pattern already used for `PAGTO_BPMN_ERROR_ALLOWLIST`/
+     `REEMBOLSO_BPMN_ERROR_ALLOWLIST`), a T-E audited-refusal activation decision, not a code
+     defect. This does not block any specific donor assertion here (none probes
+     `engine.incidents(iid)` for this scenario), so no xfail is attached beyond FINDING 1's
+     blocking of the whole HITL path; flagged for the record.
 """
 
 from __future__ import annotations
@@ -142,9 +154,13 @@ from maezo.gateway.audit_postgres import FreshSinkAuditEmitter
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
-from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
+from maezo.tools.workers.harness import (
+    CibSevenWorkerTransport,
+    FakeKafkaPublisher,
+    WorkerBpmnError,
+    WorkerHarness,
+)
 from maezo.tools.workers.inadimplencia import (
-    InadimplenciaError,
     register_contract_suspension,
     register_inadimplencia_workers,
 )
@@ -309,9 +325,10 @@ async def inad_probe(
     """Probe que serve as external tasks com os workers reais de inadimplencia."""
     worker_id = f"qa-inad-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
-    # Nenhum WorkerBpmnError e lancado por inadimplencia.py (FINDING 3: InadimplenciaError e
-    # reclassificada para ValueError por FunctionWorker.execute, sempre incident, nunca
-    # bpmnError) — bpmn_error_allowlist deliberadamente OMITIDO.
+    # inadimplencia.py's guard raises WorkerBpmnError(ERR_CONTRACT_SUSPENSION_NOT_HUMAN) (D3-01,
+    # FINDING 3 below) — but it stays T-E-deferred in production, and bpmn_error_allowlist is
+    # deliberadamente OMITIDO aqui (default frozenset() de WorkerHarness), entao QUALQUER
+    # WorkerBpmnError vira incident (_report_failure), nunca bpmnError, para este probe.
     # T1.10 wave: emit-before-complete is FAIL-CLOSED (harness.py _emit_audit) — a real
     # PostgresAuditSink (lane PG, migrations 0001->0005) is REQUIRED or the harness refuses
     # to complete. `tenant` scopes the durable audit chain / dedup key to the per-run schema.
@@ -760,9 +777,11 @@ async def test_suspender_exige_campos_worker_guard(
 ) -> None:
     """SUSPENDER sem campos obrigatorios => worker guard recusa (ERR_CONTRACT_SUSPENSION_NOT_HUMAN).
 
-    FINDING 3 (module docstring): isso vira um INCIDENTE aberto no engine (BE_SuspensaoNaoHumano
-    e estruturalmente inalcancavel — InadimplenciaError e reclassificada para ValueError, nunca
-    dispara bpmnError). As assercoes abaixo NAO dependem de qual mecanismo produz o bloqueio.
+    FINDING 3 (module docstring, atualizado D3-01): isso vira um INCIDENTE aberto no engine
+    (BE_SuspensaoNaoHumano permanece inalcancavel em producao — o guard agora lanca
+    WorkerBpmnError, mas ERR_CONTRACT_SUSPENSION_NOT_HUMAN fica T-E-deferred, fora do
+    bpmn_error_allowlist, entao ainda demota para incident). As assercoes abaixo NAO dependem de
+    qual mecanismo produz o bloqueio.
     """
     inst = await start_inad()
     iid = inst["id"]
@@ -1011,33 +1030,38 @@ async def test_solicitar_info_aguarda_correlacao(
 
 
 def test_register_contract_suspension_recusa_sem_humano() -> None:
-    """Invocacao direta de register_contract_suspension sem decisao humana => InadimplenciaError.
+    """Invocacao direta de register_contract_suspension sem decisao humana => WorkerBpmnError.
 
     Unit-style sobre a funcao real (SEM engine). ADAPTADO (port rule 1): v2 e dict-first (ADR-0026
     §2a) — `register_contract_suspension(variables: dict) -> dict` NAO recebe `kafka` (confirmado:
     `register_inadimplencia_workers` faz `del kafka` — nenhum worker deste modulo declara
-    dependencia de Kafka). O guard lanca `InadimplenciaError` (`.code`/`.message`), nao
-    `WorkerBpmnError`. Os 6 cenarios do guard sao preservados verbatim; a asserçao de "sucesso" foi
-    adaptada ao shape REAL do retorno de v2 (sem suspensao_id/responsavel_id/tier echo — ver PORT
-    NOTES).
+    dependencia de Kafka). MIGRADO (WP-ADR-0030-COMPLETION D3-01, mirroring the 13-site migration
+    in `tests/unit/tools/workers/test_inadimplencia.py`): o guard agora lanca `WorkerBpmnError`
+    (`.error_code`), NAO mais `InadimplenciaError` (`.code`/`.message`) — a MODELED boundary error
+    `BE_SuspensaoNaoHumano` fica `T-E-deferred` (fora de `PRODUCTION_BPMN_ERROR_ALLOWLIST`), entao
+    o comportamento observavel do engine e IDENTICO ao anterior (incidente aberto via
+    `_report_failure(retries_override=0)`, HITL no-denial intacto) — so o tipo/classificacao da
+    excecao no raise-site mudou. Os 6 cenarios do guard sao preservados verbatim; a asserçao de
+    "sucesso" foi adaptada ao shape REAL do retorno de v2 (sem suspensao_id/responsavel_id/tier
+    echo — ver PORT NOTES).
     """
     # (a) ausente -> recusa
-    with pytest.raises(InadimplenciaError) as exc_a:
+    with pytest.raises(WorkerBpmnError) as exc_a:
         register_contract_suspension({})
-    assert exc_a.value.code == "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
+    assert exc_a.value.error_code == "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
 
     # (b) decisao neutra (MANTER) -> recusa
-    with pytest.raises(InadimplenciaError) as exc_b:
+    with pytest.raises(WorkerBpmnError) as exc_b:
         register_contract_suspension({"decisao_inadimplencia": "MANTER"})
-    assert exc_b.value.code == "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
+    assert exc_b.value.error_code == "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
 
     # (c) ENCAMINHAR_RESCISAO (handoff, nao adverso local) tampouco passa pelo worker de suspensao
-    with pytest.raises(InadimplenciaError) as exc_c:
+    with pytest.raises(WorkerBpmnError) as exc_c:
         register_contract_suspension({"decisao_inadimplencia": "ENCAMINHAR_RESCISAO"})
-    assert exc_c.value.code == "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
+    assert exc_c.value.error_code == "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
 
     # (d) SUSPENDER mas faltando responsavel_id/campos -> recusa
-    with pytest.raises(InadimplenciaError) as exc_d:
+    with pytest.raises(WorkerBpmnError) as exc_d:
         register_contract_suspension(
             {
                 "decisao_inadimplencia": "SUSPENDER",
@@ -1047,14 +1071,14 @@ def test_register_contract_suspension_recusa_sem_humano() -> None:
                 "comprovacao_periodo_minimo": "ref-periodo",
             }
         )
-    assert exc_d.value.code == "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
+    assert exc_d.value.error_code == "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
 
     # (e) SUSPENDER + campos completos mas ja_em_rescisao_cancel=true -> recusa (anti-dupla)
-    with pytest.raises(InadimplenciaError) as exc_e:
+    with pytest.raises(WorkerBpmnError) as exc_e:
         register_contract_suspension(
             {"decisao_inadimplencia": "SUSPENDER", "ja_em_rescisao_cancel": True, **_CAMPOS_SUSP}
         )
-    assert exc_e.value.code == "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
+    assert exc_e.value.error_code == "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
 
     # (f) decisao humana completa -> retorna suspensao_registrada=True (shape REAL de v2)
     result = register_contract_suspension(
