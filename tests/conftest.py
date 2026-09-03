@@ -15,10 +15,23 @@ WHY THAT BREAKS OTHER TESTS, MECHANICALLY. `cache_logger_on_first_use=True` make
 proxy (structlog `_config.py`), capturing the processor chain that was configured at that moment.
 Every module-level `logger = structlog.get_logger(__name__)` in `src/` is such a proxy. Once one is
 cached, `structlog.testing.capture_logs()` — which works by swapping the GLOBAL processor chain —
-can no longer intercept it, and the event goes to stdout instead of the capture list. Seven tests
-in `tests/unit/runtime/` asserting on captured log events failed exactly this way, and only when
-run after the daemon-bring-up tests: a pure test-ORDER dependency, invisible when each file is run
-alone.
+can no longer intercept it, and the event goes to stdout instead of the capture list. TEN tests
+asserting on captured log events failed exactly this way, and only when run after the
+daemon-bring-up tests: a pure test-ORDER dependency, invisible when each file is run alone.
+
+THE TEN, measured rather than recalled (WP-COMPOSICAO-V2 review, minor-4 — an earlier version of
+this docstring said "seven", counting only the first group). Full unit gate with this fixture's
+restore neutered: `10 failed, 8130 passed`; with it: `0 failed`.
+  * `tests/unit/runtime/test_inference_retry_budget.py` — 3
+  * `tests/unit/runtime/test_inference_br_resident.py` — 3
+  * `tests/unit/runtime/test_phi_inference_canary.py` — 1
+  * `tests/unit/tools/workers/test_harness.py` — 3 (`test_bpmn_error_screening_reports_only_key_
+    names_never_values`, `test_bpmn_error_variables_dropped_on_allowlist_demotion`,
+    `test_uncatalogued_code_is_the_primary_cause_even_when_the_payload_also_fails`)
+Note what they have in common: all ten read a captured log stream, and most of them are the PHI
+guards that assert prompt/variable content does NOT appear in one. They fail loudly here (an empty
+capture list breaks the "the event IS there" half of each), which is the good case — but the
+failure lands in a file nobody touched, so without this fixture it reads as a flake.
 
 WHY THIS IS THE RIGHT PLACE TO FIX IT, and not `setup_observability`. Caching bound loggers is a
 legitimate production choice (it is a hot path), and weakening a shipped module's configuration to

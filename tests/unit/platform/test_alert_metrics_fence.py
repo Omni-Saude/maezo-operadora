@@ -24,10 +24,21 @@ WHAT THIS FENCE ASSERTS, and what it deliberately does not:
   3. Each in-repo metric's emitter has at least one caller in `src/` OUTSIDE the observability
      module — the "dead library" detector the audit asked for. A helper only its own module calls
      is exactly the shape `setup_observability` had (AF-13).
-  4. Every graph-invocation seam in `src/` counts agent errors (no un-instrumented sixth turn).
+  4. Every graph-invocation seam in `src/` counts agent errors — enumerated STRUCTURALLY, per call
+     site: the seams are derived from the AST (`<expr>.ainvoke(`), and each site must sit inside a
+     `try` whose `except Exception` handler CALLS `record_agent_error()` and re-raises bare. The
+     gated-seam chokepoint (`gate()` -> `_count_tool_call` -> `record_tool_call`) gets the mirror
+     check, including that it does NOT re-raise.
 It does NOT assert the alerts are well-tuned, that the thresholds are right, or that a metric is
 emitted on the correct code path — those are behavioural claims, and the behavioural proofs sit
 below in this same file and in the worker-metrics file.
+
+WHY (4) IS AST AND NOT `substring in file` (WP-COMPOSICAO-V2 review, MAJOR-3). The first cut of
+this fence checked the file SET structurally but each file's instrumentation with
+`"record_agent_error" not in path.read_text()`. Every seam carries a comment that names the helper,
+so deleting the CALL from four of the five seams — including Helena's live WhatsApp receiver — left
+this file and the whole `tests/unit/{agents,platform,runtime,a2a}` suite green. That is the very
+defect class ALERTS-WITHOUT-METRICS-a exists to close, re-created inside its own guard.
 """
 
 from __future__ import annotations
@@ -71,9 +82,13 @@ ALERT_METRIC_EMITTERS: Final[dict[str, str]] = {
     "maezo_tool_calls_total": "record_tool_call",
 }
 
-#: Files in `src/` that invoke a compiled LangGraph (`.ainvoke(`). EVERY one must count agent
-#: errors — see `test_every_graph_invocation_in_src_counts_agent_errors`.
-_GRAPH_INVOCATION_FILES: Final[frozenset[str]] = frozenset(
+#: A NON-VACUITY FLOOR, not the closed set. The set of graph-invocation seams is DERIVED from the
+#: AST of `src/` by `_ainvoke_lines()`/`_uninstrumented_graph_invocations()`; a sixth seam requires
+#: instrumentation, never an edit here. What this frozenset defends against is the opposite
+#: failure — an AST walk that stops finding anything (a rename, a refactor into a helper, a bug in
+#: the walk itself) would make a fence over an EMPTY set pass trivially. Losing one of these five
+#: is a reviewed edit; gaining a sixth is not.
+_GRAPH_INVOCATION_FLOOR: Final[frozenset[str]] = frozenset(
     {
         "runtime/harness.py",
         "platform/webhooks/whatsapp/dispatch.py",
@@ -82,6 +97,10 @@ _GRAPH_INVOCATION_FILES: Final[frozenset[str]] = frozenset(
         "agents/andre/delegation.py",
     }
 )
+
+#: The one gated-seam chokepoint, and the helper it must call. Every gated seam (dmn, cibseven,
+#: fhir, whatsapp, inference, population, a2a) passes through `gate()` exactly once per call.
+_GATE_CHOKEPOINT_FILE: Final[str] = "gateway/seams/_base.py"
 
 #: PromQL suffixes a histogram/summary series carries that its declared metric name does not.
 _SERIES_SUFFIXES: Final[tuple[str, ...]] = ("_bucket", "_count", "_sum")
@@ -188,6 +207,103 @@ def _emitter_call_sites() -> dict[str, list[str]]:
 
 
 # =================================================================================================
+# Structural instrumentation checks — AST, per call site (NOT `substring in file`)
+# =================================================================================================
+
+
+def _called_names(node: ast.AST) -> set[str]:
+    """Every function/method NAME called anywhere under `node`. `f()` and `obj.f()` both count."""
+    names: set[str] = set()
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        func = child.func
+        if isinstance(func, ast.Name):
+            names.add(func.id)
+        elif isinstance(func, ast.Attribute):
+            names.add(func.attr)
+    return names
+
+
+def _ainvoke_lines(node: ast.AST) -> set[int]:
+    """Line numbers of every `<expr>.ainvoke(` CALL under `node` — a graph run, structurally."""
+    return {
+        child.lineno
+        for child in ast.walk(node)
+        if isinstance(child, ast.Call)
+        and isinstance(child.func, ast.Attribute)
+        and child.func.attr == "ainvoke"
+    }
+
+
+def _handler_catches_exception(handler: ast.ExceptHandler) -> bool:
+    """`except Exception` (alone or in a tuple). `BaseException` and bare `except:` do NOT qualify.
+
+    Deliberate: `asyncio.CancelledError` is a `BaseException` and means "the pod is draining", not
+    "the agent failed". A seam that widened its handler to `BaseException` would start counting
+    every rolling deploy as an agent error and must fail this fence, not pass it.
+    """
+    kind = handler.type
+    if kind is None:  # bare `except:` — catches BaseException too.
+        return False
+    candidates = kind.elts if isinstance(kind, ast.Tuple) else [kind]
+    named = {c.id for c in candidates if isinstance(c, ast.Name)}
+    return named == {"Exception"}
+
+
+def _handler_reraises(handler: ast.ExceptHandler) -> bool:
+    """A bare `raise` somewhere in the handler body — nothing swallowed, nothing retyped."""
+    return any(isinstance(child, ast.Raise) and child.exc is None for child in ast.walk(handler))
+
+
+def _uninstrumented_graph_invocations() -> list[str]:
+    """Every `.ainvoke(` site in `src/` NOT wrapped in a counting, re-raising `except Exception`.
+
+    THIS is the check, and it is per SITE, not per file. The version this replaces asked
+    `"record_agent_error" not in path.read_text()`, which the whole-file substring made satisfiable
+    by a COMMENT — so the counter could be deleted from four of the five seams (including Helena's
+    live WhatsApp receiver) with this fence green. Reproduced by the gatekeeper; see the mutation
+    table in `test_every_graph_invocation_in_src_counts_agent_errors`.
+    """
+    uninstrumented: list[str] = []
+    for path, tree in _src_trees():
+        sites = _ainvoke_lines(tree)
+        if not sites:
+            continue
+        covered: set[int] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Try):
+                continue
+            guarded = {line for stmt in node.body for line in _ainvoke_lines(stmt)}
+            if not guarded:
+                continue
+            if any(
+                _handler_catches_exception(handler)
+                and "record_agent_error" in _called_names(handler)
+                and _handler_reraises(handler)
+                for handler in node.handlers
+            ):
+                covered |= guarded
+        uninstrumented += [f"{path.relative_to(_SRC)}:{line}" for line in sorted(sites - covered)]
+    return uninstrumented
+
+
+def _src_trees() -> list[tuple[Path, ast.Module]]:
+    """Every `src/maezo` module, parsed once. Sorted, so failures name files in a stable order."""
+    return [
+        (path, ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
+        for path in sorted(_SRC.rglob("*.py"))
+    ]
+
+
+def _function_def(tree: ast.Module, name: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == name:
+            return node
+    raise AssertionError(f"no function named {name!r} — the fence's anchor moved, so it is vacuous")
+
+
+# =================================================================================================
 # 1-3: the fence
 # =================================================================================================
 
@@ -270,28 +386,98 @@ def test_every_alert_metric_emitter_has_a_caller_outside_the_observability_modul
 
 
 def test_every_graph_invocation_in_src_counts_agent_errors() -> None:
-    """Enumerate the turn-execution seams, and require every one of them to count failures.
+    """EVERY `.ainvoke(` call site in `src/` runs inside a counting, re-raising `except Exception`.
 
-    A sixth `.ainvoke(` added without instrumentation would silently shrink the coverage of
-    `MaezoAgentCrashLoop` — this makes that a test failure rather than a discovery during an
-    incident. Both halves are asserted: the file set is closed, AND each file in it actually calls
-    `record_agent_error`.
+    The set of seams is DERIVED from the AST, not declared: a sixth graph invocation needs
+    instrumentation, not an entry in a list here, so the fence cannot be satisfied by editing the
+    list instead of the code. `_GRAPH_INVOCATION_FLOOR` only guards the vacuous direction.
+
+    MUTATION RESULTS. Throwaway `rsync` copy of the worktree (`.git`/`.venv`/`__pycache__`
+    excluded), worktree venv reused via `UV_PROJECT_ENVIRONMENT`, `PYTHONDONTWRITEBYTECODE=1`;
+    the copy was deleted afterwards. Baseline on the copy: **14 passed**. Command per mutant:
+    `uv run pytest tests/unit/platform/test_alert_metrics_fence.py -q -p no:cacheprovider`.
+
+      | mutant                                                            | result           |
+      |-------------------------------------------------------------------|------------------|
+      | M1 delete `record_agent_error()` from `dispatch.py` ONLY, keeping   | RED 1/14 (this)  |
+      |    the import and the comment that names the helper                 |                  |
+      | M2 delete it from all four NON-harness seams (rafael/carolina/      | RED 1/14 (this)  |
+      |    andre delegation + `dispatch.py`), keeping every comment         |                  |
+      | M3 widen `dispatch.py`'s handler to `except BaseException`          | RED 1/14 (this)  |
+      | M4 drop the bare `raise` from `dispatch.py`'s handler               | RED 1/14 (this)  |
+      | M5 add a sixth, uninstrumented `.ainvoke(` site in a new module     | RED 1/14 (this)  |
+      | M6 delete `record_tool_call()` from `_count_tool_call`              | RED 4/14         |
+      | M7 delete `_count_tool_call(operation)` from `gate()`               | RED 3/14         |
+
+    CONTROL, on the same M1 tree: the check this replaces
+    (`"record_agent_error" not in path.read_text()`) stays GREEN — 2 textual occurrences of the
+    name survive in `dispatch.py` (the import line and the explanatory comment) with **0 calls**.
+    That is the gatekeeper's E3, and it is why M1 and M2 are the load-bearing rows above: the
+    counter could be deleted from Helena's live WhatsApp receiver and all three A2A delegation
+    targets with this file — and the whole `tests/unit/{agents,platform,runtime,a2a}` suite —
+    green.
     """
-    found = {
-        str(path.relative_to(_SRC))
-        for path in _SRC.rglob("*.py")
-        if ".ainvoke(" in path.read_text(encoding="utf-8")
-    }
-    assert found == set(_GRAPH_INVOCATION_FILES), (
-        f"graph-invocation sites changed: found {sorted(found)}, declared "
-        f"{sorted(_GRAPH_INVOCATION_FILES)}. A new one must count agent errors and be listed here."
+    uninstrumented = _uninstrumented_graph_invocations()
+    assert not uninstrumented, (
+        f"graph-invocation site(s) whose failures are never counted: {uninstrumented}. Each "
+        "`.ainvoke(` must sit in a `try` whose `except Exception` handler calls "
+        "`record_agent_error()` and re-raises bare — `MaezoAgentCrashLoop` reads that counter and "
+        "nothing else does."
     )
-    missing = [
-        name
-        for name in sorted(found)
-        if "record_agent_error" not in (_SRC / name).read_text(encoding="utf-8")
-    ]
-    assert not missing, f"graph-invocation site(s) that never count a failed turn: {missing}"
+
+
+def test_the_graph_invocation_walk_is_not_vacuous() -> None:
+    """A derived fence over an EMPTY set passes everything. Anchor it to the five known seams."""
+    found = {str(path.relative_to(_SRC)) for path, tree in _src_trees() if _ainvoke_lines(tree)}
+    assert found >= _GRAPH_INVOCATION_FLOOR, (
+        f"graph-invocation seam(s) disappeared from the AST walk: "
+        f"{sorted(_GRAPH_INVOCATION_FLOOR - found)}. Either they were genuinely removed (a "
+        "reviewed edit to this floor) or the walk stopped seeing them, which would make "
+        "`test_every_graph_invocation_in_src_counts_agent_errors` vacuous."
+    )
+
+
+def test_the_gated_seam_chokepoint_counts_every_tool_call() -> None:
+    """`gate()` counts BEFORE the ladder, and the counter cannot break an effect call.
+
+    Structural for the same reason as the agent-error seam: `maezo_tool_calls_total` is the
+    DENOMINATOR of `MaezoSLAAgentErrorRateHigh`, so a `gate()` that stopped counting would not
+    make the alert noisy — it would make it silently unfireable, which is the exact defect
+    ALERTS-WITHOUT-METRICS-a names. Three properties, all read off the AST:
+
+      1. `gate()`'s FIRST statement is the count. Anywhere later and a denial would return before
+         counting, so the denominator would become "calls the policy allowed" — a different, and
+         wrong, quantity.
+      2. `_count_tool_call` really calls `record_tool_call` (not merely mentions it).
+      3. Its handler catches `Exception` and does NOT re-raise — the OPPOSITE of the agent-error
+         seam, deliberately: telemetry must never reach a care path. A re-raise here would let a
+         metrics fault deny an effect.
+    """
+    tree = ast.parse((_SRC / _GATE_CHOKEPOINT_FILE).read_text(encoding="utf-8"))
+
+    gate = _function_def(tree, "gate")
+    statements = list(gate.body)
+    if statements and isinstance(statements[0], ast.Expr) and isinstance(statements[0].value, ast.Constant):
+        statements = statements[1:]  # the docstring is not a statement for this purpose
+    assert statements, "`gate()` has no body — the rest of this test would be vacuous"
+    assert "_count_tool_call" in _called_names(statements[0]), (
+        f"`gate()`'s first statement is {ast.dump(statements[0])[:120]}, not the tool-call count. "
+        "A denial must already have been counted by the time it returns."
+    )
+
+    counter = _function_def(tree, "_count_tool_call")
+    tries = [node for node in ast.walk(counter) if isinstance(node, ast.Try)]
+    assert tries, "`_count_tool_call` must guard the emitter — a metric fault cannot break an effect"
+    assert any("record_tool_call" in _called_names(node) for node in tries), (
+        "`_count_tool_call` never CALLS `record_tool_call` — naming it in a docstring is exactly "
+        "the dead-library shape this fence exists to reject."
+    )
+    for node in tries:
+        for handler in node.handlers:
+            assert _handler_catches_exception(handler), ast.dump(handler)[:120]
+            assert not _handler_reraises(handler), (
+                "the tool-call counter re-raises: a telemetry fault would deny a gated effect."
+            )
 
 
 # =================================================================================================

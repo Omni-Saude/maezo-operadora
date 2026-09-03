@@ -14,6 +14,12 @@ THE TWO HALVES, both asserted here, because either alone would be a false repair
   * NO DOUBLE COUNT — a `WorkerBase` topic emits them EXACTLY ONCE (from `WorkerBase.run()`), not
     twice. Doubling would silently corrupt the p95 the latency alert reads, which is worse than
     the gap it replaced.
+
+BOTH REGISTRATION ORDERS are covered, because "exactly once" is a property of the ORDER as much as
+of the code: `register_worker` -> raw (`test_re_registering_a_worker_base_topic_raw_moves_it_back_
+to_harness_emission`) and raw -> `register_worker`
+(`test_registering_raw_first_and_then_a_worker_base_still_observes_exactly_once`). The second was
+added after the WP-COMPOSICAO-V2 review pointed out that only one order was pinned.
 """
 
 from __future__ import annotations
@@ -264,3 +270,34 @@ async def test_both_handler_kinds_report_under_the_same_metric_and_label_names()
 
     assert _execution_count("_OkWorker", _BASE_TOPIC) >= 1.0
     assert _execution_count(raw_label, _RAW_TOPIC) >= 1.0
+
+
+@pytest.mark.asyncio
+async def test_registering_raw_first_and_then_a_worker_base_still_observes_exactly_once() -> None:
+    """The OTHER registration order (WP-COMPOSICAO-V2 review, minor).
+
+    `test_re_registering_a_worker_base_topic_raw_moves_it_back_to_harness_emission` covers
+    register_worker -> raw. This is raw -> register_worker, and it is the order that could
+    plausibly DOUBLE-count: `register_worker` delegates to `register`, which `discard`s the
+    `_worker_base_topics` claim, and only then re-adds it. If those two steps were ever reordered
+    the topic would be emitted by `WorkerBase.run()` AND by `_handle`'s `finally`, putting two
+    points into the histogram `MaezoSLAWorkerLatencyHigh` reads a p95 out of.
+
+    Asserted on both legs, because "exactly once" is a claim about the pair: the `WorkerBase`
+    label moves by exactly 1, and the raw-handler label for the SAME topic does not move at all.
+    """
+    harness = _harness()
+
+    async def superseded_handler(task: ExternalTask) -> dict[str, Any]:
+        return {"ok": True}
+
+    harness.register(_BASE_TOPIC, superseded_handler)
+    raw_label = derive_handler_name(superseded_handler)
+    harness.register_worker(_OkWorker())
+
+    before_base = _execution_count("_OkWorker", _BASE_TOPIC)
+    before_raw = _execution_count(raw_label, _BASE_TOPIC)
+    await harness.handle_task(_task(task_id="task-raw-then-base", topic=_BASE_TOPIC))
+
+    assert _execution_count("_OkWorker", _BASE_TOPIC) == before_base + 1.0
+    assert _execution_count(raw_label, _BASE_TOPIC) == before_raw
