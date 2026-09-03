@@ -23,6 +23,7 @@ from maezo.tools.mcp_cibseven.transport import (
     FakeCibSevenTransport,
     ProcessInstance,
     ProcessNotFoundError,
+    historic_instance_is_live,
     start_process_idempotent,
 )
 from tests.support.audit_fakes import FakeStartAuditSink
@@ -174,6 +175,149 @@ async def test_http_find_active_instance_returns_none_when_empty() -> None:
     transport = CibSevenHttpTransport("http://engine/engine-rest")
     transport._client.get = AsyncMock(return_value=_mock_response([]))  # type: ignore[method-assign]
     assert await transport.find_active_instance("ESC-amh-1") is None
+
+
+# ---------------------------------------------------------------------------
+# `find_any_instance` over a MULTI-ROW history (GK MAJOR-1)
+#
+# History is a LIST, and since GAP-D3-02 a business key legitimately has more than one row in it:
+# an `EXCLUSIVE` key falls through on a finished generation and starts the next one, so
+# `[gen-1 COMPLETED, gen-2 ACTIVE]` is the steady state, not an edge case. The previous revision
+# returned on the FIRST matching row, so on exactly that history it answered COMPLETED — and the
+# gate then read "the claimed generation ended", fell through, and started a SECOND CONCURRENT
+# instance. The gate-level consequence is pinned in `test_start_process_dedup_gate.py`; this is
+# the wire-level read that has to be right for that fix to hold.
+# ---------------------------------------------------------------------------
+
+
+async def test_http_find_any_instance_prefers_the_live_row_over_an_earlier_finished_one() -> None:
+    """THE GK MAJOR-1 PROBE, verbatim: history `[gen-1 COMPLETED, gen-2 ACTIVE]` must answer with
+    the LIVE row. Returning the finished one is what let a second concurrent instance start."""
+    transport = CibSevenHttpTransport("http://engine/engine-rest")
+    transport._client.get = AsyncMock(  # type: ignore[method-assign]
+        return_value=_mock_response(
+            [
+                {"id": "pi-gen1", "processDefinitionKey": "SP-OP-CANCEL-001", "state": "COMPLETED"},
+                {"id": "pi-gen2", "processDefinitionKey": "SP-OP-CANCEL-001", "state": "ACTIVE"},
+            ]
+        )
+    )
+
+    inst = await transport.find_any_instance("CANCEL-amh-C-001", process_key="SP-OP-CANCEL-001")
+
+    assert inst is not None
+    assert inst.instance_id == "pi-gen2", "the ACTIVE-rescue branch was handed an arbitrary row"
+    assert inst.state == "ACTIVE"
+    assert inst.already_existed is True
+    call_args = transport._client.get.call_args
+    assert call_args[0][0] == "/history/process-instance"
+    assert call_args[1]["params"] == {"processInstanceBusinessKey": "CANCEL-amh-C-001"}
+
+
+async def test_http_find_any_instance_returns_a_finished_row_only_when_none_is_live() -> None:
+    """The other half: with NO live row anywhere the first finished row is the honest answer —
+    that is the evidence `EXCLUSIVE` needs to release the key's next legitimate case."""
+    transport = CibSevenHttpTransport("http://engine/engine-rest")
+    transport._client.get = AsyncMock(  # type: ignore[method-assign]
+        return_value=_mock_response(
+            [
+                {"id": "pi-gen1", "processDefinitionKey": "SP-OP-CANCEL-001", "state": "COMPLETED"},
+                {
+                    "id": "pi-gen2",
+                    "processDefinitionKey": "SP-OP-CANCEL-001",
+                    "state": "EXTERNALLY_TERMINATED",
+                },
+            ]
+        )
+    )
+
+    inst = await transport.find_any_instance("CANCEL-amh-C-001", process_key="SP-OP-CANCEL-001")
+
+    assert inst is not None
+    assert inst.instance_id == "pi-gen1"
+    assert inst.state == "COMPLETED"
+
+
+async def test_http_find_any_instance_scans_past_a_foreign_definition_to_reach_the_live_row() -> None:
+    """The `process_key` filter and the live-row scan compose: a foreign definition sharing the
+    business key is skipped, and the scan CONTINUES rather than stopping at the first survivor."""
+    transport = CibSevenHttpTransport("http://engine/engine-rest")
+    transport._client.get = AsyncMock(  # type: ignore[method-assign]
+        return_value=_mock_response(
+            [
+                {"id": "pi-foreign", "processDefinitionKey": "SP-OP-CONTAS-001", "state": "ACTIVE"},
+                {"id": "pi-gen1", "processDefinitionKey": "SP-OP-CANCEL-001", "state": "COMPLETED"},
+                {"id": "pi-gen2", "processDefinitionKey": "SP-OP-CANCEL-001", "state": "ACTIVE"},
+            ]
+        )
+    )
+
+    inst = await transport.find_any_instance("CANCEL-amh-C-001", process_key="SP-OP-CANCEL-001")
+
+    assert inst is not None
+    assert inst.instance_id == "pi-gen2"
+
+
+async def test_http_find_any_instance_treats_a_suspended_row_as_live() -> None:
+    """A SUSPENDED instance has NOT ended — treating it as finished would let `EXCLUSIVE` start a
+    second instance alongside it. Over-matching here refuses a start; under-matching permits a
+    duplicate one, and only one of those two errors is recoverable."""
+    transport = CibSevenHttpTransport("http://engine/engine-rest")
+    transport._client.get = AsyncMock(  # type: ignore[method-assign]
+        return_value=_mock_response(
+            [
+                {"id": "pi-gen1", "processDefinitionKey": "SP-OP-CANCEL-001", "state": "COMPLETED"},
+                {"id": "pi-gen2", "processDefinitionKey": "SP-OP-CANCEL-001", "state": "SUSPENDED"},
+            ]
+        )
+    )
+
+    inst = await transport.find_any_instance("CANCEL-amh-C-001", process_key="SP-OP-CANCEL-001")
+
+    assert inst is not None
+    assert inst.instance_id == "pi-gen2"
+    assert inst.state == "SUSPENDED", "the engine's own state token is passed through verbatim"
+
+
+async def test_http_find_any_instance_treats_an_unrecognised_open_row_as_live() -> None:
+    """An engine build reporting a state token this module has never seen, with no `endTime`, is
+    NOT proof the instance ended. Fail toward refusing the start."""
+    transport = CibSevenHttpTransport("http://engine/engine-rest")
+    transport._client.get = AsyncMock(  # type: ignore[method-assign]
+        return_value=_mock_response(
+            [{"id": "pi-odd", "processDefinitionKey": "SP-OP-CANCEL-001", "state": "MIGRATING"}]
+        )
+    )
+
+    inst = await transport.find_any_instance("CANCEL-amh-C-001", process_key="SP-OP-CANCEL-001")
+
+    assert inst is not None
+    assert inst.state == "MIGRATING"
+
+
+async def test_http_find_any_instance_reads_end_time_when_the_state_token_is_missing() -> None:
+    """With no `state` at all the engine's `endTime` is the remaining statement about liveness: a
+    row that carries one has ended, and `EXCLUSIVE` may release the key's next case on it."""
+    transport = CibSevenHttpTransport("http://engine/engine-rest")
+    transport._client.get = AsyncMock(  # type: ignore[method-assign]
+        return_value=_mock_response(
+            [
+                {
+                    "id": "pi-ended",
+                    "processDefinitionKey": "SP-OP-CANCEL-001",
+                    "endTime": "2026-09-03T10:00:00.000+0000",
+                }
+            ]
+        )
+    )
+
+    inst = await transport.find_any_instance("CANCEL-amh-C-001", process_key="SP-OP-CANCEL-001")
+
+    assert inst is not None
+    assert inst.state == "UNKNOWN"
+    assert historic_instance_is_live(inst.state, end_time="2026-09-03T10:00:00.000+0000") is False
+    # ...and with no endTime either, the same row is treated as LIVE (refuse, never guess).
+    assert historic_instance_is_live("UNKNOWN") is True
 
 
 async def test_http_start_process_instance_posts_business_key_and_typed_variables() -> None:

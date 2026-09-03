@@ -194,10 +194,20 @@ def validate_cancel(input_data: CancelInput) -> CancelValidationResult:
         # Could still be valid (e.g., pedido_beneficiario with inactive contract)
         pass
 
+    # GAP-INAD-8 (WP-FATOS-FABRICADOS slice 2) — STRICT `is True`, the fail-closed normalization
+    # of the ONE fact that gates a for-cause termination. `pick_fields` (`base.py:606-620`) is a
+    # pure key filter with NO type coercion, so whatever the engine/handoff put in process scope
+    # arrives verbatim: the string `"false"`, `"0"`, `{}` or any other truthy junk would slip
+    # through a bare `if not ...` and route SEGUE_ANALISE — i.e. an unproven prior notice would
+    # advance a rescission. Only a real boolean `True` counts as proven; every other shape (absent,
+    # blank, string, None, non-bool) collapses to `False` and takes the non-adverse
+    # `PENDENTE_NOTIFICACAO` wait. Mirrors `inadimplencia._register_contract_suspension`'s
+    # `ja_em_rescisao is not False` idiom. NOT an HITL denial: `False` never denies anything, it
+    # routes to the notification wait whose timer converges on `UT_AnaliseRescisao`.
     result = CancelValidationResult(
         valid=len(errors) == 0,
         dentro_prazo=input_data.dentro_prazo,
-        notificacao_previa_feita=input_data.notificacao_previa_feita,
+        notificacao_previa_feita=input_data.notificacao_previa_feita is True,
         titularidade_confirmada=input_data.titularidade_confirmada,
         vinculo_ativo=vinculo_ativo,
         errors=errors,
@@ -252,7 +262,12 @@ def assess_admissibility(
             motivo = "Titularidade/prazo/vinculo nao confirmados"
     elif tipo_sol in ("inadimplencia", "for_cause_operadora"):
         natureza_caso = "inadimplencia" if tipo_sol == "inadimplencia" else "for_cause"
-        if not validation.notificacao_previa_feita:
+        # GAP-INAD-8: `is not True`, not `not ...`. `assess_admissibility` is reached through
+        # `prepare_dossier_entry`, which rebuilds `CancelValidationResult` from RAW process
+        # variables via `pick_fields` — it does NOT necessarily see the value `validate_cancel`
+        # normalized. Repeating the strict test here means an un-normalized truthy value cannot
+        # reach SEGUE_ANALISE by taking the second entry point. Defence in depth, not redundancy.
+        if validation.notificacao_previa_feita is not True:
             roteamento = "PENDENTE_NOTIFICACAO"
             motivo = "Notificacao previa pendente (RN 593)"
         else:
@@ -274,25 +289,49 @@ def assess_admissibility(
     return result
 
 
-def notify_beneficiario(
+def dispatch_prior_notice(
     matricula_beneficiario: str,
     numero_contrato: str,
     message_type: str = "",
 ) -> dict[str, Any]:
-    """Notify beneficiario about cancel/termination status."""
+    """Log that the RN-593 prior-notice STEP ran on CANCEL-001. Returns `{}` — asserts NO fact.
+
+    Bound to `operadora.cancel.request_notification` (`ST_RequestNotification`,
+    `spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn:157-162`), the
+    `PENDENTE_NOTIFICACAO` branch's dispatch task.
+
+    GAP-INAD-8 (WP-FATOS-FABRICADOS slice 2, adjacent-code leg). This was `notify_beneficiario`
+    and returned `{"notified": True, ...}` unconditionally — the SAME fabricated-fact shape as
+    `inadimplencia.notify_beneficiario`, from the same regulatory step, with no channel contacted
+    and no delivery observed. The harness loads a handler's return dict into process scope on
+    `complete` (`harness.py:1778-1782`), so `notified=True` was written into the instance on every
+    delivery. It is fixed here rather than merely tracked because the slice-2 fix ROUTES TRAFFIC
+    INTO this branch: with `inadimplencia`'s constant gone, an inadimplencia-originated CANCEL
+    whose prior notice is unproven now actually reaches `PENDENTE_NOTIFICACAO` and therefore this
+    task, which before was effectively unreachable for that family.
+
+    `notified` had ZERO consumers when this was written (`grep -rn '\bnotified\b'` over
+    `cancel.py`, `SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn` and `cancel_*.dmn` matched only the
+    literal at the old `:291`), so returning `{}` removes a false assertion without changing any
+    routing — the ADEQUACAO precedent from slice 1. The three echoed identity fields went with it:
+    they were re-writes of variables already in process scope, and `message_type` is not even a
+    declared process variable of this BPMN.
+
+    The real proof of notice on CANCEL-001 is unchanged and lives elsewhere:
+    `msg.cancel.notification_ack`'s `processVariables` payload (contract
+    `SP-OP-CANCEL-001.md:104,107-117` — GAP-CANCEL-4) and the human's
+    `comprovacao_notificacao_previa`, required by `register_contract_termination`'s
+    `ERR_CANCELLATION_NOT_HUMAN` guard.
+    """
     logger.info(
-        "cancel.notify_beneficiario",
+        "cancel.dispatch_prior_notice",
         matricula_beneficiario=matricula_beneficiario,
         numero_contrato=numero_contrato,
         message_type=message_type,
+        notified_asserted=False,
     )
 
-    return {
-        "notified": True,
-        "matricula_beneficiario": matricula_beneficiario,
-        "numero_contrato": numero_contrato,
-        "message_type": message_type,
-    }
+    return {}
 
 
 def effectuate_member_request(input_data: CancelInput) -> CancelEffectuationResult:
@@ -554,8 +593,10 @@ def _current_date_iso() -> str:
 #                                     "Pre-resolve cancel/termination facts")
 #   assess_admissibility          -> operadora.cancel.prepare_dossier      (spec match:
 #                                     routing/motivo dossier for UT_AnaliseRescisao)
-#   notify_beneficiario           -> operadora.cancel.request_notification (spec match:
-#                                     prior-notice dispatch)
+#   dispatch_prior_notice         -> operadora.cancel.request_notification (spec match:
+#                                     prior-notice dispatch STEP; asserts no fact — GAP-INAD-8,
+#                                     was `notify_beneficiario`, returning a constant
+#                                     `notified=True`)
 #   effectuate_member_request     -> operadora.cancel.effectuate_member_request (spec match,
 #                                     L2 clerical, NOT adverse)
 #   register_contract_termination -> operadora.cancel.send_cancellation_notice (spec match, GUARDED)
@@ -606,12 +647,12 @@ def prepare_dossier_entry(
 def request_notification_entry(
     variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
 ) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.cancel.request_notification` -> `notify_beneficiario`."""
-    del kafka  # unused — notify_beneficiario emits no domain event
+    """Dict-boundary entry for `operadora.cancel.request_notification` -> `dispatch_prior_notice`."""
+    del kafka  # unused — dispatch_prior_notice emits no domain event
     matricula = variables.get("matricula_beneficiario", "")
     numero_contrato = variables.get("numero_contrato", "")
     message_type = variables.get("message_type", "")
-    return notify_beneficiario(matricula, numero_contrato, message_type)
+    return dispatch_prior_notice(matricula, numero_contrato, message_type)
 
 
 def effectuate_member_request_entry(

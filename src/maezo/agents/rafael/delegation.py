@@ -150,7 +150,21 @@ def make_rafael_handler(
 
     async def handler(envelope: DelegationEnvelope) -> HandlerOutput:
         state = state_from_envelope(envelope)
-        result: dict[str, Any] = await compiled.ainvoke(state)
+        try:
+            result: dict[str, Any] = await compiled.ainvoke(state)
+        except Exception:
+            # ALERTS-WITHOUT-METRICS-a: a delegated turn that raised IS a failed agent turn, and
+            # `maezo_agent_errors_total` is what `MaezoAgentCrashLoop` reads. Placed at the
+            # `ainvoke` seam — the structural entry to a graph run — and NOT anywhere in rafael's
+            # business logic, which is why it is one line here rather than a rule each node has to
+            # remember. `asyncio.CancelledError` is excluded (BaseException): a drained delegation
+            # is not a failed agent. Enumerated and pinned by
+            # `tests/unit/platform/test_alert_metrics_fence.py::
+            # test_every_graph_invocation_in_src_counts_agent_errors`.
+            from maezo.platform.observability import record_agent_error  # noqa: PLC0415
+
+            record_agent_error()
+            raise
         business_key = result.get("business_key") or _business_key(state)
         # GUARDRAIL: output_ref is the process business key — never a coverage decision. The
         # dossier (whose `decisao_cobertura` is structurally always None, `graph.py`'s own

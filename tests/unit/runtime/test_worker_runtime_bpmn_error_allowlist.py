@@ -64,8 +64,14 @@ def test_production_allowlist_is_exactly_the_non_adverse_failsafes() -> None:
     #   - ERR_ANS_DATASET_INCOMPLETO (t2-ans-submit): ans_submit's origin-data guard (the upstream
     #     source could not assemble the dataset at all); BE_AssembleDatasetIncompleto routes it to
     #     UT_CorrigirPendenciaEnvio (human) — the contract's explicit "nunca auto-rejeita o envio".
-    # All nine are NON-adverse (not a denial), so none is T-E-gated. The two ANS codes are doubly so:
-    # SP-OP-ANS-SUBMIT-001 is operadora -> regulador and models no adverse output at all.
+    #   - ERR_PAGTO_ORDEM_INVALIDA (WP-ADR-0030-COMPLETION, D3-01): pagto's G2-val origin/
+    #     consistency guard (blank/absent ordem_pagamento_id at validate_pagto) routed via
+    #     BE_PagtoOrdemInvalida to End_PagtoOrdemInvalida (a neutral terminal).
+    #   - ERR_REEMBOLSO_INVALID_PROTOCOLO (WP-ADR-0030-COMPLETION, D3-01): reembolso's G2-val
+    #     origin/consistency guard (blank/absent protocolo_reembolso at check_coverage) routed via
+    #     BE_ReembolsoProtocoloInvalido to End_ReembolsoProtocoloInvalido (a neutral terminal).
+    # All eleven are NON-adverse (not a denial), so none is T-E-gated. The two ANS codes are doubly
+    # so: SP-OP-ANS-SUBMIT-001 is operadora -> regulador and models no adverse output at all.
     assert (
         frozenset(
             {
@@ -78,12 +84,14 @@ def test_production_allowlist_is_exactly_the_non_adverse_failsafes() -> None:
                 "ERR_CRED_INVALID_PRESTADOR",
                 "ERR_ANS_PROTOCOLO_NACK",
                 "ERR_ANS_DATASET_INCOMPLETO",
+                "ERR_PAGTO_ORDEM_INVALIDA",
+                "ERR_REEMBOLSO_INVALID_PROTOCOLO",
                 # HABILITADO em 25/08/2026 (ADR-0030 §4, "per-family enablement follow-up"):
                 # o T-E aterrissou em 24/07 e o desfecho roteado continua auditado, que era a
                 # unica condicao do gate. Antes disso a negativa sem fundamentacao parava como
                 # incident — nada transmitido, mas sem volta a mesa do auditor, e cada
                 # ocorrencia virava chamado de suporte.
-                # E' o UNICO codigo adverso nesta lista; os outros nove sao nao-adversos.
+                # E' o UNICO codigo adverso nesta lista; os outros onze sao nao-adversos.
                 "ERR_AUTH_DENIAL_INCOMPLETE",
             }
         )

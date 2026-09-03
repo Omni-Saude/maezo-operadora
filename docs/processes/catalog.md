@@ -15,7 +15,7 @@ de agente (AGJ-*), documentada no `agent.yaml` de cada agente.
 | SP-OP-ANS-SUBMIT-001 | Envios periodicos ANS | Calendario regulatorio | 2 | modelado (suite de integração planejada — T3.1; DMN ans_sla adicionado ao contrato) |
 | SP-OP-ANS-CRON-001 | Agendador dos envios ANS (5 definitions, 1 timer por report_type) | Calendario regulatorio (RN 124/209/388/424, DIOPS — DRAFT/verify) | 2 | modelado (agendador puro, NAO negativa-like; sem DMN propria e sem User Task propria — ver a nota sobre a quadrupla abaixo) |
 | SP-OP-CANCEL-001 | Cancelamento de contrato | RN 412 | 2 | modelado (suite de integração planejada — T3.1) |
-| SP-OP-REEMBOLSO-001 | Reembolso | RN 259 | 2 | modelado (suite de integração planejada — T3.1) |
+| SP-OP-REEMBOLSO-001** | Reembolso | RN 259 | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-INADIMPLENCIA-001 | Suspensao/rescisao | RN 593 | 3 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-CRED-001 | (Des)credenciamento | RN 567 | 3 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-ADEQUACAO-001 | Adequacao de rede | RN 259 geografia | 3 | modelado (suite de integração planejada — T3.1) |
@@ -54,6 +54,21 @@ para servi-lo — nao ha atividade de monitoramento modelada no BPMN, e inventar
 processo regulatorio sem dono. `register_programa_workers` passa de 8 para 7 topicos, todos
 declarados pelo BPMN; pinado por
 `tests/unit/tools/workers/test_programa.py::test_register_programa_workers_registers_all_7_topics`.
+
+\*\* SP-OP-REEMBOLSO-001: nenhum `agent.yaml` declara este processo em `process_keys`
+(`grep -rn REEMBOLSO spec/agents/*/agent.yaml` -> 0 hits) — arbitrado como MENOR PRIVILEGIO
+CORRETO, nao lacuna (PERSP-REEMBOLSO-BINDING, WP-AGENT-BINDINGS-EXEC). Marina serve o processo
+via A2A (`operadora.reembolso.analyze_request`) mas nunca o INICIA: seu node `start_process` é
+NO-OP nesse fluxo — `grep -n start_process src/maezo/agents/marina/graph.py` mostra o comentario
+"`start_process` is a NO-OP (Marina never starts a second instance)" na linha 33, e o corpo real
+do guard em `graph.py:685` (`if _flow(state) == "reembolso": return {}  # SP-OP-REEMBOLSO-001 is
+already running`). Ela é convocada de DENTRO de uma instância já em execução
+(`ST_PrepararDossie`, depois de `BRT_Admissibilidade`/`BRT_Calculo`/`BRT_AutoApproval` já terem
+rodado) — nunca abre uma instância nova. `process_keys` é o allowlist do effect-PEP
+(`effect_pep.py:487,493-494` — `declared_keys & KNOWN_PROCESS_KEYS`, consultado por
+`allows_process_key`), logo a ausência de SP-OP-REEMBOLSO-001 ali é exatamente o comportamento
+correto para um agente que nunca chama `start_process_idempotent` para esse processo. Fechado
+como NÃO-DEFEITO nesta linha, para que a próxima auditoria não a reabra.
 
 > Validar prazos exatos das RNs com regulatorio antes de modelar timers.
 Redesign completo: ver `operadora-process-redesign.md` no projeto de arquitetura.

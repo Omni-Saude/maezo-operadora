@@ -128,11 +128,18 @@ produz duracoes para `timeDuration`, enquanto `ans_calendar` produz datas para d
 
 | Direcao | Campo | typeRef | Dominio |
 |---|---|---|---|
-| in | `report_type` | string | ver variaveis de entrada |
-| in | `origem_envio` | string | `calendario` \| `nip_filing` \| `retransmissao_manual` |
+| in | `report_type` | string | ver variaveis de entrada (PERSP-B5-INPUTS: **UNICO input real** da tabela shippada — `spec/processes/dmn/ans_sla.dmn:34-36`; `origem_envio` e `fonte_regulatoria` abaixo removidos desta lista por nao existirem na DMN, ver nota) |
 | out | `sla_analise` | string (ISO 8601 duration) | duracao do prazo de revisao (ex.: `P5D`), consumida via `${sla.sla_analise}` pelos timers `timeDuration` interruptivos (`BT_DueDate` / `BT_DueDateJuridico` / `BT_DueDatePendencia`) — **DRAFT/verify** |
 | out | `sla_alerta` | string (ISO 8601 duration) | duracao do alerta de deadline-risk (~50-70% do SLA, ex.: `P3D`), consumida via `${sla.sla_alerta}` pelos timers `timeDuration` nao-interruptivos (`BT_DeadlineRisk` / `BT_DeadlineRiskJuridico` / `BT_DeadlineRiskPendencia`) — **DRAFT/verify** |
-| out | `fonte_regulatoria` | string | RN/IN vigente que ancora o prazo — **DRAFT/verify** |
+
+PERSP-B5-INPUTS (achado alem do escopo original, corrigido junto por estar na mesma tabela): esta
+secao afirmava `origem_envio` como segundo input e `fonte_regulatoria` como terceiro output; a DMN
+`ans_sla` shippada (`spec/processes/dmn/ans_sla.dmn`) so declara `in_report_type` (`:34-36`) e os
+dois outputs `out_sla_analise`/`out_sla_alerta` (`:37-38`) — nenhum `in_origem_envio` nem
+`out_fonte`/`fonte_regulatoria` em lugar nenhum de `spec/processes/dmn/*.dmn` (confirmado por
+`grep -rl origem_envio spec/processes/dmn/*.dmn` -> 0 arquivos). `origem_envio` e real como
+variavel de PROCESSO (seedada no start, `bpmn:79,112`) e como condicao de gateway BPMN
+(`${origem_envio == 'nip_filing'}`, `bpmn:611`) — nunca como input de uma DMN.
 
 Catch-all (report_type/origem_envio desconhecidos) → `sla_analise`/`sla_alerta` conservadores
 (janela curta; nunca prazo infinito). **Sem saida adversa** — so produz duracoes de SLA.
