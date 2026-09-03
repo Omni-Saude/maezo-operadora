@@ -3,7 +3,7 @@
 TWO defects, one chokepoint (`start_process_idempotent`), and the tests below separate them.
 
 B-3 — the engine's ACTIVE query alone cannot gate a start:
-  * **TOCTOU** — `find_active_instance` is a plain GET (`transport.py:265-271`); two concurrent
+  * **TOCTOU** — `find_active_instance` is a plain GET (`transport.py:278-284`); two concurrent
     callers with the same business key can both read "nothing active" and both start.
   * **`active=true`** — a COMPLETED instance is invisible to it, so a re-delivered start for an
     already-FINISHED business key looks brand new. For `SP-OP-PAGTO-001` that is a RE-RELEASE of

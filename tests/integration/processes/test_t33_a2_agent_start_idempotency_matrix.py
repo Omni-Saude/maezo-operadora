@@ -2,7 +2,7 @@
 Class A row A2).
 
 Every agent graph starts its own downstream BPMN process through the IDENTICAL chokepoint —
-`start_process_idempotent` (`maezo.tools.mcp_cibseven.transport.py:1052` — its `def`) — never
+`start_process_idempotent` (`maezo.tools.mcp_cibseven.transport.py:1212` — its `def`) — never
 `start_process_instance` directly (module docstring: "the SINGLE agent-side effect chokepoint").
 Grepping every `start_process_idempotent(` call site under `src/maezo/agents/` gives the full
 enumeration this suite proves a representative-and-complete matrix against:

@@ -781,7 +781,7 @@ class StartDedupPosture(StrEnum):
     independently:
 
       (a) MUTUAL EXCLUSION between CONCURRENT starts — closing the TOCTOU window that
-          `find_active_instance` (a plain GET, `:265-271`) structurally cannot close. Safe for
+          `find_active_instance` (a plain GET, `:278-284`) structurally cannot close. Safe for
           every family: it can only make a re-delivery converge on the instance a racer is
           creating, never swallow a case.
       (b) A PERMANENT CROSS-TIME GATE — a key that has EVER been started is never started again,
@@ -861,7 +861,7 @@ class StartDedupPosture(StrEnum):
 #:   double-termination risk `docs/processes/harmonization-inadimplencia-cancel.md` §1 is written
 #:   to prevent — two parallel `UT_AnaliseRescisao` reviews for one contract. Before GAP-D3-02
 #:   the only thing standing between a racer and that outcome was `find_active_instance`, whose
-#:   TOCTOU window is documented at `:1131-1136` and is exactly what the durable claim closes.
+#:   TOCTOU window is documented at `:1259-1263` and is exactly what the durable claim closes.
 #:   WHY NOT `PERMANENT` (criterion step 2 — NO, and this is load-bearing): this key is NOT
 #:   one-shot, and the evidence is in the process's own terminals. THREE of CANCEL-001's end
 #:   events leave the contract ALIVE — `End_ContratoMantido`
@@ -1256,7 +1256,7 @@ async def start_process_idempotent(
     B-3 — WHY THE ENGINE ACTIVE QUERY IS NOT ENOUGH (the duplicate-payment class this closes). The
     pre-B-3 code discarded the `emit_once` result and relied SOLELY on step 3, which has two
     holes:
-      * TOCTOU. `find_active_instance` is a plain GET (`:265-271`); two concurrent callers with
+      * TOCTOU. `find_active_instance` is a plain GET (`:278-284`); two concurrent callers with
         the same business key can BOTH read "no active instance" and BOTH start. The durable
         claim has no such window — the lookup, the claim and the chain insert share one
         per-tenant advisory-locked transaction (`PostgresAuditSink.emit_once_status`), so exactly
@@ -1311,8 +1311,8 @@ async def start_process_idempotent(
     #    reports nothing active (which is precisely the COMPLETED-instance hole). Under `EXCLUSIVE`
     #    it is final only while the claimed generation is unfinished or unproven; a `None` verdict
     #    means the engine PROVED that generation ended, and this call proceeds as a fresh start.
-    #: True only on the `EXCLUSIVE` fall-through — the claim pre-existed AND the engine proved its
-    #: generation ended. Read once, at the failure log below, where "orphan claim" would be a lie.
+    # True only on the `EXCLUSIVE` fall-through — the claim pre-existed AND the engine proved its
+    # generation ended. Read once, at the failure log below, where "orphan claim" would be a lie.
     claim_generation_closed = False
     if gated and outcome is not None and outcome.deduped:
         resolved = await _resolve_strict_dedup_hit(

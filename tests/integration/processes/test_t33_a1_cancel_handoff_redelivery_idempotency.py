@@ -2,9 +2,9 @@
 T3.3-chaos-resilience.md, Class A row A1).
 
 The ONE real fenced cross-process WORKER handoff in this codebase (design §0/§1.1):
-`inadimplencia.handoff_rescisao` (`src/maezo/tools/workers/inadimplencia.py:492`) idempotently
+`inadimplencia.handoff_rescisao` (`src/maezo/tools/workers/inadimplencia.py:598`) idempotently
 starts SP-OP-CANCEL-001 via the shared `start_process_idempotent` chokepoint
-(`mcp_cibseven/transport.py:560`) — the SAME "10th start site" precedent proven live in
+(`mcp_cibseven/transport.py:1212`) — the SAME "10th start site" precedent proven live in
 `test_sp_op_inadimplencia_001.py::test_happy_path_encaminhar_rescisao_handoff_neutro_nao_rescinde`
 (business key `CANCEL-{tenant}-{numero_contrato}`, #93/#108).
 
