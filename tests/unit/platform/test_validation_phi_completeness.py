@@ -10,15 +10,29 @@ actually declare. Four groups of tests carry the load:
    universe is green by construction — the failure mode this file exists to
    make impossible. Every declared surface must fire against the live `spec/`,
    and the per-file `VARIAVEIS DE ENTRADA` rolls are pinned name-by-name.
-2. **The three buckets, pinned.** `LISTED`/`SHAPE_SUSPECT`/`CLEAN` counts and
-   the full `SHAPE_SUSPECT` membership are pinned against `spec/`, so a new
-   PHI-shaped variable in any artifact is a red build.
+2. **The three buckets, pinned.** `LISTED`/`SHAPE_SUSPECT`/`CLEAN` counts, the
+   occurrence count and the full `SHAPE_SUSPECT` membership are pinned against
+   `spec/`, so a new PHI-shaped variable in any artifact is a red build.
 3. **The fence bites.** A synthetic BPMN introducing a `cns` variable turns the
    fence red; the disposition table cannot acquire a ratified-looking row; and
    the `zona="PHI"` annotation rule is independently exercised.
 4. **The unwired pin.** Like PR-1's `perspective.py`, the module is measured
    before it is enforced. `test_fence_is_not_wired_into_the_cli_yet` records
    that as a deliberate state, not an oversight.
+
+Two groups were added after the first adversarial review, because the two things
+it broke were exactly the two this file had asserted without measuring:
+
+5. **`TestClassificationRecall`** runs the battery the classifier FAILED —
+   `dt_nasc`, `cartao_sus` and `logradouro` passed CLEAN end to end, as did the
+   plural evasions `laudos`/`resumos`/`justificativas` — against a copy of the
+   LIVE `SP-OP-AUTH-001` BPMN, and pins the five names that must stay clean and
+   the named residue that is still uncaught.
+6. **`TestStructuralFreeTextSignal`** covers the classification arm that never
+   reads the name, and `TestDispositionTable` now pins the `DRAFT/verify (DPO)`
+   invariant by LITERAL: the two guards that carried it before both compared a
+   status against the `DRAFT_VERIFY` symbol, so a one-line edit to that constant
+   rendered every row as ratified with all 68 tests green.
 """
 
 from __future__ import annotations
@@ -34,7 +48,6 @@ from maezo.platform.validation.phi_completeness import (
     ATTESTED_NOWHERE,
     CLEAN,
     DISPOSITIONS,
-    DRAFT_VERIFY,
     LISTED,
     PHI_LISTED_NAMES,
     SHAPE_SUSPECT,
@@ -49,7 +62,9 @@ from maezo.platform.validation.phi_completeness import (
     collect_xml_refs,
     collect_xml_refs_from_source,
     collect_yaml_refs,
+    declared_input_free_text_names,
     declared_input_names,
+    free_text_form_field_offsets,
     juel_names,
     matches_phi_shape,
     render_buckets,
@@ -145,6 +160,15 @@ class TestNonVacuity:
         `beneficiario_pseudo_id`, never a CPF). This is pinned rather than
         asserted as `>= 8` because forcing that number would mean inventing
         coverage the corpus does not have.
+
+        Unused is NOT dead, and this test is not an argument for pruning them.
+        `phi_vars.py:48-51` says the set is "kept aligned with the donor's
+        `PHI_PROCESS_VARS` so the invariant's coverage does not drift between
+        codebases", and `:24` names `laudo`/`diagnostico` among the clinical
+        content it exists to cover: removing them would CREATE the drift that
+        docstring forbids. They cost nothing (redacting a key that never appears
+        is a no-op) and they are pre-positioned — the day a BPMN declares
+        `laudo`, it is born covered.
         """
         found = PHI_LISTED_NAMES & set(live_sweep.names)
         assert found == {
@@ -211,20 +235,33 @@ class TestBuckets:
         buckets = live_sweep.by_bucket()
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
-            SHAPE_SUSPECT: 6,
-            CLEAN: 317,
+            SHAPE_SUSPECT: 9,
+            CLEAN: 314,
         }
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
+
+    def test_the_occurrence_count_is_pinned(self, live_sweep: Sweep) -> None:
+        """329 names over 1616 occurrences — the number the ledger row quotes.
+
+        Pinned because the first ledger draft quoted 1637, a figure no state of
+        this branch produced. A number reported to a reader and reproducible by
+        nobody is worse than no number.
+        """
+        assert len(live_sweep.names) == 329
+        assert len(live_sweep.refs) == 1616
 
     def test_the_shape_suspect_list_is_pinned_exactly(self, live_sweep: Sweep) -> None:
         """The DPO questions. Each one has a `DISPOSITIONS` entry with evidence."""
         assert live_sweep.by_bucket()[SHAPE_SUSPECT] == (
+            "auditor_id",
             "cid10",
             "detalhes_requisicao",
             "diagnostico_oncologico_confirmado",
             "diagnostico_tea_ou_neurodesenvolvimento",
+            "exames_convencionais_inconclusivos",
             "fundamentacao_legal",
             "has_cid10_codes",
+            "sintoma_codigo",
         )
 
     def test_every_shape_suspect_provenance_is_pinned(self, live_sweep: Sweep) -> None:
@@ -234,6 +271,11 @@ class TestBuckets:
             for name in live_sweep.by_bucket()[SHAPE_SUSPECT]
         }
         assert actual == {
+            "auditor_id": [
+                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:324 (bpmn_form_field)",
+                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:409 (bpmn_form_field)",
+                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:547 (bpmn_form_field)",
+            ],
             "cid10": [
                 "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59 (bpmn_declared_input)",
                 "SP-OP-RECURSO-001_Recurso_Glosa.bpmn:69 (bpmn_declared_input)",
@@ -248,12 +290,21 @@ class TestBuckets:
             "diagnostico_tea_ou_neurodesenvolvimento": [
                 "dut_criteria_terapias_especiais.dmn:62 (dmn_input_expression)",
             ],
+            "exames_convencionais_inconclusivos": [
+                "dut_criteria_oncologia_pet_ct.dmn:74 (dmn_input_expression)",
+            ],
             "fundamentacao_legal": [
                 "SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn:378 (juel_root)",
                 "SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn:78 (bpmn_output_parameter)",
             ],
             "has_cid10_codes": [
                 "phantom_no_diagnosis.dmn:30 (dmn_input_expression)",
+            ],
+            "sintoma_codigo": [
+                "triage_redflag_adult.dmn:26 (dmn_input_expression)",
+                "triage_redflag_gestante.dmn:19 (dmn_input_expression)",
+                "triage_redflag_mental_health.dmn:22 (dmn_input_expression)",
+                "triage_redflag_pediatric.dmn:19 (dmn_input_expression)",
             ],
         }
 
@@ -273,10 +324,14 @@ class TestBuckets:
     def test_render_buckets_shows_all_three_with_provenance(self, live_sweep: Sweep) -> None:
         rendered = render_buckets(live_sweep)
         assert f"## {LISTED} (6)" in rendered
-        assert f"## {SHAPE_SUSPECT} (6)" in rendered
-        assert f"## {CLEAN} (317)" in rendered
+        assert f"## {SHAPE_SUSPECT} (9)" in rendered
+        assert f"## {CLEAN} (314)" in rendered
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59" in rendered
-        assert rendered.count(DRAFT_VERIFY) == 6
+        # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
+        # would stay green after an edit that renamed the constant's VALUE to
+        # "RATIFICADO pelo DPO", which is exactly the laundering this asserts
+        # against.
+        assert rendered.count("DRAFT/verify (DPO)") == 9
 
 
 # ---------------------------------------------------------------------------
@@ -435,13 +490,116 @@ class TestDispositionTable:
         for name in live_sweep.by_bucket()[SHAPE_SUSPECT]:
             assert name in DISPOSITIONS, f"{name} is a DPO question with no written disposition"
 
+    def test_the_draft_status_literals_are_pinned(self) -> None:
+        """The anchor the rest of this class rests on, pinned BY LITERAL.
+
+        The first version of this fence guarded its central promise with two
+        assertions that compared a status against the `DRAFT_VERIFY` SYMBOL
+        (`item.status == DRAFT_VERIFY`, `rendered.count(DRAFT_VERIFY)`). Both are
+        tautologies: editing that one constant to `"RATIFICADO pelo DPO"` made
+        all six rows render as ratified with the entire suite green. Nothing
+        below is worth anything unless these two strings are what they say.
+        """
+        assert fence.DRAFT_VERIFY == "DRAFT/verify (DPO)"
+        assert fence.DRAFT_STATUS_PREFIX == "DRAFT/verify"
+        assert fence.DRAFT_VERIFY.startswith(fence.DRAFT_STATUS_PREFIX)
+
     def test_every_disposition_is_draft_verify(self) -> None:
-        assert all(item.status == DRAFT_VERIFY for item in DISPOSITIONS.values())
+        assert all(item.status == "DRAFT/verify (DPO)" for item in DISPOSITIONS.values())
 
     def test_a_disposition_cannot_claim_ratification(self) -> None:
         """The table has no vocabulary for a decision that belongs to the DPO."""
         with pytest.raises(ValueError, match="DPO act"):
             Disposition(name="x", evidence="e", recommendation="r", status="RATIFICADO")
+
+    @pytest.mark.parametrize(
+        "status",
+        [
+            "RATIFICADO",
+            "RATIFICADO pelo DPO",
+            "APROVADO (DPO)",
+            "draft/verify (DPO)",  # case matters: the literal is the literal
+            "verify (DPO)",
+            "",
+        ],
+    )
+    def test_a_status_that_is_not_the_draft_literal_is_refused(self, status: str) -> None:
+        """Refusal does not depend on `DRAFT_VERIFY` still holding a draft value.
+
+        `__post_init__` checks BOTH `== DRAFT_VERIFY` and
+        `startswith(DRAFT_STATUS_PREFIX)`. The second check is the one that
+        survives an edit to the first constant, and the next test proves it does.
+        """
+        with pytest.raises(ValueError, match="DPO act"):
+            Disposition(name="x", evidence="e", recommendation="r", status=status)
+
+    def test_a_ratified_status_is_refused_even_if_the_constant_is_edited(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The exact attack: one line edited, `DRAFT_VERIFY = "RATIFICADO pelo DPO"`.
+
+        With the old single check (`status != DRAFT_VERIFY`) this construction
+        succeeded and the table rendered as ratified. The hard-coded prefix does
+        not consult the constant, so it still refuses.
+        """
+        monkeypatch.setattr(fence, "DRAFT_VERIFY", "RATIFICADO pelo DPO")
+        with pytest.raises(ValueError, match="DPO act"):
+            Disposition(name="x", evidence="e", recommendation="r", status="RATIFICADO pelo DPO")
+
+    def test_the_table_itself_cannot_be_mutated(self) -> None:
+        """`DISPOSITIONS` was annotated `Mapping` while being a mutable `dict`."""
+        with pytest.raises(TypeError):
+            DISPOSITIONS["invented"] = DISPOSITIONS["cid10"]  # type: ignore[index]
+        with pytest.raises((TypeError, AttributeError)):
+            DISPOSITIONS.pop("cid10")  # type: ignore[attr-defined]
+
+    def test_a_disposition_cannot_be_subclassed_into_compliance(self) -> None:
+        """A subclass overriding `__post_init__` would construct any status it liked."""
+        with pytest.raises(TypeError, match="may not be subclassed"):
+
+            class Laundered(Disposition):  # pragma: no cover - the class body never runs
+                pass
+
+    def test_a_slot_written_behind_the_frozen_dataclass_still_cannot_render(self) -> None:
+        """The residual hole, named and then closed at the point of USE.
+
+        `object.__setattr__` writes the slot of a frozen dataclass — CPython
+        leaves that door open and no class-level guard shuts it. So the claim is
+        not "a row cannot be mutated"; it is "a mutated row cannot RENDER as
+        ratified", and `assert_draft_status` is what makes that true.
+        """
+        item = Disposition(name="x", evidence="e", recommendation="r")
+        fence.assert_draft_status(item)  # the control case: a genuine row passes
+
+        object.__setattr__(item, "status", "RATIFICADO pelo DPO")
+        assert item.status == "RATIFICADO pelo DPO"  # the write really did land
+        with pytest.raises(ValueError, match="records questions, never answers"):
+            fence.assert_draft_status(item)
+
+    def test_render_buckets_refuses_to_print_a_ratified_looking_row(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """End to end: the mutated row reaches the renderer and the renderer stops."""
+        laundered = Disposition(name="cid10", evidence="e", recommendation="r")
+        object.__setattr__(laundered, "status", "RATIFICADO pelo DPO")
+        monkeypatch.setattr(fence, "DISPOSITIONS", {**DISPOSITIONS, "cid10": laundered})
+
+        _bpmn(tmp_path, '<bpmn:serviceTask id="ST_A" camunda:resultVariable="cid10"/>')
+        sweep = sweep_processes_root(tmp_path, Report())
+        with pytest.raises(ValueError, match="records questions, never answers"):
+            render_buckets(sweep)
+
+    def test_the_review_queue_carries_the_draft_literal_on_every_row(self) -> None:
+        """The document a DPO actually reads must not drift from the table."""
+        queue = (_REPO_ROOT / "docs" / "review-queue.md").read_text(encoding="utf-8")
+        rows = [
+            line
+            for line in queue.splitlines()
+            if line.startswith("| `") and any(f"`{name}` (" in line for name in DISPOSITIONS)
+        ]
+        assert len(rows) == len(DISPOSITIONS), rows
+        for row in rows:
+            assert "DRAFT/verify (DPO) — pergunta aberta" in row, row
 
     def test_every_disposition_carries_evidence_and_a_recommendation(self) -> None:
         for item in DISPOSITIONS.values():
@@ -486,7 +644,57 @@ class TestShapeHeuristic:
             )
 
     def test_the_unattested_tokens_are_named_not_hidden(self) -> None:
-        assert {t.token for t in SHAPE_TOKENS if t.source == ATTESTED_NOWHERE} == {"mae", "anamnese"}
+        """Pinned exactly, because growing this set quietly is the failure mode.
+
+        Every entry here is a DECLARED extrapolation: the repo's own vocabulary
+        does not attest it. They exist because the adversarial battery in
+        `TestClassificationRecall` walked straight through the attested tokens —
+        `dt_nasc`, `cartao_sus`, `logradouro`, `sintomas_relatados` and the rest
+        were all CLEAN. Each carries an inline comment in `SHAPE_TOKENS` giving
+        the basis; none is dressed up with a plausible-looking citation.
+        """
+        assert {t.token for t in SHAPE_TOKENS if t.source == ATTESTED_NOWHERE} == {
+            "alergia",
+            "anamnese",
+            "bairro",
+            "biopsia",
+            "cartao",
+            "carteirinha",
+            "etnia",
+            "exame",
+            "hipotese",
+            "historic",
+            "logradouro",
+            "mae",
+            "medicament",
+            "municipio",
+            "observac",
+            "raca",
+            "relato",
+            "sintoma",
+            "sus",
+        }
+
+    def test_every_token_declares_a_comparison_rule(self) -> None:
+        for token in SHAPE_TOKENS:
+            assert token.match in {fence.SEGMENT_MATCH, fence.STEM_MATCH}, token
+        assert fence.SEGMENT_TOKENS and fence.STEM_TOKENS
+
+    def test_the_collision_prone_tokens_stay_segment_matched(self) -> None:
+        """Named, because as stems they would fire on words the corpus really uses."""
+        assert {"sus", "cid", "rg", "cpf", "nome", "cep", "relato"} <= fence.SEGMENT_TOKENS
+        # `sus` as a stem would swallow `suspeita`, live in the CLEAN bucket today.
+        assert not matches_phi_shape("duplicidade_suspeita")
+        assert not matches_phi_shape("indicio_fraude_sinalizado")
+        # `cid` as a stem would swallow `cidade`/`cidadao`.
+        assert not matches_phi_shape("decidir_rota")
+        # `relato` as a stem would swallow `relatorio`.
+        assert not matches_phi_shape("relatorio_mensal")
+
+    def test_stem_matching_folds_plural_and_gendered_forms(self) -> None:
+        """The one-character evasions the first version of this fence let through."""
+        for evasion in ("laudos", "resumos", "justificativas", "diagnosticas", "notas_extras"):
+            assert matches_phi_shape(evasion), evasion
 
     def test_matching_is_on_segments_not_substrings(self) -> None:
         assert matches_phi_shape("nome_mae")
@@ -532,6 +740,287 @@ class TestShapeHeuristic:
         present = set(live_sweep.names)
         for candidate in ("data_nascimento", "cns", "nome_mae", "endereco", "cpf_titular"):
             assert candidate not in present, f"{candidate} appeared — re-run the bucket pins"
+
+
+_AUTH_BPMN = _BPMN_DIR / "SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+_ROLL_TAIL = "cid10 (opcional), documentos_refs."
+
+#: The adversarial battery this fence FAILED the first time it was reviewed.
+#: `dt_nasc`, `cartao_sus` and `logradouro` were the three named misses; the rest
+#: are the extra probes and the plural / one-letter evasions found alongside them.
+#: Every one of these is PHI-shaped and must be caught.
+ATTACK_MUST_FLAG: tuple[str, ...] = (
+    # the 11-name attack table
+    "nome_completo_titular",
+    "laudo_medico_texto",
+    "cns_beneficiario",
+    "dt_nasc",
+    "cartao_sus",
+    "logradouro",
+    # the extra probes
+    "observacao_clinica",
+    "historico_medico",
+    "relato_do_paciente",
+    "texto_livre_auditor",
+    "sintomas_relatados",
+    "medicamento_prescrito",
+    "alergia_declarada",
+    "hipotese_diagnostica",
+    "exame_resultado",
+    "biopsia",
+    "numero_carteirinha",
+    "raca_cor",
+    "e_mail",
+    # plural / one-letter / gendered evasions of names the runtime control keys on
+    "diagnostica_confirmado",
+    "justificativas",
+    "laudos",
+    "resumos",
+    # the audit report's own candidate list
+    "data_nascimento",
+    "cns",
+    "nome_mae",
+    "endereco",
+    "cpf_titular",
+)
+
+#: The other half of the same battery: names that must NOT move. A heuristic that
+#: catches everything catches nothing.
+ATTACK_MUST_STAY_CLEAN: tuple[str, ...] = (
+    "numero_lote_tiss",
+    "prazo_dias",
+    "codigo_tuss",
+    "valor_cents",
+    "cnpj_prestador",
+)
+
+#: Measured residue, declared rather than quietly absent: still CLEAN by NAME.
+#: `idade_anos` is left out deliberately — see the module's declared limits for
+#: the measured cost of adding it.
+DECLARED_RESIDUE: tuple[str, ...] = ("descricao_procedimento", "sexo", "gestante", "idade_anos")
+
+
+def _auth_copy_with_roll_extras(tmp_path: Path, extras: tuple[str, ...]) -> Path:
+    """A copy of the LIVE AUTH-001 BPMN with `extras` spliced into its start roll."""
+    source = _AUTH_BPMN.read_text(encoding="utf-8")
+    assert source.count(_ROLL_TAIL) == 1
+    if extras:
+        source = source.replace(
+            _ROLL_TAIL, "cid10 (opcional), documentos_refs, " + ", ".join(extras) + ".", 1
+        )
+    path = tmp_path / _AUTH_BPMN.name
+    path.write_text(source, encoding="utf-8")
+    return path
+
+
+class TestClassificationRecall:
+    """The MEASURED recall of the classifier, asserted name by name.
+
+    "Shape, not content" describes what the heuristic reads; it says nothing
+    about how much of the shape it catches. These tests are that number, and
+    they run the battery END TO END against a copy of the live AUTH-001 BPMN —
+    the same file, the same `VARIAVEIS DE ENTRADA` surface, the same
+    `sweep_processes_root` + `check_sweep` path a build takes — not against a
+    synthetic fixture that could agree with the parser by accident.
+    """
+
+    def test_the_untouched_live_file_is_the_green_control(self, tmp_path: Path) -> None:
+        """Without an injection the copy passes: a red control would prove nothing."""
+        _auth_copy_with_roll_extras(tmp_path, ())
+        report = Report()
+        sweep = sweep_processes_root(tmp_path, report)
+        fence.check_sweep(sweep, report)
+        assert report.ok, [finding.render() for finding in report.findings]
+
+    @pytest.mark.parametrize("name", ATTACK_MUST_FLAG)
+    def test_every_phi_shaped_attack_name_is_classified_suspect(self, name: str) -> None:
+        assert classify(name) == SHAPE_SUSPECT, f"{name} -> {classify(name)}"
+
+    @pytest.mark.parametrize("name", ATTACK_MUST_STAY_CLEAN)
+    def test_every_deliberately_clean_name_stays_clean(self, name: str) -> None:
+        assert classify(name) == CLEAN, f"{name} -> {classify(name)}"
+
+    def test_the_whole_attack_battery_reddens_the_live_file(self, tmp_path: Path) -> None:
+        """Every should-flag name, injected at once, named in the findings."""
+        _auth_copy_with_roll_extras(tmp_path, ATTACK_MUST_FLAG)
+        report = Report()
+        sweep = sweep_processes_root(tmp_path, report)
+        collected = set(sweep.names)
+        assert set(ATTACK_MUST_FLAG) <= collected, set(ATTACK_MUST_FLAG) - collected
+
+        fence.check_sweep(sweep, report)
+        assert not report.ok
+        flagged = {name for name in ATTACK_MUST_FLAG for f in report.findings if f"'{name}'" in f.message}
+        assert flagged == set(ATTACK_MUST_FLAG), set(ATTACK_MUST_FLAG) - flagged
+
+    def test_the_clean_battery_leaves_the_live_file_green(self, tmp_path: Path) -> None:
+        """The false-positive half, end to end on the same surface."""
+        _auth_copy_with_roll_extras(tmp_path, ATTACK_MUST_STAY_CLEAN)
+        report = Report()
+        sweep = sweep_processes_root(tmp_path, report)
+        assert set(ATTACK_MUST_STAY_CLEAN) <= set(sweep.names)
+        fence.check_sweep(sweep, report)
+        assert report.ok, [finding.render() for finding in report.findings]
+
+    def test_the_named_residue_is_still_uncaught_and_says_so(self, tmp_path: Path) -> None:
+        """Declared limit, pinned: these pass CLEAN today and the module says why.
+
+        This is not an aspiration test. It records the measured edge of the
+        vocabulary so a reader of `render_buckets` knows what the green means —
+        and it goes RED the day someone adds one of these tokens without
+        updating the module's declared limits.
+        """
+        for name in DECLARED_RESIDUE:
+            assert classify(name) == CLEAN, name
+        _auth_copy_with_roll_extras(tmp_path, DECLARED_RESIDUE)
+        report = Report()
+        sweep = sweep_processes_root(tmp_path, report)
+        fence.check_sweep(sweep, report)
+        assert report.ok, [finding.render() for finding in report.findings]
+
+
+class TestStructuralFreeTextSignal:
+    """The one classification input that never reads the name."""
+
+    def test_an_unbounded_string_field_is_suspect_under_any_name(self, tmp_path: Path) -> None:
+        """The root fix for a name-anchored heuristic: a rename does not evade it."""
+        assert classify("campo_totalmente_neutro") == CLEAN  # no token fires
+        _bpmn(
+            tmp_path,
+            '<bpmn:userTask id="UT_A"><bpmn:extensionElements><camunda:formData>'
+            '<camunda:formField id="campo_totalmente_neutro" label="Observacoes" type="string"/>'
+            "</camunda:formData></bpmn:extensionElements></bpmn:userTask>",
+        )
+        report = Report()
+        sweep = sweep_processes_root(tmp_path, report)
+        assert sweep.free_text_names == {"campo_totalmente_neutro"}
+        assert sweep.bucket("campo_totalmente_neutro") == SHAPE_SUSPECT
+
+        fence.check_sweep(sweep, report)
+        assert not report.ok
+        assert any("declared FREE TEXT by the artifact itself" in f.message for f in report.findings)
+
+    def test_a_closed_value_domain_is_not_free_text(self, tmp_path: Path) -> None:
+        _bpmn(
+            tmp_path,
+            '<bpmn:userTask id="UT_A"><bpmn:extensionElements><camunda:formData>'
+            '<camunda:formField id="campo_com_dominio" type="string">'
+            '<camunda:value id="A" name="a"/><camunda:value id="B" name="b"/>'
+            "</camunda:formField>"
+            "</camunda:formData></bpmn:extensionElements></bpmn:userTask>",
+        )
+        report = Report()
+        sweep = sweep_processes_root(tmp_path, report)
+        assert sweep.free_text_names == frozenset()
+        assert sweep.bucket("campo_com_dominio") == CLEAN
+        fence.check_sweep(sweep, report)
+        assert report.ok, [finding.render() for finding in report.findings]
+
+    @pytest.mark.parametrize("field_type", ["boolean", "long", "date", "enum"])
+    def test_a_type_bounded_field_is_not_free_text(self, tmp_path: Path, field_type: str) -> None:
+        path = _bpmn(
+            tmp_path,
+            '<bpmn:userTask id="UT_A"><bpmn:extensionElements><camunda:formData>'
+            f'<camunda:formField id="campo_tipado" type="{field_type}"/>'
+            "</camunda:formData></bpmn:extensionElements></bpmn:userTask>",
+        )
+        assert free_text_form_field_offsets(path.read_text(encoding="utf-8")) == frozenset()
+
+    def test_a_field_with_no_type_at_all_is_read_fail_closed(self, tmp_path: Path) -> None:
+        """An undeclared type is Camunda's `string`; guessing the other way would hide it."""
+        path = _bpmn(
+            tmp_path,
+            '<bpmn:userTask id="UT_A"><bpmn:extensionElements><camunda:formData>'
+            '<camunda:formField id="campo_sem_tipo"/>'
+            "</camunda:formData></bpmn:extensionElements></bpmn:userTask>",
+        )
+        assert len(free_text_form_field_offsets(path.read_text(encoding="utf-8"))) == 1
+
+    def test_the_live_free_text_fields_are_pinned(self, live_sweep: Sweep) -> None:
+        """The whole measured cost of the structural signal on today's corpus."""
+        occurrences = [ref for ref in live_sweep.refs if ref.free_text]
+        assert len(occurrences) == 14
+        assert live_sweep.free_text_names == {
+            "auditor_id",
+            "cid10_referencia",
+            "fundamentacao_dut",
+            "justificativa_clinica",
+            "notas_resolucao",
+        }
+        # Four of the five are already covered by the runtime control; `auditor_id`
+        # is the single new DPO question the signal costs, and it is dispositioned.
+        assert live_sweep.free_text_names - PHI_LISTED_NAMES == {"auditor_id"}
+        assert "auditor_id" in DISPOSITIONS
+
+    def test_a_roll_entry_that_annotates_itself_free_text_is_suspect(self) -> None:
+        found = declared_input_free_text_names(
+            "VARIAVEIS DE ENTRADA: tenant_id, parecer_do_gestor (texto livre, pseudonimizado),\n"
+            "canal (whatsapp | web). Contrato completo: docs/x.md."
+        )
+        assert found == {"parecer_do_gestor"}
+        assert classify("parecer_do_gestor") == CLEAN  # no token fires on the name
+        assert classify("parecer_do_gestor", free_text=True) == SHAPE_SUSPECT
+
+    @pytest.mark.parametrize("marker", ["texto livre", "TEXTO-LIVRE", "free-text", "narrativa"])
+    def test_every_declared_marker_fires(self, marker: str) -> None:
+        found = declared_input_free_text_names(f"VARIAVEIS DE ENTRADA: campo_x ({marker}).")
+        assert found == {"campo_x"}
+
+    def test_an_ordinary_annotation_is_not_a_free_text_declaration(self) -> None:
+        assert (
+            declared_input_free_text_names(
+                "VARIAVEIS DE ENTRADA: tenant_id, dentro_prazo (bool, pre-resolvido)."
+            )
+            == frozenset()
+        )
+
+    def test_no_roll_entry_declares_itself_free_text_today(self) -> None:
+        """A measured ZERO, pinned so this arm cannot rot into a silent truth.
+
+        Same discipline as `test_no_structured_message_payload_surface_exists`:
+        the day a roll reads `foo (texto livre)`, the fence sees it, and this
+        test is what proves the arm was live while the count was zero.
+        """
+        declared = {ref.name for ref in _bpmn_declared_refs() if ref.free_text}
+        assert declared == set()
+
+
+class TestMeasuredZeroExtractionLimits:
+    """Two fail-OPEN extraction paths, each pinned at its measured zero."""
+
+    def test_no_non_identifier_input_expression_exists_today(self) -> None:
+        """A FEEL `<text>paciente.cpf</text>` outside `${...}` would leave the universe."""
+        offenders: list[str] = []
+        for path in sorted(_SPEC_PROCESSES.rglob("*")):
+            if path.suffix not in {".bpmn", ".dmn"}:
+                continue
+            for event in fence.scan_xml(path.read_text(encoding="utf-8")):
+                if not isinstance(event, fence._Text):
+                    continue
+                if event.parents[-1:] == ("text",) and "inputExpression" in event.parents:
+                    candidate = event.text.strip()
+                    if candidate and not fence._IDENTIFIER.match(candidate):
+                        offenders.append(f"{path.name}: {candidate!r}")
+        assert offenders == []
+
+    def test_no_dmn_variable_element_exists_today(self) -> None:
+        """`<dmn:variable name="...">` is not a surface, and there is none to miss."""
+        found: list[str] = []
+        for path in sorted(_SPEC_PROCESSES.rglob("*")):
+            if path.suffix not in {".bpmn", ".dmn"}:
+                continue
+            found += [
+                f"{path.name}: {element}"
+                for element in re.findall(r"<(?:\w+:)?variable\s[^>]*>", path.read_text(encoding="utf-8"))
+            ]
+        assert found == []
+
+
+def _bpmn_declared_refs() -> list[VarRef]:
+    refs: list[VarRef] = []
+    for path in sorted(_BPMN_DIR.glob("*.bpmn")):
+        refs += [ref for ref in collect_xml_refs(path, Report()) if ref.surface == "bpmn_declared_input"]
+    return refs
 
 
 class TestJuelExtraction:
