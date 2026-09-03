@@ -463,7 +463,21 @@ class EngineRest:
 
     async def latest_definition_xml(self, process_definition_key: str) -> str:
         """XML da versao LATEST de uma process-definition-key — a que `start_by_key` instancia."""
+        xml = await self.latest_definition_xml_or_none(process_definition_key)
+        if xml is None:
+            raise EngineRestError(f"process-definition-key `{process_definition_key}` nao esta deployada")
+        return xml
+
+    async def latest_definition_xml_or_none(self, process_definition_key: str) -> str | None:
+        """Como `latest_definition_xml`, mas `None` quando a KEY nao esta deployada (404).
+
+        Distingue "esta key nao existe neste engine" (fato sobre o estado do engine, util para um
+        guard que so faz sentido se a definicao estiver la) de "a consulta falhou" (que continua
+        levantando). Nao e um skip silencioso: quem chama declara qual dos dois quer.
+        """
         resp = await self._client.get(f"/process-definition/key/{process_definition_key}/xml")
+        if resp.status_code == 404:
+            return None
         if resp.status_code != 200:
             raise EngineRestError(
                 f"xml da definicao latest `{process_definition_key}` falhou "

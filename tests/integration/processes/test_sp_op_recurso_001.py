@@ -255,10 +255,28 @@ class RecursoEngineProbe:
         )
 
 
-async def _assert_definicao_latest_e_do_checkout(engine: EngineRest, *, contexto: str) -> None:
-    """A versao LATEST de SP-OP-RECURSO-001 no engine e a desta arvore (ver `_MARCADORES_*`)."""
+async def _assert_definicao_latest_e_do_checkout(
+    engine: EngineRest, *, contexto: str, exigir_deployada: bool = True
+) -> None:
+    """A versao LATEST de SP-OP-RECURSO-001 no engine e a desta arvore (ver `_MARCADORES_*`).
+
+    `exigir_deployada=False` para os pontos de checagem que NAO acabaram de deployar RECURSO: se
+    a key nem existe neste engine (404), nao ha definicao alheia para contaminar nada — e o
+    unico teste nessa situacao (`test_controle_negativo_...`, que so exercita SP-OP-PAGTO-001)
+    nao pode falhar por um guard sobre um processo que ele nao usa. Onde RECURSO ESTA deployado,
+    a checagem e a mesma; e todo start passa pelo guard por instancia de `start_recurso`, que
+    nao depende deste.
+    """
+    xml = await engine.latest_definition_xml_or_none(_PROCESS_KEY)
+    if xml is None:
+        if exigir_deployada:
+            raise AssertionError(
+                f"{contexto}: {_PROCESS_KEY} nao esta deployada logo apos o proprio deploy — "
+                "o engine aceitou o POST e nao registrou a definicao"
+            )
+        return
     assert_definition_provenance(
-        await engine.latest_definition_xml(_PROCESS_KEY),
+        xml,
         must_contain=_MARCADORES_DO_CHECKOUT,
         must_not_contain=_MARCADORES_DE_OUTRA_DEFINICAO,
         context=contexto,
@@ -275,7 +293,9 @@ async def _deploy_pagto(engine: EngineRest) -> None:
     await engine.deploy(
         _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
     )
-    await _assert_definicao_latest_e_do_checkout(engine, contexto="deploy de SP-OP-PAGTO-001")
+    await _assert_definicao_latest_e_do_checkout(
+        engine, contexto="deploy de SP-OP-PAGTO-001", exigir_deployada=False
+    )
 
 
 @pytest_asyncio.fixture
