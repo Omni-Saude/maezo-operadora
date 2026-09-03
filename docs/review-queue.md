@@ -759,7 +759,39 @@ only) — registra o desfecho para quem consultar as entradas antigas de `GAP-CR
 | `docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md` + `SP-OP-ANS-CRON-001.md` (PERSP-CONTRACT-FUNCS) | As tres funcoes fantasma (`_competencia_from_anchor`, `_ans_cron_competencia`, `_nip_protocolo_origem`) e o modulo fantasma `notifications_bridge/consumer.py` ja tinham sido corrigidos por `fix/fatos-fabricados-notificacao` (commit `71dd4da`, GAP-FAB-NOTIF) ANTES desta PR comecar — confirmado nesta PR por `grep -rn 'def _competencia_from_anchor\|def _ans_cron_competencia\|def _nip_protocolo_origem' src/` (0 linhas) e `find src -iname consumer.py` (0 arquivos). Esta PR apenas ACRESCENTA, nos dois pontos que citam `GAP-ANS-1`, o apontamento para o gap/WP correntes do registro (`ANS-CRON-DEAD-CODE`/`WP-ANS-CRON-COMPETENCIA`), para que a declaracao nao fique presa a um tag antigo | docs-verifier (R2) | `RESOLVIDO (substancialmente por commit anterior 71dd4da) — esta PR so atualiza o apontamento de gap` |
 | `docs/processes/contracts/SP-OP-CANCEL-001.md` (PERSP-C5-CANCEL-FILENAME) | Ja corrigido por `fix/fatos-fabricados-notificacao` (commit `71dd4da`) ANTES desta PR comecar — confirmado nesta PR por `sed -n '4p' docs/processes/contracts/SP-OP-CANCEL-001.md` (cita `..._Cancelamento_Contrato.bpmn`, o arquivo real) e pelas 14 suites verdes de `tests/unit/docs/test_contract_bpmn_dmn_citations.py`. Nenhuma edicao necessaria nesta PR | docs-verifier (R3) | `JA RESOLVIDO por 71dd4da antes desta PR — nenhuma acao necessaria` |
 | `docs/processes/test-specs/SP-OP-AUTH-001.md` (PERSP-B5-TESTSPEC-AUTH) | Linhas `:10`, `:50` e `:55` (achado adicional na mesma varredura, mesma classe de drift) reescritas: `dut_atendida`/`dentro_teto_l2`/`rede_credenciada` substituidos por `auto_criteria_verificado`/`criterio_tecnico_ok`/`criterio_financeiro_ok`/`criterio_regulatorio_ok`/`criterio_contratual_ok` (os inputs reais de `auth_auto_approval` v0.2.0 — `spec/processes/dmn/auth_auto_approval.dmn:60-77`), conforme o contrato ja documentava (`SP-OP-AUTH-001.md:47-49`) — texto apenas | docs-verifier (R2) | `RESOLVIDO nesta PR` |
+## WP-COREOGRAFIA-XPROC — PERSP-ADEQ-CRED-HANDOFF (handoff real) + PERSP-NETBRIDGE (bridge fantasma, docs/spec)
 
+Duas linhas do `GAP-REGISTER.md` (`:121-122`) fechadas por este WP (worktree `coreografia-xproc`,
+branch `fix/coreografia-xproc-handoff-adequacao-cred`):
+
+**PERSP-ADEQ-CRED-HANDOFF (terceira variante de fato fabricado — junto de GAP-FAB-NOTIF item B/A
+acima):** `adequacao.execute_remediation` (`ST_StartCredenciamentoL3`, topico
+`operadora.adequacao.start_credenciamento`) retornava incondicionalmente `{handoff_credenciamento:
+True, processo_destino: "SP-OP-CRED-001"}` sem nunca chamar `start_process_idempotent` — BPMN
+(`SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn:247-249` antes da correcao) e contrato
+(`SP-OP-ADEQUACAO-001.md:152` antes da correcao) afirmavam "dispara SP-OP-CRED-001". Corrigido:
+agora chama o chokepoint fenced de verdade, com business key `CRED-{tenant}-{prestador_id}`
+(identica a `fraude._cred_business_key`/`notification_bridge._cred_business_key`). **Achado novo,
+nao coberto por nenhuma linha anterior desta fila:** o handoff so pode executar quando um
+`prestador_id` candidato ja foi identificado — e ESTA fonte (quem/o que identifica o candidato
+antes deste task disparar) **nao e definida por nenhum contrato**. A propria contrato ADEQUACAO ja
+tinha uma pendencia adjacente ("a fonte cadastral de regiao_saude/especialidade do prestador no
+start de CRED", secao Pendencias) que aponta na mesma direcao sem a resolver.
+
+**PERSP-NETBRIDGE (nao-novo como fato — ja registrado nas entradas Wave-1B/GR-B2 acima; o defeito
+vivo era os CONTRATOS/BPMN nunca terem sido sincronizados com esse registro):** `network_change_bridge`
+era afirmada como ponte de runtime viva em 2 contratos e 2 BPMN
+(`SP-OP-ADEQUACAO-001.md:55-56,74,107,141,256,270`, `SP-OP-CRED-001.md:70,96`,
+`SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn:55,76,84`, `SP-OP-CRED-001_Descredenciamento.bpmn:67`) —
+o modulo nao existe (`grep -rn "network_change_bridge" src/` -> 1 hit, docstring em `src/maezo/agents/carolina/graph.py:101`; `find src -name '*network_change*'` -> 0 resultados). Corrigido: toda
+assercao agora diz a verdade (o PAYLOAD do fato `network_changed` esta harmonizado; o CONSUMIDOR
+nao existe) e cita **AF-01** como a decisao do owner que resolve o futuro (construir a ponte,
+adotar outro mecanismo, ou aceitar que ADEQUACAO nao tem starter de producao hoje).
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `docs/processes/contracts/SP-OP-ADEQUACAO-001.md` (novo campo `prestador_id`/`tipo_prestador`, secao Variaveis de entrada) — PERSP-ADEQ-CRED-HANDOFF | Este WP nao define a fonte de `prestador_id` (quem/o que identifica um prestador candidato para fechar o gap da celula ANTES de `ST_StartCredenciamentoL3` disparar) — hoje NENHUM worker de ADEQUACAO resolve esse valor; sem ele, o handoff recusa (fail-closed, `ERR_ADEQUACAO_SEM_PRESTADOR_CANDIDATO`). Precisa de decisao de produto/arquitetura: um novo worker de prospeccao (analytics/Andre?), um campo semeado por humano na `UT_DecisaoFallback`/dossie, ou uma integracao com a base de rede | produto + arquitetura (base de rede) | `DRAFT — requires human review before any deploy` |
+| `docs/processes/contracts/SP-OP-ADEQUACAO-001.md`, `SP-OP-CRED-001.md`, `spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn`, `SP-OP-CRED-001_Descredenciamento.bpmn` (`network_change_bridge`) — PERSP-NETBRIDGE, ja tratado como AF-01/Wave-1B acima; entrada aqui SO para registrar que o texto dos 4 artefatos foi corrigido nesta PR (deixou de afirmar a ponte como viva) | A decisao de negocio (construir `network_change_bridge`, adotar outro mecanismo de starter para SP-OP-ADEQUACAO-001, ou aceitar a lacuna) continua em aberto — ver a entrada Wave-1B acima e **AF-01** (registro `GAP-REGISTER`, linha `AF-01`, P0, `owner-decision`, fora do escopo docs/spec deste WP) | arquitetura + PO (mesma revisao de AF-01) | `DRAFT — requires human review before any deploy (texto corrigido; decisao de negocio pendente)` |
 
 
 ---
