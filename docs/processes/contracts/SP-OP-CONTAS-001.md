@@ -184,7 +184,41 @@ Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — usar valor
 |---|---|---|
 | `ERR_CONTAS_GLOSA_NOT_HUMAN` | guard do worker `operadora.contas.registrar_glosa` | o worker **recusa** aplicar a glosa se `decisao_contas` nao estiver em `{GLOSAR, PAGAR_PARCIAL}` setado por humano, se faltar `justificativa_glosa`/`codigo_glosa_tiss`/`analista_id`, se `valor_glosado_brl <= 0`, ou se `PAGAR_PARCIAL` vier com `valor_liberado_brl <= 0` (ausente, zero ou negativo — `> 0`, coerente com `:96` e com o codigo). Levantado como `PermissionError` → **incidente auditado** (ADR-0030 §5), **nunca** `bpmnError`; reconhecido por `harness.is_guard_refusal_code` pelo sufixo `_NOT_HUMAN`. Instancia nao atinge `End_GlosaAplicadaHumano`/`End_PagamentoParcialHumano`. Substitui o guard anterior deste processo, que protegia o *aceite* de uma glosa alheia: mesma mecanica, objeto invertido |
 | `ERR_CONTAS_DECISAO_INVALIDA` | throw-end modelado (`End_ErrContasDecisaoInvalida`) | default fail-closed de `GW_DecisaoContas`: decisao humana ausente ou fora do dominio. **NAO** e boundary catch — fora do escopo de `scripts/ci/check_bpmn_error_allowlist.py`, igual a `End_ErrDecisaoInvalida` de SP-OP-AUTH-001. O caso **decisao AUSENTE** so e alcancavel porque `decisao_contas` e inicializada com `${""}` em `ST_PublishReceived`: o CIB Seven 2.1.0 avalia as `conditionExpression` ANTES do `default` e lanca `Cannot resolve identifier` (HTTP 500 no complete da User Task) para uma variavel nunca setada, deixando a instancia PARADA na UT em vez de terminar no erro visivel |
-| `ERR_CONTAS_LOTE_INVALIDO` | declarado (`Error_ContasLoteInvalido`) para uso dos workers | worker recusa quando o lote transmitido pelo prestador e inconsistente na origem; tratamento a detalhar na promocao a FINAL |
+| `ERR_CONTAS_LOTE_INVALIDO` | catalogo do BPMN (`Error_ContasLoteInvalido`), **declarado-e-nao-capturado** | o lote transmitido pelo prestador chega inconsistente na origem (campo obrigatorio de `GlosaInput` ausente/vazio — `tenant_id`, `numero_lote_tiss`). Levantado como `ContasLoteInvalidoError`, subclasse de **`ValueError`** (`_build_glosa_input` traduz o `TypeError` de construcao), logo percorre o ramo `except ValueError` do harness → `failure(retries=0)` → **incidente auditado**, **nunca** `bpmnError`. **Tratamento RESOLVIDO, nao pendente:** e exatamente o que ADR-0030 §1 prescreve para entrada invalida/imutavel (*«bad/immutable input as `ValueError` → incident»*). NAO ha — e nao deve haver — `boundaryEvent`/`errorEventDefinition` para este codigo |
+
+### Por que dois codigos do catalogo nao tem `errorEventDefinition` (nao sao entradas mortas)
+
+`Error_ContasLoteInvalido` e `Error_ContasGlosaNotHuman` sao declarados na raiz do BPMN e **nenhum**
+`errorEventDefinition` os referencia; so `Error_ContasDecisaoInvalida` e referenciado, e ainda assim
+por um **throw-end** (`EED_ContasDecisaoInvalida` em `End_ErrContasDecisaoInvalida`), nao por um
+boundary catch. Isso e **deliberado e ratificado**, nao um resto de modelagem:
+
+- **Fonte da verdade do gate e o boundary, nao o catalogo.** ADR-0030 §2: o conjunto de codigos
+  legais de `WorkerBpmnError` deriva de *«every `bpmn:error@errorCode` **on an error boundary event
+  attached to an external task**»*. Uma entrada de catalogo sem boundary e, por construcao, invisivel
+  para `scripts/ci/check_bpmn_error_allowlist.py` — ela nao entra em `spec_codes`, logo nao aciona a
+  clausula (c) (dead model) nem a clausula (b) (raise nao coberto).
+- **`declared-uncaught` e um estado nomeado pelo ADR.** ADR-0030 §5: *«a guard code with **no**
+  modeled boundary (e.g. auth's `ERR_DENIAL_NOT_HUMAN` …; cancel's `ERR_CANCELLATION_NOT_HUMAN`,
+  declared-uncaught) → **incident**, unchanged. The L0 invariant holds identically either way —
+  neither path performs the adverse action.»*
+- **`ERR_CONTAS_GLOSA_NOT_HUMAN` e nomeado no proprio ADR-0030.** A emenda de ADR-0040 diz que ele
+  *«remain[s] Tier-3 **declared-and-uncaught** (no `bpmn:boundaryEvent`/`errorEventDefinition` models
+  the guarded service task …), keep[s] raising `PermissionError` on the audited-incident path (never
+  `WorkerBpmnError`/`bpmnError`), and enable[s] no new production allowlist entry»*.
+- **Modelar o boundary seria REGRESSAO de visibilidade, nao melhoria.** ADR-0030 §4: ativar um codigo
+  de guard antes de T-E *«converts today's **guaranteed-human-visible incident** into a **clean,
+  silent end** at the neutral terminal … no incident, no audit row, no notification»*. Enquanto T-E
+  nao habilitar a allowlist de producao, o incidente e o desfecho MAIS protetivo — e o unico que a
+  invariante HITL de nao-negativa tolera aqui.
+- **Nao e anomalia de CONTAS.** 20 das 43 declaracoes `bpmn:error` de raiz em `spec/processes/bpmn/**`
+  (13 dos 16 arquivos) nao sao referenciadas por nenhum `errorEventDefinition` — e a convencao do
+  repositorio, e CONTAS a segue. Remover as duas de CONTAS a dessincronizaria dos pares e tornaria
+  falsa a descricao que o ADR-0030 faz dela pelo nome.
+
+Invariante fixada em teste (para que a leitura «entrada morta» nao seja re-derivada e executada):
+`tests/unit/spec/test_sp_op_contas_001_artefatos.py::test_catalogo_de_erros_e_declarado_e_nao_capturado`
+e `tests/unit/tools/workers/test_contas.py::test_contas_nunca_levanta_worker_bpmn_error`.
 
 **Erros de worker sem elemento BPMN** (fail-closed → incidente auditado, nunca `bpmnError`):
 `ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO` (ancora de business key, valor ou `data_vencimento`
