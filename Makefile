@@ -3,6 +3,7 @@
         verify-amh-contract-pin \
         xfail-census-check xfail-census-write \
         deviation-expiry-check \
+        check-ledger-hashes \
         release-floor-check release-floor-write \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint
 
@@ -114,6 +115,24 @@ deviation-expiry-check: ## PLANS §0.8 (2a leva Q-2/Q-10): desvio de sombra rati
 	# NOVO E DATADO em PR de dados sob CODEOWNERS (disciplina Q-1) — e esse PR e verde por construcao,
 	# porque o gate le as datas da arvore em teste. `--today YYYY-MM-DD` simula qualquer data.
 	uv run python scripts/ci/check_deviation_expiry.py
+
+check-ledger-hashes: ## LEDGER-HASH-RECOMPUTE-CHECK: recomputa o Test-hash das linhas NOVAS de docs/evidence-ledger.md que declaram caminho
+	# Uma linha nova opta em ser verificavel por maquina declarando, dentro da propria celula de
+	# Test hash, o unico arquivo de teste hasheado, entre parenteses logo apos o hash:
+	# `sha256:<64 hex> (tests/unit/x/test_y.py)` (ver o paragrafo de convencao em
+	# docs/evidence-ledger.md, imediatamente antes do cabecalho da tabela). Linha sem esse caminho
+	# e legado: contada e listada, nunca reexecutada (o hash de uma linha e uma alegacao sobre o
+	# SEU PROPRIO commit citado — um arquivo pode legitimamente mudar depois, por um PR futuro nao
+	# relacionado, PR1-LEDGER-HASH-STALE-BY-DESIGN). O gate reexecuta `pytest <arquivo> -v --tb=no
+	# -p no:cacheprovider` para cada linha DECLARADA que este PR ADICIONOU (intervalo
+	# `<base>..HEAD`, nunca retroativo contra uma linha ja existente), retira a coluna de progresso
+	# do pytest antes de ordenar (sensivel a COLUMNS — a razao esta documentada na linha `t1.1
+	# (defect fix)`/commit `35b8e3e` deste mesmo ledger), e falha em qualquer descompasso, caminho
+	# fora de tests/ (guarda contra injecao) ou arquivo ausente. Zero linhas declaradas para
+	# verificar -> PASSA, mas sempre imprime a contagem explicita (nunca verde silencioso).
+	# `--all` (uso local apenas) verifica toda linha declarada do ledger atual, ignorando o
+	# intervalo base..HEAD.
+	uv run python scripts/ci/check_evidence_ledger_hashes.py --ledger-path docs/evidence-ledger.md
 
 release-floor-check: ## Audit §5 (W-fillers): candidato nao pode ficar ABAIXO do floor de capacidade de release comitado (gate de regressao)
 	# Composto de verdades JA GERADAS (nao um numero novo mantido a mao): total do censo de
