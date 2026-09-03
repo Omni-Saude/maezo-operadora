@@ -121,9 +121,12 @@ async def test_whatsapp_send_message() -> None:
 
 #: Deliberately OPAQUE — no dictionary words. A sample secret spelling out "verify"
 #: or "token" collides with the generic refusal text ("Invalid verify token") and the
-#: substring sweep below then reports a coincidence as a leak. High entropy is what
-#: makes "no 4+-char window of the secret appears in the message" a real assertion.
-_SECRET = "Zx9Qw7Lp4Rt2Vb8Nm5Kd3Hs6"
+#: substring sweep below then reports a coincidence as a leak. Opaque (not a
+#: dictionary word, no overlap with any surrounding literal) is what makes "no
+#: 4+-char window of the secret appears in the message" a real assertion; the value
+#: is built low-entropy on purpose (a short opaque prefix + one repeated char) so a
+#: secrets scanner never mistakes this synthetic test fixture for a real credential.
+_SECRET = "seg-" + "q" * 24
 
 
 def _all_substrings(value: str, min_length: int = 4) -> list[str]:
@@ -206,7 +209,7 @@ async def test_send_message_url_carries_the_phone_number_id_and_never_the_token(
     """
     from maezo.tools.mcp_whatsapp.server import WhatsAppServer, WhatsAppSettings
 
-    token = "EAAGm7Jq2Xd5Rb9Tn4Ws8Vk6"
+    token = "tok-" + "x" * 24
     settings = WhatsAppSettings(whatsapp_token=token, phone_number_id="1234567890")
     server = WhatsAppServer(settings=settings)
     mock_client = _mock_httpx_client()
@@ -232,7 +235,7 @@ async def test_send_message_refuses_when_phone_number_id_is_unconfigured() -> No
     """
     from maezo.tools.mcp_whatsapp.server import WhatsAppServer, WhatsAppSettings
 
-    token = "EAAGm7Jq2Xd5Rb9Tn4Ws8Vk6"
+    token = "tok-" + "x" * 24
     server = WhatsAppServer(settings=WhatsAppSettings(whatsapp_token=token))
     mock_client = _mock_httpx_client()
 

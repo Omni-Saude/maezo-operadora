@@ -128,7 +128,7 @@ def test_settings_never_render_the_credentials(monkeypatch: pytest.MonkeyPatch) 
     `tests/unit/tools/test_mcp_whatsapp.py::test_settings_never_render_the_credentials` on the
     sibling class."""
     _clear_whatsapp_env(monkeypatch)
-    secret = "Zx9Qw7Lp4Rt2Vb8Nm5Kd3Hs6RCV"
+    secret = "seg-" + "z" * 24
     settings = WhatsAppWebhookSettings(
         app_secret=secret,
         verify_token=secret,
