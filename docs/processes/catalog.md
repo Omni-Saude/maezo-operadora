@@ -10,7 +10,7 @@ de agente (AGJ-*), documentada no `agent.yaml` de cada agente.
 | SP-OP-AUTH-001 | Autorizacao previa | RN 259; negativa = medico auditor (L0 hard) | 1 | DRAFT — requires human review before any deploy |
 | SP-OP-LGPD-DSR-001 | Direitos do titular | LGPD art. 18 (15 dias) | 1 | DRAFT — requires human review before any deploy |
 | SP-OP-CONTAS-001 | Processamento contas/glosa | Contratos; auditabilidade | 2 | modelado (suite de integração planejada — T3.1) |
-| SP-OP-RECURSO-001 | Recurso de glosa | Prazos contratuais | 2 | modelado (suite de integração planejada — T3.1) |
+| SP-OP-RECURSO-001 | Análise de recurso de glosa (resposta ao recurso) | Prazo contratual de resposta; Padrão TISS (RN 501/2022 — DRAFT/verify) | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-NIP-001 | Resposta a NIP | Prazos ANS | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-ANS-SUBMIT-001 | Envios periodicos ANS | Calendario regulatorio | 2 | modelado (suite de integração planejada — T3.1; DMN ans_sla adicionado ao contrato) |
 | SP-OP-CANCEL-001 | Cancelamento de contrato | RN 412 | 2 | modelado (suite de integração planejada — T3.1) |

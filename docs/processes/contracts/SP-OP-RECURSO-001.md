@@ -1,25 +1,32 @@
-# Contrato — SP-OP-RECURSO-001 (Recurso de Glosa)
+# Contrato — SP-OP-RECURSO-001 (Análise de Recurso de Glosa)
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
 **Fase:** 2 (Wave A, §4-bis-F sync artifact) · **BPMN:** `spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn` (autorado em wave posterior contra este contrato)
-**Negativa-like:** SIM — `authorization_denial`-class L0 hard. Desistir/não-recorrer = aceitar a glosa contra o prestador. Aplica o padrão estrutural no-denial de cinco partes (§4-bis-F).
-**Gatilho regulatorio:** RN 424/2017 (recurso/junta médica — prazo recursal: **DRAFT/verify**), RN 305/2016 e RN 501/2022 (padrão TISS / fluxo de glosa e recurso: **DRAFT/verify**), Lei 9.656/1998 art. 18 (relação operadora-prestador). Todas as citações **DRAFT/verify com jurídico/regulatório** — RN podem ter sido consolidadas/substituídas (R2).
-**Consome:** uma glosa CONFIRMADA produzida por SP-OP-CONTAS-001 (handoff `operadora.contas.start_recurso` / delegação A2A a Marina). Depende do contrato de CONTAS, não do seu BPMN (§4-bis-F).
-**Inverte o reference** (`../maezo-reference/.archive/bpmn/glosa_management.bpmn` + `check_appeal_eligibility_worker.py` + `Task_AutoApprove` 48h): o reference auto-aceita a glosa quando `isEligible==false` (raises `NotAppealable`) e auto-aprova o recurso por timeout de 48h. Em Maezo **NENHUM caminho automatizado produz desistência**: inelegibilidade/inadmissibilidade aparentes roteiam para User Task humana; o timeout não auto-passa, ele **interrompe → coordenação humana**.
+**Negativa-like:** SIM — `authorization_denial`-class L0 hard. **Indeferir o recurso (manter a glosa) e deferir parcialmente (manter parte dela) são os efeitos adversos contra o prestador.** Aplica o padrão estrutural no-denial de cinco partes (§4-bis-F).
+**Gatilho regulatorio:** **prazo contratual de resposta ao recurso** (fonte primária do SLA de análise e do teto absoluto — **DRAFT/verify**); **RN 501/2022** (Padrão TISS — fluxo de glosa e recurso: **DRAFT/verify**); Lei 9.656/1998 art. 18 (relação operadora-prestador). **RN 424/2017 aplica-se APENAS se instaurada junta médica/odontológica** para dirimir divergência técnico-assistencial — nunca ao prazo de resposta ao recurso (`docs/compliance/rn-currency-review.md:87, 190-193`). Todas as citações **DRAFT/verify com jurídico/regulatório**.
+**Perspectiva (ADR-0040, Proposed):** o dono do processo é a **OPERADORA**. Ela **recebe** o recurso que o prestador interpõe contra uma glosa que ela própria aplicou em SP-OP-CONTAS-001, julga a **admissibilidade**, analisa o **mérito** (administrativo pelo analista de recurso; técnico-clínico pelo médico auditor) e **emite** a resposta. A fase de recorrente que este contrato descrevia (interpor o recurso, acompanhar o status, conciliar um re-pagamento recebido) foi **removida sem shim**.
+**Consome:** o **recurso que o prestador interpõe** contra uma glosa **aplicada** por SP-OP-CONTAS-001. A instância é iniciada pelo intake TISS do recurso, nunca por CONTAS — ver §Origem da instância.
+**Inverte o reference** (`../maezo-reference/.archive/bpmn/glosa_management.bpmn` + `check_appeal_eligibility_worker.py` + `Task_AutoApprove` 48h): o reference auto-decide quando `isEligible==false` (raises `NotAppealable`) e auto-aprova por timeout de 48h. Em Maezo **NENHUM caminho automatizado indefere**: inelegibilidade/inadmissibilidade aparentes roteiam para User Task humana; o timeout não auto-passa, ele **interrompe → coordenação humana**.
 
 ## Invariante L0 hard (nao negociavel)
 
-Manter-a-glosa (negar o recurso = não interpor / desistir) SÓ nasce nas User Tasks humanas
-(`UT_AnaliseRecursoAnalista` com `decisao_recurso=NAO_RECORRER`, ou `UT_RevisaoAuditorMedico`
-quando o mérito é técnico/clínico, ou `UT_CoordenacaoRecursoAssume` no breach de SLA).
-Nenhuma DMN deste processo possui saída de negativa/desistência: `recurso_admissibility` e
-`recurso_eligibility` roteiam apenas para `SEGUE_ANALISE` / `RECORRIVEL` / `PENDENTE_DOCUMENTACAO`
-/ `ANALISE_HUMANA`. Inadmissibilidade por prazo procedural, inelegibilidade aparente e
-ambiguidade SEMPRE fail-safe para análise humana (catch-all row → `ANALISE_HUMANA`). Não há
-auto-aprovação nem auto-desistência por timeout (o auto-approve-on-timeout de 48h do reference
-foi **INVERTIDO** para SLA interruptivo → coordenação humana). Os terminais adversos
-(`End_RecursoNaoInterposto` / `End_GlosaMantida`) são inalcançáveis sem uma User Task humana
-concluída na history do engine (verificado por teste de invariante).
+O **indeferimento** do recurso (manter a glosa contra o prestador), o **deferimento parcial**
+(manter parte dela) e a **inadmissibilidade** SÓ nascem nas User Tasks humanas:
+`UT_AnaliseRecursoAnalista` (`decisao_recurso ∈ {INDEFERIR, DEFERIR_PARCIAL}`),
+`UT_RevisaoAuditorMedico` (`decisao_auditor_recurso ∈ {INDEFERIR, DEFERIR_PARCIAL}`, mérito
+técnico/clínico), `UT_CoordenacaoRecursoAssume` (breach de SLA) ou `UT_EscalonamentoPrazo`
+(estouro do teto). Nenhuma DMN deste processo possui saída de indeferimento:
+`recurso_admissibility` roteia só `{SEGUE_ANALISE, PENDENTE_DOCUMENTACAO, ANALISE_HUMANA}`;
+`recurso_eligibility` só `{SEGUE_MERITO, ANALISE_HUMANA}`. Inadmissibilidade por prazo
+procedural, inelegibilidade aparente e ambiguidade SEMPRE fail-safe para análise humana
+(catch-all row → `ANALISE_HUMANA`). Não há auto-deferimento nem auto-indeferimento por timeout (o
+auto-approve-on-timeout de 48h do reference foi **INVERTIDO** para SLA interruptivo → coordenação
+humana). Os efeitos adversos são materializados só por `operadora.recurso.registrar_indeferimento`,
+guardado por `ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN`. Os terminais adversos
+(`End_RecursoIndeferido`, `End_RecursoIndeferidoAuditor`, `End_RecursoDeferidoParcial`,
+`End_RecursoInadmissivel`) são inalcançáveis sem uma User Task humana concluída na history do
+engine (verificado por teste de invariante). Os **dois gateways decisórios** têm default de ERRO
+fail-closed (`ERR_RECURSO_DECISAO_INVALIDA`) — nunca uma ação por omissão.
 
 ## Business key (idempotencia)
 
@@ -29,7 +36,24 @@ RECURSO-{tenant_id}-{numero_guia_tiss}-{glosa_id}
 
 Um recurso por glosa por guia TISS. `mcp-cibseven.start_process` DEVE consultar a business key
 antes de iniciar; instância ativa existente => retorna a existente (start idempotente, sem duplicar
-recurso). Reenvio (re-handoff de CONTAS, redelegação a Marina) retorna a instância ativa.
+recurso). Re-intake (o prestador retransmite, a operação abre manualmente, Marina redelega) retorna
+a instância ativa.
+
+## Origem da instancia
+
+Três caminhos, todos convergindo na **mesma** business key — portanto na mesma instância:
+
+1. **Intake TISS → `notification_bridge`** (canônico): a regra keyed em
+   `agents.events.recurso.intake_recebido` inicia SP-OP-RECURSO-001 pelo chokepoint fenceado.
+   **O adaptador de intake que emitiria esse evento NÃO existe em `main`** — a regra é registrada
+   **DORMENTE de propósito**, para que o adaptador futuro nasça contra um contrato de âncora já
+   fenceado (`_anchored` + `NotificationBridgeMissingBusinessKeyError`). Pendência **OQ-R1**.
+2. **Marina** (`flow="recurso"`), pelo mesmo chokepoint e pela mesma chave.
+3. **Abertura manual pela operação** (coordenação registra um recurso recebido fora do canal
+   eletrônico).
+
+A aresta `operadora.contas.start_recurso` (CONTAS → RECURSO) **foi deletada**: a operadora não
+recorre da sua própria glosa.
 
 ## Variaveis de entrada
 
@@ -40,7 +64,7 @@ recurso). Reenvio (re-handoff de CONTAS, redelegação a Marina) retorna a inst�
 | `glosa_id` | string | sim | Id da glosa confirmada em CONTAS (parte da business key) |
 | `numero_lote_tiss` | string | sim | Lote TISS de origem (rastreabilidade CONTAS→RECURSO) |
 | `numero_conta` | string | nao | Conta/linha glosada, quando adjudicação por conta |
-| `prestador_id` | string | sim | Prestador recorrente (autor do recurso) |
+| `prestador_id` | string | sim | Prestador que interpôs o recurso e a quem a resposta será dirigida |
 | `beneficiario_pseudo_id` | string | sim | Pseudônimo (ADR-0006 — NUNCA CPF/nome) |
 | `glosa_type` | string | sim | Tipo de glosa (de CONTAS): `administrativa` \| `tecnica` \| `clinica` \| `linha_duplicada` \| `formatacao` |
 | `glosa_reason_code` | string | sim | Código TISS de motivo de glosa normalizado (de CONTAS) |
@@ -48,8 +72,9 @@ recurso). Reenvio (re-handoff de CONTAS, redelegação a Marina) retorna a inst�
 | `codigo_procedimento_tuss` | string | sim | Procedimento TUSS da linha glosada |
 | `cid10` | string | nao | CID-10 da guia (quando glosa clínica) |
 | `documentos_recurso_refs` | json | sim | Referências de anexos/justificativas do recurso (pode ser vazio) |
-| `data_ciencia_glosa` | date | sim | Data de ciência da glosa pelo prestador (base de contagem de prazo) |
-| `data_recebimento_recurso_iso` | date (ISO) | não | Data de recebimento do recurso — **âncora regulatória do teto absoluto P30D** (GAP-RECURSO-1); seedada pelo intake (`notifications_bridge.recurso_variables`); fail-safe quando ausente: `data_ciencia_glosa` |
+| `data_ciencia_glosa` | date | não | Data informada pelo prestador como ciência da glosa — **registro do pleito, jamais base do prazo da operadora**; usada só na aferição de tempestividade (`dentro_prazo_recurso`), que é fato pré-resolvido por worker |
+| `data_recebimento_recurso_iso` | date (ISO) | **sim** | Data em que a operadora **recebeu** o recurso — **âncora única do SLA e do teto absoluto** (GAP-RECURSO-1). Normalizada/defaultada fail-safe para HOJE/UTC **com warning** pelo worker `operadora.recurso.validate_recurso` (`ST_ValidarRecurso`, intake — primeiro em TODO caminho; espelha `identify_glosa`/GAP-CONTAS-4). **Não há mais fail-safe para a data de ciência do prestador** — essa é a âncora do recorrente |
+| `data_vencimento` | date | sim* | Vencimento da conta de origem, herdado do envelope de intake. Exigido pelo handoff de pagamento da glosa revertida e **recusado em branco** (nunca defaultado) — de onde ele vem numa reversão de glosa é **OQ-3, DRAFT/verify** |
 | `glosa_existe` | boolean | sim | Pré-resolvido por worker: a glosa referida está confirmada e ativa em CONTAS |
 | `dentro_prazo_recurso` | boolean | sim* | Pré-resolvido por worker: dentro do prazo recursal (cálculo de prazo no worker; RN 424 — **DRAFT/verify**) |
 | `documentacao_recurso_completa` | boolean | sim* | Pré-resolvido por worker: anexos mínimos do recurso presentes |
@@ -57,33 +82,30 @@ recurso). Reenvio (re-handoff de CONTAS, redelegação a Marina) retorna a inst�
 `*` Pré-resolvido por worker ANTES da `BRT_Admissibilidade` (a aritmética de prazo fica no worker;
 a *decisão* de não-recorrer por prazo é sempre humana — ver R5).
 
-**GAP-XPROC-3 (resolvido):** para instâncias iniciadas pela ponte (`notifications_bridge`), os
-três fatos acima — mais `glosa_type` — são seedados por `recurso_variables()`
-(`src/maezo/platform/integrations/notifications_bridge/consumer.py`): `glosa_type`/`glosa_existe`
-ecoados do envelope `contas.start_recurso` (CONTAS os publica; `glosa_existe` sempre `True` — só
-alcança o handoff após `RECORRER` sobre uma glosa ativa na própria instância CONTAS);
-`documentacao_recurso_completa` mapeado (FIELD-DRIFT FIX) do fato próprio de CONTAS
-`documentacao_anexa`; `dentro_prazo_recurso` sempre `True` (tautologia de dia-0: a janela P30D
-começa em `data_recebimento_recurso_iso`, seedada na mesma chamada como "hoje"). Fail-closed=False
-quando o envelope não carrega o campo — nunca `SEGUE_ANALISE`/`ANALISE_HUMANA` indevido. Antes
-desta correção, toda instância iniciada pela ponte caía no catch-all `ANALISE_HUMANA` e nunca
-alcançava `BRT_Eligibility` (variáveis ausentes ≠ `false` em FEEL).
+**Fatos do intake, sem tautologias.** Para instâncias iniciadas pela ponte, os três fatos acima
+são **ecoados do envelope** e **fail-closed para `False`** quando ausentes. `glosa_existe`
+deixou de ser hard-coded `True`: essa premissa ("só alcança o handoff após `RECORRER` sobre uma
+glosa ativa") não sobrevive a um recurso interposto de FORA, cujo `glosa_id` pode não referenciar
+nada que a operadora tenha cunhado — ausente ⇒ `False` ⇒ `ANALISE_HUMANA` pela row
+`r_glosa_inexistente_humano`, nunca uma afirmação de que a glosa existe. `dentro_prazo_recurso`
+deixou de ser a tautologia de dia-0 pela mesma razão. Variáveis ausentes ≠ `false` em FEEL, por
+isso a ponte semeia os três explicitamente.
 
 ## Variaveis de saida
 
 | Variavel | Tipo | Descricao |
 |---|---|---|
-| `decisao_recurso` | string | `RECORRER` \| `NAO_RECORRER` \| `SOLICITAR_INFO` \| `ESCALAR_AUDITOR` (origem: User Tasks humanas) |
-| `justificativa_desistencia` | string | **Obrigatória se `NAO_RECORRER`** (manter glosa) |
-| `valor_glosa_aceito` | double | **Obrigatória se `NAO_RECORRER`** — valor da glosa aceito contra o prestador (money = double) |
-| `referencia_contratual` | string | **Obrigatória se `NAO_RECORRER`** — cláusula/fundamentação contratual da aceitação |
+| `decisao_recurso` | string | `DEFERIR` \| `DEFERIR_PARCIAL` \| `INDEFERIR` \| `SOLICITAR_INFO` \| `ESCALAR_AUDITOR` (origem: User Tasks humanas) |
+| `fundamentacao_indeferimento` | string | **Obrigatória se `INDEFERIR` ou `DEFERIR_PARCIAL`** — fundamentação da resposta adversa |
+| `valor_glosa_mantido_brl` | double | **Obrigatória se `INDEFERIR`/`DEFERIR_PARCIAL`** — valor da glosa **mantido** pela operadora (money = double) |
+| `valor_deferido_brl` | double | **Obrigatória se `DEFERIR`/`DEFERIR_PARCIAL`** — valor da glosa **revertido**; alimenta o handoff a SP-OP-PAGTO-001. Em `DEFERIR_PARCIAL` a soma `valor_deferido_brl + valor_glosa_mantido_brl == valor_glosado_brl` é conferida em **centavos-inteiros, igualdade exata** (tolerância/arredondamento é **OQ-R2**, decisão de finanças) |
+| `referencia_contratual` | string | **Obrigatória se `INDEFERIR`/`DEFERIR_PARCIAL`** — cláusula/fundamentação contratual |
 | `parecer_auditor` | string | Obrigatória quando `UT_RevisaoAuditorMedico` decide o mérito (glosa técnica/clínica) |
-| `decisao_auditor_recurso` | string | `MANTER_RECURSO` \| `ACEITAR_GLOSA` \| `RECURSO_PARCIAL` (auditor médico decide o mérito) |
+| `decisao_auditor_recurso` | string | `DEFERIR` \| `DEFERIR_PARCIAL` \| `INDEFERIR` (auditor médico decide o mérito) |
 | `analista_id` | string | Id do analista humano que setou `decisao_recurso` (cadeia de auditoria ADR-0007) |
 | `auditor_id` | string | Id do auditor médico, quando houve `ESCALAR_AUDITOR` |
-| `protocolo_recurso` | string | Protocolo do recurso interposto (emitido por `operadora.recurso.submit_appeal`) |
-| `resposta_operadora` | string | `deferido` \| `parcialmente_deferido` \| `indeferido` (default — resposta de terceiro) — resposta da operadora entregue via `Msg_RecursoRespostaRecebida` (`msg.recurso.resposta_recebida`) em `ICE_RespostaRecebida`; consumida por `GW_RecursoResolvido` (GAP-RECURSO-4) |
-| `desfecho` | string | `deferido` \| `indeferido` \| `parcialmente_deferido` \| `inadmissivel` \| `nao_interposto_humano` |
+| `protocolo_resposta_recurso` | string | Protocolo da **resposta** da operadora ao recurso (emitido por `operadora.recurso.comunicar_resposta`; determinístico pela business key) |
+| `desfecho` | string | `deferido_humano` \| `deferido_parcial_humano` \| `indeferido_humano` \| `inadmissivel_humano` |
 
 ## Topicos
 
@@ -95,17 +117,17 @@ este contrato REPORTA os tópicos a registrar — ver "Pendências" e o relatór
 | Kafka | `agents.events.recurso.received` | produz | após start (recurso solicitado registrado) |
 | Kafka | `agents.events.recurso.pended` | produz | pendência de documentação do recurso aberta |
 | Kafka | `agents.events.recurso.sla_breached` | produz | SLA de análise do recurso estourado (payload.fase = `analise` \| `prazo_max`) |
-| Kafka | `agents.events.recurso.completed` | produz | fim (payload.desfecho = `deferido` \| `indeferido` \| `parcialmente_deferido` \| `inadmissivel` \| `nao_interposto_humano`) |
+| Kafka | `agents.events.recurso.completed` | produz | fim (payload.desfecho = `deferido_humano` \| `deferido_parcial_humano` \| `indeferido_humano` \| `inadmissivel_humano`) |
+| Kafka | `agents.events.recurso.intake_recebido` | **consome** (bridge) | intake TISS do recurso interposto pelo prestador → inicia a instância. **Sem publicador em `main`** (OQ-R1) |
 | External task | `operadora.events.publish` | consome (worker) | publicador genérico de eventos de domínio (compartilhado) |
 | External task | `operadora.recurso.analyze_request` | consome (worker) | convoca Marina: dossiê do analista de recurso (A2A `recurso.analyze`) |
 | External task | `operadora.recurso.request_documents` | consome (worker) | pendência de documentação ao prestador (publica também `recurso.pended`) |
-| External task | `operadora.recurso.submit_appeal` | consome (worker) | interpõe o recurso à operadora (TISS) — **só após `UT_AnaliseRecursoAnalista` com `RECORRER`** |
-| External task | `operadora.recurso.track_status` | consome (worker) | acompanha o status do recurso interposto (dentro do timer-loop) |
-| External task | `operadora.recurso.register_desistencia` | consome (worker) | registra a desistência/manutenção de glosa — **GUARDADO por `ERR_DESISTENCIA_NOT_HUMAN`** |
-| External task | `operadora.recurso.reconcile_payment` | consome (worker) | concilia re-pagamento ao prestador no deferimento (port `update_payment`) |
+| External task | `operadora.recurso.validate_recurso` | consome (worker) | **intake** (`ST_ValidarRecurso`): normaliza a âncora do SLA e pré-resolve os fatos de admissibilidade; guarda `glosa_id` (`ERR_RECURSO_INVALID_GLOSA`) |
+| External task | `operadora.recurso.registrar_indeferimento` | consome (worker) | efeito adverso gated — registra o indeferimento / deferimento parcial / inadmissibilidade; recusa sem decisão humana (**`ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN`**) |
+| External task | `operadora.recurso.comunicar_resposta` | consome (worker) | emite ao prestador a resposta ao recurso (TISS — **DRAFT/verify**, OQ-1); serve os 4 desfechos |
+| External task | `operadora.recurso.handoff_pagamento` | consome (worker) | **handoff** a SP-OP-PAGTO-001 quando `DEFERIR`/`DEFERIR_PARCIAL` (`tipo_pagamento=glosa_revertida`) — ver §Handoff de pagamento |
 | External task | `operadora.recurso.notify_sla_risk` | consome (worker) | alerta `coordenacao-recurso` (timer não-interruptivo) |
-| External task | `operadora.recurso.escalate_ans_timeout` | consome (worker) | escalona estouro do prazo máximo (P30D ANS — **DRAFT/verify**) → `UT_EscalonamentoPrazo` |
-| Message BPMN | `msg.recurso.resposta_recebida` | recebe | correlação por business key: resposta da operadora ao recurso chegou (destrava `ICE_AguardarResposta`) |
+| External task | `operadora.recurso.escalate_ans_timeout` | consome (worker) | escalona estouro do teto de resposta (P30D — **DRAFT/verify**) → `UT_EscalonamentoPrazo`. O nome do tópico é histórico: **não** é integração com gateway ANS |
 | Message BPMN | `msg.recurso.docs_received` | recebe | correlação por business key: documentação do prestador chegou (destrava pendência) |
 
 ## DMN referenciadas
@@ -114,7 +136,7 @@ Shape engine-deployável (§4-bis-A): typeRef ∈ {string, boolean, integer, lon
 **`"number"` é inválido**; money BRL → `double` (ou inteiro-centavos); dias/SLA → string ISO 8601.
 Todo `decisionTable` com `hitPolicy`; toda tabela com **row catch-all → caminho humano conservador
 (`ANALISE_HUMANA`)**. `camunda:historyTimeToLive="P###D"` namespaced em cada `<decision>` (autorado
-no wave do .dmn). **Nenhuma DMN tem coluna de saída de negativa/desistência (no-denial).**
+no wave do .dmn). **Nenhuma DMN tem coluna de saída de indeferimento (no-denial).**
 
 ### `recurso_admissibility` (hitPolicy FIRST — DRAFT)
 | Direcao | Campo | Tipo | Dominio |
@@ -125,9 +147,9 @@ no wave do .dmn). **Nenhuma DMN tem coluna de saída de negativa/desistência (n
 | out | `roteamento` | string | `SEGUE_ANALISE` \| `PENDENTE_DOCUMENTACAO` \| `ANALISE_HUMANA` |
 | out | `motivo` | string | rótulo do motivo do roteamento |
 
-**Sem saída NEGAR/DESISTIR/INADMISSIVEL por design.** `glosa_existe=false` ou `dentro_prazo_recurso=false`
-NÃO produzem desistência — roteiam para `ANALISE_HUMANA` (inadmissibilidade aparente é decidida por
-humano — R5). Catch-all (qualquer combinação não-mapeada) = `ANALISE_HUMANA`.
+**Sem saída de INDEFERIMENTO/INADMISSIBILIDADE por design.** `glosa_existe=false` ou
+`dentro_prazo_recurso=false` NÃO indeferem — roteiam para `ANALISE_HUMANA` (inadmissibilidade
+aparente é decidida por humano — R5). Catch-all (qualquer combinação não-mapeada) = `ANALISE_HUMANA`.
 
 ### `recurso_eligibility` (hitPolicy FIRST — DRAFT)
 | Direcao | Campo | Tipo | Dominio |
@@ -135,24 +157,26 @@ humano — R5). Catch-all (qualquer combinação não-mapeada) = `ANALISE_HUMANA
 | in | `glosa_type` | string | `administrativa` \| `tecnica` \| `clinica` \| `linha_duplicada` \| `formatacao` |
 | in | `glosa_reason_code` | string | código TISS normalizado de motivo |
 | in | `valor_glosado_brl` | double | valor glosado (money = double) |
-| out | `roteamento` | string | `RECORRIVEL` \| `ANALISE_HUMANA` |
+| out | `roteamento` | string | `SEGUE_MERITO` \| `ANALISE_HUMANA` |
 | out | `grupo_revisor` | string | `analista-recurso-glosa` \| `medico-auditor` (glosa técnica/clínica → auditor decide o mérito) |
 | out | `motivo` | string | rótulo |
 
-**Sem saída NAO_RECORRIVEL/NEGAR.** Glosa técnica/clínica roteia para `medico-auditor` (humano decide
-o mérito — espelha `JUNTA_MEDICA` de AUTH). Catch-all = `ANALISE_HUMANA` / `analista-recurso-glosa`.
+**Sem saída de INDEFERIMENTO.** Glosa técnica/clínica roteia para `medico-auditor` (humano decide
+o mérito — espelha `JUNTA_MEDICA` de AUTH); o auditor decide
+`decisao_auditor_recurso ∈ {DEFERIR, DEFERIR_PARCIAL, INDEFERIR}`. Catch-all = `ANALISE_HUMANA` /
+`analista-recurso-glosa`.
 
 ### `recurso_sla` (hitPolicy FIRST — DRAFT, todos os prazos DRAFT/verify)
 | Direcao | Campo | Tipo | Dominio |
 |---|---|---|---|
 | in | `glosa_type` | string | tipo de glosa |
 | in | `valor_glosado_brl` | double | valor glosado |
-| in | `data_recebimento_recurso_iso` | string (ISO date) | âncora regulatória do teto P30D (documentada como input; não participa do matching; fail-safe `data_ciencia_glosa`) |
+| in | `data_recebimento_recurso_iso` | string (ISO date) | âncora **única** do teto P30D (documentada como input; não participa do matching; **sem fail-safe de outra parte** — normalizada pelo worker `validate_recurso`) |
 | out | `sla_analise` | string (ISO 8601) | prazo de análise interna do recurso |
 | out | `sla_alerta` | string (ISO 8601) | gatilho do alerta não-interruptivo (~50-70% do SLA) |
-| out | `prazo_regulatorio` | string (ISO 8601, duração) | prazo máximo regulatório do recurso — **legado/observabilidade**; não alimenta mais nenhum timer (RN 424 — **DRAFT/verify**) |
+| out | `prazo_regulatorio` | string (ISO 8601, duração) | prazo máximo de resposta — **legado/observabilidade**; não alimenta mais nenhum timer (prazo contratual — **DRAFT/verify**) |
 | out | `prazo_max_absoluto_iso` | string (ISO 8601, datetime) | **teto absoluto** = âncora + P30D (FEEL); consumido via `timeDate` pelos 3 boundary de teto (GAP-RECURSO-1) |
-| out | `fonte_regulatoria` | string | fonte da RN do prazo (DRAFT) |
+| out | `fonte_regulatoria` | string | fonte do prazo: **prazo contratual de resposta ao recurso + RN 501/2022** (DRAFT/verify). RN 424/2017 aparece **apenas** na row técnico-clínica, e ainda assim condicionada à instauração de junta médica/odontológica |
 
 ## Papeis humanos (candidate groups)
 
@@ -162,9 +186,9 @@ o mérito — espelha `JUNTA_MEDICA` de AUTH). Catch-all = `ANALISE_HUMANA` / `a
 
 | Grupo | Papel | Tarefa |
 |---|---|---|
-| `analista-recurso-glosa` *(PROPOSTO)* | Analista de recurso de glosa | `UT_AnaliseRecursoAnalista` — **única origem de `decisao_recurso`**; `NAO_RECORRER` (manter glosa) só aqui |
+| `analista-recurso-glosa` *(PROPOSTO)* | Analista de recurso de glosa | `UT_AnaliseRecursoAnalista` — **única origem primária de `decisao_recurso`**; `INDEFERIR`/`DEFERIR_PARCIAL` só aqui, na coordenação ou no auditor |
 | `medico-auditor` | Médico auditor | `UT_RevisaoAuditorMedico` — decide o mérito de glosa técnica/clínica (`ESCALAR_AUDITOR`) |
-| `coordenacao-recurso` *(PROPOSTO)* | Coordenação de recurso de glosa | `UT_CoordenacaoRecursoAssume` (SLA de análise estourado), `UT_EscalonamentoPrazo` (prazo máx ANS) |
+| `coordenacao-recurso` *(PROPOSTO)* | Coordenação de recurso de glosa | `UT_CoordenacaoRecursoAssume` (SLA de resposta estourado), `UT_EscalonamentoPrazo` (teto de resposta) — **ambas com o mesmo vocabulário de pagador do analista** |
 
 ## SLAs
 
@@ -174,9 +198,8 @@ interruptivo de análise → coordenação humana; o prazo máximo regulatório 
 | Timer | Valor (DRAFT/verify) | Tipo | Fonte |
 |---|---|---|---|
 | Alerta de risco (`BT_AlertaSlaRecurso`) | ~50-70% de `sla.sla_analise` (DMN `sla_alerta`) | não-interruptivo → `operadora.recurso.notify_sla_risk` | política interna |
-| Análise do recurso (`BT_SlaAnaliseRecurso`) | `${sla.sla_analise}` | **interruptivo** → `recurso.sla_breached` (fase=`analise`); cancela `UT_AnaliseRecursoAnalista` → `UT_CoordenacaoRecursoAssume` | política interna (**substitui** o `Task_AutoApprove` 48h — INVERTIDO) |
-| Aguardar resposta da operadora (`ICE_AguardarResposta`) | ref `P5D` | timer intermediário (loop TISS) com `GW_RecursoResolvido` + `loopCounter` limitado (ref `< 6`) | TISS — **DRAFT/verify** |
-| Prazo máximo do recurso (`BT_PrazoMaxRecurso` / `BT_PrazoMaxCoord` / `BT_PrazoMaxAuditor`) | `timeDate ${sla.prazo_max_absoluto_iso}` = âncora (`data_recebimento_recurso_iso`; fail-safe `data_ciencia_glosa`) + `P30D` — **uma única janela absoluta**: os 3 boundary (analista/coordenação/auditor) expiram no MESMO instante; a escalada não estende o teto (GAP-RECURSO-1) | boundary não-interruptivo → `operadora.recurso.escalate_ans_timeout` → `UT_EscalonamentoPrazo` (humano; sem boundary de teto próprio — alvo pós-estouro, reanexar o mesmo instante insta-dispararia em cascata) | RN 424/2017 — **DRAFT/verify** |
+| Resposta ao recurso (`BT_SlaAnaliseRecurso`) | `${sla.sla_analise}` | **interruptivo** → `recurso.sla_breached` (fase=`analise`); cancela `UT_AnaliseRecursoAnalista` → `UT_CoordenacaoRecursoAssume` | prazo contratual de resposta (**substitui** o `Task_AutoApprove` 48h — INVERTIDO) |
+| Prazo máximo de resposta (`BT_PrazoMaxRecurso` / `BT_PrazoMaxCoord` / `BT_PrazoMaxAuditor`) | `timeDate ${sla.prazo_max_absoluto_iso}` = âncora (`data_recebimento_recurso_iso`, normalizada pelo intake) + `P30D` — **uma única janela absoluta**: os 3 boundary (analista/coordenação/auditor) expiram no MESMO instante; a escalada não estende o teto (GAP-RECURSO-1) | boundary não-interruptivo → `operadora.recurso.escalate_ans_timeout` → `UT_EscalonamentoPrazo` (humano; sem boundary de teto próprio — alvo pós-estouro, reanexar o mesmo instante insta-dispararia em cascata) | prazo contratual — **DRAFT/verify** |
 | Pendência de documentação (`ICE_PrazoPendencia`) | ref `P5D` | event gateway → análise humana (humano decide destino) | **DRAFT/verify** |
 
 Nota: prazos legais são em dias úteis; ISO 8601 usa dias corridos — valores conservadores; resolver
@@ -186,8 +209,9 @@ calendário útil no worker. **Nenhum desses timers produz desfecho adverso** �
 
 | Codigo | Onde | Tratamento |
 |---|---|---|
-| `ERR_DESISTENCIA_NOT_HUMAN` | worker-guard em `operadora.recurso.register_desistencia` | o worker **recusa** registrar desistência/manutenção de glosa se `decisao_recurso != NAO_RECORRER` setado por humano (ou se `analista_id`/`justificativa_desistencia`/`valor_glosa_aceito`/`referencia_contratual` ausentes). Lança BPMN error; carrega `analista_id` na trilha (ADR-0007). É o 4º componente do padrão no-denial. |
-| `ERR_RECURSO_INVALID_GLOSA` | declarado (`Error_RecursoGlosaInvalida`) para uso dos workers | worker lança BPMN error se `glosa_id` não referencia glosa confirmada/ativa em CONTAS; tratamento a detalhar na promoção a FINAL |
+| `ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN` | worker-guard em `operadora.recurso.registrar_indeferimento` | o worker **recusa** registrar indeferimento/deferimento parcial/inadmissibilidade se nenhum dos dois canais humanos casar (analista: `decisao_recurso ∈ {INDEFERIR, DEFERIR_PARCIAL}` + `analista_id`; auditor: `decisao_auditor_recurso ∈ {INDEFERIR, DEFERIR_PARCIAL}` + `auditor_id`), ou se faltar `fundamentacao_indeferimento`/`valor_glosa_mantido_brl`/`referencia_contratual` (e `valor_deferido_brl` no parcial). **Declarado-e-não-capturado**: levantado como `PermissionError` → incidente auditado (ADR-0030 §4; reconhecido pelo sufixo `_NOT_HUMAN`). É o 4º componente do padrão no-denial. |
+| `ERR_RECURSO_DECISAO_INVALIDA` | throw-end `End_ErrRecursoDecisaoInvalida` | default fail-closed dos dois gateways decisórios: uma decisão ausente/fora do domínio termina em ERRO visível, nunca numa ação por omissão. Nenhum efeito é materializado |
+| `ERR_RECURSO_INVALID_GLOSA` | worker-guard `_require_glosa_id` em **3** tópicos (`validate_recurso`, `request_documents`, `analyze_request`) | `glosa_id` ausente/vazio nas variáveis de processo — defeito **TÉCNICO** de origem, distinto do fato de negócio `glosa_existe`. Capturado por `BE_GlosaInvalidaValidacao`/`BE_GlosaInvalidaDocs`/`BE_GlosaInvalidaDossie` → terminal NEUTRO `End_RecursoGlosaInvalidaOrigem` (GAP-RECURSO-3). Consumption-covered nos 3 tópicos (gate ADR-0030) |
 
 ## Pendencias para promocao a FINAL
 
@@ -198,9 +222,30 @@ calendário útil no worker. **Nenhum desses timers produz desfecho adverso** �
   contra a taxonomia org do operador (OQ).
 - **R5 — inadmissibilidade por prazo procedural duro:** default = humano-gated (`ANALISE_HUMANA`);
   auto-route de prazo-expirado puro só com sign-off do jurídico — **não autorizado neste DRAFT**.
-- Textos de carta/petição de recurso (port de `generate_appeal_documentation`) entram em review-queue
-  como DRAFT; Marina monta dossiê, humano autora/aprova; nunca auto-arquiva.
+- Textos de **fundamentação da resposta ao recurso** (deferimento/indeferimento) entram em
+  review-queue como DRAFT; Marina monta o dossiê **factual**, o humano fundamenta e aprova; nunca
+  auto-arquiva.
 - Registro dos tópicos em `config/topic_registry.yaml` (W0.2) e dos candidate groups onde aplicável.
 - Política de suspensão de prazo durante pendência de documentação (confirmar regra RN).
-- Detalhamento da semântica do loop de acompanhamento (`ICE_AguardarResposta` / `loopCounter`) e da
-  conciliação de re-pagamento no deferimento (`operadora.recurso.reconcile_payment`).
+- **Handoff de pagamento da glosa revertida** a SP-OP-PAGTO-001 (`operadora.recurso.handoff_pagamento`):
+  confirmar com finanças + jurídico a origem de `data_vencimento` numa reversão de glosa (**OQ-3**)
+  e a regra de arredondamento em `DEFERIR_PARCIAL` (**OQ-R2**).
+- **Adaptador de intake TISS do recurso** (`agents.events.recurso.intake_recebido`): a regra de
+  bridge existe e está fenceada, o publicador **não** (**OQ-R1**).
+- Confirmação dos nomes TISS "Recurso de Glosa" / "Resposta ao Recurso de Glosa" (**OQ-1**).
+- Confirmação de que `DEFERIR_PARCIAL` é adverso L0 para o prestador, por analogia ao precedente
+  já ratificado de REEMBOLSO (`End_ReembolsoParcial`, "redução adversa") — **OQ-8**.
+
+## Handoff de pagamento (RECURSO -> SP-OP-PAGTO-001)
+
+Quando a decisão humana é `DEFERIR` ou `DEFERIR_PARCIAL`, `operadora.recurso.handoff_pagamento`
+inicia SP-OP-PAGTO-001 pelo chokepoint `start_process_idempotent`:
+
+| Item | Especificação |
+|---|---|
+| Business key | `PAGTO-{tenant_id}-{numero_guia_tiss}-{glosa_id}` — uma ordem por glosa revertida. É uma **terceira forma documentada** da família `PAGTO-…`, ao lado de `PAGTO-{tenant}-{ordem_pagamento_id}` e `PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}`: uma glosa revertida não tem ordem pré-existente nem é escopada por lote — a identidade dela **é** a glosa |
+| `tipo_pagamento` | `glosa_revertida` — valor já previsto no contrato de PAGTO. Nenhum vocabulário novo em PAGTO |
+| Valor | `valor_pagamento_cents` = `valor_deferido_brl` em centavos-inteiros; `fonte_valor="deferido"` declara a origem. O worker **recusa fail-closed** valor ausente/em branco/não-numérico/`<= 0` — nunca defaulta a `0` |
+| `data_vencimento` | Obrigatória em PAGTO e herdada do envelope de intake. **Recusada em branco**, nunca defaultada (**OQ-3**) |
+| **Invariante I-PAGTO-1** | O handoff **NUNCA** semeia `lastro_confirmado`, `dados_pagamento_validos`, `duplicidade_suspeita` nem `dentro_teto_l2`. Semeia, em lugar disso, `lastro_origem="recurso_deferimento_humano"` e `lastro_decisor_id` (`analista_id`\|`auditor_id`) como **evidência**. Consequência: `pagto_admissibility` lê o lastro ausente ⇒ `ANALISE_HUMANA` ⇒ `UT_AnaliseAdmissibilidade` (`coordenacao-financeira`). Isso compra **segregação de funções**: quem julga o recurso não admite a ordem de pagamento |
+| Dedup | **STRICT** — SP-OP-PAGTO-001 é a única família STRICT; o chokepoint exige `DedupReportingAuditSink` + `HistoryQueryingTransport` e recusa (`StartDedupGateUnavailableError`) sem eles. Um deferimento nunca vira pagamento duplicado |
