@@ -1124,6 +1124,79 @@ def _emit_worker_task_outcome(
         logger.debug("worker_task_metric_emit_failed", topic=topic, outcome=outcome, exc_info=True)
 
 
+def derive_handler_name(handler: TaskHandler) -> str:
+    """A STABLE, bounded, non-PHI `worker` label for a raw `register()`ed handler.
+
+    WORKER-METRICS-COVERAGE. `maezo_worker_execution_time_seconds` / `maezo_worker_error_count_total`
+    — the two metrics `MaezoSLAWorkerLatencyHigh`, `MaezoSLAWorkerErrorRateHigh` and
+    `MaezoWorkerCrashLoop` are built on (`deploy/observability/alert-rules.yml:18-33,:56-73,:81-95`)
+    — are emitted by `WorkerBase.run()` and by nothing else, so every topic served by a raw
+    `harness.register()` handler was invisible to all three alerts. Those alerts carry a
+    `{{ $labels.worker }}` in their descriptions, so the raw leg needs a `worker` value that is
+    stable across restarts and bounded in cardinality.
+
+    Derived from the handler's own identity rather than invented: `<module leaf>.<factory>`, e.g.
+    `programa.make_stratify_risk_handler` for the closure `make_stratify_risk_handler` returns.
+    One value per registered topic, so the label set is bounded by the worker registry exactly as
+    `WorkerBase`'s class-name label is. Never anything from a task: no business key, no task id,
+    no process instance — the ADR-0010 rule `record_worker_task_outcome` states for its own labels.
+    """
+    module = str(getattr(handler, "__module__", "") or "")
+    qualname = str(
+        getattr(handler, "__qualname__", "") or getattr(handler, "__name__", "") or type(handler).__name__
+    )
+    # `make_x.<locals>._handler` -> `make_x`: the INNERMOST ENCLOSING factory is the meaningful
+    # identity; the inner `_handler` name is shared by a dozen unrelated closures and would
+    # collapse every raw topic onto one series. Split on the `<locals>` marker rather than taking
+    # the first dotted segment — the first segment is the OUTERMOST scope, which for any closure
+    # nested more than one level deep (a factory defined inside another function) names the wrong
+    # thing entirely.
+    parts = qualname.split(".<locals>.")
+    factory = (parts[-2] if len(parts) > 1 else parts[-1]).rsplit(".", 1)[-1] or "handler"
+    leaf = module.rsplit(".", 1)[-1]
+    return f"{leaf}.{factory}" if leaf else factory
+
+
+def _emit_raw_handler_worker_metrics(
+    *,
+    worker_name: str,
+    topic: str,
+    outcome: str,
+    error_type: str | None,
+    duration_seconds: float,
+) -> None:
+    """Emit the M11 per-worker metrics for a RAW-handler topic. Never raises into dispatch.
+
+    WHY THIS IS NOT A SECOND EMITTER FOR EVERY TOPIC. A `WorkerBase`-wrapped topic already emits
+    both metrics from inside `WorkerBase.run()`; emitting again here would double every observation
+    — `MaezoSLAWorkerLatencyHigh` reads a p95 out of that histogram, and two observations per task
+    (the handler body AND the whole dispatch) would corrupt it silently. So the harness emits for,
+    and only for, the topics `register_worker` did NOT claim. Coverage is then complete BY
+    CONSTRUCTION and by exactly one emitter per topic:
+    `tests/unit/tools/workers/test_harness_worker_metrics.py` pins both halves side by side.
+
+    DISCLOSED SEMANTIC DIFFERENCE, not smoothed over: `WorkerBase.run()` times its own `execute()`
+    body and counts one error PER RETRY ATTEMPT; this measures the whole dispatch (handler +
+    audit emit + the engine report) and counts one error per TASK. Both are honest measures of
+    "worker work"; they are not the identical quantity, and an operator comparing a raw topic's
+    p95 against a `WorkerBase` topic's should know that. The alternative — moving `WorkerBase`'s
+    emission here to unify the semantics — would silently change every existing series' meaning,
+    which is a bigger change than the gap it closes.
+    """
+    try:
+        from maezo.platform.observability import (  # noqa: PLC0415 — lazy, mirrors `_emit_worker_task_outcome`
+            record_worker_error,
+            record_worker_execution,
+        )
+
+        if outcome == "completed":
+            record_worker_execution(worker_name=worker_name, topic=topic, duration_seconds=duration_seconds)
+        else:
+            record_worker_error(worker_name=worker_name, topic=topic, error_type=error_type or "UnknownError")
+    except Exception:  # noqa: BLE001 — defensive: a metric error must never break dispatch.
+        logger.debug("worker_raw_handler_metric_emit_failed", topic=topic, outcome=outcome, exc_info=True)
+
+
 # --------------------------------------------------------------------------------------------
 # Harness
 # --------------------------------------------------------------------------------------------
@@ -1187,6 +1260,12 @@ class WorkerHarness:
 
         self._handlers: dict[str, TaskHandler] = {}
         self._topic_variables: dict[str, list[str] | None] = {}
+        # WORKER-METRICS-COVERAGE: which topics emit the M11 per-worker metrics THEMSELVES (every
+        # `register_worker` topic, via `WorkerBase.run()`) and what `worker` label the rest get.
+        # `_handle` reads both to emit exactly once per topic — see
+        # `_emit_raw_handler_worker_metrics`.
+        self._worker_base_topics: set[str] = set()
+        self._handler_names: dict[str, str] = {}
         self._registry = WorkerRegistry()
         self._running = False
 
@@ -1202,9 +1281,17 @@ class WorkerHarness:
     # -- registration -------------------------------------------------------------------------
 
     def register(self, topic: str, handler: TaskHandler, *, variables: list[str] | None = None) -> None:
-        """Register a raw async handler for a topic. Idempotent (last registration wins)."""
+        """Register a raw async handler for a topic. Idempotent (last registration wins).
+
+        WORKER-METRICS-COVERAGE: also records the `worker` metric label this topic will be
+        reported under and clears any prior `register_worker` claim on it — "last registration
+        wins" has to hold for the metric identity too, or a topic re-registered raw would keep
+        being treated as `WorkerBase`-emitted and would emit nothing at all.
+        """
         self._handlers[topic] = handler
         self._topic_variables[topic] = variables
+        self._handler_names[topic] = derive_handler_name(handler)
+        self._worker_base_topics.discard(topic)
 
     def register_worker(self, worker: WorkerBase) -> None:
         """Register a `WorkerBase` instance (today's 3 modules: auth/escalation/lgpd).
@@ -1229,6 +1316,12 @@ class WorkerHarness:
             return await asyncio.to_thread(_worker.run, task.variables)
 
         self.register(worker.topic, _adapter)
+        # AFTER `register` (which clears the flag): this topic's M11 metrics come from
+        # `WorkerBase.run()` itself, so `_handle` must NOT emit a second, doubling observation.
+        # The label matches what `WorkerBase.run()` uses (`type(self).__name__`) so the two legs
+        # of `registered_topics` share one vocabulary.
+        self._worker_base_topics.add(worker.topic)
+        self._handler_names[worker.topic] = type(worker).__name__
 
     @property
     def registered_topics(self) -> list[str]:
@@ -1603,6 +1696,11 @@ class WorkerHarness:
         handler = self._handlers.get(task.topic)
         started_at = time.perf_counter()
         outcome: str | None = None
+        # WORKER-METRICS-COVERAGE: the `error_type` label `maezo_worker_error_count_total` carries.
+        # Tracked as a local rather than read from `sys.exc_info()` in the `finally` (the exception
+        # is already handled by then) and rather than a second try/except (which would re-order the
+        # engine report). Set on every non-completed branch below.
+        error_type: str | None = None
         try:
             if handler is None:
                 # Should only happen if fetchAndLock somehow returns a task for a topic we no
@@ -1611,6 +1709,7 @@ class WorkerHarness:
                 # coverage before /readyz goes green. Fail-closed: report an incident, never
                 # silently drop the task (design §7 — "a task with no handler must not vanish").
                 logger.error("worker_unregistered", topic=task.topic, task_id=task.task_id)
+                error_type = "UnregisteredTopic"
                 outcome = await self._report_failure(
                     task,
                     f"no handler registered for topic {task.topic!r}",
@@ -1644,6 +1743,7 @@ class WorkerHarness:
                             action_class=action_gate.action_class or "NAO_MAPEADA",
                             reason=action_gate.reason,
                         )
+                        error_type = _ACTION_GATE_REFUSAL_CODE
                         outcome = await self._report_failure(
                             task,
                             f"{_ACTION_GATE_REFUSAL_CODE}: {action_gate.reason}",
@@ -1672,6 +1772,7 @@ class WorkerHarness:
                     audit_record_hash=audit_record_hash,
                 )
             except WorkerBpmnError as exc:
+                error_type = type(exc).__name__
                 # T-E (ADR-0030 F4): a guard/denial bpmnError (ERR_CANCEL_MANTER_NOT_HUMAN,
                 # ERR_AUTH_DENIAL_INCOMPLETE, …) records the REFUSAL decision BEFORE it is reported —
                 # whether it routes to a modeled boundary (allowlisted) or demotes to an incident.
@@ -1764,8 +1865,10 @@ class WorkerHarness:
                     )
                     outcome = await self._report_failure(task, exc, retries_override=0)
             except WorkerFailureError as exc:
+                error_type = type(exc).__name__
                 outcome = await self._report_failure(task, exc, retries_override=max(exc.retries_left, 0))
             except PermissionError as exc:
+                error_type = type(exc).__name__
                 # ERR_*_NOT_HUMAN guard family — NEVER retried (ADR-0008): an incident is the
                 # engine-guaranteed, always-human-visible outcome. T-E (ADR-0030 F4): record the
                 # refusal decision BEFORE the incident. A `PermissionError` is ALWAYS the guard family
@@ -1778,6 +1881,7 @@ class WorkerHarness:
                 )
                 outcome = await self._report_failure(task, exc, retries_override=0)
             except ValueError as exc:
+                error_type = type(exc).__name__
                 # Bad/immutable input — won't fix itself on retry; route straight to incident. T-E
                 # (ADR-0030 F4): a coded guard exception reclassified by FunctionWorker (base.py:293 ->
                 # ValueError("ERR_*_NOT_HUMAN: …"), e.g. CredError(ERR_DECRED_NOT_HUMAN)) IS a guard
@@ -1790,6 +1894,7 @@ class WorkerHarness:
                     )
                 outcome = await self._report_failure(task, exc, retries_override=0)
             except Exception as exc:  # noqa: BLE001 — classified below; never escapes dispatch.
+                error_type = type(exc).__name__
                 _transient_types = (RuntimeError, OSError, TimeoutError, ConnectionError, httpx.HTTPError)
                 transient = isinstance(exc, _transient_types)
                 if not transient:
@@ -1802,12 +1907,26 @@ class WorkerHarness:
                 outcome = await self._report_failure(task, exc, retries_override=None)
         finally:
             if outcome is not None:
+                elapsed = time.perf_counter() - started_at
                 _emit_worker_task_outcome(
                     tenant=self._tenant,
                     topic=task.topic,
                     outcome=outcome,
-                    duration_seconds=time.perf_counter() - started_at,
+                    duration_seconds=elapsed,
                 )
+                # WORKER-METRICS-COVERAGE: the M11 per-worker metrics the three worker alerts
+                # actually read, for the topics `WorkerBase.run()` does not cover. `_handle` is
+                # the right place because every task — raw handler or `WorkerBase` adapter —
+                # terminates here exactly once, which is what makes the coverage structural
+                # instead of a rule each new worker module has to remember.
+                if task.topic not in self._worker_base_topics:
+                    _emit_raw_handler_worker_metrics(
+                        worker_name=self._handler_names.get(task.topic, "raw_handler"),
+                        topic=task.topic,
+                        outcome=outcome,
+                        error_type=error_type,
+                        duration_seconds=elapsed,
+                    )
 
     # Public alias (design §16.1: "keep `_handle` callable, public `handle_task` alias") — v1
     # fixtures that drive dispatch directly call `harness._handle(task)`; new code should prefer

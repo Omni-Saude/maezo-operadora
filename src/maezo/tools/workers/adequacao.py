@@ -545,11 +545,17 @@ def update_monitoring_plan(variables: dict[str, Any]) -> dict[str, Any]:
 _UPDATE_MONITORING_PLAN_NOTIFICATION_TYPE = "adequacao.update_monitoring_plan"
 
 
-# GK-adequacao finding 3 (divulgacao): mover `update_monitoring_plan` de `FunctionWorker`
-# para raw handler contorna `WorkerBase.run`, entao as metricas M11 POR WORKER
-# (`record_worker_execution`/`record_worker_error`) deixam de ser emitidas para este topico.
-# O `_emit_worker_task_outcome` do harness continua disparando. Mesmo trade-off ja aceito e
-# divulgado em programa.py para os seus 4 raw handlers.
+# GK-adequacao finding 3 (divulgacao) — CORRIGIDO em WORKER-METRICS-COVERAGE (2026-09-03).
+# ERA: "mover `update_monitoring_plan` de `FunctionWorker` para raw handler contorna
+# `WorkerBase.run`, entao as metricas M11 POR WORKER (`record_worker_execution`/
+# `record_worker_error`) deixam de ser emitidas para este topico". Era verdade e nao e' mais:
+# `WorkerHarness._handle` passou a emitir as MESMAS duas metricas, com os mesmos rotulos
+# `{worker,topic}`/`{worker,topic,error_type}`, para todo topico que NAO e' servido por um
+# `WorkerBase` — o rotulo `worker` aqui e' `adequacao.make_update_monitoring_plan_handler`
+# (`harness.derive_handler_name`). O `_emit_worker_task_outcome` continua disparando como antes.
+# Diferenca de semantica divulgada em `harness._emit_raw_handler_worker_metrics`: o harness mede
+# o despacho inteiro e conta um erro por TAREFA; `WorkerBase.run` mede so' o corpo do `execute`
+# e conta um erro por TENTATIVA.
 def make_update_monitoring_plan_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     """Raw-handler factory for `operadora.adequacao.update_monitoring_plan` (serves
     `ST_UpdateMonitoringPlanL3`).

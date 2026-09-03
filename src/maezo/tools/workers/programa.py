@@ -458,18 +458,25 @@ class ProgramaError(Exception):
 # publish a `type`-discriminated internal notification (`_NOTIFICATIONS_TOPIC`) observable by
 # `notifications_of_type(...)` (the port's own `ProgramaEngineProbe`, T3.1 R2 finding 4).
 #
-# GK-w5 finding 4 (M11 per-worker metrics disclosure): a raw handler bypasses `WorkerBase.run`
-# entirely, so `record_worker_execution`/`record_worker_error` (`maezo.platform.observability`,
-# M11) never fire for these 4 topics — `WorkerBase.run` is the ONLY place that emits them, and
-# raw handlers never go through it. For `stratify_risk`/`stop_processing` this is a REAL DELTA:
-# they emitted these per-worker metrics while `FunctionWorker`-wrapped (pre-item-A) and no longer
-# do. For `proactive_contact`/`notify_sla_risk` (brand new this wave) there is nothing to regress
-# from. In all 4 cases the harness-level dispatch-outcome metric
-# (`_emit_worker_task_outcome`/`record_worker_task_outcome`, `harness.py`) still fires unconditionally
-# for every topic regardless of handler shape — this is the SAME accepted trade-off already made
-# for recurso's/lgpd's/escalation's own raw handlers (none of them emit per-worker M11 metrics
-# either); not a new gap this wave introduces, just newly disclosed here for programa's 2 MOVED
-# topics.
+# GK-w5 finding 4 (M11 per-worker metrics disclosure) — CLOSED by WORKER-METRICS-COVERAGE
+# (2026-09-03). WAS TRUE, AND IS NO LONGER: "a raw handler bypasses `WorkerBase.run` entirely, so
+# `record_worker_execution`/`record_worker_error` never fire for these 4 topics — `WorkerBase.run`
+# is the ONLY place that emits them". That gap covered far more than these 4 topics (recurso's,
+# lgpd's, escalation's and adequacao's raw handlers too) and it made three shipped alerts blind on
+# every one of them: `MaezoSLAWorkerLatencyHigh`, `MaezoSLAWorkerErrorRateHigh` and
+# `MaezoWorkerCrashLoop` are all built on those two metrics
+# (`deploy/observability/alert-rules.yml:18-33,:56-73,:81-95`).
+#
+# NOW: `WorkerHarness._handle` emits both metrics, with the SAME label sets, for every topic NOT
+# served by a `WorkerBase` — so `stratify_risk` and `stop_processing` are once again reported (the
+# pre-item-A regression is undone), and `proactive_contact`/`notify_sla_risk` are reported for the
+# first time. The `worker` label is `programa.make_<topic>_handler` (`harness.derive_handler_name`)
+# rather than a class name; the harness-level dispatch-outcome metric
+# (`_emit_worker_task_outcome`/`record_worker_task_outcome`) is unchanged and still fires for every
+# topic. The one remaining, DISCLOSED difference is semantic, not coverage: the harness measures
+# the whole dispatch and counts one error per TASK, where `WorkerBase.run` measures the `execute`
+# body and counts one per RETRY ATTEMPT — spelled out in
+# `harness._emit_raw_handler_worker_metrics`.
 # ---------------------------------------------------------------
 
 _STRATIFY_RISK_TOPIC = "operadora.programa.stratify_risk"
