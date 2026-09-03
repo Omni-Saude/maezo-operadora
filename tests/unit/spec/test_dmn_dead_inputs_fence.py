@@ -97,6 +97,70 @@ KNOWN_OUTPUT_READ_INPUTS: frozenset[tuple[str, str, str]] = frozenset(
 #: The tables GAP-PERSP-DMN-DEAD-INPUTS cleaned. Named so a regression says which one regressed.
 CLEANED_BY_THIS_GAP = ("frequency_zscore_threshold.dmn", "unbundling_partial_bundles.dmn")
 
+#: Synthetic fixtures for the arity-blind-spot regression tests (never written to
+#: `spec/processes/dmn/`; materialised only inside a `tmp_path` the tests own).
+_MALFORMED_DMN = """<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             id="defs_gk_malformed"
+             name="Synthetic malformed table (arity probe)"
+             namespace="http://maezo.health/dmn/operadora">
+  <decision id="gk_malformed" name="Synthetic malformed table">
+    <decisionTable id="dt_gk_malformed" hitPolicy="FIRST">
+      <input id="in_gk_dead" label="Planted dead column">
+        <inputExpression id="ie_gk_dead" typeRef="string"><text>gk_dead</text></inputExpression>
+      </input>
+      <input id="in_gk_live" label="Discriminating column">
+        <inputExpression id="ie_gk_live" typeRef="string"><text>gk_live</text></inputExpression>
+      </input>
+      <output id="out_gk" label="resultado" name="resultado" typeRef="string"/>
+      <rule id="r_one">
+        <inputEntry id="r_one_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_one_i2"><text>"A"</text></inputEntry>
+        <outputEntry id="r_one_o1"><text>"OK"</text></outputEntry>
+      </rule>
+      <rule id="r_missing_cell">
+        <inputEntry id="r_missing_cell_i2"><text>"B"</text></inputEntry>
+        <outputEntry id="r_missing_cell_o1"><text>"OK"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
+"""
+
+_WELL_FORMED_DMN = """<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             id="defs_gk_well_formed"
+             name="Synthetic well-formed table (arity probe control)"
+             namespace="http://maezo.health/dmn/operadora">
+  <decision id="gk_well_formed" name="Synthetic well-formed table">
+    <decisionTable id="dt_gk_well_formed" hitPolicy="FIRST">
+      <input id="in_gk_dead" label="Planted dead column">
+        <inputExpression id="ie_gk_dead" typeRef="string"><text>gk_dead</text></inputExpression>
+      </input>
+      <input id="in_gk_live" label="Discriminating column">
+        <inputExpression id="ie_gk_live" typeRef="string"><text>gk_live</text></inputExpression>
+      </input>
+      <output id="out_gk" label="resultado" name="resultado" typeRef="string"/>
+      <rule id="r_one">
+        <inputEntry id="r_one_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_one_i2"><text>"A"</text></inputEntry>
+        <outputEntry id="r_one_o1"><text>"OK"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
+"""
+
 Column = tuple[str, str, str]
 
 
@@ -111,17 +175,46 @@ def _text_of(element: ET.Element) -> str:
     return ""
 
 
-def _scan() -> tuple[set[Column], set[Column]]:
-    """Return `(dead, output_read)` over every `spec/processes/dmn/*.dmn` — read from disk now."""
+class MalformedDecisionTableError(AssertionError):
+    """A `<rule>` whose `<inputEntry>` count does not match the table's declared `<input>` count.
+
+    A Camunda-family engine refuses to deploy such a table, but nothing else in this repo checks
+    arity corpus-wide. Silently padding the missing cell with `""` (the old behaviour) makes it
+    fail the `cell != "-"` test and vanish from the scan *undetected* — exactly the arity blind
+    spot this class closes. Fail closed instead: a malformed rule is not "obviously dead" or
+    "obviously read", it is a defect to name and stop on.
+    """
+
+
+def _scan(dmn_dir: Path = DMN_DIR) -> tuple[set[Column], set[Column]]:
+    """Return `(dead, output_read)` over every `<dmn_dir>/*.dmn` — read from disk now.
+
+    `dmn_dir` defaults to the real corpus; tests pass a synthetic `tmp_path` to probe the arity
+    check in isolation without touching `spec/processes/dmn/`.
+    """
     dead: set[Column] = set()
     output_read: set[Column] = set()
-    for path in sorted(DMN_DIR.glob("*.dmn")):
+    for path in sorted(dmn_dir.glob("*.dmn")):
         root = ET.parse(path).getroot()
         for table in (el for el in root.iter() if _local(el.tag) == "decisionTable"):
             inputs = [el for el in table if _local(el.tag) == "input"]
             rules = [el for el in table if _local(el.tag) == "rule"]
             if not rules:
                 continue
+            # Fail-closed arity check FIRST: every rule must carry exactly one <inputEntry> per
+            # declared <input>. Only once every rule is known-aligned do we read cells by index —
+            # the dead-column scan below never sees a table this loop has not already validated.
+            rule_entries: list[list[ET.Element]] = []
+            for rule in rules:
+                entries = [el for el in rule if _local(el.tag) == "inputEntry"]
+                if len(entries) != len(inputs):
+                    raise MalformedDecisionTableError(
+                        "malformed DMN table — rule <inputEntry> count does not match the "
+                        "table's declared <input> count (fail-closed, not scanned): "
+                        f"{path.name}:{table.get('id')}:{rule.get('id') or '?'} has "
+                        f"{len(entries)} <inputEntry> but {len(inputs)} <input> are declared"
+                    )
+                rule_entries.append(entries)
             feel_outputs = " ".join(
                 _STRING_LITERAL.sub(" ", _text_of(entry))
                 for rule in rules
@@ -133,10 +226,7 @@ def _scan() -> tuple[set[Column], set[Column]]:
                 for child in declared:
                     if _local(child.tag) == "inputExpression":
                         expression = _text_of(child)
-                cells = []
-                for rule in rules:
-                    entries = [el for el in rule if _local(el.tag) == "inputEntry"]
-                    cells.append(_text_of(entries[index]) if index < len(entries) else "")
+                cells = [_text_of(entries[index]) for entries in rule_entries]
                 if not cells or any(cell != "-" for cell in cells):
                     continue
                 column: Column = (path.name, declared.get("id") or "", expression)
@@ -248,3 +338,29 @@ def test_every_first_policy_table_still_ends_in_a_bare_catch_all_row() -> None:
         "a new non-FIRST decision table appeared — confirm its catch-all covers the remaining "
         f"domain before adding it here: {unique_tables}"
     )
+
+
+def test_a_malformed_dmn_rule_missing_an_input_entry_fails_closed(tmp_path: Path) -> None:
+    """MINOR-1 regression (VERIFY-WP-DMN attack 7): a planted dead column whose `<inputEntry>` is
+    missing from one rule must not silently escape the scan.
+
+    Before the fix, the missing cell was padded with `""`, which trips `cell != "-"` and makes the
+    column look "not wildcarded everywhere" — so it vanished from both CLASS A and CLASS B with no
+    signal at all (`7 passed` on the real fence in the gatekeeper's sandbox). The fix must instead
+    raise, naming the offending rule, before any dead-column classification happens.
+    """
+    (tmp_path / "gk_malformed.dmn").write_text(_MALFORMED_DMN, encoding="utf-8")
+    with pytest.raises(
+        MalformedDecisionTableError, match=r"gk_malformed\.dmn:dt_gk_malformed:r_missing_cell"
+    ):
+        _scan(tmp_path)
+
+
+def test_a_well_formed_synthetic_table_is_unaffected_by_the_arity_check(tmp_path: Path) -> None:
+    """Control for the test above: a table where every rule's `<inputEntry>` count matches the
+    declared `<input>` count must scan normally — the arity check must not reject good input, and
+    the planted dead column must still be found once arity is confirmed."""
+    (tmp_path / "gk_well_formed.dmn").write_text(_WELL_FORMED_DMN, encoding="utf-8")
+    dead, output_read = _scan(tmp_path)
+    assert dead == {("gk_well_formed.dmn", "in_gk_dead", "gk_dead")}
+    assert output_read == set()
