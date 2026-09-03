@@ -1270,6 +1270,7 @@ dependencies = [
     { name = "sqlalchemy" },
     { name = "structlog" },
     { name = "tenacity" },
+    { name = "tzdata" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -1319,6 +1320,7 @@ requires-dist = [
     { name = "tenacity", specifier = ">=8.2,<10.0" },
     { name = "testcontainers", marker = "extra == 'dev'", specifier = ">=4.0,<5.0" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0,<7.0" },
+    { name = "tzdata", specifier = ">=2024.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29,<1.0" },
 ]
 provides-extras = ["dev"]

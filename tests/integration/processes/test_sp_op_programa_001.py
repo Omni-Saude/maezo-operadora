@@ -93,14 +93,16 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      excluded from `_PROGRAMA_WORKER_TOPICS` — subscribing to an unregistered topic would only
      route it through `harness._handle`'s "no handler registered for topic" branch, harness.py:
      888-900, which demotes it straight to an incident; leaving it un-subscribed instead leaves
-     the instance genuinely, silently PENDING at `ST_StratifyRisk` forever). `monitor_programa` IS
-     registered (programa.py:236) under `operadora.programa.monitor_programa`, but NO BPMN service
-     task in this process declares that topic either — an intentional orphan registration per
-     programa.py's own docstring ("registered under a function-derived topic for registry
-     completeness"), included in `_PROGRAMA_WORKER_TOPICS` so the drift-guard assertion passes
-     naturally (mirrors cancel's now-fixed drift-guard, just in the opposite direction: here the
-     guard proves no *extra* worker is undrained, while the 3 *missing* workers are a distinct,
-     separately-documented gap the guard does not and should not catch). `src/**` fix
+     the instance genuinely, silently PENDING at `ST_StratifyRisk` forever). `monitor_programa` USED TO BE
+     registered under `operadora.programa.monitor_programa` while NO BPMN service task in this
+     process declared that topic — an orphan registration. PERSP-C5-MONITOR-PROGRAMA removed the
+     worker and its registration outright (its only output was a fabricated
+     `monitoramento_atualizado: True`), so the topic is gone from both `programa.py` and
+     `_PROGRAMA_WORKER_TOPICS`; the drift-guard below (registered subset of drain list) stays
+     green by construction (mirrors cancel's now-fixed drift-guard, just in the opposite
+     direction: here the guard proves no *extra* worker is undrained, while the 3 *missing*
+     workers are a distinct, separately-documented gap the guard does not and should not
+     catch). `src/**` fix
      (implementing/registering `stratify_risk`/`proactive_contact`/`notify_sla_risk` workers) is
      out of scope for this port.
 
@@ -171,7 +173,7 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      tools/workers/*.py` returns exactly one call site (events.py:247, the generic publish handler
      finding 3 wires). `register_programa_workers` (programa.py:233) explicitly discards its
      `kafka`/`seams` arguments (`del kafka, seams`) — none of programa.py's dict-first functions
-     (`check_consent`/`enroll_beneficiario`/`monitor_programa`/`register_program_discharge`/
+     (`check_consent`/`enroll_beneficiario`/`register_program_discharge`/
      `stop_processing`) accept or close over a `kafka` publisher at all, so NONE of them can ever
      call `kafka.publish` directly. Distinct from finding 3 (generic events.publish topic, WORKS):
      this is the family-specific direct-notification class (does NOT work) — e.g. `ST_StopProcessing`
@@ -255,7 +257,6 @@ _PUBLISH_TOPIC = "operadora.events.publish"
 _CHECK_CONSENT_TOPIC = "operadora.programa.check_consent"
 _STRATIFY_RISK_TOPIC = "operadora.programa.stratify_risk"  # ST_StratifyRisk, BPMN:153 — T2.5, FIXED
 _BUILD_CARE_PLAN_TOPIC = "operadora.programa.build_care_plan"
-_MONITOR_PROGRAMA_TOPIC = "operadora.programa.monitor_programa"  # orfao (sem topico BPMN correspondente)
 _REGISTER_DISCHARGE_TOPIC = "operadora.programa.register_program_discharge"
 _STOP_PROCESSING_TOPIC = "operadora.programa.stop_processing"
 
@@ -270,7 +271,6 @@ _PROGRAMA_WORKER_TOPICS = [
     _CHECK_CONSENT_TOPIC,
     _STRATIFY_RISK_TOPIC,
     _BUILD_CARE_PLAN_TOPIC,
-    _MONITOR_PROGRAMA_TOPIC,
     _REGISTER_DISCHARGE_TOPIC,
     _STOP_PROCESSING_TOPIC,
     _PROACTIVE_CONTACT_TOPIC,

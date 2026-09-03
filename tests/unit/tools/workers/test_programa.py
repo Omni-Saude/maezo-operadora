@@ -23,7 +23,6 @@ from maezo.tools.workers.programa import (
     make_proactive_contact_handler,
     make_stop_processing_handler,
     make_stratify_risk_handler,
-    monitor_programa,
     notify_sla_risk,
     proactive_contact,
     register_discharge,
@@ -245,21 +244,6 @@ def test_enroll_beneficiario() -> None:
         }
     )
     assert result["enrollment_realizado"] is True
-
-
-# ---------------------------------------------------------------
-# monitor_programa
-# ---------------------------------------------------------------
-
-
-def test_monitor_programa() -> None:
-    result = monitor_programa(
-        {
-            "programa_id": "cronicos",
-            "risco_estratificado": "alto",
-        }
-    )
-    assert result["monitoramento_atualizado"] is True
 
 
 # ---------------------------------------------------------------
@@ -699,14 +683,17 @@ async def test_make_notify_sla_risk_handler_no_producer_still_completes() -> Non
 # ---------------------------------------------------------------
 
 
-def test_register_programa_workers_registers_all_8_topics() -> None:
+def test_register_programa_workers_registers_all_7_topics() -> None:
+    """PERSP-C5-MONITOR-PROGRAMA: `operadora.programa.monitor_programa` foi REMOVIDO — era um
+    topico registrado que nenhum serviceTask do SP-OP-PROGRAMA-001 declara (orfao
+    inalcancavel) e cujo unico output era um `monitoramento_atualizado: True` fabricado.
+    Este teste passa a provar que a contagem caiu para 7 e que o topico NAO volta."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_programa_workers(harness, FakeKafkaPublisher())
     topics = set(harness.registered_topics)
     for topic in (
         "operadora.programa.check_consent",
         "operadora.programa.build_care_plan",
-        "operadora.programa.monitor_programa",
         "operadora.programa.register_program_discharge",
         "operadora.programa.stratify_risk",
         "operadora.programa.stop_processing",
@@ -714,7 +701,10 @@ def test_register_programa_workers_registers_all_8_topics() -> None:
         "operadora.programa.notify_sla_risk",
     ):
         assert topic in topics, f"{topic} not registered by register_programa_workers"
-    assert len(topics) == 8
+    assert len(topics) == 7
+    assert "operadora.programa.monitor_programa" not in topics, (
+        "PERSP-C5-MONITOR-PROGRAMA: topico orfao nao deve voltar a ser registrado"
+    )
 
 
 def test_register_programa_workers_raw_handlers_outside_worker_registry() -> None:
@@ -736,4 +726,4 @@ def test_register_programa_workers_accepts_kafka_none() -> None:
     handlers themselves log a warning when actually invoked."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_programa_workers(harness)
-    assert len(harness.registered_topics) == 8
+    assert len(harness.registered_topics) == 7

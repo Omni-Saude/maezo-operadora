@@ -316,21 +316,29 @@ def _ans_submit_variables_from_nip_handoff(payload: dict[str, Any]) -> dict[str,
 
 def _ans_submit_variables_from_cron_due(payload: dict[str, Any]) -> dict[str, Any]:
     """Map the `ans.cron_due` fact (SP-OP-ANS-CRON-001's per-report_type timer dispatch,
-    `ans_cron.py:79-108`) onto SP-OP-ANS-SUBMIT-001 seed variables.
+    `ans_cron.py::trigger_submissions`, taxonomy `ans_cron._REPORT_PERIODICIDADE`) onto
+    SP-OP-ANS-SUBMIT-001 seed variables.
 
     `origem_envio="calendario"` (the fact's own literal). Admissibility facts are seeded
     FAIL-CLOSED (`False`) — same `Start_DespachoEnvio` BPMN convention as the nip_filing rule
-    above. `competencia` passes through the fact's own value (today always the literal
-    `COMPETENCIA_PENDENTE` sentinel baked into the BPMN's `camunda:inputParameter`s — FINDING #1,
-    `tests/integration/processes/test_sp_op_ans_cron_001.py`), falling back to the sentinel only
-    if the fact is missing it entirely (never silently invents a real period).
+    above. `competencia` passes through the fact's own value, which since ANS-CRON-DEAD-CODE is a
+    REAL closed period computed per tick by `ST_ResolverCompetencia*`
+    (`ans_cron._compute_competencia`, from the tick's own anchor in the operadora's business
+    timezone `ans_cron._BUSINESS_TZ`); the
+    `COMPETENCIA_PENDENTE` sentinel now only survives fail-closed for a `report_type` OUTSIDE the
+    ratified taxonomy — a case the 5 BPMN literals cannot emit (pinned by
+    `test_ans_cron_timecycle_do_bpmn_bate_com_a_taxonomia_do_worker`). This mapping falls back to the
+    sentinel only if the fact is missing `competencia` entirely (never silently invents a period).
 
     `tenant_id` (EB-3 part 3 — SOURCE fixed at the generic publisher; t2-notify-integrity item 3
     follow-up CLOSED the former live-wire residual): `ans_cron.py`'s `trigger_submissions`
-    accepts a `tenant_id` KEYWORD parameter but is UNREACHABLE in the real deployed BPMN
-    (FINDING #1c — the 5 `SP-OP-ANS-CRON-001-*` definitions bind `ST_PublishCronDue*` directly to
-    the generic `operadora.events.publish` topic with literal `camunda:inputParameter`s whose
-    `event_payload_vars` do not list `tenant_id`). The generic publisher
+    accepts a `tenant_id` KEYWORD parameter and IS reachable in the real deployed BPMN (each of
+    the 5 `SP-OP-ANS-CRON-001-*` definitions runs `ST_ResolverCompetencia*` on
+    `operadora.ans_cron.trigger_submissions` BEFORE `ST_PublishCronDue*` on the generic
+    `operadora.events.publish`), but that keyword is a DEPLOYMENT seam, not the fact's tenant:
+    the `camunda:inputParameter` `event_payload_vars` deliberately do NOT list `tenant_id`
+    (pinned by `test_ans_cron_payload_vars_nao_carregam_tenant_id`), so a seam-less composition's
+    `""` can never travel in the payload and disarm the stamp below. The generic publisher
     (`events.py::make_publish_event_handler`) therefore now stamps the DEPLOYMENT's own tenant
     (`register_events_workers`' `tenant_id` seam, sourced from
     `WorkerRuntimeSettings.tenant_id` — the live composition root
@@ -339,7 +347,8 @@ def _ans_submit_variables_from_cron_due(payload: dict[str, Any]) -> dict[str, An
     process-var-sourced tenant like SP-OP-NIP-001's). Deployment truth, not fabrication: there is
     no PER-INSTANCE tenant on a TimerStartEvent-triggered scheduler — the per-tenant worker
     deployment's identity IS the fact's tenant. So the REAL live fact now carries `tenant_id`
-    (`test_sp_op_ans_cron_001.py` pins it) and this rule ARMS under the tenant anchor with a
+    (`test_cron_dispara_fato_e_nao_inicia_submit_automaticamente` pins it, engine-side) and this
+    rule ARMS under the tenant anchor with a
     proper `ANSSUB-{tenant}-...` key. HONEST no-seam boundary: a registration WITHOUT the seam
     (legacy/tests) still emits tenant-less facts — this mapping then defaults to `""` fail-closed
     and the rule's `_anchored` predicate keeps it DORMANT (never an `ANSSUB--...` orphan);

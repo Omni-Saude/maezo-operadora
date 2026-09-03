@@ -221,27 +221,6 @@ def stratify_risk(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
-# monitor_programa — L3 monitoring
-# ---------------------------------------------------------------
-
-
-def monitor_programa(variables: dict[str, Any]) -> dict[str, Any]:
-    """Monitor care program progress (L3, no decision)."""
-    programa_id = variables.get("programa_id", "")
-    risco = variables.get("risco_estratificado", "")
-
-    logger.info(
-        "programa_monitor",
-        programa_id=programa_id,
-        risco=risco,
-    )
-
-    return {
-        "monitoramento_atualizado": True,
-    }
-
-
-# ---------------------------------------------------------------
 # register_discharge — GATED L0-hard clinical discharge
 # ---------------------------------------------------------------
 
@@ -671,8 +650,13 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
 #     item B — NEW worker, closes the T2.5-documented registry gap)
 #   notify_sla_risk  -> operadora.programa.notify_sla_risk (exact spec match; raw handler,
 #     item C — NEW worker, closes the T2.5-documented registry gap)
-# monitor_programa has no distinct spec topic — registered under a
-# function-derived topic for registry completeness.
+# monitor_programa REMOVIDO (PERSP-C5-MONITOR-PROGRAMA): estava registrado sob um topico
+# derivado do nome da funcao (`operadora.programa.monitor_programa`) que NENHUM serviceTask do
+# SP-OP-PROGRAMA-001 declara — orfao inalcancavel, e o seu unico output era
+# `monitoramento_atualizado: True`, um fato FABRICADO (afirmava um monitoramento que a funcao
+# nunca executava — so logava). Registro e funcao removidos em vez de wired: nao ha atividade de
+# monitoramento no BPMN para servir, e inventar uma seria modelar processo sem dono regulatorio.
+# Ver docs/processes/catalog.md.
 # ---------------------------------------------------------------
 
 
@@ -681,17 +665,16 @@ def register_programa_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register the SP-OP-PROGRAMA-001 workers on `harness` — 8 `operadora.programa.*` topics.
+    """Register the SP-OP-PROGRAMA-001 workers on `harness` — 7 `operadora.programa.*` topics.
 
     `kafka` is threaded into the 4 raw-handler factories (item A/B/C) that publish an internal
-    notification; the other 4 stay plain `FunctionWorker` entries with no kafka dependency at all
+    notification; the other 3 stay plain `FunctionWorker` entries with no kafka dependency at all
     (mirrors `recurso.register_recurso_workers`'s split between `FunctionWorker` entries and raw
     handlers).
     """
     del seams  # unused — no other seam dependency (no dmn/etc. threaded into programa.py workers)
     harness.register_worker(FunctionWorker("operadora.programa.check_consent", check_consent))
     harness.register_worker(FunctionWorker("operadora.programa.build_care_plan", enroll_beneficiario))
-    harness.register_worker(FunctionWorker("operadora.programa.monitor_programa", monitor_programa))
     harness.register_worker(
         FunctionWorker("operadora.programa.register_program_discharge", register_program_discharge)
     )

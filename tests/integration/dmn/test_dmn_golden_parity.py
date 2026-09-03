@@ -26,9 +26,19 @@ from typing import Any
 
 import pytest
 
+from maezo.tools.workers.ans_cron import (
+    _REPORT_PERIODICIDADE,
+    PERIODICIDADE_INDETERMINADA,
+)
 from maezo.tools.workers.credenciamento import assess_admissibility as cred_assess_admissibility
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport, DmnVersion
 from maezo.tools.workers.pagto import route_aprovacao
+
+#: report_type -> periodicidade pt-BR, derivado da UNICA fonte Python da taxonomia
+#: (`ans_cron._REPORT_PERIODICIDADE`). Nao ha segunda lista a manter em sincronia aqui.
+_ANS_CRON_TAXONOMIA: dict[str, str] = {
+    report_type: periodicidade for report_type, (periodicidade, _iso) in _REPORT_PERIODICIDADE.items()
+}
 
 pytestmark = pytest.mark.integration
 
@@ -558,25 +568,51 @@ async def test_lgpd_dsr_routing_parity(
 
 
 # ---------------------------------------------------------------------------
-# ans_calendar — BLOCKED (NOT cut over, ans_cron.check_calendar left as pure Python)
+# ans_calendar — CUT OVER (ADR-0028 §7): a taxonomia foi reconciliada e o
+# ans_cron.check_calendar (re-implementacao Python) foi DELETADO
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "report_type", ["MAPEAMENTO_REDE", "DIOPS", "SIP", "RPC", "ANS_TISS", "QUALIFICACAO"]
-)
-async def test_ans_calendar_domain_mismatch_evidence(dmn: CibSevenDmnTransport, report_type: str) -> None:
-    """Evidence-of-block test (T1.5, NOT a parity assertion): proves every `report_type` value
-    `ans_cron.py` actually produces/consumes hits the DMN's catch-all
-    (`fonte_regulatoria="REVISAO_HUMANA"`), because the deployed table's literals are RN-citation
-    style (`RN_124_SIP`, `DIOPS_TRIMESTRAL`, ...) — zero overlap. This is WHY `check_calendar`
-    was left as pure Python (ADR-0028 §7 gate: 100% parity required before deletion; it does not
-    hold here) rather than a functional regression masquerading as a "safe" cutover. If this test
-    ever starts failing (a real rule match appears), the `report_type` taxonomies have been
-    reconciled upstream in `spec/` and `check_calendar` should be re-evaluated for cutover.
+@pytest.mark.parametrize(("report_type", "periodicidade_esperada"), sorted(_ANS_CRON_TAXONOMIA.items()))
+async def test_ans_calendar_periodicidade_paridade_com_taxonomia_do_worker(
+    dmn: CibSevenDmnTransport, report_type: str, periodicidade_esperada: str
+) -> None:
+    """PARIDADE (PERSP-B5-ANSCRON-TOPICS / ANS-CRON-DEAD-CODE) — substitui o antigo
+    `test_ans_calendar_domain_mismatch_evidence`, que era uma evidencia-de-BLOQUEIO.
+
+    Historia: `ans_cron.py` mantinha uma taxonomia paralela de `report_type`
+    (`MAPEAMENTO_REDE`/`DIOPS`/`SIP`/`RPC`/`ANS_TISS`/`QUALIFICACAO`) com intersecao VAZIA com os
+    literais RN-citation da tabela deployada, e por isso a sua `check_calendar` NAO podia ser
+    cortada para a DMN (o gate do ADR-0028 §7 exige 100% de paridade antes de deletar a
+    re-implementacao Python). A taxonomia foi reconciliada — `_REPORT_PERIODICIDADE` passou a ser
+    exatamente os literais do BPMN/contrato/DMN — e `check_calendar` foi DELETADA.
+
+    Este teste e a evidencia engine-side dessa paridade: para cada report_type da taxonomia do
+    worker, a tabela REAL (avaliada no CIB Seven) casa uma row propria — nao a catch-all — e a
+    `periodicidade` que ela devolve e a MESMA string pt-BR que o worker usa. Os valores de
+    `due_date`/`sla_alerta` permanecem DRAFT (`DRAFT_DUE_DATE`/`DRAFT_ALERTA`) e nao sao
+    asseridos como conteudo regulatorio.
     """
     row = await _eval(dmn, "ans_calendar", {"report_type": report_type, "competencia": "2026-06"})
-    assert row["fonte_regulatoria"].startswith("REVISAO_HUMANA"), (
-        f"report_type={report_type!r} unexpectedly matched a non-catch-all ans_calendar rule — "
-        "the taxonomy mismatch may have been reconciled; re-evaluate check_calendar for cutover"
+    assert not row["fonte_regulatoria"].startswith("REVISAO_HUMANA"), (
+        f"report_type={report_type!r} caiu na catch-all — a taxonomia do worker "
+        "(_REPORT_PERIODICIDADE) e a da tabela deployada divergiram de novo"
     )
+    assert row["periodicidade"] == periodicidade_esperada, (
+        f"drift de periodicidade para {report_type!r}: DMN={row['periodicidade']!r} vs "
+        f"worker={periodicidade_esperada!r}"
+    )
+
+
+@pytest.mark.parametrize("report_type", ["MAPEAMENTO_REDE", "QUALIFICACAO", "TIPO_INEXISTENTE"])
+async def test_ans_calendar_report_type_fora_da_taxonomia_cai_no_catchall(
+    dmn: CibSevenDmnTransport, report_type: str
+) -> None:
+    """Fail-closed preservado: um `report_type` fora da taxonomia ratificada (incluindo os
+    literais da taxonomia paralela ELIMINADA) continua caindo na row catch-all — `REVISAO_HUMANA`
+    + `periodicidade="indeterminada"`, o MESMO literal que `ans_cron.trigger_submissions` devolve
+    nesse caso. Nunca um prazo inventado."""
+    assert report_type not in _ANS_CRON_TAXONOMIA
+    row = await _eval(dmn, "ans_calendar", {"report_type": report_type, "competencia": "2026-06"})
+    assert row["fonte_regulatoria"].startswith("REVISAO_HUMANA")
+    assert row["periodicidade"] == PERIODICIDADE_INDETERMINADA

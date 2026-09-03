@@ -658,6 +658,53 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "name stays in the corpus."
         ),
     ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#287",
+        name="ans_cron_report_type",
+        name_delta=1,
+        occurrence_delta=5,
+        reason=(
+            "feat/ans-cron-timers-por-report-type consolidates the 3 separate "
+            "`camunda:inputParameter` names each of SP-OP-ANS-CRON-001's 5 process definitions "
+            "declared on its `ST_ResolverCompetencia*`/`ST_PublishCronDue*` chain (`report_type`, "
+            "`periodicidade`, `competencia` — one triple per definition, GAP-ANS-2's per-"
+            "report_type timer remodel) into a SINGLE new name, `ans_cron_report_type` (one per "
+            "definition, bpmn:81,121,161,201,241), from which `ans_cron.py`'s worker now derives "
+            "`periodicidade`/`competencia` internally instead of the BPMN declaring them "
+            "statically. New name, regulatory-calendar metadata (not PHI), CLEAN bucket."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#287",
+        name="competencia",
+        name_delta=0,
+        occurrence_delta=-5,
+        reason=(
+            "same PR/mechanism as `ans_cron_report_type` above — the 5 per-definition "
+            "`competencia` declarations in SP-OP-ANS-CRON-001 are replaced by the single "
+            "`ans_cron_report_type` seed; every OTHER file's own `competencia` (ANS-SUBMIT, "
+            "CONTAS, FRAUDE, PAGTO, `ans_calendar.dmn`) is untouched. 10 -> 5 occurrences, name "
+            "stays in the corpus (still declared by those 5 other artifacts)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#287",
+        name="periodicidade",
+        name_delta=0,
+        occurrence_delta=-5,
+        reason="same PR/mechanism/file as `competencia` immediately above. 7 -> 2 occurrences.",
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#287",
+        name="report_type",
+        name_delta=0,
+        occurrence_delta=-5,
+        reason="same PR/mechanism/file as `competencia` two entries above. 8 -> 3 occurrences.",
+    ),
 )
 
 
@@ -668,7 +715,7 @@ class TestBuckets:
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 9
-        assert expected_clean == 314
+        assert expected_clean == 315
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 9,
@@ -677,7 +724,7 @@ class TestBuckets:
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
 
     def test_the_occurrence_count_is_pinned(self, live_sweep: Sweep) -> None:
-        """329 names over 1647 occurrences — the number the ledger row quotes.
+        """330 names over 1637 occurrences — the number the ledger row quotes.
 
         Pinned because the first ledger draft quoted 1637, a figure no state of
         this branch produced. A number reported to a reader and reproducible by
@@ -688,8 +735,8 @@ class TestBuckets:
         """
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
-        assert len(live_sweep.names) == expected_names == 329
-        assert len(live_sweep.refs) == expected_refs == 1647
+        assert len(live_sweep.names) == expected_names == 330
+        assert len(live_sweep.refs) == expected_refs == 1637
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -811,7 +858,7 @@ class TestBuckets:
         assert f"## {LISTED} (6)" in rendered
         assert f"## {SHAPE_SUSPECT} (9)" in rendered
         assert (
-            f"## {CLEAN} (314)" in rendered
+            f"## {CLEAN} (315)" in rendered
         )  # see CORPUS_DELTA_LOG — lastro_origem entered the corpus (#294)
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
