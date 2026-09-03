@@ -3,19 +3,26 @@
 TDD London School: tests exercise the external task contracts.
 """
 
+import ast
 import dataclasses
+import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from maezo.tools.workers import reembolso
+from maezo.tools.workers.base import pick_fields
 from maezo.tools.workers.ceilings import CeilingResolver
 from maezo.tools.workers.harness import (
     FakeKafkaPublisher,
     FakeWorkerTransport,
+    WorkerBpmnError,
     WorkerHarness,
 )
 from maezo.tools.workers.reembolso import (
-    _BASE_VALUES_CENTS,
+    ReembolsoCalculoDmn,
+    ReembolsoCalculoIndisponivelError,
     ReembolsoDenialInput,
     ReembolsoDenialNotHumanError,
     ReembolsoInput,
@@ -163,96 +170,749 @@ def test_check_coverage_nao_prevista() -> None:
 
 
 # ---------------------------------------------------------------------------
-# calculate_value
+# calculate_value / calculate_amount_entry — GAP F-1: the amount is the DMN's
+#
+# The worker used to pay from a Python dict (`_BASE_VALUES_CENTS`: consulta 35000,
+# exame_especial 45000, ...) plus `_MULTIPLO_ACESSO = 1.5`, which DISAGREED with
+# `spec/processes/dmn/reembolso_calculo.dmn` (consulta 12000, exame_especial 25000) — the
+# authoritative table that `BRT_Calculo` already evaluates BEFORE this worker runs
+# (GAP-REEMBOLSO-5). The worker now CONSUMES that decision's outputs and originates no amount.
+#
+# THE TESTS BELOW READ THE DMN FILE. Every expected amount is parsed out of
+# `reembolso_calculo.dmn` at test time (`_parse_dmn_rules`), never transcribed here: an
+# actuarial/regulatory re-tune of the table (an OWNER decision, not this suite's) must move the
+# worker's output with it, and a test carrying its own copy of the numbers would go quietly stale
+# exactly the way the deleted Python table did.
 # ---------------------------------------------------------------------------
 
+_DMN_CALCULO_PATH = _REPO_ROOT / "spec" / "processes" / "dmn" / "reembolso_calculo.dmn"
+_BPMN_REEMBOLSO_PATH = (
+    _REPO_ROOT / "spec" / "processes" / "bpmn" / "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn"
+)
+_DMN_NS = {"dmn": "https://www.omg.org/spec/DMN/20191111/MODEL/"}
+_BPMN_MODEL_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+_CAMUNDA_NS = "http://camunda.org/schema/1.0/bpmn"
 
-def test_calculate_value_consulta() -> None:
-    """calculate_value computes table value for consulta."""
-    inp = ReembolsoInput(
-        tenant_id="amh",
-        protocolo_reembolso="REEMB-004",
-        codigo_procedimento_tuss="10101012",
-        categoria_procedimento="consulta",
-        tipo_reembolso="livre_escolha",
-        valor_solicitado_cents=35000,
+#: The DMN's three output names, in table order — also the three process variables
+#: `ST_CalculateAmount`'s input mapping flattens and the worker reads.
+_DMN_OUTPUT_NAMES = ("valor_calculado_tabela_cents", "multiplo_tabela_aplicado", "fonte_tabela")
+
+
+@dataclasses.dataclass(frozen=True)
+class _DmnRule:
+    """One parsed row of `dt_reembolso_calculo`. `None` in an input slot is FEEL `-` (any)."""
+
+    rule_id: str
+    tipo_reembolso: str | None
+    categoria_procedimento: str | None
+    valor_calculado_tabela_cents: int
+    multiplo_tabela_aplicado: float
+    fonte_tabela: str
+
+    @property
+    def is_catch_all(self) -> bool:
+        return self.tipo_reembolso is None and self.categoria_procedimento is None
+
+
+def _feel_text(node: Any) -> str:
+    return (node.findtext("dmn:text", default="", namespaces=_DMN_NS) or "").strip()
+
+
+def _feel_literal(text: str) -> str | None:
+    """`-` (any) -> None; `"consulta"` -> `consulta`."""
+    return None if text == "-" else text.strip('"')
+
+
+def _parse_dmn_rules() -> list[_DmnRule]:
+    """Every rule of `reembolso_calculo.dmn`, read from the file — the single source of the amounts.
+
+    Also PINS the table shape the worker depends on: the two inputs in
+    (tipo_reembolso, categoria_procedimento) order and the three outputs in `_DMN_OUTPUT_NAMES`
+    order. A column reorder or rename in the DMN fails here loudly instead of silently shifting
+    which number the worker relays.
+    """
+    table = ET.parse(_DMN_CALCULO_PATH).getroot().find("dmn:decision/dmn:decisionTable", _DMN_NS)
+    assert table is not None, "decisionTable dt_reembolso_calculo nao encontrada"
+
+    inputs = [
+        (el.findtext("dmn:inputExpression/dmn:text", default="", namespaces=_DMN_NS) or "").strip()
+        for el in table.findall("dmn:input", _DMN_NS)
+    ]
+    assert inputs == ["tipo_reembolso", "categoria_procedimento"], inputs
+    outputs = tuple(el.get("name", "") for el in table.findall("dmn:output", _DMN_NS))
+    assert outputs == _DMN_OUTPUT_NAMES, outputs
+
+    rules: list[_DmnRule] = []
+    for rule in table.findall("dmn:rule", _DMN_NS):
+        ins = [_feel_text(el) for el in rule.findall("dmn:inputEntry", _DMN_NS)]
+        outs = [_feel_text(el) for el in rule.findall("dmn:outputEntry", _DMN_NS)]
+        assert len(ins) == 2 and len(outs) == 3, (rule.get("id"), ins, outs)
+        rules.append(
+            _DmnRule(
+                rule_id=rule.get("id", ""),
+                tipo_reembolso=_feel_literal(ins[0]),
+                categoria_procedimento=_feel_literal(ins[1]),
+                valor_calculado_tabela_cents=int(outs[0]),
+                multiplo_tabela_aplicado=float(outs[1]),
+                fonte_tabela=outs[2].strip('"'),
+            )
+        )
+    assert len(rules) >= 2, "parser vacuo — a DMN precisa de ao menos uma row de tabela + catch-all"
+    assert any(r.is_catch_all for r in rules), "reembolso_calculo perdeu a row catch-all fail-safe"
+    return rules
+
+
+_DMN_RULES: list[_DmnRule] = _parse_dmn_rules()
+_DMN_RULE_IDS: list[str] = [r.rule_id for r in _DMN_RULES]
+_DMN_CATCH_ALL: _DmnRule = next(r for r in _DMN_RULES if r.is_catch_all)
+
+
+def _rule(rule_id: str) -> _DmnRule:
+    return next(r for r in _DMN_RULES if r.rule_id == rule_id)
+
+
+def _dmn_flat_vars(rule: _DmnRule) -> dict[str, Any]:
+    """The three activity-LOCAL variables `ST_CalculateAmount`'s input mapping delivers."""
+    return {
+        "valor_calculado_tabela_cents": rule.valor_calculado_tabela_cents,
+        "multiplo_tabela_aplicado": rule.multiplo_tabela_aplicado,
+        "fonte_tabela": rule.fonte_tabela,
+    }
+
+
+def _calculo(rule: _DmnRule) -> ReembolsoCalculoDmn:
+    return ReembolsoCalculoDmn(
+        valor_calculado_tabela_cents=rule.valor_calculado_tabela_cents,
+        multiplo_tabela_aplicado=rule.multiplo_tabela_aplicado,
+        fonte_tabela=rule.fonte_tabela,
     )
-    result = calculate_value(inp)
-    assert result.valor_calculado_tabela_cents > 0
-    # Consulta table value should be around R$350
-    assert result.valor_calculado_tabela_cents == 35000
 
 
-def test_calculate_value_dentro_tabela() -> None:
-    """Valor dentro da tabela -> dentro_tabela=True."""
-    inp = ReembolsoInput(
-        tenant_id="amh",
-        protocolo_reembolso="REEMB-005",
-        codigo_procedimento_tuss="10101012",
-        categoria_procedimento="consulta",
-        tipo_reembolso="livre_escolha",
-        valor_solicitado_cents=30000,  # Below table value
+def _request(**overrides: Any) -> ReembolsoInput:
+    base: dict[str, Any] = {
+        "tenant_id": "amh",
+        "protocolo_reembolso": "REEMB-F1",
+        "codigo_procedimento_tuss": "10101012",
+        "tipo_reembolso": "livre_escolha",
+    }
+    base.update(overrides)
+    return ReembolsoInput(**base)
+
+
+def _entry_vars(rule: _DmnRule, **overrides: Any) -> dict[str, Any]:
+    """A full `ST_CalculateAmount` payload: the request plus the flattened DMN outputs."""
+    variables: dict[str, Any] = {
+        "tenant_id": "amh",
+        "protocolo_reembolso": f"REEMB-F1-{rule.rule_id}",
+        "codigo_procedimento_tuss": "10101012",
+        "categoria_procedimento": rule.categoria_procedimento or "",
+        "tipo_reembolso": rule.tipo_reembolso or "livre_escolha",
+        "valor_solicitado_cents": 1,
+        **_dmn_flat_vars(rule),
+    }
+    variables.update(overrides)
+    return variables
+
+
+@pytest.fixture(scope="module")
+def teto_zero(tmp_path_factory: pytest.TempPathFactory) -> CeilingResolver:
+    """Resolver pinned to the D-07 ceiling (0) — every request routes to ANALISE_HUMANA."""
+    return _pin_resolver(tmp_path_factory.mktemp("teto-zero"), max_value_brl=0)
+
+
+@pytest.fixture(scope="module")
+def teto_alto(tmp_path_factory: pytest.TempPathFactory) -> CeilingResolver:
+    """Resolver pinned to a ceiling above every value in the shipped DMN table."""
+    return _pin_resolver(tmp_path_factory.mktemp("teto-alto"), max_value_brl=1_000_000)
+
+
+# --- (a) the worker's output IS the DMN's output, rule by rule -----------------------------
+
+
+@pytest.mark.parametrize("rule", _DMN_RULES, ids=_DMN_RULE_IDS)
+def test_calculate_value_relays_every_dmn_rule_verbatim(rule: _DmnRule, teto_zero: CeilingResolver) -> None:
+    """For EVERY row of `reembolso_calculo.dmn`, the worker emits that row's values unchanged.
+
+    Drives the worker with what `BRT_Calculo` writes (the three flattened outputs) and asserts
+    identity — no re-derivation, no multiplier re-application, no rounding. The expectations come
+    from the parsed file, so the DMN and this assertion cannot drift apart.
+    """
+    result = calculate_value(
+        _request(categoria_procedimento=rule.categoria_procedimento or "", valor_solicitado_cents=1),
+        _calculo(rule),
+        resolver=teto_zero,
     )
-    result = calculate_value(inp)
+    assert result.valor_calculado_tabela_cents == rule.valor_calculado_tabela_cents
+    assert result.multiplo_tabela_aplicado == rule.multiplo_tabela_aplicado
+    assert result.fonte_tabela == rule.fonte_tabela
+    # money stays integer centavos end-to-end (ADR-0018): never a float, never a bool
+    assert type(result.valor_calculado_tabela_cents) is int
+
+
+@pytest.mark.parametrize("rule", _DMN_RULES, ids=_DMN_RULE_IDS)
+def test_calculate_amount_entry_relays_every_dmn_rule_verbatim(rule: _DmnRule) -> None:
+    """Same identity across the ENGINE BOUNDARY: the entry function is what ST_CalculateAmount calls.
+
+    The facts only reach `BRT_AutoApproval` (which gates AUTO_APROVAR on `dentro_tabela`) and the
+    human dossie if they survive `_require_calculo_dmn` -> `calculate_value` -> `asdict`.
+    """
+    out = calculate_amount_entry(_entry_vars(rule))
+    assert out["valor_calculado_tabela_cents"] == rule.valor_calculado_tabela_cents
+    assert out["multiplo_tabela_aplicado"] == rule.multiplo_tabela_aplicado
+    assert out["fonte_tabela"] == rule.fonte_tabela
+
+
+def test_worker_amounts_are_the_dmn_amounts_not_the_deleted_python_table(
+    teto_zero: CeilingResolver,
+) -> None:
+    """THE GAP F-1 REGRESSION: the retired Python amounts must be unreachable.
+
+    `consulta` was 35000 in the deleted `_BASE_VALUES_CENTS` and is 12000 in the DMN;
+    `exame_especial` was 45000 and is 25000. Asserted against the PARSED DMN value AND against the
+    literal retired numbers, so this bites both if the shadow table comes back and if someone
+    "reconciles" the DMN upward to match it without the actuarial sign-off the table is blocked on.
+    """
+    retired_python_amounts = {"consulta": 35000, "exame_especial": 45000}
+    for rule_id, categoria in (("r_consulta", "consulta"), ("r_exame_especial", "exame_especial")):
+        rule = _rule(rule_id)
+        assert rule.categoria_procedimento == categoria
+        result = calculate_value(
+            _request(categoria_procedimento=categoria, valor_solicitado_cents=1),
+            _calculo(rule),
+            resolver=teto_zero,
+        )
+        assert result.valor_calculado_tabela_cents == rule.valor_calculado_tabela_cents
+        assert result.valor_calculado_tabela_cents != retired_python_amounts[categoria], (
+            f"{categoria}: the worker is paying the DELETED Python table amount again"
+        )
+
+
+def test_no_python_multiplier_is_applied_to_the_dmn_value(teto_zero: CeilingResolver) -> None:
+    """`urgencia_emergencia` / `fora_rede` no longer uplift anything worker-side.
+
+    `_MULTIPLO_ACESSO = 1.5` multiplied the Python base (consulta 35000 -> 52500). The DMN's rows
+    are `-` on `tipo_reembolso` and emit `multiplo_tabela_aplicado = 1.0`, so the same request must
+    now produce the DMN value UNCHANGED whatever the tipo. Any per-access multiplier is the DMN's
+    to express (it is exactly what its DRAFT sign-off covers), never the worker's.
+    """
+    rule = _rule("r_consulta")
+    for tipo in ("livre_escolha", "urgencia_emergencia", "fora_rede"):
+        result = calculate_value(
+            _request(categoria_procedimento="consulta", tipo_reembolso=tipo, valor_solicitado_cents=1),
+            _calculo(rule),
+            resolver=teto_zero,
+        )
+        assert result.valor_calculado_tabela_cents == rule.valor_calculado_tabela_cents, tipo
+        assert result.multiplo_tabela_aplicado == rule.multiplo_tabela_aplicado, tipo
+        assert result.valor_calculado_tabela_cents != int(35000 * 1.5), tipo
+
+
+# --- (b) the Python amount tables are GONE -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "symbol",
+    ["_BASE_VALUES_CENTS", "_MULTIPLO_ACESSO", "_TIPOS_COM_MULTIPLICADOR", "_lookup_tabela_referencia"],
+)
+def test_python_amount_table_symbols_are_deleted(symbol: str) -> None:
+    """No shim, no re-export: the money rule does not live in Python any more (ADR-0012)."""
+    assert not hasattr(reembolso, symbol), (
+        f"`{symbol}` is back in workers/reembolso.py — the amount must come from "
+        "spec/processes/dmn/reembolso_calculo.dmn only (GAP F-1)"
+    )
+
+
+def test_module_declares_no_categoria_keyed_amount_table() -> None:
+    """AST scan: a RENAMED clone of the shadow table is caught too.
+
+    `_BASE_VALUES_CENTS` was a dict literal mapping categoria strings to integer centavos. Any
+    dict literal of that shape anywhere in the module — module level or inside a function — is a
+    business rule re-entering Python against ADR-0012, whatever it is called. Mirrors the
+    AST-scanner idiom of `tests/unit/sec/test_dentro_teto_source.py`.
+    """
+    tree = ast.parse(Path(reembolso.__file__).read_text(encoding="utf-8"))
+    offenders: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict) or not node.keys:
+            continue
+        keys_are_strings = all(isinstance(k, ast.Constant) and isinstance(k.value, str) for k in node.keys)
+        values_are_ints = all(
+            isinstance(v, ast.Constant) and isinstance(v.value, int) and not isinstance(v.value, bool)
+            for v in node.values
+        )
+        if keys_are_strings and values_are_ints:
+            offenders.append(node.lineno)
+    assert offenders == [], (
+        "workers/reembolso.py declares a string->int table again (lines "
+        f"{offenders}) — reimbursement amounts belong to reembolso_calculo.dmn (ADR-0012)"
+    )
+
+
+# --- (c) missing / malformed DMN output fails the money path CLOSED ------------------------
+
+
+def test_calculate_amount_entry_fails_closed_without_any_dmn_output() -> None:
+    """No `calculo`, no flattened variables => incident, never a guessed amount.
+
+    `ST_CalculateAmount` is reachable ONLY from `BRT_Calculo` (`Flow_BRTCalc_Calc`), so absence is
+    a model/deploy defect. The safe outcome is to compute NOTHING: with no `dentro_tabela` and no
+    `dentro_teto_l2` written, `BRT_AutoApproval` cannot see an AUTO_APROVAR combination and no
+    payment can be issued.
+    """
+    with pytest.raises(ReembolsoCalculoIndisponivelError) as exc:
+        calculate_amount_entry(
+            {
+                "tenant_id": "amh",
+                "protocolo_reembolso": "REEMB-F1-NODMN",
+                "categoria_procedimento": "consulta",
+                "tipo_reembolso": "livre_escolha",
+                "valor_solicitado_cents": 12000,
+            }
+        )
+    assert str(exc.value).startswith("ERR_REEMBOLSO_CALCULO_DMN_INDISPONIVEL")
+
+
+def test_calculo_indisponivel_is_a_value_error_not_a_bpmn_error() -> None:
+    """ADR-0030: a `ValueError` => `failure(retries=0)` => a visible incident.
+
+    `ST_CalculateAmount` carries NO error boundary event (BPMN `attachedToRef` names only
+    `ST_CheckCoverage` and `UT_AnaliseReembolso`), and an unmodeled `bpmnError` silently ENDS the
+    process scope on CIB Seven 2.1.0 — it would quietly close a reimbursement whose amount was
+    never determined. Mirrors `ReembolsoValorPagamentoInvalidoError`'s deliberate typing, and is
+    why `ERR_REEMBOLSO_CALCULO_DMN_INDISPONIVEL` is not (and must not be) an ADR-0030 allowlist
+    code.
+    """
+    assert issubclass(ReembolsoCalculoIndisponivelError, ValueError)
+    assert not issubclass(ReembolsoCalculoIndisponivelError, WorkerBpmnError)
+    root = ET.parse(_BPMN_REEMBOLSO_PATH).getroot()
+    attached = {el.get("attachedToRef") for el in root.iter(f"{{{_BPMN_MODEL_NS}}}boundaryEvent")}
+    assert "ST_CalculateAmount" not in attached, (
+        "ST_CalculateAmount gained an error boundary — re-decide the error semantics (ADR-0030 §2) "
+        "before turning this into a WorkerBpmnError"
+    )
+
+
+@pytest.mark.parametrize("missing", list(_DMN_OUTPUT_NAMES))
+def test_calculate_amount_entry_fails_closed_on_partial_dmn_output(missing: str) -> None:
+    """A HALF-delivered decision is refused — it is not completed from the other channel.
+
+    Mixing halves of two deliveries is exactly how a value and its provenance drift apart (the M-2
+    failure mode). Either the whole triple arrived or nothing did.
+    """
+    variables = _entry_vars(_rule("r_consulta"))
+    del variables[missing]
+    with pytest.raises(ReembolsoCalculoIndisponivelError):
+        calculate_amount_entry(variables)
+
+
+@pytest.mark.parametrize(
+    ("label", "field", "value"),
+    [
+        # money must be INTEGER centavos (ADR-0018; the DMN declares typeRef="integer")
+        ("valor-float", "valor_calculado_tabela_cents", 12000.0),
+        ("valor-float-fracionario", "valor_calculado_tabela_cents", 12000.5),
+        ("valor-bool", "valor_calculado_tabela_cents", True),
+        ("valor-str", "valor_calculado_tabela_cents", "12000"),
+        ("valor-none", "valor_calculado_tabela_cents", None),
+        ("valor-negativo", "valor_calculado_tabela_cents", -12000),
+        ("valor-lista", "valor_calculado_tabela_cents", [12000]),
+        # multiplo is a double, but not any object that happens to look numeric
+        ("multiplo-bool", "multiplo_tabela_aplicado", False),
+        ("multiplo-str", "multiplo_tabela_aplicado", "1.0"),
+        ("multiplo-none", "multiplo_tabela_aplicado", None),
+        ("multiplo-negativo", "multiplo_tabela_aplicado", -1.0),
+        ("multiplo-nan", "multiplo_tabela_aplicado", float("nan")),
+        ("multiplo-inf", "multiplo_tabela_aplicado", float("inf")),
+        # provenance must be a real, non-blank token — a value with no recorded origin never
+        # enters the ADR-0007 audit chain
+        ("fonte-vazia", "fonte_tabela", ""),
+        ("fonte-branco", "fonte_tabela", "   "),
+        ("fonte-none", "fonte_tabela", None),
+        ("fonte-int", "fonte_tabela", 0),
+    ],
+)
+def test_calculate_amount_entry_fails_closed_on_malformed_dmn_output(
+    label: str, field: str, value: Any
+) -> None:
+    """Every malformed shape returns the SAME safe outcome: no amount, no facts, one incident."""
+    variables = _entry_vars(_rule("r_consulta"), **{field: value})
+    with pytest.raises(ReembolsoCalculoIndisponivelError) as exc:
+        calculate_amount_entry(variables)
+    assert field in str(exc.value), label
+
+
+def test_calculate_value_cannot_be_called_without_the_dmn_result() -> None:
+    """SIGNATURE-level enforcement of "no fallback": `calculo` is required, with no default.
+
+    The property is not a comment — a caller that forgets the DMN cannot construct a valid call at
+    all, which is what makes "the worker never invents an amount" structural rather than a habit.
+    """
+    untyped: Any = calculate_value
+    with pytest.raises(TypeError):
+        untyped(_request(categoria_procedimento="consulta"))
+
+
+# --- the two delivery channels (flattened locals; the `calculo` map) ------------------------
+
+
+def test_calculate_amount_entry_accepts_the_unflattened_calculo_map() -> None:
+    """Belt-and-braces channel: a real `Mapping` under `calculo` is accepted — what in-process
+    fixtures carry and what an engine configured to deserialize the singleResult Object delivers.
+    Same values, same relay."""
+    rule = _rule("r_exame_simples")
+    variables = _entry_vars(rule, calculo=_dmn_flat_vars(rule))
+    for name in _DMN_OUTPUT_NAMES:
+        del variables[name]
+    out = calculate_amount_entry(variables)
+    assert out["valor_calculado_tabela_cents"] == rule.valor_calculado_tabela_cents
+    assert out["fonte_tabela"] == rule.fonte_tabela
+
+
+def test_calculate_amount_entry_ignores_an_opaque_calculo_object() -> None:
+    """The REAL engine shape: `calculo` arrives as a non-`Mapping` opaque Object.
+
+    `fetchAndLock`'s `deserializeValues` defaults to false and `_from_camunda_var` re-decodes only
+    `type == "Json"` (auth item-9, live-caught on CIB Seven 2.1.0). The flattened locals are the
+    channel that works; an opaque object must neither be parsed nor mistaken for a delivery.
+    """
+    rule = _rule("r_consulta")
+    opaque = "org.camunda.bpm.engine.variable.value.ObjectValue@deadbeef"
+    out = calculate_amount_entry(_entry_vars(rule, calculo=opaque))
+    assert out["valor_calculado_tabela_cents"] == rule.valor_calculado_tabela_cents
+
+    only_opaque = _entry_vars(rule, calculo=opaque)
+    for name in _DMN_OUTPUT_NAMES:
+        del only_opaque[name]
+    with pytest.raises(ReembolsoCalculoIndisponivelError):
+        calculate_amount_entry(only_opaque)
+
+
+def test_both_channels_present_and_agreeing_is_used_normally() -> None:
+    """When the flat locals and the `calculo` Mapping AGREE, the (single) triple is used.
+
+    On a correctly configured engine the two channels are two views of the SAME `BRT_Calculo`
+    result, so agreement is the expected shape and must not be penalized.
+    """
+    rule = _rule("r_consulta")
+    out = calculate_amount_entry(_entry_vars(rule, calculo=_dmn_flat_vars(rule)))
+    assert out["valor_calculado_tabela_cents"] == rule.valor_calculado_tabela_cents
+    assert out["fonte_tabela"] == rule.fonte_tabela
+
+
+def test_only_flat_channel_present_is_used_normally() -> None:
+    """Precedence when only ONE channel is complete: the flat locals alone are used."""
+    rule = _rule("r_consulta")
+    variables = _entry_vars(rule)
+    assert "calculo" not in variables
+    out = calculate_amount_entry(variables)
+    assert out["valor_calculado_tabela_cents"] == rule.valor_calculado_tabela_cents
+
+
+def test_only_calculo_mapping_present_is_used_normally() -> None:
+    """Precedence when only ONE channel is complete: the `calculo` Mapping alone is used."""
+    rule = _rule("r_exame_simples")
+    variables = _entry_vars(rule, calculo=_dmn_flat_vars(rule))
+    for name in _DMN_OUTPUT_NAMES:
+        del variables[name]
+    out = calculate_amount_entry(variables)
+    assert out["valor_calculado_tabela_cents"] == rule.valor_calculado_tabela_cents
+
+
+def test_disagreeing_channels_fail_closed_instead_of_silently_preferring_flat() -> None:
+    """VERIFY-WP-REEMBOLSO MINOR-1: a DISAGREEMENT between channels must not be resolved silently.
+
+    Before this fix, the flat locals silently won over a `calculo` Mapping that disagreed (e.g. a
+    stale or seeded one) — exactly the drift/deserialize-mode case the module's own docstring
+    claims cannot happen ("both channels carry the DMN's own answer or there is no answer"). Now
+    it raises, and the reason names the disagreement.
+    """
+    fresh = _rule("r_consulta")
+    stale = {
+        "valor_calculado_tabela_cents": 999_999,
+        "multiplo_tabela_aplicado": 9.0,
+        "fonte_tabela": "STALE",
+    }
+    with pytest.raises(ReembolsoCalculoIndisponivelError) as exc:
+        calculate_amount_entry(_entry_vars(fresh, calculo=stale))
+    message = str(exc.value)
+    assert "divergentes" in message
+    assert str(fresh.valor_calculado_tabela_cents) in message
+    assert "999999" in message
+
+
+@pytest.mark.parametrize(
+    ("differing_field", "override_value"),
+    [
+        ("valor_calculado_tabela_cents", 1),
+        ("multiplo_tabela_aplicado", 2.0),
+        ("fonte_tabela", "OUTRA_FONTE"),
+    ],
+)
+def test_disagreeing_channels_fail_closed_on_a_single_differing_field(
+    differing_field: str, override_value: Any
+) -> None:
+    """Disagreement on ANY one of the three fields is enough to refuse — not just a full mismatch."""
+    rule = _rule("r_exame_simples")
+    mismatched_map = dict(_dmn_flat_vars(rule))
+    assert mismatched_map[differing_field] != override_value
+    mismatched_map[differing_field] = override_value
+    with pytest.raises(ReembolsoCalculoIndisponivelError) as exc:
+        calculate_amount_entry(_entry_vars(rule, calculo=mismatched_map))
+    assert "divergentes" in str(exc.value)
+
+
+# --- (d) no rounding / overflow regression --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "cents",
+    [
+        1,
+        12_000,
+        2**31 - 1,  # int32 boundary — Integer/Long typing (ADR-0018 part 2)
+        2**31,
+        2**53 + 1,  # first integer a float64 cannot represent exactly
+        2**63 - 1,  # Long boundary
+    ],
+)
+def test_dmn_value_is_relayed_bit_exact_at_any_magnitude(cents: int, teto_zero: CeilingResolver) -> None:
+    """No arithmetic touches the amount, so no magnitude can round, truncate or overflow it.
+
+    The deleted path did `int(base * _MULTIPLO_ACESSO)` — a float multiply, i.e. a truncation and
+    a precision cliff above 2**53. There is no multiplication left: the integer the DMN emitted is
+    the integer that reaches the audit chain, exactly.
+    """
+    result = calculate_value(
+        _request(categoria_procedimento="consulta", valor_solicitado_cents=cents),
+        ReembolsoCalculoDmn(
+            valor_calculado_tabela_cents=cents,
+            multiplo_tabela_aplicado=1.5,
+            fonte_tabela="TABELA_REFERENCIA_CONSULTA",
+        ),
+        resolver=teto_zero,
+    )
+    assert result.valor_calculado_tabela_cents == cents
+    assert type(result.valor_calculado_tabela_cents) is int
+    # the multiplier is provenance ONLY — it is recorded, never re-applied
+    assert result.multiplo_tabela_aplicado == 1.5
     assert result.dentro_tabela is True
 
 
-def test_calculate_value_fora_tabela() -> None:
-    """Valor acima da tabela -> dentro_tabela=False."""
-    inp = ReembolsoInput(
-        tenant_id="amh",
-        protocolo_reembolso="REEMB-006",
-        codigo_procedimento_tuss="10101012",
-        categoria_procedimento="consulta",
-        tipo_reembolso="livre_escolha",
-        valor_solicitado_cents=50000,  # Above table value
+# --- dentro_tabela: the comparison the worker still owns, fail-closed ------------------------
+
+
+@pytest.mark.parametrize(
+    ("label", "delta", "expected"),
+    [("abaixo", -1, True), ("igual", 0, True), ("acima", 1, False)],
+)
+def test_dentro_tabela_is_the_inclusive_comparison_against_the_dmn_value(
+    label: str, delta: int, expected: bool, teto_zero: CeilingResolver
+) -> None:
+    """`solicitado <= valor da DMN`, walked around the inclusive boundary of the parsed value."""
+    rule = _rule("r_consulta")
+    result = calculate_value(
+        _request(
+            categoria_procedimento="consulta",
+            valor_solicitado_cents=rule.valor_calculado_tabela_cents + delta,
+        ),
+        _calculo(rule),
+        resolver=teto_zero,
     )
-    result = calculate_value(inp)
+    assert result.dentro_tabela is expected, label
+
+
+def test_dentro_tabela_is_false_for_the_dmn_catch_all(teto_alto: CeilingResolver) -> None:
+    """SEM_TABELA claims nothing: no row, no value, and NEVER a within-table verdict.
+
+    The DMN catch-all (`r_catchall`) emits value 0 / multiplo 0.0 / `SEM_TABELA`, which the
+    contract, the test spec and an engine-side assertion all pin. `0 <= 0` would read True on
+    arithmetic alone — `dentro_tabela` is a claim about the reference TABLE, and there is no row.
+    """
+    assert _DMN_CATCH_ALL.valor_calculado_tabela_cents == 0
+    assert _DMN_CATCH_ALL.fonte_tabela == "SEM_TABELA"
+    for solicitado in (0, 1, 12_000, 100_000_000):
+        result = calculate_value(
+            _request(categoria_procedimento="categoria_que_nao_existe", valor_solicitado_cents=solicitado),
+            _calculo(_DMN_CATCH_ALL),
+            resolver=teto_alto,
+        )
+        assert result.dentro_tabela is False, solicitado
+        assert result.valor_calculado_tabela_cents == 0, solicitado
+        assert result.multiplo_tabela_aplicado == 0.0, solicitado
+        assert result.fonte_tabela == "SEM_TABELA", solicitado
+        # the M-2 signature: the reference value is never the claimant's own figure
+        assert result.valor_calculado_tabela_cents != solicitado or solicitado == 0, solicitado
+        # vacuously within a positive ceiling (0 <= teto) — gated shut by dentro_tabela=False
+        assert result.dentro_teto_l2 is True, solicitado
+
+
+def test_dentro_tabela_is_false_when_a_hit_carries_a_zero_reference_value(
+    teto_alto: CeilingResolver,
+) -> None:
+    """Defence in depth: even a NON-catch-all token with value 0 corroborates nothing.
+
+    The shipped DMN has no such row; this asserts the worker would not be talked into one by a
+    future table edit that emits a positive-looking provenance token with a zero amount.
+    """
+    result = calculate_value(
+        _request(categoria_procedimento="consulta", valor_solicitado_cents=0),
+        ReembolsoCalculoDmn(
+            valor_calculado_tabela_cents=0,
+            multiplo_tabela_aplicado=1.0,
+            fonte_tabela="TABELA_REFERENCIA_CONSULTA",
+        ),
+        resolver=teto_alto,
+    )
     assert result.dentro_tabela is False
 
 
-def test_calculate_value_urgencia_multiplier() -> None:
-    """Urgencia/emergencia applies 1.5x multiplier."""
-    inp = ReembolsoInput(
-        tenant_id="amh",
-        protocolo_reembolso="REEMB-007",
-        codigo_procedimento_tuss="10101012",
-        categoria_procedimento="consulta",
-        tipo_reembolso="urgencia_emergencia",
-        valor_solicitado_cents=50000,
+@pytest.mark.parametrize(
+    "fonte_tabela",
+    [" SEM_TABELA", "sem_tabela", "SEM_TABELA\n", "SEM_TABELA ", " sem_tabela \n"],
+)
+def test_categoria_na_tabela_treats_whitespace_and_case_variants_as_the_catch_all(
+    fonte_tabela: str,
+) -> None:
+    """VERIFY-WP-REEMBOLSO MINOR-2: a whitespace/case variant of `SEM_TABELA` must NEVER read as a hit.
+
+    `_require_dmn_fonte` validates non-blank with `.strip()`, so any of these pass validation; the
+    comparison against the catch-all literal must normalize the SAME way (and case-fold too, on
+    the deny side — see `_is_sem_tabela`) so it is treated as no-table, never as a table hit. This
+    is a fail-OPEN direction in a money gate: a hit inflates `dentro_tabela`, potentially feeding
+    auto-approval.
+    """
+    calculo = ReembolsoCalculoDmn(
+        valor_calculado_tabela_cents=0,
+        multiplo_tabela_aplicado=0.0,
+        fonte_tabela=fonte_tabela,
     )
-    result = calculate_value(inp)
-    # Table base 35000 * 1.5 = 52500
-    assert result.valor_calculado_tabela_cents == 52500
+    assert calculo.categoria_na_tabela is False
+    # the raw, un-normalized value is still what the audit trail records verbatim
+    assert calculo.fonte_tabela == fonte_tabela
+
+
+@pytest.mark.parametrize(
+    "fonte_tabela",
+    [" SEM_TABELA", "sem_tabela", "SEM_TABELA\n"],
+)
+def test_dentro_tabela_is_false_for_whitespace_and_case_variants_of_sem_tabela(
+    fonte_tabela: str, teto_alto: CeilingResolver
+) -> None:
+    """End-to-end: the whitespace/case variant reaches `calculate_value` and still forces False.
+
+    Even with a nonzero reference value and a solicited amount at or below it — the shape that
+    would otherwise satisfy `dentro_tabela` — the catch-all token (however mangled its spacing or
+    case) must still force `dentro_tabela=False`, never a hit.
+    """
+    result = calculate_value(
+        _request(categoria_procedimento="categoria_que_nao_existe", valor_solicitado_cents=100),
+        ReembolsoCalculoDmn(
+            valor_calculado_tabela_cents=12_000,
+            multiplo_tabela_aplicado=1.0,
+            fonte_tabela=fonte_tabela,
+        ),
+        resolver=teto_alto,
+    )
+    assert result.dentro_tabela is False
+
+
+def test_calculate_amount_entry_ignores_a_seeded_dentro_tabela_claim() -> None:
+    """A `dentro_tabela=true` seeded upstream is recomputed, not echoed."""
+    out = calculate_amount_entry(
+        _entry_vars(
+            _DMN_CATCH_ALL,
+            categoria_procedimento="categoria_desconhecida",
+            tipo_reembolso="urgencia_emergencia",
+            valor_solicitado_cents=777_000,
+            dentro_tabela=True,  # attacker/upstream seed — must not survive
+        )
+    )
+    assert out["dentro_tabela"] is False
+    assert out["valor_calculado_tabela_cents"] == 0
+    assert out["fonte_tabela"] == "SEM_TABELA"
+    assert out["valor_solicitado_cents"] == 777_000
+
+
+# --- audit-trail provenance: the record names the decision it came from ---------------------
+
+
+def test_result_cites_the_dmn_decision_that_produced_the_amount() -> None:
+    """ADR-0007: every calculated amount carries the coordinates of the decision that made it.
+
+    `dmn_decisao_id` is re-derived here from the BPMN's own `camunda:decisionRef` and
+    `dmn_atividade_bpmn` from the activity id, so the citation cannot drift from the model.
+
+    HONEST LIMIT (disclosed, not fixed here): the decision-definition VERSION is deliberately
+    ABSENT. `mapDecisionResult="singleResult"` returns output values only and no JUEL expression on
+    a businessRuleTask exposes the definition, so the worker cites coordinates it can verify
+    instead of a version it never observed — the concrete version is the engine's own
+    `/history/decision-instance` record for this (decision, activity) pair.
+    """
+    root = ET.parse(_BPMN_REEMBOLSO_PATH).getroot()
+    brt = next(
+        el for el in root.iter(f"{{{_BPMN_MODEL_NS}}}businessRuleTask") if el.get("id") == "BRT_Calculo"
+    )
+    decision_ref = brt.get(f"{{{_CAMUNDA_NS}}}decisionRef")
+    assert decision_ref == "reembolso_calculo"
+    assert brt.get(f"{{{_CAMUNDA_NS}}}resultVariable") == "calculo"
+    assert brt.get(f"{{{_CAMUNDA_NS}}}mapDecisionResult") == "singleResult"
+
+    out = calculate_amount_entry(_entry_vars(_rule("r_consulta")))
+    assert out["dmn_decisao_id"] == decision_ref
+    assert out["dmn_atividade_bpmn"] == "BRT_Calculo"
+
+
+def test_bpmn_flattens_the_dmn_outputs_into_the_worker_task() -> None:
+    """THE WIRE: `ST_CalculateAmount` must carry the input mapping the worker depends on.
+
+    Without it `calculo` reaches the worker as an opaque Object (`deserializeValues` defaults to
+    false) and every request fails closed on a healthy engine. Pins the three parameters, their
+    `${calculo.<name>}` expressions, and that `BRT_Calculo` is the task's only inbound edge (so the
+    decision is always fresh — GAP-REEMBOLSO-5).
+    """
+    root = ET.parse(_BPMN_REEMBOLSO_PATH).getroot()
+    task = next(
+        el for el in root.iter(f"{{{_BPMN_MODEL_NS}}}serviceTask") if el.get("id") == "ST_CalculateAmount"
+    )
+    assert task.get(f"{{{_CAMUNDA_NS}}}topic") == "operadora.reembolso.calculate_amount"
+    params = {el.get("name"): (el.text or "").strip() for el in task.iter(f"{{{_CAMUNDA_NS}}}inputParameter")}
+    assert set(params) == set(_DMN_OUTPUT_NAMES), params
+    for name in _DMN_OUTPUT_NAMES:
+        assert params[name] == f"${{calculo.{name}}}", (name, params[name])
+
+    incoming = [el.text for el in task.findall(f"{{{_BPMN_MODEL_NS}}}incoming")]
+    assert incoming == ["Flow_BRTCalc_Calc"], incoming
+    flow = next(
+        el for el in root.iter(f"{{{_BPMN_MODEL_NS}}}sequenceFlow") if el.get("id") == "Flow_BRTCalc_Calc"
+    )
+    assert flow.get("sourceRef") == "BRT_Calculo"
 
 
 # ---------------------------------------------------------------------------
-# calculate_value — T1.9 ceiling enforcement (defect B3)
+# calculate_value — T1.9 ceiling enforcement (defect B3), now over the DMN's value
 # ---------------------------------------------------------------------------
 
 
 def test_within_table_max_value_zero_routes_analise_humana(tmp_path: Path) -> None:
     """THE T1.9 property: a within-table request with max_value_brl=0 computes dentro_teto_l2=False.
 
-    consulta @ 30000 cents is within the 35000 reference table (dentro_tabela=True), but the
-    reembolso_auto_approval ceiling is 0 (D-07) -> dentro_teto_l2=False. The auto-approval
+    A request at the DMN's `consulta` value is within the reference table (dentro_tabela=True), but
+    the reembolso_auto_approval ceiling is 0 (D-07) -> dentro_teto_l2=False. The auto-approval
     routing itself is the NATIVE DMN `reembolso_auto_approval` (BRT_AutoApproval,
     spec/processes/dmn/reembolso_coverage.dmn — its ONLY AUTO_APROVAR rule, `r_auto`, requires
     dentro_teto_l2=true; hitPolicy FIRST with fail-safe catch-all ANALISE_HUMANA), so the False
-    fact this worker computes is exactly what forces ANALISE_HUMANA engine-side. This is the
-    exact acceptance criterion.
+    fact this worker computes is exactly what forces ANALISE_HUMANA engine-side. This is the exact
+    acceptance criterion.
     """
-    resolver = _pin_resolver(tmp_path, max_value_brl=0)
-    inp = ReembolsoInput(
-        tenant_id="amh",
-        protocolo_reembolso="REEMB-T19-1",
-        codigo_procedimento_tuss="10101012",
-        categoria_procedimento="consulta",
-        tipo_reembolso="livre_escolha",
-        valor_solicitado_cents=30000,
+    rule = _rule("r_consulta")
+    calculo = calculate_value(
+        _request(
+            categoria_procedimento="consulta",
+            valor_solicitado_cents=rule.valor_calculado_tabela_cents,
+        ),
+        _calculo(rule),
+        resolver=_pin_resolver(tmp_path, max_value_brl=0),
     )
-
-    calculo = calculate_value(inp, resolver=resolver)
     assert calculo.dentro_tabela is True
     assert calculo.dentro_teto_l2 is False
 
@@ -262,77 +922,64 @@ def test_calculate_value_ignores_inbound_dentro_teto_l2(tmp_path: Path) -> None:
 
     Proves the echo-through at old reembolso.py:227 is dead.
     """
-    resolver = _pin_resolver(tmp_path, max_value_brl=0)
-    inp = ReembolsoInput(
-        tenant_id="amh",
-        protocolo_reembolso="REEMB-T19-2",
-        codigo_procedimento_tuss="10101012",
-        categoria_procedimento="consulta",
-        tipo_reembolso="livre_escolha",
-        valor_solicitado_cents=30000,
-        dentro_teto_l2=True,  # attacker/upstream seed — must be ignored
+    rule = _rule("r_consulta")
+    calculo = calculate_value(
+        _request(
+            categoria_procedimento="consulta",
+            valor_solicitado_cents=rule.valor_calculado_tabela_cents,
+            dentro_teto_l2=True,  # attacker/upstream seed — must be ignored
+        ),
+        _calculo(rule),
+        resolver=_pin_resolver(tmp_path, max_value_brl=0),
     )
-
-    calculo = calculate_value(inp, resolver=resolver)
     assert calculo.dentro_teto_l2 is False
 
 
 def test_calculate_value_within_ceiling_when_configured(tmp_path: Path) -> None:
     """A real positive ceiling computes dentro_teto_l2=True, config-driven, at the inclusive boundary.
 
-    The ceiling is compared against the REFERENCE-TABLE value, not the requested amount, so the
-    boundary is walked by moving the ceiling around a fixed table value: `consulta` = 35000
-    cents, ceiling R$350 -> 35000 <= 35000 within (True); ceiling R$349 -> 35000 > 34900 above
-    (False). (The AUTO_APROVAR routing on a True fact is the native DMN
-    `reembolso_auto_approval`, BRT_AutoApproval — engine-side, not this worker.)
-
-    M-2 NOTE — this test previously drove the boundary with `categoria_procedimento=""`, whose
-    docstring read "an unknown category makes valor_calculado == valor_solicitado". That was the
-    M-2 defect itself, load-bearing in the test suite: the unknown-categoria fallback to the
-    claimant's own figure. It also asserted `dentro_tabela is True` for a categoria that is in no
-    table. Both are now impossible; the ceiling property under test is unchanged and is exercised
-    against a real table row.
+    The ceiling is compared against the DMN's reference value, not the requested amount, so the
+    boundary is walked by moving the ceiling around that fixed value — which is READ FROM THE DMN,
+    so the test follows an actuarial re-tune instead of pinning a number of its own. Ceiling == the
+    value in reais -> within (True); one real less -> above (False). (The AUTO_APROVAR routing on a
+    True fact is the native DMN `reembolso_auto_approval`, BRT_AutoApproval — engine-side, not this
+    worker.)
     """
-    at_boundary = ReembolsoInput(
-        tenant_id="amh",
-        protocolo_reembolso="REEMB-T19-3a",
-        codigo_procedimento_tuss="10101012",
-        categoria_procedimento="consulta",  # real table row: 35000 cents
-        tipo_reembolso="livre_escolha",
-        valor_solicitado_cents=30000,
+    rule = _rule("r_consulta")
+    valor_brl = rule.valor_calculado_tabela_cents // 100
+    assert valor_brl * 100 == rule.valor_calculado_tabela_cents, (
+        "a DMN passou a emitir centavos que nao fecham em reais inteiros — reescreva a borda"
     )
-    calculo_ok = calculate_value(at_boundary, resolver=_pin_resolver(tmp_path / "at", max_value_brl=350))
-    assert calculo_ok.valor_calculado_tabela_cents == 35000
+    at_boundary = _request(
+        categoria_procedimento="consulta", valor_solicitado_cents=rule.valor_calculado_tabela_cents
+    )
+    calculo_ok = calculate_value(
+        at_boundary, _calculo(rule), resolver=_pin_resolver(tmp_path / "at", max_value_brl=valor_brl)
+    )
+    assert calculo_ok.valor_calculado_tabela_cents == rule.valor_calculado_tabela_cents
     assert calculo_ok.dentro_tabela is True
     assert calculo_ok.dentro_teto_l2 is True
 
-    above_resolver = _pin_resolver(tmp_path / "above", max_value_brl=349)
-    assert calculate_value(at_boundary, resolver=above_resolver).dentro_teto_l2 is False
+    above = _pin_resolver(tmp_path / "above", max_value_brl=valor_brl - 1)
+    assert calculate_value(at_boundary, _calculo(rule), resolver=above).dentro_teto_l2 is False
 
 
 def test_calculate_value_sem_tabela_with_positive_ceiling_is_vacuously_within(tmp_path: Path) -> None:
     """SEM_TABELA feeds the ceiling check a reference value of 0 — vacuously within ANY positive ceiling.
 
-    `dentro_teto_l2` compares the reference-TABLE value against the tenant ceiling
-    (`within_l2_ceiling`, ceilings.py). For SEM_TABELA that reference value is 0 by
-    construction (no table row), so `0 <= ceiling_brl * 100` is True for any positive
-    ceiling — `dentro_teto_l2=True`. This does NOT change routing: the DMN's ONLY
+    `dentro_teto_l2` compares the reference value against the tenant ceiling (`within_l2_ceiling`,
+    ceilings.py). Under the DMN catch-all that value is 0 by construction, so `0 <= ceiling_brl *
+    100` is True for any positive ceiling. This does NOT change routing: the DMN's ONLY
     AUTO_APROVAR rule (`r_auto`, `spec/processes/dmn/reembolso_coverage.dmn:122-123,133-136`)
-    requires `dentro_tabela=true` too, and SEM_TABELA FORCES `dentro_tabela=False` — so the
-    request still falls through to ANALISE_HUMANA. Anticipated by
+    requires `dentro_tabela=true` too, and SEM_TABELA FORCES `dentro_tabela=False` — so the request
+    still falls through to ANALISE_HUMANA. Anticipated by
     `docs/design/T1.9-ceiling-enforcement.md:219-222`.
     """
-    resolver = _pin_resolver(tmp_path, max_value_brl=350)
-    inp = ReembolsoInput(
-        tenant_id="amh",
-        protocolo_reembolso="REEMB-M2-SEMTABELA-CEILING",
-        codigo_procedimento_tuss="10101012",
-        categoria_procedimento="categoria_que_nao_existe",
-        tipo_reembolso="livre_escolha",
-        valor_solicitado_cents=999999,
+    calculo = calculate_value(
+        _request(categoria_procedimento="categoria_que_nao_existe", valor_solicitado_cents=999999),
+        _calculo(_DMN_CATCH_ALL),
+        resolver=_pin_resolver(tmp_path, max_value_brl=350),
     )
-
-    calculo = calculate_value(inp, resolver=resolver)
     assert calculo.fonte_tabela == "SEM_TABELA"
     assert calculo.valor_calculado_tabela_cents == 0
     assert calculo.dentro_tabela is False
@@ -340,282 +987,69 @@ def test_calculate_value_sem_tabela_with_positive_ceiling_is_vacuously_within(tm
 
 
 # ---------------------------------------------------------------------------
-# calculate_value — M-2: money + audit-trail honesty
+# calculate_value — M-2 audit-trail honesty, preserved under the DMN
 #
-# The three facts calculate_value writes into the ADR-0007 audit chain
-# (`dentro_tabela`, `multiplo_tabela_aplicado`, `fonte_tabela`) must describe what the
-# lookup ACTUALLY did. The defect: an unknown/misspelled categoria fell back to the
-# claimant's own `valor_solicitado_cents`, making the "reference table value" equal the
-# request, so `valor_solicitado <= valor_calculado` was unconditionally True — a fabricated
-# corroboration presented to the human reviewer as a verified fact — while
-# `multiplo_tabela_aplicado` was hardcoded 1.0 (hiding the 1.5 uplift) and `fonte_tabela`
-# was hardcoded "TUSS-REFERENCIA" (labelling an invented value as a TUSS table reading).
+# The facts calculate_value writes into the ADR-0007 audit chain (`dentro_tabela`,
+# `multiplo_tabela_aplicado`, `fonte_tabela`) must describe what actually happened. The M-2
+# defect: an unknown categoria fell back to the claimant's own `valor_solicitado_cents`, so
+# `valor_solicitado <= valor_calculado` was unconditionally True — a fabricated corroboration
+# shown to the human reviewer — while `multiplo_tabela_aplicado` was hardcoded 1.0 and
+# `fonte_tabela` hardcoded "TUSS-REFERENCIA". Under GAP F-1 the provenance is stronger still:
+# `fonte_tabela` is now the DMN's OWN token, not a worker-invented vocabulary.
 # ---------------------------------------------------------------------------
 
-#: `(categoria, tipo_reembolso, valor_solicitado_cents)` ->
-#: `(valor_calculado, dentro_tabela, multiplo, fonte)`.
-_CALCULO_CASES: list[tuple[str, str, str, int, int, bool, float, str]] = [
-    # -- known categoria, no multiplier: plain table hit -------------------------------
-    ("known/at-table", "consulta", "livre_escolha", 35000, 35000, True, 1.0, "TABELA_REFERENCIA"),
-    ("known/below-table", "consulta", "livre_escolha", 30000, 35000, True, 1.0, "TABELA_REFERENCIA"),
-    ("known/above-table", "consulta", "livre_escolha", 50000, 35000, False, 1.0, "TABELA_REFERENCIA"),
-    ("known/exame_simples", "exame_simples", "livre_escolha", 8000, 8000, True, 1.0, "TABELA_REFERENCIA"),
-    ("known/opme", "opme", "livre_escolha", 300000, 300000, True, 1.0, "TABELA_REFERENCIA"),
-    # case-insensitivity is pre-existing behaviour and stays a table hit
-    ("known/uppercase", "CONSULTA", "livre_escolha", 30000, 35000, True, 1.0, "TABELA_REFERENCIA"),
-    # -- known categoria + 1.5 multiplier: adjusted, and SAID to be adjusted -----------
-    (
-        "mult/urgencia",
-        "consulta",
-        "urgencia_emergencia",
-        50000,
-        52500,
-        True,
-        1.5,
-        "TABELA_REFERENCIA_MULTIPLICADA",
-    ),
-    ("mult/fora_rede", "consulta", "fora_rede", 50000, 52500, True, 1.5, "TABELA_REFERENCIA_MULTIPLICADA"),
-    # the uplift raises the reference value but does NOT rubber-stamp any amount
-    (
-        "mult/above-even-uplifted",
-        "consulta",
-        "urgencia_emergencia",
-        52501,
-        52500,
-        False,
-        1.5,
-        "TABELA_REFERENCIA_MULTIPLICADA",
-    ),
-    (
-        "mult/internacao",
-        "internacao",
-        "fora_rede",
-        750000,
-        750000,
-        True,
-        1.5,
-        "TABELA_REFERENCIA_MULTIPLICADA",
-    ),
-    # -- unknown categoria: fail closed, no fallback to the claimant's own figure ------
-    ("unknown/typo", "consuta", "livre_escolha", 999999, 0, False, 0.0, "SEM_TABELA"),
-    ("unknown/absent", "quimioterapia", "livre_escolha", 500000, 0, False, 0.0, "SEM_TABELA"),
-    # a padded categoria misses the table (`.lower()` only, no strip) and fails CLOSED
-    ("unknown/padded", " consulta ", "livre_escolha", 30000, 0, False, 0.0, "SEM_TABELA"),
-    # the multiplier never resurrects a categoria that has no table row
-    ("unknown/with-multiplier", "consuta", "urgencia_emergencia", 999999, 0, False, 0.0, "SEM_TABELA"),
-    # -- empty categoria: same refusal --------------------------------------------------
-    ("empty/blank", "", "livre_escolha", 50000, 0, False, 0.0, "SEM_TABELA"),
-    # THE ZERO TRAP: `0 <= 0` would read True on arithmetic alone. dentro_tabela is a claim
-    # about the reference table, and there is no table row here, so it must be False.
-    ("empty/zero-request", "", "livre_escolha", 0, 0, False, 0.0, "SEM_TABELA"),
-    ("unknown/zero-request", "consuta", "urgencia_emergencia", 0, 0, False, 0.0, "SEM_TABELA"),
-]
 
-
-@pytest.mark.parametrize(
-    ("label", "categoria", "tipo", "solicitado", "valor", "tabela", "multiplo", "fonte"),
-    _CALCULO_CASES,
-    ids=[case[0] for case in _CALCULO_CASES],
-)
-def test_calculate_value_table_driven_facts(
-    label: str,
-    categoria: str,
-    tipo: str,
-    solicitado: int,
-    valor: int,
-    tabela: bool,
-    multiplo: float,
-    fonte: str,
+@pytest.mark.parametrize("rule", _DMN_RULES, ids=_DMN_RULE_IDS)
+def test_audit_facts_are_internally_consistent_for_every_dmn_rule(
+    rule: _DmnRule, teto_zero: CeilingResolver
 ) -> None:
-    """Every (categoria, tipo) case writes exactly the facts its computation supports."""
+    """Invariants over whatever the DMN produced — they keep biting if the table is re-tuned."""
+    solicitado = max(rule.valor_calculado_tabela_cents, 1)
     result = calculate_value(
-        ReembolsoInput(
-            tenant_id="amh",
-            protocolo_reembolso=f"REEMB-M2-{label}",
-            codigo_procedimento_tuss="10101012",
-            categoria_procedimento=categoria,
-            tipo_reembolso=tipo,
+        _request(
+            categoria_procedimento=rule.categoria_procedimento or "",
             valor_solicitado_cents=solicitado,
-        )
-    )
-    assert result.valor_calculado_tabela_cents == valor, label
-    assert result.dentro_tabela is tabela, label
-    assert result.multiplo_tabela_aplicado == multiplo, label
-    assert result.fonte_tabela == fonte, label
-    # money stays integer centavos end-to-end (ADR-0018): never a float, never a bool
-    assert type(result.valor_calculado_tabela_cents) is int, label
-    assert result.valor_solicitado_cents == solicitado, label
-
-
-@pytest.mark.parametrize(
-    ("label", "categoria", "tipo", "solicitado", "valor", "tabela", "multiplo", "fonte"),
-    _CALCULO_CASES,
-    ids=[case[0] for case in _CALCULO_CASES],
-)
-def test_calculate_value_audit_facts_match_the_computation(
-    label: str,
-    categoria: str,
-    tipo: str,
-    solicitado: int,
-    valor: int,
-    tabela: bool,
-    multiplo: float,
-    fonte: str,
-) -> None:
-    """AUDIT CHAIN (ADR-0007): the written facts must be internally consistent, not just correct.
-
-    Asserted as INVARIANTS over whatever was computed, so they keep biting if the table values
-    or the multiplier are ever re-tuned — the M-2 failure mode was precisely a fact that
-    contradicted the arithmetic that produced it.
-    """
-    del valor, tabela, multiplo, fonte  # this test re-derives them; the case row is the input
-    result = calculate_value(
-        ReembolsoInput(
-            tenant_id="amh",
-            protocolo_reembolso=f"REEMB-M2-AUDIT-{label}",
-            codigo_procedimento_tuss="10101012",
-            categoria_procedimento=categoria,
-            tipo_reembolso=tipo,
-            valor_solicitado_cents=solicitado,
-        )
+        ),
+        _calculo(rule),
+        resolver=teto_zero,
     )
 
     if result.fonte_tabela == "SEM_TABELA":
-        # A refusal claims nothing: no value, no multiplier, and NEVER a within-table verdict.
-        assert result.valor_calculado_tabela_cents == 0, label
-        assert result.multiplo_tabela_aplicado == 0.0, label
-        assert result.dentro_tabela is False, label
-        # the defect's signature: the reference value must NOT be the claimant's own figure
-        assert result.valor_calculado_tabela_cents != result.valor_solicitado_cents or solicitado == 0, (
-            f"{label}: SEM_TABELA echoed valor_solicitado_cents back as the reference value"
-        )
+        assert result.valor_calculado_tabela_cents == 0, rule.rule_id
+        assert result.multiplo_tabela_aplicado == 0.0, rule.rule_id
+        assert result.dentro_tabela is False, rule.rule_id
     else:
-        # A table hit: the recorded value must equal base * the recorded multiplier, and the
-        # recorded provenance must match whether a multiplier was really applied.
-        base = _BASE_VALUES_CENTS[categoria.lower()]
-        assert result.valor_calculado_tabela_cents == int(base * result.multiplo_tabela_aplicado), label
-        multiplicado = result.multiplo_tabela_aplicado != 1.0
-        assert result.fonte_tabela == (
-            "TABELA_REFERENCIA_MULTIPLICADA" if multiplicado else "TABELA_REFERENCIA"
-        ), label
-        # dentro_tabela is the honest comparison against that same recorded value
-        assert result.dentro_tabela is (solicitado <= result.valor_calculado_tabela_cents), label
+        assert result.valor_calculado_tabela_cents > 0, rule.rule_id
+        assert result.dentro_tabela is (solicitado <= result.valor_calculado_tabela_cents), rule.rule_id
 
-    # `fonte_tabela` is never blank and never the retired label that lied about provenance
-    assert result.fonte_tabela, label
-    assert result.fonte_tabela != "TUSS-REFERENCIA", label
+    # provenance is never blank, never the retired worker-side vocabulary, and always the DMN's
+    assert result.fonte_tabela, rule.rule_id
+    assert result.fonte_tabela not in {
+        "TUSS-REFERENCIA",
+        "TABELA_REFERENCIA",
+        "TABELA_REFERENCIA_MULTIPLICADA",
+    }, f"{rule.rule_id}: a worker-invented provenance token is back"
+    assert result.fonte_tabela == rule.fonte_tabela, rule.rule_id
+    assert result.dmn_decisao_id == "reembolso_calculo", rule.rule_id
 
 
-def test_calculate_value_unknown_categoria_never_corroborates_the_claim() -> None:
-    """THE M-2 REGRESSION: an unknown categoria must not make the claim self-verifying.
+def test_worker_speaks_the_dmn_catch_all_token_and_nothing_of_its_own(teto_zero: CeilingResolver) -> None:
+    """The refusal token is the DMN's, read from the file — never this module's invention.
 
-    Pre-fix, `base_values.get(categoria.lower(), valor_solicitado_cents)` set the reference
-    value TO the requested amount, so `dentro_tabela` was True for ANY amount whatsoever — a
-    R$ 1.000.000 request under a misspelled categoria was reported to the human reviewer as
-    within the reference table. Swept across magnitudes to prove there is no amount at which
-    the fallback survives.
-    """
-    for amount in (1, 5000, 999_999, 100_000_000):
-        result = calculate_value(
-            ReembolsoInput(
-                tenant_id="amh",
-                protocolo_reembolso="REEMB-M2-NOFALLBACK",
-                codigo_procedimento_tuss="10101012",
-                categoria_procedimento="categoria_que_nao_existe",
-                tipo_reembolso="livre_escolha",
-                valor_solicitado_cents=amount,
-            )
-        )
-        assert result.dentro_tabela is False, amount
-        assert result.valor_calculado_tabela_cents == 0, amount
-        assert result.valor_calculado_tabela_cents != amount, amount
-        assert result.fonte_tabela == "SEM_TABELA", amount
-
-
-def test_calculate_value_sem_tabela_token_matches_the_dmn_catch_all() -> None:
-    """The refusal token is the DMN's, not this module's invention.
-
-    `spec/processes/dmn/reembolso_calculo.dmn` rule `r_catchall` emits
-    `valor_calculado_tabela_cents=0`, `multiplo_tabela_aplicado=0.0`, `fonte_tabela="SEM_TABELA"`,
-    and the contract + test-spec pin that same triple ("Catch-all (procedimento sem tabela) ->
+    `spec/processes/dmn/reembolso_calculo.dmn` rule `r_catchall` emits the triple the contract, the
+    test spec and an engine-side assertion all pin ("Catch-all (procedimento sem tabela) ->
     valor_calculado_tabela_cents = 0 + fonte_tabela = 'SEM_TABELA', o que forca dentro_tabela=false
-    -> ANALISE_HUMANA"). The worker must speak the SAME token for the SAME situation, so the two
-    producers of this fact cannot disagree in the audit chain.
+    -> ANALISE_HUMANA"). The worker relays that token; it no longer emits a parallel vocabulary.
     """
-    dmn = _REPO_ROOT / "spec" / "processes" / "dmn" / "reembolso_calculo.dmn"
-    catch_all = dmn.read_text(encoding="utf-8")
-    assert '"SEM_TABELA"' in catch_all, "DMN catch-all token moved — the worker must follow it"
-
+    assert '"SEM_TABELA"' in _DMN_CALCULO_PATH.read_text(encoding="utf-8")
     result = calculate_value(
-        ReembolsoInput(
-            tenant_id="amh",
-            protocolo_reembolso="REEMB-M2-TOKEN",
-            categoria_procedimento="sem_row_na_tabela",
-            tipo_reembolso="livre_escolha",
-            valor_solicitado_cents=12345,
-        )
+        _request(categoria_procedimento="sem_row_na_tabela", valor_solicitado_cents=12345),
+        _calculo(_DMN_CATCH_ALL),
+        resolver=teto_zero,
     )
     assert result.fonte_tabela == "SEM_TABELA"
     assert result.valor_calculado_tabela_cents == 0
     assert result.multiplo_tabela_aplicado == 0.0
-
-
-def test_calculate_value_known_categoria_behaviour_is_unchanged() -> None:
-    """REGRESSION PIN: the valid, known-categoria path computes exactly what it did pre-fix.
-
-    The M-2 fix must be invisible to a well-formed request. These are the pre-fix values of the
-    four original tests (`test_calculate_value_consulta`, `..._dentro_tabela`, `..._fora_tabela`,
-    `..._urgencia_multiplier`), asserted here together so a future change to the lookup cannot
-    quietly move money on the legitimate path.
-    """
-    base = ReembolsoInput(
-        tenant_id="amh",
-        protocolo_reembolso="REEMB-M2-REGRESSION",
-        codigo_procedimento_tuss="10101012",
-        categoria_procedimento="consulta",
-        tipo_reembolso="livre_escolha",
-    )
-
-    # consulta reference value: R$ 350,00 — unchanged
-    at_table = calculate_value(dataclasses.replace(base, valor_solicitado_cents=35000))
-    assert at_table.valor_calculado_tabela_cents == 35000
-    # below table -> within; above table -> not within
-    assert calculate_value(dataclasses.replace(base, valor_solicitado_cents=30000)).dentro_tabela is True
-    assert calculate_value(dataclasses.replace(base, valor_solicitado_cents=50000)).dentro_tabela is False
-    # urgencia/emergencia still applies 1.5x to the same base: 35000 * 1.5 = 52500
-    urgencia = calculate_value(
-        dataclasses.replace(base, tipo_reembolso="urgencia_emergencia", valor_solicitado_cents=50000)
-    )
-    assert urgencia.valor_calculado_tabela_cents == 52500
-    # ...and now SAYS so, where it used to report 1.0 / "TUSS-REFERENCIA"
-    assert urgencia.multiplo_tabela_aplicado == 1.5
-    assert urgencia.fonte_tabela == "TABELA_REFERENCIA_MULTIPLICADA"
-
-
-def test_calculate_amount_entry_marshals_the_honest_facts() -> None:
-    """The engine-boundary entry carries all three facts out to the process scope.
-
-    `calculate_amount_entry` is what `ST_CalculateAmount` actually invokes; the facts only
-    reach `BRT_AutoApproval` (which gates AUTO_APROVAR on `dentro_tabela`) and the human dossie
-    if they survive `dataclasses.asdict`.
-    """
-    out = calculate_amount_entry(
-        {
-            "tenant_id": "amh",
-            "protocolo_reembolso": "REEMB-M2-ENTRY",
-            "codigo_procedimento_tuss": "10101012",
-            "categoria_procedimento": "categoria_desconhecida",
-            "tipo_reembolso": "urgencia_emergencia",
-            "valor_solicitado_cents": 777000,
-            # a seeded within-table claim must not survive either
-            "dentro_tabela": True,
-        }
-    )
-    assert out["dentro_tabela"] is False
-    assert out["valor_calculado_tabela_cents"] == 0
-    assert out["multiplo_tabela_aplicado"] == 0.0
-    assert out["fonte_tabela"] == "SEM_TABELA"
-    assert out["valor_solicitado_cents"] == 777000
 
 
 # ---------------------------------------------------------------------------
@@ -1058,17 +1492,26 @@ def test_check_prazo_entry_happy_path_round_trips_validate_reembolso() -> None:
 
 
 def test_calculate_amount_entry_round_trips_calculate_value() -> None:
-    variables = {
+    """The entry resolves BRT_Calculo's outputs and marshals; it adds no fact of its own.
+
+    Both sides are driven with the SAME DMN result (the parsed `r_consulta` row), so any
+    divergence would be the entry function deriving something — which it must not.
+    """
+    rule = _rule("r_consulta")
+    variables: dict[str, Any] = {
         "codigo_procedimento_tuss": "10101012",
         "categoria_procedimento": "consulta",
         "tipo_reembolso": "eletivo",
         "valor_solicitado_cents": 30000,
         "dentro_teto_l2": True,
+        **_dmn_flat_vars(rule),
     }
-    direct = calculate_value(ReembolsoInput(**variables))
+    direct = calculate_value(ReembolsoInput(**pick_fields(variables, ReembolsoInput)), _calculo(rule))
     result = calculate_amount_entry(variables)
     assert result["dentro_teto_l2"] == direct.dentro_teto_l2
     assert result["valor_calculado_tabela_cents"] == direct.valor_calculado_tabela_cents
+    assert result["dentro_tabela"] == direct.dentro_tabela
+    assert result["fonte_tabela"] == direct.fonte_tabela
 
 
 def test_issue_payment_entry_round_trips_process_payment() -> None:

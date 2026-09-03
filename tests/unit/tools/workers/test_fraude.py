@@ -5,6 +5,8 @@ PHI detection, and inverted scoring (NEVER auto-accusation).
 """
 
 import asyncio
+import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import pytest
 
@@ -19,6 +21,7 @@ from maezo.tools.mcp_cibseven.transport import (
 )
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, DmnNoResultError, FakeDmnTransport
 from maezo.tools.workers.fraude import (
+    _SCORING_DECISIONS,
     _SCORING_INPUT_KEYS,
     _SCORING_NUMERIC_KEYS,
     CANCEL_PROCESS_KEY,
@@ -333,15 +336,73 @@ def test_collect_scoring_inputs_drops_non_numeric_fields_no_wrong_typed_passthro
 def test_collect_scoring_inputs_never_forwards_tuss_codes() -> None:
     """`tuss_codes` is dropped from the scoring inputs entirely — never str()/repr-cast.
 
-    It is a list-per-convention field bound to a `string`-declared DMN input whose column is `-`
-    (wildcard) in every rule; forwarding `str(["30101012"]) -> "['30101012']"` would silently flip
-    any future `starts with(...)` rule. It is deliberately absent from `_SCORING_INPUT_KEYS`.
+    It WAS a list-per-convention field bound to a `string`-declared DMN input whose column was `-`
+    (wildcard) in every rule of `unbundling_partial_bundles`; forwarding
+    `str(["30101012"]) -> "['30101012']"` would silently flip any future `starts with(...)` rule,
+    so T1.5 removed it from `_SCORING_INPUT_KEYS`. GAP-PERSP-DMN-DEAD-INPUTS then removed the dead
+    column from the table itself, so today the key is unknown on BOTH ends — pinned here and by
+    `test_scoring_input_keys_are_exactly_the_seven_tables_inputs` below.
     """
     assert "tuss_codes" not in _SCORING_INPUT_KEYS
     evidence = _collect_scoring_inputs({"tuss_codes": ["30101012", "30101020"], "risk_score": 10})
     assert "tuss_codes" not in evidence
     # and the repr-cast footgun never appears anywhere in the forwarded evidence
     assert "['30101012'" not in repr(evidence)
+
+
+_DMN_DIR = Path(__file__).resolve().parents[4] / "spec" / "processes" / "dmn"
+
+
+def _input_expressions(decision_id: str) -> set[str]:
+    """The variable names the DEPLOYED table's `inputExpression`s actually reference."""
+    root = ET.parse(_DMN_DIR / f"{decision_id}.dmn").getroot()
+    names: set[str] = set()
+    for element in root.iter():
+        if element.tag.rpartition("}")[2] != "inputExpression":
+            continue
+        for child in element:
+            if child.tag.rpartition("}")[2] == "text":
+                names.add((child.text or "").strip())
+    return names
+
+
+def test_scoring_input_keys_are_exactly_the_seven_tables_inputs() -> None:
+    """GAP-PERSP-DMN-DEAD-INPUTS. `_SCORING_INPUT_KEYS` and the 7 tables' `inputExpression`s are
+    the SAME set — read from the real `.dmn` files, never a hand-copied list.
+
+    Both directions are the regression this closes:
+
+    * a key the worker sends that NO table reads is a worker paying to collect a signal nothing
+      consumes (that was `encounter_class`'s status w.r.t. `frequency_zscore_threshold`, which
+      declared it and then wildcarded it in all 5 rules);
+    * an `inputExpression` no caller supplies is a table advertising a signal it can never receive
+      (that was `tuss_codes`: declared by `unbundling_partial_bundles`, wildcarded in all 4 rules,
+      and dropped by the worker since T1.5 — dead on both ends).
+
+    Equality is the honest contract: every signal collected is read by some table, and every
+    column declared is fed by the worker.
+    """
+    declared: set[str] = set()
+    for decision_id in _SCORING_DECISIONS:
+        declared |= _input_expressions(decision_id)
+
+    assert declared == set(_SCORING_INPUT_KEYS), (
+        f"only in the tables: {sorted(declared - set(_SCORING_INPUT_KEYS))}; "
+        f"only in the worker: {sorted(set(_SCORING_INPUT_KEYS) - declared)}"
+    )
+
+
+def test_the_two_removed_dead_columns_stay_removed() -> None:
+    """GAP-PERSP-DMN-DEAD-INPUTS, stated table-by-table so a regression names the table.
+
+    `encounter_class` is NOT gone from the process — it is a real signal read by
+    `upcoding_complexity_ceiling`, which is exactly why it stays in `_SCORING_INPUT_KEYS`. What is
+    gone is `frequency_zscore_threshold`'s decorative declaration of it.
+    """
+    assert _input_expressions("frequency_zscore_threshold") == {"z_score"}
+    assert _input_expressions("unbundling_partial_bundles") == {"bundle_group_id"}
+    assert "encounter_class" in _input_expressions("upcoding_complexity_ceiling")
+    assert "encounter_class" in _SCORING_INPUT_KEYS
 
 
 def test_score_indicators_drops_non_numeric_end_to_end_no_wrong_type_to_dmn() -> None:

@@ -169,6 +169,63 @@ def _nondeterministic_calls(tree: ast.AST) -> set[str]:
     return hits
 
 
+# GAP-FAB-NOTIF (no-fabricated-facts fence). Keys a domain worker handler once returned as an
+# unconditional `True` constant — a regulatory/notification "fact" with no real channel and (in
+# both confirmed cases) ZERO downstream consumers anywhere in BPMN/DMN:
+#   - `credenciamento.notify_prestador` (renamed `dispatch_prior_notice`) ->
+#     `{"notificacao_previa_feita": True}` — contract claimed RN 567 prior notice "comprovada";
+#     no conditionExpression/resultVariable/DMN input ever read it (D-N1).
+#   - `adequacao.notify_coordenacao` -> `{"notificacao_enviada": True}` — one line in the whole
+#     repo, zero consumers (D-N2).
+# Both now return `{}`. This static fence keeps them fixed and catches the same shape (a `return
+# {...}` mapping one of these keys straight to the literal `True`, no computation, no input
+# dependency) anywhere else in the domain worker tree.
+_FABRICATED_FACT_KEYS: frozenset[str] = frozenset({"notificacao_previa_feita", "notificacao_enviada"})
+
+# DOCUMENTED baseline (same "grandfather with a ticket" pattern as `_NONDETERMINISM_BASELINE`
+# above) — a module with a pre-existing, STRUCTURALLY IDENTICAL instance of this shape that is
+# OUT OF SCOPE for GAP-FAB-NOTIF (which fixes only `credenciamento`/`adequacao`, per the R1
+# verifier's part-B report §6 D-N1/D-N2) and therefore intentionally NOT touched by this fix.
+# A NEW module adopting the pattern (not listed here) still fails the fence below.
+_FABRICATED_FACT_BASELINE: dict[str, str] = {
+    # `inadimplencia.notify_beneficiario` -> `{"notificacao_previa_feita": True,
+    # "notificacao_previa_registrada_em": "now"}` (RN 593, SP-OP-INADIMPLENCIA-001) — same
+    # unconditional-constant shape as the two GAP-FAB-NOTIF instances, PLUS a literal string
+    # `"now"` placeholder instead of a real timestamp. Deliberately excluded from the R1
+    # verifier's own `notificacao_previa_feita` grep for the CRED finding (part-B verification
+    # report §6 D-B1: "grep -v inadimplencia | grep -vi cancel") — a different process, a
+    # different (legitimate) consumer (`cancel.py` reads the field as a real input via
+    # `CancelabilityInput.notificacao_previa_feita`), and NOT one of this task's assigned items
+    # (A-D). Tracked here, not fixed here — a future GAP-FAB-NOTIF-2-style ticket owns it.
+    "inadimplencia": "notify_beneficiario -> {'notificacao_previa_feita': True} (RN 593) — "
+    "out of scope for GAP-FAB-NOTIF (credenciamento/adequacao only); tracked, not fixed.",
+}
+
+
+def _unconditional_true_fact_keys(tree: ast.AST) -> set[str]:
+    """Static detector: a `return {...}` dict literal mapping one of `_FABRICATED_FACT_KEYS`
+    directly to the constant `True` — i.e. produced with no conditional logic and no dependency on
+    `variables`, unconditionally on every call. Mirrors this module's other AST-based fences: a
+    blunt structural check, not value-flow taint analysis."""
+    hits: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Return) or node.value is None:
+            continue
+        value = node.value
+        if not isinstance(value, ast.Dict):
+            continue
+        for key_node, val_node in zip(value.keys, value.values, strict=True):
+            if (
+                isinstance(key_node, ast.Constant)
+                and isinstance(key_node.value, str)
+                and key_node.value in _FABRICATED_FACT_KEYS
+                and isinstance(val_node, ast.Constant)
+                and val_node.value is True
+            ):
+                hits.add(key_node.value)
+    return hits
+
+
 def test_domain_worker_modules_discovered() -> None:
     """Guard: the discovery actually found the 17 registered worker modules (so the fences below
     are not silently scanning an empty set)."""
@@ -264,3 +321,41 @@ def test_contas_glosa_id_m9_landed_deterministic() -> None:
         "contas re-introduced a non-deterministic identifier source — M-9 made `glosa_id` a pure "
         "function of the contract facts; nothing in this module may use time_ns/uuid/random."
     )
+
+
+def test_no_domain_worker_returns_unconditional_true_for_fabricated_fact_keys() -> None:
+    """GAP-FAB-NOTIF regression fence: no domain worker handler OUTSIDE the documented baseline may
+    return a dict literal mapping a previously-fabricated fact key straight to the constant `True`.
+    `credenciamento.dispatch_prior_notice` (was `notify_prestador`) and `adequacao.
+    notify_coordenacao` were the two confirmed, IN-SCOPE instances (D-N1/D-N2, part-B verification
+    report); both now return `{}`."""
+    actual: dict[str, set[str]] = {}
+    for name, path in _domain_worker_modules().items():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        hits = _unconditional_true_fact_keys(tree)
+        if hits:
+            actual[name] = hits
+
+    actual_modules = set(actual)
+    baseline_modules = set(_FABRICATED_FACT_BASELINE)
+
+    new_violations = actual_modules - baseline_modules
+    assert not new_violations, (
+        "fabricated regulatory/notification fact(s) reintroduced as an unconditional `True` "
+        f"literal: { {m: sorted(actual[m]) for m in new_violations} } — GAP-FAB-NOTIF requires "
+        "computing an honest value from real inputs, or returning {} with a documented neutral "
+        "reason (never an unconditional fact); or, if genuinely out of this fix's scope, add a "
+        "tracking entry to _FABRICATED_FACT_BASELINE."
+    )
+    # If a baseline entry is FIXED (no longer fabricates), require the stale entry to be removed —
+    # keeps the baseline honest and shrinking, never a rubber stamp (mirrors
+    # test_nondeterministic_identifier_minting_confined_to_documented_baseline above).
+    resolved = baseline_modules - actual_modules
+    assert not resolved, (
+        f"baseline modules no longer return the fabricated-fact literal: {sorted(resolved)} — "
+        "remove them from _FABRICATED_FACT_BASELINE (the fabrication is fixed there)."
+    )
+    # Confirm the two GAP-FAB-NOTIF instances this task fixes are ACTUALLY fixed (not merely
+    # absent from `actual` because the module failed to parse, etc.).
+    assert "credenciamento" not in actual
+    assert "adequacao" not in actual
