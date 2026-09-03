@@ -13,6 +13,7 @@ de agente (AGJ-*), documentada no `agent.yaml` de cada agente.
 | SP-OP-RECURSO-001 | Recurso de glosa | Prazos contratuais | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-NIP-001 | Resposta a NIP | Prazos ANS | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-ANS-SUBMIT-001 | Envios periodicos ANS | Calendario regulatorio | 2 | modelado (suite de integração planejada — T3.1; DMN ans_sla adicionado ao contrato) |
+| SP-OP-ANS-CRON-001* | Agendador per-report_type dos envios ANS | Calendario regulatorio (dispara SP-OP-ANS-SUBMIT-001) | 2 | DRAFT — agendador puro, sem User Task/DMN propria; test spec + suite de integração existentes (PERSP-C5-ANSCRON-TESTSPEC) |
 | SP-OP-CANCEL-001 | Cancelamento de contrato | RN 412 | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-REEMBOLSO-001 | Reembolso | RN 259 | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-INADIMPLENCIA-001 | Suspensao/rescisao | RN 593 | 3 | modelado (suite de integração planejada — T3.1) |
@@ -25,6 +26,12 @@ de agente (AGJ-*), documentada no `agent.yaml` de cada agente.
 Quadrupla obrigatoria por processo: `.bpmn` + contrato (`docs/processes/contracts/`) +
 DMNs derivadas (`spec/processes/dmn/`) + test spec (`docs/processes/test-specs/`).
 Jornadas de agente (sem BPMN): `docs/processes/journeys/` (Phase 0: AGJ-HELENA-TRIAGE).
+
+\* SP-OP-ANS-CRON-001 e timer-started (5 process definitions, um `TimerStartEvent` cada; nenhum
+caller chama `start_process`) — por isso fica FORA de `KNOWN_PROCESS_KEYS`
+(`process_allowlist.py:4,20`, invariante de 15 chaves; exclusao por desenho, nao lacuna). Contava
+com contrato (`docs/processes/contracts/SP-OP-ANS-CRON-001.md`) mas nao com esta linha nem com
+test spec ate PERSP-C5-ANSCRON-TESTSPEC.
 
 > Validar prazos exatos das RNs com regulatorio antes de modelar timers.
 Redesign completo: ver `operadora-process-redesign.md` no projeto de arquitetura.
