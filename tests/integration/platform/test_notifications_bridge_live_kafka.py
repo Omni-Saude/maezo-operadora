@@ -35,6 +35,27 @@ from maezo.platform.integrations.notifications_bridge import (
 )
 from maezo.platform.notification_bridge import NotificationBridge
 
+# ---------------------------------------------------------------------------
+# m10 (gatekeeper R1 do PR-3) — ESTE ARQUIVO NAO RODA EM NENHUMA PERNA DE CI HOJE.
+#
+# Nao ha `pytestmark = pytest.mark.integration` aqui — e nenhum arquivo de
+# `tests/integration/platform/` tem, e a convencao do diretorio e auto-skip pelas fixtures de
+# alcancabilidade (`_engine_reachable`/`_pg_reachable`), nao marker. O efeito medido pelo
+# gatekeeper: sob `pytest -m integration` estas suites saem como `deselected` (rc=5) e sob
+# `-m "not integration"` elas sao coletadas mas SKIPPAM (sem stack). Resultado liquido: elas
+# nunca executam de verdade.
+#
+# Isso importa em particular para `test_aiokafka_bridge_consumer_consumes_a_real_published_message`
+# abaixo: e a unica prova de que uma mensagem `agents.events.recurso.intake_recebido` entregue por
+# um broker REAL e recebida e conformada pelo consumidor de verdade (ADR-0040 §3.1, OQ-R1).
+#
+# NAO corrigido aqui de proposito: a condicao e PRE-EXISTENTE (nao introduzida pelo PR-3) e vale
+# para os quatro arquivos do diretorio, incluindo dois que este PR nao toca
+# (`test_notifications_bridge_live_pg.py`, `test_events_kafka_producer_live.py`). Marcar so os
+# dois que o PR-3 toca deixaria o diretorio com duas convencoes; a correcao e do harness e vai
+# como item do orquestrador. Divulgado aqui, no ponto do defeito, e nao apenas no corpo do PR.
+# ---------------------------------------------------------------------------
+
 _CONNECT_TIMEOUT_S = 5.0
 
 

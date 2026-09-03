@@ -31,8 +31,9 @@ SP-OP-RECURSO-001 — Analise de Recurso de Glosa (resposta ao recurso). Status:
 Phase 2, Wave A. Requer revisao humana (auditoria de recurso + regulatorio/juridico) antes de
 qualquer deploy — ver docs/review-queue.md.
 
-PERSPECTIVA: o dono do processo e a OPERADORA. Ela RECEBE do prestador o recurso de glosa contra
-uma glosa que ela propria aplicou em SP-OP-CONTAS-001, julga a ADMISSIBILIDADE,
+PERSPECTIVA: o dono do processo e a OPERADORA. Ela RECEBE o recurso de glosa
+que o prestador interpoe contra uma glosa que ela propria aplicou em
+SP-OP-CONTAS-001, julga a ADMISSIBILIDADE,
 analisa o MERITO (administrativo pelo analista de recurso; tecnico-clinico pelo medico auditor) e
 EMITE a resposta ao prestador: deferir, deferir parcialmente, indeferir — ou inadmitir.
 (ADR-0040, Proposed — nao ratificada.)
@@ -85,8 +86,8 @@ prestador_id, beneficiario_pseudo_id (ADR-0006), glosa_type, glosa_reason_code, 
 (double), codigo_procedimento_tuss, cid10 (opc), documentos_recurso_refs (json),
 data_recebimento_recurso_iso (data em que a OPERADORA recebeu o recurso — ancora UNICA do SLA e do
 teto absoluto; normalizada/defaultada fail-safe pelo worker validate_recurso),
-data_ciencia_glosa (opc — dado do pleito informado pelo prestador; JAMAIS base do prazo da
-operadora), data_vencimento (vencimento da conta de origem — exigida pelo handoff de pagamento;
+data_ciencia_alegada_prestador (opc — data que o prestador ALEGA no pleito; registro do que ele
+declarou, JAMAIS base de prazo da operadora), data_vencimento (vencimento da conta de origem — exigida pelo handoff de pagamento;
 DRAFT/verify OQ-3), glosa_existe*, dentro_prazo_recurso*, documentacao_recurso_completa*.
 (* pre-resolvidos por ST_ValidarRecurso antes de BRT_Admissibilidade.) Contrato completo:
 docs/processes/contracts/SP-OP-RECURSO-001.md.
@@ -139,9 +140,9 @@ ate la, o teto e absoluto e CONSERVADOR.
          admissibilidade `glosa_existe` / `dentro_prazo_recurso` / `documentacao_recurso_completa`
          ANTES de BRT_Admissibilidade. Guarda `glosa_id` (_require_glosa_id) -> 3o site de
          ERR_RECURSO_INVALID_GLOSA. -->
-    <bpmn:serviceTask id="ST_ValidarRecurso" name="Validar recurso na origem e resolver fatos de admissibilidade"
+    <bpmn:serviceTask id="ST_ValidarRecurso" name="Validar a glosa de origem e normalizar a ancora de prazo da operadora"
                       camunda:type="external" camunda:topic="operadora.recurso.validate_recurso">
-      <bpmn:documentation>A ancora do SLA e do teto absoluto e a data em que a OPERADORA recebeu o recurso (`data_recebimento_recurso_iso`), normalizada aqui e nao mais defaultada para `data_ciencia_glosa` (que e a ancora do RECORRENTE — o prazo de interposicao nao e da operadora). Quando ausente/invalida, o worker defaulta fail-safe para HOJE/UTC e LOGA warning; a tempestividade continua sendo aferida separadamente por `dentro_prazo_recurso`, que roteia a ANALISE_HUMANA quando falsa (recurso_admissibility row r_fora_prazo_humano) — um recurso com ancora duvidosa vai a humano pela admissibilidade, nunca passa despercebido pelo relogio.</bpmn:documentation>
+      <bpmn:documentation>A ancora do SLA e do teto absoluto e a data em que a OPERADORA recebeu o recurso (`data_recebimento_recurso_iso`), normalizada aqui e nao mais defaultada para a data que o prestador declara (`data_ciencia_alegada_prestador`): aquele relogio e do recorrente, e o da operadora comeca no recebimento. Quando ausente/invalida, o worker defaulta fail-safe para HOJE/UTC e LOGA warning; a tempestividade continua sendo aferida separadamente por `dentro_prazo_recurso`, que roteia a ANALISE_HUMANA quando falsa (recurso_admissibility row r_fora_prazo_humano) — um recurso com ancora duvidosa vai a humano pela admissibilidade, nunca passa despercebido pelo relogio. ALCANCE REAL (m7): os fatos `glosa_existe`/`dentro_prazo_recurso`/`documentacao_recurso_completa` chegam PRE-RESOLVIDOS no escopo do processo e sao ECOADOS por este worker (fail-closed para false quando ausentes, no eco do bridge); o que ele efetivamente resolve aqui e a ancora de prazo e a guarda de `glosa_id`.</bpmn:documentation>
       <bpmn:incoming>Flow_PubReceived_Validar</bpmn:incoming>
       <bpmn:outgoing>Flow_Validar_Admiss</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -463,7 +464,7 @@ prazo de resposta ao recurso (docs/compliance/rn-currency-review.md:87, 190-193)
          pagamento da glosa revertida a SP-OP-PAGTO-001 (I-PAGTO-1). -->
     <bpmn:serviceTask id="ST_ComunicarDeferimento" name="Comunicar deferimento do recurso ao prestador"
                       camunda:type="external" camunda:topic="operadora.recurso.comunicar_resposta">
-      <bpmn:documentation>Emite ao prestador a resposta ao recurso (componente TISS "Resposta ao Recurso de Glosa" — nome PROPOSTO, DRAFT/verify OQ-1). Cunha `protocolo_resposta_recurso` deterministicamente pela business key (idempotente em re-entrega). Nao decide nada — a decisao ja foi humana.</bpmn:documentation>
+      <bpmn:documentation>Emite ao prestador a resposta ao recurso que ele apresentou (componente TISS "Resposta ao Recurso de Glosa" — nome PROPOSTO, DRAFT/verify OQ-1). Cunha `protocolo_resposta_recurso` deterministicamente pela business key (idempotente em re-entrega). Nao decide nada — a decisao ja foi humana.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="tipo_comunicacao">deferimento</camunda:inputParameter>
@@ -490,7 +491,7 @@ prazo de resposta ao recurso (docs/compliance/rn-currency-review.md:87, 190-193)
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.recurso.completed</camunda:inputParameter>
           <camunda:inputParameter name="event_desfecho">deferido_humano</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,protocolo_resposta_recurso,analista_id</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,protocolo_resposta_recurso,analista_id,auditor_id</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Handoff_PubDeferido</bpmn:incoming>
@@ -536,7 +537,7 @@ prazo de resposta ao recurso (docs/compliance/rn-currency-review.md:87, 190-193)
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.recurso.completed</camunda:inputParameter>
           <camunda:inputParameter name="event_desfecho">deferido_parcial_humano</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,protocolo_resposta_recurso,analista_id</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,protocolo_resposta_recurso,analista_id,auditor_id</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_HandoffParcial_PubParcial</bpmn:incoming>
@@ -648,7 +649,7 @@ prazo de resposta ao recurso (docs/compliance/rn-currency-review.md:87, 190-193)
     <!-- Default fail-closed dos DOIS gateways decisorios: uma decisao ausente/desconhecida termina
          em ERRO visivel, NUNCA numa acao por omissao (espelha SP-OP-AUTH-001's throw-end). -->
     <bpmn:endEvent id="End_ErrRecursoDecisaoInvalida" name="Erro: decisao do recurso ausente ou desconhecida (ERR_RECURSO_DECISAO_INVALIDA)">
-      <bpmn:documentation>Terminal de ERRO (nao adverso e nao favoravel): a decisao humana chegou ausente ou fora do dominio declarado. NENHUM efeito e materializado — nem indeferimento, nem comunicacao, nem ordem de pagamento. Antes desta correcao, o default dos dois gateways decisorios era uma ACAO (os ramos do antigo vocabulario do recorrente): uma variavel ausente produzia um ato. Agora produz um erro visivel.</bpmn:documentation>
+      <bpmn:documentation>Terminal de ERRO (nao adverso e nao favoravel): a decisao humana chegou ausente ou fora do dominio declarado. NENHUM efeito e materializado — nem indeferimento, nem comunicacao, nem ordem de pagamento. Antes desta correcao, os defaults dos DOIS gateways apontavam para fluxos de ACAO do desenho antigo (ids deletados nesta reconstrucao, sem shim): uma variavel ausente produzia um ato. Agora produz um erro visivel.</bpmn:documentation>
       <bpmn:incoming>Flow_GWDec_Invalida</bpmn:incoming>
       <bpmn:incoming>Flow_GWMerito_Invalida</bpmn:incoming>
       <bpmn:errorEventDefinition id="EED_RecursoDecisaoInvalida" errorRef="Error_RecursoDecisaoInvalida"/>

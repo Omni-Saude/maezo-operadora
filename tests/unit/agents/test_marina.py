@@ -119,7 +119,7 @@ def _recurso_state(**overrides: Any) -> MarinaState:
         "valor_glosado_brl": 800.0,
         "codigo_procedimento_tuss": "10101012",
         "documentos_recurso_refs": [],
-        "data_ciencia_glosa": "2026-06-01",
+        "data_ciencia_alegada_prestador": "2026-06-01",
         "glosa_existe": True,
         "dentro_prazo_recurso": True,
         "documentacao_recurso_completa": True,

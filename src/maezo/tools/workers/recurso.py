@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.agents.andre.keys import key_segment
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
 from maezo.tools.workers.base import FunctionWorker, non_blank, pick_fields
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
@@ -171,9 +172,11 @@ class RecursoInput:
     codigo_procedimento_tuss: str = ""
     cid10: str | None = None
     documentos_recurso_refs: list[dict[str, Any]] = field(default_factory=list)
-    #: Data informada pelo prestador como ciencia da glosa — registro do PLEITO, JAMAIS base do
-    #: prazo da operadora (essa e `data_recebimento_recurso_iso`). Opcional.
-    data_ciencia_glosa: str = ""
+    #: Data que o prestador ALEGA no pleito como a de sua ciencia — registro do que ele
+    #: declarou, JAMAIS base do prazo da operadora (essa e `data_recebimento_recurso_iso`).
+    #: Renomeada no reparo do gate do PR-3 (M1): o nome antigo era o relogio do RECORRENTE e a
+    #: cerca de perspectiva (familia `ancora-kpi`) o acusa. Opcional.
+    data_ciencia_alegada_prestador: str = ""
     #: Data em que a OPERADORA recebeu o recurso — ancora UNICA do SLA e do teto absoluto.
     #: Normalizada/defaultada fail-safe por `validate_recurso`.
     data_recebimento_recurso_iso: str = ""
@@ -715,7 +718,14 @@ def validate_recurso_entry(
     _require_glosa_id(str(variables.get("glosa_id", "")))
     input_data = RecursoInput(**pick_fields(variables, RecursoInput))
     result = validate_recurso(input_data)
-    return dataclasses.asdict(result)
+    out = dataclasses.asdict(result)
+    # m8: `ST_ValidarRecurso` is the FIRST service task on EVERY path, so this is the first
+    # completion payload the engine sees for this process. `errors` is a `list[str]`; a list
+    # becomes a JSON/object process variable in CIB Seven and nothing in the BPMN reads it.
+    # Flatten it to a scalar (empty string when clean) — observability without an untyped
+    # object variable, and without silently dropping the diagnosis.
+    out["errors_validacao"] = "; ".join(out.pop("errors"))
+    return out
 
 
 def assess_eligibility_entry(
@@ -1131,9 +1141,26 @@ LASTRO_ORIGEM_RECURSO = "recurso_deferimento_humano"
 
 TIPO_PAGAMENTO_GLOSA_REVERTIDA = "glosa_revertida"
 
+#: The ONLY declared source of the amount this handoff can carry (m1). The BPMN pins
+#: `fonte_valor=deferido` by `camunda:inputParameter` on BOTH handoff tasks
+#: (`ST_HandoffPagamentoRecurso`, `ST_HandoffPagamentoParcial`) and the worker ALWAYS derives
+#: `valor_pagamento_cents` from `valor_deferido_brl` — so any other value would put a provenance
+#: claim (`AgentDecisionProvenance.decision_basis["fonte_valor"]`) in CONTRADICTION with the real
+#: source. Refused rather than echoed: an unknown source is a disclosed gap, never a plausible label.
+FONTES_VALOR_PERMITIDAS: frozenset[str] = frozenset({"deferido"})
+
 
 def _pagto_business_key(tenant_id: str, numero_guia_tiss: str, glosa_id: str) -> str:
     """`PAGTO-{tenant_id}-{numero_guia_tiss}-{glosa_id}` — ONE order per reverted glosa.
+
+    NORMALISED THROUGH `agents.andre.keys.key_segment` (gate finding M2 — the SAME defect that
+    module's header documents for the SAME family: "a whitespace-padded `ordem_pagamento_id`
+    produced `PAGTO-{t}- 123 ` against the other site's `PAGTO-{t}-123`"). Without it a
+    re-delivered handoff whose `numero_guia_tiss` arrives with one extra space mints a DIFFERENT
+    key, the STRICT dedup claim does not see the previous instance, and the same reverted glosa is
+    paid TWICE. `non_blank` above rejects absent/empty/whitespace-only/`None` but ACCEPTS
+    whitespace-PADDED, so refusing is not enough on its own — the segments must also be normalised.
+    Position-preserving: an empty segment is impossible here because the caller refuses first.
 
     A THIRD documented shape of the `PAGTO-{tenant}-...` family, alongside the contract's
     `PAGTO-{tenant}-{ordem_pagamento_id}` and `PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}`
@@ -1144,7 +1171,7 @@ def _pagto_business_key(tenant_id: str, numero_guia_tiss: str, glosa_id: str) ->
     start-dedup family (`mcp_cibseven.transport._START_DEDUP_POLICY`), so that convergence is
     enforced by a durable claim, not by hope.
     """
-    return f"PAGTO-{tenant_id}-{numero_guia_tiss}-{glosa_id}"
+    return f"PAGTO-{key_segment(tenant_id)}-{key_segment(numero_guia_tiss)}-{key_segment(glosa_id)}"
 
 
 def _ordem_pagamento_id(tenant_id: str, numero_guia_tiss: str, glosa_id: str) -> str:
@@ -1153,8 +1180,11 @@ def _ordem_pagamento_id(tenant_id: str, numero_guia_tiss: str, glosa_id: str) ->
     Same determinism discipline as `contas._glosa_id`: a re-delivered external task must mint the
     IDENTICAL id, never a fresh identity for one decision. It is an internal identifier of the
     order RECURSO creates — not a claim about any external system's numbering.
+
+    Composed through the SAME `key_segment` normalisation as `_pagto_business_key` (M2): the order
+    id and the key it travels with must never disagree about what the identity of the glosa is.
     """
-    return f"ORDEM-GLOSAREV-{tenant_id}-{numero_guia_tiss}-{glosa_id}"
+    return f"ORDEM-GLOSAREV-{key_segment(tenant_id)}-{key_segment(numero_guia_tiss)}-{key_segment(glosa_id)}"
 
 
 def handoff_pagamento(
@@ -1198,6 +1228,11 @@ def handoff_pagamento(
         `RecursoHandoffPagamentoInvalidoError` (deterministic -> incident);
       - `valor_deferido_brl` absent/blank/non-numeric/`<= 0` raises — `_parse_valor_monetario`
         NEVER defaults to `0`, even though the User Task declares the field mandatory;
+      - `fonte_valor` outside `FONTES_VALOR_PERMITIDAS` raises (m1) — the amount always comes
+        from `valor_deferido_brl`, so an unknown source label would make the ADR-0007 provenance
+        contradict the value it describes;
+      - a blank `lastro_decisor_id` (neither `analista_id` nor `auditor_id`) raises (m2) — the
+        order is downstream of a HUMAN decision, so the decisor is a required piece of evidence;
       - `data_vencimento` blank raises. It is `sim` in the PAGTO contract and RECURSO inherits it
         from the intake envelope; where it comes from for a reverted glosa (the original bill's
         due date, or a new term counted from the deferimento) is OQ-3 — DRAFT/verify with
@@ -1210,10 +1245,21 @@ def handoff_pagamento(
     I-PAGTO-1 guarantees the order lands in.
     """
     # non_blank BEFORE str(): explicit None must refuse, never stringify to the truthy "None".
+    # NORMALISED (M2) with the same `key_segment` the composers use, so the identity the PAYLOAD
+    # and the LOGS carry is byte-identical to the identity the STRICT dedup key is minted from —
+    # a padded `numero_guia_tiss` must not travel to PAGTO alongside a key that stripped it.
+    # `non_blank` alone is not enough on either side: it ACCEPTS whitespace-padding, and it
+    # ACCEPTS `0` (whose `key_segment` is `""`), so the emptiness is re-checked after normalising.
+    tenant_id = key_segment(variables.get("tenant_id"))
+    numero_guia_tiss = key_segment(variables.get("numero_guia_tiss"))
+    glosa_id = key_segment(variables.get("glosa_id"))
     if not (
         non_blank(variables.get("tenant_id"))
         and non_blank(variables.get("numero_guia_tiss"))
         and non_blank(variables.get("glosa_id"))
+        and tenant_id
+        and numero_guia_tiss
+        and glosa_id
     ):
         logger.error(
             "recurso_handoff_pagamento_no_glosa_identity",
@@ -1224,10 +1270,6 @@ def handoff_pagamento(
             "nao ha ancora de business key para iniciar PAGTO-001 (recusado, nunca inicia com "
             "business key vazia/degenerada)"
         )
-
-    tenant_id = str(variables.get("tenant_id", ""))
-    numero_guia_tiss = str(variables.get("numero_guia_tiss", ""))
-    glosa_id = str(variables.get("glosa_id", ""))
 
     valor_deferido = _parse_valor_monetario(variables.get("valor_deferido_brl"))
     if valor_deferido is None or valor_deferido <= 0:
@@ -1259,7 +1301,24 @@ def handoff_pagamento(
             "to a retry/incident (never a silent no-op, never an un-audited start)"
         )
 
-    lastro_decisor_id = str(variables.get("analista_id") or variables.get("auditor_id") or "")
+    fonte_valor = str(variables.get("fonte_valor") or "deferido").strip()
+    if fonte_valor not in FONTES_VALOR_PERMITIDAS:
+        logger.error("recurso_handoff_pagamento_fonte_valor_desconhecida", glosa_id=glosa_id)
+        raise RecursoHandoffPagamentoInvalidoError(
+            f"handoff_pagamento: fonte_valor={fonte_valor!r} fora do dominio declarado "
+            f"{sorted(FONTES_VALOR_PERMITIDAS)} — o valor vem SEMPRE de valor_deferido_brl, e "
+            "declarar outra fonte poria a proveniencia ADR-0007 em contradicao com o valor "
+            "(recusado, nunca ecoado)"
+        )
+
+    lastro_decisor_id = key_segment(variables.get("analista_id") or variables.get("auditor_id"))
+    if not lastro_decisor_id:
+        logger.error("recurso_handoff_pagamento_sem_decisor", glosa_id=glosa_id)
+        raise RecursoHandoffPagamentoInvalidoError(
+            "handoff_pagamento: nem analista_id nem auditor_id presentes — uma ordem de pagamento "
+            "originada de decisao humana NAO pode sair sem o decisor identificado (ADR-0007; "
+            "`lastro_decisor_id` e a EVIDENCIA que UT_AnaliseAdmissibilidade le). Recusado."
+        )
     business_key = _pagto_business_key(tenant_id, numero_guia_tiss, glosa_id)
     payload: dict[str, Any] = {
         "tenant_id": tenant_id,
@@ -1275,8 +1334,8 @@ def handoff_pagamento(
         "data_vencimento": data_vencimento,
         "conta_origem_ref": str(variables.get("conta_origem_ref", "")),
         "instrumento_pagamento": str(variables.get("instrumento_pagamento", "")),
-        # Declared source of the amount (M7) — never inferred downstream.
-        "fonte_valor": str(variables.get("fonte_valor") or "deferido"),
+        # Declared source of the amount (M7) — validated above (m1), never inferred downstream.
+        "fonte_valor": fonte_valor,
         # I-PAGTO-1 evidence, NOT the fact.
         "lastro_origem": LASTRO_ORIGEM_RECURSO,
         "lastro_decisor_id": lastro_decisor_id,
