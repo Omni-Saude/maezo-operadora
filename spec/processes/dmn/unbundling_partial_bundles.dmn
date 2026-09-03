@@ -19,11 +19,24 @@
        veredito. As duas rows catch-all redundantes do reference (Rule_HighRisk + Rule_Fallback)
        colapsadas em uma unica catch-all (hitPolicy FIRST). camunda:historyTimeToLive adicionado;
        namespace -> maezo.health. -->
+  <!-- GAP-PERSP-DMN-DEAD-INPUTS (mesma classe de GAP-CANCEL-2,
+       docs/reports/business-logic-audit-improvement-plan.md:134): `tuss_codes` (rotulo doador
+       "TUSS Codes Present") era a 1a coluna desta tabela mas usava `-` em TODAS as 4 rows, e
+       nenhuma expressao FEEL de saida o lia — efeito ZERO. A coluna estava morta nas DUAS
+       pontas: nenhuma row a lia E nenhum chamador a preenchia — o worker ja NAO envia
+       `tuss_codes` desde T1.5 (`_SCORING_INPUT_KEYS`, src/maezo/tools/workers/fraude.py: campo
+       lista-por-convencao ligado a um input declarado `string`, cujo `str()` cego produziria o
+       repr `"['30101012']"`). REMOVIDO (a coluna e as 4 celulas `-`; as celulas `_i2`
+       renomeadas para `_i1`, uma por row): a avaliacao no motor e IDENTICA (uma celula `-` casa
+       sempre) e a assinatura da tabela passa a bater com o que o worker de fato envia — esta
+       tabela decide por `bundle_group_id`, e SO por ele. NAO foi promovido a gate: quais
+       combinacoes de codigos TUSS caracterizam desagrupamento e conteudo de auditoria
+       medica/TUSS (SME), nunca invencao de engenharia — registrado em docs/review-queue.md. Se
+       uma regra futura RATIFICADA precisar dos codigos, vale o caminho ja documentado em
+       fraude.py: declarar o typeRef de colecao correto e normalizar deliberadamente (join),
+       NUNCA um cast cego. hitPolicy FIRST e a row catch-all fail-closed INALTERADOS. -->
   <decision id="unbundling_partial_bundles" name="Unbundling Partial Bundles" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_unbundling_partial_bundles" hitPolicy="FIRST">
-      <input id="in_tuss_codes" label="TUSS Codes Present">
-        <inputExpression id="ie_tuss_codes" typeRef="string"><text>tuss_codes</text></inputExpression>
-      </input>
       <input id="in_bundle_group_id" label="Bundle Group Status">
         <inputExpression id="ie_bundle_group_id" typeRef="string"><text>bundle_group_id</text></inputExpression>
       </input>
@@ -32,24 +45,21 @@
       <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
       <rule id="r_partial_bundle">
         <description>Pacote parcial: codigos parciais de pacote identificados — indicador presente (possivel desagrupamento)</description>
-        <inputEntry id="r_partial_bundle_i1"><text>-</text></inputEntry>
-        <inputEntry id="r_partial_bundle_i2"><text>"partial"</text></inputEntry>
+        <inputEntry id="r_partial_bundle_i1"><text>"partial"</text></inputEntry>
         <outputEntry id="r_partial_bundle_o1"><text>25</text></outputEntry>
         <outputEntry id="r_partial_bundle_o2"><text>"unbundling_partial_bundles"</text></outputEntry>
         <outputEntry id="r_partial_bundle_o3"><text>"Indicador: possivel desagrupamento — codigos parciais de pacote identificados — fato de montagem de dossie, NUNCA veredito"</text></outputEntry>
       </rule>
       <rule id="r_complete_bundle">
         <description>Pacote completo identificado — indicador ausente</description>
-        <inputEntry id="r_complete_bundle_i1"><text>-</text></inputEntry>
-        <inputEntry id="r_complete_bundle_i2"><text>"complete"</text></inputEntry>
+        <inputEntry id="r_complete_bundle_i1"><text>"complete"</text></inputEntry>
         <outputEntry id="r_complete_bundle_o1"><text>0</text></outputEntry>
         <outputEntry id="r_complete_bundle_o2"><text>"none"</text></outputEntry>
         <outputEntry id="r_complete_bundle_o3"><text>"Sem indicador de desagrupamento: pacote completo identificado — fato de montagem de dossie"</text></outputEntry>
       </rule>
       <rule id="r_no_bundle">
         <description>Nenhum codigo de pacote presente — indicador ausente</description>
-        <inputEntry id="r_no_bundle_i1"><text>-</text></inputEntry>
-        <inputEntry id="r_no_bundle_i2"><text>"none"</text></inputEntry>
+        <inputEntry id="r_no_bundle_i1"><text>"none"</text></inputEntry>
         <outputEntry id="r_no_bundle_o1"><text>0</text></outputEntry>
         <outputEntry id="r_no_bundle_o2"><text>"none"</text></outputEntry>
         <outputEntry id="r_no_bundle_o3"><text>"Sem indicador de desagrupamento: nenhum codigo de pacote presente — fato de montagem de dossie"</text></outputEntry>
@@ -57,7 +67,6 @@
       <rule id="r_catchall">
         <description>Catch-all: status de pacote desconhecido — indicador moderado (requer avaliacao na montagem). A tabela alimenta o dossie, nao decide.</description>
         <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
-        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
         <outputEntry id="r_catchall_o1"><text>10</text></outputEntry>
         <outputEntry id="r_catchall_o2"><text>"unbundling_partial_bundles_indeterminado"</text></outputEntry>
         <outputEntry id="r_catchall_o3"><text>"Indicador moderado: status de pacote desconhecido — requer avaliacao na montagem do dossie"</text></outputEntry>

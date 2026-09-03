@@ -173,19 +173,19 @@ _SCORING_DECISIONS: tuple[str, ...] = (
 # integration has already attached to process variables, with only mechanical type coercion
 # (never business logic) applied in `_collect_scoring_inputs`.
 #
-# `tuss_codes` (unbundling_partial_bundles' `ie_tuss_codes`, typeRef="string") is DELIBERATELY
-# ABSENT from this tuple (T1.5 DMN-input hardening): it is a list-per-convention field bound to a
-# `string`-declared DMN input whose column is `-` (wildcard) in EVERY rule of the only table that
-# declares it (verified against unbundling_partial_bundles.dmn — no rule reads it). A generic
-# `str()` coercion would turn `["30101012"]` into the Python repr `"['30101012']"`; if a future
-# rule ever did FEEL `starts with(...)`/`contains(...)` on it that repr would SILENTLY FLIP the
-# decision — strictly worse than today's fail-closed no-op. Since it is wildcard-only dead weight,
-# the cleanest fix is to NOT forward it at all: evaluation is byte-identical today (the wildcard
-# ignores a missing input) and the latent repr-cast footgun is removed. If a future rule needs it,
-# fix the DMN `typeRef` to a collection type and normalize deliberately (join) — never blanket-cast.
+# `tuss_codes` is DELIBERATELY ABSENT from this tuple (T1.5 DMN-input hardening) and, since
+# GAP-PERSP-DMN-DEAD-INPUTS, NO table declares it either. History: it was a list-per-convention
+# field bound to `unbundling_partial_bundles`' `ie_tuss_codes` (typeRef="string") whose column was
+# `-` (wildcard) in EVERY rule — no rule ever read it. A generic `str()` coercion would turn
+# `["30101012"]` into the Python repr `"['30101012']"`; a future FEEL `starts with(...)`/
+# `contains(...)` on that repr would SILENTLY FLIP the decision, so T1.5 stopped forwarding it.
+# That left the column dead on BOTH ends (nothing read it, nothing supplied it), so
+# GAP-PERSP-DMN-DEAD-INPUTS removed the column from the table as well — the table's signature now
+# matches what this worker actually sends. If a future RATIFIED rule needs the codes, re-declare
+# the input with a collection `typeRef` and normalize deliberately (join) — never a blanket cast.
 _SCORING_INPUT_KEYS: tuple[str, ...] = (
     "risk_score",  # risk_thresholds (integer)
-    "encounter_class",  # upcoding_complexity_ceiling + frequency_zscore_threshold (string)
+    "encounter_class",  # upcoding_complexity_ceiling (string) — the ONLY table that reads it
     "code_tier",  # upcoding_complexity_ceiling (integer)
     "z_score",  # frequency_zscore_threshold (double)
     "has_tuss_codes",  # phantom_no_diagnosis (boolean)
@@ -287,8 +287,10 @@ def _collect_scoring_inputs(variables: dict[str, Any]) -> dict[str, Any]:
     here (never business derivation): booleans via `_is_true`; the numeric signals in
     `_SCORING_NUMERIC_KEYS` via `_coerce_numeric` (coerce-or-DROP, fail-closed — a non-coercible
     value is omitted, never passed wrong-typed into DMN evaluation). `tuss_codes` is deliberately
-    not in `_SCORING_INPUT_KEYS` (repr-cast footgun — see that tuple's comment). All remaining keys
-    are genuine `string`-typeRef inputs, forwarded unchanged.
+    not in `_SCORING_INPUT_KEYS` (repr-cast footgun — see that tuple's comment) and no longer
+    declared by any table. All remaining keys are genuine `string`-typeRef inputs, forwarded
+    unchanged, and every one of them is read by at least one of the 7 tables (pinned by
+    `tests/unit/tools/workers/test_fraude.py::test_scoring_input_keys_are_exactly_the_seven_tables_inputs`).
     """
     evidence: dict[str, Any] = {}
     for key in _SCORING_INPUT_KEYS:

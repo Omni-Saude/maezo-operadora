@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="v0.2.0">
   <img src="https://img.shields.io/badge/status-alpha--dev-yellow" alt="Alpha Dev">
   <a href="https://github.com/Omni-Saude/maezo-operadora/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/tests-passing_(CI)-brightgreen" alt="tests passing (CI)"></a>
-  <img src="https://img.shields.io/badge/coverage-73K_LOC-blue" alt="~73K LOC">
+  <img src="https://img.shields.io/badge/coverage-74K_LOC-blue" alt="~74K LOC">
   <img src="https://img.shields.io/badge/lint-0_issues-brightgreen" alt="Lint: 0 issues">
   <img src="https://img.shields.io/badge/mypy-strict_clean-brightgreen" alt="Mypy: strict clean">
   <img src="https://img.shields.io/badge/milestones-15/15_self--certified-orange" alt="15/15 self-certified (unverified)">
@@ -29,8 +29,8 @@ Plataforma **agents-first** completa para operadoras de saúde (payer). Reconstr
 | Agentes AI | 10 | Helena, Rafael, Marina, Gustavo, Lucas, Carolina, Fernando, Valentina, Beatriz, André |
 | MCP Servers | 5 | CIB Seven, DMN, FHIR, WhatsApp, Memory |
 | Testes | CI workflow | Unitários cobrindo workers, gateway, agents, platform, tools (veja CI para count atual) |
-| Código fonte | ~73K LOC | Arquivos Python em `src/maezo/` (`find src -name '*.py' \| xargs wc -l`; veja a árvore para count atual) |
-| Documentação | ~205K palavras | 16 contratos SP-OP, 39 ADRs (35 Accepted + 4 Proposed), 45 DLs, 14 runbooks |
+| Código fonte | ~74K LOC | Arquivos Python em `src/maezo/` (`find src -name '*.py' \| xargs wc -l` -> 74279, 2026-09-03 pós-merge com `origin/main`; veja a árvore para count atual) |
+| Documentação | ~205K palavras | 16 contratos SP-OP, 39 ADRs (35 Accepted + 4 Proposed), 45 DLs, 22 runbooks (14 gerais + 8 de alerta; exclui os 2 drills em `docs/runbooks/drills/`) |
 
 ### Princípios inegociáveis
 
@@ -55,14 +55,14 @@ make type   → Success: no issues found (mypy --strict; veja CI para output atu
 | Testes unitários | CI workflow (dynamically updated) |
 | Arquivos fonte (`src/`) | veja a árvore `src/` (count estático removido — rot) |
 | Arquivos de teste (`tests/`) | veja a árvore `tests/` (count estático removido — rot) |
-| Linhas de código (src) | ~73K (`find src -name '*.py' \| xargs wc -l`, 2026-09-03) |
+| Linhas de código (src) | ~74K (`find src -name '*.py' \| xargs wc -l` -> 74279, 2026-09-03 pós-merge com `origin/main`) |
 | Workers implementados | 16 (15 processos + registry) |
 | MCP servers | 5 |
 | Agentes AI | 10 (2 com graph.py completo) |
 | ADRs | 39 (35 Accepted, 4 Proposed) |
 | DLs (Decisions Log) | 45 |
 | Contratos SP-OP | 16 |
-| Runbooks | 14 (+ `README.md` índice + `drills/`) |
+| Runbooks | 22 (14 gerais + 8 de alerta; drills fora da contagem) |
 
 ---
 
@@ -147,7 +147,8 @@ src/maezo/
 | [docs/processes/catalog.md](docs/processes/catalog.md) | Catálogo de 15 processos SP-OP |
 | [docs/processes/contracts/](docs/processes/contracts/) | 16 contratos — ~1000 regras de negócio |
 | [docs/decisions-log.md](docs/decisions-log.md) | 45 decisões operacionais |
-| [docs/runbooks/](docs/runbooks/) | 14 runbooks operacionais .md + `README.md` índice + `drills/` (2 drills) |
+| [docs/runbooks/](docs/runbooks/) | 22 runbooks operacionais (14 gerais + 8 de alerta em `alerts/`; não inclui os 2 drills em `drills/`) |
+| [docs/observability/SLO.md](docs/observability/SLO.md) | SLIs/SLOs (DRAFT) para worker-runtime, agent-runtime e gateway; trace metrica→emissor dos 8 alertas |
 | [AGENTS.md](AGENTS.md) | Guia para desenvolvimento assistido por IA |
 | [PLANS.md](PLANS.md) | Plano de implementação greenfield |
 | [PROJECT.md](PROJECT.md) | Arquitetura em 30s |

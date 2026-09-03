@@ -18,13 +18,25 @@
        (resultado) e coluna risco REMOVIDAS; emite indicador_score (integer) + indicador_label +
        motivo — FATO DE MONTAGEM, NUNCA veredito. camunda:historyTimeToLive adicionado;
        namespace -> maezo.health. -->
+  <!-- GAP-PERSP-DMN-DEAD-INPUTS (mesma classe de GAP-CANCEL-2,
+       docs/reports/business-logic-audit-improvement-plan.md:134): `encounter_class` (rotulo
+       doador "Encounter Class") era declarado como 2a coluna desta tabela mas usava `-` em
+       TODAS as 5 rows, e nenhuma expressao FEEL de saida o lia — efeito ZERO. Uma tabela que
+       declara uma variavel que nunca le MENTE sobre a propria assinatura. REMOVIDO (a coluna e
+       as 5 celulas `-`): a avaliacao no motor e IDENTICA (uma celula `-` casa sempre) e a
+       assinatura passa a ser honesta — esta tabela decide por `z_score`, e SO por `z_score`.
+       NAO foi promovido a gate (o caminho que GAP-CANCEL-2 seguiu, onde o fato ja era coletado
+       pelo worker e o gate apenas tornava a row MAIS conservadora): definir limiar de z-score
+       POR CLASSE DE ATENDIMENTO e conteudo atuarial/medico de SME — escreve-lo aqui seria
+       FABRICAR regra. Registrado em docs/review-queue.md; uma regra futura RATIFICADA pode
+       reintroduzir a coluna. `encounter_class` segue sendo sinal REAL do processo — e lido por
+       upcoding_complexity_ceiling.dmn e por isso permanece em `_SCORING_INPUT_KEYS`
+       (src/maezo/tools/workers/fraude.py). hitPolicy FIRST e a row catch-all fail-closed
+       INALTERADOS. -->
   <decision id="frequency_zscore_threshold" name="Frequency Z-Score Threshold" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_frequency_zscore_threshold" hitPolicy="FIRST">
       <input id="in_z_score" label="Z-Score">
         <inputExpression id="ie_z_score" typeRef="double"><text>z_score</text></inputExpression>
-      </input>
-      <input id="in_encounter_class" label="Encounter Class">
-        <inputExpression id="ie_encounter_class_freq" typeRef="string"><text>encounter_class</text></inputExpression>
       </input>
       <output id="out_indicador_score" label="indicador_score" name="indicador_score" typeRef="integer"/>
       <output id="out_indicador_label" label="indicador_label" name="indicador_label" typeRef="string"/>
@@ -32,7 +44,6 @@
       <rule id="r_zscore_critical">
         <description>Desvio critico: z-score &gt; 3 — indicador presente de score alto (frequencia muito acima do esperado)</description>
         <inputEntry id="r_zscore_critical_i1"><text>&gt; 3</text></inputEntry>
-        <inputEntry id="r_zscore_critical_i2"><text>-</text></inputEntry>
         <outputEntry id="r_zscore_critical_o1"><text>30</text></outputEntry>
         <outputEntry id="r_zscore_critical_o2"><text>"frequency_zscore_threshold"</text></outputEntry>
         <outputEntry id="r_zscore_critical_o3"><text>"Indicador: quantidade de procedimentos muito acima do esperado (z &gt; 3) — fato de montagem de dossie, NUNCA veredito"</text></outputEntry>
@@ -40,7 +51,6 @@
       <rule id="r_zscore_high">
         <description>Desvio alto: z-score &gt; 2 — indicador presente</description>
         <inputEntry id="r_zscore_high_i1"><text>&gt; 2</text></inputEntry>
-        <inputEntry id="r_zscore_high_i2"><text>-</text></inputEntry>
         <outputEntry id="r_zscore_high_o1"><text>20</text></outputEntry>
         <outputEntry id="r_zscore_high_o2"><text>"frequency_zscore_threshold"</text></outputEntry>
         <outputEntry id="r_zscore_high_o3"><text>"Indicador: quantidade de procedimentos acima do esperado (z &gt; 2) — fato de montagem de dossie"</text></outputEntry>
@@ -48,7 +58,6 @@
       <rule id="r_zscore_medium">
         <description>Desvio medio: z-score &gt; 1.5 — indicador moderado</description>
         <inputEntry id="r_zscore_medium_i1"><text>&gt; 1.5</text></inputEntry>
-        <inputEntry id="r_zscore_medium_i2"><text>-</text></inputEntry>
         <outputEntry id="r_zscore_medium_o1"><text>10</text></outputEntry>
         <outputEntry id="r_zscore_medium_o2"><text>"frequency_zscore_threshold_moderado"</text></outputEntry>
         <outputEntry id="r_zscore_medium_o3"><text>"Indicador moderado: quantidade de procedimentos ligeiramente acima do esperado (z &gt; 1.5) — fato de montagem de dossie"</text></outputEntry>
@@ -56,7 +65,6 @@
       <rule id="r_zscore_normal">
         <description>Desvio normal: z-score &lt;= 1.5 — indicador ausente</description>
         <inputEntry id="r_zscore_normal_i1"><text>&lt;= 1.5</text></inputEntry>
-        <inputEntry id="r_zscore_normal_i2"><text>-</text></inputEntry>
         <outputEntry id="r_zscore_normal_o1"><text>0</text></outputEntry>
         <outputEntry id="r_zscore_normal_o2"><text>"none"</text></outputEntry>
         <outputEntry id="r_zscore_normal_o3"><text>"Sem indicador de frequencia: quantidade de procedimentos dentro da faixa normal — fato de montagem de dossie"</text></outputEntry>
@@ -64,7 +72,6 @@
       <rule id="r_catchall">
         <description>Catch-all: z-score desconhecido — indicador moderado (requer avaliacao na montagem). A tabela alimenta o dossie, nao decide.</description>
         <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
-        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
         <outputEntry id="r_catchall_o1"><text>10</text></outputEntry>
         <outputEntry id="r_catchall_o2"><text>"frequency_zscore_threshold_indeterminado"</text></outputEntry>
         <outputEntry id="r_catchall_o3"><text>"Indicador moderado: z-score desconhecido — requer avaliacao na montagem do dossie"</text></outputEntry>
