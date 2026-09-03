@@ -970,3 +970,80 @@ pacote.
 | `src/maezo/tools/workers/recurso.py:358-376` (`notify_prestador` — GAP-RECURSO-5) | Retorna incondicionalmente `{"notified": True, "prestador_id": ..., "glosa_id": ..., "message_type": ...}` no topico `operadora.recurso.notify_prestador`: afirma que o prestador foi avisado sem nenhum canal contatado e sem entrega observada. A harness grava o retorno no escopo do processo no `complete` (`harness.py:1778-1782`), entao a afirmacao entra na instancia. Zero consumidores hoje (ver grep acima) — o risco e de trilha/auditoria, nao de roteamento. Confirmar se algum relatorio/dashboard de SLA da RN 424/2017 (**DRAFT/verify** — prazo da RESPOSTA da operadora ao recurso, nao do prestador) le esse campo fora da arvore antes de trocar por `{}` | dono do processo RECURSO + regulatorio (RN 424/2017 permanece **DRAFT/verify**) | `DRAFT — nao corrigido; rastreado em _FABRICATED_FACT_BASELINE["recurso"]` |
 | `src/maezo/tools/workers/reembolso.py:578-602` (`request_documents` — GAP-REEMBOLSO-8) | Retorna `{"notified": True, "status": "pended", ...}`. **A propria docstring da funcao ja divulga** que este worker NAO publica o evento `agents.events.reembolso.pended` que o `event_topic_pended` do BPMN documenta ("this worker does not publish either, it only returns the notify signal") — e entao devolve `notified=True` assim mesmo: a divulgacao e o retorno se contradizem no mesmo corpo de funcao. Zero consumidores. Corrigir junto com a tarefa de wiring do produtor Kafka que a propria docstring aponta como dona do fix | dono do processo REEMBOLSO + wiring Kafka | `DRAFT — nao corrigido; rastreado em _FABRICATED_FACT_BASELINE["reembolso"]` |
 | `src/maezo/tools/workers/contas.py:449-472` (`notify_sla_risk` — GAP-CONTAS-7) | Retorna `{"notified": True, "grupo": ..., "sla_remaining": ..., "numero_lote_tiss": ...}` no timer nao-interruptivo de risco de SLA. Informativo e nunca adverso — a menor aposta das tres — mas a mesma afirmacao falsa: nenhum canal e contatado e a coordenacao-contas pode nao ter sido avisada. Zero consumidores | dono do processo CONTAS | `DRAFT — nao corrigido; rastreado em _FABRICATED_FACT_BASELINE["contas"]` |
+
+---
+
+## GAP-INAD-9 — `agents.events.inadimplencia.notified` e um asserto sem lastro, publicado incondicionalmente pelo proprio BPMN (mesma especie das tres fabricacoes acima, uma camada acima)
+
+Achado do gatekeeper VER-FAB2 (`VERIFY-WP-FAB2.md`, veredito REVISE MINOR sobre
+`fix/fatos-fabricados-inadimplencia-notify`). WP-FATOS-FABRICADOS slice 2 corrigiu
+`inadimplencia.dispatch_prior_notice` para nao mais fabricar `notificacao_previa_feita=True`
+(GAP-INAD-8) — a task agora **nao afirma nada** sobre a notificacao ter ocorrido. Um passo depois
+dela, porem, a propria BPMN publica incondicionalmente `agents.events.inadimplencia.notified` via
+`ST_PublishInadimplenciaNotified`
+(`spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn:149-158`), em toda instancia,
+numa arvore onde **nenhum worker tem canal para notificar um beneficiario** — o unico seam de
+WhatsApp (`maezo.tools.mcp_whatsapp.server.WhatsAppServer`) so e alcancavel pelos agentes
+conversacionais/webhook (`agents/helena/adapters.py`, `agents/lucas/adapters.py`,
+`platform/webhooks/whatsapp/dispatch.py`), nunca por um worker BPMN, e
+`platform/notification_bridge.py` e uma ponte processo-a-processo (inicia processos a partir de
+eventos), nao um canal de mensageria. O topico esta no particípio passado ("notified") mas nenhum
+componente desta arvore de fato notifica ninguem — o evento e um rastro de disparo de tarefa, nunca
+uma prova de entrega.
+
+**Zero consumidores hoje**, verificado com o comando exato do brief:
+`grep -rn "inadimplencia.notified" src/ spec/ tests/` retorna apenas: o produtor na propria BPMN
+(`SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn:60,133,139,149,153` — documentacao + declaracao
+do `serviceTask` + `event_topic`); e o teste de integracao que so' AFIRMA a publicacao
+(`tests/integration/processes/test_sp_op_inadimplencia_001.py:211,257,568,577,597`); mais a propria
+prosa corrigida em `src/maezo/tools/workers/inadimplencia.py:389` (ver abaixo). Ampliando para
+`docs/` o mesmo grep so acrescenta a linha "produz" do contrato
+(`docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md:111,116`) e a entrada historica do ledger
+(`docs/evidence-ledger.md:125`). Nenhum `conditionExpression` de BPMN, nenhum `inputExpression` de
+DMN, nenhuma leitura Python em lugar nenhum da arvore.
+
+**Pre-existente, nao adverso.** O evento foi introduzido em t3.1 (`docs/evidence-ledger.md:125`,
+2026-07-25), muito antes de GAP-INAD-8; este pacote NAO o criou e NAO o corrigiu — apenas parou de
+agravar a situacao (a task que o antecede, `dispatch_prior_notice`, parou de fabricar o fato interno
+correspondente). Nao roteia nada, nao bloqueia nada, nao produz efeito adverso ao beneficiario por
+si so — o risco e de trilha/auditoria, a mesma especie das tres fabricacoes de worker registradas na
+secao "GAP-INAD-8 followup" logo acima (GAP-RECURSO-5/GAP-REEMBOLSO-8/GAP-CONTAS-7), so que uma
+camada acima: la e o worker que fabrica o fato interno; aqui e o proprio BPMN que publica um evento
+externo sem lastro.
+
+**Correcao de prosa feita nesta mesma entrada:** `src/maezo/tools/workers/inadimplencia.py:387-395`
+(docstring de `dispatch_prior_notice`) chamava esse evento de "the notice requested event that DOES
+exist" — caracterizacao otimista demais: o evento nao e um "pedido de notificacao", e publicado
+incondicionalmente e nao afirma que nenhum pedido foi de fato feito a nenhum canal. A prosa foi
+corrigida para descrever o evento com precisao (publicado incondicionalmente pela BPMN, nao afirma
+nada sobre entrega) e para apontar para esta linha da fila (GAP-INAD-9). Nenhuma linha executavel
+mudou (`git diff` do arquivo mostra so' docstring).
+
+**Resolucao recomendada (decisao do dono do processo + regulatorio, NAO feita aqui):** renomear/
+re-semantizar o topico para algo que afirme so' o que aconteceu (ex.: algo como
+"...prior_notice_dispatch_requested" ou "...prior_notice_step_completed", nunca ".notified"), OU
+condicionar a publicacao a `comprovacao_notificacao_previa` (o campo humano ja existente, coletado
+em `UT_AnaliseInadimplencia` e exigido fail-closed por `_register_contract_suspension`,
+`inadimplencia.py:563,582`) — nesse caso o evento so dispararia quando houvesse, de fato, uma
+notificacao comprovada. Qualquer uma das duas opcoes toca a BPMN, o contrato
+(`SP-OP-INADIMPLENCIA-001.md:111`), o catalogo de processos e a asserção de integracao existente
+(`test_sp_op_inadimplencia_001.py:568-597`) — fora do escopo de um pacote de docs/comentario. RN 593
+permanece **DRAFT/verify**; nenhuma ancora regulatoria foi confirmada ou alterada por esta entrada.
+
+**Regra de merge do ratchet `_FABRICATED_FACT_BASELINE` (achado do VER-FAB2, item informativo do
+merge rule).** `_FABRICATED_FACT_BASELINE` (`tests/unit/tools/workers/test_worker_handler_purity.py
+:221-238`) e shrink-only: `resolved = baseline_modules - actual_modules; assert not resolved`
+(`test_worker_handler_purity.py:389-393`). As branches paralelas `feat/perspectiva-operadora-
+recurso` (PR #288) e `feat/perspectiva-operadora-contas-recurso` (PR #294) **DELETAM**
+`recurso.notify_prestador` e `contas.notify_sla_risk` (as duas fontes das entradas
+`_FABRICATED_FACT_BASELINE["recurso"]`/`["contas"]`). **Quem integrar qualquer uma delas nesta
+arvore deve, no MESMO commit de integracao**, remover a entrada `_FABRICATED_FACT_BASELINE["recurso"]`
+e/ou `["contas"]` correspondente (`test_worker_handler_purity.py:221-238`) e marcar
+GAP-RECURSO-5/GAP-CONTAS-7 resolvidas na secao "GAP-INAD-8 followup" acima — senao
+`test_no_domain_worker_returns_unconditional_true_for_fabricated_fact_keys` fica RED por design
+(`:389-393`). Isso e a catraca fazendo o trabalho dela, nao um defeito; e a regra de merge que
+precisa ser seguida quando #288/#294 chegarem.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn:149-158` (`ST_PublishInadimplenciaNotified`) | Publica `agents.events.inadimplencia.notified` incondicionalmente, em toda instancia, logo apos `ST_CheckPriorNotice`/`dispatch_prior_notice` (que desde GAP-INAD-8 nao afirma nada sobre a notificacao ter ocorrido). Nenhum worker desta arvore tem canal para notificar um beneficiario. Zero consumidores hoje (`grep -rn "inadimplencia.notified" src/ spec/ tests/` — so producer na BPMN + prosa/teste-que-afirma-publicacao, ver acima). Pre-existente (introduzido em t3.1, `docs/evidence-ledger.md:125`), nao corrigido nem agravado por WP-FATOS-FABRICADOS slice 2. Mesma especie das tres fabricacoes de worker registradas na secao "GAP-INAD-8 followup" acima (GAP-RECURSO-5/GAP-REEMBOLSO-8/GAP-CONTAS-7), uma camada acima (BPMN publicando, nao worker fabricando). Resolucao recomendada: renomear/re-semantizar o topico (nunca ".notified") OU condicionar a publicacao a `comprovacao_notificacao_previa` (campo humano ja exigido fail-closed por `_register_contract_suspension`, `inadimplencia.py:563,582`) — decisao do dono do processo INADIMPLENCIA + regulatorio (RN 593, **DRAFT/verify**), toca BPMN + contrato + catalogo + teste de integracao, fora do escopo de um pacote de docs/comentario. Regra de merge relacionada: quando PR #288/#294 (que deletam `recurso.notify_prestador`/`contas.notify_sla_risk`) integrarem, as entradas `_FABRICATED_FACT_BASELINE["recurso"]`/`["contas"]` (`test_worker_handler_purity.py:221-238`) devem ser removidas no MESMO commit, ou o ratchet (`:389-393`) fica RED por design | dono do processo INADIMPLENCIA + regulatorio (RN 593, **DRAFT/verify**) + arquitetura (registro de topico/nomenclatura de eventos) | `DRAFT — nao corrigido; residuo pre-existente registrado nesta entrada, nao renomeado nem regated aqui` |
