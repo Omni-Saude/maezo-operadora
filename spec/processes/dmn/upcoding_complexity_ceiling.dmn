@@ -8,8 +8,8 @@
              namespace="http://maezo.health/dmn/operadora">
   <!-- T2.7 (artifact phase, rework cycle 2): portada 1:1 (logica de decisao byte-fiel) do v1 donor
        Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/upcoding_complexity_ceiling.dmn
-       (commit 1ba8cb8). ERA ORFAO DELIBERADO (orphans-allowlist.yaml) ate o wiring do worker
-       operadora.fraude.score_indicators — wiring feito (T2.7 fase 2; PERSP-C5-FRAUDE-METADATA).
+       (commit 1ba8cb8). ORFAO DELIBERADO (orphans-allowlist.yaml) ate o wiring do worker
+       operadora.fraude.score_indicators — T2.7 fase 2, apos o ADR de avaliacao DMN do T1.4.
        Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —
        docs/review-queue.md. Comentario de proveniencia do donor preservado abaixo; unica adaptacao:
        o token literal do dominio de veredito do reference foi redigido como "veredito-adverso"

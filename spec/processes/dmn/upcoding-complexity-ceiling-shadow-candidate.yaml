@@ -108,11 +108,7 @@ ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
 # src/maezo/tools/workers/adequacao_shadow.py (docstring do modulo, porta 1b).
 tabela_viva:
   path: spec/processes/dmn/upcoding_complexity_ceiling.dmn
-  # Re-derivado apos PERSP-C5-FRAUDE-METADATA (docs-hygiene, 2026-09-03): a edicao foi SO no
-  # comentario de proveniencia (linhas 11-12, "ORFAO DELIBERADO...ate o wiring" -> "ERA...wiring
-  # feito" — o wiring ja existe, fraude.py:150-158); nenhuma regra/entrada/saida mudou. Digest
-  # recomputado com tests.support.dmn_first_hit.live_table_digest sobre o arquivo pos-edicao.
-  sha256: "0940f19038b22094a1abc4b86b36e9996add3b45bbdb4b49127d353185a03e79"
+  sha256: "489501749ee60ee14d264fcaf009c325880c8819401a23c65d8ace1a4bea1ca6"
 
 modo_operacao: sombra
 
