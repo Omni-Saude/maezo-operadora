@@ -21,6 +21,7 @@ worker read and nothing in the process ever set), which is what masked the defec
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -31,6 +32,7 @@ from maezo.tools.workers.escalation import (
     make_notify_team_handler,
 )
 from maezo.tools.workers.harness import ExternalTask, FakeKafkaPublisher, WorkerBpmnError
+from tests.support.dmn_first_hit import DMN_DIR, REPO_ROOT, read_live_table
 
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
 _ERR_ESC_NOTIFY_FAILED = "ERR_ESC_NOTIFY_FAILED"
@@ -243,6 +245,34 @@ async def test_notify_team_grupo_outside_dmn_domain_fails_closed() -> None:
     assert kafka.published == []
 
 
+@pytest.mark.parametrize("prioridade", ["P9", "p1", "PRIORITARIO", "P9-LIVRE <script>"])
+async def test_notify_team_prioridade_outside_domain_fails_closed(prioridade: str) -> None:
+    """MINOR-2 (VERIFY-WP-ESC.md): `prioridade` is OPTIONAL but, when present, must be a non-blank
+    string in the DMN's `{P1,P2,P3}` output domain. Before this fix `prioridade` was only
+    `.strip()`-ed and forwarded verbatim — the gatekeeper's probe put `'P9-LIVRE <script>'`
+    straight into the published notification through exactly this gap. (Blank/whitespace-only or
+    non-string `prioridade` stays ABSENT — never "in" or "out of" domain — per `_rotulo_opcional`;
+    covered by the omission tests, not here.)"""
+    kafka = FakeKafkaPublisher()
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        await make_notify_team_handler(kafka)(_task(variables=_team_vars(prioridade=prioridade)))
+    assert excinfo.value.error_code == _ERR_ESC_NOTIFY_FAILED
+    assert kafka.published == []
+
+
+async def test_notify_team_motivo_categoria_outside_domain_fails_closed() -> None:
+    """MINOR-2 (VERIFY-WP-ESC.md): `motivo_categoria` is OPTIONAL but, when present, must be one
+    of the contract's 6 declared values. The exact adversarial payload the gatekeeper probed with
+    (a fake CPF riding inside a free-text-looking category) must refuse, not publish verbatim."""
+    kafka = FakeKafkaPublisher()
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        await make_notify_team_handler(kafka)(
+            _task(variables=_team_vars(motivo_categoria="CPF 123.456.789-00 do Sr. Joao"))
+        )
+    assert excinfo.value.error_code == _ERR_ESC_NOTIFY_FAILED
+    assert kafka.published == []
+
+
 @pytest.mark.parametrize("alias", ["severity", "group", "priority"])
 async def test_notify_team_rejects_english_alias_of_contract_variable(alias: str) -> None:
     """(d) The English key is never consumed — and its mere PRESENCE is refused, because it means
@@ -297,9 +327,11 @@ async def test_notify_team_never_decides_adverse_action() -> None:
 async def test_notify_team_kafka_none_completes_without_publish() -> None:
     """kafka=None (no producer wired): completes anyway so the flow reaches UT_TratarEscalonamento
     (a notification gap must never HANG the escalation), never fabricates a publish. Unchanged by
-    GAP-ESC-SEVERITY-GROUP: a PRODUCER gap still completes; only unusable INPUT fails closed."""
+    GAP-ESC-SEVERITY-GROUP: a PRODUCER gap still completes; only unusable INPUT fails closed.
+    MINOR-2/MINOR-3 (VERIFY-WP-ESC.md): the returned `status` is now HONEST about the zero
+    publishes — `teams_notified` is reserved for an actual publish attempt that succeeded."""
     result = await make_notify_team_handler(None)(_task(variables=_team_vars()))
-    assert result["status"] == "teams_notified"
+    assert result["status"] == "teams_notification_skipped_no_producer"
     assert result["grupo_atendimento"] == "plantao-clinico"
     assert result["severidade"] == "grave"
 
@@ -408,6 +440,22 @@ async def test_notify_supervisor_missing_severidade_fails_closed() -> None:
     assert kafka.published == []
 
 
+@pytest.mark.parametrize("prioridade", ["P9", "p1", "P9-LIVRE <script>"])
+async def test_notify_supervisor_prioridade_outside_domain_fails_closed(prioridade: str) -> None:
+    """MINOR-2 (VERIFY-WP-ESC.md), supervisor leg: same closed-domain check as notify_team's
+    `prioridade` — the supervisor alert must not carry an unbounded string either."""
+    kafka = FakeKafkaPublisher()
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        await make_notify_supervisor_handler(kafka)(
+            _task(
+                topic="operadora.escalation.notify_supervisor",
+                variables=_supervisor_vars(prioridade=prioridade),
+            )
+        )
+    assert excinfo.value.error_code == _ERR_ESC_NOTIFY_FAILED
+    assert kafka.published == []
+
+
 @pytest.mark.parametrize("alias", ["severity", "group", "priority"])
 async def test_notify_supervisor_rejects_english_alias(alias: str) -> None:
     """(d) for the supervisor leg — same refusal, same reason."""
@@ -434,10 +482,12 @@ async def test_notify_supervisor_no_human_decision() -> None:
 
 
 async def test_notify_supervisor_kafka_none_completes_without_publish() -> None:
+    """MINOR-2/MINOR-3 (VERIFY-WP-ESC.md): honest `status` for zero publishes — see the notify_team
+    sibling test for the full rationale (no BPMN element reads this worker's `status`)."""
     result = await make_notify_supervisor_handler(None)(
         _task(topic="operadora.escalation.notify_supervisor", variables=_supervisor_vars())
     )
-    assert result["status"] == "supervisor_notified"
+    assert result["status"] == "supervisor_notification_skipped_no_producer"
     assert result["severidade"] == "grave"
 
 
@@ -476,21 +526,76 @@ def test_no_private_severity_to_group_table_survives() -> None:
     # What survives is a closed DOMAIN used to fail closed — never a mapping.
     assert isinstance(mod._GRUPOS_ATENDIMENTO_DMN, frozenset)
     assert isinstance(mod._SEVERIDADES_CONTRATUAIS, frozenset)
+    assert isinstance(mod._PRIORIDADES_DMN, frozenset)
+    assert isinstance(mod._MOTIVOS_CONTRATUAIS, frozenset)
+
+
+_CONTRACT_PATH = REPO_ROOT / "docs" / "processes" / "contracts" / "SP-OP-ESCALATION-001.md"
+
+
+def _contract_domain(text: str, *, line_prefix: str) -> frozenset[str]:
+    """Extract the backtick-quoted domain tokens from the ONE contract line starting with
+    `line_prefix` (MAJOR-1, VERIFY-WP-ESC.md's derivation step): the domain comes from PARSING the
+    contract's own markdown table, never from retyping it by hand here. Raises (via the assert) on
+    zero or more-than-one match, and on a matched line with no backtick-quoted tokens at all — a
+    silent empty domain must never read as "matches"."""
+    matches = [line for line in text.splitlines() if line.startswith(line_prefix)]
+    assert len(matches) == 1, (
+        f"expected exactly one contract line starting with {line_prefix!r}, found {len(matches)}"
+    )
+    tokens = frozenset(re.findall(r"`([^`]+)`", matches[0][len(line_prefix) :]))
+    assert tokens, f"no backtick-quoted domain tokens found after {line_prefix!r}"
+    return tokens
 
 
 def test_contract_domains_match_the_artifacts() -> None:
-    """The two validator domains are read off the artifacts, not invented here: `severidade` from
-    the contract's input table (`SP-OP-ESCALATION-001.md:27,:57`) and `grupo_atendimento` from the
-    DMN's `out_grupo` values (`escalation_routing.dmn:33,42,51,60,69,78,87` = contract `:59`).
-    `supervisao-atendimento` (contract `:72`) is deliberately NOT a routing output."""
+    """MAJOR-1 (VERIFY-WP-ESC.md): the four validator domains are DERIVED here by PARSING the
+    artifacts — never hand-typed alone against `escalation.py`'s constants — so any DMN or
+    contract edit turns this test red before the two could silently diverge (the prior version of
+    this test compared two hand-written literal sets and its own docstring's "read off the
+    artifacts" claim was not yet true; it is now).
+
+    `grupo_atendimento`/`prioridade` come from `escalation_routing.dmn`'s `out_grupo`/
+    `out_prioridade` output columns, read via `tests.support.dmn_first_hit.read_live_table` — the
+    repo's existing live-DMN-XML reader (`tests/unit/spec/test_glosa_triage_shadow_candidate.py`
+    and its siblings already derive a domain from a live table the SAME way; no new spec-loading
+    mechanism is introduced, matching VERIFY-WP-ESC.md's requirement not to invent one). `severidade`
+    has no DMN OUTPUT column of its own (it is a DMN INPUT, matched mostly by the `-` wildcard —
+    only rule `r1` pins a literal), so its domain — and the OPTIONAL `motivo_categoria`'s, which the
+    routing DMN consumes upstream of these notify tasks — are parsed off the CONTRACT's own markdown
+    tables instead (`SP-OP-ESCALATION-001.md:26,:57`). `supervisao-atendimento` (contract `:72`) is
+    asserted absent from the DMN's group domain: it is `UT_SupervisorAssume`'s alert TARGET, never a
+    routing output.
+    """
     from maezo.tools.workers import escalation as mod
 
-    assert frozenset({"grave", "moderada", "leve"}) == mod._SEVERIDADES_CONTRATUAIS
-    assert (
-        frozenset({"plantao-clinico", "enfermagem-triagem", "atendimento-humano"})
-        == mod._GRUPOS_ATENDIMENTO_DMN
-    )
-    assert "supervisao-atendimento" not in mod._GRUPOS_ATENDIMENTO_DMN
+    table = read_live_table(DMN_DIR / "escalation_routing.dmn")
+    grupo_idx = table.output_names.index("grupo_atendimento")
+    prioridade_idx = table.output_names.index("prioridade")
+    grupos_dmn = frozenset(rule.outputs[grupo_idx] for rule in table.rules)
+    prioridades_dmn = frozenset(rule.outputs[prioridade_idx] for rule in table.rules)
+
+    # Non-vacuity: a parse regression that silently returned nothing must not read as "matches".
+    assert len(grupos_dmn) == 3
+    assert len(prioridades_dmn) == 3
+
+    assert grupos_dmn == mod._GRUPOS_ATENDIMENTO_DMN
+    assert prioridades_dmn == mod._PRIORIDADES_DMN
+    assert "supervisao-atendimento" not in grupos_dmn
+
+    contract_text = _CONTRACT_PATH.read_text(encoding="utf-8")
+    severidade_contrato = _contract_domain(contract_text, line_prefix="| in | `severidade` | string |")
+    prioridade_contrato = _contract_domain(contract_text, line_prefix="| out | `prioridade` | string |")
+    grupo_contrato = _contract_domain(contract_text, line_prefix="| out | `grupo_atendimento` | string |")
+    motivo_contrato = _contract_domain(contract_text, line_prefix="| `motivo_categoria` | string | sim |")
+
+    assert len(severidade_contrato) == 3
+    assert len(motivo_contrato) == 6
+
+    assert severidade_contrato == mod._SEVERIDADES_CONTRATUAIS
+    assert prioridade_contrato == prioridades_dmn  # contract's DMN-reference table agrees w/ DMN
+    assert grupo_contrato == grupos_dmn  # idem
+    assert motivo_contrato == mod._MOTIVOS_CONTRATUAIS
 
 
 # ---------------------------------------------------------------------------

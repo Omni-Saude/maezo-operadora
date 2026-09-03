@@ -18,18 +18,26 @@ handlers only READ its output.
 GAP-ESC-SEVERITY-GROUP (root cause, fixed here): both handlers used to read the ENGLISH variable
 `severity` (`v.get("severity", "leve")`) while the BPMN, the DMN and the FINAL contract all
 declare `severidade` (contract `docs/processes/contracts/SP-OP-ESCALATION-001.md:27,:57`; BPMN
-`:49,:66,:85,:188,:243`). `severity` is set by NOBODY (the only starter, `helena/graph.py:651`,
-sends `severidade`), so the read ALWAYS missed and ALWAYS fell to the `"leve"` default; a private
-`_SEVERITY_TO_GROUP` table then mapped that phantom `leve` to `atendimento-humano` and shipped
-both wrong values inside the internal notification. A P1 `red_flag_clinico`/`grave` escalation
-under the PT5M art. 35-C SLA was therefore announced to the clinical team as
-`severity=leve, group=atendimento-humano`. The private table ALSO competed with the DMN, which
-routes primarily on `motivo_categoria` (only `r1` reads `severidade`): `risco_psicossocial`+`leve`
-is `plantao-clinico`/P1 in the DMN (`escalation_routing.dmn:37-45`) and `atendimento-humano` in
-the deleted table. The fix: consume `severidade` (process variable) and `grupo_atendimento` (the
-BPMN's `camunda:inputParameter` fed from `${roteamento.grupo_atendimento}`, `:96,:115,:206`),
-never re-derive routing, never default a clinical severity, and FAIL CLOSED when either is
-missing or outside its contractual domain (see `_exigir_severidade`/`_exigir_grupo_atendimento`).
+`:49,:66,:85,:188,:243`). `severity` is set by NOBODY — SP-OP-ESCALATION-001 has TWO starters, not
+one (MINOR-1, VERIFY-WP-ESC.md corrects an earlier "only starter" claim here): `helena/graph.py:651`
+AND `agents/lucas/graph.py:137,639` (`PROCESS_KEY`/`start_process_idempotent`), and BOTH send the
+Portuguese `severidade` — Lucas's is typed `Literal["grave","moderada","leve"]`
+(`lucas/graph.py:202,714`), so it structurally cannot carry `severity` — so the read ALWAYS missed
+and ALWAYS fell to the `"leve"` default; a private `_SEVERITY_TO_GROUP` table then mapped that
+phantom `leve` to `atendimento-humano` and shipped both wrong values inside the internal
+notification. A P1 `red_flag_clinico`/`grave` escalation under the PT5M art. 35-C SLA was therefore
+announced to the clinical team as `severity=leve, group=atendimento-humano`. The private table ALSO
+competed with the DMN, which routes primarily on `motivo_categoria` (only `r1` reads `severidade`):
+`risco_psicossocial`+`leve` is `plantao-clinico`/P1 in the DMN (`escalation_routing.dmn:37-45`) and
+`atendimento-humano` in the deleted table. The fix: consume `severidade` (process variable) and
+`grupo_atendimento` (the BPMN's `camunda:inputParameter` fed from
+`${roteamento.grupo_atendimento}`, `:96,:115,:206`), never re-derive routing, never default a
+clinical severity, and FAIL CLOSED when either is missing or outside its contractual domain (see
+`_exigir_severidade`/`_exigir_grupo_atendimento`). Deploy-window cost (MINOR-4, disclosed here, not
+narrowed): an instance whose notify task completed under the pre-fix worker carries
+`group`/`severity` in process scope, and its NEXT notify task refuses under
+`_ALIASES_INGLES_PROIBIDOS` below — non-adverse (HITL and the breach event are unaffected) but it
+does drop one supervisor page for that in-flight case; see the MIGRATION NOTE on that constant.
 
 WHY RAW ASYNC HANDLERS (DL-0034, ratified by orchestrator 2026-07-26, built in t5): for
 escalation, NOTIFYING *is* the business effect (there is no domain computation beyond
@@ -102,6 +110,17 @@ _stdlib_logger = logging.getLogger(__name__)
 # routing truth (ADR-0012 deterministic rules outside the LLM; ADR-0028 engine-side evaluation).
 # What survives here is only the CLOSED DOMAIN of each field, used to fail closed on values the
 # engine could not have produced — no fallback, no default, no re-derivation.
+#
+# FOUR domains total: `severidade`/`grupo_atendimento` are REQUIRED (fail-closed if absent);
+# `prioridade`/`motivo_categoria` are OPTIONAL but, since MINOR-2 (VERIFY-WP-ESC.md), a PRESENT
+# out-of-domain value fails closed too — a probe put `'P9-LIVRE <script>'` and a fake CPF straight
+# through the old unchecked `.strip()`-only path (`_rotulo_opcional`, below `_recusar`). None of
+# the four is hand-typed alone: `test_contract_domains_match_the_artifacts`
+# (`tests/unit/tools/workers/test_escalation_notify_team.py`) PARSES `escalation_routing.dmn` (via
+# `tests.support.dmn_first_hit.read_live_table`, the repo's existing live-DMN-XML reader — see
+# `tests/unit/spec/test_glosa_triage_shadow_candidate.py` for the same idiom) and the contract
+# markdown directly, so any DMN/contract edit turns that test red before it could silently diverge
+# from these constants (MAJOR-1, VERIFY-WP-ESC.md).
 # ---------------------------------------------------------------------------
 
 #: `severidade` domain — contract `docs/processes/contracts/SP-OP-ESCALATION-001.md:27,:57`
@@ -114,6 +133,25 @@ _SEVERIDADES_CONTRATUAIS: frozenset[str] = frozenset({"grave", "moderada", "leve
 #: the alert TARGET of `UT_SupervisorAssume`, never a DMN routing output.
 _GRUPOS_ATENDIMENTO_DMN: frozenset[str] = frozenset(
     {"plantao-clinico", "enfermagem-triagem", "atendimento-humano"}
+)
+
+#: `prioridade` domain — the SAME `escalation_routing` DMN's `out_prioridade` output values
+#: (`spec/processes/dmn/escalation_routing.dmn:32,41,50,59,68,77,86`), ratified by the contract's
+#: DMN-reference table (`:58`). Optional field (MINOR-2): validated when present, never required.
+_PRIORIDADES_DMN: frozenset[str] = frozenset({"P1", "P2", "P3"})
+
+#: `motivo_categoria` domain — the contract's input-variable table (`SP-OP-ESCALATION-001.md:26`).
+#: Optional at the notify tasks (MINOR-2): validated when present, never required — the
+#: `escalation_routing` DMN already consumed it upstream of these tasks.
+_MOTIVOS_CONTRATUAIS: frozenset[str] = frozenset(
+    {
+        "red_flag_clinico",
+        "risco_psicossocial",
+        "intencao_clinica",
+        "solicitacao_humano",
+        "falha_tecnica",
+        "outro",
+    }
 )
 
 #: English aliases of contract variables. NONE of these is ever set by SP-OP-ESCALATION-001 —
@@ -201,11 +239,14 @@ def _recusar_aliases_ingles(task: ExternalTask, v: Mapping[str, Any]) -> None:
     read and wrote. Accepting them silently is what let a phantom `leve` look authoritative for
     months. This is a hard refusal, not a warning: the contract's vocabulary is Portuguese
     (`severidade`, `grupo_atendimento`, `prioridade`) and there is no legitimate producer of the
-    English names anywhere in the chain: `grep -rn 'severity' src/ --include='*.py'` returns only
-    this module plus 6 unrelated PROSE hits (docstrings/comments in `adequacao*.py`,
-    `platform/validation/result.py`, `agents/helena/*`, `agents/fernando/graph.py`) — zero
-    variable writes. `grep -rn 'severity' spec/` returns 4 hits, all English PROSE inside two
-    `triage-redflag-*-shadow-candidate.yaml` comment blocks — no BPMN/DMN element is named it.
+    English names anywhere in the chain — BOTH of SP-OP-ESCALATION-001's starters
+    (`helena/graph.py:651`, `agents/lucas/graph.py:137,639`; MINOR-1, VERIFY-WP-ESC.md: there are
+    two starters, not one) send `severidade`, never `severity`: `grep -rn 'severity' src/
+    --include='*.py'` returns only this module plus 6 unrelated PROSE hits (docstrings/comments in
+    `adequacao*.py`, `platform/validation/result.py`, `agents/helena/*`,
+    `agents/fernando/graph.py`) — zero variable writes. `grep -rn 'severity' spec/` returns 4 hits,
+    all English PROSE inside two `triage-redflag-*-shadow-candidate.yaml` comment blocks — no
+    BPMN/DMN element is named it.
     """
     presentes = [alias for alias in _ALIASES_INGLES_PROIBIDOS if alias in v]
     if presentes:
@@ -285,6 +326,30 @@ def _rotulo_opcional(v: Mapping[str, Any], nome: str) -> str | None:
     return bruto.strip()
 
 
+def _rotulo_opcional_validado(
+    task: ExternalTask, v: Mapping[str, Any], nome: str, dominio: frozenset[str]
+) -> str | None:
+    """`_rotulo_opcional`, plus a closed-domain check on the value when one IS present (MINOR-2,
+    VERIFY-WP-ESC.md).
+
+    Absent/blank still returns `None` — the field stays OPTIONAL, omitted rather than fabricated,
+    exactly like `_rotulo_opcional`. A PRESENT but out-of-domain value fails closed via the SAME
+    modeled `ERR_ESC_NOTIFY_FAILED` boundary as `severidade`/`grupo_atendimento`: a bounded routing
+    label the engine could not have produced is exactly as untrustworthy as a missing required
+    one. Before this, `prioridade`/`motivo_categoria` were only `.strip()`-ed and forwarded
+    verbatim — a probe put `'P9-LIVRE <script>'` and a fake-CPF string straight into the published
+    notification through this gap, underneath a comment that claimed both were validated.
+    """
+    rotulo = _rotulo_opcional(v, nome)
+    if rotulo is not None and rotulo not in dominio:
+        _recusar(
+            task,
+            f"{nome}_fora_do_dominio",
+            f"`{nome}`={rotulo!r} fora do dominio {sorted(dominio)}",
+        )
+    return rotulo
+
+
 # ---------------------------------------------------------------------------
 # notify_team (DL-0034 — raw async Kafka handler, mirrors #55 R-B)
 # ---------------------------------------------------------------------------
@@ -304,8 +369,10 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     Variables consumed (all set by SP-OP-ESCALATION-001, none invented here):
       - `severidade`         — process variable, contract `:27`; REQUIRED, fail-closed.
       - `grupo_atendimento`  — inputParameter BPMN `:96`, DMN output; REQUIRED, fail-closed.
-      - `prioridade`         — inputParameter BPMN `:97`, DMN output; optional, omitted if absent.
-      - `motivo_categoria`   — process variable, contract `:26`; optional, omitted if absent.
+      - `prioridade`         — inputParameter BPMN `:97`, DMN output `{P1,P2,P3}`; optional,
+        validated against that domain when present (MINOR-2), omitted if absent.
+      - `motivo_categoria`   — process variable, contract `:26`, 6-value domain; optional,
+        validated against that domain when present (MINOR-2), omitted if absent.
       - `tenant_id`          — process variable, contract `:20`.
     """
 
@@ -314,11 +381,10 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         _recusar_aliases_ingles(task, v)
         severidade = _exigir_severidade(task, v)
         grupo = _exigir_grupo_atendimento(task, v)
-        prioridade = _rotulo_opcional(v, "prioridade")
-        motivo = _rotulo_opcional(v, "motivo_categoria")
+        prioridade = _rotulo_opcional_validado(task, v, "prioridade", _PRIORIDADES_DMN)
+        motivo = _rotulo_opcional_validado(task, v, "motivo_categoria", _MOTIVOS_CONTRATUAIS)
         tenant_id = v.get("tenant_id", "")
         result: dict[str, Any] = {
-            "status": "teams_notified",
             "grupo_atendimento": grupo,
             "severidade": severidade,
             "event": "agents.events.escalation.requested",
@@ -331,7 +397,10 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         if kafka is None:
             # No producer wired yet (T1.2/ADR-0026 gap, same reality as events.py). Log LOUDLY and
             # complete anyway — the task MUST complete so the flow reaches UT_TratarEscalonamento
-            # (else the escalation HANGS in prod). NEVER fabricate a publish.
+            # (else the escalation HANGS in prod). NEVER fabricate a publish, and (MINOR-3,
+            # VERIFY-WP-ESC.md) never claim `teams_notified` for zero publishes either — no BPMN
+            # element reads this worker's `status` (`grep -n 'status' spec/processes/bpmn/
+            # SP-OP-ESCALATION-001_*.bpmn` = 0 hits), so this label change moves no flow.
             logger.warning(
                 "escalation_notify_team_no_producer",
                 tenant_id=tenant_id,
@@ -346,11 +415,16 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
                 "UT_TratarEscalonamento",
                 task.business_key,
             )
+            result["status"] = "teams_notification_skipped_no_producer"
             return result
 
         # No PHI: motivo_categoria/severidade/grupo_atendimento/prioridade are bounded routing
-        # labels validated against their contractual domains above; beneficiario_pseudo_id is a
-        # pseudonym and free-text fields are never copied into the notification (ADR-0006).
+        # labels validated against their contractual/DMN domains above WHEN PRESENT —
+        # severidade/grupo_atendimento are REQUIRED and fail-closed; prioridade/motivo_categoria
+        # are OPTIONAL but, since MINOR-2 (VERIFY-WP-ESC.md), an out-of-domain value on either of
+        # THEM fails closed too, so none of the four rides through unchecked;
+        # beneficiario_pseudo_id is a pseudonym and free-text fields are never copied into the
+        # notification (ADR-0006).
         notification: dict[str, Any] = {
             "type": _NOTIFY_TEAM_NOTIFICATION_TYPE,
             "tenant_id": tenant_id,
@@ -399,6 +473,7 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             prioridade=prioridade,
             business_key=task.business_key,
         )
+        result["status"] = "teams_notified"
         return result
 
     return handler
@@ -423,7 +498,8 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
       - `grupo_atendimento` — inputParameter BPMN `:115` (fallback) / `:206` (SLA breach), from
         `${roteamento.grupo_atendimento}`; REQUIRED, fail-closed. It tells the supervisor WHICH
         team is (or was) on the hook — it is never the supervisor's own group.
-      - `prioridade`        — inputParameter BPMN `:116`/`:207`; optional.
+      - `prioridade`        — inputParameter BPMN `:116`/`:207`, DMN output `{P1,P2,P3}`;
+        optional, validated against that domain when present (MINOR-2), omitted if absent.
       - `motivo` (`:208` = `sla_ack_breached`) / `motivo_fallback` (`:117` =
         `notificacao_primaria_falhou`) — the alert reason, reported as `motivo_alerta`. This
         REPLACES the removed `sla_status`, which read a variable NO BPMN task ever sets
@@ -436,11 +512,10 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         _recusar_aliases_ingles(task, v)
         severidade = _exigir_severidade(task, v)
         grupo = _exigir_grupo_atendimento(task, v)
-        prioridade = _rotulo_opcional(v, "prioridade")
+        prioridade = _rotulo_opcional_validado(task, v, "prioridade", _PRIORIDADES_DMN)
         motivo_alerta = _rotulo_opcional(v, "motivo") or _rotulo_opcional(v, "motivo_fallback")
         tenant_id = v.get("tenant_id", "")
         result: dict[str, Any] = {
-            "status": "supervisor_notified",
             "severidade": severidade,
             "grupo_atendimento": grupo,
             "alert_to": _GRUPO_SUPERVISAO,
@@ -467,6 +542,7 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
                 "stalled",
                 task.business_key,
             )
+            result["status"] = "supervisor_notification_skipped_no_producer"
             return result
 
         notification: dict[str, Any] = {
@@ -516,6 +592,7 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             motivo_alerta=motivo_alerta,
             business_key=task.business_key,
         )
+        result["status"] = "supervisor_notified"
         return result
 
     return handler
