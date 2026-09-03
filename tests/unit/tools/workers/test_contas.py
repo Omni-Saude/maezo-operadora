@@ -4,6 +4,7 @@ TDD London School: tests exercise the external task contracts.
 """
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ from maezo.tools.workers.contas import (
     HANDOFF_PAGTO_SEEDED_KEYS,
     LASTRO_ORIGEM_AUTOMATICA,
     LASTRO_ORIGEM_HUMANA,
+    LASTROS_ORIGEM_PERMITIDOS,
     PAGTO_PROCESS_KEY,
     ContasComunicacaoInvalidaError,
     ContasDevolucaoInvalidaError,
@@ -450,31 +452,47 @@ def test_registrar_glosa_pagar_parcial_exige_valor_liberado() -> None:
     assert "valor_liberado_brl" in str(exc.value)
 
 
-def test_registrar_glosa_pagar_parcial_aceita_valor_liberado_zero() -> None:
-    """`>= 0`, not `> 0`: a partial payment that releases nothing on THIS conta is a legitimate
-    (if unusual) human decision; a NEGATIVE release is not."""
+@pytest.mark.parametrize(
+    "valor_liberado",
+    [0.0, "0", "0,00", -1.0],
+    ids=["zero", "zero_str", "zero_ptbr", "negativo"],
+)
+def test_registrar_glosa_pagar_parcial_recusa_valor_liberado_nao_positivo(valor_liberado: Any) -> None:
+    """`> 0`, not `>= 0`: um "parcial" que libera R$ 0,00 e, materialmente, um GLOSAR integral.
+
+    Aceita-lo registrava o efeito adverso, emitia ao prestador um demonstrativo de "pagamento
+    parcial" que nao paga nada, e depois TRAVAVA a instancia em `ST_HandoffPagamentoParcial`, que
+    recusa `valor <= 0` — o ato adverso materializado com o desfecho inalcancavel. As duas metades
+    do mesmo ato passam a concordar: quem quer glosar tudo usa `decisao_contas=GLOSAR`.
+    """
+    with pytest.raises(ContasGlosaNotHumanError) as exc:
+        registrar_glosa(
+            GlosaRegistroInput(
+                decisao_contas="PAGAR_PARCIAL",
+                justificativa_glosa="Todas as linhas glosadas nesta conta",
+                codigo_glosa_tiss="COD002",
+                valor_glosado_brl=60.0,
+                valor_liberado_brl=valor_liberado,
+                analista_id="analista-123",
+            )
+        )
+    assert "valor_liberado_brl" in str(exc.value)
+
+
+def test_registrar_glosa_pagar_parcial_aceita_valor_liberado_positivo() -> None:
+    """O controle NEGATIVO do teste acima: com uma parcela realmente liberada, o parcial passa —
+    sem ele a recusa acima valeria por construcao."""
     ok = registrar_glosa(
         GlosaRegistroInput(
             decisao_contas="PAGAR_PARCIAL",
-            justificativa_glosa="Todas as linhas glosadas nesta conta",
+            justificativa_glosa="Linhas 3 e 4 glosadas; o restante e devido",
             codigo_glosa_tiss="COD002",
             valor_glosado_brl=60.0,
-            valor_liberado_brl=0.0,
+            valor_liberado_brl=40.0,
             analista_id="analista-123",
         )
     )
     assert ok.registered is True
-    with pytest.raises(ContasGlosaNotHumanError):
-        registrar_glosa(
-            GlosaRegistroInput(
-                decisao_contas="PAGAR_PARCIAL",
-                justificativa_glosa="valor negativo",
-                codigo_glosa_tiss="COD002",
-                valor_glosado_brl=60.0,
-                valor_liberado_brl=-1.0,
-                analista_id="analista-123",
-            )
-        )
 
 
 @pytest.mark.parametrize("valor", ["", "   ", None, "abc", 0, -1.0], ids=list("abcdef"))
@@ -772,6 +790,87 @@ def test_handoff_pagamento_semeia_lastro_humano_quando_ha_analista() -> None:
     payload = asyncio.run(engine.get_process_status(_PAGTO_KEY)).variables
     assert payload["lastro_origem"] == LASTRO_ORIGEM_HUMANA
     assert payload["lastro_decisor_id"] == "analista-123"
+
+
+@pytest.mark.parametrize(
+    "forjado",
+    ["recurso_deferimento_humano", "qualquer-coisa-inventada", "CONTAS_ADJUDICACAO_HUMANA", "   x   "],
+    ids=["outra_cadeia", "texto_livre", "caixa_errada", "espacos"],
+)
+def test_handoff_pagamento_recusa_lastro_origem_fora_do_enum(forjado: str) -> None:
+    """`lastro_origem` alimenta o FORMULARIO de `UT_AnaliseAdmissibilidade` (SP-OP-PAGTO-001.md).
+
+    "O elemento chamador declara" nao e "o chamador escreve o que quiser no formulario do humano":
+    um rotulo desconhecido, o valor da OUTRA cadeia (`recurso_deferimento_humano`) ou texto livre
+    chegariam ao revisor como se fossem proveniencia. Paridade com `recurso.py`, que fixa a sua
+    constante.
+    """
+    engine = FakeCibSevenTransport()
+    with pytest.raises(ContasHandoffPagamentoInvalidoError) as exc:
+        handoff_pagamento(
+            _pagto_vars(analista_id="analista-123", lastro_origem=forjado),
+            fonte_valor="liberado",
+            engine=engine,
+            audit_sink=FakeStartAuditSink(),
+        )
+    assert "lastro_origem" in str(exc.value)
+    assert asyncio.run(engine.find_any_instance(_PAGTO_KEY)) is None, (
+        "a recusa e ANTES do start: nenhuma ordem de pagamento pode ter sido criada"
+    )
+
+
+def test_handoff_pagamento_recusa_lastro_humano_sem_decisor() -> None:
+    """O par contraditorio que o gatekeeper exibiu: "adjudicado por humano" sem humano nomeado.
+
+    Espelha `recurso.py`, que recusa decisor em branco. O campo NAO e preenchido com um valor
+    plausivel — a ordem simplesmente nao sai.
+    """
+    engine = FakeCibSevenTransport()
+    with pytest.raises(ContasHandoffPagamentoInvalidoError) as exc:
+        handoff_pagamento(
+            _pagto_vars(analista_id="   ", lastro_origem=LASTRO_ORIGEM_HUMANA),
+            fonte_valor="liberado",
+            engine=engine,
+            audit_sink=FakeStartAuditSink(),
+        )
+    assert "analista_id" in str(exc.value)
+    assert asyncio.run(engine.find_any_instance(_PAGTO_KEY)) is None
+
+
+def test_handoff_pagamento_recusa_lastro_automatico_com_decisor() -> None:
+    """A contradicao SIMETRICA: "adjudicado automaticamente" carregando o id de um humano.
+
+    A documentacao de `ST_HandoffPagamentoAuto` diz `lastro_decisor_id` VAZIO, "nunca inventado";
+    o inverso — carregar um id numa perna onde nenhum humano decidiu — e igualmente evidencia
+    falsa, so que na direcao que o revisor tenderia a acreditar.
+    """
+    engine = FakeCibSevenTransport()
+    with pytest.raises(ContasHandoffPagamentoInvalidoError) as exc:
+        handoff_pagamento(
+            _pagto_vars(analista_id="analista-123", lastro_origem=LASTRO_ORIGEM_AUTOMATICA),
+            fonte_valor="apresentado",
+            engine=engine,
+            audit_sink=FakeStartAuditSink(),
+        )
+    assert "analista_id" in str(exc.value) or "decisor" in str(exc.value)
+    assert asyncio.run(engine.find_any_instance(_PAGTO_KEY)) is None
+
+
+def test_handoff_pagamento_paridade_de_lastro_com_a_cadeia_recurso() -> None:
+    """As duas metades de I-PAGTO-1 tem de ter a MESMA forma (a alegacao de `contas.py`).
+
+    `recurso.py` fixa `LASTRO_ORIGEM_RECURSO` e recusa decisor em branco. CONTAS tem um enum de
+    dois valores porque tem duas pernas (automatica e humana), mas as regras sao as mesmas: enum
+    FECHADO e nenhum par contraditorio. Este teste prova a propriedade estrutural, nao repete os
+    casos.
+    """
+    from maezo.tools.workers import recurso as recurso_mod
+
+    assert set(LASTROS_ORIGEM_PERMITIDOS) == {LASTRO_ORIGEM_AUTOMATICA, LASTRO_ORIGEM_HUMANA}
+    assert recurso_mod.LASTRO_ORIGEM_RECURSO not in LASTROS_ORIGEM_PERMITIDOS, (
+        "o valor da cadeia RECURSO nunca pode ser emitido pela cadeia CONTAS"
+    )
+    assert LASTRO_ORIGEM_HUMANA not in {recurso_mod.LASTRO_ORIGEM_RECURSO}
 
 
 def test_handoff_pagamento_fonte_valor_apresentado_usa_valor_apresentado_brl() -> None:
@@ -1325,6 +1424,74 @@ def test_identify_glosa_entry_round_trips_identify_glosa() -> None:
     result = identify_glosa_entry(variables)
     assert result["has_glosas"] == direct.has_glosas
     assert result["glosa_count"] == direct.glosa_count
+
+
+def test_identify_glosa_entry_ecoa_data_vencimento_do_lote() -> None:
+    """MAJOR-1: `data_vencimento` e produzida no INTAKE, e o intake e `ST_ApurarDivergencias`.
+
+    Ecoada VERBATIM (so `strip`), nunca defaultada: um vencimento inventado e um prazo falso, e
+    `handoff_pagamento` recusa em branco. O que o intake acrescenta e visibilidade — a variavel
+    passa a existir no processo a partir da PRIMEIRA tarefa, em vez de so ser lida quatro tarefas
+    depois pelo handoff.
+    """
+    out = identify_glosa_entry(
+        {
+            "tenant_id": "amh",
+            "numero_lote_tiss": "LOTE-1",
+            "data_vencimento": "  2026-07-10  ",
+            "linhas_conta_refs": [{"valor_apresentado_brl": 100.0}],
+        }
+    )
+    assert out["data_vencimento"] == "2026-07-10"
+
+
+def test_identify_glosa_entry_nao_inventa_data_vencimento_ausente() -> None:
+    """A metade NEGATIVA da anterior: sem a data no lote, a variavel sai VAZIA — o intake nunca
+    fabrica um vencimento. A recusa fail-closed continua sendo do `handoff_pagamento`."""
+    out = identify_glosa_entry(
+        {
+            "tenant_id": "amh",
+            "numero_lote_tiss": "LOTE-1",
+            "linhas_conta_refs": [{"valor_apresentado_brl": 100.0}],
+        }
+    )
+    assert out["data_vencimento"] == ""
+
+
+@pytest.mark.parametrize(
+    ("recebido", "esperado"),
+    [("2026-05-20", "2026-05-20"), ("2026-05-20T00:00:00Z", "2026-05-20")],
+    ids=["iso_date", "iso_datetime"],
+)
+def test_identify_glosa_entry_normaliza_a_ancora_de_sla(recebido: str, esperado: str) -> None:
+    """GAP-CONTAS-4: `contas_sla` computa `timeDate` ABSOLUTO a partir desta ancora; um datetime
+    completo tem de virar a data de calendario que a FEEL concatena com "T00:00:00"."""
+    out = identify_glosa_entry(
+        {
+            "tenant_id": "amh",
+            "numero_lote_tiss": "LOTE-1",
+            "data_recebimento_lote": recebido,
+            "linhas_conta_refs": [{"valor_apresentado_brl": 100.0}],
+        }
+    )
+    assert out["data_recebimento_lote"] == esperado
+
+
+@pytest.mark.parametrize("recebido", ["", "   ", "20/05/2026", "nao-e-data"], ids="abcd")
+def test_identify_glosa_entry_defaulta_a_ancora_fail_safe_para_hoje(recebido: str) -> None:
+    """Ausente/malformada => HOJE/UTC (fail-safe), nunca uma data passada plausivel: encurtar um
+    prazo que a operadora DEVE ao prestador seria o erro adverso. A FEEL da `contas_sla` nunca
+    pode ver `null`/`""` — nao produz um timer atrasado, produz um timer irresolvivel."""
+    hoje = datetime.now(UTC).strftime("%Y-%m-%d")
+    out = identify_glosa_entry(
+        {
+            "tenant_id": "amh",
+            "numero_lote_tiss": "LOTE-1",
+            "data_recebimento_lote": recebido,
+            "linhas_conta_refs": [{"valor_apresentado_brl": 100.0}],
+        }
+    )
+    assert out["data_recebimento_lote"] == hoje
 
 
 def test_identify_glosa_entry_raises_on_missing_required_fields() -> None:

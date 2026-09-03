@@ -95,13 +95,27 @@ docs/processes/contracts/SP-OP-CONTAS-001.md.
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.contas.received</camunda:inputParameter>
           <camunda:inputParameter name="event_payload_vars">tenant_id,numero_lote_tiss,prestador_id,competencia,tipo_lote</camunda:inputParameter>
+          <!-- Inicializa decisao_contas="" na PRIMEIRA service task de TODO caminho, antes de
+               qualquer gateway referencia-la. O CIB Seven 2.1.0 avalia as conditionExpression de
+               GW_DecisaoContas ANTES de cair no default e lanca `Unknown property used in
+               expression: ${decisao_contas == 'PAGAR'} - Cannot resolve identifier
+               'decisao_contas'` (HTTP 500 no complete da User Task) quando a variavel nunca foi
+               setada. Sem esta inicializacao o terminal End_ErrContasDecisaoInvalida so funciona
+               para o caso "decisao DESCONHECIDA"; o caso "decisao AUSENTE" — que a documentacao
+               de GW_DecisaoContas e a do proprio terminal declaram cobrir — deixava a instancia
+               PARADA na UT em vez de terminar no erro visivel. Com "" nenhuma das 5 condicoes
+               casa, o token cai no default e a omissao vira ERRO, nao travamento. O L0 hard fica
+               intacto: "" nao esta em {GLOSAR, PAGAR_PARCIAL}, entao registrar_glosa continua
+               recusando com ERR_CONTAS_GLOSA_NOT_HUMAN. Mesma mecanica, e pela mesma razao de
+               engine, que desfecho_humano/decisao_recurso em SP-OP-RECURSO-001. -->
+          <camunda:outputParameter name="decisao_contas">${""}</camunda:outputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
       <bpmn:outgoing>Flow_PubReceived_Apurar</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:serviceTask id="ST_ApurarDivergencias" name="Apurar divergencias e glosas candidatas na conta apresentada" camunda:type="external" camunda:topic="operadora.contas.identify_glosa">
-      <bpmn:documentation>Worker COMPUTA has_glosas (boolean) das linhas TISS da conta APRESENTADA pelo prestador (linhas_conta_refs/reason_codes_tiss — GAP-CONTAS-2; fail-closed conservador quando o detalhe de linha falta: has_glosas=true, roteia a humano) e NORMALIZA data_recebimento_lote (string ISO YYYY-MM-DD; default fail-safe hoje/UTC — GAP-CONTAS-4/ENGINE-16004: e o intake, primeiro em TODO caminho ate BRT_ContasSla, inclusive nesta reentrada). NAO decide glosar — apenas apura a candidata. TASY write DROP.</bpmn:documentation>
+      <bpmn:documentation>Worker COMPUTA has_glosas (boolean) das linhas TISS da conta APRESENTADA pelo prestador (linhas_conta_refs/reason_codes_tiss — GAP-CONTAS-2; fail-closed conservador quando o detalhe de linha falta: has_glosas=true, roteia a humano) e NORMALIZA data_recebimento_lote (string ISO YYYY-MM-DD; default fail-safe hoje/UTC — GAP-CONTAS-4/ENGINE-16004: e o intake, primeiro em TODO caminho ate BRT_ContasSla, inclusive nesta reentrada) e ECOA data_vencimento do lote/termo contratual (verbatim, so strip; NUNCA defaultada — um vencimento inventado e um prazo falso, e ST_HandoffPagamento* a recusa em branco). Esta e a tarefa em que as DUAS datas do lote passam a existir como variaveis de processo: a ausencia de data_vencimento fica visivel na trilha ja na primeira tarefa, em vez de so aparecer quatro tarefas adiante como um handoff travado. Origem contratual de data_vencimento: DRAFT/verify (ADR-0040 OQ-2). NAO decide glosar — apenas apura a candidata. TASY write DROP.</bpmn:documentation>
       <bpmn:incoming>Flow_PubReceived_Apurar</bpmn:incoming>
       <bpmn:incoming>Flow_Reavalia_Apurar</bpmn:incoming>
       <bpmn:outgoing>Flow_Apurar_Impact</bpmn:outgoing>

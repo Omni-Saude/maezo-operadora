@@ -26,6 +26,7 @@ import asyncio
 import dataclasses
 import functools
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -523,7 +524,14 @@ def registrar_glosa(input_data: GlosaRegistroInput) -> GlosaRegistroResult:
         missing.append("analista_id")
 
     valor_liberado = _parse_valor_monetario(input_data.valor_liberado_brl)
-    if decisao == "PAGAR_PARCIAL" and (valor_liberado is None or valor_liberado < 0):
+    # `> 0`, not `>= 0` (DESVIO declarado do desenho de registro, REDESIGN-SP-OP-CONTAS-001.md:471,
+    # que escreveu `>= 0`): um "pagamento parcial" que libera R$ 0,00 e, materialmente, um GLOSAR
+    # integral — e o desenho ja diz que o unico caminho para glosar tudo e `decisao_contas=GLOSAR`.
+    # Aceita-lo aqui registrava a glosa, emitia ao prestador um demonstrativo de "pagamento
+    # parcial" que nao paga nada, e depois TRAVAVA a instancia em ST_HandoffPagamentoParcial, que
+    # recusa `valor <= 0` (`:1069`) — o efeito adverso materializado com o desfecho inalcancavel.
+    # Recusar aqui e fail-closed e mantem as duas metades do mesmo ato consistentes.
+    if decisao == "PAGAR_PARCIAL" and (valor_liberado is None or valor_liberado <= 0):
         missing.append("valor_liberado_brl")
 
     if missing:
@@ -924,6 +932,16 @@ HANDOFF_PAGTO_FORBIDDEN_KEYS: frozenset[str] = frozenset(
 LASTRO_ORIGEM_AUTOMATICA = "contas_adjudicacao_automatica"
 LASTRO_ORIGEM_HUMANA = "contas_adjudicacao_humana"
 
+#: The CLOSED enum this worker may emit as `lastro_origem`. `SP-OP-PAGTO-001.md` declares
+#: `lastro_origem` a three-value closed enum that FEEDS THE FORM of `UT_AnaliseAdmissibilidade` —
+#: it is what the human reviewer reads. The calling element declares it as a
+#: `camunda:inputParameter` (which is why it is read from `variables` at all), but "the caller
+#: declares it" is not "the caller may write anything into the reviewer's form": an unknown label,
+#: the OTHER chain's value (`recurso_deferimento_humano`) or free text would all reach the human
+#: as if it were provenance. `recurso.py` pins its single constant and refuses a blank decisor;
+#: this is the CONTAS half of the same rule — one handoff shape for both chains.
+LASTROS_ORIGEM_PERMITIDOS: frozenset[str] = frozenset({LASTRO_ORIGEM_AUTOMATICA, LASTRO_ORIGEM_HUMANA})
+
 TIPO_PAGAMENTO_PRESTADOR_REDE = "prestador_rede"
 
 #: Declared source of the amount (M7) — the CALLING ELEMENT states it as a `camunda:inputParameter`;
@@ -1099,10 +1117,43 @@ def handoff_pagamento(
             "to a retry/incident (never a silent no-op, never an un-audited start)"
         )
 
-    lastro_decisor_id = str(variables.get("analista_id") or "")
-    lastro_origem = str(variables.get("lastro_origem") or "") or (
+    lastro_decisor_id = key_segment(variables.get("analista_id"))
+    lastro_origem = str(variables.get("lastro_origem") or "").strip() or (
         LASTRO_ORIGEM_HUMANA if lastro_decisor_id else LASTRO_ORIGEM_AUTOMATICA
     )
+    if lastro_origem not in LASTROS_ORIGEM_PERMITIDOS:
+        logger.error(
+            "contas_handoff_pagamento_lastro_origem_desconhecida",
+            numero_lote_tiss=numero_lote_tiss,
+            lastro_origem=lastro_origem,
+        )
+        raise ContasHandoffPagamentoInvalidoError(
+            f"handoff_pagamento: lastro_origem {lastro_origem!r} fora do dominio declarado "
+            f"{sorted(LASTROS_ORIGEM_PERMITIDOS)} — `lastro_origem` alimenta o formulario de "
+            "UT_AnaliseAdmissibilidade em SP-OP-PAGTO-001 (e o que o humano LE como proveniencia); "
+            "um rotulo desconhecido, o da outra cadeia ou texto livre seria evidencia forjada. "
+            "Recusado, nunca ecoado"
+        )
+    # The pair has to be internally consistent, in BOTH directions, or the reviewer reads a
+    # contradiction as provenance: "adjudicated by a human" with no human named, or "adjudicated
+    # automatically" carrying a human's id. Neither is repaired by guessing — both are refused.
+    if lastro_origem == LASTRO_ORIGEM_HUMANA and not lastro_decisor_id:
+        logger.error("contas_handoff_pagamento_humano_sem_decisor", numero_lote_tiss=numero_lote_tiss)
+        raise ContasHandoffPagamentoInvalidoError(
+            f"handoff_pagamento: lastro_origem={LASTRO_ORIGEM_HUMANA} sem analista_id — uma ordem "
+            "declarada como adjudicada por humano NAO pode sair sem o decisor identificado "
+            "(ADR-0007; `lastro_decisor_id` e a EVIDENCIA que UT_AnaliseAdmissibilidade le). "
+            "Recusado, nunca preenchido com um valor plausivel"
+        )
+    if lastro_origem == LASTRO_ORIGEM_AUTOMATICA and lastro_decisor_id:
+        logger.error("contas_handoff_pagamento_automatica_com_decisor", numero_lote_tiss=numero_lote_tiss)
+        raise ContasHandoffPagamentoInvalidoError(
+            f"handoff_pagamento: lastro_origem={LASTRO_ORIGEM_AUTOMATICA} com analista_id "
+            f"{lastro_decisor_id!r} — a perna automatica NAO tem decisor humano (documentacao de "
+            "ST_HandoffPagamentoAuto: `lastro_decisor_id` VAZIO, nunca inventado). Carregar um id "
+            "aqui diria ao revisor de PAGTO que um humano adjudicou quando nenhum adjudicou. "
+            "Recusado"
+        )
     business_key = _pagto_business_key(tenant_id, numero_lote_tiss, prestador_id)
     payload: dict[str, Any] = {
         "tenant_id": tenant_id,
@@ -1396,12 +1447,75 @@ def _build_glosa_input(variables: dict[str, Any]) -> GlosaInput:
         raise ContasLoteInvalidoError(f"campos obrigatorios ausentes: {exc}") from exc
 
 
+def _normalize_data_recebimento_lote(raw: Any) -> tuple[str, bool]:
+    """Normalise the payer's own receipt date to ISO `YYYY-MM-DD`; report whether it defaulted.
+
+    GAP-CONTAS-4 / ENGINE-16004. `contas_sla` computes the ABSOLUTE `timeDate` deadlines of
+    `BT_SlaAnaliseContas`/`BT_AlertaSlaContas` from this single anchor, and a FEEL expression that
+    sees `null`/`""` does not produce a late timer — it produces an unresolvable one. When the
+    field arrives absent/blank/malformed the intake defaults FAIL-SAFE to TODAY/UTC and the caller
+    LOGS A WARNING; it never invents a plausible PAST date, which would silently shorten a
+    contractual deadline the operadora owes.
+
+    `recurso._normalize_data_recebimento` is the twin of this function and its docstring already
+    named this one as the original — the behaviour just did not exist here yet.
+    """
+    text = str(raw or "").strip()
+    if text:
+        # Accept a full ISO datetime by keeping only the calendar date the DMN concatenates
+        # "T00:00:00" onto.
+        candidate = text.split("T", 1)[0]
+        try:
+            datetime.strptime(candidate, "%Y-%m-%d")  # noqa: DTZ007 — calendar date, not an instant
+        except ValueError:
+            pass
+        else:
+            return candidate, False
+    return datetime.now(UTC).strftime("%Y-%m-%d"), True
+
+
 def identify_glosa_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.contas.identify_glosa` -> `identify_glosa`."""
+    """Dict-boundary entry for `operadora.contas.identify_glosa` -> `identify_glosa`.
+
+    This is the INTAKE: `ST_ApurarDivergencias` is the first worker on EVERY path (including the
+    `BME_LinhasAtualizadas` re-entry), which is why the two DATE fields of the lote are resolved
+    HERE and written back as process variables — exactly as the BPMN documentation of that element
+    already declared, and as `recurso.validate_recurso` does on its own chain:
+
+    * `data_recebimento_lote` — the SLA anchor. Normalised, and defaulted FAIL-SAFE to today/UTC
+      with a warning when the lote does not carry it (never a fabricated past date).
+    * `data_vencimento` — the payment obligation's due date, read from the lote/termo contratual
+      (origin DRAFT/verify, ADR-0040 OQ-2). ECHOED verbatim (stripped), **never defaulted**: an
+      invented due date is a false deadline, and `handoff_pagamento` refuses it blank. What the
+      intake adds is VISIBILITY: the absence is logged at the first task of the process, in the
+      audit trail, instead of only surfacing four tasks later as a stalled handoff nobody expected.
+      MAJOR-1 of VERIFY-PR4-CONTAS is precisely that nothing in the process produced this field.
+    """
     del kafka  # unused — identify_glosa emits no domain event
     input_data = _build_glosa_input(variables)
     result = identify_glosa(input_data)
-    return dataclasses.asdict(result)
+    out = dataclasses.asdict(result)
+
+    data_recebimento, defaulted = _normalize_data_recebimento_lote(input_data.data_recebimento_lote)
+    if defaulted:
+        logger.warning(
+            "contas.identify_glosa.data_recebimento_lote_defaultada",
+            tenant_id=input_data.tenant_id,
+            numero_lote_tiss=input_data.numero_lote_tiss,
+            recebido=str(input_data.data_recebimento_lote or ""),
+            usada=data_recebimento,
+        )
+    out["data_recebimento_lote"] = data_recebimento
+
+    data_vencimento = str(input_data.data_vencimento or "").strip()
+    if not data_vencimento:
+        logger.warning(
+            "contas.identify_glosa.sem_data_vencimento",
+            tenant_id=input_data.tenant_id,
+            numero_lote_tiss=input_data.numero_lote_tiss,
+        )
+    out["data_vencimento"] = data_vencimento
+    return out
 
 
 def analyze_reason_entry(
