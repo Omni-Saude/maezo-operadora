@@ -17,9 +17,9 @@ from maezo.tools.workers.credenciamento import (
     ERR_DECRED_NOT_HUMAN,
     CredError,
     assess_admissibility,
+    dispatch_prior_notice,
     make_prepare_dossier_handler,
     notify_doc_pendente,
-    notify_prestador,
     notify_sla_risk,
     register_cred_denial,
     register_credenciamento,
@@ -344,13 +344,24 @@ def test_assess_admissibility_dmn_unwired_raises_dmn_evaluation_error() -> None:
 
 
 # ---------------------------------------------------------------
-# notify_prestador
+# dispatch_prior_notice (GAP-FAB-NOTIF: renamed from notify_prestador; no longer
+# fabricates notificacao_previa_feita=True)
 # ---------------------------------------------------------------
 
 
-def test_notify_prestador() -> None:
-    result = notify_prestador({"prestador_id": "P-001"})
-    assert result["notificacao_previa_feita"] is True
+def test_dispatch_prior_notice_returns_no_fabricated_fact() -> None:
+    """The handler must not resurrect the fabricated `notificacao_previa_feita=True`
+    constant (zero consumers in BPMN/DMN, contract claimed it as RN 567 'comprovada')."""
+    result = dispatch_prior_notice({"prestador_id": "P-001"})
+    assert result == {}
+    assert "notificacao_previa_feita" not in result
+
+
+def test_dispatch_prior_notice_missing_fields_does_not_raise() -> None:
+    """Fails SAFE (never raises) on missing identity, mirroring the module's
+    notify_doc_pendente/notify_sla_risk idiom (`.get(..., default)`, no guard)."""
+    result = dispatch_prior_notice({})
+    assert result == {}
 
 
 # ---------------------------------------------------------------
@@ -372,7 +383,7 @@ def test_notify_doc_pendente_happy_path() -> None:
 
 def test_notify_doc_pendente_missing_fields_does_not_raise() -> None:
     """Notify-only worker (T2.5-p2b) — fails SAFE (never raises) on missing identity, mirroring
-    the proven `notify_prestador`/`cancel.notify_sla_risk` idiom (`.get(..., default)`, no guard)."""
+    the proven `dispatch_prior_notice`/`cancel.notify_sla_risk` idiom (`.get(..., default)`, no guard)."""
     result = notify_doc_pendente({})
     assert result["documentacao_pendente_notificada"] is True
     assert result["prestador_id"] == ""

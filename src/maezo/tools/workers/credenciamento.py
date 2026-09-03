@@ -255,18 +255,47 @@ def assess_admissibility(variables: dict[str, Any], *, dmn: DmnTransport | None 
 
 
 # ---------------------------------------------------------------
-# notify_prestador — neutral notification
+# dispatch_prior_notice — neutral log/register step (RN 567 cure-window)
 # ---------------------------------------------------------------
 
 
-def notify_prestador(variables: dict[str, Any]) -> dict[str, Any]:
-    """Notify provider about the (de)credentialing process (NEUTRAL)."""
-    prestador_id = variables.get("prestador_id", "")
-    logger.info("cred_notify_prestador", prestador_id=prestador_id)
+def dispatch_prior_notice(variables: dict[str, Any]) -> dict[str, Any]:
+    """Log the RN 567 cure-window prior-notice dispatch step for this instance (NEUTRAL).
 
-    return {
-        "notificacao_previa_feita": True,
-    }
+    GAP-FAB-NOTIF fix — renamed from `notify_prestador`. The recipient every spec artifact names
+    is the **beneficiario/ANS**, never the prestador: BPMN `ST_CheckPriorNotice` name/documentation
+    ("Disparar/registrar notificacao previa (RN 567)" / "...ao beneficiario/ANS...",
+    `SP-OP-CRED-001_Descredenciamento.bpmn:291-293`), `cred_prior_notice.dmn:10,46,55`, and the
+    contract (`docs/processes/contracts/SP-OP-CRED-001.md:62,101`) all agree; only this function's
+    old name/docstring said "provider". The BPMN element itself was already correct — only the
+    Python name/docstring/topic-map comment needed aligning.
+
+    This step does NOT confirm delivery or receipt of the notice and returns no such fact. It only
+    observes/logs that the cure-window dispatch step ran, mirroring this module's own
+    `notify_doc_pendente`/`notify_sla_risk` idiom (informational only). The real Kafka publish of
+    `agents.events.cred.pended` happens in the very next BPMN task, `ST_PublishCredPendedNotice`,
+    via the generic `operadora.events.publish` worker — not here. "Comprovacao" (proof of receipt)
+    is established later, by a HUMAN, via the `comprovacao_notificacao_previa` form field on
+    `UT_AnaliseDescredenciamento`, which is the ONLY thing `_register_descredenciamento`'s guard
+    checks (`:414`, `:428-429`) — a DIFFERENT variable from anything this function ever touched.
+
+    Previously this function returned a constant `{"notificacao_previa_feita": True}` regardless
+    of input — a fabricated regulatory fact (no channel, RN 567 "comprovada" per the contract) that
+    also had ZERO consumers anywhere in BPMN/DMN (no `conditionExpression`, no `resultVariable`,
+    no DMN input reads it) and unconditionally clobbered whatever value Carolina's agent may have
+    seeded at process start (`agents/carolina/graph.py:236,787`). This fix does not replace one
+    invented fact with another: it returns nothing beyond what is true, leaving any upstream-seeded
+    value (if present) untouched.
+    """
+    prestador_id = variables.get("prestador_id", "")
+    tenant_id = variables.get("tenant_id", "")
+    logger.info(
+        "cred_dispatch_prior_notice",
+        prestador_id=prestador_id,
+        tenant_id=tenant_id,
+    )
+
+    return {}
 
 
 # ---------------------------------------------------------------
@@ -283,13 +312,13 @@ def notify_doc_pendente(variables: dict[str, Any]) -> dict[str, Any]:
     `ST_VerifyCredentials`). Incomplete documentation NEVER produces an automatic denial — only
     the human User Tasks (`UT_AnaliseCredenciamento`/`UT_AnaliseDescredenciamento`) can ever
     deny/de-credential (ADR-0018); this worker only observes/logs the pendency and asks for the
-    missing documents. Mirrors this module's own `notify_prestador` (`check_prior_notice`) idiom —
-    same shape, same BPMN `event_topic_pended` extensionElement.
+    missing documents. Mirrors this module's own `dispatch_prior_notice` (`check_prior_notice`)
+    idiom — same shape, same BPMN `event_topic_pended` extensionElement.
 
     A genuine `kafka.publish` of `agents.events.cred.pended` (the BPMN's own
     `event_topic_pended` extensionElement) is NOT fabricated here — same documented gap as this
-    module's sibling `notify_prestador` (which carries the identical extensionElement and does
-    not publish either) and the cross-family "not fabricated here" convention documented in
+    module's sibling `dispatch_prior_notice` (which carries the identical extensionElement and
+    does not publish either) and the cross-family "not fabricated here" convention documented in
     `ans_submit.register_ans_submit_workers`'s docstring (mirrored by `cancel.py`/`contas.py`/
     `reembolso.py`/`nip.py`/`recurso.py`/`inadimplencia.py` for their own entry functions).
     """
@@ -718,8 +747,10 @@ class CredError(Exception):
 #                             MODELED ERR_CRED_INVALID_PRESTADOR origin-guard, ADR-0030 Tier-2)
 #   assess_admissibility   -> operadora.cred.check_network_criteria (spec match: RN 566 criteria
 #                             classification)
-#   notify_prestador       -> operadora.cred.check_prior_notice     (spec match: RN 567 prior-notice
-#                             dispatch)
+#   dispatch_prior_notice  -> operadora.cred.check_prior_notice     (spec match: RN 567 prior-notice
+#                             dispatch — GAP-FAB-NOTIF: renamed from notify_prestador, recipient is
+#                             beneficiario/ANS, not the prestador; no longer returns the fabricated
+#                             notificacao_previa_feita=True constant)
 #   notify_doc_pendente    -> operadora.cred.notify_doc_pendente    (exact spec match, T2.5-p2b;
 #                             NEUTRAL — PENDENTE_DOCUMENTACAO never denies)
 #   register_decred (alias register_descredenciamento)
@@ -764,7 +795,7 @@ def register_credenciamento_workers(
             "operadora.cred.check_network_criteria", functools.partial(assess_admissibility, dmn=dmn)
         )
     )
-    harness.register_worker(FunctionWorker("operadora.cred.check_prior_notice", notify_prestador))
+    harness.register_worker(FunctionWorker("operadora.cred.check_prior_notice", dispatch_prior_notice))
     harness.register_worker(FunctionWorker("operadora.cred.notify_doc_pendente", notify_doc_pendente))
     harness.register_worker(
         FunctionWorker("operadora.cred.register_descredenciamento", register_descredenciamento)
