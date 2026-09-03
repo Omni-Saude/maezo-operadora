@@ -27,6 +27,22 @@ happened, and RAISES when even that cannot decide:
 Because a permanent claim CHANGES RESTART SEMANTICS, it is applied per process family via
 `_START_DEDUP_POLICY`; the non-strict half of that policy is pinned here too, so a future blanket
 "just make it strict" cannot land silently.
+
+GAP-D3-02 — the THIRD posture, and why a boolean could not express it. `SP-OP-CANCEL-001`'s
+re-delivery idempotency rested entirely on the TOCTOU-prone `find_active_instance`, and a second
+CONCURRENT instance is the L0 double-termination risk the INADIMPLENCIA/CANCEL harmonization
+exists to prevent — so it needs the claim as a mutual-exclusion token. But it is NOT one-shot
+(three of its end events leave the contract alive, and one key serves all four `tipo_solicitacao`
+triggers), so a PERMANENT gate would deny a legitimate second cancellation case with no human in
+the loop. `StartDedupPosture.EXCLUSIVE` is those two facts held at once:
+
+    claim hit + ACTIVE instance   -> ALREADY_ACTIVE      (same as PERMANENT)
+    claim hit + FINISHED instance -> fall through, START  (PERMANENT would refuse — the ONE
+                                                           branch where the postures diverge)
+    claim hit + NO instance ever  -> StartClaimWithoutInstanceError  (same as PERMANENT)
+
+Both halves are pinned below, plus a side-by-side test that fails if a refactor ever collapses
+the two postures into one.
 """
 
 from __future__ import annotations
@@ -51,17 +67,21 @@ from maezo.tools.mcp_cibseven.transport import (
     ProcessInstance,
     StartClaimWithoutInstanceError,
     StartDedupGateUnavailableError,
+    StartDedupPosture,
     StartOutcome,
     is_strict_start_dedup,
     start_dedup_key,
+    start_dedup_posture,
     start_process_idempotent,
 )
 from tests.support.audit_fakes import FakeStartAuditSink
 
-PAGTO = "SP-OP-PAGTO-001"  # the one STRICT family
+PAGTO = "SP-OP-PAGTO-001"  # the one PERMANENT family
 PAGTO_KEY = "PAGTO-amh-OP-001"
-INAD = "SP-OP-INADIMPLENCIA-001"  # a classified NON-strict family
+INAD = "SP-OP-INADIMPLENCIA-001"  # a classified NON_STRICT family
 INAD_KEY = "INAD-amh-C-001"
+CANCEL = "SP-OP-CANCEL-001"  # the one EXCLUSIVE family (GAP-D3-02)
+CANCEL_KEY = "CANCEL-amh-C-001"
 
 
 def _provenance(**overrides: Any) -> AgentDecisionProvenance:
@@ -508,18 +528,296 @@ async def test_non_strict_family_still_dedupes_the_audit_row() -> None:
 
 
 # ---------------------------------------------------------------------------
+# EXCLUSIVE (GAP-D3-02): mutual exclusion WITHOUT a permanent gate — SP-OP-CANCEL-001
+#
+# The gap: CANCEL-001's re-delivery idempotency rested ENTIRELY on `find_active_instance`, whose
+# TOCTOU window two concurrent deliveries can walk straight through — and a second CONCURRENT
+# CANCEL-001 instance is the BLOCKING L0 double-termination risk
+# (docs/processes/harmonization-inadimplencia-cancel.md §1): two parallel `UT_AnaliseRescisao`
+# reviews for one contract.
+#
+# The trap the fix must NOT fall into: `PERMANENT` (PAGTO's posture) would also close that window,
+# but it would additionally refuse the key FOREVER. CANCEL-001 is not one-shot — three of its end
+# events leave the contract ALIVE (`End_ContratoMantido`, `End_PedidoCancelamentoNegado`,
+# `End_ManterNaoConfirmado`) and one key serves all four `tipo_solicitacao` triggers — so a titular
+# whose cancellation request was denied, or a contract kept alive by a human MANTER, legitimately
+# produces a SECOND case under the SAME key. `PERMANENT` would deny it with no human in the loop.
+#
+# These tests pin BOTH halves: the window is closed, and the second case still gets through.
+# ---------------------------------------------------------------------------
+
+
+async def _start_cancel(
+    transport: FakeCibSevenTransport,
+    sink: AuditStartSink,
+    *,
+    business_key: str = CANCEL_KEY,
+) -> ProcessInstance:
+    return await start_process_idempotent(
+        transport,
+        process_key=CANCEL,
+        business_key=business_key,
+        variables={"numero_contrato": "C-001"},
+        audit_sink=sink,
+        provenance=_provenance(agent_id="inadimplencia-worker"),
+    )
+
+
+async def test_exclusive_family_returns_the_live_instance_on_a_redelivery() -> None:
+    """The dominant real case: an external-task lock expires and the SAME handoff is dispatched
+    again while the CANCEL-001 instance is still running. Exactly one instance, one claim."""
+    transport = _CountingTransport()
+    sink = FakeStartAuditSink()
+
+    first = await _start_cancel(transport, sink)
+    second = await _start_cancel(transport, sink)
+
+    assert transport.starts == [CANCEL_KEY], "a re-delivery started a SECOND rescisao review"
+    assert first.start_outcome is StartOutcome.STARTED
+    assert second.start_outcome is StartOutcome.ALREADY_ACTIVE
+    assert second.instance_id == first.instance_id != ""
+    assert second.already_existed is True
+
+
+async def test_two_racers_on_the_exclusive_cancel_key_produce_exactly_one_engine_start() -> None:
+    """THE GAP-D3-02 FIX, stated as the property it buys. Both racers are held at the barrier
+    until both have seen "no active instance", so `find_active_instance` is guaranteed useless —
+    exactly the TOCTOU interleaving that used to produce two CANCEL-001 instances. Only the
+    durable claim can break the tie."""
+    transport = _BlockingTransport(racers=2)
+    sink = FakeStartAuditSink()
+
+    results = await asyncio.gather(_start_cancel(transport, sink), _start_cancel(transport, sink))
+
+    assert transport.starts == [CANCEL_KEY], (
+        f"expected exactly ONE engine start, got {transport.starts} — the TOCTOU window is open "
+        "and two rescisao reviews can run for one contract"
+    )
+    assert sum(1 for r in results if r.start_outcome is StartOutcome.STARTED) == 1
+    assert sum(1 for r in results if r.start_outcome is StartOutcome.ALREADY_ACTIVE) == 1
+    assert all(r.instance_id for r in results), "no racer may be told about a phantom instance"
+
+
+async def test_exclusive_family_is_not_a_permanent_gate_on_a_finished_key() -> None:
+    """THE ANTI-SWALLOW PIN — the discriminator between `EXCLUSIVE` and `PERMANENT`.
+
+    The first CANCEL-001 instance ended with the contract ALIVE (the human decided MANTER, or the
+    beneficiary's request was denied). A LATER, genuinely new cancellation case for the same
+    contract mints the SAME business key. It MUST start. Under `PERMANENT` this test goes red with
+    `ALREADY_COMPLETED` — which is precisely the defect a plain "flip CANCEL to strict" would have
+    shipped: an adverse outcome against a beneficiary produced by an idempotency gate, no human
+    anywhere in it."""
+    transport = _CountingTransport()
+    sink = FakeStartAuditSink()
+
+    first = await _start_cancel(transport, sink)
+    # The instance ends — contract kept alive (`End_ContratoMantido`). `find_active_instance` now
+    # sees nothing; the engine's HISTORY still proves the first generation happened and ended.
+    transport.seed_instance(
+        ProcessInstance(
+            instance_id=first.instance_id,
+            process_key=CANCEL,
+            business_key=CANCEL_KEY,
+            state="COMPLETED",
+        )
+    )
+    assert await transport.find_active_instance(CANCEL_KEY) is None
+
+    second = await _start_cancel(transport, sink)
+
+    assert transport.starts == [CANCEL_KEY, CANCEL_KEY], (
+        "a legitimate SECOND cancellation case was swallowed by the dedup gate"
+    )
+    assert second.start_outcome is StartOutcome.STARTED
+    assert second.already_existed is False
+    assert second.instance_id != ""
+
+
+async def test_exclusive_family_permits_the_next_case_after_an_externally_terminated_one() -> None:
+    """ "Finished" is not only COMPLETED. A terminated CANCEL-001 instance equally proves the
+    claimed generation is over, so the next legitimate case may start — same reasoning, and the
+    engine's own state token is what decides it."""
+    transport = _CountingTransport()
+    sink = FakeStartAuditSink()
+
+    first = await _start_cancel(transport, sink)
+    transport.seed_instance(
+        ProcessInstance(
+            instance_id=first.instance_id,
+            process_key=CANCEL,
+            business_key=CANCEL_KEY,
+            state="EXTERNALLY_TERMINATED",
+        )
+    )
+
+    second = await _start_cancel(transport, sink)
+
+    assert transport.starts == [CANCEL_KEY, CANCEL_KEY]
+    assert second.start_outcome is StartOutcome.STARTED
+
+
+@pytest.mark.usefixtures("instant_gate_repoll")
+async def test_exclusive_family_wedges_loudly_when_the_claim_has_no_instance_anywhere() -> None:
+    """ABSENCE OF EVIDENCE IS NOT PERMISSION. A claim with no instance active OR historic is the
+    undecidable case: the winner's POST may still be in flight, and starting into that window is
+    the second concurrent rescisao review this posture exists to prevent. `EXCLUSIVE` treats it
+    EXACTLY like `PERMANENT` does — raise, never guess.
+
+    This is the branch that separates `EXCLUSIVE` from "just go back to non-strict": non-strict
+    would have started a duplicate here, silently."""
+    transport = _CountingTransport()
+    sink = FakeStartAuditSink(already_audited=True)  # claim pre-exists, engine knows nothing
+
+    with pytest.raises(StartClaimWithoutInstanceError) as exc:
+        await _start_cancel(transport, sink)
+
+    assert transport.starts == []
+    assert exc.value.process_key == CANCEL
+    assert exc.value.dedup_key == start_dedup_key("amh", CANCEL, CANCEL_KEY)
+    # Never swallowed by an agent/worker `except CibSevenError` as a routine engine outage.
+    assert not isinstance(exc.value, CibSevenError)
+
+
+@pytest.mark.usefixtures("instant_gate_repoll")
+async def test_exclusive_family_start_failure_then_retry_never_reports_a_phantom_success() -> None:
+    """The F3 BLOCKER-1 property, now also live for CANCEL: claim written -> engine start FAILS ->
+    the retry cannot be answered from the claim alone and says so, loudly, instead of reporting a
+    rescisao review that was never opened."""
+    transport = _FailingStartTransport(failures=1)
+    sink = FakeStartAuditSink()
+
+    with pytest.raises(CibSevenError):
+        await _start_cancel(transport, sink)
+    assert transport.starts == []
+
+    with pytest.raises(StartClaimWithoutInstanceError):
+        await _start_cancel(transport, sink)
+    assert transport.starts == [], "the gate must not even ATTEMPT a second start"
+
+
+async def test_exclusive_family_keys_are_not_collapsed_across_contracts() -> None:
+    """Mutation guard: the gate keys on the business key. Two DIFFERENT contracts must BOTH start —
+    a gate that collapsed distinct keys would silently swallow a real termination case."""
+    transport = _CountingTransport()
+    sink = FakeStartAuditSink()
+
+    await asyncio.gather(
+        _start_cancel(transport, sink, business_key="CANCEL-amh-C-001"),
+        _start_cancel(transport, sink, business_key="CANCEL-amh-C-002"),
+    )
+
+    assert sorted(transport.starts) == ["CANCEL-amh-C-001", "CANCEL-amh-C-002"]
+
+
+async def test_exclusive_family_refuses_to_start_behind_a_sink_that_cannot_report_dedup() -> None:
+    """FAIL CLOSED, NEVER FALL BACK. A composition root whose sink cannot report the dedup flag
+    cannot gate a CANCEL start — so the start does not run at all. Silently degrading to the
+    TOCTOU-only path is the behaviour GAP-D3-02 exists to remove, and it must not be reachable by
+    mis-wiring."""
+    transport = _CountingTransport()
+
+    with pytest.raises(StartDedupGateUnavailableError) as exc:
+        await _start_cancel(transport, _HashOnlySink())
+
+    assert transport.starts == []
+    assert not isinstance(exc.value, CibSevenError)
+
+
+async def test_exclusive_family_refuses_to_start_behind_a_history_blind_transport() -> None:
+    """The other half of the same fail-closed rule: without `find_any_instance` the gate cannot
+    tell "the claimed generation ended" from "the start never happened", so it refuses rather than
+    guessing either. Raised BEFORE the claim is written — a mis-wired root leaves no orphan."""
+    sink = FakeStartAuditSink()
+
+    with pytest.raises(StartDedupGateUnavailableError):
+        await start_process_idempotent(
+            _HistoryBlindTransport(),
+            process_key=CANCEL,
+            business_key=CANCEL_KEY,
+            variables={},
+            audit_sink=sink,
+            provenance=_provenance(),
+        )
+
+    assert sink.calls == [], "the refusal must precede the durable claim (no orphan claim)"
+
+
+# ---------------------------------------------------------------------------
+# PAGTO REGRESSION: `PERMANENT` behaviour is byte-for-byte what it was before GAP-D3-02
+# ---------------------------------------------------------------------------
+
+
+async def test_permanent_and_exclusive_diverge_only_on_the_finished_instance_branch() -> None:
+    """Side-by-side discriminator. Same fixture shape, same claim hit, same finished instance —
+    and the ONLY difference in the whole gate is the verdict on that one branch. If a refactor
+    ever made `PERMANENT` fall through (or `EXCLUSIVE` refuse), this is the test that names it."""
+    pagto_transport = _CountingTransport()
+    pagto_sink = FakeStartAuditSink()
+    first_pagto = await _start(pagto_transport, pagto_sink)
+    pagto_transport.seed_instance(
+        ProcessInstance(
+            instance_id=first_pagto.instance_id,
+            process_key=PAGTO,
+            business_key=PAGTO_KEY,
+            state="COMPLETED",
+        )
+    )
+
+    cancel_transport = _CountingTransport()
+    cancel_sink = FakeStartAuditSink()
+    first_cancel = await _start_cancel(cancel_transport, cancel_sink)
+    cancel_transport.seed_instance(
+        ProcessInstance(
+            instance_id=first_cancel.instance_id,
+            process_key=CANCEL,
+            business_key=CANCEL_KEY,
+            state="COMPLETED",
+        )
+    )
+
+    pagto_second = await _start(pagto_transport, pagto_sink)
+    cancel_second = await _start_cancel(cancel_transport, cancel_sink)
+
+    assert pagto_second.start_outcome is StartOutcome.ALREADY_COMPLETED
+    assert pagto_transport.starts == [PAGTO_KEY], "PAGTO's permanent gate regressed"
+    assert cancel_second.start_outcome is StartOutcome.STARTED
+    assert cancel_transport.starts == [CANCEL_KEY, CANCEL_KEY]
+
+
+# ---------------------------------------------------------------------------
 # The policy map itself
 # ---------------------------------------------------------------------------
 
 
-def test_pagto_is_strict_and_is_the_only_strict_family() -> None:
-    """Pins the deliberate scope: PAGTO (money release) is gated; nothing else is, because the
-    other keys either legitimately re-run across time or raise a domain question an engineering
-    change may not answer. Widening this set is a REVIEWED decision, not a refactor."""
+def test_pagto_is_the_only_permanent_family_and_cancel_the_only_exclusive_one() -> None:
+    """Pins the deliberate scope of BOTH gated postures. `PERMANENT` (a key that may never start
+    again) is PAGTO and PAGTO alone — money release is one-shot. `EXCLUSIVE` (concurrent starts
+    mutually excluded, but NEVER a permanent gate) is CANCEL and CANCEL alone since GAP-D3-02.
+    Everything else stays `NON_STRICT`, because those keys either legitimately re-run across time
+    or raise a domain question an engineering change may not answer.
+
+    Widening either set is a REVIEWED decision, not a refactor — and MOVING a key from `EXCLUSIVE`
+    to `PERMANENT` is the one that needs the most review: it converts an idempotency gate into a
+    denial of a legitimate second case with no human in the loop."""
     from maezo.tools.mcp_cibseven.transport import _START_DEDUP_POLICY
 
-    assert [k for k, strict in _START_DEDUP_POLICY.items() if strict] == [PAGTO]
+    by_posture = {
+        posture: sorted(k for k, p in _START_DEDUP_POLICY.items() if p is posture)
+        for posture in StartDedupPosture
+    }
+    assert by_posture[StartDedupPosture.PERMANENT] == [PAGTO]
+    assert by_posture[StartDedupPosture.EXCLUSIVE] == [CANCEL]
+    assert len(by_posture[StartDedupPosture.NON_STRICT]) == len(_START_DEDUP_POLICY) - 2
+
+    assert start_dedup_posture(PAGTO) is StartDedupPosture.PERMANENT
+    assert start_dedup_posture(CANCEL) is StartDedupPosture.EXCLUSIVE
+    assert start_dedup_posture(INAD) is StartDedupPosture.NON_STRICT
+
+    # `is_strict_start_dedup` is the "does the claim gate the EFFECT?" predicate the chokepoint
+    # branches on — TRUE for both gated postures, and it must not silently narrow back to PAGTO.
     assert is_strict_start_dedup(PAGTO) is True
+    assert is_strict_start_dedup(CANCEL) is True
+    assert is_strict_start_dedup(INAD) is False
 
 
 @pytest.mark.parametrize(
@@ -600,8 +898,11 @@ def test_protocol_probe_recognizes_every_production_sink_shape() -> None:
     `PostgresAuditSink` is what the two PAGTO-capable composition roots inject
     (`runtime/agent_runtime/service.py:316` for Andre's graph,
     `platform/webhooks/service.py:108` for the notification bridge). `FreshSinkAuditEmitter` is
-    the loop-agnostic adapter the SYNC worker handoff seams use — it fronts no strict family
-    today, but it must not become a trap for whichever seam is wired through it next.
+    the loop-agnostic adapter the SYNC worker handoff seams use — and since GAP-D3-02 it is no
+    longer a future-proofing nicety: it fronts the `EXCLUSIVE` CANCEL-001 starts of
+    `inadimplencia.handoff_rescisao` / `fraude.start_contratual`
+    (`runtime/worker_runtime/service.py:787-790`), so losing `emit_once_status` here would fail
+    those handoffs closed.
     """
     from maezo.gateway.audit_postgres import FreshSinkAuditEmitter, PostgresAuditSink
 
@@ -609,6 +910,37 @@ def test_protocol_probe_recognizes_every_production_sink_shape() -> None:
     assert issubclass(FreshSinkAuditEmitter, DedupReportingAuditSink)
     assert isinstance(FakeStartAuditSink(), DedupReportingAuditSink)
     assert not isinstance(_HashOnlySink(), DedupReportingAuditSink)
+
+
+def test_protocol_probe_recognizes_every_production_transport_shape() -> None:
+    """Sink half above, TRANSPORT half here — both are gate inputs and both fail closed.
+
+    Every transport a composition root can inject in front of a gated family must satisfy
+    `HistoryQueryingTransport`, INCLUDING through the Onda-1 gating decorator: `gate_cibseven`
+    (`gateway/seams/cibseven.py:128`) picks `GatedHistoryQueryingCibSevenTransport` precisely so
+    the capability survives the wrap. A decorator that silently dropped it would turn every
+    CANCEL-001 / PAGTO-001 start into a fail-closed refusal in production.
+    """
+    from maezo.gateway.seams._base import SeamContext
+    from maezo.gateway.seams.cibseven import GatedHistoryQueryingCibSevenTransport, gate_cibseven
+    from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
+    from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
+
+    http = CibSevenHttpTransport("http://engine.invalid")
+    fresh = FreshClientCibSevenTransport("http://engine.invalid")
+    assert isinstance(http, HistoryQueryingTransport)
+    assert isinstance(fresh, HistoryQueryingTransport)
+
+    seam = SeamContext(tenant="amh", principal="teste_gate_probe")
+    for inner in (http, fresh):
+        gated = gate_cibseven(inner, seam)
+        assert isinstance(gated, GatedHistoryQueryingCibSevenTransport)
+        assert isinstance(gated, HistoryQueryingTransport), (
+            "the gating decorator dropped `find_any_instance` — every gated start would refuse"
+        )
+
+    # And the negative: a history-blind inner must NOT be dressed up as history-querying.
+    assert not isinstance(gate_cibseven(_HistoryBlindTransport(), seam), HistoryQueryingTransport)
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,14 @@ import asyncio
 import pytest
 
 from maezo.gateway.custody import CustodyBundle
-from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance, start_dedup_key
+from maezo.tools.mcp_cibseven.transport import (
+    FakeCibSevenTransport,
+    ProcessInstance,
+    StartDedupGateUnavailableError,
+    StartDedupPosture,
+    start_dedup_key,
+    start_dedup_posture,
+)
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, DmnNoResultError, FakeDmnTransport
 from maezo.tools.workers.fraude import (
     _SCORING_INPUT_KEYS,
@@ -1045,6 +1052,104 @@ def test_start_contratual_refuses_degenerate_anchors_before_any_engine_call(
     assert exc.value.code == ERR_FRAUDE_HANDOFF_SEM_ALVO
     assert sink.dedup_keys == []  # emit-before-effect: refusal precedes ANY audit/engine call
     assert sink.records == []
+
+
+class _HistoryBlindCibSevenTransport:
+    """`CibSevenTransport` WITHOUT `find_any_instance` — not a `HistoryQueryingTransport`.
+
+    The `runtime_checkable` probe is attribute-presence, so the capability must be genuinely
+    absent (not stubbed) for this double to model a decorator that dropped it."""
+
+    def __init__(self) -> None:
+        self.starts: list[str] = []
+
+    async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
+        return None
+
+    async def start_process_instance(
+        self, process_key: str, business_key: str, variables: dict[str, object]
+    ) -> ProcessInstance:
+        self.starts.append(business_key)
+        return ProcessInstance(
+            instance_id=f"blind-{business_key}",
+            process_key=process_key,
+            business_key=business_key,
+            state="ACTIVE",
+        )
+
+    async def correlate_message(self, *a: object, **k: object) -> None:
+        return None
+
+    async def get_process_status(self, business_key: str) -> object:
+        raise NotImplementedError
+
+    async def close(self) -> None:
+        return None
+
+
+def test_start_contratual_cancel_leg_is_gated_and_inad_cred_legs_are_not() -> None:
+    """GAP-D3-02 scope, at the caller. Of this worker's three handoff targets only CANCEL-001 is a
+    gated (`EXCLUSIVE`) family; INADIMPLENCIA-001 and CRED-001 stay `NON_STRICT`. Pinned here so a
+    future widening of the policy cannot silently add a gate to this worker's other legs."""
+    assert start_dedup_posture(CANCEL_PROCESS_KEY) is StartDedupPosture.EXCLUSIVE
+    assert start_dedup_posture(INADIMPLENCIA_PROCESS_KEY) is StartDedupPosture.NON_STRICT
+    assert start_dedup_posture(CRED_PROCESS_KEY) is StartDedupPosture.NON_STRICT
+
+
+def test_start_contratual_fails_closed_behind_a_history_blind_engine_seam() -> None:
+    """NEVER FALL BACK. CANCEL-001 is the FIRST leg `start_contratual` starts, so an engine seam
+    that cannot answer the engine-history question refuses the whole handoff before any durable
+    claim — no CANCEL start, and no INADIMPLENCIA start either (the CANCEL refusal propagates)."""
+    engine = _HistoryBlindCibSevenTransport()
+    sink = FakeStartAuditSink()
+
+    with pytest.raises(StartDedupGateUnavailableError):
+        start_contratual(
+            {"tenant_id": "amh", "numero_contrato": "C-001", "entidade_tipo": "contrato"},
+            engine=engine,
+            audit_sink=sink,
+        )
+
+    assert engine.starts == []
+    assert sink.calls == [], "the refusal must precede the durable claim (no orphan claim)"
+
+
+def test_start_contratual_cancel_redelivery_returns_the_same_instance() -> None:
+    """The `EXCLUSIVE` posture on the fraude leg: a re-fired accusation handoff converges on the
+    SAME CANCEL-001 instance (one rescisao review per contract), never a second one."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    variables = {"tenant_id": "amh", "numero_contrato": "C-321", "entidade_tipo": "beneficiario"}
+
+    first = start_contratual(dict(variables), engine=engine, audit_sink=sink)
+    second = start_contratual(dict(variables), engine=engine, audit_sink=sink)
+
+    assert first["cancel_already_existed"] is False
+    assert second["cancel_already_existed"] is True
+    assert second["cancel_instance_id"] == first["cancel_instance_id"]
+
+
+def test_start_contratual_second_case_after_a_finished_cancel_is_not_swallowed() -> None:
+    """ANTI-SWALLOW at the fraude leg: a NEW fraud case against a contract whose earlier CANCEL-001
+    review ended (contract kept) must open a new review — `EXCLUSIVE` is not a permanent gate."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    variables = {"tenant_id": "amh", "numero_contrato": "C-321", "entidade_tipo": "beneficiario"}
+
+    first = start_contratual(dict(variables), engine=engine, audit_sink=sink)
+    engine.seed_instance(
+        ProcessInstance(
+            instance_id=first["cancel_instance_id"],
+            process_key=CANCEL_PROCESS_KEY,
+            business_key="CANCEL-amh-C-321",
+            state="COMPLETED",
+        )
+    )
+
+    second = start_contratual(dict(variables), engine=engine, audit_sink=sink)
+
+    assert second["cancel_already_existed"] is False
+    assert asyncio.run(engine.find_active_instance("CANCEL-amh-C-321")) is not None
 
 
 # ---------------------------------------------------------------
