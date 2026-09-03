@@ -540,3 +540,33 @@ d225672 feat(phase3): W-B — SP-OP-CRED-001 + PAGTO-001 + PROGRAMA-001 quadrupl
 - **Runbook accuracy** (owner: DevOps/docs) — all 24 docs-runbooks findings in §3.7 (10 distinct underlying doc defects; batchable into a single documentation-accuracy pass across `gateway.md`, `devops-stack.md`, `helena.md`, `whatsapp-webhook.md`, `phase0-demo.md`, `engine-processes.md`).
 
 **LGPD re-identification resolver — BLOCKED-BY-DESIGN, unchanged.** No secure re-identification store exists to map `titular_pseudo_id`→`fhir_patient_id`; the resolver is `None`-gated and the LGPD worker fails closed rather than guessing. This is a deliberate architectural deferral (documented, not a gap) — building the secure re-identification store is out of scope for this program and requires its own design decision.
+
+---
+
+## ERRATA 2026-09-03 — §WS-4 afirma uma entrega ADR-0024 que NAO EXISTE (GAP AF-02)
+
+**Status:** Proposto (errata) — DRAFT/verify · **Autor:** `adr-reconciler` (R1, AGENTE) · **Base:** `71dd4da`
+
+Append-only: a linha 317 acima NAO foi alterada — reescrever o relatorio apagaria a evidencia de que a
+afirmacao foi feita, e deslocaria as ancoras de linha que a auditoria `docs/audits/maezo-deep-audit/`
+cita neste arquivo. O que segue e a correcao de registro.
+
+- **Afirmacao (`:317`, secao "WS-4 — Wave-3 residue"):** "**ADR-0024 (durable cross-restart idempotency) ->
+  PR #181, T3-PASS.** New `PostgresDedupeStore` ... + migration `0008_driver_idempotency` + wiring at both
+  `_spawn_inbound_driver`/`_spawn_resume_driver` call sites."
+- **Verdade em `71dd4da`:** nada disso esta no codigo.
+  - `grep -rn PostgresDedupeStore src/` -> 0 linhas; `grep -rn --include='*.py' PostgresDedupeStore .` -> 0;
+    `git log --all -S PostgresDedupeStore --oneline -- src/` -> 0 commits.
+  - Nao ha migracao `0008_driver_idempotency`: a `0008` real e `0008_a2a_fact_outbox.py` (`revision "0008"`,
+    `:120-121`); a tabela `driver_idempotency` nasceu na `0003`
+    (`src/maezo/platform/migrations/versions/0003_a2a_idempotency.py:58-72`).
+  - Os dois call sites citados nao existem: `src/maezo/runtime/inbound_driver.py` foi removido e
+    `grep -rn 'class InboundDriver\|class ResumeDriver\|IdempotencyGuard\|InMemoryIdempotencyStore' src/
+    --include='*.py'` -> 0 linhas. O caminho inbound hoje e dispatch in-process do webhook
+    (`src/maezo/platform/webhooks/whatsapp/dispatch.py:161`).
+  - O **PR #181 real deste repo** e `03c6437` — "Item 9 wave-2: pagto bucket-1 (12/12) + ADR-0030 guard
+    migration (nip/programa) (#181)" — conteudo nao relacionado.
+- **A afirmacao "T3-PASS" nao tem lastro reproduzivel** neste repo: nenhuma linha de
+  `docs/evidence-ledger.md` cita `PostgresDedupeStore`.
+- Registro completo: `docs/adr/0024-durable-idempotency-resume-inbound-drivers.md`, secao
+  `## Emenda 2026-09-03`.

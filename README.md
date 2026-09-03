@@ -30,7 +30,7 @@ Plataforma **agents-first** completa para operadoras de saúde (payer). Reconstr
 | MCP Servers | 5 | CIB Seven, DMN, FHIR, WhatsApp, Memory |
 | Testes | CI workflow | Unitários cobrindo workers, gateway, agents, platform, tools (veja CI para count atual) |
 | Código fonte | ~79K LOC | Arquivos Python em `src/maezo/` (`find src -name '*.py' \| xargs wc -l` -> 79462, 2026-09-03 pós-merge com `main` `0db53dd`; veja a árvore para count atual) |
-| Documentação | ~205K palavras | 16 contratos SP-OP, 40 ADRs (35 Accepted + 5 Proposed), 45 DLs, 22 runbooks (14 gerais + 8 de alerta; exclui os 2 drills em `docs/runbooks/drills/`) |
+| Documentação | ~205K palavras | 16 contratos SP-OP, 41 ADRs (35 Accepted + 6 Proposed), 45 DLs, 22 runbooks (14 gerais + 8 de alerta; exclui os 2 drills em `docs/runbooks/drills/`) |
 
 ### Princípios inegociáveis
 
@@ -59,7 +59,7 @@ make type   → Success: no issues found (mypy --strict; veja CI para output atu
 | Workers implementados | 16 (15 processos + registry) |
 | MCP servers | 5 |
 | Agentes AI | 10 (2 com graph.py completo) |
-| ADRs | 40 (35 Accepted, 5 Proposed) |
+| ADRs | 41 (35 Accepted, 6 Proposed — recontado 2026-09-03 pós-merge com `origin/main` `3ced9b9`: `for f in docs/adr/[0-9]*.md; do grep -m1 '**Status:**' "$f"; done` -> 35 Accepted + 5 Proposed + 1 Proposto [ADR-0041, "Proposto — DRAFT/verify", contado como Proposed]) |
 | DLs (Decisions Log) | 45 |
 | Contratos SP-OP | 16 |
 | Runbooks | 22 (14 gerais + 8 de alerta; drills fora da contagem) |
@@ -143,7 +143,7 @@ src/maezo/
 |-----------|----------|
 | [docs/Tarefas_Pendentes.md](docs/Tarefas_Pendentes.md) | **Tarefas humanas pendentes por time (deploy, segredos, ratificações, sign-offs) — pré go-live** |
 | [docs/architecture/overview.md](docs/architecture/overview.md) | Visão arquitetural completa |
-| [docs/adr/](docs/adr/) | 40 ADRs numerados (0001–0040; 35 Accepted, 5 Proposed; 42 arquivos incl. README+template) |
+| [docs/adr/](docs/adr/) | 41 ADRs numerados (0001–0041; 35 Accepted, 6 Proposed; 43 arquivos incl. README+template — recontado 2026-09-03, `ls docs/adr/[0-9]*.md \| wc -l` -> 41, `ls docs/adr/ \| wc -l` -> 43) |
 | [docs/processes/catalog.md](docs/processes/catalog.md) | Catálogo de 15 processos SP-OP |
 | [docs/processes/contracts/](docs/processes/contracts/) | 16 contratos — ~1000 regras de negócio |
 | [docs/decisions-log.md](docs/decisions-log.md) | 45 decisões operacionais |

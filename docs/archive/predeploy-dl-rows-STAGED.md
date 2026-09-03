@@ -10,3 +10,32 @@
 # ADR README index rows to add (docs/adr/README.md — also add missing 0021 row per drafter)
 | [0023](0023-merge-union-green-protected-main.md) | Politica de merge: main protegido com required checks + strict; NAO merge queue | Proposed |
 | [0024](0024-durable-idempotency-resume-inbound-drivers.md) | Idempotencia duravel dos drivers inbound/resume: Postgres (PostgresDedupeStore), nao Redis | Proposed |
+
+---
+
+## ERRATA 2026-09-03 — a linha DL-0028 acima afirma uma entrega que NAO EXISTE (GAP AF-02)
+
+**Status:** Proposto (errata) — DRAFT/verify · **Autor:** `adr-reconciler` (R1, AGENTE) · **Base:** `71dd4da`
+
+Append-only: a linha 6 acima NAO foi alterada (este arquivo e um registro historico de rascunho, e
+reescrever o rascunho apagaria a evidencia de que a afirmacao falsa foi feita). O que segue e a correcao
+de registro.
+
+- **Afirmacao (linha 6, DL-0028):** "Slice landou como PR #181 (T3-verificado com mutation-test do fix #55
+  setup=search_path; footprint 6 arquivos, extensoes ESC-007 aceitas)."
+- **Verdade em `71dd4da`:** o slice NAO landou. `grep -rn PostgresDedupeStore src/` -> 0 linhas;
+  `git log --all -S PostgresDedupeStore --oneline -- src/` -> 0 commits (a classe nunca existiu em nenhum
+  ponto da historia deste repo). Nao existe migracao `0008_driver_idempotency`: a `0008` real e
+  `0008_a2a_fact_outbox.py`, e a tabela `driver_idempotency` foi criada na `0003`
+  (`src/maezo/platform/migrations/versions/0003_a2a_idempotency.py:58-72`). O **PR #181 real deste repo** e
+  `03c6437` — "Item 9 wave-2: pagto bucket-1 (12/12) + ADR-0030 guard migration (nip/programa) (#181)" —
+  conteudo nao relacionado a idempotencia de drivers.
+- **Alem disso, o sujeito da ADR-0024 nao existe mais:** `src/maezo/runtime/inbound_driver.py` foi removido
+  e `grep -rn 'class InboundDriver\|class ResumeDriver\|IdempotencyGuard\|InMemoryIdempotencyStore' src/
+  --include='*.py'` -> 0 linhas.
+- **Nota de numeracao:** as linhas DL-0026..DL-0031 deste rascunho NUNCA foram aplicadas a
+  `docs/decisions-log.md`, e seus numeros COLIDEM com decisoes diferentes ja registradas la
+  (`docs/decisions-log.md:26,27` usam DL-0029/DL-0028 para o re-scope ANS/RN 639). Nao trate este arquivo
+  como decisions-log.
+- Registro completo: `docs/adr/0024-durable-idempotency-resume-inbound-drivers.md`, secao
+  `## Emenda 2026-09-03`.
