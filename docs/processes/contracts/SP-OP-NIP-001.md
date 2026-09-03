@@ -37,7 +37,7 @@ elaboracao/revisao.
 `ERR_NIP_NEGATIVA_NOT_HUMAN` em `operadora.nip.submit_response`: o worker recusa enviar uma
 resposta cujo `decisao_nip == MANTER_NEGATIVA` se a variavel nao foi setada por uma User
 Task humana (ausencia de `revisor_id`/grupo humano na cadeia). Espelha
-`ERR_GLOSA_ACCEPT_NOT_HUMAN`/`ERR_DESISTENCIA_NOT_HUMAN`/`ERR_AUTH_*` dos demais
+`ERR_CONTAS_GLOSA_NOT_HUMAN`/`ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN`/`ERR_AUTH_*` dos demais
 negativa-like.
 
 ## Business key (idempotencia)

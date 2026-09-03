@@ -1,22 +1,36 @@
-# Contrato — SP-OP-CONTAS-001 (Processamento de Contas / Glosa)
+# Contrato — SP-OP-CONTAS-001 (Análise e Adjudicação de Conta Médica / Glosa)
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
 **Fase:** 2 · **Wave:** WA.1 · **BPMN (alvo, autorado em wave posterior):** `spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn`
-**Gatilho regulatorio:** Padrao TISS / Componente de Comunicacao (RN 305/2012 e consolidacoes — **DRAFT/verify**); prazos de analise/recurso de conta (RN 424/2017 — **DRAFT/verify**); Lei 9.656/1998. Glosa = operadora negando/reduzindo pagamento de linha de conta ao prestador → `authorization_denial`-adjacent, **L0 hard** (embora o envelope clerical de roteamento seja `standard_glosa_processing`, L2).
-**Inverte o anti-padrao:** `../maezo-reference/.archive/bpmn/glosa_management.bpmn` (que identifica→classifica→**auto-aplica** glosa via `Task_UpdatePaymentNotEligible`/`EndEvent_GlosaAccepted` e tem `Task_AutoApprove` no timeout de 48h). Em Maezo a DMN apenas **sinaliza candidata e roteia**; nenhum caminho automatizado **confirma** glosa substantiva. Ver §"Notas de design / inversao do reference".
+**Gatilho regulatorio:** Padrao TISS — fluxo lote de guias / analise / demonstrativo de analise de conta (**RN 501/2022**, que revogou a RN 305/2012 — **DRAFT/verify**, `docs/compliance/rn-currency-review.md:39,48,83); **prazo contratual** de analise de conta (**DRAFT/verify** — ADR-0040 OQ-2); Lei 9.656/1998 art. 18 (relacao operadora↔prestador credenciado, **DRAFT/verify** com juridico). A citacao anterior a RN 424/2017 foi **RETIRADA**: aquela norma rege junta medica/odontologica e estava MISATRIBUIDA aqui (`rn-currency-review.md:45,85-87,190-193`). Glosa = a operadora **nega ou reduz** o pagamento de linha de conta ao prestador → `authorization_denial`-adjacent, **L0 hard** (embora o envelope clerical de roteamento seja `standard_glosa_processing`, L2).
+**Inverte o anti-padrao:** `../maezo-reference/.archive/bpmn/glosa_management.bpmn` (que identifica→classifica→**auto-aplica** glosa via `Task_UpdatePaymentNotEligible`/`EndEvent_GlosaAccepted` e tem `Task_AutoApprove` no timeout de 48h). Em Maezo a DMN apenas **sinaliza candidata e roteia**; nenhum caminho automatizado **glosa**. Ver §"Notas de design / inversao do reference".
+
+**Inversao de PERSPECTIVA (ADR-0040, Proposed — não ratificada):** além do anti-padrão de
+auto-aceite, este processo invertia o **ATOR**. A versão doada modelava a conferência que o
+**faturamento do prestador** faz de um demonstrativo *recebido*: a sua única User Task decisória
+tinha as três saídas de quem **sofre** a glosa. Aqui o dono é a **operadora**, que recebe o lote de
+guias transmitido pelo prestador, **adjudica** a conta apresentada e **emite** o demonstrativo de
+análise. A operadora não contesta, não aceita e não reapresenta a própria glosa: ela a aplica, e
+responde por ela (a resposta ao recurso do prestador é SP-OP-RECURSO-001).
 
 ## Invariante L0 hard (nao negociavel)
 
-A aceitacao de uma glosa **substantiva** contra o prestador (efeito adverso `authorization_denial`-class)
-SO nasce na User Task humana `UT_AnalistaContas` (grupo `auditoria-contas`), via
-`decisao_contas == ACEITAR_GLOSA`. Nenhuma DMN deste processo possui coluna de saida que
-confirme/aceite glosa. A DMN `glosa_triage` so produz `{SEM_GLOSA, RECORRER, ANALISE_HUMANA}` —
-**nao existe variante ACEITAR/CONFIRMAR em branch automatizado**. Glosa candidata ambigua,
-glosa tecnica/clinica, indicio de fraude, inelegibilidade aparente e estouro de SLA **todos
-fail-safe para uma User Task humana** (catch-all → `ANALISE_HUMANA`). O efeito adverso e
-materializado apenas pelo worker `operadora.contas.register_glosa_accept`, guardado por
-`ERR_GLOSA_ACCEPT_NOT_HUMAN`. O terminal `End_GlosaAceitaHumano` so e alcancavel apos
-`UT_AnalistaContas` concluida por humano.
+A **aplicacao** de uma glosa **substantiva** contra o prestador (efeito adverso
+`authorization_denial`-class) SO nasce na User Task humana `UT_AnalistaContas` (grupo
+`auditoria-contas`) ou `UT_CoordenacaoContasAssume` (grupo `coordenacao-contas`, no estouro de
+SLA), via `decisao_contas ∈ {GLOSAR, PAGAR_PARCIAL}`. Nenhuma DMN deste processo possui coluna de
+saida que glose. A DMN `glosa_triage` so produz `{PAGAR, ANALISE_HUMANA}` — **nao existe variante
+GLOSAR em branch automatizado**, e por isso a parte 2 de ADR-0018 e trivialmente verificavel aqui:
+o dominio nao contem nenhum valor adverso. Glosa candidata ambigua, glosa tecnica/clinica,
+divergencia de valor, indicio de fraude e estouro de SLA **todos fail-safe para uma User Task
+humana** (catch-all → `ANALISE_HUMANA`). O efeito adverso e materializado apenas pelo worker
+`operadora.contas.registrar_glosa`, guardado por `ERR_CONTAS_GLOSA_NOT_HUMAN`. Os terminais
+`End_GlosaAplicadaHumano` e `End_PagamentoParcialHumano` so sao alcancaveis apos User Task humana
+concluida.
+
+O **default** de `GW_DecisaoContas` NAO e uma acao: e `End_ErrContasDecisaoInvalida`
+(`ERR_CONTAS_DECISAO_INVALIDA`). Uma decisao ausente ou fora do dominio declarado produz um **erro
+visivel** e NENHUM efeito — nem glosa, nem demonstrativo, nem ordem de pagamento.
 
 Indicio de fraude (`fraud_accusation`, **L0 hard**) NUNCA e auto-sinalizado: roteia para User
 Task `auditoria-contas` que decide encaminhar a SP-OP-FRAUDE-001 (Phase 3). Nenhum branch
@@ -44,14 +58,17 @@ DEVE consultar a business key antes de iniciar (start idempotente, sem reprocess
 | `prestador_id` | string | sim | Prestador cujo pagamento e analisado |
 | `beneficiario_pseudo_id` | string | sim | Pseudonimo (ADR-0006 — nunca CPF/nome) |
 | `competencia` | string | sim | Competencia da conta (`YYYY-MM`) |
-| `data_recebimento_lote` | string (date ISO `YYYY-MM-DD`) | sim | Recebimento do demonstrativo (**ancora dos prazos** — GAP-CONTAS-4: consumida pela DMN `contas_sla` p/ computar os deadlines ABSOLUTOS dos timers `timeDate`; o worker `identify_glosa` a normaliza/defaulta fail-safe p/ HOJE/UTC quando ausente/invalida, com warning) |
+| `data_recebimento_lote` | string (date ISO `YYYY-MM-DD`) | sim | Data em que a operadora **recebeu** o lote do prestador (**ancora contratual do prazo de analise** — GAP-CONTAS-4: consumida pela DMN `contas_sla` p/ computar os deadlines ABSOLUTOS dos timers `timeDate`; o worker `identify_glosa` a normaliza/defaulta fail-safe p/ HOJE/UTC quando ausente/invalida, com warning) |
 | `valor_apresentado_brl` | double | sim | Valor total apresentado pelo prestador (BRL; double — **nunca `number`**) |
 | `tipo_lote` | string | sim | `consulta` \| `sadt` \| `internacao` \| `honorario` \| `opme` \| `misto` |
-| `linhas_conta_refs` | json | sim | Linhas de conta TISS (itens do demonstrativo). Forma canonica por item: `valor_apresentado_centavos` (int) ou `valor_apresentado_brl`; `valor_glosado_centavos`/`valor_glosado_brl` (opc); `valor_pago_centavos`/`valor_pago_brl` (opc — glosado = apresentado−pago quando glosado ausente); `reason_codes_tiss` (lista) ou `reason_code_tiss` (opc). **Fonte dos fatos computados** (GAP-CONTAS-2); ausente/vazio/malformado ⇒ fail-closed conservador (roteia a humano, nunca auto-clear) |
-| `reason_codes_tiss` | json | sim | Codigos de motivo de glosa TISS sinalizados no demonstrativo (entrada da normalizacao) |
+| `linhas_conta_refs` | json | sim | Linhas de conta TISS (itens da conta **apresentada pelo prestador**). Forma canonica por item: `valor_apresentado_centavos` (int) ou `valor_apresentado_brl`; `valor_glosado_centavos`/`valor_glosado_brl` (opc); `valor_pago_centavos`/`valor_pago_brl` (opc — glosado = apresentado−pago quando glosado ausente); `reason_codes_tiss` (lista) ou `reason_code_tiss` (opc). **Fonte dos fatos computados** (GAP-CONTAS-2); ausente/vazio/malformado ⇒ fail-closed conservador (roteia a humano, nunca auto-clear) |
+| `reason_codes_tiss` | json | sim | Codigos TISS de motivo de glosa **apurados pela analise de contas da operadora** sobre a conta apresentada (entrada da normalizacao; podem vir pre-computados pelo processamento de contas a montante — **nunca de terceiro**) |
 | `item_conforme_tabela` | boolean | sim* | Pre-resolvido por worker: item bate com tabela contratada/TUSS |
 | `documentacao_anexa` | boolean | sim* | Pre-resolvido por worker: anexos TISS presentes para o item |
 | `indicio_fraude_sinalizado` | boolean | nao | Sinal **informativo** de worker de regras (NUNCA decide; so roteia a humano) |
+| `data_vencimento` | string (date ISO `YYYY-MM-DD`) | sim* | Vencimento da obrigacao de pagamento, vindo do lote/termo contratual. **Obrigatoria em SP-OP-PAGTO-001** (`SP-OP-PAGTO-001.md`, "sim") e o handoff a **RECUSA em branco** — um vencimento inventado e um prazo falso. Origem contratual **DRAFT/verify** (ADR-0040 OQ-2) |
+| `conta_origem_ref` | string | nao | Referencia da conta de origem; **ecoada verbatim** ao handoff de pagamento e deixada em branco quando o lote nao a carrega (nunca preenchida com um valor plausivel) |
+| `instrumento_pagamento` | string | nao | Instrumento de pagamento; mesma regra de eco verbatim de `conta_origem_ref` |
 
 \* Pre-resolvido por worker de fatos antes de `BRT_TriagemGlosa` (aritmetica/conferencia; **sem decisao adversa**).
 
@@ -65,21 +82,29 @@ centavos-inteiros; thresholds de RULE vivem nas DMN `glosa_*`). Definicoes: linh
 `reason_codes_tiss` (lote) nao-vazio; `denial_ratio` = total_glosado/total_apresentado (clamp 0..1);
 `divergencia_valor` = total_glosado > 0 OU soma(linhas) ≠ `valor_apresentado_brl` declarado.
 **FAIL-CLOSED:** sem detalhe de linha ⇒ `has_glosas=true`, `divergencia_valor=true`,
-`denial_ratio=1.0` (a row `r_sem_glosa` da `glosa_triage` exige `divergencia_valor=false` — o lote
-sem detalhe NUNCA alcanca `End_SemGlosa` automatico).
+`denial_ratio=1.0` (a row permissiva da `glosa_triage` exige `divergencia_valor=false` — o lote
+sem detalhe NUNCA alcanca `End_ContaAprovadaIntegral` automatico).
 
 ## Variaveis de saida
 
 | Variavel | Tipo | Descricao |
 |---|---|---|
-| `decisao_contas` | string | `RECORRER` \| `ACEITAR_GLOSA` \| `REENVIAR` (preenchida SO por `UT_AnalistaContas` humana) |
-| `justificativa_glosa` | string | **Obrigatoria se `ACEITAR_GLOSA`** — fundamentacao da aceitacao da glosa |
-| `codigo_glosa_aceito` | string | **Obrigatoria se `ACEITAR_GLOSA`** — reason code/categoria normalizada aceita |
-| `valor_glosa_aceito_brl` | double | **Obrigatoria se `ACEITAR_GLOSA`** — valor aceito como glosado (BRL; double) |
-| `analista_id` | string | Aprovador humano (cadeia de auditoria ADR-0007); carregado no worker do efeito adverso |
+| `decisao_contas` | string | `PAGAR` \| `GLOSAR` \| `PAGAR_PARCIAL` \| `DEVOLVER` \| `ENCAMINHAR_FRAUDE` (preenchida SO por `UT_AnalistaContas` / `UT_CoordenacaoContasAssume` humanas) |
+| `justificativa_glosa` | string | **Obrigatoria se `GLOSAR` ou `PAGAR_PARCIAL`** — fundamentacao da glosa aplicada |
+| `codigo_glosa_tiss` | string | **Obrigatoria se `GLOSAR` ou `PAGAR_PARCIAL`** — codigo TISS de motivo de glosa apurado (**DRAFT/verify** contra a tabela vigente, OQ-5) |
+| `valor_glosado_brl` | double | **Obrigatoria se `GLOSAR` ou `PAGAR_PARCIAL`** (`> 0`) — valor glosado (BRL; double) |
+| `valor_liberado_brl` | double | **Obrigatoria se `PAGAR_PARCIAL`** (`>= 0`) e se `PAGAR` — valor liberado ao prestador; e a fonte do valor no handoff a SP-OP-PAGTO-001 (`fonte_valor=liberado`). Uma reducao declara as **duas** metades, de modo que o demonstrativo feche `apresentado = liberado + glosa` |
+| `justificativa_devolucao` | string | **Obrigatoria se `DEVOLVER`** — motivo que o prestador precisa para corrigir a conta |
+| `motivo_devolucao` | string | Codigo do motivo da devolucao (**DRAFT/verify** — OQ-1: existe artefato TISS proprio para devolucao?) |
+| `analista_id` | string | Decisor humano (cadeia de auditoria ADR-0007); carregado no worker do efeito adverso e semeado como `lastro_decisor_id` no handoff de pagamento |
 | `decisao_coordenacao` | string | `assumir_analise` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA — humano `coordenacao-contas`) |
-| `encaminhar_fraude` | boolean | Preenchida por `UT_AnalistaContas`/`auditoria-contas`: encaminhar a SP-OP-FRAUDE-001 (Phase 3) |
-| `glosa_id` | string | Identificador da glosa confirmada (handoff para SP-OP-RECURSO-001 quando `RECORRER`) |
+| `glosa_id` | string | Identificador da glosa **aplicada pela operadora**, cunhado DETERMINISTICAMENTE por `registrar_glosa`; publicado em `contas.completed` e impresso no demonstrativo. E a chave que o prestador cita ao interpor recurso (entrada de SP-OP-RECURSO-001) |
+| `ordem_pagamento_id` | string | Identificador deterministico da ordem que o handoff cunha em SP-OP-PAGTO-001 |
+| `protocolo_demonstrativo` | string | Protocolo **sintetico e deterministico** da comunicacao emitida ao prestador (TASY write DROP, ADR-0013 — nao e numeracao de sistema externo; **DRAFT/verify** OQ-1) |
+
+**Variavel removida:** `encaminhar_fraude` (boolean). A decisao passou a ser um valor de
+`decisao_contas` (`ENCAMINHAR_FRAUDE`), que e o que o BPMN sempre fez; a booleana era redundancia
+documental.
 
 ## Topicos
 
@@ -87,24 +112,25 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 
 | Tipo | Topico | Sentido | Quando |
 |---|---|---|---|
-| Kafka | `agents.events.contas.received` | produz | apos start (lote/demonstrativo recebido) |
+| Kafka | `agents.events.contas.received` | produz | apos start (lote de guias recebido do prestador) |
 | Kafka | `agents.events.contas.glosa_identified` | produz | glosas candidatas sinalizadas (payload `total_glosado_candidato_brl`, `glosa_count`) |
-| Kafka | `agents.events.contas.sla_breached` | produz | SLA de triagem/analise estourado |
-| Kafka | `agents.events.contas.completed` | produz | fim (payload.desfecho = `sem_glosa` \| `encaminhada_recurso` \| `glosa_aceita_humano` \| `reenviada`) |
+| Kafka | `agents.events.contas.sla_breached` | produz | SLA de analise da conta estourado |
+| Kafka | `agents.events.contas.completed` | produz | fim (payload.desfecho = `pagar_integral` \| `pagamento_aprovado_humano` \| `glosa_aplicada_humano` \| `pagamento_parcial_humano` \| `conta_devolvida_humano` \| `encaminhada_fraude`) |
 | External task | `operadora.events.publish` | consome (worker) | publicador generico de eventos de dominio (reuso) |
-| External task | `operadora.contas.identify_glosa` | consome (worker) | identifica linhas glosadas candidatas no demonstrativo (porta de `identify_glosa_worker`; **TASY write DROP** — consumimos CDC, nunca escrevemos, MEMORY/ADR-0013) |
+| External task | `operadora.contas.identify_glosa` | consome (worker) | apura divergencias e linhas de glosa candidatas na conta **apresentada pelo prestador** (porta de `identify_glosa_worker`; **TASY write DROP** — consumimos CDC, nunca escrevemos, MEMORY/ADR-0013) |
 | External task | `operadora.contas.analyze_reason` | consome (worker) | fatos do motivo (worker); narrativa do dossie → Marina (LLM) |
 | External task | `operadora.contas.calculate_impact` | consome (worker) | aritmetica pura de impacto (`denial_ratio`, `divergencia_valor`; BRL em double/centavos-inteiros — **nunca `number`**) |
 | External task | `operadora.contas.prepare_triage_dossier` | consome (worker→A2A) | convoca Marina: monta dossie de triagem (delegacao `glosa.analyze`; espelha AUTH→Rafael) |
 | External task | `operadora.contas.notify_sla_risk` | consome (worker) | alerta `coordenacao-contas` (timer nao-interruptivo) |
-| External task | `operadora.contas.register_glosa_accept` | consome (worker) | **efeito adverso gated** — registra aceitacao da glosa; recusa sem decisao humana (`ERR_GLOSA_ACCEPT_NOT_HUMAN`); carrega `analista_id` |
-| External task | `operadora.contas.start_recurso` | consome (worker) | **handoff** — inicia SP-OP-RECURSO-001 quando `RECORRER` (passa `glosa_id`, `numero_guia_tiss`, `glosa_type`, `glosa_existe=true` — fato confirmado por CONTAS —, `documentacao_anexa`; GAP-XPROC-3, consumido por `notifications_bridge.recurso_variables`) |
-| External task | `operadora.contas.reconcile_payment` | consome (worker) | concilia/registra reenvio quando `REENVIAR` (sem efeito adverso) |
-| Message BPMN | `msg.contas.linhas_atualizadas` | recebe | correlacao por business key — reenvio/correcao de linhas chegou, destrava reavaliacao |
+| External task | `operadora.contas.registrar_glosa` | consome (worker) | **efeito adverso gated** — **aplica** a glosa; recusa sem decisao humana (`ERR_CONTAS_GLOSA_NOT_HUMAN`); carrega `analista_id`; cunha `glosa_id` deterministico. Serve `ST_RegistrarGlosa` e `ST_RegistrarGlosaParcial` |
+| External task | `operadora.contas.emitir_demonstrativo` | consome (worker) | **comunicacao ao prestador** — emite o demonstrativo de analise da conta (TISS; **DRAFT/verify** OQ-1). Serve as **5** tarefas comunicantes, discriminado por `tipo_comunicacao ∈ {demonstrativo_analise, devolucao_para_correcao}` (`camunda:inputParameter` do elemento chamador, **nunca inferido**); um tipo nao declarado e recusado, jamais defaultado. Protocolo sintetico DETERMINISTICO (business key + tipo); **TASY write DROP** |
+| External task | `operadora.contas.devolver_conta` | consome (worker) | registra a devolucao da conta para correcao quando `DEVOLVER` (**nao e glosa e nao e adjudicacao**; exige `justificativa_devolucao` + `analista_id`, fail-closed). Se a devolucao e ou nao adverso e **OQ-7** |
+| External task | `operadora.contas.handoff_pagamento` | consome (worker) | **handoff** — inicia SP-OP-PAGTO-001 quando `PAGAR`/`PAGAR_PARCIAL` ou nas duas pernas automaticas. Business key `PAGTO-{tenant_id}-{numero_lote_tiss}-{prestador_id}`. **I-PAGTO-1 (ADR-0040): NUNCA semeia `lastro_confirmado`/`dados_pagamento_validos`/`duplicidade_suspeita`/`dentro_teto_l2`** — semeia `lastro_origem`/`lastro_decisor_id` (EVIDENCIA). `fonte_valor` (`apresentado`\|`liberado`) e declarado pelo elemento chamador. Recusa fail-closed valor ausente/em branco/nao-numerico/`<= 0` e `data_vencimento` em branco |
+| Message BPMN | `msg.contas.linhas_atualizadas` | recebe | correlacao por business key — o prestador reapresentou linhas corrigidas; destrava a reavaliacao na MESMA instancia |
 
 ## DMN referenciadas
 
-Shape engine-deployavel (§4-bis-A): `typeRef ∈ {string, boolean, integer, long, double, date}` — **`number` e invalido**; BRL → `double` (ou inteiro-centavos); dias/SLA → string ISO 8601. Toda `decisionTable` com `hitPolicy`; toda tabela com row catch-all → caminho humano conservador. `camunda:historyTimeToLive` namespaced (`P###D`) em cada `<decision>`. **Nenhuma DMN tem coluna de saida de negativa/aceite de glosa (negativa-like).**
+Shape engine-deployavel (§4-bis-A): `typeRef ∈ {string, boolean, integer, long, double, date}` — **`number` e invalido**; BRL → `double` (ou inteiro-centavos); dias/SLA → string ISO 8601. Toda `decisionTable` com `hitPolicy`; toda tabela com row catch-all → caminho humano conservador. `camunda:historyTimeToLive` namespaced (`P###D`) em cada `<decision>`. **Nenhuma DMN tem coluna de saida que glose ou libere pagamento (negativa-like).**
 
 ### `glosa_reason_normalization` (hitPolicy FIRST — DRAFT)
 in: `reason_code_tiss: string`
@@ -118,14 +144,15 @@ out: `glosa_type: string` (ex.: `parcial` | `total` | `valor` | `tecnica`), `glo
 
 ### `glosa_triage` (hitPolicy FIRST — DRAFT; coracao negativa-like)
 in: `tipo_item: string`, `categoria_normalizada: string`, `item_conforme_tabela: boolean`, `divergencia_valor: boolean`, `documentacao_anexa: boolean`
-out: `roteamento: string` (`SEM_GLOSA` | `RECORRER` | `ANALISE_HUMANA`), `motivo: string`
-**Sem saida `ACEITAR`/`CONFIRMAR`** por design. Catch-all (ultima row) → `ANALISE_HUMANA` (qualquer ambiguidade, glosa tecnica/clinica ou inelegibilidade aparente cai aqui — nunca em aceite). Glosa tecnica/clinica → `ANALISE_HUMANA` (R4: auto-route de glosa puramente formatacional **so** com sign-off de compliance; default conservador = humano). `SEM_GLOSA` (row 1) exige `categoria_normalizada` **NAO** `tecnica`/`clinica` (GAP-CONTAS-3): a row original ignorava `categoria_normalizada` e, sob `hitPolicy=FIRST`, preemptava a row de glosa tecnica/clinica sempre que `item_conforme_tabela=true` + `divergencia_valor=false` + `documentacao_anexa=true` — corrigido para so casar `SEM_GLOSA` em categorias fora de `{tecnica, clinica}`.
+out: `roteamento: string` (`PAGAR` | `ANALISE_HUMANA`), `motivo: string`
+**Sem saida que glose** por design (ADR-0040): na perspectiva do pagador o adverso **e** `GLOSAR`, portanto ele nao pode existir como valor de saida de DMN. Catch-all (ultima row) → `ANALISE_HUMANA` (qualquer ambiguidade, glosa tecnica/clinica ou divergencia de valor cai aqui). Glosa tecnica/clinica → `ANALISE_HUMANA` (R4: auto-route de glosa puramente formatacional **so** com sign-off de compliance; default conservador = humano). `PAGAR` (row 1) exige `categoria_normalizada` **NAO** `tecnica`/`clinica` (GAP-CONTAS-3): a row original ignorava `categoria_normalizada` e, sob `hitPolicy=FIRST`, preemptava a row de glosa tecnica/clinica sempre que `item_conforme_tabela=true` + `divergencia_valor=false` + `documentacao_anexa=true`. O conjunto NEGATIVO ainda admite `desconhecida` — **achado M-4, aberto** (`glosa-triage-shadow-candidate.yaml`, `docs/review-queue.md`); fecha-lo e ato do dono da tabela (ADR-0028 §7), registrado em **ADR-0040 OQ-10** junto com a variante conservadora pre-especificada.
 
 ### `contas_sla` (hitPolicy FIRST — DRAFT v0.2.0; todos os prazos DRAFT/verify)
-in: `tipo_lote: string`, `valor_apresentado_brl: double`, `data_recebimento_lote: string` (ancora — declarada p/ documentar a dependencia; nao participa do matching)
-out: `sla_analise: string` (ISO 8601, duracao relativa — legado/observabilidade), `sla_analise_absoluto_iso: string` (deadline ABSOLUTO = `data_recebimento_lote` + duracao, FEEL `string(date and time(... + "T00:00:00") + duration(...))` — consumido pelo `timeDate` de `BT_SlaTriagem`), `sla_alerta: string` (ISO, relativa — legado), `sla_alerta_absoluto_iso: string` (alerta ABSOLUTO — `timeDate` de `BT_AlertaSlaContas`), `fonte_regulatoria: string`
+in: `tipo_lote: string`, `valor_apresentado_brl: double`, `data_recebimento_lote: string` (ancora — a data em que a **operadora recebeu** o lote; declarada p/ documentar a dependencia, nao participa do matching)
+out: `sla_analise: string` (ISO 8601, duracao relativa — legado/observabilidade), `sla_analise_absoluto_iso: string` (deadline ABSOLUTO = `data_recebimento_lote` + duracao, FEEL `string(date and time(... + "T00:00:00") + duration(...))` — consumido pelo `timeDate` de `BT_SlaAnaliseContas`), `sla_alerta: string` (ISO, relativa — legado), `sla_alerta_absoluto_iso: string` (alerta ABSOLUTO — `timeDate` de `BT_AlertaSlaContas`), `fonte_regulatoria: string`
+`fonte_regulatoria` passa a citar **prazo contratual de analise de conta + RN 501/2022** (fluxo TISS) — **DRAFT/verify**. **Nenhum valor numerico mudou**: `P30D`/`P20D`/`P18D` inalterados; so a fonte declarada deixou de mentir.
 Prazos como string ISO; converter dias uteis→ISO conservadoramente no worker. GAP-CONTAS-4: os
-timers ancoram no RECEBIMENTO do lote (contrato regulatorio), nunca na criacao da User Task —
+timers ancoram no RECEBIMENTO do lote pela operadora (ancora contratual), nunca na criacao da User Task —
 espelha `nip_sla` v0.2.0 (GAP-NIP-1). Ancora+prazo no passado (lote antigo reprocessado) dispara o
 interruptivo imediatamente — correto (prazo de fato estourado; coordenacao humana assume).
 
@@ -133,30 +160,38 @@ interruptivo imediatamente — correto (prazo de fato estourado; coordenacao hum
 
 | Grupo | Papel | Tarefa |
 |---|---|---|
-| `auditoria-contas` | Analista de contas medicas / auditoria de contas | `UT_AnalistaContas` (**aceite de glosa SO aqui**: `decisao_contas ∈ {RECORRER, ACEITAR_GLOSA, REENVIAR}`); tambem decide `encaminhar_fraude` no branch de indicio de fraude |
-| `coordenacao-contas` | Coordenacao de faturamento/contas | `UT_CoordenacaoContasAssume` (SLA de triagem estourado — assume a analise; decisao continua humana) |
+| `auditoria-contas` | Analista de contas medicas / auditoria de contas | `UT_AnalistaContas` (**a glosa SO nasce aqui**: `decisao_contas ∈ {PAGAR, GLOSAR, PAGAR_PARCIAL, DEVOLVER, ENCAMINHAR_FRAUDE}`) |
+| `coordenacao-contas` | Coordenacao de analise/auditoria de contas | `UT_CoordenacaoContasAssume` (SLA de analise estourado — assume a analise; **segundo canal humano do mesmo guard**, mesmo dominio de `decisao_contas`) |
 
-**Nota de taxonomia (OQ — ver Pendencias):** `auditoria-contas` e `coordenacao-contas` sao nomes **PROPOSTOS**; precisam confirmacao contra a taxonomia organizacional da operadora (o §3.1 do plano cita variantes `analista-contas-medicas` / `coordenacao-faturamento`). Manter como candidate groups DRAFT ate sign-off.
+**Nota de taxonomia (OQ-6 — ver Pendencias):** `auditoria-contas` e `coordenacao-contas` sao nomes **PROPOSTOS**; precisam confirmacao contra a taxonomia organizacional da operadora. `faturamento` NAO e uma variante aceitavel aqui: e a funcao de **cobranca do prestador**; a operadora tem analise/auditoria de contas. Manter como candidate groups DRAFT ate sign-off.
 
 ## SLAs
 
 | Timer | Valor (DRAFT/verify) | Tipo | Fonte |
 |---|---|---|---|
 | Alerta de risco (`BT_AlertaSlaContas`) | `timeDate` = `${sla.sla_alerta_absoluto_iso}` (= `data_recebimento_lote` + duracao de alerta; DMN `contas_sla` v0.2.0 — GAP-CONTAS-4) | nao-interruptivo → `operadora.contas.notify_sla_risk` | politica interna |
-| Triagem/analise (`BT_SlaTriagem`) | `timeDate` = `${sla.sla_analise_absoluto_iso}` (= `data_recebimento_lote` + **P30D** tipico — **DRAFT/verify** RN 424/contrato) | interruptivo → publica `contas.sla_breached` → cancela `UT_AnalistaContas`, cria `UT_CoordenacaoContasAssume` | RN 424/2017 (recurso/analise de conta) — **DRAFT/verify** |
+| Analise da conta (`BT_SlaAnaliseContas`) | `timeDate` = `${sla.sla_analise_absoluto_iso}` (= `data_recebimento_lote` + **P30D** tipico — **DRAFT/verify**) | interruptivo → publica `contas.sla_breached` → cancela `UT_AnalistaContas`, cria `UT_CoordenacaoContasAssume` | **prazo contratual de analise de conta** + RN 501/2022 (fluxo TISS) — **DRAFT/verify** (`docs/compliance/rn-currency-review.md:188-193`) |
 
 Os dois timers ancoram no **recebimento do lote** (`data_recebimento_lote` — a ancora do contrato),
 NUNCA no attach da User Task (GAP-CONTAS-4 resolvido; o attach so acontece apos identify/impact +
 4 DMNs + dossie de Marina, e pode se repetir na reentrada por `msg.contas.linhas_atualizadas`).
 
-Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — usar valores conservadores e resolver calendario util no worker. **Substitui o `Task_AutoApprove`/timeout de 48h do reference** — no estouro de SLA a coordenacao humana assume; **nunca** ha auto-passagem/auto-aceite por timeout (inversao do anti-padrao).
+Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — usar valores conservadores e resolver calendario util no worker. **Substitui o `Task_AutoApprove`/timeout de 48h do reference** — no estouro de SLA a coordenacao humana assume; **nunca** ha desfecho automatico por timeout (inversao do anti-padrao).
 
 ## Codigos de erro
 
 | Codigo | Onde | Tratamento |
 |---|---|---|
-| `ERR_GLOSA_ACCEPT_NOT_HUMAN` | guard do worker `operadora.contas.register_glosa_accept` | o worker **recusa** registrar aceite de glosa se `decisao_contas != ACEITAR_GLOSA` setado por humano, ou se faltar `justificativa_glosa`/`codigo_glosa_aceito`/`valor_glosa_aceito_brl`/`analista_id`. Lanca BPMN error; instancia nao atinge `End_GlosaAceitaHumano`. (espelha `ERR_*_NOT_HUMAN` de AUTH/RECURSO) |
-| `ERR_CONTAS_LOTE_INVALIDO` | declarado (`Error_ContasLoteInvalido`) para uso dos workers | worker lanca BPMN error se o lote/demonstrativo for inconsistente na origem; tratamento a detalhar na promocao a FINAL |
+| `ERR_CONTAS_GLOSA_NOT_HUMAN` | guard do worker `operadora.contas.registrar_glosa` | o worker **recusa** aplicar a glosa se `decisao_contas` nao estiver em `{GLOSAR, PAGAR_PARCIAL}` setado por humano, se faltar `justificativa_glosa`/`codigo_glosa_tiss`/`analista_id`, se `valor_glosado_brl <= 0`, ou se `PAGAR_PARCIAL` vier sem `valor_liberado_brl >= 0`. Levantado como `PermissionError` → **incidente auditado** (ADR-0030 §5), **nunca** `bpmnError`; reconhecido por `harness.is_guard_refusal_code` pelo sufixo `_NOT_HUMAN`. Instancia nao atinge `End_GlosaAplicadaHumano`/`End_PagamentoParcialHumano`. Substitui o guard anterior deste processo, que protegia o *aceite* de uma glosa alheia: mesma mecanica, objeto invertido |
+| `ERR_CONTAS_DECISAO_INVALIDA` | throw-end modelado (`End_ErrContasDecisaoInvalida`) | default fail-closed de `GW_DecisaoContas`: decisao humana ausente ou fora do dominio. **NAO** e boundary catch — fora do escopo de `scripts/ci/check_bpmn_error_allowlist.py`, igual a `End_ErrDecisaoInvalida` de SP-OP-AUTH-001 |
+| `ERR_CONTAS_LOTE_INVALIDO` | declarado (`Error_ContasLoteInvalido`) para uso dos workers | worker recusa quando o lote transmitido pelo prestador e inconsistente na origem; tratamento a detalhar na promocao a FINAL |
+
+**Erros de worker sem elemento BPMN** (fail-closed → incidente auditado, nunca `bpmnError`):
+`ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO` (ancora de business key, valor ou `data_vencimento`
+invalidos no handoff), `ERR_CONTAS_COMUNICACAO_INVALIDA` (`tipo_comunicacao` nao declarado),
+`ERR_CONTAS_DEVOLUCAO_INVALIDA` (devolucao sem motivo ou sem autor), `ERR_CONTAS_FRAUDE_SEM_ALVO`
+(inalterado). CONTAS continua com **zero** error-boundaries sobre external task — exatamente o
+estado que o censo do proprio ADR-0030 registra.
 
 ## Notas de design / inversao do reference
 
@@ -164,25 +199,57 @@ Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — usar valor
   `Gateway_EligibleForAppeal`; se **nao elegivel** → `Task_UpdatePaymentNotEligible`
   (`appealSuccessful=false`) → `EndEvent_GlosaAccepted` **automaticamente, sem humano**; e
   `Task_AutoApprove` aprova o recurso em 48h por timeout. Em Maezo: (1) a elegibilidade vira
-  `glosa_triage` (DMN sem aceite); (2) "nao elegivel/ambiguo" → `ANALISE_HUMANA`
-  (`UT_AnalistaContas`), nunca aceite automatico; (3) o estouro de SLA leva a coordenacao
-  humana (`UT_CoordenacaoContasAssume`), nao a auto-passagem; (4) o aceite e materializado so
-  pelo worker gated `register_glosa_accept`.
-- **Terminais:** `End_GlosaAceitaHumano` (humano-gated, unico adverso); `End_SemGlosa`,
-  `End_EncaminhadaRecurso`, `End_Reenviada` sao neutros. Nenhum fim ocorre sem evento de dominio
-  publicado antes (auditoria dupla engine+Kafka, ADR-0007).
+  `glosa_triage` (DMN sem saida que glose); (2) "nao elegivel/ambiguo" → `ANALISE_HUMANA`
+  (`UT_AnalistaContas`), nunca desfecho adverso automatico; (3) o estouro de SLA leva a coordenacao
+  humana (`UT_CoordenacaoContasAssume`), nao a auto-passagem; (4) a glosa e materializada so
+  pelo worker gated `registrar_glosa`.
+- **Terminais:** `End_GlosaAplicadaHumano` e `End_PagamentoParcialHumano` (humano-gated,
+  **adversos**); `End_ContaAprovadaIntegral`, `End_ContaAprovadaHumano`,
+  `End_ContaDevolvidaPrestador` e `End_EncaminhadaFraude` sao neutros/L1;
+  `End_ErrContasDecisaoInvalida` e **tecnico** (erro). Nenhum fim **de negocio** ocorre sem evento
+  de dominio publicado antes (auditoria dupla engine+Kafka, ADR-0007); o terminal tecnico segue a
+  mesma excecao de `End_ErrDecisaoInvalida` de AUTH.
+- **Comunicacao ao prestador em todo terminal que o afeta (ADR-0040 M6):** **cinco dos seis**
+  terminais de negocio emitem por `operadora.contas.emitir_demonstrativo`, discriminados por
+  `tipo_comunicacao`. A ordem canonica de todo terminal e
+  `registrar/decidir → comunicar ao prestador → handoff de pagamento (se houver) → publicar evento
+  → end`. A UNICA excecao e `End_EncaminhadaFraude`: notificar um prestador sob investigacao de
+  fraude e alerta-lo. A consequencia e declarada e **nao resolvida** — o terminal fecha a
+  instancia, entao o prestador fica sem resposta sobre um lote apresentado (**OQ-14**: existe dever
+  de comunicar, e em que momento? fraude + juridico + compliance).
+- **I-PAGTO-1 (ADR-0040):** as tres pernas de handoff **nunca** semeiam os quatro fatos de
+  admissibilidade de SP-OP-PAGTO-001. Consequencia por construcao: `pagto_admissibility` le
+  `lastro_confirmado` ausente ⇒ `false` ⇒ row `r_sem_lastro` ⇒ `ANALISE_HUMANA` ⇒
+  `UT_AnaliseAdmissibilidade` (`coordenacao-financeira`). As **duas pernas sem User Task** deste
+  processo (`has_glosas == false` e `glosa_triage == PAGAR`) produzem um demonstrativo e uma ordem
+  de pagamento **admissivelmente pendente** — nunca uma liberacao de caixa. O gate real deste
+  caminho **nao** e `ERR_PAYMENT_RELEASE_NOT_HUMAN`, que guarda apenas `ST_ReleaseHighValue` e que
+  este caminho nunca alcanca.
 - **Marina (PHI zone)** e convocada via `operadora.contas.prepare_triage_dossier` para montar o
   dossie; **instrui, nao decide** — o analista/auditor humano decide na User Task (principio Rafael).
-- **TASY write DROP** em todo worker (`identify_glosa`, `reconcile_payment`): consumimos o CDC do
-  amh-data-platform, nunca escrevemos no Tasy (MEMORY/ADR-0013).
+- **TASY write DROP** em todo worker (`identify_glosa`, `devolver_conta`,
+  `emitir_demonstrativo`): consumimos o CDC do amh-data-platform, nunca escrevemos no Tasy
+  (MEMORY/ADR-0013). Nenhuma chamada TISS real e feita nesta fase; o `protocolo_demonstrativo` e
+  sintetico e **deterministico** (business key + `tipo_comunicacao`), nunca `time`/`uuid`/`random`
+  — a fence de pureza e `tests/unit/tools/workers/test_worker_handler_purity.py`.
 
 ## Pendencias para promocao a FINAL
 
 - DI (diagrama BPMN) e o BPMN/DMN bodies (autorados em wave posterior contra este contrato).
-- Confirmacao de **todos** os prazos RN com regulatorio/juridico (SLA de triagem/analise; RN 424
-  e consolidacoes; conversao dias uteis→ISO).
-- Confirmacao da citacao de RN 305/2012 (TISS/glosa) contra texto vigente ANS (pode ter sido
-  consolidada/substituida) — **DRAFT/verify**.
+- Confirmacao de **todos** os prazos com regulatorio/juridico/financas (SLA de analise de conta;
+  origem contratual de `data_vencimento`; conversao dias uteis→ISO) — **ADR-0040 OQ-2**.
+- Confirmacao dos nomes e da estrutura dos artefatos TISS ("Demonstrativo de Analise de Conta",
+  "Lote de Guias", `tipo_comunicacao`, e se a devolucao e um artefato TISS proprio) contra o padrao
+  vigente — **ADR-0040 OQ-1**. `docs/compliance/` nao contem o dicionario TISS.
+- Confirmacao de que **RN 501/2022** e a norma corrente do fluxo TISS e de que a retirada de
+  RN 424/2017 esta correta — a propria revisao interna esta marcada `[verify SME]`
+  (`docs/compliance/rn-currency-review.md:193`) — **DRAFT/verify**.
+- **OQ-7:** `DEVOLVER` e efeito adverso? Hoje e classificado neutro→prestador-adjacente, espelhando
+  `End_PagamentoRecusadoHumano` de PAGTO, e por isso `devolver_conta` nao tem guard `_NOT_HUMAN`.
+- **OQ-10:** o achado M-4 da `glosa_triage` (conjunto negativo admite `desconhecida`) continua
+  **aberto**; a variante conservadora esta pre-especificada e e ato do dono da tabela.
+- **OQ-14:** dever e momento de comunicar o prestador no terminal de fraude.
+- Tabela TISS de motivos de glosa (`codigo_glosa_tiss`) — **ADR-0040 OQ-5**.
 - **Confirmacao dos candidate groups** `auditoria-contas` / `coordenacao-contas` contra a
   taxonomia organizacional da operadora (OQ).
 - Sign-off de compliance sobre a **excecao de glosa tecnica auto-route** (R4): default e humano;

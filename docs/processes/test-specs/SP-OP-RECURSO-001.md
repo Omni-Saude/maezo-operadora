@@ -11,7 +11,7 @@ Business key `RECURSO-amh-GUIA-TESTE-0001-GLOSA-TESTE-0001`.
 
 > **Perspectiva (ADR-0040).** O dono do processo é a **OPERADORA**: ela recebe o recurso do
 > prestador e emite a resposta. Os cenários de recorrente que este spec descrevia — interpor o
-> recurso, acompanhar o status, conciliar um re-pagamento recebido — **desapareceram sem
+> recurso, seguir o andamento, reconciliar o crédito recebido — **desapareceram sem
 > substituto**, junto com o `test_loop_acompanhamento_limitado`. É a única perda líquida de
 > cobertura do pacote, e é correta: o comportamento testado não deve existir.
 
@@ -19,7 +19,7 @@ Business key `RECURSO-amh-GUIA-TESTE-0001-GLOSA-TESTE-0001`.
 
 - `engine`: cliente REST CIB Seven do dev-stack (`make dev-stack`).
 - `deploy_artifacts`: deploya o BPMN + `recurso_admissibility.dmn` + `recurso_eligibility.dmn` + `recurso_sla.dmn`.
-- `start_recurso(**overrides)`: inicia com a business key canônica e payload sintético (glosa
+- `iniciar_recurso(**overrides)`: inicia com a business key canônica e payload sintético (glosa
   `administrativa`, `valor_glosado_brl=150.00`, `glosa_existe=true`, `dentro_prazo_recurso=true`,
   `documentacao_recurso_completa=true`, `data_recebimento_recurso_iso` dinâmica no futuro,
   `data_vencimento`/`competencia`/`conta_origem_ref`/`instrumento_pagamento` herdados do intake).
