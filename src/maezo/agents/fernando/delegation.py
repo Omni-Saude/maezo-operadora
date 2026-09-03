@@ -36,8 +36,17 @@ INPUT-BOUNDARY GATE: mirrors `carolina/delegation.py`'s posture exactly. Fernand
 `new_fernando_state` constructor (unlike Rafael's `new_rafael_state`) — his gate is
 `graph._CALLER_INPUT_FIELDS` (added this session alongside this module, GAP 11.7) +
 `receive`'s own output-field reset (`_output_field_resets()`, pre-existing defense in depth).
-`state_from_envelope` enforces the SAME allowlist here: an unknown/output-only key raises loudly
-(a producer bug, never silently tolerated).
+CORRECTED (verifier finding, re-checked): `state_from_envelope` does NOT raise on an unknown
+`payload_meta` key — it never reads one in the first place. `raw` is built EXCLUSIVELY by
+copying named keys off `_STRING_META_KEYS`/`_INTEGER_META_KEYS`/`_BOOLEAN_META_KEYS` (each
+already a subset of `_CALLER_INPUT_FIELDS` by construction), so an out-of-allowlist
+`payload_meta` entry is silently DROPPED by omission — never inspected, never copied, never
+seen. That is the real, fail-closed mechanism: unrecognized producer noise cannot reach the
+state at all. The `unknown = sorted(...)` check at the end of the function is a separate,
+currently-unreachable STRUCTURAL guard (`# pragma: no cover`, identical to Carolina's own) —
+defense-in-depth against a FUTURE regression (someone adding a key to one of the three
+`_..._META_KEYS` tuples without also adding it to `_CALLER_INPUT_FIELDS`), not a live check
+against a malicious/malformed envelope's extra `payload_meta` fields.
 
 WHAT NEVER RIDES THIS SEAM (PHI/ADR-0006): `beneficiario_pseudo_id`/`to_hash` (WhatsApp-turn
 identity — this delegation always sets `canal="a2a"`, so Fernando's own `notify()` WhatsApp
@@ -261,9 +270,14 @@ def state_from_envelope(envelope: DelegationEnvelope) -> FernandoState:
     envelope (ADR-0004). `canal` is ALWAYS `"a2a"` here (never `payload_meta`-sourced) — see
     module docstring's PHI note on why this keeps Fernando's `notify()` WhatsApp branch from
     ever firing on this path. Enforces Fernando's input boundary (`graph._CALLER_INPUT_FIELDS`)
-    the way `state_from_envelope` does on the Carolina/Rafael edges: an unknown/output-only key
-    raises loudly instead of silently entering the state (his `receive` node then re-sanitizes
-    output-only fields as defense in depth, `_output_field_resets()`).
+    the way `state_from_envelope` does on the Carolina/Rafael edges — but by ALLOWLIST-BY-
+    CONSTRUCTION, not by a raise: `raw` only ever copies named keys off the three `_..._META_
+    KEYS` tuples (each a subset of `_CALLER_INPUT_FIELDS`), so an unknown/out-of-allowlist
+    `payload_meta` key is silently DROPPED — never read, never seen — rather than triggering an
+    exception. The `unknown` check below is a structural, currently-unreachable regression
+    guard (`# pragma: no cover`, mirrors Carolina's identical one), not a live rejection of a
+    malformed envelope's extra fields; his `receive` node still re-sanitizes every output-only
+    field on top of this as defense in depth (`_output_field_resets()`).
 
     Fails closed on a missing identity: Fernando's graph derives the idempotent business key
     from `numero_contrato`/`matricula_beneficiario`, and neither `receive` nor `start_process`
