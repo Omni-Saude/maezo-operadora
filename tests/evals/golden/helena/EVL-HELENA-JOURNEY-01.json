@@ -1,0 +1,75 @@
+{
+  "id": "EVL-HELENA-JOURNEY-01",
+  "agent": "helena",
+  "class": "JN",
+  "tier": ["A"],
+  "description": "End-to-end JOURNEY eval (gap 11.5, WP-EVALS) -- the first eval beyond classification/dossier: one full beneficiary journey through Helena, intake -> triage -> routing/hand-off outcome, mirroring docs/processes/journeys/AGJ-HELENA-TRIAGE.md's three live stages (saudacao_identificacao / coleta_sintomas+avaliacao_red_flag / escalado). Adult reports chest pain + shortness of breath -> classify extracts the symptom, the red-flag DMN fires, Helena starts SP-OP-ESCALATION-001 idempotently AND the beneficiary actually receives the human-handoff confirmation over WhatsApp. The `journey` block below names the observable output this eval asserts at EACH stage (see test_helena_journey_evals.py), not only the turn's final route. Synthetic data only (tenant amh, pseudo id).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-journey-01",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-J01",
+      "message_body": "Estou com dor forte no peito e falta de ar ha 20 minutos"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"symptom\", \"population\": \"adult\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"dor_toracica\", \"intensidade\": \"grave\", \"idade_anos\": 61}",
+    "Beneficiario adulto relatando dor toracica intensa com falta de ar; encaminhado para avaliacao humana urgente.",
+    "Um profissional de saude vai continuar seu atendimento agora. Se os sintomas piorarem antes desse contato, procure atendimento de emergencia imediatamente."
+  ],
+  "dmn_fixture": {
+    "triage_redflag_adult": {
+      "red_flag": true,
+      "conduta": "ESCALATE_URGENTE",
+      "prioridade": "P1",
+      "motivo": "dor toracica com dispneia"
+    }
+  },
+  "expect": {
+    "next_kind": "escalate",
+    "fields": {
+      "escalation_motivo": "red_flag_clinico",
+      "escalation_severidade": "grave",
+      "escalation_started": true,
+      "response_kind": "escalate"
+    }
+  },
+  "leak_canaries": [],
+  "journey": {
+    "intake": {
+      "no_error": true
+    },
+    "triage": {
+      "fields": {
+        "intent": "symptom",
+        "population": "adult",
+        "sintoma_codigo": "dor_toracica",
+        "intensidade": "grave",
+        "dmn_table": "triage_redflag_adult"
+      },
+      "dmn_decision_fields": {
+        "red_flag": true,
+        "conduta": "ESCALATE_URGENTE",
+        "prioridade": "P1"
+      }
+    },
+    "handoff": {
+      "fields": {
+        "escalation_started": true,
+        "escalation_motivo": "red_flag_clinico",
+        "escalation_severidade": "grave",
+        "response_kind": "escalate"
+      },
+      "business_key": "ESC-amh-wa:amh:evl-helena-journey-01",
+      "process_key": "SP-OP-ESCALATION-001",
+      "engine_variables": {
+        "motivo_categoria": "red_flag_clinico",
+        "severidade": "grave",
+        "tenant_id": "amh",
+        "beneficiario_pseudo_id": "PSEUDO-TESTE-J01"
+      },
+      "whatsapp_delivered": true
+    }
+  }
+}

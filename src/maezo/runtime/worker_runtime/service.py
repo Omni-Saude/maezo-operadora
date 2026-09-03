@@ -4,10 +4,18 @@ This is the residual leg of ADR-0001: the engine (CIB Seven) calls external task
 worker); this daemon fetches them, runs the registered handler, and completes/fails the task on
 the engine.
 
-Bring-up order (design §3/§10/§12), A -> E:
+Bring-up order (design §3/§10/§12), 0 -> E:
+  STEP 0  Configure observability (AF-13) — `platform.observability.bootstrap_observability`
+          installs structlog's processor chain and the OTel TracerProvider BEFORE the daemon's
+          first log line. Isolated (a raise leaves `observability_configured` red, never
+          CrashLoops) and EXPLICIT about the no-op exporter case.
   STEP A  Bind the health app IMMEDIATELY in an asyncio task. `/healthz` answers 200 right away
-          (liveness) BEFORE any dependency comes up — the pod never CrashLoops because the
+          (liveness) BEFORE any DEPENDENCY comes up — the pod never CrashLoops because the
           engine is slow/unavailable. Signal ownership (SIGTERM/SIGINT) is claimed here.
+          STEP 0 runs first and is deliberately NOT a dependency: in-process only (structlog +
+          an OTel provider whose OTLP channel is lazy), isolated, measured non-blocking (~9 ms
+          even with a malformed endpoint). Ordering it after the bind would mean this daemon's
+          own first log lines run under a configuration it is about to replace.
   STEP B  Bring up dependencies BOUNDED and NON-FATAL: build the CIB Seven transport (pure
           construction — no network until the first fetch) and register every worker this build
           serves — as of T1.2/ADR-0026 (+ T3.1 R2's `events` module) this is the FULL 17-module
@@ -52,7 +60,11 @@ from maezo.gateway.tool_registry import (
 )
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.integrations.events_kafka_producer import AioKafkaEventsProducer
-from maezo.platform.observability import get_metrics_collector
+from maezo.platform.observability import (
+    ObservabilityStatus,
+    bootstrap_observability,
+    get_metrics_collector,
+)
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.ans_submit import ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST
@@ -68,8 +80,10 @@ from maezo.tools.workers.harness import (
 )
 from maezo.tools.workers.lgpd import LGPD_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.nip import NIP_BPMN_ERROR_ALLOWLIST
+from maezo.tools.workers.pagto import PAGTO_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.programa import PROGRAMA_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.recurso import RECURSO_BPMN_ERROR_ALLOWLIST
+from maezo.tools.workers.reembolso import REEMBOLSO_BPMN_ERROR_ALLOWLIST
 
 from .settings import WorkerRuntimeSettings
 
@@ -181,7 +195,18 @@ def _is_te_gated(code: str) -> bool:
 #: operadora -> regulador and has no adverse output at all), neither is `*_NOT_HUMAN`, so neither is
 #: T-E-gated and both land directly. `ERR_ANS_RETRY_ESGOTADO` is deliberately NOT here: it is thrown
 #: by the MODEL (`End_RetryEsgotado` inside `SUB_RetryEnvio`), not by a worker — see the note in
-#: `tools/workers/ans_submit.py`.
+#: `tools/workers/ans_submit.py`. `PAGTO_BPMN_ERROR_ALLOWLIST` contributes `ERR_PAGTO_ORDEM_INVALIDA`
+#: (WP-ADR-0030-COMPLETION, D3-01) — pagto's G2-val origin/consistency guard (blank/absent
+#: `ordem_pagamento_id` at `validate_pagto`) routed via `BE_PagtoOrdemInvalida` to the neutral
+#: terminal `End_PagtoOrdemInvalida`; NOT `*_NOT_HUMAN`, so NOT T-E-gated, lands directly.
+#: `REEMBOLSO_BPMN_ERROR_ALLOWLIST` contributes `ERR_REEMBOLSO_INVALID_PROTOCOLO`
+#: (WP-ADR-0030-COMPLETION, D3-01) — reembolso's G2-val origin/consistency guard (blank/absent
+#: `protocolo_reembolso` at `check_coverage`) routed via `BE_ReembolsoProtocoloInvalido` to the
+#: neutral terminal `End_ReembolsoProtocoloInvalido`; also NOT `*_NOT_HUMAN`, also lands directly.
+#: Both were previously dead models (spec declared the boundary, no worker raised the code) that
+#: this work package closed at the root by moving the raise off the coded
+#: `PagtoError`/`ReembolsoProtocoloInvalidoError` and onto `WorkerBpmnError` at the exact
+#: boundary-carrying task each code is declared on.
 _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
     ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
     | AUTH_BPMN_ERROR_ALLOWLIST
@@ -190,16 +215,21 @@ _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
     | EVENTS_BPMN_ERROR_ALLOWLIST
     | LGPD_BPMN_ERROR_ALLOWLIST
     | NIP_BPMN_ERROR_ALLOWLIST
+    | PAGTO_BPMN_ERROR_ALLOWLIST
     | PROGRAMA_BPMN_ERROR_ALLOWLIST
     | RECURSO_BPMN_ERROR_ALLOWLIST
+    | REEMBOLSO_BPMN_ERROR_ALLOWLIST
 )
 
 #: The production allowlist wired into the harness: gate-proven codes MINUS the T-E-gated
 #: business-outcome codes. Resolves to `{ERR_EVENT_PUBLISH_FAILED, ERR_DSR_IDENTITY_UNVERIFIED,
 #: ERR_RECURSO_INVALID_GLOSA, ERR_ESC_NOTIFY_FAILED, ERR_NIP_PROTOCOLO_INVALIDO,
-#: ERR_PROGRAMA_NO_CONSENT, ERR_CRED_INVALID_PRESTADOR}` today (Tier-0 pair + T3.1 P2b's Tier-2
-#: addition + t8-escalation-boundary's Tier-1 addition + item-9 bucket-3's three Tier-2 G2-val
-#: origin/consent guards).
+#: ERR_PROGRAMA_NO_CONSENT, ERR_CRED_INVALID_PRESTADOR, ERR_ANS_PROTOCOLO_NACK,
+#: ERR_ANS_DATASET_INCOMPLETO, ERR_AUTH_DENIAL_INCOMPLETE, ERR_PAGTO_ORDEM_INVALIDA,
+#: ERR_REEMBOLSO_INVALID_PROTOCOLO}` today (Tier-0 pair + T3.1 P2b's Tier-2 addition +
+#: t8-escalation-boundary's Tier-1 addition + item-9 bucket-3's three Tier-2 G2-val origin/consent
+#: guards + t2-ans-submit's two + the T-E-enabled denial-block code +
+#: WP-ADR-0030-COMPLETION's two Tier-2 G2-val origin/consistency guards).
 PRODUCTION_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset(
     code for code in _GATE_PROVEN_BPMN_ERROR_CODES if not _is_te_gated(code)
 )
@@ -354,6 +384,9 @@ class WorkerState:
 
     settings: WorkerRuntimeSettings
     live: bool = True
+    # AF-13: set by `run()` STEP 0, read by the `observability_configured` readiness check. See
+    # the identically-shaped field on `agent_runtime.service.AgentState`.
+    observability: ObservabilityStatus | None = None
     transport: CibSevenWorkerTransport | None = None
     dmn_transport: GatedDmnTransport | None = None
     # Agent->engine seam (T1.10 T-D / GAP-INAD-1): fresh-client-per-call, threaded into the
@@ -421,9 +454,38 @@ async def _probe_audit_sink(sink: PostgresAuditSink, timeout_s: float) -> bool:
     return True
 
 
+def _ensure_observability(state: WorkerState) -> ObservabilityStatus:
+    """Guarantee STEP 0 ran, once (AF-13). Same contract as `gateway.service._ensure_observability`.
+
+    `run()` calls it FIRST, before this daemon's own first log line; `_bring_up_dependencies` calls
+    it again so the invariant "a brought-up daemon has observability configured" holds for the
+    other way bring-up is reached (a test driving it directly) — without calling
+    `setup_observability` twice in production, which OTel would refuse and warn about.
+    """
+    if state.observability is None:
+        state.observability = bootstrap_observability(
+            service_name=f"maezo-worker-runtime-{state.settings.worker_id}",
+            otlp_endpoint=state.settings.otel_exporter_otlp_endpoint,
+        )
+    return state.observability
+
+
 def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[CheckResult]]]:
     """Assemble the NAMED readiness checks the health app (platform/health.py) runs concurrently
     on every `/readyz`. Every check is defensive — never raises, always returns a CheckResult."""
+
+    async def observability_configured(_state: WorkerState = state) -> CheckResult:
+        # AF-13, same contract as `agent_runtime`'s check of the same name: RED only when the
+        # bootstrap RAISED (a real misconfiguration); an absent OTLP endpoint is the documented
+        # dev no-op and stays healthy with a detail that says no span leaves this process.
+        status = _state.observability
+        if status is None:
+            return CheckResult(
+                name="observability_configured",
+                healthy=False,
+                detail="observability bootstrap has not run (run() has not reached STEP 0)",
+            )
+        return CheckResult(name="observability_configured", healthy=status.configured, detail=status.detail)
 
     async def engine_reachable(_state: WorkerState = state) -> CheckResult:
         # A CHEAP, non-blocking presence check by design (design §12): a synchronous round-trip
@@ -573,6 +635,7 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         )
 
     return [
+        observability_configured,
         engine_reachable,
         workers_registered,
         harness_running,
@@ -605,6 +668,7 @@ def _worker_seam(settings: WorkerRuntimeSettings) -> SeamContext:
 async def _bring_up_dependencies(state: WorkerState) -> None:
     """Bring up the daemon's dependencies. Each block is isolated: failure logs + leaves the
     corresponding check unhealthy, but NEVER propagates (liveness must stay up)."""
+    _ensure_observability(state)  # AF-13 — no-op when `run()` already did it at STEP 0.
     settings = state.settings
 
     try:
@@ -829,14 +893,20 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
 
 
 async def run(settings: WorkerRuntimeSettings) -> None:
-    """Run the worker-runtime until SIGTERM/SIGINT. See the module docstring for STEP A..E."""
+    """Run the worker-runtime until SIGTERM/SIGINT. See the module docstring for STEP 0/A..E."""
+    state = WorkerState(settings=settings)
+
+    # STEP 0 (AF-13): structlog + OTel BEFORE this daemon's first log line — see the module
+    # docstring. Never propagates; a failure lands on `observability_configured`.
+    observability = _ensure_observability(state)
+
     logger.info(
         "worker_runtime_starting",
         tenant=settings.tenant_id,
         worker_id=settings.worker_id,
         health_port=settings.health_port,
+        observability=observability.detail,
     )
-    state = WorkerState(settings=settings)
     shutdown = asyncio.Event()
     loop = asyncio.get_running_loop()
 

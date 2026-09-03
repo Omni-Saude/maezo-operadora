@@ -4,6 +4,20 @@
 **Fase:** 1 · **BPMN:** `spec/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn`
 **Gatilho regulatorio:** LGPD (Lei 13.709/2018) art. 18 (direitos do titular), art. 19, II (15 dias), art. 11 (dados de saude = sensiveis). Retencao legal de prontuario (Lei 13.787/2018/CFM — **DRAFT/verify**) pode impedir eliminacao.
 
+## Papel LGPD (controlador/operador) — DRAFT/verify (PERSP-LGPD-ROLE)
+
+**PAYER — papel de controlador (LGPD art. 5, VI) INFERIDO do comportamento do processo; nenhum
+artefato desta cadeia (este contrato, o BPMN, a DMN `lgpd_dsr_routing` ou o worker `lgpd.py`)
+declara explicitamente `controlador`/`operador` (art. 5, VI/VII).** A operadora executa a
+retificacao/eliminacao aprovada (`ST_ExecutarRequisicao`, `spec/processes/bpmn/SP-OP-LGPD-DSR-001_
+Direitos_do_Titular.bpmn:270`), decide e envia a resposta ao titular (`ST_EnviarResposta`,
+`bpmn:277`) e e a titular do prazo legal de 15 dias do art. 19, II (`ESP_SlaGlobal`,
+`bpmn:307-311`) — comportamento funcional de controladora (define finalidade e meios do
+tratamento), nao de mera operadora agindo por conta de terceiro. **Esta e uma INFERENCIA A
+PARTIR DO COMPORTAMENTO, nunca uma declaracao ratificada** — a titularidade do prazo do art. 19,
+II depende dela: permanece `DRAFT/verify pendente do DPO` (WP-GOVERNANCA-DPO) antes de fundamentar
+qualquer posicao regulatoria sobre papel LGPD.
+
 ## Invariantes
 
 - Nenhum dado sensivel sai sem revisao humana (`UT_RevisaoDpo` — DPO/juridico-privacidade).

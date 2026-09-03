@@ -122,6 +122,23 @@ e `a2a_dossier_delegation_dispatcher_assembled ... card_signing_enforced=True`.
 `agent_dependencies_brought_up ... checkpointer_backend=postgres checkpointer_ready=True
 effect_seams_gated=True graph_loaded=True inference_provider_ready=True policies_loadable=True`.
 
+**Observabilidade (AF-13, a partir de 2026-09-03).** Os três daemons agora configuram structlog +
+OpenTelemetry como STEP 0 de `run()`, ANTES da primeira linha de log, e o `/readyz` dos três
+carrega uma checagem a mais: `observability_configured`. Duas consequências práticas neste
+ambiente:
+
+- A **primeira** linha de cada serviço passa a ser `observability_structlog_configured`, seguida de
+  `observability_bootstrapped` **ou** — porque nenhuma task definition de
+  `deploy/aws-ecs/envs/dev-sa-east-1/` define `OTEL_EXPORTER_OTLP_ENDPOINT` — do WARNING
+  `observability_bootstrapped_without_trace_export`. Esse WARNING é a **postura documentada de
+  dev** (ADR-0014: nenhum span sai do processo), não um incidente; ele existe justamente para que
+  "não exporta trace nenhum" seja encontrável em vez de silencioso.
+- `observability_configured` fica **saudável** nesse caso, com `detail` dizendo em palavras que os
+  spans são construídos e descartados. Ele só fica VERMELHO quando o bootstrap LEVANTOU (p.ex.
+  `PHI_HMAC_KEY` ausente sob uma política de chave ratificada, ou `MAEZO_LOG_LEVEL` com valor
+  inválido) — e mesmo aí a liveness continua de pé, então o sintoma é "task não entra em serviço",
+  nunca CrashLoop.
+
 ## 5. Falhas que já aconteceram (e o que elas significam)
 
 | Sintoma | Causa real |

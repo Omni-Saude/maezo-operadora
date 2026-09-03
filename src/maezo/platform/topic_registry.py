@@ -11,9 +11,19 @@ segment and, for the amh-to-maezo direction, a `.quarantine.v{N}` dead-letter su
 any topic following that structure, not only the three currently pinned names, so a future
 AMH-side version bump under the same shape does not require another registry change.
 
+Per GAP-SC-04-a (audit D5), the INTERNAL dead-letter convention extends it once more with a
+`.dlq` suffix: `{any topic valid on its own merits}.dlq`. This is the internal analogue of the AMH
+boundary's own `.quarantine.v{N}` suffix above — the registry already admits a dead-letter shape
+for the AMH direction, and the notifications-bridge's poison-message shunt needs the same for the
+internal direction (`operadora.notifications.internal.dlq` is 4 segments and matched NEITHER
+pre-existing pattern). It is deliberately NOT implemented as a reserved-prefix carve-out: a
+`.dlq` name is validated by validating its BASE topic recursively, so a DLQ name can never be
+more permissive than the traffic it quarantines, and `agents.events.*.dlq` still has to satisfy
+the reserved-prefix rules. `.dlq.dlq` is rejected.
+
 The TopicRegistry enforces:
 - Topics must follow the 3-segment convention (or the special agents.audit topic), OR the
-  versioned boundary-topic convention above.
+  versioned boundary-topic convention above, OR the `.dlq` suffix over any of them.
 - No duplicate topic registrations (warns on overwrite).
 - Topics registered here are referenced by the PEP (Policy Enforcement Point)
   and the audit gateway for dual-publishing.
@@ -54,6 +64,10 @@ _VERSIONED_BOUNDARY_TOPIC_PATTERN: re.Pattern[str] = re.compile(
 # Kafka's own hard limit on a topic name (org.apache.kafka.common.internals.Topic,
 # TOPIC_MAX_NAME_LENGTH). Rejected outright, independent of the shape checks below.
 _MAX_TOPIC_NAME_LENGTH = 249
+
+#: Internal dead-letter suffix (GAP-SC-04-a). `{base}.dlq` is valid iff `{base}` is valid on its
+#: own merits — see `_validate_topic_name`'s `.dlq` branch and `dlq_topic_for` below.
+DLQ_SUFFIX: str = ".dlq"
 
 # Reserved prefixes
 _RESERVED_PREFIXES: frozenset[str] = frozenset({"agents.events", "agents.audit"})
@@ -163,12 +177,10 @@ class TopicRegistry:
         # Validate naming convention
         self._validate_topic_name(topic)
 
-        # Parse segments
-        parts = topic.split(".")
-        if topic == "agents.audit":
-            dominio, contexto, acao = "agents", "audit", ""
-        else:
-            dominio, contexto, acao = parts[0], parts[1], parts[2]
+        # Parse segments (`.dlq`-aware — a DLQ entry records the FULL name in `entry.name` and
+        # the BASE topic's own dominio/contexto/acao, so it groups with the traffic it quarantines
+        # rather than parsing "dlq" as an acao segment).
+        dominio, contexto, acao = TopicRegistry.parse(topic)
 
         entry = TopicEntry(
             name=topic,
@@ -238,6 +250,19 @@ class TopicRegistry:
         if topic in _SPECIAL_TOPICS:
             return
 
+        # Internal dead-letter suffix (GAP-SC-04-a). Validated by DELEGATION to the base topic, so
+        # a `.dlq` name is never more permissive than the traffic it quarantines — in particular
+        # `agents.events.x.y.dlq` still has to clear the reserved-prefix rules below, and there is
+        # no `.dlq` bypass for a name that would be rejected without the suffix. A doubled suffix
+        # (`.dlq.dlq`) is refused outright: it would be a dead-letter of a dead-letter, which this
+        # platform has no consumer for and which would hide an operator mistake behind a valid name.
+        if topic.endswith(DLQ_SUFFIX):
+            base = topic[: -len(DLQ_SUFFIX)]
+            if not base or base.endswith(DLQ_SUFFIX):
+                raise TopicValidationError(topic, f"'{DLQ_SUFFIX}' suffix requires a valid base topic")
+            TopicRegistry._validate_topic_name(base)
+            return
+
         # Reserved prefix check: agents.events.* and agents.audit.*
         for prefix in _RESERVED_PREFIXES:
             if topic.startswith(prefix) and topic != "agents.audit":
@@ -301,6 +326,12 @@ class TopicRegistry:
             TopicValidationError: If the topic is invalid.
         """
         TopicRegistry._validate_topic_name(topic)
+        if topic.endswith(DLQ_SUFFIX):
+            # Base-relative on purpose (GAP-SC-04-a): a DLQ topic parses to the SAME
+            # dominio/contexto/acao as the traffic it quarantines. `is_dlq` is the bit that tells
+            # the two apart; duplicating the distinction inside `acao` would make every consumer
+            # of `parse()` re-strip the suffix.
+            return TopicRegistry.parse(topic[: -len(DLQ_SUFFIX)])
         if topic == "agents.audit":
             return ("agents", "audit", "")
         parts = topic.split(".")
@@ -308,6 +339,69 @@ class TopicRegistry:
             # agents.events.X.Y or agents.audit.X.Y
             return (f"{parts[0]}.{parts[1]}", parts[2], parts[3])
         return (parts[0], parts[1], parts[2])
+
+    @staticmethod
+    def is_dlq_topic(topic: str) -> bool:
+        """True iff `topic` is an internal dead-letter name (`{base}.dlq`, GAP-SC-04-a).
+
+        Name-shape only — it does not check that the base is registered (a DLQ topic is
+        legitimately created for traffic the registry has never been told about; the registry has
+        no production registration call site today, `a2a/facts.py`'s own docstring).
+        """
+        return topic.endswith(DLQ_SUFFIX)
+
+    def register_dlq(self, topic: str, **kwargs: Any) -> TopicEntry:
+        """Register the dead-letter topic for `topic` (GAP-SC-04-a). Returns its `TopicEntry`.
+
+        Honest registration, not a bypass: the name is derived by `dlq_topic_for` (which validates
+        the BASE topic first) and then goes through the SAME `register` -> `_validate_topic_name`
+        path every other topic goes through.
+
+        THE ZONE IS INHERITED, NEVER DEFAULTED (ADR-0006). A DLQ carries the offending payload
+        VERBATIM — that is the whole point of the record — so a dead-letter topic for a
+        `zona_phi` base topic holds PHI bytes and is itself `zona_phi`. Letting `register`'s
+        `zona_geral` default apply here would silently DOWNGRADE the zone of the one topic whose
+        content nobody validated:
+
+          - base REGISTERED -> its `pii_zone` is inherited when the caller passes none;
+          - base REGISTERED and the caller passes a STRICTER zone -> the caller's wins (a zone may
+            always be raised);
+          - base REGISTERED and the caller passes a LAXER zone -> `TopicValidationError`. A
+            downgrade is refused rather than honoured; the docstring used to merely CLAIM the
+            inheritance while the code did the opposite.
+          - base NOT REGISTERED -> the zone is unknowable, so it must be stated. FAIL CLOSED: an
+            explicit `pii_zone` is REQUIRED, because silently assuming `zona_geral` for a base the
+            registry has never seen is exactly the downgrade this rule exists to prevent.
+
+        `_PII_ZONE_RANK` orders the zones; an unrecognised zone value is refused rather than
+        ranked, so a typo cannot pass as "not laxer".
+        """
+        dlq_name = dlq_topic_for(topic)
+        base_entry = self._topics.get(topic)
+        declared = kwargs.pop("pii_zone", None)
+
+        if declared is None:
+            if base_entry is None:
+                raise TopicValidationError(
+                    dlq_name,
+                    f"base topic '{topic}' is not registered, so its PII zone cannot be inherited "
+                    "— pass pii_zone explicitly (ADR-0006: a DLQ carries the payload verbatim and "
+                    "must never be registered in a laxer zone than the traffic it quarantines)",
+                )
+            zone = base_entry.pii_zone
+        else:
+            zone = str(declared)
+            if _pii_zone_rank(zone) is None:
+                raise TopicValidationError(dlq_name, f"unknown pii_zone '{zone}'")
+            if base_entry is not None and not _zone_is_at_least(zone, base_entry.pii_zone):
+                raise TopicValidationError(
+                    dlq_name,
+                    f"pii_zone '{zone}' is laxer than base topic '{topic}' "
+                    f"('{base_entry.pii_zone}') — a DLQ carries the payload verbatim and may "
+                    "never downgrade the zone (ADR-0006)",
+                )
+
+        return self.register(dlq_name, pii_zone=zone, **kwargs)
 
     # -------------------------------------------------------------------
     # Lookup
@@ -350,3 +444,41 @@ class TopicRegistry:
 def _is_valid_segment(segment: str) -> bool:
     """Check if a single topic segment is valid: [a-z][a-z0-9_]*."""
     return bool(re.match(r"^[a-z][a-z0-9_]*$", segment))
+
+
+def _pii_zone_rank(zone: str) -> int | None:
+    """Strictness rank of a PII zone (`None` for an unrecognised value).
+
+    Two zones only, as `TopicEntry.pii_zone` documents (ADR-0006): `zona_geral` < `zona_phi`. The
+    ranking exists so `register_dlq` can say "never LAXER than the base" instead of "equal to the
+    base" — raising a DLQ's zone above its base is always allowed; lowering it never is.
+    """
+    return {"zona_geral": 0, "zona_phi": 1}.get(zone)
+
+
+def _zone_is_at_least(zone: str, floor: str) -> bool:
+    """True iff `zone` is at least as strict as `floor`. Unknown values are NOT at least anything."""
+    zone_rank, floor_rank = _pii_zone_rank(zone), _pii_zone_rank(floor)
+    if zone_rank is None or floor_rank is None:
+        return False
+    return zone_rank >= floor_rank
+
+
+def dlq_topic_for(topic: str) -> str:
+    """`{topic}.dlq` — the ONE sanctioned derivation of an internal dead-letter topic name.
+
+    Validates `topic` on its OWN merits first, so a malformed source topic can never acquire a
+    valid-looking DLQ name (the failure mode a bare f-string at the call site would allow), and
+    refuses a topic that is already a DLQ (no `.dlq.dlq`).
+
+    Called on the notifications-bridge's poison-message path
+    (`platform/integrations/notifications_bridge.py`), so the registry's convention is enforced on
+    the hot path rather than only at a registration site the platform does not have yet.
+
+    Raises:
+        TopicValidationError: if `topic` is not a valid topic name, or is already a `.dlq` name.
+    """
+    if topic.endswith(DLQ_SUFFIX):
+        raise TopicValidationError(topic, "already a dead-letter topic — refusing to nest '.dlq'")
+    TopicRegistry._validate_topic_name(topic)
+    return f"{topic}{DLQ_SUFFIX}"

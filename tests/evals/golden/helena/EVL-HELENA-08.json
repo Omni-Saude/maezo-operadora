@@ -3,7 +3,7 @@
   "agent": "helena",
   "class": "CE",
   "tier": ["A", "B"],
-  "description": "Beneficiary asks to reschedule a consultation -> intent=scheduling -> Helena offers a human follow-up (direct scheduling is not available on this channel). Synthetic data only.",
+  "description": "Beneficiary asks to reschedule a consultation -> intent=scheduling -> Helena offers a human follow-up AND actually starts SP-OP-ESCALATION-001 (GAP 9.2 fix: the follow-up promise is now backed by a real handoff, not just an honest but unrouted reply). Synthetic data only.",
   "input": {
     "state": {
       "tenant_id": "amh",
@@ -15,12 +15,15 @@
   },
   "recorded_llm": [
     "{\"intent\": \"scheduling\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
+    "Beneficiario pediu reagendamento; canal nao agenda diretamente, encaminhado para atendimento humano.",
     "Vamos providenciar seu reagendamento; um atendente vai te contatar em breve."
   ],
   "expect": {
     "next_kind": "schedule",
     "fields": {
-      "intent": "scheduling"
+      "intent": "scheduling",
+      "escalation_motivo": "solicitacao_humano",
+      "escalation_started": true
     }
   },
   "leak_canaries": [],

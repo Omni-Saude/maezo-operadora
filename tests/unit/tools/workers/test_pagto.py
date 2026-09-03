@@ -13,12 +13,20 @@ import structlog.testing
 
 from maezo.a2a import DelegationResult, RejectionReason
 from maezo.tools.workers import pagto as pagto_module
+from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
-from maezo.tools.workers.harness import ExternalTask, WorkerHarness
+from maezo.tools.workers.harness import (
+    ExternalTask,
+    FakeAuditSink,
+    FakeWorkerTransport,
+    WorkerBpmnError,
+    WorkerHarness,
+)
 from maezo.tools.workers.pagto import (
     ERR_PAGTO_ORDEM_INVALIDA,
     ERR_PAYMENT_REFUSAL_NOT_HUMAN,
     ERR_PAYMENT_RELEASE_NOT_HUMAN,
+    PAGTO_BPMN_ERROR_ALLOWLIST,
     PagtoError,
     assess_admissibility,
     execute_pagto,
@@ -68,9 +76,79 @@ def test_validate_pagto_valid() -> None:
 
 
 def test_validate_pagto_ordem_invalida() -> None:
-    with pytest.raises(PagtoError) as excinfo:
+    """Root-cause proof (ADR-0030 Tier-2, WP-ADR-0030-COMPLETION D3-01): validate_pagto now raises
+    WorkerBpmnError (a MODELED bpmn error), NOT PagtoError (which FunctionWorker reclassifies to a
+    bare ValueError -> incident, leaving BE_PagtoOrdemInvalida structurally unreachable)."""
+    with pytest.raises(WorkerBpmnError) as excinfo:
         validate_pagto({"ordem_pagamento_id": ""})
-    assert excinfo.value.code == ERR_PAGTO_ORDEM_INVALIDA
+    assert excinfo.value.error_code == ERR_PAGTO_ORDEM_INVALIDA
+    assert not isinstance(excinfo.value, PagtoError)
+
+
+def test_pagto_ordem_invalida_is_gate_proven_and_tier0() -> None:
+    """`ERR_PAGTO_ORDEM_INVALIDA` is declared in PAGTO_BPMN_ERROR_ALLOWLIST (not a `*_NOT_HUMAN`
+    guard, so it is NOT T-E-gated — it lands directly in production, unlike
+    `ERR_PAYMENT_RELEASE_NOT_HUMAN`/`ERR_PAYMENT_REFUSAL_NOT_HUMAN`, which have no modeled
+    boundary anywhere in SP-OP-PAGTO-001 and stay coded PagtoError -> incident)."""
+    assert ERR_PAGTO_ORDEM_INVALIDA in PAGTO_BPMN_ERROR_ALLOWLIST
+    assert ERR_PAYMENT_RELEASE_NOT_HUMAN not in PAGTO_BPMN_ERROR_ALLOWLIST
+    assert ERR_PAYMENT_REFUSAL_NOT_HUMAN not in PAGTO_BPMN_ERROR_ALLOWLIST
+
+
+# ---------------------------------------------------------------------------
+# Boundary REACHABILITY (WP-ADR-0030-COMPLETION, D3-01) — validate_pagto raises WorkerBpmnError so
+# its modeled BPMN boundary catch (BE_PagtoOrdemInvalida) can fire, instead of a PagtoError ->
+# ValueError reclassification that could ONLY ever demote to an uncaught engine incident.
+# Mutation-minded: allowlisted -> boundary (handle_bpmn_error); NOT allowlisted -> the fail-closed
+# incident (handle_failure, retries=0). Drives the REAL harness dispatch path (harness._handle)
+# end-to-end, no live engine. Mirrors test_credenciamento.py's `_drive_guard_failure`.
+# ---------------------------------------------------------------------------
+
+
+def _drive_pagto_validate_failure(variables: dict, *, allowlist: frozenset[str]):
+    """Run validate_pagto through the real harness; return (bpmn_errors, failures)."""
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(
+        transport,
+        worker_id="pagto-boundary-test",
+        tenant="amh",
+        audit_sink=FakeAuditSink(),
+        bpmn_error_allowlist=allowlist,
+    )
+    harness.register_worker(FunctionWorker("operadora.pagto.validate_payment_data", validate_pagto))
+    task = ExternalTask(
+        task_id="task-1",
+        topic="operadora.pagto.validate_payment_data",
+        process_instance_id="proc-1",
+        business_key="PAGTO-amh-OP-001",
+        worker_id="pagto-boundary-test",
+        variables=variables,
+    )
+    asyncio.run(harness._handle(task))
+    return transport.bpmn_errors, transport.failures
+
+
+def test_validate_pagto_reaches_boundary_when_allowlisted() -> None:
+    """ALLOWLISTED: the origin-validation guard routes to handle_bpmn_error (BE_PagtoOrdemInvalida
+    fires), NEVER to a failure/incident — the boundary is now REACHABLE (was unreachable pre-fix)."""
+    bpmn_errors, failures = _drive_pagto_validate_failure(
+        {"ordem_pagamento_id": ""},
+        allowlist=frozenset({ERR_PAGTO_ORDEM_INVALIDA}),
+    )
+    assert bpmn_errors == [("task-1", ERR_PAGTO_ORDEM_INVALIDA, bpmn_errors[0][2])]
+    assert failures == []
+
+
+def test_validate_pagto_demotes_to_incident_when_not_allowlisted() -> None:
+    """NOT ALLOWLISTED (e.g. pre-Tier-0 wiring): fail-closed by construction — demotes to a
+    failure/incident, never a silent scope-end."""
+    bpmn_errors, failures = _drive_pagto_validate_failure(
+        {"ordem_pagamento_id": ""},
+        allowlist=frozenset(),
+    )
+    assert bpmn_errors == []
+    assert len(failures) == 1
+    assert failures[0][0] == "task-1"
 
 
 # ---------------------------------------------------------------

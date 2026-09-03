@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN, WorkerBase
 from maezo.tools.workers.harness import ExternalTask, WorkerBpmnError, WorkerFailureError
 
@@ -513,9 +514,14 @@ def make_request_additional_proof_handler(kafka: KafkaPublisher | None) -> TaskH
         # then dies at ICE_PrazoProva P10D as `expirada_identidade`, blaming the titular). No BPMN
         # boundary is declared on ST_PedirProvaAdicional -> RAW propagate to the harness
         # retry/incident ladder (ADR-0030), holding the token AT this task until delivered.
-        await kafka.publish(
-            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-        )
+        # GAP-SC-04-a: the partition key comes from the ONE shared chain (task business key ->
+        # payload anchors -> `{tenant}|{process_instance_id}`), never from `task.business_key or
+        # None` — that idiom degraded a blank business key into an UNKEYED publish, i.e.
+        # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
+        # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
+        # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         logger.info(
             "lgpd_request_additional_proof_sent",
             tenant_id=tenant_id,
@@ -609,9 +615,14 @@ def make_send_response_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         # TERMINAL false success with the titular's legally mandated response never dispatched
         # (worst of the four audited swallows). No BPMN boundary on ST_EnviarResposta -> RAW
         # propagate to the harness retry/incident ladder (ADR-0030).
-        await kafka.publish(
-            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-        )
+        # GAP-SC-04-a: the partition key comes from the ONE shared chain (task business key ->
+        # payload anchors -> `{tenant}|{process_instance_id}`), never from `task.business_key or
+        # None` — that idiom degraded a blank business key into an UNKEYED publish, i.e.
+        # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
+        # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
+        # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         logger.info(
             "lgpd_send_response_sent",
             tenant_id=tenant_id,
@@ -707,9 +718,14 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         # posture is to PROPAGATE the RAW exception to the harness's retry/incident ladder (never a
         # modeled bpmnError, never a fabricated success) — both callers are non-interrupting SIDE
         # branches, so the propagation is contained and never blocks the main DSR token.
-        await kafka.publish(
-            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-        )
+        # GAP-SC-04-a: the partition key comes from the ONE shared chain (task business key ->
+        # payload anchors -> `{tenant}|{process_instance_id}`), never from `task.business_key or
+        # None` — that idiom degraded a blank business key into an UNKEYED publish, i.e.
+        # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
+        # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
+        # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         logger.info(
             "lgpd_notify_sla_risk_sent",
             tenant_id=tenant_id,

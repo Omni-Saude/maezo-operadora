@@ -1013,10 +1013,17 @@ def build_cibseven_process_starter(
     `HandoffResult.process_instance_id`. `execute_handoff` accepts both shapes, so a `str`-returning
     test/dev starter still works — it just reports `start_outcome=""` (unknown), honestly.
 
-    STRICT-CAPABLE BY CONSTRUCTION. `process_key` comes from the matched rule, so this starter can
-    front ANY family, strict included, even though none of the 7 rules registered today targets
-    the one strict family (`SP-OP-PAGTO-001` — see `_START_DEDUP_POLICY`'s table). If a future rule
-    does, the gate applies here unchanged and its refusal arrives as a typed `start_outcome`.
+    GATED-CAPABLE BY CONSTRUCTION. `process_key` comes from the matched rule, so this starter can
+    front ANY family and ANY `StartDedupPosture` (see `_START_DEDUP_POLICY`'s table). ONE of the 7
+    rules registered today targets a gated family: FRAUDE→CANCEL (`:639`) targets
+    `SP-OP-CANCEL-001`, which is `EXCLUSIVE` since GAP-D3-02 — so this starter's `transport` and
+    `audit_sink` MUST satisfy `HistoryQueryingTransport` / `DedupReportingAuditSink` or that rule
+    fails closed with `StartDedupGateUnavailableError` (never a silent downgrade to the un-gated
+    path). The production root does: `platform/integrations/notifications_bridge.py:355` passes a
+    `GatedHistoryQueryingCibSevenTransport` (`build_cibseven_seam` -> `gate_cibseven`, which
+    preserves the inner's history-querying capability) and a `PostgresAuditSink`. No rule targets
+    `SP-OP-PAGTO-001` (`PERMANENT`); if a future one does, the gate applies here unchanged and its
+    refusal arrives as a typed `start_outcome`.
     """
 
     async def _start(process_key: str, variables: dict[str, Any]) -> ProcessInstance:

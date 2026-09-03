@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.tools.workers.ans_gateway import (
     ANS_OUTCOME_ENVIADO,
     ANS_OUTCOME_NACK,
@@ -822,7 +823,9 @@ def make_notify_regulatorio_handler(kafka: KafkaPublisher | None) -> TaskHandler
         # fail-closed `agents.events.anssubmit.deadline_risk` publish one step downstream
         # incidents the branch on a real broker outage anyway). Deliberately NOT
         # best_effort=False — pinned by test_ans_submit.py.
-        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+        # GAP-SC-04-a partition key — see the shared chain in `partition_key.py`.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key)
         return result
 
     return handler
@@ -1131,7 +1134,9 @@ def make_retransmit_handler(
             "revisor_id": result.get("revisor_id", ""),
             "continue_retry": result.get("continue_retry"),
         }
-        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+        # GAP-SC-04-a partition key — see the shared chain in `partition_key.py`.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key)
         return result
 
     return handler

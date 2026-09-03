@@ -2,6 +2,18 @@
 
 **Status:** Accepted · **Data:** 2026-06-13 · **Area:** Seguranca/Compliance · Orquestracao
 
+**Amended by ADR-0040:** o padrao estrutural de cinco partes permanece INTACTO — ADR-0040 emenda
+apenas a **instancia** do efeito adverso em SP-OP-CONTAS-001/SP-OP-RECURSO-001, nao a garantia.
+A instancia muda de `decisao_contas == ACEITAR_GLOSA` (worker `register_glosa_accept`, guard
+`ERR_GLOSA_ACCEPT_NOT_HUMAN`, terminal `End_GlosaAceitaHumano` — §Contexto `:27-34`, §Decisao
+partes 1 e 4 `:51-56`, `:71-77`) para `decisao_contas ∈ {GLOSAR, PAGAR_PARCIAL}` (worker
+`registrar_glosa`, guard `ERR_CONTAS_GLOSA_NOT_HUMAN`); o mesmo padrao se aplica a
+SP-OP-RECURSO-001 (`decisao_recurso == INDEFERIR`, worker `registrar_indeferimento`, guard
+`ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN`). A **Pre-condicao operacional** (`:104-108`, «nenhum
+processo de Phase 2 esta start-habilitado em `main`») esta **OBSOLETA**: `process_allowlist.py:21-41,60`
+ja contem as 15 chaves (CONTAS `:28`, RECURSO `:29`) com `DEFAULT_ALLOWED_PROCESS_KEYS =
+KNOWN_PROCESS_KEYS`; ver `docs/review-queue.md`. ADR-0040 amends, nao supersede.
+
 ## Contexto
 
 ADR-0005 estabeleceu o HITL como garantia *arquitetural* (nao prompt): a negativa nasce de um

@@ -36,10 +36,12 @@ from maezo.tools.mcp_cibseven.transport import (
     ProcessStatus,
     StartClaimWithoutInstanceError,
     StartDedupGateUnavailableError,
+    StartDedupPosture,
     StartOutcome,
     build_start_audit_record,
     is_strict_start_dedup,
     start_dedup_key,
+    start_dedup_posture,
     start_process_idempotent,
 )
 
@@ -58,9 +60,11 @@ __all__ = [
     "ProcessStatus",
     "StartClaimWithoutInstanceError",
     "StartDedupGateUnavailableError",
+    "StartDedupPosture",
     "StartOutcome",
     "build_start_audit_record",
     "is_strict_start_dedup",
     "start_dedup_key",
+    "start_dedup_posture",
     "start_process_idempotent",
 ]

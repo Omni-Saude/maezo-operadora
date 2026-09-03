@@ -2,7 +2,7 @@
 Class A row A2).
 
 Every agent graph starts its own downstream BPMN process through the IDENTICAL chokepoint —
-`start_process_idempotent` (`maezo.tools.mcp_cibseven.transport.py:1052` — its `def`) — never
+`start_process_idempotent` (`maezo.tools.mcp_cibseven.transport.py:1212` — its `def`) — never
 `start_process_instance` directly (module docstring: "the SINGLE agent-side effect chokepoint").
 Grepping every `start_process_idempotent(` call site under `src/maezo/agents/` gives the full
 enumeration this suite proves a representative-and-complete matrix against:
@@ -35,6 +35,16 @@ flow node after its start event is a generic `ST_Publish*` external service task
 `camunda:inputOutput` parameters are STATIC STRING LITERALS (never a `${expression}`), so no
 synchronous gateway/script evaluation can fail during the start call regardless of which process
 variables are present (confirmed by inspecting each BPMN's XML before writing this suite).
+
+GAP-D3-02 SCOPE NOTE (checked, not assumed). `SP-OP-CANCEL-001` became a GATED
+(`StartDedupPosture.EXCLUSIVE`) start-dedup family, and it is deliberately ABSENT from this
+matrix: CANCEL-001 has no AGENT start site — it is started by WORKERS
+(`inadimplencia.handoff_rescisao`, `fraude.start_contratual`) and by the bridge's FRAUDE→CANCEL
+rule, which is A1's territory, not this suite's "every agent's own `start_process` node"
+enumeration. The one gated family this matrix DOES drive is `andre_pagto` (`PERMANENT`), and its
+expectations are unchanged: the second same-key start lands on the still-ACTIVE instance
+(`ALREADY_ACTIVE`), which is the branch both gated postures share. The `CibSevenHttpTransport` /
+`PostgresAuditSink` pair this suite injects satisfies both gate seams.
 
 HARNESS: placed under `tests/integration/processes/` for the same reason as A1 (real engine
 required; see that file's module docstring) — reuses this package's `engine` fixture and the

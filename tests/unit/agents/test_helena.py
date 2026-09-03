@@ -127,6 +127,25 @@ def test_helena_agent_yaml_has_required_fields() -> None:
     assert data.get("phase") == 0
 
 
+def test_helena_agent_yaml_marks_scheduling_out_of_scope_with_escalation_trigger() -> None:
+    """GAP 9.2: the role no longer claims Helena performs scheduling — it is an explicit,
+    tracked out-of-scope item with its own escalation trigger, mirroring what `graph.py`'s
+    `schedule()` node actually does now (a real SP-OP-ESCALATION-001 handoff, not a silent
+    dead end after an honest-but-unrouted refusal)."""
+    agent_path = _AGENTS_ROOT / "helena" / "agent.yaml"
+    with open(agent_path) as f:
+        data = yaml.safe_load(f)
+
+    assert "agendamento" not in data["role"] or "fora de escopo" in data["role"], (
+        "role must not claim Helena performs scheduling directly without qualifying it as out of scope"
+    )
+    out_of_scope_ids = {item["id"] for item in data.get("out_of_scope", [])}
+    assert "agendamento_direto" in out_of_scope_ids
+
+    triggers = data["escalation"]["triggers"]
+    assert {"intent": "scheduling"} in triggers
+
+
 # ---------------------------------------------------------------------------
 # build(config) — fail-closed contract
 # ---------------------------------------------------------------------------
@@ -787,6 +806,89 @@ async def test_escalate_records_error_on_cibseven_failure_but_still_responds() -
     assert result["escalation_started"] is False
     assert "error" in result
     assert result["response_text"] == "resposta"
+
+
+# ---------------------------------------------------------------------------
+# schedule — GAP 9.2: a real human handoff, not a dead end after an honest refusal
+# ---------------------------------------------------------------------------
+
+
+async def test_schedule_starts_escalation_with_solicitacao_humano() -> None:
+    """Pre-fix, `schedule()` only drafted a reply promising a human follow-up and never started
+    one — this proves the promise is now backed by a real SP-OP-ESCALATION-001 start."""
+    cibseven = FakeCibSevenTransport()
+    inference = _FakeInference(["resumo do agendamento", "um humano vai continuar"])
+    graph = _graph(inference=inference, cibseven=cibseven)
+
+    result = await graph.schedule(_base_state(message_body="quero remarcar minha consulta"))
+
+    assert result["escalation_started"] is True
+    assert result["escalation_motivo"] == "solicitacao_humano"
+    assert result["escalation_severidade"] == "leve"
+    assert result["escalation_business_key"] == "ESC-amh-wa:amh:deadbeef"
+    assert result["response_kind"] == "schedule"
+    assert result["response_text"] == "um humano vai continuar"
+
+
+async def test_schedule_is_idempotent_on_active_instance() -> None:
+    cibseven = FakeCibSevenTransport()
+    business_key = "ESC-amh-wa:amh:deadbeef"
+    cibseven.seed_instance(
+        ProcessInstance(
+            instance_id="existing-sched-1",
+            process_key="SP-OP-ESCALATION-001",
+            business_key=business_key,
+            state="ACTIVE",
+            already_existed=True,
+        )
+    )
+    inference = _FakeInference(["resumo", "resposta"])
+    graph = _graph(inference=inference, cibseven=cibseven)
+
+    result = await graph.schedule(_base_state())
+
+    assert result["escalation_process_ref"]["instance_id"] == "existing-sched-1"
+    assert result["escalation_process_ref"]["already_existed"] is True
+
+
+async def test_schedule_records_error_on_cibseven_failure_but_still_responds() -> None:
+    """Mirrors `test_escalate_records_error_on_cibseven_failure_but_still_responds` — an engine
+    outage never blocks the turn, but it must never be silently dropped either."""
+
+    class _FailingCibSeven(FakeCibSevenTransport):
+        async def start_process_instance(self, *args: Any, **kwargs: Any) -> ProcessInstance:
+            raise CibSevenError("engine unreachable")
+
+    inference = _FakeInference(["resumo", "resposta"])
+    graph = _graph(inference=inference, cibseven=_FailingCibSeven())
+
+    result = await graph.schedule(_base_state())
+
+    assert result["escalation_started"] is False
+    assert "error" in result
+    assert result["response_kind"] == "schedule"
+    assert result["response_text"] == "resposta"
+
+
+async def test_full_turn_scheduling_reaches_real_escalation_never_a_dead_end() -> None:
+    """Full-graph version: `intent=scheduling` must reach an ACTUALLY STARTED escalation, not
+    just the `schedule` response node."""
+    cibseven = FakeCibSevenTransport()
+    # Call order: classify, then (inside schedule -> _start_escalation) resumo, then respond.
+    inference = _FakeInference(
+        [_classify_json(intent="scheduling"), "resumo do agendamento", "um humano vai continuar"]
+    )
+    sender = _FakeWhatsAppSender()
+    graph = _graph(inference=inference, cibseven=cibseven, whatsapp=sender).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(_base_state(message_body="preciso remarcar minha consulta"))
+
+    assert result["next_kind"] == "schedule"
+    assert result["response_kind"] == "schedule"
+    assert result["escalation_motivo"] == "solicitacao_humano"
+    assert result["escalation_started"] is True
+    assert sender.sent, "the beneficiary must still receive the scheduling-specific reply"
 
 
 # ---------------------------------------------------------------------------
