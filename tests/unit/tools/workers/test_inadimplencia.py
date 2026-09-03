@@ -648,6 +648,56 @@ def test_handoff_rescisao_fail_closed_no_contract_identity() -> None:
     assert sink.calls == []  # refused BEFORE any audit emit — no record for a refused handoff
 
 
+@pytest.mark.parametrize("tenant_id", [None, "", "   "])
+def test_handoff_rescisao_fail_closed_blank_tenant_anchor(tenant_id: object) -> None:
+    """GK MINOR F7 — the TENANT anchor is validated with the SHARED `non_blank`, like every other
+    CANCEL-001 composer (`fraude.start_contratual`, the bridge's `_anchored`).
+
+    This call site did not. A blank/whitespace/explicit-`None` tenant mints the degenerate key
+    `CANCEL--C-1`: EVERY tenant's contract `C-1` collapses onto ONE business key, ONE dedup claim
+    and — since GAP-D3-02 — ONE `EXCLUSIVE` mutual-exclusion token, so tenant A's in-flight
+    rescisao review would gate tenant B's. `str(None)` is the truthy `"None"` and `"   "` is
+    truthy, so plain truthiness let both through; `non_blank` is what refuses them.
+    """
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    variables: dict[str, object] = {
+        "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+        "numero_contrato": "C-1",
+    }
+    if tenant_id is not None:
+        variables["tenant_id"] = tenant_id
+
+    with pytest.raises(InadimplenciaError) as excinfo:
+        handoff_rescisao(variables, engine=engine, audit_sink=sink)
+
+    assert excinfo.value.code == ERR_INAD_INVALID_CONTRATO
+    assert sink.calls == [], "refused BEFORE any audit emit — no claim on a degenerate key"
+    assert asyncio.run(engine.find_active_instance("CANCEL--C-1")) is None
+    assert asyncio.run(engine.find_active_instance("CANCEL-None-C-1")) is None
+
+
+def test_handoff_rescisao_explicit_none_tenant_is_refused_not_stringified() -> None:
+    """The `str(None) == "None"` trap, pinned on its own: an explicit `None` must REFUSE, never
+    mint `CANCEL-None-C-1`. Same rule the shared `non_blank` already enforced at the other two
+    CANCEL composers."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+
+    with pytest.raises(InadimplenciaError):
+        handoff_rescisao(
+            {
+                "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+                "tenant_id": None,
+                "numero_contrato": "C-1",
+            },
+            engine=engine,
+            audit_sink=sink,
+        )
+
+    assert sink.calls == []
+
+
 def test_handoff_rescisao_transport_error_propagates() -> None:
     """A transport/engine error during the start propagates (transient -> engine retry -> incident),
     never a silent success. The audit record was already durably emitted (emit-before-effect):

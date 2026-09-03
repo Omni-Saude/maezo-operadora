@@ -20,6 +20,7 @@ from maezo.tools.workers.base import (
     FunctionWorker,
     contract_business_key_forms,
     mint_contract_business_key,
+    non_blank,
 )
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import AUDIT_AGENT_ID, _resolve_app_version
@@ -649,7 +650,12 @@ def handoff_rescisao(
       - a missing audit seam (``audit_sink is None``) raises (transient) — the handoff can never
         start CANCEL-001 un-audited (ADR-0007 L0);
       - a missing contract identity raises ``InadimplenciaError`` (deterministic -> immediate
-        incident) — the handoff can never target an empty CANCEL business key.
+        incident) — the handoff can never target an empty CANCEL business key;
+      - a missing/blank/``None`` ``tenant_id`` raises ``InadimplenciaError`` the same way (GK
+        MINOR F7, validated with the SHARED ``base.non_blank`` — the same idiom
+        ``fraude.start_contratual`` and the bridge's ``_anchored`` already used): a degenerate
+        ``CANCEL--{contrato}`` key would collapse every tenant's contract onto ONE business key,
+        one dedup claim and — since GAP-D3-02 — ONE ``EXCLUSIVE`` mutual-exclusion token.
     """
     decisao = variables.get("decisao_inadimplencia", "")
     if decisao != DECISAO_ENCAMINHAR_RESCISAO:
@@ -659,9 +665,29 @@ def handoff_rescisao(
         )
         return {"handoff_executado": False}
 
-    tenant_id = str(variables.get("tenant_id", ""))
     numero_contrato = str(variables.get("numero_contrato", ""))
     matricula_beneficiario = str(variables.get("matricula_beneficiario", ""))
+
+    # `non_blank` BEFORE `str()`: explicit `None` must refuse, never stringify to the truthy
+    # "None". SAME idiom as `fraude.start_contratual` and the bridge's `_anchored` — this call
+    # site was the one CANCEL-001 composer that did not validate its tenant anchor (GK MINOR F7).
+    # A blank/whitespace/None tenant mints the degenerate key `CANCEL--{contrato}` and a dedup key
+    # `:start:SP-OP-CANCEL-001:...`, collapsing EVERY tenant's contract `C-001` onto ONE business
+    # key — and since GAP-D3-02 that degenerate key also carries an EXCLUSIVE mutual-exclusion
+    # token, so one tenant's in-flight rescisao review would gate another tenant's.
+    if not non_blank(variables.get("tenant_id")):
+        logger.error(
+            "inadimplencia_handoff_rescisao_no_tenant_anchor",
+            **_contract_identity_log_fields(numero_contrato, matricula_beneficiario),
+        )
+        raise InadimplenciaError(
+            ERR_INAD_INVALID_CONTRATO,
+            "handoff_rescisao: tenant_id ausente, em branco ou None — nao ha ancora de tenant "
+            "para a business key de CANCEL-001 (recusado, nunca inicia com chave degenerada "
+            "'CANCEL--{contrato}' que colapsaria tenants distintos numa unica chave)",
+        )
+
+    tenant_id = str(variables.get("tenant_id", ""))
     beneficiario_pseudo_id = str(variables.get("beneficiario_pseudo_id", ""))
 
     if not (numero_contrato or matricula_beneficiario):

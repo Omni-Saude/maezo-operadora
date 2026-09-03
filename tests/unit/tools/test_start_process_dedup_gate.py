@@ -656,6 +656,192 @@ async def test_exclusive_family_permits_the_next_case_after_an_externally_termin
     assert second.start_outcome is StartOutcome.STARTED
 
 
+# ---------------------------------------------------------------------------
+# GK MAJOR-1: the ACTIVE-rescue branch, on the MULTI-ROW history `EXCLUSIVE` creates by design
+#
+# `EXCLUSIVE` falls through on a finished generation and starts the next one, so a CANCEL key's
+# history is normally a LIST — `[gen-1 COMPLETED, gen-2 ACTIVE]`. The gatekeeper proved that
+# `find_any_instance` returned the FIRST matching row, so on exactly that history the rescue read
+# COMPLETED, the gate concluded "the claimed generation ended", and a SECOND CONCURRENT instance
+# started — the double `UT_AnaliseRescisao` this posture exists to prevent, produced BY the
+# posture. The single-cell fake could not even express that history, so no test could catch it.
+# ---------------------------------------------------------------------------
+
+
+class _ActiveBlindTransport(_CountingTransport):
+    """`find_active_instance` always answers "nothing", whatever the history holds.
+
+    This is not a contrivance: it is the code's own stated reason for having a history rescue at
+    all (`transport.py` — "replication lag / a racer's POST landing between the two reads"). The
+    rescue branch is UNREACHABLE while the active query works, so this double is the only way to
+    exercise it, and therefore the only way its correctness is provable.
+    """
+
+    async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
+        return None
+
+
+@pytest.mark.usefixtures("instant_gate_repoll")
+async def test_exclusive_rescue_finds_the_live_generation_in_a_multi_row_history() -> None:
+    """THE GK MAJOR-1 REGRESSION. History `[gen-1 COMPLETED, gen-2 ACTIVE]`, active query blind:
+    the gate must converge on the LIVE generation. Returning the finished row here starts a second
+    concurrent rescisao review for one contract."""
+    transport = _ActiveBlindTransport()
+    transport.seed_instance(
+        ProcessInstance(instance_id="pi-gen1", process_key=CANCEL, business_key=CANCEL_KEY, state="COMPLETED")
+    )
+    transport.seed_instance(
+        ProcessInstance(instance_id="pi-gen2", process_key=CANCEL, business_key=CANCEL_KEY, state="ACTIVE"),
+        append=True,
+    )
+    sink = FakeStartAuditSink(already_audited=True)  # the claim for this key already exists
+
+    result = await _start_cancel(transport, sink)
+
+    assert transport.starts == [], (
+        "the gate started a SECOND CONCURRENT CANCEL-001 while gen-2 was live — the ACTIVE-rescue "
+        "branch was handed an arbitrary history row"
+    )
+    assert result.start_outcome is StartOutcome.ALREADY_ACTIVE
+    assert result.instance_id == "pi-gen2"
+    assert result.state == "ACTIVE"
+    assert result.already_existed is True
+
+
+@pytest.mark.usefixtures("instant_gate_repoll")
+async def test_exclusive_rescue_does_not_read_a_suspended_generation_as_closed() -> None:
+    """A SUSPENDED instance has NOT ended. Reading it as "generation over" would start a second
+    instance beside a suspended one — under-matching permits a duplicate, over-matching only
+    refuses a start, and only one of those two is recoverable."""
+    transport = _ActiveBlindTransport()
+    transport.seed_instance(
+        ProcessInstance(instance_id="pi-gen1", process_key=CANCEL, business_key=CANCEL_KEY, state="COMPLETED")
+    )
+    transport.seed_instance(
+        ProcessInstance(
+            instance_id="pi-gen2", process_key=CANCEL, business_key=CANCEL_KEY, state="SUSPENDED"
+        ),
+        append=True,
+    )
+    sink = FakeStartAuditSink(already_audited=True)
+
+    result = await _start_cancel(transport, sink)
+
+    assert transport.starts == []
+    assert result.start_outcome is StartOutcome.ALREADY_ACTIVE
+    assert result.state == "SUSPENDED", "the engine's own state token is reported verbatim"
+
+
+@pytest.mark.usefixtures("instant_gate_repoll")
+async def test_permanent_rescue_also_prefers_the_live_row_over_a_finished_one() -> None:
+    """The same read serves `PERMANENT`. A PAGTO key whose history holds a finished row AND a live
+    one must report the LIVE instance — `ALREADY_COMPLETED` there would name the wrong instance id
+    to an operator asking "was this order paid?"."""
+    transport = _ActiveBlindTransport()
+    transport.seed_instance(
+        ProcessInstance(instance_id="pi-old", process_key=PAGTO, business_key=PAGTO_KEY, state="COMPLETED")
+    )
+    transport.seed_instance(
+        ProcessInstance(instance_id="pi-live", process_key=PAGTO, business_key=PAGTO_KEY, state="ACTIVE"),
+        append=True,
+    )
+    sink = FakeStartAuditSink(already_audited=True)
+
+    result = await _start(transport, sink)
+
+    assert transport.starts == []
+    assert result.start_outcome is StartOutcome.ALREADY_ACTIVE
+    assert result.instance_id == "pi-live"
+
+
+async def test_exclusive_multi_generation_lifecycle_starts_once_per_generation() -> None:
+    """END TO END over TWO generations, with the history accumulating for real (no blindness).
+
+    gen-1 runs and ends -> a genuinely new case starts gen-2 (the anti-swallow property) -> a
+    re-delivery of gen-2 converges on it (the exclusion property). Exactly two starts, ever, and
+    the third delivery names the LIVE instance, not the finished one."""
+    transport = _CountingTransport()
+    sink = FakeStartAuditSink()
+
+    first = await _start_cancel(transport, sink)
+    # gen-1 ends (`End_ContratoMantido` — contract kept alive by the human MANTER decision).
+    transport.seed_instance(
+        ProcessInstance(
+            instance_id=first.instance_id, process_key=CANCEL, business_key=CANCEL_KEY, state="COMPLETED"
+        )
+    )
+    second = await _start_cancel(transport, sink)  # a new, legitimate cancellation case
+    third = await _start_cancel(transport, sink)  # a re-delivery of THAT case
+
+    assert transport.starts == [CANCEL_KEY, CANCEL_KEY], (
+        "one start per legitimate generation — no more, no fewer"
+    )
+    assert second.start_outcome is StartOutcome.STARTED
+    assert second.instance_id != first.instance_id != ""
+    assert third.start_outcome is StartOutcome.ALREADY_ACTIVE
+    assert third.instance_id == second.instance_id, (
+        "the re-delivery was pointed at the FINISHED gen-1 instance instead of the live gen-2 one"
+    )
+    # The history really does hold both rows now, and the live one is what the rescue would read.
+    historic = await transport.find_any_instance(CANCEL_KEY, process_key=CANCEL)
+    assert historic is not None and historic.instance_id == second.instance_id
+
+
+@pytest.mark.usefixtures("instant_gate_repoll")
+async def test_two_racers_over_a_multi_row_history_both_converge_on_the_live_generation() -> None:
+    """The barrier property, re-checked on the history shape `EXCLUSIVE` actually produces. Two
+    concurrent deliveries, a claim already held, `[gen-1 COMPLETED, gen-2 ACTIVE]` in history and
+    an active query that sees nothing: BOTH must converge on gen-2 and NEITHER may start. Under
+    the first-matching-row read both read COMPLETED and both started — two new instances beside a
+    live one, from a single re-delivery burst."""
+    transport = _ActiveBlindTransport()
+    transport.seed_instance(
+        ProcessInstance(instance_id="pi-gen1", process_key=CANCEL, business_key=CANCEL_KEY, state="COMPLETED")
+    )
+    transport.seed_instance(
+        ProcessInstance(instance_id="pi-gen2", process_key=CANCEL, business_key=CANCEL_KEY, state="ACTIVE"),
+        append=True,
+    )
+    sink = FakeStartAuditSink(already_audited=True)
+
+    results = await asyncio.gather(_start_cancel(transport, sink), _start_cancel(transport, sink))
+
+    assert transport.starts == []
+    assert all(r.start_outcome is StartOutcome.ALREADY_ACTIVE for r in results)
+    assert {r.instance_id for r in results} == {"pi-gen2"}
+
+
+async def test_the_durable_claim_is_minted_once_per_key_never_once_per_generation() -> None:
+    """THE MECHANISM BEHIND THE DISCLOSED RESIDUAL (DL-0046). The dedup key is
+    `(tenant, process_key, business_key)` with NO generation component, so the claim is minted
+    exactly ONCE in a business key's lifetime and every later generation runs with the claim
+    already held. Consequence, stated plainly rather than implied: `EXCLUSIVE` supplies mutual
+    exclusion for generation 1 only — from generation 2 onward, FOREVER, concurrent starts are
+    back to being separated by `find_active_instance` alone (i.e. by nothing, under TOCTOU).
+
+    Closing that needs a generation-scoped durable token (the XRD-10/MZO-060 outbox), which this
+    module does not build. This test pins the MECHANISM, so it stays true and meaningful when the
+    outbox lands — at which point the disclosure in DL-0046 and the policy block is what changes.
+    """
+    transport = _CountingTransport()
+    sink = FakeStartAuditSink()
+
+    first = await _start_cancel(transport, sink)
+    transport.seed_instance(
+        ProcessInstance(
+            instance_id=first.instance_id, process_key=CANCEL, business_key=CANCEL_KEY, state="COMPLETED"
+        )
+    )
+    await _start_cancel(transport, sink)
+
+    expected_key = start_dedup_key("amh", CANCEL, CANCEL_KEY)
+    assert sink.dedup_keys == [expected_key, expected_key]
+    assert len(set(sink.dedup_keys)) == 1, (
+        "a generation-scoped dedup key would appear here as a SECOND distinct key — its absence "
+        "is exactly the residual DL-0046 discloses"
+    )
+
+
 @pytest.mark.usefixtures("instant_gate_repoll")
 async def test_exclusive_family_wedges_loudly_when_the_claim_has_no_instance_anywhere() -> None:
     """ABSENCE OF EVIDENCE IS NOT PERMISSION. A claim with no instance active OR historic is the

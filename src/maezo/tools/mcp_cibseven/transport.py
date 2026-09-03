@@ -147,6 +147,41 @@ class ProcessStatus:
     variables: dict[str, Any] = field(default_factory=dict)
 
 
+#: The engine's HISTORIC state tokens for an instance that has ENDED (CIB Seven / Camunda
+#: `/history/process-instance` `state`). Anything else — `ACTIVE`, `SUSPENDED`, a token this
+#: module has never seen, or no token at all — is NOT proof that the instance ended.
+_FINISHED_HISTORIC_STATES: frozenset[str] = frozenset(
+    {"COMPLETED", "EXTERNALLY_TERMINATED", "INTERNALLY_TERMINATED"}
+)
+
+
+def historic_instance_is_live(state: str, *, end_time: Any = None) -> bool:
+    """Is this HISTORY row an instance that has NOT ended? (GK MAJOR-1)
+
+    The single predicate both the history read (`CibSevenHttpTransport.find_any_instance`) and the
+    gate verdict (`_resolve_strict_dedup_hit`) use, so the two can never disagree about which row
+    is the live one. Before GAP-D3-02's gatekeeper pass they disagreed by construction: the read
+    returned the FIRST matching row and the verdict tested `state == "ACTIVE"` on whatever it got.
+
+    DELIBERATELY ASYMMETRIC, in the direction `find_any_instance`'s own docstring already states:
+    over-matching REFUSES a start, under-matching PERMITS a duplicate one. So an instance counts as
+    LIVE unless the engine positively says it ended — a token this module does not recognise, or a
+    row with no `endTime`, is treated as live and the gate refuses rather than starting a second
+    concurrent instance on an unrecognised token.
+
+    `end_time` is the raw `endTime` field when the caller has one (the HTTP transport); `None`
+    means "not reported", which is only consulted when the state token itself does not decide.
+    """
+    token = (state or "").strip().upper()
+    if token in _FINISHED_HISTORIC_STATES:
+        return False
+    if token in {"ACTIVE", "SUSPENDED"}:
+        return True
+    # Unrecognised / absent state token: an `endTime` is the engine's other statement that the
+    # instance ended. Absent both, assume live (refuse a start) rather than assume ended.
+    return not end_time
+
+
 @runtime_checkable
 class CibSevenTransport(Protocol):
     """Agent-directed engine transport seam — injectable for unit tests (`FakeCibSevenTransport`)
@@ -320,6 +355,18 @@ class CibSevenHttpTransport:
         conservative on purpose: over-matching here REFUSES a start, under-matching would permit a
         duplicate one.
 
+        MULTI-ROW HISTORY — A LIVE ROW ALWAYS WINS (GK MAJOR-1). History is a LIST, and since
+        GAP-D3-02 it is a list with more than one row per business key BY DESIGN: an `EXCLUSIVE`
+        key falls through on a finished generation and starts the next one, so
+        `[gen-1 COMPLETED, gen-2 ACTIVE]` is the normal steady state. The previous revision
+        returned on the FIRST matching row, which on that history answers `COMPLETED` — and
+        `_resolve_strict_dedup_hit` then reads "the claimed generation ended", falls through and
+        starts a SECOND CONCURRENT instance. So every matching row is scanned: the first row that
+        `historic_instance_is_live` accepts is returned immediately, and a finished row is returned
+        only when NO live row exists anywhere in the history. Same asymmetry as the `process_key`
+        filter above — the wrong answer that costs a duplicate start is the one this refuses to
+        give.
+
         Raises `CibSevenError` on an unreachable/non-2xx engine, exactly like its siblings —
         NEVER `None`, which the strict gate would read as "no instance ever existed".
         """
@@ -338,18 +385,23 @@ class CibSevenHttpTransport:
                 f"CIB Seven unreachable querying history for business_key `{business_key}`: {exc}"
             ) from exc
 
+        finished: ProcessInstance | None = None
         for item in resp.json() or []:
             item_key = str(item.get("processDefinitionKey", ""))
             if process_key and item_key and item_key != process_key:
                 continue
-            return ProcessInstance(
+            candidate = ProcessInstance(
                 instance_id=str(item["id"]),
                 process_key=item_key or process_key,
                 business_key=business_key,
                 state=str(item.get("state", "UNKNOWN")),
                 already_existed=True,
             )
-        return None
+            if historic_instance_is_live(candidate.state, end_time=item.get("endTime")):
+                return candidate  # a live row settles it — no finished row can outrank it
+            if finished is None:
+                finished = candidate  # remembered, but only returned if NO live row turns up
+        return finished
 
     async def start_process_instance(
         self,
@@ -487,41 +539,73 @@ class CibSevenHttpTransport:
 
 
 class FakeCibSevenTransport:
-    """Labeled test double. NEVER imported by production code (mirrors `FakeDmnTransport`)."""
+    """Labeled test double. NEVER imported by production code (mirrors `FakeDmnTransport`).
+
+    HISTORY IS A LIST, NOT A CELL (GK MAJOR-1 test-fidelity co-requisite). This double used to
+    hold `dict[business_key -> ONE instance]`, so it could not express the multi-generation
+    history an `EXCLUSIVE` key produces BY DESIGN — and therefore no test written against it
+    could ever catch a bug in how the gate picks a row out of that history. It now keeps an
+    ordered list per business key, exactly like `/history/process-instance` returns one.
+    """
 
     def __init__(self) -> None:
-        self._instances: dict[str, ProcessInstance] = {}
+        self._history: dict[str, list[ProcessInstance]] = {}
         self._variables: dict[str, dict[str, Any]] = {}
         self._correlate_calls: list[dict[str, Any]] = []
+        #: Monotonic per-key start counter — NOT reset by `seed_instance`, so each generation this
+        #: fake starts gets its own id and a multi-generation test can tell them apart.
+        self._generations: dict[str, int] = {}
 
-    def seed_instance(self, instance: ProcessInstance, *, variables: dict[str, Any] | None = None) -> None:
+    def seed_instance(
+        self,
+        instance: ProcessInstance,
+        *,
+        variables: dict[str, Any] | None = None,
+        append: bool = False,
+    ) -> None:
         """Pre-load an instance (simulates a pre-existing active instance for idempotency
         tests). `variables`, if given, is what `get_process_status` returns for it —
         already-decoded Python objects (this fake never wire-encodes/decodes, mirroring
         `FakeWorkerTransport`/`FakeDmnTransport`'s pure-Python-double posture; a caller that
         needs to prove the wire-level `Json` decode uses `CibSevenHttpTransport` against a
-        mocked `httpx` client instead, per `test_mcp_cibseven_transport.py`)."""
-        self._instances[instance.business_key] = instance
+        mocked `httpx` client instead, per `test_mcp_cibseven_transport.py`).
+
+        `append=False` (the default, and the pre-existing behaviour every older test relies on)
+        REPLACES this business key's whole history with `instance` — the single-generation shape,
+        and the idiom for "the instance transitioned to COMPLETED". `append=True` ADDS a row,
+        which is how a test expresses the MULTI-ROW history an `EXCLUSIVE` key really produces
+        (`[gen-1 COMPLETED, gen-2 ACTIVE]`).
+        """
+        if append:
+            self._history.setdefault(instance.business_key, []).append(instance)
+        else:
+            self._history[instance.business_key] = [instance]
         self._variables[instance.business_key] = dict(variables) if variables else {}
 
     async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
-        inst = self._instances.get(business_key)
-        if inst and inst.state == "ACTIVE":
-            return inst
+        """Mirrors the engine's `active=true` query: only a RUNNING row is visible to it."""
+        for inst in self._history.get(business_key, []):
+            if inst.state == "ACTIVE":
+                return inst
         return None
 
     async def find_any_instance(self, business_key: str, *, process_key: str = "") -> ProcessInstance | None:
-        """`HistoryQueryingTransport` double: this fake's `_instances` map IS its history — an
+        """`HistoryQueryingTransport` double: this fake's `_history` list IS its history — an
         instance seeded/started here is never forgotten, so a COMPLETED one stays visible exactly
-        as the engine's `/history/process-instance` keeps it. Mirrors `CibSevenHttpTransport`'s
-        client-side `process_key` filter (an instance whose `process_key` is blank is not filtered
-        out — absence of evidence is not a mismatch)."""
-        inst = self._instances.get(business_key)
-        if inst is None:
-            return None
-        if process_key and inst.process_key and inst.process_key != process_key:
-            return None
-        return inst
+        as the engine's `/history/process-instance` keeps it. Mirrors `CibSevenHttpTransport`
+        row-for-row: the same client-side `process_key` filter (an instance whose `process_key` is
+        blank is not filtered out — absence of evidence is not a mismatch) AND the same
+        live-row-wins scan (`historic_instance_is_live`), so a fake-driven test and a live engine
+        cannot disagree about which generation the gate sees."""
+        finished: ProcessInstance | None = None
+        for inst in self._history.get(business_key, []):
+            if process_key and inst.process_key and inst.process_key != process_key:
+                continue
+            if historic_instance_is_live(inst.state):
+                return inst
+            if finished is None:
+                finished = inst
+        return finished
 
     async def start_process_instance(
         self,
@@ -529,14 +613,19 @@ class FakeCibSevenTransport:
         business_key: str,
         variables: dict[str, Any],
     ) -> ProcessInstance:
+        generation = self._generations.get(business_key, 0) + 1
+        self._generations[business_key] = generation
         inst = ProcessInstance(
-            instance_id=f"fake-{business_key}",
+            # Generation 1 keeps the historical `fake-{business_key}` id (asserted verbatim by
+            # `test_mcp_cibseven_transport.py`); later generations are suffixed so a test can
+            # prove WHICH instance a gate returned.
+            instance_id=f"fake-{business_key}" if generation == 1 else f"fake-{business_key}-g{generation}",
             process_key=process_key,
             business_key=business_key,
             state="ACTIVE",
             already_existed=False,
         )
-        self._instances[business_key] = inst
+        self._history.setdefault(business_key, []).append(inst)
         self._variables[business_key] = dict(variables)
         return inst
 
@@ -560,7 +649,10 @@ class FakeCibSevenTransport:
         )
 
     async def get_process_status(self, business_key: str) -> ProcessStatus:
-        inst = self._instances.get(business_key)
+        rows = self._history.get(business_key, [])
+        # The live generation if there is one, else the most recent row — the answer a status
+        # query about "this business key" should give when its history has several generations.
+        inst = next((row for row in rows if row.state == "ACTIVE"), rows[-1] if rows else None)
         if inst is None:
             raise ProcessNotFoundError(f"business_key `{business_key}` not found")
         return ProcessStatus(
@@ -764,7 +856,9 @@ class StartClaimWithoutInstanceError(RuntimeError):
             f"EXISTS (dedup_key={dedup_key!r}) but the engine reports no instance for this key — "
             "neither active nor in history. Either the intended start never took effect or a "
             "concurrent start is still in flight; nothing durable distinguishes the two, so this "
-            "STRICT family refuses to start (a wrong guess here is a duplicate money effect). "
+            "GATED start-dedup family refuses to start (a wrong guess here is a duplicate "
+            "irreversible effect: a second payment under PERMANENT, a second concurrent "
+            "contract-termination review under EXCLUSIVE). "
             "OPERATOR: confirm against the engine, then either start the instance manually or "
             "delete that single audit_emit_dedup row to re-arm the gate"
         )
@@ -1019,6 +1113,7 @@ def _require_strict_gate_seams(
     audit_sink: AuditStartSink,
     *,
     process_key: str,
+    posture: StartDedupPosture | None = None,
 ) -> None:
     """Both STRICT-gate inputs must be present, checked BEFORE anything durable is written.
 
@@ -1031,17 +1126,25 @@ def _require_strict_gate_seams(
     Checked up front so a mis-wired composition root fails BEFORE the claim is written — a raise
     after the claim would leave an orphan claim that wedges the key
     (`StartClaimWithoutInstanceError`) on every later, correctly-wired retry.
+
+    OPERATOR-FACING WORDING (GK MINOR F8). These messages say "GATED (<posture>)", never "STRICT":
+    since GAP-D3-02 two different postures reach this check, and an operator who read "STRICT"
+    about `SP-OP-CANCEL-001` would conclude the key is permanently gated — the exact misreading
+    DL-0046 exists to prevent. `posture` is passed by `start_process_idempotent`, which has already
+    resolved it; it defaults to `None` (rendered `GATED`) only so a direct caller of this helper
+    still fails closed instead of erroring on a missing argument.
     """
+    gated_as = f"GATED ({posture.value})" if posture is not None else "GATED"
     if not isinstance(audit_sink, DedupReportingAuditSink):
         raise StartDedupGateUnavailableError(
-            f"process_key={process_key!r} is a STRICT start-dedup family but the injected audit "
-            f"sink {type(audit_sink).__name__!r} does not implement `emit_once_status` — the "
+            f"process_key={process_key!r} is a {gated_as} start-dedup family but the injected "
+            f"audit sink {type(audit_sink).__name__!r} does not implement `emit_once_status` — the "
             "durable dedup claim cannot be observed, so the start CANNOT be gated. Refusing to "
-            "start (fail-closed: an un-gated start of a strict family risks a duplicate effect)"
+            "start (fail-closed: an un-gated start of a gated family risks a duplicate effect)"
         )
     if not isinstance(transport, HistoryQueryingTransport):
         raise StartDedupGateUnavailableError(
-            f"process_key={process_key!r} is a STRICT start-dedup family but the injected "
+            f"process_key={process_key!r} is a {gated_as} start-dedup family but the injected "
             f"transport {type(transport).__name__!r} does not implement `find_any_instance` — a "
             "dedup hit could then only be resolved against `active=true`, which cannot see a "
             "COMPLETED instance, so a claim with no live instance would be indistinguishable from "
@@ -1090,7 +1193,11 @@ async def _resolve_strict_dedup_hit(
     the engine itself, transactionally with the instance, so (unlike a Maezo-side "start
     completed" row) there is no crash window between the effect and its record.
 
-      1. ACTIVE instance      -> it is live. Report it, `ALREADY_ACTIVE`, real id. (Both postures.)
+      1. LIVE instance        -> report it, `ALREADY_ACTIVE`, real id. (Both postures.) "Live" is
+                                 `historic_instance_is_live`: NOT proven finished — `ACTIVE`,
+                                 `SUSPENDED`, or a state token this module does not recognise.
+                                 A key with several history rows is decided by the LIVE one
+                                 (GK MAJOR-1), never by whichever row the engine listed first.
       2. FINISHED instance    -> the start DID happen and has ended. THE ONE PLACE THE TWO GATED
                                  POSTURES DIVERGE:
                                  * `PERMANENT` — this is the gate doing its job on an already-paid
@@ -1147,15 +1254,24 @@ async def _resolve_strict_dedup_hit(
         # direct caller of this helper fails closed instead of `AttributeError`-ing mid-gate.
         if not isinstance(transport, HistoryQueryingTransport):
             raise StartDedupGateUnavailableError(
-                f"process_key={process_key!r}: strict dedup hit cannot be resolved — transport "
-                f"{type(transport).__name__!r} does not implement `find_any_instance` (fail-closed)"
+                f"process_key={process_key!r}: GATED ({posture.value}) dedup hit cannot be "
+                f"resolved — transport {type(transport).__name__!r} does not implement "
+                "`find_any_instance` (fail-closed)"
             )
         historic = await transport.find_any_instance(business_key, process_key=process_key)
         if historic is not None:
-            if historic.state == "ACTIVE":
+            if historic_instance_is_live(historic.state):
                 # The history endpoint also reports RUNNING instances; `find_active_instance` just
                 # missed it (replication lag / a racer's POST landing between the two reads). Live
                 # is live, under BOTH postures — never start a second one.
+                #
+                # GK MAJOR-1: this rescue is only as good as the row `find_any_instance` picked.
+                # It scans the WHOLE history and returns a live row in preference to any finished
+                # one (`historic_instance_is_live`), which is what makes the claim above true on a
+                # multi-generation key — the shape `EXCLUSIVE` produces by design, and the shape
+                # under which the previous "first matching row" read returned COMPLETED and let a
+                # second CONCURRENT instance start. The predicate is shared with the transport so
+                # read and verdict cannot drift apart again.
                 logger.info(
                     "cibseven_start_dedup_gate_hit",
                     process_key=process_key,
@@ -1297,7 +1413,7 @@ async def start_process_idempotent(
     gated = posture is not StartDedupPosture.NON_STRICT
     # 0. Both gate seams, checked BEFORE the claim exists (see `_require_strict_gate_seams`).
     if gated:
-        _require_strict_gate_seams(transport, audit_sink, process_key=process_key)
+        _require_strict_gate_seams(transport, audit_sink, process_key=process_key, posture=posture)
 
     # 1. FAIL-CLOSED durable provenance BEFORE any engine effect (ADR-0007 invariant).
     record = build_start_audit_record(
