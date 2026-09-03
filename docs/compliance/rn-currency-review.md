@@ -41,7 +41,7 @@ Representative `file:line` shown; full citation loci in §3 redlines. "Current n
 | **RN 388/2015** — `SP-OP-ANS-SUBMIT-001.md:6` | "indicadores/transparência" | **Ações fiscalizatórias / NIP** | **superseded + MISATTRIBUTED** | **RN 483/2022** | in.gov.br id=33345888 (RN388, 25/11/2015); bvsms `res0483_31_03_2022.html` |
 | **RN 388/2016** — `SP-OP-NIP-001.md:5,141,225,226`; `nip_sla.dmn` | NIP — prazos de resposta | NIP *(but norm is 388/**2015**, now revoked)* | **WRONG YEAR + superseded** | **RN 483/2022** (NIP resp.: 5 d.ú. assistencial / 10 d.ú. não-assist.) | bvsms `res0483_31_03_2022.html`; gov.br `.../nip/orientacao-nip...pdf` |
 | **RN 395/2016** — `SP-OP-AUTH-001.md:5,102,105`; `auth_sla.dmn:11,50` | Resposta / negativa por escrito; 5 d.ú. | Regras de atendimento / prazos de resposta / negativa | **superseded** | **RN 623/2024** (in force 01/07/2025) | **gov.br `operadoras/atendimento-ao-beneficiario-diretrizes-da-rn-no-623-2024...` [fetched]**; bvsms `res0623_19_12_2024.html` |
-| **RN 412/2016** — `SP-OP-CANCEL-001.md:5,19,234` | Cancelamento a pedido; *"593 substitui 412"* | Cancelamento a pedido / exclusão de beneficiário | **superseded (by RN 561, NOT 593)** | **RN 561/2022** (in force 01/02/2023) | bvsms `res0561_30_12_2022.html`; ans.gov.br id=MzMyNA%3D%3D (RN412) |
+| **RN 412/2016** — `SP-OP-CANCEL-001.md:5,19,236` | Cancelamento a pedido; *"593 substitui 412"* | Cancelamento a pedido / exclusão de beneficiário | **superseded (by RN 561, NOT 593)** | **RN 561/2022** (in force 01/02/2023) | bvsms `res0561_30_12_2022.html`; ans.gov.br id=MzMyNA%3D%3D (RN412) |
 | **RN 424/2017** — `SP-OP-AUTH-001.md:5` ✓; `ANS-SUBMIT-001.md:6` ✗; `CONTAS-001.md:5,146` ✗; `RECURSO-001.md:6,179` ~ | "junta médica" ✓; "padrão TISS/monitoramento" ✗; "recurso/análise de conta" ✗ | **Junta médica ou odontológica** (divergência técnico-assistencial) | **vigente; CORRECT for junta médica; MISATTRIBUTED elsewhere** | RN 424/2017 (junta); **TISS/glosa → RN 501/2022** | bvsms `res0424_27_06_2017.html`; gov.br `faq_junta_medica_2021-v2.pdf` |
 | **RN 465/2021** — `dut_rol_coverage.dmn:23,34`; `carencia_check.dmn:18` | Rol de Procedimentos | Rol de Procedimentos e Eventos em Saúde | **current — correct** (base norm, many amendments) | RN 465/2021 (+ 473, 624, 625, 643…) | ans.gov.br id=NDAzMw%3D%3D; gov.br `Anexo_I_Rol_2021RN_465.2021_RN643.2025.pdf` |
 | **RN 473/2021** — `dut_rol_coverage.dmn:23`; `dut_criteria_terapias_especiais.dmn:21` | Emenda ao Rol | Altera RN 465/2021 (cirurgia antiglaucomatosa) | **current — correct** | RN 473/2021 | bvsms `res0473_08_11_2021.html` |
@@ -165,7 +165,7 @@ Representative `file:line` shown; full citation loci in §3 redlines. "Current n
    REEMBOLSO: prazo de reembolso "~30 dias" — [cannot-verify: norma específica; requires SME].
 ```
 
-### 3.6 `SP-OP-CANCEL-001.md:5,19,234` and `SP-OP-INADIMPLENCIA-001.md:5,205,210,226`
+### 3.6 `SP-OP-CANCEL-001.md:5,19,236` and `SP-OP-INADIMPLENCIA-001.md:5,207,212,228`
 ```
 ❌ RN 593/2023 (… consolida/substitui RN 412/2016) ; RN 412/2016 (cancelamento a pedido)
 ❌ OQ: "RN 593 supersede/consolida RN 412/2016?"

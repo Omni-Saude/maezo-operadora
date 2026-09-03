@@ -3,15 +3,26 @@
 TDD London School: tests verify gap measurement and the human-gated fallback commitment.
 """
 
+import asyncio
 from typing import Any
 
 import pytest
 import structlog
 
 from maezo.a2a import DelegationResult, RejectionReason
+from maezo.gateway.audit_postgres import AuditPersistenceError
+from maezo.tools.mcp_cibseven.transport import (
+    CibSevenError,
+    FakeCibSevenTransport,
+    ProcessInstance,
+    start_dedup_key,
+)
 from maezo.tools.workers.adequacao import (
+    CRED_PROCESS_KEY,
+    ERR_ADEQUACAO_SEM_PRESTADOR_CANDIDATO,
     ERR_FALLBACK_COMMITMENT_NOT_HUMAN,
     AdequacaoError,
+    _cred_business_key,
     execute_remediation,
     make_prepare_remediation_dossier_handler,
     make_update_monitoring_plan_handler,
@@ -24,7 +35,8 @@ from maezo.tools.workers.adequacao import (
     update_monitoring_plan,
 )
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
-from maezo.tools.workers.harness import ExternalTask, FakeKafkaPublisher, WorkerHarness
+from maezo.tools.workers.harness import AUDIT_AGENT_ID, ExternalTask, FakeKafkaPublisher, WorkerHarness
+from tests.support.audit_fakes import FakeStartAuditSink
 
 
 def _adequacao_fake(*, gap_adequacao: str, roteamento_remediacao: str, motivo: str = "") -> FakeDmnTransport:
@@ -821,15 +833,212 @@ def test_notify_coordenacao_missing_fields_does_not_raise() -> None:
 # ---------------------------------------------------------------
 
 
-def test_execute_remediation() -> None:
+class _RaisingCibSevenTransport:
+    """Test double whose engine query ALWAYS raises — proves the fail-closed path (query error).
+
+    Mirrors `test_inadimplencia.py`'s own `_RaisingCibSevenTransport` (file-local by the same
+    convention — a labeled test double, never imported by `src/`)."""
+
+    async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
+        raise CibSevenError(f"engine unreachable querying `{business_key}`")
+
+
+def _remediation_variables(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "tenant_id": "amh",
+        "prestador_id": "PREST-0001",
+        "regiao_saude": "R-001",
+        "especialidade": "cardiologia",
+        "gap_adequacao": "GAP_MODERADO",
+        "roteamento_remediacao": "ENCAMINHAR_CREDENCIAMENTO",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_execute_remediation_fail_closed_no_prestador_candidato() -> None:
+    """No `prestador_id` (today's default reality — no ADEQUACAO worker resolves one) -> never
+    fabricate `handoff_credenciamento=True` for a search that never started: raises."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    with pytest.raises(AdequacaoError) as excinfo:
+        execute_remediation(
+            {"tenant_id": "amh", "regiao_saude": "R-001", "especialidade": "cardiologia"},
+            engine=engine,
+            audit_sink=sink,
+        )
+    assert excinfo.value.code == ERR_ADEQUACAO_SEM_PRESTADOR_CANDIDATO
+    assert sink.calls == []  # refused BEFORE any audit emit — no record for a refused handoff
+
+
+def test_execute_remediation_fail_closed_no_tenant_id() -> None:
+    """A `prestador_id` with no `tenant_id` is equally refused — never a degenerate business key."""
+    with pytest.raises(AdequacaoError) as excinfo:
+        execute_remediation(
+            {"prestador_id": "PREST-0001"},
+            engine=FakeCibSevenTransport(),
+            audit_sink=FakeStartAuditSink(),
+        )
+    assert excinfo.value.code == ERR_ADEQUACAO_SEM_PRESTADOR_CANDIDATO
+
+
+def test_execute_remediation_fail_closed_blank_and_none_are_refused() -> None:
+    """Whitespace-only / explicit-`None` anchors are refused too (never `CRED-{t}-None`)."""
+    for bad in ("", "   ", None):
+        with pytest.raises(AdequacaoError):
+            execute_remediation(
+                _remediation_variables(prestador_id=bad),
+                engine=FakeCibSevenTransport(),
+                audit_sink=FakeStartAuditSink(),
+            )
+
+
+def test_execute_remediation_fail_closed_when_engine_seam_not_wired() -> None:
+    """FAIL-CLOSED: no engine seam -> raises (transient), never a silent no-op."""
+    with pytest.raises(RuntimeError, match="engine seam"):
+        execute_remediation(_remediation_variables(), audit_sink=FakeStartAuditSink())  # engine=None default
+
+
+def test_execute_remediation_fail_closed_when_audit_sink_not_wired() -> None:
+    """FAIL-CLOSED (T-C2 fence co-requisite): no audit sink -> raises, never an un-audited start."""
+    engine = FakeCibSevenTransport()
+    with pytest.raises(RuntimeError, match="audit sink"):
+        execute_remediation(_remediation_variables(), engine=engine)  # audit_sink=None default
+    assert asyncio.run(engine.find_active_instance("CRED-amh-PREST-0001")) is None
+
+
+def test_execute_remediation_starts_cred_with_exact_business_key_and_payload() -> None:
+    """The BINDING business-key format `CRED-{tenant}-{prestador_id}` (contract
+    `SP-OP-CRED-001.md` §Business key; IDENTICAL to `fraude._cred_business_key`) AND the handoff
+    payload: pre-decision facts/context ONLY — NEVER `decisao_cred` or any other CRED-001
+    decision/output variable (the target process's human decision must never be pre-decided)."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
     result = execute_remediation(
-        {
-            "regiao_saude": "R-001",
-            "especialidade": "cardiologia",
-        }
+        _remediation_variables(tipo_prestador="clinica", decisao_remediacao="ENCAMINHAR_CRED"),
+        engine=engine,
+        audit_sink=sink,
     )
+
     assert result["handoff_credenciamento"] is True
-    assert result["processo_destino"] == "SP-OP-CRED-001"
+    assert result["handoff_executado"] is True
+    assert result["processo_destino"] == CRED_PROCESS_KEY
+    assert result["processo_iniciado"] is True
+    assert result["cred_business_key"] == "CRED-amh-PREST-0001"
+    assert result["cred_already_existed"] is False
+    assert result["cred_business_key"] == _cred_business_key("amh", "PREST-0001")
+
+    started = asyncio.run(engine.find_active_instance("CRED-amh-PREST-0001"))
+    assert started is not None
+    assert started.process_key == CRED_PROCESS_KEY
+
+    payload = asyncio.run(engine.get_process_status("CRED-amh-PREST-0001")).variables
+    assert payload["tenant_id"] == "amh"
+    assert payload["prestador_id"] == "PREST-0001"
+    assert payload["direcao"] == "credenciamento"
+    assert payload["origem_solicitacao"] == "operadora"
+    assert payload["tipo_prestador"] == "clinica"
+    assert payload["regiao_saude"] == "R-001"
+    assert payload["especialidade"] == "cardiologia"
+    # I-PAGTO-1-style invariant: a handoff's seed MUST NEVER pre-decide the target process's own
+    # human decision — `decisao_remediacao` (ADEQUACAO's own output var) must never leak into
+    # CRED's `decisao_cred` (or under its own name — it is not an allowlisted carry key).
+    assert "decisao_cred" not in payload
+    assert "decisao_remediacao" not in payload
+
+    # T-C2 fence: the durable ADR-0007 start record — exactly once.
+    assert sink.dedup_keys == [start_dedup_key("amh", CRED_PROCESS_KEY, "CRED-amh-PREST-0001")]
+    [record] = sink.records
+    assert record.agent_id == AUDIT_AGENT_ID
+    assert record.tenant_id == "amh"
+    assert record.action == f"start_process:{CRED_PROCESS_KEY}"
+    assert record.decision == "START_PROCESS"
+    assert record.model_id is None  # deterministic worker context — no LLM legs, honest nulls
+    assert record.prompt_version is None
+    assert record.details["origem_solicitacao"] == "operadora"
+    assert record.details["direcao"] == "credenciamento"
+    assert record.details["gap_adequacao"] == "GAP_MODERADO"
+    assert "input_sha256" in record.details
+    assert "prestador_id" not in record.details  # never in the clear in the chain
+
+
+def test_execute_remediation_idempotent_returns_existing_active_cred() -> None:
+    """A CRED-001 instance already active for this prestador is returned unchanged — never a
+    second search for the same candidate."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    engine.seed_instance(
+        ProcessInstance(
+            instance_id="pre-existing-cred",
+            process_key=CRED_PROCESS_KEY,
+            business_key="CRED-amh-PREST-0001",
+            state="ACTIVE",
+            already_existed=True,
+        )
+    )
+    result = execute_remediation(_remediation_variables(), engine=engine, audit_sink=sink)
+
+    assert result["handoff_executado"] is True
+    assert result["processo_iniciado"] is False
+    assert result["cred_already_existed"] is True
+    assert result["cred_instance_id"] == "pre-existing-cred"
+    assert sink.dedup_keys == [start_dedup_key("amh", CRED_PROCESS_KEY, "CRED-amh-PREST-0001")]
+
+
+def test_execute_remediation_redelivery_dedups_to_the_same_cred_instance() -> None:
+    """RE-DELIVERY (the exact shape of an external-task redelivery after a lock expires
+    mid-flight): calling `execute_remediation` twice with byte-identical variables against the
+    SAME engine/audit_sink converges on exactly ONE active CRED-001 instance — the second call is
+    the dedup hit, never a second search/second effect.
+
+    NOTE on `FakeCibSevenTransport` (labeled-double limitation, not this fix's behaviour):
+    `already_existed`/`processo_iniciado` are NOT redelivery-discriminating against this fake —
+    `find_active_instance` on the fake just echoes back whatever `already_existed` the ORIGINAL
+    `start_process_instance` call baked in (always `False`), unlike the real `CibSevenHttpTransport`
+    (`transport.py`'s own `find_active_instance`), which always returns `already_existed=True`
+    because reaching it AT ALL means the instance already existed. The engine-level integration
+    proof (`per-suite-iso.sh`, `test_sp_op_adequacao_001.py`) exercises the REAL transport and
+    asserts that stronger property; this unit test asserts what the fake CAN prove: exactly one
+    instance, one dedup key, both calls' claims resolving to the SAME record hash."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    variables = _remediation_variables(prestador_id="PREST-REDELIVERY")
+
+    result1 = execute_remediation(dict(variables), engine=engine, audit_sink=sink)
+    result2 = execute_remediation(dict(variables), engine=engine, audit_sink=sink)
+
+    assert result1["cred_business_key"] == "CRED-amh-PREST-REDELIVERY"
+    assert result1["cred_instance_id"] == result2["cred_instance_id"], (
+        "re-delivery must resolve to the identical CRED-001 instance id, never a second one"
+    )
+    # Exactly-once EFFECT: only one active instance exists in the engine after both deliveries —
+    # `execute_remediation`'s second call never reached a second `start_process_instance`.
+    active = asyncio.run(engine.find_active_instance("CRED-amh-PREST-REDELIVERY"))
+    assert active is not None
+    assert active.instance_id == result1["cred_instance_id"]
+    # Both deliveries hit the fence under the SAME dedup key (the AUDIT-layer exactly-once claim).
+    dedup_key = start_dedup_key("amh", CRED_PROCESS_KEY, "CRED-amh-PREST-REDELIVERY")
+    assert sink.dedup_keys == [dedup_key, dedup_key]
+
+
+def test_execute_remediation_emit_failure_blocks_engine_start() -> None:
+    """EMIT-BEFORE-EFFECT: a durable-audit failure propagates and the engine start NEVER
+    happens — an un-audited CRED-001 start is structurally impossible."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink(fail=True)
+    with pytest.raises(AuditPersistenceError):
+        execute_remediation(_remediation_variables(), engine=engine, audit_sink=sink)
+    assert len(sink.calls) == 1
+    assert asyncio.run(engine.find_active_instance("CRED-amh-PREST-0001")) is None
+
+
+def test_execute_remediation_transport_error_propagates() -> None:
+    """A transport/engine error during the start propagates (never a silent success); the audit
+    record was already durably emitted (emit-before-effect) — a retry re-emit dedups."""
+    sink = FakeStartAuditSink()
+    with pytest.raises(CibSevenError):
+        execute_remediation(_remediation_variables(), engine=_RaisingCibSevenTransport(), audit_sink=sink)
+    assert sink.dedup_keys == [start_dedup_key("amh", CRED_PROCESS_KEY, "CRED-amh-PREST-0001")]
 
 
 # ---------------------------------------------------------------
@@ -989,6 +1198,30 @@ def test_register_adequacao_workers_registers_new_topics() -> None:
     assert harness.registry.get("operadora.adequacao.notify_sla_risk") is not None  # still FunctionWorker
     adequacao_topics = {t for t in topics if t.startswith("operadora.adequacao.")}
     assert len(adequacao_topics) == 8  # all 8 BPMN-declared topics registered (dossier now REAL A2A)
+
+
+def test_register_adequacao_workers_threads_engine_and_audit_sink_into_start_credenciamento() -> None:
+    """PERSP-ADEQ-CRED-HANDOFF fix: `engine=`/`audit_sink=` flow through the standard `**seams`
+    channel into `execute_remediation` ONLY (the one adequacao.py worker running the fenced
+    `start_process_idempotent` chokepoint) -- mirrors `register_inadimplencia_workers`'s
+    `handoff_rescisao` wiring test. Absent (defaults), the registered worker still raises
+    fail-closed (never a silently-neutered handoff); wired, it actually starts CRED-001."""
+    harness = WorkerHarness(None, worker_id="unit-test-adequacao-seams")  # type: ignore[arg-type]
+    register_adequacao_workers(harness, None, dmn=FakeDmnTransport())  # no engine/audit_sink
+    worker = harness.registry.get("operadora.adequacao.start_credenciamento")
+    assert worker is not None
+    with pytest.raises(RuntimeError, match="engine seam"):
+        worker.execute(_remediation_variables())
+
+    harness_wired = WorkerHarness(None, worker_id="unit-test-adequacao-seams-wired")  # type: ignore[arg-type]
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    register_adequacao_workers(harness_wired, None, dmn=FakeDmnTransport(), engine=engine, audit_sink=sink)
+    wired_worker = harness_wired.registry.get("operadora.adequacao.start_credenciamento")
+    assert wired_worker is not None
+    result = wired_worker.execute(_remediation_variables())
+    assert result["processo_iniciado"] is True
+    assert result["cred_business_key"] == "CRED-amh-PREST-0001"
 
 
 async def test_register_adequacao_workers_update_monitoring_plan_publishes_via_wired_kafka() -> None:

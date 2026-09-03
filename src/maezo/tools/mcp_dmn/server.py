@@ -1,8 +1,8 @@
 """DEPRECATED MCP DMN server — DO NOT use for any runtime decision (T1.5, ADR-0028).
 
 This in-process XML evaluator:
-- fails OPEN on no-match (`return {}`, see `evaluate_decision`'s tail) — a silent non-decision
-  where ADR-0028 §3 requires raise/route-to-human;
+- used to fail OPEN on no-match (donor's `return {}`); AF-08 made `evaluate_decision`'s tail
+  raise instead (fail-closed per ADR-0028 §3) so an accidental re-adoption cannot pass silently;
 - implements only boolean + exact-equality matching (`_match_condition`) — FEEL comparison
   (`>=`,`<=`,`>`,`<`), ranges (`[a..b]`), lists (`"A","B"`) and `not(...)` are unsupported, so
   13 of the 55 deployed decisions cannot be evaluated correctly here at all, and 13 more
@@ -208,9 +208,19 @@ class DmnServer:
                 )
                 return outputs
 
-        # No rule matched (should not happen with proper catch-all rule)
+        # No rule matched (should not happen with proper catch-all rule). AF-08: this donor
+        # evaluator has no production caller (ADR-0028 Contexto, enforced by
+        # test_no_production_module_imports_mcp_dmn) and MUST NOT fail open if it is ever
+        # re-adopted by mistake — DMN evaluation is fail-closed by platform invariant (ADR-0028
+        # §3). The donor's original `return {}` here was the exact fail-open shape this module's
+        # own top docstring warns about; raising instead is the one behavioural change this
+        # deprecation-only file carries.
         logger.warning("dmn_no_rule_matched", dmn_key=dmn_key)
-        return {}
+        raise RuntimeError(
+            f"deprecated in-process DMN evaluator found no matching rule for '{dmn_key}' — "
+            "refuses to fail open (ADR-0028 §3). This evaluator has no production caller and "
+            "must not gain one; use maezo.tools.workers.dmn_transport.DmnTransport instead."
+        )
 
 
 def _match_condition(condition: str, actual: Any) -> bool:

@@ -47,16 +47,40 @@ O terminal ADVERSO `End_CompromissoFallbackHumano` NUNCA aparece na history do e
 User Task humana concluida (teste de invariante — ver test-spec). Nenhum fim ocorre sem evento de
 dominio publicado antes (auditoria dupla engine+Kafka, ADR-0007).
 
-## Dependencia: fato de mudanca de rede do SP-OP-CRED-001 (HARMONIZADO — GAP-XPROC-2)
+## Dependencia: fato de mudanca de rede do SP-OP-CRED-001 (fato HARMONIZADO — GAP-XPROC-2;
+## consumidor FANTASMA — PERSP-NETBRIDGE, DRAFT/verify AF-01)
 
 Este processo **consome o fato de mudanca de rede** produzido pelo SP-OP-CRED-001
 ((des)credenciamento). O STUB original foi **harmonizado** com o CRED-001 real (GAP-XPROC-2,
-fechando o item W-E "CRED→ADEQUACAO fato de rede"): o consumo NAO e um message-start no BPMN, e sim
-uma **ponte de runtime** — a `network_change_bridge`
-(`src/maezo/platform/integrations/network_change_bridge/`) consome o topico Kafka e INICIA esta
-avaliacao via `mcp-cibseven.start_process` (mesmo padrao da `notifications_bridge`, idempotente,
-fail-closed na allowlist). O `Start_AvaliacaoAdequacao` permanece um none-start (nascido pela
-ponte) — sem message event no BPMN.
+fechando o item W-E "CRED→ADEQUACAO fato de rede"): o payload do fato (§tabela abaixo) casa
+byte-a-byte com o que `SP-OP-CRED-001.md` §Topicos declara produzir. **O que NAO existe e o
+consumidor.** O DESENHO (nao construido) e uma **ponte de runtime** — `network_change_bridge` —
+que consumiria o topico Kafka e INICIARIA esta avaliacao via `mcp-cibseven.start_process` (mesmo
+padrao pretendido para a `notifications_bridge`, idempotente, fail-closed na allowlist). Essa
+ponte **NAO EXISTE em `src/`** (`grep -rn "network_change_bridge" src/` -> 1 hit, um docstring em
+`src/maezo/agents/carolina/graph.py:101`; `find src -name '*network_change*'` -> 0;
+`src/maezo/platform/integrations/` contem apenas `__init__.py`, `amh_inbox.py`,
+`events_kafka_producer.py`, `notifications_bridge.py`) — achado JA REGISTRADO antes deste contrato
+ser sincronizado (`docs/review-queue.md` linhas 209/218; `docs/design/T3.3-chaos-resilience.md:43-44`,
+que chama os 3 bridges declarados no Helm de "dangling entrypoints"). O Helm, no entanto, **deploya
+um Deployment que roda esse modulo inexistente** com `networkChangeBridge.enabled: true`
+(`deploy/helm/maezo-tenant/values.yaml:281`, `templates/deployment-bridge-netchange.yaml:50`) —
+CrashLoopBackOff garantido se/quando ativado; essa exposicao e o achado do audit **AF-01** (P0,
+`owner-decision`, fora do escopo deste WP que so pode tocar docs/spec).
+
+**Fato hoje (verificado):** NADA em `src/` chama `start_process_idempotent`/`start_process_instance`
+para `SP-OP-ADEQUACAO-001` (`grep -rn "SP-OP-ADEQUACAO-001" src/ | grep -v test` -> so a entrada em
+`process_allowlist.py:37` e referencias de LEITURA no agente Andre, que trata a instancia como "ja
+rodando" mas nunca a inicia). Nenhum dos 4 gatilhos que este contrato declara (`gatilho`:
+`mudanca_rede` \| `monitoramento_periodico` \| `reclamacao_beneficiario` \| `auditoria_ans`) tem um
+starter vivo hoje — os testes de integracao iniciam a instancia diretamente via REST
+(`engine.start_by_key`, harness de teste), nunca atraves de um caminho de producao. `Start_
+AvaliacaoAdequacao` e modelado como um none-start (nascido por uma ponte, quando ela existir) — sem
+message event no BPMN — e isso permanece **DRAFT/verify**: a decisao de construir
+`network_change_bridge`, de dar a este processo um trigger diferente (timer/API), ou ambos, e a
+decisao do owner em **AF-01** (ver `docs/review-queue.md`, entrada Wave-1B, e a entrada anexada ao
+final deste documento's review-queue companion). Nada abaixo que mencione a ponte deve ser lido
+como "implementado" ate essa decisao.
 
 **Fato REAL `agents.events.cred.network_changed`** (harmonizado; contrato SP-OP-CRED-001 §Topicos):
 
@@ -71,7 +95,8 @@ ponte) — sem message event no BPMN.
 | `data_efeito_iso` | string | Data de efeito (`YYYY-MM-DD`; substitui o `effective_date` do STUB) — a ponte deriva `ciclo_avaliacao` (trimestre `YYYY-Qn`) dela |
 | `_business_key` | string | bk da instancia CRED de origem (injetada pelo worker generico de publish) — vira `network_change_ref` (substitui o `event_id` do STUB; a idempotencia do consumo vem da bk deterministica de ADEQUACAO, nao de um event_id) |
 
-> O consumo e via a **ponte de runtime `network_change_bridge`**, correlacionado por
+> O consumo **seria** via a ponte de runtime `network_change_bridge` **se ela existisse**
+> (DRAFT/verify — PERSP-NETBRIDGE/AF-01, modulo NAO construido, ver secao acima), correlacionado por
 > `tenant_id`+`regiao_saude`+`especialidade`; `ciclo_avaliacao` = trimestre de `data_efeito_iso`
 > (`YYYY-Qn`, deterministico — a reentrega do mesmo fato reconverge para a MESMA business key /
 > instancia, sem duplo start). As variaveis de start sao SO a identidade da celula
@@ -104,13 +129,17 @@ duplicar avaliacao de adequacao da mesma celula).
 | `especialidade` | string | sim | Especialidade/servico avaliado (taxonomia TUSS/CBO — DRAFT) |
 | `ciclo_avaliacao` | string | sim | Janela de avaliacao (`YYYY-MM`/`YYYY-Qn` — compoe a business key) |
 | `gatilho` | string | sim | `mudanca_rede` (fato CRED) \| `monitoramento_periodico` \| `reclamacao_beneficiario` \| `auditoria_ans` |
-| `network_change_ref` | string | nao | Ref do `agents.events.cred.network_changed` que disparou (quando `gatilho=mudanca_rede`) — a `network_change_bridge` preenche com a bk da instancia CRED de origem (`_business_key` do fato) |
+| `network_change_ref` | string | nao | Ref do `agents.events.cred.network_changed` que disparou (quando `gatilho=mudanca_rede`) — a `network_change_bridge` preencheria com a bk da instancia CRED de origem (`_business_key` do fato) **SE a ponte existisse**; hoje NENHUM caminho de producao seta este campo (DRAFT/verify — PERSP-NETBRIDGE/AF-01) |
 | `tempo_acesso_apurado_min` | integer | sim* | Pre-resolvido por worker: tempo de acesso apurado a especialidade na regiao, em **minutos** (inteiro — nunca `number`) |
 | `distancia_apurada_km` | double | sim* | Pre-resolvido por worker: distancia ate o prestador mais proximo, em **km** (`double`) |
 | `prestadores_disponiveis` | integer | sim* | Pre-resolvido por worker: contagem de prestadores ativos da especialidade na regiao |
 | `cobertura_geo_suficiente` | boolean | sim* | Pre-resolvido por worker (geoanalise): cobertura atende dimensionamento RN 566 (DRAFT) |
 | `dados_geo_completos` | boolean | sim* | Pre-resolvido por worker: dados de geolocalizacao/rede suficientes para avaliar |
 | `tipo_carater` | string | sim | `eletivo` \| `urgencia_emergencia` (tempos maximos diferem — RN 259) |
+| `prestador_id` | string | nao‡ | **PERSP-ADEQ-CRED-HANDOFF.** Prestador candidato ja identificado para fechar o gap da celula (dado cadastral PJ/PF — nao PHI de beneficiario, ADR-0006). Compoe a business key do handoff (`CRED-{tenant}-{prestador_id}`). "Buscar prestador" (nota L3 acima) e atividade de negocio ANTERIOR a este task (prospeccao pela area de rede / analytics) — este contrato **NAO** define essa fonte (DRAFT/verify, ver Pendencias); sem ele, `start_credenciamento` RECUSA (fail-closed) em vez de fabricar um handoff |
+| `tipo_prestador` | string | nao | `pessoa_fisica` \| `clinica` \| `hospital` \| `laboratorio` \| `sadt` \| `opme` — carregado no payload do handoff quando conhecido (contrato `SP-OP-CRED-001.md`); ausente, CRED-001 roteia pelo seu proprio catch-all (`ANALISE_HUMANA`), nunca decide por dado incompleto |
+
+‡ **Obrigatoria SOMENTE para o handoff real a CRED-001** (roteamento `ENCAMINHAR_CREDENCIAMENTO`); os caminhos `CONFORME`/`MONITORAR`/`ANALISE_HUMANA`-sem-`ENCAMINHAR_CRED` nunca a leem. Ver §Topicos, linha `start_credenciamento`, e `tests/unit/tools/workers/test_adequacao.py` (suite `execute_remediation`).
 
 \* Pre-resolvido por worker de fatos (geoanalise/contagem) antes de `BRT_AdequacaoGap` (medicao/aritmetica geografica; **sem decisao de compromisso financeiro**). Geografia em granularidade de regiao/municipio — **nunca endereco cru de beneficiario** (ADR-0006).
 
@@ -138,7 +167,7 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 
 | Tipo | Topico | Sentido | Quando |
 |---|---|---|---|
-| Kafka | `agents.events.cred.network_changed` | **consome (start via `network_change_bridge`)** | **HARMONIZADO (GAP-XPROC-2)** — mudanca de rede dispara avaliacao de adequacao da celula afetada; a ponte de runtime correlaciona por `tenant_id`+`regiao_saude`+`especialidade` e inicia com `gatilho=mudanca_rede` (bk `ADEQ-{tenant}-{regiao}-{especialidade}-{ciclo}`; DLQ `agents.events.cred.network_changed.bridge.dlq`) |
+| Kafka | `agents.events.cred.network_changed` | **DESENHADO — consumiria via `network_change_bridge`; SEM consumidor real hoje (DRAFT/verify, PERSP-NETBRIDGE/AF-01)** | **Fato HARMONIZADO (GAP-XPROC-2)** — o payload que SP-OP-CRED-001 produz e o que esta tabela documenta ja casam; o que falta e o modulo consumidor (`grep -rn "network_change_bridge" src/` -> 1 hit, docstring em `src/maezo/agents/carolina/graph.py:101`; `find src -name '*network_change*'` -> 0). SE a ponte for construida (decisao owner, AF-01), o desenho e: correlacionar por `tenant_id`+`regiao_saude`+`especialidade` e iniciar com `gatilho=mudanca_rede` (bk `ADEQ-{tenant}-{regiao}-{especialidade}-{ciclo}`; DLQ `agents.events.cred.network_changed.bridge.dlq`) |
 | Kafka | `agents.events.adequacao.received` | produz | apos start (avaliacao de adequacao iniciada) |
 | Kafka | `agents.events.adequacao.gap_detected` | produz | gap de adequacao detectado (payload `gap_adequacao`, `regiao_saude`, `especialidade`; **sem PHI**) (payload: `tenant_id`, `regiao_saude`, `especialidade`, `gap_adequacao`; publicado por `ST_PublishGapDetected` SOMENTE quando `gap_adequacao != CONFORME`) |
 | Kafka | `agents.events.adequacao.sla_breached` | produz | SLA de remediacao estourado |
@@ -149,7 +178,7 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 | External task | `operadora.adequacao.update_monitoring_plan` | consome (worker) | **GAP-ADEQ-6** — abre/atualiza o plano de monitoramento da celula (NEUTRO; monitoramento/alerta; sem efeito adverso) — roteamento `MONITORAR` (`CONFORME`/`GAP_LEVE`) |
 | External task | `operadora.adequacao.notify_rede` | consome (worker) | **GAP-ADEQ-6** — alerta a area de rede (`gestao-rede`) sobre o gap sob acompanhamento (NEUTRO; informativo) — mesmo roteamento `MONITORAR` |
 | External task | `operadora.adequacao.prepare_remediation_dossier` | consome (worker→A2A) | monta dossie de remediacao para a User Task (impacto, alternativas; delegacao `analytics.population` a Andre — **instrui, nao decide**) |
-| External task | `operadora.adequacao.start_credenciamento` | consome (worker) | **handoff** — dispara SP-OP-CRED-001 para credenciar prestador na celula (sem compromisso de caixa) |
+| External task | `operadora.adequacao.start_credenciamento` | consome (worker `execute_remediation`) | **handoff REAL (PERSP-ADEQ-CRED-HANDOFF fix)** — idempotentemente inicia SP-OP-CRED-001 via `start_process_idempotent` (fenced chokepoint, ADR-0007) com business key `CRED-{tenant}-{prestador_id}` (identica ao `fraude._cred_business_key`), quando um `prestador_id` candidato ja foi identificado (ver §Variaveis de entrada); sem compromisso de caixa — a direcao adversa (negar/descredenciar) pertence a CRED-001 e e human-gated LA. **Sem `prestador_id`, RECUSA** (fail-closed, `ERR_ADEQUACAO_SEM_PRESTADOR_CANDIDATO`) — nunca fabrica um handoff que nao aconteceu (era o bug: retornava `handoff_credenciamento=True` incondicional, sem nunca chamar o chokepoint) |
 | External task | `operadora.adequacao.notify_sla_risk` | consome (worker) | alerta `gestao-rede`/`coordenacao-rede` (timer nao-interruptivo) |
 | External task | `operadora.adequacao.register_fallback_commitment` | consome (worker) | **efeito adverso gated** — registra o compromisso financeiro de fallback; recusa sem decisao humana (`ERR_FALLBACK_COMMITMENT_NOT_HUMAN`); carrega `responsavel_id` |
 | Message BPMN | `msg.adequacao.rede_atualizada` | recebe | correlacao por business key — nova mudanca de rede / credenciamento concluido chegou, destrava reavaliacao |
@@ -249,12 +278,19 @@ auto-compromisso por timeout** (o compromisso financeiro nunca nasce de um timer
   adverso (compromisso financeiro de fallback) e isolado num caminho humano. Isto evita o
   anti-padrao de "auto-garantir reembolso/livre escolha" (que oneraria a operadora sem decisao
   humana) e tambem o de "auto-negar adequacao" (que prejudicaria o beneficiario).
-- **Handoff a SP-OP-CRED-001 nao e adverso:** disparar credenciamento para fechar o gap e acao L3
-  (busca de prestador). A direcao **adversa** do credenciamento (descredenciar / negar
-  credenciamento) pertence a CRED-001 e e human-gated **la** — nunca aqui.
-- **Consome o fato de mudanca de rede do CRED-001** (HARMONIZADO — GAP-XPROC-2, fecha o item W-E).
-  A relacao e CRED produz `network_changed` → a `network_change_bridge` consome e INICIA a
-  reavaliacao da celula (bk deterministica por celula×ciclo; idempotente na reentrega).
+- **Handoff a SP-OP-CRED-001 nao e adverso, e AGORA REAL (PERSP-ADEQ-CRED-HANDOFF fix):**
+  `execute_remediation` idempotentemente INICIA SP-OP-CRED-001 via `start_process_idempotent`
+  (business key `CRED-{tenant}-{prestador_id}`) quando um candidato ja foi identificado; ANTES
+  desta correcao retornava um fato fabricado (`handoff_credenciamento=True`) sem nunca chamar o
+  chokepoint — a terceira variante deste tipo de defeito encontrada no programa de auditoria
+  (junto de `notify_coordenacao`/`check_prior_notice`, GAP-FAB-NOTIF). A direcao **adversa** do
+  credenciamento (descredenciar / negar credenciamento) pertence a CRED-001 e e human-gated **la**
+  — nunca aqui; o seed do handoff carrega SO fatos/contexto (nunca `decisao_cred`).
+- **Consome o fato de mudanca de rede do CRED-001** (fato HARMONIZADO — GAP-XPROC-2, fecha o item
+  W-E — mas o CONSUMIDOR e FANTASMA, PERSP-NETBRIDGE/AF-01, DRAFT/verify: ver a secao dedicada no
+  topo deste documento). O DESENHO e CRED produz `network_changed` → uma `network_change_bridge`
+  (nao construida) consumiria e INICIARIA a reavaliacao da celula (bk deterministica por
+  celula×ciclo; idempotente na reentrega) — hoje nada consome esse topico.
 - **Andre (Zona PHI/Financeira/Populacional)** enriquece o dossie de remediacao via
   `prepare_remediation_dossier` (`analytics.population`); **instrui, nao decide**.
 - **Sem PHI / sem endereco cru de beneficiario:** geografia em granularidade de
@@ -267,7 +303,13 @@ auto-compromisso por timeout** (o compromisso financeiro nunca nasce de um timer
 
 - DI (diagrama BPMN) e o BPMN/DMN bodies (autorados em wave posterior contra este contrato).
 - ~~Harmonizar o fato `agents.events.cred.network_changed` com o contrato real do SP-OP-CRED-001~~
-  **FEITO (GAP-XPROC-2)**: fato harmonizado + consumidor real (`network_change_bridge`).
+  **PARCIALMENTE FEITO (GAP-XPROC-2)**: o PAYLOAD do fato foi harmonizado com o que CRED-001
+  realmente produz. **NAO FEITO** (corrigido por este documento — PERSP-NETBRIDGE, era afirmado
+  incorretamente como feito): o CONSUMIDOR (`network_change_bridge`) e um modulo que **nao existe**
+  em `src/` — a decisao de construi-lo, adotar outro mecanismo, ou aceitar que ADEQUACAO nao tem
+  hoje um starter de producao para o gatilho `mudanca_rede` e do owner (**AF-01**, P0,
+  `docs/review-queue.md`). Este e um achado JA registrado antes (nao novo) — o defeito que
+  persistia era este CONTRATO nunca ter sido sincronizado com esse registro.
   **Restam para review humana**: periodicidade do `ciclo_avaliacao` derivado (trimestre de
   `data_efeito_iso` vs mensal — RN 259/566) e a fonte cadastral de `regiao_saude`/`especialidade`
   do prestador no start de CRED (base de rede) — docs/review-queue.md.

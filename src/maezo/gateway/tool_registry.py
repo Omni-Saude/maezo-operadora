@@ -320,6 +320,12 @@ def build_fhir_seam(*, seam: SeamContext, base_url: str, adapter: str = "read_pa
     three near-identical adapters exist rather than one):
       * `read_patient`         -> `agents/rafael/adapters.py::FhirServerReader`
       * `read_patient_summary` -> `agents/valentina/adapters.py::FhirServerReader`
+
+    9.5 (tool-name drift, docs-hygiene): `spec/agents/*/agent.yaml` declares granular tool ids
+    like `mcp-fhir.read_patient`/`mcp-fhir.read_patient_summary` in their `tools:` lists — these
+    are NOT literal MCP-registered tool names. `maezo.tools.mcp_fhir.server.FhirServer` only
+    registers two tools (`read_resource`, `search_resources`); `adapter` (this parameter) is
+    where the translation actually happens, invisibly to whoever reads only the agent.yaml side.
     """
     from maezo.tools.mcp_fhir.server import FhirServer, FhirSettings
 

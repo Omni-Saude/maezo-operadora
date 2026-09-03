@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="v0.2.0">
   <img src="https://img.shields.io/badge/status-alpha--dev-yellow" alt="Alpha Dev">
   <a href="https://github.com/Omni-Saude/maezo-operadora/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/tests-passing_(CI)-brightgreen" alt="tests passing (CI)"></a>
-  <img src="https://img.shields.io/badge/coverage-10K_LOC-blue" alt="~10K LOC">
+  <img src="https://img.shields.io/badge/coverage-74K_LOC-blue" alt="~74K LOC">
   <img src="https://img.shields.io/badge/lint-0_issues-brightgreen" alt="Lint: 0 issues">
   <img src="https://img.shields.io/badge/mypy-strict_clean-brightgreen" alt="Mypy: strict clean">
   <img src="https://img.shields.io/badge/milestones-15/15_self--certified-orange" alt="15/15 self-certified (unverified)">
@@ -27,10 +27,10 @@ Plataforma **agents-first** completa para operadoras de saúde (payer). Reconstr
 |-----------|-----------|-----------|
 | Workers BPMN | 16 | External tasks para 15 processos SP-OP |
 | Agentes AI | 10 | Helena, Rafael, Marina, Gustavo, Lucas, Carolina, Fernando, Valentina, Beatriz, André |
-| MCP Servers | 6 | CIB Seven, DMN, FHIR, WhatsApp, Memory, Process Allowlist |
+| MCP Servers | 5 | CIB Seven, DMN, FHIR, WhatsApp, Memory |
 | Testes | CI workflow | Unitários cobrindo workers, gateway, agents, platform, tools (veja CI para count atual) |
-| Código fonte | ~10K LOC | Arquivos Python em `src/maezo/` (veja a árvore para count atual) |
-| Documentação | ~205K palavras | 16 contratos SP-OP, 40 ADRs (35 Accepted + 5 Proposed), 45 DLs, 22 runbooks (14 gerais + 8 de alerta; exclui os 2 drills em `docs/runbooks/drills/`) |
+| Código fonte | ~74K LOC | Arquivos Python em `src/maezo/` (`find src -name '*.py' \| xargs wc -l` -> 74279, 2026-09-03 pós-merge com `origin/main`; veja a árvore para count atual) |
+| Documentação | ~205K palavras | 16 contratos SP-OP, 39 ADRs (35 Accepted + 4 Proposed), 45 DLs, 22 runbooks (14 gerais + 8 de alerta; exclui os 2 drills em `docs/runbooks/drills/`) |
 
 ### Princípios inegociáveis
 
@@ -55,9 +55,9 @@ make type   → Success: no issues found (mypy --strict; veja CI para output atu
 | Testes unitários | CI workflow (dynamically updated) |
 | Arquivos fonte (`src/`) | veja a árvore `src/` (count estático removido — rot) |
 | Arquivos de teste (`tests/`) | veja a árvore `tests/` (count estático removido — rot) |
-| Linhas de código (src) | ~10K |
+| Linhas de código (src) | ~74K (`find src -name '*.py' \| xargs wc -l` -> 74279, 2026-09-03 pós-merge com `origin/main`) |
 | Workers implementados | 16 (15 processos + registry) |
-| MCP servers | 6 |
+| MCP servers | 5 |
 | Agentes AI | 10 (2 com graph.py completo) |
 | ADRs | 40 (35 Accepted, 5 Proposed) |
 | DLs (Decisions Log) | 45 |
