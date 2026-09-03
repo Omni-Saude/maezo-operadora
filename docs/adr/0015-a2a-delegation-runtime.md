@@ -116,3 +116,60 @@ concretas feitas nessa implementação.
 ## Supersedes
 ADR-0003 (parcial — ADR-0003 continua válido para a escolha de protocolo A2A v1.0 + Kafka;
 este ADR refina e formaliza as decisões de implementação do runtime que ADR-0003 deixou em aberto).
+
+---
+
+## Emenda 2026-09-03 — `config/topic_registry.yaml` nao existe e `validate-artifacts` nao valida topicos (GAP AF-15)
+
+**Status:** Proposto (amendment) — DRAFT/verify · **Data:** 2026-09-03 · **Autor:** `adr-reconciler` (R1, AGENTE)
+**Marcadores:** `amended-by`: ADR-0032 (status/implementacao, ela propria hoje datada — ver a
+`## Emenda 2026-09-03` daquele arquivo) + esta Emenda 2026-09-03 (WP-ADR-RECONCILIACAO, GAP AF-15) ·
+`obsolete-section`: a clausula de declaracao/validacao de topicos em `:80`.
+**Base de verificacao:** worktree em `71dd4da`.
+
+> APPEND-ONLY. Nenhuma linha do texto original acima foi alterada ou removida. Um AGENTE nao ratifica
+> nada: enquanto este bloco carregar `DRAFT/verify`, ele e um fato reconciliado com o codigo, nao uma
+> decisao ratificada. Assinatura humana pendente (`.github/CODEOWNERS:61`).
+
+### 1. O que a ADR afirma
+
+`:80` (Decisao, §"Fatos Kafka"): "Tres topicos declarados em `config/topic_registry.yaml` (validados pelo
+`validate-artifacts`)".
+
+### 2. O que e verdade hoje
+
+**(a) O arquivo nao existe.** `test -f config/topic_registry.yaml` -> ausente. `ls config/` -> apenas
+`.gitkeep` e `integrations/`.
+
+**(b) Os tres nomes de topico existem, mas como constantes de modulo** — nao como declaracao em YAML:
+`src/maezo/a2a/facts.py:34-36` (`TOPIC_REQUESTED`/`TOPIC_COMPLETED`/`TOPIC_REJECTED`).
+
+**(c) A validacao real e por PREFIXO RESERVADO, em tempo de registro, e nao no `validate-artifacts`.**
+
+- `src/maezo/platform/topic_registry.py:58-59` (`_RESERVED_PREFIXES = {"agents.events", "agents.audit"}`)
+  e `:218-260` (as regras de nome, incluindo a forma de 4 segmentos `agents.events.X.Y`).
+- `make validate-artifacts` roda
+  `python -m maezo.platform.validation.cli validate spec/processes spec/policies spec/agents`
+  (`Makefile:47`) — o validador **nunca ve topico nenhum** (`grep -rn topic src/maezo/platform/validation/`
+  -> 0 linhas).
+
+**(d) O proprio codigo ja documentava a divergencia antes desta emenda.**
+`src/maezo/a2a/facts.py:11-18`: "v2's `maezo.platform.topic_registry.TopicRegistry` ... is a pure
+in-memory, injectable class with **no `config/topic_registry.yaml` seed file** and no production call site
+yet"; repetido em `src/maezo/a2a/outbox_relay.py:17-19`.
+
+**(e) A SUBSTANCIA da secao permanece verdadeira.** Os tres topicos existem com os nomes prescritos; o
+fato nao carrega PHI e o particionamento e por `tenant` — `src/maezo/a2a/facts.py` e o outbox particionado
+implementam o contrato de `:84-86`.
+
+### 3. Consequencia
+
+1. `:80` e `obsolete-section` **apenas quanto ao MECANISMO de declaracao/validacao**. Nao ha arquivo a
+   procurar e nao ha gate `validate-artifacts` a invocar para topicos.
+2. `register_a2a_topics` (`src/maezo/a2a/facts.py:122`) continua **sem call site de producao** — o
+   registro dos 3 topicos e um helper disponivel, nao um passo executado no boot
+   (`outbox_relay.py:17-19` explica por que ligar isso e decisao de DEPLOYMENT, nao de build).
+   Registrado aqui como fato, nao como defeito a corrigir neste WP.
+3. A clausula "A PR #17 implementou o runtime completo" (`:14`) segue emendada pela ADR-0032 — que por sua
+   vez ficou datada em `a4a4e2e` (PR #156): o runtime A2A **existe** hoje. Leia as duas emendas juntas.
+4. Nenhum comportamento de runtime muda com esta emenda: ela e documental.
