@@ -15,6 +15,7 @@
   },
   "recorded_llm": [
     "{\"intent\": \"scheduling\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
+    "Beneficiario pediu reagendamento; canal nao agenda diretamente, encaminhado para atendimento humano.",
     "Ainda nao conseguimos remarcar consultas direto por aqui. Um atendente vai entrar em contato em breve para ajudar."
   ],
   "expect": {

@@ -6,8 +6,8 @@ destructive statement, and it never invents a human decision. Two things live he
 1. **The structural enumeration** (`PERSISTENCE_LAYERS`): every persistence relation the
    custody/erasure design names, each carrying its migration citation, how a titular's rows
    are identified, and — where an honest one exists — a `SELECT count(*)` probe. The
-   enumeration is a FACT about the schema, derived from migrations 0001-0007, and it is
-   authored here rather than read from YAML so that a human editing the (CODEOWNERS-gated)
+   enumeration is a FACT about the schema, derived from migrations 0001-0008 (16 layers; DU-05),
+   and it is authored here rather than read from YAML so that a human editing the (CODEOWNERS-gated)
    plan artifact cannot introduce a statement this process would run. The plan and this
    enumeration must cover the SAME relations; drift fails a unit test in both directions.
 
@@ -89,7 +89,8 @@ DECISION_PENDING: Final = "PENDENTE"
 
 # Machine-detectable placeholder markers. `PENDENTE` leads because this artifact's vocabulary
 # is Portuguese; the rest mirror `maezo.platform.integrations.amh_inbox.PLACEHOLDER_MARKERS`
-# so one half-filled artifact cannot pass a check the other half would fail.
+# so one half-filled artifact cannot pass a check the other half would fail. D2-04: a naive
+# `grep TODO` matches the "TODO" literal below — it is fail-closed placeholder DATA, not debt.
 PLACEHOLDER_MARKERS: Final[tuple[str, ...]] = (
     "PENDENTE",
     "PENDING",
