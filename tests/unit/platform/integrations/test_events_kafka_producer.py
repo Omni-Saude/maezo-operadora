@@ -283,7 +283,7 @@ async def test_notifications_topic_best_effort_false_propagates_on_send_failure(
     with pytest.raises(RuntimeError, match="broker down"):
         await producer.publish(
             NOTIFICATIONS_TOPIC,
-            {"type": "escalation.notify_team", "severity": "grave"},
+            {"type": "escalation.notify_team", "severidade": "grave"},
             key="bk-esc",
             best_effort=False,
         )
