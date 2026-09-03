@@ -46,7 +46,7 @@ from maezo.platform.integrations.notifications_bridge import (
     run_consumer_loop,
 )
 from maezo.platform.notification_bridge import (
-    CONTAS_COMPLETED_EVENT,
+    RECURSO_INTAKE_EVENT,
     NotificationBridge,
     build_cibseven_process_starter,
 )
@@ -124,14 +124,27 @@ async def _fetch_chain_rows(dsn: str, tenant_id: str) -> list[Any]:
 async def test_bridge_handoff_through_fenced_starter_emits_durable_audit_row(
     pg_tenant_schema: tuple[str, str],
 ) -> None:
-    """A REAL bridge handoff (CONTAS->RECURSO, the reconciled EB-4 `agents.events.contas.
-    completed`/`desfecho=encaminhada_recurso` rule — this test previously drove the
-    pre-reconciliation `contas.glosa_confirmed` literal, which `notification_bridge.py` no longer
-    registers at all) through the fenced starter durably persists the ADR-0007 audit row BEFORE
-    the (faked) engine effect — proven by querying `audit_chain` directly, not merely by
-    `emit_once` not raising. The payload is a SYNTHETIC enriched one (carries `numero_guia_tiss`,
-    the business-key anchor today's real minimal `event_payload_vars` does not yet emit — EB-4
-    "arming" follow-up note in `notification_bridge.py`)."""
+    """A REAL bridge handoff (INTAKE->RECURSO, `agents.events.recurso.intake_recebido`,
+    ADR-0040 §3.1) through the fenced starter durably persists the ADR-0007 audit row BEFORE the
+    (faked) engine effect — proven by querying `audit_chain` directly, not merely by `emit_once`
+    not raising.
+
+    PERSPECTIVA (ADR-0040): this test used to drive the CONTAS->RECURSO edge
+    (`agents.events.contas.completed`/`desfecho=encaminhada_recurso`), which
+    `notification_bridge.py` no longer registers at all — that edge encoded the APPELLANT's
+    perspective (the payer handing itself an appeal against its own glosa). The payer does not
+    appeal its own glosa; it RECEIVES the prestador's appeal and answers it. The handoff exercised
+    here is the one the bridge actually supports today, end to end, with the same durable
+    `audit_chain` assertions as before — nothing was weakened to `is False`, skipped or xfailed.
+
+    The payload is a SYNTHETIC enriched one (carries the business-key anchors `tenant_id` /
+    `numero_guia_tiss` / `glosa_id`): the intake event has NO PUBLISHER in `main` (OQ-R1,
+    `docs/review-queue.md`), so this proves the RULE and the fenced-start audit lane, exactly as
+    `tests/integration/platform/test_notifications_bridge_live_engine.py::
+    test_bridge_reconciled_event_starts_real_instance_and_audits` does on the engine lane. The
+    absence of a publisher is asserted separately by
+    `tests/unit/platform/test_notification_bridge.py::
+    test_regra_intake_recurso_e_dormente_ate_o_adaptador_existir`."""
     dsn, tenant_id = pg_tenant_schema
     audit_sink = PostgresAuditSink(dsn, tenant_id)
     transport = FakeCibSevenTransport()
@@ -139,10 +152,9 @@ async def test_bridge_handoff_through_fenced_starter_emits_durable_audit_row(
 
     try:
         results = await bridge.on_event(
-            event_type=CONTAS_COMPLETED_EVENT,
+            event_type=RECURSO_INTAKE_EVENT,
             payload={
                 "tenant_id": tenant_id,
-                "desfecho": "encaminhada_recurso",
                 "glosa_id": "GLOSA-LIVE-001",
                 "numero_guia_tiss": "GUIA-LIVE-001",
             },
@@ -165,7 +177,12 @@ async def test_bridge_handoff_redelivery_is_idempotent_at_the_audit_layer(
 ) -> None:
     """Two `on_event` calls for the identical event (a Kafka redelivery) converge on the SAME
     process_instance_id and write exactly ONE audit_chain row — `emit_once`'s exactly-once dedup
-    holds for a genuine bridge call, not just the chokepoint's own isolated unit suite."""
+    holds for a genuine bridge call, not just the chokepoint's own isolated unit suite.
+
+    Same perspective correction as the test above: the redelivered event is the INTAKE of the
+    prestador's appeal (`agents.events.recurso.intake_recebido`, ADR-0040 §3.1) — a re-intake (the
+    prestador re-transmitting, or the operation opening it manually) must converge on the SAME
+    `RECURSO-{tenant}-{guia}-{glosa}` business key, per `_recurso_business_key`."""
     dsn, tenant_id = pg_tenant_schema
     audit_sink = PostgresAuditSink(dsn, tenant_id)
     transport = FakeCibSevenTransport()
@@ -173,13 +190,12 @@ async def test_bridge_handoff_redelivery_is_idempotent_at_the_audit_layer(
 
     payload = {
         "tenant_id": tenant_id,
-        "desfecho": "encaminhada_recurso",
         "glosa_id": "GLOSA-LIVE-002",
         "numero_guia_tiss": "GUIA-LIVE-002",
     }
     try:
-        first = await bridge.on_event(event_type=CONTAS_COMPLETED_EVENT, payload=dict(payload))
-        second = await bridge.on_event(event_type=CONTAS_COMPLETED_EVENT, payload=dict(payload))
+        first = await bridge.on_event(event_type=RECURSO_INTAKE_EVENT, payload=dict(payload))
+        second = await bridge.on_event(event_type=RECURSO_INTAKE_EVENT, payload=dict(payload))
 
         assert first[0].handoff_triggered is True
         assert second[0].handoff_triggered is True
