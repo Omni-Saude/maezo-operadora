@@ -60,12 +60,14 @@ sem duplicar cancelamento/rescisao).
 | `tipo_plano` | string | sim | `individual` \| `familiar` \| `coletivo_empresarial` \| `coletivo_adesao` |
 | `motivo_informado` | string | nao | Texto livre pseudonimizado (motivo do pedido / fundamento) |
 | `dentro_prazo` | boolean | sim | Pre-resolvido por worker (janela contratual/regulatoria — math de prazo no worker) |
-| `notificacao_previa_feita` | boolean | sim | Pre-resolvido por worker (comprovacao de notificacao previa ao beneficiario — RN 593) |
+| `notificacao_previa_feita` | boolean | nao‡ | Fato de entrada, **normalizado** por `operadora.cancel.resolve_facts` (`validate_cancel`): so um booleano `True` real conta como comprovado — qualquer outra forma (ausente, `"true"`, `"false"`, `1`, `None`) falha fechada em `false` e roteia `PENDENTE_NOTIFICACAO` (GAP-INAD-8; `pick_fields` nao coage tipos, entao a checagem estrita e o que impede uma string truthy de avancar uma rescisao for-cause). Fontes legitimas: o payload do handoff de SP-OP-INADIMPLENCIA-001 (onde e DERIVADO de `comprovacao_notificacao_previa`, `inadimplencia.py::_notificacao_previa_comprovada`) e a correlacao `msg.cancel.notification_ack` (GAP-CANCEL-4, abaixo). Nenhum worker deste processo o fabrica. RN 593 — **DRAFT/verify** |
 | `titularidade_confirmada` | boolean | sim | Pre-resolvido por worker (quem solicita e o titular legitimo) |
 | `vinculo_ativo` | boolean | sim | Pre-resolvido por worker (cadastro/contrato vigente) |
 | `meses_inadimplencia` | integer | nao | Pre-resolvido por worker (so quando `tipo_solicitacao=inadimplencia`) |
 | `data_solicitacao_iso` | string | sim | Data (YYYY-MM-DD) da solicitacao |
 | `documentos_refs` | json | sim | Referencias de anexos/comprovantes (pode ser vazio) |
+
+‡ **Nunca fabricado por worker** (GAP-INAD-8): `operadora.cancel.request_notification` (`dispatch_prior_notice`) retorna `{}` e nao afirma nada sobre a notificacao. O fato entra pelo payload do handoff de SP-OP-INADIMPLENCIA-001 (derivado da comprovacao humana) ou pela correlacao `msg.cancel.notification_ack` (GAP-CANCEL-4), e e normalizado com `is True` estrito por `validate_cancel` / `assess_admissibility` — ausente ou malformado ⇒ `false` ⇒ `PENDENTE_NOTIFICACAO` (espera nao adversa), nunca `SEGUE_ANALISE`.
 
 > Nota: `meses_inadimplencia` e `integer` (contagem). NUNCA `number`. Valores monetarios de
 > debito, quando entrarem na promocao a FINAL, serao `double` (BRL) ou inteiro-centavos.
@@ -94,7 +96,7 @@ Convencao `{dominio}.{contexto}.{acao}` (ADR-0016 portado). Contexto = `cancel`.
 | External task | `operadora.events.publish` | consome (worker) | publicador generico de eventos de dominio (todos os SP-OP) |
 | External task | `operadora.cancel.resolve_facts` | consome (worker) | pre-resolve fatos clericais (prazo, notificacao previa, titularidade, vinculo, inadimplencia) — fatos, nunca decisao |
 | External task | `operadora.cancel.prepare_dossier` | consome (worker) | monta dossie de analise para a User Task (narrativa/montagem — sem decidir; alvo de delegacao a agente futuro) |
-| External task | `operadora.cancel.request_notification` | consome (worker) | dispara/registra notificacao previa ao beneficiario (RN 593 — DRAFT/verify) |
+| External task | `operadora.cancel.request_notification` | consome (worker) | worker `dispatch_prior_notice`: registra que a ETAPA de disparo rodou e retorna `{}` — **NAO afirma `notified`** (GAP-INAD-8, perna adjacente; antes retornava `{"notified": True, ...}` constante, sem canal e sem consumidor algum). O evento `agents.events.cancel.pended` continua sendo publicado pelo proprio BPMN em `ST_PublishCancelPended`, logo apos esta task (RN 593 — DRAFT/verify) |
 | External task | `operadora.cancel.effectuate_member_request` | consome (worker) | **efetiva o cancelamento A PEDIDO do beneficiario** (direito do titular — L2); NAO rescinde for-cause |
 | External task | `operadora.cancel.send_cancellation_notice` | consome (worker) | **emite a notificacao formal de RESCISAO/SUSPENSAO** em nome do responsavel humano — **GUARDADO** (ver Codigos de erro) |
 | External task | `operadora.cancel.confirm_maintained_decision` | consome (worker) | **confirma a decisao MANTER** (manutencao do vinculo / negativa do pedido) — **GUARDADO** (ver Codigos de erro; GAP-CANCEL-3) |

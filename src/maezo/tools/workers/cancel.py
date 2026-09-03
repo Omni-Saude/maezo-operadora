@@ -319,7 +319,7 @@ def dispatch_prior_notice(
 
     The real proof of notice on CANCEL-001 is unchanged and lives elsewhere:
     `msg.cancel.notification_ack`'s `processVariables` payload (contract
-    `SP-OP-CANCEL-001.md:102,105-115` — GAP-CANCEL-4) and the human's
+    `SP-OP-CANCEL-001.md:104,107-117` — GAP-CANCEL-4) and the human's
     `comprovacao_notificacao_previa`, required by `register_contract_termination`'s
     `ERR_CANCELLATION_NOT_HUMAN` guard.
     """

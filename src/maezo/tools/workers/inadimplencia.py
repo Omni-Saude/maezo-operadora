@@ -366,7 +366,7 @@ def dispatch_prior_notice(variables: dict[str, Any]) -> dict[str, Any]:
     reached the engine and its TWO real consumers:
 
       1. `spec/processes/dmn/inadimplencia_status.dmn:37-38` — `in_notificacao_previa` reads
-         `notificacao_previa_feita`; row `r_pendente_notificacao` (`:66-75`) routes
+         `notificacao_previa_feita`; row `r_pendente_notificacao` (`:68-77`) routes
          `PENDENTE_NOTIFICACAO` only on `false`.
       2. The CANCEL-001 handoff (`handoff_rescisao` below): `cancel_admissibility.dmn:63-64` reads
          the same name, and `cancel.assess_admissibility` (`cancel.py`) branches on it for
@@ -393,18 +393,18 @@ def dispatch_prior_notice(variables: dict[str, Any]) -> dict[str, Any]:
     WHERE THE HONEST FACT COMES FROM INSTEAD (both pre-existing, neither invented here):
       - `msg.inadimplencia.notificacao_ack` (BPMN `:14,:180-184`) — the receipt-confirmation
         correlation. Its `processVariables` payload is what may legitimately set
-        `notificacao_previa_feita=true`, exactly as `SP-OP-CANCEL-001.md:105-115` (GAP-CANCEL-4)
+        `notificacao_previa_feita=true`, exactly as `SP-OP-CANCEL-001.md:107-117` (GAP-CANCEL-4)
         already specifies for the sibling process.
       - `comprovacao_notificacao_previa` — the human's proof REFERENCE, collected on
         `UT_AnaliseInadimplencia` and enforced fail-closed by `_register_contract_suspension`
         (`errors.append("comprovacao_notificacao_previa ausente (RN 593)")`). This is the exact
-        equivalent of CRED's human-confirmed field (`SP-OP-CRED-001.md:62`), and it is what
+        equivalent of CRED's human-confirmed field (`SP-OP-CRED-001.md:62,71`), and it is what
         `handoff_rescisao` now DERIVES the CANCEL-001 fact from.
 
     NO LIVELOCK from returning `{}` (checked against the shipped BPMN, not assumed): both
     `AGUARDA_PURGA` and `PENDENTE_NOTIFICACAO` converge on `BRT_PurgaPrazos` (`:120-128`, two
     incoming flows) -> this task -> `ST_PublishInadimplenciaNotified` -> `GW_CureWindow`, an
-    event-based gateway whose THIRD branch is the `ICE_PrazoPurga` timer (`:194-201`) routing to
+    event-based gateway whose THIRD branch is the `ICE_PrazoPurga` timer (`:187-193`) routing to
     SLA + the human `UT_AnaliseInadimplencia`. Every path out of the wait either ends neutral
     (payment/purge) or reaches a human; none auto-suspends and none spins without an external
     message.
@@ -549,7 +549,7 @@ def _register_contract_suspension(variables: dict[str, Any]) -> dict[str, Any]:
     NORMALIZATION (t3.1-guard-input-hardening): ALL decision + human-accountability STRING
     fields (`decisao_inadimplencia`, `responsavel_id`, `fundamentacao_contratual`,
     `referencia_regulatoria`, `comprovacao_notificacao_previa`, `comprovacao_periodo_minimo` —
-    contract SP-OP-INADIMPLENCIA-001.md:94-98,155,174) are normalized via `_norm_str` (strip;
+    contract SP-OP-INADIMPLENCIA-001.md:96-100,157,176) are normalized via `_norm_str` (strip;
     non-string -> "") BEFORE any guard check, mirroring `pagto.register_payment_refusal`'s fix.
     Whitespace-only/non-string refuses exactly like absent; a whitespace-PADDED exact
     `decisao_inadimplencia` literal still passes (exact `!=` match, no folding). The
@@ -662,7 +662,7 @@ def _notificacao_previa_comprovada(variables: dict[str, Any]) -> bool:
 
     The honest source is the SAME artifact the adverse-effect guard in this module already
     requires from the human: `comprovacao_notificacao_previa`, the proof reference collected on
-    `UT_AnaliseInadimplencia` (contract `SP-OP-INADIMPLENCIA-001.md:96,155`) and enforced
+    `UT_AnaliseInadimplencia` (contract `SP-OP-INADIMPLENCIA-001.md:98,157`) and enforced
     fail-closed by `_register_contract_suspension`. This is not a re-fabrication under a new name:
     the value is `True` only when a human actually recorded a proof reference for THIS case, and
     `False` — routing CANCEL to its non-adverse `PENDENTE_NOTIFICACAO` wait — whenever they did
