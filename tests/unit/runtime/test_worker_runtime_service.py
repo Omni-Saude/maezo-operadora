@@ -40,10 +40,12 @@ def test_register_default_workers_registers_all_17_modules() -> None:
     recurso × origin/main LGPD batch-1 × t5 escalation/ans-notify × DL-0033 dossier A2A ×
     item-9 wave-5 programa): `operadora.events.publish` (T3.1 R2); the three LGPD raw handlers
     `operadora.lgpd.request_additional_proof` (#55 R-B, T2.8), `operadora.lgpd.send_response`
-    (#55 R-F, T2.8), `operadora.lgpd.notify_sla_risk` (#55 R-G, T2.8); recurso's four
-    `operadora.recurso.notify_sla_risk`/`escalate_ans_timeout`/`submit_appeal`/`track_status`
-    (Finding 2: async Kafka seam for their test-spec-demanded `notifications_of_type`/domain-event
-    observability); `regulatorio.anssubmit.notify_regulatorio` (t5 FINDING A fix: raw handler
+    (#55 R-F, T2.8), `operadora.lgpd.notify_sla_risk` (#55 R-G, T2.8); recurso's THREE
+    `operadora.recurso.notify_sla_risk`/`escalate_ans_timeout`/`comunicar_resposta` (async Kafka
+    seam for their `notifications_of_type`/domain-event observability; `comunicar_resposta` ALSO
+    needs `task.business_key` to mint its protocolo deterministically. ADR-0040 deleted the
+    appellant branch, so `submit_appeal`/`track_status` are GONE — the delta drops 4 -> 3);
+    `regulatorio.anssubmit.notify_regulatorio` (t5 FINDING A fix: raw handler
     emitting the `anssubmit.notify_regulatorio` notification); escalation's two
     `operadora.escalation.notify_team`/`notify_supervisor` (DL-0034, built in t5: converted from
     `WorkerBase` to raw async handlers — notifying IS the business effect and needed the async Kafka
@@ -54,9 +56,9 @@ def test_register_default_workers_registers_all_17_modules() -> None:
     `FunctionWorker`) + `proactive_contact`/`notify_sla_risk` (items B/C, NEW workers). All
     raw handlers need `ExternalTask`/async-Kafka seams a dict-first `FunctionWorker` boundary does
     not expose. Delta breakdown (re-derived, the running total had drifted from the list above):
-    1 events + 3 lgpd + 4 recurso + 1 ans-notify + 1 ans-retransmit (t9-nack-vars) + 2 escalation
+    1 events + 3 lgpd + 3 recurso + 1 ans-notify + 1 ans-retransmit (t9-nack-vars) + 2 escalation
     + 3 dossier (DL-0033 + the item9-w3 pagto edge) + 4 programa + 1 adequacao update_monitoring_plan
-    = 20. Every other module/topic goes through `WorkerHarness.register_worker` ->
+    = 19. Every other module/topic goes through `WorkerHarness.register_worker` ->
     `WorkerRegistry.register`."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_default_workers(harness)
@@ -81,7 +83,7 @@ def test_register_default_workers_registers_all_17_modules() -> None:
     # for the SAME async-Kafka-seam reason: it publishes the `anssubmit.retransmit` internal
     # notification, which the sync `FunctionWorker.execute` boundary cannot reach.
     # Raw-handler count = 11 + 3 + 4 + 1 + 1 = 20.
-    assert harness.registry.count() == len(harness.registered_topics) - 20
+    assert harness.registry.count() == len(harness.registered_topics) - 19
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:
@@ -97,7 +99,7 @@ def test_register_default_workers_topics_match_expected_prefixes() -> None:
     assert "operadora.ans_cron.trigger_submissions" in topics
     assert "regulatorio.anssubmit.submit" in topics
     assert "operadora.cancel.send_cancellation_notice" in topics
-    assert "operadora.contas.register_glosa_accept" in topics
+    assert "operadora.contas.registrar_glosa" in topics
     assert "operadora.cred.register_cred_denial" in topics
     assert "operadora.events.publish" in topics
     assert "operadora.fraude.register_fraud_accusation" in topics
@@ -105,7 +107,7 @@ def test_register_default_workers_topics_match_expected_prefixes() -> None:
     assert "operadora.nip.submit_response" in topics
     assert "operadora.pagto.release_high_value_payment" in topics
     assert "operadora.programa.register_program_discharge" in topics
-    assert "operadora.recurso.register_desistencia" in topics
+    assert "operadora.recurso.registrar_indeferimento" in topics
     assert "operadora.reembolso.send_reembolso_denial" in topics
 
 

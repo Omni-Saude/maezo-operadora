@@ -269,17 +269,31 @@ async def test_glosa_reason_normalization_parity(
 @pytest.mark.parametrize(
     ("tipo_item", "categoria", "item_conforme", "divergencia_valor", "documentacao_anexa", "expected"),
     [
-        ("consulta", "administrativa", True, False, True, "SEM_GLOSA"),
+        # PERSPECTIVA (ADR-0040 / REDESIGN-SP-OP-CONTAS-001.md:291,:493,:499): a row 1 e a MESMA
+        # (`r_sem_glosa` -> `r_pagar`, cinco condicoes byte-identicas: `-` / not("tecnica",
+        # "clinica") / true / false / true), mas a SAIDA deixou de ser `SEM_GLOSA` e passou a ser
+        # `PAGAR`. Nao e renomeacao cosmetica: `SEM_GLOSA` era a moldura do PRESTADOR ("nao houve
+        # glosa") e terminava sem efeito nenhum; `PAGAR` e o ato do PAGADOR — emite demonstrativo
+        # e encaminha a ordem a SP-OP-PAGTO-001, que a segura em `UT_AnaliseAdmissibilidade`.
+        # Com estes cinco inputs a row 1 e a primeira a casar (hitPolicy FIRST).
+        ("consulta", "administrativa", True, False, True, "PAGAR"),
         # DIVERGENCE (MAJOR): old Python said "no glosas -> SEM_GLOSA" checking only
         # has_glosas/divergencia_valor. The DMN ALSO requires item_conforme_tabela=true AND
-        # documentacao_anexa=true for SEM_GLOSA — with both False (old GlosaInput defaults)
-        # it now correctly escalates instead.
+        # documentacao_anexa=true for the favourable row — with both False (old GlosaInput
+        # defaults) it now correctly escalates instead.
         ("", "administrativa", False, False, False, "ANALISE_HUMANA"),
         ("consulta", "tecnica", True, False, True, "ANALISE_HUMANA"),
         ("consulta", "documental", True, False, False, "ANALISE_HUMANA"),
-        # DIVERGENCE (MAJOR): RECORRER was structurally unreachable dead code in the old
-        # Python (its own docstring: "For now, always route to ANALISE_HUMANA"). Reachable now.
-        ("consulta", "valor", True, True, True, "RECORRER"),
+        # PERSPECTIVA (REDESIGN-SP-OP-CONTAS-001.md:502): row 4 (`r_valor_recorrer` ->
+        # `r_valor_humano`, condicoes `-`/"valor"/true/true/true VERBATIM) saia `RECORRER` — um ato
+        # do RECORRENTE, que a operadora nao pratica contra a propria glosa. A saida passa a ser
+        # `ANALISE_HUMANA`: divergencia de valor com item conforme e documentado e uma glosa
+        # CANDIDATA, e a decisao de glosar (ou de pagar parcialmente) e humana, L0 hard. Nao ha
+        # (nem pode haver) uma saida `PAGAR_PARCIAL` aqui: o dominio tem exatamente dois valores
+        # porque nenhuma saida de DMN deste processo pode glosar (REDESIGN:505-508).
+        # `r_pagar` nao casa porque exige `divergencia_valor=false`; `r_tecnica_humano` e
+        # `r_documental_humano` nao casam pela categoria; `r_valor_humano` e a primeira a casar.
+        ("consulta", "valor", True, True, True, "ANALISE_HUMANA"),
         ("consulta", "clinica", False, True, False, "ANALISE_HUMANA"),
     ],
 )
@@ -342,10 +356,16 @@ async def test_recurso_admissibility_parity(
 @pytest.mark.parametrize(
     ("glosa_type", "expected_roteamento", "expected_grupo"),
     [
-        ("clinica", "RECORRIVEL", "medico-auditor"),
-        ("administrativa", "RECORRIVEL", "analista-recurso-glosa"),
+        # PERSPECTIVA (ADR-0040 / REDESIGN-SP-OP-RECURSO-001.md:478,:480,:481, que prescreve
+        # nominalmente estas duas linhas): `RECORRIVEL` respondia "o prestador PODE recorrer" — um
+        # juizo sobre o direito do RECORRENTE. A operadora nao decide se cabe recurso; ela decide
+        # se o recurso que RECEBEU segue ao merito e quem o julga. `SEGUE_MERITO` diz isso. O
+        # dominio continua sendo de dois valores e continua sem saida de indeferimento: `r_catchall`
+        # -> `ANALISE_HUMANA` (nunca indeferimento automatico, L0 hard).
+        ("clinica", "SEGUE_MERITO", "medico-auditor"),
+        ("administrativa", "SEGUE_MERITO", "analista-recurso-glosa"),
         # DIVERGENCE: old Python's `recorivel` was a tautology (roteamento == "SEGUE_ANALISE"),
-        # never consulting this table's real RECORRIVEL/ANALISE_HUMANA output.
+        # never consulting this table's real SEGUE_MERITO/ANALISE_HUMANA output.
         ("outra", "ANALISE_HUMANA", "analista-recurso-glosa"),
     ],
 )

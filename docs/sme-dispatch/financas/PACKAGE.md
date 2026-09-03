@@ -118,19 +118,35 @@ where applicable) before any of these contracts can leave DRAFT.
      assuming an escalated approval still needs the tier appropriate to the value — confirm this
      is what you want, not an automatic override).
 
-### SP-OP-RECURSO-001 — Recurso de Glosa (DRAFT, v0.1.0)
+### SP-OP-RECURSO-001 — Análise de Recurso de Glosa (DRAFT, v0.1.0)
 
-- **Why finanças:** a successful appeal reverses a glosa and triggers repayment
-  (`reconcile_payment`); `valor_glosado_brl` is the amount at stake.
+- **Why finanças:** a granted appeal reverses a glosa and the payer EMITS a payment order for the
+  reverted amount; `valor_glosado_brl`/`valor_deferido_brl` are the amounts at stake.
 - **Contract:** `docs/processes/contracts/SP-OP-RECURSO-001.md`
 - **BPMN:** `spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn`
 - **DMN:** `spec/processes/dmn/recurso_admissibility.dmn`, `recurso_eligibility.dmn`,
   `recurso_sla.dmn`.
 - **Review questions:**
-  1. Confirm the re-payment reconciliation semantics (`operadora.recurso.reconcile_payment` on
-     deferimento) match your actual provider-payment reconciliation process.
-  2. Confirm no ceiling or extra sign-off is needed for large-value glosa reversals (the contract
-     doesn't currently model a value-based escada here, unlike PAGTO-001) — should one exist?
+  1. **(Open — the OBJECT changed, ADR-0040.)** What you now validate is the payer's EMISSION of a
+     payment order for a reverted glosa (`operadora.recurso.handoff_pagamento` →
+     SP-OP-PAGTO-001, `tipo_pagamento=glosa_revertida`), not the reconciliation of a payment
+     someone else made. `operadora.recurso.reconcile_payment` was DELETED: reconciling money
+     RECEIVED is a creditor's act, and the operadora is the payer here. Confirm the emission
+     semantics match your actual provider-payment process.
+  2. **(Partially answered — still yours to close.)** "No ceiling or extra sign-off for large-value
+     glosa reversals" is no longer true: the reversal is now a payment order subject to
+     **SP-OP-PAGTO-001's own alcada ladder** AND — by invariant **I-PAGTO-1** — to a mandatory
+     human `UT_AnaliseAdmissibilidade` (`coordenacao-financeira`) in EVERY value band, because the
+     handoff never seeds `lastro_confirmado`. So the answer moved from "there is no ladder" to
+     "there is PAGTO's ladder, plus a human admission before it — confirm that is the right one
+     for a glosa reversal." **NOT RATIFIED** — this is a proposal, not a sign-off.
+  3. **(New — OQ-3.)** `data_vencimento` is mandatory in SP-OP-PAGTO-001 and the handoff REFUSES it
+     blank (never defaults). Where does it come from for a reverted glosa — the original bill's due
+     date, or a new term counted from the deferimento? **DRAFT/verify with finanças + jurídico.**
+  4. **(New — OQ-R2.)** In `DEFERIR_PARCIAL` the guard enforces
+     `valor_deferido + valor_glosa_mantido == valor_glosado` in **integer cents, exact equality**,
+     and REFUSES a sum that does not close rather than rounding on its own authority. If your
+     operation uses a rounding rule or a tolerance, the guard has to reflect it — tell us which.
 
 ### SP-OP-REEMBOLSO-001 — Reembolso ao Beneficiário (DRAFT, v0.1.0)
 

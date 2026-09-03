@@ -4,8 +4,10 @@ Listens to domain-event Kafka topics and starts downstream BPMN processes
 via the CIB Seven REST API when handoff conditions are met.
 
 Handoffs:
-- CONTAS→RECURSO: when glosa confirmed (decisao_contas == RECORRER),
-  starts SP-OP-RECURSO-001 with glosa context.
+- INTAKE→RECURSO: when the TISS intake of a glosa APPEAL FILED BY THE PRESTADOR is
+  received, starts SP-OP-RECURSO-001 so the operadora can judge and answer it
+  (ADR-0040). Registered DORMANT: `agents.events.recurso.intake_recebido` has no
+  publisher in `main` yet (OQ-R1) — see `_register_default_handoffs`.
 - CONTAS→FRAUDE: when encaminhar_fraude == true, starts SP-OP-FRAUDE-001
   with evidence references and provenance.
 - FRAUDE→CRED: when fraud confirmed against a prestador, starts SP-OP-CRED-001.
@@ -41,7 +43,7 @@ T2.6-EB3 (production-wiring hardening — the bridge was dormant fail-OPEN, this
    `handoff_ans_submit_entry` reads it off the process instance's own variables; `ans_cron.py`'s
    `trigger_submissions` accepts it as a worker-registration seam (deployment-scoped — see that
    function's docstring for the residual live-wire gap this does NOT close).
-4. The 5 pre-existing rules (CONTAS→RECURSO/FRAUDE, FRAUDE→CRED/CANCEL/INADIMPLENCIA) now derive
+4. The 5 pre-existing rules (INTAKE→RECURSO, CONTAS→FRAUDE, FRAUDE→CRED/CANCEL/INADIMPLENCIA) now derive
    `business_key` (they never did before — the fenced starter would have fail-closed refused
    every one of them).
 5. `maezo.platform.integrations.notifications_bridge` (new module) is the Kafka consumer
@@ -94,7 +96,7 @@ PROCESS_KEY_ANS_SUBMIT = "SP-OP-ANS-SUBMIT-001"
 # signal) — see `docs/design/audit-emit-path-wiring.md` §"EB-4 bridge reconciliation".
 #
 # CANONICAL PATH IS THE IN-FLOW WORKER. The dedicated BPMN service-task workers
-# (`operadora.contas.start_recurso` / `operadora.fraude.start_credenciamento` /
+# (`operadora.contas.handoff_pagamento` / `operadora.fraude.start_credenciamento` /
 # `operadora.fraude.start_contratual`, un-stubbed in EB-4 to run `start_process_idempotent` through
 # the same fence — mirroring the merged `inadimplencia.handoff_rescisao`) are the GUARANTEED,
 # business-key-CORRECT, PHI-complete handoff, because they run in-flow with full process variables.
@@ -111,6 +113,13 @@ PROCESS_KEY_ANS_SUBMIT = "SP-OP-ANS-SUBMIT-001"
 # task's mechanical scope — flagged, not silently done). The in-flow worker is live regardless.
 CONTAS_COMPLETED_EVENT = "agents.events.contas.completed"
 FRAUDE_COMPLETED_EVENT = "agents.events.fraude.completed"
+
+#: INTAKE→RECURSO (ADR-0040 §3.1). Emitted by the TISS intake adapter when a glosa APPEAL FILED
+#: BY THE PRESTADOR is received by the operadora. **This event has NO PUBLISHER in `main`** — the
+#: adapter is not built by this redesign (OQ-R1, `docs/review-queue.md`); the rule keyed on it is
+#: registered DORMANT on purpose, so the future adapter is born against an already-fenced anchor
+#: contract. See `_register_default_handoffs`'s own disclosure comment.
+RECURSO_INTAKE_EVENT = "agents.events.recurso.intake_recebido"
 
 #: Sentinel competência the BPMN's own `Start_DespachoEnvio` comment documents for the
 #: calendar path ("competencia=COMPETENCIA_PENDENTE (sentinela)") — reused verbatim for the
@@ -232,7 +241,7 @@ def _non_blank(value: Any) -> bool:
     unchanged, same as before.
 
     EB-4 R1 follow-up: the implementation is now the SHARED `tools.workers.base.non_blank` — the
-    single source of truth the 3 fenced-start handoff workers (`contas.start_recurso`,
+    single source of truth the 3 fenced-start handoff workers (`contas.handoff_pagamento`,
     `fraude.start_credenciamento`/`start_contratual`) also use for their anchor/tenant guards, so
     the bridge predicates and the in-flow workers can never drift on what counts as a valid anchor.
     """
@@ -243,7 +252,7 @@ def _anchored(payload: dict[str, Any], *anchor_fields: str) -> bool:
     """True iff `tenant_id` AND every named business-key anchor field is present/non-blank.
 
     t2-notify-integrity item 3 (bridge tenant anchor): ALL of the in-flow fenced-start workers
-    (`contas.start_recurso`/`start_fraude`, `fraude.start_credenciamento`/`start_contratual`)
+    (`contas.handoff_pagamento`/`start_fraude`, `fraude.start_credenciamento`/`start_contratual`)
     guard `tenant_id` via the shared `non_blank` and REFUSE (incident) a tenant-less start — but
     the bridge's 7 predicates historically checked only their per-rule anchors, so a tenant-less
     payload minted a degenerate business key (`FRAUDE--{caso}`, `ANSSUB--nipfiling-{nip}`, ...):
@@ -369,7 +378,7 @@ def _ans_submit_variables_from_cron_due(payload: dict[str, Any]) -> dict[str, An
 # Added so the fenced starter (`build_cibseven_process_starter`) can actually start these five
 # rules: it fail-closed REFUSES any rule whose variables lack `business_key`
 # (`NotificationBridgeMissingBusinessKeyError`) — before this fix, NONE of the 5 pre-existing
-# rules (CONTAS→RECURSO, CONTAS→FRAUDE, FRAUDE→CRED, FRAUDE→CANCEL, FRAUDE→INADIMPLENCIA) set
+# rules (INTAKE→RECURSO, CONTAS→FRAUDE, FRAUDE→CRED, FRAUDE→CANCEL, FRAUDE→INADIMPLENCIA) set
 # one, so a fenced-starter start attempt on any of them raised (and, under the OLD swallowing
 # `execute_handoff` — see `NotificationBridgeHandoffFailedError`'s docstring — was silently
 # absorbed): these five handoffs have never actually started a process through the fenced path.
@@ -381,8 +390,9 @@ def _ans_submit_variables_from_cron_due(payload: dict[str, Any]) -> dict[str, An
 
 def _recurso_business_key(tenant_id: str, numero_guia_tiss: str, glosa_id: str) -> str:
     """`RECURSO-{tenant_id}-{numero_guia_tiss}-{glosa_id}` (contract `SP-OP-RECURSO-001.md`
-    "Business key (idempotencia)") — one recurso per glosa per guia TISS; a re-handoff of the
-    same glosa (e.g. CONTAS redelegating) converges on the SAME active instance."""
+    "Business key (idempotencia)") — one recurso per glosa per guia TISS; a re-intake of the same
+    appeal (the prestador re-transmitting, or the operation opening it manually) converges on the
+    SAME active instance."""
     return f"RECURSO-{tenant_id}-{numero_guia_tiss}-{glosa_id}"
 
 
@@ -553,7 +563,7 @@ class NotificationBridge:
     def _register_default_handoffs(self) -> None:
         """Register the seven cross-process handoff rules from the spec.
 
-        CONTAS→RECURSO, CONTAS→FRAUDE, FRAUDE→CRED, FRAUDE→CANCEL/INADIMPLENCIA (5, pre-T2.6-7)
+        INTAKE→RECURSO, CONTAS→FRAUDE, FRAUDE→CRED, FRAUDE→CANCEL/INADIMPLENCIA (5, pre-T2.6-7)
         + NIP→ANS-SUBMIT, ans.cron_due→ANS-SUBMIT (2, T2.6-7).
 
         EB-3 part 4: all 5 pre-existing rules now derive `business_key` (see the module-level
@@ -562,25 +572,57 @@ class NotificationBridge:
         the payload — required for the fenced starter (`build_cibseven_process_starter`) to
         start them at all; it fail-closed refuses any rule whose variables lack `business_key`.
         """
-        # CONTAS→RECURSO: on the REAL `agents.events.contas.completed` (desfecho=encaminhada_recurso)
-        # → start SP-OP-RECURSO-001. Fail-closed anchor requirement (see module reconciliation note
+        # INTAKE→RECURSO (ADR-0040 §3.1): the TISS intake of a glosa APPEAL FILED BY THE PRESTADOR
+        # starts SP-OP-RECURSO-001. This REPLACES the old CONTAS→RECURSO edge, which encoded the
+        # inverted perspective — it treated RECURSO as something CONTAS hands off when the payer
+        # itself decides to appeal. The payer does not appeal its own glosa; it RECEIVES the
+        # appeal and answers it. Fail-closed anchor requirement (see module reconciliation note
         # + `_anchored` — tenant_id is required structurally, t2-notify-integrity item 3):
-        # `numero_guia_tiss` + `glosa_id` must be present (business-key anchors) or the rule stays
-        # dormant against today's minimal completed-event payload — never a divergent-key start.
+        # `tenant_id` + `numero_guia_tiss` + `glosa_id` must be present (the business-key anchors)
+        # or the rule refuses — never a divergent-key start.
+        #
+        # DORMANT ON PURPOSE, AND SAID SO (OQ-R1): `agents.events.recurso.intake_recebido` HAS NO
+        # PUBLISHER IN `main`. The TISS intake adapter that would emit it is NOT built here; this
+        # redesign specifies only the SHAPE of the inbound contract and the bridge rule that
+        # consumes it. The rule is registered anyway so the future adapter is born against an
+        # already-fenced anchor contract (`_anchored` + `NotificationBridgeMissingBusinessKeyError`)
+        # instead of bringing its own. This is the SAME dormancy mechanism the previous rule had —
+        # `agents.events.contas.completed`'s minimal payload never carried the anchors — only the
+        # REASON changes: from "the payload is thin" to "the publisher does not exist". No
+        # synthetic publisher, no stub, no `event_published=True`: the absence is declared here,
+        # asserted by `test_regra_intake_recurso_e_dormente_ate_o_adaptador_existir` (which goes
+        # RED the day a publisher appears, forcing this comment to be updated in the same PR), and
+        # dated in `docs/review-queue.md`. Until the adapter exists, RECURSO-001 is started by
+        # Marina or by the operation — exactly today's maturity.
         self.register_handoff(
-            event_type=CONTAS_COMPLETED_EVENT,
-            predicate=lambda p: (
-                p.get("desfecho") == "encaminhada_recurso" and _anchored(p, "numero_guia_tiss", "glosa_id")
-            ),
+            event_type=RECURSO_INTAKE_EVENT,
+            predicate=lambda p: _anchored(p, "tenant_id", "numero_guia_tiss", "glosa_id"),
             target_process="SP-OP-RECURSO-001",
             variables_fn=lambda p: {
                 "tenant_id": str(p.get("tenant_id", "")),
                 "glosa_id": p.get("glosa_id", ""),
                 "numero_guia_tiss": p.get("numero_guia_tiss", ""),
-                "glosa_type": p.get("glosa_type", ""),
-                "glosa_existe": True,
-                "documentacao_anexa": p.get("documentacao_anexa", False),
                 "numero_lote_tiss": p.get("numero_lote_tiss", ""),
+                "prestador_id": p.get("prestador_id", ""),
+                "glosa_type": p.get("glosa_type", ""),
+                "glosa_reason_code": p.get("glosa_reason_code", ""),
+                "valor_glosado_brl": p.get("valor_glosado_brl", 0.0),
+                "codigo_procedimento_tuss": p.get("codigo_procedimento_tuss", ""),
+                "documentos_recurso_refs": p.get("documentos_recurso_refs", []),
+                "data_recebimento_recurso_iso": p.get("data_recebimento_recurso_iso", ""),
+                "data_vencimento": p.get("data_vencimento", ""),
+                # FACTS, not tautologies. `glosa_existe` was hard-coded `True` on the old edge
+                # (it was only reached on the deleted CONTAS branch, over an active glosa) — an
+                # assumption that does not survive an externally-filed appeal, whose `glosa_id`
+                # may reference nothing the payer ever minted. It is now echoed from the envelope
+                # and FAIL-CLOSED to `False` when absent, which routes to `ANALISE_HUMANA` via
+                # `recurso_admissibility` (row `r_glosa_inexistente_humano`) rather than asserting
+                # a glosa exists. `dentro_prazo_recurso` likewise stops being the day-0 tautology
+                # and is left to `validate_recurso` / the envelope; absent => `False` =>
+                # `r_fora_prazo_humano` => a human looks at it.
+                "glosa_existe": bool(p.get("glosa_existe", False)),
+                "dentro_prazo_recurso": bool(p.get("dentro_prazo_recurso", False)),
+                "documentacao_recurso_completa": bool(p.get("documentacao_recurso_completa", False)),
                 "business_key": _recurso_business_key(
                     str(p.get("tenant_id", "")),
                     str(p.get("numero_guia_tiss", "")),
@@ -1009,7 +1051,7 @@ def build_cibseven_process_starter(
     Requires `variables["business_key"]` to already be populated by the matched rule's
     `variables_fn` (every one of the 7 rules registered by `_register_default_handoffs` sets it
     — the 2 T2.6-7 ANS-SUBMIT rules from the start, and the 5 pre-existing rules
-    CONTAS→RECURSO/FRAUDE + FRAUDE→CRED/CANCEL/INADIMPLENCIA as of EB-3 part 4) — raises
+    INTAKE→RECURSO, CONTAS→FRAUDE + FRAUDE→CRED/CANCEL/INADIMPLENCIA as of EB-3 part 4) — raises
     `NotificationBridgeMissingBusinessKeyError` (fail-closed) rather than starting with a
     garbage/empty key when it is missing.
 

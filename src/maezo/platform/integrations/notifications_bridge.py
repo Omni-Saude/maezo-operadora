@@ -4,7 +4,7 @@
 `command: ["python", "-m", "maezo.platform.integrations.notifications_bridge"]` — but the module
 never existed (`ModuleNotFoundError`). The Helm chart's own comment already documents the intended
 shape: consume the ONE Kafka topic `operadora.notifications.internal`, and on the `type`-tagged
-messages a registered rule matches (e.g. `contas.start_recurso` / `nip.handoff_ans_submit` /
+messages a registered rule matches (e.g. `contas.start_fraude` / `nip.handoff_ans_submit` /
 `ans.cron_due`), start the target CIB Seven process via `mcp-cibseven.start_process`
 (idempotent) — i.e. dispatch every message through `NotificationBridge.on_event`, constructed
 with the FENCED starter (`build_cibseven_process_starter`, ADR-0007/T-C2 chokepoint — see

@@ -552,8 +552,10 @@ def execute_remediation(
     `origem_solicitacao=operadora`, `tipo_prestador`, `regiao_saude`, `especialidade`,
     `motivo_informado`) and NEVER `decisao_cred` or any other CRED-001 output/decision variable —
     it can never pre-decide the target process's human decision (the same invariant
-    `inadimplencia.handoff_rescisao`'s `_HANDOFF_CARRY_KEYS` allowlist and `contas.start_recurso`'s
-    payload uphold for their own downstream handoffs).
+    `inadimplencia.handoff_rescisao`'s `_HANDOFF_CARRY_KEYS` allowlist upholds for its own
+    downstream handoff — the analogous neutral CONTAS-side handoff into SP-OP-RECURSO-001 was
+    DELETED with ADR-0040's payer-perspective rewrite: that process is now entered exclusively
+    through its own intake, never a start seeded by another process's worker).
 
     IDENTITY (business key `CRED-{tenant}-{prestador_id}`, contract `SP-OP-CRED-001.md` §Business
     key): ADEQUACAO's own celula identity (`regiao_saude`x`especialidade`x`ciclo_avaliacao`) has

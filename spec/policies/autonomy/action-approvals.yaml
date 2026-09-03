@@ -233,6 +233,18 @@ acoes:
       - referencia: "src/maezo/tools/workers/reembolso.py:813"
         detalhe: "topic operadora.reembolso.send_reembolso_denial (GUARDED)"
         choked: true
+      - referencia: "src/maezo/tools/workers/recurso.py:1488"
+        detalhe: "topic operadora.recurso.registrar_indeferimento (GUARDED — ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN)"
+        choked: true
+      - referencia: "src/maezo/tools/workers/recurso.py:1506"
+        detalhe: "topic operadora.recurso.comunicar_resposta (raw handler — resposta ao recurso emitida ao prestador)"
+        choked: true
+      - referencia: "src/maezo/tools/workers/contas.py:1722"
+        detalhe: "topic operadora.contas.registrar_glosa (GUARDED — ERR_CONTAS_GLOSA_NOT_HUMAN)"
+        choked: true
+      - referencia: "src/maezo/tools/workers/contas.py:1728"
+        detalhe: "topic operadora.contas.emitir_demonstrativo (demonstrativo de analise / devolucao emitidos ao prestador)"
+        choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
       medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
@@ -254,9 +266,6 @@ acoes:
         choked: true
       - referencia: "src/maezo/tools/workers/nip.py:552"
         detalhe: "topic operadora.nip.submit_response (GUARDED)"
-        choked: true
-      - referencia: "src/maezo/tools/workers/recurso.py:1090"
-        detalhe: "topic operadora.recurso.submit_appeal (raw handler)"
         choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
@@ -337,7 +346,7 @@ acoes:
       de prova adicional). Toca o titular diretamente e é a superfície natural de vazamento de
       PHI para fora da plataforma.
     superficies:
-      - referencia: "src/maezo/tools/workers/programa.py:656"
+      - referencia: "src/maezo/tools/workers/programa.py:684"
         detalhe: "topic operadora.programa.proactive_contact (raw handler)"
         choked: true
       - referencia: "src/maezo/tools/workers/lgpd.py:765"
@@ -364,11 +373,14 @@ acoes:
       agente. Não é um efeito no mundo externo, mas cria obrigação de prazo regulatório; já tem
       fence próprio (allowlist ADR-0016) e auditoria de start (T-C2).
     superficies:
-      - referencia: "src/maezo/tools/workers/contas.py:1055"
-        detalhe: "topic operadora.contas.start_recurso"
+      - referencia: "src/maezo/tools/workers/contas.py:1744"
+        detalhe: "topic operadora.contas.handoff_pagamento (inicia SP-OP-PAGTO-001 — conta adjudicada)"
         choked: true
-      - referencia: "src/maezo/tools/workers/contas.py:1061"
+      - referencia: "src/maezo/tools/workers/contas.py:1750"
         detalhe: "topic operadora.contas.start_fraude"
+        choked: true
+      - referencia: "src/maezo/tools/workers/recurso.py:1499"
+        detalhe: "topic operadora.recurso.handoff_pagamento (inicia SP-OP-PAGTO-001 — glosa revertida)"
         choked: true
       - referencia: "src/maezo/tools/workers/adequacao.py:689"
         detalhe: "topic operadora.adequacao.start_credenciamento"
@@ -642,11 +654,14 @@ mapeamento_topicos:
 
   operadora.auth.send_denial_notice: negativa_notificacao
   operadora.reembolso.send_reembolso_denial: negativa_notificacao
+  operadora.recurso.registrar_indeferimento: negativa_notificacao
+  operadora.recurso.comunicar_resposta: negativa_notificacao
+  operadora.contas.registrar_glosa: negativa_notificacao
+  operadora.contas.emitir_demonstrativo: negativa_notificacao
 
   regulatorio.anssubmit.submit: submissao_regulatoria_ans
   regulatorio.anssubmit.retransmit: submissao_regulatoria_ans
   operadora.nip.submit_response: submissao_regulatoria_ans
-  operadora.recurso.submit_appeal: submissao_regulatoria_ans
 
   operadora.pagto.release_low_value_payment: pagamento_emissao
   operadora.pagto.release_high_value_payment: pagamento_emissao
@@ -664,8 +679,9 @@ mapeamento_topicos:
   operadora.lgpd.send_response: comunicacao_beneficiario
   operadora.lgpd.request_additional_proof: comunicacao_beneficiario
 
-  operadora.contas.start_recurso: inicio_processo_regulatorio
+  operadora.contas.handoff_pagamento: inicio_processo_regulatorio
   operadora.contas.start_fraude: inicio_processo_regulatorio
+  operadora.recurso.handoff_pagamento: inicio_processo_regulatorio
   operadora.adequacao.start_credenciamento: inicio_processo_regulatorio
   operadora.fraude.start_credenciamento: inicio_processo_regulatorio
   operadora.fraude.start_contratual: inicio_processo_regulatorio

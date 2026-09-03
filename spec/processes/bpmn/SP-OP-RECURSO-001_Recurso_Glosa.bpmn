@@ -10,80 +10,108 @@
                   exporter="Maezo W5-PROC"
                   exporterVersion="0.1.0-draft">
 
-  <bpmn:message id="Msg_RecursoRespostaRecebida" name="msg.recurso.resposta_recebida"/>
   <bpmn:message id="Msg_RecursoDocsRecebidos" name="msg.recurso.docs_received"/>
   <!-- GAP-RECURSO-3: guard de validacao de ORIGEM — glosa_id ausente/vazio nas variaveis de
        processo (defeito TECNICO, espelha ERR_CONTAS_LOTE_INVALIDO/contas.py e
        ERR_AUTH_INVALID_GUIA/auth.py). Distinto do FATO DE NEGOCIO `glosa_existe` (pre-resolvido
-       antes do start, consumido pela DMN recurso_admissibility: glosa_existe=false roteia a
-       ANALISE_HUMANA por design — NUNCA erro, L0 hard no-denial, ver r_glosa_inexistente_humano
-       em recurso_admissibility.dmn). Lancado pelos workers analyze_request/request_documents
-       (primeiro touchpoint de RECURSO em cada ramo apos GW_Admissibilidade); CAPTURADO por
-       boundary (mainline — erro nao-capturado encerraria o escopo silenciosamente, espelha
+       por ST_ValidarRecurso, consumido pela DMN recurso_admissibility: glosa_existe=false roteia
+       a ANALISE_HUMANA por design — NUNCA erro, L0 hard no-denial, ver r_glosa_inexistente_humano
+       em recurso_admissibility.dmn). Lancado pelos workers validate_recurso/request_documents/
+       analyze_request (primeiro touchpoint de RECURSO em cada ramo); CAPTURADO por boundary
+       (mainline — erro nao-capturado encerraria o escopo silenciosamente, espelha
        GAP-CRED-1/GAP-CANCEL-3). -->
   <bpmn:error id="Error_RecursoGlosaInvalida" name="Identificador de glosa inconsistente na origem (glosa_id ausente)" errorCode="ERR_RECURSO_INVALID_GLOSA"/>
-  <bpmn:error id="Error_DesistenciaNotHuman" name="Desistencia/manutencao de glosa sem decisao humana" errorCode="ERR_DESISTENCIA_NOT_HUMAN"/>
+  <bpmn:error id="Error_RecursoIndeferimentoNotHuman" name="Indeferimento/manutencao de glosa sem decisao humana" errorCode="ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN"/>
+  <bpmn:error id="Error_RecursoDecisaoInvalida" name="Decisao do recurso ausente ou desconhecida" errorCode="ERR_RECURSO_DECISAO_INVALIDA"/>
 
-  <bpmn:process id="SP-OP-RECURSO-001" name="SP-OP-RECURSO-001 Recurso de Glosa"
+  <bpmn:process id="SP-OP-RECURSO-001" name="SP-OP-RECURSO-001 Analise de Recurso de Glosa"
                 isExecutable="true" camunda:historyTimeToLive="1825">
     <bpmn:documentation><![CDATA[
-SP-OP-RECURSO-001 — Recurso de Glosa. Status: DRAFT (v0.1.0) — Phase 2, Wave A.
-DI (diagrama) sera adicionado na promocao a FINAL. Requer revisao humana (auditoria de recurso
-+ regulatorio/juridico) antes de qualquer deploy — ver docs/review-queue.md.
+SP-OP-RECURSO-001 — Analise de Recurso de Glosa (resposta ao recurso). Status: DRAFT (v0.1.0) —
+Phase 2, Wave A. Requer revisao humana (auditoria de recurso + regulatorio/juridico) antes de
+qualquer deploy — ver docs/review-queue.md.
 
-GATILHO REGULATORIO: RN 424/2017 (recurso/junta medica — prazo recursal: DRAFT/verify), RN
-305/2016 e RN 501/2022 (padrao TISS / fluxo de glosa e recurso: DRAFT/verify), Lei 9.656/1998
-art. 18. Recurso de glosa = prestador recorrendo de uma glosa CONFIRMADA pela operadora
-(authorization_denial-class, L0 hard). Desistir/nao-recorrer = aceitar a glosa contra o prestador.
+PERSPECTIVA: o dono do processo e a OPERADORA. Ela RECEBE o recurso de glosa
+que o prestador interpoe contra uma glosa que ela propria aplicou em
+SP-OP-CONTAS-001, julga a ADMISSIBILIDADE,
+analisa o MERITO (administrativo pelo analista de recurso; tecnico-clinico pelo medico auditor) e
+EMITE a resposta ao prestador: deferir, deferir parcialmente, indeferir — ou inadmitir.
+(ADR-0040, Proposed — nao ratificada.)
 
-INVARIANTE L0 HARD (ADR-0005/0008): manter-a-glosa (negar o recurso = nao interpor / desistir)
-SO nasce nas User Tasks humanas: UT_AnaliseRecursoAnalista (decisao_recurso=NAO_RECORRER),
-UT_RevisaoAuditorMedico (decisao_auditor_recurso=ACEITAR_GLOSA, merito tecnico/clinico), ou
-UT_CoordenacaoRecursoAssume / UT_EscalonamentoPrazo (inadmissibilidade no breach de SLA / prazo
-max). NENHUMA DMN deste processo tem saida de negativa/desistencia: recurso_admissibility roteia
-SO {SEGUE_ANALISE, PENDENTE_DOCUMENTACAO, ANALISE_HUMANA}; recurso_eligibility SO
-{RECORRIVEL, ANALISE_HUMANA}. Inadmissibilidade por prazo procedural (R5), inelegibilidade
-aparente e ambiguidade SEMPRE fail-safe para ANALISE_HUMANA (catch-all). NAO ha auto-aprovacao
-nem auto-desistencia por timeout: o auto-approve-on-timeout de 48h do reference glosa_management
-foi INVERTIDO para SLA interruptivo -> coordenacao humana; o loop de acompanhamento e limitado
-(loopCounter) -> humano ao exceder. Os efeitos adversos sao materializados SO pelo worker
-operadora.recurso.register_desistencia, guardado por ERR_DESISTENCIA_NOT_HUMAN (4o componente do
-padrao no-denial). Os terminais adversos End_RecursoNaoInterposto, End_GlosaMantida e
+GATILHO REGULATORIO: prazo contratual de resposta ao recurso (fonte primaria do SLA de analise e
+do teto absoluto — DRAFT/verify); RN 501/2022 (padrao TISS — fluxo de glosa e recurso:
+DRAFT/verify); Lei 9.656/1998 art. 18 (relacao operadora-prestador). RN 424/2017 aplica-se APENAS
+se instaurada junta medica/odontologica para dirimir divergencia tecnico-assistencial
+(UT_RevisaoAuditorMedico) — NUNCA ao prazo de resposta ao recurso
+(docs/compliance/rn-currency-review.md:87, 190-193). DRAFT/verify.
+
+INVARIANTE L0 HARD (ADR-0005/0008/0018): o INDEFERIMENTO do recurso (manter a glosa contra o
+prestador), o DEFERIMENTO PARCIAL (manter parte dela) e a INADMISSIBILIDADE SO nascem nas User
+Tasks humanas: UT_AnaliseRecursoAnalista (decisao_recurso in {INDEFERIR, DEFERIR_PARCIAL}),
+UT_RevisaoAuditorMedico (decisao_auditor_recurso in {INDEFERIR, DEFERIR_PARCIAL}, merito
+tecnico/clinico), UT_CoordenacaoRecursoAssume ou UT_EscalonamentoPrazo (inadmissibilidade no
+breach de SLA / teto). NENHUMA DMN deste processo tem saida de indeferimento: recurso_admissibility
+roteia SO {SEGUE_ANALISE, PENDENTE_DOCUMENTACAO, ANALISE_HUMANA}; recurso_eligibility SO
+{SEGUE_MERITO, ANALISE_HUMANA}. Inadmissibilidade por prazo procedural (R5), inelegibilidade
+aparente e ambiguidade SEMPRE fail-safe para ANALISE_HUMANA (catch-all). NAO ha auto-deferimento
+nem auto-indeferimento por timeout: o auto-approve-on-timeout de 48h do reference glosa_management
+foi INVERTIDO para SLA interruptivo -> coordenacao humana. Os efeitos adversos sao materializados
+SO pelo worker operadora.recurso.registrar_indeferimento, guardado por
+ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN (4o componente do padrao no-denial). Os terminais adversos
+End_RecursoIndeferido, End_RecursoIndeferidoAuditor, End_RecursoDeferidoParcial e
 End_RecursoInadmissivel sao alcancaveis SO apos uma User Task humana concluida na history do
 engine (verificado por teste de invariante). End_RecursoInadmissivel e pinado como humano-gated de
-proposito (review gap): nenhum autor futuro pode cablear um inadmissivel automatico.
+proposito (review gap): nenhum autor futuro pode cablear um inadmissivel automatico. Os dois
+gateways decisorios (GW_DecisaoRecurso / GW_MeritoAuditor) tem DEFAULT de ERRO fail-closed
+(ERR_RECURSO_DECISAO_INVALIDA) — nunca uma acao por omissao.
+
+COMUNICACAO AO PRESTADOR: os 5 terminais de negocio passam por
+operadora.recurso.comunicar_resposta ANTES do ST_Publish* — a operadora emite a sua resposta ao
+recurso em TODO desfecho que afeta o prestador (nomes TISS "Recurso de Glosa" / "Resposta ao
+Recurso de Glosa": DRAFT/verify, OQ-1 do ADR-0040).
 
 BUSINESS KEY (idempotente): "RECURSO-{tenant_id}-{numero_guia_tiss}-{glosa_id}"
-  — um recurso por glosa por guia TISS. Reenvio (re-handoff de CONTAS, redelegacao a Marina) NAO
-  cria nova instancia (mcp-cibseven.start_process consulta business key antes de iniciar).
+  — um recurso por glosa por guia TISS. Reenvio (re-intake, redelegacao a Marina) NAO cria nova
+  instancia (start_process_idempotent consulta a business key antes de iniciar).
 
 EVENTOS DE DOMINIO (worker operadora.events.publish):
   inicio -> agents.events.recurso.received
   pendencia -> agents.events.recurso.pended
   breach -> agents.events.recurso.sla_breached (payload.fase = analise | prazo_max)
-  fim -> agents.events.recurso.completed (payload.desfecho = deferido | indeferido |
-         parcialmente_deferido | inadmissivel | nao_interposto_humano)
+  fim -> agents.events.recurso.completed (payload.desfecho = deferido_humano |
+         deferido_parcial_humano | indeferido_humano | inadmissivel_humano)
 
 VARIAVEIS DE ENTRADA: tenant_id, numero_guia_tiss, glosa_id, numero_lote_tiss, numero_conta (opc),
 prestador_id, beneficiario_pseudo_id (ADR-0006), glosa_type, glosa_reason_code, valor_glosado_brl
 (double), codigo_procedimento_tuss, cid10 (opc), documentos_recurso_refs (json),
-data_ciencia_glosa, data_recebimento_recurso_iso (opc — ancora do teto P30D; seeded pelo intake,
-fail-safe data_ciencia_glosa), glosa_existe*, dentro_prazo_recurso*, documentacao_recurso_completa*.
-(* pre-resolvidos por worker antes de BRT_Admissibilidade.) Contrato completo:
+data_recebimento_recurso_iso (data em que a OPERADORA recebeu o recurso — ancora UNICA do SLA e do
+teto absoluto; normalizada/defaultada fail-safe pelo worker validate_recurso),
+data_ciencia_alegada_prestador (opc — data que o prestador ALEGA no pleito; registro do que ele
+declarou, JAMAIS base de prazo da operadora), data_vencimento (vencimento da conta de origem — exigida pelo handoff de pagamento;
+DRAFT/verify OQ-3), glosa_existe*, dentro_prazo_recurso*, documentacao_recurso_completa*.
+(* pre-resolvidos por ST_ValidarRecurso antes de BRT_Admissibilidade.) Contrato completo:
 docs/processes/contracts/SP-OP-RECURSO-001.md.
 
-GAP-RECURSO-1 (resolvido): o teto regulatorio P30D (RN 424) e UMA UNICA JANELA ABSOLUTA por
-recurso, ancorada em `data_recebimento_recurso_iso` (fail-safe: `data_ciencia_glosa`), NUNCA
-relativa ao attach de cada User Task. BRT_Sla (DMN recurso_sla) computa
-`sla.prazo_max_absoluto_iso` = ancora + P30D; os tres boundary de teto (BT_PrazoMaxRecurso /
-BT_PrazoMaxCoord / BT_PrazoMaxAuditor) usam `timeDate` sobre esse campo e expiram no MESMO
-instante de relogio, independente de qual UT humana segura o recurso (analista -> coordenacao ->
-auditor NAO estende o teto). UT_EscalonamentoPrazo (alvo pos-estouro) NAO carrega boundary de
-teto — o mesmo instante absoluto nela insta-dispararia ao attach e auto-reproduziria a UT em
-cascata infinita.
+GAP-RECURSO-1 (resolvido, preservado): o teto P30D (prazo contratual — DRAFT/verify) e UMA UNICA
+JANELA ABSOLUTA por recurso, ancorada em `data_recebimento_recurso_iso`, NUNCA relativa ao attach
+de cada User Task. BRT_Sla (DMN recurso_sla) computa `sla.prazo_max_absoluto_iso` = ancora + P30D;
+os tres boundary de teto (BT_PrazoMaxRecurso / BT_PrazoMaxCoord / BT_PrazoMaxAuditor) usam
+`timeDate` sobre esse campo e expiram no MESMO instante de relogio, independente de qual UT humana
+segura o recurso (analista -> coordenacao -> auditor NAO estende o teto). UT_EscalonamentoPrazo
+(alvo pos-estouro) NAO carrega boundary de teto — o mesmo instante absoluto nela insta-dispararia
+ao attach e auto-reproduziria a UT em cascata infinita.
+
+CICLO REMANESCENTE (SOLICITAR_INFO): GW_DecisaoRecurso --SOLICITAR_INFO--> ST_SolicitarDocumentos
+-> ... -> UT_AnaliseRecursoAnalista -> GW_DecisaoRecurso. NAO ha contador, e isso e DELIBERADO: um
+teto por contagem produziria um auto-desfecho por esgotamento (anti-padrao proibido por ADR-0018).
+O que o limita e o TETO ABSOLUTO: reentrar no ciclo nao o adia (o instante nao e recalculado), e
+nao existe estado alcancavel do ciclo sem um relogio anexado (BRT_Sla converge em todo caminho que
+chega a uma UT; dentro de GW_AguardarDocs quem limita e ICE_PrazoPendencia). Se o prazo SUSPENDER
+durante a pendencia documental (OQ-9, pendencia de SME), o teto passa a precisar de recalculo —
+ate la, o teto e absoluto e CONSERVADOR.
 ]]></bpmn:documentation>
 
-    <bpmn:startEvent id="Start_RecursoSolicitado" name="Recurso de glosa solicitado">
+    <bpmn:startEvent id="Start_RecursoRecebido" name="Recurso de glosa recebido do prestador (TISS)">
       <bpmn:outgoing>Flow_Start_PubReceived</bpmn:outgoing>
     </bpmn:startEvent>
 
@@ -100,19 +128,52 @@ cascata infinita.
                sobrescreve com "inadmissivel" na UT (coordenacao/escalonamento) para o terminal
                humano-gated; o default "" preserva a logica de gating do inadmissivel intacta. -->
           <camunda:outputParameter name="desfecho_humano">${""}</camunda:outputParameter>
+          <!-- MESMA mecanica, e pela MESMA razao de engine, para as DUAS variaveis de decisao
+               humana. Sem elas inicializadas, o default fail-closed dos gateways decisorios e
+               INALCANCAVEL no caso "decisao AUSENTE": o engine avalia as conditionExpressions
+               ANTES de cair no default e lanca `Unknown property used in expression: ${decisao_
+               recurso == 'DEFERIR'} — Cannot resolve identifier 'decisao_recurso'` (HTTP 500 no
+               complete da User Task), deixando a instancia parada na UT em vez de terminar em
+               End_ErrRecursoDecisaoInvalida. O terminal de erro existe para "ausente OU
+               desconhecida" (ver a sua documentacao); so o segundo caso funcionava. Com ""
+               nenhuma condicao casa (nem DEFERIR/DEFERIR_PARCIAL/INDEFERIR/SOLICITAR_INFO/
+               ESCALAR_AUDITOR, nem o par INDEFERIR+inadmissivel), o token cai no default e o
+               erro fica VISIVEL — sem nenhum efeito materializado. O guard do worker
+               registrar_indeferimento (ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN) recusa "" como
+               recusa qualquer nao-INDEFERIR: a inicializacao NAO afrouxa o L0 hard, ela apenas
+               torna a omissao um ERRO em vez de um travamento. -->
+          <camunda:outputParameter name="decisao_recurso">${""}</camunda:outputParameter>
+          <camunda:outputParameter name="decisao_auditor_recurso">${""}</camunda:outputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
-      <bpmn:outgoing>Flow_PubReceived_Admiss</bpmn:outgoing>
+      <bpmn:outgoing>Flow_PubReceived_Validar</bpmn:outgoing>
     </bpmn:serviceTask>
+
+    <!-- INTAKE: primeiro touchpoint de RECURSO em TODO caminho. Normaliza/defaulta
+         `data_recebimento_recurso_iso` (ISO YYYY-MM-DD; fail-safe HOJE/UTC com warning — espelha
+         `identify_glosa`/GAP-CONTAS-4 para `data_recebimento_lote`) e pre-resolve os fatos de
+         admissibilidade `glosa_existe` / `dentro_prazo_recurso` / `documentacao_recurso_completa`
+         ANTES de BRT_Admissibilidade. Guarda `glosa_id` (_require_glosa_id) -> 3o site de
+         ERR_RECURSO_INVALID_GLOSA. -->
+    <bpmn:serviceTask id="ST_ValidarRecurso" name="Validar a glosa de origem e normalizar a ancora de prazo da operadora"
+                      camunda:type="external" camunda:topic="operadora.recurso.validate_recurso">
+      <bpmn:documentation>A ancora do SLA e do teto absoluto e a data em que a OPERADORA recebeu o recurso (`data_recebimento_recurso_iso`), normalizada aqui e nao mais defaultada para a data que o prestador declara (`data_ciencia_alegada_prestador`): aquele relogio e do recorrente, e o da operadora comeca no recebimento. Quando ausente/invalida, o worker defaulta fail-safe para HOJE/UTC e LOGA warning; a tempestividade continua sendo aferida separadamente por `dentro_prazo_recurso`, que roteia a ANALISE_HUMANA quando falsa (recurso_admissibility row r_fora_prazo_humano) — um recurso com ancora duvidosa vai a humano pela admissibilidade, nunca passa despercebido pelo relogio. ALCANCE REAL (m7): os fatos `glosa_existe`/`dentro_prazo_recurso`/`documentacao_recurso_completa` chegam PRE-RESOLVIDOS no escopo do processo e sao ECOADOS por este worker (fail-closed para false quando ausentes, no eco do bridge); o que ele efetivamente resolve aqui e a ancora de prazo e a guarda de `glosa_id`.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubReceived_Validar</bpmn:incoming>
+      <bpmn:outgoing>Flow_Validar_Admiss</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:boundaryEvent id="BE_GlosaInvalidaValidacao" name="Glosa invalida na origem (ERR_RECURSO_INVALID_GLOSA)" attachedToRef="ST_ValidarRecurso">
+      <bpmn:outgoing>Flow_GlosaInvalidaValidacao_End</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_GlosaInvalidaValidacao" errorRef="Error_RecursoGlosaInvalida"/>
+    </bpmn:boundaryEvent>
 
     <!-- DMN: admissibilidade do recurso (nunca inadmissibiliza — apenas roteia) -->
     <bpmn:businessRuleTask id="BRT_Admissibilidade" name="Avaliar admissibilidade do recurso (DMN recurso_admissibility)"
                            camunda:decisionRef="recurso_admissibility"
                            camunda:mapDecisionResult="singleResult"
                            camunda:resultVariable="admissibilidade">
-      <bpmn:documentation>Saidas possiveis: SEGUE_ANALISE | PENDENTE_DOCUMENTACAO | ANALISE_HUMANA. Por design NAO existe saida de negativa/desistencia/inadmissibilidade nesta DMN (L0 hard). Inadmissibilidade aparente (fora do prazo / glosa inexistente) -> ANALISE_HUMANA (R5).</bpmn:documentation>
-      <bpmn:incoming>Flow_PubReceived_Admiss</bpmn:incoming>
+      <bpmn:documentation>Saidas possiveis: SEGUE_ANALISE | PENDENTE_DOCUMENTACAO | ANALISE_HUMANA. Por design NAO existe saida de indeferimento/inadmissibilidade nesta DMN (L0 hard). Inadmissibilidade aparente (fora do prazo / glosa inexistente) -> ANALISE_HUMANA (R5).</bpmn:documentation>
+      <bpmn:incoming>Flow_Validar_Admiss</bpmn:incoming>
       <bpmn:incoming>Flow_DocsOk_Admiss</bpmn:incoming>
       <bpmn:outgoing>Flow_Admiss_GW</bpmn:outgoing>
     </bpmn:businessRuleTask>
@@ -124,10 +185,10 @@ cascata infinita.
       <bpmn:outgoing>Flow_GW_AnaliseHumana</bpmn:outgoing>
     </bpmn:exclusiveGateway>
 
-    <!-- Ramo: pendencia de documentacao do recurso -->
+    <!-- Ramo: pendencia de documentacao do recurso (a operadora pede documentos ao prestador) -->
     <bpmn:serviceTask id="ST_SolicitarDocumentos" name="Abrir pendencia de documentacao ao prestador"
                       camunda:type="external" camunda:topic="operadora.recurso.request_documents">
-      <bpmn:documentation>Worker tambem publica agents.events.recurso.pended (suspensao de prazo durante pendencia: regra RN — DRAFT/verify com regulatorio).</bpmn:documentation>
+      <bpmn:documentation>Worker tambem publica agents.events.recurso.pended (suspensao de prazo durante pendencia: regra RN — DRAFT/verify com regulatorio, OQ-9).</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic_pended">agents.events.recurso.pended</camunda:inputParameter>
@@ -138,22 +199,21 @@ cascata infinita.
       <bpmn:outgoing>Flow_Solicitar_WaitDocs</bpmn:outgoing>
     </bpmn:serviceTask>
 
-    <!-- GAP-RECURSO-3: boundary de validacao de origem em ST_SolicitarDocumentos (primeiro
-         touchpoint de RECURSO no ramo PENDENTE_DOCUMENTACAO, direto de GW_Admissibilidade).
+    <!-- GAP-RECURSO-3: boundary de validacao de origem em ST_SolicitarDocumentos (touchpoint do
+         ramo PENDENTE_DOCUMENTACAO, direto de GW_Admissibilidade).
          Mainline: erro nao-capturado encerraria o escopo silenciosamente. -->
     <bpmn:boundaryEvent id="BE_GlosaInvalidaDocs" name="Glosa invalida na origem (ERR_RECURSO_INVALID_GLOSA)" attachedToRef="ST_SolicitarDocumentos">
       <bpmn:outgoing>Flow_GlosaInvalidaDocs_End</bpmn:outgoing>
       <bpmn:errorEventDefinition id="EED_GlosaInvalidaDocs" errorRef="Error_RecursoGlosaInvalida"/>
     </bpmn:boundaryEvent>
 
-    <!-- T3.1 event-gap remedy B (docs/processes/contracts/SP-OP-RECURSO-001.md:96 "produz"
-         obligation; SP-OP-RECURSO-001.md:101 worker row) — ST_SolicitarDocumentos's own
-         event_topic_pended inputParameter is worker-intended but v2 request_documents_entry
-         del kafka's (never publishes, ADR-0026); this dedicated engine-side publish task closes
-         the gap without touching src/. Boundary-free (mirrors 15/16 ST_Publish* convention);
-         only reached on NORMAL completion of ST_SolicitarDocumentos (BE_GlosaInvalidaDocs
-         intercepts the token first on the glosa_id-ausente guard path, so no pended event fires
-         there). -->
+    <!-- T3.1 event-gap remedy B (docs/processes/contracts/SP-OP-RECURSO-001.md "produz"
+         obligation) — ST_SolicitarDocumentos's own event_topic_pended inputParameter is
+         worker-intended but v2 request_documents_entry del kafka's (never publishes, ADR-0026);
+         this dedicated engine-side publish task closes the gap without touching src/.
+         Boundary-free (mirrors the ST_Publish* convention); only reached on NORMAL completion of
+         ST_SolicitarDocumentos (BE_GlosaInvalidaDocs intercepts the token first on the
+         glosa_id-ausente guard path, so no pended event fires there). -->
     <bpmn:serviceTask id="ST_PublishRecursoPended" name="Publicar evento: recurso.pended"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
@@ -166,7 +226,7 @@ cascata infinita.
       <bpmn:outgoing>Flow_PubPended_WaitDocs</bpmn:outgoing>
     </bpmn:serviceTask>
 
-    <!-- Corrida: documentacao chega OU prazo de pendencia expira (decisao HUMANA, nunca auto-desiste) -->
+    <!-- Corrida: documentacao chega OU prazo de pendencia expira (decisao HUMANA, nunca auto-indefere) -->
     <bpmn:eventBasedGateway id="GW_AguardarDocs" name="Aguardar documentacao do recurso">
       <bpmn:incoming>Flow_PubPended_WaitDocs</bpmn:incoming>
       <bpmn:outgoing>Flow_Wait_DocsMsg</bpmn:outgoing>
@@ -177,7 +237,7 @@ cascata infinita.
       <bpmn:outgoing>Flow_DocsOk_Admiss</bpmn:outgoing>
       <bpmn:messageEventDefinition id="MED_DocsRecebidos" messageRef="Msg_RecursoDocsRecebidos"/>
     </bpmn:intermediateCatchEvent>
-    <!-- Timer: prestador nao respondeu a pendencia — destino e decisao HUMANA (nunca auto-desiste) -->
+    <!-- Timer: prestador nao respondeu a pendencia — destino e decisao HUMANA (nunca auto-indefere) -->
     <bpmn:intermediateCatchEvent id="ICE_PrazoPendencia" name="Prazo de pendencia (P5D — DRAFT/verify)">
       <bpmn:incoming>Flow_Wait_Timer</bpmn:incoming>
       <bpmn:outgoing>Flow_PrazoPendencia_Sla</bpmn:outgoing>
@@ -191,23 +251,23 @@ cascata infinita.
                            camunda:decisionRef="recurso_eligibility"
                            camunda:mapDecisionResult="singleResult"
                            camunda:resultVariable="elegibilidade">
-      <bpmn:documentation>Saidas: roteamento in {RECORRIVEL, ANALISE_HUMANA}; grupo_revisor in {analista-recurso-glosa, medico-auditor}. Por design NAO existe saida NAO_RECORRIVEL/NEGAR (L0 hard). Glosa tecnica/clinica -> medico-auditor (humano decide o merito). Catch-all -> ANALISE_HUMANA.</bpmn:documentation>
+      <bpmn:documentation>Saidas: roteamento in {SEGUE_MERITO, ANALISE_HUMANA}; grupo_revisor in {analista-recurso-glosa, medico-auditor}. Por design NAO existe saida de INDEFERIMENTO (L0 hard). Glosa tecnica/clinica -> medico-auditor (humano decide o merito). Catch-all -> ANALISE_HUMANA.</bpmn:documentation>
       <bpmn:incoming>Flow_GW_SegueAnalise</bpmn:incoming>
       <bpmn:outgoing>Flow_Eligibility_Sla</bpmn:outgoing>
     </bpmn:businessRuleTask>
 
-    <!-- DMN: SLA de analise do recurso. CONVERGE TODAS as rotas que alcancam a User Task humana
+    <!-- DMN: SLA de resposta ao recurso. CONVERGE TODAS as rotas que alcancam a User Task humana
          (espelha BRT_CancelSla de SP-OP-CANCEL-001): resolve resultVariable="sla" em TODO caminho
          que chega a UT_AnaliseRecursoAnalista ANTES da UT, garantindo que ${sla.sla_alerta} /
          ${sla.sla_analise} / ${sla.prazo_max_absoluto_iso} dos boundary timers sejam sempre
          resolviveis no engine (CIB Seven 2.1.0 lanca "Cannot resolve identifier" se 'sla' nao
          estiver setado). GAP-RECURSO-1: alem das duracoes relativas, recurso_sla computa o teto
-         ABSOLUTO prazo_max_absoluto_iso = ancora regulatoria (data_recebimento_recurso_iso;
-         fail-safe data_ciencia_glosa) + P30D em FEEL — consumido via timeDate pelos tres
-         boundary de teto (mesmo instante de relogio em todas as UTs humanas). -->
+         ABSOLUTO prazo_max_absoluto_iso = ancora (data_recebimento_recurso_iso, normalizada por
+         ST_ValidarRecurso) + P30D em FEEL — consumido via timeDate pelos tres boundary de teto
+         (mesmo instante de relogio em todas as UTs humanas). -->
     <!-- prazo_regulatorio (duracao relativa legada) permanece como saida da DMN para relatorios/
          observabilidade, mas NAO alimenta mais nenhum timerEventDefinition. -->
-    <bpmn:businessRuleTask id="BRT_Sla" name="Determinar SLA de analise do recurso (DMN recurso_sla)"
+    <bpmn:businessRuleTask id="BRT_Sla" name="Determinar SLA de resposta ao recurso (DMN recurso_sla)"
                            camunda:decisionRef="recurso_sla"
                            camunda:mapDecisionResult="singleResult"
                            camunda:resultVariable="sla">
@@ -220,36 +280,34 @@ cascata infinita.
     <!-- Dossie de Marina (A2A recurso.analyze): instrui a decisao humana, nunca a substitui -->
     <bpmn:serviceTask id="ST_PrepararDossie" name="Preparar dossie do recurso (agente Marina)"
                       camunda:type="external" camunda:topic="operadora.recurso.analyze_request">
-      <bpmn:documentation>Convoca Marina via A2A (recurso.analyze): recomendacao estruturada + evidencias + regras DMN avaliadas. O dossie INSTRUI a decisao humana, nunca a substitui (principio Rafael, ADR-0005). O medico-auditor decide o merito tecnico/clinico.</bpmn:documentation>
+      <bpmn:documentation>Convoca Marina via A2A (recurso.analyze): dossie factual estruturado + evidencias + regras DMN avaliadas. O dossie INSTRUI a decisao humana, nunca a substitui (principio Rafael, ADR-0005). Marina nunca redige a fundamentacao da resposta. O medico-auditor decide o merito tecnico/clinico.</bpmn:documentation>
       <bpmn:incoming>Flow_Sla_Dossie</bpmn:incoming>
       <bpmn:outgoing>Flow_Dossie_UTAnalista</bpmn:outgoing>
     </bpmn:serviceTask>
 
-    <!-- GAP-RECURSO-3: boundary de validacao de origem em ST_PrepararDossie (primeiro touchpoint
-         de RECURSO nos ramos SEGUE_ANALISE/ANALISE_HUMANA, apos BRT_Sla). Mainline: erro
-         nao-capturado encerraria o escopo silenciosamente (espelha GAP-CRED-1/GAP-CANCEL-3). -->
+    <!-- GAP-RECURSO-3: boundary de validacao de origem em ST_PrepararDossie (touchpoint dos
+         ramos SEGUE_ANALISE/ANALISE_HUMANA, apos BRT_Sla). Mainline: erro nao-capturado
+         encerraria o escopo silenciosamente (espelha GAP-CRED-1/GAP-CANCEL-3). -->
     <bpmn:boundaryEvent id="BE_GlosaInvalidaDossie" name="Glosa invalida na origem (ERR_RECURSO_INVALID_GLOSA)" attachedToRef="ST_PrepararDossie">
       <bpmn:outgoing>Flow_GlosaInvalidaDossie_End</bpmn:outgoing>
       <bpmn:errorEventDefinition id="EED_GlosaInvalidaDossie" errorRef="Error_RecursoGlosaInvalida"/>
     </bpmn:boundaryEvent>
 
     <!-- GAP-RECURSO-3 (dangling-catch fix, verifier finding #136): terminal NEUTRO compartilhado
-         (fail-safe, NAO adverso) para AMBOS os boundary catches de origem-invalida
-         (BE_GlosaInvalidaDocs / BE_GlosaInvalidaDossie — mesmo defeito TECNICO, glosa_id
-         ausente/vazio, em ramos distintos). Espelha End_CredPrestadorInvalido (SP-OP-CRED-001,
-         GAP-CRED-1, #96) e End_ManterNaoConfirmado (SP-OP-CANCEL-001, GAP-CANCEL-3): os workers
-         analyze_request/request_documents NUNCA decidem negar o recurso — so sinalizam a
-         inconsistencia de origem (worker RECUSA prosseguir, nao decide merito). ANTES deste fix,
-         os dois boundary events declaravam <outgoing> para Flow_GlosaInvalidaDocs_End /
-         Flow_GlosaInvalidaDossie_End sem NENHUM sequenceFlow/endEvent real correspondente no
-         documento — se o erro disparasse, o catch nao tinha rota: o token morria SILENCIOSAMENTE
-         (nenhum end event no historico do engine, sem incidente visivel). Terminal tecnico limpo e
-         VISIVEL agora fecha esse buraco; nenhum efeito adverso automatico (ADR-0018). Alcancavel
-         ANTES de qualquer User Task humana (primeiro touchpoint de RECURSO em cada ramo) — por
-         design NEUTRO, nao ADVERSE: nao ha decisao de negar/desistir aqui, so a confirmacao de que
-         o dado de origem chegou invalido (mesma classe tecnica pre-UT de End_CredPrestadorInvalido). -->
+         (fail-safe, NAO adverso) para os TRES boundary catches de origem-invalida
+         (BE_GlosaInvalidaValidacao / BE_GlosaInvalidaDocs / BE_GlosaInvalidaDossie — mesmo defeito
+         TECNICO, glosa_id ausente/vazio, em ramos distintos). Espelha End_CredPrestadorInvalido
+         (SP-OP-CRED-001, GAP-CRED-1, #96) e End_ManterNaoConfirmado (SP-OP-CANCEL-001,
+         GAP-CANCEL-3): os workers validate_recurso/request_documents/analyze_request NUNCA decidem
+         indeferir o recurso — so sinalizam a inconsistencia de origem (worker RECUSA prosseguir,
+         nao decide merito). Terminal tecnico limpo e VISIVEL; nenhum efeito adverso automatico
+         (ADR-0018). Alcancavel ANTES de qualquer User Task humana (primeiro touchpoint de RECURSO
+         em cada ramo) — por design NEUTRO, nao ADVERSE: nao ha decisao de indeferir aqui, so a
+         confirmacao de que o dado de origem chegou invalido (mesma classe tecnica pre-UT de
+         End_CredPrestadorInvalido). -->
     <bpmn:endEvent id="End_RecursoGlosaInvalidaOrigem" name="Identificador de glosa inconsistente na origem — validacao barrou (fail-safe, nao adverso)">
-      <bpmn:documentation>Terminal NEUTRO (guard TECNICO, GAP-RECURSO-3): os workers analyze_request/request_documents RECUSARAM prosseguir porque `glosa_id` chegou ausente/vazio nas variaveis de processo (ERR_RECURSO_INVALID_GLOSA) — defeito TECNICO de integracao/origem, distinto do FATO DE NEGOCIO `glosa_existe` (que roteia a ANALISE_HUMANA via DMN recurso_admissibility, nunca erro). NENHUM desfecho de merito ocorreu: nem recurso interposto, nem glosa mantida, nem inadmissao. Alcancavel a partir de BE_GlosaInvalidaDocs (ST_SolicitarDocumentos, ramo PENDENTE_DOCUMENTACAO) OU BE_GlosaInvalidaDossie (ST_PrepararDossie, ramos SEGUE_ANALISE/ANALISE_HUMANA) — mesmo terminal compartilhado para a mesma classe de defeito. Espelha End_CredPrestadorInvalido (SP-OP-CRED-001, GAP-CRED-1) e End_ManterNaoConfirmado (SP-OP-CANCEL-001, GAP-CANCEL-3).</bpmn:documentation>
+      <bpmn:documentation>Terminal NEUTRO (guard TECNICO, GAP-RECURSO-3): os workers validate_recurso/request_documents/analyze_request RECUSARAM prosseguir porque `glosa_id` chegou ausente/vazio nas variaveis de processo (ERR_RECURSO_INVALID_GLOSA) — defeito TECNICO de integracao/origem, distinto do FATO DE NEGOCIO `glosa_existe` (que roteia a ANALISE_HUMANA via DMN recurso_admissibility, nunca erro). NENHUM desfecho de merito ocorreu: nem deferimento, nem indeferimento, nem inadmissao. Alcancavel a partir de BE_GlosaInvalidaValidacao (ST_ValidarRecurso, intake de TODO caminho), BE_GlosaInvalidaDocs (ST_SolicitarDocumentos, ramo PENDENTE_DOCUMENTACAO) OU BE_GlosaInvalidaDossie (ST_PrepararDossie, ramos SEGUE_ANALISE/ANALISE_HUMANA) — mesmo terminal compartilhado para a mesma classe de defeito. Espelha End_CredPrestadorInvalido (SP-OP-CRED-001, GAP-CRED-1) e End_ManterNaoConfirmado (SP-OP-CANCEL-001, GAP-CANCEL-3).</bpmn:documentation>
+      <bpmn:incoming>Flow_GlosaInvalidaValidacao_End</bpmn:incoming>
       <bpmn:incoming>Flow_GlosaInvalidaDocs_End</bpmn:incoming>
       <bpmn:incoming>Flow_GlosaInvalidaDossie_End</bpmn:incoming>
     </bpmn:endEvent>
@@ -257,13 +315,19 @@ cascata infinita.
     <bpmn:userTask id="UT_AnaliseRecursoAnalista" name="Analise do analista de recurso de glosa"
                    camunda:candidateGroups="analista-recurso-glosa">
       <bpmn:documentation><![CDATA[
-HITL L0 hard (ADR-0005): UNICA origem de decisao_recurso; NAO_RECORRER (manter glosa) so nasce
-aqui. Saidas: decisao_recurso in {RECORRER, NAO_RECORRER, SOLICITAR_INFO, ESCALAR_AUDITOR}.
-NAO_RECORRER exige justificativa_desistencia, valor_glosa_aceito, referencia_contratual e
-analista_id (campos obrigatorios — validacao de formulario + guard do worker register_desistencia,
-ERR_DESISTENCIA_NOT_HUMAN). ESCALAR_AUDITOR roteia ao medico auditor (merito tecnico/clinico).
-SLA: `sla.sla_analise` (DMN recurso_sla; RN 424 — valores DRAFT/verify). A decisao sai em nome do
-analista (analista_id na trilha de auditoria, ADR-0007).
+HITL L0 hard (ADR-0005): UNICA origem primaria de decisao_recurso; o INDEFERIMENTO (manter a glosa
+contra o prestador) e o DEFERIMENTO PARCIAL (manter parte dela) so nascem aqui, na coordenacao ou
+no medico auditor. Saidas: decisao_recurso in {DEFERIR, DEFERIR_PARCIAL, INDEFERIR, SOLICITAR_INFO,
+ESCALAR_AUDITOR}.
+INDEFERIR exige fundamentacao_indeferimento, valor_glosa_mantido_brl, referencia_contratual e
+analista_id (campos obrigatorios — validacao de formulario + guard do worker
+registrar_indeferimento, ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN).
+DEFERIR_PARCIAL exige os mesmos campos MAIS valor_deferido_brl.
+DEFERIR exige valor_deferido_brl + analista_id (nao e adverso; o valor alimenta a ordem de
+pagamento da glosa revertida a SP-OP-PAGTO-001, que tem escada de alcada propria).
+ESCALAR_AUDITOR roteia ao medico auditor (merito tecnico/clinico).
+SLA: `sla.sla_analise` (DMN recurso_sla; prazo contratual de resposta — DRAFT/verify). A decisao
+sai em nome do analista (analista_id na trilha de auditoria, ADR-0007).
 ]]></bpmn:documentation>
       <bpmn:incoming>Flow_Dossie_UTAnalista</bpmn:incoming>
       <bpmn:outgoing>Flow_UTAnalista_GW</bpmn:outgoing>
@@ -285,9 +349,9 @@ analista (analista_id na trilha de auditoria, ADR-0007).
       <bpmn:incoming>Flow_Notify_EndAlerta</bpmn:incoming>
     </bpmn:endEvent>
 
-    <!-- Timer interruptivo: SLA de analise estourado -> coordenacao humana assume (NUNCA auto-desiste;
-         inversao do Task_AutoApprove/48h do reference) -->
-    <bpmn:boundaryEvent id="BT_SlaAnaliseRecurso" name="SLA de analise do recurso (RN 424 — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_AnaliseRecursoAnalista">
+    <!-- Timer interruptivo: SLA de resposta estourado -> coordenacao humana assume (NUNCA
+         auto-indefere; inversao do Task_AutoApprove/48h do reference) -->
+    <bpmn:boundaryEvent id="BT_SlaAnaliseRecurso" name="SLA de resposta ao recurso (prazo contratual + RN 501/2022 — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_AnaliseRecursoAnalista">
       <bpmn:outgoing>Flow_SlaEstourado_Pub</bpmn:outgoing>
       <bpmn:timerEventDefinition id="TD_SlaAnaliseRecurso">
         <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_analise}</bpmn:timeDuration>
@@ -307,16 +371,15 @@ analista (analista_id na trilha de auditoria, ADR-0007).
     </bpmn:serviceTask>
     <bpmn:userTask id="UT_CoordenacaoRecursoAssume" name="Coordenacao de recurso assume a analise"
                    camunda:candidateGroups="coordenacao-recurso">
-      <bpmn:documentation>Escalation path do SLA: caso reatribuido a coordenacao. Mesmas saidas e mesmos campos obrigatorios da analise do analista (decisao continua HUMANA — nunca auto-desistencia por timeout, inversao do Task_AutoApprove/48h do reference). Pode decidir decisao_recurso in {RECORRER, NAO_RECORRER, SOLICITAR_INFO, ESCALAR_AUDITOR} ou inadmissibilidade humana (decisao_recurso=NAO_RECORRER com desfecho_humano=inadmissivel) — sempre com campos obrigatorios. Protegida pelo mesmo teto regulatorio ABSOLUTO BT_PrazoMaxCoord (GAP-RECURSO-1): a interrupcao de BT_SlaAnaliseRecurso mata o BT_PrazoMaxRecurso da UT anterior (boundary events morrem com a activity que cancelam), entao o teto e reanexado aqui — com o MESMO instante absoluto `sla.prazo_max_absoluto_iso`, nunca uma janela nova.</bpmn:documentation>
+      <bpmn:documentation>Escalation path do SLA: caso reatribuido a coordenacao. Mesmas saidas e mesmos campos obrigatorios da analise do analista (decisao continua HUMANA — nunca auto-indeferimento por timeout, inversao do Task_AutoApprove/48h do reference). Pode decidir decisao_recurso in {DEFERIR, DEFERIR_PARCIAL, INDEFERIR, SOLICITAR_INFO, ESCALAR_AUDITOR} ou a inadmissibilidade humana (decisao_recurso=INDEFERIR com desfecho_humano=inadmissivel) — sempre com campos obrigatorios. Protegida pelo mesmo teto ABSOLUTO BT_PrazoMaxCoord (GAP-RECURSO-1): a interrupcao de BT_SlaAnaliseRecurso mata o BT_PrazoMaxRecurso da UT anterior (boundary events morrem com a activity que cancelam), entao o teto e reanexado aqui — com o MESMO instante absoluto `sla.prazo_max_absoluto_iso`, nunca uma janela nova.</bpmn:documentation>
       <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
-      <bpmn:incoming>Flow_LoopExcedido_UTCoord</bpmn:incoming>
       <bpmn:outgoing>Flow_UTCoord_GW</bpmn:outgoing>
     </bpmn:userTask>
 
-    <!-- Boundary nao-interruptivo: prazo maximo regulatorio do recurso -> escalonamento HUMANO.
-         GAP-RECURSO-1: o teto P30D (RN 424) e UMA UNICA JANELA ABSOLUTA por recurso —
-         `timeDate ${sla.prazo_max_absoluto_iso}` (DMN recurso_sla: ancora regulatoria
-         data_recebimento_recurso_iso, fail-safe data_ciencia_glosa, + P30D), NUNCA
+    <!-- Boundary nao-interruptivo: prazo maximo de resposta ao recurso -> escalonamento HUMANO.
+         GAP-RECURSO-1: o teto P30D (prazo contratual — DRAFT/verify) e UMA UNICA JANELA ABSOLUTA
+         por recurso — `timeDate ${sla.prazo_max_absoluto_iso}` (DMN recurso_sla: ancora
+         data_recebimento_recurso_iso normalizada por ST_ValidarRecurso, + P30D), NUNCA
          `timeDuration` relativo ao attach da UT (que reiniciaria a janela a cada escalada:
          analista -> coordenacao -> auditor triplicaria o teto). O boundary original so em
          UT_AnaliseRecursoAnalista NAO sobrevive a cancelamento (BT_SlaAnaliseRecurso e
@@ -330,26 +393,26 @@ analista (analista_id na trilha de auditoria, ADR-0007).
          auto-reproduziria UT_EscalonamentoPrazo em loop infinito (cascata de escalonamentos).
          `sla` e resolvido por BRT_Sla antes de QUALQUER caminho que alcance estas UTs
          (convergencia documentada acima) — resolvivel no engine em todo caminho (ENGINE-16004);
-         a ancora fail-safe data_ciencia_glosa e variavel obrigatoria do contrato. Ancora+P30D no
-         passado (recurso antigo reprocessado) => boundary nao-interruptivo dispara imediatamente
-         ao attach — correto: o teto de fato ja estourou; nunca mascarar estouro real. -->
-    <bpmn:boundaryEvent id="BT_PrazoMaxRecurso" name="Prazo maximo do recurso (P30D RN 424 — DRAFT/verify)" cancelActivity="false" attachedToRef="UT_AnaliseRecursoAnalista">
-      <bpmn:documentation>GAP-RECURSO-1: timeDate ABSOLUTO (nao mais timeDuration relativo ao attach). `sla.prazo_max_absoluto_iso` = ancora regulatoria (data_recebimento_recurso_iso; fail-safe data_ciencia_glosa) + P30D, computado por BRT_Sla (DMN recurso_sla). Mesmo instante de BT_PrazoMaxCoord / BT_PrazoMaxAuditor.</bpmn:documentation>
+         a ancora e garantida nao-nula pelo intake (ST_ValidarRecurso). Ancora+P30D no passado
+         (recurso antigo reprocessado) => boundary nao-interruptivo dispara imediatamente ao attach
+         — correto: o teto de fato ja estourou; nunca mascarar estouro real. -->
+    <bpmn:boundaryEvent id="BT_PrazoMaxRecurso" name="Prazo maximo de resposta ao recurso (P30D — prazo contratual, DRAFT/verify)" cancelActivity="false" attachedToRef="UT_AnaliseRecursoAnalista">
+      <bpmn:documentation>GAP-RECURSO-1: timeDate ABSOLUTO (nao mais timeDuration relativo ao attach). `sla.prazo_max_absoluto_iso` = ancora (data_recebimento_recurso_iso, normalizada por ST_ValidarRecurso) + P30D, computado por BRT_Sla (DMN recurso_sla). Mesmo instante de BT_PrazoMaxCoord / BT_PrazoMaxAuditor.</bpmn:documentation>
       <bpmn:outgoing>Flow_PrazoMax_Escalate</bpmn:outgoing>
       <bpmn:timerEventDefinition id="TD_PrazoMaxRecurso">
         <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${sla.prazo_max_absoluto_iso}</bpmn:timeDate>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
-    <bpmn:boundaryEvent id="BT_PrazoMaxCoord" name="Prazo maximo do recurso (P30D RN 424 — DRAFT/verify, coordenacao)" cancelActivity="false" attachedToRef="UT_CoordenacaoRecursoAssume">
-      <bpmn:documentation>Mesmo teto regulatorio ABSOLUTO de BT_PrazoMaxRecurso (timeDate `sla.prazo_max_absoluto_iso` — mesmo instante de relogio, nunca janela nova), reanexado apos o cancelamento interruptivo de BT_SlaAnaliseRecurso ter matado o boundary original junto com UT_AnaliseRecursoAnalista (GAP-RECURSO-1). Mesmo alvo: ST_EscalateAnsTimeout -> UT_EscalonamentoPrazo.</bpmn:documentation>
+    <bpmn:boundaryEvent id="BT_PrazoMaxCoord" name="Prazo maximo de resposta ao recurso (P30D — prazo contratual, DRAFT/verify, coordenacao)" cancelActivity="false" attachedToRef="UT_CoordenacaoRecursoAssume">
+      <bpmn:documentation>Mesmo teto ABSOLUTO de BT_PrazoMaxRecurso (timeDate `sla.prazo_max_absoluto_iso` — mesmo instante de relogio, nunca janela nova), reanexado apos o cancelamento interruptivo de BT_SlaAnaliseRecurso ter matado o boundary original junto com UT_AnaliseRecursoAnalista (GAP-RECURSO-1). Mesmo alvo: ST_EscalateAnsTimeout -> UT_EscalonamentoPrazo.</bpmn:documentation>
       <bpmn:outgoing>Flow_PrazoMaxCoord_Escalate</bpmn:outgoing>
       <bpmn:timerEventDefinition id="TD_PrazoMaxCoord">
         <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${sla.prazo_max_absoluto_iso}</bpmn:timeDate>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
-    <bpmn:serviceTask id="ST_EscalateAnsTimeout" name="Escalonar estouro do prazo maximo (ANS)"
+    <bpmn:serviceTask id="ST_EscalateAnsTimeout" name="Escalonar estouro do prazo maximo (coordenacao)"
                       camunda:type="external" camunda:topic="operadora.recurso.escalate_ans_timeout">
-      <bpmn:documentation>Publica recurso.sla_breached (fase=prazo_max) e abre escalonamento humano. NUNCA auto-desfecho adverso por prazo — a decisao continua humana. Alvo comum de TODOS os boundary events de teto regulatorio (BT_PrazoMaxRecurso / BT_PrazoMaxCoord / BT_PrazoMaxAuditor — GAP-RECURSO-1, todos timeDate no MESMO instante absoluto `sla.prazo_max_absoluto_iso`): mesmo escalonamento independente de qual UT humana segurava o recurso quando o teto estourou.</bpmn:documentation>
+      <bpmn:documentation>Publica recurso.sla_breached (fase=prazo_max) e abre escalonamento humano. NUNCA auto-desfecho adverso por prazo — a decisao continua humana. Alvo comum de TODOS os boundary events de teto (BT_PrazoMaxRecurso / BT_PrazoMaxCoord / BT_PrazoMaxAuditor — GAP-RECURSO-1, todos timeDate no MESMO instante absoluto `sla.prazo_max_absoluto_iso`): mesmo escalonamento independente de qual UT humana segurava o recurso quando o teto estourou. O nome do topico e historico — o worker documenta que NAO e uma integracao com gateway ANS.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic_breach">agents.events.recurso.sla_breached</camunda:inputParameter>
@@ -360,22 +423,24 @@ analista (analista_id na trilha de auditoria, ADR-0007).
       <bpmn:incoming>Flow_PrazoMaxAuditor_Escalate</bpmn:incoming>
       <bpmn:outgoing>Flow_Escalate_UTEscalonamento</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:userTask id="UT_EscalonamentoPrazo" name="Escalonamento do prazo maximo do recurso"
+    <bpmn:userTask id="UT_EscalonamentoPrazo" name="Escalonamento do prazo maximo de resposta"
                    camunda:candidateGroups="coordenacao-recurso">
-      <bpmn:documentation>Estouro do prazo maximo regulatorio (RN 424 — DRAFT/verify). A coordenacao humana decide o destino — escalonamento humano, nunca auto-desfecho adverso por prazo. Saidas: decisao_recurso in {RECORRER, NAO_RECORRER, SOLICITAR_INFO, ESCALAR_AUDITOR} com campos obrigatorios; inadmissibilidade por prazo e SEMPRE humana (End_RecursoInadmissivel humano-gated). SEM boundary de teto proprio (GAP-RECURSO-1): esta UT e o alvo POS-ESTOURO do teto absoluto — reanexar o mesmo timeDate aqui insta-dispararia ao attach (instante ja passado) e auto-reproduziria esta UT em cascata infinita.</bpmn:documentation>
+      <bpmn:documentation>Estouro do prazo maximo de resposta ao recurso (prazo contratual — DRAFT/verify). A coordenacao humana decide o destino — escalonamento humano, NUNCA auto-desfecho adverso por prazo. Saidas: decisao_recurso in {DEFERIR, DEFERIR_PARCIAL, INDEFERIR, SOLICITAR_INFO, ESCALAR_AUDITOR} com os mesmos campos obrigatorios da analise do analista; a INADMISSIBILIDADE por prazo e SEMPRE humana (decisao_recurso=INDEFERIR com desfecho_humano=inadmissivel -> End_RecursoInadmissivel, humano-gated). SEM boundary de teto proprio (GAP-RECURSO-1): esta UT e o alvo POS-ESTOURO do teto absoluto — reanexar o mesmo timeDate aqui insta-dispararia ao attach (instante ja passado) e auto-reproduziria esta UT em cascata infinita.</bpmn:documentation>
       <bpmn:incoming>Flow_Escalate_UTEscalonamento</bpmn:incoming>
       <bpmn:outgoing>Flow_UTEscalonamento_GW</bpmn:outgoing>
     </bpmn:userTask>
 
-    <bpmn:exclusiveGateway id="GW_DecisaoRecurso" name="Decisao do recurso (humana)" default="Flow_GWDec_Recorrer">
+    <bpmn:exclusiveGateway id="GW_DecisaoRecurso" name="Decisao do recurso (humana)" default="Flow_GWDec_Invalida">
       <bpmn:incoming>Flow_UTAnalista_GW</bpmn:incoming>
       <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
       <bpmn:incoming>Flow_UTEscalonamento_GW</bpmn:incoming>
-      <bpmn:outgoing>Flow_GWDec_Recorrer</bpmn:outgoing>
-      <bpmn:outgoing>Flow_GWDec_NaoRecorrer</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Deferir</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_DeferirParcial</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Indeferir</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_Inadmissivel</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_SolicitarInfo</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_Escalar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Invalida</bpmn:outgoing>
     </bpmn:exclusiveGateway>
 
     <!-- Ramo ESCALAR_AUDITOR: medico auditor decide o merito tecnico/clinico (humano) -->
@@ -383,222 +448,233 @@ analista (analista_id na trilha de auditoria, ADR-0007).
                    camunda:candidateGroups="medico-auditor">
       <bpmn:documentation><![CDATA[
 HITL L0 hard: o medico auditor decide o merito tecnico/clinico do recurso (espelha JUNTA_MEDICA de
-AUTH). Saidas: decisao_auditor_recurso in {MANTER_RECURSO, ACEITAR_GLOSA, RECURSO_PARCIAL} + parecer_auditor.
-MANTER_RECURSO / RECURSO_PARCIAL -> interpoe o recurso. ACEITAR_GLOSA (manter a glosa contra o
-prestador) e o caminho adverso humano -> register_desistencia (guard ERR_DESISTENCIA_NOT_HUMAN) ->
-End_GlosaMantida; exige justificativa_desistencia + valor_glosa_aceito + referencia_contratual +
-auditor_id. auditor_id na trilha de auditoria (ADR-0007).
+AUTH). Saidas: decisao_auditor_recurso in {DEFERIR, DEFERIR_PARCIAL, INDEFERIR} + parecer_auditor.
+INDEFERIR (manter integralmente a glosa contra o prestador) e DEFERIR_PARCIAL (manter parte) sao os
+caminhos adversos humanos -> registrar_indeferimento (guard ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN) ->
+End_RecursoIndeferidoAuditor / End_RecursoDeferidoParcial; exigem fundamentacao_indeferimento +
+valor_glosa_mantido_brl + referencia_contratual + auditor_id (e valor_deferido_brl no parcial).
+auditor_id na trilha de auditoria (ADR-0007).
+RN 424/2017 (junta medica/odontologica) e a norma aplicavel APENAS se instaurada junta para dirimir
+a divergencia tecnico-assistencial — DRAFT/verify com medico-auditor + juridico. Ela NAO rege o
+prazo de resposta ao recurso (docs/compliance/rn-currency-review.md:87, 190-193).
 ]]></bpmn:documentation>
       <bpmn:incoming>Flow_GWDec_Escalar</bpmn:incoming>
       <bpmn:outgoing>Flow_UTAuditor_GWMerito</bpmn:outgoing>
     </bpmn:userTask>
-    <bpmn:boundaryEvent id="BT_PrazoMaxAuditor" name="Prazo maximo do recurso (P30D RN 424 — DRAFT/verify, auditor)" cancelActivity="false" attachedToRef="UT_RevisaoAuditorMedico">
-      <bpmn:documentation>Mesmo teto regulatorio ABSOLUTO de BT_PrazoMaxRecurso (timeDate `sla.prazo_max_absoluto_iso` — mesmo instante de relogio, nunca janela nova), reanexado porque ESCALAR_AUDITOR roteia para UT_RevisaoAuditorMedico sem boundary de teto proprio (GAP-RECURSO-1). Mesmo alvo: ST_EscalateAnsTimeout -> UT_EscalonamentoPrazo.</bpmn:documentation>
+    <bpmn:boundaryEvent id="BT_PrazoMaxAuditor" name="Prazo maximo de resposta ao recurso (P30D — prazo contratual, DRAFT/verify, auditor)" cancelActivity="false" attachedToRef="UT_RevisaoAuditorMedico">
+      <bpmn:documentation>Mesmo teto ABSOLUTO de BT_PrazoMaxRecurso (timeDate `sla.prazo_max_absoluto_iso` — mesmo instante de relogio, nunca janela nova), reanexado porque ESCALAR_AUDITOR roteia para UT_RevisaoAuditorMedico sem boundary de teto proprio (GAP-RECURSO-1). Mesmo alvo: ST_EscalateAnsTimeout -> UT_EscalonamentoPrazo.</bpmn:documentation>
       <bpmn:outgoing>Flow_PrazoMaxAuditor_Escalate</bpmn:outgoing>
       <bpmn:timerEventDefinition id="TD_PrazoMaxAuditor">
         <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${sla.prazo_max_absoluto_iso}</bpmn:timeDate>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
-    <bpmn:exclusiveGateway id="GW_MeritoAuditor" name="Merito do auditor" default="Flow_GWMerito_Manter">
+    <bpmn:exclusiveGateway id="GW_MeritoAuditor" name="Merito do auditor" default="Flow_GWMerito_Invalida">
       <bpmn:incoming>Flow_UTAuditor_GWMerito</bpmn:incoming>
-      <bpmn:outgoing>Flow_GWMerito_Manter</bpmn:outgoing>
-      <bpmn:outgoing>Flow_GWMerito_AceitarGlosa</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWMerito_Deferir</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWMerito_DeferirParcial</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWMerito_Indeferir</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWMerito_Invalida</bpmn:outgoing>
     </bpmn:exclusiveGateway>
 
-    <!-- Ramo RECORRER: interpoe o recurso e entra no loop de acompanhamento (neutro) -->
-    <bpmn:serviceTask id="ST_SubmitAppeal" name="Interpor recurso a operadora (TISS)"
-                      camunda:type="external" camunda:topic="operadora.recurso.submit_appeal">
-      <bpmn:documentation>So apos UT_AnaliseRecursoAnalista com RECORRER (ou auditor MANTER_RECURSO/RECURSO_PARCIAL). Emite protocolo_recurso. Sem efeito adverso. TASY write DROP (ADR-0013). Inicializa loop_counter=0 (unica entrada do loop de acompanhamento) para que `loop_counter + 1` em ST_TrackStatus e `loop_counter >= 6` em GW_LoopLimite sejam sempre resolviveis no engine (CIB Seven 2.1.0 lanca "Cannot resolve identifier" em identificador indefinido).</bpmn:documentation>
+    <!-- Ramo DEFERIR (favoravel ao prestador — nao adverso): comunica a resposta e encaminha o
+         pagamento da glosa revertida a SP-OP-PAGTO-001 (I-PAGTO-1). -->
+    <bpmn:serviceTask id="ST_ComunicarDeferimento" name="Comunicar deferimento do recurso ao prestador"
+                      camunda:type="external" camunda:topic="operadora.recurso.comunicar_resposta">
+      <bpmn:documentation>Emite ao prestador a resposta ao recurso que ele apresentou (componente TISS "Resposta ao Recurso de Glosa" — nome PROPOSTO, DRAFT/verify OQ-1). Cunha `protocolo_resposta_recurso` deterministicamente pela business key (idempotente em re-entrega). Nao decide nada — a decisao ja foi humana.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
-          <camunda:outputParameter name="loop_counter">${0}</camunda:outputParameter>
+          <camunda:inputParameter name="tipo_comunicacao">deferimento</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_GWDec_Recorrer</bpmn:incoming>
-      <bpmn:incoming>Flow_GWMerito_Manter</bpmn:incoming>
-      <bpmn:outgoing>Flow_Submit_Wait</bpmn:outgoing>
+      <bpmn:incoming>Flow_GWDec_Deferir</bpmn:incoming>
+      <bpmn:incoming>Flow_GWMerito_Deferir</bpmn:incoming>
+      <bpmn:outgoing>Flow_ComunicarDeferimento_Handoff</bpmn:outgoing>
     </bpmn:serviceTask>
-
-    <!-- Corrida do loop TISS: resposta da operadora chega OU prazo P5D expira -> reexecuta track -->
-    <bpmn:eventBasedGateway id="GW_AguardarResposta" name="Aguardar resposta da operadora">
-      <bpmn:incoming>Flow_Submit_Wait</bpmn:incoming>
-      <bpmn:incoming>Flow_GWLoop_Continua</bpmn:incoming>
-      <bpmn:outgoing>Flow_Wait_RespostaMsg</bpmn:outgoing>
-      <bpmn:outgoing>Flow_Wait_LoopTimer</bpmn:outgoing>
-    </bpmn:eventBasedGateway>
-    <bpmn:intermediateCatchEvent id="ICE_RespostaRecebida" name="Resposta da operadora recebida">
-      <bpmn:incoming>Flow_Wait_RespostaMsg</bpmn:incoming>
-      <bpmn:outgoing>Flow_Resposta_GWResolvido</bpmn:outgoing>
-      <bpmn:messageEventDefinition id="MED_RespostaRecebida" messageRef="Msg_RecursoRespostaRecebida"/>
-    </bpmn:intermediateCatchEvent>
-    <bpmn:intermediateCatchEvent id="ICE_AguardarResposta" name="Aguardar resposta (P5D — loop TISS)">
-      <bpmn:incoming>Flow_Wait_LoopTimer</bpmn:incoming>
-      <bpmn:outgoing>Flow_LoopTimer_Track</bpmn:outgoing>
-      <bpmn:timerEventDefinition id="TD_AguardarResposta">
-        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P5D</bpmn:timeDuration>
-      </bpmn:timerEventDefinition>
-    </bpmn:intermediateCatchEvent>
-    <!-- Acompanha o status; incrementa loopCounter (limitado <6); ao exceder -> humano -->
-    <bpmn:serviceTask id="ST_TrackStatus" name="Acompanhar status do recurso interposto"
-                      camunda:type="external" camunda:topic="operadora.recurso.track_status">
-      <bpmn:documentation>Reexecutado dentro do loop do timer ICE_AguardarResposta. Incrementa loop_counter via output local. Sem efeito adverso; nunca auto-desfecho.</bpmn:documentation>
+    <bpmn:serviceTask id="ST_HandoffPagamentoRecurso" name="Encaminhar pagamento da glosa revertida (handoff SP-OP-PAGTO-001)"
+                      camunda:type="external" camunda:topic="operadora.recurso.handoff_pagamento">
+      <bpmn:documentation>Handoff NEUTRO: inicia SP-OP-PAGTO-001 (business key PAGTO-{tenant_id}-{numero_guia_tiss}-{glosa_id}, tipo_pagamento=glosa_revertida) pelo chokepoint start_process_idempotent (familia STRICT de dedup — exige DedupReportingAuditSink + HistoryQueryingTransport). INVARIANTE I-PAGTO-1 (ADR-0040): NUNCA semeia `lastro_confirmado`, `dados_pagamento_validos`, `duplicidade_suspeita` nem `dentro_teto_l2` — semeia `lastro_origem=recurso_deferimento_humano` e `lastro_decisor_id` (analista_id | auditor_id) como EVIDENCIA. Consequencia: pagto_admissibility le lastro_confirmado ausente => ANALISE_HUMANA => UT_AnaliseAdmissibilidade (coordenacao-financeira). Segregacao de funcoes: quem julga o recurso nao admite a ordem de pagamento.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
-          <camunda:outputParameter name="loop_counter">${loop_counter + 1}</camunda:outputParameter>
+          <camunda:inputParameter name="fonte_valor">deferido</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_LoopTimer_Track</bpmn:incoming>
-      <bpmn:outgoing>Flow_Track_GWLoop</bpmn:outgoing>
+      <bpmn:incoming>Flow_ComunicarDeferimento_Handoff</bpmn:incoming>
+      <bpmn:outgoing>Flow_Handoff_PubDeferido</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:exclusiveGateway id="GW_LoopLimite" name="Loop dentro do limite? (loop_counter &lt; 6)" default="Flow_GWLoop_Continua">
-      <bpmn:incoming>Flow_Track_GWLoop</bpmn:incoming>
-      <bpmn:outgoing>Flow_GWLoop_Excedido</bpmn:outgoing>
-      <bpmn:outgoing>Flow_GWLoop_Continua</bpmn:outgoing>
-    </bpmn:exclusiveGateway>
-
-    <bpmn:exclusiveGateway id="GW_RecursoResolvido" name="Resposta da operadora" default="Flow_GWResolvido_Indeferido">
-      <bpmn:incoming>Flow_Resposta_GWResolvido</bpmn:incoming>
-      <bpmn:outgoing>Flow_GWResolvido_Deferido</bpmn:outgoing>
-      <bpmn:outgoing>Flow_GWResolvido_Parcial</bpmn:outgoing>
-      <bpmn:outgoing>Flow_GWResolvido_Indeferido</bpmn:outgoing>
-    </bpmn:exclusiveGateway>
-
-    <!-- Deferido: concilia re-pagamento ao prestador (neutro) -->
-    <bpmn:serviceTask id="ST_ReconcilePaymentDeferido" name="Conciliar re-pagamento ao prestador (deferido)"
-                      camunda:type="external" camunda:topic="operadora.recurso.reconcile_payment">
-      <bpmn:documentation>Concilia o re-pagamento ao prestador no deferimento (port update_payment). TASY write DROP (ADR-0013). Sem efeito adverso.</bpmn:documentation>
-      <bpmn:incoming>Flow_GWResolvido_Deferido</bpmn:incoming>
-      <bpmn:outgoing>Flow_Deferido_Pub</bpmn:outgoing>
-    </bpmn:serviceTask>
-    <bpmn:serviceTask id="ST_PublishDeferido" name="Publicar evento: recurso.completed (deferido)"
+    <bpmn:serviceTask id="ST_PublishDeferido" name="Publicar evento: recurso.completed (deferido_humano)"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.recurso.completed</camunda:inputParameter>
-          <camunda:inputParameter name="event_desfecho">deferido</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,protocolo_recurso</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">deferido_humano</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,protocolo_resposta_recurso,analista_id,auditor_id</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_Deferido_Pub</bpmn:incoming>
+      <bpmn:incoming>Flow_Handoff_PubDeferido</bpmn:incoming>
       <bpmn:outgoing>Flow_PubDeferido_End</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:endEvent id="End_RecursoDeferido" name="Recurso deferido (re-pagamento conciliado)">
+    <bpmn:endEvent id="End_RecursoDeferido" name="Recurso deferido (decisao humana — glosa revertida)">
       <bpmn:incoming>Flow_PubDeferido_End</bpmn:incoming>
     </bpmn:endEvent>
 
-    <!-- Parcialmente deferido: conciliacao parcial (neutro) -->
-    <bpmn:serviceTask id="ST_ReconcilePaymentParcial" name="Conciliar re-pagamento parcial ao prestador"
-                      camunda:type="external" camunda:topic="operadora.recurso.reconcile_payment">
-      <bpmn:documentation>Conciliacao parcial no deferimento parcial (port update_payment). Sem efeito adverso.</bpmn:documentation>
-      <bpmn:incoming>Flow_GWResolvido_Parcial</bpmn:incoming>
-      <bpmn:outgoing>Flow_Parcial_Pub</bpmn:outgoing>
+    <!-- Ramo DEFERIR_PARCIAL: L0 hard (reducao adversa — parte da glosa e MANTIDA contra o
+         prestador). Gated por worker, comunicado, e a parte revertida vira ordem de pagamento. -->
+    <bpmn:serviceTask id="ST_RegistrarIndeferimentoParcial" name="Registrar deferimento parcial (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.recurso.registrar_indeferimento">
+      <bpmn:documentation>HARD GUARDRAIL (L0 hard, ADR-0005): o worker RECUSA registrar o deferimento parcial (que MANTEM parte da glosa contra o prestador) se decisao_recurso/decisao_auditor_recurso != DEFERIR_PARCIAL setado por humano, ou se faltar fundamentacao_indeferimento/valor_glosa_mantido_brl/referencia_contratual/valor_deferido_brl/identidade do decisor — lanca ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN. Classe L0 por espelhar End_ReembolsoParcial ("reducao adversa", SP-OP-REEMBOLSO-001) — confirmacao para prestador: OQ-8, DRAFT/verify. NUNCA decide; so registra decisao humana ja tomada.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_DeferirParcial</bpmn:incoming>
+      <bpmn:incoming>Flow_GWMerito_DeferirParcial</bpmn:incoming>
+      <bpmn:outgoing>Flow_RegParcial_Comunicar</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:serviceTask id="ST_PublishParcial" name="Publicar evento: recurso.completed (parcialmente_deferido)"
+    <bpmn:serviceTask id="ST_ComunicarDeferimentoParcial" name="Comunicar deferimento parcial ao prestador"
+                      camunda:type="external" camunda:topic="operadora.recurso.comunicar_resposta">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="tipo_comunicacao">deferimento_parcial</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_RegParcial_Comunicar</bpmn:incoming>
+      <bpmn:outgoing>Flow_ComunicarParcial_Handoff</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_HandoffPagamentoParcial" name="Encaminhar pagamento da parcela revertida (handoff SP-OP-PAGTO-001)"
+                      camunda:type="external" camunda:topic="operadora.recurso.handoff_pagamento">
+      <bpmn:documentation>Mesmo handoff de ST_HandoffPagamentoRecurso (I-PAGTO-1, familia STRICT) para a PARCELA revertida: `fonte_valor=deferido` -> `valor_deferido_brl`.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="fonte_valor">deferido</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_ComunicarParcial_Handoff</bpmn:incoming>
+      <bpmn:outgoing>Flow_HandoffParcial_PubParcial</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishParcial" name="Publicar evento: recurso.completed (deferido_parcial_humano)"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.recurso.completed</camunda:inputParameter>
-          <camunda:inputParameter name="event_desfecho">parcialmente_deferido</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,protocolo_recurso</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">deferido_parcial_humano</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,protocolo_resposta_recurso,analista_id,auditor_id</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_Parcial_Pub</bpmn:incoming>
+      <bpmn:incoming>Flow_HandoffParcial_PubParcial</bpmn:incoming>
       <bpmn:outgoing>Flow_PubParcial_End</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:endEvent id="End_RecursoParcial" name="Recurso parcialmente deferido (conciliacao parcial)">
+    <bpmn:endEvent id="End_RecursoDeferidoParcial" name="Recurso parcialmente deferido (decisao humana — L0, reducao adversa)">
       <bpmn:incoming>Flow_PubParcial_End</bpmn:incoming>
     </bpmn:endEvent>
 
-    <!-- Indeferido pela operadora externa: resposta de terceiro (NAO e desistencia da Maezo) -->
-    <bpmn:serviceTask id="ST_PublishIndeferido" name="Publicar evento: recurso.completed (indeferido)"
+    <!-- Ramo INDEFERIR (analista/coordenacao/escalonamento): efeito adverso L0, gated por worker -->
+    <bpmn:serviceTask id="ST_RegistrarIndeferimento" name="Registrar indeferimento do recurso (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.recurso.registrar_indeferimento">
+      <bpmn:documentation>HARD GUARDRAIL (L0 hard, ADR-0005): o worker RECUSA registrar o indeferimento (manter integralmente a glosa contra o prestador) se decisao_recurso != INDEFERIR setado por humano (ou se faltar fundamentacao_indeferimento/valor_glosa_mantido_brl/referencia_contratual/analista_id) — lanca ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN. Carrega analista_id na trilha de auditoria (ADR-0007). 4o componente do padrao no-denial. NUNCA decide; so registra decisao humana ja tomada.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Indeferir</bpmn:incoming>
+      <bpmn:outgoing>Flow_RegIndeferimento_Comunicar</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_ComunicarIndeferimento" name="Comunicar indeferimento do recurso ao prestador"
+                      camunda:type="external" camunda:topic="operadora.recurso.comunicar_resposta">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="tipo_comunicacao">indeferimento</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_RegIndeferimento_Comunicar</bpmn:incoming>
+      <bpmn:outgoing>Flow_ComunicarIndeferimento_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishIndeferido" name="Publicar evento: recurso.completed (indeferido_humano)"
                       camunda:type="external" camunda:topic="operadora.events.publish">
-      <bpmn:documentation>Indeferimento pela operadora externa NAO e uma desistencia da Maezo — e resposta de terceiro; nao requer worker-guard, mas e registrado (auditoria).</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.recurso.completed</camunda:inputParameter>
-          <camunda:inputParameter name="event_desfecho">indeferido</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,protocolo_recurso</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">indeferido_humano</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,protocolo_resposta_recurso,analista_id</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_GWResolvido_Indeferido</bpmn:incoming>
+      <bpmn:incoming>Flow_ComunicarIndeferimento_Pub</bpmn:incoming>
       <bpmn:outgoing>Flow_PubIndeferido_End</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:endEvent id="End_RecursoIndeferido" name="Recurso indeferido pela operadora (resposta de terceiro)">
+    <bpmn:endEvent id="End_RecursoIndeferido" name="Recurso indeferido (decisao humana do analista — L0 adverso)">
       <bpmn:incoming>Flow_PubIndeferido_End</bpmn:incoming>
     </bpmn:endEvent>
 
-    <!-- Ramo NAO_RECORRER (analista): UNICO caminho de desistencia, gated por worker -->
-    <bpmn:serviceTask id="ST_RegisterDesistencia" name="Registrar desistencia/manutencao de glosa (efeito adverso gated)"
-                      camunda:type="external" camunda:topic="operadora.recurso.register_desistencia">
-      <bpmn:documentation>HARD GUARDRAIL (L0 hard, ADR-0005): o worker RECUSA registrar a desistencia/manutencao de glosa se decisao_recurso != NAO_RECORRER setado por humano (ou se faltar justificativa_desistencia/valor_glosa_aceito/referencia_contratual/analista_id) — lanca ERR_DESISTENCIA_NOT_HUMAN. Carrega analista_id na trilha de auditoria (ADR-0007). 4o componente do padrao no-denial. NUNCA decide; so registra decisao humana ja tomada.</bpmn:documentation>
-      <bpmn:incoming>Flow_GWDec_NaoRecorrer</bpmn:incoming>
-      <bpmn:outgoing>Flow_Desistencia_Pub</bpmn:outgoing>
+    <!-- Ramo INDEFERIR do auditor (merito tecnico/clinico): efeito adverso L0, mesmo worker gated -->
+    <bpmn:serviceTask id="ST_RegistrarIndeferimentoAuditor" name="Registrar indeferimento pelo medico auditor (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.recurso.registrar_indeferimento">
+      <bpmn:documentation>HARD GUARDRAIL (L0 hard): mesmo worker gated registrar_indeferimento. O auditor decidiu INDEFERIR (manter integralmente a glosa contra o prestador no merito tecnico/clinico). O worker RECUSA sem decisao humana (ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN) e exige fundamentacao_indeferimento/valor_glosa_mantido_brl/referencia_contratual + identidade do decisor humano. Carrega auditor_id na trilha (ADR-0007).</bpmn:documentation>
+      <bpmn:incoming>Flow_GWMerito_Indeferir</bpmn:incoming>
+      <bpmn:outgoing>Flow_RegIndefAuditor_Comunicar</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:serviceTask id="ST_PublishNaoInterposto" name="Publicar evento: recurso.completed (nao_interposto_humano)"
+    <bpmn:serviceTask id="ST_ComunicarIndeferimentoAuditor" name="Comunicar indeferimento (parecer do auditor) ao prestador"
+                      camunda:type="external" camunda:topic="operadora.recurso.comunicar_resposta">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="tipo_comunicacao">indeferimento</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_RegIndefAuditor_Comunicar</bpmn:incoming>
+      <bpmn:outgoing>Flow_ComunicarIndefAuditor_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishIndeferidoAuditor" name="Publicar evento: recurso.completed (indeferido_humano / parecer do auditor)"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.recurso.completed</camunda:inputParameter>
-          <camunda:inputParameter name="event_desfecho">nao_interposto_humano</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,analista_id</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">indeferido_humano</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,protocolo_resposta_recurso,auditor_id</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_Desistencia_Pub</bpmn:incoming>
-      <bpmn:outgoing>Flow_PubNaoInterposto_End</bpmn:outgoing>
+      <bpmn:incoming>Flow_ComunicarIndefAuditor_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubIndeferidoAuditor_End</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:endEvent id="End_RecursoNaoInterposto" name="Recurso nao interposto (desistencia humana — adverso L0)">
-      <bpmn:incoming>Flow_PubNaoInterposto_End</bpmn:incoming>
+    <bpmn:endEvent id="End_RecursoIndeferidoAuditor" name="Recurso indeferido pelo medico auditor (decisao humana — L0 adverso)">
+      <bpmn:incoming>Flow_PubIndeferidoAuditor_End</bpmn:incoming>
     </bpmn:endEvent>
 
-    <!-- Ramo ACEITAR_GLOSA (auditor merito): mantem a glosa, gated por worker -->
-    <bpmn:serviceTask id="ST_RegisterGlosaMantida" name="Registrar manutencao de glosa pelo auditor (efeito adverso gated)"
-                      camunda:type="external" camunda:topic="operadora.recurso.register_desistencia">
-      <bpmn:documentation>HARD GUARDRAIL (L0 hard): mesmo worker gated register_desistencia. O auditor decidiu ACEITAR_GLOSA (manter a glosa contra o prestador no merito tecnico/clinico). O worker RECUSA sem decisao humana (ERR_DESISTENCIA_NOT_HUMAN) e exige justificativa_desistencia/valor_glosa_aceito/referencia_contratual + identidade do decisor humano. Carrega auditor_id na trilha (ADR-0007).</bpmn:documentation>
-      <bpmn:incoming>Flow_GWMerito_AceitarGlosa</bpmn:incoming>
-      <bpmn:outgoing>Flow_GlosaMantida_Pub</bpmn:outgoing>
-    </bpmn:serviceTask>
-    <bpmn:serviceTask id="ST_PublishGlosaMantida" name="Publicar evento: recurso.completed (nao_interposto_humano / glosa mantida)"
-                      camunda:type="external" camunda:topic="operadora.events.publish">
-      <bpmn:extensionElements>
-        <camunda:inputOutput>
-          <camunda:inputParameter name="event_topic">agents.events.recurso.completed</camunda:inputParameter>
-          <camunda:inputParameter name="event_desfecho">nao_interposto_humano</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,auditor_id</camunda:inputParameter>
-        </camunda:inputOutput>
-      </bpmn:extensionElements>
-      <bpmn:incoming>Flow_GlosaMantida_Pub</bpmn:incoming>
-      <bpmn:outgoing>Flow_PubGlosaMantida_End</bpmn:outgoing>
-    </bpmn:serviceTask>
-    <bpmn:endEvent id="End_GlosaMantida" name="Glosa mantida pelo auditor (decisao humana — adverso L0)">
-      <bpmn:incoming>Flow_PubGlosaMantida_End</bpmn:incoming>
-    </bpmn:endEvent>
-
-    <!-- Ramo INADMISSIVEL (coordenacao/escalonamento): humano-gated (review gap) -->
-    <bpmn:serviceTask id="ST_RegisterInadmissivel" name="Registrar inadmissibilidade do recurso (efeito adverso gated)"
-                      camunda:type="external" camunda:topic="operadora.recurso.register_desistencia">
-      <bpmn:documentation>HARD GUARDRAIL (L0 hard; review gap pinado): inadmissibilidade do recurso (procedural/prazo) e SEMPRE humano-gated — mesmo worker register_desistencia. So alcancavel apos UT_CoordenacaoRecursoAssume / UT_EscalonamentoPrazo decidir NAO_RECORRER com desfecho_humano=inadmissivel; o worker RECUSA sem decisao humana (ERR_DESISTENCIA_NOT_HUMAN) e exige os campos obrigatorios. Nenhum autor futuro pode cablear um inadmissivel automatico.</bpmn:documentation>
+    <!-- Ramo INADMISSIVEL (coordenacao/escalonamento): humano-gated (review gap pinado) -->
+    <bpmn:serviceTask id="ST_RegistrarInadmissivel" name="Registrar inadmissibilidade do recurso (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.recurso.registrar_indeferimento">
+      <bpmn:documentation>HARD GUARDRAIL (L0 hard; review gap pinado): a inadmissibilidade do recurso (procedural/prazo) e SEMPRE humano-gated — mesmo worker registrar_indeferimento. So alcancavel apos UT_CoordenacaoRecursoAssume / UT_EscalonamentoPrazo decidir INDEFERIR com desfecho_humano=inadmissivel; o worker RECUSA sem decisao humana (ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN) e exige os campos obrigatorios. Nenhum autor futuro pode cablear um inadmissivel automatico.</bpmn:documentation>
       <bpmn:incoming>Flow_GWDec_Inadmissivel</bpmn:incoming>
-      <bpmn:outgoing>Flow_Inadmissivel_Pub</bpmn:outgoing>
+      <bpmn:outgoing>Flow_RegInadmissivel_Comunicar</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:serviceTask id="ST_PublishInadmissivel" name="Publicar evento: recurso.completed (inadmissivel)"
+    <bpmn:serviceTask id="ST_ComunicarInadmissibilidade" name="Comunicar inadmissibilidade do recurso ao prestador"
+                      camunda:type="external" camunda:topic="operadora.recurso.comunicar_resposta">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="tipo_comunicacao">inadmissibilidade</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_RegInadmissivel_Comunicar</bpmn:incoming>
+      <bpmn:outgoing>Flow_ComunicarInadmissibilidade_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishInadmissivel" name="Publicar evento: recurso.completed (inadmissivel_humano)"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.recurso.completed</camunda:inputParameter>
-          <camunda:inputParameter name="event_desfecho">inadmissivel</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,analista_id</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">inadmissivel_humano</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,protocolo_resposta_recurso,analista_id</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_Inadmissivel_Pub</bpmn:incoming>
+      <bpmn:incoming>Flow_ComunicarInadmissibilidade_Pub</bpmn:incoming>
       <bpmn:outgoing>Flow_PubInadmissivel_End</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:endEvent id="End_RecursoInadmissivel" name="Recurso inadmissivel (decisao humana — adverso L0, humano-gated)">
+    <bpmn:endEvent id="End_RecursoInadmissivel" name="Recurso inadmissivel (decisao humana — L0 adverso, humano-gated)">
       <bpmn:incoming>Flow_PubInadmissivel_End</bpmn:incoming>
     </bpmn:endEvent>
 
+    <!-- Default fail-closed dos DOIS gateways decisorios: uma decisao ausente/desconhecida termina
+         em ERRO visivel, NUNCA numa acao por omissao (espelha SP-OP-AUTH-001's throw-end). -->
+    <bpmn:endEvent id="End_ErrRecursoDecisaoInvalida" name="Erro: decisao do recurso ausente ou desconhecida (ERR_RECURSO_DECISAO_INVALIDA)">
+      <bpmn:documentation>Terminal de ERRO (nao adverso e nao favoravel): a decisao humana chegou ausente ou fora do dominio declarado. NENHUM efeito e materializado — nem indeferimento, nem comunicacao, nem ordem de pagamento. Antes desta correcao, os defaults dos DOIS gateways apontavam para fluxos de ACAO do desenho antigo (ids deletados nesta reconstrucao, sem shim): uma variavel ausente produzia um ato. Agora produz um erro visivel.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Invalida</bpmn:incoming>
+      <bpmn:incoming>Flow_GWMerito_Invalida</bpmn:incoming>
+      <bpmn:errorEventDefinition id="EED_RecursoDecisaoInvalida" errorRef="Error_RecursoDecisaoInvalida"/>
+    </bpmn:endEvent>
+
     <!-- FLOWS -->
-    <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_RecursoSolicitado" targetRef="ST_PublishReceived"/>
-    <bpmn:sequenceFlow id="Flow_PubReceived_Admiss" sourceRef="ST_PublishReceived" targetRef="BRT_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_RecursoRecebido" targetRef="ST_PublishReceived"/>
+    <bpmn:sequenceFlow id="Flow_PubReceived_Validar" sourceRef="ST_PublishReceived" targetRef="ST_ValidarRecurso"/>
+    <bpmn:sequenceFlow id="Flow_Validar_Admiss" sourceRef="ST_ValidarRecurso" targetRef="BRT_Admissibilidade"/>
     <bpmn:sequenceFlow id="Flow_Admiss_GW" sourceRef="BRT_Admissibilidade" targetRef="GW_Admissibilidade"/>
     <bpmn:sequenceFlow id="Flow_GW_SegueAnalise" name="SEGUE_ANALISE" sourceRef="GW_Admissibilidade" targetRef="BRT_Eligibility">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.roteamento == 'SEGUE_ANALISE'}</bpmn:conditionExpression>
@@ -627,12 +703,17 @@ auditor_id. auditor_id na trilha de auditoria (ADR-0007).
     <bpmn:sequenceFlow id="Flow_UTAnalista_GW" sourceRef="UT_AnaliseRecursoAnalista" targetRef="GW_DecisaoRecurso"/>
     <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoRecursoAssume" targetRef="GW_DecisaoRecurso"/>
     <bpmn:sequenceFlow id="Flow_UTEscalonamento_GW" sourceRef="UT_EscalonamentoPrazo" targetRef="GW_DecisaoRecurso"/>
-    <bpmn:sequenceFlow id="Flow_GWDec_Recorrer" name="RECORRER (default)" sourceRef="GW_DecisaoRecurso" targetRef="ST_SubmitAppeal"/>
-    <bpmn:sequenceFlow id="Flow_GWDec_NaoRecorrer" name="NAO_RECORRER (somente humano)" sourceRef="GW_DecisaoRecurso" targetRef="ST_RegisterDesistencia">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_recurso == 'NAO_RECORRER' &amp;&amp; (desfecho_humano == null || desfecho_humano != 'inadmissivel')}</bpmn:conditionExpression>
+    <bpmn:sequenceFlow id="Flow_GWDec_Deferir" name="DEFERIR (somente humano)" sourceRef="GW_DecisaoRecurso" targetRef="ST_ComunicarDeferimento">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_recurso == 'DEFERIR'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_GWDec_Inadmissivel" name="NAO_RECORRER + inadmissivel (somente humano, humano-gated)" sourceRef="GW_DecisaoRecurso" targetRef="ST_RegisterInadmissivel">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_recurso == 'NAO_RECORRER' &amp;&amp; desfecho_humano == 'inadmissivel'}</bpmn:conditionExpression>
+    <bpmn:sequenceFlow id="Flow_GWDec_DeferirParcial" name="DEFERIR_PARCIAL (somente humano — reducao adversa L0)" sourceRef="GW_DecisaoRecurso" targetRef="ST_RegistrarIndeferimentoParcial">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_recurso == 'DEFERIR_PARCIAL'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Indeferir" name="INDEFERIR (somente humano — adverso L0)" sourceRef="GW_DecisaoRecurso" targetRef="ST_RegistrarIndeferimento">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_recurso == 'INDEFERIR' &amp;&amp; (desfecho_humano == null || desfecho_humano != 'inadmissivel')}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Inadmissivel" name="INDEFERIR + inadmissivel (somente humano, humano-gated)" sourceRef="GW_DecisaoRecurso" targetRef="ST_RegistrarInadmissivel">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_recurso == 'INDEFERIR' &amp;&amp; desfecho_humano == 'inadmissivel'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GWDec_SolicitarInfo" name="SOLICITAR_INFO" sourceRef="GW_DecisaoRecurso" targetRef="ST_SolicitarDocumentos">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_recurso == 'SOLICITAR_INFO'}</bpmn:conditionExpression>
@@ -640,74 +721,61 @@ auditor_id. auditor_id na trilha de auditoria (ADR-0007).
     <bpmn:sequenceFlow id="Flow_GWDec_Escalar" name="ESCALAR_AUDITOR" sourceRef="GW_DecisaoRecurso" targetRef="UT_RevisaoAuditorMedico">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_recurso == 'ESCALAR_AUDITOR'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Invalida" name="invalida/ausente (default -&gt; ERR_RECURSO_DECISAO_INVALIDA)" sourceRef="GW_DecisaoRecurso" targetRef="End_ErrRecursoDecisaoInvalida"/>
     <bpmn:sequenceFlow id="Flow_UTAuditor_GWMerito" sourceRef="UT_RevisaoAuditorMedico" targetRef="GW_MeritoAuditor"/>
-    <bpmn:sequenceFlow id="Flow_GWMerito_Manter" name="MANTER_RECURSO | RECURSO_PARCIAL (default)" sourceRef="GW_MeritoAuditor" targetRef="ST_SubmitAppeal"/>
-    <bpmn:sequenceFlow id="Flow_GWMerito_AceitarGlosa" name="ACEITAR_GLOSA (somente humano)" sourceRef="GW_MeritoAuditor" targetRef="ST_RegisterGlosaMantida">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_auditor_recurso == 'ACEITAR_GLOSA'}</bpmn:conditionExpression>
+    <bpmn:sequenceFlow id="Flow_GWMerito_Deferir" name="DEFERIR (somente humano)" sourceRef="GW_MeritoAuditor" targetRef="ST_ComunicarDeferimento">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_auditor_recurso == 'DEFERIR'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_Submit_Wait" sourceRef="ST_SubmitAppeal" targetRef="GW_AguardarResposta"/>
-    <bpmn:sequenceFlow id="Flow_Wait_RespostaMsg" sourceRef="GW_AguardarResposta" targetRef="ICE_RespostaRecebida"/>
-    <bpmn:sequenceFlow id="Flow_Wait_LoopTimer" sourceRef="GW_AguardarResposta" targetRef="ICE_AguardarResposta"/>
-    <bpmn:sequenceFlow id="Flow_LoopTimer_Track" sourceRef="ICE_AguardarResposta" targetRef="ST_TrackStatus"/>
-    <bpmn:sequenceFlow id="Flow_Track_GWLoop" sourceRef="ST_TrackStatus" targetRef="GW_LoopLimite"/>
-    <bpmn:sequenceFlow id="Flow_GWLoop_Excedido" name="loop_counter &gt;= 6 -> humano" sourceRef="GW_LoopLimite" targetRef="ST_PublishSlaBreachLoop">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${loop_counter &gt;= 6}</bpmn:conditionExpression>
+    <bpmn:sequenceFlow id="Flow_GWMerito_DeferirParcial" name="DEFERIR_PARCIAL (somente humano — reducao adversa L0)" sourceRef="GW_MeritoAuditor" targetRef="ST_RegistrarIndeferimentoParcial">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_auditor_recurso == 'DEFERIR_PARCIAL'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_GWLoop_Continua" name="continua loop (default)" sourceRef="GW_LoopLimite" targetRef="GW_AguardarResposta"/>
-    <bpmn:sequenceFlow id="Flow_Resposta_GWResolvido" sourceRef="ICE_RespostaRecebida" targetRef="GW_RecursoResolvido"/>
-    <bpmn:sequenceFlow id="Flow_GWResolvido_Deferido" name="deferido" sourceRef="GW_RecursoResolvido" targetRef="ST_ReconcilePaymentDeferido">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${resposta_operadora == 'deferido'}</bpmn:conditionExpression>
+    <bpmn:sequenceFlow id="Flow_GWMerito_Indeferir" name="INDEFERIR (somente humano — adverso L0)" sourceRef="GW_MeritoAuditor" targetRef="ST_RegistrarIndeferimentoAuditor">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_auditor_recurso == 'INDEFERIR'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_GWResolvido_Parcial" name="parcialmente_deferido" sourceRef="GW_RecursoResolvido" targetRef="ST_ReconcilePaymentParcial">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${resposta_operadora == 'parcialmente_deferido'}</bpmn:conditionExpression>
-    </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_GWResolvido_Indeferido" name="indeferido (default — resposta de terceiro)" sourceRef="GW_RecursoResolvido" targetRef="ST_PublishIndeferido"/>
-    <bpmn:sequenceFlow id="Flow_Deferido_Pub" sourceRef="ST_ReconcilePaymentDeferido" targetRef="ST_PublishDeferido"/>
+    <bpmn:sequenceFlow id="Flow_GWMerito_Invalida" name="invalida/ausente (default -&gt; ERR_RECURSO_DECISAO_INVALIDA)" sourceRef="GW_MeritoAuditor" targetRef="End_ErrRecursoDecisaoInvalida"/>
+    <bpmn:sequenceFlow id="Flow_ComunicarDeferimento_Handoff" sourceRef="ST_ComunicarDeferimento" targetRef="ST_HandoffPagamentoRecurso"/>
+    <bpmn:sequenceFlow id="Flow_Handoff_PubDeferido" sourceRef="ST_HandoffPagamentoRecurso" targetRef="ST_PublishDeferido"/>
     <bpmn:sequenceFlow id="Flow_PubDeferido_End" sourceRef="ST_PublishDeferido" targetRef="End_RecursoDeferido"/>
-    <bpmn:sequenceFlow id="Flow_Parcial_Pub" sourceRef="ST_ReconcilePaymentParcial" targetRef="ST_PublishParcial"/>
-    <bpmn:sequenceFlow id="Flow_PubParcial_End" sourceRef="ST_PublishParcial" targetRef="End_RecursoParcial"/>
+    <bpmn:sequenceFlow id="Flow_RegParcial_Comunicar" sourceRef="ST_RegistrarIndeferimentoParcial" targetRef="ST_ComunicarDeferimentoParcial"/>
+    <bpmn:sequenceFlow id="Flow_ComunicarParcial_Handoff" sourceRef="ST_ComunicarDeferimentoParcial" targetRef="ST_HandoffPagamentoParcial"/>
+    <bpmn:sequenceFlow id="Flow_HandoffParcial_PubParcial" sourceRef="ST_HandoffPagamentoParcial" targetRef="ST_PublishParcial"/>
+    <bpmn:sequenceFlow id="Flow_PubParcial_End" sourceRef="ST_PublishParcial" targetRef="End_RecursoDeferidoParcial"/>
+    <bpmn:sequenceFlow id="Flow_RegIndeferimento_Comunicar" sourceRef="ST_RegistrarIndeferimento" targetRef="ST_ComunicarIndeferimento"/>
+    <bpmn:sequenceFlow id="Flow_ComunicarIndeferimento_Pub" sourceRef="ST_ComunicarIndeferimento" targetRef="ST_PublishIndeferido"/>
     <bpmn:sequenceFlow id="Flow_PubIndeferido_End" sourceRef="ST_PublishIndeferido" targetRef="End_RecursoIndeferido"/>
-    <bpmn:sequenceFlow id="Flow_Desistencia_Pub" sourceRef="ST_RegisterDesistencia" targetRef="ST_PublishNaoInterposto"/>
-    <bpmn:sequenceFlow id="Flow_PubNaoInterposto_End" sourceRef="ST_PublishNaoInterposto" targetRef="End_RecursoNaoInterposto"/>
-    <bpmn:sequenceFlow id="Flow_GlosaMantida_Pub" sourceRef="ST_RegisterGlosaMantida" targetRef="ST_PublishGlosaMantida"/>
-    <bpmn:sequenceFlow id="Flow_PubGlosaMantida_End" sourceRef="ST_PublishGlosaMantida" targetRef="End_GlosaMantida"/>
-    <bpmn:sequenceFlow id="Flow_Inadmissivel_Pub" sourceRef="ST_RegisterInadmissivel" targetRef="ST_PublishInadmissivel"/>
+    <bpmn:sequenceFlow id="Flow_RegIndefAuditor_Comunicar" sourceRef="ST_RegistrarIndeferimentoAuditor" targetRef="ST_ComunicarIndeferimentoAuditor"/>
+    <bpmn:sequenceFlow id="Flow_ComunicarIndefAuditor_Pub" sourceRef="ST_ComunicarIndeferimentoAuditor" targetRef="ST_PublishIndeferidoAuditor"/>
+    <bpmn:sequenceFlow id="Flow_PubIndeferidoAuditor_End" sourceRef="ST_PublishIndeferidoAuditor" targetRef="End_RecursoIndeferidoAuditor"/>
+    <bpmn:sequenceFlow id="Flow_RegInadmissivel_Comunicar" sourceRef="ST_RegistrarInadmissivel" targetRef="ST_ComunicarInadmissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_ComunicarInadmissibilidade_Pub" sourceRef="ST_ComunicarInadmissibilidade" targetRef="ST_PublishInadmissivel"/>
     <bpmn:sequenceFlow id="Flow_PubInadmissivel_End" sourceRef="ST_PublishInadmissivel" targetRef="End_RecursoInadmissivel"/>
-    <bpmn:sequenceFlow id="Flow_LoopExcedido_UTCoord" sourceRef="ST_PublishSlaBreachLoop" targetRef="UT_CoordenacaoRecursoAssume"/>
 
     <!-- GAP-RECURSO-3 (dangling-catch fix, #136): rotas dos boundary catches de origem-invalida
          para o terminal NEUTRO compartilhado (ver End_RecursoGlosaInvalidaOrigem acima). -->
+    <bpmn:sequenceFlow id="Flow_GlosaInvalidaValidacao_End" sourceRef="BE_GlosaInvalidaValidacao" targetRef="End_RecursoGlosaInvalidaOrigem"/>
     <bpmn:sequenceFlow id="Flow_GlosaInvalidaDocs_End" sourceRef="BE_GlosaInvalidaDocs" targetRef="End_RecursoGlosaInvalidaOrigem"/>
     <bpmn:sequenceFlow id="Flow_GlosaInvalidaDossie_End" sourceRef="BE_GlosaInvalidaDossie" targetRef="End_RecursoGlosaInvalidaOrigem"/>
-
-    <!-- Loop excedido: publica breach (fase=prazo_max-like) e roteia a coordenacao humana -->
-    <bpmn:serviceTask id="ST_PublishSlaBreachLoop" name="Publicar evento: recurso.sla_breached (loop excedido)"
-                      camunda:type="external" camunda:topic="operadora.events.publish">
-      <bpmn:extensionElements>
-        <camunda:inputOutput>
-          <camunda:inputParameter name="event_topic">agents.events.recurso.sla_breached</camunda:inputParameter>
-          <camunda:inputParameter name="event_fase">prazo_max</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,protocolo_recurso</camunda:inputParameter>
-        </camunda:inputOutput>
-      </bpmn:extensionElements>
-      <bpmn:incoming>Flow_GWLoop_Excedido</bpmn:incoming>
-      <bpmn:outgoing>Flow_LoopExcedido_UTCoord</bpmn:outgoing>
-    </bpmn:serviceTask>
   </bpmn:process>
 
   <bpmndi:BPMNDiagram id="Diagram_SP-OP-RECURSO-001">
     <bpmndi:BPMNPlane id="Plane_SP-OP-RECURSO-001" bpmnElement="SP-OP-RECURSO-001">
-      <bpmndi:BPMNShape id="Shape_Start_RecursoSolicitado" bpmnElement="Start_RecursoSolicitado">
+      <bpmndi:BPMNShape id="Shape_Start_RecursoRecebido" bpmnElement="Start_RecursoRecebido">
         <dc:Bounds x="72" y="74" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
-        <dc:Bounds x="220" y="52" width="100" height="80"/>
+        <dc:Bounds x="180" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ValidarRecurso" bpmnElement="ST_ValidarRecurso">
+        <dc:Bounds x="330" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_GlosaInvalidaValidacao" bpmnElement="BE_GlosaInvalidaValidacao">
+        <dc:Bounds x="362" y="114" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BRT_Admissibilidade" bpmnElement="BRT_Admissibilidade">
-        <dc:Bounds x="400" y="52" width="100" height="80"/>
+        <dc:Bounds x="480" y="52" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_Admissibilidade" bpmnElement="GW_Admissibilidade" isMarkerVisible="true">
-        <dc:Bounds x="580" y="67" width="50" height="50"/>
+        <dc:Bounds x="630" y="67" width="50" height="50"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_SolicitarDocumentos" bpmnElement="ST_SolicitarDocumentos">
         <dc:Bounds x="1560" y="196" width="100" height="80"/>
@@ -728,10 +796,10 @@ auditor_id. auditor_id na trilha de auditoria (ADR-0007).
         <dc:Bounds x="1952" y="362" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BRT_Eligibility" bpmnElement="BRT_Eligibility">
-        <dc:Bounds x="710" y="52" width="100" height="80"/>
+        <dc:Bounds x="740" y="52" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BRT_Sla" bpmnElement="BRT_Sla">
-        <dc:Bounds x="890" y="52" width="100" height="80"/>
+        <dc:Bounds x="900" y="52" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PrepararDossie" bpmnElement="ST_PrepararDossie">
         <dc:Bounds x="1070" y="52" width="100" height="80"/>
@@ -761,132 +829,128 @@ auditor_id. auditor_id na trilha de auditoria (ADR-0007).
         <dc:Bounds x="40" y="472" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_UT_CoordenacaoRecursoAssume" bpmnElement="UT_CoordenacaoRecursoAssume">
-        <dc:Bounds x="2936" y="724" width="100" height="80"/>
+        <dc:Bounds x="220" y="472" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BT_PrazoMaxRecurso" bpmnElement="BT_PrazoMaxRecurso">
         <dc:Bounds x="1307" y="114" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BT_PrazoMaxCoord" bpmnElement="BT_PrazoMaxCoord">
-        <dc:Bounds x="2968" y="786" width="36" height="36"/>
+        <dc:Bounds x="252" y="534" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_EscalateAnsTimeout" bpmnElement="ST_EscalateAnsTimeout">
-        <dc:Bounds x="40" y="592" width="100" height="80"/>
+        <dc:Bounds x="40" y="640" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_UT_EscalonamentoPrazo" bpmnElement="UT_EscalonamentoPrazo">
-        <dc:Bounds x="220" y="592" width="100" height="80"/>
+        <dc:Bounds x="220" y="640" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_DecisaoRecurso" bpmnElement="GW_DecisaoRecurso" isMarkerVisible="true">
         <dc:Bounds x="1430" y="355" width="50" height="50"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_UT_RevisaoAuditorMedico" bpmnElement="UT_RevisaoAuditorMedico">
-        <dc:Bounds x="1560" y="340" width="100" height="80"/>
+        <dc:Bounds x="1740" y="820" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BT_PrazoMaxAuditor" bpmnElement="BT_PrazoMaxAuditor">
-        <dc:Bounds x="1592" y="402" width="36" height="36"/>
+        <dc:Bounds x="1772" y="882" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_MeritoAuditor" bpmnElement="GW_MeritoAuditor" isMarkerVisible="true">
-        <dc:Bounds x="1765" y="355" width="50" height="50"/>
+        <dc:Bounds x="1900" y="835" width="50" height="50"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_SubmitAppeal" bpmnElement="ST_SubmitAppeal">
-        <dc:Bounds x="1920" y="472" width="100" height="80"/>
+      <bpmndi:BPMNShape id="Shape_ST_ComunicarDeferimento" bpmnElement="ST_ComunicarDeferimento">
+        <dc:Bounds x="2050" y="60" width="100" height="80"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_AguardarResposta" bpmnElement="GW_AguardarResposta" isMarkerVisible="true">
-        <dc:Bounds x="2125" y="487" width="50" height="50"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ICE_RespostaRecebida" bpmnElement="ICE_RespostaRecebida">
-        <dc:Bounds x="2280" y="494" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ICE_AguardarResposta" bpmnElement="ICE_AguardarResposta">
-        <dc:Bounds x="2280" y="614" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_TrackStatus" bpmnElement="ST_TrackStatus">
-        <dc:Bounds x="2396" y="592" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_LoopLimite" bpmnElement="GW_LoopLimite" isMarkerVisible="true">
-        <dc:Bounds x="2601" y="871" width="50" height="50"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_RecursoResolvido" bpmnElement="GW_RecursoResolvido" isMarkerVisible="true">
-        <dc:Bounds x="2421" y="487" width="50" height="50"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_ReconcilePaymentDeferido" bpmnElement="ST_ReconcilePaymentDeferido">
-        <dc:Bounds x="2576" y="472" width="100" height="80"/>
+      <bpmndi:BPMNShape id="Shape_ST_HandoffPagamentoRecurso" bpmnElement="ST_HandoffPagamentoRecurso">
+        <dc:Bounds x="2200" y="60" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishDeferido" bpmnElement="ST_PublishDeferido">
-        <dc:Bounds x="2756" y="472" width="100" height="80"/>
+        <dc:Bounds x="2350" y="60" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_RecursoDeferido" bpmnElement="End_RecursoDeferido">
-        <dc:Bounds x="2968" y="494" width="36" height="36"/>
+        <dc:Bounds x="2510" y="82" width="36" height="36"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_ReconcilePaymentParcial" bpmnElement="ST_ReconcilePaymentParcial">
-        <dc:Bounds x="2576" y="592" width="100" height="80"/>
+      <bpmndi:BPMNShape id="Shape_ST_RegistrarIndeferimentoParcial" bpmnElement="ST_RegistrarIndeferimentoParcial">
+        <dc:Bounds x="2050" y="200" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ComunicarDeferimentoParcial" bpmnElement="ST_ComunicarDeferimentoParcial">
+        <dc:Bounds x="2200" y="200" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_HandoffPagamentoParcial" bpmnElement="ST_HandoffPagamentoParcial">
+        <dc:Bounds x="2350" y="200" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishParcial" bpmnElement="ST_PublishParcial">
-        <dc:Bounds x="2756" y="592" width="100" height="80"/>
+        <dc:Bounds x="2500" y="200" width="100" height="80"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_RecursoParcial" bpmnElement="End_RecursoParcial">
-        <dc:Bounds x="2968" y="614" width="36" height="36"/>
+      <bpmndi:BPMNShape id="Shape_End_RecursoDeferidoParcial" bpmnElement="End_RecursoDeferidoParcial">
+        <dc:Bounds x="2660" y="222" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_RegistrarIndeferimento" bpmnElement="ST_RegistrarIndeferimento">
+        <dc:Bounds x="2050" y="340" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ComunicarIndeferimento" bpmnElement="ST_ComunicarIndeferimento">
+        <dc:Bounds x="2200" y="340" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishIndeferido" bpmnElement="ST_PublishIndeferido">
-        <dc:Bounds x="2576" y="724" width="100" height="80"/>
+        <dc:Bounds x="2350" y="340" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_RecursoIndeferido" bpmnElement="End_RecursoIndeferido">
-        <dc:Bounds x="2788" y="746" width="36" height="36"/>
+        <dc:Bounds x="2510" y="362" width="36" height="36"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_RegisterDesistencia" bpmnElement="ST_RegisterDesistencia">
-        <dc:Bounds x="1560" y="472" width="100" height="80"/>
+      <bpmndi:BPMNShape id="Shape_ST_RegistrarIndeferimentoAuditor" bpmnElement="ST_RegistrarIndeferimentoAuditor">
+        <dc:Bounds x="2050" y="480" width="100" height="80"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishNaoInterposto" bpmnElement="ST_PublishNaoInterposto">
-        <dc:Bounds x="1740" y="472" width="100" height="80"/>
+      <bpmndi:BPMNShape id="Shape_ST_ComunicarIndeferimentoAuditor" bpmnElement="ST_ComunicarIndeferimentoAuditor">
+        <dc:Bounds x="2200" y="480" width="100" height="80"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_RecursoNaoInterposto" bpmnElement="End_RecursoNaoInterposto">
-        <dc:Bounds x="1952" y="746" width="36" height="36"/>
+      <bpmndi:BPMNShape id="Shape_ST_PublishIndeferidoAuditor" bpmnElement="ST_PublishIndeferidoAuditor">
+        <dc:Bounds x="2350" y="480" width="100" height="80"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_RegisterGlosaMantida" bpmnElement="ST_RegisterGlosaMantida">
-        <dc:Bounds x="1920" y="592" width="100" height="80"/>
+      <bpmndi:BPMNShape id="Shape_End_RecursoIndeferidoAuditor" bpmnElement="End_RecursoIndeferidoAuditor">
+        <dc:Bounds x="2510" y="502" width="36" height="36"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishGlosaMantida" bpmnElement="ST_PublishGlosaMantida">
-        <dc:Bounds x="2100" y="592" width="100" height="80"/>
+      <bpmndi:BPMNShape id="Shape_ST_RegistrarInadmissivel" bpmnElement="ST_RegistrarInadmissivel">
+        <dc:Bounds x="2050" y="620" width="100" height="80"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_GlosaMantida" bpmnElement="End_GlosaMantida">
-        <dc:Bounds x="2280" y="746" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_RegisterInadmissivel" bpmnElement="ST_RegisterInadmissivel">
-        <dc:Bounds x="1560" y="592" width="100" height="80"/>
+      <bpmndi:BPMNShape id="Shape_ST_ComunicarInadmissibilidade" bpmnElement="ST_ComunicarInadmissibilidade">
+        <dc:Bounds x="2200" y="620" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishInadmissivel" bpmnElement="ST_PublishInadmissivel">
-        <dc:Bounds x="1740" y="592" width="100" height="80"/>
+        <dc:Bounds x="2350" y="620" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_RecursoInadmissivel" bpmnElement="End_RecursoInadmissivel">
-        <dc:Bounds x="1952" y="878" width="36" height="36"/>
+        <dc:Bounds x="2510" y="642" width="36" height="36"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreachLoop" bpmnElement="ST_PublishSlaBreachLoop">
-        <dc:Bounds x="2756" y="856" width="100" height="80"/>
+      <bpmndi:BPMNShape id="Shape_End_ErrRecursoDecisaoInvalida" bpmnElement="End_ErrRecursoDecisaoInvalida">
+        <dc:Bounds x="2050" y="762" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
         <di:waypoint x="108" y="92"/>
-        <di:waypoint x="220" y="92"/>
+        <di:waypoint x="180" y="92"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_Admiss" bpmnElement="Flow_PubReceived_Admiss">
-        <di:waypoint x="320" y="92"/>
-        <di:waypoint x="400" y="92"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_Validar" bpmnElement="Flow_PubReceived_Validar">
+        <di:waypoint x="280" y="92"/>
+        <di:waypoint x="330" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Validar_Admiss" bpmnElement="Flow_Validar_Admiss">
+        <di:waypoint x="430" y="92"/>
+        <di:waypoint x="480" y="92"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Admiss_GW" bpmnElement="Flow_Admiss_GW">
-        <di:waypoint x="500" y="92"/>
         <di:waypoint x="580" y="92"/>
+        <di:waypoint x="630" y="92"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GW_SegueAnalise" bpmnElement="Flow_GW_SegueAnalise">
-        <di:waypoint x="630" y="92"/>
-        <di:waypoint x="710" y="92"/>
+        <di:waypoint x="680" y="92"/>
+        <di:waypoint x="740" y="92"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GW_Pendencia" bpmnElement="Flow_GW_Pendencia">
-        <di:waypoint x="630" y="92"/>
-        <di:waypoint x="1095" y="92"/>
-        <di:waypoint x="1095" y="236"/>
+        <di:waypoint x="655" y="117"/>
+        <di:waypoint x="655" y="170"/>
+        <di:waypoint x="1520" y="170"/>
+        <di:waypoint x="1520" y="236"/>
         <di:waypoint x="1560" y="236"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GW_AnaliseHumana" bpmnElement="Flow_GW_AnaliseHumana">
-        <di:waypoint x="630" y="92"/>
-        <di:waypoint x="890" y="92"/>
+        <di:waypoint x="680" y="92"/>
+        <di:waypoint x="900" y="92"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Solicitar_WaitDocs" bpmnElement="Flow_Solicitar_WaitDocs">
         <di:waypoint x="1660" y="236"/>
@@ -909,21 +973,21 @@ auditor_id. auditor_id na trilha de auditoria (ADR-0007).
       <bpmndi:BPMNEdge id="Edge_Flow_DocsOk_Admiss" bpmnElement="Flow_DocsOk_Admiss">
         <di:waypoint x="1970" y="254"/>
         <di:waypoint x="1970" y="314"/>
-        <di:waypoint x="400" y="314"/>
-        <di:waypoint x="400" y="92"/>
+        <di:waypoint x="530" y="314"/>
+        <di:waypoint x="530" y="132"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PrazoPendencia_Sla" bpmnElement="Flow_PrazoPendencia_Sla">
         <di:waypoint x="1970" y="398"/>
-        <di:waypoint x="1970" y="458"/>
-        <di:waypoint x="890" y="458"/>
-        <di:waypoint x="890" y="92"/>
+        <di:waypoint x="1970" y="440"/>
+        <di:waypoint x="950" y="440"/>
+        <di:waypoint x="950" y="132"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Eligibility_Sla" bpmnElement="Flow_Eligibility_Sla">
-        <di:waypoint x="810" y="92"/>
-        <di:waypoint x="890" y="92"/>
+        <di:waypoint x="840" y="92"/>
+        <di:waypoint x="900" y="92"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Sla_Dossie" bpmnElement="Flow_Sla_Dossie">
-        <di:waypoint x="990" y="92"/>
+        <di:waypoint x="1000" y="92"/>
         <di:waypoint x="1070" y="92"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTAnalista" bpmnElement="Flow_Dossie_UTAnalista">
@@ -948,31 +1012,29 @@ auditor_id. auditor_id na trilha de auditoria (ADR-0007).
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord">
         <di:waypoint x="140" y="512"/>
-        <di:waypoint x="1538" y="512"/>
-        <di:waypoint x="1538" y="764"/>
-        <di:waypoint x="2936" y="764"/>
+        <di:waypoint x="220" y="512"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PrazoMax_Escalate" bpmnElement="Flow_PrazoMax_Escalate">
         <di:waypoint x="1325" y="150"/>
-        <di:waypoint x="1325" y="371"/>
-        <di:waypoint x="90" y="371"/>
-        <di:waypoint x="90" y="592"/>
+        <di:waypoint x="1325" y="600"/>
+        <di:waypoint x="90" y="600"/>
+        <di:waypoint x="90" y="640"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PrazoMaxCoord_Escalate" bpmnElement="Flow_PrazoMaxCoord_Escalate">
-        <di:waypoint x="2986" y="822"/>
-        <di:waypoint x="2986" y="882"/>
-        <di:waypoint x="40" y="882"/>
-        <di:waypoint x="40" y="632"/>
+        <di:waypoint x="270" y="570"/>
+        <di:waypoint x="270" y="600"/>
+        <di:waypoint x="90" y="600"/>
+        <di:waypoint x="90" y="640"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PrazoMaxAuditor_Escalate" bpmnElement="Flow_PrazoMaxAuditor_Escalate">
-        <di:waypoint x="1610" y="438"/>
-        <di:waypoint x="1610" y="515"/>
-        <di:waypoint x="90" y="515"/>
-        <di:waypoint x="90" y="592"/>
+        <di:waypoint x="1790" y="918"/>
+        <di:waypoint x="1790" y="960"/>
+        <di:waypoint x="40" y="960"/>
+        <di:waypoint x="40" y="720"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Escalate_UTEscalonamento" bpmnElement="Flow_Escalate_UTEscalonamento">
-        <di:waypoint x="140" y="632"/>
-        <di:waypoint x="220" y="632"/>
+        <di:waypoint x="140" y="680"/>
+        <di:waypoint x="220" y="680"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_UTAnalista_GW" bpmnElement="Flow_UTAnalista_GW">
         <di:waypoint x="1350" y="92"/>
@@ -981,176 +1043,158 @@ auditor_id. auditor_id na trilha de auditoria (ADR-0007).
         <di:waypoint x="1430" y="380"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW">
-        <di:waypoint x="2986" y="804"/>
-        <di:waypoint x="2986" y="864"/>
-        <di:waypoint x="1430" y="864"/>
+        <di:waypoint x="320" y="512"/>
+        <di:waypoint x="1390" y="512"/>
+        <di:waypoint x="1390" y="380"/>
         <di:waypoint x="1430" y="380"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_UTEscalonamento_GW" bpmnElement="Flow_UTEscalonamento_GW">
-        <di:waypoint x="320" y="632"/>
-        <di:waypoint x="875" y="632"/>
-        <di:waypoint x="875" y="380"/>
+        <di:waypoint x="320" y="680"/>
+        <di:waypoint x="1360" y="680"/>
+        <di:waypoint x="1360" y="380"/>
         <di:waypoint x="1430" y="380"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Recorrer" bpmnElement="Flow_GWDec_Recorrer">
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Deferir" bpmnElement="Flow_GWDec_Deferir">
         <di:waypoint x="1480" y="380"/>
-        <di:waypoint x="1700" y="380"/>
-        <di:waypoint x="1700" y="512"/>
-        <di:waypoint x="1920" y="512"/>
+        <di:waypoint x="2000" y="380"/>
+        <di:waypoint x="2000" y="100"/>
+        <di:waypoint x="2050" y="100"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_NaoRecorrer" bpmnElement="Flow_GWDec_NaoRecorrer">
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_DeferirParcial" bpmnElement="Flow_GWDec_DeferirParcial">
         <di:waypoint x="1480" y="380"/>
-        <di:waypoint x="1520" y="380"/>
-        <di:waypoint x="1520" y="512"/>
-        <di:waypoint x="1560" y="512"/>
+        <di:waypoint x="2000" y="380"/>
+        <di:waypoint x="2000" y="240"/>
+        <di:waypoint x="2050" y="240"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Indeferir" bpmnElement="Flow_GWDec_Indeferir">
+        <di:waypoint x="1480" y="380"/>
+        <di:waypoint x="2050" y="380"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Inadmissivel" bpmnElement="Flow_GWDec_Inadmissivel">
         <di:waypoint x="1480" y="380"/>
-        <di:waypoint x="1520" y="380"/>
-        <di:waypoint x="1520" y="632"/>
-        <di:waypoint x="1560" y="632"/>
+        <di:waypoint x="2000" y="380"/>
+        <di:waypoint x="2000" y="660"/>
+        <di:waypoint x="2050" y="660"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo">
-        <di:waypoint x="1480" y="380"/>
-        <di:waypoint x="1520" y="380"/>
-        <di:waypoint x="1520" y="236"/>
+        <di:waypoint x="1455" y="355"/>
+        <di:waypoint x="1455" y="236"/>
         <di:waypoint x="1560" y="236"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Escalar" bpmnElement="Flow_GWDec_Escalar">
+        <di:waypoint x="1455" y="405"/>
+        <di:waypoint x="1455" y="860"/>
+        <di:waypoint x="1740" y="860"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Invalida" bpmnElement="Flow_GWDec_Invalida">
         <di:waypoint x="1480" y="380"/>
-        <di:waypoint x="1560" y="380"/>
+        <di:waypoint x="2000" y="380"/>
+        <di:waypoint x="2000" y="780"/>
+        <di:waypoint x="2050" y="780"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_UTAuditor_GWMerito" bpmnElement="Flow_UTAuditor_GWMerito">
-        <di:waypoint x="1660" y="380"/>
-        <di:waypoint x="1765" y="380"/>
+        <di:waypoint x="1840" y="860"/>
+        <di:waypoint x="1900" y="860"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWMerito_Manter" bpmnElement="Flow_GWMerito_Manter">
-        <di:waypoint x="1815" y="380"/>
-        <di:waypoint x="1867" y="380"/>
-        <di:waypoint x="1867" y="512"/>
-        <di:waypoint x="1920" y="512"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWMerito_Deferir" bpmnElement="Flow_GWMerito_Deferir">
+        <di:waypoint x="1950" y="860"/>
+        <di:waypoint x="2010" y="860"/>
+        <di:waypoint x="2010" y="100"/>
+        <di:waypoint x="2050" y="100"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWMerito_AceitarGlosa" bpmnElement="Flow_GWMerito_AceitarGlosa">
-        <di:waypoint x="1815" y="380"/>
-        <di:waypoint x="1867" y="380"/>
-        <di:waypoint x="1867" y="632"/>
-        <di:waypoint x="1920" y="632"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWMerito_DeferirParcial" bpmnElement="Flow_GWMerito_DeferirParcial">
+        <di:waypoint x="1950" y="860"/>
+        <di:waypoint x="2010" y="860"/>
+        <di:waypoint x="2010" y="240"/>
+        <di:waypoint x="2050" y="240"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Submit_Wait" bpmnElement="Flow_Submit_Wait">
-        <di:waypoint x="2020" y="512"/>
-        <di:waypoint x="2125" y="512"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWMerito_Indeferir" bpmnElement="Flow_GWMerito_Indeferir">
+        <di:waypoint x="1950" y="860"/>
+        <di:waypoint x="2010" y="860"/>
+        <di:waypoint x="2010" y="520"/>
+        <di:waypoint x="2050" y="520"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Wait_RespostaMsg" bpmnElement="Flow_Wait_RespostaMsg">
-        <di:waypoint x="2175" y="512"/>
-        <di:waypoint x="2280" y="512"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWMerito_Invalida" bpmnElement="Flow_GWMerito_Invalida">
+        <di:waypoint x="1950" y="860"/>
+        <di:waypoint x="2010" y="860"/>
+        <di:waypoint x="2010" y="780"/>
+        <di:waypoint x="2050" y="780"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Wait_LoopTimer" bpmnElement="Flow_Wait_LoopTimer">
-        <di:waypoint x="2175" y="512"/>
-        <di:waypoint x="2227" y="512"/>
-        <di:waypoint x="2227" y="632"/>
-        <di:waypoint x="2280" y="632"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_ComunicarDeferimento_Handoff" bpmnElement="Flow_ComunicarDeferimento_Handoff">
+        <di:waypoint x="2150" y="100"/>
+        <di:waypoint x="2200" y="100"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_LoopTimer_Track" bpmnElement="Flow_LoopTimer_Track">
-        <di:waypoint x="2316" y="632"/>
-        <di:waypoint x="2396" y="632"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Track_GWLoop" bpmnElement="Flow_Track_GWLoop">
-        <di:waypoint x="2496" y="632"/>
-        <di:waypoint x="2548" y="632"/>
-        <di:waypoint x="2548" y="896"/>
-        <di:waypoint x="2601" y="896"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWLoop_Excedido" bpmnElement="Flow_GWLoop_Excedido">
-        <di:waypoint x="2651" y="896"/>
-        <di:waypoint x="2756" y="896"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWLoop_Continua" bpmnElement="Flow_GWLoop_Continua">
-        <di:waypoint x="2626" y="921"/>
-        <di:waypoint x="2626" y="981"/>
-        <di:waypoint x="2125" y="981"/>
-        <di:waypoint x="2125" y="512"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Resposta_GWResolvido" bpmnElement="Flow_Resposta_GWResolvido">
-        <di:waypoint x="2316" y="512"/>
-        <di:waypoint x="2421" y="512"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWResolvido_Deferido" bpmnElement="Flow_GWResolvido_Deferido">
-        <di:waypoint x="2471" y="512"/>
-        <di:waypoint x="2576" y="512"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWResolvido_Parcial" bpmnElement="Flow_GWResolvido_Parcial">
-        <di:waypoint x="2471" y="512"/>
-        <di:waypoint x="2523" y="512"/>
-        <di:waypoint x="2523" y="632"/>
-        <di:waypoint x="2576" y="632"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWResolvido_Indeferido" bpmnElement="Flow_GWResolvido_Indeferido">
-        <di:waypoint x="2471" y="512"/>
-        <di:waypoint x="2523" y="512"/>
-        <di:waypoint x="2523" y="764"/>
-        <di:waypoint x="2576" y="764"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Deferido_Pub" bpmnElement="Flow_Deferido_Pub">
-        <di:waypoint x="2676" y="512"/>
-        <di:waypoint x="2756" y="512"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_Handoff_PubDeferido" bpmnElement="Flow_Handoff_PubDeferido">
+        <di:waypoint x="2300" y="100"/>
+        <di:waypoint x="2350" y="100"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubDeferido_End" bpmnElement="Flow_PubDeferido_End">
-        <di:waypoint x="2856" y="512"/>
-        <di:waypoint x="2968" y="512"/>
+        <di:waypoint x="2450" y="100"/>
+        <di:waypoint x="2510" y="100"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Parcial_Pub" bpmnElement="Flow_Parcial_Pub">
-        <di:waypoint x="2676" y="632"/>
-        <di:waypoint x="2756" y="632"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_RegParcial_Comunicar" bpmnElement="Flow_RegParcial_Comunicar">
+        <di:waypoint x="2150" y="240"/>
+        <di:waypoint x="2200" y="240"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ComunicarParcial_Handoff" bpmnElement="Flow_ComunicarParcial_Handoff">
+        <di:waypoint x="2300" y="240"/>
+        <di:waypoint x="2350" y="240"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_HandoffParcial_PubParcial" bpmnElement="Flow_HandoffParcial_PubParcial">
+        <di:waypoint x="2450" y="240"/>
+        <di:waypoint x="2500" y="240"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubParcial_End" bpmnElement="Flow_PubParcial_End">
-        <di:waypoint x="2856" y="632"/>
-        <di:waypoint x="2968" y="632"/>
+        <di:waypoint x="2600" y="240"/>
+        <di:waypoint x="2660" y="240"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_RegIndeferimento_Comunicar" bpmnElement="Flow_RegIndeferimento_Comunicar">
+        <di:waypoint x="2150" y="380"/>
+        <di:waypoint x="2200" y="380"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ComunicarIndeferimento_Pub" bpmnElement="Flow_ComunicarIndeferimento_Pub">
+        <di:waypoint x="2300" y="380"/>
+        <di:waypoint x="2350" y="380"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubIndeferido_End" bpmnElement="Flow_PubIndeferido_End">
-        <di:waypoint x="2676" y="764"/>
-        <di:waypoint x="2788" y="764"/>
+        <di:waypoint x="2450" y="380"/>
+        <di:waypoint x="2510" y="380"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Desistencia_Pub" bpmnElement="Flow_Desistencia_Pub">
-        <di:waypoint x="1660" y="512"/>
-        <di:waypoint x="1740" y="512"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_RegIndefAuditor_Comunicar" bpmnElement="Flow_RegIndefAuditor_Comunicar">
+        <di:waypoint x="2150" y="520"/>
+        <di:waypoint x="2200" y="520"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubNaoInterposto_End" bpmnElement="Flow_PubNaoInterposto_End">
-        <di:waypoint x="1840" y="512"/>
-        <di:waypoint x="1896" y="512"/>
-        <di:waypoint x="1896" y="764"/>
-        <di:waypoint x="1952" y="764"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_ComunicarIndefAuditor_Pub" bpmnElement="Flow_ComunicarIndefAuditor_Pub">
+        <di:waypoint x="2300" y="520"/>
+        <di:waypoint x="2350" y="520"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GlosaMantida_Pub" bpmnElement="Flow_GlosaMantida_Pub">
-        <di:waypoint x="2020" y="632"/>
-        <di:waypoint x="2100" y="632"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubIndeferidoAuditor_End" bpmnElement="Flow_PubIndeferidoAuditor_End">
+        <di:waypoint x="2450" y="520"/>
+        <di:waypoint x="2510" y="520"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubGlosaMantida_End" bpmnElement="Flow_PubGlosaMantida_End">
-        <di:waypoint x="2200" y="632"/>
-        <di:waypoint x="2240" y="632"/>
-        <di:waypoint x="2240" y="764"/>
-        <di:waypoint x="2280" y="764"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_RegInadmissivel_Comunicar" bpmnElement="Flow_RegInadmissivel_Comunicar">
+        <di:waypoint x="2150" y="660"/>
+        <di:waypoint x="2200" y="660"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Inadmissivel_Pub" bpmnElement="Flow_Inadmissivel_Pub">
-        <di:waypoint x="1660" y="632"/>
-        <di:waypoint x="1740" y="632"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_ComunicarInadmissibilidade_Pub" bpmnElement="Flow_ComunicarInadmissibilidade_Pub">
+        <di:waypoint x="2300" y="660"/>
+        <di:waypoint x="2350" y="660"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubInadmissivel_End" bpmnElement="Flow_PubInadmissivel_End">
-        <di:waypoint x="1840" y="632"/>
-        <di:waypoint x="1896" y="632"/>
-        <di:waypoint x="1896" y="896"/>
-        <di:waypoint x="1952" y="896"/>
+        <di:waypoint x="2450" y="660"/>
+        <di:waypoint x="2510" y="660"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_LoopExcedido_UTCoord" bpmnElement="Flow_LoopExcedido_UTCoord">
-        <di:waypoint x="2856" y="896"/>
-        <di:waypoint x="2896" y="896"/>
-        <di:waypoint x="2896" y="764"/>
-        <di:waypoint x="2936" y="764"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_GlosaInvalidaValidacao_End" bpmnElement="Flow_GlosaInvalidaValidacao_End">
+        <di:waypoint x="380" y="150"/>
+        <di:waypoint x="380" y="184"/>
+        <di:waypoint x="90" y="184"/>
+        <di:waypoint x="90" y="218"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GlosaInvalidaDocs_End" bpmnElement="Flow_GlosaInvalidaDocs_End">
         <di:waypoint x="1610" y="294"/>
         <di:waypoint x="1610" y="354"/>
         <di:waypoint x="72" y="354"/>
-        <di:waypoint x="72" y="236"/>
+        <di:waypoint x="72" y="254"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GlosaInvalidaDossie_End" bpmnElement="Flow_GlosaInvalidaDossie_End">
         <di:waypoint x="1120" y="150"/>
