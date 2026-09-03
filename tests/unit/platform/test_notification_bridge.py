@@ -241,6 +241,28 @@ def test_regra_intake_recurso_e_dormente_ate_o_adaptador_existir() -> None:
         "atualize a divulgacao de dormencia e OQ-R1 no mesmo PR"
     )
 
+    # m5 (gatekeeper R1 do PR-3): a exclusao acima e do ARQUIVO inteiro — o bridge tem de poder
+    # NOMEAR o evento que consome. Isso deixava um buraco: um publicador acrescentado DENTRO do
+    # proprio bridge escapava do tripwire. Aqui o arquivo excluido volta, com a forma certa de
+    # pergunta: nao «o nome aparece?» (aparece, 3x, por construcao) e sim «o nome aparece como
+    # ARGUMENTO de uma chamada de publicacao?». Residual declarado: um publicador que montasse o
+    # topico por concatenacao/variavel intermediaria escaparia — a cerca lexica nao le fluxo de
+    # dados; o que ela garante e que a forma OBVIA nao passa despercebida.
+    import re
+
+    bridge_src = (repo / "src/maezo/platform/notification_bridge.py").read_text(encoding="utf-8")
+    alvo = f"(?:RECURSO_INTAKE_EVENT|{re.escape(RECURSO_INTAKE_EVENT)})"
+    publicador = re.compile(rf"\b(?:publish|produce|send|emit)\w*\s*\([^)]*{alvo}", re.DOTALL)
+    assert not publicador.search(bridge_src), (
+        f"{RECURSO_INTAKE_EVENT} passou a ser PUBLICADO de dentro do proprio notification_bridge "
+        "— atualize a divulgacao de dormencia e feche OQ-R1 em docs/review-queue.md NO MESMO PR"
+    )
+    # NAO-VACUIDADE do regex acima: a mesma forma, com um evento que o bridge realmente publica,
+    # tem de casar — senao este assert seria verde por nunca casar nada.
+    assert publicador.search("await kafka.publish(RECURSO_INTAKE_EVENT, payload)"), (
+        "o detector de publicador nao reconhece a forma que ele existe para reconhecer"
+    )
+
 
 # ---------------------------------------------------------------------------
 # CONTAS → FRAUDE

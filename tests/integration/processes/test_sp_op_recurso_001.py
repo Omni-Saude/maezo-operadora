@@ -71,8 +71,10 @@ import pytest_asyncio
 
 from maezo.gateway.audit_postgres import FreshSinkAuditEmitter
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
+from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
+from maezo.tools.workers.pagto import register_pagto_workers
 from maezo.tools.workers.recurso import (
     HANDOFF_PAGTO_FORBIDDEN_KEYS,
     RECURSO_BPMN_ERROR_ALLOWLIST,
@@ -295,6 +297,65 @@ async def recurso_probe(
         await transport.close()
 
 
+#: Topicos que `register_pagto_workers` REALMENTE registra (espelha `_PAGTO_WORKER_TOPICS` de
+#: `test_sp_op_pagto_001.py`). Necessarios para o achado M3: sem drenar os workers de PAGTO, a
+#: instancia de destino ESTACIONA na sua primeira external task (`ST_PublishReceived`), e toda
+#: assercao negativa sobre a liberacao automatica vale por CONSTRUCAO — vacuidade, nao prova.
+_PAGTO_WORKER_TOPICS = [
+    "operadora.events.publish",
+    "operadora.pagto.validate_payment_data",
+    "operadora.pagto.assess_admissibility",
+    "operadora.pagto.calculate_facts",
+    "operadora.pagto.release_low_value_payment",
+    "operadora.pagto.release_high_value_payment",
+    "operadora.pagto.notify_sla_risk",
+    "operadora.pagto.register_payment_refusal",
+    "operadora.pagto.publish_completed",
+    "operadora.pagto.prepare_approval_dossier",
+]
+
+_UT_PAGTO_ADMISSIBILIDADE = "UT_AnaliseAdmissibilidade"
+_BRT_PAGTO_ADMISSIBILIDADE = "BRT_PagtoAdmissibility"
+
+
+@dataclass
+class PagtoDrainProbe:
+    """Serve as external tasks de SP-OP-PAGTO-001 com os workers REAIS de pagto.
+
+    Existe apenas para tornar DISCRIMINANTES as assercoes de I-PAGTO-1 do lado do destino: a
+    ordem so alcanca (ou deixa de alcancar) `BRT_PagtoAdmissibility` se alguem servir as tarefas
+    que a antecedem.
+    """
+
+    harness: WorkerHarness
+    transport: CibSevenWorkerTransport
+    worker_id: str
+
+    async def drain(self, *, rounds: int = 30) -> None:
+        await drain_topics(self.transport, self.harness, self.worker_id, _PAGTO_WORKER_TOPICS, rounds=rounds)
+
+
+@pytest_asyncio.fixture
+async def pagto_drain(audit_sink: Any, audit_tenant: str) -> AsyncIterator[PagtoDrainProbe]:
+    """Workers reais de pagto (com transporte DMN real — ADR-0028), sem seams de handoff."""
+    worker_id = f"qa-pagto-drain-{uuid.uuid4().hex[:8]}"
+    transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
+    harness = WorkerHarness(
+        transport,
+        worker_id=worker_id,
+        tenant=audit_tenant,
+        lock_duration_ms=10_000,
+        audit_sink=audit_sink,
+    )
+    kafka = FakeKafkaPublisher()
+    register_pagto_workers(harness, kafka, dmn=CibSevenDmnTransport(CIBSEVEN_BASE_URL))
+    register_events_workers(harness, kafka)
+    try:
+        yield PagtoDrainProbe(harness=harness, transport=transport, worker_id=worker_id)
+    finally:
+        await transport.close()
+
+
 def _unique_glosa(prefix: str = "GLOSA-TESTE") -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8].upper()}"
 
@@ -344,7 +405,7 @@ async def start_recurso(engine: EngineRest, deploy_artifacts: str) -> Callable[.
             "codigo_procedimento_tuss": "40304361",
             "cid10": "",
             "documentos_recurso_refs": "[]",
-            "data_ciencia_glosa": "2026-06-01",
+            "data_ciencia_alegada_prestador": "2026-06-01",
             "data_recebimento_recurso_iso": _future_anchor_iso(),
             # Herdados do envelope de intake e exigidos pelo handoff de pagamento da glosa
             # revertida (SP-OP-PAGTO-001). `data_vencimento` e recusada em branco pelo worker
@@ -678,10 +739,11 @@ async def test_handoff_pagamento_nunca_semeia_os_fatos_de_admissibilidade_de_pag
 async def test_glosa_revertida_nunca_alcanca_liberacao_automatica_sem_ut(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
+    pagto_drain: PagtoDrainProbe,
     start_recurso: Callable[..., Any],
 ) -> None:
-    """M1 / I-PAGTO-1: a ordem originada num deferimento humano NAO alcanca
-    `End_PagamentoLiberadoAutomatico` sem `UT_AnaliseAdmissibilidade` concluida.
+    """M1 / I-PAGTO-1: a ordem originada num deferimento humano PARA em
+    `UT_AnaliseAdmissibilidade` e NAO alcanca `End_PagamentoLiberadoAutomatico`.
 
     E a prova da SEGREGACAO DE FUNCOES, nao apenas do HITL: sem a invariante, o deferimento
     humano semearia `lastro_confirmado=true` e a ordem cairia direto na faixa clerical
@@ -689,8 +751,14 @@ async def test_glosa_revertida_nunca_alcanca_liberacao_automatica_sem_ut(
     `pagto_admissibility` le o lastro ausente => `ANALISE_HUMANA` => a ordem PARA na fila de
     `coordenacao-financeira`.
 
-    Este teste NAO drena os workers de PAGTO (eles nao pertencem a este probe): ele prova o
-    estado em que a instancia de PAGTO fica — nao liberada, e com uma decisao humana pendente.
+    M3 (gatekeeper R1) — POR QUE ESTE TESTE DRENA PAGTO. Na forma anterior ele NAO drenava os
+    workers de destino, e a instancia estacionava na sua PRIMEIRA external task
+    (`ST_PublishReceived`): `BRT_PagtoAdmissibility` nunca era avaliada e as tres assercoes
+    negativas eram verdadeiras por construcao — valeriam tambem com `lastro_confirmado=true`
+    semeado. Agora a instancia e efetivamente conduzida ao gate, a assercao central e POSITIVA
+    (a User Task humana ESTA aberta, para `coordenacao-financeira`) e o controle negativo
+    `test_controle_negativo_lastro_confirmado_libera_pela_faixa_clerical` prova que o MESMO dreno
+    e as MESMAS assercoes mudam de resultado quando o lastro chega confirmado.
     """
     await engine.deploy(
         _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
@@ -716,13 +784,95 @@ async def test_glosa_revertida_nunca_alcanca_liberacao_automatica_sem_ut(
     assert len(pagto) == 1
     pagto_iid = pagto[0]["id"]
 
+    # AGORA a instancia de destino anda: sem isto tudo abaixo seria vacuo.
+    await pagto_drain.drain()
+
+    pagto_ut = await engine.await_user_task(pagto_iid, _UT_PAGTO_ADMISSIBILIDADE)
+    assert "coordenacao-financeira" in pagto_ut.candidate_groups, (
+        "a ordem tem de parar na fila HUMANA de admissibilidade — quem julgou o recurso nao e "
+        "quem admite a ordem de pagamento (I-PAGTO-1, segregacao de funcoes)"
+    )
+
     pagto_ended = await engine.activity_instances_ended(pagto_iid)
+    assert _BRT_PAGTO_ADMISSIBILIDADE in pagto_ended, (
+        f"o gate de admissibilidade TEM de ter sido avaliado; ended={pagto_ended}"
+    )
     assert "End_PagamentoLiberadoAutomatico" not in pagto_ended, (
-        "uma glosa revertida NUNCA pode ser liberada automaticamente: quem julgou o recurso nao "
-        "e quem admite a ordem de pagamento (I-PAGTO-1, segregacao de funcoes)"
+        "uma glosa revertida NUNCA pode ser liberada automaticamente"
     )
     assert "ST_ReleaseLowValue" not in pagto_ended
     assert "ST_ReleaseHighValue" not in pagto_ended
+    assert "BRT_AlcadaRouting" not in pagto_ended, (
+        "sem lastro confirmado a ordem nem chega a escada de alcada"
+    )
+
+
+async def test_controle_negativo_lastro_confirmado_libera_pela_faixa_clerical(
+    engine: EngineRest,
+    pagto_drain: PagtoDrainProbe,
+) -> None:
+    """CONTROLE NEGATIVO de M3: as assercoes do teste acima MUDAM de resultado quando o lastro
+    chega confirmado.
+
+    Mesmo BPMN, mesmo dreno, mesma forma de ordem que o handoff semeia — mas com os quatro fatos
+    de admissibilidade presentes e `dentro_teto_l2=true`. Aqui a ordem NAO para em
+    `UT_AnaliseAdmissibilidade`: ela desce pela faixa clerical ate `ST_ReleaseLowValue` /
+    `End_PagamentoLiberadoAutomatico`. E exatamente o desfecho que I-PAGTO-1 existe para tornar
+    inalcancavel a partir de um deferimento de recurso — e a prova de que aquelas assercoes
+    negativas discriminam em vez de valerem por construcao.
+
+    A instancia e iniciada DIRETAMENTE (nao pelo handoff): semear os fatos proibidos atraves do
+    worker e estruturalmente impossivel (`HANDOFF_PAGTO_SEEDED_KEYS`), que e o que
+    `test_handoff_pagamento_nunca_semeia_os_fatos_de_admissibilidade_de_pagto` prova.
+    """
+    await engine.deploy(
+        _BPMN_PAGTO, _DMN_PAGTO_ADMISSIBILITY, _DMN_PAGTO_ALCADA, name="SP-OP-PAGTO-001-qa-recurso"
+    )
+    glosa_id = _unique_glosa()
+    ordem = f"ORDEM-GLOSAREV-amh-GUIA-TESTE-0001-{glosa_id}"
+    pagto_bk = f"PAGTO-amh-GUIA-TESTE-0001-{glosa_id}"
+    inst = await engine.start_by_key(
+        "SP-OP-PAGTO-001",
+        pagto_bk,
+        {
+            "tenant_id": "amh",
+            "ordem_pagamento_id": ordem,
+            "numero_lote_tiss": "LOTE-TESTE-0001",
+            "numero_guia_tiss": "GUIA-TESTE-0001",
+            "glosa_id": glosa_id,
+            "prestador_id": "PREST-TESTE-001",
+            "tipo_pagamento": "glosa_revertida",
+            "valor_pagamento_cents": 15000,
+            "moeda": "BRL",
+            "competencia": "2026-05",
+            "data_vencimento": "2026-12-31",
+            "conta_origem_ref": "CONTA-REF-TESTE-0001",
+            "instrumento_pagamento": "pix",
+            "fonte_valor": "deferido",
+            "lastro_origem": "recurso_deferimento_humano",
+            "lastro_decisor_id": "analista-sintetico-001",
+            # As QUATRO chaves que o handoff jamais semeia — aqui presentes de proposito.
+            "lastro_confirmado": True,
+            "dados_pagamento_validos": True,
+            "duplicidade_suspeita": False,
+            "dentro_teto_l2": True,
+        },
+    )
+    pagto_iid = inst["id"]
+
+    await pagto_drain.drain()
+    ended = await _await_end(engine, pagto_iid)
+
+    assert _BRT_PAGTO_ADMISSIBILIDADE in ended, f"o gate deve ter rodado; ended={ended}"
+    assert "ST_ReleaseLowValue" in ended, (
+        "CONTROLE NEGATIVO FALHOU: com lastro confirmado + dentro do teto L2 a ordem TEM de descer "
+        f"pela faixa clerical — se nao desce, as assercoes negativas do teste irmao nao provam "
+        f"nada. ended={ended}"
+    )
+    assert "End_PagamentoLiberadoAutomatico" in ended
+    assert not await engine.list_user_tasks(pagto_iid), (
+        "a faixa clerical nao abre User Task — e por isso que I-PAGTO-1 importa"
+    )
 
 
 async def test_happy_path_escalar_auditor_defere(
@@ -1403,7 +1553,7 @@ async def test_prazo_max_ancora_defaultada_pelo_intake_com_warning(
 ) -> None:
     """Sem `data_recebimento_recurso_iso` no start, o INTAKE a normaliza — nao a DMN.
 
-    SUBSTITUI `test_prazo_max_fail_safe_ancora_data_ciencia_glosa`. O fail-safe antigo caia na
+    SUBSTITUI o teste de fail-safe do desenho antigo, que caia na
     data de ciencia da glosa pelo prestador: a ancora do RECORRENTE. Isso trocava de perspectiva
     em silencio, e o prazo de INTERPOSICAO nao e da operadora — a expressao FEEL nao tem mais esse
     ramo. Agora `operadora.recurso.validate_recurso` (ST_ValidarRecurso) garante a ancora
@@ -1419,7 +1569,7 @@ async def test_prazo_max_ancora_defaultada_pelo_intake_com_warning(
 
     inst = await start_recurso(
         glosa_type="administrativa",
-        data_ciencia_glosa=ciencia_date.isoformat(),
+        data_ciencia_alegada_prestador=ciencia_date.isoformat(),
         data_recebimento_recurso_iso=None,
     )
     iid = inst["id"]
@@ -1860,18 +2010,18 @@ def test_todos_os_fins_comunicam_o_prestador() -> None:
         )
 
 
-def test_decisao_invalida_termina_em_erro_sem_efeito(
-    engine: EngineRest,
-) -> None:
+def test_decisao_invalida_termina_em_erro_sem_efeito() -> None:
     """Default fail-closed de `GW_DecisaoRecurso`: uma decisao ausente/desconhecida vai a um
     terminal de ERRO, nunca a uma acao.
 
     Prova ESTATICA sobre o BPMN (o gateway default e uma propriedade do artefato, e o teste vivo
     correspondente e `test_decisao_invalida_termina_em_erro_sem_efeito_no_engine`). Antes, o
-    default de `GW_DecisaoRecurso` era `Flow_GWDec_Recorrer` e o de `GW_MeritoAuditor` era
-    `Flow_GWMerito_Manter`: uma variavel ausente PRODUZIA um ato.
+    defaults dos DOIS gateways apontavam para fluxos de ACAO (ids deletados nesta reconstrucao):
+    uma variavel ausente PRODUZIA um ato.
+
+    m6 (gatekeeper R1): NAO pede a fixture `engine`. Pedi-la so para `del`-a punha uma prova
+    puramente estatica atras do gate de docker sem que ela precise de engine algum.
     """
-    del engine
     from xml.etree import ElementTree as ET
 
     tree = ET.parse(_BPMN)

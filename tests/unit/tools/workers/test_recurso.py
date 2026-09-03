@@ -14,6 +14,7 @@ import asyncio
 import pytest
 import structlog
 
+from maezo.agents.andre.keys import key_segment
 from maezo.gateway.audit import AuditRecord
 from maezo.tools.mcp_cibseven.transport import (
     FakeCibSevenTransport,
@@ -28,8 +29,10 @@ from maezo.tools.workers.harness import (
     FakeKafkaPublisher,
     WorkerBpmnError,
 )
+from maezo.tools.workers.phi_vars import PHI_PROCESS_VARS
 from maezo.tools.workers.recurso import (
     COMUNICACAO_TIPOS,
+    FONTES_VALOR_PERMITIDAS,
     HANDOFF_PAGTO_FORBIDDEN_KEYS,
     HANDOFF_PAGTO_SEEDED_KEYS,
     LASTRO_ORIGEM_RECURSO,
@@ -43,6 +46,8 @@ from maezo.tools.workers.recurso import (
     RecursoIndeferimentoNotHumanError,
     RecursoInput,
     _mint_protocolo_resposta,
+    _ordem_pagamento_id,
+    _pagto_business_key,
     _require_glosa_id,
     analyze_merits,
     analyze_request_entry,
@@ -158,7 +163,7 @@ def test_validate_recurso_fora_prazo() -> None:
         numero_guia_tiss="GUIDE-001",
         glosa_existe=True,
         dentro_prazo_recurso=False,
-        data_ciencia_glosa="2024-01-01",
+        data_ciencia_alegada_prestador="2024-01-01",
         data_recebimento_recurso_iso="2026-05-20",
     )
     result = validate_recurso(inp)
@@ -168,7 +173,7 @@ def test_validate_recurso_fora_prazo() -> None:
 
 def test_validate_recurso_normaliza_data_recebimento_ausente_com_warning() -> None:
     """GAP-RECURSO-1 (ADR-0040 §2.3): the anchor is defaulted FAIL-SAFE to TODAY/UTC when absent
-    — never silently, and NEVER to the appellant's own `data_ciencia_glosa` (which is exactly the
+    — never silently, and NEVER to the appellant's own alleged ciencia date (which is exactly the
     perspective swap this redesign removes: an earlier date would be a plausible-looking value
     that belongs to the other party's clock)."""
     from datetime import UTC, datetime
@@ -177,7 +182,7 @@ def test_validate_recurso_normaliza_data_recebimento_ausente_com_warning() -> No
         tenant_id="amh",
         glosa_id="GLOSA-001",
         numero_guia_tiss="GUIDE-001",
-        data_ciencia_glosa="2024-01-01",
+        data_ciencia_alegada_prestador="2024-01-01",
         data_recebimento_recurso_iso="",
         glosa_existe=True,
         dentro_prazo_recurso=True,
@@ -652,6 +657,18 @@ def test_validate_recurso_entry_round_trips_validate_recurso() -> None:
     assert result["valid"] == direct.valid
     assert result["glosa_existe"] == direct.glosa_existe
     assert result["data_recebimento_recurso_iso"] == "2026-05-20"
+    # m8: ST_ValidarRecurso is the FIRST service task of EVERY path, so this is the first
+    # completion payload the engine sees. No value in it may be a container.
+    assert "errors" not in result
+    assert result["errors_validacao"] == ""
+    assert all(isinstance(v, str | bool) for v in result.values()), result
+
+
+def test_validate_recurso_entry_achata_erros_em_escalar() -> None:
+    """m8: the diagnosis survives, as a SCALAR — never a `list[str]` process variable."""
+    result = validate_recurso_entry({"glosa_id": "G-1", "glosa_existe": True, "dentro_prazo_recurso": False})
+    assert result["errors_validacao"] == "fora do prazo recursal"
+    assert not isinstance(result["errors_validacao"], list)
 
 
 def test_request_documents_entry_round_trips_notify_prestador_default_pendencia() -> None:
@@ -1282,6 +1299,137 @@ def test_handoff_pagamento_converte_centavos_sem_truncar() -> None:
     )
     payload = asyncio.run(engine.get_process_status(_PAGTO_BK)).variables
     assert payload["valor_pagamento_cents"] == 115
+
+
+# ----- M2: os segmentos da chave STRICT sao NORMALIZADOS -------------------------------------
+
+#: As 6 formas da MESMA glosa revertida que o gatekeeper mintou como 6 chaves distintas
+#: (VERIFY-PR3-RECURSO §4.4). `non_blank` recusa ausente/vazio/whitespace-only/`None`, mas ACEITA
+#: whitespace-PADDED — e `str()` preserva o padding. Numa familia STRICT de dedup, uma chave a
+#: mais e uma SEGUNDA ordem de pagamento para a mesma glosa.
+_VARIANTES_DA_MESMA_GLOSA: tuple[dict[str, object], ...] = (
+    {"tenant_id": "amh", "numero_guia_tiss": "GUIA-1", "glosa_id": "GLOSA-1"},
+    {"tenant_id": "amh", "numero_guia_tiss": " GUIA-1 ", "glosa_id": "GLOSA-1"},
+    {"tenant_id": "amh", "numero_guia_tiss": "GUIA-1", "glosa_id": "GLOSA-1\t"},
+    {"tenant_id": " amh", "numero_guia_tiss": "GUIA-1", "glosa_id": "GLOSA-1"},
+    {"tenant_id": "amh", "numero_guia_tiss": "GUIA-1", "glosa_id": "  GLOSA-1  "},
+    {"tenant_id": "amh", "numero_guia_tiss": "GUIA-1\n", "glosa_id": "GLOSA-1"},
+)
+
+
+@pytest.mark.parametrize("variante", _VARIANTES_DA_MESMA_GLOSA)
+def test_pagto_business_key_colapsa_as_seis_variantes_numa_chave(variante: dict) -> None:
+    """M2: as 6 variantes da MESMA glosa revertida produzem UMA chave — a de referencia."""
+    assert _pagto_business_key(**variante) == _PAGTO_BK  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("variante", _VARIANTES_DA_MESMA_GLOSA)
+def test_ordem_pagamento_id_colapsa_as_seis_variantes_num_id(variante: dict) -> None:
+    """A ordem que a chave carrega tem de concordar com ela sobre a identidade da glosa."""
+    assert _ordem_pagamento_id(**variante) == "ORDEM-GLOSAREV-amh-GUIA-1-GLOSA-1"  # type: ignore[arg-type]
+
+
+def test_as_seis_variantes_sao_realmente_distintas_sem_normalizacao() -> None:
+    """CONTROLE NEGATIVO do teste acima: sem `key_segment`, a interpolacao crua mintaria 6 chaves
+    diferentes. Se este teste ficar verde com 1 chave, o corpus perdeu o poder de discriminar."""
+    cruas = {"PAGTO-{tenant_id}-{numero_guia_tiss}-{glosa_id}".format(**v) for v in _VARIANTES_DA_MESMA_GLOSA}
+    assert len(cruas) == 6, cruas
+
+
+@pytest.mark.parametrize("variante", _VARIANTES_DA_MESMA_GLOSA)
+def test_pagto_business_key_usa_a_normalizacao_canonica_do_repo(variante: dict) -> None:
+    """PINO DE IGUALDADE (M2): a normalizacao e a MESMA de `maezo.agents.andre.keys.key_segment`
+    — o unico composer STRICT da familia PAGTO —, nao uma copia local que possa divergir de novo
+    (o defeito M-8 que o cabecalho daquele modulo descreve para ESTA familia)."""
+    esperado = "PAGTO-{}-{}-{}".format(
+        key_segment(variante["tenant_id"]),
+        key_segment(variante["numero_guia_tiss"]),
+        key_segment(variante["glosa_id"]),
+    )
+    assert _pagto_business_key(**variante) == esperado  # type: ignore[arg-type]
+
+
+def test_handoff_pagamento_dedup_converge_com_guia_com_padding() -> None:
+    """A prova de ponta a ponta do vetor: a MESMA glosa reentregue com um espaco a mais na guia
+    encontra a instancia anterior em vez de abrir uma segunda ordem de pagamento."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    primeira = handoff_pagamento(_handoff_vars(), engine=engine, audit_sink=sink)
+    segunda = handoff_pagamento(
+        _handoff_vars(numero_guia_tiss=" GUIA-1 ", glosa_id="GLOSA-1\t"),
+        engine=engine,
+        audit_sink=sink,
+    )
+    assert primeira["pagto_business_key"] == segunda["pagto_business_key"] == _PAGTO_BK
+    assert segunda["pagto_already_existed"] is True
+    assert primeira["pagto_instance_id"] == segunda["pagto_instance_id"]
+    # A identidade que VIAJA para PAGTO tambem e a normalizada — nao o padding do reenvio.
+    payload = asyncio.run(engine.get_process_status(_PAGTO_BK)).variables
+    assert payload["numero_guia_tiss"] == "GUIA-1"
+    assert payload["glosa_id"] == "GLOSA-1"
+
+
+def test_chave_de_pagto_nunca_carrega_phi() -> None:
+    """A chave e a ordem sao ancoradas em `tenant_id`/`numero_guia_tiss`/`glosa_id` — nenhuma
+    variavel de `PHI_PROCESS_VARS` entra nelas nem no conjunto semeado (ADR-0006 duas zonas)."""
+    assert not (HANDOFF_PAGTO_SEEDED_KEYS & PHI_PROCESS_VARS)
+    engine = FakeCibSevenTransport()
+    phi_semeada = {var: f"PHI-SENTINELA-{var}" for var in sorted(PHI_PROCESS_VARS)}
+    result = handoff_pagamento(_handoff_vars(**phi_semeada), engine=engine, audit_sink=FakeStartAuditSink())
+    payload = asyncio.run(engine.get_process_status(_PAGTO_BK)).variables
+    assert result["pagto_business_key"] == _PAGTO_BK
+    assert set(payload) == HANDOFF_PAGTO_SEEDED_KEYS
+    for var, sentinela in phi_semeada.items():
+        assert sentinela not in result["pagto_business_key"], var
+        assert sentinela not in str(payload["ordem_pagamento_id"]), var
+        assert sentinela not in payload.values(), var
+
+
+# ----- m1/m2: proveniencia da ordem -----------------------------------------------------------
+
+
+@pytest.mark.parametrize("fonte", ["apresentado", "glosado", "", "  ", "DEFERIDO", None])
+def test_handoff_pagamento_recusa_fonte_valor_desconhecida(fonte: object) -> None:
+    """m1: `fonte_valor` era ECOADA e entrava em `AgentDecisionProvenance.decision_basis`,
+    enquanto `valor_pagamento_cents` vem SEMPRE de `valor_deferido_brl` — proveniencia que podia
+    contradizer a fonte real. Fora do dominio declarado: recusa, sem efeito no engine.
+
+    `""`/`"  "`/`None` sao o caso benigno (a ausencia defaulta para `deferido`); qualquer OUTRO
+    rotulo e uma afirmacao falsa sobre a origem do dinheiro.
+    """
+    engine = FakeCibSevenTransport()
+    esperado_ok = str(fonte or "deferido").strip() in FONTES_VALOR_PERMITIDAS
+    if esperado_ok:
+        handoff_pagamento(_handoff_vars(fonte_valor=fonte), engine=engine, audit_sink=FakeStartAuditSink())
+        payload = asyncio.run(engine.get_process_status(_PAGTO_BK)).variables
+        assert payload["fonte_valor"] == "deferido"
+        return
+    with pytest.raises(RecursoHandoffPagamentoInvalidoError, match="fonte_valor"):
+        handoff_pagamento(_handoff_vars(fonte_valor=fonte), engine=engine, audit_sink=FakeStartAuditSink())
+    assert asyncio.run(engine.find_active_instance(_PAGTO_BK)) is None
+
+
+@pytest.mark.parametrize("over", [{"analista_id": ""}, {"analista_id": "   "}, {"analista_id": None}])
+def test_handoff_pagamento_recusa_ordem_sem_decisor(over: dict) -> None:
+    """m2: `lastro_decisor_id` aceitava vazio. Uma ordem de pagamento nascida de decisao humana
+    nao pode sair sem o decisor identificado — e a EVIDENCIA que UT_AnaliseAdmissibilidade le
+    (ADR-0007). Sem `auditor_id` de reserva, a recusa e a resposta; nenhum efeito no engine."""
+    engine = FakeCibSevenTransport()
+    with pytest.raises(RecursoHandoffPagamentoInvalidoError, match="decisor"):
+        handoff_pagamento(_handoff_vars(**over), engine=engine, audit_sink=FakeStartAuditSink())
+    assert asyncio.run(engine.find_active_instance(_PAGTO_BK)) is None
+
+
+def test_handoff_pagamento_cai_para_o_auditor_como_decisor() -> None:
+    """O ramo do merito: sem `analista_id`, o decisor e o `auditor_id` — normalizado, nao cru."""
+    engine = FakeCibSevenTransport()
+    handoff_pagamento(
+        _handoff_vars(analista_id=None, auditor_id="  auditor-7  "),
+        engine=engine,
+        audit_sink=FakeStartAuditSink(),
+    )
+    payload = asyncio.run(engine.get_process_status(_PAGTO_BK)).variables
+    assert payload["lastro_decisor_id"] == "auditor-7"
 
 
 # ----- register_recurso_workers wires exactly 12 topics ---------------------------------------
