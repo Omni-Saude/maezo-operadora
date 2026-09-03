@@ -71,20 +71,15 @@
 # RUNTIME STATE TODAY (unchanged by this file) — the mitigation, stated without exaggeration
 # --------------------------------------------------------------------------------------------
 # `carencia_check` has exactly ONE consumer in the repository: `_criterio_regulatorio`
-# (src/maezo/tools/workers/auth.py:614-676 as of 2026-09-03; PERSP-B5-SHADOW-LINES —
-# was cited as :573-632, drifted with unrelated commits; anchor by symbol, not line, if this
-# drifts again), the REGULATORIO criterion of
+# (src/maezo/tools/workers/auth.py:573-632), the REGULATORIO criterion of
 # `operadora.auth.validate_auto_criteria`. Today:
 #
 #   1. THE TABLE IS NEVER EVALUATED. None of its three inputs (`tipo_procedimento`,
 #      `dias_desde_adesao`, `cpt_declarada`) exists in SP-OP-AUTH-001's start contract, so the
 #      criterion fails closed with `REGULATORIO_ENTRADA_AUSENTE` BEFORE the DMN call
-#      (auth.py:640-645 as of 2026-09-03; PERSP-B5-SHADOW-LINES — was cited as :598-604, which
-#      is inside `_criterio_tecnico`, a DIFFERENT criterion, not this one). Already recorded as
-#      open residue (4) in docs/review-queue.md:23.
+#      (auth.py:598-604). Already recorded as open residue (4) in docs/review-queue.md:23.
 #   2. EVEN IF THE INPUTS EXISTED, the ratification gate `_gate_on_ratification`
-#      (auth.py:874-912 as of 2026-09-03; PERSP-B5-SHADOW-LINES — was cited as :833-869) forces
-#      `criterio_regulatorio_ok = false` with
+#      (auth.py:833-869) forces `criterio_regulatorio_ok = false` with
 #      `REGULATORIO_FONTE_NAO_RATIFICADA` while `carencia_check` is `ratificado: false` in
 #      `spec/processes/dmn/auth-criteria-ratification.yaml:97-105` — REGARDLESS of what the table
 #      computed. The would-be verdict survives only as a bounded SHADOW token.
