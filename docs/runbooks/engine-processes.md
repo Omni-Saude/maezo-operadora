@@ -1,7 +1,7 @@
 # Runbook: Engine Processes — BPMN/DMN deployment & instance management
 
 **Audience:** Process engineers, compliance, on-call  
-**Last updated:** 2026-06-12  
+**Last updated:** 2026-09-03  
 **Applies to:** Maezo Healthcare Plan Phase 0+
 
 ---
@@ -273,6 +273,79 @@ curl -X DELETE http://cibseven:8080/engine-rest/process-instance/$INSTANCE_ID \
 ```
 
 **Before terminating:** Save instance data to audit log; notify compliance if SLA-critical process.
+
+### Chave travada: claim duravel sem instancia (`StartClaimWithoutInstanceError`)
+
+**Codigo:** `src/maezo/tools/mcp_cibseven/transport.py` (`StartClaimWithoutInstanceError`,
+`_resolve_strict_dedup_hit`, `_START_DEDUP_POLICY`) · **Decisao:** DL-0046 ·
+**Prova executavel:** `tests/integration/chaos/test_crash_between_seams.py` (B1b).
+
+**Quando isto aparece.** Só para as chaves de postura *gated* — hoje `SP-OP-PAGTO-001`
+(`PERMANENT`) e `SP-OP-CANCEL-001` (`EXCLUSIVE`). Nessas duas, o *claim* durável escrito antes do
+POST ao engine (ADR-0007, emit-before-effect) é também o **token de exclusão mútua** do start. Se
+o claim existe e o engine **não tem instância nenhuma** para a chave — nem ativa, nem em história
+— o portão não tem como decidir e **recusa, alto**: o processo NÃO é iniciado, o start devolve o
+erro, e toda re-entrega cai no mesmo ponto até que um humano resolva. Nas chaves `NON_STRICT` (as
+outras 13) este estado não existe: lá o claim deduplica apenas a linha de auditoria.
+
+**Por que o sistema não resolve sozinho.** O mesmo estado é produzido por duas histórias que nada
+durável distingue: (A) o POST nunca teve efeito (engine fora, 4xx, requisição perdida) — reiniciar
+seria o certo; (B) um concorrente ganhou o claim e o POST dele **ainda está em voo** — reiniciar
+criaria uma SEGUNDA instância: um segundo pagamento em `SP-OP-PAGTO-001`, uma segunda
+`UT_AnaliseRescisao` concorrente em `SP-OP-CANCEL-001`. Chutar (A) é o defeito de efeito duplicado
+vestido de recuperação; chutar (B) é o sucesso falso que este portão existe para matar. O erro
+carrega o `dedup_key` exato justamente porque a decisão é humana.
+
+**Sinais.** Log `cibseven_start_claim_without_instance` (nível `error`) com `process_key`,
+`business_key`, `dedup_key` e `attempts`; e/ou `cibseven_start_claim_orphaned`, emitido no momento
+em que o claim órfão nasce (start falhou logo após o claim), sem esperar a próxima re-entrega.
+
+**Procedimento.**
+
+1. **Confirme contra o engine** que realmente não há instância — ativa nem histórica — para a
+   `business_key` do erro. Esta confirmação é a única precondição do passo 3:
+
+```bash
+BUSINESS_KEY="<business_key do erro>"
+# Ativa:
+curl "http://cibseven:8080/engine-rest/process-instance?businessKey=$BUSINESS_KEY" | jq '.'
+# Historica (inclui COMPLETED/EXTERNALLY_TERMINATED):
+curl "http://cibseven:8080/engine-rest/history/process-instance?processInstanceBusinessKey=$BUSINESS_KEY" | jq '.'
+```
+
+2. **Se houver instância** (ativa ou histórica): NÃO apague nada. Uma instância viva significa que
+   o portão vai resolver sozinho na próxima re-entrega; uma instância encerrada resolve sozinha em
+   `EXCLUSIVE` (a geração acabou, a próxima pode começar) e é recusa correta em `PERMANENT`
+   (`ALREADY_COMPLETED`). Se mesmo assim o erro persiste, a causa provável é **retenção**: a
+   história do engine expirou antes do claim. Trate como incidente de retenção (as duas janelas
+   têm ordem obrigatória: retenção do claim ≤ retenção da história — ver o bloco de comentário de
+   `_START_DEDUP_POLICY`), não como chave travada.
+
+3. **Se não houver instância nenhuma**, escolha UMA das duas saídas e registre qual:
+   - iniciar a instância manualmente no engine com a MESMA `business_key` (o claim já existente
+     passa a ter a instância que ele reivindicou, e a próxima entrega resolve para ela); ou
+   - apagar **aquela única linha** de `audit_emit_dedup` para rearmar o portão, deixando a próxima
+     entrega iniciar o processo normalmente:
+
+```sql
+-- Uma linha, nomeada pelo dedup_key do proprio erro. Rode dentro do schema do tenant.
+DELETE FROM audit_emit_dedup WHERE tenant = '<tenant>' AND dedup_key = '<dedup_key do erro>';
+```
+
+> **Isto NÃO é cirurgia na cadeia de auditoria.** `audit_emit_dedup` é tabela IRMÃ de
+> `audit_chain` (migration 0005: `tenant, dedup_key, record_hash, created_at`), não carrega elo de
+> hash, e apagar uma linha aqui não altera nada que `verify_chain` leia. A proibição absoluta de
+> `UPDATE`/`DELETE`/`INSERT` manual de [`audit-recovery.md`](audit-recovery.md) §3 é sobre
+> `audit_chain` e continua absoluta. Efeito colateral esperado e correto: a próxima entrega
+> re-emite, então a cadeia **ganha um elo** (append-only) — ela nunca reescreve o primeiro.
+> Apague `WHERE dedup_key = ...` — nunca a tabela inteira, nunca por faixa de data: cada outra
+> linha é o token de exclusão de outra chave.
+
+4. **Verifique** que a cadeia continua íntegra depois da operação (`verify_chain`, ver
+   [`audit-recovery.md`](audit-recovery.md) §2) e que a chave iniciou exatamente uma vez.
+
+O ciclo completo — travamento, passo 3 e rearme com exatamente UM start — é executado em
+`tests/integration/chaos/test_crash_between_seams.py::test_b1b_operator_rearm_after_the_gated_wedge_starts_exactly_once`.
 
 ---
 

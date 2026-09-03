@@ -146,6 +146,46 @@ DEFAULT_BEDROCK_REGION = "sa-east-1"
 
 
 # ---------------------------------------------------------------------------
+# Model-tier routing (AF-12, ADR-0009 §2 "Routing por tarefa")
+# ---------------------------------------------------------------------------
+
+#: The CLOSED tier vocabulary, read straight off ADR-0009 §2: "classificacao -> modelo
+#: rapido/barato; raciocinio critico -> fronteira; lote -> batch tier". `fast` and `frontier` are
+#: what every shipped `spec/agents/*/agent.yaml` declares; `batch` is accepted so an agent that
+#: declares it is not refused, but NO agent declares one today — recorded in
+#: `docs/review-queue.md` rather than invented here, because introducing a batch task kind is a
+#: product decision about which work may be deferred, not an implementation detail.
+MODEL_TIERS: Final[frozenset[str]] = frozenset({"fast", "frontier", "batch"})
+
+#: The CLOSED task-kind vocabulary — the keys an `agent.yaml` `model:` block may use. Exactly the
+#: two every agent ships, plus `batch` for symmetry with the tier above.
+MODEL_TASK_KINDS: Final[frozenset[str]] = frozenset({"task_default", "reasoning", "batch"})
+
+#: The task kind a call that names none is routed as. `task_default` IS the declared default in
+#: every `agent.yaml`; picking anything else here would silently contradict the spec.
+DEFAULT_TASK_KIND: Final[str] = "task_default"
+
+#: Sentinel `tier` label for a call whose provider was built with NO tier map at all (a
+#: composition root that has no `AgentDefinition` — today `platform/webhooks/service.py`'s
+#: bootstrap before it loads one, and every ad-hoc `InferenceProvider()` in a test).
+TIER_NO_MAP: Final[str] = "sem_mapa"
+
+#: Sentinel `tier` label for a call naming a task kind the agent's `model:` block does not declare.
+TIER_UNDECLARED: Final[str] = "nao_declarado"
+
+#: The CLOSED `resolution` vocabulary of `maezo_llm_tier_resolution_total`.
+#:
+#: `modelo_unico` is the ONLY value any call produces today, and that is the honest state of this
+#: repo: `InferenceSettings` carries ONE `model` field and there is no per-tier model map anywhere
+#: in the configuration, so `fast` and `frontier` both resolve to the same configured model. AF-12
+#: asks for exactly this — a tier that resolves fail-closed to the single configured model with an
+#: explicit log/metric, NEVER a silent default to a DIFFERENT model. `modelo_por_tier` exists so
+#: the day an owner supplies a real per-tier map the two cases are distinguishable in the same
+#: series rather than needing a new metric.
+TIER_RESOLUTIONS: Final[frozenset[str]] = frozenset({"modelo_unico", "modelo_por_tier"})
+
+
+# ---------------------------------------------------------------------------
 # Errors — typed, never a silent fallback (constraint 2 / constraint 3)
 # ---------------------------------------------------------------------------
 
@@ -2650,6 +2690,40 @@ def _build_provider(settings: InferenceSettings) -> BaseInferenceProvider:
 # ---------------------------------------------------------------------------
 
 
+def _validated_model_tiers(model_tiers: Mapping[str, str] | None) -> dict[str, str]:
+    """Validate an agent-declared `task_kind -> tier` map against the ADR-0009 vocabularies.
+
+    FAIL-CLOSED AT CONSTRUCTION, on purpose and by precedent: this is the same posture, error type
+    and moment as :meth:`InferenceProvider._assert_phi_zone_capability` and the missing-API-key
+    refusal. A tier this module cannot honour is a misconfiguration of the deployment, and every
+    composition root already isolates a construction failure into a red readiness check — so the
+    failure mode is "replica not ready", never "replica ready and routing by a tier nobody
+    implements".
+
+    `None`/empty is NOT an error: most constructions (tests, the generic roots) legitimately have
+    no agent definition. Their calls are counted under the `sem_mapa` sentinel instead.
+    """
+    if not model_tiers:
+        return {}
+    validated: dict[str, str] = {}
+    for task_kind, tier in model_tiers.items():
+        if task_kind not in MODEL_TASK_KINDS:
+            raise InferenceConfigError(
+                f"unknown model task kind {task_kind!r} in the agent's `model:` block — "
+                f"ADR-0009 declares {sorted(MODEL_TASK_KINDS)}. Refusing to construct an "
+                "inference provider that would route by a task kind it cannot honour."
+            )
+        if tier not in MODEL_TIERS:
+            raise InferenceConfigError(
+                f"unknown model tier {tier!r} declared for task kind {task_kind!r} — ADR-0009 §2 "
+                f"declares {sorted(MODEL_TIERS)}. Refusing to construct: a tier this module does "
+                "not know cannot be routed, and silently ignoring it is how ADR-0009's routing "
+                "stayed decorative."
+            )
+        validated[task_kind] = tier
+    return validated
+
+
 class InferenceProvider:
     """Abstract interface for LLM inference providers.
 
@@ -2662,21 +2736,35 @@ class InferenceProvider:
     requires no API key — suitable for testing and development.
     """
 
-    def __init__(self, settings: InferenceSettings | None = None) -> None:
+    def __init__(
+        self,
+        settings: InferenceSettings | None = None,
+        *,
+        model_tiers: Mapping[str, str] | None = None,
+    ) -> None:
         """Initialize the inference provider.
 
         Args:
             settings: Optional InferenceSettings; if None, uses defaults
                        (noop provider, no API key).
+            model_tiers: AF-12 — this replica's agent-declared ``task_kind -> tier`` map, from
+                :meth:`maezo.agents.AgentDefinition.model_tiers`. Supplied by the composition
+                root that knows WHICH agent this process serves; ``None`` (every generic
+                construction) means no tier map, which is reported explicitly on every call
+                rather than silently treated as "default tier".
 
         Raises:
             InferenceConfigError: unknown provider; a real provider missing
-                required configuration (e.g. no API key); or
-                ``phi_zone_required`` set against a provider whose
-                :class:`ProviderCapabilities` do not satisfy the ADR-0006 PHI
-                contract (see :meth:`_assert_phi_zone_capability`).
+                required configuration (e.g. no API key); ``phi_zone_required``
+                set against a provider whose :class:`ProviderCapabilities` do
+                not satisfy the ADR-0006 PHI contract (see
+                :meth:`_assert_phi_zone_capability`); or a ``model_tiers`` entry
+                naming a task kind or tier outside the ADR-0009 vocabularies —
+                fail-closed at CONSTRUCTION, the same moment and the same error
+                type as a missing credential.
         """
         self._settings = settings or InferenceSettings()
+        self._model_tiers = _validated_model_tiers(model_tiers)
         self._impl = _build_provider(self._settings)
         self._assert_phi_zone_capability()
         capabilities = self._impl.capabilities
@@ -2694,6 +2782,9 @@ class InferenceProvider:
             retention_policy=capabilities.retention_policy,
             max_data_classification=capabilities.max_data_classification,
             phi_zone_required=self._settings.phi_zone_required,
+            # AF-12: WHICH tier map this process booted with. An empty map in a deployed agent
+            # pod is the signal that a composition root forgot to pass the AgentDefinition.
+            model_tiers=dict(sorted(self._model_tiers.items())),
         )
         if self._impl.is_mock:
             logger.warning(
@@ -2772,6 +2863,49 @@ class InferenceProvider:
         """
         return self._impl.health_check()
 
+    def _resolve_task_model(self, task_kind: str | None) -> str:
+        """Resolve `task_kind` to the model id this call WILL use, loudly (AF-12, ADR-0009 §2).
+
+        THE HONEST SHAPE OF THIS FUNCTION, stated before the code so it cannot be mistaken for
+        more than it is: this repo configures exactly ONE model (``InferenceSettings.model`` /
+        the provider default) and no per-tier model map exists anywhere in its configuration.
+        So every tier — `fast`, `frontier`, whatever an agent declares — resolves to that single
+        model. AF-12 asks for precisely that: fail closed to the single configured model, with an
+        explicit log and metric, and NEVER a silent default to a DIFFERENT model. This function
+        therefore ROUTES nothing today; it makes the non-routing visible and counts it.
+
+        The day an owner supplies a real per-tier map, the branch that consumes it goes here and
+        `TIER_RESOLUTIONS` already distinguishes the two cases in the same metric series. Which
+        model each tier should name is an owner/finance decision (ADR-0009's "precos variam 10x")
+        and is recorded in `docs/review-queue.md`, not guessed here.
+
+        Returns the effective model id (or the empty string for a provider with no concrete
+        model, e.g. noop) — returned rather than passed down because the concrete providers bind
+        their model at construction; there is nothing to override while one model exists, and
+        fabricating a per-call override would be the silent-different-model failure itself.
+        """
+        kind = task_kind or DEFAULT_TASK_KIND
+        tier = self._model_tiers.get(kind, TIER_UNDECLARED) if self._model_tiers else TIER_NO_MAP
+        # Same source as the public `model_id` accessor, deliberately: one answer to "which model
+        # is this process using", not two that can disagree. Empty means "the concrete provider's
+        # own default" — the honest value, never a fabricated id (that accessor's own rule).
+        effective_model = self._settings.model
+        logger.info(
+            "llm_tier_resolved",
+            task_kind=kind,
+            tier=tier,
+            resolution="modelo_unico",
+            model=effective_model or "default",
+            provider=self._settings.provider,
+        )
+        try:
+            from maezo.platform.observability import record_llm_tier_resolution  # noqa: PLC0415
+
+            record_llm_tier_resolution(task_kind=kind, tier=tier, resolution="modelo_unico")
+        except Exception:  # noqa: BLE001 — telemetry must never break a generation.
+            logger.debug("llm_tier_resolution_metric_failed", task_kind=kind, exc_info=True)
+        return effective_model
+
     async def generate(
         self,
         prompt: str,
@@ -2779,6 +2913,7 @@ class InferenceProvider:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         """Generate a response for the given prompt.
 
@@ -2795,6 +2930,20 @@ class InferenceProvider:
                 when supplied.
             tenant_id: Optional caller-supplied tenant correlation id, same
                 caveats as ``agent_id``.
+            task_kind: AF-12 — which ADR-0009 §2 task kind this call is
+                (``"task_default"`` | ``"reasoning"`` | ``"batch"``). ``None``
+                means ``task_default``, which is what every ``agent.yaml``
+                declares as the default. It selects a TIER through this
+                provider's agent-declared ``model_tiers`` map and is recorded
+                on ``maezo_llm_tier_resolution_total``.
+
+                IT CANNOT CHANGE THE PROVIDER, AND THAT IS LOAD-BEARING: the
+                ADR-0006 PHI-zone refusal below runs FIRST and reads only
+                ``phi`` against the active provider's ``phi_capable``. No value
+                of ``task_kind`` can route a PHI call to a non-PHI provider,
+                move a call between providers, or soften the refusal —
+                ``tests/unit/runtime/test_model_tiering.py`` proves it for
+                every tier and both zones.
 
         Returns:
             The generated response string. In noop mode, a deterministic
@@ -2809,6 +2958,9 @@ class InferenceProvider:
             InferenceProviderError: the active provider failed to produce
                 a completion (auth, rate limit, timeout, refusal, ...).
         """
+        # ORDER IS THE INVARIANT (I-6): the zone refusal happens BEFORE any tier is resolved, so
+        # tiering can never be reached by a call the PHI zoning would have refused, and can never
+        # participate in the decision to refuse.
         if phi and not self._impl.phi_capable:
             raise PhiZoneRoutingError(
                 "PHI-tagged inference request cannot be served by provider "
@@ -2817,4 +2969,5 @@ class InferenceProvider:
                 "human / incident; NEVER falling back to the general cloud "
                 "provider (ADR-0006/ADR-0017)."
             )
+        self._resolve_task_model(task_kind)
         return await self._impl.generate(prompt, agent_id=agent_id, tenant_id=tenant_id)

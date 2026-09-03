@@ -22,7 +22,15 @@ follow-up.
 Same health-first, bounded/non-fatal pattern as `worker_runtime`/`agent_runtime` (T1.1/T1.6),
 reduced to what a health-only process needs:
 
-  STEP A  Bind the health app IMMEDIATELY — `/healthz` 200 before any dependency is touched.
+  STEP 0  Configure observability (AF-13) — `platform.observability.bootstrap_observability`,
+          before the first log line. Isolated; reported by `observability_configured`.
+  STEP A  Bind the health app IMMEDIATELY — `/healthz` 200 before any DEPENDENCY is touched.
+          "Dependency" means anything outside this process (engine, database, broker, policy
+          files). STEP 0 precedes it deliberately and is not one: it configures structlog and
+          builds an OTel provider in-process, opens no connection (the OTLP exporter's channel is
+          lazy), is isolated, and was measured non-blocking (~9 ms even with a malformed
+          endpoint). The alternative — health first — would mean this daemon's own first log
+          lines are written under a configuration it is about to replace.
   STEP B  ONE bounded, non-fatal check: autonomy policies loadable
           (`maezo.gateway.pep.build_pep()` — the fail-closed factory, ADR-0025 D5). Failure logs
           + leaves `/readyz` unhealthy; liveness stays up (no CrashLoop over a bad policy file —
@@ -43,7 +51,11 @@ import structlog
 
 from maezo.gateway.pep import PEP, PolicyError, build_pep
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
-from maezo.platform.observability import get_metrics_collector
+from maezo.platform.observability import (
+    ObservabilityStatus,
+    bootstrap_observability,
+    get_metrics_collector,
+)
 
 from .settings import GatewaySettings
 
@@ -54,6 +66,9 @@ logger = structlog.get_logger(__name__)
 class GatewayState:
     settings: GatewaySettings
     live: bool = True
+    # AF-13: set by `run()` STEP 0, read by `observability_configured`. Same field, same contract
+    # as `agent_runtime.service.AgentState` / `worker_runtime.service.WorkerState`.
+    observability: ObservabilityStatus | None = None
     pep: PEP | None = None
     pep_error: str | None = None
 
@@ -61,7 +76,37 @@ class GatewayState:
         return self.live
 
 
+def _ensure_observability(state: GatewayState) -> ObservabilityStatus:
+    """Guarantee STEP 0 ran, once (AF-13).
+
+    `run()` calls the bootstrap FIRST, before the daemon's own first log line, which is the whole
+    point of STEP 0 — a bootstrap that ran after `gateway_starting` would leave the start-up record
+    itself on structlog's default configuration. This guard exists so the invariant "a brought-up
+    daemon has observability configured" also holds for the one other way `_bring_up_dependencies`
+    is reached (a test driving bring-up directly), WITHOUT calling `setup_observability` twice in
+    production — OTel refuses to override an already-set TracerProvider and would log a warning
+    that means nothing.
+    """
+    if state.observability is None:
+        state.observability = bootstrap_observability(
+            service_name="maezo-gateway",
+            otlp_endpoint=state.settings.otel_exporter_otlp_endpoint,
+        )
+    return state.observability
+
+
 def build_readiness_checks(state: GatewayState) -> list[Callable[[], Awaitable[CheckResult]]]:
+    async def observability_configured(_state: GatewayState = state) -> CheckResult:
+        # AF-13, identical contract to the other two roots' check of the same name.
+        status = _state.observability
+        if status is None:
+            return CheckResult(
+                name="observability_configured",
+                healthy=False,
+                detail="observability bootstrap has not run (run() has not reached STEP 0)",
+            )
+        return CheckResult(name="observability_configured", healthy=status.configured, detail=status.detail)
+
     async def policies_loadable(_state: GatewayState = state) -> CheckResult:
         if _state.pep is not None:
             return CheckResult(
@@ -71,10 +116,11 @@ def build_readiness_checks(state: GatewayState) -> list[Callable[[], Awaitable[C
             name="policies_loadable", healthy=False, detail=_state.pep_error or "PEP not constructed"
         )
 
-    return [policies_loadable]
+    return [observability_configured, policies_loadable]
 
 
 async def _bring_up_dependencies(state: GatewayState) -> None:
+    _ensure_observability(state)
     try:
         state.pep = build_pep(tenant=state.settings.tenant_id)
     except PolicyError as exc:
@@ -94,9 +140,18 @@ async def _bring_up_dependencies(state: GatewayState) -> None:
 
 
 async def run(settings: GatewaySettings) -> None:
-    """Run the gateway health-only daemon until SIGTERM/SIGINT. See module docstring STEP A..D."""
-    logger.info("gateway_starting", tenant=settings.tenant_id, health_port=settings.health_port)
+    """Run the gateway health-only daemon until SIGTERM/SIGINT. See module docstring STEP 0/A..D."""
     state = GatewayState(settings=settings)
+
+    # STEP 0 (AF-13): structlog + OTel BEFORE the first log line. Never propagates.
+    observability = _ensure_observability(state)
+
+    logger.info(
+        "gateway_starting",
+        tenant=settings.tenant_id,
+        health_port=settings.health_port,
+        observability=observability.detail,
+    )
     shutdown = asyncio.Event()
     loop = asyncio.get_running_loop()
 
