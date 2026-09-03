@@ -1,12 +1,8 @@
-"""MCP WhatsApp server — WhatsApp Business API client.
-
-Provides send_message(to, text) and verify_webhook(verify_token, challenge).
-Uses httpx.AsyncClient for async HTTP calls to WhatsApp Cloud API (v18.0).
-
-WhatsApp is a BLOCKED channel for PHI per ADR-0006 — the ToolRegistry
-PEP enforces this at the gateway level, not here.
-
-Credential handling (auditoria 09, achados 9.3/9.4) is specified per method.
+"""MCP WhatsApp server — WhatsApp Business API client (ADR-0006: WhatsApp is a BLOCKED
+channel for PHI; the ToolRegistry PEP enforces that at the gateway, not here). Credential
+handling (auditoria 09, achados 9.3/9.4) is specified per method. OPS DISCLOSURE: reply
+path inoperative in Helm until `WHATSAPP_PHONE_NUMBER_ID` is provisioned (owner-gated,
+see OWNER-DECISIONS) — no deployment injects it; row in `docs/review-queue.md`.
 """
 
 from __future__ import annotations
@@ -16,24 +12,28 @@ from typing import Any
 
 import httpx
 import structlog
-from pydantic_settings import BaseSettings
+from pydantic import AliasChoices, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = structlog.get_logger(__name__)
 
 
+def _secret(suffix: str) -> Any:
+    """CANONICAL `WHATSAPP_<suffix>` env name + the field it binds; never rendered."""
+    names = AliasChoices(f"WHATSAPP_{suffix}", f"whatsapp_{suffix.lower()}")
+    return Field(default="", validation_alias=names, repr=False, exclude=True)
+
+
 class WhatsAppSettings(BaseSettings):
-    """Configuration for the WhatsApp Business API.
+    """Cloud-API config read from the CANONICAL `WHATSAPP_*` env names (see `_secret`)."""
 
-    Environment variables prefixed with WHATSAPP_ (default).
-    """
-
-    model_config = {"env_prefix": "WHATSAPP_", "extra": "ignore"}
+    model_config = SettingsConfigDict(env_prefix="WHATSAPP_", extra="ignore")
 
     base_url: str = "https://graph.facebook.com/v18.0"
     phone_number_id: str = ""  # NOT a secret: the sender number's Graph id (achado 9.4)
-    whatsapp_token: str = ""
-    whatsapp_app_secret: str = ""
-    whatsapp_verify_token: str = ""
+    whatsapp_token: str = _secret("TOKEN")
+    whatsapp_app_secret: str = _secret("APP_SECRET")
+    whatsapp_verify_token: str = _secret("VERIFY_TOKEN")
 
 
 class WhatsAppServer:
@@ -126,6 +126,18 @@ class WhatsAppServer:
         Fail-closed: an unset `phone_number_id` (or an unset token) REFUSES the
         send. There is deliberately no fallback to the token, and none to the
         `{base_url}//messages` an empty path segment would otherwise produce.
+
+        OPS DISCLOSURE, stated because the fail-closed branch below is REACHED in
+        production today: reply path inoperative in Helm until
+        `WHATSAPP_PHONE_NUMBER_ID` is provisioned (owner-gated, see OWNER-DECISIONS).
+        `deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml:38,47,52`
+        injects `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET` and `WHATSAPP_VERIFY_TOKEN`
+        and NOTHING injects `WHATSAPP_PHONE_NUMBER_ID` (only `.env.example:72`, i.e.
+        local dev), so every Helena reply through `dispatch.py`'s
+        `_ScopedWhatsAppSender` refuses here until the secret `maezo-whatsapp-config`
+        carries it. Editing `deploy/` is owner-gated and was NOT done in this package;
+        the follow-up is tracked in `docs/review-queue.md`. Refusing is the correct
+        failure mode — it is disclosed, not silent.
 
         The recipient is NOT logged. On the live path `to` is the RAW phone
         number (`webhooks/whatsapp/dispatch.py`'s `_ScopedWhatsAppSender` passes

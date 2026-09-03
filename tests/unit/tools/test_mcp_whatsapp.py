@@ -1,5 +1,6 @@
 """Unit tests for maezo.tools.mcp_whatsapp (ADR-0022)."""
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -22,10 +23,18 @@ def test_whatsapp_tools_registered() -> None:
     assert tool_names == {"send_message", "verify_webhook"}
 
 
-def test_whatsapp_settings_defaults() -> None:
+def test_whatsapp_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     """WhatsAppSettings should have default token/secret/verify_token as empty strings
-    (must be configured via env vars in production)."""
+    (must be configured via env vars in production).
+
+    The env is cleared first: these defaults are what the fail-closed guards in
+    `send_message`/`verify_webhook` are keyed on, so an ambient `WHATSAPP_*` in the
+    developer's shell must not decide whether this passes (`_clear_whatsapp_env` is
+    defined with the env-binding tests at the bottom of this file).
+    """
     from maezo.tools.mcp_whatsapp.server import WhatsAppSettings
+
+    _clear_whatsapp_env(monkeypatch)
 
     settings = WhatsAppSettings()
 
@@ -101,7 +110,13 @@ async def test_whatsapp_send_message() -> None:
 
 # ---------------------------------------------------------------------------
 # Auditoria 09 — achados 9.3 (secret in the exception message) and 9.4 (bearer
-# token in the URL path). Each test below FAILS on the pre-fix module.
+# token in the URL path). All but ONE of the tests below FAIL on the pre-fix
+# module and are therefore counter-proofs of a real defect; the exception is
+# `test_verify_webhook_refuses_a_non_ascii_token_without_raising_typeerror`,
+# which PASSES pre-fix (main compared plain `str` with `!=`, which refuses
+# "café" happily) — it is a REGRESSION GUARD for the new `compare_digest`
+# code, not evidence of a pre-existing leak. Stated here because the first
+# version of this file's evidence claimed all of them were counter-proofs.
 # ---------------------------------------------------------------------------
 
 #: Deliberately OPAQUE — no dictionary words. A sample secret spelling out "verify"
@@ -154,7 +169,13 @@ def test_verify_webhook_refuses_when_no_token_is_configured() -> None:
 
 
 def test_verify_webhook_refuses_a_non_ascii_token_without_raising_typeerror() -> None:
-    """`hmac.compare_digest` refuses non-ASCII `str`; the comparison is done on bytes."""
+    """REGRESSION GUARD, not a counter-proof: this test PASSES against HEAD 35cffd3.
+
+    Main compared plain `str` with `!=`, which refuses "café" with the very ValueError
+    asserted here. `hmac.compare_digest`, however, raises TypeError on a non-ASCII `str`,
+    so the 9.3 fix would have turned an attacker-controlled `hub.verify_token` into an
+    unhandled crash had it not encoded to UTF-8 first. This pins that encoding.
+    """
     from maezo.tools.mcp_whatsapp.server import WhatsAppServer, WhatsAppSettings
 
     server = WhatsAppServer(settings=WhatsAppSettings(whatsapp_verify_token=_SECRET))
@@ -277,3 +298,137 @@ async def test_send_message_survives_a_response_with_an_empty_messages_list() ->
         result = await server.send_message("5511999999999", "Ola, Maezo!")
 
     assert result["messages"] == []
+
+
+# ---------------------------------------------------------------------------
+# Env-var binding (achado 9.5, gatekeeper MAJOR-1) and secret rendering
+# (gatekeeper MINOR-4). `env_prefix="WHATSAPP_"` over fields already NAMED
+# `whatsapp_*` resolved to `WHATSAPP_WHATSAPP_TOKEN` / `_APP_SECRET` /
+# `_VERIFY_TOKEN` — spellings that appear NOWHERE in this repo (Helm
+# `deployment-webhook-receiver.yaml:38,47,52`, `docker-compose.yml:252-253`
+# and `.env.example` all inject the SHORT names), so all three credentials
+# read "" in every environment and the live send path could never
+# authenticate. These tests pin the env NAMES, not just the behaviour.
+# ---------------------------------------------------------------------------
+
+_CANONICAL_ENV = {
+    "WHATSAPP_TOKEN": "canonical-token",
+    "WHATSAPP_APP_SECRET": "canonical-secret",
+    "WHATSAPP_VERIFY_TOKEN": "canonical-verify",
+    "WHATSAPP_PHONE_NUMBER_ID": "5550001111",
+}
+
+_DOUBLED_ENV = {
+    "WHATSAPP_WHATSAPP_TOKEN": "doubled-token",
+    "WHATSAPP_WHATSAPP_APP_SECRET": "doubled-secret",
+    "WHATSAPP_WHATSAPP_VERIFY_TOKEN": "doubled-verify",
+}
+
+
+def _clear_whatsapp_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every WHATSAPP_* name the ambient shell may carry — the assertions below are
+    about which name the settings READ, so an inherited value would make them lie."""
+    for name in list(os.environ):
+        if name.startswith("WHATSAPP_"):
+            monkeypatch.delenv(name, raising=False)
+
+
+def test_settings_read_the_canonical_whatsapp_env_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The short names every injector actually sets must land on the fields."""
+    from maezo.tools.mcp_whatsapp.server import WhatsAppSettings
+
+    _clear_whatsapp_env(monkeypatch)
+    for name, value in _CANONICAL_ENV.items():
+        monkeypatch.setenv(name, value)
+
+    settings = WhatsAppSettings()
+
+    assert settings.whatsapp_token == "canonical-token"
+    assert settings.whatsapp_app_secret == "canonical-secret"
+    assert settings.whatsapp_verify_token == "canonical-verify"
+    assert settings.phone_number_id == "5550001111"
+
+
+def test_settings_do_not_read_the_doubled_whatsapp_env_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The doubled spelling must be INERT — nothing in the repo injects it, and a
+    settings class that still honoured it would let the defect return silently.
+
+    (`populate_by_name=True` on top of `env_prefix` re-admits exactly these names
+    through the env source — probed. That is why the fix uses `AliasChoices` with
+    the field name instead of `populate_by_name`.)
+    """
+    from maezo.tools.mcp_whatsapp.server import WhatsAppSettings
+
+    _clear_whatsapp_env(monkeypatch)
+    for name, value in _DOUBLED_ENV.items():
+        monkeypatch.setenv(name, value)
+
+    settings = WhatsAppSettings()
+
+    assert settings.whatsapp_token == ""
+    assert settings.whatsapp_app_secret == ""
+    assert settings.whatsapp_verify_token == ""
+
+
+def test_settings_canonical_env_wins_when_both_spellings_are_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A leftover doubled var in some environment must not shadow the real credential."""
+    from maezo.tools.mcp_whatsapp.server import WhatsAppSettings
+
+    _clear_whatsapp_env(monkeypatch)
+    monkeypatch.setenv("WHATSAPP_TOKEN", "canonical-token")
+    monkeypatch.setenv("WHATSAPP_WHATSAPP_TOKEN", "doubled-token")
+
+    assert WhatsAppSettings().whatsapp_token == "canonical-token"
+
+
+def test_settings_still_construct_by_field_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Construction by FIELD name is the whole test suite's idiom and every call site's
+    injection point (`WhatsAppServer(settings=...)`); the alias must not break it."""
+    from maezo.tools.mcp_whatsapp.server import WhatsAppSettings
+
+    _clear_whatsapp_env(monkeypatch)
+
+    settings = WhatsAppSettings(
+        whatsapp_token="by-name-token",
+        whatsapp_app_secret="by-name-secret",
+        whatsapp_verify_token="by-name-verify",
+        phone_number_id="1234567890",
+    )
+
+    assert settings.whatsapp_token == "by-name-token"
+    assert settings.whatsapp_app_secret == "by-name-secret"
+    assert settings.whatsapp_verify_token == "by-name-verify"
+    assert settings.phone_number_id == "1234567890"
+
+
+def test_settings_never_render_the_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`repr`/`str`/`model_dump`/`model_dump_json` used to print all three secrets
+    verbatim (plain `str` fields). Nothing in `src/` dumps this object today — this
+    test is what keeps a future `logger.info(..., settings=settings)` from leaking."""
+    from maezo.tools.mcp_whatsapp.server import WhatsAppSettings
+
+    _clear_whatsapp_env(monkeypatch)
+    settings = WhatsAppSettings(
+        whatsapp_token=_SECRET,
+        whatsapp_app_secret=_SECRET,
+        whatsapp_verify_token=_SECRET,
+        phone_number_id="1234567890",
+    )
+
+    renderings = {
+        "repr": repr(settings),
+        "str": str(settings),
+        "model_dump": repr(settings.model_dump()),
+        "model_dump_json": settings.model_dump_json(),
+    }
+
+    for label, rendered in renderings.items():
+        assert _SECRET not in rendered, f"{label} leaks the credential: {rendered}"
+        leaked = [chunk for chunk in _all_substrings(_SECRET) if chunk in rendered]
+        assert leaked == [], f"{label} leaks credential substrings: {leaked}"
+    # The non-secret fields are still legible — this is redaction, not blindness.
+    assert "1234567890" in renderings["repr"]
