@@ -469,7 +469,20 @@ def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = N
 
 
 def notify_coordenacao(variables: dict[str, Any]) -> dict[str, Any]:
-    """Notify network coordination about gap (NEUTRAL, informational)."""
+    """Log the network-coordination alert step for a gap under monitoring (NEUTRAL).
+
+    GAP-FAB-NOTIF fix: this handler previously returned a constant `{"notificacao_enviada":
+    True}` regardless of input — a fabricated fact (no channel, no publisher) that had ZERO
+    consumers anywhere in BPMN/DMN (`grep -rn 'notificacao_enviada' src/ spec/` found only this
+    line producing it) and is not part of the contract's documented output-variable set
+    (`docs/processes/contracts/SP-OP-ADEQUACAO-001.md` §Variaveis de saida). BPMN `ST_NotifyRedeL3`
+    ("Notificar a area de rede (L3)") only documents this as an informational alert to the
+    internal `gestao-rede` group — it never claimed delivery/receipt, so there was nothing this
+    handler needed to invent. The real domain event for this branch
+    (`agents.events.adequacao.completed`, `desfecho=monitoramento_atualizado`) is published by the
+    NEXT BPMN task, `ST_PublishMonitoramentoAtualizado`, via the generic `operadora.events.publish`
+    worker — not here. This function only logs; it returns nothing beyond what is true.
+    """
     regiao = variables.get("regiao_saude", "")
     gap = variables.get("gap_adequacao", "")
 
@@ -477,9 +490,10 @@ def notify_coordenacao(variables: dict[str, Any]) -> dict[str, Any]:
         "adequacao_notify_coordenacao",
         regiao_saude=regiao,
         gap=gap,
+        grupo_alertado="gestao-rede",
     )
 
-    return {"notificacao_enviada": True}
+    return {}
 
 
 # ---------------------------------------------------------------

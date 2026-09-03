@@ -133,14 +133,14 @@
     },
     {
       "file": "tests/integration/processes/test_sp_op_cred_001.py",
-      "line": 1005,
+      "line": 1010,
       "test": "test_descredenciar_exige_campos_worker_guard",
       "reason_constant": "_CRED_GUARD_SHAPE_MISMATCH_REASON",
       "classification": "CRED_GUARD_SHAPE_TE"
     },
     {
       "file": "tests/integration/processes/test_sp_op_cred_001.py",
-      "line": 1037,
+      "line": 1042,
       "test": "test_negar_exige_campos_worker_guard",
       "reason_constant": "_CRED_GUARD_SHAPE_MISMATCH_REASON",
       "classification": "CRED_GUARD_SHAPE_TE"
