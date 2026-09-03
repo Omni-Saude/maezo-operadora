@@ -722,7 +722,7 @@ def publish_completed(
 #   ST_NotificarDeadlineRisk — alerta nao-interruptivo de risco de prazo
 #                            (reusado por BT_DeadlineRisk/Pendencia/Juridico).
 # Raw async handler (not a `FunctionWorker` dict boundary) for the SAME reason
-# recurso's notify_sla_risk/track_status are: it needs the async Kafka seam to
+# recurso's notify_sla_risk/comunicar_resposta are: it needs the async Kafka seam to
 # publish the notification the donor emitted (`anssubmit.notify_regulatorio`);
 # the sync `FunctionWorker.execute` boundary cannot reach `await kafka.publish`.
 # ---------------------------------------------------------------------------

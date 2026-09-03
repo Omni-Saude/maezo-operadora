@@ -57,10 +57,9 @@ def _bridge_with_spy() -> tuple[NotificationBridge, _StarterSpy]:
     return NotificationBridge(cibseven_starter=spy), spy
 
 
-_CONTAS_MESSAGE = {
-    "type": "agents.events.contas.completed",  # EB-4: real emitted event_type
+_INTAKE_RECURSO_MESSAGE = {
+    "type": "agents.events.recurso.intake_recebido",  # ADR-0040: the intake event
     "tenant_id": "amh",
-    "desfecho": "encaminhada_recurso",
     "glosa_id": "GLOSA-1",
     "numero_guia_tiss": "GUIA-1",
 }
@@ -74,7 +73,7 @@ _CONTAS_MESSAGE = {
 @pytest.mark.asyncio
 async def test_handle_bridge_message_dispatches_matching_rule() -> None:
     bridge, spy = _bridge_with_spy()
-    results = await handle_bridge_message(bridge, dict(_CONTAS_MESSAGE))
+    results = await handle_bridge_message(bridge, dict(_INTAKE_RECURSO_MESSAGE))
 
     assert len(results) == 1
     assert results[0].handoff_triggered is True
@@ -123,7 +122,7 @@ async def test_handle_bridge_message_propagates_genuine_handoff_failure() -> Non
     spy = _StarterSpy(raises=RuntimeError("engine unreachable"))
     bridge = NotificationBridge(cibseven_starter=spy)
     with pytest.raises(NotificationBridgeHandoffFailedError):
-        await handle_bridge_message(bridge, dict(_CONTAS_MESSAGE))
+        await handle_bridge_message(bridge, dict(_INTAKE_RECURSO_MESSAGE))
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +133,7 @@ async def test_handle_bridge_message_propagates_genuine_handoff_failure() -> Non
 @pytest.mark.asyncio
 async def test_run_consumer_loop_dispatches_and_commits_each_message() -> None:
     bridge, spy = _bridge_with_spy()
-    consumer = FakeBridgeKafkaConsumer([dict(_CONTAS_MESSAGE), {"type": "no.such.rule"}])
+    consumer = FakeBridgeKafkaConsumer([dict(_INTAKE_RECURSO_MESSAGE), {"type": "no.such.rule"}])
     await consumer.start()
 
     await run_consumer_loop(consumer, bridge)
@@ -146,7 +145,7 @@ async def test_run_consumer_loop_dispatches_and_commits_each_message() -> None:
 @pytest.mark.asyncio
 async def test_run_consumer_loop_fails_closed_on_malformed_message_without_committing() -> None:
     bridge, spy = _bridge_with_spy()
-    consumer = FakeBridgeKafkaConsumer([dict(_CONTAS_MESSAGE), {"no": "type-field"}])
+    consumer = FakeBridgeKafkaConsumer([dict(_INTAKE_RECURSO_MESSAGE), {"no": "type-field"}])
     await consumer.start()
 
     with pytest.raises(MalformedBridgeMessageError):
@@ -162,7 +161,7 @@ async def test_run_consumer_loop_fails_closed_on_malformed_message_without_commi
 async def test_run_consumer_loop_fails_closed_on_genuine_handoff_failure_without_committing() -> None:
     spy = _StarterSpy(raises=RuntimeError("simulated engine failure"))
     bridge = NotificationBridge(cibseven_starter=spy)
-    consumer = FakeBridgeKafkaConsumer([dict(_CONTAS_MESSAGE)])
+    consumer = FakeBridgeKafkaConsumer([dict(_INTAKE_RECURSO_MESSAGE)])
     await consumer.start()
 
     with pytest.raises(NotificationBridgeHandoffFailedError):
@@ -340,7 +339,7 @@ async def test_malformed_message_is_shunted_to_the_dlq_and_the_loop_continues() 
     publisher, sink = _DlqPublisherSpy(), FakeAuditSink()
     dlq = _shunt(publisher=publisher, sink=sink)
     consumer = FakeBridgeKafkaConsumer(
-        [dict(_CONTAS_MESSAGE), dict(_MALFORMED_NO_TYPE), dict(_CONTAS_MESSAGE)]
+        [dict(_INTAKE_RECURSO_MESSAGE), dict(_MALFORMED_NO_TYPE), dict(_INTAKE_RECURSO_MESSAGE)]
     )
     await consumer.start()
 
@@ -585,7 +584,7 @@ async def test_undecodable_bytes_reach_the_dlq_rather_than_killing_the_iterator(
                 parse_error="invalid JSON payload: codec error",
                 parse_code=REASON_INVALID_JSON,
             ),
-            dict(_CONTAS_MESSAGE),
+            dict(_INTAKE_RECURSO_MESSAGE),
         ]
     )
     await consumer.start()
@@ -608,7 +607,7 @@ async def test_transient_handoff_failure_still_propagates_and_still_blocks_the_o
     spy = _StarterSpy(raises=RuntimeError("engine unreachable"))
     bridge = NotificationBridge(cibseven_starter=spy)
     publisher, sink = _DlqPublisherSpy(), FakeAuditSink()
-    consumer = FakeBridgeKafkaConsumer([dict(_CONTAS_MESSAGE)])
+    consumer = FakeBridgeKafkaConsumer([dict(_INTAKE_RECURSO_MESSAGE)])
     await consumer.start()
 
     with pytest.raises(NotificationBridgeHandoffFailedError):
@@ -632,7 +631,7 @@ async def test_audit_persistence_style_failure_from_the_starter_still_propagates
     spy = _StarterSpy(raises=_AuditDownError("audit sink down"))
     bridge = NotificationBridge(cibseven_starter=spy)
     dlq = _shunt()
-    consumer = FakeBridgeKafkaConsumer([dict(_CONTAS_MESSAGE)])
+    consumer = FakeBridgeKafkaConsumer([dict(_INTAKE_RECURSO_MESSAGE)])
     await consumer.start()
 
     with pytest.raises(NotificationBridgeHandoffFailedError):
@@ -703,7 +702,7 @@ async def test_invalid_source_topic_fails_closed_rather_than_minting_a_dlq_name(
 @pytest.mark.asyncio
 async def test_without_a_shunt_a_malformed_message_still_re_raises_and_does_not_commit() -> None:
     bridge, spy = _bridge_with_spy()
-    consumer = FakeBridgeKafkaConsumer([dict(_CONTAS_MESSAGE), dict(_MALFORMED_NO_TYPE)])
+    consumer = FakeBridgeKafkaConsumer([dict(_INTAKE_RECURSO_MESSAGE), dict(_MALFORMED_NO_TYPE)])
     await consumer.start()
 
     with pytest.raises(MalformedBridgeMessageError):

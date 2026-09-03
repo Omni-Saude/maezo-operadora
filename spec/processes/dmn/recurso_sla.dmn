@@ -6,29 +6,38 @@
              name="SLA de analise do recurso de glosa"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    recurso_sla v0.2.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar texto
-    vigente com regulatorio (RN 424/2017 sobre prazo recursal / prazo maximo do recurso de conta;
-    consolidacoes ANS; docs/review-queue.md). Consumida por SP-OP-RECURSO-001 e mcp-dmn.
-    NOTA: prazos regulatorios sao em dias UTEIS; ISO 8601 usa dias corridos — valores abaixo
+    recurso_sla v0.3.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar texto
+    vigente com regulatorio/juridico (PRAZO CONTRATUAL de resposta ao recurso — fonte primaria; +
+    RN 501/2022, padrao TISS. RN 424/2017 NAO rege o prazo de resposta ao recurso: ela se aplica
+    APENAS se instaurada junta medica/odontologica — docs/compliance/rn-currency-review.md:87,
+    190-193; docs/review-queue.md). Consumida por SP-OP-RECURSO-001 e mcp-dmn.
+    NOTA: prazos contratuais/regulatorios sao em dias UTEIS; ISO 8601 usa dias corridos — valores abaixo
     sao aproximacao conservadora (menor ou igual ao prazo legal). Resolver calendario util no
-    worker. Prazo regulatorio vive AQUI (DMN) e no timer BPMN — nunca em Python (CONTRIBUTING).
+    worker. O prazo vive AQUI (DMN) e no timer BPMN — nunca em Python (CONTRIBUTING).
     valor_glosado_brl em double (BRL — NUNCA "number"). Saidas de prazo sao string ISO 8601.
-    Esta tabela NAO tem saida adversa; no estouro de SLA a coordenacao humana assume e no prazo
-    maximo regulatorio ha escalonamento humano (nunca auto-aprovacao nem auto-desistencia por
-    timeout — o auto-approve-on-timeout de 48h do reference foi INVERTIDO).
+    Esta tabela NAO tem saida adversa; no estouro de SLA a coordenacao humana assume e no teto
+    maximo ha escalonamento humano (nunca auto-deferimento nem auto-indeferimento por timeout —
+    o auto-approve-on-timeout de 48h do reference foi INVERTIDO).
     hitPolicy FIRST (catch-all conservador como ultima row).
 
-    GAP-RECURSO-1 (v0.2.0): o teto regulatorio P30D (RN 424) e UMA UNICA JANELA ABSOLUTA por
-    recurso, contada do inicio regulatorio — NUNCA uma janela nova a cada User Task que passa a
-    segurar o recurso (analista -&gt; coordenacao -&gt; auditor triplicaria o teto). Espelha o
-    padrao absoluto de nip_sla (GAP-NIP-1). Ancora regulatoria: `data_recebimento_recurso_iso`
-    (data de recebimento do recurso = inicio do processo; seeded pelo intake —
-    notifications_bridge recurso_variables — ou pelo agente que inicia); FAIL-SAFE quando
-    ausente/vazia: `data_ciencia_glosa` (obrigatoria no contrato; sempre ANTERIOR ou igual ao
-    recebimento do recurso, logo o teto dispara MAIS CEDO, nunca mais tarde — conservador, nunca
-    mascara estouro). Alem da duracao relativa legada (`prazo_regulatorio` — mantida para
-    relatorios/observabilidade), esta tabela computa o DEADLINE ABSOLUTO `prazo_max_absoluto_iso`
-    em FEEL (ancora + "T00:00:00" + P30D, meia-noite UTC-naive — aproximacao conservadora). O
+    GAP-RECURSO-1 (v0.3.0): o teto P30D (prazo contratual de resposta — DRAFT/verify) e UMA UNICA
+    JANELA ABSOLUTA por recurso, contada do inicio do processo — NUNCA uma janela nova a cada User
+    Task que passa a segurar o recurso (analista -&gt; coordenacao -&gt; auditor triplicaria o
+    teto). Espelha o padrao absoluto de nip_sla (GAP-NIP-1). Ancora UNICA:
+    `data_recebimento_recurso_iso` — a data em que a OPERADORA recebeu o recurso, i.e. o instante
+    em que o relogio DELA comeca a correr. O fail-safe anterior apontava para a data de ciencia da
+    glosa pelo prestador — a ancora do RECORRENTE (o prazo que ele tem para interpor) — e por isso
+    foi REMOVIDO: a expressao trocava de perspectiva em silencio quando a ancora primaria faltava,
+    e o prazo de interposicao nao e da operadora. A ancora e garantida nao-nula pelo worker de
+    intake `operadora.recurso.validate_recurso` (ST_ValidarRecurso), que a normaliza para ISO
+    `YYYY-MM-DD` e, quando ausente/invalida, defaulta fail-safe para HOJE/UTC COM WARNING (mesma
+    postura de `identify_glosa` para `data_recebimento_lote` em CONTAS). A tempestividade continua
+    aferida SEPARADAMENTE por `dentro_prazo_recurso`, que roteia a ANALISE_HUMANA quando falsa
+    (recurso_admissibility, row r_fora_prazo_humano) — um recurso com ancora duvidosa vai a humano
+    pela admissibilidade, nao passa despercebido pelo relogio. Alem da duracao relativa legada
+    (`prazo_regulatorio` — mantida para relatorios/observabilidade), esta tabela computa o DEADLINE
+    ABSOLUTO `prazo_max_absoluto_iso` em FEEL (ancora + "T00:00:00" + P30D, meia-noite UTC-naive —
+    aproximacao conservadora). O
     BPMN anexa esse campo via `timeDate` a TODOS os boundary de teto (BT_PrazoMaxRecurso /
     BT_PrazoMaxCoord / BT_PrazoMaxAuditor) — todos expiram no MESMO instante de relogio,
     independente de qual UT humana segura o recurso. `data_recebimento_recurso_iso` e declarada
@@ -49,24 +58,24 @@
       <input id="in_valor" label="Valor glosado BRL (valor_glosado_brl)">
         <inputExpression id="ie_valor" typeRef="double"><text>valor_glosado_brl</text></inputExpression>
       </input>
-      <input id="in_data_recebimento" label="Data de recebimento do recurso (ancora do teto P30D; fail-safe data_ciencia_glosa)">
+      <input id="in_data_recebimento" label="Data em que a operadora recebeu o recurso (ancora unica do teto P30D; normalizada pelo worker validate_recurso)">
         <inputExpression id="ie_data_recebimento" typeRef="string"><text>data_recebimento_recurso_iso</text></inputExpression>
       </input>
       <output id="out_sla_analise" label="sla_analise" name="sla_analise" typeRef="string"/>
       <output id="out_sla_alerta" label="sla_alerta" name="sla_alerta" typeRef="string"/>
       <output id="out_prazo_regulatorio" label="prazo_regulatorio (duracao relativa — legado/observabilidade)" name="prazo_regulatorio" typeRef="string"/>
-      <output id="out_prazo_max_absoluto" label="prazo_max_absoluto_iso (teto absoluto RN 424 — timeDate)" name="prazo_max_absoluto_iso" typeRef="string"/>
+      <output id="out_prazo_max_absoluto" label="prazo_max_absoluto_iso (teto absoluto contratual — timeDate)" name="prazo_max_absoluto_iso" typeRef="string"/>
       <output id="out_fonte" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
       <rule id="r_tecnica_clinica">
-        <description>Glosa tecnica/clinica: analise mais longa (merito clinico via medico auditor); teto absoluto = ancora + P30D</description>
+        <description>Glosa tecnica/clinica: analise mais longa (merito clinico via medico auditor da operadora); teto absoluto = ancora + P30D</description>
         <inputEntry id="r_tecnica_clinica_i1"><text>"tecnica","clinica"</text></inputEntry>
         <inputEntry id="r_tecnica_clinica_i2"><text>-</text></inputEntry>
         <inputEntry id="r_tecnica_clinica_i3"><text>-</text></inputEntry>
         <outputEntry id="r_tecnica_clinica_o1"><text>"P15D"</text></outputEntry>
         <outputEntry id="r_tecnica_clinica_o2"><text>"P9D"</text></outputEntry>
         <outputEntry id="r_tecnica_clinica_o3"><text>"P30D"</text></outputEntry>
-        <outputEntry id="r_tecnica_clinica_o4"><text>string(date and time((if data_recebimento_recurso_iso != null and data_recebimento_recurso_iso != "" then data_recebimento_recurso_iso else data_ciencia_glosa) + "T00:00:00") + duration("P30D"))</text></outputEntry>
-        <outputEntry id="r_tecnica_clinica_o5"><text>"RN 424/2017 — recurso de glosa tecnico-clinica (junta/auditor) ~15 dias analise / ~30 dias prazo max: DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r_tecnica_clinica_o4"><text>string(date and time(data_recebimento_recurso_iso + "T00:00:00") + duration("P30D"))</text></outputEntry>
+        <outputEntry id="r_tecnica_clinica_o5"><text>"Prazo contratual de resposta a recurso tecnico-clinico ~15 dias analise / teto ~30 dias + RN 501/2022 (fluxo TISS). RN 424/2017 aplicavel APENAS se instaurada junta medica/odontologica: DRAFT/verify"</text></outputEntry>
       </rule>
       <rule id="r_alto_valor">
         <description>Recurso de alto valor (acima de R$ 50.000) -> prazo padrao com alerta antecipado; teto absoluto = ancora + P30D</description>
@@ -76,8 +85,8 @@
         <outputEntry id="r_alto_valor_o1"><text>"P15D"</text></outputEntry>
         <outputEntry id="r_alto_valor_o2"><text>"P8D"</text></outputEntry>
         <outputEntry id="r_alto_valor_o3"><text>"P30D"</text></outputEntry>
-        <outputEntry id="r_alto_valor_o4"><text>string(date and time((if data_recebimento_recurso_iso != null and data_recebimento_recurso_iso != "" then data_recebimento_recurso_iso else data_ciencia_glosa) + "T00:00:00") + duration("P30D"))</text></outputEntry>
-        <outputEntry id="r_alto_valor_o5"><text>"RN 424/2017 — recurso de alto valor, alerta antecipado: DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r_alto_valor_o4"><text>string(date and time(data_recebimento_recurso_iso + "T00:00:00") + duration("P30D"))</text></outputEntry>
+        <outputEntry id="r_alto_valor_o5"><text>"Prazo contratual de resposta ao recurso — alto valor, alerta antecipado + RN 501/2022 (fluxo TISS): DRAFT/verify"</text></outputEntry>
       </rule>
       <rule id="r_padrao">
         <description>Glosa administrativa/formatacao/linha duplicada padrao; teto absoluto = ancora + P30D</description>
@@ -87,8 +96,8 @@
         <outputEntry id="r_padrao_o1"><text>"P10D"</text></outputEntry>
         <outputEntry id="r_padrao_o2"><text>"P6D"</text></outputEntry>
         <outputEntry id="r_padrao_o3"><text>"P30D"</text></outputEntry>
-        <outputEntry id="r_padrao_o4"><text>string(date and time((if data_recebimento_recurso_iso != null and data_recebimento_recurso_iso != "" then data_recebimento_recurso_iso else data_ciencia_glosa) + "T00:00:00") + duration("P30D"))</text></outputEntry>
-        <outputEntry id="r_padrao_o5"><text>"RN 424/2017 — recurso de glosa administrativa padrao ~10 dias analise / ~30 dias prazo max: DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r_padrao_o4"><text>string(date and time(data_recebimento_recurso_iso + "T00:00:00") + duration("P30D"))</text></outputEntry>
+        <outputEntry id="r_padrao_o5"><text>"Prazo contratual de resposta a recurso de glosa administrativa ~10 dias analise / teto ~30 dias + RN 501/2022 (fluxo TISS): DRAFT/verify"</text></outputEntry>
       </rule>
       <rule id="r_catchall">
         <description>Catch-all FAIL-SAFE: glosa_type desconhecido -> prazo conservador padrao; teto absoluto = ancora + P30D</description>
@@ -98,7 +107,7 @@
         <outputEntry id="r_catchall_o1"><text>"P10D"</text></outputEntry>
         <outputEntry id="r_catchall_o2"><text>"P6D"</text></outputEntry>
         <outputEntry id="r_catchall_o3"><text>"P30D"</text></outputEntry>
-        <outputEntry id="r_catchall_o4"><text>string(date and time((if data_recebimento_recurso_iso != null and data_recebimento_recurso_iso != "" then data_recebimento_recurso_iso else data_ciencia_glosa) + "T00:00:00") + duration("P30D"))</text></outputEntry>
+        <outputEntry id="r_catchall_o4"><text>string(date and time(data_recebimento_recurso_iso + "T00:00:00") + duration("P30D"))</text></outputEntry>
         <outputEntry id="r_catchall_o5"><text>"Fail-safe: prazo conservador na ausencia de classificacao — DRAFT/verify"</text></outputEntry>
       </rule>
     </decisionTable>

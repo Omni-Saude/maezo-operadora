@@ -233,6 +233,12 @@ acoes:
       - referencia: "src/maezo/tools/workers/reembolso.py:813"
         detalhe: "topic operadora.reembolso.send_reembolso_denial (GUARDED)"
         choked: true
+      - referencia: "src/maezo/tools/workers/recurso.py:1415"
+        detalhe: "topic operadora.recurso.registrar_indeferimento (GUARDED — ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN)"
+        choked: true
+      - referencia: "src/maezo/tools/workers/recurso.py:1433"
+        detalhe: "topic operadora.recurso.comunicar_resposta (raw handler — resposta ao recurso emitida ao prestador)"
+        choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
       medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
@@ -254,9 +260,6 @@ acoes:
         choked: true
       - referencia: "src/maezo/tools/workers/nip.py:552"
         detalhe: "topic operadora.nip.submit_response (GUARDED)"
-        choked: true
-      - referencia: "src/maezo/tools/workers/recurso.py:1090"
-        detalhe: "topic operadora.recurso.submit_appeal (raw handler)"
         choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
@@ -369,6 +372,9 @@ acoes:
         choked: true
       - referencia: "src/maezo/tools/workers/contas.py:1061"
         detalhe: "topic operadora.contas.start_fraude"
+        choked: true
+      - referencia: "src/maezo/tools/workers/recurso.py:1426"
+        detalhe: "topic operadora.recurso.handoff_pagamento (inicia SP-OP-PAGTO-001 — glosa revertida)"
         choked: true
       - referencia: "src/maezo/tools/workers/adequacao.py:689"
         detalhe: "topic operadora.adequacao.start_credenciamento"
@@ -642,11 +648,12 @@ mapeamento_topicos:
 
   operadora.auth.send_denial_notice: negativa_notificacao
   operadora.reembolso.send_reembolso_denial: negativa_notificacao
+  operadora.recurso.registrar_indeferimento: negativa_notificacao
+  operadora.recurso.comunicar_resposta: negativa_notificacao
 
   regulatorio.anssubmit.submit: submissao_regulatoria_ans
   regulatorio.anssubmit.retransmit: submissao_regulatoria_ans
   operadora.nip.submit_response: submissao_regulatoria_ans
-  operadora.recurso.submit_appeal: submissao_regulatoria_ans
 
   operadora.pagto.release_low_value_payment: pagamento_emissao
   operadora.pagto.release_high_value_payment: pagamento_emissao
@@ -666,6 +673,7 @@ mapeamento_topicos:
 
   operadora.contas.start_recurso: inicio_processo_regulatorio
   operadora.contas.start_fraude: inicio_processo_regulatorio
+  operadora.recurso.handoff_pagamento: inicio_processo_regulatorio
   operadora.adequacao.start_credenciamento: inicio_processo_regulatorio
   operadora.fraude.start_credenciamento: inicio_processo_regulatorio
   operadora.fraude.start_contratual: inicio_processo_regulatorio

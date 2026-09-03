@@ -73,6 +73,7 @@ import pytest
 from maezo.platform.notification_bridge import (
     CONTAS_COMPLETED_EVENT,
     FRAUDE_COMPLETED_EVENT,
+    RECURSO_INTAKE_EVENT,
     NotificationBridge,
     build_cibseven_process_starter,
 )
@@ -137,21 +138,27 @@ def _starts_for(
 # =================================================================================================
 
 
-async def test_pin_contas_recurso_armed_starts_with_converged_bk() -> None:
-    """CONTAS ST_PublishEncaminhadaRecurso now emits numero_guia_tiss (T4 enrichment), so the
-    RECURSO rule fires against the REAL payload and starts SP-OP-RECURSO-001 with the SAME
-    business key `contas.start_recurso` derives — convergence, never a divergent double-start."""
+async def test_pin_intake_recurso_armed_starts_with_converged_bk() -> None:
+    """A intake envelope (ADR-0040 §3.1) starts SP-OP-RECURSO-001 sob a MESMA business key que
+    Marina e a operacao derivam — convergencia, nunca um double-start divergente.
+
+    A aresta CONTAS→RECURSO MORREU: a operadora nao recorre da propria glosa. O que arma esta
+    regra e o INTAKE do recurso que o prestador interpos. O publicador desse evento nao existe em
+    `main` (OQ-R1) — este pin prova que a regra funciona quando ele existir; a AUSENCIA do
+    publicador e provada por
+    `test_regra_intake_recurso_e_dormente_ate_o_adaptador_existir`.
+    """
     bridge, transport, audit_sink = _fenced_bridge()
     real_payload = {
         "tenant_id": "amh",
         "numero_lote_tiss": "LOTE-REAL-001",
         "glosa_id": "GLOSA-REAL-001",
         "numero_guia_tiss": "GUIA-REAL-001",
-        "desfecho": "encaminhada_recurso",
+        "prestador_id": "PREST-REAL-001",
     }
     expected_bk = _contas_recurso_bk("amh", "GUIA-REAL-001", "GLOSA-REAL-001")
 
-    results = await bridge.on_event(event_type=CONTAS_COMPLETED_EVENT, payload=real_payload)
+    results = await bridge.on_event(event_type=RECURSO_INTAKE_EVENT, payload=real_payload)
     matched = [r for r in results if r.target_process == "SP-OP-RECURSO-001"]
     assert len(matched) == 1 and matched[0].handoff_triggered is True
     recurso_starts = _starts_for(transport, "SP-OP-RECURSO-001")
@@ -160,14 +167,14 @@ async def test_pin_contas_recurso_armed_starts_with_converged_bk() -> None:
     assert len(audit_sink.calls) == 1
 
     # Re-delivery of the SAME event: no second start (idempotent).
-    await bridge.on_event(event_type=CONTAS_COMPLETED_EVENT, payload=real_payload)
+    await bridge.on_event(event_type=RECURSO_INTAKE_EVENT, payload=real_payload)
     assert len(_starts_for(transport, "SP-OP-RECURSO-001")) == 1
 
 
-async def test_pin_contas_recurso_convergence_inflow_first_then_bridge_no_double_start() -> None:
-    """In-flow `start_recurso` starts RECURSO-001 first (seeded here under the converged BK); the
-    bridge's later completed-event delivery finds the ACTIVE instance and returns it — ZERO
-    double-start (the L0 convergence guarantee, in the real ordering)."""
+async def test_pin_intake_recurso_convergence_marina_first_then_bridge_no_double_start() -> None:
+    """Marina starts RECURSO-001 first (seeded here under a converged BK); the bridge's later
+    intake delivery finds the ACTIVE instance and returns it — ZERO double-start (the L0
+    convergence guarantee, in the real ordering)."""
     bridge, transport, audit_sink = _fenced_bridge()
     bk = _contas_recurso_bk("amh", "GUIA-CONV", "GLOSA-CONV")
     transport.seed_instance(
@@ -180,13 +187,13 @@ async def test_pin_contas_recurso_convergence_inflow_first_then_bridge_no_double
         )
     )
     results = await bridge.on_event(
-        event_type=CONTAS_COMPLETED_EVENT,
+        event_type=RECURSO_INTAKE_EVENT,
         payload={
             "tenant_id": "amh",
             "numero_lote_tiss": "LOTE-CONV",
             "glosa_id": "GLOSA-CONV",
             "numero_guia_tiss": "GUIA-CONV",
-            "desfecho": "encaminhada_recurso",
+            "prestador_id": "PREST-CONV",
         },
     )
     matched = [r for r in results if r.target_process == "SP-OP-RECURSO-001"]

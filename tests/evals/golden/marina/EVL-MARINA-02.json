@@ -3,7 +3,7 @@
   "agent": "marina",
   "class": "EU",
   "tier": ["A"],
-  "description": "RECURSO flow: admissibility clears (SEGUE_ANALISE) but recurso_eligibility itself resolves ANALISE_HUMANA (ambiguous merit) -> human_review, motivo_humano=recurso_analise_humana. NEVER a recurso denial/desistencia (false_denial invariant) -- desistencia is born solely in UT_AnaliseRecursoAnalista.",
+  "description": "RECURSO flow: admissibility clears (SEGUE_ANALISE) but recurso_eligibility itself resolves ANALISE_HUMANA (ambiguous merit) -> human_review, motivo_humano=recurso_analise_humana. NEVER a recurso indeferimento (false_denial invariant) -- the indeferimento is born solely in UT_AnaliseRecursoAnalista.",
   "input": {
     "state": {
       "flow": "recurso",
@@ -19,7 +19,7 @@
       "codigo_procedimento_tuss": "40304361",
       "cid10": "M54.5",
       "documentos_recurso_refs": [],
-      "data_ciencia_glosa": "2026-05-01",
+      "data_ciencia_alegada_prestador": "2026-05-01",
       "data_recebimento_recurso_iso": "2026-05-20",
       "glosa_existe": true,
       "dentro_prazo_recurso": true,
@@ -27,7 +27,7 @@
     }
   },
   "recorded_llm": [
-    "Merito do recurso ambiguo; encaminhado para analise humana especializada antes de qualquer desfecho."
+    "Merito do recurso ambiguo; encaminhado para analise humana especializada antes de qualquer decisao de deferimento ou indeferimento."
   ],
   "dmn_fixture": {
     "recurso_admissibility": { "roteamento": "SEGUE_ANALISE" },

@@ -119,7 +119,7 @@ def _recurso_state(**overrides: Any) -> MarinaState:
         "valor_glosado_brl": 800.0,
         "codigo_procedimento_tuss": "10101012",
         "documentos_recurso_refs": [],
-        "data_ciencia_glosa": "2026-06-01",
+        "data_ciencia_alegada_prestador": "2026-06-01",
         "glosa_existe": True,
         "dentro_prazo_recurso": True,
         "documentacao_recurso_completa": True,
@@ -179,7 +179,7 @@ def _register_recurso_sla(dmn: FakeDmnTransport) -> None:
 
 
 def _register_eligibility(
-    dmn: FakeDmnTransport, roteamento: str = "RECORRIVEL", grupo_revisor: str = "analista-recurso-glosa"
+    dmn: FakeDmnTransport, roteamento: str = "SEGUE_MERITO", grupo_revisor: str = "analista-recurso-glosa"
 ) -> None:
     dmn.register(
         "recurso_eligibility", [{"roteamento": roteamento, "grupo_revisor": grupo_revisor, "motivo": "test"}]
@@ -199,7 +199,7 @@ def _register_recurso_dmn(
     dmn: FakeDmnTransport,
     *,
     admissibilidade: str = "SEGUE_ANALISE",
-    elegibilidade: str = "RECORRIVEL",
+    elegibilidade: str = "SEGUE_MERITO",
     grupo_revisor: str = "analista-recurso-glosa",
 ) -> None:
     _register_admissibility(dmn, admissibilidade)
@@ -491,9 +491,9 @@ async def test_assess_contas_unexpected_triagem_value_routes_human() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_assess_recurso_recorrivel_analista_auto_routes() -> None:
+async def test_assess_recurso_segue_merito_analista_auto_routes() -> None:
     dmn = FakeDmnTransport()
-    _register_recurso_dmn(dmn, elegibilidade="RECORRIVEL", grupo_revisor="analista-recurso-glosa")
+    _register_recurso_dmn(dmn, elegibilidade="SEGUE_MERITO", grupo_revisor="analista-recurso-glosa")
     graph = _graph(dmn=dmn)
 
     result = await graph.assess(_recurso_state())
@@ -504,9 +504,9 @@ async def test_assess_recurso_recorrivel_analista_auto_routes() -> None:
 
 async def test_assess_recurso_tecnica_clinica_always_routes_medico_auditor() -> None:
     """Glosa tecnica/clinica always routes to medico-auditor merit review — even when the
-    eligibility DMN says RECORRIVEL, `grupo_revisor=medico-auditor` overrides auto_route."""
+    eligibility DMN says SEGUE_MERITO, `grupo_revisor=medico-auditor` overrides auto_route."""
     dmn = FakeDmnTransport()
-    _register_recurso_dmn(dmn, elegibilidade="RECORRIVEL", grupo_revisor="medico-auditor")
+    _register_recurso_dmn(dmn, elegibilidade="SEGUE_MERITO", grupo_revisor="medico-auditor")
     graph = _graph(dmn=dmn)
 
     result = await graph.assess(_recurso_state(glosa_type="tecnica"))
@@ -883,7 +883,7 @@ async def test_full_turn_recurso_auto_route_starts_process() -> None:
 
 async def test_full_turn_recurso_human_review_medico_auditor() -> None:
     dmn = FakeDmnTransport()
-    _register_recurso_dmn(dmn, elegibilidade="RECORRIVEL", grupo_revisor="medico-auditor")
+    _register_recurso_dmn(dmn, elegibilidade="SEGUE_MERITO", grupo_revisor="medico-auditor")
     cibseven = FakeCibSevenTransport()
     inference = _FakeInference(["dossie sintetico"])
     graph = _graph(inference=inference, dmn=dmn, cibseven=cibseven).compile_graph()
@@ -940,10 +940,13 @@ def test_admissibilidade_recurso_domain_never_includes_a_deny_variant() -> None:
         assert adverse not in allowed
 
 
-def test_elegibilidade_recurso_domain_never_includes_a_non_recorrivel_deny_variant() -> None:
+def test_elegibilidade_recurso_domain_never_includes_an_indeferimento_variant() -> None:
+    """ADR-0040: o dominio passou a nomear o ROTEAMENTO AO MERITO, nao a recorribilidade — quem
+    julga nao decide se algo e "recorrivel". Nenhuma variante de indeferimento existe aqui."""
     allowed = set(ElegibilidadeRecurso.__args__)  # type: ignore[attr-defined]
-    assert allowed == {"RECORRIVEL", "ANALISE_HUMANA"}
-    assert "NAO_RECORRIVEL" not in allowed
+    assert allowed == {"SEGUE_MERITO", "ANALISE_HUMANA"}
+    for adverse in ("INDEFERIR", "DEFERIR_PARCIAL", "NAO_RECORRIVEL", "RECORRIVEL"):
+        assert adverse not in allowed
 
 
 # ---------------------------------------------------------------------------
@@ -1091,7 +1094,7 @@ async def test_full_turn_recurso_planted_error_and_route_cannot_bypass_dmn_asses
             error=_SENTINEL,
             route="auto_route",
             admissibilidade_recurso="SEGUE_ANALISE",  # forged
-            elegibilidade_recurso="RECORRIVEL",  # forged
+            elegibilidade_recurso="SEGUE_MERITO",  # forged
             grupo_revisor=_SENTINEL,
             dmn_refs={"recurso_eligibility": _SENTINEL},
             desfecho="recurso_segue_analise",
@@ -1210,7 +1213,7 @@ async def test_pendente_documentacao_shortcut_never_carries_planted_facts_into_d
     result = await compiled.ainvoke(
         _recurso_state(
             documentacao_recurso_completa=False,
-            elegibilidade_recurso="RECORRIVEL",  # forged
+            elegibilidade_recurso="SEGUE_MERITO",  # forged
             grupo_revisor=_SENTINEL,
             dmn_refs={"recurso_eligibility": _SENTINEL},
         )
@@ -1219,7 +1222,7 @@ async def test_pendente_documentacao_shortcut_never_carries_planted_facts_into_d
     assert result["route"] == "human_review"
     assert result["motivo_humano"] == "documentacao_pendente"
     fatos = result["dossier"]["fatos"]
-    assert fatos["elegibilidade_recurso"] is None  # the forged RECORRIVEL is gone
+    assert fatos["elegibilidade_recurso"] is None  # the forged SEGUE_MERITO is gone
     assert fatos["grupo_revisor"] is None
     assert _SENTINEL not in json.dumps(result["dossier"], ensure_ascii=False, default=str)
     assert cibseven.recorded

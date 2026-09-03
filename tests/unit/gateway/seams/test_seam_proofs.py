@@ -888,7 +888,7 @@ _QUOTED_MANIFEST_CITATIONS: tuple[tuple[str, str, str], ...] = (
     # `leitura_phi_clinica`) were appended: +38 lines above the taxonomy passage and +65 above the
     # unmapped-topics passage. This table moving is the DESIGNED outcome of the test below, not a
     # weakening of it — the assertion that each span still CONTAINS its quote is what has teeth.
-    ("gateway/effect_classes.py", "628-631", "decisão humana, não inferência de agente"),
+    ("gateway/effect_classes.py", "634-637", "decisão humana, não inferência de agente"),
     ("gateway/effect_classes.py", "172-174", "no class was invented to round out a taxonomy"),
 )
 
