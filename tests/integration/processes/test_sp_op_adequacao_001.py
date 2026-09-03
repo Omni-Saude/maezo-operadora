@@ -857,7 +857,16 @@ async def test_l3_gap_moderado_encaminha_credenciamento_sem_user_task(
     assert len(cred_active) == 1, (
         f"exactly one ACTIVE CRED-001 instance expected for {cred_bk!r}, found {len(cred_active)}"
     )
-    assert cred_active[0].get("processDefinitionKey", "").startswith(CRED_PROCESS_KEY)
+    # Raw CIB Seven REST `/process-instance` response: the process-definition field is
+    # `definitionId` (composite `key:version:deploymentId`), NOT `processDefinitionKey` (that name
+    # is only a REQUEST query param elsewhere, e.g. `engine_rest.py:380` — live-verified against
+    # the real engine: a prior version of this assertion used the wrong field name and always read
+    # `""`, silently vacuous; this exact bug is why the assertion now also fails loudly if absent).
+    definition_id = cred_active[0]["definitionId"]
+    assert definition_id.startswith(f"{CRED_PROCESS_KEY}:"), (
+        f"expected the started instance's definitionId to be a {CRED_PROCESS_KEY} definition, "
+        f"got {definition_id!r}"
+    )
 
     # RE-DELIVERY / SECOND DELIVERY PROOF: calling the SAME production `execute_remediation`
     # directly (via `asyncio.to_thread`, the exact mechanism `WorkerHarness._handle` uses to
