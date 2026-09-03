@@ -224,7 +224,14 @@ docs/processes/contracts/SP-OP-REEMBOLSO-001.md.
 
     <bpmn:serviceTask id="ST_CalculateAmount" name="Calcular valor de reembolso (worker + DMN reembolso_calculo)"
                       camunda:type="external" camunda:topic="operadora.reembolso.calculate_amount">
-      <bpmn:documentation>Aritmetica pura: COMPUTA dentro_tabela (solicitado &lt;= calculo.valor_calculado_tabela_cents, GAP-REEMBOLSO-5) e dentro_teto_l2 (comparando o mesmo valor de referencia vs teto do tenant). NUNCA decide pagar/negar/reduzir; fora de tabela (SEM_TABELA) -> dentro_tabela=false -> analise humana.</bpmn:documentation>
+      <bpmn:documentation>Aritmetica pura: COMPUTA dentro_tabela (solicitado &lt;= calculo.valor_calculado_tabela_cents, GAP-REEMBOLSO-5) e dentro_teto_l2 (comparando o mesmo valor de referencia vs teto do tenant). NUNCA decide pagar/negar/reduzir; fora de tabela (SEM_TABELA) -> dentro_tabela=false -> analise humana. GAP F-1 (ADR-0012): o VALOR e' da DMN reembolso_calculo, NAO do worker — a tabela em Python (_BASE_VALUES_CENTS/_MULTIPLO_ACESSO) foi REMOVIDA; o worker RELAIA valor_calculado_tabela_cents/multiplo_tabela_aplicado/fonte_tabela e so' compara. `calculo` e' o resultVariable de BRT_Calculo (mapDecisionResult=singleResult) — um Map JAVA, entregue ao external task como valor Object NAO desserializado (fetchAndLock: deserializeValues default=false), nunca como objeto estruturado. Os tres inputParameter abaixo ACHATAM as saidas da DMN em variaveis simples, LOCAIS a esta task, avaliadas pelo motor a partir do MESMO `calculo` que BRT_Calculo acabou de escrever (espelha ST_IssuePaymentAuto aqui e ST_EmitirAutorizacaoAuto de SP-OP-AUTH-001). NAO-SPOOFAVEL: variavel LOCAL da activity — sombreia qualquer homonima de escopo de processo (inclusive um valor_calculado_tabela_cents semeado no start) e e' reescrita a cada entrada na task, a partir de `calculo`, que so' existe apos BRT_Calculo (unico predecessor desta task). Saida da DMN ausente/malformada =&gt; ERR_REEMBOLSO_CALCULO_DMN_INDISPONIVEL (incidente; sem dentro_tabela/dentro_teto_l2, logo sem auto-aprovacao e sem pagamento) — nao ha boundary de erro aqui por design.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="valor_calculado_tabela_cents">${calculo.valor_calculado_tabela_cents}</camunda:inputParameter>
+          <camunda:inputParameter name="multiplo_tabela_aplicado">${calculo.multiplo_tabela_aplicado}</camunda:inputParameter>
+          <camunda:inputParameter name="fonte_tabela">${calculo.fonte_tabela}</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_BRTCalc_Calc</bpmn:incoming>
       <bpmn:outgoing>Flow_Calc_AutoApproval</bpmn:outgoing>
     </bpmn:serviceTask>

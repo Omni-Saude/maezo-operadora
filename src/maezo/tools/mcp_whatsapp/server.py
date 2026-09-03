@@ -1,39 +1,39 @@
-"""MCP WhatsApp server — WhatsApp Business API client.
-
-Provides send_message(to, text) and verify_webhook(challenge).
-Uses httpx.AsyncClient for async HTTP calls to WhatsApp Cloud API (v18.0).
-
-WhatsApp is a BLOCKED channel for PHI per ADR-0006 — the ToolRegistry
-PEP enforces this at the gateway level, not here.
-
-Tools:
-- send_message(to, text) -> response_dict
-- verify_webhook(challenge) -> challenge_str
+"""MCP WhatsApp server — WhatsApp Business API client (ADR-0006: WhatsApp is a BLOCKED
+channel for PHI; the ToolRegistry PEP enforces that at the gateway, not here). Credential
+handling (auditoria 09, achados 9.3/9.4) is specified per method. OPS DISCLOSURE: reply
+path inoperative in Helm until `WHATSAPP_PHONE_NUMBER_ID` is provisioned (owner-gated,
+see OWNER-DECISIONS) — no deployment injects it; row in `docs/review-queue.md`.
 """
 
 from __future__ import annotations
 
+import hmac
 from typing import Any
 
 import httpx
 import structlog
-from pydantic_settings import BaseSettings
+from pydantic import AliasChoices, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = structlog.get_logger(__name__)
 
 
+def _secret(suffix: str) -> Any:
+    """CANONICAL `WHATSAPP_<suffix>` env name + the field it binds; never rendered."""
+    names = AliasChoices(f"WHATSAPP_{suffix}", f"whatsapp_{suffix.lower()}")
+    return Field(default="", validation_alias=names, repr=False, exclude=True)
+
+
 class WhatsAppSettings(BaseSettings):
-    """Configuration for the WhatsApp Business API.
+    """Cloud-API config read from the CANONICAL `WHATSAPP_*` env names (see `_secret`)."""
 
-    Environment variables prefixed with WHATSAPP_ (default).
-    """
-
-    model_config = {"env_prefix": "WHATSAPP_", "extra": "ignore"}
+    model_config = SettingsConfigDict(env_prefix="WHATSAPP_", extra="ignore")
 
     base_url: str = "https://graph.facebook.com/v18.0"
-    whatsapp_token: str = ""
-    whatsapp_app_secret: str = ""
-    whatsapp_verify_token: str = ""
+    phone_number_id: str = ""  # NOT a secret: the sender number's Graph id (achado 9.4)
+    whatsapp_token: str = _secret("TOKEN")
+    whatsapp_app_secret: str = _secret("APP_SECRET")
+    whatsapp_verify_token: str = _secret("VERIFY_TOKEN")
 
 
 class WhatsAppServer:
@@ -44,7 +44,7 @@ class WhatsAppServer:
     with the ToolRegistry (ADR-0016).
 
     Usage:
-        server = WhatsAppServer()
+        server = WhatsAppServer()  # WHATSAPP_* env; unset credentials => refuses
         result = await server.send_message("5511999999999", "Ola!")
         challenge = server.verify_webhook("verify_token", "challenge_str")
     """
@@ -87,23 +87,23 @@ class WhatsAppServer:
         logger.info("whatsapp_tools_registered", count=2)
 
     def verify_webhook(self, verify_token: str, challenge: str) -> str:
-        """Verify a WhatsApp webhook challenge (GET request from Meta).
+        """Verify a WhatsApp webhook challenge (GET from Meta), returning the challenge.
 
-        Used during WhatsApp webhook endpoint registration.
-        Must match the configured WHATSAPP_VERIFY_TOKEN.
+        Compares the supplied token with the configured WHATSAPP_VERIFY_TOKEN via
+        `hmac.compare_digest` over UTF-8 bytes — never a plain `==` on a secret.
 
         Args:
             verify_token: The hub.verify_token from the webhook request.
             challenge: The hub.challenge from the webhook request.
 
-        Returns:
-            The challenge string if verification succeeds.
-
         Raises:
-            ValueError: If the verify_token does not match the configured token.
+            ValueError: on ANY refusal — an UNSET configured token refuses
+                everything, and the message names NEITHER token (achado 9.3),
+                because it reaches structlog and the caller's HTTP body.
         """
-        if verify_token != self._settings.whatsapp_verify_token:
-            raise ValueError(f"Invalid verify token (expected {self._settings.whatsapp_verify_token!r})")
+        expected = self._settings.whatsapp_verify_token.encode("utf-8")
+        if not expected or not hmac.compare_digest(verify_token.encode("utf-8"), expected):
+            raise ValueError("Invalid verify token")
 
         logger.info("whatsapp_webhook_verified")
         return challenge
@@ -115,7 +115,37 @@ class WhatsAppServer:
     ) -> dict[str, Any]:
         """Send a WhatsApp text message via the Cloud API.
 
-        POST /{phone_number_id}/messages
+        `POST {base_url}/{phone_number_id}/messages` — the shape the Graph API
+        actually documents. The WABA token is a BEARER credential and travels
+        ONLY in the `Authorization` header (achado 9.4). The previous build
+        interpolated it into the URL PATH in place of the phone-number id, which
+        (a) is not a real Graph endpoint and (b) published the secret to every
+        access log and proxy on the way — and to `httpx.HTTPStatusError`, whose
+        message quotes the request URL verbatim.
+
+        Fail-closed: an unset `phone_number_id` (or an unset token) REFUSES the
+        send. There is deliberately no fallback to the token, and none to the
+        `{base_url}//messages` an empty path segment would otherwise produce.
+
+        OPS DISCLOSURE, stated because the fail-closed branch below is REACHED in
+        production today: reply path inoperative in Helm until
+        `WHATSAPP_PHONE_NUMBER_ID` is provisioned (owner-gated, see OWNER-DECISIONS).
+        `deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml:38,47,52`
+        injects `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET` and `WHATSAPP_VERIFY_TOKEN`
+        and NOTHING injects `WHATSAPP_PHONE_NUMBER_ID` (only `.env.example:72`, i.e.
+        local dev), so every Helena reply through `dispatch.py`'s
+        `_ScopedWhatsAppSender` refuses here until the secret `maezo-whatsapp-config`
+        carries it. Editing `deploy/` is owner-gated and was NOT done in this package;
+        the follow-up is tracked in `docs/review-queue.md`. Refusing is the correct
+        failure mode — it is disclosed, not silent.
+
+        The recipient is NOT logged. On the live path `to` is the RAW phone
+        number (`webhooks/whatsapp/dispatch.py`'s `_ScopedWhatsAppSender` passes
+        `raw_to`), so an INFO line carrying it would put a raw identifier in the
+        general zone — against ADR-0006 and against the I-3 claim recorded in
+        `docs/design/wave1-effect-chokepoint.md`. The sender's own
+        `phone_number_id` is logged instead: an operadora-side business id, not
+        a beneficiary identifier and not a secret.
 
         Args:
             to: Recipient phone number in international format (e.g., '5511999999999').
@@ -125,9 +155,17 @@ class WhatsAppServer:
             The API response as a dict containing message IDs.
 
         Raises:
+            ValueError: If `phone_number_id` or the WABA token is unconfigured.
+                Neither refusal names a configured value.
             httpx.HTTPStatusError: If the WhatsApp API returns an error.
         """
-        url = f"{self._settings.base_url}/{self._settings.whatsapp_token}/messages"
+        phone_number_id = self._settings.phone_number_id
+        if not phone_number_id:
+            raise ValueError("WhatsApp phone_number_id is not configured — refusing to send")
+        if not self._settings.whatsapp_token:
+            raise ValueError("WhatsApp access token is not configured — refusing to send")
+
+        url = f"{self._settings.base_url}/{phone_number_id}/messages"
 
         payload = {
             "messaging_product": "whatsapp",
@@ -140,12 +178,12 @@ class WhatsAppServer:
             "Content-Type": "application/json",
         }
 
-        logger.info("whatsapp_send_message", to=to)
+        logger.info("whatsapp_send_message", phone_number_id=phone_number_id)
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
             data: dict[str, Any] = response.json()
 
-        logger.info("whatsapp_message_sent", message_id=data.get("messages", [{}])[0].get("id"))
+        logger.info("whatsapp_message_sent", message_id=(data.get("messages") or [{}])[0].get("id"))
         return data
