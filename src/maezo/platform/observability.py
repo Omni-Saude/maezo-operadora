@@ -617,6 +617,32 @@ def record_phi_business_key_mint(*, family: str, modo: str, anchor: str) -> None
     collector.phi_business_key_mint.labels(family=family, modo=modo, anchor=anchor).inc()
 
 
+def record_bridge_dlq(*, topic: str, reason: str) -> None:
+    """Record ONE notifications-bridge dead-letter shunt (GAP-SC-04-a, audit D5).
+
+    Called by `maezo.platform.integrations.notifications_bridge.BridgeDlqShunt.shunt` — the single
+    place a poison message is moved to `<topic>.dlq`. Increments
+    `maezo_bridge_dlq_total{topic, reason}`.
+
+    `topic` is the bridge's SOURCE topic (never the derived `.dlq` name — the alert reader wants
+    "which stream is producing poison", and the `.dlq` name is a mechanical suffix of it).
+    `reason` MUST be one of `notifications_bridge.BRIDGE_DLQ_REASONS`: a CLOSED vocabulary, never
+    the JSON parser's error text and never any byte of the offending payload. A message in the DLQ
+    is by definition one nobody validated — a metric label derived from its content would be both
+    unbounded cardinality and the worst possible PHI surface.
+
+    NOT `maezo_dead_letter_queue_size`. That is a GAUGE (current DLQ depth) read by the
+    `MaezoDeadLetterBacklog`/`MaezoDeadLetterGrowth` alert rules, and nothing in `src/` can emit it
+    honestly: depth is a broker-side fact this process cannot observe. See
+    `MetricsCollector.bridge_dlq`'s construction comment and `docs/review-queue.md`.
+
+    This is the raw typed helper. The caller wraps it in a defensive guard (telemetry must never
+    fail — or worse, silently alter — a fail-closed shunt) — see `BridgeDlqShunt._record_metric`.
+    """
+    collector = _get_metrics_collector()
+    collector.bridge_dlq.labels(topic=topic, reason=reason).inc()
+
+
 def record_llm_token_usage(
     *,
     provider: str,
