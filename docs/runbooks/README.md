@@ -28,6 +28,7 @@ the established convention rather than introducing a second language into this d
 | [`audit-recovery.md`](audit-recovery.md) | Audit hash-chain design, integrity verification, recovery posture | Security, compliance, DBA |
 | [`phi-inference-ops.md`](phi-inference-ops.md) | LLM provider selection, fail-closed PHI routing, credential handling | Platform, security, PHI operations |
 | [`a2a-key-rotation.md`](a2a-key-rotation.md) | Agent Card signing key today, registry verification, what's pending | Security, platform |
+| [`aws-ecs.md`](aws-ecs.md) | `maezo-operadora` on ECS/Fargate (AMH data account `amh-data-dev`, dev/staging) — the `deploy/aws-ecs/` path that superseded the never-provisioned EKS/Helm one | Platform, SRE, on-call |
 
 ## Drills
 
