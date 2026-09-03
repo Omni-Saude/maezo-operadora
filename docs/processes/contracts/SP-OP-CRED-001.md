@@ -59,7 +59,7 @@ Variante por pedido (quando ha multiplos ciclos de credenciamento/descredenciame
 | `licenca_valida` | boolean | sim* | Pre-resolvido por worker (`operadora.cred.verify_credentials`): registro profissional/CNES vigente (FATO — nunca decide negar) |
 | `documentacao_completa` | boolean | sim* | Pre-resolvido por worker: documentos minimos presentes |
 | `dentro_criterios_rede` | boolean | sim* | Pre-resolvido por worker: prestador atende criterios objetivos de rede (especialidade/regiao demandadas — RN 566) |
-| `notificacao_previa_feita` | boolean | sim* | Pre-resolvido por worker (`operadora.cred.check_prior_notice`): notificacao previa ao beneficiario/ANS comprovada (RN 567 — **so descredenciamento**) |
+| `notificacao_previa_feita` | boolean | nao‡ | Seeded (se souberem) por quem inicia o processo (ex.: agente Carolina) — **NAO e resolvido nem confirmado por nenhum worker** (RN 567 — so descredenciamento; DRAFT/verify). GAP-FAB-NOTIF fix: `operadora.cred.check_prior_notice` (worker `dispatch_prior_notice`) so loga que a etapa de disparo da cure-window rodou; NUNCA sobrescreve nem confirma este fato — antes retornava um `True` constante fabricado, sem canal e sem consumidor algum. A comprovacao real de recebimento e' humana: campo `comprovacao_notificacao_previa` no formulario de `UT_AnaliseDescredenciamento`, exigido pelo guard de `_register_descredenciamento` (`credenciamento.py:414,428-429`) — variavel DIFERENTE desta. Nenhuma DMN/conditionExpression deste processo le `notificacao_previa_feita` hoje. |
 | `substituto_equivalente_identificado` | boolean | nao | Pre-resolvido por worker: ha prestador equivalente para substituicao (RN 567 — **so descredenciamento**) |
 | `tem_beneficiarios_vinculados` | boolean | sim* | Seeded pelo agente Carolina (delegacao `credentialing.analyze`): ha beneficiarios vinculados ao prestador — consumida pela DMN `cred_prior_notice` (RN 567 — **so descredenciamento**) |
 | `indicio_irregularidade_sinalizado` | boolean | nao | Sinal **informativo** de worker (NUNCA decide; so roteia a humano / encaminha FRAUDE) |
@@ -68,6 +68,7 @@ Variante por pedido (quando ha multiplos ciclos de credenciamento/descredenciame
 
 \* Pre-resolvido por worker de fatos antes das `businessRuleTask` (verificacao/conferencia; **sem decisao adversa**).
 † **Obrigatoria para a choreografia CRED→ADEQUACAO** (GAP-XPROC-2): sem `regiao_saude`+`especialidade` no fato `network_changed`, a `network_change_bridge` nao consegue formar a business key de ADEQUACAO e o fato cai em NO-OP (nao inicia adequacao). Dado cadastral do prestador (nunca PHI de beneficiario, ADR-0006). Semeada no start (agente Carolina / origem da solicitacao).
+‡ **NAO pre-resolvido por worker** (GAP-FAB-NOTIF fix, ver descricao da linha): ao contrario de `licenca_valida`/`documentacao_completa`/`dentro_criterios_rede`, nenhum worker deste processo confirma ou sobrescreve `notificacao_previa_feita`. Se ausente no start, o campo simplesmente fica indefinido — nenhum caminho do processo depende dele (nem DMN, nem `conditionExpression`); a obrigacao regulatoria real (RN 567) e' aplicada pelo guard humano `comprovacao_notificacao_previa`.
 
 ## Variaveis de saida (preenchidas pelas User Tasks humanas)
 
@@ -98,7 +99,7 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 | External task | `operadora.events.publish` | consome (worker) | publicador generico de eventos de dominio (reuso, todos os SP-OP) |
 | External task | `operadora.cred.verify_credentials` | consome (worker) | resolve `licenca_valida`/`documentacao_completa` (registro profissional/CNES — FATO; **TASY write DROP**, consumimos CDC, nunca escrevemos — MEMORY/ADR-0013) |
 | External task | `operadora.cred.check_network_criteria` | consome (worker) | resolve `dentro_criterios_rede` (criterios objetivos RN 566 — FATO, nunca decide negar) |
-| External task | `operadora.cred.check_prior_notice` | consome (worker) | resolve `notificacao_previa_feita`; dispara/registra notificacao previa ao beneficiario/ANS (RN 567 — **DRAFT/verify**) |
+| External task | `operadora.cred.check_prior_notice` | consome (worker `dispatch_prior_notice`) | loga/registra que a etapa de disparo da cure-window de notificacao previa ao beneficiario/ANS rodou (RN 567 — **DRAFT/verify**); NAO resolve nem confirma `notificacao_previa_feita` (GAP-FAB-NOTIF fix — ver §Variaveis de entrada) |
 | External task | `operadora.cred.prepare_dossier` | consome (worker→A2A) | convoca Carolina (PHI zone): monta dossie de analise (delegacao `credentialing.analyze`); **instrui, nao decide** (principio Rafael) |
 | External task | `operadora.cred.register_cred_denial` | consome (worker) | **efeito adverso gated (direcao B)** — registra negativa de credenciamento; recusa sem decisao humana (`ERR_CRED_DENIAL_NOT_HUMAN`); carrega `responsavel_id`+tier |
 | External task | `operadora.cred.register_descredenciamento` | consome (worker) | **efeito adverso gated (direcao A)** — registra descredenciamento; recusa sem decisao humana (`ERR_DECRED_NOT_HUMAN`); carrega `responsavel_id`+tier; emite `network_changed` |

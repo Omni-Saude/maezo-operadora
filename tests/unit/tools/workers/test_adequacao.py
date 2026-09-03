@@ -798,14 +798,22 @@ def test_measure_gap_nao_declara_variavel_de_processo_nova() -> None:
 # ---------------------------------------------------------------
 
 
-def test_notify_coordenacao() -> None:
+def test_notify_coordenacao_returns_no_fabricated_fact() -> None:
+    """GAP-FAB-NOTIF fix: must not resurrect the fabricated `notificacao_enviada=True`
+    constant (zero consumers in BPMN/DMN, not part of the contract's output-variable set)."""
     result = notify_coordenacao(
         {
             "regiao_saude": "R-001",
             "gap_adequacao": "GAP_CRITICO",
         }
     )
-    assert result["notificacao_enviada"] is True
+    assert result == {}
+    assert "notificacao_enviada" not in result
+
+
+def test_notify_coordenacao_missing_fields_does_not_raise() -> None:
+    result = notify_coordenacao({})
+    assert result == {}
 
 
 # ---------------------------------------------------------------

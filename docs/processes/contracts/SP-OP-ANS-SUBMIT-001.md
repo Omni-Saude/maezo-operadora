@@ -211,20 +211,41 @@ calendario conservadoramente (antecipar, nunca postergar). **Toda data e periodi
   contra a conectividade real (AWS-blocked, issue #16).
 - Mapeamento dos cron por `report_type` (datas/cadencia reais dos `timeCycle` de
   SP-OP-ANS-CRON-001) — **DRAFT/verify**.
-- **Resolucao automatica da `competencia`: IMPLEMENTADA** nos dois caminhos (cron E nip_filing —
-  res-ans-competencia-sentinel, Wave-1 residue). `notifications_bridge/consumer.py::
-  _competencia_from_anchor` deriva `competencia` de uma data-ancora do fato (`ans_cron_reference_
-  date_iso` no cron; `data_recebimento_nip_iso` no nip_filing), NUNCA do relogio de processamento
-  da ponte — `COMPETENCIA_PENDENTE` so sobrevive fail-closed quando a ancora esta ausente do fato
-  (fato antigo/legado). Pendente: **confirmacao regulatoria do mapeamento assumido** (mes/trimestre
-  IMEDIATAMENTE ANTERIOR ao da ancora) contra o texto vigente ANS (docs/review-queue.md).
+- **Resolucao automatica da `competencia`: NAO IMPLEMENTADA em nenhum dos dois caminhos**
+  (GAP-FAB-NOTIF fix — correcao de uma alegacao falsa desta linha; `notifications_bridge/
+  consumer.py` e a funcao `_competencia_from_anchor` NAO EXISTEM em lugar nenhum do repo,
+  confirmado por `grep`/`find`). Realidade, por caminho:
+  - **cron:** `ans_cron._compute_competencia` (`src/maezo/tools/workers/ans_cron.py:37`) e a
+    unica implementacao REAL desse calculo no repo (mes/trimestre/ano ANTERIOR a uma data-ancora,
+    com testes tabulares — `tests/unit/tools/workers/test_ans_cron.py`) — mas e codigo MORTO,
+    UNREACHABLE a partir do BPMN deployado: as 5 definitions de SP-OP-ANS-CRON-001 ligam
+    `ST_PublishCronDue*` direto ao `operadora.events.publish` generico com o literal
+    `competencia=COMPETENCIA_PENDENTE` (`camunda:inputParameter` estatico), nunca ao topico
+    registrado `operadora.ans_cron.trigger_submissions` (onde `_compute_competencia` de fato
+    roda). Isto e o gap **GAP-ANS-1** (remodelagem de scheduler per-report-type, ja detalhada em
+    `docs/reports/business-logic-audit-improvement-plan.md:445` — fora do escopo deste fix), NAO
+    um "residuo resolvido". `notification_bridge._ans_submit_variables_from_cron_due`
+    (`src/maezo/platform/notification_bridge.py:308-343`) apenas repassa o que o fato carrega —
+    hoje sempre o sentinel — nunca inventa um periodo real.
+  - **nip_filing:** `notification_bridge._ans_submit_variables_from_nip_handoff`
+    (`:266-304`) fixa `competencia = _COMPETENCIA_PENDENTE` (constante de MODULO — nunca deriva
+    de `data_recebimento_nip_iso`, ao contrario do que este contrato afirmava antes desta
+    correcao). GAP-ANS-3 (`docs/review-queue.md:320`) permanece aberto.
+  Pendente: **wiring de GAP-ANS-1/GAP-ANS-3** (fora deste fix) + **confirmacao regulatoria do
+  mapeamento assumido** (mes/trimestre IMEDIATAMENTE ANTERIOR ao da ancora) contra o texto
+  vigente ANS (docs/review-queue.md) quando esse wiring acontecer.
 - Politica de feriado/dia util na resolucao de `due_date`.
 - Interacao do handoff `SP-OP-NIP-001 → ANS-SUBMIT-001` (`origem_envio==nip_filing`): contrato de
-  correlacao do `nip_protocolo_origem` **IMPLEMENTADO** (GAP-NIP-4) — `notifications_bridge/
-  consumer.py::_nip_protocolo_origem` mapeia `protocolo_ans`/`numero_nip_ans` do payload de handoff
-  para `nip_protocolo_origem`; provado contra o engine real em
-  `tests/integration/processes/test_cross_process_handoff_seam.py::test_seam_nip_conceder_to_ans_submit`
-  (handoff → start ANS-SUBMIT → `UT_RevisarEnvioJuridico` → `protocolo_ans` emitido). Pendente
+  correlacao do `nip_protocolo_origem` **IMPLEMENTADO** (GAP-NIP-4) — GAP-FAB-NOTIF fix (citacao
+  corrigida): o consumidor de runtime vive em `src/maezo/platform/notification_bridge.py`
+  (NAO num pacote `notifications_bridge/consumer.py`, que nao existe), na regra
+  `_ans_submit_variables_from_nip_handoff` (`:266-304`), que mapeia `protocolo_ans`/
+  `numero_nip_ans` do payload de handoff para `nip_protocolo_origem`; provado por
+  `tests/unit/platform/test_notification_bridge.py::test_nip_handoff_triggers_ans_submit`
+  (`:659-681`, unitario — a funcao de mapeamento, nao a cadeia completa contra um engine real). O
+  arquivo `tests/integration/processes/test_cross_process_handoff_seam.py` citado antes desta
+  correcao NAO EXISTE (confirmado por `find`); nenhuma prova de engine-real (`UT_RevisarEnvioJuridico`
+  → `protocolo_ans` emitido) foi encontrada no repo — UNREPRODUCED, nao fechado. Pendente
   apenas a revisao regulatoria/juridica dos nomes de grupo (ja listado acima).
 
 ## Notas de design

@@ -11,7 +11,9 @@ outside T1.6's scope; local dev sets these via `docker-compose.yml` env directly
 
 from __future__ import annotations
 
-from pydantic import Field
+from typing import Any
+
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,9 +22,24 @@ class WhatsAppWebhookSettings(BaseSettings):
     (`TENANT_ID`, `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`,
     `KAFKA_BOOTSTRAP_SERVERS`, `deployment-webhook-receiver.yaml:36-64`)."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
+    # No `populate_by_name`: with no `env_prefix` set, that flag makes pydantic-settings' env
+    # source ALSO try each field's bare Python name as an env-var candidate (case-insensitively),
+    # in addition to its alias. For most fields below that adds nothing new — their Python name
+    # case-folds to exactly the same string as their canonical env name (`tenant_id` ->
+    # `TENANT_ID`, `phi_hmac_key` -> `PHI_HMAC_KEY`, etc.), so a second `AliasChoices` entry with
+    # the field name is safe and is used to keep by-field-name CONSTRUCTION working (every
+    # `WhatsAppWebhookSettings(tenant_id=..., phi_hmac_key=..., ...)` call in this codebase).
+    # `app_secret`/`verify_token` are the exception: their Python names do NOT case-fold to their
+    # canonical `WHATSAPP_`-prefixed env name, so putting them in `AliasChoices` the same way would
+    # silently open a bare `APP_SECRET`/`VERIFY_TOKEN` (no prefix) env surface that no deployment
+    # ever sets — the residual gate finding this class is fixed for. Their by-field-name
+    # construction is restored instead by the `_map_bare_field_name_kwargs` validator below, which
+    # only ever sees `"app_secret"`/`"verify_token"` as a key when a caller passed exactly that
+    # kwarg — pydantic-settings' env source is not wired to produce those keys at all now, so a
+    # bare env var can never reach it.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    tenant_id: str = Field(default="amh", alias="TENANT_ID")
+    tenant_id: str = Field(default="amh", validation_alias=AliasChoices("TENANT_ID", "tenant_id"))
 
     # PHI pseudonymizer HMAC key (ADR-0006/ADR-0035) — the vault-synced secret Helena's dispatch
     # keys her CPF/telefone/nome/email pseudonyms with (`gateway/pseudonymizer.py`). This is the
@@ -30,23 +47,67 @@ class WhatsAppWebhookSettings(BaseSettings):
     # dispatch.py), so the key MUST be injected here (ExternalSecret `phi-hmac-key`). Absent in a
     # production `runtime_mode` -> `Pseudonymizer.from_settings` fails closed (never a reversible
     # unkeyed pseudonym). Empty in dev/CI -> deterministic per-tenant DEV key (non-secret).
-    phi_hmac_key: str | None = Field(default=None, alias="PHI_HMAC_KEY")
+    # `repr=False, exclude=True`: this is the most sensitive value in the class (it is what makes
+    # every beneficiary pseudonym irreversible) — never rendered by `repr`/`str`, and excluded from
+    # `model_dump`/`model_dump_json` too (`repr=False` alone leaves those two leaking verbatim).
+    phi_hmac_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("PHI_HMAC_KEY", "phi_hmac_key"),
+        repr=False,
+        exclude=True,
+    )
 
     # Meta app secret (HMAC-SHA256 signature validation, POST /webhook) — REQUIRED, no default.
-    app_secret: str = Field(alias="WHATSAPP_APP_SECRET")
-    # Meta verify token (GET /webhook handshake) — REQUIRED, no default.
-    verify_token: str = Field(alias="WHATSAPP_VERIFY_TOKEN")
-    # WABA send-side token — accepted for Helm/env parity; NOT consumed by this build (this
-    # scaffold only receives; it never calls the WhatsApp Cloud API to send a message).
-    whatsapp_token: str | None = Field(default=None, alias="WHATSAPP_TOKEN")
+    # `min_length=1`: an EMPTY secret is not a configured secret. Without it, `WHATSAPP_APP_SECRET=""`
+    # passed validation and keyed `verify_hub_signature`'s HMAC with b"" — a signature anyone can
+    # forge, reached through the same "silently accept an unverifiable signature" path this module's
+    # docstring calls a real security defect. Fail at boot (CrashLoopBackOff), never at the edge.
+    # `AliasChoices` carries ONLY the canonical name (see the class-level comment above for why the
+    # field name is deliberately absent) — never rendered (`repr=False, exclude=True`).
+    app_secret: str = Field(
+        validation_alias=AliasChoices("WHATSAPP_APP_SECRET"),
+        min_length=1,
+        repr=False,
+        exclude=True,
+    )
+    # Meta verify token (GET /webhook handshake) — REQUIRED, no default. `min_length=1` for the same
+    # reason: an empty configured token made `?hub.verify_token=` (or a missing param) a VALID
+    # handshake, i.e. the endpoint would register itself to any caller. Same `AliasChoices`/rendering
+    # treatment as `app_secret` above.
+    verify_token: str = Field(
+        validation_alias=AliasChoices("WHATSAPP_VERIFY_TOKEN"),
+        min_length=1,
+        repr=False,
+        exclude=True,
+    )
+    # WABA send-side token. The receiver DOES send with it: since T1.11, every Helena reply goes
+    # `service.py:123 WhatsAppServer()` -> `HelenaDispatcher` -> `dispatch.py:122
+    # _ScopedWhatsAppSender.send` -> `server.py:111 send_message`, which reads this same token via
+    # the sibling `WhatsAppSettings` class. The reply path is nonetheless inoperative in Helm today
+    # — not because of this field, but because `WHATSAPP_PHONE_NUMBER_ID` is injected by no
+    # deployment, so `send_message` refuses fail-closed before it would ever use the token
+    # (`server.py:163-164`; disclosed in full at `docs/review-queue.md:680-705`).
+    # Never rendered (`repr=False, exclude=True`) — same treatment as the other three secrets above.
+    whatsapp_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("WHATSAPP_TOKEN", "whatsapp_token"),
+        repr=False,
+        exclude=True,
+    )
 
     # Accepted for Helm/env parity (deployment-webhook-receiver.yaml:60-64); NOT dialed by this
     # build — see service.py's module docstring for why (no downstream consumer yet, T1.11).
-    kafka_bootstrap_servers: str = Field(default="localhost:9092", alias="KAFKA_BOOTSTRAP_SERVERS")
+    kafka_bootstrap_servers: str = Field(
+        default="localhost:9092",
+        validation_alias=AliasChoices("KAFKA_BOOTSTRAP_SERVERS", "kafka_bootstrap_servers"),
+    )
 
     # T1.11: the engine URL Helena's in-process dispatch needs (DMN evaluation + starting
     # SP-OP-ESCALATION-001) — mirrors `agent_runtime`/`worker_runtime`'s own `CIBSEVEN_BASE_URL`.
-    cibseven_base_url: str = Field(default="http://cibseven:8080/engine-rest", alias="CIBSEVEN_BASE_URL")
+    cibseven_base_url: str = Field(
+        default="http://cibseven:8080/engine-rest",
+        validation_alias=AliasChoices("CIBSEVEN_BASE_URL", "cibseven_base_url"),
+    )
 
     # T-C2 / T4b: the tenant Postgres DSN Helena's in-process dispatch needs — BOTH to construct
     # the durable ADR-0007 audit sink her escalation start (SP-OP-ESCALATION-001) fails-closed on
@@ -55,22 +116,48 @@ class WhatsAppWebhookSettings(BaseSettings):
     # dispatcher cannot be built (module docstring STEP A) and `/webhook` degrades to its explicit
     # 501 — Helena never starts an un-audited escalation, and never runs stateless in prod.
     # Provisioning the secret is an ops/deploy concern (mirrors `app_secret` above), outside scope.
-    database_url: str | None = Field(default=None, alias="DATABASE_URL")
+    database_url: str | None = Field(
+        default=None, validation_alias=AliasChoices("DATABASE_URL", "database_url")
+    )
 
     # T4b F2 mode discriminator (mirrors `agent_runtime`'s `agent_runtime_mode`): "local" is the
     # ONLY non-production value. Anything else (Helm injects "kubernetes") is PRODUCTION, where a
     # durable checkpointer that fails to provision makes the receiver REFUSE to serve (no dispatcher
     # -> `/webhook` 501) rather than silently run Helena stateless. Local/dev falls back to an
     # in-memory checkpointer with a loud warning. Accepted for env parity (like `database_url`).
-    runtime_mode: str = Field(default="local", alias="RUNTIME_MODE")
+    runtime_mode: str = Field(default="local", validation_alias=AliasChoices("RUNTIME_MODE", "runtime_mode"))
 
     # T4b: bounded timeout for the checkpointer connect+setup() at bring-up. Unlike the two
     # health-first daemons, this receiver binds its health server AFTER dependency bring-up, so a
     # hung Postgres connect must not stall the `/healthz` bind — mirrors the identically-named field
     # in `agent_runtime`/`worker_runtime` settings. A timeout is treated as a setup failure (prod
     # refuses to serve; local falls back to in-memory).
-    dep_connect_timeout_s: float = Field(default=5.0, alias="DEP_CONNECT_TIMEOUT_S")
+    dep_connect_timeout_s: float = Field(
+        default=5.0,
+        validation_alias=AliasChoices("DEP_CONNECT_TIMEOUT_S", "dep_connect_timeout_s"),
+    )
 
     # Helm's containerPort is a hardcoded 8080 (deployment-webhook-receiver.yaml:67-69), not env-
     # driven — HEALTH_PORT is accepted for local-dev override parity with the other two daemons.
-    health_port: int = Field(default=8080, alias="HEALTH_PORT")
+    health_port: int = Field(default=8080, validation_alias=AliasChoices("HEALTH_PORT", "health_port"))
+
+    @model_validator(mode="before")
+    @classmethod
+    def _map_bare_field_name_kwargs(cls, data: Any) -> Any:
+        """Let `app_secret=`/`verify_token=` keep working as CONSTRUCTION kwargs (this module's own
+        tests, `test_app.py`, `test_service.py`) without ever making the bare, un-prefixed
+        `APP_SECRET`/`VERIFY_TOKEN` env-var names bindable (see the class-level comment above).
+
+        This only ever fires for a directly-passed kwarg: pydantic-settings' env source has no
+        `AliasChoices`/`populate_by_name` path left that produces an `"app_secret"` or
+        `"verify_token"` dict key from the environment, so a colliding env var of that bare name
+        can never reach this method — it is invisible to `WhatsAppWebhookSettings()` entirely.
+        """
+        if isinstance(data, dict):
+            for field_name, canonical in (
+                ("app_secret", "WHATSAPP_APP_SECRET"),
+                ("verify_token", "WHATSAPP_VERIFY_TOKEN"),
+            ):
+                if field_name in data:
+                    data[canonical] = data.pop(field_name)
+        return data
