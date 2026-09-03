@@ -709,4 +709,39 @@ achado a uma entrada formal da fila:
 |---|---|---|---|
 | `src/maezo/tools/workers/inadimplencia.py:325-342` (`notify_beneficiario` — GAP-INAD-8, fato fabricado, NAO corrigido nesta PR) | `notify_beneficiario` retorna incondicionalmente `{"notificacao_previa_feita": True, "notificacao_previa_registrada_em": "now"}` (`:339-342`) — mesmo formato dos dois fatos ja corrigidos, mais um placeholder literal `"now"` no lugar de um timestamp real. **Ao contrario dos dois casos corrigidos (zero consumidores), este fato tem DOIS consumidores DMN reais:** (1) `spec/processes/dmn/inadimplencia_status.dmn:37-38` (`in_notificacao_previa` le `notificacao_previa_feita` diretamente para rotear `AGUARDA_PURGA`/`PENDENTE_NOTIFICACAO`); (2) o valor e' carregado por `_HANDOFF_CARRY_KEYS` (`inadimplencia.py:552-567`, chave `notificacao_previa_feita` em `:558`) para o payload de start do CANCEL-001 via `handoff_rescisao`, onde `spec/processes/dmn/cancel_admissibility.dmn:63-64` TAMBEM le `in_notificacao_previa`, e `src/maezo/tools/workers/cancel.py:252-260` (`assess_admissibility`) ramifica sobre ele: para `tipo_solicitacao in ("inadimplencia", "for_cause_operadora")`, `if not validation.notificacao_previa_feita: roteamento = "PENDENTE_NOTIFICACAO"` (`:255-256`) senao `"SEGUE_ANALISE"` (`:258-259`); tambem aparece no `decision_basis` da trilha de auditoria ADR-0007 do start do CANCEL-001 (`inadimplencia.py:713`). **Efeito liquido:** como o fato e' sempre `True`, o ramo `PENDENTE_NOTIFICACAO` NUNCA pode disparar para um caso originado em inadimplencia, em nenhum dos dois processos — supressao silenciosa de um sinal de compliance da RN 593 (suspensao/rescisao por inadimplencia, efeito adverso ao beneficiario). **Escopo/owner recomendado:** pacote R1 separado (`WP-FATOS-FABRICADOS` slice 2) — toca `inadimplencia.py` + `cancel.py` + duas DMNs, exige prova de regressao nos dois processos, e exige definicao (com sign-off regulatorio RN 593) de como seria um sinal honesto de "beneficiario efetivamente notificado" para o fluxo INADIMPLENCIA, ja que — ao contrario do CRED, que tem o campo `comprovacao_notificacao_previa` confirmado por humano — INADIMPLENCIA nao parece ter um campo equivalente ja religado alimentando esta variavel; trocar a constante ingenuamente (para `False`/removida) poderia travar toda rescisao por inadimplencia em `PENDENTE_NOTIFICACAO` sem caminho adiante, uma regressao funcional, nao so uma correcao de honestidade. RN 593 permanece DRAFT/verify — nao alterado por esta entrada. Rastreado em `_FABRICATED_FACT_BASELINE["inadimplencia"]` (`tests/unit/tools/workers/test_worker_handler_purity.py:190-202`) — remover a entrada de la quando corrigido | medico auditor + juridico/regulatorio (RN 593) + arquitetura (design do sinal honesto de notificacao para INADIMPLENCIA) | `DRAFT — requires human review (RN 593) before any fix; pacote R1 separado recomendado (WP-FATOS-FABRICADOS slice 2)` |
 
+---
+
+## WP-COREOGRAFIA-XPROC — PERSP-ADEQ-CRED-HANDOFF (handoff real) + PERSP-NETBRIDGE (bridge fantasma, docs/spec)
+
+Duas linhas do `GAP-REGISTER.md` (`:121-122`) fechadas por este WP (worktree `coreografia-xproc`,
+branch `fix/coreografia-xproc-handoff-adequacao-cred`):
+
+**PERSP-ADEQ-CRED-HANDOFF (terceira variante de fato fabricado — junto de GAP-FAB-NOTIF item B/A
+acima):** `adequacao.execute_remediation` (`ST_StartCredenciamentoL3`, topico
+`operadora.adequacao.start_credenciamento`) retornava incondicionalmente `{handoff_credenciamento:
+True, processo_destino: "SP-OP-CRED-001"}` sem nunca chamar `start_process_idempotent` — BPMN
+(`SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn:247-249` antes da correcao) e contrato
+(`SP-OP-ADEQUACAO-001.md:152` antes da correcao) afirmavam "dispara SP-OP-CRED-001". Corrigido:
+agora chama o chokepoint fenced de verdade, com business key `CRED-{tenant}-{prestador_id}`
+(identica a `fraude._cred_business_key`/`notification_bridge._cred_business_key`). **Achado novo,
+nao coberto por nenhuma linha anterior desta fila:** o handoff so pode executar quando um
+`prestador_id` candidato ja foi identificado — e ESTA fonte (quem/o que identifica o candidato
+antes deste task disparar) **nao e definida por nenhum contrato**. A propria contrato ADEQUACAO ja
+tinha uma pendencia adjacente ("a fonte cadastral de regiao_saude/especialidade do prestador no
+start de CRED", secao Pendencias) que aponta na mesma direcao sem a resolver.
+
+**PERSP-NETBRIDGE (nao-novo como fato — ja registrado nas entradas Wave-1B/GR-B2 acima; o defeito
+vivo era os CONTRATOS/BPMN nunca terem sido sincronizados com esse registro):** `network_change_bridge`
+era afirmada como ponte de runtime viva em 2 contratos e 2 BPMN
+(`SP-OP-ADEQUACAO-001.md:55-56,74,107,141,256,270`, `SP-OP-CRED-001.md:70,96`,
+`SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn:55,76,84`, `SP-OP-CRED-001_Descredenciamento.bpmn:67`) —
+o modulo nao existe (`find src -type d -name '*bridge*'` -> 0 resultados). Corrigido: toda
+assercao agora diz a verdade (o PAYLOAD do fato `network_changed` esta harmonizado; o CONSUMIDOR
+nao existe) e cita **AF-01** como a decisao do owner que resolve o futuro (construir a ponte,
+adotar outro mecanismo, ou aceitar que ADEQUACAO nao tem starter de producao hoje).
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `docs/processes/contracts/SP-OP-ADEQUACAO-001.md` (novo campo `prestador_id`/`tipo_prestador`, secao Variaveis de entrada) — PERSP-ADEQ-CRED-HANDOFF | Este WP nao define a fonte de `prestador_id` (quem/o que identifica um prestador candidato para fechar o gap da celula ANTES de `ST_StartCredenciamentoL3` disparar) — hoje NENHUM worker de ADEQUACAO resolve esse valor; sem ele, o handoff recusa (fail-closed, `ERR_ADEQUACAO_SEM_PRESTADOR_CANDIDATO`). Precisa de decisao de produto/arquitetura: um novo worker de prospeccao (analytics/Andre?), um campo semeado por humano na `UT_DecisaoFallback`/dossie, ou uma integracao com a base de rede | produto + arquitetura (base de rede) | `DRAFT — requires human review before any deploy` |
+| `docs/processes/contracts/SP-OP-ADEQUACAO-001.md`, `SP-OP-CRED-001.md`, `spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn`, `SP-OP-CRED-001_Descredenciamento.bpmn` (`network_change_bridge`) — PERSP-NETBRIDGE, ja tratado como AF-01/Wave-1B acima; entrada aqui SO para registrar que o texto dos 4 artefatos foi corrigido nesta PR (deixou de afirmar a ponte como viva) | A decisao de negocio (construir `network_change_bridge`, adotar outro mecanismo de starter para SP-OP-ADEQUACAO-001, ou aceitar a lacuna) continua em aberto — ver a entrada Wave-1B acima e **AF-01** (`GAP-REGISTER.md:71`, P0, `owner-decision`, fora do escopo docs/spec deste WP) | arquitetura + PO (mesma revisao de AF-01) | `DRAFT — requires human review before any deploy (texto corrigido; decisao de negocio pendente)` |
 

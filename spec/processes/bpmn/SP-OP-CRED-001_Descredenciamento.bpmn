@@ -62,11 +62,15 @@ INDICIO DE IRREGULARIDADE/FRAUDE de credencial (fraud_accusation L0 hard) NUNCA 
 roteia para UT_AnaliseDescredenciamento, que decide encaminhar a SP-OP-FRAUDE-001
 (encaminhar_fraude=true). Nenhum branch auto-acusa.
 
-FATO DE MUDANCA DE REDE: operadora.cred.register_descredenciamento e
-operadora.cred.register_credenciamento emitem agents.events.cred.network_changed (consumido pela
-network_change_bridge, que INICIA SP-OP-ADEQUACAO-001 — adequacao geografica/dimensionamento RN
-259/566; GAP-XPROC-2). O fato carrega a IDENTIDADE DA CELULA (regiao_saude + especialidade) alem de
-tenant_id/prestador_id/tipo_prestador/data_efeito_iso: a ponte correlaciona por
+FATO DE MUDANCA DE REDE (payload harmonizado — GAP-XPROC-2; consumidor FANTASMA — PERSP-NETBRIDGE,
+DRAFT/verify AF-01): operadora.cred.register_descredenciamento e
+operadora.cred.register_credenciamento emitem agents.events.cred.network_changed. O DESENHO (nao
+construido) e uma network_change_bridge que consumiria esse fato e INICIARIA SP-OP-ADEQUACAO-001 —
+adequacao geografica/dimensionamento RN 259/566. Essa ponte NAO EXISTE em src/
+(find src -type d -name '*bridge*' -> 0 resultados; ja registrado em docs/review-queue.md:209,218) —
+hoje o fato e publicado sem nenhum consumidor de producao. O fato carrega a IDENTIDADE DA CELULA
+(regiao_saude + especialidade) alem de tenant_id/prestador_id/tipo_prestador/data_efeito_iso: SE a
+ponte vier a existir (decisao owner, AF-01), ela correlacionaria por
 tenant_id+regiao_saude+especialidade para formar a business key ADEQ-{tenant}-{regiao}-{especialidade}-
 {ciclo}. regiao_saude/especialidade sao dado CADASTRAL/GEOGRAFICO da atuacao do prestador (Zona Geral,
 ADR-0006) — nunca PHI de beneficiario.
