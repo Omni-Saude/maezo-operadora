@@ -203,18 +203,32 @@ datasets"). This is a NEW pass-criterion type, `CL`, alongside RT/SF/ABS/TH — 
 agent-agnostic text scoring on whatever field a golden names.
 
 It judges ONLY the CLARITY of the wording a graph drafts for a beneficiary (Helena's
-`response_text`) — three independent, deterministic, reproducible checks, no LLM-as-judge, no
+`response_text`) — four independent, deterministic, reproducible checks, no LLM-as-judge, no
 learned/constant score:
 
-1. **Sentence length** — any sentence (split on `.`/`!`/`?`) whose word count exceeds
-   `clarity.max_words_per_sentence` is flagged.
+0. **Minimum length** — `text` must contain at least `min_words` words (default 3, overridable
+   per-golden via an optional `clarity.min_words` key). An empty or near-empty reply is never
+   clear, no matter what the other checks say — this closes a vacuous pass a golden with
+   `required_disclaimers: []` would otherwise allow on an empty string. Surfaced as
+   `ClarityReport.word_count`/`.min_words`.
+1. **Sentence length** — any sentence, split by a proper sentence splitter that protects a
+   documented PT-BR abbreviation list ("Dr.", "Dra.", "Sr.", "Sra.", "Srta.", "etc.", "p. ex.")
+   and digit-dot-digit decimals ("37.5") from being misread as sentence boundaries, whose word
+   count exceeds `clarity.max_words_per_sentence` is flagged. (A naive `.`-split would let a
+   too-long utterance hide under the cap by fragmenting at a title abbreviation — e.g. "...a Dra.
+   Fernanda..." — this splitter does not.)
 2. **Forbidden jargon** — any `clarity.forbidden_jargon` term found in the text
    (case-insensitive substring) is flagged: internal/engine vocabulary (DMN table names, raw
    `sintoma_codigo` values, `motivo_categoria` tokens, severity codes like `P1`) must never leak
-   verbatim into a beneficiary-facing message.
+   verbatim into a beneficiary-facing message. (Deliberately still substring-based — a leaked
+   engine token is a real leak wherever it appears, even mid-word.)
 3. **Mandatory disclaimers** — `clarity.required_disclaimers` is a list of alternative-phrase
    GROUPS (e.g. a human-handoff group, an emergency-escalation group); each group needs >=1
-   alternative present (case-insensitive substring) or it is flagged as missing.
+   alternative present as a standalone word/phrase (case-insensitive, hyphen-aware word-boundary
+   match — so "humano" matches "um atendente humano" but NOT "esforco sobre-humano") or it is
+   flagged as missing. Accent-folding is deliberately NOT applied: goldens that need both
+   spellings list each accented/unaccented form as its own alternative (e.g.
+   `["emergencia", "emergência"]`).
 
 A golden case opts in with an OPTIONAL top-level `"clarity"` block (`load_golden`'s required-key
 check does not require it, so every pre-existing golden that omits it is unaffected):

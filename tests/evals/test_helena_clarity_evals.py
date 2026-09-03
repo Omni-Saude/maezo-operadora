@@ -64,12 +64,17 @@ def _helena_extra_config() -> dict[str, Any]:
 def _clarity_report(state: dict[str, Any], clarity_spec: dict[str, Any]) -> ClarityReport:
     field_name = clarity_spec.get("field", "response_text")
     text = state.get(field_name) or ""
-    return score_clarity(
-        text,
-        max_words_per_sentence=clarity_spec["max_words_per_sentence"],
-        forbidden_jargon=clarity_spec.get("forbidden_jargon") or (),
-        required_disclaimers=clarity_spec.get("required_disclaimers") or (),
-    )
+    kwargs: dict[str, Any] = {
+        "max_words_per_sentence": clarity_spec["max_words_per_sentence"],
+        "forbidden_jargon": clarity_spec.get("forbidden_jargon") or (),
+        "required_disclaimers": clarity_spec.get("required_disclaimers") or (),
+    }
+    if "min_words" in clarity_spec:
+        # Optional override (REP-EVALS hardening) -- absent in all 3 shipped goldens, which rely
+        # on `score_clarity`'s own default floor; kept out of `kwargs`'s literal so the primitive's
+        # default is the single source of truth, not duplicated here.
+        kwargs["min_words"] = clarity_spec["min_words"]
+    return score_clarity(text, **kwargs)
 
 
 # ---------------------------------------------------------------------------

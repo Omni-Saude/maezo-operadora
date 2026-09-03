@@ -221,3 +221,175 @@ class TestMutateReplaceLastResponse:
             mutated["recorded_llm"][-1], max_words_per_sentence=30, required_disclaimers=[["profissional"]]
         )
         assert after.missing_disclaimer_groups == [("profissional",)]
+
+
+# ---------------------------------------------------------------------------
+# REP-EVALS repair (VERIFY-WP-EVALS.md #2a/#2b/#2c): three hardening fixes to the reusable
+# `score_clarity` primitive, each with its own RED->GREEN proof. These tests must FAIL against
+# the pre-repair `_harness.py` (the whole point of the exercise) and PASS after it.
+# ---------------------------------------------------------------------------
+
+
+class TestScoreClarityMinWords:
+    """VERIFY-WP-EVALS.md #2a: an empty `response_text` passed vacuously whenever a golden's
+    `required_disclaimers` was `[]` (exactly EVL-HELENA-CLAREZA-02's shape). Fixed with a
+    `min_words` floor (default 3) surfaced on `ClarityReport.word_count`/`.min_words`."""
+
+    def test_empty_text_is_flagged_too_short_even_with_no_other_rules(self) -> None:
+        report = score_clarity("", max_words_per_sentence=20, required_disclaimers=[])
+        assert report.word_count == 0
+        assert report.word_count < report.min_words
+
+    def test_assert_clarity_raises_on_empty_text_with_no_required_disclaimers(self) -> None:
+        """The exact CLAREZA-02 shape the verifier flagged: an empty response_text with
+        `required_disclaimers=[]` must NOT pass vacuously."""
+        report = score_clarity("", max_words_per_sentence=20, forbidden_jargon=[], required_disclaimers=[])
+        with pytest.raises(AssertionError, match="empty or too short"):
+            assert_clarity(report)
+
+    def test_whitespace_only_text_is_also_too_short(self) -> None:
+        report = score_clarity("   \n  ", max_words_per_sentence=20)
+        with pytest.raises(AssertionError, match="empty or too short"):
+            assert_clarity(report)
+
+    def test_default_min_words_does_not_penalize_a_normal_short_reply(self) -> None:
+        """Regression guard: the new floor must not make a legitimate short reply fail."""
+        report = score_clarity("Um atendente vai ajudar.", max_words_per_sentence=20)
+        assert report.word_count >= report.min_words
+        assert_clarity(report)  # must not raise
+
+    def test_custom_min_words_can_be_tightened(self) -> None:
+        report = score_clarity("Oi tudo bem", max_words_per_sentence=20, min_words=5)
+        assert report.word_count == 3
+        with pytest.raises(AssertionError, match="empty or too short"):
+            assert_clarity(report)
+
+    def test_custom_min_words_can_be_relaxed_to_allow_a_one_word_reply(self) -> None:
+        report = score_clarity("Ok.", max_words_per_sentence=20, min_words=1)
+        assert_clarity(report)  # must not raise
+
+
+class TestSentenceSplitterAbbreviations:
+    """VERIFY-WP-EVALS.md #2b: the `.`-based sentence splitter was fooled by PT-BR title
+    abbreviations ("Dra.", "Sr.", "Sra.", "Dr.", "p. ex.", "etc.") -- a too-long run-on could
+    fragment at the abbreviation's period into two under-cap pieces. Fixed by protecting a
+    documented abbreviation list (plus digit-dot-digit decimals) before splitting."""
+
+    @pytest.mark.parametrize("abbrev", ["Dr.", "Dra.", "Sr.", "Sra.", "Srta."])
+    def test_title_abbreviation_before_a_name_does_not_create_a_false_boundary(self, abbrev: str) -> None:
+        text = (
+            f"Um profissional muito atencioso, o(a) {abbrev} Fulano, vai revisar "
+            "seu caso com cuidado e atencao."
+        )
+        report = score_clarity(text, max_words_per_sentence=1000)
+        assert len(report.sentences) == 1
+
+    def test_etc_abbreviation_does_not_create_a_false_boundary(self) -> None:
+        text = (
+            "Voce pode trazer identidade, cartao do plano, etc. para agilizar "
+            "o atendimento no dia da consulta."
+        )
+        report = score_clarity(text, max_words_per_sentence=1000)
+        assert len(report.sentences) == 1
+
+    def test_p_ex_abbreviation_does_not_create_a_false_boundary(self) -> None:
+        text = "Alguns sintomas, p. ex. febre e tosse, podem indicar necessidade de avaliacao."
+        report = score_clarity(text, max_words_per_sentence=1000)
+        assert len(report.sentences) == 1
+
+    def test_decimal_number_does_not_create_a_false_boundary(self) -> None:
+        text = "O valor de referencia e 37.5 e esta dentro do esperado para o caso."
+        report = score_clarity(text, max_words_per_sentence=1000)
+        assert len(report.sentences) == 1
+
+    def test_the_verifiers_exact_exploit_text_is_now_correctly_flagged_as_one_long_sentence(self) -> None:
+        """Reproduces VERIFY-WP-EVALS.md #2b byte-for-byte: a 27-word run-on that used to
+        fragment at "Dra." into two under-cap pieces must now be read as ONE sentence and trip
+        a 20-word cap."""
+        text = (
+            "Um profissional de saude muito experiente e cuidadoso vai atender voce em breve "
+            "sendo provavelmente a Dra. Fernanda que vai revisar tudo com atencao redobrada e cuidado."
+        )
+        report = score_clarity(text, max_words_per_sentence=20)
+        assert len(report.sentences) == 1
+        assert report.long_sentences
+        _sentence, word_count = report.long_sentences[0]
+        assert word_count == 27
+
+    def test_abbreviation_period_is_restored_verbatim_in_the_returned_sentence(self) -> None:
+        text = "A Dra. Ana vai continuar."
+        report = score_clarity(text, max_words_per_sentence=1000)
+        assert report.sentences == ["A Dra. Ana vai continuar."]
+
+    def test_a_real_sentence_boundary_right_after_an_abbreviation_clause_still_splits(self) -> None:
+        """Regression guard: protecting the abbreviation's OWN period must not swallow the NEXT,
+        genuinely terminal period too."""
+        text = "A Dra. Ana vai te atender. Aguarde um momento."
+        report = score_clarity(text, max_words_per_sentence=1000)
+        assert report.sentences == ["A Dra. Ana vai te atender.", "Aguarde um momento."]
+
+    def test_two_genuinely_separate_sentences_still_split_when_no_abbreviation_is_involved(self) -> None:
+        """Regression guard: the fix must not collapse normal multi-sentence prose into one."""
+        report = score_clarity("Frase curta um. Frase curta dois.", max_words_per_sentence=1000)
+        assert len(report.sentences) == 2
+
+
+class TestDisclaimerWordBoundary:
+    """VERIFY-WP-EVALS.md #2c: the disclaimer check matched ANY substring, so "sobre-humano"
+    satisfied the "humano" alternative. Fixed with a word/phrase-boundary match that treats a
+    hyphen as word-joining."""
+
+    def test_hyphenated_compound_does_not_satisfy_a_bare_word_alternative(self) -> None:
+        """Reproduces VERIFY-WP-EVALS.md #2c byte-for-byte: "sobre-humano" must NOT satisfy the
+        "humano" disclaimer alternative."""
+        report = score_clarity(
+            "Isso exige um esforco sobre-humano da nossa equipe, mas nao teremos como ajudar agora.",
+            max_words_per_sentence=1000,
+            required_disclaimers=[["profissional", "humano", "atendente"]],
+        )
+        assert report.missing_disclaimer_groups == [("profissional", "humano", "atendente")]
+
+    def test_a_standalone_disclaimer_word_still_satisfies_its_group(self) -> None:
+        """Regression guard: the fix must not make legitimate matches disappear."""
+        report = score_clarity(
+            "Um atendente humano vai continuar seu caso.",
+            max_words_per_sentence=1000,
+            required_disclaimers=[["profissional", "humano", "atendente"]],
+        )
+        assert report.missing_disclaimer_groups == []
+
+    def test_disclaimer_match_is_still_case_insensitive(self) -> None:
+        report = score_clarity(
+            "UM ATENDENTE HUMANO VAI CONTINUAR.",
+            max_words_per_sentence=1000,
+            required_disclaimers=[["humano"]],
+        )
+        assert report.missing_disclaimer_groups == []
+
+    def test_disclaimer_alternative_as_a_multi_word_phrase_matches_literally(self) -> None:
+        report = score_clarity(
+            "Por favor, fale com um atendente humano assim que possivel.",
+            max_words_per_sentence=1000,
+            required_disclaimers=[["fale com um atendente"]],
+        )
+        assert report.missing_disclaimer_groups == []
+
+    def test_multi_word_phrase_partial_word_overlap_does_not_falsely_match(self) -> None:
+        """The phrase alternative requires the whole phrase, not a lucky partial overlap."""
+        report = score_clarity(
+            "Um atendente vai continuar.",
+            max_words_per_sentence=1000,
+            required_disclaimers=[["fale com um atendente"]],
+        )
+        assert report.missing_disclaimer_groups == [("fale com um atendente",)]
+
+    def test_other_hyphenated_humano_compounds_also_do_not_satisfy_humano(self) -> None:
+        """Same collision class as "sobre-humano": any hyphen-joined compound ending in
+        "-humano" must not satisfy the bare "humano" alternative either."""
+        for collision in ("quase-humano", "pos-humano", "super-humano"):
+            report = score_clarity(
+                f"Isso seria um esforco {collision} da nossa equipe.",
+                max_words_per_sentence=1000,
+                required_disclaimers=[["humano"]],
+            )
+            assert report.missing_disclaimer_groups == [("humano",)], collision
