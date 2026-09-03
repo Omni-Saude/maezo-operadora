@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.agents.andre.keys import key_segment
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
 from maezo.tools.workers.base import (
     FunctionWorker,
@@ -936,6 +937,16 @@ FONTE_VALOR: dict[str, str] = {
 def _pagto_business_key(tenant_id: str, numero_lote_tiss: str, prestador_id: str) -> str:
     """`PAGTO-{tenant_id}-{numero_lote_tiss}-{prestador_id}` — ONE order per adjudicated lote.
 
+    NORMALISED THROUGH `agents.andre.keys.key_segment`, the SAME normalisation
+    `recurso._pagto_business_key` uses (gate finding M2 on the RECURSO half) — one key shape for
+    both chains. That module's own header documents the identical defect for the identical family:
+    "a whitespace-padded `ordem_pagamento_id` produced `PAGTO-{t}- 123 ` against the other site's
+    `PAGTO-{t}-123`". Without it a re-delivered handoff whose `numero_lote_tiss` arrives with one
+    extra space mints a DIFFERENT key, the STRICT dedup claim does not see the previous instance,
+    and the same adjudicated conta is paid TWICE. `non_blank` rejects absent/empty/whitespace-only/
+    `None` but ACCEPTS whitespace-PADDED, so refusing is not enough on its own.
+    Position-preserving: an empty segment is impossible here because the caller refuses first.
+
     The alternative shape SP-OP-PAGTO-001's own contract already foresees for an adjudicated
     conta, alongside `PAGTO-{tenant}-{ordem_pagamento_id}` and the `PAGTO-{tenant}-{guia}-{glosa}`
     form `recurso.handoff_pagamento` uses for a reverted glosa. Deriving the key from the lote
@@ -945,7 +956,7 @@ def _pagto_business_key(tenant_id: str, numero_lote_tiss: str, prestador_id: str
     (`mcp_cibseven.transport._START_DEDUP_POLICY`), so that convergence is enforced by a durable
     claim, not by hope.
     """
-    return f"PAGTO-{tenant_id}-{numero_lote_tiss}-{prestador_id}"
+    return f"PAGTO-{key_segment(tenant_id)}-{key_segment(numero_lote_tiss)}-{key_segment(prestador_id)}"
 
 
 def _ordem_pagamento_id(tenant_id: str, numero_lote_tiss: str, prestador_id: str) -> str:
@@ -954,8 +965,11 @@ def _ordem_pagamento_id(tenant_id: str, numero_lote_tiss: str, prestador_id: str
     Same determinism discipline as `_glosa_id`: a re-delivered external task must mint the
     IDENTICAL id, never a fresh identity for one adjudication. It is an internal identifier of the
     order CONTAS creates — not a claim about any external system's numbering.
+
+    Composed through the SAME `key_segment` normalisation as `_pagto_business_key` (M2): the order
+    id and the key it travels with must never disagree about what the identity of the conta is.
     """
-    return f"ORDEM-CONTA-{tenant_id}-{numero_lote_tiss}-{prestador_id}"
+    return f"ORDEM-CONTA-{key_segment(tenant_id)}-{key_segment(numero_lote_tiss)}-{key_segment(prestador_id)}"
 
 
 def handoff_pagamento(
@@ -1014,24 +1028,32 @@ def handoff_pagamento(
     them, which is exactly the lane I-PAGTO-1 guarantees the order lands in.
     """
     # non_blank BEFORE str(): explicit None must refuse, never stringify to the truthy "None".
+    # NORMALISED (M2, mirroring the RECURSO half) with the same `key_segment` the composers use,
+    # so the identity the PAYLOAD and the LOGS carry is byte-identical to the identity the STRICT
+    # dedup key is minted from — a padded `numero_lote_tiss` must not travel to PAGTO alongside a
+    # key that stripped it. `non_blank` alone is not enough on either side: it ACCEPTS
+    # whitespace-padding, and it ACCEPTS `0` (whose `key_segment` is `""`), so the emptiness is
+    # re-checked after normalising.
+    tenant_id = key_segment(variables.get("tenant_id"))
+    numero_lote_tiss = key_segment(variables.get("numero_lote_tiss"))
+    prestador_id = key_segment(variables.get("prestador_id"))
     if not (
         non_blank(variables.get("tenant_id"))
         and non_blank(variables.get("numero_lote_tiss"))
         and non_blank(variables.get("prestador_id"))
+        and tenant_id
+        and numero_lote_tiss
+        and prestador_id
     ):
         logger.error(
             "contas_handoff_pagamento_sem_ancora",
             tenant_id=str(variables.get("tenant_id", "")),
         )
         raise ContasHandoffPagamentoInvalidoError(
-            "handoff_pagamento: tenant_id/numero_lote_tiss/prestador_id ausente, em branco ou None "
-            "— nao ha ancora de business key para iniciar PAGTO-001 (recusado, nunca inicia com "
-            "business key vazia/degenerada)"
+            "handoff_pagamento: tenant_id/numero_lote_tiss/prestador_id ausente, em branco, None "
+            "ou vazio apos normalizacao — nao ha ancora de business key para iniciar PAGTO-001 "
+            "(recusado, nunca inicia com business key vazia/degenerada)"
         )
-
-    tenant_id = str(variables.get("tenant_id", ""))
-    numero_lote_tiss = str(variables.get("numero_lote_tiss", ""))
-    prestador_id = str(variables.get("prestador_id", ""))
 
     fonte = (fonte_valor or str(variables.get("fonte_valor") or "")).strip()
     if fonte not in FONTE_VALOR:

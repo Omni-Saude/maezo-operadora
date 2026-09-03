@@ -129,9 +129,7 @@ def test_pagar_reaches_its_terminal_without_any_user_task() -> None:
     pagar_flow = next(
         flow
         for flow in flows
-        if any(
-            "'PAGAR'" in (child.text or "") for child in flow if local(child.tag) == "conditionExpression"
-        )
+        if any("'PAGAR'" in (child.text or "") for child in flow if local(child.tag) == "conditionExpression")
     )
     end_events = {el.get("id") for el in root.iter() if local(el.tag) == "endEvent"}
     user_tasks = {el.get("id") for el in root.iter() if local(el.tag) == "userTask"}

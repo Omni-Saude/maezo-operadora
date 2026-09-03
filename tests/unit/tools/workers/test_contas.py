@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from maezo.agents.andre.keys import key_segment
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance, start_dedup_key
 from maezo.tools.workers.contas import (
     COMUNICACAO_TIPOS,
@@ -27,6 +28,8 @@ from maezo.tools.workers.contas import (
     DemonstrativoInput,
     GlosaInput,
     GlosaRegistroInput,
+    _ordem_pagamento_id,
+    _pagto_business_key,
     analyze_reason,
     analyze_reason_entry,
     calculate_impact,
@@ -619,9 +622,7 @@ def test_entry_selects_the_anchors_from_the_process_variables() -> None:
     # The anchors genuinely participate: dropping them changes the id.
     assert (
         from_entry["glosa_id"]
-        != registrar_glosa_entry({k: v for k, v in variables.items() if k != "numero_guia_tiss"})[
-            "glosa_id"
-        ]
+        != registrar_glosa_entry({k: v for k, v in variables.items() if k != "numero_guia_tiss"})["glosa_id"]
     )
 
 
@@ -735,12 +736,12 @@ def test_handoff_pagamento_nunca_semeia_os_fatos_de_admissibilidade_de_pagto() -
     payload = asyncio.run(engine.get_process_status(_PAGTO_KEY)).variables
     for forbidden in HANDOFF_PAGTO_FORBIDDEN_KEYS:
         assert forbidden not in payload, forbidden
-    assert HANDOFF_PAGTO_FORBIDDEN_KEYS == {
+    assert {
         "lastro_confirmado",
         "dados_pagamento_validos",
         "duplicidade_suspeita",
         "dentro_teto_l2",
-    }
+    } == HANDOFF_PAGTO_FORBIDDEN_KEYS
     # Even when the caller PASSES them explicitly, they are dropped — the allowlist is the payload,
     # not a filter over the inbound variables.
     assert set(payload) == HANDOFF_PAGTO_SEEDED_KEYS
@@ -798,12 +799,17 @@ def test_handoff_pagamento_recusa_fonte_valor_desconhecida() -> None:
     """An undeclared source is a refusal, never a guess at which variable the amount lives in."""
     with pytest.raises(ContasHandoffPagamentoInvalidoError, match="fonte_valor"):
         handoff_pagamento(
-            _pagto_vars(), fonte_valor="chutado", engine=FakeCibSevenTransport(), audit_sink=FakeStartAuditSink()
+            _pagto_vars(),
+            fonte_valor="chutado",
+            engine=FakeCibSevenTransport(),
+            audit_sink=FakeStartAuditSink(),
         )
 
 
 @pytest.mark.parametrize(
-    "valor", [0.0, "", "   ", None, "abc", -1.0], ids=["zero", "vazio", "ws", "none", "nao-numerico", "negativo"]
+    "valor",
+    [0.0, "", "   ", None, "abc", -1.0],
+    ids=["zero", "vazio", "ws", "none", "nao-numerico", "negativo"],
 )
 def test_handoff_pagamento_recusa_valor_zero_ausente_ou_nao_numerico(valor: object) -> None:
     """The `0.0` case is REAL, not theoretical: `marina/graph.py` seeds
@@ -814,7 +820,10 @@ def test_handoff_pagamento_recusa_valor_zero_ausente_ou_nao_numerico(valor: obje
     sink = FakeStartAuditSink()
     with pytest.raises(ContasHandoffPagamentoInvalidoError, match="valor_apresentado_brl"):
         handoff_pagamento(
-            _pagto_vars(valor_apresentado_brl=valor), fonte_valor="apresentado", engine=engine, audit_sink=sink
+            _pagto_vars(valor_apresentado_brl=valor),
+            fonte_valor="apresentado",
+            engine=engine,
+            audit_sink=sink,
         )
     assert sink.dedup_keys == []  # emit-before-effect: refusal precedes ANY audit/engine call
 
@@ -888,7 +897,15 @@ def test_handoff_pagamento_refuses_without_lote_identity() -> None:
         {"tenant_id": "   "},
         {"tenant_id": None},
     ],
-    ids=["lote-ws", "prestador-ws", "lote-none", "prestador-none", "tenant-empty", "tenant-ws", "tenant-none"],
+    ids=[
+        "lote-ws",
+        "prestador-ws",
+        "lote-none",
+        "prestador-none",
+        "tenant-empty",
+        "tenant-ws",
+        "tenant-none",
+    ],
 )
 def test_handoff_pagamento_refuses_degenerate_anchors_before_any_engine_call(
     over: dict[str, object],
@@ -902,6 +919,69 @@ def test_handoff_pagamento_refuses_degenerate_anchors_before_any_engine_call(
         handoff_pagamento(_pagto_vars(**over), fonte_valor="apresentado", engine=engine, audit_sink=sink)
     assert sink.dedup_keys == []  # emit-before-effect: refusal precedes ANY audit/engine call
     assert sink.records == []
+
+
+# ----- M2 (espelhado do PR-3): os segmentos da chave STRICT sao NORMALIZADOS -----------------
+
+#: As 6 formas do MESMO lote adjudicado que uma interpolacao crua mintaria como 6 chaves
+#: distintas. `non_blank` recusa ausente/vazio/whitespace-only/`None`, mas ACEITA
+#: whitespace-PADDED — e `str()` preserva o padding. Numa familia STRICT de dedup, uma chave a
+#: mais e uma SEGUNDA ordem de pagamento para a mesma conta.
+_VARIANTES_DO_MESMO_LOTE: tuple[dict[str, object], ...] = (
+    {"tenant_id": "amh", "numero_lote_tiss": "LOTE-9", "prestador_id": "PREST-1"},
+    {"tenant_id": "amh", "numero_lote_tiss": " LOTE-9 ", "prestador_id": "PREST-1"},
+    {"tenant_id": "amh", "numero_lote_tiss": "LOTE-9", "prestador_id": "PREST-1\t"},
+    {"tenant_id": " amh", "numero_lote_tiss": "LOTE-9", "prestador_id": "PREST-1"},
+    {"tenant_id": "amh", "numero_lote_tiss": "LOTE-9", "prestador_id": "  PREST-1  "},
+    {"tenant_id": "amh", "numero_lote_tiss": "LOTE-9\n", "prestador_id": "PREST-1"},
+)
+
+_PAGTO_BK_CANONICA = "PAGTO-amh-LOTE-9-PREST-1"
+
+
+@pytest.mark.parametrize("variante", _VARIANTES_DO_MESMO_LOTE)
+def test_pagto_business_key_colapsa_as_seis_variantes_numa_chave(variante: dict) -> None:
+    """M2: as 6 variantes do MESMO lote adjudicado produzem UMA chave — a de referencia."""
+    assert _pagto_business_key(**variante) == _PAGTO_BK_CANONICA  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("variante", _VARIANTES_DO_MESMO_LOTE)
+def test_ordem_pagamento_id_colapsa_as_seis_variantes_num_id(variante: dict) -> None:
+    """A ordem que a chave carrega tem de concordar com ela sobre a identidade da conta."""
+    assert _ordem_pagamento_id(**variante) == "ORDEM-CONTA-amh-LOTE-9-PREST-1"  # type: ignore[arg-type]
+
+
+def test_as_seis_variantes_sao_realmente_distintas_sem_normalizacao() -> None:
+    """CONTROLE NEGATIVO: sem `key_segment`, a interpolacao crua mintaria 6 chaves diferentes. Se
+    este teste ficar verde com 1 chave, o corpus perdeu o poder de discriminar."""
+    cruas = {
+        "PAGTO-{tenant_id}-{numero_lote_tiss}-{prestador_id}".format(**v) for v in _VARIANTES_DO_MESMO_LOTE
+    }
+    assert len(cruas) == 6, cruas
+
+
+@pytest.mark.parametrize("variante", _VARIANTES_DO_MESMO_LOTE)
+def test_pagto_business_key_usa_a_normalizacao_canonica_do_repo(variante: dict) -> None:
+    """PINO DE IGUALDADE (M2): a normalizacao e a MESMA de `maezo.agents.andre.keys.key_segment`
+    que `recurso._pagto_business_key` usa — uma familia STRICT, um composer, duas cadeias."""
+    esperado = "PAGTO-{}-{}-{}".format(
+        key_segment(variante["tenant_id"]),
+        key_segment(variante["numero_lote_tiss"]),
+        key_segment(variante["prestador_id"]),
+    )
+    assert _pagto_business_key(**variante) == esperado  # type: ignore[arg-type]
+
+
+def test_handoff_pagamento_recusa_ancora_que_normaliza_para_vazio() -> None:
+    """`non_blank` ACEITA `0`, cujo `key_segment` e `""` — a emptiness e re-checada DEPOIS de
+    normalizar, senao a chave sairia degenerada (`PAGTO-amh--PREST-1`)."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    with pytest.raises(ContasHandoffPagamentoInvalidoError):
+        handoff_pagamento(
+            _pagto_vars(numero_lote_tiss=0), fonte_valor="apresentado", engine=engine, audit_sink=sink
+        )
+    assert sink.dedup_keys == []
 
 
 def test_handoff_pagamento_targets_the_strict_dedup_family() -> None:
@@ -1138,7 +1218,7 @@ def test_emitir_demonstrativo_recusa_tipo_comunicacao_desconhecido() -> None:
         emitir_demonstrativo(_demonstrativo(), tipo_comunicacao="carta_bonita")
     with pytest.raises(ContasComunicacaoInvalidaError):
         emitir_demonstrativo(_demonstrativo(), tipo_comunicacao="")
-    assert COMUNICACAO_TIPOS == {"demonstrativo_analise", "devolucao_para_correcao"}
+    assert {"demonstrativo_analise", "devolucao_para_correcao"} == COMUNICACAO_TIPOS
 
 
 def test_emitir_demonstrativo_nao_inventa_responsavel_na_perna_automatica() -> None:

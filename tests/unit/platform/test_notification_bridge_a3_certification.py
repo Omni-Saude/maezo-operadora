@@ -458,7 +458,12 @@ async def test_pin_contas_non_fraude_desfechos_never_start_fraude() -> None:
             "codigo_glosa_aceito": "C1",
             "analista_id": "A1",
         },
-        {"desfecho": "conta_devolvida_humano", "tenant_id": "amh", "numero_lote_tiss": "L1", "prestador_id": "P1"},
+        {
+            "desfecho": "conta_devolvida_humano",
+            "tenant_id": "amh",
+            "numero_lote_tiss": "L1",
+            "prestador_id": "P1",
+        },
     ):
         await bridge.on_event(event_type=CONTAS_COMPLETED_EVENT, payload=payload)
     assert _starts_for(transport, "SP-OP-FRAUDE-001") == []

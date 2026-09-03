@@ -239,10 +239,10 @@ acoes:
       - referencia: "src/maezo/tools/workers/recurso.py:1433"
         detalhe: "topic operadora.recurso.comunicar_resposta (raw handler — resposta ao recurso emitida ao prestador)"
         choked: true
-      - referencia: "src/maezo/tools/workers/contas.py:1586"
+      - referencia: "src/maezo/tools/workers/contas.py:1608"
         detalhe: "topic operadora.contas.registrar_glosa (GUARDED — ERR_CONTAS_GLOSA_NOT_HUMAN)"
         choked: true
-      - referencia: "src/maezo/tools/workers/contas.py:1592"
+      - referencia: "src/maezo/tools/workers/contas.py:1614"
         detalhe: "topic operadora.contas.emitir_demonstrativo (demonstrativo de analise / devolucao emitidos ao prestador)"
         choked: true
     dominios_exigidos: [medica, ans, seguranca]
@@ -373,10 +373,10 @@ acoes:
       agente. Não é um efeito no mundo externo, mas cria obrigação de prazo regulatório; já tem
       fence próprio (allowlist ADR-0016) e auditoria de start (T-C2).
     superficies:
-      - referencia: "src/maezo/tools/workers/contas.py:1608"
+      - referencia: "src/maezo/tools/workers/contas.py:1630"
         detalhe: "topic operadora.contas.handoff_pagamento (inicia SP-OP-PAGTO-001 — conta adjudicada)"
         choked: true
-      - referencia: "src/maezo/tools/workers/contas.py:1614"
+      - referencia: "src/maezo/tools/workers/contas.py:1636"
         detalhe: "topic operadora.contas.start_fraude"
         choked: true
       - referencia: "src/maezo/tools/workers/recurso.py:1426"

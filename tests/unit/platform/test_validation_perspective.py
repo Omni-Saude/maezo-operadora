@@ -1186,7 +1186,6 @@ _CHAIN_ARTIFACTS = frozenset(
 )
 
 
-
 def _tier_a_paths() -> list[Path]:
     return sorted((_SPEC / "processes" / "bpmn").glob("*.bpmn")) + sorted(
         (_SPEC / "processes" / "dmn").glob("*.dmn")
@@ -1382,10 +1381,10 @@ _TOKEN_SCAN_SKIPPED_RULES = frozenset({"C5"})
 
 #: A NAMED, PINNED residue — not an exception mechanism.
 #:
-#: `data_ciencia_glosa` was renamed to `data_ciencia_glosa` by this PR, so the residue is
-#: currently EMPTY. The structure is kept because an empty census is the honest shape of the
-#: claim: if a future change genuinely needs an appellant token in payer source, it has to appear
-#: HERE, in a reviewable diff, with a file and a line — never as a widened rule or a skipped file.
+#: It is currently EMPTY, and the structure is kept because an empty census is the honest shape
+#: of the claim: if a future change genuinely needs an appellant token in payer source, it has to
+#: appear HERE, in a reviewable diff, with a file and a line — never as a widened rule, a skipped
+#: file, or a quietly relaxed scan.
 _TOKEN_SCAN_RESIDUE: frozenset[tuple[str, int, str]] = frozenset()
 
 

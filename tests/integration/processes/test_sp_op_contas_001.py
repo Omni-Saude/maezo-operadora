@@ -184,6 +184,7 @@ from maezo.tools.workers.contas import (
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
+from maezo.tools.workers.pagto import register_pagto_workers
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest
@@ -196,6 +197,11 @@ _DMN_REASON = _REPO / "spec/processes/dmn/glosa_reason_normalization.dmn"
 _DMN_CLASS = _REPO / "spec/processes/dmn/glosa_classification.dmn"
 _DMN_TRIAGE = _REPO / "spec/processes/dmn/glosa_triage.dmn"
 _DMN_SLA = _REPO / "spec/processes/dmn/contas_sla.dmn"
+
+# SP-OP-PAGTO-001 — o destino do handoff de TODA perna que paga (ADR-0040 §3.1).
+_BPMN_PAGTO = _REPO / "spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn"
+_DMN_PAGTO_ADMISSIBILITY = _REPO / "spec/processes/dmn/pagto_admissibility.dmn"
+_DMN_PAGTO_ALCADA = _REPO / "spec/processes/dmn/pagto_alcada.dmn"
 
 # External task topics do contrato SP-OP-CONTAS-001.
 _PUBLISH_TOPIC = "operadora.events.publish"
@@ -475,6 +481,65 @@ async def contas_probe(
         await dmn.close()
 
 
+#: Topicos que `register_pagto_workers` REALMENTE registra (espelha `_PAGTO_WORKER_TOPICS` de
+#: `test_sp_op_recurso_001.py` — o irmao de origem-RECURSO desta mesma prova). Sem drenar os
+#: workers de PAGTO a instancia de destino ESTACIONA na sua primeira external task e toda
+#: assercao negativa sobre a liberacao automatica vale por CONSTRUCAO — vacuidade, nao prova.
+_PAGTO_WORKER_TOPICS = [
+    "operadora.events.publish",
+    "operadora.pagto.validate_payment_data",
+    "operadora.pagto.assess_admissibility",
+    "operadora.pagto.calculate_facts",
+    "operadora.pagto.release_low_value_payment",
+    "operadora.pagto.release_high_value_payment",
+    "operadora.pagto.notify_sla_risk",
+    "operadora.pagto.register_payment_refusal",
+    "operadora.pagto.publish_completed",
+    "operadora.pagto.prepare_approval_dossier",
+]
+
+_UT_PAGTO_ADMISSIBILIDADE = "UT_AnaliseAdmissibilidade"
+_BRT_PAGTO_ADMISSIBILIDADE = "BRT_PagtoAdmissibility"
+
+
+@dataclass
+class PagtoDrainProbe:
+    """Serve as external tasks de SP-OP-PAGTO-001 com os workers REAIS de pagto.
+
+    Existe apenas para tornar DISCRIMINANTES as assercoes de I-PAGTO-1 do lado do destino: a
+    ordem so alcanca (ou deixa de alcancar) `BRT_PagtoAdmissibility` se alguem servir as tarefas
+    que a antecedem.
+    """
+
+    harness: WorkerHarness
+    transport: CibSevenWorkerTransport
+    worker_id: str
+
+    async def drain(self, *, rounds: int = 30) -> None:
+        await drain_topics(self.transport, self.harness, self.worker_id, _PAGTO_WORKER_TOPICS, rounds=rounds)
+
+
+@pytest_asyncio.fixture
+async def pagto_drain(audit_sink: Any, audit_tenant: str) -> AsyncIterator[PagtoDrainProbe]:
+    """Workers reais de pagto (com transporte DMN real — ADR-0028), sem seams de handoff."""
+    worker_id = f"qa-pagto-drain-{uuid.uuid4().hex[:8]}"
+    transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
+    harness = WorkerHarness(
+        transport,
+        worker_id=worker_id,
+        tenant=audit_tenant,
+        lock_duration_ms=10_000,
+        audit_sink=audit_sink,
+    )
+    kafka = FakeKafkaPublisher()
+    register_pagto_workers(harness, kafka, dmn=CibSevenDmnTransport(CIBSEVEN_BASE_URL))
+    register_events_workers(harness, kafka)
+    try:
+        yield PagtoDrainProbe(harness=harness, transport=transport, worker_id=worker_id)
+    finally:
+        await transport.close()
+
+
 def _unique_lote(prefix: str = "LOTE-TESTE") -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8].upper()}"
 
@@ -744,10 +809,9 @@ async def _deploy_pagto(engine: EngineRest) -> str:
     downstream deploy; do NOT rely on cross-test engine leakage).
     """
     return await engine.deploy(
-        _REPO / "spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn",
-        _REPO / "spec/processes/dmn/pagto_admissibility.dmn",
-        _REPO / "spec/processes/dmn/pagto_alcada.dmn",
-        _REPO / "spec/processes/dmn/pagto_sla.dmn",
+        _BPMN_PAGTO,
+        _DMN_PAGTO_ADMISSIBILITY,
+        _DMN_PAGTO_ALCADA,
         name="SP-OP-PAGTO-001-qa-contas-handoff",
     )
 
@@ -817,6 +881,140 @@ async def test_happy_path_glosar_pelo_analista(
     ), (
         "ST_PublishGlosaAplicada deve emitir completed(desfecho=glosa_aplicada_humano) com "
         "codigo_glosa_tiss/analista_id da decisao humana"
+    )
+
+
+# ===========================================================================
+# I-PAGTO-1 — a segregacao de funcoes do lado do destino (M1)
+# ===========================================================================
+
+
+async def test_conta_originada_em_contas_nunca_alcanca_liberacao_automatica_sem_ut(
+    engine: EngineRest,
+    contas_probe: ContasEngineProbe,
+    pagto_drain: PagtoDrainProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """M1 / I-PAGTO-1, IRMAO DE ORIGEM-CONTAS de
+    `test_sp_op_recurso_001.py::test_glosa_revertida_nunca_alcanca_liberacao_automatica_sem_ut`.
+
+    A ordem originada na perna AUTOMATICA (`has_glosas=false`, nenhum humano em CONTAS) PARA em
+    `UT_AnaliseAdmissibilidade` e NAO alcanca `End_PagamentoLiberadoAutomatico`. Sem a invariante,
+    a origem semearia `lastro_confirmado=true` — o proprio contrato de PAGTO convidava a isso,
+    definindo o booleano como "conta adjudicada" — e a ordem cairia direto na faixa clerical
+    `DENTRO_TETO_L2` (`ST_ReleaseLowValue`, sem User Task nenhuma), que NAO e coberta por
+    `ERR_PAYMENT_RELEASE_NOT_HUMAN`. Com ela, `pagto_admissibility` le o lastro ausente =>
+    `ANALISE_HUMANA` => a ordem PARA na fila de `coordenacao-financeira`.
+
+    Este e o caso MAIS FORTE dos dois: aqui nao houve humano NENHUM do lado da origem, entao a
+    User Task de admissibilidade e o UNICO humano no caminho inteiro do dinheiro.
+
+    O dreno de PAGTO nao e decoracao: sem ele a instancia de destino estaciona na sua primeira
+    external task, `BRT_PagtoAdmissibility` nunca e avaliada, e as assercoes negativas abaixo
+    valeriam por construcao — valeriam tambem com `lastro_confirmado=true` semeado. O controle
+    negativo que prova que elas DISCRIMINAM ja existe no irmao de RECURSO
+    (`test_controle_negativo_lastro_confirmado_libera_pela_faixa_clerical`) e nao e duplicado.
+    """
+    await _deploy_pagto(engine)
+    inst = await start_contas(has_glosas=False)
+    iid = inst["id"]
+
+    await contas_probe.drain()
+    ended = await _await_end(engine, iid)
+    assert _END_APROVADA_INTEGRAL in ended
+    assert not await engine.list_user_tasks(iid), "nenhum humano do lado da ORIGEM nesta perna"
+
+    lote = await engine.get_variable(iid, "numero_lote_tiss")
+    pagto_bk = f"PAGTO-amh-{lote}-PRESTADOR-TESTE-001"
+    pagto = await engine.find_active_instances(pagto_bk)
+    assert len(pagto) == 1, f"o handoff deve ter criado UMA ordem sob {pagto_bk}; veio {pagto}"
+    pagto_iid = pagto[0]["id"]
+
+    # AGORA a instancia de destino anda: sem isto tudo abaixo seria vacuo.
+    await pagto_drain.drain()
+
+    pagto_ut = await engine.await_user_task(pagto_iid, _UT_PAGTO_ADMISSIBILIDADE)
+    assert "coordenacao-financeira" in pagto_ut.candidate_groups, (
+        "a ordem tem de parar na fila HUMANA de admissibilidade — a adjudicacao automatica da "
+        "conta nao confirma o lastro da ordem que ela produziu (I-PAGTO-1)"
+    )
+
+    lastro = await engine.get_variable(pagto_iid, "lastro_confirmado")
+    assert lastro in (False, None), (
+        f"`lastro_confirmado` tem de chegar ausente/false a pagto_admissibility; veio {lastro!r}"
+    )
+    origem = await engine.get_variable(pagto_iid, "lastro_origem")
+    assert origem == "contas_adjudicacao_automatica"
+    decisor = await engine.get_variable(pagto_iid, "lastro_decisor_id")
+    assert decisor in ("", None), "a perna automatica nao tem decisor humano — e nao inventa um"
+
+    pagto_ended = await engine.activity_instances_ended(pagto_iid)
+    assert _BRT_PAGTO_ADMISSIBILIDADE in pagto_ended, (
+        f"o gate de admissibilidade TEM de ter sido avaliado; ended={pagto_ended}"
+    )
+    assert "End_PagamentoLiberadoAutomatico" not in pagto_ended, (
+        "uma conta adjudicada automaticamente NUNCA pode ser liberada automaticamente"
+    )
+    assert "ST_ReleaseLowValue" not in pagto_ended
+    assert "ST_ReleaseHighValue" not in pagto_ended
+    assert "BRT_AlcadaRouting" not in pagto_ended, (
+        "sem lastro confirmado a ordem nem chega a escada de alcada"
+    )
+
+
+async def test_m4_categoria_desconhecida_para_em_admissibilidade_humana(
+    engine: EngineRest,
+    contas_probe: ContasEngineProbe,
+    pagto_drain: PagtoDrainProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """OQ-10 / M-4: a DIVULGACAO OBRIGATORIA de ADR-0040, tornada um fato verificavel.
+
+    O achado M-4 NAO foi fechado por este redesenho — a row permissiva da `glosa_triage` continua
+    com o conjunto negativo que admite `categoria_normalizada="desconhecida"`, e fecha-lo e ato do
+    dono da tabela. O que MUDOU e a CONSEQUENCIA, e ela tem de ser dita nos dois sentidos:
+
+      ANTES: o input defeituoso terminava num terminal sem efeito e sem revisor.
+      DEPOIS: ele emite um demonstrativo ao prestador E cria uma ordem em SP-OP-PAGTO-001 —
+              que PARA na fila humana de `UT_AnaliseAdmissibilidade`.
+
+    Ou seja o raio vai de zero-efeito-e-invisivel para ordem-visivel-e-humano-gated: MAIS
+    exposicao de artefato, MAIS visibilidade humana, NENHUM dinheiro automatico. O que NAO melhora
+    e o lado da operadora — a conta e adjudicada "pagar integralmente" sem que um analista de
+    contas a veja. Esse residuo e OQ-10, e este teste o deixa medido em vez de argumentado.
+    """
+    await _deploy_pagto(engine)
+    inst = await start_contas(
+        categoria_normalizada="desconhecida",
+        item_conforme_tabela=True,
+        divergencia_valor=False,
+        documentacao_anexa=True,
+        has_glosas=True,
+    )
+    iid = inst["id"]
+
+    await contas_probe.drain()
+    ended = await _await_end(engine, iid)
+
+    # O RESIDUO, medido: nenhum analista de contas viu esta conta.
+    assert _END_APROVADA_INTEGRAL in ended, (
+        f"M-4: a categoria fora do dominio declarado ainda e adjudicada como PAGAR. ended={ended}"
+    )
+    assert not await engine.list_user_tasks(iid), (
+        "M-4 (OQ-10): o residuo E este — nenhuma User Task de contas foi criada"
+    )
+
+    # O QUE MELHOROU: existe artefato, e ele para num humano.
+    assert "ST_EmitirDemonstrativoIntegral" in ended, "o prestador passa a ser comunicado"
+    lote = await engine.get_variable(iid, "numero_lote_tiss")
+    pagto = await engine.find_active_instances(f"PAGTO-amh-{lote}-PRESTADOR-TESTE-001")
+    assert len(pagto) == 1
+    await pagto_drain.drain()
+    pagto_ut = await engine.await_user_task(pagto[0]["id"], _UT_PAGTO_ADMISSIBILIDADE)
+    assert "coordenacao-financeira" in pagto_ut.candidate_groups
+    pagto_ended = await engine.activity_instances_ended(pagto[0]["id"])
+    assert "End_PagamentoLiberadoAutomatico" not in pagto_ended, (
+        "o input defeituoso de M-4 produz uma ordem PENDENTE de humano, nunca uma liberacao"
     )
 
 
@@ -941,9 +1139,7 @@ async def test_happy_path_pagar_parcial_pelo_analista(
 
     ended = await _await_end(engine, iid)
     await _assert_no_glosa_without_human_task(engine, iid)
-    assert _END_PAGAMENTO_PARCIAL in ended, (
-        f"PAGAR_PARCIAL => End_PagamentoParcialHumano. ended={ended}"
-    )
+    assert _END_PAGAMENTO_PARCIAL in ended, f"PAGAR_PARCIAL => End_PagamentoParcialHumano. ended={ended}"
     assert "ST_RegistrarGlosaParcial" in ended
     assert "ST_EmitirDemonstrativoParcial" in ended, "M6: o demonstrativo misto e emitido"
     assert "ST_HandoffPagamentoParcial" in ended, "a parcela liberada vira ordem de pagamento"
@@ -1132,9 +1328,9 @@ async def test_pagar_parcial_exige_valor_liberado(
     incidents = await engine.incidents(iid)
     guard_incidents = [i for i in incidents if i.get("activityId") == "ST_RegistrarGlosaParcial"]
     assert guard_incidents, f"incidentes encontrados: {incidents}"
-    assert any(
-        "valor_liberado_brl" in (i.get("incidentMessage") or "") for i in guard_incidents
-    ), f"o incidente deve nomear o campo faltante: {guard_incidents}"
+    assert any("valor_liberado_brl" in (i.get("incidentMessage") or "") for i in guard_incidents), (
+        f"o incidente deve nomear o campo faltante: {guard_incidents}"
+    )
     await _assert_no_glosa_without_human_task(engine, iid)
 
 
@@ -1290,7 +1486,8 @@ async def test_timer_sla_estourado_coordenacao_assume(
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """Timer BT_SlaAnaliseContas (interruptivo): UT_AnalistaContas cancelada; UT_CoordenacaoContasAssume criada."""
+    """Timer BT_SlaAnaliseContas (interruptivo): UT_AnalistaContas cancelada;
+    UT_CoordenacaoContasAssume criada."""
     inst = await start_contas(categoria_normalizada="tecnica", has_glosas=True)
     iid = inst["id"]
 
