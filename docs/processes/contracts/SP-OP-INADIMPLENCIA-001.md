@@ -120,6 +120,20 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 | Message BPMN | `msg.inadimplencia.notificacao_ack` | recebe | correlacao por business key — confirmacao da notificacao previa, destrava o gateway de prazo (cure-window) |
 | Message BPMN | `msg.inadimplencia.info_received` | recebe | correlacao por business key — info/documentacao solicitada pelo humano chegou (`decisao_inadimplencia=SOLICITAR_INFO`); reabre `UT_AnaliseInadimplencia` |
 
+## Canal de entrada (GAP 11.7 — verificado nesta sessao)
+
+Beneficiario nao tem canal de entrada proprio para esta jornada — quadro completo em
+`docs/processes/contracts/SP-OP-CANCEL-001.md` "Canal de entrada" (o mesmo achado cobre Lucas e
+Fernando). Resumo especifico deste processo: `prepare_dossier`
+(`operadora.inadimplencia.prepare_dossier`, tabela acima) convoca Fernando por citacao de texto
+("Fernando (general)... instrui, nao decide", §Notas de design) mas o worker shipped
+(`tools/workers/inadimplencia.py:366-390`) NAO chama nenhuma API de `maezo.a2a` — a linha
+"GAP-INAD-6, PR #134" na secao Pendencias abaixo estava FALSA contra o codigo e foi corrigida
+nesta sessao. O lado ALVO da delegacao `arrears.followup` agora EXISTE, real e testado
+(`src/maezo/agents/fernando/delegation.py::make_fernando_handler`) — o lado ORIGEM (a chamada
+efetiva dentro de `prepare_dossier`) continua NAO FEITO: `tools/workers/inadimplencia.py` fica
+fora da superficie editavel do work package que fechou este gap.
+
 ## DMN referenciadas
 
 Shape engine-deployavel (§4-bis-A): `typeRef ∈ {string, boolean, integer, long, double, date}` — **`number` e invalido**; dinheiro BRL → **inteiro-centavos (`integer`)** (consistente com `*_cents`); dias/SLA → string ISO 8601. Toda `decisionTable` com `hitPolicy`; toda tabela com row catch-all (`frozenset` fechado) → caminho humano conservador. `camunda:historyTimeToLive` namespaced (`P###D`). **Nenhuma DMN tem coluna de saida que suspenda/rescinda (sem variante adversa).**
@@ -209,7 +223,7 @@ NAO bloqueia arquitetura nem deploy do engine):**
 - **Dias uteis vs corridos** na janela de purga, notificacao previa e periodo minimo (RN 593)? — regulatório.
 - **RN 593 supersede/consolida RN 412/2016?** (e quaisquer dispositivos da Lei 9.656 art. 13) — regulatório + jurídico.
 - **Confirmacao dos candidate groups** `juridico-contratos`/`gestao-cobranca`/`coordenacao-cobranca` contra a taxonomia organizacional — PO/IdP.
-- **Fernando** (agente de inadimplencia) precisa de SP-OP-INADIMPLENCIA-001 proprio, ou opera como AGJ navegador que so escala para CANCEL-001 (igual Lucas)? Ja RESOLVIDO no sentido operacional (GAP-INAD-6, PR #134: `prepare_dossier` delega `arrears.followup` a Fernando via A2A real); a framing de produto (processo dedicado vs navegador) permanece PO/produto.
+- **Fernando** (agente de inadimplencia) precisa de SP-OP-INADIMPLENCIA-001 proprio, ou opera como AGJ navegador que so escala para CANCEL-001 (igual Lucas)? Ja RESOLVIDO no sentido operacional (GAP-INAD-6, PR #134: `prepare_dossier` delega `arrears.followup` a Fernando via A2A real); a framing de produto (processo dedicado vs navegador) permanece PO/produto. **CORRECAO (GAP 11.7, re-checado nesta sessao):** essa linha estava FALSA contra o codigo shipped — `tools/workers/inadimplencia.py`'s `prepare_dossier` monta um dicionario localmente e nao chama nenhuma API de `maezo.a2a`; nao ha nenhum `delegate_arrears_followup`/`DelegationDispatcher.delegate` naquele worker. O lado ALVO da delegacao agora EXISTE de fato (`src/maezo/agents/fernando/delegation.py::make_fernando_handler`/`state_from_envelope`, testado, compila o grafo REAL de Fernando) — mas o call site em `prepare_dossier` continua NAO FEITO (fora da superficie editavel do work package que fechou este gap; ver `docs/processes/contracts/SP-OP-CANCEL-001.md` "Canal de entrada" para o quadro completo). Reclassificar como PARCIALMENTE resolvido: alvo pronto, origem pendente.
 
 ## Notas de design / inversao do reference
 
