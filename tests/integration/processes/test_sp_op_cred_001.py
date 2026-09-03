@@ -109,7 +109,8 @@ already-fixed cross-family facts unless they apply):
      **UPDATE (T2.5-p2b, this task's own follow-up build):** `register_credenciamento_workers`
      (credenciamento.py) now registers 8 of these 9 — the original port snapshot's 5
      (`verify_credentials` -> `validate_cred`, `check_network_criteria` -> `assess_admissibility`,
-     `check_prior_notice` -> `notify_prestador`, `register_descredenciamento`, `register_cred_
+     `check_prior_notice` -> `dispatch_prior_notice` [GAP-FAB-NOTIF: renamed from
+     `notify_prestador`], `register_descredenciamento`, `register_cred_
      denial`) PLUS 3 newly-built neutral/notify-only workers: `notify_doc_pendente` (fail-safe,
      never denies — PENDENTE_DOCUMENTACAO branch), `register_credenciamento` (EXCECAO CLERICAL —
      the favorable/neutral direction, no human-gate by BPMN design), `notify_sla_risk`
@@ -572,11 +573,15 @@ async def start_cred(engine: EngineRest, deploy_artifacts: str) -> Callable[...,
     """Inicia uma instancia com business key CRED-amh-{prestador} e payload canonico.
 
     Os fatos pre-resolvidos por worker (licenca_valida, documentacao_completa,
-    dentro_criterios_rede, notificacao_previa_feita, etc.) sao seeded como variaveis de start: as
-    businessRuleTasks nativas do BPMN leem variaveis de processo diretas, nao um valor computado
-    por um FunctionWorker sob um nome diferente. Mesma tecnica de test_sp_op_cancel_001.py — ver
-    module docstring FINDING 2 para a ressalva especifica de credenciamento (verify_credentials
-    sobrescreve documentacao_completa/licenca_valida apos rodar).
+    dentro_criterios_rede, tem_beneficiarios_vinculados, etc.) sao seeded como variaveis de
+    start: as businessRuleTasks nativas do BPMN leem variaveis de processo diretas, nao um valor
+    computado por um FunctionWorker sob um nome diferente. Mesma tecnica de
+    test_sp_op_cancel_001.py — ver module docstring FINDING 2 para a ressalva especifica de
+    credenciamento (verify_credentials sobrescreve documentacao_completa/licenca_valida apos
+    rodar). EXCECAO: `notificacao_previa_feita` (abaixo) nao e lido por nenhuma DMN/
+    conditionExpression deste processo — o seed aqui so simula um conhecimento pre-existente do
+    iniciador (GAP-FAB-NOTIF fix: `dispatch_prior_notice`/`check_prior_notice` NUNCA sobrescreve
+    este valor, ao contrario do antigo `notify_prestador`, que retornava `True` incondicional).
 
     Default = descredenciamento de hospital com beneficiarios vinculados -> SEGUE_ANALISE
     (cure-window + UT humana de descredenciamento).
