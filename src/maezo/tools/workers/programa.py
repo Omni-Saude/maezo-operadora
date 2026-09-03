@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.tools.workers.base import FunctionWorker, reclassify_coded_exception
 from maezo.tools.workers.harness import WorkerBpmnError
 
@@ -538,9 +539,14 @@ def make_stratify_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         }
         # best_effort=False — no BPMN error boundary declared on ST_StratifyRisk -> RAW propagate
         # to the harness retry/incident ladder (ADR-0030), mirrors recurso/lgpd's own posture.
-        await kafka.publish(
-            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-        )
+        # GAP-SC-04-a: the partition key comes from the ONE shared chain (task business key ->
+        # payload anchors -> `{tenant}|{process_instance_id}`), never from `task.business_key or
+        # None` — that idiom degraded a blank business key into an UNKEYED publish, i.e.
+        # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
+        # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
+        # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         return result
 
     return handler
@@ -566,9 +572,14 @@ def make_stop_processing_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "programa_id": task.variables.get("programa_id", ""),
             "beneficiario_pseudo_id": task.variables.get("beneficiario_pseudo_id", ""),
         }
-        await kafka.publish(
-            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-        )
+        # GAP-SC-04-a: the partition key comes from the ONE shared chain (task business key ->
+        # payload anchors -> `{tenant}|{process_instance_id}`), never from `task.business_key or
+        # None` — that idiom degraded a blank business key into an UNKEYED publish, i.e.
+        # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
+        # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
+        # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         return result
 
     return handler
@@ -594,9 +605,14 @@ def make_proactive_contact_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "programa_id": task.variables.get("programa_id", ""),
             "beneficiario_pseudo_id": task.variables.get("beneficiario_pseudo_id", ""),
         }
-        await kafka.publish(
-            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-        )
+        # GAP-SC-04-a: the partition key comes from the ONE shared chain (task business key ->
+        # payload anchors -> `{tenant}|{process_instance_id}`), never from `task.business_key or
+        # None` — that idiom degraded a blank business key into an UNKEYED publish, i.e.
+        # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
+        # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
+        # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         return result
 
     return handler
@@ -623,9 +639,14 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "programa_id": task.variables.get("programa_id", ""),
             "beneficiario_pseudo_id": task.variables.get("beneficiario_pseudo_id", ""),
         }
-        await kafka.publish(
-            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
-        )
+        # GAP-SC-04-a: the partition key comes from the ONE shared chain (task business key ->
+        # payload anchors -> `{tenant}|{process_instance_id}`), never from `task.business_key or
+        # None` — that idiom degraded a blank business key into an UNKEYED publish, i.e.
+        # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
+        # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
+        # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         return result
 
     return handler

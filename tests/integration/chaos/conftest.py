@@ -187,3 +187,29 @@ async def count_dedup_rows(dsn: str, tenant_id: str) -> int:
     finally:
         await conn.close()
     return count
+
+
+async def delete_dedup_row(dsn: str, tenant_id: str, dedup_key: str) -> bool:
+    """Delete THE ONE `audit_emit_dedup` row named by `dedup_key` — the operator gesture
+    `StartClaimWithoutInstanceError`'s own message prescribes ("delete that single
+    audit_emit_dedup row to re-arm the gate"), and the one documented by
+    `docs/runbooks/engine-processes.md` §5, "Chave travada: claim duravel sem instancia".
+
+    Exists so a chaos suite can EXECUTE that runbook step instead of merely asserting the wedge
+    exists — a documented recovery nobody ever runs is indistinguishable from a wedge with no
+    recovery. Returns True iff a row was actually removed.
+
+    NOT chain surgery: `audit_emit_dedup` is a SIBLING table of `audit_chain` (migration 0005 —
+    `tenant, dedup_key, record_hash, created_at`), carries no hash link, and deleting a row here
+    touches nothing `verify_chain` reads. `docs/runbooks/audit-recovery.md` §3's absolute
+    "no manual row surgery" prohibition is about `audit_chain`, and stays absolute.
+    """
+    conn = await asyncpg.connect(normalize_dsn(dsn))
+    try:
+        await conn.execute(f'SET search_path TO "{tenant_id}"')
+        status = await conn.execute(
+            "DELETE FROM audit_emit_dedup WHERE tenant = $1 AND dedup_key = $2", tenant_id, dedup_key
+        )
+    finally:
+        await conn.close()
+    return status != "DELETE 0"

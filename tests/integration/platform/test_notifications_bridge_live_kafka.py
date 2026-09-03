@@ -35,6 +35,8 @@ from maezo.platform.integrations.notifications_bridge import (
 )
 from maezo.platform.notification_bridge import NotificationBridge
 
+pytestmark = pytest.mark.integration
+
 _CONNECT_TIMEOUT_S = 5.0
 
 
@@ -123,7 +125,15 @@ async def test_aiokafka_bridge_consumer_consumes_a_real_published_message(
         received = await asyncio.wait_for(consumer.__aiter__().__anext__(), timeout=15.0)
         await consumer.commit()
 
-        assert received == message
+        # CHANGED ASSERTION (GAP-SC-04-a): the consumer now yields a `BridgeMessage` carrying the
+        # RAW bytes alongside the parsed value, because a dead-letter shunt cannot quarantine a
+        # value it only has in parsed form (see `BridgeMessage`'s docstring). Asserting BOTH is
+        # strictly stronger than the old `received == message`: it proves the parse is correct AND
+        # that `raw` is the producer's bytes verbatim rather than a re-encoding.
+        assert received.value == message
+        assert received.raw == json.dumps(message).encode("utf-8")
+        assert received.topic == NOTIFICATIONS_TOPIC
+        assert received.parse_error == ""
 
         calls: list[tuple[str, dict[str, Any]]] = []
 
@@ -132,7 +142,7 @@ async def test_aiokafka_bridge_consumer_consumes_a_real_published_message(
             return f"instance-{process_key}-live-probe"
 
         bridge = NotificationBridge(cibseven_starter=_spy_starter)
-        results = await handle_bridge_message(bridge, received)
+        results = await handle_bridge_message(bridge, received.value)
         expected_business_key = f"RECURSO-amh-GUIA-{business_key_suffix}-GLOSA-{business_key_suffix}"
         assert len(results) == 1
         assert results[0].handoff_triggered is True

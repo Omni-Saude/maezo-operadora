@@ -22,6 +22,9 @@ AF-12 model-tier routing (ADR-0009 §2, maezo.runtime.inference.InferenceProvide
   to a model. Exists because this repo configures ONE model and no per-tier map: the fallback is
   legitimate but must never be silent.
 
+GAP-SC-04-a notifications-bridge dead-letter metering:
+- maezo_bridge_dlq_total (Counter) — poison messages shunted to `<topic>.dlq` by {topic,reason}
+
 WHICH OF THESE THE SHIPPED ALERTS READ (deploy/observability/alert-rules.yml, read-only here):
 `maezo_worker_execution_time_seconds`, `maezo_worker_error_count_total`, `maezo_agent_errors_total`
 and `maezo_tool_calls_total`. The last two had NO emitter in `src/` at all until AF-13
@@ -150,6 +153,37 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # GAP-SC-04-a (audit D5): the notifications-bridge's poison-message shunt. Counts
+        # messages the bridge could not even classify and therefore moved to `<topic>.dlq`
+        # instead of blocking the partition behind them (head-of-line blocking) or — worse —
+        # dropping them.
+        #
+        # THIS IS A COUNTER, AND IT IS NOT `maezo_dead_letter_queue_size`. The alert rules
+        # `MaezoDeadLetterBacklog`/`MaezoDeadLetterGrowth` (`deploy/observability/alert-rules.yml`)
+        # read a GAUGE named `maezo_dead_letter_queue_size` — the CURRENT DEPTH of a DLQ topic.
+        # Nothing in `src/` can honestly emit that: depth is a broker-side fact (records produced
+        # minus records consumed by the DLQ's own reader), and this process only ever sees the
+        # records IT produces. Emitting a src-side gauge would fabricate a number that drifts from
+        # the broker the moment anyone drains the DLQ. The gauge belongs to a Kafka/JMX exporter
+        # scrape job that does not exist yet (owner-gated — `docs/review-queue.md`); this counter
+        # is the honest src-side signal, and `rate(maezo_bridge_dlq_total[5m])` is a real
+        # INFLOW alert that needs no exporter.
+        #
+        # CONTENT-FREE BY CONSTRUCTION. `topic` is the bridge's own input topic (a bounded set —
+        # one value in this build). `reason` is a CLOSED vocabulary
+        # (`notifications_bridge.BRIDGE_DLQ_REASONS`), never the parser's error text, never any
+        # part of the offending payload — same rule `worker_task_total` and `llm_tokens` document
+        # above. A message that reaches the DLQ is by definition one nobody validated, so putting
+        # anything derived from its bytes on a metric label would be the worst possible place for
+        # it (unbounded cardinality AND potential PHI).
+        self._bridge_dlq = Counter(
+            "maezo_bridge_dlq_total",
+            "Notifications-bridge poison messages shunted to a dead-letter topic (COUNTS ONLY; "
+            "reason is a closed vocabulary, never payload-derived)",
+            labelnames=["topic", "reason"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -223,6 +257,20 @@ class MetricsCollector:
         "batch" | "nao_declarado" | "sem_mapa"), resolution (see `inference.TIER_RESOLUTIONS`).
         """
         return self._llm_tier_resolution
+
+    @property
+    def bridge_dlq(self) -> Counter:
+        """Counter for notifications-bridge dead-letter shunts (GAP-SC-04-a).
+
+        Labels: topic (the bridge's SOURCE topic, not the `.dlq` name), reason (one of
+        `notifications_bridge.BRIDGE_DLQ_REASONS`). COUNTS ONLY — no payload byte, no offset, no
+        business identifier ever reaches this metric.
+
+        NOT the same series as the `maezo_dead_letter_queue_size` GAUGE the
+        `MaezoDeadLetterBacklog`/`MaezoDeadLetterGrowth` alert rules read — see the construction
+        comment for why `src/` cannot honestly emit that one.
+        """
+        return self._bridge_dlq
 
     @property
     def phi_business_key_mint(self) -> Counter:

@@ -173,7 +173,7 @@ out: `roteamento_remediacao: string` (`MONITORAR` | `ENCAMINHAR_CREDENCIAMENTO` 
 - `dados_geo_completos=false` → `ANALISE_HUMANA` (nunca decide compromisso com dados incompletos).
 - **Catch-all (row final):** qualquer combinacao nao coberta → `ANALISE_HUMANA`. **Sem saida COMPROMETER/GARANTIR/CONTRATAR** por design (ADR-0018 parte 1 e 2).
 
-### `adequacao_sla` (hitPolicy UNIQUE — DRAFT; todos os prazos DRAFT/verify)
+### `adequacao_sla` (hitPolicy FIRST — DRAFT; todos os prazos DRAFT/verify; PERSP-B5-HITPOLICY: corrigido de UNIQUE, DMN shippada e FIRST — `spec/processes/dmn/adequacao_sla.dmn:29`)
 in: `gap_adequacao: string`, `tipo_carater: string`
 out: `sla_remediacao: string` (ISO 8601), `sla_alerta: string` (ISO 8601), `fonte_regulatoria: string`
 Gap critico / urgencia tem SLA mais curto. Prazos como string ISO — **DRAFT/verify regulatorio** (RN 259 garantia de atendimento).
