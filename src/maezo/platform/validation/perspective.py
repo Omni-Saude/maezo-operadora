@@ -93,6 +93,16 @@ and that proof is worth more than a filename in a comment.)
 the PR that wires this module into `cli.py`. Until then the module exists and
 is measured but is **not** called by `make validate-artifacts` — see
 `test_fence_is_not_wired_into_the_cli_yet`.
+
+Forward note for PR-4 (m6, verifier gate review)
+-------------------------------------------------
+PR-4 is also expected to add `test_r1_tokens_absent_from_src_and_process_docs`
+— a sweep of R1 + R2-CORE over `src/maezo/**.py` and `docs/processes/**.md`.
+That sweep **must exclude this file** (`perspective.py`). Measured on the live
+tree: of 453 matches across 19 files in that scope, **96 are this module's own
+lexicon** (`R1_FAMILIES`, `R1_BOUNDS`, docstrings quoting the tokens they
+explain) — without the exclusion the new test is unwritable-green by
+construction, not because the rest of the codebase carries the vocabulary.
 """
 
 from __future__ import annotations
@@ -169,10 +179,37 @@ def fold(text: str) -> str:
 WHOLE = "whole"
 SEGMENT = "segment"
 TAIL = "tail"
+#: A token matches only where its own segments sit inside one *undelimited*
+#: run of the identifier — i.e. no literal `_`/`.`/`-` of the identifier's own
+#: spelling falls between them, only a CamelCase transition. See `m1` at
+#: `R1_BOUNDS["StartRecurso"]` for why this exists and what it does not close.
+GROUP = "group"
 
 _IDENT_RUN = re.compile(r"[A-Za-z0-9_.\-]+")
 _SEGMENT_SPLIT = re.compile(r"[_.\-]+")
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+
+
+def segments_with_groups(identifier: str) -> tuple[tuple[str, int], ...]:
+    """Like `segments`, but each output segment is tagged with the index of
+    the `_`/`.`/`-`-delimited part it came from (before CamelCase splitting).
+
+    Two segments share a group only when nothing in the identifier's own
+    literal delimiters separates them — a CamelCase transition alone does not
+    start a new group. `ST_StartRecursoGlosa` -> `[('ST', 0), ('Start', 1),
+    ('Recurso', 1), ('Glosa', 1)]` (one delimiter, so groups 0 and 1);
+    `Start_RecursoSolicitado` -> `[('Start', 0), ('Recurso', 1),
+    ('Solicitado', 1)]` — `Start` and `Recurso` are in *different* groups
+    because the identifier itself put a `_` between them.
+    """
+    out: list[tuple[str, int]] = []
+    for group_index, part in enumerate(_SEGMENT_SPLIT.split(identifier)):
+        if not part:
+            continue
+        for piece in _CAMEL_BOUNDARY.split(part):
+            if piece:
+                out.append((piece, group_index))
+    return tuple(out)
 
 
 def segments(identifier: str) -> tuple[str, ...]:
@@ -182,11 +219,7 @@ def segments(identifier: str) -> tuple[str, ...]:
     so `ReconcilePayment` matches with `SEGMENT` boundary while `Reconcile`
     does **not** match inside `Reconciliacao` (a single segment).
     """
-    out: list[str] = []
-    for part in _SEGMENT_SPLIT.split(identifier):
-        if part:
-            out.extend(piece for piece in _CAMEL_BOUNDARY.split(part) if piece)
-    return tuple(out)
+    return tuple(piece for piece, _ in segments_with_groups(identifier))
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,6 +337,15 @@ R1_FAMILIES: dict[str, tuple[str, ...]] = {
         # deletes, which is the claim §6.7 makes about this gate.
         "start_recurso",
         "StartRecurso",
+        # [PR-1] gate attack NFN-E / verifier m5: repository ids are
+        # predominantly pt-BR (`ST_SubmeterRespostaConceder`,
+        # `Start_RecursoSolicitado`), so the English `TrackStatus` this family
+        # already carries is the exception, not the rule — the pt-BR spelling
+        # is the more likely regression. Measured to add 0 hits to `main`.
+        "acompanhar_recurso",
+        "AcompanharRecurso",
+        "acompanhar_status",
+        "AcompanharStatus",
     ),
     "ancora-kpi": ("data_ciencia_glosa", "recurso_recovery_rate"),
     "espera-resposta": ("resposta_recebida", "RespostaRecebida"),
@@ -313,18 +355,43 @@ R1_FAMILIES: dict[str, tuple[str, ...]] = {
 #: identifier (a KPI name); `resposta_recebida` must be a *tail* so that
 #: `resposta_recebida_ans` — a legitimate name for an answer from the **ANS** —
 #: is not rejected.
+#:
+#: `StartRecurso` (m1, verifier gate review): a plain `segment` boundary also
+#: matches `Start_RecursoRecebido`/`Start_RecursoSolicitado` — the *inbound*
+#: start event the redesign gives RECURSO-001, and one of the gate's own
+#: payer-legitimate sentences (`Start_RecursoSolicitado` is live today at
+#: `SP-OP-RECURSO-001_Recurso_Glosa.bpmn:86`). A first attempt used `tail`
+#: instead, but that over-corrected: it also released *every* suffixed
+#: provider-perspective id in the same family — `ST_StartRecursoGlosa`,
+#: `ST_StartRecursoDeGlosa` — while the `segment`-bound siblings of the same
+#: family (`SubmitAppeal`, `TrackStatus`) correctly caught their own suffixed
+#: forms. `GROUP` is the narrower fix: it matches wherever `Start` and
+#: `Recurso` sit inside one CamelCase run with **no** literal `_`/`.`/`-` of
+#: the identifier's own spelling between them (`ST_StartRecursoGlosa`,
+#: `ST_StartRecurso`), and releases exactly the shape where the identifier
+#: itself puts a delimiter between `Start` and `Recurso`
+#: (`Start_RecursoSolicitado`, `Start_RecursoRecebido`).
+#:
+#: Declared residual (still open, by construction): an id of the *exact*
+#: shape `Start_Recurso<Capitalized>` — e.g. a hypothetical
+#: `Start_RecursoGlosa` — is structurally indistinguishable from the
+#: legitimate rename and also escapes. Closing that requires reading what the
+#: suffix means, which is outside a vocabulary gate (ADR-0040 D7); it is
+#: pinned as a known miss by
+#: `test_start_recurso_group_boundary_declared_residual`, not silently
+#: accepted.
+#:
+#: `start_recurso` (lowercase) needs no such carve-out: unlike the CamelCase
+#: BPMN element id, there is no legitimate lowercase analogue anywhere in the
+#: tree — every occurrence names the inbound-glosa payer action
+#: (`operadora.contas.start_recurso`) — so it takes the plain `segment`
+#: boundary (the default; not listed below) and is caught with or without a
+#: suffix (`operadora.contas.start_recurso_glosa`, m1 EV-1).
 R1_BOUNDS: dict[str, str] = {
     "recurso_recovery_rate": WHOLE,
     "resposta_recebida": TAIL,
     "RespostaRecebida": TAIL,
-    # Same problem `resposta_recebida` has, and the same answer. With a
-    # `segment` boundary `StartRecurso` also matches `Start_RecursoRecebido` —
-    # the *inbound* start event the redesign gives RECURSO-001, and one of the
-    # gate's own payer-legitimate sentences. `tail` keeps
-    # `ST_StartRecurso` / `operadora.contas.start_recurso` and releases the
-    # legitimate name.
-    "start_recurso": TAIL,
-    "StartRecurso": TAIL,
+    "StartRecurso": GROUP,
 }
 
 
@@ -354,7 +421,9 @@ def _scan_tokens(text: str) -> Iterator[tuple[str, str, str]]:
     """Yield `(rule_class, rule_id, matched_run)` for every R1 token in `text`."""
     for match in _IDENT_RUN.finditer(text):
         run = match.group(0)
-        run_segments = segments(run)
+        run_grouped = segments_with_groups(run)
+        run_segments = tuple(piece for piece, _ in run_grouped)
+        run_groups = tuple(group for _, group in run_grouped)
         for rule, token_segments in _R1_COMPILED:
             if rule.bound == WHOLE:
                 if run == rule.token:
@@ -365,6 +434,10 @@ def _scan_tokens(text: str) -> Iterator[tuple[str, str, str]]:
                 continue
             if rule.bound == TAIL and not any(
                 start + len(token_segments) == len(run_segments) for start in starts
+            ):
+                continue
+            if rule.bound == GROUP and not any(
+                len(set(run_groups[start : start + len(token_segments)])) == 1 for start in starts
             ):
                 continue
             yield R1, rule.rule_id, run
@@ -380,18 +453,34 @@ OBJETO_RECURSAL = r"\b(recursos?|glosas?|contas?|guias?|lote|decisao|negativa|in
 
 #: The actor cue that *absolves* an R2-CTX match: the sentence is describing
 #: what the prestador/beneficiario does, which a payer spec may say freely.
-#: `nip` is in the set for a domain reason, not a convenience one: the NIP
-#: (RN 483) is by definition the **beneficiary's** instrument before the ANS —
-#: the operadora only ever answers one — so a verb next to it has the
-#: beneficiary as its subject. Without it the fence rejects two correct lines
-#: of the NIP chain (`SP-OP-NIP-001_Resposta_NIP.bpmn:482` "conceder o
-#: pleito"; `nip_classification.dmn:60` "sem contestacao de negativa"), and a
-#: rule that rejects correct prose outside the two chains under migration is a
-#: defect of the lexicon, not of the artifact (§6.7).
-PISTA_DE_ATOR = (
-    r"\b(prestador(es)?|beneficiario(s)?|titular|contratante|credenciado|recorrente"
-    r"|requerente|nip)\b"
-)
+#:
+#: `nip` (a domain instrument, not a party) used to be in this set, and it was
+#: wrong to put it there (m2/m3, verifier gate review): isolating the two
+#: corrections it was said to justify shows they are **not** both explained by
+#: it. Removing only `nip` reopens `SP-OP-NIP-001_Resposta_NIP.bpmn:482`
+#: ("conceder o pleito"); removing only the adjacent-negation rule (`NEGACAO`
+#: below) reopens `nip_classification.dmn:60` ("sem contestacao de
+#: negativa") — the two fixes are one-for-one with the two lines, not
+#: two-for-two, because at `:60` the token `NIP` sits past `PROXIMITY_WINDOW`
+#: from `contestacao` and was never actually in range. Worse, as an
+#: *instrument* rather than a party, `nip` absolved all four R2-CTX rules
+#: anywhere within the window regardless of who the subject was — laundering
+#: real inversions such as "Registrar o protocolo NIP e reapresentar a conta
+#: glosada". `:482` is cleared instead by `DECISAO_PAGADOR` below, anchored on
+#: the payer's own decision verb, which is what the line's text actually is
+#: ("conceder o pleito" — the operadora conceding, not the beneficiary
+#: filing).
+PISTA_DE_ATOR = r"\b(prestador(es)?|beneficiario(s)?|titular|contratante|credenciado|recorrente|requerente)\b"
+
+#: Absolves X4 specifically: `pleito` next to the payer's own decision verb is
+#: the operadora ruling on a request, not the appellant naming one. Narrower
+#: than the actor cue on purpose — it names the payer's act instead of naming
+#: an instrument (`nip`) that has no consistent subject. Clears
+#: `SP-OP-NIP-001_Resposta_NIP.bpmn:482` ("conceder o pleito"); does **not**
+#: clear a bare `indeferido`/`deferido` participle standing alone with no
+#: verb, so `test_flags_fonte_pagadora_framing`'s "Pleito indeferido pela
+#: fonte pagadora" is untouched.
+DECISAO_PAGADOR = r"\b(conceder|deferir|indeferir|julgar|responder)\b"
 
 
 @dataclass(frozen=True, slots=True)
@@ -403,6 +492,7 @@ class ProseRule:
     pattern: re.Pattern[str]
     near: re.Pattern[str] | None = None
     actor_absolves: bool = False
+    decision_absolves: re.Pattern[str] | None = None
 
 
 def _rule(
@@ -412,6 +502,7 @@ def _rule(
     *,
     near: str | None = None,
     actor_absolves: bool = False,
+    decision_absolves: str | None = None,
 ) -> ProseRule:
     return ProseRule(
         rule_id=rule_id,
@@ -419,6 +510,7 @@ def _rule(
         pattern=re.compile(pattern),
         near=re.compile(near) if near is not None else None,
         actor_absolves=actor_absolves,
+        decision_absolves=re.compile(decision_absolves) if decision_absolves is not None else None,
     )
 
 
@@ -481,7 +573,7 @@ R2_CTX_RULES: tuple[ProseRule, ...] = (
         actor_absolves=True,
     ),
     _rule("X3", R2_CTX, r"\bregistra(r)? reenvio\b", actor_absolves=True),
-    _rule("X4", R2_CTX, r"\bpleito\b", actor_absolves=True),
+    _rule("X4", R2_CTX, r"\bpleito\b", actor_absolves=True, decision_absolves=DECISAO_PAGADOR),
 )
 
 _ACTOR_CUE = re.compile(PISTA_DE_ATOR)
@@ -516,6 +608,8 @@ def _scan_prose(text: str, rules: Iterable[ProseRule]) -> Iterator[tuple[str, st
             if rule.actor_absolves and _has_near(folded, match, _ACTOR_CUE):
                 continue
             if rule.actor_absolves and _is_negated(folded, match):
+                continue
+            if rule.decision_absolves is not None and _has_near(folded, match, rule.decision_absolves):
                 continue
             yield rule.rule_class, rule.rule_id, text[match.start() : match.end()]
 
