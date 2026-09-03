@@ -62,7 +62,7 @@ make type   → Success: no issues found (mypy --strict; veja CI para output atu
 | ADRs | 38 (34 Accepted, 4 Proposed) |
 | DLs (Decisions Log) | 45 |
 | Contratos SP-OP | 16 |
-| Runbooks | 8 |
+| Runbooks | 22 (14 gerais + 8 de alerta; drills fora da contagem) |
 
 ---
 
