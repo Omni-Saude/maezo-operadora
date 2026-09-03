@@ -211,29 +211,34 @@ calendario conservadoramente (antecipar, nunca postergar). **Toda data e periodi
   contra a conectividade real (AWS-blocked, issue #16).
 - Mapeamento dos cron por `report_type` (datas/cadencia reais dos `timeCycle` de
   SP-OP-ANS-CRON-001) — **DRAFT/verify**.
-- **Resolucao automatica da `competencia`: NAO IMPLEMENTADA em nenhum dos dois caminhos**
-  (GAP-FAB-NOTIF fix — correcao de uma alegacao falsa desta linha; `notifications_bridge/
+- **Resolucao automatica da `competencia`: IMPLEMENTADA no caminho cron, NAO IMPLEMENTADA no
+  nip_filing** (GAP-FAB-NOTIF fix — correcao de uma alegacao falsa desta linha; `notifications_bridge/
   consumer.py` e a funcao `_competencia_from_anchor` NAO EXISTEM em lugar nenhum do repo,
   confirmado por `grep`/`find`). Realidade, por caminho:
-  - **cron:** `ans_cron._compute_competencia` (`src/maezo/tools/workers/ans_cron.py:37`) e a
+  - **cron:** `ans_cron._compute_competencia` (`src/maezo/tools/workers/ans_cron.py:127`) e a
     unica implementacao REAL desse calculo no repo (mes/trimestre/ano ANTERIOR a uma data-ancora,
-    com testes tabulares — `tests/unit/tools/workers/test_ans_cron.py`) — mas e codigo MORTO,
-    UNREACHABLE a partir do BPMN deployado: as 5 definitions de SP-OP-ANS-CRON-001 ligam
-    `ST_PublishCronDue*` direto ao `operadora.events.publish` generico com o literal
-    `competencia=COMPETENCIA_PENDENTE` (`camunda:inputParameter` estatico), nunca ao topico
-    registrado `operadora.ans_cron.trigger_submissions` (onde `_compute_competencia` de fato
-    roda). Isto e o gap **GAP-ANS-1** (remodelagem de scheduler per-report-type, ja detalhada em
-    `docs/reports/business-logic-audit-improvement-plan.md:445` — fora do escopo deste fix), NAO
-    um "residuo resolvido". `notification_bridge._ans_submit_variables_from_cron_due`
-    (`src/maezo/platform/notification_bridge.py:308-343`) apenas repassa o que o fato carrega —
-    hoje sempre o sentinel — nunca inventa um periodo real.
+    com testes tabulares — `tests/unit/tools/workers/test_ans_cron.py`) e, desde
+    **ANS-CRON-DEAD-CODE**, esta ALCANCAVEL a partir do BPMN deployado: cada uma das 5 definitions
+    de SP-OP-ANS-CRON-001 executa `ST_ResolverCompetencia*` no topico registrado
+    `operadora.ans_cron.trigger_submissions` ANTES de `ST_PublishCronDue*` no
+    `operadora.events.publish` generico, e o literal estatico
+    `competencia=COMPETENCIA_PENDENTE` deixou de existir nos `camunda:inputParameter`. Isto FECHA
+    o gap **GAP-ANS-1** (remodelagem de scheduler per-report-type, detalhada em
+    `docs/reports/business-logic-audit-improvement-plan.md:445`).
+    `notification_bridge._ans_submit_variables_from_cron_due`
+    (`src/maezo/platform/notification_bridge.py:308-362`) apenas repassa o que o fato carrega —
+    hoje um periodo FECHADO real — e nunca inventa um periodo: a sentinela so sobrevive
+    fail-closed para `report_type` FORA da taxonomia ratificada, caso que os 5 literais do BPMN
+    nao conseguem emitir. **DRAFT/verify regulatorio**: o mapeamento periodo->competencia e a
+    ancora (fuso) permanecem NAO confirmados com o regulatorio — ver
+    `docs/processes/contracts/SP-OP-ANS-CRON-001.md` e `docs/review-queue.md`.
   - **nip_filing:** `notification_bridge._ans_submit_variables_from_nip_handoff`
     (`:266-304`) fixa `competencia = _COMPETENCIA_PENDENTE` (constante de MODULO — nunca deriva
     de `data_recebimento_nip_iso`, ao contrario do que este contrato afirmava antes desta
     correcao). GAP-ANS-3 (`docs/review-queue.md:320`) permanece aberto.
-  Pendente: **wiring de GAP-ANS-1/GAP-ANS-3** (fora deste fix) + **confirmacao regulatoria do
-  mapeamento assumido** (mes/trimestre IMEDIATAMENTE ANTERIOR ao da ancora) contra o texto
-  vigente ANS (docs/review-queue.md) quando esse wiring acontecer.
+  Pendente: **wiring de GAP-ANS-3** (GAP-ANS-1 fechado por ANS-CRON-DEAD-CODE) + **confirmacao
+  regulatoria do mapeamento assumido** (mes/trimestre IMEDIATAMENTE ANTERIOR ao da ancora, e o
+  fuso civil que define a ancora) contra o texto vigente ANS (docs/review-queue.md).
 - Politica de feriado/dia util na resolucao de `due_date`.
 - Interacao do handoff `SP-OP-NIP-001 → ANS-SUBMIT-001` (`origem_envio==nip_filing`): contrato de
   correlacao do `nip_protocolo_origem` **IMPLEMENTADO** (GAP-NIP-4) — GAP-FAB-NOTIF fix (citacao

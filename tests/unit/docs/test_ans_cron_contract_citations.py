@@ -7,10 +7,13 @@ this repo — `notifications_bridge/consumer.py`, `_competencia_from_anchor`, `_
 now-nonexistent handler name `make_handoff_ans_submit_handler` and a phantom test-proof file
 `tests/integration/processes/test_cross_process_handoff_seam.py`. Two of those claims went further
 than a stale citation: the contracts asserted competencia auto-resolution was **IMPLEMENTADA**/
-**resolvido** in production, when the real implementation (`ans_cron._compute_competencia`) is
-registered-but-UNREACHABLE from the deployed BPMN (GAP-ANS-1, tracked separately — see
-`docs/reports/business-logic-audit-improvement-plan.md:445` — not wired/deleted by this fix; see
-this WP's final report for the reasoning).
+**resolvido** in production, when the real implementation (`ans_cron._compute_competencia`) was at
+the time registered-but-UNREACHABLE from the deployed BPMN (GAP-ANS-1, tracked separately — see
+`docs/reports/business-logic-audit-improvement-plan.md:445` — not wired/deleted by that fix).
+ANS-CRON-DEAD-CODE has since WIRED it: the 5 definitions now run `ST_ResolverCompetencia*` on
+`operadora.ans_cron.trigger_submissions` before publishing, so the computation is reachable and
+the fact carries a real closed period. This fence's job is unchanged either way — it pins the
+NAMES the docs cite, not their reachability.
 
 This module is a STATIC TEXT fence (mirrors `test_worker_handler_purity.py`'s AST fences in spirit —
 a blunt structural check on the committed prose, not a semantic contract-language parser):
@@ -122,14 +125,16 @@ def test_corrected_docs_no_longer_cite_the_phantom_names() -> None:
 
 
 def test_corrected_docs_cite_the_real_competencia_function_and_it_exists() -> None:
-    """The real (if unreachable) competencia computation is `ans_cron._compute_competencia` — the
-    corrected ANS-CRON/ANS-SUBMIT contracts and the ANS-SUBMIT test-spec must name it, and it must
-    actually exist at the cited path."""
+    """The competencia computation is `ans_cron._compute_competencia` (reachable from the deployed
+    BPMN since ANS-CRON-DEAD-CODE, via `ST_ResolverCompetencia*`) — the corrected ANS-CRON/
+    ANS-SUBMIT contracts and the ANS-SUBMIT test-spec must name it, and it must actually exist at
+    the cited path."""
     ans_cron_py = _SRC_DIR / "maezo" / "tools" / "workers" / "ans_cron.py"
     assert ans_cron_py.is_file()
     assert re.search(r"^def _compute_competencia\(", ans_cron_py.read_text(encoding="utf-8"), re.MULTILINE), (
         "ans_cron._compute_competencia no longer exists — the corrected contracts cite it as the "
-        "real (dead) implementation; update both if this function is ever removed/renamed."
+        "real implementation behind `ST_ResolverCompetencia*`; update both if this function is "
+        "ever removed/renamed."
     )
     for path in (
         _CONTRACTS_DIR / "SP-OP-ANS-CRON-001.md",
