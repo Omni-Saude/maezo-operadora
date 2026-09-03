@@ -139,8 +139,12 @@ def _reembolso_state(**overrides: Any) -> MarinaState:
         "tipo_reembolso": "livre_escolha",
         "categoria_procedimento": "consulta",
         "codigo_procedimento_tuss": "10101012",
-        "valor_solicitado_cents": 30000,
-        "valor_calculado_tabela_cents": 35000,
+        # GAP F-1: the reference value is the DMN's. `consulta` = 12000 cents in
+        # `spec/processes/dmn/reembolso_calculo.dmn` (rule `r_consulta`) — this fixture used to
+        # carry 35000, the amount of the DELETED Python shadow table in `workers/reembolso.py`.
+        # `dentro_tabela=True` below stays coherent: solicitado (10000) <= calculado (12000).
+        "valor_solicitado_cents": 10000,
+        "valor_calculado_tabela_cents": 12000,
         "cobertura_prevista": True,
         "dentro_prazo": True,
         "dentro_tabela": True,
