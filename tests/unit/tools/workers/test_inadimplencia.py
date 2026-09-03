@@ -35,6 +35,7 @@ from maezo.tools.workers.harness import (
     FakeAuditSink as HarnessFakeAuditSink,
 )
 from maezo.tools.workers.inadimplencia import (
+    _HANDOFF_CARRY_KEYS,
     CANCEL_PROCESS_KEY,
     DECISAO_ENCAMINHAR_RESCISAO,
     DECISAO_MANTER,
@@ -45,8 +46,8 @@ from maezo.tools.workers.inadimplencia import (
     _cancel_business_key,
     assess_status,
     calculate_purge,
+    dispatch_prior_notice,
     handoff_rescisao,
-    notify_beneficiario,
     notify_sla_risk,
     prepare_dossier,
     register_contract_suspension,
@@ -215,18 +216,53 @@ def test_calculate_purge_coletivo() -> None:
 
 
 # ---------------------------------------------------------------
-# notify_beneficiario
+# dispatch_prior_notice — GAP-INAD-8 (was notify_beneficiario)
 # ---------------------------------------------------------------
 
+_PRIOR_NOTICE_VARS = {
+    "numero_contrato": "C-123",
+    "matricula_beneficiario": "pseudo-abc",
+}
 
-def test_notify_beneficiario_sets_flag() -> None:
-    result = notify_beneficiario(
-        {
-            "numero_contrato": "C-123",
-            "matricula_beneficiario": "pseudo-abc",
-        }
-    )
-    assert result["notificacao_previa_feita"] is True
+
+def test_dispatch_prior_notice_asserts_no_fact() -> None:
+    """GAP-INAD-8: the prior-notice STEP returns `{}` — it never claims the notice happened.
+
+    The old `notify_beneficiario` returned `{"notificacao_previa_feita": True,
+    "notificacao_previa_registrada_em": "now"}` with no channel contacted and no delivery
+    observed. Restoring that literal turns this test RED.
+    """
+    assert dispatch_prior_notice(dict(_PRIOR_NOTICE_VARS)) == {}
+
+
+def test_dispatch_prior_notice_never_emits_the_fabricated_keys() -> None:
+    """Named-key form of the fence above: neither fabricated key may reappear under ANY input."""
+    for extra in ({}, {"notificacao_previa_feita": False}, {"dentro_janela_purga": True}):
+        out = dispatch_prior_notice({**_PRIOR_NOTICE_VARS, **extra})
+        assert "notificacao_previa_feita" not in out
+        assert "notificacao_previa_registrada_em" not in out
+
+
+def test_dispatch_prior_notice_cannot_overwrite_a_seeded_false() -> None:
+    """The worker must not clobber an honest `False` already in process scope.
+
+    The harness LOADS a handler's return dict into process scope on `complete`
+    (`harness.py:1778-1782`), so a returned `notificacao_previa_feita` would overwrite whatever
+    the start payload / `msg.inadimplencia.notificacao_ack` correlation put there. `{}` writes
+    nothing, so a seeded `False` survives and `inadimplencia_status`'s `r_pendente_notificacao`
+    row stays reachable.
+    """
+    scope = {**_PRIOR_NOTICE_VARS, "notificacao_previa_feita": False}
+    scope.update(dispatch_prior_notice(dict(scope)))
+    assert scope["notificacao_previa_feita"] is False
+
+
+def test_dispatch_prior_notice_is_registered_on_the_unchanged_bpmn_topic() -> None:
+    """The BPMN is untouched: the same topic, now bound to the honest handler."""
+    harness = _RecordingHarness()
+    register_inadimplencia_workers(harness, None, dmn=FakeDmnTransport(), engine=FakeCibSevenTransport())
+    worker = harness.workers["operadora.inadimplencia.check_prior_notice"]
+    assert worker.execute(dict(_PRIOR_NOTICE_VARS)) == {}
 
 
 # ---------------------------------------------------------------
@@ -574,7 +610,9 @@ def test_handoff_rescisao_starts_cancel_with_exact_business_key_and_payload() ->
             "numero_contrato": "C-777",
             "matricula_beneficiario": "mat-1",
             "meses_inadimplencia": 4,
-            "notificacao_previa_feita": True,
+            # GAP-INAD-8: the payload's `notificacao_previa_feita` is DERIVED from this human
+            # proof reference, no longer a passthrough of any `notificacao_previa_feita` in scope.
+            "comprovacao_notificacao_previa": "ref-notif-9",
             "comprovacao_periodo_minimo": "ref-periodo-1",
             "responsavel_id": "juridico-cobranca-9",
             "referencia_regulatoria": "RN 593",
@@ -620,6 +658,87 @@ def test_handoff_rescisao_starts_cancel_with_exact_business_key_and_payload() ->
     assert "numero_contrato" not in record.details
     assert "matricula_beneficiario" not in record.details
     assert "decisao_secreta_phi" not in record.details
+
+
+def test_handoff_rescisao_derives_notificacao_from_the_human_proof_not_from_scope() -> None:
+    """GAP-INAD-8: a `notificacao_previa_feita=True` sitting in process scope no longer travels.
+
+    This is the load-bearing half of the slice-2 fix. `dispatch_prior_notice` used to WRITE that
+    constant into scope, and `_HANDOFF_CARRY_KEYS` used to carry it verbatim into CANCEL-001 —
+    so `cancel.assess_admissibility`'s `PENDENTE_NOTIFICACAO` branch was unreachable for every
+    inadimplencia-originated case. Now the value is derived ONLY from the human's
+    `comprovacao_notificacao_previa`; a bare in-scope `True` with no proof yields `False`.
+
+    Restoring the passthrough (putting `notificacao_previa_feita` back in `_HANDOFF_CARRY_KEYS`)
+    turns this test RED.
+    """
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    handoff_rescisao(
+        {
+            "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+            "tenant_id": "amh",
+            "numero_contrato": "C-NOPROOF",
+            # A leftover/fabricated `True` in process scope — must NOT be believed.
+            "notificacao_previa_feita": True,
+            "responsavel_id": "juridico-cobranca-9",
+        },
+        engine=engine,
+        audit_sink=sink,
+    )
+    payload = asyncio.run(engine.get_process_status("CANCEL-amh-C-NOPROOF")).variables
+    assert payload["notificacao_previa_feita"] is False
+    # The ADR-0007 audit row records the SAME derived value — chain and process cannot disagree.
+    [record] = sink.records
+    assert record.details["notificacao_previa_feita"] is False
+
+
+@pytest.mark.parametrize(
+    ("comprovacao", "esperado"),
+    [
+        ("ref-notif-9", True),
+        ("   ref-com-espacos   ", True),
+        ("", False),
+        ("   ", False),
+        (None, False),
+        (123, False),
+        (True, False),
+    ],
+)
+def test_handoff_rescisao_notificacao_fact_is_fail_closed_on_every_proof_shape(
+    comprovacao: object, esperado: bool
+) -> None:
+    """Only a non-blank STRING proof reference counts; every other shape fails closed to False.
+
+    `False` is not a denial — it routes CANCEL-001 to its non-adverse `PENDENTE_NOTIFICACAO`
+    wait, whose timer converges on the human `UT_AnaliseRescisao` (HITL no-denial preserved).
+    """
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    handoff_rescisao(
+        {
+            "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+            "tenant_id": "amh",
+            "numero_contrato": "C-SHAPES",
+            "comprovacao_notificacao_previa": comprovacao,
+            "responsavel_id": "juridico-cobranca-9",
+        },
+        engine=engine,
+        audit_sink=sink,
+    )
+    payload = asyncio.run(engine.get_process_status("CANCEL-amh-C-SHAPES")).variables
+    assert payload["notificacao_previa_feita"] is esperado
+
+
+def test_handoff_carry_keys_no_longer_passes_the_notification_fact_through() -> None:
+    """Structural pin on the allowlist itself (GAP-INAD-8).
+
+    `comprovacao_notificacao_previa` — the real, human-entered proof — MUST still be carried, so
+    CANCEL's own `register_contract_termination` guard can require it. The derived boolean must
+    NOT be a carry key, or a fabricated value could ride along again.
+    """
+    assert "notificacao_previa_feita" not in _HANDOFF_CARRY_KEYS
+    assert "comprovacao_notificacao_previa" in _HANDOFF_CARRY_KEYS
 
 
 def test_handoff_rescisao_matricula_fallback_key() -> None:
