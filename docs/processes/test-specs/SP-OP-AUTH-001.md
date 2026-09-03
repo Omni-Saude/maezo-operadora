@@ -7,7 +7,7 @@ Stubs de integracao (pytest, marker `integration`) contra CIB Seven real. Arquiv
 ## Invariante L0 (testes de seguranca — prioritarios)
 
 ### test_nenhum_caminho_automatizado_produz_negativa
-- **Given** todas as combinacoes de DMN: `requer_autorizacao/documentacao_completa/beneficiario_ativo/carencia_cumprida/dut_atendida/dentro_teto_l2/rede_credenciada` em {true,false}
+- **Given** todas as combinacoes de DMN: `requer_autorizacao/documentacao_completa/beneficiario_ativo/carencia_cumprida` (admissibilidade) e, para `auth_auto_approval` v0.2.0 (PERSP-B5-TESTSPEC-AUTH/GAP-AUTH-4 — `auto_criteria_verificado/criterio_tecnico_ok/criterio_financeiro_ok/criterio_regulatorio_ok/criterio_contratual_ok` substituem `dut_atendida/dentro_teto_l2/rede_credenciada`, que a tabela **NAO le mais**, ver contrato `SP-OP-AUTH-001.md:47-49`) em {true,false}
 - **When** instancia percorre ate estabilizar
 - **Then** NUNCA atinge `End_NegadaAuditor` sem `UT_AnaliseMedicoAuditor`/`UT_CoordenacaoAssume`/`UT_RegistrarParecerJunta` completada por humano com `decisao_auditor=NEGAR`
 
@@ -47,12 +47,12 @@ Stubs de integracao (pytest, marker `integration`) contra CIB Seven real. Arquiv
 ## Happy paths
 
 ### test_happy_path_aprovacao_automatica_l2
-- **Given** `dut_atendida=true, dentro_teto_l2=true, rede_credenciada=true`, eletivo
+- **Given** `auto_criteria_verificado=true, criterio_tecnico_ok=true, criterio_financeiro_ok=true, criterio_regulatorio_ok=true, criterio_contratual_ok=true` (v0.2.0 — GAP-AUTH-4; substitui `dut_atendida/dentro_teto_l2/rede_credenciada`, que `auth_auto_approval` nao le mais, ver `auth_auto_approval.dmn:60-77`), eletivo
 - **When** instancia percorre
 - **Then** `operadora.auth.issue_authorization` executado; `auth.completed` com `desfecho=aprovada_automatica`; fim `End_AprovadaAutomatica`; NENHUMA User Task criada
 
 ### test_happy_path_aprovada_pelo_auditor
-- **Given** `dut_atendida=false` (vai a analise); dossie preparado (worker `operadora.auth.analyze_request` completa)
+- **Given** qualquer um dos quatro criterios de `auth_auto_approval` v0.2.0 falso (ex.: `criterio_tecnico_ok=false`) — vai a analise (PERSP-B5-TESTSPEC-AUTH/GAP-AUTH-4; `dut_atendida=false` **NAO** e mais o que causa isso, ver `SP-OP-AUTH-001.md:47`); dossie preparado (worker `operadora.auth.analyze_request` completa)
 - **When** medico auditor completa com `decisao_auditor=APROVAR`
 - **Then** autorizacao emitida; `auth.completed` `desfecho=aprovada_auditor`
 
