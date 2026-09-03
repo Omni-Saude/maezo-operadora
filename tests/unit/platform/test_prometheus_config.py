@@ -130,3 +130,50 @@ def test_alert_rules_cover_dead_letter() -> None:
 
     has_dlq = any("dead" in name.lower() or "DeadLetter" in name or "DLQ" in name for name in alert_names)
     assert has_dlq, f"No dead-letter alert found in: {alert_names}"
+
+
+def _alert_names() -> list[str]:
+    """Every `alert:` name declared in deploy/observability/alert-rules.yml, in file order."""
+    rules_path = _repo_root() / "deploy" / "observability" / "alert-rules.yml"
+    with open(rules_path) as f:
+        rules = yaml.safe_load(f)
+
+    names: list[str] = []
+    for group in rules["groups"]:
+        for rule in group.get("rules", []):
+            name = rule.get("alert")
+            assert name, f"Rule with no 'alert' name in group {group.get('name')!r}: {rule}"
+            names.append(name)
+    return names
+
+
+def test_every_alert_has_a_runbook() -> None:
+    """GAP-D12-01-a fence: every alert in alert-rules.yml has docs/runbooks/alerts/<name>.md.
+
+    This is the structural gate that keeps D12-01 closed — a new alert added to
+    alert-rules.yml without a matching runbook file fails this test, rather than silently
+    shipping a `runbook_url` (or an implicit "no runbook") with nothing behind it. Mirrors the
+    other structural fences in tests/unit/ci/ (real artifacts, not a fixture copy).
+    """
+    alerts_dir = _repo_root() / "docs" / "runbooks" / "alerts"
+    missing = [name for name in _alert_names() if not (alerts_dir / f"{name}.md").is_file()]
+    assert not missing, (
+        f"Alerts with no runbook at docs/runbooks/alerts/<name>.md: {missing}. "
+        "Add one (see docs/runbooks/alerts/README conventions in docs/runbooks/README.md) "
+        "before merging a new alert."
+    )
+
+
+def test_no_orphaned_alert_runbooks() -> None:
+    """The inverse of test_every_alert_has_a_runbook: no stray file for a removed/renamed alert.
+
+    Catches the case where an alert is renamed or deleted in alert-rules.yml but its runbook
+    file is left behind, silently drifting out of sync with the rule file it documents.
+    """
+    alerts_dir = _repo_root() / "docs" / "runbooks" / "alerts"
+    known = set(_alert_names())
+    orphaned = [p.name for p in alerts_dir.glob("*.md") if p.stem not in known]
+    assert not orphaned, (
+        f"Runbook files under docs/runbooks/alerts/ with no matching alert in "
+        f"alert-rules.yml: {orphaned}. Rename or remove them to match the current rule names."
+    )

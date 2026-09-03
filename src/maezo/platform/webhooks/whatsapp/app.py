@@ -95,7 +95,13 @@ def create_app(
         challenge = params.get("hub.challenge", "")
         token = params.get("hub.verify_token", "")
 
-        if mode == "subscribe" and hmac.compare_digest(token, settings.verify_token):
+        # UTF-8 bytes, not `str`: `hmac.compare_digest` REFUSES a non-ASCII `str` with a
+        # TypeError, and `hub.verify_token` is attacker-controlled — comparing the raw
+        # query param turned `?hub.verify_token=café` into an unhandled 500 instead of the
+        # 403 below. Encoding first keeps the handshake fail-closed for every input.
+        if mode == "subscribe" and hmac.compare_digest(
+            token.encode("utf-8"), settings.verify_token.encode("utf-8")
+        ):
             WEBHOOK_REQUESTS_TOTAL.labels(tenant=settings.tenant_id, status="ok").inc()
             return PlainTextResponse(challenge, status_code=200)
 
