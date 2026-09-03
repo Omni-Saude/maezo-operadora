@@ -82,9 +82,16 @@ PORT NOTES (fixture adaptation only — port rule 1; logic/assertions verbatim f
   - D-07 ceilings gap does NOT apply here — VERIFIED (`grep -n "CeilingResolver\\|within_l2_
     ceiling" src/maezo/tools/workers/adequacao.py` returns nothing); not cited anywhere below.
   - notification_bridge.py's 5 rules (CONTAS/FRAUDE/CRED/CANCEL/INADIMPLENCIA) do not name
-    adequacao as source or target; the donor suite has no cross-process handoff assertion either
-    (only a pass-through `network_change_ref` seed variable, never asserted/consumed) — N/A here,
-    not fabricated.
+    adequacao as source or target — the choreography this suite tests is the WORKER-side
+    `execute_remediation` -> SP-OP-CRED-001 handoff (PERSP-ADEQ-CRED-HANDOFF fix), not a
+    notification-bridge rule; `network_change_ref` remains a pass-through seed variable only.
+    UPDATED (PERSP-ADEQ-CRED-HANDOFF): `test_l3_gap_moderado_encaminha_credenciamento_sem_user_
+    task` now DOES assert a cross-process handoff — a REAL SP-OP-CRED-001 instance starting from
+    a running SP-OP-ADEQUACAO-001 instance's own `ST_StartCredenciamentoL3`, plus a re-delivery
+    dedup proof — mirroring `test_sp_op_inadimplencia_001.py`'s `handoff_rescisao` precedent and
+    `test_t33_a1_cancel_handoff_redelivery_idempotency.py`'s direct re-delivery technique. Before
+    this fix `execute_remediation` was a stub returning a fabricated flag with NO downstream
+    effect, so no such assertion could ever have been made honestly.
   - `register_fallback_commitment`'s guard (`ERR_FALLBACK_COMMITMENT_NOT_HUMAN`) already has a
     dedicated unit-level guard suite (`tests/unit/tools/workers/test_adequacao.py::
     test_fallback_commitment_rejects_*`). Unlike cancel.py/auth.py, the donor's adequacao suite has
@@ -204,7 +211,14 @@ from xml.etree import ElementTree as ET
 import pytest
 import pytest_asyncio
 
-from maezo.tools.workers.adequacao import register_adequacao_workers
+from maezo.gateway.audit_postgres import FreshSinkAuditEmitter
+from maezo.tools.workers.adequacao import (
+    CRED_PROCESS_KEY,
+    _cred_business_key,
+    execute_remediation,
+    register_adequacao_workers,
+)
+from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
@@ -219,6 +233,19 @@ _BPMN = _REPO / "spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn"
 _DMN_GAP = _REPO / "spec/processes/dmn/adequacao_gap.dmn"
 _DMN_ROUTING = _REPO / "spec/processes/dmn/adequacao_remediation_routing.dmn"
 _DMN_SLA = _REPO / "spec/processes/dmn/adequacao_sla.dmn"
+
+# PERSP-ADEQ-CRED-HANDOFF fix: `execute_remediation` now REALLY starts SP-OP-CRED-001, so any
+# test that drives the ENCAMINHAR_CREDENCIAMENTO branch to completion needs CRED-001's OWN
+# artifacts DEPLOYED in the shared engine first (mirrors `test_sp_op_inadimplencia_001.py`'s
+# `handoff_rescisao` tests deploying `_CANCEL_ARTIFACTS` / `test_t33_a1_cancel_handoff_
+# redelivery_idempotency.py`'s `_CANCEL_ARTIFACTS` — do NOT rely on cross-test engine leakage).
+_CRED_ARTIFACTS = (
+    _REPO / "spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn",
+    _REPO / "spec/processes/dmn/cred_admissibility.dmn",
+    _REPO / "spec/processes/dmn/cred_route.dmn",
+    _REPO / "spec/processes/dmn/cred_prior_notice.dmn",
+    _REPO / "spec/processes/dmn/cred_sla.dmn",
+)
 
 # External task topics do contrato SP-OP-ADEQUACAO-001.
 _PUBLISH_TOPIC = "operadora.events.publish"
@@ -431,13 +458,22 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 @pytest_asyncio.fixture
 async def adequacao_probe(
-    engine: EngineRest, audit_sink: Any, audit_tenant: str
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
 ) -> AsyncIterator[AdequacaoEngineProbe]:
     """Probe que serve as external tasks com os workers reais Phase-3 de adequacao.
 
     Monta: `CibSevenWorkerTransport` (REST real) + `WorkerHarness` + `register_adequacao_workers`
     (com o seam `dmn=` de um `CibSevenDmnTransport` REAL, ADR-0028/T1.5) +
     `register_events_workers` (generic publish, T3.1 R2) + `FakeKafkaPublisher`.
+
+    PERSP-ADEQ-CRED-HANDOFF fix: ALSO threads `engine=`/`audit_sink=` into `execute_remediation`
+    (the fenced `start_process_idempotent` chokepoint against SP-OP-CRED-001) — mirrors
+    `test_sp_op_inadimplencia_001.py`'s `inad_probe` wiring for `handoff_rescisao` EXACTLY,
+    including the SAME "fresh, loop-agnostic seam" reason: `execute_remediation` bridges to the
+    engine via its own `asyncio.run(...)` (a fresh loop per call), so the POOLED `audit_sink`
+    above (bound to THIS test's own event loop) would deadlock/fail cross-loop — a SEPARATE
+    `FreshSinkAuditEmitter` (audit_postgres.py) is required, the sink-side mirror of
+    `FreshClientCibSevenTransport`'s fresh-client-per-call pattern.
     """
     worker_id = f"qa-adequacao-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
@@ -456,7 +492,14 @@ async def adequacao_probe(
     # the REAL deployed engine (never a mock, ADR-0011) — same live engine `engine`/`transport`
     # already talk to.
     dmn_transport = CibSevenDmnTransport(CIBSEVEN_BASE_URL)
-    register_adequacao_workers(harness, kafka, dmn=dmn_transport)
+    # GAP-XPROC handoff seam wiring (PERSP-ADEQ-CRED-HANDOFF): a FRESH, loop-agnostic
+    # `CibSevenTransport`/`AuditStartSink` pair for `execute_remediation`'s own `asyncio.run(...)`
+    # bridge — see the fixture docstring above for why the pooled `audit_sink` cannot be reused.
+    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
+    handoff_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
+    register_adequacao_workers(
+        harness, kafka, dmn=dmn_transport, engine=engine_seam, audit_sink=handoff_audit_sink
+    )
     # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in this
     # BPMN routes through — mirrors the donor's own register_phase0_workers composition.
     register_events_workers(harness, kafka)
@@ -486,6 +529,7 @@ async def adequacao_probe(
     finally:
         await transport.close()
         await dmn_transport.close()
+        await engine_seam.close()  # no-op (fresh-client-per-call), kept for lifecycle symmetry
 
 
 def _unique_regiao(prefix: str = "REGIAO-TESTE") -> str:
@@ -751,6 +795,7 @@ async def test_l3_gap_moderado_encaminha_credenciamento_sem_user_task(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
     start_adequacao: Callable[..., Any],
+    audit_pg: tuple[str, str],
 ) -> None:
     """Gap moderado => routing=ENCAMINHAR_CREDENCIAMENTO -> handoff CRED -> End_RemediacaoEncaminhada.
 
@@ -761,7 +806,21 @@ async def test_l3_gap_moderado_encaminha_credenciamento_sem_user_task(
     false so quando prestadores<2) — este cenario usa prestadores=2, que agora produz GAP_LEVE
     (nao GAP_MODERADO) e trava no worker faltante de monitoramento (FINDING 1) em vez de alcancar
     End_RemediacaoEncaminhada.
+
+    PERSP-ADEQ-CRED-HANDOFF fix — ENGINE PROOF: this test now also asserts a REAL SP-OP-CRED-001
+    instance is ACTIVE (`engine.find_active_instances`) under the exact contract business key
+    (`CRED-{tenant}-{prestador_id}`) after the ADEQUACAO instance reaches `End_RemediacaoEncaminhada`
+    — the fabricated `handoff_credenciamento=True` flag this fix replaces used to be returned
+    with NO downstream effect whatsoever; this is the live proof that a genuine cross-process
+    start now happens. CRED-001's own artifacts are deployed here (not relied upon from another
+    suite) so `start_process_idempotent` has a live process definition to start against.
     """
+    await engine.deploy(*_CRED_ARTIFACTS, name="SP-OP-CRED-001-qa-adequacao-handoff")
+    prestador_id = "PREST-TESTE-GAP-MODERADO"
+    cred_bk = _cred_business_key("amh", prestador_id)
+    assert not await engine.find_active_instances(cred_bk), (
+        "Pre-condicao: nenhuma instancia CRED-001 deve existir ainda para este prestador de teste"
+    )
     inst = await start_adequacao(
         tipo_carater="eletivo",
         tempo_acesso_apurado_min=120,
@@ -769,6 +828,13 @@ async def test_l3_gap_moderado_encaminha_credenciamento_sem_user_task(
         prestadores_disponiveis=2,
         cobertura_geo_suficiente=False,
         dados_geo_completos=True,
+        # PERSP-ADEQ-CRED-HANDOFF fix: `execute_remediation` now REALLY starts SP-OP-CRED-001 via
+        # `start_process_idempotent` — it needs a candidate `prestador_id` to mint the CRED-001
+        # business key (`CRED-{tenant}-{prestador_id}`); without one it fails closed (see the
+        # dedicated unit suite in `test_adequacao.py`). Seeded here as a START variable (the
+        # WorkerHarness does not return routing/output vars to the engine — see this module's
+        # own docstring note above).
+        prestador_id=prestador_id,
     )
     iid = inst["id"]
     await adequacao_probe.drain()
@@ -783,6 +849,40 @@ async def test_l3_gap_moderado_encaminha_credenciamento_sem_user_task(
     )
     assert adequacao_probe.has_event(_ADEQ_COMPLETED, desfecho="encaminhada_credenciamento")
     assert adequacao_probe.has_event(_ADEQ_GAP_DETECTED, gap_adequacao="GAP_MODERADO")
+
+    # ENGINE PROOF (PERSP-ADEQ-CRED-HANDOFF): a REAL SP-OP-CRED-001 instance is now ACTIVE under
+    # the exact contract business key — the fenced `start_process_idempotent` chokepoint really
+    # ran from inside this running SP-OP-ADEQUACAO-001 instance's own external task.
+    cred_active = await engine.find_active_instances(cred_bk)
+    assert len(cred_active) == 1, (
+        f"exactly one ACTIVE CRED-001 instance expected for {cred_bk!r}, found {len(cred_active)}"
+    )
+    assert cred_active[0].get("processDefinitionKey", "").startswith(CRED_PROCESS_KEY)
+
+    # RE-DELIVERY / SECOND DELIVERY PROOF: calling the SAME production `execute_remediation`
+    # directly (via `asyncio.to_thread`, the exact mechanism `WorkerHarness._handle` uses to
+    # dispatch a sync worker — `cibseven_engine.py` module docstring) with byte-identical
+    # variables against the SAME live engine converges on the SAME CRED-001 instance — never a
+    # second search for the same candidate (T3.3 A1 redelivery-simulation precedent, `test_t33_
+    # a1_cancel_handoff_redelivery_idempotency.py`).
+    redelivery_engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
+    redelivery_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_pg[1])
+    redelivery_result = await asyncio.to_thread(
+        execute_remediation,
+        {"tenant_id": "amh", "prestador_id": prestador_id},
+        engine=redelivery_engine_seam,
+        audit_sink=redelivery_audit_sink,
+    )
+    await redelivery_engine_seam.close()
+    assert redelivery_result["cred_business_key"] == cred_bk
+    assert redelivery_result["cred_already_existed"] is True, (
+        "re-delivery must hit the SAME active CRED-001 instance, never start a second one"
+    )
+    assert redelivery_result["cred_instance_id"] == str(cred_active[0]["id"])
+    cred_active_after_redelivery = await engine.find_active_instances(cred_bk)
+    assert len(cred_active_after_redelivery) == 1, (
+        "re-delivery must NOT create a second active CRED-001 instance for the same prestador"
+    )
 
 
 async def test_l3_gap_leve_monitora_sem_user_task(
@@ -876,7 +976,9 @@ async def test_humano_encaminhar_cred_nao_firma_compromisso(
     start_adequacao: Callable[..., Any],
 ) -> None:
     """Gap critico => UT; humano ENCAMINHAR_CRED => End_RemediacaoEncaminhada (sem compromisso)."""
-    inst = await start_adequacao(prestadores_disponiveis=0, dados_geo_completos=True)
+    inst = await start_adequacao(
+        prestadores_disponiveis=0, dados_geo_completos=True, prestador_id="PREST-TESTE-ENCAMINHAR-HUMANO"
+    )
     iid = inst["id"]
 
     ut = await _drive_to_decisao(engine, adequacao_probe, iid)
@@ -998,7 +1100,9 @@ async def test_coordenacao_assumir_decisao_roteia_para_gw_decisao_remediacao(
     Prova com ENCAMINHAR_CRED (nao-adverso): a coordenacao assume e decide agora -> handoff a
     credenciamento -> End_RemediacaoEncaminhada (mesmo desfecho que UT_DecisaoFallback produziria).
     """
-    inst = await start_adequacao(prestadores_disponiveis=0, dados_geo_completos=True)
+    inst = await start_adequacao(
+        prestadores_disponiveis=0, dados_geo_completos=True, prestador_id="PREST-TESTE-ASSUMIR-DECISAO"
+    )
     iid = inst["id"]
 
     coord = await _drive_to_coordenacao(engine, adequacao_probe, iid)
@@ -1061,7 +1165,9 @@ async def test_coordenacao_seguir_analise_refaz_dossie_e_reabre_ut_decisao_fallb
     ST_PrepareRemediationDossier (prepare_remediation_dossier roda >= 2x: dossie inicial + reentrada)
     antes de UT_DecisaoFallback reabrir.
     """
-    inst = await start_adequacao(prestadores_disponiveis=0, dados_geo_completos=True)
+    inst = await start_adequacao(
+        prestadores_disponiveis=0, dados_geo_completos=True, prestador_id="PREST-TESTE-SEGUIR-ANALISE"
+    )
     iid = inst["id"]
 
     coord = await _drive_to_coordenacao(engine, adequacao_probe, iid)

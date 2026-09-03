@@ -6,19 +6,23 @@ Guard: ERR_FALLBACK_COMMITMENT_NOT_HUMAN (ADR-0018).
 
 from __future__ import annotations
 
+import asyncio
 import functools
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
 from maezo.tools.workers.adequacao_shadow import record_shadow_divergence
 from maezo.tools.workers.base import FunctionWorker, non_blank
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
+from maezo.tools.workers.harness import AUDIT_AGENT_ID, _resolve_app_version
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from maezo.a2a import DelegationDispatcher
+    from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
     from maezo.tools.workers.harness import (
         ExternalTask,
         KafkaPublisher,
@@ -43,9 +47,20 @@ _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
 
 ERR_FALLBACK_COMMITMENT_NOT_HUMAN = "ERR_FALLBACK_COMMITMENT_NOT_HUMAN"
 ERR_ADEQUACAO_CELULA_INVALIDA = "ERR_ADEQUACAO_CELULA_INVALIDA"
+#: PERSP-ADEQ-CRED-HANDOFF fix — `execute_remediation` raises this when the handoff to
+#: SP-OP-CRED-001 lacks the identity it needs to mint a business key (`tenant_id`/`prestador_id`),
+#: mirroring `fraude.ERR_FRAUDE_HANDOFF_SEM_ALVO`'s exact fail-closed posture: a handoff worker
+#: must NEVER fabricate success, and must NEVER start a downstream process under a degenerate
+#: (blank/`None`-stringified) business key.
+ERR_ADEQUACAO_SEM_PRESTADOR_CANDIDATO = "ERR_ADEQUACAO_SEM_PRESTADOR_CANDIDATO"
 
 # Decision values
 DECISAO_COMPROMISSO_FALLBACK = "COMPROMISSO_FALLBACK"
+
+# Process key of the sole owner of the (des)credenciamento terminal SP-OP-ADEQUACAO-001 hands off
+# to (contract SP-OP-CRED-001.md; BPMN ST_StartCredenciamentoL3 documentation). ADEQUACAO NEVER
+# credencia/descredencia; it only triggers the search — CRED-001's OWN User Tasks decide.
+CRED_PROCESS_KEY = "SP-OP-CRED-001"
 
 
 # ---------------------------------------------------------------
@@ -500,10 +515,74 @@ def notify_coordenacao(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
-def execute_remediation(variables: dict[str, Any]) -> dict[str, Any]:
-    """Initiate credentialing to close the gap (handoff to CRED-001 — NEUTRAL).
+def _cred_business_key(tenant_id: str, prestador_id: str) -> str:
+    """`CRED-{tenant}-{prestador_id}` — IDENTICAL format to `fraude._cred_business_key` /
+    `notification_bridge._cred_business_key` (contract `SP-OP-CRED-001.md` "Business key"): one
+    active (des)credenciamento cycle per prestador. `prestador_id` is cadastral PJ/PF data, never
+    beneficiary PHI (ADR-0006), so this key deliberately does NOT go through the CANCEL/INAD
+    PHI-anchor-counting composer (`base.mint_contract_business_key`) — that one exists for a
+    different problem (DL-0043's beneficiary-anchor drift) that does not apply to a prestador id.
+    """
+    return f"CRED-{tenant_id}-{prestador_id}"
 
-    This is L3 — buscar prestador nao e adverso.
+
+def execute_remediation(
+    variables: dict[str, Any],
+    *,
+    engine: CibSevenTransport | None = None,
+    audit_sink: AuditStartSink | None = None,
+) -> dict[str, Any]:
+    """Handoff: idempotently START SP-OP-CRED-001 to search/credential a provider for the gap.
+
+    PERSP-ADEQ-CRED-HANDOFF fix. Was a stub that unconditionally returned
+    ``{handoff_credenciamento: True, processo_destino: "SP-OP-CRED-001"}`` — a fabricated fact:
+    BPMN `ST_StartCredenciamentoL3` (`SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn:247-249`) and the
+    contract (`docs/processes/contracts/SP-OP-ADEQUACAO-001.md:152`) both say this task "dispara
+    SP-OP-CRED-001", but nothing here ever called `start_process_idempotent` — the THIRD
+    fabricated-fact variant this program found (asserting an effect that never ran; cf.
+    GAP-FAB-NOTIF's `notify_coordenacao`/`check_prior_notice` fixes elsewhere in this module/CRED).
+
+    NEUTRAL / NOT adverse (same posture as `fraude.start_credenciamento`, `inadimplencia.
+    handoff_rescisao`): starting a credentialing SEARCH for the cell is L3 action, not a
+    commitment of cash nor a denial of care. CRED-001 is the sole owner of BOTH its adverse
+    directions (`NEGAR_CREDENCIAMENTO`/`DESCREDENCIAR`) — human-gated THERE, at its OWN User Tasks
+    (`UT_AnaliseCredenciamento`/`UT_AnaliseDescredenciamento`). This handoff seeds ONLY
+    pre-decision facts/context (`tenant_id`, `prestador_id`, `direcao=credenciamento`,
+    `origem_solicitacao=operadora`, `tipo_prestador`, `regiao_saude`, `especialidade`,
+    `motivo_informado`) and NEVER `decisao_cred` or any other CRED-001 output/decision variable —
+    it can never pre-decide the target process's human decision (the same invariant
+    `inadimplencia.handoff_rescisao`'s `_HANDOFF_CARRY_KEYS` allowlist and `contas.start_recurso`'s
+    payload uphold for their own downstream handoffs).
+
+    IDENTITY (business key `CRED-{tenant}-{prestador_id}`, contract `SP-OP-CRED-001.md` §Business
+    key): ADEQUACAO's own celula identity (`regiao_saude`x`especialidade`x`ciclo_avaliacao`) has
+    NO `prestador_id` of its own — "buscar prestador" (contract line 32, BPMN line 47) is a
+    business activity that happens BEFORE this task fires (network-team/analytics prospecting a
+    candidate; the contract's own §Pendencias already flags "a fonte cadastral de
+    regiao_saude/especialidade do prestador no start de CRED" as DRAFT/verify — the SAME
+    unresolved sourcing question this fix makes structurally honest instead of silently
+    fabricated). So a candidate `prestador_id` MUST already be seeded on `variables` (by whoever
+    identified it) for this handoff to actually start CRED-001; ABSENT, it FAILS CLOSED — it can
+    never again report `handoff_credenciamento=True` for a search that never started.
+
+    FAIL-CLOSED (never a silent no-op, mirrors `fraude.start_credenciamento`/`inadimplencia.
+    handoff_rescisao`):
+      - a missing/blank/`None` `tenant_id` or `prestador_id` raises `AdequacaoError(
+        ERR_ADEQUACAO_SEM_PRESTADOR_CANDIDATO, ...)` (deterministic bad input -> immediate
+        incident) — validated with the SHARED `non_blank` BEFORE `str()`, so an explicit `None`
+        never stringifies to the truthy `"None"` and mints a degenerate `CRED-{t}-None` key;
+      - a missing engine seam (`engine is None`) raises `RuntimeError` (transient -> retry ->
+        incident) — the composition root has not wired the agent->engine seam;
+      - a missing audit seam (`audit_sink is None`) raises `RuntimeError` (transient) — the T-C2
+        fence co-requisite: the handoff can never start CRED-001 un-audited (ADR-0007 L0);
+      - a transport/engine error propagates from `start_process_idempotent` (`CibSevenError` ->
+        transient -> engine retry -> incident);
+      - an audit-persistence failure propagates (`AuditPersistenceError` -> transient -> retry) and
+        the engine start NEVER happens (emit-before-effect).
+
+    IDEMPOTENT: re-delivery for the SAME candidate (same `tenant_id`+`prestador_id`) converges on
+    the SAME active CRED-001 instance via the fenced `start_process_idempotent` chokepoint's
+    `find_active_instance` check — never a double search for the same prestador.
     """
     logger.info(
         "adequacao_execute_remediation",
@@ -511,9 +590,117 @@ def execute_remediation(variables: dict[str, Any]) -> dict[str, Any]:
         especialidade=variables.get("especialidade"),
     )
 
+    # non_blank BEFORE str(): explicit None must refuse, never stringify to the truthy "None".
+    if not (non_blank(variables.get("tenant_id")) and non_blank(variables.get("prestador_id"))):
+        logger.error(
+            "adequacao_execute_remediation_no_prestador_candidato",
+            regiao_saude=variables.get("regiao_saude"),
+            especialidade=variables.get("especialidade"),
+        )
+        raise AdequacaoError(
+            ERR_ADEQUACAO_SEM_PRESTADOR_CANDIDATO,
+            "execute_remediation: tenant_id/prestador_id ausente, em branco ou None — nao ha "
+            "candidato identificado para credenciar nesta celula; recusado (nunca fabrica "
+            "handoff_credenciamento=True para uma busca que nao iniciou nenhum processo)",
+        )
+
+    tenant_id = str(variables.get("tenant_id", ""))
+    prestador_id = str(variables.get("prestador_id", ""))
+
+    if engine is None:
+        logger.error(
+            "adequacao_execute_remediation_engine_seam_not_wired",
+            tenant_id=tenant_id,
+            prestador_id=prestador_id,
+        )
+        raise RuntimeError(
+            "execute_remediation: engine seam (CibSevenTransport) not wired — cannot start "
+            "SP-OP-CRED-001; failing closed to a retry/incident (never a silent no-op)"
+        )
+
+    if audit_sink is None:
+        logger.error(
+            "adequacao_execute_remediation_audit_sink_not_wired",
+            tenant_id=tenant_id,
+            prestador_id=prestador_id,
+        )
+        raise RuntimeError(
+            "execute_remediation: audit sink (AuditStartSink) not wired — cannot emit the "
+            "ADR-0007 start record, so SP-OP-CRED-001 is NOT started (fail-closed, "
+            "emit-before-effect); failing to a retry/incident (never an un-audited start)"
+        )
+
+    business_key = _cred_business_key(tenant_id, prestador_id)
+    gap_adequacao = str(variables.get("gap_adequacao", ""))
+    regiao_saude = str(variables.get("regiao_saude", ""))
+    especialidade = str(variables.get("especialidade", ""))
+    payload: dict[str, Any] = {
+        "tenant_id": tenant_id,
+        "prestador_id": prestador_id,
+        "direcao": "credenciamento",
+        "origem_solicitacao": "operadora",
+        "tipo_prestador": str(variables.get("tipo_prestador", "")),
+        "regiao_saude": regiao_saude,
+        "especialidade": especialidade,
+        "motivo_informado": (
+            f"Encaminhado por SP-OP-ADEQUACAO-001 (gap={gap_adequacao}, celula={regiao_saude}/"
+            f"{especialidade})"
+            if (gap_adequacao or regiao_saude or especialidade)
+            else ""
+        ),
+    }
+
+    # ADR-0007 provenance for the fenced start. Deterministic worker context: stable service
+    # identity, no LLM legs; `decision_basis` is a curated allowlist of bounded enum/flag tokens
+    # ONLY (design §3.3) — never PHI, never the candidate's own identity beyond what is already
+    # bound one-way via the record's `input_sha256`.
+    provenance = AgentDecisionProvenance(
+        agent_id=AUDIT_AGENT_ID,
+        agent_version=_resolve_app_version(),
+        tenant_id=tenant_id,
+        decision_basis={
+            "origem_solicitacao": "operadora",
+            "direcao": "credenciamento",
+            "gap_adequacao": gap_adequacao,
+            "roteamento_remediacao": str(variables.get("roteamento_remediacao", "")),
+        },
+        model_id=None,
+        prompt_version=None,
+    )
+
+    # Fenced chokepoint call: emits the durable ADR-0007 start record exactly-once (dedup key
+    # `{tenant}:start:SP-OP-CRED-001:{business_key}`) BEFORE `find_active_instance`/start.
+    instance = asyncio.run(
+        start_process_idempotent(
+            engine,
+            process_key=CRED_PROCESS_KEY,
+            business_key=business_key,
+            variables=payload,
+            audit_sink=audit_sink,
+            provenance=provenance,
+        )
+    )
+
+    logger.info(
+        "adequacao_execute_remediation_handoff",
+        tenant_id=tenant_id,
+        prestador_id=prestador_id,
+        cred_business_key=business_key,
+        cred_instance_id=instance.instance_id,
+        cred_already_existed=instance.already_existed,
+    )
+
     return {
         "handoff_credenciamento": True,
-        "processo_destino": "SP-OP-CRED-001",
+        "handoff_executado": True,
+        "processo_destino": CRED_PROCESS_KEY,
+        # The real fact this fix introduces (replaces the old fabricated constant): True only for
+        # a GENUINE first start; a re-delivery that hits the fenced dedup reports False here (the
+        # dedup outcome itself is ALSO exposed, undiluted, via `cred_already_existed`).
+        "processo_iniciado": not instance.already_existed,
+        "cred_business_key": business_key,
+        "cred_instance_id": instance.instance_id,
+        "cred_already_existed": instance.already_existed,
     }
 
 
@@ -914,15 +1101,32 @@ def register_adequacao_workers(
     worker-runtime composition root (`build_dossier_delegation_dispatcher`). Absent (`None`, the
     topic-probe default and the degraded-runtime posture) the topic still registers and the
     handler fail-neutrals with a disclosed gap (DL-0037) — the human UT always still opens.
+
+    `engine` (a `CibSevenTransport`, the SAME `find_active_instance`/`start_process` seam the
+    agent graphs and `inadimplencia.handoff_rescisao`/`fraude.start_credenciamento` use,
+    ADR-0001/T1.11) and `audit_sink` (an `AuditStartSink`, T-C2 fence co-requisite) are threaded
+    into `execute_remediation` ONLY (PERSP-ADEQ-CRED-HANDOFF fix — the one adequacao.py worker
+    that runs the fenced `start_process_idempotent` chokepoint against SP-OP-CRED-001). Both
+    default to `None` (the topic-probe default) — ABSENT, `execute_remediation` RAISES before any
+    engine effect (never a silent no-op, never an un-audited start). Flow in through the standard
+    `**seams` channel (`register_all_workers(harness, ..., engine=..., audit_sink=...)`), the SAME
+    channel `dmn` already uses — no other bootstrap needs to change.
     """
     dmn = seams.get("dmn")
     dossier_dispatcher: DelegationDispatcher | None = seams.get("dossier_dispatcher")
+    engine: CibSevenTransport | None = seams.get("engine")
+    audit_sink: AuditStartSink | None = seams.get("audit_sink")
     harness.register_worker(FunctionWorker("operadora.adequacao.measure_coverage", measure_gap))
     harness.register_worker(
         FunctionWorker("operadora.adequacao.calculate_gap", functools.partial(route_remediation, dmn=dmn))
     )
     harness.register_worker(FunctionWorker("operadora.adequacao.notify_rede", notify_coordenacao))
-    harness.register_worker(FunctionWorker("operadora.adequacao.start_credenciamento", execute_remediation))
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.adequacao.start_credenciamento",
+            functools.partial(execute_remediation, engine=engine, audit_sink=audit_sink),
+        )
+    )
     harness.register_worker(
         FunctionWorker("operadora.adequacao.register_fallback_commitment", register_fallback_commitment)
     )

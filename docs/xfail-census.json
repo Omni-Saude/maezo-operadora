@@ -21,7 +21,7 @@
   "markers": [
     {
       "file": "tests/integration/processes/test_sp_op_adequacao_001.py",
-      "line": 714,
+      "line": 758,
       "test": "test_l3_conforme_atinge_neutro_sem_user_task",
       "reason_constant": "_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON",
       "classification": "ADEQUACAO_RN259"
