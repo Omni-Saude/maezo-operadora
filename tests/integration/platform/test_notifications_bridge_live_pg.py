@@ -53,6 +53,8 @@ from maezo.platform.notification_bridge import (
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.integration.conftest import _apply_migrations, _pg_reachable
 
+pytestmark = pytest.mark.integration
+
 _DEFAULT_PORT = "5647"
 
 

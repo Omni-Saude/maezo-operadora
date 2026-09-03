@@ -35,6 +35,8 @@ from maezo.platform.integrations.notifications_bridge import (
 )
 from maezo.platform.notification_bridge import NotificationBridge
 
+pytestmark = pytest.mark.integration
+
 _CONNECT_TIMEOUT_S = 5.0
 
 

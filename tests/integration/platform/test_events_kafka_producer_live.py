@@ -73,6 +73,8 @@ from maezo.tools.workers.events import make_publish_event_handler
 from maezo.tools.workers.harness import ExternalTask
 from tests.integration.conftest import _apply_migrations, _pg_reachable
 
+pytestmark = pytest.mark.integration
+
 _CONNECT_TIMEOUT_S = 5.0
 
 #: The two constants must be the SAME literal (module docstring, `events_kafka_producer.py`'s own
