@@ -710,3 +710,32 @@ achado a uma entrada formal da fila:
 | `src/maezo/tools/workers/inadimplencia.py:325-342` (`notify_beneficiario` — GAP-INAD-8, fato fabricado, NAO corrigido nesta PR) | `notify_beneficiario` retorna incondicionalmente `{"notificacao_previa_feita": True, "notificacao_previa_registrada_em": "now"}` (`:339-342`) — mesmo formato dos dois fatos ja corrigidos, mais um placeholder literal `"now"` no lugar de um timestamp real. **Ao contrario dos dois casos corrigidos (zero consumidores), este fato tem DOIS consumidores DMN reais:** (1) `spec/processes/dmn/inadimplencia_status.dmn:37-38` (`in_notificacao_previa` le `notificacao_previa_feita` diretamente para rotear `AGUARDA_PURGA`/`PENDENTE_NOTIFICACAO`); (2) o valor e' carregado por `_HANDOFF_CARRY_KEYS` (`inadimplencia.py:552-567`, chave `notificacao_previa_feita` em `:558`) para o payload de start do CANCEL-001 via `handoff_rescisao`, onde `spec/processes/dmn/cancel_admissibility.dmn:63-64` TAMBEM le `in_notificacao_previa`, e `src/maezo/tools/workers/cancel.py:252-260` (`assess_admissibility`) ramifica sobre ele: para `tipo_solicitacao in ("inadimplencia", "for_cause_operadora")`, `if not validation.notificacao_previa_feita: roteamento = "PENDENTE_NOTIFICACAO"` (`:255-256`) senao `"SEGUE_ANALISE"` (`:258-259`); tambem aparece no `decision_basis` da trilha de auditoria ADR-0007 do start do CANCEL-001 (`inadimplencia.py:713`). **Efeito liquido:** como o fato e' sempre `True`, o ramo `PENDENTE_NOTIFICACAO` NUNCA pode disparar para um caso originado em inadimplencia, em nenhum dos dois processos — supressao silenciosa de um sinal de compliance da RN 593 (suspensao/rescisao por inadimplencia, efeito adverso ao beneficiario). **Escopo/owner recomendado:** pacote R1 separado (`WP-FATOS-FABRICADOS` slice 2) — toca `inadimplencia.py` + `cancel.py` + duas DMNs, exige prova de regressao nos dois processos, e exige definicao (com sign-off regulatorio RN 593) de como seria um sinal honesto de "beneficiario efetivamente notificado" para o fluxo INADIMPLENCIA, ja que — ao contrario do CRED, que tem o campo `comprovacao_notificacao_previa` confirmado por humano — INADIMPLENCIA nao parece ter um campo equivalente ja religado alimentando esta variavel; trocar a constante ingenuamente (para `False`/removida) poderia travar toda rescisao por inadimplencia em `PENDENTE_NOTIFICACAO` sem caminho adiante, uma regressao funcional, nao so uma correcao de honestidade. RN 593 permanece DRAFT/verify — nao alterado por esta entrada. Rastreado em `_FABRICATED_FACT_BASELINE["inadimplencia"]` (`tests/unit/tools/workers/test_worker_handler_purity.py:190-202`) — remover a entrada de la quando corrigido | medico auditor + juridico/regulatorio (RN 593) + arquitetura (design do sinal honesto de notificacao para INADIMPLENCIA) | `DRAFT — requires human review (RN 593) before any fix; pacote R1 separado recomendado (WP-FATOS-FABRICADOS slice 2)` |
 
 
+
+---
+
+## Auditoria 09 — achado 9.4 residuo: `WHATSAPP_PHONE_NUMBER_ID` nao e injetado por nenhum deployment
+
+`fix/whatsapp-token-vazamento`: o achado 9.4 (token WABA no PATH da URL) foi fechado trocando a URL
+para `POST {base_url}/{phone_number_id}/messages` com o token so no header `Authorization`
+(`src/maezo/tools/mcp_whatsapp/server.py:168,177`) e uma recusa fail-closed quando
+`phone_number_id` esta vazio (`:163-164`). O residuo e OPERACIONAL, nao de codigo, e esta declarado
+aqui para nao virar um brick silencioso: **reply path inoperative in Helm until
+`WHATSAPP_PHONE_NUMBER_ID` is provisioned (owner-gated, see OWNER-DECISIONS)**.
+
+Fato de deploy, verificado: `deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml`
+injeta `WHATSAPP_TOKEN` (`:38`), `WHATSAPP_APP_SECRET` (`:47`) e `WHATSAPP_VERIFY_TOKEN` (`:52`) —
+e nenhum `WHATSAPP_PHONE_NUMBER_ID`. `docker-compose.yml:252-253` injeta dois dos tres; so
+`.env.example:72` (dev local) declara o phone-number id. Consequencia hoje: TODA resposta da Helena
+pelo caminho vivo (`src/maezo/platform/webhooks/service.py:123` -> `HelenaDispatcher` -> `dispatch.py:122`
+`_ScopedWhatsAppSender.send` -> `server.py:111 send_message`) recusa em `server.py:163-164`. Esse e
+o modo de falha CORRETO (nunca um envio com URL malformada ou credencial vazia), mas e' uma recusa
+de 100% do trafego de resposta ate a variavel existir. Nada em `deploy/` foi tocado por este pacote
+— `deploy/`, `.github/` e `spec/policies/` sao owner-gated.
+
+Nota de honestidade sobre a referencia: `OWNER-DECISIONS` e o registro de decisoes do dono do
+pacote de gap-closure de 2026-09-02; nao existe arquivo com esse nome nesta arvore hoje. A linha
+acima e' o registro em-repo do item ate que esse registro exista.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml` (env do container) + ExternalSecret `maezo-whatsapp-config` | Provisionar `WHATSAPP_PHONE_NUMBER_ID` (o id Graph do numero remetente da WABA — dado de configuracao, NAO um segredo) e injeta-lo no deployment, na mesma forma dos tres `WHATSAPP_*` ja presentes (`:38,47,52`). Decidir tambem se ele entra como `value:` literal por tenant ou como chave do secret. Enquanto nao entrar, `send_message` recusa toda resposta da Helena (fail-closed, `server.py:163-164`) | dono/ops (mudanca em `deploy/` e owner-gated; sem conteudo clinico ou regulatorio) | `PENDENTE — caminho de resposta inoperante em Helm ate o provisionamento` |
