@@ -946,7 +946,7 @@ class StartDedupPosture(StrEnum):
 #:   `tools/workers/fraude.py:838` and `platform/notification_bridge.py:417` (both WITHOUT it —
 #:   the B-2 asymmetry, swept by `base.contract_business_key_forms`).
 #:   THREE START SITES TODAY: `tools/workers/inadimplencia.py:762` (`handoff_rescisao`'s
-#:   `start_process_idempotent` call, the ENCAMINHAR_RESCISAO handoff; def at `:599`),
+#:   `start_process_idempotent` call, the ENCAMINHAR_RESCISAO handoff; def at `inadimplencia.py:599`),
 #:   `tools/workers/fraude.py:928` (`start_contratual`'s CANCEL leg via `_fenced_start`, def at
 #:   `fraude.py:699`), and the bridge's FRAUDE→CANCEL rule (`notification_bridge.py:639`) through
 #:   `build_cibseven_process_starter` (`:983` -> `:1041`).
