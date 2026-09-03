@@ -674,3 +674,54 @@ deliberately left undecided this wave.
 | `spec/policies/ans/tiss-schema-pin.yaml` + `spec/policies/ans/synthetic-tiss-v1.xsd` | O manifesto de ratificacao (DRAFT — `status: DRAFT`, `ratificado: false`, campos de responsabilidade nulos) + o artefato XSD referenciado (SINTETICO — `schema_artifact.synthetic: true` — para estrutura apenas, NAO o schema real da ANS). Ativacao exige TODOS os quatro campos independentes (o loader recusa uma ratificacao forjada com `ratificado: true` enquanto `status` permanece `DRAFT` — pinado por `test_forged_ratificado_true_with_status_still_draft_refuses`): SME (regulatorio-TISS) substitui o XSD sintetico pelo XSD real publicado pela ANS (Padrao TISS / Componente de Comunicacao, RN 501/2022 — versao exata SME-gated, ver `docs/design/T2.6-ans-submission-rescope.md` §2.B/§7) + `schema_artifact.synthetic: false` + `status: RATIFIED` + `ratificado: true` + `revisor` + `ratificado_em`. Isso e mudanca de DADOS, sem codigo, sem redeploy — mesma logica do manifesto GAP-AUTH-4. Depois da ratificacao, decidir COMO (e SE) `ans_submit.validate_data` consome este portao, e como ele se reconcilia com o `TissSchemaValidator`/`MAEZO_TISS_SCHEMA_VERSION` ja wired (T2.6-2), e trabalho de uma mudanca revisada separada — nao decidido aqui | regulatorio-ANS + juridico/regulatorio (schema real + versao) + seguranca/compliance (CODEOWNERS do pin, `.github/CODEOWNERS`) | `DRAFT — dark build, nao wired em ans_submit.py; nada ratificado` |
 
 
+
+---
+
+## Completude da classificacao de PHI por NOME (GAP-DU-07) — perguntas ao DPO
+
+A redacao de PHI da plataforma e **ancorada em nome**: `redact_phi_vars` so age quando a CHAVE
+esta entre os 8 nomes de `PHI_PROCESS_VARS` (`src/maezo/tools/workers/phi_vars.py:52-61`) e o
+`LogScrubber` quando esta entre os 4 de `PHI_FIELDS` (`src/maezo/gateway/pseudonymizer.py:41-47`).
+Os dois conjuntos vieram do doador e sao CI-enforced — mas nada jamais provou que esses 12 nomes
+COBREM as variaveis de processo que os 16 BPMN e 62 DMN de fato declaram e leem.
+
+A cerca `src/maezo/platform/validation/phi_completeness.py` mecaniza a prova: extrai todo nome de
+variavel de nove superficies de `spec/processes/` com proveniencia `arquivo:linha`, classifica em
+tres baldes (LISTED / SHAPE-SUSPECT-UNLISTED / CLEAN) e **falha fechado** em todo nome PHI-shaped
+que nao esteja listado NEM disposto. Medicao sobre o `spec/` vivo: **6 LISTED, 6
+SHAPE-SUSPECT-UNLISTED, 317 CLEAN** (329 nomes, 1637 ocorrencias).
+
+Duas observacoes de fato, registradas sem interpretacao:
+
+- `laudo` e `diagnostico` (`phi_vars.py:60-61`) **nao sao declarados por artefato nenhum** de
+  `spec/` — sao heranca do doador que os 16 BPMN nunca usam. Nenhum dos 4 `PHI_FIELDS`
+  (`cpf`/`nome`/`telefone`/`email`) aparece como variavel de processo: e a fronteira do gateway
+  funcionando (uma variavel carrega `beneficiario_pseudo_id`, nunca um CPF).
+- Nenhum dos candidatos do relatorio de auditoria (`data_nascimento`, `cns`, `nome_mae`,
+  `endereco`, `cpf_titular`) existe hoje em `spec/`. A cerca os reconhece pela heuristica — se um
+  deles for adicionado a qualquer BPMN/DMN/manifesto, o build fica vermelho ate haver disposicao.
+
+**As 6 perguntas abaixo sao do DPO. A recomendacao ao lado e da ENGENHARIA, com evidencia — nunca
+uma decisao tomada.** O texto completo de cada uma esta em `phi_completeness.DISPOSITIONS`, onde
+todo item nasce e permanece `DRAFT/verify (DPO)` (o `__post_init__` recusa qualquer outro status).
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `detalhes_requisicao` (`spec/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn:55`, rol VARIAVEIS DE ENTRADA) | Texto livre com o detalhe da requisicao do titular. **Recomendacao da engenharia:** listar em `PHI_PROCESS_VARS` — o caso mais forte da tabela, porque o proprio codigo da casa ja o chama de "(free-text PHI)" (`src/maezo/tools/workers/lgpd.py:483`) e o exclui A MAO de UMA saida; hoje a protecao e uma omissao manual num unico call site, nao o controle ancorado em nome. Qualquer outro worker que copie process vars para um dict de saida o emite cru. Nenhuma DMN o le, entao listar nao custa decisao nenhuma | DPO + juridico-privacidade | `DRAFT/verify (DPO) — pergunta aberta` |
+| `fundamentacao_legal` (`SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn:78` outputParameter, `:378` conditionExpression do `GW_GuardFundamentacao`) | Texto livre que fundamenta uma negativa de DSR. **Recomendacao da engenharia:** mesma classe do irmao ja listado `fundamentacao_dut` (`phi_vars.py:56`) — ambos sao texto livre que um humano escreve para justificar um desfecho ADVERSO sobre um titular identificado, e a prosa do proprio BPMN espera fundamento clinico dentro dele ("ex.: retencao obrigatoria de prontuario", `:195`). **Contraevidencia que o DPO precisa pesar:** os valores em `spec/processes/dmn/lgpd_dsr_routing.dmn` sao citacoes estatutarias, nao narrativa — mas nada MECANICAMENTE prende um campo de texto livre a citacoes | DPO + juridico-privacidade | `DRAFT/verify (DPO) — pergunta aberta` |
+| `cid10` (`SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59`, `SP-OP-RECURSO-001_Recurso_Glosa.bpmn:69`, `SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:61` — os tres rois VARIAVEIS DE ENTRADA, i.e. variavel que o CHAMADOR seta no start) | OQ-11 do redesenho CONTAS/RECURSO. **Recomendacao da engenharia:** listar. `cid10_referencia` JA esta em `PHI_PROCESS_VARS` (`phi_vars.py:55`) e o `cid10` nu e O MESMO DADO sob uma segunda grafia — exatamente o modo de falha que a DU-07 nomeia, ja que um controle ancorado em nome nao dobra grafias; `phi_vars.py:24` nomeia CID-10 entre o conteudo clinico que o conjunto existe para cobrir e a ADR-0006 poe diagnostico na Zona PHI. **Custo de listar, medido: ZERO decisoes o leem** — nenhuma `inputExpression` de `spec/processes/dmn/` avalia `cid10`. **Contraevidencia:** um codigo CID-10 e codigo limitado, nao texto livre; se o DPO ler codigos limitados como fora de escopo, entao a inconsistencia a revisitar e a listagem do proprio `cid10_referencia` — os dois nao podem ser classificados de forma diferente | DPO + medico auditor | `DRAFT/verify (DPO) — pergunta aberta` |
+| `diagnostico_oncologico_confirmado` (`spec/processes/dmn/dut_criteria_oncologia_pet_ct.dmn:56`, `typeRef="boolean"`) | **Recomendacao da engenharia:** listar. O valor e booleano, nao texto livre, entao nao e para isso que `redact_phi_vars` foi escrito — mas "este beneficiario tem diagnostico oncologico confirmado" e dado de saude sobre titular identificado (LGPD art. 5, II — sensivel), e o booleano viaja ao lado do pseudo-id que diz de quem e. **Custo de listar, medido: nenhum para a decisao** — a avaliacao de DMN e engine-side (ADR-0028) e `redact_phi_vars` so roda na SAIDA do worker rumo a Zona Geral. **Contraevidencia:** um booleano redigido no payload de auditoria tira do operador um fato que ele pode precisar para explicar uma negativa | DPO + medico auditor | `DRAFT/verify (DPO) — pergunta aberta` |
+| `diagnostico_tea_ou_neurodesenvolvimento` (`spec/processes/dmn/dut_criteria_terapias_especiais.dmn:62`, `typeRef="boolean"`) | Mesma leitura da linha acima — asserção booleana de diagnostico, aqui de neurodesenvolvimento (F84.0 pela prosa da propria tabela, `:26`). **Recomendacao da engenharia:** listar; se algo, o caso e mais forte — diagnostico de neurodesenvolvimento de menor e o dado sensivel arquetipico. Mesmo custo medido e mesma contraevidencia | DPO + medico auditor | `DRAFT/verify (DPO) — pergunta aberta` |
+| `has_cid10_codes` (`spec/processes/dmn/phantom_no_diagnosis.dmn:30`, `typeRef="boolean"`) | **Recomendacao da engenharia: registrar como NAO-PHI** — a unica entrada da tabela em que a leitura da engenharia e que a heuristica disparou so pelo token `cid`. O valor e flag de presenca sobre uma submissao de cobranca ("esta conta documenta codigos CID-10?"), pontuada como um INDICADOR de phantom billing para SP-OP-FRAUDE-001 (`:20`, "NUNCA um veredito"); nao carrega codigo nem diagnostico. **Ainda assim quem diz isso e o DPO**: esta cerca registra a pergunta, nao a resposta | DPO + medico auditor | `DRAFT/verify (DPO) — pergunta aberta` |
+
+**Item de MIGRACAO (ato do dono, nao da engenharia).** A tabela `DISPOSITIONS` mora HOJE dentro de
+`src/maezo/platform/validation/phi_completeness.py`, e nao em `spec/policies/privacy/`, por um
+motivo unico: aquele diretorio e CODEOWNED pelos revisores de DPO/seguranca
+(`.github/CODEOWNERS`, citado em `spec/policies/privacy/phi-business-key-remediation.yaml:48-51`),
+e uma tabela de recomendacoes NAO RATIFICADAS nao pode ser lavada para dentro de um caminho de
+politica do DPO pelo mesmo commit que a escreve. **Quando o DPO ratificar as 6 perguntas acima, a
+tabela deve MIGRAR para um manifesto de privacidade CODEOWNED** (nos moldes de
+`phi-business-key-remediation.yaml`: `status`/`ratificacao.ratificado`/`revisor`/`ratificado_em`,
+com o carregador recusando rascunho), e a constante no modulo e substituida pelo carregador desse
+manifesto. Enquanto a migracao nao acontece, uma disposicao **nao adiciona o nome a conjunto PHI
+algum e nao muda um byte de redacao em runtime** — so silencia a cerca e registra a pergunta.

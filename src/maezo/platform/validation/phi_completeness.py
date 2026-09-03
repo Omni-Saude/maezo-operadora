@@ -727,7 +727,12 @@ def collect_xml_refs_from_source(path: Path, source: str) -> list[VarRef]:
 
 #: Mapping keys under which a `spec/processes/dmn/*.yaml` manifest declares the
 #: variables of a candidate decision table. `entradas`/`saidas` is the shadow
-#: candidates' own vocabulary (e.g. `carencia-check-shadow-candidate.yaml:295`).
+#: candidates' own vocabulary. The manifests are deliberately NOT named here:
+#: `tests/unit/spec/test_shadow_candidates_common.py::test_no_src_consumer_of_the_candidate_manifests`
+#: proves the W4 wave is unwired by asserting that no file under `src/` names
+#: one of them, and that proof is worth more than an example filename in a
+#: comment (the same discipline PR-1's `perspective.py` records). The
+#: fence-side pin lives in this module's unit test instead.
 YAML_VARIABLE_BLOCKS: frozenset[str] = frozenset({"entradas", "saidas"})
 
 
