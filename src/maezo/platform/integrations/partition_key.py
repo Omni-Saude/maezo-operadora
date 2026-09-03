@@ -30,9 +30,24 @@ deterministic, and PHI-free by construction.
    `events.py` passes explicitly — this module introduces no second, unpoliced egress of a
    business key.
 3. **The per-family ENTITY ANCHORS below.** Reached only when a payload carries no business key at
-   all — in practice the worker NOTIFICATION dicts published straight to
-   `operadora.notifications.internal` (`recurso`/`lgpd`/`programa`/`adequacao`/`ans_submit`/
-   `escalation`), which are built field-by-field and do not carry `_business_key`.
+   all — the worker NOTIFICATION dicts published straight to `operadora.notifications.internal`,
+   which are built field-by-field and do not carry `_business_key`, plus the `agents.events.*`
+   domain events whose `_business_key` came out blank.
+
+   The family is resolved by `anchor_family` (below), and WHERE IT COMES FROM DIFFERS BY TOPIC —
+   this is the arm's one subtlety and it was originally documented wrong:
+     - on `agents.events.{familia}.{acao}` the TOPIC names the family;
+     - on `operadora.notifications.internal` the topic does NOT. It is one shared channel whose
+       own `topic_family` is `"notifications"`, which has (and must have) no anchor group of its
+       own — a shared channel has no single entity shape. The family there comes from the PAYLOAD's
+       `type` discriminator, which every worker notification stamps from a module-level constant in
+       the fixed `{familia}.{acao}` shape (`recurso.notify_sla_risk`, `anssubmit.retransmit`,
+       `lgpd.send_response`, ...). So a `recurso` and a `contas` notification about the same
+       guia/glosa co-locate on the shared topic exactly as they do on their own topics.
+     - families whose `type` prefix has no anchor group (`lgpd`, `escalation`, `programa`,
+       `adequacao` today) fall through to arm (4) — per-INSTANCE ordering, honestly, because this
+       repo has no verified per-entity business-key derivation for them to copy (see "Why ONE
+       anchor group per family" below).
 4. **`{tenant_id}|{_process_instance_id}`.** The universal fallback: every event of one process
    instance shares a partition. `events.py` always stamps `_process_instance_id`, and
    `partition_key_for_task` (below) supplies the same pair from the `ExternalTask` itself.
@@ -100,6 +115,11 @@ NOTIFICATIONS_FAMILY: Final[str] = "notifications"
 
 #: Per-family business-entity anchors — ONE group per family (module docstring: never a chain).
 #: Each group is the anchor set of that family's OWN business key, cited to the deriving function.
+#: The keys are family TOKENS, matched two ways by `anchor_family`: as the `{dominio}` segment of
+#: `agents.events.{dominio}.{acao}`, and as the `{familia}` prefix of a bridge notification's
+#: `type`. The two vocabularies already agree by construction — both are named after the same
+#: `notification_bridge` business-key derivations — which is why one table serves both.
+#: `NOTIFICATIONS_FAMILY` is deliberately NOT a key here: it names a shared CHANNEL, not an entity.
 #: `tenant_id` is prepended structurally by `derive_partition_key` and is therefore NOT repeated in
 #: any group (mirrors `notification_bridge._anchored`'s "tenant required structurally" rule, which
 #: exists so no future rule can forget it).
@@ -129,6 +149,16 @@ _PROCESS_INSTANCE_FIELD: Final[str] = "_process_instance_id"
 #: Payload field carrying the tenant. `events.py` stamps it (`setdefault`, deployment identity) and
 #: every worker notification dict sets it explicitly.
 _TENANT_FIELD: Final[str] = "tenant_id"
+
+#: Payload field carrying a bridge notification's own family discriminator, in the fixed
+#: `{familia}.{acao}` shape. It is the SAME field `handle_bridge_message`/`NotificationBridge.
+#: on_event` route on (a notification with no `type` is fail-closed malformed and never reaches a
+#: rule), and every publishing worker stamps it from a module-level `Final` constant — so it is a
+#: stable discriminator, not a payload field a caller may vary per message.
+_NOTIFICATION_TYPE_FIELD: Final[str] = "type"
+
+#: Separator between `{familia}` and `{acao}` inside `_NOTIFICATION_TYPE_FIELD`.
+_NOTIFICATION_TYPE_SEPARATOR: Final[str] = "."
 
 
 class MissingPartitionKeyError(ValueError):
@@ -177,11 +207,12 @@ def anchor_fields() -> frozenset[str]:
 
 
 def topic_family(topic: str) -> str:
-    """Resolve a topic to its `ENTITY_ANCHORS` family token.
+    """Resolve a TOPIC to its family token. Not the whole story — see `anchor_family`.
 
-    - `operadora.notifications.internal` -> `NOTIFICATIONS_FAMILY` (the bridge's `type`-
-      discriminated channel; it declares no anchor group of its own — a notification's entity is
-      whatever the source worker put in it, resolved by arms (2)/(4)).
+    - `operadora.notifications.internal` -> `NOTIFICATIONS_FAMILY`. This is a MARKER, not an
+      anchor-group key: the shared bridge channel carries every worker's notifications, so the
+      topic alone cannot name an entity shape and `NOTIFICATIONS_FAMILY` is deliberately absent
+      from `ENTITY_ANCHORS`. `anchor_family` reads the payload's `type` there instead.
     - `agents.events.{dominio}.{acao}` -> `{dominio}` (the 4-segment reserved-prefix shape every
       BPMN `event_topic` literal uses: `agents.events.contas.completed`, ...).
     - anything else (including the 3-segment `agents.events.process_completed`) -> `""`.
@@ -192,6 +223,41 @@ def topic_family(topic: str) -> str:
     if len(parts) == 4 and parts[0] == "agents" and parts[1] == "events":
         return parts[2]
     return _UNKNOWN_FAMILY
+
+
+def notification_family(payload: Mapping[str, Any]) -> str:
+    """`{familia}` from a bridge notification's `type` (`{familia}.{acao}`); `""` when absent.
+
+    The shared-topic half of arm (3). A notification published to `operadora.notifications.
+    internal` carries no `_business_key` and its TOPIC names no family, so without this the arm is
+    unreachable there and two notifications about the SAME guia/glosa from different process
+    instances land on different partitions. The `type` field is the discriminator the bridge itself
+    routes on, stamped from a module-level constant at every publishing call site, which is what
+    makes it stable enough to partition by.
+
+    Parsed by prefix only, and NEVER validated against `ENTITY_ANCHORS` here — an unknown family is
+    returned as it is spelled and simply finds no anchor group, which is the same fall-through a
+    family deliberately absent from the table gets. Splitting rather than matching also means a
+    future `{familia}.{acao}` value needs no edit here.
+    """
+    raw = _non_blank(payload.get(_NOTIFICATION_TYPE_FIELD))
+    if not raw:
+        return _UNKNOWN_FAMILY
+    return raw.split(_NOTIFICATION_TYPE_SEPARATOR, 1)[0]
+
+
+def anchor_family(topic: str, payload: Mapping[str, Any]) -> str:
+    """The `ENTITY_ANCHORS` family for `payload` published on `topic`. Arm (3)'s resolver.
+
+    The topic is the authority everywhere EXCEPT the shared bridge channel, where the payload's
+    own `type` is (see `topic_family`/`notification_family`). Deliberately not "try the topic, then
+    the payload": a `type` field on an `agents.events.{familia}.*` message must never be able to
+    re-route that message's key away from the family its own topic declares.
+    """
+    family = topic_family(topic)
+    if family == NOTIFICATIONS_FAMILY:
+        return notification_family(payload)
+    return family
 
 
 def _non_blank(value: Any) -> str:
@@ -226,7 +292,7 @@ def derive_partition_key(topic: str, payload: Mapping[str, Any]) -> str | None:
         return _non_blank(scrubbed) or None
 
     tenant = _non_blank(payload.get(_TENANT_FIELD))
-    anchors = ENTITY_ANCHORS.get(topic_family(topic), ())
+    anchors = ENTITY_ANCHORS.get(anchor_family(topic, payload), ())
     if tenant and anchors:
         values = [_non_blank(payload.get(field)) for field in anchors]
         if all(values):

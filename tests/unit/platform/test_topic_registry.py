@@ -484,6 +484,7 @@ class TestInternalDlqTopicConvention:
         """A DLQ entry groups with the traffic it quarantines: `name` is the FULL `.dlq` name,
         while dominio/contexto/acao are the BASE topic's — never "dlq" parsed as an acao."""
         registry = TopicRegistry(strict=True)
+        registry.register("operadora.notifications.internal")
         entry = registry.register_dlq(
             "operadora.notifications.internal", description="poison-message shunt (GAP-SC-04-a)"
         )
@@ -493,9 +494,75 @@ class TestInternalDlqTopicConvention:
 
     def test_register_dlq_over_a_reserved_prefix_topic_keeps_the_base_segments(self) -> None:
         registry = TopicRegistry(strict=True)
+        registry.register("agents.events.contas.completed")
         entry = registry.register_dlq("agents.events.contas.completed")
         assert entry.name == "agents.events.contas.completed.dlq"
         assert (entry.dominio, entry.contexto, entry.acao) == ("agents.events", "contas", "completed")
+
+    # --- ADR-0006: a DLQ carries the payload VERBATIM, so it inherits the base topic's zone ----
+
+    def test_register_dlq_inherits_a_phi_base_topics_zone(self) -> None:
+        """The MAJOR of this rule: a poison message from a `zona_phi` topic IS PHI — the bytes are
+        carried through untouched. Before this, `register_dlq` fell through to `register`'s
+        `zona_geral` default and silently downgraded the one topic nobody validated."""
+        registry = TopicRegistry(strict=True)
+        registry.register("operadora.notifications.internal", pii_zone="zona_phi")
+
+        entry = registry.register_dlq("operadora.notifications.internal")
+
+        assert entry.pii_zone == "zona_phi"
+
+    def test_register_dlq_inherits_a_general_base_topics_zone(self) -> None:
+        registry = TopicRegistry(strict=True)
+        registry.register("agents.events.contas.completed", pii_zone="zona_geral")
+
+        assert registry.register_dlq("agents.events.contas.completed").pii_zone == "zona_geral"
+
+    def test_register_dlq_refuses_to_downgrade_a_phi_base_topics_zone(self) -> None:
+        """An explicit laxer zone is a REFUSAL, not an override — the caller cannot opt a DLQ out
+        of the zone of the traffic it quarantines."""
+        registry = TopicRegistry(strict=True)
+        registry.register("operadora.notifications.internal", pii_zone="zona_phi")
+
+        with pytest.raises(TopicValidationError, match="laxer"):
+            registry.register_dlq("operadora.notifications.internal", pii_zone="zona_geral")
+
+        assert registry.get("operadora.notifications.internal.dlq") is None
+
+    def test_register_dlq_allows_raising_the_zone_above_the_base(self) -> None:
+        """Raising is always allowed — only downgrades are refused."""
+        registry = TopicRegistry(strict=True)
+        registry.register("agents.events.contas.completed", pii_zone="zona_geral")
+
+        entry = registry.register_dlq("agents.events.contas.completed", pii_zone="zona_phi")
+
+        assert entry.pii_zone == "zona_phi"
+
+    def test_register_dlq_fails_closed_when_the_base_topic_is_unregistered(self) -> None:
+        """FAIL CLOSED rather than assume. With no base entry the zone is unknowable, and assuming
+        `zona_geral` is exactly the silent downgrade this rule exists to prevent — so the zone must
+        be stated."""
+        registry = TopicRegistry(strict=True)
+
+        with pytest.raises(TopicValidationError, match="cannot be inherited"):
+            registry.register_dlq("operadora.notifications.internal")
+
+        assert registry.get("operadora.notifications.internal.dlq") is None
+
+    def test_register_dlq_accepts_an_explicit_zone_when_the_base_is_unregistered(self) -> None:
+        registry = TopicRegistry(strict=True)
+
+        entry = registry.register_dlq("operadora.notifications.internal", pii_zone="zona_phi")
+
+        assert entry.pii_zone == "zona_phi"
+
+    def test_register_dlq_refuses_an_unknown_zone_rather_than_ranking_it(self) -> None:
+        """A typo must not pass as "not laxer" — an unrecognised zone is refused outright."""
+        registry = TopicRegistry(strict=True)
+        registry.register("operadora.notifications.internal", pii_zone="zona_phi")
+
+        with pytest.raises(TopicValidationError, match="unknown pii_zone"):
+            registry.register_dlq("operadora.notifications.internal", pii_zone="zona_phy")
 
     def test_parse_of_a_dlq_topic_is_base_relative(self) -> None:
         assert TopicRegistry.parse("operadora.notifications.internal.dlq") == (

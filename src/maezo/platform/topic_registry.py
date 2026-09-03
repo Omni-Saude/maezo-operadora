@@ -355,12 +355,53 @@ class TopicRegistry:
 
         Honest registration, not a bypass: the name is derived by `dlq_topic_for` (which validates
         the BASE topic first) and then goes through the SAME `register` -> `_validate_topic_name`
-        path every other topic goes through. `pii_zone` defaults to the registry's own
-        `zona_geral` and should be passed explicitly as `zona_phi` for any base topic whose raw
-        payload may carry PHI — a DLQ carries the payload VERBATIM, so it inherits the base
-        topic's zone, never a laxer one.
+        path every other topic goes through.
+
+        THE ZONE IS INHERITED, NEVER DEFAULTED (ADR-0006). A DLQ carries the offending payload
+        VERBATIM — that is the whole point of the record — so a dead-letter topic for a
+        `zona_phi` base topic holds PHI bytes and is itself `zona_phi`. Letting `register`'s
+        `zona_geral` default apply here would silently DOWNGRADE the zone of the one topic whose
+        content nobody validated:
+
+          - base REGISTERED -> its `pii_zone` is inherited when the caller passes none;
+          - base REGISTERED and the caller passes a STRICTER zone -> the caller's wins (a zone may
+            always be raised);
+          - base REGISTERED and the caller passes a LAXER zone -> `TopicValidationError`. A
+            downgrade is refused rather than honoured; the docstring used to merely CLAIM the
+            inheritance while the code did the opposite.
+          - base NOT REGISTERED -> the zone is unknowable, so it must be stated. FAIL CLOSED: an
+            explicit `pii_zone` is REQUIRED, because silently assuming `zona_geral` for a base the
+            registry has never seen is exactly the downgrade this rule exists to prevent.
+
+        `_PII_ZONE_RANK` orders the zones; an unrecognised zone value is refused rather than
+        ranked, so a typo cannot pass as "not laxer".
         """
-        return self.register(dlq_topic_for(topic), **kwargs)
+        dlq_name = dlq_topic_for(topic)
+        base_entry = self._topics.get(topic)
+        declared = kwargs.pop("pii_zone", None)
+
+        if declared is None:
+            if base_entry is None:
+                raise TopicValidationError(
+                    dlq_name,
+                    f"base topic '{topic}' is not registered, so its PII zone cannot be inherited "
+                    "— pass pii_zone explicitly (ADR-0006: a DLQ carries the payload verbatim and "
+                    "must never be registered in a laxer zone than the traffic it quarantines)",
+                )
+            zone = base_entry.pii_zone
+        else:
+            zone = str(declared)
+            if _pii_zone_rank(zone) is None:
+                raise TopicValidationError(dlq_name, f"unknown pii_zone '{zone}'")
+            if base_entry is not None and not _zone_is_at_least(zone, base_entry.pii_zone):
+                raise TopicValidationError(
+                    dlq_name,
+                    f"pii_zone '{zone}' is laxer than base topic '{topic}' "
+                    f"('{base_entry.pii_zone}') — a DLQ carries the payload verbatim and may "
+                    "never downgrade the zone (ADR-0006)",
+                )
+
+        return self.register(dlq_name, pii_zone=zone, **kwargs)
 
     # -------------------------------------------------------------------
     # Lookup
@@ -403,6 +444,24 @@ class TopicRegistry:
 def _is_valid_segment(segment: str) -> bool:
     """Check if a single topic segment is valid: [a-z][a-z0-9_]*."""
     return bool(re.match(r"^[a-z][a-z0-9_]*$", segment))
+
+
+def _pii_zone_rank(zone: str) -> int | None:
+    """Strictness rank of a PII zone (`None` for an unrecognised value).
+
+    Two zones only, as `TopicEntry.pii_zone` documents (ADR-0006): `zona_geral` < `zona_phi`. The
+    ranking exists so `register_dlq` can say "never LAXER than the base" instead of "equal to the
+    base" — raising a DLQ's zone above its base is always allowed; lowering it never is.
+    """
+    return {"zona_geral": 0, "zona_phi": 1}.get(zone)
+
+
+def _zone_is_at_least(zone: str, floor: str) -> bool:
+    """True iff `zone` is at least as strict as `floor`. Unknown values are NOT at least anything."""
+    zone_rank, floor_rank = _pii_zone_rank(zone), _pii_zone_rank(floor)
+    if zone_rank is None or floor_rank is None:
+        return False
+    return zone_rank >= floor_rank
 
 
 def dlq_topic_for(topic: str) -> str:

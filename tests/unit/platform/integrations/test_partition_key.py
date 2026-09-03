@@ -313,3 +313,119 @@ def test_task_without_business_key_or_process_instance_yields_none() -> None:
 def test_partition_key_for_task_without_a_payload_still_uses_the_task_identity() -> None:
     task = _FakeTask(business_key="", process_instance_id="pi-10", variables={"tenant_id": "amh"})
     assert pk.partition_key_for_task(task, _AUTH_TOPIC) == "amh|pi-10"
+
+
+# ---------------------------------------------------------------------------
+# Arm (3) on the SHARED bridge topic — the family comes from the payload's `type`.
+#
+# The module originally claimed arm (3) was reached "in practice" by the worker NOTIFICATION dicts
+# published to `operadora.notifications.internal`. It was not: that topic's `topic_family` is
+# `"notifications"`, which has no anchor group, so 16 of the 17 migrated call sites could only ever
+# reach arm (1) or arm (4) — per-INSTANCE ordering, not per-entity. `anchor_family` closes that by
+# reading the `{familia}.{acao}` discriminator every worker notification already stamps.
+# ---------------------------------------------------------------------------
+
+
+_RECURSO_NOTIFICATION = {
+    "type": "recurso.notify_sla_risk",  # workers/recurso.py:688
+    "tenant_id": "amh",
+    "numero_guia_tiss": "GUIA-1",
+    "glosa_id": "GLOSA-9",
+}
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"type": "recurso.notify_sla_risk"}, "recurso"),
+        ({"type": "anssubmit.retransmit"}, "anssubmit"),
+        ({"type": "lgpd.send_response"}, "lgpd"),  # no anchor group -> falls through, honestly
+        ({"type": "agents.events.contas.completed"}, "agents"),  # prefix-only, never a match here
+        ({"type": "semponto"}, "semponto"),
+        ({"type": "   "}, ""),
+        ({"type": None}, ""),
+        ({}, ""),
+    ],
+)
+def test_notification_family_reads_the_type_prefix(payload: dict[str, object], expected: str) -> None:
+    assert pk.notification_family(payload) == expected
+
+
+def test_anchor_family_uses_the_payload_type_only_on_the_shared_notifications_topic() -> None:
+    """The topic is the authority everywhere else. A `type` field on an `agents.events.*` message
+    must never re-route that message's key away from the family its own topic declares."""
+    assert pk.anchor_family(pk.NOTIFICATIONS_TOPIC, _RECURSO_NOTIFICATION) == "recurso"
+    assert pk.anchor_family(_CONTAS_TOPIC, _RECURSO_NOTIFICATION) == "contas"
+    assert pk.anchor_family(_CONTAS_TOPIC, {}) == "contas"
+
+
+def test_notifications_topic_anchors_fire_for_a_recurso_notification() -> None:
+    """The behavioural fix: a notification about one guia/glosa now gets a per-ENTITY key on the
+    shared topic instead of `{tenant}|{process_instance_id}`."""
+    assert pk.derive_partition_key(pk.NOTIFICATIONS_TOPIC, _RECURSO_NOTIFICATION) == "amh|GUIA-1|GLOSA-9"
+
+
+def test_two_instances_notifying_about_one_guia_share_a_partition_key() -> None:
+    """What MAJOR-3 reported as broken, pinned. Two DIFFERENT process instances with blank business
+    keys, notifying about the SAME guia/glosa on the shared topic, used to derive `amh|pi-A` and
+    `amh|pi-B` — different partitions for one entity."""
+    task_a = _FakeTask(business_key="", process_instance_id="pi-A", variables={"tenant_id": "amh"})
+    task_b = _FakeTask(business_key="", process_instance_id="pi-B", variables={"tenant_id": "amh"})
+
+    key_a = pk.partition_key_for_task(task_a, pk.NOTIFICATIONS_TOPIC, dict(_RECURSO_NOTIFICATION))
+    key_b = pk.partition_key_for_task(task_b, pk.NOTIFICATIONS_TOPIC, dict(_RECURSO_NOTIFICATION))
+
+    assert key_a == key_b == "amh|GUIA-1|GLOSA-9"
+
+
+def test_a_contas_and_a_recurso_notification_about_one_guia_co_partition() -> None:
+    """Cross-family co-partitioning on the SHARED topic — the property the notifications channel
+    needs, because both families' events about one guia/glosa arrive at the same bridge."""
+    contas = {
+        "type": "contas.glosa_confirmada",
+        "tenant_id": "amh",
+        "numero_guia_tiss": "GUIA-1",
+        "glosa_id": "GLOSA-9",
+    }
+
+    assert pk.derive_partition_key(pk.NOTIFICATIONS_TOPIC, contas) == pk.derive_partition_key(
+        pk.NOTIFICATIONS_TOPIC, _RECURSO_NOTIFICATION
+    )
+
+
+def test_anssubmit_notification_anchors_on_report_type_and_competencia() -> None:
+    """`workers/ans_submit.py:809,1125` — both notification dicts carry the full ANSSUB group."""
+    notification = {
+        "type": "anssubmit.notify_regulatorio",
+        "tenant_id": "amh",
+        "report_type": "DIOPS",
+        "competencia": "2026-08",
+    }
+    assert pk.derive_partition_key(pk.NOTIFICATIONS_TOPIC, notification) == "amh|DIOPS|2026-08"
+
+
+def test_a_family_with_no_anchor_group_still_falls_to_the_process_instance() -> None:
+    """`lgpd`/`escalation`/`programa`/`adequacao` have no verified per-entity business-key
+    derivation in this repo to copy, so they are deliberately absent from the table and order
+    per-INSTANCE. Stated as a test so the limitation is a fact, not a footnote."""
+    notification = {
+        "type": "lgpd.send_response",
+        "tenant_id": "amh",
+        "_process_instance_id": "pi-77",
+    }
+    assert pk.derive_partition_key(pk.NOTIFICATIONS_TOPIC, notification) == "amh|pi-77"
+
+
+def test_notifications_anchors_never_outrank_the_business_key() -> None:
+    """Arm (2) still wins on the shared topic — the family resolution changes arm (3) only."""
+    payload = dict(_RECURSO_NOTIFICATION) | {"_business_key": "RECURSO-amh-GUIA-1-GLOSA-9"}
+    assert pk.derive_partition_key(pk.NOTIFICATIONS_TOPIC, payload) == "RECURSO-amh-GUIA-1-GLOSA-9"
+
+
+def test_an_incomplete_anchor_group_on_the_shared_topic_falls_through() -> None:
+    """One group per family, never a chain: a `recurso` notification missing `numero_guia_tiss`
+    (`workers/recurso.py:914,977` build exactly that shape) falls to arm (4) rather than minting a
+    partial key that would split one entity across two partitions."""
+    task = _FakeTask(business_key="", process_instance_id="pi-8", variables={"tenant_id": "amh"})
+    partial = {"type": "recurso.submit_appeal", "tenant_id": "amh", "glosa_id": "GLOSA-9"}
+    assert pk.partition_key_for_task(task, pk.NOTIFICATIONS_TOPIC, partial) == "amh|pi-8"
