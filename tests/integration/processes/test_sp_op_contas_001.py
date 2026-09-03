@@ -912,8 +912,14 @@ async def test_lote_sem_data_vencimento_nao_gera_ordem_de_pagamento(
         "e um prazo falso (ADR-0040 OQ-2)"
     )
     assert not contas_probe.has_event(_CONTAS_COMPLETED, desfecho="pagar_integral")
-    assert await engine.incidents(iid), (
-        "a recusa tem de ser VISIVEL: um incidente aberto no engine, nunca um no-op silencioso"
+    incidents = await engine.incidents(iid)
+    handoff_incidents = [i for i in incidents if i.get("activityId") == "ST_HandoffPagamentoAuto"]
+    assert handoff_incidents, (
+        f"a recusa tem de ser VISIVEL: um incidente aberto em ST_HandoffPagamentoAuto, nunca um "
+        f"no-op silencioso. Incidentes encontrados: {incidents}"
+    )
+    assert any("data_vencimento" in (i.get("incidentMessage") or "") for i in handoff_incidents), (
+        f"o incidente deve NOMEAR o campo ausente: {handoff_incidents}"
     )
 
 
