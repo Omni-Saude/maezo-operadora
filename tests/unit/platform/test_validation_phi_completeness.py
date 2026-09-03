@@ -200,7 +200,7 @@ class TestNonVacuity:
             "SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn": 10,
             "SP-OP-AUTH-001_Autorizacao_Previa.bpmn": 10,
             "SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn": 14,
-            "SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn": 19,
+            "SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn": 22,
             "SP-OP-CRED-001_Descredenciamento.bpmn": 18,
             "SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn": 10,
             "SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn": 15,
@@ -537,6 +537,127 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "no LISTED/SHAPE_SUSPECT movement."
         ),
     ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="lastro_origem",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "feat/perspectiva-operadora-contas-recurso (ADR-0040) added 3 new "
+            "`camunda:inputParameter` on CONTAS's own PAGTO handoff sites "
+            "(`ST_HandoffPagamentoAuto`, `ST_HandoffPagamentoHumano`, and a third adjudication "
+            "path), each tagging WHO decided the value being paid "
+            "(`contas_adjudicacao_automatica`/`contas_adjudicacao_humana`/...) without ever "
+            "seeding `lastro_confirmado` itself — invariant I-PAGTO-1's segregation-of-duties "
+            "discipline: the adjudicator who decided the value never confirms the payment's "
+            "backing fact, only SP-OP-PAGTO-001's own User Task does that. New name, provider/"
+            "process metadata (not PHI), CLEAN bucket."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="conta_origem_ref",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "same PR — CONTAS's own `VARIAVEIS DE ENTRADA` roll gains this name (bpmn:80), "
+            "joining SP-OP-PAGTO-001's own declared-input roll (`PAGTO-001:69`) — the alternate "
+            "handoff shape the PAGTO contract documents. One new occurrence, CLEAN bucket."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="data_vencimento",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "same PR — CONTAS's own `VARIAVEIS DE ENTRADA` roll gains this name too (bpmn:77, "
+            "'obrigatoria no handoff a SP-OP-PAGTO-001, que a RECUSA em branco') — now declared "
+            "by all three processes that feed SP-OP-PAGTO-001 (PAGTO/RECURSO/CONTAS). One new "
+            "occurrence, CLEAN bucket."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="instrumento_pagamento",
+        name_delta=0,
+        occurrence_delta=1,
+        reason="same PR/task as `conta_origem_ref` above — same roll line, bpmn:80.",
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="decisao_contas",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "same PR — `GW_DecisaoContas`'s branching widened (3 -> 5 conditionExpressions), "
+            'plus one new `camunda:outputParameter name="decisao_contas">${""}` fail-closed '
+            "initializer on `ST_PublishReceived` (bpmn:111) — the SAME mechanic as RECURSO's "
+            "`decisao_recurso`/`decisao_auditor_recurso` (#288 above): CIB Seven 2.1.0 evaluates "
+            "conditionExpressions BEFORE the gateway default, so an uninitialised variable HTTP "
+            "500s the User Task's complete instead of reaching `End_ErrContasDecisaoInvalida`. "
+            "3 -> 6 occurrences, name stays in the corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="event_desfecho",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "same PR — one more CONTAS outcome-publishing task declares this name than before "
+            "(the rebuilt payer-perspective flow's own new terminal). CONTAS-scoped 59 -> 60 "
+            "corpus-wide (RECURSO's own count from #288 above unaffected), name stays."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="event_payload_vars",
+        name_delta=0,
+        occurrence_delta=1,
+        reason="same PR/task/mechanism as `event_desfecho` immediately above.",
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="event_topic",
+        name_delta=0,
+        occurrence_delta=1,
+        reason="same PR/task/mechanism as `event_desfecho` two entries above.",
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="fonte_valor",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "same PR — new `camunda:inputParameter` on the same 3 CONTAS PAGTO handoff sites as "
+            "`lastro_origem` above, each pinned to a literal naming where the paid value came "
+            "from (`apresentado`/`liberado`/...) — the SAME discipline RECURSO's own two PAGTO "
+            "handoffs already carry (#288 above). 2 -> 5 occurrences, name stays in the corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-03",
+        pr="#294",
+        name="tipo_comunicacao",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "same PR — new `camunda:inputParameter` on 5 CONTAS communication tasks (two "
+            "`demonstrativo_analise` emissions plus three more outcome-communication tasks), "
+            "mirroring RECURSO's own 5 `ST_Comunicar*` tasks (#288 above). 5 -> 10 occurrences, "
+            "name stays in the corpus."
+        ),
+    ),
 )
 
 
@@ -547,7 +668,7 @@ class TestBuckets:
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 9
-        assert expected_clean == 313
+        assert expected_clean == 314
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 9,
@@ -556,7 +677,7 @@ class TestBuckets:
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
 
     def test_the_occurrence_count_is_pinned(self, live_sweep: Sweep) -> None:
-        """328 names over 1627 occurrences — the number the ledger row quotes.
+        """329 names over 1647 occurrences — the number the ledger row quotes.
 
         Pinned because the first ledger draft quoted 1637, a figure no state of
         this branch produced. A number reported to a reader and reproducible by
@@ -567,8 +688,8 @@ class TestBuckets:
         """
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
-        assert len(live_sweep.names) == expected_names == 328
-        assert len(live_sweep.refs) == expected_refs == 1627
+        assert len(live_sweep.names) == expected_names == 329
+        assert len(live_sweep.refs) == expected_refs == 1647
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -689,7 +810,9 @@ class TestBuckets:
         rendered = render_buckets(live_sweep)
         assert f"## {LISTED} (6)" in rendered
         assert f"## {SHAPE_SUSPECT} (9)" in rendered
-        assert f"## {CLEAN} (313)" in rendered  # see CORPUS_DELTA_LOG — tuss_codes left the corpus (#276)
+        assert (
+            f"## {CLEAN} (314)" in rendered
+        )  # see CORPUS_DELTA_LOG — lastro_origem entered the corpus (#294)
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to

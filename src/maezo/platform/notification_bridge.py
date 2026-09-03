@@ -96,7 +96,7 @@ PROCESS_KEY_ANS_SUBMIT = "SP-OP-ANS-SUBMIT-001"
 # signal) — see `docs/design/audit-emit-path-wiring.md` §"EB-4 bridge reconciliation".
 #
 # CANONICAL PATH IS THE IN-FLOW WORKER. The dedicated BPMN service-task workers
-# (`operadora.contas.start_recurso` / `operadora.fraude.start_credenciamento` /
+# (`operadora.contas.handoff_pagamento` / `operadora.fraude.start_credenciamento` /
 # `operadora.fraude.start_contratual`, un-stubbed in EB-4 to run `start_process_idempotent` through
 # the same fence — mirroring the merged `inadimplencia.handoff_rescisao`) are the GUARANTEED,
 # business-key-CORRECT, PHI-complete handoff, because they run in-flow with full process variables.
@@ -241,7 +241,7 @@ def _non_blank(value: Any) -> bool:
     unchanged, same as before.
 
     EB-4 R1 follow-up: the implementation is now the SHARED `tools.workers.base.non_blank` — the
-    single source of truth the 3 fenced-start handoff workers (`contas.start_recurso`,
+    single source of truth the 3 fenced-start handoff workers (`contas.handoff_pagamento`,
     `fraude.start_credenciamento`/`start_contratual`) also use for their anchor/tenant guards, so
     the bridge predicates and the in-flow workers can never drift on what counts as a valid anchor.
     """
@@ -252,7 +252,7 @@ def _anchored(payload: dict[str, Any], *anchor_fields: str) -> bool:
     """True iff `tenant_id` AND every named business-key anchor field is present/non-blank.
 
     t2-notify-integrity item 3 (bridge tenant anchor): ALL of the in-flow fenced-start workers
-    (`contas.start_recurso`/`start_fraude`, `fraude.start_credenciamento`/`start_contratual`)
+    (`contas.handoff_pagamento`/`start_fraude`, `fraude.start_credenciamento`/`start_contratual`)
     guard `tenant_id` via the shared `non_blank` and REFUSE (incident) a tenant-less start — but
     the bridge's 7 predicates historically checked only their per-rule anchors, so a tenant-less
     payload minted a degenerate business key (`FRAUDE--{caso}`, `ANSSUB--nipfiling-{nip}`, ...):
@@ -603,7 +603,7 @@ class NotificationBridge:
                 "data_recebimento_recurso_iso": p.get("data_recebimento_recurso_iso", ""),
                 "data_vencimento": p.get("data_vencimento", ""),
                 # FACTS, not tautologies. `glosa_existe` was hard-coded `True` on the old edge
-                # ("it only reaches the handoff after RECORRER on an active glosa") — an
+                # (it was only reached on the deleted CONTAS branch, over an active glosa) — an
                 # assumption that does not survive an externally-filed appeal, whose `glosa_id`
                 # may reference nothing the payer ever minted. It is now echoed from the envelope
                 # and FAIL-CLOSED to `False` when absent, which routes to `ANALISE_HUMANA` via

@@ -477,25 +477,38 @@ mapped = set(manifest["mapeamento_topicos"].keys())
 unmapped = sorted(registered - mapped)
 ```
 
-Resultado: **124 tópicos registrados** (`WorkerHarness.registered_topics`, via os 17 bootstraps de
-`tools/workers/bootstrap.py::register_all_workers`, `:71-81`), **26 mapeados**
-(`mapeamento_topicos`, `action-approvals.yaml:575-608` — byte-inalterado por esta PR), **0
-mapeados-mas-não-registrados** (nenhum drift entre o manifesto e o registry vivo), **98 tópicos
+Resultado (**re-derivado 2026-09-03**, ADR-0040 PR-3+PR-4): **124 tópicos registrados**
+(`WorkerHarness.registered_topics`, via os 17 bootstraps de
+`tools/workers/bootstrap.py::register_all_workers`), **30 mapeados** (`mapeamento_topicos`), **0
+mapeados-mas-não-registrados** (nenhum drift entre o manifesto e o registry vivo), **94 tópicos
 registrados sem entrada em `mapeamento_topicos`**.
 
-A cláusula que rege esses 98 já existe no próprio manifesto, no ponto que este pacote cita sem
+> **Por que 98 → 94, sem que nenhum tópico tenha deixado de existir por acidente.** A correção de
+> perspectiva das cadeias CONTAS/RECURSO (ADR-0040, **Proposed — não ratificada**) trocou o
+> vocabulário de seis superfícies e **classificou** as novas em `mapeamento_topicos`: saíram da
+> lista de trabalho `operadora.recurso.registrar_indeferimento`,
+> `operadora.recurso.comunicar_resposta`, `operadora.recurso.handoff_pagamento`,
+> `operadora.contas.registrar_glosa`, `operadora.contas.emitir_demonstrativo` e
+> `operadora.contas.handoff_pagamento`. Foram REMOVIDOS do registry — porque os atos que nomeavam
+> eram do **recorrente**, não do pagador — `operadora.recurso.submit_appeal`,
+> `operadora.recurso.track_status`, `operadora.recurso.reconcile_payment`,
+> `operadora.recurso.register_desistencia`, `operadora.contas.start_recurso` e
+> `operadora.contas.reconcile_payment`. **Nada aqui ratifica MZO-040**: `status: DRAFT`,
+> `modo: shadow` e todos os blocos `aprovacoes` permanecem intocados.
+
+A cláusula que rege esses 94 já existe no próprio manifesto, no ponto que este pacote cita sem
 tocar (`action-approvals.yaml:563-566`):
 
 > "DELIBERADAMENTE INCOMPLETO. Só estão mapeados os tópicos cujo efeito externo é inequívoco a
 > partir do próprio worker... Os ~80 tópicos restantes... NÃO estão mapeados, e classificá-los é
 > decisão humana, não inferência de agente."
 
-O número real hoje (98) é maior que a estimativa de prosa "~80" que o próprio manifesto carrega —
+O número real hoje (94) é maior que a estimativa de prosa "~80" que o próprio manifesto carrega —
 cresceu porque mais workers foram registrados desde que aquela frase foi escrita. Isto não é uma
 contradição a corrigir: a frase nunca prometeu um número exato, e o script acima é a fonte da
 verdade reproduzível, não a prosa.
 
-**A lista de trabalho** (98 tópicos, agrupados por domínio; cada um hoje classificado sob
+**A lista de trabalho** (94 tópicos, agrupados por domínio; cada um hoje classificado sob
 `enforcement_padrao_nao_mapeado: shadow`, portanto já emitindo uma linha `ACAO_NAO_MAPEADA` por
 dispatch assim que um deployment shadow rodar contra tráfego real):
 
@@ -505,7 +518,7 @@ dispatch assim que um deployment shadow rodar contra tráfego real):
 | `operadora.ans_cron.*` | 2 | check_calendar, trigger_submissions |
 | `operadora.auth.*` | 5 | analyze_request, convene_junta, notify_sla_risk, request_documents, validate_auto_criteria |
 | `operadora.cancel.*` | 5 | confirm_maintained_decision, notify_sla_risk, prepare_dossier, request_notification, resolve_facts |
-| `operadora.contas.*` | 8 | analyze_reason, calculate_impact, identify_glosa, notify_sla_risk, prepare_triage_dossier, publish, reconcile_payment, register_glosa_accept |
+| `operadora.contas.*` | 7 | analyze_reason, calculate_impact, devolver_conta, identify_glosa, notify_sla_risk, prepare_triage_dossier, publish |
 | `operadora.cred.*` | 8 | check_network_criteria, check_prior_notice, notify_doc_pendente, notify_sla_risk, prepare_dossier, register_cred_denial, register_credenciamento, verify_credentials |
 | `operadora.escalation.*` | 2 | notify_supervisor, notify_team |
 | `operadora.events.*` | 1 | publish |
@@ -515,10 +528,17 @@ dispatch assim que um deployment shadow rodar contra tráfego real):
 | `operadora.nip.*` | 3 | instruct_dossier, notify_deadline_risk, publish_completed |
 | `operadora.pagto.*` | 7 | assess_admissibility, calculate_facts, notify_sla_risk, prepare_approval_dossier, publish_completed, register_payment_refusal, validate_payment_data |
 | `operadora.programa.*` | 7 | build_care_plan, check_consent, monitor_programa, notify_sla_risk, register_program_discharge, stop_processing, stratify_risk |
-| `operadora.recurso.*` | 12 | analyze_request, assess_eligibility, escalate_ans_timeout, escalate_to_junta, notify_sla_risk, prepare_dossier, publish_completed, reconcile_payment, register_desistencia, request_documents, track_status, validate_recurso |
+| `operadora.recurso.*` | 9 | analyze_request, assess_eligibility, escalate_ans_timeout, escalate_to_junta, notify_sla_risk, prepare_dossier, publish_completed, request_documents, validate_recurso |
 | `operadora.reembolso.*` | 7 | analyze_request, calculate_amount, check_coverage, check_prazo, notify_sla_risk, publish_completed, request_documents |
 | `regulatorio.anssubmit.*` | 5 | assemble, notify_regulatorio, publish_completed, track_protocol, validate |
-| **Total** | **98** | |
+| **Total** | **94** | |
+
+**Os 12 tópicos vivos de `operadora.recurso.*` depois de ADR-0040** (os 9 acima + os 3 que passaram
+a ser mapeados): `analyze_request`, `assess_eligibility`, `comunicar_resposta`,
+`escalate_ans_timeout`, `escalate_to_junta`, `handoff_pagamento`, `notify_sla_risk`,
+`prepare_dossier`, `publish_completed`, `registrar_indeferimento`, `request_documents`,
+`validate_recurso`. Os 11 vivos de `operadora.contas.*`: os 7 acima + `registrar_glosa`,
+`emitir_demonstrativo`, `handoff_pagamento`, `start_fraude`.
 
 **Um segundo censo, menor e já FECHADO por construção** (não é trabalho pendente; citado para
 completude): a perna `mapeamento_acoes` (agent-side) tem `16/16` operações do catálogo
@@ -530,7 +550,7 @@ classificação do lado do agente. O único gap conhecido do lado do agente é `
 `effect_classes.py`, "KNOWN GAP", `:38-47`; testado por
 `tests/unit/gateway/test_effect_enforcement.py::
 test_the_memory_tool_gap_is_recorded_not_silently_catalogued`) — a mesma classe de decisão humana
-que os 98 tópicos acima, não um achado novo desta seção.
+que os 94 tópicos acima, não um achado novo desta seção.
 
 ### Item 4 do design §9.2 — Forma de recusa declarada por classe + ponteiro para o teste de mutação
 
@@ -604,7 +624,7 @@ o PEP neutralizado", eles nunca sabem que o PEP existe.
 
 Um quarto exemplo, fora das 6 classes C4 mas da MESMA família: `ERR_FALLBACK_COMMITMENT_NOT_HUMAN`
 (`tools/workers/adequacao.py:44`, cobrindo `operadora.adequacao.register_fallback_commitment`, um
-dos 98 não-mapeados do Item 3), provado em
+dos 94 não-mapeados do Item 3), provado em
 `tests/unit/tools/workers/test_adequacao.py::test_fallback_commitment_rejects_wrong_decisao`
 (`:1146-1157`), citado porque a mesma disciplina de independência se estende a toda a família
 `ERR_*_NOT_HUMAN`, não só às 6 classes C4.

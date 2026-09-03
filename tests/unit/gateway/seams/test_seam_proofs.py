@@ -888,7 +888,10 @@ _QUOTED_MANIFEST_CITATIONS: tuple[tuple[str, str, str], ...] = (
     # `leitura_phi_clinica`) were appended: +38 lines above the taxonomy passage and +65 above the
     # unmapped-topics passage. This table moving is the DESIGNED outcome of the test below, not a
     # weakening of it — the assertion that each span still CONTAINS its quote is what has teeth.
-    ("gateway/effect_classes.py", "634-637", "decisão humana, não inferência de agente"),
+    # Re-derived 2026-09-03 (ADR-0040 PR-4): the CONTAS half of the perspective delta added 6
+    # lines above the unmapped-topics passage (2 new surfaces in `negativa_notificacao`, and the
+    # `inicio_processo_regulatorio` surface item rewritten in place). Same designed outcome.
+    ("gateway/effect_classes.py", "640-643", "decisão humana, não inferência de agente"),
     ("gateway/effect_classes.py", "172-174", "no class was invented to round out a taxonomy"),
 )
 

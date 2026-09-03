@@ -282,13 +282,27 @@ def test_spot_check_fraude_register_fraud_accusation_matches_spec() -> None:
     assert "operadora.fraude.register_fraud_accusation" in harness.registered_topics
 
 
-def test_spot_check_contas_register_glosa_accept_matches_spec() -> None:
+def test_spot_check_contas_registrar_glosa_matches_spec() -> None:
+    """The GUARDED CONTAS surface, post-ADR-0040: the payer APPLIES the glosa (two elements,
+    `ST_RegistrarGlosa` and `ST_RegistrarGlosaParcial`, one topic)."""
     spec_topics = _spec_topics("SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn")
-    assert "operadora.contas.register_glosa_accept" in spec_topics
+    assert "operadora.contas.registrar_glosa" in spec_topics
 
     harness = _fresh_harness()
     register_all_workers(harness)
-    assert "operadora.contas.register_glosa_accept" in harness.registered_topics
+    assert "operadora.contas.registrar_glosa" in harness.registered_topics
+
+
+def test_spot_check_contas_handoff_pagamento_matches_spec() -> None:
+    """The CONTAS→PAGTO leg that replaced the deleted CONTAS→RECURSO edge."""
+    spec_topics = _spec_topics("SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn")
+    assert "operadora.contas.handoff_pagamento" in spec_topics
+    assert "operadora.contas.start_recurso" not in spec_topics
+
+    harness = _fresh_harness()
+    register_all_workers(harness)
+    assert "operadora.contas.handoff_pagamento" in harness.registered_topics
+    assert "operadora.contas.start_recurso" not in harness.registered_topics
 
 
 def test_spot_check_reembolso_send_denial_matches_spec() -> None:

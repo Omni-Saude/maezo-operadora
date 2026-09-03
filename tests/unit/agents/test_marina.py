@@ -166,7 +166,7 @@ def _register_contas_sla(dmn: FakeDmnTransport) -> None:
     dmn.register("contas_sla", [{"sla_analise": "P30D", "sla_alerta": "P20D", "fonte_regulatoria": "RN 424"}])
 
 
-def _register_triage(dmn: FakeDmnTransport, roteamento: str = "RECORRER") -> None:
+def _register_triage(dmn: FakeDmnTransport, roteamento: str = "PAGAR") -> None:
     dmn.register("glosa_triage", [{"roteamento": roteamento, "motivo": "test"}])
 
 
@@ -187,7 +187,7 @@ def _register_eligibility(
 
 
 def _register_contas_dmn(
-    dmn: FakeDmnTransport, *, categoria: str = "valor", glosa_type: str = "valor", triagem: str = "RECORRER"
+    dmn: FakeDmnTransport, *, categoria: str = "valor", glosa_type: str = "valor", triagem: str = "PAGAR"
 ) -> None:
     _register_normalization(dmn, categoria)
     _register_classification(dmn, glosa_type)
@@ -365,27 +365,21 @@ async def test_gather_bails_fail_safe_when_already_errored() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_assess_contas_sem_glosa_auto_routes() -> None:
+async def test_assess_contas_pagar_auto_routes() -> None:
+    """The ONE neutral value that auto-routes, and it is the FAVOURABLE one (ADR-0040).
+
+    SUBSTITUI `test_assess_contas_sem_glosa_auto_routes` e
+    `test_assess_contas_recorrer_auto_routes`: o dominio de `glosa_triage` encolheu de tres
+    valores para dois, e o unico desfecho automatico e pagar."""
     dmn = FakeDmnTransport()
-    _register_contas_dmn(dmn, categoria="administrativa", triagem="SEM_GLOSA")
+    _register_contas_dmn(dmn, categoria="administrativa", triagem="PAGAR")
     graph = _graph(dmn=dmn)
 
     result = await graph.assess(_contas_state())
 
     assert result["route"] == "auto_route"
-    assert result["desfecho"] == "sem_glosa"
-    assert result["triagem"] == "SEM_GLOSA"
-
-
-async def test_assess_contas_recorrer_auto_routes() -> None:
-    dmn = FakeDmnTransport()
-    _register_contas_dmn(dmn, triagem="RECORRER")
-    graph = _graph(dmn=dmn)
-
-    result = await graph.assess(_contas_state())
-
-    assert result["route"] == "auto_route"
-    assert result["desfecho"] == "encaminhada_recurso_triagem"
+    assert result["desfecho"] == "pagar_integral"
+    assert result["triagem"] == "PAGAR"
 
 
 async def test_assess_contas_analise_humana_routes_human() -> None:
@@ -463,7 +457,7 @@ async def test_assess_contas_sla_dmn_failure_never_gates_routing() -> None:
     dmn = FakeDmnTransport()
     _register_normalization(dmn, categoria="administrativa")
     _register_classification(dmn)
-    _register_triage(dmn, "SEM_GLOSA")
+    _register_triage(dmn, "PAGAR")
     # contas_sla deliberately NOT registered.
     graph = _graph(dmn=dmn)
 
@@ -474,10 +468,10 @@ async def test_assess_contas_sla_dmn_failure_never_gates_routing() -> None:
 
 
 async def test_assess_contas_unexpected_triagem_value_routes_human() -> None:
-    """Fail-safe closed allowlist: ONLY SEM_GLOSA/RECORRER auto-route. Any other/unexpected
-    value (even a plausible-looking but non-allow-listed one) falls to human by omission."""
+    """Fail-safe closed allowlist: ONLY `PAGAR` auto-routes. Any other/unexpected value (even a
+    plausible-looking but non-allow-listed one) falls to human by omission."""
     dmn = FakeDmnTransport()
-    _register_contas_dmn(dmn, triagem="ACEITAR")  # not a real DMN output — simulates corruption
+    _register_contas_dmn(dmn, triagem="GLOSAR")  # not a real DMN output — simulates corruption
     graph = _graph(dmn=dmn)
 
     result = await graph.assess(_contas_state())
@@ -627,7 +621,7 @@ async def test_assess_reembolso_dentro_teto_l2_is_pure_passthrough() -> None:
 
 async def test_auto_route_dossier_never_carries_an_adverse_decision() -> None:
     graph = _graph()
-    result = await graph.auto_route(_contas_state(route="auto_route", triagem="RECORRER"))
+    result = await graph.auto_route(_contas_state(route="auto_route", triagem="PAGAR"))
     assert result["dossier"]["decisao_glosa"] is None
     assert result["dossier"]["decisao_recurso"] is None
     assert result["dossier"]["decisao_reembolso"] is None
@@ -838,7 +832,7 @@ async def test_dmn_error_detail_never_reaches_engine_variables() -> None:
 
 async def test_full_turn_contas_auto_route_starts_process() -> None:
     dmn = FakeDmnTransport()
-    _register_contas_dmn(dmn, categoria="administrativa", triagem="SEM_GLOSA")
+    _register_contas_dmn(dmn, categoria="administrativa", triagem="PAGAR")
     cibseven = FakeCibSevenTransport()
     inference = _FakeInference(["dossie sintetico"])
     graph = _graph(inference=inference, dmn=dmn, cibseven=cibseven).compile_graph()
@@ -926,10 +920,13 @@ def test_allowed_routes_never_include_an_adverse_variant() -> None:
         assert adverse not in allowed
 
 
-def test_triagem_glosa_domain_never_includes_an_accept_variant() -> None:
+def test_triagem_glosa_domain_never_includes_a_variant_that_gloses() -> None:
+    """ADR-0018 part 2 under the payer perspective: the adverse act IS the glosa, so it cannot be
+    a routing value at all. The domain shrank from three values to two, which makes the invariant
+    trivially checkable instead of argued."""
     allowed = set(TriagemGlosa.__args__)  # type: ignore[attr-defined]
-    assert allowed == {"SEM_GLOSA", "RECORRER", "ANALISE_HUMANA"}
-    for adverse in ("ACEITAR", "CONFIRMAR", "ACEITAR_GLOSA"):
+    assert allowed == {"PAGAR", "ANALISE_HUMANA"}
+    for adverse in ("GLOSAR", "PAGAR_PARCIAL", "ACEITAR", "CONFIRMAR", "ACEITAR_GLOSA"):
         assert adverse not in allowed
 
 
@@ -1039,7 +1036,7 @@ async def test_receive_resets_every_output_only_field() -> None:
 
 
 async def test_full_turn_contas_planted_error_and_route_cannot_bypass_dmn_assessment() -> None:
-    """Verifier probe A: planted `error` + `route="auto_route"` + forged SEM_GLOSA facts/
+    """Verifier probe A: planted `error` + `route="auto_route"` + forged PAGAR facts/
     dmn_refs must NEVER skip assess. Post-fix: receive sanitizes, assess re-evaluates the REAL
     DMN chain (4 calls), and the DMN-decided human route overwrites the plant before any engine
     start — no sentinel and no forged ref in the engine-bound variables."""
@@ -1053,11 +1050,11 @@ async def test_full_turn_contas_planted_error_and_route_cannot_bypass_dmn_assess
         _contas_state(
             error=_SENTINEL,
             route="auto_route",
-            triagem="SEM_GLOSA",  # forged neutral outcome
+            triagem="PAGAR",  # forged neutral outcome
             categoria_normalizada=_SENTINEL,
             glosa_classificada=_SENTINEL,
             dmn_refs={"glosa_triage": _SENTINEL},
-            desfecho="sem_glosa",
+            desfecho="pagar_integral",
             dossier={"narrativa": _SENTINEL},
         )
     )
@@ -1069,7 +1066,7 @@ async def test_full_turn_contas_planted_error_and_route_cannot_bypass_dmn_assess
         "glosa_triage",
     ], "assess must run the full real DMN chain — a planted error may never bypass it"
     assert result["route"] == "human_review"
-    assert result["triagem"] == "ANALISE_HUMANA"  # DMN-decided; the forged SEM_GLOSA is gone
+    assert result["triagem"] == "ANALISE_HUMANA"  # DMN-decided; the forged PAGAR is gone
     assert result["motivo_humano"] == "triagem_analise_humana"
 
     assert cibseven.recorded, "the human-review route still starts the process"
@@ -1150,7 +1147,7 @@ async def test_dmn_down_shortcut_never_carries_planted_facts_into_dossier() -> N
 
     result = await compiled.ainvoke(
         _contas_state(
-            triagem="SEM_GLOSA",  # forged
+            triagem="PAGAR",  # forged
             categoria_normalizada=_SENTINEL,
             glosa_classificada=_SENTINEL,
             dmn_refs={"glosa_triage": _SENTINEL},
@@ -1161,7 +1158,7 @@ async def test_dmn_down_shortcut_never_carries_planted_facts_into_dossier() -> N
     assert result["route"] == "human_review"
     assert result["motivo_humano"] == "dmn_indisponivel"
     fatos = result["dossier"]["fatos"]
-    assert fatos["triagem"] is None  # the forged SEM_GLOSA is gone
+    assert fatos["triagem"] is None  # the forged PAGAR is gone
     assert fatos["categoria_normalizada"] is None
     assert fatos["glosa_classificada"] is None
     assert _SENTINEL not in json.dumps(result["dossier"], ensure_ascii=False, default=str)
@@ -1182,7 +1179,7 @@ async def test_fraud_shortcut_never_carries_planted_facts_into_dossier() -> None
     result = await compiled.ainvoke(
         _contas_state(
             indicio_fraude_sinalizado=True,
-            triagem="SEM_GLOSA",  # forged
+            triagem="PAGAR",  # forged
             categoria_normalizada=_SENTINEL,
             glosa_classificada=_SENTINEL,
             dmn_refs={"glosa_triage": _SENTINEL},

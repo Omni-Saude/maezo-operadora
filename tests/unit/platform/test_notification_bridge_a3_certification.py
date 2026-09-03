@@ -22,22 +22,21 @@ certifies that armed state:
   - INADIMPLENCIA stays dormant for a `beneficiario` contratual case (it fires only for
     `entidade_tipo == 'contrato'`), matching the in-flow `start_contratual` worker;
   - the structural fence (PIN 3) still admits NO raw/unfenced engine-start path in the bridge or
-    its now-FOUR in-flow workers (start_recurso, start_fraude, start_credenciamento,
-    start_contratual);
+    its now-FOUR in-flow workers (contas.handoff_pagamento, contas.start_fraude,
+    fraude.start_credenciamento, fraude.start_contratual);
   - the source-level twins (PIN 5) now assert the CONTAS→FRAUDE branch is PRESENT (Phase-3
     landed) instead of absent.
 
 REAL PAYLOAD SHAPES CITED (never invented — read directly from spec/ BPMNs, task requirement #1):
 
   spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
-    ST_PublishSemGlosa            event_desfecho=sem_glosa
-                                    event_payload_vars=tenant_id,numero_lote_tiss,prestador_id
-    ST_PublishEncaminhadaRecurso  event_desfecho=encaminhada_recurso
-                                    event_payload_vars=tenant_id,numero_lote_tiss,glosa_id,
-                                    numero_guia_tiss           <- T4 anchor added (arms RECURSO)
-    ST_PublishGlosaAceitaHumano   event_desfecho=glosa_aceita_humano
-                                    event_payload_vars=tenant_id,numero_lote_tiss,
-                                    codigo_glosa_aceito,analista_id
+    ST_PublishPagamentoIntegral   event_desfecho=pagar_integral
+                                    event_payload_vars=tenant_id,numero_lote_tiss,prestador_id,
+                                    ordem_pagamento_id
+    ST_PublishGlosaAplicada       event_desfecho=glosa_aplicada_humano
+                                    event_payload_vars=tenant_id,numero_lote_tiss,prestador_id,
+                                    glosa_id,numero_guia_tiss,codigo_glosa_tiss,analista_id
+                                    <- carries the glosa identity the RECURSO intake needs
     ST_PublishReenviada           event_desfecho=reenviada
                                     event_payload_vars=tenant_id,numero_lote_tiss,prestador_id
     ST_StartFraude                (topic operadora.contas.start_fraude — T4 Phase-3 in-flow worker)
@@ -80,10 +79,10 @@ from maezo.platform.notification_bridge import (
 from maezo.platform.notification_bridge import (
     _fraude_numero_caso_for_contas_handoff as _bridge_numero_caso,
 )
+from maezo.platform.notification_bridge import _recurso_business_key as _bridge_recurso_bk
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.contas import _fraude_business_key as _contas_fraude_bk
 from maezo.tools.workers.contas import _fraude_numero_caso_for_handoff as _worker_numero_caso
-from maezo.tools.workers.contas import _recurso_business_key as _contas_recurso_bk
 from maezo.tools.workers.fraude import _cancel_business_key as _fraude_cancel_bk
 from maezo.tools.workers.fraude import _cred_business_key as _fraude_cred_bk
 from maezo.tools.workers.fraude import _inadimplencia_business_key as _fraude_inad_bk
@@ -156,7 +155,7 @@ async def test_pin_intake_recurso_armed_starts_with_converged_bk() -> None:
         "numero_guia_tiss": "GUIA-REAL-001",
         "prestador_id": "PREST-REAL-001",
     }
-    expected_bk = _contas_recurso_bk("amh", "GUIA-REAL-001", "GLOSA-REAL-001")
+    expected_bk = _bridge_recurso_bk("amh", "GUIA-REAL-001", "GLOSA-REAL-001")
 
     results = await bridge.on_event(event_type=RECURSO_INTAKE_EVENT, payload=real_payload)
     matched = [r for r in results if r.target_process == "SP-OP-RECURSO-001"]
@@ -176,7 +175,7 @@ async def test_pin_intake_recurso_convergence_marina_first_then_bridge_no_double
     intake delivery finds the ACTIVE instance and returns it — ZERO double-start (the L0
     convergence guarantee, in the real ordering)."""
     bridge, transport, audit_sink = _fenced_bridge()
-    bk = _contas_recurso_bk("amh", "GUIA-CONV", "GLOSA-CONV")
+    bk = _bridge_recurso_bk("amh", "GUIA-CONV", "GLOSA-CONV")
     transport.seed_instance(
         ProcessInstance(
             instance_id="inflow-recurso",
@@ -325,7 +324,7 @@ async def test_pin_fraude_contratual_beneficiario_arms_cancel_only_inadimplencia
                 "tenant_id": "amh",
                 "numero_lote_tiss": "L1",
                 "glosa_id": "G1",
-                "desfecho": "encaminhada_recurso",
+                "desfecho": "glosa_aplicada_humano",
             },
             "SP-OP-RECURSO-001",
         ),
@@ -360,7 +359,7 @@ async def test_pin_fraude_contratual_beneficiario_arms_cancel_only_inadimplencia
                 "numero_lote_tiss": "L1",
                 "glosa_id": "G1",
                 "numero_guia_tiss": "GU1",
-                "desfecho": "encaminhada_recurso",
+                "desfecho": "glosa_aplicada_humano",
             },
             "SP-OP-RECURSO-001",
         ),
@@ -439,26 +438,32 @@ async def test_pin_anchor_absent_still_refuses(
 
 
 async def test_pin_contas_non_fraude_desfechos_never_start_fraude() -> None:
-    """The 4 non-fraude CONTAS desfechos (sem_glosa/encaminhada_recurso/glosa_aceita_humano/
-    reenviada) must never start FRAUDE — only desfecho==encaminhada_fraude (+ prestador_id) does."""
+    """The non-fraude CONTAS desfechos (pagar_integral/pagamento_aprovado_humano/
+    glosa_aplicada_humano/conta_devolvida_humano) must never start FRAUDE — only
+    desfecho==encaminhada_fraude (+ prestador_id) does."""
     bridge, transport, _ = _fenced_bridge()
     for payload in (
-        {"desfecho": "sem_glosa", "tenant_id": "amh", "numero_lote_tiss": "L1", "prestador_id": "P1"},
+        {"desfecho": "pagar_integral", "tenant_id": "amh", "numero_lote_tiss": "L1", "prestador_id": "P1"},
         {
-            "desfecho": "encaminhada_recurso",
+            "desfecho": "glosa_aplicada_humano",
             "tenant_id": "amh",
             "numero_lote_tiss": "L1",
             "glosa_id": "G1",
             "numero_guia_tiss": "GU1",
         },
         {
-            "desfecho": "glosa_aceita_humano",
+            "desfecho": "pagamento_aprovado_humano",
             "tenant_id": "amh",
             "numero_lote_tiss": "L1",
             "codigo_glosa_aceito": "C1",
             "analista_id": "A1",
         },
-        {"desfecho": "reenviada", "tenant_id": "amh", "numero_lote_tiss": "L1", "prestador_id": "P1"},
+        {
+            "desfecho": "conta_devolvida_humano",
+            "tenant_id": "amh",
+            "numero_lote_tiss": "L1",
+            "prestador_id": "P1",
+        },
     ):
         await bridge.on_event(event_type=CONTAS_COMPLETED_EVENT, payload=payload)
     assert _starts_for(transport, "SP-OP-FRAUDE-001") == []
@@ -466,7 +471,7 @@ async def test_pin_contas_non_fraude_desfechos_never_start_fraude() -> None:
 
 # =================================================================================================
 # PIN 3 — Structural fence: no raw/unfenced engine-start path anywhere in the bridge module or the
-# now-FOUR in-flow handoff workers (start_recurso, start_fraude, start_credenciamento,
+# now-FOUR in-flow handoff workers (contas.handoff_pagamento, contas.start_fraude, start_credenciamento,
 # start_contratual all live in contas.py / fraude.py). The ONLY sanctioned start-effect call is
 # `start_process_idempotent`.
 # =================================================================================================
@@ -566,12 +571,15 @@ _ED = '<camunda:inputParameter name="event_desfecho">{desfecho}</camunda:inputPa
 @pytest.mark.parametrize(
     "expected_line",
     [
-        _EP.format(vars="tenant_id,numero_lote_tiss,prestador_id"),
-        _EP.format(vars="tenant_id,numero_lote_tiss,glosa_id,numero_guia_tiss"),  # T4: RECURSO armed
-        _EP.format(vars="tenant_id,numero_lote_tiss,codigo_glosa_aceito,analista_id"),
+        _EP.format(vars="tenant_id,numero_lote_tiss,prestador_id,ordem_pagamento_id"),
+        _EP.format(
+            vars="tenant_id,numero_lote_tiss,prestador_id,glosa_id,numero_guia_tiss,"
+            "codigo_glosa_tiss,analista_id"
+        ),
+        _ED.format(desfecho="glosa_aplicada_humano"),
         _ED.format(desfecho="encaminhada_fraude"),  # T4: CONTAS→FRAUDE branch landed
     ],
-    ids=["sem_glosa/reenviada", "encaminhada_recurso_armed", "glosa_aceita_humano", "fraude_desfecho"],
+    ids=["pagar_integral", "glosa_aplicada_vars", "glosa_aplicada_desfecho", "fraude_desfecho"],
 )
 def test_pin_contas_payload_var_literals_match_spec_verbatim(expected_line: str) -> None:
     """The exact `event_payload_vars`/`event_desfecho` literals every CONTAS armed pin above

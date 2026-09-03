@@ -4,7 +4,7 @@
 **Fase:** 2 (Wave A, §4-bis-F sync artifact) · **BPMN:** `spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn` (autorado em wave posterior contra este contrato)
 **Negativa-like:** SIM — `authorization_denial`-class L0 hard. **Indeferir o recurso (manter a glosa) e deferir parcialmente (manter parte dela) são os efeitos adversos contra o prestador.** Aplica o padrão estrutural no-denial de cinco partes (§4-bis-F).
 **Gatilho regulatorio:** **prazo contratual de resposta ao recurso** (fonte primária do SLA de análise e do teto absoluto — **DRAFT/verify**); **RN 501/2022** (Padrão TISS — fluxo de glosa e recurso: **DRAFT/verify**); Lei 9.656/1998 art. 18 (relação operadora-prestador). **RN 424/2017 aplica-se APENAS se instaurada junta médica/odontológica** para dirimir divergência técnico-assistencial — nunca ao prazo de resposta ao recurso (`docs/compliance/rn-currency-review.md:87, 190-193`). Todas as citações **DRAFT/verify com jurídico/regulatório**.
-**Perspectiva (ADR-0040, Proposed):** o dono do processo é a **OPERADORA**. Ela **recebe** o recurso que o prestador interpõe contra uma glosa que ela própria aplicou em SP-OP-CONTAS-001, julga a **admissibilidade**, analisa o **mérito** (administrativo pelo analista de recurso; técnico-clínico pelo médico auditor) e **emite** a resposta. A fase de recorrente que este contrato descrevia (interpor o recurso, acompanhar o status, conciliar um re-pagamento recebido) foi **removida sem shim**.
+**Perspectiva (ADR-0040, Proposed):** o dono do processo é a **OPERADORA**. Ela **recebe** o recurso que o prestador interpõe contra uma glosa que ela própria aplicou em SP-OP-CONTAS-001, julga a **admissibilidade**, analisa o **mérito** (administrativo pelo analista de recurso; técnico-clínico pelo médico auditor) e **emite** a resposta. A fase de recorrente que este contrato descrevia — submeter a peça, aguardar e reconciliar o crédito recebido — foi **removida sem shim**.
 **Consome:** o **recurso que o prestador interpõe** contra uma glosa **aplicada** por SP-OP-CONTAS-001. A instância é iniciada pelo intake TISS do recurso, nunca por CONTAS — ver §Origem da instância.
 **Inverte o reference** (`../maezo-reference/.archive/bpmn/glosa_management.bpmn` + `check_appeal_eligibility_worker.py` + `Task_AutoApprove` 48h): o reference auto-decide quando `isEligible==false` (raises `NotAppealable`) e auto-aprova por timeout de 48h. Em Maezo **NENHUM caminho automatizado indefere**: inelegibilidade/inadmissibilidade aparentes roteiam para User Task humana; o timeout não auto-passa, ele **interrompe → coordenação humana**.
 
@@ -52,7 +52,7 @@ Três caminhos, todos convergindo na **mesma** business key — portanto na mesm
 3. **Abertura manual pela operação** (coordenação registra um recurso recebido fora do canal
    eletrônico).
 
-A aresta `operadora.contas.start_recurso` (CONTAS → RECURSO) **foi deletada**: a operadora não
+A aresta de handoff CONTAS → RECURSO **foi deletada** (o tópico não existe mais): a operadora não
 recorre da sua própria glosa.
 
 ## Variaveis de entrada
@@ -72,7 +72,7 @@ recorre da sua própria glosa.
 | `codigo_procedimento_tuss` | string | sim | Procedimento TUSS da linha glosada |
 | `cid10` | string | nao | CID-10 da guia (quando glosa clínica) |
 | `documentos_recurso_refs` | json | sim | Referências de anexos/justificativas do recurso (pode ser vazio) |
-| `data_ciencia_alegada_prestador` | date | não | Data que o prestador **alega** no pleito como a de sua ciência — **registro do que ele declarou, jamais base do prazo da operadora**; usada só na aferição de tempestividade (`dentro_prazo_recurso`), que é fato pré-resolvido por worker. Renomeada de `data_ciencia_glosa` no reparo do gate do PR-3 (M1): o nome antigo era o relógio do **recorrente**, e a cerca de perspectiva (PR-1, família `ancora-kpi`) o acusa como tal |
+| `data_ciencia_alegada_prestador` | date | não | Data que o prestador **alega** no pleito como a de sua ciência — **registro do que ele declarou, jamais base do prazo da operadora**; usada só na aferição de tempestividade (`dentro_prazo_recurso`), que é fato pré-resolvido por worker. Renomeada no reparo do gate do PR-3 (M1): o nome anterior ancorava no relógio do **recorrente** e a cerca de perspectiva (PR-1, família `ancora-kpi`) o acusa como tal — o token antigo fica registrado no `evidence-ledger` e na mensagem do commit, não na prosa do contrato |
 | `data_recebimento_recurso_iso` | date (ISO) | **sim** | Data em que a operadora **recebeu** o recurso — **âncora única do SLA e do teto absoluto** (GAP-RECURSO-1). Normalizada/defaultada fail-safe para HOJE/UTC **com warning** pelo worker `operadora.recurso.validate_recurso` (`ST_ValidarRecurso`, intake — primeiro em TODO caminho; espelha `identify_glosa`/GAP-CONTAS-4). **Não há mais fail-safe para a data de ciência do prestador** — essa é a âncora do recorrente |
 | `data_vencimento` | date | sim* | Vencimento da conta de origem, herdado do envelope de intake. Exigido pelo handoff de pagamento da glosa revertida e **recusado em branco** (nunca defaultado) — de onde ele vem numa reversão de glosa é **OQ-3, DRAFT/verify** |
 | `glosa_existe` | boolean | sim | Pré-resolvido por worker: a glosa referida está confirmada e ativa em CONTAS |
@@ -84,7 +84,7 @@ a *decisão* de não-recorrer por prazo é sempre humana — ver R5).
 
 **Fatos do intake, sem tautologias.** Para instâncias iniciadas pela ponte, os três fatos acima
 são **ecoados do envelope** e **fail-closed para `False`** quando ausentes. `glosa_existe`
-deixou de ser hard-coded `True`: essa premissa ("só alcança o handoff após `RECORRER` sobre uma
+deixou de ser hard-coded `True`: essa premissa ("só alcança o handoff pela aresta deletada, sobre uma
 glosa ativa") não sobrevive a um recurso interposto de FORA, cujo `glosa_id` pode não referenciar
 nada que a operadora tenha cunhado — ausente ⇒ `False` ⇒ `ANALISE_HUMANA` pela row
 `r_glosa_inexistente_humano`, nunca uma afirmação de que a glosa existe. `dentro_prazo_recurso`

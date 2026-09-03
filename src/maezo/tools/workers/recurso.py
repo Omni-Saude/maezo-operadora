@@ -1024,7 +1024,8 @@ def _mint_protocolo_resposta(business_key: str, tenant_id: str, numero_guia_tiss
     ADR-0030/T-H determinism: NO `time.time_ns`/`uuid`/`random` —
     `tests/unit/tools/workers/test_worker_handler_purity.py`'s non-determinism baseline fence
     tracks this module, and the ONE wall-clock mint it used to carry
-    (`register_desistencia`'s `RECDESIST-{sha256(time.time_ns())}`) is gone with the rewrite.
+    (the removed appellant-side worker's `RECDESIST-{sha256(time.time_ns())}`) is gone with the
+    rewrite.
     Mirrors `LabeledMockAnsGatewayTransport.submit`'s `MOCK-ANS-NAO-VINCULATIVO-{business_key}`
     idiom (`ans_gateway.py`) — the SAME appeal (same business key) always mints the IDENTICAL
     protocol, which is also what makes a re-delivered task republish the IDENTICAL fact instead
@@ -1224,7 +1225,7 @@ def handoff_pagamento(
     worker seeds EVIDENCE — `lastro_origem="recurso_deferimento_humano"` and `lastro_decisor_id`
     (the `analista_id` or `auditor_id`) — which feeds the human admissibility form.
 
-    T-C2 FENCE (mirrors `contas.start_recurso` / `inadimplencia.handoff_rescisao`): the chokepoint
+    T-C2 FENCE (mirrors `contas.handoff_pagamento` / `inadimplencia.handoff_rescisao`): the chokepoint
     REQUIRES a durable `audit_sink` + `AgentDecisionProvenance` — the ADR-0007 start record is
     emitted exactly-once BEFORE any engine effect. SP-OP-PAGTO-001 is additionally the ONE STRICT
     dedup family, so `start_process_idempotent` refuses outright
