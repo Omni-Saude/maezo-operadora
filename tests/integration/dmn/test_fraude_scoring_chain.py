@@ -52,8 +52,11 @@ _FORBIDDEN_VERDICT_TOKENS = ("FRAUD_DETECTED", "ACUSAR", "ACUSAR_FRAUDE", "BLOQU
 # Scenario B mirrors the v1 donor's own characterization payload (READ-ONLY reference,
 # Maezo-Healthcare-Plan tests/unit/workers/test_fraude_guards.py,
 # `test_score_indicators_computa_score_via_dmns_nunca_ecoa`), extended with the remaining 3
-# tables' signals (tuss_prefix/deviation_pct/provider_volume/bundle_group_id/tuss_codes) so all 7
-# tables have a concrete, non-catch-all signal to evaluate.
+# tables' signals (tuss_prefix/deviation_pct/provider_volume/bundle_group_id) so all 7 tables have
+# a concrete, non-catch-all signal to evaluate. `tuss_codes` is NOT among them and never was a
+# signal: the worker has dropped it since T1.5 and, since GAP-PERSP-DMN-DEAD-INPUTS, no table
+# declares it either (it was `unbundling_partial_bundles`' wildcard-in-every-rule dead column —
+# that table's real signal is `bundle_group_id`, right above).
 _SCENARIO_B_EVIDENCE: dict[str, Any] = {
     "risk_score": 85,
     "encounter_class": "ambulatorio",
@@ -65,7 +68,6 @@ _SCENARIO_B_EVIDENCE: dict[str, Any] = {
     "deviation_pct": 60.0,
     "provider_volume": 15,
     "bundle_group_id": "partial",
-    "tuss_codes": "99213,99214",
 }
 
 _SCENARIO_C_EVIDENCE: dict[str, Any] = {
@@ -79,7 +81,6 @@ _SCENARIO_C_EVIDENCE: dict[str, Any] = {
     "deviation_pct": 20.0,
     "provider_volume": 5,
     "bundle_group_id": "complete",
-    "tuss_codes": "10101012",
 }
 
 

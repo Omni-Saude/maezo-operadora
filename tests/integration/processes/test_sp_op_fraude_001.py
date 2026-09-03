@@ -842,7 +842,6 @@ async def test_score_indicators_computa_dmns_reais_contra_evidencia(
         deviation_pct={"value": 60.0, "type": "Double"},
         provider_volume=15,
         bundle_group_id="partial",
-        tuss_codes="10101012,10101020",
     )
     iid = inst["id"]
 
