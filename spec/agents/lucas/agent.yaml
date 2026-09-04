@@ -46,8 +46,8 @@ escalation:
     - signal: dmn_unavailable
     - signal: ambiguity
 memory:
-  episodic: true
-  semantic: true
+  episodic: false  # reabilitar quando DU-01-b/AF-11 ligar pgvector (ADR-P-004)
+  semantic: false  # reabilitar quando DU-01-b/AF-11 ligar pgvector (ADR-P-004)
 # GAP 11.7 (canal de entrada — verificado nesta sessao, ver docs/processes/contracts/
 # SP-OP-CANCEL-001.md "Canal de entrada"): Lucas declara `mcp-whatsapp.send_message` (saida) mas
 # NAO tem canal de entrada proprio, nem do beneficiario nem agente-a-agente. Diferenca precisa
