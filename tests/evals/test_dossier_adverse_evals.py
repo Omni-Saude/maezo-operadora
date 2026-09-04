@@ -214,14 +214,14 @@ class _PhiMetricKeyPopulationClient:
     OWN egress chokepoint (`_scrub_aggregate`) must block the whole aggregate; this double exists
     to prove that, not to simulate a well-behaved lake client."""
 
-    def __init__(self, *, hostile_metric_key: str) -> None:
-        self._hostile_metric_key = hostile_metric_key
+    def __init__(self, *, hostile_cell_name: str) -> None:
+        self._hostile_cell_name = hostile_cell_name
 
     def _hostile(self, dataset_ref: str) -> andre_graph.CohortAggregate:
         return andre_graph.CohortAggregate(
             cohort_id="cohort-evl-andre-04",
             dataset_ref=dataset_ref,
-            metrics={self._hostile_metric_key: 1.0},
+            metrics={self._hostile_cell_name: 1.0},
             cohort_size=1,
             k_anonymity=1,
         )
@@ -246,7 +246,7 @@ def _make_andre_population_fake() -> _LeakyPopulationClient:
 
 
 def _make_andre_phi_metric_key_fake() -> _PhiMetricKeyPopulationClient:
-    return _PhiMetricKeyPopulationClient(hostile_metric_key="paciente_CPF-12345678901")
+    return _PhiMetricKeyPopulationClient(hostile_cell_name="paciente_CPF-12345678901")
 
 
 class _RaisingInference:
