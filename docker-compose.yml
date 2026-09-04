@@ -120,6 +120,30 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       CLUSTER_ID: maezo-dev-cluster-01
+      # KAFKA-NUM-PARTITIONS-COMPOSE (gap fix): unset here, cp-kafka's own default
+      # (`num.partitions=1`) governs EVERY auto-created topic — the only kind this stack ever
+      # produces (no production code in this repo calls the Admin API's `create_topics`; only
+      # test-only readiness helpers do, and only inside their own suites). On 1 partition,
+      # key-based partition assignment and per-key ordering defects are structurally invisible:
+      # any producer — keyed or not — lands every message on the same lone partition, so a
+      # keyless-publish regression or a broken key-derivation chain (GAP-SC-04-a,
+      # `partition_key.py`) cannot be observed. `.github/workflows/ci.yml:490` starts this SAME
+      # service (`docker compose --profile core up -d postgres kafka cibseven`) with no override,
+      # so CI's auto-created topics inherit whatever this stanza sets too. 3 matches the
+      # platform's own declared per-topic default (`maezo.platform.topic_registry.
+      # TopicEntry.partitions`, ~:89) — the partition count the ordering/DLQ/ESCALA-key
+      # guarantees actually have to hold under in production. Affects auto-created topics ONLY:
+      # a topic already created (by an explicit Admin `create_topics(NewTopic(...))` call, e.g.
+      # this repo's own test readiness helpers) keeps whatever count it was created with —
+      # this setting never resizes an existing topic. No `KAFKA_DEFAULT_REPLICATION_FACTOR` or
+      # `KAFKA_TRANSACTION_STATE_LOG_*` pin is added alongside this: Kafka's own built-in
+      # `default.replication.factor` is already 1 (fine for this single-node broker), and this
+      # codebase has no transactional/idempotent producer (`enable_idempotence`/
+      # `transactional_id` are unused — grepped clean), so `__transaction_state` is never
+      # created and its replication/min-isr settings would be dead config — proven by a cold
+      # start with only this one variable added (see docs/evidence-ledger.md,
+      # KAFKA-NUM-PARTITIONS-COMPOSE row).
+      KAFKA_NUM_PARTITIONS: 3
     healthcheck:
       # Healthcheck runs inside the kafka container — uses INTERNAL listener (kafka:29092)
       test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server kafka:29092 > /dev/null 2>&1 || exit 1"]

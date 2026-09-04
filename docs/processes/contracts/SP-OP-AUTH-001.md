@@ -146,7 +146,7 @@ Uma instancia por guia TISS; reenvio retorna a instancia ativa.
 | External task | `operadora.auth.analyze_request` | consome | convoca Rafael: dossie de analise (ja registrado) |
 | External task | `operadora.auth.request_documents` | consome | pendencia ao prestador |
 | External task | `operadora.auth.issue_authorization` | consome | emite autorizacao (TISS) |
-| External task | `operadora.auth.send_denial_notice` | consome | negativa formal por escrito (em nome do auditor) |
+| External task | `operadora.auth.send_denial_notice` | consome (worker) | worker `SendDenialNoticeWorker` (`ST_EnviarNegativaFormal`): **COMPOE** o registro da negativa formal por escrito em nome do auditor humano e o devolve com o conteudo clinico REDIGIDO (ADR-0006). **NAO afirma mais `status=notice_sent`** (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL): o worker e sincrono (`WorkerBase.execute`), sem seam de Kafka e sem canal nenhum — nada e transmitido ao beneficiario/prestador nesta etapa; o canal seguro real e de Fase 1. O que sai e real: `notice_type`, `error_code=None`, a proveniencia `human_approved` resolvida pelo GUARD 2 e os tres campos clinicos redigidos. O unico `status` que este worker escreve e o registro de recusa `blocked_by_guard` (+ `ERR_DENIAL_NOT_HUMAN`). O fato `agents.events.auth.completed` (desfecho `negada_auditor`) e publicado adiante por `ST_PublishNegada`, no unico fluxo de saida da task (`Flow_Negativa_Pub`) |
 | External task | `operadora.auth.notify_sla_risk` | consome (worker) | worker `NotifySlaRiskWorker`: registra que a ETAPA de alerta de risco de SLA a `coordenacao-auditoria-medica` rodou (timer nao-interruptivo `BT_AlertaSla`) e retorna `{}` — **NAO afirma `status=risk_notified` NEM o evento `agents.events.auth.sla_breached`** e nao contata canal algum (worker sincrono, sem seam de Kafka). Aquele evento e publicado por `ST_PublishSlaBreach`, no ramo do boundary INTERRUPTIVO `BT_SlaAnalise` — outro ramo (FAB-SLA-RISK-NOTIFIED-SLICE4). Informativo e nunca adverso: `UT_AnaliseMedicoAuditor` segue aberta |
 | External task | `operadora.auth.convene_junta` | consome | convoca junta medica (RN 424 — DRAFT) |
 | Message BPMN | `msg.auth.docs_received` | recebe | correlacao por business key, destrava pendencia |
@@ -198,7 +198,7 @@ out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria
 | Analise (eletivo padrao) | P5D | idem | RN 395/2016 (5 dias uteis) — **DRAFT/verify** |
 | Alerta de risco | 50–70% do SLA (DMN `sla_alerta`) | nao-interruptivo -> notify_sla_risk | politica interna |
 | Pendencia de documentacao | P5D | event gateway -> `UT_DecidirPendenciaExpirada` (humano decide destino) | **DRAFT/verify** (suspensao de prazo durante pendencia: confirmar regra RN) |
-| Negativa por escrito | embutido no worker `send_denial_notice` | — | RN 395 art. 10 (24h) — **DRAFT/verify** |
+| Negativa por escrito | registro COMPOSTO pelo worker `send_denial_notice`; a TRANSMISSAO em si nao tem canal implementado (Fase 1) | — | RN 395 art. 10 (24h) — **DRAFT/verify** |
 
 Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — valores conservadores. Resolver calendario util no worker.
 

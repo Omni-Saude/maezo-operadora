@@ -11,7 +11,7 @@ infeasible to reverse without a secret. HMAC with a vault-injected key makes the
 pseudonym irreversible to anyone who does not hold `PHI_HMAC_KEY`.
 
 Fail-closed policy (ADR-0035, mirrors `webhooks/service.py`'s DATABASE_URL fence
-and `runtime/inference.py`'s "no silent fallback"):
+and `runtime/inference/__init__.py::_build_provider`'s "no silent fallback"):
   - key present               -> keyed HMAC with the real (vault-synced) key.
   - production, key ABSENT     -> `PseudonymizerKeyMissingError` (fail-closed): a
                                  prod pod must NEVER fall back to a deterministic/

@@ -361,7 +361,7 @@ def test_concrete_llm_provider_import_outside_allowlist_raises(tmp_path: Path, p
     `BedrockInferenceProvider` (W-BEDROCK) is parametrized in alongside the 1P provider rather
     than trusted to inherit the guarantee: adding a second concrete strategy to the module is
     exactly the change that could reach an agent graph un-gated, and AGENTS.md rule 6 makes
-    `runtime/inference.py` the single import point for any LLM SDK.
+    the `runtime.inference` package the single import point for any LLM SDK.
     """
     _write(
         tmp_path / "agents" / "example" / "graph.py",

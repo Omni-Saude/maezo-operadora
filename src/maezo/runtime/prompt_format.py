@@ -75,7 +75,8 @@ class FormattedPrompt:
     breakpoint at ``len(stable_prefix)`` and still transmit the same prompt the model would
     have seen unsplit.
 
-    Frozen + slots, mirroring `ProviderCapabilities` (`runtime/inference.py`): a layout that
+    Frozen + slots, mirroring `ProviderCapabilities`
+    (`runtime/inference/capabilities.py::ProviderCapabilities`): a layout that
     has been computed is a fact about one request, not a mutable buffer.
     """
 
