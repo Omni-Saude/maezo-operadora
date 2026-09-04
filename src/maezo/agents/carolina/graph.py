@@ -130,11 +130,12 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
 
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
 )
@@ -390,6 +391,29 @@ def _sanitized_output_fields() -> dict[str, Any]:
         "desfecho": "",
         "error": "",
     }
+
+
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+_FATOS_BOOLEANOS: Final[dict[str, str]] = {
+    "licenca_valida": "licenca do prestador valida",
+    "documentacao_completa": "documentacao completa",
+    "dentro_criterios_rede": "dentro dos criterios de rede",
+    "notificacao_previa_feita": "notificacao previa ao prestador feita",
+    "substituto_equivalente_identificado": "prestador substituto equivalente identificado",
+    "tem_beneficiarios_vinculados": "ha beneficiarios vinculados ao prestador",
+    "indicio_irregularidade_sinalizado": "indicio de irregularidade sinalizado",
+    # Saidas de DMN (`cred_prior_notice`), e nao fatos apurados por worker — entram aqui porque
+    # sofrem o mesmo colapso de repr: "nao exige notificacao previa" e "nao se avaliou se exige"
+    # levam o juridico de rede a acoes opostas.
+    "exige_notificacao_previa": "exige notificacao previa (saida de DMN)",
+    "exige_substituto_equivalente": "exige substituto equivalente (saida de DMN)",
+}
 
 
 class CarolinaGraph:
@@ -723,7 +747,7 @@ class CarolinaGraph:
         facts = self._cred_facts(state)
         prompt = (
             f"{dossier_prompt()}\n\ndirecao={direcao} route={route} motivo_humano={motivo_humano}\n"
-            f"fatos={facts}"
+            f"{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS)}"
         )
         try:
             narrativa = await self._llm.generate(

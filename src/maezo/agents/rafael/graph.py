@@ -63,6 +63,7 @@ from langgraph.graph import END, START, StateGraph
 
 from maezo.platform.privacy.dossier_zone import dossier_narrative_requires_phi_zone
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt as render_fatos
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
 )
@@ -341,49 +342,34 @@ _FATOS_BOOLEANOS: Final[dict[str, str]] = {
 }
 
 
+#: O TETO NAO E' FATO DO AGENTE, e por isso nao esta em `_FATOS_BOOLEANOS`.
+#:
+#: C-02, reportado pelo time de automacoes em 27/08: o dossie dizia "nao foi verificado se o
+#: valor esta dentro do teto" enquanto o motor tinha verificado e aprovado — e era o unico
+#: criterio que passava. As duas afirmacoes eram verdadeiras em momentos diferentes, e e' ai'
+#: que estava o defeito: o dossie e' escrito ANTES de `ST_ValidateAutoApprovalCriteria`
+#: rodar, e o motor COMPUTA `dentro_teto_l2` por conta propria (`ceilings.py`), sobrescrevendo
+#: qualquer valor de entrada. O docstring deste modulo ja' declarava o teto como territorio
+#: PROIBIDO para este grafo.
+#:
+#: Entao o agente para de afirmar sobre ele. A linha continua no dossie, porque o auditor
+#: precisa saber que o criterio existe — mas dizendo de quem e' a apuracao. Vai como
+#: `linhas_extra` porque nao e' um dos tres estados: nao e' SIM, nao e' NAO e NAO E' SEM DADO.
+_LINHA_TETO_DO_MOTOR: Final[str] = "  APURADO PELO MOTOR  valor dentro do teto de aprovacao automatica"
+
+
 def render_fatos_para_prompt(facts: dict[str, Any]) -> str:
-    """Serializa os fatos NOMEANDO o estado de cada booleano, em vez de despejar o dicionario.
+    """Renderiza os fatos do rafael com o mapa e a linha do motor deste agente.
 
-    Tres estados, tres formas visualmente distintas — e so o desfavoravel carrega instrucao,
-    porque foi exatamente esse que sumiu do texto quando os tres colapsavam num `repr()`.
+    CC-11: o renderizador em si vive em `runtime/prompt_format.py` desde 04/09/2026 — nasceu
+    aqui como conserto do incidente de 24/08, ficou num agente so', e a auditoria da frota achou
+    o mesmo defeito em 8 dos 9 agentes que passam fatos a um LLM. O que sobra neste modulo e' o
+    que E' do rafael: `_FATOS_BOOLEANOS` e `_LINHA_TETO_DO_MOTOR`.
 
-    O `is True` / `is False` e deliberado: `1`, `"nao"` e `[]` NAO sao fatos apurados, e um
-    `bool()` os converteria em afirmacao. Qualquer coisa que nao seja booleano cai em NAO
-    VERIFICADO, que e a leitura segura.
+    A saida e' byte-identica a de antes da promocao — congelada em
+    `tests/unit/agents/test_prompt_facts_rendering.py`.
     """
-    linhas: list[str] = []
-    for chave, rotulo in _FATOS_BOOLEANOS.items():
-        valor = facts.get(chave)
-        # A marcacao e' curta e SEM instrucao embutida, e isso e' conserto de 25/08/2026:
-        # a versao anterior escrevia `[FATO DESFAVORAVEL: cite nomeando]` no fim da linha, e o
-        # modelo COPIAVA a frase em caixa alta para a narrativa. Medido em 4 casos: vazou em 1
-        # ("FATO DESFAVORAVEL: beneficiario sem plano ativo"). Marcacao que parece frase pronta
-        # convida a ser reproduzida; token curto nao. A regra de como tratar cada estado mora
-        # no prompt, que tambem proibe copiar a marcacao.
-        if valor is True:
-            linhas.append(f"  SIM       {rotulo}")
-        elif valor is False:
-            linhas.append(f"  NAO       {rotulo}")
-        else:
-            linhas.append(f"  SEM DADO  {rotulo}")
-
-    # O TETO NAO E' FATO DO AGENTE, e por isso nao esta em `_FATOS_BOOLEANOS`.
-    #
-    # C-02, reportado pelo time de automacoes em 27/08: o dossie dizia "nao foi verificado se o
-    # valor esta dentro do teto" enquanto o motor tinha verificado e aprovado — e era o unico
-    # criterio que passava. As duas afirmacoes eram verdadeiras em momentos diferentes, e e' ai'
-    # que estava o defeito: o dossie e' escrito ANTES de `ST_ValidateAutoApprovalCriteria`
-    # rodar, e o motor COMPUTA `dentro_teto_l2` por conta propria (`ceilings.py`), sobrescrevendo
-    # qualquer valor de entrada. O docstring deste modulo ja' declarava o teto como territorio
-    # PROIBIDO para este grafo.
-    #
-    # Entao o agente para de afirmar sobre ele. A linha continua no dossie, porque o auditor
-    # precisa saber que o criterio existe — mas dizendo de quem e' a apuracao.
-    linhas.append("  APURADO PELO MOTOR  valor dentro do teto de aprovacao automatica")
-
-    contexto = {k: v for k, v in facts.items() if k not in _FATOS_BOOLEANOS}
-    corpo = "\n".join(linhas)
-    return f"fatos apurados:\n{corpo}\n\ndemais dados do caso: {contexto}"
+    return render_fatos(facts, booleanos=_FATOS_BOOLEANOS, linhas_extra=(_LINHA_TETO_DO_MOTOR,))
 
 
 class RafaelGraph:

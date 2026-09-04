@@ -111,11 +111,12 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated; same rationale a
 
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
 )
@@ -379,6 +380,21 @@ def _output_field_resets() -> dict[str, Any]:
         "desfecho": "",
         "error": "",
     }
+
+
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+#: `elegivel_programa`/`consent_status` NAO entram: sao enums de tres ou mais valores, e nao
+#: booleanos — o colapso de repr que este mapa conserta e' entre `False` e `None`.
+_FATOS_BOOLEANOS: Final[dict[str, str]] = {
+    "elegibilidade_criterios_atendidos": "criterios de elegibilidade do programa atendidos",
+    "criterio_alta_aparente": "criterio de alta aparente",
+}
 
 
 class ValentinaGraph:
@@ -844,7 +860,10 @@ class ValentinaGraph:
 
         motivo_humano = state.get("motivo_humano") if route == "human_review" else None
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
-        prompt = f"{prompt_text}\n\ntask={task} route={route} motivo_humano={motivo_humano}\nfatos={facts}"
+        prompt = (
+            f"{prompt_text}\n\ntask={task} route={route} motivo_humano={motivo_humano}\n"
+            f"{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS)}"
+        )
         llm_ok = True
         try:
             # Zona PHI (D10): Valentina reasons in-zone AFTER the consent gate — phi=True on

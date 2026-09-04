@@ -127,12 +127,13 @@ DIVERGENCES FROM THE v1 DONOR (disclosed, not hidden — `spec/` wins per this t
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
 )
@@ -521,6 +522,26 @@ def _severidade_humano(motivo: MotivoHumano) -> Severidade:
 
 
 # --- Graph -----------------------------------------------------------------------------------
+
+
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+_FATOS_BOOLEANOS_MENSAGEM: Final[dict[str, str]] = {
+    "status_conciliado": "pagamento conciliado no CNAB",
+}
+
+#: O dossie de escalacao (J3) acrescenta os dois sinais de contestacao/cancelamento — a
+#: mensagem ao beneficiario nao os menciona.
+_FATOS_BOOLEANOS_DOSSIE: Final[dict[str, str]] = {
+    "status_conciliado": "pagamento conciliado no CNAB",
+    "contesta_cobranca": "beneficiario contesta a cobranca",
+    "pedido_cancelamento": "ha pedido de cancelamento",
+}
 
 
 class LucasGraph:
@@ -946,7 +967,9 @@ class LucasGraph:
             "admissibilidade": state.get("admissibilidade"),
             "dmn_refs": state.get("dmn_refs", {}),
         }
-        prompt = f"{message_prompt()}\n\nfatos={facts}"
+        prompt = (
+            f"{message_prompt()}\n\n{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_MENSAGEM)}"
+        )
         try:
             texto = await self._llm.generate(
                 prompt,
@@ -997,7 +1020,10 @@ class LucasGraph:
             "dmn_refs": state.get("dmn_refs", {}),
             "lacunas_enriquecimento": state.get("gather_notes", []),
         }
-        prompt = f"{dossier_prompt()}\n\nmotivo_humano={state.get('motivo_humano')}\nfatos={facts}"
+        prompt = (
+            f"{dossier_prompt()}\n\nmotivo_humano={state.get('motivo_humano')}\n"
+            f"{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_DOSSIE)}"
+        )
         try:
             narrativa = await self._llm.generate(
                 prompt,

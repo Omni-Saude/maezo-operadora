@@ -180,11 +180,12 @@ import math
 import numbers
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
 )
@@ -677,6 +678,32 @@ def _output_field_resets() -> dict[str, Any]:
         "desfecho": "",
         "error": "",
     }
+
+
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+_FATOS_BOOLEANOS_PAGTO: Final[dict[str, str]] = {
+    "dados_pagamento_validos": "dados de pagamento validos",
+    "lastro_confirmado": "lastro do pagamento confirmado",
+    # Ao contrario do rafael (C-02), aqui o teto e' um fato PRE-RESOLVIDO por worker que este
+    # grafo CONSOME (`_route`/`auto_route` o leem) — entao ele e' fato do caso e vai como tal.
+    "dentro_teto_l2": "valor dentro do teto de alcada L2",
+    "duplicidade_suspeita": "suspeita de duplicidade",
+}
+
+#: Fatos booleanos que so' existem no fluxo `adequacao_dossier`, ANINHADOS sob `facts["adequacao"]`
+#: (por isso os caminhos pontilhados — ver `render_fatos_para_prompt`). Aparecem no prompt so'
+#: nesse fluxo: anunciar "SEM DADO: cobertura geografica suficiente" num dossie de pagamento
+#: seria ruido sobre um criterio que aquele caso nao tem.
+_FATOS_BOOLEANOS_ADEQUACAO: Final[dict[str, str]] = {
+    "adequacao.cobertura_geo_suficiente": "cobertura geografica suficiente",
+    "adequacao.dados_geo_completos": "dados geograficos completos",
+}
 
 
 class AndreGraph:
@@ -1268,9 +1295,12 @@ class AndreGraph:
         facts = self._facts(state)
         motivo_humano = state.get("motivo_humano") if route == "human_review" else None
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
+        booleanos = dict(_FATOS_BOOLEANOS_PAGTO)
+        if flow == "adequacao_dossier":
+            booleanos.update(_FATOS_BOOLEANOS_ADEQUACAO)
         prompt = (
             f"{dossier_prompt()}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\n"
-            f"fatos_agregados={facts}"
+            f"{render_fatos_para_prompt(facts, booleanos=booleanos)}"
         )
         try:
             narrativa = await self._llm.generate(

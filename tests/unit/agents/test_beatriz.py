@@ -502,7 +502,13 @@ async def test_instruct_llm_call_is_phi_tagged() -> None:
     assert len(inference.calls) == 1
     prompt, phi = inference.calls[0]
     assert phi is True  # Beatriz is PHI-zone (agent.yaml security_zone: phi; ADR-0006/0017)
-    assert "fatos=" in prompt
+    # CC-11: os fatos deixaram de viajar como `fatos={repr}` e vao renderizados — o booleano
+    # nomeado com SIM/NAO/SEM DADO, o resto do caso no contexto. A asserção antiga (`"fatos=" in
+    # prompt`) so' provava que ALGO chamado fatos foi interpolado; esta prova que o fato apurado
+    # chegou distinguivel, que e' o que o incidente de 24/08/2026 quebrou.
+    assert "fatos apurados:" in prompt
+    assert "indicio de fraude sinalizado" in prompt
+    assert "n_evidencia" in prompt  # o contexto nao-booleano continua no prompt
 
 
 async def test_instruct_llm_failure_never_blocks_the_instruction() -> None:

@@ -101,11 +101,12 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
 
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
 
 from .prompts import DOSSIER_PROMPT_VERSION, SYSTEM_PROMPT_VERSION, dossier_prompt
 
@@ -309,6 +310,18 @@ def _score_consumed(state: BeatrizState) -> int:
     return value
 
 
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+_FATOS_BOOLEANOS: Final[dict[str, str]] = {
+    "indicio_fraude_sinalizado": "indicio de fraude sinalizado",
+}
+
+
 class BeatrizGraph:
     """Wires Beatriz's injected dependencies into a compilable `StateGraph[BeatrizState]`."""
 
@@ -426,7 +439,7 @@ class BeatrizGraph:
         facts = self._facts(state)
         lacunas = list(state.get("gather_notes") or [])
 
-        prompt = f"{dossier_prompt()}\n\nfatos={facts}"
+        prompt = f"{dossier_prompt()}\n\n{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS)}"
         try:
             narrativa = await self._llm.generate(
                 prompt, phi=True, agent_id="beatriz", tenant_id=state.get("tenant_id", "")
