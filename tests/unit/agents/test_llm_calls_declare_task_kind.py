@@ -45,6 +45,14 @@ import pytest
 
 from maezo.runtime.inference import MODEL_TASK_KINDS
 
+#: `MODEL_TASK_KINDS` inclui `"batch"` no runtime (ADR-0009 §2), mas nenhum sitio de grafo pode
+#: DECLARAR `task_kind="batch"` ate' o dono ratificar o ADR-0044 (mapeamento de tiers por
+#: task_kind) — sem essa ratificacao nao ha' definicao do que "batch" significa para um grafo
+#: sincrono de agente. A constante em si continua existindo e servindo outros consumidores
+#: (ex.: filas de processamento assincrono fora dos grafos); esta cerca so' restringe o
+#: vocabulario ACEITO NOS SITIOS DE CHAMADA cobertos por este arquivo.
+_TASK_KINDS_PERMITIDOS_NOS_GRAFOS = MODEL_TASK_KINDS - {"batch"}
+
 _RAIZ = Path(__file__).resolve().parents[3]
 _ARQUIVOS_AGENTES = sorted(
     {
@@ -73,7 +81,8 @@ def _receptor_e_seam_de_inferencia(no: ast.expr) -> bool:
 
 def _achados_de_task_kind(fonte: str) -> list[str]:
     """Toda `Call` a `<seam>.generate(` sem um kwarg `task_kind` que seja um literal de string
-    catalogado em `MODEL_TASK_KINDS` (ADR-0009 §2)."""
+    catalogado em `_TASK_KINDS_PERMITIDOS_NOS_GRAFOS` (ADR-0009 §2) — que e' `MODEL_TASK_KINDS`
+    MENOS `"batch"`, ate' o dono ratificar o ADR-0044."""
     achados: list[str] = []
     arvore = ast.parse(fonte)
     for no in ast.walk(arvore):
@@ -95,10 +104,12 @@ def _achados_de_task_kind(fonte: str) -> list[str]:
                 "(precisa ser decidivel estaticamente, nao computado em runtime)"
             )
             continue
-        if kw.value.value not in MODEL_TASK_KINDS:
+        if kw.value.value not in _TASK_KINDS_PERMITIDOS_NOS_GRAFOS:
             achados.append(
                 f"linha {no.lineno}: task_kind={kw.value.value!r} fora de "
-                f"MODEL_TASK_KINDS={sorted(MODEL_TASK_KINDS)} (ADR-0009 §2)"
+                f"{sorted(_TASK_KINDS_PERMITIDOS_NOS_GRAFOS)} (ADR-0009 §2; "
+                '"batch" existe em MODEL_TASK_KINDS mas fica proibido nos grafos ate\' '
+                "o dono ratificar o ADR-0044)"
             )
     return achados
 
@@ -123,3 +134,22 @@ def test_toda_chamada_generate_declara_task_kind_catalogado(arquivo: Path) -> No
         "`lucas/graph.py` (kwarg `task_kind=` na mesma chamada, comentario curto "
         "'ADR-0009 §2 / CC-12')."
     )
+
+
+def test_achados_de_task_kind_recusa_batch() -> None:
+    """A2 (VERIFY-CC12): `"batch"` ESTA' em `MODEL_TASK_KINDS` (o runtime aceita) mas a fence
+    recusa a DECLARACAO em um sitio de grafo ate' o dono ratificar o ADR-0044 — sondagem direta
+    do helper (sem tocar nos 12 sitios reais), para nao depender de nenhum grafo em particular
+    continuar chamando `.generate(task_kind="batch")` no futuro."""
+    assert "batch" in MODEL_TASK_KINDS, "premissa: 'batch' e' um task_kind catalogado no runtime"
+
+    fonte = (
+        'class G:\n    async def no(self):\n        return await self._llm.generate("p", task_kind="batch")\n'
+    )
+    achados = _achados_de_task_kind(fonte)
+    assert len(achados) == 1
+    assert "task_kind='batch'" in achados[0]
+    assert "batch" not in _TASK_KINDS_PERMITIDOS_NOS_GRAFOS
+
+    fonte_ok = fonte.replace('"batch"', '"task_default"')
+    assert _achados_de_task_kind(fonte_ok) == []

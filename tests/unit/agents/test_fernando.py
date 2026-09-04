@@ -760,7 +760,7 @@ async def test_message_llm_call_declares_task_kind_task_default() -> None:
     inference = _FakeInference(["texto"])
     graph = _graph(dmn=dmn, inference=inference)
     state = _base_state(intencao="notificacao_previa")
-    state.update(await graph.assess(state))  # type: ignore[typeddict-item]
+    state.update(await graph.assess(state))
     await graph.notify(state)
     assert inference.task_kinds == ["task_default"]
 
