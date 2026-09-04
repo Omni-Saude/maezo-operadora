@@ -93,6 +93,23 @@ dataset. CC-01 is precisely a defect ON that branch (a fabricated success desfec
 that never happened), so without this extension the fix would have shipped with no golden able
 to regress it.
 
+CC-08 (2026-09-04, same additive contract, second and final harness change of this wave) ADDS
+`_phi_capable_for(case)` to `_harness.py` — see that function's own docstring for the why — and
+EDITS the single `run_case` line that constructs `inference` to pass
+`phi_capable=_phi_capable_for(case)` instead of the implicit default. `ReplayInferenceProvider`
+itself is NOT edited (it already accepted a `phi_capable` constructor kwarg — see its own
+docstring above, "a case that wants to exercise the fail-closed PHI-routing path itself
+constructs `ReplayInferenceProvider(responses, phi_capable=False)`" — nothing there was ever
+reachable from a golden JSON file before this change); only `run_case`'s hard-wired construction
+call changes, and it returns the exact same `phi_capable=True` behaviour for every case that
+omits the new `inference` block (every golden before this wave, and every golden after it that
+does not opt in). CC-08's DMN-unavailable goldens need NO harness change at all — `run_case`
+already builds a case's `dmn_fixture` from exactly the `decision_key`s the case supplies
+(`register_dmn_fixture`), so simply OMITTING a `decision_key` a graph's turn will evaluate is
+already enough to make `FakeDmnTransport.evaluate` raise `DmnEvaluationError` for it — this is
+why CC-08's DMN-down goldens carry no new top-level block at all, unlike its PhiZoneRoutingError
+goldens (`inference`, new) and CC-01's start-failure goldens (`cibseven`, pre-existing).
+
 ## Golden case JSON schema
 
 One JSON file per eval id, named `EVL-<AGENT>-<NN>.json`, under `golden/<agent>/`:
@@ -156,6 +173,15 @@ Field notes:
   routing (`desfecho == "erro_inicio_processo"`, no fabricated success, no message that promises
   a human who was never summoned). Absent (every pre-CC-01 golden) = the unchanged
   always-succeeds `FakeCibSevenTransport`.
+- `inference` (OPTIONAL, CC-08): `{"phi_capable": false}` makes `ReplayInferenceProvider`
+  raise `PhiZoneRoutingError` on every `generate(phi=True, ...)` call this turn (`_harness.
+  _phi_capable_for`) — the PHI-zone routing fail-closed branch (invariant I-6). Use it to prove
+  a graph never fails OPEN when its inference seam is PHI-zone-blocked (e.g. Helena's classify
+  call failing this way must still escalate `falha_tecnica`, exactly like a classify-LLM
+  exception or a DMN-down turn — never a silent `inform`). Absent (every pre-CC-08 golden) = the
+  unchanged `phi_capable=True` default. Every `generate()` call this turn will raise once set —
+  a case that opts in typically needs an EMPTY `recorded_llm` (`[]`), since no call ever
+  successfully returns a scripted response to consume.
 - `expect`: `next_kind` (RT) and/or `fields` (SF), checked by `assert_expect`.
 - `leak_canaries`: synthetic strings (e.g. a synthetic CPF `123.456.789-09`, NEVER a real one)
   that must be absent from the emitted output (`assert_no_leak`, ABS). Empty list = no PL
