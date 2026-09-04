@@ -41,3 +41,19 @@ a636399779661e843b485ac2a05cbfa5bbd8e559:docs/gates/G1-gate-review.md:generic-ap
 # current main content.
 e8116ba82ebd06427bda89beca9aa1ec940e1a57:docs/gates/G1-gate-review.md:generic-api-key:175
 a1b044b37c6551ab0de4c1b8315a5d95ea26245b:docs/gates/G1-gate-review.md:generic-api-key:175
+
+# AND-02 (fleet/and02-metrics-egress-gate): mesma classe de falso positivo, quinta ocorrencia —
+# `generic-api-key` casou o kwarg de fixture `hostile_metric_key="paciente_CPF-12345678901"`
+# (o token "key" no identificador + entropia do literal) na suite de evals. O literal e' o
+# CANARIO SINTETICO do proprio golden EVL-ANDRE-04: um nome de celula com CPF que o gate de
+# egresso do Andre TEM de bloquear — nao e' credencial e nao pode ser trocado por um valor de
+# baixa entropia sem destruir o que o eval prova.
+# Correcao DURAVEL ja aplicada no conteudo atual da branch: o identificador foi renomeado para
+# `hostile_cell_name`, que nao contem "key" e nao dispara a regra — o HEAD da branch esta limpo.
+# Este fingerprint cobre APENAS o commit imutavel da prova fail-before (o par golden-vermelho ->
+# fix-verde exigido pelo processo), que nao pode ser reescrito sob as regras de operacao do WP
+# (proibidos rebase/reset/amend fora do HEAD). Escopo fingerprint (commit:file:rule:line):
+# nao mascara nenhuma outra ocorrencia, nem a mesma linha em outro commit.
+# REMOVER esta entrada assim que a branch for mesclada e apagada — ou imediatamente, se o dono
+# preferir reescrever o commit 6615de0 (uma unica edicao de historia local torna isto inutil).
+6615de0fc7fb66ed97b125380fd268c2a252bd37:tests/evals/test_dossier_adverse_evals.py:generic-api-key:249
