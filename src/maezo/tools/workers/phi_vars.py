@@ -163,3 +163,54 @@ def redact_error_message(error: BaseException | str) -> str:
         return f"{error_class}: {scrubbed}" if error_class else scrubbed
     except Exception:  # noqa: BLE001 — backstop must never itself raise onto the failure path.
         return "[REDACTED_ERROR]"
+
+
+# --------------------------------------------------------------------------------------------
+# `looks_like_phi_text` (AND-02) — the DETECTOR arm of the same pattern family.
+#
+# `redact_error_message` above answers "give me a safe version of this text". Andre's egress
+# chokepoint (`agents/andre/graph.py::_scrub_aggregate`) needs the other half of the question:
+# "is this string PHI-shaped at all?" — because there the offending string is a metric CELL NAME
+# (a dict KEY) and the fail-closed response is to DROP the whole aggregate, not to rewrite the
+# key into something the approver would then read as a real cohort feature.
+#
+# It lives HERE, next to the compiled patterns it reuses, so the repo keeps ONE CPF/CNPJ/digit-run
+# net rather than a second private copy inside a graph. The WIDE net is the right one for this
+# call site for exactly the reason stated above: over-detection is the safe failure mode (a
+# false-positive metric name costs one human review; a false negative egresses a patient
+# identifier into the approver's prompt).
+#
+# `a2a.delegation._looks_like_phi` is deliberately NOT reused: it is the NARROW, canonical-only
+# net tuned for `payload_ref`, where rejecting a legitimate structural reference is costly. That
+# tradeoff is inverted here.
+# --------------------------------------------------------------------------------------------
+
+#: E-mail addresses. `gateway.pseudonymizer.PHI_FIELDS` names `email` a canonical PHI field, but
+#: that set matches by KEY NAME; this matches the SHAPE, which is what a hostile/buggy producer
+#: that names a cell after its subject actually emits. Used ONLY by `looks_like_phi_text` —
+#: `redact_error_message`'s behavior is deliberately unchanged by AND-02.
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9._\-]+\.[A-Za-z]{2,}")
+
+
+def looks_like_phi_text(value: Any) -> bool:
+    """True if `value` is a string carrying a PHI-SHAPED substring (fail-closed detector).
+
+    Detects, with the SAME compiled patterns `redact_error_message` redacts with:
+      - a separated CPF/CNPJ in any common separator style (`[ .\\-/]` per slot);
+      - any run of 11+ contiguous digits (bare CPF/CNS/CNPJ, or any long numeric identifier);
+      - an e-mail address (`_EMAIL_RE`).
+
+    Non-strings and empty strings are NOT flagged (there is no text to be PHI-shaped) — the
+    caller decides what a non-string means for its own contract; Andre's gate, for one, refuses a
+    non-string metric VALUE on separate grounds. TOTAL by construction (an isinstance guard plus
+    four `re.search` calls over a `str` — no branch can raise), so it needs no `try` wrapper to
+    honour the same never-raises contract the redactors above state explicitly.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    return bool(
+        _CPF_FORMATTED_RE.search(value)
+        or _CNPJ_FORMATTED_RE.search(value)
+        or _DIGIT_RUN_RE.search(value)
+        or _EMAIL_RE.search(value)
+    )
