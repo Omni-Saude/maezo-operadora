@@ -29,8 +29,22 @@ name: flip-path-review-gate
 # API state, so the verdict is always a function of the CURRENT reviews, never of history.
 #
 # PERMISSIONS are the minimum the evaluation needs and no more:
-#   contents: read       -> read `.github/CODEOWNERS` at the PR's BASE commit (see below).
-#   pull-requests: read  -> list the PR's changed files and its reviews.
+#   contents: read       -> read `.github/CODEOWNERS` at the PR's BASE commit (see below); PLUS,
+#                            since #305 (defect #254 fix), everything the merge-base-relative
+#                            touched-path computation reads: resolve the base branch's CURRENT tip
+#                            once per run (`repos/{repo}/branches/{ref}`); the three-dot COMPARE
+#                            between that tip and the head (`repos/{repo}/compare/{base}...{head}`,
+#                            merge-base semantics, paginated); and, only when the compare's `files`
+#                            list hits its hard 300-file page cap, a per-commit file union fallback
+#                            (`repos/{repo}/commits/{sha}`, independently paginated) so the touched
+#                            set is never silently truncated. All still `contents: read` — no new
+#                            permission was needed for the fix.
+#   pull-requests: read  -> read the PR itself for its base/head shas and author login
+#                            (`pulls/{n}`) and list its reviews (`pulls/{n}/reviews`). `pulls/{n}/
+#                            files` — the OLD source of touched paths, dropped by #305 because it
+#                            diffs from the PR's possibly-weeks-stale recorded `base.sha` and its own
+#                            `files` list silently truncates at 300 with no signal — is no longer
+#                            called at all.
 # Note what is NOT requested: no `write` of any kind. The gate reports pass/fail through its own
 # exit status; it never posts a comment, never approves, never merges, and cannot.
 #
