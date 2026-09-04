@@ -108,8 +108,19 @@ Two consequences of the leading-run rule are deliberate and documented:
   exactly what `\\b(t\\d+\\.\\d+)\\b` did on main, and what keeps real PRs
   such as #106–#113 (`Tasks: t2.8-lgpd-identity-failclosed`, whose ledger
   row is the short `t2.8`) green. It is the one place where the bound id is
-  not the literal token; a future ledger id of that shape must therefore
-  also carry a row for its `t<phase>.<n>` prefix.
+  not the literal token, and it is a LIVE FALSE-PASS hole, not a future
+  false-RED one: the ledger already carries SEVEN rows of that shape —
+  `t2.6-2`, `t2.6-7`, `t2.6-eb3`, `t2.6-eb4`, `t3.4-f2`, `t3.4-f3`,
+  `t3.4-f4f5f1` — and NONE of them can ever be bound by a `Tasks:` line,
+  because the prefix (`T2.6` / `T3.4`, both of which have their own rows)
+  binds instead. The consequence: a BRAND-NEW id of that shape, e.g.
+  `Tasks: t2.6-brand-new-gap`, binds `T2.6`, finds that row, and PASSES with
+  no row of its own — the gate's whole purpose defeated for that one id
+  family. This is preserved deliberately, on the orchestrator's round-3
+  decision to keep main's behaviour and PRs #106–#113 green, and is
+  disclosed rather than fixed: to close it, a future change would have to
+  bind the whole token and backfill rows for the ids main never bound.
+  Until then, do NOT mint new ledger ids of the shape `t<phase>.<n>-<slug>`.
 - An ISO date IS id-shaped under this grammar (`2026-09-04` = digits,
   separator, digits). No exclusion list is introduced for it — the same
   "no hardcoded word list" reasoning as the `+` above — so a date placed
@@ -235,7 +246,9 @@ _TASK_ID_FULL_RE = re.compile(rf"\A(?:{_TASK_ID_PATTERN})\Z", re.IGNORECASE)
 
 # A legacy `t<phase>.<n>-<slug>` token binds its `t<phase>.<n>` PREFIX (what
 # `\b(t\d+\.\d+)\b` did on main), so "Tasks: t2.8-lgpd-identity-failclosed"
-# keeps binding the short `t2.8` row it always bound. See the module docstring.
+# keeps binding the short `t2.8` row it always bound. This is a disclosed
+# FALSE-PASS hole for the 7 `t<n>.<n>-<suffix>` rows already in the ledger and
+# for any new id of that shape — see the module docstring's bullet.
 _LEGACY_SLUG_PREFIX_RE = re.compile(r"\A(t\d+\.\d+)-", re.IGNORECASE)
 
 # Tokens inside a marker payload are separated by whitespace, "," or ";" —
