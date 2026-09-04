@@ -126,7 +126,7 @@
     },
     {
       "file": "tests/integration/processes/test_sp_op_auth_001.py",
-      "line": 709,
+      "line": 725,
       "test": "test_happy_path_aprovacao_automatica_l2",
       "reason_constant": "_AUTH_CEILING_D07_REASON",
       "classification": "AUTH_D07"
