@@ -97,6 +97,7 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.start_outcome import notify_start_failure as emit_start_failure_notice
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -128,6 +129,12 @@ logger = structlog.get_logger(__name__)
 Intent = Literal["symptom", "scheduling", "information", "human_request", "clinical_question"]
 Population = Literal["adult", "pediatric", "gestante", "mental_health", "none"]
 ResponseKind = Literal["inform", "schedule", "escalate"]
+#: CC-01: o vocabulario do `response_kind` EMITIDO e um superconjunto do de ROTEAMENTO. Helena
+#: pode responder um `falha_tecnica_start` (a resposta honesta quando a escalacao nao abriu), mas
+#: nunca ROTEIA para ele — `next_kind` continua sendo `ResponseKind`, com os tres destinos que
+#: `_route` sabe mapear. Alargar o tipo de roteamento aqui criaria um valor que nenhuma aresta
+#: conhece; alargar so o de saida nao cria destino nenhum.
+ResponseKindOut = Literal["inform", "schedule", "escalate", "falha_tecnica_start"]
 
 # Classify-output schema domains (classify-v1's own contract) — the R1 cycle-1 fail-closed
 # validator (`_validate_extraction`) checks membership against these. Kept as explicit
@@ -150,6 +157,20 @@ MotivoCategoria = Literal[
 Severidade = Literal["grave", "moderada", "leve"]
 
 PROCESS_KEY = "SP-OP-ESCALATION-001"
+
+#: CC-01: a resposta HONESTA quando a escalacao nao pode ser aberta. Constante, nunca um draft de
+#: LLM (ver `_respond_start_failure`). Nao promete atendente, nao promete prazo, nao cita
+#: identificador nenhum — diz o que houve e o que o beneficiario pode fazer agora.
+RESPOSTA_FALHA_TECNICA_START: str = (
+    "Nao consegui registrar seu atendimento agora por uma falha tecnica no nosso sistema, "
+    "e por isso nenhum atendente foi acionado ainda. Por favor, envie sua mensagem novamente "
+    "em alguns minutos. Se voce estiver passando por uma emergencia, procure o servico de "
+    "emergencia mais proximo."
+)
+
+#: `response_kind` do turno de falha de start. Token de classe fechado, como os demais — o que
+#: permite a um golden/alerta distinguir esta resposta de um handoff de verdade.
+RESPONSE_KIND_FALHA_TECNICA_START: str = "falha_tecnica_start"
 
 # DMN table per population (contract SP-OP-ESCALATION-001 + spec/processes/dmn/triage_redflag_*).
 _DMN_BY_POPULATION: dict[str, str] = {
@@ -209,10 +230,19 @@ class HelenaState(TypedDict, total=False):
     escalation_started: bool
     escalation_business_key: str
     escalation_process_ref: dict[str, Any]
+    #: CC-01: o start de SP-OP-ESCALATION-001 foi TENTADO e FALHOU tecnicamente
+    #: (`_start_escalation`'s `except CibSevenError`). Distinto de `escalation_started is False`,
+    #: que tambem e o valor NEUTRO de um turno informativo que nunca tentou escalar.
+    start_failed: bool
 
     # Turn output.
     response_text: str
-    response_kind: ResponseKind
+    response_kind: ResponseKindOut
+    #: CC-01: desfecho do turno. Helena nao tinha este campo — a conversa nao e um processo e o
+    #: turno feliz nao produz desfecho contratual nenhum (fica ""). Ele existe para o UNICO
+    #: desfecho que Helena PRECISA declarar: `erro_inicio_processo`, quando ela nao conseguiu
+    #: abrir a escalacao. Escrito exclusivamente por `respond` no ramo de falha.
+    desfecho: str
     error: str
 
 
@@ -263,8 +293,10 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "escalation_started": False,
     "escalation_business_key": None,
     "escalation_process_ref": None,
+    "start_failed": False,
     "response_text": None,
     "response_kind": None,
+    "desfecho": "",
     "error": None,
 }
 
@@ -746,6 +778,10 @@ class HelenaGraph:
         except CibSevenError as exc:
             return {
                 "escalation_started": False,
+                # CC-01: o marcador que `respond` le para NAO prometer um humano que ninguem
+                # acionou. `escalation_started is False` sozinho nao serve: e tambem o neutro de
+                # um turno informativo, que nunca tentou escalar coisa nenhuma.
+                "start_failed": True,
                 "escalation_motivo": motivo,
                 "escalation_severidade": severidade,
                 "escalation_business_key": business_key,
@@ -774,7 +810,19 @@ class HelenaGraph:
     async def respond(self, state: HelenaState) -> dict[str, Any]:
         """Send the drafted response over WhatsApp. A policy refusal or transport failure is
         recorded in `error` (observable) — it never silently disappears (v1 landmine #2 this
-        design avoids by design: no blanket `except Exception: pass`)."""
+        design avoids by design: no blanket `except Exception: pass`).
+
+        CC-01 — A MENSAGEM TEM DE CORRESPONDER AO QUE ACONTECEU. `_start_escalation` redige o
+        texto de handoff (`_respond_llm`) ANTES de tentar o start, e ate 2026-09-04 este no
+        enviava esse texto tambem quando o start havia falhado: o beneficiario lia "um
+        profissional vai continuar seu atendimento" enquanto ZERO instancias de
+        SP-OP-ESCALATION-001 existiam — uma promessa de humano que ninguem acionou, sem prazo
+        (o SLA vive na instancia que nao nasceu) e sem alerta. Agora o handoff so sai quando a
+        escalacao existe; caso contrario o texto e SUBSTITUIDO pela mensagem honesta de falha
+        tecnica e o turno declara `desfecho=erro_inicio_processo`.
+        """
+        if state.get("start_failed") is True:
+            return await self._respond_start_failure(state)
         text = state.get("response_text") or ""
         try:
             await self._whatsapp.send(_to_hash_from_state(state), text)
@@ -782,6 +830,33 @@ class HelenaGraph:
             # HEL-05 (feeder): same chain as the two above — `error` reaches `resumo_contexto`.
             return {"error": f"whatsapp send failed: {redact_error_message(exc)}"}
         return {}
+
+    async def _respond_start_failure(self, state: HelenaState) -> dict[str, Any]:
+        """CC-01: diz a verdade ao beneficiario e ALERTA a operacao.
+
+        O texto e uma CONSTANTE, nao um draft de LLM: um modelo, pedido para "explicar uma falha
+        tecnica", volta a prometer um atendente com facilidade — e a promessa e exatamente o que
+        nao pode existir aqui. Ele nao cita ninguem, nao promete humano e nao carrega PHI.
+
+        O desfecho e o alerta vem do helper compartilhado (uma definicao para os 9 agentes). Um
+        `whatsapp.send` que tambem falhe e registrado em `error` sem apagar o desfecho: o caso
+        continua marcado como falha de start, que e o que a operacao precisa ver.
+        """
+        saida = emit_start_failure_notice(
+            dict(state),
+            agent_id="helena",
+            process_key=PROCESS_KEY,
+            extra={
+                "response_text": RESPOSTA_FALHA_TECNICA_START,
+                "response_kind": RESPONSE_KIND_FALHA_TECNICA_START,
+                "escalation_started": False,
+            },
+        )
+        try:
+            await self._whatsapp.send(_to_hash_from_state(state), RESPOSTA_FALHA_TECNICA_START)
+        except Exception as exc:  # noqa: BLE001 — surfaced via `error`, never swallowed silently.
+            saida["error"] = f"whatsapp send failed: {redact_error_message(exc)}"
+        return saida
 
     # -- Conditional routing ----------------------------------------------------------------
 

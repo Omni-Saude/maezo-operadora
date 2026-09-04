@@ -193,9 +193,7 @@ def test_every_live_delegation_handler_refuses_to_report_a_failed_start(agent_id
     levantadas = {
         n.exc.func.id
         for n in ast.walk(tree)
-        if isinstance(n, ast.Raise)
-        and isinstance(n.exc, ast.Call)
-        and isinstance(n.exc.func, ast.Name)
+        if isinstance(n, ast.Raise) and isinstance(n.exc, ast.Call) and isinstance(n.exc.func, ast.Name)
     }
     assert "StartProcessFailedError" in levantadas, (
         f"{agent_id}/delegation.py nao levanta StartProcessFailedError — um start falho voltaria "

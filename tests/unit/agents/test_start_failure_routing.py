@@ -392,7 +392,11 @@ async def test_start_failure_yields_error_desfecho_and_counts_an_agent_error(
     )
 
 
-@pytest.mark.parametrize(("agent_id", "class_name", "extra", "start_node", "failure_node", "state"), _CASES, ids=_AGENT_IDS)
+@pytest.mark.parametrize(
+    ("agent_id", "class_name", "extra", "start_node", "failure_node", "state"),
+    _CASES,
+    ids=_AGENT_IDS,
+)
 async def test_route_after_start_sends_a_failed_start_to_the_failure_node(
     agent_id: str,
     class_name: str,

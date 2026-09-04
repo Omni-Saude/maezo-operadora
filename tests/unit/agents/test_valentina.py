@@ -222,6 +222,10 @@ def _planted_outputs() -> dict[str, Any]:
         "motivo_humano": "outro",
         "grupo_humano": _SENTINEL,
         "process_started": True,
+        # CC-01: campo novo (marcador de falha de start). Ele e OUTPUT-ONLY como todos os
+        # demais, entao entra no plantio adversarial junto com os outros — plantar True e
+        # exatamente o que um chamador faria para forjar "o start ja falhou".
+        "start_failed": True,
         "business_key": f"PROG-{_SENTINEL}",
         "process_ref": {"instance_id": _SENTINEL},
         "desfecho": "enrollment_realizado",  # forged terminal
@@ -275,6 +279,7 @@ def test_build_compiles_with_expected_nodes() -> None:
         "auto_route",
         "human_review",
         "start_process",
+        "notify_start_failure",
         "finalize",
     }
 

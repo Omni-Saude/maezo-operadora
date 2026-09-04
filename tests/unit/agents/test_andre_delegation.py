@@ -22,6 +22,7 @@ from maezo.agents.andre.delegation import (
     START_OUTCOME_META_KEY,
     TARGET_AGENT,
     TASK_TYPE_POPULATION_ANALYTICS,
+    _degradation_token,
     _flow_for,
     _start_outcome_token,
     adequacao_task_id,
@@ -31,7 +32,13 @@ from maezo.agents.andre.delegation import (
     pagto_task_id,
     state_from_envelope,
 )
-from maezo.agents.andre.graph import _CALLER_INPUT_FIELDS, _business_key, build
+from maezo.agents.andre.graph import (
+    _CALLER_INPUT_FIELDS,
+    ERROR_START_PROCESS_ENGINE_UNAVAILABLE,
+    _business_key,
+    build,
+)
+from maezo.runtime.start_outcome import StartProcessFailedError
 from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
     FakeCibSevenTransport,
@@ -522,9 +529,19 @@ async def test_handler_meta_discloses_dmn_degradation() -> None:
     assert output.meta["route"] == "human_review"
 
 
-async def test_handler_meta_discloses_engine_degradation_at_the_anchor_step() -> None:
-    """The engine being unreachable at the anchor step is a DIFFERENT degradation class — matched
-    by EQUALITY against `graph.ERROR_START_PROCESS_ENGINE_UNAVAILABLE`, never by text sniffing."""
+async def test_handler_refuses_to_report_an_unreachable_engine_as_a_completed_turn() -> None:
+    """CC-01/RAF-02 (ALTERADO em 2026-09-04). Ate esta data o handler DEVOLVIA um
+    `HandlerOutput` com `degraded="engine_inacessivel"` + `process_started="False"` quando o
+    engine estava fora — e o dispatcher, para quem todo retorno normal e sucesso
+    (`HandlerOutput` nao tem campo `success`), gravava `_DECISION_COMPLETED`, emitia o fato
+    COMPLETED e SELAVA o resultado por `task_id`. A divulgacao era honesta e inutil: chegava
+    dentro de um envelope de SUCESSO irretentavel.
+
+    Agora o handler levanta `StartProcessFailedError`, que propaga pelo dispatcher sem audit
+    terminal, sem fato COMPLETED e sem selo de idempotencia. O classificador de degradacao
+    continua correto e testado logo abaixo, no nivel em que ele de fato opera (o estado
+    terminal do grafo) — o que mudou foi o CONTRATO do handler, nao a taxonomia.
+    """
 
     class _UnreachableCibSeven(FakeCibSevenTransport):
         async def start_process_instance(self, *args: Any, **kwargs: Any) -> Any:
@@ -537,9 +554,18 @@ async def test_handler_meta_discloses_engine_degradation_at_the_anchor_step() ->
         audit_sink=FakeStartAuditSink(),
     )
     # A non-worker origin so the anchor step is actually ATTEMPTED (the worker origin no-ops).
-    output = await handler(replace(_pagto_envelope(), origin="autonomous-originator"))
-    assert output.meta["degraded"] == "engine_inacessivel"
-    assert output.meta["process_started"] == "False"
+    with pytest.raises(StartProcessFailedError) as exc:
+        await handler(replace(_pagto_envelope(), origin="autonomous-originator"))
+    assert "SP-OP-PAGTO-001" in str(exc.value)
+
+
+def test_engine_degradation_token_still_classifies_the_terminal_state() -> None:
+    """A taxonomia sobrevive a mudanca de contrato do handler: o estado terminal cujo `error` e
+    EXATAMENTE `ERROR_START_PROCESS_ENGINE_UNAVAILABLE` continua classificado como
+    `engine_inacessivel` (por IGUALDADE, nunca por sniffing de texto)."""
+    assert _degradation_token({"error": ERROR_START_PROCESS_ENGINE_UNAVAILABLE}) == "engine_inacessivel"
+    assert _degradation_token({"error": "qualquer outra coisa"}) == "contexto_incompleto"
+    assert _degradation_token({}) == ""
 
 
 async def test_handler_meta_discloses_missing_runtime_context() -> None:

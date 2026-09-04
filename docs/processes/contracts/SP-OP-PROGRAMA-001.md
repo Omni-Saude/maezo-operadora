@@ -173,6 +173,39 @@ tem timer interruptivo de decisao humana. **No estouro de SLA a coordenacao clin
 ha auto-desligamento por timeout** (desligamento clinico nunca nasce de timer). O **boundary de
 revogacao** (B) e independente do SLA — pode interromper a qualquer momento.
 
+## Desfecho de agente: falha de start (CC-01)
+
+| Desfecho | Onde vive | Quem escreve | Significado |
+|---|---|---|---|
+| `erro_inicio_processo` | **estado do agente valentina** — NAO e variavel de processo | no `notify_start_failure` do grafo, via o helper unico `maezo.runtime.start_outcome.notify_start_failure` | o agente TENTOU iniciar SP-OP-PROGRAMA-001 pelo chokepoint `start_process_idempotent` e o engine recusou (`CibSevenError`). NENHUMA instancia nasceu |
+
+ONDE ESTE VALOR **NAO** ESTA, e por que. Ele nunca chega ao engine: nao consta de
+`## Variaveis de entrada` nem de `## Variaveis de saida`, nao tem `bpmnError` associado, nao
+aparece em nenhum `camunda:` do BPMN e **nao exige mudanca nenhuma no BPMN deste processo**. Nao
+poderia ser diferente — o processo NAO nasceu, entao nao existe instancia onde gravar uma
+variavel nem escopo onde lancar um erro. Ele e declarado AQUI, no contrato, porque e um desfecho
+CONTRATUAL do agente que serve este processo e porque quem consome o estado do agente (o handler
+A2A, um golden de eval, uma regra de alerta) precisa do literal exato e estavel.
+
+POR QUE ELE EXISTE (auditoria de frota 2026-09-04, achado CC-01). Ate essa data a falha de start
+era engolida: o `except CibSevenError` do no de start devolvia apenas `process_started=false` e a
+aresta seguinte era INCONDICIONAL para um terminal no-op, de modo que o desfecho de SUCESSO ja
+gravado a montante (`enrollment_realizado`) sobrevivia — o estado do agente AFIRMAVA um fato que nao
+aconteceu. E o caso se perdia em silencio, porque os prazos desta especificacao vivem em timers
+da instancia BPMN que nunca nasceu: sem SLA, sem alerta, sem retry.
+
+EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
+
+* `process_started = false` (e, quando o agente distingue no-ops legitimos, o marcador
+  `start_failed = true`, que e o que a aresta condicional le);
+* `record_agent_error()` -> `maezo_agent_errors_total`, o contador que a regra
+  `MaezoAgentCrashLoop` observa;
+* evento estruturado `agent_process_start_failed` com a business key idempotente deste contrato —
+  este evento e o SUBSTITUTO operacional do prazo enquanto a instancia nao existe;
+* RETRY seguro por construcao: `start_process_idempotent` e idempotente por business key, entao
+  uma reentrega reencontra a instancia viva (`ALREADY_ACTIVE`) em vez de abrir uma segunda.
+
+
 ## Codigos de erro
 
 | Codigo | Onde | Tratamento |

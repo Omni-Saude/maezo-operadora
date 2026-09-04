@@ -71,11 +71,12 @@ it ADDS `RuleAwareFakeDmnTransport` and the `__rules__` conditional-fixture bran
 `run_case` that instantiates the fake DMN transport (`FakeDmnTransport()` ->
 `RuleAwareFakeDmnTransport()`) — a conditional fixture cannot be served by the base fake, so
 `run_case` must hand every case the rule-aware transport, not only the ones whose `dmn_fixture`
-uses `__rules__`. No existing eval changes behavior: 47 of the 49 golden cases carry no
+uses `__rules__`. No existing eval changes behavior: all but 2 of the golden cases carry no
 `__rules__` key and take the unchanged static-row path (`RuleAwareFakeDmnTransport.evaluate`
 falls through to `FakeDmnTransport.evaluate` verbatim whenever `decision_key` has no registered
 rules) — reproduce the count with `grep -l '__rules__' tests/evals/golden/*/*.json | wc -l` (2)
-against `ls tests/evals/golden/*/*.json | wc -l` (49).
+against `ls tests/evals/golden/*/*.json | wc -l` (59 today; it was 49 when RAF-06 landed —
+CC-01/CC-08 added nine fail-start cases, none of them carrying `__rules__`).
 
 CC-01/CC-08's scope is purely ADDITIVE (like WP-EVALS', unlike RAF-06's): it ADDS
 `FailingStartCibSevenTransport` and the `_cibseven_for(case)` selector to `_harness.py`, and

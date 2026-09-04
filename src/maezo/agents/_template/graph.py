@@ -25,9 +25,14 @@ tinha de reinventar (ou omitia):
    condicional leva a `notify_start_failure`, que escreve `desfecho="erro_inicio_processo"` e
    loga um evento observavel com a business key. Sem isso o caso some sem SLA, sem alerta e sem
    retry, porque o timer de SLA vive na instancia BPMN que nunca nasceu.
-   ATENCAO DE ESCOPO: este padrao esta AQUI, no template, como REQUISITO do contrato canonico.
-   Ele NAO foi propagado aos 10 agentes existentes neste commit — o backport por agente e
-   trabalho separado (CC-01 spec tecnica (a)/(b)/(c)).
+   ESCOPO (atualizado 2026-09-04, CC-01/RAF-02/LUC-05): o padrao deixou de morar AQUI. A unica
+   definicao do desfecho, do predicado de roteamento e do no de alerta vive em
+   `maezo.runtime.start_outcome` — o ponto mais baixo —, e este template a IMPORTA como qualquer
+   outro agente. O backport foi feito: os 9 agentes que iniciam processo (rafael, marina, lucas,
+   carolina, andre, gustavo, valentina, fernando + helena, que inicia dentro de `escalate`)
+   adotam o mesmo helper. O predicado NAO le `process_started` — le o marcador `start_failed`,
+   porque `process_started is False` tambem significa no-op legitimo em varios agentes (ver o
+   docstring de `runtime/start_outcome.py`).
 
 O QUE ESTE ARQUIVO DELIBERADAMENTE NAO TEM
 ------------------------------------------
@@ -56,11 +61,19 @@ COMO DERIVAR UM AGENTE DESTE TEMPLATE
 
 from __future__ import annotations
 
-from typing import Any, Literal, TypedDict, cast
+from typing import Any, TypedDict, cast
 
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.runtime.start_outcome import (
+    DESFECHO_ERRO_INICIO_PROCESSO,
+    route_after_start,
+    start_failed_state,
+)
+from maezo.runtime.start_outcome import (
+    notify_start_failure as emit_start_failure_notice,
+)
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -72,9 +85,10 @@ from maezo.tools.workers.dmn_transport import DmnTransport
 
 logger = structlog.get_logger(__name__)
 
-#: Desfecho canonico de falha de start (CC-01). Um agente derivado NAO inventa outro literal:
-#: o valor tem de ser o mesmo em todo lugar para que um alerta operacional consiga agrega-lo.
-DESFECHO_ERRO_INICIO_PROCESSO: str = "erro_inicio_processo"
+#: Desfecho canonico de falha de start (CC-01). REEXPORTADO, nao redefinido: a UNICA definicao
+#: vive em `maezo.runtime.start_outcome` — o ponto mais baixo, de onde os 9 agentes e este
+#: template a importam. Duas definicoes do mesmo literal e como o valor diverge.
+__all__ = ["DESFECHO_ERRO_INICIO_PROCESSO"]
 
 #: Desfecho neutro de sucesso do esqueleto. Um agente real substitui pelo desfecho do SEU
 #: contrato (`encaminhado_auditor`, `aprovacao_automatica_solicitada`, ...).
@@ -92,6 +106,11 @@ class TemplateState(TypedDict, total=False):
     # --- OUTPUT-ONLY: chaves de propriedade dos nos deste grafo. Um chamador nunca as seta. ---
     business_key: str
     process_started: bool
+    #: CC-01: o start foi TENTADO e FALHOU tecnicamente. Escrito por EXATAMENTE um caminho de
+    #: codigo (o `except CibSevenError` de `start_process`, via `start_failed_state`) e lido pela
+    #: aresta condicional. Distinto de `process_started is False`, que num agente real tambem
+    #: significa no-op legitimo (fluxo sem processo, `ALREADY_COMPLETED`, rota informativa).
+    start_failed: bool
     process_ref: dict[str, Any] | None
     desfecho: str
     error: str
@@ -105,6 +124,7 @@ INPUT_FIELDS: frozenset[str] = frozenset({"tenant_id", "correlation_id", "reques
 NEUTRAL_OUTPUTS: dict[str, Any] = {
     "business_key": "",
     "process_started": False,
+    "start_failed": False,
     "process_ref": None,
     "desfecho": "",
     "error": "",
@@ -254,13 +274,11 @@ class TemplateGraph:
                 provenance=provenance,
             )
         except CibSevenError as exc:
-            # NAO engula: `process_started=False` + `error` sao exatamente o que a aresta
-            # condicional abaixo le para desviar a `notify_start_failure` (CC-01).
-            return {
-                "process_started": False,
-                "business_key": key,
-                "error": f"start de {self.PROCESS_KEY} indisponivel: {exc}",
-            }
+            # NAO engula: `start_failed_state` marca a falha (`start_failed=True`) e e' esse
+            # marcador que `route_after_start` le para desviar a `notify_start_failure` (CC-01).
+            return start_failed_state(
+                business_key=key, error=f"start de {self.PROCESS_KEY} indisponivel: {exc}"
+            )
         return {
             "process_started": True,
             "business_key": key,
@@ -279,25 +297,13 @@ class TemplateGraph:
         `<PROCESS_KEY>.start_failed` com a business key) e, se o caso admitir, UM retry com
         backoff — seguro porque `start_process_idempotent` e idempotente por business key.
         """
-        logger.error(
-            "agent_process_start_failed",
-            process_key=self.PROCESS_KEY,
-            business_key=state.get("business_key", ""),
-            tenant_id=state.get("tenant_id", ""),
-            desfecho=DESFECHO_ERRO_INICIO_PROCESSO,
-        )
-        return {"desfecho": DESFECHO_ERRO_INICIO_PROCESSO}
+        return emit_start_failure_notice(dict(state), agent_id="_template", process_key=self.PROCESS_KEY)
 
     async def complete(self, state: TemplateState) -> dict[str, Any]:
         """Fim do turno feliz. Um agente derivado escreve aqui o desfecho do SEU contrato."""
         return {"desfecho": DESFECHO_PROCESSO_INICIADO}
 
     # --- Roteamento -----------------------------------------------------------------------
-
-    def _route_after_start(self, state: TemplateState) -> Literal["notify_start_failure", "complete"]:
-        if state.get("process_started") is not True:
-            return "notify_start_failure"
-        return "complete"
 
     def compile_graph(self) -> StateGraph[TemplateState]:
         """Monta (sem compilar) o StateGraph. `START`/`END` sao CONSTANTES, nunca strings (HEL-15)."""
@@ -311,8 +317,8 @@ class TemplateGraph:
         g.add_edge("receive", "start_process")
         g.add_conditional_edges(
             "start_process",
-            self._route_after_start,
-            {"notify_start_failure": "notify_start_failure", "complete": "complete"},
+            route_after_start,
+            {"notify_start_failure": "notify_start_failure", "continue": "complete"},
         )
         g.add_edge("notify_start_failure", END)
         g.add_edge("complete", END)

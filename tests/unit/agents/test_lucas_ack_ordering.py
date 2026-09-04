@@ -154,8 +154,6 @@ async def test_ack_node_is_a_noop_on_the_informational_route() -> None:
     """A jornada `respond_member` nunca abre processo — e o no de ACK nao pode inventar um envio."""
     whatsapp = _RecordingWhatsApp()
     graph = _graph(whatsapp, FakeCibSevenTransport())
-    saida = await graph.send_escalation_ack(
-        {**_ESTADO, "route": "respond_member", "process_started": False}
-    )
+    saida = await graph.send_escalation_ack({**_ESTADO, "route": "respond_member", "process_started": False})
     assert whatsapp.sent == []
     assert saida == {}
