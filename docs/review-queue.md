@@ -1182,7 +1182,7 @@ references go» do docstring de modulo, e `CONTRIBUTING.md`, subsecao «Onde viv
 historica (convencao, nao marcador)».
 
 Razao da recusa, citada: ADR-0040 D7 diz «Nao ha allowlist de excecoes, nem por arquivo nem por
-bloco `historico:`» (`docs/adr/0040-perspectiva-operadora-contas-recurso.md:289-291`), e a secao
+bloco `historico:`» (`docs/adr/0040-perspectiva-operadora-contas-recurso.md:289-290`), e a secao
 «Fail-closed» do modulo repete «There is no exception mechanism: no allowlist file, no inline
 waiver, no `historico:` block». Um marcador que dispensasse o comentario E esse mecanismo. Criar um
 e ato do DONO sobre o ADR — nao edicao da fence por quem a implementa.
