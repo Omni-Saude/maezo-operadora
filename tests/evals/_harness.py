@@ -22,6 +22,17 @@ here rather than in a family test module because it is generic, agent-agnostic t
 exactly the shared plumbing this module exists to hold. It judges ONLY the clarity of the
 wording a graph emits to a beneficiary (e.g. Helena's `response_text`) — never the clinical
 content of any SME-gated DMN table.
+
+`RuleAwareFakeDmnTransport` / the `__rules__` branch of `register_dmn_fixture` (RAF-06, RAF-01,
+2026-09-04) similarly ADD to this module — see their own docstrings below for the why (a static
+`dmn_fixture` row is vacuous for a routing assertion) and the shape. Unlike WP-EVALS' change
+above, RAF-06 is not purely additive: it also EDITS the single existing line in `run_case` that
+builds the fake DMN transport (`FakeDmnTransport()` -> `RuleAwareFakeDmnTransport()`), because a
+conditional (`__rules__`) fixture cannot be served by the base fake and `run_case` has no way to
+know in advance which cases will need it. This is the README's second documented exception to
+"nobody but B0 edits `_harness.py`". No existing eval's behavior changes: a case without
+`__rules__` in its `dmn_fixture` falls through `RuleAwareFakeDmnTransport.evaluate` to
+`FakeDmnTransport.evaluate`'s identical static-row path.
 """
 
 from __future__ import annotations

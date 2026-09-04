@@ -61,10 +61,21 @@ tests/evals/
 
 Each family builder wave owns its own test module + its own `golden/<agent>/` subdirectories —
 disjoint files, so B1/B2/B3 can run in parallel with zero collisions. Nobody but B0 edits
-`conftest.py` / `_harness.py` / this README — WP-EVALS (gaps 10.3/11.5, 2026-09) is the one
-documented exception: it ADDS (never edits existing lines in) `_harness.py`'s clarity helpers
-and this README's own documentation of them, per its brief ("if the runner cannot express it,
-extend the runner at the root"). See "Clarity/legibility checks" and "Journey evals" below.
+`conftest.py` / `_harness.py` / this README — WP-EVALS (gaps 10.3/11.5, 2026-09) and RAF-06
+(RAF-01, 2026-09-04) are the two documented exceptions. WP-EVALS ADDS (never edits existing
+lines in) `_harness.py`'s clarity helpers and this README's own documentation of them, per its
+brief ("if the runner cannot express it, extend the runner at the root"). See "Clarity/legibility
+checks" and "Journey evals" below. RAF-06's scope is honest, not purely additive like WP-EVALS':
+it ADDS `RuleAwareFakeDmnTransport` and the `__rules__` conditional-fixture branch of
+`register_dmn_fixture` (see "dmn_fixture" below), and separately EDITS the one existing line in
+`run_case` that instantiates the fake DMN transport (`FakeDmnTransport()` ->
+`RuleAwareFakeDmnTransport()`) — a conditional fixture cannot be served by the base fake, so
+`run_case` must hand every case the rule-aware transport, not only the ones whose `dmn_fixture`
+uses `__rules__`. No existing eval changes behavior: 47 of the 49 golden cases carry no
+`__rules__` key and take the unchanged static-row path (`RuleAwareFakeDmnTransport.evaluate`
+falls through to `FakeDmnTransport.evaluate` verbatim whenever `decision_key` has no registered
+rules) — reproduce the count with `grep -l '__rules__' tests/evals/golden/*/*.json | wc -l` (2)
+against `ls tests/evals/golden/*/*.json | wc -l` (49).
 
 ## Golden case JSON schema
 
