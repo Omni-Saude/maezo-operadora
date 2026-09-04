@@ -33,6 +33,17 @@ A row without that parenthesised path is LEGACY: this gate counts and lists it, 
 to verify it (see design fact 2). This is backwards compatible by construction — every row in the
 table today is legacy, and stays legacy (and green) until a future edit opts it in.
 
+Shape alone is NOT enough, though: a row is only DECLARED when it ALSO carries a Date column
+(the ledger's second cell) on or after `CONVENTION_START_DATE` (below). Several rows that predate
+this gate by weeks already happen to write their Test-hash cell in exactly the declared-path
+SHAPE — a coincidence, not an opt-in. The concrete case that proves this is not hypothetical:
+`mzo-040` (`docs/evidence-ledger.md`, dated 2026-08-09) already cites
+`sha256:070c3e2c... (tests/unit/gateway/test_action_execution_gateway.py)`, and `test_action_...`
+has drifted since — running `--all` without the date gate flags it MISMATCH, a false positive
+that would mislead a local spot-audit into treating a syntactic coincidence as a real
+hash-integrity problem. `CONVENTION_START_DATE` closes that hole structurally: a row dated before
+it is always LEGACY regardless of shape.
+
 Recipe (frozen — must byte-for-byte match the declared hash)
 --------------------------------------------------------------
     python -m pytest <test file> -v --tb=no -p no:cacheprovider
@@ -93,6 +104,9 @@ Fail-closed contract
   the hash was taken) so a human knows which repair applies.
 - A declared row's path fails the safety pattern (`^tests/[A-Za-z0-9_/.-]+\.py$`, no `..` segment)
   or does not exist at HEAD -> FAIL. Never execute an unvalidated path.
+- A row's Date cell is missing, unparseable, or before `CONVENTION_START_DATE` -> that row is
+  LEGACY (skipped, listed with its reason), never executed, even when its Test-hash cell already
+  matches the declared-path shape (see "Convention" above — a coincidence is not an opt-in).
 - Zero declared rows to check (every added row is legacy, or nothing was added) -> PASS, but ALWAYS
   print the explicit counts ("0 rows verified, N legacy rows skipped") — never silently green with
   no signal that nothing was actually checked.
@@ -121,6 +135,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_LEDGER_PATH = "docs/evidence-ledger.md"
 
+# The date (ISO `YYYY-MM-DD`, the ledger's own Date-column format — plain string `>=` sorts it
+# correctly) on/after which a row's Date cell must fall for that row to be eligible for the
+# declared-path convention, EVEN WHEN its Test-hash cell already matches the shape below. Without
+# this, row selection is shape-only and a pre-existing row can coincidentally match the shape and
+# get executed as if it had opted in (the real, non-hypothetical case: `mzo-040`,
+# docs/evidence-ledger.md, dated 2026-08-09 — see module docstring "Convention"). Documented here
+# AND in docs/evidence-ledger.md's convention paragraph — keep both in sync if this ever changes.
+CONVENTION_START_DATE = "2026-09-04"
+
 # ---------------------------------------------------------------------------
 # Row parsing (pure)
 # ---------------------------------------------------------------------------
@@ -129,6 +152,12 @@ DEFAULT_LEDGER_PATH = "docs/evidence-ledger.md"
 # pipes expected in a task ID) so it works even though the Evidence prose columns elsewhere in the
 # same row sometimes DO contain literal/escaped pipe characters.
 _TASK_ID_CELL_RE = re.compile(r"^\|\s*([^|]+?)\s*\|")
+
+# The second cell of a ledger table row: the Date column, immediately after the Task ID cell,
+# required to be a plain ISO `YYYY-MM-DD` (the ledger's own convention — every existing row uses
+# this form). A row whose Date cell is anything else (malformed, missing) yields no match here,
+# and `is_date_qualified(None)` is fail-closed False — never treated as convention-qualified.
+_DATE_CELL_RE = re.compile(r"^\|\s*[^|]+?\s*\|\s*(\d{4}-\d{2}-\d{2})\s*\|")
 
 # The new convention, searched over the WHOLE row line (not column-isolated — see module
 # docstring): a 64-hex sha256, one-or-more spaces, then the declared path in parentheses, and
@@ -154,8 +183,11 @@ def is_table_row(line: str) -> bool:
 
 
 def parse_row_line(line: str) -> DeclaredRow | None:
-    """Parse one ledger row line. Returns None for a non-row line OR a legacy row (no declared
-    path) — callers distinguish the two with `is_table_row`."""
+    """Parse one ledger row line. Returns None for a non-row line OR a row whose Test-hash cell
+    does not carry the declared-path SHAPE — callers distinguish the two with `is_table_row`. Pure
+    shape check only: whether a shape-matching row is actually eligible (Date-qualified) is a
+    separate concern, decided by `select_rows` via `extract_row_date`/`is_date_qualified` — kept
+    apart so this function stays a one-line-in-one-line-out parser with no notion of "today"."""
     stripped = line.lstrip()
     task_match = _TASK_ID_CELL_RE.match(stripped)
     if task_match is None:
@@ -170,29 +202,71 @@ def parse_row_line(line: str) -> DeclaredRow | None:
     )
 
 
+def extract_row_date(line: str) -> str | None:
+    """Pure: the Date cell (second column) of a table row line, as the raw ISO `YYYY-MM-DD`
+    string, or None when the line is not a table row or its Date cell isn't in that exact form
+    (fail-closed — an unparseable date is never treated as convention-qualified)."""
+    match = _DATE_CELL_RE.match(line.lstrip())
+    return match.group(1) if match else None
+
+
+def is_date_qualified(row_date: str | None) -> bool:
+    """Pure: True iff `row_date` is a non-None ISO `YYYY-MM-DD` on/after `CONVENTION_START_DATE`.
+    Plain Python string `>=` is correct here because ISO `YYYY-MM-DD` sorts lexicographically the
+    same as chronologically. `None` (missing/malformed Date cell) is never qualified."""
+    return row_date is not None and row_date >= CONVENTION_START_DATE
+
+
+@dataclass(frozen=True)
+class LegacyRow:
+    """A table row this gate will never execute, with a human-readable reason why: either its
+    Test-hash cell never carried the declared-path shape, or it did but the row predates
+    `CONVENTION_START_DATE` (a shape coincidence, not an opt-in — see module docstring)."""
+
+    task_id: str
+    reason: str
+
+
 @dataclass(frozen=True)
 class RowSelection:
     declared: tuple[DeclaredRow, ...]
-    legacy_task_ids: tuple[str, ...]
+    legacy: tuple[LegacyRow, ...]
 
 
 def select_rows(lines: Sequence[str]) -> RowSelection:
-    """Pure: partition candidate ledger lines into (declared-path rows, legacy task IDs). Lines
-    that are not table rows at all (blank lines, the convention paragraph, diff noise) are
-    silently ignored — they are neither declared nor legacy, they are not rows."""
+    """Pure: partition candidate ledger lines into (declared rows, legacy rows-with-reason). A
+    row is declared only when BOTH hold: (1) `parse_row_line` succeeds (Test-hash cell carries the
+    `sha256:<hex> (tests/...py)` shape), AND (2) `is_date_qualified(extract_row_date(line))` is
+    True (Date cell on/after `CONVENTION_START_DATE`) — shape alone is not an opt-in (the real
+    `mzo-040` false-positive this gate must not repeat; see module docstring). Lines that are not
+    table rows at all (blank lines, the convention paragraph, diff noise) are silently ignored —
+    they are neither declared nor legacy, they are not rows."""
     declared: list[DeclaredRow] = []
-    legacy: list[str] = []
+    legacy: list[LegacyRow] = []
     for line in lines:
         stripped = line.lstrip()
         task_match = _TASK_ID_CELL_RE.match(stripped)
         if task_match is None:
             continue
+        task_id = task_match.group(1).strip()
         row = parse_row_line(line)
-        if row is not None:
-            declared.append(row)
-        else:
-            legacy.append(task_match.group(1).strip())
-    return RowSelection(declared=tuple(declared), legacy_task_ids=tuple(legacy))
+        if row is None:
+            legacy.append(LegacyRow(task_id, "no declared-path Test-hash form"))
+            continue
+        row_date = extract_row_date(line)
+        if not is_date_qualified(row_date):
+            date_desc = row_date if row_date is not None else "missing/unparseable"
+            legacy.append(
+                LegacyRow(
+                    task_id,
+                    f"Date cell {date_desc} precedes CONVENTION_START_DATE "
+                    f"{CONVENTION_START_DATE} (Test-hash cell matches the declared-path shape by "
+                    "coincidence, not by opt-in)",
+                )
+            )
+            continue
+        declared.append(row)
+    return RowSelection(declared=tuple(declared), legacy=tuple(legacy))
 
 
 # ---------------------------------------------------------------------------
@@ -482,12 +556,20 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
         selection = select_rows(added_lines)
         scope_desc = f"rows added in {effective_base}..HEAD of {args.ledger_path}"
 
+    # Legacy rows are listed with their reason (shape or date) EVERY time, not just when nothing
+    # is declared — a row skipped for the mzo-040-style date-coincidence reason must be visible
+    # even on a run where other rows ARE verified.
+    for legacy_row in selection.legacy:
+        print(f"{prefix} SKIP (legacy): {legacy_row.task_id} — {legacy_row.reason}")
+
     if not selection.declared:
         legacy_note = (
-            f" (legacy task IDs: {', '.join(selection.legacy_task_ids)})" if selection.legacy_task_ids else ""
+            f" (legacy task IDs: {', '.join(r.task_id for r in selection.legacy)})"
+            if selection.legacy
+            else ""
         )
         print(
-            f"{prefix} PASS: 0 rows verified, {len(selection.legacy_task_ids)} legacy rows skipped "
+            f"{prefix} PASS: 0 rows verified, {len(selection.legacy)} legacy rows skipped "
             f"— {scope_desc}{legacy_note}."
         )
         return 0
@@ -501,7 +583,7 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
     verified_ok = len(results) - len(failures)
     print(
         f"{prefix} SUMMARY: {verified_ok}/{len(results)} declared rows verified, "
-        f"{len(selection.legacy_task_ids)} legacy rows skipped — {scope_desc}."
+        f"{len(selection.legacy)} legacy rows skipped — {scope_desc}."
     )
     return 1 if failures else 0
 

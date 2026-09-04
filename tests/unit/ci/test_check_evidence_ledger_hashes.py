@@ -1,11 +1,16 @@
 """Unit tests for scripts.ci.check_evidence_ledger_hashes (LEDGER-HASH-RECOMPUTE-CHECK).
 
-Covers: row parsing (declared vs legacy), diff-range selection (a real tmp git repo — no mocked
-git), recipe-hash equality against a real fixture test file run for real (proving BOTH that a
-hash computed WITH the pytest progress marker fails and that the STRIPPED one matches — the
-2026-09-03 VER-EVAL-REPLAY addendum's explicit requirement), mismatch -> non-zero, legacy rows
-skipped+counted, path-injection rejected, and a non-vacuity proof (the gate can actually FAIL, not
-just always print green).
+Covers: row parsing (declared vs legacy), CONVENTION_START_DATE date-qualification (a row must be
+BOTH shape-matching AND dated on/after the convention start to be declared — the real `mzo-040`
+false-positive this gate must not repeat, VERIFY-LEDGER-RECOMPUTE.md finding D-2, reproduced below
+against the real repo ledger, not just a synthetic fixture), diff-range selection (a real tmp git
+repo — no mocked git), recipe-hash equality against a real fixture test file run for real (proving
+BOTH that a hash computed WITH the pytest progress marker fails and that the STRIPPED one matches
+— the 2026-09-03 VER-EVAL-REPLAY addendum's explicit requirement — through BOTH a pre-cleaned
+synthetic string AND the real raw-output pipeline, finding E-2), mismatch -> non-zero, legacy rows
+skipped+counted+reasoned, path-injection rejected (including the `.py`-suffixed traversal case
+that is the ONLY thing the segment guard alone catches, finding E-1), and a non-vacuity proof (the
+gate can actually FAIL, not just always print green).
 """
 
 from __future__ import annotations
@@ -16,11 +21,15 @@ from pathlib import Path
 
 import pytest
 from scripts.ci.check_evidence_ledger_hashes import (
+    CONVENTION_START_DATE,
     DeclaredRow,
+    LegacyRow,
     RowSelection,
     compute_recipe_hash,
     extract_result_lines,
+    extract_row_date,
     get_ledger_diff_added_lines,
+    is_date_qualified,
     is_safe_test_path,
     is_table_row,
     main,
@@ -42,9 +51,9 @@ LEDGER_HEADER = (
 )
 
 
-def _declared_row_line(task_id: str, test_path: str, hash_hex: str) -> str:
+def _declared_row_line(task_id: str, test_path: str, hash_hex: str, date: str = CONVENTION_START_DATE) -> str:
     return (
-        f"| {task_id} | 2026-09-03 | docs-spec-reconciler (R2) | pending (R2) | deadbeef | "
+        f"| {task_id} | {date} | docs-spec-reconciler (R2) | pending (R2) | deadbeef | "
         f"evid:1 | sha256:{hash_hex} ({test_path}) | implemented — unverified |"
     )
 
@@ -118,16 +127,91 @@ class TestSelectRows:
         expected_row = DeclaredRow(
             task_id="NEW-1", test_path="tests/unit/a/test_b.py", declared_hash="d" * 64
         )
-        assert selection == RowSelection(declared=(expected_row,), legacy_task_ids=("T0.1", "T0.2"))
+        assert selection.declared == (expected_row,)
+        assert [r.task_id for r in selection.legacy] == ["T0.1", "T0.2"]
+        assert all("declared-path" in r.reason for r in selection.legacy)
 
     def test_empty_input_yields_empty_selection(self) -> None:
-        assert select_rows([]) == RowSelection(declared=(), legacy_task_ids=())
+        assert select_rows([]) == RowSelection(declared=(), legacy=())
+
+    def test_legacy_shape_row_reason_is_exact(self) -> None:
+        selection = select_rows([_legacy_row_line("T0.1")])
+        assert selection.legacy == (LegacyRow(task_id="T0.1", reason="no declared-path Test-hash form"),)
 
     def test_non_vacuity_a_row_with_no_hash_at_all_is_legacy_not_dropped(self) -> None:
         line = "| PERSP-X | 2026-09-03 | a | b | sha | ev | — (nao verificado ainda) | pendente |"
         selection = select_rows([line])
         assert selection.declared == ()
-        assert selection.legacy_task_ids == ("PERSP-X",)
+        assert [r.task_id for r in selection.legacy] == ["PERSP-X"]
+
+    def test_shape_matching_row_before_convention_start_is_legacy_by_date(self) -> None:
+        # The exact D-2 false-positive class this gate must not repeat: a row whose Test-hash
+        # cell already writes the declared-path SHAPE, but whose Date cell precedes
+        # CONVENTION_START_DATE — a coincidence, not an opt-in. Real example: `mzo-040`
+        # (docs/evidence-ledger.md, 2026-08-09) cites
+        # `sha256:070c3e2c... (tests/unit/gateway/test_action_execution_gateway.py)`.
+        line = _declared_row_line(
+            "mzo-040-style",
+            "tests/unit/gateway/test_action_execution_gateway.py",
+            "a" * 64,
+            date="2026-08-09",
+        )
+        selection = select_rows([line])
+        assert selection.declared == ()
+        assert len(selection.legacy) == 1
+        assert selection.legacy[0].task_id == "mzo-040-style"
+        assert "precedes CONVENTION_START_DATE" in selection.legacy[0].reason
+        assert CONVENTION_START_DATE in selection.legacy[0].reason
+
+    def test_row_dated_exactly_convention_start_date_is_declared(self) -> None:
+        # Boundary: the day itself qualifies (>=, not >).
+        line = _declared_row_line(
+            "T-BOUNDARY", "tests/unit/x/test_y.py", "d" * 64, date=CONVENTION_START_DATE
+        )
+        selection = select_rows([line])
+        assert selection.declared == (
+            DeclaredRow(task_id="T-BOUNDARY", test_path="tests/unit/x/test_y.py", declared_hash="d" * 64),
+        )
+        assert selection.legacy == ()
+
+    def test_row_with_malformed_date_cell_is_legacy_not_declared(self) -> None:
+        line = (
+            "| T-BADDATE | not-a-date | x | y | sha | ev | sha256:" + "d" * 64 + " (tests/x/test_y.py) | s |"
+        )
+        selection = select_rows([line])
+        assert selection.declared == ()
+        assert selection.legacy[0].task_id == "T-BADDATE"
+        assert "missing/unparseable" in selection.legacy[0].reason
+
+
+class TestExtractRowDate:
+    def test_extracts_iso_date_from_declared_row(self) -> None:
+        line = _declared_row_line("T-1", "tests/unit/x/test_y.py", "b" * 64, date="2026-09-05")
+        assert extract_row_date(line) == "2026-09-05"
+
+    def test_extracts_iso_date_from_legacy_row(self) -> None:
+        assert extract_row_date(_legacy_row_line("T0.1")) == "2026-07-16"
+
+    def test_non_row_line_returns_none(self) -> None:
+        assert extract_row_date("Some prose paragraph, not a table row.") is None
+
+    def test_malformed_date_cell_returns_none(self) -> None:
+        line = "| T-1 | not-a-date | x | y | sha | ev | sha256:" + "a" * 64 + " (tests/x/test_y.py) | s |"
+        assert extract_row_date(line) is None
+
+
+class TestIsDateQualified:
+    def test_convention_start_date_itself_qualifies(self) -> None:
+        assert is_date_qualified(CONVENTION_START_DATE) is True
+
+    def test_date_after_convention_start_qualifies(self) -> None:
+        assert is_date_qualified("2026-12-31") is True
+
+    def test_date_before_convention_start_does_not_qualify(self) -> None:
+        assert is_date_qualified("2026-08-09") is False  # the real mzo-040 date
+
+    def test_none_date_does_not_qualify(self) -> None:
+        assert is_date_qualified(None) is False
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +226,17 @@ class TestIsSafeTestPath:
     def test_rejects_parent_traversal(self) -> None:
         assert is_safe_test_path("tests/../etc/passwd") is False
         assert is_safe_test_path("tests/unit/../../etc/passwd") is False
+
+    def test_rejects_parent_traversal_even_when_path_ends_in_py(self) -> None:
+        # Non-vacuity for the segment guard itself (verifier mutation probe VERIFY-LEDGER-
+        # RECOMPUTE.md §E.3): `_PATH_SAFETY_RE` (`^tests/[A-Za-z0-9_/.-]+\.py$`) ALREADY matches
+        # a `..`-containing path that ends in `.py` — dot and dash are both in the character
+        # class — so the explicit `".." not in path.split("/")` check is the ONLY thing rejecting
+        # it. The two examples in `test_rejects_parent_traversal` above don't end in `.py`, so
+        # they're already rejected by the `\.py$` suffix alone and never actually exercise the
+        # segment guard; removing it left ALL other tests green. These do exercise it.
+        assert is_safe_test_path("tests/../scripts/ci/check_evidence_ledger_hashes.py") is False
+        assert is_safe_test_path("tests/unit/../../scripts/ci/x.py") is False
 
     def test_rejects_paths_outside_tests(self) -> None:
         assert is_safe_test_path("scripts/ci/check_evidence_ledger_hashes.py") is False
@@ -254,6 +349,32 @@ class TestComputeRecipeHash:
         ]
         assert (
             compute_recipe_hash(node_ids)
+            == "sha256:6ce0f39605f55aede82194a2c1e9bf957a67600a18fab728ffb5ecb116314bfc"
+        )
+
+    def test_matches_the_eval_replay_exhaustion_swallowed_ledger_row_hash_via_full_pipeline(self) -> None:
+        """Sibling of the test above (verifier advisory E-2, VERIFY-LEDGER-RECOMPUTE.md §E.1): the
+        one above feeds ALREADY-STRIPPED node-id strings straight into `compute_recipe_hash`, so a
+        mutation that breaks `strip_progress_marker` leaves it green (confirmed by mutation
+        testing). This version exercises the REAL pipeline — raw pytest -v lines, WITH the
+        progress marker and COLUMNS-style right-padding, through `extract_result_lines` (which
+        calls `strip_progress_marker`) — against the exact same target hash, so regressing the
+        strip step is caught here too, not just by the synthetic-string test above."""
+        raw_output = (
+            "tests/evals/test_replay_exhaustion_unswallowable.py::"
+            "test_replay_exhaustion_one_entry_short_fails_even_with_agent_fallback PASSED"
+            "                                                                        [ 33%]\n"
+            "tests/evals/test_replay_exhaustion_unswallowable.py::"
+            "test_replay_exhaustion_complete_golden_passes PASSED [ 66%]\n"
+            "tests/evals/test_replay_exhaustion_unswallowable.py::"
+            "test_replay_unconsumed_recorded_llm_entry_is_not_silently_ignored PASSED [100%]\n"
+        )
+        result_lines = extract_result_lines(raw_output)
+        assert len(result_lines) == 3
+        assert any("[" in line for line in raw_output.splitlines())  # non-vacuity: marker present in input
+        assert all("[" not in line for line in result_lines)  # non-vacuity: marker actually stripped
+        assert (
+            compute_recipe_hash(result_lines)
             == "sha256:6ce0f39605f55aede82194a2c1e9bf957a67600a18fab728ffb5ecb116314bfc"
         )
 
@@ -467,7 +588,7 @@ class TestGetLedgerDiffAddedLinesRealGitRepo:
         assert selection.declared == (
             DeclaredRow(task_id="NEW-1", test_path="tests/unit/x/test_y.py", declared_hash="f" * 64),
         )
-        assert selection.legacy_task_ids == ("T0.2",)
+        assert [r.task_id for r in selection.legacy] == ["T0.2"]
         # The pre-existing base row must NEVER appear as "added" (design fact 1: scope discipline).
         assert not any("T0.1" in line for line in added)
 
@@ -588,3 +709,32 @@ class TestMainEndToEnd:
         assert exit_code == 0
         assert "1/1 declared rows verified" in out
         assert "--all" in out
+
+
+# ---------------------------------------------------------------------------
+# D-2 regression, against the REAL repo ledger (not a synthetic fixture): `--all` must verify
+# THIS task's own row and skip `mzo-040` by date, never flag it MISMATCH by shape coincidence.
+# ---------------------------------------------------------------------------
+
+
+class TestAllModeAgainstRealLedger:
+    def test_all_mode_verifies_recompute_check_row_and_skips_mzo_040_by_date(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """VERIFY-LEDGER-RECOMPUTE.md finding D-2, reproduced against the real ledger this task
+        ships: `mzo-040` (docs/evidence-ledger.md, dated 2026-08-09) already writes its Test-hash
+        cell in the declared-path SHAPE by coincidence — without date-qualification, `--all`
+        would execute it and report MISMATCH (the test file has drifted since), misleading a
+        local spot-audit into treating a syntactic coincidence as a real hash-integrity problem.
+        With CONVENTION_START_DATE in place, `mzo-040` must be listed as legacy-by-date instead,
+        while this task's own LEDGER-HASH-RECOMPUTE-CHECK row (dated on/after the convention
+        start) is genuinely verified. No `repo_root` override: exercises the real `REPO_ROOT` the
+        production entry point resolves, against the real ledger and the real test file."""
+        exit_code = main(["--all"])
+        out = capsys.readouterr().out
+        assert exit_code == 0, out
+        assert "OK: LEDGER-HASH-RECOMPUTE-CHECK: verified" in out
+        assert "SKIP (legacy): mzo-040 —" in out
+        assert "precedes CONVENTION_START_DATE" in out
+        assert "MISMATCH: mzo-040" not in out
+        assert "MISMATCH" not in out

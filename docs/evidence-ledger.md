@@ -37,6 +37,17 @@ documenta um verificador R2 reproduzindo um hash diferente do autor por essa exa
 razão); ordene as linhas restantes; junte com `\n` + uma quebra de linha final
 (equivalente a `sort | sha256sum`); sha256. O gate só recomputa linhas ADICIONADAS
 no intervalo `<base>..HEAD` — nunca retroativo contra uma linha já existente.
+Forma sozinha não basta para ser "declarada": a linha também precisa ter a coluna
+Date **maior ou igual a `CONVENTION_START_DATE` = `2026-09-04`** (constante em
+`scripts/ci/check_evidence_ledger_hashes.py`); uma linha datada antes dessa
+data é sempre legado, mesmo quando sua célula de Test hash já bate por
+coincidência com a forma `sha256:<hex> (tests/...py)` — caso real, não
+hipotético: a linha `mzo-040` (2026-08-09, abaixo) já escreve nessa forma e,
+sem a checagem de data, `--all` a rotularia MISMATCH assim que o arquivo
+citado mudasse por um PR não relacionado, confundindo um spot-audit local com
+uma coincidência sintática, não um problema real de integridade de hash.
+
+
 
 | Task ID | Date | Author (agent, tier) | Verifier (agent, tier) | Commit SHA | Evidence (path:line) | Test hash | Status |
 |---|---|---|---|---|---|---|---|
