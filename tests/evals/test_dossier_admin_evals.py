@@ -139,9 +139,12 @@ def _case(cases: list[dict[str, Any]], case_id: str) -> dict[str, Any]:
 
 @pytest.mark.eval
 def test_dataset_counts_match_ratified_design() -> None:
-    assert len(CAROLINA_CASES) == 4
+    # CC-08 (2026-09-04) added ONE DMN-unavailable fail-safe golden each to carolina/gustavo
+    # (4->5, 5->6); beatriz evaluates no DMN at all (`agent.yaml`'s tools allowlist deliberately
+    # excludes `mcp-dmn.evaluate` -- module docstring) and is unchanged.
+    assert len(CAROLINA_CASES) == 5
     assert len(BEATRIZ_CASES) == 3
-    assert len(GUSTAVO_CASES) == 5
+    assert len(GUSTAVO_CASES) == 6
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +235,19 @@ async def test_evl_carolina_01_mutation_check_route_is_non_vacuous() -> None:
 async def test_evl_carolina_03_mutation_check_leak_is_non_vacuous() -> None:
     case = _case(CAROLINA_CASES, "EVL-CAROLINA-03")
     await _run_dossier_leak_mutation_check(carolina_build, case)
+
+
+@pytest.mark.eval
+async def test_evl_carolina_05_mutation_check_route_is_non_vacuous() -> None:
+    """CC-08: flipping EVL-CAROLINA-05's expected route (human_review -> auto_route) must fail
+    -- proves the fail-closed-on-`cred_admissibility`-down assertion is real, not a rubber
+    stamp."""
+    case = _case(CAROLINA_CASES, "EVL-CAROLINA-05")
+    await run_mutation_check(
+        carolina_build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "route", "auto_route"),
+    )
 
 
 @live_key_skip
@@ -352,6 +368,19 @@ async def test_evl_gustavo_01_mutation_check_route_is_non_vacuous() -> None:
 async def test_evl_gustavo_04_mutation_check_leak_is_non_vacuous() -> None:
     case = _case(GUSTAVO_CASES, "EVL-GUSTAVO-04")
     await _run_dossier_leak_mutation_check(gustavo_build, case)
+
+
+@pytest.mark.eval
+async def test_evl_gustavo_06_mutation_check_route_is_non_vacuous() -> None:
+    """CC-08: flipping EVL-GUSTAVO-06's expected route (instruct_nip -> review_submission) must
+    fail -- proves the fail-closed-on-`nip_classification`-down assertion is real (distinct DMN/
+    flow from EVL-GUSTAVO-03's `ans_calendar`-down case on the OTHER flow)."""
+    case = _case(GUSTAVO_CASES, "EVL-GUSTAVO-06")
+    await run_mutation_check(
+        gustavo_build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "route", "review_submission"),
+    )
 
 
 @live_key_skip

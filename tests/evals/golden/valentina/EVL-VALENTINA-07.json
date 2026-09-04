@@ -1,0 +1,39 @@
+{
+  "id": "EVL-VALENTINA-07",
+  "agent": "valentina",
+  "class": "FC",
+  "tier": ["A"],
+  "description": "CC-08: consent is active+verified (same facts as EVL-VALENTINA-03), but `programa_routing` is UNAVAILABLE (decision_key omitted). `assess`'s stratification step reads `strat.get(\"error\")` and routes human IMMEDIATELY (`_route_human(\"dmn_indisponivel\", ...)`) -- route=human_review, grupo_humano=coordenacao-clinica, desfecho=analise_humana_clinica -- NEVER an automatic enrollment/non-inclusion by omission. Same enrollment case as EVL-VALENTINA-03; the only difference is the transport that fails. Synthetic data only.",
+  "input": {
+    "state": {
+      "task": "enroll",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "programa_id": "PROG-DIABETES-TIPO2",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-VALENTINA-07",
+      "ciclo": "2026-Q3",
+      "gatilho": "indicacao_clinica",
+      "consent_scope": "programa_cuidado",
+      "consentimento_ativo": true,
+      "consent_checked": true,
+      "consent_revoked": false,
+      "risco_estratificado": "baixo",
+      "elegibilidade_criterios_atendidos": true,
+      "criterio_alta_aparente": false
+    }
+  },
+  "recorded_llm": [
+    "Tabela de estratificacao de programa indisponivel; caso encaminhado para analise humana da coordenacao clinica, nunca um enrollment automatico."
+  ],
+  "dmn_fixture": {},
+  "expect": {
+    "fields": {
+      "consent_status": "ativo",
+      "route": "human_review",
+      "motivo_humano": "dmn_indisponivel",
+      "grupo_humano": "coordenacao-clinica",
+      "desfecho": "analise_humana_clinica"
+    }
+  },
+  "leak_canaries": []
+}
