@@ -13,13 +13,18 @@ refactor, not a silent prompt change).
 
 from __future__ import annotations
 
+import copy
+from typing import Any
+
 import pytest
 
 from maezo.runtime.prompt_format import (
+    FATOS_CONTEXTO_ROTULO,
     STABLE_SEPARATOR,
     FormattedPrompt,
     PromptFormatError,
     format_cached_prompt,
+    render_fatos_para_prompt,
     stable_prefix_is_byte_stable,
 )
 
@@ -210,3 +215,222 @@ def test_a_directly_constructed_formatted_prompt_needs_no_separator() -> None:
 
     assert formatted.text == "prompt opaco"
     assert formatted.stable_prefix_chars == 0
+
+
+# =============================================================================================
+# `render_fatos_para_prompt` — nao-mutacao do dicionario do chamador (CC-11 §Delta, F1)
+#
+# POR QUE ISTO E' UM TESTE E NAO UMA LEITURA DE CODIGO. O dicionario de fatos que chega aqui e'
+# o MESMO objeto que o dossie devolve ao registro de auditoria (ADR-0007): os 11 sitios de
+# montagem passam `facts` ao prompt e o guardam adiante. Se a renderizacao poda um sub-dicionario
+# no lugar, o fato apurado SOME do registro — o defeito de 24/08/2026 (`False` indistinguivel de
+# ausencia) reaparece do outro lado, agora como ausencia de verdade. A copia rasa so' do topo
+# escondia isso ate' profundidade 2, que e' o maximo que os adotantes de hoje usam; o primeiro
+# mapa com tres niveis o acordaria em producao.
+# =============================================================================================
+
+
+def _fatos_aninhados(profundidade: int) -> dict[str, Any]:
+    """Fatos com `profundidade` niveis: o booleano na folha, com vizinhos em cada nivel.
+
+    Os vizinhos (`vizinho`, `irmaoN`) existem para que a poda tenha o que PRESERVAR — um
+    dicionario que so' contem a chave podada nao distingue "copiou e podou" de "nao fez nada".
+    """
+    interno: dict[str, Any] = {"fato": False, "vizinho": 1}
+    for nivel in range(profundidade - 1, 0, -1):
+        interno = {f"n{nivel}": interno, f"irmao{nivel}": nivel}
+    return interno
+
+
+def _caminho_do_fato(profundidade: int) -> str:
+    return ".".join([f"n{nivel}" for nivel in range(1, profundidade)] + ["fato"])
+
+
+@pytest.mark.parametrize("profundidade", [1, 2, 3, 4])
+def test_o_render_nao_muta_o_dicionario_de_fatos_do_chamador(profundidade: int) -> None:
+    """O chamador recebe de volta exatamente o dicionario que entregou, em qualquer profundidade.
+
+    As duas asercoes andam juntas de proposito: a primeira proibe a mutacao, a segunda proibe a
+    "correcao" preguicosa de simplesmente parar de podar — a chave booleana tem de continuar
+    saindo do contexto, senao o modelo le o mesmo fato duas vezes (`NAO  rotulo` e, logo abaixo,
+    `'fato': False`), que e' o defeito que CC-11 conserta.
+    """
+    facts = _fatos_aninhados(profundidade)
+    caminho = _caminho_do_fato(profundidade)
+    antes = copy.deepcopy(facts)
+
+    saida = render_fatos_para_prompt(facts, booleanos={caminho: "rotulo do fato"})
+
+    assert facts == antes, f"o dicionario do chamador foi mutado: {facts!r} != {antes!r}"
+    assert "NAO       rotulo do fato" in saida
+    contexto = saida.split(FATOS_CONTEXTO_ROTULO, 1)[1]
+    assert "'fato'" not in contexto, "a chave ja' nomeada nao pode sobrar no repr do contexto"
+    assert "'vizinho': 1" in contexto, "a poda nao pode levar os vizinhos junto"
+
+
+def test_dois_booleanos_irmaos_no_mesmo_pai_nao_mutam_o_chamador() -> None:
+    """Duas podas no MESMO sub-dicionario: a segunda parte do resultado da primeira.
+
+    O caso que uma copia feita uma unica vez, fora do laco, ainda erraria.
+    """
+    facts = {"a": {"b": {"c": False, "d": True, "resto": 9}}}
+    antes = copy.deepcopy(facts)
+
+    saida = render_fatos_para_prompt(facts, booleanos={"a.b.c": "rc", "a.b.d": "rd"})
+
+    assert facts == antes, f"o dicionario do chamador foi mutado: {facts!r}"
+    assert saida.endswith("demais dados do caso: {'a': {'b': {'resto': 9}}}")
+
+
+def test_um_intermediario_que_nao_e_mapping_nao_muta_o_chamador() -> None:
+    """Caminho que atravessa um valor escalar: SEM DADO, e nada e' escrito em lugar nenhum."""
+    facts = {"a": {"b": "texto"}, "z": 1}
+    antes = copy.deepcopy(facts)
+
+    saida = render_fatos_para_prompt(facts, booleanos={"a.b.c": "rc"})
+
+    assert facts == antes, f"o dicionario do chamador foi mutado: {facts!r}"
+    assert "SEM DADO  rc" in saida
+
+
+def test_um_caminho_inexistente_nao_muta_o_chamador() -> None:
+    """A folha nao esta la': SEM DADO, e o contexto sai intacto."""
+    facts = {"a": {"b": {}}, "z": 1}
+    antes = copy.deepcopy(facts)
+
+    saida = render_fatos_para_prompt(facts, booleanos={"a.b.c": "rc"})
+
+    assert facts == antes, f"o dicionario do chamador foi mutado: {facts!r}"
+    assert saida.endswith("demais dados do caso: {'a': {'b': {}}, 'z': 1}")
+
+
+# =============================================================================================
+# Prova de bytes: o reparo F1 corrige o EFEITO COLATERAL, nunca a saida
+# =============================================================================================
+
+#: Saidas de `render_fatos_para_prompt` capturadas com a versao ANTERIOR ao reparo F1 (topo do WP
+#: `fleet/cc11-render-fatos`, `e366794`), congeladas aqui como literais. Bytes de prompt alimentam
+#: proveniencia de auditoria (ADR-0007) e baselines de eval, entao o reparo tinha de ser
+#: invisivel para o modelo: mudar a saida exigiria bump de `PROMPT_VERSIONS` e re-revisao de SME,
+#: isto e', deixaria de ser um reparo. Congelar o literal (em vez de reexecutar a versao antiga
+#: via `git show`) e' o que mantem a prova valida depois de qualquer rebase ou squash do WP.
+_SAIDAS_ANTES_DO_REPARO_F1: dict[str, str] = {
+    "topo_tres_estados_e_nao_booleanos": (
+        "fatos apurados:\n"
+        "  NAO       ra\n"
+        "  SIM       rb\n"
+        "  SEM DADO  rc\n"
+        "  SEM DADO  rd\n"
+        "  SEM DADO  re\n"
+        "  SEM DADO  rf\n"
+        "  SEM DADO  rg\n"
+        "\n"
+        "demais dados do caso: {}"
+    ),
+    "nivel_2": (
+        "fatos apurados:\n"
+        "  NAO       ry\n"
+        "  SIM       rz\n"
+        "\n"
+        "demais dados do caso: {'x': {'resto': 3}, 'outro': 1}"
+    ),
+    "nivel_3": (
+        "fatos apurados:\n  NAO       rc\n\ndemais dados do caso: {'a': {'b': {'outro': 2}}, 'top': 'v'}"
+    ),
+    "nivel_4": ("fatos apurados:\n  SIM       rd\n\ndemais dados do caso: {'a': {'b': {'c': {'e': False}}}}"),
+    "irmaos_no_mesmo_pai": (
+        "fatos apurados:\n  NAO       rc\n  SIM       rd\n\ndemais dados do caso: {'a': {'b': {'resto': 9}}}"
+    ),
+    "intermediario_nao_mapping_na_raiz": (
+        "fatos apurados:\n  SEM DADO  rc\n\ndemais dados do caso: {'a': 7}"
+    ),
+    "intermediario_nao_mapping_no_meio": (
+        "fatos apurados:\n  SEM DADO  rc\n\ndemais dados do caso: {'a': {'b': 'texto'}}"
+    ),
+    "folha_inexistente": (
+        "fatos apurados:\n  SEM DADO  rc\n\ndemais dados do caso: {'a': {'b': {}}, 'z': 1}"
+    ),
+    "pai_ausente": ("fatos apurados:\n  SEM DADO  rb\n\ndemais dados do caso: {'z': 1}"),
+    "com_linhas_extra": (
+        "fatos apurados:\n"
+        "  NAO       ra\n"
+        "  APURADO PELO MOTOR  teto de aprovacao\n"
+        "\n"
+        "demais dados do caso: {'resto': {'k': 1}}"
+    ),
+    "topo_e_pontilhado_misturados": (
+        "fatos apurados:\n"
+        "  NAO       ra\n"
+        "  SEM DADO  rk\n"
+        "  NAO       rj\n"
+        "\n"
+        "demais dados do caso: {'n': {'m': {}}, 'outro': {'p': 1}}"
+    ),
+    "fatos_vazios": ("fatos apurados:\n  SEM DADO  ra\n\ndemais dados do caso: {}"),
+    "chave_de_topo_e_prefixo_de_caminho": (
+        "fatos apurados:\n  SEM DADO  ra\n  NAO       rb\n\ndemais dados do caso: {}"
+    ),
+}
+
+#: As entradas que produziram os literais acima, na mesma ordem. Cobrem topo, niveis 2/3/4,
+#: irmaos no mesmo pai, intermediario nao-`Mapping` (na raiz e no meio), folha inexistente, pai
+#: ausente, `linhas_extra`, topo e pontilhado misturados, fatos vazios, e a colisao entre uma
+#: chave de topo e o prefixo de um caminho.
+_FORMAS_DA_PROVA_DE_BYTES: list[tuple[str, dict[str, Any], dict[str, str], tuple[str, ...]]] = [
+    (
+        "topo_tres_estados_e_nao_booleanos",
+        {"a": False, "b": True, "c": None, "d": 1, "e": "sim", "f": [], "g": 0},
+        {"a": "ra", "b": "rb", "c": "rc", "d": "rd", "e": "re", "f": "rf", "g": "rg"},
+        (),
+    ),
+    ("nivel_2", {"x": {"y": False, "z": True, "resto": 3}, "outro": 1}, {"x.y": "ry", "x.z": "rz"}, ()),
+    ("nivel_3", {"a": {"b": {"c": False, "outro": 2}}, "top": "v"}, {"a.b.c": "rc"}, ()),
+    ("nivel_4", {"a": {"b": {"c": {"d": True, "e": False}}}}, {"a.b.c.d": "rd"}, ()),
+    (
+        "irmaos_no_mesmo_pai",
+        {"a": {"b": {"c": False, "d": True, "resto": 9}}},
+        {"a.b.c": "rc", "a.b.d": "rd"},
+        (),
+    ),
+    ("intermediario_nao_mapping_na_raiz", {"a": 7}, {"a.b.c": "rc"}, ()),
+    ("intermediario_nao_mapping_no_meio", {"a": {"b": "texto"}}, {"a.b.c": "rc"}, ()),
+    ("folha_inexistente", {"a": {"b": {}}, "z": 1}, {"a.b.c": "rc"}, ()),
+    ("pai_ausente", {"z": 1}, {"a.b": "rb"}, ()),
+    (
+        "com_linhas_extra",
+        {"a": False, "resto": {"k": 1}},
+        {"a": "ra"},
+        ("  APURADO PELO MOTOR  teto de aprovacao",),
+    ),
+    (
+        "topo_e_pontilhado_misturados",
+        {"a": False, "n": {"m": {"k": None, "j": False}}, "outro": {"p": 1}},
+        {"a": "ra", "n.m.k": "rk", "n.m.j": "rj"},
+        (),
+    ),
+    ("fatos_vazios", {}, {"a": "ra"}, ()),
+    ("chave_de_topo_e_prefixo_de_caminho", {"a": {"b": False}}, {"a": "ra", "a.b": "rb"}, ()),
+]
+
+
+@pytest.mark.parametrize(
+    ("nome", "facts", "booleanos", "linhas_extra"),
+    _FORMAS_DA_PROVA_DE_BYTES,
+    ids=[forma[0] for forma in _FORMAS_DA_PROVA_DE_BYTES],
+)
+def test_o_reparo_da_copia_por_nivel_nao_muda_um_byte_da_saida(
+    nome: str,
+    facts: dict[str, Any],
+    booleanos: dict[str, str],
+    linhas_extra: tuple[str, ...],
+) -> None:
+    """Byte a byte contra a saida capturada antes do reparo F1, em 13 formas de entrada."""
+    saida = render_fatos_para_prompt(copy.deepcopy(facts), booleanos=booleanos, linhas_extra=linhas_extra)
+
+    assert saida == _SAIDAS_ANTES_DO_REPARO_F1[nome]
+
+
+def test_a_prova_de_bytes_cobre_toda_forma_congelada() -> None:
+    """Guarda da propria prova: nenhum literal congelado sem entrada que o produza, e vice-versa."""
+    assert {forma[0] for forma in _FORMAS_DA_PROVA_DE_BYTES} == set(_SAIDAS_ANTES_DO_REPARO_F1)
+    assert len(_FORMAS_DA_PROVA_DE_BYTES) == len(_SAIDAS_ANTES_DO_REPARO_F1) == 13
