@@ -206,7 +206,7 @@ def notify_deadline_risk(
     sla_breach_task_name: str = "",
     event_topic_deadline_risk: str = "",
 ) -> dict[str, Any]:
-    """Notify regulatorio-ans/nucleo-ans/juridico-regulatorio of NIP deadline risk.
+    """Registra que a ETAPA de alerta de prazo NIP rodou. Retorna `{}` — NAO afirma nada.
 
     BUILT t2.5-p2b-nip-mechanical (spec/BPMN previously had NO implementing function — see the
     module docstring's "Topic mapping" note below). Now serves ONE BPMN service task on this topic
@@ -239,11 +239,37 @@ def notify_deadline_risk(
     calcular nada, que o grupo regulatorio foi avisado — e o proprio paragrafo acima ja divulgava
     que este worker "only logged"). ZERO CONSUMIDORES: `grep -rn deadline_risk_notified spec/ src/
     docs/ tests/` so encontra o produtor e o seu teste; nenhum `conditionExpression`, nenhuma DMN.
-    As demais chaves do retorno ficaram BYTE-IDENTICAS — sao eco dos proprios inputs e mexer nelas
-    seria mudanca de comportamento sem prova de motor (ver o achado ABERTO registrado em
-    `docs/review-queue.md`: `ST_SolicitarInfoNip` nao declara `camunda:inputOutput`, entao esses
-    ecos VOLTAM ao escopo do processo, e `grupo_humano` e uma variavel VIVA, lida por
-    `camunda:candidateGroups="${grupo_humano}"`).
+    Essa mesma verificacao deixou de fora, na epoca, as OUTRAS quatro chaves (byte-identicas, eco
+    dos proprios inputs) e registrou o achado como ABERTO em `docs/review-queue.md`.
+
+    NIP-NOTIFY-DEADLINE-ECHO-KEYS (o motivo desta docstring, resolve o achado ABERTO acima). As
+    quatro chaves remanescentes tambem saem do retorno. `ST_SolicitarInfoNip`
+    (`SP-OP-NIP-001_Resposta_NIP.bpmn:597-602`, a UNICA service task neste topico) NAO declara
+    `camunda:inputOutput` e o harness fetcha TODAS as variaveis de processo para o worker
+    (`TopicSubscription.variables=None` — `register_worker`/`FunctionWorker` nunca passam uma
+    lista, `harness.py:1301-1335`), entao `numero_nip_ans`/`grupo_humano`/`sla_breach_task_name`/
+    `event_topic_deadline_risk` chegavam aqui com o valor JA presente no escopo do processo (ou
+    `""` para os dois ultimos, que nenhum inputParameter local seta). O antigo retorno devolvia o
+    MESMO valor lido — um eco. Como o worker nao declara `camunda:inputOutput` de saida (nao ha
+    um), a harness grava o dict de retorno INTEIRO no escopo do processo no `complete`
+    (`WorkerHarness._handle`: `dict(out_vars) if out_vars else {}`, `harness.py:1782`; a REST API
+    do engine `/external-task/{id}/complete` so escreve as chaves presentes no payload
+    `variables`). `grupo_humano` e uma variavel VIVA: `camunda:candidateGroups="${grupo_humano}"`
+    em `UT_ElaborarRespostaNip` (`:238`, GAP-NIP-2). O eco e' um NO-OP HOJE (provado no motor,
+    ledger `NIP-NOTIFY-DEADLINE-ECHO-KEYS`): toda vez que o token alcanca `ST_SolicitarInfoNip`,
+    `BRT_Roteamento` ja rodou antes e ja promoveu `grupo_humano` (com fail-safe
+    `juridico-regulatorio` se a DMN vier vazia) — o worker le e re-escreve o MESMO valor, e nenhum
+    consumidor a jusante de `ST_SolicitarInfoNip` volta a ler `grupo_humano`
+    (`UT_RevisaoJuridicaNip`, o unico caminho que segue direto, tem `candidateGroups` ESTATICO por
+    design). Mas e' um CLOBBER LATENTE: um estreitamento futuro de `variables` no fetch, ou um
+    input vazio por qualquer motivo, reescreveria `grupo_humano` com `""` sem que
+    `BRT_Roteamento` (o unico fail-safe) rode de novo nesse ramo. `sla_breach_task_name`/
+    `event_topic_deadline_risk` nao tem consumidor algum (ver o mapa completo no PR): as duas
+    ocorrencias com o mesmo nome de chave no BPMN sao `camunda:inputParameter`s TASK-LOCAIS em
+    `ST_NotificarRiscoPrazo`/`ST_NotificarRiscoRevisao` — tasks DIFERENTES, no topico generico
+    `operadora.events.publish`, nao lidas daqui. Retornar `{}` fecha o clobber latente sem mudar
+    NENHUM comportamento hoje observavel — `numero_nip_ans` tambem sai (mesma especie: eco de uma
+    business key imutavel, sem consumidor que dependa da escrita desta task).
     """
     logger.info(
         "nip.notify_deadline_risk",
@@ -251,15 +277,11 @@ def notify_deadline_risk(
         numero_nip_ans=numero_nip_ans,
         grupo_humano=grupo_humano,
         sla_breach_task_name=sla_breach_task_name,
+        event_topic_deadline_risk=event_topic_deadline_risk,
         notified_asserted=False,
     )
 
-    return {
-        "numero_nip_ans": numero_nip_ans,
-        "grupo_humano": grupo_humano,
-        "sla_breach_task_name": sla_breach_task_name,
-        "event_topic_deadline_risk": event_topic_deadline_risk,
-    }
+    return {}
 
 
 def handoff_ans_submit(

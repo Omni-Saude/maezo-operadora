@@ -235,8 +235,10 @@ class ReplayInferenceProvider:
         tenant_id: str | None = None,
         task_kind: str | None = None,
     ) -> str:
-        # `task_kind` (AF-12, ADR-0009 §2) is the real `InferenceProvider.generate()`'s 5th
-        # keyword (`maezo/runtime/inference.py`) -- purely observational for a mock/replay
+        # `task_kind` (AF-12, ADR-0009 §2) is the real
+        # `InferenceProvider.generate()`'s 5th keyword
+        # (`runtime/inference/__init__.py::InferenceProvider.generate`) --
+        # purely observational for a mock/replay
         # provider (it only ever selects a MODEL TIER on a real provider), but it MUST be
         # ACCEPTED: before this parameter existed here, every caller that passes it (currently
         # only `LucasGraph._build_message`/`_build_dossier`/`_build_escalation_ack`) raised a

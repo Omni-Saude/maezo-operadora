@@ -40,7 +40,7 @@ def test_non_phi_keys_pass_through_untouched() -> None:
         "tenant_id": "amh",
         "numero_guia_tiss": "GUIA-TESTE-0001",
         "business_key": "AUTH-amh-GUIA-TESTE-0001",
-        "status": "notice_sent",
+        "notice_type": "denial",
     }
     assert redact_phi_vars(payload) == payload
 
@@ -62,10 +62,13 @@ def test_returns_a_copy_not_a_mutation() -> None:
 
 
 def test_mixed_payload_redacts_only_phi() -> None:
-    """A realistic denial notice: clinical fields redacted, structural fields intact."""
+    """A realistic denial RECORD: clinical fields redacted, structural fields intact.
+
+    The shape mirrors what `SendDenialNoticeWorker` actually returns since
+    AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL — no `status`, because the worker transmits nothing.
+    """
     out = redact_phi_vars(
         {
-            "status": "notice_sent",
             "notice_type": "denial",
             "tenant_id": "amh",
             "numero_guia_tiss": "GUIA-0001",
@@ -74,7 +77,7 @@ def test_mixed_payload_redacts_only_phi() -> None:
             "fundamentacao_dut": "DUT item 3.1",
         }
     )
-    assert out["status"] == "notice_sent"
+    assert out["notice_type"] == "denial"
     assert out["tenant_id"] == "amh"
     assert out["numero_guia_tiss"] == "GUIA-0001"
     assert out["justificativa_clinica"] == REDACTED_PHI
