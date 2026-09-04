@@ -89,6 +89,42 @@ def test_programa_consent_gate_happy_path() -> None:
     assert result["consentimento_ativo"] is True
 
 
+def test_check_consent_nao_afirma_timestamp_de_verificacao() -> None:
+    """FAB-PROGRAMA-NOW-TIMESTAMPS: `consent_verified_at` era o literal `"now"`.
+
+    Nao foi substituido por um relogio real: a chave tinha ZERO consumidores (nenhuma
+    `conditionExpression`, `inputExpression` de DMN, worker a jusante, golden ou linha de contrato —
+    `docs/processes/contracts/SP-OP-PROGRAMA-001.md` nunca a declarou em "Variaveis de saida") e o
+    instante em que o gate rodou e passou ja e um fato do engine (`activity-instance` de
+    `ST_CheckConsent`), entao um segundo carimbo no escopo do processo seria uma fonte de verdade
+    redundante — nao uma correcao. A chave foi REMOVIDA; `consentimento_ativo` (o fato booleano
+    real, com consumidor a jusante em `stratify_risk`/`proactive_contact`) permanece.
+    """
+    result = check_consent(
+        {
+            "consentimento_ativo": True,
+            "consent_checked": True,
+            "consent_scope": "programa_cuidado",
+            "beneficiario_pseudo_id": "b-001",
+        }
+    )
+    assert "consent_verified_at" not in result
+    assert "now" not in result.values()
+
+
+def test_check_consent_retorno_tem_exatamente_as_chaves_honestas() -> None:
+    """Particao fechada: `check_consent` so afirma `consentimento_ativo` no caminho feliz."""
+    result = check_consent(
+        {
+            "consentimento_ativo": True,
+            "consent_checked": True,
+            "consent_scope": "programa_cuidado",
+            "beneficiario_pseudo_id": "b-001",
+        }
+    )
+    assert result == {"consentimento_ativo": True}
+
+
 def test_programa_consent_gate_blocks_no_consent() -> None:
     """Without consent, the chokepoint blocks ALL PHI processing.
 
@@ -244,6 +280,36 @@ def test_enroll_beneficiario() -> None:
         }
     )
     assert result["enrollment_realizado"] is True
+
+
+def test_enroll_beneficiario_nao_afirma_timestamp_de_enrollment() -> None:
+    """FAB-PROGRAMA-NOW-TIMESTAMPS: `data_enrollment` era o literal `"now"`.
+
+    Mesma especie e mesmo tratamento de `consent_verified_at` (`check_consent`, acima): ZERO
+    consumidores (nenhuma `conditionExpression`, `inputExpression`, worker a jusante, golden ou
+    linha de contrato) e o instante do enrollment ja e fato do engine (`activity-instance` de
+    `ST_BuildCarePlan`) — um segundo carimbo seria redundante, nao correcao. A chave foi REMOVIDA;
+    `enrollment_realizado` (o fato booleano real que a funcao de fato executa/loga) permanece.
+    """
+    result = enroll_beneficiario(
+        {
+            "programa_id": "cronicos",
+            "beneficiario_pseudo_id": "b-001",
+        }
+    )
+    assert "data_enrollment" not in result
+    assert "now" not in result.values()
+
+
+def test_enroll_beneficiario_retorno_tem_exatamente_as_chaves_honestas() -> None:
+    """Particao fechada: `enroll_beneficiario` so afirma `enrollment_realizado`."""
+    result = enroll_beneficiario(
+        {
+            "programa_id": "cronicos",
+            "beneficiario_pseudo_id": "b-001",
+        }
+    )
+    assert result == {"enrollment_realizado": True}
 
 
 # ---------------------------------------------------------------
