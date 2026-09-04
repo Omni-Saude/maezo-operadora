@@ -7,13 +7,19 @@ explicitly NOT the CIB Seven BPMN engine, and `tests/integration/`'s package-wid
 `_skip_if_engine_unreachable` fixture would gate it on an engine it has nothing to do with. It
 SKIPS LOUDLY when no Postgres is reachable — never silently passes.
 
-    docker run -d --rm --name maezo-inbox-pg \\
-      -e POSTGRES_USER=maezo -e POSTGRES_PASSWORD=maezo -e POSTGRES_DB=maezo \\
-      -p 5647:5432 pgvector/pgvector:pg16
+    docker compose --profile core up -d postgres
 
-Port 5647 is deliberately NOT the compose stack's 5432/5433 and not the A2A suite's 5643: a
-throwaway inbox database must never be able to touch a developer's real dev-stack state. Override
-with `MAEZO_TEST_AMH_INBOX_DATABASE_URL`.
+GAP LIVE-SUITES-SILENT-SKIP-AUDIT (2026-09-04). The default DSN used to be `localhost:5647`,
+"deliberately NOT the compose stack's 5432/5433 and not the A2A suite's 5643: a throwaway inbox
+database must never be able to touch a developer's real dev-stack state". Nothing in this repo
+ever served 5647 — no compose service, no CI service, no documented bring-up — so all 22 tests
+below reported "COULD NOT VERIFY" in every environment that has ever run them, CI included: a
+default nobody serves is a silent skip, not a proof. Dev-stack state is protected by the per-run
+`mzo060<hex>` tenant schema each test creates and drops (and by `test_upgrade_downgrade_upgrade_
+roundtrip`, which upgrades/downgrades only ITS own schema), never by an unserved port number. The
+default is now the compose Postgres (`${MAEZO_PG_HOST_PORT:-5433}`, the port `docker-compose.yml`
+publishes, which CI's lanes pin to 5432); `MAEZO_TEST_AMH_INBOX_DATABASE_URL` still overrides it
+for a throwaway server. Measured on the isolated compose stack: `22 passed` against 5433.
 
 **What this proves that the DB-free suite cannot.**
 
@@ -71,14 +77,25 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 _DRAFT_ARTIFACT = _REPO_ROOT / "spec" / "policies" / "amh" / "inbox-ratification.yaml"
 
 #: A FREE, dedicated port for this suite's throwaway Postgres — never the compose stack's.
-_DEFAULT_DSN = "postgresql://maezo:maezo@localhost:5647/maezo"
 
 _DIGEST = "d" * 64
 _PHI_SENTINEL = "PHI-SENTINEL-52dfe1-DO-NOT-PERSIST"
 
 
 def _default_test_dsn() -> str:
-    return os.environ.get("MAEZO_TEST_AMH_INBOX_DATABASE_URL", _DEFAULT_DSN)
+    """`MAEZO_TEST_AMH_INBOX_DATABASE_URL` wins; otherwise the compose Postgres.
+
+    Gap LIVE-SUITES-SILENT-SKIP-AUDIT (2026-09-04).
+
+    Mirrors `tests/integration/conftest.py::_audit_pg_dsn` exactly, so the default names a server
+    that actually exists in both environments that run tests: the local compose stack
+    (`${MAEZO_PG_HOST_PORT:-5433}`) and a CI job that pins `MAEZO_PG_HOST_PORT=5432`.
+    """
+    explicit = os.environ.get("MAEZO_TEST_AMH_INBOX_DATABASE_URL")
+    if explicit:
+        return explicit
+    port = os.environ.get("MAEZO_PG_HOST_PORT", "5433")
+    return f"postgresql://maezo:maezo@localhost:{port}/maezo"
 
 
 async def _postgres_reachable(dsn: str) -> bool:
@@ -154,7 +171,7 @@ def pg_dsn() -> str:
         pytest.skip(
             f"COULD NOT VERIFY: Postgres not reachable at {dsn!r} (override with "
             "MAEZO_TEST_AMH_INBOX_DATABASE_URL). This suite needs a FREE, dedicated Postgres on "
-            "port 5647 — see the module docstring for the one-line docker command."
+            "a real server — see the module docstring for the one-line bring-up command."
         )
     return dsn
 
