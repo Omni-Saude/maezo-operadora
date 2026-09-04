@@ -1,0 +1,48 @@
+{
+  "id": "EVL-CAROLINA-04",
+  "agent": "carolina",
+  "class": "GC",
+  "tier": [
+    "A"
+  ],
+  "description": "CC-01: o start de SP-OP-CRED-001 falha (engine indisponivel). O desfecho clerical de sucesso nao sobrevive — Carolina termina em `erro_inicio_processo` com `start_failed` marcado. Mesmo input/DMN de EVL-CAROLINA-01.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "canal": "portal",
+      "prestador_id": "PROV-CRED-EVAL-01",
+      "direcao": "credenciamento",
+      "tipo_prestador": "clinica",
+      "origem_solicitacao": "prestador",
+      "motivo_informado": "Solicitacao de credenciamento de nova clinica na regiao",
+      "data_solicitacao_iso": "2026-07-20",
+      "documentos_refs": [],
+      "licenca_valida": true,
+      "documentacao_completa": true,
+      "dentro_criterios_rede": true,
+      "indicio_irregularidade_sinalizado": false
+    }
+  },
+  "recorded_llm": [
+    "Clinica com documentacao completa, licenca valida e dentro dos criterios de rede; credenciamento clerical favoravel, sem indicio de irregularidade."
+  ],
+  "cibseven": {
+    "start_fails": true
+  },
+  "dmn_fixture": {
+    "cred_admissibility": {
+      "roteamento": "CLERICAL_CREDENCIAR",
+      "motivo": "documentacao completa e criterios de rede atendidos"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "auto_route",
+      "admissibilidade": "CLERICAL_CREDENCIAR",
+      "desfecho": "erro_inicio_processo",
+      "process_started": false,
+      "start_failed": true
+    }
+  },
+  "leak_canaries": []
+}

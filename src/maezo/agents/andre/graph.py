@@ -163,6 +163,13 @@ from typing import Any, Literal, Protocol, TypedDict, cast
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.start_outcome import (
+    notify_start_failure as emit_start_failure_notice,
+)
+from maezo.runtime.start_outcome import (
+    route_after_start,
+    start_failed_state,
+)
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -416,6 +423,10 @@ class AndreState(TypedDict, total=False):
 
     # Filled by `start_process` (pagto_dossier only; no-op in the other flows).
     process_started: bool
+    #: CC-01: o start foi TENTADO e FALHOU tecnicamente (`except CibSevenError` de
+    #: `start_process`). NAO e a mesma coisa que `process_started is False`, que tambem cobre
+    #: no-ops legitimos; e este marcador — e so ele — que a aresta condicional le.
+    start_failed: bool
     business_key: str
     process_ref: dict[str, Any]
 
@@ -576,6 +587,7 @@ def _output_field_resets() -> dict[str, Any]:
         "grupo_humano": "",
         # start_process outputs
         "process_started": False,
+        "start_failed": False,
         "business_key": "",
         "process_ref": {},
         # terminal outputs
@@ -992,11 +1004,10 @@ class AndreGraph:
                 provenance=provenance,
             )
         except CibSevenError:
-            return {
-                "process_started": False,
-                "business_key": business_key,
-                "error": ERROR_START_PROCESS_ENGINE_UNAVAILABLE,
-            }
+            # CC-01: `start_failed_state` acrescenta o marcador que a aresta condicional le.
+            # Ele e indispensavel AQUI: em Andre `process_started=False` tambem e o retorno
+            # LEGITIMO do no-op de fluxo, do no-op de origem e do veredicto ALREADY_COMPLETED.
+            return start_failed_state(business_key=business_key, error=ERROR_START_PROCESS_ENGINE_UNAVAILABLE)
         # F3 BLOCKER-1 — HONEST REPORTING. `process_started` used to be a hard-coded `True` for
         # every non-raising return, including the strict dedup gate's "I refused to start this".
         # It is now derived from the chokepoint's own typed verdict: True iff a live instance
@@ -1016,6 +1027,18 @@ class AndreGraph:
                 "start_outcome": instance.start_outcome.value,
             },
         }
+
+    async def notify_start_failure(self, state: AndreState) -> dict[str, Any]:
+        """CC-01: o start FALHOU — grava o desfecho de erro e ALERTA, em vez de seguir calado.
+
+        Ate CC-01 a aresta que saia de `start_process` era INCONDICIONAL: o turno chegava ao
+        terminal com o `desfecho` de SUCESSO que um no a montante ja havia gravado, afirmando um
+        fato que nao aconteceu, e sem prazo nenhum — o timer de SLA vive na instancia BPMN que
+        nunca nasceu. O corpo deste no e o helper compartilhado
+        (`maezo.runtime.start_outcome.notify_start_failure`): uma definicao para os 9 agentes,
+        nunca 9 copias.
+        """
+        return emit_start_failure_notice(dict(state), agent_id="andre", process_key=PROCESS_KEY_PAGTO)
 
     async def finalize(self, state: AndreState) -> dict[str, Any]:
         """Terminal node — no further computation; `desfecho` was already set upstream.
@@ -1238,6 +1261,7 @@ class AndreGraph:
         g.add_node("auto_route", self.auto_route)
         g.add_node("human_review", self.human_review)
         g.add_node("start_process", self.start_process)
+        g.add_node("notify_start_failure", self.notify_start_failure)
         g.add_node("finalize", self.finalize)
 
         g.add_edge(START, "receive")
@@ -1248,7 +1272,16 @@ class AndreGraph:
         )
         g.add_edge("auto_route", "start_process")
         g.add_edge("human_review", "start_process")
-        g.add_edge("start_process", "finalize")
+        # CC-01: a aresta que sai de `start_process` e CONDICIONAL. Uma falha tecnica de
+        # start desvia para `notify_start_failure` (desfecho de erro + alerta); qualquer
+        # outro caminho — incluindo os no-ops legitimos com `process_started=False` —
+        # segue para o terminal de sempre. O predicado e compartilhado (uma definicao).
+        g.add_conditional_edges(
+            "start_process",
+            route_after_start,
+            {"notify_start_failure": "notify_start_failure", "continue": "finalize"},
+        )
+        g.add_edge("notify_start_failure", END)
         g.add_edge("finalize", END)
         return g
 

@@ -53,6 +53,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from maezo.a2a import Budget, DelegationEnvelope, HandlerOutput
 from maezo.a2a.dispatcher import origin_signer_of
+from maezo.runtime.start_outcome import StartProcessFailedError
 from maezo.tools.mcp_cibseven.transport import StartOutcome
 
 from .graph import (
@@ -657,6 +658,17 @@ def make_andre_handler(
             record_agent_error()
             raise
         business_key = _resolved_business_key(state, result)
+        if result.get("start_failed") is True:
+            # RAF-02: o grafo TENTOU abrir o processo e o engine recusou. Devolver
+            # `HandlerOutput` aqui seria um sucesso para o dispatcher (`HandlerOutput` nao tem
+            # campo `success`): ele gravaria o audit terminal `_DECISION_COMPLETED`, emitiria o
+            # fato COMPLETED e SELARIA o resultado por `task_id` — tornando o falso sucesso
+            # irretentavel. A excecao tipada propaga, entao nada disso acontece e a reentrega do
+            # mesmo `task_id` reexecuta o handler. So tokens de classe na mensagem, nunca PHI.
+            raise StartProcessFailedError(
+                f"andre nao conseguiu iniciar SP-OP-PAGTO-001 "
+                f"(business_key={business_key!r}): o turno NAO foi concluido"
+            )
         # GUARDRAIL: output_ref is the case/cell reference — never a payment release, a price, or
         # a remediation decision. The dossier (whose `decisao_pagamento`/`preco_recomendado`/
         # `fhir_patient_id` are structurally always None, `graph.py`'s own guardrails) is

@@ -173,6 +173,13 @@ from typing import Any, Literal, Protocol, TypedDict, cast
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.start_outcome import (
+    notify_start_failure as emit_start_failure_notice,
+)
+from maezo.runtime.start_outcome import (
+    route_after_start,
+    start_failed_state,
+)
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -306,6 +313,10 @@ class FernandoState(TypedDict, total=False):
 
     # `start_process` outputs.
     process_started: bool
+    #: CC-01: o start foi TENTADO e FALHOU tecnicamente (`except CibSevenError` de
+    #: `start_process`). NAO e a mesma coisa que `process_started is False`, que tambem cobre
+    #: no-ops legitimos; e este marcador — e so ele — que a aresta condicional le.
+    start_failed: bool
     process_ref: dict[str, Any]
 
     # Turn output.
@@ -396,6 +407,7 @@ def _output_field_resets() -> dict[str, Any]:
         "dossier": {},
         # `start_process` outputs.
         "process_started": False,
+        "start_failed": False,
         "process_ref": {},
         # Turn output.
         "desfecho": "",
@@ -626,11 +638,10 @@ class FernandoGraph:
                 provenance=provenance,
             )
         except CibSevenError as exc:
-            return {
-                "process_started": False,
-                "business_key": business_key,
-                "error": f"start_process indisponivel: {exc}",
-            }
+            # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
+            # `start_failed`, que e o que `route_after_start` le para desviar a
+            # `notify_start_failure` em vez de seguir calado para o terminal.
+            return start_failed_state(business_key=business_key, error=f"start_process indisponivel: {exc}")
         return {
             "process_started": True,
             "business_key": business_key,
@@ -640,6 +651,18 @@ class FernandoGraph:
                 "already_existed": instance.already_existed,
             },
         }
+
+    async def notify_start_failure(self, state: FernandoState) -> dict[str, Any]:
+        """CC-01: o start FALHOU — grava o desfecho de erro e ALERTA, em vez de seguir calado.
+
+        Ate CC-01 a aresta que saia de `start_process` era INCONDICIONAL: o turno chegava ao
+        terminal com o `desfecho` de SUCESSO que um no a montante ja havia gravado, afirmando um
+        fato que nao aconteceu, e sem prazo nenhum — o timer de SLA vive na instancia BPMN que
+        nunca nasceu. O corpo deste no e o helper compartilhado
+        (`maezo.runtime.start_outcome.notify_start_failure`): uma definicao para os 9 agentes,
+        nunca 9 copias.
+        """
+        return emit_start_failure_notice(dict(state), agent_id="fernando", process_key=PROCESS_KEY)
 
     # -- Conditional routing ----------------------------------------------------------------
 
@@ -864,13 +887,23 @@ class FernandoGraph:
         g.add_node("notify", self.notify)
         g.add_node("escalate", self.escalate)
         g.add_node("start_process", self.start_process)
+        g.add_node("notify_start_failure", self.notify_start_failure)
 
         g.add_edge(START, "receive")
         g.add_edge("receive", "assess")
         g.add_conditional_edges("assess", self._route, {"notify": "notify", "escalate": "escalate"})
         g.add_edge("notify", END)
         g.add_edge("escalate", "start_process")
-        g.add_edge("start_process", END)
+        # CC-01: a aresta que sai de `start_process` e CONDICIONAL. Uma falha tecnica de
+        # start desvia para `notify_start_failure` (desfecho de erro + alerta); qualquer
+        # outro caminho — incluindo os no-ops legitimos com `process_started=False` —
+        # segue para o terminal de sempre. O predicado e compartilhado (uma definicao).
+        g.add_conditional_edges(
+            "start_process",
+            route_after_start,
+            {"notify_start_failure": "notify_start_failure", "continue": END},
+        )
+        g.add_edge("notify_start_failure", END)
         return g
 
 

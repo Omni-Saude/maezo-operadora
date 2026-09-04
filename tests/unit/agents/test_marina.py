@@ -983,6 +983,9 @@ def _planted_outputs() -> dict[str, Any]:
         "dossier": {"narrativa": _SENTINEL},
         "desfecho": _SENTINEL,
         "process_started": True,
+        # CC-01: campo novo (marcador de falha de start), OUTPUT-ONLY como os demais — plantado
+        # aqui pelo mesmo motivo que os outros, para provar que `receive` o zera.
+        "start_failed": True,
         "process_ref": {"instance_id": _SENTINEL},
     }
 

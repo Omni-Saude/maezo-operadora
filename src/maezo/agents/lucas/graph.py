@@ -133,6 +133,13 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.start_outcome import (
+    notify_start_failure as emit_start_failure_notice,
+)
+from maezo.runtime.start_outcome import (
+    route_after_start,
+    start_failed_state,
+)
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -263,8 +270,11 @@ _OUTPUT_FIELDS_RESET: dict[str, Any] = {
     "grupo_humano": "",
     "mensagem": {},
     "mensagem_enviada": False,
+    "ack_pending": False,
+    "retryable_error": False,
     "dossier": {},
     "process_started": False,
+    "start_failed": False,
     "business_key": "",
     "process_ref": {},
     "desfecho": "",
@@ -320,13 +330,23 @@ class LucasState(TypedDict, total=False):
     severidade: Severidade
     grupo_humano: str
 
-    # Filled by `respond_member` / `escalate_human`.
+    # Filled by `respond_member` / `escalate_human` / `send_escalation_ack`.
     mensagem: dict[str, Any]
     mensagem_enviada: bool
+    #: LUC-05: o ACK da escalacao ainda NAO foi ao beneficiario. True desde `escalate_human`
+    #: (que so monta o dossie) ate `send_escalation_ack` (que roda DEPOIS do start). Se o start
+    #: falha, permanece True — e o registro honesto de "prometemos nada a ninguem ainda".
+    ack_pending: bool
+    #: LUC-05: a falha e transitoria e o replay e seguro (business key idempotente).
+    retryable_error: bool
     dossier: dict[str, Any]
 
     # Filled by `start_process`.
     process_started: bool
+    #: CC-01: o start foi TENTADO e FALHOU tecnicamente (`except CibSevenError` de
+    #: `start_process`). NAO e a mesma coisa que `process_started is False`, que tambem cobre
+    #: no-ops legitimos; e este marcador — e so ele — que a aresta condicional le.
+    start_failed: bool
     business_key: str
     process_ref: dict[str, Any]
 
@@ -731,21 +751,19 @@ class LucasGraph:
 
         dossier = await self._build_dossier(state)
 
-        enviada = False
-        to_hash = state.get("to_hash")
-        if to_hash and state.get("canal", "whatsapp") == "whatsapp":
-            ack_text = await self._build_escalation_ack(state)
-            try:
-                await self._whatsapp.send(to_hash, ack_text)
-                enviada = True
-            except Exception:  # noqa: BLE001 — best-effort ack, never blocks the handoff.
-                pass
-
+        # LUC-05 (ORDEM): este no NAO fala mais com o beneficiario. Ate 2026-09-04 o ACK ("um
+        # atendente humano vai continuar") saia DAQUI, ANTES de `start_process` — e quando o
+        # start falhava, o `except CibSevenError` so gravava `process_started=False`, o desfecho
+        # seguia `escalado_humano` e o turno terminava calado: o beneficiario informado de que um
+        # humano assumiria, e ZERO instancias de SP-OP-ESCALATION-001 existindo. O envio migrou
+        # para `send_escalation_ack`, alcancavel SO pelo ramo de sucesso da aresta condicional
+        # que sai de `start_process`. `ack_pending` registra a divida ate la.
         return {
             **defaults,
             "route": "escalate_human",  # authoritative stamp (F1a) — never inferred downstream
             "dossier": dossier,
-            "mensagem_enviada": enviada,
+            "mensagem_enviada": False,
+            "ack_pending": True,
             "desfecho": "escalado_humano",
         }
 
@@ -790,11 +808,10 @@ class LucasGraph:
                 provenance=provenance,
             )
         except CibSevenError as exc:
-            return {
-                "process_started": False,
-                "business_key": business_key,
-                "error": f"start_process indisponivel: {exc}",
-            }
+            # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
+            # `start_failed`, que e o que `route_after_start` le para desviar a
+            # `notify_start_failure` em vez de seguir calado para o terminal.
+            return start_failed_state(business_key=business_key, error=f"start_process indisponivel: {exc}")
         return {
             "process_started": True,
             "business_key": business_key,
@@ -804,6 +821,54 @@ class LucasGraph:
                 "already_existed": instance.already_existed,
             },
         }
+
+    async def send_escalation_ack(self, state: LucasState) -> dict[str, Any]:
+        """LUC-05: o ACK ao beneficiario — SO depois que a escalacao existe de verdade.
+
+        GUARDA: so envia quando a rota e `escalate_human` E o start reportou uma instancia viva
+        (`process_started`, que em Lucas cobre STARTED e ALREADY_ACTIVE). A jornada informativa
+        (`respond_member`), que nunca abre processo, passa por aqui como no-op — ela ja respondeu
+        no seu proprio no.
+
+        O envio continua best-effort (uma falha de WhatsApp nao pode desfazer uma escalacao que
+        JA existe no engine), mas agora `mensagem_enviada` conta a verdade e `ack_pending`
+        registra o que ficou por entregar.
+        """
+        if state.get("route") != "escalate_human" or state.get("process_started") is not True:
+            return {}
+        to_hash = state.get("to_hash")
+        if not to_hash or state.get("canal", "whatsapp") != "whatsapp":
+            return {"ack_pending": True}
+
+        ack_text = await self._build_escalation_ack(state)
+        try:
+            await self._whatsapp.send(to_hash, ack_text)
+        except Exception:  # noqa: BLE001 — best-effort ack, never undoes a live escalation.
+            return {"mensagem_enviada": False, "ack_pending": True}
+        return {"mensagem_enviada": True, "ack_pending": False, "desfecho": "escalado_humano"}
+
+    async def notify_start_failure(self, state: LucasState) -> dict[str, Any]:
+        """CC-01: o start FALHOU — grava o desfecho de erro e ALERTA, em vez de seguir calado.
+
+        Ate CC-01 a aresta que saia de `start_process` era INCONDICIONAL: o turno chegava ao
+        terminal com o `desfecho` de SUCESSO que um no a montante ja havia gravado, afirmando um
+        fato que nao aconteceu, e sem prazo nenhum — o timer de SLA vive na instancia BPMN que
+        nunca nasceu. O corpo deste no e o helper compartilhado
+        (`maezo.runtime.start_outcome.notify_start_failure`): uma definicao para os 9 agentes,
+        nunca 9 copias.
+
+        LUC-05: `ack_pending`/`retryable_error` viajam junto porque o ACK ao
+        beneficiario NAO foi enviado (ele migrou para `send_escalation_ack`, depois do
+        start) e porque o replay e seguro — `start_process_idempotent` e idempotente por
+        business key, entao uma retentativa reencontra a instancia viva em vez de abrir
+        uma segunda.
+        """
+        return emit_start_failure_notice(
+            dict(state),
+            agent_id="lucas",
+            process_key=PROCESS_KEY,
+            extra={"mensagem_enviada": False, "ack_pending": True, "retryable_error": True},
+        )
 
     async def complete(self, state: LucasState) -> dict[str, Any]:
         """Terminal node — no further computation; `desfecho` was already set upstream."""
@@ -982,6 +1047,8 @@ class LucasGraph:
         g.add_node("respond_member", self.respond_member)
         g.add_node("escalate_human", self.escalate_human)
         g.add_node("start_process", self.start_process)
+        g.add_node("notify_start_failure", self.notify_start_failure)
+        g.add_node("send_escalation_ack", self.send_escalation_ack)
         g.add_node("complete", self.complete)
 
         g.add_edge(START, "receive")
@@ -992,7 +1059,17 @@ class LucasGraph:
         )
         g.add_edge("respond_member", "start_process")
         g.add_edge("escalate_human", "start_process")
-        g.add_edge("start_process", "complete")
+        # CC-01: a aresta que sai de `start_process` e CONDICIONAL. Uma falha tecnica de
+        # start desvia para `notify_start_failure` (desfecho de erro + alerta); qualquer
+        # outro caminho — incluindo os no-ops legitimos com `process_started=False` —
+        # segue para o terminal de sempre. O predicado e compartilhado (uma definicao).
+        g.add_conditional_edges(
+            "start_process",
+            route_after_start,
+            {"notify_start_failure": "notify_start_failure", "continue": "send_escalation_ack"},
+        )
+        g.add_edge("notify_start_failure", END)
+        g.add_edge("send_escalation_ack", "complete")
         g.add_edge("complete", END)
         return g
 
