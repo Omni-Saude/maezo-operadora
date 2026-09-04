@@ -44,7 +44,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
+from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
@@ -58,6 +58,7 @@ from .conftest import (
 # Re-exported so family test modules need only `from tests.evals._harness import ...`.
 __all__ = [
     "ClarityReport",
+    "FailingStartCibSevenTransport",
     "ReplayExhaustedError",
     "ReplayUnconsumedResponsesError",
     "RULES_KEY",
@@ -248,6 +249,43 @@ def _raise_if_unconsumed(inference: ReplayInferenceProvider, case: Mapping[str, 
     )
 
 
+class FailingStartCibSevenTransport(FakeCibSevenTransport):
+    """CibSeven double whose ENGINE START always raises `CibSevenError` (CC-01/CC-08).
+
+    WHY THE HARNESS NEEDED AN EXTENSION AT ALL. Until CC-01 every eval ran against a
+    `FakeCibSevenTransport` whose `start_process_instance` ALWAYS succeeds, so the entire
+    engine-unavailable branch of every agent graph — the branch CC-01 proved was fabricating a
+    success desfecho and losing the case in silence — was structurally unreachable from the golden
+    dataset. A golden that cannot express "the engine refused" cannot regress-test the fix.
+
+    Only `start_process_instance` is overridden: `find_active_instance`/`find_any_instance` keep
+    the base fake's honest behaviour, so `start_process_idempotent` still runs its full
+    audit-before-effect, gate and idempotency sequence and raises from the SAME place a live
+    outage would (`transport.start_process_instance`, `transport.py`'s step 4), re-raised
+    unchanged by the chokepoint. Nothing is mocked past the seam that really fails.
+    """
+
+    async def start_process_instance(
+        self, process_key: str, business_key: str, variables: dict[str, Any]
+    ) -> ProcessInstance:
+        raise CibSevenError(
+            f"engine indisponivel (eval fixture): POST /process-definition/key/{process_key}/start"
+        )
+
+
+def _cibseven_for(case: Mapping[str, Any]) -> FakeCibSevenTransport:
+    """Pick the CibSeven double for a case from its OPTIONAL top-level `"cibseven"` block.
+
+    `{"cibseven": {"start_fails": true}}` -> `FailingStartCibSevenTransport`; anything else (and
+    the absent key, which is every pre-CC-01 golden) -> the unchanged `FakeCibSevenTransport`. The
+    key is optional in `conftest.load_golden`'s schema check (`_REQUIRED_CASE_KEYS`), so no
+    existing golden is touched by this branch.
+    """
+    if bool((case.get("cibseven") or {}).get("start_fails")):
+        return FailingStartCibSevenTransport()
+    return FakeCibSevenTransport()
+
+
 async def run_case(
     build_fn: Callable[[dict[str, Any]], Any],
     case: Mapping[str, Any],
@@ -277,7 +315,7 @@ async def run_case(
     inference = ReplayInferenceProvider(case["recorded_llm"])
     dmn = RuleAwareFakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
-    cibseven = FakeCibSevenTransport()
+    cibseven = _cibseven_for(case)
     audit_sink = FakeStartAuditSink()
 
     config: dict[str, Any] = {

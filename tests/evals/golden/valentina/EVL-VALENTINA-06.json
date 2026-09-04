@@ -1,0 +1,53 @@
+{
+  "id": "EVL-VALENTINA-06",
+  "agent": "valentina",
+  "class": "GC",
+  "tier": [
+    "A"
+  ],
+  "description": "CC-01: o start de SP-OP-PROGRAMA-001 falha (engine indisponivel) DEPOIS do gate de consentimento ter aprovado. O desfecho `enrollment_realizado` — que afirma uma inscricao que nao existe — nao sobrevive: Valentina termina em `erro_inicio_processo`. Mesmo input/DMN de EVL-VALENTINA-03.",
+  "input": {
+    "state": {
+      "task": "enroll",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "programa_id": "PROG-DIABETES-TIPO2",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-VALENTINA-03",
+      "ciclo": "2026-Q3",
+      "gatilho": "indicacao_clinica",
+      "consent_scope": "programa_cuidado",
+      "consentimento_ativo": true,
+      "consent_checked": true,
+      "consent_revoked": false,
+      "risco_estratificado": "baixo",
+      "elegibilidade_criterios_atendidos": true,
+      "criterio_alta_aparente": false
+    }
+  },
+  "recorded_llm": [
+    "Beneficiario elegivel ao programa de cuidado de diabetes tipo 2; plano de cuidado inicial proposto para confirmacao da coordenacao clinica."
+  ],
+  "cibseven": {
+    "start_fails": true
+  },
+  "dmn_fixture": {
+    "programa_routing": {
+      "elegivel_programa": "ELEGIVEL",
+      "motivo": "criterios de elegibilidade atendidos"
+    },
+    "programa_sla": {
+      "sla_decisao": "5d",
+      "sla_alerta": "2d"
+    }
+  },
+  "expect": {
+    "fields": {
+      "consent_status": "ativo",
+      "route": "auto_route",
+      "desfecho": "erro_inicio_processo",
+      "process_started": false,
+      "start_failed": true
+    }
+  },
+  "leak_canaries": []
+}

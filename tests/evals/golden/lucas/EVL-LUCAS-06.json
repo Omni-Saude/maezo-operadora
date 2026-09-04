@@ -1,0 +1,47 @@
+{
+  "id": "EVL-LUCAS-06",
+  "agent": "lucas",
+  "class": "GC",
+  "tier": [
+    "A"
+  ],
+  "description": "CC-01/LUC-05: o start de SP-OP-ESCALATION-001 falha (engine indisponivel) no pedido de cancelamento. DUAS coisas sao provadas de uma vez. (1) ORDEM: o ACK ao beneficiario deixou de ser enviado dentro de `escalate_human` (ANTES do start) e passou a ser o no `send_escalation_ack`, guardado pelo start — por isso a chamada de LLM que redige o ACK NUNCA acontece nesta jornada e `recorded_llm` tem UMA entrada (a narrativa do dossie), nao duas: um `recorded_llm` de duas entradas falharia com ReplayUnconsumedResponsesError, o que e' exatamente o sinal de que o ACK nao foi redigido. (2) DESFECHO: `escalado_humano` nao sobrevive; o turno termina em `erro_inicio_processo` com `ack_pending`/`retryable_error` para replay seguro (idempotente por business key).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-lucas-02",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-022",
+      "to_hash": "hash-evl-lucas-02",
+      "intencao": "cancelamento",
+      "tipo_solicitacao": "status_pagamento"
+    }
+  },
+  "recorded_llm": [
+    "Resumo factual do pedido de cancelamento para avaliacao humana."
+  ],
+  "cibseven": {
+    "start_fails": true
+  },
+  "dmn_fixture": {
+    "lucas_escalation_routing": {
+      "roteamento": "CONTRATOS_HUMANO"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "escalate_human",
+      "motivo_humano": "pedido_cancelamento",
+      "grupo_humano": "gestao-contratos",
+      "desfecho": "erro_inicio_processo",
+      "process_started": false,
+      "start_failed": true,
+      "mensagem_enviada": false,
+      "ack_pending": true,
+      "retryable_error": true
+    }
+  },
+  "leak_canaries": [
+    "Um atendente humano vai continuar seu atendimento em breve."
+  ]
+}

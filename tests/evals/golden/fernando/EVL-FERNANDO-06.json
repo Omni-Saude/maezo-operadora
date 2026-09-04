@@ -1,0 +1,60 @@
+{
+  "id": "EVL-FERNANDO-06",
+  "agent": "fernando",
+  "class": "GC",
+  "tier": [
+    "A"
+  ],
+  "description": "CC-01: o start de SP-OP-INADIMPLENCIA-001 falha (engine indisponivel) na rota de escalonamento. Fernando termina em `erro_inicio_processo` em vez de seguir calado para END. Mesmo input/DMN de EVL-FERNANDO-02.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "intencao": "analise_inadimplencia",
+      "canal": "whatsapp",
+      "numero_contrato": "000000012",
+      "matricula_beneficiario": "MAT-EVL-012",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-012",
+      "to_hash": "hash-evl-fernando-02",
+      "tipo_plano": "individual",
+      "origem_solicitacao": "cobranca",
+      "competencias_em_aberto": [
+        "2026-04",
+        "2026-05"
+      ],
+      "meses_inadimplencia": 2,
+      "valor_total_devido_cents": 30000,
+      "dentro_periodo_minimo": true,
+      "notificacao_previa_feita": true,
+      "dentro_janela_purga": true,
+      "ja_em_rescisao_cancel": false,
+      "documentos_refs": []
+    }
+  },
+  "recorded_llm": [
+    "Dossie de analise de inadimplencia para avaliacao humana; nenhuma decisao foi tomada automaticamente."
+  ],
+  "cibseven": {
+    "start_fails": true
+  },
+  "dmn_fixture": {
+    "inadimplencia_status": {
+      "roteamento": "AGUARDA_PURGA",
+      "motivo": "dentro do prazo"
+    },
+    "inadimplencia_sla": {
+      "sla_analise": "P10D",
+      "sla_alerta": "P7D",
+      "fonte_regulatoria": "RN 593"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "escalate",
+      "motivo_humano": "analise_solicitada",
+      "desfecho": "erro_inicio_processo",
+      "process_started": false,
+      "start_failed": true
+    }
+  },
+  "leak_canaries": []
+}

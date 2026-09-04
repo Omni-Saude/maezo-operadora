@@ -61,8 +61,8 @@ tests/evals/
 
 Each family builder wave owns its own test module + its own `golden/<agent>/` subdirectories —
 disjoint files, so B1/B2/B3 can run in parallel with zero collisions. Nobody but B0 edits
-`conftest.py` / `_harness.py` / this README — WP-EVALS (gaps 10.3/11.5, 2026-09) and RAF-06
-(RAF-01, 2026-09-04) are the two documented exceptions. WP-EVALS ADDS (never edits existing
+`conftest.py` / `_harness.py` / this README — WP-EVALS (gaps 10.3/11.5, 2026-09), RAF-06
+(RAF-01, 2026-09-04) and CC-01/CC-08 (2026-09-04) are the three documented exceptions. WP-EVALS ADDS (never edits existing
 lines in) `_harness.py`'s clarity helpers and this README's own documentation of them, per its
 brief ("if the runner cannot express it, extend the runner at the root"). See "Clarity/legibility
 checks" and "Journey evals" below. RAF-06's scope is honest, not purely additive like WP-EVALS':
@@ -76,6 +76,21 @@ uses `__rules__`. No existing eval changes behavior: 47 of the 49 golden cases c
 falls through to `FakeDmnTransport.evaluate` verbatim whenever `decision_key` has no registered
 rules) — reproduce the count with `grep -l '__rules__' tests/evals/golden/*/*.json | wc -l` (2)
 against `ls tests/evals/golden/*/*.json | wc -l` (49).
+
+CC-01/CC-08's scope is purely ADDITIVE (like WP-EVALS', unlike RAF-06's): it ADDS
+`FailingStartCibSevenTransport` and the `_cibseven_for(case)` selector to `_harness.py`, and
+this paragraph plus the `cibseven` row of the schema below to this README. It EDITS no existing
+line of `run_case` beyond swapping the literal `FakeCibSevenTransport()` construction for the
+selector call, which returns exactly that same double for every case that does not opt in.
+Reproduce the blast radius with `grep -c '"cibseven"' tests/evals/golden/*/*.json` — only the
+nine `EVL-*` fail-start cases carry the key; every other golden takes the unchanged path.
+
+WHY THE RUNNER HAD TO BE EXTENDED AT ALL (the README's own "if the runner cannot express it,
+extend the runner at the root" rule): `run_case` hard-wired a CibSeven double whose start ALWAYS
+succeeds, so the engine-unavailable branch of every agent graph was unreachable from the golden
+dataset. CC-01 is precisely a defect ON that branch (a fabricated success desfecho on a start
+that never happened), so without this extension the fix would have shipped with no golden able
+to regress it.
 
 ## Golden case JSON schema
 
@@ -134,6 +149,12 @@ Field notes:
   matching and no catch-all is a loud `AssertionError` (fixture bug), never a silent fail-safe.
   A conditional fixture handed to a plain `FakeDmnTransport` raises `TypeError` — a Tier-B live
   variant that builds its own transport must build a `RuleAwareFakeDmnTransport`.
+- `cibseven` (OPTIONAL, CC-01/CC-08): `{"start_fails": true}` swaps the case's CibSeven double
+  for `_harness.FailingStartCibSevenTransport`, whose `start_process_instance` raises
+  `CibSevenError` — the engine-unavailable branch. Use it to prove an agent's start-failure
+  routing (`desfecho == "erro_inicio_processo"`, no fabricated success, no message that promises
+  a human who was never summoned). Absent (every pre-CC-01 golden) = the unchanged
+  always-succeeds `FakeCibSevenTransport`.
 - `expect`: `next_kind` (RT) and/or `fields` (SF), checked by `assert_expect`.
 - `leak_canaries`: synthetic strings (e.g. a synthetic CPF `123.456.789-09`, NEVER a real one)
   that must be absent from the emitted output (`assert_no_leak`, ABS). Empty list = no PL

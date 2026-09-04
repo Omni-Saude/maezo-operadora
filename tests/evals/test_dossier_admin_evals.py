@@ -131,14 +131,17 @@ def _case(cases: list[dict[str, Any]], case_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Dataset-count meta-check -- pins the T3.2 design doc's SS5.1 count reconciliation (carolina 3,
 # beatriz 3, gustavo 4 = 10) so a silently added/removed golden surfaces here first.
+# CC-01/CC-08 (2026-09-04) added ONE fail-start golden per process-starting agent (carolina 3->4,
+# gustavo 4->5; beatriz starts no process and is unchanged) -- the ratified counts move WITH the
+# dataset, deliberately, so this check keeps catching an UNDECLARED addition.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.eval
 def test_dataset_counts_match_ratified_design() -> None:
-    assert len(CAROLINA_CASES) == 3
+    assert len(CAROLINA_CASES) == 4
     assert len(BEATRIZ_CASES) == 3
-    assert len(GUSTAVO_CASES) == 4
+    assert len(GUSTAVO_CASES) == 5
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,59 @@
+{
+  "id": "EVL-RAFAEL-05",
+  "agent": "rafael",
+  "class": "GC",
+  "tier": [
+    "A"
+  ],
+  "description": "CC-01/RAF-02: o start de SP-OP-AUTH-001 falha (engine indisponivel). O desfecho de sucesso `encaminhado_auditor` gravado por `assess` NAO pode sobreviver: Rafael tem de terminar em `erro_inicio_processo`, com `start_failed` marcado, em vez de afirmar que a guia foi encaminhada ao medico auditor quando NENHUMA instancia BPMN nasceu (fato fabricado + caso perdido sem SLA). Mesmo input/DMN de EVL-RAFAEL-01; a UNICA diferenca e o transporte que falha.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "numero_guia_tiss": "GUIA-EVL-RAFAEL-01",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-RAFAEL-01",
+      "prestador_id": "PREST-TESTE-001",
+      "canal": "a2a",
+      "codigo_procedimento_tuss": "31309038",
+      "categoria_procedimento": "alta_complexidade",
+      "carater_atendimento": "eletivo",
+      "valor_estimado_brl": 45000.0,
+      "cid10": "C50.9",
+      "documentos_refs": [],
+      "requer_autorizacao": true,
+      "documentacao_completa": true,
+      "beneficiario_ativo": true,
+      "carencia_cumprida": true,
+      "dut_atendida": false,
+      "dentro_teto_l2": false,
+      "rede_credenciada": true
+    }
+  },
+  "recorded_llm": [
+    "Solicitacao de autorizacao previa de alta complexidade encaminhada para analise do medico auditor; DUT nao integralmente atendida requer avaliacao humana."
+  ],
+  "cibseven": {
+    "start_fails": true
+  },
+  "dmn_fixture": {
+    "auth_admissibility": {
+      "resultado": "SEGUE_ANALISE"
+    },
+    "auth_sla": {
+      "sla_analise": "10d",
+      "sla_alerta": "5d"
+    },
+    "auth_auto_approval": {
+      "recomendacao": "ANALISE_HUMANA"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "human_auditor",
+      "motivo_auditor": "dmn_analise_humana",
+      "desfecho": "erro_inicio_processo",
+      "process_started": false,
+      "start_failed": true
+    }
+  },
+  "leak_canaries": []
+}
