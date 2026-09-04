@@ -123,13 +123,13 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
 - No episodic memory write (`mcp-memory.read_write`, ADR-0002) — same rationale as Helena's/
   Rafael's graphs: v2's `MemoryServer` requires a live Postgres/pgvector schema not yet wired
   into any agent graph in this repo; adding it is a follow-up once that schema exists.
-- No cross-agent A2A delegation (`operadora.contas/recurso/reembolso.*` -> Marina) is wired in
-  this build: v2's `a2a/` package has no `DelegationEnvelope`/`DelegationDispatcher` yet (only
-  `AgentCard`/`A2ARegistry`/`AntiLoopGuard` exist) — same gap Rafael's/Helena's graphs already
-  disclose. Marina's graph is invoked directly with an already-assembled case state, as the unit
-  tests do, rather than via a live delegation envelope. The T1.11 input-boundary gate
-  (`new_marina_state`/`gate_inbound_state`) is nonetheless present and tested, exactly as
-  Rafael's is, so the seam is gated on the day it lands (CC-02) rather than after.
+- A2A delegation (`operadora.contas/recurso/reembolso.*` -> Marina) is HALF wired (CC-02/RAF-11):
+  the inbound TARGET handler now exists (`agents/marina/delegation.py::make_marina_handler`,
+  routing through the T1.11 `new_marina_state` gate), but it is NOT registered with any
+  dispatcher (`runtime.agent_runtime.a2a_composition`) and the three ORIGIN workers still
+  assemble locally — both halves are an owner decision (gap `FERNANDO-DELEGATION-CALL-SITE`), so
+  no live delegation reaches this graph yet. Every non-test invocation today still hands it an
+  already-assembled case state.
 """
 
 from __future__ import annotations

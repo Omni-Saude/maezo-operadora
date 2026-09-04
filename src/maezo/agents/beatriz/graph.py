@@ -85,10 +85,11 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
 - No episodic memory write (`mcp-memory.read_write`, ADR-0002) in `finalize` — same rationale
   as Helena's/Rafael's/Marina's graphs: v2's `MemoryServer` requires a live Postgres/pgvector
   schema not yet wired into any agent graph in this repo.
-- No inbound A2A delegation adapter (`fraude.investigate` handler): v2's `a2a/` package has no
-  `DelegationEnvelope`/`DelegationDispatcher` yet (only `AgentCard`/`A2ARegistry`/
-  `AntiLoopGuard` exist) — same gap every T1.11/T1.12 graph discloses. The graph is invoked
-  directly with an already-assembled case state, as the unit tests do.
+- The inbound A2A delegation adapter (`fraude.investigate`) now EXISTS
+  (`agents/beatriz/delegation.py::make_beatriz_handler`, BEA-09) but is NOT registered with any
+  dispatcher and `tools/workers/fraude.py` still does not convoke her — both are an owner
+  decision (gap `FERNANDO-DELEGATION-CALL-SITE`). No live delegation reaches this graph; every
+  non-test invocation still hands it an already-assembled case state.
 - Unanchorable case (missing `tenant_id`/`numero_caso`): this build bails WITHOUT assembling a
   dossier (`dossier` stays `{}`, `desfecho="instrucao_incompleta"`) — a disclosed divergence
   from the donor, which assembled a best-effort dossier anyway. Rationale: without the

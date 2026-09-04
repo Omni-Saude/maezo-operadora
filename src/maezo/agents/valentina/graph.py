@@ -100,10 +100,11 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated; same rationale a
   the LGPD cessation/case note to memory; v2's `MemoryServer` requires a live Postgres/pgvector
   schema not yet wired into any agent graph in this repo (same boundary Helena/Rafael/Marina
   disclose). `finalize` is a terminal no-op; adding the memory write is a follow-up.
-- No cross-agent A2A delegation (`care.stratify`/`care.enroll` -> Valentina) is wired: v2's
-  `a2a/` package has no `DelegationEnvelope`/`DelegationDispatcher` yet. The graph is invoked
-  directly with an already-assembled case state (as the unit tests do). The donor's
-  `delegation.py` handler is deliberately NOT ported until that dispatcher exists.
+- A2A delegation (`care.stratify`/`care.enroll` -> Valentina) is HALF wired (VAL-01): the
+  TARGET handler now exists (`agents/valentina/delegation.py::make_valentina_handler`), but it is
+  NOT registered with any dispatcher and `tools/workers/programa.py` still does not originate the
+  delegation — both are an owner decision (gap `FERNANDO-DELEGATION-CALL-SITE`). The graph is
+  still invoked directly with an already-assembled case state (as the unit tests do).
 - Live engine acceptance (deployed SP-OP-PROGRAMA-001 + programa DMNs) is DEFERRED — this
   build is unit-proven with Fake transports only (host constraint; disclosed, not fabricated).
 """
