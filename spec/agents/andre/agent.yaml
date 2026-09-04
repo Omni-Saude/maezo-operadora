@@ -13,7 +13,6 @@ model:
   reasoning:    { tier: frontier }        # coortes ambiguas / risco atuarial complexo
 tools:                                     # ids EXATOS de MCP servers JA registrados (validate-artifacts exige o dir mcp_<server>)
   - mcp-dmn.evaluate                       # pagto_alcada (classifica faixa) / pagto_sla (DMN decide; ADR-0012)
-  - mcp-cibseven.start_process             # somente SP-OP-PAGTO-001 (start idempotente)
   - mcp-memory.read_write                  # memoria episodica do dossie/coorte (ADR-0002)
   - mcp-fhir.read_patient                  # leitura PHI pseudonimizada SO no caminho do dossie de pagamento (enriquece, best-effort)
   # allowlist TIGHT (ADR-0011 / ownership §7): o mcp-datalake (cliente de populacao/lago) e PORT-PENDING
@@ -22,12 +21,26 @@ tools:                                     # ids EXATOS de MCP servers JA regist
   # (Protocol PopulationFeatureClient em contracts.py — espelha o padrao de Protocol da gateway/custody),
   # nunca por um id mcp aqui. Quando o mcp-datalake cair (WB.4) e um no o exercer, o id + a constante entram.
   # mcp-cibseven.get_process_status / correlate_process_message NAO entram ate um no os usar (allowlist tight).
+  #
+  # MENOR PRIVILEGIO — `mcp-cibseven.start_process` REMOVIDO (gap ANDRE-PROCESS-KEYS; decisao do
+  # dono R-036 de 2026-09-04, opcao B). Andre NAO declara `process_keys`, entao o effect-PEP ja
+  # recusava todo start ao chegar em `AgentCapabilities.allows_process_key` (`effect_pep.py`,
+  # L-1 -> REASON_PROCESS_KEY_FORBIDDEN): o manifesto declarava uma autoridade que o PEP nunca
+  # concedeu. Nenhum originador vivo alcanca o no `start_process` do grafo (`delegation.py` so
+  # mapeia `adequacao-worker`, fluxo no-op; `pagto-worker` para na Ancora 1 e devolve
+  # `start_skipped`). Conceder autoridade de efeito sobre um processo que MOVE DINHEIRO
+  # (SP-OP-PAGTO-001) sem consumidor vivo e capacidade especulativa. Se um originador externo
+  # aparecer, a concessao volta como uma linha de YAML sob revisao explicita do dono — nunca por
+  # omissao. Fixado por `tests/unit/gateway/test_andre_least_privilege.py`.
 autonomy_policy: ../../policies/autonomy
 autonomy_actions:                          # acoes REAIS da matriz L0-core exercidas por este fluxo
   - query_decision_engine                  # DMN pagto_alcada/pagto_sla (mcp-dmn.evaluate) — L3
-  - start_compliance_process               # SP-OP-PAGTO-001 (mcp-cibseven.start_process) — L2
   - read_write_memory                      # memoria episodica (mcp-memory.read_write) — L3
   - read_phi_data                          # leitura FHIR pseudonimizada SO no caminho do dossie (mcp-fhir.read_patient) — L3
+  # `start_compliance_process` (L2) REMOVIDO junto com a tool `mcp-cibseven.start_process` — mesma
+  # decisao R-036 / gap ANDRE-PROCESS-KEYS (ver a nota de MENOR PRIVILEGIO no bloco `tools:`).
+  # A acao continua existindo na matriz `spec/policies/autonomy/L0-core.yaml` e continua declarada
+  # pelos agentes que de fato iniciam processo; apenas Andre deixa de declara-la.
   # NOTA L0 HARD (intencional): Andre NAO exerce `high_value_payment` (L1 — a liberacao de pagamento de
   # alto valor NASCE SO na User Task humana `UT_AprovacaoAlcada`/`UT_AprovacaoComite` com tier-match;
   # SP-OP-PAGTO-001 §invariante L1 no-adverse, ADR-0018). Andre NAO decide preco/precificacao
