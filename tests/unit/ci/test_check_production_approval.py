@@ -421,6 +421,11 @@ def test_the_environment_probe_is_read_after_the_verdict_and_never_blocks_it(
     asked = _install_fake_api(monkeypatch, routes)
     assert _run(tmp_path) == 0
     env_path = f"repos/{REPO}/environments/production"
+    # Both halves are load-bearing. `[-1]` alone is satisfied by a gate that ALSO probes the
+    # environment first (measured: moving the probe above `decide` leaves it last as well), so the
+    # count pins that it happens once, after the verdict — the only ordering in which the probe is
+    # structurally incapable of informing the decision.
+    assert asked.count(env_path) == 1, f"telemetry probed {asked.count(env_path)}x; got order {asked}"
     assert asked[-1] == env_path, f"telemetry must be the LAST call; got order {asked}"
 
 
