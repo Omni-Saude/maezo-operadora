@@ -106,6 +106,7 @@ from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 
 from .prompts import DOSSIER_PROMPT_VERSION, SYSTEM_PROMPT_VERSION, dossier_prompt
 
@@ -425,7 +426,13 @@ class BeatrizGraph:
         No episodic memory write here (labeled boundary, module docstring — same rationale as
         Helena's/Rafael's/Marina's graphs). NEVER accuses, NEVER seals, NEVER triggers a
         downstream handoff — sealing and decision belong to the engine workers and the human.
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn. Beatriz has no `route` and
+        never calls `start_process` (L0 structural — no conditional edge exists), so `route` and
+        `start_failed` are always absent/`False` here; only `desfecho` (`dossie_instruido` |
+        `instrucao_incompleta`) carries signal.
         """
+        emit_turn_desfecho(state, agent_id="beatriz")
         return {}
 
     # -- Dossier assembly (ADR-0007 audit provenance; L0-hard structural guardrail) -------------

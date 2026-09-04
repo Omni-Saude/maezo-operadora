@@ -141,6 +141,7 @@ from maezo.runtime.start_outcome import (
     route_after_start,
     start_failed_state,
 )
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -892,7 +893,13 @@ class LucasGraph:
         )
 
     async def complete(self, state: LucasState) -> dict[str, Any]:
-        """Terminal node — no further computation; `desfecho` was already set upstream."""
+        """Terminal node — no further computation; `desfecho` was already set upstream.
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn (`route`/`motivo_categoria`/
+        `mensagem_enviada` were already set by `respond_member`/`escalate_human`/
+        `send_escalation_ack` and survive in the merged `state` this node receives).
+        """
+        emit_turn_desfecho(state, agent_id="lucas")
         return {}
 
     # -- Conditional routing ------------------------------------------------------------------

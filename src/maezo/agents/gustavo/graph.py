@@ -139,6 +139,7 @@ from maezo.runtime.start_outcome import (
     route_after_start,
     start_failed_state,
 )
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -767,7 +768,11 @@ class GustavoGraph:
 
     async def finalize(self, state: GustavoState) -> dict[str, Any]:
         """Terminal node — no further computation; `desfecho` was set by the work node. No
-        episodic memory write (module docstring's labeled boundary; donor divergence #6)."""
+        episodic memory write (module docstring's labeled boundary; donor divergence #6).
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn.
+        """
+        emit_turn_desfecho(state, agent_id="gustavo")
         return {}
 
     # -- Conditional routing ----------------------------------------------------------------

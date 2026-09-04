@@ -60,6 +60,7 @@ from typing import Any, Literal
 import structlog
 
 from maezo.platform import observability
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.workers.phi_vars import redact_error_message
 
 logger = structlog.get_logger(__name__)
@@ -143,7 +144,7 @@ def notify_start_failure(
 ) -> dict[str, Any]:
     """Grava o desfecho de erro e ALERTA — o corpo do no `notify_start_failure` de todo grafo.
 
-    Faz TRES coisas, nesta ordem:
+    Faz QUATRO coisas, nesta ordem:
 
     1. Conta o turno falho em `maezo_agent_errors_total`
        (`platform.observability.record_agent_error`) — o contador que a regra de alerta
@@ -156,6 +157,13 @@ def notify_start_failure(
     3. Devolve o desfecho tecnico, sobrescrevendo qualquer desfecho de sucesso gravado a montante
        (que e exatamente o fato fabricado que CC-01 descreve), mais o que o agente passar em
        `extra` (por exemplo `mensagem_enviada=False`, `ack_pending=True`).
+    4. CC-09: emite UM `maezo_agent_desfecho_total{agent_id,desfecho="erro_inicio_processo",...}`
+       via `turn_telemetry.emit_turn_desfecho` — o UNICO site de emissao do desfecho de falha de
+       start para os 9 agentes que chamam este helper (todos exceto Beatriz, que nunca abre
+       processo). `route`/`motivo_categoria` sao lidos do `state` de ENTRADA (o que
+       `assess`/`human_review`/`escalate` ja gravaram antes de `start_process` tentar e falhar);
+       `enviada` prefere o que `extra` acabou de sobrescrever (ex.: Lucas/Fernando zeram
+       `mensagem_enviada` no proprio `extra`) e cai para o `state` quando `extra` nao o toca.
 
     `extra` existe porque a neutralizacao especifica varia por agente e o estado de cada agente e
     um `TypedDict` fechado: escrever `mensagem_enviada` num agente que nao tem esse campo seria
@@ -180,4 +188,10 @@ def notify_start_failure(
     }
     if extra:
         outcome.update(extra)
+    emit_turn_desfecho(
+        state,
+        agent_id=agent_id,
+        desfecho=DESFECHO_ERRO_INICIO_PROCESSO,
+        enviada=outcome.get("mensagem_enviada", state.get("mensagem_enviada")),
+    )
     return outcome
