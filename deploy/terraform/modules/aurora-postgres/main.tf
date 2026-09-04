@@ -47,10 +47,12 @@ resource "aws_rds_cluster_parameter_group" "this" {
   family      = "aurora-postgresql16"
   description = "Maezo Aurora PostgreSQL 16 parameter group"
 
-  # Enable pgvector. The extension itself is created by migrations post-cluster.
+  # `shared_preload_libraries` so aceita bibliotecas carregadas no start do servidor.
+  # pgvector NAO e uma delas: e uma extensao SQL, criada por `CREATE EXTENSION` nas
+  # migrations pos-cluster. Declara-la aqui faria o boot do cluster falhar (DU-03).
   parameter {
     name  = "shared_preload_libraries"
-    value = "pg_stat_statements,pgvector"
+    value = "pg_stat_statements"
   }
 
   parameter {
