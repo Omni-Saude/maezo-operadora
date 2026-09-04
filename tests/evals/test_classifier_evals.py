@@ -212,9 +212,7 @@ async def test_helena_b1_evals_route_mutation_check_is_non_vacuous(case: dict[st
 # wave's own goldens stay traceable to the work package that added them.
 # ---------------------------------------------------------------------------
 
-_HELENA_CC08_MUTATION_IDS: frozenset[str] = frozenset(
-    {"EVL-HELENA-11", "EVL-HELENA-12", "EVL-HELENA-13"}
-)
+_HELENA_CC08_MUTATION_IDS: frozenset[str] = frozenset({"EVL-HELENA-11", "EVL-HELENA-12", "EVL-HELENA-13"})
 _HELENA_CC08_MUTATION_CASES = [c for c in HELENA_CASES if c["id"] in _HELENA_CC08_MUTATION_IDS]
 
 
