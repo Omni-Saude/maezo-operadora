@@ -9,10 +9,15 @@ from __future__ import annotations
 import pytest
 
 from maezo.tools.workers.phi_vars import (
+    PHI_FREE_TEXT_VARS,
     PHI_PROCESS_VARS,
     REDACTED_DIGITS,
+    REDACTED_EMAIL,
     REDACTED_PHI,
+    REDACTED_PHONE,
     redact_error_message,
+    redact_free_text,
+    redact_free_text_vars,
     redact_phi_vars,
 )
 
@@ -239,3 +244,182 @@ def test_never_raises_on_a_pathological_input() -> None:
 
     out = redact_error_message(_Unstringable())  # type: ignore[arg-type]
     assert out == "[REDACTED_ERROR]"
+
+
+# =============================================================================
+# CC-06 — `redact_free_text`: the shared identifier net (now also the agent -> engine start
+# chokepoint's), and `redact_free_text_vars`: the named-key walk over process-start variables.
+# Synthetic identifiers only, never real PHI.
+# =============================================================================
+
+
+# -- families REDACTED --------------------------------------------------------------------------
+
+
+def test_free_text_redacts_a_formatted_cpf() -> None:
+    out = redact_free_text("beneficiario informou CPF 123.456.789-09 no atendimento")
+    assert "123.456.789-09" not in out
+    assert REDACTED_DIGITS in out
+    # The sentence around it survives — this is a handoff summary, not an incident message.
+    assert out.startswith("beneficiario informou CPF ")
+
+
+def test_free_text_redacts_a_formatted_cnpj() -> None:
+    out = redact_free_text("prestador 12.345.678/0001-90 fora da rede")
+    assert "12.345.678/0001-90" not in out and REDACTED_DIGITS in out
+
+
+def test_free_text_redacts_a_bare_digit_run() -> None:
+    out = redact_free_text("cartao nacional de saude 123456789012345")
+    assert "123456789012345" not in out and REDACTED_DIGITS in out
+
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        "beneficiario@exemplo.com",
+        "beneficiario.teste@exemplo.com.br",
+        "nome+tag@sub.dominio.org",
+        "usuario_1@dominio-com-hifen.net",
+    ],
+)
+def test_free_text_redacts_an_email_address(email: str) -> None:
+    """MEASURED GAP CLOSED (CC-06): an e-mail carries no 11-digit run and no CPF/CNPJ shape, so
+    the pre-CC-06 net let every one of these through unredacted."""
+    out = redact_free_text(f"contato do beneficiario: {email} (retorno em 24h)")
+    assert email not in out
+    assert REDACTED_EMAIL in out
+    assert out.startswith("contato do beneficiario: ")
+
+
+@pytest.mark.parametrize(
+    "phone",
+    [
+        "(11) 98765-4321",
+        "(11)98765-4321",
+        "11 98765-4321",
+        "+55 11 98765-4321",
+        "+55 11 3456-7890",
+        "(11) 3456-7890",
+        "11 98765 4321",
+        "98765-4321",
+        "98765 4321",
+    ],
+)
+def test_free_text_redacts_a_separated_br_phone(phone: str) -> None:
+    """MEASURED GAP CLOSED (CC-06): a BR phone written with separators is 10-11 digits SPLIT by
+    punctuation, so `_DIGIT_RUN_RE` (11+ CONTIGUOUS) never saw it."""
+    out = redact_free_text(f"beneficiario pediu retorno no telefone {phone} pela manha")
+    assert phone not in out
+    assert REDACTED_PHONE in out
+    assert out.endswith(" pela manha")
+
+
+# -- FALSE POSITIVES: legitimate short domain numbers must survive -------------------------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Dates, in both conventions the repo writes them.
+        "internacao em 26/07/2026, alta prevista 2026-08-02",
+        "competencia 08/2026 vencimento 2026-08-10",
+        # BRL amounts.
+        "valor estimado R$ 12.345,67 e coparticipacao R$ 1.234,56",
+        # TUSS / CID / CBHPM style codes.
+        "procedimento TUSS 40808010 CID J45.0 tabela 22 porte 6C",
+        # Numeric ranges and versions (the shapes a naive 4+4 phone arm would eat).
+        "faixa 1000-2000 elegivel; versao 2.1.0 build 10.15.7.2",
+        "exercicio 2026-2027 sem reajuste",
+        # CEP (5+3 — deliberately outside the mobile arm's 5+4 shape).
+        "endereco de atendimento CEP 01310-100",
+        # Short numeric ids below the digit-run threshold.
+        "protocolo 1234567890 guia 987654 lote 55",
+        # Structural references the process contract carries as prose.
+        "ver process://amh/dmn/triage@3 e o anexo doc-2026-07",
+    ],
+)
+def test_free_text_leaves_legitimate_domain_numbers_intact(text: str) -> None:
+    """The net must not corrupt the clinical/administrative content it is meant to preserve.
+    Over-redaction is NOT free here (unlike in an incident message): this same function runs over
+    the `resumo_contexto` a human attendant reads to take the case over."""
+    assert redact_free_text(text) == text
+
+
+def test_free_text_caps_an_unbounded_input() -> None:
+    out = redact_free_text("x" * 2000)
+    assert len(out) < 2000
+    assert out.endswith("...[TRUNCATED]")
+
+
+def test_free_text_cap_is_configurable() -> None:
+    out = redact_free_text("y" * 100, max_chars=10)
+    assert out == "y" * 10 + "...[TRUNCATED]"
+
+
+def test_free_text_is_idempotent() -> None:
+    """Helena scrubs at the producer AND the chokepoint scrubs again (defense in depth): the
+    second pass must be a no-op — the class tokens themselves match no family."""
+    once = redact_free_text("CPF 123.456.789-09, mail a@b.com, fone (11) 98765-4321")
+    assert redact_free_text(once) == once
+
+
+# -- `redact_error_message` still behaves as before (it now DELEGATES to `redact_free_text`) -----
+
+
+def test_error_message_delegates_and_keeps_the_class_prefix() -> None:
+    out = redact_error_message(ValueError("beneficiario a@b.com fone (11) 98765-4321"))
+    assert out.startswith("ValueError: ")
+    assert REDACTED_EMAIL in out and REDACTED_PHONE in out
+
+
+# -- `redact_free_text_vars` — the named-key walk over process-start variables --------------------
+
+
+def test_free_text_vars_covers_narrativa_and_the_prose_phi_names() -> None:
+    """`narrativa` is the field EVERY `_build_dossier` produces; the prose members of
+    `PHI_PROCESS_VARS` are in too. The two STRUCTURED-identifier names are deliberately out
+    (documented at the definition): a substring net is the wrong control for a whole-value id."""
+    assert "narrativa" in PHI_FREE_TEXT_VARS
+    assert {"resumo_contexto", "justificativa_clinica", "laudo", "diagnostico"} <= PHI_FREE_TEXT_VARS
+    assert PHI_FREE_TEXT_VARS & {"matricula_beneficiario", "cid10_referencia"} == set()
+    assert PHI_FREE_TEXT_VARS - {"narrativa"} <= PHI_PROCESS_VARS
+
+
+def test_free_text_vars_scrubs_top_level_and_dossier_and_keeps_structure() -> None:
+    out = redact_free_text_vars(
+        {
+            "resumo_contexto": "CPF 123.456.789-09",
+            "conversation_id": "wa:amh:deadbeef",
+            "numero_boleto": "34191790010104351004791020150008291070026000",
+            "dossie_lucas": {"narrativa": "fone (11) 98765-4321", "fatos": {"competencia": "2026-08"}},
+        }
+    )
+    assert "123.456.789-09" not in out["resumo_contexto"]
+    assert "98765-4321" not in out["dossie_lucas"]["narrativa"]
+    assert out["conversation_id"] == "wa:amh:deadbeef"
+    assert out["numero_boleto"] == "34191790010104351004791020150008291070026000"
+    assert out["dossie_lucas"]["fatos"]["competencia"] == "2026-08"
+
+
+def test_free_text_vars_scrubs_a_list_of_free_text_strings() -> None:
+    out = redact_free_text_vars({"notas_resolucao": ["ok", "CPF 123.456.789-09"]})
+    assert out["notas_resolucao"][0] == "ok"
+    assert "123.456.789-09" not in out["notas_resolucao"][1]
+
+
+def test_free_text_vars_ignores_a_non_dossier_mapping() -> None:
+    """Only `dossie_*` mappings are walked — an arbitrary structured variable is passed through
+    by reference-equality of content, never rewritten."""
+    dmn_refs = {"narrativa_like_key": "CPF 123.456.789-09"}
+    out = redact_free_text_vars({"dmn_decision_refs": dmn_refs})
+    assert out["dmn_decision_refs"] == dmn_refs
+
+
+def test_free_text_vars_raises_on_an_unwalkable_payload() -> None:
+    """Fail-closed: the chokepoint must be able to REFUSE the start rather than pass raw text on.
+    Unlike `redact_phi_vars`/`redact_error_message`, this one is allowed to raise."""
+    dossier: dict[str, object] = {"narrativa": "ok"}
+    dossier["self"] = dossier
+    with pytest.raises(ValueError, match="deeper than"):
+        redact_free_text_vars({"dossie_rafael": dossier})
