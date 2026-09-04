@@ -21,7 +21,17 @@ O que estes testes provam:
      (`gateway/tool_registry.py`), entregando o wrapper GATEADO (`GatedFhirReader`) e nao o
      adaptador cru, com o principal CORRETO por agente (carolina != andre — a decisao do PEP
      `leitura_phi_clinica` e por principal);
-  5. `population` continua `None` explicito — BLOCKED(external WB.4): nao existe cliente de lago
+  5. a DEGRADACAO e OBSERVAVEL: `/readyz` publica o check nao-fatal `dossier_fhir_ready`, com
+     ou sem `FHIR_BASE_URL` — antes disto `WorkerState.dossier_fhir_detail` era WRITE-ONLY (zero
+     leituras) e um `FHIR_BASE_URL` vazio deixava `effect_seams_gated` VERDE (nada ungated existe
+     quando nada foi construido), ou seja: dossie degradado, painel limpo;
+  6. o mesmo vale para andre (simetria com o item 2): o leitor que a raiz entrega a ele basta
+     para silenciar o ramo degradado do `AndreGraph.gather` (fluxo `pagto_dossier`);
+  7. os dois literais de id de agente (`service._DOSSIER_FHIR_AGENT_IDS` e
+     `a2a_composition._DOSSIER_EDGE_AGENT_IDS`) sao IGUAIS — a recusa da raiz so cobre uma
+     direcao (id que ela nao serve); a direcao oposta (aresta servida sem seam construido)
+     degradaria em silencio e e este teste que a impede;
+  8. `population` continua `None` explicito — BLOCKED(external WB.4): nao existe cliente de lago
      concreto em `src/` (`andre/graph.py::PopulationFeatureClient` e so Protocol,
      `gateway/seams/population.py` "SHIPS UNWIRED", `build_agent_seams` omite a chave de
      proposito). Degradacao honesta, nunca um cliente inventado.
@@ -38,10 +48,11 @@ from tests.support.audit_fakes import FakeStartAuditSink
 from tests.unit.a2a.fakes import RecordingProducer
 
 from maezo.a2a import per_tenant_key_env_var
-from maezo.agents.carolina.graph import CarolinaGraph
+from maezo.agents.andre.graph import AndreGraph, AndreState
+from maezo.agents.carolina.graph import CarolinaGraph, CarolinaState
 from maezo.gateway.seams.fhir import GatedFhirReader
 from maezo.runtime.agent_runtime import a2a_composition
-from maezo.runtime.worker_runtime.service import WorkerState
+from maezo.runtime.worker_runtime.service import WorkerState, build_readiness_checks
 from maezo.runtime.worker_runtime.settings import WorkerRuntimeSettings
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
@@ -170,19 +181,66 @@ async def test_carolina_gather_no_longer_reports_a_missing_summary_reader(
         audit_sink=deps["audit_sink"],
         fhir=captured["carolina"].get("fhir"),
     )
-    out = await graph.gather(
-        {
-            "tenant_id": _TENANT,
-            "prestador_id": "P-CC03-1",
-            "patient_summary_ref": "Patient/pseudo-1",
-        }  # type: ignore[arg-type]
-    )
+    case: CarolinaState = {
+        "tenant_id": _TENANT,
+        "prestador_id": "P-CC03-1",
+        "patient_summary_ref": "Patient/pseudo-1",
+    }
+    out = await graph.gather(case)
 
     assert not any(_CAROLINA_GAP_NOTE in note for note in out["gather_notes"]), (
         "o dossie de producao continua caindo no ramo degradado: a raiz nao injetou o leitor"
     )
     assert carolina_reader.calls == ["Patient/pseudo-1"]
     assert out["summary_facts"]["id"] == "Patient/pseudo-1"
+
+
+async def test_andre_gather_no_longer_reports_a_missing_fhir_reader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SIMETRIA com carolina (o achado INFO-5 do verificador: so um dos dois lados do defeito
+    AND-03 estava exercitado de ponta a ponta). O objeto que a RAIZ entrega a ANDRE basta para
+    silenciar o ramo degradado do grafo dele — e o resumo e realmente lido (nao-vacuidade).
+
+    O fluxo importa: a sonda FHIR de andre so existe em `pagto_dossier`, que e o default de
+    `andre/graph.py::_flow` e exatamente o caminho da aresta de dossie de PAGAMENTO."""
+    monkeypatch.setenv(_SIGNING_KEY_ENV, _VALID_KEY)
+    captured = _spy_handler_factories(monkeypatch)
+    andre_reader = _RecordingReader("andre")
+    deps = _dossier_deps()
+
+    a2a_composition.build_dossier_delegation_dispatcher(
+        tenant=_TENANT,
+        runtime_mode="local",
+        kafka_producer=RecordingProducer(),
+        fhir={"carolina": _RecordingReader("carolina"), "andre": andre_reader},
+        **deps,
+    )
+
+    graph = AndreGraph(
+        inference=deps["inference"],
+        dmn=deps["dmn"],
+        cibseven=deps["cibseven"],
+        audit_sink=deps["audit_sink"],
+        fhir=captured["andre"].get("fhir"),
+        population=captured["andre"].get("population"),
+    )
+    case: AndreState = {
+        "tenant_id": _TENANT,
+        "flow": "pagto_dossier",
+        "ordem_pagamento_id": "OP-CC03-1",
+        "patient_summary_ref": "Patient/pseudo-2",
+    }
+    out = await graph.gather(case)
+
+    assert not any(_ANDRE_GAP_NOTE in note for note in out["gather_notes"]), (
+        "o dossie de pagamento continua caindo no ramo degradado: a raiz nao injetou o leitor"
+    )
+    assert andre_reader.calls == ["Patient/pseudo-2"]
+    # A lacuna WB.4 (cliente de populacao) continua DECLARADA e nao se confunde com a do FHIR:
+    # sem `cohort_id` andre nem chega a consultar populacao, entao a unica nota possivel aqui
+    # seria a do FHIR — que e justamente a que nao deve mais existir.
+    assert out["gather_notes"] == []
 
 
 def test_dossier_root_fails_closed_on_an_unknown_agent_in_the_fhir_map(
@@ -237,12 +295,16 @@ class _SpyHarness:
         await asyncio.Event().wait()
 
 
-async def test_worker_step_b_builds_gated_per_agent_fhir_seams(monkeypatch: pytest.MonkeyPatch) -> None:
-    """STEP B constroi o(s) seam(s) FHIR pelo construtor SANCIONADO e os repassa a raiz do
-    dossie: wrapper GATEADO (nao o adaptador cru), principal CORRETO por agente, `population`
-    explicitamente None (BLOCKED(external WB.4))."""
+_DSN = "postgresql://maezo@localhost:5432/maezo"
+
+
+async def _bring_up_worker(
+    monkeypatch: pytest.MonkeyPatch, settings: WorkerRuntimeSettings
+) -> tuple[WorkerState, dict[str, Any]]:
+    """Roda o STEP B REAL do daemon com as unicas bordas que exigem processo externo trocadas
+    (harness, registro de workers, sonda do sink) e com a RAIZ do dossie espionada. Devolve o
+    `WorkerState` resultante e os kwargs que a raiz recebeu."""
     import maezo.runtime.worker_runtime.service as svc
-    from maezo.agents.rafael.adapters import FhirServerReader
 
     captured: dict[str, Any] = {}
 
@@ -259,11 +321,30 @@ async def test_worker_step_b_builds_gated_per_agent_fhir_seams(monkeypatch: pyte
     monkeypatch.setattr(svc, "_expected_worker_topics", lambda: frozenset({"t"}))
     monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
 
-    settings = WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
     state = WorkerState(settings=settings)
-    try:
-        await svc._bring_up_dependencies(state)
+    await svc._bring_up_dependencies(state)
+    return state, captured
 
+
+async def _teardown_worker_state(state: WorkerState) -> None:
+    if state.harness_task is not None:
+        state.harness_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await state.harness_task
+    if state.transport is not None:
+        await state.transport.close()
+    if state.audit_sink is not None:
+        await state.audit_sink.aclose()
+
+
+async def test_worker_step_b_builds_gated_per_agent_fhir_seams(monkeypatch: pytest.MonkeyPatch) -> None:
+    """STEP B constroi o(s) seam(s) FHIR pelo construtor SANCIONADO e os repassa a raiz do
+    dossie: wrapper GATEADO (nao o adaptador cru), principal CORRETO por agente, `population`
+    explicitamente None (BLOCKED(external WB.4))."""
+    from maezo.agents.rafael.adapters import FhirServerReader
+
+    state, captured = await _bring_up_worker(monkeypatch, WorkerRuntimeSettings(DATABASE_URL=_DSN))
+    try:
         assert set(captured["fhir"]) == {"carolina", "andre"}
         for agent_id in ("carolina", "andre"):
             seam = captured["fhir"][agent_id]
@@ -278,11 +359,73 @@ async def test_worker_step_b_builds_gated_per_agent_fhir_seams(monkeypatch: pyte
         # O daemon tambem passa a enxergar o seam FHIR na sua propria asserção de boot (I-11).
         assert state.effect_seams_gated is True
     finally:
-        if state.harness_task is not None:
-            state.harness_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await state.harness_task
-        if state.transport is not None:
-            await state.transport.close()
-        if state.audit_sink is not None:
-            await state.audit_sink.aclose()
+        await _teardown_worker_state(state)
+
+
+# --- F1 (REVISE): a degradacao do leitor FHIR e OBSERVAVEL no readiness ------------------------
+
+
+async def test_readyz_publishes_dossier_fhir_ready_naming_both_agents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`WorkerState.dossier_fhir_detail` era WRITE-ONLY: escrito no STEP B, lido por NINGUEM.
+    O check nao-fatal `dossier_fhir_ready` (espelho de `dossier_delegation_ready`) e o unico
+    lugar onde o operador ve QUAIS agentes de dossie tem leitor gateado."""
+    state, _ = await _bring_up_worker(monkeypatch, WorkerRuntimeSettings(DATABASE_URL=_DSN))
+    try:
+        checks = {c.__name__: c for c in build_readiness_checks(state)}
+        assert "dossier_fhir_ready" in checks, (
+            "o detalhe do seam FHIR continua write-only: nada em /readyz o le"
+        )
+        result = await checks["dossier_fhir_ready"]()
+        assert result.name == "dossier_fhir_ready"
+        assert result.healthy is True
+        assert result.detail is not None
+        assert "carolina" in result.detail and "andre" in result.detail
+    finally:
+        await _teardown_worker_state(state)
+
+
+async def test_readyz_discloses_the_fhir_degradation_when_base_url_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`FHIR_BASE_URL=""` = "este deploy nao tem FHIR": NENHUM leitor, os dois grafos emitem a
+    nota de lacuna declarada — e isso precisa APARECER. Degradacao, NUNCA falha de readiness:
+    o dossie "instrui, nao decide", entao um leitor ausente nao pode tirar da rotacao um daemon
+    que serve ~110 topicos."""
+    settings = WorkerRuntimeSettings(DATABASE_URL=_DSN, FHIR_BASE_URL="")
+    state, captured = await _bring_up_worker(monkeypatch, settings)
+    try:
+        assert state.dossier_fhir_seams == {}
+        assert captured["fhir"] is None
+        assert state.dossier_fhir_detail.startswith("DEGRADED")
+        # A RAZAO de o check existir: a assercao de boot I-11 fica VERDE mesmo assim (nada
+        # ungated existe quando nada foi construido), entao sem `dossier_fhir_ready` o painel
+        # do operador nao teria UM sinal do dossie degradado.
+        assert state.effect_seams_gated is True
+
+        checks = {c.__name__: c for c in build_readiness_checks(state)}
+        assert "dossier_fhir_ready" in checks
+        result = await checks["dossier_fhir_ready"]()
+        assert result.healthy is True, "degradacao do dossie NUNCA derruba /readyz do daemon"
+        assert result.detail is not None
+        assert result.detail.startswith("DEGRADED")
+        assert "carolina" in result.detail and "andre" in result.detail
+    finally:
+        await _teardown_worker_state(state)
+
+
+# --- INFO-3: a recusa da raiz so cobre UMA direcao --------------------------------------------
+
+
+def test_worker_fhir_agent_ids_match_the_a2a_root_edge_agents() -> None:
+    """`service._DOSSIER_FHIR_AGENT_IDS` e um literal LOCAL (o modulo A2A e importado tarde, de
+    proposito). A raiz recusa uma chave que ela NAO serve — mas a direcao oposta (uma aresta de
+    dossie servida pela raiz que este literal esquece) nao levanta nada: aquele agente
+    simplesmente ficaria sem leitor, em silencio, que e o proprio defeito CC-03/AND-03.
+    Este teste e a guarda dessa direcao, no unico lugar onde ela e barata e nao pode ser
+    apagada por `python -O` nem virar uma queda de dossie em bring-up."""
+    from maezo.runtime.agent_runtime.a2a_composition import _DOSSIER_EDGE_AGENT_IDS
+    from maezo.runtime.worker_runtime.service import _DOSSIER_FHIR_AGENT_IDS
+
+    assert set(_DOSSIER_FHIR_AGENT_IDS) == set(_DOSSIER_EDGE_AGENT_IDS)
