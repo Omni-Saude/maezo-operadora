@@ -130,6 +130,14 @@ jobs:
       - name: AMH contract pin gate (ADR-0037 XRD-04)
         run: make verify-amh-contract-pin
 
+      # D12-01-b / R-007 (owner-ratified 2026-09-04): every shipped `alert:` rule in
+      # deploy/observability/alert-rules.yml must carry `annotations.runbook_url` pointing at a
+      # SPECIFIC, resolvable docs/runbooks/ file (never a generic index) — an alert without one
+      # trains the on-call to ignore it. Fails on a missing annotation, a dangling path, or a bad
+      # `#anchor`. Belt-and-suspenders with tests/unit/ci/test_check_alert_runbook_urls.py.
+      - name: Alert runbook-URL gate (D12-01-b / R-007)
+        run: make check-alert-runbook-urls
+
       # PLANS.md Hardening §0.8 Onda 0 (finding W5): the strict-xfail census under
       # tests/integration/processes/ is now a GENERATED artifact, not a hand-recounted number —
       # this re-derives it from the AST and fails on drift vs docs/xfail-census.json OR the
