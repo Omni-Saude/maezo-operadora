@@ -221,7 +221,18 @@ def _contexto_sem_os_booleanos(facts: Mapping[str, Any], caminhos: Iterable[str]
     Deixar a chave nos dois lugares seria manter o defeito ao lado do conserto: o modelo leria
     `NAO  prestador na rede credenciada` e, logo abaixo, `'rede_credenciada': False`.
 
-    Copia rasa por nivel — `facts` e os sub-dicionarios do chamador NUNCA sao mutados.
+    COPIA CADA NIVEL ANTES DE ESCREVER NELE — `facts` e os sub-dicionarios do chamador NUNCA sao
+    mutados. Isso e' requisito, nao zelo: os sitios de montagem passam ADIANTE o mesmo objeto
+    `facts` que vai ao registro de auditoria (ADR-0007), entao podar um sub-dicionario no lugar
+    apagaria do registro o fato que acabou de ser apurado — o defeito de 24/08/2026 (`False`
+    indistinguivel de ausencia) reaparecendo do outro lado, agora como ausencia de verdade.
+
+    A versao anterior copiava raso SO' O TOPO e escrevia a poda no sub-dicionario do chamador a
+    partir do terceiro nivel. Ficou latente porque os mapas de hoje chegam a dois niveis; o
+    primeiro mapa com tres o acordaria em producao. A descida abaixo refaz a copia a cada
+    caminho de proposito: o custo e' um punhado de dicionarios rasos por prompt, e a alternativa
+    (copiar uma vez e reutilizar) e' justamente o que erra quando dois booleanos irmaos moram no
+    mesmo pai.
     """
     topo = {caminho for caminho in caminhos if "." not in caminho}
     contexto: dict[str, Any] = {k: v for k, v in facts.items() if k not in topo}
@@ -229,16 +240,27 @@ def _contexto_sem_os_booleanos(facts: Mapping[str, Any], caminhos: Iterable[str]
     for caminho in caminhos:
         if "." not in caminho:
             continue
-        pai, _, folha = caminho.rpartition(".")
-        alvo = _valor_do_fato(contexto, pai)
-        if not isinstance(alvo, Mapping) or folha not in alvo:
-            continue
-        podado = {k: v for k, v in alvo.items() if k != folha}
-        raiz, _, ultimo = pai.rpartition(".")
-        recipiente = contexto if not raiz else _valor_do_fato(contexto, raiz)
-        if isinstance(recipiente, dict):
-            recipiente[ultimo] = podado
+        _podar_copiando_cada_nivel(contexto, caminho.split("."))
     return contexto
+
+
+def _podar_copiando_cada_nivel(contexto: dict[str, Any], segmentos: list[str]) -> None:
+    """Tira `segmentos[-1]` de `contexto`, trocando cada nivel intermediario por uma copia rasa.
+
+    A troca acontece ANTES de qualquer escrita, entao o unico dicionario que esta funcao muta e'
+    um que ela mesma acabou de criar (ou o `contexto` de topo, que ja' e' copia). Um segmento
+    intermediario ausente ou que nao e' `Mapping` aborta o caminho sem escrever nada: nao ha' o
+    que podar, e inventar um dicionario ali mudaria o contexto que o modelo le.
+    """
+    recipiente = contexto
+    for segmento in segmentos[:-1]:
+        filho = recipiente.get(segmento)
+        if not isinstance(filho, Mapping):
+            return
+        copia = dict(filho)
+        recipiente[segmento] = copia
+        recipiente = copia
+    recipiente.pop(segmentos[-1], None)
 
 
 def render_fatos_para_prompt(
