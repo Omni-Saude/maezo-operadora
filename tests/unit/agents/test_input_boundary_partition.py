@@ -234,7 +234,7 @@ async def test_marina_receive_still_clears_planted_output_fields() -> None:
     from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
     from maezo.tools.workers.dmn_transport import FakeDmnTransport
     from tests.support.audit_fakes import FakeStartAuditSink
-    from tests.unit.agents.test_marina import _FakeInference  # noqa: PLC0415 — local fixture reuse
+    from tests.unit.agents.test_marina import _FakeInference
 
     graph = MarinaGraph(
         inference=_FakeInference(),
@@ -242,7 +242,7 @@ async def test_marina_receive_still_clears_planted_output_fields() -> None:
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
     )
-    result = await graph.receive({**_MARINA_INPUT, **_MARINA_PLANTED})  # type: ignore[arg-type]
+    result = await graph.receive({**_MARINA_INPUT, **_MARINA_PLANTED})
     assert result["error"] == ""
     assert result["route"] == "human_review"
     assert result["dmn_refs"] == {}
@@ -254,7 +254,7 @@ async def test_lucas_receive_still_clears_planted_output_fields() -> None:
     from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
     from maezo.tools.workers.dmn_transport import FakeDmnTransport
     from tests.support.audit_fakes import FakeStartAuditSink
-    from tests.unit.agents.test_lucas import (  # noqa: PLC0415 — local fixture reuse
+    from tests.unit.agents.test_lucas import (
         _FakeInference,
         _FakeWhatsAppSender,
     )
@@ -266,7 +266,7 @@ async def test_lucas_receive_still_clears_planted_output_fields() -> None:
         audit_sink=FakeStartAuditSink(),
         whatsapp=_FakeWhatsAppSender(),
     )
-    result = await graph.receive({**_LUCAS_INPUT, **_LUCAS_PLANTED})  # type: ignore[arg-type]
+    result = await graph.receive({**_LUCAS_INPUT, **_LUCAS_PLANTED})
     assert result["error"] == ""
     assert result["route"] == ""
     assert result["dmn_refs"] == {}
