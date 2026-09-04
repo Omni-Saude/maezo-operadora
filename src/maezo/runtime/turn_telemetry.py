@@ -300,5 +300,5 @@ def emit_turn_desfecho(
             start_failed=start_failed,
             flow=flow,
         )
-    except Exception:  # noqa: BLE001 — defensive: telemetry must never break a completed turn.
+    except Exception:  # defensive: telemetry must never break a completed turn (BLE not in ruff select).
         logger.debug("agent_desfecho_telemetry_emit_failed", agent_id=agent_id, exc_info=True)
