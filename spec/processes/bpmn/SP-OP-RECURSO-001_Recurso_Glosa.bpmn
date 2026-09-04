@@ -188,12 +188,7 @@ ate la, o teto e absoluto e CONSERVADOR.
     <!-- Ramo: pendencia de documentacao do recurso (a operadora pede documentos ao prestador) -->
     <bpmn:serviceTask id="ST_SolicitarDocumentos" name="Abrir pendencia de documentacao ao prestador"
                       camunda:type="external" camunda:topic="operadora.recurso.request_documents">
-      <bpmn:documentation>Abre a pendencia de documentacao ao prestador (suspensao de prazo durante pendencia: regra RN — DRAFT/verify com regulatorio, OQ-9). Worker dict-first (ADR-0026, del kafka): NAO publica agents.events.recurso.pended diretamente — ver ST_PublishRecursoPended logo a seguir (T3.1 event-gap remedy B), espelhando o gemeo honesto ST_SolicitarDocumentos do SP-OP-REEMBOLSO-001. FAB-SLA-RISK-NOTIFIED-SLICE4: a frase anterior ("Worker tambem publica agents.events.recurso.pended") era FALSA — request_documents_entry faz del kafka e nunca publicou; foi corrigida aqui. O inputParameter event_topic_pended abaixo segue PENDURADO e INERTE (nenhum codigo o le; grep -rn event_topic_pended src/ tests/ so acha prosa) e NAO foi removido por este pacote: remove-lo e' edicao estrutural que move o pin de ocorrencias do corpus PHI (CORPUS_DELTA_LOG) e exige prova de motor — registrado ABERTO em docs/review-queue.md. Mesmo idioma preservado deliberadamente em SP-OP-CRED-001.</bpmn:documentation>
-      <bpmn:extensionElements>
-        <camunda:inputOutput>
-          <camunda:inputParameter name="event_topic_pended">agents.events.recurso.pended</camunda:inputParameter>
-        </camunda:inputOutput>
-      </bpmn:extensionElements>
+      <bpmn:documentation>Abre a pendencia de documentacao ao prestador (suspensao de prazo durante pendencia: regra RN — DRAFT/verify com regulatorio, OQ-9). Worker dict-first (ADR-0026, del kafka): NAO publica agents.events.recurso.pended diretamente — ver ST_PublishRecursoPended logo a seguir (T3.1 event-gap remedy B), espelhando o gemeo honesto ST_SolicitarDocumentos do SP-OP-REEMBOLSO-001. FAB-SLA-RISK-NOTIFIED-SLICE4 (PR #308, merge df28608) desmentiu a frase anterior ("Worker tambem publica agents.events.recurso.pended") — request_documents_entry faz del kafka e nunca publicou — e disclosed o inputParameter event_topic_pended, que seguia PENDURADO e INERTE (nenhum codigo o lia; grep -rn event_topic_pended src/ tests/ so achava prosa), registrado ABERTO em docs/review-queue.md. RECURSO-EVENT-TOPIC-PENDED-PARAM (esta PR) removeu o inputParameter e o wrapper extensionElements/inputOutput agora vazio: edicao estrutural, com prova de motor (deploy sem o parametro) e ajuste do pin de ocorrencias do corpus PHI (CORPUS_DELTA_LOG). Mesmo idioma PENDURADO/INERTE preservado deliberadamente em SP-OP-CRED-001 (ST_NotifyDocPendente), que NAO foi tocado por esta PR.</bpmn:documentation>
       <bpmn:incoming>Flow_GW_Pendencia</bpmn:incoming>
       <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
       <bpmn:outgoing>Flow_Solicitar_WaitDocs</bpmn:outgoing>
@@ -208,9 +203,11 @@ ate la, o teto e absoluto e CONSERVADOR.
     </bpmn:boundaryEvent>
 
     <!-- T3.1 event-gap remedy B (docs/processes/contracts/SP-OP-RECURSO-001.md "produz"
-         obligation) — ST_SolicitarDocumentos's own event_topic_pended inputParameter is
+         obligation) — ST_SolicitarDocumentos's event_topic_pended inputParameter was
          worker-intended but v2 request_documents_entry del kafka's (never publishes, ADR-0026);
-         this dedicated engine-side publish task closes the gap without touching src/.
+         FAB-SLA-RISK-NOTIFIED-SLICE4 (PR #308, merge df28608) disclosed it as PENDURADO/INERTE
+         and RECURSO-EVENT-TOPIC-PENDED-PARAM (this PR) removed it. This dedicated engine-side
+         publish task closes the gap without touching src/.
          Boundary-free (mirrors the ST_Publish* convention); only reached on NORMAL completion of
          ST_SolicitarDocumentos (BE_GlosaInvalidaDocs intercepts the token first on the
          glosa_id-ausente guard path, so no pended event fires there). -->
