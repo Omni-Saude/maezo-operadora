@@ -33,9 +33,7 @@ and free-form kebab slugs (`mzo-040`, `flip-path-review-gate`,
 every one of those rows structurally unreachable: a PR that cited one via a
 `Tasks:` line or bracket marker made this gate print "PASS: No task ID
 detected" and exit 0 — a REQUIRED check passing vacuously, never having
-looked at the ledger at all. `_TASK_ID_PATTERN` widens the id shape (used by
-`_TASK_ID_TOKEN_RE`, for `Tasks:`-line and bracket payloads, and by
-`_LEDGER_ROW_RE`, for the ledger's own first column) to
+looked at the ledger at all. `_TASK_ID_PATTERN` widens the id shape to
 ``[A-Za-z0-9]+(?:[-.][A-Za-z0-9]+)+`` — one or more alphanumeric segments
 joined by `-` or `.`, case-insensitive, with the original `t\\d+\\.\\d+`
 shape still a strict subset. The `+` (not `*`) on the trailing group is
@@ -50,37 +48,95 @@ parenthetical annotation in the same cell (`T0.5 (gate precision fix)`,
 LEADING id token and stops (lookahead on whitespace-or-pipe) rather than
 demanding an immediate closing pipe.
 
+Where each id family binds (round-3 repair, after the 200-PR replay)
+--------------------------------------------------------------------
+A widened grammar is only safe where the position itself is unambiguous.
+Replaying the first (round-3) implementation of this widening over the last
+200 merged PRs (#85–#309) produced 19 RED against 0 for the pre-widening
+script — every one of them a *false* positive, three of them on dependabot
+PRs whose bodies nobody can edit. The repair narrows *positions*, not the
+grammar:
+
+    position               | legacy `t<phase>.<n>` | every other id shape
+    -----------------------+-----------------------+----------------------
+    branch-name prefix     | binds                 | NEVER binds
+    `Task:`/`Tasks:` line  | binds                 | binds (leading run)
+    `[...]` bracket        | binds                 | NEVER binds
+    ledger first column    | matches               | matches
+
 Branch-name detection (`_BRANCH_TASK_RE`) is DELIBERATELY NOT widened and
 stays `^t<phase>.<n>-` only. A kebab branch name like
 `fix/kafka-num-partitions-compose` has no unambiguous id segment — binding
 from the branch name would mean guessing which hyphenated run of the slug is
-"the id", which is a false-positive vector, not a widening. Every non-`t.n`
-id form binds ONLY via an explicit `Tasks:` line or `[...]` bracket in the PR
-body (see docs/evidence-ledger.md's header for the convention: a PR closing
-a ledger row declares `Tasks: <ID>` or `[<ID>]` in its body).
+"the id", which is a false-positive vector, not a widening.
 
-Bracket payloads are held to a STRICTER rule than `Tasks:` lines: a bracket's
-entire trimmed content must be nothing but whitespace-separated id tokens
-(`_BRACKET_PURE_IDS_RE`) or it binds NOTHING at all — not even the tokens
-inside it that happen to look id-shaped. This was proven necessary, not
-theoretical: replaying the widened grammar over this repo's last 40 merged
-PR bodies (round-3 false-positive sweep) found a real `[owner-review:
-`glosa_triage.dmn` + shadow + `action-approvals.yaml`]` bracket (PR #274) —
-ordinary prose-in-brackets, not a task marker — that would otherwise have
-spuriously bound `OWNER-REVIEW` and `ACTION-APPROVALS.YAML` and demanded
-ledger rows that were never meant to exist. `Tasks:`/`Task:` lines keep the
-pre-existing (T0.5) whole-remainder token scan instead of the same
-whole-payload purity gate: an existing, deliberately pinned test
-(`TestExactIdCollisionBoundaries::test_body_mentions_of_both_ids_stay_
-distinct`) requires a second `Task:` mention later on the SAME line to also
-bind, which a purity gate on the line's tail would break. This is an accepted
-residual risk, not an oversight: across the 40 replayed PRs every real
-`Task:`/`Tasks:` line was a bare `Task: <ID>` with nothing trailing (see the
-round-3 report), so the risk of a hyphenated prose word (e.g. "closes the
-follow-up work") on the SAME line as a real marker spuriously binding is
-real but currently unobserved in this repo's history — the convention
-paragraph in docs/evidence-ledger.md now tells authors to keep the `Tasks:`
-line to ids only, precisely to keep it that way.
+`[...]` brackets are NOT widened either, for the same reason and with the
+same evidence. Brackets in this repo's PR bodies are overwhelmingly not task
+markers: markdown link text (`[Claude Code](...)`), dependabot's version and
+package asides (`[langgraph-checkpoint]`, `[2.0.3]`), quoted regex character
+classes (`[a-z]`), file names (`[contracts.lock.json]`) and prose asides
+(`[owner-review: ... + action-approvals.yaml]`, PR #274). Six of the 200
+replayed PRs — including three dependabot PRs — went RED purely on such a
+bracket. A "the whole payload must be pure id tokens" gate cannot see this
+class at all (a payload that IS one hyphenated token is "pure" by
+construction), and the one that was tried also introduced catastrophic
+backtracking on an attacker-controlled input (see "Regex safety" below). So
+bracket payloads are scanned with the ORIGINAL narrow token regex
+(`_LEGACY_TASK_ID_TOKEN_RE`, `\\b(t\\d+\\.\\d+)\\b`): byte-for-byte main's
+behaviour, including `[T0.5 extra]` binding `T0.5` and `[T0.5](url)` link
+text binding `T0.5`. Widened ids are NOT bracket-bindable — `[GAP-AF-02]`
+and `[FAB-NOTIFIED-TRIO]` bind NOTHING; declare them on a `Tasks:` line.
+
+`Task:`/`Tasks:` lines are therefore the ONLY position where a widened id
+binds, and even there only as the LEADING RUN of id-shaped tokens after the
+marker: tokens are taken left to right (separated by whitespace, `,` or `;`
+— this repo's real history writes `Tasks: t2.6-eb3, t2.6-eb4, t3.3 — …`)
+and the run STOPS at the first token that is not id-shaped. Scanning then
+resumes only at the next `Task:`/`Tasks:` marker on the same line, which is
+what keeps the deliberately pinned
+`TestExactIdCollisionBoundaries::test_body_mentions_of_both_ids_stay_distinct`
+("Task: T0.1 and also Task: T0.10 in the same sweep.") binding both ids
+while `Tasks: FAB-NOTIFIED-TRIO — corrige o gate` binds only the gap id.
+Under the pre-repair whole-line scan, 6 of the 200 replayed PRs bound
+prose from such a line (`PR-OPEN`, `FAIL-CLOSED`, `6-WEEK-STALE`, `1.2.9`,
+…); under the leading-run rule they bind exactly the ids they declare.
+
+Two consequences of the leading-run rule are deliberate and documented:
+
+- A token of the legacy slug shape `t<phase>.<n>-<slug>` binds its
+  `t<phase>.<n>` PREFIX, not the whole token (`_LEGACY_SLUG_PREFIX_RE`) —
+  exactly what `\\b(t\\d+\\.\\d+)\\b` did on main, and what keeps real PRs
+  such as #106–#113 (`Tasks: t2.8-lgpd-identity-failclosed`, whose ledger
+  row is the short `t2.8`) green. It is the one place where the bound id is
+  not the literal token; a future ledger id of that shape must therefore
+  also carry a row for its `t<phase>.<n>` prefix.
+- An ISO date IS id-shaped under this grammar (`2026-09-04` = digits,
+  separator, digits). No exclusion list is introduced for it — the same
+  "no hardcoded word list" reasoning as the `+` above — so a date placed
+  INSIDE the leading run (`Tasks: GAP-1 2026-09-04`) would bind and demand
+  a row. It is stopped by any prose in between (`Tasks: GAP-1 fechado em
+  2026-09-04` binds only `GAP-1`) and did not occur in any of the 200
+  replayed PRs. The convention paragraph in docs/evidence-ledger.md
+  therefore states the rule positively: the `Tasks:` line carries ids and
+  nothing else.
+
+Regex safety (round-3 repair)
+------------------------------
+Every regex in this module must run in time linear in the input: `PR_BODY`
+is attacker-controlled on a fork PR (see .github/workflows/evidence-ledger.yml)
+and the job carries no `timeout-minutes`, so a catastrophically backtracking
+pattern is a 6-hour runner pin and a permanently pending REQUIRED check. The
+first round-3 implementation shipped exactly that: a bracket-purity regex
+`^(?:\\s*[A-Za-z0-9]+(?:[-.][A-Za-z0-9]+)+)+\\s*$` whose optional `\\s*`
+separator inside an outer `+` made a run like `aa-aa-aa` splittable in
+exponentially many ways — a 204-character bracket of 12 real gap ids plus
+one stray word took >10 s, and a 437-byte PR body never finished. That regex
+is deleted, not patched: brackets no longer use the widened grammar at all.
+The patterns that remain are single-token or anchored-token scans with
+disjoint character classes (`[A-Za-z0-9]` vs `[-.]`), and the `Tasks:`-line
+scan consumes each character at most once, advancing past every token it has
+already inspected. `TestDetectionRuntimeIsBounded` pins this with real
+timings on the historical 12-ids-plus-stray bracket and on 100 KB bodies.
 
 Fail-closed contract
 ---------------------
@@ -127,7 +183,7 @@ from pathlib import Path
 
 # Task branches follow `t<phase>.<n>-slug`, e.g. `t0.1-truth-reset`, `t1.9-remove-ceiling-bypass`.
 # Deliberately NOT widened to the general id grammar below — see the module
-# docstring's "Branch-name detection" section (LEDGER-GATE-ID-PATTERN-INERT).
+# docstring's "Where each id family binds" section (LEDGER-GATE-ID-PATTERN-INERT).
 _BRANCH_TASK_RE = re.compile(r"^\s*(t\d+\.\d+)-", re.IGNORECASE)
 
 # General id-token grammar (LEDGER-GATE-ID-PATTERN-INERT): one or more
@@ -137,8 +193,8 @@ _BRANCH_TASK_RE = re.compile(r"^\s*(t\d+\.\d+)-", re.IGNORECASE)
 # `mzo-040`, `flip-path-review-gate` — while a bare single word never
 # qualifies (no separator to match), which is what keeps this from matching
 # the ledger's own header cell ("Task ID") or ordinary prose words. See the
-# module docstring for the full rationale and the 40-PR false-positive replay
-# that shaped it.
+# module docstring for the full rationale and the 200-PR false-positive
+# replay that shaped where it may be applied.
 _TASK_ID_PATTERN = r"[A-Za-z0-9]+(?:[-.][A-Za-z0-9]+)+"
 
 # PR-body detection binds ONLY on an explicit task-closure marker — never on a bare
@@ -149,38 +205,48 @@ _TASK_ID_PATTERN = r"[A-Za-z0-9]+(?:[-.][A-Za-z0-9]+)+"
 #     anchored to line-start so a sentence that merely *mentions* a task ID
 #     mid-line — e.g. "the porting is task T3.1, not yet done" or "suite de
 #     integração planejada — T3.1" (the exact PR #38 phrasing that previously
-#     false-positived a T3.1 ledger demand) — never binds. Everything after the
-#     colon, to end of line, is scanned for IDs, so "Task: T0.1 T0.2" binds both
-#     (and so does a second "Task:" mention later on the same line — see
+#     false-positived a T3.1 ledger demand) — never binds. The line's payload
+#     is consumed by `_ids_from_marker_payload` below: the LEADING RUN of
+#     id-shaped tokens binds, the run stops at the first non-id token, and
+#     scanning resumes only at the next "Task:"/"Tasks:" marker on the same
+#     line (so "Task: T0.1 T0.2" binds both, and so does a second "Task:"
+#     mention later on the same line — see
 #     TestExactIdCollisionBoundaries::test_body_mentions_of_both_ids_stay_distinct).
 _BODY_TASK_LINE_RE = re.compile(r"^[ \t]*Tasks?\s*:\s*(?P<ids>.+)$", re.IGNORECASE | re.MULTILINE)
 
 # (b) A "[...]" bracket marker anywhere in the body — the PR-title convention
 #     (e.g. "[T0.5]", "[T1.8][T1.9]", or a multi-ID bracket like
-#     "[T0.1 T0.2 T0.3]" as used in commit 579e8f9) carried into bodies. Every
-#     ID-shaped token found inside any bracket pair binds — a stricter
-#     single-ID-only reading would under-detect a convention already live in
-#     this repo's history, which is the wrong direction for a fail-closed gate.
-#     A bracket's payload must ALSO pass `_BRACKET_PURE_IDS_RE` (below) before
-#     any of its tokens bind — see the module docstring's PR #274 example.
+#     "[T0.1 T0.2 T0.3]" as used in commit 579e8f9) carried into bodies.
+#     Bracket payloads are scanned with the LEGACY narrow token regex only
+#     (`_LEGACY_TASK_ID_TOKEN_RE`), never with the widened grammar: see the
+#     module docstring's bracket paragraph and the 200-PR replay (6 PRs, 3 of
+#     them dependabot, went RED on brackets that are not task markers at all).
 _BODY_BRACKET_TASK_RE = re.compile(r"\[([^\[\]]*)\]")
 
-# Pulls every id-shaped token out of a marker's payload (the tail of a "Task:"
-# line, or a purity-gated "[...]" bracket) so a marker carrying more than one
-# ID (e.g. "Task: T0.1 T0.2") binds all of them, not just the first —
-# resolving that ambiguity by binding, never by silently dropping IDs.
-_TASK_ID_TOKEN_RE = re.compile(rf"\b({_TASK_ID_PATTERN})\b", re.IGNORECASE)
+# The pre-round-3 (main) token grammar, kept verbatim for bracket payloads so
+# bracket binding is byte-for-byte main's behaviour: "[T0.5 extra]" binds
+# T0.5, "[t2.6-eb3]" binds T2.6, "[langgraph-checkpoint]" binds nothing.
+_LEGACY_TASK_ID_TOKEN_RE = re.compile(r"\b(t\d+\.\d+)\b", re.IGNORECASE)
 
-# Gate for bracket payloads only (LEDGER-GATE-ID-PATTERN-INERT): the ENTIRE
-# trimmed bracket content must be nothing but whitespace-separated id tokens,
-# or the bracket binds nothing. Brackets are heavily reused in this repo's PR
-# bodies for things that are not task markers at all — the "[Claude Code]"
-# link text in every AI-authored PR footer, "[skip ci]"-style asides, prose
-# parentheticals like "[owner-review: ... + action-approvals.yaml]" — and the
-# general id grammar above is permissive enough that some of that prose is
-# itself id-shaped (a hyphenated or dotted compound word). `Tasks:` lines
-# don't need this same gate: see the comment on `_BODY_TASK_LINE_RE`.
-_BRACKET_PURE_IDS_RE = re.compile(rf"^(?:\s*{_TASK_ID_PATTERN})+\s*$", re.IGNORECASE)
+# One whole token of the widened grammar, anchored — used with `.match()` on
+# an already-split token (never scanned across a whole body), which is what
+# makes the "leading run" rule cheap and linear.
+_TASK_ID_FULL_RE = re.compile(rf"\A(?:{_TASK_ID_PATTERN})\Z", re.IGNORECASE)
+
+# A legacy `t<phase>.<n>-<slug>` token binds its `t<phase>.<n>` PREFIX (what
+# `\b(t\d+\.\d+)\b` did on main), so "Tasks: t2.8-lgpd-identity-failclosed"
+# keeps binding the short `t2.8` row it always bound. See the module docstring.
+_LEGACY_SLUG_PREFIX_RE = re.compile(r"\A(t\d+\.\d+)-", re.IGNORECASE)
+
+# Tokens inside a marker payload are separated by whitespace, "," or ";" —
+# this repo's real `Tasks:` lines write comma-separated lists (PRs #157/#159/
+# #165/#166: "Tasks: t2.6-eb3, t2.6-eb4, t3.3 — verified ledger rows …").
+_MARKER_TOKEN_RE = re.compile(r"[^\s,;]+")
+
+# Where a stopped leading run may resume: the next "Task:"/"Tasks:" marker on
+# the same line (the marker itself, not line-anchored — `_BODY_TASK_LINE_RE`
+# already established that this text is a marker line).
+_MARKER_RESUME_RE = re.compile(r"Tasks?[ \t]*:[ \t]*", re.IGNORECASE)
 
 # Ledger rows look like "| T0.5 | 2026-07-16 | ... |", but also
 # "| T0.5 (gate precision fix) | ..." and "| GAP-AF-02 | ... |" — the id is
@@ -192,8 +258,10 @@ _BRACKET_PURE_IDS_RE = re.compile(rf"^(?:\s*{_TASK_ID_PATTERN})+\s*$", re.IGNORE
 # words, not a single hyphenated/dotted token, and "---" has no alphanumerics
 # at all). The lookahead (whitespace or the next pipe), rather than requiring
 # an immediate closing pipe, is what lets this match the leading id in a cell
-# that also carries a parenthetical annotation.
-_LEDGER_ROW_RE = re.compile(rf"^[ \t]*\|\s*({_TASK_ID_PATTERN})(?=[ \t]|\|)", re.IGNORECASE | re.MULTILINE)
+# that also carries a parenthetical annotation. The inner gap is `[ \t]*`, not
+# `\s*`: `\s` matches newlines, so a lone "|" line could otherwise bind an id
+# from the FOLLOWING line.
+_LEDGER_ROW_RE = re.compile(rf"^[ \t]*\|[ \t]*({_TASK_ID_PATTERN})(?=[ \t]|\|)", re.IGNORECASE | re.MULTILINE)
 
 
 def _normalize_task_id(raw: str) -> str:
@@ -207,25 +275,72 @@ def detect_task_ids_from_branch(branch: str) -> set[str]:
     return {_normalize_task_id(match.group(1))} if match else set()
 
 
+def _marker_token_id(token: str) -> str | None:
+    """Return the task id a single marker-payload token binds, or None.
+
+    A token binds only if the WHOLE token is id-shaped (`_TASK_ID_FULL_RE`) —
+    `GAP-AF-02` binds, `(co-requisite` and `https://github.com/x/y` do not.
+    A legacy `t<phase>.<n>-<slug>` token binds its `t<phase>.<n>` prefix, the
+    one case where the bound id is not the literal token (see the module
+    docstring); every other token binds itself, uppercased.
+    """
+    if not _TASK_ID_FULL_RE.match(token):
+        return None
+    legacy_slug = _LEGACY_SLUG_PREFIX_RE.match(token)
+    if legacy_slug:
+        return _normalize_task_id(legacy_slug.group(1))
+    return _normalize_task_id(token)
+
+
+def _ids_from_marker_payload(payload: str) -> set[str]:
+    """Bind the LEADING RUN of id tokens after a `Task:`/`Tasks:` marker.
+
+    Tokens (whitespace/`,`/`;`-separated) are consumed left to right until the
+    first token that is not id-shaped; scanning then resumes only at the next
+    `Task:`/`Tasks:` marker in the remaining text. This is what makes
+    "Tasks: FAB-NOTIFIED-TRIO — corrige o gate" bind only the gap id while
+    "Task: T0.1 and also Task: T0.10" still binds both (the pinned
+    TestExactIdCollisionBoundaries case).
+
+    Linear by construction: every character is inspected at most once — the
+    token scan stops at the first non-id token, and the resume search starts
+    there and never rewinds (`payload` strictly shrinks each iteration).
+    """
+    ids: set[str] = set()
+    rest = payload
+    while rest:
+        stop_at: int | None = None
+        for token_match in _MARKER_TOKEN_RE.finditer(rest):
+            task_id = _marker_token_id(token_match.group(0))
+            if task_id is None:
+                stop_at = token_match.start()
+                break
+            ids.add(task_id)
+        if stop_at is None:
+            return ids
+        resume = _MARKER_RESUME_RE.search(rest, stop_at)
+        if resume is None:
+            return ids
+        rest = rest[resume.end() :]
+    return ids
+
+
 def detect_task_ids_from_body(pr_body: str) -> set[str]:
     """Detect task IDs bound by an explicit closure marker in a PR body.
 
-    Binds ONLY on (a) a "Task:"/"Tasks:" line or (b) a "[...]" bracket marker
-    whose ENTIRE payload is id tokens (see the module docstring and the
-    comments above these regexes). A bare prose mention of an id-shaped token
-    never binds on its own, and a bracket that mixes id-shaped tokens with
-    any other content (prose, markdown-link text, punctuation) binds nothing
-    at all — see `_BRACKET_PURE_IDS_RE`.
+    Binds ONLY on (a) a "Task:"/"Tasks:" line — the leading run of id tokens
+    after each marker, under the widened grammar — or (b) a "[...]" bracket
+    marker, under the LEGACY narrow `t<phase>.<n>` grammar only. A bare prose
+    mention of an id-shaped token never binds on its own, prose trailing a
+    `Tasks:` line's ids never binds, and a widened id inside a bracket
+    (`[GAP-AF-02]`) never binds — declare it on a `Tasks:` line instead. See
+    the module docstring's "Where each id family binds" table.
     """
     ids: set[str] = set()
     for line_match in _BODY_TASK_LINE_RE.finditer(pr_body):
-        tokens = _TASK_ID_TOKEN_RE.finditer(line_match.group("ids"))
-        ids.update(_normalize_task_id(m.group(1)) for m in tokens)
+        ids |= _ids_from_marker_payload(line_match.group("ids"))
     for bracket_match in _BODY_BRACKET_TASK_RE.finditer(pr_body):
-        payload = bracket_match.group(1)
-        if not _BRACKET_PURE_IDS_RE.match(payload):
-            continue
-        tokens = _TASK_ID_TOKEN_RE.finditer(payload)
+        tokens = _LEGACY_TASK_ID_TOKEN_RE.finditer(bracket_match.group(1))
         ids.update(_normalize_task_id(m.group(1)) for m in tokens)
     return ids
 

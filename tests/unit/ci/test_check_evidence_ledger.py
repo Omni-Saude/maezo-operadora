@@ -10,7 +10,11 @@ the core logic itself).
 
 from __future__ import annotations
 
+import contextlib
 import re
+import signal
+import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -783,12 +787,17 @@ class TestConflictMarkerGuard:
 # one of those via a `Tasks:`/`[...]` marker made the gate print "PASS: No
 # task ID detected" and exit 0 without ever consulting the ledger. These
 # tests lock in the widened grammar (`_TASK_ID_PATTERN`) at each binding
-# position it now covers, prove the pre-existing false-positive protections
-# (prose-never-binds, branch-rule-stays-narrow) survive the widening, prove
-# the NEW bracket-purity gate this widening required (a bracket's entire
-# payload must be pure id tokens or it binds nothing — see the module
-# docstring's PR #274 example), and assert 100% row-coverage of the real
-# ledger table.
+# position it is ALLOWED to cover, prove the pre-existing false-positive
+# protections (prose-never-binds, branch-rule-stays-narrow) survive the
+# widening, and assert 100% row-coverage of the real ledger table.
+#
+# The round-3 REPAIR (after a 200-PR replay measured 19 false-positive REDs
+# for the first implementation, 3 of them on unfixable dependabot bodies, and
+# a catastrophic-backtracking hang on attacker-controlled `PR_BODY`) narrowed
+# the POSITIONS rather than the grammar: `[...]` brackets are back to main's
+# exact `\b(t\d+\.\d+)\b` scan (TestBracketBindsLegacyIdsOnly), widened ids
+# bind only as the leading run of a `Tasks:` line (TestTasksLineLeadingRun),
+# and every regex reachable from `PR_BODY` is timed (TestDetectionRuntimeIsBounded).
 # ---------------------------------------------------------------------------
 
 
@@ -879,52 +888,92 @@ class TestWidenedGrammarProseStillNeverBinds:
         assert detect_task_ids_from_body("Task mzo-040 closes the ledger gap.") == set()
 
 
-class TestBracketPurityGate:
-    """New for LEDGER-GATE-ID-PATTERN-INERT: a `[...]` bracket binds ONLY when
-    its entire trimmed payload is nothing but id tokens. Proven necessary by
-    replaying the widened grammar over this repo's last 40 merged PRs (see
-    the round-3 report) — PR #274's real body contains
-    "[owner-review: `glosa_triage.dmn` + shadow + `action-approvals.yaml`]",
-    ordinary prose in brackets, which the naive widening would have bound as
-    OWNER-REVIEW / ACTION-APPROVALS.YAML and demanded nonexistent ledger rows
-    for.
+class TestBracketBindsLegacyIdsOnly:
+    """Round-3 repair (after the 200-PR replay): `[...]` brackets keep EXACTLY
+    the pre-widening (main `2e46145`) behaviour — their payload is scanned
+    with `\\b(t\\d+\\.\\d+)\\b` only. Widened ids are NOT bracket-bindable.
+
+    Why: brackets in this repo's PR bodies are overwhelmingly not task markers
+    (markdown link text, dependabot package/version asides, quoted regex
+    character classes, file names, prose asides), and 6 of the last 200 merged
+    PRs — 3 of them dependabot PRs, whose bodies nobody can edit — went RED
+    under a widened bracket rule. A "whole payload must be pure id tokens"
+    gate cannot see that class at all: a payload that IS one hyphenated token
+    is "pure" by construction. Declaring a widened id therefore requires a
+    `Tasks:` line.
     """
 
-    def test_pure_single_id_bracket_still_binds(self) -> None:
-        assert detect_task_ids_from_body("Closes [GAP-AF-02].") == {"GAP-AF-02"}
+    def test_legacy_bracket_still_binds(self) -> None:
+        assert detect_task_ids_from_body("Closes [T0.5].") == {"T0.5"}
 
-    def test_pure_multi_id_bracket_binds_all(self) -> None:
-        # The existing "[T0.1 T0.2 T0.3]" multi-ID convention (commit 579e8f9)
-        # must keep working, now alongside a non-t id in the same bracket.
-        assert detect_task_ids_from_body("[T0.5 GAP-AF-02]") == {"T0.5", "GAP-AF-02"}
+    def test_legacy_multi_id_bracket_binds_all(self) -> None:
+        # The "[T0.1 T0.2 T0.3]" multi-ID convention (commit 579e8f9).
+        assert detect_task_ids_from_body("[T0.1 T0.2 T0.3]") == {"T0.1", "T0.2", "T0.3"}
 
-    def test_two_adjacent_pure_brackets_both_bind(self) -> None:
-        assert detect_task_ids_from_body("[T1.8][mzo-040]") == {"T1.8", "MZO-040"}
+    def test_two_adjacent_legacy_brackets_both_bind(self) -> None:
+        assert detect_task_ids_from_body("[T1.8][T1.9]") == {"T1.8", "T1.9"}
+
+    def test_legacy_id_with_trailing_prose_in_bracket_still_binds(self) -> None:
+        # Main bound T0.5 here; the first round-3 implementation's purity gate
+        # silently NARROWED this to "binds nothing". The repair restores it.
+        assert detect_task_ids_from_body("[T0.5 extra]") == {"T0.5"}
+        assert detect_task_ids_from_body("[fix T0.5 now]") == {"T0.5"}
+
+    def test_markdown_link_text_with_legacy_id_still_binds(self) -> None:
+        # Same under main and after the repair — recorded so a future change
+        # to the bracket rule has to face this shape explicitly.
+        assert detect_task_ids_from_body("[T0.5](https://example.invalid/x)") == {"T0.5"}
+
+    def test_widened_id_in_bracket_binds_nothing(self) -> None:
+        assert detect_task_ids_from_body("Closes [GAP-AF-02].") == set()
+        assert detect_task_ids_from_body("[FAB-NOTIFIED-TRIO]") == set()
+        assert detect_task_ids_from_body("[mzo-040]") == set()
+
+    def test_dependabot_style_brackets_bind_nothing(self) -> None:
+        # Verbatim shapes from merged dependabot PRs #202/#192/#162/#115 —
+        # bodies nobody can edit, which a widened bracket rule turned RED.
+        assert detect_task_ids_from_body("Bumps [langgraph-checkpoint-postgres] from 2.0.2") == set()
+        assert detect_task_ids_from_body("updates [contracts.lock.json] as well") == set()
+        assert detect_task_ids_from_body("from [2.0.2] to [2.0.3]") == set()
+
+    def test_quoted_regex_character_class_bracket_binds_nothing(self) -> None:
+        # PRs #86/#87 quote regex character classes in their bodies.
+        assert detect_task_ids_from_body("the slug must match [a-z0-9] only") == set()
+        assert detect_task_ids_from_body("names like [medico-auditor] and [plantao-clinico]") == set()
 
     def test_pr_274_style_prose_bracket_binds_nothing(self) -> None:
         # Verbatim (trimmed) payload shape from PR #274's real body.
         body = "PR-4 CONTAS [owner-review: `glosa_triage.dmn` + shadow + `action-approvals.yaml`]"
         assert detect_task_ids_from_body(body) == set()
 
-    def test_markdown_link_text_bracket_binds_nothing(self) -> None:
-        # The "[Claude Code](https://claude.com/claude-code)" footer appears
-        # in nearly every AI-authored PR body in this repo's history — must
-        # never bind, even though this specific payload has no id-shaped
-        # token anyway (belt-and-braces: two plain words, no separator).
+    def test_claude_code_footer_bracket_binds_nothing(self) -> None:
+        # Appears in nearly every AI-authored PR body in this repo's history.
         assert detect_task_ids_from_body("[Claude Code](https://claude.com/claude-code)") == set()
-
-    def test_bracket_with_id_plus_trailing_prose_binds_nothing(self) -> None:
-        # A bracket must be PURE ids, not "starts with an id" — this is the
-        # asymmetry with `Tasks:` lines (which do scan past trailing prose),
-        # documented in the module docstring.
-        assert detect_task_ids_from_body("[T0.5 and also some prose]") == set()
 
     def test_empty_bracket_binds_nothing(self) -> None:
         assert detect_task_ids_from_body("[]") == set()
 
+    def test_end_to_end_dependabot_style_body_passes_without_ledger(self, tmp_path: Path) -> None:
+        # End-to-end proof: a dependabot body must not force a ledger read
+        # demanding LANGGRAPH-CHECKPOINT-POSTGRES / 2.0.3 rows that cannot exist.
+        missing_ledger = tmp_path / "does-not-exist.md"
+        body = (
+            "Bumps [langgraph-checkpoint-postgres](https://github.com/x/y) from [2.0.2] "
+            "to [2.0.3].\n\n[Claude Code](https://claude.com/claude-code)"
+        )
+        exit_code = main(
+            [
+                "--branch",
+                "dependabot/pip/langgraph-checkpoint-postgres-2.0.3",
+                "--pr-body",
+                body,
+                "--ledger-path",
+                str(missing_ledger),
+            ]
+        )
+        assert exit_code == 0
+
     def test_end_to_end_pr_274_style_body_passes_without_ledger(self, tmp_path: Path) -> None:
-        # End-to-end proof: the prose bracket must not force a ledger read
-        # demanding OWNER-REVIEW/ACTION-APPROVALS.YAML rows that don't exist.
         missing_ledger = tmp_path / "does-not-exist.md"
         body = (
             "PR-4 CONTAS [owner-review: `glosa_triage.dmn` + shadow + "
@@ -943,6 +992,201 @@ class TestBracketPurityGate:
         assert exit_code == 0
 
 
+class TestTasksLineLeadingRun:
+    """Round-3 repair: a `Task:`/`Tasks:` marker binds only the LEADING RUN of
+    id-shaped tokens after it, stopping at the first non-id token, and resumes
+    only at the next `Task:`/`Tasks:` marker on the same line.
+
+    Measured motivation: under the pre-repair whole-line scan, 6 of the last
+    200 merged PRs bound prose from their own `Tasks:` line (`PR-OPEN`,
+    `FAIL-CLOSED`, `6-WEEK-STALE`, `1.2.9`, `MUTATION-RED`, …) and went RED in
+    a REQUIRED check.
+    """
+
+    def test_prose_after_the_ids_does_not_bind(self) -> None:
+        body = "Tasks: FAB-NOTIFIED-TRIO — corrige o gate evidence-ledger.yml"
+        assert detect_task_ids_from_body(body) == {"FAB-NOTIFIED-TRIO"}
+
+    def test_pr_167_style_line_binds_only_the_declared_id(self) -> None:
+        # Verbatim shape of merged PR #167's `Tasks:` line, which bound
+        # PR-OPEN / R1-BUILT / R1-GATEKEPT / BASE-VS-FIX / … before the repair.
+        body = (
+            "Tasks: t6-hmac — verified ledger row granted at PR-open. R1-built + "
+            "independent R1-gatekept (base-vs-fix reversibility repro, fail-closed "
+            "attack matrix + mutation-RED)."
+        )
+        assert detect_task_ids_from_body(body) == {"T6-HMAC"}
+
+    def test_comma_separated_list_binds_every_leading_id(self) -> None:
+        # Verbatim shape of merged PRs #157/#159/#165/#166: this repo's real
+        # `Tasks:` convention writes comma-separated lists, so "," and ";" are
+        # token separators, not run-stoppers.
+        body = "Tasks: t4b-dispatch, t5-workers-f1, t5-l2 — verified ledger rows granted at PR-open."
+        assert detect_task_ids_from_body(body) == {"T4B-DISPATCH", "T5-WORKERS-F1", "T5-L2"}
+
+    def test_parenthetical_after_the_id_stops_the_run(self) -> None:
+        # Merged PR #104's line; `T1.10` there is a prose mention inside the
+        # parenthetical, which main bound and the leading-run rule does not.
+        body = "Tasks: T2.4 (co-requisite, per T1.10 ledger finding F1)"
+        assert detect_task_ids_from_body(body) == {"T2.4"}
+
+    def test_url_after_the_marker_binds_nothing(self) -> None:
+        body = "Tasks: https://github.com/Omni-Saude/maezo-operadora/pull/309"
+        assert detect_task_ids_from_body(body) == set()
+
+    def test_second_marker_on_the_same_line_still_binds(self) -> None:
+        # The deliberately pinned T0.5 behaviour (see
+        # TestExactIdCollisionBoundaries::test_body_mentions_of_both_ids_stay_distinct):
+        # the run resumes at the NEXT marker on the same line.
+        body = "Task: T0.1 and also Task: GAP-AF-02 in the same sweep."
+        assert detect_task_ids_from_body(body) == {"T0.1", "GAP-AF-02"}
+
+    def test_legacy_slug_token_binds_its_t_phase_prefix(self) -> None:
+        # Merged PRs #106–#113 declare `Task: t2.8-lgpd-identity-failclosed`
+        # while the ledger row is the short `t2.8` — main bound the prefix via
+        # `\\b(t\\d+\\.\\d+)\\b` and the repair keeps binding the prefix.
+        assert detect_task_ids_from_body("Task: t2.8-lgpd-identity-failclosed") == {"T2.8"}
+        assert detect_task_ids_from_body("Tasks: t2.6-juridico-package-reframe") == {"T2.6"}
+        assert detect_task_ids_from_body("Tasks: t2.6-7") == {"T2.6"}
+
+    def test_non_legacy_slug_binds_the_whole_token(self) -> None:
+        # Only the `t<phase>.<n>-` shape is prefix-reduced; every other id
+        # binds itself in full.
+        assert detect_task_ids_from_body("Tasks: t5-deploy-hygiene") == {"T5-DEPLOY-HYGIENE"}
+        assert detect_task_ids_from_body("Tasks: GAP-9.3-9.4") == {"GAP-9.3-9.4"}
+
+    def test_date_inside_the_leading_run_binds_documented_residual(self) -> None:
+        # An ISO date IS id-shaped under this grammar and no exclusion list is
+        # introduced for it (same "no hardcoded word list" reasoning as the
+        # `+` separator requirement). Inside the run it binds; any prose in
+        # between stops the run first. Documented in the module docstring and
+        # in docs/evidence-ledger.md's convention paragraph ("ids only").
+        assert detect_task_ids_from_body("Tasks: GAP-AF-02 2026-09-04") == {"GAP-AF-02", "2026-09-04"}
+        assert detect_task_ids_from_body("Tasks: GAP-AF-02 fechado em 2026-09-04") == {"GAP-AF-02"}
+
+    def test_marker_line_with_only_prose_binds_nothing(self) -> None:
+        assert detect_task_ids_from_body("Tasks: none — this PR is docs-only.") == set()
+
+    def test_end_to_end_prose_tail_does_not_demand_a_row(self, tmp_path: Path) -> None:
+        ledger = tmp_path / "evidence-ledger.md"
+        ledger.write_text(_ledger_with_rows("T6-HMAC"), encoding="utf-8")
+        body = "Tasks: t6-hmac — verified ledger row granted at PR-open. Fail-closed attack matrix."
+        exit_code = main(["--branch", "fix/unrelated", "--pr-body", body, "--ledger-path", str(ledger)])
+        assert exit_code == 0
+
+
+class TestDetectionRuntimeIsBounded:
+    """Round-3 repair: every regex reachable from `PR_BODY` must run in time
+    linear in the input.
+
+    `PR_BODY` is attacker-controlled on a fork PR (see the `env:` block of
+    .github/workflows/evidence-ledger.yml, whose own comment says so) and the
+    job declares no `timeout-minutes`, so a catastrophically backtracking
+    pattern pins a runner for GitHub's 6 h default and leaves a REQUIRED check
+    permanently pending. The first round-3 implementation shipped exactly that
+    in a bracket-purity regex (`^(?:\\s*<id>)+\\s*$`): a bracket holding four
+    real ledger ids plus one stray word did not finish in 10 s. These bounds
+    are deliberately generous (seconds, not milliseconds) so they measure
+    catastrophe, not CI jitter — the real timings are ~1e-4 s.
+    """
+
+    _BOUND_SECONDS = 2.0
+    _WATCHDOG_SECONDS = 8.0
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _watchdog(seconds: float) -> Iterator[None]:
+        """Turn a catastrophic-backtracking HANG into a test FAILURE.
+
+        Without a watchdog these tests would hang forever under a
+        re-introduced ReDoS instead of going red, which makes them useless as
+        mutation witnesses (`re` checks for pending signals while
+        backtracking, so SIGALRM does interrupt it). POSIX-only; where
+        `setitimer` is unavailable the elapsed-time assertion still applies,
+        the run simply has no upper watchdog.
+        """
+        if not hasattr(signal, "setitimer"):
+            yield
+            return
+
+        def _fire(signum: int, frame: object) -> None:
+            raise TimeoutError(f"detection did not finish within {seconds}s (backtracking?)")
+
+        previous = signal.signal(signal.SIGALRM, _fire)
+        signal.setitimer(signal.ITIMER_REAL, seconds)
+        try:
+            yield
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous)
+
+    def _timed(self, body: str) -> float:
+        start = time.perf_counter()
+        with self._watchdog(self._WATCHDOG_SECONDS):
+            detect_task_ids_from_body(body)
+        return time.perf_counter() - start
+
+    def test_bracket_of_real_ledger_ids_plus_stray_token_is_fast(self) -> None:
+        # The exact shape that hung: real first-column ids of this repo's
+        # ledger, in one bracket, with a single non-id word appended.
+        real_ids = [
+            "GAP-PERSP-DMN-DEAD-INPUTS",
+            "PERSPECTIVE-FENCE-XML-COMMENT-ASYMMETRY",
+            "ADR-0040-AMENDMENT-NOTES-RELOCATION",
+            "SEC-GITLEAKS-HISTORY-ALLOWLIST",
+            "onda4-anchor-chaining-telemetry-citations",
+            "wave1-q6-spec-dir-fail-closed",
+            "dmn-shadow-ratification-digest-binding",
+            "envelope-card-signature-container-guards",
+            "onda0-xfail-census-branch-protection",
+            "GAP-COMPOSICAO-V2-S1",
+            "PERSP-C5-ORPHANS-MECHANISM",
+            "LEDGER-HASH-RECOMPUTE-CHECK",
+        ]
+        body = "[" + " ".join(real_ids) + " e]"
+        elapsed = self._timed(body)
+        assert elapsed < self._BOUND_SECONDS, f"{elapsed:.3f}s for a {len(body)}-char bracket"
+
+    def test_hyphen_run_bracket_is_fast(self) -> None:
+        # The minimal generator of the catastrophe: one long hyphen run whose
+        # final character cannot match, inside a bracket.
+        body = "[" + ("aa-" * 40) + "aa!]"
+        elapsed = self._timed(body)
+        assert elapsed < self._BOUND_SECONDS, f"{elapsed:.3f}s for a {len(body)}-char bracket"
+
+    def test_100kb_body_of_hyphenated_words_is_fast(self) -> None:
+        body = ("aa-bb-cc " * 12_500)[:100_000]
+        elapsed = self._timed(body)
+        assert elapsed < self._BOUND_SECONDS, f"{elapsed:.3f}s for a {len(body)}-char body"
+
+    def test_100kb_tasks_line_is_fast(self) -> None:
+        body = "Tasks: " + ("aa-bb-cc " * 12_500)[:99_993]
+        elapsed = self._timed(body)
+        assert elapsed < self._BOUND_SECONDS, f"{elapsed:.3f}s for a {len(body)}-char Tasks: line"
+
+    def test_100kb_of_repeated_markers_is_fast(self) -> None:
+        # Worst case for the "resume at the next marker" loop: nothing but
+        # markers, so every iteration must find the next one.
+        body = "Tasks: " + ("Tasks: " * 14_000)
+        elapsed = self._timed(body)
+        assert elapsed < self._BOUND_SECONDS, f"{elapsed:.3f}s for a {len(body)}-char marker storm"
+
+    def test_100kb_unbroken_hyphen_run_on_a_tasks_line_is_fast(self) -> None:
+        body = "Tasks: " + ("ab-" * 33_331) + "!"
+        elapsed = self._timed(body)
+        assert elapsed < self._BOUND_SECONDS, f"{elapsed:.3f}s for a {len(body)}-char token"
+
+    def test_ledger_scan_of_a_hostile_table_is_fast(self) -> None:
+        # `_LEDGER_ROW_RE` runs over repository content, not PR input, but a
+        # PR can add rows — keep it measured too.
+        ledger_text = LEDGER_HEADER + ("| " + ("aa-" * 60) + "aa! | x | x |\n") * 500
+        start = time.perf_counter()
+        with self._watchdog(self._WATCHDOG_SECONDS):
+            extract_ledger_task_ids(ledger_text)
+        elapsed = time.perf_counter() - start
+        assert elapsed < self._BOUND_SECONDS, f"{elapsed:.3f}s for a {len(ledger_text)}-char ledger"
+
+
 class TestWidenedGrammarBoundButMissingStillFails:
     """The core fail-closed contract must hold for every newly-reachable id
     shape, not just T<phase>.<n>: a bound id with no ledger row still FAILS."""
@@ -956,10 +1200,13 @@ class TestWidenedGrammarBoundButMissingStillFails:
         assert exit_code == 1
 
     def test_kebab_id_bound_without_row_fails(self, tmp_path: Path) -> None:
+        # Declared on a `Tasks:` line — after the round-3 repair that is the
+        # ONLY position a non-`t<phase>.<n>` id binds from (a `[mzo-041]`
+        # bracket binds nothing at all; see TestBracketBindsLegacyIdsOnly).
         ledger = tmp_path / "evidence-ledger.md"
         ledger.write_text(_ledger_with_rows("T0.1"), encoding="utf-8")
         exit_code = main(
-            ["--branch", "fix/unrelated", "--pr-body", "[mzo-041]", "--ledger-path", str(ledger)]
+            ["--branch", "fix/unrelated", "--pr-body", "Tasks: mzo-041", "--ledger-path", str(ledger)]
         )
         assert exit_code == 1
 
@@ -1040,7 +1287,11 @@ class TestRealLedgerRowCoverage:
 
         assert matched_row_count == data_row_count, (
             f"_LEDGER_ROW_RE matched {matched_row_count} of {data_row_count} real ledger data rows "
-            "— every data row must be matchable (LEDGER-GATE-ID-PATTERN-INERT acceptance bar)."
+            "— every data row must be matchable (LEDGER-GATE-ID-PATTERN-INERT acceptance bar). "
+            "If a NEW row broke this, RENAME that row's id so it is a single token with at least "
+            "one '-'/'.' separator (e.g. 'shadow' -> 'shadow-gate'); do NOT loosen "
+            "`_TASK_ID_PATTERN` — dropping the separator requirement makes every bare prose word "
+            "id-shaped and re-opens the PR #38 false-positive hole this gate exists to close."
         )
 
 
@@ -1055,31 +1306,67 @@ def _row_re_matches(ledger_text: str) -> list[str]:
     return [m.group(1) for m in _LEDGER_ROW_RE.finditer(ledger_text)]
 
 
-class TestMutationGrammarReverted:
-    """Documents the mutation this task requires: reverting `_TASK_ID_PATTERN`
-    to the old `t\\d+\\.\\d+`-only shape must turn specific tests RED. This
-    test class itself doesn't perform the mutation (that's a manual gate-
-    proof step, recorded in the PR/report) — it names, in one place, exactly
-    which tests are the mutation witnesses, so a reviewer can run them
-    against a reverted pattern and confirm the failure.
+class TestMutationWitnesses:
+    """Names, in one place, the mutations this task's fix must be pinned by and
+    the tests that go RED under each — so a reviewer can re-run them without
+    re-deriving the mapping. The mutations themselves are a manual gate-proof
+    step (performed and reverted in the round-3 repair session; numbers below
+    are the measured ones, with `PYTHONDONTWRITEBYTECODE=1` and purged
+    `__pycache__`, running `pytest tests/unit/ci/test_check_evidence_ledger.py`
+    = 132 tests).
 
-    Mutation witnesses (RED when `_TASK_ID_PATTERN` reverts to `t\\d+\\.\\d+`):
-      - TestWidenedGrammarLedgerRows::test_bare_numeric_phase_dot_n_row
-      - TestWidenedGrammarLedgerRows::test_gap_hyphenated_row
-      - TestWidenedGrammarLedgerRows::test_kebab_slug_row_no_digits
-      - TestWidenedGrammarTasksLine::test_gap_id_on_task_line
-      - TestBracketPurityGate::test_pure_single_id_bracket_still_binds
-      - TestRealLedgerRowCoverage::test_all_real_ledger_data_rows_match
-        (269 -> 107 matched data rows; hard assertion failure)
+    M1 — revert `_TASK_ID_PATTERN` to the pre-fix `t\\d+\\.\\d+`:
+        19 RED, including
+          - TestWidenedGrammarLedgerRows::test_bare_numeric_phase_dot_n_row
+          - TestWidenedGrammarLedgerRows::test_gap_hyphenated_row
+          - TestWidenedGrammarLedgerRows::test_kebab_slug_row_no_digits
+          - TestWidenedGrammarTasksLine::test_gap_id_on_task_line
+          - TestRealLedgerRowCoverage::test_all_real_ledger_data_rows_match
+            (116 matched of 270 real data rows; hard assertion failure)
+
+    M2 — restore the widened bracket binding (scan bracket payloads with the
+    widened grammar instead of `_LEGACY_TASK_ID_TOKEN_RE`), i.e. re-introduce
+    the false-positive class the 200-PR replay measured:
+        6 RED, including
+          - TestBracketBindsLegacyIdsOnly::test_widened_id_in_bracket_binds_nothing
+          - TestBracketBindsLegacyIdsOnly::test_dependabot_style_brackets_bind_nothing
+          - TestBracketBindsLegacyIdsOnly::test_quoted_regex_character_class_bracket_binds_nothing
+          - TestBracketBindsLegacyIdsOnly::test_end_to_end_dependabot_style_body_passes_without_ledger
+
+    M3 — restore the deleted bracket-purity regex `^(?:\\s*<id>)+\\s*$` (the
+    catastrophic-backtracking one) in front of a widened bracket scan:
+        7 (the two runtime witnesses time out on an 8 s watchdog rather than
+        completing — without that watchdog they would hang, not fail) RED, including
+          - TestDetectionRuntimeIsBounded::test_bracket_of_real_ledger_ids_plus_stray_token_is_fast
+          - TestDetectionRuntimeIsBounded::test_hyphen_run_bracket_is_fast
+          - TestBracketBindsLegacyIdsOnly::test_legacy_id_with_trailing_prose_in_bracket_still_binds
+            (the narrowing the purity gate silently introduced vs `main`)
+
+    M4 — restore the pre-repair whole-line `Tasks:` consumption (scan the
+    marker's entire remainder for id-shaped tokens):
+        9 RED, including
+          - TestTasksLineLeadingRun::test_prose_after_the_ids_does_not_bind
+          - TestTasksLineLeadingRun::test_pr_167_style_line_binds_only_the_declared_id
+          - TestTasksLineLeadingRun::test_parenthetical_after_the_id_stops_the_run
+          - TestTasksLineLeadingRun::test_end_to_end_prose_tail_does_not_demand_a_row
     """
 
-    def test_witness_list_is_non_empty_and_documented(self) -> None:
-        # Trivial self-check that this documentation block exists and the
-        # witness tests it names are real, collectible tests (guards against
-        # the docstring silently drifting from the actual test names).
+    def test_witness_tests_named_above_exist(self) -> None:
+        # Guards against the docstring silently drifting from the real test
+        # names (a stale mutation map is worse than none).
         assert TestWidenedGrammarLedgerRows.test_bare_numeric_phase_dot_n_row
         assert TestWidenedGrammarLedgerRows.test_gap_hyphenated_row
         assert TestWidenedGrammarLedgerRows.test_kebab_slug_row_no_digits
         assert TestWidenedGrammarTasksLine.test_gap_id_on_task_line
-        assert TestBracketPurityGate.test_pure_single_id_bracket_still_binds
         assert TestRealLedgerRowCoverage.test_all_real_ledger_data_rows_match
+        assert TestBracketBindsLegacyIdsOnly.test_widened_id_in_bracket_binds_nothing
+        assert TestBracketBindsLegacyIdsOnly.test_dependabot_style_brackets_bind_nothing
+        assert TestBracketBindsLegacyIdsOnly.test_quoted_regex_character_class_bracket_binds_nothing
+        assert TestBracketBindsLegacyIdsOnly.test_end_to_end_dependabot_style_body_passes_without_ledger
+        assert TestBracketBindsLegacyIdsOnly.test_legacy_id_with_trailing_prose_in_bracket_still_binds
+        assert TestDetectionRuntimeIsBounded.test_bracket_of_real_ledger_ids_plus_stray_token_is_fast
+        assert TestDetectionRuntimeIsBounded.test_hyphen_run_bracket_is_fast
+        assert TestTasksLineLeadingRun.test_prose_after_the_ids_does_not_bind
+        assert TestTasksLineLeadingRun.test_pr_167_style_line_binds_only_the_declared_id
+        assert TestTasksLineLeadingRun.test_parenthetical_after_the_id_stops_the_run
+        assert TestTasksLineLeadingRun.test_end_to_end_prose_tail_does_not_demand_a_row
