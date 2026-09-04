@@ -111,6 +111,18 @@ Field notes:
 - `dmn_fixture`: `{decision_key: row_or_rows}` registered onto a `FakeDmnTransport` via
   `register_dmn_fixture` — a bare dict is treated as a single row (wrapped in `[row]`); a list is
   used as-is (multiple candidate rows, first hit policy).
+  A value carrying `__rules__` is a **conditional fixture** (first-hit rules, `when`/`then`),
+  registered onto the `RuleAwareFakeDmnTransport` that `run_case` builds. Use it whenever the
+  question the eval asks is *"can this table say that, given what the graph actually sends it?"*
+  — a static row answers only *"does the graph relay whatever the fixture says?"*, which is
+  vacuous for a routing assertion. `EVL-RAFAEL-02`/`-03` are the worked example: their
+  `auth_auto_approval` fixture mirrors rule r1 of the real v0.2.0 table (AUTO_APROVAR only when
+  all five booleans arrive `true`, catch-all `ANALISE_HUMANA`), which is what makes them prove
+  Rafael's `auto_approve` route is unreachable from every typed seam instead of faking it
+  reachable. A `when` matches on `==` per key; a missing input key does NOT match; no rule
+  matching and no catch-all is a loud `AssertionError` (fixture bug), never a silent fail-safe.
+  A conditional fixture handed to a plain `FakeDmnTransport` raises `TypeError` — a Tier-B live
+  variant that builds its own transport must build a `RuleAwareFakeDmnTransport`.
 - `expect`: `next_kind` (RT) and/or `fields` (SF), checked by `assert_expect`.
 - `leak_canaries`: synthetic strings (e.g. a synthetic CPF `123.456.789-09`, NEVER a real one)
   that must be absent from the emitted output (`assert_no_leak`, ABS). Empty list = no PL
