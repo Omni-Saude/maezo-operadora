@@ -21,6 +21,29 @@ than silently run stateless) lives at the webhook composition seam, not here —
 is injected (unit tests, or a build that deliberately runs stateless) the graph still compiles
 stateless — every turn then starts fresh, exactly as the pre-T4b behavior.
 
+NON-TEXT INBOUND IS ACKNOWLEDGED, NOT DROPPED (gap `WHATSAPP-NON-TEXT-DROPPED`). Until this
+change, every inbound whose `type != "text"` (audio/image/document/location/...) was discarded
+inside `extract_inbound_messages` with a single INFO line, and `app.py` then acked Meta with
+`{"dispatched": 0}` — so a beneficiary who sent a voice note or a photo of an exam got NOTHING
+back: no reply, no fallback, no human. Non-text messages are now FIRST-CLASS and TYPED
+(`InboundNonTextMessage`, a sibling of `InboundMessage`), and `HelenaDispatcher.acknowledge_non_text`
+sends exactly ONE fixed pt-BR reply through the SAME gated per-turn seam a Helena turn uses
+(`_ScopedWhatsAppSender` + `gate_whatsapp`). No graph turn, no LLM call, no process start, no
+checkpoint write — the ack is a canned string, and nothing about it is inferred from the media.
+
+WHAT THE ACK DOES NOT PROMISE (honesty rule). The text says only what this code does: that the
+channel accepts text. It does NOT promise a human follow-up, Libras, transcription or a callback,
+because none of those is wired here — the richer fallback (owner decision 10.2) and the
+single-channel question (owner decision 9.6) are OPEN owner decisions, not something this module
+may imply. A reply that promised a human while starting no escalation would be exactly the
+fabricated-fact pattern this repo's gates exist to prevent.
+
+NO wamid DEDUP (disclosed limitation, `WEBHOOK-WAMID-DEDUP`, owner-gated). Meta retries a webhook
+that did not answer 2xx, and this build has no idempotency store keyed by `wamid`
+(`docs/runbooks/whatsapp-webhook.md` §3 describes one that does not exist). A retried delivery of
+the same non-text message therefore re-sends the ack. That is a duplicate courtesy message, never
+a duplicate adverse effect: the ack starts no process and writes no state.
+
 PHI custody note: no persistent, reversible phone-number vault exists in v2 (ADR-0006 general-
 zone pseudonymization is one-way, `gateway/pseudonymizer.py`). Helena's own graph state NEVER
 carries a raw phone number — only a `wa:{tenant}:hk1_{phone_hash}` conversation id, where
@@ -37,7 +60,7 @@ into `HelenaState`, never logged, and never persisted past this one dispatch cal
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
 
 import structlog
 
@@ -56,6 +79,20 @@ from .security import hash_phone
 logger = structlog.get_logger(__name__)
 
 
+#: The ONE fixed pt-BR reply a non-text inbound gets. Deliberately a module-level constant, not an
+#: f-string assembled per message: nothing about the media (type, caption, filename, media id) may
+#: leak into the body, and the text must be reviewable as a single, stable sentence pair.
+#:
+#: HONESTY (module docstring): it promises ONLY what `acknowledge_non_text` does — tell the
+#: beneficiary this channel accepts text. No human, no transcription, no Libras, no callback:
+#: those are owner decisions 9.6/10.2, and none of them is wired. If a human follow-up is ever
+#: wired through Helena's audited escalation start, this string changes IN THE SAME commit as the
+#: wiring and its tests, never before.
+NON_TEXT_ACK_TEXT: Final[str] = (
+    "Este canal aceita apenas mensagens de texto. Por favor, envie sua mensagem em texto."
+)
+
+
 @dataclass(frozen=True, slots=True)
 class InboundMessage:
     """One inbound WhatsApp TEXT message, extracted from the Cloud API webhook envelope."""
@@ -65,34 +102,80 @@ class InboundMessage:
     message_id: str
 
 
-def extract_inbound_messages(payload: Any) -> list[InboundMessage]:
-    """Parse the WhatsApp Cloud API webhook envelope for inbound TEXT messages.
+@dataclass(frozen=True, slots=True)
+class InboundNonTextMessage:
+    """One inbound WhatsApp NON-TEXT message (audio/image/document/location/sticker/...).
 
-    Non-text messages (image/audio/location/...) and non-message change events (delivery-status
-    callbacks, `value.statuses`) are skipped, logged, NEVER fabricated into a fake text turn.
-    Malformed/unexpected shapes yield an empty list rather than raising — the caller acks 200
-    regardless (a benign webhook shape drift this build doesn't parse yet should not make Meta
+    A SIBLING type rather than a `kind` flag on :class:`InboundMessage`, on purpose: there is no
+    `text` to carry, and the split makes it a TYPE ERROR — not a runtime surprise — to feed a voice
+    note into `HelenaDispatcher.dispatch`, which would run a Helena turn over an empty body.
+    `app.py` must branch, and mypy enforces that it does.
+
+    Carries NOTHING from the media itself: no media id, no caption, no filename, no mime type. Only
+    `message_type` (Meta's own low-cardinality enum token, used for logs — never as a metric label)
+    and the wamid, plus the raw number that the per-turn sender closure needs and that never
+    outlives :meth:`HelenaDispatcher.acknowledge_non_text`.
+    """
+
+    from_number: str
+    message_type: str
+    message_id: str
+
+
+#: What `extract_inbound_messages` yields: a real message of either shape. Delivery-status
+#: callbacks and malformed entries are NOT members — they are not messages, and they are skipped.
+InboundEvent = InboundMessage | InboundNonTextMessage
+
+
+def extract_inbound_messages(payload: Any) -> list[InboundEvent]:
+    """Parse the WhatsApp Cloud API webhook envelope for inbound messages of BOTH shapes.
+
+    A `type == "text"` message becomes an :class:`InboundMessage` — byte-for-byte the same
+    extraction as before. Any OTHER message type becomes an :class:`InboundNonTextMessage` so the
+    caller can acknowledge it (gap `WHATSAPP-NON-TEXT-DROPPED`: this function used to drop them
+    with one INFO line, which is why a beneficiary's voice note got no answer at all). Nothing is
+    ever fabricated into a fake text turn: the non-text branch carries no body and no media.
+
+    STILL SKIPPED, because they are not messages: non-message change events (delivery-status
+    callbacks, `value.statuses` — they never reach the `messages` loop) and malformed entries (a
+    message with no `from`, a message with no usable `type` token, a text message with an empty
+    body). Malformed/unexpected shapes yield an empty list rather than raising — the caller acks
+    200 regardless (a benign webhook shape drift this build doesn't parse yet should not make Meta
     hammer the endpoint with retries).
     """
     if not isinstance(payload, dict):
         return []
-    out: list[InboundMessage] = []
+    out: list[InboundEvent] = []
     try:
         for entry in payload.get("entry", []) or []:
             for change in entry.get("changes", []) or []:
                 value = change.get("value", {}) or {}
                 for msg in value.get("messages", []) or []:
-                    if msg.get("type") != "text":
-                        logger.info("whatsapp_inbound_message_skipped", message_type=msg.get("type"))
+                    message_type = msg.get("type")
+                    from_number = msg.get("from", "")
+                    # A non-`str` / empty `type` is a shape this build cannot classify at all: it
+                    # is neither a text turn nor a media kind worth naming back to the sender.
+                    # Fail closed by skipping (and say so), rather than coercing it into a token
+                    # that then travels into log lines.
+                    if not from_number or not isinstance(message_type, str) or not message_type:
+                        logger.info("whatsapp_inbound_message_skipped", reason="malformed_message")
+                        continue
+                    message_id = str(msg.get("id", ""))
+                    if message_type != "text":
+                        out.append(
+                            InboundNonTextMessage(
+                                from_number=str(from_number),
+                                message_type=message_type,
+                                message_id=message_id,
+                            )
+                        )
                         continue
                     text = (msg.get("text") or {}).get("body", "")
-                    from_number = msg.get("from", "")
-                    if not from_number or not text:
+                    if not text:
+                        logger.info("whatsapp_inbound_message_skipped", reason="empty_text_body")
                         continue
                     out.append(
-                        InboundMessage(
-                            from_number=str(from_number), text=str(text), message_id=str(msg.get("id", ""))
-                        )
+                        InboundMessage(from_number=str(from_number), text=str(text), message_id=message_id)
                     )
     except (AttributeError, TypeError) as exc:
         logger.warning("whatsapp_inbound_payload_unparseable", error=str(exc))
@@ -158,6 +241,90 @@ class HelenaDispatcher:
     # affordance, never a silent ungated live path.
     seam_context: SeamContext | None = None
 
+    def _gated_scoped_sender(self, *, raw_to: str, phone_hash: str, conversation_id: str) -> WhatsAppSender:
+        """Build THE per-turn outbound seam: a scoped sender, wrapped by the effect gate.
+
+        ONDA 1 §5.5 / O4: the wrapper's INNER is the scoped sender, so the raw number stays exactly
+        where it already was — inside `_ScopedWhatsAppSender`, for exactly this turn — and the gate
+        itself never sees it (`EffectCall` has no field for a recipient, I-3). Cost: one allocation
+        over the `SeamContext` frozen at bring-up.
+
+        ONE helper for BOTH outbound paths (a Helena turn and the non-text acknowledgement) so the
+        acknowledgement cannot grow a second, ungated way out silently: a duplicated, ungated
+        build of `_ScopedWhatsAppSender` inside `acknowledge_non_text` is caught ONLY by
+        `tests/unit/platform/webhooks/whatsapp/test_dispatch.py
+        ::test_acknowledge_non_text_goes_through_the_effect_gate` and
+        `::test_acknowledge_non_text_without_a_seam_context_announces_it_loudly`. It is NOT caught
+        by `make effect-chokepoint-fence` (its §8.1 fenced-name list does not include
+        `_ScopedWhatsAppSender`, an in-module class) nor by
+        `tests/unit/gateway/seams/test_live_dispatch_wiring.py` (it only ever calls
+        `HelenaDispatcher.dispatch`, never `acknowledge_non_text`) — both stay green on that
+        mutant. The effect-chokepoint fence does NOT cover this seam; the two tests above are the
+        only guard.
+        """
+        sender: WhatsAppSender = _ScopedWhatsAppSender(
+            raw_to=raw_to, expected_hash=phone_hash, client=self.whatsapp_client
+        )
+        if self.seam_context is not None:
+            return gate_whatsapp(sender, self.seam_context)
+        # Test-only affordance (see the field's comment). Announced, never silent.
+        logger.error(
+            "helena_dispatch_whatsapp_seam_ungated",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            detail="no SeamContext on the dispatcher — the WhatsApp seam is NOT choked for "
+            "this turn. The production composition root always supplies one; reaching this "
+            "branch in a deployed receiver is a wiring defect.",
+        )
+        return sender
+
+    async def acknowledge_non_text(self, message: InboundNonTextMessage) -> dict[str, Any]:
+        """Send the ONE fixed pt-BR reply for a non-text inbound (`WHATSAPP-NON-TEXT-DROPPED`).
+
+        Deliberately NOT a Helena turn: no graph build, no LLM call, no DMN evaluation, no
+        `start_process_idempotent`, no checkpoint write. A voice note carries no text to classify,
+        so running the triage graph over an empty body would be inventing an utterance the
+        beneficiary never made. What the beneficiary gets is a canned, reviewable sentence pair
+        (:data:`NON_TEXT_ACK_TEXT`) telling them the channel takes text — nothing more, because
+        nothing more is wired (owner decisions 9.6/10.2 stay OPEN).
+
+        Same identity derivation and the SAME gated per-turn seam as `dispatch` — the ack is an
+        EFFECT (`whatsapp.send_message`, action class `comunicacao_beneficiario`) and is choked
+        exactly like a Helena reply. The raw number lives only inside the scoped sender's closure,
+        for this call; the telemetry carries the keyed `hk1_` pseudonym, the wamid and Meta's
+        `message_type` token, and NEVER the media id, caption, filename or the raw number.
+
+        RETRY SEMANTICS (disclosed, module docstring): with no `wamid` idempotency store, a webhook
+        that Meta re-delivers re-sends this ack. Duplicate courtesy message, never a duplicate
+        adverse effect. Dedup (`WEBHOOK-WAMID-DEDUP`) is owner-gated and NOT implemented here.
+
+        Raises:
+            Exception: whatever the seam or the Cloud API client raises (a denied effect, an
+                unconfigured `WHATSAPP_PHONE_NUMBER_ID`, an HTTP error). `app.py` counts it as a
+                failed message and never lets it escape the webhook.
+        """
+        phone_hash = hash_phone(message.from_number, self.tenant_id, self.pseudonymizer)
+        conversation_id = f"wa:{self.tenant_id}:{phone_hash}"
+        sender = self._gated_scoped_sender(
+            raw_to=message.from_number, phone_hash=phone_hash, conversation_id=conversation_id
+        )
+        logger.info(
+            "whatsapp_non_text_ack_started",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            message_id=message.message_id,
+            message_type=message.message_type,
+        )
+        ack = await sender.send(phone_hash, NON_TEXT_ACK_TEXT)
+        logger.info(
+            "whatsapp_non_text_ack_sent",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            message_id=message.message_id,
+            message_type=message.message_type,
+        )
+        return ack
+
     async def dispatch(self, message: InboundMessage) -> dict[str, Any]:
         """Run ONE complete Helena turn (receive..respond) for `message`.
 
@@ -175,25 +342,9 @@ class HelenaDispatcher:
         conversation_id = f"wa:{self.tenant_id}:{phone_hash}"
         beneficiario_pseudo_id = self.pseudonymizer.pseudonymize({"telefone": phone_hash})["telefone"]
 
-        sender: WhatsAppSender = _ScopedWhatsAppSender(
-            raw_to=message.from_number, expected_hash=phone_hash, client=self.whatsapp_client
+        sender = self._gated_scoped_sender(
+            raw_to=message.from_number, phone_hash=phone_hash, conversation_id=conversation_id
         )
-        # ONDA 1 §5.5 / O4: gate the per-turn sender. The wrapper's INNER is the scoped sender, so
-        # the raw number stays exactly where it already was — inside `_ScopedWhatsAppSender`, for
-        # exactly this turn — and the gate itself never sees it (`EffectCall` has no field for a
-        # recipient, I-3). Cost: one allocation over the `SeamContext` frozen at bring-up.
-        if self.seam_context is not None:
-            sender = gate_whatsapp(sender, self.seam_context)
-        else:
-            # Test-only affordance (see the field's comment). Announced, never silent.
-            logger.error(
-                "helena_dispatch_whatsapp_seam_ungated",
-                tenant_id=self.tenant_id,
-                conversation_id=conversation_id,
-                detail="no SeamContext on the dispatcher — the WhatsApp seam is NOT choked for "
-                "this turn. The production composition root always supplies one; reaching this "
-                "branch in a deployed receiver is a wiring defect.",
-            )
         graph = build(
             {
                 "inference": self.inference,
