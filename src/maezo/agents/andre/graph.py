@@ -177,7 +177,9 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
 from __future__ import annotations
 
 import math
+import numbers
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
@@ -1342,24 +1344,51 @@ class AndreGraph:
 
 
 def _metric_value_is_admissible(value: Any) -> bool:
-    """True only for a FINITE real number — the one shape an aggregated cell may carry.
+    """True only for a FINITE REAL NUMBER — the one shape an aggregated cell may carry.
 
     `CohortAggregate.metrics` is typed `dict[str, float]`, but the producer is an INJECTED,
     runtime-untyped seam (`PopulationFeatureClient`, port-pending WB.4 `mcp-datalake`), so the
-    annotation is a promise, not a check. Anything else is refused:
+    annotation is a promise, not a check.
+
+    ADMITTED TYPES — the real-number family as the lake actually emits it, not just the two
+    builtins (AND-02 §Delta; the first cut admitted only `int`/`float` and would have failed
+    SHUT, blocking every well-formed aggregate the lake sends):
+      - `int` — a count is a legitimate aggregate and is compatible with the declared `float`;
+      - `float`;
+      - `decimal.Decimal` — what `asyncpg` decodes EVERY `NUMERIC`/`DECIMAL` column into, i.e.
+        the normal shape of a monetary/actuarial aggregate. It is a `numbers.Number` but is NOT
+        registered in `numbers.Real`, so the ABC arm below does not cover it and it has to be
+        named;
+      - any registered `numbers.Real` — covers `numpy.int64`/`numpy.float64` (a numpy-backed
+        aggregation layer is the other realistic producer; `numpy` is present at runtime as a
+        transitive dependency of `pgvector`) without this module importing or depending on numpy.
+
+    REFUSED, through that wider door:
       - `str` / `dict` / `list` / `None` — free text or a structure, either of which can carry an
         individual's data (the annotation says it cannot; the gate does not take its word);
       - `bool` — an `int` subclass, so it would sneak past a bare `isinstance(v, (int, float))`,
-        and a boolean is not an aggregate;
-      - `NaN` / `+-inf` — not a real measurement; they poison every downstream comparison and are
-        the classic marker of a broken aggregation, which is not a source to trust for the other
-        cells either.
-    An `int` IS admissible: a count is a legitimate aggregate and `int` is compatible with the
-    declared `float`.
+        and a boolean is not a measurement. `numpy.bool_` is refused too: it is neither a `bool`
+        nor a `numbers.Real`, so it never reaches the finiteness check;
+      - `complex` — a `numbers.Complex`, not a `numbers.Real`;
+      - `NaN` / `+-inf` IN ANY ADMITTED TYPE — not a real measurement; they poison every
+        downstream comparison and are the classic marker of a broken aggregation, which is not a
+        source to trust for the other cells either. `math.isfinite` handles `Decimal` and any
+        `numbers.Real` by converting through `float`, so one check covers the whole family;
+      - a value whose float conversion RAISES rather than returning a non-finite float
+        (`Decimal('sNaN')` raises `ValueError`) or one finite but outside the float range
+        (`Decimal('1e1000')` converts to `inf`). Both are refused as a DECISION here, not left to
+        propagate: an exception escaping this function would be swallowed by `gather`'s
+        best-effort `except Exception`, producing a "client failed" note and — the real defect —
+        NOT setting `egress_blocked`.
     """
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal, numbers.Real)):
         return False
-    return math.isfinite(value)
+    try:
+        return math.isfinite(value)
+    except (ArithmeticError, TypeError, ValueError):
+        # Fail-closed: an admitted type whose float conversion misbehaves is not a measurement
+        # this gate is willing to vouch for.
+        return False
 
 
 def _scrub_aggregate(
@@ -1397,7 +1426,7 @@ def _scrub_aggregate(
         notes.append("agregado bloqueado: indicio de PHI resolvivel (egresso negado)")
         return None
     if not all(_metric_value_is_admissible(v) for v in agg.metrics.values()):
-        notes.append("agregado bloqueado: valor de metrica nao numerico ou nao finito (egresso negado)")
+        notes.append("agregado bloqueado: valor de metrica nao e um real finito (egresso negado)")
         return None
     if agg.k_anonymity < min_k_anonymity:
         notes.append(f"agregado bloqueado: k-anonimato abaixo do piso (k<{min_k_anonymity})")
