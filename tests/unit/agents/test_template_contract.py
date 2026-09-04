@@ -19,7 +19,9 @@ Estes testes prendem o contrato:
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import inspect
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -53,22 +55,42 @@ def _template_deps() -> dict[str, Any]:
 # =================================================================================================
 
 
-def test_template_build_accepts_config_and_names_missing_dependencies() -> None:
-    """`build({})` levanta `ValueError` NOMEANDO cada dependencia obrigatoria ausente.
-
-    O padrao e o de `helena/graph.py::build` (lista `missing` -> `ValueError`): um agente
-    derivado nunca constroi um grafo que so quebraria no primeiro tool call.
-    """
+def test_template_build_accepts_a_config_parameter() -> None:
     from maezo.agents._template.graph import build
 
     params = inspect.signature(build).parameters
     assert "config" in params, f"_template build() sem parametro config: {list(params)}"
 
-    with pytest.raises(ValueError) as excinfo:
-        build({})
-    message = str(excinfo.value)
-    for dep in ("inference", "dmn", "cibseven", "audit_sink"):
-        assert dep in message, f"dep {dep!r} nao nomeada em: {message}"
+
+def test_template_required_dependencies_are_exactly_the_canonical_four() -> None:
+    """`REQUIRED_DEPENDENCIES` e EXATAMENTE o conjunto canonico da fence T-C2 (`audit_sink`
+    incluso) — nao um subconjunto que o `build()` deixaria de cobrar em silencio.
+
+    Isolado da prosa estatica do `ValueError` DE PROPOSITO: essa prosa cita os 4 nomes no
+    texto explicativo MESMO quando `REQUIRED_DEPENDENCIES` foi reduzido (mutante sobrevivente
+    HEL-13/F1) — um `assert dep in message` sobre ela nunca detectaria a reducao.
+    """
+    from maezo.agents._template.graph import REQUIRED_DEPENDENCIES
+
+    assert set(REQUIRED_DEPENDENCIES) == {"inference", "dmn", "cibseven", "audit_sink"}
+
+
+@pytest.mark.parametrize("dep", ["inference", "dmn", "cibseven", "audit_sink"])
+def test_template_build_names_each_missing_dependency_in_the_message_list(dep: str) -> None:
+    """Partindo de um config COMPLETO, remover UMA dep faz `build` nomea-la na PORCAO-LISTA
+    da mensagem (`missing = [...]`) — nao na prosa estatica, que cita os 4 nomes sempre."""
+    from maezo.agents._template.graph import build
+
+    config = _template_deps()
+    del config[dep]
+    with pytest.raises(ValueError, match=rf"dependencies: \[[^\]]*'{dep}'"):
+        build(config)
+
+
+def test_template_build_with_all_four_dependencies_present_does_not_raise() -> None:
+    from maezo.agents._template.graph import build
+
+    build(_template_deps())  # nao levanta
 
 
 def test_template_build_without_arguments_is_also_fail_closed() -> None:
@@ -162,13 +184,55 @@ def test_template_import_time_guard_rejects_an_unclassified_field() -> None:
         )
 
 
+def _import_from_source(tmp_path: Path, source: str, module_name: str) -> Any:
+    """Escreve `source` num arquivo e importa via `spec_from_file_location` — o proprio ATO de
+    importar dispara qualquer codigo module-level, ao contrario de chamar uma funcao isolada."""
+    module_path = tmp_path / f"{module_name}.py"
+    module_path.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.modules.pop(module_name, None)
+    return module
+
+
+def test_template_module_runs_the_partition_guard_at_import_time(tmp_path: Path) -> None:
+    """A guarda esta LIGADA ao import do modulo, nao so declarada e chamavel isoladamente
+    (mutante sobrevivente HEL-13/F2: apagar a invocacao module-level de
+    `_assert_state_partition_is_complete` nao derruba nenhum teste que apenas CHAMA a funcao
+    com argumentos manuais). Prova: copia real do arquivo, com um campo plantado em
+    `TemplateState` e NAO classificado em nenhum dos dois conjuntos, importada por
+    `spec_from_file_location` — se a guarda de fato roda em import-time, o import inteiro
+    explode com `RuntimeError`."""
+    source = _TEMPLATE_GRAPH_SRC.read_text(encoding="utf-8")
+    marker = "    error: str\n"
+    assert marker in source, "forma esperada de TemplateState mudou — ajuste este teste"
+    mutated = source.replace(marker, marker + "    campo_nao_classificado: str\n", 1)
+
+    with pytest.raises(RuntimeError, match="incompleta|incomplete"):
+        _import_from_source(tmp_path, mutated, "template_graph_probe_campo_plantado")
+
+
+def test_template_module_imports_cleanly_when_the_state_is_intact(tmp_path: Path) -> None:
+    """Caso controle do teste acima: a MESMA copia do arquivo, sem o campo plantado, importa
+    sem erro — o `RuntimeError` do teste anterior vem do campo nao classificado, nao de outro
+    efeito colateral de copiar o arquivo para `tmp_path`."""
+    source = _TEMPLATE_GRAPH_SRC.read_text(encoding="utf-8")
+    module = _import_from_source(tmp_path, source, "template_graph_probe_intacto")
+    assert module.TemplateState is not None
+
+
 @pytest.mark.asyncio
 async def test_template_receive_resets_every_output_only_field() -> None:
     """`receive` sobrescreve TODO campo output-only com seu neutro (plantio do chamador morre)."""
-    from maezo.agents._template.graph import NEUTRAL_OUTPUTS, TemplateGraph
+    from maezo.agents._template.graph import NEUTRAL_OUTPUTS, TemplateGraph, TemplateState
 
     graph = TemplateGraph(**_template_deps(), agent_version="_template@v0")
-    planted = {
+    planted: TemplateState = {
         "tenant_id": "amh",
         "correlation_id": "c-1",
         "desfecho": "aprovado_pelo_chamador",
@@ -176,7 +240,7 @@ async def test_template_receive_resets_every_output_only_field() -> None:
         "process_ref": {"instance_id": "forjado"},
         "error": "",
     }
-    out = await graph.receive(planted)  # type: ignore[arg-type]
+    out = await graph.receive(planted)
     for field, neutral in NEUTRAL_OUTPUTS.items():
         if field == "business_key":
             continue  # `receive` atribui a business key de verdade
@@ -207,11 +271,12 @@ def _derived_graph(cibseven: Any) -> Any:
 
 def test_template_contract_variables_is_an_explicit_unbuilt_seam() -> None:
     """O esqueleto NAO devolve um dict vazio silencioso — ele recusa, nomeando o que falta."""
-    from maezo.agents._template.graph import TemplateGraph
+    from maezo.agents._template.graph import TemplateGraph, TemplateState
 
     graph = TemplateGraph(**_template_deps(), agent_version="_template@v0")
+    empty_state: TemplateState = {}
     with pytest.raises(NotImplementedError, match="contract_variables"):
-        graph.contract_variables({})  # type: ignore[arg-type]
+        graph.contract_variables(empty_state)
 
 
 def test_template_start_goes_through_the_sanctioned_chokepoint() -> None:

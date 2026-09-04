@@ -92,7 +92,7 @@ class TemplateState(TypedDict, total=False):
     # --- OUTPUT-ONLY: chaves de propriedade dos nos deste grafo. Um chamador nunca as seta. ---
     business_key: str
     process_started: bool
-    process_ref: dict[str, Any]
+    process_ref: dict[str, Any] | None
     desfecho: str
     error: str
 
