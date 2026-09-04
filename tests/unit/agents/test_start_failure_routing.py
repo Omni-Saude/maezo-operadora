@@ -333,6 +333,43 @@ def test_every_start_process_node_routes_to_notify_start_failure(path: Path) -> 
     )
 
 
+#: `_template/graph.py::TemplateGraph.start_process` TEM um no `start_process` (HEL-12/13, o
+#: contrato canonico ja carrega o padrao CC-01 desde a origem) — mas `_template` nao e um agente
+#: implantado com fluxo de negocio proprio, e por isso nunca esteve em `_CASES`/
+#: `_START_NODE_AGENT_IDS` (a cerca COMPORTAMENTAL exercita agentes reais com estado minimo
+#: proprio a cada um). Exclusao deliberada, nao esquecimento — ver `_agent_graph_paths()`, que
+#: enumera `agents/*/graph.py` sem filtrar scaffolds.
+_NON_AGENT_GRAPH_DIRS = frozenset({"_template"})
+
+
+def test_start_node_agent_ids_matches_ast_walk() -> None:
+    """Inventario fechado: `_START_NODE_AGENT_IDS` (curado a mao em `_CASES`, usado pela cerca
+
+    COMPORTAMENTAL abaixo) tem de ser EXATAMENTE o conjunto de agentes REAIS cujo `graph.py`
+    registra um no `start_process`, apurado de forma independente pelo mesmo walk AST que
+    `test_every_start_process_node_routes_to_notify_start_failure` usa (menos `_NON_AGENT_GRAPH_
+    DIRS`, ver acima). Sem esta cerca, um agente novo que ganhe um no `start_process` (ou um que
+    o perca) so quebraria a cerca ESTRUTURAL — a lista curada de `_CASES`/`_START_NODE_AGENT_IDS`
+    da cerca COMPORTAMENTAL ficaria silenciosamente desatualizada, cobrindo de menos (ou de mais)
+    sem nenhum teste acusar.
+    """
+    from_ast: set[str] = set()
+    for path in _agent_graph_paths():
+        if path.parent.name in _NON_AGENT_GRAPH_DIRS:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        nodes = {name for call in _calls_named(tree, "add_node") for name in _string_args(call)[:1]}
+        if "start_process" in nodes:
+            from_ast.add(path.parent.name)
+
+    assert set(_START_NODE_AGENT_IDS) == from_ast, (
+        f"_START_NODE_AGENT_IDS (curado) = {sorted(_START_NODE_AGENT_IDS)} != walk AST de "
+        f"`graph.py` = {sorted(from_ast)} — a cerca COMPORTAMENTAL (test_start_failure_yields_"
+        "error_desfecho_and_counts_an_agent_error) esta cobrindo um conjunto de agentes diferente "
+        "do que o codigo realmente tem"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 2. Cerca COMPORTAMENTAL — os 9 agentes que iniciam processo
 # ---------------------------------------------------------------------------
