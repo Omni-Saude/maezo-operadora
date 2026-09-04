@@ -47,10 +47,12 @@ state": it must never cross into the DOSSIER or the engine-bound process variabl
 `start_process` ships. Those three evals therefore assert with `assert_no_leak` SCOPED to
 `result.state["dossier"]` (+ the recorded CibSeven variables), never the generic unscoped
 `assert_no_leak(result.state, ...)` the other evals use (which would misfire on these three --
-see each test's docstring). ANDRE-03 is the exception: its canary lives inside a hostile
-`CohortAggregate` the injected population client returns, which the graph's OWN egress gate
-(`_scrub_aggregate`) blocks before it ever reaches state at all -- the unscoped check is correct
-and appropriately strict there.
+see each test's docstring). ANDRE-03 and ANDRE-05 are the exception: their canary lives inside a
+hostile `CohortAggregate` the injected population client returns, which the graph's OWN egress
+gate (`_scrub_aggregate`) blocks before it ever reaches state at all -- the unscoped check is
+correct and appropriately strict there. ANDRE-05 (AND-02) plants the canary in a metric CELL
+NAME rather than in `cohort_id`, so it needs its own population double and is excluded from the
+generic parametrized run (which injects the `cohort_id`-planting one).
 """
 
 from __future__ import annotations
@@ -94,7 +96,18 @@ ANDRE_CASES = load_golden("andre")
 _RAFAEL_GENERIC = [c for c in RAFAEL_CASES if c["id"] != "EVL-RAFAEL-03"]
 _VALENTINA_GENERIC = [c for c in VALENTINA_CASES if c["id"] != "EVL-VALENTINA-05"]
 _MARINA_GENERIC = [c for c in MARINA_CASES if c["id"] != "EVL-MARINA-03"]
-_ANDRE_GENERIC = ANDRE_CASES  # ANDRE-03's canary structurally never reaches state -- no scoping needed
+# ANDRE-03's canary structurally never reaches state -- no scoping needed. ANDRE-05 (AND-02) is
+# excluded for a DIFFERENT reason: its canary lives in a metrics CELL NAME, so it needs its own
+# population double (the generic one plants the canary in `cohort_id` instead, which would make
+# ANDRE-05's leak-check vacuously green). It gets dedicated tests below.
+# NUMERACAO: este caso e o QUINTO golden de Andre, nao o quarto. `EVL-ANDRE-04` esta
+# RESERVADO para o golden de falha de start do WP CC-01 (branch `fleet/cc01-start-fail-notify`),
+# criado em paralelo com o mesmo nome de arquivo e o mesmo `id`. Duas branches escrevendo o
+# MESMO `tests/evals/golden/andre/EVL-ANDRE-04.json` com conteudos diferentes COLIDEM: um
+# conflito ruidoso no merge na melhor das hipoteses, um golden silenciosamente perdido na
+# pior. E `load_golden` indexa por `id`, entao dois casos com o mesmo `id` fariam
+# `_case()` devolver um deles sem avisar. Renumerado aqui, no lado que ainda nao mergeou.
+_ANDRE_GENERIC = [c for c in ANDRE_CASES if c["id"] != "EVL-ANDRE-05"]
 
 
 def _case(cases: list[dict[str, Any]], case_id: str) -> dict[str, Any]:
@@ -202,6 +215,32 @@ class _LeakyPopulationClient:
         )
 
 
+class _PhiMetricKeyPopulationClient:
+    """Andre's `PopulationFeatureClient` double for AND-02 (EVL-ANDRE-05): `cohort_id` and
+    `dataset_ref` are BOTH clean -- the resolvable-PHI indication is the metric CELL NAME, over a
+    cohort of ONE (`k_anonymity=1`, which the pre-AND-02 `k_anonymity < 1` test admitted). Andre's
+    OWN egress chokepoint (`_scrub_aggregate`) must block the whole aggregate; this double exists
+    to prove that, not to simulate a well-behaved lake client."""
+
+    def __init__(self, *, hostile_cell_name: str) -> None:
+        self._hostile_cell_name = hostile_cell_name
+
+    def _hostile(self, dataset_ref: str) -> andre_graph.CohortAggregate:
+        return andre_graph.CohortAggregate(
+            cohort_id="cohort-evl-andre-04",
+            dataset_ref=dataset_ref,
+            metrics={self._hostile_cell_name: 1.0},
+            cohort_size=1,
+            k_anonymity=1,
+        )
+
+    async def actuarial_risk(self, cohort_id: str, *, features: list[str]) -> andre_graph.CohortAggregate:
+        return self._hostile("lake://ds/evl-andre-04")
+
+    async def population_metrics(self, cohort_id: str, *, features: list[str]) -> andre_graph.CohortAggregate:
+        return self._hostile("lake://ds/evl-andre-04-pop")
+
+
 def _make_rafael_fhir_fake() -> _LeakyFhirReader:
     return _LeakyFhirReader(cpf="123.456.789-09", nome="Fulano Teste Canario")
 
@@ -212,6 +251,10 @@ def _make_summary_fake() -> _LeakyPatientSummaryReader:
 
 def _make_andre_population_fake() -> _LeakyPopulationClient:
     return _LeakyPopulationClient(hostile_cohort_id="Patient/BEN-TESTE-001")
+
+
+def _make_andre_phi_metric_key_fake() -> _PhiMetricKeyPopulationClient:
+    return _PhiMetricKeyPopulationClient(hostile_cell_name="paciente_CPF-12345678901")
 
 
 class _RaisingInference:
@@ -667,6 +710,32 @@ async def test_evl_andre_03_mutation_check_leak_is_non_vacuous() -> None:
         case,
         mutation=lambda c: mutate_plant_canary(c, canary),
         extra_config={"population": _make_andre_population_fake()},
+    )
+
+
+@pytest.mark.eval
+async def test_evl_andre_05_phi_bearing_metric_key_is_blocked() -> None:
+    """PL/AND-02: same unscoped leak posture as ANDRE-03 -- the hostile aggregate is blocked by
+    `_scrub_aggregate` before it reaches state at all, so the canary must be absent EVERYWHERE."""
+    case = _andre_case("EVL-ANDRE-05")
+    extra_config = {"population": _make_andre_phi_metric_key_fake()}
+    result = await run_case(andre_graph.build, case, extra_config=extra_config)
+    assert_expect(result.state, case["expect"])
+    assert_no_leak(result.state, case.get("leak_canaries") or [])
+    assert result.state.get("egress_blocked") is True
+    assert result.state.get("actuarial_aggregate") == {}
+    assert result.state.get("aggregate_dataset_refs") == []
+
+
+@pytest.mark.eval
+async def test_evl_andre_05_mutation_check_leak_is_non_vacuous() -> None:
+    case = _andre_case("EVL-ANDRE-05")
+    canary = case["leak_canaries"][0]
+    await run_mutation_check(
+        andre_graph.build,
+        case,
+        mutation=lambda c: mutate_plant_canary(c, canary),
+        extra_config={"population": _make_andre_phi_metric_key_fake()},
     )
 
 

@@ -76,6 +76,25 @@ only EMITS aggregates; an aggregate carrying resolvable-PHI indications is detec
 never egressed by omission. Suppression notes carry CLASS TOKENS only, never the suspect value
 itself (hardening beyond the donor, which echoed `cohort_id!r` into the note).
 
+WHAT AND-02 ADDED TO THAT GATE, and what it deliberately did not. The structural claim above was
+true of the aggregate's POINTER fields and false of its CONTENTS: `_scrub_aggregate` copied
+`metrics` through verbatim and tested only that a k was PRESENT (`k_anonymity < 1`), so a lake
+client returning `metrics={"paciente_CPF-<11 digits>": 1.0}` over a cohort of ONE
+(`cohort_size=1, k_anonymity=1`) egressed that cell name intact into the dossier and the
+approver's prompt. The gate now reads INSIDE the aggregate: every metric cell NAME and every
+`suppressed` name goes through the repo's PHI-shape net (`tools/workers/phi_vars.
+looks_like_phi_text` — CPF/CNPJ/11+-digit run/e-mail; ONE net, no private copy here), every
+metric VALUE must be a finite real number, and the k floor is `config["min_k_anonymity"]`.
+Any failure blocks the WHOLE aggregate (see `_scrub_aggregate` for why per-cell suppression
+would be the weaker choice).
+NOT CHANGED, ON PURPOSE: the floor's DEFAULT is still 1, i.e. a cohort of one still passes on a
+build that does not configure otherwise. ADR-0019 requires "um piso de k-anonimato (k minimo por
+celula)" without fixing its value; choosing that value (k=5) together with a CLOSED allowlist of
+admissible features is an ADR-P-003 decision the OWNER makes (`docs/adr/` is CODEOWNED). This
+module makes that flip a one-line config change and proves both sides of it under test — it does
+not make the flip. Today's exposure is latent, not live: no composition root injects `population`
+yet (port-pending WB.4), so the gate has no production traffic until `mcp-datalake` lands.
+
 CALLER-PLANTED-OUTPUT SANITIZATION (mandatory hardening — the defect class R1 found on ALL FOUR
 tranche-1 graphs, baked in from the start here): `receive` is the SINGLE graph entry (exactly one
 edge out of START, regression-tested) and overwrites EVERY output-only `AndreState` field with a
@@ -157,7 +176,10 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
 
 from __future__ import annotations
 
+import math
+import numbers
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
@@ -184,6 +206,7 @@ from maezo.tools.workers.dmn_transport import (
     DmnTransport,
     first_row,
 )
+from maezo.tools.workers.phi_vars import looks_like_phi_text
 
 from .keys import adequacao_business_key, is_blank, pagto_business_key
 from .prompts import DOSSIER_PROMPT_VERSION, SYSTEM_PROMPT_VERSION, dossier_prompt
@@ -289,6 +312,39 @@ class PatientSummaryReader(Protocol):
     async def read_patient(self, patient_id: str) -> dict[str, Any]: ...
 
 
+#: Piso de k-anonimato DE FABRICA. Deliberately 1, which is byte-identical to the pre-AND-02
+#: `k_anonymity < 1` test — a cohort of ONE individual still passes at this default. That is NOT
+#: an endorsement: ADR-0019 (`docs/adr/0019-amh-lake-of-record.md`, "um piso de k-anonimato (k
+#: minimo por celula)") requires a floor but does not fix its value, and choosing the production
+#: value (k=5 is the usual answer, together with a CLOSED allowlist of admissible features) is an
+#: OWNER decision that belongs in ADR-P-003 — `docs/adr/` is CODEOWNED, so this WP cannot and does
+#: not make it. AND-02 makes the floor a one-line config change (`config["min_k_anonymity"]`) and
+#: proves both ends of it under test; flipping the DEFAULT is the owner's move, not this one's.
+DEFAULT_MIN_K_ANONYMITY: int = 1
+
+
+def _validated_min_k_anonymity(value: Any) -> int:
+    """Fail-closed parse of `config["min_k_anonymity"]`, raised at BUILD time.
+
+    A misconfigured egress floor must never be silently ignored or coerced: `"5"` from a YAML
+    round-trip, a `5.0` from a JSON one, a `True` from a careless flag, or a `0` meaning "off"
+    are all rejected. `bool` is excluded explicitly because it is an `int` subclass in Python and
+    `True == 1` would otherwise read as a legitimate floor of 1.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(
+            f"Andre min_k_anonymity must be an int >= 1, got {type(value).__name__} "
+            "(ADR-0019 k-anonymity floor; the production value is an ADR-P-003 owner decision)"
+        )
+    # Re-bound through an explicit `int` annotation rather than returning `value` directly: the
+    # compound guard above is not a narrowing form the checker follows, and the alternative
+    # (returning `Any` from an `int` function) would hide a real contract in a type hole.
+    narrowed: int = value
+    if narrowed < 1:
+        raise ValueError(f"Andre min_k_anonymity must be an int >= 1, got {narrowed} (ADR-0019)")
+    return narrowed
+
+
 @dataclass(frozen=True, slots=True)
 class CohortAggregate:
     """K-anon aggregate of a cohort — the ONLY shape that leaves the lake for Andre's graph.
@@ -310,12 +366,39 @@ class CohortAggregate:
 
     def has_resolvable_phi(self) -> bool:
         """Structural defense: True if a field carries a resolvable-PHI indication (NEVER
-        should). Since the *type* has no patient-id field, this checks that
-        `dataset_ref`/`cohort_id` are opaque pointers (no resolvable FHIR-resource prefix) —
-        defense in depth, not the only barrier."""
-        suspect = (self.cohort_id, self.dataset_ref)
+        should). Since the *type* has no patient-id field, this checks the STRINGS that egress
+        verbatim — defense in depth, not the only barrier.
+
+        AND-02 widened this in two ways, both because the pre-AND-02 sweep covered only
+        `cohort_id`/`dataset_ref` while `_scrub_aggregate` copied `metrics` and `suppressed`
+        through untouched:
+
+        1. SCOPE. Metric CELL NAMES (`metrics` keys) and suppressed cell names are echoed into
+           `actuarial_aggregate`/`population_aggregate`, from there into the dossier's
+           `fatos_agregados`, and from there into the approver's LLM prompt — exactly the same
+           egress path `dataset_ref` takes. A lake client that names a cell after the individual
+           it aggregated (`paciente_CPF-<11 digits>`) leaked that name in full. They are swept
+           now. Values are NOT swept here: a `float` cannot carry a name, and a non-float value
+           is a different failure that `_scrub_aggregate` refuses on its own grounds.
+        2. PATTERN. The literal prefixes (`Patient/`, `fhir:`, `cpf` anywhere) only ever caught a
+           producer that ANNOUNCED the leak. `looks_like_phi_text` adds the repo's existing
+           PHI-SHAPE net (`tools/workers/phi_vars`: CPF/CNPJ in any separator style, any 11+
+           digit run, e-mail) — one net for the whole repo, not a private copy here.
+
+        This stays a HEURISTIC: it is a backstop under the structural guarantee (the Protocol's
+        return type carries no patient id), never a substitute for it. Over-detection is the
+        deliberate failure mode — a false positive costs one human review; a false negative puts
+        a patient identifier in front of the approver.
+        """
+        suspect = (self.cohort_id, self.dataset_ref, *self.metrics, *self.suppressed)
         return any(
-            isinstance(v, str) and (v.startswith("Patient/") or v.startswith("fhir:") or "cpf" in v.lower())
+            isinstance(v, str)
+            and (
+                v.startswith("Patient/")
+                or v.startswith("fhir:")
+                or "cpf" in v.lower()
+                or looks_like_phi_text(v)
+            )
             for v in suspect
         )
 
@@ -609,6 +692,7 @@ class AndreGraph:
         fhir: PatientSummaryReader | None = None,
         population: PopulationFeatureClient | None = None,
         agent_version: str = "andre@v0",
+        min_k_anonymity: int = DEFAULT_MIN_K_ANONYMITY,
     ) -> None:
         self._llm = inference
         self._dmn = dmn
@@ -620,6 +704,12 @@ class AndreGraph:
         self._fhir = fhir
         self._population = population
         self._agent_version = agent_version
+        # ADR-0019 k-anonymity floor for `_scrub_aggregate`. Validated HERE rather than only in
+        # `build` so a direct construction (tests, a future composition root) cannot slip an
+        # unvalidated floor past the gate — and, since `build` constructs this, an invalid
+        # `config["min_k_anonymity"]` still fails at BUILD time, where the other fail-closed
+        # dependency checks live. See `DEFAULT_MIN_K_ANONYMITY` for why the default is 1.
+        self._min_k_anonymity = _validated_min_k_anonymity(min_k_anonymity)
 
     # -- Nodes ----------------------------------------------------------------------------------
 
@@ -718,7 +808,7 @@ class AndreGraph:
             features = state.get("features") or ["sinistro_agregado", "utilizacao", "exposicao_atuarial"]
             try:
                 agg = await self._population.actuarial_risk(cohort_id, features=features)
-                scrubbed = _scrub_aggregate(agg, notes)
+                scrubbed = _scrub_aggregate(agg, notes, min_k_anonymity=self._min_k_anonymity)
                 if scrubbed is None:
                     egress_blocked = True
                 else:
@@ -730,7 +820,7 @@ class AndreGraph:
             if flow == "population_analytics":
                 try:
                     pagg = await self._population.population_metrics(cohort_id, features=features)
-                    pscrubbed = _scrub_aggregate(pagg, notes)
+                    pscrubbed = _scrub_aggregate(pagg, notes, min_k_anonymity=self._min_k_anonymity)
                     if pscrubbed is None:
                         egress_blocked = True
                     else:
@@ -1286,23 +1376,93 @@ class AndreGraph:
         return g
 
 
-def _scrub_aggregate(agg: CohortAggregate, notes: list[str]) -> dict[str, Any] | None:
-    """STRUCTURAL egress gate: accept the aggregate ONLY if k-anon and without resolvable-PHI
-    indication.
+def _metric_value_is_admissible(value: Any) -> bool:
+    """True only for a FINITE REAL NUMBER — the one shape an aggregated cell may carry.
+
+    `CohortAggregate.metrics` is typed `dict[str, float]`, but the producer is an INJECTED,
+    runtime-untyped seam (`PopulationFeatureClient`, port-pending WB.4 `mcp-datalake`), so the
+    annotation is a promise, not a check.
+
+    ADMITTED TYPES — the real-number family as the lake actually emits it, not just the two
+    builtins (AND-02 §Delta; the first cut admitted only `int`/`float` and would have failed
+    SHUT, blocking every well-formed aggregate the lake sends):
+      - `int` — a count is a legitimate aggregate and is compatible with the declared `float`;
+      - `float`;
+      - `decimal.Decimal` — what `asyncpg` decodes EVERY `NUMERIC`/`DECIMAL` column into, i.e.
+        the normal shape of a monetary/actuarial aggregate. It is a `numbers.Number` but is NOT
+        registered in `numbers.Real`, so the ABC arm below does not cover it and it has to be
+        named;
+      - any registered `numbers.Real` — covers `numpy.int64`/`numpy.float64` (a numpy-backed
+        aggregation layer is the other realistic producer; `numpy` is present at runtime as a
+        transitive dependency of `pgvector`) without this module importing or depending on numpy.
+
+    REFUSED, through that wider door:
+      - `str` / `dict` / `list` / `None` — free text or a structure, either of which can carry an
+        individual's data (the annotation says it cannot; the gate does not take its word);
+      - `bool` — an `int` subclass, so it would sneak past a bare `isinstance(v, (int, float))`,
+        and a boolean is not a measurement. `numpy.bool_` is refused too: it is neither a `bool`
+        nor a `numbers.Real`, so it never reaches the finiteness check;
+      - `complex` — a `numbers.Complex`, not a `numbers.Real`;
+      - `NaN` / `+-inf` IN ANY ADMITTED TYPE — not a real measurement; they poison every
+        downstream comparison and are the classic marker of a broken aggregation, which is not a
+        source to trust for the other cells either. `math.isfinite` handles `Decimal` and any
+        `numbers.Real` by converting through `float`, so one check covers the whole family;
+      - a value whose float conversion RAISES rather than returning a non-finite float
+        (`Decimal('sNaN')` raises `ValueError`) or one finite but outside the float range
+        (`Decimal('1e1000')` converts to `inf`). Both are refused as a DECISION here, not left to
+        propagate: an exception escaping this function would be swallowed by `gather`'s
+        best-effort `except Exception`, producing a "client failed" note and — the real defect —
+        NOT setting `egress_blocked`.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal, numbers.Real)):
+        return False
+    try:
+        return math.isfinite(value)
+    except (ArithmeticError, TypeError, ValueError):
+        # Fail-closed: an admitted type whose float conversion misbehaves is not a measurement
+        # this gate is willing to vouch for.
+        return False
+
+
+def _scrub_aggregate(
+    agg: CohortAggregate,
+    notes: list[str],
+    *,
+    min_k_anonymity: int = DEFAULT_MIN_K_ANONYMITY,
+) -> dict[str, Any] | None:
+    """STRUCTURAL egress gate: accept the aggregate ONLY if k-anon at/above the configured floor,
+    without resolvable-PHI indication, and carrying only well-formed aggregate cells.
 
     Andre is the egress chokepoint (ADR-0006/0019). Even though the injected client's type
     (`CohortAggregate`) has no patient-id field, this checks in depth: `has_resolvable_phi()`
-    (defense against a `dataset_ref`/`cohort_id` with a resolvable prefix) and
-    `k_anonymity >= 1`. On failure the aggregate is NOT emitted: a CLASS-TOKEN suppression note
-    is recorded (never the suspect value itself — hardening beyond the donor) and None is
-    returned — the caller marks `egress_blocked` and `assess` routes to human
-    (`phi_egress_risk`). Never egresses PHI by omission.
+    (which since AND-02 sweeps the metric CELL NAMES and the `suppressed` list as well as
+    `cohort_id`/`dataset_ref`), every metric VALUE (`_metric_value_is_admissible`), and
+    `k_anonymity >= min_k_anonymity`.
+
+    WHOLE-AGGREGATE BLOCK, NOT PER-CELL SUPPRESSION (AND-02 decision, deliberately the more
+    fail-closed of the two). Dropping only the offending cell would keep the rest of the SAME
+    payload, from the SAME producer, in the dossier — but the producer just demonstrated that it
+    can put an individual's identifier where a cohort feature belongs, so nothing else it sent in
+    that payload is trustworthy either, and the k-anon claim attached to it least of all. It also
+    keeps ONE outcome for the whole gate: every failure mode ends in `egress_blocked` ->
+    `assess` -> `human_review`/`phi_egress_risk`, so there is no half-emitted aggregate anywhere
+    in the graph and no second, weaker path a future edit could widen. The cost is a human
+    review; the alternative cost is a patient identifier in the approver's prompt.
+
+    On failure the aggregate is NOT emitted: a CLASS-TOKEN suppression note is recorded (never
+    the suspect value itself — the offending metric KEY *is* the PHI, so echoing it into
+    `gather_notes` would egress exactly what the gate just refused) and None is returned — the
+    caller marks `egress_blocked` and `assess` routes to human (`phi_egress_risk`). Never
+    egresses PHI by omission.
     """
     if agg.has_resolvable_phi():
         notes.append("agregado bloqueado: indicio de PHI resolvivel (egresso negado)")
         return None
-    if agg.k_anonymity < 1:
-        notes.append("agregado bloqueado: k-anonimato ausente (k<1)")
+    if not all(_metric_value_is_admissible(v) for v in agg.metrics.values()):
+        notes.append("agregado bloqueado: valor de metrica nao e um real finito (egresso negado)")
+        return None
+    if agg.k_anonymity < min_k_anonymity:
+        notes.append(f"agregado bloqueado: k-anonimato abaixo do piso (k<{min_k_anonymity})")
         return None
     if agg.suppressed:
         notes.append(f"celulas suprimidas por k-anon: {list(agg.suppressed)}")
@@ -1324,7 +1484,15 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[AndreState]:
     boundaries) — their absence never fails the build, only degrades `gather` to disclosed gap
     notes.
 
-    Fail-closed: missing a REQUIRED dependency raises `ValueError` at build time.
+    `min_k_anonymity` (OPTIONAL, default `DEFAULT_MIN_K_ANONYMITY` = 1) is the ADR-0019
+    k-anonymity floor the egress gate enforces: an aggregate with `k_anonymity` below it is
+    blocked entirely and the turn routes to human review. The default preserves the pre-AND-02
+    behavior EXACTLY (k=1 passes) — the production value, and the closed allowlist of admissible
+    features that belongs beside it, are an OWNER decision (ADR-P-003; `docs/adr/` is CODEOWNED),
+    not this build's to make.
+
+    Fail-closed: missing a REQUIRED dependency, or a `min_k_anonymity` that is not an int >= 1,
+    raises `ValueError` at build time.
     """
     cfg = config or {}
     inference = cfg.get("inference")
@@ -1356,6 +1524,9 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[AndreState]:
         fhir=cast("PatientSummaryReader | None", cfg.get("fhir")),
         population=cast("PopulationFeatureClient | None", cfg.get("population")),
         agent_version=agent_version,
+        # NOT `cast`-ed: the whole point of `_validated_min_k_anonymity` is that this value
+        # may be the wrong type, and a cast would be a claim the config cannot back.
+        min_k_anonymity=cfg.get("min_k_anonymity", DEFAULT_MIN_K_ANONYMITY),
     ).compile_graph()
 
 

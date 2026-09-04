@@ -51,8 +51,19 @@ autonomy_actions:                          # acoes REAIS da matriz L0-core exerc
   #
   # NOTA EGRESS (ADR-0006/0019 — Andre e o CHOKEPOINT de egresso PHI): o cliente de populacao/lago e
   # INJETADO (Protocol) e retorna SO agregados k-anon + `dataset_ref` (ponteiros), NUNCA um
-  # `fhir_patient_id` resolvivel. O gate de egresso e ESTRUTURAL (o tipo de retorno do cliente nao
-  # carrega PHI resolvivel) — nao um filtro best-effort. KPI: `phi_egress_violations==0`.
+  # `fhir_patient_id` resolvivel. O gate de egresso e ESTRUTURAL no TIPO (o retorno do cliente nao
+  # tem campo de id de paciente) — mas o tipo nao cobre o CONTEUDO, e por isso `_scrub_aggregate`
+  # tambem varre, chave a chave, os NOMES DE CELULA de `metrics`/`suppressed` (rede de forma PHI de
+  # `tools/workers/phi_vars.looks_like_phi_text`) e exige valor numerico finito em cada celula.
+  # Qualquer falha bloqueia o agregado INTEIRO (fail-closed) -> `phi_egress_risk` -> humano.
+  # KPI: `phi_egress_violations==0`.
+  #
+  # PISO DE K-ANONIMATO (AND-02): parametro OPCIONAL de build `config["min_k_anonymity"]`, lido por
+  # `graph.py:build` e validado (int >= 1) em tempo de build. DEFAULT = 1, que preserva EXATAMENTE o
+  # comportamento anterior (uma coorte de UM individuo passa) — nao e' endosso. ADR-0019 exige "um
+  # piso de k-anonimato (k minimo por celula)" sem fixar o valor; escolher o valor de producao
+  # (k=5) e a allowlist FECHADA de features e' decisao do DONO em ADR-P-003 (`docs/adr/` e
+  # CODEOWNED). Este yaml documenta o parametro; nao o configura.
 kpis:
   - { name: false_pricing_decision_rate, target: "==0" }   # INVARIANTE L0: ZERO decisao de preco/pagamento por automacao
   - { name: phi_egress_violations, target: "==0" }          # INVARIANTE egress: ZERO PHI resolvivel sai do dossie/agregado
