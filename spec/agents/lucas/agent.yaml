@@ -20,14 +20,16 @@ tools:
   - mcp-dmn.evaluate
   - mcp-whatsapp.send_message
   - mcp-cibseven.start_process
-  - mcp-memory.read_write
+  - mcp-memory.read_write    # declarada como excecao disclosed §8.5 item 2; sem no vivo hoje
+                              # (CC-05/LUC-01 — ver docstring graph.py:97-99; GAP-DU-01-b/ADR
+                              # proposto 0043 reabilita quando pgvector existir)
 autonomy_policy: ../../policies/autonomy
 autonomy_actions:
   - informational_response
   - reminders_nudges
   - send_beneficiary_message
   - query_decision_engine
-  - read_write_memory
+  - read_write_memory         # excecao disclosed (fence §8.5 item 2), sem no vivo hoje (CC-05/LUC-01)
   - start_compliance_process
 kpis:
   - { name: resolution_rate, target: "track" }
