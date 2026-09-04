@@ -36,6 +36,8 @@ class _FakeInference:
     def __init__(self, responses: list[str] | None = None) -> None:
         self._responses = list(responses) if responses else ["dossie factual sintetico"]
         self.calls: list[tuple[str, bool]] = []
+        #: AF-12 (CC-12): the `task_kind` of each call, in order.
+        self.task_kinds: list[str | None] = []
 
     async def generate(
         self,
@@ -44,8 +46,10 @@ class _FakeInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         self.calls.append((prompt, phi))
+        self.task_kinds.append(task_kind)
         return self._responses.pop(0) if self._responses else ""
 
 
@@ -57,6 +61,7 @@ class _FailingInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         raise RuntimeError("LLM down")
 
@@ -807,6 +812,15 @@ async def test_dossier_narrative_llm_call_is_phi_tagged() -> None:
     await graph.auto_route(_base_state(route="auto_route"))
     assert inference.calls
     assert all(phi is True for _, phi in inference.calls)
+
+
+async def test_dossier_narrative_llm_call_declares_task_kind_reasoning() -> None:
+    """CC-12/BEA-01 (ADR-0009 §2): the credenciamento dossier narrative is what the human
+    decisor reads before deciding — `reasoning`, not `task_default`."""
+    inference = _FakeInference(["narrativa"])
+    graph = _graph(inference=inference)
+    await graph.auto_route(_base_state(route="auto_route"))
+    assert inference.task_kinds == ["reasoning"]
 
 
 async def test_dossier_llm_failure_never_blocks_the_route() -> None:

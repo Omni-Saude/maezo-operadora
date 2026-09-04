@@ -42,6 +42,7 @@ class _CapturingInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         self.calls.append({"prompt": prompt, "phi": phi, "agent_id": agent_id, "tenant_id": tenant_id})
         return self._responses.pop(0) if self._responses else ""

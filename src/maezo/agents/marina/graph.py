@@ -1170,7 +1170,12 @@ class MarinaGraph:
         )
         try:
             narrativa = await self._llm.generate(
-                prompt, phi=True, agent_id="marina", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="marina",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
             narrativa = ""

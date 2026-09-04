@@ -869,7 +869,12 @@ class ValentinaGraph:
             # Zona PHI (D10): Valentina reasons in-zone AFTER the consent gate — phi=True on
             # EVERY LLM call in this module (ADR-0006/ADR-0017/T1.7).
             narrativa = await self._llm.generate(
-                prompt, phi=True, agent_id="valentina", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="valentina",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: dossie lido pelo humano/clinico antes de decidir -> reasoning.
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — deterministic minimal dossier; caller decides route.
             narrativa = ""

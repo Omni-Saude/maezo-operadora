@@ -61,6 +61,7 @@ class _FakeInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         return "dossie factual sintetico"
 

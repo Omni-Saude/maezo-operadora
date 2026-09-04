@@ -49,6 +49,7 @@ class _FakeInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         self.calls.append((prompt, phi))
         assert phi is True, "Rafael's dossier LLM call must be phi=True (security_zone: phi)"

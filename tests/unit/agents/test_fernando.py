@@ -34,6 +34,8 @@ class _FakeInference:
     def __init__(self, responses: list[str] | None = None) -> None:
         self._responses = list(responses) if responses else ["texto sintetico"]
         self.calls: list[tuple[str, bool]] = []
+        #: AF-12 (CC-12): the `task_kind` of each call, in order.
+        self.task_kinds: list[str | None] = []
 
     async def generate(
         self,
@@ -42,8 +44,10 @@ class _FakeInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         self.calls.append((prompt, phi))
+        self.task_kinds.append(task_kind)
         return self._responses.pop(0) if self._responses else ""
 
 
@@ -55,6 +59,7 @@ class _FailingInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         raise RuntimeError("LLM provider unavailable")
 
@@ -744,6 +749,30 @@ async def test_dmn_llm_calls_are_phi_tagged() -> None:
     await graph.notify(state)
     assert len(inference.calls) == 1
     assert inference.calls[0][1] is True  # phi=True
+
+
+async def test_message_llm_call_declares_task_kind_task_default() -> None:
+    """CC-12/BEA-01 (ADR-0009 §2): the beneficiary notice phrases facts the DMN already
+    decided — `task_default`, not `reasoning` (mirrors lucas's `_build_message`)."""
+    dmn = FakeDmnTransport()
+    _register_status(dmn, "AGUARDA_PURGA")
+    _register_purga(dmn)
+    inference = _FakeInference(["texto"])
+    graph = _graph(dmn=dmn, inference=inference)
+    state = _base_state(intencao="notificacao_previa")
+    state.update(await graph.assess(state))
+    await graph.notify(state)
+    assert inference.task_kinds == ["task_default"]
+
+
+async def test_dossier_llm_call_declares_task_kind_reasoning() -> None:
+    """CC-12/BEA-01 (ADR-0009 §2): the inadimplencia dossier narrative is for the human
+    escalation reviewer — `reasoning`, not `task_default`."""
+    inference = _FakeInference(["narrativa"])
+    graph = _graph(inference=inference)
+    state = _base_state(intencao="rescisao", route="escalate", motivo_humano="indicio_rescisao")
+    await graph.escalate(state)
+    assert inference.task_kinds == ["reasoning"]
 
 
 async def test_message_llm_failure_never_blocks_notify() -> None:

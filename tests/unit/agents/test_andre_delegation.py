@@ -67,7 +67,15 @@ class _FakeInference:
     def __init__(self) -> None:
         self.calls: list[tuple[str, bool]] = []
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+        task_kind: str | None = None,
+    ) -> str:
         self.calls.append((prompt, phi))
         assert phi is True, "Andre's dossier LLM call must be phi=True (security_zone: phi)"
         return "dossie de remediacao sintetico"

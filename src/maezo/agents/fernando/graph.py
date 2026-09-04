@@ -787,7 +787,12 @@ class FernandoGraph:
         )
         try:
             texto = await self._llm.generate(
-                prompt, phi=True, agent_id="fernando", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="fernando",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: frasear fatos que a DMN ja decidiu -> task_default.
+                task_kind="task_default",
             )
         except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
             texto = "Identificamos uma pendencia em seu contrato. Consulte os canais de regularizacao."
@@ -842,7 +847,12 @@ class FernandoGraph:
         )
         try:
             narrativa = await self._llm.generate(
-                prompt, phi=True, agent_id="fernando", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="fernando",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human escalation.
             narrativa = ""

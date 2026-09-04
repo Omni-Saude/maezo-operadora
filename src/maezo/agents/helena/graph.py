@@ -945,7 +945,12 @@ class HelenaGraph:
         prompt = f"{classify_prompt()}\n\nMensagem do beneficiario:\n{state.get('message_body', '')}"
         try:
             raw = await self._llm.generate(
-                prompt, phi=True, agent_id="helena", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="helena",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: extracao estruturada (JSON) -> task_default.
+                task_kind="task_default",
             )
         except Exception as exc:  # noqa: BLE001 — classified into a failure reason, never swallowed.
             # HEL-05 (feeder): `str(exc)[:200]` was a LENGTH bound, never a CONTENT one, and this
@@ -976,7 +981,12 @@ class HelenaGraph:
         )
         try:
             return await self._llm.generate(
-                prompt, phi=True, agent_id="helena", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="helena",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: fraseia fatos ja decididos (DMN motivo/severidade) -> task_default.
+                task_kind="task_default",
             )
         except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
             return "Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."
@@ -990,7 +1000,13 @@ class HelenaGraph:
         )
         try:
             text = await self._llm.generate(
-                prompt, phi=True, agent_id="helena", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="helena",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: o humano le isto antes de assumir o caso -> reasoning
+                # (mesma logica do dossie de escalacao do lucas).
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — fail-safe: never block the escalation on a summary.
             text = ""
