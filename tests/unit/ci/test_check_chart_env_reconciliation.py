@@ -8,18 +8,27 @@ Layers:
 2. **Real chart + TF + src/**: the full extraction pipeline against the real tree proves GREEN
    today (the rename landed) and proves it is green FOR THE RIGHT REASON — `MAEZO_TENANT_ID` is
    declared and read, `MAEZO_TENANT` is declared nowhere.
-3. **Allowlist non-vacuity**: every `INFRA_OWNED_DECLARED` entry that the real chart/TF actually
-   declares is exempted (not silently dropped from the count) and is genuinely absent from `src/`'s
-   read set — proving the allowlist is load-bearing, not accidentally exempting nothing.
+3. **Allowlist non-vacuity**: every `INFRA_OWNED_DECLARED`/`DEFERRED_UNRECONCILED_DECLARED` entry
+   that the real chart/TF actually declares is exempted (not silently dropped from the count) and
+   is genuinely absent from `src/`'s read set — proving the allowlist is load-bearing, not
+   accidentally exempting nothing.
+4. **Widened scope** (gatekeeper finding F2): the fence is no longer restricted to four hardcoded
+   prefixes — an unlisted declared name outside all four legacy prefixes must still go RED when
+   unread; and every entry in both exemption tables must carry a non-empty reason, enforced by
+   `_require_reasons` at import time and proven directly here.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from scripts.ci.check_chart_env_reconciliation import (
+    DEFERRED_UNRECONCILED_DECLARED,
     INFRA_OWNED_DECLARED,
     EnvNameRef,
+    _require_reasons,
     extract_declared_from_helm,
     extract_declared_from_terraform,
     extract_literal_env_names,
@@ -84,12 +93,25 @@ def test_reconcile_exempts_an_allowlisted_infra_owned_name() -> None:
     assert result.allowlisted[0].name == "KAFKA_NODE_ID"
 
 
+def test_reconcile_exempts_a_deferred_name_but_keeps_it_visible() -> None:
+    """A deferred (not-infra-owned, tracked-follow-up-gap) name does not fail the gate, but is
+    reported in its OWN bucket — never silently merged into `allowlisted`, which would misrepresent
+    it as infra-owned (the exact "false provenance" shape gatekeeper finding F2 flagged)."""
+    assert "ENVIRONMENT" in DEFERRED_UNRECONCILED_DECLARED  # sanity
+    declared = [EnvNameRef(name="ENVIRONMENT", source="values-amh.yaml (agents[].env)")]
+    result = reconcile(declared, read_names=set(), required=[])
+    assert result.ok, result.render()
+    assert result.allowlisted == []
+    assert len(result.deferred) == 1
+    assert result.deferred[0].name == "ENVIRONMENT"
+
+
 # ---------------------------------------------------------------------------
 # 2. Real chart + TF + src/ — GREEN today, for the right reason
 # ---------------------------------------------------------------------------
 
 
-def test_real_tree_is_green() -> None:
+def _reconcile_real_tree():
     rendered = render_chart()
     declared = extract_declared_from_helm(rendered) + extract_declared_from_terraform(_TF_ROOT)
     literal_names = extract_literal_env_names(_SRC_DIR)
@@ -98,8 +120,29 @@ def test_real_tree_is_green() -> None:
     required_refs = [
         EnvNameRef(name=n, source="src/ BaseSettings (no default)") for n in sorted(settings_required)
     ]
-    result = reconcile(declared, read_names, required_refs)
+    return reconcile(declared, read_names, required_refs)
+
+
+def test_real_tree_is_green() -> None:
+    result = _reconcile_real_tree()
     assert result.ok, result.render()
+
+
+def test_real_tree_covers_every_declared_name_not_a_four_prefix_subset() -> None:
+    """Gatekeeper finding F2: the fence used to reconcile only `MAEZO_`/`WHATSAPP_`/`CIBSEVEN_`/
+    `KAFKA_` names — 28 of the real tree's 90 declared names (31%). It must now cover all of them,
+    with the rest either read, allowlisted, or deferred (never silently dropped)."""
+    result = _reconcile_real_tree()
+    assert result.declared_total >= 90, (
+        f"real tree suddenly declares fewer names ({result.declared_total}) than the last full "
+        "sweep (90) — re-verify the extraction wasn't narrowed"
+    )
+    accounted = (
+        (result.declared_total - len(result.declared_unread))
+        if result.declared_unread
+        else result.declared_total
+    )
+    assert accounted == result.declared_total
 
 
 def test_real_chart_declares_the_renamed_var_and_not_the_old_one() -> None:
@@ -123,23 +166,41 @@ def test_real_src_required_whatsapp_fields_are_declared_in_the_chart() -> None:
     assert "WHATSAPP_VERIFY_TOKEN" in declared_names
 
 
+def test_real_chart_covers_both_new_a2a_outbox_relay_env_names() -> None:
+    """SC-01's new Deployment declares two new env names — both must be genuinely read by
+    `src/maezo/a2a/outbox_relay.py`'s `OutboxRelaySettings`, not merely declared."""
+    rendered = render_chart()
+    declared_names = {ref.name for ref in extract_declared_from_helm(rendered)}
+    literal_names = extract_literal_env_names(_SRC_DIR)
+    settings_all, _ = extract_settings_env_names(_SRC_DIR)
+    read_names = literal_names | settings_all
+    for name in ("A2A_OUTBOX_RELAY_BATCH_SIZE", "A2A_OUTBOX_RELAY_POLL_INTERVAL_S"):
+        assert name in declared_names, f"{name} not declared by the real chart"
+        assert name in read_names, f"{name} declared but not read by src/ — exactly the DU-02 shape"
+
+
 # ---------------------------------------------------------------------------
 # 3. Allowlist non-vacuity
 # ---------------------------------------------------------------------------
 
 
+def _real_declared_names() -> set[str]:
+    declared_names = {ref.name for ref in extract_declared_from_terraform(_TF_ROOT)}
+    declared_names |= {ref.name for ref in extract_declared_from_helm(render_chart())}
+    return declared_names
+
+
 def test_allowlist_entries_that_are_declared_today_are_genuinely_unread_by_src() -> None:
     """Every allowlisted name the real TF tree actually declares must be ABSENT from src/'s read
     set — otherwise the allowlist entry is dead weight (or worse, hiding a real defect)."""
-    declared_names = {ref.name for ref in extract_declared_from_terraform(_TF_ROOT)}
-    declared_names |= {ref.name for ref in extract_declared_from_helm(render_chart())}
+    declared_names = _real_declared_names()
     literal_names = extract_literal_env_names(_SRC_DIR)
     settings_all, _ = extract_settings_env_names(_SRC_DIR)
     read_names = literal_names | settings_all
 
     declared_and_allowlisted = declared_names & set(INFRA_OWNED_DECLARED)
-    assert len(declared_and_allowlisted) >= 13, (
-        "sanity: the Kafka-broker allowlist entries must actually surface in the real TF tree"
+    assert len(declared_and_allowlisted) >= 40, (
+        "sanity: the widened allowlist entries must actually surface in the real tree"
     )
     for name in declared_and_allowlisted:
         assert name not in read_names, (
@@ -148,13 +209,74 @@ def test_allowlist_entries_that_are_declared_today_are_genuinely_unread_by_src()
         )
 
 
+def test_deferred_entries_that_are_declared_today_are_genuinely_unread_by_src() -> None:
+    """Same non-vacuity property for `DEFERRED_UNRECONCILED_DECLARED`: both entries must actually
+    surface in the real chart AND be genuinely unread — otherwise they are stale or hiding a
+    defect that should instead be a real (non-deferred) failure."""
+    declared_names = _real_declared_names()
+    literal_names = extract_literal_env_names(_SRC_DIR)
+    settings_all, _ = extract_settings_env_names(_SRC_DIR)
+    read_names = literal_names | settings_all
+
+    declared_and_deferred = declared_names & set(DEFERRED_UNRECONCILED_DECLARED)
+    assert declared_and_deferred == set(DEFERRED_UNRECONCILED_DECLARED)
+    for name in declared_and_deferred:
+        assert name not in read_names, f"{name} is deferred as unread but src/ DOES read it"
+
+
 def test_allowlist_has_no_unused_entries_against_the_real_tree() -> None:
     """Every `INFRA_OWNED_DECLARED` entry either surfaces in today's default render/TF sweep, or is
-    explicitly documented (its own dict comment) as gated off by default — both real entries in
-    this module are covered by one of the two."""
-    declared_names = {ref.name for ref in extract_declared_from_terraform(_TF_ROOT)}
-    declared_names |= {ref.name for ref in extract_declared_from_helm(render_chart())}
+    explicitly documented (its own dict comment) as gated off by default."""
+    declared_names = _real_declared_names()
     undeclared_allowlist_entries = set(INFRA_OWNED_DECLARED) - declared_names
     # CIBSEVEN_DATABASE_URL is pinned defensively for a template gated off by default
     # (cibseven.inCluster.enabled=false) — the one legitimate "not declared today" entry.
     assert undeclared_allowlist_entries == {"CIBSEVEN_DATABASE_URL"}
+
+
+# ---------------------------------------------------------------------------
+# 4. Widened scope (gatekeeper finding F2) — no prefix restriction, reasoned exemptions only
+# ---------------------------------------------------------------------------
+
+
+def test_an_unlisted_declared_name_outside_every_legacy_prefix_still_goes_red() -> None:
+    """Before F2's fix, a declared name outside `MAEZO_`/`WHATSAPP_`/`CIBSEVEN_`/`KAFKA_` was
+    invisible to `_NAME_PATTERN` and could never be flagged, allowlisted, or deferred — it was
+    silently excluded from the scan entirely. This is the RED proof that the widened
+    `_NAME_PATTERN` now catches such a name — a synthetic one, reconciled against an empty read
+    set, so it must be flagged rather than silently passing (it is not in either exemption table)."""
+    assert "TOTALLY_UNLISTED_VAR" not in INFRA_OWNED_DECLARED
+    assert "TOTALLY_UNLISTED_VAR" not in DEFERRED_UNRECONCILED_DECLARED
+    declared = [EnvNameRef(name="TOTALLY_UNLISTED_VAR", source="synthetic")]
+    result = reconcile(declared, read_names=set(), required=[])
+    assert not result.ok
+    assert {r.name for r in result.declared_unread} == {"TOTALLY_UNLISTED_VAR"}
+
+
+def test_infra_owned_allowlist_has_a_reason_for_every_entry() -> None:
+    assert INFRA_OWNED_DECLARED  # sanity: not accidentally emptied
+    for name, reason in INFRA_OWNED_DECLARED.items():
+        assert reason and reason.strip(), f"{name} has no reason"
+
+
+def test_deferred_allowlist_has_a_reason_for_every_entry() -> None:
+    assert DEFERRED_UNRECONCILED_DECLARED  # sanity: not accidentally emptied
+    for name, reason in DEFERRED_UNRECONCILED_DECLARED.items():
+        assert reason and reason.strip(), f"{name} has no reason"
+
+
+def test_require_reasons_rejects_an_empty_reason() -> None:
+    """The mutation proof: an allowlist entry with no reason must be rejected loudly (import-time
+    `ValueError`), not silently accepted — proven directly against `_require_reasons` rather than
+    by mutating the real module-level dicts (which would break every other test in this file)."""
+    with pytest.raises(ValueError, match="has no reason"):
+        _require_reasons({"SOME_VAR": ""}, label="test-allowlist")
+
+
+def test_require_reasons_rejects_a_whitespace_only_reason() -> None:
+    with pytest.raises(ValueError, match="has no reason"):
+        _require_reasons({"SOME_VAR": "   "}, label="test-allowlist")
+
+
+def test_require_reasons_accepts_a_real_reason() -> None:
+    _require_reasons({"SOME_VAR": "a real one-line reason"}, label="test-allowlist")  # no raise

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""CI gate: env-var names declared by the Helm chart / Terraform reconcile with what `src/` reads
-(DU-02 / R-002).
+"""CI gate: EVERY env-var name declared by the Helm chart / Terraform reconciles with what `src/`
+reads (DU-02 / R-002).
 
 Why this exists
 ----------------
@@ -13,27 +13,49 @@ and was already fixed IN ISOLATION — proof that a one-off rename does not stop
 from recurring on the next sibling path.
 
 This gate makes a chart/TF <-> `src/` env-name drift mechanical rather than something a human has
-to notice from prose. It reconciles two directions over four prefixes this repo owns end-to-end —
-`MAEZO_` (its own config), `WHATSAPP_` (the WhatsApp webhook receiver's credentials),
-`CIBSEVEN_` (the CIB Seven governance-engine client's endpoint config) and `KAFKA_` (the broker
-address every consumer/producer needs; `src/maezo/a2a/outbox_relay.py`'s `KAFKA_BOOTSTRAP_SERVERS`
-among them) — the exact prefix set DU-02's own register row/unlock-ledger entry names:
+to notice from prose. It reconciles two directions:
 
-  1. **declared, never read**: every `MAEZO_`/`WHATSAPP_`/`CIBSEVEN_`/`KAFKA_`-prefixed env name
-     declared in a rendered Helm manifest or in `deploy/**/*.tf` must be read somewhere in `src/`
-     (this is the direction that catches `MAEZO_TENANT` directly — that literal string appears
-     nowhere in `src/`). A short, individually-justified allowlist (`INFRA_OWNED_DECLARED`) exempts
-     names that are genuinely consumed by a THIRD-PARTY process the chart/TF also happens to
-     configure (the Kafka broker's own bootstrap env in `service-kafka.tf`; CIB Seven's own Spring
-     datasource in the gated-off-by-default in-cluster StatefulSet) — never a maezo Python module.
+  1. **declared, never read**: every env name declared in a rendered Helm manifest or in
+     `deploy/**/*.tf` must be read somewhere in `src/` (this is the direction that catches
+     `MAEZO_TENANT` directly — that literal string appears nowhere in `src/`).
   2. **required, never declared**: every env name a `src/` `pydantic_settings.BaseSettings` field
      REQUIRES (no default — `ValidationError` at boot, e.g. `WhatsAppWebhookSettings.app_secret` /
      `.verify_token`) must be declared somewhere in the chart/TF. This is the reverse of (1) and
      would have caught DU-02 too had `env.py` modeled `MAEZO_TENANT_ID` as a required
      `BaseSettings` field instead of an `os.environ.get(..., "public")` fallback.
 
+Where the scope came from
+--------------------------
+The owner's approved decision text (OWNER-DECISIONS-REGISTER R-002, option B, verbatim) asks for a
+fence that reconciles "toda variável de env declarada em chart/TF" — EVERY env name, not a subset.
+An earlier revision of this file scoped direction (1) to four hardcoded prefixes
+(`MAEZO_`/`WHATSAPP_`/`CIBSEVEN_`/`KAFKA_`) and its docstring falsely attributed that scope to
+"DU-02's own register row/unlock-ledger entry" — neither document names any prefix; the four-prefix
+slice was a scope decision made unilaterally by the implementing task, not the owner (gatekeeper
+finding F2). This revision removes the prefix restriction: `_NAME_PATTERN` now matches every
+`UPPER_SNAKE_CASE` name regardless of prefix, and every name that direction (1) surfaces as
+"declared but not read by `src/`" is either a real defect, fixed in the same PR that introduced
+this check (the `MAEZO_TENANT` rename), or one of two exemption tables below — never silently
+dropped.
+
+Two reasoned exemption tables (never a prefix or wildcard)
+------------------------------------------------------------
+  - `INFRA_OWNED_DECLARED`: a declared name genuinely consumed by something other than maezo
+    Python — the container runtime, a sidecar, a third-party image/SDK, the JVM, the CPython
+    interpreter itself, or an inline script embedded directly in the SAME `.tf`/chart file (not in
+    `src/`). Each entry names its actual consumer.
+  - `DEFERRED_UNRECONCILED_DECLARED`: a declared name that is genuinely unread by `src/` today, is
+    NOT infra-owned, and is NOT the same defect class as `MAEZO_TENANT` (there is no
+    differently-spelled reader to rename-fix) — a vestigial or free-form-passthrough value with no
+    real consumer found. These are deliberately NOT fixed in this PR (fixing them would be
+    speculative — there is no known intended reader to rename toward) and are instead tracked as
+    named follow-up gaps in `docs/review-queue.md`, cited in each entry's reason.
+
+Both tables require a non-empty, non-whitespace reason per name — `_require_reasons` (called at
+import time) raises if either is violated, so an unreasoned entry cannot silently ship.
+
 "Read somewhere in `src/`" is resolved as EVERY string literal in `src/**/*.py` that exactly
-matches the prefix pattern, UNION every name a `BaseSettings` subclass implies via
+matches `_NAME_PATTERN`, UNION every name a `BaseSettings` subclass implies via
 `env_prefix + FIELD_NAME.upper()` when the field carries no explicit `alias`/`validation_alias` —
 this codebase's own convention is to spell every canonical env name out as a literal constant
 (`ENV_PHI_ENDPOINT_URL: Final[str] = "MAEZO_PHI_ENDPOINT_URL"`, `AliasChoices("WHATSAPP_APP_SECRET",
@@ -73,12 +95,11 @@ DEFAULT_VALUE_FILES: tuple[str, ...] = ("deploy/helm/maezo-tenant/values-amh.yam
 DEFAULT_TF_ROOT = "deploy"
 DEFAULT_SRC_DIR = "src/maezo"
 
-#: The four env-name namespaces this repo owns end-to-end (DU-02's own register row/unlock-ledger
-#: entry names exactly these). NOT every prefix ever declared in the chart/TF (e.g. `DB_`, `FHIR_`,
-#: `TUNNEL_`, `SPRING_`, `OTEL_` are deliberately out of scope — a different reconciliation concern).
-PREFIXES: tuple[str, ...] = ("MAEZO_", "WHATSAPP_", "CIBSEVEN_", "KAFKA_")
-
-_NAME_PATTERN = re.compile(r"^(?:" + "|".join(PREFIXES) + r")[A-Z0-9_]*[A-Z0-9]$")
+#: Every env-var name follows this repo's own convention (UPPER_SNAKE_CASE) regardless of which
+#: component owns it — NO prefix restriction (see the module docstring's "Where the scope came
+#: from": an earlier revision restricted this to four prefixes and mis-attributed that scope to
+#: the register row; the owner's approved text asks for "toda variável de env").
+_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$")
 
 #: `helm template`'s default per-manifest header (no extra flag needed).
 _SOURCE_RE = re.compile(r"^#\s*Source:\s*(\S+)\s*$")
@@ -86,22 +107,67 @@ _SOURCE_RE = re.compile(r"^#\s*Source:\s*(\S+)\s*$")
 #: ECS/Terraform container-definition env entries: `{ name = "X", value = ... }` / `valueFrom = ...`.
 _TF_ENV_NAME_RE = re.compile(r'name\s*=\s*"([A-Z][A-Z0-9_]*)"')
 
+
+def _require_reasons(allowlist: dict[str, str], *, label: str) -> None:
+    """Fail fast (import time) if any allowlist entry has no reason — an unreasoned exemption is
+    exactly the "false provenance" failure mode gatekeeper finding F2 flagged in this file's own
+    prior revision. Raises `ValueError` naming the offending entry; never silently accepts one."""
+    for name, reason in allowlist.items():
+        if not reason or not reason.strip():
+            raise ValueError(f"{label} entry {name!r} has no reason — every exemption must be justified")
+
+
 #: Reason strings for `INFRA_OWNED_DECLARED`, factored out so the name table below stays scannable.
 _KAFKA_BROKER_BOOTSTRAP_REASON = (
     "Kafka BROKER's own bootstrap config (deploy/aws-ecs/envs/dev-sa-east-1/service-kafka.tf) — a "
     "stock Kafka/KRaft image's env-var surface, consumed by the Kafka JVM process itself, never by "
     "a maezo Python module."
 )
-_CIBSEVEN_DATASOURCE_REASON = (
+_CIBSEVEN_INCLUSTER_DATASOURCE_REASON = (
     "CIB Seven's OWN Spring datasource (statefulset-cibseven.yaml, gated OFF by default via "
     "cibseven.inCluster.enabled=false — pinned defensively even though it does not surface in "
     "today's default render) — the Java governance engine's own config, never maezo Python's."
+)
+_CIBSEVEN_ECS_JVM_REASON = (
+    "CIB Seven's OWN ECS task Spring/JVM config (deploy/aws-ecs/envs/dev-sa-east-1/"
+    "service-cibseven.tf) — the Java governance engine's own datasource/JVM env, verified by "
+    "reading that file directly; never a maezo Python module."
+)
+_DSN_COMPOSER_SCRIPT_REASON = (
+    "Read by dsn.tf's own inline `python -c` DSN-composer one-liner (`local.dsn_python`, "
+    "deploy/aws-ecs/envs/dev-sa-east-1/dsn.tf) — a script embedded directly in that Terraform "
+    "file, never `src/`. `DB_USER`/`DB_PASSWORD` are also consumed directly by CIB Seven's own "
+    "Spring datasource secrets in service-cibseven.tf."
+)
+_BOOTSTRAP_DB_SCRIPT_REASON = (
+    "Read by the inline `python - <<PY` bootstrap script embedded directly in "
+    "deploy/aws-ecs/envs/dev-sa-east-1/task-bootstrap-db.tf's own container `command` — verified "
+    "by reading that file directly; never `src/`."
+)
+_CODEBUILD_BUILDSPEC_REASON = (
+    "Read by codebuild.tf's own buildspec shell commands (`$REGISTRO`/`$REPOSITORIO`/`$DOCKERFILE`, "
+    "deploy/aws-ecs/envs/dev-sa-east-1/codebuild.tf) — a CodeBuild pipeline variable, never `src/`."
+)
+_PYTHON_INTERPRETER_REASON = (
+    "Read by the CPython interpreter itself before any maezo module executes (disables writing "
+    ".pyc files) — never an `os.environ` call in `src/`."
+)
+_OTEL_SDK_REASON = (
+    "Read directly by the `opentelemetry` Python SDK's own auto-config at exporter/span-processor "
+    "construction time (the OpenTelemetry spec's own env-var contract) — never via a maezo "
+    "`os.environ` literal. Contrast `OTEL_SERVICE_NAME`/`OTEL_EXPORTER_OTLP_ENDPOINT`, which "
+    "src/maezo/platform/observability.py DOES read explicitly and are therefore NOT here."
+)
+_CLOUDFLARED_REASON = (
+    "The `cloudflared` third-party binary/image's own env vars "
+    "(deploy/aws-ecs/envs/dev-sa-east-1/service-cloudflared.tf) — never maezo Python's."
 )
 
 #: Names whose bootstrap env is entirely the Kafka broker JVM's own (see reason above) — every
 #: `name = "KAFKA_..."` in `service-kafka.tf` EXCEPT `KAFKA_BOOTSTRAP_SERVERS`, which src/ DOES
 #: read (the address every consumer/producer connects to).
 _KAFKA_BROKER_OWN_NAMES: tuple[str, ...] = (
+    "CLUSTER_ID",
     "KAFKA_NODE_ID",
     "KAFKA_PROCESS_ROLES",
     "KAFKA_CONTROLLER_QUORUM_VOTERS",
@@ -117,15 +183,86 @@ _KAFKA_BROKER_OWN_NAMES: tuple[str, ...] = (
     "KAFKA_HEAP_OPTS",
 )
 
+#: CIB Seven's own ECS task Spring/JVM names (service-cibseven.tf) — see `_CIBSEVEN_ECS_JVM_REASON`.
+_CIBSEVEN_ECS_JVM_NAMES: tuple[str, ...] = (
+    "DB_DRIVER",
+    "DB_URL",
+    "DB_SCHEMA_UPDATE",
+    "DB_USERNAME",
+    "JAVA_OPTS",
+    "TZ",
+)
+
+#: Names read by dsn.tf's own inline DSN-composer script — see `_DSN_COMPOSER_SCRIPT_REASON`.
+_DSN_COMPOSER_SCRIPT_NAMES: tuple[str, ...] = (
+    "DB_HOST",
+    "DB_PORT",
+    "DB_NAME",
+    "DB_USER",
+    "DB_PASSWORD",
+    "DSN_SCHEME",
+)
+
+#: Names read by task-bootstrap-db.tf's own inline bootstrap script — see
+#: `_BOOTSTRAP_DB_SCRIPT_REASON`.
+_BOOTSTRAP_DB_SCRIPT_NAMES: tuple[str, ...] = (
+    "APP_ROLE",
+    "BOOTSTRAP_DB",
+    "ENGINE_ROLE",
+    "ENGINE_SCHEMA",
+    "TARGET_DB",
+    "TENANT_SCHEMA",
+)
+
+#: Names read by codebuild.tf's own buildspec shell — see `_CODEBUILD_BUILDSPEC_REASON`.
+_CODEBUILD_BUILDSPEC_NAMES: tuple[str, ...] = ("DOCKERFILE", "REGISTRO", "REPOSITORIO")
+
+#: OpenTelemetry SDK's own env-var contract — see `_OTEL_SDK_REASON`.
+_OTEL_SDK_NAMES: tuple[str, ...] = ("OTEL_EXPORTER_OTLP_PROTOCOL", "OTEL_RESOURCE_ATTRIBUTES")
+
+#: `cloudflared`'s own env vars — see `_CLOUDFLARED_REASON`.
+_CLOUDFLARED_NAMES: tuple[str, ...] = ("TUNNEL_LOGLEVEL", "TUNNEL_METRICS", "TUNNEL_TOKEN")
+
 #: Declared-but-legitimately-unread-by-Python names — each is consumed by a THIRD-PARTY process the
 #: chart/TF also happens to configure, never by a maezo Python module. Pinned and individually
 #: justified (mirrors the spirit of `spec/processes/dmn/orphans-allowlist.yaml`, but scoped to this
 #: gate only — adding an entry here requires the same review as any other CODEOWNED `scripts/ci/`
-#: change).
+#: change). Every entry's reason is non-empty by construction — `_require_reasons` enforces it below.
 INFRA_OWNED_DECLARED: dict[str, str] = {
     **dict.fromkeys(_KAFKA_BROKER_OWN_NAMES, _KAFKA_BROKER_BOOTSTRAP_REASON),
-    "CIBSEVEN_DATABASE_URL": _CIBSEVEN_DATASOURCE_REASON,
+    "CIBSEVEN_DATABASE_URL": _CIBSEVEN_INCLUSTER_DATASOURCE_REASON,
+    **dict.fromkeys(_CIBSEVEN_ECS_JVM_NAMES, _CIBSEVEN_ECS_JVM_REASON),
+    **dict.fromkeys(_DSN_COMPOSER_SCRIPT_NAMES, _DSN_COMPOSER_SCRIPT_REASON),
+    **dict.fromkeys(_BOOTSTRAP_DB_SCRIPT_NAMES, _BOOTSTRAP_DB_SCRIPT_REASON),
+    **dict.fromkeys(_CODEBUILD_BUILDSPEC_NAMES, _CODEBUILD_BUILDSPEC_REASON),
+    "PYTHONDONTWRITEBYTECODE": _PYTHON_INTERPRETER_REASON,
+    **dict.fromkeys(_OTEL_SDK_NAMES, _OTEL_SDK_REASON),
+    **dict.fromkeys(_CLOUDFLARED_NAMES, _CLOUDFLARED_REASON),
 }
+_require_reasons(INFRA_OWNED_DECLARED, label="INFRA_OWNED_DECLARED")
+
+#: Declared-but-unread names that are NEITHER infra-owned NOR the same defect class as
+#: `MAEZO_TENANT` (no differently-spelled reader exists to rename toward — see the module
+#: docstring). Each reason names the tracked `docs/review-queue.md` follow-up gap; fixing these
+#: would be speculative, not a rename, so they are deliberately deferred rather than "fixed" here.
+DEFERRED_UNRECONCILED_DECLARED: dict[str, str] = {
+    "ENVIRONMENT": (
+        "Declared via `agents[].env`'s free-form operator passthrough "
+        "(deploy/helm/maezo-tenant/values-amh.yaml, rendered by "
+        "`{{- range $k, $v := $agent.env }}` in deployment-agent-runtime.yaml) — an open-ended "
+        "extension point, not a fixed chart contract; today's value (`ENVIRONMENT: prod`) has no "
+        "reader anywhere in `src/`, spelled the same or differently. NOT a DU-02-class rename bug. "
+        "Follow-up gap `HELM-ENV-PASSTHROUGH-UNREAD` (docs/review-queue.md)."
+    ),
+    "AUDIT_DIR": (
+        "Declared for `notifications-bridge` (deployment-bridge.yaml) as a filesystem audit "
+        "directory, but `NotificationsBridgeSettings` (src/maezo/platform/integrations/"
+        "notifications_bridge.py) has no field for it and the bridge's real audit trail is "
+        "`PostgresAuditSink`, not a filesystem path — a vestigial declared name with no reader to "
+        "rename toward. Follow-up gap `HELM-ENV-AUDIT-DIR-DEAD` (docs/review-queue.md)."
+    ),
+}
+_require_reasons(DEFERRED_UNRECONCILED_DECLARED, label="DEFERRED_UNRECONCILED_DECLARED")
 
 
 @dataclass(frozen=True)
@@ -141,6 +278,7 @@ class ReconciliationResult:
     declared_unread: list[EnvNameRef] = field(default_factory=list)
     required_undeclared: list[EnvNameRef] = field(default_factory=list)
     allowlisted: list[EnvNameRef] = field(default_factory=list)
+    deferred: list[EnvNameRef] = field(default_factory=list)
     declared_total: int = 0
     read_total: int = 0
     required_total: int = 0
@@ -153,7 +291,8 @@ class ReconciliationResult:
         lines = [
             f"check_chart_env_reconciliation: {self.declared_total} declared name(s), "
             f"{self.read_total} read name(s) known to src/, {self.required_total} required "
-            f"name(s), {len(self.allowlisted)} allowlisted (infra-owned, non-Python)."
+            f"name(s), {len(self.allowlisted)} allowlisted (infra-owned, non-Python), "
+            f"{len(self.deferred)} deferred (tracked follow-up gap, not yet reconciled)."
         ]
         for ref in self.declared_unread:
             lines.append(
@@ -415,6 +554,9 @@ def reconcile(
             continue
         if ref.name in INFRA_OWNED_DECLARED:
             result.allowlisted.append(ref)
+            continue
+        if ref.name in DEFERRED_UNRECONCILED_DECLARED:
+            result.deferred.append(ref)
             continue
         result.declared_unread.append(ref)
 
