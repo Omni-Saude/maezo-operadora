@@ -23,14 +23,14 @@
 #      linha 33 produziu DOIS erros independentes), entao a linha continua valida pelo
 #      dono-usuario. Esse erro residual e o SEMAFORO desta migracao: enquanto ele existir, a
 #      separacao de revisor nao esta pronta.
-#      CONTAGEM ESPERADA hoje: 30 erros — exatamente UM por linha de regra que carrega o token do
+#      CONTAGEM ESPERADA hoje: 31 erros — exatamente UM por linha de regra que carrega o token do
 #      time (eram 27 antes das duas linhas de integridade de CI que esta auditoria acrescentou,
-#      `/Makefile` e `/scripts/ci/`; 29 ate 2026-09-04, quando a linha de
-#      `/.github/production-approvers.yaml` entrou por R-021 — ver a secao de autoprotecao). Derive
-#      sempre assim, nao decore o numero: se a contagem divergir de "linhas de regra com
-#      `@Omni-Saude/security-team`", ha um erro de OUTRA natureza escondido no meio, e e ele que
-#      interessa. `tests/unit/ci/test_codeowners_rules.py` mantem este numero preso a derivacao, de
-#      modo que acrescentar uma regra sem atualizar esta linha fica VERMELHO em vez de silencioso.
+#      `/Makefile` e `/scripts/ci/`; 29 ate 2026-09-04, quando entraram
+#      `/.github/production-approvers.yaml` (R-021) e `/deploy/` (R-053) — ver a secao de
+#      autoprotecao). Derive sempre assim, nao decore o numero: se a contagem divergir de "linhas
+#      de regra com `@Omni-Saude/security-team`", ha um erro de OUTRA natureza escondido no meio, e
+#      e ele que interessa. `tests/unit/ci/test_codeowners_rules.py` mantem este numero preso a
+#      derivacao: acrescentar uma regra sem atualizar esta linha fica VERMELHO, nao silencioso.
 #
 #   3. SEPARACAO DE REVISOR NAO EXISTE HOJE — E ESTE, NAO A SINTAXE, E O BLOQUEIO DO FLIP.
 #      O agente/orquestrador abre PR COMO `rodaquino-OMNI`, e o GitHub nao aceita auto-aprovacao.
@@ -274,6 +274,24 @@
 # aprovador humano, contraparte documental dos gates de `/spec/policies/**` acima. Editar o packet
 # e editar o registro de que a revisao aconteceu. 6 commits no periodo.
 /docs/reviews/             @rodaquino-OMNI @Omni-Saude/security-team
+#
+# `/deploy/` — decisao do dono R-053 (M-46, pergunta 53), 2026-09-04:
+#   "SIM — confirmar por escrito e, no mesmo ato, acrescentar `/deploy/` ao `.github/CODEOWNERS`
+#    para que a maquina passe a gatear o que hoje so a disciplina gateia."
+# O que a linha fecha, medido antes de existir (a justificativa do proprio dono: "`deploy/` nao
+# aparece em nenhuma das 31 linhas de regra de `.github/CODEOWNERS`", contagem de 2026-09-04):
+# `deploy/` nao era casado por regra alguma, logo `scripts/ci/check_flip_path_review.py` computava
+# "0 caminhos donados
+# tocados" e ficava VERDE num PR que so mexesse em Helm/Terraform — os P0 de `deploy/` (chart,
+# valores, modulos de IaC) eram gateados por disciplina humana, nao por mecanismo. E a mesma especie
+# de falha do environment `production` sem `protection_rules`: a regra existia na cabeca das pessoas
+# e nao na maquina.
+# LIMITE DECLARADO (floor_note da propria decisao): acrescentar a regra NAO a torna eficaz sozinha.
+# Enquanto `require_code_owner_review` estiver `false` (R-051, prazo 2026-09-14), CODEOWNERS
+# REQUISITA revisor sem EXIGI-LO; quem exige hoje e o check `flip-path-review-gate`, que le este
+# arquivo e passa a ficar vermelho num PR de `deploy/` sem aprovacao qualificada. Nao leia esta linha
+# como "deploy/ esta gateado por revisao obrigatoria" ate o flip.
+/deploy/                   @rodaquino-OMNI @Omni-Saude/security-team
 #
 # NAO GATEADO, DELIBERADAMENTE — registrado aqui para nao ser confundido com esquecimento:
 #   - `/pyproject.toml` (25 commits/6sem — o maior churn de qualquer candidato ja considerado

@@ -107,6 +107,42 @@ def test_the_production_approvers_file_resolves_to_a_real_owning_rule() -> None:
     )
 
 
+def test_the_deploy_tree_resolves_to_a_real_owning_rule() -> None:
+    """Owner decision R-053, executed as the owner wrote it.
+
+    Before the `/deploy/` rule existed, a PR touching only Helm or Terraform matched no rule, so
+    `check_flip_path_review.py` computed "0 owned paths touched" and reported GREEN — the P0 deploy
+    surface was gated by human discipline, not by machine. Every real file under `deploy/` is
+    resolved (not a sample and not a literal list), so narrowing the rule to a subtree cannot pass
+    unnoticed and a newly added subtree is covered the day it appears.
+
+    Per the decision's own floor_note this asserts OWNERSHIP, never enforcement: with
+    `require_code_owner_review: false` the rule requests a reviewer rather than requiring one.
+    """
+    rules = _rules()
+    real_files = sorted(
+        p.relative_to(_REPO_ROOT).as_posix()
+        for p in (_REPO_ROOT / "deploy").rglob("*")
+        if p.is_file()
+    )
+    assert len(real_files) > 10, (
+        f"only {len(real_files)} files found under deploy/ — the derivation is not exercising the "
+        "tree it claims to cover"
+    )
+    for path in real_files:
+        rule = owners_for_path(rules, path)
+        assert rule is not None, (
+            f"{path} is owned by no CODEOWNERS rule. Owner decision R-053: 'acrescentar `/deploy/` "
+            "ao `.github/CODEOWNERS` para que a maquina passe a gatear o que hoje so a disciplina "
+            "gateia.' Restore the `/deploy/` rule."
+        )
+        assert _carries_team(rule.owners), (
+            f"the rule owning {path} is `{rule.describe()}` — R-053 names the pair "
+            f"`@rodaquino-OMNI {_SECURITY_TEAM}`, so that the security reviewer is requested on "
+            "infrastructure changes and not only the repository owner."
+        )
+
+
 def test_the_expected_codeowners_error_count_in_the_header_matches_the_derivation_it_states() -> None:
     """The header says to DERIVE the expected `/codeowners/errors` count, never to memorise it —
     "exatamente UM por linha de regra que carrega o token do time". This keeps the stated number and
