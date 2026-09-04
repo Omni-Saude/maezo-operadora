@@ -51,14 +51,22 @@ the STORED links — the asymmetry that turns a lazy content edit into a detecte
 
 LIVE-PG ISOLATION / SKIP-LOUDLY (why this file never depends on an ad-hoc container)
 =================================================================================================
-Skip mechanism mirrors `tests/unit/a2a/test_a2a_edge_live_pg.py`: connect to a dedicated DSN with a
-2s timeout and `pytest.skip` LOUDLY if it is unreachable, so CI and every other environment skip
-cleanly. The default DSN targets a DEDICATED, NON-STANDARD port (5466) — deliberately NOT the
-compose stack's 5433/5432 nor the sibling live-PG suites' 5643 — so bringing up (or not bringing up)
-this suite's throwaway Postgres never makes another suite's live-PG tests attempt a half-ready DB.
-Each drill gets its OWN freshly-migrated tenant schema (function-scoped), because every drill
-mutates the chain destructively; the schema is dropped on teardown. Override the DSN with
-`MAEZO_TEST_AUDIT_ANCHOR_DRILL_DATABASE_URL`.
+Skip mechanism mirrors `tests/unit/a2a/test_a2a_edge_live_pg.py`: connect with a 2s timeout and
+`pytest.skip` LOUDLY if the server is unreachable, so an environment without Postgres skips
+cleanly and visibly. Isolation is per-TENANT-SCHEMA, not per-server: each drill gets its OWN
+freshly-migrated `w4drill<hex>` schema (function-scoped, because every drill mutates the chain
+destructively), dropped on teardown — that is what keeps concurrent suites off each other's rows.
+
+GAP LIVE-SUITES-SILENT-SKIP-AUDIT (2026-09-04). The default DSN used to target a "DEDICATED,
+NON-STANDARD port (5466) — deliberately NOT the compose stack's 5433/5432 nor the sibling live-PG
+suites' 5643", on the theory that an unserved port stops another suite attacking a half-ready DB.
+Nothing in this repo ever served 5466 — no compose service, no CI service, no documented bring-up
+— so the real effect was that all 9 drills below reported "COULD NOT VERIFY" in every environment
+that has ever run them, including CI: a default nobody serves is a silent skip, not a proof, and
+the anchor's entire security value is the drills actually executing. The default is now the
+compose Postgres (`${MAEZO_PG_HOST_PORT:-5433}`, `docker-compose.yml`'s own published port, the
+one CI's lanes pin to 5432); `MAEZO_TEST_AUDIT_ANCHOR_DRILL_DATABASE_URL` still overrides it for a
+throwaway server. Measured on the isolated compose stack: `9 passed` against 5433.
 
 The LABELED-FAKE signer/store are used with the writer/verifier flags ON only inside these drills:
 they are the dev/test seams leg 1 ships (`FAKE-KMS-NAO-VINCULATIVO` / `LABELED-FAKE-WORM`), never a
@@ -115,10 +123,13 @@ pytestmark = pytest.mark.integration
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
-# Dedicated, NON-STANDARD port (5466), deliberately outside {5432, 5433, 5643} — see module
-# docstring's isolation section. Overridable for any other local setup.
-_DEFAULT_DSN: Final[str] = "postgresql://maezo:maezo@localhost:5466/maezo"
+# Compose Postgres by default (gap LIVE-SUITES-SILENT-SKIP-AUDIT — see the module docstring's
+# isolation section); overridable for a throwaway server.
 _DSN_ENV: Final[str] = "MAEZO_TEST_AUDIT_ANCHOR_DRILL_DATABASE_URL"
+#: Compose Postgres host-port variable — `docker-compose.yml` publishes
+#: `ports: ["${MAEZO_PG_HOST_PORT:-5433}:5432"]` and CI's integration/chaos lanes pin it to 5432.
+_PORT_ENV: Final[str] = "MAEZO_PG_HOST_PORT"
+_DEFAULT_PORT: Final[str] = "5433"
 
 # The tenant's migration revision is deliberately NOT a constant here — `_seal_anchor_from_db`
 # reads it LIVE from `<tenant>_alembic_version`. A hardcoded one would drift the moment a migration
@@ -135,7 +146,17 @@ _UNIQUE_CONSTRAINT: Final[str] = "uq_audit_chain_prev_hash"  # migration 0002 an
 
 
 def _default_test_dsn() -> str:
-    return os.environ.get(_DSN_ENV, _DEFAULT_DSN)
+    """`_DSN_ENV` wins; otherwise the compose Postgres (gap LIVE-SUITES-SILENT-SKIP-AUDIT).
+
+    Mirrors `tests/integration/conftest.py::_audit_pg_dsn` exactly, so the default names a server
+    that actually exists in both environments that run tests: the local compose stack
+    (`${MAEZO_PG_HOST_PORT:-5433}`) and a CI job that pins `MAEZO_PG_HOST_PORT=5432`.
+    """
+    explicit = os.environ.get(_DSN_ENV)
+    if explicit:
+        return explicit
+    port = os.environ.get(_PORT_ENV, _DEFAULT_PORT)
+    return f"postgresql://maezo:maezo@localhost:{port}/maezo"
 
 
 async def _postgres_reachable(dsn: str) -> bool:
@@ -170,10 +191,11 @@ def pg_dsn() -> str:
     dsn = _default_test_dsn()
     if not asyncio.run(_postgres_reachable(dsn)):
         pytest.skip(
-            f"COULD NOT VERIFY: Postgres not reachable at {dsn!r} (override with {_DSN_ENV}). "
-            "This suite needs a FREE, dedicated Postgres on port 5466 (deliberately NOT the "
-            "compose stack's 5433/5432 nor the sibling live-PG suites' 5643) so its throwaway DB "
-            "never collides with another suite's — see the module docstring's isolation section."
+            f"COULD NOT VERIFY: Postgres not reachable at {dsn!r} (override with {_DSN_ENV} "
+            f"or {_PORT_ENV}). Bring the project's own stack up with "
+            "`docker compose --profile core up -d postgres` and re-run this file; each drill "
+            "migrates and drops its OWN tenant schema, so it never collides with another "
+            "suite's rows — see the module docstring's isolation section."
         )
     return dsn
 
