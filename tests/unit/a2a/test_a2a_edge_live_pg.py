@@ -68,14 +68,14 @@ pytestmark = pytest.mark.integration
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
-# Deliberately NOT the compose stack's default port (5433/5432) — a FREE, dedicated port for this
-# suite's own throwaway Postgres instance, per the W3 charter. Override with
-# MAEZO_TEST_A2A_EDGE_DATABASE_URL for a different local setup.
-#
-# NIT (W4): the charter specified 5643; this constant previously said 5642 (a copy/paste drift
-# flagged by the independent R1 live-PG verification — `docs/evidence-ledger.md`'s t2.4/W3 row).
-# Reconciled to 5643 for consistency; the env var above still overrides this for any other setup.
-_DEFAULT_DSN = "postgresql://maezo:maezo@localhost:5643/maezo"
+# Gap LIVE-SUITES-SILENT-SKIP-AUDIT (2026-09-04): this used to be a "FREE, dedicated port"
+# (5643, itself a reconciliation of a 5642/5643 drift the W3/W4 rows flagged) that NOTHING in this
+# repo ever served — no compose service, no CI service, no documented bring-up — so with the
+# project's own stack up and no env exported all 7 tests below reported "COULD NOT VERIFY"
+# forever. The dedicated port never was the isolation mechanism: `tenant_schema` below gives each
+# run its OWN `a2aw3<hex>` schema (created, migrated and dropped here), which is what actually
+# keeps concurrent suites off each other's rows. Default is now the compose Postgres, resolved by
+# `_default_test_dsn()` below; `MAEZO_TEST_A2A_EDGE_DATABASE_URL` still overrides it.
 
 # An address guaranteed to refuse a connection instantly (no CIB Seven engine — port 1 requires
 # root to bind and is never a real HTTP service on any dev/CI host).
@@ -109,7 +109,19 @@ class _RecordingKafkaProducer:
 
 
 def _default_test_dsn() -> str:
-    return os.environ.get("MAEZO_TEST_A2A_EDGE_DATABASE_URL", _DEFAULT_DSN)
+    """`MAEZO_TEST_A2A_EDGE_DATABASE_URL` wins; otherwise the compose Postgres.
+
+    Gap LIVE-SUITES-SILENT-SKIP-AUDIT (2026-09-04).
+
+    Mirrors `tests/integration/conftest.py::_audit_pg_dsn` exactly, so the default names a server
+    that actually exists in both environments that run tests: the local compose stack
+    (`${MAEZO_PG_HOST_PORT:-5433}`) and a CI job that pins `MAEZO_PG_HOST_PORT=5432`.
+    """
+    explicit = os.environ.get("MAEZO_TEST_A2A_EDGE_DATABASE_URL")
+    if explicit:
+        return explicit
+    port = os.environ.get("MAEZO_PG_HOST_PORT", "5433")
+    return f"postgresql://maezo:maezo@localhost:{port}/maezo"
 
 
 async def _postgres_reachable(dsn: str) -> bool:
@@ -143,9 +155,10 @@ def pg_dsn() -> str:
     if not asyncio.run(_postgres_reachable(dsn)):
         pytest.skip(
             f"COULD NOT VERIFY: Postgres not reachable at {dsn!r} (override with "
-            "MAEZO_TEST_A2A_EDGE_DATABASE_URL). This suite needs a FREE, dedicated Postgres on "
-            "port 5643 (deliberately NOT the compose stack's 5433/5432) with migrations "
-            "0001->0005 applied — see the W3 charter / test module docstring."
+            "MAEZO_TEST_A2A_EDGE_DATABASE_URL / MAEZO_PG_HOST_PORT). This suite needs a real "
+            "Postgres; the migrations 0001->0008 it needs are applied here, into its own per-run "
+            "tenant schema. Bring the project's own stack up with "
+            "`docker compose --profile core up -d postgres` and re-run this file."
         )
     return dsn
 

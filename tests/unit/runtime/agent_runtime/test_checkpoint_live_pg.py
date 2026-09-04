@@ -17,7 +17,8 @@ What this proves that the mock-only unit suite cannot:
   3. RESTART-RESUME: after `aclose()` (simulated process death) a FRESH `connect_and_setup` on the
      same DB recovers the persisted state via `aget_state` — the durable-persistence claim, real.
 
-Skips cleanly (never errors) when no Postgres is reachable.
+Skips LOUDLY (never errors, never fakes) when no Postgres is reachable — see `_dsn` below for
+why the default now points at the compose stack (gap LIVE-SUITES-SILENT-SKIP-AUDIT).
 """
 
 from __future__ import annotations
@@ -34,13 +35,25 @@ from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 
 pytestmark = pytest.mark.integration
 
-# A FREE, dedicated Postgres (deliberately not the compose stack's 5432/5433). Override with
-# MAEZO_TEST_CHECKPOINT_DATABASE_URL for a different local setup (the R1 proof used port 5658).
-_DEFAULT_DSN = "postgresql://ckpt:ckpt@localhost:5658/ckpt"
-
 
 def _dsn() -> str:
-    return os.environ.get("MAEZO_TEST_CHECKPOINT_DATABASE_URL", _DEFAULT_DSN)
+    """`MAEZO_TEST_CHECKPOINT_DATABASE_URL` wins; otherwise the compose Postgres.
+
+    Gap LIVE-SUITES-SILENT-SKIP-AUDIT (2026-09-04): the fallback used to be
+    `postgresql://ckpt:ckpt@localhost:5658/ckpt` — "a FREE, dedicated Postgres (deliberately not
+    the compose stack's 5432/5433)" whose role, database AND port nothing in this repo has ever
+    created or published. Both of this file's tests therefore reported "COULD NOT VERIFY" in every
+    environment that has ever run them. Now it mirrors
+    `tests/integration/conftest.py::_audit_pg_dsn`: the local compose stack
+    (`${MAEZO_PG_HOST_PORT:-5433}`) or a CI job that pins `MAEZO_PG_HOST_PORT=5432`. The
+    upstream saver's own `setup()` provisions its four tables wherever it is pointed, and every
+    test here deletes the thread it created, so a shared database costs nothing.
+    """
+    explicit = os.environ.get("MAEZO_TEST_CHECKPOINT_DATABASE_URL")
+    if explicit:
+        return explicit
+    port = os.environ.get("MAEZO_PG_HOST_PORT", "5433")
+    return f"postgresql://maezo:maezo@localhost:{port}/maezo"
 
 
 async def _postgres_reachable(dsn: str) -> bool:
@@ -62,8 +75,10 @@ def pg_dsn() -> str:
     if not asyncio.run(_postgres_reachable(dsn)):
         pytest.skip(
             f"COULD NOT VERIFY: Postgres not reachable at {dsn!r} (override with "
-            "MAEZO_TEST_CHECKPOINT_DATABASE_URL). This suite provisions the checkpoint tables via "
-            "the saver's own awaited setup() — no migrations needed."
+            "MAEZO_TEST_CHECKPOINT_DATABASE_URL / MAEZO_PG_HOST_PORT). Bring the project's own "
+            "stack up with `docker compose --profile core up -d postgres` and re-run this file; "
+            "this suite provisions the checkpoint tables via the saver's own awaited setup() — "
+            "no migrations needed."
         )
     return dsn
 
