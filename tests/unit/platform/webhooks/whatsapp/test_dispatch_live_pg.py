@@ -17,7 +17,8 @@ Proves what the in-memory unit suite cannot:
   4. PHI (LGPD): every `thread_id` in the checkpoint tables is a hashed `wa:{tenant}:{phone_hash}`
      id — never a raw phone number (SELECT proof).
 
-Skips cleanly (never errors) when no Postgres is reachable.
+Skips LOUDLY (never errors, never fakes) when no Postgres is reachable — see `_dsn` below for
+why the default now points at the compose stack (gap LIVE-SUITES-SILENT-SKIP-AUDIT).
 """
 
 from __future__ import annotations
@@ -37,16 +38,31 @@ from tests.support.audit_fakes import FakeStartAuditSink
 
 pytestmark = pytest.mark.integration
 
-# A FREE, dedicated Postgres (deliberately not the compose stack's 5432/5433). Override with
-# MAEZO_TEST_CHECKPOINT_DATABASE_URL. The T4b live proof used port 5663.
-_DEFAULT_DSN = "postgresql://ckpt:ckpt@localhost:5663/ckpt"
-
 _PHONE_A = "5511999990001"
 _PHONE_B = "5511999990002"
 
 
 def _dsn() -> str:
-    return os.environ.get("MAEZO_TEST_CHECKPOINT_DATABASE_URL", _DEFAULT_DSN)
+    """`MAEZO_TEST_CHECKPOINT_DATABASE_URL` wins; otherwise the compose Postgres.
+
+    Gap LIVE-SUITES-SILENT-SKIP-AUDIT (2026-09-04): the fallback used to be
+    `postgresql://ckpt:ckpt@localhost:5663/ckpt` — "a FREE, dedicated Postgres (deliberately not
+    the compose stack's 5432/5433)" whose role, database AND port nothing in this repo has ever
+    created or published, so this file's single test reported "COULD NOT VERIFY" in every
+    environment that has ever run it (a default nobody serves is a silent skip, not a proof). Now
+    it mirrors `tests/integration/conftest.py::_audit_pg_dsn`: the local compose stack
+    (`${MAEZO_PG_HOST_PORT:-5433}`) or a CI job that pins `MAEZO_PG_HOST_PORT=5432`. Note this is
+    the SAME variable and now the SAME default as
+    `tests/unit/runtime/agent_runtime/test_checkpoint_live_pg.py`, i.e. the two suites can share
+    one `checkpoints` table — which is why the PHI proof below is expressed over the threads THIS
+    test creates plus a raw-phone scan of the whole table, never over "every row must match this
+    file's own naming convention".
+    """
+    explicit = os.environ.get("MAEZO_TEST_CHECKPOINT_DATABASE_URL")
+    if explicit:
+        return explicit
+    port = os.environ.get("MAEZO_PG_HOST_PORT", "5433")
+    return f"postgresql://maezo:maezo@localhost:{port}/maezo"
 
 
 async def _postgres_reachable(dsn: str) -> bool:
@@ -68,8 +84,10 @@ def pg_dsn() -> str:
     if not asyncio.run(_postgres_reachable(dsn)):
         pytest.skip(
             f"COULD NOT VERIFY: Postgres not reachable at {dsn!r} (override with "
-            "MAEZO_TEST_CHECKPOINT_DATABASE_URL). The dispatch path provisions the checkpoint "
-            "tables via the saver's own awaited setup() — no migrations needed."
+            "MAEZO_TEST_CHECKPOINT_DATABASE_URL / MAEZO_PG_HOST_PORT). Bring the project's own "
+            "stack up with `docker compose --profile core up -d postgres` and re-run this file; "
+            "the dispatch path provisions the checkpoint tables via the saver's own awaited "
+            "setup() — no migrations needed."
         )
     return dsn
 
@@ -121,6 +139,13 @@ async def test_dispatch_multi_turn_persist_resume_restart_and_phi(pg_dsn: str) -
     ck = await Checkpointer.connect_and_setup(pg_dsn)
     conv_a: str | None = None
     conv_b: str | None = None
+    # Threads that already existed before this test wrote anything (the saver's tables are shared
+    # with `tests/unit/runtime/agent_runtime/test_checkpoint_live_pg.py`, which resolves the SAME
+    # `MAEZO_TEST_CHECKPOINT_DATABASE_URL` / compose default — see `_dsn`). The convention check
+    # below is scoped to the DELTA, so a foreign row can never turn this test red for a claim it
+    # is not making; the raw-phone scan stays global, because "no raw phone anywhere in this
+    # table" is a claim that holds for every writer.
+    pre_existing_threads = await _thread_ids(pg_dsn)
     try:
         dispatcher = _dispatcher(ck, turns=6)
 
@@ -146,8 +171,8 @@ async def test_dispatch_multi_turn_persist_resume_restart_and_phi(pg_dsn: str) -
         hist_b = [c async for c in ck.saver.alist(checkpoint_thread_config(conv_b))]  # type: ignore[union-attr]
         assert len(hist_b) < len(hist2)  # fresh identity, not A's 2-turn history
 
-        # PHI (LGPD) SELECT proof: no raw phone number appears in any thread_id column.
-        await _assert_no_raw_phone_in_checkpoint_tables(pg_dsn)
+        # PHI (LGPD) SELECT proof, read back out of Postgres (never from the objects in hand).
+        await _assert_no_raw_phone_in_checkpoint_tables(pg_dsn, pre_existing_threads)
     finally:
         await ck.aclose()  # simulate receiver death — pool torn down
 
@@ -167,7 +192,8 @@ async def test_dispatch_multi_turn_persist_resume_restart_and_phi(pg_dsn: str) -
         await ck2.aclose()
 
 
-async def _assert_no_raw_phone_in_checkpoint_tables(dsn: str) -> None:
+async def _thread_ids(dsn: str) -> set[str]:
+    """Every distinct `thread_id` currently persisted, read straight out of Postgres."""
     import asyncpg  # type: ignore[import-untyped]
 
     from maezo.gateway.audit_postgres import normalize_dsn
@@ -177,8 +203,27 @@ async def _assert_no_raw_phone_in_checkpoint_tables(dsn: str) -> None:
         rows = await conn.fetch("SELECT DISTINCT thread_id FROM checkpoints")
     finally:
         await conn.close()
-    thread_ids = [r["thread_id"] for r in rows]
-    assert thread_ids, "expected at least one checkpoint thread"
-    for tid in thread_ids:
-        assert tid.startswith("wa:amh:"), f"non-convention thread_id leaked: {tid!r}"
+    return {r["thread_id"] for r in rows}
+
+
+async def _assert_no_raw_phone_in_checkpoint_tables(dsn: str, pre_existing: set[str]) -> None:
+    """Two SELECT-backed claims, deliberately scoped differently.
+
+    1. GLOBAL — no raw phone number appears in ANY `thread_id`, whoever wrote it. This is the LGPD
+       claim itself and it holds for every writer, so it is asserted over the whole table.
+    2. DELTA — every thread this dispatch path created during this test follows the hashed
+       `wa:{tenant}:{phone_hash}` convention. Scoping this one to the rows that appeared since the
+       test started is what keeps it honest: the table is shared with
+       `tests/unit/runtime/agent_runtime/test_checkpoint_live_pg.py` (same env var, same default
+       DSN since gap LIVE-SUITES-SILENT-SKIP-AUDIT), and a sibling suite's thread is not evidence
+       about THIS path. Before the scoping, a foreign row would have failed this test for a claim
+       it never made — and, worse, an ADDITIONAL non-conventional thread written by the dispatch
+       path itself would still be caught, because it lands in the delta.
+    """
+    persisted = await _thread_ids(dsn)
+    for tid in persisted:
         assert _PHONE_A not in tid and _PHONE_B not in tid, f"RAW PHONE in checkpoint thread_id: {tid!r}"
+    written_here = persisted - pre_existing
+    assert written_here, "expected at least one checkpoint thread written by this test"
+    for tid in written_here:
+        assert tid.startswith("wa:amh:"), f"non-convention thread_id leaked: {tid!r}"
