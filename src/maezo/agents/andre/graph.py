@@ -124,8 +124,13 @@ DIVERGENCES FROM DONOR (disclosed, spec wins per this task's charter):
    deployed table's output, never rewriting it. The human-destination group (`grupo_humano`) is
    still resolved from the CLOSED alcada-group allowlist only on human routes.
 5. **`finalize` does NOT write episodic memory** (donor's `finalize` calls
-   `mcp-memory.read_write`). v2 has no `MemoryServer`/pgvector schema wired into any agent graph
-   yet — same labeled boundary as `helena/rafael`'s graphs.
+   `mcp-memory.read_write`). v2 has no `MemoryServer` wired into any agent graph yet — same
+   labeled boundary as `helena/rafael`'s graphs. The blocker is NOT a missing table: `0001`
+   creates `agent_memory`, and the SEMANTIC layer that used to sit beside it
+   (`agent_memory.embedding`) was removed by `0009_drop_pgvector` with ADR-0002 §3 suspended
+   pending a consumer (ADR-0047, DRAFT). What is missing is `store_episodic`'s signature —
+   `(agent_id, event)` carries neither `tenant_id` nor `thread_id`, both `text NOT NULL` — which
+   is GAP-DU-01-a, an owner decision, not a graph change.
 6. **No `dossier_review` Flow literal.** The donor models the unrecognized-origin fallback as a
    fourth `Flow` member; v2's charter scopes Andre to THREE flows — the fail-neutral handling of
    an unrecognized `flow` value lives in `receive`/`assess`'s conservative catch-alls instead

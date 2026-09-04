@@ -83,8 +83,11 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
   wiring for agent tool calls yet, T2.4 gap). Best-effort: FHIR absence/failure degrades to a
   dossier gap note, never a fabricated fact, never a blocked instruction.
 - No episodic memory write (`mcp-memory.read_write`, ADR-0002) in `finalize` — same rationale
-  as Helena's/Rafael's/Marina's graphs: v2's `MemoryServer` requires a live Postgres/pgvector
-  schema not yet wired into any agent graph in this repo.
+  as Helena's/Rafael's/Marina's graphs: `MemoryServer.store_episodic` still refuses fail-closed.
+  The table exists (`agent_memory`, migration `0001`); what is missing is the tool's
+  `(agent_id, event)` signature, which carries neither `tenant_id` nor `thread_id` (both
+  `text NOT NULL`) — GAP-DU-01-a. The semantic column that once accompanied it was dropped by
+  `0009_drop_pgvector`; ADR-0002 §3 is SUSPENDED pending a consumer (ADR-0047, DRAFT).
 - No inbound A2A delegation adapter (`fraude.investigate` handler): v2's `a2a/` package has no
   `DelegationEnvelope`/`DelegationDispatcher` yet (only `AgentCard`/`A2ARegistry`/
   `AntiLoopGuard` exist) — same gap every T1.11/T1.12 graph discloses. The graph is invoked

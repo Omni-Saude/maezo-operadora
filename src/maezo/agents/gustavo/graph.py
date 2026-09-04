@@ -96,8 +96,11 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   `DelegationDispatcher` yet (same boundary rafael/fernando disclose). This graph is invoked
   directly with an already-assembled `GustavoState`, not via a live delegation.
 - No episodic memory write (ADR-0002): the donor's `finalize` writes `mcp-memory.read_write`;
-  v2's `MemoryServer` has no live Postgres/pgvector schema in this repo's migrations yet — same
-  labeled boundary as helena/rafael/carolina. `finalize` is a terminal no-op.
+  v2's `MemoryServer.store_episodic` still refuses fail-closed — the table exists
+  (`agent_memory`, migration `0001`), the tool's `(agent_id, event)` signature does not carry
+  `tenant_id`/`thread_id` (both `text NOT NULL`), GAP-DU-01-a. The semantic column beside it was
+  dropped by `0009_drop_pgvector`, ADR-0002 §3 SUSPENDED pending a consumer (ADR-0047, DRAFT).
+  Same labeled boundary as helena/rafael/carolina. `finalize` is a terminal no-op.
 - `gather`'s FHIR enrichment (J2 only) is best-effort and OPTIONAL — reuses rafael's
   `FhirReader` seam shape; absence/failure never blocks routing, only degrades the dossier with
   a disclosed gap note.

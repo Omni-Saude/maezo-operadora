@@ -110,8 +110,11 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
   fabricated fact. When no `fhir` dependency is injected at all, `gather` records an explicit gap
   note rather than silently producing empty facts that look like "no findings".
 - No episodic memory write (`mcp-memory.read_write`, ADR-0002) — same rationale as Helena's/
-  Rafael's graphs: v2's `MemoryServer` requires a live Postgres/pgvector schema not yet wired
-  into any agent graph in this repo; adding it is a follow-up once that schema exists.
+  Rafael's graphs: `MemoryServer.store_episodic` refuses fail-closed. The table exists
+  (`agent_memory`, migration `0001`); the missing piece is the tool's `(agent_id, event)`
+  signature, which carries neither `tenant_id` nor `thread_id` (both `text NOT NULL`) —
+  GAP-DU-01-a. The semantic column was dropped by `0009_drop_pgvector`, ADR-0002 §3 SUSPENDED
+  pending a consumer (ADR-0047, DRAFT).
 - No cross-agent A2A delegation (`operadora.contas/recurso/reembolso.*` -> Marina) is wired in
   this build: v2's `a2a/` package has no `DelegationEnvelope`/`DelegationDispatcher` yet (only
   `AgentCard`/`A2ARegistry`/`AntiLoopGuard` exist) — same gap Rafael's/Helena's graphs already
