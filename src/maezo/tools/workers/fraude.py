@@ -74,6 +74,16 @@ _PHI_MARKERS = frozenset({"cpf", "nome", "nome_social", "endereco", "telefone", 
 #: emitido pelas duas funcoes — nao ha um segundo valor a acrescentar aqui.
 GAP_BEATRIZ_A2A_NAO_LIGADO = "beatriz_a2a_nao_ligado"
 
+#: Class-token da lacuna que hoje impede `refer_to_legal` de fazer o que seu nome promete: NAO
+#: existe integracao com juridico/ANS/esfera civel/penal neste repo, e as proprias obrigacoes de
+#: referral (prazo, forma, autoridade competente) seguem DRAFT/verify no contrato — nao ha nem o
+#: que integrar antes de juridico+compliance as pinarem (FAB-REFER-TO-LEGAL). Mesmo formato e
+#: mesma disciplina de `GAP_BEATRIZ_A2A_NAO_LIGADO` acima: token fechado, sem PHI, declarado no
+#: contrato (docs/processes/contracts/SP-OP-FRAUDE-001.md, secao "Variaveis de saida"), seguro
+#: para o escopo do processo e para a trilha ADR-0007. Quando o referral real for ligado, o token
+#: deixa de ser emitido — ausencia passa a significar "encaminhamento real ocorreu".
+GAP_REFERRAL_JURIDICO_NAO_LIGADO = "referral_juridico_nao_ligado"
+
 
 # ---------------------------------------------------------------
 # intake — neutral start (register case, no adverse effect)
@@ -81,25 +91,61 @@ GAP_BEATRIZ_A2A_NAO_LIGADO = "beatriz_a2a_nao_ligado"
 
 
 def intake(variables: dict[str, Any]) -> dict[str, Any]:
-    """Register the fraud investigation case (NEUTRAL start).
+    """Registra a PROCEDENCIA do encaminhamento no log. Retorna `{}` — NAO afirma nada.
 
-    Records provenance: who referred the case (encaminhado_por_id from Phase 2).
+    Serve `ST_Intake` (topico `operadora.fraude.intake`,
+    SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn). Start neutro, jamais adverso.
+
+    FAB-INTAKE-CASO-REGISTRADO (o motivo desta docstring). O retorno era, em toda entrega e sem
+    calcular nada, `{"caso_registrado": True, "intake_ts": "now"}` — o segundo com o comentario
+    `# placeholder` no proprio codigo. A harness grava o retorno no escopo do processo no
+    `complete`, entao as duas constantes entravam na instancia como trilha de auditoria de um
+    registro que ESTA funcao nunca fez: seu corpo tinha uma unica instrucao (`logger.info`) e
+    nenhum sink. Mesma especie da familia FAB-* (`notify_sla_risk` neste mesmo modulo,
+    FAB-SLA-RISK-NOTIFIED-SLICE4).
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar, `grep -rnw 'caso_registrado|intake_ts' spec/
+    src/ tests/ docs/`): nenhuma `conditionExpression` de BPMN, `inputExpression` de DMN, worker a
+    jusante, golden de eval ou linha de contrato — so as duas atribuicoes e a assercao do teste
+    unitario.
+
+    POR QUE `{}` E NAO UM TOKEN DE LACUNA (a diferenca deliberada para BEA-09). O registro do caso
+    na cadeia de auditoria DE FATO acontece — so nao aqui: (i) a harness emite a linha ADR-0007
+    ANTES de todo `complete` (emit-before-complete, fail-closed: sem sink o task nem completa), e
+    (ii) a task seguinte do BPMN, `ST_PublishIntakeReceived`, publica
+    `agents.events.fraude.intake_received` carregando `encaminhado_por_id` no
+    `event_payload_vars`. Emitir um `intake_gap` afirmaria uma lacuna INEXISTENTE — o mesmo
+    defeito de honestidade na direcao oposta. `evidencia_gap`/`dossie_gap` existem porque la a
+    coleta e a montagem nao acontecem em lugar NENHUM; aqui acontecem, apenas fora desta funcao.
+
+    `intake_ts` foi removida sem substituicao por relogio real: alem de nao ter consumidor, o
+    instante do intake ja e fato do engine (`GET /history/activity-instance` de `ST_Intake`), e um
+    segundo carimbo no escopo do processo seria uma fonte de verdade redundante, nao uma correcao.
+
+    ACHADO COLATERAL, NAO CORRIGIDO AQUI: o BPMN e a tabela de codigos de erro do contrato dizem
+    que esta task lanca `ERR_FRAUDE_CASO_INVALIDO` "se o caso for inconsistente na origem"; a
+    constante existe (`:50`) mas NENHUM call site a levanta e esta funcao nao valida nada.
+    Definir o que torna um caso inconsistente e produto/juridico (a regra de correlacao de
+    `numero_caso` esta ela propria em aberto), nao engenharia — registrado em Pendencias do
+    contrato.
     """
     numero_caso = variables.get("numero_caso", "")
     origem = variables.get("origem_encaminhamento", "")
     encaminhado_por = variables.get("encaminhado_por_id", "")
 
+    # `registro_asserted=False` diz no log o que o retorno diz no escopo do processo: esta etapa
+    # nao registrou o caso em sink algum (o registro e da trilha da harness + ST_PublishIntake-
+    # Received). `info`, nao `warning`: ao contrario de `gather_evidence`, aqui nao ha lacuna —
+    # so uma atribuicao de responsabilidade que estava sendo afirmada no lugar errado.
     logger.info(
         "fraude_intake",
         numero_caso=numero_caso,
         origem=origem,
         encaminhado_por=encaminhado_por,
+        registro_asserted=False,
     )
 
-    return {
-        "caso_registrado": True,
-        "intake_ts": "now",  # placeholder
-    }
+    return {}
 
 
 # ---------------------------------------------------------------
@@ -783,19 +829,76 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 def refer_to_legal(variables: dict[str, Any]) -> dict[str, Any]:
-    """Refer case to legal/ANS/civil/criminal (downstream of accusation)."""
+    """DECLARA que o referral a juridico/ANS/civel/penal NAO foi executado. Nao encaminha nada.
+
+    Serve `ST_ReferToLegal` (topico `operadora.fraude.refer_to_legal`,
+    SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn). E o CAMINHO ADVERSO do processo: o engine so
+    alcanca esta task a jusante de (i) `UT_DecisaoInvestigador` com `decisao_fraude=ACUSAR_FRAUDE`
+    setado por humano (L0 hard `fraud_accusation`), (ii) `bundle_root` selado e re-verificado em
+    `register_fraud_accusation`, (iii) o SEGUNDO gate humano `UT_RevisaoReferral`
+    (juridico/compliance aprovando os destinos) e (iv) `GW_DestinoReferral`
+    (`${destino_referral_juridico == true || destino_referral_ans == true}`). Sua unica saida e
+    `ST_PublishEncaminhadoJuridico` -> `End_EncaminhadoJuridico`.
+
+    FAB-REFER-TO-LEGAL (o motivo desta docstring). O retorno era, em toda entrega e sem calcular
+    nada, `{"referral_executado": True, "destinos": <eco de destino_referral>}`, de um corpo cuja
+    unica instrucao era `logger.info`. NENHUMA autoridade e contatada por esta funcao nem por
+    qualquer outra deste repo: `fraude.py` nao tem NENHUM call site de `kafka.publish(`
+    (`register_fraude_workers` faz `del kafka  # unused`), nao ha transporte juridico/ANS
+    (nenhum equivalente ao `AnsGatewayTransport` de `ans_submit` e injetado aqui — esta funcao nao
+    recebe seam algum), e o contrato lista as proprias **Obrigacoes de referral** (prazo, forma,
+    autoridade competente, escada de alcada por destino) como DRAFT/verify, "nao estao pinadas em
+    nenhum repo" — nao ha nem especificacao do que integrar. A harness grava o retorno no escopo
+    do processo no `complete`, entao a constante entrava na instancia — e na trilha ADR-0007 de
+    uma acusacao de fraude JA CONSTITUIDA — afirmando a execucao de um ato regulatorio que nunca
+    saiu do processo. E a instancia mais grave da familia FAB-* neste modulo, por estar do lado
+    adverso da fronteira L0.
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar, `grep -rnw 'referral_executado|destinos'
+    spec/ src/ tests/ docs/`): `referral_executado` so aparecia na propria atribuicao e na
+    assercao do teste unitario; `destinos` so na atribuicao (as duas ocorrencias da PALAVRA em
+    spec/docs sao prosa de `<bpmn:documentation>` de `UT_RevisaoReferral` e da linha de
+    `destino_referral` no contrato, nao referencia a variavel). Nenhuma `conditionExpression`
+    (o gateway le as flags planas `destino_referral_*`, nunca esta chave), nenhuma
+    `inputExpression` de DMN, nenhum worker a jusante, nenhum golden.
+
+    `destinos` NAO foi mantida: era eco byte-a-byte de `destino_referral`, que ja esta no escopo
+    desde `UT_DecisaoInvestigador` e foi confirmada em `UT_RevisaoReferral`. Reescreve-la sob um
+    segundo nome cria uma segunda fonte de verdade para uma decisao humana sem acrescentar fato
+    algum — mesmo tratamento que `notify_sla_risk` deu as suas chaves de eco.
+
+    A LACUNA NAO E SILENCIOSA. Em lugar da afirmacao falsa sai `referral_gap`
+    (`GAP_REFERRAL_JURIDICO_NAO_LIGADO`), token fechado e sem PHI, DECLARADO no contrato
+    (SP-OP-FRAUDE-001.md, "Variaveis de saida"), com semantica de AUSENCIA = referral real. Quem
+    ler a instancia — o revisor de juridico/compliance, o investigador, a auditoria que le o
+    desfecho `encaminhado_juridico` — ve que a autoridade NAO foi notificada, em vez de ver um
+    carimbo de execucao. Mesma perna de visibilidade de `evidencia_gap`/`dossie_gap` (BEA-09) e do
+    M-1 de `adequacao.measure_gap`.
+
+    NAO E FAIL-CLOSED, e por que: levantar aqui pararia toda instancia que chegasse ao referral —
+    uma lacuna de DEPLOY (a integracao nao existe para caso nenhum), nao um defeito do caso — e
+    deixaria a acusacao humana ja constituida sem terminal. O roteamento dos destinos aprovados
+    segue do `GW_DestinoReferral` e o desfecho segue publicado por `ST_PublishEncaminhadoJuridico`
+    (que continua funcionando: e o caminho generico `operadora.events.publish`). Fechar o caminho
+    e decisao de juridico/compliance, registrada em Pendencias do contrato — nao de engenharia.
+
+    Invariante L0 inalterada: esta funcao nao decide nada, nao acusa, e nunca e alcancada sem a
+    UT humana a montante.
+    """
     destino = variables.get("destino_referral", {})
 
-    logger.info(
-        "fraude_refer_to_legal",
+    # `warning`, nao `info` (precedente `fraude_evidencia_nao_coletada`): uma etapa de referral que
+    # nao refere e defeito operacional num caminho adverso, nao progresso de rotina.
+    # `referral_asserted=False` diz no log a mesma coisa que o retorno diz no escopo do processo.
+    logger.warning(
+        "fraude_referral_nao_executado",
         numero_caso=variables.get("numero_caso"),
         destino=destino,
+        referral_asserted=False,
+        gap=GAP_REFERRAL_JURIDICO_NAO_LIGADO,
     )
 
-    return {
-        "referral_executado": True,
-        "destinos": destino,
-    }
+    return {"referral_gap": GAP_REFERRAL_JURIDICO_NAO_LIGADO}
 
 
 # ---------------------------------------------------------------

@@ -98,7 +98,7 @@ veredito), score_indicadores (integer — FATO DE ROTEAMENTO; NUNCA number/doubl
     <!-- Intake neutro: registra o caso + procedencia (encaminhado_por_id humano). Sem efeito adverso. -->
     <bpmn:serviceTask id="ST_Intake" name="Registrar intake neutro / procedencia do encaminhamento"
                       camunda:type="external" camunda:topic="operadora.fraude.intake">
-      <bpmn:documentation>Start neutro — registra o caso na cadeia de auditoria (encaminhado_por_id = o HUMANO de Phase 2 que setou encaminhar_fraude; nunca um worker). Lanca ERR_FRAUDE_CASO_INVALIDO se o caso for inconsistente na origem. Sem efeito adverso. TASY write DROP (ADR-0013).</bpmn:documentation>
+      <bpmn:documentation>Start neutro — o caso e registrado na cadeia de auditoria (encaminhado_por_id = o HUMANO de Phase 2 que setou encaminhar_fraude; nunca um worker). Sem efeito adverso. TASY write DROP (ADR-0013). HOJE (FAB-INTAKE-CASO-REGISTRADO): o worker intake le a procedencia, registra-a no log estruturado e retorna {} — NAO afirma caso_registrado=true nem o carimbo intake_ts='now' (antes retornava as duas constantes). Quem registra o caso sao a linha ADR-0007 que a harness emite antes do complete e a task seguinte ST_PublishIntakeReceived, nao esta funcao; por isso aqui nao ha variavel de lacuna. ERR_FRAUDE_CASO_INVALIDO segue DECLARADO E NAO IMPLEMENTADO: nenhuma validacao de consistencia do caso roda hoje e nenhum call site levanta o codigo (definir o que e um caso inconsistente e produto/juridico — Pendencias do contrato).</bpmn:documentation>
       <bpmn:incoming>Flow_Start_Intake</bpmn:incoming>
       <bpmn:outgoing>Flow_Intake_PubReceived</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -312,7 +312,7 @@ dossie_montado=true nesta mesma posicao, sem dossie algum.
     <!-- Segundo gate humano: revisao/aprovacao do referral (juridico/compliance). Gateia os handoffs. -->
     <bpmn:userTask id="UT_RevisaoReferral" name="Revisao/aprovacao do referral (juridico/compliance)"
                    camunda:candidateGroups="juridico-fraude">
-      <bpmn:documentation>Segundo gate humano (apos a acusacao ja constituida em UT_DecisaoInvestigador): juridico/compliance revisa/aprova os destinos do referral (ANS/civel/penal/cred/contratual) antes do fan-out. Confirma destino_referral_cred / destino_referral_contratual. Nao e um terminal adverso por si (a acusacao ja ocorreu); gateia apenas os handoffs downstream, cada um com sua propria UT adversa (CRED/CANCEL/INADIMPLENCIA).</bpmn:documentation>
+      <bpmn:documentation>Segundo gate humano (apos a acusacao ja constituida em UT_DecisaoInvestigador): juridico/compliance revisa/aprova os destinos do referral (ANS/civel/penal/cred/contratual) antes do fan-out. Confirma destino_referral_cred / destino_referral_contratual. Nao e um terminal adverso por si (a acusacao ja ocorreu); gateia apenas os handoffs downstream, cada um com sua propria UT adversa (CRED/CANCEL/INADIMPLENCIA). O revisor decide sabendo que (i) o dossie nao foi montado (dossie_gap/evidencia_gap = beatriz_a2a_nao_ligado — BEA-09) e que (ii) aprovar o destino juridico/ANS NAO notifica autoridade alguma hoje: ST_ReferToLegal emite referral_gap = referral_juridico_nao_ligado e o encaminhamento real permanece a ligar (FAB-REFER-TO-LEGAL).</bpmn:documentation>
       <bpmn:incoming>Flow_Register_UTRevisao</bpmn:incoming>
       <bpmn:outgoing>Flow_UTRevisao_GWReferral</bpmn:outgoing>
     </bpmn:userTask>
@@ -392,7 +392,7 @@ dossie_montado=true nesta mesma posicao, sem dossie algum.
     <!-- Handoff a juridico/ANS/civel/penal (default do fan-out). -->
     <bpmn:serviceTask id="ST_ReferToLegal" name="Referral a juridico/ANS/civel/penal"
                       camunda:type="external" camunda:topic="operadora.fraude.refer_to_legal">
-      <bpmn:documentation>Handoff downstream (so a jusante de acusacao humana + bundle selado + UT_RevisaoReferral): referral a juridico/ANS/esfera civel/penal. Obrigacoes de referral (prazo/forma/autoridade) DRAFT/verify juridico+compliance.</bpmn:documentation>
+      <bpmn:documentation>ALVO: handoff downstream (so a jusante de acusacao humana + bundle selado + UT_RevisaoReferral) — referral a juridico/ANS/esfera civel/penal. Obrigacoes de referral (prazo/forma/autoridade) DRAFT/verify juridico+compliance. HOJE (FAB-REFER-TO-LEGAL): o worker refer_to_legal NAO encaminha nada a autoridade alguma — nenhum canal e contatado, nao ha transporte juridico/ANS neste repo e nem as obrigacoes de referral estao pinadas — e retorna exatamente {referral_gap: referral_juridico_nao_ligado}. NAO afirma referral_executado=true nem ecoa destinos (antes retornava as duas constantes, gravando a execucao de um ato regulatorio que nunca saiu do processo na trilha ADR-0007 de uma acusacao ja constituida). Nao levanta erro: a lacuna e de DEPLOY, nao do caso; o roteamento segue do GW_DestinoReferral e o desfecho segue publicado por ST_PublishEncaminhadoJuridico.</bpmn:documentation>
       <bpmn:incoming>Flow_GWReferral_Juridico</bpmn:incoming>
       <bpmn:outgoing>Flow_Legal_Pub</bpmn:outgoing>
     </bpmn:serviceTask>
