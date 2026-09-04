@@ -676,7 +676,13 @@ HEAD_CODEOWNERS = "# (ownership line deleted by this very PR)\n"
 
 
 class FakeAPI:
-    """Stands in for `GitHubAPI`: serves per-ref file content plus fixed files/reviews."""
+    """Stands in for `GitHubAPI`: serves per-ref file content plus fixed files/reviews.
+
+    `base_tip` stands in for `GitHubAPI.branch_tip`'s resolved CURRENT tip of the base branch — a
+    fixed default (equal to `BASE_SHA`, i.e. "no drift") so every existing caller of this fixture
+    keeps working unmodified; a test exercising the merge-base-relative fix explicitly passes a
+    DIFFERENT `base_tip` (see `MergeBaseFakeAPI` below, and `test_stale_base_sha_no_longer_...`).
+    """
 
     def __init__(
         self,
@@ -685,18 +691,23 @@ class FakeAPI:
         changed: list[str],
         reviews: list[Review],
         membership_state: MembershipState = MembershipState.NOT_MEMBER,
+        base_tip: str = BASE_SHA,
     ) -> None:
         self.files_by_ref = files_by_ref
         self._changed = changed
         self._reviews = reviews
         self._membership_state = membership_state
+        self._base_tip = base_tip
         self.refs_asked: list[str] = []
 
     def file_at(self, ref: str, path: str) -> str | None:
         self.refs_asked.append(ref)
         return self.files_by_ref.get(ref, {}).get(path)
 
-    def changed_paths(self, pr_number: int) -> list[str]:
+    def branch_tip(self, ref: str) -> str:
+        return self._base_tip
+
+    def changed_paths(self, base_tip: str, head_sha: str) -> list[str]:
         return self._changed
 
     def reviews(self, pr_number: int) -> list[Review]:
@@ -795,7 +806,7 @@ def test_main_dry_run_mode_fetches_the_pr_context_and_still_reads_codeowners_fro
         reviews=[],
     )
     api.pull_request = lambda pr: gate.EventContext(  # type: ignore[attr-defined]
-        repo="o/r", pr_number=pr, base_sha=BASE_SHA, author_login=AUTHOR
+        repo="o/r", pr_number=pr, base_sha=BASE_SHA, base_ref="main", head_sha=HEAD_SHA, author_login=AUTHOR
     )
     monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
     monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
@@ -833,7 +844,7 @@ def _direct_mode_api() -> FakeAPI:
         reviews=[],
     )
     api.pull_request = lambda pr: gate.EventContext(  # type: ignore[attr-defined]
-        repo="o/r", pr_number=pr, base_sha=BASE_SHA, author_login=AUTHOR
+        repo="o/r", pr_number=pr, base_sha=BASE_SHA, base_ref="main", head_sha=HEAD_SHA, author_login=AUTHOR
     )
     return api
 
@@ -906,14 +917,24 @@ def test_the_workflow_really_does_invoke_the_gate_with_no_arguments() -> None:
 def test_a_lone_pr_override_still_applies_on_top_of_the_ambient_payload(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`--pr` alone is an OVERRIDE, not a mode switch: the ambient payload still supplies context."""
+    """`--pr` alone is an OVERRIDE, not a mode switch: the ambient payload still supplies context.
+
+    Touched paths are no longer keyed by `pr_number` at all (they come from `context.base_ref` /
+    `context.head_sha`, both sourced from the ambient payload regardless of `--pr`) — the PR-number
+    override now shows up in which PR's REVIEWS are fetched, so that is what this test tracks.
+    """
     api = FakeAPI(
         files_by_ref={BASE_SHA: {".github/CODEOWNERS": BASE_CODEOWNERS}},
         changed=["spec/policies/autonomy/matrix.yaml"],
         reviews=[],
     )
     seen: list[int] = []
-    api.changed_paths = lambda pr_number: (seen.append(pr_number), ["spec/policies/autonomy/x.yaml"])[1]  # type: ignore[assignment]
+
+    def tracking_reviews(pr_number: int) -> list[Review]:
+        seen.append(pr_number)
+        return []
+
+    api.reviews = tracking_reviews  # type: ignore[method-assign]
     monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
     monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(write_event(tmp_path)))
@@ -1049,6 +1070,8 @@ def test_event_context_reads_the_pull_request_object(tmp_path: Path) -> None:
     assert context.repo == "Omni-Saude/maezo-operadora"
     assert context.pr_number == 244
     assert context.base_sha == BASE_SHA
+    assert context.base_ref == "main"
+    assert context.head_sha == HEAD_SHA
     assert context.author_login == AUTHOR
 
 
@@ -1058,6 +1081,24 @@ def test_event_context_reads_the_pull_request_object(tmp_path: Path) -> None:
         {"pull_request": {}},  # no number/base/user
         {"pull_request": {"number": 1, "user": {"login": "x"}}},  # no base.sha
         {"pull_request": {"number": 1, "base": {"sha": BASE_SHA}}},  # no author
+        # no base.ref (base.sha present) — needed for `branch_tip`, see DESIGN DECISION
+        {
+            "pull_request": {
+                "number": 1,
+                "base": {"sha": BASE_SHA},
+                "head": {"sha": HEAD_SHA, "ref": "x"},
+                "user": {"login": "x"},
+            }
+        },
+        # no head.sha — needed for the compare-based touched-path computation
+        {
+            "pull_request": {
+                "number": 1,
+                "base": {"sha": BASE_SHA, "ref": "main"},
+                "head": {"ref": "x"},
+                "user": {"login": "x"},
+            }
+        },
     ],
 )
 def test_malformed_event_payload_fails_closed(tmp_path: Path, overrides: dict[str, Any]) -> None:
@@ -1109,18 +1150,32 @@ def test_membership_transport_failure_is_unverifiable_not_a_crash(
     assert api.membership("Omni-Saude", "security-team", OUTSIDER) is MembershipState.UNVERIFIABLE
 
 
-def test_changed_paths_include_a_renames_previous_filename(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A rename OUT of an owned directory is a change to an owned path."""
+def test_changed_paths_include_a_renames_previous_filename_via_compare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rename OUT of an owned directory is a change to an owned path — sourced from the three-dot
+    COMPARE endpoint's `files`, not `pulls/N/files` (see "DESIGN DECISION — touched paths are
+    merge-base relative")."""
     api = gate.GitHubAPI(repo="o/r", token="t")
-    monkeypatch.setattr(
-        api,
-        "_paginate",
-        lambda path: [
-            {"filename": "elsewhere/matrix.yaml", "previous_filename": "spec/policies/autonomy/matrix.yaml"},
-            {"filename": "README.md"},
-        ],
-    )
-    paths = api.changed_paths(1)
+
+    def fake_request(path: str) -> tuple[int, Any]:
+        assert path.startswith(f"repos/o/r/compare/{CURRENT_MAIN_TIP}...{REGRESSION_HEAD_SHA}")
+        return (
+            200,
+            {
+                "status": "ahead",
+                "files": [
+                    {
+                        "filename": "elsewhere/matrix.yaml",
+                        "previous_filename": "spec/policies/autonomy/matrix.yaml",
+                    },
+                    {"filename": "README.md"},
+                ],
+            },
+        )
+
+    monkeypatch.setattr(api, "_request", fake_request)
+    paths = api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
     rules = parse_codeowners(BASE_CODEOWNERS)
     # The NEW name escapes ownership; the PREVIOUS name does not — and it is the previous name that
     # makes this a change to an owned path, so it must be in the list.
@@ -1130,12 +1185,314 @@ def test_changed_paths_include_a_renames_previous_filename(monkeypatch: pytest.M
     assert paths == ["elsewhere/matrix.yaml", "spec/policies/autonomy/matrix.yaml", "README.md"]
 
 
-def test_api_list_endpoint_failure_is_red_not_an_empty_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The single most dangerous silent-green: an errored list read must never read as 'no files'."""
+def test_compare_api_failure_is_red_not_an_empty_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The single most dangerous silent-green: an errored compare read must never read as 'no
+    files' — and must never fall back to `pulls/N/files`, which is exactly the shape of defect #254."""
     api = gate.GitHubAPI(repo="o/r", token="t")
     monkeypatch.setattr(api, "_request", lambda path: (403, None))
     with pytest.raises(GateError, match="fails CLOSED"):
-        api.changed_paths(1)
+        api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+
+
+def test_changed_paths_fast_path_under_300_files_makes_no_commit_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """299 files (one under GitHub's per-comparison cap) is provably complete on its own — GitHub
+    would not stop short of the requested page size if there were more. The gate must return it
+    directly and never touch the commit-walk fallback (VER-FLIP-GATE-BASE required change #1)."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    files = [{"filename": f"a/{i}.txt"} for i in range(299)]
+    calls: list[str] = []
+
+    def fake_request(path: str) -> tuple[int, Any]:
+        calls.append(path)
+        return 200, {"status": "ahead", "ahead_by": 299, "files": files}
+
+    monkeypatch.setattr(api, "_request", fake_request)
+    paths = api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+    assert len(paths) == 299
+    assert len(calls) == 1, f"the fast path must make exactly one request, got {calls}"
+    assert not any("/commits" in c for c in calls), f"fast path touched a commit endpoint: {calls}"
+
+
+def test_changed_paths_300_file_cap_walks_commits_and_finds_the_301st_owned_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE ATTACK BECOMES A TEST (VER-FLIP-GATE-BASE Attack A / B6-d). GitHub's compare endpoint
+    hard-caps `files` at 300 for the WHOLE comparison and silently truncates beyond it — `page`/
+    `per_page` page the `commits` list, not `files` (measured live; see the module docstring's "THE
+    300-FILE CAP"). A 301-file PR with 300 early-sorting padding files and ONE owned file as the
+    301st must still be detected: a `files` list of exactly 300 is never trusted alone, so the gate
+    falls back to unioning each commit's own, independently paginated files."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    compare_path = f"repos/o/r/compare/{CURRENT_MAIN_TIP}...{REGRESSION_HEAD_SHA}"
+    padding = [{"filename": f"aaa_padding/{i:03d}.txt"} for i in range(300)]
+    owned_file = "spec/policies/autonomy/action-approvals.yaml"
+    calls: list[str] = []
+
+    def fake_request(path: str) -> tuple[int, Any]:
+        calls.append(path)
+        if path == f"{compare_path}?per_page=300&page=1":
+            return 200, {
+                "status": "ahead",
+                "ahead_by": 2,
+                "total_commits": 2,
+                "merge_base_commit": {"sha": "mb00000000000000000000000000000000000000"},
+                "files": padding,  # exactly 300 — the cap; NOT provably complete
+                "commits": [{"sha": "c1padding"}, {"sha": "c2owned"}],
+            }
+        if path == "repos/o/r/commits/c1padding?per_page=300&page=1":
+            return 200, {"files": padding}
+        if path == "repos/o/r/commits/c1padding?per_page=300&page=2":
+            return 200, {"files": []}  # this commit has exactly 300 files of its own
+        if path == "repos/o/r/commits/c2owned?per_page=300&page=1":
+            return 200, {"files": [{"filename": owned_file}]}
+        raise AssertionError(f"unexpected request: {path}")
+
+    monkeypatch.setattr(api, "_request", fake_request)
+    paths = api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+
+    assert len(paths) == 301, f"expected 300 padding files + 1 owned file, got {len(paths)}"
+    assert owned_file in paths, "the 301st file — the owned one — must survive the fallback"
+    assert any("/commits/c1padding" in c for c in calls), "must have walked commit c1's own files"
+    assert any("/commits/c2owned" in c for c in calls), "must have walked commit c2's own files"
+
+
+def test_changed_paths_commit_file_cap_of_3000_is_red_not_a_partial_union(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A SINGLE commit whose own files reach GitHub's documented 3000-file-per-commit cap cannot be
+    proven complete either — the gate must fail CLOSED rather than union a truncated per-commit
+    list."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    compare_path = f"repos/o/r/compare/{CURRENT_MAIN_TIP}...{REGRESSION_HEAD_SHA}"
+    cap_files = [{"filename": f"a/{i}.txt"} for i in range(300)]
+
+    def fake_request(path: str) -> tuple[int, Any]:
+        if path == f"{compare_path}?per_page=300&page=1":
+            return 200, {
+                "status": "ahead",
+                "ahead_by": 1,
+                "total_commits": 1,
+                "merge_base_commit": {"sha": "mb00000000000000000000000000000000000000"},
+                "files": cap_files,
+                "commits": [{"sha": "hugecommit"}],
+            }
+        if path.startswith("repos/o/r/commits/hugecommit?per_page=300&page="):
+            return 200, {"files": cap_files}  # every page returns a full 300 — never terminates
+        raise AssertionError(f"unexpected request: {path}")
+
+    monkeypatch.setattr(api, "_request", fake_request)
+    with pytest.raises(GateError, match="3000-file-per-commit cap"):
+        api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+
+
+def test_changed_paths_empty_files_with_positive_ahead_by_is_red(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`files: []` with `ahead_by > 0` is a shape that HIDES touched paths rather than proving there
+    are none (VER-FLIP-GATE-BASE advisory A1) — the gate must not read it as 'nothing touched'."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    monkeypatch.setattr(
+        api,
+        "_request",
+        lambda path: (200, {"status": "ahead", "ahead_by": 7, "total_commits": 7, "files": []}),
+    )
+    with pytest.raises(GateError, match="EMPTY `files` list"):
+        api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+
+
+def test_changed_paths_diverged_status_is_evaluated_normally(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`status: "diverged"` means the base has ALSO moved since the merge base — the default state of
+    most open PRs (measured live: 8 of 47 remote branches at correction time). A first draft of the
+    300-file-cap fix wrongly reddened it; the `files` list under 'diverged' is the SAME merge-base
+    diff as under 'ahead' (confirmed live: `compare/main...codeowners-audit` — status 'diverged',
+    ahead_by 3, behind_by 390 — returned exactly the two files `git diff --name-only
+    $(git merge-base main codeowners-audit)..codeowners-audit` reports). A diverged compare with an
+    owned file among its `files` must therefore be evaluated normally, not rejected."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    owned_file = "spec/policies/autonomy/action-approvals.yaml"
+    monkeypatch.setattr(
+        api,
+        "_request",
+        lambda path: (
+            200,
+            {
+                "status": "diverged",
+                "ahead_by": 3,
+                "behind_by": 390,
+                "files": [{"filename": owned_file}, {"filename": "README.md"}],
+            },
+        ),
+    )
+    paths = api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+    assert owned_file in paths
+    rules = parse_codeowners(BASE_CODEOWNERS)
+    assert owners_for_path(rules, owned_file) is not None
+
+
+def test_changed_paths_behind_status_is_red_head_already_in_base(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`status: "behind"` (`ahead_by == 0`) means the head is already an ancestor of the base — there
+    is nothing to evaluate. A real PR event should never present this shape, so rather than silently
+    reporting GREEN on an empty range the gate fails loud, by design: a dry-run against an
+    ALREADY-MERGED PR is RED here, deliberately."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    monkeypatch.setattr(
+        api,
+        "_request",
+        lambda path: (200, {"status": "behind", "ahead_by": 0, "behind_by": 6, "files": []}),
+    )
+    with pytest.raises(GateError, match="head already contained in the base"):
+        api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+
+
+def test_changed_paths_unrecognized_status_is_red(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A `status` this gate does not recognize at all (neither the three evaluable values nor
+    'behind') is an unrecognized shape — fail-closed rather than silently trusting `files` under it."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    monkeypatch.setattr(
+        api,
+        "_request",
+        lambda path: (200, {"status": "bogus", "ahead_by": 3, "files": [{"filename": "x.txt"}]}),
+    )
+    with pytest.raises(GateError, match="unrecognized shape"):
+        api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+
+
+def test_changed_paths_commit_walk_total_commits_mismatch_is_red(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """VER-FLIP-GATE-BASE mutation M-c: the commit walk must not trust a PARTIAL commit set. If the
+    compare's own `commits` pages run out (an empty/short page) before `total_commits` are collected,
+    the gate cannot prove it has seen every commit in the range, so it must fail CLOSED rather than
+    union whatever files the partial set happened to touch."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    compare_path = f"repos/o/r/compare/{CURRENT_MAIN_TIP}...{REGRESSION_HEAD_SHA}"
+    padding = [{"filename": f"aaa_padding/{i:03d}.txt"} for i in range(300)]
+
+    def fake_request(path: str) -> tuple[int, Any]:
+        if path == f"{compare_path}?per_page=300&page=1":
+            return 200, {
+                "status": "ahead",
+                "ahead_by": 3,
+                "total_commits": 3,  # promised 3 commits...
+                "merge_base_commit": {"sha": "mb00000000000000000000000000000000000000"},
+                "files": padding,
+                "commits": [{"sha": "c1"}, {"sha": "c2"}],  # ...but only 2 ever arrive
+            }
+        if path == f"{compare_path}?per_page=300&page=2":
+            return 200, {"commits": []}
+        raise AssertionError(f"unexpected request: {path}")
+
+    monkeypatch.setattr(api, "_request", fake_request)
+    with pytest.raises(GateError, match="commit walk collected 2 distinct commit"):
+        api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+
+
+def test_branch_tip_resolves_the_current_sha(monkeypatch: pytest.MonkeyPatch) -> None:
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    monkeypatch.setattr(api, "_request", lambda path: (200, {"name": "main", "commit": {"sha": "deadbeef"}}))
+    assert api.branch_tip("main") == "deadbeef"
+
+
+def test_branch_tip_failure_is_red(monkeypatch: pytest.MonkeyPatch) -> None:
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    monkeypatch.setattr(api, "_request", lambda path: (404, None))
+    with pytest.raises(GateError, match="cannot resolve"):
+        api.branch_tip("main")
+
+
+# =============================================================================================
+# 3b. Defect #254 (CI run 33766180283, PR #254, 2026-09-03 14:19Z) — end-to-end regression
+#
+# The PR's `pull_request.base.sha` was WEEKS-stale and its head contained a merge of current `main`.
+# The OLD `pulls/N/files` computation (a diff relative to that stale base.sha) surfaced 266 paths
+# `main` had touched since — 3 falsely "owned" — for a PR that only ever changed 2 files. See "DESIGN
+# DECISION — touched paths are merge-base relative" in the module docstring.
+# =============================================================================================
+
+#: The PR's actual recorded base.sha — weeks-stale, exactly as #254's was. Used ONLY for CODEOWNERS
+#: (Decision 1 is unaffected by this fix).
+STALE_BASE_SHA = "181fc82700000000000000000000000000000000"
+#: The base branch's CURRENT tip, as `branch_tip` would resolve it live at run start — deliberately
+#: a DIFFERENT sha from `STALE_BASE_SHA`, so a test that accidentally used the stale base.sha for the
+#: touched-path computation (the regression this fix closes) fails loudly.
+CURRENT_MAIN_TIP = "43722b9300000000000000000000000000000000"
+#: The PR's actual head sha (it contained a merge of `main`, per the defect writeup).
+REGRESSION_HEAD_SHA = "55b5bb1b00000000000000000000000000000000"
+
+
+class MergeBaseFakeAPI(FakeAPI):
+    """A `FakeAPI` whose `branch_tip` / `changed_paths` assert they are called with the CURRENT base
+    tip and the head sha — never the PR's stale `base.sha` — so a regression back to
+    `pulls/N/files`-shaped (pr_number-keyed) touched paths fails here immediately, not just silently
+    returns the fixture's canned list the way the generic `FakeAPI` would.
+    """
+
+    def __init__(
+        self,
+        *,
+        files_by_ref: dict[str, dict[str, str]],
+        reviews: list[Review],
+        current_tip: str,
+        expected_head_sha: str,
+        compare_files: list[str],
+    ) -> None:
+        super().__init__(files_by_ref=files_by_ref, changed=[], reviews=reviews, base_tip=current_tip)
+        self._expected_head_sha = expected_head_sha
+        self._compare_files = compare_files
+        self.compare_calls: list[tuple[str, str]] = []
+
+    def changed_paths(self, base_tip: str, head_sha: str) -> list[str]:
+        self.compare_calls.append((base_tip, head_sha))
+        assert base_tip == self._base_tip, (
+            "touched paths must diff from the CURRENT tip, never a stale base.sha"
+        )
+        assert head_sha == self._expected_head_sha
+        return list(self._compare_files)
+
+
+def test_stale_base_sha_no_longer_produces_a_false_owned_hit_defect_254(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """THE REGRESSION PIN for #254 (CI run 33766180283): a weeks-stale `pull_request.base.sha` plus a
+    head that contains a merge of current `main` used to make every path `main` had touched since
+    look "touched" by the PR (266 paths, 3 falsely "owned"). Touched paths must now come from a
+    three-dot COMPARE between the base branch's CURRENT tip and the head sha — reproduced here with
+    the PR's REAL 2 files, neither of which is owned, so the fixed gate must be GREEN."""
+    api = MergeBaseFakeAPI(
+        files_by_ref={STALE_BASE_SHA: {".github/CODEOWNERS": BASE_CODEOWNERS}},
+        reviews=[],
+        current_tip=CURRENT_MAIN_TIP,
+        expected_head_sha=REGRESSION_HEAD_SHA,
+        compare_files=["pyproject.toml", "uv.lock"],  # the PR's REAL 2 files — neither owned
+    )
+    monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
+    monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
+    event = write_event(
+        tmp_path,
+        pull_request={
+            "number": 254,
+            "user": {"login": "dependabot[bot]"},
+            "base": {"sha": STALE_BASE_SHA, "ref": "main"},
+            "head": {"sha": REGRESSION_HEAD_SHA, "ref": "dependabot/pip/anthropic-gte-0.40-and-lt-2.0"},
+        },
+    )
+
+    exit_code = gate.main(["--event-path", str(event)])
+    out = capsys.readouterr().out
+
+    assert exit_code == 0, out
+    assert "changed paths: 2   owned: 0" in out, out
+    assert api.refs_asked == [STALE_BASE_SHA], (
+        "CODEOWNERS is still read from the recorded base.sha — Decision 1 is unaffected by this fix"
+    )
+    assert api.compare_calls == [(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)], (
+        "touched paths must be computed from the CURRENT base tip and the head sha, never the "
+        "PR's stale recorded base.sha"
+    )
 
 
 # =============================================================================================

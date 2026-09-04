@@ -1180,6 +1180,56 @@ isso nao aparecem aqui.
 | `tests/integration/processes/engine_rest.py::assert_definition_provenance` + os 6 marcadores de `test_sp_op_recurso_001.py` — **ponto cego de ramo-irmao** (§B3c) | O guard discrimina esta arvore contra a `main` 6/6, nos dois sentidos — mas NAO contra um ramo-irmao. O BPMN de RECURSO do PR-4 (`feat/perspectiva-operadora-contas-recurso`) satisfaz os marcadores EXATAMENTE (`Start_RecursoRecebido`=3, `ST_ValidarRecurso`=12, e 0 para os quatro marcadores exclusivos da `main`), logo um `make deploy-artifacts` a partir do worktree do PR-4 passaria pelo guard sem ser notado. Hoje isso e inofensivo porque os dois BPMN diferem apenas em prosa mais o bloco de inicializacao `${""}` que so este ramo tem — mas e' exatamente essa diferenca que decide o desfecho fail-closed, entao o `DEPLOY-VERIFIED` NAO garante, sozinho, que o engine rodou a definicao deste PR e nao a do PR-4. Delimita o que a evidencia de engine 43/43 warranta; a correcao (um marcador que discrimine tambem ramos-irmaos, ou um hash da definicao) e' decisao do orquestrador | orquestrador + autor do harness de integracao | `ABERTO — limite de garantia, nao defeito de codigo` |
 | `tests/integration/platform/*_live_*.py` (4 arquivos, nenhum com `pytestmark = pytest.mark.integration`) — custo concreto do **m10** | O m10 ja estava divulgado no ponto do defeito (`test_notifications_bridge_live_engine.py:37-55`); o §B6 mediu o seu CUSTO: como estas suites nao tem o marker, elas sao COLETADAS na perna `-m "not integration"` e passam ou skippam conforme haja um engine em `:8080` no host naquele instante. Consequencia: o numero `passed`/`skipped` do gate unitario e' NAO-DETERMINISTICO (`8160/19` com engine vs `8158/21` sem — o mesmo total `8179`), e um numero registrado como fixo num ledger e' uma afirmacao que nao se reproduz. Enquanto nao houver marker, so `passed+skipped` deve ser citado como evidencia. Verificado em 2026-09-03: nenhuma branch local traz o marker, e a `main` `71dd4da` tambem nao | orquestrador (correcao e' do harness, atribuida fora deste PR) | `ABERTO — pre-existente; afeta a reprodutibilidade de todo numero de gate unitario` |
 
+## FLIP-GATE-BASE — correcao do calculo de caminhos tocados em `flip-path-review-gate` (owner-review, `scripts/ci/` e CODEOWNED)
+
+Correcao de raiz do defeito #254 (CI run 33766180283): `scripts/ci/check_flip_path_review.py`
+computava os caminhos "tocados" por uma PR relativos ao `pull_request.base.sha` GRAVADO — que fica
+obsoleto conforme o branch base avanca — em vez de relativos ao merge-base entre o tip CORRENTE do
+branch base e o head da PR. Numa PR de base obsoleto com head contendo um merge do `main` corrente
+(exatamente a forma das PRs de owner-review de vida longa que este gate protege), isso produzia
+centenas de caminhos falsamente "tocados" e "owned" -> RED falso, que so um segundo humano poderia
+destravar mesmo sem ter mudado nada relevante. Nao ha conteudo clinico/regulatorio aqui; a linha
+abaixo esta registrada porque o arquivo tocado (`scripts/ci/`) e CODEOWNED e o merge desta correcao
+exige aprovacao humana qualificada por desenho do proprio gate que ela corrige.
+
+AMENDA (commit `92fef06`, mesmo branch nao mesclado): o verificador R1 (`VERIFY-FLIP-GATE-BASE.md`,
+veredito REVISE) mediu ao vivo que a primeira versao deste reparo (`14608e1`) tinha o modelo de API
+do GitHub ERRADO e introduzia um segundo buraco fail-OPEN alcancavel por ataque: o endpoint `compare`
+NAO pagina `files` (`page`/`per_page` paginam a lista `commits` da MESMA chamada); `files` e
+hard-capped em 300 para a comparacao INTEIRA e a pagina 2 devolve `"files": []` mesmo havendo mais
+commits — medido contra `compare/181fc82...96d7d0d` (378 commits, 339 arquivos reais): a API devolve
+exatamente 300, cortando 39 arquivos em ordem alfabetica, sem sinal de truncamento no payload. Uma PR
+com 300 arquivos de padding + 1 arquivo owned como o 301o passava GREEN com 0 owned no `14608e1`.
+`92fef06` corrige na raiz: `files` so e confiavel quando MENOR que 300; em exatamente 300 o gate cai
+no caminho de raiz — pagina a propria lista `commits` do `compare` (essa SIM paginada) ate coletar
+`total_commits`, depois uniona os arquivos de CADA commit via `repos/{repo}/commits/{sha}` (paginado
+independentemente, teto documentado 3000/commit); `status`/`ahead_by`/`merge_base_commit` tambem
+validados [CORRIGIDO em `3ed347e`, ver AMENDA-2 abaixo: a regra de `status` descrita aqui — RED fora
+de `{"ahead","identical"}` — estava ERRADA, reprovava `"diverged"` incorretamente]; RED em
+`files: []` com `ahead_by > 0`. O ataque acima virou teste passante. Ver a linha `FLIP-GATE-BASE` de
+`docs/evidence-ledger.md` para a prova ao vivo completa.
+
+AMENDA-2 (commit `3ed347e`, mesmo branch nao mesclado): o verificador R1 rodou sobre `92fef06` e
+apontou UMA regressao bloqueante que o proprio escopo da amenda-1 introduziu: o guard de `status`
+reprovava `"diverged"`, que e' simplesmente "a PR tem commits proprios E o `main` tambem avancou" — o
+estado padrao de quase toda PR aberta (censo ao vivo: 8 de 47 branches remotos, incluindo este
+proprio branch). Medido ao vivo que a lista `files` de um compare `"diverged"` e' o MESMO diff
+merge-base-relativo de `"ahead"`: `compare/main...codeowners-audit` -> `status:"diverged"`,
+`ahead_by:3`, `behind_by:390`, 2 arquivos — batendo byte a byte com
+`git diff --name-only $(git merge-base origin/main origin/codeowners-audit)..origin/codeowners-audit`.
+Correcao: `"ahead"`, `"identical"` e `"diverged"` agora sao TODOS avaliados normalmente; so
+`"behind"` (`ahead_by == 0`, head ja contido na base — medido ao vivo em
+`compare/main...96d7d0d` e `compare/main...181fc82`, ambos ja mesclados: `status:"behind"`,
+`ahead_by:0`, `files:[]`) continua RED, com a razao reescrita e o docstring registrando que isso
+torna um dry-run contra PR ja mesclada vermelho POR DESENHO — nao um bug. Testes: a parametrizacao
+`diverged`/`behind` errada foi removida; adicionados `test_changed_paths_diverged_status_is_evaluated_normally`,
+`test_changed_paths_behind_status_is_red_head_already_in_base`,
+`test_changed_paths_unrecognized_status_is_red`, e `test_changed_paths_commit_walk_total_commits_mismatch_is_red`
+(cobre a mutacao M-c do verificador, que antes nao reprovava nada). Suite 112->114.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `scripts/ci/check_flip_path_review.py` (`GitHubAPI.branch_tip`, `GitHubAPI.changed_paths` e os metodos novos `GitHubAPI._compare_commit_shas`/`GitHubAPI._commit_files`/`GitHubAPI._extract_file_paths` que implementam o fallback do teto de 300 arquivos, `EventContext.base_ref`/`head_sha`, `decide(touched_paths_source=...)`, secoes do docstring "DESIGN DECISION — touched paths are merge-base relative" e "THE 300-FILE CAP") | Confirmar o raciocinio de root-cause (defeito #254, CI run 33766180283) e a prova ao vivo registrada em `docs/evidence-ledger.md` (linha `FLIP-GATE-BASE`): reproducao do defeito com o script antigo contra a PR #254 real (266/3, RED), reconstrucao historica via `merge_commit_sha^1` mostrando o mecanismo corrigido produz o diff real da PR (`pyproject.toml`,`uv.lock`, 0 owned) e continua detectando owned paths corretamente (PR #294 reconstruida: 56 caminhos/4 owned). Confirmar tambem que a Decision 1 (CODEOWNERS lido de `pull_request.base.sha`, nunca do head) permanece inalterada — o PR nao move essa decisao. ADICIONALMENTE (amenda `92fef06`): confirmar que o teto de 300 arquivos do `compare` e tratado fail-closed (nunca GREEN sobre uma lista `files` de exatamente 300 nao verificada) e que o fallback de caminhada por commits (`_compare_commit_shas`/`_commit_files`) uniona corretamente — o ataque de 301 arquivos com o owned como ultimo virou teste passante (`test_changed_paths_300_file_cap_walks_commits_and_finds_the_301st_owned_file`). ADICIONALMENTE (amenda-2 `3ed347e`): confirmar que `status: "diverged"` e' avaliado normalmente (nao RED) e que so `"behind"` continua RED; confirmar o teste do guard `total_commits` (`test_changed_paths_commit_walk_total_commits_mismatch_is_red`) | `@rodaquino-OMNI` (dono de `/scripts/ci/` em `.github/CODEOWNERS`) ou membro ativo verificado de `@Omni-Saude/security-team` | `pendente — PR de owner-review por CODEOWNERS, nao merge autonomo (ver `docs/evidence-ledger.md` linha `FLIP-GATE-BASE`; verificador R1 ja rodou duas vezes — 1a REVISE (3 mudancas, endereçadas em `92fef06`), 2a apontou a regressao de `status:"diverged"` (endereçada em `3ed347e`) — e ainda precisa reverificar este 3o delta — VER-FLIP-GATE-BASE §Delta-2 pendente)` |
 ---
 
 ## LEDGER-HASH-RECOMPUTE-CHECK — gate novo (CODEOWNED); wiring de CI proposto, nao aplicado
