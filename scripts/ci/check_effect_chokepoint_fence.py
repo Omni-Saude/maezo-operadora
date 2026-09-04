@@ -123,8 +123,8 @@ FORBIDDEN_CONSTRUCTION_NAMES: Final[frozenset[str]] = frozenset(
         # W-BEDROCK: the second REAL general-zone LLM provider. Fenced on exactly the same
         # grounds as `AnthropicInferenceProvider` — a concrete strategy that opens a billable
         # vendor connection must be reachable only through the registry, never constructed or
-        # imported ad hoc by an agent graph (AGENTS.md rule 6: `runtime/inference.py` is the
-        # single import point for any LLM SDK).
+        # imported ad hoc by an agent graph (AGENTS.md rule 6: the `runtime.inference` package is
+        # the single import point for any LLM SDK).
         "BedrockInferenceProvider",
         "InferenceProvider",
         "AioKafkaEventsProducer",
@@ -185,13 +185,20 @@ CONSTRUCTION_ALLOWLIST_BY_NAME: Final[dict[str, frozenset[str]]] = {
             "platform/webhooks/service.py",
         }
     ),
-    "AnthropicInferenceProvider": frozenset({"runtime/inference.py"}),
-    # Same entry, same reason: the provider's own defining module CALLS it from `_build_bedrock`
-    # (the registry factory), which a `class` statement alone would not cover.
-    "BedrockInferenceProvider": frozenset({"runtime/inference.py"}),
+    # D2-02 split (docs/reports/inference-split-plan.md, step 8): the class is now DEFINED in
+    # `runtime/inference/providers.py`, not here — but a `class` statement is never a `Call`
+    # (comment above), so the defining module needs no entry of its own for that reason alone.
+    # This entry is for the CALLING site: `runtime/inference/__init__.py`'s `_build_anthropic`
+    # factory constructs `AnthropicInferenceProvider(...)` and hands it straight to the registry
+    # (`_build_provider` -> `_PROVIDER_FACTORIES`) — the facade's own composition root, same
+    # footing as the four composition-root files below it on `InferenceProvider`.
+    "AnthropicInferenceProvider": frozenset({"runtime/inference/__init__.py"}),
+    # Same entry, same reason: `_build_bedrock` (the registry factory) calls it from the facade
+    # package's `__init__.py`, not from `providers.py` where the class is defined.
+    "BedrockInferenceProvider": frozenset({"runtime/inference/__init__.py"}),
     "InferenceProvider": frozenset(
         {
-            "runtime/inference.py",  # own defining module
+            "runtime/inference/__init__.py",  # own defining module
             # All three: the raw provider is constructed once and immediately threaded into
             # `build_agent_seams(..., inference=...)` / `_build_tool_deps(..., inference=...)`,
             # which wraps it via `build_inference_seam` before any graph receives it (C-A2 closure).

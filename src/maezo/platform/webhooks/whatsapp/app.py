@@ -14,6 +14,14 @@ call (no Kafka producer exists in this build; see `dispatch.py`'s module docstri
 labeled boundary and the queue-upgrade follow-up). When `dispatcher` is not injected (e.g. this
 replica's dependency bring-up failed — `service.py`'s STEP B), a signature-verified message still
 returns an explicit 501 with a documented reason, exactly as before — never a fabricated success.
+
+**Non-text inbound (gap `WHATSAPP-NON-TEXT-DROPPED`).** A message whose `type != "text"` used to
+vanish inside `extract_inbound_messages`, and this endpoint acked Meta `{"dispatched": 0}` while
+the beneficiary who sent a voice note or a photo of an exam received nothing at all. Such a message
+is now a typed `InboundNonTextMessage` and takes `dispatcher.acknowledge_non_text` — ONE fixed
+pt-BR reply through the same gated seam, no Helena turn (see `dispatch.py`'s docstring for the
+honesty rule on what that reply may promise, and for the disclosed absence of `wamid` dedup).
+Delivery-status callbacks (`value.statuses`) remain "nothing to do": they are not messages.
 """
 
 from __future__ import annotations
@@ -30,7 +38,7 @@ from prometheus_client import Counter
 from maezo.platform.health import CheckResult, create_health_app
 from maezo.platform.observability import get_metrics_collector
 
-from .dispatch import HelenaDispatcher, extract_inbound_messages
+from .dispatch import HelenaDispatcher, InboundMessage, extract_inbound_messages
 from .security import verify_hub_signature
 from .settings import WhatsAppWebhookSettings
 
@@ -40,7 +48,12 @@ logger = structlog.get_logger(__name__)
 #: actually emits: "ok" (GET handshake success; POST ack with 0 or more messages dispatched),
 #: "invalid_signature", "parse_error", "dispatch_failed" (every message in the batch raised),
 #: "not_implemented" (signature verified, an actual message needs dispatch, but no dispatcher is
-#: configured for this replica — see module docstring). Module-level (not per-`create_app()`
+#: configured for this replica — see module docstring), "non_text_acked" (the batch contained ONLY
+#: non-text messages and every one of them was acknowledged — the operational signal for how much
+#: of the inbound volume this channel cannot actually process). The label set stays CLOSED and tiny
+#: on purpose: `message_type` is deliberately NOT a label (Meta's enum is attacker-influenced
+#: shape-wise and would multiply the timeseries) — it is logged instead. Module-level (not
+#: per-`create_app()`
 #: call) — `Counter()` registers into the collector's registry once at import time; redefining it
 #: per app instance would raise a duplicate-timeseries error the second time a test constructs an
 #: app. Registered on the SAME dedicated registry `MetricsCollector` owns (not the global
@@ -71,9 +84,11 @@ def create_app(
     daemons (design §8: liveness leaves the load-balancing rotation before the server stops).
 
     `dispatcher` (T1.11): when given, a signature-verified POST with at least one text message
-    runs `dispatcher.dispatch(...)` for each — real Helena turns, real DMN/engine calls. `None`
+    runs `dispatcher.dispatch(...)` for each — real Helena turns, real DMN/engine calls; a non-text
+    message runs `dispatcher.acknowledge_non_text(...)` instead (one fixed reply, no turn). `None`
     (e.g. this replica's STEP B dependency bring-up failed) preserves the prior explicit-501
-    behavior for any POST that actually contains a message to dispatch.
+    behavior for any POST that actually contains a message — including a non-text one, which this
+    replica can no more acknowledge than it can dispatch, and must not silently swallow.
     """
 
     async def config_loaded() -> CheckResult:
@@ -130,9 +145,10 @@ def create_app(
 
         messages = extract_inbound_messages(payload)
         if not messages:
-            # No actual text message to dispatch (e.g. a delivery-status callback, or a
-            # message type this build doesn't parse — `extract_inbound_messages` already logged
-            # it). Nothing fabricated: just ack.
+            # No actual message at all (e.g. a delivery-status callback, or a malformed entry —
+            # `extract_inbound_messages` already logged it). Nothing fabricated: just ack. NOTE:
+            # a non-text message no longer lands here; it is a real message and is acknowledged
+            # below (gap `WHATSAPP-NON-TEXT-DROPPED`).
             WEBHOOK_REQUESTS_TOTAL.labels(tenant=settings.tenant_id, status="ok").inc()
             return JSONResponse(status_code=200, content={"status": "ok", "dispatched": 0})
 
@@ -157,24 +173,59 @@ def create_app(
             )
 
         dispatched = 0
+        acked = 0
         failed = 0
+        # Whether the BATCH carried non-text at all — decided by the INPUT shape, not by the
+        # outcome, so the `acked` field below does not disappear from the body exactly when an
+        # acknowledgement failed. A text-only batch keeps the pre-change body byte for byte.
+        non_text_present = any(not isinstance(message, InboundMessage) for message in messages)
         for message in messages:
             try:
-                await dispatcher.dispatch(message)
-                dispatched += 1
+                if isinstance(message, InboundMessage):
+                    await dispatcher.dispatch(message)
+                    dispatched += 1
+                else:
+                    # Gap `WHATSAPP-NON-TEXT-DROPPED`: ONE fixed reply through the same gated
+                    # seam. Counted apart from `dispatched` on purpose — an acknowledgement is
+                    # NOT a Helena turn, and a dashboard that conflated the two would report
+                    # conversations that never happened.
+                    await dispatcher.acknowledge_non_text(message)
+                    acked += 1
             except Exception:  # noqa: BLE001 — one message's failure must not drop the batch.
                 failed += 1
                 logger.error("whatsapp_dispatch_failed", message_id=message.message_id, exc_info=True)
 
-        if dispatched == 0 and failed > 0:
+        if dispatched == 0 and acked == 0 and failed > 0:
+            # NOTHING in the batch succeeded -> 500 so Meta retries (unchanged semantics; the
+            # `acked == 0` term only keeps a partially successful batch out of this branch).
             WEBHOOK_REQUESTS_TOTAL.labels(tenant=settings.tenant_id, status="dispatch_failed").inc()
-            return JSONResponse(
-                status_code=500,
-                content={"status": "dispatch_failed", "dispatched": dispatched, "failed": failed},
-            )
-        WEBHOOK_REQUESTS_TOTAL.labels(tenant=settings.tenant_id, status="ok").inc()
-        return JSONResponse(
-            status_code=200, content={"status": "ok", "dispatched": dispatched, "failed": failed}
-        )
+            content: dict[str, object] = {
+                "status": "dispatch_failed",
+                "dispatched": dispatched,
+                "failed": failed,
+            }
+            if non_text_present:
+                content["acked"] = acked
+            return JSONResponse(status_code=500, content=content)
+        # MIXED-BATCH TRADE-OFF (disclosed here): a batch with e.g. 1 failing TEXT turn + 1
+        # successfully-acked non-text message falls through to 200 here,
+        # not 500 — on `main` (before non-text acks existed), the same batch returned 500 and
+        # Meta re-delivered the whole batch, giving that TEXT turn another chance. Returning 500
+        # here instead would make Meta re-deliver the WHOLE batch, which would re-send the
+        # non-text ack ALREADY delivered to the beneficiary; there is no `wamid` dedup to absorb
+        # that duplicate (`WEBHOOK-WAMID-DEDUP`, owner-gated — see docs/review-queue.md). So a
+        # partially successful batch returns 200, the failed text turn is logged above as
+        # `whatsapp_dispatch_failed` and is NOT retried — that beneficiary's message is lost
+        # unless they resend it themselves.
+        # EXACTLY ONE counter increment per request, as everywhere else in this handler.
+        status = "non_text_acked" if dispatched == 0 and acked > 0 and failed == 0 else "ok"
+        WEBHOOK_REQUESTS_TOTAL.labels(tenant=settings.tenant_id, status=status).inc()
+        # The BODY's `status` stays "ok" for every 2xx: it is Meta's ack, whose only contract is
+        # the status code (`docs/runbooks/whatsapp-webhook.md` §6), and the ack-only case is
+        # distinguished where operators actually read it — the metric label above.
+        ok_content: dict[str, object] = {"status": "ok", "dispatched": dispatched, "failed": failed}
+        if non_text_present:
+            ok_content["acked"] = acked
+        return JSONResponse(status_code=200, content=ok_content)
 
     return app
