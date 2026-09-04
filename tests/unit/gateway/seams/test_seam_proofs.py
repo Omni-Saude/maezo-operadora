@@ -637,8 +637,8 @@ async def test_the_remaining_seams_refuse_in_their_declared_shape(
 ) -> None:
     """The four shapes whose nodes catch bare `Exception` — assert the SHAPE, and no inner call.
 
-    Each of these call sites (`rafael/graph.py:349`, `helena/graph.py:713`, every `_llm.generate`
-    site, `andre/graph.py:716`, and the dossier workers' "ANY delegation failure" branch) folds the
+    Each of these call sites (`rafael/graph.py::RafaelGraph.gather`, `helena/graph.py:713`, every
+    `_llm.generate` site, `andre/graph.py:716`, and the dossier workers' "ANY delegation failure") folds the
     exception into a gap note / an `error` field / a `dossier_gap` token, so the refusal degrades
     exactly as the class declares.
     """
@@ -654,10 +654,15 @@ async def test_the_remaining_seams_refuse_in_their_declared_shape(
 
 
 async def test_a_denial_message_carries_only_bounded_tokens(tmp_path: Path) -> None:
-    """I-3 on the DENIAL path specifically — the graphs interpolate `{exc}` into gap notes.
+    """I-3 on the DENIAL path specifically — a denial message must be bounded on its own.
 
-    `rafael/graph.py:350` writes `f"cobertura FHIR indisponivel: {exc}"` straight into graph state,
-    which is checkpointed. So the exception's own text must be bounded-token-only.
+    HISTORICAL NOTE (CC-10, fixed): the graphs used to interpolate `{exc}` into gap notes —
+    `rafael/graph.py::RafaelGraph.gather` wrote `f"cobertura FHIR indisponivel: {exc}"` straight
+    into checkpointed graph state. They now record only `type(exc).__name__`
+    (`tests/unit/agents/test_gather_notes_no_raw_exception.py` is that fence). This test keeps
+    the OTHER half of the guarantee, which never depended on the graphs' discretion and is
+    defense in depth for every future consumer of a denial message: the seam's own
+    `EffectDeniedError` rendering carries bounded tokens only, never the argument it refused.
     """
     seam = gate_fhir(FakeFhir(), _denying_seam(tmp_path))
     with pytest.raises(EffectDeniedError) as excinfo:

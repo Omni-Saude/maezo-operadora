@@ -126,6 +126,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Protocol, TypedDict, cast
 
+import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
@@ -194,6 +195,9 @@ GRUPO_COORDENACAO_CLINICA = "coordenacao-clinica"
 # Class token for `receive`'s missing-context guard (`error` is internal state — it is still a
 # bounded token, never free text, and it NEVER ships into engine-bound variables).
 ERROR_MISSING_CONTEXT = "contexto_de_runtime_ausente"
+
+
+logger = structlog.get_logger(__name__)
 
 
 class PatientSummaryReader(Protocol):
@@ -519,7 +523,13 @@ class ValentinaGraph:
             try:
                 summary_facts = await self._fhir.read_patient_summary(summary_ref)
             except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
-                notes.append(f"resumo FHIR indisponivel: {exc}")
+                # CLASS TOKEN ONLY (CC-10): `str(exc)` de um cliente FHIR tipicamente ecoa a
+                # URL / id em que falhou — o proprio `summary_ref` — e esta nota e' copiada para o
+                # prompt do dossie E para `dossie_valentina`, que o engine sela na zona geral
+                # (ADR-0006/ADR-0007). O trace completo fica no log estruturado, canal de
+                # diagnostico, nunca na nota.
+                logger.warning("valentina_fhir_resumo_indisponivel", exc_info=True)
+                notes.append(f"resumo FHIR indisponivel: {type(exc).__name__}")
 
         return {"gathered": True, "summary_facts": summary_facts, "gather_notes": notes}
 

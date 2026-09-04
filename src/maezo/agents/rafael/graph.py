@@ -445,14 +445,23 @@ class RafaelGraph:
         try:
             coverage_facts = await self._fhir.search_coverage(coverage_ref)
         except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
-            notes.append(f"cobertura FHIR indisponivel: {exc}")
+            # CLASS TOKEN ONLY (CC-10): `str(exc)` from a FHIR client typically echoes the URL /
+            # id it failed on — i.e. the `coverage_ref` argument — and this note is copied into
+            # the dossier prompt AND into the engine-sealed `dossie_rafael` (general zone,
+            # ADR-0006/ADR-0007). The full trace stays in the structured log, the diagnostic
+            # channel, never in the note.
+            logger.warning("rafael_fhir_cobertura_indisponivel", exc_info=True)
+            notes.append(f"cobertura FHIR indisponivel: {type(exc).__name__}")
 
         patient_ref = state.get("patient_ref")
         if patient_ref:
             try:
                 patient_facts = await self._fhir.read_patient(patient_ref)
             except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
-                notes.append(f"beneficiario FHIR indisponivel: {exc}")
+                # CLASS TOKEN ONLY (CC-10) — same rationale as the coverage note above; here the
+                # leaked argument would be `patient_ref` itself.
+                logger.warning("rafael_fhir_beneficiario_indisponivel", exc_info=True)
+                notes.append(f"beneficiario FHIR indisponivel: {type(exc).__name__}")
 
         return {
             "gathered": True,
