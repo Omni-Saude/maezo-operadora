@@ -31,6 +31,7 @@ from maezo.tools.workers.fraude import (
     ERR_FRAUDE_HANDOFF_SEM_ALVO,
     ERR_PHI_IN_CUSTODY,
     GAP_BEATRIZ_A2A_NAO_LIGADO,
+    GAP_REFERRAL_JURIDICO_NAO_LIGADO,
     INADIMPLENCIA_PROCESS_KEY,
     FraudeError,
     _coerce_numeric,
@@ -56,15 +57,55 @@ from tests.support.audit_fakes import FakeStartAuditSink
 # ---------------------------------------------------------------
 
 
-def test_intake_registers_case() -> None:
-    result = intake(
-        {
-            "numero_caso": "FRAUDE-001",
-            "origem_encaminhamento": "contas",
-            "encaminhado_por_id": "auditor-001",
-        }
-    )
-    assert result["caso_registrado"] is True
+def _intake_vars() -> dict[str, object]:
+    return {
+        "numero_caso": "FRAUDE-001",
+        "origem_encaminhamento": "contas",
+        "encaminhado_por_id": "auditor-001",
+    }
+
+
+def test_intake_nao_afirma_registro_de_caso() -> None:
+    """FAB-INTAKE-CASO-REGISTRADO: `caso_registrado=True` era um fato fabricado.
+
+    O corpo da funcao tinha uma unica instrucao (`logger.info`) e nenhum sink: nenhum registro de
+    caso e feito AQUI. O que de fato registra o caso sao dois mecanismos que NAO sao esta funcao —
+    a linha ADR-0007 que a harness emite antes de todo `complete` (emit-before-complete,
+    fail-closed) e a task seguinte do BPMN, `ST_PublishIntakeReceived`
+    (`operadora.events.publish` -> `agents.events.fraude.intake_received`, com
+    `event_payload_vars` carregando a procedencia). A constante afirmava para a instancia um
+    registro que a propria funcao nunca realizou.
+    """
+    result = intake(_intake_vars())
+    assert "caso_registrado" not in result
+
+
+def test_intake_nao_afirma_timestamp_de_registro() -> None:
+    """FAB-INTAKE: `intake_ts` era o literal `"now"` (o proprio codigo dizia `# placeholder`).
+
+    Nao foi substituido por um relogio real: `intake_ts` tinha ZERO consumidores (nenhuma
+    `conditionExpression`, `inputExpression`, worker a jusante, golden ou linha de contrato) e o
+    instante do intake ja e um fato do engine (`historyState`/`activity-instance` de `ST_Intake`),
+    entao um segundo carimbo no escopo do processo seria uma fonte de verdade redundante — nao
+    uma correcao. A chave foi REMOVIDA.
+    """
+    result = intake(_intake_vars())
+    assert "intake_ts" not in result
+    assert "now" not in result.values()
+
+
+def test_intake_retorno_tem_exatamente_as_chaves_honestas() -> None:
+    """Particao fechada: `intake` nao produz variavel de processo alguma.
+
+    Mesmo desfecho de `notify_sla_risk` neste mesmo modulo (FAB-SLA-RISK-NOTIFIED-SLICE4): a
+    etapa roda, a observabilidade fica no `logger`, e o retorno e `{}` porque nao ha nenhum fato
+    novo que esta funcao produza. Diferente de `gather_evidence`/`assemble_dossier` (BEA-09), que
+    DECLARAM uma lacuna como variavel: la o registro alvo nao acontece em lugar nenhum, aqui ele
+    acontece — na trilha ADR-0007 da harness e em `ST_PublishIntakeReceived` — so nao aqui. Um
+    `intake_gap` seria afirmar uma lacuna inexistente, a mesma especie de defeito na direcao
+    oposta.
+    """
+    assert intake(_intake_vars()) == {}
 
 
 # ---------------------------------------------------------------
@@ -1020,14 +1061,60 @@ def test_register_fraude_workers_registers_notify_sla_risk() -> None:
 # ---------------------------------------------------------------
 
 
-def test_refer_to_legal() -> None:
-    result = refer_to_legal(
-        {
-            "numero_caso": "F-001",
-            "destino_referral": {"juridico": True, "ans": True},
+def _refer_vars() -> dict[str, object]:
+    return {
+        "numero_caso": "F-001",
+        "destino_referral": {"juridico": True, "ans": True},
+    }
+
+
+def test_refer_to_legal_nao_afirma_execucao_do_referral() -> None:
+    """FAB-REFER-TO-LEGAL: `referral_executado=True` era o pior fato fabricado do modulo.
+
+    Caminho ADVERSO: o engine so alcanca `ST_ReferToLegal` a jusante da acusacao humana
+    (`UT_DecisaoInvestigador`, L0 hard), do `bundle_root` selado e do SEGUNDO gate humano
+    `UT_RevisaoReferral` (juridico/compliance aprovando os destinos). O corpo tinha uma unica
+    instrucao (`logger.info`): nenhum canal juridico/ANS/civel/penal e contatado, `fraude.py` nao
+    tem NENHUM call site de `kafka.publish(` (`register_fraude_workers` faz `del kafka  #
+    unused`), e as proprias obrigacoes de referral (prazo/forma/autoridade) estao DRAFT/verify no
+    contrato ("nao estao pinadas em nenhum repo"). A constante gravava na instancia — e portanto
+    na trilha de auditoria de uma acusacao de fraude ja constituida — a execucao de um ato que
+    nunca saiu do processo.
+    """
+    result = refer_to_legal(_refer_vars())
+    assert "referral_executado" not in result
+
+
+def test_refer_to_legal_declara_a_lacuna_da_integracao() -> None:
+    """A lacuna nao e silenciosa: sai como class-token fechado declarado no contrato."""
+    result = refer_to_legal(_refer_vars())
+    assert result["referral_gap"] == GAP_REFERRAL_JURIDICO_NAO_LIGADO
+    assert GAP_REFERRAL_JURIDICO_NAO_LIGADO == "referral_juridico_nao_ligado"
+
+
+def test_refer_to_legal_nao_ecoa_os_destinos() -> None:
+    """`destinos` era eco byte-a-byte de `destino_referral`, ja no escopo do processo.
+
+    Reescrever o input sob um segundo nome cria uma segunda fonte de verdade para a decisao
+    humana (`destino_referral` vem de `UT_DecisaoInvestigador` e e confirmado por
+    `UT_RevisaoReferral`) sem acrescentar fato nenhum — mesmo tratamento que
+    `notify_sla_risk` deu as suas chaves de eco (FAB-SLA-RISK-NOTIFIED-SLICE4).
+    """
+    result = refer_to_legal(_refer_vars())
+    assert "destinos" not in result
+
+
+def test_refer_to_legal_retorno_tem_exatamente_as_chaves_honestas() -> None:
+    """Particao fechada: a UNICA saida e a lacuna declarada."""
+    assert set(refer_to_legal(_refer_vars())) == {"referral_gap"}
+
+
+def test_refer_to_legal_lacuna_independe_dos_destinos() -> None:
+    """A lacuna e de DEPLOY (integracao inexistente), nao do caso: mesma saida para todo destino."""
+    for destino in ({"juridico": True}, {"ans": True}, {}, None):
+        assert refer_to_legal({"numero_caso": "F-002", "destino_referral": destino}) == {
+            "referral_gap": GAP_REFERRAL_JURIDICO_NAO_LIGADO
         }
-    )
-    assert result["referral_executado"] is True
 
 
 # ---------------------------------------------------------------

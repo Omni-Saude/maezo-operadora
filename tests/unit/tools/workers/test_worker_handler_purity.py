@@ -254,6 +254,24 @@ def _nondeterministic_calls(tree: ast.AST) -> set[str]:
 # `programa::data_enrollment` — `grep -rn '": "now"' src/maezo/tools/workers/`), so widening into
 # it is its own slice with its own consumer map, not a free rider on this one. Reported by BEA-09,
 # not fixed by it.
+#
+# FAB-REFER-TO-LEGAL / FAB-INTAKE-CASO-REGISTRADO widen the set with `referral_executado` and
+# `caso_registrado` — the two instances BEA-09's verification surfaced in the SAME module, on the
+# two ends of the same process:
+#   - `fraude.refer_to_legal` returned `{"referral_executado": True, "destinos": <echo of the
+#     input>}` from a body whose only statement was `logger.info`. It is the ADVERSE path: the
+#     engine reaches it only DOWNSTREAM of the human accusation (`UT_DecisaoInvestigador`, L0
+#     hard), the sealed `bundle_root` and the SECOND human gate `UT_RevisaoReferral`
+#     (juridico/compliance approving the referral destinations), and its only outgoing flow ends
+#     at `End_EncaminhadoJuridico` ("Encaminhado a juridico/ANS/civel/penal"). No referral is
+#     performed anywhere: `fraude.py` has zero `kafka.publish(` call sites
+#     (`register_fraude_workers` does `del kafka  # unused`) and no legal/ANS transport exists —
+#     the contract itself lists the referral obligations (prazo/forma/autoridade) as DRAFT/verify,
+#     "nao estao pinadas em nenhum repo". So the non-repudiable trail of a fraud referral recorded
+#     `referral_executado=true` for an act that never left the process.
+#   - `fraude.intake` returned `{"caso_registrado": True, "intake_ts": "now"}` from a body whose
+#     only statement was `logger.info`. Both fixed IN THE SAME COMMIT as this widening, so the
+#     baseline below stays EMPTY.
 _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
     {
         "notificacao_previa_feita",
@@ -262,6 +280,8 @@ _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
         "sla_risk_notified",
         "deadline_risk_notified",
         "dossie_montado",
+        "referral_executado",
+        "caso_registrado",
     }
 )
 
