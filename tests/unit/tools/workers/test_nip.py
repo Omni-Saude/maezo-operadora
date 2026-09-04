@@ -118,7 +118,10 @@ def test_notify_deadline_risk_happy_path() -> None:
         sla_breach_task_name="UT_RevisaoJuridicaNip",
         event_topic_deadline_risk="agents.events.nip.deadline_risk",
     )
-    assert result["deadline_risk_notified"] is True
+    # FAB-SLA-RISK-NOTIFIED-SLICE4: `deadline_risk_notified` REMOVIDO (fato fabricado da mesma
+    # especie de `sla_risk_notified`; este worker "only logged", ver a docstring). As demais
+    # chaves ficaram byte-identicas — sao eco dos proprios inputs.
+    assert "deadline_risk_notified" not in result
     assert result["numero_nip_ans"] == "NIP-010"
     assert result["grupo_humano"] == "juridico-regulatorio"
     assert result["sla_breach_task_name"] == "UT_RevisaoJuridicaNip"
@@ -128,8 +131,8 @@ def test_notify_deadline_risk_never_alters_a_decision() -> None:
     """Invariant: notify_deadline_risk's output never carries a decision/adverse marker."""
     result = notify_deadline_risk(numero_nip_ans="NIP-011")
     assert "decisao_nip" not in result
+    assert "deadline_risk_notified" not in result  # FAB-SLA-RISK-NOTIFIED-SLICE4
     assert set(result.keys()) == {
-        "deadline_risk_notified",
         "numero_nip_ans",
         "grupo_humano",
         "sla_breach_task_name",
@@ -142,7 +145,7 @@ def test_notify_deadline_risk_defaults_for_solicitar_info_reuse() -> None:
     "reusa o canal de notificacao regulatoria") — sla_breach_task_name/event_topic_deadline_risk
     must default gracefully rather than raise."""
     result = notify_deadline_risk(numero_nip_ans="NIP-012", tenant_id="amh")
-    assert result["deadline_risk_notified"] is True
+    assert "deadline_risk_notified" not in result  # FAB-SLA-RISK-NOTIFIED-SLICE4
     assert result["sla_breach_task_name"] == ""
     assert result["event_topic_deadline_risk"] == ""
 
@@ -164,7 +167,8 @@ def test_notify_deadline_risk_entry_ignores_kafka_seam() -> None:
     (systemic Kafka-producer-wiring gap, out of scope for this worker)."""
     kafka = FakeKafkaPublisher()
     result = notify_deadline_risk_entry({"numero_nip_ans": "NIP-014"}, kafka=kafka)
-    assert result["deadline_risk_notified"] is True
+    assert "deadline_risk_notified" not in result  # FAB-SLA-RISK-NOTIFIED-SLICE4
+    assert result["numero_nip_ans"] == "NIP-014"
     assert kafka.published == []
 
 

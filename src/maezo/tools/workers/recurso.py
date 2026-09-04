@@ -900,19 +900,34 @@ class NotifySlaRiskInput:
 
 
 def notify_sla_risk(input_data: NotifySlaRiskInput) -> dict[str, Any]:
-    """Notify coordenacao-recurso of SLA risk (non-interruptive timer `BT_AlertaSlaRecurso`).
+    """Registra que a ETAPA de alerta de risco de SLA rodou. Retorna `{}` — NAO afirma nada.
 
-    Informational only: `UT_AnaliseRecursoAnalista` stays open (`cancelActivity="false"`), no
-    decision is made or altered — mirrors `cancel.py`'s own `notify_sla_risk`. Contract
-    SP-OP-RECURSO-001.md SS Topicos: "alerta coordenacao-recurso (timer nao-interruptivo)".
+    Serve `ST_NotificarRiscoSla` (topico `operadora.recurso.notify_sla_risk`), alimentado SO pelo
+    boundary NAO-interruptivo `BT_AlertaSlaRecurso` (`cancelActivity="false"`) em
+    `UT_AnaliseRecursoAnalista`. Informativa e jamais adversa: a User Task segue aberta, nenhuma
+    decisao e tomada ou alterada.
+
+    FAB-SLA-RISK-NOTIFIED-SLICE4 (o motivo desta docstring). O retorno era, em toda entrega e sem
+    calcular nada, `{"sla_risk_notified": True, "glosa_id": ...}` — e ESTA funcao nao publica
+    coisa alguma: quem publica e o wrapper `make_notify_sla_risk_handler` abaixo, e SO quando ha
+    produtor Kafka. No caminho `kafka is None` o wrapper devolvia este mesmo `True` sem ter
+    publicado nada, entao a afirmacao era falsa exatamente quando mais importava. Ainda que o
+    publish ocorra, ele e um registro INTERNO em `operadora.notifications.internal` — um PEDIDO de
+    alerta, nunca a prova de que a `coordenacao-recurso` foi avisada. Por isso os DOIS caminhos
+    passam a devolver `{}` (o publish observavel segue intacto).
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar): `sla_risk_notified` nao aparece em nenhum
+    `conditionExpression` de BPMN, `inputExpression` de DMN, worker a jusante ou linha de
+    contrato. `glosa_id` era eco do proprio input, ja no escopo.
     """
     logger.info(
         "recurso.notify_sla_risk",
         tenant_id=input_data.tenant_id,
         numero_guia_tiss=input_data.numero_guia_tiss,
         glosa_id=input_data.glosa_id,
+        notified_asserted=False,
     )
-    return {"sla_risk_notified": True, "glosa_id": input_data.glosa_id}
+    return {}
 
 
 def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
@@ -930,14 +945,26 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     ONLY by the NON-interrupting `BT_AlertaSlaRecurso` boundary timer, so the propagation stays on
     the alert side branch — `UT_AnaliseRecursoAnalista` and the interrupting SLA/P30D ceilings are
     engine-side and unaffected.
+
+    FAB-SLA-RISK-NOTIFIED-SLICE4: os DOIS caminhos devolvem `{}`. O caminho `kafka is None`
+    devolvia `{"sla_risk_notified": True, ...}` sem ter publicado NADA — fato fabricado no exato
+    caminho em que a publicacao falhou de existir. O caminho com produtor tambem nao afirma mais
+    nada: o publish e um registro interno de observabilidade, nao prova de que alguem foi avisado
+    (mesmo raciocinio ratificado em `contas.notify_sla_risk`, FAB-NOTIFIED-TRIO). O publish em si,
+    seu `best_effort=False` e sua chave de particao seguem BYTE-IDENTICOS — so o payload de
+    retorno mudou, e ele tinha zero consumidores.
     """
 
     async def handler(task: ExternalTask) -> dict[str, Any]:
         input_data = NotifySlaRiskInput(**pick_fields(task.variables, NotifySlaRiskInput))
-        result = notify_sla_risk(input_data)
+        notify_sla_risk(input_data)  # so registra a etapa (retorna {}; nada e afirmado)
         if kafka is None:
-            logger.warning("recurso_notify_sla_risk_no_producer", business_key=task.business_key)
-            return result
+            logger.warning(
+                "recurso_notify_sla_risk_no_producer",
+                business_key=task.business_key,
+                notified_asserted=False,
+            )
+            return {}
         notification = {
             "type": _NOTIFY_SLA_RISK_NOTIFICATION_TYPE,
             "tenant_id": input_data.tenant_id,
@@ -954,7 +981,7 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
         message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
         await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
-        return result
+        return {}
 
     return handler
 
@@ -1001,7 +1028,9 @@ def make_escalate_ans_timeout_handler(kafka: KafkaPublisher | None) -> TaskHandl
 
     Publishes the EMBEDDED `agents.events.recurso.sla_breached` (fase=`prazo_max`) domain event
     the BPMN's own `event_topic_breach` inputParameter documents — the SAME "embedded publish"
-    idiom as `ST_SolicitarDocumentos`'s `event_topic_pended` (module docstring finding 1), but
+    idiom as `ST_SolicitarDocumentos`'s `event_topic_pended` (module docstring finding 1; that one
+    is INERT residue — nothing reads it and `ST_PublishRecursoPended` publishes the pended event —
+    tracked OPEN in `docs/review-queue.md` by FAB-SLA-RISK-NOTIFIED-SLICE4), but
     THIS task has no downstream `ST_Publish*` service task to route through (unlike
     `ST_PublishSlaBreach` for fase=`analise`) — the worker must publish it directly. Needs the
     async Kafka seam -> raw handler (same rationale as `make_notify_sla_risk_handler`). Reachable

@@ -39,6 +39,12 @@ double-effect / audit-misalignment hazard the moment its handler performs a real
 keyed on that identifier. `ans_submit` WAS the T-H (T2.6-owned) named co-requisite; the other six are
 recorded here so they cannot silently become real effects without tripping this fence.
 
+UPDATE (FAB-SLA-RISK-NOTIFIED-SLICE4): the fabricated-fact fence below now also catches the
+`sla_risk_notified`/`deadline_risk_notified` keys and the `"status": "risk_notified"` STRING form
+(`auth.NotifySlaRiskWorker`, which had no Kafka seam at all and still asserted both a notification
+status and an event topic). Ten domain modules were fixed in the same commit as the widening, so
+`_FABRICATED_FACT_BASELINE` stays EMPTY.
+
 UPDATE (T2.6-1, design §2.A): `ans_submit` has since been FIXED and REMOVED from the baseline — its
 fabricated `protocolo_ans = sha256(time_ns())` was replaced by the explicit `AnsGatewayTransport`
 triple (`ans_gateway.py`: Refusing prod-default / LabeledMock deterministic-by-business-key / Real
@@ -213,9 +219,40 @@ def _nondeterministic_calls(tree: ast.AST) -> set[str]:
 # All SEVEN now return `{}` and `_FABRICATED_FACT_BASELINE` below is EMPTY. This static fence keeps
 # them fixed and catches the same shape (a `return {...}` mapping one of these keys straight to
 # the literal `True`, no computation, no input dependency) anywhere else in the domain worker tree.
+#
+# FAB-SLA-RISK-NOTIFIED-SLICE4 widened the set with `sla_risk_notified` and
+# `deadline_risk_notified`. Those are the SAME species under a different name, and the reason the
+# earlier slices did not catch them: `notified` matched only the bare word, so NINE `notify_sla_
+# risk` handlers (recurso/reembolso/cancel/credenciamento/fraude/inadimplencia/pagto/adequacao/
+# programa) plus `nip.notify_deadline_risk` fabricated the identical fact under a compound name.
+# All ten are fixed IN THE SAME COMMIT as this widening, so the baseline below stays EMPTY.
 _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
-    {"notificacao_previa_feita", "notificacao_enviada", "notified"}
+    {
+        "notificacao_previa_feita",
+        "notificacao_enviada",
+        "notified",
+        "sla_risk_notified",
+        "deadline_risk_notified",
+    }
 )
+
+# SAME SPECIES, ESCAPING VIA A STRING (FAB-SLA-RISK-NOTIFIED-SLICE4). `auth.NotifySlaRiskWorker.
+# execute` fabricated the fact TWICE OVER without ever using the literal `True`: it returned
+# `{"status": "risk_notified", ..., "event": "agents.events.auth.sla_breached"}` from a SYNC
+# `WorkerBase.execute` with no Kafka seam at all — a notification status AND an event topic, as
+# though it had published. (The event name was wrong too: `agents.events.auth.sla_breached` is
+# published by `ST_PublishSlaBreach` on the INTERRUPTIVE `BT_SlaAnalise` branch, which this
+# non-interruptive alert never reaches.) So the fence also flags a `return {...}` mapping the
+# generic key `status` to one of these notification-claim literals.
+#
+# DELIBERATELY NARROW. It does NOT fence every `"status": "<literal>"` — the tree returns many
+# honest ones (`blocked_by_guard`, `pended`, `authorized`, `filed`, `published`, ...), and it does
+# NOT fence the `"event": "agents.events.*"` idiom, which appears in 13 other places whose events
+# ARE published by a sibling `ST_Publish*` task; widening into either without a per-instance
+# consumer map would be a guess. `auth`'s `"status": "notice_sent"` (`send_denial_notice`) is a
+# DISCLOSED, UNFIXED neighbour of this species — an L0 denial-transmission worker whose `status`
+# has real guard consumers, out of this slice's scope (tracked in `docs/review-queue.md`).
+_FABRICATED_STATUS_LITERALS: frozenset[str] = frozenset({"risk_notified", "notified", "notificado"})
 
 # DOCUMENTED baseline (same "grandfather with a ticket" pattern as `_NONDETERMINISM_BASELINE`
 # above) — modules with a pre-existing, STRUCTURALLY IDENTICAL instance of this shape that a given
@@ -238,11 +275,21 @@ _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
 _FABRICATED_FACT_BASELINE: dict[str, str] = {}
 
 
-def _unconditional_true_fact_keys(tree: ast.AST) -> set[str]:
-    """Static detector: a `return {...}` dict literal mapping one of `_FABRICATED_FACT_KEYS`
-    directly to the constant `True` — i.e. produced with no conditional logic and no dependency on
-    `variables`, unconditionally on every call. Mirrors this module's other AST-based fences: a
-    blunt structural check, not value-flow taint analysis."""
+def _fabricated_fact_hits(tree: ast.AST) -> set[str]:
+    """Static detector for the fabricated-fact shape, in its TWO known forms:
+
+      (a) a `return {...}` dict literal mapping one of `_FABRICATED_FACT_KEYS` directly to the
+          constant `True` — reported as the key name;
+      (b) a `return {...}` dict literal mapping the generic key `status` to one of
+          `_FABRICATED_STATUS_LITERALS` — reported as `status='<literal>'`
+          (FAB-SLA-RISK-NOTIFIED-SLICE4: the `auth.NotifySlaRiskWorker` escape, which claimed the
+          notification in a STRING and so slipped past form (a) entirely).
+
+    Both forms are produced with no conditional logic and no dependency on `variables`,
+    unconditionally on every call. Mirrors this module's other AST-based fences: a blunt
+    structural check, not value-flow taint analysis (a fabrication assembled key-by-key into a
+    local — `out = {}; out["notified"] = True` — is documented as OUT of this detector's reach and
+    is caught instead by the per-handler domain tests asserting `== {}`)."""
     hits: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Return) or node.value is None:
@@ -251,14 +298,14 @@ def _unconditional_true_fact_keys(tree: ast.AST) -> set[str]:
         if not isinstance(value, ast.Dict):
             continue
         for key_node, val_node in zip(value.keys, value.values, strict=True):
-            if (
-                isinstance(key_node, ast.Constant)
-                and isinstance(key_node.value, str)
-                and key_node.value in _FABRICATED_FACT_KEYS
-                and isinstance(val_node, ast.Constant)
-                and val_node.value is True
-            ):
+            if not (isinstance(key_node, ast.Constant) and isinstance(key_node.value, str)):
+                continue
+            if not isinstance(val_node, ast.Constant):
+                continue
+            if key_node.value in _FABRICATED_FACT_KEYS and val_node.value is True:
                 hits.add(key_node.value)
+            elif key_node.value == "status" and val_node.value in _FABRICATED_STATUS_LITERALS:
+                hits.add(f"status={val_node.value!r}")
     return hits
 
 
@@ -361,16 +408,19 @@ def test_contas_glosa_id_m9_landed_deterministic() -> None:
 
 def test_no_domain_worker_returns_unconditional_true_for_fabricated_fact_keys() -> None:
     """GAP-FAB-NOTIF regression fence: no domain worker handler OUTSIDE the documented baseline may
-    return a dict literal mapping a previously-fabricated fact key straight to the constant `True`.
-    `credenciamento.dispatch_prior_notice` (was `notify_prestador`) and `adequacao.
+    return a dict literal fabricating a notification/regulatory fact — neither as a bare `True`
+    under a `_FABRICATED_FACT_KEYS` key nor as a `_FABRICATED_STATUS_LITERALS` string under
+    `status`. `credenciamento.dispatch_prior_notice` (was `notify_prestador`) and `adequacao.
     notify_coordenacao` were the two confirmed, IN-SCOPE instances (D-N1/D-N2, part-B verification
-    report); both now return `{}`. GAP-INAD-8 added `inadimplencia`/`cancel`, and
-    FAB-NOTIFIED-TRIO added `recurso`/`reembolso`/`contas` — the baseline is now EMPTY, so ANY hit
-    in ANY domain worker module fails here."""
+    report); both now return `{}`. GAP-INAD-8 added `inadimplencia`/`cancel`,
+    FAB-NOTIFIED-TRIO added `recurso`/`reembolso`/`contas`, and FAB-SLA-RISK-NOTIFIED-SLICE4 added
+    the `sla_risk_notified`/`deadline_risk_notified`/`status='risk_notified'` forms across ELEVEN
+    handlers in ten modules — the baseline is EMPTY, so ANY hit in ANY domain worker module fails
+    here."""
     actual: dict[str, set[str]] = {}
     for name, path in _domain_worker_modules().items():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        hits = _unconditional_true_fact_keys(tree)
+        hits = _fabricated_fact_hits(tree)
         if hits:
             actual[name] = hits
 
@@ -393,16 +443,25 @@ def test_no_domain_worker_returns_unconditional_true_for_fabricated_fact_keys() 
         f"baseline modules no longer return the fabricated-fact literal: {sorted(resolved)} — "
         "remove them from _FABRICATED_FACT_BASELINE (the fabrication is fixed there)."
     )
-    # Confirm the SEVEN fixed instances are ACTUALLY fixed (not merely absent from `actual`
-    # because the module failed to parse, etc.): GAP-FAB-NOTIF's two, GAP-INAD-8's two, then
-    # FAB-NOTIFIED-TRIO's three.
-    assert "credenciamento" not in actual
-    assert "adequacao" not in actual
-    assert "inadimplencia" not in actual
-    assert "cancel" not in actual
-    assert "recurso" not in actual
-    assert "reembolso" not in actual
-    assert "contas" not in actual
+    # Confirm the fixed instances are ACTUALLY fixed (not merely absent from `actual` because the
+    # module failed to parse, etc.): GAP-FAB-NOTIF's two, GAP-INAD-8's two, FAB-NOTIFIED-TRIO's
+    # three, then FAB-SLA-RISK-NOTIFIED-SLICE4's ten modules (five of which are the SAME modules
+    # under a second key, so this list grows by `auth`, `fraude`, `pagto`, `programa`, `nip`).
+    for fixed in (
+        "credenciamento",
+        "adequacao",
+        "inadimplencia",
+        "cancel",
+        "recurso",
+        "reembolso",
+        "contas",
+        "auth",
+        "fraude",
+        "pagto",
+        "programa",
+        "nip",
+    ):
+        assert fixed not in actual, f"{fixed} re-introduced a fabricated fact: {sorted(actual[fixed])}"
     # Every grandfathered entry is GONE — the ratchet shrank to empty, never rubber-stamped.
     assert _FABRICATED_FACT_BASELINE == {}
 

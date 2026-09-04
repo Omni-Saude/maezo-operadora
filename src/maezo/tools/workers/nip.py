@@ -233,6 +233,17 @@ def notify_deadline_risk(
     entry function (see `register_nip_workers` docstring): does not call `kafka.publish` itself —
     the systemic Kafka-producer-wiring gap (T3.1 finding "events.publish fix") is unchanged by
     this worker and out of scope here.
+
+    FAB-SLA-RISK-NOTIFIED-SLICE4: a chave `"deadline_risk_notified": True` foi REMOVIDA do retorno.
+    Era da mesma especie de `sla_risk_notified` (fato fabricado: afirmava, em toda entrega e sem
+    calcular nada, que o grupo regulatorio foi avisado — e o proprio paragrafo acima ja divulgava
+    que este worker "only logged"). ZERO CONSUMIDORES: `grep -rn deadline_risk_notified spec/ src/
+    docs/ tests/` so encontra o produtor e o seu teste; nenhum `conditionExpression`, nenhuma DMN.
+    As demais chaves do retorno ficaram BYTE-IDENTICAS — sao eco dos proprios inputs e mexer nelas
+    seria mudanca de comportamento sem prova de motor (ver o achado ABERTO registrado em
+    `docs/review-queue.md`: `ST_SolicitarInfoNip` nao declara `camunda:inputOutput`, entao esses
+    ecos VOLTAM ao escopo do processo, e `grupo_humano` e uma variavel VIVA, lida por
+    `camunda:candidateGroups="${grupo_humano}"`).
     """
     logger.info(
         "nip.notify_deadline_risk",
@@ -240,10 +251,10 @@ def notify_deadline_risk(
         numero_nip_ans=numero_nip_ans,
         grupo_humano=grupo_humano,
         sla_breach_task_name=sla_breach_task_name,
+        notified_asserted=False,
     )
 
     return {
-        "deadline_risk_notified": True,
         "numero_nip_ans": numero_nip_ans,
         "grupo_humano": grupo_humano,
         "sla_breach_task_name": sla_breach_task_name,

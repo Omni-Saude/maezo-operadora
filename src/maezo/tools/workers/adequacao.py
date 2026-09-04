@@ -815,20 +815,27 @@ def make_update_monitoring_plan_handler(kafka: KafkaPublisher | None) -> TaskHan
 
 
 def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
-    """Alert coordenacao-rede of SLA risk (non-interruptive timer BT_AlertaSlaAdequacao).
+    """Registra que a ETAPA de alerta de risco de SLA rodou. Retorna `{}` — NAO afirma nada.
 
-    External task: `operadora.adequacao.notify_sla_risk` (`ST_NotificarRiscoSla`,
-    SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn:287-291 — task name "Notificar risco de SLA
-    (coordenacao-rede)"). Fires at `${sla.sla_alerta}` (60-70% of `adequacao_sla`'s
-    `sla_alerta`, per the contract, DRAFT/verify — docs/processes/contracts/
-    SP-OP-ADEQUACAO-001.md:153,225) on the non-interruptive boundary event
-    (cancelActivity="false") attached to `UT_DecisaoFallback`.
+    Serve `ST_NotificarRiscoSla` (topico `operadora.adequacao.notify_sla_risk`,
+    SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn:287-291), alimentado SO pelo boundary
+    NAO-interruptivo `BT_AlertaSlaAdequacao` (`cancelActivity="false"`) em `UT_DecisaoFallback`,
+    em `${sla.sla_alerta}` (60-70% de `adequacao_sla.sla_alerta`, contrato DRAFT/verify).
+    Informativa e jamais adversa: a User Task segue aberta e NENHUM desfecho adverso (compromisso
+    de fallback ou outro) nasce deste alerta — o compromisso so nasce da decisao humana em
+    `UT_DecisaoFallback` (`register_fallback_commitment`, guard inalterado).
 
-    Informational only (mirrors `inadimplencia.notify_sla_risk`/`cancel.notify_sla_risk`/
-    `fraude.notify_sla_risk`): UT_DecisaoFallback stays open, no decision is made or altered,
-    NO adverse outcome (fallback commitment or otherwise) is ever produced by this alert.
-    The fallback commitment NEVER arises from a timer -- only the human decision at
-    UT_DecisaoFallback (`register_fallback_commitment`'s own guard, unchanged) does.
+    FAB-SLA-RISK-NOTIFIED-SLICE4 (o motivo desta docstring). O retorno era, em toda entrega e sem
+    calcular nada, `{"sla_risk_notified": True, ...}`. NENHUM canal e contatado por esta funcao —
+    a `coordenacao-rede` pode nunca ter sido avisada — e a harness grava o retorno no escopo do processo no
+    `complete` (`harness.py:1779-1783`), entao a constante entrava na instancia como trilha de
+    auditoria. Mesma especie de `contas.notify_sla_risk` (FAB-NOTIFIED-TRIO), sob outra chave.
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar): nem `sla_risk_notified` nem `grupo_alertado`
+    aparecem em `conditionExpression` de BPMN, `inputExpression` de DMN, worker a jusante ou linha
+    de contrato — `grupo_alertado` so existe nesta funcao e no seu teste. As demais chaves eram
+    eco do proprio input, ja no escopo. A observabilidade da etapa fica no `logger` abaixo, que
+    declara explicitamente `notified_asserted=False`.
     """
     regiao = variables.get("regiao_saude", "")
     especialidade = variables.get("especialidade", "")
@@ -838,14 +845,10 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
         regiao_saude=regiao,
         especialidade=especialidade,
         grupo_alertado="coordenacao-rede",
+        notified_asserted=False,
     )
 
-    return {
-        "sla_risk_notified": True,
-        "grupo_alertado": "coordenacao-rede",
-        "regiao_saude": regiao,
-        "especialidade": especialidade,
-    }
+    return {}
 
 
 # ---------------------------------------------------------------

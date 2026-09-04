@@ -662,19 +662,33 @@ def analyze_request(input_data: ReembolsoInput) -> dict[str, Any]:
 
 
 def notify_sla_risk(input_data: ReembolsoInput) -> dict[str, Any]:
-    """Notify coordenacao-reembolso of SLA risk (non-interruptive timer `BT_AlertaSla`).
+    """Registra que a ETAPA de alerta de risco de SLA rodou. Retorna `{}` — NAO afirma nada.
 
-    Informational only: `UT_AnaliseReembolso` stays open, no decision is made or altered. Fires
-    at `sla.sla_alerta` (DMN `reembolso_sla` resolves the actual duration — 50-70% of
-    `sla.sla_analise` per contract SS SLAs). Mirrors `cancel.notify_sla_risk`'s proven shape
-    exactly (same family of non-adverse, fail-safe alert worker).
+    Serve `ST_NotificarRiscoSla` (topico `operadora.reembolso.notify_sla_risk`), alimentado SO
+    pelo boundary NAO-interruptivo `BT_AlertaSla` em `UT_AnaliseReembolso`. Informativa e jamais
+    adversa: a User Task segue aberta, nenhuma decisao e tomada ou alterada. Dispara em
+    `sla.sla_alerta` (DMN `reembolso_sla`).
+
+    FAB-SLA-RISK-NOTIFIED-SLICE4 (o motivo desta docstring). O retorno era, em toda entrega e sem
+    calcular nada, `{"sla_risk_notified": True, "protocolo_reembolso": ...}`. NENHUM canal e
+    contatado por esta funcao — a `coordenacao-reembolso` pode nunca ter sido avisada — e a
+    harness grava o retorno no escopo do processo no `complete` (`harness.py:1779-1783`), entao a
+    constante entrava na instancia como trilha de auditoria. Mesma especie de
+    `contas.notify_sla_risk` (FAB-NOTIFIED-TRIO), sob outra chave.
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar): `sla_risk_notified` nao aparece em nenhum
+    `conditionExpression` de BPMN, nenhum `inputExpression` de DMN, nenhum worker a jusante e
+    nenhuma linha de contrato — so nos proprios produtores. `protocolo_reembolso` era eco do
+    proprio input, ja no escopo. A observabilidade da etapa fica no `logger.info` abaixo, que
+    declara explicitamente `notified_asserted=False`.
     """
     logger.info(
         "reembolso.notify_sla_risk",
         protocolo_reembolso=input_data.protocolo_reembolso,
         tipo_reembolso=input_data.tipo_reembolso,
+        notified_asserted=False,
     )
-    return {"sla_risk_notified": True, "protocolo_reembolso": input_data.protocolo_reembolso}
+    return {}
 
 
 def process_payment(
@@ -1129,7 +1143,12 @@ def analyze_request_entry(
 def notify_sla_risk_entry(
     variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
 ) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.reembolso.notify_sla_risk` -> `notify_sla_risk`."""
+    """Dict-boundary entry for `operadora.reembolso.notify_sla_risk` -> `notify_sla_risk`.
+
+    FAB-SLA-RISK-NOTIFIED-SLICE4: o retorno passou a ser `{}` (o antigo `sla_risk_notified=True`
+    era fato fabricado — ver a docstring de `notify_sla_risk`). As leituras de entrada seguem
+    identicas; so o payload de saida mudou, e ele tinha zero consumidores.
+    """
     del kafka  # unused — notify_sla_risk emits no domain event itself
     input_data = ReembolsoInput(**pick_fields(variables, ReembolsoInput))
     return notify_sla_risk(input_data)

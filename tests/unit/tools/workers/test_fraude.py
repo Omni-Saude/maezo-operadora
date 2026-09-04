@@ -883,11 +883,14 @@ def test_fraud_accusation_padded_indicador_element_normalizes_and_registers() ->
 # ---------------------------------------------------------------
 
 
-def test_notify_sla_risk_informational() -> None:
-    result = notify_sla_risk({"numero_caso": "F-001", "tenant_id": "amh"})
-    assert result["sla_risk_notified"] is True
-    assert result["grupo_alertado"] == "coordenacao-investigacao"
-    assert result["numero_caso"] == "F-001"
+def test_notify_sla_risk_nao_afirma_notificacao() -> None:
+    """FAB-SLA-RISK-NOTIFIED-SLICE4: retorna `{}` — NAO afirma `sla_risk_notified`.
+
+    O `== {}` e' deliberado (nao `"sla_risk_notified" not in result`): so a igualdade exata pega
+    uma fabricacao remontada chave-a-chave num local, que a cerca AST de
+    `test_worker_handler_purity.py` documenta nao alcancar.
+    """
+    assert notify_sla_risk({"numero_caso": "F-001", "tenant_id": "amh"}) == {}
 
 
 def test_notify_sla_risk_no_adverse_outcome() -> None:
@@ -897,17 +900,27 @@ def test_notify_sla_risk_no_adverse_outcome() -> None:
     only the human decision at UT_DecisaoInvestigador (register_fraud_accusation's guard) does.
     """
     result = notify_sla_risk({"numero_caso": "F-001", "decisao_fraude": "ACUSAR_FRAUDE"})
+    # FAB-SLA-RISK-NOTIFIED-SLICE4: `== {}` primeiro — sem ele os dois checks abaixo passariam
+    # VACUAMENTE (um dict vazio nao tem chave nem valor a inspecionar).
+    assert result == {}
     assert "decisao_fraude" not in result
     forbidden = {"ACUSAR_FRAUDE", "ACUSAR", "BLOQUEAR", "FRAUD_DETECTED"}
     for value in result.values():
         assert str(value).upper() not in forbidden
 
 
-def test_notify_sla_risk_missing_numero_caso_defaults_empty() -> None:
-    """Missing `numero_caso` degrades gracefully (no KeyError) — fail-safe, never adverse."""
-    result = notify_sla_risk({})
-    assert result["sla_risk_notified"] is True
-    assert result["numero_caso"] == ""
+@pytest.mark.parametrize(
+    "variables",
+    [
+        {},
+        {"numero_caso": "F-001"},
+        {"numero_caso": "F-001", "decisao_fraude": "ACUSAR_FRAUDE"},
+    ],
+)
+def test_notify_sla_risk_nenhuma_entrada_produz_afirmacao(variables: dict) -> None:
+    """`numero_caso` ausente degrada sem KeyError e NENHUMA entrada produz afirmacao — o alerta
+    do timer nao-interruptivo nunca acusa; so `UT_DecisaoInvestigador` acusa."""
+    assert notify_sla_risk(variables) == {}
 
 
 # ---------------------------------------------------------------

@@ -394,22 +394,32 @@ def proactive_contact(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
-    """Notify coordenacao-clinica/equipe-cuidado of SLA risk (`ST_NotifySlaRisk`, BPMN:202-205).
+    """Registra que a ETAPA de alerta de risco de SLA rodou. Retorna `{}` — NAO afirma nada.
 
-    Fed ONLY by the NON-interruptive boundary timer `BT_AlertaSlaPrograma` (`cancelActivity=
-    "false"` on the attached boundary — re-verified against the BPMN) attached to
-    `UT_DecisaoClinica`: informational only. `UT_DecisaoClinica` stays open, no decision is made
-    or altered here — mirrors `recurso.notify_sla_risk`'s (recurso.py:700-713) exact rationale.
+    Serve `ST_NotifySlaRisk` (`SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn:202-205`), alimentado SO
+    pelo boundary NAO-interruptivo `BT_AlertaSlaPrograma` (`cancelActivity="false"`) em
+    `UT_DecisaoClinica`. Informativa e jamais adversa: a User Task segue aberta, nenhuma decisao e
+    tomada ou alterada.
+
+    FAB-SLA-RISK-NOTIFIED-SLICE4 (o motivo desta docstring). O retorno era `{"sla_risk_notified":
+    True}` — a UNICA chave que esta funcao escrevia no escopo — e ESTA funcao nao publica nada:
+    quem publica e `make_notify_sla_risk_handler` abaixo, e SO quando ha produtor Kafka. No
+    caminho `kafka is None` o wrapper devolvia este mesmo `True` sem ter publicado coisa alguma.
+    Mesmo com produtor, o publish e um registro INTERNO em `operadora.notifications.internal` — um
+    PEDIDO de alerta, nunca a prova de que a `coordenacao-clinica`/`equipe-cuidado` foi avisada.
+    Os DOIS caminhos passam a devolver `{}`; o publish observavel segue intacto.
+
+    ZERO CONSUMIDORES: `sla_risk_notified` nao aparece em `conditionExpression` de BPMN,
+    `inputExpression` de DMN, worker a jusante ou linha de contrato.
     """
     logger.info(
         "programa_notify_sla_risk",
         beneficiario=variables.get("beneficiario_pseudo_id"),
         programa_id=variables.get("programa_id"),
+        notified_asserted=False,
     )
 
-    return {
-        "sla_risk_notified": True,
-    }
+    return {}
 
 
 # ---------------------------------------------------------------
@@ -605,13 +615,22 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     `notifications_of_type("programa.notify_sla_risk")` observability. Mirrors
     `recurso.make_notify_sla_risk_handler`'s rationale (recurso.py:716-752): `UT_DecisaoClinica`
     stays open, no decision is made or altered.
+
+    FAB-SLA-RISK-NOTIFIED-SLICE4: os DOIS caminhos devolvem `{}` — o caminho `kafka is None`
+    devolvia `{"sla_risk_notified": True}` sem ter publicado nada. O publish, seu
+    `best_effort=False` e sua chave de particao seguem BYTE-IDENTICOS; so o payload de retorno
+    mudou, e ele tinha zero consumidores.
     """
 
     async def handler(task: ExternalTask) -> dict[str, Any]:
-        result = notify_sla_risk(task.variables)
+        notify_sla_risk(task.variables)  # so registra a etapa (retorna {}; nada e afirmado)
         if kafka is None:
-            logger.warning("programa_notify_sla_risk_no_producer", business_key=task.business_key)
-            return result
+            logger.warning(
+                "programa_notify_sla_risk_no_producer",
+                business_key=task.business_key,
+                notified_asserted=False,
+            )
+            return {}
         notification = {
             "type": _NOTIFY_SLA_RISK_NOTIFICATION_TYPE,
             "tenant_id": task.variables.get("tenant_id", ""),
@@ -626,7 +645,7 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
         message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
         await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
-        return result
+        return {}
 
     return handler
 

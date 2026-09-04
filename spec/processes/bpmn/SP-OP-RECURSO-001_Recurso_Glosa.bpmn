@@ -188,7 +188,7 @@ ate la, o teto e absoluto e CONSERVADOR.
     <!-- Ramo: pendencia de documentacao do recurso (a operadora pede documentos ao prestador) -->
     <bpmn:serviceTask id="ST_SolicitarDocumentos" name="Abrir pendencia de documentacao ao prestador"
                       camunda:type="external" camunda:topic="operadora.recurso.request_documents">
-      <bpmn:documentation>Worker tambem publica agents.events.recurso.pended (suspensao de prazo durante pendencia: regra RN — DRAFT/verify com regulatorio, OQ-9).</bpmn:documentation>
+      <bpmn:documentation>Abre a pendencia de documentacao ao prestador (suspensao de prazo durante pendencia: regra RN — DRAFT/verify com regulatorio, OQ-9). Worker dict-first (ADR-0026, del kafka): NAO publica agents.events.recurso.pended diretamente — ver ST_PublishRecursoPended logo a seguir (T3.1 event-gap remedy B), espelhando o gemeo honesto ST_SolicitarDocumentos do SP-OP-REEMBOLSO-001. FAB-SLA-RISK-NOTIFIED-SLICE4: a frase anterior ("Worker tambem publica agents.events.recurso.pended") era FALSA — request_documents_entry faz del kafka e nunca publicou; foi corrigida aqui. O inputParameter event_topic_pended abaixo segue PENDURADO e INERTE (nenhum codigo o le; grep -rn event_topic_pended src/ tests/ so acha prosa) e NAO foi removido por este pacote: remove-lo e' edicao estrutural que move o pin de ocorrencias do corpus PHI (CORPUS_DELTA_LOG) e exige prova de motor — registrado ABERTO em docs/review-queue.md. Mesmo idioma preservado deliberadamente em SP-OP-CRED-001.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic_pended">agents.events.recurso.pended</camunda:inputParameter>

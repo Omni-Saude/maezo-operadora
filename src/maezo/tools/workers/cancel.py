@@ -427,17 +427,32 @@ def confirm_maintained_decision(decision: CancelDecisionInput) -> CancelMaintain
 
 
 def notify_sla_risk(input_data: CancelInput) -> dict[str, Any]:
-    """Notify coordenacao-contratos of SLA risk (non-interruptive timer BT_AlertaSla).
+    """Registra que a ETAPA de alerta de risco de SLA rodou. Retorna `{}` — NAO afirma nada.
 
-    Informational only: UT_AnaliseRescisao stays open, no decision is made or altered. Fires at
-    ~60-70% of sla.sla_analise (internal policy; DMN cancel_sla resolves the actual duration).
+    Serve o topico `operadora.cancel.notify_sla_risk`, alimentado SO pelo boundary
+    NAO-interruptivo `BT_AlertaSla` em `UT_AnaliseRescisao`. Informativa e jamais adversa: a User
+    Task segue aberta, nenhuma decisao e tomada ou alterada. Dispara em ~60-70% de
+    `sla.sla_analise` (politica interna; DMN `cancel_sla` resolve a duracao real).
+
+    FAB-SLA-RISK-NOTIFIED-SLICE4 (o motivo desta docstring). O retorno era, em toda entrega e sem
+    calcular nada, `{"sla_risk_notified": True, "numero_contrato": ...}`. NENHUM canal e contatado
+    por esta funcao — a `coordenacao-contratos` pode nunca ter sido avisada — e a harness grava o
+    retorno no escopo do processo no `complete` (`harness.py:1779-1783`), entao a constante
+    entrava na instancia como trilha de auditoria. Mesma especie de `contas.notify_sla_risk`
+    (FAB-NOTIFIED-TRIO), sob outra chave.
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar): `sla_risk_notified` nao aparece em nenhum
+    `conditionExpression` de BPMN, nenhum `inputExpression` de DMN (`cancel_admissibility` le
+    `in_notificacao_previa`/`tipo_solicitacao`, nunca esta chave), nenhum worker a jusante e
+    nenhuma linha de contrato. `numero_contrato` era eco do proprio input, ja no escopo.
     """
     logger.info(
         "cancel.notify_sla_risk",
         numero_contrato=input_data.numero_contrato,
         tipo_solicitacao=input_data.tipo_solicitacao,
+        notified_asserted=False,
     )
-    return {"sla_risk_notified": True, "numero_contrato": input_data.numero_contrato}
+    return {}
 
 
 def process_cancel(
@@ -690,7 +705,12 @@ def confirm_maintained_decision_entry(
 def notify_sla_risk_entry(
     variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
 ) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.cancel.notify_sla_risk` -> `notify_sla_risk`."""
+    """Dict-boundary entry for `operadora.cancel.notify_sla_risk` -> `notify_sla_risk`.
+
+    FAB-SLA-RISK-NOTIFIED-SLICE4: o retorno passou a ser `{}` (o antigo `sla_risk_notified=True`
+    era fato fabricado — ver a docstring de `notify_sla_risk`). As leituras de entrada seguem
+    identicas; so o payload de saida mudou, e ele tinha zero consumidores.
+    """
     del kafka  # unused — notify_sla_risk emits no domain event itself
     input_data = CancelInput(**pick_fields(variables, CancelInput))
     return notify_sla_risk(input_data)

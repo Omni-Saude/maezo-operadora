@@ -736,19 +736,28 @@ def test_confirm_maintained_decision_entry_ignores_kafka_seam() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_notify_sla_risk_happy_path() -> None:
-    """notify_sla_risk is informational-only: no guard, no decision, UT stays open."""
+def test_notify_sla_risk_nao_afirma_notificacao() -> None:
+    """FAB-SLA-RISK-NOTIFIED-SLICE4: retorna `{}` — NAO afirma `sla_risk_notified`.
+
+    O `== {}` e' deliberado (nao `"sla_risk_notified" not in result`): so a igualdade exata pega
+    uma fabricacao remontada chave-a-chave num local, que a cerca AST de
+    `test_worker_handler_purity.py` documenta nao alcancar.
+    """
     inp = CancelInput(numero_contrato="CONT-SLA-001", tipo_solicitacao="inadimplencia")
-    result = notify_sla_risk(inp)
-    assert result["sla_risk_notified"] is True
-    assert result["numero_contrato"] == "CONT-SLA-001"
+    assert notify_sla_risk(inp) == {}
 
 
-def test_notify_sla_risk_never_alters_a_decision() -> None:
-    """Invariant: notify_sla_risk's output never carries a decision/adverse marker."""
-    result = notify_sla_risk(CancelInput(numero_contrato="CONT-SLA-002"))
-    assert "decisao_cancelamento" not in result
-    assert set(result.keys()) == {"sla_risk_notified", "numero_contrato"}
+@pytest.mark.parametrize(
+    "inp",
+    [
+        CancelInput(),
+        CancelInput(numero_contrato="CONT-SLA-002"),
+        CancelInput(numero_contrato="CONT-SLA-002", tipo_solicitacao="for_cause_operadora"),
+    ],
+)
+def test_notify_sla_risk_nenhuma_entrada_produz_afirmacao(inp: CancelInput) -> None:
+    """Nenhuma combinacao de entrada faz esta etapa afirmar qualquer coisa (nem decisao)."""
+    assert notify_sla_risk(inp) == {}
 
 
 def test_notify_sla_risk_entry_round_trips() -> None:
@@ -760,7 +769,7 @@ def test_notify_sla_risk_entry_round_trips() -> None:
 def test_notify_sla_risk_entry_ignores_kafka_seam() -> None:
     kafka = FakeKafkaPublisher()
     result = notify_sla_risk_entry({"numero_contrato": "CONT-SLA-004"}, kafka=kafka)
-    assert result["sla_risk_notified"] is True
+    assert result == {}
     assert kafka.published == []
 
 

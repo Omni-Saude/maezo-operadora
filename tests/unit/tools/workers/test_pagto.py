@@ -667,17 +667,36 @@ def test_execute_pagto_fora_teto() -> None:
 # ---------------------------------------------------------------
 
 
-def test_notify_sla_risk_informational() -> None:
-    result = notify_sla_risk({"ordem_pagamento_id": "OP-001", "faixa_valor": "ALCADA_L2"})
-    assert result["sla_risk_notified"] is True
-    assert result["grupo_alertado"] == "coordenacao-financeira"
-    assert result["ordem_pagamento_id"] == "OP-001"
+def test_notify_sla_risk_nao_afirma_notificacao() -> None:
+    """FAB-SLA-RISK-NOTIFIED-SLICE4: retorna `{}` — NAO afirma `sla_risk_notified`.
+
+    O `== {}` e' deliberado (nao `"sla_risk_notified" not in result`): so a igualdade exata pega
+    uma fabricacao remontada chave-a-chave num local, que a cerca AST de
+    `test_worker_handler_purity.py` documenta nao alcancar.
+    """
+    assert notify_sla_risk({"ordem_pagamento_id": "OP-001", "faixa_valor": "ALCADA_L2"}) == {}
+
+
+@pytest.mark.parametrize(
+    "variables",
+    [
+        {},
+        {"ordem_pagamento_id": "OP-001"},
+        {"ordem_pagamento_id": "OP-001", "decisao_pagamento": "APROVAR"},
+    ],
+)
+def test_notify_sla_risk_nenhuma_entrada_produz_afirmacao(variables: dict) -> None:
+    """A liberacao do pagamento NUNCA nasce de um timer — e agora a etapa nao afirma nem isso."""
+    assert notify_sla_risk(variables) == {}
 
 
 def test_notify_sla_risk_no_adverse_outcome() -> None:
     """The non-interruptive timer alert never produces or propagates a release/refusal decision
     -- UT_AprovacaoAlcada stays open, no adverse outcome ever arises from a timer."""
     result = notify_sla_risk({"ordem_pagamento_id": "OP-001", "decisao_pagamento": "APROVAR"})
+    # FAB-SLA-RISK-NOTIFIED-SLICE4: `== {}` primeiro — sem ele os dois checks abaixo passariam
+    # VACUAMENTE (um dict vazio nao tem chave nem valor a inspecionar).
+    assert result == {}
     assert "decisao_pagamento" not in result
     forbidden = {"APROVAR", "RECUSAR", "CANCELAR"}
     for value in result.values():

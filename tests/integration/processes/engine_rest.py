@@ -423,6 +423,32 @@ class EngineRest:
             raise EngineRestError(f"history variable `{name}` nao encontrada para a instancia {instance_id}")
         return rows[0].get("value")
 
+    async def external_task_ids(self, instance_id: str, topic: str) -> list[str]:
+        """Ids das external tasks que o ENGINE registrou para `topic` nesta instancia.
+
+        `GET /history/external-task-log?processInstanceId=...&topicName=...` — o log historico de
+        external task do proprio engine (uma entrada `CREATED` no fetch-and-lock, uma `SUCCESSFUL`
+        no complete). E' o identificador que o `WorkerHarness` usa para montar a chave de dedup do
+        audit durável (`f"{tenant}:{task_id}"`, `src/maezo/tools/workers/harness.py::
+        _audit_dedup_key`), e por isso o unico elo que liga uma linha de `audit_chain` a ESTA
+        instancia — a linha de auditoria em si nao carrega `process_instance_id` (schema
+        `src/maezo/platform/migrations/versions/0002_audit_chain.py`).
+
+        Retorna os ids DISTINTOS, ordenados. Levanta `EngineRestError` se o engine recusar a
+        consulta (nivel de historico insuficiente, por exemplo) — nunca devolve lista vazia
+        silenciosamente por erro de transporte.
+        """
+        resp = await self._client.get(
+            "/history/external-task-log",
+            params={"processInstanceId": instance_id, "topicName": topic},
+        )
+        if resp.status_code != 200:
+            raise EngineRestError(
+                f"history external-task-log para a instancia {instance_id} topico {topic} falhou "
+                f"[{resp.status_code}]: {resp.text[:300]}"
+            )
+        return sorted({str(row["externalTaskId"]) for row in resp.json()})
+
     # --- jobs de timer (sem sleep) -----------------------------------------------------
 
     async def _job_definition_activities(self, instance_id: str) -> dict[str, str]:

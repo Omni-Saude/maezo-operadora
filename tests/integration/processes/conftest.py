@@ -44,6 +44,8 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
 
 import httpx
 import pytest
@@ -138,10 +140,14 @@ async def drain_topics(
 # ---------------------------------------------------------------------------------------------
 
 
-async def count_chain_rows(dsn: str, tenant_id: str) -> int:
-    """Row count of `audit_chain` for `tenant_id` — used to assert an exact DELTA (e.g. "the
-    re-delivered start added ZERO new chain rows") since `audit_tenant`'s schema is shared by
-    every test in the session, not exclusive to one test."""
+@asynccontextmanager
+async def _audit_schema_conn(dsn: str, tenant_id: str) -> AsyncIterator[Any]:
+    """One asyncpg connection with `search_path` already set to the run's tenant schema.
+
+    Hoisted out of `count_chain_rows` (FAB-SLA-RISK-NOTIFIED-SLICE4 repair) so the three readers
+    below share ONE connect/`SET search_path`/close sequence and ONE local asyncpg import —
+    kept local because asyncpg is an integration-lane dependency, exactly as before.
+    """
     import asyncpg  # type: ignore[import-untyped]
 
     from maezo.gateway.audit_postgres import normalize_dsn
@@ -149,7 +155,56 @@ async def count_chain_rows(dsn: str, tenant_id: str) -> int:
     conn = await asyncpg.connect(normalize_dsn(dsn))
     try:
         await conn.execute(f'SET search_path TO "{tenant_id}"')
-        count: int = await conn.fetchval("SELECT count(*) FROM audit_chain")
+        yield conn
     finally:
         await conn.close()
+
+
+async def count_chain_rows(dsn: str, tenant_id: str) -> int:
+    """Row count of `audit_chain` for `tenant_id` — used to assert an exact DELTA (e.g. "the
+    re-delivered start added ZERO new chain rows") since `audit_tenant`'s schema is shared by
+    every test in the session, not exclusive to one test."""
+    async with _audit_schema_conn(dsn, tenant_id) as conn:
+        count: int = await conn.fetchval("SELECT count(*) FROM audit_chain")
     return count
+
+
+async def count_chain_rows_for_action(dsn: str, tenant_id: str, action: str) -> int:
+    """Row count of `audit_chain` restricted to ONE `action` (the worker's external-task topic).
+
+    Same DELTA discipline as `count_chain_rows` above, one notch narrower: `WorkerHarness
+    ._build_audit_record` sets `action = task.topic`, so this counts the durable completions the
+    harness wrote for a single topic. FAB-SLA-RISK-NOTIFIED-SLICE4 (repair): used to pin
+    "exactly ONE completion of this topic happened in this window" on a real, durable record
+    instead of on a process variable a worker echoed back.
+    """
+    async with _audit_schema_conn(dsn, tenant_id) as conn:
+        count: int = await conn.fetchval("SELECT count(*) FROM audit_chain WHERE action = $1", action)
+    return count
+
+
+async def audit_rows_for_task_ids(
+    dsn: str, tenant_id: str, task_ids: list[str]
+) -> list[tuple[str, str, str]]:
+    """`(agent_id, action, decision)` of the `audit_chain` rows the harness wrote FOR these
+    external-task ids, ordered by chain insertion.
+
+    The join is the harness's own exactly-once contract: `PostgresAuditSink.emit_once` claims
+    `audit_emit_dedup(tenant, dedup_key)` and stores the resulting `record_hash` in the SAME
+    transaction as the `audit_chain` insert, and the worker-completion dedup key is
+    `f"{tenant}:{task_id}"` (`src/maezo/tools/workers/harness.py::_audit_dedup_key`). So a row
+    returned here is bound to ONE external task of ONE process instance — the binding
+    `audit_chain` itself cannot give (it has no `process_instance_id` column).
+
+    A task id with no claim simply yields no row: the caller asserts the exact expected tuples,
+    never a truthiness.
+    """
+    async with _audit_schema_conn(dsn, tenant_id) as conn:
+        rows = await conn.fetch(
+            "SELECT c.agent_id, c.action, c.decision FROM audit_chain c "
+            "JOIN audit_emit_dedup d ON d.record_hash = c.record_hash "
+            "WHERE d.tenant = $1 AND d.dedup_key = ANY($2::text[]) ORDER BY c.timestamp",
+            tenant_id,
+            [f"{tenant_id}:{task_id}" for task_id in task_ids],
+        )
+    return [(str(r["agent_id"]), str(r["action"]), str(r["decision"])) for r in rows]

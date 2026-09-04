@@ -1439,16 +1439,37 @@ def test_prepare_dossier_no_adverse_origination() -> None:
 # ---------------------------------------------------------------
 
 
-def test_notify_sla_risk_informational() -> None:
-    result = notify_sla_risk({"numero_contrato": "C-123", "tenant_id": "t1"})
-    assert result["sla_risk_notified"] is True
-    assert result["grupo_alertado"] == "coordenacao-cobranca"
-    assert result["numero_contrato"] == "C-123"
+def test_notify_sla_risk_nao_afirma_notificacao() -> None:
+    """FAB-SLA-RISK-NOTIFIED-SLICE4: retorna `{}` — NAO afirma `sla_risk_notified`.
+
+    O `== {}` e' deliberado (nao `"sla_risk_notified" not in result`): so a igualdade exata pega
+    uma fabricacao remontada chave-a-chave num local, que a cerca AST de
+    `test_worker_handler_purity.py` documenta nao alcancar. Nao confundir com
+    `notificacao_previa_feita` (GAP-INAD-8), que TINHA dois consumidores DMN reais.
+    """
+    assert notify_sla_risk({"numero_contrato": "C-123", "tenant_id": "t1"}) == {}
+
+
+@pytest.mark.parametrize(
+    "variables",
+    [
+        {},
+        {"numero_contrato": "C-123"},
+        {"numero_contrato": "C-123", "decisao_inadimplencia": DECISAO_SUSPENDER},
+    ],
+)
+def test_notify_sla_risk_nenhuma_entrada_produz_afirmacao(variables: dict) -> None:
+    """Nenhuma entrada — nem uma que ja carregue a decisao adversa no escopo — faz esta etapa
+    afirmar ou propagar coisa alguma."""
+    assert notify_sla_risk(variables) == {}
 
 
 def test_notify_sla_risk_no_adverse_outcome() -> None:
     """The non-interruptive timer alert never produces or propagates an adverse decision."""
     result = notify_sla_risk({"numero_contrato": "C-123", "decisao_inadimplencia": DECISAO_SUSPENDER})
+    # FAB-SLA-RISK-NOTIFIED-SLICE4: `== {}` primeiro — sem ele os checks abaixo passariam
+    # VACUAMENTE (um dict vazio nao tem chave nem valor a inspecionar).
+    assert result == {}
     assert "decisao_inadimplencia" not in result
     adverse_values = {DECISAO_SUSPENDER, DECISAO_ENCAMINHAR_RESCISAO, "RESCINDIR"}
     assert adverse_values.isdisjoint(_flatten_values(result))

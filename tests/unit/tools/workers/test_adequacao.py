@@ -1155,18 +1155,36 @@ async def test_make_update_monitoring_plan_handler_no_producer_still_completes()
 # ---------------------------------------------------------------
 
 
-def test_notify_sla_risk_informational() -> None:
-    result = notify_sla_risk({"regiao_saude": "R-001", "especialidade": "cardiologia"})
-    assert result["sla_risk_notified"] is True
-    assert result["grupo_alertado"] == "coordenacao-rede"
-    assert result["regiao_saude"] == "R-001"
-    assert result["especialidade"] == "cardiologia"
+def test_notify_sla_risk_nao_afirma_notificacao() -> None:
+    """FAB-SLA-RISK-NOTIFIED-SLICE4: retorna `{}` — NAO afirma `sla_risk_notified`.
+
+    O `== {}` e' deliberado (nao `"sla_risk_notified" not in result`): so a igualdade exata pega
+    uma fabricacao remontada chave-a-chave num local, que a cerca AST de
+    `test_worker_handler_purity.py` documenta nao alcancar.
+    """
+    assert notify_sla_risk({"regiao_saude": "R-001", "especialidade": "cardiologia"}) == {}
+
+
+@pytest.mark.parametrize(
+    "variables",
+    [
+        {},
+        {"regiao_saude": "R-001"},
+        {"regiao_saude": "R-001", "decisao_remediacao": "COMPROMISSO_FALLBACK"},
+    ],
+)
+def test_notify_sla_risk_nenhuma_entrada_produz_afirmacao(variables: dict) -> None:
+    """O compromisso de fallback NUNCA nasce de um timer — e a etapa nao afirma nem isso."""
+    assert notify_sla_risk(variables) == {}
 
 
 def test_notify_sla_risk_no_adverse_outcome() -> None:
     """The non-interruptive timer alert never produces or propagates the fallback commitment
     decision -- UT_DecisaoFallback stays open, the commitment NEVER arises from a timer."""
     result = notify_sla_risk({"regiao_saude": "R-001", "decisao_remediacao": "COMPROMISSO_FALLBACK"})
+    # FAB-SLA-RISK-NOTIFIED-SLICE4: `== {}` primeiro — sem ele os checks abaixo passariam
+    # VACUAMENTE (um dict vazio nao tem chave nem valor a inspecionar).
+    assert result == {}
     assert "decisao_remediacao" not in result
     forbidden = {"COMPROMISSO_FALLBACK"}
     for value in result.values():
