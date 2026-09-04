@@ -29,7 +29,7 @@
 3. **Não criar árvore paralela.** Código vai em `src/maezo/`; sem duplicação.
 4. **Não mockar o engine em testes de integração.** Se a stack docker não está disponível, marque o teste como `integration` e deixe o CI rodá-lo.
 5. **Não inventar regra de negócio em Python/prompt.** Regra determinística → tabela DMN; nível de permissão → `spec/policies/autonomy/`; prazo regulatório → timer BPMN.
-6. **Não importar SDK de LLM fora de `runtime/inference.py`** nem credencial fora do gateway.
+6. **Não importar SDK de LLM fora do pacote `runtime.inference`** nem credencial fora do gateway.
 7. **Itens `hard` da matriz de autonomia são intocáveis** (negativa, decisão clínica, acusação de fraude).
 8. **82 findings da auditoria são checklist "não repetir".** Consulte `docs/reports/predeploy-findings.json` antes de implementar qualquer componente.
 9. **34 DL entries são padrões de design obrigatórios.** Consulte `docs/decisions-log.md` — cada DL contém uma lição paga com bugs reais.

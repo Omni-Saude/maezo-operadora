@@ -45,6 +45,103 @@ Tested by `test_codeowners_is_read_from_base_not_head`,
 `test_a_failed_base_codeowners_fetch_propagates_and_never_falls_back_to_head` and
 `test_main_is_red_end_to_end_when_the_base_codeowners_fetch_fails`.
 
+DESIGN DECISION — TOUCHED PATHS ARE MERGE-BASE RELATIVE, NEVER `pull_request.base.sha`-RELATIVE
+-------------------------------------------------------------------------------------------------
+Defect #254 (evidence: CI run 33766180283 on PR #254, dependabot `anthropic <2.0`, 2026-09-03
+14:19Z). The PR changed 2 files (`pyproject.toml`, `uv.lock`). Its `pull_request.base.sha` was the
+WEEKS-STALE `181fc827…` — GitHub does not refresh a PR's recorded base.sha as the base branch moves,
+it only reflects the commit the branch pointed at when the PR was opened — and the PR's head
+(`55b5bb1…`) contained a MERGE of current `main` into the branch. `pulls/{n}/files`, which the old
+`changed_paths` read, computes its diff relative to that stale, recorded `base.sha`. Since the head
+contained every commit `main` had gained since `181fc827…`, ALL 266 of those paths appeared as
+"touched" by a 2-file PR — including `scripts/ci/check_bpmn_error_allowlist.py`, an owned path this
+PR never came near — producing 3 false "owned" hits and a false RED. Sibling PR #263 (freshly
+rebased, base.sha not yet stale) was green at the same moment: the defect only bites long-lived,
+stale-base PRs, which is exactly the shape of the owner-review PRs this gate exists to gate.
+
+THE FIX. Touched paths are no longer read relative to `pull_request.base.sha` at all. They are
+computed as the diff between the base branch's CURRENT tip and the head — the git equivalent of
+`git diff $(git merge-base origin/<base.ref> HEAD)..HEAD --name-only` — via GitHub's three-dot
+COMPARE (`repos/{repo}/compare/{base}...{head}`; three dots is merge-base semantics, two dots is not).
+Concretely: `GitHubAPI.branch_tip(base.ref)` resolves the base branch's current tip via
+`repos/{repo}/branches/{ref}` ONCE, at run start, and is logged; `GitHubAPI.changed_paths(base_tip,
+head_sha)` then reads `compare/{base_tip}...{head_sha}`.
+
+THE 300-FILE CAP — a second, adversarially-reachable hole this fix's own first draft introduced, and
+had to be corrected before it merged (verifier VER-FLIP-GATE-BASE, live-measured). `page`/`per_page`
+on the compare endpoint page its `commits` list, NOT its `files` list: `files` is hard-capped at 300
+for the WHOLE comparison regardless of `per_page`, and page ≥2 of the SAME request returns
+`"files": []` while still returning further pages of `commits`. Measured live against
+`compare/181fc82...96d7d0d` (a 378-commit, 339-file range): `per_page` values 30/100/300 each return
+exactly 300 files on page 1 and an empty `files` list on page 2 with `commits` still populated; the
+API's 300-file page silently drops the true 339, cut alphabetically, with no truncation signal in the
+payload. A `changed_paths` that trusted a 300-length `files` list as complete would report GREEN on a
+truncated diff — pad a PR with 300 early-sorting files and place the one CODEOWNERS-owned file 301st,
+and the earlier shape of this fix (paging `files` via `page`/`per_page`, which GitHub does not do)
+found 0 owned paths on exactly that PR and passed.
+
+So `changed_paths` treats a `files` list SHORTER than 300 as complete (GitHub would not stop short of
+`per_page` if there were more) and returns it directly, including renames' `previous_filename` exactly
+as `pulls/N/files` did. A `files` list of EXACTLY 300 is NOT trusted either way — the payload gives no
+signal distinguishing "the diff has exactly 300 files" from "the diff has more and this is a silent
+cut" — so the gate does not read `files` at all in that case and instead falls back to the root-cause
+path: it pages the SAME compare endpoint's `commits` list (which IS paginated via `page`/`per_page`,
+confirmed live above) until it has collected every commit `total_commits` promised, then unions each
+commit's OWN files via `repos/{repo}/commits/{sha}` — independently paginated, GitHub's documented cap
+3000 files per commit. This union is a SUPERSET of the merge-base tree diff (a file changed then
+reverted within the range counts once, where a pure tree diff would not show it at all) —
+deliberately: the fail-closed direction here is "flag a path that turns out not to matter", never
+"miss one that does". Any commit whose own files reach the 3000-per-commit cap, or any API call
+failing at any step of either walk, is RED — the gate never reports a partial union as complete.
+
+The compare response's `status` / `ahead_by` / `merge_base_commit` are also read and validated before
+any of the above, so a response shape that HIDES paths cannot pass as silently as a truncated `files`
+list nearly did. `status` values `"ahead"` (the ordinary case), `"identical"` (no diff) and
+`"diverged"` are ALL evaluated normally — a first draft of this fix treated `"diverged"` as RED, which
+was itself a regression: `"diverged"` merely means the base has ALSO moved since the merge base, which
+is the default state of most open PRs (live census: 8 of 47 remote branches at correction time,
+including this one), and for a three-dot compare the `files` list under `"diverged"` is the SAME
+merge-base-relative diff as under `"ahead"` — confirmed live (`compare/main...codeowners-audit`:
+`status: "diverged"`, `ahead_by:3`, `behind_by:390`, 2 files, byte-identical to
+`git diff --name-only $(git merge-base main codeowners-audit)..codeowners-audit`). Only `"behind"`
+(`ahead_by == 0` — the head contributes nothing new; it is already an ancestor of the base) is RED,
+deliberately: a real PR event should never present this shape, so rather than silently reporting GREEN
+on a range with nothing in it, the gate fails loud — which means a dry-run against an ALREADY-MERGED
+PR is RED by design (evaluate a PR while it is still open, or pin an explicit `base_tip` that predates
+the merge). Any other `status` value is an unrecognized shape, also RED. `files: []` paired with
+`ahead_by > 0` is RED too (empty is not the same claim as "nothing to report"). Any non-2xx or
+unexpected shape at any step is RED — never a silent fallback to `pulls/N/files`, which is precisely
+the shape of the bug being fixed here.
+
+THIS DOES NOT MOVE DECISION 1. CODEOWNERS content is still read from `pull_request.base.sha` — the
+STALE, RECORDED base commit — exactly as Decision 1 above requires and for the same reason: a moving
+base ref must not change which ownership RULES govern a PR mid-run, and Decision 1's own docstring
+argument ("a tip pinned once per run satisfies it") is about the rules text, not the touched-path
+set. The two are orthogonal: WHICH FILES a PR touches is a property of the diff and must track where
+the base branch actually is now (a moving target that was making PR #254 look at 266 unrelated
+files); WHICH RULES apply to that diff is a property of governance and must stay pinned to what was
+already reviewed and merged at the PR's base commit. Conflating them either way reopens a hole:
+reading touched paths from the stale base.sha is defect #254; reading CODEOWNERS from a moving tip
+would let ownership rules change answers mid-run for reasons unrelated to the PR's own content.
+
+`EventContext` and `GitHubAPI.pull_request()` (the local `--repo/--pr` dry-run path) both now also
+carry `base_ref` and `head_sha`, alongside the pre-existing `base_sha`, so the touched-path
+computation has what it needs in either context-acquisition mode (ambient event payload, or a direct
+API fetch) — see CONTEXT PRECEDENCE below.
+
+Tested by `test_stale_base_sha_no_longer_produces_a_false_owned_hit_defect_254`,
+`test_changed_paths_include_a_renames_previous_filename_via_compare`,
+`test_compare_api_failure_is_red_not_an_empty_list`,
+`test_changed_paths_fast_path_under_300_files_makes_no_commit_calls`,
+`test_changed_paths_300_file_cap_walks_commits_and_finds_the_301st_owned_file`,
+`test_changed_paths_commit_file_cap_of_3000_is_red_not_a_partial_union`,
+`test_changed_paths_empty_files_with_positive_ahead_by_is_red`,
+`test_changed_paths_diverged_status_is_evaluated_normally`,
+`test_changed_paths_behind_status_is_red_head_already_in_base`,
+`test_changed_paths_unrecognized_status_is_red`,
+`test_changed_paths_commit_walk_total_commits_mismatch_is_red`,
+`test_branch_tip_resolves_the_current_sha` and `test_branch_tip_failure_is_red`.
+
 DESIGN DECISION 2 — CHANGES_REQUESTED FROM AN OWNER OF A TOUCHED OWNED PATH ⇒ RED
 --------------------------------------------------------------------------------
 ADOPTED (the brief asked for a ruling; this is it, with the reasoning, not a coin flip).
@@ -644,10 +741,15 @@ def decide(
     membership: MembershipResolver,
     require_single_reviewer_covers_all: bool = False,
     pr_label: str = "PR",
+    touched_paths_source: str = "unspecified",
 ) -> Decision:
     """The whole contract, as a pure function. Never raises for ordinary input; RED instead.
 
     `codeowners_text` MUST come from the PR's BASE commit — see Decision 1 in the module docstring.
+    `touched_paths_source` is a purely-cosmetic provenance string for the rendered report (e.g. which
+    two shas a compare was run between) — it plays no role in the decision itself, so direct callers
+    (tests) may omit it. `changed_paths` itself MUST already be merge-base relative, never relative to
+    a PR's stale `base.sha` — see "DESIGN DECISION — touched paths are merge-base relative".
     """
     try:
         rules = parse_codeowners(codeowners_text)
@@ -669,6 +771,7 @@ def decide(
 
     header = [
         f"  CODEOWNERS source: {codeowners_source} ({len(rules)} rule(s))",
+        f"  touched-paths source: {touched_paths_source}",
         f"  {pr_label} author: @{author_login}",
         f"  changed paths: {len(set(changed_paths))}   owned: {len(owned)}",
     ]
@@ -894,35 +997,252 @@ class GitHubAPI:
         return base64.b64decode(payload["content"]).decode("utf-8")
 
     def pull_request(self, pr_number: int) -> EventContext:
-        """Fetch the PR's base sha + author directly, for the no-event-payload (local dry-run) mode."""
+        """Fetch the PR's base sha/ref + head sha + author directly, for the no-event-payload (local
+        dry-run) mode.
+
+        Must supply everything `load_event_context` would from a real Actions payload, including
+        `base.ref` and `head.sha`: the direct-mode context feeds the same merge-base-relative
+        touched-path computation in `main()` as the event-payload path does — see "DESIGN DECISION —
+        touched paths are merge-base relative" in the module docstring.
+        """
         status, payload = self._request(f"repos/{self.repo}/pulls/{pr_number}")
         if status != 200 or not isinstance(payload, dict):
             raise GateError(f"GET pulls/{pr_number} returned HTTP {status} — fail-closed.")
         base = payload.get("base") or {}
+        head = payload.get("head") or {}
         user = payload.get("user") or {}
         base_sha = base.get("sha") if isinstance(base, dict) else None
+        base_ref = base.get("ref") if isinstance(base, dict) else None
+        head_sha = head.get("sha") if isinstance(head, dict) else None
         author = user.get("login") if isinstance(user, dict) else None
-        if not base_sha or not author:
-            raise GateError(f"pulls/{pr_number} has no readable base.sha / user.login — fail-closed.")
+        if not base_sha or not base_ref or not head_sha or not author:
+            raise GateError(
+                f"pulls/{pr_number} has no readable base.sha / base.ref / head.sha / user.login — "
+                "fail-closed."
+            )
         return EventContext(
-            repo=self.repo, pr_number=pr_number, base_sha=str(base_sha), author_login=str(author)
+            repo=self.repo,
+            pr_number=pr_number,
+            base_sha=str(base_sha),
+            base_ref=str(base_ref),
+            head_sha=str(head_sha),
+            author_login=str(author),
         )
 
-    def changed_paths(self, pr_number: int) -> list[str]:
-        """Every path the diff touches, INCLUDING a rename's previous path.
+    def branch_tip(self, ref: str) -> str:
+        """Resolve `ref`'s CURRENT tip commit sha via `repos/{repo}/branches/{ref}`.
 
-        A rename out of an owned directory is a change to an owned path; counting only the new name
-        would let `git mv spec/policies/autonomy/x.yaml /tmp-ish/x.yaml` escape ownership.
+        Deliberately re-fetched on every run, never cached across runs and never taken from a PR's
+        recorded `base.sha`: the touched-path computation below must always diff against where the
+        base branch actually IS right now, not wherever it was when the PR was opened. See "DESIGN
+        DECISION — touched paths are merge-base relative" in the module docstring — this is the fix
+        for defect #254 (CI run 33766180283).
         """
+        status, payload = self._request(f"repos/{self.repo}/branches/{urllib.parse.quote(ref)}")
+        if status != 200 or not isinstance(payload, dict):
+            raise GateError(
+                f"GET branches/{ref} returned HTTP {status} — cannot resolve {ref}'s current tip, so "
+                "the gate cannot compute a merge-base-relative diff. Fail-closed."
+            )
+        commit = payload.get("commit")
+        sha = commit.get("sha") if isinstance(commit, dict) else None
+        if not isinstance(sha, str) or not sha:
+            raise GateError(f"branches/{ref} has no readable commit.sha — fail-closed.")
+        return sha
+
+    def changed_paths(self, base_tip: str, head_sha: str) -> list[str]:
+        """Every path touched between `base_tip` (the base branch's CURRENT tip, resolved ONCE by
+        `branch_tip` at run start) and `head_sha`, INCLUDING a rename's previous path.
+
+        Sourced from GitHub's three-dot COMPARE (`compare/{base}...{head}` — three dots is MERGE-BASE
+        semantics, the git equivalent of `git diff $(git merge-base base_tip head_sha)..head_sha
+        --name-only`), never from `pulls/N/files` (which diffs from the PR's possibly-weeks-stale
+        recorded `base.sha` and is exactly what produced defect #254 — see the module docstring's
+        "DESIGN DECISION — touched paths are merge-base relative"). A rename out of an owned directory
+        is a change to an owned path; counting only the new name would let
+        `git mv spec/policies/autonomy/x.yaml /tmp-ish/x.yaml` escape ownership.
+
+        THE 300-FILE CAP (see the module docstring's "THE 300-FILE CAP" section for the full live
+        evidence). `page`/`per_page` on this endpoint page its `commits` list, NOT its `files` list:
+        `files` is hard-capped at 300 for the WHOLE comparison and a `files` list of exactly 300 is
+        therefore NEVER trusted as complete — it is read directly only when SHORTER than 300. At
+        exactly 300, this falls back to the root-cause path: page the compare's own (genuinely
+        paginated) `commits` list until `total_commits` are collected, then union each commit's OWN
+        files via `repos/{repo}/commits/{sha}` (independently paginated, cap 3000 files/commit). That
+        union is a SUPERSET of the merge-base tree diff, which is the fail-closed direction. `status`,
+        `ahead_by` and `merge_base_commit` are validated first so a response shape that hides paths
+        cannot slip through either — `"ahead"`, `"identical"` AND `"diverged"` are all evaluated
+        normally (a first draft of this fix wrongly reddened `"diverged"`, which is the default state
+        of most open PRs — see the module docstring's "THE 300-FILE CAP"); only `"behind"`
+        (`ahead_by == 0`, head already contained in the base) is RED, by design. Any non-2xx response
+        or unexpected shape at any step is RED — never a silent fallback to `pulls/N/files`, which is
+        precisely the bug being fixed.
+        """
+        compare = f"repos/{self.repo}/compare/{base_tip}...{head_sha}"
+        status, payload = self._request(f"{compare}?per_page=300&page=1")
+        if status != 200 or not isinstance(payload, dict):
+            raise GateError(
+                f"GET {compare} returned HTTP {status} — the gate cannot compute this PR's true "
+                "touched-path set, so it fails CLOSED rather than falling back to pulls/N/files or "
+                "assuming an empty diff."
+            )
+
+        compare_status = payload.get("status")
+        if compare_status == "behind":
+            raise GateError(
+                f"{compare} reports status='behind' — head already contained in the base "
+                "(ahead_by == 0): nothing to evaluate. Fail-closed rather than silently reporting "
+                "GREEN on a range with nothing in it: a real PR event should never present this "
+                "shape, so by design a dry-run against an ALREADY-MERGED PR is RED here — evaluate "
+                "the PR while it is still open, or pin an explicit base_tip that predates the merge."
+            )
+        if compare_status not in ("ahead", "identical", "diverged"):
+            raise GateError(
+                f"{compare} reports status={compare_status!r} — a three-dot compare this gate can "
+                "evaluate must be 'ahead' (the ordinary case), 'identical' (no diff) or 'diverged' "
+                "(the base has ALSO moved since the merge base — the default state of most open PRs; "
+                "the files list under 'diverged' is the same merge-base-relative diff as under "
+                "'ahead', confirmed live). Anything else is an unrecognized shape. Fail-closed."
+            )
+
+        files = payload.get("files")
+        if not isinstance(files, list):
+            raise GateError(
+                f"{compare} has no readable `files` list "
+                f"({type(files).__name__ if files is not None else 'missing'}) — fail-closed."
+            )
+        ahead_by = payload.get("ahead_by")
+        if not files and isinstance(ahead_by, int) and ahead_by > 0:
+            raise GateError(
+                f"{compare} reports ahead_by={ahead_by} but an EMPTY `files` list — a shape that "
+                "HIDES touched paths rather than proving there are none. Fail-closed."
+            )
+
+        if len(files) < 300:
+            # Provably complete: GitHub would not stop short of the requested page size if there were
+            # more. This is the ordinary case for every PR this gate has ever evaluated live.
+            return self._extract_file_paths(files, compare)
+
+        # len(files) == 300: GitHub's per-comparison cap. The payload gives no signal distinguishing
+        # "exactly 300 files" from "more, silently truncated" (measured live — module docstring), so
+        # this list is never read. Root-cause fallback: union every commit's own, independently
+        # paginated files.
+        total_commits = payload.get("total_commits")
+        if not isinstance(total_commits, int) or total_commits < 1:
+            raise GateError(
+                f"{compare} hit the 300-file cap and has no readable `total_commits` — the gate "
+                "cannot walk the range's commits either. Fail-closed."
+            )
+        merge_base_commit = payload.get("merge_base_commit")
+        merge_base_sha = merge_base_commit.get("sha") if isinstance(merge_base_commit, dict) else None
+        if not isinstance(merge_base_sha, str) or not merge_base_sha:
+            raise GateError(
+                f"{compare} hit the 300-file cap and has no readable `merge_base_commit.sha` — the "
+                "gate cannot prove this comparison is genuinely merge-base-relative. Fail-closed."
+            )
+        first_page_commits = payload.get("commits")
+        if not isinstance(first_page_commits, list):
+            raise GateError(
+                f"{compare} hit the 300-file cap and has no readable `commits` list — the gate cannot "
+                "walk the range's commits either. Fail-closed."
+            )
+
+        commit_shas = self._compare_commit_shas(compare, total_commits, first_page_commits)
+        union: set[str] = set()
+        for sha in commit_shas:
+            union.update(self._commit_files(sha))
+        return sorted(union)
+
+    @staticmethod
+    def _extract_file_paths(files: list[Any], source: str) -> list[str]:
+        """Flatten one `files` array (a compare page, or one commit's own files) into a path list,
+        including each rename's `previous_filename`. Shared by the fast path and the per-commit walk
+        so both apply the identical rename rule."""
         paths: list[str] = []
-        for entry in self._paginate(f"repos/{self.repo}/pulls/{pr_number}/files"):
+        for entry in files:
             if not isinstance(entry, dict) or not isinstance(entry.get("filename"), str):
-                raise GateError(f"unexpected entry in pulls/{pr_number}/files: {entry!r} — fail-closed.")
+                raise GateError(f"unexpected entry in {source} files: {entry!r} — fail-closed.")
             paths.append(entry["filename"])
             previous = entry.get("previous_filename")
             if isinstance(previous, str) and previous:
                 paths.append(previous)
         return paths
+
+    @staticmethod
+    def _commit_shas_from_entries(entries: list[Any], source: str) -> list[str]:
+        shas: list[str] = []
+        for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get("sha"), str):
+                raise GateError(f"unexpected entry in {source} commits: {entry!r} — fail-closed.")
+            shas.append(entry["sha"])
+        return shas
+
+    def _compare_commit_shas(
+        self, compare: str, total_commits: int, first_page_commits: list[Any]
+    ) -> list[str]:
+        """Every commit sha between `base_tip` and `head_sha`, via the compare endpoint's OWN
+        `commits` list — which IS paginated via `page`/`per_page` (measured live: `page`/`per_page`
+        page `commits`, not `files` — see the module docstring's "THE 300-FILE CAP"). Only reached
+        when `files` hit its own 300-entry cap and cannot be trusted alone; `first_page_commits` is
+        page 1's `commits`, already fetched alongside `files`, so it is not requested twice.
+        """
+        shas = self._commit_shas_from_entries(first_page_commits, compare)
+        page = 2
+        while len(shas) < total_commits:
+            if page > 50:  # 50 * 300 = 15000 commits; a range beyond that is not this gate's problem
+                raise GateError(
+                    f"{compare} exceeded 50 pages walking commits — refusing to guess, fail-closed."
+                )
+            status, payload = self._request(f"{compare}?per_page=300&page={page}")
+            if status != 200 or not isinstance(payload, dict):
+                raise GateError(
+                    f"GET {compare} (commits page {page}) returned HTTP {status} — the gate cannot "
+                    "enumerate this range's commits for the per-commit file union. Fail-closed."
+                )
+            commits = payload.get("commits")
+            if not isinstance(commits, list):
+                raise GateError(
+                    f"{compare} (commits page {page}) has no readable `commits` list — fail-closed."
+                )
+            if not commits:
+                break
+            shas.extend(self._commit_shas_from_entries(commits, compare))
+            page += 1
+
+        if len(shas) != total_commits:
+            raise GateError(
+                f"{compare} reports total_commits={total_commits} but the commit walk collected "
+                f"{len(shas)} distinct commit(s) — the gate cannot trust an incomplete commit range "
+                "to compute touched paths. Fail-closed."
+            )
+        return shas
+
+    def _commit_files(self, sha: str) -> list[str]:
+        """Every path touched by ONE commit (plus renames' `previous_filename`), via
+        `repos/{repo}/commits/{sha}` — its `files` list is independently paginated (`page`/`per_page`),
+        GitHub's documented cap 3000 files per commit. Reaching that cap means the gate cannot prove it
+        has seen every file this ONE commit touched, so the WHOLE run fails CLOSED rather than
+        reporting a partial union — never a "good enough" green off a truncated per-commit list.
+        """
+        commit_path = f"repos/{self.repo}/commits/{urllib.parse.quote(sha)}"
+        paths: list[str] = []
+        for page in range(1, 11):  # 10 * 300 = 3000, GitHub's documented per-commit files cap
+            status, payload = self._request(f"{commit_path}?per_page=300&page={page}")
+            if status != 200 or not isinstance(payload, dict):
+                raise GateError(
+                    f"GET {commit_path} (page {page}) returned HTTP {status} — cannot compute this "
+                    "commit's touched files for the merge-base union. Fail-closed."
+                )
+            files = payload.get("files")
+            if not isinstance(files, list):
+                raise GateError(f"{commit_path} (page {page}) has no readable `files` list — fail-closed.")
+            paths.extend(self._extract_file_paths(files, commit_path))
+            if len(files) < 300:
+                return paths
+        raise GateError(
+            f"{commit_path} reached GitHub's documented 3000-file-per-commit cap without finishing — "
+            "the gate cannot prove it has seen every file this commit touched. Fail-closed."
+        )
 
     def reviews(self, pr_number: int) -> list[Review]:
         """Every submitted review, normalized. A malformed entry is RED, not a skip."""
@@ -1007,11 +1327,19 @@ def resolve_codeowners(fetch: Callable[[str, str], str | None], base_sha: str) -
 
 @dataclass(frozen=True)
 class EventContext:
-    """The pull-request facts the gate needs, from the Actions event payload."""
+    """The pull-request facts the gate needs, from the Actions event payload.
+
+    `base_sha` is the PR's RECORDED (possibly weeks-stale) base commit — used ONLY to resolve
+    CODEOWNERS (Decision 1). `base_ref` is the base branch's NAME, used to resolve its CURRENT tip at
+    run start for the touched-path computation. `head_sha` is the PR's head commit. See "DESIGN
+    DECISION — touched paths are merge-base relative" in the module docstring.
+    """
 
     repo: str
     pr_number: int
     base_sha: str
+    base_ref: str
+    head_sha: str
     author_login: str
 
 
@@ -1039,6 +1367,9 @@ def load_event_context(event_path: Path, repo_override: str | None) -> EventCont
     number = pull_request.get("number")
     base = pull_request.get("base") or {}
     base_sha = base.get("sha") if isinstance(base, dict) else None
+    base_ref = base.get("ref") if isinstance(base, dict) else None
+    head = pull_request.get("head") or {}
+    head_sha = head.get("sha") if isinstance(head, dict) else None
     user = pull_request.get("user") or {}
     author = user.get("login") if isinstance(user, dict) else None
     repo_full = repo_override or (payload.get("repository") or {}).get("full_name")
@@ -1048,6 +1379,8 @@ def load_event_context(event_path: Path, repo_override: str | None) -> EventCont
         for name, value in (
             ("pull_request.number", number),
             ("pull_request.base.sha", base_sha),
+            ("pull_request.base.ref", base_ref),
+            ("pull_request.head.sha", head_sha),
             ("pull_request.user.login", author),
             ("repository.full_name", repo_full),
         )
@@ -1060,6 +1393,8 @@ def load_event_context(event_path: Path, repo_override: str | None) -> EventCont
         repo=str(repo_full),
         pr_number=int(number),  # type: ignore[arg-type]
         base_sha=str(base_sha),
+        base_ref=str(base_ref),
+        head_sha=str(head_sha),
         author_login=str(author),
     )
 
@@ -1154,10 +1489,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         source, codeowners_text = resolve_codeowners(api.file_at, context.base_sha)
+
+        # Touched paths are computed relative to the base branch's CURRENT tip, resolved ONCE here,
+        # never from the PR's (possibly weeks-stale) recorded `base.sha`. See "DESIGN DECISION —
+        # touched paths are merge-base relative" in the module docstring — the fix for defect #254
+        # (CI run 33766180283: a stale base.sha made 266 unrelated paths look "touched", 3 falsely
+        # "owned", on a PR that only changed 2 files). Decision 1 (CODEOWNERS content) is unaffected:
+        # that still reads `context.base_sha` above, unchanged.
+        current_base_tip = api.branch_tip(context.base_ref)
+        print(
+            f"[{GATE_NAME}] base {context.base_ref!r} current tip resolved once at run start: "
+            f"{current_base_tip} (PR's recorded base.sha, used only for CODEOWNERS: {context.base_sha})"
+        )
+        touched_paths_source = (
+            f"compare {current_base_tip[:12]}...{context.head_sha[:12]} (merge-base, three-dot; base "
+            f"branch {context.base_ref!r} resolved to its current tip at run start)"
+        )
+
         decision = decide(
             codeowners_text=codeowners_text,
             codeowners_source=source,
-            changed_paths=api.changed_paths(pr_number),
+            changed_paths=api.changed_paths(current_base_tip, context.head_sha),
+            touched_paths_source=touched_paths_source,
             reviews=api.reviews(pr_number),
             author_login=context.author_login,
             membership=api.membership,
