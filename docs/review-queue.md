@@ -1182,6 +1182,30 @@ isso nao aparecem aqui.
 
 ---
 
+## LEDGER-HASH-RECOMPUTE-CHECK — gate novo (CODEOWNED); wiring de CI proposto, nao aplicado
+
+`scripts/ci/check_evidence_ledger_hashes.py` (novo) + `Makefile:check-ledger-hashes` recomputam,
+para linhas NOVAS de `docs/evidence-ledger.md` que optam pela convencao declarada (hash com o
+caminho do teste entre parenteses), a receita `pytest <arquivo> -v --tb=no -p no:cacheprovider`.
+Decisao de design registrada aqui para revisao: a retirada da coluna de progresso do pytest
+(`\s+\[\s*\d+%\]\s*$`) antes de ordenar segue instrucao EXPLICITA do addendum de VER-EVAL-REPLAY
+(2026-09-03), que a reproduziu contra o hash declarado da linha-alvo
+`EVAL-REPLAY-EXHAUSTION-SWALLOWED` numa branch irma nao mergeada nesta base — esta tarefa NAO pode
+reproduzir esse hash-alvo diretamente (instrucao explicita do brief: nao rodar os testes daquela
+branch, nem validar contra copia arquivada). Em vez disso, a validacao disponivel encontrou o
+OPOSTO em duas linhas do proprio ledger, hoje inalteradas desde seus commits citados: as linhas
+`GAP-AF-*` sobre `tests/unit/docs/test_adr_amendments.py` (`sha256:293ec8b6...`, commit `135eb27`)
+e `PERSP-NETBRIDGE` sobre `tests/unit/docs/test_contract_bpmn_dmn_citations.py`
+(`sha256:facd44ba...`) so reproduzem SEM a retirada da coluna — o historico do ledger nao e
+uniforme neste ponto (uma terceira linha, `t1.10`/L91, pina explicitamente "incl [NN%]", tambem
+sem retirada). O gate implementa a retirada como convencao DAQUI PRA FRENTE (nunca retroativa —
+so verifica linha ADICIONADA no PR que a introduz), nao como reconstrucao da pratica passada.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `scripts/ci/check_evidence_ledger_hashes.py` + `Makefile:check-ledger-hashes` (CODEOWNED: `scripts/ci/`, `Makefile`) | A decisao de design acima (retirada da coluna `[ NN%]` antes de ordenar) foi RECONFIRMADA bit-a-bit contra o hash real de `EVAL-REPLAY-EXHAUSTION-SWALLOWED` (`sha256:6ce0f396...`) sem executar nada na branch irma (`git show 0dcde5c:tests/evals/test_replay_exhaustion_unswallowable.py`, so leitura, extraiu os 3 nomes reais de `async def test_...`; as 3 linhas sinteticas `<nodeid> PASSED` alimentadas em `compute_recipe_hash` batem byte a byte com o hash declarado) — ver o relatorio da tarefa para o comando exato. Residual: nenhuma execucao real do arquivo foi feita (proibido pelo brief), entao a confirmacao cobre a FORMULA (strip+sort+join+sha256), nao uma reproducao end-to-end da branch; revisor pode considerar isso suficiente ou pedir a reproducao completa apos o merge | dono do repo (CODEOWNED) + verificador R2 designado | `implemented — unverified` |
+| `.github/workflows/evidence-ledger.yml` — step de 4 linhas proposto no relatorio desta tarefa (`<scratchpad>/phase4/REPORT-LEDGER-RECOMPUTE.md`), **NAO aplicado** (fora do escopo de edicao deste agente) | O step precisa `fetch-depth: 0` (ou um fetch explicito do `base.sha`) no `actions/checkout` — diferente do job `evidence-ledger-check` existente, que roda em checkout raso porque nunca faz diff de git — e um `uv sync` antes de invocar o script (ele roda pytest de verdade, ao contrario do check stdlib-only existente) | dono do repo (`.github/**` e CODEOWNED) | `proposto, nao aplicado` |
+| `docs/evidence-ledger.md` — linha `LEDGER-HASH-RECOMPUTE-CHECK` desta mesma PR — **RESOLVIDO (D-1 de VERIFY-LEDGER-RECOMPUTE.md)** | Historico util, mantido como evidencia: a primeira versao desta PR tinha DUAS linhas — a original (`5797aae`, hash sobre 43 testes) ficou STALE BY DESIGN DENTRO DA PROPRIA PR quando o commit seguinte (`036f635`) cresceu o arquivo citado para 44 testes ANTES do merge, e em vez de emendar a propria linha ainda nao mergeada (regra ratificada permite isso) foi anexada uma SEGUNDA linha de reconciliacao (`fcac601`); `make check-ledger-hashes` sobre aquele HEAD reportava `1/2 declared rows verified`, EXIT 1 — o gate pegou a propria inconsistencia da PR que o introduz, prova viva do caso stale-by-design. O verificador (achado D-1, REQUIRED) pediu a linha unica. **Reparo aplicado nesta entrada:** a linha original foi emendada NO LUGAR (mesma regra ratificada, ainda nao mergeada) para o commit `e565128` e o hash sobre 59 testes (apos os proprios reparos D-2/E-1/E-2 do mesmo verificador crescerem o arquivo), a linha duplicada `(hash refresh)` foi apagada. **Segundo incidente, TAMBEM disclosed em vez de escondido:** o teste de D-2 contra o ledger real (`TestAllModeAgainstRealLedger`) inicialmente chamava `main(["--all"])` de verdade — depois que a propria linha ficou date-qualificada, isso disparou `verify_row`/`run_recipe` executando `pytest` sobre O PROPRIO ARQUIVO que contem aquele teste, que por sua vez chama `main(["--all"])` de novo, recursivamente, sem limite; reproduzido ao vivo (dezenas de subprocessos pytest aninhados, mortos manualmente; `make check-ledger-hashes` so nao ficou pendurado para sempre porque o timeout de 300s do proprio `run_recipe` estourou primeiro — FALHOU FECHADO, nao verde falso, mas seria um fork-bomb real em CI). Reparado no commit `9ff73ff`: o teste passou a chamar `select_rows(...)` diretamente (a mesma funcao pura que `--all` usa para selecionar linhas, sem executar nenhum recipe), eliminando o risco na raiz; a linha do ledger foi emendada NO LUGAR outra vez (mesma regra ratificada) para o commit e hash finais. `make check-ledger-hashes` sobre o HEAD atual desta branch reporta `1/1 declared rows verified`, EXIT 0 — ver relatorio da tarefa para o comando e a saida completos | verificador R2 designado (mesmo agente do achado D-1, delta de reverificacao pendente) | `implemented — unverified (delta do verificador pendente)` |
 ## CONTAS-DEAD-ERROR-CATALOG — catalogo de erros `declared-uncaught` de SP-OP-CONTAS-001
 
 O catalogo `bpmn:error` de SP-OP-CONTAS-001 declara tres codigos e so um
