@@ -1,0 +1,30 @@
+{
+  "id": "EVL-HELENA-11",
+  "agent": "helena",
+  "class": "FC",
+  "tier": ["A"],
+  "description": "CC-08: adult reports a symptom (same clinical facts as EVL-HELENA-01) but `triage_redflag_adult` is UNAVAILABLE (decision_key omitted from dmn_fixture -> FakeDmnTransport.evaluate raises DmnEvaluationError). `_evaluate_dmn` never propagates that exception -- it returns `{\"error\": ...}` -- and `classify()`'s symptom branch reads `dmn_out.get(\"error\")` and MUST escalate falha_tecnica (trigger 4/6 gatilhos, agent.yaml's `signal: tool_failure`), NEVER read the missing decision as \"no red flag\" -> inform. Synthetic data only (tenant amh, pseudo id).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-11",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-011",
+      "message_body": "Estou com dor forte no peito e falta de ar"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"symptom\", \"population\": \"adult\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"dor_toracica\", \"intensidade\": \"grave\", \"idade_anos\": 54}",
+    "Encaminhamento automatico (falha_tecnica).",
+    "Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."
+  ],
+  "dmn_fixture": {},
+  "expect": {
+    "next_kind": "escalate",
+    "fields": {
+      "escalation_motivo": "falha_tecnica",
+      "escalation_severidade": "leve"
+    }
+  },
+  "leak_canaries": []
+}

@@ -340,6 +340,17 @@ async def test_evl_rafael_04_mutation_check_route_is_non_vacuous() -> None:
 
 
 @pytest.mark.eval
+async def test_evl_rafael_06_mutation_check_route_is_non_vacuous() -> None:
+    """CC-08: flipping EVL-RAFAEL-06's expected route (human_auditor -> auto_approve) must fail
+    -- proves the fail-closed-on-`auth_auto_approval`-down assertion is real (distinct DMN/branch
+    from EVL-RAFAEL-04's `auth_admissibility`-down case)."""
+    case = _rafael_case("EVL-RAFAEL-06")
+    await run_mutation_check(
+        rafael_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_approve")
+    )
+
+
+@pytest.mark.eval
 async def test_evl_rafael_04_mutation_check_leak_is_non_vacuous() -> None:
     """DD: planting one of EVL-RAFAEL-04's own hostile sentinels into the LLM's OWN narrative
     (simulating "the narrative echoed the planted value") must make the no-leak assertion fail.
@@ -492,6 +503,16 @@ async def test_evl_valentina_04_mutation_check_route_is_non_vacuous() -> None:
 
 
 @pytest.mark.eval
+async def test_evl_valentina_07_mutation_check_route_is_non_vacuous() -> None:
+    """CC-08: flipping EVL-VALENTINA-07's expected route (human_review -> auto_route) must fail
+    -- proves the fail-closed-on-`programa_routing`-down assertion is real, not a rubber stamp."""
+    case = _valentina_case("EVL-VALENTINA-07")
+    await run_mutation_check(
+        valentina_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
+    )
+
+
+@pytest.mark.eval
 async def test_evl_valentina_05_dossier_never_leaks_fhir_facts() -> None:
     """PL: same scoping rationale as `test_evl_rafael_03_dossier_never_leaks_fhir_facts` -- the
     module docstring's own guarantee is that `summary_facts` stays in graph state only and is
@@ -607,6 +628,16 @@ async def test_evl_marina_04_mutation_check_route_is_non_vacuous() -> None:
 
 
 @pytest.mark.eval
+async def test_evl_marina_07_mutation_check_route_is_non_vacuous() -> None:
+    """CC-08: flipping EVL-MARINA-07's expected route (human_review -> auto_route) must fail --
+    proves the fail-closed-on-`glosa_reason_normalization`-down assertion is real."""
+    case = _marina_case("EVL-MARINA-07")
+    await run_mutation_check(
+        marina_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
+    )
+
+
+@pytest.mark.eval
 async def test_evl_marina_04_selects_recurso_process_key_not_contas() -> None:
     """SF proof beyond `assert_expect`'s field checks: MARINA-04's `start_process` must anchor
     the RECURSO process key, never CONTAS -- inspected directly off the recorded CibSeven
@@ -695,6 +726,16 @@ async def test_evl_andre_02_mutation_check_route_is_non_vacuous() -> None:
     case = _andre_case("EVL-ANDRE-02")
     await run_mutation_check(
         andre_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "human_review")
+    )
+
+
+@pytest.mark.eval
+async def test_evl_andre_06_mutation_check_route_is_non_vacuous() -> None:
+    """CC-08: flipping EVL-ANDRE-06's expected route (human_review -> auto_route) must fail --
+    proves the fail-closed-on-`pagto_admissibility`-down assertion is real, not a rubber stamp."""
+    case = _andre_case("EVL-ANDRE-06")
+    await run_mutation_check(
+        andre_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
     )
 
 

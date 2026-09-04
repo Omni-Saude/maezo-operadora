@@ -1,0 +1,38 @@
+{
+  "id": "EVL-GUSTAVO-06",
+  "agent": "gustavo",
+  "class": "FC",
+  "tier": ["A"],
+  "description": "CC-08: NIP flow twin of EVL-GUSTAVO-01, but `nip_classification` is UNAVAILABLE (decision_key omitted). NOTE: EVL-GUSTAVO-03 already exercises `ans_calendar`-unavailable on the OTHER flow (ans_submit) -- this golden intentionally targets the NIP flow's own first DMN instead, so the two are not duplicates. `_assess_nip` reads `clf_result.get(\"error\")` and routes to `instruct_nip` IMMEDIATELY (`_route_instruct_nip(\"dmn_indisponivel\", ...)`, donor parity: `nip_sla`/`nip_routing` are never even called on this branch) -- route=instruct_nip, motivo_humano=dmn_indisponivel, desfecho=nip_encaminhada_instrucao_humana -- NEVER an automatic MANTER_NEGATIVA-adjacent outcome (that value does not even exist in this graph). Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "fluxo": "nip",
+      "canal": "a2a",
+      "numero_nip_ans": "000000106",
+      "protocolo_ans": "PROT-NIP-EVAL-06",
+      "beneficiario_pseudo_id": "pseudo-benef-eval-06",
+      "classificacao_nip": "assistencial",
+      "tema_nip": "negativa_cobertura_exame",
+      "referencia_negativa_original": "AUTH-guia-eval-06",
+      "data_recebimento_nip_iso": "2026-07-10",
+      "documentos_refs": [],
+      "contesta_negativa": true,
+      "documentacao_suficiente": true,
+      "origem_a2a": true
+    }
+  },
+  "recorded_llm": [
+    "Tabela de classificacao de NIP indisponivel; caso encaminhado para instrucao humana, sem decisao automatica de manutencao da negativa."
+  ],
+  "dmn_fixture": {},
+  "expect": {
+    "fields": {
+      "route": "instruct_nip",
+      "motivo_humano": "dmn_indisponivel",
+      "process_key": "SP-OP-NIP-001",
+      "desfecho": "nip_encaminhada_instrucao_humana"
+    }
+  },
+  "leak_canaries": []
+}

@@ -286,6 +286,26 @@ def _cibseven_for(case: Mapping[str, Any]) -> FakeCibSevenTransport:
     return FakeCibSevenTransport()
 
 
+def _phi_capable_for(case: Mapping[str, Any]) -> bool:
+    """Read a case's OPTIONAL top-level `"inference"` block (CC-08, 2026-09-04): `{"inference":
+    {"phi_capable": false}}` makes EVERY `generate(phi=True, ...)` call this turn raise
+    `PhiZoneRoutingError` (`conftest.py::ReplayInferenceProvider.generate`), simulating the
+    PHI-zone routing fail-closed path (I-6) instead of the DMN/CibSeven-down paths the other two
+    optional blocks simulate. Absent (every pre-CC-08 golden) -> `True`, the unchanged default —
+    `ReplayInferenceProvider(case["recorded_llm"])` behaves exactly as before.
+
+    WHY THE RUNNER NEEDED THIS: `ReplayInferenceProvider` already accepts `phi_capable=False`
+    (built for exactly this purpose per its own docstring — "a case that wants to exercise the
+    fail-closed PHI-routing path itself constructs `ReplayInferenceProvider(responses,
+    phi_capable=False)`"), but `run_case` hard-wired the default-`True` constructor call, so no
+    GOLDEN JSON file could reach that branch — only a hand-rolled test function could. CC-08
+    needs a golden (not a bespoke test) to prove an agent graph never fails OPEN when its
+    inference seam is PHI-zone-blocked, mirroring the `cibseven`/DMN-omission mechanisms already
+    in this module.
+    """
+    return bool((case.get("inference") or {}).get("phi_capable", True))
+
+
 async def run_case(
     build_fn: Callable[[dict[str, Any]], Any],
     case: Mapping[str, Any],
@@ -312,7 +332,7 @@ async def run_case(
     `ReplayUnconsumedResponsesError` — `recorded_llm` must match the turn's real call count
     EXACTLY, per README.md's documented schema (never a ceiling the turn merely stays under).
     """
-    inference = ReplayInferenceProvider(case["recorded_llm"])
+    inference = ReplayInferenceProvider(case["recorded_llm"], phi_capable=_phi_capable_for(case))
     dmn = RuleAwareFakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
     cibseven = _cibseven_for(case)
