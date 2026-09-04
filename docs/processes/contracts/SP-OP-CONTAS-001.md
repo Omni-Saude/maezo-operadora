@@ -202,10 +202,13 @@ boundary catch. Isso e **deliberado e ratificado**, nao um resto de modelagem:
   modeled boundary (e.g. auth's `ERR_DENIAL_NOT_HUMAN` …; cancel's `ERR_CANCELLATION_NOT_HUMAN`,
   declared-uncaught) → **incident**, unchanged. The L0 invariant holds identically either way —
   neither path performs the adverse action.»*
-- **`ERR_CONTAS_GLOSA_NOT_HUMAN` e nomeado no proprio ADR-0030.** A emenda de ADR-0040 diz que ele
-  *«remain[s] Tier-3 **declared-and-uncaught** (no `bpmn:boundaryEvent`/`errorEventDefinition` models
-  the guarded service task …), keep[s] raising `PermissionError` on the audited-incident path (never
-  `WorkerBpmnError`/`bpmnError`), and enable[s] no new production allowlist entry»*.
+- **`ERR_CONTAS_GLOSA_NOT_HUMAN` e nomeado na emenda ADR-0040 a ADR-0030** (desde 2026-09-03 essa
+  emenda vive em `docs/adr/0040-perspectiva-operadora-contas-recurso.md`, secao "Emendas a ADRs
+  anteriores"; ADR-0030 carrega apenas um ponteiro de uma linha para ela — ver `docs/adr/0030-...md:5`).
+  A emenda diz que ele *«remain[s] Tier-3 **declared-and-uncaught** (no
+  `bpmn:boundaryEvent`/`errorEventDefinition` models the guarded service task …), keep[s] raising
+  `PermissionError` on the audited-incident path (never `WorkerBpmnError`/`bpmnError`), and
+  enable[s] no new production allowlist entry»*.
 - **Modelar o boundary seria REGRESSAO de visibilidade, nao melhoria.** ADR-0030 §4: ativar um codigo
   de guard antes de T-E *«converts today's **guaranteed-human-visible incident** into a **clean,
   silent end** at the neutral terminal … no incident, no audit row, no notification»*. Enquanto T-E
@@ -214,7 +217,7 @@ boundary catch. Isso e **deliberado e ratificado**, nao um resto de modelagem:
 - **Nao e anomalia de CONTAS.** 20 das 43 declaracoes `bpmn:error` de raiz em `spec/processes/bpmn/**`
   (13 dos 16 arquivos) nao sao referenciadas por nenhum `errorEventDefinition` — e a convencao do
   repositorio, e CONTAS a segue. Remover as duas de CONTAS a dessincronizaria dos pares e tornaria
-  falsa a descricao que o ADR-0030 faz dela pelo nome.
+  falsa a descricao que a emenda ADR-0040/ADR-0030 faz dela pelo nome.
 
 Invariante fixada em teste (para que a leitura «entrada morta» nao seja re-derivada e executada):
 `tests/unit/spec/test_sp_op_contas_001_artefatos.py::test_catalogo_de_erros_e_declarado_e_nao_capturado`

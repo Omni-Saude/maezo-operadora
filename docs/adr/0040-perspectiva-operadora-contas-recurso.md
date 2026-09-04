@@ -158,11 +158,11 @@ suffix»). Eles substituem, um-para-um, `ERR_GLOSA_ACCEPT_NOT_HUMAN` e `ERR_DESI
 **Semantica ADR-0030 preservada sem alteracao:** ambos permanecem **declarados-e-nao-capturados**
 (nenhum `bpmn:boundaryEvent` com `errorEventDefinition` sobre a service task guardada — exatamente
 como hoje: `SP-OP-CONTAS-001_…bpmn` tem zero error-boundaries, conforme o censo do proprio ADR-0030
-em `docs/adr/0030-worker-error-semantics-bpmn-boundary.md:116`; e `ERR_DESISTENCIA_NOT_HUMAN`
-tambem nao aparece na tabela de boundaries `:122-136`). Os workers continuam levantando
+em `docs/adr/0030-worker-error-semantics-bpmn-boundary.md:118`; e `ERR_DESISTENCIA_NOT_HUMAN`
+tambem nao aparece na tabela de boundaries `:113-142`). Os workers continuam levantando
 `PermissionError` (nao `WorkerBpmnError`), o que os mantem no caminho de **incidente auditado**, e
-nao no caminho de `bpmnError`. Isso respeita ADR-0030 §5 (`:377-380`: «a guard code with **no**
-modeled boundary → **incident**, unchanged») e nao consome o co-requisito T-E (`:353-370`).
+nao no caminho de `bpmnError`. Isso respeita ADR-0030 §5 (`:379-382`: «a guard code with **no**
+modeled boundary → **incident**, unchanged») e nao consome o co-requisito T-E (`:355-371`).
 
 ### D4 — Nenhuma DMN emite o adverso; o unico desfecho automatico e o favoravel
 
@@ -375,10 +375,10 @@ Task propria, e e por isso que a invariante existe).
   ajustados. O piso de `make test` (8075 passed) tem de ser reconquistado, nao preservado teste a
   teste.
 - **Perda de cobertura declarada temporariamente.** ADR-0018 cita `test_nenhum_caminho_automatizado_aceita_glosa`
-  como prova das cinco partes (`:39-40`); esse teste e substituido por
+  como prova das cinco partes (`:41-42`); esse teste e substituido por
   `test_nenhum_caminho_automatizado_glosa` (varredura da nova `glosa_triage`). Ate ele estar verde
   contra o engine real, a conformidade das duas cadeias e **autorada, nao provada** — mesma regra
-  que ADR-0018 aplica aos cinco bodies de PR #38 (`:100-102`).
+  que ADR-0018 aplica aos cinco bodies de PR #38 (`:97-103`).
 - **O manifesto `glosa-triage-shadow-candidate.yaml` precisa ser reautorado** e continua
   `ratificado: false`. O achado M-4 que ele documenta (a row permissiva com conjunto negativo
   `not("tecnica","clinica")` admitindo `"desconhecida"`) **NAO e fechado por este redesign** — a
@@ -413,10 +413,10 @@ Task propria, e e por isso que a invariante existe).
 **Limite operacional do achado (dimensionamento honesto — RE-DERIVADO).**
 
 > **Uma afirmacao da versao anterior deste ADR esta RETIRADA.** Ela dizia: «**nenhum processo de
-> Phase 2 esta start-habilitado em `main`** (`docs/adr/0018-no-denial-structural-replication.md:104-108`)».
+> Phase 2 esta start-habilitado em `main`** (`docs/adr/0018-no-denial-structural-replication.md:106-110`)».
 > **Isso e falso hoje.** A propria passagem citada enuncia a sua pre-condicao — «o allowlist de
 > inicio de processo (W0.1 …, ADR-0016) e um **PR humano CODEOWNERS aberto e nao mergeado (PR
-> #32)**» (`:104-106`) — e essa pre-condicao **caducou**: em `main 35cffd3`,
+> #32)**» (`:106-108`) — e essa pre-condicao **caducou**: em `main 35cffd3`,
 > `src/maezo/tools/process_allowlist.py:21-41` contem as **15** chaves, incluindo
 > `SP-OP-CONTAS-001` (`:28`), `SP-OP-RECURSO-001` (`:29`) e `SP-OP-PAGTO-001` (`:40`), e `:60`
 > declara `DEFAULT_ALLOWED_PROCESS_KEYS: Final[frozenset[str]] = KNOWN_PROCESS_KEYS`, com o
@@ -459,27 +459,32 @@ EMENDADAS, o padrao de cinco partes fica INTACTO.** ADR-0018 nao e revogado nem 
 cinco partes continuam vinculantes e cumulativas. O que muda e **a instancia do adverso** nos dois
 processos:
 
+**Citacoes re-ancoradas em 2026-09-03** (WP-ADR0040-NOTES-RELOCATION) contra o estado atual de
+`docs/adr/0018-...md`/`docs/adr/0030-...md`, apos o texto que vivia anexado neles ter sido movido
+para a secao "Emendas a ADRs anteriores" acima — as linhas abaixo NAO coincidem com as citadas
+quando esta tabela foi originalmente escrita (pre-imagem anterior a propria insercao de PR #274).
+
 | Local em ADR-0018 | Texto vigente | Emenda proposta |
 |---|---|---|
-| `:16` | «aceite de glosa contra o prestador, negativa de recurso» na lista de negativa-like | «**aplicacao** de glosa contra o prestador, **indeferimento** de recurso» |
-| `:27-34` | O exemplo CONTAS: dominio `{SEM_GLOSA, RECORRER, ANALISE_HUMANA}`; adverso = `decisao_contas == ACEITAR_GLOSA` via `register_glosa_accept`/`ERR_GLOSA_ACCEPT_NOT_HUMAN`; terminal `End_GlosaAceitaHumano` | dominio `{PAGAR, ANALISE_HUMANA}`; adverso = `decisao_contas ∈ {GLOSAR, PAGAR_PARCIAL}` via `registrar_glosa`/`ERR_CONTAS_GLOSA_NOT_HUMAN`; terminais `End_GlosaAplicadaHumano` / `End_PagamentoParcialHumano` |
-| `:51-56` (parte 1) | «nenhum valor `deny`/`negar`/`aceitar-glosa`/`indeferir` … ex.: `decisao_contas=ACEITAR_GLOSA`» | O exemplo se inverte: o valor adverso que **so** uma User Task pode setar passa a ser `decisao_contas=GLOSAR` / `decisao_recurso=INDEFERIR`. A regra («o adverso nao e expressavel por caminho automatizado») e inalterada |
-| `:66-67` (parte 3) | «ex.: `glosa_triage` catch-all → `ANALISE_HUMANA`» | inalterado (o catch-all continua `ANALISE_HUMANA`) |
-| `:71-77` (parte 4) | «ex.: `register_glosa_accept`» | «ex.: `registrar_glosa`, `registrar_indeferimento`» |
-| `:39-40`, `:90-94` | prova em CI = `test_nenhum_caminho_automatizado_aceita_glosa`, «48 combinacoes de `glosa_triage`» | o teste e renomeado e a varredura recomputada sobre o novo dominio; ate estar verde no engine real em `main`, as duas cadeias voltam ao estado **autorado, nao provado** (`:100-102`) |
-| **`:104-108`** («Pre-condicao operacional») | «o allowlist de inicio de processo … e um **PR humano CODEOWNERS aberto e nao mergeado (PR #32)**. Logo, **nenhum processo de Phase 2 esta start-habilitado em `main`** ainda» | **OBSOLETO — nota de emenda, sem reescrita do corpo.** A pre-condicao caducou: `src/maezo/tools/process_allowlist.py:21-41` contem as 15 chaves (CONTAS `:28`, RECURSO `:29`, PAGTO `:40`) e `:60` faz `DEFAULT_ALLOWED_PROCESS_KEYS = KNOWN_PROCESS_KEYS` (correcao **D-m2**: `:63` e `_PROCESS_KEY_PATTERN`, nao relacionado). **Esta passagem nao pode ser citada como limite de risco.** A correcao do corpo de ADR-0018 e ato do owner; este ADR registra a obsolescencia e a fila de revisao a repete |
+| `:17` | «aceite de glosa contra o prestador, negativa de recurso» na lista de negativa-like | «**aplicacao** de glosa contra o prestador, **indeferimento** de recurso» |
+| `:29-36` | O exemplo CONTAS: dominio `{SEM_GLOSA, RECORRER, ANALISE_HUMANA}`; adverso = `decisao_contas == ACEITAR_GLOSA` via `register_glosa_accept`/`ERR_GLOSA_ACCEPT_NOT_HUMAN`; terminal `End_GlosaAceitaHumano` | dominio `{PAGAR, ANALISE_HUMANA}`; adverso = `decisao_contas ∈ {GLOSAR, PAGAR_PARCIAL}` via `registrar_glosa`/`ERR_CONTAS_GLOSA_NOT_HUMAN`; terminais `End_GlosaAplicadaHumano` / `End_PagamentoParcialHumano` |
+| `:53-57` (parte 1) | «nenhum valor `deny`/`negar`/`aceitar-glosa`/`indeferir` … ex.: `decisao_contas=ACEITAR_GLOSA`» | O exemplo se inverte: o valor adverso que **so** uma User Task pode setar passa a ser `decisao_contas=GLOSAR` / `decisao_recurso=INDEFERIR`. A regra («o adverso nao e expressavel por caminho automatizado») e inalterada |
+| `:68-69` (parte 3) | «ex.: `glosa_triage` catch-all → `ANALISE_HUMANA`» | inalterado (o catch-all continua `ANALISE_HUMANA`) |
+| `:73-79` (parte 4) | «ex.: `register_glosa_accept`» | «ex.: `registrar_glosa`, `registrar_indeferimento`» |
+| `:41-42`, `:97-104` | prova em CI = `test_nenhum_caminho_automatizado_aceita_glosa`, «48 combinacoes de `glosa_triage`» | o teste e renomeado e a varredura recomputada sobre o novo dominio; ate estar verde no engine real em `main`, as duas cadeias voltam ao estado **autorado, nao provado** (`:97-103`) |
+| **`:106-110`** («Pre-condicao operacional») | «o allowlist de inicio de processo … e um **PR humano CODEOWNERS aberto e nao mergeado (PR #32)**. Logo, **nenhum processo de Phase 2 esta start-habilitado em `main`** ainda» | **OBSOLETO — nota de emenda, sem reescrita do corpo.** A pre-condicao caducou: `src/maezo/tools/process_allowlist.py:21-41` contem as 15 chaves (CONTAS `:28`, RECURSO `:29`, PAGTO `:40`) e `:60` faz `DEFAULT_ALLOWED_PROCESS_KEYS = KNOWN_PROCESS_KEYS` (correcao **D-m2**: `:63` e `_PROCESS_KEY_PATTERN`, nao relacionado). **Esta passagem nao pode ser citada como limite de risco.** A correcao do corpo de ADR-0018 e ato do owner; este ADR registra a obsolescencia e a fila de revisao a repete |
 
 **ADR-0030 (`docs/adr/0030-worker-error-semantics-bpmn-boundary.md`) — NAO e alterado; e apenas
-re-ancorado.** O censo de boundaries (`:113-136`) muda de conteudo mecanicamente, sem mudar nenhuma
+re-ancorado.** O censo de boundaries (`:113-142`) muda de conteudo mecanicamente, sem mudar nenhuma
 regra:
 
-- `ERR_RECURSO_INVALID_GLOSA` (linha `:135`) passa de **2** para **3** topicos: acrescenta-se
+- `ERR_RECURSO_INVALID_GLOSA` (linha `:137`) passa de **2** para **3** topicos: acrescenta-se
   `operadora.recurso.validate_recurso`, que passa a ter boundary catch declarado
   (`BE_GlosaInvalidaValidacao`) — permanece G2-val, continua consumption-covered pela «simple rule»,
   continua na `RECURSO_BPMN_ERROR_ALLOWLIST` (`recurso.py:78`).
 - Os dois codigos `*_NOT_HUMAN` renomeados continuam **fora** do censo (sem boundary modelado),
   continuam levantados como `PermissionError` e continuam no caminho de incidente. Nenhuma
-  habilitacao de allowlist de runtime e proposta — `:22-23` («ZERO allowlist enablements» para
+  habilitacao de allowlist de runtime e proposta — `:24` («ZERO allowlist enablements» para
   Tier-3) permanece verdade.
 - Os end events de erro novos (`End_ErrContasDecisaoInvalida`, `End_ErrRecursoDecisaoInvalida`) sao
   **throw-ends modelados**, nao boundary catches sobre external task, e por isso ficam fora do
@@ -492,6 +497,63 @@ para Python.
 
 **ADR-0016 / `KNOWN_PROCESS_KEYS` — inalterado.** As mesmas 15 chaves
 (`process_allowlist.py:21-42`; espelho `effect_pep.py:174-192`).
+
+---
+
+## Emendas a ADRs anteriores (movidas de 0018/0030 em 2026-09-03)
+
+> **Nota de governanca.** Entre a fusao deste ADR (`3ced9b9`, PR #274) e esta revisao, o texto
+> abaixo vivia **anexado diretamente** dentro de `docs/adr/0018-no-denial-structural-replication.md`
+> (+12 linhas apos o `Status`) e `docs/adr/0030-worker-error-semantics-bpmn-boundary.md` (+11
+> linhas apos o `Status`). Uma revisao de governanca identificou isso como o mesmo padrao que a
+> revisao adversarial da ADR-0041 rejeitou para as sete ADRs `Accepted` que ela reconcilia
+> (`docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md`, secao "Convencao
+> seguida": *"a convencao deste repo para corrigir uma ADR Accepted e uma ADR NOVA que a emenda,
+> nao uma edicao in-loco"*) — a emenda pertence ao ADR QUE EMENDA, nao ao ADR emendado. O texto foi
+> entao MOVIDO para ca, com o sentido preservado; `docs/adr/0018-...md:5` e
+> `docs/adr/0030-...md:5` passam a carregar apenas um ponteiro de uma linha ("Emendado por
+> ADR-0040"/"Amended by ADR-0040") para esta secao.
+>
+> **Diferenca deliberada do precedente da ADR-0041.** A propria ADR-0041 NAO deixa nenhum ponteiro
+> nos sete arquivos que reconcilia — decisao explicita, registrada nas suas "Negativas (aceitas)",
+> para nao deslocar as ancoras de linha que a auditoria cita neles. Aqui deixamos um ponteiro de
+> uma linha porque o dono pediu exatamente isso e porque, ao contrario dos sete arquivos da
+> ADR-0041, nem `docs/adr/0018-...md` nem `docs/adr/0030-...md` sao mantidos byte-identicos por
+> nenhuma cerca de CI — nao ha `test_adr_amendments.py` equivalente para eles.
+>
+> **As citacoes de linha abaixo foram re-ancoradas** contra o estado de `docs/adr/0018-...md` e
+> `docs/adr/0030-...md` **depois** desta relocacao (a insercao original, escrita antes de existir,
+> citava as linhas do arquivo-base anterior a propria insercao — por isso as citacoes abaixo nao
+> coincidem com as que estiveram, por um dia, dentro dos dois arquivos).
+
+### ADR-0018 — padrao estrutural no-denial (Contexto CONTAS/RECURSO)
+
+O padrao estrutural de cinco partes permanece INTACTO — esta emenda muda apenas a **instancia** do
+efeito adverso em SP-OP-CONTAS-001/SP-OP-RECURSO-001, nao a garantia. A instancia muda de
+`decisao_contas == ACEITAR_GLOSA` (worker `register_glosa_accept`, guard
+`ERR_GLOSA_ACCEPT_NOT_HUMAN`, terminal `End_GlosaAceitaHumano` — ADR-0018 §Contexto `:29-36`,
+§Decisao partes 1 e 4 `:53-57`, `:73-79`) para `decisao_contas ∈ {GLOSAR, PAGAR_PARCIAL}` (worker
+`registrar_glosa`, guard `ERR_CONTAS_GLOSA_NOT_HUMAN`); o mesmo padrao se aplica a
+SP-OP-RECURSO-001 (`decisao_recurso == INDEFERIR`, worker `registrar_indeferimento`, guard
+`ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN`). A **Pre-condicao operacional** de ADR-0018 (`:106-110`,
+«nenhum processo de Phase 2 esta start-habilitado em `main`») esta **OBSOLETA**:
+`process_allowlist.py:21-41,60` ja contem as 15 chaves (CONTAS `:28`, RECURSO `:29`) com
+`DEFAULT_ALLOWED_PROCESS_KEYS = KNOWN_PROCESS_KEYS`; ver `docs/review-queue.md`. ADR-0040 amends,
+nao supersede.
+
+### ADR-0030 — semantica de erro do worker vs boundary BPMN
+
+ADR-0040 redesigns SP-OP-CONTAS-001 / SP-OP-RECURSO-001 into the operadora's (payer's)
+perspective. Its two new guard codes, `ERR_CONTAS_GLOSA_NOT_HUMAN` and
+`ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN`, replace one-for-one `ERR_GLOSA_ACCEPT_NOT_HUMAN` and
+`ERR_DESISTENCIA_NOT_HUMAN` in the census (ADR-0030 `:113-142`, the zero-catches note at `:118`).
+Both remain Tier-3 **declared-and-uncaught** (no `bpmn:boundaryEvent`/`errorEventDefinition`
+models the guarded service task — same position as today's two codes, outside ADR-0030's
+boundary-catch table), keep raising `PermissionError` on the audited-incident path (never
+`WorkerBpmnError`/`bpmnError`), and enable no new production allowlist entry — "ZERO allowlist
+enablements" for Tier-3 (ADR-0030 §4, `:24`) remains true. This decision (Option A, the census,
+ADR-0030 §4/§5, `:379-382`) is NOT changed by ADR-0040; it is only re-anchored to the renamed
+codes. ADR-0040 amends, does not supersede.
 
 ---
 
