@@ -83,8 +83,7 @@ def test_graph_module_docstring_discloses_real_delegation_module(agent_id: str) 
     graph_path = REPO_SRC / "agents" / agent_id / "graph.py"
     doc = _module_docstring(graph_path)
     assert "delegation.py" in doc, (
-        f"{graph_path}: {agent_id} has a real delegation.py but its graph module docstring "
-        "never mentions it"
+        f"{graph_path}: {agent_id} has a real delegation.py but its graph module docstring never mentions it"
     )
 
 
