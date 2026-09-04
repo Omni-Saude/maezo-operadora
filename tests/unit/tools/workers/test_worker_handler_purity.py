@@ -270,12 +270,16 @@ _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
 # Corrected count: the idiom has **13 sites in the whole worker tree** (7 `auth`, 2 `escalation`,
 # 4 `lgpd`), TWO of which were inside `send_denial_notice` itself — so slice 4's "13 OTHER places"
 # over-counted the neighbours by two; the honest figure is 11 others. Forward/backward
-# reachability over the BPMN graph (not prose) shows every one of the 13 has an
-# `operadora.events.publish` task carrying the SAME `event_topic` on its own token path,
-# `send_denial_notice`'s two included: `ST_EnviarNegativaFormal`'s only outgoing flow is
-# `Flow_Negativa_Pub` -> `ST_PublishNegada`
-# (`event_topic=agents.events.auth.completed`). That is why no `event` literal is fenced here —
-# including the two in the worker this slice fixes.
+# reachability over the BPMN graph (not prose) was RE-DERIVED for **9 of the 13** (7 `auth` + 2
+# `escalation`): each of those 9 has an `operadora.events.publish` task carrying the SAME
+# `event_topic` on its own token path, `send_denial_notice`'s two included:
+# `ST_EnviarNegativaFormal`'s only outgoing flow is `Flow_Negativa_Pub` -> `ST_PublishNegada`
+# (`event_topic=agents.events.auth.completed`). The remaining **4 `lgpd` sites have NO token path
+# at all**: `operadora.lgpd.execute_export`/`execute_rectification`/`execute_erasure`/
+# `publish_completed` are ORPHAN CODE TOPICS carried by ZERO BPMN service tasks
+# (`docs/compliance/lgpd-topic-reconciliation.md:38-39`, rows O2-O5 at `:61-64`), out of this
+# slice's scope by owner decision `LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC`. That is why no `event`
+# literal is fenced here — including the two in the worker this slice fixes.
 _FABRICATED_STATUS_LITERALS: frozenset[str] = frozenset(
     {"risk_notified", "notified", "notificado", "notice_sent"}
 )
