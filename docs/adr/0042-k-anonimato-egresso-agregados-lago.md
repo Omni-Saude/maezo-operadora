@@ -21,7 +21,7 @@
 Andre e o chokepoint de egresso de agregados do lago para a Zona Geral (ADR-0006/ADR-0019). O gate
 estrutural e `src/maezo/agents/andre/graph.py::_scrub_aggregate`, chamado por
 `AndreGraph.gather` nos dois caminhos de agregado (`analytics.actuarial` e
-`analytics.population`). Na base deste ADR (main `07a4e42`) o gate tem tres verificacoes:
+`analytics.population`). Na base `origin/main` deste ADR o gate tem tres verificacoes:
 
 ```
 grep -n 'k_anonymity < 1' src/maezo/agents/andre/graph.py
@@ -43,7 +43,7 @@ identificador atravessar o chokepoint e aterrar no dossie — e, dali, no prompt
 
 ### O que a ADR aceita ja exige
 
-`docs/adr/0019-amh-lake-of-record.md:74-75` (clausula 4) e explicita:
+`docs/adr/0019-amh-lake-of-record.md:74-79` (clausula 4) e explicita:
 
 > «k-anonimato / supressao de celula pequena como parametro de compliance. Toda feature agregada
 > servida obedece a um piso de k-anonimato (`k` minimo por celula) e supressao de small-cell (...)
@@ -51,9 +51,10 @@ identificador atravessar o chokepoint e aterrar no dossie — e, dali, no prompt
 > requires human review (DPO/juridico/regulatorio) before any deploy; o codigo le o piso de config,
 > nunca hardcoda um `k` baixo.»
 
-O codigo em `07a4e42` hardcodava exatamente o `k` mais baixo possivel (1) e nao lia piso nenhum de
-config. O achado nao e uma decisao nova: e a distancia entre ADR-0019 §4 e a arvore. O KPI do agente
-que essa distancia falsifica e `phi_egress_violations == 0` (`spec/agents/andre/agent.yaml`).
+O codigo na base `origin/main` deste ADR hardcodava exatamente o `k` mais baixo possivel (1) e nao
+lia piso nenhum de config. O achado nao e uma decisao nova: e a distancia entre ADR-0019 §4 e a
+arvore. O KPI do agente que essa distancia falsifica e `phi_egress_violations == 0`
+(`spec/agents/andre/agent.yaml`).
 
 ### O que ja foi implementado como perna agent-buildable
 
@@ -81,7 +82,7 @@ agente pode decidir sozinho — mecanismo, nunca o valor de politica:
 
 Essa perna fecha o furo estrutural (`metrics` cego) e torna o piso **uma mudanca de uma linha de
 config**. Ela deliberadamente NAO fecha o furo de politica: com o default 1, o comportamento
-observavel do piso e identico ao de `07a4e42`.
+observavel do piso e identico ao da base `origin/main` deste ADR.
 
 ### Dependencia externa declarada
 
@@ -109,7 +110,7 @@ ambos de configuracao e falha fechado; nenhum dos dois e escolhido em codigo.
 
 **Recomendacao de engenharia (NAO VINCULANTE): opcao A.** k=5 e o piso que o proprio relatorio de
 auditoria propoe, e a unica das tres que muda o comportamento por default. A escolha entre A e B, e
-o numero em si, sao materia de DPO/juridico/regulatorio — ADR-0019:75-79 ja marca este parametro
+o numero em si, sao materia de DPO/juridico/regulatorio — ADR-0019:74-79 ja marca este parametro
 como `DRAFT — requires human review (DPO/juridico/regulatorio) before any deploy`.
 
 ### Parte 2 — a allowlist FECHADA de features de metricas
@@ -124,13 +125,37 @@ tres nomes (`sinistro_agregado`, `utilizacao`, `exposicao_atuarial`), mas eles s
 features **PEDIDAS** ao cliente de populacao, nao uma lista de features **ADMISSIVEIS** no retorno —
 sao coisas diferentes e nao devem ser confundidas na ratificacao.
 
+Ponto de partida ja escrito, para o dono aceitar, cortar ou ampliar: o proprio relatorio de auditoria
+(spec AND-S2, snapshot:268) propoe um `_METRIC_KEY_ALLOW` de **cinco** nomes — `sinistro_agregado`,
+`utilizacao`, `exposicao_atuarial`, `custo_medio_agregado`, `prevalencia`. Este ADR o registra como
+proposta de terceiro, **nao** como recomendacao propria: a distincao pedidas-vs-admissiveis acima
+continua valendo, e `prevalencia` em particular e a que mais se aproxima de feature clinica agregada,
+o que e exatamente o tipo de julgamento que cabe a DPO/produto, nao a engenharia.
+
 ### Parte 3 — onde os parametros moram
 
 Proposta: os dois parametros descem por `config` do build (o mecanismo que ja existe para
-`min_k_anonymity`), alimentado da politica versionada em `spec/policies/` — diretorio dono-gated
-(`.github/CODEOWNERS:84,116`), que e precisamente a propriedade desejada para um parametro de
-compliance. A alternativa (constantes em `src/`) e rejeitada: colocaria um parametro regulatorio
-fora do gate de revisao do dono.
+`min_k_anonymity`), alimentado de uma politica versionada sob `spec/policies/`.
+
+**Ressalva de precisao, porque a diferenca e operacional:** `spec/policies/` NAO e dono-gated como
+diretorio. `.github/CODEOWNERS` atribui dono a QUATRO subdiretorios e a DOIS arquivos —
+`/spec/policies/autonomy/` (`:84`), `/spec/policies/privacy/` (`:116`), `/spec/policies/retention/`
+(`:134`), `/spec/policies/ans/` (`:196`), mais `/spec/policies/autonomy/action-approvals.yaml`
+(`:124`) e `/spec/policies/retention/erasure-plan.template.yaml` (`:138`) — e nao ha nenhuma linha
+`/spec/policies/` cobrindo o diretorio inteiro
+(`grep -n 'spec/policies' .github/CODEOWNERS`). Um arquivo novo em `spec/policies/<nome-novo>/` seria,
+portanto, **nao-CODEOWNED**, e a propriedade que se quer aqui nao existiria.
+
+Duas formas de obter de fato a revisao do dono, e a escolha e dele:
+- **Colocar o parametro num subdiretorio que JA e CODEOWNED** — o candidato natural e
+  `spec/policies/privacy/` (`.github/CODEOWNERS:116`, `@rodaquino-OMNI` + `@Omni-Saude/security-team`
+  + `@lucasreisEvah`), coerente com a natureza LGPD do piso; ou
+- **abrir um subdiretorio novo e adicionar a linha correspondente em `.github/CODEOWNERS`** — o que
+  e, em si, uma alteracao dono-gated: o proprio arquivo tem dono (`.github/CODEOWNERS:209`,
+  `@rodaquino-OMNI` + `@Omni-Saude/security-team`).
+
+A alternativa (constantes em `src/`) permanece rejeitada: colocaria um parametro regulatorio fora do
+gate de revisao do dono.
 
 ---
 
@@ -170,10 +195,13 @@ fora do gate de revisao do dono.
 ## O que e decisao do DONO (explicito)
 
 1. **O valor do piso de k-anonimato** — opcao A (5), B (por finalidade) ou C (status quo nomeado).
-   Requer, por ADR-0019:75-79, revisao de DPO/juridico/regulatorio.
+   Requer, por ADR-0019:74-79, revisao de DPO/juridico/regulatorio.
 2. **O conteudo da allowlist FECHADA de features de metricas** — quais nomes de celula de coorte sao
    admissiveis em Zona Geral.
-3. **Onde os dois parametros moram** — `spec/policies/` (recomendado, dono-gated) ou outro local.
+3. **Onde os dois parametros moram** — um subdiretorio de `spec/policies/` que JA seja CODEOWNED
+   (`spec/policies/privacy/`, por exemplo) ou um subdiretorio novo COM a linha correspondente em
+   `.github/CODEOWNERS`; ver a ressalva da Parte 3. Escolher `spec/policies/` "em geral" nao produz
+   o gate de revisao pretendido.
 4. **Se a allowlist entra antes ou junto do port `mcp-datalake` WB.4.**
 
 Nenhum dos quatro pode ser decidido por agente: o item 1 e explicitamente marcado como

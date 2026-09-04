@@ -13,7 +13,14 @@ ratifica ADR. `/docs/adr/` e dono-gated (`.github/CODEOWNERS:61`). · **Data:** 
 
 ---
 
-## O achado (HEL-11, P1, dimensao 10)
+## Contexto
+
+Este documento segue a forma de `docs/adr/template.md` (`## Contexto` / `## Decisao` /
+`## Consequencias` / `## Supersedes`) porque vive no diretorio de ADRs e sera lido como um. Isso e
+forma, nao substancia: a secao `## Decisao` registra explicitamente que **nao ha decisao**, e as tres
+perguntas em aberto estao la, no lugar onde um leitor procura a decisao — nao escondidas ao fim.
+
+### O achado (HEL-11, P1, dimensao 10)
 
 `spec/agents/helena/agent.yaml:12-16` registra `agendamento_direto` como `out_of_scope`, com
 disposicao «recusa honesta + handoff humano real». O caminho e real:
@@ -24,7 +31,7 @@ disposicao «recusa honesta + handoff humano real». O caminho e real:
 A auditoria observa que agendamento e o trabalho numero 1 do beneficiario (D9/D11) e propoe, para a
 Fase 1, converter o handoff em jornada de agendamento real.
 
-## A colisao que o relatorio nao registra
+### A colisao que o relatorio nao registra
 
 O relatorio propoe «agendamento passivel de automacao **L2** com DMN de elegibilidade». Mas a matriz
 de autonomia viva ja classifica a acao em **L3**:
@@ -42,7 +49,7 @@ Essa distincao muda a natureza da pergunta ao dono. Ela nao e «podemos automati
 matriz ja respondeu que sim, em L3. Ela e: **a politica L3 vigente para `scheduling` esta certa, dado
 que agora existiria efeito colateral real (slot de agenda) em vez de um handoff?**
 
-## O que a construcao exigiria (fatos, nao recomendacao)
+### O que a construcao exigiria (fatos, nao recomendacao)
 
 Independentemente da resposta sobre o nivel, a capacidade exige tres itens, e os tres tem gate:
 
@@ -60,7 +67,7 @@ Independentemente da resposta sobre o nivel, a capacidade exige tres itens, e os
 E, se o nivel de autonomia for revisitado, `spec/policies/autonomy/L0-core.yaml` e dono-gated com
 security-team (`.github/CODEOWNERS:84`).
 
-## Invariantes que a resposta precisa preservar
+### Invariantes que a resposta precisa preservar
 
 - **D2 (particao determinismo/LLM):** a elegibilidade tem de ser DMN, nunca prompt (regra dura 5,
   `AGENTS.md:31`).
@@ -72,7 +79,15 @@ security-team (`.github/CODEOWNERS:84`).
   `hard: true`). A fronteira entre «ha slot e o beneficiario esta apto a marcar» e «este procedimento
   esta coberto» precisa ser explicita na DMN.
 
-## A pergunta ao dono
+---
+
+## Decisao
+
+**Nenhuma decisao e tomada aqui.** Nao ha frase no presente do tipo «Usamos X para Y» neste
+documento, e a ausencia e o ponto: o que este ADR entrega ao dono sao **tres perguntas em aberto**,
+com os fatos verificados necessarios para responde-las.
+
+### As tres perguntas
 
 1. `scheduling` deve permanecer **L3** na matriz viva, ser **rebaixada a L2** (como a auditoria
    propoe, aparentemente sem notar que e rebaixamento), ou outro nivel?
@@ -84,11 +99,35 @@ security-team (`.github/CODEOWNERS:84`).
 **Nenhuma das tres tem recomendacao de engenharia neste documento, por decisao deliberada:** a
 primeira e politica de autonomia, a segunda e roadmap de produto, e a terceira depende das duas.
 
-## Criterio de aceite deste MEMO
+### Criterio de aceite deste MEMO
 
 Este documento esta cumprido quando o dono registrar a resposta as tres perguntas — em emenda a este
 ADR ou em ADR proprio. **Nenhuma linha de codigo, spec ou politica deve ser escrita a partir deste
 documento antes disso.**
+
+---
+
+## Consequencias
+
+**Positivas**
+- A colisao L3-vs-L2 fica registrada por escrito e datada, em vez de ser descoberta por quem for
+  implementar a proposta da auditoria ao pe da letra — que rebaixaria autonomia acreditando habilita-la.
+- Os tres gates da capacidade (contrato `SP-OP-AGENDAMENTO-001`, chave em `KNOWN_PROCESS_KEYS`, ADR
+  proprio para o efeito colateral externo) ficam levantados ANTES de qualquer codigo, e nao como
+  bloqueio descoberto no meio da implementacao.
+- A fronteira que a DMN tera de tornar explicita — «ha slot e o beneficiario esta apto a marcar» vs
+  «este procedimento esta coberto» — fica nomeada antes de existir DMN, quando ainda e barata de
+  respeitar.
+
+**Negativas (aceitas)**
+- Um documento em `docs/adr/` sem decisao e, por definicao, um ADR incompleto: ele ocupa um numero da
+  serie e permanecera `Proposed` ate a resposta do dono. Aceito — a alternativa seria um agente
+  legislar sobre nivel de autonomia e escopo de produto, que e exatamente o que ele nao pode fazer.
+- Enquanto nao houver resposta, HEL-11 (P1) permanece **aberto**. A disposicao atual — recusa honesta
+  + handoff humano real, ja construida — continua valendo e nao regride; o que nao avanca e a
+  capacidade.
+- O custo de nao decidir e silencioso: nao produz erro de CI nem alerta. Este paragrafo e o unico
+  lugar onde ele fica visivel.
 
 ## Supersedes
 

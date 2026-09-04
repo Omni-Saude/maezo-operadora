@@ -17,8 +17,9 @@
 
 ### O mecanismo existe e esta vivo
 
-`src/maezo/runtime/inference/__init__.py::InferenceProvider.generate` aceita `task_kind` como quinto
-keyword (`task_kind: str | None = None`) e o repassa a
+`src/maezo/runtime/inference/__init__.py::InferenceProvider.generate` aceita `task_kind` como
+**quarto** parametro keyword-only — quinto parametro da assinatura, depois de `prompt`, `phi`,
+`agent_id` e `tenant_id` (`task_kind: str | None = None`) — e o repassa a
 `::InferenceProvider._resolve_task_model`, que:
 
 - resolve `kind = task_kind or DEFAULT_TASK_KIND` (`DEFAULT_TASK_KIND = "task_default"`);
@@ -97,12 +98,39 @@ substancia nesse diretorio).
 **Toda chamada LLM de um grafo de agente passa um `task_kind` catalogado, e um gate de CI recusa uma
 chamada sem ele.**
 
-### Parte 1 — o catalogo
+### Parte 1 — o catalogo JA EXISTE; o que falta e onde ele se aplica
 
-`task_kind` deixa de ser string livre e passa a ser um vocabulario FECHADO, na mesma forma que
-`TIER_RESOLUTIONS` ja usa: um `Final[frozenset[str]]` em `runtime/inference`, hoje
-`{"task_default", "reasoning"}` — as duas chaves que os onze `agent.yaml` declaram. Um `task_kind`
-fora do catalogo e erro, nao `TIER_UNDECLARED` silencioso.
+Correcao de fato, porque a formulacao ingenua deste ADR seria pedir um trabalho ja feito. O
+vocabulario fechado existe:
+
+```
+grep -n 'MODEL_TASK_KINDS' src/maezo/runtime/inference/__init__.py
+282:MODEL_TASK_KINDS: Final[frozenset[str]] = frozenset({"task_default", "reasoning", "batch"})
+425:        if task_kind not in MODEL_TASK_KINDS:
+```
+
+`src/maezo/runtime/inference/__init__.py::MODEL_TASK_KINDS` (`:282`) e um
+`Final[frozenset[str]]` com **tres** membros — `task_default`, `reasoning` e **`batch`** — na mesma
+forma que `MODEL_TIERS` (`:278`) e `TIER_RESOLUTIONS`. E ele ja e **fail-closed**, num lugar preciso:
+`::_validated_model_tiers` (`:424-438`) recusa a CONSTRUCAO do provider quando o mapa `model:` do
+`agent.yaml` usa uma chave fora do catalogo, com `InferenceConfigError` («Refusing to construct an
+inference provider that would route by a task kind it cannot honour»).
+
+O que **nao** existe e enforcement sobre o **ARGUMENTO**. `::_resolve_task_model` (`:581`) recebe
+`task_kind` do call site e nunca o confronta com `MODEL_TASK_KINDS`: faz
+`kind = task_kind or DEFAULT_TASK_KIND` e `self._model_tiers.get(kind, TIER_UNDECLARED)` (`:602-603`).
+Um `task_kind="raciocinio"` — grafado errado, ou inventado — **nao** levanta erro: resolve para o
+sentinela `nao_declarado` e a chamada segue, com a telemetria registrando um tier que ninguem
+declarou.
+
+A assimetria, portanto, e esta e so esta:
+
+| Superficie | Validado contra `MODEL_TASK_KINDS`? | Onde |
+|---|---|---|
+| Mapa `model:` do `agent.yaml` | **SIM**, fail-closed em tempo de build | `_validated_model_tiers:424-438` |
+| Argumento `generate(task_kind=...)` | **NAO** — cai em `TIER_UNDECLARED` | `_resolve_task_model:602-603` |
+
+A Parte 1 deste ADR e fechar a segunda linha da tabela, nao criar o catalogo.
 
 ### Parte 2 — obrigatoriedade
 
@@ -151,8 +179,11 @@ arquivo mora em `scripts/ci/` e o alvo no `Makefile`, ambos dono-gated.
 - **D2 (particao determinismo/LLM):** intacta e **reforcada**. `task_kind` diz QUAL MODELO atende a
   chamada; nao diz o que o modelo pode decidir. Nenhuma regra de negocio se move para prompt ou para
   o roteador (regra dura 5, `AGENTS.md:31`).
-- **Fail-closed:** um `task_kind` fora do catalogo e ERRO, nunca degradacao para `task_default`. A
-  ausencia de `task_kind` num grafo passa a ser CI vermelho, nao um default silencioso.
+- **Fail-closed:** o mapa `model:` do yaml JA e fail-closed contra o catalogo
+  (`_validated_model_tiers`); este ADR estende a mesma disciplina ao ARGUMENTO — um `task_kind` fora
+  do catalogo passa a ser ERRO, nunca a degradacao silenciosa de hoje para o sentinela
+  `TIER_UNDECLARED`. E a ausencia de `task_kind` num grafo passa a ser CI vermelho, nao um
+  `task_default` por omissao.
 - **Regra dura 7 (AGENTS.md:33):** intacta. Nenhum item `hard` da matriz
   (`spec/policies/autonomy/L0-core.yaml:6-13`) e tocado; roteamento de modelo nao e nivel de autonomia.
 - **Regra dura 6 (AGENTS.md:32 — SDK de LLM so em `runtime.inference`):** preservada; toda a mudanca
@@ -167,8 +198,14 @@ arquivo mora em `scripts/ci/` e o alvo no `Makefile`, ambos dono-gated.
 1. **Aprovar o gate de conformance em `scripts/ci/` + o alvo no `Makefile`** — ambos dono-gated
    (`.github/CODEOWNERS:223-242`). Sem isso, a propagacao e uma limpeza que expira.
 2. **A opcao A, B ou C** da Parte 2 (a recomendacao de engenharia e A; C nao e recomendada).
-3. **O catalogo inicial de `task_kind`** — hoje `{task_default, reasoning}`; se um terceiro (`batch`,
-   citado em `0009:12`) deve entrar ja.
+3. **O que fazer com `batch`.** A pergunta NAO e se ele entra no catalogo: `batch` **ja esta**
+   catalogado em `MODEL_TASK_KINDS` (`runtime/inference/__init__.py:282`) e em `MODEL_TIERS` (`:278`),
+   por simetria com `0009:12`. A pergunta e se um **call site** pode passar `task_kind="batch"` — isto
+   e, se existe trabalho que a operadora aceita ver DIFERIDO. Nenhum `agent.yaml` declara `batch` hoje,
+   e o comentario do proprio catalogo diz por que: introduzir um task kind de lote e «a product
+   decision about which work may be deferred, not an implementation detail», registrada em
+   `docs/review-queue.md` em vez de inventada no codigo. Se a resposta for "nao por ora", `batch`
+   permanece catalogado e sem uso — o que e coerente, nao contraditorio.
 4. **O mapa real tier->modelo** — permanece EM ABERTO e fora deste ADR; e decisao de dono/financeira
    («precos variam 10x», `0009:6-7`) e ja esta registrada em `docs/review-queue.md`, conforme
    `runtime/inference/__init__.py:592-595`.

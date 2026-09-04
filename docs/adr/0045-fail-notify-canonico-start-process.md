@@ -123,10 +123,12 @@ engine indisponivel que registre a propria indisponibilidade.
 
 Consequencia spec-first (AGENTS.md regra dura 1): os contratos `SP-OP-*` dos agentes que iniciam
 processo ganham `erro_inicio_processo` na sua enumeracao de desfechos, com a nota de que se trata de
-desfecho do agente. Isso combina com o trabalho de proveniencia CC-13, ja materializado como secao
-«Variaveis de proveniencia do agente (— ADR-0007/ADR-0015)» nos contratos em
-`fleet/cc13-contract-provenance` (PR #314): a mesma distincao — o que e do agente vs o que e do
-processo — aplicada a um desfecho em vez de a uma variavel.
+desfecho do agente. Isso combina com o trabalho de proveniencia CC-13, ja materializado como a secao
+`## Variaveis de proveniencia do agente (<Agente> — ADR-0007/ADR-0015)` — o cabecalho traz o NOME do
+agente, ex.: «(Rafael — ADR-0007/ADR-0015)» — nos nove contratos SP-OP emendados em
+`fleet/cc13-contract-provenance`. Esse branch nao vai a `main` por si: ele chega pelo train
+`fleet/train-w1-lote1` (PR #314), que o integra junto de CC-04, CC-10 e BEA-06. A distincao e a
+mesma — o que e do agente vs o que e do processo — aplicada a um desfecho em vez de a uma variavel.
 
 ### Parte 2 — a forma do padrao
 
