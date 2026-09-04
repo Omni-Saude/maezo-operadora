@@ -58,8 +58,8 @@ escalation:
     - signal: ambiguity
     - signal: reembolso_dossie
 memory:
-  episodic: true
-  semantic: true
+  episodic: false  # reabilitar quando DU-01-b/AF-11 ligar pgvector (ADR-P-004)
+  semantic: false  # reabilitar quando DU-01-b/AF-11 ligar pgvector (ADR-P-004)
 a2a:
   capabilities:
     - glosa_analysis

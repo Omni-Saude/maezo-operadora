@@ -56,8 +56,8 @@ escalation:
     - signal: dmn_unavailable              # DMN indisponivel -> humano (nunca decide por omissao)
     - signal: ambiguity                    # qualquer ambiguidade -> humano
 memory:
-  episodic: true
-  semantic: true                           # derivados minimizados (agregados/refs de coorte) — ADR-0002
+  episodic: false  # reabilitar quando DU-01-b/AF-11 ligar pgvector (ADR-P-004)
+  semantic: false  # reabilitar quando DU-01-b/AF-11 ligar pgvector (ADR-P-004)
 # A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Andre e ALVO de delegacao: o worker
 # `operadora.pagto.prepare_approval_dossier` de SP-OP-PAGTO-001 delega `analytics.actuarial`/
 # `analytics.population` a ele (enriquece o dossie de risco). `accepted_task_types` declara o

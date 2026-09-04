@@ -60,8 +60,8 @@ escalation:
     - signal: dmn_unavailable                # DMN indisponivel -> humano (nunca decide por omissao)
     - signal: ambiguity                      # qualquer ambiguidade -> humano conservador
 memory:
-  episodic: true
-  semantic: true                             # derivados minimizados referenciando a cobranca (ADR-0002)
+  episodic: false  # reabilitar quando DU-01-b/AF-11 ligar pgvector (ADR-P-004)
+  semantic: false  # reabilitar quando DU-01-b/AF-11 ligar pgvector (ADR-P-004)
 # A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Fernando ORIGINA o ciclo de
 # inadimplencia e escalacoes humanas, E aceita uma delegacao INBOUND de acompanhamento de
 # cobranca: Lucas->Fernando `arrears.followup` (phase3-plan §4 — reconciliacao R9 sobre #58). O
