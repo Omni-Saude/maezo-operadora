@@ -50,9 +50,7 @@ def andre() -> AgentDefinition:
 @pytest.fixture(scope="module")
 def andre_capabilities(andre: AgentDefinition) -> AgentCapabilities:
     """A MESMA construcao que `tool_registry.build_agent_seam_context` faz em producao."""
-    return AgentCapabilities.of(
-        principal=andre.id, tools=andre.tools, process_keys=andre.process_keys
-    )
+    return AgentCapabilities.of(principal=andre.id, tools=andre.tools, process_keys=andre.process_keys)
 
 
 # ---------------------------------------------------------------------------
