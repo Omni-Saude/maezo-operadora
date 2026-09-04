@@ -23,11 +23,14 @@
 #      linha 33 produziu DOIS erros independentes), entao a linha continua valida pelo
 #      dono-usuario. Esse erro residual e o SEMAFORO desta migracao: enquanto ele existir, a
 #      separacao de revisor nao esta pronta.
-#      CONTAGEM ESPERADA hoje: 29 erros — exatamente UM por linha de regra que carrega o token do
+#      CONTAGEM ESPERADA hoje: 30 erros — exatamente UM por linha de regra que carrega o token do
 #      time (eram 27 antes das duas linhas de integridade de CI que esta auditoria acrescentou,
-#      `/Makefile` e `/scripts/ci/`). Derive sempre assim, nao decore o numero: se a contagem
-#      divergir de "linhas de regra com `@Omni-Saude/security-team`", ha um erro de OUTRA natureza
-#      escondido no meio, e e ele que interessa.
+#      `/Makefile` e `/scripts/ci/`; 29 ate 2026-09-04, quando a linha de
+#      `/.github/production-approvers.yaml` entrou por R-021 — ver a secao de autoprotecao). Derive
+#      sempre assim, nao decore o numero: se a contagem divergir de "linhas de regra com
+#      `@Omni-Saude/security-team`", ha um erro de OUTRA natureza escondido no meio, e e ele que
+#      interessa. `tests/unit/ci/test_codeowners_rules.py` mantem este numero preso a derivacao, de
+#      modo que acrescentar uma regra sem atualizar esta linha fica VERMELHO em vez de silencioso.
 #
 #   3. SEPARACAO DE REVISOR NAO EXISTE HOJE — E ESTE, NAO A SINTAXE, E O BLOQUEIO DO FLIP.
 #      O agente/orquestrador abre PR COMO `rodaquino-OMNI`, e o GitHub nao aceita auto-aprovacao.
@@ -219,6 +222,19 @@
 # workflow de fora recria exatamente o buraco (o atacante edita o que ficou fora), e a maioria dos
 # PRs de workflow e justamente endurecimento de gate, que merece olho humano.
 /.github/workflows/        @rodaquino-OMNI @Omni-Saude/security-team
+#
+# `/.github/production-approvers.yaml` — a lista de logins que o job `require-production-approval`
+# (`.github/workflows/cd.yml`, decisao do dono R-021) aceita como prova de aprovacao para promover
+# um artefato a producao. LISTADO EXPLICITAMENTE, e a razao e um defeito real encontrado em revisao
+# adversarial: NAO EXISTE regra `/.github/` neste arquivo. As regras de `.github/` sao ENUMERADAS
+# (`/.github/CODEOWNERS`, `/.github/workflows/`, `/.github/osv-allowlist.json`), entao ate esta
+# linha o arquivo de aprovadores nao era casado por regra alguma — e a propria decisao R-021 exige
+# que a lista viva "em arquivo CODEOWNED". Sem esta linha, o unico artefato do aparato de gate que
+# escapava da revisao era exatamente aquele cuja edicao ampliaria quem pode mandar codigo a
+# producao: bastava um PR acrescentando um login. Nao substitua estas linhas por um glob
+# `/.github/`: a enumeracao e deliberada (`.github/` tambem hospeda ISSUE_TEMPLATE e afins, que nao
+# sao aparato de gate) e um glob esconderia a proxima omissao desta mesma especie.
+/.github/production-approvers.yaml @rodaquino-OMNI @Omni-Saude/security-team
 #
 # `/Makefile` + `/scripts/ci/` — a SUBSTANCIA dos checks que a linha de workflows acima apenas
 # AGENDA. O workflow diz QUAL comando roda; o alvo de make e o script dizem O QUE ele verifica.

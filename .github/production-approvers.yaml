@@ -10,10 +10,21 @@
 # no job `require-production-approval`, e o substituto CONSTRUIDO desse gate: sem uma aprovacao
 # casada contra um login daqui, `promote-production` nao roda.
 #
-# POR QUE ELE VIVE EM `.github/`. Porque `.github/**` e CODEOWNED (`.github/CODEOWNERS`, secao
-# "AUTOPROTECAO DO APARATO DE GATE"). Uma lista de aprovadores editavel sem revisao seria um gate
-# que se auto-amplia: bastaria um PR acrescentando um login para destravar a producao. Aqui, ampliar
-# a lista e um PR sob revisao de dono, como qualquer outra mudanca do aparato de gate.
+# POR QUE ELE E CODEOWNED — E O QUE ISSO SIGNIFICA EXATAMENTE. Uma lista de aprovadores editavel sem
+# revisao seria um gate que se auto-amplia: bastaria um PR acrescentando um login para destravar a
+# producao. Por isso `.github/CODEOWNERS` (secao "AUTOPROTECAO DO APARATO DE GATE") carrega uma
+# regra que casa ESTE arquivo pelo nome: `/.github/production-approvers.yaml`.
+# NAO leia "esta em `.github/`, logo e CODEOWNED": `.github/**` NAO e coberto por glob algum neste
+# repositorio — as regras de `.github/` sao enumeradas uma a uma, e a primeira versao deste arquivo
+# afirmava a cobertura por glob que nao existe (achado de revisao adversarial, corrigido em
+# 2026-09-04 junto com a regra que faltava). Se esta linha for removida do CODEOWNERS, este arquivo
+# volta a ser editavel sem dono, e `tests/unit/ci/test_check_production_approval.py` fica VERMELHO —
+# a assercao resolve o caminho contra as regras reais (parser do proprio repo,
+# `scripts/ci/check_flip_path_review.py`), nao contra o prefixo do nome.
+# RESSALVA DE EFICACIA, declarada e nao contornada: enquanto `require_code_owner_review` estiver
+# `false` na ruleset `main-protection` (medido 2026-09-04) e o `@Omni-Saude/security-team` nao
+# resolver, ser CODEOWNED requisita revisor mas nao o EXIGE no merge — quem exige hoje e o check
+# `flip-path-review-gate`, que le este mesmo CODEOWNERS. R-051 e o flip que fecha isso.
 #
 # GRAMATICA ACEITA — DELIBERADAMENTE MINIMA, E ISSO E A FEATURE. O leitor e stdlib-only (mesma
 # doutrina de `check_flip_path_review.py`: nenhuma dependencia externa no caminho que governa a

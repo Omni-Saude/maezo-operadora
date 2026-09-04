@@ -29,6 +29,7 @@ from typing import Any
 
 import pytest
 from scripts.ci import check_production_approval as gate
+from scripts.ci.check_flip_path_review import owners_for_path, parse_codeowners
 from scripts.ci.check_production_approval import (
     ApprovalGateError,
     ApproversFileError,
@@ -454,13 +455,30 @@ def test_the_repositorys_own_approvers_file_parses_and_is_non_empty() -> None:
 
 
 def test_the_approvers_file_lives_under_a_codeowned_path() -> None:
-    """Property 4: a reviewer list editable without review is a gate that can widen itself."""
-    codeowners = (_REPO_ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
-    rules = [line for line in codeowners.splitlines() if line.strip() and not line.lstrip().startswith("#")]
-    assert any(line.startswith("/.github/") for line in rules), (
-        "no `/.github/` rule found in CODEOWNERS — the approvers file would be editable without an owner"
+    """Property 4: a reviewer list editable without review is a gate that can widen itself.
+
+    RESOLVED, not assumed. The previous version of this test asserted that SOME `/.github/…` rule
+    existed — which `/.github/CODEOWNERS` satisfies all by itself, while the approvers file was owned
+    by nothing at all (adversarial-review finding, 2026-09-04). It now resolves the real path through
+    this repository's own CODEOWNERS matcher, the same one `flip-path-review-gate` uses, so a green
+    here means the merge-path gate would agree that this file is owned.
+
+    The second assertion is the non-vacuity half: `.github/` is NOT blanket-owned here (its rules are
+    enumerated), so an unnamed path under it must resolve to `None`. Without it, a matcher that
+    matched everything would make the first assertion meaningless.
+    """
+    rules = parse_codeowners((_REPO_ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8"))
+    relative = _REAL_APPROVERS.relative_to(_REPO_ROOT).as_posix()
+    rule = owners_for_path(rules, relative)
+    assert rule is not None, (
+        f"{relative} is owned by no CODEOWNERS rule, so property 4 of the gate's docstring is false: "
+        "the approvers list could be widened in an unreviewed PR. Restore the "
+        "`/.github/production-approvers.yaml` rule."
     )
-    assert _REAL_APPROVERS.relative_to(_REPO_ROOT).as_posix().startswith(".github/")
+    assert owners_for_path(rules, ".github/ISSUE_TEMPLATE/bug_report.md") is None, (
+        "a path under `.github/` that no rule names resolved to an owner — the assertion above has "
+        "stopped discriminating (see tests/unit/ci/test_codeowners_rules.py for the same anchor)."
+    )
 
 
 def test_cd_yml_wires_the_gate_ahead_of_the_production_promotion() -> None:

@@ -41,11 +41,18 @@ THE FOUR PROPERTIES THAT MAKE THIS A GATE AND NOT THEATRE
    before a later push is STALE and does not carry over — that is the same "approval that no longer
    describes the code" failure mode `check_flip_path_review.py` guards against on the merge path.
 
-4. THE REVIEWER LIST IS CODEOWNED AND ITS GRAMMAR IS NARROW. `.github/production-approvers.yaml`
-   lives under `.github/**`, which `.github/CODEOWNERS` owns, so widening the list is itself a
-   reviewed change. The parser here accepts a deliberately tiny YAML subset and treats everything
-   else as a hard parse error, because a gate that reads a list it did not fully understand is a
-   gate that can approve by accident.
+4. THE REVIEWER LIST IS CODEOWNED BY AN EXPLICIT RULE, AND ITS GRAMMAR IS NARROW.
+   `.github/CODEOWNERS` carries the rule `/.github/production-approvers.yaml` by name, so widening
+   the list is itself a reviewed change. The rule is named rather than inherited: this repository has
+   NO `/.github/` glob — its `.github/` rules are enumerated one by one — and the first version of
+   this docstring claimed the glob-shaped ownership it does not have (adversarial-review finding,
+   corrected 2026-09-04 together with the missing rule). `test_the_approvers_file_lives_under_a_
+   codeowned_path` now resolves the path against the parsed rules with this repository's own
+   CODEOWNERS matcher, so a rename or a deleted rule turns it RED instead of passing on a prefix
+   coincidence. Being owned REQUESTS a reviewer; requiring one is `require_code_owner_review` (false
+   today — R-051) plus the `flip-path-review-gate` check, which reads the same file. The parser here
+   accepts a deliberately tiny YAML subset and treats everything else as a hard parse error, because
+   a gate that reads a list it did not fully understand is a gate that can approve by accident.
 
 WHAT THIS GATE DOES *NOT* CLAIM
 -------------------------------
