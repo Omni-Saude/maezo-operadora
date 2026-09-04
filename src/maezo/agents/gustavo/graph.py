@@ -126,11 +126,12 @@ DIVERGENCES FROM DONOR (disclosed — spec wins where they disagree):
 
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
 )
@@ -421,6 +422,27 @@ def _output_field_resets() -> dict[str, Any]:
         "desfecho": "",
         "error": "",
     }
+
+
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+_FATOS_BOOLEANOS_ANS_SUBMIT: Final[dict[str, str]] = {
+    "dataset_complete": "dataset completo",
+    "schema_valid": "schema do envio valido",
+    "lgpd_anonimizado": "dataset anonimizado (LGPD)",
+}
+
+#: O fluxo NIP tem outro conjunto de fatos — mapa proprio, e nao a uniao dos dois: um rotulo de
+#: envio-ANS num dossie de NIP so' teria como conteudo um SEM DADO que nao diz nada.
+_FATOS_BOOLEANOS_NIP: Final[dict[str, str]] = {
+    "contesta_negativa": "a NIP contesta uma negativa anterior",
+    "documentacao_suficiente": "documentacao suficiente para responder",
+}
 
 
 class GustavoGraph:
@@ -864,8 +886,12 @@ class GustavoGraph:
                 "dmn_refs": state.get("dmn_refs", {}),
                 "lacunas_enriquecimento": state.get("gather_notes", []),
             }
+        booleanos = (
+            _FATOS_BOOLEANOS_ANS_SUBMIT if state.get("fluxo") == "ans_submit" else _FATOS_BOOLEANOS_NIP
+        )
         prompt = (
-            f"{dossier_prompt()}\n\nroute={route} motivo_humano={state.get('motivo_humano')}\nfatos={facts}"
+            f"{dossier_prompt()}\n\nroute={route} motivo_humano={state.get('motivo_humano')}\n"
+            f"{render_fatos_para_prompt(facts, booleanos=booleanos)}"
         )
         try:
             narrativa = await self._llm.generate(

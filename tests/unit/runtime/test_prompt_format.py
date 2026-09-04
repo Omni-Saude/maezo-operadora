@@ -162,9 +162,12 @@ def test_formatted_prompt_is_frozen() -> None:
 def test_the_formatter_reproduces_the_existing_call_site_layout_byte_for_byte() -> None:
     """ADOPTION SAFETY, proven rather than asserted.
 
-    Every in-repo site builds its prompt as
+    The in-repo sites build their prompts as
     ``f"{dossier_prompt()}\\n\\nroute={route} motivo_auditor={motivo}\\nfatos={facts}"``
-    (`agents/rafael/graph.py`, and the same shape in eight sibling graphs). Rewiring those sites
+    (`agents/rafael/graph.py`, and the same shape in eight sibling graphs). CC-11 replaced the
+    trailing ``fatos={facts}`` segment with `render_fatos_para_prompt`'s block; the LAYOUT this
+    test pins — one static segment, then variable lines — is the one those sites still emit and
+    the one any future rewiring starts from. Rewiring those sites
     onto this formatter must not change a single byte — prompt bytes feed ``PROMPT_VERSIONS``
     audit provenance and eval baselines, so a refactor that shifted them would need a version
     bump and an SME re-review, i.e. it would not be a refactor at all.

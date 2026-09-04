@@ -8,10 +8,13 @@ stylistic — static/system content first, in a deterministic order, and per-req
 strictly last.
 
 WHY A FORMATTING LAYER AND NOT A CONVENTION. The 15 in-repo assembly sites
-(`agents/*/graph.py`, all of the shape ``f"{dossier_prompt()}\\n\\nroute={route}\\nfatos={facts}"``)
-each happen to satisfy that rule today. They satisfy it INDEPENDENTLY, by each author having
-got the order right — nothing checks it, and the failure mode is silent: a prompt that moves
-one variable token above the static block still WORKS, it just quietly stops being cacheable.
+(`agents/*/graph.py`, historically all of the shape
+``f"{dossier_prompt()}\\n\\nroute={route}\\nfatos={facts}"`` — since CC-11 the facts payload of
+11 of them goes through :func:`render_fatos_para_prompt` below, while the static-then-variable
+layout is unchanged) each happen to satisfy that rule today. They satisfy it INDEPENDENTLY, by
+each author having got the order right — nothing checks it, and the failure mode is silent: a
+prompt that moves one variable token above the static block still WORKS, it just quietly stops
+being cacheable.
 This module makes the boundary an explicit, testable value instead of an emergent property of
 an f-string, and hands the two sides to a transport that can declare a cache breakpoint
 between them (see :class:`maezo.runtime.inference.BrRegionalRequest`, whose
@@ -32,9 +35,9 @@ into anything that leaves this frame. Prompt bytes travel only in the returned v
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 #: Separator BETWEEN consecutive static segments, and between the static block and the
 #: variable block. Two newlines, matching the shape every in-repo assembly site already emits
@@ -157,7 +160,151 @@ def stable_prefix_is_byte_stable(prompts: Iterable[FormattedPrompt]) -> bool:
     return len(prefixes) <= 1
 
 
+# --- Renderizacao dos FATOS de um caso -----------------------------------------------------
+#
+# POR QUE ESTA FUNCAO MORA AQUI, E NAO NUM GRAFO (CC-11 / RAF-12)
+#
+# Ela nasceu em `agents/rafael/graph.py` como conserto pontual do incidente de 24/08/2026: num
+# caso com prestador FORA da rede, o dossie escreveu "nao ha registro de verificacao de teto L2
+# ou rede credenciada". A rede TINHA sido verificada e dado FALSO. A causa nao era descarte na
+# montagem — `_build_dossier` sempre passou `False` e `None` adiante, os dois. A distincao morria
+# na PASSAGEM PARA O MODELO: os fatos iam ao prompt como repr de dicionario Python
+# (`'rede_credenciada': False, 'dentro_teto_l2': None`), e num repr os dois parecem a mesma coisa,
+# um valor "vazio".
+#
+# O conserto ficou num agente so'. A auditoria da frota (04/09/2026, CC-11) encontrou o mesmo
+# veiculo do defeito vivo em 8 dos 9 agentes que passam fatos a um LLM. Promover a funcao para
+# este modulo — o ponto mais baixo que ja' e' dono da FORMA de um prompt — e' o que impede o
+# proximo conserto de nascer de novo em um lugar so'.
+#
+# LIMITE DELIBERADO: esta funcao NAO DECIDE NADA. Ela nao filtra, nao pondera, nao classifica e
+# nao muda o dicionario de fatos que o dossie devolve — a proveniencia de auditoria (ADR-0007)
+# continua sendo o dicionario intacto. Ela so' escolhe como o modelo LE cada valor.
+
+#: Cabecalho do bloco de booleanos nomeados.
+FATOS_CABECALHO: Final[str] = "fatos apurados:"
+
+#: Rotulo do bloco que carrega o resto do caso (tudo que nao e' booleano declarado).
+FATOS_CONTEXTO_ROTULO: Final[str] = "demais dados do caso: "
+
+#: Largura da coluna do marcador. `SEM DADO` (8) mais dois espacos — as tres formas ficam
+#: alinhadas e visualmente distintas, que e' o ponto todo do conserto.
+_LARGURA_MARCADOR: Final[int] = 10
+
+_MARCADOR_SIM: Final[str] = "SIM"
+_MARCADOR_NAO: Final[str] = "NAO"
+
+#: Marcador default de "nao apurado". Parametrizado porque um fluxo pode precisar de outra
+#: palavra, NUNCA para transformar ausencia em afirmacao.
+SEM_DADO_PADRAO: Final[str] = "SEM DADO"
+
+
+def _valor_do_fato(facts: Mapping[str, Any], caminho: str) -> Any:
+    """Le `caminho` em `facts`, aceitando um caminho pontilhado para um fato ANINHADO.
+
+    Aninhado existe porque o andre agrupa os fatos de adequacao de rede num sub-dicionario
+    (`facts["adequacao"]["cobertura_geo_suficiente"]`) — e um booleano aninhado sofre
+    exatamente o mesmo colapso de repr que um booleano de topo. Segmento ausente, ou um
+    intermediario que nao e' `Mapping`, devolve `None`: a leitura segura e' SEM DADO.
+    """
+    atual: Any = facts
+    for segmento in caminho.split("."):
+        if not isinstance(atual, Mapping):
+            return None
+        atual = atual.get(segmento)
+    return atual
+
+
+def _contexto_sem_os_booleanos(facts: Mapping[str, Any], caminhos: Iterable[str]) -> dict[str, Any]:
+    """`facts` sem as chaves ja' nomeadas no bloco de booleanos, aninhadas inclusive.
+
+    Deixar a chave nos dois lugares seria manter o defeito ao lado do conserto: o modelo leria
+    `NAO  prestador na rede credenciada` e, logo abaixo, `'rede_credenciada': False`.
+
+    Copia rasa por nivel — `facts` e os sub-dicionarios do chamador NUNCA sao mutados.
+    """
+    topo = {caminho for caminho in caminhos if "." not in caminho}
+    contexto: dict[str, Any] = {k: v for k, v in facts.items() if k not in topo}
+
+    for caminho in caminhos:
+        if "." not in caminho:
+            continue
+        pai, _, folha = caminho.rpartition(".")
+        alvo = _valor_do_fato(contexto, pai)
+        if not isinstance(alvo, Mapping) or folha not in alvo:
+            continue
+        podado = {k: v for k, v in alvo.items() if k != folha}
+        raiz, _, ultimo = pai.rpartition(".")
+        recipiente = contexto if not raiz else _valor_do_fato(contexto, raiz)
+        if isinstance(recipiente, dict):
+            recipiente[ultimo] = podado
+    return contexto
+
+
+def render_fatos_para_prompt(
+    facts: Mapping[str, Any],
+    *,
+    booleanos: Mapping[str, str],
+    sem_dado: str = SEM_DADO_PADRAO,
+    linhas_extra: Sequence[str] = (),
+) -> str:
+    """Serializa os fatos NOMEANDO o estado de cada booleano, em vez de despejar o dicionario.
+
+    Tres estados, tres formas visualmente distintas — e nenhuma delas carrega instrucao, porque
+    a primeira versao do conserto (25/08/2026) marcava o fato desfavoravel com
+    `[FATO DESFAVORAVEL: cite nomeando]` e o modelo COPIOU a frase em caixa alta para a
+    narrativa em 1 de 4 casos medidos. Marcacao que parece frase pronta convida a ser
+    reproduzida; token curto nao. A regra de como tratar cada estado mora no prompt.
+
+    O `is True` / `is False` e' deliberado: `1`, `"nao"` e `[]` NAO sao fatos apurados, e um
+    `bool()` os converteria em afirmacao sobre uma pessoa. Qualquer coisa que nao seja booleano
+    cai em ``sem_dado``, que e' a leitura segura.
+
+    Args:
+        facts: O dicionario de fatos do caso, LIDO e nunca mutado.
+        booleanos: Mapa `chave do fato -> rotulo em pt-BR`, especifico do fluxo do chamador. A
+            ORDEM deste mapa e' a ordem das linhas — o chamador e' dono dela. Uma chave pode ser
+            um caminho pontilhado (`"adequacao.cobertura_geo_suficiente"`) para um fato aninhado.
+        sem_dado: Marcador de "nao apurado".
+        linhas_extra: Linhas ja' formatadas, anexadas depois dos booleanos. Existe para o fato
+            que NAO e' do agente: o rafael declara o teto de aprovacao como `APURADO PELO MOTOR`
+            porque `ceilings.py` o computa DEPOIS do dossie (C-02, 27/08/2026) — dizer "sem
+            dado" sobre ele seria afirmar o que o agente nao sabe.
+
+    Returns:
+        O bloco de fatos apurados seguido do restante do caso.
+
+        O restante sai como REPR DE DICIONARIO, e essa e' uma escolha conservadora e nao um
+        descuido: e' a forma que os 10 sitios ja' emitem hoje, e trocar por JSON ordenado ou
+        por linhas `chave: valor` mudaria os bytes do prompt do rafael — que estao congelados em
+        `tests/unit/agents/test_prompt_facts_rendering.py` justamente porque bytes de prompt
+        alimentam proveniencia de auditoria (ADR-0007) e baselines de eval (mesma disciplina que
+        :data:`STABLE_SEPARATOR` documenta). O repr preserva a ordem de insercao do chamador e
+        nunca reordena por conta propria — os montadores de fatos sao literais de dicionario com
+        ordem fixa, entao a saida e' estavel entre requisicoes. O que o repr colapsa — `False`
+        contra `None` — deixa de importar aqui, porque os booleanos declarados sairam dele.
+    """
+    linhas: list[str] = []
+    for caminho, rotulo in booleanos.items():
+        valor = _valor_do_fato(facts, caminho)
+        if valor is True:
+            marcador = _MARCADOR_SIM
+        elif valor is False:
+            marcador = _MARCADOR_NAO
+        else:
+            marcador = sem_dado
+        linhas.append(f"  {marcador:<{_LARGURA_MARCADOR}}{rotulo}")
+    linhas.extend(linhas_extra)
+
+    contexto = _contexto_sem_os_booleanos(facts, booleanos)
+    corpo = "\n".join(linhas)
+    return f"{FATOS_CABECALHO}\n{corpo}\n\n{FATOS_CONTEXTO_ROTULO}{contexto}"
+
+
 __all__ = [
+    "FATOS_CABECALHO",
+    "FATOS_CONTEXTO_ROTULO",
+    "SEM_DADO_PADRAO",
     "STABLE_SEPARATOR",
     "VARIABLE_FIELD_SEPARATOR",
     "VARIABLE_LINE_SEPARATOR",
@@ -165,5 +312,6 @@ __all__ = [
     "PromptFormatError",
     "VariableLine",
     "format_cached_prompt",
+    "render_fatos_para_prompt",
     "stable_prefix_is_byte_stable",
 ]

@@ -135,12 +135,13 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
 )
@@ -570,6 +571,46 @@ def gate_inbound_state(raw: Mapping[str, Any]) -> MarinaState:
     if dropped:
         logger.warning("marina_inbound_output_fields_dropped", dropped=dropped)
     return cast(MarinaState, {k: raw[k] for k in _CALLER_INPUT_FIELDS if k in raw})
+
+
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+_FATOS_BOOLEANOS_CONTAS: Final[dict[str, str]] = {
+    "item_conforme_tabela": "item conforme a tabela",
+    "divergencia_valor": "divergencia de valor",
+    "documentacao_anexa": "documentacao anexa",
+    "indicio_fraude_sinalizado": "indicio de fraude sinalizado",
+}
+
+_FATOS_BOOLEANOS_RECURSO: Final[dict[str, str]] = {
+    "glosa_existe": "a glosa recorrida existe",
+    "dentro_prazo_recurso": "recurso dentro do prazo",
+    "documentacao_recurso_completa": "documentacao do recurso completa",
+}
+
+#: REEMBOLSO: todos pre-resolvidos pelas BusinessRuleTasks do SP-OP-REEMBOLSO-001 ANTES deste
+#: salto — a marina REPORTA. `dentro_teto_l2` incluso: aqui ele e' pass-through de fato de
+#: worker (docstring de `_reembolso_facts`), diferente do teto do rafael, que o motor computa
+#: DEPOIS do dossie e por isso nao e' fato daquele agente (C-02).
+_FATOS_BOOLEANOS_REEMBOLSO: Final[dict[str, str]] = {
+    "cobertura_prevista": "cobertura prevista no contrato",
+    "dentro_prazo": "pedido dentro do prazo",
+    "dentro_tabela": "valor dentro da tabela",
+    "dentro_teto_l2": "valor dentro do teto de alcada L2",
+}
+
+#: Fluxo -> mapa. A montagem dos fatos ja' e' despachada por fluxo em `_build_dossier`; a
+#: renderizacao segue o mesmo despacho para nao anunciar rotulo de um fluxo em outro.
+_FATOS_BOOLEANOS_POR_FLUXO: Final[dict[str, dict[str, str]]] = {
+    "contas": _FATOS_BOOLEANOS_CONTAS,
+    "recurso": _FATOS_BOOLEANOS_RECURSO,
+    "reembolso": _FATOS_BOOLEANOS_REEMBOLSO,
+}
 
 
 class MarinaGraph:
@@ -1122,7 +1163,11 @@ class MarinaGraph:
 
         motivo_humano = state.get("motivo_humano") if route == "human_review" else None
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
-        prompt = f"{prompt_text}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\nfatos={facts}"
+        booleanos = _FATOS_BOOLEANOS_POR_FLUXO.get(flow, _FATOS_BOOLEANOS_CONTAS)
+        prompt = (
+            f"{prompt_text}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\n"
+            f"{render_fatos_para_prompt(facts, booleanos=booleanos)}"
+        )
         try:
             narrativa = await self._llm.generate(
                 prompt, phi=True, agent_id="marina", tenant_id=state.get("tenant_id", "")
