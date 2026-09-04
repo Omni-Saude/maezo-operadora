@@ -821,28 +821,34 @@ class HelenaGraph:
         escalacao existe; caso contrario o texto e SUBSTITUIDO pela mensagem honesta de falha
         tecnica e o turno declara `desfecho=erro_inicio_processo`.
         """
+        # UM unico `send` e UM unico handler de falha de envio nos dois ramos — o que muda entre
+        # eles e O QUE se diz e O QUE o turno declara, nunca o mecanismo de envio.
         if state.get("start_failed") is True:
-            return await self._respond_start_failure(state)
-        text = state.get("response_text") or ""
+            saida = self._start_failure_outcome(state)
+            text = RESPOSTA_FALHA_TECNICA_START
+        else:
+            saida = {}
+            text = state.get("response_text") or ""
         try:
             await self._whatsapp.send(_to_hash_from_state(state), text)
         except Exception as exc:  # noqa: BLE001 — surfaced via `error`, never swallowed silently.
             # HEL-05 (feeder): same chain as the two above — `error` reaches `resumo_contexto`.
-            return {"error": f"whatsapp send failed: {redact_error_message(exc)}"}
-        return {}
+            # O desfecho de falha de start (quando ha um) NAO e apagado por uma falha de envio:
+            # o caso continua marcado como start falho, que e o que a operacao precisa ver.
+            return {**saida, "error": f"whatsapp send failed: {redact_error_message(exc)}"}
+        return saida
 
-    async def _respond_start_failure(self, state: HelenaState) -> dict[str, Any]:
-        """CC-01: diz a verdade ao beneficiario e ALERTA a operacao.
+    def _start_failure_outcome(self, state: HelenaState) -> dict[str, Any]:
+        """CC-01: o desfecho + o alerta do turno em que a escalacao NAO pode ser aberta.
 
-        O texto e uma CONSTANTE, nao um draft de LLM: um modelo, pedido para "explicar uma falha
-        tecnica", volta a prometer um atendente com facilidade — e a promessa e exatamente o que
-        nao pode existir aqui. Ele nao cita ninguem, nao promete humano e nao carrega PHI.
+        O texto que acompanha (`RESPOSTA_FALHA_TECNICA_START`) e uma CONSTANTE, nao um draft de
+        LLM: um modelo, pedido para "explicar uma falha tecnica", volta a prometer um atendente
+        com facilidade — e a promessa e exatamente o que nao pode existir aqui. Ele substitui o
+        handoff que `_start_escalation` ja havia redigido ANTES de tentar o start.
 
-        O desfecho e o alerta vem do helper compartilhado (uma definicao para os 9 agentes). Um
-        `whatsapp.send` que tambem falhe e registrado em `error` sem apagar o desfecho: o caso
-        continua marcado como falha de start, que e o que a operacao precisa ver.
+        O desfecho e o alerta vem do helper compartilhado (uma definicao para os 9 agentes).
         """
-        saida = emit_start_failure_notice(
+        return emit_start_failure_notice(
             dict(state),
             agent_id="helena",
             process_key=PROCESS_KEY,
@@ -852,11 +858,6 @@ class HelenaGraph:
                 "escalation_started": False,
             },
         )
-        try:
-            await self._whatsapp.send(_to_hash_from_state(state), RESPOSTA_FALHA_TECNICA_START)
-        except Exception as exc:  # noqa: BLE001 — surfaced via `error`, never swallowed silently.
-            saida["error"] = f"whatsapp send failed: {redact_error_message(exc)}"
-        return saida
 
     # -- Conditional routing ----------------------------------------------------------------
 
