@@ -64,6 +64,16 @@ INADIMPLENCIA_PROCESS_KEY = "SP-OP-INADIMPLENCIA-001"
 # PHI markers that must NEVER appear in evidence references
 _PHI_MARKERS = frozenset({"cpf", "nome", "nome_social", "endereco", "telefone", "email"})
 
+#: Class-token da UNICA lacuna que hoje impede `gather_evidence`/`assemble_dossier` de fazerem o
+#: que seus nomes prometem: a delegacao A2A `fraude.investigate` a Beatriz nao esta ligada (BEA-09).
+#: NAO e mensagem de erro nem texto livre — e um token fechado, sem PHI, declarado no contrato
+#: (docs/processes/contracts/SP-OP-FRAUDE-001.md, secao "Variaveis de saida") e por isso seguro
+#: para viver no escopo do processo, entrar na trilha ADR-0007 e ser lido pelo humano na
+#: `UT_DecisaoInvestigador`. Quando o handler A2A de Beatriz (`agents/beatriz/delegation.py` +
+#: registro em `a2a_composition`, WP SEPARADO e owner-gated) for ligado, o token deixa de ser
+#: emitido pelas duas funcoes — nao ha um segundo valor a acrescentar aqui.
+GAP_BEATRIZ_A2A_NAO_LIGADO = "beatriz_a2a_nao_ligado"
+
 
 # ---------------------------------------------------------------
 # intake — neutral start (register case, no adverse effect)
@@ -98,30 +108,69 @@ def intake(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 def gather_evidence(variables: dict[str, Any]) -> dict[str, Any]:
-    """Collect/normalize evidence via Beatriz (fraude.investigate).
+    """NORMALIZA `evidencia_refs` e declara a lacuna. NAO coleta evidencia de lugar nenhum.
 
-    Beatriz is human-gated delegate; she instructs, NEVER decides.
-    All evidence as pseudonymized pointers — NEVER raw PHI (ADR-0006).
-    TASY write DROP (ADR-0013).
+    Serve `ST_GatherEvidence` (topico `operadora.fraude.gather_evidence`,
+    SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn). O contrato e o BPMN descrevem esta task como
+    "convoca Beatriz (delegacao A2A `fraude.investigate`, human-gated): coleta/normaliza evidencia
+    (CDC/TISS/feature store)". Desta funcao sai a NORMALIZACAO e nada mais: nenhuma chamada A2A,
+    nenhuma consulta a CDC/TISS/feature store, nenhum canal contatado. As `evidencia_refs` que ela
+    devolve sao as que ja chegaram no start (handoff `encaminhar_fraude` de Phase 2) ou pela
+    mensagem `msg.fraude.evidencia_anexada` — coercidas a lista quando vem com tipo errado, que e
+    o unico efeito real desta funcao hoje.
+
+    BEA-09 (o motivo desta docstring). O retorno era
+    `{"evidencia_refs": <o que ja veio>, "evidencia_coletada_em": "now"}`: um instante de coleta
+    constante, afirmado por uma funcao cujo proprio corpo carregava o comentario "Placeholder:
+    real implementation calls Beatriz via A2A". A harness grava o retorno no escopo do processo no
+    `complete` (`harness.py:1779-1783`), entao a constante entrava na instancia como trilha de
+    auditoria de uma coleta que nunca ocorreu — a jusante de um processo cuja proxima parada e a
+    selagem de custodia e a User Task L0-hard `UT_DecisaoInvestigador`. Mesma especie da familia
+    FAB-* (`notify_sla_risk`, logo abaixo neste modulo, e os dez handlers de
+    FAB-SLA-RISK-NOTIFIED-SLICE4).
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar, `grep -rn evidencia_coletada_em spec/ src/
+    tests/ docs/`): `evidencia_coletada_em` nao aparece em `conditionExpression` de BPMN,
+    `inputExpression` de DMN, worker a jusante, golden de eval ou linha de contrato — so na
+    atribuicao que o criava. Removido, portanto, sem caminho a religar.
+
+    A LACUNA NAO E SILENCIOSA. Em lugar da afirmacao falsa sai `evidencia_gap`
+    (`GAP_BEATRIZ_A2A_NAO_LIGADO`), token fechado e sem PHI, DECLARADO no contrato
+    (SP-OP-FRAUDE-001.md, "Variaveis de saida"): quem ler a instancia — incluindo o investigador
+    humano na UT, que decide um L0-hard — ve que nao houve coleta, em vez de ver um carimbo de
+    coleta. Espelha a perna de VISIBILIDADE do M-1 de `adequacao.measure_gap` ("FABRICATION IS NO
+    LONGER SILENT"), com a diferenca de que aqui a lacuna e uma variavel DECLARADA e nao so um log,
+    porque o consumidor que precisa ve-la e um humano dentro do processo.
+
+    Ligar a delegacao A2A e WP SEPARADO (handler em `agents/beatriz/delegation.py` + registro em
+    `a2a_composition` — registro e owner-decision, `FERNANDO-DELEGATION-CALL-SITE`). Ate la o token
+    e o estado honesto, nao um placeholder.
+
+    Zona PHI/ADR-0006 inalterada: so ponteiros pseudonimizados; a varredura final continua em
+    `seal_custody_bundle` (`ERR_PHI_IN_CUSTODY`). TASY write DROP (ADR-0013) — nada e escrito.
     """
     numero_caso = variables.get("numero_caso", "")
     entidade_tipo = variables.get("entidade_tipo", "")
 
-    # Placeholder: real implementation calls Beatriz via A2A
     evidencia_refs = variables.get("evidencia_refs", [])
     if not isinstance(evidencia_refs, list):
         evidencia_refs = []
 
-    logger.info(
-        "fraude_gather_evidence",
+    # `warning`, nao `info` (precedente `adequacao_medidas_fabricadas`): uma etapa de coleta que
+    # nao coleta e defeito operacional, nao progresso de rotina. `coleta_asserted=False` diz no
+    # log a mesma coisa que o retorno diz no escopo do processo.
+    logger.warning(
+        "fraude_evidencia_nao_coletada",
         numero_caso=numero_caso,
         entidade_tipo=entidade_tipo,
         evidencia_count=len(evidencia_refs),
+        coleta_asserted=False,
+        gap=GAP_BEATRIZ_A2A_NAO_LIGADO,
     )
 
     return {
         "evidencia_refs": evidencia_refs,
-        "evidencia_coletada_em": "now",
+        "evidencia_gap": GAP_BEATRIZ_A2A_NAO_LIGADO,
     }
 
 
@@ -412,27 +461,76 @@ def score_indicators(variables: dict[str, Any], *, dmn: DmnTransport | None = No
 
 
 def assemble_dossier(variables: dict[str, Any]) -> dict[str, Any]:
-    """Assemble the investigation dossier (Beatriz A2A).
+    """NAO monta dossie. Declara a lacuna e retorna SO isso — `{"dossie_gap": <token>}`.
 
-    Beatriz instructs, NEVER decides. Dossier includes: narrative,
-    evidence refs, indicators, feature snapshot ref.
+    Serve `ST_AssembleDossier` (topico `operadora.fraude.assemble_dossier`,
+    SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn), tambem alvo do loop de re-selagem
+    (`BME_EvidenciaAnexada` -> re-montar -> re-selar). O contrato descreve a task como "Beatriz
+    monta o dossie de investigacao (narrativa/montagem a partir de `evidencia_refs` +
+    `indicadores_presentes`); instrui, NAO decide". Nada disso acontece aqui: nao ha chamada A2A,
+    nao ha narrativa, nao ha artefato de dossie — nem em memoria, nem persistido.
+
+    BEA-09 (o motivo desta docstring). O retorno era, em toda entrega e sem calcular nada,
+    `{"dossie_montado": True, "dossie_items": len(evidencia_refs)}`. As DUAS chaves eram falsas:
+    `dossie_montado` afirmava uma montagem que nunca ocorreu, e `dossie_items` contava as
+    `evidencia_refs` que ja estavam no escopo como se fossem itens de um dossie que nao existe. A
+    harness grava o retorno no escopo do processo no `complete` (`harness.py:1779-1783`), e a
+    proxima parada do token e `seal_custody_bundle` seguido da User Task L0-hard
+    `UT_DecisaoInvestigador`: o investigador humano decidia sobre uma instancia que AFIRMAVA ter um
+    dossie montado. A fence estatica
+    (`tests/unit/tools/workers/test_worker_handler_purity.py::_FABRICATED_FACT_KEYS`) passa a
+    carregar `dossie_montado` para manter isso fixo.
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar, `grep -rn 'dossie_montado\\|dossie_items'
+    spec/ src/ tests/ docs/`): nenhuma `conditionExpression` de BPMN, nenhuma `inputExpression` de
+    DMN, nenhum worker a jusante (`seal_custody_bundle` le `evidencia_refs`, nunca estas duas),
+    nenhum golden de eval e nenhuma linha de contrato as le — so a atribuicao que as criava e a
+    asserção do proprio teste unitario. Removidas, portanto, sem caminho a religar. Nao ha eco:
+    `evidencia_refs`/`indicadores_presentes` ja estao no escopo e reescreve-las seria ruido de
+    auditoria (precedente `notify_sla_risk`, neste modulo).
+
+    O QUE ENTRA NO LUGAR, e por que nao e `{}`. `notify_sla_risk` pode retornar `{}` porque e
+    informativa e nao-adversa: sua ausencia nao muda decisao alguma. Aqui a ausencia do dossie e
+    justamente o que o decisor humano do L0-hard precisa saber, entao a lacuna sai como variavel
+    DECLARADA — `dossie_gap` = `GAP_BEATRIZ_A2A_NAO_LIGADO`, token fechado, sem PHI, declarado em
+    SP-OP-FRAUDE-001.md ("Variaveis de saida") ANTES deste codigo (spec-first). Nada silencioso:
+    a instancia diz "nao ha dossie montado, e este e o motivo", em vez de dizer "ha dossie".
+
+    O QUE ESTA FUNCAO DELIBERADAMENTE NAO FAZ. Nao monta um "dossie parcial" deterministico a
+    partir de `evidencia_refs` + `indicadores_presentes` para poder afirmar `dossie_montado=True`
+    honestamente: a narrativa/montagem que o contrato define e o ato de Beatriz, e um indice
+    montado localmente seria de novo uma coisa que "parece funcionar" — trocaria uma constante
+    falsa por um artefato fora de contrato com a mesma lacuna escondida dentro. Ligar a delegacao
+    A2A e WP SEPARADO (handler em `agents/beatriz/delegation.py` + registro em `a2a_composition`;
+    o registro e owner-decision, `FERNANDO-DELEGATION-CALL-SITE`).
+
+    PONTO DE FALHA-FECHADA NAO MOVIDO, e isso e declarado, nao esquecido. O caminho adverso
+    continua guardado onde ja estava — `register_fraud_accusation` (decisao humana + `bundle_root`
+    selado e re-verificado). Fazer esse guard recusar tambem sobre `dossie_gap` DESLIGARIA por
+    inteiro o unico caminho adverso do processo enquanto Beatriz nao for ligada; e uma decisao de
+    dono, nao de quem honestifica o worker, e esta registrada como recomendacao no relatorio de
+    BEA-09 em vez de tomada aqui.
     """
     evidencia_refs = variables.get("evidencia_refs", [])
     if not isinstance(evidencia_refs, list):
         evidencia_refs = []
     indicadores = variables.get("indicadores_presentes", [])
+    if not isinstance(indicadores, list):
+        indicadores = []
 
-    logger.info(
-        "fraude_assemble_dossier",
+    # `warning` pela mesma razao de `gather_evidence`: uma etapa de montagem que nao monta e
+    # defeito operacional. Os dois contadores sao do que a funcao RECEBEU (fato verdadeiro),
+    # nunca do que teria montado; `dossie_asserted=False` fecha a leitura.
+    logger.warning(
+        "fraude_dossie_nao_montado",
         numero_caso=variables.get("numero_caso"),
-        evidencia_count=len(evidencia_refs),
-        indicadores_count=len(indicadores),
+        evidencia_recebida_count=len(evidencia_refs),
+        indicadores_recebidos_count=len(indicadores),
+        dossie_asserted=False,
+        gap=GAP_BEATRIZ_A2A_NAO_LIGADO,
     )
 
-    return {
-        "dossie_montado": True,
-        "dossie_items": len(evidencia_refs),
-    }
+    return {"dossie_gap": GAP_BEATRIZ_A2A_NAO_LIGADO}
 
 
 # ---------------------------------------------------------------
