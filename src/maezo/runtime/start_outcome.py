@@ -141,6 +141,8 @@ def notify_start_failure(
     agent_id: str,
     process_key: str,
     extra: dict[str, Any] | None = None,
+    route: str | None = None,
+    motivo_categoria: str | None = None,
 ) -> dict[str, Any]:
     """Grava o desfecho de erro e ALERTA — o corpo do no `notify_start_failure` de todo grafo.
 
@@ -160,8 +162,17 @@ def notify_start_failure(
     4. CC-09: emite UM `maezo_agent_desfecho_total{agent_id,desfecho="erro_inicio_processo",...}`
        via `turn_telemetry.emit_turn_desfecho` — o UNICO site de emissao do desfecho de falha de
        start para os 9 agentes que chamam este helper (todos exceto Beatriz, que nunca abre
-       processo). `route`/`motivo_categoria` sao lidos do `state` de ENTRADA (o que
-       `assess`/`human_review`/`escalate` ja gravaram antes de `start_process` tentar e falhar);
+       processo). Por padrao `route`/`motivo_categoria` sao lidos do `state` de ENTRADA (o que
+       `assess`/`human_review`/`escalate` ja gravaram antes de `start_process` tentar e falhar) —
+       CORRETO para os 8 agentes cujo estado usa a chave `route` (o valor de roteamento
+       pre-falha sobrevive no label). `route=`/`motivo_categoria=` (F1, VERIFY-CC09) sao
+       overrides OPCIONAIS e GENERICOS, so' repassados a `emit_turn_desfecho` quando nao-`None`
+       — este modulo permanece agnostico de agente, nao le nenhum campo especifico de Helena.
+       Existem para o unico agente cujo estado NAO tem `route` (Helena usa `response_kind`): o
+       call site especifico de Helena (`helena/graph.py::_start_failure_outcome`) passa
+       `route=RESPONSE_KIND_FALHA_TECNICA_START`, o literal que `_ROUTE_VOCAB["helena"]` ja
+       declara para este caso — sem o override o `state.get("route")` generico devolve `None` e
+       o label fica vazio, apesar do vocabulario ja aceitar o valor certo.
        `enviada` prefere o que `extra` acabou de sobrescrever (ex.: Lucas/Fernando zeram
        `mensagem_enviada` no proprio `extra`) e cai para o `state` quando `extra` nao o toca.
 
@@ -188,10 +199,16 @@ def notify_start_failure(
     }
     if extra:
         outcome.update(extra)
+    overrides: dict[str, Any] = {}
+    if route is not None:
+        overrides["route"] = route
+    if motivo_categoria is not None:
+        overrides["motivo_categoria"] = motivo_categoria
     emit_turn_desfecho(
         state,
         agent_id=agent_id,
         desfecho=DESFECHO_ERRO_INICIO_PROCESSO,
         enviada=outcome.get("mensagem_enviada", state.get("mensagem_enviada")),
+        **overrides,
     )
     return outcome

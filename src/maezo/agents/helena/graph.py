@@ -869,11 +869,17 @@ class HelenaGraph:
         handoff que `_start_escalation` ja havia redigido ANTES de tentar o start.
 
         O desfecho e o alerta vem do helper compartilhado (uma definicao para os 9 agentes).
+
+        F1 (VERIFY-CC09): `HelenaState` nao tem chave `route` (usa `response_kind`), entao o
+        `state.get("route")` generico do helper devolveria `None` — passamos
+        `route=RESPONSE_KIND_FALHA_TECNICA_START` explicitamente, o literal que
+        `_ROUTE_VOCAB["helena"]` ja declara para este caso.
         """
         return emit_start_failure_notice(
             dict(state),
             agent_id="helena",
             process_key=PROCESS_KEY,
+            route=RESPONSE_KIND_FALHA_TECNICA_START,
             extra={
                 "response_text": RESPOSTA_FALHA_TECNICA_START,
                 "response_kind": RESPONSE_KIND_FALHA_TECNICA_START,
