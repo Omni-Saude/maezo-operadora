@@ -491,20 +491,27 @@ def test_proactive_contact_guard_error_is_not_workerbpmnerror_subclass() -> None
 # ---------------------------------------------------------------
 
 
-def test_notify_sla_risk_happy_path() -> None:
-    result = notify_sla_risk(
-        {
-            "beneficiario_pseudo_id": "b-001",
-            "programa_id": "cronicos",
-        }
-    )
-    assert result["sla_risk_notified"] is True
+def test_notify_sla_risk_nao_afirma_notificacao() -> None:
+    """FAB-SLA-RISK-NOTIFIED-SLICE4: a funcao pura retorna `{}` — NAO afirma nada.
+
+    `sla_risk_notified` era a UNICA chave que esta funcao escrevia no escopo do processo. O
+    `== {}` e' deliberado: so a igualdade exata pega uma fabricacao remontada chave-a-chave num
+    local, que a cerca AST documenta nao alcancar.
+    """
+    assert notify_sla_risk({"beneficiario_pseudo_id": "b-001", "programa_id": "cronicos"}) == {}
 
 
-def test_notify_sla_risk_missing_input_defaults_safe() -> None:
-    """Informational-only alert — a blank input still completes, no exception."""
-    result = notify_sla_risk({})
-    assert result["sla_risk_notified"] is True
+@pytest.mark.parametrize(
+    "variables",
+    [
+        {},
+        {"programa_id": "cronicos"},
+        {"beneficiario_pseudo_id": "b-001", "decisao_clinica": "ENCERRAR"},
+    ],
+)
+def test_notify_sla_risk_nenhuma_entrada_produz_afirmacao(variables: dict) -> None:
+    """Alerta informativo: entrada em branco completa sem excecao e nada e' afirmado."""
+    assert notify_sla_risk(variables) == {}
 
 
 # ---------------------------------------------------------------
@@ -660,7 +667,10 @@ async def test_make_notify_sla_risk_handler_publishes_notification() -> None:
         },
     )
     result = await handler(task)
-    assert result["sla_risk_notified"] is True
+    # FAB-SLA-RISK-NOTIFIED-SLICE4: mesmo COM publish, o retorno nao afirma notificacao — o
+    # registro interno e' um PEDIDO de alerta, nunca a prova de que a equipe foi avisada.
+    # O publish em si (topico, payload, chave, best_effort) segue pinado byte-a-byte abaixo.
+    assert result == {}
     assert len(kafka.published) == 1
     topic, payload, key = kafka.published[0]
     assert topic == "operadora.notifications.internal"
@@ -673,9 +683,12 @@ async def test_make_notify_sla_risk_handler_publishes_notification() -> None:
 
 
 async def test_make_notify_sla_risk_handler_no_producer_still_completes() -> None:
+    """FAB-SLA-RISK-NOTIFIED-SLICE4 — era exatamente AQUI que a fabricacao doia: o wrapper
+    devolvia `{"sla_risk_notified": True}` no caminho SEM produtor, afirmando a notificacao
+    justamente quando nada tinha sido publicado. Agora `{}`, e a task segue completando."""
     handler = make_notify_sla_risk_handler(None)
     result = await handler(_task(variables={"beneficiario_pseudo_id": "b-001"}))
-    assert result["sla_risk_notified"] is True
+    assert result == {}
 
 
 # ---------------------------------------------------------------

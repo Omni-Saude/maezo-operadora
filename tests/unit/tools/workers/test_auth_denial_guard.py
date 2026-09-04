@@ -1787,8 +1787,16 @@ def test_notify_sla_risk_topic() -> None:
     assert worker.topic == "operadora.auth.notify_sla_risk"
 
 
-def test_notify_sla_risk_alerts_coordinator() -> None:
-    """notify_sla_risk alerts coordination when SLA approaches breach."""
+def test_notify_sla_risk_nao_afirma_notificacao_nem_evento() -> None:
+    """FAB-SLA-RISK-NOTIFIED-SLICE4: retorna `{}` — nao afirma status NEM topico de evento.
+
+    Este worker e' SINCRONO e nao tem seam de Kafka nenhum (`WorkerBase.execute`), logo nunca
+    poderia ter publicado. Ainda assim devolvia `status="risk_notified"` E
+    `event="agents.events.auth.sla_breached"` — e esse evento e' publicado por
+    `ST_PublishSlaBreach`, no ramo do boundary INTERRUPTIVO `BT_SlaAnalise`, que este alerta
+    NAO-interruptivo jamais alcanca. O `== {}` e' deliberado: so a igualdade exata pega uma
+    fabricacao remontada chave-a-chave num local.
+    """
     worker = NotifySlaRiskWorker()
 
     result = worker.run(
@@ -1799,8 +1807,23 @@ def test_notify_sla_risk_alerts_coordinator() -> None:
         }
     )
 
-    assert result["status"] == "risk_notified"
-    assert result["alert_to"] == "coordenacao-auditoria-medica"
+    assert result == {}
+
+
+@pytest.mark.parametrize(
+    "process_vars",
+    [
+        {},
+        {"tenant_id": "amh"},
+        {"tenant_id": "amh", "sla_percent": 95, "sla_analise": "PT2H", "decisao_auditor": "NEGAR"},
+    ],
+)
+def test_notify_sla_risk_nenhuma_entrada_produz_afirmacao(process_vars: dict) -> None:
+    """Nenhuma entrada — nem uma que ja carregue a decisao adversa — faz esta etapa afirmar nada.
+    O topico segue `operadora.auth.notify_sla_risk` (BPMN inalterado)."""
+    worker = NotifySlaRiskWorker()
+    assert worker.topic == "operadora.auth.notify_sla_risk"
+    assert worker.run(process_vars) == {}
 
 
 # ---------------------------------------------------------------------------

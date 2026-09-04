@@ -1539,13 +1539,41 @@ class NotifySlaRiskWorker(WorkerBase):
         super().__init__(topic="operadora.auth.notify_sla_risk")
 
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
-        """Notify coordinator about SLA risk.
+        """Registra que a ETAPA de alerta de risco de SLA rodou. Retorna `{}` — NAO afirma nada.
+
+        Serve `ST_NotificarRiscoSla` (`SP-OP-AUTH-001_Autorizacao_Previa.bpmn:344-348`, topico
+        `operadora.auth.notify_sla_risk`), alimentado SO pelo boundary NAO-interruptivo
+        `BT_AlertaSla` (`cancelActivity="false"`, `:338-343`) em `UT_AnaliseMedicoAuditor`, em
+        `${sla.sla_alerta}`. O ramo termina em `End_RiscoSlaNotificado` — informativo e jamais
+        adverso: a User Task segue aberta e a negativa so nasce da decisao humana.
+
+        FAB-SLA-RISK-NOTIFIED-SLICE4 (o motivo desta docstring). O retorno era, em toda entrega e
+        sem calcular nada::
+
+            {"status": "risk_notified", "alert_to": "coordenacao-auditoria-medica",
+             "sla_percent": ..., "sla_analise": ...,
+             "event": "agents.events.auth.sla_breached"}
+
+        Este worker e SINCRONO e NAO TEM seam de Kafka nenhum (`WorkerBase.execute`) — ele nao
+        podia ter publicado nada. Ainda assim afirmava DUAS coisas: um `status` de notificacao e
+        um TOPICO DE EVENTO, como se tivesse emitido. Pior: `agents.events.auth.sla_breached` e
+        publicado por `ST_PublishSlaBreach` (`:360-364`), que fica no ramo do boundary
+        INTERRUPTIVO `BT_SlaAnalise` — outro ramo, que este alerta nunca alcanca. O nome do evento
+        estava errado alem de nao ter sido emitido.
+
+        ZERO CONSUMIDORES (mapa refeito antes de editar): a BPMN do AUTH nao tem nenhum
+        `conditionExpression` sobre `status`, nenhuma DMN de auth le `status`/`alert_to`/
+        `sla_percent`, e `ST_NotificarRiscoSla` nao declara `camunda:inputOutput` — logo o dict
+        inteiro ia para o escopo do processo, com `status` num nome generico e sem dono, e
+        `sla_analise` FLAT (o timer usa o aninhado `${sla.sla_analise}`, nunca este). A
+        observabilidade da etapa fica no `logger.warning` abaixo, que declara
+        `notified_asserted=False`.
 
         Args:
-            process_vars: Must include sla_percent and sla_analise.
+            process_vars: le `tenant_id`, `sla_percent` e `sla_analise` apenas para a trilha.
 
         Returns:
-            Dict with notification status.
+            `{}` — nenhuma variavel de processo e escrita por esta etapa.
         """
         tenant_id = process_vars.get("tenant_id", "")
         sla_percent = process_vars.get("sla_percent", 0)
@@ -1556,15 +1584,10 @@ class NotifySlaRiskWorker(WorkerBase):
             tenant_id=tenant_id,
             sla_percent=sla_percent,
             sla_analise=sla_analise,
+            notified_asserted=False,
         )
 
-        return {
-            "status": "risk_notified",
-            "alert_to": "coordenacao-auditoria-medica",
-            "sla_percent": sla_percent,
-            "sla_analise": sla_analise,
-            "event": "agents.events.auth.sla_breached",
-        }
+        return {}
 
 
 # ---------------------------------------------------------------------------

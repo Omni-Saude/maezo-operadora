@@ -484,11 +484,29 @@ def prepare_dossier(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
-    """Alert coordenacao-cobranca of SLA risk (non-interruptive timer BT_AlertaSla).
+    """Registra que a ETAPA de alerta de risco de SLA rodou. Retorna `{}` — NAO afirma nada.
 
-    Informational only (mirrors `cancel.notify_sla_risk`): UT_AnaliseInadimplencia stays open, no
-    decision is made or altered, NO adverse outcome is produced by timeout. Fires at ~60-70% of the
-    analysis SLA (internal policy, DRAFT; `inadimplencia_sla` DMN resolves the actual duration).
+    Serve o topico `operadora.inadimplencia.notify_sla_risk`, alimentado SO pelo boundary
+    NAO-interruptivo `BT_AlertaSla` em `UT_AnaliseInadimplencia`. Informativa e jamais adversa: a
+    User Task segue aberta, nenhuma decisao e tomada ou alterada e NENHUM desfecho adverso nasce
+    do timeout. Dispara em ~60-70% do SLA de analise (politica interna, DRAFT; DMN
+    `inadimplencia_sla` resolve a duracao real).
+
+    FAB-SLA-RISK-NOTIFIED-SLICE4 (o motivo desta docstring). O retorno era, em toda entrega e sem
+    calcular nada, `{"sla_risk_notified": True, ...}`. NENHUM canal e contatado por esta funcao —
+    a `coordenacao-cobranca` pode nunca ter sido avisada — e a harness grava o retorno no escopo
+    do processo no
+    `complete` (`harness.py:1779-1783`), entao a constante entrava na instancia como trilha de
+    auditoria. Mesma especie de `contas.notify_sla_risk` (FAB-NOTIFIED-TRIO), sob outra chave.
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar): nem `sla_risk_notified` nem `grupo_alertado`
+    aparecem em `conditionExpression` de BPMN, `inputExpression` de DMN, worker a jusante ou linha
+    de contrato — `grupo_alertado` so existe nesta funcao e no seu teste. As demais chaves eram
+    eco do proprio input, ja no escopo. A observabilidade da etapa fica no `logger` abaixo, que
+    declara explicitamente `notified_asserted=False`.
+
+    ATENCAO — nao confundir com `notificacao_previa_feita` (GAP-INAD-8, ja corrigido): AQUELE fato
+    tinha DOIS consumidores DMN reais; este nao tem nenhum.
     """
     numero_contrato = variables.get("numero_contrato", "")
 
@@ -496,13 +514,10 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
         "inadimplencia_notify_sla_risk",
         numero_contrato=numero_contrato,
         grupo_alertado="coordenacao-cobranca",
+        notified_asserted=False,
     )
 
-    return {
-        "sla_risk_notified": True,
-        "grupo_alertado": "coordenacao-cobranca",
-        "numero_contrato": numero_contrato,
-    }
+    return {}
 
 
 # ---------------------------------------------------------------

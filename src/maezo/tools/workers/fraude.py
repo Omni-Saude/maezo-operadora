@@ -644,18 +644,28 @@ def register_fraud_accusation(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
-    """Alert coordenacao-investigacao of SLA risk (non-interruptive timer BT_AlertaSlaFraude).
+    """Registra que a ETAPA de alerta de risco de SLA rodou. Retorna `{}` — NAO afirma nada.
 
-    External task: `operadora.fraude.notify_sla_risk` (`ST_NotifySlaRisk`,
-    SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn:247-251). Fires at `${sla.sla_alerta}`
-    (50-70% of `${sla.sla_alerta}` per the contract, DRAFT/verify) on the
-    non-interruptive boundary event attached to UT_DecisaoInvestigador.
+    Serve `ST_NotifySlaRisk` (topico `operadora.fraude.notify_sla_risk`,
+    SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn:247-251), alimentado SO pelo boundary
+    NAO-interruptivo `BT_AlertaSlaFraude` (`cancelActivity="false"`) em
+    `UT_DecisaoInvestigador`, em `${sla.sla_alerta}` (contrato DRAFT/verify). Informativa e jamais
+    adversa: a User Task segue aberta e NENHUM desfecho adverso (acusacao ou outro) nasce deste
+    alerta — so a decisao humana em `UT_DecisaoInvestigador` acusa
+    (`register_fraud_accusation`, guard inalterado).
 
-    Informational only (mirrors `inadimplencia.notify_sla_risk`/`cancel.notify_sla_risk`):
-    UT_DecisaoInvestigador stays open (cancelActivity="false"), no decision is made or
-    altered, NO adverse outcome (accusation or otherwise) is ever produced by this alert.
-    Score alto/SLA risk NEVER accuses -- only UT_DecisaoInvestigador's human decision does
-    (register_fraud_accusation's own guard, unchanged).
+    FAB-SLA-RISK-NOTIFIED-SLICE4 (o motivo desta docstring). O retorno era, em toda entrega e sem
+    calcular nada, `{"sla_risk_notified": True, ...}`. NENHUM canal e contatado por esta funcao —
+    a `coordenacao-investigacao` pode nunca ter sido avisada — e a harness grava o retorno no escopo
+    do processo no
+    `complete` (`harness.py:1779-1783`), entao a constante entrava na instancia como trilha de
+    auditoria. Mesma especie de `contas.notify_sla_risk` (FAB-NOTIFIED-TRIO), sob outra chave.
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar): nem `sla_risk_notified` nem `grupo_alertado`
+    aparecem em `conditionExpression` de BPMN, `inputExpression` de DMN, worker a jusante ou linha
+    de contrato — `grupo_alertado` so existe nesta funcao e no seu teste. As demais chaves eram
+    eco do proprio input, ja no escopo. A observabilidade da etapa fica no `logger` abaixo, que
+    declara explicitamente `notified_asserted=False`.
     """
     numero_caso = variables.get("numero_caso", "")
 
@@ -663,13 +673,10 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
         "fraude_notify_sla_risk",
         numero_caso=numero_caso,
         grupo_alertado="coordenacao-investigacao",
+        notified_asserted=False,
     )
 
-    return {
-        "sla_risk_notified": True,
-        "grupo_alertado": "coordenacao-investigacao",
-        "numero_caso": numero_caso,
-    }
+    return {}
 
 
 # ---------------------------------------------------------------

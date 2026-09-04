@@ -147,7 +147,7 @@ Uma instancia por guia TISS; reenvio retorna a instancia ativa.
 | External task | `operadora.auth.request_documents` | consome | pendencia ao prestador |
 | External task | `operadora.auth.issue_authorization` | consome | emite autorizacao (TISS) |
 | External task | `operadora.auth.send_denial_notice` | consome | negativa formal por escrito (em nome do auditor) |
-| External task | `operadora.auth.notify_sla_risk` | consome | alerta coordenacao (timer nao-interruptivo) |
+| External task | `operadora.auth.notify_sla_risk` | consome (worker) | worker `NotifySlaRiskWorker`: registra que a ETAPA de alerta de risco de SLA a `coordenacao-auditoria-medica` rodou (timer nao-interruptivo `BT_AlertaSla`) e retorna `{}` — **NAO afirma `status=risk_notified` NEM o evento `agents.events.auth.sla_breached`** e nao contata canal algum (worker sincrono, sem seam de Kafka). Aquele evento e publicado por `ST_PublishSlaBreach`, no ramo do boundary INTERRUPTIVO `BT_SlaAnalise` — outro ramo (FAB-SLA-RISK-NOTIFIED-SLICE4). Informativo e nunca adverso: `UT_AnaliseMedicoAuditor` segue aberta |
 | External task | `operadora.auth.convene_junta` | consome | convoca junta medica (RN 424 — DRAFT) |
 | Message BPMN | `msg.auth.docs_received` | recebe | correlacao por business key, destrava pendencia |
 

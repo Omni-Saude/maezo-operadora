@@ -876,19 +876,28 @@ def test_publish_completed_entry_round_trips_publish_completed() -> None:
 # ----- notify_sla_risk (BT_AlertaSlaRecurso -> ST_NotificarRiscoSla) --------------------------
 
 
-def test_notify_sla_risk_happy_path() -> None:
-    """Informational only — no decision made/altered."""
+def test_notify_sla_risk_nao_afirma_notificacao() -> None:
+    """FAB-SLA-RISK-NOTIFIED-SLICE4: a funcao pura retorna `{}` — NAO afirma nada.
+
+    Ela nunca publicou: quem publica e' `make_notify_sla_risk_handler`. O `== {}` e' deliberado
+    (nao `"sla_risk_notified" not in result`): so a igualdade exata pega uma fabricacao remontada
+    chave-a-chave num local, que a cerca AST documenta nao alcancar.
+    """
     inp = NotifySlaRiskInput(tenant_id="amh", numero_guia_tiss="G-1", glosa_id="GLOSA-1")
-    result = notify_sla_risk(inp)
-    assert result["sla_risk_notified"] is True
-    assert result["glosa_id"] == "GLOSA-1"
+    assert notify_sla_risk(inp) == {}
 
 
-def test_notify_sla_risk_missing_input_defaults_safe() -> None:
-    """A blank input still completes (informational-only, non-adverse) — no exception."""
-    result = notify_sla_risk(NotifySlaRiskInput())
-    assert result["sla_risk_notified"] is True
-    assert result["glosa_id"] == ""
+@pytest.mark.parametrize(
+    "inp",
+    [
+        NotifySlaRiskInput(),
+        NotifySlaRiskInput(glosa_id="GLOSA-1"),
+        NotifySlaRiskInput(tenant_id="amh", glosa_id="GLOSA-1", glosa_type="administrativa"),
+    ],
+)
+def test_notify_sla_risk_nenhuma_entrada_produz_afirmacao(inp: NotifySlaRiskInput) -> None:
+    """Entrada em branco tambem completa (informacional, nao adversa) e nada afirma."""
+    assert notify_sla_risk(inp) == {}
 
 
 async def test_make_notify_sla_risk_handler_publishes_notification() -> None:
@@ -904,7 +913,10 @@ async def test_make_notify_sla_risk_handler_publishes_notification() -> None:
         },
     )
     result = await handler(task)
-    assert result["sla_risk_notified"] is True
+    # FAB-SLA-RISK-NOTIFIED-SLICE4: mesmo COM publish, o retorno nao afirma notificacao — o
+    # registro interno e' um PEDIDO de alerta, nunca a prova de que a coordenacao foi avisada.
+    # O publish em si (topico, payload, chave, best_effort) segue pinado byte-a-byte abaixo.
+    assert result == {}
     assert len(kafka.published) == 1
     topic, payload, key = kafka.published[0]
     assert topic == "operadora.notifications.internal"
@@ -950,11 +962,16 @@ async def test_make_notify_sla_risk_handler_publish_failure_propagates_raw() -> 
 
 
 async def test_make_notify_sla_risk_handler_fail_closed_default_no_producer() -> None:
-    """kafka=None: completes anyway (informational-only task must not block the timer path),
-    never fabricates a publish."""
+    """kafka=None: completa mesmo assim (task informativa nao pode travar o ramo do timer) e NAO
+    fabrica publish nenhum.
+
+    FAB-SLA-RISK-NOTIFIED-SLICE4 — era exatamente AQUI que a fabricacao doia: o wrapper devolvia
+    `{"sla_risk_notified": True, ...}` no caminho SEM produtor, isto e', afirmava a notificacao
+    justamente quando nada tinha sido publicado. Agora `{}`.
+    """
     handler = make_notify_sla_risk_handler(None)
     result = await handler(_task(variables={"glosa_id": "GLOSA-1"}))
-    assert result["sla_risk_notified"] is True
+    assert result == {}
 
 
 # ----- escalate_ans_timeout (BT_PrazoMax* -> ST_EscalateAnsTimeout) ---------------------------

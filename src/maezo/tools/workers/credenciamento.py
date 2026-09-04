@@ -345,14 +345,25 @@ def notify_doc_pendente(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
-    """Alert coordenacao-rede of SLA risk (non-interruptive timer, both directions).
+    """Registra que a ETAPA de alerta de risco de SLA rodou. Retorna `{}` — NAO afirma nada.
 
-    Mirrors the proven `cancel.notify_sla_risk` / `inadimplencia.notify_sla_risk` /
-    `auth.NotifySlaRiskWorker` idiom: informational only — the User Task
-    (`UT_AnaliseDescredenciamento`/`UT_AnaliseCredenciamento`) stays open, no decision is made or
-    altered, no adverse outcome is produced by the alert. Fires at `sla.sla_alerta` (~50-70% of
-    `sla.sla_analise` — DMN `cred_sla`); shared by BOTH `BT_AlertaSlaDescred` and
-    `BT_AlertaSlaCred` (BPMN `ST_NotifySlaRisk`, fed by both non-interruptive boundary timers).
+    Serve `ST_NotifySlaRisk` (topico `operadora.cred.notify_sla_risk`), compartilhado pelos DOIS
+    boundaries NAO-interruptivos `BT_AlertaSlaDescred` e `BT_AlertaSlaCred`. Informativa e jamais
+    adversa: a User Task (`UT_AnaliseDescredenciamento`/`UT_AnaliseCredenciamento`) segue aberta,
+    nenhuma decisao e tomada ou alterada. Dispara em `sla.sla_alerta` (~50-70% de
+    `sla.sla_analise` — DMN `cred_sla`).
+
+    FAB-SLA-RISK-NOTIFIED-SLICE4 (o motivo desta docstring). O retorno era, em toda entrega e sem
+    calcular nada, `{"sla_risk_notified": True, ...}`. NENHUM canal e contatado por esta funcao —
+    a `coordenacao-rede` pode nunca ter sido avisada — e a harness grava o retorno no escopo do processo no
+    `complete` (`harness.py:1779-1783`), entao a constante entrava na instancia como trilha de
+    auditoria. Mesma especie de `contas.notify_sla_risk` (FAB-NOTIFIED-TRIO), sob outra chave.
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar): nem `sla_risk_notified` nem `grupo_alertado`
+    aparecem em `conditionExpression` de BPMN, `inputExpression` de DMN, worker a jusante ou linha
+    de contrato — `grupo_alertado` so existe nesta funcao e no seu teste. As demais chaves eram
+    eco do proprio input, ja no escopo. A observabilidade da etapa fica no `logger` abaixo, que
+    declara explicitamente `notified_asserted=False`.
     """
     prestador_id = variables.get("prestador_id", "")
     tenant_id = variables.get("tenant_id", "")
@@ -364,13 +375,10 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
         tenant_id=tenant_id,
         direcao=direcao,
         grupo_alertado="coordenacao-rede",
+        notified_asserted=False,
     )
 
-    return {
-        "sla_risk_notified": True,
-        "grupo_alertado": "coordenacao-rede",
-        "prestador_id": prestador_id,
-    }
+    return {}
 
 
 # ---------------------------------------------------------------

@@ -394,25 +394,31 @@ def test_notify_doc_pendente_missing_fields_does_not_raise() -> None:
 # ---------------------------------------------------------------
 
 
-def test_notify_sla_risk_happy_path() -> None:
-    result = notify_sla_risk(
-        {
-            "prestador_id": "P-004",
-            "tenant_id": "amh",
-            "direcao": "descredenciamento",
-        }
+def test_notify_sla_risk_nao_afirma_notificacao() -> None:
+    """FAB-SLA-RISK-NOTIFIED-SLICE4: retorna `{}` — NAO afirma `sla_risk_notified`.
+
+    O `== {}` e' deliberado (nao `"sla_risk_notified" not in result`): so a igualdade exata pega
+    uma fabricacao remontada chave-a-chave num local, que a cerca AST de
+    `test_worker_handler_purity.py` documenta nao alcancar. `grupo_alertado` saiu junto: era uma
+    constante sem consumidor algum, so nesta funcao e neste teste.
+    """
+    assert (
+        notify_sla_risk({"prestador_id": "P-004", "tenant_id": "amh", "direcao": "descredenciamento"}) == {}
     )
-    assert result["sla_risk_notified"] is True
-    assert result["grupo_alertado"] == "coordenacao-rede"
-    assert result["prestador_id"] == "P-004"
 
 
-def test_notify_sla_risk_missing_fields_does_not_raise() -> None:
-    """Mirrors `cancel.notify_sla_risk`/`inadimplencia.notify_sla_risk`/
-    `auth.NotifySlaRiskWorker` — informational only, never raises, never alters a decision."""
-    result = notify_sla_risk({})
-    assert result["sla_risk_notified"] is True
-    assert result["grupo_alertado"] == "coordenacao-rede"
+@pytest.mark.parametrize(
+    "variables",
+    [
+        {},
+        {"prestador_id": "P-004"},
+        {"direcao": "credenciamento", "tenant_id": "amh"},
+    ],
+)
+def test_notify_sla_risk_nenhuma_entrada_produz_afirmacao(variables: dict) -> None:
+    """Informacional apenas: nunca levanta, nunca decide e agora nunca afirma. Serve os DOIS
+    boundaries (`BT_AlertaSlaDescred`/`BT_AlertaSlaCred`) com o mesmo retorno vazio."""
+    assert notify_sla_risk(variables) == {}
 
 
 # ---------------------------------------------------------------

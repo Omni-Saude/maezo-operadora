@@ -1293,26 +1293,28 @@ def test_analyze_request_entry_ignores_kafka_seam() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_notify_sla_risk_happy_path() -> None:
-    """notify_sla_risk is informational-only: no guard, no decision, UT stays open."""
+def test_notify_sla_risk_nao_afirma_notificacao() -> None:
+    """FAB-SLA-RISK-NOTIFIED-SLICE4: retorna `{}` — NAO afirma `sla_risk_notified`.
+
+    O `== {}` e' deliberado (nao `"sla_risk_notified" not in result`): so a igualdade exata pega
+    uma fabricacao remontada chave-a-chave num local, que a cerca AST de
+    `test_worker_handler_purity.py` documenta nao alcancar.
+    """
     inp = ReembolsoInput(protocolo_reembolso="REEMB-SLA-001", tipo_reembolso="livre_escolha")
-    result = notify_sla_risk(inp)
-    assert result["sla_risk_notified"] is True
-    assert result["protocolo_reembolso"] == "REEMB-SLA-001"
+    assert notify_sla_risk(inp) == {}
 
 
-def test_notify_sla_risk_never_alters_a_decision() -> None:
-    """Invariant: notify_sla_risk's output never carries a decision/adverse marker."""
-    result = notify_sla_risk(ReembolsoInput(protocolo_reembolso="REEMB-SLA-002"))
-    assert "decisao_reembolso" not in result
-    assert set(result.keys()) == {"sla_risk_notified", "protocolo_reembolso"}
-
-
-def test_notify_sla_risk_missing_inputs_fail_safe() -> None:
-    """Empty input still notifies (fail-safe, non-adverse) — never an exception."""
-    result = notify_sla_risk(ReembolsoInput())
-    assert result["sla_risk_notified"] is True
-    assert result["protocolo_reembolso"] == ""
+@pytest.mark.parametrize(
+    "inp",
+    [
+        ReembolsoInput(),
+        ReembolsoInput(protocolo_reembolso="REEMB-SLA-002"),
+        ReembolsoInput(protocolo_reembolso="REEMB-SLA-002", tipo_reembolso="urgencia_emergencia"),
+    ],
+)
+def test_notify_sla_risk_nenhuma_entrada_produz_afirmacao(inp: ReembolsoInput) -> None:
+    """Entrada vazia tambem nao levanta (fail-safe, nunca adversa) — e nao afirma nada."""
+    assert notify_sla_risk(inp) == {}
 
 
 def test_notify_sla_risk_entry_round_trips() -> None:
@@ -1326,7 +1328,7 @@ def test_notify_sla_risk_entry_round_trips() -> None:
 def test_notify_sla_risk_entry_ignores_kafka_seam() -> None:
     kafka = FakeKafkaPublisher()
     result = notify_sla_risk_entry({"protocolo_reembolso": "REEMB-SLA-004"}, kafka=kafka)
-    assert result["sla_risk_notified"] is True
+    assert result == {}
     assert kafka.published == []
 
 
