@@ -705,6 +705,23 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         occurrence_delta=-5,
         reason="same PR/mechanism/file as `competencia` two entries above. 8 -> 3 occurrences.",
     ),
+    CorpusDelta(
+        date="2026-09-04",
+        pr="#310",
+        name="event_topic_pended",
+        name_delta=0,
+        occurrence_delta=-1,
+        reason=(
+            "fix/recurso-event-topic-pended-param (RECURSO-EVENT-TOPIC-PENDED-PARAM) removed the "
+            'dangling `camunda:inputParameter name="event_topic_pended"` from ST_SolicitarDocumentos '
+            "in SP-OP-RECURSO-001 (no code ever read it; the real publish is ST_PublishRecursoPended's "
+            "own `event_topic` parameter) — disclosed as inert residue by FAB-SLA-RISK-NOTIFIED-SLICE4 "
+            "(PR #308, merge df28608) and left open pending this PR's CORPUS_DELTA_LOG entry. The name "
+            "stays in the corpus: SP-OP-CRED-001's ST_NotifyDocPendente/ST_CheckPriorNotice still "
+            "declare the same-named inputParameter twice, deliberately kept. 1 -> 0 occurrences of this "
+            "one declaration; corpus total 1637 -> 1636."
+        ),
+    ),
 )
 
 
@@ -724,19 +741,20 @@ class TestBuckets:
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
 
     def test_the_occurrence_count_is_pinned(self, live_sweep: Sweep) -> None:
-        """330 names over 1637 occurrences — the number the ledger row quotes.
+        """330 names over 1636 occurrences — the number the ledger row quotes.
 
         Pinned because the first ledger draft quoted 1637, a figure no state of
         this branch produced. A number reported to a reader and reproducible by
         nobody is worse than no number. The two literals are re-derived from
         `_BASELINE_NAMES`/`_BASELINE_OCCURRENCES` plus `CORPUS_DELTA_LOG` so a
         future move must come with a logged, reasoned entry: an unexplained
-        edit to the bare literal fails the cross-check chain below.
+        edit to the bare literal fails the cross-check chain below. 1637 -> 1636
+        via RECURSO-EVENT-TOPIC-PENDED-PARAM's `event_topic_pended` entry above.
         """
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
         assert len(live_sweep.names) == expected_names == 330
-        assert len(live_sweep.refs) == expected_refs == 1637
+        assert len(live_sweep.refs) == expected_refs == 1636
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep

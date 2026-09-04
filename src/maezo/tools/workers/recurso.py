@@ -1028,9 +1028,10 @@ def make_escalate_ans_timeout_handler(kafka: KafkaPublisher | None) -> TaskHandl
 
     Publishes the EMBEDDED `agents.events.recurso.sla_breached` (fase=`prazo_max`) domain event
     the BPMN's own `event_topic_breach` inputParameter documents — the SAME "embedded publish"
-    idiom as `ST_SolicitarDocumentos`'s `event_topic_pended` (module docstring finding 1; that one
-    is INERT residue — nothing reads it and `ST_PublishRecursoPended` publishes the pended event —
-    tracked OPEN in `docs/review-queue.md` by FAB-SLA-RISK-NOTIFIED-SLICE4), but
+    idiom as `ST_SolicitarDocumentos`'s now-removed `event_topic_pended` (module docstring finding
+    1; that inputParameter was INERT residue — nothing read it, `ST_PublishRecursoPended` publishes
+    the pended event, and RECURSO-EVENT-TOPIC-PENDED-PARAM removed it 2026-09-04 after
+    FAB-SLA-RISK-NOTIFIED-SLICE4 tracked it OPEN in `docs/review-queue.md`), but
     THIS task has no downstream `ST_Publish*` service task to route through (unlike
     `ST_PublishSlaBreach` for fase=`analise`) — the worker must publish it directly. Needs the
     async Kafka seam -> raw handler (same rationale as `make_notify_sla_risk_handler`). Reachable
