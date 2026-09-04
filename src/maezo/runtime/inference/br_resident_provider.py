@@ -27,7 +27,7 @@ from urllib.parse import urlsplit
 
 import structlog
 
-from maezo.runtime._inference_split.br_regional import (
+from maezo.runtime.inference.br_regional import (
     BR_REGIONAL_ATTESTED_REGION,
     BR_REGIONAL_ENDPOINT_HOST_SUFFIXES,
     BR_REGIONAL_ENDPOINT_SCHEME,
@@ -47,19 +47,19 @@ from maezo.runtime._inference_split.br_regional import (
     br_endpoint_denial_reasons,
     resolve_br_regional_transport,
 )
-from maezo.runtime._inference_split.capabilities import (
+from maezo.runtime.inference.capabilities import (
     BR_RESIDENT_CAPABILITIES,
     DataClassification,
     ProviderCapabilities,
 )
-from maezo.runtime._inference_split.errors import (
+from maezo.runtime.inference.errors import (
     BrEndpointNotApprovedError,
     BrRegionalTransportUnavailableError,
     InferenceConfigError,
     InferenceProviderError,
 )
-from maezo.runtime._inference_split.providers import BaseInferenceProvider, _emit_llm_token_usage
-from maezo.runtime._inference_split.retry_budget import (
+from maezo.runtime.inference.providers import BaseInferenceProvider, _emit_llm_token_usage
+from maezo.runtime.inference.retry_budget import (
     RETRY_STOP_RATE_BUDGET_EXHAUSTED,
     RetryBudget,
     _backoff_delay,

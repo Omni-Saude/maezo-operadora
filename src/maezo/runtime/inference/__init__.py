@@ -83,7 +83,7 @@ from typing import Final
 
 import structlog
 
-from maezo.runtime._inference_split.br_regional import (
+from maezo.runtime.inference.br_regional import (
     BR_REGIONAL_ATTESTED_REGION,
     BR_REGIONAL_ENDPOINT_HOST_SUFFIXES,
     BR_REGIONAL_ENDPOINT_SCHEME,
@@ -115,8 +115,8 @@ from maezo.runtime._inference_split.br_regional import (
     br_endpoint_denial_reasons,
     resolve_br_regional_transport,
 )
-from maezo.runtime._inference_split.br_resident_provider import BrResidentInferenceProvider
-from maezo.runtime._inference_split.capabilities import (
+from maezo.runtime.inference.br_resident_provider import BrResidentInferenceProvider
+from maezo.runtime.inference.capabilities import (
     _CLASSIFICATION_ORDER,
     ANTHROPIC_CAPABILITIES,
     BEDROCK_CAPABILITIES,
@@ -136,21 +136,21 @@ from maezo.runtime._inference_split.capabilities import (
     RetentionPolicy,
     phi_zone_denial_reasons,
 )
-from maezo.runtime._inference_split.errors import (
+from maezo.runtime.inference.errors import (
     BrEndpointNotApprovedError,
     BrRegionalTransportUnavailableError,
     InferenceConfigError,
     InferenceProviderError,
     PhiZoneRoutingError,
 )
-from maezo.runtime._inference_split.providers import (
+from maezo.runtime.inference.providers import (
     AnthropicInferenceProvider,
     BaseInferenceProvider,
     BedrockInferenceProvider,
     NoopInferenceProvider,
     PhiZoneMockProvider,
 )
-from maezo.runtime._inference_split.retry_budget import (
+from maezo.runtime.inference.retry_budget import (
     RETRY_STOP_ATTEMPTS_EXHAUSTED,
     RETRY_STOP_COMMITTED,
     RETRY_STOP_NOT_RETRYABLE,
@@ -158,7 +158,7 @@ from maezo.runtime._inference_split.retry_budget import (
     RetryBudget,
     retry_denial_reason,
 )
-from maezo.runtime._inference_split.settings import (
+from maezo.runtime.inference.settings import (
     DEFAULT_ANTHROPIC_MODEL,
     DEFAULT_BEDROCK_MODEL,
     DEFAULT_BEDROCK_REGION,

@@ -22,8 +22,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import structlog
 
-from maezo.runtime._inference_split.capabilities import DeploymentRegion
-from maezo.runtime._inference_split.errors import BrRegionalTransportUnavailableError
+from maezo.runtime.inference.capabilities import DeploymentRegion
+from maezo.runtime.inference.errors import BrRegionalTransportUnavailableError
 
 logger = structlog.get_logger(__name__)
 

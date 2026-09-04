@@ -21,11 +21,10 @@ vacuous: the four facts that are genuinely NEW or genuinely DIFFERENT for Bedroc
 Zone-contract facts (``ProviderCapabilities``, ``phi_capable``, registry membership) live in
 ``test_inference_capabilities.py``, which owns the hardcoded capability table.
 
-D2-02 SPLIT NOTE (docs/reports/inference-split-plan.md §5 step 6): the metering tests below
-patch ``"maezo.runtime._inference_split.providers.logger"``, not ``"maezo.runtime.inference.logger"``
-— see ``test_inference.py``'s module docstring for why (``BedrockInferenceProvider`` moved to
-``providers.py`` in the same step). This target moves again to
-``maezo.runtime.inference.providers.logger`` at step 8.
+D2-02 SPLIT NOTE (docs/reports/inference-split-plan.md §5 steps 6/8): the metering tests below
+patch ``"maezo.runtime.inference.providers.logger"``, not ``"maezo.runtime.inference.logger"`` —
+see ``test_inference.py``'s module docstring for why (``BedrockInferenceProvider`` lives in
+``maezo/runtime/inference/providers.py``).
 """
 
 from __future__ import annotations
@@ -651,7 +650,7 @@ async def test_metering_emits_the_structured_log_with_correlation_ids(
 ) -> None:
     impl = _provider_with_response(_fake_message(usage=_fake_usage(input_tokens=10, output_tokens=7)))
     mock_logger = MagicMock()
-    monkeypatch.setattr("maezo.runtime._inference_split.providers.logger", mock_logger)
+    monkeypatch.setattr("maezo.runtime.inference.providers.logger", mock_logger)
 
     await impl.generate("olá", agent_id="helena", tenant_id="tenant-amh")
 
@@ -675,7 +674,7 @@ async def test_metering_prefers_the_model_the_response_reports(monkeypatch: pyte
         )
     )
     mock_logger = MagicMock()
-    monkeypatch.setattr("maezo.runtime._inference_split.providers.logger", mock_logger)
+    monkeypatch.setattr("maezo.runtime.inference.providers.logger", mock_logger)
 
     await impl.generate("olá")
 
@@ -714,7 +713,7 @@ async def test_no_metering_when_the_response_carries_no_usage(monkeypatch: pytes
 
     impl = _provider_with_response(_fake_message("oi"))
     mock_logger = MagicMock()
-    monkeypatch.setattr("maezo.runtime._inference_split.providers.logger", mock_logger)
+    monkeypatch.setattr("maezo.runtime.inference.providers.logger", mock_logger)
 
     collector = MetricsCollector()
     with patch("maezo.platform.observability._get_metrics_collector", return_value=collector):
@@ -751,7 +750,7 @@ async def test_mock_providers_still_emit_no_metering_alongside_bedrock(
     from maezo.runtime.metrics import MetricsCollector
 
     mock_logger = MagicMock()
-    monkeypatch.setattr("maezo.runtime._inference_split.providers.logger", mock_logger)
+    monkeypatch.setattr("maezo.runtime.inference.providers.logger", mock_logger)
     collector = MetricsCollector()
     bedrock = _provider_with_response(_fake_message("oi", usage=_fake_usage(input_tokens=3, output_tokens=1)))
 

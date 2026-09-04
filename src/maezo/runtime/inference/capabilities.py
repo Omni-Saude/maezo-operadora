@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
 
-from maezo.runtime._inference_split.settings import DEFAULT_ANTHROPIC_MODEL, DEFAULT_BEDROCK_MODEL
+from maezo.runtime.inference.settings import DEFAULT_ANTHROPIC_MODEL, DEFAULT_BEDROCK_MODEL
 
 # ---------------------------------------------------------------------------
 # Provider capability schema (Onda 2, audit W2 §2)

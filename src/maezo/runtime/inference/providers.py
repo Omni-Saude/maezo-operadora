@@ -33,15 +33,15 @@ from typing import ClassVar
 import anthropic
 import structlog
 
-from maezo.runtime._inference_split.capabilities import (
+from maezo.runtime.inference.capabilities import (
     ANTHROPIC_CAPABILITIES,
     BEDROCK_CAPABILITIES,
     NOOP_CAPABILITIES,
     PHI_ZONE_MOCK_CAPABILITIES,
     ProviderCapabilities,
 )
-from maezo.runtime._inference_split.errors import InferenceConfigError, InferenceProviderError
-from maezo.runtime._inference_split.settings import (
+from maezo.runtime.inference.errors import InferenceConfigError, InferenceProviderError
+from maezo.runtime.inference.settings import (
     _ANTHROPIC_API_KEY_ENV_VARS,
     DEFAULT_ANTHROPIC_MODEL,
     DEFAULT_BEDROCK_MODEL,

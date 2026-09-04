@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final
 
-from maezo.runtime._inference_split.errors import InferenceProviderError
+from maezo.runtime.inference.errors import InferenceProviderError
 
 # ---------------------------------------------------------------------------
 # W8 — budgeted, idempotency-aware retry (Onda 2 W2 leg 4)

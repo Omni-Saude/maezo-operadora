@@ -46,20 +46,18 @@ from maezo.runtime.inference import (
 
 _INFERENCE_MODULE = "maezo.runtime.inference"
 
-#: D2-02 split (docs/reports/inference-split-plan.md §5 step 6): package roots whose classes
-#: count as "defined in maezo.runtime.inference" for the completeness guards below. TWO roots,
-#: not one, only while the split is in flight: `_inference_split` is TEMPORARY staging (see its
-#: own `__init__.py` docstring) — a `runtime/inference/` package directory would SHADOW the flat
-#: `runtime/inference.py` module under CPython's import rules the moment both exist (verified
-#: live this session: a directory with `__init__.py` wins outright; one without still blocks any
-#: `maezo.runtime.inference.<submodule>` dotted import, because the parent then resolves to the
-#: flat module, which has no `__path__`) — so steps 1-7 stage new submodules under
-#: `maezo.runtime._inference_split` and only promote them to `maezo.runtime.inference` in step 8.
-#: Step 8 drops the second entry in the same commit that removes `_inference_split` from the tree.
-_INFERENCE_PACKAGE_ROOTS: Final[tuple[str, ...]] = (
-    _INFERENCE_MODULE,
-    "maezo.runtime._inference_split",
-)
+#: D2-02 split (docs/reports/inference-split-plan.md §5): package roots whose classes count as
+#: "defined in maezo.runtime.inference" for the completeness guards below. `maezo.runtime.inference`
+#: is now a PACKAGE (`runtime/inference/__init__.py` + submodules `errors.py`/`capabilities.py`/
+#: `settings.py`/`retry_budget.py`/`br_regional.py`/`providers.py`/`br_resident_provider.py`), not
+#: the single flat module it was before this split — steps 1-7 staged the submodules under a
+#: temporary `maezo.runtime._inference_split` package first (a `runtime/inference/` package
+#: directory would have SHADOWED the flat `runtime/inference.py` module under CPython's import
+#: rules the moment both existed, verified live during the split), promoted to
+#: `maezo.runtime.inference` in step 8 — this tuple is a single root today because that promotion
+#: is complete; kept as a tuple (not a bare string) because a second root reappearing under active
+#: development is exactly the shape this guard exists to keep correct without a rewrite.
+_INFERENCE_PACKAGE_ROOTS: Final[tuple[str, ...]] = (_INFERENCE_MODULE,)
 
 
 def _defined_inside_the_inference_implementation(module_name: str) -> bool:
@@ -331,15 +329,15 @@ def test_the_provider_population_is_walked_transitively() -> None:
 
 
 def test_the_module_prefix_filter_rejects_a_same_prefixed_sibling_module() -> None:
-    """NEGATIVE CONTROL for the D2-02 package-membership filter (plan §5 step 6).
+    """NEGATIVE CONTROL for the D2-02 package-membership filter (plan §5).
 
     ``_concrete_providers_defined_in_module`` widened from an exact ``==`` match against
     ``maezo.runtime.inference`` to a package-membership test the moment the split started moving
-    provider classes into submodules (``_inference_split.providers`` today; ``inference.providers``
-    once step 8 promotes it). A bare ``str.startswith(_INFERENCE_MODULE)`` would ALSO match a
-    same-prefixed SIBLING module that is not actually part of the package at all — this test pins
-    that :func:`_defined_inside_the_inference_implementation` requires the dot boundary, not just
-    the string prefix, reusing the same after-class-creation ``__module__`` relabeling technique a
+    provider classes into submodules (``maezo.runtime.inference.providers`` etc., since step 8). A
+    bare ``str.startswith(_INFERENCE_MODULE)`` would ALSO match a same-prefixed SIBLING module that
+    is not actually part of the package at all — this test pins that
+    :func:`_defined_inside_the_inference_implementation` requires the dot boundary, not just the
+    string prefix, reusing the same after-class-creation ``__module__`` relabeling technique a
     plain class-body assignment cannot achieve (assigning ``__module__`` inside the class body sets
     an attribute read at call time, but the guard reads the REAL ``type.__module__`` slot, which is
     only overwritable by assigning it on the already-created class object).
@@ -355,7 +353,7 @@ def test_the_module_prefix_filter_rejects_a_same_prefixed_sibling_module() -> No
     """
     assert not _defined_inside_the_inference_implementation("maezo.runtime.inference_evil")
     assert _defined_inside_the_inference_implementation("maezo.runtime.inference.providers")
-    assert _defined_inside_the_inference_implementation("maezo.runtime._inference_split.providers")
+    assert _defined_inside_the_inference_implementation("maezo.runtime.inference.br_resident_provider")
     assert _defined_inside_the_inference_implementation(_INFERENCE_MODULE)
 
     class _ProbeSiblingModule(BaseInferenceProvider):
