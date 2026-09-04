@@ -10,12 +10,25 @@ kept `mcp-cibseven.correlate_process_message`/`correlate_process_message`
 + attack surface + autonomy grant that nothing exercises — worse than not declaring it, because a
 reader has no way to tell "wired" from "aspirational" apart from actually reading every node.
 
-THE FIX (CC-05): the three dead `mcp-cibseven.*` declarations above were REMOVED from
-`spec/agents/{helena,rafael,gustavo}/agent.yaml` (both the `tools:` id and the paired
-`autonomy_actions:` id), each with a `# ... removido: ...` comment naming the finding so a
-future PR can reintroduce it deliberately once a node calls it. `mcp-memory.read_write` /
-`read_write_memory` is the ONE deliberate exception left standing everywhere it already was:
-`scripts/ci/check_effect_chokepoint_fence.py`'s §8.5 item 2 hard-fails if NO agent.yaml declares
+THE FIX (CC-05): `mcp-cibseven.get_process_status`/`query_process_status` were REMOVED from
+`spec/agents/{helena,rafael}/agent.yaml` (both the `tools:` id and the paired `autonomy_actions:`
+id), each with a `# ... removido: ...` comment naming the finding. gustavo's two dead
+`mcp-cibseven.*` declarations (`get_process_status` AND `correlate_process_message`) were
+DELIBERATELY KEPT instead of removed: `tests/unit/gateway/test_effect_enforcement.py::
+test_every_catalogued_tool_id_is_declared_by_some_agent` asserts `declared >= effect_classes.
+CATALOGUED_TOOL_IDS` — the catalogue (`src/maezo/gateway/effect_classes.py`, OWNER-GATED/`src`,
+out of this WP's charter) still lists both ids as real operations, and gustavo was the LAST
+agent.yaml declaring either (helena/rafael/andre/carolina/valentina all either never declared
+them or had already dropped them before this WP). Removing them from gustavo too would have
+flipped that catalogue completeness gate RED — a real, pre-existing test this WP is not allowed
+to break, not a fence this WP owns. So gustavo's `tools:`/`autonomy_actions:` keep both ids with
+an OWNER-GATED comment (distinct from andre/carolina/valentina's plain "not declared yet" note —
+gustavo's IS declared, on purpose, only to hold the catalogue's completeness invariant). This is
+the same shape as the `mcp-memory.read_write` exception below, for the same reason: a `src/`-side
+completeness gate outranks per-agent dead-code hygiene when the two collide, and the collision is
+recorded rather than silently resolved. `mcp-memory.read_write`/`read_write_memory` is the OTHER
+deliberate exception left standing everywhere it already was: `scripts/ci/
+check_effect_chokepoint_fence.py`'s §8.5 item 2 hard-fails if NO agent.yaml declares
 `mcp-memory.read_write` (it is the sole disclosed tool-id exception on that fence) — removing it
 fleet-wide would trade a "dead tool" drift for a "the CI fence's own disclosed exception has gone
 stale" drift. `test_agent_memory_declaration_fence.py` (CC-07) already fences the SEPARATE
@@ -100,22 +113,58 @@ _DECLARED_NOT_WIRED_TOOLS: Final[dict[tuple[str, str], str]] = {
     # fence.py §8.5 item 2 requires >=1 agent.yaml to keep declaring it; no v2 graph writes
     # memory yet (CC-07 premise, test_agent_memory_declaration_fence.py). Kept in all 10.
     ("andre", "mcp-memory.read_write"): "excecao disclosed do fence (§8.5 item 2); sem no vivo",
-    ("beatriz", "mcp-memory.read_write"): "excecao disclosed do fence (§8.5 item 2); sem no vivo (CC-05/BEA-03)",
+    ("beatriz", "mcp-memory.read_write"): (
+        "excecao disclosed do fence (§8.5 item 2); sem no vivo (CC-05/BEA-03)"
+    ),
     ("carolina", "mcp-memory.read_write"): "excecao disclosed do fence (§8.5 item 2); sem no vivo",
     ("fernando", "mcp-memory.read_write"): "excecao disclosed do fence (§8.5 item 2); sem no vivo",
-    ("gustavo", "mcp-memory.read_write"): "excecao disclosed do fence (§8.5 item 2); sem no vivo (CC-05/GUS-02)",
-    ("helena", "mcp-memory.read_write"): "excecao disclosed do fence (§8.5 item 2); sem no vivo (CC-05/HEL-01)",
-    ("lucas", "mcp-memory.read_write"): "excecao disclosed do fence (§8.5 item 2); sem no vivo (CC-05/LUC-01)",
+    ("gustavo", "mcp-memory.read_write"): (
+        "excecao disclosed do fence (§8.5 item 2); sem no vivo (CC-05/GUS-02)"
+    ),
+    ("helena", "mcp-memory.read_write"): (
+        "excecao disclosed do fence (§8.5 item 2); sem no vivo (CC-05/HEL-01)"
+    ),
+    ("lucas", "mcp-memory.read_write"): (
+        "excecao disclosed do fence (§8.5 item 2); sem no vivo (CC-05/LUC-01)"
+    ),
     ("marina", "mcp-memory.read_write"): "excecao disclosed do fence (§8.5 item 2); sem no vivo",
-    ("rafael", "mcp-memory.read_write"): "excecao disclosed do fence (§8.5 item 2); sem no vivo (CC-05/RAF-03b)",
+    ("rafael", "mcp-memory.read_write"): (
+        "excecao disclosed do fence (§8.5 item 2); sem no vivo (CC-05/RAF-03b)"
+    ),
     ("valentina", "mcp-memory.read_write"): "excecao disclosed do fence (§8.5 item 2); sem no vivo",
+    # gustavo: kept ON PURPOSE (not "not yet wired", but "must stay declared somewhere") — see
+    # test_effect_enforcement.py::test_every_catalogued_tool_id_is_declared_by_some_agent, which
+    # asserts every effect_classes.CATALOGUED_TOOL_IDS entry is declared by >=1 agent.yaml.
+    # gustavo was the last declarer of both ids after helena/rafael's CC-05 cleanup; removing
+    # them here too would flip that catalogue-completeness gate RED. OWNER-GATED: the catalogue
+    # itself lives in src/maezo/gateway/effect_classes.py, out of this WP's charter.
+    ("gustavo", "mcp-cibseven.get_process_status"): (
+        "OWNER-GATED: unico agent.yaml que ainda declara o id, exigido por "
+        "test_every_catalogued_tool_id_is_declared_by_some_agent; sem no vivo (CC-05/GUS-02)"
+    ),
+    ("gustavo", "mcp-cibseven.correlate_process_message"): (
+        "OWNER-GATED: unico agent.yaml que ainda declara o id, exigido por "
+        "test_every_catalogued_tool_id_is_declared_by_some_agent; sem no vivo (CC-05/GUS-02)"
+    ),
     # Pre-existing declared-id vs wired-method NAME-SHAPE drift (disclosed in each graph's own
     # docstring long before this WP) — adjacent to, but out of, CC-05's charter.
-    ("beatriz", "mcp-fhir.read_patient"): "grafo chama PatientSummaryReader.read_patient_summary (shape drift disclosed graph.py:82); fora do escopo BEA-03",
-    ("carolina", "mcp-fhir.read_patient_summary"): "grafo reusa FhirServerReader.read_patient (shape drift disclosed graph.py:107-109); fora do escopo CC-05",
-    ("helena", "mcp-fhir.read_patient_summary"): "nao wireado (GAP-TRIAGE-5, disclosed graph.py:64-66); fora do escopo HEL-01",
-    ("helena", "mcp-fhir.read_coverage"): "nao wireado (GAP-TRIAGE-5, disclosed graph.py:64-66); fora do escopo HEL-01",
-    ("helena", "mcp-fhir.search_coverage"): "nao wireado (GAP-TRIAGE-5, disclosed graph.py:64-66); fora do escopo HEL-01",
+    ("beatriz", "mcp-fhir.read_patient"): (
+        "grafo chama PatientSummaryReader.read_patient_summary "
+        "(shape drift disclosed graph.py:82); fora do escopo BEA-03"
+    ),
+    ("carolina", "mcp-fhir.read_patient_summary"): (
+        "grafo reusa FhirServerReader.read_patient "
+        "(shape drift disclosed graph.py:107-109); fora do escopo CC-05"
+    ),
+    ("helena", "mcp-fhir.read_patient_summary"): (
+        "nao wireado (GAP-TRIAGE-5, disclosed graph.py:64-66); fora do escopo HEL-01"
+    ),
+    ("helena", "mcp-fhir.read_coverage"): (
+        "nao wireado (GAP-TRIAGE-5, disclosed graph.py:64-66); fora do escopo HEL-01"
+    ),
+    ("helena", "mcp-fhir.search_coverage"): (
+        "nao wireado (GAP-TRIAGE-5, disclosed graph.py:64-66); fora do escopo HEL-01"
+    ),
 }
 
 # autonomy_action -> the single tool id whose wiring status it inherits. Only actions with a
@@ -201,7 +250,9 @@ def test_every_declared_tool_is_wired_or_classified() -> None:
             if _tool_is_wired(tool, source_text):
                 continue
             if (agent, tool) not in _DECLARED_NOT_WIRED_TOOLS:
-                unclassified.append(f"{agent}: {tool!r} is declared, unwired, and NOT in _DECLARED_NOT_WIRED_TOOLS")
+                unclassified.append(
+                    f"{agent}: {tool!r} is declared, unwired, and NOT in _DECLARED_NOT_WIRED_TOOLS"
+                )
     assert not unclassified, (
         "agent.yaml declares a tool no node exercises, with no recorded reason (CC-05 sonda — "
         "either wire the tool, remove the declaration, or add a classified entry):\n"
@@ -223,7 +274,9 @@ def test_declared_not_wired_tools_inventory_has_no_stale_entries() -> None:
         data = _load_agent_yaml(agent_dir)
         declared = tool in (data.get("tools") or [])
         if not declared:
-            stale.append(f"{agent}: {tool!r} is no longer declared in agent.yaml — remove the inventory entry")
+            stale.append(
+                f"{agent}: {tool!r} is no longer declared in agent.yaml — remove the inventory entry"
+            )
             continue
         if _tool_is_wired(tool, _agent_source_text(agent_dir)):
             stale.append(f"{agent}: {tool!r} is now wired by a live node — remove the inventory entry")
