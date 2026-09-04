@@ -221,6 +221,22 @@ def test_every_accepted_task_type_is_declared_by_the_handler_module(agent_id: st
     )
 
 
+def test_the_undeclared_task_type_record_has_no_stale_entries() -> None:
+    """An allowlist entry the module now DECLARES a constant for is stale, and `<=` above cannot
+    see it: the assertion is satisfied whether or not the entry is still needed, so a divergence
+    that was CLOSED keeps its documented exemption forever and the next real divergence for that
+    agent slips in under it. Every documented entry must therefore still be undeclared.
+    """
+    for agent_id, documented in sorted(_UNDECLARED_TASK_TYPES.items()):
+        stale = documented & _declared_task_type_constants(agent_id)
+        assert not stale, (
+            f"`_UNDECLARED_TASK_TYPES[{agent_id!r}]` still exempts {sorted(stale)}, but "
+            f"`agents/{agent_id}/delegation.py` now declares a `TASK_TYPE_*` constant for it — "
+            "the divergence is closed. Delete the entry (and the agent key if it empties), so "
+            "the allowlist keeps covering only what is genuinely still undeclared."
+        )
+
+
 def test_the_undeclared_task_type_record_names_only_real_agents() -> None:
     """A documented divergence for an agent that no longer declares Cards is dead weight that
     would quietly widen the fence."""
