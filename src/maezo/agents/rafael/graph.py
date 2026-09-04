@@ -743,6 +743,8 @@ class RafaelGraph:
                 phi=dossier_narrative_requires_phi_zone(),
                 agent_id="rafael",
                 tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
             narrativa = ""
