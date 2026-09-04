@@ -14,6 +14,7 @@ literals, so the vocabulary cannot be renamed out from under the table either.
 from __future__ import annotations
 
 import dataclasses
+from typing import Final
 
 import pytest
 
@@ -44,6 +45,31 @@ from maezo.runtime.inference import (
 )
 
 _INFERENCE_MODULE = "maezo.runtime.inference"
+
+#: D2-02 split (docs/reports/inference-split-plan.md §5): package roots whose classes count as
+#: "defined in maezo.runtime.inference" for the completeness guards below. `maezo.runtime.inference`
+#: is now a PACKAGE (`runtime/inference/__init__.py` + submodules `errors.py`/`capabilities.py`/
+#: `settings.py`/`retry_budget.py`/`br_regional.py`/`providers.py`/`br_resident_provider.py`), not
+#: the single flat module it was before this split — steps 1-7 staged the submodules under a
+#: temporary `maezo.runtime._inference_split` package first (a `runtime/inference/` package
+#: directory would have SHADOWED the flat `runtime/inference.py` module under CPython's import
+#: rules the moment both existed, verified live during the split), promoted to
+#: `maezo.runtime.inference` in step 8 — this tuple is a single root today because that promotion
+#: is complete; kept as a tuple (not a bare string) because a second root reappearing under active
+#: development is exactly the shape this guard exists to keep correct without a rewrite.
+_INFERENCE_PACKAGE_ROOTS: Final[tuple[str, ...]] = (_INFERENCE_MODULE,)
+
+
+def _defined_inside_the_inference_implementation(module_name: str) -> bool:
+    """True for `module_name` itself, or a REAL submodule, of any root in `_INFERENCE_PACKAGE_ROOTS`.
+
+    A bare ``str.startswith`` against a root would ALSO match an unrelated SIBLING module that
+    merely shares the string prefix — e.g. ``"maezo.runtime.inference_evil".startswith(
+    "maezo.runtime.inference")`` is ``True`` despite ``inference_evil`` not being a submodule of
+    ``inference`` at all. Every check below therefore requires the DOT boundary, never the bare
+    prefix. Pinned by ``test_the_module_prefix_filter_rejects_a_same_prefixed_sibling_module``.
+    """
+    return any(module_name == root or module_name.startswith(root + ".") for root in _INFERENCE_PACKAGE_ROOTS)
 
 
 @pytest.fixture(autouse=True)
@@ -248,12 +274,18 @@ def _all_subclasses(root: type) -> set[type]:
 
 
 def _concrete_providers_defined_in_module() -> set[type[BaseInferenceProvider]]:
-    """Every provider class DEFINED in ``maezo.runtime.inference``, at ANY depth.
+    """Every provider class DEFINED in ``maezo.runtime.inference`` (package or flat module,
+    at whichever stage the D2-02 split has reached), at ANY depth.
 
-    Filtered by ``__module__`` so that provider subclasses defined inside this test file
-    (the ``__init_subclass__`` drift probes below) never leak into the guard.
+    Filtered by ``__module__`` (via :func:`_defined_inside_the_inference_implementation`) so that
+    provider subclasses defined inside this test file (the ``__init_subclass__`` drift probes
+    below) never leak into the guard.
     """
-    return {cls for cls in _all_subclasses(BaseInferenceProvider) if cls.__module__ == _INFERENCE_MODULE}
+    return {
+        cls
+        for cls in _all_subclasses(BaseInferenceProvider)
+        if _defined_inside_the_inference_implementation(cls.__module__)
+    }
 
 
 def test_the_provider_population_is_walked_transitively() -> None:
@@ -294,6 +326,64 @@ def test_the_provider_population_is_walked_transitively() -> None:
     assert {_ProbeChild, _ProbeGrandchild} <= _all_subclasses(BaseInferenceProvider)
     # …and the `__module__` filter still keeps these test doubles out of the real guards.
     assert not {_ProbeChild, _ProbeGrandchild} & _concrete_providers_defined_in_module()
+
+
+def test_the_module_prefix_filter_rejects_a_same_prefixed_sibling_module() -> None:
+    """NEGATIVE CONTROL for the D2-02 package-membership filter (plan §5).
+
+    ``_concrete_providers_defined_in_module`` widened from an exact ``==`` match against
+    ``maezo.runtime.inference`` to a package-membership test the moment the split started moving
+    provider classes into submodules (``maezo.runtime.inference.providers`` etc., since step 8). A
+    bare ``str.startswith(_INFERENCE_MODULE)`` would ALSO match a same-prefixed SIBLING module that
+    is not actually part of the package at all — this test pins that
+    :func:`_defined_inside_the_inference_implementation` requires the dot boundary, not just the
+    string prefix, reusing the same after-class-creation ``__module__`` relabeling technique a
+    plain class-body assignment cannot achieve (assigning ``__module__`` inside the class body sets
+    an attribute read at call time, but the guard reads the REAL ``type.__module__`` slot, which is
+    only overwritable by assigning it on the already-created class object).
+
+    Two paired probes, both false-negative AND false-positive checked directly against the helper
+    function (not just the class-population guard), so a regression here fails LOUDLY at the unit
+    that actually decides membership, not only downstream in a completeness assertion:
+
+    * a module name sharing the string prefix without the dot boundary (``inference_evil``) MUST
+      be rejected — the bug a naive ``startswith`` would let through;
+    * a real submodule of the package (dot-bound) MUST be accepted — proving the fix does not
+      overcorrect into rejecting genuine package members.
+    """
+    assert not _defined_inside_the_inference_implementation("maezo.runtime.inference_evil")
+    assert _defined_inside_the_inference_implementation("maezo.runtime.inference.providers")
+    assert _defined_inside_the_inference_implementation("maezo.runtime.inference.br_resident_provider")
+    assert _defined_inside_the_inference_implementation(_INFERENCE_MODULE)
+
+    class _ProbeSiblingModule(BaseInferenceProvider):
+        capabilities = _SATISFYING
+        phi_capable = _SATISFYING.phi_allowed
+
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            agent_id: str | None = None,
+            tenant_id: str | None = None,
+        ) -> str:  # pragma: no cover - never invoked
+            return ""
+
+        def health_check(self) -> dict[str, str]:  # pragma: no cover - never invoked
+            return {"status": "warning", "message": "test double"}
+
+    real_module = _ProbeSiblingModule.__module__
+    try:
+        _ProbeSiblingModule.__module__ = "maezo.runtime.inference_evil"
+        assert _ProbeSiblingModule not in _concrete_providers_defined_in_module()
+
+        _ProbeSiblingModule.__module__ = "maezo.runtime.inference.providers"
+        assert _ProbeSiblingModule in _concrete_providers_defined_in_module()
+    finally:
+        # Never leave a mutated __module__ on a class object beyond this test — `_all_subclasses`
+        # walks live `__subclasses__()` state, so a stray relabel would leak into every test that
+        # runs afterward in the same process.
+        _ProbeSiblingModule.__module__ = real_module
 
 
 def test_capability_table_covers_every_provider_in_the_module() -> None:

@@ -80,7 +80,7 @@ _SEAM_CHOKED_SURFACES: dict[str, tuple[str, ...]] = {
     "src/maezo/agents/rafael/graph.py:548": ("dmn.evaluate",),
     "src/maezo/agents/marina/graph.py:806": ("dmn.evaluate",),
     "src/maezo/tools/workers/dmn_transport.py:345": ("dmn.evaluate",),
-    "src/maezo/runtime/inference.py:616": ("inference.generate", "inference.generate_phi"),
+    "src/maezo/runtime/inference/__init__.py:624": ("inference.generate", "inference.generate_phi"),
     "src/maezo/a2a/dispatcher.py:277": ("a2a.delegate",),
 }
 
