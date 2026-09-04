@@ -1,0 +1,102 @@
+{{- /*
+A2A fact-outbox relay (SC-01 / R-004) — drains `a2a_fact_outbox` to Kafka, at-least-once.
+
+Sibling do notifications-bridge (structural copy, per OWNER-DECISIONS-REGISTER R-004 opcao B):
+mesma imagem, mesmo padrao de Deployment dedicado. Roda
+`python -m maezo.a2a.outbox_relay` SEM `--once` — o modulo faz poll ate SIGTERM/SIGINT por
+padrao (ver `src/maezo/a2a/outbox_relay.py` modulo docstring + `build_arg_parser`/`main`).
+
+Por que isto e' necessario: ate' este template, NADA no repo invocava `drain_once`/
+`run_relay_loop` fora dos proprios testes — `src/maezo/runtime/agent_runtime/a2a_composition.py`
+documenta explicitamente que o relay e' "explicitly-invoked ... never auto-started" e que a
+entrega e' uma decisao de DEPLOYMENT, nao de composition root. `outbox_relay.py` ja' vinha
+pronto (lease expiravel, `claimed_by`, batch/TTL parametricos) — faltava so' o invocador; este
+Deployment E' o invocador.
+
+Diferente do notifications-bridge, o relay tambem precisa de DATABASE_URL (drena o outbox
+Postgres) — mesmo secretKeyRef do Aurora que worker-daemon/agent-runtime usam (`build_relay`
+em outbox_relay.py recusa construir sem DATABASE_URL nem KAFKA_BOOTSTRAP_SERVERS — fail-closed,
+nunca reivindica linhas do outbox e as descarta em silencio).
+
+PROBE (seam): mesma situacao do notifications-bridge — o relay NAO sobe servidor de health (so'
+roda o loop de poll). Liveness `exec` (processo vivo) em vez de httpGet /healthz.
+*/ -}}
+{{- if .Values.a2aOutboxRelay.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: a2a-outbox-relay
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: a2a-outbox-relay
+spec:
+  replicas: {{ .Values.a2aOutboxRelay.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "maezo-tenant.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: a2a-outbox-relay
+  template:
+    metadata:
+      labels:
+        {{- include "maezo-tenant.labels" . | nindent 8 }}
+        app.kubernetes.io/component: a2a-outbox-relay
+        # O relay so' carrega o payload do fato A2A ja' serializado pelo composition root que o
+        # escreveu no outbox (identificadores/refs de processo, nunca PHI cru) — zona general.
+        maezo.io/phi-zone: "false"
+    spec:
+      serviceAccountName: {{ include "maezo-tenant.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: a2a-outbox-relay
+          image: {{ include "maezo-tenant.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "maezo.a2a.outbox_relay"]
+          env:
+            - name: TENANT_ID
+              value: {{ .Values.tenant.id | quote }}
+            # `build_relay` recusa construir sem isto — sem outbox para drenar (fail-closed).
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.aurora.secretName }}
+                  key: database-url
+            # `build_relay` recusa construir sem isto — sem broker para entregar (fail-closed).
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: maezo-kafka-config
+                  key: bootstrap-servers
+            - name: A2A_OUTBOX_RELAY_BATCH_SIZE
+              value: {{ .Values.a2aOutboxRelay.batchSize | quote }}
+            - name: A2A_OUTBOX_RELAY_POLL_INTERVAL_S
+              value: {{ .Values.a2aOutboxRelay.pollIntervalS | quote }}
+            {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.a2aOutboxRelay.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          # SEAM: o relay nao expoe /healthz (sem app de health). Liveness por processo vivo.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f maezo.a2a.outbox_relay > /dev/null"
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

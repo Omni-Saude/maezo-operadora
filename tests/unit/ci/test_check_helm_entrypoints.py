@@ -138,6 +138,18 @@ def test_real_chart_default_render_does_not_include_the_two_disabled_bridges() -
     assert "maezo.platform.integrations.notifications_bridge" in modules
 
 
+def test_real_chart_accepts_the_new_a2a_outbox_relay_entrypoint_sc01() -> None:
+    """SC-01/R-004: `deployment-a2a-outbox-relay.yaml` renders by default (`a2aOutboxRelay.enabled:
+    true`) invoking `maezo.a2a.outbox_relay` — a REAL module — and the fence must accept it as part
+    of the same GREEN result, not merely tolerate it as an untested addition."""
+    rendered = render_chart()
+    refs = extract_entrypoints(rendered)
+    modules = {r.module for r in refs}
+    assert "maezo.a2a.outbox_relay" in modules
+    result = resolve_entrypoints(refs)
+    assert result.ok, result.render()
+
+
 # ---------------------------------------------------------------------------
 # 3. Real chart, forced on — RED (the mutation / revert proof)
 # ---------------------------------------------------------------------------

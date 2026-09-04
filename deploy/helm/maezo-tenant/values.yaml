@@ -330,6 +330,33 @@ consentRevocationBridge:
       memory: "256Mi"
 
 # ---------------------------------------------------------------------------
+# A2A fact-outbox relay (SC-01 / R-004) — Postgres outbox -> Kafka, at-least-once
+#
+# Deployment dedicado rodando `python -m maezo.a2a.outbox_relay` em loop (opcao B do memorando
+# M-04, ratificada — espelha o sibling `notificationsBridge` acima). Antes deste template, nada
+# no repo invocava o relay: `runtime/agent_runtime/a2a_composition.py` documenta que ele e'
+# "explicitly-invoked ... never auto-started" e que a entrega de fatos A2A e' uma decisao de
+# DEPLOYMENT — este bloco + `deployment-a2a-outbox-relay.yaml` SAO essa decisao. Mecanismo (lease
+# expiravel, `claimed_by`, batch/TTL parametricos) ja' pronto em `src/maezo/a2a/outbox_relay.py`;
+# faltava so' o invocador.
+# ---------------------------------------------------------------------------
+a2aOutboxRelay:
+  enabled: true
+  replicaCount: 1
+  # Linhas por sweep de drain (`A2A_OUTBOX_RELAY_BATCH_SIZE` — outbox.py `DEFAULT_BATCH_SIZE`).
+  batchSize: 100
+  # Segundos de espera entre sweeps QUANDO o sweep anterior nao achou nada
+  # (`A2A_OUTBOX_RELAY_POLL_INTERVAL_S` — outbox_relay.py `DEFAULT_POLL_INTERVAL_S`).
+  pollIntervalS: 2
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+
+# ---------------------------------------------------------------------------
 # External Secrets Operator — SecretStore + ExternalSecrets
 # ---------------------------------------------------------------------------
 externalSecrets:
