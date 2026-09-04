@@ -61,6 +61,7 @@ from typing import Any, Literal, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.platform.keys import key_segment
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -192,8 +193,16 @@ class TemplateGraph:
     # --- Business key ---------------------------------------------------------------------
 
     def business_key(self, state: TemplateState) -> str:
-        """Chave idempotente do contrato. SUBSTITUIR pela forma exata que o contrato define."""
-        return f"{self.BUSINESS_KEY_PREFIX}-{state.get('tenant_id', '')}-{state.get('correlation_id', '')}"
+        """Chave idempotente do contrato. SUBSTITUIR pela forma exata que o contrato define.
+
+        Compositor canonico de segmento: `maezo.platform.keys.key_segment` (CC-15) — normaliza
+        cada segmento (`str(value or "").strip()`) SEM jamais omitir um segmento vazio; um grafo
+        derivado com segmento obrigatorio deve testar `is_blank(...)` e recusar (`ValueError`),
+        nunca compor uma chave degenerada (o defeito M-8 documentado em `agents/andre/keys.py`).
+        """
+        tenant = key_segment(state.get("tenant_id"))
+        correlation = key_segment(state.get("correlation_id"))
+        return f"{self.BUSINESS_KEY_PREFIX}-{tenant}-{correlation}"
 
     # --- Seam abstrato --------------------------------------------------------------------
 
