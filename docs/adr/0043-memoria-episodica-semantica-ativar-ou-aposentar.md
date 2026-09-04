@@ -155,6 +155,26 @@ nem `read_write_memory` — a desdeclaracao se limita aos flags `memory:`
 
 ---
 
+## Decisao ja tomada pelo dono (R-005/R-006, 2026-09-04)
+
+A metade SEMANTICA deste ADR (pgvector / `agent_memory.embedding`) **ja foi decidida pelo dono**,
+registrada no `OWNER-DECISIONS-REGISTER` e citada nas notas da linha `DU-01-b` de `GAP-REGISTER.yaml`:
+
+- **R-005** — opcao **B**: remover o caminho pgvector por migracao nova `0009_drop_pgvector`
+  (coluna `agent_memory.embedding`, extensao `vector`, o parametro/parameter group Terraform
+  correspondente e a imagem do compose), com um rascunho de emenda **DRAFT** ao `ADR-0002 §3`
+  (suspensa ate existir consumidor) no mesmo PR.
+- **R-006** — **SIM**: o PR carrega esse rascunho marcado DRAFT; a ratificacao continua sendo ato
+  exclusivo do dono.
+
+Essa decisao esta sendo implementada em `r5/pgvector-remocao` (sessao separada; PR a abrir). **Este
+ADR deixa de propor a escolha A/B para a metade semantica e passa apenas a REGISTRAR a referencia** —
+nao decide de novo o que o dono ja decidiu. A metade EPISODICA (`MemoryServer` / tool
+`mcp-memory.read_write`, AF-11 / `DU-01-a`) permanece a unica questao em aberto que este ADR de fato
+resolve.
+
+---
+
 ## Decisao proposta
 
 **Escolhemos, de forma explicita e datada, entre ATIVAR e APOSENTAR a memoria episodica/semantica; e,
@@ -175,7 +195,8 @@ Aurora. E precisamente essa disposicao — «ligar o caminho de embedding **ou**
 coluna e referencia Aurora por migracao nova» — que constitui `GAP-DU-01-b`, o P0 aberto. Logo:
 
 > **B sem migracao de remocao deixa `GAP-DU-01-b` ABERTO.** Para que B feche o P0, ela tem de vir
-> acompanhada de uma migracao nova (a proxima da serie, `0009`) que retire a coluna e a extensao, e
+> acompanhada da migracao `0009_drop_pgvector` (ja decidida pelo dono em R-005, ver secao acima) que
+> retira a coluna e a extensao, e
 > essa migracao tem de reconhecer que `agent_memory` esta declarada no plano de erasure (abaixo). B
 > "so deletando o pacote Python" e uma limpeza parcial que se apresenta como decisao fechada.
 
@@ -273,10 +294,10 @@ decisao do DONO, listada abaixo; **nao** e parte da medida provisoria.
 1. **A ou B** — ligar a memoria episodica/semantica por flag sobre o schema que ja existe, ou aposentar
    o `MemoryServer`. As duas SAO as metades de `GAP-DU-01-b` (P0, aberto). C (status quo) nao e
    oferecida como resultado aceitavel.
-2. **Se B: entra ou nao a migracao de remocao** — a proxima da serie (`0009`), retirando
-   `agent_memory.embedding`, a extensao `pgvector` e as duas linhas correspondentes de
-   `src/maezo/platform/lifecycle/erasure_plan.py`. Sem ela, B fecha o codigo Python e **deixa o P0
-   aberto**.
+2. **Se B: entra ou nao a migracao de remocao** — a migracao `0009_drop_pgvector` (ja decidida pelo
+   dono em R-005, ver secao acima), retirando `agent_memory.embedding`, a extensao `pgvector` e as
+   duas linhas correspondentes de `src/maezo/platform/lifecycle/erasure_plan.py`. Sem ela, B fecha o
+   codigo Python e **deixa o P0 aberto**.
 3. **A aposentadoria da excecao divulgada `mcp-memory.read_write`** — retirar o id dos onze yamls
    exige, no MESMO commit, retirar `_ITEM2_DISCLOSED_TOOL_ID_EXCEPTIONS` de
    `scripts/ci/check_effect_chokepoint_fence.py` (dono-gated, `.github/CODEOWNERS:223-242`) e a
@@ -342,10 +363,14 @@ decisao do DONO, listada abaixo; **nao** e parte da medida provisoria.
    (`make effect-chokepoint-fence` VERDE, nao vermelho por excecao stale).
 9. Se a migracao de remocao entrar (decisao 2 do dono): `grep -rn 'vector(1536)\|CREATE EXTENSION IF
    NOT EXISTS vector' src/maezo/platform/migrations/versions/` mostra a coluna e a extensao criadas em
-   `0001` e RETIRADAS em `0009`, e `agent_memory`/`agent_memory.embedding` nao aparecem mais no plano
+   `0001` e RETIRADAS em `0009_drop_pgvector`, e `agent_memory`/`agent_memory.embedding` nao aparecem mais no plano
    de erasure. Sem esta linha, o criterio de B esta incompleto e `GAP-DU-01-b` permanece aberto.
 
 ## Supersedes
 
 —. **Reconcilia e sequencia** `ADR-0002` (tres camadas de estado); nao supersede nem emenda. Relacionado
 a `ADR-0022` (MCP in-process), `ADR-0006` (zonas PHI) e as politicas de retencao/erasure.
+
+## Historico
+
+- 2026-09-05: emendado para referenciar R-005/R-006 (overlap identificado na coordenacao com o round 5).
