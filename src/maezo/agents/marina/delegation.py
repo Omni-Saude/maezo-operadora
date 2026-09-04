@@ -380,12 +380,30 @@ def _as_float(value: Any) -> float:
 
 
 def _has_business_key_identity(flow: Flow, meta: dict[str, str]) -> bool:
-    """The flow's minimum identity — mirrors `graph.receive`'s own `key_ok` guard exactly."""
+    """The flow's minimum identity — the exact set of shapes `graph._business_key` can COMPOSE.
+
+    STRICTER THAN `graph.receive`'s own `key_ok` ON `contas`, DELIBERATELY. `receive` accepts
+    `lote OR guia`, but `_business_key` composes the guia form ONLY as
+    `CONTAS-{tenant}-{guia}-{conta}` — a guia WITHOUT a conta falls through to the lote form with
+    an EMPTY lote, so the key degenerates to `CONTAS-{tenant}-` and EVERY such case shares it.
+    In the graph that degeneracy is merely a bad anchor on a turn a human still reviews. HERE it
+    is a DISTRIBUTED IDEMPOTENCY KEY: `task_id == _business_key`, and the dispatcher's Guard 4 is
+    DURABLE — the second guia-only case would be answered as an idempotent REPLAY of the first,
+    handing back the first case's `output_ref` (a process that is not this case's) without ever
+    running Marina. A seam that mints the key must therefore refuse every input the key
+    derivation cannot tell apart, which is a strictly smaller set than what a graph invoked with
+    an already-assembled state may fail-safe on.
+
+    The two forms below are the ONLY two `_business_key` composes for `contas` (`graph.py`
+    `_business_key`: `if guia and conta -> ...-{guia}-{conta}`, else `...-{lote}`); `recurso` and
+    `reembolso` each compose exactly one form, and for those the graph's guard and this one
+    already coincide.
+    """
     if flow == "recurso":
         return bool(meta.get("numero_guia_tiss") and meta.get("glosa_id"))
     if flow == "reembolso":
         return bool(meta.get("protocolo_reembolso"))
-    return bool(meta.get("numero_lote_tiss") or meta.get("numero_guia_tiss"))
+    return bool(meta.get("numero_lote_tiss") or (meta.get("numero_guia_tiss") and meta.get("numero_conta")))
 
 
 def state_from_envelope(envelope: DelegationEnvelope) -> MarinaState:
