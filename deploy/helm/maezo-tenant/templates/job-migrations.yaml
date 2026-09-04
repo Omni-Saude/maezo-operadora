@@ -7,8 +7,13 @@ schema-por-tenant do Postgres ANTES dos runtimes subirem, garantindo que o schem
 Detalhes não-óbvios:
   - alembic exige URL SÍNCRONA (psycopg); o secret Aurora é `postgresql+asyncpg://...` → o
     container normaliza removendo `+asyncpg` (igual a runtime.checkpoint.normalize_conn_string).
-  - env.py lê ALEMBIC_DATABASE_URL + MAEZO_TENANT (não DATABASE_URL/TENANT_ID); o schema é
-    derivado de MAEZO_TENANT e o `search_path` é fixado lá dentro.
+  - env.py lê ALEMBIC_DATABASE_URL + MAEZO_TENANT_ID (não DATABASE_URL/TENANT_ID; e NÃO
+    `MAEZO_TENANT` — ver DU-02/R-002: esse nome nunca existiu no código, e exportá-lo fazia o
+    `search_path` cair em silêncio no schema `public` em qualquer deploy Helm, exit 0, sem erro
+    algum). O schema é derivado de MAEZO_TENANT_ID e o `search_path` é fixado lá dentro.
+    `scripts/ci/check_chart_env_reconciliation.py` (Makefile `check-chart-env-reconciliation`,
+    job `validate-helm` em ci.yml) falha fechado se este nome divergir de novo do que
+    `src/maezo/platform/migrations/env.py` lê.
   - alembic.ini precisa estar na imagem (deploy/Dockerfile copia-o para /app).
 
 Pré-requisito (ver docs/Tarefas_Pendentes.md §1.1/§1.3): o secret Aurora (ESO-synced) deve existir
@@ -100,7 +105,10 @@ spec:
               export ALEMBIC_DATABASE_URL="$(printf '%s' "$DATABASE_URL" | sed 's/+asyncpg//')"
               exec python -m alembic upgrade head
           env:
-            - name: MAEZO_TENANT
+            # DU-02/R-002: o nome LIDO por env.py e' MAEZO_TENANT_ID (nao MAEZO_TENANT — ver o
+            # comentario no topo deste arquivo). Renomeado 2026-09-04; antes deste fix toda
+            # migration aplicada por Helm rodava no schema `public` em silencio, exit 0.
+            - name: MAEZO_TENANT_ID
               value: {{ .Values.tenant.id | quote }}
             - name: DATABASE_URL
               valueFrom:
