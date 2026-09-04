@@ -103,7 +103,9 @@ class _FakeInference:
 
 
 class _FakeDmn:
-    async def evaluate(self, table: str, dmn_input: dict[str, Any]) -> tuple[list[dict[str, Any]], DmnVersion]:
+    async def evaluate(
+        self, table: str, dmn_input: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], DmnVersion]:
         return (
             [
                 {
@@ -160,7 +162,9 @@ _CASES: list[tuple[str, str, dict[str, Any], str, dict[str, Any], str, frozenset
             "fluxo": "contas",
         },
         "SP-OP-CONTAS-001",
-        frozenset({"source_agent_id", "source_agent_version", "dossie_marina", "marina_flow", "marina_route"}),
+        frozenset(
+            {"source_agent_id", "source_agent_version", "dossie_marina", "marina_flow", "marina_route"}
+        ),
         frozenset(
             {
                 "source_agent_id",
@@ -188,7 +192,9 @@ _CASES: list[tuple[str, str, dict[str, Any], str, dict[str, Any], str, frozenset
             "glosa_id": "GL1",
         },
         "SP-OP-RECURSO-001",
-        frozenset({"source_agent_id", "source_agent_version", "dossie_marina", "marina_flow", "marina_route"}),
+        frozenset(
+            {"source_agent_id", "source_agent_version", "dossie_marina", "marina_flow", "marina_route"}
+        ),
         frozenset(
             {
                 "source_agent_id",
@@ -231,7 +237,13 @@ _CASES: list[tuple[str, str, dict[str, Any], str, dict[str, Any], str, frozenset
         "SP-OP-ESCALATION-001",
         frozenset({"dossie_lucas", "lucas_route", "motivo_encaminhamento", "grupo_humano_sugerido"}),
         frozenset(
-            {"dossie_lucas", "lucas_route", "motivo_encaminhamento", "grupo_humano_sugerido", "dmn_decision_refs"}
+            {
+                "dossie_lucas",
+                "lucas_route",
+                "motivo_encaminhamento",
+                "grupo_humano_sugerido",
+                "dmn_decision_refs",
+            }
         ),
     ),
     (
@@ -248,7 +260,13 @@ _CASES: list[tuple[str, str, dict[str, Any], str, dict[str, Any], str, frozenset
         },
         "SP-OP-NIP-001",
         frozenset(
-            {"source_agent_id", "source_agent_version", "dossie_gustavo", "gustavo_route", "motivo_encaminhamento"}
+            {
+                "source_agent_id",
+                "source_agent_version",
+                "dossie_gustavo",
+                "gustavo_route",
+                "motivo_encaminhamento",
+            }
         ),
         frozenset(
             {
@@ -266,10 +284,21 @@ _CASES: list[tuple[str, str, dict[str, Any], str, dict[str, Any], str, frozenset
         "GustavoGraph",
         {"fhir": None},
         "start_process",
-        {"tenant_id": "amh", "business_key": "ANSSUB-amh-1", "route": "review_submission", "fluxo": "ans_submit"},
+        {
+            "tenant_id": "amh",
+            "business_key": "ANSSUB-amh-1",
+            "route": "review_submission",
+            "fluxo": "ans_submit",
+        },
         "SP-OP-ANS-SUBMIT-001",
         frozenset(
-            {"source_agent_id", "source_agent_version", "dossie_gustavo", "gustavo_route", "motivo_encaminhamento"}
+            {
+                "source_agent_id",
+                "source_agent_version",
+                "dossie_gustavo",
+                "gustavo_route",
+                "motivo_encaminhamento",
+            }
         ),
         frozenset(
             {
@@ -290,7 +319,13 @@ _CASES: list[tuple[str, str, dict[str, Any], str, dict[str, Any], str, frozenset
         {"tenant_id": "amh", "business_key": "PROG-amh-1", "route": "auto_route", "programa": "cronicos"},
         "SP-OP-PROGRAMA-001",
         frozenset(
-            {"source_agent_id", "source_agent_version", "dossie_valentina", "valentina_task", "valentina_route"}
+            {
+                "source_agent_id",
+                "source_agent_version",
+                "dossie_valentina",
+                "valentina_task",
+                "valentina_route",
+            }
         ),
         frozenset(
             {
@@ -313,7 +348,13 @@ _CASES: list[tuple[str, str, dict[str, Any], str, dict[str, Any], str, frozenset
         {"tenant_id": "amh", "business_key": "INAD-amh-1", "route": "escalate"},
         "SP-OP-INADIMPLENCIA-001",
         frozenset(
-            {"source_agent_id", "source_agent_version", "dossie_fernando", "fernando_route", "motivo_encaminhamento"}
+            {
+                "source_agent_id",
+                "source_agent_version",
+                "dossie_fernando",
+                "fernando_route",
+                "motivo_encaminhamento",
+            }
         ),
         frozenset(
             {
