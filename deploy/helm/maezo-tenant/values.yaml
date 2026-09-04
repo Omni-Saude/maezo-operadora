@@ -277,9 +277,21 @@ notificationsBridge:
 # tenant_id+regiao_saude+especialidade). Sibling do notifications-bridge, MESMA identidade de
 # principal de SERVICO `notifications-bridge` (allowlist minima: so start_process). NAO sobe app
 # de health (liveness por processo).
+#
+# DEFAULT FLIPPED TO false (AF-01 / R-001, mesmo padrao que `fhirSync` ja adota acima):
+# `deployment-bridge-netchange.yaml`'s `command: ["python", "-m",
+# "maezo.platform.integrations.network_change_bridge"]` aponta para um modulo que NAO existe em
+# src/ — `ls src/maezo/platform/integrations/` so tem `notifications_bridge.py` (+
+# `events_kafka_producer.py`, `amh_inbox.py`, `partition_key.py`, `__init__.py`). Todo pod desta
+# ponte entraria em CrashLoopBackOff imediato (`ModuleNotFoundError`) — mesma classe de defeito do
+# fhir-sync acima (DB-1/t5-deploy-hygiene). `scripts/ci/check_helm_entrypoints.py` (Makefile target
+# `check-helm-entrypoints`, job `validate-helm` em ci.yml) agora falha fechado se este flag voltar
+# a `true` sem o modulo existir — NAO reverta so' este valor sem construir
+# `maezo.platform.integrations.network_change_bridge` primeiro (isso e' a opcao D do memorando
+# M-01, recusada; ver OWNER-DECISIONS-REGISTER R-001).
 # ---------------------------------------------------------------------------
 networkChangeBridge:
-  enabled: true
+  enabled: false
   replicaCount: 1
   resources:
     requests:
@@ -299,9 +311,15 @@ networkChangeBridge:
 # identidade de principal de SERVICO DEDICADA `consent-revocation-bridge` (allowlist minima: so
 # correlate_message — nunca start_process, least-privilege). NAO sobe app de health (liveness por
 # processo).
+#
+# DEFAULT FLIPPED TO false (AF-01 / R-001, mesmo padrao que `fhirSync` ja adota acima):
+# `deployment-bridge-consent-revocation.yaml`'s `command: ["python", "-m",
+# "maezo.platform.integrations.consent_revocation_bridge"]` aponta para um modulo que NAO existe em
+# src/ (mesmo `ls` acima) — CrashLoopBackOff garantido. Mesmo fence e mesma condicao de reversao do
+# comentario de `networkChangeBridge` logo acima (ver OWNER-DECISIONS-REGISTER R-001).
 # ---------------------------------------------------------------------------
 consentRevocationBridge:
-  enabled: true
+  enabled: false
   replicaCount: 1
   resources:
     requests:

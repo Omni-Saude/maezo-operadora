@@ -303,6 +303,21 @@ jobs:
             -f deploy/helm/maezo-tenant/values-amh.yaml \
             --debug > /dev/null
 
+      - name: Helm entrypoint fence (AF-01 / R-001 — no phantom `python -m maezo.*` module)
+        # Renders the chart for real and resolves every python -m maezo.<module> command it finds
+        # as a real import (importlib.util.find_spec against src/) — catches a Deployment whose
+        # command targets a module that does not exist (guaranteed CrashLoopBackOff) before merge.
+        # See scripts/ci/check_helm_entrypoints.py.
+        run: uv run python scripts/ci/check_helm_entrypoints.py
+
+      - name: Chart/Terraform env-name reconciliation (DU-02 / R-002)
+        # Every MAEZO_/WHATSAPP_/CIBSEVEN_/KAFKA_-prefixed env name declared in deploy/helm/**
+        # (rendered) and deploy/**/*.tf must be read somewhere in src/, and every REQUIRED
+        # (no-default) env name a src/ BaseSettings class declares must be declared somewhere in
+        # the chart/TF — catches a rename drift like job-migrations.yaml's MAEZO_TENANT vs
+        # env.py's MAEZO_TENANT_ID before merge. See scripts/ci/check_chart_env_reconciliation.py.
+        run: uv run python scripts/ci/check_chart_env_reconciliation.py
+
       # ── DESABILITADO: tests/unit/platform/test_provision_tenant.py ainda não
       # existe. NetworkPolicy egress tests serão implementados quando o módulo
       # de provisionamento de tenant for construído (post-M13).
