@@ -386,16 +386,19 @@ class HelenaDispatcher:
         # compile) is passed through as a no-op config, so this call site is single-path.
         try:
             result = await compiled.ainvoke(initial_state, thread_config)
-        except Exception:
+        except Exception as exc:
             # ALERTS-WITHOUT-METRICS-a. This receiver is the SECOND turn-execution seam in the
             # repo — it compiles and invokes Helena's graph directly rather than through
             # `runtime.harness.Harness.invoke`, so instrumenting only the harness would have left
             # the ONE live agent path uncounted. `asyncio.CancelledError` is deliberately excluded
             # (BaseException): a drained turn is not a failed agent. See
             # `maezo.platform.observability.record_agent_error` for the full contract.
+            # ALERT-COUNTER-LABELS / R-063: this dispatcher only ever runs Helena's graph
+            # (`agent_version="helena@v0"` above), so the `agent` label is the literal id.
             from maezo.platform.observability import record_agent_error  # noqa: PLC0415
+            from maezo.runtime.metrics import classify_agent_error_type  # noqa: PLC0415
 
-            record_agent_error()
+            record_agent_error(agent="helena", error_type=classify_agent_error_type(exc))
             raise
         logger.info(
             "helena_dispatch_turn_completed",

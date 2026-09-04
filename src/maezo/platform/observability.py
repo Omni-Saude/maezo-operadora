@@ -431,7 +431,7 @@ def bootstrap_observability(
 # ---------------------------------------------------------------------------
 
 
-def record_tool_call() -> None:
+def record_tool_call(*, agent: str) -> None:
     """Count ONE gated tool/effect invocation — `maezo_tool_calls_total`.
 
     Called from `maezo.gateway.seams._base.gate` — the ONE per-call chokepoint every gated seam
@@ -439,47 +439,77 @@ def record_tool_call() -> None:
     worker-side. Counting here rather than in each wrapper is what makes coverage structural: a
     seam that skipped this counter would also have skipped the policy decision.
 
-    NO LABELS, DELIBERATELY, and this is not laziness — it is read off the alert. The shipped
-    `MaezoSLAAgentErrorRateHigh` expr is
-    `rate(maezo_agent_errors_total[5m]) / rate(maezo_tool_calls_total[5m])`
-    (`deploy/observability/alert-rules.yml:38-42`), a binary operation whose default vector
-    matching requires the two operands to carry IDENTICAL label sets. Giving this counter a
-    `tool`/`principal` label that `maezo_agent_errors_total` cannot also carry would produce an
-    empty result — an alert that can never fire, which is the exact defect class
-    ALERTS-WITHOUT-METRICS-a exists to close. Widening both counters to a shared label set is a
-    real option and is recorded in `docs/review-queue.md` as an owner decision, because it is only
-    safe together with an `alert-rules.yml` edit and `deploy/` is owner-gated.
+    Args:
+        agent: `SeamContext.principal` — the agent id (or `worker_runtime` for the worker daemon).
+
+    LABELS (ALERT-COUNTER-LABELS / R-063, 2026-09-04): `labelnames=["agent", "error_type"]`,
+    widened from label-free. `error_type` is ALWAYS `metrics.AGENT_ERROR_TYPE_NONE` here — a tool
+    call is counted regardless of outcome, so "error_type" is not a meaningful concept at this
+    call site; the sentinel exists only so this counter's label SET matches
+    `maezo_agent_errors_total`'s. That still matters for the shipped
+    `MaezoSLAAgentErrorRateHigh` expr, `sum by (agent) (rate(maezo_agent_errors_total[5m])) / sum
+    by (agent) (rate(maezo_tool_calls_total[5m]))` (`deploy/observability/alert-rules.yml`): the
+    `by (agent)` aggregation is what makes the binary operation's vector matching succeed despite
+    `error_type` differing between numerator and denominator, NOT label-set equality — see
+    `docs/review-queue.md`'s now-resolved entry for the label-free-era rationale this replaces.
 
     Best-effort: telemetry must never break an effect call, so the caller guards it.
     """
-    _get_metrics_collector().tool_calls.inc()
+    from maezo.runtime.metrics import AGENT_ERROR_TYPE_NONE  # noqa: PLC0415 — lazy, no import-time coupling
+
+    _get_metrics_collector().tool_calls.labels(agent=agent, error_type=AGENT_ERROR_TYPE_NONE).inc()
 
 
-def record_agent_error() -> None:
+def record_agent_error(*, agent: str, error_type: str) -> None:
     """Count ONE failed agent turn — `maezo_agent_errors_total`.
 
-    Called from the TWO turn-execution seams this repo has, both of them platform composition code
-    and neither of them inside an agent graph:
-      * `maezo.runtime.harness.Harness.invoke` (the agent-runtime ingress path), and
+    Called from the turn-execution seams this repo has, all of them platform/agent composition
+    code and none of them inside an agent graph's own nodes:
+      * `maezo.runtime.harness.Harness.invoke` (the agent-runtime ingress path),
       * `maezo.platform.webhooks.whatsapp.dispatch.HelenaDispatcher.dispatch` (the live WhatsApp
         receiver, which compiles and `ainvoke`s Helena's graph directly rather than through
-        `Harness`).
-    `tests/unit/platform/test_alert_metrics_fence.py::test_every_turn_execution_seam_counts_agent_errors`
-    pins that enumeration so a THIRD turn seam cannot appear un-instrumented.
+        `Harness`), and
+      * the three A2A delegation handlers (`agents/{rafael,andre,carolina}/delegation.py`).
+    `tests/unit/platform/test_alert_metrics_fence.py::test_every_graph_invocation_in_src_counts_agent_errors`
+    pins that enumeration so a new turn seam cannot appear un-instrumented.
+
+    Args:
+        agent: the agent id (`Harness._agent_id`, or a literal per-module id at the delegation/
+            WhatsApp call sites). `metrics.AGENT_ERROR_TYPE_NONE`'s sibling sentinel for "no agent
+            declared" is deliberately NOT reused here — an undeclared AGENT is a different
+            situation from a NO-ERROR tool call, so callers pass `"nao_declarado"` explicitly
+            (`Harness._agent_id` can be `None` for the trivial default graph).
+        error_type: MUST be a `metrics.AGENT_ERROR_TYPES` member. An unknown value is NOT raised
+            on — this function's whole contract is "never break the turn's real exception" — it is
+            mapped to `metrics.AGENT_ERROR_TYPE_OUTRO` and logged, so a caller that ever passes a
+            free-text value gets a bounded label instead of an unbounded one, never a crash.
 
     WHAT IS AND IS NOT AN "AGENT ERROR" HERE. A turn that raised out of the graph is one. A policy
     DENIAL at the effect chokepoint is NOT — `gate()` refusing an effect is the system working, and
     counting it would make `MaezoAgentCrashLoop` (`rate(maezo_agent_errors_total[1m]) > 0`) fire on
     correct refusals. That distinction is a judgement, so it is written down rather than implied.
 
-    Label-free for the same vector-matching reason as :func:`record_tool_call`.
+    LABELS (ALERT-COUNTER-LABELS / R-063): see :func:`record_tool_call` for the shared-label-set
+    rationale this pair now uses.
 
     GUARDED INTERNALLY (unlike :func:`record_tool_call`, whose caller guards it): every call site
     is an `except` block that is about to RE-RAISE the real failure, and a metrics fault there
     would replace the turn's genuine exception with a telemetry one — the worst possible trade.
     """
     try:
-        _get_metrics_collector().errors.inc()
+        from maezo.runtime.metrics import (  # noqa: PLC0415 — lazy, no import-time coupling
+            AGENT_ERROR_TYPE_OUTRO,
+            AGENT_ERROR_TYPES,
+        )
+
+        resolved_error_type = error_type if error_type in AGENT_ERROR_TYPES else AGENT_ERROR_TYPE_OUTRO
+        if resolved_error_type != error_type:
+            logger.debug(
+                "agent_error_type_not_in_catalogue_falling_back",
+                received=error_type,
+                fallback=resolved_error_type,
+            )
+        _get_metrics_collector().errors.labels(agent=agent, error_type=resolved_error_type).inc()
     except Exception:  # noqa: BLE001 — never mask the turn failure this is counting.
         logger.debug("agent_error_metric_emit_failed", exc_info=True)
 

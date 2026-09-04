@@ -347,7 +347,7 @@ async def _pre_effect_audit(seam: SeamContext, decision: EffectDecision, operati
         raise denial_for(decision)
 
 
-def _count_tool_call(operation: str) -> None:
+def _count_tool_call(operation: str, *, agent: str) -> None:
     """Increment `maezo_tool_calls_total` for ONE gated invocation. Never raises onto the effect path.
 
     ALERTS-WITHOUT-METRICS-a: `deploy/observability/alert-rules.yml:36-52`'s
@@ -357,6 +357,12 @@ def _count_tool_call(operation: str) -> None:
     seam calls exactly once per invocation; a seam that skipped the counter would also have skipped
     the decision, so coverage is structural rather than a convention.
 
+    Args:
+        operation: the catalogue token this invocation gates — logged, not labelled (unbounded).
+        agent: `SeamContext.principal` (ALERT-COUNTER-LABELS / R-063) — the `agent` label on
+            `maezo_tool_calls_total`, letting `MaezoSLAAgentErrorRateHigh` aggregate `by (agent)`
+            instead of collapsing every agent into one series.
+
     The local import mirrors the module's own discipline of keeping `maezo.gateway`'s policy core
     free of import-time coupling to the observability stack (`effect_pep.py`'s note on
     `maezo.tools`), and the broad guard mirrors `_emit`'s: telemetry never reaches a care path.
@@ -365,7 +371,7 @@ def _count_tool_call(operation: str) -> None:
     try:
         from maezo.platform.observability import record_tool_call  # noqa: PLC0415 — lazy
 
-        record_tool_call()
+        record_tool_call(agent=agent)
     except Exception:  # noqa: BLE001 — a metric error must never break an effect call.
         logger.debug("effect_seam_tool_call_metric_failed", operation=operation, exc_info=True)
 
@@ -393,7 +399,7 @@ async def gate(
     denied call still counts as an attempted invocation — the alert's denominator is "tool calls
     the agents made", not "tool calls the policy allowed".
     """
-    _count_tool_call(operation)
+    _count_tool_call(operation, agent=seam.principal)
     decision = decide_effect(
         tenant=seam.tenant,
         principal=seam.principal,

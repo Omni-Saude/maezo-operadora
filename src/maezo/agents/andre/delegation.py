@@ -643,7 +643,7 @@ def make_andre_handler(
         state = state_from_envelope(envelope)
         try:
             result: dict[str, Any] = await compiled.ainvoke(state)
-        except Exception:
+        except Exception as exc:
             # ALERTS-WITHOUT-METRICS-a: a delegated turn that raised IS a failed agent turn, and
             # `maezo_agent_errors_total` is what `MaezoAgentCrashLoop` reads. Placed at the
             # `ainvoke` seam — the structural entry to a graph run — and NOT anywhere in andre's
@@ -653,8 +653,9 @@ def make_andre_handler(
             # `tests/unit/platform/test_alert_metrics_fence.py::
             # test_every_graph_invocation_in_src_counts_agent_errors`.
             from maezo.platform.observability import record_agent_error  # noqa: PLC0415
+            from maezo.runtime.metrics import classify_agent_error_type  # noqa: PLC0415
 
-            record_agent_error()
+            record_agent_error(agent="andre", error_type=classify_agent_error_type(exc))
             raise
         business_key = _resolved_business_key(state, result)
         # GUARDRAIL: output_ref is the case/cell reference — never a payment release, a price, or

@@ -34,10 +34,76 @@ and `maezo_tool_calls_total`. The last two had NO emitter in `src/` at all until
 
 from __future__ import annotations
 
+from typing import Final
+
 import structlog
 from prometheus_client import CollectorRegistry, Counter, Histogram
 
 logger = structlog.get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# ALERT-COUNTER-LABELS / R-063 (owner-ratified 2026-09-04): closed `error_type` vocabulary for
+# the `maezo_tool_calls_total`/`maezo_agent_errors_total` labels added below. Bounded on purpose —
+# the raw exception CLASS NAME is unbounded (a new exception type would mint a new series forever,
+# the exact cardinality hazard `worker_task_total`/`llm_tokens` warn against above), so
+# `classify_agent_error_type` maps every exception to one of these tokens and nothing else reaches
+# the label.
+# ---------------------------------------------------------------------------
+
+AGENT_ERROR_TYPE_VALIDACAO: Final[str] = "validacao"
+AGENT_ERROR_TYPE_TIMEOUT: Final[str] = "timeout"
+AGENT_ERROR_TYPE_UPSTREAM_INDISPONIVEL: Final[str] = "upstream_indisponivel"
+AGENT_ERROR_TYPE_RUNTIME: Final[str] = "runtime"
+AGENT_ERROR_TYPE_OUTRO: Final[str] = "outro"
+
+#: Sentinel for `maezo_tool_calls_total`'s `error_type` label. A tool call is counted on every
+#: gated invocation regardless of outcome (`_count_tool_call`, gateway/seams/_base.py) — it is not
+#: about an error at all, so "error_type" has no natural value there. This token exists ONLY so
+#: both counters share the same label SET, which is what lets
+#: `sum by (agent) (rate(maezo_agent_errors_total[5m])) / sum by (agent)
+#: (rate(maezo_tool_calls_total[5m]))` (alert-rules.yml `MaezoSLAAgentErrorRateHigh`) evaluate per
+#: agent without PromQL's default vector matching failing on a mismatched label set.
+AGENT_ERROR_TYPE_NONE: Final[str] = "nao_aplicavel"
+
+AGENT_ERROR_TYPES: Final[frozenset[str]] = frozenset(
+    {
+        AGENT_ERROR_TYPE_VALIDACAO,
+        AGENT_ERROR_TYPE_TIMEOUT,
+        AGENT_ERROR_TYPE_UPSTREAM_INDISPONIVEL,
+        AGENT_ERROR_TYPE_RUNTIME,
+        AGENT_ERROR_TYPE_OUTRO,
+        AGENT_ERROR_TYPE_NONE,
+    }
+)
+
+#: Exact exception CLASS NAME -> bounded `error_type` token. Deliberately an EXACT lookup (no
+#: isinstance/MRO walk): a subclass not listed here falls back to `AGENT_ERROR_TYPE_OUTRO` rather
+#: than silently inheriting a category nobody reviewed for it.
+_AGENT_ERROR_TYPE_BY_EXCEPTION_CLASS: Final[dict[str, str]] = {
+    "ValueError": AGENT_ERROR_TYPE_VALIDACAO,
+    "TypeError": AGENT_ERROR_TYPE_VALIDACAO,
+    "KeyError": AGENT_ERROR_TYPE_VALIDACAO,
+    "ValidationError": AGENT_ERROR_TYPE_VALIDACAO,  # pydantic
+    "TimeoutError": AGENT_ERROR_TYPE_TIMEOUT,
+    "ConnectTimeout": AGENT_ERROR_TYPE_TIMEOUT,  # httpx
+    "ReadTimeout": AGENT_ERROR_TYPE_TIMEOUT,  # httpx
+    "ConnectionError": AGENT_ERROR_TYPE_UPSTREAM_INDISPONIVEL,
+    "ConnectError": AGENT_ERROR_TYPE_UPSTREAM_INDISPONIVEL,  # httpx
+    "HTTPStatusError": AGENT_ERROR_TYPE_UPSTREAM_INDISPONIVEL,  # httpx
+    "OSError": AGENT_ERROR_TYPE_UPSTREAM_INDISPONIVEL,
+    "RuntimeError": AGENT_ERROR_TYPE_RUNTIME,
+}
+
+
+def classify_agent_error_type(exc: BaseException) -> str:
+    """Map one exception instance to a bounded `error_type` label value (ALERT-COUNTER-LABELS / R-063).
+
+    Exact `type(exc).__name__` lookup against `_AGENT_ERROR_TYPE_BY_EXCEPTION_CLASS`; anything not
+    listed maps to `AGENT_ERROR_TYPE_OUTRO` — never the raw class name, never free text. Never
+    raises: a classification fault must not be able to break the `except` block calling it.
+    """
+    return _AGENT_ERROR_TYPE_BY_EXCEPTION_CLASS.get(type(exc).__name__, AGENT_ERROR_TYPE_OUTRO)
 
 
 class MetricsCollector:
@@ -64,12 +130,14 @@ class MetricsCollector:
         self._tool_calls = Counter(
             "maezo_tool_calls_total",
             "Total number of tool call invocations",
+            labelnames=["agent", "error_type"],
             registry=self._registry,
         )
 
         self._errors = Counter(
             "maezo_agent_errors_total",
             "Total number of agent errors",
+            labelnames=["agent", "error_type"],
             registry=self._registry,
         )
 
