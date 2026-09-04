@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""CI gate: every `python -m maezo.<module>` entrypoint the Helm chart renders resolves to a REAL
-importable module in `src/` (AF-01 / R-001).
+"""CI gate: every `python -m maezo.<module>` entrypoint the Helm chart / Terraform renders resolves
+to a REAL importable module in `src/` (AF-01 / R-001).
 
 Why this exists
 ----------------
@@ -14,24 +14,52 @@ flipped to `enabled: false` (t5-deploy-hygiene) with nothing mechanical stopping
 sibling — from being flipped back to `true`, or a NEW phantom-module template being added, without
 anyone noticing until a real `helm install`.
 
-This gate makes that class of defect impossible to reintroduce silently: it renders the chart
-(`helm template`, real binary, no mock) and resolves every `python -m maezo.<module>` command it
-finds as a REAL import via `importlib.util.find_spec` against the installed `maezo` package
-(editable-installed from `src/` in this repo's venv — see `pyproject.toml`). A module that does not
-exist, or whose parent package fails to import, fails the gate loudly and names the offending
-Helm template (`# Source: ...` comment `helm template` emits per-manifest) and Kubernetes resource.
+This gate renders the chart (`helm template`, real binary, no mock) AND scans every
+`deploy/**/*.tf` file, extracts every entrypoint either shape declares, and resolves each as a REAL
+import via `importlib.util.find_spec` against the installed `maezo` package (editable-installed
+from `src/` in this repo's venv — see `pyproject.toml`). A module that does not exist, or whose
+parent package fails to import, fails the gate loudly and names the offending template/file
+(`# Source: ...` for a Helm manifest, the `.tf` path otherwise) and, for Helm, the Kubernetes
+resource.
+
+What is covered, and what is not (gatekeeper finding F4)
+-----------------------------------------------------------
+An earlier revision matched only the literal quoted-list form `"python", "-m", "maezo.<module>"`
+inside `command:` and claimed this "makes that class of defect impossible to reintroduce silently"
+— false as written: it missed `sh -c`/`bash -c` shell-string invocations, `python3`, bare `-m` in
+an `args:` list (no preceding interpreter token), and every `deploy/**/*.tf` container definition —
+including THIS SAME PR's own `service-a2a-outbox-relay.tf`, which invokes the relay via
+`command = ["sh", "-c", "... exec python -m maezo.a2a.outbox_relay"]`, a shape the old regex could
+not see. `_ENTRYPOINT_RE` now matches, case-sensitively, in either a rendered Helm manifest or raw
+`.tf` text:
+
+  - the quoted-list form, `"python"`/`"python3"` optionally followed by `"-m"`, `"maezo.<module>"`
+    (covers both `command:` and `args:` — the interpreter token is optional so a bare
+    `["-m", "maezo.<module>"]` under `args:` with an image `ENTRYPOINT` supplying the interpreter
+    still resolves); and
+  - the plain shell-word form, `python`/`python3` followed by whitespace, `-m`, whitespace,
+    `maezo.<module>` — the shape that appears verbatim inside a `sh -c`/`bash -c` string or a
+    Terraform heredoc, since Helm/Terraform never re-quote a shell command's own internal tokens.
+
+Still NOT covered, honestly: an entrypoint reached through a wrapper script file, an
+`exec "$VAR"`-style indirection, a language/module name other than `maezo.<dotted>`, or any shape
+this regex does not literally match. A rendered manifest or `.tf` sweep that extracts ZERO
+entrypoints is treated as a hard failure (`EntrypointCheckResult.ok` requires `found` to be
+non-empty) rather than a vacuous pass — the fence would rather fail loudly on its own extraction
+breaking than silently stop checking anything.
 
 Design
 ------
 Mirrors `scripts/ci/check_start_process_fence.py`: a pure, dependency-light core
-(`extract_entrypoints` + `resolve_entrypoints`) that never shells out, plus a thin `render_chart`
-subprocess wrapper and a CLI `main`. The pure core is unit-testable against synthetic rendered-YAML
-fixtures (RED on an injected phantom module) independently of whether `helm` is on PATH; the
+(`extract_entrypoints` + `extract_entrypoints_from_terraform` + `resolve_entrypoints`) that never
+shells out, plus a thin `render_chart` subprocess wrapper and a CLI `main`. The pure core is
+unit-testable against synthetic rendered-YAML/`.tf` fixtures (RED on an injected phantom module, one
+test per covered shape, plus the vacuity test) independently of whether `helm` is on PATH; the
 CLI-level tests additionally prove GREEN against the real chart with default values (both flags now
 `false` — see AF-01) and RED when the two flags are forced back on via `--set` (proving the fence
 would have caught the original defect, and catches any future regression to it), and prove the new
-`deployment-a2a-outbox-relay.yaml` template (SC-01, `maezo.a2a.outbox_relay` — a REAL module) is
-accepted once its own flag is forced on.
+`deployment-a2a-outbox-relay.yaml` template (SC-01, `maezo.a2a.outbox_relay` — a REAL module,
+covered via BOTH the Helm render and `service-a2a-outbox-relay.tf`'s `sh -c` form) is accepted.
 
 Usage (CI / local)
 -------------------
@@ -60,14 +88,26 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CHART = "deploy/helm/maezo-tenant"
 DEFAULT_RELEASE = "maezo-ci"
 DEFAULT_VALUE_FILES: tuple[str, ...] = ("deploy/helm/maezo-tenant/values-amh.yaml",)
+DEFAULT_TF_ROOT = "deploy"
 
-#: Matches a `command: ["python", "-m", "maezo.<module...>"]` (or `["python", "-m",
-#: "maezo.<module...>", "<extra arg>"]`, e.g. cronjob-lifecycle.yaml's subcommand) list emitted by
-#: `helm template`. Rendered output is always fully literal (Helm resolves every `{{ }}` before
-#: printing) so a plain regex over the text is sufficient and, unlike a full YAML-structure walk,
-#: cannot be fooled by the command living inside an `initContainers:` vs `containers:` list, a
-#: CronJob's nested `jobTemplate`, or any other nesting shape a future template introduces.
-_ENTRYPOINT_RE = re.compile(r'"python"\s*,\s*"-m"\s*,\s*"(maezo(?:\.[A-Za-z_][A-Za-z0-9_]*)+)"')
+#: The module-name shape every covered form must end in: `maezo` plus one-or-more `.segment`s.
+_MODULE = r"maezo(?:\.[A-Za-z_][A-Za-z0-9_]*)+"
+
+#: Matches EITHER of the two shapes the module docstring's "What is covered" section names:
+#:   1. quoted-list form: `"python"`/`"python3"` (OPTIONAL — covers a bare `-m` under `args:` with
+#:      no interpreter token of its own), `"-m"`, `"maezo.<module>"` — comma/quote-separated, as
+#:      `helm template` emits a `command:`/`args:` flow-sequence written that way in the template
+#:      source.
+#:   2. plain shell-word form: `python`/`python3` (REQUIRED here — a bare `-m` as loose shell text
+#:      with no interpreter is not a realistic invocation and would be indistinguishable from
+#:      prose), whitespace, `-m`, whitespace, `maezo.<module>` — the shape that survives verbatim
+#:      inside a `sh -c`/`bash -c` string (Helm/Terraform never re-quote a shell command's own
+#:      internal tokens) or a Terraform heredoc.
+#: Group 1 carries the module for shape 1, group 2 for shape 2 — `extract_entrypoints`/
+#: `extract_entrypoints_from_terraform` read whichever fired.
+_ENTRYPOINT_RE = re.compile(
+    r'(?:"python3?"\s*,\s*)?"-m"\s*,\s*"(' + _MODULE + r')"' r"|python3?\s+-m\s+(" + _MODULE + r")"
+)
 
 #: `helm template` prefixes every rendered manifest with this comment naming its source template
 #: (default behavior, no flag needed) — used to attribute each entrypoint match to a file for a
@@ -93,13 +133,22 @@ class EntrypointCheckResult:
 
     @property
     def ok(self) -> bool:
-        return not self.missing and not self.errored
+        # `not self.found` is a hard failure, never a vacuous pass (module docstring, gatekeeper
+        # finding F4): an extraction sweep that finds NOTHING almost certainly means the regex (or
+        # the render/scan itself) broke, not that the platform genuinely has zero entrypoints.
+        return bool(self.found) and not self.missing and not self.errored
 
     def render(self) -> str:
         lines: list[str] = [
             f"check_helm_entrypoints: {len(self.found)} entrypoint(s) found, "
             f"{len(self.found) - len(self.missing) - len(self.errored)} resolved."
         ]
+        if not self.found:
+            lines.append(
+                "  NO ENTRYPOINTS FOUND — refusing to pass vacuously. Either the chart/TF tree "
+                "genuinely has zero `python -m maezo.<module>` invocations (verify by hand before "
+                "trusting this), or extraction is broken."
+            )
         for ref in self.missing:
             where = ref.source_template or "<unknown template>"
             lines.append(
@@ -117,8 +166,15 @@ class EntrypointCheckResult:
         return "\n".join(lines)
 
 
+def _module_from_match(match: re.Match[str]) -> str:
+    """Either alternative of `_ENTRYPOINT_RE` can fire; group 1 is the quoted-list form's capture,
+    group 2 the plain-shell-word form's — exactly one is non-`None` per match."""
+    return match.group(1) or match.group(2)
+
+
 def extract_entrypoints(rendered_text: str) -> list[EntrypointRef]:
-    """Pure: find every `python -m maezo.<module>` command in rendered Helm YAML text.
+    """Pure: find every covered `python -m maezo.<module>` shape in rendered Helm YAML text (see
+    the module docstring's "What is covered" section for the exact shapes).
 
     Tracks the most recent `# Source: <template>` comment line so each match can be attributed to
     the template that emitted it (helm template's default per-manifest header — no `--debug`/extra
@@ -132,7 +188,29 @@ def extract_entrypoints(rendered_text: str) -> list[EntrypointRef]:
             current_source = source_match.group(1)
             continue
         for match in _ENTRYPOINT_RE.finditer(line):
-            refs.append(EntrypointRef(module=match.group(1), source_template=current_source))
+            refs.append(EntrypointRef(module=_module_from_match(match), source_template=current_source))
+    return refs
+
+
+def extract_entrypoints_from_terraform(tf_root: Path) -> list[EntrypointRef]:
+    """Pure-ish (filesystem read only): find every covered entrypoint shape in `<tf_root>/**/*.tf`.
+
+    ECS task definitions declare their `command` as raw text (often inside a `<<-SH ... SH`
+    heredoc, e.g. `service-a2a-outbox-relay.tf`'s `exec python -m maezo.a2a.outbox_relay`) rather
+    than as rendered Helm YAML, so this reuses the SAME `_ENTRYPOINT_RE` against the `.tf` file's
+    own text, attributing each match to the file's repo-relative path (there is no per-manifest
+    `# Source:` header to track, unlike `extract_entrypoints`).
+    """
+    refs: list[EntrypointRef] = []
+    for tf_path in sorted(tf_root.rglob("*.tf")):
+        text = tf_path.read_text(encoding="utf-8", errors="ignore")
+        try:
+            rel = str(tf_path.relative_to(REPO_ROOT))
+        except ValueError:
+            rel = str(tf_path)
+        for line in text.splitlines():
+            for match in _ENTRYPOINT_RE.finditer(line):
+                refs.append(EntrypointRef(module=_module_from_match(match), source_template=rel))
     return refs
 
 
@@ -208,6 +286,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=[],
         help="repeatable `helm template --set` override (e.g. to force a gated flag on)",
     )
+    parser.add_argument(
+        "--tf-root",
+        default=DEFAULT_TF_ROOT,
+        help=f"scanned recursively for *.tf entrypoints too (default {DEFAULT_TF_ROOT!r})",
+    )
     return parser
 
 
@@ -225,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"check_helm_entrypoints: helm template FAILED: {exc}", file=sys.stderr)
         return 1
 
-    refs = extract_entrypoints(rendered)
+    refs = extract_entrypoints(rendered) + extract_entrypoints_from_terraform(REPO_ROOT / args.tf_root)
     result = resolve_entrypoints(refs)
     print(result.render())
     return 0 if result.ok else 1

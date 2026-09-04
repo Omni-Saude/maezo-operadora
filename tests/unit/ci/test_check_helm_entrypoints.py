@@ -1,6 +1,6 @@
 """Unit tests for the Helm-entrypoint fence (AF-01 / R-001).
 
-Three layers:
+Four layers:
 
 1. **Synthetic-tree** (`extract_entrypoints`/`resolve_entrypoints` directly): a throwaway rendered-
    YAML fixture with an injected phantom module proves the gate goes RED without needing `helm` on
@@ -11,6 +11,10 @@ Three layers:
    flags forced back to `true` via `--set`, proves the gate goes RED — i.e. reverting the
    `values.yaml` half of the AF-01 fix (without also building the two phantom modules) is caught
    mechanically, not just by review.
+4. **Widened coverage** (gatekeeper finding F4): one test per previously-uncovered shape — `sh -c`,
+   `bash -c`, `python3`, bare `-m` under `args:`, and `deploy/**/*.tf` container definitions —
+   each proving RED on an injected phantom AND GREEN on the corresponding real module, plus the
+   vacuity test (zero entrypoints found must fail, never pass).
 """
 
 from __future__ import annotations
@@ -21,12 +25,14 @@ import yaml
 from scripts.ci.check_helm_entrypoints import (
     EntrypointRef,
     extract_entrypoints,
+    extract_entrypoints_from_terraform,
     render_chart,
     resolve_entrypoints,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _VALUES_PATH = _REPO_ROOT / "deploy/helm/maezo-tenant/values.yaml"
+_TF_ROOT = _REPO_ROOT / "deploy"
 
 
 # ---------------------------------------------------------------------------
@@ -184,3 +190,126 @@ def test_bridges_are_disabled_by_default_in_values_yaml() -> None:
     values = yaml.safe_load(_VALUES_PATH.read_text(encoding="utf-8"))
     assert values["networkChangeBridge"]["enabled"] is False
     assert values["consentRevocationBridge"]["enabled"] is False
+
+
+# ---------------------------------------------------------------------------
+# 4. Widened coverage (gatekeeper finding F4) — one test per previously-uncovered shape
+# ---------------------------------------------------------------------------
+
+# The exact three probes from VERIFY-A1-HELM's F4 finding: before this fix, all three extracted
+# ZERO entrypoints (`_ENTRYPOINT_RE` required the literal quoted `"python", "-m", "maezo…"` triple).
+
+
+def test_extracts_sh_c_shell_form_and_catches_a_phantom_there() -> None:
+    rendered = (
+        "---\n"
+        "# Source: maezo-tenant/templates/deployment-phantom-shellform.yaml\n"
+        "command: [\"sh\", \"-c\", \"set -eu\\nexec python -m "
+        'maezo.platform.integrations.totally_phantom_shellform"]\n'
+    )
+    refs = extract_entrypoints(rendered)
+    assert [r.module for r in refs] == ["maezo.platform.integrations.totally_phantom_shellform"]
+    result = resolve_entrypoints(refs)
+    assert not result.ok
+    assert result.missing[0].module == "maezo.platform.integrations.totally_phantom_shellform"
+
+
+def test_extracts_bash_c_shell_form() -> None:
+    rendered = 'command: ["bash", "-c", "exec python3 -m maezo.a2a.outbox_relay"]\n'
+    refs = extract_entrypoints(rendered)
+    assert [r.module for r in refs] == ["maezo.a2a.outbox_relay"]
+    result = resolve_entrypoints(refs)
+    assert result.ok, result.render()
+
+
+def test_extracts_python3_quoted_list_form_and_catches_a_phantom_there() -> None:
+    rendered = 'command: ["python3", "-m", "maezo.platform.integrations.phantom_python3"]\n'
+    refs = extract_entrypoints(rendered)
+    assert [r.module for r in refs] == ["maezo.platform.integrations.phantom_python3"]
+    result = resolve_entrypoints(refs)
+    assert not result.ok
+    assert result.missing[0].module == "maezo.platform.integrations.phantom_python3"
+
+
+def test_extracts_bare_dash_m_under_args_and_catches_a_phantom_there() -> None:
+    """`args:` with no interpreter token (an image `ENTRYPOINT python3` supplies it) — a real shape
+    a Dockerfile-driven chart can use, distinct from `command:`."""
+    rendered = 'args:    ["-m", "maezo.platform.integrations.phantom_args"]\n'
+    refs = extract_entrypoints(rendered)
+    assert [r.module for r in refs] == ["maezo.platform.integrations.phantom_args"]
+    result = resolve_entrypoints(refs)
+    assert not result.ok
+    assert result.missing[0].module == "maezo.platform.integrations.phantom_args"
+
+
+def test_the_gatekeepers_exact_f4_probe_all_three_shapes_at_once() -> None:
+    """VERIFY-A1-HELM's F4 probe, verbatim: before this fix, all three extracted ZERO entrypoints
+    (fence GREEN on three simultaneous phantoms). Now all three are found and all three are RED."""
+    rendered = (
+        'command: ["sh", "-c", "set -eu\\nexec python -m '
+        'maezo.platform.integrations.totally_phantom_shellform"]\n'
+        'command: ["python3", "-m", "maezo.platform.integrations.phantom_python3"]\n'
+        'args:    ["-m", "maezo.platform.integrations.phantom_args"]\n'
+    )
+    refs = extract_entrypoints(rendered)
+    assert len(refs) == 3
+    result = resolve_entrypoints(refs)
+    assert not result.ok
+    assert len(result.missing) == 3
+
+
+def test_extracts_from_deploy_tf_and_catches_a_phantom_there(tmp_path: Path) -> None:
+    """`deploy/**/*.tf` container definitions (e.g. ECS task definitions) are scanned too — the
+    shape THIS SAME PR's own `service-a2a-outbox-relay.tf` uses (`sh -c` + `exec python -m
+    maezo.<real module>`), proven here against a synthetic phantom so it doesn't depend on which
+    real .tf files exist."""
+    tf_dir = tmp_path / "aws-ecs"
+    tf_dir.mkdir()
+    (tf_dir / "service-phantom.tf").write_text(
+        'command = ["sh", "-c", "set -eu\\nexec python -m '
+        'maezo.platform.integrations.totally_phantom_terraform"]\n',
+        encoding="utf-8",
+    )
+    refs = extract_entrypoints_from_terraform(tmp_path)
+    assert [r.module for r in refs] == ["maezo.platform.integrations.totally_phantom_terraform"]
+    assert refs[0].source_template is not None and refs[0].source_template.endswith(
+        "service-phantom.tf"
+    )
+    result = resolve_entrypoints(refs)
+    assert not result.ok
+
+
+def test_real_deploy_tf_tree_has_real_entrypoints_that_resolve() -> None:
+    """Non-vacuity: the real `deploy/**/*.tf` sweep genuinely finds entrypoints (SC-01's
+    `service-a2a-outbox-relay.tf` among them, in its `sh -c` form) and every one resolves — this is
+    what would have caught the original F4 gap, since `deploy/**/*.tf` was not scanned at all."""
+    refs = extract_entrypoints_from_terraform(_TF_ROOT)
+    modules = {r.module for r in refs}
+    assert "maezo.a2a.outbox_relay" in modules, "SC-01's ECS relay entrypoint must be found"
+    result = resolve_entrypoints(refs)
+    assert result.ok, result.render()
+
+
+def test_real_chart_and_tf_combined_default_render_is_still_green() -> None:
+    """The CLI's own combination (Helm render + `.tf` sweep, as `main()` does it) stays green on
+    the real tree — proves the two extraction sources don't conflict or double-fail anything."""
+    rendered = render_chart()
+    refs = extract_entrypoints(rendered) + extract_entrypoints_from_terraform(_TF_ROOT)
+    assert len(refs) > 10, "sanity: both sources contributed entrypoints"
+    result = resolve_entrypoints(refs)
+    assert result.ok, result.render()
+
+
+def test_vacuity_zero_entrypoints_found_is_not_ok() -> None:
+    """A manifest/TF sweep that extracts ZERO entrypoints must FAIL, never pass vacuously (the
+    fence would rather fail loudly on broken extraction than silently stop checking anything)."""
+    result = resolve_entrypoints([])
+    assert not result.ok
+    assert "NO ENTRYPOINTS FOUND" in result.render()
+
+
+def test_vacuity_does_not_trigger_when_entrypoints_are_found_and_resolved() -> None:
+    refs = [EntrypointRef(module="maezo.a2a.outbox_relay", source_template=None)]
+    result = resolve_entrypoints(refs)
+    assert result.ok, result.render()
+    assert "NO ENTRYPOINTS FOUND" not in result.render()
