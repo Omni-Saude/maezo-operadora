@@ -234,6 +234,39 @@ def test_the_compose_stack_no_longer_pulls_the_pgvector_image() -> None:
     assert not [image for image in images if image.startswith("pgvector/")], images
 
 
+#: Os DOIS arquivos de entrada do repositorio que descrevem a stack corrente em tempo PRESENTE.
+#: Escopo deliberadamente fechado nestes dois: `docs/decisions-log.md` (DL-0017), `docs/archive/**`,
+#: `PLANS.md` e as ADRs falam de pgvector como REGISTRO HISTORICO e continuam corretos.
+_PRESENT_TENSE_STACK_DOCS: tuple[str, ...] = ("PROJECT.md", "README.md")
+
+
+@pytest.mark.parametrize("doc", _PRESENT_TENSE_STACK_DOCS)
+def test_the_entry_point_docs_do_not_advertise_pgvector_as_current_stack(doc: str) -> None:
+    """Achado F3 do gatekeeper R1. `make dev-stack` e' `docker compose --profile core up -d`, cuja
+    imagem de postgres a decisao R-005 trocou — mas `PROJECT.md:3/:54` e `README.md:74` continuavam
+    anunciando "PostgreSQL+pgvector"/"postgres+pgvector" no PRESENTE.
+
+    Nao e' cosmetico: `docs/architecture/overview.md:89` repete a linha de stack CITANDO
+    `PROJECT.md` como fonte, entao corrigir uma e nao a outra deixava o proprio ramo com dois
+    documentos em contradicao, o derivado certo e a fonte errada.
+    """
+    text = (Path(__file__).resolve().parents[3] / doc).read_text(encoding="utf-8")
+    offenders = [
+        f"{doc}:{number}: {line.strip()}"
+        for number, line in enumerate(text.splitlines(), start=1)
+        if "pgvector" in line
+    ]
+    assert not offenders, offenders
+
+
+def test_the_stack_line_of_the_two_entry_docs_still_names_postgres() -> None:
+    """Controle de nao-vacuidade do teste acima: apagar a mencao a banco nenhum tambem o deixaria
+    verde. O que a decisao R-005 remove e' `pgvector`, nao o PostgreSQL."""
+    for doc in _PRESENT_TENSE_STACK_DOCS:
+        text = (Path(__file__).resolve().parents[3] / doc).read_text(encoding="utf-8")
+        assert "ostgres" in text, f"{doc} deixou de nomear o PostgreSQL"
+
+
 # ---------------------------------------------------------------------------
 # 4. `downgrade()` e' CONVERGENTE com a guarda da 0001
 # ---------------------------------------------------------------------------
@@ -275,7 +308,7 @@ def test_downgrade_carries_the_same_availability_guard_as_0001() -> None:
     """
     assert _AVAILABILITY_PREDICATE in " ".join(_downgrade_sql().split()), (
         "downgrade() perdeu a guarda de disponibilidade — volta a morrer com "
-        "`extension \"vector\" is not available` em qualquer servidor sem pgvector, inclusive na "
+        '`extension "vector" is not available` em qualquer servidor sem pgvector, inclusive na '
         "imagem `postgres:16` do compose (ver o docstring da migration)"
     )
 
