@@ -261,6 +261,92 @@
 > `event_topic_pended` RECURSO bpmn:194 (CORPUS_DELTA_LOG citando #308), fatia 5
 > (`auth.SendDenialNoticeWorker` + 13 retornos `event`; retirada do tópico órfão LGPD), auditoria
 > de skip silencioso das suítes live, citações de linha obsoletas de `runtime/inference.py`.
+>
+> **Atualização 2026-09-04 (rodada 3 do fechamento de gaps — 2 PRs mergeados em trem, 2 PRs de
+> revisão do dono abertos; `main`@`07a4e42`).** Lineage completa desde `2e46145` (tip da rodada 2):
+> - **Trem 1** (#310 → `6e16590`, tip do trem `660dc4c`): 5 gaps, cada um com a cadeia zero-trust
+>   completa (autor tier-routed → gatekeeper adversarial independente → reparo por 3º agente quando
+>   REVISE → mesmo gatekeeper §Delta PASS):
+>   - **KAFKA-NUM-PARTITIONS-COMPOSE** — `KAFKA_NUM_PARTITIONS: 3` no compose; autor → `4c6e9e1` →
+>     gatekeeper PASS direto (cold-start describe 1→3 reproduzido; 21 testes live / 0 skipped no
+>     stack de 3 partições).
+>   - **NIP-NOTIFY-DEADLINE-ECHO-KEYS** — `ST_SolicitarInfoNip` deixa de ecoar as duas chaves
+>     placeholder de volta pro processo; autor → `83bdd0d` → gatekeeper REVISE (2, docs-only) →
+>     reparo → `13dbb1d` → §Delta PASS (vazamento PRE-fix reproduzido no checkout de `main`; pós-fix
+>     retorna `{}`; 30 testes live passam).
+>   - **RECURSO-EVENT-TOPIC-PENDED-PARAM** — parâmetro `event_topic_pended` removido do BPMN
+>     (linha 194) + prosa de-literalizada; autor → `890da98` (`CorpusDelta.pr="#310"`) → gatekeeper
+>     PASS direto (re-run limpo 43 passed / 0 failed / 0 skipped no engine).
+>   - **STALE-INFERENCE-LINE-CITATIONS** — 13 citações de linha obsoletas de `runtime/inference.py`
+>     corrigidas em 10 arquivos de src/tests; autor → `91f2ee5` → gatekeeper REVISE (1:
+>     `review-queue.md:890` ainda citava o arquivo plano pré-split) → reparo → `fab21b2` → §Delta
+>     PASS.
+>   - **AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL** (fatia 5 do FAB) — `auth.SendDenialNoticeWorker`
+>     deixa de escrever `status` fabricado nos caminhos de sucesso (achado extra do gatekeeper: o
+>     `status` fabricado sobrescrevia o status honesto de um worker anterior, ex.
+>     `criteria_validated`/`junta_convened`); autor → `3b15029` → gatekeeper REVISE (4 textuais;
+>     código já PASS — diff AST confirma só as duas escritas de `status` + 2 renomes de log; clobber
+>     causal reproduzido no mesmo engine) → reparo → `3e68d66` → §Delta PASS (17 passed + 1 xfail).
+> - **Trem 2** (#313 → `07a4e42`, tip atual de `main`; tip do trem `f7ad96e`, `main^2 == f7ad96e`
+>   conferido):
+>   - **LIVE-SUITES-SILENT-SKIP-AUDIT** — censo das 13 suítes live: 4 já rodavam em CI, **7 nunca
+>     rodavam** (46 testes pulados silenciosamente contra o próprio stack do projeto — os 46 passam
+>     ao apontar pro stack certo, sem vermelho latente), 2 by-design; 7 DSNs default unificados;
+>     cerca nova `test_live_suite_defaults_are_served.py`; autor → `94670f4` → gatekeeper REVISE (2:
+>     a contagem real é 12 não 13 — `test_live_dispatch_wiring.py` nunca casa o glob
+>     `test_*_live*.py`; `test_dispatch_live_pg.py` virava suíte auto-envenenadora no padrão
+>     GLOBAL+DELTA) → reparo → `0d39c82` → §Delta REVISE (1: `type: ignore` residual) → reparo
+>     (`assert saver is not None`) → `e66cbec` → §Delta-2 PASS.
+>   - **13 linhas `verified` do ledger** (rodada 2) — autor → `f3c6438` → gatekeeper REVISE (1: duas
+>     linhas com ressalva de proveniência precisavam da qualificação na célula STATUS, não só em
+>     Evidence) → reparo → `c12d24d` → §Delta PASS; duas linhas re-declaradas ao hash do tip do trem
+>     (`test_worker_handler_purity.py` mudou de hash quando a fatia AUTH do trem 1 tocou o arquivo) →
+>     reparo → `2b6febc` → §Delta-2 PASS.
+>
+> **Aguardando o dono** (owner-review, CODEOWNED; `flip-path-review-gate` vermelho por desenho — o
+> portão funciona como projetado):
+> - **#311** `LEDGER-GATE-ID-PATTERN-INERT` @ `363f85b` — `scripts/ci/check_evidence_ledger.py`
+>   (+ testes); o check REQUIRED era vácuo para todo id fora do padrão `t.n`. Cadeia: autor →
+>   gatekeeper REVISE (6; 2 bloqueadores: um ReDoS introduzido pelo próprio autor; 19/200 falsos
+>   positivos na replay de PRs mergeados) → reparo → §Delta PASS → emendas de docs. Replay de 200
+>   PRs mergeados: antigo 0 vermelho / final 1 vermelho (#112, linha genuinamente faltante).
+> - **#312** `FLIP-GATE-WORKFLOW-HEADER-STALE` @ `b4a0de1` — cabeçalho de
+>   `.github/workflows/flip-path-review-gate.yml`, comment-only (YAML parseado idêntico ao de
+>   `main`; 3 provas independentes). **Ordem de merge: #311 → #312.**
+>
+> **Memos novos para o dono:** M-77..M-80 (resíduos do LEDGER-GATE + `timeout-minutes`; lanes de CI
+> A/B/C — 649 skips silenciosos no job `quality`, 7 suítes live nunca executadas antes desta rodada;
+> `check_evidence_ledger_hashes.py` ids com espaço / stack ambiente; RIPD + pacote DBA), perguntas
+> §5 q106–q111; desvios **D-22..D-26** a ratificar; `LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC` (M-75)
+> permanece em aberto.
+>
+> **Piso de testes:** 9247 → **9251** (#310) → **9261** (#313). Gates finais em `main`@`07a4e42`:
+> ver relatório do orquestrador (medidos após o merge do #313 — lint/mypy/piso unitário/todas as
+> cercas/gitleaks histórico completo).
+>
+> **Registro local** (gitignored `docs/audits/maezo-deep-audit/`): **215 gaps**. Reconciliação do
+> backlog pré-existente: das linhas `OPEN` agent-executáveis herdadas da rodada 2, **42 fecharam sem
+> reprodução em `main`** (já corrigidas por trens anteriores), **5 parciais**, **30 ainda
+> reproduzem** → fila da rodada 4 em `docs/prompts/maezo-gap-closure-prompt-v4.md` (gitignored).
+>
+> **Baixas em relação ao bloco anterior** (o bloco "Atualização 2026-09-04 (rodada 2...)" acima não
+> é editado — seu conteúdo permanece como registro histórico; isto é só um mapa de onde cada item
+> dele pousou):
+> - NIP chaves-eco (`ST_SolicitarInfoNip`) → fechado em #310.
+> - `event_topic_pended` RECURSO bpmn:194 → fechado em #310.
+> - citações de linha obsoletas de `runtime/inference.py` → fechado em #310.
+> - fatia 5 do FAB (`auth.SendDenialNoticeWorker` + 13 retornos `event`) → fechado
+>   **parcialmente** em #310: a fabricação de `status` foi corrigida; a retirada do tópico órfão
+>   LGPD (`operadora.lgpd.publish_completed`) **continua pendente** (memo M-75).
+> - auditoria de skip silencioso das suítes live → fechado em #313.
+> - `KAFKA_NUM_PARTITIONS` no compose (item de "O que fica com o dono" da rodada 2) → feito em
+>   #310.
+> - `.github/workflows/flip-path-review-gate.yml` cabeçalho desatualizado (item de "O que fica com
+>   o dono" da rodada 2) → agora em #312 (owner-review, aberto).
+> - `check_evidence_ledger.py` inerte para ids não-`T<n>.<n>` (item de "O que fica com o dono" da
+>   rodada 2) → agora em #311 (owner-review, aberto).
+> - Seguem sem mudança nesta rodada: ratificação D-21, memos M-71..M-76, M-66-bis, passo de CI de
+>   `check_evidence_ledger_hashes.py`, decisões 9.6/10.2, `WEBHOOK-WAMID-DEDUP`.
 
 ---
 

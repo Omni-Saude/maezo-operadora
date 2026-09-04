@@ -35,6 +35,24 @@ idempotente, sem duplicar escalonamento).
 | `resultado` | string | `resolvido_humano` \| `devolvido_agente` \| `emergencia_acionada` |
 | `notas_resolucao` | string | Notas do humano (pseudonimizadas) |
 
+## Variaveis de proveniencia do agente (Lucas — ADR-0007/ADR-0015)
+
+Este e o contrato universal de escalonamento (Helena tambem o inicia, sem variaveis aditivas —
+apenas o §"Variaveis de entrada" acima). Lucas, ao iniciar a MESMA SP-OP-ESCALATION-001, semeia
+anotacoes de auditoria adicionais via `LucasGraph._escalation_variables`
+(`src/maezo/agents/lucas/graph.py`, mirror do estilo aditivo `dossie_rafael`/`rafael_route` de
+SP-OP-AUTH-001) junto com as variaveis de entrada; NENHUMA delas e uma decisao — so proveniencia,
+dossie instrutivo e roteamento humano (CC-13 — Agent Fleet Audit: antes deste registro,
+`_escalation_variables` as emitia sem declaracao no contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `dossie_lucas` | json | nao | Dossie/narrativa de encaminhamento montado por Lucas — instrui o atendimento humano; carrega `decisao_cancelamento` sempre `None` (Lucas NUNCA decide) |
+| `lucas_route` | string | nao | Roteamento do grafo do Lucas (`respond_member` \| `escalate_human`) — espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Motivo do encaminhamento de Lucas (`inadimplencia_detectada` \| `pedido_cancelamento` \| `contestacao_cobranca` \| `ambiguidade` \| `dmn_indisponivel` \| `falha_tecnica`) |
+| `grupo_humano_sugerido` | string | nao | Grupo humano sugerido por Lucas (sugestao, catch-all `atendimento-humano`) — DIFERENTE do `dmn_decision_ref` singular ja declarado acima: aqui e a sugestao do agente, nao a saida da DMN `escalation_routing` |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra, plural — dict `{tabela: ref}`) das DMN que Lucas consultou; complementa o `dmn_decision_ref` (singular) ja declarado em §Variaveis de entrada |
+
 ## Topicos
 
 | Tipo | Topico | Sentido | Quando |

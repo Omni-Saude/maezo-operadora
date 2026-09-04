@@ -60,8 +60,14 @@ todo LLM call em `helena/graph.py` e `rafael/graph.py`.
 
 Os nos sao curtos e idempotentes; checkpoint e ENTRE nos (ADR-0002). Toda acao externa via os
 transports injetados (`DmnTransport`/`CibSevenTransport`), nunca SDK direto (mirrors
-rafael/helena — v2 nao tem `ToolInvoker`/PEP-gateway wiring para chamadas de tool de agente
-ainda, T2.4 gap). Os dados chegam pseudonimizados (ADR-0006) e o grafo nunca reverte isso.
+rafael/helena). CORRIGIDO (`grep -n '"carolina"' gateway/tool_registry.py`,
+`_FHIR_ADAPTER_BY_AGENT`): a leitura FHIR de Carolina JA passa por um ToolRegistry/PEP-gateway —
+`gateway/tool_registry.py::build_agent_seams` embrulha `agents.rafael.adapters.FhirServerReader.
+read_patient` em `gateway/seams/fhir.py::GatedFhirReader` (Carolina esta em
+`_FHIR_ADAPTER_BY_AGENT`, adapter `read_patient`), injetado pelos dois composition roots vivos
+(`runtime/agent_runtime/service.py::_build_tool_deps`, `platform/webhooks/service.py`) — a
+alegacao anterior ("v2 nao tem `ToolInvoker`/PEP-gateway wiring...ainda, T2.4 gap") e falsa hoje.
+Os dados chegam pseudonimizados (ADR-0006) e o grafo nunca reverte isso.
 **TASY write DROP** (ADR-0013): este grafo nunca escreve no Tasy — so consome fatos ja
 pre-resolvidos por workers deterministicos upstream. O processo e iniciado de forma idempotente
 pela business key `CRED-{tenant_id}-{prestador_id}` (variante `-{protocolo_cred}`; o start
@@ -119,11 +125,17 @@ DIVERGENCIAS DO DONOR (disclosed, per charter "where donor and v2 spec disagree,
 
 LABELED BOUNDARIES (this build, disclosed — never fabricated):
 - No episodic memory write (ADR-0002) — see divergence #5 above.
-- No cross-agent A2A delegation (`operadora.cred.prepare_dossier` -> Carolina
-  `credentialing.analyze`) is wired in this build: v2's `a2a/` package has no
-  `DelegationEnvelope`/`DelegationDispatcher` yet (same gap disclosed by `rafael/graph.py`).
-  Carolina's graph is invoked directly with an already-assembled state (as the unit/integration
-  tests do), not via a live engine-originated delegation.
+- Cross-agent A2A delegation (`operadora.cred.prepare_dossier` -> Carolina
+  `credentialing.analyze`) IS wired and LIVE in this build. CORRECTED (CC-04, fleet audit) — the
+  prior text here claimed v2's `a2a/` package had no `DelegationEnvelope`/`DelegationDispatcher`;
+  both exist and are fully built/tested (`a2a/delegation.py::DelegationEnvelope`,
+  `a2a/dispatcher.py::DelegationDispatcher`, exported from `maezo.a2a`). Carolina has her own
+  `agents/carolina/delegation.py` (`make_carolina_handler` TARGET side + `delegate_cred_dossier`
+  ORIGIN side, called from `tools/workers/credenciamento.py`) and is registered in the dossier
+  composition root (`runtime/agent_runtime/a2a_composition.py::_DOSSIER_EDGE_AGENT_IDS =
+  ("carolina", "andre")`, `handlers={"carolina": carolina_handler, "andre": andre_handler}`).
+  Carolina's graph is ALSO invoked directly with an already-assembled state in the unit/
+  integration tests (both paths exist; neither is a disclosed gap anymore).
 - `gather`'s FHIR summary read is best-effort and OPTIONAL (see divergence #6) — its absence
   never blocks routing, only degrades the dossier with a disclosed gap note (mirrors rafael).
 """
@@ -132,6 +144,7 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
+import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
@@ -201,6 +214,9 @@ DMN_CRED_ADMISSIBILITY = "cred_admissibility"
 DMN_CRED_ROUTE = "cred_route"
 DMN_CRED_PRIOR_NOTICE = "cred_prior_notice"
 DMN_CRED_SLA = "cred_sla"
+
+
+logger = structlog.get_logger(__name__)
 
 
 class SummaryReader(Protocol):
@@ -491,7 +507,13 @@ class CarolinaGraph:
             try:
                 summary_facts = await self._fhir.read_patient(summary_ref)
             except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
-                notes.append(f"resumo indisponivel: {exc}")
+                # CLASS TOKEN ONLY (CC-10): `str(exc)` de um cliente FHIR tipicamente ecoa a
+                # URL / id em que falhou — o proprio `summary_ref` — e esta nota e' copiada para o
+                # prompt do dossie E para `dossie_carolina`, que o engine sela na zona geral
+                # (ADR-0006/ADR-0007). O trace completo fica no log estruturado, canal de
+                # diagnostico, nunca na nota.
+                logger.warning("carolina_fhir_resumo_indisponivel", exc_info=True)
+                notes.append(f"resumo indisponivel: {type(exc).__name__}")
 
         return {"gathered": True, "summary_facts": summary_facts, "gather_notes": notes}
 

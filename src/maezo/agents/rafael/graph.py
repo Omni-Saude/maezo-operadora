@@ -38,19 +38,30 @@ the one LLM call (`_build_dossier`'s narrative) passes `phi=True` (ADR-0006/ADR-
 LABELED BOUNDARIES (this build, disclosed — never fabricated):
 - `gather` uses v2's generic `FhirServer` (`tools/mcp_fhir/server.py`: `read_resource`/
   `search_resources`) via a thin `FhirReader` seam — NOT a dedicated `read_patient`/
-  `search_coverage` PEP-gated tool like the v1 donor's. This is a real shape drift, disclosed,
-  not hidden: v2 has no `ToolRegistry`/PEP gateway wiring for agent tool calls yet (T2.4 gap).
-  `gather` is best-effort and NEVER blocks routing on a FHIR failure (mirrors the donor exactly)
-  — a missing/unreachable FHIR endpoint degrades to a dossier gap note, never a fabricated fact.
-  When no `fhir` dependency is injected at all (`config.get("fhir")` is `None`), `gather` records
-  an explicit gap note rather than silently producing empty facts that look like "no findings".
+  `search_coverage` tool like the v1 donor's (a real shape drift, disclosed, not hidden).
+  CORRECTED (`grep -n '"rafael"' gateway/tool_registry.py`, `_FHIR_ADAPTER_BY_AGENT`): this seam
+  IS PEP-gated — `gateway/tool_registry.py::build_agent_seams` wraps Rafael's `FhirServerReader.
+  read_patient` in `gateway/seams/fhir.py::GatedFhirReader`, and both live composition roots
+  (`runtime/agent_runtime/service.py::_build_tool_deps`, `platform/webhooks/service.py`) build
+  Rafael's `fhir` dependency through it — the prior "v2 has no `ToolRegistry`/PEP gateway wiring
+  for agent tool calls yet" claim is false today. `gather` is best-effort and NEVER blocks
+  routing on a FHIR failure (mirrors the donor exactly) — a missing/unreachable FHIR endpoint
+  degrades to a dossier gap note, never a fabricated fact. When no `fhir` dependency is injected
+  at all (`config.get("fhir")` is `None`), `gather` records an explicit gap note rather than
+  silently producing empty facts that look like "no findings".
 - No episodic memory write (ADR-0002) — same rationale as Helena's graph.
-- No cross-agent A2A delegation (Helena -> Rafael `authorization.analyze`) is wired in this
-  build: v2's `a2a/` package has no `DelegationEnvelope`/`DelegationDispatcher` yet (only
-  `AgentCard`/`A2ARegistry`/`AntiLoopGuard` exist) — porting/building that dispatcher is a
-  separate, non-trivial task out of this charter's scope. Rafael's graph is invoked directly
-  with an already-assembled auth-request state (as the integration test does) rather than via a
-  live Helena-originated delegation.
+- Cross-agent A2A delegation (Helena -> Rafael `authorization.analyze`) IS wired and LIVE in
+  this build. CORRECTED (CC-04, fleet audit) — the prior text here claimed v2's `a2a/` package
+  had no `DelegationEnvelope`/`DelegationDispatcher`; both exist and are fully built/tested
+  (`a2a/delegation.py::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported
+  from `maezo.a2a`). Rafael is in fact the platform's proof-of-life edge
+  (`docs/design/A2A-dispatcher-card-signing.md` §9.2): `agents/rafael/delegation.py`'s
+  `make_rafael_handler` is the TARGET handler assembled by `runtime/agent_runtime/
+  a2a_composition.py::build_auth_delegation_dispatcher` (`_EDGE_AGENT_IDS = ("helena",
+  "rafael")`, `handlers={"rafael": handler}`), and Helena originates the envelope via
+  `agents/helena/delegation.py`'s `DelegationDispatcher.delegate(envelope)`. Rafael's graph is
+  ALSO invoked directly with an already-assembled auth-request state in the integration tests
+  (both paths exist; neither is a disclosed gap anymore).
 """
 
 from __future__ import annotations
@@ -433,14 +444,23 @@ class RafaelGraph:
         try:
             coverage_facts = await self._fhir.search_coverage(coverage_ref)
         except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
-            notes.append(f"cobertura FHIR indisponivel: {exc}")
+            # CLASS TOKEN ONLY (CC-10): `str(exc)` from a FHIR client typically echoes the URL /
+            # id it failed on — i.e. the `coverage_ref` argument — and this note is copied into
+            # the dossier prompt AND into the engine-sealed `dossie_rafael` (general zone,
+            # ADR-0006/ADR-0007). The full trace stays in the structured log, the diagnostic
+            # channel, never in the note.
+            logger.warning("rafael_fhir_cobertura_indisponivel", exc_info=True)
+            notes.append(f"cobertura FHIR indisponivel: {type(exc).__name__}")
 
         patient_ref = state.get("patient_ref")
         if patient_ref:
             try:
                 patient_facts = await self._fhir.read_patient(patient_ref)
             except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
-                notes.append(f"beneficiario FHIR indisponivel: {exc}")
+                # CLASS TOKEN ONLY (CC-10) — same rationale as the coverage note above; here the
+                # leaked argument would be `patient_ref` itself.
+                logger.warning("rafael_fhir_beneficiario_indisponivel", exc_info=True)
+                notes.append(f"beneficiario FHIR indisponivel: {type(exc).__name__}")
 
         return {
             "gathered": True,

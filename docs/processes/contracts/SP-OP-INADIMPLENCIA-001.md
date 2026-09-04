@@ -107,6 +107,26 @@ INAD-{tenant_id}-{numero_contrato}
 | `data_efeito_iso` | string | Data de efeito (suspensao/rescisao), respeitada a antecedencia regulatoria |
 | `decisao_coordenacao` | string | `assumir_analise` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA — humano `coordenacao-cobranca`) |
 
+## Variaveis de proveniencia do agente (Fernando — ADR-0007/ADR-0015)
+
+Convencao repo-wide de nao-repudio (ADR-0007) e delegacao A2A (ADR-0015) — nao especifica de
+INADIMPLENCIA (mirror `source_agent_id`/`source_agent_version` de
+`docs/processes/contracts/SP-OP-ESCALATION-001.md`). Semeadas por
+`FernandoGraph._inadimplencia_variables` (`src/maezo/agents/fernando/graph.py`) junto com as
+variaveis de entrada; NENHUMA delas e uma suspensao/rescisao — so proveniencia, dossie instrutivo e
+roteamento humano (CC-13 — Agent Fleet Audit: antes deste registro, `_inadimplencia_variables` as
+emitia sem declaracao no contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `source_agent_id` | string | nao | Agente que preparou o dossie de cobranca (`fernando`) — cadeia de nao-repudio (ADR-0007) |
+| `source_agent_version` | string | nao | Versao do agente Fernando que preparou o dossie (auditoria ADR-0007) |
+| `dossie_fernando` | json | nao | Dossie factual de inadimplencia montado por Fernando — instrui `UT_AnaliseInadimplencia`; carrega `decisao_inadimplencia` sempre `None` (Fernando NUNCA decide) |
+| `fernando_route` | string | nao | Roteamento do grafo do Fernando (`notify` \| `escalate`) — espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Motivo do encaminhamento de Fernando (`segue_analise` \| `analise_humana` \| `analise_solicitada` \| `indicio_rescisao` \| `ambiguidade` \| `dmn_indisponivel` \| `falha_tecnica`) |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra, plural — dict `{tabela: ref}`) das DMN que Fernando consultou (`inadimplencia_status`/`inadimplencia_purga`/`inadimplencia_sla`) — cadeia de decisao (ADR-0007/ADR-0012) |
+| `dmn_decision_ref` | string | nao | Referencia singular (primeira do dict `dmn_decision_refs`) — convivio com o idioma singular ja usado em SP-OP-ESCALATION-001/PAGTO-001 |
+
 ## Topicos
 
 Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_registry.yaml` — **W0.2/orquestrador e o unico editor**; ver §"Registro de topicos exigido"). Contexto = `inadimplencia`.

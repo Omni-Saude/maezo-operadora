@@ -107,6 +107,27 @@ isso a ponte semeia os três explicitamente.
 | `protocolo_resposta_recurso` | string | Protocolo da **resposta** da operadora ao recurso (emitido por `operadora.recurso.comunicar_resposta`; determinístico pela business key) |
 | `desfecho` | string | `deferido_humano` \| `deferido_parcial_humano` \| `indeferido_humano` \| `inadmissivel_humano` |
 
+## Variaveis de proveniencia do agente (Marina — ADR-0007/ADR-0015)
+
+Convencao repo-wide de nao-repudio (ADR-0007) e delegacao A2A (ADR-0015) — nao especifica de
+RECURSO (mirror `source_agent_id`/`source_agent_version` de
+`docs/processes/contracts/SP-OP-ESCALATION-001.md`). Semeadas por `MarinaGraph._contract_variables`
+(`src/maezo/agents/marina/graph.py`, flow `recurso`) junto com as variaveis de entrada; NENHUMA
+delas e um indeferimento de recurso — so proveniencia, dossie instrutivo e roteamento humano
+(CC-13 — Agent Fleet Audit: antes deste registro, `_contract_variables` as emitia sem declaracao
+no contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `source_agent_id` | string | nao | Agente que preparou o dossie do recurso (`marina`) — cadeia de nao-repudio (ADR-0007) |
+| `source_agent_version` | string | nao | Versao do agente Marina que preparou o dossie (auditoria ADR-0007) |
+| `dossie_marina` | json | nao | Dossie factual de analise do recurso montado por Marina — instrui `UT_AnaliseRecursoAnalista`/`UT_RevisaoAuditorMedico`; carrega `decisao_recurso` sempre `None` (Marina NUNCA decide) |
+| `marina_flow` | string | nao | Fluxo do grafo compartilhado de Marina que originou o start (`recurso` neste contrato — `contas` inicia SP-OP-CONTAS-001; `reembolso` nunca inicia processo, ver aquele contrato) |
+| `marina_route` | string | nao | Roteamento do grafo do Marina (`auto_route` \| `human_review`) — espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Presente so quando `marina_route=human_review`; motivo do encaminhamento |
+| `grupo_destino` | string | nao | Presente so quando `marina_route=human_review`; grupo humano sugerido por Marina (`analista-recurso-glosa` \| `medico-auditor`) |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra) das DMN que Marina consultou (`recurso_admissibility`/`recurso_eligibility`/`recurso_sla`) — cadeia de decisao (ADR-0007/ADR-0012) |
+
 ## Topicos
 
 Convenção `{dominio}.{contexto}.{acao}` (W0.2 é o único editor de `config/topic_registry.yaml`;

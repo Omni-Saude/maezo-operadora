@@ -92,19 +92,34 @@ copied into `_care_facts`, the dossier, or engine-bound variables (mirrors Marin
 LABELED BOUNDARIES (this build, disclosed — never fabricated; same rationale as
 `agents/rafael/graph.py`'s/`agents/helena/graph.py`'s module docstrings):
 - `gather` uses a thin `PatientSummaryReader` Protocol over v2's generic `FhirServer`
-  (`adapters.py`) — NOT the donor's PEP-gated `mcp-fhir.read_patient_summary` tool (no
-  ToolRegistry/PEP gateway wiring for agent tool calls yet, T2.4 gap). Best-effort: a FHIR
-  failure degrades to a dossier gap note, never blocks routing, and structurally can only run
-  AFTER the consent gate.
+  (`adapters.py`) — NOT the donor's PEP-gated `mcp-fhir.read_patient_summary` tool shape.
+  CORRECTED (`grep -n '"valentina"' gateway/tool_registry.py`, `_FHIR_ADAPTER_BY_AGENT`): this
+  reader IS wired through a PEP-gated ToolRegistry now — `gateway/tool_registry.py
+  ::build_agent_seams` wraps it in `gateway/seams/fhir.py::GatedFhirReader` (Valentina is one of
+  the five agents in `_FHIR_ADAPTER_BY_AGENT`, adapter `read_patient_summary`), and both live
+  composition roots (`runtime/agent_runtime/service.py::_build_tool_deps`, `platform/
+  webhooks/service.py`) build Valentina's `fhir` dependency through it — the prior "no
+  ToolRegistry/PEP gateway wiring for agent tool calls yet" claim is false today. Best-effort: a
+  FHIR failure degrades to a dossier gap note, never blocks routing, and structurally can only
+  run AFTER the consent gate.
 - No episodic memory write (`mcp-memory.read_write`, ADR-0002) — the donor's `finalize` writes
   the LGPD cessation/case note to memory; v2's `MemoryServer` requires a live Postgres/pgvector
   schema not yet wired into any agent graph in this repo (same boundary Helena/Rafael/Marina
   disclose). `finalize` is a terminal no-op; adding the memory write is a follow-up.
-- A2A delegation (`care.stratify`/`care.enroll` -> Valentina) is HALF wired (VAL-01): the
-  TARGET handler now exists (`agents/valentina/delegation.py::make_valentina_handler`), but it is
-  NOT registered with any dispatcher and `tools/workers/programa.py` still does not originate the
-  delegation — both are an owner decision (gap `FERNANDO-DELEGATION-CALL-SITE`). The graph is
-  still invoked directly with an already-assembled case state (as the unit tests do).
+- A2A delegation (`care.stratify`/`care.enroll` -> Valentina) is HALF wired (VAL-01).
+  CORRECTED (CC-04, fleet audit) — the prior text here claimed v2's `a2a/` package had no
+  `DelegationEnvelope`/`DelegationDispatcher`; both exist and are fully built/tested
+  (`a2a/delegation.py::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported
+  from `maezo.a2a`). UPDATED (A2A handlers, lote3) — CC-04's companion claims that "there is no
+  `src/maezo/agents/valentina/delegation.py`" and that `grep -rn 'make_valentina_handler'
+  src/maezo/` returns 0 hits are NO LONGER TRUE at this tip: the TARGET handler now exists
+  (`agents/valentina/delegation.py::make_valentina_handler`), the donor's handler IS ported, and
+  nine of the ten agents (all but lucas) now have a real `delegation.py` using that infra. What is
+  still missing for Valentina is registration and origin: the handler is NOT registered with any
+  dispatcher (`grep -n '"valentina"' runtime/agent_runtime/a2a_composition.py` = 0 hits) and
+  `tools/workers/programa.py` still does not originate the delegation — both are an owner decision
+  (gap `FERNANDO-DELEGATION-CALL-SITE`, ver VAL-01 do fleet audit). The graph is still invoked
+  directly with an already-assembled case state (as the unit tests do).
 - Live engine acceptance (deployed SP-OP-PROGRAMA-001 + programa DMNs) is DEFERRED — this
   build is unit-proven with Fake transports only (host constraint; disclosed, not fabricated).
 """
@@ -113,6 +128,7 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
+import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
@@ -190,6 +206,9 @@ GRUPO_COORDENACAO_CLINICA = "coordenacao-clinica"
 # Class token for `receive`'s missing-context guard (`error` is internal state — it is still a
 # bounded token, never free text, and it NEVER ships into engine-bound variables).
 ERROR_MISSING_CONTEXT = "contexto_de_runtime_ausente"
+
+
+logger = structlog.get_logger(__name__)
 
 
 class PatientSummaryReader(Protocol):
@@ -539,7 +558,13 @@ class ValentinaGraph:
             try:
                 summary_facts = await self._fhir.read_patient_summary(summary_ref)
             except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
-                notes.append(f"resumo FHIR indisponivel: {exc}")
+                # CLASS TOKEN ONLY (CC-10): `str(exc)` de um cliente FHIR tipicamente ecoa a
+                # URL / id em que falhou — o proprio `summary_ref` — e esta nota e' copiada para o
+                # prompt do dossie E para `dossie_valentina`, que o engine sela na zona geral
+                # (ADR-0006/ADR-0007). O trace completo fica no log estruturado, canal de
+                # diagnostico, nunca na nota.
+                logger.warning("valentina_fhir_resumo_indisponivel", exc_info=True)
+                notes.append(f"resumo FHIR indisponivel: {type(exc).__name__}")
 
         return {"gathered": True, "summary_facts": summary_facts, "gather_notes": notes}
 

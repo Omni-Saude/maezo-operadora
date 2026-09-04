@@ -111,6 +111,27 @@ idempotente, sem duplicar enrollment do mesmo beneficiario no mesmo ciclo).
 
 > **`consent_verified_at`/`data_enrollment` NAO existem como variavel de processo (FAB-PROGRAMA-NOW-TIMESTAMPS).** `operadora.programa.check_consent` retornava `{consentimento_ativo: true, consent_verified_at: "now"}` e `operadora.programa.build_care_plan` (`enroll_beneficiario`) retornava `{enrollment_realizado: true, data_enrollment: "now"}` — dois carimbos com o literal `"now"` em vez de um instante ISO-8601, gravados no escopo da instancia pela harness e portanto na trilha de auditoria LGPD. Mapa de consumidores refeito (BPMN `conditionExpression`/timer/DMN `inputExpression`/worker a jusante/golden/este contrato) antes da correcao: **zero** para as duas chaves. Ao contrario de `referral_gap`/`dossie_gap` (SP-OP-FRAUDE-001, BEA-09/FAB-REFER-TO-LEGAL — la o consumidor e o humano na UT, que precisa ver a lacuna), aqui o proprio ato ocorre de fato dentro da funcao (`check_consent` avalia `consentimento_ativo`/`consent_checked` e gateia fail-closed; `enroll_beneficiario` de fato executa e loga o enrollment) — nao ha lacuna a declarar. O defeito e so o carimbo redundante e mentiroso: o instante exato de cada execucao **ja e fato do engine** — `activity-instance` de `ST_CheckConsent` (endTime = quando o gate rodou e passou) e de `ST_BuildCarePlan` (endTime = quando o enrollment rodou), consultavel via `GET /history/activity-instance?processInstanceId=...&activityId=ST_CheckConsent|ST_BuildCarePlan`. Mesmo tratamento e mesma razao do `intake_ts` removido em SP-OP-FRAUDE-001 (FAB-INTAKE-CASO-REGISTRADO): um segundo carimbo no escopo seria fonte de verdade redundante, nao correcao. As duas chaves foram REMOVIDAS sem substituicao; `consentimento_ativo`/`enrollment_realizado` (os fatos booleanos reais, com consumidor documentado alhures) permanecem inalterados.
 
+## Variaveis de proveniencia do agente (Valentina — ADR-0007/ADR-0015)
+
+Convencao repo-wide de nao-repudio (ADR-0007) e delegacao A2A (ADR-0015) — nao especifica de
+PROGRAMA (mirror `source_agent_id`/`source_agent_version` de
+`docs/processes/contracts/SP-OP-ESCALATION-001.md`). Semeadas por
+`ValentinaGraph._contract_variables` (`src/maezo/agents/valentina/graph.py`) junto com as variaveis
+de entrada; NENHUMA delas e um desligamento clinico nem uma decisao de programa — so proveniencia,
+dossie instrutivo e roteamento humano (CC-13 — Agent Fleet Audit: antes deste registro,
+`_contract_variables` as emitia sem declaracao no contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `source_agent_id` | string | nao | Agente que preparou o dossie de estratificacao/cuidado (`valentina`) — cadeia de nao-repudio (ADR-0007) |
+| `source_agent_version` | string | nao | Versao do agente Valentina que preparou o dossie (auditoria ADR-0007) |
+| `dossie_valentina` | json | nao | Dossie de estratificacao/plano de cuidado montado por Valentina — instrui `UT_DecisaoClinica`; carrega `decisao_programa`/`motivo_desligamento_clinico`/`referencia_clinica`/`responsavel_clinico_id` sempre `None` (Valentina NUNCA decide) |
+| `valentina_task` | string | nao | Tarefa do grafo do Valentina que originou o dossie (`stratify` \| `enroll`) |
+| `valentina_route` | string | nao | Roteamento do grafo do Valentina (`auto_route` \| `human_review`) — espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Presente so quando `valentina_route=human_review`; motivo do encaminhamento (`estratificacao_analise_humana` \| `criterio_alta_aparente` \| `dmn_indisponivel` \| `falha_tecnica` \| `outro`) |
+| `grupo_destino` | string | nao | Presente so quando `valentina_route=human_review`; grupo humano sugerido por Valentina (catch-all `coordenacao-clinica`) |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra) das DMN que Valentina consultou (`programa_routing`/`programa_sla`) — cadeia de decisao (ADR-0007/ADR-0012) |
+
 ## Topicos
 
 Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_registry.yaml` — **W0.2 e o unico editor**; este contrato apenas declara o que precisa ser registrado). Contexto = `programa`.

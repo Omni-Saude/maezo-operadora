@@ -123,13 +123,22 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
 - No episodic memory write (`mcp-memory.read_write`, ADR-0002) — same rationale as Helena's/
   Rafael's graphs: v2's `MemoryServer` requires a live Postgres/pgvector schema not yet wired
   into any agent graph in this repo; adding it is a follow-up once that schema exists.
-- A2A delegation (`operadora.contas/recurso/reembolso.*` -> Marina) is HALF wired (CC-02/RAF-11):
-  the inbound TARGET handler now exists (`agents/marina/delegation.py::make_marina_handler`,
-  routing through the T1.11 `new_marina_state` gate), but it is NOT registered with any
-  dispatcher (`runtime.agent_runtime.a2a_composition`) and the three ORIGIN workers still
-  assemble locally — both halves are an owner decision (gap `FERNANDO-DELEGATION-CALL-SITE`), so
-  no live delegation reaches this graph yet. Every non-test invocation today still hands it an
-  already-assembled case state.
+- A2A delegation (`operadora.contas/recurso/reembolso.*` -> Marina) is HALF wired (CC-02/RAF-11).
+  CORRECTED (CC-04, fleet audit) — the prior text here claimed v2's `a2a/` package had no
+  `DelegationEnvelope`/`DelegationDispatcher`; both exist and are fully built/tested
+  (`a2a/delegation.py::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported
+  from `maezo.a2a`). UPDATED (A2A handlers, lote3) — CC-04's companion claim that "there is no
+  `src/maezo/agents/marina/delegation.py`" is NO LONGER TRUE at this tip: the inbound TARGET
+  handler now exists (`agents/marina/delegation.py::make_marina_handler`, routing through the
+  T1.11 `new_marina_state` gate), and nine of the ten agents (all but lucas) now have a real
+  `delegation.py` using that infra. What is still missing for Marina is registration and origin:
+  the handler is NOT registered with any dispatcher (`grep -n '"marina"' runtime/agent_runtime/
+  a2a_composition.py` = 0 hits) and the three ORIGIN workers still assemble locally — both halves
+  are an owner decision (gap `FERNANDO-DELEGATION-CALL-SITE`, ver RAF-11 do fleet audit). No live
+  delegation reaches this graph yet: every non-test invocation still hands it an already-assembled
+  case state, as the unit tests do, rather than via a live delegation envelope. The T1.11
+  input-boundary gate (`new_marina_state`/`gate_inbound_state`) is nonetheless present and tested,
+  exactly as Rafael's is, so the seam is gated on the day it lands (CC-02) rather than after.
 """
 
 from __future__ import annotations
@@ -213,6 +222,9 @@ DMN_CONTAS_SLA = "contas_sla"
 DMN_RECURSO_ADMISSIBILITY = "recurso_admissibility"
 DMN_RECURSO_ELIGIBILITY = "recurso_eligibility"
 DMN_RECURSO_SLA = "recurso_sla"
+
+
+logger = structlog.get_logger(__name__)
 
 
 class PatientSummaryReader(Protocol):
@@ -697,7 +709,13 @@ class MarinaGraph:
             try:
                 summary_facts = await self._fhir.read_patient_summary(summary_ref)
             except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
-                notes.append(f"resumo FHIR indisponivel: {exc}")
+                # CLASS TOKEN ONLY (CC-10): `str(exc)` de um cliente FHIR tipicamente ecoa a
+                # URL / id em que falhou — o proprio `summary_ref` — e esta nota e' copiada para o
+                # prompt do dossie E para `dossie_marina`, que o engine sela na zona geral
+                # (ADR-0006/ADR-0007). O trace completo fica no log estruturado, canal de
+                # diagnostico, nunca na nota.
+                logger.warning("marina_fhir_resumo_indisponivel", exc_info=True)
+                notes.append(f"resumo FHIR indisponivel: {type(exc).__name__}")
 
         return {"gathered": True, "summary_facts": summary_facts, "gather_notes": notes}
 

@@ -43,11 +43,29 @@ HUMAN decides (`UT_DecisaoInvestigador`, over the SEALED `bundle_root`). Structu
 
 CUSTODY / NO-PHI-IN-CUSTODY (ADR-0006/0020): everything reaching this graph is already
 pseudonymized (`entidade_pseudo_id`/`beneficiario_pseudo_id`/`prestador_id` — never
-CPF/CNPJ/nome/CNS). The evidence Beatriz assembles leaves as VALIDATED pointer projections only:
-`gather` refuses any item without a `ref`, refuses any item carrying a known raw-PHI key, and
-PROJECTS surviving items to the closed key allowlist `{ref, hash, tipo, origem}` — so even an
-unknown extra key smuggling raw PHI in its value is stripped before the dossier (defense in
-depth; the hard barrier remains the `seal_custody_bundle` worker's `ERR_PHI_IN_CUSTODY` guard).
+CPF/CNPJ/nome/CNS). BOTH corpora `gather` produces are CLOSED PROJECTIONS, never passthroughs:
+
+  - EVIDENCE (`_normalize_evidence`): refuses any item without a `ref`, refuses any item
+    carrying a known raw-PHI key, and PROJECTS survivors to the closed key allowlist
+    `{ref, hash, tipo, origem}` — so even an unknown extra key smuggling raw PHI in its value is
+    stripped before the dossier (defense in depth; the hard barrier for THIS corpus remains the
+    `seal_custody_bundle` worker's `ERR_PHI_IN_CUSTODY` guard).
+  - FHIR SUMMARY (`_normalize_summary`): the `PatientSummaryReader` seam is a GENERIC Protocol
+    over v2's FHIR server, NOT the donor's PEP-gated `mcp-fhir.read_patient` ToolInvoker (see
+    the labeled boundary below), so its payload is controlled by a server UPSTREAM of this
+    graph — it is untrusted input, exactly like `evidencia_refs`. It is refused WHOLE when any
+    key (case-insensitively, RECURSIVELY through nested dicts/lists) is in `_PHI_KEYS`, and
+    otherwise projected to `_SUMMARY_ALLOWED_KEYS` with a CLOSED VALUE domain per key
+    (`resourceType` ∈ `_SUMMARY_RESOURCE_TYPES`; `id` only as an ECHO of the already-
+    pseudonymized reference the graph itself asked for). The result: `summary_facts` can only
+    ever be a subset of `{resourceType: <one of three FHIR types>, id: <the ref already in
+    state>}` — NO upstream-controlled content can reach `_facts()`'s `resumo_fhir`, hence
+    neither the `phi=True` dossier prompt nor the custody-bound dossier. There is NO downstream
+    backstop for this corpus: `operadora.fraude.seal_custody_bundle` inspects ONLY
+    `variables["evidencia_refs"]`'s `str` elements, so it never sees the summary at all and
+    this projection is the SINGLE barrier (defect BEA-06). Fail-closed on every abnormal
+    shape/failure: empty summary + a bounded lacuna token, NEVER a partial passthrough.
+
 TASY write DROP (ADR-0013): CDC is consumed, Tasy is never written.
 
 CALLER-PLANTED-OUTPUT SANITIZATION (baked in from the start — the R1 cycle-1 defect class all
@@ -85,11 +103,22 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
 - No episodic memory write (`mcp-memory.read_write`, ADR-0002) in `finalize` — same rationale
   as Helena's/Rafael's/Marina's graphs: v2's `MemoryServer` requires a live Postgres/pgvector
   schema not yet wired into any agent graph in this repo.
-- The inbound A2A delegation adapter (`fraude.investigate`) now EXISTS
-  (`agents/beatriz/delegation.py::make_beatriz_handler`, BEA-09) but is NOT registered with any
-  dispatcher and `tools/workers/fraude.py` still does not convoke her — both are an owner
-  decision (gap `FERNANDO-DELEGATION-CALL-SITE`). No live delegation reaches this graph; every
-  non-test invocation still hands it an already-assembled case state.
+- The inbound A2A delegation adapter (`fraude.investigate`) is HALF wired (BEA-09).
+  CORRECTED (CC-04, fleet audit) — the prior text here claimed v2's `a2a/` package had no
+  `DelegationEnvelope`/`DelegationDispatcher`; both exist and are fully built/tested
+  (`a2a/delegation.py::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported
+  from `maezo.a2a`). UPDATED (BEA-09, lote3) — CC-04's companion claim that "there is no
+  `src/maezo/agents/beatriz/delegation.py`" is NO LONGER TRUE at this tip: the handler now exists
+  (`agents/beatriz/delegation.py::make_beatriz_handler`), and nine of the ten agents (all but
+  lucas) now have a real `delegation.py` using that infra. What is still missing for Beatriz is
+  registration and origin: the handler is NOT registered with any dispatcher (`grep -n
+  '"beatriz"' runtime/agent_runtime/a2a_composition.py` = 0 hits) and `tools/workers/fraude.py`
+  still does not convoke her — both are an owner decision (gap `FERNANDO-DELEGATION-CALL-SITE`).
+  No live delegation reaches this graph; every non-test invocation still hands it an
+  already-assembled case state, as the unit tests do. (The `ToolRegistry`/PEP-gateway claim two
+  paragraphs above remains true for Beatriz specifically: she is absent from
+  `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`, so no composition root ever builds her an
+  `fhir` seam at all, gated or not.)
 - Unanchorable case (missing `tenant_id`/`numero_caso`): this build bails WITHOUT assembling a
   dossier (`dossier` stays `{}`, `desfecho="instrucao_incompleta"`) — a disclosed divergence
   from the donor, which assembled a best-effort dossier anyway. Rationale: without the
@@ -101,6 +130,7 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
@@ -132,6 +162,7 @@ Desfecho = Literal["dossie_instruido", "instrucao_incompleta"]
 ERROR_CONTEXTO_RUNTIME_AUSENTE = "contexto_runtime_ausente"
 NOTE_FHIR_READER_NAO_CONFIGURADO = "fhir_reader_nao_configurado"
 NOTE_RESUMO_FHIR_INDISPONIVEL = "resumo_fhir_indisponivel"
+NOTE_RESUMO_FHIR_RECUSADO = "resumo_fhir_recusado"
 NOTE_SEM_EVIDENCIA_NO_INTAKE = "sem_evidencia_no_intake"
 NOTE_NARRATIVA_INDISPONIVEL = "narrativa_indisponivel"
 NOTE_EVIDENCIA_RECUSADA_PREFIX = "evidencia_recusada"
@@ -145,6 +176,50 @@ _POINTER_ALLOWED_KEYS: frozenset[str] = frozenset({"ref", "hash", "tipo", "orige
 _PHI_KEYS: frozenset[str] = frozenset(
     {"cpf", "cnpj", "nome", "name", "nome_social", "cns", "rg", "telefone", "endereco", "email"}
 )
+
+
+# Maximum nesting depth the raw-PHI key scan walks (`_has_phi_key`). Deep enough for any real
+# FHIR summary shape (`Bundle.entry[].resource.subject...`), bounded so an adversarial or
+# self-referential payload can never turn the scan into a RecursionError on `gather`'s hot path
+# — exceeding it is treated as CONTAMINATED (fail-closed), never as clean.
+_MAX_PHI_SCAN_DEPTH: int = 12
+
+# Closed VALUE domain for an admitted `resourceType` (BEA-06). A patient-summary read can only
+# legitimately answer with the `Patient` resource itself or the `Bundle`/`Composition` a FHIR
+# `$summary`-style operation returns; anything else under this key is upstream-controlled
+# CONTENT, not a resource type, and is dropped. A closed value domain (rather than a shape
+# regex) is what makes it impossible to smuggle free text through an allowlisted key.
+_SUMMARY_RESOURCE_TYPES: frozenset[str] = frozenset({"Bundle", "Composition", "Patient"})
+
+
+def _admits_resource_type(value: Any, summary_ref: str) -> bool:
+    """`resourceType` is admitted ONLY from the closed domain above."""
+    return isinstance(value, str) and value in _SUMMARY_RESOURCE_TYPES
+
+
+def _admits_subject_id(value: Any, summary_ref: str) -> bool:
+    """`id` is admitted ONLY as an ECHO of the pseudonymized reference this graph itself asked
+    for — so it contributes NO new content (the ref is already in state) while still letting a
+    subject-swapped answer (an id the graph never requested, a CPF-shaped id) be dropped."""
+    return isinstance(value, str) and bool(value) and value == summary_ref
+
+
+#: The CLOSED projection for the FHIR summary: allowlisted key -> its value-admission predicate.
+#: Every key the DOSSIER/PROMPT actually consumes from the summary is here — which is, by
+#: inspection of `dossier_prompt()` and `_build_dossier`/`_facts`, NONE of them: the prompt's
+#: five-part structure (resumo do caso / evidencia referenciada / indicadores / lacunas / pontos
+#: de atencao) never names a FHIR summary field, and `SP-OP-FRAUDE-001.md` mentions no summary
+#: variable at all (`grep -niE 'resumo|summary|fhir'` on the contract: no match). The two keys
+#: below are therefore admitted purely as PROVENANCE — "a summary WAS read, for THIS subject" —
+#: which is what distinguishes an enriched turn from the `resumo_fhir_indisponivel`/
+#: `fhir_reader_nao_configurado` gap notes. Anything else is stripped.
+_SUMMARY_PROJECTION: dict[str, Callable[[Any, str], bool]] = {
+    "resourceType": _admits_resource_type,
+    "id": _admits_subject_id,
+}
+
+#: Derived from `_SUMMARY_PROJECTION` so the allowlist and the admission rules can never drift.
+_SUMMARY_ALLOWED_KEYS: frozenset[str] = frozenset(_SUMMARY_PROJECTION)
 
 
 class PatientSummaryReader(Protocol):
@@ -189,7 +264,7 @@ class BeatrizState(TypedDict, total=False):
     # --- Output-only fields (produced EXCLUSIVELY by this graph's nodes; reset at `receive`) ---
     business_key: str  # FRAUDE-{tenant}-{numero_caso} (re-derived every turn)
     gathered: bool
-    summary_facts: dict[str, Any]  # pseudonymized FHIR enrichment (best-effort)
+    summary_facts: dict[str, Any]  # CLOSED projection of the FHIR summary (BEA-06, never verbatim)
     evidencia_normalizada: list[dict[str, Any]]  # validated pointer PROJECTIONS (custody-bound)
     gather_notes: list[str]  # bounded class tokens only (dossier lacunas)
     dossier: dict[str, Any]  # the assembled instruction (NEVER a decision)
@@ -297,6 +372,62 @@ def _normalize_evidence(
     return normalized, refused_notes
 
 
+def _has_phi_key(value: Any, *, _depth: int = 0) -> bool:
+    """True if `value` carries ANY known raw-PHI key name, RECURSIVELY (dicts and lists/tuples).
+
+    Single-sources the vocabulary from `_PHI_KEYS` — the same set `_normalize_evidence` refuses
+    on, and the set `platform/validation/phi_completeness.py` already cites this module for
+    (`cns`/`rg`/`endereco`) — so there is exactly ONE PHI key vocabulary for Beatriz, never a
+    third copy. Matching folds case (`CPF` == `cpf`). Recursion matters because that is how a
+    real FHIR payload carries an identifier (`Bundle.entry[].resource.subject.cpf`); a
+    top-level-only check would wave it straight through.
+
+    FAIL-CLOSED at `_MAX_PHI_SCAN_DEPTH`: a payload nested deeper than any legitimate summary
+    (or self-referential) is reported as CONTAMINATED rather than scanned further — the scan
+    can never raise `RecursionError` onto `gather`'s hot path, and can never conclude "clean"
+    about a region it did not read.
+    """
+    if _depth > _MAX_PHI_SCAN_DEPTH:
+        return True
+    if isinstance(value, dict):
+        if _PHI_KEYS & {str(key).lower() for key in value}:
+            return True
+        return any(_has_phi_key(item, _depth=_depth + 1) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_has_phi_key(item, _depth=_depth + 1) for item in value)
+    return False
+
+
+def _normalize_summary(facts: Any, summary_ref: str) -> tuple[dict[str, Any], list[str]]:
+    """Normalize the UPSTREAM FHIR summary to a closed projection (BEA-06) — the summary-side
+    twin of `_normalize_evidence`, and for the same reason: the payload is controlled by a
+    server upstream of this graph (module docstring §CUSTODY), so it is untrusted input.
+
+    (1) anything but a dict -> refused (bounded token; a reader that answers with a string/list
+    is off-contract and its content must never be trusted); (2) any known raw-PHI key present
+    anywhere in the structure -> the WHOLE summary is refused, never laundered by projection
+    (upstream contamination surfaces as a lacuna the human investigator can see); (3) survivors
+    are PROJECTED to `_SUMMARY_ALLOWED_KEYS`, each value additionally admitted only from its own
+    CLOSED domain (`_SUMMARY_PROJECTION`) — a key outside the allowlist, or an allowlisted key
+    whose value is free content, is STRIPPED silently (same posture as `_normalize_evidence`'s
+    unknown-key strip: a stripped key is not an incident, a PHI key is).
+
+    Refusals are recorded as the bounded class token `resumo_fhir_recusado` — the payload's
+    VALUES never reach the notes (custody hygiene; those notes land in the sealed dossier's
+    `lacunas`).
+    """
+    if not isinstance(facts, dict):
+        return {}, [NOTE_RESUMO_FHIR_RECUSADO]
+    if _has_phi_key(facts):
+        return {}, [NOTE_RESUMO_FHIR_RECUSADO]
+    projected = {
+        key: facts[key]
+        for key, admits in _SUMMARY_PROJECTION.items()
+        if key in facts and admits(facts[key], summary_ref)
+    }
+    return projected, []
+
+
 def _score_consumed(state: BeatrizState) -> int:
     """The pre-resolved worker score, CONSUMED defensively — never derived, never recomputed.
 
@@ -362,6 +493,11 @@ class BeatrizGraph:
         """Collect the FHIR summary (best-effort) and NORMALIZE the evidence to pointer
         projections (no-PHI-in-custody). NEVER blocks the instruction path.
 
+        BOTH inbound corpora are projected before they land in state: the evidence through
+        `_normalize_evidence` and the UPSTREAM-CONTROLLED FHIR summary through
+        `_normalize_summary` (BEA-06 — module docstring §CUSTODY). Nothing a reader or a caller
+        supplied ever reaches `summary_facts`/`evidencia_normalizada` verbatim.
+
         The pre-resolved indicators/score are NOT touched here — they are consumed as facts by
         `instruct_investigation` (never recomputed; module docstring's L0-hard invariant).
         """
@@ -381,9 +517,16 @@ class BeatrizGraph:
             summary_ref = state.get("patient_summary_ref") or state.get("beneficiario_pseudo_id", "")
             if summary_ref:
                 try:
-                    summary_facts = await self._fhir.read_patient_summary(summary_ref)
+                    raw_summary: Any = await self._fhir.read_patient_summary(summary_ref)
                 except Exception:  # noqa: BLE001 — best-effort enrichment; class token only.
                     notes.append(NOTE_RESUMO_FHIR_INDISPONIVEL)
+                else:
+                    # BEA-06: the reader's payload is UPSTREAM-CONTROLLED and NEVER lands in
+                    # state verbatim — it is projected/refused FIRST (module docstring
+                    # §CUSTODY). Fail-closed by construction: `summary_facts` keeps its empty
+                    # default on every path that does not produce a projection.
+                    summary_facts, refused_summary = _normalize_summary(raw_summary, summary_ref)
+                    notes.extend(refused_summary)
 
         inbound = state.get("evidencia_refs") or []
         normalized, refused_notes = _normalize_evidence(list(inbound))
