@@ -579,14 +579,19 @@ lifecycle:
     # legivel e auto-documentado (Job falho em `kubectl get jobs`/failedJobsHistory + a mensagem-
     # bloqueador nos logs do pod). `suspend: true` seria mais quieto porem ESCONDERIA o sinal e,
     # emparelhado a uma futura implementacao do modulo, viraria uma armadilha silenciosa (basta
-    # des-suspender). NOTA (gap de monitoramento, T2.9): o alerta `MaezoLifecycleJobFailed` (grupo
-    # `maezo_lifecycle`, deploy/observability/alert-rules.yml) agora existe e casa com o rotulo
-    # `lifecycle-*` destes Jobs — mas ainda depende de um scrape kube-state-metrics (metric
-    # `kube_job_status_failed`) que NAO esta configurado em deploy/observability/prometheus.yml
-    # hoje; sem esse scrape a regra nao tem series para avaliar (nao dispara falso-positivo, so
-    # nao tem o que alertar ainda). Adicionar o scrape kube-state-metrics segue como follow-up. A
-    # recusa explicita continua sendo a defesa primaria (o modulo recusa; retention_query fica sem
-    # chamador, travado em CI).
+    # des-suspender). NOTA (gap de monitoramento, T2.9, atualizada ALERTS-WITHOUT-METRICS-b /
+    # R-056 2026-09-04): o alerta `MaezoLifecycleJobFailed` (grupo `maezo_lifecycle`,
+    # deploy/observability/alert-rules.yml) casa com o rotulo `lifecycle-*` destes Jobs, e o job
+    # `kube-state-metrics` (metric `kube_job_status_failed`) AGORA EXISTE em
+    # deploy/observability/prometheus.yml — mas so' resolve dentro de um cluster Kubernetes real:
+    # kube-state-metrics e' assumido cluster-provided (ships COM kube-prometheus-stack nos
+    # clusters de tenant que rodam o operator — a mesma suposicao que
+    # templates/podmonitor.yaml ja faz para o prometheus-operator em si; ver
+    # docs/runbooks/devops-stack.md). O docker-compose de dev nao tem API do Kubernetes, entao o
+    # alvo fica "down" la' por design (nao e' defeito, e' ausencia de cluster) e a regra continua
+    # sem serie para avaliar nesse ambiente (nao dispara falso-positivo). A recusa explicita
+    # continua sendo a defesa primaria (o modulo recusa; retention_query fica sem chamador,
+    # travado em CI).
     - name: audit-retention
       command: "audit-retention"
       schedule: "0 5 1 * *"

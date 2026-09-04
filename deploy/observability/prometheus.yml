@@ -71,3 +71,40 @@ scrape_configs:
           - "localhost:9090"
         labels:
           service: "prometheus"
+
+  # Kafka Exporter (ALERTS-WITHOUT-METRICS-b / R-056) — danielqsj/kafka_exporter, NO JMX. Scrapes
+  # the dev/CI broker (docker-compose.yml service `kafka`, profile `core`) via the Kafka protocol
+  # directly and exposes `kafka_topic_partition_current_offset` (among others), which the
+  # `maezo_dead_letter_derived` recording rule group in alert-rules.yml turns into
+  # `maezo_dead_letter_queue_size`. `environment: dev` on this job is the label that keeps the
+  # derived series honestly scoped: it is a real dev/CI series, never a production reading (see
+  # that recording rule's HONESTY LIMIT comment). Service defined in docker-compose.yml, profile
+  # `observability` (depends on `kafka`, profile `core` — the two profiles run together per this
+  # repo's documented `docker compose --profile core --profile observability up -d` usage).
+  - job_name: "kafka-exporter"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets:
+          - "kafka-exporter:9308"
+        labels:
+          service: "maezo-operadora"
+          component: "kafka-exporter"
+          environment: "dev"
+
+  # kube-state-metrics (ALERTS-WITHOUT-METRICS-b / R-056) — feeds `MaezoLifecycleJobFailed`'s
+  # `kube_job_status_failed` (alert-rules.yml). Standard in-cluster service DNS: tenant clusters
+  # that run kube-prometheus-stack ship kube-state-metrics WITH the operator (same
+  # "cluster-provided" assumption deploy/helm/maezo-tenant/templates/podmonitor.yaml already makes
+  # for prometheus-operator itself — see docs/runbooks/devops-stack.md). Dev docker-compose has no
+  # Kubernetes API server, so THIS TARGET IS UNREACHABLE IN DEV BY DESIGN — the job will show
+  # `down` in Prometheus's targets page; that is expected (no k8s here to scrape), not a defect,
+  # and it does not affect any other scrape job. `MaezoLifecycleJobFailed` documents the same
+  # "not yet wired, not faked" posture at its own rule comment.
+  - job_name: "kube-state-metrics"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets:
+          - "kube-state-metrics.kube-system.svc.cluster.local:8080"
+        labels:
+          service: "maezo-operadora"
+          component: "kube-state-metrics"

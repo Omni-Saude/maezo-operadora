@@ -309,6 +309,34 @@ services:
   # ---------------------------------------------------------------------------
   # Observability profile
   # ---------------------------------------------------------------------------
+  kafka-exporter:
+    # ALERTS-WITHOUT-METRICS-b / R-056 (2026-09-04): danielqsj/kafka_exporter, NO JMX — scrapes
+    # the Kafka protocol directly. Points at the `kafka` service's INTERNAL listener
+    # (kafka:29092, same one agent-runtime/worker-runtime use — see the `kafka` service's
+    # KAFKA_ADVERTISED_LISTENERS comment above), the existing dev/CI broker this decision
+    # instruments instead of waiting on production MSK. Exposes
+    # `kafka_topic_partition_current_offset` (and friends) on :9308/metrics, scraped by
+    # prometheus.yml job `kafka-exporter`, which the `maezo_dead_letter_derived` recording rule
+    # in alert-rules.yml turns into `maezo_dead_letter_queue_size`.
+    #
+    # Cross-profile depends_on (kafka is profile `core`) mirrors the established pattern the
+    # `app` profile already uses for `agent-runtime`/`worker-runtime` depending on `cibseven`/
+    # `kafka` — this repo's documented usage always brings `core` up alongside `observability`
+    # (`docker compose --profile core --profile observability up -d`).
+    image: danielqsj/kafka-exporter:v1.7.0
+    profiles: ["observability"]
+    command: ["--kafka.server=kafka:29092"]
+    ports: ["9308:9308"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9308/metrics > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.104.0
     profiles: ["observability"]
