@@ -14,7 +14,8 @@ is worse than an honest "off", because a caller has no way to tell the two apart
 `agent.yaml` alone.
 
 The fix is a documentation-only desdeclaration (`episodic: false` / `semantic: false`, both
-commented "reabilitar quando DU-01-b/AF-11 ligar pgvector") — reactivation is gated on GAP-DU-01-b
+commented "reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043 — memoria
+ativar-ou-aposentar)") — reactivation is gated on GAP-DU-01-b
 (an owner decision: wire a real pgvector/embedding path onto `agent_memory`, or retire the
 server outright). This fence makes the honest state a structural invariant instead of a
 one-time cleanup: it fails the moment either side of the pair drifts.

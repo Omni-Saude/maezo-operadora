@@ -58,8 +58,8 @@ escalation:
     - signal: dmn_unavailable                  # DMN indisponivel -> humano (nunca desfecho adverso por omissao)
     - signal: ambiguity                        # qualquer ambiguidade clinica -> coordenacao-clinica
 memory:
-  episodic: false  # reabilitar quando DU-01-b/AF-11 ligar pgvector (ADR-P-004)
-  semantic: false  # reabilitar quando DU-01-b/AF-11 ligar pgvector (ADR-P-004)
+  episodic: false  # reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043 — memoria ativar-ou-aposentar)
+  semantic: false  # reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043 — memoria ativar-ou-aposentar)
 # A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Valentina e ALVO de delegacao:
 # SP-OP-PROGRAMA-001 delega `care.stratify` (estratificacao de risco in-zone) e `care.enroll`
 # (montagem do plano de cuidado/dossie) a ela. `accepted_task_types` declara o contrato de

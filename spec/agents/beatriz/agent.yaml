@@ -54,8 +54,8 @@ escalation:
     - signal: evidencia_indisponivel           # evidencia/snapshot indisponivel -> humano (nunca desfecho adverso por omissao)
     - signal: ambiguity                        # qualquer ambiguidade -> investigador humano conservador
 memory:
-  episodic: false  # reabilitar quando DU-01-b/AF-11 ligar pgvector (ADR-P-004)
-  semantic: false  # reabilitar quando DU-01-b/AF-11 ligar pgvector (ADR-P-004)
+  episodic: false  # reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043 — memoria ativar-ou-aposentar)
+  semantic: false  # reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043 — memoria ativar-ou-aposentar)
 # A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Beatriz e ALVO de delegacao: o
 # engine de SP-OP-FRAUDE-001 a convoca (`operadora.fraude.gather_evidence`/`assemble_dossier`)
 # via DelegationDispatcher com task_type `fraude.investigate` (HUMAN-GATED). `accepted_task_types`
