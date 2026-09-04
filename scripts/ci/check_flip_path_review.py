@@ -96,11 +96,22 @@ failing at any step of either walk, is RED — the gate never reports a partial 
 
 The compare response's `status` / `ahead_by` / `merge_base_commit` are also read and validated before
 any of the above, so a response shape that HIDES paths cannot pass as silently as a truncated `files`
-list nearly did: `status` outside `{"ahead", "identical"}` (i.e. "diverged" or "behind" — the base and
-head not relating the way a three-dot compare assumes) is RED, as is `files: []` paired with
-`ahead_by > 0` (empty is not the same claim as "nothing to report"). Any non-2xx or unexpected shape
-at any step is RED — never a silent fallback to `pulls/N/files`, which is precisely the shape of the
-bug being fixed here.
+list nearly did. `status` values `"ahead"` (the ordinary case), `"identical"` (no diff) and
+`"diverged"` are ALL evaluated normally — a first draft of this fix treated `"diverged"` as RED, which
+was itself a regression: `"diverged"` merely means the base has ALSO moved since the merge base, which
+is the default state of most open PRs (live census: 8 of 47 remote branches at correction time,
+including this one), and for a three-dot compare the `files` list under `"diverged"` is the SAME
+merge-base-relative diff as under `"ahead"` — confirmed live (`compare/main...codeowners-audit`:
+`status: "diverged"`, `ahead_by:3`, `behind_by:390`, 2 files, byte-identical to
+`git diff --name-only $(git merge-base main codeowners-audit)..codeowners-audit`). Only `"behind"`
+(`ahead_by == 0` — the head contributes nothing new; it is already an ancestor of the base) is RED,
+deliberately: a real PR event should never present this shape, so rather than silently reporting GREEN
+on a range with nothing in it, the gate fails loud — which means a dry-run against an ALREADY-MERGED
+PR is RED by design (evaluate a PR while it is still open, or pin an explicit `base_tip` that predates
+the merge). Any other `status` value is an unrecognized shape, also RED. `files: []` paired with
+`ahead_by > 0` is RED too (empty is not the same claim as "nothing to report"). Any non-2xx or
+unexpected shape at any step is RED — never a silent fallback to `pulls/N/files`, which is precisely
+the shape of the bug being fixed here.
 
 THIS DOES NOT MOVE DECISION 1. CODEOWNERS content is still read from `pull_request.base.sha` — the
 STALE, RECORDED base commit — exactly as Decision 1 above requires and for the same reason: a moving
@@ -125,7 +136,10 @@ Tested by `test_stale_base_sha_no_longer_produces_a_false_owned_hit_defect_254`,
 `test_changed_paths_300_file_cap_walks_commits_and_finds_the_301st_owned_file`,
 `test_changed_paths_commit_file_cap_of_3000_is_red_not_a_partial_union`,
 `test_changed_paths_empty_files_with_positive_ahead_by_is_red`,
-`test_changed_paths_non_ahead_non_identical_status_is_red`,
+`test_changed_paths_diverged_status_is_evaluated_normally`,
+`test_changed_paths_behind_status_is_red_head_already_in_base`,
+`test_changed_paths_unrecognized_status_is_red`,
+`test_changed_paths_commit_walk_total_commits_mismatch_is_red`,
 `test_branch_tip_resolves_the_current_sha` and `test_branch_tip_failure_is_red`.
 
 DESIGN DECISION 2 — CHANGES_REQUESTED FROM AN OWNER OF A TOUCHED OWNED PATH ⇒ RED
@@ -1057,8 +1071,12 @@ class GitHubAPI:
         files via `repos/{repo}/commits/{sha}` (independently paginated, cap 3000 files/commit). That
         union is a SUPERSET of the merge-base tree diff, which is the fail-closed direction. `status`,
         `ahead_by` and `merge_base_commit` are validated first so a response shape that hides paths
-        cannot slip through either. Any non-2xx response or unexpected shape at any step is RED — never
-        a silent fallback to `pulls/N/files`, which is precisely the bug being fixed.
+        cannot slip through either — `"ahead"`, `"identical"` AND `"diverged"` are all evaluated
+        normally (a first draft of this fix wrongly reddened `"diverged"`, which is the default state
+        of most open PRs — see the module docstring's "THE 300-FILE CAP"); only `"behind"`
+        (`ahead_by == 0`, head already contained in the base) is RED, by design. Any non-2xx response
+        or unexpected shape at any step is RED — never a silent fallback to `pulls/N/files`, which is
+        precisely the bug being fixed.
         """
         compare = f"repos/{self.repo}/compare/{base_tip}...{head_sha}"
         status, payload = self._request(f"{compare}?per_page=300&page=1")
@@ -1070,12 +1088,21 @@ class GitHubAPI:
             )
 
         compare_status = payload.get("status")
-        if compare_status not in ("ahead", "identical"):
+        if compare_status == "behind":
+            raise GateError(
+                f"{compare} reports status='behind' — head already contained in the base "
+                "(ahead_by == 0): nothing to evaluate. Fail-closed rather than silently reporting "
+                "GREEN on a range with nothing in it: a real PR event should never present this "
+                "shape, so by design a dry-run against an ALREADY-MERGED PR is RED here — evaluate "
+                "the PR while it is still open, or pin an explicit base_tip that predates the merge."
+            )
+        if compare_status not in ("ahead", "identical", "diverged"):
             raise GateError(
                 f"{compare} reports status={compare_status!r} — a three-dot compare this gate can "
-                "trust must be 'ahead' (the ordinary case) or 'identical' (no diff); 'diverged' or "
-                "'behind' means the base and head do not relate the way a merge-base diff assumes, and "
-                "the gate cannot compute a trustworthy touched-path set from it. Fail-closed."
+                "evaluate must be 'ahead' (the ordinary case), 'identical' (no diff) or 'diverged' "
+                "(the base has ALSO moved since the merge base — the default state of most open PRs; "
+                "the files list under 'diverged' is the same merge-base-relative diff as under "
+                "'ahead', confirmed live). Anything else is an unrecognized shape. Fail-closed."
             )
 
         files = payload.get("files")

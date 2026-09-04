@@ -1302,20 +1302,92 @@ def test_changed_paths_empty_files_with_positive_ahead_by_is_red(
         api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
 
 
-@pytest.mark.parametrize("bad_status", ["diverged", "behind"])
-def test_changed_paths_non_ahead_non_identical_status_is_red(
-    monkeypatch: pytest.MonkeyPatch, bad_status: str
+def test_changed_paths_diverged_status_is_evaluated_normally(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`status: "diverged"` means the base has ALSO moved since the merge base — the default state of
+    most open PRs (measured live: 8 of 47 remote branches at correction time). A first draft of the
+    300-file-cap fix wrongly reddened it; the `files` list under 'diverged' is the SAME merge-base
+    diff as under 'ahead' (confirmed live: `compare/main...codeowners-audit` — status 'diverged',
+    ahead_by 3, behind_by 390 — returned exactly the two files `git diff --name-only
+    $(git merge-base main codeowners-audit)..codeowners-audit` reports). A diverged compare with an
+    owned file among its `files` must therefore be evaluated normally, not rejected."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    owned_file = "spec/policies/autonomy/action-approvals.yaml"
+    monkeypatch.setattr(
+        api,
+        "_request",
+        lambda path: (
+            200,
+            {
+                "status": "diverged",
+                "ahead_by": 3,
+                "behind_by": 390,
+                "files": [{"filename": owned_file}, {"filename": "README.md"}],
+            },
+        ),
+    )
+    paths = api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+    assert owned_file in paths
+    rules = parse_codeowners(BASE_CODEOWNERS)
+    assert owners_for_path(rules, owned_file) is not None
+
+
+def test_changed_paths_behind_status_is_red_head_already_in_base(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A three-dot compare reporting `status` outside {'ahead', 'identical'} means the base and head
-    do not relate the way this gate's touched-path computation assumes — fail-closed rather than
-    silently trusting `files` under an unexplained shape."""
+    """`status: "behind"` (`ahead_by == 0`) means the head is already an ancestor of the base — there
+    is nothing to evaluate. A real PR event should never present this shape, so rather than silently
+    reporting GREEN on an empty range the gate fails loud, by design: a dry-run against an
+    ALREADY-MERGED PR is RED here, deliberately."""
     api = gate.GitHubAPI(repo="o/r", token="t")
     monkeypatch.setattr(
         api,
         "_request",
-        lambda path: (200, {"status": bad_status, "ahead_by": 3, "files": [{"filename": "x.txt"}]}),
+        lambda path: (200, {"status": "behind", "ahead_by": 0, "behind_by": 6, "files": []}),
     )
-    with pytest.raises(GateError, match="status="):
+    with pytest.raises(GateError, match="head already contained in the base"):
+        api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+
+
+def test_changed_paths_unrecognized_status_is_red(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A `status` this gate does not recognize at all (neither the three evaluable values nor
+    'behind') is an unrecognized shape — fail-closed rather than silently trusting `files` under it."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    monkeypatch.setattr(
+        api,
+        "_request",
+        lambda path: (200, {"status": "bogus", "ahead_by": 3, "files": [{"filename": "x.txt"}]}),
+    )
+    with pytest.raises(GateError, match="unrecognized shape"):
+        api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+
+
+def test_changed_paths_commit_walk_total_commits_mismatch_is_red(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """VER-FLIP-GATE-BASE mutation M-c: the commit walk must not trust a PARTIAL commit set. If the
+    compare's own `commits` pages run out (an empty/short page) before `total_commits` are collected,
+    the gate cannot prove it has seen every commit in the range, so it must fail CLOSED rather than
+    union whatever files the partial set happened to touch."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    compare_path = f"repos/o/r/compare/{CURRENT_MAIN_TIP}...{REGRESSION_HEAD_SHA}"
+    padding = [{"filename": f"aaa_padding/{i:03d}.txt"} for i in range(300)]
+
+    def fake_request(path: str) -> tuple[int, Any]:
+        if path == f"{compare_path}?per_page=300&page=1":
+            return 200, {
+                "status": "ahead",
+                "ahead_by": 3,
+                "total_commits": 3,  # promised 3 commits...
+                "merge_base_commit": {"sha": "mb00000000000000000000000000000000000000"},
+                "files": padding,
+                "commits": [{"sha": "c1"}, {"sha": "c2"}],  # ...but only 2 ever arrive
+            }
+        if path == f"{compare_path}?per_page=300&page=2":
+            return 200, {"commits": []}
+        raise AssertionError(f"unexpected request: {path}")
+
+    monkeypatch.setattr(api, "_request", fake_request)
+    with pytest.raises(GateError, match="commit walk collected 2 distinct commit"):
         api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
 
 
