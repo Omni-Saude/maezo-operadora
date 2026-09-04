@@ -1,4 +1,4 @@
-"""LIVE-PG fenced-start audit-row proof (T2.6-EB3 TESTS section) — port 5647 by default.
+"""LIVE-PG fenced-start audit-row proof (T2.6-EB3 TESTS section) — compose Postgres by default.
 
 Reuses the T2.6-7 fenced-start proof pattern
 (`tests/integration/processes/test_sp_op_nip_001.py::
@@ -16,12 +16,22 @@ link for a repeated business key).
 
 Reachability convention (mirrors `tests/unit/gateway/test_audit_postgres.py` /
 `tests/integration/conftest.py`'s own DSN resolution): `MAEZO_TEST_DATABASE_URL` wins; otherwise
-`postgresql://maezo:maezo@localhost:${MAEZO_PG_HOST_PORT:-5647}/maezo` — 5647 (not the 5433
-dev-default / 5432 CI-default) so this suite never collides with an already-running Postgres on
-a shared dev machine. This directory's `conftest.py` already overrides the parent integration
-suite's CIB-Seven-engine autouse gate (this suite needs Postgres only), so a missing broker/engine
-elsewhere never blocks this file — only Postgres unreachability does, and that SKIPS LOUDLY
-("COULD NOT VERIFY", ADR-0011 posture), never fakes a database.
+`postgresql://maezo:maezo@localhost:${MAEZO_PG_HOST_PORT:-5433}/maezo` — byte-for-byte the DSN
+`tests/integration/conftest.py::_audit_pg_dsn` resolves, i.e. the Postgres `docker-compose.yml`
+actually publishes (`ports: ["${MAEZO_PG_HOST_PORT:-5433}:5432"]`) and the one CI's integration
+job serves (it pins `MAEZO_PG_HOST_PORT=5432`).
+
+GAP LIVE-SUITES-SILENT-SKIP-AUDIT (2026-09-04): this fallback used to be 5647, chosen "so this
+suite never collides with an already-running Postgres on a shared dev machine". A DEFAULT NOBODY
+SERVES IS A SILENT SKIP — no compose service, no CI service and no documented bring-up ever
+published 5647, so with the repo's own stack up and no env exported these five tests reported
+"COULD NOT VERIFY" instead of proving anything (measured: `5 skipped` against a live compose
+stack). Collision safety does not come from an unserved port number: every test here works inside
+its OWN per-run tenant schema (`eb3<hex>`, created and dropped by `pg_tenant_schema` below), which
+is what actually keeps concurrent suites off each other's rows. This directory's `conftest.py`
+already overrides the parent integration suite's CIB-Seven-engine autouse gate (this suite needs
+Postgres only), so a missing broker/engine never blocks this file — only Postgres unreachability
+does, and that SKIPS LOUDLY ("COULD NOT VERIFY", ADR-0011 posture), never fakes a database.
 """
 
 from __future__ import annotations
@@ -55,7 +65,7 @@ from tests.integration.conftest import _apply_migrations, _pg_reachable
 
 pytestmark = pytest.mark.integration
 
-_DEFAULT_PORT = "5647"
+_DEFAULT_PORT = "5433"  # docker-compose.yml: ports ["${MAEZO_PG_HOST_PORT:-5433}:5432"]
 
 
 def _pg_dsn() -> str:
@@ -82,8 +92,7 @@ def pg_tenant_schema() -> Iterator[tuple[str, str]]:
             f"COULD NOT VERIFY: no reachable Postgres at {dsn!r} (override with "
             "MAEZO_TEST_DATABASE_URL / MAEZO_PG_HOST_PORT). T2.6-EB3's LIVE-PG fenced-start "
             "proof needs a real Postgres with migrations 0001-0005 applied — bring one up, e.g.:\n"
-            "  docker run -d -p 5647:5432 -e POSTGRES_USER=maezo -e POSTGRES_PASSWORD=maezo "
-            "-e POSTGRES_DB=maezo pgvector/pgvector:pg16\n"
+            "  docker compose --profile core up -d postgres\n"
             "to run this for real."
         )
 
