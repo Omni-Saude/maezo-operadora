@@ -71,6 +71,19 @@ here; disclosed, not hidden):
   `_OUTPUT_FIELDS_RESET` resets every output-only field on entry (plus `_escalate_min`'s
   explicit `dmn_refs` clear) — same defect class and fix shape as the sibling agents' cycles.
 
+INPUT-BOUNDARY GATE (T1.11 layer 1 — CC-14/LUC-09a/RAF-13; the F2 reset above is layer 2). The
+reset is a HAND-ENUMERATED list, so a `LucasState` field added later would be silently un-reset
+AND silently caller-settable — the drift `spec/agents/lucas/agent.yaml` recorded as the open
+security prerequisite for any inbound channel (gap 11.7). Layer 1 closes it: `_CALLER_INPUT_FIELDS`
+declares the complete INPUT half, an import-time guard REFUSES TO LOAD THE MODULE if any state key
+is unclassified (or double-classified), and `new_lucas_state` (strict, raises `ValueError` naming
+the keys) / `gate_inbound_state` (lenient, drops + logs key NAMES only) are the two construction
+seams. WHAT THIS DOES NOT DO: it does not give Lucas an inbound channel. Gap 11.7 stays open —
+`accepted_task_types` is still `[]` and a beneficiary reply still arrives, if at all, through
+Helena's single webhook without billing context. The gate is the ORDERED PREREQUISITE, built so
+the seam is gated on the day it lands (CC-02), which is the posture `agents/rafael/graph.py`
+already took for its own absent delegation seam.
+
 PHI discipline: every LLM call in this module passes `phi=True` (ADR-0006/ADR-0017/T1.7) — the
 one PHI-tagged content boundary is state derived from a beneficiary's billing case, treated the
 same as Helena's/Rafael's PHI-tagged content.
@@ -113,8 +126,10 @@ DIVERGENCES FROM THE v1 DONOR (disclosed, not hidden — `spec/` wins per this t
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Literal, Protocol, TypedDict, cast
 
+import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
@@ -140,6 +155,8 @@ from .prompts import (
     escalation_ack_prompt,
     message_prompt,
 )
+
+logger = structlog.get_logger(__name__)
 
 PROCESS_KEY = "SP-OP-ESCALATION-001"
 
@@ -227,6 +244,10 @@ class WhatsAppSender(Protocol):
 # Literal-typed fields reset to "" (a value outside every allowlist — every consumer treats it
 # as absent/conservative); containers reset to their empty shape. `business_key` is re-derived
 # by `receive` itself (success path) or `start_process` (falsy -> `_business_key(state)`).
+# This dict is ALSO the OUTPUT half of the T1.11 input/output partition — see
+# `_CALLER_INPUT_FIELDS` below, whose import-time guard makes the two halves cover `LucasState`
+# exactly. Adding a key here without removing it from `_CALLER_INPUT_FIELDS` (or vice versa)
+# fails the module import, not a later test run.
 _OUTPUT_FIELDS_RESET: dict[str, Any] = {
     "gathered": False,
     "billing_facts": {},
@@ -312,6 +333,123 @@ class LucasState(TypedDict, total=False):
     # Output.
     desfecho: str
     error: str
+
+
+# --- Input boundary (T1.11 layer 1: partition + constructor) -----------------------------------
+#
+# `LucasState` carries TWO disjoint classes of key. Until CC-14 Lucas had ONLY layer 2 — the
+# `receive`-entry reset of the HAND-ENUMERATED `_OUTPUT_FIELDS_RESET` above — which is exactly
+# the gap `spec/agents/lucas/agent.yaml` recorded as the security PRE-REQUISITE for any future
+# inbound channel (gap 11.7). A hand list neutralizes the output fields somebody remembered to
+# list; a state field added later is silently un-reset AND silently caller-settable.
+#   * INPUT-ONLY  (`_CALLER_INPUT_FIELDS`): the ONLY keys a caller/upstream may set — the runtime
+#     identifiers, the turn's `intencao`/request fields, and the PRE-RESOLVED CNAB conciliation
+#     facts this graph CONSUMES and never computes (module docstring's L0-hard invariant).
+#   * OUTPUT-ONLY (`_OUTPUT_FIELDS_RESET`): keys OWNED by this graph's nodes (route, the DMN
+#     verdicts, motivo_*/severidade/grupo_humano, mensagem*, dossier, process_*, desfecho,
+#     error). A caller must NEVER set one — that is literally the R1 cycle-1 F2 defect, whose
+#     live probe watched a planted `dmn_refs` entry reach `dmn_decision_refs` in
+#     SP-OP-ESCALATION-001 (module docstring §R1 CYCLE-1).
+#
+# TWO defenses, both fail-closed (mirrors `agents/helena/graph.py`, the sibling that owns the one
+# WhatsApp webhook Lucas's beneficiary replies would arrive through):
+#   1. Per-graph entry sanitization (layer 2, pre-existing) — `receive` resets EVERY output-only
+#      field on EVERY branch before any downstream node runs.
+#   2. Input-boundary gate (layer 1, THIS block) — a construction seam assembles state ONLY
+#      through the typed `new_lucas_state` constructor or the `gate_inbound_state` allowlist
+#      filter, so an output-only key can never enter the state dict at all.
+#
+# WHY IT EXISTS BEFORE THE SEAM DOES. Lucas declares `accepted_task_types: []` and has no inbound
+# channel of his own (agent.yaml gap 11.7 — STILL OPEN; this block does NOT close it and does not
+# claim to). The gate is the ORDERED prerequisite: it is built now so the day a channel lands it
+# is gated by construction, the same posture `agents/rafael/graph.py` took.
+#
+# The completeness guard below fails at IMPORT TIME if a newly added `LucasState` field is not
+# classified into exactly one of the two sets — "any missed key is a hole".
+_CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
+    {
+        # Runtime identifiers (injected by the calling layer at turn start).
+        "tenant_id",
+        "conversation_id",
+        "canal",
+        "beneficiario_pseudo_id",
+        "to_hash",
+        # Turn input — `intencao` selects the JOURNEY, never a merit Lucas decides. It is an
+        # INPUT on purpose: `receive` validates it against `_VALID_INTENCOES` and fails closed to
+        # `ambiguidade`, so a hostile value cannot pick a journey, only forfeit the turn.
+        "intencao",
+        "tipo_solicitacao",
+        "numero_boleto",
+        "competencia",
+        # Pre-resolved by the deterministic CNAB conciliation worker upstream — CONSUMED, never
+        # computed here. These are FACTS a caller may assert; every VERDICT derived from them
+        # (`admissibilidade`, `roteamento_escalacao`, `route`, `severidade`) is output-only.
+        "status_conciliado",
+        "ciclos_sem_conciliacao",
+        "contesta_cobranca",
+        "pedido_cancelamento",
+        "cnab_ref",
+    }
+)
+
+_LUCAS_ALL_FIELDS: frozenset[str] = _CALLER_INPUT_FIELDS | frozenset(_OUTPUT_FIELDS_RESET)
+if frozenset(LucasState.__annotations__) != _LUCAS_ALL_FIELDS:
+    _unclassified = frozenset(LucasState.__annotations__) - _LUCAS_ALL_FIELDS
+    _stale = _LUCAS_ALL_FIELDS - frozenset(LucasState.__annotations__)
+    raise RuntimeError(
+        "LucasState input/output field split is incomplete (T1.11 input-boundary gate, CC-14): "
+        f"unclassified fields={sorted(_unclassified)} stale entries={sorted(_stale)} — every "
+        "LucasState key MUST be either a `_CALLER_INPUT_FIELDS` member or carry a neutral "
+        "default in `_OUTPUT_FIELDS_RESET`."
+    )
+if _CALLER_INPUT_FIELDS & frozenset(_OUTPUT_FIELDS_RESET):
+    raise RuntimeError(
+        "LucasState field classified as BOTH input and output (T1.11 input-boundary gate, "
+        f"CC-14): {sorted(_CALLER_INPUT_FIELDS & frozenset(_OUTPUT_FIELDS_RESET))}"
+    )
+
+
+def new_lucas_state(raw: Mapping[str, Any]) -> LucasState:
+    """Typed input-boundary constructor for a fresh Lucas turn (T1.11 layer 1).
+
+    Accepts a raw mapping — the shape a future inbound channel (an A2A envelope, or a
+    billing-context webhook handler) would hand over — and returns a `LucasState` containing ONLY
+    `_CALLER_INPUT_FIELDS` keys.
+
+    An unknown key is a HARD ERROR, and the error NAMES the offending keys: an internal seam is a
+    contract, so a stray key means a producer bug and must fail closed, LOUDLY. Mirrors
+    `agents/rafael/graph.py::new_rafael_state` and `agents/helena/graph.py::new_helena_state`.
+
+    The two error classes (an output-only key vs a wholly-unknown key) are deliberately NOT
+    distinguished beyond the key list — telling a hostile caller which of its keys the state
+    model recognizes is a hint it does not need.
+    """
+    unknown = sorted(k for k in raw if k not in _CALLER_INPUT_FIELDS)
+    if unknown:
+        raise ValueError(
+            "new_lucas_state received non-input keys (T1.11 input-boundary gate): "
+            f"{unknown} — only `_CALLER_INPUT_FIELDS` may be set by a caller/inbound seam; "
+            "output-only fields are owned by Lucas's graph nodes."
+        )
+    return cast(LucasState, {k: raw[k] for k in _CALLER_INPUT_FIELDS if k in raw})
+
+
+def gate_inbound_state(raw: Mapping[str, Any]) -> LucasState:
+    """Fail-closed input allowlist (drop-and-log variant of `new_lucas_state`).
+
+    Only `_CALLER_INPUT_FIELDS` keys survive; every other key — any caller-planted output field,
+    any unknown key — is DROPPED and LOGGED. Use where tolerating benign upstream drift is
+    preferable to raising (a lenient ingestion edge, e.g. a WhatsApp webhook payload); use
+    `new_lucas_state` on a strict internal delegation seam.
+
+    LOG HYGIENE: the event carries the dropped KEY NAMES only, never their values — a planted
+    value is unbounded caller-controlled content, the same reason `receive`'s failure reasons are
+    bounded class tokens that never echo `intencao`.
+    """
+    dropped = sorted(k for k in raw if k not in _CALLER_INPUT_FIELDS)
+    if dropped:
+        logger.warning("lucas_inbound_output_fields_dropped", dropped=dropped)
+    return cast(LucasState, {k: raw[k] for k in _CALLER_INPUT_FIELDS if k in raw})
 
 
 # --- Helpers -----------------------------------------------------------------------------------
