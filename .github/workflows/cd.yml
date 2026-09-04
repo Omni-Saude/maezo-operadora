@@ -15,8 +15,25 @@ name: CD
 #   (b) provide AWS_DEPLOY_ROLE_ARN (the deploy role from
 #   deploy/terraform/modules/github-oidc). Both are intentionally absent here.
 #
-# Prod promotion is `workflow_dispatch` + `environment: production`, so it gates
-# on GitHub's manual-approval reviewers before any prod step can run.
+# PROD PROMOTION IS NOT GATED BY GITHUB REQUIRED REVIEWERS (medido, nao presumido).
+#   `promote-production` e `workflow_dispatch` + `environment: production`, e o environment
+#   EXISTE — mas com `"protection_rules": []` e `"can_admins_bypass": true`
+#   (`GET /repos/Omni-Saude/maezo-operadora/environments/production`, reconferido 2026-09-04).
+#   Um environment sem protection rules NAO pausa o job para aprovacao alguma: ele so nomeia um
+#   escopo de variaveis/segredos. A regra de required reviewers foi tentada e recusada com HTTP
+#   422 duas vezes — a org `Omni-Saude` esta no plano *team* com repositorio privado, combinacao
+#   que permite environments mas NAO permite protecao por revisores obrigatorios (exige
+#   Enterprise Cloud). Nao procure esse gate aqui: ele nao existe, e a ausencia do erro de lint
+#   sobre o environment nao e a presenca do gate.
+#   O gate DE FACTO ate agora era `AWS_ENABLED`: com a variavel ausente (o default), todo passo
+#   que toca a AWS e no-op. E um gate por omissao, nao por aprovacao — ele falha exatamente no
+#   dia em que alguem definir `AWS_ENABLED=true`, que e o dia de maior pressa.
+#   O gate CONSTRUIDO que ocupa o lugar dos required reviewers e o job
+#   `require-production-approval` abaixo (decisao do dono R-021, opcao B): ele roda
+#   `scripts/ci/check_production_approval.py`, exige prova de aprovacao de um revisor nomeado em
+#   `.github/production-approvers.yaml` sobre o commit promovido, e sai != 0 por padrao. A
+#   consulta a `GET /environments/production` entra nele como TELEMETRIA, nunca como condicao —
+#   a maquina nao pode se auto-certificar aprovada.
 #
 # T2.4 (remainder): SBOM (syft, via anchore/sbom-action) generation + cosign
 # keyless (Sigstore OIDC) image signing/attestation are wired into
@@ -31,7 +48,7 @@ on:
   workflow_dispatch:
     inputs:
       promote_to_production:
-        description: "Promote the already-staged image tag to PRODUCTION (requires environment approval)."
+        description: "Promote the already-staged image tag to PRODUCTION (requires a recorded approval from .github/production-approvers.yaml; the `production` environment has NO protection rules)."
         type: boolean
         default: false
       image_tag:
@@ -298,17 +315,59 @@ jobs:
         run: echo "::notice title=CD no-op::AWS_ENABLED!='true' — staging smoke tests SKIPPED."
 
   # ---------------------------------------------------------------------------
-  # 4) Production promotion — workflow_dispatch ONLY, gated by GitHub's
-  #    `environment: production` manual-approval reviewers. Even past the gate,
-  #    every AWS step is guarded by AWS_ENABLED so an approved run with AWS off
-  #    is still a no-op.
+  # 3.5) PREFLIGHT DE APROVACAO — o gate humano CONSTRUIDO (decisao do dono R-021, opcao B).
+  #      Substitui os required reviewers que o plano da org nao permite (ver o cabecalho). Sai
+  #      != 0 por padrao: so passa exibindo uma review APPROVED, ainda vigente, feita por um
+  #      login de `.github/production-approvers.yaml` (CODEOWNED) sobre a head do PR que carrega
+  #      o commit promovido. Erro de API, arquivo ilegivel, tag opaca ou aprovacao obsoleta sao
+  #      todos VERMELHO — nunca "deixa passar por falta de informacao".
+  #      `GET /environments/production` e consultado por este job apenas como TELEMETRIA, depois
+  #      do veredito, e nunca como condicao: a maquina nao pode se auto-certificar aprovada.
+  # ---------------------------------------------------------------------------
+  require-production-approval:
+    name: require-production-approval
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.promote_to_production
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # stdlib only, pela mesma doutrina de `flip-path-review-gate.yml`: nenhum `uv sync`, nenhum
+      # grafo de dependencias, nenhuma superficie de supply-chain no check que governa se um
+      # artefato pode ir a producao.
+      - name: Production promotion requires a listed reviewer's approval
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PROMOTION_IMAGE_TAG: ${{ inputs.image_tag }}
+        run: python3 scripts/ci/check_production_approval.py
+
+  # ---------------------------------------------------------------------------
+  # 4) Production promotion — workflow_dispatch ONLY. O gate humano NAO vem do
+  #    `environment: production` (ele existe com `protection_rules: []` — ver o
+  #    cabecalho do arquivo): vem do job `require-production-approval` acima, que
+  #    e `needs:` deste e falha fechado sem prova de aprovacao. Alem dele, todo
+  #    passo AWS segue guardado por AWS_ENABLED, entao uma run aprovada com a AWS
+  #    desligada continua sendo no-op.
   # ---------------------------------------------------------------------------
   promote-production:
     name: promote → production (manual approval)
     runs-on: ubuntu-latest
+    needs: [require-production-approval]
     if: github.event_name == 'workflow_dispatch' && inputs.promote_to_production
-    # GitHub manual-approval gate: configure required reviewers on the
-    # `production` environment in repo Settings → Environments.
+    # `environment: production` aqui NAO e um gate de aprovacao: o environment existe com
+    # `protection_rules: []` porque o plano *team* da org nao admite required reviewers (HTTP
+    # 422; ver o cabecalho). Mantido apenas pelo escopo de variaveis/segredos e pelo registro de
+    # deployment. Nao adicione aqui a instrucao "configure required reviewers em Settings →
+    # Environments": ela manda o leitor construir algo que o plano recusa. O gate real e
+    # `needs: [require-production-approval]`.
     environment:
       name: production
     steps:
@@ -386,4 +445,4 @@ jobs:
 
       - name: No-op notice (AWS disabled)
         if: vars.AWS_ENABLED != 'true'
-        run: echo "::notice title=CD no-op::AWS_ENABLED!='true' — production promotion SKIPPED (passed the approval gate, but no deploy performed)."
+        run: echo "::notice title=CD no-op::AWS_ENABLED!='true' — production promotion SKIPPED (require-production-approval passed; no deploy performed)."

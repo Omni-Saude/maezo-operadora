@@ -1,0 +1,43 @@
+# ==================================================================================================
+# LISTA DE REVISORES DE PROMOCAO A PRODUCAO (decisao do dono R-021, opcao B — 2026-09-04).
+#
+# POR QUE ESTE ARQUIVO EXISTE. O environment `production` deste repositorio existe com
+# `"protection_rules": []` (`GET /repos/Omni-Saude/maezo-operadora/environments/production`,
+# reconferido 2026-09-04): a org esta no plano *team* com repositorio privado, combinacao que
+# permite environments mas NAO permite protecao por revisores obrigatorios (a aplicacao da regra
+# retornou HTTP 422 duas vezes). Logo `environment: production` em `.github/workflows/cd.yml` NAO
+# pausa a run para aprovacao alguma. Esta lista, lida por `scripts/ci/check_production_approval.py`
+# no job `require-production-approval`, e o substituto CONSTRUIDO desse gate: sem uma aprovacao
+# casada contra um login daqui, `promote-production` nao roda.
+#
+# POR QUE ELE VIVE EM `.github/`. Porque `.github/**` e CODEOWNED (`.github/CODEOWNERS`, secao
+# "AUTOPROTECAO DO APARATO DE GATE"). Uma lista de aprovadores editavel sem revisao seria um gate
+# que se auto-amplia: bastaria um PR acrescentando um login para destravar a producao. Aqui, ampliar
+# a lista e um PR sob revisao de dono, como qualquer outra mudanca do aparato de gate.
+#
+# GRAMATICA ACEITA — DELIBERADAMENTE MINIMA, E ISSO E A FEATURE. O leitor e stdlib-only (mesma
+# doutrina de `check_flip_path_review.py`: nenhuma dependencia externa no caminho que governa a
+# promocao a producao) e aceita EXATAMENTE quatro formas de linha:
+#   1. linha vazia;
+#   2. comentario de linha inteira (`#` na coluna 0, com ou sem espacos antes);
+#   3. a chave `approvers:` sozinha, uma unica vez;
+#   4. um item `  - <login>` (dois espacos, hifen, espaco, um login GitHub), opcionalmente seguido
+#      de um comentario ` # ...`.
+# QUALQUER outra construcao YAML valida — ancoras, aliases, mapas aninhados, listas em fluxo
+# (`[a, b]`), aspas, chaves adicionais, tabulacoes — e ERRO DE PARSE, e erro de parse e VERMELHO,
+# nunca "lista vazia". Um gate que le uma lista que nao entendeu e um gate que aprova por engano.
+#
+# ISTO NAO E UMA LISTA DE COMPETENCIA. Ser aprovador aqui e' um ato de AUTORIDADE de promocao
+# (quem pode deixar um artefato ir a producao), nao um atestado de que a pessoa revisou o conteudo
+# clinico/regulatorio — esse continua sendo `docs/review-queue.md`.
+#
+# LIMITE CONHECIDO E DECLARADO (nao e' bug deste arquivo). Hoje a lista tem UM unico login, que e'
+# tambem a identidade que autora os PRs. O GitHub recusa auto-aprovacao, entao na pratica o gate
+# exige que OUTRO humano aprove o PR do commit promovido. Enquanto o `@Omni-Saude/security-team`
+# nao tiver um segundo humano (pre-requisito (b) do cabecalho de `.github/CODEOWNERS`), a promocao
+# a producao fica bloqueada — o que e' o desfecho CORRETO e fail-closed, nao um defeito a contornar
+# afrouxando o checker.
+# ==================================================================================================
+
+approvers:
+  - rodaquino-OMNI
