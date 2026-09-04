@@ -1210,3 +1210,26 @@ pacote; sao decisoes de dono e um limite de plataforma pre-existente.
 | `WEBHOOK-WAMID-DEDUP` — `src/maezo/platform/webhooks/whatsapp/` (nao existe `idempotency.py`; `docs/runbooks/whatsapp-webhook.md` §3 descreve um store que nao existe nesta arvore) | Sem deduplicacao por `wamid`, uma re-entrega do mesmo webhook pela Meta (que retenta tudo que nao respondeu 2xx) faz o receiver RE-ENVIAR o ack fixo. Hoje o impacto e mensagem de cortesia duplicada, nunca efeito adverso duplicado — o ack nao inicia processo, nao grava checkpoint e nao audita nada; o turno de TEXTO da Helena, esse sim, ja e re-executavel por re-entrega desde T1.11 e nao foi agravado nem corrigido aqui. Divulgado em comentario no proprio modulo, no runbook §1 e nesta linha; NAO implementado por ser owner-gated | owner/plataforma (idempotencia de webhook) | `ABERTO — owner-gated, divulgado, nao implementado` |
 | `WHATSAPP_PHONE_NUMBER_ID` ausente em Helm (`deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml` injeta `WHATSAPP_TOKEN`/`_APP_SECRET`/`_VERIFY_TOKEN` e nada injeta o `PHONE_NUMBER_ID`) | Consequencia para ESTE pacote, registrada para nao superestimar o que ele entrega: enquanto o segredo nao for provisionado, `WhatsAppServer.send_message` RECUSA fail-closed, entao o ack de nao-texto **nao chega ao beneficiario em producao** — exatamente como ja acontece com toda resposta da Helena (divulgacao de ops ja registrada em `src/maezo/tools/mcp_whatsapp/server.py` e na linha propria desta fila). A falha e contada como `failed` e logada (`whatsapp_dispatch_failed`), nunca escondida. `deploy/` e owner-gated e NAO foi tocado | owner/ops (provisionar `WHATSAPP_PHONE_NUMBER_ID` no secret `maezo-whatsapp-config`) | `ABERTO — pre-existente; limita o efeito real deste pacote em producao` |
 | `src/maezo/platform/webhooks/whatsapp/app.py` — decisao `dispatched == 0 and acked == 0 and failed > 0` do handler (mudanca de comportamento nao divulgada ate esta linha) | Um lote MISTO com 1 turno de TEXTO que falha + 1 mensagem nao-texto reconhecida com sucesso agora retorna HTTP 200 (`{"status":"ok","dispatched":0,"failed":1,"acked":1}`), nao mais 500. Em `main`, antes deste pacote existir, o mesmo lote (sem ack de nao-texto) retornava 500 e a Meta re-entregava o lote inteiro, dando ao turno de texto uma nova chance. Aqui a falha e contada e logada (`whatsapp_dispatch_failed`) mas NAO retentada — o turno de texto daquele beneficiario e perdido a menos que ele reenvie por conta propria. Trade-off deliberado, nao defeito: devolver 500 faria a Meta re-entregar o lote inteiro, o que re-enviaria o ack de nao-texto JA entregue ao beneficiario, e nao ha dedup por `wamid` para absorver essa duplicata — ver a linha `WEBHOOK-WAMID-DEDUP` acima, que e o PRE-REQUISITO para restaurar o retry por mensagem individual em vez de por lote inteiro. Divulgado em comentario no proprio `app.py` e nesta linha | owner/plataforma (mesma decisao de idempotencia de `WEBHOOK-WAMID-DEDUP`) | `ABERTO — divulgado nesta linha; retry do turno de texto em lote misto depende de WEBHOOK-WAMID-DEDUP` |
+## PERSPECTIVE-FENCE-XML-COMMENT-ASYMMETRY — marcador de referencia historica NAO criado (pergunta ao dono)
+
+O registro P2 pedia «um marcador de referencia historica para que um comentario XML que registra
+uma delecao e carrega token de prestador nao seja hit bloqueante, mantendo a semantica Tier A/B
+documentada». A implementacao **recusou o marcador** e fechou o gap pela convencao que a propria
+racionalidade da fence implica (commit `a95914a`): narrativa de delecao nao vive em comentario XML
+de BPMN/DMN — vive na narrativa de docs ou num comentario de YAML de manifesto de spec, que Tier B
+nao le por desenho. Ver `src/maezo/platform/validation/perspective.py`, secao «Where historical
+references go» do docstring de modulo, e `CONTRIBUTING.md`, subsecao «Onde vive a referencia
+historica (convencao, nao marcador)».
+
+Razao da recusa, citada: ADR-0040 D7 diz «Nao ha allowlist de excecoes, nem por arquivo nem por
+bloco `historico:`» (`docs/adr/0040-perspectiva-operadora-contas-recurso.md:289-290`), e a secao
+«Fail-closed» do modulo repete «There is no exception mechanism: no allowlist file, no inline
+waiver, no `historico:` block». Um marcador que dispensasse o comentario E esse mecanismo. Criar um
+e ato do DONO sobre o ADR — nao edicao da fence por quem a implementa.
+
+**Nada aqui e ratificado.** ADR-0040 permanece *Proposed*, o que reforca (nao enfraquece) a
+conclusao: uma decisao ainda nao ratificada nao e emendada por uma edicao de codigo.
+
+| Item | O que precisa de decisao humana | Revisor | Status |
+|---|---|---|---|
+| ADR-0040 D7 — mecanismo de excecao | Registro de delecao deve ser permitido dentro de comentario XML de BPMN/DMN por meio de marcador explicito? Opcao A: manter o desenho sem excecao (recomendada; a convencao acima ja resolve o caso de uso). Opcao B: novo ADR emendando D7 com marcador + alargamento de Tier B para simetria. Memorando com consequencias e custo de teste das duas opcoes entregue ao orquestrador para `OWNER-DECISIONS.md` | dono (`@rodaquino-OMNI`) + Security/compliance | `ABERTO — decisao do dono; sem impacto no build (fence segue 0/0 em Tier A e Tier B)` |

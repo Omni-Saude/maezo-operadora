@@ -1153,6 +1153,58 @@ class TestNoExceptionMechanism:
         )
         assert "R1/verbo-recorrente:RECORRER" in _rules(hits)
 
+    @pytest.mark.parametrize(
+        "marker",
+        ["historico: ", "HISTORICAL-REFERENCE — ", "historical-reference: ", "@historico "],
+    )
+    def test_a_historical_reference_marker_does_not_exempt_an_xml_comment(
+        self, tmp_path: Path, marker: str
+    ) -> None:
+        """The "historical-reference marker" hypothesis, refused and PINNED.
+
+        A marker that let a deletion-recording XML comment carry provider
+        vocabulary would be exactly the inline waiver §6.2 and ADR-0040 D7
+        refuse by name. It does not exist, and this pins that it does not: the
+        marked comment scores the SAME single hit as the unmarked one — the
+        marker neither silences it nor adds one of its own. It is inert text.
+
+        The convention that replaces it is in the module docstring
+        ("Where historical references go") and in `CONTRIBUTING.md`: deletion
+        narrative goes to the docs or to a YAML comment, never into BPMN/DMN
+        XML. Changing that is an ADR-0040 D7 amendment, not a fence edit.
+        """
+        note = "esta regra roteava para RECORRER ate 2026-09"
+        marked = _scan_dmn(tmp_path, f"<!-- {marker}{note} -->")
+        plain = _scan_dmn(tmp_path, f"<!-- {note} -->")
+
+        assert len(marked) == 1, [hit.render() for hit in marked]
+        assert _rules(marked) == {"R1/verbo-recorrente:RECORRER"}
+        assert [(hit.rule_class, hit.rule_id, hit.matched) for hit in marked] == [
+            (hit.rule_class, hit.rule_id, hit.matched) for hit in plain
+        ]
+
+    def test_the_same_historical_note_as_a_yaml_comment_scores_zero(self, tmp_path: Path) -> None:
+        """The Tier A / Tier B asymmetry, measured on ONE identical sentence.
+
+        `test_marina_kpi_removal_survives_only_as_a_comment` shows the same
+        asymmetry on the live tree; this shows it on a controlled pair, so the
+        variable really is the surface. The sentence of the test above scores 1
+        inside a `.dmn` comment and 0 as a YAML comment — and the second half
+        below proves the zero comes from the SURFACE (Tier B walks parsed
+        nodes), not from a softer lexicon: the same words as a VALUE do score,
+        and so does the comment line itself under a raw-line Tier-B scan.
+        """
+        note = "esta regra roteava para RECORRER ate 2026-09"
+
+        commented = _scan_yaml(tmp_path, f"# historico: {note}\nroteamento: PAGAR\n")
+        assert commented == [], _rules(commented)
+
+        assert "verbo-recorrente:RECORRER" in {
+            rule_id for _cls, rule_id, _m in scan_line(f"# historico: {note}", tier=TIER_B)
+        }
+        valued = _scan_yaml(tmp_path, f"historico: {note}\n")
+        assert "R1/verbo-recorrente:RECORRER" in _rules(valued)
+
 
 # ---------------------------------------------------------------------------
 # 4. The live tree — the descending pin and the clean-outside proof
