@@ -1,11 +1,29 @@
 """Unit tests for the agent template (_template).
 
 TDD London School: tests written BEFORE implementation.
+
+HEL-13: `build()` is now the canonical fail-closed `build(config)`, so every construction here
+injects the four required dependencies. The contract itself is pinned by
+`tests/unit/agents/test_template_contract.py`.
 """
 
 from pathlib import Path
+from typing import Any
 
 import yaml
+from tests.support.audit_fakes import FakeStartAuditSink
+
+from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
+from maezo.tools.workers.dmn_transport import FakeDmnTransport
+
+
+def _deps() -> dict[str, Any]:
+    return {
+        "inference": object(),
+        "dmn": FakeDmnTransport(),
+        "cibseven": FakeCibSevenTransport(),
+        "audit_sink": FakeStartAuditSink(),
+    }
 
 _AGENTS_ROOT = Path(__file__).parent.parent.parent.parent / "spec" / "agents"
 
@@ -31,11 +49,11 @@ def test_template_graph_compiles() -> None:
     """The template graph.py must expose a build() function that returns a compiled StateGraph."""
     from maezo.agents._template.graph import build
 
-    graph = build()
+    graph = build(_deps())
 
     # A compiled LangGraph StateGraph should have a compile() method
     assert graph is not None
-    # The template's build returns an uncompiled StateGraph[AgentState]
+    # The template's build returns an uncompiled StateGraph[TemplateState]
     assert hasattr(graph, "compile"), "Template graph must be a StateGraph (with compile method)"
 
 
@@ -43,7 +61,7 @@ def test_template_graph_has_required_nodes() -> None:
     """Template graph must have at least a start and end edge."""
     from maezo.agents._template.graph import build
 
-    graph = build()
+    graph = build(_deps())
     compiled = graph.compile()
 
     # LangGraph compiled graphs expose nodes attribute
