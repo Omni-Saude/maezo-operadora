@@ -116,8 +116,10 @@ def _known_thread_ids() -> tuple[str, str]:
 async def _delete_known_threads(dsn: str) -> None:
     ck = await Checkpointer.connect_and_setup(dsn)
     try:
+        saver = ck.saver
+        assert saver is not None, "Checkpointer.connect_and_setup always attaches a saver"
         for tid in _known_thread_ids():
-            await ck.saver.adelete_thread(tid)  # type: ignore[union-attr]
+            await saver.adelete_thread(tid)
     finally:
         await ck.aclose()
 
