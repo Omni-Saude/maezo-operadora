@@ -39,6 +39,8 @@ class _FakeInference:
     def __init__(self, responses: list[str]) -> None:
         self._responses = list(responses)
         self.calls: list[tuple[str, bool]] = []
+        #: AF-12 (CC-12): the `task_kind` of each call, in order.
+        self.task_kinds: list[str | None] = []
 
     async def generate(
         self,
@@ -47,8 +49,10 @@ class _FakeInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         self.calls.append((prompt, phi))
+        self.task_kinds.append(task_kind)
         return self._responses.pop(0) if self._responses else ""
 
 
@@ -257,6 +261,25 @@ async def test_classify_no_red_flag_routes_inform() -> None:
     assert result["next_kind"] == "inform"
 
 
+async def test_classify_llm_call_declares_task_kind_task_default() -> None:
+    """CC-12/BEA-01 (ADR-0009 §2): `_classify_llm` is structured extraction (JSON), not
+    reasoning over already-decided facts — `task_default`."""
+    inference = _FakeInference([_classify_json()])
+    graph = _graph(inference=inference)
+    await graph.classify(_base_state())
+    assert inference.task_kinds == ["task_default"]
+
+
+async def test_inform_respond_llm_call_declares_task_kind_task_default() -> None:
+    """CC-12/BEA-01 (ADR-0009 §2): `_respond_llm` phrases facts already decided (DMN motivo,
+    escalation severidade) for the beneficiary — `task_default`, same rationale as lucas's
+    `_build_message`."""
+    inference = _FakeInference(["resposta"])
+    graph = _graph(inference=inference)
+    await graph.inform(_base_state())
+    assert inference.task_kinds == ["task_default"]
+
+
 async def test_classify_psychosocial_risk_always_escalates_regardless_of_intent() -> None:
     """Gatilho 5: psychosocial risk is evaluated FIRST, highest priority — even if intent looks
     administrative."""
@@ -349,6 +372,7 @@ class _RaisingInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         raise RuntimeError("LLM provider unavailable")
 
@@ -763,6 +787,24 @@ async def test_escalate_starts_process_with_contract_variables() -> None:
     assert result["response_kind"] == "escalate"
 
 
+async def test_escalate_declares_task_kind_reasoning_then_task_default() -> None:
+    """CC-12/BEA-01 (ADR-0009 §2): `escalate` drafts TWO LLM calls, in order — `_resumo_contexto`
+    (what the human attendant reads before taking over: `reasoning`, same rationale as lucas's
+    escalation dossier) then `_respond_llm` (the beneficiary-facing handoff text, phrasing
+    already-decided facts: `task_default`)."""
+    inference = _FakeInference(["resumo do caso", "um humano vai continuar"])
+    graph = _graph(inference=inference)
+
+    state = _base_state(
+        escalation_motivo="red_flag_clinico",
+        escalation_severidade="grave",
+        dmn_decision_ref="triage_redflag_adult#1",
+    )
+    await graph.escalate(state)
+
+    assert inference.task_kinds == ["reasoning", "task_default"]
+
+
 async def test_escalate_is_idempotent_on_active_instance() -> None:
     cibseven = FakeCibSevenTransport()
     business_key = "ESC-amh-wa:amh:deadbeef"
@@ -1027,6 +1069,7 @@ async def test_classify_llm_exception_text_never_reaches_engine_variables(
             phi: bool = False,
             agent_id: str | None = None,
             tenant_id: str | None = None,
+            task_kind: str | None = None,
         ) -> str:
             raise RuntimeError(f"provider 400 on request body: 'meu CPF e {cpf}, quero ajuda'")
 

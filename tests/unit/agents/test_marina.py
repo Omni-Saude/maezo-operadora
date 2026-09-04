@@ -38,6 +38,8 @@ class _FakeInference:
     def __init__(self, responses: list[str] | None = None) -> None:
         self._responses = list(responses) if responses else ["dossie factual sintetico"]
         self.calls: list[tuple[str, bool]] = []
+        #: AF-12 (CC-12): the `task_kind` of each call, in order.
+        self.task_kinds: list[str | None] = []
 
     async def generate(
         self,
@@ -46,8 +48,10 @@ class _FakeInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         self.calls.append((prompt, phi))
+        self.task_kinds.append(task_kind)
         return self._responses.pop(0) if self._responses else ""
 
 
@@ -670,6 +674,16 @@ async def test_dossier_narrative_llm_call_is_phi_tagged() -> None:
     assert all(phi is True for _, phi in inference.calls)
 
 
+async def test_dossier_narrative_llm_call_declares_task_kind_reasoning() -> None:
+    """CC-12/BEA-01 (ADR-0009 §2): the contas/recurso/reembolso dossier narrative is for the
+    human's decision — `reasoning`, not `task_default` (same across the three flows: one
+    `_build_dossier` method)."""
+    inference = _FakeInference(["narrativa"])
+    graph = _graph(inference=inference)
+    await graph.auto_route(_contas_state(route="auto_route"))
+    assert inference.task_kinds == ["reasoning"]
+
+
 async def test_dossier_llm_failure_never_blocks_the_route() -> None:
     """Hardening #1: an LLM failure never routes to a silent auto_route — here it degrades to an
     empty narrative while the (already-decided) route and the structural decision guardrail are
@@ -683,6 +697,7 @@ async def test_dossier_llm_failure_never_blocks_the_route() -> None:
             phi: bool = False,
             agent_id: str | None = None,
             tenant_id: str | None = None,
+            task_kind: str | None = None,
         ) -> str:
             raise RuntimeError("LLM down")
 

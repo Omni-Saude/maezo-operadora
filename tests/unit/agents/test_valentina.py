@@ -60,6 +60,8 @@ class _FakeInference:
     def __init__(self, responses: list[str] | None = None) -> None:
         self._responses = list(responses) if responses else ["dossie factual sintetico"]
         self.calls: list[tuple[str, bool]] = []
+        #: AF-12 (CC-12): the `task_kind` of each call, in order.
+        self.task_kinds: list[str | None] = []
 
     async def generate(
         self,
@@ -68,8 +70,10 @@ class _FakeInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         self.calls.append((prompt, phi))
+        self.task_kinds.append(task_kind)
         return self._responses.pop(0) if self._responses else ""
 
 
@@ -87,6 +91,7 @@ class _RaisingInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         self.calls.append((prompt, phi))
         raise RuntimeError("LLM indisponivel")
@@ -849,6 +854,20 @@ async def test_every_llm_call_is_phi_tagged() -> None:
         await compiled.ainvoke(_consented_state())
         assert inference.calls, "the dossier LLM call must have happened"
         assert all(phi is True for _, phi in inference.calls)
+
+
+async def test_every_llm_call_declares_task_kind_reasoning() -> None:
+    """CC-12/BEA-01 (ADR-0009 §2): the care-plan/stratification dossier narrative is for the
+    human clinician's decision — `reasoning`, not `task_default`, on both routes."""
+    for elegivel in ("ELEGIVEL", "ANALISE_HUMANA"):
+        dmn = FakeDmnTransport()
+        _register_routing(dmn, elegivel=elegivel)
+        _register_sla(dmn)
+        inference = _FakeInference()
+        compiled = _graph(inference=inference, dmn=dmn).compile_graph().compile()
+        await compiled.ainvoke(_consented_state())
+        assert inference.task_kinds, "the dossier LLM call must have happened"
+        assert all(k == "reasoning" for k in inference.task_kinds)
 
 
 async def test_raw_fhir_summary_never_reaches_dossier_or_engine_variables() -> None:
