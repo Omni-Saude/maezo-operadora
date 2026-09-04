@@ -462,6 +462,38 @@ async def test_helena_respond_start_failed_does_not_double_emit(monkeypatch: pyt
     assert calls[0]["desfecho"] == "erro_inicio_processo"
 
 
+async def test_helena_start_failure_route_is_falha_tecnica_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    """F1 (VERIFY-CC09): o failure-path de start da Helena tem de rotular `route` com
+    `"falha_tecnica_start"` — o literal que `_ROUTE_VOCAB["helena"]` ja declara para exatamente
+    este caso (`RESPONSE_KIND_FALHA_TECNICA_START`, `helena/graph.py`) — e nao com `""`/`None`.
+    `HelenaState` nao tem chave `route` (usa `response_kind`); o site compartilhado
+    `notify_start_failure` le `state.get("route")` de forma generica e por isso, sem um override
+    explicito do call site de Helena, o label ficava vazio. Continua exigindo emissao UNICA
+    (nenhuma duplicacao do turno)."""
+    from maezo.agents.helena.graph import HelenaGraph
+
+    calls = _spy(monkeypatch)
+    graph = HelenaGraph(
+        inference=_FakeInference(),
+        dmn=FakeDmnTransport(),
+        cibseven=FakeCibSevenTransport(),
+        audit_sink=FakeStartAuditSink(),
+        whatsapp=_RecordingWhatsApp(),
+    )
+    state: dict[str, Any] = {
+        "tenant_id": "amh",
+        "conversation_id": "wa:amh:hash1",
+        "start_failed": True,
+        "escalation_motivo": "falha_tecnica",
+        "escalation_severidade": "leve",
+        "business_key": "ESC-amh-hash1",
+    }
+    saida = await graph.respond(state)
+    assert saida["desfecho"] == "erro_inicio_processo"
+    assert len(calls) == 1  # UMA emissao so', vinda do helper compartilhado
+    assert calls[0]["route"] == "falha_tecnica_start"
+
+
 # ---------------------------------------------------------------------------------------------
 # 3. Cerca de CARDINALIDADE — fora do vocabulario fechado nunca chega ao label
 # ---------------------------------------------------------------------------------------------
