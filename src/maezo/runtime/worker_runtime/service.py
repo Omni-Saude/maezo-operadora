@@ -95,8 +95,14 @@ logger = structlog.get_logger(__name__)
 #: (CC-03/AND-03). Mirrors `a2a_composition._DOSSIER_EDGE_AGENT_IDS` — kept as a local literal
 #: rather than imported because that module is imported LAZILY inside `_bring_up_dependencies`
 #: (the pre-existing deferral, so the worker daemon does not pay for the A2A stack at import
-#: time); a mismatch between the two is caught at composition, where the root now REFUSES an
-#: agent id it does not serve.
+#: time). The root's refusal covers only ONE direction — an id in THIS tuple that the root does
+#: not serve raises at composition; the opposite (an edge the root DOES serve that this tuple
+#: forgets) raises nothing: that agent would simply get no reader, in silence, which is the
+#: CC-03/AND-03 defect itself. The both-directions guard is therefore a unit test over the two
+#: literals (`test_dossier_fhir_wiring.py::test_worker_fhir_agent_ids_match_the_a2a_root_edge_
+#: agents`) — a repo-level invariant CI catches before any deploy. Deliberately NOT a bare
+#: `assert` here (stripped under `python -O`) and NOT a raise at bring-up (that would turn a
+#: constant typo into a dossier outage for the three dossier workers).
 _DOSSIER_FHIR_AGENT_IDS: tuple[str, ...] = ("carolina", "andre")
 
 # T1.2/ADR-0026: the daemon now registers the FULL 17-module composition (16 + T3.1 R2's
@@ -613,6 +619,18 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         )
         return CheckResult(name="dossier_delegation_ready", healthy=True, detail=detail)
 
+    async def dossier_fhir_ready(_state: WorkerState = state) -> CheckResult:
+        # CC-03/AND-03 DEGRADATION POSTURE, mirroring `dossier_delegation_ready` (and, like it,
+        # ALWAYS healthy=True): publishes WHICH dossier agents got a gated FHIR reader at
+        # bring-up, and — the point — which did NOT. Without this check `dossier_fhir_detail`
+        # was write-only: an empty `FHIR_BASE_URL` (or a per-agent build failure) left every
+        # A2A dossier enriching from worker facts alone while `effect_seams_gated` stayed GREEN
+        # (nothing ungated exists when nothing was built), so the operator had no signal at all.
+        # NEVER gates `/readyz`: the dossier "instrui, nao decide" — a missing reader must
+        # degrade the DOSSIER's enrichment (both graphs emit their disclosed gap note and the
+        # human User Tasks still open), never stop a daemon that serves ~110 topics.
+        return CheckResult(name="dossier_fhir_ready", healthy=True, detail=_state.dossier_fhir_detail)
+
     async def audit_sink_ready(_state: WorkerState = state) -> CheckResult:
         # FAIL-CLOSED L0 gate (ADR-0007, design §7 T-D / Revision MUST-FIX 2): `/readyz` stays RED
         # until a bounded connectivity probe proves the durable audit sink can reach the tenant
@@ -661,6 +679,7 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         kafka_ready,
         effect_seams_gated_check,
         dossier_delegation_ready,
+        dossier_fhir_ready,
         audit_sink_ready,
     ]
 
@@ -758,7 +777,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         for agent_id in _DOSSIER_FHIR_AGENT_IDS:
             try:
                 seam = build_agent_fhir_seam(settings=settings, agent_id=agent_id)
-            except Exception:  # noqa: BLE001 — one agent's seam failing must not sink bring-up.
+            except Exception:  # one agent's seam failing must not sink bring-up.
                 logger.error("dossier_fhir_seam_build_failed", agent=agent_id, exc_info=True)
                 continue
             if seam is None:
