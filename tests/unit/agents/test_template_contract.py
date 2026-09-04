@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from tests.support.audit_fakes import FakeStartAuditSink
 
 from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
@@ -32,6 +31,7 @@ from maezo.tools.mcp_cibseven.transport import (
     ProcessInstance,
 )
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
+from tests.support.audit_fakes import FakeStartAuditSink
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _AGENTS_SRC = _REPO_ROOT / "src" / "maezo" / "agents"

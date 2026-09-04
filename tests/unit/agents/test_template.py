@@ -11,10 +11,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from tests.support.audit_fakes import FakeStartAuditSink
 
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
+from tests.support.audit_fakes import FakeStartAuditSink
 
 
 def _deps() -> dict[str, Any]:
@@ -24,6 +24,7 @@ def _deps() -> dict[str, Any]:
         "cibseven": FakeCibSevenTransport(),
         "audit_sink": FakeStartAuditSink(),
     }
+
 
 _AGENTS_ROOT = Path(__file__).parent.parent.parent.parent / "spec" / "agents"
 
