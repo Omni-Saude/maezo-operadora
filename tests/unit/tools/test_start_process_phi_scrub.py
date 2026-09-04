@@ -33,7 +33,15 @@ from maezo.tools.mcp_cibseven.transport import (
     redact_start_variables,
     start_process_idempotent,
 )
-from maezo.tools.workers.phi_vars import REDACTED_DIGITS, REDACTED_EMAIL, REDACTED_PHONE
+from maezo.agents.rafael.graph import RafaelGraph, RafaelState
+from maezo.tools.workers.dmn_transport import FakeDmnTransport
+from maezo.tools.workers.phi_vars import (
+    _ERROR_MESSAGE_MAX_CHARS,
+    _TRUNCATION_MARKER,
+    REDACTED_DIGITS,
+    REDACTED_EMAIL,
+    REDACTED_PHONE,
+)
 from tests.support.audit_fakes import FakeStartAuditSink
 
 #: Synthetic identifiers — never real PHI. The CPF is the same one Helena's own leak regressions
@@ -41,6 +49,21 @@ from tests.support.audit_fakes import FakeStartAuditSink
 _CPF = "123.456.789-09"
 _EMAIL = "beneficiario.teste@exemplo.com.br"
 _PHONE = "(11) 98765-4321"
+
+
+class _UnusedInference:
+    """Satisfies `RafaelGraph`'s required `inference` dependency without ever being called —
+    `start_process` consumes an ALREADY-BUILT dossier, so reaching this is itself a defect."""
+
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
+        raise AssertionError("start_process must not call the inference provider")
 
 
 def _provenance(**overrides: Any) -> AgentDecisionProvenance:
@@ -257,3 +280,182 @@ def test_redact_start_variables_reclassifies_any_scrub_failure() -> None:
 
     with pytest.raises(StartVariableRedactionError):
         redact_start_variables(_ExplodingMapping())
+
+
+# ---------------------------------------------------------------------------
+# 5 — CC-06 §Delta (REVISE-1): the enrichment-gap NOTES are free text too
+# ---------------------------------------------------------------------------
+#
+# `lacunas_enriquecimento` is the list of `gather_notes` that EVERY `_build_dossier` embeds in
+# `fatos` (andre, carolina, gustavo, lucas, marina, rafael, valentina — `lacunas` is beatriz's
+# same-shaped twin). Those notes are assembled from EXCEPTION MESSAGES raised by the FHIR
+# reader, so a 404 URL carrying the patient path parameter, a querystring e-mail or a contact
+# phone lands in them verbatim. The name was absent from `PHI_FREE_TEXT_VARS`, so the walk
+# reached the list and passed it straight through: live proof below.
+
+
+async def test_dossier_lacunas_enriquecimento_notes_are_redacted() -> None:
+    """The verifier's own REVISE-1 probe, at the chokepoint: a `fatos.lacunas_enriquecimento`
+    carrying a CPF (in a FHIR URL path), an e-mail (in its querystring) and a BR phone must
+    reach the engine with every identifier gone — and with the diagnostic PROSE still readable,
+    because those notes are what tells the human auditor which enrichment failed."""
+    transport, recorded = _recording_transport()
+    dossier = {
+        "fatos": {
+            "numero_guia_tiss": "GUIA-2026-000123456789",
+            "valor_estimado_brl": 12345.67,
+            "lacunas_enriquecimento": [
+                (
+                    "cobertura FHIR indisponivel: Client error '404' for url "
+                    f"'http://amh/fhir/Patient/{_CPF}?email={_EMAIL}'"
+                ),
+                f"beneficiario FHIR indisponivel: contato {_PHONE}",
+            ],
+        },
+    }
+
+    await _start(transport, {"dossie_rafael": dossier})
+
+    notes = recorded[0]["dossie_rafael"]["fatos"]["lacunas_enriquecimento"]
+    assert len(notes) == 2, "the note list must keep its shape"
+    joined = " | ".join(notes)
+    for identifier in (_CPF, _EMAIL, _PHONE, "123.456.789", "98765-4321", "exemplo.com.br"):
+        assert identifier not in joined, f"engine-bound lacunas leaked {identifier!r}: {joined!r}"
+    assert REDACTED_DIGITS in notes[0] and REDACTED_EMAIL in notes[0]
+    assert REDACTED_PHONE in notes[1]
+    # The diagnostic prose survives — a class-token-only note would tell the auditor nothing.
+    assert notes[0].startswith("cobertura FHIR indisponivel:")
+    assert notes[1].startswith("beneficiario FHIR indisponivel:")
+    # And the structured siblings in the SAME `fatos` dict are byte-identical.
+    assert recorded[0]["dossie_rafael"]["fatos"]["numero_guia_tiss"] == "GUIA-2026-000123456789"
+    assert recorded[0]["dossie_rafael"]["fatos"]["valor_estimado_brl"] == 12345.67
+
+
+async def test_beatriz_style_lacunas_notes_are_redacted() -> None:
+    """`lacunas` is the same list under beatriz's own name (`beatriz/graph.py::_build_dossier`
+    emits `"lacunas": lacunas` and `"lacunas": list(state.get("gather_notes"))`). Beatriz starts
+    no process today, so this is the allowlist closing the name BEFORE a future start edge —
+    covered here rather than left as a name-shaped gap the next agent walks into."""
+    transport, recorded = _recording_transport()
+
+    await _start(
+        transport,
+        {
+            "dossie_beatriz": {
+                "lacunas": [f"resumo FHIR indisponivel: contato {_PHONE} / {_EMAIL}"],
+                "n_evidencia": 3,
+            },
+            "lacunas": [f"nota de topo com CPF {_CPF}"],
+        },
+    )
+
+    nested = recorded[0]["dossie_beatriz"]["lacunas"][0]
+    assert _PHONE not in nested and _EMAIL not in nested
+    assert REDACTED_PHONE in nested and REDACTED_EMAIL in nested
+    assert nested.startswith("resumo FHIR indisponivel:")
+    assert recorded[0]["dossie_beatriz"]["n_evidencia"] == 3
+    # The allowlist is checked BEFORE the `dossie_*` gate, so a top-level occurrence is covered.
+    top = recorded[0]["lacunas"][0]
+    assert _CPF not in top and REDACTED_DIGITS in top
+
+
+async def test_motivo_informado_free_text_is_redacted() -> None:
+    """`motivo_informado` is SP-OP-CRED-001's own declared free-text input variable
+    (`docs/processes/contracts/SP-OP-CRED-001.md`: "Texto livre ... sem PHI de beneficiario";
+    `carolina/graph.py` types it `motivo_informado: str  # texto livre`). "Contractually without
+    beneficiary PHI" is a PROMISE, not a control — `test_carolina.py`'s own helena-class probe
+    feeds it "paciente CPF 123.456.789-00 relatou irregularidade" and asserts the value travels
+    to the engine verbatim. It travels TWICE: top level and inside `dossie_carolina.fatos`."""
+    transport, recorded = _recording_transport()
+
+    await _start(
+        transport,
+        {
+            "motivo_informado": f"Prestador relatou irregularidade; contato {_PHONE}, CPF {_CPF}.",
+            "prestador_id": "prestador-1",
+            "dossie_carolina": {"fatos": {"motivo_informado": f"idem, e-mail {_EMAIL}"}},
+        },
+    )
+
+    top = recorded[0]["motivo_informado"]
+    assert _PHONE not in top and _CPF not in top
+    assert REDACTED_PHONE in top and REDACTED_DIGITS in top
+    assert top.startswith("Prestador relatou irregularidade;")  # the sentence survives
+    nested = recorded[0]["dossie_carolina"]["fatos"]["motivo_informado"]
+    assert _EMAIL not in nested and REDACTED_EMAIL in nested
+    assert recorded[0]["prestador_id"] == "prestador-1"
+
+
+# ---------------------------------------------------------------------------
+# 6 — CC-06 §Delta (INFO-2): the 500-char cap is part of the contract, so pin it
+# ---------------------------------------------------------------------------
+
+
+async def test_legitimate_long_resumo_contexto_survives_intact() -> None:
+    """`redact_free_text` also CAPS its output at `_ERROR_MESSAGE_MAX_CHARS` (500). That cap is
+    now declared in `redact_free_text_vars`/`PHI_FREE_TEXT_VARS`'s docstrings, and this pins the
+    side a reader cares about: a REAL handoff summary shorter than the cap is returned
+    byte-identical — the scrub must not silently shorten the text a human attendant reads."""
+    transport, recorded = _recording_transport()
+    resumo = ("Beneficiario relatou dificuldade no agendamento e pediu atendente humano. " * 6)[:400]
+    assert len(resumo) == 400
+
+    await _start(transport, {"resumo_contexto": resumo})
+
+    assert recorded[0]["resumo_contexto"] == resumo
+    assert _TRUNCATION_MARKER not in recorded[0]["resumo_contexto"]
+
+
+async def test_free_text_longer_than_the_cap_is_truncated_with_the_declared_marker() -> None:
+    """The other side of the same declared behaviour: past the cap the value IS shortened, and
+    visibly so (`...[TRUNCATED]`) rather than silently. Undeclared truncation of a contractual
+    handoff variable is the INFO-2 the verifier raised; declaring it is the fix, and this is the
+    executable half of the declaration."""
+    transport, recorded = _recording_transport()
+
+    await _start(transport, {"resumo_contexto": "a" * (_ERROR_MESSAGE_MAX_CHARS + 50)})
+
+    sent = recorded[0]["resumo_contexto"]
+    assert sent.endswith(_TRUNCATION_MARKER)
+    assert len(sent) == _ERROR_MESSAGE_MAX_CHARS + len(_TRUNCATION_MARKER)
+
+
+# ---------------------------------------------------------------------------
+# 7 — CC-06 §Delta (INFO-4): a REAL graph's `except CibSevenError` does not absorb it
+# ---------------------------------------------------------------------------
+
+
+async def test_real_graph_start_process_node_propagates_the_redaction_error() -> None:
+    """BEHAVIOURAL companion to `test_redaction_error_is_not_a_cibseven_error` (which only
+    asserts a class relationship). Every agent's `start_process` node wraps the chokepoint in
+    `except CibSevenError` and DEGRADES to `process_started: False` — an honest report of a
+    transient engine outage. A broken PHI control is not an outage: if `StartVariableRedactionError`
+    were absorbed by that handler the turn would end looking merely degraded, and the refusal
+    would be indistinguishable from the engine being down.
+
+    Driven through Rafael's REAL node (`RafaelGraph.start_process`), not a hand-built call: the
+    unwalkable payload is planted in `state["dossier"]`, which `_contract_variables` ships as
+    `dossie_rafael`, so the refusal is raised by the same code path a live turn would take."""
+    transport, recorded = _recording_transport()
+    sink = FakeStartAuditSink()
+    graph = RafaelGraph(
+        inference=_UnusedInference(),  # `start_process` never drafts — the dossier is already built
+        dmn=FakeDmnTransport(),
+        cibseven=transport,
+        audit_sink=sink,
+    )
+    dossier: dict[str, Any] = {"narrativa": "ok"}
+    dossier["self"] = dossier  # unwalkable -> the scrub refuses
+    state: RafaelState = {  # type: ignore[typeddict-item]
+        "tenant_id": "amh",
+        "numero_guia_tiss": "GUIA-001",
+        "beneficiario_pseudo_id": "pseudo-123",
+        "route": "human_auditor",
+        "dossier": dossier,
+    }
+
+    with pytest.raises(StartVariableRedactionError):
+        await graph.start_process(state)
+
+    assert recorded == [], "the engine must not have been called"
+    assert sink.calls == [], "no durable claim may exist for a refused start"

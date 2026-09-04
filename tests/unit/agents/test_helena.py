@@ -981,12 +981,43 @@ async def test_full_turn_missing_runtime_context_still_ends_in_human_handoff() -
 # ---------------------------------------------------------------------------
 
 
-async def test_classify_llm_exception_text_never_reaches_engine_variables() -> None:
+def _neutralize_start_chokepoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Turn the SHARED chokepoint scrub into the identity function for the duration of one test.
+
+    CC-06 §Delta (REVISE-2). Helena scrubs `resumo_contexto` TWICE by design: once at the
+    PRODUCER (`_start_escalation`, defense in depth) and once at the shared chokepoint
+    (`start_process_idempotent` -> `redact_start_variables`). Both these regressions observe the
+    variables dict handed to `start_process_instance`, which is DOWNSTREAM of both — so with the
+    chokepoint live they pass even when the producer's own scrub is deleted (proven by the
+    verifier: removing `redact_free_text` from `_start_escalation` left the whole lane green).
+    Neutralizing the chokepoint here is what makes these tests observe the PRODUCER: the only
+    scrub left standing is Helena's own.
+
+    Patched on `maezo.tools.mcp_cibseven.transport`, which is the module where
+    `start_process_idempotent` resolves the name (`transport.py::start_process_idempotent` calls
+    the module-global `redact_start_variables`), NOT on the agent module — Helena never imports
+    it. `dict(...)` (not the input object) so a test can still tell a mutation from a copy.
+    """
+    monkeypatch.setattr(
+        "maezo.tools.mcp_cibseven.transport.redact_start_variables",
+        lambda variables: dict(variables),
+    )
+
+
+
+async def test_classify_llm_exception_text_never_reaches_engine_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """HEL-05 (FEEDER): the inference provider raises, and its exception message echoes the
     request — which carries the beneficiary's own message body and the CPF they typed into it.
     That string becomes `state["error"]` (`classify`'s `falha_tecnica` return) and
     `_start_escalation` appends it to `resumo_contexto` as `[falha tecnica: ...]`, IN THE SAME
-    TURN. Pre-fix, `str(exc)[:200]` bounded its LENGTH and nothing else. Synthetic CPF only."""
+    TURN. Pre-fix, `str(exc)[:200]` bounded its LENGTH and nothing else. Synthetic CPF only.
+
+    CC-06 §Delta: the shared chokepoint is neutralized so this observes the FEEDER
+    (`_classify_llm`'s `redact_error_message`) and the SINK (`_start_escalation`'s suffix), not
+    the chokepoint standing behind them."""
+    _neutralize_start_chokepoint(monkeypatch)
     cpf = "123.456.789-09"
 
     class _ExplodingInference:
@@ -1032,10 +1063,18 @@ async def test_classify_llm_exception_text_never_reaches_engine_variables() -> N
     assert "falha tecnica:" in resumo and "[REDACTED_DIGITS]" in resumo
 
 
-async def test_resumo_contexto_identifiers_are_scrubbed_at_the_producer() -> None:
+async def test_resumo_contexto_identifiers_are_scrubbed_at_the_producer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """HEL-05 (SINK): Helena is the direct producer of the contractual `resumo_contexto`, so the
     identifier net is applied at `_start_escalation` too, not only at the shared chokepoint. The
-    summary SENTENCE must survive — SP-OP-ESCALATION-001 requires it pseudonimizado, not absent."""
+    summary SENTENCE must survive — SP-OP-ESCALATION-001 requires it pseudonimizado, not absent.
+
+    CC-06 §Delta: the shared chokepoint is neutralized (`_neutralize_start_chokepoint`) so the
+    only scrub between the LLM draft and the recorded variables is Helena's OWN — without that,
+    deleting `redact_free_text` from `_start_escalation` left this test green (verifier probe
+    (v)), i.e. it proved the chokepoint, not the producer it names."""
+    _neutralize_start_chokepoint(monkeypatch)
     recording: list[dict[str, Any]] = []
 
     class _RecordingCibSeven(FakeCibSevenTransport):
