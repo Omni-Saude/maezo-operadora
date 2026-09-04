@@ -731,8 +731,9 @@ _LEG3B_DRIFT_REASON = (
     "are structurally incommensurable — the `host` in values.yaml is only an error-message hint, the "
     "rendered rule is a `cidr`. Faking agreement would be dishonest. This xfail(strict) documents the "
     "drift risk and turns RED the day someone reconciles them (remove the marker then). Deriving the "
-    "allowlist from the CIDR-pinning artifact is the open question in runtime/inference.py's "
-    "BR_REGIONAL_ENDPOINT_HOST_SUFFIXES comment; inventing that artifact is out of leg-3 scope."
+    "allowlist from the CIDR-pinning artifact is the open question in "
+    "runtime/inference/br_regional.py::BR_REGIONAL_ENDPOINT_HOST_SUFFIXES's "
+    "comment; inventing that artifact is out of leg-3 scope."
 )
 
 
