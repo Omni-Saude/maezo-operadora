@@ -85,10 +85,18 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
 - No episodic memory write (`mcp-memory.read_write`, ADR-0002) in `finalize` — same rationale
   as Helena's/Rafael's/Marina's graphs: v2's `MemoryServer` requires a live Postgres/pgvector
   schema not yet wired into any agent graph in this repo.
-- No inbound A2A delegation adapter (`fraude.investigate` handler): v2's `a2a/` package has no
-  `DelegationEnvelope`/`DelegationDispatcher` yet (only `AgentCard`/`A2ARegistry`/
-  `AntiLoopGuard` exist) — same gap every T1.11/T1.12 graph discloses. The graph is invoked
-  directly with an already-assembled case state, as the unit tests do.
+- No inbound A2A delegation adapter (`fraude.investigate` handler). CORRECTED (CC-04, fleet
+  audit) — the prior text here claimed v2's `a2a/` package had no `DelegationEnvelope`/
+  `DelegationDispatcher`; both exist and are fully built/tested (`a2a/delegation.py
+  ::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported from `maezo.a2a`),
+  and five agents (rafael/carolina/andre/fernando/helena) already have a real `delegation.py`
+  using them. What is missing for Beatriz specifically is her own handler/registration/origin:
+  there is no `src/maezo/agents/beatriz/delegation.py` (`grep -n '"beatriz"' runtime/
+  agent_runtime/a2a_composition.py` = 0 hits) — handler/registro/origem ausentes, ver BEA-09 do
+  fleet audit. The graph is invoked directly with an already-assembled case state, as the unit
+  tests do. (The `ToolRegistry`/PEP-gateway claim two paragraphs above remains true for Beatriz
+  specifically: she is absent from `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`, so no
+  composition root ever builds her an `fhir` seam at all, gated or not.)
 - Unanchorable case (missing `tenant_id`/`numero_caso`): this build bails WITHOUT assembling a
   dossier (`dossier` stays `{}`, `desfecho="instrucao_incompleta"`) — a disclosed divergence
   from the donor, which assembled a best-effort dossier anyway. Rationale: without the
