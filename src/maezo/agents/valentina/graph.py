@@ -124,6 +124,7 @@ from maezo.runtime.start_outcome import (
     route_after_start,
     start_failed_state,
 )
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -497,7 +498,9 @@ class ValentinaGraph:
         landing for `receive`'s missing-context guard (inability to verify consent = no
         consent; the class-token `error` field preserves the distinction for observability).
         """
-        return {"desfecho": "sem_consentimento", "process_started": False}
+        outcome = {"desfecho": "sem_consentimento", "process_started": False}
+        emit_turn_desfecho({**state, **outcome}, agent_id="valentina")
+        return outcome
 
     async def stopped(self, state: ValentinaState) -> dict[str, Any]:
         """NEUTRAL terminal (invariant B): consent revoked — processing STOPS (fail-safe LGPD).
@@ -507,7 +510,9 @@ class ValentinaGraph:
         the safe and legal behavior, never an adverse effect. No PHI gather, no DMN, no process
         (structural: only outgoing edge is END).
         """
-        return {"desfecho": "interrompido_revogacao", "process_started": False}
+        outcome = {"desfecho": "interrompido_revogacao", "process_started": False}
+        emit_turn_desfecho({**state, **outcome}, agent_id="valentina")
+        return outcome
 
     async def gather(self, state: ValentinaState) -> dict[str, Any]:
         """Best-effort FHIR enrichment — ONLY reachable via `consent_gate`'s `proceed` branch
@@ -715,7 +720,12 @@ class ValentinaGraph:
         No episodic memory write here (labeled boundary, module docstring — divergence from the
         donor's `finalize`, which records the LGPD cessation/case note to `mcp-memory`; v2 has
         no memory seam wired into any agent graph yet).
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn. `no_consent`/`stopped` are
+        the OTHER two terminals in this graph (both wired straight to END) and emit their own
+        record directly at the point they set `desfecho` — this node never sees those turns.
         """
+        emit_turn_desfecho(state, agent_id="valentina")
         return {}
 
     # -- Conditional routing --------------------------------------------------------------

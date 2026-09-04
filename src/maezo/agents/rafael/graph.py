@@ -71,6 +71,7 @@ from maezo.runtime.start_outcome import (
     route_after_start,
     start_failed_state,
 )
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -673,7 +674,11 @@ class RafaelGraph:
         return emit_start_failure_notice(dict(state), agent_id="rafael", process_key=PROCESS_KEY)
 
     async def complete(self, state: RafaelState) -> dict[str, Any]:
-        """Terminal node — no further computation; `desfecho` was already set by `assess`."""
+        """Terminal node — no further computation; `desfecho` was already set by `assess`.
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn.
+        """
+        emit_turn_desfecho(state, agent_id="rafael")
         return {}
 
     # -- Conditional routing ------------------------------------------------------------------

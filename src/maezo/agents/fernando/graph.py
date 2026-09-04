@@ -181,6 +181,7 @@ from maezo.runtime.start_outcome import (
     route_after_start,
     start_failed_state,
 )
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -620,6 +621,10 @@ class FernandoGraph:
             if state.get("status_inadimplencia") == "PENDENTE_NOTIFICACAO"
             else "lembrete_regularizacao_enviado"
         )
+        # CC-09: `notify` is a TERMINAL node (its only outgoing edge is END, no `start_process`
+        # on this branch) — `desfecho`/`mensagem_enviada` are still LOCAL at this point, so both
+        # are passed as explicit overrides rather than read back from `state`.
+        emit_turn_desfecho(state, agent_id="fernando", desfecho=desfecho, enviada=enviada)
         return {"mensagem": mensagem, "mensagem_enviada": enviada, "desfecho": desfecho}
 
     async def escalate(self, state: FernandoState) -> dict[str, Any]:
@@ -663,6 +668,12 @@ class FernandoGraph:
             # `start_failed`, que e o que `route_after_start` le para desviar a
             # `notify_start_failure` em vez de seguir calado para o terminal.
             return start_failed_state(business_key=business_key, error=f"start_process indisponivel: {exc}")
+        # CC-09: on the `escalate` branch, `start_process`'s OWN success return is the last node
+        # body that runs before the graph's `continue` edge lands directly on END — Fernando has
+        # no separate `finalize`/`complete` node on this path (see `compile_graph`). `state` here
+        # already carries `escalate`'s merged `desfecho`/`route`/`motivo_categoria`, so no
+        # override is needed.
+        emit_turn_desfecho(state, agent_id="fernando")
         return {
             "process_started": True,
             "business_key": business_key,

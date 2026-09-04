@@ -193,6 +193,7 @@ from maezo.runtime.start_outcome import (
     route_after_start,
     start_failed_state,
 )
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -1163,7 +1164,14 @@ class AndreGraph:
         No episodic memory write here (labeled boundary, module docstring divergence #5 — same
         rationale as Rafael's/Helena's graphs). NEVER releases a payment nor communicates an
         approval — that is the process's/human approver's alone.
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn (`desfecho`/`route` were
+        already set by `assess`/`human_review` and survive in the merged `state` this node
+        receives) — the ONLY place this happens on Andre's success path. `flow`
+        (`pagto_dossier`/`population_analytics`/`adequacao_dossier`) rides along in the
+        structured log line, not as a Prometheus label.
         """
+        emit_turn_desfecho(state, agent_id="andre", flow=state.get("flow"))
         return {}
 
     # -- Conditional routing --------------------------------------------------------------------

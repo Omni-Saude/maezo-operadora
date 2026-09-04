@@ -149,6 +149,7 @@ from maezo.runtime.start_outcome import (
     route_after_start,
     start_failed_state,
 )
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -973,7 +974,13 @@ class MarinaGraph:
 
         No episodic memory write here (labeled boundary, module docstring — same rationale as
         Rafael's/Helena's graphs).
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn, tagged with `flow`
+        (`contas`/`recurso`/`reembolso`) so Marina's per-flow KPIs (`glosa_rate`,
+        `taxa_deferimento_recurso`, `prazo_medio_resposta_recurso`) can be sliced downstream from
+        the structured log line even though `flow` is not itself a Prometheus label.
         """
+        emit_turn_desfecho(state, agent_id="marina", flow=state.get("flow"))
         return {}
 
     # -- Conditional routing --------------------------------------------------------------
