@@ -72,8 +72,12 @@ INAD-{tenant_id}-{numero_contrato}
 | `tenant_id` | string | sim | Tenant (ex.: `amh`) |
 | `numero_contrato` | string | sim | Numero do contrato (chave de negocio; mesma identidade usada por CANCEL-001) |
 | `matricula_beneficiario` | string | sim | Matricula/pseudo-id do titular (ADR-0006 — Zona Geral usa pseudonimo) |
+| `beneficiario_pseudo_id` | string | sim§ | Pseudonimo do beneficiario (ADR-0006 — nunca CPF/nome); semeada por `FernandoGraph._inadimplencia_variables` no start |
 | `tipo_plano` | string | sim | `individual` \| `familiar` \| `coletivo_empresarial` \| `coletivo_adesao` |
 | `origem_solicitacao` | string | sim | `cobranca` \| `operadora` \| `agente_fernando` \| `juridico` |
+| `canal` | string | sim§ | Canal do encaminhamento (default `whatsapp`); semeada por Fernando no start |
+| `motivo_categoria` | string | sim§ | Categoria do motivo de encaminhamento (default `inadimplencia`); semeada por Fernando no start |
+| `resumo_contexto` | string | sim§ | Resumo da narrativa do dossie de Fernando (`dossier.narrativa`; fallback "Encaminhamento automatico (sem narrativa)" quando ausente); semeada por Fernando no start |
 | `competencias_em_aberto` | json | sim | Lista de competencias (`YYYY-MM`) em aberto (FATO; alimenta a contagem) |
 | `meses_inadimplencia` | integer | sim* | Pre-resolvido por worker (`operadora.inadimplencia.resolve_facts`): contagem de meses em aberto (integer — **nunca `number`**) |
 | `valor_total_devido_cents` | integer | sim* | Pre-resolvido por worker: debito total em centavos de BRL (inteiro — **nunca `number`**) |
@@ -87,6 +91,8 @@ INAD-{tenant_id}-{numero_contrato}
 \* Pre-resolvido por worker de fatos antes da `businessRuleTask` (aritmetica/conferencia/contagem; **sem decisao adversa**). Valores monetarios em **inteiro-centavos** (`integer`), nunca `number`.
 
 ‡ **NAO pre-resolvido por worker** (GAP-INAD-8, WP-FATOS-FABRICADOS slice 2): ao contrario de `meses_inadimplencia`/`valor_total_devido_cents`/`dentro_periodo_minimo`/`dentro_janela_purga`, nenhum worker deste processo confirma ou sobrescreve `notificacao_previa_feita`. `operadora.inadimplencia.check_prior_notice` (`dispatch_prior_notice`) retorna `{}`. Ausente ⇒ a `inadimplencia_status` roteia `PENDENTE_NOTIFICACAO` (fail-safe, nunca adverso: o timer daquele ramo converge na User Task humana). A obrigacao regulatoria real (RN 593 / art. 13, par. unico, II da Lei 9.656/98 — **DRAFT/verify**) e aplicada pelo guard humano `comprovacao_notificacao_previa`, e e dela que `handoff_rescisao` DERIVA o valor entregue a SP-OP-CANCEL-001.
+
+§ Semeada por `FernandoGraph._inadimplencia_variables` (`src/maezo/agents/fernando/graph.py`) no start do processo — nao e um fato pre-resolvido por worker aritmetico do processo em si (achado do fleet audit: escritas no engine por Fernando, ausentes desta tabela).
 
 ## Variaveis de saida (preenchidas pelas User Tasks humanas)
 

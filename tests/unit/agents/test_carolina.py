@@ -766,7 +766,9 @@ async def test_helena_class_probe_free_text_field_never_leaks_into_failure_reaso
     merged: CarolinaState = {**state, **assess_result, "dossier": {}}  # type: ignore[typeddict-item]
     variables = graph._contract_variables(merged)
 
-    assert variables["motivo_informado"] == leaked  # expected, contractual passthrough
+    # Observa a montante do chokepoint de start; o valor e redigido em
+    # transport.redact_start_variables (CC-06).
+    assert variables["motivo_informado"] == leaked
     assert variables["motivo_encaminhamento"] == "dmn_indisponivel"  # bounded class token only
     assert "dmn_error" not in variables  # never travels to the engine at all (matches donor)
     for fragment in ("123.456.789-00", "123.456.789", "CPF"):

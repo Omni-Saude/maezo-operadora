@@ -49,8 +49,8 @@ escalation:
     - signal: dmn_unavailable
     - signal: ambiguity
 memory:
-  episodic: true
-  semantic: true
+  episodic: false  # reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043 — memoria ativar-ou-aposentar)
+  semantic: false  # reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043 — memoria ativar-ou-aposentar)
 a2a:
   capabilities:
     - regulatory_calendar_operation

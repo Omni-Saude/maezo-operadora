@@ -68,6 +68,9 @@ idempotente; reentrega da mesma NIP nao duplica).
 | `contesta_negativa` | boolean | sim | Pre-resolvido por worker: a NIP contesta uma negativa previa (define o caminho que pode levar a `MANTER_NEGATIVA`) |
 | `documentacao_suficiente` | boolean | sim | Pre-resolvido por worker: ha base documental para responder |
 | `origem_a2a` | boolean | nao | `true` quando a instancia nasce de delegacao A2A `nip.instruct` (Helena/intake → Gustavo) |
+| `prazo_resposta_iso` | string (ISO duration) | nao* | Eco best-effort de `GustavoGraph._contract_variables` (`src/maezo/agents/gustavo/graph.py`) a partir da pre-avaliacao informativa da DMN `nip_sla` (ver "DMN referenciadas" abaixo) — **NAO** e a fonte dos timers: o deadline real vem da re-avaliacao de `BRT_NipSla` dentro do BPMN (GAP-NIP-1). Achado do fleet audit: semeada no start mas so documentada como saida `out` de DMN |
+
+\* Best-effort — se a pre-avaliacao de Gustavo falhar (DMN indisponivel), a variavel simplesmente nao e semeada; nenhum caminho depende dela para decidir, so a `BRT_NipSla` real dentro do BPMN.
 
 ## Variaveis de saida
 

@@ -58,8 +58,8 @@ escalation:
     - signal: ambiguity
     - signal: reembolso_dossie
 memory:
-  episodic: true
-  semantic: true
+  episodic: false  # reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043 — memoria ativar-ou-aposentar)
+  semantic: false  # reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043 — memoria ativar-ou-aposentar)
 a2a:
   capabilities:
     - glosa_analysis
