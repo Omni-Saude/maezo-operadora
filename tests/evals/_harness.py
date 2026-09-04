@@ -4,8 +4,8 @@ Every family test module (`test_classifier_evals.py`, `test_dossier_adverse_eval
 `test_dossier_admin_evals.py`) drives its golden cases through this module's `run_case` and
 asserts the result with `assert_expect`/`assert_no_leak`/`score_live` — never hand-rolls graph
 wiring or JSON parsing. Keeping ALL of that logic here (not per-family-file) is what makes the
-44-eval matrix a genuine regression baseline rather than 44 independent, subtly-different
-reimplementations of the same plumbing.
+golden matrix under `tests/evals/golden/` a genuine regression baseline rather than N independent,
+subtly-different reimplementations of the same plumbing.
 
 Pass-criterion types (T3.2 design §5/§6), each backed by one assertion helper below:
     RT  (exact route)             -> `assert_expect(state, {"next_kind": ...})`
