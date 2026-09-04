@@ -743,7 +743,7 @@ tambem ficou sem sujeito.
 A secao nao e' apagada de proposito: um operador que encontre a mencao ao teto em ADR-0002
 §Negativas precisa achar aqui o registro de que ela caducou. Se ADR-0002 §3 for des-suspenso um
 dia — ato exclusivo do dono, ver a emenda DRAFT em
-`docs/adr/0042-emenda-adr0002-secao3-camada-semantica-suspensa.md` — o procedimento abaixo volta a
+`docs/adr/0047-emenda-adr0002-secao3-camada-semantica-suspensa.md` — o procedimento abaixo volta a
 valer, e os dois alertas precisam entao ser ESCRITOS em `deploy/observability/alert-rules.yml`
 (owner-gated) junto com a metrica que os alimentaria.  
 **Alert:** `MaezoMemoryRowcountApproachingCeiling` or `MaezoMemoryRowcountCritical`  

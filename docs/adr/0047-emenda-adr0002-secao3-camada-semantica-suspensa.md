@@ -1,4 +1,4 @@
-# ADR-0042: Emenda a ADR-0002 §3 — a camada semantica fica SUSPENSA ate existir consumidor (GAP DU-01-b)
+# ADR-0047: Emenda a ADR-0002 §3 — a camada semantica fica SUSPENSA ate existir consumidor (GAP DU-01-b)
 
 **Status:** **Proposto — DRAFT/verify. NADA AQUI ESTA RATIFICADO.** Redigido por AGENTE
 (`A1-PGVECTOR`, R1) sob a decisao do dono R-005/R-006; um agente nao ratifica ADR. Enquanto este
@@ -87,7 +87,7 @@ Em consequencia, e **condicionado a ratificacao humana**:
 - Um consumidor futuro paga a migration de volta (a `downgrade()` da 0009 e' exatamente esse
   caminho, e ela EXIGE um servidor com pgvector — em `postgres:16` ela falha alto, de proposito).
 - `docs/adr/0002-agent-state-three-layers.md` lido **isoladamente** ainda descreve a camada como
-  vigente. Mitigado pela linha de ADR-0042 no indice `docs/adr/README.md` (a convencao deste repo
+  vigente. Mitigado pela linha de ADR-0047 no indice `docs/adr/README.md` (a convencao deste repo
   marca a ADR EMENDANTE, nao a emendada) e pelas citacoes a este arquivo em
   `mcp_memory/server.py`, `platform/erasure.py`, `docs/architecture/overview.md`,
   `spec/policies/retention/erasure-plan.template.yaml` e no runbook.

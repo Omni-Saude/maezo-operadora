@@ -2,7 +2,7 @@
 # Aurora PostgreSQL 16 cluster for Maezo agent state, memory, and audit.
 # NAO inclui pgvector: DU-01-b (decisao do dono R-005, 2026-09-04) removeu a camada semantica —
 # `0009_drop_pgvector` dropa `agent_memory.embedding` e a extensao `vector`, e ADR-0002 §3 fica
-# suspenso ate existir consumidor (emenda DRAFT em ADR-0042).
+# suspenso ate existir consumidor (emenda DRAFT em ADR-0047).
 #
 # Per-tenant KMS CMK pattern mirrors amh-data-platform kms-tenant module.
 # Region: sa-east-1 (data residency for PHI — LGPD compliance).

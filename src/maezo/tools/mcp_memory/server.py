@@ -21,7 +21,7 @@ leave open, and settled it AGAINST building the semantic path: `0009_drop_pgvect
 group lost its `pgvector` token and `docker-compose.yml` moved to the plain `postgres:16` image.
 So `recall_semantic`'s refusal is no longer "not wired yet" — there is no column to wire it to,
 and there will not be one until ADR-0002 §3 is un-suspended by the owner (emenda DRAFT em
-`docs/adr/0042-emenda-adr0002-secao3-camada-semantica-suspensa.md`). What remains open is
+`docs/adr/0047-emenda-adr0002-secao3-camada-semantica-suspensa.md`). What remains open is
 GAP-DU-01-a's other half — whether `store_episodic` grows the `tenant_id`/`thread_id` arguments
 that would let it write `agent_memory` honestly — and that is a SEPARATE gap, deliberately not
 decided here.
@@ -35,7 +35,7 @@ test_mcp_memory.py` prova as duas metades (comportamento inalterado + nenhuma re
 Per ADR-0002 (`docs/adr/0002-agent-state-three-layers.md`):
 - Working memory: managed by LangGraph checkpointer (not exposed here)
 - Episodic memory: event log in PostgreSQL, partitioned by tenant + fhir_patient_id
-- Semantic memory: §3 SUSPENSO — desenhado, nunca consumido, removido por 0009 (ADR-0042 DRAFT)
+- Semantic memory: §3 SUSPENSO — desenhado, nunca consumido, removido por 0009 (ADR-0047 DRAFT)
 
 Tools (surface unchanged by the GAP-DU-01-a fix — both now refuse rather than fabricate):
 - store_episodic(agent_id, event) -> raises EpisodicMemoryUnavailableError
@@ -68,7 +68,7 @@ REASON_EPISODIC_SCHEMA_DRIFT: Final[str] = "episodic_schema_drift"
 #: — never a real cosine distance. The column that USED to exist, `agent_memory.embedding
 #: vector(1536)`, was dropped together with the `vector` extension by
 #: `0009_drop_pgvector` (owner decision R-005): it never had a writer, and ADR-0002 §3 is now
-#: SUSPENDED pending a consumer (ADR-0042, DRAFT). The reason CODE is deliberately unchanged —
+#: SUSPENDED pending a consumer (ADR-0047, DRAFT). The reason CODE is deliberately unchanged —
 #: it is a stable, logged vocabulary term, and "not wired" remains exactly what is true.
 #: Returning any similarity value — real-looking or not — without a real embedding would still be
 #: fabrication.
@@ -263,7 +263,7 @@ class MemoryServer:
             "was dropped together with the `vector` extension by "
             "src/maezo/platform/migrations/versions/0009_drop_pgvector.py (GAP-DU-01-b, owner "
             "decision R-005). ADR-0002 section 3 is SUSPENDED pending a consumer — see the DRAFT "
-            "amendment in docs/adr/0042-emenda-adr0002-secao3-camada-semantica-suspensa.md. "
+            "amendment in docs/adr/0047-emenda-adr0002-secao3-camada-semantica-suspensa.md. "
             "Un-suspending it is an owner act, not a code change.",
         )
 

@@ -93,7 +93,7 @@ O worker que transmite a negativa é guardado por `ERR_AUTH_DENIAL_NOT_HUMAN`: o
 | LangGraph (runtime) + CIB Seven (governança) | Agente decide *como*; BPMN garante *que* (SLA, HITL, trilha) | [0001](../adr/0001-cib-seven-governance-langgraph-runtime.md) |
 | A2A v1.0 + Kafka | Delegação dirigida agente→agente com anti-loop estrutural; Kafka como log de fatos | [0003](../adr/0003-a2a-collaboration-kafka-facts.md), [0015](../adr/0015-a2a-delegation-runtime.md) |
 | MCP servers | Única via dos agentes aos sistemas (cibseven/dmn/fhir/whatsapp/memory) | [0001](../adr/0001-cib-seven-governance-langgraph-runtime.md), [0016](../adr/0016-process-key-allowlist-phi-invariant.md) |
-| PostgreSQL | Estado, memória episódica e auditoria sem infra nova. A camada **semântica** (embeddings pgvector) foi **removida** por `0009_drop_pgvector` — desenhada, nunca consumida; ADR-0002 §3 fica suspenso até existir consumidor (DU-01-b) | [0002](../adr/0002-agent-state-three-layers.md), [0042](../adr/0042-emenda-adr0002-secao3-camada-semantica-suspensa.md) |
+| PostgreSQL | Estado, memória episódica e auditoria sem infra nova. A camada **semântica** (embeddings pgvector) foi **removida** por `0009_drop_pgvector` — desenhada, nunca consumida; ADR-0002 §3 fica suspenso até existir consumidor (DU-01-b) | [0002](../adr/0002-agent-state-three-layers.md), [0047](../adr/0047-emenda-adr0002-secao3-camada-semantica-suspensa.md) |
 | DMN (CIB Seven) | Regra de negócio determinística, federada, versionada e testável fora do LLM | [0012](../adr/0012-dmn-deterministic-tool.md) |
 | HAPI FHIR R4 | Registro clínico canônico; a memória de agente referencia FHIR, nunca o copia | [0002](../adr/0002-agent-state-three-layers.md) |
 | Portfolio de modelos (abstração de provider) | Troca de LLM sem reescrever agentes; eval gates por golden dataset | [0009](../adr/0009-model-portfolio-abstraction.md) |
@@ -141,7 +141,7 @@ Estado em três camadas, LGPD-erasável e isolada por tenant
    foi construída no schema (`agent_memory.embedding vector(1536)` + extensão `vector`) e **nunca
    teve consumidor** — nenhum índice vetorial, nenhum writer. `0009_drop_pgvector` removeu coluna e
    extensão. ADR-0002 §3 fica **suspenso até existir consumidor**, não negado: emenda DRAFT em
-   [ADR-0042](../adr/0042-emenda-adr0002-secao3-camada-semantica-suspensa.md), pendente de
+   [ADR-0047](../adr/0047-emenda-adr0002-secao3-camada-semantica-suspensa.md), pendente de
    ratificação do dono.
 
 A erasure LGPD por `fhir_patient_id` cascateia pelas camadas vivas, com verificação mensal.

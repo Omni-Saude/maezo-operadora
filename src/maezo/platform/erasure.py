@@ -9,7 +9,7 @@ Implements LGPD right to erasure (art. 18, VI) with a three-layer cascade:
    schema como `agent_memory.embedding vector(1536)` + extensao `vector` e NUNCA teve consumidor;
    `0009_drop_pgvector` removeu as duas. O seam `semantic_*` deste modulo permanece declarado e
    INERTE — como todo o resto deste modulo, que nao executa SQL nenhum — porque ADR-0002 §3 esta
-   suspenso ate existir consumidor, nao negado (emenda DRAFT em ADR-0042). Nenhuma relacao
+   suspenso ate existir consumidor, nao negado (emenda DRAFT em ADR-0047). Nenhuma relacao
    semantica existe hoje para eliminar.
 
 The cascade is FAIL-SAFE: if any layer fails, the entire operation is rolled

@@ -22,7 +22,7 @@ honesta. Esta migration remove UMA COLUNA, nao a memoria de agente.
 
 ADR-0002 §3 (`docs/adr/0002-agent-state-three-layers.md:12`) ratifica a camada semantica com
 embeddings pgvector, e `docs/adr/` e CODEOWNED. Este PR carrega a emenda como RASCUNHO em
-`docs/adr/0042-emenda-adr0002-secao3-camada-semantica-suspensa.md` (Proposto — DRAFT/verify): §3
+`docs/adr/0047-emenda-adr0002-secao3-camada-semantica-suspensa.md` (Proposto — DRAFT/verify): §3
 fica SUSPENSO ate existir consumidor, nao negado. Nenhum agente ratifica ADR — a ratificacao e ato
 exclusivo do dono (R-006).
 

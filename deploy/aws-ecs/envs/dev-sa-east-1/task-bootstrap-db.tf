@@ -122,7 +122,7 @@ resource "aws_ecs_task_definition" "bootstrap_db" {
               # `0009_drop_pgvector` dropa a coluna `agent_memory.embedding` e a
               # extensao. Cria-la no bootstrap so para a migration seguinte remove-la
               # seria churn que contradiz a decisao — entao o bootstrap nao a cria mais.
-              # ADR-0002 §3 fica suspenso ate existir consumidor (ADR-0042, DRAFT).
+              # ADR-0002 §3 fica suspenso ate existir consumidor (ADR-0047, DRAFT).
 
               # Schema do tenant. O env.py do alembic monta
               # search_path = "<tenant>, public" e cria as tabelas SEM qualificar,
