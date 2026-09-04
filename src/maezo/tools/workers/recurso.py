@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from maezo.agents.andre.keys import key_segment
 from maezo.platform.integrations.partition_key import partition_key_for_task
+from maezo.platform.keys import key_segment
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
 from maezo.tools.workers.base import FunctionWorker, non_blank, pick_fields
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
@@ -1238,8 +1238,9 @@ FONTES_VALOR_PERMITIDAS: frozenset[str] = frozenset({"deferido"})
 def _pagto_business_key(tenant_id: str, numero_guia_tiss: str, glosa_id: str) -> str:
     """`PAGTO-{tenant_id}-{numero_guia_tiss}-{glosa_id}` — ONE order per reverted glosa.
 
-    NORMALISED THROUGH `agents.andre.keys.key_segment` (gate finding M2 — the SAME defect that
-    module's header documents for the SAME family: "a whitespace-padded `ordem_pagamento_id`
+    NORMALISED THROUGH `maezo.platform.keys.key_segment` (gate finding M2 — the SAME defect
+    `agents.andre.keys`'s header documents for the SAME family, CC-15: the shared primitive now
+    lives in `platform.keys`, `andre.keys` reexports it: "a whitespace-padded `ordem_pagamento_id`
     produced `PAGTO-{t}- 123 ` against the other site's `PAGTO-{t}-123`"). Without it a
     re-delivered handoff whose `numero_guia_tiss` arrives with one extra space mints a DIFFERENT
     key, the STRICT dedup claim does not see the previous instance, and the same reverted glosa is
