@@ -76,6 +76,33 @@ Meta sends inbound messages and delivery status updates.
 7. Publish to Kafka (fire-and-forget)
 8. Return 200 OK (Meta requires < 20s)
 
+> **O que o build SHIPPED faz com cada mensagem recebida (gap `WHATSAPP-NON-TEXT-DROPPED`,
+> 2026-09-03).** Os passos 4-5 e 7 acima descrevem comportamento-ALVO (nao ha store de
+> idempotencia nem producer Kafka nesta arvore — ver o aviso de status no topo). O que o codigo
+> realmente faz, por tipo de mensagem:
+>
+> | Entrada | Comportamento hoje | Codigo |
+> |---|---|---|
+> | `type == "text"` | Turno completo da Helena, sincrono no request | `dispatch.py::HelenaDispatcher.dispatch` |
+> | `type != "text"` (audio/imagem/documento/localizacao/...) | **UMA resposta fixa em pt-BR** pelo MESMO seam gateado (`_ScopedWhatsAppSender` + `gate_whatsapp`); sem turno da Helena, sem LLM, sem start de processo, sem checkpoint | `dispatch.py::HelenaDispatcher.acknowledge_non_text` + `dispatch.py::NON_TEXT_ACK_TEXT` |
+> | `value.statuses` (callback de entrega) | Ack 200, nada a fazer — nao e mensagem | `dispatch.py::extract_inbound_messages` |
+> | Envelope malformado / mensagem sem `from` ou sem `type` utilizavel | Ack 200, log `whatsapp_inbound_message_skipped` | `dispatch.py::extract_inbound_messages` |
+>
+> **Ate 2026-09-03 a linha `type != "text"` era DESCARTE SILENCIOSO**: o beneficiario que mandava
+> um audio ou a foto de um exame nao recebia resposta nenhuma. O texto da resposta promete
+> APENAS o que o codigo faz (o canal aceita texto) — nao promete humano, transcricao, Libras nem
+> retorno; a fallback mais rica e a decisao 10.2 do dono, ABERTA, e o canal unico e a 9.6.
+>
+> **Limite conhecido, `WEBHOOK-WAMID-DEDUP` (owner-gated, NAO implementado):** sem store de
+> idempotencia por `wamid` (§3 descreve um que nao existe), uma re-entrega do mesmo webhook pela
+> Meta re-envia a resposta fixa. E mensagem de cortesia duplicada, nunca efeito adverso duplicado
+> — o ack nao inicia processo nem grava estado.
+>
+> **Caminho de resposta inoperante em Helm:** `WhatsAppServer.send_message` RECUSA enquanto
+> `WHATSAPP_PHONE_NUMBER_ID` nao for provisionado (`tools/mcp_whatsapp/server.py`, divulgacao de
+> ops; `docs/review-queue.md`). Isso vale igualmente para a resposta da Helena e para este ack: a
+> falha e contada como `failed` e registrada, nunca escondida.
+
 ---
 
 ## 2. HMAC validation & security
@@ -276,7 +303,8 @@ Expected response: `test_challenge_value`
 
 | Metric | Query | Alert threshold |
 |--------|-------|-----------------|
-| Requests by outcome | `rate(maezo_webhook_requests_total[5m])` — labels `tenant`, `status` (`ok`\|`invalid_signature`\|`parse_error`\|`error`) | N/A (baseline) |
+| Requests by outcome | `rate(maezo_webhook_requests_total[5m])` — labels `tenant`, `status` (`ok`\|`invalid_signature`\|`parse_error`\|`dispatch_failed`\|`not_implemented`\|`non_text_acked`) | N/A (baseline) |
+| Inbound que o canal NAO processa | `rate(maezo_webhook_requests_total{status="non_text_acked"}[5m])` — requests cujo lote so trazia mensagens NAO-texto, todas respondidas com o ack fixo (`app.py::receive_event`). E a medida de quanto do volume de entrada este canal so consegue recusar educadamente; subida sustentada e insumo para as decisoes 9.6/10.2 do dono, nao um alerta de falha | N/A (baseline) |
 | Messages processed/s | `rate(maezo_webhook_messages_total[5m])` — labels `tenant`, `message_type`, `deduplicated` | N/A (baseline) |
 | Invalid signatures | `rate(maezo_webhook_requests_total{status="invalid_signature"}[5m])` | > 0.1/s (attack) |
 | Kafka publish latency | `histogram_quantile(0.95, rate(maezo_webhook_kafka_publish_duration_seconds_bucket[5m]))` — **defined in code but not yet observed anywhere; expect no data until emission is wired** | — |

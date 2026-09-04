@@ -6,14 +6,19 @@ import hashlib
 from typing import Any
 
 import pytest
+import structlog
 from langgraph.checkpoint.memory import InMemorySaver
 
 from maezo.agents.helena.graph import HELENA_INPUT_FIELDS
+from maezo.gateway.effect_pep import DecisionContext
 from maezo.gateway.pseudonymizer import KEYED_PSEUDONYM_PREFIX, Pseudonymizer
+from maezo.gateway.seams import SeamContext, is_gated_seam
 from maezo.platform.webhooks.whatsapp import dispatch as dispatch_module
 from maezo.platform.webhooks.whatsapp.dispatch import (
+    NON_TEXT_ACK_TEXT,
     HelenaDispatcher,
     InboundMessage,
+    InboundNonTextMessage,
     _ScopedWhatsAppSender,
     extract_inbound_messages,
 )
@@ -77,9 +82,83 @@ def test_extract_inbound_messages_single_text_message() -> None:
     assert messages == [InboundMessage(from_number="5511999999999", text="ola", message_id="wamid.1")]
 
 
-def test_extract_inbound_messages_skips_non_text() -> None:
-    payload = {"entry": [{"changes": [{"value": {"messages": [{"from": "551199", "type": "image"}]}}]}]}
-    assert extract_inbound_messages(payload) == []
+def test_extract_inbound_messages_returns_non_text_as_a_typed_sibling() -> None:
+    """Gap `WHATSAPP-NON-TEXT-DROPPED`: an image/audio/document inbound is a REAL message and is
+    now returned (typed, bodyless) instead of vanishing with one INFO line — which is what left
+    the beneficiary who sent a voice note with no answer at all."""
+    payload = {
+        "entry": [
+            {"changes": [{"value": {"messages": [{"from": "551199", "id": "wamid.9", "type": "image"}]}}]}
+        ]
+    }
+    assert extract_inbound_messages(payload) == [
+        InboundNonTextMessage(from_number="551199", message_type="image", message_id="wamid.9")
+    ]
+
+
+def test_extract_inbound_messages_non_text_carries_no_media_reference() -> None:
+    """PHI minimality: the extracted value keeps ONLY the number (for the per-turn sender), Meta's
+    type token and the wamid — never the media id, caption, filename or mime type."""
+    payload = {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "messages": [
+                                {
+                                    "from": "551199",
+                                    "id": "wamid.9",
+                                    "type": "document",
+                                    "document": {
+                                        "id": "media-id-should-not-travel",
+                                        "filename": "exame-do-beneficiario.pdf",
+                                        "caption": "meu exame",
+                                        "mime_type": "application/pdf",
+                                    },
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    (message,) = extract_inbound_messages(payload)
+    rendered = repr(message)
+    for leak in ("media-id-should-not-travel", "exame-do-beneficiario.pdf", "meu exame", "application/pdf"):
+        assert leak not in rendered
+
+
+def test_extract_inbound_messages_mixed_batch_keeps_both_shapes_in_order() -> None:
+    payload = {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "messages": [
+                                {"from": "551199", "id": "wamid.1", "type": "text", "text": {"body": "oi"}},
+                                {"from": "551199", "id": "wamid.2", "type": "audio"},
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    assert extract_inbound_messages(payload) == [
+        InboundMessage(from_number="551199", text="oi", message_id="wamid.1"),
+        InboundNonTextMessage(from_number="551199", message_type="audio", message_id="wamid.2"),
+    ]
+
+
+def test_extract_inbound_messages_skips_a_message_with_no_usable_type() -> None:
+    """A message with no `type` (or a non-`str` one) is a shape this build cannot classify: it is
+    neither a text turn nor a media kind worth naming back. Skipped, never coerced into a token."""
+    for broken in ({"from": "551199", "id": "wamid.9"}, {"from": "551199", "type": {"x": 1}}):
+        payload = {"entry": [{"changes": [{"value": {"messages": [broken]}}]}]}
+        assert extract_inbound_messages(payload) == []
 
 
 def test_extract_inbound_messages_ignores_status_callbacks() -> None:
@@ -364,3 +443,190 @@ def test_helena_dispatcher_is_the_only_dispatch_class_gap_11_7() -> None:
     source = inspect.getsource(dispatch_module).lower()
     assert "lucas" not in source
     assert "fernando" not in source
+
+
+# ---------------------------------------------------------------------------
+# Gap `WHATSAPP-NON-TEXT-DROPPED` — the non-text acknowledgement: ONE fixed reply, through the
+# SAME gated per-turn seam, with no Helena turn behind it and nothing promised that isn't wired.
+# ---------------------------------------------------------------------------
+
+_ACK_RAW_NUMBER = "5511999999999"
+
+
+class _ExplodingInference:
+    """Any LLM call during an acknowledgement is a defect — the ack is a canned string."""
+
+    async def generate(self, prompt: str, **_kwargs: Any) -> str:
+        raise AssertionError("the non-text acknowledgement must never call the LLM")
+
+
+def _ack_dispatcher(
+    *,
+    seam_context: SeamContext | None = None,
+    checkpointer: Checkpointer | None = None,
+    client: Any | None = None,
+) -> tuple[HelenaDispatcher, Any, FakeStartAuditSink]:
+    whatsapp_client = client if client is not None else _FakeWhatsAppClient()
+    audit_sink = FakeStartAuditSink()
+    dispatcher = HelenaDispatcher(
+        tenant_id="amh",
+        inference=_ExplodingInference(),  # type: ignore[arg-type]
+        dmn=FakeDmnTransport(),  # nothing registered: an evaluation would raise
+        cibseven=FakeCibSevenTransport(),
+        whatsapp_client=whatsapp_client,  # type: ignore[arg-type]
+        pseudonymizer=Pseudonymizer(),
+        audit_sink=audit_sink,
+        checkpointer=checkpointer,
+        seam_context=seam_context,
+    )
+    return dispatcher, whatsapp_client, audit_sink
+
+
+def _expected_conversation_id(raw_number: str = _ACK_RAW_NUMBER) -> str:
+    digest = Pseudonymizer().pseudonymize({"telefone": f"amh:{raw_number}"})["telefone"]
+    return f"wa:amh:{KEYED_PSEUDONYM_PREFIX}{digest}"
+
+
+def _seam_context() -> SeamContext:
+    return SeamContext(tenant="amh", principal="helena", decision=DecisionContext())
+
+
+async def test_acknowledge_non_text_sends_exactly_one_fixed_reply_to_the_verified_hash() -> None:
+    """The whole point of the gap: the beneficiary who sent a voice note now gets an answer.
+
+    Exactly ONE send, with the fixed pt-BR text, delivered to the raw number the scoped sender
+    closes over — and reached through `to_hash`, so `_ScopedWhatsAppSender`'s hash-mismatch refusal
+    is actually exercised rather than bypassed."""
+    dispatcher, client, audit_sink = _ack_dispatcher(seam_context=_seam_context())
+
+    await dispatcher.acknowledge_non_text(
+        InboundNonTextMessage(from_number=_ACK_RAW_NUMBER, message_type="audio", message_id="wamid.9")
+    )
+
+    assert client.sent == [(_ACK_RAW_NUMBER, NON_TEXT_ACK_TEXT)]
+    # The text is PINNED here, not merely compared to itself: a reply that starts promising a
+    # human/Libras/transcription must break this test, because none of those is wired (owner
+    # decisions 9.6/10.2 are OPEN — see the constant's own comment).
+    assert NON_TEXT_ACK_TEXT == (
+        "Este canal aceita apenas mensagens de texto. Por favor, envie sua mensagem em texto."
+    )
+    assert audit_sink.calls == []  # no process start was audited => none happened (T-C2 fence)
+
+
+async def test_acknowledge_non_text_goes_through_the_effect_gate() -> None:
+    """The ack is an EFFECT (`whatsapp.send_message`) and is choked exactly like a Helena reply.
+
+    Proven twice, the way `tests/unit/gateway/seams/test_live_dispatch_wiring.py` does it: the real
+    per-turn wrap is spied at the dispatch module's own name (so the wrapper's INNER is observed to
+    be the scoped sender), and the gate's own decision line is observed in the telemetry."""
+    captured: list[tuple[Any, SeamContext]] = []
+    real_gate = dispatch_module.gate_whatsapp
+
+    def _spy(inner: Any, seam: SeamContext) -> Any:
+        captured.append((inner, seam))
+        return real_gate(inner, seam)
+
+    dispatch_module.gate_whatsapp = _spy  # type: ignore[attr-defined]
+    try:
+        dispatcher, client, _sink = _ack_dispatcher(seam_context=_seam_context())
+        with structlog.testing.capture_logs() as logs:
+            await dispatcher.acknowledge_non_text(
+                InboundNonTextMessage(from_number=_ACK_RAW_NUMBER, message_type="image", message_id="wamid.9")
+            )
+    finally:
+        dispatch_module.gate_whatsapp = real_gate  # type: ignore[attr-defined]
+
+    assert len(captured) == 1, "the per-turn wrap must happen exactly once per acknowledgement"
+    inner, seam = captured[0]
+    assert isinstance(inner, _ScopedWhatsAppSender)
+    assert is_gated_seam(real_gate(inner, seam))
+    assert any(entry.get("operation") == "whatsapp.send_message" for entry in logs), (
+        "the gate never decided — the acknowledgement would be an ungated outbound effect"
+    )
+    assert client.sent, "the gate must not have swallowed the delivery"
+
+
+async def test_acknowledge_non_text_without_a_seam_context_announces_it_loudly() -> None:
+    """Same disclosed, test-only affordance as `dispatch()`: never a silent ungated live path."""
+    dispatcher, client, _sink = _ack_dispatcher(seam_context=None)
+
+    with structlog.testing.capture_logs() as logs:
+        await dispatcher.acknowledge_non_text(
+            InboundNonTextMessage(from_number=_ACK_RAW_NUMBER, message_type="location", message_id="wamid.9")
+        )
+
+    ungated = [entry for entry in logs if entry["event"] == "helena_dispatch_whatsapp_seam_ungated"]
+    assert len(ungated) == 1
+    assert ungated[0]["log_level"] == "error"
+    assert _ACK_RAW_NUMBER not in repr(ungated)
+    assert client.sent == [(_ACK_RAW_NUMBER, NON_TEXT_ACK_TEXT)]
+
+
+async def test_acknowledge_non_text_telemetry_carries_no_raw_number_and_no_media_reference() -> None:
+    """PHI: only the keyed `hk1_` pseudonym, the wamid and Meta's type token may be logged."""
+    dispatcher, _client, _sink = _ack_dispatcher(seam_context=_seam_context())
+
+    with structlog.testing.capture_logs() as logs:
+        await dispatcher.acknowledge_non_text(
+            InboundNonTextMessage(from_number=_ACK_RAW_NUMBER, message_type="document", message_id="wamid.9")
+        )
+
+    rendered = repr(logs)
+    assert _ACK_RAW_NUMBER not in rendered, "the raw recipient reached a log line"
+    assert hashlib.sha256(f"amh:{_ACK_RAW_NUMBER}".encode()).hexdigest() not in rendered
+    started = [entry for entry in logs if entry["event"] == "whatsapp_non_text_ack_started"]
+    sent = [entry for entry in logs if entry["event"] == "whatsapp_non_text_ack_sent"]
+    assert len(started) == 1 and len(sent) == 1
+    assert started[0]["conversation_id"] == _expected_conversation_id()
+    assert started[0]["message_type"] == "document"
+    assert started[0]["message_id"] == "wamid.9"
+
+
+async def test_acknowledge_non_text_runs_no_graph_and_writes_no_checkpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No Helena turn behind the ack: no graph build, no LLM (the inference double raises), no
+    process start (the audit sink stays empty), and NOTHING persisted on the conversation thread —
+    so a later real text message still starts the conversation fresh."""
+
+    def _no_graph(_config: Any) -> Any:
+        raise AssertionError("the non-text acknowledgement must never build Helena's graph")
+
+    monkeypatch.setattr(dispatch_module, "build", _no_graph)
+    saver = InMemorySaver()
+    dispatcher, client, audit_sink = _ack_dispatcher(
+        seam_context=_seam_context(), checkpointer=Checkpointer(saver=saver)
+    )
+
+    await dispatcher.acknowledge_non_text(
+        InboundNonTextMessage(from_number=_ACK_RAW_NUMBER, message_type="sticker", message_id="wamid.9")
+    )
+
+    assert client.sent == [(_ACK_RAW_NUMBER, NON_TEXT_ACK_TEXT)]
+    assert audit_sink.calls == []
+    thread = checkpoint_thread_config(_expected_conversation_id())
+    assert await saver.aget_tuple(thread) is None
+
+
+async def test_acknowledge_non_text_propagates_a_send_failure_to_the_caller() -> None:
+    """The ack does NOT swallow a delivery failure — `app.py` is the one place that decides what a
+    failed message means for the HTTP answer (it counts it and never lets it escape the webhook).
+
+    Live relevance, disclosed: `WhatsAppServer.send_message` REFUSES today in Helm because nothing
+    injects `WHATSAPP_PHONE_NUMBER_ID` (`tools/mcp_whatsapp/server.py`'s ops disclosure), so this
+    is the branch the deployed receiver takes for BOTH a Helena reply and this acknowledgement
+    until the owner provisions that value."""
+
+    class _RefusingClient:
+        def __init__(self) -> None:
+            self.sent: list[tuple[str, str]] = []
+
+        async def send_message(self, to: str, text: str) -> dict[str, Any]:
+            raise ValueError("WhatsApp phone_number_id is not configured — refusing to send")
+
+    dispatcher, _client, _sink = _ack_dispatcher(seam_context=_seam_context(), client=_RefusingClient())
+
+    with pytest.raises(ValueError, match="refusing to send"):
+        await dispatcher.acknowledge_non_text(
+            InboundNonTextMessage(from_number=_ACK_RAW_NUMBER, message_type="audio", message_id="wamid.9")
+        )

@@ -29,6 +29,21 @@
 2. Modele em `spec/processes/bpmn/` seguindo `SP-OP-{AREA}-{NNN}_{Titulo}.bpmn`; tópicos `{dominio}.{contexto}.{acao}`.
 3. Ações L0/L1 exigem User Task com candidate group humano + timer + escalation.
 4. Atualize `docs/processes/catalog.md` e `config/topic_registry.yaml`.
+5. **Perspectiva: o dono do processo é a operadora (pagador).** Ela RECEBE guia, lote e recurso; ela EMITE demonstrativo, autorização, negativa, glosa e resposta de recurso. Um elemento que interpõe recurso, aguarda a resposta da operadora ou concilia dinheiro recebido descreve o prestador, não o pagador — é inversão (ADR-0040).
+
+### Onde vive a referência histórica (convenção, não marcador)
+
+O portão de regressão de vocabulário de perspectiva (ADR-0040 D7 — `src/maezo/platform/validation/perspective.py`, chamado de dentro de `make validate-artifacts`) lê duas superfícies de formas diferentes:
+
+- **Tier A** — `spec/processes/bpmn/*.bpmn` e `spec/processes/dmn/*.dmn` em **texto bruto, inclusive comentários XML**;
+- **Tier B** — os YAML de spec (`spec/processes/dmn/*.yaml`, `spec/agents/*/agent.yaml`, `spec/policies/autonomy/*.yaml`) pelos **nós parseados**; comentário não é nó, e por isso não é lido.
+
+A assimetria é **por formato e universal**, nunca um favor por arquivo. A consequência prática para quem edita spec: **narrativa de deleção não entra em comentário XML de BPMN/DMN.** Registrar ali «este elemento roteava para <valor do recorrente>» reintroduz exatamente o vocabulário que a deleção tirou e derruba o build. Ela vai para um destes dois lugares:
+
+1. a **narrativa de docs** — contrato e test-spec em `docs/processes/`, `docs/review-queue.md`, `docs/evidence-ledger.md`, o ADR, os documentos de auditoria/redesenho — que é onde se procura *por que* um artefato mudou; ou
+2. um **comentário do YAML** do manifesto de spec, cuja função é justamente citar o que o artefato *dizia* (`spec/agents/marina/agent.yaml` é o exemplo vivo: o KPI deletado sobrevive só no comentário que registra a deleção).
+
+**Não existe marcador de dispensa** (`<!-- historico: … -->`, `<!-- HISTORICAL-REFERENCE -->`) e ele não deve ser criado: um marcador desses é o allowlist por-arquivo que ADR-0040 D7 recusa pelo nome («Não há allowlist de exceções, nem por arquivo nem por bloco `historico:`»). Criá-lo é decisão do dono, por emenda ao próprio ADR — nunca uma edição da fence. O que um elemento BPMN/DMN já foi está no histórico do git e nos docs acima. Testes que fixam isso: `tests/unit/platform/test_validation_perspective.py::TestNoExceptionMechanism`.
 
 ## Convenções
 

@@ -652,7 +652,7 @@ def record_llm_token_usage(
 ) -> None:
     """Record LLM token consumption (T8, token-metering).
 
-    Called by `maezo.runtime.inference._emit_llm_token_usage` — reached only from
+    Called by `maezo.runtime.inference.providers._emit_llm_token_usage` — reached only from
     `AnthropicInferenceProvider.generate()`, the single seam every REAL LLM response
     passes through (ADR-0009). Increments `maezo_llm_tokens_total` once for the
     `token_type="input"` series and once for `token_type="output"`, each by the actual
@@ -664,11 +664,11 @@ def record_llm_token_usage(
     ADR-0010. Per-instance correlation (tenant/agent/thread) is NEVER a label here —
     same rule `record_worker_task_outcome` documents above for task/business-key
     identifiers; that granularity belongs in the structured log line the caller also
-    emits (`maezo.runtime.inference._emit_llm_token_usage`'s `llm_token_usage` event).
+    emits (`maezo.runtime.inference.providers._emit_llm_token_usage`'s `llm_token_usage` event).
 
     COUNTS ONLY — this function never computes or emits a cost/price value. Pricing is a
     finance-gated human decision (see the EXTENSION POINT note in
-    `maezo.runtime.inference._emit_llm_token_usage`).
+    `maezo.runtime.inference.providers._emit_llm_token_usage`).
 
     This is the raw typed helper — intentionally NOT wrapped in a defensive try/except
     here (contrast `record_worker_task_outcome`'s caller, `_emit_worker_task_outcome`):
