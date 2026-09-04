@@ -121,7 +121,7 @@ RECURSO_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({_ERR_RECURSO_INVALID_G
 def _require_glosa_id(glosa_id: str) -> None:
     """GAP-RECURSO-3 guard: glosa_id ausente/vazio -> `WorkerBpmnError(ERR_RECURSO_INVALID_GLOSA)`.
 
-    Fires BEFORE any downstream call (`validate_recurso`/`notify_prestador`/`analyze_merits`) —
+    Fires BEFORE any downstream call (`validate_recurso`/`request_documents`/`analyze_merits`) —
     mirrors cancel.py's `WorkerBpmnError` raising pattern (`confirm_maintained_decision`). The
     BPMN's boundary catches (`BE_GlosaInvalidaValidacao` on `ST_ValidarRecurso`,
     `BE_GlosaInvalidaDocs` on `ST_SolicitarDocumentos`, `BE_GlosaInvalidaDossie` on
@@ -470,25 +470,60 @@ def prepare_dossier(validation: RecursoValidationResult, merits: dict[str, Any])
     return result
 
 
-def notify_prestador(
+def request_documents(
     prestador_id: str,
     glosa_id: str,
     message_type: str = "pendencia_documentacao",
 ) -> dict[str, Any]:
-    """Notify the prestador about recurso status or document requests."""
+    """Registra que a ETAPA de abertura da pendencia rodou. Retorna `{}` — NAO afirma nada.
+
+    Serve `ST_SolicitarDocumentos` ("Abrir pendencia de documentacao ao prestador",
+    `spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn:189-200`), topico
+    `operadora.recurso.request_documents`. Nao adversa: quem nao responde a pendencia e decidido
+    por HUMANO em `UT_AnaliseRecursoAnalista` apos `ICE_PrazoPendencia` — nenhum caminho daqui
+    indefere o recurso.
+
+    GAP-RECURSO-5 / FAB-NOTIFIED-TRIO (o motivo desta docstring). A funcao chamava-se
+    `notify_prestador` e retornava, em toda entrega e sem calcular nada::
+
+        {"notified": True, "prestador_id": ..., "glosa_id": ..., "message_type": ...}
+
+    `notified` nao era computado de nada: nenhum canal era contatado e nenhuma entrega era
+    observada. Como a harness carrega o retorno do handler para o escopo do processo no `complete`
+    (`harness.py:1778-1782`), a constante entrava na instancia e virava trilha de auditoria — uma
+    afirmacao de que o prestador foi avisado, sem lastro. O NOME tambem afirmava o ato: por isso a
+    funcao passa a se chamar `request_documents`, casando exatamente com o topico BPMN que ela
+    serve (mesma convencao de `reembolso.request_documents`/`auth.request_documents`).
+
+    POR QUE `{}` E NAO UM PUBLISH REAL (opcao (a) avaliada e rejeitada com evidencia). As seams de
+    um worker sao `engine`, `dmn`, `kafka` e `audit_sink` (`harness.py`); nao ha entre elas nenhum
+    canal externo ao PRESTADOR. O unico canal de mensageria da arvore (`mcp_whatsapp`) so e
+    alcancavel pelos agentes conversacionais e pelo servico de webhooks, nunca por um worker BPMN,
+    e e dirigido ao beneficiario, nao ao prestador. O `operadora.notifications.internal` que
+    `notify_sla_risk`/`comunicar_resposta` deste mesmo modulo publicam e um topico INTERNO de
+    observabilidade — publicar nele nao avisa prestador nenhum, e `test_sp_op_recurso_001.py:1250`
+    justamente PINA que esta task nao emite notificacao (`not notifications_of_type(
+    "recurso.request_documents")`). E o evento de dominio que existe de verdade JA e publicado —
+    pelo proprio BPMN, uma task adiante, em `ST_PublishRecursoPended` ->
+    `agents.events.recurso.pended` (BPMN `:217-228`); republica-lo aqui duplicaria um evento real
+    e continuaria sem provar entrega.
+
+    O QUE SE PERDE AO DEVOLVER `{}`: nada consumido. `notified`, `message_type`, `prestador_id` e
+    `glosa_id` tinham ZERO consumidores — nenhum `conditionExpression`, nenhum `inputExpression`
+    de DMN, nenhum modelo de entrada de worker a jusante e nenhuma linha de contrato os le
+    (`grep -rn '\bnotified\b' src/ spec/`; `grep -rn 'message_type' spec/ docs/processes/`); os
+    dois ultimos eram eco do que ja estava no escopo. A observabilidade da etapa continua no
+    `logger.info` abaixo, que declara explicitamente que nada foi afirmado.
+    """
     logger.info(
-        "recurso.notify_prestador",
+        "recurso.request_documents",
         prestador_id=prestador_id,
         glosa_id=glosa_id,
         message_type=message_type,
+        notified_asserted=False,
     )
 
-    return {
-        "notified": True,
-        "prestador_id": prestador_id,
-        "glosa_id": glosa_id,
-        "message_type": message_type,
-    }
+    return {}
 
 
 def escalate_to_junta(
@@ -688,8 +723,11 @@ def publish_completed(
 # Topic mapping vs spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
 # (excl. shared/out-of-scope `operadora.events.publish`):
 #   validate_recurso        -> operadora.recurso.validate_recurso   (ST_ValidarRecurso — intake)
-#   notify_prestador        -> operadora.recurso.request_documents  (spec match: default message_type
-#                              IS "pendencia_documentacao" == "Abrir pendencia de documentacao ao prestador")
+#   request_documents       -> operadora.recurso.request_documents  (exact name+spec match: default
+#                              message_type IS "pendencia_documentacao" == "Abrir pendencia de
+#                              documentacao ao prestador"; GAP-RECURSO-5/FAB-NOTIFIED-TRIO renamed it
+#                              from `notify_prestador`, which returned a constant `notified=True`
+#                              with no channel — it now returns `{}` and asserts nothing)
 #   analyze_merits          -> operadora.recurso.analyze_request    (spec match: "(agente Marina)" == this
 #                              function's own docstring "delegates to Marina (LLM agent)")
 #   registrar_indeferimento -> operadora.recurso.registrar_indeferimento (exact spec match, GUARDED)
@@ -746,18 +784,22 @@ def assess_eligibility_entry(
 def request_documents_entry(
     variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
 ) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.recurso.request_documents` -> `notify_prestador`.
+    """Dict-boundary entry for `operadora.recurso.request_documents` -> `request_documents`.
 
-    GAP-RECURSO-3 (Finding 5): guards `glosa_id` BEFORE calling `notify_prestador` — raises
+    GAP-RECURSO-3 (Finding 5): guards `glosa_id` BEFORE calling `request_documents` — raises
     `WorkerBpmnError(ERR_RECURSO_INVALID_GLOSA)` (`_require_glosa_id`) when absent/empty, so no
     pendencia is opened for an origin-invalid glosa (`BE_GlosaInvalidaDocs` boundary catch).
+
+    GAP-RECURSO-5 / FAB-NOTIFIED-TRIO: o retorno passou a ser `{}` (o antigo `notified=True` era
+    fato fabricado — ver a docstring de `request_documents`). O guard e a ORDEM em que ele dispara
+    sao byte-identicos; so o payload de saida mudou, e ele tinha zero consumidores.
     """
-    del kafka  # unused — notify_prestador emits no domain event
+    del kafka  # unused — request_documents emits no domain event
     glosa_id = variables.get("glosa_id", "")
     _require_glosa_id(glosa_id)
     prestador_id = variables.get("prestador_id", "")
     message_type = variables.get("message_type", "pendencia_documentacao")
-    return notify_prestador(prestador_id, glosa_id, message_type)
+    return request_documents(prestador_id, glosa_id, message_type)
 
 
 def analyze_request_entry(

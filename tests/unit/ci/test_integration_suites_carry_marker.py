@@ -23,12 +23,26 @@ with `pytestmark = pytest.mark.integration` + a sibling `test_probe.py`) confirm
 (`tests/integration/processes/conftest.py`, `tests/integration/chaos/conftest.py`) already declare
 `pytestmark` at the conftest level too — today that is harmless belt-and-suspenders documentation
 ONLY, because every test file in those directories *also* carries its own module-level
-`pytestmark` (this fence's `test_conftest_only_marker_is_not_by_itself_sufficient_in_practice`
-below pins that fact so it cannot silently stop being true). This fence therefore treats a
-directory-chain conftest declaration as an ACCEPTED alternative (matching the repo's own written
-convention and this task's brief) but never RELIES on it being the only source for any real file
-today — see `test_every_real_file_is_covered_by_its_own_module_level_marker` for the stricter,
-functionally-accurate check.
+`pytestmark` (`test_conftest_only_marker_is_not_by_itself_sufficient_in_practice` below pins that
+fact so it cannot silently stop being true).
+
+FIX for gap CI-FENCE-TESTS-COUPLING (register arbitration). An earlier version of this fence made
+`_Coverage.covered` accept `own_module OR via_conftest_chain` in
+`test_every_integration_test_module_declares_the_integration_marker` itself — soundness for a
+module relying SOLELY on the (empirically non-cascading) conftest-chain marker then depended
+entirely on a SECOND test, `test_every_real_file_is_covered_by_its_own_module_level_marker`,
+independently re-checking the stricter own-module-only rule. Deleting that second test would have
+silently reopened the exact BRIDGE-SUITES-UNMARKED-class hole: the first test would keep passing
+for a module pytest's own `-m "not integration"` does NOT actually deselect. Fixed at the root,
+not with a comment: `_Coverage.covered` below now requires the module's OWN marker —
+`via_conftest_chain` is computed and reported for diagnostics only, and is never by itself
+sufficient. `test_every_integration_test_module_declares_the_integration_marker` therefore
+enforces the real, functionally-accurate rule ON ITS OWN; no single test deletion can reopen the
+hole. `test_every_real_file_is_covered_by_its_own_module_level_marker` remains as an INDEPENDENT
+duplicate — it calls `_module_declares_integration_marker` directly, bypassing `_coverage_for`
+entirely — so it still catches a future regression that reintroduces the lenient OR inside
+`_coverage_for`/`covered` even though that is no longer the only thing standing between a suite
+and engine contamination.
 """
 
 from __future__ import annotations
@@ -103,7 +117,16 @@ class _Coverage:
 
     @property
     def covered(self) -> bool:
-        return self.own_module or self.via_conftest_chain
+        """Gap CI-FENCE-TESTS-COUPLING fix: `covered` requires the module's OWN marker.
+
+        A directory conftest.py's `pytestmark` does NOT actually cascade to sibling test modules
+        under pytest's real semantics (see the module docstring's empirical finding, pinned by
+        `test_conftest_only_marker_is_not_by_itself_sufficient_in_practice` below) — so
+        `via_conftest_chain` alone must never satisfy this property. It is still tracked (and
+        reported in `_coverage_for`'s return value) purely for diagnostics/documentation of the
+        repo's existing conftest-level convention, never as an alternative path to `covered`.
+        """
+        return self.own_module
 
 
 def _coverage_for(test_file: Path) -> _Coverage:
@@ -123,11 +146,17 @@ def _coverage_for(test_file: Path) -> _Coverage:
 
 
 def test_every_integration_test_module_declares_the_integration_marker() -> None:
-    """Every `tests/integration/**/test_*.py` module must be covered — by its own module-level
-    `pytestmark` or (accepted alternative, matching the repo's existing conftest-level
-    documentation convention) a `conftest.py` in its directory chain up to `tests/integration`.
+    """Every `tests/integration/**/test_*.py` module must be covered — `_Coverage.covered`
+    (gap CI-FENCE-TESTS-COUPLING fix) requires the module's OWN module-level `pytestmark`; a
+    `conftest.py` in its directory chain up to `tests/integration` is tracked for diagnostics only
+    and is never by itself sufficient, matching pytest's real semantics
+    (`test_conftest_only_marker_is_not_by_itself_sufficient_in_practice` below proves the
+    conftest-only path does not actually work). This test therefore enforces the real,
+    functionally-accurate rule ON ITS OWN — it no longer depends on
+    `test_every_real_file_is_covered_by_its_own_module_level_marker` existing to catch what its
+    own `_coverage_for` would otherwise let through.
 
-    This is the exact regression case for BRIDGE-SUITES-UNMARKED: before the fix, this failed on
+    This is the exact regression case for BRIDGE-SUITES-UNMARKED: before that fix, this failed on
     all four of `tests/integration/platform/test_notifications_bridge_live_engine.py`,
     `test_events_kafka_producer_live.py`, `test_notifications_bridge_live_kafka.py`, and
     `test_notifications_bridge_live_pg.py` — none had a `pytestmark`, and their directory's own
@@ -137,10 +166,11 @@ def test_every_integration_test_module_declares_the_integration_marker() -> None
     modules = _iter_integration_test_modules()
     uncovered = [str(m.relative_to(_REPO_ROOT)) for m in modules if not _coverage_for(m).covered]
     assert not uncovered, (
-        "the following tests/integration/**/test_*.py modules do not declare "
-        "`pytestmark = pytest.mark.integration` (directly or via a conftest.py in their "
-        'directory chain up to tests/integration/), so `pytest tests/ -q -m "not integration"` '
-        "would NOT deselect them:\n  " + "\n  ".join(uncovered)
+        "the following tests/integration/**/test_*.py modules do not declare their OWN "
+        "module-level `pytestmark = pytest.mark.integration` (a directory conftest.py's own "
+        "pytestmark does NOT cascade to sibling modules under real pytest semantics — see this "
+        'module\'s docstring), so `pytest tests/ -q -m "not integration"` would NOT deselect '
+        "them:\n  " + "\n  ".join(uncovered)
     )
 
 
@@ -156,11 +186,17 @@ def test_scan_is_not_vacuous() -> None:
 
 
 def test_every_real_file_is_covered_by_its_own_module_level_marker() -> None:
-    """Stricter, functionally-accurate check (see module docstring's empirical finding): today,
-    every real file's coverage comes from ITS OWN module-level `pytestmark`, never only from a
-    conftest.py — because a bare `conftest.py`-level `pytestmark` does not actually cascade to
-    sibling modules in pytest. This pins that stronger, no-false-sense-of-safety property so a
-    future author cannot "fix" a missing marker by adding it only to a directory conftest.py."""
+    """INDEPENDENT duplicate of the same invariant `test_every_integration_test_module_declares_
+    the_integration_marker` now enforces via `_Coverage.covered` — this test calls
+    `_module_declares_integration_marker` directly on each module, bypassing `_coverage_for`/
+    `_Coverage` entirely, so it stays true even if a future edit reintroduces the lenient
+    `own_module or via_conftest_chain` inside `covered` (the exact gap CI-FENCE-TESTS-COUPLING
+    closed: this test existing was the ONLY thing catching that before `covered` itself was
+    fixed). Today, every real file's coverage comes from ITS OWN module-level `pytestmark`, never
+    only from a conftest.py — because a bare `conftest.py`-level `pytestmark` does not actually
+    cascade to sibling modules in pytest. This pins that stronger, no-false-sense-of-safety
+    property so a future author cannot "fix" a missing marker by adding it only to a directory
+    conftest.py."""
     modules = _iter_integration_test_modules()
     not_self_covered = [
         str(m.relative_to(_REPO_ROOT))
@@ -180,8 +216,10 @@ def test_conftest_only_marker_is_not_by_itself_sufficient_in_practice() -> None:
     (`tests/integration/processes/conftest.py`, `tests/integration/chaos/conftest.py`) — but it is
     NOT what makes `pytest -m "not integration"` deselect that directory's tests. Every file in
     those two directories also carries its own module-level `pytestmark`; this test proves that
-    fact so the "accepted alternative" branch in `_coverage_for` never quietly becomes the only
-    thing standing between a suite and engine contamination.
+    fact, which is exactly WHY `_Coverage.covered` (gap CI-FENCE-TESTS-COUPLING fix) requires the
+    module's own marker and treats `via_conftest_chain` as informational-only rather than as an
+    alternative that could quietly become the only thing standing between a suite and engine
+    contamination.
     """
     conftest_dirs_with_marker = [
         c.parent

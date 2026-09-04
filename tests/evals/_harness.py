@@ -37,11 +37,18 @@ from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
-from .conftest import ReplayInferenceProvider, load_golden
+from .conftest import (
+    ReplayExhaustedError,
+    ReplayInferenceProvider,
+    ReplayUnconsumedResponsesError,
+    load_golden,
+)
 
 # Re-exported so family test modules need only `from tests.evals._harness import ...`.
 __all__ = [
     "ClarityReport",
+    "ReplayExhaustedError",
+    "ReplayUnconsumedResponsesError",
     "RunResult",
     "assert_clarity",
     "assert_expect",
@@ -101,6 +108,48 @@ def register_dmn_fixture(dmn: FakeDmnTransport, fixture: Mapping[str, Any] | Non
         dmn.register(decision_key, rows)
 
 
+def _raise_if_exhausted(
+    inference: ReplayInferenceProvider, *, swallowed_state: dict[str, Any] | None
+) -> None:
+    """Raise `ReplayExhaustedError` if `inference` recorded ANY exhaustion this turn, regardless
+    of whether that error propagated out of the graph or was caught internally by an agent's own
+    fail-safe fallback (`ReplayInferenceProvider.exhausted_calls` is appended to BEFORE the
+    original error is raised, so it survives either way). This is the un-swallowable enforcement
+    point (EVAL-REPLAY-EXHAUSTION-SWALLOWED) — see `conftest.py`'s module docstring.
+
+    No-op when `inference.exhausted_calls` is empty (the overwhelmingly common case).
+    """
+    events = inference.exhausted_calls
+    if not events:
+        return
+    first, *rest = events
+    raise ReplayExhaustedError(
+        calls_made=first.calls_made,
+        responses_provided=first.responses_provided,
+        prompt=first.prompt,
+        detected_post_turn=True,
+        additional_events=len(rest),
+        swallowed_state=swallowed_state,
+    )
+
+
+def _raise_if_unconsumed(inference: ReplayInferenceProvider, case: Mapping[str, Any]) -> None:
+    """Raise `ReplayUnconsumedResponsesError` if `case["recorded_llm"]` had entries left over
+    after the turn — the symmetric counterpart of `_raise_if_exhausted` (see
+    `ReplayUnconsumedResponsesError`'s docstring / `conftest.py`'s module docstring). No-op when
+    every scripted response was consumed (the overwhelmingly common case).
+    """
+    remaining = inference.remaining_responses
+    if not remaining:
+        return
+    raise ReplayUnconsumedResponsesError(
+        case_id=str(case.get("id", "<unknown>")),
+        recorded_total=len(case["recorded_llm"]),
+        calls_made=len(inference.calls),
+        unconsumed=remaining,
+    )
+
+
 async def run_case(
     build_fn: Callable[[dict[str, Any]], Any],
     case: Mapping[str, Any],
@@ -115,6 +164,17 @@ async def run_case(
     keyword `build_fn` needs beyond the four seams every graph shares (`inference`/`dmn`/
     `cibseven`/`audit_sink`) — e.g. `{"whatsapp": FakeWhatsAppSender()}` for the classifier-family
     agents (helena/fernando/lucas).
+
+    UN-SWALLOWABLE REPLAY-EXHAUSTION CONTRACT (EVAL-REPLAY-EXHAUSTION-SWALLOWED): production agent
+    graphs legitimately wrap their LLM calls in `except Exception` fail-safe fallbacks, which would
+    otherwise silently catch a too-short golden's `ReplayExhaustedError` and let the turn complete
+    "successfully" on fallback text. `run_case` closes that hole from OUTSIDE the graph: after the
+    turn (whether `compiled.ainvoke` returned normally or raised), it inspects
+    `inference.exhausted_calls` and raises `ReplayExhaustedError` itself if it is non-empty —
+    regardless of what the agent returned. Symmetrically, if every scripted response was consumed
+    but some are left over (`inference.remaining_responses`), it raises
+    `ReplayUnconsumedResponsesError` — `recorded_llm` must match the turn's real call count
+    EXACTLY, per README.md's documented schema (never a ceiling the turn merely stays under).
     """
     inference = ReplayInferenceProvider(case["recorded_llm"])
     dmn = FakeDmnTransport()
@@ -134,10 +194,27 @@ async def run_case(
     graph = build_fn(config)
     compiled = graph.compile()
     input_state = dict(case["input"]["state"])
-    result_state = await compiled.ainvoke(input_state)
+    try:
+        raw_result = await compiled.ainvoke(input_state)
+    except Exception:
+        # The turn itself raised (possibly `ReplayExhaustedError` propagating unswallowed,
+        # possibly something else entirely). Either way, an exhaustion that WAS also recorded
+        # takes priority as the more actionable diagnosis — `raise ... from None` isn't used here
+        # so the original exception is preserved as `__context__` for debugging, but the
+        # un-swallowable summary is what the test sees and asserts on.
+        _raise_if_exhausted(inference, swallowed_state=None)
+        raise
+
+    result_state = dict(raw_result)
+    # The turn returned NORMALLY. If it only did so because an agent's own fail-safe fallback
+    # swallowed an exhaustion, `exhausted_calls` is non-empty and this still fails the case loudly
+    # — `result_state` (the fallback-produced state) is attached so a test can prove the swallow
+    # actually happened, not just that SOME exception fired.
+    _raise_if_exhausted(inference, swallowed_state=result_state)
+    _raise_if_unconsumed(inference, case)
 
     return RunResult(
-        state=dict(result_state),
+        state=result_state,
         inference=inference,
         dmn=dmn,
         cibseven=cibseven,

@@ -619,7 +619,7 @@ acoes:
       continua falhando fechado de forma INDEPENDENTE deste gateway (invariante I-6).
       PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2).
     superficies:
-      - referencia: "src/maezo/runtime/inference.py:616"
+      - referencia: "src/maezo/runtime/inference/__init__.py:624"
         detalhe: "InferenceProvider.generate(prompt, phi=...) — via GatedInferenceProvider
           (Onda 1); phi= escolhe qual token catalogar. O PhiZoneRoutingError segue INDEPENDENTE do
           PEP (I-6): a delegação é nua e o wrapper não o captura"

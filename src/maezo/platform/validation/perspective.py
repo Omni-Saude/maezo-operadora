@@ -44,6 +44,37 @@ Every hit is a `Report.error` (blocking; `Report` has no downgradeable
 object requirement and actor cue of R2-CTX) and structural (which surface
 each tier reads) — and both apply identically to every file.
 
+Where historical references go
+------------------------------
+"No exception mechanism" has a corollary that is a **convention, not a
+marker**: the narrative of a deletion — "this element used to route to
+`RECORRER`", "the `recurso_recovery_rate` KPI was dropped because it is a
+creditor's metric" — never lives in a BPMN/DMN **XML comment**. Tier A reads
+those comments, so recording a removal there re-introduces the vocabulary the
+removal took out, and turns a correct edit into a red build. Two places carry
+it instead:
+
+* the **docs narrative** — the process contract and test spec under
+  `docs/processes/`, `docs/review-queue.md`, `docs/evidence-ledger.md`, the
+  ADR, the audit/redesign documents — which is where a reader looks for *why*
+  an artifact changed; and
+* a **YAML comment** in a spec manifest, whose purpose is precisely to quote
+  what an artifact used to say (`spec/agents/marina/agent.yaml` is the live
+  example: the deleted KPI survives only in the comment that records the
+  deletion). Tier B walks parsed nodes, so a comment is not a node.
+
+There is deliberately **no** `<!-- historico: … -->` or
+`<!-- HISTORICAL-REFERENCE -->` escape that would exempt an XML comment from
+Tier A. Such a marker *is* the exception mechanism the section above refuses
+and that ADR-0040 D7 rules out by name («Nao ha allowlist de excecoes, nem por
+arquivo nem por bloco `historico:`» — the hypothesis was evaluated and
+refused, D7 and REDESIGN-SP-OP-CONTAS-001 §2.4/§6.2); introducing one is an
+owner decision on the ADR, never an implementation choice made here. What a
+BPMN/DMN element used to be is recorded by git history and by the docs above.
+`TestNoExceptionMechanism` pins the convention as a measured fact: a marked
+comment still scores exactly one Tier A hit, and the identical sentence as a
+YAML comment scores zero under Tier B.
+
 Declared limit (ADR-0040 D7, §6.8)
 ----------------------------------
 This is a **vocabulary regression gate**, not a perspective validator. It

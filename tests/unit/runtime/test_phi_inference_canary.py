@@ -62,7 +62,6 @@ import yaml
 
 from maezo.gateway.seams import SeamContext, is_gated_seam
 from maezo.gateway.seams.inference import GatedInferenceProvider, gate_inference
-from maezo.runtime import inference as inf
 from maezo.runtime.inference import (
     BR_REGIONAL_ATTESTED_REGION,
     BR_REGIONAL_ENDPOINT_HOST_SUFFIXES,
@@ -86,6 +85,7 @@ from maezo.runtime.inference import (
     NoopInferenceProvider,
     PhiZoneRoutingError,
 )
+from maezo.runtime.inference import br_resident_provider as br_resident_impl
 
 # =================================================================================================
 # PART 0 — Harness support (reusable). Canary strings, sanctioned stack builders, the token
@@ -178,7 +178,11 @@ def _gated_br_stack(
     """
     _set_owner_acts(monkeypatch)
     transport = LabeledFakeBrRegionalTransport(outcome=outcome)
-    monkeypatch.setattr(inf, "resolve_br_regional_transport", lambda _t: transport)
+    # D2-02 split (docs/reports/inference-split-plan.md §5): `BrResidentInferenceProvider` resolves
+    # `resolve_br_regional_transport` as a free variable from ITS OWN defining module,
+    # `maezo.runtime.inference.br_resident_provider` — patching an attribute on the FACADE package
+    # (`maezo.runtime.inference` itself) does not intercept anything (Python's normal LEGB lookup).
+    monkeypatch.setattr(br_resident_impl, "resolve_br_regional_transport", lambda _t: transport)
     facade = InferenceProvider(settings=InferenceSettings(provider="br_resident", model=_MODEL))
     gated = gate_inference(facade, _canary_seam())
     return gated, transport
@@ -254,7 +258,8 @@ class _LyingUsageTransport:
 
 def _neuter_endpoint_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
     """Turn the endpoint allowlist into an always-approve — the shape a fallback would need."""
-    monkeypatch.setattr(inf, "br_endpoint_denial_reasons", lambda _url: ())
+    # D2-02 split note: see `_seam_over_fake`'s comment above — same module-move reasoning.
+    monkeypatch.setattr(br_resident_impl, "br_endpoint_denial_reasons", lambda _url: ())
 
 
 # =================================================================================================

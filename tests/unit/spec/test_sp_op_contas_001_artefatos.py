@@ -193,3 +193,99 @@ def test_os_gateways_decisorios_tem_default_fail_closed() -> None:
     assert defaults.get("GW_DecisaoContas") == "Flow_GWDec_Invalida", (
         f"GW_DecisaoContas tem de ter default=Flow_GWDec_Invalida; veio {defaults.get('GW_DecisaoContas')!r}"
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# Catalogo de erros — «declarado-e-nao-capturado» é ESTADO RATIFICADO, não entrada morta
+# ---------------------------------------------------------------------------------------------
+
+#: O catálogo `bpmn:error` de raiz do processo: `id -> errorCode`. Fixado para que uma remoção ou
+#: um acréscimo silencioso apareça no gate unitário.
+_CATALOGO_ESPERADO = {
+    "Error_ContasLoteInvalido": "ERR_CONTAS_LOTE_INVALIDO",
+    "Error_ContasGlosaNotHuman": "ERR_CONTAS_GLOSA_NOT_HUMAN",
+    "Error_ContasDecisaoInvalida": "ERR_CONTAS_DECISAO_INVALIDA",
+}
+
+#: A ÚNICA entrada do catálogo que um `errorEventDefinition` referencia — e num throw-END, não num
+#: boundary catch. As outras duas são deliberadamente não referenciadas (ADR-0030 §5).
+_UNICA_ENTRADA_REFERENCIADA = "Error_ContasDecisaoInvalida"
+
+
+def _catalogo_de_erros() -> dict[str, str]:
+    return {
+        str(el.get("id")): str(el.get("errorCode"))
+        for el in _bpmn_root().iter()
+        if _local(el.tag) == "error" and el.get("id")
+    }
+
+
+def _error_event_definitions() -> list[tuple[str, str]]:
+    """`(tag local do elemento PAI, errorRef)` de cada `errorEventDefinition` do processo."""
+    out: list[tuple[str, str]] = []
+    for parent in _bpmn_root().iter():
+        for child in parent:
+            if _local(child.tag) == "errorEventDefinition" and child.get("errorRef"):
+                out.append((_local(parent.tag), str(child.get("errorRef"))))
+    return out
+
+
+def test_catalogo_de_erros_e_declarado_e_nao_capturado() -> None:
+    """Duas das três entradas do catálogo NÃO são referenciadas — e isso é ratificado, não morto.
+
+    Este teste existe porque a leitura ingênua («entrada de catálogo sem `errorEventDefinition` =
+    entrada morta = remover») é plausível, recorrente, e ERRADA aqui — e nada no repositório a
+    impedia de ser executada. O que a impede:
+
+    - ADR-0030 §2 põe a fonte da verdade do gate no BOUNDARY, não no catálogo: *«every
+      `bpmn:error@errorCode` on an error boundary event attached to an external task»*. Uma entrada
+      sem boundary é invisível para `scripts/ci/check_bpmn_error_allowlist.py` — não entra em
+      `spec_codes`, logo nem a cláusula (c) (dead model) nem a (b) (raise não coberto) a alcançam.
+      Removê-la não mudaria NENHUM resultado de gate; só apagaria a âncora documental.
+    - ADR-0030 §5 nomeia o estado: *«a guard code with no modeled boundary (… cancel's
+      `ERR_CANCELLATION_NOT_HUMAN`, declared-uncaught) → incident, unchanged. The L0 invariant holds
+      identically either way — neither path performs the adverse action.»*
+    - A emenda de ADR-0040 ao ADR-0030 cita `ERR_CONTAS_GLOSA_NOT_HUMAN` PELO NOME como
+      *«Tier-3 declared-and-uncaught»*, que *«keep[s] raising `PermissionError` on the
+      audited-incident path (never `WorkerBpmnError`/`bpmnError`)»*. Apagar a declaração tornaria
+      falsa a descrição que o ADR faz do próprio artefato.
+    - ADR-0030 §4: modelar o boundary ANTES de T-E converteria o *«guaranteed-human-visible
+      incident»* num *«clean, silent end … no incident, no audit row, no notification»* — regressão
+      de visibilidade sob a invariante HITL de não-negativa, não melhoria.
+    """
+    catalogo = _catalogo_de_erros()
+    assert catalogo == _CATALOGO_ESPERADO, (
+        f"o catálogo bpmn:error de SP-OP-CONTAS-001 mudou; veio {catalogo!r}. "
+        "Acrescentar/remover uma entrada é decisão de processo (ADR-0030 §2/§5) — atualize o "
+        "contrato e este teste junto, nunca só o BPMN."
+    )
+
+    referencias = _error_event_definitions()
+    referenciados = {ref for _, ref in referencias}
+    assert referenciados == {_UNICA_ENTRADA_REFERENCIADA}, (
+        f"exatamente uma entrada do catálogo pode ser referenciada; vieram {sorted(referenciados)}"
+    )
+
+    # A referência é um throw-END (terminal técnico), NÃO um boundary catch.
+    assert referencias == [("endEvent", _UNICA_ENTRADA_REFERENCIADA)], (
+        f"`{_UNICA_ENTRADA_REFERENCIADA}` tem de ser referenciado por um throw-end; veio {referencias!r}"
+    )
+
+
+def test_contas_nao_tem_error_boundary_sobre_external_task() -> None:
+    """CONTAS continua com ZERO error-boundary sobre external task — o estado que o censo do
+    ADR-0030 registra para esta família (§Contexto: *«adequacao / contas / fraude have zero such
+    catches»*), e que o contrato repete. Controle de não-vacuidade do teste acima: se alguém
+    modelasse um boundary de erro aqui, a asserção de `_error_event_definitions` acima já quebraria,
+    mas esta explicita QUAL propriedade estrutural está sendo protegida."""
+    boundaries_de_erro = [
+        str(el.get("id"))
+        for el in _bpmn_root().iter()
+        if _local(el.tag) == "boundaryEvent"
+        and any(_local(child.tag) == "errorEventDefinition" for child in el)
+    ]
+    assert boundaries_de_erro == [], (
+        f"SP-OP-CONTAS-001 não pode ter error-boundary; vieram {boundaries_de_erro}. "
+        "Modelar um exige ratificação (ADR-0030 §4: pré-T-E isso troca incidente visível por fim "
+        "silencioso) e passa por CODEOWNERS de docs/adr/."
+    )
