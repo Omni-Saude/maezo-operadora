@@ -194,8 +194,8 @@ class SeamContext:
         principal: bounded token — the agent id, or `worker_runtime` for the worker daemon's
             engine/DMN seams. NEVER a call argument (A-8).
         phi_zone: the principal's ADR-0006 zone, from `agent.yaml`'s `security_zone`. Carried for
-            telemetry and the C2 operation split; it gates nothing here — `runtime/inference.py`'s
-            `PhiZoneRoutingError` stays the INDEPENDENT enforcement (I-6).
+            telemetry and the C2 operation split; it gates nothing here —
+            `runtime/inference/errors.py::PhiZoneRoutingError` stays the INDEPENDENT enforcement (I-6).
         decision: the injected decision seams (`DecisionContext`) `decide` may consult.
         pre_effect_audit: the `audita_antes` sink. `None` today for every root, and INERT because
             no class declares `audita_antes` (Q-9).

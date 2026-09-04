@@ -9,6 +9,7 @@ CRITICAL: Workers must NEVER make adverse decisions (negativa, acusacao).
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from xml.etree import ElementTree as ET
 
 import pytest
@@ -38,8 +39,15 @@ from maezo.tools.workers.harness import WorkerBpmnError
 from maezo.tools.workers.phi_vars import REDACTED_PHI
 
 # A fully-grounded NEGAR dossier (all three ANS RN-395 fields present). Tests that exercise the
-# human_approved guard or the happy notice_sent path must be COMPLETE first, otherwise the
-# completeness guard (checked first, T3.1) short-circuits with ERR_AUTH_DENIAL_INCOMPLETE.
+# human_approved guard or the happy transmit-the-record path must be COMPLETE first, otherwise
+# the completeness guard (checked first, T3.1) short-circuits with ERR_AUTH_DENIAL_INCOMPLETE.
+#
+# AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL: the success paths no longer write `status` at all
+# (`notice_sent` asserted a transmission this SYNC, channel-less worker never performs). The
+# success/refusal discriminator below is therefore the pair that IS real: `error_code is None`
+# plus the composed record (`notice_type`, redacted grounding, resolved `human_approved`) versus
+# the guard record `status == blocked_by_guard` + `ERR_DENIAL_NOT_HUMAN`. `_assert_notice_record`
+# also pins the ABSENCE of `status`, so restoring the literal turns these tests RED.
 _COMPLETE_DENIAL_FUNDAMENTACAO = {
     "justificativa_clinica": "Procedimento fora do ROL vigente (sintetico para teste)",
     "cid10_referencia": "Z00.0",
@@ -135,6 +143,23 @@ def _auto_issue_worker(tmp_path: Path, max_value_brl: int = _AUTO_CEILING_BRL) -
 # ---------------------------------------------------------------------------
 
 
+def _assert_notice_record(result: dict[str, Any], *, notice_type: str) -> None:
+    """The post-fix SUCCESS shape of `send_denial_notice`: a composed RECORD, never a claim.
+
+    AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL. `status` is the key this worker used to fabricate
+    (`"notice_sent"`, on both success paths, from a synchronous handler with no Kafka seam and no
+    channel at all). On a success path it must now be ABSENT — asserted here so restoring the
+    literal turns every caller RED. The remaining facts are asserted POSITIVELY, so the test
+    cannot pass on an empty/degenerate return either.
+    """
+    assert "status" not in result, (
+        "um caminho de SUCESSO de send_denial_notice nao pode escrever `status`: o worker e "
+        f"sincrono, sem canal, e nao transmite nada. Recebido: {result!r}"
+    )
+    assert result["notice_type"] == notice_type
+    assert result["error_code"] is None
+
+
 def test_send_denial_notice_topic() -> None:
     """send_denial_notice worker must have topic 'operadora.auth.send_denial_notice'."""
     worker = SendDenialNoticeWorker()
@@ -179,8 +204,7 @@ def test_send_denial_notice_allows_when_human_approved() -> None:
 
     result = worker.run(process_vars)
 
-    assert result["status"] == "notice_sent"
-    assert result["error_code"] is None
+    _assert_notice_record(result, notice_type="denial")
     # PHI egress enforcement: clinical fields are redacted one-way in the emitted payload.
     assert result["justificativa_clinica"] == REDACTED_PHI
     assert result["cid10_referencia"] == REDACTED_PHI
@@ -209,8 +233,7 @@ def test_send_denial_notice_guard_activates_on_denial() -> None:
             "human_approved": True,
         }
     )
-    assert result["status"] == "notice_sent"
-    assert result["error_code"] is None
+    _assert_notice_record(result, notice_type="approval")
 
 
 @pytest.mark.parametrize("vars_extra", _HUMAN_APPROVED_NON_TRUE_VECTORS)
@@ -259,8 +282,7 @@ def test_send_denial_notice_allows_with_auditor_id_accountability() -> None:
         }
     )
 
-    assert result["status"] == "notice_sent"
-    assert result["error_code"] is None
+    _assert_notice_record(result, notice_type="denial")
     assert result["human_approved"] is True  # threaded provenance (engine-visible)
     # PHI egress unchanged: clinical fields still redacted one-way.
     for field in _REQUIRED_DENIAL_FIELDS:
@@ -494,7 +516,8 @@ def test_denial_incomplete_all_fields_missing_raises() -> None:
 
 
 def test_denial_complete_all_present_sends_redacted_notice() -> None:
-    """All three fields present + human_approved -> notice_sent, clinical fields redacted."""
+    """All three fields present + human_approved -> denial RECORD composed, clinical fields
+    redacted, and NO `status` transmission claim (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL)."""
     worker = SendDenialNoticeWorker()
     result = worker.execute(
         {
@@ -504,8 +527,7 @@ def test_denial_complete_all_present_sends_redacted_notice() -> None:
             **_COMPLETE_DENIAL_FUNDAMENTACAO,
         }
     )
-    assert result["status"] == "notice_sent"
-    assert result["notice_type"] == "denial"
+    _assert_notice_record(result, notice_type="denial")
     for field in _REQUIRED_DENIAL_FIELDS:
         assert result[field] == REDACTED_PHI
 

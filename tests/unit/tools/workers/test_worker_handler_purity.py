@@ -45,6 +45,14 @@ UPDATE (FAB-SLA-RISK-NOTIFIED-SLICE4): the fabricated-fact fence below now also 
 status and an event topic). Ten domain modules were fixed in the same commit as the widening, so
 `_FABRICATED_FACT_BASELINE` stays EMPTY.
 
+UPDATE (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL): the same fence now catches
+`"status": "notice_sent"` AND — form (c) — the shape that hid the worst instance of the species:
+a dict literal bound to a LOCAL that the function returns through a call
+(`notice = {...}; return redact_phi_vars(notice)`). That is `auth.SendDenialNoticeWorker`'s L0
+RN-395 denial branch; the only branch the old detector could see there was the defensive,
+model-unreachable approval one. Both branches were fixed in the same commit as the widening, so
+`_FABRICATED_FACT_BASELINE` stays EMPTY.
+
 UPDATE (T2.6-1, design §2.A): `ans_submit` has since been FIXED and REMOVED from the baseline — its
 fabricated `protocolo_ans = sha256(time_ns())` was replaced by the explicit `AnsGatewayTransport`
 triple (`ans_gateway.py`: Refusing prod-default / LabeledMock deterministic-by-business-key / Real
@@ -247,12 +255,34 @@ _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
 #
 # DELIBERATELY NARROW. It does NOT fence every `"status": "<literal>"` — the tree returns many
 # honest ones (`blocked_by_guard`, `pended`, `authorized`, `filed`, `published`, ...), and it does
-# NOT fence the `"event": "agents.events.*"` idiom, which appears in 13 other places whose events
-# ARE published by a sibling `ST_Publish*` task; widening into either without a per-instance
-# consumer map would be a guess. `auth`'s `"status": "notice_sent"` (`send_denial_notice`) is a
-# DISCLOSED, UNFIXED neighbour of this species — an L0 denial-transmission worker whose `status`
-# has real guard consumers, out of this slice's scope (tracked in `docs/review-queue.md`).
-_FABRICATED_STATUS_LITERALS: frozenset[str] = frozenset({"risk_notified", "notified", "notificado"})
+# NOT fence the `"event": "agents.events.*"` idiom; widening into the latter without a
+# per-instance consumer map would be a guess.
+#
+# AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL (slice 5) closed the neighbour the slice-4 comment
+# disclosed here as UNFIXED: `auth.SendDenialNoticeWorker.execute` returned `"status":
+# "notice_sent"` on BOTH success paths from a SYNC `WorkerBase.execute` with no Kafka seam and no
+# channel of any kind — its own docstring already said the real secure channel is Phase 1. So
+# `notice_sent` joins the set and both sites now omit `status` entirely; the guard record
+# (`status="blocked_by_guard"` + `ERR_DENIAL_NOT_HUMAN`) is untouched, being a true fact about
+# the refusal itself.
+#
+# The `"event": "agents.events.*"` exclusion was RE-DERIVED for this slice rather than inherited.
+# Corrected count: the idiom has **13 sites in the whole worker tree** (7 `auth`, 2 `escalation`,
+# 4 `lgpd`), TWO of which were inside `send_denial_notice` itself — so slice 4's "13 OTHER places"
+# over-counted the neighbours by two; the honest figure is 11 others. Forward/backward
+# reachability over the BPMN graph (not prose) was RE-DERIVED for **9 of the 13** (7 `auth` + 2
+# `escalation`): each of those 9 has an `operadora.events.publish` task carrying the SAME
+# `event_topic` on its own token path, `send_denial_notice`'s two included:
+# `ST_EnviarNegativaFormal`'s only outgoing flow is `Flow_Negativa_Pub` -> `ST_PublishNegada`
+# (`event_topic=agents.events.auth.completed`). The remaining **4 `lgpd` sites have NO token path
+# at all**: `operadora.lgpd.execute_export`/`execute_rectification`/`execute_erasure`/
+# `publish_completed` are ORPHAN CODE TOPICS carried by ZERO BPMN service tasks
+# (`docs/compliance/lgpd-topic-reconciliation.md:38-39`, rows O2-O5 at `:61-64`), out of this
+# slice's scope by owner decision `LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC`. That is why no `event`
+# literal is fenced here — including the two in the worker this slice fixes.
+_FABRICATED_STATUS_LITERALS: frozenset[str] = frozenset(
+    {"risk_notified", "notified", "notificado", "notice_sent"}
+)
 
 # DOCUMENTED baseline (same "grandfather with a ticket" pattern as `_NONDETERMINISM_BASELINE`
 # above) — modules with a pre-existing, STRUCTURALLY IDENTICAL instance of this shape that a given
@@ -275,37 +305,82 @@ _FABRICATED_STATUS_LITERALS: frozenset[str] = frozenset({"risk_notified", "notif
 _FABRICATED_FACT_BASELINE: dict[str, str] = {}
 
 
+def _dict_literal_fabrications(value: ast.Dict) -> set[str]:
+    """The two fabricated SHAPES inside one dict literal (see `_fabricated_fact_hits`)."""
+    hits: set[str] = set()
+    for key_node, val_node in zip(value.keys, value.values, strict=True):
+        if not (isinstance(key_node, ast.Constant) and isinstance(key_node.value, str)):
+            continue
+        if not isinstance(val_node, ast.Constant):
+            continue
+        if key_node.value in _FABRICATED_FACT_KEYS and val_node.value is True:
+            hits.add(key_node.value)
+        elif key_node.value == "status" and val_node.value in _FABRICATED_STATUS_LITERALS:
+            hits.add(f"status={val_node.value!r}")
+    return hits
+
+
+def _returned_names(func: ast.AST) -> set[str]:
+    """Every NAME that appears anywhere inside a `return` expression of `func`.
+
+    Deliberately blunt (it does not care WHERE in the expression the name sits), so both
+    `return notice` and `return redact_phi_vars(notice)` count. Over-approximates for nested
+    functions — `ast.walk` on a factory also visits its inner handler's returns — which can only
+    make the fence FIRE MORE, never less; it reports zero extra modules on the tree today.
+    """
+    names: set[str] = set()
+    for node in ast.walk(func):
+        if isinstance(node, ast.Return) and node.value is not None:
+            for sub in ast.walk(node.value):
+                if isinstance(sub, ast.Name):
+                    names.add(sub.id)
+    return names
+
+
 def _fabricated_fact_hits(tree: ast.AST) -> set[str]:
-    """Static detector for the fabricated-fact shape, in its TWO known forms:
+    """Static detector for the fabricated-fact shape, in its THREE known forms:
 
       (a) a `return {...}` dict literal mapping one of `_FABRICATED_FACT_KEYS` directly to the
           constant `True` — reported as the key name;
       (b) a `return {...}` dict literal mapping the generic key `status` to one of
           `_FABRICATED_STATUS_LITERALS` — reported as `status='<literal>'`
           (FAB-SLA-RISK-NOTIFIED-SLICE4: the `auth.NotifySlaRiskWorker` escape, which claimed the
-          notification in a STRING and so slipped past form (a) entirely).
+          notification in a STRING and so slipped past form (a) entirely);
+      (c) the SAME two shapes in a dict literal BOUND TO A LOCAL that the enclosing function then
+          returns — `notice = {...}; return redact_phi_vars(notice)`.
 
-    Both forms are produced with no conditional logic and no dependency on `variables`,
+    Form (c) is not a refinement: without it this fence is blind exactly where it matters most.
+    `auth.SendDenialNoticeWorker.execute` has both success paths, and the one that forms (a)/(b)
+    can see is the DEFENSIVE, model-unreachable approval branch; the L0 denial branch — the one
+    that carries the RN 395 negativa — builds `notice` as a local and returns it through
+    `redact_phi_vars(...)`. Fencing only the returned literal would have left the regulated path
+    unfenced while looking green (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL; proved by mutating each
+    site independently).
+
+    All three forms are produced with no conditional logic and no dependency on `variables`,
     unconditionally on every call. Mirrors this module's other AST-based fences: a blunt
     structural check, not value-flow taint analysis (a fabrication assembled key-by-key into a
-    local — `out = {}; out["notified"] = True` — is documented as OUT of this detector's reach and
-    is caught instead by the per-handler domain tests asserting `== {}`)."""
+    local — `out = {}; out["notified"] = True` — remains OUT of this detector's reach and is
+    caught instead by the per-handler domain tests asserting `== {}`)."""
     hits: set[str] = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Return) or node.value is None:
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
+            hits |= _dict_literal_fabrications(node.value)
+    for func in ast.walk(tree):
+        if not isinstance(func, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
-        value = node.value
-        if not isinstance(value, ast.Dict):
-            continue
-        for key_node, val_node in zip(value.keys, value.values, strict=True):
-            if not (isinstance(key_node, ast.Constant) and isinstance(key_node.value, str)):
+        returned = _returned_names(func)
+        for node in ast.walk(func):
+            if isinstance(node, ast.Assign):
+                targets: list[ast.expr] = list(node.targets)
+            elif isinstance(node, ast.AnnAssign):
+                targets = [node.target]
+            else:
                 continue
-            if not isinstance(val_node, ast.Constant):
+            if not isinstance(node.value, ast.Dict):
                 continue
-            if key_node.value in _FABRICATED_FACT_KEYS and val_node.value is True:
-                hits.add(key_node.value)
-            elif key_node.value == "status" and val_node.value in _FABRICATED_STATUS_LITERALS:
-                hits.add(f"status={val_node.value!r}")
+            if any(isinstance(t, ast.Name) and t.id in returned for t in targets):
+                hits |= _dict_literal_fabrications(node.value)
     return hits
 
 
@@ -415,8 +490,10 @@ def test_no_domain_worker_returns_unconditional_true_for_fabricated_fact_keys() 
     report); both now return `{}`. GAP-INAD-8 added `inadimplencia`/`cancel`,
     FAB-NOTIFIED-TRIO added `recurso`/`reembolso`/`contas`, and FAB-SLA-RISK-NOTIFIED-SLICE4 added
     the `sla_risk_notified`/`deadline_risk_notified`/`status='risk_notified'` forms across ELEVEN
-    handlers in ten modules — the baseline is EMPTY, so ANY hit in ANY domain worker module fails
-    here."""
+    handlers in ten modules. AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL added
+    `status='notice_sent'` plus detector form (c), closing `auth.SendDenialNoticeWorker`'s two
+    success paths — the L0 RN-395 denial one included. The baseline is EMPTY, so ANY hit in ANY
+    domain worker module fails here."""
     actual: dict[str, set[str]] = {}
     for name, path in _domain_worker_modules().items():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -483,4 +560,74 @@ def test_recurso_protocolos_sao_deterministicos_por_business_key() -> None:
     assert not _nondeterministic_calls(tree), (
         "recurso re-introduced a non-deterministic identifier source — both protocolos are pure "
         "functions of the business key; nothing in this module may use time_ns/uuid/random."
+    )
+
+
+def test_fabricated_fact_detector_sees_a_local_bound_dict_returned_through_a_call() -> None:
+    """Form (c) SELF-TEST (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL): the widening is real.
+
+    `_fabricated_fact_hits` used to look only at `return {<literal>}`. That is exactly the shape
+    `auth.SendDenialNoticeWorker.execute` does NOT use on its L0 denial branch, which builds a
+    local `notice` dict and returns it through `redact_phi_vars(...)`. This pins the detector's
+    new reach on a synthetic module, so the capability cannot rot silently even if the production
+    code is later restructured: forms (a)/(b) alone must MISS it, and the shipped detector must
+    catch it.
+    """
+    source = (
+        "def handler(process_vars):\n"
+        "    notice = {'status': 'notice_sent', 'notice_type': 'denial'}\n"
+        "    return redact_phi_vars(notice)\n"
+    )
+    tree = ast.parse(source)
+
+    returned_literals = {
+        hit
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict)
+        for hit in _dict_literal_fabrications(node.value)
+    }
+    assert returned_literals == set(), "forms (a)/(b) are supposed to be blind to this shape"
+
+    assert _fabricated_fact_hits(tree) == {"status='notice_sent'"}, (
+        "detector form (c) must catch a fabricated status in a dict literal bound to a local that "
+        "the function returns (directly or through a call) — without it the RN-395 denial path is "
+        "unfenced while the fence looks green"
+    )
+
+
+def test_auth_send_denial_notice_omits_status_on_both_success_paths() -> None:
+    """AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL LANDED: the transmission claim is gone.
+
+    `SendDenialNoticeWorker` is a SYNC `WorkerBase.execute` with no Kafka seam and no channel of
+    any kind — the real secure channel to the prestador is Phase 1, as its own docstring says. It
+    nevertheless returned `"status": "notice_sent"` on BOTH success paths. Neither path writes
+    `status` any more; the ONLY `status` this worker still emits is the guard record
+    `blocked_by_guard`, a true fact about its own refusal.
+
+    Pinned structurally (AST over the shipped module), so it also fails if someone re-introduces
+    the literal in the local-bound shape the fence learned to see.
+    """
+    path = _domain_worker_modules()["auth"]
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    assert "status='notice_sent'" not in _fabricated_fact_hits(tree)
+
+    worker_class = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == "SendDenialNoticeWorker"
+    )
+    status_values: set[object] = set()
+    for node in ast.walk(worker_class):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key_node, val_node in zip(node.keys, node.values, strict=True):
+            if (
+                isinstance(key_node, ast.Constant)
+                and key_node.value == "status"
+                and isinstance(val_node, ast.Constant)
+            ):
+                status_values.add(val_node.value)
+    assert status_values == {"blocked_by_guard"}, (
+        "SendDenialNoticeWorker may emit exactly ONE status literal — the guard refusal record. "
+        f"Found: {sorted(map(str, status_values))}"
     )
