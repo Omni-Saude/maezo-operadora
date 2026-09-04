@@ -106,6 +106,27 @@ idempotente, sem duplicar enrollment do mesmo beneficiario no mesmo ciclo).
 | `consent_event_ref` | string | Referencia ao registro de consentimento/revogacao (auditoria LGPD; liga a SP-OP-LGPD-DSR-001) |
 | `decisao_coordenacao` | string | `assumir_decisao` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA da decisao clinica — humano `coordenacao-clinica`) |
 
+## Variaveis de proveniencia do agente (Valentina — ADR-0007/ADR-0015)
+
+Convencao repo-wide de nao-repudio (ADR-0007) e delegacao A2A (ADR-0015) — nao especifica de
+PROGRAMA (mirror `source_agent_id`/`source_agent_version` de
+`docs/processes/contracts/SP-OP-ESCALATION-001.md`). Semeadas por
+`ValentinaGraph._contract_variables` (`src/maezo/agents/valentina/graph.py`) junto com as variaveis
+de entrada; NENHUMA delas e um desligamento clinico nem uma decisao de programa — so proveniencia,
+dossie instrutivo e roteamento humano (CC-13 — Agent Fleet Audit: antes deste registro,
+`_contract_variables` as emitia sem declaracao no contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `source_agent_id` | string | nao | Agente que preparou o dossie de estratificacao/cuidado (`valentina`) — cadeia de nao-repudio (ADR-0007) |
+| `source_agent_version` | string | nao | Versao do agente Valentina que preparou o dossie (auditoria ADR-0007) |
+| `dossie_valentina` | json | nao | Dossie de estratificacao/plano de cuidado montado por Valentina — instrui `UT_DecisaoClinica`; carrega `decisao_programa`/`motivo_desligamento_clinico`/`referencia_clinica`/`responsavel_clinico_id` sempre `None` (Valentina NUNCA decide) |
+| `valentina_task` | string | nao | Tarefa do grafo do Valentina que originou o dossie (`stratify` \| `enroll`) |
+| `valentina_route` | string | nao | Roteamento do grafo do Valentina (`auto_route` \| `human_review`) — espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Presente so quando `valentina_route=human_review`; motivo do encaminhamento (`estratificacao_analise_humana` \| `criterio_alta_aparente` \| `dmn_indisponivel` \| `falha_tecnica` \| `outro`) |
+| `grupo_destino` | string | nao | Presente so quando `valentina_route=human_review`; grupo humano sugerido por Valentina (catch-all `coordenacao-clinica`) |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra) das DMN que Valentina consultou (`programa_routing`/`programa_sla`) — cadeia de decisao (ADR-0007/ADR-0012) |
+
 ## Topicos
 
 Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_registry.yaml` — **W0.2 e o unico editor**; este contrato apenas declara o que precisa ser registrado). Contexto = `programa`.

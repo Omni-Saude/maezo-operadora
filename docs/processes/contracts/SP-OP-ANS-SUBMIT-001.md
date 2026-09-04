@@ -75,6 +75,25 @@ carrega PHI direto — apenas `dataset_ref` (ponteiro) e flags.
 | `nack_motivo` | string | Motivo do NACK retornado pela ANS (preenchido apenas em retransmissao) |
 | `retry_attempt` | integer | Contador de tentativa de retransmissao (subprocess SUB_RetryEnvio; INPUT da DMN ans_retry_policy) |
 
+## Variaveis de proveniencia do agente (Gustavo — ADR-0007/ADR-0015)
+
+Convencao repo-wide de nao-repudio (ADR-0007) e delegacao A2A (ADR-0015) — nao especifica de
+ANS-SUBMIT (mirror `source_agent_id`/`source_agent_version` de
+`docs/processes/contracts/SP-OP-ESCALATION-001.md`). Semeadas por `GustavoGraph._contract_variables`
+(`src/maezo/agents/gustavo/graph.py`, fluxo `ans_submit`) junto com as variaveis de entrada; NENHUMA
+delas e uma decisao de envio — so proveniencia, dossie instrutivo e roteamento humano (CC-13 —
+Agent Fleet Audit: antes deste registro, `_contract_variables` as emitia sem declaracao no
+contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `source_agent_id` | string | nao | Agente que preparou o dossie do envio (`gustavo`) — cadeia de nao-repudio (ADR-0007) |
+| `source_agent_version` | string | nao | Versao do agente Gustavo que preparou o dossie (auditoria ADR-0007) |
+| `dossie_gustavo` | json | nao | Dossie factual do envio regulatorio montado por Gustavo — instrui `UT_RevisarEnvio`; carrega `decisao_envio` sempre `None` (Gustavo NUNCA decide) |
+| `gustavo_route` | string | nao | Roteamento do grafo do Gustavo (`review_submission` \| `instruct_nip`) — no fluxo `ans_submit` e sempre `review_submission`; espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Motivo do encaminhamento de Gustavo (`revisao_envio` \| `pendencia_envio` \| `dmn_indisponivel` \| `ambiguidade` \| `falha_tecnica`) |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra) das DMN que Gustavo consultou (`ans_calendar`/`ans_sla`/`ans_submission_admissibility`) — cadeia de decisao (ADR-0007/ADR-0012) |
+
 ## Topicos
 
 Convencao `{dominio}.{contexto}.{acao}`. Eventos de dominio Kafka em start/end;
