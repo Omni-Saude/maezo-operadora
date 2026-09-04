@@ -109,6 +109,24 @@ MAPEAMENTO — nao a cadeia completa contra um engine real (`UT_RevisarEnvioJuri
 `protocolo_ans` em SP-OP-ANS-SUBMIT-001 filtrando por `nip_protocolo_origem`/business key
 `ANSSUB-{tenant}-nipfiling-{submit_id}` — nunca uma variavel `protocolo_filing` em SP-OP-NIP-001.
 
+## Variaveis de proveniencia do agente (Gustavo — ADR-0007/ADR-0015)
+
+Convencao repo-wide de nao-repudio (ADR-0007) e delegacao A2A (ADR-0015) — nao especifica de NIP
+(mirror `source_agent_id`/`source_agent_version` de
+`docs/processes/contracts/SP-OP-ESCALATION-001.md`). Semeadas por `GustavoGraph._contract_variables`
+(`src/maezo/agents/gustavo/graph.py`, fluxo `nip`) junto com as variaveis de entrada; NENHUMA delas
+e um `MANTER_NEGATIVA` — so proveniencia, dossie instrutivo e roteamento humano (CC-13 — Agent
+Fleet Audit: antes deste registro, `_contract_variables` as emitia sem declaracao no contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `source_agent_id` | string | nao | Agente que preparou o dossie da NIP (`gustavo`) — cadeia de nao-repudio (ADR-0007) |
+| `source_agent_version` | string | nao | Versao do agente Gustavo que preparou o dossie (auditoria ADR-0007) |
+| `dossie_gustavo` | json | nao | Dossie factual da NIP montado por Gustavo — instrui `UT_ElaborarResposta`/`UT_RevisaoJuridicaNip`; carrega `decisao_nip` sempre `None` (Gustavo NUNCA decide) |
+| `gustavo_route` | string | nao | Roteamento do grafo do Gustavo (`review_submission` \| `instruct_nip`) — espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Motivo do encaminhamento de Gustavo (`elaborar_resposta_nip` \| `revisao_juridica_nip` \| `pendente_info_nip` \| `dmn_indisponivel` \| `ambiguidade` \| `falha_tecnica`) |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra) das DMN que Gustavo consultou (`nip_classification`/`nip_routing`/`nip_sla`) — cadeia de decisao (ADR-0007/ADR-0012) |
+
 ## Topicos
 
 Convencao `{dominio}.{contexto}.{acao}`. Dominio de eventos = `agents.events.nip.*`;

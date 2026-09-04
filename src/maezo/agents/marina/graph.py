@@ -112,17 +112,24 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
 - No episodic memory write (`mcp-memory.read_write`, ADR-0002) — same rationale as Helena's/
   Rafael's graphs: v2's `MemoryServer` requires a live Postgres/pgvector schema not yet wired
   into any agent graph in this repo; adding it is a follow-up once that schema exists.
-- No cross-agent A2A delegation (`operadora.contas/recurso/reembolso.*` -> Marina) is wired in
-  this build: v2's `a2a/` package has no `DelegationEnvelope`/`DelegationDispatcher` yet (only
-  `AgentCard`/`A2ARegistry`/`AntiLoopGuard` exist) — same gap Rafael's/Helena's graphs already
-  disclose. Marina's graph is invoked directly with an already-assembled case state, as the unit
-  tests do, rather than via a live delegation envelope.
+- No cross-agent A2A delegation (`operadora.contas/recurso/reembolso.*` -> Marina) is wired.
+  CORRECTED (CC-04, fleet audit) — the prior text here claimed v2's `a2a/` package had no
+  `DelegationEnvelope`/`DelegationDispatcher`; both exist and are fully built/tested
+  (`a2a/delegation.py::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported
+  from `maezo.a2a`), and five agents (rafael/carolina/andre/fernando/helena) already have a real
+  `delegation.py` using them. What is missing for Marina specifically is her own
+  handler/registration/origin: there is no `src/maezo/agents/marina/delegation.py` (the package
+  only has `__init__`/`adapters`/`graph`/`prompts`) and `grep -n '"marina"' runtime/
+  agent_runtime/a2a_composition.py` = 0 hits — handler/registro/origem ausentes, ver RAF-11 do
+  fleet audit. Marina's graph is invoked directly with an already-assembled case state, as the
+  unit tests do, rather than via a live delegation envelope.
 """
 
 from __future__ import annotations
 
 from typing import Any, Literal, Protocol, TypedDict, cast
 
+import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
@@ -187,6 +194,9 @@ DMN_CONTAS_SLA = "contas_sla"
 DMN_RECURSO_ADMISSIBILITY = "recurso_admissibility"
 DMN_RECURSO_ELIGIBILITY = "recurso_eligibility"
 DMN_RECURSO_SLA = "recurso_sla"
+
+
+logger = structlog.get_logger(__name__)
 
 
 class PatientSummaryReader(Protocol):
@@ -465,7 +475,13 @@ class MarinaGraph:
             try:
                 summary_facts = await self._fhir.read_patient_summary(summary_ref)
             except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
-                notes.append(f"resumo FHIR indisponivel: {exc}")
+                # CLASS TOKEN ONLY (CC-10): `str(exc)` de um cliente FHIR tipicamente ecoa a
+                # URL / id em que falhou — o proprio `summary_ref` — e esta nota e' copiada para o
+                # prompt do dossie E para `dossie_marina`, que o engine sela na zona geral
+                # (ADR-0006/ADR-0007). O trace completo fica no log estruturado, canal de
+                # diagnostico, nunca na nota.
+                logger.warning("marina_fhir_resumo_indisponivel", exc_info=True)
+                notes.append(f"resumo FHIR indisponivel: {type(exc).__name__}")
 
         return {"gathered": True, "summary_facts": summary_facts, "gather_notes": notes}
 
