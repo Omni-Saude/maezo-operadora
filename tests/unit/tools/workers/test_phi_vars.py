@@ -379,11 +379,29 @@ def test_error_message_delegates_and_keeps_the_class_prefix() -> None:
 def test_free_text_vars_covers_narrativa_and_the_prose_phi_names() -> None:
     """`narrativa` is the field EVERY `_build_dossier` produces; the prose members of
     `PHI_PROCESS_VARS` are in too. The two STRUCTURED-identifier names are deliberately out
-    (documented at the definition): a substring net is the wrong control for a whole-value id."""
+    (documented at the definition): a substring net is the wrong control for a whole-value id.
+
+    CC-06 §Delta: the old shape of this test asserted `PHI_FREE_TEXT_VARS - {"narrativa"} <=
+    PHI_PROCESS_VARS`, i.e. that the free-text allowlist could only ever be `PHI_PROCESS_VARS`
+    plus `narrativa`. That was never the real invariant — it is a coincidence of the first
+    draft's coverage — and it actively FOUGHT the fix for a live leak: the prose names the agent
+    graphs actually emit (`lacunas_enriquecimento`, `lacunas`, `motivo_informado`) have no reason
+    to appear in the WORKER-leg key list. The invariant pinned here is the one that matters, in
+    BOTH directions: every prose member of `PHI_PROCESS_VARS` is covered, and no structured
+    identifier ever is."""
     assert "narrativa" in PHI_FREE_TEXT_VARS
     assert {"resumo_contexto", "justificativa_clinica", "laudo", "diagnostico"} <= PHI_FREE_TEXT_VARS
     assert PHI_FREE_TEXT_VARS & {"matricula_beneficiario", "cid10_referencia"} == set()
-    assert PHI_FREE_TEXT_VARS - {"narrativa"} <= PHI_PROCESS_VARS
+    # Direction 1 — no prose name of the worker leg is left behind by the agent leg.
+    assert PHI_PROCESS_VARS - {"matricula_beneficiario", "cid10_referencia"} <= PHI_FREE_TEXT_VARS
+    # Direction 2 — the extra names are exactly the graph-sourced prose fields, enumerated and
+    # justified at the definition. A new name arriving here must be argued for, not slipped in.
+    assert {
+        "narrativa",
+        "lacunas_enriquecimento",
+        "lacunas",
+        "motivo_informado",
+    } == PHI_FREE_TEXT_VARS - PHI_PROCESS_VARS
 
 
 def test_free_text_vars_scrubs_top_level_and_dossier_and_keeps_structure() -> None:

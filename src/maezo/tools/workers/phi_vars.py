@@ -288,6 +288,17 @@ def redact_error_message(error: BaseException | str) -> str:
 # identifier is `redact_phi_vars`, not a substring net.
 
 #: Process-variable / dossier-field NAMES whose value is human or LLM-drafted FREE TEXT.
+#:
+#: The list is CLOSED and derived from an enumeration of every prose-shaped key the ten agent
+#: graphs write into a start variable or a dossier (`grep -n '"lacunas\|"notas\|"observac\|
+#: "comentario\|"resumo\|"narrativa\|"justificativa\|"fundamentacao\|"laudo\|"diagnostico\|
+#: "motivo_texto' src/maezo/agents/*/graph.py`). Everything the enumeration turned up that is
+#: NOT here is structured by construction and named in the "deliberately OUT" note below.
+#:
+#: NOTE ON LENGTH (CC-06 §Delta, declared not incidental): each value admitted here is passed
+#: through `redact_free_text`, which also CAPS the result at `_ERROR_MESSAGE_MAX_CHARS` (500)
+#: with `_TRUNCATION_MARKER`. A contractual handoff summary longer than that IS shortened, and
+#: visibly so. See `redact_free_text_vars`'s docstring.
 PHI_FREE_TEXT_VARS: frozenset[str] = frozenset(
     {
         # Names shared with `PHI_PROCESS_VARS` (prose fields only — see the block above).
@@ -301,8 +312,51 @@ PHI_FREE_TEXT_VARS: frozenset[str] = frozenset(
         # the `dossie_<agent>` process variable (andre, carolina, fernando, gustavo, lucas,
         # marina, rafael, valentina — and beatriz, which starts no process).
         "narrativa",
+        # CC-06 §Delta — THE ENRICHMENT-GAP NOTES. `lacunas_enriquecimento` is the `gather_notes`
+        # list every `_build_dossier` embeds in `fatos` (andre, carolina, gustavo, lucas, marina,
+        # rafael, valentina); `lacunas` is beatriz's same-shaped twin
+        # (`beatriz/graph.py::_build_dossier`). They read as bookkeeping, but they are assembled
+        # from EXCEPTION MESSAGES raised by the FHIR reader — e.g.
+        # `notes.append(f"cobertura FHIR indisponivel: {exc}")` — and an httpx 404 stringifies the
+        # whole request URL, so a patient path parameter (a CPF), a querystring e-mail or a
+        # contact phone lands in the note verbatim and shipped to the engine unredacted. Free
+        # text by provenance, not by looks. (Tightening the PRODUCERS to a class token is the
+        # separate, complementary WP CC-10; this closes the chokepoint regardless of what any
+        # producer does, which is the point of having a chokepoint.)
+        "lacunas_enriquecimento",
+        "lacunas",
+        # CC-06 §Delta — SP-OP-CRED-001's own DECLARED free-text input variable
+        # (`docs/processes/contracts/SP-OP-CRED-001.md`: "Texto livre (fundamento da solicitacao /
+        # motivo do descredenciamento) — sem PHI de beneficiario"; `carolina/graph.py` types it
+        # `motivo_informado: str  # texto livre`). "Contractually without beneficiary PHI" is a
+        # PROMISE made by whoever fills the field, never a control: `test_carolina.py`'s own
+        # helena-class probe feeds it "paciente CPF 123.456.789-00 relatou irregularidade" and
+        # asserts it reaches `_contract_variables` verbatim. It ships twice (top level, and inside
+        # `dossie_carolina.fatos`); the scrub keeps the sentence and drops the identifiers, which
+        # is exactly what the contract intends the field to be.
+        "motivo_informado",
     }
 )
+
+# DELIBERATELY OUT (enumerated with the grep above, then decided one by one):
+#   * `motivo_humano` / `motivo_auditor` / `motivo_categoria` / `motivo_encaminhamento` /
+#     `motivo_estratificacao` — BOUNDED CLASS TOKENS, not prose: every write site is a literal
+#     (`"dmn_indisponivel"`, `"documentacao_pendente"`, `"falha_tecnica"`, `"outro"`) or a DMN row
+#     output (`valentina/graph.py`: `str(strat["row"].get("motivo", ""))`). Scrubbing them would
+#     buy nothing and put a pattern net on a routing token a BPMN gateway reads.
+#   * `motivo_desligamento_clinico`, `referencia_clinica`, `decisao_*` — STRUCTURAL GUARDRAILS,
+#     always `None` on the agent leg (SOLELY the human clinician's User Task fields).
+#   * `dmn_error` — carries an exception message, but NEVER ships: it is graph state only
+#     (`grep -rn '"dmn_error"' src/maezo/agents/*/graph.py` shows no `variables[...]` write, and
+#     `valentina/graph.py` states the intent: "`dmn_error` deliberately never ships").
+#   * `resumo_fhir`, `summary_facts`, `evidencia_normalizada`, `nip_facts`, `billing_facts`,
+#     `care_plan`, `stratification` — STRUCTURED mappings of FHIR/billing facts, not prose.
+#   * `texto` / `mensagem` / `message_body` / `response_text` — LLM-drafted prose, but on a
+#     DIFFERENT edge (the WhatsApp reply and the notification payload); none is a process-start
+#     variable (`grep -n 'variables' src/maezo/agents/*/graph.py`). Out of this chokepoint's
+#     scope by construction, not by judgement.
+#   * `matricula_beneficiario`, `cid10_referencia` — see the block above: whole-value structured
+#     IDENTIFIERS, whose control is `redact_phi_vars`, not a substring net.
 
 #: Prefix of the process-variable names carrying an agent DOSSIER (a nested mapping built by
 #: `<agent>/graph.py::_build_dossier`). Only these mappings are WALKED; every other structured
@@ -327,6 +381,15 @@ def redact_free_text_vars(values: Mapping[str, Any]) -> dict[str, Any]:
         scrubbed and everything else passes through.
       - every other key -> passed through UNCHANGED (ids, business keys, enums, `process://`
         refs, pseudo-ids, DMN refs, booleans, amounts).
+
+    LENGTH IS ALSO BOUNDED, and this is a CONTENT change a caller must know about (CC-06 §Delta,
+    declared after a verifier flagged it as undeclared): every scrubbed value goes through
+    `redact_free_text`, which caps its output at `_ERROR_MESSAGE_MAX_CHARS` (500 characters) and
+    appends `_TRUNCATION_MARKER` (`...[TRUNCATED]`). A `resumo_contexto` / `narrativa` shorter
+    than the cap is returned byte-identical; a longer one reaches the engine SHORTENED — visibly,
+    never silently. SP-OP-ESCALATION-001's handoff summary is well inside the cap in practice,
+    and the cap is the bound that keeps an adversarial or runaway LLM draft from being copied
+    unbounded into the engine's process-variable store.
 
     MAY RAISE (deliberately, unlike `redact_phi_vars`/`redact_error_message`): the sole caller is
     the start chokepoint, where a scrub that cannot be completed must REFUSE the start rather

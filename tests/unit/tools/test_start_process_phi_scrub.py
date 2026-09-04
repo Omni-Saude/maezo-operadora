@@ -24,6 +24,7 @@ from typing import Any
 
 import pytest
 
+from maezo.agents.rafael.graph import RafaelGraph, RafaelState
 from maezo.gateway.audit import hash_input
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
@@ -33,7 +34,6 @@ from maezo.tools.mcp_cibseven.transport import (
     redact_start_variables,
     start_process_idempotent,
 )
-from maezo.agents.rafael.graph import RafaelGraph, RafaelState
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from maezo.tools.workers.phi_vars import (
     _ERROR_MESSAGE_MAX_CHARS,

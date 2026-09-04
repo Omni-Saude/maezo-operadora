@@ -1004,7 +1004,6 @@ def _neutralize_start_chokepoint(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-
 async def test_classify_llm_exception_text_never_reaches_engine_variables(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1061,6 +1060,48 @@ async def test_classify_llm_exception_text_never_reaches_engine_variables(
         )
     resumo = recording[0]["resumo_contexto"]
     assert "falha tecnica:" in resumo and "[REDACTED_DIGITS]" in resumo
+
+
+async def test_falha_tecnica_suffix_is_redacted_at_the_producer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CC-06 §Delta — the THIRD producer-side scrub, which nothing exercised until now.
+
+    `_start_escalation` appends `[falha tecnica: {redact_error_message(state["error"])}]` to the
+    handoff summary. With the chokepoint neutralized, the verifier-style probe (delete that
+    `redact_error_message` call) left the WHOLE helena lane green: every existing test reaches
+    this suffix through an `error` some OTHER scrub had already cleaned
+    (`_classify_llm`/`respond`/`_evaluate_dmn` all call `redact_error_message` at their own
+    write site), so the suffix's own net was structurally unobservable.
+
+    `error` is CHECKPOINTED state (`HelenaState`, T4b live dispatch): it is read back on a LATER
+    turn than the one that wrote it, and the writer is not necessarily the code shipping today.
+    So it is fed here the way a checkpointer would hand it over — raw — which is precisely the
+    case this scrub exists for. Synthetic identifiers only."""
+    _neutralize_start_chokepoint(monkeypatch)
+    cpf = "123.456.789-09"
+    phone = "(11) 98765-4321"
+    recording: list[dict[str, Any]] = []
+
+    class _RecordingCibSeven(FakeCibSevenTransport):
+        async def start_process_instance(
+            self, process_key: str, business_key: str, variables: dict[str, Any]
+        ) -> ProcessInstance:
+            recording.append(dict(variables))
+            return await super().start_process_instance(process_key, business_key, variables)
+
+    inference = _FakeInference(["Resumo do atendimento.", "Um atendente humano vai continuar."])
+    graph = _graph(inference=inference, cibseven=_RecordingCibSeven())
+
+    # No `escalation_motivo` -> `escalate` derives `falha_tecnica` from the presence of `error`.
+    await graph.escalate(_base_state(error=f"start_process indisponivel: CPF {cpf} fone {phone}"))
+
+    assert recording
+    resumo = recording[0]["resumo_contexto"]
+    assert "falha tecnica:" in resumo, "ops must still see WHY the automated turn failed"
+    for fragment in (cpf, phone, "123.456.789", "98765-4321"):
+        assert fragment not in resumo, f"the falha-tecnica suffix leaked {fragment!r}: {resumo!r}"
+    assert "[REDACTED_DIGITS]" in resumo and "[REDACTED_PHONE]" in resumo
 
 
 async def test_resumo_contexto_identifiers_are_scrubbed_at_the_producer(
