@@ -2,16 +2,7 @@
 
 **Status:** Accepted — ratified by orchestrator (Fable 5) 2026-07-27, recorded as DL-0036 (updates DL-0030) · **Data:** 2026-07-18 · **Area:** Orquestracao (runtime spine)
 
-**Amended by ADR-0040 (re-anchored, not altered):** ADR-0040 redesigns SP-OP-CONTAS-001 /
-SP-OP-RECURSO-001 into the operadora's (payer's) perspective. Its two new guard codes,
-`ERR_CONTAS_GLOSA_NOT_HUMAN` and `ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN`, replace one-for-one
-`ERR_GLOSA_ACCEPT_NOT_HUMAN` and `ERR_DESISTENCIA_NOT_HUMAN` in the census below. Both remain
-Tier-3 **declared-and-uncaught** (no `bpmn:boundaryEvent`/`errorEventDefinition` models the guarded
-service task — same position as today's two codes, outside the boundary-catch table above), keep
-raising `PermissionError` on the audited-incident path (never `WorkerBpmnError`/`bpmnError`), and
-enable no new production allowlist entry — "ZERO allowlist enablements" for Tier-3 (§4) remains
-true. This decision (Option A, the census, §4/§5) is NOT changed by ADR-0040; it is only
-re-anchored to the renamed codes. ADR-0040 amends, does not supersede.
+**Amended by ADR-0040** (§"Emendas a ADRs anteriores (movidas de 0018/0030 em 2026-09-03)" — re-anchored, not altered): the two new guard codes replace one-for-one the two old ones in the census below; full text in `docs/adr/0040-perspectiva-operadora-contas-recurso.md`. ADR-0040 amends, does not supersede.
 
 > **Ratification amendment note (2026-07-27):** the design (Decisao, Option A) is R1-verified PASS on
 > main (`docs/evidence-ledger.md:95`, "VERIFIED — R1 adversarial verification (2 rounds) … round-2
