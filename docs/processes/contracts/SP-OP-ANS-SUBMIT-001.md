@@ -58,6 +58,9 @@ ANSSUB-{tenant_id}-{report_type}-{competencia}
 | `schema_valid` | boolean | sim | Pre-resolvido por worker (`regulatorio.anssubmit.validate` — XSD/TISS) |
 | `lgpd_anonimizado` | boolean | sim | Fail-closed `false` seedado pela ponte (`notifications_bridge` — nunca confia no fato do wire); ecoado por `regulatorio.anssubmit.assemble` (mesmo padrao non-computing de `dataset_complete` — **NAO** e um calculo real de anonimizacao: `mcp-regdata`, a fonte de um atestado real, esta AWS-blocked, issue #16); so passa a `true` quando um humano confirma explicitamente via `UT_CorrigirPendenciaEnvio` que o dataset referenciado por `dataset_ref` esta de fato agregado/anonimizado (ADR-0006; LGPD em relatorio regulatorio) — GAP-ANS-5 |
 | `dataset_ref` | string | sim | Referencia ao artefato montado (sem PHID; ponteiro de storage) |
+| `due_date` | string (date ISO `YYYY-MM-DD`) | nao* | Eco best-effort de `GustavoGraph._contract_variables` (`src/maezo/agents/gustavo/graph.py`, ramo `fluxo == "ans_submit"`) a partir da pre-avaliacao informativa da DMN `ans_calendar` — **NAO** e a fonte do timer interruptivo: o deadline real vem de `${calendario.due_date}`, resolvido pela re-avaliacao de `ans_calendar` dentro do proprio BPMN. Achado do fleet audit: semeada no start mas so documentada como saida `out` de DMN |
+
+\* Best-effort — se a pre-avaliacao de Gustavo falhar (DMN indisponivel), a variavel simplesmente nao e semeada; o timer de calendario depende so da re-avaliacao real dentro do BPMN, nunca deste eco.
 
 Nota: o dataset e **agregado/anonimizado** (Zona Geral, ADR-0006). Nenhuma variavel de processo
 carrega PHI direto — apenas `dataset_ref` (ponteiro) e flags.
