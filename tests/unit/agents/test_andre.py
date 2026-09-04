@@ -20,6 +20,9 @@ Replaces the pre-T1.12 stub tests (`analyze_population`/`identify_risk_cohorts`/
 from __future__ import annotations
 
 import json
+import numbers
+from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -809,6 +812,170 @@ async def test_gather_accepts_aggregate_with_integer_metric_value() -> None:
     result = await _graph(population=client).gather(_pagto_state(cohort_id="cohort-amh-2026-06"))
     assert result["egress_blocked"] is False
     assert result["actuarial_aggregate"]["metrics"] == {"internacoes": 7}
+
+
+# ---------------------------------------------------------------------------
+# AND-02 §Delta (F1): the ADMISSIBLE NUMERIC DOMAIN of a metric cell.
+#
+# The first cut of `_metric_value_is_admissible` narrowed the gate to `isinstance(v, (int,
+# float))`, which is NOT the set of values the lake seam actually produces. `asyncpg` decodes
+# every `NUMERIC`/`DECIMAL` column as `decimal.Decimal`, and an aggregation layer built on the
+# scientific stack hands back `numpy` scalars. `Decimal` is a `numbers.Number` but NOT a
+# `numbers.Real` (proven below by the fact that the ABC arm alone does not cover it), so it has
+# to be named explicitly; `numpy.int64`/`numpy.float64` ARE registered in `numbers.Real` and the
+# ABC arm covers them. Refusing those shapes does not fail OPEN, it fails SHUT: the gate blocks
+# every well-formed aggregate the lake sends and Andre's whole analytics flow degrades to human
+# review. `numpy` is present at runtime (transitive dependency of `pgvector`, itself a declared
+# runtime dependency), so this is a production shape, not a test-only curiosity.
+#
+# What must STILL be refused, now through the wider door: `bool` (an `int` subclass and not a
+# measurement), and every non-finite value in ANY of the admitted types — including
+# `Decimal('sNaN')`, whose float conversion RAISES instead of returning a non-finite float.
+# ---------------------------------------------------------------------------
+
+
+def _aggregate_with_metric(value: Any) -> CohortAggregate:
+    return CohortAggregate(
+        cohort_id="cohort-amh-2026-06",
+        dataset_ref="lake://ds/x",
+        metrics={"sinistro_agregado": value},
+        cohort_size=40,
+        k_anonymity=11,
+    )
+
+
+@pytest.mark.parametrize(
+    "good_value",
+    [
+        pytest.param(Decimal("1.5"), id="decimal"),
+        pytest.param(Decimal("0"), id="decimal-zero"),
+        pytest.param(Decimal("-2"), id="decimal-negative"),
+        pytest.param(Fraction(3, 2), id="fraction-numbers-real-abc"),
+    ],
+)
+async def test_gather_accepts_aggregate_with_non_float_real_metric_value(good_value: Any) -> None:
+    """`Decimal` (what `asyncpg` returns for a `NUMERIC` column) and any registered
+    `numbers.Real` are finite real measurements and MUST egress. Blocking them is a fail-shut
+    bug, not extra safety: it would deny every legitimate aggregate from the lake."""
+    client = _FakePopulationClient(actuarial=_aggregate_with_metric(good_value))
+    result = await _graph(population=client).gather(_pagto_state(cohort_id="cohort-amh-2026-06"))
+    assert result["egress_blocked"] is False
+    assert result["actuarial_aggregate"]["metrics"] == {"sinistro_agregado": good_value}
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [
+        pytest.param(Decimal("NaN"), id="decimal-nan"),
+        pytest.param(Decimal("Infinity"), id="decimal-inf"),
+        pytest.param(Decimal("-Infinity"), id="decimal-negative-inf"),
+        # `float(Decimal('sNaN'))` RAISES `ValueError`. A gate that lets the exception escape
+        # would be caught by `gather`'s best-effort `except Exception` and degrade to "cliente de
+        # populacao falhou" — the wrong note and, worse, an outcome that does NOT set
+        # `egress_blocked`. The refusal has to be a decision, not an accident.
+        pytest.param(Decimal("sNaN"), id="decimal-signaling-nan"),
+        # A finite `Decimal` beyond the float range converts to `inf`: refused, because the value
+        # cannot survive the float round-trip the whole downstream (`dict[str, float]`) assumes.
+        pytest.param(Decimal("1e1000"), id="decimal-beyond-float-range"),
+    ],
+)
+async def test_gather_blocks_aggregate_with_non_finite_decimal_metric_value(bad_value: Any) -> None:
+    """Widening the admitted TYPES must not widen the admitted VALUES."""
+    client = _FakePopulationClient(actuarial=_aggregate_with_metric(bad_value))
+    result = await _graph(population=client).gather(_pagto_state(cohort_id="cohort-amh-2026-06"))
+    assert result["egress_blocked"] is True
+    assert result["actuarial_aggregate"] == {}
+    assert any("valor de metrica" in note for note in result["gather_notes"])
+
+
+async def test_gather_accepts_aggregate_with_numpy_scalar_metric_values() -> None:
+    """`numpy.int64`/`numpy.float64` are registered in `numbers.Real`; they are the shape a
+    numpy-backed aggregation layer returns. `numpy` ships at runtime via `pgvector`."""
+    import numpy as np
+
+    assert isinstance(np.int64(3), numbers.Real)  # the registration this gate relies on
+    client = _FakePopulationClient(
+        actuarial=CohortAggregate(
+            cohort_id="cohort-amh-2026-06",
+            dataset_ref="lake://ds/x",
+            metrics={"internacoes": np.int64(3), "sinistro_agregado": np.float64(1.5)},
+            cohort_size=40,
+            k_anonymity=11,
+        )
+    )
+    result = await _graph(population=client).gather(_pagto_state(cohort_id="cohort-amh-2026-06"))
+    assert result["egress_blocked"] is False
+    assert result["actuarial_aggregate"]["metrics"]["internacoes"] == 3
+    assert result["actuarial_aggregate"]["metrics"]["sinistro_agregado"] == 1.5
+
+
+async def test_gather_blocks_aggregate_with_non_finite_numpy_metric_value() -> None:
+    """`numpy.float64('nan')` is a `numbers.Real` — the ABC arm admits the TYPE, so the finiteness
+    check is the only thing standing between a broken aggregation and the dossier."""
+    import numpy as np
+
+    client = _FakePopulationClient(actuarial=_aggregate_with_metric(np.float64("nan")))
+    result = await _graph(population=client).gather(_pagto_state(cohort_id="cohort-amh-2026-06"))
+    assert result["egress_blocked"] is True
+    assert result["actuarial_aggregate"] == {}
+
+
+async def test_gather_blocks_aggregate_with_numpy_bool_metric_value() -> None:
+    """`numpy.bool_` is neither a `bool` nor a `numbers.Real`: the widened door must not let the
+    boolean family through by the back."""
+    import numpy as np
+
+    assert not isinstance(np.bool_(True), numbers.Real)
+    client = _FakePopulationClient(actuarial=_aggregate_with_metric(np.bool_(True)))
+    result = await _graph(population=client).gather(_pagto_state(cohort_id="cohort-amh-2026-06"))
+    assert result["egress_blocked"] is True
+    assert result["actuarial_aggregate"] == {}
+
+
+# ---------------------------------------------------------------------------
+# AND-02 §Delta (F2): the k floor at the SECOND call site.
+#
+# `gather` runs `_scrub_aggregate` TWICE: once on `actuarial_risk` (every flow with a cohort) and
+# once on `population_metrics` (ONLY `flow="population_analytics"`). Every k-floor test above
+# drives the FIRST call site through `_pagto_state`, so the `population_metrics` site was
+# unproven: swapping its `min_k_anonymity=self._min_k_anonymity` for the module default would
+# have kept the whole suite green while silently un-flooring the population aggregate — the very
+# payload the `population_analytics` capability exists to emit. These two tests pin it.
+#
+# `_FakePopulationClient`'s `actuarial` default is `_CLEAN_AGGREGATE` (k=11 >= 5), so it clears
+# the floor on its own and `egress_blocked`/`population_aggregate` here answer for the SECOND
+# call site alone.
+# ---------------------------------------------------------------------------
+
+
+async def test_gather_blocks_population_metrics_below_configured_k_floor() -> None:
+    thin = CohortAggregate(
+        cohort_id="cohort-amh-2026-06",
+        dataset_ref="lake://ds/pop",
+        metrics={"sinistro_agregado": 0.5},
+        cohort_size=1,
+        k_anonymity=1,
+    )
+    client = _FakePopulationClient(population=thin)
+    result = await _graph_with_k_floor(population=client, min_k_anonymity=5).gather(_population_state())
+    assert result["egress_blocked"] is True
+    assert result["population_aggregate"] == {}
+    assert any("k-anonimato" in note for note in result["gather_notes"])
+    assert ("population_metrics", "cohort-amh-2026-06") in client.calls  # the site really ran
+
+
+async def test_gather_accepts_population_metrics_at_configured_k_floor() -> None:
+    at_floor = CohortAggregate(
+        cohort_id="cohort-amh-2026-06",
+        dataset_ref="lake://ds/pop",
+        metrics={"sinistro_agregado": 0.5},
+        cohort_size=50,
+        k_anonymity=5,
+    )
+    client = _FakePopulationClient(population=at_floor)
+    result = await _graph_with_k_floor(population=client, min_k_anonymity=5).gather(_population_state())
+    assert result["egress_blocked"] is False
+    assert result["population_aggregate"]["k_anonymity"] == 5
 
 
 @pytest.mark.parametrize("k", [1, 2, 3, 4])
