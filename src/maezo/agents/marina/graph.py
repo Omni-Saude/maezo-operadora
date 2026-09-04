@@ -123,6 +123,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Protocol, TypedDict, cast
 
+import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
@@ -187,6 +188,9 @@ DMN_CONTAS_SLA = "contas_sla"
 DMN_RECURSO_ADMISSIBILITY = "recurso_admissibility"
 DMN_RECURSO_ELIGIBILITY = "recurso_eligibility"
 DMN_RECURSO_SLA = "recurso_sla"
+
+
+logger = structlog.get_logger(__name__)
 
 
 class PatientSummaryReader(Protocol):
@@ -465,7 +469,13 @@ class MarinaGraph:
             try:
                 summary_facts = await self._fhir.read_patient_summary(summary_ref)
             except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
-                notes.append(f"resumo FHIR indisponivel: {exc}")
+                # CLASS TOKEN ONLY (CC-10): `str(exc)` de um cliente FHIR tipicamente ecoa a
+                # URL / id em que falhou — o proprio `summary_ref` — e esta nota e' copiada para o
+                # prompt do dossie E para `dossie_marina`, que o engine sela na zona geral
+                # (ADR-0006/ADR-0007). O trace completo fica no log estruturado, canal de
+                # diagnostico, nunca na nota.
+                logger.warning("marina_fhir_resumo_indisponivel", exc_info=True)
+                notes.append(f"resumo FHIR indisponivel: {type(exc).__name__}")
 
         return {"gathered": True, "summary_facts": summary_facts, "gather_notes": notes}
 
