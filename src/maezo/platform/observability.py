@@ -458,25 +458,55 @@ def record_tool_call() -> None:
 def record_agent_error() -> None:
     """Count ONE failed agent turn — `maezo_agent_errors_total`.
 
-    Called from the TWO turn-execution seams this repo has, both of them platform composition code
-    and neither of them inside an agent graph:
-      * `maezo.runtime.harness.Harness.invoke` (the agent-runtime ingress path), and
+    SEVEN call sites (`grep -rn 'record_agent_error()' src/`), of two shapes:
+
+    SIX are `.ainvoke(` re-raise seams, platform/delegation composition code, NONE of them inside
+    an agent graph — each wraps `compiled.ainvoke(state)` in `try: ... except Exception:
+    record_agent_error(); raise` (bare re-raise, `Exception` never `BaseException` — a drained
+    `asyncio.CancelledError` is not a failed agent):
+      * `maezo.runtime.harness.Harness.invoke` (the agent-runtime ingress path);
       * `maezo.platform.webhooks.whatsapp.dispatch.HelenaDispatcher.dispatch` (the live WhatsApp
         receiver, which compiles and `ainvoke`s Helena's graph directly rather than through
-        `Harness`).
-    `tests/unit/platform/test_alert_metrics_fence.py::test_every_turn_execution_seam_counts_agent_errors`
-    pins that enumeration so a THIRD turn seam cannot appear un-instrumented.
+        `Harness`); and
+      * the four A2A delegation handlers — `maezo.agents.{carolina,fernando,rafael,andre}
+        .delegation.py` — each wrapping its own `compiled.ainvoke(state)` identically. These four
+        predate CC-01; this docstring previously (wrongly) enumerated only the first two.
+    `tests/unit/platform/test_alert_metrics_fence.py::test_every_graph_invocation_in_src_counts_agent_errors`
+    derives this set from the AST (every `.ainvoke(` site in `src/`, not a hand-kept list) so a
+    seventh un-instrumented `.ainvoke(` cannot appear silently.
 
-    WHAT IS AND IS NOT AN "AGENT ERROR" HERE. A turn that raised out of the graph is one. A policy
-    DENIAL at the effect chokepoint is NOT — `gate()` refusing an effect is the system working, and
-    counting it would make `MaezoAgentCrashLoop` (`rate(maezo_agent_errors_total[1m]) > 0`) fire on
-    correct refusals. That distinction is a judgement, so it is written down rather than implied.
+    The SEVENTH (CC-01, new) is `maezo.runtime.start_outcome.py::notify_start_failure` — called
+    FROM INSIDE an agent graph's own conditional-edge node (the shared `route_after_start` branch
+    every start-process node routes through) when `start_process_idempotent` raises
+    `CibSevenError`. It does NOT raise: it logs `agent_process_start_failed`, calls
+    `record_agent_error()`, and RETURNS a TERMINAL error outcome (`desfecho=
+    erro_inicio_processo`, `process_started=False`) that the graph's `ainvoke` completes
+    normally with. `tests/unit/agents/test_start_failure_routing.py` pins this site calling the
+    counter exactly once per start failure, across all 9 agents with a `start_process` node.
+
+    EXACTLY ONE COUNT PER FAILED TURN, proved rather than assumed: because the CC-01 site returns
+    instead of raising, the graph's `ainvoke` completes WITHOUT an exception for this failure
+    class — so the enclosing `except Exception` at `Harness.invoke`/`HelenaDispatcher.dispatch`/
+    each delegation handler never fires for it (no double count from the six re-raise seams).
+    Separately, the four A2A handlers DO raise a typed `StartProcessFailedError` after `ainvoke`
+    returns (`if result.get("start_failed") is True: raise ...`, RAF-02) so a failed-to-start
+    delegation is retried rather than sealed as completed — but that `raise` sits OUTSIDE the
+    `try` block wrapping `ainvoke`, so it does not loop back through this counter either. Either a
+    call site re-raises the real failure, or (CC-01) it records the terminal error outcome
+    in-graph — never both, for the same turn.
+
+    WHAT IS AND IS NOT AN "AGENT ERROR" HERE. A turn that raised out of the graph is one; so is a
+    graph-internal start failure that never raises (CC-01). A policy DENIAL at the effect
+    chokepoint is NOT — `gate()` refusing an effect is the system working, and counting it would
+    make `MaezoAgentCrashLoop` (`rate(maezo_agent_errors_total[1m]) > 0`) fire on correct
+    refusals. That distinction is a judgement, so it is written down rather than implied.
 
     Label-free for the same vector-matching reason as :func:`record_tool_call`.
 
-    GUARDED INTERNALLY (unlike :func:`record_tool_call`, whose caller guards it): every call site
-    is an `except` block that is about to RE-RAISE the real failure, and a metrics fault there
-    would replace the turn's genuine exception with a telemetry one — the worst possible trade.
+    GUARDED INTERNALLY (unlike :func:`record_tool_call`, whose caller guards it): every re-raise
+    call site is an `except` block about to RE-RAISE the real failure, and the CC-01 in-graph site
+    is about to return a terminal outcome rather than propagate one — either way a metrics fault
+    here must never replace or block the turn's genuine result, the worst possible trade.
     """
     try:
         _get_metrics_collector().errors.inc()
