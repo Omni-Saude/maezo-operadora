@@ -559,6 +559,18 @@ Contra `pgvector/pgvector:pg16` em `localhost:5466` (fora dos comandos de log es
 Suíte comitada, verde contra 5466: `7 passed in 4.89s`. Skip-loudly (DSN → porta morta):
 `7 skipped` — cada um com a razão ALTA `COULD NOT VERIFY: Postgres not reachable ...`.
 
+> **EMENDA 2026-09-04 (gap `LIVE-SUITES-SILENT-SKIP-AUDIT`).** O default `5466` descrito em §10.3
+> foi trocado para o Postgres do próprio `docker-compose.yml`
+> (`postgresql://maezo:maezo@localhost:${MAEZO_PG_HOST_PORT:-5433}/maezo`); o override
+> `MAEZO_TEST_AUDIT_ANCHOR_DRILL_DATABASE_URL` continua valendo. Motivo: **nada neste repositório
+> jamais serviu a 5466** — não há serviço no compose, nem service container no CI, nem comando de
+> bring-up documentado —, então o efeito real da "porta dedicada" não era isolamento e sim que os
+> 9 drills reportavam `COULD NOT VERIFY` em TODO ambiente que já os executou, CI incluído: um
+> default que ninguém serve é um skip silencioso, não uma prova. O isolamento sempre veio do
+> schema de tenant por teste (`w4drill<hex>`, criado/migrado/dropado a cada drill), que continua
+> intacto. Medido no stack isolado: `9 passed` contra 5433. A regressão fica travada pela cerca
+> `tests/unit/ci/test_live_suite_defaults_are_served.py`.
+
 ### 10.5 Decisão sobre o polimento tenant-mismatch (achado menor da GK-B)
 
 GK-B notou que uma âncora validamente-assinada-para-tenant-B sob o prefixo do tenant-A é classada
