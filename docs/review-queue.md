@@ -1192,10 +1192,29 @@ com 300 arquivos de padding + 1 arquivo owned como o 301o passava GREEN com 0 ow
 no caminho de raiz — pagina a propria lista `commits` do `compare` (essa SIM paginada) ate coletar
 `total_commits`, depois uniona os arquivos de CADA commit via `repos/{repo}/commits/{sha}` (paginado
 independentemente, teto documentado 3000/commit); `status`/`ahead_by`/`merge_base_commit` tambem
-validados (RED em `status` fora de `{"ahead","identical"}`, RED em `files: []` com `ahead_by > 0`).
-O ataque acima virou teste passante. Ver a linha `FLIP-GATE-BASE` de `docs/evidence-ledger.md` para a
-prova ao vivo completa.
+validados [CORRIGIDO em `3ed347e`, ver AMENDA-2 abaixo: a regra de `status` descrita aqui — RED fora
+de `{"ahead","identical"}` — estava ERRADA, reprovava `"diverged"` incorretamente]; RED em
+`files: []` com `ahead_by > 0`. O ataque acima virou teste passante. Ver a linha `FLIP-GATE-BASE` de
+`docs/evidence-ledger.md` para a prova ao vivo completa.
+
+AMENDA-2 (commit `3ed347e`, mesmo branch nao mesclado): o verificador R1 rodou sobre `92fef06` e
+apontou UMA regressao bloqueante que o proprio escopo da amenda-1 introduziu: o guard de `status`
+reprovava `"diverged"`, que e' simplesmente "a PR tem commits proprios E o `main` tambem avancou" — o
+estado padrao de quase toda PR aberta (censo ao vivo: 8 de 47 branches remotos, incluindo este
+proprio branch). Medido ao vivo que a lista `files` de um compare `"diverged"` e' o MESMO diff
+merge-base-relativo de `"ahead"`: `compare/main...codeowners-audit` -> `status:"diverged"`,
+`ahead_by:3`, `behind_by:390`, 2 arquivos — batendo byte a byte com
+`git diff --name-only $(git merge-base origin/main origin/codeowners-audit)..origin/codeowners-audit`.
+Correcao: `"ahead"`, `"identical"` e `"diverged"` agora sao TODOS avaliados normalmente; so
+`"behind"` (`ahead_by == 0`, head ja contido na base — medido ao vivo em
+`compare/main...96d7d0d` e `compare/main...181fc82`, ambos ja mesclados: `status:"behind"`,
+`ahead_by:0`, `files:[]`) continua RED, com a razao reescrita e o docstring registrando que isso
+torna um dry-run contra PR ja mesclada vermelho POR DESENHO — nao um bug. Testes: a parametrizacao
+`diverged`/`behind` errada foi removida; adicionados `test_changed_paths_diverged_status_is_evaluated_normally`,
+`test_changed_paths_behind_status_is_red_head_already_in_base`,
+`test_changed_paths_unrecognized_status_is_red`, e `test_changed_paths_commit_walk_total_commits_mismatch_is_red`
+(cobre a mutacao M-c do verificador, que antes nao reprovava nada). Suite 112->114.
 
 | Artefato | O que precisa de revisao humana | Revisor | Status |
 |---|---|---|---|
-| `scripts/ci/check_flip_path_review.py` (`GitHubAPI.branch_tip`, `GitHubAPI.changed_paths` e os metodos novos `GitHubAPI._compare_commit_shas`/`GitHubAPI._commit_files`/`GitHubAPI._extract_file_paths` que implementam o fallback do teto de 300 arquivos, `EventContext.base_ref`/`head_sha`, `decide(touched_paths_source=...)`, secoes do docstring "DESIGN DECISION — touched paths are merge-base relative" e "THE 300-FILE CAP") | Confirmar o raciocinio de root-cause (defeito #254, CI run 33766180283) e a prova ao vivo registrada em `docs/evidence-ledger.md` (linha `FLIP-GATE-BASE`): reproducao do defeito com o script antigo contra a PR #254 real (266/3, RED), reconstrucao historica via `merge_commit_sha^1` mostrando o mecanismo corrigido produz o diff real da PR (`pyproject.toml`,`uv.lock`, 0 owned) e continua detectando owned paths corretamente (PR #294 reconstruida: 56 caminhos/4 owned). Confirmar tambem que a Decision 1 (CODEOWNERS lido de `pull_request.base.sha`, nunca do head) permanece inalterada — o PR nao move essa decisao. ADICIONALMENTE (amenda `92fef06`): confirmar que o teto de 300 arquivos do `compare` e tratado fail-closed (nunca GREEN sobre uma lista `files` de exatamente 300 nao verificada) e que o fallback de caminhada por commits (`_compare_commit_shas`/`_commit_files`) uniona corretamente — o ataque de 301 arquivos com o owned como ultimo virou teste passante (`test_changed_paths_300_file_cap_walks_commits_and_finds_the_301st_owned_file`) | `@rodaquino-OMNI` (dono de `/scripts/ci/` em `.github/CODEOWNERS`) ou membro ativo verificado de `@Omni-Saude/security-team` | `pendente — PR de owner-review por CODEOWNERS, nao merge autonomo (ver `docs/evidence-ledger.md` linha `FLIP-GATE-BASE`; verificador R1 ja rodou uma vez (REVISE, 3 mudancas obrigatorias, todas endereçadas em `92fef06`) e ainda precisa reverificar o delta — VER-FLIP-GATE-BASE §Delta pendente)` |
+| `scripts/ci/check_flip_path_review.py` (`GitHubAPI.branch_tip`, `GitHubAPI.changed_paths` e os metodos novos `GitHubAPI._compare_commit_shas`/`GitHubAPI._commit_files`/`GitHubAPI._extract_file_paths` que implementam o fallback do teto de 300 arquivos, `EventContext.base_ref`/`head_sha`, `decide(touched_paths_source=...)`, secoes do docstring "DESIGN DECISION — touched paths are merge-base relative" e "THE 300-FILE CAP") | Confirmar o raciocinio de root-cause (defeito #254, CI run 33766180283) e a prova ao vivo registrada em `docs/evidence-ledger.md` (linha `FLIP-GATE-BASE`): reproducao do defeito com o script antigo contra a PR #254 real (266/3, RED), reconstrucao historica via `merge_commit_sha^1` mostrando o mecanismo corrigido produz o diff real da PR (`pyproject.toml`,`uv.lock`, 0 owned) e continua detectando owned paths corretamente (PR #294 reconstruida: 56 caminhos/4 owned). Confirmar tambem que a Decision 1 (CODEOWNERS lido de `pull_request.base.sha`, nunca do head) permanece inalterada — o PR nao move essa decisao. ADICIONALMENTE (amenda `92fef06`): confirmar que o teto de 300 arquivos do `compare` e tratado fail-closed (nunca GREEN sobre uma lista `files` de exatamente 300 nao verificada) e que o fallback de caminhada por commits (`_compare_commit_shas`/`_commit_files`) uniona corretamente — o ataque de 301 arquivos com o owned como ultimo virou teste passante (`test_changed_paths_300_file_cap_walks_commits_and_finds_the_301st_owned_file`). ADICIONALMENTE (amenda-2 `3ed347e`): confirmar que `status: "diverged"` e' avaliado normalmente (nao RED) e que so `"behind"` continua RED; confirmar o teste do guard `total_commits` (`test_changed_paths_commit_walk_total_commits_mismatch_is_red`) | `@rodaquino-OMNI` (dono de `/scripts/ci/` em `.github/CODEOWNERS`) ou membro ativo verificado de `@Omni-Saude/security-team` | `pendente — PR de owner-review por CODEOWNERS, nao merge autonomo (ver `docs/evidence-ledger.md` linha `FLIP-GATE-BASE`; verificador R1 ja rodou duas vezes — 1a REVISE (3 mudancas, endereçadas em `92fef06`), 2a apontou a regressao de `status:"diverged"` (endereçada em `3ed347e`) — e ainda precisa reverificar este 3o delta — VER-FLIP-GATE-BASE §Delta-2 pendente)` |
