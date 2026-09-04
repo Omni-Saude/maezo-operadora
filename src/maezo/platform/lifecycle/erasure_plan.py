@@ -6,9 +6,10 @@ destructive statement, and it never invents a human decision. Two things live he
 1. **The structural enumeration** (`PERSISTENCE_LAYERS`): every persistence relation the
    custody/erasure design names, each carrying its migration citation, how a titular's rows
    are identified, and — where an honest one exists — a `SELECT count(*)` probe. The
-   enumeration is a FACT about the schema, derived from migrations 0001-0008 (16 layers; DU-05),
-   and it is authored here rather than read from YAML so that a human editing the (CODEOWNERS-gated)
-   plan artifact cannot introduce a statement this process would run. The plan and this
+   enumeration is a FACT about the schema, derived from migrations 0001-0009 (15 layers; DU-05 —
+   a 16th, `agent_memory.embedding`, was RETIRED by `0009_drop_pgvector`, DU-01-b), and it is
+   authored here rather than read from YAML so that a human editing the (CODEOWNERS-gated) plan
+   artifact cannot introduce a statement this process would run. The plan and this
    enumeration must cover the SAME relations; drift fails a unit test in both directions.
 
 2. **The fail-closed loader** (`load_erasure_plan`) for the DPO's decisions, and
@@ -239,8 +240,9 @@ class PersistenceLayer:
     """One persistent relation the custody/erasure design names.
 
     Attributes:
-        camada: Layer family (trabalho / episodica / semantica / auditoria / custodia /
-            registro_de_eliminacao / idempotencia / inbox_amh).
+        camada: Layer family (trabalho / episodica / auditoria / custodia /
+            registro_de_eliminacao / idempotencia / inbox_amh / outbox_a2a). `semantica` was a
+            family until `0009_drop_pgvector` retired its only member (DU-01-b).
         tabela: Relation name, as the migration writes it.
         migracao: Citation for where the relation is created (or that nothing creates it).
         identificacao: How a titular's rows would be identified, in prose.
@@ -264,7 +266,7 @@ class PersistenceLayer:
 
 
 # ---------------------------------------------------------------------------------------
-# The enumeration. Derived from migrations 0001-0007; every entry cites its source. Held in
+# The enumeration. Derived from migrations 0001-0009; every entry cites its source. Held in
 # CODE, not read from the artifact, so that editing the (human-owned) plan can never change
 # which statement a probe would issue.
 #
@@ -346,20 +348,16 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
             "WHERE tenant_id = :tenant_id AND fhir_patient_id = :subject_ref"
         ),
     ),
-    PersistenceLayer(
-        camada="semantica",
-        tabela="agent_memory.embedding",
-        migracao="0001:72 (vector(1536) column); pgvector extension 0001:28",
-        identificacao="the same row as the episodic entry — not a separate relation",
-        resolucao=IdentityResolution.PONTE_AUSENTE,
-        ordem=8,
-        subject_column="fhir_patient_id",
-        count_statement=(
-            "SELECT count(*) AS n FROM agent_memory "
-            "WHERE tenant_id = :tenant_id AND fhir_patient_id = :subject_ref "
-            "AND embedding IS NOT NULL"
-        ),
-    ),
+    # ordem 8 — `agent_memory.embedding` (camada `semantica`) — RETIRADA por
+    # `0009_drop_pgvector` (DU-01-b, decisao do dono R-005, 2026-09-04). A coluna `vector(1536)`
+    # e a extensao `vector` nao existem mais, entao a `count_statement` que perguntava
+    # `AND embedding IS NOT NULL` deixou de ser uma sonda honesta e passou a ser um
+    # `UndefinedColumnError` no meio de um dry-run de LGPD. Nao ha camada semantica a enumerar
+    # enquanto ADR-0002 §3 estiver suspenso (emenda DRAFT em ADR-0047).
+    #
+    # `ordem` NAO e reindexada: os numeros sao um compromisso procedural ja revisado para as
+    # demais relacoes, e renumerar 9..16 para 8..15 faria um diff de ordenacao passar por uma
+    # remocao de camada. O buraco em 8 e o registro de que uma camada saiu.
     PersistenceLayer(
         camada="auditoria",
         tabela="audit_chain",
