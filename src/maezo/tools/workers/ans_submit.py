@@ -752,12 +752,20 @@ def notify_regulatorio(
     *,
     event_topic_deadline_risk: str = "",
 ) -> dict[str, Any]:
-    """Convoca o agente Gustavo (dossie de envio) / notifica risco de prazo — NAO decide.
+    """Monta localmente o aviso de envio/risco de prazo — NAO convoca o agente Gustavo, NAO decide.
 
-    Informational only, no adverse effect: the dossie INSTRUI a decisao humana de aprovar o
-    envio (UT_RevisarEnvio) e o alerta de deadline-risk e nao-interruptivo (a UT segue aberta).
-    Gustavo NUNCA transmite autonomamente (PEP require_human, ans_official_submission L1) — this
-    worker only assembles/announces, it never touches the ANS gateway or sets `decisao_envio`.
+    CORRIGIDO (GUS-01, fleet audit): a docstring anterior dizia "Convoca o agente Gustavo"; esta
+    funcao apenas loga e devolve um dict local (`notify_regulatorio_sent`/`report_type`/
+    `competencia`/`deadline_risk`) — nao ha import de `maezo.a2a`/dispatcher neste modulo nem
+    chamada a `agents.gustavo.graph` (`grep -n 'maezo.a2a\\|dispatcher\\|gustavo' ans_submit.py`
+    = 0 hits relevantes). `make_notify_regulatorio_handler` (abaixo) publica esse dict como
+    notificacao interna (`operadora.notifications.internal`).
+
+    Informational only, no adverse effect: o "dossie" apenas INSTRUI a decisao humana de aprovar
+    o envio (UT_RevisarEnvio) e o alerta de deadline-risk e nao-interruptivo (a UT segue aberta).
+    Gustavo NUNCA transmite autonomamente (PEP require_human, ans_official_submission L1) —
+    permanece verdade que este worker nunca toca o gateway ANS nem define `decisao_envio`; so
+    passou a ser falso dizer que ele "convoca" o agente.
 
     `event_topic_deadline_risk` is `ST_NotificarDeadlineRisk`'s own BPMN `inputParameter`
     (`agents.events.anssubmit.deadline_risk`); when present it marks this invocation as the
