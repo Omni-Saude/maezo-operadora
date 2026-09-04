@@ -215,34 +215,30 @@ camadas:
       E a UNICA tabela do encadeamento Alembic com coluna de titular alem de
       erasure_log. Duas consequencias que o DPO precisa ver: (a) fhir_patient_id e
       NULLABLE, entao linhas de memoria episodica gravadas sem ele NAO sao alcancadas
-      por nenhum predicado por titular e ficam orfas de qualquer eliminacao; (b) a
-      coluna `embedding vector(1536)` (0001:72) esta NESTA MESMA LINHA, logo a camada
-      semantica nao e uma tabela separada — ver a entrada agent_memory.embedding
-      abaixo, que existe para tornar a decisao explicita, nao para nomear outra relacao.
+      por nenhum predicado por titular e ficam orfas de qualquer eliminacao; (b) esta
+      tabela ja carregou tambem a camada SEMANTICA, na coluna `embedding vector(1536)`
+      da mesma linha; `0009_drop_pgvector` (DU-01-b) removeu essa coluna, entao a
+      decisao do DPO aqui passou a ser uma so — a da linha episodica — e nao mais duas
+      sobre a mesma linha.
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO
 
-  - camada: semantica
-    tabela: agent_memory.embedding
-    migracao: "0001_schema_agents.py:72 (coluna vector(1536)); extensao pgvector em 0001:28"
-    identificacao: "a mesma linha da entrada episodica — nao ha relacao propria"
-    resolucao_identidade: PONTE_AUSENTE
-    ordem: 8
-    tensao: null
-    notas: >-
-      NAO E UMA TABELA. E uma COLUNA de agent_memory, listada separadamente porque a
-      escolha do DPO pode divergir da linha acima: anular so o embedding (ANONIMIZAR)
-      preserva a linha episodica, e eliminar a linha episodica leva o embedding junto.
-      Registro do desvio de documentacao: `erasure.py:240-242` descreve
-      `DELETE FROM semantic.embeddings WHERE fhir_patient_id = :pid OR source_ref ...`
-      e `erasure.py:224-225` descreve `episodes.transcripts`/`episodes.decisions` —
-      NENHUMA dessas quatro relacoes existe em nenhuma das sete migracoes. Sao
-      docstrings ilustrativas, nao schema, e um revisor que as tome por schema
-      concluira que a cobertura e maior do que e.
-    decisao_dpo: PENDENTE
-    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
-    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+  # ordem 8 — camada `semantica`, `agent_memory.embedding` — RETIRADA DO PLANO.
+  # `0009_drop_pgvector` (DU-01-b, decisao do dono R-005 de 2026-09-04) removeu a coluna
+  # `vector(1536)` e a extensao `vector`: nao ha mais camada semantica para o DPO decidir,
+  # e a sonda que esta entrada carregava (`AND embedding IS NOT NULL`) deixou de existir
+  # junto com a coluna. ADR-0002 §3 fica SUSPENSO ate existir consumidor — nao negado —
+  # conforme a emenda DRAFT em `docs/adr/0042-emenda-adr0002-secao3-camada-semantica-suspensa.md`,
+  # cuja ratificacao e ato exclusivo do dono. Se a camada voltar, esta entrada volta com ela.
+  # A numeracao de `ordem` NAO foi reindexada (ver o comentario correspondente em
+  # `erasure_plan.py`): o buraco no 8 e o registro de que uma camada saiu.
+  #
+  # O desvio de documentacao que esta entrada registrava continua valendo e nao se perde:
+  # `erasure.py` descreve `semantic.embeddings`, `episodes.transcripts` e
+  # `episodes.decisions`, e NENHUMA dessas relacoes existe em migration alguma — sao
+  # docstrings ilustrativas, nao schema. Um revisor que as tome por schema concluira que a
+  # cobertura e maior do que e.
 
   # ---------------------------------------------------------------------------
   # AUDITORIA / NAO-REPUDIO (ADR-0007) — onde vive a tensao

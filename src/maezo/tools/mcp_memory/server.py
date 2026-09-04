@@ -1,31 +1,41 @@
-"""MCP Memory server — Agent Memory (3-layer architecture, ADR-0002).
+"""MCP Memory server — Agent Memory (ADR-0002; a camada semantica esta SUSPENSA).
 
 GAP-DU-01-a (fail-closed remediation, 2026-09): this server used to FABRICATE both of its
 tools. `recall_semantic` queried a `semantic_memory` table that no Alembic migration ever
 creates and hard-coded `1.0 AS similarity` on every row — a constant fake score, not a real
-pgvector cosine search, and it used `ILIKE` text matching instead of an embedding at all.
+vector cosine search, and it used `ILIKE` text matching instead of an embedding at all.
 `store_episodic` inserted into an `episodic_events` table that likewise exists in no
 migration. Neither table is reachable: `src/maezo/platform/migrations/versions/0001_schema_
-agents.py:64-74` creates the actual episodic/semantic relation, `agent_memory` (columns
-`tenant_id`, `agent_id`, `thread_id`, `fhir_patient_id`, `event_type`, `payload`, `embedding
-vector(1536)`), and it has ZERO writers anywhere in `src/` (grep-verified). Both tools now
-REFUSE fail-closed with a typed, documented error instead of raising a bare
-`UndefinedTableError` (the pre-existing behaviour if this dead code were ever actually
-invoked) or, worse, returning a fabricated similarity score. This module has 0 production
-consumers today (no `register_tools` call site outside its own tests) — the refusal is
-therefore a documentation/safety fix, not a behavioural regression for any live caller.
+agents.py` creates the actual episodic relation, `agent_memory` (columns `tenant_id`,
+`agent_id`, `thread_id`, `fhir_patient_id`, `event_type`, `payload`), and it has ZERO writers
+anywhere in `src/` (grep-verified). Both tools now REFUSE fail-closed with a typed, documented
+error instead of raising a bare `UndefinedTableError` (the pre-existing behaviour if this dead
+code were ever actually invoked) or, worse, returning a fabricated similarity score. This
+module has 0 production consumers today (no `register_tools` call site outside its own tests) —
+the refusal is therefore a documentation/safety fix, not a behavioural regression for any live
+caller.
 
-The STRATEGIC CHOICE of whether to wire a real pgvector/embedding path onto `agent_memory`
-(new migration, HNSW index, `inference.py` embedding call, per-tenant `search_path` pool) or
-to instead retire this dead server outright is an OWNER decision (GAP-DU-01-b) and is
-deliberately NOT made here — see `EpisodicMemoryUnavailableError` / `SemanticMemoryUnavailableError`
-below, and their `reason` codes, for exactly what is missing and why this module stops short
-of building it.
+GAP-DU-01-b (owner decision R-005, 2026-09-04) SETTLED the strategic choice this module used to
+leave open, and settled it AGAINST building the semantic path: `0009_drop_pgvector` dropped
+`agent_memory.embedding vector(1536)` and the `vector` extension outright, the Aurora parameter
+group lost its `pgvector` token and `docker-compose.yml` moved to the plain `postgres:16` image.
+So `recall_semantic`'s refusal is no longer "not wired yet" — there is no column to wire it to,
+and there will not be one until ADR-0002 §3 is un-suspended by the owner (emenda DRAFT em
+`docs/adr/0042-emenda-adr0002-secao3-camada-semantica-suspensa.md`). What remains open is
+GAP-DU-01-a's other half — whether `store_episodic` grows the `tenant_id`/`thread_id` arguments
+that would let it write `agent_memory` honestly — and that is a SEPARATE gap, deliberately not
+decided here.
+
+**Este modulo nao emite SQL nenhum.** Nem antes nem depois de 0009: as duas ferramentas recusam
+antes de precisar de conexao, e a remocao da coluna nao muda uma linha de comportamento — o que
+ela muda e a VERDADE das mensagens de recusa, atualizadas abaixo. `tests/unit/tools/
+test_mcp_memory.py` prova as duas metades (comportamento inalterado + nenhuma referencia a
+`embedding`/`vector` na superficie SQL deste modulo).
 
 Per ADR-0002 (`docs/adr/0002-agent-state-three-layers.md`):
 - Working memory: managed by LangGraph checkpointer (not exposed here)
 - Episodic memory: event log in PostgreSQL, partitioned by tenant + fhir_patient_id
-- Semantic memory: text embeddings + pgvector similarity search
+- Semantic memory: §3 SUSPENSO — desenhado, nunca consumido, removido por 0009 (ADR-0042 DRAFT)
 
 Tools (surface unchanged by the GAP-DU-01-a fix — both now refuse rather than fabricate):
 - store_episodic(agent_id, event) -> raises EpisodicMemoryUnavailableError
@@ -52,14 +62,16 @@ logger = structlog.get_logger(__name__)
 #: DL-0017) or retiring the table — GAP-DU-01-b, an owner decision.
 REASON_EPISODIC_SCHEMA_DRIFT: Final[str] = "episodic_schema_drift"
 
-#: `recall_semantic` refusal reason: there is no embedding path. The donor code queried
-#: `semantic_memory` (a table no migration creates) with `ILIKE` text matching and returned a
-#: hard-coded `1.0 AS similarity` on every row — never a real pgvector cosine distance. The
-#: schema that DOES exist, `agent_memory.embedding vector(1536)` (0001:72, pgvector extension
-#: 0001:28), has no writer that ever populates it and this module has no embedding provider
-#: (per its own prior docstring: "the runtime's inference.py (ADR-0009) ... computes" the
-#: vector, and nothing here calls it). Returning any similarity value — real-looking or not —
-#: without a real embedding would still be fabrication.
+#: `recall_semantic` refusal reason: there is no embedding path, and since GAP-DU-01-b there is
+#: no column for one either. The donor code queried `semantic_memory` (a table no migration
+#: creates) with `ILIKE` text matching and returned a hard-coded `1.0 AS similarity` on every row
+#: — never a real cosine distance. The column that USED to exist, `agent_memory.embedding
+#: vector(1536)`, was dropped together with the `vector` extension by
+#: `0009_drop_pgvector` (owner decision R-005): it never had a writer, and ADR-0002 §3 is now
+#: SUSPENDED pending a consumer (ADR-0042, DRAFT). The reason CODE is deliberately unchanged —
+#: it is a stable, logged vocabulary term, and "not wired" remains exactly what is true.
+#: Returning any similarity value — real-looking or not — without a real embedding would still be
+#: fabrication.
 REASON_SEMANTIC_SEARCH_NOT_WIRED: Final[str] = "semantic_search_not_wired"
 
 
@@ -79,7 +91,7 @@ class EpisodicMemoryUnavailableError(RuntimeError):
 
 
 class SemanticMemoryUnavailableError(RuntimeError):
-    """Fail-closed sentinel: no real embedding/pgvector search path exists yet.
+    """Fail-closed sentinel: no embedding column and no vector search path exist (DU-01-b).
 
     Raised by `MemoryServer.recall_semantic` for every call — there is no fallback text
     search and no constant/placeholder similarity score. `reason` is
@@ -104,15 +116,19 @@ class MemorySettings(BaseSettings):
     to open unconditionally — no `search_path` pin per DL-0017, and a default database name
     (`maezo_memory`) that matches no other component's `DATABASE_URL` — has been removed
     rather than "fixed" for a code path nothing reaches). It is kept only as documentation of
-    the settings shape a future honest implementation would need; GAP-DU-01-b decides whether
+    the settings shape a future honest implementation would need; GAP-DU-01-a decides whether
     that implementation reuses the app's own `DATABASE_URL` (the house pattern — see
-    `src/maezo/a2a/idempotency.py`, `src/maezo/a2a/outbox.py`) or a dedicated DSN.
+    `src/maezo/a2a/idempotency.py`, `src/maezo/a2a/outbox.py`) or a dedicated DSN. (GAP-DU-01-b
+    settled only the SEMANTIC half — it removed the layer; it did not choose a DSN.)
     """
 
     model_config = {"env_prefix": "MEMORY_", "extra": "ignore"}
 
     database_url: str = "postgresql://maezo:maezo@localhost:5432/maezo_memory"
-    memory_embedding_dim: int = 1536  # matches agent_memory.embedding vector(1536), 0001:72
+    #: Dimensao que a coluna removida usava. Mantida como DOCUMENTACAO do formato que uma futura
+    #: implementacao honesta precisaria escolher, nao como referencia a um schema vivo — a coluna
+    #: `agent_memory.embedding vector(1536)` foi removida por `0009_drop_pgvector` (DU-01-b).
+    memory_embedding_dim: int = 1536
 
 
 class MemoryServer:
@@ -202,12 +218,13 @@ class MemoryServer:
         raise EpisodicMemoryUnavailableError(
             REASON_EPISODIC_SCHEMA_DRIFT,
             "store_episodic: no migration creates a table this call can honestly write to. "
-            "The real episodic/semantic relation is `agent_memory` "
-            "(src/maezo/platform/migrations/versions/0001_schema_agents.py:64-74), which "
-            "requires tenant_id and thread_id (both `text NOT NULL`, 0001:66,68) — neither is "
+            "The real episodic relation is `agent_memory` "
+            "(src/maezo/platform/migrations/versions/0001_schema_agents.py), which "
+            "requires tenant_id and thread_id (both `text NOT NULL`) — neither is "
             "part of this tool's (agent_id, event) signature. Refusing rather than inventing a "
             "placeholder tenant/thread or writing to a table (`episodic_events`) that does not "
-            "exist. Wiring an honest write (or retiring this tool) is GAP-DU-01-b.",
+            "exist. Widening this signature (or retiring this tool) is GAP-DU-01-a; GAP-DU-01-b "
+            "removed the SEMANTIC half only, and did not decide this one.",
         )
 
     async def recall_semantic(
@@ -227,9 +244,10 @@ class MemoryServer:
 
         Raises:
             SemanticMemoryUnavailableError: Always — reason `REASON_SEMANTIC_SEARCH_NOT_WIRED`.
-                There is no embedding provider wired into this module and no pgvector query is
-                issued; no code path in this method returns a `similarity` value, real or
-                fabricated. See `REASON_SEMANTIC_SEARCH_NOT_WIRED`'s docstring.
+                There is no embedding provider wired into this module, no vector query is
+                issued, and since `0009_drop_pgvector` there is no embedding column to query;
+                no code path in this method returns a `similarity` value, real or fabricated.
+                See `REASON_SEMANTIC_SEARCH_NOT_WIRED`'s docstring.
         """
         logger.warning(
             "memory_recall_semantic_refused",
@@ -238,14 +256,15 @@ class MemoryServer:
         )
         raise SemanticMemoryUnavailableError(
             REASON_SEMANTIC_SEARCH_NOT_WIRED,
-            "recall_semantic: no real embedding/pgvector search path is wired. This tool used "
-            "to ILIKE-match a nonexistent `semantic_memory` table and return a hard-coded "
-            "`similarity: 1.0` on every row; that fabrication has been removed. The real "
-            "column is agent_memory.embedding vector(1536) "
-            "(src/maezo/platform/migrations/versions/0001_schema_agents.py:72, pgvector "
-            "extension 0001:28), which has no writer today. Wiring a real embedding call "
-            "(ADR-0009 inference.py) and cosine-similarity query (or retiring this tool) is "
-            "GAP-DU-01-b.",
+            "recall_semantic: no embedding column and no vector search path exist. This tool "
+            "used to ILIKE-match a nonexistent `semantic_memory` table and return a hard-coded "
+            "`similarity: 1.0` on every row; that fabrication has been removed. The column that "
+            "once backed this layer, agent_memory.embedding vector(1536), never had a writer and "
+            "was dropped together with the `vector` extension by "
+            "src/maezo/platform/migrations/versions/0009_drop_pgvector.py (GAP-DU-01-b, owner "
+            "decision R-005). ADR-0002 section 3 is SUSPENDED pending a consumer — see the DRAFT "
+            "amendment in docs/adr/0042-emenda-adr0002-secao3-camada-semantica-suspensa.md. "
+            "Un-suspending it is an owner act, not a code change.",
         )
 
 

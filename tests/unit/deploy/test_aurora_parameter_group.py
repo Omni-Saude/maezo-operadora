@@ -14,12 +14,7 @@ from pathlib import Path
 import pytest
 
 _AURORA_MAIN_TF = (
-    Path(__file__).resolve().parents[3]
-    / "deploy"
-    / "terraform"
-    / "modules"
-    / "aurora-postgres"
-    / "main.tf"
+    Path(__file__).resolve().parents[3] / "deploy" / "terraform" / "modules" / "aurora-postgres" / "main.tf"
 )
 
 #: Bibliotecas que de fato sao carregadas no start do servidor Postgres e, portanto,
@@ -34,9 +29,7 @@ def _shared_preload_libraries() -> list[str]:
         r'name\s*=\s*"shared_preload_libraries"\s*\n\s*value\s*=\s*"([^"]*)"',
         source,
     )
-    assert match is not None, (
-        f"parameter `shared_preload_libraries` nao encontrado em {_AURORA_MAIN_TF}"
-    )
+    assert match is not None, f"parameter `shared_preload_libraries` nao encontrado em {_AURORA_MAIN_TF}"
     return [token.strip() for token in match.group(1).split(",") if token.strip()]
 
 

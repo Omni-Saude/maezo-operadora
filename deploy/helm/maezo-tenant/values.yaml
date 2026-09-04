@@ -515,7 +515,7 @@ aurora:
 # ---------------------------------------------------------------------------
 # Migrations Job — Helm hook pre-install/pre-upgrade. Roda `alembic upgrade head`
 # contra o schema-por-tenant ANTES dos runtimes subirem (cria audit_chain, agent_memory,
-# a2a_idempotency, indice de retencao + pgvector em public). Ver templates/job-migrations.yaml.
+# a2a_idempotency, indice de retencao). Ver templates/job-migrations.yaml.
 # Pre-requisito: o secret Aurora (ESO-synced) deve existir antes do helm upgrade.
 # ---------------------------------------------------------------------------
 migrations:

@@ -1,8 +1,9 @@
 {{- /*
 Job de MIGRATIONS (Helm hook pre-install/pre-upgrade). Roda `alembic upgrade head` contra o
 schema-por-tenant do Postgres ANTES dos runtimes subirem, garantindo que o schema do tenant
-(audit_chain, agent_memory, a2a_idempotency, índice de retenção) + a extensão pgvector em
-`public` existam. Mesma imagem dos demais runtimes; zona general (sem PHI cru — só DDL).
+(audit_chain, agent_memory, a2a_idempotency, índice de retenção) exista. A extensão pgvector
+em `public` saiu da lista: `0009_drop_pgvector` (DU-01-b) a remove junto com a coluna
+`agent_memory.embedding`. Mesma imagem dos demais runtimes; zona general (sem PHI cru — só DDL).
 
 Detalhes não-óbvios:
   - alembic exige URL SÍNCRONA (psycopg); o secret Aurora é `postgresql+asyncpg://...` → o

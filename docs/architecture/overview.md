@@ -37,7 +37,7 @@ flowchart TB
     end
 
     subgraph REG["REGISTRO"]
-        R["HAPI FHIR R4 (canônico) · PostgreSQL+pgvector<br/>(estado / memória / auditoria) · Kafka (CDC, agents.events, agents.audit)"]
+        R["HAPI FHIR R4 (canônico) · PostgreSQL<br/>(estado / memória / auditoria) · Kafka (CDC, agents.events, agents.audit)"]
     end
 
     Benef --> RT
@@ -86,16 +86,16 @@ O worker que transmite a negativa é guardado por `ERR_AUTH_DENIAL_NOT_HUMAN`: o
 
 ## Stack & racional
 
-> Stack: **Python 3.12 · LangGraph · A2A v1.0 · MCP · CIB Seven 2.1.3 · HAPI FHIR R4 · Kafka · PostgreSQL+pgvector · Kubernetes** ([PROJECT.md](../../PROJECT.md))
+> Stack: **Python 3.12 · LangGraph · A2A v1.0 · MCP · CIB Seven 2.1.3 · HAPI FHIR R4 · Kafka · PostgreSQL · Kubernetes** ([PROJECT.md](../../PROJECT.md))
 
 | Componente | Por quê | ADR |
 |---|---|---|
 | LangGraph (runtime) + CIB Seven (governança) | Agente decide *como*; BPMN garante *que* (SLA, HITL, trilha) | [0001](../adr/0001-cib-seven-governance-langgraph-runtime.md) |
 | A2A v1.0 + Kafka | Delegação dirigida agente→agente com anti-loop estrutural; Kafka como log de fatos | [0003](../adr/0003-a2a-collaboration-kafka-facts.md), [0015](../adr/0015-a2a-delegation-runtime.md) |
 | MCP servers | Única via dos agentes aos sistemas (cibseven/dmn/fhir/whatsapp/memory) | [0001](../adr/0001-cib-seven-governance-langgraph-runtime.md), [0016](../adr/0016-process-key-allowlist-phi-invariant.md) |
-| PostgreSQL + pgvector | Estado, memória episódica/semântica e auditoria sem infra nova | [0002](../adr/0002-agent-state-three-layers.md) |
+| PostgreSQL | Estado, memória episódica e auditoria sem infra nova. A camada **semântica** (embeddings pgvector) foi **removida** por `0009_drop_pgvector` — desenhada, nunca consumida; ADR-0002 §3 fica suspenso até existir consumidor (DU-01-b) | [0002](../adr/0002-agent-state-three-layers.md), [0042](../adr/0042-emenda-adr0002-secao3-camada-semantica-suspensa.md) |
 | DMN (CIB Seven) | Regra de negócio determinística, federada, versionada e testável fora do LLM | [0012](../adr/0012-dmn-deterministic-tool.md) |
-| HAPI FHIR R4 | Registro clínico canônico; memória semântica referencia FHIR, nunca o copia | [0002](../adr/0002-agent-state-three-layers.md) |
+| HAPI FHIR R4 | Registro clínico canônico; a memória de agente referencia FHIR, nunca o copia | [0002](../adr/0002-agent-state-three-layers.md) |
 | Portfolio de modelos (abstração de provider) | Troca de LLM sem reescrever agentes; eval gates por golden dataset | [0009](../adr/0009-model-portfolio-abstraction.md) |
 | Kubernetes (namespace por tenant) | Isolamento absoluto de dados, memória e comportamento entre operadoras | [0004](../adr/0004-tenancy-federated-agent-definitions.md) |
 | Tasy via CDC (Plataforma de Dados) | Integra dados do prestador via CDC, sem duplicar a fonte | [0013](../adr/0013-tasy-cdc-amh-data-platform-simulator.md) |
@@ -136,10 +136,15 @@ Estado em três camadas, LGPD-erasável e isolada por tenant
 1. **Working** — LangGraph checkpointer (PostgreSQL, schema `agents`); expurgo pós-tarefa.
 2. **Episódica** — transcrições/decisões/eventos particionados por tenant, chaveados por
    `fhir_patient_id`; anexos em S3.
-3. **Semântica** — derivados minimizados + embeddings pgvector. O conteúdo canônico **nunca** mora
-   aqui: sempre referencia um recurso FHIR; embeddings são descartáveis/re-indexáveis.
+3. **Semântica** — **SUSPENSA** (DU-01-b, decisão do dono R-005 de 2026-09-04). O desenho era
+   derivados minimizados + embeddings pgvector, com o conteúdo canônico sempre em FHIR; a camada
+   foi construída no schema (`agent_memory.embedding vector(1536)` + extensão `vector`) e **nunca
+   teve consumidor** — nenhum índice vetorial, nenhum writer. `0009_drop_pgvector` removeu coluna e
+   extensão. ADR-0002 §3 fica **suspenso até existir consumidor**, não negado: emenda DRAFT em
+   [ADR-0042](../adr/0042-emenda-adr0002-secao3-camada-semantica-suspensa.md), pendente de
+   ratificação do dono.
 
-A erasure LGPD por `fhir_patient_id` cascateia pelas três camadas, com verificação mensal.
+A erasure LGPD por `fhir_patient_id` cascateia pelas camadas vivas, com verificação mensal.
 
 ## Governança de processos
 
