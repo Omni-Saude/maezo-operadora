@@ -267,19 +267,27 @@ _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
 # the refusal itself.
 #
 # The `"event": "agents.events.*"` exclusion was RE-DERIVED for this slice rather than inherited.
-# Corrected count: the idiom has **13 sites in the whole worker tree** (7 `auth`, 2 `escalation`,
+# Corrected count: the idiom had **13 sites in the whole worker tree** (7 `auth`, 2 `escalation`,
 # 4 `lgpd`), TWO of which were inside `send_denial_notice` itself — so slice 4's "13 OTHER places"
 # over-counted the neighbours by two; the honest figure is 11 others. Forward/backward
 # reachability over the BPMN graph (not prose) was RE-DERIVED for **9 of the 13** (7 `auth` + 2
 # `escalation`): each of those 9 has an `operadora.events.publish` task carrying the SAME
 # `event_topic` on its own token path, `send_denial_notice`'s two included:
 # `ST_EnviarNegativaFormal`'s only outgoing flow is `Flow_Negativa_Pub` -> `ST_PublishNegada`
-# (`event_topic=agents.events.auth.completed`). The remaining **4 `lgpd` sites have NO token path
+# (`event_topic=agents.events.auth.completed`). The remaining **4 `lgpd` sites had NO token path
 # at all**: `operadora.lgpd.execute_export`/`execute_rectification`/`execute_erasure`/
 # `publish_completed` are ORPHAN CODE TOPICS carried by ZERO BPMN service tasks
-# (`docs/compliance/lgpd-topic-reconciliation.md:38-39`, rows O2-O5 at `:61-64`), out of this
-# slice's scope by owner decision `LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC`. That is why no `event`
-# literal is fenced here — including the two in the worker this slice fixes.
+# (`docs/compliance/lgpd-topic-reconciliation.md:38-39`, rows O2-O5 at `:61-64`).
+#
+# COUNT UPDATED (gap `LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC`, owner decision R-103, remedy R-H):
+# the `publish_completed` site is GONE — `PublishCompletedWorker` was retired with its
+# registration and its three tests, because it was the one orphan whose fabrication was a
+# `"status": "published"` out of a publisher-less sync `execute`. The tree now carries **12
+# sites** (7 `auth`, 2 `escalation`, **3** `lgpd`), and the orphan trio that remains is
+# `execute_export`/`execute_rectification`/`execute_erasure` (rows O2-O4) — still out of scope
+# here: their fate is R-D (`execute_request` decomposition), which is DPO/SME-sign-off-gated, not
+# mechanical. That is why no `event` literal is fenced here — including the two in the worker
+# slice 5 fixes.
 _FABRICATED_STATUS_LITERALS: frozenset[str] = frozenset(
     {"risk_notified", "notified", "notificado", "notice_sent"}
 )

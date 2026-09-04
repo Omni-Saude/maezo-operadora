@@ -147,21 +147,21 @@
     },
     {
       "file": "tests/integration/processes/test_sp_op_lgpd_dsr_001.py",
-      "line": 488,
+      "line": 496,
       "test": "test_happy_path_acesso_dados_saude_aprovado",
       "reason_constant": "_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON",
       "classification": "LGPD_DPO"
     },
     {
       "file": "tests/integration/processes/test_sp_op_lgpd_dsr_001.py",
-      "line": 517,
+      "line": 525,
       "test": "test_happy_path_correcao_executa_e_envia",
       "reason_constant": "_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON",
       "classification": "LGPD_DPO"
     },
     {
       "file": "tests/integration/processes/test_sp_op_lgpd_dsr_001.py",
-      "line": 546,
+      "line": 554,
       "test": "test_negativa_fundamentada_e_decisao_humana",
       "reason_constant": "_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON",
       "classification": "LGPD_DPO"
