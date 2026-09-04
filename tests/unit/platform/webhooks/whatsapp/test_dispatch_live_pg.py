@@ -25,12 +25,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
 
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.platform.webhooks.whatsapp.dispatch import HelenaDispatcher, InboundMessage
+from maezo.platform.webhooks.whatsapp.security import hash_phone
 from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
@@ -38,6 +40,7 @@ from tests.support.audit_fakes import FakeStartAuditSink
 
 pytestmark = pytest.mark.integration
 
+_TENANT = "amh"
 _PHONE_A = "5511999990001"
 _PHONE_B = "5511999990002"
 
@@ -92,6 +95,64 @@ def pg_dsn() -> str:
     return dsn
 
 
+def _known_thread_ids() -> tuple[str, str]:
+    """The exact two `wa:{tenant}:{phone_hash}` thread ids this file's test will write.
+
+    Deterministic on purpose: `_PHONE_A`/`_PHONE_B` are fixed constants and `Pseudonymizer()`'s
+    bare constructor uses the non-secret, deterministic dev/CI fallback key
+    (`pseudonymizer.py::_DEV_FALLBACK_ROOT`) — the SAME key `_dispatcher()` below injects into
+    every `HelenaDispatcher` this file builds — so `hash_phone` over them returns the SAME two
+    ids on every invocation of this process, this file, forever. That determinism is exactly why
+    `_clean_known_threads` (below) must own their lifecycle independently of the test body: see
+    its docstring.
+    """
+    p = Pseudonymizer()
+    return (
+        f"wa:{_TENANT}:{hash_phone(_PHONE_A, _TENANT, p)}",
+        f"wa:{_TENANT}:{hash_phone(_PHONE_B, _TENANT, p)}",
+    )
+
+
+async def _delete_known_threads(dsn: str) -> None:
+    ck = await Checkpointer.connect_and_setup(dsn)
+    try:
+        for tid in _known_thread_ids():
+            await ck.saver.adelete_thread(tid)  # type: ignore[union-attr]
+    finally:
+        await ck.aclose()
+
+
+@pytest.fixture(autouse=True)
+async def _clean_known_threads(pg_dsn: str) -> AsyncIterator[None]:
+    """Own this suite's two deterministic thread ids end-to-end — not the test body.
+
+    Root cause fixed here (gap LIVE-SUITES-SILENT-SKIP-AUDIT REVISE #2, gatekeeper probes F1-F4,
+    2026-09-04): `_PHONE_A`/`_PHONE_B` are FIXED constants, so `_known_thread_ids()` is the SAME
+    two thread ids on every run of this file (see its docstring). The test's own cleanup
+    (`adelete_thread` in the RESTART-RESUME block) sits AFTER the first `try/finally` — a failure
+    anywhere before it (including inside `_assert_no_raw_phone_in_checkpoint_tables`) hits that
+    `finally`'s `ck.aclose()` and the exception propagates straight OUT of the test function, so
+    the second block's cleanup is never reached and both threads survive in `checkpoints`. On the
+    NEXT run, `pre_existing_threads` (computed inside the test, before it writes anything) then
+    already contains both ids, so `written_here` in `_assert_no_raw_phone_in_checkpoint_tables`
+    comes back empty and `assert written_here` fails FOREVER — a false-RED, not a real one: F4
+    proved `main`'s whole-table `assert thread_ids` self-heals on the identical dirty DB, because
+    it does not scope to a delta.
+
+    An `autouse` fixture's teardown, unlike the test's own nested `try/finally`, ALWAYS runs —
+    red or green. Deleting both known ids BEFORE the test makes `pre_existing_threads` a TRUE
+    baseline regardless of what a previous run left behind, and deleting them again AFTER (in the
+    `finally` below) leaves `checkpoints` clean of this suite's rows either way. Neither the
+    GLOBAL raw-phone claim nor the DELTA convention claim inside the test changes one byte: this
+    fixture only clears the starting line, it proves nothing itself.
+    """
+    await _delete_known_threads(pg_dsn)
+    try:
+        yield
+    finally:
+        await _delete_known_threads(pg_dsn)
+
+
 class _FakeInference:
     def __init__(self, responses: list[str]) -> None:
         self._responses = list(responses)
@@ -124,7 +185,7 @@ def _dispatcher(checkpointer: Checkpointer, *, turns: int) -> HelenaDispatcher:
     dmn = FakeDmnTransport()
     dmn.register("triage_redflag_adult", [{"red_flag": False, "conduta": "CONTINUE"}] * turns)
     return HelenaDispatcher(
-        tenant_id="amh",
+        tenant_id=_TENANT,
         inference=_FakeInference(responses),  # type: ignore[arg-type]
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
