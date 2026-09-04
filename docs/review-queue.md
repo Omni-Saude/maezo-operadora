@@ -1167,3 +1167,29 @@ isso nao aparecem aqui.
 | `tests/integration/processes/test_sp_op_recurso_001.py:266` (docstring do guard de proveniencia) — residuo **D2-r2** | O CODIGO esta certo e a DOCSTRING esta errada. Ela afirma que um teste «nao pode falhar por um guard sobre um processo que ele nao usa»; o log `integ-recurso-e90b-test_sp_op_recurso_001.log:1116-1127` mostra `test_controle_negativo_lastro_confirmado_libera_pela_faixa_clerical` — que exercita SO SP-OP-PAGTO-001 — sendo reprovado pelo guard de RECURSO em `_deploy_pagto`. Falhar alto num engine contaminado e' melhor que emitir um resultado de PAGTO de proveniencia desconhecida, entao a decisao de engenharia esta correta; o que precisa mudar e' o texto, para nao prometer um isolamento que o guard deliberadamente nao da. Docs-only, nao tocado neste reparo por estar fora dos arquivos que este agente pode editar | orquestrador / autor do PR-3 | `ABERTO — correcao de texto, sem efeito de comportamento` |
 | `tests/integration/processes/engine_rest.py::assert_definition_provenance` + os 6 marcadores de `test_sp_op_recurso_001.py` — **ponto cego de ramo-irmao** (§B3c) | O guard discrimina esta arvore contra a `main` 6/6, nos dois sentidos — mas NAO contra um ramo-irmao. O BPMN de RECURSO do PR-4 (`feat/perspectiva-operadora-contas-recurso`) satisfaz os marcadores EXATAMENTE (`Start_RecursoRecebido`=3, `ST_ValidarRecurso`=12, e 0 para os quatro marcadores exclusivos da `main`), logo um `make deploy-artifacts` a partir do worktree do PR-4 passaria pelo guard sem ser notado. Hoje isso e inofensivo porque os dois BPMN diferem apenas em prosa mais o bloco de inicializacao `${""}` que so este ramo tem — mas e' exatamente essa diferenca que decide o desfecho fail-closed, entao o `DEPLOY-VERIFIED` NAO garante, sozinho, que o engine rodou a definicao deste PR e nao a do PR-4. Delimita o que a evidencia de engine 43/43 warranta; a correcao (um marcador que discrimine tambem ramos-irmaos, ou um hash da definicao) e' decisao do orquestrador | orquestrador + autor do harness de integracao | `ABERTO — limite de garantia, nao defeito de codigo` |
 | `tests/integration/platform/*_live_*.py` (4 arquivos, nenhum com `pytestmark = pytest.mark.integration`) — custo concreto do **m10** | O m10 ja estava divulgado no ponto do defeito (`test_notifications_bridge_live_engine.py:37-55`); o §B6 mediu o seu CUSTO: como estas suites nao tem o marker, elas sao COLETADAS na perna `-m "not integration"` e passam ou skippam conforme haja um engine em `:8080` no host naquele instante. Consequencia: o numero `passed`/`skipped` do gate unitario e' NAO-DETERMINISTICO (`8160/19` com engine vs `8158/21` sem — o mesmo total `8179`), e um numero registrado como fixo num ledger e' uma afirmacao que nao se reproduz. Enquanto nao houver marker, so `passed+skipped` deve ser citado como evidencia. Verificado em 2026-09-03: nenhuma branch local traz o marker, e a `main` `71dd4da` tambem nao | orquestrador (correcao e' do harness, atribuida fora deste PR) | `ABERTO — pre-existente; afeta a reprodutibilidade de todo numero de gate unitario` |
+
+---
+
+## PERSPECTIVE-FENCE-XML-COMMENT-ASYMMETRY — marcador de referencia historica NAO criado (pergunta ao dono)
+
+O registro P2 pedia «um marcador de referencia historica para que um comentario XML que registra
+uma delecao e carrega token de prestador nao seja hit bloqueante, mantendo a semantica Tier A/B
+documentada». A implementacao **recusou o marcador** e fechou o gap pela convencao que a propria
+racionalidade da fence implica (commit `a95914a`): narrativa de delecao nao vive em comentario XML
+de BPMN/DMN — vive na narrativa de docs ou num comentario de YAML de manifesto de spec, que Tier B
+nao le por desenho. Ver `src/maezo/platform/validation/perspective.py`, secao «Where historical
+references go» do docstring de modulo, e `CONTRIBUTING.md`, subsecao «Onde vive a referencia
+historica (convencao, nao marcador)».
+
+Razao da recusa, citada: ADR-0040 D7 diz «Nao ha allowlist de excecoes, nem por arquivo nem por
+bloco `historico:`» (`docs/adr/0040-perspectiva-operadora-contas-recurso.md:289-291`), e a secao
+«Fail-closed» do modulo repete «There is no exception mechanism: no allowlist file, no inline
+waiver, no `historico:` block». Um marcador que dispensasse o comentario E esse mecanismo. Criar um
+e ato do DONO sobre o ADR — nao edicao da fence por quem a implementa.
+
+**Nada aqui e ratificado.** ADR-0040 permanece *Proposed*, o que reforca (nao enfraquece) a
+conclusao: uma decisao ainda nao ratificada nao e emendada por uma edicao de codigo.
+
+| Item | O que precisa de decisao humana | Revisor | Status |
+|---|---|---|---|
+| ADR-0040 D7 — mecanismo de excecao | Registro de delecao deve ser permitido dentro de comentario XML de BPMN/DMN por meio de marcador explicito? Opcao A: manter o desenho sem excecao (recomendada; a convencao acima ja resolve o caso de uso). Opcao B: novo ADR emendando D7 com marcador + alargamento de Tier B para simetria. Memorando com consequencias e custo de teste das duas opcoes entregue ao orquestrador para `OWNER-DECISIONS.md` | dono (`@rodaquino-OMNI`) + Security/compliance | `ABERTO — decisao do dono; sem impacto no build (fence segue 0/0 em Tier A e Tier B)` |
