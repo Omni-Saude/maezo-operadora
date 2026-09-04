@@ -291,6 +291,49 @@ def test_state_from_envelope_fails_closed_without_the_flow_identity(
         state_from_envelope(envelope)
 
 
+def test_state_from_envelope_rejects_a_contas_guia_without_its_conta() -> None:
+    """`contas` adjudicated by guia needs the CONTA too — `graph._business_key` composes the
+    guia form ONLY as `CONTAS-{tenant}-{guia}-{conta}`. A guia WITHOUT a conta falls through to
+    the lote form with an EMPTY lote, so the key degenerates to `CONTAS-{tenant}-` and every such
+    case shares one `task_id`."""
+    envelope = _envelope(TASK_TYPE_GLOSA_ANALYSIS)
+    object.__setattr__(envelope, "payload_meta", {"numero_guia_tiss": "GUIA-001"})
+    with pytest.raises(ValueError, match="business-key identity"):
+        state_from_envelope(envelope)
+
+
+def test_contas_guias_without_a_conta_collide_and_the_seam_refuses_them() -> None:
+    """MUTATION PROBE (dispatcher Guard 4, DURABLE): relax the guard back to `lote OR guia` and
+    this test dies. Two DIFFERENT guias with no conta derive the SAME degenerate `task_id`, so
+    the dispatcher would treat the second case as an idempotent REPLAY of the first and hand back
+    the first case's result — `output_ref` anchored to a process that is not this case's. The
+    seam must refuse the ambiguous form; the guia+conta form it DOES accept is collision-free."""
+    degenerate = [
+        build_marina_analysis_envelope(
+            tenant="amh", task_type=TASK_TYPE_GLOSA_ANALYSIS, case_meta={"numero_guia_tiss": guia}
+        )
+        for guia in ("GUIA-001", "GUIA-002")
+    ]
+    assert degenerate[0].task_id == degenerate[1].task_id == "CONTAS-amh-"
+    for envelope in degenerate:
+        with pytest.raises(ValueError, match="business-key identity"):
+            state_from_envelope(envelope)
+
+    accepted = [
+        build_marina_analysis_envelope(
+            tenant="amh",
+            task_type=TASK_TYPE_GLOSA_ANALYSIS,
+            case_meta={"numero_guia_tiss": guia, "numero_conta": "CT-1"},
+        )
+        for guia in ("GUIA-001", "GUIA-002")
+    ]
+    assert accepted[0].task_id == "CONTAS-amh-GUIA-001-CT-1"
+    assert accepted[1].task_id == "CONTAS-amh-GUIA-002-CT-1"
+    assert accepted[0].task_id != accepted[1].task_id
+    for envelope in accepted:
+        assert _business_key(state_from_envelope(envelope)) == envelope.task_id
+
+
 def test_state_from_envelope_rejects_a_task_type_outside_the_card() -> None:
     envelope = _envelope(TASK_TYPE_GLOSA_ANALYSIS)
     object.__setattr__(envelope, "task_type", "glosa.decide")
