@@ -377,17 +377,67 @@ por preferência do implementador), reproduzido ao vivo antes de agir:
    77 nomes públicos de nível de módulo (76 mais `_CLASSIFICATION_ORDER` e, a partir do passo 6,
    nenhum outro nome privado — `_PROVIDER_FACTORIES` nunca precisou, por continuar sempre definido
    localmente).
-4. **Onze `monkeypatch` de teste apontando para o caminho de arquivo antigo quebraram nos passos 6
-   e 7** — achado não previsto pelo plano, que não discutia este efeito colateral. Uma chamada
-   `logger.info(...)`/uma referência a `resolve_br_regional_transport`/`retry_denial_reason`/
-   `br_endpoint_denial_reasons` dentro de uma função resolve esses nomes como variável livre pelo
-   NAMESPACE do módulo onde a função está fisicamente definida (regra LEGB do Python), não pelo
-   caminho de reexport — então mover `AnthropicInferenceProvider`/`BrResidentInferenceProvider` de
-   arquivo quebrou `monkeypatch.setattr("maezo.runtime.inference.logger", ...)` e primos
-   silenciosamente para 4 dos 11 casos (a asserção deles checa AUSÊNCIA de um evento, então ficaram
-   vácuos em vez de vermelhos) e ruidosamente para os outros 7 (`7 failed` reproduzido ao vivo antes
-   da correção). Corrigido redirecionando cada monkeypatch para o módulo de definição física real,
-   com nota no arquivo de teste explicando o porquê.
+4. **Dezesseis `monkeypatch` de teste apontando para o caminho de arquivo antigo quebraram ou
+   ficaram vácuos nos passos 6 e 7 (correção de contagem — a versão original deste item dizia
+   "onze", contando só o passo 6; achado da verificação independente VER-INFERENCE-SPLIT, R1)**:
+   11 no passo 6 (`providers.py`) + 5 no passo 7 (`br_resident_provider.py`) = 16, distribuídos em
+   5 arquivos de teste (`test_inference.py` 7, `test_inference_bedrock.py` 4,
+   `test_inference_br_resident.py` 1, `test_inference_retry_budget.py` 2,
+   `test_phi_inference_canary.py` 2) — achado não previsto pelo plano, que não discutia este efeito
+   colateral. Uma chamada `logger.info(...)`/uma referência a `resolve_br_regional_transport`/
+   `retry_denial_reason`/`br_endpoint_denial_reasons` dentro de uma função resolve esses nomes como
+   variável livre pelo NAMESPACE do módulo onde a função está fisicamente definida (regra LEGB do
+   Python), não pelo caminho de reexport — então mover `AnthropicInferenceProvider`/
+   `BrResidentInferenceProvider` de arquivo quebrou `monkeypatch.setattr(
+   "maezo.runtime.inference.logger", ...)` e primos ruidosamente para 7 dos 11 casos do passo 6
+   (`7 failed` reproduzido ao vivo antes da correção) e silenciosamente para 3 (não 4 — correção
+   abaixo) dos outros 4 (a asserção deles checa AUSÊNCIA de um evento, então ficaram vácuos em vez
+   de vermelhos): `test_generate_without_usage_does_not_crash_and_emits_nothing`,
+   `test_no_metering_when_the_response_carries_no_usage` e
+   `test_noop_and_phi_zone_mock_providers_emit_no_metering` — cada um reproduzido RED por
+   VER-INFERENCE-SPLIT ao reverter o retarget (mutação: fazer o branch sem `usage`/os providers
+   mock emitirem o evento de qualquer forma). O 4º caso originalmente contado como "vácuo",
+   `test_mock_providers_still_emit_no_metering_alongside_bedrock`, tinha o mesmo monkeypatch
+   desalinhado mas **nunca foi um guard**: nenhuma asserção do teste depende de `mock_logger` em
+   nenhum ponto — retargetá-lo foi higiene de teste (o patch aponta agora para o módulo certo),
+   não a correção de uma regressão silenciosa que de fato existia. Corrigido redirecionando cada um
+   dos 16 monkeypatches para o módulo de definição física real, com nota no arquivo de teste
+   explicando o porquê.
+
+5. **A superfície do facade (`dir(maezo.runtime.inference)`) estreitou de 118 para 99 nomes** —
+   não disclosed originalmente neste documento nem na linha do ledger da execução; achado da
+   verificação independente VER-INFERENCE-SPLIT (R1), reconfirmado nesta sessão de disclosure
+   (2026-09-03) importando `maezo.runtime.inference` num interpretador limpo
+   (`PYTHONDONTWRITEBYTECODE=1`, `__pycache__` purgado) a partir de `git archive` de `43722b9` e de
+   `a60d6d5` isoladamente e comparando `dir()`: **118 → 99**, 26 nomes removidos, 7 adicionados (os
+   7 submódulos do pacote — `br_regional`, `br_resident_provider`, `capabilities`, `errors`,
+   `providers`, `retry_budget`, `settings` — agora visíveis como atributos, o que o arquivo plano
+   nunca tinha). Dos 26 removidos, **18 são incidentais**: imports de stdlib/terceiros que só
+   apareciam em `dir()` do arquivo plano como efeito colateral de estarem no mesmo namespace de
+   módulo, nunca símbolos que o split pretendia expor (`ABC`, `Any`, `Awaitable`, `BaseSettings`,
+   `ClassVar`, `Protocol`, `StrEnum`, `abstractmethod`, `anthropic`, `asyncio`, `dataclass`,
+   `field`, `hashlib`, `os`, `runtime_checkable`, `time`, `urlsplit`, `urlunsplit`). **8 não são
+   incidentais** — deixaram de ser alcançáveis via `from maezo.runtime.inference import X`:
+   `FormattedPrompt` (um reexport; a classe real sempre viveu em `runtime/prompt_format.py`, nunca
+   em `inference.py`) e 7 helpers privados que passaram a viver fisicamente em
+   `runtime/inference/providers.py` sem serem reimportados para `__init__.py`:
+   `_emit_llm_token_usage`, `_RetryTokenBucket`, `_backoff_delay`, `_deterministic_jitter_unit`,
+   `_fingerprint`, `_ANTHROPIC_API_KEY_ENV_VARS`, `_FAKE_CHARS_PER_TOKEN` (o comentário de
+   `__init__.py:170-184` já disclosed a decisão deliberada de só re-expor `_PROVIDER_FACTORIES` e
+   `_CLASSIFICATION_ORDER` entre os nomes privados — os outros 7 nunca entraram nessa lista).
+   Prova de que a mudança é inofensiva para todo consumidor real: varredura de AST + grep de todo
+   bloco `from maezo.runtime.inference import (...)` em `src/`, `tests/` e `scripts/` (reconferida
+   nesta sessão) — **zero** consumidores destes 8 nomes através do facade em qualquer um dos dois
+   pontos no tempo. `FormattedPrompt` é sempre importado de `maezo.runtime.prompt_format`
+   diretamente onde é usado (`tests/unit/runtime/test_inference_br_resident.py:64`,
+   `tests/unit/runtime/test_prompt_format.py:20`); nenhum teste ou módulo de produção jamais
+   importou os 7 helpers privados pelo caminho do facade (confirmado símbolo a símbolo contra os
+   11 blocos de import reais que existem no repo hoje). A afirmação de nível de PR "nenhum
+   comportamento mudou" (linha do ledger desta execução) é, portanto, imprecisa por excesso de
+   generalidade; a afirmação correta é: **a superfície pública é idêntica para todo consumidor
+   real; o namespace do facade estreitou em 26 nomes incidentais/privados (18 imports de
+   conveniência + 8 nomes não-triviais), nenhum dos quais tinha um único importador dentro deste
+   repositório em nenhuma das duas revisões.**
 
 Achados adicionais fora do escopo original do plano, descobertos pela suíte completa no passo 8
 (não hipotéticos — reproduzidos ao vivo antes da correção):
@@ -401,12 +451,26 @@ Achados adicionais fora do escopo original do plano, descobertos pela suíte com
   referência hardcoded (`"src/maezo/runtime/inference.py:616"`) — atualizada em conjunto.
 - NÃO tocado (disclosed, não corrigido): comentários/docstrings em outros arquivos de `src/maezo/`
   (`gateway/effect_classes.py:365`, `gateway/pseudonymizer.py:14`, `gateway/effect_pep.py:195`,
-  `gateway/seams/_base.py:197`, `gateway/seams/inference.py:16,31`) e em `tests/` (`test_seam_proofs.py:241,678`,
-  `test_phi_inference_canary.py:734`, `test_check_effect_chokepoint_fence.py:364`) ainda citam o
-  caminho/linhas do arquivo plano antigo. Nenhum é lido por um teste que valide o número contra a
-  árvore real (confirmado pela suíte completa verde) — são prosa histórica, não uma cerca; deixados
-  como dívida de limpeza cosmética explicitamente fora do escopo desta execução, não uma omissão
-  silenciosa.
+  `gateway/seams/_base.py:197`, `gateway/seams/inference.py:3,16,31`,
+  `runtime/prompt_format.py:78` — os dois últimos itens completam a lista nesta sessão de
+  disclosure, achado da verificação independente VER-INFERENCE-SPLIT) e em `tests/`
+  (`test_seam_proofs.py:241,678`, `test_phi_inference_canary.py:734`,
+  `test_check_effect_chokepoint_fence.py:364`) ainda citam o caminho/linhas do arquivo plano
+  antigo. Nenhum destes é lido por um teste que valide o número contra a árvore real (confirmado
+  pela suíte completa verde) — são prosa histórica, não uma cerca. Ficam como dívida de limpeza
+  cosmética explicitamente fora do escopo desta execução — mas a frase original desta seção ("não
+  uma omissão silenciosa") superestimava a garantia: a lista acima foi montada incidentalmente por
+  quem tocou cada arquivo durante o split, não por uma varredura sistemática de todo o repositório
+  contra o caminho antigo, então ela não é necessariamente exaustiva. O que É verificado é mais
+  estreito e mais honesto: cada item LISTADO foi checado individualmente e nenhum é lido por
+  gate/teste que valide seu número contra a árvore real. Uma exceção foi corrigida nesta mesma
+  sessão de disclosure em vez de apenas listada: as três citações de docstring em
+  `src/maezo/platform/observability.py:655,667,671` citavam o caminho pontilhado
+  `maezo.runtime.inference._emit_llm_token_usage`, que resolvia em `43722b9` e deixou de resolver
+  em `a60d6d5` (o helper agora vive em `maezo.runtime.inference.providers`) — a única referência
+  não-resolvível encontrada em toda a árvore por varredura de AST completa, embora também não seja
+  lida por gate nenhum. Reanexadas para `maezo.runtime.inference.providers._emit_llm_token_usage`
+  neste commit, e por isso removidas desta lista de "não tocado".
 
 ---
 
