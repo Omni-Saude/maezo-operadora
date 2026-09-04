@@ -967,6 +967,17 @@ class AndreGraph:
         the active instance untouched; avoids a DUPLICATED payment release). A start failure
         never loses the case: it records the error and keeps the routing. NEVER releases a
         payment "on the side".
+
+        DECLARED AUTHORITY: NONE (gap `ANDRE-PROCESS-KEYS`, owner decision R-036, 2026-09-04).
+        `spec/agents/andre/agent.yaml` no longer declares `mcp-cibseven.start_process` nor the
+        `start_compliance_process` autonomy action, and it declares no `process_keys` — so the
+        effect-PEP's L-1 refuses this seam for `andre` (`AgentCapabilities.allows_tool` /
+        `allows_process_key`, pinned in `tests/unit/gateway/test_andre_least_privilege.py`). This
+        node is KEPT because no live originator reaches it today (Anchor 1 above returns
+        `start_skipped` for the only wired origin, and `delegation.py` maps only the no-op
+        `adequacao-worker`), so removing it is not what the decision ordered; if a foreign
+        originator ever appears, the grant returns as an explicit line of YAML under owner review
+        — never by omission.
         """
         if _flow(state) != "pagto_dossier":
             return {}
