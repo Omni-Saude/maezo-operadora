@@ -220,7 +220,12 @@ from maezo.gateway.audit_postgres import FreshSinkAuditEmitter
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
-from maezo.tools.workers.fraude import FraudeError, register_fraud_accusation, register_fraude_workers
+from maezo.tools.workers.fraude import (
+    GAP_BEATRIZ_A2A_NAO_LIGADO,
+    FraudeError,
+    register_fraud_accusation,
+    register_fraude_workers,
+)
 from maezo.tools.workers.fraude import seal_custody_bundle as _seal_custody_bundle
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
 
@@ -916,6 +921,53 @@ async def test_custodia_selada_antes_da_decisao(
     ended = await engine.activity_instances_ended(iid)
     assert "ST_SealCustodyBundle" in ended, "ST_SealCustodyBundle deve preceder a UT (selo->decisao)"
     assert not (ended & _ENDS_ADVERSOS), "Selagem nunca produz terminal adverso (selo nao e acusacao)"
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+async def test_ut_humana_nao_recebe_dossie_afirmado_e_ve_a_lacuna_declarada(
+    engine: EngineRest,
+    fraude_probe: FraudeEngineProbe,
+    start_fraude: Callable[..., Any],
+) -> None:
+    """BEA-09 ponta-a-ponta: a UT L0-hard recebe a LACUNA declarada, nunca um dossie afirmado.
+
+    Antes de BEA-09, `operadora.fraude.assemble_dossier` completava com
+    `{dossie_montado: true, dossie_items: <len(evidencia_refs)>}` e
+    `operadora.fraude.gather_evidence` com `evidencia_coletada_em="now"` — tres constantes que a
+    harness gravava no escopo da instancia (`harness.py` `complete`) sem que coleta ou montagem
+    alguma tivesse ocorrido (nenhuma chamada A2A a Beatriz existe). Este teste prova, contra o
+    ENGINE REAL, os dois lados da correcao no exato ponto em que o humano decide:
+
+      1. AUSENCIA das tres chaves fabricadas no escopo da instancia viva quando
+         `UT_DecisaoInvestigador` esta criada (via `get_variable_or_none`, que traduz o 404 de
+         variavel inexistente para `None` — a prova de que a chave nunca foi setada);
+      2. PRESENCA das duas variaveis honestas com o class-token fechado do contrato, provando que
+         a lacuna nao e silenciosa: ela chega ao investigador.
+
+    O fluxo do BPMN NAO muda (nenhum gateway/boundary novo): o caminho ate a UT e o mesmo que
+    `test_custodia_selada_antes_da_decisao` percorre, e os terminais adversos seguem inalcancaveis
+    sem UT humana (invariante L0 reafirmada no fim).
+    """
+    inst = await start_fraude()
+    iid = inst["id"]
+
+    ut = await _drive_to_decisao(engine, fraude_probe, iid)
+    assert ut.task_definition_key == _UT_DECISAO
+
+    for fabricada in ("dossie_montado", "dossie_items", "evidencia_coletada_em"):
+        assert await engine.get_variable_or_none(iid, fabricada) is None, (
+            f"BEA-09: `{fabricada}` e um fato FABRICADO (nenhuma coleta/montagem ocorre — a "
+            f"delegacao A2A a Beatriz nao esta ligada) e NAO pode existir no escopo da instancia "
+            f"quando {_UT_DECISAO} esta aberta."
+        )
+
+    assert await engine.get_variable(iid, "evidencia_gap") == GAP_BEATRIZ_A2A_NAO_LIGADO
+    assert await engine.get_variable(iid, "dossie_gap") == GAP_BEATRIZ_A2A_NAO_LIGADO
+
+    ended = await engine.activity_instances_ended(iid)
+    assert "ST_AssembleDossier" in ended, "a task de montagem roda e completa (nao levanta)"
+    assert "ST_SealCustodyBundle" in ended, "a selagem segue ocorrendo ANTES da UT"
+    assert not (ended & _ENDS_ADVERSOS), "declarar a lacuna nunca produz terminal adverso"
     await _assert_no_adverse_without_human_task(engine, iid)
 
 

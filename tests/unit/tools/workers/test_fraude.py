@@ -30,6 +30,7 @@ from maezo.tools.workers.fraude import (
     ERR_FRAUD_ACCUSATION_NOT_HUMAN,
     ERR_FRAUDE_HANDOFF_SEM_ALVO,
     ERR_PHI_IN_CUSTODY,
+    GAP_BEATRIZ_A2A_NAO_LIGADO,
     INADIMPLENCIA_PROCESS_KEY,
     FraudeError,
     _coerce_numeric,
@@ -71,7 +72,8 @@ def test_intake_registers_case() -> None:
 # ---------------------------------------------------------------
 
 
-def test_gather_evidence_collects_refs() -> None:
+def test_gather_evidence_normaliza_refs_sem_afirmar_coleta() -> None:
+    """BEA-09: a funcao NORMALIZA `evidencia_refs` e nada mais — nao coleta de lugar nenhum."""
     result = gather_evidence(
         {
             "numero_caso": "FRAUDE-001",
@@ -93,6 +95,36 @@ def test_gather_evidence_empty_refs() -> None:
         }
     )
     assert result["evidencia_refs"] == []
+
+
+def test_gather_evidence_nao_afirma_timestamp_de_coleta() -> None:
+    """BEA-09: `evidencia_coletada_em` era um timestamp constante de uma coleta que nunca ocorreu.
+
+    A funcao nao chama Beatriz, nao consulta CDC/TISS/feature store e nao contata nada: nenhuma
+    coleta acontece, logo nenhum instante de coleta pode ser afirmado.
+    """
+    result = gather_evidence(
+        {
+            "numero_caso": "FRAUDE-001",
+            "entidade_tipo": "prestador",
+            "evidencia_refs": ["ref-001"],
+        }
+    )
+    assert "evidencia_coletada_em" not in result
+    assert "now" not in result.values()
+
+
+def test_gather_evidence_declara_a_lacuna_de_beatriz() -> None:
+    """BEA-09: a lacuna nao e silenciosa — sai como class-token declarado no contrato."""
+    result = gather_evidence({"numero_caso": "FRAUDE-001", "evidencia_refs": []})
+    assert result["evidencia_gap"] == GAP_BEATRIZ_A2A_NAO_LIGADO
+    assert GAP_BEATRIZ_A2A_NAO_LIGADO == "beatriz_a2a_nao_ligado"
+
+
+def test_gather_evidence_retorno_tem_exatamente_as_chaves_honestas() -> None:
+    """Particao fechada: nenhuma chave alem do que a funcao de fato produz."""
+    result = gather_evidence({"numero_caso": "FRAUDE-001", "evidencia_refs": ["r"]})
+    assert set(result) == {"evidencia_refs", "evidencia_gap"}
 
 
 # ---------------------------------------------------------------
@@ -469,7 +501,14 @@ def test_score_indicators_never_produces_verdict_keys() -> None:
 # ---------------------------------------------------------------
 
 
-def test_assemble_dossier() -> None:
+def test_assemble_dossier_nao_afirma_dossie_montado() -> None:
+    """BEA-09: `dossie_montado=True` era afirmado por uma funcao que nao monta dossie algum.
+
+    O corpo pre-fix carregava o comentario "Placeholder: real implementation calls Beatriz via
+    A2A" e nao havia chamada A2A nenhuma. A jusante estao `seal_custody_bundle` e a User Task
+    L0-hard `UT_DecisaoInvestigador`: a constante entrava no escopo do processo (harness
+    `complete`) como trilha de auditoria de um dossie inexistente.
+    """
     result = assemble_dossier(
         {
             "numero_caso": "F-001",
@@ -477,8 +516,39 @@ def test_assemble_dossier() -> None:
             "indicadores_presentes": ["evidencia_presente"],
         }
     )
-    assert result["dossie_montado"] is True
-    assert result["dossie_items"] == 2
+    assert "dossie_montado" not in result
+    assert True not in result.values()
+
+
+def test_assemble_dossier_nao_conta_itens_de_dossie_inexistente() -> None:
+    """`dossie_items` contava `evidencia_refs` como se fossem itens de um dossie montado."""
+    result = assemble_dossier({"numero_caso": "F-001", "evidencia_refs": ["ref-a", "ref-b"]})
+    assert "dossie_items" not in result
+
+
+def test_assemble_dossier_declara_a_lacuna_de_beatriz() -> None:
+    """A lacuna chega DECLARADA a UT humana em vez de uma afirmacao falsa (nada silencioso)."""
+    result = assemble_dossier({"numero_caso": "F-001", "evidencia_refs": ["ref-a"]})
+    assert result["dossie_gap"] == GAP_BEATRIZ_A2A_NAO_LIGADO
+
+
+def test_assemble_dossier_retorno_tem_exatamente_a_chave_honesta() -> None:
+    """Particao fechada: a funcao nao produz mais nada, entao nao retorna mais nada."""
+    result = assemble_dossier({"numero_caso": "F-001", "evidencia_refs": ["ref-a", "ref-b"]})
+    assert set(result) == {"dossie_gap"}
+
+
+def test_assemble_dossier_nao_ecoa_evidencia_nem_indicadores() -> None:
+    """Nao reescreve no escopo do processo o que ja esta la (eco = ruido de auditoria)."""
+    result = assemble_dossier(
+        {
+            "numero_caso": "F-001",
+            "evidencia_refs": ["ref-a"],
+            "indicadores_presentes": ["upcoding_complexity_ceiling"],
+        }
+    )
+    assert "evidencia_refs" not in result
+    assert "indicadores_presentes" not in result
 
 
 # ---------------------------------------------------------------

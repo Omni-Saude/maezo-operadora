@@ -234,6 +234,26 @@ def _nondeterministic_calls(tree: ast.AST) -> set[str]:
 # risk` handlers (recurso/reembolso/cancel/credenciamento/fraude/inadimplencia/pagto/adequacao/
 # programa) plus `nip.notify_deadline_risk` fabricated the identical fact under a compound name.
 # All ten are fixed IN THE SAME COMMIT as this widening, so the baseline below stays EMPTY.
+#
+# BEA-09 widened the set with `dossie_montado`. Same species, and the first instance of it that is
+# NOT a notification: `fraude.assemble_dossier` returned `{"dossie_montado": True, "dossie_items":
+# len(evidencia_refs)}` from a function whose own body carried the comment "Placeholder: real
+# implementation calls Beatriz via A2A" — no A2A call, no dossier, no narrative, on a process whose
+# next steps are `seal_custody_bundle` and the L0-hard human User Task `UT_DecisaoInvestigador`.
+# The claim went into process scope through the harness `complete` (`harness.py:1779-1783`) exactly
+# like the notification family, so the audit trail of a fraud investigation recorded a dossier that
+# was never assembled. Fixed IN THE SAME COMMIT as this widening (the fix commit; the widening
+# lands one commit earlier as the RED proof), so the baseline below stays EMPTY.
+#
+# The sibling fabrication in the SAME function pair — `gather_evidence`'s
+# `{"evidencia_coletada_em": "now"}` — is NOT added here, deliberately and not by oversight: this
+# detector matches `<key>: True` and `status: <literal>`, so a placeholder-timestamp STRING under
+# an arbitrary key is outside its two shapes. Adding the key would be an INERT entry that reads
+# like coverage. The `"now"` placeholder-timestamp shape has three more live instances in the
+# worker tree (`fraude.intake::intake_ts`, `programa::consent_verified_at`,
+# `programa::data_enrollment` — `grep -rn '": "now"' src/maezo/tools/workers/`), so widening into
+# it is its own slice with its own consumer map, not a free rider on this one. Reported by BEA-09,
+# not fixed by it.
 _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
     {
         "notificacao_previa_feita",
@@ -241,6 +261,7 @@ _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
         "notified",
         "sla_risk_notified",
         "deadline_risk_notified",
+        "dossie_montado",
     }
 )
 
