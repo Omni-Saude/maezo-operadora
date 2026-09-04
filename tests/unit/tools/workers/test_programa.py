@@ -4,6 +4,7 @@ TDD London School: tests verify the consent chokepoint and clinical discharge gu
 """
 
 import pytest
+import structlog.testing
 
 from maezo.tools.workers.harness import (
     ExternalTask,
@@ -15,6 +16,7 @@ from maezo.tools.workers.harness import (
 from maezo.tools.workers.programa import (
     ERR_PROGRAM_DISCHARGE_NOT_HUMAN,
     ERR_PROGRAMA_NO_CONSENT,
+    GAP_ENROLL_A2A_NAO_LIGADO,
     RISCO_FAIL_CLOSED_DEFAULT,
     ProgramaError,
     check_consent,
@@ -272,14 +274,48 @@ def test_stratify_risk_never_sets_decisao_programa() -> None:
 # ---------------------------------------------------------------
 
 
-def test_enroll_beneficiario() -> None:
+def test_enroll_beneficiario_nao_afirma_enrollment_realizado() -> None:
+    """ENROLL-BENEFICIARIO-SEM-EFEITO-REAL: `enrollment_realizado=True` era afirmado por uma
+    funcao que nao executa enrollment algum.
+
+    O corpo faz SO `logger.info` — nenhuma escrita, nenhuma chamada A2A. O contrato
+    (`docs/processes/contracts/SP-OP-PROGRAMA-001.md`, linha do topico
+    `operadora.programa.build_care_plan`) e o proprio modulo (`programa.py:687`, "spec match: task
+    name says 'care.enroll'") declaram uma delegacao A2A `care.enroll` a Valentina que o codigo
+    nunca chama. Mesma especie que BEA-09 corrigiu para `dossie_montado`/`referral_executado`.
+    """
     result = enroll_beneficiario(
         {
             "programa_id": "cronicos",
             "beneficiario_pseudo_id": "b-001",
         }
     )
-    assert result["enrollment_realizado"] is True
+    assert "enrollment_realizado" not in result
+    assert True not in result.values()
+
+
+def test_enroll_beneficiario_declara_a_lacuna_do_a2a() -> None:
+    """A lacuna chega DECLARADA (token fechado, sem PHI) em vez de uma afirmacao falsa."""
+    result = enroll_beneficiario(
+        {
+            "programa_id": "cronicos",
+            "beneficiario_pseudo_id": "b-001",
+        }
+    )
+    assert result["enrollment_gap"] == GAP_ENROLL_A2A_NAO_LIGADO
+    assert GAP_ENROLL_A2A_NAO_LIGADO == "enroll_a2a_nao_ligado"
+
+
+def test_enroll_beneficiario_loga_a_lacuna() -> None:
+    """Observabilidade sobrevive ao fix: a etapa continua logando, e o log declara a lacuna em vez
+    de afirmar um enrollment que nao ocorreu (mesma disciplina de `assemble_dossier`/BEA-09)."""
+    with structlog.testing.capture_logs() as logs:
+        enroll_beneficiario({"programa_id": "cronicos", "beneficiario_pseudo_id": "b-001"})
+    events = [entry for entry in logs if entry.get("event") == "programa_enroll_gap"]
+    assert events, "a etapa TEM de continuar observavel no log"
+    assert events[0]["enrollment_asserted"] is False
+    assert events[0]["gap"] == GAP_ENROLL_A2A_NAO_LIGADO
+    assert events[0]["programa_id"] == "cronicos"
 
 
 def test_enroll_beneficiario_nao_afirma_timestamp_de_enrollment() -> None:
@@ -301,15 +337,15 @@ def test_enroll_beneficiario_nao_afirma_timestamp_de_enrollment() -> None:
     assert "now" not in result.values()
 
 
-def test_enroll_beneficiario_retorno_tem_exatamente_as_chaves_honestas() -> None:
-    """Particao fechada: `enroll_beneficiario` so afirma `enrollment_realizado`."""
+def test_enroll_beneficiario_retorno_tem_exatamente_a_chave_honesta() -> None:
+    """Particao fechada: a UNICA saida e a lacuna declarada."""
     result = enroll_beneficiario(
         {
             "programa_id": "cronicos",
             "beneficiario_pseudo_id": "b-001",
         }
     )
-    assert result == {"enrollment_realizado": True}
+    assert result == {"enrollment_gap": GAP_ENROLL_A2A_NAO_LIGADO}
 
 
 # ---------------------------------------------------------------
