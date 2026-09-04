@@ -211,6 +211,56 @@
 > HANDOFF.yaml) **não estão neste repositório**: vivem local-only em
 > `docs/audits/maezo-deep-audit/remediation/` no checkout principal do dono, porque `docs/audits/` é
 > gitignored por decisão do próprio dono — não são caminhos deste repo, sem link.
+>
+> **Atualização 2026-09-04 (rodada 2 do fechamento de gaps — 10 PRs mergeados;
+> `main`@`df28608`).** Lineage completa desde `43722b9`:
+> - **#299** docs de fecho da rodada 1 → `96d7d0d`.
+> - **#300** gate docs-only do lane de integração no `ci.yml` (dono: hapi-fhir não sobe, timeout
+>   150) → `130d8ba`.
+> - **#301** allowlist do gitleaks por commit — check requerido `gitleaks / secrets` de `main`
+>   VERDE de novo → `81f8018`.
+> - **Trem 1** (#302 → `7004ae0`): EVAL-REPLAY exaustão inengolível + achado: stub sem `task_kind`
+>   deixava os 5 evals do Lucas vazios; CONTAS catálogo de erros = leitura ADR-0030 Tier-3
+>   (owner-decision); reconciliação de docs incl. 19 alertas fantasma do runbook marcados PLANNED +
+>   8 alertas shipped documentados; FAB trio `notified` honesto.
+> - **Trem 2** (#306 → `89a6c29`): WhatsApp não-texto — ack honesto pela seam gateada, sem humano
+>   prometido; cerca de perspectiva sem waiver (D7) + pins comportamentais; suíte live do producer
+>   Kafka passa a rodar no CI — 3 testes latentes-vermelhos desde #294 corrigidos, teste de
+>   partição não-vácuo.
+> - **Pilha de revisão do dono** (ordem do dono 2026-09-04, D-21):
+>   - **#303** split D2-02 de `runtime/inference.py` em pacote, comportamento preservado →
+>     `eddee2c`.
+>   - **#304** `check_evidence_ledger_hashes.py` + `make check-ledger-hashes` → `06d6e0d`.
+>   - **#305** flip-path gate: caminhos relativos ao merge-base + cap de 300 do compare
+>     fail-closed → `ec3373c`.
+>   - **#307** notas de emenda in-place de #274 movidas para a ADR-0040 → `82cbedf`.
+>   - **#308** FAB fatia 4: 10 handlers `sla_risk_notified`/`status` fabricados → `{}`, cerca
+>     estendida; prova de identidade AUTH re-ancorada no `audit_chain` → `df28608` — **HEAD atual
+>     de `main`**.
+>
+> **Gates finais em `df28608`:** unit 9247/12/639/1 (era 9106), evals 117, todas as cercas PASS,
+> gitleaks histórico completo limpo, ledger 270 linhas, 41 ADRs (35 Accepted).
+>
+> **Registro local** (gitignored `docs/audits/maezo-deep-audit/`): 200 gaps (14 P0 / 67 P1 / 116
+> P2 / 3 P3), 77 memos, 105 perguntas; `OWNER-DECISIONS-REGISTER.{xlsx,csv}` v2 (287 linhas)
+> gerado por sessão paralela.
+>
+> **O que fica com o dono:**
+> - ratificar D-21;
+> - responder memos M-71..M-76 (CONTAS catálogo Tier-3, prática não uniforme de hash do ledger,
+>   trade-off 200-vs-500 em lote misto WhatsApp, `WHATSAPP_PHONE_NUMBER_ID` no Helm, tópico órfão
+>   `operadora.lgpd.publish_completed`, ligação dos 8 alertas de SLA a um canal);
+> - M-66-bis (nenhum marcador histórico na cerca — contradiz M-66);
+> - `.github/workflows/flip-path-review-gate.yml` cabeçalho desatualizado;
+> - passo de CI proposto para `check_evidence_ledger_hashes.py`;
+> - `check_evidence_ledger.py` inerte para ids não-`T<n>.<n>`;
+> - `KAFKA_NUM_PARTITIONS` no compose;
+> - decisões 9.6/10.2 e `WEBHOOK-WAMID-DEDUP`.
+>
+> **Pendente agent-executável (próxima rodada):** NIP chaves-eco (`ST_SolicitarInfoNip`),
+> `event_topic_pended` RECURSO bpmn:194 (CORPUS_DELTA_LOG citando #308), fatia 5
+> (`auth.SendDenialNoticeWorker` + 13 retornos `event`; retirada do tópico órfão LGPD), auditoria
+> de skip silencioso das suítes live, citações de linha obsoletas de `runtime/inference.py`.
 
 ---
 
