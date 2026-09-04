@@ -139,12 +139,20 @@ _TOLERATED_CREATE_ERROR_CODES = (0, 36)
 assert PRODUCER_NOTIFICATIONS_TOPIC == NOTIFICATIONS_TOPIC
 
 #: Partition count `test_same_entity_events_land_on_the_same_partition` creates its OWN topic with.
-#: `docker-compose.yml`'s kafka service sets no `KAFKA_NUM_PARTITIONS`, so cp-kafka auto-creates
-#: every topic with exactly ONE partition — under which `first.partition == second.partition` is
-#: true for EVERY possible input and the ordering claim is unfalsifiable (it cannot fail, so it
-#: proves nothing). 3 is the platform's own declared default for a real topic
-#: (`maezo.platform.topic_registry.TopicEntry.partitions = 3`, ~:89) — i.e. the partition count the
-#: ordering guarantee actually has to hold under in production.
+#: As of gap `KAFKA-NUM-PARTITIONS-COMPOSE`, `docker-compose.yml`'s kafka service DOES set
+#: `KAFKA_NUM_PARTITIONS: 3` — but this test still creates its own per-run topic and explicitly
+#: requests this count via `NewTopic(...)` rather than leaning on that compose default: `_await_
+#: topic_ready`'s `TOPIC_ALREADY_EXISTS` tolerance means whichever caller creates a given topic
+#: name FIRST decides its real partition count for the rest of the run, so a topic another suite
+#: (or a stale broker) happened to touch first could still be sitting on 1 partition regardless of
+#: what the compose stanza currently says — the explicit request plus the `ready_partitions`
+#: assertion below make the precondition self-proving instead of borrowing it from config that
+#: could silently drift back. Before that fix, every topic (including this one, absent this
+#: explicit request) was auto-created with exactly ONE partition — under which `first.partition ==
+#: second.partition` is true for EVERY possible input and the ordering claim was unfalsifiable (it
+#: could not fail, so it proved nothing). 3 is also the platform's own declared default for a real
+#: topic (`maezo.platform.topic_registry.TopicEntry.partitions = 3`, ~:89) — i.e. the partition
+#: count the ordering guarantee actually has to hold under in production.
 _ORDERING_TOPIC_PARTITIONS = 3
 
 #: How many DIFFERENT entities that same test publishes as its spread control. Their derived keys
@@ -820,17 +828,23 @@ async def test_same_entity_events_land_on_the_same_partition(
     events about DIFFERENT entities are the control: the derivation must not collapse a whole
     tenant onto one partition.
 
-    WHY THIS TEST CREATES ITS OWN TOPIC. On the compose stack every topic is auto-created with ONE
-    partition (`docker-compose.yml`'s kafka service sets no `KAFKA_NUM_PARTITIONS`), and on a
-    1-partition topic `first.partition == second.partition` holds for EVERY conceivable input —
-    including a producer that ignored the key entirely and round-robined. The assertion could not
-    fail, so it proved nothing; the test passed vacuously the moment the suite started running
-    (gap `PRODUCER-LIVE-19092-DEFAULT` made it run at all). It now creates a PER-RUN topic with
-    `_ORDERING_TOPIC_PARTITIONS` partitions, ASSERTS that precondition (loudly — never a skip:
-    the broker is already proven reachable, so a topic that will not take the requested partition
-    count is a real defect), and only then makes the ordering claim, which on 3 partitions is
-    falsifiable: a keyless/round-robin producer would spread the same entity's two events across
-    partitions with probability 2/3.
+    WHY THIS TEST CREATES ITS OWN TOPIC (still true after gap `KAFKA-NUM-PARTITIONS-COMPOSE`
+    changed the compose default to 3 — see below). Originally, on the compose stack every topic
+    was auto-created with ONE partition (`docker-compose.yml`'s kafka service set no
+    `KAFKA_NUM_PARTITIONS`), and on a 1-partition topic `first.partition == second.partition` held
+    for EVERY conceivable input — including a producer that ignored the key entirely and
+    round-robined. The assertion could not fail, so it proved nothing; the test passed vacuously
+    the moment the suite started running (gap `PRODUCER-LIVE-19092-DEFAULT` made it run at all).
+    It now creates a PER-RUN topic with `_ORDERING_TOPIC_PARTITIONS` partitions, ASSERTS that
+    precondition (loudly — never a skip: the broker is already proven reachable, so a topic that
+    will not take the requested partition count is a real defect), and only then makes the
+    ordering claim, which on 3 partitions is falsifiable: a keyless/round-robin producer would
+    spread the same entity's two events across partitions with probability 2/3. This precondition
+    stays even though the compose stack itself now defaults auto-created topics to 3 partitions,
+    because `_await_topic_ready` only CREATES a topic that does not exist yet — a name reused from
+    an earlier, differently-configured run (or created by another suite first) keeps its original
+    count regardless of what the compose stanza currently says, so the explicit request +
+    assertion is what actually makes the claim non-vacuous, not the config file's current value.
 
     The topic name keeps the reserved `agents.events.{dominio}.{acao}` shape with `{dominio}` =
     `contas`, so `partition_key.anchor_family` resolves exactly the same anchor group it resolves
