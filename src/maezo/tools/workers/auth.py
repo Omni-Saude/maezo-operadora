@@ -1422,6 +1422,18 @@ class SendDenialNoticeWorker(WorkerBase):
     `redact_phi_vars` (redacao UNIDIRECIONAL, classe-token `REDACTED_PHI`): nenhum texto clinico cru
     entra em variavel de engine. O canal seguro real ao prestador recebe o texto integral fora
     desta costura (Fase 1).
+
+    AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL (WP-FATOS-FABRICADOS slice 5). Os DOIS caminhos de
+    sucesso deste worker devolviam, incondicionalmente, `"status": "notice_sent"` — uma afirmacao
+    de TRANSMISSAO. O paragrafo acima ja divulgava que o canal seguro real e' de Fase 1: este
+    worker e' SINCRONO (`WorkerBase.execute`), nao tem seam de Kafka nenhum, nao abre canal
+    nenhum, e o unico efeito que produz e' COMPOR o registro da negativa e devolve-lo ao engine.
+    `notice_sent` nomeava um ato que nada aqui executa; agora a chave `status` simplesmente NAO e'
+    escrita nos caminhos de sucesso. O registro do guard (`status="blocked_by_guard"` +
+    `ERR_DENIAL_NOT_HUMAN`) e' o UNICO `status` honesto deste worker — um fato interno sobre a
+    propria recusa — e permanece byte-identico, assim como o `ERR_AUTH_DENIAL_INCOMPLETE` e o seu
+    boundary `BE_NegativaIncompleta`. Nada mais mudou: o dossie redigido, `notice_type`,
+    `error_code` e a proveniencia `human_approved` sao dados REAIS (ver `execute`).
     """
 
     def __init__(self) -> None:
@@ -1445,7 +1457,24 @@ class SendDenialNoticeWorker(WorkerBase):
                           human provenance (human_approved or auditor_id).
 
         Returns:
-            Dict with notice status and optional error code (clinical fields redacted).
+            O REGISTRO da negativa (ou do aviso de aprovacao), com os campos clinicos redigidos —
+            NUNCA um `status` de transmissao (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL). Cada chave
+            devolvida no caminho de sucesso e' um fato verificavel:
+              - `notice_type` ({"denial","approval"}): a NATUREZA do registro composto aqui, nao
+                um ato de envio;
+              - `error_code: None`: nenhum guard disparou nesta entrega (o registro de recusa e'
+                que carrega `ERR_DENIAL_NOT_HUMAN`);
+              - `event`: o topico que `ST_PublishNegada` publica logo adiante, no UNICO fluxo de
+                saida de `ST_EnviarNegativaFormal` (`Flow_Negativa_Pub` ->
+                `event_topic=agents.events.auth.completed`) — o idioma irmao dos demais retornos
+                `agents.events.*` deste modulo, cujo publicador e' a `ST_Publish*` do proprio BPMN;
+              - `human_approved: True` (so no ramo NEGAR): a proveniencia humana RESOLVIDA acima,
+                derivada de `human_approved is True` OU de um `auditor_id` nao-vazio — nunca uma
+                constante decorativa (a integracao le esta variavel do historico do engine para
+                provar que a negativa transmitida passou pelo GUARD 2);
+              - os tres campos clinicos, ja passados por `redact_phi_vars` (ADR-0006).
+            O ramo `blocked_by_guard` e' o unico que escreve `status`, e escreve um fato sobre a
+            propria recusa.
 
         Raises:
             WorkerBpmnError: ERR_AUTH_DENIAL_INCOMPLETE when a NEGAR lacks any grounding field.
@@ -1490,12 +1519,17 @@ class SendDenialNoticeWorker(WorkerBase):
                     "mensagem": "Negativa automatica PROIBIDA. Requer decisao de medico auditor humano.",
                 }
 
-            # Transmissao: monta a notificacao formal (carrega os campos clinicos) e REDIGE o PHI
-            # (redacao unidirecional) antes de qualquer variavel deixar o worker. Nunca loga o
-            # conteudo clinico — apenas o registro de transmissao.
-            self.logger.info("auth_denial_sent", tenant_id=tenant_id)
+            # COMPOSICAO do registro formal (carrega os campos clinicos), REDIGIDO (redacao
+            # unidirecional) antes de qualquer variavel deixar o worker. Nunca loga o conteudo
+            # clinico — apenas o registro. `notice_composed_asserted_transmission=False` deixa
+            # explicito na trilha que esta etapa COMPOE o registro e nao transmite nada: o canal
+            # seguro ao prestador e' de Fase 1 (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL).
+            self.logger.info(
+                "auth_denial_notice_composed",
+                tenant_id=tenant_id,
+                notice_composed_asserted_transmission=False,
+            )
             notice = {
-                "status": "notice_sent",
                 "notice_type": "denial",
                 "error_code": None,
                 "event": "agents.events.auth.completed",
@@ -1510,13 +1544,17 @@ class SendDenialNoticeWorker(WorkerBase):
             # variavel de engine. Chaves estruturais (status/event/...) passam intactas.
             return redact_phi_vars(notice)
 
-        # APROVAR ou outro — envia aviso de aprovacao (sem campos clinicos).
+        # APROVAR ou outro — compoe o aviso de aprovacao (sem campos clinicos). Ramo DEFENSIVO:
+        # `ST_EnviarNegativaFormal` e' a UNICA task no topico `operadora.auth.send_denial_notice`
+        # e o seu unico fluxo de entrada e' `Flow_GWDec_Negar` (`${decisao_auditor == 'NEGAR'}`),
+        # entao o modelo nao alcanca este ramo; ele existe para nao explodir se um `decisao_auditor`
+        # inesperado chegar. Mesmo aqui nada e' transmitido — so um registro e' composto.
         self.logger.info(
-            "auth_approval_notice_sent",
+            "auth_approval_notice_composed",
             tenant_id=tenant_id,
+            notice_composed_asserted_transmission=False,
         )
         return {
-            "status": "notice_sent",
             "notice_type": "approval",
             "error_code": None,
             "event": "agents.events.auth.completed",
