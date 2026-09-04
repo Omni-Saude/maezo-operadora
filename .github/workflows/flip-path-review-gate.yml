@@ -40,13 +40,16 @@ name: flip-path-review-gate
 #                            (`repos/{repo}/commits/{sha}`, independently paginated) so the touched
 #                            set is never silently truncated. All still `contents: read` — no new
 #                            permission was needed for the fix.
-#   pull-requests: read  -> read the PR itself for its base ref/sha, head sha and author login
-#                            (`pulls/{n}`; the `base.ref` it returns is what feeds the
-#                            `branches/{ref}` call above) and list its reviews (`pulls/{n}/reviews`).
-#                            `pulls/{n}/files` — the OLD source of touched paths, dropped by #305
-#                            because it diffs from the PR's possibly-weeks-stale recorded `base.sha`
-#                            and its own `files` list silently truncates at 300 with no signal — is
-#                            no longer called at all.
+#   pull-requests: read  -> list the PR's reviews (`pulls/{n}/reviews`) — the only call this
+#                            permission buys on the workflow's own path, where the PR's base ref/sha,
+#                            head sha and author login come from $GITHUB_EVENT_PATH, not the API
+#                            (CONTEXT PRECEDENCE rule 3 in the script docstring). The local
+#                            `--repo/--pr` dry-run instead reads `pulls/{n}` for those fields (rule
+#                            2). Either way it is `base.ref` that feeds the `branches/{ref}` call
+#                            above. `pulls/{n}/files` — the OLD source of touched paths, dropped by
+#                            #305 because it diffs from the PR's possibly-weeks-stale recorded
+#                            `base.sha` and its own `files` list silently truncates at 300 with no
+#                            signal — is no longer called at all.
 # Note what is NOT requested: no `write` of any kind. The gate reports pass/fail through its own
 # exit status; it never posts a comment, never approves, never merges, and cannot. One more call the
 # evaluation makes needs no `permissions:` key at all, because none can grant it:
