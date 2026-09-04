@@ -26,9 +26,15 @@ Cinco invariantes:
     final da 0001 e' o mesmo de antes, sem pgvector nada e' criado, e os dois caminhos chegam ao
     mesmo head.
 
-4.  **`downgrade()` e' honesto e NAO tem guarda de disponibilidade.** Recriar a extensao e a
-    coluna, sem `IF EXISTS (pg_available_extensions)`: num servidor sem pgvector ele FALHA ALTO em
-    vez de devolver um schema "0008" sem a coluna que a 0008 tem.
+4.  **`downgrade()` e' CONVERGENTE com a 0001 — a MESMA guarda de disponibilidade.** Recriar a
+    extensao e a coluna sob `IF EXISTS (pg_available_extensions ...)`. A versao original desta
+    suite afirmava o contrario ("sem guarda, para falhar alto"), e estava errada: num servidor sem
+    pgvector a guarda da 0001 faz com que a revisao 0008 daquele servidor NAO tenha a coluna
+    `embedding`, entao um downgrade sem guarda nao restaura "a coluna que a 0008 tem" — ele morre
+    tentando construir algo que a 0008 nunca teve ali, e derruba a unica prova de rollback real do
+    repositorio (`tests/unit/platform/integrations/test_amh_inbox_live_pg.py::
+    test_upgrade_downgrade_upgrade_roundtrip`) contra a imagem `postgres:16` que este mesmo PR poe
+    no compose.
 
 5.  **Nada mais e' tocado.** `upgrade()` e `downgrade()` nomeiam `agent_memory` e a extensao
     `vector`, e nenhuma outra relacao das migrations 0001..0008.
@@ -229,8 +235,26 @@ def test_the_compose_stack_no_longer_pulls_the_pgvector_image() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. `downgrade()` e' honesto
+# 4. `downgrade()` e' CONVERGENTE com a guarda da 0001
 # ---------------------------------------------------------------------------
+
+#: O predicado de disponibilidade, escrito UMA vez aqui: 0001 e 0009-downgrade tem de fazer a
+#: MESMA pergunta, senao "convergente" e' so uma palavra no docstring.
+_AVAILABILITY_PREDICATE = "EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')"
+
+
+def _downgrade_guarded_block() -> str:
+    """O trecho do SQL do `downgrade()` que roda DENTRO da guarda de disponibilidade.
+
+    Sem este recorte, uma guarda que envolvesse apenas o `CREATE EXTENSION` e deixasse o
+    `ADD COLUMN ... public.vector(1536)` de fora satisfaria um `in`-simples e continuaria
+    quebrando em `postgres:16` — que e' exatamente o defeito que esta secao existe para impedir.
+    """
+    sql = " ".join(_downgrade_sql().split())
+    assert _AVAILABILITY_PREDICATE in sql, sql
+    start = sql.index(_AVAILABILITY_PREDICATE)
+    end = sql.index("END IF;", start)
+    return sql[start:end]
 
 
 def test_downgrade_recreates_both_the_extension_and_the_column() -> None:
@@ -239,12 +263,47 @@ def test_downgrade_recreates_both_the_extension_and_the_column() -> None:
     assert "ADD COLUMN IF NOT EXISTS embedding public.vector(1536)" in sql
 
 
-def test_downgrade_has_no_availability_guard_and_therefore_fails_loudly() -> None:
-    """Deliberadamente SEM `pg_available_extensions`: num servidor sem pgvector o downgrade tem de
-    quebrar, nao devolver um "0008" sem a coluna que a 0008 tem."""
-    assert "pg_available_extensions" not in _downgrade_sql(), (
-        "downgrade() ganhou uma guarda de disponibilidade — passaria a alegar uma reversibilidade "
-        "que nao entrega (ver o docstring da migration)"
+def test_downgrade_carries_the_same_availability_guard_as_0001() -> None:
+    """A cerca do defeito F1. Um `downgrade()` sem guarda deixa VERMELHA a unica prova de rollback
+    real do repositorio (`test_amh_inbox_live_pg.py::test_upgrade_downgrade_upgrade_roundtrip`)
+    contra a imagem `postgres:16` que este mesmo PR poe no compose — medido: `1 failed, 21 passed`
+    sem a guarda, `22 passed` com ela.
+
+    A guarda nao esconde reversibilidade nenhuma: num servidor sem pgvector a 0001 tambem nao cria
+    a coluna, logo a 0008 DAQUELE servidor nao a tem e o downgrade guardado devolve exatamente a
+    0008 dele.
+    """
+    assert _AVAILABILITY_PREDICATE in " ".join(_downgrade_sql().split()), (
+        "downgrade() perdeu a guarda de disponibilidade — volta a morrer com "
+        "`extension \"vector\" is not available` em qualquer servidor sem pgvector, inclusive na "
+        "imagem `postgres:16` do compose (ver o docstring da migration)"
+    )
+
+
+def test_the_downgrade_guard_covers_the_column_and_not_only_the_extension() -> None:
+    """Meia-guarda tambem quebra: `public.vector(1536)` nao resolve onde a extensao nao existe."""
+    guarded = _downgrade_guarded_block()
+    assert "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public" in guarded
+    assert "ADD COLUMN IF NOT EXISTS embedding public.vector(1536)" in guarded
+
+
+def test_the_downgrade_column_is_created_through_execute_not_parsed_inline() -> None:
+    """Controle da guarda acima: o corpo de um bloco `DO` e' parseado INTEIRO antes de rodar, entao
+    um `ALTER TABLE ... public.vector(1536)` literal dentro do `DO` falharia no parse mesmo com a
+    guarda em volta. So `EXECUTE '<sql>'` adia a resolucao do tipo. Mesma razao da 0001."""
+    guarded = _downgrade_guarded_block()
+    column_stmt = guarded[guarded.index("ADD COLUMN IF NOT EXISTS embedding") :]
+    prefix = guarded[: guarded.index("ADD COLUMN IF NOT EXISTS embedding")]
+    assert "EXECUTE '" in prefix, column_stmt
+
+
+def test_the_0001_and_0009_guards_ask_the_same_question() -> None:
+    """Convergencia literal: se a 0001 mudar de predicado e a 0009 nao (ou vice-versa), os dois
+    caminhos deixam de encontrar-se e esta cerca fica vermelha antes de o roundtrip quebrar."""
+    sql_0001 = " ".join(_emitted_sql(_SOURCE_0001).split())
+    assert _AVAILABILITY_PREDICATE in sql_0001, (
+        "a 0001 deixou de usar o predicado de disponibilidade canonico — 0009.downgrade() ficou "
+        "convergente com uma pergunta que ninguem mais faz"
     )
 
 

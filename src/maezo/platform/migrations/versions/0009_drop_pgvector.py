@@ -50,15 +50,30 @@ e deixam a extensao de pe. A ordem de execucao entre tenants deixa de importar, 
 propriedade que torna esta migration segura num deployment multi-tenant.
 
 --------------------------------------------------------------------------------------------
-`downgrade()` e' honesto e EXIGE um servidor com pgvector
+`downgrade()` e' CONVERGENTE com a guarda da 0001 — a mesma pergunta, a mesma resposta
 --------------------------------------------------------------------------------------------
-O inverso real de `upgrade()` e recriar a extensao e a coluna — e e' isso que `downgrade()` faz,
-sem guarda de disponibilidade. Num servidor sem pgvector instalado (a imagem `postgres:16` que o
-`docker-compose.yml` passou a usar) ele FALHA ALTO com `extension "vector" is not available`, e
-essa e' a resposta correta: um downgrade que silenciosamente pulasse a recriacao devolveria um
-schema 0008 SEM a coluna que a 0008 tem, alegando uma reversibilidade que nao entregou. A guarda
-de disponibilidade existe na 0001 (onde a alternativa e' nao conseguir migrar nada) e
-deliberadamente NAO existe aqui (onde a alternativa e' mentir sobre o estado do schema).
+O inverso real de `upgrade()` e' recriar a extensao e a coluna, e `downgrade()` faz exatamente
+isso — sob a MESMA guarda `pg_available_extensions` que a 0001 passou a usar.
+
+Uma versao anterior desta migration deixou o `downgrade()` deliberadamente sem guarda, alegando
+que assim ele "falharia alto em vez de devolver um 0008 sem a coluna que a 0008 tem". Essa premissa
+e' FALSA neste repositorio, e falsa por causa da guarda que este mesmo PR poe na 0001: num servidor
+sem pgvector a 0001 nao cria extensao nem coluna, logo a revisao 0008 daquele servidor NAO TEM
+`agent_memory.embedding` (medido: `alembic -x tenant=d1 upgrade 0008` em `postgres:16` produz
+`agent_memory` com 8 colunas, nenhuma delas `embedding`). Um `downgrade()` sem guarda, ali, nao
+restaura "a coluna que a 0008 tem" — ele tenta construir algo que a 0008 nunca teve naquele
+servidor e morre com `extension "vector" is not available`, quebrando a unica prova de rollback
+real do repositorio (`tests/unit/platform/integrations/test_amh_inbox_live_pg.py::
+test_upgrade_downgrade_upgrade_roundtrip`, que faz `upgrade head -> downgrade 0006 -> upgrade head`
+e passa por 0009 -> 0008 no caminho) contra a imagem `postgres:16` que este mesmo PR poe no
+compose.
+
+Com a guarda, a propriedade que a 0001 declara para o `upgrade` (os dois caminhos chegam ao MESMO
+head) vale tambem para o `downgrade`: onde a 0008 teve extensao e coluna, as duas voltam; onde a
+0008 nunca as teve, nada e' inventado e o schema resultante e' exatamente a 0008 daquele servidor.
+Nao ha caminho em que a guarda esconda uma reversibilidade nao entregue — para esconder algo seria
+preciso um servidor onde a 0008 tem a coluna E a extensao nao esta disponivel, e esse servidor nao
+existe: a coluna so pode ter sido criada por uma extensao que estava disponivel.
 
 O que `downgrade()` NAO restaura, e nao tem como restaurar: os VALORES da coluna. Eram todos NULL
 — a coluna nunca teve writer — entao a perda e nominal, mas a afirmacao correta continua sendo
@@ -116,10 +131,23 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Inverso honesto e SEM guarda de disponibilidade — ver o docstring do modulo.
-    # A extensao volta para 'public' (DB-global, DL-0017); a coluna volta por tenant, VAZIA.
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
+    # Inverso CONVERGENTE, sob a MESMA guarda `pg_available_extensions` da 0001 — ver o docstring
+    # do modulo. A extensao volta para 'public' (DB-global, DL-0017); a coluna volta por tenant,
+    # VAZIA. Onde a extensao nao esta disponivel, a 0001 nunca criou nem uma nem outra: nao ha o
+    # que restaurar, e o schema resultante e' a 0008 honesta daquele servidor.
+    #
+    # O `ALTER TABLE` vai dentro de `EXECUTE` pelo mesmo motivo que na 0001: o corpo de um bloco
+    # `DO` e' parseado inteiro antes de rodar, e `public.vector(1536)` nao resolve num servidor
+    # onde a extensao nao existe — a guarda seria decorativa se o tipo fosse parseado de qualquer
+    # jeito.
     op.execute("""
-        ALTER TABLE IF EXISTS agent_memory
-            ADD COLUMN IF NOT EXISTS embedding public.vector(1536)
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector') THEN
+                CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+                EXECUTE 'ALTER TABLE IF EXISTS agent_memory
+                         ADD COLUMN IF NOT EXISTS embedding public.vector(1536)';
+            END IF;
+        END
+        $$
     """)

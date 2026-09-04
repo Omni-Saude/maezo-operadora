@@ -85,7 +85,11 @@ Em consequencia, e **condicionado a ratificacao humana**:
 
 **Negativas (aceitas)**
 - Um consumidor futuro paga a migration de volta (a `downgrade()` da 0009 e' exatamente esse
-  caminho, e ela EXIGE um servidor com pgvector — em `postgres:16` ela falha alto, de proposito).
+  caminho). A `downgrade()` e' CONVERGENTE com a guarda da 0001: num servidor com pgvector ela
+  recria extensao e coluna (VAZIA — a coluna nunca teve writer); num servidor sem pgvector a 0001
+  tambem nunca as criou, logo nao ha o que restaurar e o resultado e' a 0008 honesta daquele
+  servidor. Des-suspender §3 exige, alem da migration de volta, uma imagem/servidor com a extensao
+  disponivel — e' esse o custo real, nao um erro de rollback.
 - `docs/adr/0002-agent-state-three-layers.md` lido **isoladamente** ainda descreve a camada como
   vigente. Mitigado pela linha de ADR-0047 no indice `docs/adr/README.md` (a convencao deste repo
   marca a ADR EMENDANTE, nao a emendada) e pelas citacoes a este arquivo em
