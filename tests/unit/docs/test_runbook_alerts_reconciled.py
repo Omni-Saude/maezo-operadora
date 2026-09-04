@@ -109,12 +109,7 @@ def _shipped_alert_names() -> set[str]:
     `_ALERT_NAME_RE`'s `Maezo[A-Za-z]...` CamelCase pattern regardless).
     """
     document: Any = yaml.safe_load(_ALERT_RULES.read_text(encoding="utf-8"))
-    return {
-        rule["alert"]
-        for group in document["groups"]
-        for rule in group["rules"]
-        if "alert" in rule
-    }
+    return {rule["alert"] for group in document["groups"] for rule in group["rules"] if "alert" in rule}
 
 
 def _runbook_sections() -> list[str]:
