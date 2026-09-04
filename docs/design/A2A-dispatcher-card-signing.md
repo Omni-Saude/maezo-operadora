@@ -437,3 +437,14 @@ R1-verified live run used 5643 (`docs/evidence-ledger.md`'s t2.4/W3 row flagged 
 Fixed the hardcoded fallback to 5643; `MAEZO_TEST_A2A_EDGE_DATABASE_URL` still overrides it for any
 other local setup (this build's own test run used a dedicated, non-colliding 5645 via that override,
 so it never touched the port-5642/5643 ambiguity at all).
+
+> **EMENDA 2026-09-04 (gap `LIVE-SUITES-SILENT-SKIP-AUDIT`).** O nit acima reconciliou 5642→5643,
+> mas **nenhuma das duas portas jamais foi servida** por este repositório (sem serviço no compose,
+> sem service container no CI, sem comando de bring-up documentado): com o stack do próprio projeto
+> de pé e sem env exportada, os 7 testes de `test_a2a_edge_live_pg.py` reportavam `COULD NOT VERIFY`
+> — um default que ninguém serve é um skip silencioso, não uma prova. O fallback passou a ser o
+> Postgres do `docker-compose.yml`
+> (`postgresql://maezo:maezo@localhost:${MAEZO_PG_HOST_PORT:-5433}/maezo`), com
+> `MAEZO_TEST_A2A_EDGE_DATABASE_URL` ainda vencendo. O isolamento continua vindo do schema
+> `a2aw3<hex>` por execução, não do número da porta. Medido no stack isolado: `7 passed` contra
+> 5433. Cerca de regressão: `tests/unit/ci/test_live_suite_defaults_are_served.py`.
