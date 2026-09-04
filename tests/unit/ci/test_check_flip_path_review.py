@@ -1194,25 +1194,129 @@ def test_compare_api_failure_is_red_not_an_empty_list(monkeypatch: pytest.Monkey
         api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
 
 
-def test_changed_paths_paginates_beyond_300_files(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The compare endpoint pages `files` via `page`/`per_page` (max 300/page) rather than returning
-    a bare top-level list — so a diff with more than 300 files must fetch a second page."""
+def test_changed_paths_fast_path_under_300_files_makes_no_commit_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """299 files (one under GitHub's per-comparison cap) is provably complete on its own — GitHub
+    would not stop short of the requested page size if there were more. The gate must return it
+    directly and never touch the commit-walk fallback (VER-FLIP-GATE-BASE required change #1)."""
     api = gate.GitHubAPI(repo="o/r", token="t")
-    page_1 = [{"filename": f"a/{i}.txt"} for i in range(300)]
-    page_2 = [{"filename": "a/300.txt"}]
+    files = [{"filename": f"a/{i}.txt"} for i in range(299)]
     calls: list[str] = []
 
     def fake_request(path: str) -> tuple[int, Any]:
         calls.append(path)
-        if "page=2" in path:
-            return 200, {"files": page_2}
-        return 200, {"files": page_1}
+        return 200, {"status": "ahead", "ahead_by": 299, "files": files}
 
     monkeypatch.setattr(api, "_request", fake_request)
     paths = api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
-    assert len(paths) == 301
-    assert paths[-1] == "a/300.txt"
-    assert len(calls) == 2, f"expected exactly 2 pages fetched, got {calls}"
+    assert len(paths) == 299
+    assert len(calls) == 1, f"the fast path must make exactly one request, got {calls}"
+    assert not any("/commits" in c for c in calls), f"fast path touched a commit endpoint: {calls}"
+
+
+def test_changed_paths_300_file_cap_walks_commits_and_finds_the_301st_owned_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE ATTACK BECOMES A TEST (VER-FLIP-GATE-BASE Attack A / B6-d). GitHub's compare endpoint
+    hard-caps `files` at 300 for the WHOLE comparison and silently truncates beyond it — `page`/
+    `per_page` page the `commits` list, not `files` (measured live; see the module docstring's "THE
+    300-FILE CAP"). A 301-file PR with 300 early-sorting padding files and ONE owned file as the
+    301st must still be detected: a `files` list of exactly 300 is never trusted alone, so the gate
+    falls back to unioning each commit's own, independently paginated files."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    compare_path = f"repos/o/r/compare/{CURRENT_MAIN_TIP}...{REGRESSION_HEAD_SHA}"
+    padding = [{"filename": f"aaa_padding/{i:03d}.txt"} for i in range(300)]
+    owned_file = "spec/policies/autonomy/action-approvals.yaml"
+    calls: list[str] = []
+
+    def fake_request(path: str) -> tuple[int, Any]:
+        calls.append(path)
+        if path == f"{compare_path}?per_page=300&page=1":
+            return 200, {
+                "status": "ahead",
+                "ahead_by": 2,
+                "total_commits": 2,
+                "merge_base_commit": {"sha": "mb00000000000000000000000000000000000000"},
+                "files": padding,  # exactly 300 — the cap; NOT provably complete
+                "commits": [{"sha": "c1padding"}, {"sha": "c2owned"}],
+            }
+        if path == "repos/o/r/commits/c1padding?per_page=300&page=1":
+            return 200, {"files": padding}
+        if path == "repos/o/r/commits/c1padding?per_page=300&page=2":
+            return 200, {"files": []}  # this commit has exactly 300 files of its own
+        if path == "repos/o/r/commits/c2owned?per_page=300&page=1":
+            return 200, {"files": [{"filename": owned_file}]}
+        raise AssertionError(f"unexpected request: {path}")
+
+    monkeypatch.setattr(api, "_request", fake_request)
+    paths = api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+
+    assert len(paths) == 301, f"expected 300 padding files + 1 owned file, got {len(paths)}"
+    assert owned_file in paths, "the 301st file — the owned one — must survive the fallback"
+    assert any("/commits/c1padding" in c for c in calls), "must have walked commit c1's own files"
+    assert any("/commits/c2owned" in c for c in calls), "must have walked commit c2's own files"
+
+
+def test_changed_paths_commit_file_cap_of_3000_is_red_not_a_partial_union(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A SINGLE commit whose own files reach GitHub's documented 3000-file-per-commit cap cannot be
+    proven complete either — the gate must fail CLOSED rather than union a truncated per-commit
+    list."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    compare_path = f"repos/o/r/compare/{CURRENT_MAIN_TIP}...{REGRESSION_HEAD_SHA}"
+    cap_files = [{"filename": f"a/{i}.txt"} for i in range(300)]
+
+    def fake_request(path: str) -> tuple[int, Any]:
+        if path == f"{compare_path}?per_page=300&page=1":
+            return 200, {
+                "status": "ahead",
+                "ahead_by": 1,
+                "total_commits": 1,
+                "merge_base_commit": {"sha": "mb00000000000000000000000000000000000000"},
+                "files": cap_files,
+                "commits": [{"sha": "hugecommit"}],
+            }
+        if path.startswith("repos/o/r/commits/hugecommit?per_page=300&page="):
+            return 200, {"files": cap_files}  # every page returns a full 300 — never terminates
+        raise AssertionError(f"unexpected request: {path}")
+
+    monkeypatch.setattr(api, "_request", fake_request)
+    with pytest.raises(GateError, match="3000-file-per-commit cap"):
+        api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+
+
+def test_changed_paths_empty_files_with_positive_ahead_by_is_red(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`files: []` with `ahead_by > 0` is a shape that HIDES touched paths rather than proving there
+    are none (VER-FLIP-GATE-BASE advisory A1) — the gate must not read it as 'nothing touched'."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    monkeypatch.setattr(
+        api,
+        "_request",
+        lambda path: (200, {"status": "ahead", "ahead_by": 7, "total_commits": 7, "files": []}),
+    )
+    with pytest.raises(GateError, match="EMPTY `files` list"):
+        api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
+
+
+@pytest.mark.parametrize("bad_status", ["diverged", "behind"])
+def test_changed_paths_non_ahead_non_identical_status_is_red(
+    monkeypatch: pytest.MonkeyPatch, bad_status: str
+) -> None:
+    """A three-dot compare reporting `status` outside {'ahead', 'identical'} means the base and head
+    do not relate the way this gate's touched-path computation assumes — fail-closed rather than
+    silently trusting `files` under an unexplained shape."""
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    monkeypatch.setattr(
+        api,
+        "_request",
+        lambda path: (200, {"status": bad_status, "ahead_by": 3, "files": [{"filename": "x.txt"}]}),
+    )
+    with pytest.raises(GateError, match="status="):
+        api.changed_paths(CURRENT_MAIN_TIP, REGRESSION_HEAD_SHA)
 
 
 def test_branch_tip_resolves_the_current_sha(monkeypatch: pytest.MonkeyPatch) -> None:

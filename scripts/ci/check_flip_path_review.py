@@ -65,11 +65,42 @@ computed as the diff between the base branch's CURRENT tip and the head — the 
 COMPARE (`repos/{repo}/compare/{base}...{head}`; three dots is merge-base semantics, two dots is not).
 Concretely: `GitHubAPI.branch_tip(base.ref)` resolves the base branch's current tip via
 `repos/{repo}/branches/{ref}` ONCE, at run start, and is logged; `GitHubAPI.changed_paths(base_tip,
-head_sha)` then reads `compare/{base_tip}...{head_sha}`'s `files` (paginated: this endpoint pages
-`files` via `page`/`per_page`, up to 300 per page — `_paginate` is not reused because it assumes a
-top-level JSON list, and compare returns an object with a nested `files` list), including a rename's
-`previous_filename` exactly as `pulls/N/files` did. Any non-2xx or unexpected shape is RED — never a
-silent fallback to `pulls/N/files`, which is precisely the shape of the bug being fixed here.
+head_sha)` then reads `compare/{base_tip}...{head_sha}`.
+
+THE 300-FILE CAP — a second, adversarially-reachable hole this fix's own first draft introduced, and
+had to be corrected before it merged (verifier VER-FLIP-GATE-BASE, live-measured). `page`/`per_page`
+on the compare endpoint page its `commits` list, NOT its `files` list: `files` is hard-capped at 300
+for the WHOLE comparison regardless of `per_page`, and page ≥2 of the SAME request returns
+`"files": []` while still returning further pages of `commits`. Measured live against
+`compare/181fc82...96d7d0d` (a 378-commit, 339-file range): `per_page` values 30/100/300 each return
+exactly 300 files on page 1 and an empty `files` list on page 2 with `commits` still populated; the
+API's 300-file page silently drops the true 339, cut alphabetically, with no truncation signal in the
+payload. A `changed_paths` that trusted a 300-length `files` list as complete would report GREEN on a
+truncated diff — pad a PR with 300 early-sorting files and place the one CODEOWNERS-owned file 301st,
+and the earlier shape of this fix (paging `files` via `page`/`per_page`, which GitHub does not do)
+found 0 owned paths on exactly that PR and passed.
+
+So `changed_paths` treats a `files` list SHORTER than 300 as complete (GitHub would not stop short of
+`per_page` if there were more) and returns it directly, including renames' `previous_filename` exactly
+as `pulls/N/files` did. A `files` list of EXACTLY 300 is NOT trusted either way — the payload gives no
+signal distinguishing "the diff has exactly 300 files" from "the diff has more and this is a silent
+cut" — so the gate does not read `files` at all in that case and instead falls back to the root-cause
+path: it pages the SAME compare endpoint's `commits` list (which IS paginated via `page`/`per_page`,
+confirmed live above) until it has collected every commit `total_commits` promised, then unions each
+commit's OWN files via `repos/{repo}/commits/{sha}` — independently paginated, GitHub's documented cap
+3000 files per commit. This union is a SUPERSET of the merge-base tree diff (a file changed then
+reverted within the range counts once, where a pure tree diff would not show it at all) —
+deliberately: the fail-closed direction here is "flag a path that turns out not to matter", never
+"miss one that does". Any commit whose own files reach the 3000-per-commit cap, or any API call
+failing at any step of either walk, is RED — the gate never reports a partial union as complete.
+
+The compare response's `status` / `ahead_by` / `merge_base_commit` are also read and validated before
+any of the above, so a response shape that HIDES paths cannot pass as silently as a truncated `files`
+list nearly did: `status` outside `{"ahead", "identical"}` (i.e. "diverged" or "behind" — the base and
+head not relating the way a three-dot compare assumes) is RED, as is `files: []` paired with
+`ahead_by > 0` (empty is not the same claim as "nothing to report"). Any non-2xx or unexpected shape
+at any step is RED — never a silent fallback to `pulls/N/files`, which is precisely the shape of the
+bug being fixed here.
 
 THIS DOES NOT MOVE DECISION 1. CODEOWNERS content is still read from `pull_request.base.sha` — the
 STALE, RECORDED base commit — exactly as Decision 1 above requires and for the same reason: a moving
@@ -89,7 +120,12 @@ API fetch) — see CONTEXT PRECEDENCE below.
 
 Tested by `test_stale_base_sha_no_longer_produces_a_false_owned_hit_defect_254`,
 `test_changed_paths_include_a_renames_previous_filename_via_compare`,
-`test_compare_api_failure_is_red_not_an_empty_list`, `test_changed_paths_paginates_beyond_300_files`,
+`test_compare_api_failure_is_red_not_an_empty_list`,
+`test_changed_paths_fast_path_under_300_files_makes_no_commit_calls`,
+`test_changed_paths_300_file_cap_walks_commits_and_finds_the_301st_owned_file`,
+`test_changed_paths_commit_file_cap_of_3000_is_red_not_a_partial_union`,
+`test_changed_paths_empty_files_with_positive_ahead_by_is_red`,
+`test_changed_paths_non_ahead_non_identical_status_is_red`,
 `test_branch_tip_resolves_the_current_sha` and `test_branch_tip_failure_is_red`.
 
 DESIGN DECISION 2 — CHANGES_REQUESTED FROM AN OWNER OF A TOUCHED OWNED PATH ⇒ RED
@@ -1012,38 +1048,174 @@ class GitHubAPI:
         is a change to an owned path; counting only the new name would let
         `git mv spec/policies/autonomy/x.yaml /tmp-ish/x.yaml` escape ownership.
 
-        The compare endpoint pages its `files` list via `page`/`per_page` (up to 300 per page) rather
-        than returning a bare top-level list, so `_paginate` (built for list endpoints) is not reused
-        here. Any non-2xx response or unexpected shape is RED — never a silent fallback to
-        `pulls/N/files`, which is precisely the bug being fixed.
+        THE 300-FILE CAP (see the module docstring's "THE 300-FILE CAP" section for the full live
+        evidence). `page`/`per_page` on this endpoint page its `commits` list, NOT its `files` list:
+        `files` is hard-capped at 300 for the WHOLE comparison and a `files` list of exactly 300 is
+        therefore NEVER trusted as complete — it is read directly only when SHORTER than 300. At
+        exactly 300, this falls back to the root-cause path: page the compare's own (genuinely
+        paginated) `commits` list until `total_commits` are collected, then union each commit's OWN
+        files via `repos/{repo}/commits/{sha}` (independently paginated, cap 3000 files/commit). That
+        union is a SUPERSET of the merge-base tree diff, which is the fail-closed direction. `status`,
+        `ahead_by` and `merge_base_commit` are validated first so a response shape that hides paths
+        cannot slip through either. Any non-2xx response or unexpected shape at any step is RED — never
+        a silent fallback to `pulls/N/files`, which is precisely the bug being fixed.
         """
-        paths: list[str] = []
-        per_page = 300  # GitHub's documented max page size for this endpoint's `files` list
         compare = f"repos/{self.repo}/compare/{base_tip}...{head_sha}"
-        for page in range(1, 51):  # generous bound; refuse to guess past it, same discipline as _paginate
-            status, payload = self._request(f"{compare}?per_page={per_page}&page={page}")
+        status, payload = self._request(f"{compare}?per_page=300&page=1")
+        if status != 200 or not isinstance(payload, dict):
+            raise GateError(
+                f"GET {compare} returned HTTP {status} — the gate cannot compute this PR's true "
+                "touched-path set, so it fails CLOSED rather than falling back to pulls/N/files or "
+                "assuming an empty diff."
+            )
+
+        compare_status = payload.get("status")
+        if compare_status not in ("ahead", "identical"):
+            raise GateError(
+                f"{compare} reports status={compare_status!r} — a three-dot compare this gate can "
+                "trust must be 'ahead' (the ordinary case) or 'identical' (no diff); 'diverged' or "
+                "'behind' means the base and head do not relate the way a merge-base diff assumes, and "
+                "the gate cannot compute a trustworthy touched-path set from it. Fail-closed."
+            )
+
+        files = payload.get("files")
+        if not isinstance(files, list):
+            raise GateError(
+                f"{compare} has no readable `files` list "
+                f"({type(files).__name__ if files is not None else 'missing'}) — fail-closed."
+            )
+        ahead_by = payload.get("ahead_by")
+        if not files and isinstance(ahead_by, int) and ahead_by > 0:
+            raise GateError(
+                f"{compare} reports ahead_by={ahead_by} but an EMPTY `files` list — a shape that "
+                "HIDES touched paths rather than proving there are none. Fail-closed."
+            )
+
+        if len(files) < 300:
+            # Provably complete: GitHub would not stop short of the requested page size if there were
+            # more. This is the ordinary case for every PR this gate has ever evaluated live.
+            return self._extract_file_paths(files, compare)
+
+        # len(files) == 300: GitHub's per-comparison cap. The payload gives no signal distinguishing
+        # "exactly 300 files" from "more, silently truncated" (measured live — module docstring), so
+        # this list is never read. Root-cause fallback: union every commit's own, independently
+        # paginated files.
+        total_commits = payload.get("total_commits")
+        if not isinstance(total_commits, int) or total_commits < 1:
+            raise GateError(
+                f"{compare} hit the 300-file cap and has no readable `total_commits` — the gate "
+                "cannot walk the range's commits either. Fail-closed."
+            )
+        merge_base_commit = payload.get("merge_base_commit")
+        merge_base_sha = merge_base_commit.get("sha") if isinstance(merge_base_commit, dict) else None
+        if not isinstance(merge_base_sha, str) or not merge_base_sha:
+            raise GateError(
+                f"{compare} hit the 300-file cap and has no readable `merge_base_commit.sha` — the "
+                "gate cannot prove this comparison is genuinely merge-base-relative. Fail-closed."
+            )
+        first_page_commits = payload.get("commits")
+        if not isinstance(first_page_commits, list):
+            raise GateError(
+                f"{compare} hit the 300-file cap and has no readable `commits` list — the gate cannot "
+                "walk the range's commits either. Fail-closed."
+            )
+
+        commit_shas = self._compare_commit_shas(compare, total_commits, first_page_commits)
+        union: set[str] = set()
+        for sha in commit_shas:
+            union.update(self._commit_files(sha))
+        return sorted(union)
+
+    @staticmethod
+    def _extract_file_paths(files: list[Any], source: str) -> list[str]:
+        """Flatten one `files` array (a compare page, or one commit's own files) into a path list,
+        including each rename's `previous_filename`. Shared by the fast path and the per-commit walk
+        so both apply the identical rename rule."""
+        paths: list[str] = []
+        for entry in files:
+            if not isinstance(entry, dict) or not isinstance(entry.get("filename"), str):
+                raise GateError(f"unexpected entry in {source} files: {entry!r} — fail-closed.")
+            paths.append(entry["filename"])
+            previous = entry.get("previous_filename")
+            if isinstance(previous, str) and previous:
+                paths.append(previous)
+        return paths
+
+    @staticmethod
+    def _commit_shas_from_entries(entries: list[Any], source: str) -> list[str]:
+        shas: list[str] = []
+        for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get("sha"), str):
+                raise GateError(f"unexpected entry in {source} commits: {entry!r} — fail-closed.")
+            shas.append(entry["sha"])
+        return shas
+
+    def _compare_commit_shas(
+        self, compare: str, total_commits: int, first_page_commits: list[Any]
+    ) -> list[str]:
+        """Every commit sha between `base_tip` and `head_sha`, via the compare endpoint's OWN
+        `commits` list — which IS paginated via `page`/`per_page` (measured live: `page`/`per_page`
+        page `commits`, not `files` — see the module docstring's "THE 300-FILE CAP"). Only reached
+        when `files` hit its own 300-entry cap and cannot be trusted alone; `first_page_commits` is
+        page 1's `commits`, already fetched alongside `files`, so it is not requested twice.
+        """
+        shas = self._commit_shas_from_entries(first_page_commits, compare)
+        page = 2
+        while len(shas) < total_commits:
+            if page > 50:  # 50 * 300 = 15000 commits; a range beyond that is not this gate's problem
+                raise GateError(
+                    f"{compare} exceeded 50 pages walking commits — refusing to guess, fail-closed."
+                )
+            status, payload = self._request(f"{compare}?per_page=300&page={page}")
             if status != 200 or not isinstance(payload, dict):
                 raise GateError(
-                    f"GET {compare} (page {page}) returned HTTP {status} — the gate cannot compute "
-                    "this PR's true touched-path set, so it fails CLOSED rather than falling back to "
-                    "pulls/N/files or assuming an empty diff."
+                    f"GET {compare} (commits page {page}) returned HTTP {status} — the gate cannot "
+                    "enumerate this range's commits for the per-commit file union. Fail-closed."
+                )
+            commits = payload.get("commits")
+            if not isinstance(commits, list):
+                raise GateError(
+                    f"{compare} (commits page {page}) has no readable `commits` list — fail-closed."
+                )
+            if not commits:
+                break
+            shas.extend(self._commit_shas_from_entries(commits, compare))
+            page += 1
+
+        if len(shas) != total_commits:
+            raise GateError(
+                f"{compare} reports total_commits={total_commits} but the commit walk collected "
+                f"{len(shas)} distinct commit(s) — the gate cannot trust an incomplete commit range "
+                "to compute touched paths. Fail-closed."
+            )
+        return shas
+
+    def _commit_files(self, sha: str) -> list[str]:
+        """Every path touched by ONE commit (plus renames' `previous_filename`), via
+        `repos/{repo}/commits/{sha}` — its `files` list is independently paginated (`page`/`per_page`),
+        GitHub's documented cap 3000 files per commit. Reaching that cap means the gate cannot prove it
+        has seen every file this ONE commit touched, so the WHOLE run fails CLOSED rather than
+        reporting a partial union — never a "good enough" green off a truncated per-commit list.
+        """
+        commit_path = f"repos/{self.repo}/commits/{urllib.parse.quote(sha)}"
+        paths: list[str] = []
+        for page in range(1, 11):  # 10 * 300 = 3000, GitHub's documented per-commit files cap
+            status, payload = self._request(f"{commit_path}?per_page=300&page={page}")
+            if status != 200 or not isinstance(payload, dict):
+                raise GateError(
+                    f"GET {commit_path} (page {page}) returned HTTP {status} — cannot compute this "
+                    "commit's touched files for the merge-base union. Fail-closed."
                 )
             files = payload.get("files")
             if not isinstance(files, list):
-                raise GateError(
-                    f"{compare} (page {page}) has no readable `files` list "
-                    f"({type(files).__name__ if files is not None else 'missing'}) — fail-closed."
-                )
-            for entry in files:
-                if not isinstance(entry, dict) or not isinstance(entry.get("filename"), str):
-                    raise GateError(f"unexpected entry in {compare} files: {entry!r} — fail-closed.")
-                paths.append(entry["filename"])
-                previous = entry.get("previous_filename")
-                if isinstance(previous, str) and previous:
-                    paths.append(previous)
-            if len(files) < per_page:
+                raise GateError(f"{commit_path} (page {page}) has no readable `files` list — fail-closed.")
+            paths.extend(self._extract_file_paths(files, commit_path))
+            if len(files) < 300:
                 return paths
-        raise GateError(f"{compare} exceeded 50 pages of files — refusing to guess, fail-closed.")
+        raise GateError(
+            f"{commit_path} reached GitHub's documented 3000-file-per-commit cap without finishing — "
+            "the gate cannot prove it has seen every file this commit touched. Fail-closed."
+        )
 
     def reviews(self, pr_number: int) -> list[Review]:
         """Every submitted review, normalized. A malformed entry is RED, not a skip."""
