@@ -64,6 +64,18 @@ _UNDECLARED_TASK_TYPES: Final[dict[str, frozenset[str]]] = {
 #: registering a handler wires a live delegation surface, and gap `FERNANDO-DELEGATION-CALL-SITE`
 #: classifies that as an OWNER DECISION. Recorded here as an executable fact so it cannot rot into
 #: prose — see this module's docstring, point 4.
+#:
+#: MEMBERSHIP IS NOT THE ONLY GATE. Removing an entry is legal only once that agent's OWN
+#: registration pre-conditions are met; they live in its `make_<id>_handler` docstring. Beatriz's
+#: two (mirrored here so the record is executable-adjacent, `agents/beatriz/delegation.py`):
+#:   1. the originating call site must carry `evidencia_refs` over a list-capable channel (or
+#:      Beatriz must read it from the process variables) BEFORE any registration — otherwise a
+#:      delegated `assemble_dossier` returns `desfecho="dossie_instruido"` over an EMPTY corpus;
+#:   2. `gather_evidence` and `assemble_dossier` share one task_type AND one `task_id`
+#:      (`FRAUDE-{tenant}-{caso}`), so the SECOND hop is a Guard-4 REPLAY of the first, never a
+#:      second run. A caller needing the hops as distinct units must carry a per-hop key, which
+#:      SP-OP-FRAUDE-001 does not define — recorded rather than invented (same structural note as
+#:      valentina's `care.stratify`/`care.enroll`).
 _UNREGISTERED_HANDLERS: Final[frozenset[str]] = frozenset(
     {"fernando", "marina", "beatriz", "gustavo", "valentina"}
 )

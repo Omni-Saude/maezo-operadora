@@ -309,6 +309,26 @@ def make_beatriz_handler(
     carries ONLY bounded class tokens — the investigation dossier CONTENT stays in Beatriz's own
     state/engine variables and is NEVER forwarded over this seam (L0 hard: nothing that leaves
     this handler can be read as an accusation).
+
+    PRE-CONDICOES DE REGISTRO (what the owner must settle BEFORE wiring `"beatriz"` into
+    `a2a_composition` — this handler is correct on its own terms and still WRONG to register
+    while either is unmet; the module docstring's §PHI residuals are the causes, these are the
+    operational consequences):
+      1. EVIDENCE CHANNEL FIRST. The originating call site must carry `evidencia_refs` over a
+         list-capable channel (or Beatriz must read it from the SP-OP-FRAUDE-001 process
+         variables) BEFORE any registration. `payload_meta` is a strict `Mapping[str, str]`, so a
+         delegated turn today normalizes an EMPTY evidence list; on the `assemble_dossier` hop
+         that yields `desfecho="dossie_instruido"` over an EMPTY corpus — a dossier that reads as
+         instructed while resting on nothing. Registering first buys a silent, auditable-looking
+         wrong answer, which is worse than the honest absence of the seam.
+      2. THE SECOND HOP IS A REPLAY, NOT A SECOND RUN. `gather_evidence` and `assemble_dossier`
+         share one task_type (`fraude.investigate`) AND one `task_id`
+         (`FRAUDE-{tenant}-{numero_caso}`), so the dispatcher's Guard 4 answers the second hop
+         with the FIRST hop's result and never re-runs Beatriz. A caller that needs the two hops
+         to run as distinct units must carry a PER-HOP key, which SP-OP-FRAUDE-001 does not
+         define — recorded here rather than invented (same wording as
+         `agents/valentina/delegation.py`, whose `care.stratify`/`care.enroll` share a key for
+         the same structural reason).
     """
     compiled = build({"inference": inference, "fhir": fhir, "agent_version": agent_version}).compile()
 
