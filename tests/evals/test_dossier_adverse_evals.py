@@ -72,6 +72,7 @@ from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
 from ._harness import (
+    RuleAwareFakeDmnTransport,
     RunResult,
     assert_expect,
     assert_no_leak,
@@ -271,10 +272,17 @@ async def test_evl_rafael_01_mutation_check_route_is_non_vacuous() -> None:
 
 @pytest.mark.eval
 async def test_evl_rafael_02_mutation_check_route_is_non_vacuous() -> None:
-    """CE: flipping EVL-RAFAEL-02's expected route (auto_approve -> human_auditor) must fail."""
+    """DD: flipping EVL-RAFAEL-02's expected route (human_auditor -> auto_approve) must fail.
+
+    Direcao INVERTIDA em 04/09/2026 (RAF-01/RAF-06) junto com a regoldenizacao do proprio caso:
+    a rota esperada deixou de ser `auto_approve` (que a fixture `AUTO_APROVAR` incondicional
+    fabricava) e passou a ser `human_auditor`, que e o que a r1 v0.2.0 de fato produz a partir do
+    payload que `assess` lhe manda. Ver `RafaelGraph.assess` e
+    `tests/unit/agents/test_rafael_auto_approve_unreachable.py`.
+    """
     case = _rafael_case("EVL-RAFAEL-02")
     await run_mutation_check(
-        rafael_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "human_auditor")
+        rafael_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_approve")
     )
 
 
@@ -348,7 +356,9 @@ async def test_evl_rafael_03_eval_tier_b_live() -> None:
     already proves deterministically. No structured extraction fields exist to threshold-score
     (dossier agents have no classify() JSON) -- see the golden's `live.note`."""
     case = _rafael_case("EVL-RAFAEL-03")
-    dmn = FakeDmnTransport()
+    # Rule-aware: EVL-RAFAEL-03's `auth_auto_approval` fixture is CONDITIONAL (mirrors r1 v0.2.0),
+    # so a plain FakeDmnTransport would reject it loudly (RAF-06).
+    dmn = RuleAwareFakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
     graph = rafael_graph.RafaelGraph(
         inference=_live_inference(),
