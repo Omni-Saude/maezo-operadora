@@ -6,6 +6,7 @@ TDD London School: tests exercise the external task contracts.
 import datetime as _dt
 
 import pytest
+import structlog
 
 from maezo.tools.workers.harness import (
     FakeKafkaPublisher,
@@ -109,8 +110,15 @@ def test_submit_to_ans_missing_texto() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_notify_deadline_risk_happy_path() -> None:
-    """notify_deadline_risk is informational-only: no guard, no decision, UT stays open."""
+def test_notify_deadline_risk_nao_afirma_nada() -> None:
+    """NIP-NOTIFY-DEADLINE-ECHO-KEYS: notify_deadline_risk returns `{}` on every input shape —
+    not even an echo of its own inputs. `ST_SolicitarInfoNip` (the only BPMN consumer of this
+    topic) declares no `camunda:inputOutput`, so the harness writes the ENTIRE return dict into
+    process scope on `complete` (`harness.py:1782`); the old echo of `grupo_humano` (a LIVE
+    variable, `camunda:candidateGroups="${grupo_humano}"` on `UT_ElaborarRespostaNip`) was a
+    same-value no-op today but a latent clobber against any future narrowing of the variable
+    fetch or an empty input. A reverted echo (restoring any of the four old keys) must turn this
+    test RED."""
     result = notify_deadline_risk(
         numero_nip_ans="NIP-010",
         tenant_id="amh",
@@ -118,36 +126,67 @@ def test_notify_deadline_risk_happy_path() -> None:
         sla_breach_task_name="UT_RevisaoJuridicaNip",
         event_topic_deadline_risk="agents.events.nip.deadline_risk",
     )
-    # FAB-SLA-RISK-NOTIFIED-SLICE4: `deadline_risk_notified` REMOVIDO (fato fabricado da mesma
-    # especie de `sla_risk_notified`; este worker "only logged", ver a docstring). As demais
-    # chaves ficaram byte-identicas — sao eco dos proprios inputs.
-    assert "deadline_risk_notified" not in result
-    assert result["numero_nip_ans"] == "NIP-010"
-    assert result["grupo_humano"] == "juridico-regulatorio"
-    assert result["sla_breach_task_name"] == "UT_RevisaoJuridicaNip"
+    assert result == {}
 
 
 def test_notify_deadline_risk_never_alters_a_decision() -> None:
-    """Invariant: notify_deadline_risk's output never carries a decision/adverse marker."""
+    """Invariant: notify_deadline_risk's output never carries a decision/adverse marker — nor,
+    since NIP-NOTIFY-DEADLINE-ECHO-KEYS, anything else at all."""
     result = notify_deadline_risk(numero_nip_ans="NIP-011")
     assert "decisao_nip" not in result
     assert "deadline_risk_notified" not in result  # FAB-SLA-RISK-NOTIFIED-SLICE4
-    assert set(result.keys()) == {
-        "numero_nip_ans",
-        "grupo_humano",
-        "sla_breach_task_name",
-        "event_topic_deadline_risk",
-    }
+    assert result == {}  # NIP-NOTIFY-DEADLINE-ECHO-KEYS: no echo keys either
 
 
 def test_notify_deadline_risk_defaults_for_solicitar_info_reuse() -> None:
     """ST_SolicitarInfoNip reuses this same topic with NEITHER inputParameter set (BPMN comment
-    "reusa o canal de notificacao regulatoria") — sla_breach_task_name/event_topic_deadline_risk
-    must default gracefully rather than raise."""
+    "reusa o canal de notificacao regulatoria") — defaults must not raise, and the empty-input
+    shape must ALSO return `{}` (NIP-NOTIFY-DEADLINE-ECHO-KEYS)."""
     result = notify_deadline_risk(numero_nip_ans="NIP-012", tenant_id="amh")
-    assert "deadline_risk_notified" not in result  # FAB-SLA-RISK-NOTIFIED-SLICE4
-    assert result["sla_breach_task_name"] == ""
-    assert result["event_topic_deadline_risk"] == ""
+    assert result == {}
+
+
+def test_notify_deadline_risk_nenhuma_entrada_produz_eco() -> None:
+    """No input combination — including every field populated — may leak into the return dict.
+    Mirrors `contas.test_notify_sla_risk_nenhuma_entrada_produz_afirmacao`'s parametrized-input
+    style but inline (small, fixed shape set)."""
+    for kwargs in (
+        {},
+        {"numero_nip_ans": "NIP-020"},
+        {"grupo_humano": "nucleo-ans"},
+        {"sla_breach_task_name": "UT_RevisaoJuridicaNip", "event_topic_deadline_risk": "x"},
+        {
+            "numero_nip_ans": "NIP-021",
+            "tenant_id": "amh",
+            "grupo_humano": "regulatorio-ans",
+            "sla_breach_task_name": "UT_ElaborarRespostaNip",
+            "event_topic_deadline_risk": "agents.events.nip.deadline_risk",
+        },
+    ):
+        assert notify_deadline_risk(**kwargs) == {}
+
+
+def test_notify_deadline_risk_registra_a_etapa_sem_afirmar_eco() -> None:
+    """Observability survives the fix: the step still logs every input (including
+    `event_topic_deadline_risk`, which the pre-fix logger call omitted), and
+    `notified_asserted=False` remains explicit so a reader of the audit trail cannot infer a
+    notification/routing fact from the log alone."""
+    with structlog.testing.capture_logs() as logs:
+        result = notify_deadline_risk(
+            numero_nip_ans="NIP-022",
+            tenant_id="amh",
+            grupo_humano="juridico-regulatorio",
+            sla_breach_task_name="UT_RevisaoJuridicaNip",
+            event_topic_deadline_risk="agents.events.nip.deadline_risk",
+        )
+    assert result == {}
+    events = [entry for entry in logs if entry.get("event") == "nip.notify_deadline_risk"]
+    assert events, "a etapa TEM de continuar observavel no log"
+    assert events[0]["notified_asserted"] is False
+    assert events[0]["numero_nip_ans"] == "NIP-022"
+    assert events[0]["grupo_humano"] == "juridico-regulatorio"
+    assert events[0]["sla_breach_task_name"] == "UT_RevisaoJuridicaNip"
+    assert events[0]["event_topic_deadline_risk"] == "agents.events.nip.deadline_risk"
 
 
 def test_notify_deadline_risk_entry_round_trips() -> None:
@@ -159,6 +198,7 @@ def test_notify_deadline_risk_entry_round_trips() -> None:
         "event_topic_deadline_risk": "agents.events.nip.deadline_risk",
     }
     direct = notify_deadline_risk(**variables)
+    assert direct == {}  # non-vacuous anchor: both sides are {} FOR THE SAME reason, not by luck
     assert notify_deadline_risk_entry(variables) == direct
 
 
@@ -167,8 +207,7 @@ def test_notify_deadline_risk_entry_ignores_kafka_seam() -> None:
     (systemic Kafka-producer-wiring gap, out of scope for this worker)."""
     kafka = FakeKafkaPublisher()
     result = notify_deadline_risk_entry({"numero_nip_ans": "NIP-014"}, kafka=kafka)
-    assert "deadline_risk_notified" not in result  # FAB-SLA-RISK-NOTIFIED-SLICE4
-    assert result["numero_nip_ans"] == "NIP-014"
+    assert result == {}
     assert kafka.published == []
 
 
