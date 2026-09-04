@@ -32,6 +32,18 @@ What this proves that no fake can:
 R1 verifier: `docker compose --profile core up -d postgres` (or any local server, via
 `MAEZO_TEST_DATABASE_URL`) and re-run this file. The FULL CIB Seven live proof is a train-close
 activity, not this leg's.
+
+DSN DEFAULT (gap LIVE-SUITES-SILENT-SKIP-AUDIT, 2026-09-04). `MAEZO_TEST_DATABASE_URL` still wins;
+the fallback is now `postgresql://maezo:maezo@localhost:${MAEZO_PG_HOST_PORT:-5433}/maezo` instead
+of a hardcoded `localhost:5433` — byte-for-byte `tests/integration/conftest.py::_audit_pg_dsn`'s
+convention, i.e. the Postgres `docker-compose.yml` actually publishes
+(`ports: ["${MAEZO_PG_HOST_PORT:-5433}:5432"]`) and the one CI's integration/chaos lanes serve
+(both pin `MAEZO_PG_HOST_PORT=5432`). This file's old default was already reachable against the
+local compose stack, so — unlike the five other `tests/unit/**/*_live_pg.py` suites, which
+defaulted to ports nobody ever served — it was not silently skipping locally; honouring
+`MAEZO_PG_HOST_PORT` is what makes it reachable on a runner that publishes the SAME compose
+Postgres on 5432, so a CI job that adds the service does not have to special-case this file.
+A default nobody serves is a silent skip, not a proof.
 """
 
 from __future__ import annotations
@@ -73,7 +85,17 @@ def _outbox_ddl() -> list[str]:
 
 
 def _default_test_dsn() -> str:
-    return os.environ.get("MAEZO_TEST_DATABASE_URL", "postgresql://maezo:maezo@localhost:5433/maezo")
+    """`MAEZO_TEST_DATABASE_URL` wins; otherwise the compose Postgres (gap LIVE-SUITES-SILENT-SKIP-AUDIT).
+
+    Mirrors `tests/integration/conftest.py::_audit_pg_dsn` exactly, so the default is a server
+    that actually exists in both environments that run tests: the local compose stack
+    (`${MAEZO_PG_HOST_PORT:-5433}`) and a CI job that pins `MAEZO_PG_HOST_PORT=5432`.
+    """
+    explicit = os.environ.get("MAEZO_TEST_DATABASE_URL")
+    if explicit:
+        return explicit
+    port = os.environ.get("MAEZO_PG_HOST_PORT", "5433")
+    return f"postgresql://maezo:maezo@localhost:{port}/maezo"
 
 
 async def _postgres_reachable(dsn: str) -> bool:
@@ -90,7 +112,8 @@ def pg_dsn() -> str:
     dsn = _default_test_dsn()
     if not asyncio.run(_postgres_reachable(dsn)):
         pytest.skip(
-            f"Postgres not reachable at {dsn!r} (override with MAEZO_TEST_DATABASE_URL) — "
+            f"Postgres not reachable at {dsn!r} (override with MAEZO_TEST_DATABASE_URL / "
+            "MAEZO_PG_HOST_PORT) — "
             "a2a_fact_outbox live tests SKIPPED (visible, not silent). Start it with "
             "`docker compose --profile core up -d postgres` and re-run this file."
         )
