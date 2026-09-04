@@ -271,6 +271,34 @@ propria glosa.)*
   acao (senao a inicializacao criaria um ato por omissao); e `GW_DecisaoContas` continua tendo
   `default=Flow_GWDec_Invalida` (controle de nao-vacuidade).
 
+### test_catalogo_de_erros_e_declarado_e_nao_capturado
+*(NOVO — fixa a invariante que a leitura «entrada morta» violaria.)*
+- **Given** o BPMN de SP-OP-CONTAS-001
+- **Then** o catalogo `bpmn:error` de raiz e EXATAMENTE
+  `{Error_ContasLoteInvalido, Error_ContasGlosaNotHuman, Error_ContasDecisaoInvalida}`; o unico
+  referenciado por um `errorEventDefinition` e `Error_ContasDecisaoInvalida`; e essa referencia
+  esta num **throw-end** (`endEvent`), nao num `boundaryEvent`.
+- **Por que:** as duas entradas nao referenciadas NAO sao residuo. ADR-0030 §2 poe a fonte da
+  verdade do gate no boundary (*«on an error boundary event attached to an external task»*), entao
+  uma entrada de catalogo sem boundary e invisivel para `check_bpmn_error_allowlist.py` — remove-la
+  nao mudaria nenhum resultado de gate, so apagaria a ancora documental. ADR-0030 §5 nomeia o estado
+  (`declared-uncaught` → incidente) e a emenda de ADR-0040 cita `ERR_CONTAS_GLOSA_NOT_HUMAN` pelo
+  nome como *«Tier-3 declared-and-uncaught»*.
+
+### test_contas_nao_tem_error_boundary_sobre_external_task
+*(NOVO — controle estrutural.)*
+- **Then** ZERO `boundaryEvent` com `errorEventDefinition` no processo — o estado que o censo do
+  ADR-0030 registra para CONTAS. Modelar um antes de T-E trocaria o incidente visivel por um fim
+  silencioso (ADR-0030 §4), regressao de visibilidade sob a invariante HITL.
+
+### test_contas_nunca_levanta_worker_bpmn_error
+*(NOVO — metade do worker, em `tests/unit/tools/workers/test_contas.py`.)*
+- **Given** o modulo `maezo.tools.workers.contas`
+- **Then** ele nao menciona `WorkerBpmnError` em lugar nenhum; `ContasGlosaNotHumanError` continua
+  `PermissionError` e `ContasLoteInvalidoError` continua `ValueError`, e nenhum dos dois e
+  `WorkerBpmnError`. Se um `WorkerBpmnError` aparecesse, a clausula (b) do gate falharia (*«an
+  uncatalogued raise relying on demote-to-incident»*) — este teste falha antes, com o motivo junto.
+
 ## Idempotencia
 
 ### test_business_key_uma_instancia_por_lote

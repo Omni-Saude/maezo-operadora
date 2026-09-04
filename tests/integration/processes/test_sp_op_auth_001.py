@@ -235,14 +235,26 @@ _END_RISCO_SLA_NOTIFICADO = "End_RiscoSlaNotificado"
 # `_AUTH_WORKER_TOPICS`/`auth_probe.drain()` deliberately excludes (served only by
 # `_AnalyzeRequestStub`, a donor fixture, via the SEPARATE `drain_analyze()`); these two tests
 # never call `drain_analyze()`. Their `start_auth(dentro_teto_l2=True, ...)` seed survives
-# untouched into `BRT_AutoApproval`'s DMN evaluation (`auth_auto_approval.dmn` reads the flat
-# `dentro_teto_l2` input directly) — the D-07 ceiling computation is simply never exercised by
-# either test's path. **GAP-AUTH-4 (corrigido aqui — a caracterizacao anterior estava ERRADA).**
+# untouched into `BRT_AutoApproval`'s DMN evaluation (AT THE TIME this correction was written,
+# `auth_auto_approval.dmn` read the flat `dentro_teto_l2` input directly) — the D-07 ceiling
+# computation is simply never exercised by either test's path. **GAP-AUTH-4 (corrigido aqui — a
+# caracterizacao anterior estava ERRADA).**
 # Isto NAO e um "config gap" que decidir o D-07 resolve: `within_l2_ceiling` NUNCA e invocado
 # nesta rota (o unico chamador de CeilingResolver em AUTH e AnalyzeRequestWorker, em
 # ST_PrepararDossie, na perna ANALISE_HUMANA *depois* do GW_AutoAprovacao). Definir um teto real
 # no D-07 nao muda NADA aqui — BRT_AutoApproval continua consumindo `dut_atendida`/
 # `dentro_teto_l2`/`rede_credenciada` SEMEADOS NO START, sem verificacao. O teto e DECORATIVO na
+# rota automatica (NA VERSAO DA DMN descrita acima e abaixo neste paragrafo — AUTH-INTEGRATION-
+# COMMENT-DRIFT, 2026-09-03: esta descricao dos inputs da DMN esta desatualizada desde a
+# v0.2.0. `auth_auto_approval.dmn` (v0.2.0) NAO le mais `dut_atendida`/`dentro_teto_l2`/
+# `rede_credenciada` — os cinco `<input>` reais sao `auto_criteria_verificado`,
+# `criterio_tecnico_ok`, `criterio_financeiro_ok`, `criterio_regulatorio_ok`,
+# `criterio_contratual_ok` (todos boolean) e `carater_atendimento` (string); ver
+# `spec/processes/dmn/auth_auto_approval.dmn` `<input id="in_*">`. O paragrafo acima permanece
+# como registro historico do porque GAP-AUTH-4 foi mitigado da forma como foi — a mitigacao
+# real e `ST_ValidateAutoApprovalCriteria`, que hoje roda ANTES de `BRT_AutoApproval` e ignora
+# os tres seeds antigos; ver `_AUTH_CEILING_D07_REASON` abaixo, secao "SUPERSEDED / AGORA
+# DUPLAMENTE GATEADO", para a descricao ATUAL e correta do comportamento).
 # rota automatica. Remedio (fora de escopo, classe MZO-040/Medical-ANS): um worker que compute
 # esses fatos ANTES de BRT_AutoApproval — e o que SP-OP-REEMBOLSO-001 ja faz (GAP-REEMBOLSO-5).
 # both were then blocked by `_ACTION_WORKER_KAFKA_GAP_REASON` below instead (see the PR body for

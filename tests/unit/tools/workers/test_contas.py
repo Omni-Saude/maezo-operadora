@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog
 
 from maezo.agents.andre.keys import key_segment
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance, start_dedup_key
@@ -42,6 +43,7 @@ from maezo.tools.workers.contas import (
     identify_glosa,
     identify_glosa_entry,
     notify_sla_risk,
+    notify_sla_risk_entry,
     prepare_triage_dossier,
     publish,
     publish_entry,
@@ -649,11 +651,53 @@ def test_entry_selects_the_anchors_from_the_process_variables() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_notify_sla_risk() -> None:
-    """notify_sla_risk alerts the coordination group."""
-    result = notify_sla_risk("amh", "LOTE-009", sla_remaining="P2D")
-    assert result["notified"] is True
-    assert result["grupo"] == "coordenacao-contas"
+def test_notify_sla_risk_nao_afirma_notificacao() -> None:
+    """GAP-CONTAS-7 / FAB-NOTIFIED-TRIO: the SLA-alert STEP returns `{}` — never `notified=True`.
+
+    The old return was `{"notified": True, "grupo": ..., "sla_remaining": ...,
+    "numero_lote_tiss": ...}` on every delivery of the non-interruptive `BT_AlertaSlaContas`
+    branch, with no channel contacted — coordenacao-contas may never have been told. The harness
+    loads a handler's return into process scope on `complete` (`harness.py:1778-1782`), so that
+    constant became an audit-trail claim inside the instance.
+    """
+    assert notify_sla_risk("amh", "LOTE-009", sla_remaining="P2D") == {}
+
+
+@pytest.mark.parametrize(
+    "tenant_id,numero_lote_tiss,sla_remaining,grupo",
+    [
+        ("amh", "LOTE-009", "P2D", "coordenacao-contas"),
+        ("", "", "", ""),
+        ("t2", "LOTE-1", "PT4H", "outro-grupo"),
+    ],
+)
+def test_notify_sla_risk_nenhuma_entrada_produz_afirmacao(
+    tenant_id: str, numero_lote_tiss: str, sla_remaining: str, grupo: str
+) -> None:
+    """No input shape may produce a `notified` claim (or any other key)."""
+    result = notify_sla_risk(tenant_id, numero_lote_tiss, sla_remaining, grupo)
+    assert result == {}
+    assert "notified" not in result
+
+
+def test_notify_sla_risk_registra_a_etapa_sem_afirmar_entrega() -> None:
+    """Observability survives the fix: the step still logs, and the log states plainly that no
+    notification fact was asserted (so a reader of the trail cannot infer one)."""
+    with structlog.testing.capture_logs() as logs:
+        notify_sla_risk("amh", "LOTE-009", sla_remaining="P2D")
+    events = [entry for entry in logs if entry.get("event") == "contas.notify_sla_risk"]
+    assert events, "a etapa TEM de continuar observavel no log"
+    assert events[0]["notified_asserted"] is False
+    assert events[0]["sla_remaining"] == "P2D"
+
+
+def test_notify_sla_risk_entry_aplica_o_default_do_grupo_no_log() -> None:
+    """The `coordenacao-contas` default is really applied by the entry (non-vacuous check: with
+    both sides `{}` an equality round-trip would pass even if the default were dropped)."""
+    with structlog.testing.capture_logs() as logs:
+        assert notify_sla_risk_entry({"tenant_id": "amh", "numero_lote_tiss": "LOTE-009"}) == {}
+    events = [entry for entry in logs if entry.get("event") == "contas.notify_sla_risk"]
+    assert events and events[0]["grupo"] == "coordenacao-contas"
 
 
 # ---------------------------------------------------------------------------
@@ -1416,6 +1460,44 @@ def test_contas_comunicacao_e_devolucao_invalidas_sao_value_error() -> None:
 def test_contas_lote_invalido_is_value_error() -> None:
     """ContasLoteInvalidoError must be a subclass of ValueError."""
     assert issubclass(ContasLoteInvalidoError, ValueError)
+
+
+def test_contas_nunca_levanta_worker_bpmn_error() -> None:
+    """No CONTAS code path may signal a `bpmnError` — the counterpart of the BPMN having no
+    error-boundary (`tests/unit/spec/test_sp_op_contas_001_artefatos.py`).
+
+    Why this is worth a test. `Error_ContasLoteInvalido` and `Error_ContasGlosaNotHuman` are
+    declared in the BPMN root catalog with no `errorEventDefinition` referencing them. That reads
+    as "dead entries" until you check ADR-0030, which ratifies exactly this state — §5: *"a guard
+    code with no modeled boundary (... cancel's `ERR_CANCELLATION_NOT_HUMAN`, declared-uncaught) →
+    incident, unchanged"* — and whose ADR-0040 amendment names `ERR_CONTAS_GLOSA_NOT_HUMAN` as
+    *"Tier-3 declared-and-uncaught"* that *"keep[s] raising `PermissionError` on the
+    audited-incident path (never `WorkerBpmnError`/`bpmnError`)"*.
+
+    The half that a reader cannot see from the BPMN is the worker half: the posture only holds
+    while `contas.py` raises NO `WorkerBpmnError` at all. If it ever did, the gate's clause (b)
+    would fire (`check_bpmn_error_allowlist.evaluate`: a raise whose code has no external-task
+    boundary anywhere is *"an uncatalogued raise relying on demote-to-incident"*) — so this test
+    fails BEFORE the CI gate does, with the reason attached."""
+    import inspect
+
+    from maezo.tools.workers import contas as contas_module
+    from maezo.tools.workers.harness import WorkerBpmnError
+
+    source = inspect.getsource(contas_module)
+    assert "WorkerBpmnError" not in source, (
+        "contas.py must not raise or import WorkerBpmnError: SP-OP-CONTAS-001 models no "
+        "error-boundary on any external task, so every such raise would be an uncatalogued raise "
+        "under ADR-0030 §2 clause (b)."
+    )
+
+    # The two catalogued codes travel the incident ladder by BASE CLASS, and neither is a bpmnError.
+    for exc_type in (ContasGlosaNotHumanError, ContasLoteInvalidoError):
+        assert not issubclass(exc_type, WorkerBpmnError), (
+            f"{exc_type.__name__} must never be a WorkerBpmnError (ADR-0030 §1/§5)"
+        )
+    assert issubclass(ContasGlosaNotHumanError, PermissionError)  # L0 guard -> audited incident
+    assert issubclass(ContasLoteInvalidoError, ValueError)  # bad input -> incident
 
 
 # ---------------------------------------------------------------------------

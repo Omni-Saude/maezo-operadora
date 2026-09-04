@@ -560,9 +560,47 @@ def notify_sla_risk(
     sla_remaining: str = "",
     grupo: str = "coordenacao-contas",
 ) -> dict[str, Any]:
-    """Notify coordenação-contas of SLA risk (non-interruptive timer).
+    """Registra que a ETAPA de alerta de SLA rodou. Retorna `{}` — NAO afirma nada.
 
-    Alerts the coordination group before the SLA breach triggers.
+    Serve `ST_NotificarRiscoSla` ("Notificar risco de SLA (coordenacao-contas)",
+    `spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:198-201`), topico
+    `operadora.contas.notify_sla_risk`, alimentado SO pelo boundary NAO-interruptivo
+    `BT_AlertaSlaContas` (`cancelActivity="false"`, `:191-197`).
+
+    Informativa e jamais adversa: `UT_AnalistaContas` segue aberta, nenhuma decisao e tomada ou
+    alterada, e o ramo termina em `End_RiscoSlaNotificado`. A glosa so nasce na User Task humana.
+
+    GAP-CONTAS-7 / FAB-NOTIFIED-TRIO (o motivo desta docstring). O retorno era, em toda entrega e
+    sem calcular nada::
+
+        {"notified": True, "grupo": ..., "sla_remaining": ..., "numero_lote_tiss": ...}
+
+    `notified` nao era computado de nada: nenhum canal e contatado por esta funcao e a
+    coordenacao-contas pode nunca ter sido avisada. Como a harness carrega o retorno para o escopo
+    do processo no `complete` (`harness.py:1778-1782`), a constante entrava na instancia — a menor
+    aposta das tres do FAB-NOTIFIED-TRIO (informativa, nunca adversa), mas a mesma afirmacao falsa.
+
+    POR QUE `{}` E NAO UM PUBLISH REAL (opcao (a) avaliada, REGISTRADA COMO PENDENTE, nao feita
+    aqui). Ao contrario dos outros dois casos deste pacote o destinatario e INTERNO
+    (`coordenacao-contas`), e a arvore TEM um canal interno: `operadora.notifications.internal`,
+    para onde `recurso.make_notify_sla_risk_handler` e `lgpd.make_notify_sla_risk_handler`
+    publicam o alerta equivalente com `best_effort=False`. Wire-lo aqui, porem, (i) troca o
+    registro de `FunctionWorker` por um raw handler assincrono
+    (`contas.py::register_contas_workers`), (ii) e um efeito externo novo, cuja prova exige o
+    motor — nao concedido a este pacote — e (iii) o proprio SP-OP-CONTAS-001 ja tinha esse canal
+    checado e o SUBSTITUIU por uma verificacao de historia do engine porque a versao
+    `notifications_of_type("contas.notify_sla_risk")` era um teste MORTO
+    (`tests/integration/processes/test_sp_op_contas_001.py:1616-1637`, FINDING 1). Alem disso um
+    registro Kafka interno seria um PEDIDO de alerta, nunca a prova de que alguem foi avisado.
+    Remover a afirmacao falsa e o que este pacote pode provar; ligar o canal fica rastreado em
+    `docs/review-queue.md` (GAP-CONTAS-7) para o dono do processo, com o motor.
+
+    O QUE SE PERDE AO DEVOLVER `{}`: nada consumido. As quatro chaves tinham ZERO consumidores —
+    nenhum `conditionExpression` do BPMN, nenhum `inputExpression` de DMN (`contas_sla` le
+    `tipo_lote`/`valor_apresentado_brl`/`data_recebimento_lote`), nenhum worker a jusante e
+    nenhuma linha de contrato. `sla_remaining` so aparece nesta funcao, no seu entry e no seu
+    teste (`grep -rn sla_remaining src/ spec/ docs/ tests/`). A observabilidade da etapa continua
+    no `logger.info` abaixo, que declara explicitamente que nada foi afirmado.
     """
     logger.info(
         "contas.notify_sla_risk",
@@ -570,14 +608,10 @@ def notify_sla_risk(
         numero_lote_tiss=numero_lote_tiss,
         sla_remaining=sla_remaining,
         grupo=grupo,
+        notified_asserted=False,
     )
 
-    return {
-        "notified": True,
-        "grupo": grupo,
-        "sla_remaining": sla_remaining,
-        "numero_lote_tiss": numero_lote_tiss,
-    }
+    return {}
 
 
 def _fraude_business_key(tenant_id: str, numero_caso: str) -> str:
@@ -1636,7 +1670,12 @@ def handoff_pagamento_entry(
 def notify_sla_risk_entry(
     variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
 ) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.contas.notify_sla_risk` -> `notify_sla_risk`."""
+    """Dict-boundary entry for `operadora.contas.notify_sla_risk` -> `notify_sla_risk`.
+
+    GAP-CONTAS-7 / FAB-NOTIFIED-TRIO: o retorno passou a ser `{}` (o antigo `notified=True` era
+    fato fabricado — ver a docstring de `notify_sla_risk`). Os defaults de leitura seguem
+    identicos; so o payload de saida mudou, e ele tinha zero consumidores.
+    """
     del kafka  # unused — notify_sla_risk emits no domain event
     tenant_id = variables.get("tenant_id", "")
     numero_lote_tiss = variables.get("numero_lote_tiss", "")

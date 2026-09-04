@@ -127,9 +127,18 @@ neste contrato: ele e um *originador* — quando a jornada de cobranca detecta u
 de cancelamento, `spec/agents/lucas/agent.yaml`'s `secondary_process: SP-OP-CANCEL-001` inicia
 (ou correlaciona) esta instancia. **Nao existe o caminho inverso.** Nenhuma resposta do
 beneficiario a uma mensagem de Lucas e roteada de volta a Lucas — o UNICO webhook receptivo do
-canal WhatsApp e `HelenaDispatcher` (`src/maezo/platform/webhooks/whatsapp/dispatch.py:126`),
-que despacha toda mensagem recebida para o grafo de Helena, sem contexto de cobranca/
-cancelamento.
+canal WhatsApp e `HelenaDispatcher`
+(`src/maezo/platform/webhooks/whatsapp/dispatch.py::HelenaDispatcher`), que despacha toda
+mensagem de TEXTO recebida para o grafo de Helena, sem contexto de cobranca/cancelamento.
+
+**Correcao 2026-09-03 (gap `WHATSAPP-NON-TEXT-DROPPED`):** "toda mensagem recebida" acima
+descrevia so metade do que o codigo fazia — uma mensagem NAO-texto (audio/imagem/documento/
+localizacao) nunca chegou ao grafo da Helena; ate esta data ela era simplesmente DESCARTADA, sem
+resposta alguma ao beneficiario. Hoje ela toma
+`HelenaDispatcher.acknowledge_non_text`: UMA resposta fixa em pt-BR pelo mesmo seam gateado, sem
+turno de agente, sem LLM, sem start de processo. Isso NAO cria caminho de volta para Lucas nem
+para nenhum outro agente — o achado GAP 11.7 acima segue valido, e a resposta fixa nao carrega
+contexto de cobranca/cancelamento nenhum.
 
 Verificado nesta sessao, com quoting correto (uma tentativa anterior sem aspas no `--include`
 do shell produziu falsos "0 hits" por erro do proprio shell, nao do grep — registrado aqui

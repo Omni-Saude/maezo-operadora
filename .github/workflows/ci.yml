@@ -335,12 +335,32 @@ jobs:
   # Unblock condition: T3.1 (V2-COMPLETION-PLAN) lands integration tests under
   # tests/integration/. The moment that happens this lane auto-activates — no
   # workflow edit needed.
+  #
+  # ── CI-minutes hygiene (2026-09-03): this lane is ~80% of every CI minute the repo bills
+  # (~93 min/run, flat since at least 2026-08-07; every other job in this workflow is <10 min).
+  # Three CI-only changes below, none of which alters what any test asserts: a fail-closed
+  # docs-only gate (`paths` + `gate` steps), the never-used hapi-fhir JVM no longer started,
+  # and a hard `timeout-minutes` cap. The per-test cost itself (~11 s/test on average; the
+  # 3 s idle tail that every `drain_topics()` call pays — tests/integration/processes/
+  # conftest.py — is the dominant term) is test infrastructure, not workflow, and is left for
+  # a change proven on a local engine first; `--durations=40` below is the evidence for it.
   integration:
     name: integration tests (real engine)
     runs-on: ubuntu-latest
+    # Hard cap (CI-minutes hygiene): measured steady state is 92.4-95.9 min per run (every
+    # completed run 2026-08-07..2026-09-03). Without a cap a wedged engine or a stuck long-poll
+    # bills GitHub's 360-min default before the job dies. 150 leaves ~55 min of headroom over
+    # the slowest observed run — a timeout here is a REAL anomaly worth a red, never a flake
+    # to be waved through by raising the number.
+    timeout-minutes: 150
     # Sem "test coverage illusion": testes de integracao rodam contra engine REAL.
     needs: [quality]
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    # `pull-requests: read` is for dorny/paths-filter's listFiles fallback — same reason and
+    # same minimum as the `evals` job below; `contents: read` restates the workflow default.
+    permissions:
+      contents: read
+      pull-requests: read
     env:
       # Pin the compose postgres host port explicitly (docker-compose.yml defaults to 5433 for
       # local dev — see that file — to avoid colliding with other Postgres instances on a dev's
@@ -351,11 +371,60 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
+      # ── Docs-only gate (CI-minutes hygiene). A docs-only PR cannot change this lane's verdict:
+      # nothing under tests/integration/ reads docs/** or any *.md. The filter is FAIL-CLOSED by
+      # construction — `code` is 'true' when ANY changed file falls outside the two ignorable
+      # patterns, so an unlisted path (a new top-level dir, a workflow, a lockfile, spec/,
+      # config/, ...) always RUNS the lane; only the exact verdict 'false' skips, and a
+      # missing/errored output runs (decide step below). `schedule` is never filtered — the
+      # nightly on main stays the full-lane canary regardless of what merged that day. Same
+      # action, same SHA pin and same `pull-requests: read` minimum as the `evals` job.
+      - name: Classify changed paths (docs-only cannot affect this lane)
+        id: paths
+        if: github.event_name != 'schedule'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!docs/**'
+              - '!**/*.md'
+
+      - name: Decide whether the lane runs (fail-closed)
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CODE_CHANGED: ${{ steps.paths.outputs.code }}
+        run: |
+          # Only the exact verdict "no code path changed" skips. Anything else — including an
+          # empty/missing output from a skipped or failed filter step — runs the lane.
+          if [ "${EVENT_NAME}" != "schedule" ] && [ "${CODE_CHANGED}" = "false" ]; then
+            echo "docs-only change (every changed file is under docs/** or *.md) — lane not applicable"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "code changed (or unfiltered event '${EVENT_NAME}') — running the lane"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: INTEGRATION LANE NOT APPLICABLE — docs-only change (visible)
+        if: steps.gate.outputs.run == 'false'
+        run: |
+          echo "::notice::INTEGRATION LANE NOT APPLICABLE — every changed file is under docs/** or *.md; nothing this lane executes reads those paths. The nightly schedule still runs the full lane on main."
+          {
+            echo "## integration tests (real engine): NOT APPLICABLE (docs-only change)"
+            echo ""
+            echo "Every changed file matches \`docs/**\` or \`**/*.md\`; nothing under"
+            echo "\`tests/integration/\` reads those paths. The real-engine lane (~93 min) was"
+            echo "not started. The nightly schedule still runs the full lane on main."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        if: steps.gate.outputs.run == 'true'
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install uv
+        if: steps.gate.outputs.run == 'true'
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           version: ${{ env.UV_VERSION }}
@@ -363,6 +432,7 @@ jobs:
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
         run: uv sync --locked --extra dev
 
       # Three-bucket guard (verification cycle 1 caught a fail-open two-bucket version
@@ -374,6 +444,7 @@ jobs:
       #                    FAIL the job. Broken tests must never masquerade as absent.
       - name: Check for collectable integration tests
         id: guard
+        if: steps.gate.outputs.run == 'true'
         run: |
           set +e
           uv run pytest tests/integration --collect-only -q
@@ -407,9 +478,16 @@ jobs:
             echo "moment T3.1 (V2-COMPLETION-PLAN) lands tests there — no workflow edit needed."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Start core stack
+      # hapi-fhir is a `core`-profile service that only the `app` profile's daemons consume;
+      # NOTHING under tests/integration/ talks to it (grep 8081 / /fhir / hapi: one docstring
+      # mention, zero calls), yet it was a third JVM competing with cibseven and kafka for the
+      # runner's CPU/RAM for the whole ~93-min lane, and its `/fhir/metadata` health probe dumped
+      # ~23,800 lines of CapabilityStatement JSON into every job log. Naming the services is what
+      # keeps compose from starting it (`--profile core` is still required to resolve profiled
+      # services at all; cibseven's `depends_on: postgres` is honoured). `down -v` is unchanged.
+      - name: Start core stack (postgres + cibseven + kafka; hapi-fhir deliberately not started)
         if: steps.guard.outputs.run == 'true'
-        run: docker compose --profile core up -d
+        run: docker compose --profile core up -d postgres kafka cibseven
 
       - name: Wait for stack to be healthy
         if: steps.guard.outputs.run == 'true'
@@ -418,13 +496,19 @@ jobs:
           timeout 60 bash -c 'until docker compose exec -T postgres pg_isready -U maezo -d maezo; do sleep 3; done'
           echo "Waiting for cibseven..."
           timeout 300 bash -c 'until curl -sf http://localhost:8080/engine-rest/version; do sleep 5; done'
-          echo "Waiting for hapi-fhir..."
-          timeout 300 bash -c 'until curl -sf http://localhost:8081/fhir/metadata; do sleep 5; done'
           echo "All services healthy."
 
+      # Direct pytest instead of `make test-integration` — three CI-only deltas the local target
+      # must not carry: `-m "integration and not chaos"` (tests/integration/chaos/ is marked BOTH
+      # `integration` and `chaos` and already runs, PG-only, in the dedicated `chaos` job below —
+      # running it here again was duplicate coverage on the same SHA); `--durations=40` (per-test
+      # wall-clock of the slowest 40 — the evidence the next optimization round needs; this lane
+      # averages ~11 s/test with zero per-test visibility today); `-rs` (prints every skip's
+      # reason, so a self-skipping live suite — no KAFKA_BOOTSTRAP_SERVERS / MAEZO_TEST_DATABASE_URL
+      # in this job's env — shows up in the log as text, not as a silent `s`).
       - name: Integration tests
         if: steps.guard.outputs.run == 'true'
-        run: make test-integration
+        run: uv run python -m pytest tests/integration -q -m "integration and not chaos" --durations=40 -rs
 
       - name: Upload integration test results
         if: always() && steps.guard.outputs.run == 'true'
@@ -477,6 +561,9 @@ jobs:
   chaos:
     name: chaos (seam-level fault injection, PG-only)
     runs-on: ubuntu-latest
+    # Hard cap (CI-minutes hygiene): measured 0.7-1.0 min per run; same rationale as the
+    # `integration` job's cap — a hung PG-only lane must never bill GitHub's 360-min default.
+    timeout-minutes: 20
     needs: [quality]
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     env:

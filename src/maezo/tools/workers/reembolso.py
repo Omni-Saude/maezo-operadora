@@ -570,37 +570,61 @@ def request_documents(
     protocolo_reembolso: str,
     message_type: str = "pendencia_documentacao",
 ) -> dict[str, Any]:
-    """Request missing documentation from the beneficiario — abre a pendencia (ST_SolicitarDocumentos).
+    """Registra que a ETAPA de abertura da pendencia rodou. Retorna `{}` — NAO afirma nada.
 
-    Non-adverse, notify-only: pairs with `GW_AguardarDocs`'s race (message
-    `msg.reembolso.docs_received` OR `ICE_PrazoPendencia` timer). A beneficiario who never
-    responds is decided by a HUMAN in `UT_DecidirPendenciaExpirada` — this worker never
-    auto-cancels or auto-denies (mirrors AUTH-001's structurally-ported sub-flow, per the BPMN's
-    own documentation on `ST_SolicitarDocumentos`).
+    Serve `ST_SolicitarDocumentos` ("Solicitar documentacao ao beneficiario",
+    `spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:132-138`), topico
+    `operadora.reembolso.request_documents`.
 
-    The BPMN's `event_topic_pended` inputParameter (`agents.events.reembolso.pended`) documents
-    the intent for THIS task to publish a domain event (no downstream `ST_Publish*` exists on
-    this branch — unlike the other completion events, which flow through a dedicated generic
-    `operadora.events.publish` service task). This is the SAME disclosed, systemic gap already on
-    record for every other family's `request_documents`-shaped worker in this codebase
-    (auth/cancel/cred/recurso — grep-verified: none call `kafka.publish` for their own embedded
-    `event_topic_pended`); this worker does not publish either, it only returns the notify
-    signal. Fix belongs to the Kafka-producer wiring task, not this build.
+    Nao adversa: emparelha com a corrida de `GW_AguardarDocs` (message
+    `msg.reembolso.docs_received` OU timer `ICE_PrazoPendencia`). Um beneficiario que nunca
+    responde e decidido por um HUMANO em `UT_DecidirPendenciaExpirada` — este worker nunca
+    auto-cancela nem auto-indefere.
+
+    GAP-REEMBOLSO-8 / FAB-NOTIFIED-TRIO (o motivo desta docstring). O retorno era, em toda
+    entrega e sem calcular nada::
+
+        {"notified": True, "beneficiario_pseudo_id": ..., "protocolo_reembolso": ...,
+         "status": "pended", "message_type": ...}
+
+    A docstring ANTERIOR ja divulgava, no mesmo corpo de funcao, que este worker nunca publica o
+    evento de pendencia — e devolvia `notified=True` assim mesmo: a divulgacao e o retorno se
+    contradiziam. `notified` nao era computado de nada (nenhum canal contatado, nenhuma entrega
+    observada) e a harness carrega o retorno para o escopo do processo no `complete`
+    (`harness.py:1778-1782`), entao a constante entrava na instancia como trilha de auditoria.
+
+    DUAS AFIRMACOES DA DOCSTRING ANTIGA ESTAVAM DESATUALIZADAS, e foram removidas em vez de
+    reproduzidas: (1) "the BPMN's `event_topic_pended` inputParameter" — esse parametro NAO
+    existe mais neste BPMN (`grep -n event_topic_pended spec/processes/bpmn/*.bpmn` so encontra
+    CRED-001 e RECURSO-001); (2) "no downstream `ST_Publish*` exists on this branch" — existe:
+    `ST_PublishReembolsoPended` (`:151-161`) publica `agents.events.reembolso.pended` via o
+    generico `operadora.events.publish`, uma task adiante, em AMBOS os ramos que chegam aqui
+    (pendencia inicial e `SOLICITAR_INFO` do analista). Ambas foram introduzidas por t3.1
+    (`docs/evidence-ledger.md:125`); a obrigacao "produz" do contrato ja e cumprida — pelo BPMN,
+    nao por este worker.
+
+    POR QUE `{}` E NAO UM PUBLISH REAL (opcao (a) avaliada e rejeitada com evidencia). O evento de
+    dominio ja e publicado (acima), entao publicar aqui duplicaria um evento real. E nao existe
+    canal externo ao BENEFICIARIO para um worker: as seams sao `engine`/`dmn`/`kafka`/`audit_sink`
+    (`harness.py`); o unico canal de mensageria da arvore (`mcp_whatsapp`) so e alcancavel pelos
+    agentes conversacionais e pelo servico de webhooks, nunca por um worker BPMN. Um registro
+    Kafka interno seria um PEDIDO de disparo, jamais a prova de que o beneficiario foi avisado.
+
+    O QUE SE PERDE AO DEVOLVER `{}`: nada consumido. As cinco chaves tinham ZERO consumidores —
+    nenhum `conditionExpression`, nenhum `inputExpression` de DMN (nenhuma das quatro DMNs de
+    reembolso le `status`/`notified`/`message_type`), nenhum modelo de entrada de worker a jusante
+    e nenhuma linha de contrato. `status: "pended"` era, alem disso, a unica das cinco que
+    ESCREVIA um valor novo no escopo — sob um nome generico, sem dono declarado.
     """
     logger.info(
         "reembolso.request_documents",
         beneficiario_pseudo_id=beneficiario_pseudo_id,
         protocolo_reembolso=protocolo_reembolso,
         message_type=message_type,
+        notified_asserted=False,
     )
 
-    return {
-        "notified": True,
-        "beneficiario_pseudo_id": beneficiario_pseudo_id,
-        "protocolo_reembolso": protocolo_reembolso,
-        "status": "pended",
-        "message_type": message_type,
-    }
+    return {}
 
 
 def analyze_request(input_data: ReembolsoInput) -> dict[str, Any]:
@@ -1079,7 +1103,13 @@ def calculate_amount_entry(
 def request_documents_entry(
     variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
 ) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.reembolso.request_documents` -> `request_documents`."""
+    """Dict-boundary entry for `operadora.reembolso.request_documents` -> `request_documents`.
+
+    GAP-REEMBOLSO-8 / FAB-NOTIFIED-TRIO: o retorno passou a ser `{}` (o antigo `notified=True` era
+    fato fabricado — ver a docstring de `request_documents`). Nenhuma outra mudanca de
+    comportamento; o `event_topic_pended` que a docstring antiga citava nao existe mais neste
+    BPMN e o evento `agents.events.reembolso.pended` e publicado por `ST_PublishReembolsoPended`.
+    """
     del kafka  # unused — request_documents emits no domain event itself (see docstring)
     beneficiario_pseudo_id = variables.get("beneficiario_pseudo_id", "")
     protocolo_reembolso = variables.get("protocolo_reembolso", "")

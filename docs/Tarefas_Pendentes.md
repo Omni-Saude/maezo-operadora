@@ -113,7 +113,7 @@
 > apply`) segue válida só para o caminho legado/staging; o caminho vivo é §1.8.
 >
 > **Atualização 2026-09-03 (programa de fechamento de gaps — trens 1–3 mergeados, ADR-0040
-> mergeado (Proposed), 6 PRs de revisão do dono pendentes; base `main`@`93d4467`).** Entre a última
+> mergeado (Proposed), 6 PRs de revisão do dono MERGEADOS; base `main`@`43722b9`).** Entre a última
 > atualização (2026-08-13, `b9e4383`) e hoje, uma auditoria forense profunda (178 gaps catalogados)
 > gerou um programa de remediação executado em três "trens" de PRs, cada um com a cadeia zero-trust
 > completa (autor tier-routed → gatekeeper adversarial independente → reparo por 3º agente → delta
@@ -135,23 +135,33 @@
 >   fail-closed, mais o fix de prontidão da suíte live-Kafka.
 > - **#260** (`.gitignore` de artefatos locais) → `2011002`.
 > - **#274** ADR-0040 "perspectiva da operadora" (Proposed) → `3ced9b9`.
-> - **#263 #254 #259 #266** (dependências) → `93d4467` — **HEAD atual de `main`**.
+> - **#263 #254 #259 #266** (dependências) → `93d4467`.
+> - **#288 #294 #287 #291 #285 #284** (revisão do dono; ver lista abaixo) → `43722b9` — **HEAD
+>   atual de `main`**.
 >
-> **PRs de revisão do dono ainda pendentes (paths CODEOWNED; `flip-path-review-gate` vermelho por
-> design; ordem de aprovação — cada PR já empilhado sobre `main` + seus predecessores):**
+> **PRs de revisão do dono — mergeados em 2026-09-03 na ordem prevista (paths CODEOWNED;
+> `flip-path-review-gate` vermelho por design; cada PR empilhado sobre `main` + seus
+> predecessores):**
 > - **#288** — PR-3 RECURSO reconstruído na perspectiva do pagador. Toca
->   `spec/policies/autonomy/action-approvals.yaml` (CODEOWNED) → exige aprovação do dono.
+>   `spec/policies/autonomy/action-approvals.yaml` (CODEOWNED) → exige aprovação do dono. →
+>   mergeado (`ea33b6f`).
 > - **#294** — PR-4 CONTAS reconstruído + cerca de perspectiva finalmente CONECTADA (contém #288).
 >   Toca `glosa_triage.dmn`, YAML de shadow-candidate, `action-approvals.yaml` e o pacote MZO-040 →
->   CODEOWNED.
+>   CODEOWNED. → mergeado (`c5b7505`).
 > - **#287** — ANS-CRON: competência, taxonomia e órfãs + test spec novo. Toca a âncora
->   `action-approvals.yaml:340` → CODEOWNED.
+>   `action-approvals.yaml:340` → CODEOWNED. → mergeado (`f80e74c`).
 > - **#291** — metade do dono da higiene de docs (anotação de allowlist, linhas de shadow,
->   metadados de upcoding). Toca `process_allowlist.py` + 3 arquivos `spec/.../dmn/` → CODEOWNED.
+>   metadados de upcoding). Toca `process_allowlist.py` + 3 arquivos `spec/.../dmn/` → CODEOWNED. →
+>   mergeado (`b2c1b33`).
 > - **#285** — ADR-0041, reconciliação de 7 ADRs (Proposed, DRAFT/verify). Toca `docs/adr/` +
->   índice do README → CODEOWNED.
+>   índice do README → CODEOWNED. → mergeado (`a17ea59`).
 > - **#284** — Makefile migra para `python -m pytest` + mypy strict + plano de split de inferência.
->   Toca o `Makefile` → CODEOWNED.
+>   Toca o `Makefile` → CODEOWNED. → mergeado (`43722b9`).
+>
+> Nota de CI: a primeira rodada falhou nos seis (bridge live-PG ×2; paridade golden ×2 no #288 — a
+> atualização do teste de paridade tinha sido autorada no PR-4); correção somente em testes no
+> #288, cascateada e verificada com a suíte de integração completa local (509 aprovados / 0
+> falhas) antes do re-push; segunda rodada verde nos seis.
 >
 > **Dependências (upgrades de biblioteca) — verificadas pelo dono às 16:05Z, todas com
 > `integration tests (real engine)` = success no head antes do merge e `uv lock --check` limpo em
