@@ -35,18 +35,23 @@ name: flip-path-review-gate
 #                            once per run (`repos/{repo}/branches/{ref}`); the three-dot COMPARE
 #                            between that tip and the head (`repos/{repo}/compare/{base}...{head}`,
 #                            merge-base semantics, paginated); and, only when the compare's `files`
-#                            list hits its hard 300-file page cap, a per-commit file union fallback
+#                            list hits its hard 300-file whole-comparison cap (the compare endpoint
+#                            pages its `commits`, never its `files`), a per-commit file union fallback
 #                            (`repos/{repo}/commits/{sha}`, independently paginated) so the touched
 #                            set is never silently truncated. All still `contents: read` — no new
 #                            permission was needed for the fix.
-#   pull-requests: read  -> read the PR itself for its base/head shas and author login
-#                            (`pulls/{n}`) and list its reviews (`pulls/{n}/reviews`). `pulls/{n}/
-#                            files` — the OLD source of touched paths, dropped by #305 because it
-#                            diffs from the PR's possibly-weeks-stale recorded `base.sha` and its own
-#                            `files` list silently truncates at 300 with no signal — is no longer
-#                            called at all.
+#   pull-requests: read  -> read the PR itself for its base ref/sha, head sha and author login
+#                            (`pulls/{n}`; the `base.ref` it returns is what feeds the
+#                            `branches/{ref}` call above) and list its reviews (`pulls/{n}/reviews`).
+#                            `pulls/{n}/files` — the OLD source of touched paths, dropped by #305
+#                            because it diffs from the PR's possibly-weeks-stale recorded `base.sha`
+#                            and its own `files` list silently truncates at 300 with no signal — is
+#                            no longer called at all.
 # Note what is NOT requested: no `write` of any kind. The gate reports pass/fail through its own
-# exit status; it never posts a comment, never approves, never merges, and cannot.
+# exit status; it never posts a comment, never approves, never merges, and cannot. One more call the
+# evaluation makes needs no `permissions:` key at all, because none can grant it:
+# `orgs/{org}/teams/{team}/memberships/{login}` (`GitHubAPI.membership`,
+# `check_flip_path_review.py:1287`) — see FORK PRs §1 below for what happens when it is unreadable.
 #
 # CODEOWNERS IS READ FROM THE PR'S **BASE** COMMIT, NOT ITS HEAD. Load-bearing: a PR that read its
 # OWN head's CODEOWNERS could delete the lines that own the files it edits and thereby un-own itself
