@@ -117,3 +117,92 @@ jobs:
           fi
 
           fail "\`${BRANCH}\` is NOT adequately protected (protected=${protected}, active_rules=${rule_count}, has_pull_request_rule=${has_pr_rule}, has_required_status_checks_rule=${has_status_checks_rule}). OWNER ACTION (~10 min, unblocks all downstream governance — PLANS.md §0.8 Onda 0): GitHub web UI -> this repo -> Settings -> Rules -> Rulesets -> New branch ruleset targeting \`${BRANCH}\`, enable 'Require a pull request before merging' + 'Require status checks to pass' + 'Require review from Code Owners'. IMPORTANT: classic branch protection (Settings -> Branches -> Add branch protection rule) will NOT satisfy this check even if fully configured there — the read-scoped API this workflow uses (GET /rules/branches/\${BRANCH}) only ever returns RULESET rules; a classic-protected, ruleset-free branch reports zero rules here regardless of its classic settings, and the classic protection detail endpoint is admin-only/unreadable from this workflow's default token. The RULESET path above is the only way to turn this check green."
+
+  # ---------------------------------------------------------------------------------------------
+  # R-051 / MERGE-GATE-OWNER-REVIEW — o SEMAFORO do flip de `require_code_owner_review`.
+  #
+  # O dono datou o compromisso em 2026-09-04: (a) WRITE de `@Omni-Saude/security-team` neste repo,
+  # (b) ao menos um humano != `rodaquino-OMNI` no time e (c) ZERO erros em
+  # `GET /repos/{o}/{r}/codeowners/errors` — em 10 dias corridos (2026-09-14) — e so' entao virar
+  # `require_code_owner_review: true` e tornar `flip-path-review-gate` REQUIRED. A frase que este
+  # job existe para honrar e: "o estado do gate passa a ser medido, nunca presumido".
+  #
+  # (a), (b) e (c) sao atos de ORGANIZACAO/PESSOAS e nenhum agente pode executa-los nem atestar que
+  # foram cumpridos. O que da para construir — e e' o que esta aqui — e a MEDICAO de (c), que e' o
+  # unico dos tres legivel por uma API read-only e que, por construcao, so' fica verde depois de (a)
+  # e (b): todo erro que este repositorio reporta hoje e' "Unknown owner" para o token do TIME, e o
+  # GitHub so' para de reporta-lo quando o time existir COM acesso de escrita aqui. Ou seja, (c) e'
+  # o indicador observavel dos outros dois, e nao um quarto requisito independente.
+  #
+  # POR QUE UM JOB PROPRIO, E NAO UM PASSO NO JOB ACIMA. Sao dois fatos de governanca distintos
+  # (protecao da branch vs. resolvibilidade dos donos); fundi-los faria um unico contexto vermelho
+  # sem dizer qual dos dois quebrou, e derrubaria o sinal de protecao de branch que hoje esta verde.
+  # Como job separado, ele reporta o proprio contexto e pode ser exigido isoladamente na ruleset.
+  #
+  # POR QUE NAO EM `pull_request` (nem dentro de `flip-path-review-gate.yml`). Hoje a contagem e' 29,
+  # e nao 0. Um check vermelho em TODO PR bloquearia inclusive os PRs que existem para cumprir os
+  # pre-requisitos — um gate que impede o proprio conserto nao e' fail-closed, e' deadlock, e foi
+  # esse exato modo de falha (`require_code_owner_review` inerte com donos nao-resolviveis) que o
+  # cabecalho de `.github/CODEOWNERS` documenta. Este job herda os gatilhos deste arquivo (push em
+  # `main`, varredura semanal, `workflow_dispatch`), entao o estado fica MEDIDO e datado a cada
+  # push e toda semana, sem travar a fila. Passar a exigi-lo como status check — ou acrescentar
+  # `pull_request` aos gatilhos depois que a contagem chegar a zero — e' ato do dono na ruleset,
+  # deliberadamente NAO feito aqui.
+  #
+  # FAIL-CLOSED, NAO ADVISORY: contagem != 0 e' VERMELHO; falha de API, resposta ilegivel ou JSON
+  # sem o campo `errors` tambem sao VERMELHO. Uma medicao que nao pode ser feita nunca e' lida como
+  # "esta tudo certo".
+  # ---------------------------------------------------------------------------------------------
+  codeowners-errors-check:
+    name: codeowners-errors-check
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      # Sem checkout: `gh api` puro, mesmo padrao do job acima.
+      - name: CODEOWNERS must resolve to real, access-carrying owners (zero lint errors)
+        shell: bash
+        run: |
+          set -uo pipefail  # deliberadamente sem -e: cada chamada tem o status conferido
+                             # explicitamente abaixo, para produzir um VERMELHO especifico em vez
+                             # de um traceback nu — mas todo caminho de falha ainda faz `exit 1`.
+
+          fail() {
+            {
+              echo "## codeowners-errors-check: RED"
+              echo ""
+              echo "$1"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "codeowners-errors-check: RED — $1"
+            exit 1
+          }
+
+          errors_json="$(gh api "repos/${REPO}/codeowners/errors" 2>&1)"
+          api_status=$?
+          if [ "$api_status" -ne 0 ]; then
+            fail "GET /repos/${REPO}/codeowners/errors falhou (API inacessivel ou token sem leitura) — fail-closed, nunca verde silencioso. Resposta: ${errors_json}"
+          fi
+
+          # `has("errors")` antes de contar: um payload sem o campo faria `.errors // [] | length`
+          # devolver 0, que e' exatamente a leitura fail-open que este job existe para impedir.
+          if ! printf '%s' "$errors_json" | jq -e 'has("errors") and (.errors | type == "array")' > /dev/null 2>&1; then
+            fail "a resposta de /codeowners/errors nao tem um array \`errors\` — o gate nao consegue MEDIR o estado, entao recusa em vez de presumir zero. Resposta: ${errors_json}"
+          fi
+
+          error_count="$(printf '%s' "$errors_json" | jq '.errors | length')"
+          echo "codeowners/errors count: ${error_count}"
+          printf '%s' "$errors_json" | jq -r '.errors[] | "  line \(.line) col \(.column): \(.kind) — \(.message)"' || true
+
+          if [ "$error_count" -eq 0 ]; then
+            {
+              echo "## codeowners-errors-check: GREEN"
+              echo ""
+              echo "\`.github/CODEOWNERS\` resolve sem erros: todo dono declarado existe e tem acesso a este repositorio."
+              echo "Pre-requisito (c) de \`.github/CODEOWNERS:39-47\` SATISFEITO — e, por construcao, (a) e (b) tambem."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "codeowners-errors-check: GREEN"
+            exit 0
+          fi
+
+          fail "\`.github/CODEOWNERS\` tem ${error_count} erro(s) de resolucao de dono. Enquanto isso for != 0, o flip de \`require_code_owner_review: true\` instalaria a APARENCIA da revisao humana, nao a revisao: o GitHub nao requisita review de um dono nao-resolvivel, entao cada linha viraria um gate VAZIO e verde. ACAO DO DONO (R-051, prazo 2026-09-14), nesta ordem: (a) dar acesso WRITE de \`@Omni-Saude/security-team\` a \`${REPO}\`; (b) povoar esse time com pelo menos UM humano que NAO seja \`rodaquino-OMNI\` — sem isso (a) nao compra separacao de revisor alguma; (c) reexecutar este check e confirmar zero. So' entao virar \`require_code_owner_review: true\` na ruleset \`main-protection\` e tornar \`flip-path-review-gate\` REQUIRED. Detalhe completo no cabecalho de \`.github/CODEOWNERS\`."
