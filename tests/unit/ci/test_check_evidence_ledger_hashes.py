@@ -235,6 +235,28 @@ class TestComputeRecipeHash:
         expected = "sha256:" + hashlib.sha256(("\n".join(sorted(lines)) + "\n").encode("utf-8")).hexdigest()
         assert compute_recipe_hash(lines) == expected
 
+    def test_matches_the_eval_replay_exhaustion_swallowed_ledger_row_hash(self) -> None:
+        """The addendum's own target row, reconfirmed bit-for-bit WITHOUT executing anything on
+        that sibling branch (forbidden by this task's brief): the 3 real `async def test_...`
+        names were read via `git show 0dcde5c:tests/evals/test_replay_exhaustion_unswallowable.py`
+        (read-only; the report cites "3 passed"), and the resulting synthetic `<nodeid> PASSED`
+        lines below reproduce the declared ledger hash
+        `sha256:6ce0f39605f55aede82194a2c1e9bf957a67600a18fab728ffb5ecb116314bfc` exactly — proof
+        that `compute_recipe_hash`'s join/sort/trailing-newline choice is the one this ledger's
+        real practice actually uses, not merely internally self-consistent."""
+        node_ids = [
+            "tests/evals/test_replay_exhaustion_unswallowable.py::"
+            "test_replay_exhaustion_one_entry_short_fails_even_with_agent_fallback PASSED",
+            "tests/evals/test_replay_exhaustion_unswallowable.py::"
+            "test_replay_exhaustion_complete_golden_passes PASSED",
+            "tests/evals/test_replay_exhaustion_unswallowable.py::"
+            "test_replay_unconsumed_recorded_llm_entry_is_not_silently_ignored PASSED",
+        ]
+        assert (
+            compute_recipe_hash(node_ids)
+            == "sha256:6ce0f39605f55aede82194a2c1e9bf957a67600a18fab728ffb5ecb116314bfc"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Recipe hash equality against a REAL fixture test file (Task 3 + addendum requirement)

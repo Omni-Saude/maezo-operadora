@@ -51,7 +51,12 @@ marker is not reproducible across environments. This gate deliberately strips wi
 more whitespace characters), not a single literal space, for the same reason — a literal-single-
 space strip is exactly as environment-sensitive as no strip at all whenever `COLUMNS` pads with
 more than one space. (2026-09-03, VER-EVAL-REPLAY reproduced this independently against
-`EVAL-REPLAY-EXHAUSTION-SWALLOWED`'s declared hash on a sibling branch.)
+`EVAL-REPLAY-EXHAUSTION-SWALLOWED`'s declared hash on a sibling branch; this task's author
+independently RECONFIRMED it bit-for-bit — without executing anything on that branch, per this
+task's own constraint — by reading the 3 real `async def test_...` names out of that branch's test
+file with `git show <sha>:<path>` and feeding the resulting 3 synthetic `<nodeid> PASSED` lines
+through this exact `compute_recipe_hash`: the output is byte-identical to the declared
+`sha256:6ce0f396...`.)
 
 Sort the stripped lines (a plain Python string sort over ASCII test node-ids is equivalent to
 `LC_ALL=C sort`), join with `\n`, add one trailing `\n` (matching what `sort | sha256sum` produces
