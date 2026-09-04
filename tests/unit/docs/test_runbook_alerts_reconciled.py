@@ -99,9 +99,22 @@ _ALERT_LINE_RE: Final[re.Pattern[str]] = re.compile(r"^\*\*Alert:\*\*.*$", re.MU
 
 
 def _shipped_alert_names() -> set[str]:
-    """Every `alert:` name actually defined in `deploy/observability/alert-rules.yml`."""
+    """Every `alert:` name actually defined in `deploy/observability/alert-rules.yml`.
+
+    ALERTS-WITHOUT-METRICS-b / R-056 added a `record:` rule (group `maezo_dead_letter_derived`) —
+    it has no `alert` key and pages nobody, so it is excluded from the shipped-ALERT accounting
+    this file does (a Maezo* name in a recording-rule's own `record:`/`expr` would still be caught
+    by `_all_runbook_alert_names()`'s whole-document scan if it ever showed up in prose, same as
+    any other name; `maezo_dead_letter_queue_size` itself is lower_snake_case and does not match
+    `_ALERT_NAME_RE`'s `Maezo[A-Za-z]...` CamelCase pattern regardless).
+    """
     document: Any = yaml.safe_load(_ALERT_RULES.read_text(encoding="utf-8"))
-    return {rule["alert"] for group in document["groups"] for rule in group["rules"]}
+    return {
+        rule["alert"]
+        for group in document["groups"]
+        for rule in group["rules"]
+        if "alert" in rule
+    }
 
 
 def _runbook_sections() -> list[str]:

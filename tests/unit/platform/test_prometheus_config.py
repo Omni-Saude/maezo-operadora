@@ -133,7 +133,13 @@ def test_alert_rules_cover_dead_letter() -> None:
 
 
 def _alert_names() -> list[str]:
-    """Every `alert:` name declared in deploy/observability/alert-rules.yml, in file order."""
+    """Every `alert:` name declared in deploy/observability/alert-rules.yml, in file order.
+
+    ALERTS-WITHOUT-METRICS-b / R-056 added a `record:` rule (group `maezo_dead_letter_derived`,
+    deriving `maezo_dead_letter_queue_size` from the Kafka Exporter). A Prometheus recording rule
+    has no `alert` key and pages nobody, so a runbook is not a meaningful concept for it — skip
+    any rule that declares `record` instead of `alert`.
+    """
     rules_path = _repo_root() / "deploy" / "observability" / "alert-rules.yml"
     with open(rules_path) as f:
         rules = yaml.safe_load(f)
@@ -141,6 +147,8 @@ def _alert_names() -> list[str]:
     names: list[str] = []
     for group in rules["groups"]:
         for rule in group.get("rules", []):
+            if "record" in rule:
+                continue
             name = rule.get("alert")
             assert name, f"Rule with no 'alert' name in group {group.get('name')!r}: {rule}"
             names.append(name)

@@ -7,6 +7,12 @@
 #   1. SLA breach — agent/worker latency or error rate exceeds thresholds
 #   2. Crash-loop — frequent worker/agent restarts
 #   3. Dead-letter — unprocessed messages accumulating in DLQ
+#
+# `runbook_url` (D12-01-b / R-007): every `alert:` rule below carries one, pointing at the
+# SPECIFIC docs/runbooks/alerts/<AlertName>.md that covers it (never a generic index). Fenced by
+# `scripts/ci/check_alert_runbook_urls.py` (`make check-alert-runbook-urls`) — a new rule without
+# one, or one whose path does not resolve in the repo, fails CI. Burn-rate/multi-window SLO
+# rewrites are OUT of this scope (R-007: "deixando burn-rate para depois de D12-01-a").
 
 groups:
   # ---------------------------------------------------------------------------
@@ -31,14 +37,24 @@ groups:
             Worker {{ $labels.worker }} on topic {{ $labels.topic }}
             has P95 latency of {{ $value }}s over the last 5 minutes.
             SLA threshold: 5s. Investigate upstream dependency or resource contention.
+          runbook_url: "docs/runbooks/alerts/MaezoSLAWorkerLatencyHigh.md"
 
       # Agent error rate SLA: > 1% error rate sustained for 5 minutes
+      #
+      # ALERT-COUNTER-LABELS (R-063): `maezo_agent_errors_total`/`maezo_tool_calls_total` now
+      # carry `labelnames=["agent","error_type"]` (metrics.py) — widened from label-free in the
+      # SAME PR that wires them (ALERTS-WITHOUT-METRICS-a is already CLOSED on main, so the
+      # "same PR" clause is moot; this is that follow-up PR). `sum by (agent)` on BOTH sides of
+      # the division below is what keeps the binary operation's vector matching valid despite the
+      # mismatched `error_type` label between numerator and denominator (`tool_calls` always
+      # carries the `error_type="nao_aplicavel"` sentinel — see metrics.py) — `by (agent)`
+      # aggregates it away on both sides instead of requiring the label sets to be identical.
       - alert: MaezoSLAAgentErrorRateHigh
         expr: |
           (
-            rate(maezo_agent_errors_total[5m])
+            sum by (agent) (rate(maezo_agent_errors_total[5m]))
             /
-            rate(maezo_tool_calls_total[5m])
+            sum by (agent) (rate(maezo_tool_calls_total[5m]))
           ) > 0.01
         for: 5m
         labels:
@@ -48,9 +64,10 @@ groups:
         annotations:
           summary: "Agent error rate exceeds 1% (SLA breach)"
           description: >
-            Agent error rate is {{ $value | humanizePercentage }}
+            Agent {{ $labels.agent }} error rate is {{ $value | humanizePercentage }}
             over the last 5 minutes. SLA threshold: 1%.
             Check agent logs and LLM provider health.
+          runbook_url: "docs/runbooks/alerts/MaezoSLAAgentErrorRateHigh.md"
 
       # Worker error rate SLA: > 5% error rate sustained for 5 minutes
       - alert: MaezoSLAWorkerErrorRateHigh
@@ -71,6 +88,7 @@ groups:
             Worker {{ $labels.worker }} on topic {{ $labels.topic }}
             has error rate of {{ $value | humanizePercentage }} over last 5m.
             Error type: {{ $labels.error_type }}. Check worker logs.
+          runbook_url: "docs/runbooks/alerts/MaezoSLAWorkerErrorRateHigh.md"
 
   # ---------------------------------------------------------------------------
   # Crash-Loop Alerts
@@ -93,22 +111,27 @@ groups:
             is experiencing sustained error rate of {{ $value }} errors/s
             (error type: {{ $labels.error_type }}).
             This may indicate a crash-loop. Check worker health and recent deployments.
+          runbook_url: "docs/runbooks/alerts/MaezoWorkerCrashLoop.md"
 
       # Agent restart loop: errors > 0 within 1 minute, sustained for 2 minutes
+      #
+      # ALERT-COUNTER-LABELS (R-063): `sum by (agent)` names WHICH agent is crash-looping instead
+      # of collapsing all 10 agents into one series — see the note on MaezoSLAAgentErrorRateHigh.
       - alert: MaezoAgentCrashLoop
         expr: |
-          rate(maezo_agent_errors_total[1m]) > 0
+          sum by (agent) (rate(maezo_agent_errors_total[1m])) > 0
         for: 2m
         labels:
           severity: critical
           category: crash_loop
           component: agents
         annotations:
-          summary: "Agent crash-loop detected"
+          summary: "Agent crash-loop detected: {{ $labels.agent }}"
           description: >
-            Agent errors detected at rate {{ $value }}/s sustained for 2 minutes.
+            Agent {{ $labels.agent }} errors detected at rate {{ $value }}/s sustained for 2 minutes.
             Possible crash-loop or persistent upstream failure.
             Check agent health endpoint and restart policy.
+          runbook_url: "docs/runbooks/alerts/MaezoAgentCrashLoop.md"
 
   # ---------------------------------------------------------------------------
   # Dead-Letter Queue Alerts
@@ -116,8 +139,21 @@ groups:
   - name: maezo_dead_letter
     rules:
       # Dead-letter backlog: messages in DLQ > 0 for 10 minutes
-      # Note: Uses a synthetic metric — replace with actual Kafka DLQ metric
-      # from the OTel Collector's JMX exporter or Kafka Exporter when available.
+      #
+      # ALERTS-WITHOUT-METRICS-b / R-056 (2026-09-04, Bold-Decision Review v2 CEO): the dev/CI
+      # Kafka broker already exists (docker-compose.yml service `kafka`, profile `core`) — this
+      # decision instruments a Kafka Exporter (danielqsj/kafka_exporter, NO JMX) against it rather
+      # than waiting on production MSK. `maezo_dead_letter_queue_size` (read below) is now a REAL
+      # series in dev/CI, DERIVED by the `maezo_dead_letter_derived` recording-rule group further
+      # down this file from the exporter's `kafka_topic_partition_current_offset`, labelled
+      # `environment="dev"` (scrape-time label, prometheus.yml job `kafka-exporter`) — it is no
+      # longer a synthetic/undefined series, but it is also NOT yet a production fact: see the
+      # HONESTY LIMIT comment on that recording rule for exactly what the derived number does and
+      # does not mean. REOPENING TRIGGER: revalidar contra o broker de produção (MSK) quando
+      # existir — the derived rule and this alert must be re-checked against the real exporter
+      # target the day G4 (Terraform apply, `TF-ALERT-RULES-EXT`/staging plan) stops being
+      # external-blocked. DLQ-EXPORTER-GAUGE (R-069) is a scope precision of this same decision
+      # (OWNER-DECISIONS-REGISTER pergunta 56, memo M-28) — it opens no work item of its own.
       - alert: MaezoDeadLetterBacklog
         expr: |
           maezo_dead_letter_queue_size > 0
@@ -133,8 +169,12 @@ groups:
             for more than 10 minutes.
             Investigate message payloads and consumer health.
             Topics affected may need manual replay or purge.
+          runbook_url: "docs/runbooks/alerts/MaezoDeadLetterBacklog.md"
 
       # Dead-letter growth rate: > 5 messages per minute growth
+      # See MaezoDeadLetterBacklog above (R-056) for how `maezo_dead_letter_queue_size` is now
+      # derived and its honesty limit; `rate()` of a monotonic offset counter is the ONE reading
+      # of this series that carries no caveat — it is an exact inflow rate, not a backlog proxy.
       - alert: MaezoDeadLetterGrowth
         expr: |
           rate(maezo_dead_letter_queue_size[5m]) > 5
@@ -149,6 +189,40 @@ groups:
             Dead-letter queue is growing at {{ $value }}/s.
             This indicates a systemic consumer failure.
             Pause producer if necessary and investigate root cause immediately.
+          runbook_url: "docs/runbooks/alerts/MaezoDeadLetterGrowth.md"
+
+  # ---------------------------------------------------------------------------
+  # Derived series (ALERTS-WITHOUT-METRICS-b / R-056) — dev/CI DLQ backlog proxy
+  # ---------------------------------------------------------------------------
+  - name: maezo_dead_letter_derived
+    rules:
+      # `maezo_dead_letter_queue_size` (read by the two alerts above) has no direct application
+      # emitter — depth is a broker-side fact, `src/` only ever sees the records it itself
+      # produces (see the DLQ-emitter comment in src/maezo/runtime/metrics.py). This recording
+      # rule derives a REAL dev/CI series for it from the Kafka Exporter's
+      # `kafka_topic_partition_current_offset` (job `kafka-exporter`, prometheus.yml; exporter
+      # service in docker-compose.yml, profile `observability`, pointed at the dev/CI broker
+      # already running in profile `core`) — summed across partitions, for every dead-letter
+      # topic (`{base}.dlq`, the one sanctioned suffix: maezo.platform.topic_registry.DLQ_SUFFIX).
+      #
+      # HONESTY LIMIT (the R-056 reopening trigger, spelled out because a recording rule hides the
+      # derivation from anyone reading only the alert): `current_offset` is a MONOTONIC total —
+      # Kafka never decrements it on read, and nothing in this stack consumes/acks DLQ topics — it
+      # is NOT a true "current unprocessed count". For `MaezoDeadLetterGrowth`'s `rate()` this is
+      # exact (growth in the offset IS growth in DLQ traffic, no caveat). For
+      # `MaezoDeadLetterBacklog`'s `> 0` it is a COARSE proxy: it fires on the first message ever
+      # routed to any DLQ topic in this broker's lifetime and does not clear on its own (no
+      # replay/purge tooling resets a partition's offset). A true backlog reading needs either a
+      # consumer-group lag metric against a DLQ-draining consumer group (none exists — nothing
+      # drains a DLQ automatically, by design) or the production MSK/JMX exporter series this rule
+      # stands in for. `environment="dev"` is a scrape-time label the `kafka-exporter` job
+      # attaches (prometheus.yml) — carried through unchanged by `sum by`, so this series can
+      # never be mistaken for a production reading in Grafana/alert routing.
+      - record: maezo_dead_letter_queue_size
+        expr: |
+          sum by (topic, environment) (
+            kafka_topic_partition_current_offset{topic=~".*\\.dlq"}
+          )
 
   # ---------------------------------------------------------------------------
   # Lifecycle CronJob Alerts (T2.9 — closes the gap self-documented at
@@ -162,12 +236,16 @@ groups:
       # already visible via `kubectl get jobs`/failedJobsHistory, but had no active
       # Prometheus alert. This rule makes it loud in the same alerting path as every
       # other Maezo alert.
-      # Note: uses the standard kube-state-metrics `kube_job_status_failed` metric —
-      # requires a kube-state-metrics scrape target in prometheus.yml (not yet
-      # configured; see the values.yaml comment this rule is pointed at from). Until
-      # that scrape exists, this rule has no series to evaluate; it does not fire
-      # falsely, it simply has nothing to alert on yet — same "not yet wired, not
-      # faked" posture as the DLQ rule above.
+      # Note: uses the standard kube-state-metrics `kube_job_status_failed` metric. A
+      # `kube-state-metrics` scrape job now exists in prometheus.yml (ALERTS-WITHOUT-METRICS-b /
+      # R-056) for tenant clusters that run kube-prometheus-stack (kube-state-metrics ships WITH
+      # the operator there — same "cluster-provided" assumption podmonitor.yaml already makes,
+      # docs/runbooks/devops-stack.md). Dev docker-compose has no Kubernetes API, so that job has
+      # no reachable target locally (shows `down` in Prometheus's targets page — expected, not a
+      # defect, and does not affect any other job); this rule has no series to evaluate there. It
+      # does not fire falsely, it simply has nothing to alert on yet in dev — same "not yet wired,
+      # not faked" posture as the DLQ rule above, now scoped to "not wireable outside a real
+      # cluster" rather than "no scrape job configured anywhere".
       - alert: MaezoLifecycleJobFailed
         expr: |
           kube_job_status_failed{job_name=~"lifecycle-.*"} > 0
@@ -187,3 +265,4 @@ groups:
             blocker (ADR-0020/ADR-0029 for audit-retention; the DPO
             legal-bases/retention matrix, plus the thread_id->fhir_patient_id
             mapping gap for verify-erasure, for the other two).
+          runbook_url: "docs/runbooks/alerts/MaezoLifecycleJobFailed.md"

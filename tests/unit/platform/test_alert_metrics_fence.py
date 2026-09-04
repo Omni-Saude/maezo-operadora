@@ -112,25 +112,52 @@ _SERIES_SUFFIXES: Final[tuple[str, ...]] = ("_bucket", "_count", "_sum")
 
 
 def _alert_exprs() -> list[tuple[str, str]]:
-    """Every `(alert_name, expr)` in the shipped rules file."""
+    """Every `(alert_name, expr)` in the shipped rules file.
+
+    ALERTS-WITHOUT-METRICS-b / R-056 added a `record:` rule (`maezo_dead_letter_derived` group,
+    deriving `maezo_dead_letter_queue_size` from the Kafka Exporter) alongside the `alert:` rules.
+    A Prometheus recording rule has no `alert` key, so it is skipped here — this function is
+    specifically about ALERTS, and the recording rule gets its own non-vacuity proof below
+    (`test_the_dlq_recording_rule_derives_from_the_kafka_exporter`).
+    """
     document: Any = yaml.safe_load(_ALERT_RULES.read_text(encoding="utf-8"))
     exprs: list[tuple[str, str]] = []
     for group in document["groups"]:
         for rule in group["rules"]:
+            if "alert" not in rule:
+                continue
             exprs.append((rule["alert"], rule["expr"]))
     return exprs
+
+
+def _recording_rules() -> list[tuple[str, str]]:
+    """Every `(record_name, expr)` in the shipped rules file — the mirror of `_alert_exprs()`."""
+    document: Any = yaml.safe_load(_ALERT_RULES.read_text(encoding="utf-8"))
+    records: list[tuple[str, str]] = []
+    for group in document["groups"]:
+        for rule in group["rules"]:
+            if "record" not in rule:
+                continue
+            records.append((rule["record"], rule["expr"]))
+    return records
 
 
 def _metric_names(expr: str) -> set[str]:
     """The metric names an `expr` reads.
 
-    Strips, in order: quoted strings, `{...}` label matchers, `[...]` range selectors. What remains
-    is identifiers and operators, and a metric is an identifier NOT followed by `(` — which is what
-    separates `maezo_worker_execution_time_seconds_bucket` from `rate` and `histogram_quantile`.
+    Strips, in order: quoted strings, `{...}` label matchers, `[...]` range selectors, and
+    aggregation grouping clauses (`by (...)`/`without (...)`) — a PromQL grouping label list
+    (e.g. `sum by (agent) (...)`) is neither a metric nor a function call, and left unstripped
+    both the aggregation operator (`sum`, not followed directly by `(`) and the label name inside
+    the parens (`agent`, followed by `)` not `(`) would be misidentified as metric names by the
+    heuristic below. What remains after all four strips is identifiers and operators, and a
+    metric is an identifier NOT followed by `(` — which is what separates
+    `maezo_worker_execution_time_seconds_bucket` from `rate` and `histogram_quantile`.
     """
     cleaned = re.sub(r'"[^"]*"', " ", expr)
     cleaned = re.sub(r"\{[^}]*\}", " ", cleaned)
     cleaned = re.sub(r"\[[^\]]*\]", " ", cleaned)
+    cleaned = re.sub(r"\b(?:by|without)\s*\([^)]*\)", " ", cleaned)
     return {
         match.group(1)
         for match in re.finditer(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(\(?)", cleaned)
@@ -319,6 +346,25 @@ def test_the_alert_file_is_parsed_non_vacuously() -> None:
     assert "maezo_tool_calls_total" in series, sorted(series)
 
 
+def test_the_dlq_recording_rule_derives_from_the_kafka_exporter() -> None:
+    """ALERTS-WITHOUT-METRICS-b / R-056: `maezo_dead_letter_queue_size` is now DERIVED, not absent.
+
+    Both DLQ alerts still read `maezo_dead_letter_queue_size` — still correctly EXTERNAL from
+    `src/`'s point of view (see `EXTERNAL_ALERT_METRICS`), since the ultimate source is the Kafka
+    Exporter, not application code. What changed is that the series is no longer undefined: a
+    `record:` rule in the shipped file derives it from `kafka_topic_partition_current_offset`
+    (danielqsj/kafka_exporter, prometheus.yml job `kafka-exporter`). This is the non-vacuity proof
+    that the recording rule exists, targets the right name, and reads the exporter's real metric —
+    not merely that `_alert_exprs()` tolerates a `record:` entry without crashing.
+    """
+    records = _recording_rules()
+    names = {name for name, _expr in records}
+    assert "maezo_dead_letter_queue_size" in names, sorted(names)
+    (expr,) = [expr for name, expr in records if name == "maezo_dead_letter_queue_size"]
+    assert "kafka_topic_partition_current_offset" in expr, expr
+    assert "environment" in expr, expr
+
+
 def test_every_alert_metric_is_declared_in_repo_or_named_external() -> None:
     """No alert may read a metric this repo neither emits nor explicitly disclaims (the fence)."""
     declared = _declared_series_names()
@@ -485,10 +531,13 @@ def test_the_gated_seam_chokepoint_counts_every_tool_call() -> None:
 # =================================================================================================
 
 
-def _sample(name: str) -> float:
+def _sample(name: str, **labels: str) -> float:
+    """One labelled series' value (ALERT-COUNTER-LABELS / R-063: both counters are labelled now,
+    so `get_sample_value` needs the exact label dict a Prometheus scrape would carry — the metric
+    NAME alone no longer identifies a series)."""
     from maezo.platform.observability import get_metrics_collector
 
-    value = get_metrics_collector().registry.get_sample_value(name)
+    value = get_metrics_collector().registry.get_sample_value(name, labels or None)
     return float(value or 0.0)
 
 
@@ -496,11 +545,13 @@ def _sample(name: str) -> float:
 async def test_gate_counts_a_tool_call() -> None:
     """One `gate()` call == one `maezo_tool_calls_total` increment (cited from `seams/_base.py`)."""
     from maezo.gateway.seams._base import SeamContext, gate
+    from maezo.runtime.metrics import AGENT_ERROR_TYPE_NONE
 
     seam = SeamContext(tenant="amh", principal="helena")
-    before = _sample("maezo_tool_calls_total")
+    labels = {"agent": "helena", "error_type": AGENT_ERROR_TYPE_NONE}
+    before = _sample("maezo_tool_calls_total", **labels)
     await gate(seam, "inference.generate")
-    after = _sample("maezo_tool_calls_total")
+    after = _sample("maezo_tool_calls_total", **labels)
 
     assert after == before + 1.0, (before, after)
 
@@ -513,11 +564,13 @@ async def test_a_denied_gate_still_counts_the_attempted_tool_call() -> None:
     counter must already have moved by then — it is incremented before the ladder runs.
     """
     from maezo.gateway.seams._base import SeamContext, gate
+    from maezo.runtime.metrics import AGENT_ERROR_TYPE_NONE
 
     seam = SeamContext(tenant="amh", principal="helena")
-    before = _sample("maezo_tool_calls_total")
+    labels = {"agent": "helena", "error_type": AGENT_ERROR_TYPE_NONE}
+    before = _sample("maezo_tool_calls_total", **labels)
     decision = await gate(seam, "operacao.que.nao.existe")
-    after = _sample("maezo_tool_calls_total")
+    after = _sample("maezo_tool_calls_total", **labels)
 
     assert decision.allow is False
     assert after == before + 1.0, (before, after)
@@ -549,10 +602,49 @@ async def test_a_failed_agent_turn_counts_an_agent_error() -> None:
     harness._compiled = None  # noqa: SLF001
     assert graph is not None
 
-    before = _sample("maezo_agent_errors_total")
+    # `create_graph()` called with no `agent_id` above leaves `Harness._agent_id` None (the
+    # "trivial default graph" case `record_agent_error`'s docstring names) -> "nao_declarado".
+    # `_BoomError` is not in `_AGENT_ERROR_TYPE_BY_EXCEPTION_CLASS` (exact-class-name lookup, no
+    # subclass walk — by design) -> falls back to `AGENT_ERROR_TYPE_OUTRO`.
+    from maezo.runtime.metrics import AGENT_ERROR_TYPE_OUTRO
+
+    labels = {"agent": "nao_declarado", "error_type": AGENT_ERROR_TYPE_OUTRO}
+    before = _sample("maezo_agent_errors_total", **labels)
     with pytest.raises(_BoomError):
         await harness.invoke({"messages": []})
-    after = _sample("maezo_agent_errors_total")
+    after = _sample("maezo_agent_errors_total", **labels)
+
+    assert after == before + 1.0, (before, after)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_agent_turn_classifies_a_catalogued_exception_by_its_declared_type() -> None:
+    """A `ValueError` (a cataloged class, unlike `_BoomError` above) gets its real bounded label."""
+    from maezo.runtime.harness import Harness
+    from maezo.runtime.metrics import AGENT_ERROR_TYPE_VALIDACAO
+
+    async def _explode(_state: dict[str, Any]) -> dict[str, Any]:
+        raise ValueError("bad state")
+
+    from langgraph.graph import StateGraph
+
+    harness = Harness()
+    harness.create_graph()  # default trivial graph — agent_id set directly below, not via
+    # a real spec/agents/helena build (which needs inference/dmn/cibseven/whatsapp/audit_sink
+    # deps this test does not construct; only the LABEL matters here, not a real Helena run).
+    exploding: StateGraph[Any] = StateGraph(dict)
+    exploding.add_node("agent", _explode)
+    exploding.add_edge("__start__", "agent")
+    exploding.add_edge("agent", "__end__")
+    harness._graph = exploding  # noqa: SLF001
+    harness._agent_id = "helena"  # noqa: SLF001 — driving the label directly is the point of the test
+    harness._compiled = None  # noqa: SLF001
+
+    labels = {"agent": "helena", "error_type": AGENT_ERROR_TYPE_VALIDACAO}
+    before = _sample("maezo_agent_errors_total", **labels)
+    with pytest.raises(ValueError, match="bad state"):
+        await harness.invoke({"messages": []})
+    after = _sample("maezo_agent_errors_total", **labels)
 
     assert after == before + 1.0, (before, after)
 
@@ -561,13 +653,15 @@ async def test_a_failed_agent_turn_counts_an_agent_error() -> None:
 async def test_a_completed_agent_turn_counts_no_error() -> None:
     """The counter must not move on the happy path — otherwise `MaezoAgentCrashLoop` fires always."""
     from maezo.runtime.harness import Harness
+    from maezo.runtime.metrics import AGENT_ERROR_TYPE_OUTRO
 
     harness = Harness()
     harness.create_graph()
 
-    before = _sample("maezo_agent_errors_total")
+    labels = {"agent": "nao_declarado", "error_type": AGENT_ERROR_TYPE_OUTRO}
+    before = _sample("maezo_agent_errors_total", **labels)
     await harness.invoke({"messages": ["oi"]})
-    after = _sample("maezo_agent_errors_total")
+    after = _sample("maezo_agent_errors_total", **labels)
 
     assert after == before, (before, after)
 
@@ -607,28 +701,48 @@ async def test_a_drained_turn_is_not_an_agent_error() -> None:
     harness._graph = graph  # noqa: SLF001 — driving the seam directly is the point of the test
     harness._compiled = None  # noqa: SLF001
 
-    before = _sample("maezo_agent_errors_total")
+    from maezo.runtime.metrics import AGENT_ERROR_TYPE_OUTRO
+
+    labels = {"agent": "nao_declarado", "error_type": AGENT_ERROR_TYPE_OUTRO}
+    before = _sample("maezo_agent_errors_total", **labels)
     turn = asyncio.create_task(harness.invoke({"messages": []}))
     await entered.wait()
     turn.cancel()
     with pytest.raises(asyncio.CancelledError):
         await turn
-    after = _sample("maezo_agent_errors_total")
+    after = _sample("maezo_agent_errors_total", **labels)
 
     assert after == before, (before, after)
 
 
-def test_the_two_agent_counters_are_label_free_so_the_ratio_alert_can_match() -> None:
-    """`MaezoSLAAgentErrorRateHigh` DIVIDES the two counters, so their label sets must be equal.
+def test_the_two_agent_counters_share_a_label_set_so_the_ratio_alert_can_aggregate_by_agent() -> None:
+    """`MaezoSLAAgentErrorRateHigh` DIVIDES the two counters — ALERT-COUNTER-LABELS / R-063.
 
-    PromQL's default vector matching requires identical label sets on both sides of a binary
-    operation. Giving `maezo_tool_calls_total` a `tool` label that `maezo_agent_errors_total`
-    cannot carry would make the division return an empty vector — an alert that never fires, i.e.
-    the same defect ALERTS-WITHOUT-METRICS-a exists to close, re-created in a subtler form. This
-    pins the shape until `alert-rules.yml` (owner-gated, `deploy/`) is edited to match.
+    This REPLACES the pre-R-063 label-free pin (`test_the_two_agent_counters_are_label_free_...`,
+    docs/review-queue.md's now-resolved entry): the owner ratified widening both counters to
+    `labelnames=["agent", "error_type"]` so the on-call knows WHICH agent failed, and
+    `alert-rules.yml`'s `MaezoSLAAgentErrorRateHigh`/`MaezoAgentCrashLoop` were edited in the SAME
+    PR to `sum by (agent) (...)` on both sides of the division/rate. That `by (agent)` aggregation
+    — not label-SET equality — is what keeps PromQL's default vector matching valid despite
+    `error_type` differing between the two counters in practice (`tool_calls` always carries the
+    `AGENT_ERROR_TYPE_NONE` sentinel; `errors` carries a real classified value). This test pins the
+    NEW shape: same label NAMES on both counters (so a future edit that drops one without
+    updating the other is caught here), and that the shipped alert exprs actually use `by (agent)`.
     """
-    from maezo.runtime.metrics import MetricsCollector
+    from maezo.runtime.metrics import AGENT_ERROR_TYPES, MetricsCollector
 
     collector = MetricsCollector()
-    assert collector.tool_calls._labelnames == ()  # noqa: SLF001 — the property under test
-    assert collector.errors._labelnames == ()  # noqa: SLF001
+    assert collector.tool_calls._labelnames == ("agent", "error_type")  # noqa: SLF001
+    assert collector.errors._labelnames == ("agent", "error_type")  # noqa: SLF001
+
+    # AGENT_ERROR_TYPES is non-empty and bounded — the whole point of a "declared catalogue".
+    assert AGENT_ERROR_TYPES, "the error_type catalogue must not be empty"
+    assert all(isinstance(v, str) and v for v in AGENT_ERROR_TYPES)
+
+    exprs = dict(_alert_exprs())
+    for alert_name in ("MaezoSLAAgentErrorRateHigh", "MaezoAgentCrashLoop"):
+        assert "by (agent)" in exprs[alert_name], (
+            f"{alert_name}'s expr no longer aggregates `by (agent)` — with labelled counters this "
+            "would either fail PromQL's default vector matching (division) or collapse every "
+            "agent into one series again (rate)."
+        )
