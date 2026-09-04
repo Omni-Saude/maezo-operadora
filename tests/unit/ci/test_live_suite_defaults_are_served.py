@@ -61,13 +61,13 @@ _PG_RESOLVER_NAMES: Final[tuple[str, ...]] = ("_default_test_dsn", "_pg_dsn", "_
 _KAFKA_RESOLVER_NAME: Final[str] = "_kafka_bootstrap_servers"
 
 #: Modules whose filename matches the live-suite glob but which need no infrastructure at all.
-#: Each entry is a claim this file's own tests re-check (they must define NO resolver).
+#: Each entry is a claim this file's own tests re-check (they must define NO resolver) AND a claim
+#: `test_name_only_entries_are_actually_discovered` re-checks: the module must actually be produced
+#: by `_iter_live_suites()`, or the exclusion can never be exercised by
+#: `test_every_live_suite_exposes_a_resolver_or_is_explicitly_excluded` and is dead on arrival —
+#: exactly the bug `test_live_dispatch_wiring.py` was listed here as until this fix (see
+#: `_iter_live_suites`'s docstring for why that module was never in scope to begin with).
 _NAME_ONLY: Final[dict[str, str]] = {
-    "tests/unit/gateway/seams/test_live_dispatch_wiring.py": (
-        "'live' names the live AGENT PATH (design §5.5), not live infrastructure: pure "
-        "introspection over the composition root, `pytestmark = pytest.mark.anyio`, no DSN and no "
-        "broker."
-    ),
     "tests/unit/runtime/test_inference_live.py": (
         "live Anthropic API call (T1.7), `pytestmark = pytest.mark.llm_live`; its coordinate is an "
         "API KEY, not a repo-served port, and it skips loudly via `skipif` when no key is set — "
@@ -77,12 +77,25 @@ _NAME_ONLY: Final[dict[str, str]] = {
 
 
 def _iter_live_suites() -> list[Path]:
-    """Every `tests/**/test_*_live*.py` module, sorted.
+    """Every `tests/**/test_*_live*.py` module, sorted. Measured today: 12 modules.
 
     The `_live` prefix in the glob matters: it excludes files that merely contain the letters
     (`..._rede-live-ry...`, `..._de-live-ry...`) — `test_t33_a1_cancel_handoff_redelivery_
     idempotency.py` and `test_duplicate_fact_delivery_attack.py` are NOT live suites and must not
     be dragged in by a lazier pattern.
+
+    The SAME exclusion, less obviously, also drops `tests/unit/gateway/seams/test_live_dispatch_
+    wiring.py` and this file itself (`test_live_suite_defaults_are_served.py`): `fnmatch` requires
+    the literal `_live` substring to occur strictly AFTER the `test_` prefix the pattern already
+    consumes, and both filenames start `test_live_...` — `live` immediately follows `test_` with
+    no separating underscore, so no `_live` substring exists anywhere in either name
+    (`fnmatch('test_live_dispatch_wiring.py', 'test_*_live*.py')` is `False`). This is NOT a
+    loophole to patch: `test_live_dispatch_wiring.py`'s "live" names the live AGENT PATH (design
+    §5.5), not live infrastructure — pure introspection over the composition root, `pytestmark =
+    pytest.mark.anyio`, no DSN and no broker — so it needs no entry in `_NAME_ONLY` at all, and
+    listing it there anyway (as an earlier revision of this fence did) created an exclusion
+    `test_every_live_suite_exposes_a_resolver_or_is_explicitly_excluded` could never reach, because
+    the loop it guards only visits paths this function yields.
     """
     return sorted(p for p in _TESTS_ROOT.rglob("test_*_live*.py") if "__pycache__" not in p.parts)
 
@@ -285,9 +298,13 @@ def test_every_live_kafka_suite_defaults_to_the_compose_broker() -> None:
 
 
 def test_scan_is_not_vacuous() -> None:
-    """A fence that scanned zero suites would be worthless. Floors sit just below today's real
-    counts (13 live suites: 8 resolving Postgres, 2 resolving Kafka, 2 name-only) so a future
-    refactor that silently narrows the glob fails here instead of going quietly green."""
+    """A fence that scanned zero suites would be worthless. Measured today: 12 live suites, 10
+    resolving Postgres, 2 resolving Kafka (`test_events_kafka_producer_live.py` resolves both), 1
+    name-only. The floors below are NOT uniformly "just below" that count: `>= 12` (suites) and
+    `>= 2` (kafka) sit AT today's measured count — deleting a single live suite, or the last Kafka
+    suite, fails here immediately — while `>= 8` (pg) sits two below today's 10, leaving headroom
+    for one legitimate removal without having to edit this floor in the same PR (see advisory A6,
+    gap LIVE-SUITES-SILENT-SKIP-AUDIT's gatekeeper review, 2026-09-04)."""
     suites = _iter_live_suites()
     assert len(suites) >= 12, (
         f"expected at least 12 test_*_live*.py modules under {_TESTS_ROOT}, found {len(suites)}"
@@ -300,6 +317,25 @@ def test_scan_is_not_vacuous() -> None:
         assert (_REPO_ROOT / rel).is_file(), (
             f"{rel} is excluded by name but no longer exists — drop the stale _NAME_ONLY entry"
         )
+
+
+def test_name_only_entries_are_actually_discovered() -> None:
+    """A `_NAME_ONLY` entry only means something if `_iter_live_suites()` actually yields that
+    path — otherwise `test_every_live_suite_exposes_a_resolver_or_is_explicitly_excluded`'s guard
+    for it can never fire, and the module's real default coordinate (if it has infrastructure
+    after all) goes unchecked by every other test in this file: a dead exclusion, not a live one.
+
+    This is exactly the defect gap LIVE-SUITES-SILENT-SKIP-AUDIT's own fence shipped with:
+    `test_live_dispatch_wiring.py` was listed in `_NAME_ONLY` before this fix, but `test_*_live*.py`
+    never matched it (no `_live` substring occurs after `test_` — see `_iter_live_suites`'s
+    docstring), so the exclusion it carried had been inert since the fence's first commit."""
+    discovered = {str(p.relative_to(_REPO_ROOT)) for p in _iter_live_suites()}
+    dead = sorted(set(_NAME_ONLY) - discovered)
+    assert not dead, (
+        "these _NAME_ONLY entries are never produced by _iter_live_suites(), so their exclusion "
+        "guard can never fire — either the entry is stale (drop it) or the glob needs widening to "
+        "reach it:\n  " + "\n  ".join(dead)
+    )
 
 
 def test_the_expected_coordinates_come_from_compose_not_from_this_file() -> None:
