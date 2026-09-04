@@ -92,9 +92,11 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   reconciles the taxonomy in Python (that reconciliation is T2.6-3, which also clears the T1.5
   cutover hold).
 - A2A inbound delegation (`nip.instruct`, `spec/agents/gustavo/agent.yaml`'s
-  `accepted_task_types`) is NOT wired: v2's `a2a/` package has no `DelegationEnvelope`/
-  `DelegationDispatcher` yet (same boundary rafael/fernando disclose). This graph is invoked
-  directly with an already-assembled `GustavoState`, not via a live delegation.
+  `accepted_task_types`) is HALF wired (GUS-01): the TARGET handler now exists
+  (`agents/gustavo/delegation.py::make_gustavo_handler`), but it is NOT registered with any
+  dispatcher and `tools/workers/nip.py` does not originate the delegation — both are an owner
+  decision (gap `FERNANDO-DELEGATION-CALL-SITE`). This graph is still invoked directly with an
+  already-assembled `GustavoState`, not via a live delegation.
 - No episodic memory write (ADR-0002): the donor's `finalize` writes `mcp-memory.read_write`;
   v2's `MemoryServer` has no live Postgres/pgvector schema in this repo's migrations yet — same
   labeled boundary as helena/rafael/carolina. `finalize` is a terminal no-op.
