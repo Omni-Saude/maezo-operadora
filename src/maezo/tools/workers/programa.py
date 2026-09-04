@@ -65,6 +65,19 @@ def check_consent(variables: dict[str, Any]) -> dict[str, Any]:
 
     CHOKEPOINT: if no active consent, raises ERR_PROGRAMA_NO_CONSENT.
     NO PHI processing happens before this gate passes (fail-closed).
+
+    FAB-PROGRAMA-NOW-TIMESTAMPS (o motivo desta nota). O caminho feliz retornava
+    `{"consentimento_ativo": True, "consent_verified_at": "now"}` — o segundo, o literal string
+    `"now"`, nunca um instante ISO-8601. A chave tinha ZERO consumidores (mapa refeito: nenhuma
+    `conditionExpression`/`inputExpression`/worker a jusante/golden/linha de contrato le
+    `consent_verified_at`) e o instante em que este gate rodou e passou JA e um fato do engine —
+    `activity-instance` (`endTime`) de `ST_CheckConsent`
+    (`spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn:95`), consultavel via
+    `GET /history/activity-instance?processInstanceId=...&activityId=ST_CheckConsent`. Um segundo
+    carimbo no escopo do processo seria fonte de verdade redundante, nao correcao — mesmo
+    tratamento do `intake_ts` removido em SP-OP-FRAUDE-001 (FAB-INTAKE-CASO-REGISTRADO). A chave foi
+    REMOVIDA sem substituicao por relogio real; `consentimento_ativo` (o fato booleano real, lido a
+    jusante por `stratify_risk`/`proactive_contact`) permanece inalterado.
     """
     # FAIL-CLOSED (T3.1, mirrors lgpd.ValidateIdentityWorker / ADR-0031): consentimento confirmado
     # SO com sinal explicito `is True`. Ausente/False/lixo (string truthy como "true"/" ", int 1,
@@ -95,7 +108,6 @@ def check_consent(variables: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "consentimento_ativo": True,
-        "consent_verified_at": "now",
     }
 
 
@@ -109,6 +121,19 @@ def enroll_beneficiario(variables: dict[str, Any]) -> dict[str, Any]:
 
     This is neutral — enrollment is not an adverse effect.
     The clinical discharge is separate (human-gated).
+
+    FAB-PROGRAMA-NOW-TIMESTAMPS (o motivo desta nota). Retornava `{"enrollment_realizado": True,
+    "data_enrollment": "now"}` — o segundo, o literal string `"now"`, nunca um instante ISO-8601.
+    A chave tinha ZERO consumidores (mapa refeito: nenhuma `conditionExpression`/
+    `inputExpression`/worker a jusante/golden/linha de contrato le `data_enrollment`) e o instante
+    em que este worker rodou ja e um fato do engine — `activity-instance` (`endTime`) de
+    `ST_BuildCarePlan`
+    (`spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn:131`), consultavel via
+    `GET /history/activity-instance?processInstanceId=...&activityId=ST_BuildCarePlan`. Um segundo
+    carimbo no escopo seria fonte de verdade redundante, nao correcao — mesmo tratamento do
+    `intake_ts` removido em SP-OP-FRAUDE-001 (FAB-INTAKE-CASO-REGISTRADO). A chave foi REMOVIDA sem
+    substituicao por relogio real; `enrollment_realizado` (o fato booleano real que esta funcao de
+    fato executa/loga) permanece inalterado.
     """
     programa_id = variables.get("programa_id", "")
     beneficiario = variables.get("beneficiario_pseudo_id", "")
@@ -121,7 +146,6 @@ def enroll_beneficiario(variables: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "enrollment_realizado": True,
-        "data_enrollment": "now",
     }
 
 
