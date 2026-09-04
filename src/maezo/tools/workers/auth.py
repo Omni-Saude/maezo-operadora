@@ -1541,7 +1541,9 @@ class SendDenialNoticeWorker(WorkerBase):
                 "fundamentacao_dut": process_vars.get("fundamentacao_dut", ""),
             }
             # ENFORCEMENT POINT (PHI egress, ADR-0006/GAP-XPHI-1): nenhum campo clinico cru sai em
-            # variavel de engine. Chaves estruturais (status/event/...) passam intactas.
+            # variavel de engine. As chaves estruturais que restam (notice_type/error_code/event/
+            # human_approved) passam intactas — `status` nao esta mais entre elas
+            # (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL).
             return redact_phi_vars(notice)
 
         # APROVAR ou outro — compoe o aviso de aprovacao (sem campos clinicos). Ramo DEFENSIVO:
