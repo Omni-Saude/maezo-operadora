@@ -112,11 +112,17 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
 - No episodic memory write (`mcp-memory.read_write`, ADR-0002) — same rationale as Helena's/
   Rafael's graphs: v2's `MemoryServer` requires a live Postgres/pgvector schema not yet wired
   into any agent graph in this repo; adding it is a follow-up once that schema exists.
-- No cross-agent A2A delegation (`operadora.contas/recurso/reembolso.*` -> Marina) is wired in
-  this build: v2's `a2a/` package has no `DelegationEnvelope`/`DelegationDispatcher` yet (only
-  `AgentCard`/`A2ARegistry`/`AntiLoopGuard` exist) — same gap Rafael's/Helena's graphs already
-  disclose. Marina's graph is invoked directly with an already-assembled case state, as the unit
-  tests do, rather than via a live delegation envelope.
+- No cross-agent A2A delegation (`operadora.contas/recurso/reembolso.*` -> Marina) is wired.
+  CORRECTED (CC-04, fleet audit) — the prior text here claimed v2's `a2a/` package had no
+  `DelegationEnvelope`/`DelegationDispatcher`; both exist and are fully built/tested
+  (`a2a/delegation.py::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported
+  from `maezo.a2a`), and five agents (rafael/carolina/andre/fernando/helena) already have a real
+  `delegation.py` using them. What is missing for Marina specifically is her own
+  handler/registration/origin: there is no `src/maezo/agents/marina/delegation.py` (the package
+  only has `__init__`/`adapters`/`graph`/`prompts`) and `grep -n '"marina"' runtime/
+  agent_runtime/a2a_composition.py` = 0 hits — handler/registro/origem ausentes, ver RAF-11 do
+  fleet audit. Marina's graph is invoked directly with an already-assembled case state, as the
+  unit tests do, rather than via a live delegation envelope.
 """
 
 from __future__ import annotations

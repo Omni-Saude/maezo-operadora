@@ -38,19 +38,30 @@ the one LLM call (`_build_dossier`'s narrative) passes `phi=True` (ADR-0006/ADR-
 LABELED BOUNDARIES (this build, disclosed — never fabricated):
 - `gather` uses v2's generic `FhirServer` (`tools/mcp_fhir/server.py`: `read_resource`/
   `search_resources`) via a thin `FhirReader` seam — NOT a dedicated `read_patient`/
-  `search_coverage` PEP-gated tool like the v1 donor's. This is a real shape drift, disclosed,
-  not hidden: v2 has no `ToolRegistry`/PEP gateway wiring for agent tool calls yet (T2.4 gap).
-  `gather` is best-effort and NEVER blocks routing on a FHIR failure (mirrors the donor exactly)
-  — a missing/unreachable FHIR endpoint degrades to a dossier gap note, never a fabricated fact.
-  When no `fhir` dependency is injected at all (`config.get("fhir")` is `None`), `gather` records
-  an explicit gap note rather than silently producing empty facts that look like "no findings".
+  `search_coverage` tool like the v1 donor's (a real shape drift, disclosed, not hidden).
+  CORRECTED (`grep -n '"rafael"' gateway/tool_registry.py`, `_FHIR_ADAPTER_BY_AGENT`): this seam
+  IS PEP-gated — `gateway/tool_registry.py::build_agent_seams` wraps Rafael's `FhirServerReader.
+  read_patient` in `gateway/seams/fhir.py::GatedFhirReader`, and both live composition roots
+  (`runtime/agent_runtime/service.py::_build_tool_deps`, `platform/webhooks/service.py`) build
+  Rafael's `fhir` dependency through it — the prior "v2 has no `ToolRegistry`/PEP gateway wiring
+  for agent tool calls yet" claim is false today. `gather` is best-effort and NEVER blocks
+  routing on a FHIR failure (mirrors the donor exactly) — a missing/unreachable FHIR endpoint
+  degrades to a dossier gap note, never a fabricated fact. When no `fhir` dependency is injected
+  at all (`config.get("fhir")` is `None`), `gather` records an explicit gap note rather than
+  silently producing empty facts that look like "no findings".
 - No episodic memory write (ADR-0002) — same rationale as Helena's graph.
-- No cross-agent A2A delegation (Helena -> Rafael `authorization.analyze`) is wired in this
-  build: v2's `a2a/` package has no `DelegationEnvelope`/`DelegationDispatcher` yet (only
-  `AgentCard`/`A2ARegistry`/`AntiLoopGuard` exist) — porting/building that dispatcher is a
-  separate, non-trivial task out of this charter's scope. Rafael's graph is invoked directly
-  with an already-assembled auth-request state (as the integration test does) rather than via a
-  live Helena-originated delegation.
+- Cross-agent A2A delegation (Helena -> Rafael `authorization.analyze`) IS wired and LIVE in
+  this build. CORRECTED (CC-04, fleet audit) — the prior text here claimed v2's `a2a/` package
+  had no `DelegationEnvelope`/`DelegationDispatcher`; both exist and are fully built/tested
+  (`a2a/delegation.py::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported
+  from `maezo.a2a`). Rafael is in fact the platform's proof-of-life edge
+  (`docs/design/A2A-dispatcher-card-signing.md` §9.2): `agents/rafael/delegation.py`'s
+  `make_rafael_handler` is the TARGET handler assembled by `runtime/agent_runtime/
+  a2a_composition.py::build_auth_delegation_dispatcher` (`_EDGE_AGENT_IDS = ("helena",
+  "rafael")`, `handlers={"rafael": handler}`), and Helena originates the envelope via
+  `agents/helena/delegation.py`'s `DelegationDispatcher.delegate(envelope)`. Rafael's graph is
+  ALSO invoked directly with an already-assembled auth-request state in the integration tests
+  (both paths exist; neither is a disclosed gap anymore).
 """
 
 from __future__ import annotations

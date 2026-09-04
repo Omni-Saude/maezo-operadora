@@ -127,10 +127,17 @@ def assemble_response(
     routing: NipRoutingResult,
     input_data: NipInput,
 ) -> dict[str, Any]:
-    """Assemble the NIP response dossier.
+    """Assemble the NIP response dossier — locally, NOT via delegation to Gustavo.
 
-    Delegates to Gustavo (LLM agent) for instruction/assembly.
-    The agent instructs, never decides — human authors and approves.
+    CORRECTED (GUS-01, fleet audit): the prior docstring said "Delegates to Gustavo (LLM
+    agent)"; this function assembles the dossier dict itself, in this module, from the DMN
+    `classification`/`routing` results plus `input_data` — there is no `maezo.a2a`/dispatcher
+    import here and no call into `agents.gustavo.graph` (`grep -n 'maezo.a2a\\|dispatcher\\|
+    gustavo' nip.py` = 0 hits). Gustavo has no `delegation.py`/registration in
+    `a2a_composition.py` either, so no such delegation exists anywhere in this build. What
+    remains true: the resulting dossier only INSTRUCTS the human — `minuta` ships empty and no
+    binding `decisao_nip` field is set here; a human authors and approves the actual response
+    (`UT_ElaborarRespostaNip`/`UT_RevisaoJuridicaNip`).
     """
     logger.info(
         "nip.assemble_response.start",
