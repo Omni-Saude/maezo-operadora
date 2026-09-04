@@ -115,6 +115,15 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      BPMN serviceTask id that carries the worker's topic ON THAT TEST'S BRANCH, plus
      `get_history_variable` for every field value the echo used to carry. NOTHING was weakened:
      see each test body for the id -> topic -> path citation and the per-field recovery.
+     AMENDED by FAB-SLA-RISK-NOTIFIED-SLICE4 (repair) for ONE of those recoveries:
+     `test_timer_alerta_sla_nao_interruptivo`'s identity proof used
+     `get_history_variable(iid, "alert_to")`, and `alert_to` turned out to be itself a fabricated
+     constant (`NotifySlaRiskWorker` returned it on every delivery without computing anything and
+     without contacting any channel). It was removed at the source, so the proof was RE-ANCHORED —
+     not restored — onto the engine's own external-task log for the topic plus the durable
+     `audit_chain` row the harness writes before completing, joined by the harness's dedup key.
+     See the comment in that test body. The other per-field recoveries of finding 5 are unaffected:
+     they read variables the human decision (or a real computation) produced.
 """
 
 from __future__ import annotations
@@ -133,6 +142,8 @@ import pytest_asyncio
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST, register_auth_workers
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import (
+    AUDIT_AGENT_ID,
+    AUDIT_DECISION_COMPLETE,
     CibSevenWorkerTransport,
     FakeKafkaPublisher,
     TopicSubscription,
@@ -140,7 +151,12 @@ from maezo.tools.workers.harness import (
 )
 from maezo.tools.workers.phi_vars import REDACTED_PHI
 
-from .conftest import CIBSEVEN_BASE_URL, drain_topics
+from .conftest import (
+    CIBSEVEN_BASE_URL,
+    audit_rows_for_task_ids,
+    count_chain_rows_for_action,
+    drain_topics,
+)
 from .engine_rest import EngineRest
 
 pytestmark = pytest.mark.integration
@@ -1148,8 +1164,10 @@ async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
     start_auth: Callable[..., Any],
+    audit_pg: tuple[str, str],
 ) -> None:
     """Timer alerta SLA (BT_AlertaSla) nao-interruptivo: notify_sla_risk recebe task; UT segue aberta."""
+    dsn, tenant_id = audit_pg
     inst = await start_auth(dut_atendida=False, carater_atendimento="urgencia")
     iid = inst["id"]
 
@@ -1158,6 +1176,8 @@ async def test_timer_alerta_sla_nao_interruptivo(
     await auth_probe.drain()
 
     await engine.await_user_task(iid, _UT_AUDITOR)
+
+    chain_before = await count_chain_rows_for_action(dsn, tenant_id, _NOTIFY_SLA_TOPIC)
 
     job = await engine.await_timer_job(iid, "BT_AlertaSla")
     await engine.execute_job(job.id)
@@ -1174,11 +1194,46 @@ async def test_timer_alerta_sla_nao_interruptivo(
     # which — together with the surviving open-UT assert below — is what "nao-interruptivo"
     # actually means (a parallel token completed while the User Task stayed open).
     ended_sla = await engine.activity_instances_ended(iid)
-    # GK-auth finding 5: prova de IDENTIDADE do worker — `alert_to` só é escrito por
-    # NotifySlaRiskWorker (auth.py:581); sem isto, o unico sinal seria "a task completou".
-    assert await engine.get_history_variable(iid, "alert_to") == "coordenacao-auditoria-medica", (
-        "NotifySlaRiskWorker (nao apenas 'algo') deve ter servido o topico notify_sla_risk"
+
+    # GK-auth finding 5 — prova de IDENTIDADE do worker, RE-ANCORADA (FAB-SLA-RISK-NOTIFIED-SLICE4
+    # repair). A prova original era `get_history_variable(iid, "alert_to") ==
+    # "coordenacao-auditoria-medica"`. Ela funcionava, mas o substrato era uma CONSTANTE que o
+    # `NotifySlaRiskWorker` devolvia em toda entrega sem calcular nada e sem contatar canal algum —
+    # um fato fabricado da familia `sla_risk_notified`, removido junto com ele. Restaurar `alert_to`
+    # so para manter o assert verde seria reintroduzir a fabricacao; a prova foi entao reancorada
+    # no unico sinal REAL e DURAVEL que a etapa produz:
+    #
+    #   engine  -> `/history/external-task-log` da INSTANCIA no topico `operadora.auth
+    #              .notify_sla_risk` (o engine registra a external task criada/servida);
+    #   harness -> a linha de `audit_chain` que o `WorkerHarness` grava ANTES do `complete`
+    #              (emit-before-complete, ADR-0007), com `action = task.topic` e
+    #              `agent_id = AUDIT_AGENT_ID`;
+    #   elo     -> `audit_emit_dedup.dedup_key == f"{tenant}:{task_id}"` (`harness.py::
+    #              _audit_dedup_key`), a UNICA coisa que liga a linha de auditoria a ESTA
+    #              instancia (a tabela `audit_chain` nao tem coluna `process_instance_id`).
+    #
+    # E' mais discriminante que o assert antigo, nao menos: `alert_to` provava "alguem devolveu
+    # esta constante nesta instancia"; isto prova que o harness com o worker de auth registrado
+    # serviu ESTA task DESTA instancia NESTE topico e persistiu a trilha — e o delta == 1 prova
+    # que aconteceu EXATAMENTE UMA vez na janela do timer (sem re-entrega contada duas vezes).
+    sla_task_ids = await engine.external_task_ids(iid, _NOTIFY_SLA_TOPIC)
+    assert len(sla_task_ids) == 1, (
+        f"BT_AlertaSla deve ter gerado UMA external task de {_NOTIFY_SLA_TOPIC} para {iid}. "
+        f"encontradas={sla_task_ids}"
     )
+    assert await audit_rows_for_task_ids(dsn, tenant_id, sla_task_ids) == [
+        (AUDIT_AGENT_ID, _NOTIFY_SLA_TOPIC, AUDIT_DECISION_COMPLETE)
+    ], (
+        "NotifySlaRiskWorker (nao apenas 'algo') deve ter servido o topico notify_sla_risk para "
+        f"esta instancia: a linha de audit_chain ligada a external task {sla_task_ids} nao existe "
+        "ou nao e uma conclusao do worker de operadora"
+    )
+    chain_after = await count_chain_rows_for_action(dsn, tenant_id, _NOTIFY_SLA_TOPIC)
+    assert chain_after - chain_before == 1, (
+        f"o alerta de SLA deve ter escrito EXATAMENTE uma linha de audit_chain em {_NOTIFY_SLA_TOPIC} "
+        f"nesta janela. antes={chain_before} depois={chain_after}"
+    )
+
     assert _ST_NOTIFICAR_SLA in ended_sla, (
         f"notify_sla_risk (ST_NotificarRiscoSla) deve ter executado no alerta de SLA. ended={ended_sla}"
     )

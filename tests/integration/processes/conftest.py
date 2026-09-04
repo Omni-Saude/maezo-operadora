@@ -153,3 +153,60 @@ async def count_chain_rows(dsn: str, tenant_id: str) -> int:
     finally:
         await conn.close()
     return count
+
+
+async def count_chain_rows_for_action(dsn: str, tenant_id: str, action: str) -> int:
+    """Row count of `audit_chain` restricted to ONE `action` (the worker's external-task topic).
+
+    Same DELTA discipline as `count_chain_rows` above, one notch narrower: `WorkerHarness
+    ._build_audit_record` sets `action = task.topic`, so this counts the durable completions the
+    harness wrote for a single topic. FAB-SLA-RISK-NOTIFIED-SLICE4 (repair): used to pin
+    "exactly ONE completion of this topic happened in this window" on a real, durable record
+    instead of on a process variable a worker echoed back.
+    """
+    import asyncpg  # type: ignore[import-untyped]
+
+    from maezo.gateway.audit_postgres import normalize_dsn
+
+    conn = await asyncpg.connect(normalize_dsn(dsn))
+    try:
+        await conn.execute(f'SET search_path TO "{tenant_id}"')
+        count: int = await conn.fetchval("SELECT count(*) FROM audit_chain WHERE action = $1", action)
+    finally:
+        await conn.close()
+    return count
+
+
+async def audit_rows_for_task_ids(
+    dsn: str, tenant_id: str, task_ids: list[str]
+) -> list[tuple[str, str, str]]:
+    """`(agent_id, action, decision)` of the `audit_chain` rows the harness wrote FOR these
+    external-task ids, ordered by chain insertion.
+
+    The join is the harness's own exactly-once contract: `PostgresAuditSink.emit_once` claims
+    `audit_emit_dedup(tenant, dedup_key)` and stores the resulting `record_hash` in the SAME
+    transaction as the `audit_chain` insert, and the worker-completion dedup key is
+    `f"{tenant}:{task_id}"` (`src/maezo/tools/workers/harness.py::_audit_dedup_key`). So a row
+    returned here is bound to ONE external task of ONE process instance — the binding
+    `audit_chain` itself cannot give (it has no `process_instance_id` column).
+
+    A task id with no claim simply yields no row: the caller asserts the exact expected tuples,
+    never a truthiness.
+    """
+    import asyncpg  # type: ignore[import-untyped]
+
+    from maezo.gateway.audit_postgres import normalize_dsn
+
+    conn = await asyncpg.connect(normalize_dsn(dsn))
+    try:
+        await conn.execute(f'SET search_path TO "{tenant_id}"')
+        rows = await conn.fetch(
+            "SELECT c.agent_id, c.action, c.decision FROM audit_chain c "
+            "JOIN audit_emit_dedup d ON d.record_hash = c.record_hash "
+            "WHERE d.tenant = $1 AND d.dedup_key = ANY($2::text[]) ORDER BY c.timestamp",
+            tenant_id,
+            [f"{tenant_id}:{task_id}" for task_id in task_ids],
+        )
+    finally:
+        await conn.close()
+    return [(str(r["agent_id"]), str(r["action"]), str(r["decision"])) for r in rows]
