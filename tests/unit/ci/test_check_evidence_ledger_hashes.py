@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 from scripts.ci.check_evidence_ledger_hashes import (
     CONVENTION_START_DATE,
+    REPO_ROOT,
     DeclaredRow,
     LegacyRow,
     RowSelection,
@@ -718,23 +719,32 @@ class TestMainEndToEnd:
 
 
 class TestAllModeAgainstRealLedger:
-    def test_all_mode_verifies_recompute_check_row_and_skips_mzo_040_by_date(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """VERIFY-LEDGER-RECOMPUTE.md finding D-2, reproduced against the real ledger this task
-        ships: `mzo-040` (docs/evidence-ledger.md, dated 2026-08-09) already writes its Test-hash
-        cell in the declared-path SHAPE by coincidence — without date-qualification, `--all`
-        would execute it and report MISMATCH (the test file has drifted since), misleading a
-        local spot-audit into treating a syntactic coincidence as a real hash-integrity problem.
-        With CONVENTION_START_DATE in place, `mzo-040` must be listed as legacy-by-date instead,
-        while this task's own LEDGER-HASH-RECOMPUTE-CHECK row (dated on/after the convention
-        start) is genuinely verified. No `repo_root` override: exercises the real `REPO_ROOT` the
-        production entry point resolves, against the real ledger and the real test file."""
-        exit_code = main(["--all"])
-        out = capsys.readouterr().out
-        assert exit_code == 0, out
-        assert "OK: LEDGER-HASH-RECOMPUTE-CHECK: verified" in out
-        assert "SKIP (legacy): mzo-040 —" in out
-        assert "precedes CONVENTION_START_DATE" in out
-        assert "MISMATCH: mzo-040" not in out
-        assert "MISMATCH" not in out
+    def test_all_mode_selection_verifies_recompute_check_row_and_skips_mzo_040_by_date(self) -> None:
+        """VERIFY-LEDGER-RECOMPUTE.md finding D-2, reproduced against the REAL ledger this task
+        ships (not a synthetic fixture): `mzo-040` (docs/evidence-ledger.md, dated 2026-08-09)
+        already writes its Test-hash cell in the declared-path SHAPE by coincidence — without
+        date-qualification, `--all` would execute it and report MISMATCH (the test file has
+        drifted since), misleading a local spot-audit into treating a syntactic coincidence as a
+        real hash-integrity problem.
+
+        Deliberately exercises `select_rows` directly — the exact function `--all` mode calls with
+        no range scoping, see `main`'s `if args.all: selection = select_rows(...)` — INSTEAD of
+        `main(["--all"])`/`verify_row`. Running the real recipe here would shell out to
+        `pytest tests/unit/ci/test_check_evidence_ledger_hashes.py`, i.e. THIS SAME FILE, which
+        contains this very test — unbounded self-recursive re-invocation (a real fork-bomb hazard
+        hit and killed during this task, confirmed live: dozens of nested pytest subprocesses,
+        `run_recipe`'s 300s timeout was the only thing that eventually failed it closed). The
+        recipe-execution path itself (`verify_row`/`run_recipe`) is already covered end-to-end,
+        real subprocess included, by `TestVerifyRow`/`TestMainEndToEnd`/
+        `TestRunRecipeAgainstRealFixture` — always against a disposable `tmp_path` fixture file,
+        never against this file. What's real and unmocked here is the LEDGER TEXT and the
+        SELECTION decision; that is exactly what D-2 is about."""
+        real_ledger_text = (REPO_ROOT / "docs" / "evidence-ledger.md").read_text(encoding="utf-8")
+        selection = select_rows(real_ledger_text.splitlines())
+
+        declared_task_ids = [r.task_id for r in selection.declared]
+        assert "LEDGER-HASH-RECOMPUTE-CHECK" in declared_task_ids
+
+        mzo_040 = next((r for r in selection.legacy if r.task_id == "mzo-040"), None)
+        assert mzo_040 is not None, "mzo-040 must be listed as legacy (skipped), never dropped"
+        assert "precedes CONVENTION_START_DATE" in mzo_040.reason
