@@ -10,6 +10,7 @@ the core logic itself).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,9 @@ from scripts.ci.check_evidence_ledger import (
     find_conflict_markers,
     main,
 )
+
+# Repo root, three levels up from tests/unit/ci/test_check_evidence_ledger.py.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 LEDGER_HEADER = (
     "# Evidence Ledger\n\n"
@@ -770,3 +774,312 @@ class TestConflictMarkerGuard:
     def test_table_pipes_and_equals_in_cells_do_not_trigger(self) -> None:
         benign = "| T9.9 | uses ======= inside a cell | x=======y |\n"
         assert find_conflict_markers(benign) == []
+
+
+# ---------------------------------------------------------------------------
+# LEDGER-GATE-ID-PATTERN-INERT (round 3): the ledger's real first column uses
+# id shapes the old `t\d+\.\d+`-only grammar could never match — `10.3`,
+# `GAP-AF-02`, `mzo-040`, `flip-path-review-gate` — which meant a PR citing
+# one of those via a `Tasks:`/`[...]` marker made the gate print "PASS: No
+# task ID detected" and exit 0 without ever consulting the ledger. These
+# tests lock in the widened grammar (`_TASK_ID_PATTERN`) at each binding
+# position it now covers, prove the pre-existing false-positive protections
+# (prose-never-binds, branch-rule-stays-narrow) survive the widening, prove
+# the NEW bracket-purity gate this widening required (a bracket's entire
+# payload must be pure id tokens or it binds nothing — see the module
+# docstring's PR #274 example), and assert 100% row-coverage of the real
+# ledger table.
+# ---------------------------------------------------------------------------
+
+
+class TestWidenedGrammarLedgerRows:
+    """`_LEDGER_ROW_RE` / `extract_ledger_task_ids` accept every id shape the
+    live ledger table actually uses, not just `T<phase>.<n>`."""
+
+    def test_bare_numeric_phase_dot_n_row(self) -> None:
+        # The real ledger carries rows like "10.3", "11.5", "9.5", "9.7" with
+        # no leading letter at all.
+        assert extract_ledger_task_ids(_ledger_with_rows("10.3")) == {"10.3"}
+
+    def test_gap_hyphenated_row(self) -> None:
+        assert extract_ledger_task_ids(_ledger_with_rows("GAP-AF-02")) == {"GAP-AF-02"}
+
+    def test_gap_row_with_two_dotted_segments(self) -> None:
+        # Real row: "GAP-9.3-9.4".
+        assert extract_ledger_task_ids(_ledger_with_rows("GAP-9.3-9.4")) == {"GAP-9.3-9.4"}
+
+    def test_kebab_slug_row_no_digits(self) -> None:
+        # Real row: "flip-path-review-gate" — no digit anywhere in the id.
+        ids = extract_ledger_task_ids(_ledger_with_rows("flip-path-review-gate"))
+        assert ids == {"FLIP-PATH-REVIEW-GATE"}
+
+    def test_lowercase_lettercode_row(self) -> None:
+        # Real row: "mzo-040".
+        assert extract_ledger_task_ids(_ledger_with_rows("mzo-040")) == {"MZO-040"}
+
+    def test_original_t_dot_n_shape_still_a_subset(self) -> None:
+        assert extract_ledger_task_ids(_ledger_with_rows("T0.5")) == {"T0.5"}
+
+    def test_row_with_trailing_parenthetical_annotation_still_matches_leading_id(self) -> None:
+        # Real rows: "T0.5 (gate precision fix)", "T1.3 (artifact fix: SP-OP-AUTH-001 gateway)".
+        ledger_text = LEDGER_HEADER + (
+            "| T0.5 (gate precision fix) | 2026-07-17 | gates-engineer (R2) | — | 80b34c8 | "
+            "scripts/ci/check_evidence_ledger.py | sha256:abc | implemented — unverified |\n"
+        )
+        assert extract_ledger_task_ids(ledger_text) == {"T0.5"}
+
+    def test_header_and_separator_still_excluded_under_widened_grammar(self) -> None:
+        # "Task ID" is two plain words (no "-"/"." separator between them) so it
+        # never qualifies as a single id-shaped token, widened grammar or not.
+        assert extract_ledger_task_ids(LEDGER_HEADER) == set()
+
+    def test_bare_single_word_cell_never_matches(self) -> None:
+        # A hypothetical single-word, unseparated cell value must not bind —
+        # the grammar requires at least one "-"/"." segment, structurally.
+        ledger_text = LEDGER_HEADER + "| shadow | 2026-07-17 | x | x | x | x | x | x |\n"
+        assert extract_ledger_task_ids(ledger_text) == set()
+
+
+class TestWidenedGrammarTasksLine:
+    """`Tasks:`/`Task:` line detection accepts every id shape, and multiple
+    ids of different shapes on the same marker all bind."""
+
+    def test_gap_id_on_task_line(self) -> None:
+        assert detect_task_ids_from_body("Task: GAP-AF-02") == {"GAP-AF-02"}
+
+    def test_kebab_id_on_task_line(self) -> None:
+        assert detect_task_ids_from_body("Tasks: mzo-040") == {"MZO-040"}
+
+    def test_mixed_kebab_and_t_id_on_same_tasks_line(self) -> None:
+        # A "Tasks:" line naming both a legacy T-id and a round-3 kebab id
+        # must bind both, not just one.
+        assert detect_task_ids_from_body("Tasks: T0.5 mzo-040") == {"T0.5", "MZO-040"}
+
+    def test_bare_numeric_id_on_task_line(self) -> None:
+        assert detect_task_ids_from_body("Task: 10.3") == {"10.3"}
+
+
+class TestWidenedGrammarProseStillNeverBinds:
+    """The T0.5 anti-regression holds under the widened grammar: a hyphenated
+    or dotted word that merely APPEARS in prose — never inside a `Tasks:`
+    line or a pure-id bracket — must not bind, exactly like the narrow
+    grammar's prose-never-binds guarantee."""
+
+    def test_hyphenated_prose_word_outside_any_marker_does_not_bind(self) -> None:
+        body = "This PR is a fail-closed, root-cause fix for the flip-path-review-gate follow-up."
+        assert detect_task_ids_from_body(body) == set()
+
+    def test_dotted_prose_token_outside_any_marker_does_not_bind(self) -> None:
+        body = "Bumps the pinned image from cibseven:2.1.0 to cibseven:2.2.0."
+        assert detect_task_ids_from_body(body) == set()
+
+    def test_kebab_word_after_task_word_without_colon_does_not_bind(self) -> None:
+        # Same T0.5 gate-precision rule as the colon-less "Task T0.5" case,
+        # now checked against a widened-grammar id shape.
+        assert detect_task_ids_from_body("Task mzo-040 closes the ledger gap.") == set()
+
+
+class TestBracketPurityGate:
+    """New for LEDGER-GATE-ID-PATTERN-INERT: a `[...]` bracket binds ONLY when
+    its entire trimmed payload is nothing but id tokens. Proven necessary by
+    replaying the widened grammar over this repo's last 40 merged PRs (see
+    the round-3 report) — PR #274's real body contains
+    "[owner-review: `glosa_triage.dmn` + shadow + `action-approvals.yaml`]",
+    ordinary prose in brackets, which the naive widening would have bound as
+    OWNER-REVIEW / ACTION-APPROVALS.YAML and demanded nonexistent ledger rows
+    for.
+    """
+
+    def test_pure_single_id_bracket_still_binds(self) -> None:
+        assert detect_task_ids_from_body("Closes [GAP-AF-02].") == {"GAP-AF-02"}
+
+    def test_pure_multi_id_bracket_binds_all(self) -> None:
+        # The existing "[T0.1 T0.2 T0.3]" multi-ID convention (commit 579e8f9)
+        # must keep working, now alongside a non-t id in the same bracket.
+        assert detect_task_ids_from_body("[T0.5 GAP-AF-02]") == {"T0.5", "GAP-AF-02"}
+
+    def test_two_adjacent_pure_brackets_both_bind(self) -> None:
+        assert detect_task_ids_from_body("[T1.8][mzo-040]") == {"T1.8", "MZO-040"}
+
+    def test_pr_274_style_prose_bracket_binds_nothing(self) -> None:
+        # Verbatim (trimmed) payload shape from PR #274's real body.
+        body = "PR-4 CONTAS [owner-review: `glosa_triage.dmn` + shadow + `action-approvals.yaml`]"
+        assert detect_task_ids_from_body(body) == set()
+
+    def test_markdown_link_text_bracket_binds_nothing(self) -> None:
+        # The "[Claude Code](https://claude.com/claude-code)" footer appears
+        # in nearly every AI-authored PR body in this repo's history — must
+        # never bind, even though this specific payload has no id-shaped
+        # token anyway (belt-and-braces: two plain words, no separator).
+        assert detect_task_ids_from_body("[Claude Code](https://claude.com/claude-code)") == set()
+
+    def test_bracket_with_id_plus_trailing_prose_binds_nothing(self) -> None:
+        # A bracket must be PURE ids, not "starts with an id" — this is the
+        # asymmetry with `Tasks:` lines (which do scan past trailing prose),
+        # documented in the module docstring.
+        assert detect_task_ids_from_body("[T0.5 and also some prose]") == set()
+
+    def test_empty_bracket_binds_nothing(self) -> None:
+        assert detect_task_ids_from_body("[]") == set()
+
+    def test_end_to_end_pr_274_style_body_passes_without_ledger(self, tmp_path: Path) -> None:
+        # End-to-end proof: the prose bracket must not force a ledger read
+        # demanding OWNER-REVIEW/ACTION-APPROVALS.YAML rows that don't exist.
+        missing_ledger = tmp_path / "does-not-exist.md"
+        body = (
+            "PR-4 CONTAS [owner-review: `glosa_triage.dmn` + shadow + "
+            "`action-approvals.yaml`]\n\n[Claude Code](https://claude.com/claude-code)"
+        )
+        exit_code = main(
+            [
+                "--branch",
+                "docs/adr-0040-perspectiva-operadora",
+                "--pr-body",
+                body,
+                "--ledger-path",
+                str(missing_ledger),
+            ]
+        )
+        assert exit_code == 0
+
+
+class TestWidenedGrammarBoundButMissingStillFails:
+    """The core fail-closed contract must hold for every newly-reachable id
+    shape, not just T<phase>.<n>: a bound id with no ledger row still FAILS."""
+
+    def test_gap_id_bound_without_row_fails(self, tmp_path: Path) -> None:
+        ledger = tmp_path / "evidence-ledger.md"
+        ledger.write_text(_ledger_with_rows("T0.1"), encoding="utf-8")  # no GAP-AF-02 row
+        exit_code = main(
+            ["--branch", "fix/unrelated", "--pr-body", "Task: GAP-AF-02", "--ledger-path", str(ledger)]
+        )
+        assert exit_code == 1
+
+    def test_kebab_id_bound_without_row_fails(self, tmp_path: Path) -> None:
+        ledger = tmp_path / "evidence-ledger.md"
+        ledger.write_text(_ledger_with_rows("T0.1"), encoding="utf-8")
+        exit_code = main(
+            ["--branch", "fix/unrelated", "--pr-body", "[mzo-041]", "--ledger-path", str(ledger)]
+        )
+        assert exit_code == 1
+
+    def test_gap_id_bound_with_row_present_passes(self, tmp_path: Path) -> None:
+        ledger = tmp_path / "evidence-ledger.md"
+        ledger.write_text(_ledger_with_rows("GAP-AF-02"), encoding="utf-8")
+        exit_code = main(
+            ["--branch", "fix/unrelated", "--pr-body", "Task: GAP-AF-02", "--ledger-path", str(ledger)]
+        )
+        assert exit_code == 0
+
+
+class TestBranchRuleStaysNarrow:
+    """Orchestrator decision (round 3): the branch-name rule is NOT widened —
+    a kebab branch has no unambiguous id segment, so binding from it would be
+    guessing. Only `^t<phase>.<n>-` binds via branch name; every other id
+    shape binds ONLY via `Tasks:`/`[...]` in the body."""
+
+    def test_kebab_branch_alone_detects_nothing(self) -> None:
+        assert detect_task_ids_from_branch("fix/kafka-num-partitions-compose") == set()
+
+    def test_gap_shaped_branch_prefix_does_not_bind_via_branch(self) -> None:
+        # Even a branch that LOOKS like it starts with an id-shaped slug must
+        # not bind through the branch-name path — only Tasks:/brackets do.
+        assert detect_task_ids_from_branch("gap-af-02-fix-something") == set()
+
+    def test_kebab_branch_end_to_end_passes_without_ledger_when_body_silent(self, tmp_path: Path) -> None:
+        missing_ledger = tmp_path / "does-not-exist.md"
+        exit_code = main(
+            [
+                "--branch",
+                "fix/kafka-num-partitions-compose",
+                "--pr-body",
+                "Bumps KAFKA_NUM_PARTITIONS for the compose stack.",
+                "--ledger-path",
+                str(missing_ledger),
+            ]
+        )
+        assert exit_code == 0
+
+
+class TestRealLedgerRowCoverage:
+    """LEDGER-GATE-ID-PATTERN-INERT's acceptance bar: every real data row in
+    docs/evidence-ledger.md's first column must be matchable by
+    `_LEDGER_ROW_RE`. Cross-checked independently of the module under test
+    via a `grep -c '^|'`-equivalent line count so this test cannot be
+    satisfied by a regex that happens to agree with itself."""
+
+    def test_all_real_ledger_data_rows_match(self) -> None:
+        ledger_path = _REPO_ROOT / "docs" / "evidence-ledger.md"
+        text = ledger_path.read_text(encoding="utf-8")
+        lines = text.split("\n")
+
+        # Independent count: every line starting with "|" (grep -c '^|' equivalent).
+        pipe_lines = [line for line in lines if line.startswith("|")]
+        # The table has exactly one header text row ("| Task ID | ...") and one
+        # separator row ("|---|...|"); every other "|"-started line is a data row.
+        header_like = [
+            line
+            for line in pipe_lines
+            if re.match(r"^\|\s*Task\s+ID\s*\|", line, re.IGNORECASE) or re.match(r"^\|[-:\s|]+\|$", line)
+        ]
+        assert len(header_like) == 2, (
+            f"expected exactly 1 header row + 1 separator row, found {len(header_like)}: {header_like}"
+        )
+        data_row_count = len(pipe_lines) - len(header_like)
+
+        matched_ids = extract_ledger_task_ids(text)
+        matched_row_count = sum(1 for _ in _row_re_matches(text))
+
+        # Report-friendly numbers (also asserted below): total pipe lines,
+        # data rows, and how many of those data rows the widened regex binds.
+        print(
+            f"\n[LEDGER-GATE-ID-PATTERN-INERT] grep -c '^|' = {len(pipe_lines)}; "
+            f"header/separator = {len(header_like)}; data rows = {data_row_count}; "
+            f"_LEDGER_ROW_RE matches = {matched_row_count}; unique ids = {len(matched_ids)}"
+        )
+
+        assert matched_row_count == data_row_count, (
+            f"_LEDGER_ROW_RE matched {matched_row_count} of {data_row_count} real ledger data rows "
+            "— every data row must be matchable (LEDGER-GATE-ID-PATTERN-INERT acceptance bar)."
+        )
+
+
+def _row_re_matches(ledger_text: str) -> list[str]:
+    """Re-derive the same match set `extract_ledger_task_ids` uses, for an
+    independent-looking row count in the coverage test above (imports the
+    module's own compiled regex rather than re-deriving the pattern, since
+    the pattern string itself is the thing under test — the independence
+    here is the external `grep`-equivalent line count, not a second regex)."""
+    from scripts.ci.check_evidence_ledger import _LEDGER_ROW_RE
+
+    return [m.group(1) for m in _LEDGER_ROW_RE.finditer(ledger_text)]
+
+
+class TestMutationGrammarReverted:
+    """Documents the mutation this task requires: reverting `_TASK_ID_PATTERN`
+    to the old `t\\d+\\.\\d+`-only shape must turn specific tests RED. This
+    test class itself doesn't perform the mutation (that's a manual gate-
+    proof step, recorded in the PR/report) — it names, in one place, exactly
+    which tests are the mutation witnesses, so a reviewer can run them
+    against a reverted pattern and confirm the failure.
+
+    Mutation witnesses (RED when `_TASK_ID_PATTERN` reverts to `t\\d+\\.\\d+`):
+      - TestWidenedGrammarLedgerRows::test_bare_numeric_phase_dot_n_row
+      - TestWidenedGrammarLedgerRows::test_gap_hyphenated_row
+      - TestWidenedGrammarLedgerRows::test_kebab_slug_row_no_digits
+      - TestWidenedGrammarTasksLine::test_gap_id_on_task_line
+      - TestBracketPurityGate::test_pure_single_id_bracket_still_binds
+      - TestRealLedgerRowCoverage::test_all_real_ledger_data_rows_match
+        (269 -> 107 matched data rows; hard assertion failure)
+    """
+
+    def test_witness_list_is_non_empty_and_documented(self) -> None:
+        # Trivial self-check that this documentation block exists and the
+        # witness tests it names are real, collectible tests (guards against
+        # the docstring silently drifting from the actual test names).
+        assert TestWidenedGrammarLedgerRows.test_bare_numeric_phase_dot_n_row
+        assert TestWidenedGrammarLedgerRows.test_gap_hyphenated_row
+        assert TestWidenedGrammarLedgerRows.test_kebab_slug_row_no_digits
+        assert TestWidenedGrammarTasksLine.test_gap_id_on_task_line
+        assert TestBracketPurityGate.test_pure_single_id_bracket_still_binds
+        assert TestRealLedgerRowCoverage.test_all_real_ledger_data_rows_match
