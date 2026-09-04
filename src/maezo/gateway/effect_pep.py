@@ -192,7 +192,7 @@ KNOWN_PROCESS_KEYS: Final[frozenset[str]] = frozenset(
 )
 
 #: ADR-0006 zones. The zone is carried for telemetry and for the C2 operation split; it is NOT a
-#: gate here — `runtime/inference.py`'s `PhiZoneRoutingError` stays the independent enforcement.
+#: gate here — `runtime/inference/errors.py::PhiZoneRoutingError` stays the independent enforcement.
 PHI_ZONE_GENERAL: Final[str] = "general"
 PHI_ZONE_PHI: Final[str] = "phi"
 PHI_ZONES: Final[frozenset[str]] = frozenset({PHI_ZONE_GENERAL, PHI_ZONE_PHI})

@@ -362,7 +362,8 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         tool_id="mcp-dmn.evaluate",
     ),
     # -- LLM inference (C2), SPLIT BY ZONE per design §6.1: the provider routes on `phi=`
-    # (`runtime/inference.py:616` `generate`, `PhiZoneRoutingError`). Two operation tokens so the
+    # (`runtime/inference/__init__.py::InferenceProvider.generate`,
+    # `runtime/inference/errors.py::PhiZoneRoutingError`). Two operation tokens so the
     # shadow telemetry can tell a PHI-bearing generation from a general one WITHOUT carrying the
     # prompt. No ratified autonomy name exists for either (Q-4).
     OperationSpec(
