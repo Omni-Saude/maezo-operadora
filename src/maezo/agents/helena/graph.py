@@ -98,6 +98,7 @@ from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.start_outcome import notify_start_failure as emit_start_failure_notice
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -820,6 +821,14 @@ class HelenaGraph:
         (o SLA vive na instancia que nao nasceu) e sem alerta. Agora o handoff so sai quando a
         escalacao existe; caso contrario o texto e SUBSTITUIDO pela mensagem honesta de falha
         tecnica e o turno declara `desfecho=erro_inicio_processo`.
+
+        CC-09: emite UM `maezo_agent_desfecho_total` para este turno. `HelenaState.desfecho` e'
+        campo morto (nenhum no' de Helena escreve nele — ver `turn_telemetry`'s module
+        docstring), entao o `desfecho` do label e' DERIVADO aqui, via override, de
+        `escalation_started`/`response_kind`/`escalation_motivo` — os sinais reais desta
+        agente. O ramo `start_failed=True` NAO emite aqui: `_start_failure_outcome` ja delega
+        ao helper compartilhado (`runtime.start_outcome.notify_start_failure`), que emite por
+        conta propria — emitir aqui tambem duplicaria o turno.
         """
         # UM unico `send` e UM unico handler de falha de envio nos dois ramos — o que muda entre
         # eles e O QUE se diz e O QUE o turno declara, nunca o mecanismo de envio.
@@ -829,13 +838,26 @@ class HelenaGraph:
         else:
             saida = {}
             text = state.get("response_text") or ""
+        enviada = False
         try:
             await self._whatsapp.send(_to_hash_from_state(state), text)
+            enviada = True
         except Exception as exc:  # noqa: BLE001 — surfaced via `error`, never swallowed silently.
             # HEL-05 (feeder): same chain as the two above — `error` reaches `resumo_contexto`.
             # O desfecho de falha de start (quando ha um) NAO e apagado por uma falha de envio:
             # o caso continua marcado como start falho, que e o que a operacao precisa ver.
-            return {**saida, "error": f"whatsapp send failed: {redact_error_message(exc)}"}
+            saida = {**saida, "error": f"whatsapp send failed: {redact_error_message(exc)}"}
+        if state.get("start_failed") is not True:
+            emit_turn_desfecho(
+                state,
+                agent_id="helena",
+                desfecho=(
+                    "escalado_humano" if state.get("escalation_started") is True else "resolvido_automatico"
+                ),
+                route=saida.get("response_kind") or state.get("response_kind"),
+                motivo_categoria=saida.get("escalation_motivo") or state.get("escalation_motivo"),
+                enviada=enviada,
+            )
         return saida
 
     def _start_failure_outcome(self, state: HelenaState) -> dict[str, Any]:

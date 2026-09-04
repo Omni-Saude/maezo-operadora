@@ -9,6 +9,9 @@ Provides:
 - record_llm_token_usage(): LLM token-metering (T8) — COUNTS ONLY, never a cost value
 - record_tool_call()/record_agent_error(): the two counters `deploy/observability/alert-rules.yml`
   reads for `MaezoSLAAgentErrorRateHigh` / `MaezoAgentCrashLoop` (AF-13 / ALERTS-WITHOUT-METRICS-a)
+- record_agent_desfecho(): per-agent terminal-turn outcome (CC-09) — makes the `agent.yaml` KPIs
+  (resolution_rate, escalation_precision, false_denial_rate, ...) measurable; adopted via the
+  ONE call site `runtime.turn_telemetry.emit_turn_desfecho`
 
 Design decisions (ADR-0010, ADR-0014):
 - OTel with agent semantics: trace per conversation, span per node/tool/LLM call
@@ -576,6 +579,95 @@ def record_worker_task_outcome(
         collector.worker_task_duration.labels(tenant=tenant, topic=topic, outcome=outcome).observe(
             duration_seconds
         )
+
+
+def record_agent_desfecho(
+    *,
+    agent_id: str,
+    desfecho: str,
+    route: str | None,
+    motivo_categoria: str | None,
+    enviada: bool | None,
+    start_failed: bool | None,
+    flow: str | None = None,
+) -> None:
+    """Record ONE terminal-turn outcome for an agent (CC-09, Agent Fleet Audit 2026-09-04).
+
+    THE DEFECT THIS CLOSES. Every `spec/agents/*/agent.yaml` declares outcome KPIs — `track`,
+    `>0.95`, `==0` — but until CC-09 no agent graph emitted ANY per-turn outcome telemetry
+    (`grep -rln 'record_' src/maezo/agents/*/graph.py` was empty). `record_worker_task_outcome`
+    counts the ENGINE's external-task dispatch outcome; `record_agent_turn` counts message
+    SHAPE; neither says whether the case was auto-routed or escalated, why, or whether the
+    beneficiary/human actually received a message. A KPI with no emitter is not "not yet met" —
+    it is unmeasurable, indistinguishable from a KPI nobody checks.
+
+    Increments `maezo_agent_desfecho_total{agent_id,desfecho,route,motivo_categoria}` — see
+    `MetricsCollector.agent_desfecho_total`. This is the RAW typed helper; the caller is
+    `runtime.turn_telemetry.emit_turn_desfecho`, the ONE adoption point every agent graph's
+    terminal node goes through (never call this function directly from a graph).
+
+    WHICH agent.yaml KPI EACH LABEL FEEDS (read this before adding a new label or a new value):
+      * `agent_id` — scopes every KPI below to the ONE agent it is declared for.
+      * `desfecho` — the terminal outcome token. Feeds the HARD `==0` invariants
+        (AGENTS.md regra 7 — itens hard da matriz de autonomia sao intocaveis): a `desfecho` in
+        an agent's adverse set (e.g. Rafael/Marina/Gustavo/Valentina/Lucas's `false_denial_rate`,
+        Fernando's own `false_denial_rate`, Carolina's `false_decredentialing_rate`, Andre's
+        `false_pricing_decision_rate`, Beatriz's `zero_auto_accusation`/`false_accusation_rate`)
+        MUST have a count of ZERO in `sum(maezo_agent_desfecho_total{agent_id="<x>",
+        desfecho=~"negativa_.*|rescisao_.*|descredenciamento_.*|acusacao_.*"})` — the agent's
+        own graph structurally never assigns such a `desfecho` (an L0/L1 hard invariant), and
+        this counter is how that absence becomes a CHECKABLE fact instead of an assertion. It
+        also feeds `resolution_rate`/`cure_rate`/`nip_deadline_compliance`-style "share of
+        turns with outcome X" KPIs directly.
+      * `route` — auto vs. human split. Feeds `human_routing_precision`,
+        `auto_approval_rate`, `stratification_precision`, `resolution_rate` (Helena/Lucas: share
+        NOT routed to a human).
+      * `motivo_categoria` — WHY a case went to a human. Feeds `escalation_precision`: the share
+        of `route="human_review"`-equivalent turns broken down by `motivo_categoria` is exactly
+        "were the RIGHT cases escalated for the RIGHT reason" (Fernando/Lucas/Helena, the three
+        agents whose state actually carries this field; every other agent passes `None`, which
+        the label renders as `""` — `human_routing_precision` for those agents is measured off
+        `route` alone, there being no finer category in their contract).
+      * `enviada`/`start_failed`/`flow` are NOT metric labels (cardinality: `enviada` and
+        `start_failed` are booleans redundant with `desfecho` — a `start_failed=True` turn is,
+        by construction, the ONE `desfecho="erro_inicio_processo"` CC-01 defines, and a failed
+        WhatsApp send already surfaces as the agent's own "not delivered" `desfecho`, e.g.
+        Lucas's `ack_pending`). They are recorded in the structured log line below for anyone
+        needing that finer signal without adding Prometheus series; `flow` (e.g. Andre's
+        `pagto_dossier`/`population_analytics`, Marina's `contas`/`recurso`/`reembolso`) is
+        agent-internal sub-routing that most agents do not have and is not a KPI dimension by
+        itself.
+
+    NEVER PHI, NEVER A BUSINESS/TENANT IDENTIFIER on `desfecho`/`route`/`motivo_categoria` — all
+    three are CLOSED, per-agent vocabularies enforced by the caller
+    (`turn_telemetry._DESFECHO_VOCAB`/`_ROUTE_VOCAB`/`_MOTIVO_CATEGORIA_VOCAB`): a value outside
+    an agent's declared set is normalized to `"outro"` BEFORE it reaches this function, same
+    discipline `record_worker_task_outcome` and `record_phi_business_key_mint` document above.
+    This function does not re-validate — it trusts its one caller, exactly like
+    `record_llm_tier_resolution` trusts `inference`'s callers.
+
+    Best-effort by construction (mirrors `record_agent_turn`): telemetry must never break the
+    turn whose outcome it is counting, so the caller wraps the whole extraction+emit in a guard.
+    This raw helper itself does not guard — its one caller already does, and a second guard here
+    would only hide which layer failed.
+    """
+    collector = _get_metrics_collector()
+    collector.agent_desfecho_total.labels(
+        agent_id=agent_id,
+        desfecho=desfecho,
+        route=route or "",
+        motivo_categoria=motivo_categoria or "",
+    ).inc()
+    logger.info(
+        "agent_desfecho_recorded",
+        agent_id=agent_id,
+        desfecho=desfecho,
+        route=route,
+        motivo_categoria=motivo_categoria,
+        enviada=enviada,
+        start_failed=start_failed,
+        flow=flow,
+    )
 
 
 def record_phi_business_key_mint(*, family: str, modo: str, anchor: str) -> None:
