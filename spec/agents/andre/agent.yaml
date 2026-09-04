@@ -32,6 +32,17 @@ tools:                                     # ids EXATOS de MCP servers JA regist
   # (SP-OP-PAGTO-001) sem consumidor vivo e capacidade especulativa. Se um originador externo
   # aparecer, a concessao volta como uma linha de YAML sob revisao explicita do dono — nunca por
   # omissao. Fixado por `tests/unit/gateway/test_andre_least_privilege.py`.
+  #
+  # NENHUM AGENTE INICIA ADEQUACAO (gap PERSP-B5-ADEQ-BINDING; decisao do dono R-049 de
+  # 2026-09-04, opcao B). `SP-OP-ADEQUACAO-001` NAO tem — e nao deve ter — binding de start em
+  # `agent.yaml` nenhum: Andre e convocado por DELEGACAO A2A
+  # (`operadora.adequacao.prepare_remediation_dossier` -> `analytics.population`) sobre uma
+  # instancia que JA esta rodando (o no `start_process` do grafo e no-op fora do `pagto_dossier`;
+  # a business key `ADEQ-` so ANCORA o dossie), e a coreografia que iniciaria o processo
+  # (`network_change_bridge`, PERSP-NETBRIDGE/AF-01) NAO existe em `src/`. Esta e uma decisao
+  # registrada, nao uma omissao — o contrato do processo carrega a nota completa em
+  # `docs/processes/contracts/SP-OP-ADEQUACAO-001.md` (§Bindings de agente) e
+  # `tests/unit/gateway/test_adequacao_sem_binding_de_agente.py` varre TODOS os manifestos.
 autonomy_policy: ../../policies/autonomy
 autonomy_actions:                          # acoes REAIS da matriz L0-core exercidas por este fluxo
   - query_decision_engine                  # DMN pagto_alcada/pagto_sla (mcp-dmn.evaluate) — L3
