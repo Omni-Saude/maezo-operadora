@@ -44,6 +44,8 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
 
 import httpx
 import pytest
@@ -138,10 +140,14 @@ async def drain_topics(
 # ---------------------------------------------------------------------------------------------
 
 
-async def count_chain_rows(dsn: str, tenant_id: str) -> int:
-    """Row count of `audit_chain` for `tenant_id` — used to assert an exact DELTA (e.g. "the
-    re-delivered start added ZERO new chain rows") since `audit_tenant`'s schema is shared by
-    every test in the session, not exclusive to one test."""
+@asynccontextmanager
+async def _audit_schema_conn(dsn: str, tenant_id: str) -> AsyncIterator[Any]:
+    """One asyncpg connection with `search_path` already set to the run's tenant schema.
+
+    Hoisted out of `count_chain_rows` (FAB-SLA-RISK-NOTIFIED-SLICE4 repair) so the three readers
+    below share ONE connect/`SET search_path`/close sequence and ONE local asyncpg import —
+    kept local because asyncpg is an integration-lane dependency, exactly as before.
+    """
     import asyncpg  # type: ignore[import-untyped]
 
     from maezo.gateway.audit_postgres import normalize_dsn
@@ -149,9 +155,17 @@ async def count_chain_rows(dsn: str, tenant_id: str) -> int:
     conn = await asyncpg.connect(normalize_dsn(dsn))
     try:
         await conn.execute(f'SET search_path TO "{tenant_id}"')
-        count: int = await conn.fetchval("SELECT count(*) FROM audit_chain")
+        yield conn
     finally:
         await conn.close()
+
+
+async def count_chain_rows(dsn: str, tenant_id: str) -> int:
+    """Row count of `audit_chain` for `tenant_id` — used to assert an exact DELTA (e.g. "the
+    re-delivered start added ZERO new chain rows") since `audit_tenant`'s schema is shared by
+    every test in the session, not exclusive to one test."""
+    async with _audit_schema_conn(dsn, tenant_id) as conn:
+        count: int = await conn.fetchval("SELECT count(*) FROM audit_chain")
     return count
 
 
@@ -164,16 +178,8 @@ async def count_chain_rows_for_action(dsn: str, tenant_id: str, action: str) -> 
     "exactly ONE completion of this topic happened in this window" on a real, durable record
     instead of on a process variable a worker echoed back.
     """
-    import asyncpg  # type: ignore[import-untyped]
-
-    from maezo.gateway.audit_postgres import normalize_dsn
-
-    conn = await asyncpg.connect(normalize_dsn(dsn))
-    try:
-        await conn.execute(f'SET search_path TO "{tenant_id}"')
+    async with _audit_schema_conn(dsn, tenant_id) as conn:
         count: int = await conn.fetchval("SELECT count(*) FROM audit_chain WHERE action = $1", action)
-    finally:
-        await conn.close()
     return count
 
 
@@ -193,13 +199,7 @@ async def audit_rows_for_task_ids(
     A task id with no claim simply yields no row: the caller asserts the exact expected tuples,
     never a truthiness.
     """
-    import asyncpg  # type: ignore[import-untyped]
-
-    from maezo.gateway.audit_postgres import normalize_dsn
-
-    conn = await asyncpg.connect(normalize_dsn(dsn))
-    try:
-        await conn.execute(f'SET search_path TO "{tenant_id}"')
+    async with _audit_schema_conn(dsn, tenant_id) as conn:
         rows = await conn.fetch(
             "SELECT c.agent_id, c.action, c.decision FROM audit_chain c "
             "JOIN audit_emit_dedup d ON d.record_hash = c.record_hash "
@@ -207,6 +207,4 @@ async def audit_rows_for_task_ids(
             tenant_id,
             [f"{tenant_id}:{task_id}" for task_id in task_ids],
         )
-    finally:
-        await conn.close()
     return [(str(r["agent_id"]), str(r["action"]), str(r["decision"])) for r in rows]
