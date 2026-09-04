@@ -194,9 +194,17 @@ _LARGURA_MARCADOR: Final[int] = 10
 _MARCADOR_SIM: Final[str] = "SIM"
 _MARCADOR_NAO: Final[str] = "NAO"
 
-#: Marcador default de "nao apurado". Parametrizado porque um fluxo pode precisar de outra
-#: palavra, NUNCA para transformar ausencia em afirmacao.
-SEM_DADO_PADRAO: Final[str] = "SEM DADO"
+#: Marcador de "nao apurado": o terceiro estado, o que NAO afirma nada sobre a pessoa.
+#:
+#: E' uma CONSTANTE e nao um parametro. Nasceu parametrizavel ("um fluxo pode precisar de outra
+#: palavra"), atravessou a adocao pelos 9 agentes sem que um unico chamador a passasse, e um
+#: parametro publico sem chamador nem teste e' superficie de API que ninguem exercita — o proximo
+#: leitor teria de descobrir sozinho se ela funciona. Se um fluxo precisar mesmo de outra palavra,
+#: reintroduzir o parametro e' uma linha; o que nao da' para desfazer e' um default divergente que
+#: entrou em producao sem nunca ter sido rodado. A palavra em si e' de leitura obrigatoria pelo
+#: prompt de cada agente (`agents/rafael/prompts.py` a nomeia), entao trocar por fluxo tambem
+#: pediria re-revisao de SME, e nao so' um argumento.
+SEM_DADO: Final[str] = "SEM DADO"
 
 
 def _valor_do_fato(facts: Mapping[str, Any], caminho: str) -> Any:
@@ -267,7 +275,6 @@ def render_fatos_para_prompt(
     facts: Mapping[str, Any],
     *,
     booleanos: Mapping[str, str],
-    sem_dado: str = SEM_DADO_PADRAO,
     linhas_extra: Sequence[str] = (),
 ) -> str:
     """Serializa os fatos NOMEANDO o estado de cada booleano, em vez de despejar o dicionario.
@@ -280,14 +287,13 @@ def render_fatos_para_prompt(
 
     O `is True` / `is False` e' deliberado: `1`, `"nao"` e `[]` NAO sao fatos apurados, e um
     `bool()` os converteria em afirmacao sobre uma pessoa. Qualquer coisa que nao seja booleano
-    cai em ``sem_dado``, que e' a leitura segura.
+    cai em :data:`SEM_DADO`, que e' a leitura segura.
 
     Args:
         facts: O dicionario de fatos do caso, LIDO e nunca mutado.
         booleanos: Mapa `chave do fato -> rotulo em pt-BR`, especifico do fluxo do chamador. A
             ORDEM deste mapa e' a ordem das linhas — o chamador e' dono dela. Uma chave pode ser
             um caminho pontilhado (`"adequacao.cobertura_geo_suficiente"`) para um fato aninhado.
-        sem_dado: Marcador de "nao apurado".
         linhas_extra: Linhas ja' formatadas, anexadas depois dos booleanos. Existe para o fato
             que NAO e' do agente: o rafael declara o teto de aprovacao como `APURADO PELO MOTOR`
             porque `ceilings.py` o computa DEPOIS do dossie (C-02, 27/08/2026) — dizer "sem
@@ -314,7 +320,7 @@ def render_fatos_para_prompt(
         elif valor is False:
             marcador = _MARCADOR_NAO
         else:
-            marcador = sem_dado
+            marcador = SEM_DADO
         linhas.append(f"  {marcador:<{_LARGURA_MARCADOR}}{rotulo}")
     linhas.extend(linhas_extra)
 
@@ -326,7 +332,7 @@ def render_fatos_para_prompt(
 __all__ = [
     "FATOS_CABECALHO",
     "FATOS_CONTEXTO_ROTULO",
-    "SEM_DADO_PADRAO",
+    "SEM_DADO",
     "STABLE_SEPARATOR",
     "VARIABLE_FIELD_SEPARATOR",
     "VARIABLE_LINE_SEPARATOR",
