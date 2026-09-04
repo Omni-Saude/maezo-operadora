@@ -299,6 +299,21 @@ def _nondeterministic_calls(tree: ast.AST) -> set[str]:
 #   - `fraude.intake` returned `{"caso_registrado": True, "intake_ts": "now"}` from a body whose
 #     only statement was `logger.info`. Both fixed IN THE SAME COMMIT as this widening, so the
 #     baseline below stays EMPTY.
+#
+# ENROLL-BENEFICIARIO-SEM-EFEITO-REAL (achado do verificador de FAB-PROGRAMA-NOW, VERIFY-FABPROG.md
+# §4(ii)/achado 1) widens the set with `enrollment_realizado` — the SAME species as
+# `dossie_montado`/`referral_executado` (BEA-09/FAB-REFER-TO-LEGAL) that this fence was already
+# blind to: `programa.enroll_beneficiario` returned `{"enrollment_realizado": True}` unconditionally
+# from a body whose only statement was `logger.info`, while the contract
+# (`docs/processes/contracts/SP-OP-PROGRAMA-001.md`, "Topicos" row for
+# `operadora.programa.build_care_plan`) and the BPMN (`programa.py:687`'s own disclosure comment,
+# "spec match: task name says 'care.enroll'") declare an A2A delegation `care.enroll` to Valentina
+# that the code never calls. NOT the desfecho STRING `enrollment_realizado` that
+# `ST_ProactiveContact`/the `programa.completed` fallback fix via BPMN `outputParameter`/ternary
+# literal (`spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn:157,334`) — that is a
+# fixed vocabulary value on an unrelated variable (`desfecho`), never read by this AST detector,
+# which only ever matches a `return {...}` dict-literal KEY. Fixed IN THE SAME COMMIT as this
+# widening, so `_FABRICATED_FACT_BASELINE` stays EMPTY.
 _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
     {
         "notificacao_previa_feita",
@@ -309,6 +324,7 @@ _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
         "dossie_montado",
         "referral_executado",
         "caso_registrado",
+        "enrollment_realizado",
     }
 )
 
