@@ -1499,7 +1499,7 @@ async def test_prepare_dossier_handler_delega_arrears_followup_uma_vez() -> None
     dispatcher = _FakeDossierDispatcher(
         result=DelegationResult.ok("INAD-amh-C-123", "process://INAD-amh-C-123")
     )
-    handler = make_prepare_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    handler = make_prepare_dossier_handler(dispatcher)
 
     result = await handler(_dossier_task(_INAD_DOSSIER_VARS))
 
@@ -1536,7 +1536,7 @@ async def test_prepare_dossier_handler_falha_de_delegacao_nao_derruba_a_tarefa()
     """QUALQUER excecao da delegacao -> a tarefa COMPLETA com o dossie + lacuna divulgada; o texto
     cru do erro fica FORA das variaveis de engine (so' token de classe)."""
     handler = make_prepare_dossier_handler(
-        _FakeDossierDispatcher(exc=RuntimeError("pg fora do ar: dsn=segredo"))  # type: ignore[arg-type]
+        _FakeDossierDispatcher(exc=RuntimeError("pg fora do ar: dsn=segredo"))
     )
 
     result = await handler(_dossier_task(_INAD_DOSSIER_VARS))
@@ -1553,7 +1553,7 @@ async def test_prepare_dossier_handler_start_failed_e_divulgado_com_token_propri
     fail-neutral, com um token PROPRIO — quem le a variavel distingue "o processo do Fernando nao
     nasceu" de uma falha de transporte qualquer."""
     handler = make_prepare_dossier_handler(
-        _FakeDossierDispatcher(  # type: ignore[arg-type]
+        _FakeDossierDispatcher(
             exc=StartProcessFailedError("fernando nao conseguiu iniciar SP-OP-INADIMPLENCIA-001")
         )
     )
@@ -1567,7 +1567,7 @@ async def test_prepare_dossier_handler_start_failed_e_divulgado_com_token_propri
 
 async def test_prepare_dossier_handler_rejeicao_estruturada_carrega_razao_limitada() -> None:
     handler = make_prepare_dossier_handler(
-        _FakeDossierDispatcher(  # type: ignore[arg-type]
+        _FakeDossierDispatcher(
             result=DelegationResult.rejected(
                 "INAD-amh-C-123", RejectionReason.TASK_TYPE_NOT_ACCEPTED, detail="nao aceito"
             )
@@ -1586,7 +1586,7 @@ async def test_prepare_dossier_handler_sem_identificadores_nunca_delega() -> Non
     nenhum `task_id` INAD idempotente existe — jamais delegar com chave degenerada, porque a
     Guarda 4 selaria casos DIFERENTES sob a mesma chave."""
     dispatcher = _FakeDossierDispatcher(result=DelegationResult.ok("x", "process://x"))
-    handler = make_prepare_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    handler = make_prepare_dossier_handler(dispatcher)
 
     sem_tenant = await handler(
         _dossier_task({**_INAD_DOSSIER_VARS, "tenant_id": "   "}),
@@ -1608,9 +1608,7 @@ async def test_prepare_dossier_handler_nunca_origina_decisao_adversa() -> None:
     """A conversao para handler NAO abriu porta para originacao adversa: mesmo com a decisao
     adversa ja no escopo de entrada, nem o dossie nem os campos novos a propagam."""
     handler = make_prepare_dossier_handler(
-        _FakeDossierDispatcher(  # type: ignore[arg-type]
-            result=DelegationResult.ok("INAD-amh-C-123", "process://INAD-amh-C-123")
-        )
+        _FakeDossierDispatcher(result=DelegationResult.ok("INAD-amh-C-123", "process://INAD-amh-C-123"))
     )
 
     result = await handler(
