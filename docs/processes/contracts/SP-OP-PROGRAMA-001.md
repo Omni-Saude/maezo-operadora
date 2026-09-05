@@ -91,6 +91,7 @@ idempotente, sem duplicar enrollment do mesmo beneficiario no mesmo ciclo).
 | `consent_checked` | boolean | sim | Veio do trigger proativo (D9 exige `consent_checked==true` antes de contato com beneficiario); re-verificado in-zone pelo chokepoint |
 | `risco_estratificado` | string | nao | Pre-resolvido in-zone por worker/agente (Valentina) APOS o gate de consentimento; banda de risco (nunca conteudo clinico cru em Zona Geral) |
 | `elegibilidade_criterios_atendidos` | boolean | nao | Pre-resolvido in-zone APOS consentimento (criterios do programa) |
+| `patient_summary_ref` | string | nao | Referencia FHIR do resumo do paciente (NUNCA PHI cru) — `gather` a usa para `read_patient_summary`; re-ecoada por `ValentinaGraph._contract_variables` no start quando presente, so para proveniencia/auditoria (achado do fleet audit, NEW-C1-3: variavel escrita no engine mas ausente desta tabela) |
 
 \* `consentimento_ativo` e resolvido **dentro do gate** `check_consent`; nenhuma variavel de PHI clinico (`risco_estratificado`, criterios) e populada **antes** do gate passar. PHI clinico permanece em Zona PHI (Valentina = `security_zone: phi`, D10); Zona Geral so ve bandas/pseudonimos.
 
