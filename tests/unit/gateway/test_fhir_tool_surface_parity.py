@@ -492,7 +492,7 @@ async def test_carolina_gather_reads_the_declared_summary_through_the_real_gated
         audit_sink=FakeStartAuditSink(),
         fhir=seam,
     )
-    state: CarolinaState = {"patient_summary_ref": "pseudo-cred-1"}  # type: ignore[typeddict-item]
+    state: CarolinaState = {"patient_summary_ref": "pseudo-cred-1"}
 
     result = await graph.gather(state)
 
