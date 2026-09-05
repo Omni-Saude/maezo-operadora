@@ -1587,8 +1587,9 @@ escaneado antes, achado F4), todos resolvidos.
 `src/maezo/platform/integrations/amh_inbox.py:918`, `src/maezo/gateway/audit_postgres.py:207`) mantem
 `min_size=1`/`max_size=10` como DEFAULT DELIBERADO — decisao do dono de NAO expor min/max por
 ambiente em `values.yaml` agora, porque a aritmetica agregada de conexoes (pools x processos x
-replicas x tenants vs `max_connections` do Aurora) so' existe apos `SC-05` (ver `docs/helm/
-maezo-tenant/values.yaml`, secao "PostgreSQL (Aurora) connection", bloco SC-05). Os quatro sitios
+replicas x tenants vs `max_connections` do Aurora) so' existe apos `SC-05` (ver `deploy/helm/
+maezo-tenant/values.yaml`, secao "PostgreSQL (Aurora) connection", bloco SC-05 — gatekeeper
+finding F7: o caminho correto e' `deploy/helm/...`, nao `docs/helm/...`). Os quatro sitios
 ganharam o mesmo comentario-ancora (`D4-02 / R-108`) citando este fato e os outros tres irmaos —
 `tests/unit/platform/test_asyncpg_pool_defaults_documented.py` falha se os quatro divergirem entre
 si ou se o comentario sumir de um deles.
@@ -1602,17 +1603,22 @@ si ou se o comentario sumir de um deles.
 `R-025`+`R-026` (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA): `deploy/helm/
 maezo-tenant/values.yaml` (secao logo apos `aurora:`) agora declara a aritmetica agregada de
 conexoes — pools/processo (4 sitios `create_pool`, `max_size=10` cada, D4-02/R-108) x
-processos/pod (1) x replicaCount habilitado por padrao (11 pods) x tenants, contra o
-`max_connections` de cada ambiente Aurora (~3604 para prod `db.r6g.xlarge`; staging `serverless`
-escala com ACU ao vivo, nao e' fixo). `deploy/terraform/modules/aurora-postgres/` ganhou o
-scaffold de RDS Proxy (`aws_iam_role`/`aws_db_proxy`/`aws_db_proxy_default_target_group`/
-`aws_db_proxy_target`) inteiramente atras de `enable_rds_proxy = false` — ZERO recursos AWS
-criados por esta PR (`tests/unit/deploy/test_aurora_rds_proxy_scaffold.py` prova a gate).
+processos/pod (1) x pods habilitados por padrao, contra o `max_connections` de cada ambiente
+Aurora (~3604 para prod `db.r6g.xlarge`; staging `serverless` escala com ACU ao vivo, nao e'
+fixo). GATEKEEPER FINDING F1 (VERIFY-A2-HELM-CAPACITY.md, corrigido nesta reparacao): o pod
+count usado para o teto/headroom de PROD e' o da overlay `values-amh.yaml` RENDERIZADA (14 pods
+-> 560 conexoes + 1 de folga transiente do Job de migrations = 561/tenant), nao o bare
+`values.yaml` (11 pods -> 440, mantido no bloco so' como piso teorico — esse arquivo nao
+renderiza standalone). Teto ultrapassado a partir de N=7 tenants (3927 > 3604), nao N=9.
+`deploy/terraform/modules/aurora-postgres/` ganhou o scaffold de RDS Proxy
+(`aws_iam_role`/`aws_db_proxy`/`aws_db_proxy_default_target_group`/`aws_db_proxy_target`)
+inteiramente atras de `enable_rds_proxy = false` — ZERO recursos AWS criados por esta PR
+(`tests/unit/deploy/test_aurora_rds_proxy_scaffold.py` prova a gate).
 
 | Artefato | O que precisa de revisao humana | Revisor | Status |
 |---|---|---|---|
 | `deploy/terraform/modules/aurora-postgres/` (`enable_rds_proxy` variable + `aws_db_proxy*` scaffold, todos `count = var.enable_rds_proxy ? 1 : 0`) | Ligar `enable_rds_proxy = true` no ambiente do SEGUNDO tenant real (R-026), e so' entao apontar os DSNs da aplicacao (`aurora.endpoint` no Helm / secret) para `module.aurora.rds_proxy_endpoint` em vez do endpoint direto do cluster. Depende de credenciais AWS (`D6-04`/`D13-03`, HUMAN-GATED) para provisionar de fato — esta PR so' prepara o modulo, nao aplica `terraform apply` | dono de infraestrutura/plataforma (`deploy/terraform/**` e' owner-gated por politica do programa) | `ABERTO — scaffold pronto e desligado; ligamento real aguarda D6-04/D13-03 + segundo tenant` |
-| `deploy/helm/maezo-tenant/values.yaml`, secao "SC-05" (bloco de aritmetica) | Confirmar a premissa conservadora (4 pools x max_size 10 = 40 conexoes/processo, pior caso — a maioria dos processos abre um subconjunto, nao os quatro) e revisitar o numero de headroom quando um segundo tenant real for adicionado (a conta hoje e' para N=1..9 tenants hipoteticos, nao um fato medido) | dono de infraestrutura/plataforma | `ABERTO — numero DERIVADO, nao medido; revisitar com trafego real` |
+| `deploy/helm/maezo-tenant/values.yaml`, secao "SC-05" (bloco de aritmetica) | Confirmar a premissa conservadora (4 pools x max_size 10 = 40 conexoes/processo, pior caso — a maioria dos processos abre um subconjunto, nao os quatro) e revisitar o numero de headroom quando um segundo tenant real for adicionado (a conta hoje e' para N=1..7 tenants hipoteticos contra a overlay `values-amh.yaml`, nao um fato medido); revisitar tambem a folga transiente de `migrations`/`lifecycle` (item 4/5 do bloco) no dia em que qualquer CronJob de `lifecycle` deixar de ser um stub fail-closed (T2.8) | dono de infraestrutura/plataforma | `ABERTO — numero DERIVADO, nao medido; revisitar com trafego real` |
 
 ## SC-06 — tetos de vazao declarados (transport/harness fan-in)
 
