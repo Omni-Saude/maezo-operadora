@@ -70,13 +70,19 @@ _ALERT_RULES: Final[Path] = _REPO_ROOT / "deploy" / "observability" / "alert-rul
 #:   joins on to exclude by-design-failing lifecycle jobs while their marker is in date. Same
 #:   external-to-`src/` reasoning as `kube_job_status_failed` — it is the cluster's own annotation
 #:   echoed back, not application telemetry.
+#: * `maezo_dead_letter_inflow_rate` — also Kafka Exporter derived (`maezo_dead_letter_derived`
+#:   group, alongside `maezo_dead_letter_queue_size`): a correctly rate-then-summed reading of the
+#:   same exporter series, read only by `MaezoDeadLetterGrowth`. Same exporter source, same
+#:   external-to-`src/` reasoning, different aggregation order (see that recording rule's own
+#:   comment for why the order matters).
 #:
-#: All three belong to owner slice ALERTS-WITHOUT-METRICS-b / R-040 (scrape targets and cluster
+#: All four belong to owner slice ALERTS-WITHOUT-METRICS-b / R-040 (scrape targets and cluster
 #: annotations are a `deploy/` change, and `deploy/` is owner-gated for this work package).
 EXTERNAL_ALERT_METRICS: Final[dict[str, str]] = {
     "maezo_dead_letter_queue_size": "ALERTS-WITHOUT-METRICS-b — Kafka/DLQ exporter series",
     "kube_job_status_failed": "ALERTS-WITHOUT-METRICS-b — kube-state-metrics series",
     "kube_job_annotations": "R-040/SC-07 — kube-state-metrics annotation-derived series",
+    "maezo_dead_letter_inflow_rate": "ALERTS-WITHOUT-METRICS-b — Kafka/DLQ exporter series (rate-then-sum)",
 }
 
 #: Every in-repo alert metric -> the `maezo.platform.observability` helper that writes it. The
@@ -121,11 +127,13 @@ _SERIES_SUFFIXES: Final[tuple[str, ...]] = ("_bucket", "_count", "_sum")
 def _alert_exprs() -> list[tuple[str, str]]:
     """Every `(alert_name, expr)` in the shipped rules file.
 
-    ALERTS-WITHOUT-METRICS-b / R-056 added a `record:` rule (`maezo_dead_letter_derived` group,
-    deriving `maezo_dead_letter_queue_size` from the Kafka Exporter) alongside the `alert:` rules.
-    A Prometheus recording rule has no `alert` key, so it is skipped here — this function is
-    specifically about ALERTS, and the recording rule gets its own non-vacuity proof below
-    (`test_the_dlq_recording_rule_derives_from_the_kafka_exporter`).
+    ALERTS-WITHOUT-METRICS-b / R-056 added `record:` rules (`maezo_dead_letter_derived` group:
+    `maezo_dead_letter_queue_size` and, per finding 3 of VERIFY-A1-OBS,
+    `maezo_dead_letter_inflow_rate` — both deriving from the Kafka Exporter) alongside the
+    `alert:` rules. A Prometheus recording rule has no `alert` key, so it is skipped here — this
+    function is specifically about ALERTS, and the recording rules get their own non-vacuity
+    proofs below (`test_the_dlq_recording_rule_derives_from_the_kafka_exporter`,
+    `test_the_dlq_inflow_rate_recording_rule_takes_rate_before_sum`).
     """
     document: Any = yaml.safe_load(_ALERT_RULES.read_text(encoding="utf-8"))
     exprs: list[tuple[str, str]] = []
@@ -370,13 +378,16 @@ def test_the_alert_file_is_parsed_non_vacuously() -> None:
 def test_the_dlq_recording_rule_derives_from_the_kafka_exporter() -> None:
     """ALERTS-WITHOUT-METRICS-b / R-056: `maezo_dead_letter_queue_size` is now DERIVED, not absent.
 
-    Both DLQ alerts still read `maezo_dead_letter_queue_size` — still correctly EXTERNAL from
+    `MaezoDeadLetterBacklog` reads `maezo_dead_letter_queue_size` — still correctly EXTERNAL from
     `src/`'s point of view (see `EXTERNAL_ALERT_METRICS`), since the ultimate source is the Kafka
     Exporter, not application code. What changed is that the series is no longer undefined: a
     `record:` rule in the shipped file derives it from `kafka_topic_partition_current_offset`
     (danielqsj/kafka_exporter, prometheus.yml job `kafka-exporter`). This is the non-vacuity proof
     that the recording rule exists, targets the right name, and reads the exporter's real metric —
     not merely that `_alert_exprs()` tolerates a `record:` entry without crashing.
+
+    `MaezoDeadLetterGrowth` does NOT read this series (finding 3, VERIFY-A1-OBS) — see
+    `test_the_dlq_inflow_rate_recording_rule_takes_rate_before_sum` below for its own series.
     """
     records = _recording_rules()
     names = {name for name, _expr in records}
@@ -384,6 +395,39 @@ def test_the_dlq_recording_rule_derives_from_the_kafka_exporter() -> None:
     (expr,) = [expr for name, expr in records if name == "maezo_dead_letter_queue_size"]
     assert "kafka_topic_partition_current_offset" in expr, expr
     assert "environment" in expr, expr
+
+
+def test_the_dlq_inflow_rate_recording_rule_takes_rate_before_sum() -> None:
+    """Finding 3 (VERIFY-A1-OBS): rate-then-sum, not sum-then-rate.
+
+    A naive derivation sums the raw per-partition offset FIRST and takes `rate()` of the sum
+    afterward (`rate(sum by (...) (...))`, or equivalently `rate()` applied in the alert against
+    an already-summed recording rule, which is what the branch originally shipped) — the ordering
+    Prometheus's own instrumentation guidance forbids: a single partition's counter resetting
+    (exporter restart, partition reassignment, topic recreate) makes the SUMMED series drop, and
+    `rate()` applied afterward misreads that drop as a reset of the whole series and extrapolates
+    a spurious spike. This proves the shipped rule takes `rate()` PER PARTITION — directly
+    wrapping the raw metric, the innermost operation — and only THEN sums:
+    `sum by (...) (rate(...))`.
+    """
+    records = _recording_rules()
+    names = {name for name, _expr in records}
+    assert "maezo_dead_letter_inflow_rate" in names, sorted(names)
+    (expr,) = [expr for name, expr in records if name == "maezo_dead_letter_inflow_rate"]
+    assert "kafka_topic_partition_current_offset" in expr, expr
+    assert "environment" in expr, expr
+    # Structural: `rate(` must wrap the raw metric directly (rate-then-sum) — a regex anchored on
+    # the exact nesting, not merely "both tokens appear somewhere in the expression".
+    assert re.search(
+        r"sum\s+by\s*\([^)]*\)\s*\(\s*rate\(\s*kafka_topic_partition_current_offset",
+        expr,
+    ), expr
+
+    # And `MaezoDeadLetterGrowth` must read THIS pre-rated series directly, never apply its own
+    # `rate()` to `maezo_dead_letter_queue_size` (the sum-then-rate shape this fixes).
+    (growth_expr,) = [expr for name, expr in _alert_exprs() if name == "MaezoDeadLetterGrowth"]
+    assert "maezo_dead_letter_inflow_rate" in growth_expr, growth_expr
+    assert "rate(" not in growth_expr, growth_expr
 
 
 def test_every_alert_metric_is_declared_in_repo_or_named_external() -> None:
@@ -418,12 +462,13 @@ def test_the_emitter_table_covers_the_alert_file_exactly() -> None:
     )
 
 
-def test_external_metric_allowlist_is_exactly_the_three_owner_slice_series() -> None:
-    """The escape hatch is THREE named series, and widening it is a reviewed edit to this list."""
+def test_external_metric_allowlist_is_exactly_the_four_owner_slice_series() -> None:
+    """The escape hatch is FOUR named series, and widening it is a reviewed edit to this list."""
     assert set(EXTERNAL_ALERT_METRICS) == {
         "maezo_dead_letter_queue_size",
         "kube_job_status_failed",
         "kube_job_annotations",
+        "maezo_dead_letter_inflow_rate",
     }
     for series, reason in EXTERNAL_ALERT_METRICS.items():
         assert "ALERTS-WITHOUT-METRICS-b" in reason or "R-040/SC-07" in reason, (series, reason)

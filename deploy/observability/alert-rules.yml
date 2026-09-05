@@ -171,13 +171,17 @@ groups:
             Topics affected may need manual replay or purge.
           runbook_url: "docs/runbooks/alerts/MaezoDeadLetterBacklog.md"
 
-      # Dead-letter growth rate: > 5 messages per minute growth
-      # See MaezoDeadLetterBacklog above (R-056) for how `maezo_dead_letter_queue_size` is now
-      # derived and its honesty limit; `rate()` of a monotonic offset counter is the ONE reading
-      # of this series that carries no caveat — it is an exact inflow rate, not a backlog proxy.
+      # Dead-letter growth rate: > 5 messages/sec inflow, sustained for 5m.
+      # See MaezoDeadLetterBacklog above (R-056) for `maezo_dead_letter_queue_size`'s derivation
+      # and honesty limit. This alert deliberately does NOT read that series: reads
+      # `maezo_dead_letter_inflow_rate` instead (defined in the `maezo_dead_letter_derived` group
+      # below), which sums a per-PARTITION `rate()` rather than taking `rate()` of the
+      # already-summed gauge — see that recording rule's own HONEST CAVEAT for why the ordering
+      # matters and what this reading does and does not mean (a growth proxy, never an
+      # instantaneous backlog count).
       - alert: MaezoDeadLetterGrowth
         expr: |
-          rate(maezo_dead_letter_queue_size[5m]) > 5
+          maezo_dead_letter_inflow_rate > 5
         for: 5m
         labels:
           severity: critical
@@ -196,10 +200,10 @@ groups:
   # ---------------------------------------------------------------------------
   - name: maezo_dead_letter_derived
     rules:
-      # `maezo_dead_letter_queue_size` (read by the two alerts above) has no direct application
-      # emitter — depth is a broker-side fact, `src/` only ever sees the records it itself
-      # produces (see the DLQ-emitter comment in src/maezo/runtime/metrics.py). This recording
-      # rule derives a REAL dev/CI series for it from the Kafka Exporter's
+      # `maezo_dead_letter_queue_size` (read by `MaezoDeadLetterBacklog` above) has no direct
+      # application emitter — depth is a broker-side fact, `src/` only ever sees the records it
+      # itself produces (see the DLQ-emitter comment in src/maezo/runtime/metrics.py). This
+      # recording rule derives a REAL dev/CI series for it from the Kafka Exporter's
       # `kafka_topic_partition_current_offset` (job `kafka-exporter`, prometheus.yml; exporter
       # service in docker-compose.yml, profile `observability`, pointed at the dev/CI broker
       # already running in profile `core`) — summed across partitions, for every dead-letter
@@ -208,20 +212,45 @@ groups:
       # HONESTY LIMIT (the R-056 reopening trigger, spelled out because a recording rule hides the
       # derivation from anyone reading only the alert): `current_offset` is a MONOTONIC total —
       # Kafka never decrements it on read, and nothing in this stack consumes/acks DLQ topics — it
-      # is NOT a true "current unprocessed count". For `MaezoDeadLetterGrowth`'s `rate()` this is
-      # exact (growth in the offset IS growth in DLQ traffic, no caveat). For
-      # `MaezoDeadLetterBacklog`'s `> 0` it is a COARSE proxy: it fires on the first message ever
-      # routed to any DLQ topic in this broker's lifetime and does not clear on its own (no
-      # replay/purge tooling resets a partition's offset). A true backlog reading needs either a
-      # consumer-group lag metric against a DLQ-draining consumer group (none exists — nothing
-      # drains a DLQ automatically, by design) or the production MSK/JMX exporter series this rule
-      # stands in for. `environment="dev"` is a scrape-time label the `kafka-exporter` job
-      # attaches (prometheus.yml) — carried through unchanged by `sum by`, so this series can
-      # never be mistaken for a production reading in Grafana/alert routing.
+      # is NOT a true "current unprocessed count". `MaezoDeadLetterBacklog`'s `> 0` reads this as a
+      # COARSE proxy only: it fires on the first message ever routed to any DLQ topic in this
+      # broker's lifetime and does not clear on its own (no replay/purge tooling resets a
+      # partition's offset). A true backlog reading needs either a consumer-group lag metric
+      # against a DLQ-draining consumer group (none exists — nothing drains a DLQ automatically,
+      # by design) or the production MSK/JMX exporter series this rule stands in for.
+      # `environment="dev"` is a scrape-time label the `kafka-exporter` job attaches
+      # (prometheus.yml) — carried through unchanged by `sum by`, so this series can never be
+      # mistaken for a production reading in Grafana/alert routing. `MaezoDeadLetterGrowth`
+      # deliberately does NOT read this raw-offset series — see `maezo_dead_letter_inflow_rate`
+      # below for why, and for that series' own honest caveat.
       - record: maezo_dead_letter_queue_size
         expr: |
           sum by (topic, environment) (
             kafka_topic_partition_current_offset{topic=~".*\\.dlq"}
+          )
+
+      # maezo_dead_letter_inflow_rate — `MaezoDeadLetterGrowth`'s series, kept SEPARATE from
+      # `maezo_dead_letter_queue_size` above on purpose. A naive derivation would have
+      # `MaezoDeadLetterGrowth` apply `rate()` to the already-`sum`-med gauge above
+      # (`rate(sum(counter))`) — the ordering Prometheus's own instrumentation guidance forbids
+      # ("always take `rate()` before aggregating"). A single partition's counter resetting
+      # (exporter restart, partition reassignment, a topic recreate) makes the SUMMED series drop;
+      # `rate()` applied afterward reads that drop as a counter reset on the whole series and
+      # extrapolates a spurious spike, which can trip a threshold alert that nothing produced. This
+      # rule takes `rate()` PER PARTITION first (each partition's own counter resets are handled
+      # correctly and independently by `rate()`'s own reset-detection), and only THEN sums —
+      # `sum by (...) (rate(...))`, not `rate(sum by (...) (...))`.
+      #
+      # HONEST CAVEAT: this is a real per-second inflow rate for messages routed to the DLQ topic
+      # — but it is a proxy for GROWTH, never an instantaneous backlog reading (that remains
+      # `maezo_dead_letter_queue_size` above, a coarse proxy per its own HONESTY LIMIT). A burst
+      # that arrives and immediately stops still reads a nonzero rate for up to the `[5m]` window
+      # after it ends; conversely a slow, steady trickle below the alert threshold produces no
+      # signal here even while genuinely never draining (that is `MaezoDeadLetterBacklog`'s job).
+      - record: maezo_dead_letter_inflow_rate
+        expr: |
+          sum by (topic, environment) (
+            rate(kafka_topic_partition_current_offset{topic=~".*\\.dlq"}[5m])
           )
 
   # ---------------------------------------------------------------------------
