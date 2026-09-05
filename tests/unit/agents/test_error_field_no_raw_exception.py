@@ -219,13 +219,38 @@ def test_the_structural_fence_sees_every_sink_shape_cc10_was_blind_to() -> None:
 # =================================================================================================
 
 
+#: Literal FECHADO (INFO-1, verificacao independente) — nao o simbolo importado. Comparar contra
+#: `ERROR_START_PROCESS_ENGINE_UNAVAILABLE` diretamente tornaria a asserceao tautologica: mutar o
+#: VALOR da constante em `andre/graph.py` para outra prosa livre (sem texto de excecao) manteria o
+#: modulo inteiro verde, porque os dois lados da igualdade mudariam juntos. Pinando o texto aqui,
+#: a asserceao abaixo (`test_andre_token_constante_e_o_literal_fechado`) e a prova comportamental
+#: em `test_start_failure_error_field_never_carries_the_exception_text` reprovam se o VALOR mudar,
+#: mesmo que o simbolo continue existindo com o mesmo nome.
+_ANDRE_TOKEN_LITERAL = "start_process indisponivel (engine inacessivel)"
+
 #: Agentes cujo `error` de falha de start e' um TOKEN DE CLASSE CONSTANTE, sem NENHUM texto da
 #: excecao — postura ainda MAIS estrita que a do helper `start_unavailable_error` (que preserva o
 #: nome da classe + o corpo redigido). Andre escolheu essa forma antes de LUC-06 existir e ela
 #: nao e' rebaixada aqui: o teste apenas troca o criterio "passou pela rede" pelo criterio mais
 #: forte "e' exatamente o literal declarado". Inventario FECHADO — um agente novo que apareca com
 #: um `error` sem o marcador de redacao e sem entrar nesta tabela reprova.
-_ERRO_TOKEN_CONSTANTE: dict[str, str] = {"andre": ERROR_START_PROCESS_ENGINE_UNAVAILABLE}
+_ERRO_TOKEN_CONSTANTE: dict[str, str] = {"andre": _ANDRE_TOKEN_LITERAL}
+
+
+def test_andre_token_constante_e_o_literal_fechado() -> None:
+    """INFO-1 (verificacao independente): pina o LITERAL, nao so' o simbolo.
+
+    Sem este teste, mutar o VALOR de `ERROR_START_PROCESS_ENGINE_UNAVAILABLE` em
+    `andre/graph.py` para outra prosa livre (ainda sem texto de excecao) deixava o modulo
+    inteiro verde (V13 da verificacao independente: `59 passed`) porque
+    `_ERRO_TOKEN_CONSTANTE["andre"]` comparava o simbolo com ele mesmo. A asserceao abaixo
+    fixa o TEXTO, entao a mesma mutacao reprova aqui e na prova comportamental.
+    """
+    assert ERROR_START_PROCESS_ENGINE_UNAVAILABLE == _ANDRE_TOKEN_LITERAL, (
+        f"o literal de andre mudou de {_ANDRE_TOKEN_LITERAL!r} para "
+        f"{ERROR_START_PROCESS_ENGINE_UNAVAILABLE!r} -- atualize _ANDRE_TOKEN_LITERAL DE PROPOSITO "
+        "se a mudanca for intencional, nunca por acidente"
+    )
 
 
 class _VazandoStartTransport(FakeCibSevenTransport):
