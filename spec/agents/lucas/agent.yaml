@@ -79,3 +79,4 @@ a2a:
     - collection_nudge
   accepted_task_types: []
   queue_ref: agents.tasks.lucas
+  handler_status: ausente   # nenhum agents/lucas/delegation.py existe (gap 11.7, prosa acima)
