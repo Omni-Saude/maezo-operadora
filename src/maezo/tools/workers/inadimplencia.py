@@ -45,16 +45,17 @@ logger = structlog.get_logger(__name__)
 # SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn: `Error_ContractSuspensionNotHuman`, caught by
 # `BE_SuspensaoNaoHumano` on `ST_RegisterSuspension` -> the NEUTRO terminal
 # `End_SuspensaoBloqueadaNaoHumano`). The guard below therefore raises `WorkerBpmnError(code)` —
-# NOT a `.code`/`.message` `InadimplenciaError` — mirroring `cancel.confirm_maintained_decision`
+# NOT a duck-typed `.code`/`.message` exception — mirroring `cancel.confirm_maintained_decision`
 # (`ERR_CANCEL_MANTER_NOT_HUMAN`) and `credenciamento`'s two adverse `*_NOT_HUMAN` guards
 # (ADR-0030 §2/§4, Tier-3 G2-guard; this family was the ADR's own disclosed "unmigrated" example —
-# ADR-0030 ratification amendment note). Rationale (unchanged from cred/cancel): an
-# `InadimplenciaError` is reclassified by `FunctionWorker.execute` (base.py:284-293) into a bare
-# `ValueError`, which `WorkerHarness._handle`'s `except ValueError` branch reports as a generic
-# `failure(retries=0)` incident and NEVER consults the `bpmn_error_allowlist` — so the modeled
-# boundary could NEVER fire (the guard blocked the suspension, but the clean neutral terminal was
-# structurally UNREACHABLE, left as an opaque engine incident). `WorkerBpmnError` propagates
-# unchanged through `execute` (it exposes `.error_code`, not `.code`/`.message`) to the harness's
+# ADR-0030 ratification amendment note). Rationale (unchanged from cred/cancel): the OLD bare-
+# `Exception` `InadimplenciaError(code, message)` this guard used to raise was reclassified by
+# `FunctionWorker.execute` (base.py:284-293) into a bare `ValueError`, which
+# `WorkerHarness._handle`'s `except ValueError` branch reports as a generic `failure(retries=0)`
+# incident and NEVER consults the `bpmn_error_allowlist` — so the modeled boundary could NEVER
+# fire (the guard blocked the suspension, but the clean neutral terminal was structurally
+# UNREACHABLE, left as an opaque engine incident). `WorkerBpmnError` propagates unchanged through
+# `execute` (it exposes `.error_code`, not `.code`/`.message`) to the harness's
 # `except WorkerBpmnError` branch, which routes it to `handle_bpmn_error` (the boundary) when the
 # code is allowlisted. `_NOT_HUMAN` adverse guard -> T-E-gated (ADR-0030 §4): consumption-covered
 # by the boundary-proof gate (`scripts/ci/check_bpmn_error_allowlist.py`), yet DEFERRED out of
@@ -66,6 +67,11 @@ logger = structlog.get_logger(__name__)
 # `INADIMPLENCIA_BPMN_ERROR_ALLOWLIST` constant is added: with only a T-E-deferred code to
 # contribute, there is nothing to wire into `service.py` yet — mirrors `cancel`, whose sole
 # gate-proven code (`ERR_CANCEL_MANTER_NOT_HUMAN`) also exposes no allowlist constant.
+#
+# ERR_INAD_INVALID_CONTRATO (`handoff_rescisao`'s tenant/contract-identity guard, D3-01,
+# WP-ADR-0030-COMPLETION) is declared in the BPMN's `<bpmn:error>` catalog but has ZERO
+# boundary catching it (see `InadContratoInvalidoError`'s docstring below for the full proof) —
+# it stays a technical failure (`ValueError` subclass), NOT a `WorkerBpmnError`.
 ERR_CONTRACT_SUSPENSION_NOT_HUMAN = "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
 ERR_INAD_INVALID_CONTRATO = "ERR_INAD_INVALID_CONTRATO"
 
@@ -810,8 +816,9 @@ def _register_contract_suspension(variables: dict[str, Any]) -> dict[str, Any]:
             errors=errors,
             numero_contrato=variables.get("numero_contrato"),
         )
-        # MODELED boundary error (BE_SuspensaoNaoHumano) — WorkerBpmnError, not InadimplenciaError;
-        # see the error-codes section above and cancel.confirm_maintained_decision for the rationale.
+        # MODELED boundary error (BE_SuspensaoNaoHumano) — WorkerBpmnError, not a duck-typed
+        # `.code`/`.message` exception; see the error-codes section above and
+        # cancel.confirm_maintained_decision for the rationale.
         raise WorkerBpmnError(ERR_CONTRACT_SUSPENSION_NOT_HUMAN, "; ".join(errors))
 
     logger.info(
@@ -980,9 +987,9 @@ def handoff_rescisao(
       - a missing engine seam (``engine is None`` — composition root not wired) raises (transient);
       - a missing audit seam (``audit_sink is None``) raises (transient) — the handoff can never
         start CANCEL-001 un-audited (ADR-0007 L0);
-      - a missing contract identity raises ``InadimplenciaError`` (deterministic -> immediate
-        incident) — the handoff can never target an empty CANCEL business key;
-      - a missing/blank/``None`` ``tenant_id`` raises ``InadimplenciaError`` the same way (GK
+      - a missing contract identity raises ``InadContratoInvalidoError`` (deterministic ->
+        immediate incident) — the handoff can never target an empty CANCEL business key;
+      - a missing/blank/``None`` ``tenant_id`` raises ``InadContratoInvalidoError`` the same way (GK
         MINOR F7, validated with the SHARED ``base.non_blank`` — the same idiom
         ``fraude.start_contratual`` and the bridge's ``_anchored`` already used): a degenerate
         ``CANCEL--{contrato}`` key would collapse every tenant's contract onto ONE business key,
@@ -1011,8 +1018,7 @@ def handoff_rescisao(
             "inadimplencia_handoff_rescisao_no_tenant_anchor",
             **_contract_identity_log_fields(numero_contrato, matricula_beneficiario),
         )
-        raise InadimplenciaError(
-            ERR_INAD_INVALID_CONTRATO,
+        raise InadContratoInvalidoError(
             "handoff_rescisao: tenant_id ausente, em branco ou None — nao ha ancora de tenant "
             "para a business key de CANCEL-001 (recusado, nunca inicia com chave degenerada "
             "'CANCEL--{contrato}' que colapsaria tenants distintos numa unica chave)",
@@ -1027,8 +1033,7 @@ def handoff_rescisao(
             "inadimplencia_handoff_rescisao_no_contract_identity",
             tenant_id=tenant_id,
         )
-        raise InadimplenciaError(
-            ERR_INAD_INVALID_CONTRATO,
+        raise InadContratoInvalidoError(
             "handoff_rescisao: sem numero_contrato/matricula_beneficiario — nao ha identidade de "
             "contrato para iniciar CANCEL-001 (recusado, nunca inicia com business key vazia)",
         )
@@ -1128,13 +1133,38 @@ def handoff_rescisao(
 # ---------------------------------------------------------------
 
 
-class InadimplenciaError(Exception):
-    """Worker guard error for inadimplencia adverse effects."""
+class InadContratoInvalidoError(ValueError):
+    """Raised by `handoff_rescisao` when there is no valid contract identity/tenant anchor to
+    key the SP-OP-CANCEL-001 handoff (`ERR_INAD_INVALID_CONTRATO`).
 
-    def __init__(self, code: str, message: str) -> None:
-        self.code = code
-        self.message = message
-        super().__init__(f"{code}: {message}")
+    A `ValueError` subclass DELIBERATELY (mirrors `cancel.CancelContratoInvalidoError` and
+    `contas.ContasHandoffPagamentoInvalidoError`/`ContasFraudeSemAlvoError`/
+    `ContasDevolucaoInvalidaError`) — NOT a `WorkerBpmnError`, and NOT the old duck-typed, bare
+    `Exception` `InadimplenciaError(code, message)` this replaces (D3-01, WP-ADR-0030-COMPLETION):
+    `Error_InadContratoInvalido`/`ERR_INAD_INVALID_CONTRATO` IS declared in the BPMN's own
+    `<bpmn:error>` catalog (`spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn:16`)
+    but has ZERO `boundaryEvent`+`errorEventDefinition` referencing it anywhere in that file
+    (confirmed by direct inspection — the ONLY boundary-caught error in the file is
+    `Error_ContractSuspensionNotHuman`/`BE_SuspensaoNaoHumano`) — the SAME declared-and-uncaught
+    posture the owner already ratified for `contas`'s two dead-model codes
+    (`CONTAS-DEAD-ERROR-CATALOG`, OWNER-DECISIONS-REGISTER R-097/R-098). Raising
+    `WorkerBpmnError(ERR_INAD_INVALID_CONTRATO)` here would FAIL
+    `scripts/ci/check_bpmn_error_allowlist.py` clause (b) outright (an unproven raise — the gate
+    treats "no spec boundary at all" as a hard violation, not a warn-only dead model), so this code
+    stays a technical failure by design, not an oversight.
+
+    Subclassing `ValueError` directly (rather than the old duck-typed `.code`/`.message` pair on a
+    bare `Exception`) means `WorkerHarness._handle`'s `except ValueError` branch
+    (`harness.py` §9) classifies it DIRECTLY via `isinstance` — `failure(retries=0)`, an
+    immediate, human-visible incident, never silently retried. `reclassify_coded_exception`
+    (`base.py`) still passes it through unchanged either way (`ValueError` is already in its
+    `_HARNESS_CLASSIFIED` tuple), so the observable runtime behavior is UNCHANGED by this
+    raise-side migration — only the raise site sheds the untyped, duck-typed exception shape.
+    """
+
+    def __init__(self, detail: str = "") -> None:
+        msg = f"{ERR_INAD_INVALID_CONTRATO}: {detail}" if detail else ERR_INAD_INVALID_CONTRATO
+        super().__init__(msg)
 
 
 # ---------------------------------------------------------------

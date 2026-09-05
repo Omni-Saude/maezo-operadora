@@ -4,6 +4,7 @@ TDD London School: tests verify the guard contracts from the SP-OP contract.
 """
 
 import asyncio
+import functools
 from typing import Any
 
 import pytest
@@ -45,7 +46,7 @@ from maezo.tools.workers.inadimplencia import (
     DECISAO_SUSPENDER,
     ERR_CONTRACT_SUSPENSION_NOT_HUMAN,
     ERR_INAD_INVALID_CONTRATO,
-    InadimplenciaError,
+    InadContratoInvalidoError,
     _cancel_business_key,
     assess_status,
     calculate_purge,
@@ -293,10 +294,10 @@ def test_inadimplencia_guard_suspension_happy_path() -> None:
 
 def test_inadimplencia_guard_rejects_wrong_decisao() -> None:
     """Root-cause proof (ADR-0030 Tier-3, WP-ADR-0030-COMPLETION D3-01): the suspension guard now
-    raises WorkerBpmnError (a MODELED bpmn error), NOT InadimplenciaError (which FunctionWorker
-    reclassifies to a bare ValueError -> incident, leaving BE_SuspensaoNaoHumano structurally
-    unreachable) — mirrors credenciamento's two `*_NOT_HUMAN` guards and cancel's
-    ERR_CANCEL_MANTER_NOT_HUMAN."""
+    raises WorkerBpmnError (a MODELED bpmn error), NOT the old duck-typed InadimplenciaError
+    (which FunctionWorker reclassifies to a bare ValueError -> incident, leaving
+    BE_SuspensaoNaoHumano structurally unreachable) — mirrors credenciamento's two `*_NOT_HUMAN`
+    guards and cancel's ERR_CANCEL_MANTER_NOT_HUMAN."""
     with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension(
             {
@@ -311,7 +312,7 @@ def test_inadimplencia_guard_rejects_wrong_decisao() -> None:
         )
     assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
     assert "MANTER" in str(excinfo.value)
-    assert not isinstance(excinfo.value, InadimplenciaError)
+    assert not isinstance(excinfo.value, InadContratoInvalidoError)
 
 
 def test_inadimplencia_guard_rejects_missing_responsavel() -> None:
@@ -384,7 +385,7 @@ def test_inadimplencia_register_suspension_alias() -> None:
 # ---------------------------------------------------------------------------
 # Boundary REACHABILITY (WP-ADR-0030-COMPLETION, D3-01) — the suspension guard raises
 # WorkerBpmnError so its modeled BPMN boundary catch (BE_SuspensaoNaoHumano) CAN fire, instead of
-# an InadimplenciaError -> ValueError reclassification that could ONLY ever demote to an uncaught
+# the old InadimplenciaError -> ValueError reclassification that could ONLY ever demote to an uncaught
 # engine incident. Mutation-minded: allowlisted -> boundary (handle_bpmn_error); NOT allowlisted
 # (the actual production posture today — the code stays T-E-deferred) -> the fail-closed incident
 # (handle_failure, retries=0), so the runtime behavior is UNCHANGED by this raise-side migration.
@@ -850,13 +851,13 @@ def test_handoff_rescisao_fail_closed_no_contract_identity() -> None:
     """No numero_contrato/matricula -> never start CANCEL-001 with an empty business key: raises."""
     engine = FakeCibSevenTransport()
     sink = FakeStartAuditSink()
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(InadContratoInvalidoError) as excinfo:
         handoff_rescisao(
             {"decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO, "tenant_id": "t1"},
             engine=engine,
             audit_sink=sink,
         )
-    assert excinfo.value.code == ERR_INAD_INVALID_CONTRATO
+    assert ERR_INAD_INVALID_CONTRATO in str(excinfo.value)
     assert sink.calls == []  # refused BEFORE any audit emit — no record for a refused handoff
 
 
@@ -880,10 +881,10 @@ def test_handoff_rescisao_fail_closed_blank_tenant_anchor(tenant_id: object) -> 
     if tenant_id is not None:
         variables["tenant_id"] = tenant_id
 
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(InadContratoInvalidoError) as excinfo:
         handoff_rescisao(variables, engine=engine, audit_sink=sink)
 
-    assert excinfo.value.code == ERR_INAD_INVALID_CONTRATO
+    assert ERR_INAD_INVALID_CONTRATO in str(excinfo.value)
     assert sink.calls == [], "refused BEFORE any audit emit — no claim on a degenerate key"
     assert asyncio.run(engine.find_active_instance("CANCEL--C-1")) is None
     assert asyncio.run(engine.find_active_instance("CANCEL-None-C-1")) is None
@@ -896,7 +897,7 @@ def test_handoff_rescisao_explicit_none_tenant_is_refused_not_stringified() -> N
     engine = FakeCibSevenTransport()
     sink = FakeStartAuditSink()
 
-    with pytest.raises(InadimplenciaError):
+    with pytest.raises(InadContratoInvalidoError):
         handoff_rescisao(
             {
                 "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
@@ -908,6 +909,94 @@ def test_handoff_rescisao_explicit_none_tenant_is_refused_not_stringified() -> N
         )
 
     assert sink.calls == []
+
+
+# ---------------------------------------------------------------------------
+# handoff_rescisao — ERR_INAD_INVALID_CONTRATO harness outcome (D3-01, WP-ADR-0030-COMPLETION):
+# `InadContratoInvalidoError` is a `ValueError` subclass, NOT a `WorkerBpmnError` — it has no
+# admitting BPMN boundary (`Error_InadContratoInvalido` is declared in the spec's `<bpmn:error>`
+# catalog but ZERO `boundaryEvent`+`errorEventDefinition` reference it — see the class docstring).
+# Drives the REAL harness dispatch path (`harness._handle`) end-to-end, no live engine, mirroring
+# `_drive_suspension_guard_failure` above: proves the outcome is `failure(retries=0)`
+# UNCONDITIONALLY — allowlist state is irrelevant for a `ValueError`, unlike a `WorkerBpmnError`.
+# ---------------------------------------------------------------------------
+
+
+def _drive_handoff_rescisao_failure(variables: dict, *, allowlist: frozenset[str]):
+    """Run handoff_rescisao through the real harness; return (bpmn_errors, failures)."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(
+        transport,
+        worker_id="inad-handoff-boundary-test",
+        tenant="amh",
+        audit_sink=HarnessFakeAuditSink(),
+        bpmn_error_allowlist=allowlist,
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.inadimplencia.handoff_rescisao",
+            functools.partial(handoff_rescisao, engine=engine, audit_sink=sink),
+        )
+    )
+    task = ExternalTask(
+        task_id="task-1",
+        topic="operadora.inadimplencia.handoff_rescisao",
+        process_instance_id="proc-1",
+        business_key="INAD-amh-C-123",
+        worker_id="inad-handoff-boundary-test",
+        variables=variables,
+    )
+    asyncio.run(harness._handle(task))
+    return transport.bpmn_errors, transport.failures
+
+
+_HANDOFF_INVALID_CONTRATO = {
+    "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+    "tenant_id": "t1",
+    # numero_contrato/matricula_beneficiario both absent -> ERR_INAD_INVALID_CONTRATO
+}
+
+
+def test_handoff_rescisao_invalid_contrato_never_reaches_boundary_even_when_allowlisted() -> None:
+    """Even with the code (hypothetically) allowlisted, `ValueError` NEVER routes through
+    `handle_bpmn_error` — `_handle`'s `except ValueError` branch (harness.py §9) is checked before
+    `bpmn_error_allowlist` is ever consulted for a `WorkerBpmnError`. Allowlisting an unmodeled
+    code is a no-op by construction; this pins that fact for `ERR_INAD_INVALID_CONTRATO`."""
+    bpmn_errors, failures = _drive_handoff_rescisao_failure(
+        _HANDOFF_INVALID_CONTRATO,
+        allowlist=frozenset({ERR_INAD_INVALID_CONTRATO}),
+    )
+    assert bpmn_errors == []
+    assert len(failures) == 1
+    assert failures[0][0] == "task-1"
+    # retries == 0 pins the `except ValueError` branch (harness.py §9, `_report_failure(...,
+    # retries_override=0)` — deterministic, NEVER re-delivered). NOTE: the OLD, actually-shipped
+    # `InadimplenciaError(Exception)` carried a duck-typed `.code`/`.message` pair, so
+    # `reclassify_coded_exception` (base.py) already reclassified it to `ValueError` and it ALSO
+    # got `failure(retries=0)` — this raise-side migration changes zero observable behaviour (see
+    # the class docstring above `InadContratoInvalidoError`). What this assertion actually pins is
+    # DEFENSE IN DEPTH: a hypothetical future class that lost BOTH the typed `ValueError` base AND
+    # the `.code`/`.message` duck-typing shape simultaneously (bare `Exception`, no attributes)
+    # would fall into the harness's generic `except Exception` branch instead, which computes
+    # `retries` from `max_retry_attempts` (3 here) instead of hardcoding 0 — a REAL retry-of-a-
+    # deterministic-failure hazard, but one that never existed in shipped code. This assertion
+    # goes RED if `InadContratoInvalidoError` ever regresses off `ValueError`.
+    assert failures[0][2] == 0
+
+
+def test_handoff_rescisao_invalid_contrato_demotes_to_incident_when_not_allowlisted() -> None:
+    """NOT ALLOWLISTED (the actual production posture): fail-closed by construction — demotes to
+    a failure/incident, never a silent scope-end."""
+    bpmn_errors, failures = _drive_handoff_rescisao_failure(
+        _HANDOFF_INVALID_CONTRATO,
+        allowlist=frozenset(),
+    )
+    assert bpmn_errors == []
+    assert len(failures) == 1
+    assert failures[0][0] == "task-1"
+    assert failures[0][2] == 0  # retries == 0, see sibling test's comment for the full proof
 
 
 def test_handoff_rescisao_transport_error_propagates() -> None:

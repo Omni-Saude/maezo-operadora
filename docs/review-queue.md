@@ -2094,3 +2094,30 @@ Nada aqui e ratificacao de SME/conteudo: segue valendo que D12-02 versiona MECAN
 | Artefato | Achado | Revisor | Status |
 |---|---|---|---|
 | `deploy/observability/alert-rules.yml:73-91` (`alert: MaezoSLAWorkerErrorRateHigh`) | **A expr divide dois contadores com label-sets diferentes, sem `sum by`, e provavelmente nunca casa nenhuma serie.** `expr: (rate(maezo_worker_error_count_total[5m]) / rate(maezo_worker_execution_time_seconds_count[5m])) > 0.05`. Lado esquerdo: `maezo_worker_error_count_total`, `labelnames=["worker","topic","error_type"]` (`src/maezo/runtime/metrics.py:159-165`). Lado direito: `maezo_worker_execution_time_seconds_count` (a serie `_count` do Histogram `maezo_worker_execution_time_seconds`), `labelnames=["worker","topic"]` (`metrics.py:152-157`) — SEM `error_type`. O vector-matching padrao do PromQL para um operador binario `/` exige o MESMO conjunto de labels nos dois lados, salvo modificador `on`/`ignoring`; nenhum dos dois existe aqui. Se a leitura do comportamento padrao do Prometheus estiver certa, toda serie do numerador (que carrega `error_type`) fica SEM PAR no denominador (que nao carrega) e a divisao produz vazio SEMPRE — o alerta nunca dispara, silenciosamente, independente do erro real do worker. **Precedente no proprio repo:** o alerta irmao `MaezoSLAAgentErrorRateHigh` (mesmo arquivo, `alert-rules.yml:52-71`) tem EXATAMENTE o mesmo formato de par de contadores (`maezo_agent_errors_total{agent,error_type}` / `maezo_tool_calls_total{agent,error_type}`) e evita o problema envolvendo AMBOS os lados em `sum by (agent) (...)` antes de dividir — comentario `ALERT-COUNTER-LABELS (R-063)` no proprio arquivo explica a tecnica; `MaezoSLAWorkerErrorRateHigh` nao tem o equivalente `sum by (worker, topic)`. **Sketch da correcao** (NAO aplicado — fora do escopo deste pacote, `alert-rules.yml` nao foi editado por D12-02 nem por este reparo): `expr: (sum by (worker, topic) (rate(maezo_worker_error_count_total[5m])) / sum by (worker, topic) (rate(maezo_worker_execution_time_seconds_count[5m]))) > 0.05` — mesmo padrao `sum by` que `MaezoSLAAgentErrorRateHigh` ja usa, aplicado aos dois labels que `maezo_worker_execution_time_seconds` de fato declara. **Nao confirmado contra um Prometheus rodando de verdade** (nenhum motor/stack live concedido a este pacote) — recomenda-se ao proximo executor validar a leitura de vector-matching contra uma instancia real antes de aplicar a correcao. O painel "Worker error ratio" de `worker-runtime.json` HERDA fielmente o mesmo defeito (por instrucao explicita: espelhar o alerta exatamente) — nota adicionada na propria `description` do painel apontando para este item. | dono do processo de observabilidade/plataforma (`deploy/**` CODEOWNED, R-053) | `ABERTO — bug pre-existente em alert-rules.yml, nao introduzido nem corrigido por D12-02/REP-D12-02; sketch de correcao acima, nao aplicado` |
+
+## D3-01 — terceira ocorrencia do padrao dead-model `<bpmn:error>`, ja coberta pela leitura de escopo do gate (2026-09-05)
+
+`D3-01` (WP-ADR-0030-COMPLETION) migrou `inadimplencia.py`'s `ERR_INAD_INVALID_CONTRATO` (2 raise
+sites em `handoff_rescisao`, antes um `InadimplenciaError(Exception)` cru duck-typed) para
+`InadContratoInvalidoError(ValueError)` — falha tecnica tipada, NAO um `WorkerBpmnError`. Prova de
+boundary (`grep`/leitura direta de `spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn`):
+`Error_InadContratoInvalido`/`ERR_INAD_INVALID_CONTRATO` esta DECLARADO no catalogo `<bpmn:error>`
+(`:16`) mas ZERO `boundaryEvent`+`errorEventDefinition` o referencia em todo o arquivo — a MESMA
+forma "declared-and-uncaught" que a secao `CONTAS-DEAD-ERROR-CATALOG` acima documenta para
+`ERR_CONTAS_LOTE_INVALIDO`/`ERR_GLOSA_ACCEPT_NOT_HUMAN`, e que a nota logo acima dela (linha da
+tabela `docs/adr/0030-...md` §2 clausula (c)) ja generaliza: "as 20 declaracoes `declared-uncaught`
+do repositorio (13 dos 16 BPMN) sao invisiveis por construcao" ao gate. `ERR_INAD_INVALID_CONTRATO`
+e' UMA dessas ~20 — nenhuma pergunta de escopo NOVA, a leitura existente ja a cobre. **Nao ha
+decisao de dono pendente aqui**: ao contrario de `ERR_CONTAS_GLOSA_NOT_HUMAN` (que TEM boundary
+faltando por decisao de modelagem, T-E-gated) e de `ERR_CANCEL_MANTER_NOT_HUMAN`/`ERR_CONTRACT_
+SUSPENSION_NOT_HUMAN` (que TEM boundary e sao apenas T-E-deferred), `ERR_INAD_INVALID_CONTRATO` e
+um erro de VALIDACAO DE INPUT determinístico sem boundary modelado — a mesma categoria de
+`ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`/`ERR_CANCEL_INVALID_CONTRATO`, que ja sao `ValueError`
+sem nenhuma linha de review-queue propria. Nenhum `spec/processes/bpmn/**` foi editado; a correcao
+foi so no raise-side (`src/`) + na tabela de codigos de erro do contrato (nao-CODEOWNED,
+`docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md`, que ja carregava a nota "tratamento a
+detalhar na promocao a FINAL" — agora refletindo o comportamento real em vez de sugerir um BPMN
+error que nunca poderia disparar).
+
+Registrado aqui por completude (o padrao e' o mesmo achado repetido, nao um item de acao novo).
+Nada aqui e' ratificacao de SME.
