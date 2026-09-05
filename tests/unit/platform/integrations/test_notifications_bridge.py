@@ -31,6 +31,7 @@ from maezo.platform.integrations.notifications_bridge import (
     MalformedBridgeMessageError,
     NotificationsBridgeSettings,
     _deserialize_json_value,
+    _record_sla_alert_outcome,
     build_bridge,
     handle_bridge_message,
     run_consumer_loop,
@@ -42,6 +43,7 @@ from maezo.platform.notification_bridge import (
     SLA_ALERT_NOTIFICATION_TYPES,
     SLA_ALERT_SEVERIDADE,
     SLA_ALERT_SOURCE_AGENT_ID,
+    HandoffResult,
     NotificationBridge,
     NotificationBridgeHandoffFailedError,
 )
@@ -199,7 +201,7 @@ _SLA_ALERT_MESSAGES: dict[str, dict[str, Any]] = {
 }
 
 _SLA_ALERT_BUSINESS_KEYS = {
-    "recurso.notify_sla_risk": "ESC-amh-sla-recurso-GLOSA-1",
+    "recurso.notify_sla_risk": "ESC-amh-sla-recurso-GUIA-1-GLOSA-1",
     "programa.notify_sla_risk": "ESC-amh-sla-programa-PROG-1",
     "lgpd.notify_sla_risk": "ESC-amh-sla-lgpd-PSEUDO-9-resolution",
 }
@@ -221,8 +223,8 @@ async def test_um_alerta_de_sla_conhecido_inicia_escalation_pela_cerca() -> None
     assert len(spy.calls) == 1
     process_key, variables = spy.calls[0]
     assert process_key == PROCESS_KEY_ESCALATION
-    assert variables["business_key"] == "ESC-amh-sla-recurso-GLOSA-1"
-    assert variables["conversation_id"] == "sla-recurso-GLOSA-1"
+    assert variables["business_key"] == "ESC-amh-sla-recurso-GUIA-1-GLOSA-1"
+    assert variables["conversation_id"] == "sla-recurso-GUIA-1-GLOSA-1"
     assert variables["tenant_id"] == "amh"
     assert variables["source_agent_id"] == SLA_ALERT_SOURCE_AGENT_ID
     assert variables["motivo_categoria"] == SLA_ALERT_MOTIVO_CATEGORIA
@@ -279,6 +281,63 @@ async def test_as_duas_fases_de_sla_do_lgpd_abrem_tasks_distintas() -> None:
 
     keys = [variables["business_key"] for _, variables in spy.calls]
     assert keys == ["ESC-amh-sla-lgpd-PSEUDO-9-ack", "ESC-amh-sla-lgpd-PSEUDO-9-resolution"]
+
+
+@pytest.mark.asyncio
+async def test_duas_glosas_de_guias_diferentes_abrem_tasks_distintas() -> None:
+    """§Delta D1. SP-OP-RECURSO-001's business key is `RECURSO-{tenant}-{guia}-{glosa}` — "one
+    recurso per glosa PER GUIA TISS" — so `glosa_id` is NOT unique on its own. Two alerts about
+    DIFFERENT recursos that share a `glosa_id` under different guias must open TWO escalations;
+    anchoring on `glosa_id` alone would mint one key and, because the start is idempotent by
+    business key, the SECOND alert would open no human task at all."""
+    bridge, spy = _bridge_with_spy()
+    await handle_bridge_message(bridge, dict(_SLA_ALERT_MESSAGES["recurso.notify_sla_risk"]))
+    await handle_bridge_message(
+        bridge, dict(_SLA_ALERT_MESSAGES["recurso.notify_sla_risk"], numero_guia_tiss="GUIA-2")
+    )
+
+    keys = [variables["business_key"] for _, variables in spy.calls]
+    assert keys == ["ESC-amh-sla-recurso-GUIA-1-GLOSA-1", "ESC-amh-sla-recurso-GUIA-2-GLOSA-1"]
+
+
+@pytest.mark.asyncio
+async def test_um_alerta_de_recurso_sem_guia_fica_dormente_e_visivel(
+    sla_metric_recorder: _MetricRecorder,
+) -> None:
+    """§Delta D1, lado fail-closed. Sem `numero_guia_tiss` a chave seria
+    `ESC-amh-sla-recurso--GLOSA-1`, degenerada e colidente entre guias — a regra fica dormente e o
+    buraco e CONTADO, nunca silencioso."""
+    bridge, spy = _bridge_with_spy()
+    message = dict(_SLA_ALERT_MESSAGES["recurso.notify_sla_risk"])
+    del message["numero_guia_tiss"]
+    results = await handle_bridge_message(bridge, message)
+
+    assert len(spy.calls) == 0
+    assert results[0].handoff_triggered is False
+    assert sla_metric_recorder.calls == [("recurso", SLA_ALERT_OUTCOME_NOT_ANCHORED)]
+
+
+def test_um_handoff_sem_id_de_instancia_nao_conta_como_escalonado(
+    sla_metric_recorder: _MetricRecorder,
+) -> None:
+    """A handoff marked triggered but carrying a BLANK `process_instance_id` is not a human task
+    that exists, so it must not be counted `escalated`.
+
+    `execute_handoff`'s own fail-closed guard makes this shape unreachable through the normal
+    pipeline (it raises instead), which is exactly why the clause needs a direct test: without one,
+    dropping `and result.process_instance_id.strip()` from the predicate leaves the whole suite
+    green and the defence silently rots. Driven straight at `_record_sla_alert_outcome` because the
+    shape can only be constructed, never produced.
+    """
+    blank = HandoffResult(
+        evaluated=True,
+        handoff_triggered=True,
+        target_process=PROCESS_KEY_ESCALATION,
+        process_instance_id="   ",
+    )
+    _record_sla_alert_outcome("recurso.notify_sla_risk", [blank])
+
+    assert sla_metric_recorder.calls == [("recurso", SLA_ALERT_OUTCOME_NOT_ANCHORED)]
 
 
 @pytest.mark.asyncio

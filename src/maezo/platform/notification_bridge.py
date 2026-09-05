@@ -615,13 +615,24 @@ class _SlaAlertSpec:
 #: internal P7D ack alert (`sla_breach_phase="ack"`) and the LGPD art. 19-II legal-deadline breach
 #: (`sla_breach_phase="resolution"`). Keying both on the titular alone would collapse the LEGAL
 #: breach into the still-open internal-ack escalation and the second alert would raise no new task.
+#: `recurso` anchors on BOTH `numero_guia_tiss` and `glosa_id` — see the spec's own comment (§Delta
+#: D1): SP-OP-RECURSO-001's business key is per (guia, glosa), so `glosa_id` alone is not unique.
 #: `recurso` has NO beneficiary field in its payload (a glosa appeal is prestador-side), so its
-#: `beneficiario_pseudo_id` goes out EMPTY rather than fabricated.
+#: `beneficiario_pseudo_id` goes out EMPTY rather than fabricated — a divergence from the contract,
+#: which marks the field obligatory; filed for ratification in `docs/review-queue.md` (§Delta D2).
 _SLA_ALERT_SPECS: Final[tuple[_SlaAlertSpec, ...]] = (
     _SlaAlertSpec(
         event_type="recurso.notify_sla_risk",
         domain="recurso",
-        anchor_fields=("glosa_id",),
+        # BOTH anchors, not `glosa_id` alone (§Delta D1). SP-OP-RECURSO-001's own business key is
+        # `RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}` (`_recurso_business_key` above:
+        # "one recurso per glosa PER GUIA TISS"), so `glosa_id` is NOT unique on its own. Anchoring
+        # the escalation on it alone would mint ONE `ESC-` key for two alerts about DIFFERENT
+        # recursos that happen to share a `glosa_id` under different guias — and because the start
+        # is idempotent by business key, the SECOND alert would open NO human task at all: exactly
+        # the silent loss this whole gap exists to end. The escalation's idempotency unit must be
+        # the same as the originating process's.
+        anchor_fields=("numero_guia_tiss", "glosa_id"),
         pseudo_id_field="",
         resumo_contexto=(
             "Alerta de risco de SLA em SP-OP-RECURSO-001 (BT_AlertaSlaRecurso, boundary "
