@@ -72,6 +72,7 @@ from maezo.a2a import DelegationDispatcher
 from maezo.agents import AgentDefinition, AgentLoader
 from maezo.gateway.action_execution import action_approvals
 from maezo.gateway.pep import PEP, PolicyError, build_pep
+from maezo.gateway.seams import rate_limit_configured
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.observability import (
     ObservabilityStatus,
@@ -371,8 +372,17 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
             return CheckResult(name="effect_seams_gated", healthy=True, detail=_state.effect_seams_detail)
         return CheckResult(name="effect_seams_gated", healthy=False, detail=_state.effect_seams_detail)
 
+    async def rate_limit_configured_check() -> CheckResult:
+        # D6-01-F3, identico ao do `worker_runtime`: o limitador do chokepoint nasce PREGUICOSO na
+        # primeira chamada gated, entao sem esta checagem um `MAEZO_GATEWAY_RATE_LIMIT_*` invalido
+        # so' aparecia depois que o pod ja' tinha se declarado pronto. Aqui a replica nao fica
+        # pronta (I-2). Sem estado do agente: o limitador e' estado de PROCESSO.
+        healthy, detail = rate_limit_configured()
+        return CheckResult(name="rate_limit_configured", healthy=healthy, detail=detail)
+
     return [
         observability_configured,
+        rate_limit_configured_check,
         agent_definition_loaded,
         policies_loadable,
         inference_provider_ready,

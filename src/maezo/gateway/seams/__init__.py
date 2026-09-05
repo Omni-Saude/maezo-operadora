@@ -39,13 +39,18 @@ the worker leg already carries (`harness.py:1583-1585`).
 
 from maezo.gateway.seams._base import (
     EFFECT_SEAM_KEYS,
+    DegradacaoSemDossieDeniedError,
     EffectDeniedError,
+    EscalonamentoHumanoDeniedError,
     GatedSeam,
+    LacunaDeclaradaDeniedError,
     PreEffectAuditHook,
+    RotaLlmIndisponivelDeniedError,
     SeamContext,
     denial_for,
     gate,
     is_gated_seam,
+    rate_limit_configured,
 )
 from maezo.gateway.seams.a2a import GatedDelegationDispatcher
 from maezo.gateway.seams.cibseven import GatedCibSevenTransport
@@ -57,7 +62,9 @@ from maezo.gateway.seams.whatsapp import GatedWhatsAppSender
 
 __all__ = [
     "EFFECT_SEAM_KEYS",
+    "DegradacaoSemDossieDeniedError",
     "EffectDeniedError",
+    "EscalonamentoHumanoDeniedError",
     "GatedCibSevenTransport",
     "GatedDelegationDispatcher",
     "GatedDmnTransport",
@@ -66,9 +73,12 @@ __all__ = [
     "GatedPopulationFeatureClient",
     "GatedSeam",
     "GatedWhatsAppSender",
+    "LacunaDeclaradaDeniedError",
     "PreEffectAuditHook",
+    "RotaLlmIndisponivelDeniedError",
     "SeamContext",
     "denial_for",
     "gate",
     "is_gated_seam",
+    "rate_limit_configured",
 ]

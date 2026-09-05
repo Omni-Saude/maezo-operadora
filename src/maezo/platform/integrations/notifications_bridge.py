@@ -113,7 +113,9 @@ from maezo.gateway.audit_postgres import PostgresAuditSink
 from maezo.gateway.seams.cibseven import GatedCibSevenTransport
 from maezo.gateway.tool_registry import (
     BRIDGE_PRINCIPAL,
+    agent_credential,
     build_cibseven_seam,
+    build_worker_credential_view,
     build_worker_seam_context,
     effect_seams_gated,
 )
@@ -951,6 +953,27 @@ async def run_consumer_loop(
 # ---------------------------------------------------------------------------
 
 
+def _engine_credential(settings: NotificationsBridgeSettings) -> str | None:
+    """O token do motor, obtido pela visao de agente do `CredentialVault` (AF-14 / ADR-0005 #3).
+
+    A TERCEIRA raiz de composicao. Ate' aqui esta ponte lia `settings.cibseven_auth_token` direto —
+    o mesmo `getattr` nao-auditado que o cofre existe para abolir — enquanto as outras duas raizes
+    (`gateway/tool_registry.py::build_agent_seams` e
+    `runtime/worker_runtime/service.py::_engine_credential`) ja' passavam pelo cofre. Um mecanismo
+    que cobre duas das tres construcoes que CARREGAM credencial nao e' estrutural: e' um costume.
+    Agora as tres usam a MESMA porta, com as MESMAS tabelas fechadas. (A quarta construcao de seam
+    gated contra o motor na arvore, `platform/evidence/dmn_sweep.py::main`, nao passa `auth_token`
+    algum — CLI de diagnostico nao autenticado —, entao nao ha' credencial a governar la'.)
+
+    Uma credencial humano-restrita (`HUMAN_CREDENTIAL_FIELDS`: NEGATIVA/FRAUDE) nao chega aqui — a
+    construcao LEVANTA `CredentialSeparationError`, que `build_bridge` NAO captura: a ponte recusa
+    subir, na mesma forma fail-closed do `DATABASE_URL` ausente logo acima (I-2 — "replica nao
+    pronta", nunca "replica pronta e vazando"). Construir a visao nao custa I/O: e' varredura de
+    dicionario (I-9).
+    """
+    return agent_credential(build_worker_credential_view(settings=settings), "cibseven_auth_token")
+
+
 def build_bridge(
     settings: NotificationsBridgeSettings,
 ) -> tuple[NotificationBridge, GatedCibSevenTransport, PostgresAuditSink]:
@@ -984,10 +1007,12 @@ def build_bridge(
     # would-deny at L-1 (see `build_worker_seam_context`). Inventing a capability list to tidy the
     # telemetry would be inventing a governance record.
     seam = build_worker_seam_context(tenant=settings.tenant_id, principal=BRIDGE_PRINCIPAL)
+    # AF-14 / ADR-0005 #3: a credencial vem do COFRE, nunca de um `getattr` paralelo — ver
+    # `_engine_credential` acima para por que esta raiz tambem precisa passar por ele.
     transport = build_cibseven_seam(
         seam=seam,
         base_url=settings.cibseven_base_url,
-        auth_token=settings.cibseven_auth_token,
+        auth_token=_engine_credential(settings),
         timeout=settings.client_timeout_s,
     )
     gated, detail = effect_seams_gated({"cibseven": transport})

@@ -50,13 +50,15 @@ import structlog
 
 from maezo.a2a import DelegationDispatcher
 from maezo.gateway.audit_postgres import FreshSinkAuditEmitter, PostgresAuditSink
-from maezo.gateway.seams import SeamContext
+from maezo.gateway.seams import SeamContext, rate_limit_configured
 from maezo.gateway.seams.dmn import GatedDmnTransport
 from maezo.gateway.seams.fhir import GatedFhirReader
 from maezo.gateway.tool_registry import (
+    agent_credential,
     build_agent_fhir_seam,
     build_cibseven_seam,
     build_dmn_seam,
+    build_worker_credential_view,
     build_worker_seam_context,
     effect_seams_gated,
 )
@@ -671,6 +673,14 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
             detail=_state.effect_seams_detail,
         )
 
+    async def rate_limit_configured_check() -> CheckResult:
+        # D6-01-F3. O limitador do chokepoint nasce PREGUICOSO na primeira chamada gated, entao
+        # sem esta checagem um `MAEZO_GATEWAY_RATE_LIMIT_*` invalido so' aparecia depois que o pod
+        # ja' tinha se declarado pronto e ja' tinha recebido trafego. Aqui a replica simplesmente
+        # nao fica pronta (I-2). Sem estado do daemon: o limitador e' estado de PROCESSO.
+        healthy, detail = rate_limit_configured()
+        return CheckResult(name="rate_limit_configured", healthy=healthy, detail=detail)
+
     return [
         observability_configured,
         engine_reachable,
@@ -678,6 +688,7 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         harness_running,
         kafka_ready,
         effect_seams_gated_check,
+        rate_limit_configured_check,
         dossier_delegation_ready,
         dossier_fhir_ready,
         audit_sink_ready,
@@ -703,6 +714,38 @@ def _worker_seam(settings: WorkerRuntimeSettings) -> SeamContext:
     return _worker_seam_cached(settings.tenant_id)
 
 
+def _engine_credential(settings: WorkerRuntimeSettings) -> str | None:
+    """O token do motor, obtido pela visao de agente do `CredentialVault` (AF-14 / ADR-0005 #3).
+
+    Antes desta mudanca os dois seams gated abaixo liam `settings.cibseven_auth_token_value()`
+    direto: nenhuma tabela de particao governava a credencial e o mecanismo #3 da ADR-0005 nao
+    tinha raiz de composicao alguma (`CredentialVault` so' aparecia no re-export do
+    `gateway/__init__.py`). Agora a credencial passa pelo cofre, e uma credencial humano-restrita
+    (`HUMAN_CREDENTIAL_FIELDS`: NEGATIVA/FRAUDE) NAO consegue chegar aqui — a construcao LEVANTA
+    `CredentialSeparationError`.
+
+    TAMBEM O TRANSPORTE DE TAREFA EXTERNA, que nao e' seam gated (`CibSevenWorkerTransport`, o
+    primeiro bloco de `_bring_up_dependencies`): ele nao decide nada, mas carrega a MESMA
+    credencial, e deixa-lo de fora manteria um `getattr` nao-auditado no proprio arquivo que esta
+    mudanca reescreveu. O que fica provado depois disso e' exatamente o que o fence de
+    `test_credential_vault_composition.py::test_nenhuma_leitura_da_credencial_do_motor_escapa_do_cofre_em_src`
+    afirma por AST sobre todo `src/`: nenhuma leitura LITERAL de
+    `cibseven_auth_token`/`cibseven_auth_token_value` — atributo, `getattr`/`hasattr` com nome
+    literal, ou subscrito com string constante (logo, tambem via `model_dump()`/`__dict__`) — fora
+    do unico par (modulo, funcao) exento, que e' a propria propriedade em
+    `worker_runtime/settings.py`. RESIDUAL declarado: um nome de campo montado em tempo de execucao
+    o fence nao ve' — de proposito, porque e' por `getattr` dinamico que o cofre le' a sua propria
+    tabela.
+
+    CHAMADA DE DENTRO DE CADA BLOCO `try` a proposito: `_bring_up_dependencies` isola cada bloco
+    (falha registra + deixa a checagem vermelha, nunca propaga). Uma recusa do cofre e' portanto
+    "o seam nao foi construido" -> os workers que dependem dele falham fechado depois, que e'
+    exatamente a forma de falha ja documentada para uma construcao de seam que nao deu certo.
+    Construir a visao duas vezes nao custa I/O: e' varredura de dicionario (I-9).
+    """
+    return agent_credential(build_worker_credential_view(settings=settings), "cibseven_auth_token")
+
+
 async def _bring_up_dependencies(state: WorkerState) -> None:
     """Bring up the daemon's dependencies. Each block is isolated: failure logs + leaves the
     corresponding check unhealthy, but NEVER propagates (liveness must stay up)."""
@@ -710,9 +753,16 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
     settings = state.settings
 
     try:
+        # AF-14: o transporte de tarefa externa NAO e' um seam gated (ele nao decide nada), mas
+        # carrega a MESMA credencial do motor, e uma credencial que chega a um transporte por
+        # `getattr` que tabela nenhuma governa e' exatamente o que o mecanismo #3 da ADR-0005
+        # existe para nao permitir. Passa pelo cofre como os dois seams gated abaixo; o valor
+        # entregue e' identico (`AGENT_CREDENTIAL_FIELDS['cibseven_auth_token']`), e uma
+        # composicao que vazaria credencial humano-restrita passa a deixar `engine_reachable`
+        # vermelho em vez de subir o transporte.
         state.transport = CibSevenWorkerTransport(
             settings.cibseven_base_url,
-            auth_token=settings.cibseven_auth_token_value(),
+            auth_token=_engine_credential(settings),
             timeout=settings.client_timeout_s,
         )
     except Exception:  # noqa: BLE001 — construction failure leaves engine_reachable unhealthy.
@@ -729,7 +779,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         state.dmn_transport = build_dmn_seam(
             seam=_worker_seam(settings),
             base_url=settings.cibseven_base_url,
-            auth_token=settings.cibseven_auth_token_value(),
+            auth_token=_engine_credential(settings),
             timeout=settings.client_timeout_s,
         )
     except Exception:  # noqa: BLE001 — construction failure: DMN-calling workers fail closed later.
@@ -749,7 +799,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         state.engine_transport = build_cibseven_seam(
             seam=_worker_seam(settings),
             base_url=settings.cibseven_base_url,
-            auth_token=settings.cibseven_auth_token_value(),
+            auth_token=_engine_credential(settings),
             timeout=settings.client_timeout_s,
             fresh_client=True,
         )
