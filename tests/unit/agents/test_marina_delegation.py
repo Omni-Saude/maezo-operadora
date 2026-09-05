@@ -30,7 +30,12 @@ from maezo.agents.marina.delegation import (
     state_from_envelope,
 )
 from maezo.agents.marina.graph import _CALLER_INPUT_FIELDS, _business_key, build
-from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
+from maezo.runtime.start_outcome import StartProcessFailedError
+from maezo.tools.mcp_cibseven.transport import (
+    CibSevenError,
+    FakeCibSevenTransport,
+    ProcessInstance,
+)
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
@@ -447,3 +452,48 @@ async def test_handler_uses_the_real_fail_closed_build_contract() -> None:
 
     assert direct_result["route"] == "auto_route"
     assert handler_output.meta["route"] == "auto_route"
+
+
+# --- RAF-02: um start falho NUNCA vira `HandlerOutput` de sucesso -------------------------------
+
+
+class _FailingStartTransport(FakeCibSevenTransport):
+    """O engine recusa o start, e CONTA quantas vezes o start foi tentado.
+
+    A contagem e' o que prova que o turno REALMENTE chegou ao `start_process` (um teste que so'
+    afirmasse a excecao passaria tambem se o grafo tivesse parado antes, por outro motivo).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.tentativas = 0
+
+    async def start_process_instance(
+        self, process_key: str, business_key: str, variables: dict[str, Any]
+    ) -> ProcessInstance:
+        self.tentativas += 1
+        raise CibSevenError(f"engine indisponivel (probe RAF-02): start de {process_key}")
+
+
+async def test_handler_raises_instead_of_reporting_a_failed_start_as_success() -> None:
+    """RAF-02 (gap `RAF-02-GUARD-MISSING-GUSTAVO-MARINA-VALENTINA`, 2026-09-05): com
+    `start_failed=True` no estado devolvido pelo grafo, o handler levanta
+    `StartProcessFailedError` em vez de devolver `HandlerOutput`.
+
+    Antes da guarda este handler devolvia `HandlerOutput(output_ref="process://<business_key>",
+    meta={"process_started": "False", ...})` — e, como `HandlerOutput` nao tem campo `success`,
+    o `DelegationDispatcher` tratava esse retorno como sucesso: gravava o audit terminal
+    `_DECISION_COMPLETED`, emitia o fato `COMPLETED` e SELAVA o resultado por `task_id`, tornando
+    o falso sucesso IRRETENTAVEL. A cerca comum do dispatcher esta' em
+    `tests/unit/agents/test_start_failure_a2a_handlers.py`; aqui se prova o lado deste agente.
+    """
+    transporte = _FailingStartTransport()
+    with pytest.raises(StartProcessFailedError) as exc:
+        await _handler(_dmn_contas(), cibseven=transporte)(_envelope(TASK_TYPE_GLOSA_ANALYSIS))
+
+    assert transporte.tentativas == 1, "o turno nem chegou ao `start_process` — teste vacuo"
+    # A mensagem carrega os tokens de classe que um operador precisa (agente, processo, chave
+    # idempotente) e NADA de PHI nem texto livre.
+    texto = str(exc.value)
+    assert "marina" in texto and "SP-OP-CONTAS-001" in texto
+    assert "C50" not in texto and "pseudo-123" not in texto

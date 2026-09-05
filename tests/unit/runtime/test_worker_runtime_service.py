@@ -57,19 +57,21 @@ def test_register_default_workers_registers_all_17_modules() -> None:
     raw handlers need `ExternalTask`/async-Kafka seams a dict-first `FunctionWorker` boundary does
     not expose. Delta breakdown (re-derived, the running total had drifted from the list above):
     1 events + 3 lgpd + 3 recurso + 1 ans-notify + 1 ans-retransmit (t9-nack-vars) + 2 escalation
-    + 3 dossier (DL-0033 + the item9-w3 pagto edge) + 4 programa + 1 adequacao update_monitoring_plan
-    = 19. Every other module/topic goes through `WorkerHarness.register_worker` ->
-    `WorkerRegistry.register`."""
+    + 4 dossier (DL-0033 + the item9-w3 pagto edge + the R-081 inadimplencia edge) + 4 programa
+    + 1 adequacao update_monitoring_plan = 20. Every other module/topic goes through
+    `WorkerHarness.register_worker` -> `WorkerRegistry.register`."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_default_workers(harness)
 
     assert len(ALL_WORKER_BOOTSTRAPS) == 17
     assert len(harness.registered_topics) > 90
     # DL-0033 real A2A wiring (dossier branch): `operadora.cred.prepare_dossier`,
-    # `operadora.adequacao.prepare_remediation_dossier` and (item9-w3) the LAST edge
+    # `operadora.adequacao.prepare_remediation_dossier` and (item9-w3) the pagto edge
     # `operadora.pagto.prepare_approval_dossier` moved from `FunctionWorker` (dict-first, in the
     # WorkerRegistry) to RAW async handlers (in `_handlers`, NOT the registry) because they now
-    # `await dispatcher.delegate(...)` — 11 base + 3 dossier.
+    # `await dispatcher.delegate(...)`. R-081 (metade de ORIGEM) adds the FOURTH dossier edge,
+    # `operadora.inadimplencia.prepare_dossier` (`arrears.followup` -> Fernando), for the SAME
+    # structural reason.
     # item-9 wave-5 (event-wiring): programa's 4 raw handlers — `stratify_risk`/`stop_processing`
     # (item A, root fix: MOVED off `FunctionWorker` so they can publish an internal notification)
     # and the 2 NEW workers `proactive_contact`/`notify_sla_risk` (items B/C) — same async-Kafka-
@@ -82,8 +84,10 @@ def test_register_default_workers_registers_all_17_modules() -> None:
     # (`make_retransmit_handler` — the name the contract itself uses, SP-OP-ANS-SUBMIT-001.md:157)
     # for the SAME async-Kafka-seam reason: it publishes the `anssubmit.retransmit` internal
     # notification, which the sync `FunctionWorker.execute` boundary cannot reach.
-    # Raw-handler count = 11 + 3 + 4 + 1 + 1 = 20.
-    assert harness.registry.count() == len(harness.registered_topics) - 19
+    # Raw-handler count, re-derived cell by cell (the previous one-line sum was arithmetic that
+    # no longer matched the assertion below): 1 events + 3 lgpd + 3 recurso + 1 ans-notify
+    # + 1 ans-retransmit + 2 escalation + 4 dossier + 4 programa + 1 adequacao = 20.
+    assert harness.registry.count() == len(harness.registered_topics) - 20
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:

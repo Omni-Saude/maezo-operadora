@@ -75,9 +75,11 @@ from maezo.a2a import Budget, DelegationEnvelope, HandlerOutput
 from maezo.a2a.dispatcher import origin_signer_of
 from maezo.platform.observability import record_agent_error
 from maezo.runtime.metrics import classify_agent_error_type
+from maezo.runtime.start_outcome import StartProcessFailedError
 
 from .graph import (
     _CALLER_INPUT_FIELDS,
+    PROCESS_KEY_PROGRAMA,
     Task,
     ValentinaState,
     _business_key,
@@ -365,10 +367,10 @@ def make_valentina_handler(
     """Build Valentina's A2A handler (delegation target).
 
     NOT REGISTERED with any dispatcher (module docstring): `a2a_composition` still wires only
-    rafael / carolina+andre, and adding `"valentina"` is the owner decision this work package
-    stops in front of. `spec/agents/valentina/agent.yaml`'s comment claimed this factory already
-    existed and was already consumed; with this module it EXISTS — the consumption half is still
-    absent, and the yaml comment was corrected to say exactly that.
+    rafael / carolina+andre+fernando, and adding `"valentina"` is the owner decision this work
+    package stops in front of. `spec/agents/valentina/agent.yaml`'s comment claimed this factory
+    already existed and was already consumed; with this module it EXISTS — the consumption half is
+    still absent, and the yaml comment was corrected to say exactly that.
 
     Compiles the REAL Valentina graph via `valentina.graph.build(config)` — the same fail-closed
     contract every other caller goes through (`inference`/`dmn`/`cibseven`/`audit_sink` REQUIRED,
@@ -404,6 +406,17 @@ def make_valentina_handler(
             record_agent_error(agent="valentina", error_type=classify_agent_error_type(exc))
             raise
         business_key = result.get("business_key") or _business_key(state)
+        if result.get("start_failed") is True:
+            # RAF-02: o grafo TENTOU abrir o processo e o engine recusou. Devolver
+            # `HandlerOutput` aqui seria um sucesso para o dispatcher (`HandlerOutput` nao tem
+            # campo `success`): ele gravaria o audit terminal `_DECISION_COMPLETED`, emitiria o
+            # fato COMPLETED e SELARIA o resultado por `task_id` — tornando o falso sucesso
+            # irretentavel. A excecao tipada propaga, entao nada disso acontece e a reentrega do
+            # mesmo `task_id` reexecuta o handler. So tokens de classe na mensagem, nunca PHI.
+            raise StartProcessFailedError(
+                f"valentina nao conseguiu iniciar {PROCESS_KEY_PROGRAMA} "
+                f"(business_key={business_key!r}): o turno NAO foi concluido"
+            )
         return HandlerOutput(
             output_ref=f"process://{business_key}",
             meta={
