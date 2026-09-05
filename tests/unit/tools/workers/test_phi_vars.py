@@ -546,7 +546,12 @@ def test_free_text_self_referential_value_is_refused(container: str) -> None:
     """Residuo #5: um valor auto-referente sob um nome de texto livre era silenciosamente
     PASSADO (o `_redact_free_text_value` antigo devolvia qualquer nao-`str`/nao-`list` intacto),
     contradizendo a propria clausula MAY RAISE do docstring. Agora e' recusado de imediato pelo
-    guarda de identidade, sem depender do teto de profundidade."""
+    guarda de identidade, sem depender do teto de profundidade.
+
+    A assercao casa a mensagem ESPECIFICA do guarda ("contains itself"), nao um "self-referential"
+    solto: a mensagem do teto de profundidade tambem contem a palavra "self-referential", entao a
+    forma frouxa passava com o guarda REMOVIDO (medido: a mutacao que apaga o guarda deixava os
+    141 testes verdes). O teto continua sendo a rede de seguranca; esta cerca pina o guarda."""
     cycle: object
     if container == "dict":
         dict_cycle: dict[str, object] = {}
@@ -561,7 +566,7 @@ def test_free_text_self_referential_value_is_refused(container: str) -> None:
         tuple_cycle: tuple[object, ...] = (inner,)
         inner.append(tuple_cycle)
         cycle = tuple_cycle
-    with pytest.raises(ValueError, match="self-referential"):
+    with pytest.raises(ValueError, match="contains itself"):
         redact_free_text_vars({"narrativa": cycle})
 
 
