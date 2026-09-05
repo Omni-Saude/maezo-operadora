@@ -66,7 +66,7 @@ DEVE consultar a business key antes de iniciar (start idempotente, sem reprocess
 | `item_conforme_tabela` | boolean | sim* | Pre-resolvido por worker: item bate com tabela contratada/TUSS |
 | `documentacao_anexa` | boolean | sim* | Pre-resolvido por worker: anexos TISS presentes para o item |
 | `indicio_fraude_sinalizado` | boolean | nao | Sinal **informativo** de worker de regras (NUNCA decide; so roteia a humano) |
-| `data_vencimento` | string (date ISO `YYYY-MM-DD`) | sim* | Vencimento da obrigacao de pagamento, vindo do lote/termo contratual. **Obrigatoria em SP-OP-PAGTO-001** (`SP-OP-PAGTO-001.md`, "sim") e o handoff a **RECUSA em branco** — um vencimento inventado e um prazo falso. Origem contratual **DRAFT/verify** (ADR-0040 OQ-2). **Produzida no runtime pelo INTAKE** (`operadora.contas.identify_glosa` / `ST_ApurarDivergencias`, a primeira tarefa de TODO caminho, inclusive na reentrada por `BME_LinhasAtualizadas`): ecoada **verbatim** (so `strip`) do lote/termo contratual e escrita de volta como variavel de processo, com **warning** quando ausente — nunca defaultada. Assim a falta do dado contratual fica visivel na trilha ja na primeira tarefa, em vez de so aparecer quatro tarefas adiante como um handoff recusado. ⚠️ **LIMITE DECLARADO do fail-closed (VER-PR4 MINOR-A):** o ponto que RECUSA continua sendo `operadora.contas.handoff_pagamento`, que fica **a jusante** de `ST_EmitirDemonstrativoIntegral`/`ST_EmitirDemonstrativoAprovado`/`ST_EmitirDemonstrativoParcial` e, na perna `PAGAR_PARCIAL`, tambem de `ST_RegistrarGlosaParcial`. Numa conta sem vencimento a operadora portanto **ja emitiu o demonstrativo ao prestador — e, no parcial, ja registrou o efeito adverso — quando a ordem de pagamento e recusada**: o prestador recebe a comunicacao de uma adjudicacao cuja ordem nunca nasce, e a instancia para num incidente. O intake torna a ausencia VISIVEL (warning na primeira tarefa) mas nao a bloqueia. A alavanca conservadora — **validar `data_vencimento` no proprio intake e rotear a `ANALISE_HUMANA` em vez de seguir para a perna automatica**, de modo que nenhum artefato ao prestador seja emitido antes de a conta ter um vencimento — e uma **decisao do dono, em aberto sob OQ-2**: ela muda o roteamento de um caso hoje automatico e depende de saber de que clausula contratual o vencimento vem. Registrada aqui, nao tomada |
+| `data_vencimento` | string (date ISO `YYYY-MM-DD`) | sim* | Vencimento da obrigacao de pagamento, vindo do lote/termo contratual. **Obrigatoria em SP-OP-PAGTO-001** (`SP-OP-PAGTO-001.md`, "sim") e o handoff a **RECUSA em branco** — um vencimento inventado e um prazo falso. Origem contratual **DRAFT/verify** (ADR-0040 OQ-2). **Produzida no runtime pelo INTAKE** (`operadora.contas.identify_glosa` / `ST_ApurarDivergencias`, a primeira tarefa de TODO caminho, inclusive na reentrada por `BME_LinhasAtualizadas`): ecoada **verbatim** (so `strip`) do lote/termo contratual e escrita de volta como variavel de processo, com **warning** quando ausente — nunca defaultada. Assim a falta do dado contratual fica visivel na trilha ja na primeira tarefa, em vez de so aparecer quatro tarefas adiante como um handoff recusado. **GATE DE INTAKE (fail-closed primario)** — `CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM`, decisao do dono `R-084` de 2026-09-04 (*"validar agora — `ST_ApurarDivergencias` passa a rotear a `ANALISE_HUMANA` quando `data_vencimento` vier em branco, antes de qualquer demonstrativo"*), executando a alavanca que este campo registrava como NOMEADA E NAO TOMADA: o intake escreve tambem `vencimento_ausente` (boolean), lido pelo gateway exclusivo `GW_VencimentoConta` que fica **antes** de `ST_EmitirDemonstrativoIntegral`/`ST_EmitirDemonstrativoAprovado`/`ST_EmitirDemonstrativoParcial` **e antes de** `ST_RegistrarGlosa`/`ST_RegistrarGlosaParcial`. Sem vencimento a conta vai para `ANALISE_HUMANA` (`ST_PrepareTriageDossier` -> `UT_AnalistaContas`, os mesmos elementos da triagem — nenhuma User Task nova), onde o analista pode `DEVOLVER` a conta ao prestador para correcao. **Fail-closed pela polaridade:** a perna humana e o `default` do gateway e a perna automatica exige a condicao POSITIVA `${vencimento_ausente == false}`; a variavel e ainda inicializada `${true}` em `ST_PublishReceived` (mesma mecanica de engine de `decisao_contas`, polaridade oposta). **Nao pre-julga OQ-2:** a clausula contratual de ORIGEM de `data_vencimento` segue `DRAFT/verify`; o gate so muda o ROTEAMENTO de contas que antes terminavam em incidente no handoff. ⚠️ **DEFESA EM PROFUNDIDADE (era o LIMITE DECLARADO, VER-PR4 MINOR-A):** `operadora.contas.handoff_pagamento` **continua recusando** o vencimento em branco, e continua **a jusante** dos tres emissores de demonstrativo — mas deixou de ser o primeiro ponto de recusa. Ele permanece porque o analista pode decidir `PAGAR`/`PAGAR_PARCIAL` numa conta cujo vencimento nunca apareceu: nesse caminho a recusa tardia ainda e o que impede uma ordem de pagamento com prazo inventado |
 | `conta_origem_ref` | string | nao | Referencia da conta de origem; **ecoada verbatim** ao handoff de pagamento e deixada em branco quando o lote nao a carrega (nunca preenchida com um valor plausivel) |
 | `instrumento_pagamento` | string | nao | Instrumento de pagamento; mesma regra de eco verbatim de `conta_origem_ref` |
 
@@ -100,6 +100,7 @@ sem detalhe NUNCA alcanca `End_ContaAprovadaIntegral` automatico).
 | `decisao_coordenacao` | string | `assumir_analise` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA — humano `coordenacao-contas`) |
 | `glosa_id` | string | Identificador da glosa **aplicada pela operadora**, cunhado DETERMINISTICAMENTE por `registrar_glosa`; publicado em `contas.completed` e impresso no demonstrativo. E a chave que o prestador cita ao interpor recurso (entrada de SP-OP-RECURSO-001) |
 | `ordem_pagamento_id` | string | Identificador deterministico da ordem que o handoff cunha em SP-OP-PAGTO-001 |
+| `vencimento_ausente` | boolean | **Fato de ROTEAMENTO** produzido pelo INTAKE (`operadora.contas.identify_glosa` / `ST_ApurarDivergencias`) a partir do mesmo `strip()` que normaliza `data_vencimento`: `true` quando o lote/termo nao traz vencimento. Unica entrada de `GW_VencimentoConta`, o gate fail-closed de intake (`CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM` / decisao do dono `R-084`). Inicializada `${true}` em `ST_PublishReceived` — fail-closed: enquanto o intake nao rodar, a conta e tratada como SEM vencimento |
 | `protocolo_demonstrativo` | string | Protocolo **sintetico e deterministico** da comunicacao emitida ao prestador (TASY write DROP, ADR-0013 — nao e numeracao de sistema externo; **DRAFT/verify** OQ-1) |
 
 **Variavel removida:** `encaminhar_fraude` (boolean). A decisao passou a ser um valor de
@@ -193,8 +194,17 @@ interruptivo imediatamente — correto (prazo de fato estourado; coordenacao hum
 | Analise da conta (`BT_SlaAnaliseContas`) | `timeDate` = `${sla.sla_analise_absoluto_iso}` (= `data_recebimento_lote` + **P30D** tipico — **DRAFT/verify**) | interruptivo → publica `contas.sla_breached` → cancela `UT_AnalistaContas`, cria `UT_CoordenacaoContasAssume` | **prazo contratual de analise de conta** + RN 501/2022 (fluxo TISS) — **DRAFT/verify** (`docs/compliance/rn-currency-review.md:188-193`) |
 
 Os dois timers ancoram no **recebimento do lote** (`data_recebimento_lote` — a ancora do contrato),
-NUNCA no attach da User Task (GAP-CONTAS-4 resolvido; o attach so acontece apos identify/impact +
-4 DMNs + dossie de Marina, e pode se repetir na reentrada por `msg.contas.linhas_atualizadas`).
+NUNCA no attach da User Task (GAP-CONTAS-4 resolvido; o attach acontece varias tarefas depois do
+intake e pode se repetir na reentrada por `msg.contas.linhas_atualizadas`).
+
+**Posicao de `BRT_ContasSla` (R-084):** a DMN de SLA roda **imediatamente apos o intake**
+(`ST_CalculateImpact` -> `BRT_ContasSla` -> `GW_VencimentoConta`), nao mais no fim da cadeia de
+DMNs de glosa. Nenhuma das suas entradas (`tipo_lote`, `valor_apresentado_brl`,
+`data_recebimento_lote`) depende de triagem/classificacao, e o gate de vencimento criou uma rota a
+`ANALISE_HUMANA` que **nao atravessa** essa cadeia — sem a mudanca de posicao, essa rota criaria
+`UT_AnalistaContas` com `${sla.*}` irresolvivel (incidente no attach). Mantem a invariante ja
+declarada em SP-OP-REEMBOLSO-001 (`BRT_SlaAnalise`) e SP-OP-ANS-SUBMIT-001 (`BRT_AnsSla`):
+`resultVariable="sla"` resolvido em **toda** rota que alcanca uma User Task, antes dela.
 
 Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — usar valores conservadores e resolver calendario util no worker. **Substitui o `Task_AutoApprove`/timeout de 48h do reference** — no estouro de SLA a coordenacao humana assume; **nunca** ha desfecho automatico por timeout (inversao do anti-padrao).
 
@@ -242,6 +252,24 @@ boundary catch. Isso e **deliberado e ratificado**, nao um resto de modelagem:
 Invariante fixada em teste (para que a leitura «entrada morta» nao seja re-derivada e executada):
 `tests/unit/spec/test_sp_op_contas_001_artefatos.py::test_catalogo_de_erros_e_declarado_e_nao_capturado`
 e `tests/unit/tools/workers/test_contas.py::test_contas_nunca_levanta_worker_bpmn_error`.
+
+**Reconhecimento do dono (2026-09-04) — `OWNER-DECISIONS-REGISTER` R-097/R-098, gap
+`CONTAS-DEAD-ERROR-CATALOG`, registrado em `docs/decisions-log.md` DL-0047.** O dono CONFIRMOU a
+leitura descrita nesta secao (*"SIM — confirmar a leitura; nenhuma acao de codigo hoje"*):
+`ERR_CONTAS_LOTE_INVALIDO` e `ERR_CONTAS_GLOSA_NOT_HUMAN` permanecem declarados-e-nao-capturados
+**por desenho**, sem nenhuma acao de codigo — nem modelar o boundary, nem remover a declaracao; o
+catalogo `bpmn:error` do BPMN e `scripts/ci/check_bpmn_error_allowlist.py` ficam intactos.
+
+> ⚠️ **Alcance exato da confirmacao:** ela ratifica a **LEITURA** — a de que o estado
+> declarado-e-nao-capturado ja e o estado ratificado do artefato, cuja decisao de fundo e
+> **Accepted** em `docs/adr/0030-worker-error-semantics-bpmn-boundary.md:379-382`. Ela **NAO ratifica
+> a ADR-0040**, que segue `Proposed` — inclusive a emenda citada tres marcadores acima vive num ADR
+> ainda `Proposed`, e ratificar ADR continua sendo ato humano sob CODEOWNERS de `/docs/adr/`.
+
+**Escopo futuro (R-098):** se `scripts/ci/check_bpmn_error_allowlist.py` algum dia endurecer para
+cobrir declaracoes-raiz sem boundary — o que atingiria 13 dos 16 arquivos BPMN, nao so CONTAS —
+isso sera uma **decisao de programa unica**, ratificada como convencao (ADR nova) ANTES de qualquer
+correcao, nunca 13 correcoes ad-hoc. Nada muda hoje, e esta nota nao cria nem antecipa essa ADR.
 
 **Erros de worker sem elemento BPMN** (fail-closed → incidente auditado, nunca `bpmnError`):
 `ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO` (ancora de business key, valor ou `data_vencimento`

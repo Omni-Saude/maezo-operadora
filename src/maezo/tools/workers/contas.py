@@ -1061,6 +1061,12 @@ def handoff_pagamento(
     here: it is a contract input of CONTAS (from the lote / contractual term — DRAFT/verify,
     ADR-0040 OQ-2) and the handoff REFUSES it blank. An order with no due date is malformed;
     refusing produces a visible incident, defaulting would produce a false deadline.
+    Since `CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM` (owner decision R-084) this refusal is
+    DEFENCE IN DEPTH, not the primary gate: the primary gate is `GW_VencimentoConta`, right after
+    the intake (`identify_glosa` -> `vencimento_ausente`), which routes a conta with no due date to
+    `ANALISE_HUMANA` BEFORE any `ST_EmitirDemonstrativo*` and before `ST_RegistrarGlosaParcial`.
+    The refusal stays because the analyst can still decide `PAGAR`/`PAGAR_PARCIAL` on a conta whose
+    due date never turned up — and then no order may be born either.
 
     **Mechanics.** Mirrors `start_fraude`: passes through the `start_process_idempotent`
     chokepoint (T-C2 fence), REQUIRES `engine` + `audit_sink` (an un-audited PAGTO-001 start is
@@ -1524,6 +1530,20 @@ def identify_glosa_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | N
       intake adds is VISIBILITY: the absence is logged at the first task of the process, in the
       audit trail, instead of only surfacing four tasks later as a stalled handoff nobody expected.
       MAJOR-1 of VERIFY-PR4-CONTAS is precisely that nothing in the process produced this field.
+    * `vencimento_ausente` — the ROUTING fact derived from the field above
+      (`CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM`, owner decision R-084 of 2026-09-04:
+      *"validar agora"*). Visibility was not enough: the refusal used to live in
+      `handoff_pagamento`, DOWNSTREAM of all three `ST_EmitirDemonstrativo*` tasks and, on the
+      `PAGAR_PARCIAL` leg, downstream of `ST_RegistrarGlosaParcial` too — so on a conta with no
+      due date the operadora had ALREADY sent the prestador its demonstrativo (and already
+      recorded the adverse effect) by the time the payment order was refused. `GW_VencimentoConta`
+      reads this boolean immediately after the intake and routes such a conta to `ANALISE_HUMANA`
+      (`ST_PrepareTriageDossier` -> `UT_AnalistaContas`) BEFORE any of those tasks; the human can
+      then `DEVOLVER` the conta. This DECIDES NOTHING adverse — the L0-hard HITL gate is unchanged
+      and the only new destination is a human task — and it does NOT pre-judge ADR-0040 OQ-2 (the
+      contractual ORIGIN clause of `data_vencimento` stays `DRAFT/verify`). The `handoff_pagamento`
+      refusal STAYS as defence in depth: the analyst may still decide `PAGAR` without the field
+      ever appearing.
     """
     del kafka  # unused — identify_glosa emits no domain event
     input_data = _build_glosa_input(variables)
@@ -1542,13 +1562,15 @@ def identify_glosa_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | N
     out["data_recebimento_lote"] = data_recebimento
 
     data_vencimento = str(input_data.data_vencimento or "").strip()
-    if not data_vencimento:
+    vencimento_ausente = not data_vencimento
+    if vencimento_ausente:
         logger.warning(
             "contas.identify_glosa.sem_data_vencimento",
             tenant_id=input_data.tenant_id,
             numero_lote_tiss=input_data.numero_lote_tiss,
         )
     out["data_vencimento"] = data_vencimento
+    out["vencimento_ausente"] = vencimento_ausente
     return out
 
 

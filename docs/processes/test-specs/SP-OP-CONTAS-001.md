@@ -116,18 +116,44 @@ pseudonimizado `bnf-teste-0001`, tenant `amh`, CPF de teste em faixa invalida
 
 ## Happy paths
 
-### test_lote_sem_data_vencimento_nao_gera_ordem_de_pagamento
-*(NOVO — par negativo do happy path integral.)*
+### test_lote_sem_data_vencimento_roteia_a_analise_humana_no_intake
+*(REESCRITO de `test_lote_sem_data_vencimento_nao_gera_ordem_de_pagamento` —
+`CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM`, decisao do dono `R-084`: "validar agora". O teste
+antigo provava a postura ANTERIOR e por isso EXIGIA que a instancia chegasse a
+`ST_HandoffPagamentoAuto` — ou seja, que o demonstrativo ja tivesse sido emitido ao prestador.)*
 - **Given** lote sem `data_vencimento` (o campo que o intake `operadora.contas.identify_glosa` ecoa
   do lote/termo contratual e **nunca** defaulta), na perna AUTOMATICA — a mais perigosa, porque nada
   nela e humano
-- **When** a instancia chega a `ST_HandoffPagamentoAuto` (asserido: sem chegar la a prova valeria por
-  construcao)
-- **Then** `ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`: **nenhuma** instancia PAGTO sob
-  `PAGTO-amh-{lote}-{prestador_id}`, nenhum `contas.completed`, `End_ContaAprovadaIntegral` NAO
-  alcancado, e um **incidente aberto** no engine — a recusa e visivel, nunca um no-op silencioso. Um
-  vencimento inventado seria um prazo falso lido pelo revisor de `UT_AnaliseAdmissibilidade` como se
-  viesse do termo contratual (ADR-0040 OQ-2).
+- **When** o intake escreve `vencimento_ausente=true` e `GW_VencimentoConta` avalia
+- **Then** a instancia PARA em `UT_AnalistaContas` (`auditoria-contas`), e a **historia de
+  atividades do engine** mostra `GW_VencimentoConta` executado e **nenhum** de
+  `ST_EmitirDemonstrativoIntegral`/`ST_EmitirDemonstrativoAprovado`/`ST_EmitirDemonstrativoParcial`/
+  `ST_EmitirDemonstrativo`/`ST_RegistrarGlosa`/`ST_RegistrarGlosaParcial` — nem `GW_HasGlosas`.
+  Nenhuma instancia PAGTO sob `PAGTO-amh-{lote}-{prestador_id}`, nenhum terminal adverso e
+  **nenhum incidente**: o desvio a humano nao e falha, a instancia fica viva na fila do analista. A
+  assercao e sobre historia de atividades, nao sobre eco de kafka — um evento ausente pode ser um
+  publicador quebrado, uma atividade ausente nao.
+
+### test_controle_negativo_com_vencimento_o_gate_libera_a_perna_automatica
+*(NOVO — controle de nao-vacuidade do anterior.)*
+- **Given** o MESMO lote, agora COM `data_vencimento`
+- **Then** `GW_VencimentoConta` e `GW_HasGlosas` ambos na historia, `ST_EmitirDemonstrativoIntegral`
+  executado, `End_ContaAprovadaIntegral` alcancado e **nenhuma** User Task criada. Sem este par, um
+  gate que roteasse TUDO a humano satisfaria as assercoes negativas acima por construcao.
+
+### test_sem_data_vencimento_recusa_no_handoff_segue_como_defesa_em_profundidade
+*(NOVO — a metade que impede a leitura de que o gate de intake "substituiu" o fail-closed a
+jusante.)*
+- **Given** lote sem `data_vencimento` desviado a `UT_AnalistaContas` pelo gate de intake
+- **When** o analista decide `PAGAR` assim mesmo (o unico caminho que ainda alcanca um handoff sem
+  vencimento) e a instancia chega a `ST_HandoffPagamentoHumano` (asserido: sem chegar la a prova
+  valeria por construcao)
+- **Then** `ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`: **nenhuma** instancia PAGTO, nenhum
+  `contas.completed`, `End_ContaAprovadaHumano` NAO alcancado, e um **incidente aberto** que NOMEIA
+  `data_vencimento` — a recusa e visivel, nunca um no-op silencioso. Aqui o demonstrativo E emitido,
+  e correto: houve decisao humana e o prestador tem de ser comunicado dela. Um vencimento inventado
+  seria um prazo falso lido pelo revisor de `UT_AnaliseAdmissibilidade` como se viesse do termo
+  contratual (ADR-0040 OQ-2).
 
 ### test_happy_path_pagamento_integral
 *(RESCRITO de `test_happy_path_sem_glosa`.)*
@@ -305,3 +331,41 @@ propria glosa.)*
 - **Given** instancia ativa `CONTAS-amh-LOTE-TESTE-0001`
 - **When** reenvio do mesmo lote TISS
 - **Then** sem segunda instancia ativa (start idempotente; retorna a existente).
+
+### test_gate_de_vencimento_domina_todo_efeito_externo_da_adjudicacao
+*(NOVO — `CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM` / decisao do dono `R-084`.)*
+- **Given** o grafo de `sequenceFlow` do BPMN (mais as arestas implicitas de `boundaryEvent`)
+- **When** `GW_VencimentoConta` e REMOVIDO do grafo e se calcula o alcancavel a partir de
+  `Start_LoteTissRecebido`
+- **Then** **nenhum** de `ST_EmitirDemonstrativoIntegral`/`ST_EmitirDemonstrativoAprovado`/
+  `ST_EmitirDemonstrativoParcial`/`ST_EmitirDemonstrativo`/`ST_RegistrarGlosa`/
+  `ST_RegistrarGlosaParcial` continua alcancavel — prova de **DOMINANCIA**, nao de presenca: um
+  gateway acrescentado numa perna so, ou depois de um dos emissores, falha aqui e um `assert` de
+  existencia nao falharia. Controle de nao-vacuidade: com o gate no lugar, todos continuam
+  alcancaveis (o gate roteia, nao amputa).
+
+### test_gate_de_vencimento_e_fail_closed_por_construcao
+*(NOVO.)*
+- **Then** o `default` de `GW_VencimentoConta` e a perna HUMANA (`Flow_GWVenc_Humano`, sem
+  `conditionExpression`) e a perna automatica exige a condicao POSITIVA
+  `${vencimento_ausente == false}`; e a perna humana aponta para `ST_PrepareTriageDossier` (o mesmo
+  caminho `ANALISE_HUMANA` da triagem — nenhuma User Task nova, nenhum `candidateGroup` novo). Com a
+  polaridade invertida, uma variavel ausente/nula cairia na perna automatica e o gate criaria o
+  risco que existe para eliminar.
+
+### test_vencimento_ausente_e_inicializada_fail_closed_no_primeiro_service_task
+*(NOVO.)*
+- **Then** `vencimento_ausente` e inicializada com `${true}` em `ST_PublishReceived`. Mesma mecanica
+  de engine de `decisao_contas`, **polaridade oposta e a polaridade e a tese**: como a condicao e
+  `== false`, inicializar `false` seria fail-OPEN (um intake que nao rodasse deixaria a perna
+  automatica aberta); `true` significa «ate o intake provar o contrario, a conta NAO tem vencimento».
+
+### test_sla_e_resolvido_antes_de_toda_user_task
+*(NOVO — invariante que o gate nao pode quebrar.)*
+- **When** `BRT_ContasSla` e removido do grafo
+- **Then** nem `UT_AnalistaContas` nem `UT_CoordenacaoContasAssume` continuam alcancaveis. E por
+  isso que `R-084` moveu `BRT_ContasSla` para logo depois do intake em vez de deixa-la no fim da
+  cadeia de DMNs de glosa: a perna sem-vencimento nao atravessa essa cadeia, e criaria a User Task
+  com `${sla.sla_alerta_absoluto_iso}`/`${sla.sla_analise_absoluto_iso}` irresolviveis (incidente no
+  attach). Mesma invariante declarada em SP-OP-REEMBOLSO-001 (`BRT_SlaAnalise`) e
+  SP-OP-ANS-SUBMIT-001 (`BRT_AnsSla`).
