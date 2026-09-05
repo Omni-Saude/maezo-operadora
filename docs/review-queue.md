@@ -2000,3 +2000,14 @@ Esta secao CORRIGE e COMPLETA as quatro secoes `PERSP-AUTH-VOICE` acima, que fic
    **10598**.
 
 Nada aqui e' ratificacao de SME.
+
+## D12-02 — dashboards Grafana versionados (owner-review, `deploy/**` por politica do programa)
+
+Decisao do dono R-030 (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA) implementada no
+branch `r5/d12-02-dashboards`. Nenhum conteudo clinico/regulatorio — nao entra na tabela do topo
+deste arquivo; registrada aqui porque `deploy/**` e owner-review por politica do programa (owner
+prompt §8), nao por CODEOWNERS.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `deploy/observability/dashboards/{worker-runtime,agentes,dlq-lifecycle}.json` (novo) + `deploy/observability/grafana-provisioning/{dashboards/dashboards.yaml,datasources/datasources.yaml}` (novo) + `deploy/terraform/modules/observability/main.tf` (nota honesta na secao "6. AMG -> AMP datasource wiring") | Confirmar que cada query PromQL de cada painel referencia uma serie real (nao fabricada) da arvore neste base; confirmar que o CONTEUDO (quais paineis, quais limiares) e aceitavel como PROVISORIO ate `D12-01-a` (documento de SLO) existir — R-030 autoriza o versionamento agora e adia o refino de conteudo, nao o contrario | `@rodaquino-OMNI` (dono de infra/observabilidade) | `pendente — PR de owner-review; ver docs/evidence-ledger.md linha D12-02` |
