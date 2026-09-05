@@ -76,9 +76,18 @@ _UNDECLARED_TASK_TYPES: Final[dict[str, frozenset[str]]] = {
 #:      second run. A caller needing the hops as distinct units must carry a per-hop key, which
 #:      SP-OP-FRAUDE-001 does not define — recorded rather than invented (same structural note as
 #:      valentina's `care.stratify`/`care.enroll`).
-_UNREGISTERED_HANDLERS: Final[frozenset[str]] = frozenset(
-    {"fernando", "marina", "beatriz", "gustavo", "valentina"}
-)
+#:
+#: `fernando` LEFT this set on 2026-09-05 (owner decision R-081, gap
+#: `FERNANDO-DELEGATION-CALL-SITE`, approved 2026-09-04: "SIM — ligar o call site em
+#: `inadimplencia.py::prepare_dossier` e registrar `make_fernando_handler` em
+#: `a2a_composition.py`, com a chamada fail-neutral"). BOTH halves landed: his handler is in
+#: `build_dossier_delegation_dispatcher`'s `handlers={...}` (REACHABLE) and the ORIGIN call site
+#: exists too — `tools/workers/inadimplencia.py::make_prepare_dossier_handler`, the raw-async
+#: form of `operadora.inadimplencia.prepare_dossier`, calls `delegate_arrears_followup`
+#: fail-neutrally. So fernando is not merely registered, he is REACHED: registration and liveness
+#: (this file's docstring's DIFFERENT question) are both true for him, which is why he is out of
+#: this set for good rather than parked in it.
+_UNREGISTERED_HANDLERS: Final[frozenset[str]] = frozenset({"marina", "beatriz", "gustavo", "valentina"})
 
 
 def _accepted_task_types() -> dict[str, frozenset[str]]:
@@ -264,9 +273,10 @@ def test_the_handlers_not_registered_in_the_composition_root_are_the_documented_
 
     Every agent in `_UNREGISTERED_HANDLERS` HAS a working inbound handler and is NOT reachable by
     any dispatcher: `runtime.agent_runtime.a2a_composition` wires only rafael (auth edge) and
-    carolina+andre (dossier edge). That is deliberate — gap `FERNANDO-DELEGATION-CALL-SITE`
-    classifies both the registration and the origin call site as an OWNER DECISION, so this work
-    package built the target half and stopped.
+    carolina+andre+fernando (dossier edge). That is deliberate — gap `FERNANDO-DELEGATION-CALL-SITE`
+    classified both the registration and the origin call site as an OWNER DECISION; the owner then
+    approved fernando's (R-081) and BOTH halves landed, which is exactly why he is no longer here.
+    The four that remain have no owner decision authorizing an edge.
 
     If this test fails saying an agent LEFT the set, the owner registered it: delete the entry
     (and check the origin call site landed with it). If it fails saying one JOINED, a new handler

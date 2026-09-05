@@ -560,9 +560,13 @@ def record_agent_error(*, agent: str, error_type: str) -> None:
     raise ...`) so a failed-to-start delegation is retried rather than sealed as completed — but
     that `raise` sits OUTSIDE the `try` block wrapping `ainvoke`, so it does not loop back through
     this counter either. Either a call site re-raises the real failure, or (CC-01) it records the
-    terminal error outcome in-graph — never both, for the same turn. (The RAF-02 guard's own
-    coverage across A2A handlers is tracked separately — see `docs/review-queue.md`, not this
-    docstring, for which handlers have it.)
+    terminal error outcome in-graph — never both, for the same turn. (Which handlers carry that
+    guard is not quantified here — it is an EXECUTABLE inventory, closed by
+    `tests/unit/agents/test_start_failure_a2a_handlers.py::
+    test_the_guarded_set_is_exactly_the_handlers_whose_graph_starts_a_process`: every
+    `agents/<id>/delegation.py` that runs a graph whose `graph.py` registers a `start_process`
+    node, and only those. A prose count in this docstring is exactly what went stale before —
+    gap `RAF-02-GUARD-MISSING-GUSTAVO-MARINA-VALENTINA`.)
 
     WHAT IS AND IS NOT AN "AGENT ERROR" HERE. A turn that raised out of the graph is one; so is a
     graph-internal start failure that never raises (CC-01). A policy DENIAL at the effect
