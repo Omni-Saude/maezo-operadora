@@ -135,12 +135,13 @@ FINDINGS (new, beyond the 5 VERIFIED CROSS-FAMILY FACTS supplied for this port):
      registers a real `notify_sla_risk` FunctionWorker for it (t2.5-p2b-round2), so
      `missing_worker` in the static test is now the empty set — INCLUDED in
      `_FRAUDE_WORKER_TOPICS` (ST_NotifySlaRisk is genuinely drained by this suite now); (b)
-     [ACCEPT, unchanged] fraude.py registers `operadora.fraude.publish_completed`
-     (fraude.py:536-551, 607) — a topic the BPMN never declares anywhere (every `ST_Publish*`
-     node routes through the generic `operadora.events.publish` topic instead) — an orphan,
-     dead-from-the-engine's-perspective registration, included in `_FRAUDE_WORKER_TOPICS` (it is
-     genuinely registered) but never exercised by any test since no engine task is ever created
-     on it. Out of scope for this port (documented ACCEPT, not touched).
+     [CLOSED, FAB-PUBLISH-CONTACT/NEW-A2-1] fraude.py used to register
+     `operadora.fraude.publish_completed` — a topic the BPMN never declares anywhere (every
+     `ST_Publish*` node routes through the generic `operadora.events.publish` topic instead) — an
+     orphan, dead-from-the-engine's-perspective registration whose only output was a fabricated
+     `evento_publicado: True`. Function AND registration are now RETIRED, so
+     `_FRAUDE_WORKER_TOPICS` carries only BPMN-declared topics and `orphan_worker` is the empty
+     set.
   3. **`operadora.fraude.notify_sla_risk` now built (t2.5-p2b-round2) but the SLA-alert
      integration test still xfails — on a NARROWER, different gap:**
      `test_timer_alerta_sla_nao_interruptivo`'s only assertion about worker execution is a
@@ -266,12 +267,14 @@ _REGISTER_ACCUSATION_TOPIC = "operadora.fraude.register_fraud_accusation"
 _REFER_TO_LEGAL_TOPIC = "operadora.fraude.refer_to_legal"
 _START_CREDENCIAMENTO_TOPIC = "operadora.fraude.start_credenciamento"
 _START_CONTRATUAL_TOPIC = "operadora.fraude.start_contratual"
-# Orphan registration (finding 2b, ACCEPT -- unchanged by t2.5-p2b-round2): fraude.py registers
-# this, but the BPMN never declares it -- every ST_Publish* node routes through the generic
-# `operadora.events.publish` topic instead. Included in the drain list below because it IS
-# genuinely registered (mirrors cancel.py's own "drain list == what's registered" convention) --
-# but no engine task will ever land on it.
-_PUBLISH_COMPLETED_TOPIC = "operadora.fraude.publish_completed"
+# Finding 2b CLOSED (FAB-PUBLISH-CONTACT / NEW-A2-1): `operadora.fraude.publish_completed` no
+# longer exists. It was an ORPHAN registration -- the BPMN never declared it (every ST_Publish*
+# routes through the generic `operadora.events.publish`) -- whose only output was a fabricated
+# `evento_publicado: True` plus a `desfecho` recomputed in Python from `decisao_fraude`, wrong for
+# 4 of the 5 terminals. Function + registration retired (same decision as
+# `operadora.lgpd.publish_completed`/R-103 and `operadora.programa.monitor_programa`/PERSP-C5), so
+# the constant and its drain-list entry are gone with it and
+# `test_bpmn_fraude_topics_vs_registered_workers` below now pins the EMPTY orphan set.
 # BPMN-declared (ST_NotifySlaRisk) -- t2.5-p2b-round2 CLOSED finding 2a: fraude.py's
 # `notify_sla_risk` now registers a real FunctionWorker on this topic (mirrors
 # inadimplencia.notify_sla_risk/cancel.notify_sla_risk's dict-first, informational-only idiom).
@@ -290,7 +293,6 @@ _FRAUDE_WORKER_TOPICS = [
     _REFER_TO_LEGAL_TOPIC,
     _START_CREDENCIAMENTO_TOPIC,
     _START_CONTRATUAL_TOPIC,
-    _PUBLISH_COMPLETED_TOPIC,
 ]
 
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
@@ -1970,12 +1972,11 @@ def test_bpmn_fraude_topics_vs_registered_workers() -> None:
 
     UPDATED (t2.5-p2b-round2): (a) [CLOSED] o BPMN declara `operadora.fraude.notify_sla_risk`
     (ST_NotifySlaRisk) e fraude.py agora IMPLEMENTA e registra um `notify_sla_risk` real -- gap
-    MISSING_WORKER fechado, `missing_worker` agora e o conjunto vazio; (b) [ACCEPT, inalterado]
-    fraude.py registra `operadora.fraude.publish_completed` -- topico que o BPMN NUNCA declara
-    (todo no ST_Publish* deste BPMN roteia pelo generic `operadora.events.publish`) -- registro
-    ORFAO, morto do ponto de vista do engine, documentado ACCEPT (fora de escopo, nao tocado).
-    Pinned aqui (em vez de um comentario nao verificado) para que uma futura correcao apareca
-    como uma edicao INTENCIONAL deste teste.
+    MISSING_WORKER fechado, `missing_worker` agora e o conjunto vazio; (b) [CLOSED,
+    FAB-PUBLISH-CONTACT/NEW-A2-1] `operadora.fraude.publish_completed` -- o topico que o BPMN
+    NUNCA declarou -- foi APOSENTADO junto com a funcao, entao `orphan_worker` tambem e o conjunto
+    vazio. Este teste era o pin que pedia exatamente essa edicao intencional ("atualize este teste
+    e a suite se corrigido"); dos dois lados, agora, drift = regressao.
     """
     camunda_ns = "{http://camunda.org/schema/1.0/bpmn}"
     tree = ET.parse(_BPMN)
@@ -1999,7 +2000,8 @@ def test_bpmn_fraude_topics_vs_registered_workers() -> None:
         "(esperado conjunto vazio -- notify_sla_risk foi implementado no t2.5-p2b-round2; "
         "atualize este teste e a suite se um NOVO gap apareceu)"
     )
-    assert orphan_worker == {_PUBLISH_COMPLETED_TOPIC}, (
+    assert orphan_worker == set(), (
         f"topicos registrados sem topico BPMN correspondente mudou de composicao: {orphan_worker} "
-        f"(esperado apenas {_PUBLISH_COMPLETED_TOPIC} -- atualize este teste e a suite se corrigido)"
+        "(esperado conjunto VAZIO -- FAB-PUBLISH-CONTACT aposentou o unico orfao, "
+        "`operadora.fraude.publish_completed`; um novo orfao aqui e uma regressao, nao um ACCEPT)"
     )

@@ -13,6 +13,7 @@ from maezo.tools.workers.harness import (
     WorkerBpmnError,
     WorkerHarness,
 )
+from maezo.tools.workers import programa as programa_module
 from maezo.tools.workers.programa import (
     ERR_PROGRAM_DISCHARGE_NOT_HUMAN,
     ERR_PROGRAMA_NO_CONSENT,
@@ -545,9 +546,33 @@ def test_stop_processing() -> None:
 # ---------------------------------------------------------------
 
 
-def test_proactive_contact_happy_path() -> None:
+def test_proactive_contact_declara_a_lacuna_de_canal_em_vez_de_afirmar_contato() -> None:
+    """NEW-A2-2: `contato_realizado=True` era fato fabricado — NENHUM canal e contatado.
+
+    `ST_ProactiveContact` E uma task real do BPMN (topico declarado), mas nada neste repo fala com
+    o beneficiario a partir dela: o handler raw publica uma notificacao de OBSERVABILIDADE em
+    `operadora.notifications.internal` (`programa.proactive_contact`), que nao chega a pessoa
+    alguma; e no caminho `kafka is None` a funcao afirmava o contato sem ter feito nada. Os
+    remetentes reais da classe de acao `comunicacao_beneficiario`
+    (`spec/policies/autonomy/action-approvals.yaml`) sao as superficies WhatsApp dos agentes,
+    nunca este worker.
+
+    Portanto ha lacuna REAL a declarar (ao contrario de `fraude.intake`, cujo registro acontece de
+    fato noutro lugar e por isso devolve `{}`): o retorno passa a ser exatamente
+    `{"contato_gap": <token de classe>}`, mesma forma e mesma disciplina de
+    `evidencia_gap`/`dossie_gap`/`referral_gap` (BEA-09/FAB-REFER-TO-LEGAL) e de
+    `enrollment_gap` (ENROLL-BENEFICIARIO-SEM-EFEITO-REAL) neste mesmo modulo.
+    """
+    token = getattr(programa_module, "GAP_CONTATO_BENEFICIARIO_NAO_LIGADO", None)
+    assert token == "contato_beneficiario_nao_ligado", (
+        "o token de classe da lacuna de canal precisa existir no modulo (vocabulario FECHADO, "
+        "sem PHI, declarado no contrato)"
+    )
+
     result = proactive_contact(_consented_variables())
-    assert result["contato_realizado"] is True
+
+    assert result == {"contato_gap": token}
+    assert "contato_realizado" not in result
 
 
 def test_proactive_contact_never_sets_desfecho() -> None:
@@ -724,7 +749,7 @@ async def test_make_proactive_contact_handler_publishes_notification() -> None:
         },
     )
     result = await handler(task)
-    assert result["contato_realizado"] is True
+    assert result == {"contato_gap": "contato_beneficiario_nao_ligado"}
     assert len(kafka.published) == 1
     topic, payload, key = kafka.published[0]
     assert topic == "operadora.notifications.internal"
@@ -739,7 +764,9 @@ async def test_make_proactive_contact_handler_publishes_notification() -> None:
 async def test_make_proactive_contact_handler_no_producer_still_completes() -> None:
     handler = make_proactive_contact_handler(None)
     result = await handler(_task(variables={"consentimento_ativo": True, "consent_checked": True}))
-    assert result["contato_realizado"] is True
+    # `kafka is None` era o caminho mais desonesto dos dois: afirmava o contato sem sequer a
+    # notificacao de observabilidade ter saido.
+    assert result == {"contato_gap": "contato_beneficiario_nao_ligado"}
 
 
 async def test_make_proactive_contact_handler_no_consent_reclassifies_to_value_error() -> None:

@@ -251,14 +251,15 @@ _RELEASE_LOW_TOPIC = "operadora.pagto.release_low_value_payment"
 _RELEASE_HIGH_TOPIC = "operadora.pagto.release_high_value_payment"
 _NOTIFY_SLA_TOPIC = "operadora.pagto.notify_sla_risk"
 _REGISTER_REFUSAL_TOPIC = "operadora.pagto.register_payment_refusal"
-_PUBLISH_COMPLETED_TOPIC = "operadora.pagto.publish_completed"
 _PREPARE_DOSSIER_TOPIC = "operadora.pagto.prepare_approval_dossier"
 
 # Topicos servidos pelos workers REAIS registrados no harness (drain generico) — construido a
 # partir do que `register_pagto_workers` REALMENTE registra, NAO do que o BPMN declara (module
 # docstring FINDING 2 documents the mismatch in both directions). UPDATED t2.5-p2b-round2:
-#   - `_ASSESS_ADMISSIBILITY_TOPIC`/`_PUBLISH_COMPLETED_TOPIC` are registered but have NO matching
-#     BPMN service task (orphan — harmless, simply never dispatched for this BPMN; unchanged).
+#   - `_ASSESS_ADMISSIBILITY_TOPIC` is registered but has NO matching BPMN service task (orphan —
+#     harmless, simply never dispatched for this BPMN; unchanged). Its former companion
+#     `operadora.pagto.publish_completed` is GONE (FAB-PUBLISH-CONTACT/NEW-A2-1: orphan topic whose
+#     only output was a fabricated `evento_publicado: True`; function and registration retired).
 #   - `_NOTIFY_SLA_TOPIC`/`_REGISTER_REFUSAL_TOPIC` are NOW registered (t2.5-p2b-round2 closed
 #     these 2 of the 3 originally-missing topics) — INCLUDED in this list, so the drain genuinely
 #     fetches/completes both external tasks now.
@@ -286,7 +287,6 @@ _PAGTO_WORKER_TOPICS = [
     _RELEASE_HIGH_TOPIC,
     _NOTIFY_SLA_TOPIC,
     _REGISTER_REFUSAL_TOPIC,
-    _PUBLISH_COMPLETED_TOPIC,
     _PREPARE_DOSSIER_TOPIC,
 ]
 

@@ -32,7 +32,6 @@ from maezo.tools.workers.pagto import (
     execute_pagto,
     make_prepare_approval_dossier_handler,
     notify_sla_risk,
-    publish_completed,
     register_pagto_workers,
     register_payment_refusal,
     release_high_value_payment,
@@ -1560,34 +1559,24 @@ async def test_prepare_approval_dossier_never_releases_or_decides() -> None:
 
 
 # ---------------------------------------------------------------
-# publish_completed
+# FAB-PUBLISH-CONTACT (NEW-A2-1) — o irmao de `fraude.publish_completed`
 # ---------------------------------------------------------------
 
 
-def test_publish_completed_auto() -> None:
-    result = publish_completed(
-        {
-            "faixa_valor": "DENTRO_TETO_L2",
-        }
+def test_pagto_nao_registra_topico_orfao_publish_completed() -> None:
+    """NEW-A2-1: `publish_completed` foi APOSENTADA — funcao E registro.
+
+    Irmao byte-a-byte do caso de `fraude.py`: `operadora.pagto.publish_completed` nao e declarado
+    por `serviceTask` algum de SP-OP-PAGTO-001 (todo `ST_Publish*` roteia pelo generico
+    `operadora.events.publish`), o corpo tinha uma unica instrucao (`logger.info`) e o retorno
+    afirmava `evento_publicado: True` mais um `desfecho` recalculado em Python — vocabulario que o
+    BPMN ja fixa como literal `event_desfecho` em cada uma das suas quatro tasks de publicacao.
+    """
+    assert not hasattr(pagto_module, "publish_completed"), (
+        "pagto.publish_completed voltou a existir — era um worker orfao que fabricava "
+        "`evento_publicado: True` sem nenhuma costura de publish"
     )
-    assert result["desfecho"] == "liberado_automatico"
 
-
-def test_publish_completed_humano() -> None:
-    result = publish_completed(
-        {
-            "faixa_valor": "ALCADA_L1",
-            "decisao_pagamento": "APROVAR",
-        }
-    )
-    assert result["desfecho"] == "liberado_humano"
-
-
-def test_publish_completed_recusado() -> None:
-    result = publish_completed(
-        {
-            "faixa_valor": "ALCADA_L2",
-            "decisao_pagamento": "RECUSAR",
-        }
-    )
-    assert result["desfecho"] == "recusado_humano"
+    harness = WorkerHarness(None, worker_id="unit-test-pagto-orphan")  # type: ignore[arg-type]
+    register_pagto_workers(harness, None, dmn=FakeDmnTransport())
+    assert "operadora.pagto.publish_completed" not in set(harness.registered_topics)
