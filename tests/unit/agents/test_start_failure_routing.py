@@ -40,8 +40,15 @@ from typing import Any
 import pytest
 
 from maezo.platform import observability
-from maezo.platform.error_types import AGENT_ERROR_TYPE_OUTRO
-from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
+from maezo.platform.error_types import AGENT_ERROR_TYPE_OUTRO, classify_agent_error_type
+from maezo.runtime.start_outcome import START_FAILURE_ERROR_TYPE
+from maezo.tools.mcp_cibseven.transport import (
+    CibSevenError,
+    CibSevenVariableDecodeError,
+    FakeCibSevenTransport,
+    ProcessInstance,
+    ProcessNotFoundError,
+)
 from maezo.tools.workers.dmn_transport import DmnVersion
 from tests.support.audit_fakes import FakeStartAuditSink
 
@@ -476,3 +483,37 @@ async def test_route_after_start_keeps_a_successful_start_on_the_continue_branch
     assert route_after_start({"process_started": False}) == "continue"
     assert route_after_start({}) == "continue"
     assert route_after_start({"process_started": False, "start_failed": False}) == "continue"
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        CibSevenError("engine indisponivel"),
+        ProcessNotFoundError("nenhuma instancia encontrada"),
+        CibSevenVariableDecodeError("json invalido"),
+    ],
+    ids=["CibSevenError", "ProcessNotFoundError", "CibSevenVariableDecodeError"],
+)
+def test_start_failure_error_type_constant_matches_the_classifier_it_stands_in_for(
+    exc: CibSevenError,
+) -> None:
+    """`START_FAILURE_ERROR_TYPE` (F3 / VERIFY-TRAIN2 FINDING 3) e' um valor fixo porque o no'
+    `notify_start_failure` nao tem a excecao original em escopo (ela ja virou string em
+    `start_failed_state`) -- a justificativa escrita no modulo e' que o valor e' o MESMO que
+    `classify_agent_error_type(exc)` devolveria para QUALQUER `CibSevenError` (ou subclasse dela),
+    porque a busca do classificador e' por nome exato de classe, sem caminhar a MRO, e nenhuma
+    delas esta' na tabela.
+
+    Este teste FIXA essa equivalencia: se um dia alguem adicionar `"CibSevenError"` (ou uma de
+    suas subclasses) a `_AGENT_ERROR_TYPE_BY_EXCEPTION_CLASS` com um valor diferente de
+    `AGENT_ERROR_TYPE_OUTRO`, o docstring do CC-01 passa a MENTIR e este teste vai a RED --
+    diferente de `test_start_failure_yields_error_desfecho_and_counts_an_agent_error`, que so'
+    verifica o literal `AGENT_ERROR_TYPE_OUTRO` e continuaria verde mesmo com o classificador
+    divergindo.
+    """
+    assert classify_agent_error_type(exc) == START_FAILURE_ERROR_TYPE, (
+        f"START_FAILURE_ERROR_TYPE ({START_FAILURE_ERROR_TYPE!r}) divergiu de "
+        f"classify_agent_error_type({exc.__class__.__name__}) "
+        f"({classify_agent_error_type(exc)!r}) -- o constante do sitio CC-01 nao pode mais "
+        "substituir o classificador sem perder um rotulo de error_type"
+    )
