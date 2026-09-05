@@ -399,9 +399,7 @@ async def test_start_failure_yields_error_desfecho_and_counts_an_agent_error(
     # espiao captura os ROTULOS — o que prova, alem da contagem, que o sitio CC-01 declara o agente
     # certo em vez de um rotulo generico.
     contagem: list[dict[str, str]] = []
-    monkeypatch.setattr(
-        observability, "record_agent_error", lambda **rotulos: contagem.append(rotulos)
-    )
+    monkeypatch.setattr(observability, "record_agent_error", lambda **rotulos: contagem.append(rotulos))
 
     graph = _graph_class(agent_id, class_name)(
         inference=_FakeInference(),
