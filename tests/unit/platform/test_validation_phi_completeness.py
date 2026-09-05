@@ -746,6 +746,49 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "1636 -> 1638 occurrences."
         ),
     ),
+    CorpusDelta(
+        date="2026-09-05",
+        pr="#339",
+        name="reembolso_auto_liberado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "fix/reembolso-bloqueio-auto-overpay (REEMBOLSO-AUTO-OVERPAY-a, owner decision R-058) "
+            "adds the fail-closed block of SP-OP-REEMBOLSO-001's AUTOMATIC payment path: "
+            "`ST_CalculateAmount`'s worker now publishes this boolean from the named constant "
+            "`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` (reembolso.py, `False` until the actuarial "
+            "sign-off), and `Flow_GW_AutoAprovar`'s conditionExpression requires it ALONGSIDE the "
+            "DMN's own `AUTO_APROVAR` recommendation — so every reimbursement the automatic path "
+            "would have paid falls through the gateway default to ANALISE_HUMANA. Exactly ONE "
+            "declaration, non-free-text: the gateway's `${auto_aprovacao.recomendacao == "
+            "'AUTO_APROVAR' && reembolso_auto_liberado}` (juel_root) — the worker side is Python, "
+            "not a BPMN surface. New name, a boolean GOVERNANCE-SWITCH fact about whether the "
+            "automatic path may pay at all (never beneficiary PHI — absent from PHI_PROCESS_VARS, "
+            "ADR-0006), CLEAN bucket, no LISTED/SHAPE_SUSPECT movement. Corpus 331 -> 332 names, "
+            "1638 -> 1639 occurrences. Numero de PR CONFIRMADO (#339, aberta pelo orquestrador em "
+            "2026-09-05; §Delta-F4 da revisao de gatekeeper)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-05",
+        pr="#339",
+        name="origem_pagamento",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "same PR/task as `reembolso_auto_liberado` above — the SECOND, model-independent half "
+            'of the R-058 block. One `camunda:inputParameter name="origem_pagamento">AUTO_L2` on '
+            "`ST_IssuePaymentAuto` (bpmn_input_parameter), i.e. the automatic payment task "
+            "identifying ITSELF to the worker: `require_pagamento_autorizado` refuses that origin "
+            "while the switch is closed, so re-opening the gateway condition alone still does not "
+            "move money. Activity-LOCAL by construction, so it shadows any process-scope homonym a "
+            "start payload could seed — seeding it elsewhere can only ADD refusals, never remove "
+            "one. Exactly ONE declaration; new name, a payment-path ORIGIN tag (never beneficiary "
+            "PHI — absent from PHI_PROCESS_VARS, ADR-0006), CLEAN bucket, no LISTED/SHAPE_SUSPECT "
+            "movement. Corpus 332 -> 333 names, 1639 -> 1640 occurrences. Numero de PR CONFIRMADO "
+            "(#339, mesma PR da entrada acima; §Delta-F4)."
+        ),
+    ),
 )
 
 
@@ -756,7 +799,7 @@ class TestBuckets:
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 9
-        assert expected_clean == 316
+        assert expected_clean == 318
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 9,
@@ -765,7 +808,7 @@ class TestBuckets:
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
 
     def test_the_occurrence_count_is_pinned(self, live_sweep: Sweep) -> None:
-        """331 names over 1638 occurrences — the number the ledger row quotes.
+        """333 names over 1640 occurrences — the number the ledger row quotes.
 
         Pinned because the first ledger draft quoted 1637, a figure no state of
         this branch produced. A number reported to a reader and reproducible by
@@ -777,8 +820,8 @@ class TestBuckets:
         """
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
-        assert len(live_sweep.names) == expected_names == 331
-        assert len(live_sweep.refs) == expected_refs == 1638
+        assert len(live_sweep.names) == expected_names == 333
+        assert len(live_sweep.refs) == expected_refs == 1640
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -853,7 +896,7 @@ class TestBuckets:
             "cid10": [
                 "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59 (bpmn_declared_input)",
                 "SP-OP-RECURSO-001_Recurso_Glosa.bpmn:86 (bpmn_declared_input)",
-                "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:61 (bpmn_declared_input)",
+                "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:67 (bpmn_declared_input)",
             ],
             "detalhes_requisicao": [
                 "SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn:55 (bpmn_declared_input)",
@@ -900,8 +943,8 @@ class TestBuckets:
         assert f"## {LISTED} (6)" in rendered
         assert f"## {SHAPE_SUSPECT} (9)" in rendered
         assert (
-            f"## {CLEAN} (316)" in rendered
-        )  # see CORPUS_DELTA_LOG — vencimento_ausente entered the corpus (#320)
+            f"## {CLEAN} (318)" in rendered
+        )  # see CORPUS_DELTA_LOG — reembolso_auto_liberado/origem_pagamento entered (R-058)
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to
