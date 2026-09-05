@@ -38,6 +38,7 @@ from pathlib import Path
 
 import yaml
 
+from maezo.platform.lifecycle.erasure_plan import PERSISTENCE_LAYERS, IdentityResolution
 from maezo.platform.lifecycle.legal_bases_matrix import REQUIRED_ENTRY_FIELDS
 from maezo.tools.workers import lgpd
 from maezo.tools.workers.base import WorkerBase
@@ -437,6 +438,75 @@ def test_the_candidate_matrix_block_keeps_its_fail_closed_root_and_is_schema_val
             )
         assert entry["categoria"] not in seen, f"duplicate categoria {entry['categoria']!r}"
         seen.add(entry["categoria"])
+
+
+def test_the_candidate_scope_b_layers_are_derived_from_persistence_layers() -> None:
+    """§Delta-3 Δ3·1 — `escopo_b` in the SIGNABLE YAML block is held against the real
+    `erasure_plan.PERSISTENCE_LAYERS`, in both directions:
+
+      * every `(camada, tabela)` the block names must EXIST in the enumeration — a signer must
+        never be asked to declare retention over a relation the platform does not know;
+      * every named layer whose `resolucao` is `RETIRADA` must carry `retirada: true`, and no
+        live layer may carry it.
+
+    This is the fence for the defect `abb9d60` created: `0009_drop_pgvector` (DU-01-b, owner
+    decision R-005) retired `semantica`/`agent_memory.embedding` — same enum as the
+    `agent_checkpoints`/`agent_checkpoint_writes` pair `0006` retired — while the block still
+    listed it under `camadas_cobertas` as live. Signing that block would have declared retention
+    over a relation that no longer exists."""
+    block = _candidate_matrix_block()
+    escopo = block["escopo_b"]
+    assert isinstance(escopo, dict)
+
+    by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
+    unknown: list[str] = []
+    mismarked: dict[str, str] = {}
+    seen: set[tuple[str, str]] = set()
+
+    for group in ("camadas_cobertas", "nao_cobertas"):
+        entries = escopo[group]
+        assert isinstance(entries, list) and entries, f"escopo_b.{group} is empty"
+        for entry in entries:
+            camada = entry["camada"]
+            marked_retired = bool(entry.get("retirada"))
+            for tabela in entry["tabelas"]:
+                key = (camada, tabela)
+                seen.add(key)
+                layer = by_key.get(key)
+                if layer is None:
+                    unknown.append(f"{group}: {camada}/{tabela}")
+                    continue
+                really_retired = layer.resolucao is IdentityResolution.RETIRADA
+                if really_retired and not marked_retired:
+                    mismarked[f"{camada}/{tabela}"] = (
+                        f"PERSISTENCE_LAYERS ordem {layer.ordem} says resolucao=RETIRADA "
+                        f"({layer.migracao}) but the signable block does not mark it "
+                        "`retirada: true` — the DPO would be signing retention over a relation "
+                        "that no longer exists"
+                    )
+                elif marked_retired and not really_retired:
+                    mismarked[f"{camada}/{tabela}"] = (
+                        f"the block marks it `retirada: true` but PERSISTENCE_LAYERS ordem "
+                        f"{layer.ordem} says resolucao={layer.resolucao.value} — the layer is "
+                        "live and its retention IS a decision the DPO owes"
+                    )
+
+    assert not unknown, f"escopo_b names relation(s) absent from erasure_plan.PERSISTENCE_LAYERS: {unknown}"
+    assert not mismarked, f"escopo_b disagrees with PERSISTENCE_LAYERS: {mismarked}"
+    assert seen, "escopo_b named no relation at all (fence inert?)"
+
+    # A retired layer must also be visible as retired in the prose, not only in the YAML.
+    retired_named = {
+        f"{camada}/{tabela}"
+        for camada, tabela in seen
+        if by_key[(camada, tabela)].resolucao is IdentityResolution.RETIRADA
+    }
+    text = _draft_text("RETENTION-MATRIX-CANDIDATE.md")
+    for name in retired_named:
+        tabela = name.split("/", 1)[1]
+        assert "RETIRADA" in text and tabela in text, (
+            f"{name} is retired but the draft's prose does not say so"
+        )
 
 
 def test_the_retention_matrix_template_is_still_the_unratified_placeholder() -> None:

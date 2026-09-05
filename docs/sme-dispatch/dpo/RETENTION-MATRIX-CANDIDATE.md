@@ -51,8 +51,15 @@ ficam **declaradas como NÃO COBERTAS** por esta matriz — não são omissão, 
 | CronJob (`values.yaml::lifecycle.jobs`) | Comando | Camadas / relações que ele tocaria |
 |---|---|---|
 | `lifecycle-expurgo-working` (`0 3 * * *`) | `expurgo-working` | `trabalho`: `checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations` (+ `agent_checkpoints`/`agent_checkpoint_writes`, RETIRADAS na migração 0006) |
-| `lifecycle-verify-erasure` (`0 4 1 * *`) | `verify-erasure` | `episodica`: `agent_memory`; `semantica`: `agent_memory.embedding`; `registro_de_eliminacao`: `erasure_log` |
+| `lifecycle-verify-erasure` (`0 4 1 * *`) | `verify-erasure` | `episodica`: `agent_memory`; `registro_de_eliminacao`: `erasure_log` (+ `semantica`/`agent_memory.embedding`, **RETIRADA** na migração `0009_drop_pgvector`) |
 | `lifecycle-audit-retention` (`0 5 1 * *`) | `audit-retention` | `auditoria`: `audit_chain`, `audit_emit_dedup` |
+
+**Camadas RETIRADAS por migração (a entrada fica, o dado não existe):** `trabalho`/
+`agent_checkpoints` e `trabalho`/`agent_checkpoint_writes` (`0006_retire_dead_checkpoint_tables`)
+e, **novo em `abb9d60`**, `semantica`/`agent_memory.embedding` (`0009_drop_pgvector`, DU-01-b,
+decisão do dono R-005). As três continuam enumeradas em `PERSISTENCE_LAYERS` com
+`resolucao: RETIRADA` e sem probe — o encarregado não assina retenção sobre elas porque não há
+dado; assina o reconhecimento de que a camada existiu. Ver §8.2.
 
 **Fora do escopo B (declaradas não cobertas):** `custodia`/`custody_bundles`,
 `idempotencia`/`a2a_idempotency`, `idempotencia`/`driver_idempotency`, `inbox_amh`/`amh_inbox`,
@@ -73,7 +80,7 @@ decreto.** O princípio de controle proposto: LGPD art. 18 VI (eliminação) ced
 
 | # | `categoria` | Onde materializa (relação → CronJob) | `base_legal` a confirmar | `retencao` proposta | `acao` proposta | Mecanismo de eliminação que **existe** hoje em `src/` |
 |---|---|---|---|---|---|---|
-| 1 | `dados_saude_prontuario` | `checkpoint_blobs` (BYTEA que carrega PHI) → `expurgo-working`; `agent_memory` + `agent_memory.embedding` → `verify-erasure` | LGPD art. 11 + art. 16 I; **Lei 13.787/2018 art. 6**; CFM Res. 1.821/2007 | **≥ 20 anos** do último lançamento | `RETER_COM_BASE_LEGAL` | **Nenhum.** `ErasureManager._erase_working/_erase_episodic/_erase_semantic` não existem como SQL; `erase()` levanta `ErasureNotImplementedError` (`src/maezo/platform/erasure.py::ErasureManager.erase`) |
+| 1 | `dados_saude_prontuario` | `checkpoint_blobs` (BYTEA que carrega PHI) → `expurgo-working`; `agent_memory` → `verify-erasure` (a coluna `agent_memory.embedding` era a camada `semantica` e foi **RETIRADA** por `0009_drop_pgvector`) | LGPD art. 11 + art. 16 I; **Lei 13.787/2018 art. 6**; CFM Res. 1.821/2007 | **≥ 20 anos** do último lançamento | `RETER_COM_BASE_LEGAL` | **Nenhum.** `ErasureManager._erase_working/_erase_episodic/_erase_semantic` não existem como SQL; `erase()` levanta `ErasureNotImplementedError` (`src/maezo/platform/erasure.py::ErasureManager.erase`) |
 | 2 | `cadastrais_contratuais` | `agent_memory` (linhas com `fhir_patient_id`) → `verify-erasure`; `checkpoints`/`checkpoint_writes` (variáveis de processo) → `expurgo-working` | LGPD art. 7 V (execução de contrato) + art. 16 I; Cód. Civil art. 206 | **vínculo + 5 anos** | `ELIMINAR` após o prazo | **Nenhum.** Mesmo bloqueio do item 1; ver também a ponte de identidade ausente em §5 |
 | 3 | `consentimento_revogacao` | `audit_chain` (`decision_basis` jsonb, migração `0002:36`) → `audit-retention` | LGPD art. 16 I; accountability art. 37/50 | enquanto durar + **5 anos** pós-cessação | `RETER_COM_BASE_LEGAL` | **Nenhum.** A poda de `audit_chain` está bloqueada (§5, ADR-0020/ADR-0029) |
 | 4 | `auditoria_nao_repudio` | `audit_chain`, `audit_emit_dedup` (`0005:59-67`) → `audit-retention` | ADR-0007; LGPD art. 16 I + art. 7 VI (defesa em processo) | **5 anos** (a mesma janela que `retention.py` assume) | `RETER_COM_BASE_LEGAL` — nunca eliminável a pedido do titular | **Bloqueado por desenho.** `RetentionManager.retention_query()` (`src/maezo/platform/retention.py`) constrói o `DELETE FROM audit_chain WHERE ts < cutoff` **sem** predicado de legal-hold e **sem** re-âncora; tem ZERO chamadores de produção, travado em CI |
@@ -138,6 +145,13 @@ escopo_b:
       tabelas: [agent_memory]
     - camada: semantica           # CronJob lifecycle-verify-erasure
       tabelas: ["agent_memory.embedding"]
+      retirada: true              # <- NAO ha dado a reter nesta camada; entrada mantida de proposito
+      motivo_retirada: >-
+        RETIRADA pela migracao `0009_drop_pgvector` (DU-01-b, decisao do dono R-005, 2026-09-04).
+        Em `erasure_plan.py::PERSISTENCE_LAYERS` a entrada ordem 8 esta `resolucao: RETIRADA` e
+        `count_statement: None` -- mesmo tratamento de `agent_checkpoints`/`agent_checkpoint_writes`
+        (criadas por 0001, removidas por 0006). A linha PERMANECE: apagar uma camada encolhe em
+        silencio um escopo de revisao que so o encarregado pode encolher.
     - camada: registro_de_eliminacao
       tabelas: [erasure_log]
     - camada: auditoria           # CronJob lifecycle-audit-retention
@@ -251,3 +265,26 @@ O que mudou neste rascunho: a citação por linha de `.github/CODEOWNERS` foi tr
 citação deste dossiê passam a ser seguradas por `tests/unit/docs/test_dpo_drafts_citations.py`,
 que também relê o bloco YAML da §4 com o carregador real e fica vermelho se a raiz
 `unratified: true` sumir ou se uma entrada deixar de satisfazer `REQUIRED_ENTRY_FIELDS`.
+
+### 8.2 Reancoragem pós-merge `abb9d60` (trem #326) — 2026-09-05 (§Delta-3 Δ3·1)
+
+`abb9d60` trouxe a migração **`0009_drop_pgvector`** (DU-01-b, decisão do dono **R-005**), que
+**aposentou a camada `semantica`**: em `erasure_plan.py::PERSISTENCE_LAYERS` a entrada de ordem 8
+(`agent_memory.embedding`) passou a `resolucao: RETIRADA` com `count_statement: None` — o mesmo
+enum que `agent_checkpoints`/`agent_checkpoint_writes` já carregavam desde `0006`.
+
+Este dossiê ainda a nomeava como camada **coberta e viva** em **três** lugares: a linha do CronJob
+`lifecycle-verify-erasure` na §2, a linha 1 da §3.1 e — o mais grave — `escopo_b.camadas_cobertas`
+**dentro do bloco YAML assinável da §4**. Um encarregado que assinasse aquele bloco estaria
+declarando retenção sobre uma relação que não existe mais. Os três lugares foram corrigidos com a
+mesma marcação que o dossiê já usava para o par de `0006`, e a entrada da §4 ganhou
+`retirada: true` + `motivo_retirada`.
+
+**A entrada NÃO foi apagada, de propósito** — apagá-la encolheria em silêncio um escopo de revisão
+que só o encarregado pode encolher, que é exatamente o argumento que o próprio `erasure_plan.py`
+registra para manter a linha. O carregador ignora `escopo_b` inteiro (lê apenas `unratified` e
+`categorias`), então as duas chaves novas não mudam nada em runtime.
+
+A cerca passou a **derivar** `escopo_b` de `PERSISTENCE_LAYERS`: toda camada/tabela que o YAML
+nomeia precisa existir na enumeração, e toda camada com `resolucao: RETIRADA` precisa estar marcada
+`retirada: true` (e vice-versa). Nenhum dos dois lados pode envelhecer em silêncio de novo.
