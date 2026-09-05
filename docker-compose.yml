@@ -27,7 +27,13 @@ services:
   # Core profile
   # ---------------------------------------------------------------------------
   postgres:
-    image: pgvector/pgvector:pg16
+    # DU-01-b (decisao do dono R-005, 2026-09-04): a imagem era `pgvector/pgvector:pg16`. pgvector
+    # deixou de ser dependencia da plataforma — `0009_drop_pgvector` remove a coluna
+    # `agent_memory.embedding` e a extensao `vector`, e nao ha nenhum indice/consumidor vetorial no
+    # repositorio. Mesmo major (16), imagem oficial. `0001_schema_agents` foi tornada tolerante a
+    # ausencia da extensao no mesmo PR — sem isso o primeiro passo de `alembic upgrade head` morre
+    # aqui com `extension "vector" is not available`.
+    image: postgres:16
     profiles: ["core"]
     environment:
       POSTGRES_USER: maezo

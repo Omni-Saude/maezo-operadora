@@ -103,9 +103,12 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated; same rationale a
   FHIR failure degrades to a dossier gap note, never blocks routing, and structurally can only
   run AFTER the consent gate.
 - No episodic memory write (`mcp-memory.read_write`, ADR-0002) — the donor's `finalize` writes
-  the LGPD cessation/case note to memory; v2's `MemoryServer` requires a live Postgres/pgvector
-  schema not yet wired into any agent graph in this repo (same boundary Helena/Rafael/Marina
-  disclose). `finalize` is a terminal no-op; adding the memory write is a follow-up.
+  the LGPD cessation/case note to memory; v2's `MemoryServer.store_episodic` refuses fail-closed
+  (the `agent_memory` table exists since migration `0001`; the tool's `(agent_id, event)`
+  signature carries neither `tenant_id` nor `thread_id`, both `text NOT NULL` — GAP-DU-01-a).
+  The semantic column was dropped by `0009_drop_pgvector`, ADR-0002 §3 SUSPENDED pending a
+  consumer (ADR-0047, DRAFT). Same boundary Helena/Rafael/Marina disclose. `finalize` is a
+  terminal no-op; adding the memory write is a follow-up.
 - No cross-agent A2A delegation (`care.stratify`/`care.enroll` -> Valentina) is wired.
   CORRECTED (CC-04, fleet audit) — the prior text here claimed v2's `a2a/` package had no
   `DelegationEnvelope`/`DelegationDispatcher`; both exist and are fully built/tested

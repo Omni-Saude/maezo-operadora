@@ -34,7 +34,7 @@ make dev-stack                # equivalent to: docker compose --profile core up 
 Services started:
 | Service | URL | Purpose |
 |---|---|---|
-| PostgreSQL+pgvector | localhost:5433 | Agent state, memory, audit |
+| PostgreSQL | localhost:5433 | Agent state, memory, audit |
 | CIB Seven | localhost:8080 | BPMN governance engine |
 | HAPI FHIR R4 | localhost:8081 | FHIR R4 canonical store |
 | Kafka | localhost:9092 | CDC + agent events |
@@ -92,7 +92,7 @@ docker compose --profile core --profile observability down -v # destroy volumes
 ```
 deploy/terraform/
   modules/
-    aurora-postgres/   # Aurora PostgreSQL 16 + pgvector + per-tenant CMK
+    aurora-postgres/   # Aurora PostgreSQL 16 + per-tenant CMK
     ecr/               # ECR repo maezo-agent with lifecycle policy
     eks-cluster/       # EKS (create or reference existing; default=reference)
     github-oidc/       # OIDC trust + scoped IAM roles; mirrors amh-data-platform ADR-022
@@ -730,64 +730,47 @@ check collector memory/drop metrics directly per the steps below.
 
 ### pgvector scale
 
-**Status:** PLANNED — NOT YET IMPLEMENTED. Neither `MaezoMemoryRowcountApproachingCeiling` nor
-`MaezoMemoryRowcountCritical` exists in `deploy/observability/alert-rules.yml`, and
-`maezo_memory_rowcount` (named below, claimed emitted by `mcp_memory/server.py` after each
-`store_episodic`) does not exist anywhere in `src/maezo/` (RUNBOOK-PHANTOM-ALERTS-REMAINING-14,
-verified 2026-09-03: `grep -n 'alert: MaezoMemoryRowcountApproachingCeiling\|alert:
-MaezoMemoryRowcountCritical' deploy/observability/alert-rules.yml` and `grep -rn
-'maezo_memory_rowcount\|rowcount' src/maezo/` both 0 hits). Both rules belong in
-`deploy/observability/alert-rules.yml` (owner-gated). Meanwhile, operators should check the row
-count directly via the `psql` steps below — there is no automated ceiling alert today.  
+**Status:** **REMOVED** — e sem objeto. Estes dois alertas nunca existiram em
+`deploy/observability/alert-rules.yml` e a metrica `maezo_memory_rowcount` nunca existiu em
+`src/maezo/` (RUNBOOK-PHANTOM-ALERTS-REMAINING-14, verificado 2026-09-03). Desde 2026-09-04 nao ha
+mais nem o que medir: **DU-01-b** (decisao do dono R-005) removeu a camada semantica —
+`0009_drop_pgvector` dropou `agent_memory.embedding vector(1536)` e a extensao `vector`, o
+`docker-compose.yml` passou para a imagem `postgres:16` e o parameter group do Aurora perdeu o
+token `pgvector`. Nao ha indice ivfflat/HNSW neste repositorio e nunca houve
+(`grep -rn 'ivfflat|hnsw' src/maezo` -> 0 hits), entao o teto de ~5M embeddings do ADR-0002
+tambem ficou sem sujeito.
+
+A secao nao e' apagada de proposito: um operador que encontre a mencao ao teto em ADR-0002
+§Negativas precisa achar aqui o registro de que ela caducou. Se ADR-0002 §3 for des-suspenso um
+dia — ato exclusivo do dono, ver a emenda DRAFT em
+`docs/adr/0047-emenda-adr0002-secao3-camada-semantica-suspensa.md` — o procedimento abaixo volta a
+valer, e os dois alertas precisam entao ser ESCRITOS em `deploy/observability/alert-rules.yml`
+(owner-gated) junto com a metrica que os alimentaria.  
 **Alert:** `MaezoMemoryRowcountApproachingCeiling` or `MaezoMemoryRowcountCritical`  
-**Meaning:** The agent_memory pgvector table is approaching or exceeding the scaling ceiling for its index configuration.  
-**Context:**
-- The ivfflat index is tuned for ~5M rows with `lists=100`
-- At >4M rows (80% ceiling) — warning, plan a re-index
-- At >4.5M rows (90% ceiling) — critical, recall is already impaired
-- ivfflat recall degrades as probes no longer cover relevant lists; `lists` must scale with sqrt(row_count)
+**Meaning:** `agent_memory` estaria se aproximando do teto de escala do indice vetorial —
+condicao que nao pode ocorrer enquanto a camada semantica estiver suspensa.  
+**Metrics involved:** nenhuma. `maezo_memory_rowcount` nunca foi emitida, e
+`src/maezo/tools/mcp_memory/server.py` nao escreve em `agent_memory` (as duas ferramentas recusam
+fail-closed — GAP-DU-01-a).
 
-**Metrics involved:**
-- `maezo_memory_rowcount`: gauge emitted by the agent_memory MCP store (labels: tenant)
-- Emitted by: `src/maezo/tools/mcp_memory/server.py` after each store_episodic
-
-**First checks:**
-1. Check current row count (this alert is tenant-wide, not per-agent — any agent pod
-   has DB connectivity; using `agent-helena` as a representative example):
+**First checks (a camada EPISODICA continua existindo; o que sumiu foi a coluna vetorial):**
+1. Contagem de linhas (o escopo e' o tenant, nao o agente — qualquer pod de agente tem
+   conectividade; `agent-helena` como exemplo representativo):
    `kubectl exec -n maezo-{tenant} -it deploy/agent-helena -- psql -U maezo -d maezo -c "SELECT COUNT(*) FROM agent_memory;"`
-2. Check index status: `kubectl exec -n maezo-{tenant} -it deploy/agent-helena -- psql -U maezo -d maezo -c "SELECT schemaname, tablename, indexname FROM pg_indexes WHERE tablename='agent_memory';"`
-3. Check ivfflat parameters: `psql -c "SELECT * FROM pg_class WHERE relname ~ 'agent_memory.*idx';"`
+2. Indices existentes: `kubectl exec -n maezo-{tenant} -it deploy/agent-helena -- psql -U maezo -d maezo -c "SELECT schemaname, tablename, indexname FROM pg_indexes WHERE tablename='agent_memory';"`
+3. Confirmar que a coluna vetorial de fato saiu:
+   `psql -c "SELECT count(*) FROM information_schema.columns WHERE table_name='agent_memory' AND column_name='embedding';"` (esperado: 0)
 
-**At 80% ceiling (4M rows — warning):**
-1. **Plan** a re-index during the next maintenance window (low-traffic period)
-2. Calculate new `lists` value: `ceil(sqrt(row_count))` → for 5M rows, lists=224; for 10M rows, lists=316
-3. Create a backlog ticket for the SRE team
-
-**At 90% ceiling (4.5M+ rows — critical):**
-1. **Immediate action required**
-2. Increase `ivfflat.probes` session parameter to mitigate recall degradation:
-   ```sql
-   SET ivfflat.probes = 2;  -- default is 1
-   ```
-3. Schedule an emergency re-index (can run concurrently without locking):
-   ```sql
-   ALTER INDEX agent_memory_embedding_idx SET (lists = 224);  -- new lists value
-   REINDEX INDEX CONCURRENTLY agent_memory_embedding_idx;
-   ```
-4. Monitor re-index progress: `SELECT phase, tuples_done, tuples_total FROM pg_stat_progress_create_index;`
-
-**Re-index procedure (detailed):**
-1. Increase `lists` before reindexing: `ALTER INDEX ... SET (lists = ...)`
-2. Run `REINDEX INDEX CONCURRENTLY` (does NOT block reads/writes)
-3. Re-index typically takes 30 min–2 hr depending on row count
-4. After re-index, verify recall is restored: run a sample semantic search query and compare latency/score variance
-5. Decrease `ivfflat.probes` back to 1 if probes=2 was temporary
-
-**Long-term scaling strategy:**
-- Monitor row growth: target max 3M rows per tenant (leave headroom)
-- Consider HNSW index as alternative: better recall at high row counts, higher build cost
-- Implement TTL-based cleanup: archive old conversation memory entries to reduce row count
-- Evaluate partitioning by tenant (separate tables or schemas) if row growth is unavoidable
+**Procedimento historico de escala do indice vetorial (INAPLICAVEL hoje — nao ha indice).**
+Preservado porque e' o conteudo que teria de ser reexecutado se a camada voltar:
+- dimensionamento: `lists = ceil(sqrt(row_count))` (5M linhas -> 224; 10M -> 316), com o indice
+  originalmente previsto para ~5M linhas em `lists=100`;
+- 80% do teto (4M linhas): planejar re-index na proxima janela de manutencao;
+- 90% do teto (4,5M linhas): mitigar com `SET ivfflat.probes = 2` e re-index de emergencia via
+  `ALTER INDEX ... SET (lists = ...)` + `REINDEX INDEX CONCURRENTLY` (nao bloqueia leitura/escrita),
+  acompanhando `pg_stat_progress_create_index`;
+- estrategia de longo prazo: teto pratico de 3M linhas por tenant, HNSW como alternativa de maior
+  recall e maior custo de build, TTL/arquivamento de memoria antiga e particionamento por tenant.
 
 ### Crash loop
 
