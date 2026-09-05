@@ -509,6 +509,38 @@ def test_the_candidate_scope_b_layers_are_derived_from_persistence_layers() -> N
         )
 
 
+def test_the_candidate_scope_b_enumerates_every_persistence_layer() -> None:
+    """§Delta-4 Δ4·1 — COMPLETENESS, the direction its sibling above does not cover.
+
+    The correctness fence judges only what the block NAMES, so DELETING a whole `camada` entry
+    passed green. For a document a human signs, disappearance is the worse failure: a layer
+    vanishes and the signer never learns it existed.
+
+    The draft's §8.3 records the choice made here. Rather than keep a "prose-only" exception list
+    — one more thing that rots silently, which is exactly how `semantica` survived `0009` inside
+    the block as "live" — the two relations `0006` retired (`agent_checkpoints`,
+    `agent_checkpoint_writes`) were ADDED to the block marked `retirada: true`. The signable block
+    therefore enumerates ALL of `PERSISTENCE_LAYERS`, and this is a plain set equality with no
+    exceptions to maintain."""
+    escopo = _candidate_matrix_block()["escopo_b"]
+    named = {
+        (entry["camada"], tabela)
+        for group in ("camadas_cobertas", "nao_cobertas")
+        for entry in escopo[group]
+        for tabela in entry["tabelas"]
+    }
+    real = {(layer.camada, layer.tabela) for layer in PERSISTENCE_LAYERS}
+
+    missing = sorted(real - named)
+    assert not missing, (
+        f"escopo_b does NOT enumerate every relation in erasure_plan.PERSISTENCE_LAYERS — "
+        f"missing: {missing}. A layer removed from the signable block disappears from the "
+        "encarregado's review scope without anyone deciding to remove it; retired layers STAY, "
+        "marked `retirada: true` (draft §8.2/§8.3)"
+    )
+    assert named == real, f"escopo_b names relations the enumeration does not: {sorted(named - real)}"
+
+
 def test_the_retention_matrix_template_is_still_the_unratified_placeholder() -> None:
     data = yaml.safe_load((_REPO_ROOT / _RETENTION_TEMPLATE).read_text(encoding="utf-8"))
     assert data.get("unratified") is True

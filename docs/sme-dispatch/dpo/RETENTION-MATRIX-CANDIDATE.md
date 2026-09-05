@@ -59,7 +59,8 @@ ficam **declaradas como NÃO COBERTAS** por esta matriz — não são omissão, 
 e, **novo em `abb9d60`**, `semantica`/`agent_memory.embedding` (`0009_drop_pgvector`, DU-01-b,
 decisão do dono R-005). As três continuam enumeradas em `PERSISTENCE_LAYERS` com
 `resolucao: RETIRADA` e sem probe — o encarregado não assina retenção sobre elas porque não há
-dado; assina o reconhecimento de que a camada existiu. Ver §8.2.
+dado; assina o reconhecimento de que a camada existiu. **As três estão no bloco assinável da §4**,
+marcadas `retirada: true` (§8.3). Ver §8.2.
 
 **Fora do escopo B (declaradas não cobertas):** `custodia`/`custody_bundles`,
 `idempotencia`/`a2a_idempotency`, `idempotencia`/`driver_idempotency`, `inbox_amh`/`amh_inbox`,
@@ -141,6 +142,15 @@ escopo_b:
   camadas_cobertas:
     - camada: trabalho            # CronJob lifecycle-expurgo-working
       tabelas: [checkpoints, checkpoint_blobs, checkpoint_writes, checkpoint_migrations]
+    - camada: trabalho            # CronJob lifecycle-expurgo-working
+      tabelas: [agent_checkpoints, agent_checkpoint_writes]
+      retirada: true              # <- NAO ha dado a reter nestas relacoes; entradas mantidas de proposito
+      motivo_retirada: >-
+        RETIRADAS pela migracao `0006_retire_dead_checkpoint_tables` (criadas por 0001, removidas
+        por 0006). Em `erasure_plan.py::PERSISTENCE_LAYERS` sao as entradas de ordem 5 e 6, ambas
+        `resolucao: RETIRADA` e sem probe. Estavam so na prosa da §2 ate 2026-09-05 (§Delta-4);
+        agora estao no bloco assinavel, para que ele enumere as DEZESSEIS relacoes da plataforma e
+        nao um subconjunto -- ver §8.3.
     - camada: episodica           # CronJob lifecycle-verify-erasure
       tabelas: [agent_memory]
     - camada: semantica           # CronJob lifecycle-verify-erasure
@@ -288,3 +298,22 @@ registra para manter a linha. O carregador ignora `escopo_b` inteiro (lê apenas
 A cerca passou a **derivar** `escopo_b` de `PERSISTENCE_LAYERS`: toda camada/tabela que o YAML
 nomeia precisa existir na enumeração, e toda camada com `resolucao: RETIRADA` precisa estar marcada
 `retirada: true` (e vice-versa). Nenhum dos dois lados pode envelhecer em silêncio de novo.
+
+### 8.3 O bloco assinável enumera as DEZESSEIS relações — 2026-09-05 (§Delta-4 Δ4·1)
+
+A cerca da §8.2 era **de mão única**: ela conferia o que o bloco NOMEIA, então **apagar** a entrada
+inteira de uma camada passava verde. Para um documento de assinatura isso é o pior sentido do erro:
+some-se com uma camada e o encarregado nunca fica sabendo que ela existia.
+
+Escolha feita, e ela é uma escolha: em vez de manter uma lista de exceções "só na prosa", as duas
+relações que faltavam — `trabalho`/`agent_checkpoints` e `trabalho`/`agent_checkpoint_writes`,
+retiradas por `0006_retire_dead_checkpoint_tables` — **entraram no bloco**, marcadas
+`retirada: true`, exatamente como a `semantica` da §8.2. O bloco passa a enumerar as **16**
+relações de `PERSISTENCE_LAYERS`, sem subconjunto e sem exceção, e a cerca exige **igualdade
+exata** entre o conjunto de `(camada, tabela)` do bloco e o da enumeração.
+
+Por que incluir em vez de excetuar: uma lista de exceções é mais uma coisa que envelhece em
+silêncio — foi exatamente assim que a `semantica` sobreviveu como "coberta e viva" depois de
+`0009`. Três relações retiradas, três linhas marcadas, zero exceções. O custo é o encarregado ler
+duas linhas a mais que dizem "não há dado aqui"; o benefício é que nenhuma camada pode sumir do
+documento sem a cerca reclamar.
