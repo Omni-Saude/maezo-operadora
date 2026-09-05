@@ -1,0 +1,45 @@
+{
+  "id": "EVL-RAFAEL-06",
+  "agent": "rafael",
+  "class": "FC",
+  "tier": ["A"],
+  "description": "CC-08: `auth_admissibility` clears normally to SEGUE_ANALISE (unlike EVL-RAFAEL-04, whose DMN-down is on THIS first table, conflated with a hostile-payload input-hardening scenario), but `auth_auto_approval` -- the SECOND DMN in the chain -- is UNAVAILABLE (decision_key omitted). `assess` reads `auto_result.get(\"error\")` and returns immediately -- route=human_auditor, motivo_auditor=dmn_indisponivel, admissibilidade=SEGUE_ANALISE (the REAL resolved value, not a fallback literal), desfecho=encaminhado_auditor -- NEVER an automatic approval by omission (the auto_approve node stays unreached). Same clinical/financial facts as EVL-RAFAEL-01; the only difference is the second transport that fails. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "numero_guia_tiss": "GUIA-EVL-RAFAEL-06",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-RAFAEL-06",
+      "prestador_id": "PREST-TESTE-001",
+      "canal": "a2a",
+      "codigo_procedimento_tuss": "31309038",
+      "categoria_procedimento": "alta_complexidade",
+      "carater_atendimento": "eletivo",
+      "valor_estimado_brl": 45000.0,
+      "cid10": "C50.9",
+      "documentos_refs": [],
+      "requer_autorizacao": true,
+      "documentacao_completa": true,
+      "beneficiario_ativo": true,
+      "carencia_cumprida": true,
+      "dut_atendida": false,
+      "dentro_teto_l2": false,
+      "rede_credenciada": true
+    }
+  },
+  "recorded_llm": [
+    "Tabela de auto-aprovacao indisponivel; solicitacao encaminhada para analise do medico auditor por falha tecnica, nunca uma aprovacao automatica."
+  ],
+  "dmn_fixture": {
+    "auth_admissibility": { "resultado": "SEGUE_ANALISE" },
+    "auth_sla": { "sla_analise": "10d", "sla_alerta": "5d" }
+  },
+  "expect": {
+    "fields": {
+      "route": "human_auditor",
+      "motivo_auditor": "dmn_indisponivel",
+      "admissibilidade": "SEGUE_ANALISE",
+      "desfecho": "encaminhado_auditor"
+    }
+  },
+  "leak_canaries": []
+}

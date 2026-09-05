@@ -1,0 +1,37 @@
+{
+  "id": "EVL-CAROLINA-05",
+  "agent": "carolina",
+  "class": "FC",
+  "tier": ["A"],
+  "description": "CC-08: `cred_admissibility` is UNAVAILABLE (decision_key omitted). `assess`'s admissibility branch reads `admis_result.get(\"error\")` and returns immediately -- route=human_review, motivo_humano=dmn_indisponivel, grupo_humano=gestao-rede (`_default_human_group('credenciamento')`), desfecho=analise_humana -- NEVER the automatic CLERICAL_CREDENCIAR path (`cred_route`/`cred_sla` are never even called on this branch). Same packet as EVL-CAROLINA-01; the only difference is the transport that fails. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "canal": "portal",
+      "prestador_id": "PROV-CRED-EVAL-05",
+      "direcao": "credenciamento",
+      "tipo_prestador": "clinica",
+      "origem_solicitacao": "prestador",
+      "motivo_informado": "Solicitacao de credenciamento de nova clinica na regiao",
+      "data_solicitacao_iso": "2026-07-20",
+      "documentos_refs": [],
+      "licenca_valida": true,
+      "documentacao_completa": true,
+      "dentro_criterios_rede": true,
+      "indicio_irregularidade_sinalizado": false
+    }
+  },
+  "recorded_llm": [
+    "Tabela de admissibilidade de credenciamento indisponivel; caso encaminhado para analise humana da gestao de rede, nunca um credenciamento automatico."
+  ],
+  "dmn_fixture": {},
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "motivo_humano": "dmn_indisponivel",
+      "grupo_humano": "gestao-rede",
+      "desfecho": "analise_humana"
+    }
+  },
+  "leak_canaries": []
+}

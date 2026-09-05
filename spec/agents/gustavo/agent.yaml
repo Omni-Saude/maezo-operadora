@@ -19,20 +19,32 @@ model:
 tools:
   - mcp-dmn.evaluate
   - mcp-cibseven.start_process
+  - mcp-memory.read_write               # excecao disclosed do fence §8.5 item 2 (sem no vivo
+                                         # hoje — GAP-DU-01-b/ADR-0047 DRAFT)
+  - mcp-fhir.read_patient
+  # mcp-cibseven.get_process_status / correlate_process_message: nenhum no deste grafo os
+  # exerce hoje (CC-05/GUS-02) — mas NAO remover sem substituir: sao os UNICOS agent.yaml do
+  # fleet que ainda declaram esses dois ids (helena/rafael tambem os desdeclararam nesta WP), e
+  # `tests/unit/gateway/test_effect_enforcement.py::
+  # test_every_catalogued_tool_id_is_declared_by_some_agent` exige `declared >=
+  # effect_classes.CATALOGUED_TOOL_IDS` — que cataloga os dois (transport.py:278/420,
+  # OWNER-GATED: catalogo em src/, fora do escopo desta WP). Removidos daqui quebraria essa
+  # fence real. Mantidos como excecao disclosed OWNER-GATED (nao "acao real, nao declarativa"
+  # como andre/carolina/valentina) ate um no os exercer OU o catalogo ser revisado por um owner.
   - mcp-cibseven.get_process_status
   - mcp-cibseven.correlate_process_message
-  - mcp-memory.read_write
-  - mcp-fhir.read_patient
 autonomy_policy: ../../policies/autonomy
 autonomy_actions:
   - query_decision_engine
   - start_compliance_process
-  - query_process_status
-  - correlate_process_message
-  - read_write_memory
+  - read_write_memory                   # excecao disclosed (fence §8.5 item 2), sem no vivo hoje
   - read_phi_data
   - ans_official_submission
   - nip_response
+  # query_process_status / correlate_process_message: pareiam os dois tools OWNER-GATED acima
+  # (nenhum no os exerce) — mantidos por simetria com o tools[]; ver comentario la.
+  - query_process_status
+  - correlate_process_message
 kpis:
   - { name: submission_on_time_rate, target: "==1.0" }
   - { name: nip_deadline_compliance, target: "==1.0" }
@@ -49,8 +61,8 @@ escalation:
     - signal: dmn_unavailable
     - signal: ambiguity
 memory:
-  episodic: true
-  semantic: true
+  episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
+  semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
 a2a:
   capabilities:
     - regulatory_calendar_operation

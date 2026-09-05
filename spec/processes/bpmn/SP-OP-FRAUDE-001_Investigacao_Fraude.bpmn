@@ -98,7 +98,7 @@ veredito), score_indicadores (integer — FATO DE ROTEAMENTO; NUNCA number/doubl
     <!-- Intake neutro: registra o caso + procedencia (encaminhado_por_id humano). Sem efeito adverso. -->
     <bpmn:serviceTask id="ST_Intake" name="Registrar intake neutro / procedencia do encaminhamento"
                       camunda:type="external" camunda:topic="operadora.fraude.intake">
-      <bpmn:documentation>Start neutro — registra o caso na cadeia de auditoria (encaminhado_por_id = o HUMANO de Phase 2 que setou encaminhar_fraude; nunca um worker). Lanca ERR_FRAUDE_CASO_INVALIDO se o caso for inconsistente na origem. Sem efeito adverso. TASY write DROP (ADR-0013).</bpmn:documentation>
+      <bpmn:documentation>Start neutro — o caso e registrado na cadeia de auditoria (encaminhado_por_id = o HUMANO de Phase 2 que setou encaminhar_fraude; nunca um worker). Sem efeito adverso. TASY write DROP (ADR-0013). HOJE (FAB-INTAKE-CASO-REGISTRADO): o worker intake le a procedencia, registra-a no log estruturado e retorna {} — NAO afirma caso_registrado=true nem o carimbo intake_ts='now' (antes retornava as duas constantes). Quem registra o caso sao a linha ADR-0007 que a harness emite antes do complete e a task seguinte ST_PublishIntakeReceived, nao esta funcao; por isso aqui nao ha variavel de lacuna. ERR_FRAUDE_CASO_INVALIDO segue DECLARADO E NAO IMPLEMENTADO: nenhuma validacao de consistencia do caso roda hoje e nenhum call site levanta o codigo (definir o que e um caso inconsistente e produto/juridico — Pendencias do contrato).</bpmn:documentation>
       <bpmn:incoming>Flow_Start_Intake</bpmn:incoming>
       <bpmn:outgoing>Flow_Intake_PubReceived</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -118,7 +118,7 @@ veredito), score_indicadores (integer — FATO DE ROTEAMENTO; NUNCA number/doubl
     <!-- Coleta de evidencia (Beatriz, A2A human-gated). Instrui, nao decide. Ponteiros pseudonimizados. -->
     <bpmn:serviceTask id="ST_GatherEvidence" name="Coletar/normalizar evidencia (Beatriz, human-gated)"
                       camunda:type="external" camunda:topic="operadora.fraude.gather_evidence">
-      <bpmn:documentation>Convoca Beatriz (delegacao A2A fraude.investigate, human-gated): coleta/normaliza evidencia (CDC/TISS/feature store) como ponteiros pseudonimizados em evidencia_refs (NUNCA PHI bruto — ADR-0006). Instrui, nao decide; NAO seta decisao_fraude. TASY write DROP (ADR-0013).</bpmn:documentation>
+      <bpmn:documentation>ALVO (a ligar): convoca Beatriz (delegacao A2A fraude.investigate, human-gated) para coletar/normalizar evidencia (CDC/TISS/feature store) como ponteiros pseudonimizados em evidencia_refs (NUNCA PHI bruto — ADR-0006). Instrui, nao decide; NAO seta decisao_fraude. TASY write DROP (ADR-0013). HOJE (BEA-09): a delegacao A2A NAO esta ligada — o worker gather_evidence apenas NORMALIZA evidencia_refs (coercao a lista) e seta evidencia_gap=beatriz_a2a_nao_ligado; nao chama Beatriz, nao consulta CDC/TISS/feature store e NAO seta evidencia_coletada_em (antes setava esse carimbo constante de uma coleta que nunca ocorreu). As refs sao as que chegaram no start ou por msg.fraude.evidencia_anexada.</bpmn:documentation>
       <bpmn:incoming>Flow_PubReceived_Gather</bpmn:incoming>
       <bpmn:outgoing>Flow_Gather_Score</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -167,7 +167,7 @@ veredito), score_indicadores (integer — FATO DE ROTEAMENTO; NUNCA number/doubl
     <!-- Montagem do dossie (Beatriz). Instrui, nao decide. Tambem alvo do loop de re-selagem. -->
     <bpmn:serviceTask id="ST_AssembleDossier" name="Montar dossie de investigacao (Beatriz; instrui, nao decide)"
                       camunda:type="external" camunda:topic="operadora.fraude.assemble_dossier">
-      <bpmn:documentation>Beatriz monta o dossie de investigacao (narrativa/montagem a partir de evidencia_refs + indicadores_presentes). INSTRUI, nao decide (principio Rafael/Beatriz instruct_investigation; zero_auto_accusation). NAO seta decisao_fraude. Re-entrada por BME_EvidenciaAnexada (nova evidencia -> re-montar -> re-selar).</bpmn:documentation>
+      <bpmn:documentation>ALVO (a ligar): Beatriz monta o dossie de investigacao (narrativa/montagem a partir de evidencia_refs + indicadores_presentes). INSTRUI, nao decide (principio Rafael/Beatriz instruct_investigation; zero_auto_accusation). NAO seta decisao_fraude. Re-entrada por BME_EvidenciaAnexada (nova evidencia -> re-montar -> re-selar). HOJE (BEA-09): a delegacao A2A NAO esta ligada — o worker assemble_dossier NAO monta dossie algum (sem chamada A2A, sem narrativa, sem artefato) e seta APENAS dossie_gap=beatriz_a2a_nao_ligado. NAO seta dossie_montado=true nem dossie_items (antes setava as duas constantes, contando evidencia_refs como itens de um dossie inexistente). O gate GW_CustodiaSelada e a UT humana a jusante seguem inalterados: o corpus selado e evidencia_refs + indicadores_presentes, e a lacuna vai declarada junto.</bpmn:documentation>
       <bpmn:incoming>Flow_Routing_Assemble</bpmn:incoming>
       <bpmn:incoming>Flow_EvidenciaAnexada_Assemble</bpmn:incoming>
       <bpmn:outgoing>Flow_Assemble_Seal</bpmn:outgoing>
@@ -230,6 +230,13 @@ obrigatorios — validacao de formulario + guard do worker register_fraud_accusa
 flags planas de gateway destino_referral_cred / destino_referral_contratual (espelha o idioma encaminhar_fraude
 do CONTAS). A decisao sai em nome do humano (assignee na trilha de auditoria, ADR-0007). SLA: `sla.sla_investigacao`
 (DMN fraude_sla — DRAFT/verify). Score alto NUNCA gera acusacao: so a decisao humana aqui o faz.
+
+LACUNA DECLARADA (BEA-09): enquanto a delegacao A2A a Beatriz nao estiver ligada, a instancia chega
+aqui com evidencia_gap e dossie_gap setados (valor beatriz_a2a_nao_ligado). Leia-os: significam que
+NAO houve coleta por Beatriz e que NAO existe dossie montado/narrativa — o corpus selado sobre o qual
+esta decisao recai e evidencia_refs + indicadores_presentes, e mais nada. A ausencia das duas
+variaveis e o sinal de que coleta e montagem reais ocorreram. Antes de BEA-09 a instancia afirmava
+dossie_montado=true nesta mesma posicao, sem dossie algum.
 ]]></bpmn:documentation>
       <bpmn:incoming>Flow_Sla_UTDecisao</bpmn:incoming>
       <bpmn:incoming>Flow_DiligenciaConcluida_UTDecisao</bpmn:incoming>
@@ -305,7 +312,7 @@ do CONTAS). A decisao sai em nome do humano (assignee na trilha de auditoria, AD
     <!-- Segundo gate humano: revisao/aprovacao do referral (juridico/compliance). Gateia os handoffs. -->
     <bpmn:userTask id="UT_RevisaoReferral" name="Revisao/aprovacao do referral (juridico/compliance)"
                    camunda:candidateGroups="juridico-fraude">
-      <bpmn:documentation>Segundo gate humano (apos a acusacao ja constituida em UT_DecisaoInvestigador): juridico/compliance revisa/aprova os destinos do referral (ANS/civel/penal/cred/contratual) antes do fan-out. Confirma destino_referral_cred / destino_referral_contratual. Nao e um terminal adverso por si (a acusacao ja ocorreu); gateia apenas os handoffs downstream, cada um com sua propria UT adversa (CRED/CANCEL/INADIMPLENCIA).</bpmn:documentation>
+      <bpmn:documentation>Segundo gate humano (apos a acusacao ja constituida em UT_DecisaoInvestigador): juridico/compliance revisa/aprova os destinos do referral (ANS/civel/penal/cred/contratual) antes do fan-out. Confirma destino_referral_cred / destino_referral_contratual. Nao e um terminal adverso por si (a acusacao ja ocorreu); gateia apenas os handoffs downstream, cada um com sua propria UT adversa (CRED/CANCEL/INADIMPLENCIA). O revisor decide sabendo que (i) o dossie nao foi montado (dossie_gap/evidencia_gap = beatriz_a2a_nao_ligado — BEA-09) e que (ii) aprovar o destino juridico/ANS NAO notifica autoridade alguma hoje: ST_ReferToLegal emite referral_gap = referral_juridico_nao_ligado e o encaminhamento real permanece a ligar (FAB-REFER-TO-LEGAL).</bpmn:documentation>
       <bpmn:incoming>Flow_Register_UTRevisao</bpmn:incoming>
       <bpmn:outgoing>Flow_UTRevisao_GWReferral</bpmn:outgoing>
     </bpmn:userTask>
@@ -385,7 +392,7 @@ do CONTAS). A decisao sai em nome do humano (assignee na trilha de auditoria, AD
     <!-- Handoff a juridico/ANS/civel/penal (default do fan-out). -->
     <bpmn:serviceTask id="ST_ReferToLegal" name="Referral a juridico/ANS/civel/penal"
                       camunda:type="external" camunda:topic="operadora.fraude.refer_to_legal">
-      <bpmn:documentation>Handoff downstream (so a jusante de acusacao humana + bundle selado + UT_RevisaoReferral): referral a juridico/ANS/esfera civel/penal. Obrigacoes de referral (prazo/forma/autoridade) DRAFT/verify juridico+compliance.</bpmn:documentation>
+      <bpmn:documentation>ALVO: handoff downstream (so a jusante de acusacao humana + bundle selado + UT_RevisaoReferral) — referral a juridico/ANS/esfera civel/penal. Obrigacoes de referral (prazo/forma/autoridade) DRAFT/verify juridico+compliance. HOJE (FAB-REFER-TO-LEGAL): o worker refer_to_legal NAO encaminha nada a autoridade alguma — nenhum canal e contatado, nao ha transporte juridico/ANS neste repo e nem as obrigacoes de referral estao pinadas — e retorna exatamente {referral_gap: referral_juridico_nao_ligado}. NAO afirma referral_executado=true nem ecoa destinos (antes retornava as duas constantes, gravando a execucao de um ato regulatorio que nunca saiu do processo na trilha ADR-0007 de uma acusacao ja constituida). Nao levanta erro: a lacuna e de DEPLOY, nao do caso; o roteamento segue do GW_DestinoReferral e o desfecho segue publicado por ST_PublishEncaminhadoJuridico.</bpmn:documentation>
       <bpmn:incoming>Flow_GWReferral_Juridico</bpmn:incoming>
       <bpmn:outgoing>Flow_Legal_Pub</bpmn:outgoing>
     </bpmn:serviceTask>

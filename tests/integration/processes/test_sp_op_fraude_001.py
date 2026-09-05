@@ -220,12 +220,18 @@ from maezo.gateway.audit_postgres import FreshSinkAuditEmitter
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
-from maezo.tools.workers.fraude import FraudeError, register_fraud_accusation, register_fraude_workers
+from maezo.tools.workers.fraude import (
+    GAP_BEATRIZ_A2A_NAO_LIGADO,
+    GAP_REFERRAL_JURIDICO_NAO_LIGADO,
+    FraudeError,
+    register_fraud_accusation,
+    register_fraude_workers,
+)
 from maezo.tools.workers.fraude import seal_custody_bundle as _seal_custody_bundle
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
-from .engine_rest import EngineRest
+from .engine_rest import EngineRest, EngineRestError
 
 pytestmark = pytest.mark.integration
 
@@ -919,6 +925,53 @@ async def test_custodia_selada_antes_da_decisao(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
+async def test_ut_humana_nao_recebe_dossie_afirmado_e_ve_a_lacuna_declarada(
+    engine: EngineRest,
+    fraude_probe: FraudeEngineProbe,
+    start_fraude: Callable[..., Any],
+) -> None:
+    """BEA-09 ponta-a-ponta: a UT L0-hard recebe a LACUNA declarada, nunca um dossie afirmado.
+
+    Antes de BEA-09, `operadora.fraude.assemble_dossier` completava com
+    `{dossie_montado: true, dossie_items: <len(evidencia_refs)>}` e
+    `operadora.fraude.gather_evidence` com `evidencia_coletada_em="now"` — tres constantes que a
+    harness gravava no escopo da instancia (`harness.py` `complete`) sem que coleta ou montagem
+    alguma tivesse ocorrido (nenhuma chamada A2A a Beatriz existe). Este teste prova, contra o
+    ENGINE REAL, os dois lados da correcao no exato ponto em que o humano decide:
+
+      1. AUSENCIA das tres chaves fabricadas no escopo da instancia viva quando
+         `UT_DecisaoInvestigador` esta criada (via `get_variable_or_none`, que traduz o 404 de
+         variavel inexistente para `None` — a prova de que a chave nunca foi setada);
+      2. PRESENCA das duas variaveis honestas com o class-token fechado do contrato, provando que
+         a lacuna nao e silenciosa: ela chega ao investigador.
+
+    O fluxo do BPMN NAO muda (nenhum gateway/boundary novo): o caminho ate a UT e o mesmo que
+    `test_custodia_selada_antes_da_decisao` percorre, e os terminais adversos seguem inalcancaveis
+    sem UT humana (invariante L0 reafirmada no fim).
+    """
+    inst = await start_fraude()
+    iid = inst["id"]
+
+    ut = await _drive_to_decisao(engine, fraude_probe, iid)
+    assert ut.task_definition_key == _UT_DECISAO
+
+    for fabricada in ("dossie_montado", "dossie_items", "evidencia_coletada_em"):
+        assert await engine.get_variable_or_none(iid, fabricada) is None, (
+            f"BEA-09: `{fabricada}` e um fato FABRICADO (nenhuma coleta/montagem ocorre — a "
+            f"delegacao A2A a Beatriz nao esta ligada) e NAO pode existir no escopo da instancia "
+            f"quando {_UT_DECISAO} esta aberta."
+        )
+
+    assert await engine.get_variable(iid, "evidencia_gap") == GAP_BEATRIZ_A2A_NAO_LIGADO
+    assert await engine.get_variable(iid, "dossie_gap") == GAP_BEATRIZ_A2A_NAO_LIGADO
+
+    ended = await engine.activity_instances_ended(iid)
+    assert "ST_AssembleDossier" in ended, "a task de montagem roda e completa (nao levanta)"
+    assert "ST_SealCustodyBundle" in ended, "a selagem segue ocorrendo ANTES da UT"
+    assert not (ended & _ENDS_ADVERSOS), "declarar a lacuna nunca produz terminal adverso"
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
 # ===========================================================================
 # Costura com Phase 2 (sink convergente) + procedencia
 # ===========================================================================
@@ -1304,6 +1357,81 @@ async def test_happy_path_acusar_handoff_juridico(
         investigator_id="investigador-sintetico-001",
         tier="T2",
     ), "ST_PublishEncaminhadoJuridico deve emitir completed(desfecho=..., investigator_id=..., tier=...)"
+
+
+async def test_gate_do_referral_nao_ve_execucao_afirmada_e_a_lacuna_e_declarada(
+    engine: EngineRest,
+    fraude_probe: FraudeEngineProbe,
+    start_fraude: Callable[..., Any],
+) -> None:
+    """FAB-REFER-TO-LEGAL/FAB-INTAKE ponta-a-ponta: nem o 2o gate humano nem o historico da
+    instancia recebem a afirmacao de um referral (ou de um registro de caso) que nunca ocorreu.
+
+    Antes desta correcao, `operadora.fraude.refer_to_legal` completava com
+    `{referral_executado: true, destinos: <eco de destino_referral>}` e `operadora.fraude.intake`
+    com `{caso_registrado: true, intake_ts: "now"}` — quatro constantes que a harness gravava no
+    escopo da instancia (`harness.py` `complete`) sem que registro ou encaminhamento algum tivesse
+    ocorrido (o corpo de cada funcao era um unico `logger`; nao ha transporte juridico/ANS e
+    `fraude.py` nao tem call site de `kafka.publish(`). Este teste prova, contra o ENGINE REAL, os
+    dois lados da correcao nos dois pontos que importam no caminho ADVERSO:
+
+      1. NO SEGUNDO GATE HUMANO (`UT_RevisaoReferral`, juridico/compliance aprovando os destinos
+         do referral): as chaves fabricadas do intake NAO existem no escopo da instancia viva
+         (`get_variable_or_none` -> `None`, a prova de que nunca foram setadas) e as duas do
+         referral tambem nao — nem por antecipacao nem por qualquer outro caminho. O revisor
+         aprova destinos sem nenhum carimbo de execucao a montante.
+      2. DEPOIS DO FAN-OUT, no historico da instancia ja terminada em `End_EncaminhadoJuridico`
+         (endpoint `/history/variable-instance`, o unico consultavel apos o end event): as quatro
+         chaves fabricadas NUNCA aparecem, e `referral_gap` aparece com o class-token fechado do
+         contrato — a lacuna nao e silenciosa, ela fica na instancia que a auditoria le.
+
+    O fluxo do BPMN NAO muda (nenhum gateway/boundary/flow novo): o caminho e exatamente o de
+    `test_happy_path_acusar_handoff_juridico`, e a invariante L0 e reafirmada no fim.
+    """
+    inst = await start_fraude(entidade_tipo="prestador")
+    iid = inst["id"]
+
+    ut = await _drive_to_decisao(engine, fraude_probe, iid)
+    bundle_root = await _sealed_bundle_root(fraude_probe)
+    await engine.complete_task_as_human(
+        ut.id, _acusacao_vars(bundle_root, destino_referral={"juridico": True, "ans": True})
+    )
+    await fraude_probe.drain()
+
+    # (1) segundo gate humano — a instancia esta VIVA aqui, entao o endpoint de runtime responde.
+    ut_revisao = await engine.await_user_task(iid, _UT_REVISAO_REFERRAL)
+    for fabricada in ("caso_registrado", "intake_ts", "referral_executado", "destinos"):
+        assert await engine.get_variable_or_none(iid, fabricada) is None, (
+            f"FAB-REFER-TO-LEGAL/FAB-INTAKE: `{fabricada}` e um fato FABRICADO (nenhum registro de "
+            f"caso e feito por `intake`, nenhum encaminhamento a autoridade e feito por "
+            f"`refer_to_legal`) e NAO pode existir no escopo da instancia quando "
+            f"{_UT_REVISAO_REFERRAL} — o gate humano que aprova os destinos do referral — esta "
+            f"aberto."
+        )
+
+    await engine.complete_task_as_human(
+        ut_revisao.id,
+        {
+            "destino_referral_cred": False,
+            "destino_referral_contratual": False,
+            "destino_referral_juridico": True,
+            "destino_referral_ans": True,
+        },
+    )
+    await fraude_probe.drain()
+
+    ended = await _await_end(engine, iid)
+    assert "ST_ReferToLegal" in ended, "o worker de referral roda e completa (nao levanta)"
+    assert _END_ENCAMINHADO_JURIDICO in ended, f"=> End_EncaminhadoJuridico. ended={ended}"
+
+    # (2) apos o end event a execucao raiz some; so o HISTORICO responde (`_CANCEL_COMPLETED_
+    # RUNTIME_VAR_GAP`). `get_history_variable` levanta quando a variavel nunca foi setada.
+    assert await engine.get_history_variable(iid, "referral_gap") == GAP_REFERRAL_JURIDICO_NAO_LIGADO
+    for fabricada in ("caso_registrado", "intake_ts", "referral_executado", "destinos"):
+        with pytest.raises(EngineRestError, match=fabricada):
+            await engine.get_history_variable(iid, fabricada)
+
+    await _assert_no_adverse_without_human_task(engine, iid)
 
 
 # ===========================================================================

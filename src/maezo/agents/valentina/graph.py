@@ -109,30 +109,41 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated; same rationale a
   The semantic column was dropped by `0009_drop_pgvector`, ADR-0002 §3 SUSPENDED pending a
   consumer (ADR-0047, DRAFT). Same boundary Helena/Rafael/Marina disclose. `finalize` is a
   terminal no-op; adding the memory write is a follow-up.
-- No cross-agent A2A delegation (`care.stratify`/`care.enroll` -> Valentina) is wired.
+- A2A delegation (`care.stratify`/`care.enroll` -> Valentina) is HALF wired (VAL-01).
   CORRECTED (CC-04, fleet audit) — the prior text here claimed v2's `a2a/` package had no
   `DelegationEnvelope`/`DelegationDispatcher`; both exist and are fully built/tested
   (`a2a/delegation.py::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported
-  from `maezo.a2a`), and five agents (rafael/carolina/andre/fernando/helena) already have a real
-  `delegation.py` using them. What is missing for Valentina specifically is her own
-  handler/registration/origin: there is no `src/maezo/agents/valentina/delegation.py`, and
-  `grep -rn 'make_valentina_handler' src/maezo/` and `grep -n '"valentina"' runtime/
-  agent_runtime/a2a_composition.py` both return 0 hits — handler/registro/origem ausentes, ver
-  VAL-01 do fleet audit. The graph is invoked directly with an already-assembled case state (as
-  the unit tests do). The donor's `delegation.py` handler is deliberately NOT ported until that
-  wiring lands.
+  from `maezo.a2a`). UPDATED (A2A handlers, lote3) — CC-04's companion claims that "there is no
+  `src/maezo/agents/valentina/delegation.py`" and that `grep -rn 'make_valentina_handler'
+  src/maezo/` returns 0 hits are NO LONGER TRUE at this tip: the TARGET handler now exists
+  (`agents/valentina/delegation.py::make_valentina_handler`), the donor's handler IS ported, and
+  nine of the ten agents (all but lucas) now have a real `delegation.py` using that infra. What is
+  still missing for Valentina is registration and origin: the handler is NOT registered with any
+  dispatcher (`grep -n '"valentina"' runtime/agent_runtime/a2a_composition.py` = 0 hits) and
+  `tools/workers/programa.py` still does not originate the delegation — both are an owner decision
+  (gap `FERNANDO-DELEGATION-CALL-SITE`, ver VAL-01 do fleet audit). The graph is still invoked
+  directly with an already-assembled case state (as the unit tests do).
 - Live engine acceptance (deployed SP-OP-PROGRAMA-001 + programa DMNs) is DEFERRED — this
   build is unit-proven with Fake transports only (host constraint; disclosed, not fabricated).
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.start_outcome import (
+    notify_start_failure as emit_start_failure_notice,
+)
+from maezo.runtime.start_outcome import (
+    route_after_start,
+    start_failed_state,
+)
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -278,6 +289,10 @@ class ValentinaState(TypedDict, total=False):
 
     # Filled by `start_process` (consented path only — structurally unreachable otherwise).
     process_started: bool
+    #: CC-01: o start foi TENTADO e FALHOU tecnicamente (`except CibSevenError` de
+    #: `start_process`). NAO e a mesma coisa que `process_started is False`, que tambem cobre
+    #: no-ops legitimos; e este marcador — e so ele — que a aresta condicional le.
+    start_failed: bool
     business_key: str
     process_ref: dict[str, Any]
 
@@ -382,11 +397,27 @@ def _output_field_resets() -> dict[str, Any]:
         "motivo_humano": None,
         "grupo_humano": "",
         "process_started": False,
+        "start_failed": False,
         "business_key": "",
         "process_ref": {},
         "desfecho": "",
         "error": "",
     }
+
+
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+#: `elegivel_programa`/`consent_status` NAO entram: sao enums de tres ou mais valores, e nao
+#: booleanos — o colapso de repr que este mapa conserta e' entre `False` e `None`.
+_FATOS_BOOLEANOS: Final[dict[str, str]] = {
+    "elegibilidade_criterios_atendidos": "criterios de elegibilidade do programa atendidos",
+    "criterio_alta_aparente": "criterio de alta aparente",
+}
 
 
 class ValentinaGraph:
@@ -489,7 +520,9 @@ class ValentinaGraph:
         landing for `receive`'s missing-context guard (inability to verify consent = no
         consent; the class-token `error` field preserves the distinction for observability).
         """
-        return {"desfecho": "sem_consentimento", "process_started": False}
+        outcome = {"desfecho": "sem_consentimento", "process_started": False}
+        emit_turn_desfecho({**state, **outcome}, agent_id="valentina")
+        return outcome
 
     async def stopped(self, state: ValentinaState) -> dict[str, Any]:
         """NEUTRAL terminal (invariant B): consent revoked — processing STOPS (fail-safe LGPD).
@@ -499,7 +532,9 @@ class ValentinaGraph:
         the safe and legal behavior, never an adverse effect. No PHI gather, no DMN, no process
         (structural: only outgoing edge is END).
         """
-        return {"desfecho": "interrompido_revogacao", "process_started": False}
+        outcome = {"desfecho": "interrompido_revogacao", "process_started": False}
+        emit_turn_desfecho({**state, **outcome}, agent_id="valentina")
+        return outcome
 
     async def gather(self, state: ValentinaState) -> dict[str, Any]:
         """Best-effort FHIR enrichment — ONLY reachable via `consent_gate`'s `proceed` branch
@@ -681,11 +716,10 @@ class ValentinaGraph:
                 provenance=provenance,
             )
         except CibSevenError as exc:
-            return {
-                "process_started": False,
-                "business_key": business_key,
-                "error": f"start_process indisponivel: {exc}",
-            }
+            # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
+            # `start_failed`, que e o que `route_after_start` le para desviar a
+            # `notify_start_failure` em vez de seguir calado para o terminal.
+            return start_failed_state(business_key=business_key, error=f"start_process indisponivel: {exc}")
         return {
             "process_started": True,
             "business_key": business_key,
@@ -696,13 +730,30 @@ class ValentinaGraph:
             },
         }
 
+    async def notify_start_failure(self, state: ValentinaState) -> dict[str, Any]:
+        """CC-01: o start FALHOU — grava o desfecho de erro e ALERTA, em vez de seguir calado.
+
+        Ate CC-01 a aresta que saia de `start_process` era INCONDICIONAL: o turno chegava ao
+        terminal com o `desfecho` de SUCESSO que um no a montante ja havia gravado, afirmando um
+        fato que nao aconteceu, e sem prazo nenhum — o timer de SLA vive na instancia BPMN que
+        nunca nasceu. O corpo deste no e o helper compartilhado
+        (`maezo.runtime.start_outcome.notify_start_failure`): uma definicao para os 9 agentes,
+        nunca 9 copias.
+        """
+        return emit_start_failure_notice(dict(state), agent_id="valentina", process_key=PROCESS_KEY_PROGRAMA)
+
     async def finalize(self, state: ValentinaState) -> dict[str, Any]:
         """Terminal node — no further computation; `desfecho` was already set upstream.
 
         No episodic memory write here (labeled boundary, module docstring — divergence from the
         donor's `finalize`, which records the LGPD cessation/case note to `mcp-memory`; v2 has
         no memory seam wired into any agent graph yet).
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn. `no_consent`/`stopped` are
+        the OTHER two terminals in this graph (both wired straight to END) and emit their own
+        record directly at the point they set `desfecho` — this node never sees those turns.
         """
+        emit_turn_desfecho(state, agent_id="valentina")
         return {}
 
     # -- Conditional routing --------------------------------------------------------------
@@ -847,13 +898,21 @@ class ValentinaGraph:
 
         motivo_humano = state.get("motivo_humano") if route == "human_review" else None
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
-        prompt = f"{prompt_text}\n\ntask={task} route={route} motivo_humano={motivo_humano}\nfatos={facts}"
+        prompt = (
+            f"{prompt_text}\n\ntask={task} route={route} motivo_humano={motivo_humano}\n"
+            f"{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS)}"
+        )
         llm_ok = True
         try:
             # Zona PHI (D10): Valentina reasons in-zone AFTER the consent gate — phi=True on
             # EVERY LLM call in this module (ADR-0006/ADR-0017/T1.7).
             narrativa = await self._llm.generate(
-                prompt, phi=True, agent_id="valentina", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="valentina",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: dossie lido pelo humano/clinico antes de decidir -> reasoning.
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — deterministic minimal dossier; caller decides route.
             narrativa = ""
@@ -909,6 +968,7 @@ class ValentinaGraph:
         g.add_node("auto_route", self.auto_route)
         g.add_node("human_review", self.human_review)
         g.add_node("start_process", self.start_process)
+        g.add_node("notify_start_failure", self.notify_start_failure)
         g.add_node("finalize", self.finalize)
 
         g.add_edge(START, "receive")
@@ -930,7 +990,16 @@ class ValentinaGraph:
         )
         g.add_edge("auto_route", "start_process")
         g.add_edge("human_review", "start_process")
-        g.add_edge("start_process", "finalize")
+        # CC-01: a aresta que sai de `start_process` e CONDICIONAL. Uma falha tecnica de
+        # start desvia para `notify_start_failure` (desfecho de erro + alerta); qualquer
+        # outro caminho — incluindo os no-ops legitimos com `process_started=False` —
+        # segue para o terminal de sempre. O predicado e compartilhado (uma definicao).
+        g.add_conditional_edges(
+            "start_process",
+            route_after_start,
+            {"notify_start_failure": "notify_start_failure", "continue": "finalize"},
+        )
+        g.add_edge("notify_start_failure", END)
         g.add_edge("finalize", END)
         return g
 
