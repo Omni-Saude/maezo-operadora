@@ -346,3 +346,16 @@ package does not resolve that; it is T2.5's systematic sweep, and this ask compl
 Record your verdict in `docs/processes/contracts/signoffs/<CONTRACT-ID>.signoff.yaml` per
 `../README.md` §"Signoff artifact spec". This package does not create, pre-fill, or infer any
 signoff file.
+
+## Aditamento 2026-09-04 — matriz de currency de RN preparada para a sessão única (R-171)
+
+`R-171` (rodada 5 de fechamento de gaps) aprovou ratificar `docs/compliance/rn-currency-review.md`
+como artefato único numa sessão datada de regulatório + jurídico, em vez de repetir a pergunta "esta
+RN ainda é a vigente?" contrato a contrato (~12 linhas do registro dobradas: R-214, R-234, R-238,
+R-242, R-251, R-255, R-257, R-258, R-262, R-268, R-274, R-281 — a maioria com jurídico como
+co-decisor). A matriz de preparação que `R-171` pede antes da sessão está em
+`../regulatorio/RN-CURRENCY-MATRIX.md` (uma linha por citação normativa × arquivo:linha, com o
+veredito do analista já preenchido e a coluna de veredito humano vazia para a sessão assinar) e em
+`../regulatorio/rn-currency-matrix.yaml` (mesmas linhas, machine-readable). Nenhum item das perguntas
+de RN-currency listadas acima neste pacote é respondido por este aditamento — ele apenas organiza a
+superfície de decisão para a sessão conjunta.

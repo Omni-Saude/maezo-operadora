@@ -117,12 +117,12 @@ resource "aws_ecs_task_definition" "bootstrap_db" {
               host=host, port=port, user=user, password=pwd, database=alvo,
           )
           try:
-              # pgvector mora em `public` de proposito (DL-0017): o tipo/operador e'
-              # global ao banco, enquanto os schemas por tenant sao isolados. Se a
-              # extensao morasse no schema do tenant, o search_path de OUTRO tenant
-              # nao veria o tipo.
-              await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-              print("extensao vector: ok em public")
+              # A extensao `vector` era criada aqui, em `public` (DL-0017). DU-01-b
+              # (decisao do dono R-005, 2026-09-04) removeu a camada semantica:
+              # `0009_drop_pgvector` dropa a coluna `agent_memory.embedding` e a
+              # extensao. Cria-la no bootstrap so para a migration seguinte remove-la
+              # seria churn que contradiz a decisao — entao o bootstrap nao a cria mais.
+              # ADR-0002 §3 fica suspenso ate existir consumidor (ADR-0047, DRAFT).
 
               # Schema do tenant. O env.py do alembic monta
               # search_path = "<tenant>, public" e cria as tabelas SEM qualificar,

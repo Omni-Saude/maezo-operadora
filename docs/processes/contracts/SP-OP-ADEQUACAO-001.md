@@ -108,6 +108,46 @@ como "implementado" ate essa decisao.
 > cria business key incompleta). A **periodicidade do ciclo** (trimestre vs mes) e **DRAFT/verify**
 > contra RN 259/566 — docs/review-queue.md.
 
+## Bindings de agente — NENHUM agente inicia ADEQUACAO (decisao do dono R-049, 2026-09-04)
+
+**Decisao registrada** (gap `PERSP-B5-ADEQ-BINDING`, opcao B): *nenhum agente inicia
+`SP-OP-ADEQUACAO-001`*. A ausencia de binding deixa de ser omissao e passa a ser posicao
+declarada. **Nenhuma `process_key` nova foi concedida a agente nenhum** — nem ao Andre, nem a
+qualquer outro `spec/agents/*/agent.yaml`.
+
+**Fato de engenharia que sustenta a decisao** (nenhuma lista `process_keys:` de
+`spec/agents/*/agent.yaml` cita `SP-OP-ADEQUACAO-001`; antes desta decisao `grep -rni 'adequacao'
+spec/agents/` retornava **0 linhas** — a partir dela retorna apenas o COMENTARIO de decisao no
+manifesto do Andre, nunca um binding):
+
+- O unico agente que este processo convoca e o **Andre**, e ele e convocado por DELEGACAO A2A
+  (`operadora.adequacao.prepare_remediation_dossier` -> `analytics.population`) sobre uma
+  instancia que **ja esta rodando** — o no `start_process` do grafo dele e explicitamente NO-OP
+  para todo fluxo que nao seja `pagto_dossier`, e a business key `ADEQ-` so ANCORA o dossie.
+  Andre instrui, nao inicia e nao decide.
+- A coreografia que INICIARIA este processo pelo gatilho `mudanca_rede` — a ponte de runtime
+  `network_change_bridge` — **nao existe em `src/`** (secao "Dependencia: fato de mudanca de rede",
+  no topo deste documento; `PERSP-NETBRIDGE`/**AF-01**, `owner-decision`, ainda em aberto).
+  Conceder `process_key` de ADEQUACAO a um agente hoje daria autoridade de efeito a um caminho
+  inexistente.
+- O nucleo de decisao do effect-PEP ja se comporta assim: `AgentCapabilities.of` intersecta as
+  `process_keys` declaradas com `KNOWN_PROCESS_KEYS` (ADR-0016) e `allows_process_key` e
+  pertinencia sobre esse conjunto — nenhum manifesto declara `SP-OP-ADEQUACAO-001`, logo
+  `decide_effect` (L-1) devolve DENY para todo start por agente (`REASON_PROCESS_KEY_FORBIDDEN`).
+  Esse veredito e um fato de FUNCAO PURA, nao uma cerca de runtime: nenhuma costura em
+  `gateway/seams/` liga `start_process_instance` a `decide_effect` para este processo, e a
+  superficie de start correspondente segue `choked: false`/`modo: shadow` em
+  `spec/policies/autonomy/action-approvals.yaml` ate que uma futura coreografia a exercite. O que
+  muda aqui e o REGISTRO, nao o comportamento.
+
+**Fixado por teste:** `tests/unit/gateway/test_adequacao_sem_binding_de_agente.py` varre TODO
+`spec/agents/*/agent.yaml` e falha se qualquer manifesto passar a declarar `SP-OP-ADEQUACAO-001`
+como processo iniciavel. Reabrir a questao (construir a `network_change_bridge`, dar outro trigger
+ao processo, ou conceder a chave a um agente) e ato explicito do dono e volta a falhar esse teste
+primeiro — nunca entra por omissao. **Esta secao NAO ratifica DMN, RN, prazo ou politica alguma e
+NAO remove marcador `DRAFT`/`verify` algum**; a decisao AF-01 sobre o starter de producao
+permanece em aberto.
+
 ## Business key (idempotencia)
 
 ```

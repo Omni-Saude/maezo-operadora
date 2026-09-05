@@ -61,7 +61,7 @@ Legend: ✓ present · ✗ absent · ► BPMN task id.
 | O2 | ✗ | ✗ | `ExecuteExportWorker` · `execute_export` (`:175`) | ✓ (`:241`) | **ORPHAN CODE TOPIC** |
 | O3 | ✗ | ✗ | `ExecuteRectificationWorker` · `execute_rectification` (`:235`) | ✓ (`:284`) | **ORPHAN CODE TOPIC** |
 | O4 | ✗ | ✗ | `ExecuteErasureWorker` · `execute_erasure` (`:292`) | ✓ (`:157`) | **ORPHAN CODE TOPIC** |
-| O5 | ✗ (BPMN publishes via T7) | ✗ | `PublishCompletedWorker` · `publish_completed` (`:380`) | ✓ (`:312`) | **ORPHAN CODE TOPIC** |
+| O5 | ✗ (BPMN publishes via T7) | ✗ | ~~`PublishCompletedWorker` · `publish_completed` (`:380`)~~ **RETIRADO** | ~~✓ (`:312`)~~ **3 testes removidos com o worker** | **ORPHAN CODE TOPIC — FECHADA 2026-09-04** (R-H aplicado; gap `LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC`, decisão do dono R-103) |
 
 **Message + domain events (all three sources aligned — no divergence):**
 `msg.lgpd.proof_received` (`contract:69`, `bpmn:13,146`); domain events
@@ -150,11 +150,25 @@ does not expose `activityId`, so these labels are the only discriminator — `bp
 leg is the LGPD Art. 19-II legal deadline; **DPO/jurídico confirm the escalation target** for the
 breach notification. Wiring is mechanical.
 
-### R-H · `publish_completed` (O5) — FIX CODE (RETIRE) · MECHANICAL
+### R-H · `publish_completed` (O5) — FIX CODE (RETIRE) · MECHANICAL — **APLICADO 2026-09-04**
 Retire `operadora.lgpd.publish_completed`. The BPMN publishes completion via the shared
 `operadora.events.publish` generic publisher, with `event_topic` / `event_desfecho` computed in-engine
 (GAP-LGPD-7 JUEL, `bpmn:290-296`). The dedicated code worker is redundant with the shared publisher
 (T7), which is out-of-scope per ADR-0026 §2b. Mechanical.
+
+> **APLICADO** (gap `LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC`, decisão do dono R-103, 2026-09-04).
+> `PublishCompletedWorker`, o seu registro em `register_lgpd_workers`, os **3** testes unitários
+> que o pinavam (`test_publish_completed_topic` / `_publishes_event` / `_includes_desfecho`) e a
+> linha de docstring que reivindicava o tópico foram removidos de
+> `src/maezo/tools/workers/lgpd.py` / `tests/unit/tools/workers/test_lgpd_erasure.py`.
+> **Base da remoção:** o FATO de engenharia — `grep -rn "operadora.lgpd.publish_completed" spec/`
+> = 0 ocorrências, e `ST_PublishCompleted` (`bpmn:286-297`) publica a conclusão pelo publicador
+> genérico T7 — **mais** a classificação `Fix code → spec · mechanical` da tabela de direções
+> abaixo. **NÃO** uma ratificação: este documento continua `DRAFT` (linha 3) e continua
+> READ-ONLY sobre contratos/spec/código; nenhum PR pode citá-lo como sign-off. R-C/R-D/R-E do
+> mesmo documento seguem **DPO/SME sign-off** e continuam bloqueados; nenhum marcador
+> `DRAFT`/`verify` foi removido. As referências `path:line` deste documento a `lgpd.py` são
+> anteriores à remoção e ficaram deslocadas — cite símbolos, não linhas.
 
 ### Reconciliation-direction summary
 
@@ -176,6 +190,10 @@ Two test surfaces disagree, and the disagreement *confirms* the code→spec dire
   assert the **code** topic names (`assess_request`, `execute_export/rectification/erasure`,
   `publish_completed`). These are v2/current-repo tests, editable by the worker-owning lane —
   reconciling code→spec requires updating these asserts. **They are NOT donor fixtures.**
+  *(Atualização 2026-09-04: os asserts de `assess_request` já haviam saído com R-E, e os de
+  `publish_completed` saíram com R-H — os 3 testes foram REMOVIDOS junto com o worker, não
+  reescritos. Restam os asserts de `execute_export/rectification/erasure`, cujo destino é R-D,
+  DPO/SME-gated.)*
 - **Integration test-spec** (`docs/processes/test-specs/SP-OP-LGPD-DSR-001.md:18,48,56`), which drives
   the **T3.1 donor port** from `Maezo-Healthcare-Plan/tests/integration/`, references the **BPMN/contract**
   topic names: `operadora.lgpd.execute_request` (`:18`), `compile_data_package` (`:48,56`),
