@@ -203,7 +203,7 @@ class HelenaState(TypedDict, total=False):
     # Routing.
     next_kind: ResponseKind
     escalation_motivo: MotivoCategoria
-    escalation_severidade: Severidade
+    escalation_severidade: Severidade | None
 
     # `escalate` outputs.
     escalation_started: bool
@@ -266,8 +266,12 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     # which is the only place that assigns a REAL severidade per gatilho) — before this fix that
     # path silently announced every such case as `leve`. `escalate` now forwards whatever this
     # is (including `None`) verbatim; a `None`/absent `severidade` refuses fail-closed at the
-    # ALREADY-fixed worker boundary (`escalation.py::_exigir_severidade`), which routes to the
-    # supervisor fallback -> the mandatory HITL — never a dead end, never a fabricated `leve`.
+    # ALREADY-fixed worker boundary (`escalation.py::_exigir_severidade`). `ST_NotificarFallback`
+    # runs the SAME check and refuses too (it shares the `operadora.escalation.notify_supervisor`
+    # topic and `_exigir_severidade`), so NO notification is published on either channel; the
+    # case still reaches the mandatory HITL through the modeled `BE_NotifFallbackFailed` ->
+    # `Flow_BENotifFallback_UT` -> `UT_TratarEscalonamento` edge — never a dead end, never a
+    # fabricated `leve`, but nobody is paged.
     "escalation_severidade": None,
     "escalation_started": False,
     "escalation_business_key": None,
@@ -660,8 +664,8 @@ class HelenaGraph:
         1:1 to `motivo="solicitacao_humano"` — the same pairing `classify`'s own gatilho 3
         (`intent == "human_request"`) assigns explicitly below — not a fallback for an unknown
         clinical state. A scheduling request carries no clinical signal at all (`escalation_routing.
-        dmn` rule `r5` does not even read `severidade` for `solicitacao_humano`), so `leve` is the
-        correct, reviewed value, never a guess standing in for a missing one.
+        dmn` rule `r5` does not even read `severidade` for `solicitacao_humano`), so `leve` is a
+        valor de negocio explicito (nao revisado por SME), never a guess standing in for a missing one.
         """
         return await self._start_escalation(
             state,
@@ -684,8 +688,12 @@ class HelenaGraph:
         severidade is genuinely UNKNOWN, and an unknown one is never announced as `leve` (mirrors
         GAP-ESC-SEVERITY-GROUP's own principle, one layer down). `None` is forwarded verbatim into
         `_start_escalation` — the ALREADY-fixed worker boundary (`escalation.py::_exigir_severidade`)
-        refuses fail-closed on it and routes to the supervisor fallback -> the mandatory HITL, so
-        this never becomes a dead end, only a fabricated value is what's removed.
+        refuses fail-closed on it. `ST_NotificarFallback` shares the same
+        `operadora.escalation.notify_supervisor` topic and the same `_exigir_severidade`, so it
+        refuses too: NO notification is published on either channel. The case still reaches the
+        mandatory HITL through the modeled `BE_NotifFallbackFailed` -> `Flow_BENotifFallback_UT`
+        -> `UT_TratarEscalonamento` edge — never a dead end, only a fabricated value (and the
+        page nobody gets) is what's removed.
         """
         motivo: MotivoCategoria = state.get("escalation_motivo") or (
             "falha_tecnica" if state.get("error") else "outro"
