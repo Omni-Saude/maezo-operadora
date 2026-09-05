@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from logging.config import fileConfig
 
 from alembic import context
@@ -116,6 +117,22 @@ def _force_asyncpg_scheme(url: str) -> str:
     return url
 
 
+# D6-03: `alembic.ini`'s local-dev `sqlalchemy.url` used to hardcode the literal credential
+# `maezo:maezo` -- a normalized "password in repo" pattern for secret scanners, even though it
+# only ever addresses the compose-local Postgres service (never a real environment: `_ENV_DB_URL`
+# above always wins when set). Each `${VAR:-default}` token now resolves against the real
+# environment, falling back to the SAME default that shipped before, so a bare `alembic upgrade`
+# with no env vars set behaves byte-identically against the dev stack. ConfigParser's own
+# interpolation only understands `%(name)s` against other ini keys, so this substitution (no `%`
+# in the token) never conflicts with it and must be applied here, not left to alembic itself.
+_ENV_VAR_DEFAULT_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}")
+
+
+def _expand_env_defaults(value: str) -> str:
+    """Expand `${VAR:-default}` tokens in `value` against `os.environ`."""
+    return _ENV_VAR_DEFAULT_RE.sub(lambda m: os.environ.get(m.group(1), m.group(2)), value)
+
+
 _ENV_DB_URL: str | None = os.environ.get("ALEMBIC_DATABASE_URL") or os.environ.get("DATABASE_URL")
 if _ENV_DB_URL:
     _ENV_DB_URL = _force_asyncpg_scheme(_ENV_DB_URL)
@@ -126,6 +143,8 @@ def _config_section_with_url() -> dict[str, str]:
     section = dict(config.get_section(config.config_ini_section) or {})
     if _ENV_DB_URL:
         section["sqlalchemy.url"] = _ENV_DB_URL
+    elif "sqlalchemy.url" in section:
+        section["sqlalchemy.url"] = _expand_env_defaults(section["sqlalchemy.url"])
     return section
 
 
@@ -151,7 +170,7 @@ def run_migrations_offline() -> None:
 
     search_path is not injected in offline mode (no session).
     """
-    url = _ENV_DB_URL or config.get_main_option("sqlalchemy.url")
+    url = _ENV_DB_URL or _expand_env_defaults(config.get_main_option("sqlalchemy.url"))
     context.configure(
         url=url,
         target_metadata=target_metadata,
