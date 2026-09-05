@@ -461,7 +461,7 @@ alert.
 1. Check the nightly eval artifact in GitHub Actions
 2. Compare with the last passing run to identify which test cases regressed
 3. Review recent `src/maezo/agents/{agent}/` changes
-4. If caused by a model change: roll back `runtime/inference.py` to the last approved model config
+4. If caused by a model change: roll back `runtime/inference/settings.py` to the last approved model config
 5. Do not promote any changes until eval score recovers above 0.85
 
 ### A2A budget
@@ -594,8 +594,9 @@ today.
 `MaezoLLMTokenRateHigh` exists in `deploy/observability/alert-rules.yml`
 (RUNBOOK-PHANTOM-ALERTS-REMAINING-14, verified 2026-09-03: `grep -n 'alert: MaezoLLMCostSpike\|
 alert: MaezoLLMTokenRateHigh' deploy/observability/alert-rules.yml` — 0 hits). Of the two metrics
-named below, only `maezo_llm_tokens_total` is real and emitted (`src/maezo/runtime/metrics.py`,
-`src/maezo/runtime/inference.py:875`); `maezo_llm_cost_usd_total` does not exist anywhere in
+named below, only `maezo_llm_tokens_total` is real and emitted (`src/maezo/runtime/metrics.py:119`,
+called from `src/maezo/runtime/inference/providers.py`'s `_emit_llm_token_usage`);
+`maezo_llm_cost_usd_total` does not exist anywhere in
 `src/maezo/` (`grep -rn maezo_llm_cost_usd_total src/maezo/` — 0 hits) — there is no USD-cost
 series today, only token counts. Both rules belong in `deploy/observability/alert-rules.yml`
 (owner-gated). Meanwhile, operators can watch `maezo_llm_tokens_total` (rate, by agent+model) in
@@ -618,7 +619,7 @@ provider's published per-token price out of band.
 
 **If cost spike is sudden (not correlated with traffic):**
 1. Check for prompt bloat: did a recent agent prompt update add extra context/examples?
-2. Verify model tier hasn't been accidentally upgraded in a PR (check `git log --oneline -p src/maezo/runtime/inference.py`)
+2. Verify model tier hasn't been accidentally upgraded in a PR (check `git log --oneline -p src/maezo/runtime/inference/settings.py`)
 3. Check if frontier model (e.g., Claude 3.5 Opus) was enabled unintentionally in the routing rules
 
 **If token rate is high due to legitimate traffic:**

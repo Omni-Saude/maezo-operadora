@@ -16,9 +16,7 @@ import structlog.testing
 
 from maezo.tools.workers.base import WorkerBase
 from maezo.tools.workers.harness import (
-    CibSevenWorkerTransport as RealTransport,
-)
-from maezo.tools.workers.harness import (
+    _SAFE_DECISION_BASIS_KEYS,
     ExternalTask,
     FakeAuditSink,
     FakeKafkaPublisher,
@@ -31,7 +29,11 @@ from maezo.tools.workers.harness import (
     WorkerHarness,
     WorkerTransport,
     _to_camunda_var,
+    build_decision_basis,
     screen_bpmn_error_variables,
+)
+from maezo.tools.workers.harness import (
+    CibSevenWorkerTransport as RealTransport,
 )
 
 # `asyncio_mode = "auto"` (pyproject.toml) collects async def tests automatically — no
@@ -643,7 +645,7 @@ async def test_bpmn_error_disallowed_key_refuses_the_whole_bpmn_error() -> None:
 @pytest.mark.parametrize(
     "value",
     [
-        "cliente recusado pela operadora",  # free text (spaces)
+        pytest.param("cliente recusado pela operadora", id="valor-com-espacos"),  # free text (spaces)
         "linha1\nlinha2",  # newline
         "a" * 129,  # over the length cap
         "-leading-punctuation",  # must start alphanumeric
@@ -1448,3 +1450,30 @@ async def test_real_transport_no_auth_token_no_header() -> None:
     transport = RealTransport("http://engine/engine-rest")
     assert "Authorization" not in transport._client.headers
     await transport.close()
+
+
+# ---------------------------------------------------------------------------------------------
+# AUTH-CONTRACT-TRANSMIT-PROSE: "notice_sent" retired from the decision-basis allowlist
+# ---------------------------------------------------------------------------------------------
+
+
+def test_notice_sent_is_not_in_the_safe_decision_basis_allowlist() -> None:
+    """Pin the removal: no production worker emits `status="notice_sent"` any more
+    (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL retired the literal from `SendDenialNoticeWorker`,
+    the only worker that ever wrote it; `grep -rn '"notice_sent"' src/maezo/` finds it nowhere in
+    a production worker, only as history in `auth.py`'s docstring). If this assertion goes RED,
+    someone re-added a dead allowlist entry that would let a future worker resurrect the
+    fabricated "transmitted" claim by simply emitting the key again."""
+    assert "notice_sent" not in _SAFE_DECISION_BASIS_KEYS
+
+
+def test_build_decision_basis_still_drops_unknown_keys_including_notice_sent() -> None:
+    """The harness allowlist in `build_decision_basis` is a CURATED allowlist, never a
+    passthrough (design Sec.3.3): an out_vars key not in `_SAFE_DECISION_BASIS_KEYS` -- whether
+    it never existed or (like `notice_sent`) was retired -- is silently dropped, while a key that
+    IS allowlisted (`desfecho`) still reaches the audit chain."""
+    out_vars = {"desfecho": "APROVAR", "notice_sent": True, "some_never_allowlisted_key": "x"}
+    details = build_decision_basis({}, out_vars)
+    assert details["desfecho"] == "APROVAR"
+    assert "notice_sent" not in details
+    assert "some_never_allowlisted_key" not in details

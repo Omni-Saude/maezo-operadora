@@ -735,7 +735,7 @@ def request_documents(
     DUAS AFIRMACOES DA DOCSTRING ANTIGA ESTAVAM DESATUALIZADAS, e foram removidas em vez de
     reproduzidas: (1) "the BPMN's `event_topic_pended` inputParameter" — esse parametro NAO
     existe mais neste BPMN (`grep -n event_topic_pended spec/processes/bpmn/*.bpmn` so encontra
-    CRED-001 e RECURSO-001); (2) "no downstream `ST_Publish*` exists on this branch" — existe:
+    CRED-001); (2) "no downstream `ST_Publish*` exists on this branch" — existe:
     `ST_PublishReembolsoPended` (`:151-161`) publica `agents.events.reembolso.pended` via o
     generico `operadora.events.publish`, uma task adiante, em AMBOS os ramos que chegam aqui
     (pendencia inicial e `SOLICITAR_INFO` do analista). Ambas foram introduzidas por t3.1
