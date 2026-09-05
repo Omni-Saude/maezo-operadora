@@ -251,9 +251,9 @@ def _valor_pagamento_cents_or_none(valor_cents: Any) -> tuple[int | None, str]:
     guarantees; and `<= 0` (a zero or negative "payment" is not a payment).
 
     DELIBERATE DIVERGENCE from the reembolso mirror — it RAISES, this RETURNS. `ST_CalculateFacts`
-    (spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:115-120) declares NO error
+    (spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:121-126) declares NO error
     boundary event (the file's only boundaries are `BE_PagtoOrdemInvalida` on
-    `ST_ValidatePaymentData`:105-108 and the two SLA boundaries on `UT_AprovacaoAlcada`:294,310), so
+    `ST_ValidatePaymentData`:111-114 and the two SLA boundaries on `UT_AprovacaoAlcada`:300,316), so
     this task must fail NEUTRALLY on two independent grounds: (a) this function is
     `FunctionWorker`-registered, so any raise reclassifies to `ValueError` ->
     `failure(retries=0)` -> an incident (ADR-0030 Layer 1), allowlist-independent; (b) even a
@@ -612,7 +612,7 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
     """Registra que a ETAPA de alerta de risco de SLA rodou. Retorna `{}` — NAO afirma nada.
 
     Serve `ST_NotificarRiscoSla` (topico `operadora.pagto.notify_sla_risk`,
-    SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:300-304), alimentado SO pelo boundary NAO-interruptivo
+    SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:306-310), alimentado SO pelo boundary NAO-interruptivo
     `BT_AlertaSlaPagto` (`cancelActivity="false"`) em `UT_AprovacaoAlcada`, em `${sla.sla_alerta}`
     (60-70% de `pagto_sla.sla_alerta`, contrato DRAFT/verify). Informativa e jamais adversa: a
     User Task segue aberta e NENHUM desfecho adverso (liberacao de pagamento, recusa ou outro)
@@ -655,7 +655,7 @@ def register_payment_refusal(variables: dict[str, Any]) -> dict[str, Any]:
     """Register payment refusal/return for review — GUARDED, dual human channel.
 
     External task: `operadora.pagto.register_payment_refusal` (`ST_RegisterPaymentRefusal`,
-    SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:408-414). Task documentation (line 410): "Registra a
+    SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:414-420). Task documentation (line 416): "Registra a
     recusa/devolucao do pagamento para revisao quando decisao_pagamento=RECUSAR (decisao de
     alcada) OU quando a admissibilidade e devolvida por humano (decisao_admissibilidade=DEVOLVER)
     -- ambos registram justificativa_recusa + responsavel humano. NAO e glosa (glosa nasce em
