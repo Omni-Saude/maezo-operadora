@@ -106,6 +106,7 @@ idempotente, sem duplicar enrollment do mesmo beneficiario no mesmo ciclo).
 | `consent_event_ref` | string | Referencia ao registro de consentimento/revogacao (auditoria LGPD; liga a SP-OP-LGPD-DSR-001) |
 | `decisao_coordenacao` | string | `assumir_decisao` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA da decisao clinica — humano `coordenacao-clinica`) |
 | `enrollment_gap` | string | **ENROLL-BENEFICIARIO-SEM-EFEITO-REAL — preenchida por WORKER, nao pela UT.** Vocabulario FECHADO, hoje de um unico valor: `enroll_a2a_nao_ligado`. Emitida por `operadora.programa.build_care_plan` (`enroll_beneficiario`) enquanto a delegacao A2A `care.enroll` a Valentina NAO estiver ligada — declara que **nenhum plano de cuidado/dossie foi montado**. **AUSENTE quando a integracao estiver ligada** — ausencia significa "montagem real ocorreu", presenca significa "nao ocorreu". Sem PHI (token fechado). NAO e lida por nenhum gateway/DMN: existe para que a instancia e quem decide em `UT_DecisaoClinica` vejam a lacuna em vez de um fato fabricado |
+| `contato_gap` | string | **NEW-A2-2 (FAB-PUBLISH-CONTACT) — preenchida por WORKER, nao pela UT.** Vocabulario FECHADO, hoje de um unico valor: `contato_beneficiario_nao_ligado`. Emitida por `operadora.programa.proactive_contact` enquanto NAO existir canal de saida ao beneficiario ligado a `ST_ProactiveContact` — declara que a task de contato **nao contatou ninguem**: o handler raw so publica um envelope de OBSERVABILIDADE em `operadora.notifications.internal` (`programa.proactive_contact`), que nao chega a pessoa alguma e nao e consumido por nenhuma regra da ponte; no caminho `kafka=None` nem isso sai. Os remetentes reais da classe de acao `comunicacao_beneficiario` sao as superficies WhatsApp dos agentes, nunca este worker. **AUSENTE quando o canal estiver ligado** — ausencia significa "contato real ocorreu", presenca significa "nao ocorreu". Sem PHI (token fechado). NAO e lida por nenhum gateway/DMN: existe para que a instancia, a trilha ADR-0007 e quem decide em `UT_DecisaoClinica` vejam a lacuna em vez de um fato fabricado. O carimbo `desfecho=enrollment_realizado` continua sendo do `outputParameter` do BPMN (C3), NAO deste worker |
 
 > **SUPERSEDE a frase abaixo sobre `enrollment_realizado` (ENROLL-BENEFICIARIO-SEM-EFEITO-REAL, achado do verificador de FAB-PROGRAMA-NOW, `VERIFY-FABPROG.md` §4(ii)/achado 1).** A nota original (preservada abaixo, nao reescrita — o ledger e este contrato registram a correcao para a frente, nunca apagam a caracterizacao anterior) chamou `enrollment_realizado` de "fato booleano real" e concluiu "nao ha lacuna a declarar". Essa caracterizacao NAO era substanciada: `enroll_beneficiario` nunca executou enrollment algum — o corpo fazia SO `logger.info`, sem escrita, sem chamada A2A — apesar deste MESMO contrato (linha `operadora.programa.build_care_plan` em "Topicos", abaixo) e do proprio codigo (`programa.py`, comentario de bootstrap "spec match: task name says 'care.enroll'") ja declararem a delegacao A2A `care.enroll` a Valentina que o codigo nunca chamava. Mesma especie que BEA-09 corrigiu para `dossie_montado`/`referral_executado` em SP-OP-FRAUDE-001 — e, ao contrario do que a nota original concluiu por analogia, AQUI TAMBEM ha uma lacuna real a declarar, agora como `enrollment_gap` (linha acima). A chave `enrollment_realizado` foi REMOVIDA do retorno do worker sem substituicao por um fato equivalente; nao ha regressao no gate de consentimento (`check_consent` continua o UNICO chokepoint, inalterado por esta correcao).
 
@@ -148,7 +149,7 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 | External task | `operadora.programa.check_consent` | consome (worker) | **CHOKEPOINT** — verifica consentimento ativo para `consent_scope`; lanca `ERR_PROGRAMA_NO_CONSENT` se ausente/revogado (fail-closed) |
 | External task | `operadora.programa.stratify_risk` | consome (worker→A2A) | estratificacao de risco **in-zone** APOS o gate (delegacao `care.stratify` a Valentina — **instrui, nao decide**) |
 | External task | `operadora.programa.build_care_plan` | consome (worker→A2A) | **ALVO (a ligar):** monta plano de cuidado / dossie para a User Task clinica (delegacao `care.enroll` a Valentina — **sem decidir alta**). **HOJE (ENROLL-BENEFICIARIO-SEM-EFEITO-REAL):** o worker `enroll_beneficiario` NAO monta plano de cuidado algum — sem chamada A2A, sem plano, sem dossie — e retorna exatamente `{enrollment_gap: enroll_a2a_nao_ligado}`. **NAO afirma `enrollment_realizado=true`** (antes retornava essa constante de um corpo cuja unica instrucao era `logger.info`) |
-| External task | `operadora.programa.proactive_contact` | consome (worker) | contato proativo com o beneficiario (so com `consent_checked==true`; re-busca PHI in-zone — precedente Helena/WhatsApp, D9) |
+| External task | `operadora.programa.proactive_contact` | consome (worker) | **ALVO (a ligar):** contato proativo com o beneficiario (so com `consent_checked==true`; re-busca PHI in-zone — precedente Helena/WhatsApp, D9). **HOJE (NEW-A2-2):** o worker `proactive_contact` **nao contata ninguem** — nenhum canal de saida ao beneficiario esta ligado a esta task — e retorna exatamente `{contato_gap: contato_beneficiario_nao_ligado}`. **NAO afirma `contato_realizado=true`** (antes retornava essa constante em ambos os caminhos, inclusive no `kafka=None`, de um corpo cuja unica instrucao efetiva era `logger.info`). O guard de consentimento (`ERR_PROGRAMA_NO_CONSENT` como `ProgramaError` -> incidente, pois a task nao carrega error boundary) segue inalterado e fail-closed |
 | External task | `operadora.programa.stop_processing` | consome (worker) | **para o tratamento de PHI** apos revogacao (boundary interruptivo); registra cessacao (LGPD) |
 | External task | `operadora.programa.notify_sla_risk` | consome (worker) | worker `notify_sla_risk` + wrapper `make_notify_sla_risk_handler`: o wrapper publica o alerta em `operadora.notifications.internal` (`best_effort=False`) quando ha produtor Kafka, e AMBOS os caminhos retornam `{}` — **NAO afirmam `sla_risk_notified`** (FAB-SLA-RISK-NOTIFIED-SLICE4; antes o caminho `kafka is None` devolvia `True` sem ter publicado nada, e o registro interno e pedido de alerta, nunca prova de que a `coordenacao-clinica`/`equipe-cuidado` foi avisada). Informativo e nunca adverso: `UT_DecisaoClinica` segue aberta |
 | External task | `operadora.programa.register_program_discharge` | consome (worker) | **efeito adverso gated (clinico)** — registra desligamento clinico; recusa sem decisao humana (`ERR_PROGRAM_DISCHARGE_NOT_HUMAN`); carrega `responsavel_clinico_id` |
@@ -296,11 +297,36 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
 - Definir se enrollment exige captura de consentimento (User Task de consentimento) **antes** da
   decisao do coordenador (OQ do phase3-plan: "Enrollment exige captura de consentimento (UT) antes
   da decisao do coordenador?").
+- **Ligar um canal real de contato ao beneficiario em `ST_ProactiveContact` (NEW-A2-2 /
+  FAB-PUBLISH-CONTACT — ABERTO).** Enquanto nao ligado, `proactive_contact` nao contata ninguem e
+  emite `contato_gap=contato_beneficiario_nao_ligado`; o terminal `End_EnrollmentRealizado` e o
+  `desfecho=enrollment_realizado` significam "o processo roteou o caminho consentido e terminou",
+  NAO "o beneficiario foi contatado". O canal existe no repo — a classe de acao
+  `comunicacao_beneficiario` (`spec/policies/autonomy/action-approvals.yaml`) ja lista as
+  superficies WhatsApp — mas **quem** fala com o beneficiario nesta etapa, por **qual** canal e com
+  **qual** conteudo e decisao de produto/clinica + DPO (D9: re-busca de PHI in-zone), nao de
+  engenharia. Ao ligar: a variavel de lacuna deixa de ser emitida (ausencia = contato real) e a
+  linha de topico volta a descrever so o ALVO.
+- **`ERR_PROGRAMA_INSTANCIA_INVALIDA` declarado e NAO implementado (NEW-06, ABERTO — BLOQUEADO NO
+  CONTRATO).** O BPMN declara o objeto de erro (`Error_ProgramaInstanciaInvalida`) e a tabela de
+  codigos diz "worker lanca BPMN error se a instancia (programa x beneficiario x ciclo) for
+  inconsistente na origem", mas (i) **nenhuma regra define o que torna a instancia inconsistente**
+  (o proprio contrato remete o tratamento "a detalhar na promocao a FINAL") e (ii) **nenhum
+  `errorEventDefinition` no BPMN captura esse codigo**: nao ha boundary event algum para ele. Os
+  dois pontos sao bloqueantes e nao sao de engenharia. O (ii) e mecanico e verificavel:
+  `scripts/ci/check_bpmn_error_allowlist.py` FALHA (clausula (b), "FAIL on an unproven raise") para
+  um `WorkerBpmnError` sem cobertura de consumo, e no CIB Seven 2.1.0 um `bpmnError` nao modelado
+  **encerra silenciosamente o escopo do processo** em vez de abrir incidente — implementar o raise
+  hoje trocaria um codigo declarado-sem-uso por um encerramento silencioso. Ordem obrigatoria:
+  produto/clinica pina a regra de consistencia -> o BPMN ganha o boundary + o caminho de tratamento
+  -> so entao o worker levanta. Ate la a constante permanece **declarada e sem call site**.
 - **Ligar a delegacao A2A `care.enroll` a Valentina (ENROLL-BENEFICIARIO-SEM-EFEITO-REAL —
   ABERTO).** Enquanto nao ligada, `enroll_beneficiario` nao monta plano de cuidado/dossie algum e
   emite `enrollment_gap=enroll_a2a_nao_ligado`; o desfecho `enrollment_realizado` publicado em
-  `programa.completed` significa hoje "o caso foi roteado como elegivel e o contato proativo
-  ocorreu", NAO "um plano de cuidado foi montado". Requer o handler A2A de Valentina para
+  `programa.completed` significa hoje "o caso foi roteado como elegivel", NAO "um plano de
+  cuidado foi montado" — e, **corrigindo para a frente a redacao anterior desta mesma linha**
+  ("...e o contato proativo ocorreu"), tambem NAO "o beneficiario foi contatado": ver a
+  pendencia de `contato_gap` abaixo. Requer o handler A2A de Valentina para
   `care.enroll` **e** o registro em `a2a_composition` — o registro e **decisao do dono**
   (`FERNANDO-DELEGATION-CALL-SITE`), nao de engenharia. Ao ligar: a variavel de lacuna deixa de ser
   emitida (ausencia = montagem real) e a linha de topico de `build_care_plan` volta a descrever so

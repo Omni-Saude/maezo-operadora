@@ -55,6 +55,33 @@ processo regulatorio sem dono. `register_programa_workers` passa de 8 para 7 top
 declarados pelo BPMN; pinado por
 `tests/unit/tools/workers/test_programa.py::test_register_programa_workers_registers_all_7_topics`.
 
+**Registro de decisao — `operadora.fraude.publish_completed` e `operadora.pagto.publish_completed`
+REMOVIDOS** (FAB-PUBLISH-CONTACT, achado NEW-A2-1): os dois workers estavam registrados sob topicos
+derivados do nome da funcao que NENHUM `serviceTask` declara — todo `ST_Publish*` de SP-OP-FRAUDE-001
+e de SP-OP-PAGTO-001 roteia pelo generico `operadora.events.publish` — logo eram orfaos inalcancaveis
+pelo engine. Cada um devolvia (a) `evento_publicado: True`, fato fabricado que a allowlist de escrita
+de escopo da harness deixava entrar na instancia, de um corpo cuja unica instrucao era `logger.info`
+(nenhum dos dois modulos tem call site de `kafka.publish(`; `register_fraude_workers` faz
+`del kafka  # unused`), e (b) um `desfecho` recalculado em Python, SEGUNDA fonte de verdade para o
+vocabulario que o BPMN ja fixa como literal `event_desfecho` em cada task de publicacao — e errada no
+caso de fraude, que mapeava tudo que nao fosse `ACUSAR_FRAUDE` para `arquivado_sem_indicio`, isto e,
+4 dos 5 terminais. Escolha: **remover** funcao e registro, em vez de (i) criar um `serviceTask` para
+servi-los — publicacao ja e modelada e servida por `events.py`, o unico ponto do repo que publica de
+verdade e que reporta `event_published` a partir do bool de entrega REAL do produtor — ou (ii) emitir
+um token `GAP_*`, que afirmaria uma lacuna INEXISTENTE (o evento E publicado), o mesmo defeito de
+honestidade na direcao oposta ja registrado na docstring de `fraude.intake`. Mesma decisao e mesma
+forma de `operadora.lgpd.publish_completed` (LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC, decisao do dono
+R-103, remedio R-H) e de `operadora.programa.monitor_programa` (PERSP-C5-MONITOR-PROGRAMA, acima).
+`register_fraude_workers` passa de 11 para 10 topicos, todos declarados pelo BPMN; pinado nos DOIS
+sentidos (sem worker faltando E sem orfao) por `tests/integration/processes/test_sp_op_fraude_001.py::
+test_bpmn_fraude_topics_vs_registered_workers` — que era, ele proprio, o pin que pedia esta edicao
+("atualize este teste e a suite se corrigido") — e por
+`tests/unit/tools/workers/test_{fraude,pagto}.py::test_*_nao_registra_topico_orfao_publish_completed`.
+A familia irma que devolve `published: True` sob a mesma forma (`ans_submit`, `cancel`, `contas`,
+`nip`, `recurso`, `reembolso`) NAO foi tocada aqui e segue **ABERTA**: cada um desses seis tem o seu
+proprio mapa de consumidores a refazer, e cerca-los sem corrigi-los exigiria seis entradas de baseline
+que pareceriam cobertura sem nada ter mudado.
+
 \*\* SP-OP-REEMBOLSO-001: nenhum `agent.yaml` declara este processo em `process_keys`
 (`grep -rn REEMBOLSO spec/agents/*/agent.yaml` -> 0 hits) — arbitrado como MENOR PRIVILEGIO
 CORRETO, nao lacuna (PERSP-REEMBOLSO-BINDING, WP-AGENT-BINDINGS-EXEC). Marina serve o processo

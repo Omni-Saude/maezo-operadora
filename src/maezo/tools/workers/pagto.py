@@ -115,6 +115,11 @@ PAGTO_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_PAGTO_ORDEM_INVALIDA
 # Decision values (UT_AprovacaoAlcada / UT_CoordenacaoAlcada — `decisao_pagamento`)
 DECISAO_APROVAR = "APROVAR"
 DECISAO_RECUSAR = "RECUSAR"
+# `DECISAO_CANCELAR` fica declarada SEM leitor em Python desde FAB-PUBLISH-CONTACT: o unico era o
+# `publish_completed` aposentado, que reconstruia em Python o `desfecho` que o BPMN ja fixa. O
+# valor NAO e codigo morto — e vocabulario FECHADO de `decisao_pagamento`, declarado no BPMN
+# (`SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn`, `${decisao_pagamento=='CANCELAR'}`) e no contrato, e
+# a constante existe para que qualquer leitor futuro o cite daqui em vez de repetir a string.
 DECISAO_CANCELAR = "CANCELAR"
 
 # Decision value (UT_AnaliseAdmissibilidade — `decisao_admissibilidade`, a DIFFERENT process
@@ -753,32 +758,19 @@ def register_payment_refusal(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
-# publish_completed — publishing completion event
+# publish_completed — APOSENTADA (FAB-PUBLISH-CONTACT / NEW-A2-1)
+#
+# Irmao byte-a-byte do caso de `fraude.publish_completed` (a justificativa longa vive la, acima de
+# `FraudeError`), com as MESMAS tres razoes somadas: (1) `operadora.pagto.publish_completed` nao e
+# declarado por `serviceTask` algum de SP-OP-PAGTO-001 — os quatro `ST_Publish*` do processo
+# roteiam pelo generico `operadora.events.publish`; (2) o corpo tinha uma unica instrucao
+# (`logger.info`) e ainda assim devolvia `evento_publicado: True`, fato que a allowlist de escrita
+# de escopo da harness deixa entrar na instancia de um processo FINANCEIRO; (3) o `desfecho` era
+# recalculado em Python a partir de `faixa_valor`/`decisao_pagamento`, duplicando o vocabulario que
+# o BPMN ja fixa como literal `event_desfecho` em cada task de publicacao (C3: decisao de negocio
+# nao migra para o worker). Nao ha lacuna a declarar — o evento E publicado por `events.py` — logo
+# nao ha token `GAP_*` aqui, so a remocao. Registro da decisao em `docs/processes/catalog.md`.
 # ---------------------------------------------------------------
-
-
-def publish_completed(variables: dict[str, Any]) -> dict[str, Any]:
-    """Publish domain event for payment completion."""
-    desfecho = "liberado_automatico"
-    if variables.get("faixa_valor", "") != "DENTRO_TETO_L2":
-        decisao = variables.get("decisao_pagamento", "")
-        if decisao == DECISAO_APROVAR:
-            desfecho = "liberado_humano"
-        elif decisao == DECISAO_RECUSAR:
-            desfecho = "recusado_humano"
-        elif decisao == DECISAO_CANCELAR:
-            desfecho = "cancelado"
-
-    logger.info(
-        "pagto_publish_completed",
-        ordem_id=variables.get("ordem_pagamento_id"),
-        desfecho=desfecho,
-    )
-
-    return {
-        "evento_publicado": True,
-        "desfecho": desfecho,
-    }
 
 
 # ---------------------------------------------------------------
@@ -1065,8 +1057,10 @@ class PagtoError(Exception):
 #   register_payment_refusal -> operadora.pagto.register_payment_refusal (spec match,
 #     GUARDED dual-channel refuse-if-no-human — t2.5-p2b-round2 closed this gap)
 # assess_admissibility has no distinct spec topic — registered under a
-# function-derived topic for registry completeness. publish_completed folds
-# into the generic events.publish task per BPMN — function-derived topic.
+# function-derived topic for registry completeness. Its former companion
+# `operadora.pagto.publish_completed` is GONE (FAB-PUBLISH-CONTACT): orphan topic
+# whose only output was a fabricated `evento_publicado: True` plus a `desfecho`
+# the BPMN already owns — function and registration retired.
 #   make_prepare_approval_dossier_handler -> operadora.pagto.prepare_approval_dossier (exact spec
 #     match; RAW async handler — the REAL Andre A2A delegation (analytics.population, origin-
 #     disambiguated to his DEFAULT pagto_dossier flow) DL-0033 deferred, now wired (the LAST
@@ -1115,7 +1109,6 @@ def register_pagto_workers(
     harness.register_worker(
         FunctionWorker("operadora.pagto.register_payment_refusal", register_payment_refusal)
     )
-    harness.register_worker(FunctionWorker("operadora.pagto.publish_completed", publish_completed))
     # RAW handler (NOT register_worker) — needs the async dispatcher seam (module topic-map note).
     # LEAST PRIVILEGE (GK-dossier finding 10, design §5 `TopicSubscription.variables` seam): the
     # raw registration used the engine DEFAULT (`variables=None` = return EVERY process variable

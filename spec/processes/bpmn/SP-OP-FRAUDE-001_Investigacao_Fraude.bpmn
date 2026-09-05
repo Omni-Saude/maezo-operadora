@@ -333,7 +333,7 @@ dossie_montado=true nesta mesma posicao, sem dossie algum.
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.fraude.completed</camunda:inputParameter>
           <camunda:inputParameter name="event_desfecho">fraude_confirmada_humano</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier,evidencia_gap,dossie_gap</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_GWReferral_Confirmado</bpmn:incoming>
@@ -356,7 +356,7 @@ dossie_montado=true nesta mesma posicao, sem dossie algum.
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.fraude.completed</camunda:inputParameter>
           <camunda:inputParameter name="event_desfecho">encaminhado_credenciamento</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier,prestador_id</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier,prestador_id,evidencia_gap,dossie_gap</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Cred_Pub</bpmn:incoming>
@@ -379,7 +379,7 @@ dossie_montado=true nesta mesma posicao, sem dossie algum.
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.fraude.completed</camunda:inputParameter>
           <camunda:inputParameter name="event_desfecho">encaminhado_contratual</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier,numero_contrato,entidade_tipo</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier,numero_contrato,entidade_tipo,evidencia_gap,dossie_gap</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Contratual_Pub</bpmn:incoming>
@@ -402,7 +402,7 @@ dossie_montado=true nesta mesma posicao, sem dossie algum.
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.fraude.completed</camunda:inputParameter>
           <camunda:inputParameter name="event_desfecho">encaminhado_juridico</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier,evidencia_gap,dossie_gap,referral_gap</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Legal_Pub</bpmn:incoming>
@@ -419,7 +419,7 @@ dossie_montado=true nesta mesma posicao, sem dossie algum.
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.fraude.completed</camunda:inputParameter>
           <camunda:inputParameter name="event_desfecho">arquivado_sem_indicio</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,evidencia_gap,dossie_gap</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_GWDec_Arquivar</bpmn:incoming>
@@ -436,7 +436,7 @@ dossie_montado=true nesta mesma posicao, sem dossie algum.
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.fraude.completed</camunda:inputParameter>
           <camunda:inputParameter name="event_desfecho">monitorar</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,evidencia_gap,dossie_gap</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_GWDec_Monitorar</bpmn:incoming>

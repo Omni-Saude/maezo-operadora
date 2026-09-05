@@ -6,6 +6,7 @@ TDD London School: tests verify the consent chokepoint and clinical discharge gu
 import pytest
 import structlog.testing
 
+from maezo.tools.workers import programa as programa_module
 from maezo.tools.workers.harness import (
     ExternalTask,
     FakeKafkaPublisher,
@@ -13,7 +14,6 @@ from maezo.tools.workers.harness import (
     WorkerBpmnError,
     WorkerHarness,
 )
-from maezo.tools.workers import programa as programa_module
 from maezo.tools.workers.programa import (
     ERR_PROGRAM_DISCHARGE_NOT_HUMAN,
     ERR_PROGRAMA_NO_CONSENT,

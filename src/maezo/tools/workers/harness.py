@@ -180,7 +180,15 @@ _SAFE_DECISION_BASIS_KEYS: frozenset[str] = frozenset(
         "tipo_liberacao",
         "pagamento_executado",
         "pagamento_liberado",
-        "evento_publicado",
+        # FAB-PUBLISH-CONTACT: "evento_publicado" REMOVIDA, pelo motivo EXATO que a nota de
+        # `notice_sent` abaixo registra. Os dois unicos escritores da chave eram
+        # `fraude.publish_completed` e `pagto.publish_completed`, workers ORFAOS (topico que nenhum
+        # `serviceTask` declara) que a fabricavam como `True` constante de um corpo cujo unico
+        # comando era `logger.info`; ambos foram aposentados, e `grep -rnw evento_publicado
+        # src/maezo/` nao acha mais nenhum emissor. Manter a chave viva aqui nao custaria nada
+        # operacionalmente, mas convidaria um worker futuro a ressuscitar a afirmacao de publish
+        # so reemitindo o nome. Quem publica de verdade e `events.py`, e ele usa `event_published`
+        # (abaixo), preenchida com o bool de entrega REAL do produtor.
         "event_published",
         # t2-notify-integrity: bounded bool flag marking a SWALLOWED best-effort publish failure
         # (`events.py` sets it alongside `event_published=False` so the audit row records the

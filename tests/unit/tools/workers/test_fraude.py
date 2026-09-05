@@ -1384,7 +1384,6 @@ def test_start_contratual_second_case_after_a_finished_cancel_is_not_swallowed()
     assert asyncio.run(engine.find_active_instance("CANCEL-amh-C-321")) is not None
 
 
-
 # ---------------------------------------------------------------
 # FAB-PUBLISH-CONTACT (NEW-A2-1 / NEW-05)
 # ---------------------------------------------------------------
@@ -1451,10 +1450,7 @@ def test_fraude_completion_events_carregam_os_tokens_de_lacuna() -> None:
     for task in tree.getroot().iter():
         if not task.tag.endswith("serviceTask"):
             continue
-        params = {
-            el.get("name"): (el.text or "")
-            for el in task.iter(f"{_CAMUNDA_NS}inputParameter")
-        }
+        params = {el.get("name"): (el.text or "") for el in task.iter(f"{_CAMUNDA_NS}inputParameter")}
         if "event_desfecho" not in params:
             continue
         task_id = task.get("id") or "<sem id>"

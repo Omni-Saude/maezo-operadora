@@ -591,20 +591,46 @@ def test_pin_contas_payload_var_literals_match_spec_verbatim(expected_line: str)
     )
 
 
+# FAB-PUBLISH-CONTACT (NEW-05): the six `event_desfecho`-carrying publish tasks now ALSO carry the
+# gap class-tokens (`evidencia_gap`,`dossie_gap`; plus `referral_gap` on the juridico leg, the only
+# one downstream of `ST_ReferToLegal`), so the completion event stops hiding what the process scope
+# already knew. This pin caught the change LOUDLY, exactly as its own comment promised — and the
+# update below is the required response, not a weakening: it is now pinned PER TASK (six literals
+# instead of three shared ones) because the four shapes that used to collapse into one
+# "confirmada/juridico/arquivado/monitorar" line no longer do. The bridge's armed handoff pins are
+# unaffected by construction: their predicates read only `desfecho` plus the business-key anchors
+# (`prestador_id`, `numero_contrato`, `entidade_tipo`), and the new keys are additive.
 @pytest.mark.parametrize(
     "expected_line",
     [
         _EP.format(
-            vars="tenant_id,numero_caso,investigator_id,tier"
-        ),  # confirmada/juridico/arquivado/monitorar
-        _EP.format(vars="tenant_id,numero_caso,investigator_id,tier,prestador_id"),  # T4: CRED armed
+            vars="tenant_id,numero_caso,investigator_id,tier,evidencia_gap,dossie_gap"
+        ),  # ST_PublishFraudeConfirmada
         _EP.format(
-            vars="tenant_id,numero_caso,investigator_id,tier,numero_contrato,entidade_tipo"
+            vars="tenant_id,numero_caso,investigator_id,tier,evidencia_gap,dossie_gap,referral_gap"
+        ),  # ST_PublishEncaminhadoJuridico (o unico a jusante de ST_ReferToLegal)
+        _EP.format(
+            vars="tenant_id,numero_caso,investigator_id,tier,prestador_id,evidencia_gap,dossie_gap"
+        ),  # T4: CRED armed
+        _EP.format(
+            vars="tenant_id,numero_caso,investigator_id,tier,numero_contrato,entidade_tipo,"
+            "evidencia_gap,dossie_gap"
         ),  # T4: CANCEL/INAD armed
+        _EP.format(
+            vars="tenant_id,numero_caso,evidencia_gap,dossie_gap"
+        ),  # ST_PublishArquivado + ST_PublishMonitorar (mesma forma)
         _ED.format(desfecho="encaminhado_credenciamento"),
         _ED.format(desfecho="encaminhado_contratual"),
     ],
-    ids=["base_shape", "cred_armed", "contratual_armed", "cred_desfecho", "contratual_desfecho"],
+    ids=[
+        "confirmada_shape",
+        "juridico_shape",
+        "cred_armed",
+        "contratual_armed",
+        "neutros_shape",
+        "cred_desfecho",
+        "contratual_desfecho",
+    ],
 )
 def test_pin_fraude_payload_var_literals_match_spec_verbatim(expected_line: str) -> None:
     """The exact `event_payload_vars`/`event_desfecho` literals every FRAUDE armed pin above
