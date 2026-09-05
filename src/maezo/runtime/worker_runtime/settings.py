@@ -58,6 +58,15 @@ class WorkerRuntimeSettings(BaseSettings):
     phi_hmac_key: str | None = Field(default=None, alias="PHI_HMAC_KEY")
 
     # --- Fetch-and-lock loop parameters (WorkerHarness, design §11) ---------------------------
+    # GAP D4-03 (round-5, 2026-09-05): the register's concern is that this posture (30s lock / 5s
+    # poll / 10 tasks per poll) could starve a cold topic behind a busy one once a single
+    # worker-daemon serves 99+ topics. These four values are DELIBERATELY UNCHANGED here — the
+    # measurement the register itself asks for (consumer-lag PER TOPIC, to see whether starvation
+    # is actually happening before touching a knob that trades one failure mode for another) is
+    # now POSSIBLE via the `kafka-exporter` scrape job (`deploy/observability/prometheus.yml`,
+    # `kafka_consumergroup_lag_sum{consumergroup,topic}`) but has not been RUN against a
+    # representative topic count — see `docs/runbooks/devops-stack.md` §"Kafka lag" for the
+    # PromQL and the full decision note. Do not change these four values without that reading.
     lock_duration_ms: int = Field(default=30_000, alias="WORKER_LOCK_DURATION_MS")
     poll_interval_ms: int = Field(default=5_000, alias="WORKER_POLL_INTERVAL_MS")
     async_response_timeout_ms: int = Field(default=25_000, alias="WORKER_ASYNC_RESPONSE_TIMEOUT_MS")
@@ -79,6 +88,15 @@ class WorkerRuntimeSettings(BaseSettings):
     # Bound per dependency during bring-up (Kafka/engine probing) — bounded so a slow dependency
     # never hangs the boot sequence (health server binds first regardless, design §12).
     dep_connect_timeout_s: float = Field(default=5.0, alias="DEP_CONNECT_TIMEOUT_S")
+
+    # --- SC-06 / R-109: declared throughput-ceiling metadata (informational only) -------------
+    # Import fan-in of `maezo.tools.mcp_cibseven.transport` / `maezo.tools.workers.harness`
+    # (`deploy/helm/maezo-tenant/values.yaml`, section "Throughput ceilings"), surfaced in this
+    # daemon's start-up log (`run()`, `worker_runtime_starting`) for ops visibility. `None` when
+    # absent (dev/local) — NEVER used to gate or throttle anything; a missing declaration must
+    # never fail this daemon closed, unlike the genuinely-required fields above.
+    transport_fan_in_ceiling: int | None = Field(default=None, alias="MAEZO_TRANSPORT_FAN_IN_CEILING")
+    harness_fan_in_ceiling: int | None = Field(default=None, alias="MAEZO_HARNESS_FAN_IN_CEILING")
 
     @field_validator(
         "lock_duration_ms",

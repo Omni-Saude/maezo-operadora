@@ -172,6 +172,23 @@ webhookReceiver:
     port: 8080
 
 # ---------------------------------------------------------------------------
+# WhatsApp Cloud API — non-secret configuration (WHATSAPP-ENV-PREFIX-b / R-061,
+# OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA)
+#
+# `phoneNumberId` is the WABA sender number's Graph id — NOT a secret (see
+# `src/maezo/tools/mcp_whatsapp/server.py::WhatsAppSettings.phone_number_id`'s own comment), so
+# it lives here as a plain per-tenant value instead of a key in `maezo-whatsapp-config` (the
+# ExternalSecret that carries the three real credentials: token/app-secret/verify-token).
+# `send_message` (`server.py`, achado 9.4) fails closed with a `ValueError` when this is empty —
+# `scripts/ci/check_chart_env_reconciliation.py`'s `chart_required` marker on the field makes an
+# unset value here a CI-time RED, not a production surprise. Leave empty per-tenant until the
+# WABA number is provisioned for that tenant; the credentials in `maezo-whatsapp-config`
+# (`D6-04`) remain BLOCKED independently of this value.
+# ---------------------------------------------------------------------------
+whatsapp:
+  phoneNumberId: ""
+
+# ---------------------------------------------------------------------------
 # FHIR Sync (HAPI FHIR R4 ↔ Tasy integration)
 # ---------------------------------------------------------------------------
 # DEFAULT FLIPPED TO false (t5-deploy-hygiene, crash-loop footgun): `deployment-fhir-sync.yaml`'s
@@ -257,10 +274,34 @@ workerDaemon:
 # Consome `operadora.notifications.internal` e inicia SP-OP-RECURSO-001 / SP-OP-ANS-SUBMIT-001
 # via mcp-cibseven.start_process (idempotente). Principal de SERVICO `notifications-bridge`
 # (allowlist minima: so start_process). NAO sobe app de health (liveness por processo).
+#
+# `replicaCount: 1` e' SINGLETON POR DESENHO, nao esquecimento (SC-04-b / R-024,
+# OWNER-DECISIONS-REGISTER, resposta_sugerida verbatim: "registrar replicaCount: 1 como
+# singleton por desenho ate SC-04-a, no comentario e numa chave explicita do values"). A chave
+# `singletonByDesignUntil` abaixo e' essa declaracao formal.
+#
+# ATUALIZACAO DE FATO (o codigo mudou depois que R-024 foi decidido): SC-04-a JA ATERRISSOU em
+# main — `events_kafka_producer.py` recusa `publish()` sem chave de particao por entidade a
+# menos que o chamador declare `unordered=True` (:73-81) e `notifications_bridge.py` tem DLQ
+# real (`BRIDGE_DLQ_REASONS`, :64-76,167-259) — os DOIS bloqueios TECNICOS que motivaram o `1`
+# original ja NAO existem mais. O que falta para subir `replicaCount` deixou de ser codigo: e'
+# OPERACIONAL — confirmar que o topico `operadora.notifications.internal` foi de fato criado com
+# mais de uma particao no broker de producao (o default do registry, `topic_registry.py:75`, e'
+# uma DECLARACAO do repo, nao um fato do broker medido) — ver docs/review-queue.md, secao "SC-04
+# — escala do notifications-bridge". So' remova a chave abaixo (e suba o numero) quando essa
+# confirmacao operacional entrar.
 # ---------------------------------------------------------------------------
 notificationsBridge:
   enabled: true
   replicaCount: 1
+  # SC-04-b / R-024: singleton por desenho ate a confirmacao operacional de particionamento
+  # descrita no comentario acima (docs/review-queue.md, secao SC-04). Ver
+  # tests/unit/deploy/test_notifications_bridge_singleton.py — GATEKEEPER FINDING F2
+  # (VERIFY-A2-HELM-CAPACITY.md): falha se `Deployment/notifications-bridge` renderizar com
+  # replicas > 1 (via `helm template`, para CADA overlay real — `values-staging.yaml` e
+  # `values-amh.yaml`) enquanto esta chave existir; a leitura direta deste arquivo sozinho NAO
+  # basta, porque um overlay pode sobrescrever `replicaCount` sem tocar esta linha.
+  singletonByDesignUntil: "SC-04-a"
   resources:
     requests:
       cpu: "50m"
@@ -558,6 +599,97 @@ aurora:
   database: "maezo"         # terraform output aurora_database_name
 
 # ---------------------------------------------------------------------------
+# SC-05 / R-025+R-026 (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA): connection
+# arithmetic — DERIVADO a partir do que ja esta neste repositorio, NAO MEDIDO contra um cluster
+# real. Sem proxy de conexao provisionado ainda (R-026 escolheu RDS Proxy, `enable_rds_proxy =
+# false` em `deploy/terraform/modules/aurora-postgres/`), cada processo Python abre seu PROPRIO
+# pool `asyncpg` — este bloco e' o teto que nenhum gate detecta hoje sem ele.
+#
+# GATEKEEPER FINDING F1 (VERIFY-A2-HELM-CAPACITY.md): a revisao anterior derivava o pod count de
+# `values.yaml` PURO (bare, sem overlay) mas cruzava esse numero contra o `max_connections` de
+# PROD — que roda com o overlay `values-amh.yaml`, nao com o bare file. Este bloco agora declara
+# as TRES linhas (bare + as duas overlays reais) e deriva o teto/headroom da linha que o proprio
+# ambiente prod usa (`values-amh.yaml`), nunca da bare.
+#
+# 1) Conexoes por processo (pior caso): ha' EXATAMENTE QUATRO sitios `asyncpg.create_pool` nesta
+#    arvore, cada um `min_size=1, max_size=10` (D4-02/R-108, comentario-ancora em cada um):
+#      src/maezo/a2a/idempotency.py, src/maezo/a2a/outbox.py,
+#      src/maezo/platform/integrations/amh_inbox.py, src/maezo/gateway/audit_postgres.py
+#    Nenhum processo abre mais que estes quatro (nao ha' um quinto `create_pool` em `src/`) — o
+#    teto POR PROCESSO, no pior caso em que um unico processo alcance os quatro, e'
+#      4 pools x max_size 10 = 40 conexoes/processo
+#    Isto e' deliberadamente conservador (a maioria dos processos abre um subconjunto, nao os
+#    quatro) — o objetivo e' um TETO que nao subestima, nao uma medicao exata de cada pod.
+#
+# 2) Processos por pod: 1. Nenhum entrypoint desta arvore usa multiplos workers OS (sem
+#    `--workers`/gunicorn — `deploy/Dockerfile` roda `python -m maezo.<modulo>` direto; grep
+#    `workers=|--workers|gunicorn` em `deploy/` e nos `__main__.py` = 0 hits).
+#
+# 3) Pods por tenant — TRES linhas, citadas por CHAVE (gatekeeper finding F8: nao por numero de
+#    linha, que muda a cada edicao), nenhuma delas incluindo os componentes desligados por padrao
+#    (`gateway`, `fhirSync`, `networkChangeBridge`, `consentRevocationBridge`, agentes
+#    `gustavo`/`lucas`):
+#
+#      (a) BARE `values.yaml` (leitura direta das chaves abaixo — este arquivo NAO renderiza
+#          standalone: `networkPolicy.generalZone.llmEndpoints[0].cidr` e `aurora.endpoint` ficam
+#          deliberadamente vazios ate' um overlay os preencher — entao este numero e' um PISO
+#          teorico, nunca o de um tenant real):
+#            agents[helena].replicaCount(2) + agents[rafael].replicaCount(2) +
+#            agents[marina].replicaCount(2) + workerDaemon.replicaCount(2) +
+#            notificationsBridge.replicaCount(1) + webhookReceiver.replicaCount(1) +
+#            a2aOutboxRelay.replicaCount(1)                    = 11 pods -> 440 conexoes
+#
+#      (b) `values-staging.yaml` (RENDERIZADO — `helm template ... -f values-staging.yaml`,
+#          somando `spec.replicas` de todo `Deployment` do chart, nao uma soma manual de chaves):
+#            8 pods -> 320 conexoes
+#
+#      (c) `values-amh.yaml` == PROD (RENDERIZADO, mesmo metodo):
+#            14 pods -> 560 conexoes
+#
+#    O ambiente onde o Aurora PROVISIONADO (nao serverless) do item 5 realmente vive e' (c), nao
+#    (a) — o teto/headroom abaixo usa (c).
+#
+# 4) Conexoes TRANSIENTES fora dos 4 pools do item 1 (gatekeeper finding F9) — nenhuma delas usa
+#    `asyncpg.create_pool`, entao nao estao no item 3, mas `migrations.enabled`/`lifecycle.enabled`
+#    sao `true` por padrao e rodam contra o MESMO cluster:
+#      - `migrations` Job (hook pre-install/pre-upgrade, `templates/job-migrations.yaml`): UMA
+#        conexao SINCRONA (psycopg via alembic — nao um pool asyncpg) por execucao. Roda ANTES dos
+#        pods do release subirem, mas pode coexistir com o release ANTERIOR do mesmo tenant ainda
+#        servindo trafego durante um `helm upgrade` — aloca-se +1 de folga transiente por tenant.
+#      - as 3 CronJobs de `lifecycle` (`expurgo-working`/`verify-erasure`/`audit-retention`): HOJE
+#        abrem ZERO conexoes Postgres — `src/maezo/platform/lifecycle/__init__.py` recusa (exit 78,
+#        T2.8) ANTES de qualquer acesso a banco, so' lendo um arquivo de matriz de retencao. A
+#        folga transiente delas e' +0 HOJE — revisitar esta linha (e a folga do item 5) no dia em
+#        que qualquer uma das tres deixar de ser um stub fail-closed.
+#
+# 5) Demanda no pior caso, por tenant = conexoes/processo(40) x processos/pod(1) x pods + folga
+#    transiente do item 4 (+1, so' migrations):
+#      bare      -> 11 pods -> 440   (piso teorico do item 3a, nunca um tenant real)
+#      staging   ->  8 pods -> 320 + 1 = 321
+#      amh/prod  -> 14 pods -> 560 + 1 = 561
+#    Multiplica por N tenants (cada release Helm = 1 tenant contra o MESMO cluster Aurora), usando
+#    a linha amh/prod (561 — a que roda contra o Aurora provisionado do item 6):
+#      N=1 -> 561   N=2 -> 1122   N=4 -> 2244   N=6 -> 3366   N=7 -> 3927
+#
+# 6) Lado do Aurora — `aws_rds_cluster_parameter_group.this` / `aws_db_parameter_group.instance`
+#    (`deploy/terraform/modules/aurora-postgres/main.tf`) NAO sobrescrevem `max_connections`, entao
+#    a formula PADRAO da AWS para a familia `aurora-postgresql16` vale:
+#      max_connections = LEAST({DBInstanceClassMemory/9531392}, 5000)
+#    PROD (`deploy/terraform/envs/prod-amh-sa-east-1/main.tf`): `serverless = false`,
+#    `instance_class = "db.r6g.xlarge"` (32 GiB) -> max_connections ~ 3604.
+#      Folga (numero, nao adjetivo), usando a linha amh/prod (561) do item 5: N=1 -> 3043 de
+#      folga (~6x o pior caso); teto ultrapassado a partir de N=7 (3927 > 3604); N=6 (3366) ainda
+#      cabe, com 238 de margem.
+#    STAGING (`deploy/terraform/envs/staging-sa-east-1/main.tf`): `serverless = true`,
+#    `serverless_max_acu = 4.0` — o `max_connections` da Serverless v2 ESCALA com a capacidade
+#    (ACU) ALOCADA NO MOMENTO, nao e' um numero fixo derivavel do Terraform; leia
+#    `SHOW max_connections;` contra o cluster staging vivo em vez de assumir um valor daqui.
+#
+# Cruzamento com R-026: RDS Proxy foi escolhido como caminho a partir do SEGUNDO tenant real —
+# bem ANTES do teto calculado acima em qualquer um dos dois ambientes; e' margem de seguranca
+# deliberada, nao um remedio de ultima hora.
+
+# ---------------------------------------------------------------------------
 # Migrations Job — Helm hook pre-install/pre-upgrade. Roda `alembic upgrade head`
 # contra o schema-por-tenant ANTES dos runtimes subirem (cria audit_chain, agent_memory,
 # a2a_idempotency, indice de retencao). Ver templates/job-migrations.yaml.
@@ -664,3 +796,49 @@ lifecycle:
     - name: audit-retention
       command: "audit-retention"
       schedule: "0 5 1 * *"
+
+# ---------------------------------------------------------------------------
+# Throughput ceilings (SC-06 / R-109, OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA,
+# opcao A — respondida junto com SC-02): declara os dois chokepoints que a auditoria de
+# escalabilidade identificou como singletons DE FATO, sem construir alerta/metrica nova sobre eles
+# (opcao B foi descartada — alertar sobre uma metrica que ninguem emite e a MESMA patologia que
+# ALERTS-WITHOUT-METRICS-b ja limpou em deploy/observability/alert-rules.yml:171).
+#
+# "Fan-in" aqui e' ACOPLAMENTO DE IMPORTACAO (quantos modulos de src/maezo importam o modulo,
+# direta ou indiretamente via `from X import Y`) — nao um limite de concorrencia em runtime. Os
+# dois numeros abaixo sao TREE-DERIVED, nao um valor copiado uma vez e congelado:
+# `tests/unit/deploy/test_sc06_throughput_ceilings.py` refaz a MESMA varredura AST contra `src/`
+# em toda run e compara contra os valores aqui — falha em QUALQUER direcao (o codigo ganha/perde
+# um importer e este arquivo nao acompanha, OU alguem edita um numero aqui sem ele bater com a
+# arvore real). Nao ha um numero "certo" fixo para pinar em prosa; o numero certo e' o que a
+# arvore tiver agora.
+#   - transportFanIn: `maezo.tools.mcp_cibseven.transport` — o unico ponto de acesso ao motor CIB
+#     Seven (SC-06's "chokepoint CIB Seven"). Reconfirmado por AST em 29 quando esta secao foi
+#     criada (relatorio original: 30, por MENCAO textual em `a2a/dispatcher.py`, que deliberadamente
+#     nao importa o modulo) — os 4 importers `delegation.py` pre-merge eram `andre`/`carolina`/
+#     `fernando`/`rafael` (inalterados por este reanchor). Recontado em 32 apos o merge de `main`
+#     que trouxe os ARQUIVOS `agents/{gustavo,marina,valentina}/delegation.py` (fan-in conta por
+#     ARQUIVO, nao por agente): os tres agentes JA importavam `maezo.tools.mcp_cibseven.transport`
+#     no proprio `graph.py` desde antes do merge (nao sao agentes novos) — o `delegation.py` novo de
+#     cada um e' um SEGUNDO arquivo do mesmo agente que tambem importa `CibSevenTransport`/
+#     `AuditStartSink` diretamente, por isso soma +3 ao fan-in. `valentina` NAO tinha `delegation.py`
+#     antes do merge (so' `graph.py`, que ja importava) — e' um dos 3 arquivos novos, nao um dos 4
+#     importers pre-merge. REANCHOR-A2-HELM-CAPACITY (2026-09-05) recomputou o numero e removeu o
+#     pino literal do teste — a comparacao com o "30" do relatorio original nao carrega mais
+#     sentido (a arvore ja passou do numero do relatorio, por um motivo estrutural diferente).
+#   - harnessFanIn: `maezo.tools.workers.harness` — o padrao unico de execucao/dispatch de todo
+#     worker externo (SC-06's "fan-in 32"). A recontagem por AST encontrou 19, nao 32 — o relatorio
+#     original parece ter contado toda mencao textual a "harness" (70 arquivos), nao imports reais
+#     do modulo; ainda 19 apos o merge de `main` de 2026-09-05 (nenhum importer novo).
+#
+# Os dois valores sao injetados como env informativo (MAEZO_TRANSPORT_FAN_IN_CEILING /
+# MAEZO_HARNESS_FAN_IN_CEILING) nos deployments que de fato tocam estes chokepoints — worker-daemon
+# toca os dois (roda o WorkerHarness E os workers que chamam o transporte CIB Seven via
+# cibseven_engine.py); agent-runtime toca so' o transporte (os grafos de agente chamam
+# mcp-cibseven diretamente, nunca o WorkerHarness) — e aparecem no log estruturado de start-up de
+# cada daemon (`worker_runtime_starting` / `agent_runtime_starting`), nunca usados para decisao de
+# runtime (nenhum codigo os le para agir — sao METADADO declarado, nao configuracao).
+# ---------------------------------------------------------------------------
+throughputCeilings:
+  transportFanIn: 32
+  harnessFanIn: 19

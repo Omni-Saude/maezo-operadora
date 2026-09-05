@@ -73,6 +73,7 @@ into `HelenaState`, never logged, and never persisted past this one dispatch cal
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Final
@@ -83,6 +84,7 @@ from maezo.agents.helena.graph import HelenaState, WhatsAppSender, build, new_he
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.whatsapp import gate_whatsapp
+from maezo.platform.observability import record_agent_first_response
 from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.metrics import classify_agent_error_type
@@ -398,6 +400,11 @@ class HelenaDispatcher:
         beneficiary RESUMES this turn's persisted state (multi-turn), and a receiver restart does
         not drop the conversation. With no checkpointer the graph compiles stateless (fresh turn
         every time)."""
+        # GAP 11.2 (`first_response_p95`): wall-clock start of THIS turn, monotonic so a system
+        # clock adjustment mid-turn cannot corrupt the observation. See
+        # `record_agent_first_response`'s docstring for exactly what the interval between this and
+        # the post-`ainvoke` observation below does and does not measure.
+        turn_started_at = time.monotonic()
         # KEYED identity (ADR-0035 extension): `hash_phone` routes through the SAME vault-keyed
         # `Pseudonymizer` (fail-closed in prod), so `conversation_id` — which is persisted as the
         # checkpoint `thread_id` and wrapped into the `ESC-{tenant}-...` CIB Seven business key — is
@@ -466,6 +473,11 @@ class HelenaDispatcher:
 
             record_agent_error(agent="helena", error_type=classify_agent_error_type(exc))
             raise
+        # GAP 11.2: the turn completed (whatever the outcome) — `respond()`, Helena's one terminal
+        # node, always attempts exactly one WhatsApp send by this point. Observed AFTER `ainvoke`
+        # returns, never in the `except` branch above: an `ainvoke` that raised means no reply was
+        # even attempted, so there is nothing honest to time.
+        record_agent_first_response(agent_id="helena", seconds=time.monotonic() - turn_started_at)
         logger.info(
             "helena_dispatch_turn_completed",
             tenant_id=self.tenant_id,

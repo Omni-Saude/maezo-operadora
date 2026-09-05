@@ -426,11 +426,11 @@ class WorkerState:
     # raised (e.g. bad settings) -> every worker then sees `kafka=None`, the PRE-EXISTING
     # documented behavior (`events.py` module docstring), never a crash.
     kafka_publisher: AioKafkaEventsProducer | None = None
-    # Dossier-A2A seam (DL-0033 real wiring / DL-0037): the worker->Carolina/Andre delegation
-    # dispatcher assembled by `build_dossier_delegation_dispatcher` at bring-up. `None` = DEGRADED
+    # Dossier-A2A seam (DL-0033 real wiring / DL-0037): the worker->Carolina/Andre/Fernando
+    # delegation dispatcher assembled by `build_dossier_delegation_dispatcher` at bring-up. `None` = DEGRADED
     # (no signing key in non-local mode / missing DATABASE_URL / assembly failure): the daemon
-    # still RUNS and serves every topic; the three dossier workers (cred/adequacao/PAGTO)
-    # fail-neutral with a disclosed
+    # still RUNS and serves every topic; the four dossier workers (cred/adequacao/PAGTO/
+    # INADIMPLENCIA) fail-neutral with a disclosed
     # gap marker and `dossier_delegation_ready` reports the degradation LOUDLY (never gates
     # /readyz — the dossier "instrui, nao decide", so its absence must not stop the human UTs).
     dossier_dispatcher: DelegationDispatcher | None = None
@@ -607,15 +607,17 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         # key / degraded assembly must degrade the DOSSIER, never the whole daemon.
         ready = _state.dossier_dispatcher is not None
         detail = (
-            "dossier_delegation_ready=true — worker->Carolina/Andre dispatcher assembled "
-            "(cred.prepare_dossier / adequacao.prepare_remediation_dossier / "
-            "pagto.prepare_approval_dossier delegate for real)"
+            "dossier_delegation_ready=true — worker->Carolina/Andre/Fernando dispatcher "
+            "assembled (cred.prepare_dossier / adequacao.prepare_remediation_dossier / "
+            "pagto.prepare_approval_dossier / inadimplencia.prepare_dossier delegate for real)"
             if ready
             else (
                 "dossier_delegation_ready=false — dossier A2A dispatcher NOT assembled "
-                f"({_state.dossier_dispatcher_detail}); the three dossier workers "
-                "(cred/adequacao/PAGTO) return "
-                "{'dossier_prepared': False, 'dossier_gap': ...} and the human User Tasks "
+                f"({_state.dossier_dispatcher_detail}); the four dossier workers "
+                "(cred/adequacao/PAGTO/inadimplencia) return their disclosed-gap marker "
+                "({'dossier_prepared': False, 'dossier_gap': ...}; inadimplencia keeps its LOCAL "
+                "dossier and marks {'arrears_followup_delegated': False, "
+                "'arrears_followup_gap': ...}) and the human User Tasks "
                 "still open (DL-0037 fail-neutral-with-disclosed-gap); not a readiness failure"
             )
         )
@@ -903,9 +905,10 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
             )
 
     try:
-        # Dossier-A2A dispatcher (DL-0033 real wiring): worker->Carolina/Andre delegation edges,
-        # assembled with the SAME seams built above (pooled audit sink on THIS loop — raw async
-        # handlers run on it; fresh-per-call dmn/engine transports are loop-safe anywhere).
+        # Dossier-A2A dispatcher (DL-0033 real wiring): worker->Carolina/Andre/Fernando
+        # delegation edges, assembled with the SAME seams built above (pooled audit sink on THIS
+        # loop — raw async handlers run on it; fresh-per-call dmn/engine transports are loop-safe
+        # anywhere).
         # DEGRADATION POSTURE (DL-0037): assembly failure — no signing key in non-local mode
         # (`_require_signer_or_fail_closed` raises), missing DATABASE_URL/deps, card/registry
         # failure — is caught HERE: LOUD error, `dossier_dispatcher` stays None, the daemon RUNS,
@@ -1052,6 +1055,9 @@ async def run(settings: WorkerRuntimeSettings) -> None:
         tenant=settings.tenant_id,
         worker_id=settings.worker_id,
         health_port=settings.health_port,
+        # SC-06 / R-109: declared throughput-ceiling metadata, informational only.
+        transport_fan_in_ceiling=settings.transport_fan_in_ceiling,
+        harness_fan_in_ceiling=settings.harness_fan_in_ceiling,
         observability=observability.detail,
     )
     shutdown = asyncio.Event()

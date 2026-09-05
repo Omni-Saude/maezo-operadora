@@ -584,6 +584,20 @@ _WHATSAPP_ADAPTER_BY_AGENT: Final[dict[str, str]] = {
 }
 
 
+def whatsapp_adapter_for(agent_id: str) -> str | None:
+    """The WhatsApp adapter `agent_id`'s graph needs, or `None` if it declares no WhatsApp seam.
+
+    THE ONE DEFINITION of the agent->adapter choice, readable by roots that build a single
+    agent's seam by hand instead of going through :func:`build_agent_seams`. Without it a caller
+    has to pass `build_whatsapp_seam` a literal, and `build_whatsapp_seam` branches ONLY on
+    `"lucas"` — every other string (including an agent id that is NOT an adapter id, such as
+    `"fernando"`) falls to Helena's sender through an unguarded `else`. That is behaviourally
+    right TODAY and silently wrong the day a branch is added or the default changes: two
+    construction paths for one decision, the counterexample C-A2 this module exists to prevent.
+    """
+    return _WHATSAPP_ADAPTER_BY_AGENT.get(agent_id)
+
+
 def build_agent_seams(
     *,
     settings: Any,
@@ -640,7 +654,7 @@ def build_agent_seams(
 
         deps["audit_sink"] = PostgresAuditSink(database_url, getattr(settings, "tenant_id", "amh"))
 
-    whatsapp_adapter = _WHATSAPP_ADAPTER_BY_AGENT.get(agent_id)
+    whatsapp_adapter = whatsapp_adapter_for(agent_id)
     if whatsapp_adapter is not None:
         deps["whatsapp"] = build_whatsapp_seam(seam=seam, adapter=whatsapp_adapter)
 
@@ -776,4 +790,5 @@ __all__ = [
     "effect_seams_gated",
     "gated_seam_violations",
     "is_gated_seam",
+    "whatsapp_adapter_for",
 ]

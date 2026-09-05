@@ -26,6 +26,7 @@ the originator. Live-PG durable-replay proof is DEFERRED to the PR CI lane (no d
 
 from __future__ import annotations
 
+import textwrap
 from typing import Any
 
 import pytest
@@ -35,6 +36,8 @@ from tests.unit.a2a.fakes import LabeledFakeTenantKeyset, RecordingProducer
 from maezo.a2a import TOPIC_COMPLETED, TOPIC_REQUESTED, CardSigner, per_tenant_key_env_var
 from maezo.agents.andre.delegation import delegate_adequacao_dossier
 from maezo.agents.carolina.delegation import delegate_cred_dossier
+from maezo.agents.fernando.delegation import delegate_arrears_followup
+from maezo.gateway.tool_registry import whatsapp_adapter_for
 from maezo.runtime.agent_runtime import a2a_composition
 from maezo.runtime.agent_runtime.a2a_composition import (
     ALLOW_UNSIGNED_CARDS_ENV_VAR,
@@ -365,3 +368,168 @@ async def test_dossier_dispatcher_routes_adequacao_edge_with_shared_task_type(
     assert result.meta["route"] == "human_review"
     assert result.meta["grupo_destino"] == "gestao-rede"
     assert result.meta["process_started"] == "False"
+
+
+async def test_dossier_dispatcher_routes_the_registered_fernando_edge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R-081: `arrears.followup` chega ao grafo REAL de Fernando pela raiz de composicao.
+
+    ANTES desta mudanca `make_fernando_handler` nao estava em `handlers={...}` (nem fernando em
+    `_DOSSIER_EDGE_AGENT_IDS`), entao este envelope morria no dispatcher — o alvo existia, era
+    testado, e nada podia alcanca-lo. Este teste e' a prova de que a metade de REGISTRO da decisao
+    do dono aterrissou: nao ha' `make_fernando_handler` construido aqui, so' a raiz de producao.
+
+    O caminho `intencao="rescisao"` (J3) e' escolhido de proposito: ele NUNCA consulta DMN
+    (`agents/fernando/graph.py`), entao o `FakeDmnTransport` de `_dossier_deps()` — que registra
+    so' as tabelas de credenciamento — basta, e o turno chega ao `start_process` de verdade.
+
+    Este teste afirma ALCANCABILIDADE — a distincao que
+    `tests/unit/a2a/test_agent_card_handlers_parity.py` faz no seu docstring. A metade de ORIGEM
+    (`operadora.inadimplencia.prepare_dossier` chamando `delegate_arrears_followup`) tambem
+    aterrissou, e e' provada do OUTRO lado, no worker:
+    `tests/unit/tools/workers/test_inadimplencia.py::
+    test_registered_prepare_dossier_threads_the_dossier_dispatcher_seam`. As duas provas sao
+    deliberadamente separadas: esta fixa o alvo na raiz de producao, aquela fixa a origem no
+    bootstrap do worker, e nenhuma das duas depende da outra para nao ser vacua.
+    """
+    monkeypatch.setenv(_SIGNING_KEY_ENV, _VALID_KEY)
+    producer = RecordingProducer()
+    dispatcher = build_dossier_delegation_dispatcher(
+        tenant="amh", runtime_mode="local", kafka_producer=producer, **_dossier_deps()
+    )
+
+    result = await delegate_arrears_followup(
+        dispatcher,
+        tenant="amh",
+        numero_contrato="CTR-COMP-1",
+        case_meta={
+            "intencao": "rescisao",
+            "tipo_plano": "individual",
+            "meses_inadimplencia": 3,
+            "valor_total_devido_cents": 30000,
+            "ja_em_rescisao_cancel": False,
+        },
+    )
+
+    assert result.success is True
+    assert result.output_ref == "process://INAD-amh-CTR-COMP-1"
+    assert result.meta["route"] == "escalate"
+    assert result.meta["motivo_humano"] == "indicio_rescisao"
+    assert result.meta["process_started"] == "True"
+    # O dossie NUNCA viaja pela costura: `meta` so' carrega tokens de classe.
+    assert "dossier" not in result.meta and "dossie" not in str(dict(result.meta)).lower()
+
+    # Guard 4: a reentrega do mesmo `task_id` replica sem reexecutar Fernando.
+    replay = await delegate_arrears_followup(
+        dispatcher,
+        tenant="amh",
+        numero_contrato="CTR-COMP-1",
+        case_meta={"intencao": "rescisao", "ja_em_rescisao_cancel": False},
+    )
+    assert replay.idempotent_replay is True
+    assert replay.output_ref == result.output_ref
+
+    assert producer.topics() == [TOPIC_REQUESTED, TOPIC_COMPLETED]
+
+
+def test_the_dossier_edge_registers_exactly_its_declared_agent_set() -> None:
+    """Nao-vacuidade do teste acima: o mapa de handlers da raiz e' EXATAMENTE
+    `_DOSSIER_EDGE_AGENT_IDS`. Sem esta cerca, um handler acrescentado ao mapa sem entrar na
+    tupla (ou o contrario) passaria despercebido — a tupla e' o que assina os Cards
+    (`build_agent_cards`), e um Card sem handler e' um envelope aceito que nada serve."""
+    import ast
+    import inspect
+
+    fonte = inspect.getsource(a2a_composition.build_dossier_delegation_dispatcher)
+    arvore = ast.parse(textwrap.dedent(fonte))
+    registrados: set[str] = set()
+    for no in ast.walk(arvore):
+        if not isinstance(no, ast.Call):
+            continue
+        for kw in no.keywords:
+            if kw.arg == "handlers" and isinstance(kw.value, ast.Dict):
+                registrados |= {
+                    k.value for k in kw.value.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)
+                }
+    assert registrados == set(a2a_composition._DOSSIER_EDGE_AGENT_IDS) == {"carolina", "andre", "fernando"}
+
+
+def test_the_root_builds_fernandos_whatsapp_seam_from_the_one_agent_adapter_map() -> None:
+    """A escolha agente->adaptador WhatsApp tem UMA definicao, e esta raiz usa ELA.
+
+    `build_whatsapp_seam` ramifica so' em `adapter == "lucas"`; qualquer outra string cai no
+    `else` do sender da Helena. Passar o ID DO AGENTE (`"fernando"`) daria hoje o MESMO objeto
+    que o mapa escolhe (`_WHATSAPP_ADAPTER_BY_AGENT["fernando"] == "helena"`) — por acidente, nao
+    por decisao. Esta cerca prende o valor que a raiz efetivamente passa ao construtor ao valor
+    do mapa, entao no dia em que um ramo `fernando` existir, ou o `else` mudar, a raiz nao pode
+    divergir em silencio do que `build_agent_seams` escolheria para o mesmo agente.
+    """
+    passados: list[str] = []
+    real = a2a_composition.build_whatsapp_seam
+
+    def espiao(*, seam: Any, inner: Any = None, adapter: str = "helena") -> Any:
+        passados.append(adapter)
+        return real(seam=seam, inner=inner, adapter=adapter)
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setenv(_SIGNING_KEY_ENV, _VALID_KEY)
+        monkeypatch.setattr(a2a_composition, "build_whatsapp_seam", espiao)
+        build_dossier_delegation_dispatcher(
+            tenant="amh", runtime_mode="local", kafka_producer=RecordingProducer(), **_dossier_deps()
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert passados == [whatsapp_adapter_for("fernando")]
+    # Nao-vacuidade: o mapa realmente nomeia fernando, e o valor NAO e' o id do agente.
+    assert whatsapp_adapter_for("fernando") == "helena"
+
+
+def test_no_call_site_in_src_passes_build_whatsapp_seam_an_unknown_adapter_literal() -> None:
+    """FECHA A CLASSE do achado F3, nao so' a instancia: em `src/`, um `adapter=` LITERAL passado
+    a `build_whatsapp_seam` tem de ser um ADAPTADOR conhecido, nunca um id de agente.
+
+    `build_whatsapp_seam` ramifica so' em `"lucas"`; toda outra string cai no `else` da Helena.
+    Passar `adapter="fernando"` (o id do AGENTE) funcionava por acidente. Sem esta cerca, o
+    proximo call site repete o erro e ninguem ve: o teste acima prende UMA raiz, este prende
+    TODAS as chamadas com literal do repositorio, derivando o conjunto valido dos VALORES do
+    proprio `_WHATSAPP_ADAPTER_BY_AGENT`. Chamadas com expressao (o mapa/`whatsapp_adapter_for`)
+    passam por construcao — sao justamente a forma correta.
+    """
+    import ast
+    from pathlib import Path
+
+    from maezo.gateway import tool_registry
+
+    adaptadores_validos = set(tool_registry._WHATSAPP_ADAPTER_BY_AGENT.values())
+    src_root = Path(tool_registry.__file__).parent.parent
+    literais: list[tuple[str, int, str]] = []
+    chamadas = 0
+    for caminho in sorted(src_root.rglob("*.py")):
+        arvore = ast.parse(caminho.read_text(encoding="utf-8"), filename=str(caminho))
+        for no in ast.walk(arvore):
+            if not isinstance(no, ast.Call):
+                continue
+            alvo = no.func
+            nome = alvo.attr if isinstance(alvo, ast.Attribute) else getattr(alvo, "id", "")
+            if nome != "build_whatsapp_seam":
+                continue
+            chamadas += 1
+            for kw in no.keywords:
+                if (
+                    kw.arg == "adapter"
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value not in adaptadores_validos
+                ):
+                    literais.append((str(caminho.relative_to(src_root)), no.lineno, str(kw.value.value)))
+
+    assert chamadas >= 2, f"a cerca varreu {chamadas} chamadas — vacua (esperava >= 2)"
+    assert not literais, (
+        f"call site(s) passando um `adapter=` literal desconhecido a `build_whatsapp_seam`: "
+        f"{literais}. Adaptadores validos: {sorted(adaptadores_validos)}. Use "
+        "`gateway.tool_registry.whatsapp_adapter_for(<agent_id>)` — a UNICA definicao da escolha "
+        "agente->adaptador; um id de agente NAO e' um id de adaptador, e o `else` de "
+        "`build_whatsapp_seam` aceitaria qualquer string em silencio."
+    )

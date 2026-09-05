@@ -21,19 +21,34 @@ Layers:
    (`RATIFICADO`, `PASSED`, `FAILED`, ...) — a chart declaring `- name: PASSED` passed GREEN with
    nothing reading it. `extract_literal_env_names` now counts a literal only when it is the KEY
    argument of a real env-read call, directly or via a same-named module-level constant.
+6. **Marker breadth + honest messaging** (gatekeeper findings F3/F4, §Delta): R-101 originally
+   marked ONLY `WhatsAppSettings.phone_number_id` `chart_required`, even though `send_message`
+   ALSO fails closed on `whatsapp_token` and `verify_webhook` fails closed on
+   `whatsapp_verify_token` — the fence stayed green if either of THOSE was ever dropped from the
+   chart. Both now carry the marker too (declared inline, not via the opaque `_secret()` factory —
+   see `mcp_whatsapp/server.py`). Separately, the RED message used to hardcode "has no default —
+   fails closed at boot" for every required name, which is false for a marker-derived one (it DOES
+   have a pydantic default and fails closed at CALL time instead); `_required_env_refs` now gives
+   each required name an accurate, source-specific reason.
 """
 
 from __future__ import annotations
 
+import ast
+import shutil
 from pathlib import Path
 
 import pytest
 from scripts.ci.check_chart_env_reconciliation import (
+    _MARKER_REASON,
+    _NO_DEFAULT_REASON,
     DEFERRED_UNRECONCILED_DECLARED,
     INFRA_OWNED_DECLARED,
     EnvNameRef,
+    _has_chart_required_marker,
     _module_level_string_constants,
     _require_reasons,
+    _required_env_refs,
     extract_declared_from_helm,
     extract_declared_from_terraform,
     extract_literal_env_names,
@@ -120,11 +135,9 @@ def _reconcile_real_tree():
     rendered = render_chart()
     declared = extract_declared_from_helm(rendered) + extract_declared_from_terraform(_TF_ROOT)
     literal_names = extract_literal_env_names(_SRC_DIR)
-    settings_all, settings_required = extract_settings_env_names(_SRC_DIR)
+    settings_all, settings_required, marker_required, no_default = extract_settings_env_names(_SRC_DIR)
     read_names = literal_names | settings_all
-    required_refs = [
-        EnvNameRef(name=n, source="src/ BaseSettings (no default)") for n in sorted(settings_required)
-    ]
+    required_refs = _required_env_refs(settings_required, marker_required, no_default)
     return reconcile(declared, read_names, required_refs)
 
 
@@ -163,12 +176,75 @@ def test_real_src_required_whatsapp_fields_are_declared_in_the_chart() -> None:
     """Non-vacuity for the required-direction check: `WhatsAppWebhookSettings.app_secret`/
     `.verify_token` really are modeled as required (no default) AND really are declared in
     `deployment-webhook-receiver.yaml` today — proves the reverse direction isn't vacuously green."""
-    _, required = extract_settings_env_names(_SRC_DIR)
+    _, required, _marker, _no_default = extract_settings_env_names(_SRC_DIR)
     assert {"WHATSAPP_APP_SECRET", "WHATSAPP_VERIFY_TOKEN"} <= required
     rendered = render_chart()
     declared_names = {ref.name for ref in extract_declared_from_helm(rendered)}
     assert "WHATSAPP_APP_SECRET" in declared_names
     assert "WHATSAPP_VERIFY_TOKEN" in declared_names
+
+
+def test_real_src_functionally_required_phone_number_id_is_declared_in_chart() -> None:
+    """WHATSAPP-ENV-PREFIX-b / R-101: `WhatsAppSettings.phone_number_id` carries the
+    `chart_required` marker (pydantic default `""`, but `send_message` fails closed at call time
+    without it) — the marker must make it show up in `required`, AND the chart must actually
+    declare `WHATSAPP_PHONE_NUMBER_ID` today. RED proof: revert either half (drop the marker from
+    `mcp_whatsapp/server.py`, or drop the env from `deployment-webhook-receiver.yaml`) and this
+    test — or, for the chart half, `test_real_tree_is_green` — fails."""
+    _, required, marker_required, _no_default = extract_settings_env_names(_SRC_DIR)
+    assert "WHATSAPP_PHONE_NUMBER_ID" in required
+    assert "WHATSAPP_PHONE_NUMBER_ID" in marker_required
+    rendered = render_chart()
+    declared_names = {ref.name for ref in extract_declared_from_helm(rendered)}
+    assert "WHATSAPP_PHONE_NUMBER_ID" in declared_names
+
+
+def test_has_chart_required_marker_recognizes_the_marker_generically(tmp_path: Path) -> None:
+    """The marker mechanism is data on the field, not a hardcoded field-name allowlist — proven
+    against a SYNTHETIC field, independent of `WhatsAppSettings`."""
+    source = (
+        "from pydantic import Field\nx: str = Field(default='', json_schema_extra={'chart_required': True})\n"
+    )
+    call_node = ast.parse(source).body[1].value  # the AnnAssign's Field(...) call
+    assert isinstance(call_node, ast.Call)
+    assert _has_chart_required_marker(call_node) is True
+
+
+def test_has_chart_required_marker_ignores_a_field_without_it(tmp_path: Path) -> None:
+    source = "from pydantic import Field\nx: str = Field(default='', description='not a marker')\n"
+    call_node = ast.parse(source).body[1].value
+    assert isinstance(call_node, ast.Call)
+    assert _has_chart_required_marker(call_node) is False
+
+
+def test_has_chart_required_marker_ignores_json_schema_extra_without_the_true_flag(
+    tmp_path: Path,
+) -> None:
+    """`json_schema_extra` used for something else entirely (or `chart_required: False`) must not
+    be mistaken for the marker."""
+    source = (
+        "from pydantic import Field\n"
+        "x: str = Field(default='', json_schema_extra={'chart_required': False})\n"
+    )
+    call_node = ast.parse(source).body[1].value
+    assert isinstance(call_node, ast.Call)
+    assert _has_chart_required_marker(call_node) is False
+
+
+def test_a_synthetic_chart_required_field_surfaces_as_required(tmp_path: Path) -> None:
+    """End-to-end (not just the marker helper): a synthetic `BaseSettings` subclass with a
+    `chart_required`-marked field must appear in `extract_settings_env_names`'s required set."""
+    (tmp_path / "mod.py").write_text(
+        "from pydantic import Field\n"
+        "from pydantic_settings import BaseSettings, SettingsConfigDict\n"
+        "class SyntheticSettings(BaseSettings):\n"
+        "    model_config = SettingsConfigDict(env_prefix='SYNTH_')\n"
+        "    something: str = Field(default='', json_schema_extra={'chart_required': True})\n",
+        encoding="utf-8",
+    )
+    _, required, marker_required, _no_default = extract_settings_env_names(tmp_path)
+    assert "SYNTH_SOMETHING" in required
+    assert "SYNTH_SOMETHING" in marker_required
 
 
 def test_real_chart_covers_both_new_a2a_outbox_relay_env_names() -> None:
@@ -177,7 +253,7 @@ def test_real_chart_covers_both_new_a2a_outbox_relay_env_names() -> None:
     rendered = render_chart()
     declared_names = {ref.name for ref in extract_declared_from_helm(rendered)}
     literal_names = extract_literal_env_names(_SRC_DIR)
-    settings_all, _ = extract_settings_env_names(_SRC_DIR)
+    settings_all, _, _, _ = extract_settings_env_names(_SRC_DIR)
     read_names = literal_names | settings_all
     for name in ("A2A_OUTBOX_RELAY_BATCH_SIZE", "A2A_OUTBOX_RELAY_POLL_INTERVAL_S"):
         assert name in declared_names, f"{name} not declared by the real chart"
@@ -200,7 +276,7 @@ def test_allowlist_entries_that_are_declared_today_are_genuinely_unread_by_src()
     set — otherwise the allowlist entry is dead weight (or worse, hiding a real defect)."""
     declared_names = _real_declared_names()
     literal_names = extract_literal_env_names(_SRC_DIR)
-    settings_all, _ = extract_settings_env_names(_SRC_DIR)
+    settings_all, _, _, _ = extract_settings_env_names(_SRC_DIR)
     read_names = literal_names | settings_all
 
     declared_and_allowlisted = declared_names & set(INFRA_OWNED_DECLARED)
@@ -220,7 +296,7 @@ def test_deferred_entries_that_are_declared_today_are_genuinely_unread_by_src() 
     defect that should instead be a real (non-deferred) failure."""
     declared_names = _real_declared_names()
     literal_names = extract_literal_env_names(_SRC_DIR)
-    settings_all, _ = extract_settings_env_names(_SRC_DIR)
+    settings_all, _, _, _ = extract_settings_env_names(_SRC_DIR)
     read_names = literal_names | settings_all
 
     declared_and_deferred = declared_names & set(DEFERRED_UNRECONCILED_DECLARED)
@@ -313,11 +389,9 @@ def test_injecting_ratificado_and_passed_as_declared_names_now_goes_red() -> Non
     rendered = render_chart()
     real_declared = extract_declared_from_helm(rendered) + extract_declared_from_terraform(_TF_ROOT)
     literal_names = extract_literal_env_names(_SRC_DIR)
-    settings_all, settings_required = extract_settings_env_names(_SRC_DIR)
+    settings_all, settings_required, marker_required, no_default = extract_settings_env_names(_SRC_DIR)
     read_names = literal_names | settings_all
-    required_refs = [
-        EnvNameRef(name=n, source="src/ BaseSettings (no default)") for n in sorted(settings_required)
-    ]
+    required_refs = _required_env_refs(settings_required, marker_required, no_default)
     injected = reconcile(real_declared + declared, read_names, required_refs)
     assert not injected.ok
     assert {r.name for r in injected.declared_unread} == {"RATIFICADO", "PASSED"}
@@ -375,3 +449,190 @@ def test_module_level_string_constants_resolves_cross_file_by_name() -> None:
     constants = _module_level_string_constants(_SRC_DIR)
     assert "MAEZO_PHI_ENDPOINT_URL" in constants.get("ENV_PHI_ENDPOINT_URL", set())
     assert "MAEZO_PHI_ENDPOINT_URL" in extract_literal_env_names(_SRC_DIR)
+
+
+# ---------------------------------------------------------------------------
+# 6. Marker breadth (gatekeeper F3) + honest RED messaging (gatekeeper F4)
+# ---------------------------------------------------------------------------
+
+
+def test_whatsapp_token_and_verify_token_are_marker_required_not_just_phone_number_id() -> None:
+    """Gatekeeper F3: R-101's marker used to cover only `phone_number_id`. `send_message` ALSO
+    fails closed on `whatsapp_token`, and `verify_webhook` on `whatsapp_verify_token` — both must
+    now surface as marker-required too, or a chart that stops injecting either stays green."""
+    _, required, marker_required, _no_default = extract_settings_env_names(_SRC_DIR)
+    for name in ("WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_TOKEN", "WHATSAPP_VERIFY_TOKEN"):
+        assert name in required, f"{name} missing from required"
+        assert name in marker_required, f"{name} missing from marker_required"
+
+
+def test_whatsapp_token_is_genuinely_declared_in_the_real_chart_today() -> None:
+    """Non-vacuity: `WHATSAPP_TOKEN` really is injected today — proves the RED proof below is
+    testing a real removal, not a name that was never declared in the first place."""
+    rendered = render_chart()
+    declared_names = {ref.name for ref in extract_declared_from_helm(rendered)}
+    assert "WHATSAPP_TOKEN" in declared_names
+
+
+def test_removing_whatsapp_token_from_the_webhook_receiver_deployment_goes_red(tmp_path: Path) -> None:
+    """Gatekeeper F3 RED proof: R-101's approved text asks for a fence that fails red when "qualquer
+    env exigida" in `mcp_whatsapp/server.py` is missing from the chart — not only
+    `WHATSAPP_PHONE_NUMBER_ID`. Mutates a COPY of the chart (never the real tree — `tmp_path`,
+    `shutil.copytree`) to strip the `WHATSAPP_TOKEN` secretKeyRef block from
+    `deployment-webhook-receiver.yaml`, then runs the REAL reconciliation pipeline against it."""
+    chart_copy = tmp_path / "maezo-tenant"
+    shutil.copytree(_REPO_ROOT / "deploy" / "helm" / "maezo-tenant", chart_copy)
+    deployment = chart_copy / "templates" / "deployment-webhook-receiver.yaml"
+    original = deployment.read_text(encoding="utf-8")
+    token_block = (
+        "            - name: WHATSAPP_TOKEN\n"
+        "              valueFrom:\n"
+        "                secretKeyRef:\n"
+        "                  name: maezo-whatsapp-config\n"
+        "                  key: waba-token\n"
+    )
+    assert token_block in original, "WHATSAPP_TOKEN block shape drifted — update this test's literal"
+    mutated = original.replace(token_block, "", 1)
+    deployment.write_text(mutated, encoding="utf-8")
+
+    rendered = render_chart(
+        chart=str(chart_copy),
+        value_files=[str(_REPO_ROOT / "deploy" / "helm" / "maezo-tenant" / "values-amh.yaml")],
+    )
+    declared = extract_declared_from_helm(rendered) + extract_declared_from_terraform(_TF_ROOT)
+    literal_names = extract_literal_env_names(_SRC_DIR)
+    settings_all, settings_required, marker_required, no_default = extract_settings_env_names(_SRC_DIR)
+    read_names = literal_names | settings_all
+    required_refs = _required_env_refs(settings_required, marker_required, no_default)
+    result = reconcile(declared, read_names, required_refs)
+
+    assert not result.ok
+    assert "WHATSAPP_TOKEN" in {r.name for r in result.required_undeclared}
+    message = result.render()
+    assert "REQUIRED BUT NEVER DECLARED: `WHATSAPP_TOKEN`" in message
+    # Gatekeeper F4: the message must state the TRUTH for this marker-derived name — a pydantic
+    # default exists, the refusal happens at CALL time, never "fails closed at boot".
+    token_line = next(line for line in message.splitlines() if "WHATSAPP_TOKEN" in line)
+    assert "chart_required" in token_line
+    assert "CALL time" in token_line
+    assert "fails closed at boot" not in token_line
+
+
+def test_required_undeclared_message_states_the_truth_for_a_marker_derived_name() -> None:
+    """Gatekeeper F4, isolated from the chart-mutation plumbing above: a marker-derived required
+    name's RED message must say it has a pydantic default and fails at call time — never the
+    boot-failure wording that is only true for a genuinely no-default field."""
+    marker_ref = EnvNameRef(name="SYNTHETIC_MARKER_REQUIRED", source=_MARKER_REASON)
+    result = reconcile(declared=[], read_names=set(), required=[marker_ref])
+    message = result.render()
+    assert "SYNTHETIC_MARKER_REQUIRED" in message
+    assert "pydantic default" in message
+    assert "CALL time" in message
+    assert "has no default" not in message
+
+
+def test_required_undeclared_message_still_states_a_boot_failure_for_a_no_default_name() -> None:
+    """Non-regression: a genuinely no-default field's message must still say what it always said —
+    only the marker-derived case's wording changed (gatekeeper F4)."""
+    no_default_ref = EnvNameRef(name="SYNTHETIC_NO_DEFAULT_REQUIRED", source=_NO_DEFAULT_REASON)
+    result = reconcile(declared=[], read_names=set(), required=[no_default_ref])
+    message = result.render()
+    assert "SYNTHETIC_NO_DEFAULT_REQUIRED" in message
+    assert "has no default" in message
+    assert "fails closed at boot" in message
+
+
+# ---------------------------------------------------------------------------
+# 7. No-default precedence over the marker for an overlapping name (gatekeeper F10, §Delta)
+# ---------------------------------------------------------------------------
+
+
+def test_whatsapp_verify_token_is_required_via_both_routes_today() -> None:
+    """Sanity: the overlap this finding is about must actually exist in the real tree —
+    `WHATSAPP_VERIFY_TOKEN` is genuinely no-default on `WhatsAppWebhookSettings.verify_token`
+    (`min_length=1`, no `default=`) AND marker-carrying on
+    `WhatsAppSettings.whatsapp_verify_token` (default `""`, `chart_required`). `WHATSAPP_TOKEN`
+    and `WHATSAPP_PHONE_NUMBER_ID` are marker-ONLY; `WHATSAPP_APP_SECRET` is no-default-ONLY."""
+    _, _required, marker_required, no_default = extract_settings_env_names(_SRC_DIR)
+    assert "WHATSAPP_VERIFY_TOKEN" in marker_required
+    assert "WHATSAPP_VERIFY_TOKEN" in no_default
+    assert "WHATSAPP_TOKEN" in marker_required
+    assert "WHATSAPP_TOKEN" not in no_default
+    assert "WHATSAPP_PHONE_NUMBER_ID" in marker_required
+    assert "WHATSAPP_PHONE_NUMBER_ID" not in no_default
+    assert "WHATSAPP_APP_SECRET" in no_default
+    assert "WHATSAPP_APP_SECRET" not in marker_required
+
+
+def test_required_env_refs_reason_for_all_four_whatsapp_names() -> None:
+    """Gatekeeper F10: a name required via BOTH routes must get the NO-DEFAULT (boot) reason —
+    it fails at boot on `WhatsAppWebhookSettings.verify_token` regardless of what the marker on
+    the sibling `WhatsAppSettings.whatsapp_verify_token` claims. Before this fix, `_required_env_refs`
+    checked `marker_required_names` first and printed the false "fails at CALL time" reason for
+    `WHATSAPP_VERIFY_TOKEN` — the exact defect F4 was supposed to have fixed, still present for any
+    name required by both routes."""
+    _, required, marker_required, no_default = extract_settings_env_names(_SRC_DIR)
+    refs = {ref.name: ref.source for ref in _required_env_refs(required, marker_required, no_default)}
+
+    assert refs["WHATSAPP_VERIFY_TOKEN"] == _NO_DEFAULT_REASON
+    assert refs["WHATSAPP_TOKEN"] == _MARKER_REASON
+    assert refs["WHATSAPP_PHONE_NUMBER_ID"] == _MARKER_REASON
+    assert refs["WHATSAPP_APP_SECRET"] == _NO_DEFAULT_REASON
+
+
+def test_required_env_refs_prefers_no_default_reason_when_both_routes_apply() -> None:
+    """Isolated, synthetic RED proof of the precedence itself (independent of the real WhatsApp
+    coincidence above): a name in BOTH `marker_required_names` and `no_default_names` must get the
+    boot reason. Swapping `_required_env_refs`'s `if`/`elif` order (checking `marker_required_names`
+    before `no_default_names`) makes this test FAIL — reproduced and reverted this session."""
+    refs = _required_env_refs(
+        required_names={"SYNTHETIC_BOTH_ROUTES"},
+        marker_required_names={"SYNTHETIC_BOTH_ROUTES"},
+        no_default_names={"SYNTHETIC_BOTH_ROUTES"},
+    )
+    assert len(refs) == 1
+    assert refs[0].name == "SYNTHETIC_BOTH_ROUTES"
+    assert refs[0].source == _NO_DEFAULT_REASON
+
+
+def test_removing_whatsapp_verify_token_from_the_deployment_states_the_boot_reason(
+    tmp_path: Path,
+) -> None:
+    """End-to-end RED proof against the real pipeline (chart mutated in a COPY, never the real
+    tree): removing `WHATSAPP_VERIFY_TOKEN` must go RED with the boot reason, not the call-time
+    marker reason — the live-CLI probe this session (`check_chart_env_reconciliation.py --chart
+    <mutated-copy>`) reproduced this exact message."""
+    chart_copy = tmp_path / "maezo-tenant"
+    shutil.copytree(_REPO_ROOT / "deploy" / "helm" / "maezo-tenant", chart_copy)
+    deployment = chart_copy / "templates" / "deployment-webhook-receiver.yaml"
+    original = deployment.read_text(encoding="utf-8")
+    verify_token_block = (
+        "            - name: WHATSAPP_VERIFY_TOKEN\n"
+        "              valueFrom:\n"
+        "                secretKeyRef:\n"
+        "                  name: maezo-whatsapp-config\n"
+        "                  key: verify-token\n"
+    )
+    assert verify_token_block in original, (
+        "WHATSAPP_VERIFY_TOKEN block shape drifted — update this test's literal"
+    )
+    deployment.write_text(original.replace(verify_token_block, "", 1), encoding="utf-8")
+
+    rendered = render_chart(
+        chart=str(chart_copy),
+        value_files=[str(_REPO_ROOT / "deploy" / "helm" / "maezo-tenant" / "values-amh.yaml")],
+    )
+    declared = extract_declared_from_helm(rendered) + extract_declared_from_terraform(_TF_ROOT)
+    literal_names = extract_literal_env_names(_SRC_DIR)
+    settings_all, settings_required, marker_required, no_default = extract_settings_env_names(_SRC_DIR)
+    read_names = literal_names | settings_all
+    required_refs = _required_env_refs(settings_required, marker_required, no_default)
+    result = reconcile(declared, read_names, required_refs)
+
+    assert not result.ok
+    assert "WHATSAPP_VERIFY_TOKEN" in {r.name for r in result.required_undeclared}
+    message = result.render()
+    token_line = next(line for line in message.splitlines() if "WHATSAPP_VERIFY_TOKEN" in line)
+    assert "has no default" in token_line
+    assert "fails closed at boot" in token_line
+    assert "CALL time" not in token_line

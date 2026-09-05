@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.platform.observability import record_worker_error
+from maezo.runtime.start_outcome import StartProcessFailedError
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
 from maezo.tools.workers.base import (
     CANCEL_KEY_FAMILY,
@@ -24,10 +26,14 @@ from maezo.tools.workers.base import (
 )
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import AUDIT_AGENT_ID, WorkerBpmnError, _resolve_app_version
+from maezo.tools.workers.phi_vars import redact_error_message
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from maezo.a2a import DelegationDispatcher
     from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
-    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
+    from maezo.tools.workers.harness import ExternalTask, KafkaPublisher, TaskHandler, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -476,6 +482,194 @@ def prepare_dossier(variables: dict[str, Any]) -> dict[str, Any]:
         "dossier_summary": dossier_summary,
         "numero_contrato": variables.get("numero_contrato", ""),
     }
+
+
+# ---------------------------------------------------------------
+# prepare_dossier — call site A2A REAL de Fernando (handler raw-async; R-081 metade de ORIGEM)
+# ---------------------------------------------------------------
+
+#: Rotulo `worker` dos contadores `maezo_worker_error_count_total` deste handler. Literal fixo
+#: (o handler raw nao e uma classe `WorkerBase`, entao nao ha `type(self).__name__` a usar) —
+#: mesma disciplina de rotulo LIMITADO do precedente `auth.AutoCriteriaWorker._record_unavailability`.
+_DOSSIER_HANDLER_METRIC_NAME = "InadimplenciaPrepareDossierHandler"
+
+#: Tokens de CLASSE (nunca texto de erro cru) publicados em `arrears_followup_gap`. Sao variaveis
+#: de engine, entao a cardinalidade e limitada por construcao (higiene de variavel de engine +
+#: rotulo de metrica); a mensagem real do erro fica SO no log.
+_GAP_DISPATCHER_UNAVAILABLE = "dispatcher_unavailable"
+_GAP_MISSING_IDENTIFIERS = "missing_business_identifiers"
+_GAP_START_FAILED = "delegation_start_failed"
+_GAP_DELEGATION_FAILED = "delegation_failed"
+
+
+def _record_dossier_delegation_gap(token: str) -> None:
+    """Conta UMA falha de MECANISMO da delegacao (nunca um "nao" de negocio).
+
+    Espelha `auth.AutoCriteriaWorker._record_unavailability`: engole a propria falha, porque um
+    problema no backend de metricas nao pode virar o incidente que a postura fail-neutral existe
+    justamente para evitar.
+    """
+    try:
+        record_worker_error(_DOSSIER_HANDLER_METRIC_NAME, "operadora.inadimplencia.prepare_dossier", token)
+    except Exception as exc:  # observabilidade nunca derruba a tarefa (auth.py e o precedente)
+        # D-F2 (superconjunto do pedido): redigido tambem aqui. A excecao vem do backend de
+        # metricas e nao deveria carregar PHI, mas `redact_error_message` e' de mao unica e nunca
+        # levanta, entao redigir e' gratuito e a regra fica UMA so' neste modulo.
+        logger.warning("inadimplencia_dossier_delegation_metric_failed", error=redact_error_message(exc))
+
+
+def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> TaskHandler:
+    """Cria o handler de `operadora.inadimplencia.prepare_dossier` — dossie local + delegacao REAL.
+
+    METADE DE ORIGEM de R-081 (decisao do dono, `APROVADO-APOS-REVISÃO-HUMANA` 2026-09-04, gap
+    `FERNANDO-DELEGATION-CALL-SITE`): *"SIM — ligar o call site em `inadimplencia.py::
+    prepare_dossier` e registrar `make_fernando_handler` em `a2a_composition.py`, com a chamada
+    fail-neutral."* A metade de registro ja aterrissou em
+    `runtime/agent_runtime/a2a_composition.py::build_dossier_delegation_dispatcher`; esta e a
+    outra metade — o unico caminho de producao que ORIGINA um envelope `arrears.followup`.
+
+    HANDLER RAW ASSINCRONO (precedente sancionado DL-0034 / DL-0033, forma identica a
+    `credenciamento.py::make_prepare_dossier_handler`): a fronteira `FunctionWorker.execute(dict)`
+    e SINCRONA e `DelegationDispatcher.delegate` e assincrona — a forma `harness.register()` roda
+    este handler no proprio loop da harness, onde vive o audit sink em pool do dispatcher. Popula
+    `_handlers` mas NAO o `WorkerRegistry` (ver `raw_handler_topics` em
+    `tests/unit/tools/workers/test_bootstrap_registration.py`).
+
+    O DOSSIE LOCAL CONTINUA SENDO A SAIDA PRINCIPAL, e e' produzido SEMPRE. Diferente das arestas
+    cred/adequacao/pagto (onde o dossie E' o produto do agente), aqui `prepare_dossier` ja monta o
+    dossie que `UT_AnaliseInadimplencia` le, e a delegacao a Fernando e um ACOMPANHAMENTO
+    (`arrears.followup`) em cima dele. Por isso este handler chama a funcao pura `prepare_dossier`
+    inalterada e so' ACRESCENTA campos de divulgacao — nunca substitui nem suprime o dossie.
+
+    FAIL-NEUTRAL (condicao do dono; mesma postura DL-0037 de `credenciamento`): dispatcher ausente
+    (runtime degradado — sem chave de assinatura / sem DATABASE_URL), identificadores de negocio
+    ausentes, rejeicao estruturada, `StartProcessFailedError` (a guarda RAF-02 do handler do
+    Fernando) ou QUALQUER outra excecao => a tarefa CIB Seven COMPLETA com o dossie e com
+    `arrears_followup_delegated: False` + `arrears_followup_gap: <token de classe>`, log ALTO e
+    contador de erro de worker. Este handler NUNCA levanta e NUNCA fabrica sucesso: a User Task
+    humana TEM de abrir, e um acompanhamento nao entregue jamais pode ser registrado como entregue.
+
+    ISSO NAO ENFRAQUECE RAF-02. A garantia de RAF-02 e' do DISPATCHER: um
+    `StartProcessFailedError` sobe de `delegate` sem selar resultado por `task_id`, sem linha de
+    audit terminal e sem fato `COMPLETED` (`runtime/start_outcome.py`), entao uma delegacao futura
+    com o MESMO `task_id` REEXECUTA em vez de reproduzir um sucesso falso. O que este handler faz
+    e' nao transformar essa falha em incidente da instancia de inadimplencia — e ele a DIVULGA na
+    variavel de processo em vez de engoli-la.
+
+    SEM PHI NO LOG: so' `numero_contrato`/`tenant_id`/`business_key` (identificadores de contrato
+    ja usados pelos demais logs deste modulo) e tokens de classe; texto de erro cru fica no campo
+    `error` do log estruturado e NUNCA nas variaveis de engine (ADR-0006/ADR-0010).
+    """
+
+    async def handler(task: ExternalTask) -> Mapping[str, Any]:
+        v = dict(task.variables)
+        dossier = dict(prepare_dossier(v))
+        tenant_id = str(v.get("tenant_id", "") or "")
+        numero_contrato = str(v.get("numero_contrato", "") or "")
+        matricula_beneficiario = str(v.get("matricula_beneficiario", "") or "")
+
+        def _com_lacuna(token: str) -> dict[str, Any]:
+            return {**dossier, "arrears_followup_delegated": False, "arrears_followup_gap": token}
+
+        if dispatcher is None:
+            # Runtime DEGRADADO (DL-0037): dispatcher ausente na composicao (sem chave de
+            # assinatura / sem DATABASE_URL — `worker_runtime` reporta
+            # dossier_delegation_ready=false). A UT abre do mesmo jeito, com a lacuna divulgada.
+            logger.warning(
+                "inadimplencia_dossier_dispatcher_unavailable",
+                tenant_id=tenant_id,
+                numero_contrato=numero_contrato,
+                business_key=task.business_key,
+            )
+            _record_dossier_delegation_gap(_GAP_DISPATCHER_UNAVAILABLE)
+            return _com_lacuna(_GAP_DISPATCHER_UNAVAILABLE)
+
+        if not non_blank(tenant_id) or not (non_blank(numero_contrato) or non_blank(matricula_beneficiario)):
+            # Nenhum `task_id` INAD idempotente pode ser derivado (disciplina `non_blank` EB-4):
+            # jamais delegar com chave degenerada — `fernando.graph._business_key` mintaria uma
+            # identidade vazia, e a Guarda 4 selaria casos DIFERENTES sob o mesmo `task_id`.
+            logger.error(
+                "inadimplencia_dossier_missing_identifiers",
+                tenant_id=tenant_id,
+                numero_contrato=numero_contrato,
+                business_key=task.business_key,
+            )
+            _record_dossier_delegation_gap(_GAP_MISSING_IDENTIFIERS)
+            return _com_lacuna(_GAP_MISSING_IDENTIFIERS)
+
+        # Import LOCAL de proposito (mesma forma de `credenciamento.py`): `agents.fernando`
+        # arrasta o grafo inteiro, e `tools/workers` nao pode depender de `agents` no import.
+        from maezo.agents.fernando.delegation import delegate_arrears_followup
+
+        try:
+            result = await delegate_arrears_followup(
+                dispatcher,
+                tenant=tenant_id.strip(),
+                case_meta=v,
+                numero_contrato=numero_contrato.strip() or None,
+                matricula_beneficiario=matricula_beneficiario.strip() or None,
+            )
+        except StartProcessFailedError as exc:
+            # Guarda RAF-02 do handler do Fernando: o turno dele NAO iniciou o processo e o
+            # dispatcher deliberadamente NAO selou o resultado — a delegacao segue retentavel.
+            logger.error(
+                "inadimplencia_dossier_delegation_start_failed",
+                tenant_id=tenant_id,
+                numero_contrato=numero_contrato,
+                business_key=task.business_key,
+                # PHI (achado D-F2 do porteiro): `str(exc)` cru punha o texto da excecao no log
+                # do operador. Este handler roda a jusante de variaveis de caso COM PHI
+                # (`case_meta=dict(v)`), e as excecoes que ele apanha vem das camadas
+                # dispatcher/PG/engine, cujas mensagens rotineiramente ecoam o payload ofensor —
+                # um CPF/CNS num erro de driver cairia verbatim ali. `redact_error_message`
+                # (T3.4 F5) e' o MESMO backstop de mao unica, que nunca levanta, usado por
+                # `runtime/start_outcome.py` e `tools/workers/pagto.py`; preserva a CLASSE do
+                # erro para diagnostico.
+                error=redact_error_message(exc),
+            )
+            _record_dossier_delegation_gap(_GAP_START_FAILED)
+            return _com_lacuna(_GAP_START_FAILED)
+        # `Exception` LARGO de proposito (DL-0037): a UT humana TEM de abrir, entao nenhuma
+        # classe de falha da delegacao pode escapar daqui. `BaseException` NAO — um
+        # `CancelledError` de shutdown nao e' uma falha de delegacao.
+        except Exception as exc:
+            logger.error(
+                "inadimplencia_dossier_delegation_failed",
+                tenant_id=tenant_id,
+                numero_contrato=numero_contrato,
+                business_key=task.business_key,
+                error=redact_error_message(exc),  # D-F2, mesma razao do sitio acima
+            )
+            _record_dossier_delegation_gap(_GAP_DELEGATION_FAILED)
+            return _com_lacuna(_GAP_DELEGATION_FAILED)
+
+        if not result.success:
+            reason = str(result.rejection_reason or "unknown")
+            logger.error(
+                "inadimplencia_dossier_delegation_rejected",
+                tenant_id=tenant_id,
+                numero_contrato=numero_contrato,
+                business_key=task.business_key,
+                reason=reason,
+            )
+            _record_dossier_delegation_gap(f"delegation_rejected:{reason}")
+            return _com_lacuna(f"delegation_rejected:{reason}")
+
+        logger.info(
+            "inadimplencia_dossier_delegated",
+            tenant_id=tenant_id,
+            numero_contrato=numero_contrato,
+            business_key=task.business_key,
+            followup_ref=result.output_ref,
+            idempotent_replay=result.idempotent_replay,
+        )
+        return {
+            **dossier,
+            "arrears_followup_delegated": True,
+            "arrears_followup_ref": result.output_ref or "",
+        }
+
+    return handler
 
 
 # ---------------------------------------------------------------
@@ -953,8 +1147,10 @@ class InadimplenciaError(Exception):
 #   dispatch_prior_notice -> operadora.inadimplencia.check_prior_notice
 #     (spec match: RN 593 prior-notice dispatch STEP; asserts no fact — GAP-INAD-8, was
 #     `notify_beneficiario`, which returned a constant `notificacao_previa_feita=True`)
-#   prepare_dossier -> operadora.inadimplencia.prepare_dossier (exact spec match; INSTRUCTS the
-#     human User Task, never originates an adverse decision — cancel/auth dossier pattern)
+#   make_prepare_dossier_handler -> operadora.inadimplencia.prepare_dossier (exact spec match;
+#     handler RAW async desde R-081: monta o dossie local pela funcao pura `prepare_dossier`
+#     — que INSTRUI a User Task humana e nunca origina decisao adversa, padrao cancel/auth — e
+#     DEPOIS delega `arrears.followup` a Fernando pela costura `dossier_dispatcher`, fail-neutral)
 #   register_suspension (alias register_contract_suspension)
 #     -> operadora.inadimplencia.register_contract_suspension (exact spec match, GUARDED)
 #   handoff_rescisao -> operadora.inadimplencia.handoff_rescisao (exact spec match)
@@ -993,11 +1189,20 @@ def register_inadimplencia_workers(
     un-audited CANCEL-001 start is structurally impossible, ADR-0007 L0). In the live daemon it is
     a `FreshSinkAuditEmitter` (gateway/audit_postgres.py) — the sink-side mirror of the
     fresh-client-per-call pattern, because each sync dispatch emits on its own `asyncio.run` loop.
+
+    `dossier_dispatcher` (costura dossie-A2A, metade de ORIGEM de R-081) e' threaded into the
+    `prepare_dossier` RAW async handler — um `DelegationDispatcher` montado pela raiz de
+    composicao do worker-runtime (`build_dossier_delegation_dispatcher`), que ja chega aqui pelo
+    mesmo canal `**seams` (`worker_runtime/service.py` -> `bootstrap.bootstrap(harness, kafka,
+    **seams)`), sem nenhuma mudanca de assinatura. ABSENTE (`None`, o default da sonda de topicos
+    e a postura de runtime degradado) o topico REGISTRA do mesmo jeito e o handler fail-neutral
+    com a lacuna divulgada (DL-0037): o dossie local sai completo e a UT humana sempre abre.
     """
     del kafka  # unused — no inadimplencia.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
     engine: CibSevenTransport | None = seams.get("engine")
     audit_sink: AuditStartSink | None = seams.get("audit_sink")
+    dossier_dispatcher: DelegationDispatcher | None = seams.get("dossier_dispatcher")
     harness.register_worker(
         FunctionWorker(
             "operadora.inadimplencia.resolve_facts", functools.partial(resolve_facts, engine=engine)
@@ -1010,7 +1215,11 @@ def register_inadimplencia_workers(
     harness.register_worker(
         FunctionWorker("operadora.inadimplencia.check_prior_notice", dispatch_prior_notice)
     )
-    harness.register_worker(FunctionWorker("operadora.inadimplencia.prepare_dossier", prepare_dossier))
+    # HANDLER RAW (NAO `register_worker`) — precisa da costura assincrona do dispatcher (R-081,
+    # metade de ORIGEM; nota do mapa de topicos deste modulo e o precedente `credenciamento.py`).
+    harness.register(
+        "operadora.inadimplencia.prepare_dossier", make_prepare_dossier_handler(dossier_dispatcher)
+    )
     harness.register_worker(
         FunctionWorker("operadora.inadimplencia.register_contract_suspension", register_contract_suspension)
     )

@@ -296,7 +296,8 @@ def make_beatriz_handler(
     """Build Beatriz's A2A handler (delegation target).
 
     NOT REGISTERED with any dispatcher (module docstring): `a2a_composition` still wires only
-    rafael / carolina+andre, and adding `"beatriz"` is the owner decision this work package stops
+    rafael / carolina+andre+fernando, and adding `"beatriz"` is the owner decision this work
+    package stops
     in front of.
 
     Compiles the REAL Beatriz graph via `beatriz.graph.build(config)` — the same fail-closed

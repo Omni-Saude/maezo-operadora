@@ -35,6 +35,19 @@ CC-09 (Agent Fleet Audit, 2026-09-04) per-agent DESFECHO telemetry:
   false_denial_rate, ...) actually MEASURABLE — before CC-09 no per-agent outcome telemetry
   existed at all (`grep -rln 'record_' src/maezo/agents/*/graph.py` was empty).
 
+GAP 11.2 (round-5, 2026-09-05) `first_response_p95` — the one Helena KPI CC-09's
+`agent_desfecho_total` cannot feed (it counts outcomes, not latency):
+- maezo_agent_first_response_seconds (Histogram) — wall-clock from inbound receipt to turn
+  completion by {agent_id}. Emitted by `platform.webhooks.whatsapp.dispatch.HelenaDispatcher
+  .dispatch` — the ONE synchronous receive..respond chokepoint (module docstring: "each verified
+  inbound WhatsApp message runs Helena's compiled graph to completion SYNCHRONOUSLY"), so this IS
+  the round-trip a beneficiary experiences. `resolution_rate`/`escalation_rate` (the other two
+  `agent.yaml` KPIs GAP 11.2 closes) need no new metric: both are RATIOS over the desfecho
+  vocabulary `agent_desfecho_total` already emits (`desfecho="resolvido_automatico"` /
+  `"escalado_humano"` for Helena) — see the `maezo_helena_resolution_rate` /
+  `maezo_helena_escalation_rate` / `maezo_lucas_resolution_rate` recording rules in
+  `deploy/observability/alert-rules.yml` (group `maezo_agent_kpi_derived`).
+
 R-104/WP-ALERTA-SLA-CANAL notifications-bridge SLA-alert -> human task (SP-OP-ESCALATION-001):
 - maezo_sla_alert_human_task_total (Counter) — what became of an SLA-risk alert, by
   {alert_domain,outcome}; `outcome` is "escalated" (a real SP-OP-ESCALATION-001 User Task was
@@ -297,6 +310,34 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # GAP 11.2: `first_response_p95` (spec/agents/helena/agent.yaml, target "<15s"). The ONE
+        # `agent.yaml` outcome-latency KPI `agent_desfecho_total` cannot feed — that counter says
+        # WHAT happened, never HOW LONG it took. `agent_id` is the same closed, small vocabulary
+        # `agent_desfecho_total` already uses (today: only "helena", the one agent that declares
+        # this KPI and runs a synchronous receive..respond webhook path at all) — never a
+        # conversation id, phone hash or business key.
+        #
+        # WHAT IS OBSERVED, AND WHY THIS SHAPE. The single emitter
+        # (`platform.webhooks.whatsapp.dispatch.HelenaDispatcher.dispatch`) times its own
+        # `compiled.ainvoke(...)` call — wall-clock from the moment the verified inbound webhook
+        # is being handled to the moment Helena's graph run returns. Every completed turn reaches
+        # `respond()` (the graph's one terminal node) exactly once and attempts exactly one
+        # WhatsApp send there, whatever the outcome (`resolvido_automatico`/`escalado_humano`/a
+        # technical-start-failure all go through the SAME `respond()` send), so this genuinely
+        # measures "how long until Helena tried to reply" for every turn. It is NOT gated on the
+        # send's own success/failure: `HelenaState` carries no live `mensagem_enviada` field
+        # (`runtime.turn_telemetry`'s own HELENA note — the local `enviada` bool `respond()`
+        # computes never reaches the returned state dict), so a transport failure is honestly
+        # indistinguishable from a delivered reply at this chokepoint. A raised exception (the
+        # `ainvoke` itself failing) is NOT observed — no reply was even attempted.
+        self._agent_first_response_seconds = Histogram(
+            "maezo_agent_first_response_seconds",
+            "Wall-clock from inbound receipt to turn completion by agent_id (GAP 11.2, "
+            "first_response_p95). Not gated on transport-send success — see construction comment.",
+            labelnames=["agent_id"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -399,6 +440,17 @@ class MetricsCollector:
         COUNTS ONLY; no operation, no call argument, no business identifier.
         """
         return self._effect_rate_limited
+
+    @property
+    def agent_first_response_seconds(self) -> Histogram:
+        """Histogram for per-turn inbound-to-reply-attempt latency (GAP 11.2, first_response_p95).
+
+        Labels: agent_id (closed vocabulary, same as `agent_desfecho_total`; only "helena" today).
+        Not gated on transport-send success — see the construction comment for why.
+        Scope boundary: a non-text inbound handled by `acknowledge_non_text` (which never calls
+        `dispatch()`) is NOT observed here — only the text conversational path this KPI targets.
+        """
+        return self._agent_first_response_seconds
 
     @property
     def bridge_dlq(self) -> Counter:

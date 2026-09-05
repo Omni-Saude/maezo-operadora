@@ -24,6 +24,7 @@ from maezo.platform.webhooks.whatsapp.dispatch import (
 )
 from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
+from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
@@ -52,6 +53,25 @@ class _FakeWhatsAppClient:
         self.sent: list[tuple[str, str]] = []
 
     async def send_message(self, to: str, text: str) -> dict[str, Any]:
+        self.sent.append((to, text))
+        return {"messages": [{"id": "wamid.reply.1"}]}
+
+
+class _TypedFakeWhatsAppClient(WhatsAppServer):
+    """A real `WhatsAppServer` subclass double — no `type: ignore[arg-type]` needed.
+
+    `_FakeWhatsAppClient` above is a duck-typed double whose `send_message` lacks the real
+    class's `idempotency_key` keyword-only parameter, which is why every call site that hands it
+    to `HelenaDispatcher(whatsapp_client=...)` (a `WhatsAppServer`-typed field, not a Protocol)
+    needs a suppression. This one subclasses `WhatsAppServer` and matches its full
+    `send_message` signature instead, so it satisfies the real type nominally.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.sent: list[tuple[str, str]] = []
+
+    async def send_message(self, to: str, text: str, *, idempotency_key: str | None = None) -> dict[str, Any]:
         self.sent.append((to, text))
         return {"messages": [{"id": "wamid.reply.1"}]}
 
@@ -243,6 +263,50 @@ async def test_dispatcher_derives_conversation_id_and_pseudo_id_never_raw_phone(
     assert result["beneficiario_pseudo_id"] != phone_hash  # hash-of-a-hash, not identical to it
     assert whatsapp_client.sent, "Helena must reply over WhatsApp using the resolved raw number"
     assert whatsapp_client.sent[0][0] == "5511999999999"
+
+
+async def test_dispatch_observes_first_response_latency_for_helena() -> None:
+    """GAP 11.2 (`first_response_p95`): one completed `dispatch()` == one histogram observation.
+
+    Proves the emitter is really wired at this chokepoint (not merely named in a docstring — the
+    same "dead library" risk `test_alert_metrics_fence.py` guards against for the other
+    counters): the `maezo_agent_first_response_seconds_count{agent_id="helena"}` sample must
+    increase by exactly one after a turn that completes without raising, and the observed value
+    must be a real non-negative wall-clock duration.
+    """
+    from maezo.platform.observability import get_metrics_collector
+
+    dmn = FakeDmnTransport()
+    dmn.register("triage_redflag_adult", [{"red_flag": False, "conduta": "CONTINUE"}])
+    whatsapp_client = _TypedFakeWhatsAppClient()
+    dispatcher = HelenaDispatcher(
+        tenant_id="amh",
+        inference=_FakeInference(
+            ['{"intent": "information", "population": "none", "psychosocial_risk": false}', "resposta"]
+        ),
+        dmn=dmn,
+        cibseven=FakeCibSevenTransport(),
+        whatsapp_client=whatsapp_client,
+        pseudonymizer=Pseudonymizer(),
+        audit_sink=FakeStartAuditSink(),
+    )
+
+    collector = get_metrics_collector()
+    before = collector.registry.get_sample_value(
+        "maezo_agent_first_response_seconds_count", {"agent_id": "helena"}
+    )
+
+    await dispatcher.dispatch(InboundMessage(from_number="5511999999999", text="oi", message_id="wamid.1"))
+
+    after = collector.registry.get_sample_value(
+        "maezo_agent_first_response_seconds_count", {"agent_id": "helena"}
+    )
+    assert after == (before or 0.0) + 1.0, (before, after)
+
+    total_seconds = collector.registry.get_sample_value(
+        "maezo_agent_first_response_seconds_sum", {"agent_id": "helena"}
+    )
+    assert total_seconds is not None and total_seconds >= 0.0
 
 
 async def test_dispatcher_red_flag_message_starts_escalation() -> None:

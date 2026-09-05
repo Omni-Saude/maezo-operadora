@@ -870,7 +870,7 @@ acima e' o registro em-repo do item ate que esse registro exista.
 
 | Artefato | O que precisa de revisao humana | Revisor | Status |
 |---|---|---|---|
-| `deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml` (env do container) + ExternalSecret `maezo-whatsapp-config` | Provisionar `WHATSAPP_PHONE_NUMBER_ID` (o id Graph do numero remetente da WABA — dado de configuracao, NAO um segredo) e injeta-lo no deployment, na mesma forma dos tres `WHATSAPP_*` ja presentes (`:38,47,52`). Decidir tambem se ele entra como `value:` literal por tenant ou como chave do secret. Enquanto nao entrar, `send_message` recusa toda resposta da Helena (fail-closed, `server.py:163-164`) | dono/ops (mudanca em `deploy/` e owner-gated; sem conteudo clinico ou regulatorio) | `PENDENTE — caminho de resposta inoperante em Helm ate o provisionamento` |
+| `deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml` (env do container) + ExternalSecret `maezo-whatsapp-config` | Provisionar `WHATSAPP_PHONE_NUMBER_ID` (o id Graph do numero remetente da WABA — dado de configuracao, NAO um segredo) e injeta-lo no deployment, na mesma forma dos tres `WHATSAPP_*` ja presentes (`:38,47,52`). Decidir tambem se ele entra como `value:` literal por tenant ou como chave do secret. Enquanto nao entrar, `send_message` recusa toda resposta da Helena (fail-closed, `server.py:163-164`) | dono/ops (mudanca em `deploy/` e owner-gated; sem conteudo clinico ou regulatorio) | `RESOLVIDO (WHATSAPP-ENV-PREFIX-b / R-061, OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA): decisao do dono foi valor NAO-secreto — chave whatsapp.phoneNumberId em values.yaml + env WHATSAPP_PHONE_NUMBER_ID (value: literal, nao secretKeyRef) em deployment-webhook-receiver.yaml, ao lado dos tres WHATSAPP_* existentes. As credenciais WABA reais (token/app-secret/verify-token) permanecem BLOCKED em D6-04, independente desta linha` |
 ## WP-COMPOSICAO-V2 fatia 1 — raizes de composicao (AF-13 / ALERTS-WITHOUT-METRICS-a / WORKER-METRICS-COVERAGE / AF-12)
 
 O que esta fatia fechou e' WIRING: `setup_observability` passou a ter chamadores de producao nas
@@ -1323,7 +1323,7 @@ pacote; sao decisoes de dono e um limite de plataforma pre-existente.
 |---|---|---|---|
 | `src/maezo/platform/webhooks/whatsapp/dispatch.py::NON_TEXT_ACK_TEXT` (decisao 10.2 do dono — fallback mais rica em nao-texto) | O texto entregue promete APENAS o que o codigo faz: que o canal aceita texto. NAO promete humano, transcricao/STT, Libras nem retorno, porque nenhum follow-up humano foi ligado — `acknowledge_non_text` nao chama `audit_sink` e nao inicia SP-OP-ESCALATION-001. Um beneficiario com deficiencia auditiva/visual, baixa letramento ou em urgencia que so consegue mandar audio continua **sem caminho** neste canal: ele e informado, nao atendido. Decidir a fallback real (rotear para humano via o start audidado da Helena? transcrever? oferecer telefone?) e decisao de produto/assistencial + acessibilidade, e muda o texto E o codigo no MESMO commit — o teste `test_acknowledge_non_text_sends_exactly_one_fixed_reply_to_the_verified_hash` PINA o literal justamente para que uma promessa nao entre sem a implementacao | dono do produto + gestao assistencial + acessibilidade/juridico (LGPD/EIA) | `ABERTO — decisao 10.2 do dono; ack mecanico entregue, fallback NAO` |
 | `WEBHOOK-WAMID-DEDUP` — `src/maezo/platform/webhooks/whatsapp/` (nao existe `idempotency.py`; `docs/runbooks/whatsapp-webhook.md` §3 descreve um store que nao existe nesta arvore) | Sem deduplicacao por `wamid`, uma re-entrega do mesmo webhook pela Meta (que retenta tudo que nao respondeu 2xx) faz o receiver RE-ENVIAR o ack fixo. Hoje o impacto e mensagem de cortesia duplicada, nunca efeito adverso duplicado — o ack nao inicia processo, nao grava checkpoint e nao audita nada; o turno de TEXTO da Helena, esse sim, ja e re-executavel por re-entrega desde T1.11 e nao foi agravado nem corrigido aqui. Divulgado em comentario no proprio modulo, no runbook §1 e nesta linha; NAO implementado por ser owner-gated | owner/plataforma (idempotencia de webhook) | `RESOLVIDO 2026-09-04 — WEBHOOK-WAMID-DEDUP implementado (decisao do dono R-071 opcao C + R-072 + R-073): dedup duravel por wamid em `platform/driver_idempotency.py` sobre `driver_idempotency` (migracao 0010), guarda de entrada em `whatsapp/app.py` e guarda de saida em `WhatsAppServer.send_message`; runbook §3 reescrito. Merge segue owner-review` |
-| `WHATSAPP_PHONE_NUMBER_ID` ausente em Helm (`deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml` injeta `WHATSAPP_TOKEN`/`_APP_SECRET`/`_VERIFY_TOKEN` e nada injeta o `PHONE_NUMBER_ID`) | Consequencia para ESTE pacote, registrada para nao superestimar o que ele entrega: enquanto o segredo nao for provisionado, `WhatsAppServer.send_message` RECUSA fail-closed, entao o ack de nao-texto **nao chega ao beneficiario em producao** — exatamente como ja acontece com toda resposta da Helena (divulgacao de ops ja registrada em `src/maezo/tools/mcp_whatsapp/server.py` e na linha propria desta fila). A falha e contada como `failed` e logada (`whatsapp_dispatch_failed`), nunca escondida. `deploy/` e owner-gated e NAO foi tocado | owner/ops (provisionar `WHATSAPP_PHONE_NUMBER_ID` no secret `maezo-whatsapp-config`) | `ABERTO — pre-existente; limita o efeito real deste pacote em producao` |
+| `WHATSAPP_PHONE_NUMBER_ID` ausente em Helm (`deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml` injeta `WHATSAPP_TOKEN`/`_APP_SECRET`/`_VERIFY_TOKEN` e nada injeta o `PHONE_NUMBER_ID`) | Consequencia para ESTE pacote, registrada para nao superestimar o que ele entrega: enquanto o segredo nao for provisionado, `WhatsAppServer.send_message` RECUSA fail-closed, entao o ack de nao-texto **nao chega ao beneficiario em producao** — exatamente como ja acontece com toda resposta da Helena (divulgacao de ops ja registrada em `src/maezo/tools/mcp_whatsapp/server.py` e na linha propria desta fila). A falha e contada como `failed` e logada (`whatsapp_dispatch_failed`), nunca escondida. `deploy/` e owner-gated e NAO foi tocado | owner/ops (provisionar `WHATSAPP_PHONE_NUMBER_ID` no secret `maezo-whatsapp-config`) | `RESOLVIDO (WHATSAPP-ENV-PREFIX-b / R-061 + R-101, mesma PR de A2-HELM-CAPACITY): WHATSAPP_PHONE_NUMBER_ID agora injetado em deployment-webhook-receiver.yaml (value: literal de values.yaml whatsapp.phoneNumberId, nao o secret maezo-whatsapp-config — decisao do dono foi valor NAO-secreto). O ack de nao-texto passa a alcancar o beneficiario assim que o numero da WABA for preenchido por tenant; as credenciais reais (token/app-secret/verify-token) seguem BLOCKED em D6-04` |
 | `src/maezo/platform/webhooks/whatsapp/app.py` — decisao `dispatched == 0 and acked == 0 and failed > 0` do handler (mudanca de comportamento nao divulgada ate esta linha) | Um lote MISTO com 1 turno de TEXTO que falha + 1 mensagem nao-texto reconhecida com sucesso agora retorna HTTP 200 (`{"status":"ok","dispatched":0,"failed":1,"acked":1}`), nao mais 500. Em `main`, antes deste pacote existir, o mesmo lote (sem ack de nao-texto) retornava 500 e a Meta re-entregava o lote inteiro, dando ao turno de texto uma nova chance. Aqui a falha e contada e logada (`whatsapp_dispatch_failed`) mas NAO retentada — o turno de texto daquele beneficiario e perdido a menos que ele reenvie por conta propria. Trade-off deliberado, nao defeito: devolver 500 faria a Meta re-entregar o lote inteiro, o que re-enviaria o ack de nao-texto JA entregue ao beneficiario, e nao ha dedup por `wamid` para absorver essa duplicata — ver a linha `WEBHOOK-WAMID-DEDUP` acima, que e o PRE-REQUISITO para restaurar o retry por mensagem individual em vez de por lote inteiro. Divulgado em comentario no proprio `app.py` e nesta linha | owner/plataforma (mesma decisao de idempotencia de `WEBHOOK-WAMID-DEDUP`) | `RESOLVIDO 2026-09-04 — WHATSAPP-MIXED-BATCH-RETRY-TRADEOFF fechado pela decisao do dono R-100: o lote misto ganha rotulo proprio `status="partial_failure"` no WEBHOOK_REQUESTS_TOTAL, e o criterio de virada que a decisao manda escrever esta AVALIADO EM CODIGO — com a guarda de dedup por wamid ativa o lote misto passa a devolver 500 (a Meta re-entrega, a parte ja entregue e suprimida como duplicata, so a que falhou roda de novo); sem guarda, o trade-off antigo (200) permanece. Merge segue owner-review` |
 ## PERSPECTIVE-FENCE-XML-COMMENT-ASYMMETRY — marcador de referencia historica NAO criado (pergunta ao dono)
 
@@ -1719,6 +1719,286 @@ FORA DE ESCOPO deste PR — divulgado aqui, nao corrigido.
 
 | Artefato | O que precisa de revisao humana | Revisor | Status |
 |---|---|---|---|
-| `RAF-02-GUARD-MISSING-GUSTAVO-MARINA-VALENTINA` — 2026-09-05, fonte VERIFY-TRAIN2 §Delta | Pre-existente no main `75ed74f`: os handlers de delegacao `agents/{gustavo,marina,valentina}/delegation.py` NAO carregam a guarda RAF-02 (`if result.get("start_failed") is True: raise StartProcessFailedError(...)`) embora os grafos correspondentes (`agents/{gustavo,marina,valentina}/graph.py`) CHAMEM `start_failed_state`. So' `andre/carolina/fernando/rafael` levantam o `StartProcessFailedError` tipado apos `ainvoke` retornar (`git grep -c StartProcessFailedError -- src/maezo/agents/*/delegation.py` -> 2 cada um desses quatro, 0 nos demais). Sem a guarda, um start que falhou tecnicamente devolve `HandlerOutput` normalmente ao invocador A2A, que grava o audit terminal `_DECISION_COMPLETED` e SELA o resultado por `task_id` -- exatamente o falso-sucesso irretentavel que RAF-02 existe para impedir, so' que nos tres agentes sem a guarda. Nao corrigido em #336 (fora de escopo do reparo F4, que so' consertou a afirmacao do docstring). `beatriz` fica de fora desta lista: nao tem no `start_process` (confirmado pelos dois skips pre-existentes de `test_start_failure_routing.py`) | dono + autor do proximo trem que tocar esses tres handlers | `ABERTO — pre-existente no main 75ed74f; nao corrigido neste PR` |
+| `RAF-02-GUARD-MISSING-GUSTAVO-MARINA-VALENTINA` — 2026-09-05, fonte VERIFY-TRAIN2 §Delta | Pre-existente no main `75ed74f`: os handlers de delegacao `agents/{gustavo,marina,valentina}/delegation.py` NAO carregam a guarda RAF-02 (`if result.get("start_failed") is True: raise StartProcessFailedError(...)`) embora os grafos correspondentes (`agents/{gustavo,marina,valentina}/graph.py`) CHAMEM `start_failed_state`. So' `andre/carolina/fernando/rafael` levantam o `StartProcessFailedError` tipado apos `ainvoke` retornar (`git grep -c StartProcessFailedError -- src/maezo/agents/*/delegation.py` -> 2 cada um desses quatro, 0 nos demais). Sem a guarda, um start que falhou tecnicamente devolve `HandlerOutput` normalmente ao invocador A2A, que grava o audit terminal `_DECISION_COMPLETED` e SELA o resultado por `task_id` -- exatamente o falso-sucesso irretentavel que RAF-02 existe para impedir, so' que nos tres agentes sem a guarda. Nao corrigido em #336 (fora de escopo do reparo F4, que so' consertou a afirmacao do docstring). `beatriz` fica de fora desta lista: nao tem no `start_process` (confirmado pelos dois skips pre-existentes de `test_start_failure_routing.py`) | dono + autor do proximo trem que tocar esses tres handlers | `RESOLVIDO 2026-09-05 — gap RAF-02-GUARD-MISSING-GUSTAVO-MARINA-VALENTINA, branch r5/raf02-guards: a guarda RAF-02 foi acrescentada aos tres handlers (gustavo/marina/valentina), espelhando rafael byte-a-byte (mesma excecao tipada, mesma forma de mensagem, so tokens de classe). O conjunto guardado passou de 4 para 7 e deixou de ser lista curada a mao: test_start_failure_a2a_handlers.py::test_the_guarded_set_is_exactly_the_handlers_whose_graph_starts_a_process reapura o conjunto por AST (delegation.py que chama ainvoke X graph.py que registra no start_process) e falha se um agente entrar ou sair. beatriz confirmada fora POR ESTRUTURA (grafo sem no start_process, asserido no proprio teste). Prova comportamental por agente em test_{gustavo,marina,valentina}_delegation.py::test_handler_raises_instead_of_reporting_a_failed_start_as_success` |
 | `REEMBOLSO-AUTO-OVERPAY` — escolha A vs B do caminho automatico (R-058 + R-059), 2026-09-05 | **Achado (reproduzido nesta rodada, por id de elemento — os numeros de linha do dossie tinham andado):** `ST_IssuePaymentAuto` de `SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn` paga `${calculo.valor_calculado_tabela_cents}` — o valor da TABELA — enquanto o gate `dentro_tabela` que autoriza esse caminho compara com `<=`, nunca com `==` (`src/maezo/tools/workers/reembolso.py::calculate_value`). Logo `solicitado < tabela` satisfaz o gate e o caminho automatico pagaria o valor MAIOR: sobrepagamento por construcao do desenho. A documentacao da task afirmava "= `valor_solicitado_cents` por construcao do gate `dentro_tabela`" — FALSO, corrigido nesta PR. **O que ESTA PR fez (e so' isso):** o bloqueio fail-closed GENERICO de R-058 — condicao de `Flow_GW_AutoAprovar` passa a exigir `reembolso_auto_liberado` (worker: constante nomeada `REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`, `False`) + `require_pagamento_autorizado` recusa a origem automatica no worker de pagamento (`ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO`). INDEPENDENTE do teto D-07: subir `reembolso_auto_approval.params.max_value_brl` de zero NAO reabre o caminho. **O que NAO fez, de proposito (R-059, gatekeeper 2: "NENHUM agente implementa min(solicitado, tabela)"):** a formula. A escolha A (`min(solicitado, tabela)`, recomendacao registrada do dono) vs B (rotear so' quando `solicitado < tabela`) e' ato atuarial. Pauta completa em `docs/sme-dispatch/financas/PACKAGE.md` §SP-OP-REEMBOLSO-001 pergunta 4 (espelho em `../regulatorio/PACKAGE.md` pergunta 4), com campos de ratificacao VAZIOS. **Ordem obrigatoria** (`dependencies_note` de R-157): a assinatura vem ANTES de o teto D-07 subir de zero; virar a constante e' o MESMO ato que traz a formula assinada | atuaria (financas) + regulatorio verifica | `recomendação — pendente de assinatura de atuária (+ regulatório verifica)` |
 | `ADR-0040:85` — citacao por linha desatualizada por esta PR (REEMBOLSO-AUTO-OVERPAY-a), 2026-09-05 | `docs/adr/0040-perspectiva-operadora-contas-recurso.md:85` cita `SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:498-509` para o roteamento de `decisao_reembolso`. O bloqueio R-058 inseriu 22 linhas acima desse ponto (6 no cabecalho do processo, 4 no bloco de `ST_IssuePaymentAuto` e 12 na nota de `Flow_GW_AutoAprovar`), entao o intervalo correto passou a ser **`:520-531`** — verificado por id: `<bpmn:sequenceFlow id="Flow_Alerta_Notify"` (o inicio do bloco citado) esta agora em `:520` e `<bpmn:sequenceFlow id="Flow_GWDec_Parcial"` em `:531`. O conteudo citado NAO mudou; so' o numero da linha. NAO corrigido nesta PR de proposito: `docs/adr/**` e' CODEOWNED e a correcao de um numero de linha nao justifica converter uma PR de merge autonomo em revisao do dono. Mesma especie de fragilidade que a GAP-DU-07 resolveu na raiz para os tokens de PHI (citacao ancorada em CONTEUDO, nao em linha); a correcao duravel aqui e' a mesma, nao um novo pino | dono do ADR-0040 / CODEOWNERS | `ABERTO — corrigir :498-509 para :520-531 (ou desancorar de linha) na proxima PR que toque docs/adr/` |
+
+## D4-02 — pools asyncpg sem tuning por ambiente (reabertura ancorada em SC-05)
+
+`R-108` (OWNER-DECISIONS-REGISTER, opcao B, APROVADO-APOS-REVISAO-HUMANA): os quatro sitios
+`asyncpg.create_pool` desta arvore (`src/maezo/a2a/idempotency.py:246`, `src/maezo/a2a/outbox.py:397`,
+`src/maezo/platform/integrations/amh_inbox.py:918`, `src/maezo/gateway/audit_postgres.py:207`) mantem
+`min_size=1`/`max_size=10` como DEFAULT DELIBERADO — decisao do dono de NAO expor min/max por
+ambiente em `values.yaml` agora, porque a aritmetica agregada de conexoes (pools x processos x
+replicas x tenants vs `max_connections` do Aurora) so' existe apos `SC-05` (ver `deploy/helm/
+maezo-tenant/values.yaml`, secao "PostgreSQL (Aurora) connection", bloco SC-05 — gatekeeper
+finding F7: o caminho correto e' `deploy/helm/...`, nao `docs/helm/...`). Os quatro sitios
+ganharam o mesmo comentario-ancora (`D4-02 / R-108`) citando este fato e os outros tres irmaos —
+`tests/unit/platform/test_asyncpg_pool_defaults_documented.py` falha se os quatro divergirem entre
+si ou se o comentario sumir de um deles.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `src/maezo/a2a/idempotency.py:246`, `src/maezo/a2a/outbox.py:397`, `src/maezo/platform/integrations/amh_inbox.py:918`, `src/maezo/gateway/audit_postgres.py:207` — `min_size=1`/`max_size=10` | **REABRE quando `SC-05` landar**: com a aritmetica agregada de conexoes disponivel (bloco SC-05 em `values.yaml`), decidir a Opcao A do memo original — expor `min`/`max` por ambiente em `values.yaml` -> env -> `WorkerRuntimeSettings`/`AgentRuntimeSettings`/settings equivalentes dos quatro sitios — ou manter o default deliberado permanentemente. Ate' la', os quatro numeros ficam fixos e documentados, nunca ajustados um de cada vez | dono de infraestrutura/plataforma (`deploy/helm/**` e' owner-gated) | `ABERTO — reaberto por design; aguarda SC-05 (ja' entregue nesta mesma PR, ver secao SC-05 abaixo) landar e ser avaliado antes de qualquer exposicao por ambiente` |
+
+## SC-05 — aritmetica de conexoes + escolha de RDS Proxy (declarado, nao provisionado)
+
+`R-025`+`R-026` (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA): `deploy/helm/
+maezo-tenant/values.yaml` (secao logo apos `aurora:`) agora declara a aritmetica agregada de
+conexoes — pools/processo (4 sitios `create_pool`, `max_size=10` cada, D4-02/R-108) x
+processos/pod (1) x pods habilitados por padrao, contra o `max_connections` de cada ambiente
+Aurora (~3604 para prod `db.r6g.xlarge`; staging `serverless` escala com ACU ao vivo, nao e'
+fixo). GATEKEEPER FINDING F1 (VERIFY-A2-HELM-CAPACITY.md, corrigido nesta reparacao): o pod
+count usado para o teto/headroom de PROD e' o da overlay `values-amh.yaml` RENDERIZADA (14 pods
+-> 560 conexoes + 1 de folga transiente do Job de migrations = 561/tenant), nao o bare
+`values.yaml` (11 pods -> 440, mantido no bloco so' como piso teorico — esse arquivo nao
+renderiza standalone). Teto ultrapassado a partir de N=7 tenants (3927 > 3604), nao N=9.
+`deploy/terraform/modules/aurora-postgres/` ganhou o scaffold de RDS Proxy
+(`aws_iam_role`/`aws_db_proxy`/`aws_db_proxy_default_target_group`/`aws_db_proxy_target`)
+inteiramente atras de `enable_rds_proxy = false` — ZERO recursos AWS criados por esta PR
+(`tests/unit/deploy/test_aurora_rds_proxy_scaffold.py` prova a gate).
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `deploy/terraform/modules/aurora-postgres/` (`enable_rds_proxy` variable + `aws_db_proxy*` scaffold, todos `count = var.enable_rds_proxy ? 1 : 0`) | Ligar `enable_rds_proxy = true` no ambiente do SEGUNDO tenant real (R-026), e so' entao apontar os DSNs da aplicacao (`aurora.endpoint` no Helm / secret) para `module.aurora.rds_proxy_endpoint` em vez do endpoint direto do cluster. Depende de credenciais AWS (`D6-04`/`D13-03`, HUMAN-GATED) para provisionar de fato — esta PR so' prepara o modulo, nao aplica `terraform apply` | dono de infraestrutura/plataforma (`deploy/terraform/**` e' owner-gated por politica do programa) | `ABERTO — scaffold pronto e desligado; ligamento real aguarda D6-04/D13-03 + segundo tenant` |
+| `deploy/helm/maezo-tenant/values.yaml`, secao "SC-05" (bloco de aritmetica) | Confirmar a premissa conservadora (4 pools x max_size 10 = 40 conexoes/processo, pior caso — a maioria dos processos abre um subconjunto, nao os quatro) e revisitar o numero de headroom quando um segundo tenant real for adicionado (a conta hoje e' para N=1..7 tenants hipoteticos contra a overlay `values-amh.yaml`, nao um fato medido); revisitar tambem a folga transiente de `migrations`/`lifecycle` (item 4/5 do bloco) no dia em que qualquer CronJob de `lifecycle` deixar de ser um stub fail-closed (T2.8) | dono de infraestrutura/plataforma | `ABERTO — numero DERIVADO, nao medido; revisitar com trafego real` |
+
+## SC-06 — tetos de vazao declarados (transport/harness fan-in)
+
+`R-109` (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA, opcao A): `deploy/helm/
+maezo-tenant/values.yaml` ganhou `throughputCeilings.transportFanIn`/`.harnessFanIn`, TREE-DERIVED
+por varredura AST direta contra `src/` — nao um valor congelado uma vez. Na criacao desta secao:
+29/19 (nao os 30/32 do relatorio original, que contava mencao textual, nao import real). Apos o
+merge de `main` que trouxe `agents/{gustavo,marina,valentina}/delegation.py` (REANCHOR-A2-HELM-
+CAPACITY, 2026-09-05): `transportFanIn` recontado para 32 (os tres novos modulos importam
+`maezo.tools.mcp_cibseven.transport` diretamente); `harnessFanIn` continua 19.
+`tests/unit/deploy/test_sc06_throughput_ceilings.py` refaz a mesma varredura em toda run e compara
+o valor declarado contra a recontagem (vai a RED em qualquer direcao — nenhum dos dois lados e' um
+literal). Os dois valores sao injetados como env informativo
+(`MAEZO_TRANSPORT_FAN_IN_CEILING`/`MAEZO_HARNESS_FAN_IN_CEILING`) em `deployment-worker-daemon.yaml`
+(os dois) e `deployment-agent-runtime.yaml` (so' transport), lidos por
+`WorkerRuntimeSettings`/`AgentRuntimeSettings` e logados no start-up de cada daemon — nunca usados
+para decisao de runtime.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `docs/audits/maezo-deep-audit/recon/as-built-map.md` secao 3 (fan-in 30/32) | O relatorio original conta MENCAO TEXTUAL ao nome do modulo (grep de string), nao `import` real — esta PR reconfirmou por AST e encontrou 29/19. Decidir se o relatorio de auditoria deve ser corrigido (fora do escopo desta PR: `docs/audits/` e' gerenciado por sessao paralela) | dono do programa de auditoria | `INFO — nao corrigido aqui; docs/audits/ e' editado por sessao paralela, ver nota de higiene em BRIEF-COMMON` |
+
+---
+
+## WP-ADR-RECONCILIACAO / WP-DOCS-HYGIENE — rodada 5, lote ADR-BATCH (2026-09-05)
+
+Sete gaps de reconciliacao documental (AF-02, AF-04, AF-10, AF-15, AF-17, AF-18, AF-18a) foram
+re-reproduzidos contra `44e85ea`. As linhas abaixo sao o que sobra para HUMANO: uma ratificacao que
+so o dono pode dar, uma troca de custo que so o dono pode arbitrar, e dois residuos documentais que
+este lote deliberadamente NAO expandiu para nao virar uma varredura sem fim. Detalhe tecnico de cada
+uma em `docs/evidence-ledger.md`, linhas `AF-02`/`AF-04`/`AF-10`/`AF-15`/`AF-17`/`AF-18`/`AF-18a`.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md` (`Proposto — DRAFT/verify`) | **Ratificacao.** A ADR-0041 e a correcao de registro de SETE ADRs `Accepted` (0005/0006/0008/0012/0015/0024/0032) e ja esta no main desde `8b0ec4f`, mas foi redigida por AGENTE: enquanto o `Status` for `Proposto — DRAFT/verify`, NENHUM marcador `obsolete-section` dela tem efeito normativo, e os gaps AF-04/AF-10/AF-15/AF-17 permanecem OPEN por esse unico motivo. Assinar e um ato do dono (`/docs/adr/` e CODEOWNED, `.github/CODEOWNERS:61`). O §6 (ADR-0006, pseudonimizacao) e materia de PHI/LGPD — o revisor competente inclui seguranca, nao so arquitetura | dono (arquitetura) + seguranca (para o §6) | `ABERTO — ADR no main, ratificacao humana PENDENTE; e o unico passo que falta para AF-04/AF-10/AF-15/AF-17` |
+| Cabecalho das sete ADRs `Accepted` reconciliadas pela ADR-0041 | **Troca de custo, explicitamente deixada para o dono pela propria ADR-0041 (§Consequencias, "Negativas").** Quem abre `docs/adr/0024-*.md` ou `0032-*.md` isolado, sem passar pelo indice, continua lendo `Status: Accepted` sem nenhum ponteiro para a correcao. Por o ponteiro no topo dos sete arquivos e possivel (`0008:4-7` e `0025:6-10` sao precedentes in-loco) mas deslocaria em 1..N linhas TODAS as ancoras que `docs/audits/maezo-deep-audit/` cita nesses arquivos, e exigiria regravar os sha256 fixados em `tests/unit/docs/test_adr_amendments.py` — regravar a cerca e, por desenho dela, um ato de governanca. Nao feito neste lote | dono (arquitetura) | `ABERTO — decisao do dono: ponteiro in-loco vs. estabilidade das ancoras da auditoria` |
+| `docs/reports/autonomous-completion-report.md` (relatorio inteiro) | **Duas ocorrencias fazem padrao, nao acidente.** Este relatorio afirmou uma entrega sem lastro em `:58`/`:89` (`contract_extraction` "scaffolded #81" — corrigido por errata neste lote, gap AF-18), e o relatorio irmao `docs/reports/predeploy-audit-report.md:317` fez o mesmo com a ADR-0024 (gap AF-02). Ambos foram gerados por orquestradores autonomos e ambos citam PRs cujo conteudo real e outro. Nenhum dos dois foi auditado por inteiro: so as linhas que um gap nomeou. Uma varredura completa (cada linha "closed #NN" conferida contra `git show -s` do PR real) e o proximo passo honesto | dono + auditor de docs | `ABERTO — 2 linhas corrigidas por errata; o relatorio inteiro NAO foi auditado` |
+| `docs/reports/autonomous-completion-report.md:139` — TERCEIRA instancia da mesma atribuicao falsa, ainda NAO corrigida (trem `r5/train-3`) | **Divulgacao de escopo, nao defeito novo.** As duas erratas do relatorio (gap `AUTONOMOUS-REPORT-FALSE-81` via #337 e gap `AF-18` via este trem) corrigem `:58` e `:89` — as MESMAS duas linhas, com a mesma evidencia: sao dois registros de UM defeito, nao dois defeitos. A primeira nomeia uma terceira ocorrencia em `:139` (tabela §6.2, "Provide the contract document source... \| #21 / #81 \|") e a deixa explicitamente fora do escopo; a segunda abre a varredura do relatorio INTEIRO. O trem apensou a `## NOTA DE INTEGRACAO 2026-09-05` juntando os dois registros e mantendo `:139` visivel, e a cerca `tests/unit/docs/test_autonomous_report_errata_dedup.py` fixa as quatro propriedades (append-only de `:58`/`:89`, as duas erratas presentes, a nota nomeando os dois ids, `:139` ainda aberto e divulgado). **Quem corrigir `:139` tem de aposentar o teste `test_the_third_instance_at_139_is_still_uncorrected_and_still_disclosed` no mesmo commit** — a cerca vai VERMELHA de proposito quando o defeito que ela descreve deixar de existir | dono + auditor de docs (dentro da varredura completa aberta pela errata AF-18) | `ABERTO — divulgado e cercado; nenhuma linha do relatorio original alterada` |
+| `src/maezo/policies/autonomy/` — caminho fantasma em 9 documentos nao-ADR (1 executavel) | **Residuo do AF-04 fora do escopo da ADR-0041**, que corrigiu apenas a citacao da ADR-0008. O diretorio nunca existiu (`.github/CODEOWNERS:58` e `Makefile:47` ja registram isso); a matriz real vive em `spec/policies/autonomy/`. O caso perigoso e EXECUTAVEL: `deploy/helm/README.md` manda `--overlay src/maezo/policies/autonomy/tenants-amh.yaml` num comando de exemplo que falharia. Os demais sao prosa (`docs/runbooks/gateway.md` em 7 pontos, `docs/design/T1.9-ceiling-enforcement.md`, `docs/processes/harmonization-inadimplencia-cancel.md`, relatorios). Mesma especie: `CONTRIBUTING.md:31` manda o contribuidor "atualizar `config/topic_registry.yaml`", arquivo que nao existe (residuo do AF-15) | dono + auditor de docs | `ABERTO — contagem/lista corrigidas pela linha seguinte (F3, VERIFY-ADR-BATCH, 2026-09-05); nao editada aqui por regra de append-only` |
+| `docs/adr/0025-pep-policy-unification.md:8-9` | **Oitava ADR com o mesmo artefato de grep**, ja LISTADA pela ADR-0041 (§Consequencias) e NAO corrigida por ela nem por este lote: afirma "`PEP.evaluate` has no runtime callers; `build_pep()` is a startup readiness probe only", refutado pela evidencia do §2 da propria ADR-0041. Tem id proprio no registro (`ADR-0025-PEP-GREP-ARTIFACT`, `owner-decision`) e nao pertence aos sete gaps deste lote — repetido aqui so para que nao seja emendado de forma silenciosa por um agente | dono (arquitetura) | `ABERTO — gap proprio ADR-0025-PEP-GREP-ARTIFACT, nao tocado aqui` |
+| `src/maezo/policies/autonomy/` — recontagem do residuo por enumeracao (F3, VERIFY-ADR-BATCH, corrige a linha acima) | **A linha acima contava "9 documentos nao-ADR"; a recontagem (`grep -rl 'src/maezo/policies' --include='*.md' --include='*.yaml' --include='*.yml' . \| grep -v '^./docs/adr/' \| grep -v '^./.git'`, excluindo os proprios registros `docs/evidence-ledger.md`/`docs/review-queue.md`) encontra **11**: (a) RESIDUO — trata o caminho como se existisse/instrui uso dele: `deploy/helm/README.md:74` (EXECUTAVEL — `--overlay src/maezo/policies/autonomy/tenants-amh.yaml`), `docs/processes/ALLOWLIST-PR-READY.md:26,37,46` (lista `src/maezo/policies/process_allowlist.yaml` como arquivo ja alterado numa branch), `docs/processes/harmonization-inadimplencia-cancel.md:9` (cita `_hard_frozen.yaml` sob esse caminho como "fonte lida"), `docs/runbooks/gateway.md` (7 pontos: `:91,92,94,291,302,308,324,326,378` — trata o caminho como real ao longo do runbook), `docs/reports/business-logic-audit-improvement-plan.md:219,332,476` (lista arquivos sob o caminho fantasma como alvos), `docs/reports/phase3-report.md:218` (descreve uma mudanca de working-tree nao commitada sob o caminho fantasma como "estado correto" — herda o mesmo residuo do ALLOWLIST-PR-READY.md), `docs/reports/predeploy-audit-report.md:180-181` (ao corrigir um erro cosmetico de `gateway.md`, chama o proprio caminho fantasma de "real path"). (b) CORRETO — ja registra a inexistencia, nao e residuo: `docs/reports/G0-gate-review.md:71,77,176` (diz explicitamente "confirmed nonexistent"), `docs/design/T1.9-ceiling-enforcement.md:113` (registra que o `_DEFAULT_CORE_PATH` do v1 "does NOT carry over" para v2), `docs/Tarefas_Pendentes.md:577` e `docs/reports/review-before-launch-extension.md:22` (citam o caminho so como superficie CODEOWNERS de metodologia de classificacao de PR, nao como artefato a tocar). Nenhuma edicao feita — permanece fora do escopo declarado de AF-04/AF-15, igual a linha acima | dono + auditor de docs | `ABERTO — recontagem apenas; nenhuma correcao de conteudo feita (fora de escopo de AF-04/AF-15)` |
+
+## FERNANDO-DELEGATION-CALL-SITE — metade de registro executada, metade de origem pendente (2026-09-05)
+
+Nenhuma linha acima foi editada. Estas duas linhas registram o que a decisao do dono R-081/R-082
+(OWNER-DECISIONS-REGISTER, aprovado 2026-09-04, status `APROVADO-APOS-REVISÃO-HUMANA`) autorizou e
+o que efetivamente aterrissou no branch `r5/raf02-guards`.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `FERNANDO-DELEGATION-CALL-SITE` / R-081, metade de ORIGEM — `src/maezo/tools/workers/inadimplencia.py::prepare_dossier` | A decisao aprovada do dono e' literalmente "SIM — ligar o call site em `inadimplencia.py::prepare_dossier` e registrar `make_fernando_handler` em `a2a_composition.py`, com a chamada fail-neutral". A metade de REGISTRO aterrissou (ver a linha do PR): `make_fernando_handler` esta' em `handlers={...}` de `build_dossier_delegation_dispatcher` e `_DOSSIER_EDGE_AGENT_IDS` inclui `fernando`, com prova ponta-a-ponta em `tests/unit/runtime/agent_runtime/test_a2a_composition.py::test_dossier_dispatcher_routes_the_registered_fernando_edge`. A metade de ORIGEM NAO aterrissou, e a razao e' estrutural, nao de vontade: `operadora.inadimplencia.prepare_dossier` esta' registrado como `FunctionWorker` SINCRONO (`register_inadimplencia_workers`), enquanto `dispatcher.delegate` e' assincrono — liga-lo exige converter o worker para a forma raw-async (o precedente sancionado e' `tools/workers/credenciamento.py::make_prepare_dossier_handler`) e ler o `dossier_dispatcher` de `**seams` em `register_inadimplencia_workers` (a costura JA chegava ate' la por `worker_runtime/service.py` -> `bootstrap(harness, kafka, **seams)`; a redacao anterior desta celula dizia que `service.py` tambem precisava mudar, o que era FALSO — ver a celula de status). A aresta e' agora ALCANCAVEL e ALCANCADA: o handler raw-async de `operadora.inadimplencia.prepare_dossier` e' o unico caminho de producao que origina `arrears.followup`. Condicao fail-neutral do dono implementada junto com o call site (ver a celula de status) | dono (arquitetura/produto) + autor do PR que converter o worker de inadimplencia | `RESOLVIDO 2026-09-05 — as DUAS metades de R-081 aterrissaram no branch r5/raf02-guards. CORRECAO desta propria linha (achado F1 do porteiro VER-RAF02-GUARDS): a frase original dizia que a conversao exigia passar o `dossier_dispatcher` por `register_inadimplencia_workers` E TAMBEM por `worker_runtime/service.py` — a segunda metade era FALSA e superdimensionava o trabalho. A costura JA chegava: `worker_runtime/service.py` passa `dossier_dispatcher=state.dossier_dispatcher` para `bootstrap.bootstrap(harness, kafka, **seams)`, que repassa `**seams` a `register_inadimplencia_workers` — igual as tres arestas irmas (cred/adequacao/pagto), nenhuma das quais precisou tocar `service.py`. A superficie real era so' `register_inadimplencia_workers` + o handler raw-async + `raw_handler_topics` em `tests/unit/tools/workers/test_bootstrap_registration.py`, e e' exatamente ela que mudou. ORIGEM implementada em `tools/workers/inadimplencia.py::make_prepare_dossier_handler` (precedente sancionado `credenciamento.py::make_prepare_dossier_handler`), FAIL-NEUTRAL como a condicao do dono exige: dispatcher ausente / identificadores ausentes / rejeicao estruturada / `StartProcessFailedError` (guarda RAF-02 do Fernando) / qualquer excecao => a tarefa CIB Seven COMPLETA com o dossie LOCAL intacto e divulga `arrears_followup_delegated=False` + `arrears_followup_gap=<token de classe>`, com log alto e contador `maezo_worker_error_count`; nunca levanta, nunca fabrica sucesso. Provas: `tests/unit/tools/workers/test_inadimplencia.py::test_prepare_dossier_handler_delega_arrears_followup_uma_vez` (envelope unico, `task_type=arrears.followup`, `task_id`=business key INAD), `::test_prepare_dossier_handler_sem_dispatcher_completa_e_marca_nao_tentada`, `::test_prepare_dossier_handler_falha_de_delegacao_nao_derruba_a_tarefa`, `::test_prepare_dossier_handler_start_failed_e_divulgado_com_token_proprio` e `::test_registered_prepare_dossier_threads_the_dossier_dispatcher_seam` (a costura chega ao handler REGISTRADO, nao so' a funcao nua). Suite viva SP-OP-INADIMPLENCIA-001 reexecutada com engine real APOS a conversao (`tests/integration/processes/test_sp_op_inadimplencia_001.py`, engine isolado, DEPLOY-VERIFIED: 24 passed, ZERO skip, 220s) — o handler raw-async continua dirigindo o processo real ate' `UT_AnaliseInadimplencia`. ESCOPO DESSA PROVA VIVA, dito exato: a fixture `inad_probe` nao passa `dossier_dispatcher`, entao o que a suite viva exercita e' o ramo FAIL-NEUTRAL (`dispatcher_unavailable`) — ou seja, prova que a conversao nao trava `ST_PrepareDossier` num runtime degradado, que e' a garantia que a condicao do dono pede. O ramo de delegacao entregue e' provado no lane unitario (envelope real pelo dispatcher fake e pela raiz de composicao REAL), nao com engine. Ligar um `DelegationDispatcher` real na fixture de integracao (chave de assinatura + Postgres) segue como trabalho aberto` |
+| `FERNANDO-DELEGATION-CALL-SITE` / R-082 — Lucas fora do escopo A2A | Decisao aprovada do dono, verbatim: "manter fora do escopo A2A — nao abrir contrato A2A novo para Lucas enquanto nao existir consumidor declarado". Registro documental, sem nenhuma edicao em `src/maezo/agents/lucas/graph.py` nem em `spec/agents/lucas/agent.yaml` (ambos intocados neste PR). CONDICAO DE REABERTURA, explicita: quando uma jornada NOMEAR o consumidor da delegacao, a investigacao de produto do contrato A2A de Lucas (`accepted_task_types` + `_CALLER_INPUT_FIELDS`) entra como pacote proprio. Estado verificado hoje: `grep -n accepted_task_types src/maezo/agents/lucas/graph.py` devolve so' duas linhas de DOCSTRING/comentario (`:82`, `:384`), ambas afirmando que `accepted_task_types` continua `[]` — nao ha' contrato algum, como a decisao quer | dono (arquitetura/produto) | `REGISTRADO 2026-09-05 — fora do escopo A2A por decisao do dono; reabre so quando uma jornada nomear o consumidor` |
+
+## Nota de precisao (INFO) — PERSP-AUTH-VOICE, 2026-09-05
+
+Renomeacao de voz (nao mudanca de comportamento; GAP-REGISTER `PERSP-AUTH-VOICE`, severity P1,
+classification agent-executable, merge_gate autonomous). Nenhum conteudo clinico/regulatorio;
+registrada aqui por rastreabilidade de um SYSTEM_PROMPT de agente PHI-zone (Rafael, ADR-0006).
+
+O GAP-REGISTER citava 4 artefatos com o padrao de voz de prestador "a operadora emite a guia
+TISS": `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:228` (rotulo de
+`ST_EmitirAutorizacaoAuto`), `spec/agents/rafael/agent.yaml:36` (comentario), `src/maezo/agents/rafael/prompts.py:22`
+(SYSTEM_PROMPT) e `tests/evals/golden/rafael/EVL-RAFAEL-02.json:6`. Reproducao no momento desta
+PR encontrou apenas 3, e uma linha ja' havia se deslocado (drift de citacao, nao de conteudo): o
+comentario do `agent.yaml` esta hoje em `:41`, nao `:36`; o golden JA' nao continha o padrao — foi
+regoldenizado em 04/09/2026 (RAF-01/RAF-06) por um pacote anterior, sem relacao com este gap. Os
+3 restantes foram renomeados
+mantendo o veredito PAYER do processo intocado: a operadora emite a AUTORIZACAO (numero de
+autorizacao), o prestador emite a guia TISS. `SYSTEM_PROMPT_VERSION`/`DOSSIER_PROMPT_VERSION` de
+Rafael foram bumpados `v1`->`v2` (convencao do proprio modulo: "a prompt change is a diffable,
+version-bumped edit"), com `agent.yaml.prompt_versions` sincronizado; `make evals` confirma que
+nenhum golden depende do texto do prompt (harness `ReplayInferenceProvider` reproduz
+`recorded_llm`). Cerca de regressao nova: `tests/unit/spec/test_no_payer_voice_emits_guia.py`
+(3 provas) — distinta e sem relacao de escopo com `maezo.platform.validation.perspective`
+(PR-1/ADR-0040 D7, restrita a cadeia CONTAS/RECURSO).
+
+## Correcao (INFO) — PERSP-AUTH-VOICE, 2026-09-05 (reparo pos-VERIFY, secao NOVA; a secao anterior fica intacta)
+
+Esta secao CORRIGE a "Nota de precisao (INFO) — PERSP-AUTH-VOICE, 2026-09-05" acima. A secao
+anterior nao e' apagada (este arquivo e' append-only); tudo o que ela afirma e que aparece
+corrigido aqui deve ser lido como SUPERADO por esta secao. Origem: veredito
+`VERIFY-PERSP-AUTH-VOICE` (REVISE, 7 achados), reparo pelo terceiro agente.
+
+1. **Afirmacao FALSA a retirar (F2).** A secao anterior, o docstring da primeira versao da cerca,
+   a linha do ledger e o corpo do commit `ec296b9` diziam que a excecao por caminho para
+   `docs/evidence-ledger.md`/`docs/review-queue.md` seguia "a mesma convencao" de
+   `maezo.platform.validation.perspective`. E' o contrario: aquele modulo declara em texto que
+   **nao ha mecanismo de excecao** e a ADR-0040 D7 recusa allowlist por arquivo e bloco
+   `historico:` pelo nome; a sua secao "Where historical references go" e' convencao sobre ONDE
+   escrever narrativa, aplicada ESTRUTURALMENTE pela escolha do que cada tier le, nunca allowlist.
+   A cerca foi reprojetada: `_AUDIT_LOG_EXEMPT` e a auto-excecao `_SELF` foram REMOVIDAS e o
+   escopo passou a ser estrutural (raizes normativas `spec/`, `src/`, `tests/evals/`,
+   `docs/processes/`, `docs/runbooks/`), de modo que os dois registros append-only ficam fora por
+   CONSTRUCAO. Nenhum allowlist foi introduzido no repo, e nenhuma decisao de dono sobre ADR-0040
+   foi presumida.
+
+2. **Enumeracao hermetica (F1).** A cerca passou a enumerar por `git ls-files` (so' arquivos
+   rastreados). A primeira versao varria o disco e ficava vermelha em qualquer checkout que
+   carregasse `docs/audits/` e `docs/prompts/` — gitignorados, vivos e editados por sessoes irmas.
+
+3. **O 4o artefato do GAP-REGISTER: o registro estava CERTO (F7).** A secao anterior dizia que o
+   golden `tests/evals/golden/rafael/EVL-RAFAEL-02.json:6` "ja' nao continha o padrao", o que
+   sugere um erro do registro. O golden CARREGAVA o defeito, em INGLES
+   (`git show 308626b0^:tests/evals/golden/rafael/EVL-RAFAEL-02.json`, linha 6: "SP-OP-AUTH-001's
+   own automatic path issues the TISS guide, never Rafael directly"), removido incidentalmente
+   pela regoldenizacao RAF-01/RAF-06. A reproducao original, so' em pt-BR, era estruturalmente
+   cega para ele. Por isso a cerca reprojetada tem padrao em INGLES (`P2-en-ativo`) e usa essa
+   frase historica como caso de teste.
+
+4. **Contagens (F5).** Onde a secao anterior diz "(3 provas)", leia-se **10 provas**; o unit floor
+   vai de 10584 (base `44e85ea`) para **10594** (+10).
+
+5. **Cobertura (F3) e deteccao (F4).** A cerca agora le tambem os atributos `name=` dos `.bpmn`
+   (o rotulo pre-fix de `ST_EmitirAutorizacaoAuto` fica vermelho) e substitui a heuristica de
+   "ator mais proximo" por um conjunto EXPLICITO e pinado de padroes pt-BR + ingles sobre texto
+   normalizado. As 10 frases construidas pelo verificador ficam 10/10 vermelhas (eram 2/10), com 0
+   falsos positivos na voz correta do prestador. O LIMITE que a cerca NAO ve esta declarado no
+   docstring e PINADO por teste.
+
+Nada aqui e' ratificacao de SME: segue valendo que a operadora AUTORIZA e o prestador emite a
+guia TISS conforme o GAP-REGISTER aprovado, sem assinatura clinica/regulatoria nova.
+
+## Correcao 2 (INFO) — PERSP-AUTH-VOICE, 2026-09-05 (reparo do veredito §Delta, D1-D4; secao NOVA)
+
+Esta secao CORRIGE numeros e afirmacoes das duas secoes `PERSP-AUTH-VOICE` acima, que ficam
+intactas (arquivo append-only) e devem ser lidas como SUPERADAS no que aqui se corrige. Origem:
+`VERIFY-PERSP-AUTH-VOICE` §Delta (REVISE — 4 achados).
+
+1. **D1 — "10/10 vermelhas" era um numero acima do medido.** Duas das dez frases do verificador
+   estavam parafraseadas no teste. A6 verbatim e' "a emissao da guia TISS e responsabilidade da
+   operadora" (o ator vem DEPOIS do nominal) e o padrao `P5-ptbr-nominal` exigia o ator ANTES:
+   verbatim, era falso negativo, e o numero real da rodada 1 era **9/10**. Onde as secoes acima
+   dizem "10/10", leia-se **9/10 na rodada 1**. A6 e A10 foram restauradas ao texto verbatim e
+   criou-se `P7-ptbr-nominal-posposto`; o valor MEDIDO agora e' **10/10** nas dez frases verbatim
+   e **5/5** nas cinco sondas novas do §Delta.
+
+2. **D2 — "0 falsos positivos" tambem estava acima do medido.** A remocao da heuristica de ator
+   deixara a cerca cega a negacao e disparando por proximidade. Cinco afirmacoes CORRETAS ficavam
+   VERMELHAS, entre elas "A operadora nao emite a guia TISS: quem emite e o prestador" — a frase
+   mais natural para DOCUMENTAR a regra correta, justamente em `docs/processes/`, que esta cerca
+   passou a varrer — e "A autorizacao e emitida pela operadora e a guia TISS pelo prestador", que
+   e' a formulacao canonica desta mesma regra. Tres guardas foram acrescentadas (negacao adjacente
+   ao verbo; prestador como sujeito local; objeto emitido tem de ser a guia). MEDIDO: **0 falsos
+   positivos em 15 formas permitidas**, incluindo as 4 sondas adversariais do verificador. As
+   guardas sao ESTRITAS de proposito: o defeito historico "o PROCESSO (nao voce) emite a guia"
+   continua VERMELHO, porque a palavra imediatamente anterior ao verbo ali e' "voce)", nao "nao".
+
+3. **D3 — o ingles so' estava coberto na voz ativa.** "The TISS guide is issued by the operadora"
+   passava. Criado `P8-en-passivo`, com a frase do verificador como caso de teste; o LIMITE
+   DECLARADO nao afirma mais cobertura geral de ingles.
+
+4. **D4 — o teste de hermeticidade escrevia na arvore de trabalho real.** Plantava uma sonda em
+   `spec/` e a removia no `finally`. Agora monta um repo git DESCARTAVEL em `tmp_path` e prova os
+   dois sentidos (fora do indice = invisivel; `git add` do mesmo texto = acusa), sem tocar no
+   checkout.
+
+5. **Contagens.** Onde as secoes acima dizem "10 provas" e "10594", leia-se **12 provas** e
+   **10596** (base 44e85ea = 10584, +12).
+
+6. **LIMITE DECLARADO tem duas metades, ambas pinadas por teste.** Falsos negativos
+   (`test_o_limite_declarado_da_cerca_esta_pinado`) e falsos positivos que sobram
+   (`test_os_falsos_positivos_conhecidos_estao_pinados`): negacao afastada do verbo ("a operadora
+   nao e quem emite a guia") e objeto emitido fora da lista enumerada ("o laudo e emitido pela
+   operadora junto com a guia"). Quem esbarrar num deles saiba que e' conhecido e declarado — nao
+   e' licenca para reintroduzir o defeito nem para alargar a cerca em silencio.
+
+Nada aqui e' ratificacao de SME.
+
+## Correcao 3 (INFO) — PERSP-AUTH-VOICE, 2026-09-05 (reparo do veredito §Delta-2, G1-G2; secao NOVA)
+
+Esta secao CORRIGE as tres secoes `PERSP-AUTH-VOICE` acima, que ficam intactas (arquivo
+append-only). Origem: `VERIFY-PERSP-AUTH-VOICE` §Delta-2 (REVISE — 2 achados).
+
+1. **G1 — a rodada 2 introduziu uma REGRESSAO de deteccao, nao apenas um residual.** A guarda de
+   objeto criada para D2 era aplicada tambem ao trecho entre o verbo e o objeto nos padroes de
+   ator-primeiro, onde o objeto casado JA' E' a guia. Com isso **"A operadora emite a autorizacao
+   e a guia TISS."** — o defeito enunciado da forma mais direta possivel — ficou VERDE na rodada 2
+   e estava VERMELHO uma versao antes. Corrigido: a checagem de objeto vale SO' nas passivas
+   `P4`/`P8`. Um segundo mecanismo de mascaramento foi fechado junto: os padroes eram preguicosos
+   e a varredura seguia depois de um candidato rejeitado, entao uma clausula negada escondia o
+   defeito posterior da mesma frase ("A operadora nao emite o parecer, mas emite a guia TISS.").
+   A lacuna ator->verbo passou a ser GULOSA (verbo mais proximo do objeto) e uma rejeicao por
+   guarda recomeca a busca um caractere adiante do inicio do candidato.
+
+2. **G2 — os pinos nao correspondiam a medicao, nos dois sentidos.** A guarda de sujeito-prestador
+   so' reconhecia `o`/`os` colados ao verbo, entao "cada prestador emite a guia", "o proprio
+   prestador emite a guia" e "prestadores credenciados emitem a guia" — afirmacoes CORRETAS e
+   fraseologia tipica de contrato em `docs/processes/`, que a cerca varre — ficavam vermelhas sem
+   estarem declaradas. A guarda passou a aceitar determinante e modificador opcionais e a forma
+   relativa, mantendo duas condicoes que impedem que ela engula defeito (preposicao antes do
+   sintagma; virgula entre o sintagma e o verbo).
+
+3. **Numeros MEDIDOS agora — e os pinos dizem exatamente estes:** 10/10 nas dez frases verbatim,
+   5/5 nas cinco sondas do §Delta, 3/3 nas tres regressoes E4/E5/E6, e **0 falsos positivos em 19
+   formas permitidas**. Onde as secoes acima dizem "12 provas" e "10596", leia-se **13 provas** e
+   **10597**.
+
+4. **LIMITE DECLARADO re-medido.** Falsos positivos que SOBRAM: negacao afastada do verbo, negacao
+   separada do verbo por uma incisa, e objeto emitido fora da lista enumerada de substantivos.
+   E1/E2/E3 sairam dessa lista porque deixaram de ser falso positivo. Falsos negativos: verbo fora
+   do conjunto, ator separado por `.`/`;` ou a mais de 80 caracteres, terceiro idioma, afirmacao
+   sem a palavra "guia". E4/E5/E6 sairam dessa lista porque passaram a ser detectados.
+
+Nada aqui e' ratificacao de SME.
+
+## Correcao 4 (INFO) — PERSP-AUTH-VOICE, 2026-09-05 (reparo do veredito §Delta-3, H1-H2; secao NOVA, ultima)
+
+Esta secao CORRIGE e COMPLETA as quatro secoes `PERSP-AUTH-VOICE` acima, que ficam intactas
+(arquivo append-only). Origem: `VERIFY-PERSP-AUTH-VOICE` §Delta-3 (REVISE — 2 achados).
+
+1. **H1 — o lexico de ator pagador nao tinha os termos pt-BR mais comuns.** `_PAGADOR` conhecia
+   `operadora`, `processo`, `payer`, `health plan` e `SP-OP-<CHAVE>-<NNN>`, entao "O plano de saude
+   emite a guia TISS" e "A seguradora emite a guia TISS" passavam. Acrescentados `plano(s) de
+   saude`, `seguradora(s)` e `convenio(s)`, sem remover nada. VERIFICADO: "plano de saude" ocorre
+   dentro do proprio SYSTEM_PROMPT de Rafael, numa frase de voz CORRETA — a arvore real segue com
+   **0 achados sobre 501 arquivos rastreados** depois da ampliacao.
+
+2. **H2 — o LIMITE DECLARADO passou a nomear DUAS classes GENERATIVAS, com a razao estrutural, em
+   vez de so' enumerar frases.** CLASSE A (falso negativo): o ator pagador vem de um LEXICO
+   ENUMERADO, nao de uma ontologia — "autogestao", "cooperativa medica" e "administradora de
+   beneficios" sao invisiveis, e estao pinados verdes; a resposta a essa classe e' ampliar a lista
+   quando um termo importar, nao perseguir frases. CLASSE B (falso positivo): o reconhecedor de
+   sujeito-prestador e' de SUPERFICIE, entao o prestador-sujeito nao adjacente ao verbo continua
+   acusando — "O prestador, que atende pela operadora, emite a guia TISS" (relativa com material
+   interposto) e "A operadora informa ao prestador que ele emite a guia" (sujeito pronominal),
+   ambos pinados VERMELHOS medidos. Fechar a classe B exigiria analise sintatica, nao regex.
+
+3. **Correcao de uma descricao de mutacao da rodada 3.** Onde a secao anterior diz que "MUT-J
+   (estreitar a guarda de prestador de volta a `o`/`os`)" quebra o teste, leia-se: reduzir SO' a
+   lista de determinantes, mantendo o grupo OPCIONAL, **nao quebra nada** (14 passed) — um grupo
+   opcional apenas deixa de participar do casamento. O que e' load-bearing, medido isoladamente:
+   tornar o grupo de determinante OBRIGATORIO quebra citando E3, e remover o grupo de ADJETIVO
+   tambem quebra citando E3; as duas coisas juntas (o que a rodada 3 de fato rodou) quebram
+   citando E1 e E3. Os MEMBROS especificos da lista de determinantes nao sao exercidos por nenhum
+   caso atual.
+
+4. **Contagens.** Onde as secoes acima dizem "13 provas" e "10597", leia-se **14 provas** e
+   **10598**.
+
+Nada aqui e' ratificacao de SME.
