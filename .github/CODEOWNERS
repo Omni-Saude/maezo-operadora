@@ -286,11 +286,16 @@
 # valores, modulos de IaC) eram gateados por disciplina humana, nao por mecanismo. E a mesma especie
 # de falha do environment `production` sem `protection_rules`: a regra existia na cabeca das pessoas
 # e nao na maquina.
-# LIMITE DECLARADO (floor_note da propria decisao): acrescentar a regra NAO a torna eficaz sozinha.
-# Enquanto `require_code_owner_review` estiver `false` (R-051, prazo 2026-09-14), CODEOWNERS
-# REQUISITA revisor sem EXIGI-LO; quem exige hoje e o check `flip-path-review-gate`, que le este
-# arquivo e passa a ficar vermelho num PR de `deploy/` sem aprovacao qualificada. Nao leia esta linha
-# como "deploy/ esta gateado por revisao obrigatoria" ate o flip.
+# LIMITE DECLARADO (floor_note da propria decisao): acrescentar a regra NAO a torna eficaz sozinha, e
+# HOJE NADA A EXIGE MECANICAMENTE. Enquanto `require_code_owner_review` estiver `false` (R-051, prazo
+# 2026-09-14), CODEOWNERS REQUISITA revisor sem EXIGI-LO. O mecanismo PRETENDIDO de exigencia e o
+# check `flip-path-review-gate`, que le este arquivo e fica vermelho num PR de `deploy/` sem
+# aprovacao qualificada — mas ele e ADVISORY hoje: medido read-only em 2026-09-04, a ruleset
+# `main-protection` (id 20775655) exige exatamente quatro contextos (`lint / type / unit`,
+# `gitleaks / secrets`, `validate-artifacts`, `release-capability-floor (audit §5)`) e ele NAO esta
+# entre eles, logo, pelo mesmo raciocinio do achado 8 desta rodada, um check fora do conjunto exigido
+# nao bloqueia merge algum. Torna-lo REQUIRED e ato PENDENTE do dono (R-051, linha (3) de
+# `docs/review-queue.md`). Nao leia esta linha como "deploy/ esta gateado por revisao obrigatoria".
 /deploy/                   @rodaquino-OMNI @Omni-Saude/security-team
 #
 # NAO GATEADO, DELIBERADAMENTE — registrado aqui para nao ser confundido com esquecimento:

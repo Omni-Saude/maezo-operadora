@@ -26,12 +26,15 @@ owned", not "some line in the file starts with the right prefix". A test that as
 what let the false claim stand: `any(line.startswith("/.github/") …)` is satisfied by
 `/.github/CODEOWNERS` and says nothing about the file it was written to defend.
 
-WHAT THIS FENCE DOES NOT CLAIM. Being owned REQUESTS a reviewer; it does not REQUIRE one. The
-`main-protection` ruleset carries `require_code_owner_review: false` and
+WHAT THIS FENCE DOES NOT CLAIM. Being owned REQUESTS a reviewer; it does not REQUIRE one, and TODAY
+NOTHING DOES. The `main-protection` ruleset carries `require_code_owner_review: false` and
 `required_approving_review_count: 0` (measured read-only 2026-09-04), and `@Omni-Saude/security-team`
-does not resolve on this repository, so today the mechanical enforcement comes from the
-`flip-path-review-gate` check reading this same file. Closing that gap is owner decision R-051
-(deadline 2026-09-14), and no assertion here may be read as evidence that it happened.
+does not resolve on this repository. The INTENDED enforcement mechanism is the `flip-path-review-gate`
+check, which reads this same file — but it is ADVISORY today: the same reading shows the ruleset
+requiring exactly four contexts (`lint / type / unit`, `gitleaks / secrets`, `validate-artifacts`,
+`release-capability-floor (audit §5)`) and it is not one of them, so by this batch's own finding-8
+reasoning it blocks no merge. Making it REQUIRED, together with the flip, is PENDING owner decision
+R-051 (deadline 2026-09-14), and no assertion here may be read as evidence that either happened.
 """
 
 from __future__ import annotations

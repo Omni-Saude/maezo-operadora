@@ -52,8 +52,11 @@ THE FOUR PROPERTIES THAT MAKE THIS A GATE AND NOT THEATRE
    corrected 2026-09-04 together with the missing rule). `test_the_approvers_file_lives_under_a_
    codeowned_path` now resolves the path against the parsed rules with this repository's own
    CODEOWNERS matcher, so a rename or a deleted rule turns it RED instead of passing on a prefix
-   coincidence. Being owned REQUESTS a reviewer; requiring one is `require_code_owner_review` (false
-   today — R-051) plus the `flip-path-review-gate` check, which reads the same file. The parser here
+   coincidence. Being owned REQUESTS a reviewer; nothing REQUIRES one today. The intended enforcement
+   is `require_code_owner_review` (false — R-051) plus the `flip-path-review-gate` check, which reads
+   the same file — and that check is ADVISORY today: measured read-only on 2026-09-04, ruleset
+   `main-protection` requires exactly four contexts and it is not among them, so by this batch's own
+   finding-8 reasoning it blocks no merge. Making it REQUIRED is a PENDING owner act. The parser here
    accepts a deliberately tiny YAML subset and treats everything else as a hard parse error, because
    a gate that reads a list it did not fully understand is a gate that can approve by accident.
 
@@ -68,8 +71,9 @@ WHAT THIS GATE DOES *NOT* CLAIM
   `needs: [require-production-approval]` and an `if:` that requires
   `needs.require-production-approval.result == 'success'`, so no promotion runs without a green
   verdict, ruleset or no ruleset. Merge-time protection of this apparatus (`cd.yml`, this script,
-  the approvers file) is CODEOWNERS plus the `flip-path-review-gate` check. The full reasoning, with
-  the measurements behind it, is in `docs/review-queue.md`, section `## WF-BATCH`.
+  the approvers file) is CODEOWNERS plus the `flip-path-review-gate` check — INTENDED, not yet
+  enforced: that check is advisory until the owner adds it to the ruleset (R-051). The full
+  reasoning, with the measurements behind it, is in `docs/review-queue.md`, section `## WF-BATCH`.
 * It does not assert reviewer COMPETENCE. Being listed is authority to promote, not an attestation
   that the listed human reviewed clinical or regulatory content; that stays in `docs/review-queue.md`.
 * It does not attempt to detect self-approval. GitHub itself refuses to record an author's approval

@@ -23,8 +23,11 @@
 # `scripts/ci/check_flip_path_review.py`), nao contra o prefixo do nome.
 # RESSALVA DE EFICACIA, declarada e nao contornada: enquanto `require_code_owner_review` estiver
 # `false` na ruleset `main-protection` (medido 2026-09-04) e o `@Omni-Saude/security-team` nao
-# resolver, ser CODEOWNED requisita revisor mas nao o EXIGE no merge — quem exige hoje e o check
-# `flip-path-review-gate`, que le este mesmo CODEOWNERS. R-051 e o flip que fecha isso.
+# resolver, ser CODEOWNED requisita revisor mas nao o EXIGE no merge — e HOJE NADA MAIS O EXIGE. O
+# mecanismo PRETENDIDO de exigencia e o check `flip-path-review-gate`, que le este mesmo CODEOWNERS,
+# mas ele e ADVISORY hoje: a mesma leitura de 2026-09-04 mostra a ruleset exigindo exatamente quatro
+# contextos, e ele nao esta entre eles. Torna-lo REQUIRED e ato PENDENTE do dono, junto do flip de
+# R-051 (linha (3) de `docs/review-queue.md`).
 #
 # GRAMATICA ACEITA — DELIBERADAMENTE MINIMA, E ISSO E A FEATURE. O leitor e stdlib-only (mesma
 # doutrina de `check_flip_path_review.py`: nenhuma dependencia externa no caminho que governa a
