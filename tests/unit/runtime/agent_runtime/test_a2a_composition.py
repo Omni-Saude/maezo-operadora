@@ -485,3 +485,50 @@ def test_the_root_builds_fernandos_whatsapp_seam_from_the_one_agent_adapter_map(
     assert passados == [whatsapp_adapter_for("fernando")]
     # Nao-vacuidade: o mapa realmente nomeia fernando, e o valor NAO e' o id do agente.
     assert whatsapp_adapter_for("fernando") == "helena"
+
+
+def test_no_call_site_in_src_passes_build_whatsapp_seam_an_unknown_adapter_literal() -> None:
+    """FECHA A CLASSE do achado F3, nao so' a instancia: em `src/`, um `adapter=` LITERAL passado
+    a `build_whatsapp_seam` tem de ser um ADAPTADOR conhecido, nunca um id de agente.
+
+    `build_whatsapp_seam` ramifica so' em `"lucas"`; toda outra string cai no `else` da Helena.
+    Passar `adapter="fernando"` (o id do AGENTE) funcionava por acidente. Sem esta cerca, o
+    proximo call site repete o erro e ninguem ve: o teste acima prende UMA raiz, este prende
+    TODAS as chamadas com literal do repositorio, derivando o conjunto valido dos VALORES do
+    proprio `_WHATSAPP_ADAPTER_BY_AGENT`. Chamadas com expressao (o mapa/`whatsapp_adapter_for`)
+    passam por construcao — sao justamente a forma correta.
+    """
+    import ast
+    from pathlib import Path
+
+    from maezo.gateway import tool_registry
+
+    adaptadores_validos = set(tool_registry._WHATSAPP_ADAPTER_BY_AGENT.values())
+    src_root = Path(tool_registry.__file__).parent.parent
+    literais: list[tuple[str, int, str]] = []
+    chamadas = 0
+    for caminho in sorted(src_root.rglob("*.py")):
+        arvore = ast.parse(caminho.read_text(encoding="utf-8"), filename=str(caminho))
+        for no in ast.walk(arvore):
+            if not isinstance(no, ast.Call):
+                continue
+            alvo = no.func
+            nome = alvo.attr if isinstance(alvo, ast.Attribute) else getattr(alvo, "id", "")
+            if nome != "build_whatsapp_seam":
+                continue
+            chamadas += 1
+            for kw in no.keywords:
+                if kw.arg == "adapter" and isinstance(kw.value, ast.Constant):
+                    if kw.value.value not in adaptadores_validos:
+                        literais.append(
+                            (str(caminho.relative_to(src_root)), no.lineno, str(kw.value.value))
+                        )
+
+    assert chamadas >= 2, f"a cerca varreu {chamadas} chamadas — vacua (esperava >= 2)"
+    assert not literais, (
+        f"call site(s) passando um `adapter=` literal desconhecido a `build_whatsapp_seam`: "
+        f"{literais}. Adaptadores validos: {sorted(adaptadores_validos)}. Use "
+        "`gateway.tool_registry.whatsapp_adapter_for(<agent_id>)` — a UNICA definicao da escolha "
+        "agente->adaptador; um id de agente NAO e' um id de adaptador, e o `else` de "
+        "`build_whatsapp_seam` aceitaria qualquer string em silencio."
+    )
