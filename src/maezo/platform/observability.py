@@ -555,12 +555,14 @@ def record_agent_error(*, agent: str, error_type: str) -> None:
     instead of raising, the graph's `ainvoke` completes WITHOUT an exception for this failure
     class — so the enclosing `except Exception` at `Harness.invoke`/`HelenaDispatcher.dispatch`/
     each delegation handler never fires for it (no double count from the re-raise seams).
-    Separately, each A2A handler DOES raise a typed `StartProcessFailedError` after `ainvoke`
-    returns (`if result.get("start_failed") is True: raise ...`, RAF-02) so a failed-to-start
-    delegation is retried rather than sealed as completed — but that `raise` sits OUTSIDE the
-    `try` block wrapping `ainvoke`, so it does not loop back through this counter either. Either a
-    call site re-raises the real failure, or (CC-01) it records the terminal error outcome
-    in-graph — never both, for the same turn.
+    Separately, the A2A handlers that carry the RAF-02 guard raise a typed
+    `StartProcessFailedError` after `ainvoke` returns (`if result.get("start_failed") is True:
+    raise ...`) so a failed-to-start delegation is retried rather than sealed as completed — but
+    that `raise` sits OUTSIDE the `try` block wrapping `ainvoke`, so it does not loop back through
+    this counter either. Either a call site re-raises the real failure, or (CC-01) it records the
+    terminal error outcome in-graph — never both, for the same turn. (The RAF-02 guard's own
+    coverage across A2A handlers is tracked separately — see `docs/review-queue.md`, not this
+    docstring, for which handlers have it.)
 
     WHAT IS AND IS NOT AN "AGENT ERROR" HERE. A turn that raised out of the graph is one; so is a
     graph-internal start failure that never raises (CC-01). A policy DENIAL at the effect
