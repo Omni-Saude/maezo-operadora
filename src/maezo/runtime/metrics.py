@@ -47,7 +47,49 @@ from __future__ import annotations
 import structlog
 from prometheus_client import CollectorRegistry, Counter, Histogram
 
+from maezo.platform.error_types import (
+    AGENT_ERROR_TYPE_NONE,
+    AGENT_ERROR_TYPE_OUTRO,
+    AGENT_ERROR_TYPE_RUNTIME,
+    AGENT_ERROR_TYPE_TIMEOUT,
+    AGENT_ERROR_TYPE_UPSTREAM_INDISPONIVEL,
+    AGENT_ERROR_TYPE_VALIDACAO,
+    AGENT_ERROR_TYPES,
+    classify_agent_error_type,
+)
+
 logger = structlog.get_logger(__name__)
+
+#: Re-exportados de `maezo.platform.error_types` (ver o bloco de comentario abaixo). Declarados em
+#: `__all__` para que o re-export seja INTENCIONAL e nao um import acidentalmente nao usado.
+__all__ = [
+    "AGENT_ERROR_TYPES",
+    "AGENT_ERROR_TYPE_NONE",
+    "AGENT_ERROR_TYPE_OUTRO",
+    "AGENT_ERROR_TYPE_RUNTIME",
+    "AGENT_ERROR_TYPE_TIMEOUT",
+    "AGENT_ERROR_TYPE_UPSTREAM_INDISPONIVEL",
+    "AGENT_ERROR_TYPE_VALIDACAO",
+    "MetricsCollector",
+    "classify_agent_error_type",
+]
+
+
+# ---------------------------------------------------------------------------
+# ALERT-COUNTER-LABELS / R-063 (owner-ratified 2026-09-04): o vocabulario FECHADO do label
+# `error_type` dos contadores `maezo_tool_calls_total`/`maezo_agent_errors_total` abaixo MORA em
+# `maezo.platform.error_types` — um modulo FOLHA (zero imports de `maezo`) — e e apenas
+# RE-EXPORTADO por este modulo (import no topo + `__all__`), por compatibilidade com os call-sites
+# que ja importavam estes nomes daqui.
+#
+# Por que a fonte nao mora mais neste arquivo: importar `maezo.runtime.metrics` dispara
+# `maezo.runtime.__init__`, que importa `harness`/`checkpoint`/`inference` e portanto `langgraph`.
+# `maezo.platform.observability` precisa de `AGENT_ERROR_TYPE_*`/`AGENT_ERROR_TYPES` no TOPO do
+# arquivo e nao pode pagar esse acoplamento em tempo de import — nem fechar o ciclo
+# observability -> runtime -> harness -> observability. Ver o docstring de
+# `src/maezo/platform/error_types.py` e a cerca `test_importing_observability_does_not_pull_the_agent_runtime`
+# em `tests/unit/platform/test_alert_metrics_fence.py`.
+# ---------------------------------------------------------------------------
 
 
 class MetricsCollector:
@@ -74,12 +116,14 @@ class MetricsCollector:
         self._tool_calls = Counter(
             "maezo_tool_calls_total",
             "Total number of tool call invocations",
+            labelnames=["agent", "error_type"],
             registry=self._registry,
         )
 
         self._errors = Counter(
             "maezo_agent_errors_total",
             "Total number of agent errors",
+            labelnames=["agent", "error_type"],
             registry=self._registry,
         )
 
@@ -234,6 +278,26 @@ class MetricsCollector:
     def errors(self) -> Counter:
         """Counter for agent errors."""
         return self._errors
+
+    def agent_counter_labelnames(self) -> dict[str, tuple[str, ...]]:
+        """The configured `labelnames` of `tool_calls`/`errors` (ALERT-COUNTER-LABELS / R-063),
+        keyed by attribute name — the public accessor callers pinning the label-SHAPE contract
+        should use instead of reaching into `prometheus_client.Counter`'s own internals directly.
+
+        `prometheus_client.Counter` exposes NO public way to read a metric's configured label
+        NAMES before its first observation: `collect()` — the one public introspection path —
+        yields zero `Sample`s until `.labels(...).inc()` has run at least once (a labelled metric
+        with no observation yet is indistinguishable, via `collect()`, from one that will never be
+        used). `_labelnames` (defined on `prometheus_client`'s own `MetricWrapperBase`, a class
+        this repo does not own) is the only place the answer lives before that. This method
+        confines that one unavoidable reach-in to the single place that already owns and
+        constructs both `Counter` instances, so every caller — starting with the test pinning the
+        two agent counters' shared label set — reads a genuinely public contract instead.
+        """
+        return {
+            name: counter._labelnames  # noqa: SLF001 — no public API exists; see docstring above.
+            for name, counter in (("tool_calls", self._tool_calls), ("errors", self._errors))
+        }
 
     @property
     def worker_execution_time(self) -> Histogram:

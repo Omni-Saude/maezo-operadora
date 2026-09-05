@@ -128,7 +128,7 @@ async def test_failed_start_sends_nothing_and_ends_in_the_error_desfecho(
 ) -> None:
     """`CibSevenError` => `whatsapp.send` NUNCA chamado, desfecho de erro, retry sinalizado."""
     contagem: list[int] = []
-    monkeypatch.setattr(observability, "record_agent_error", lambda: contagem.append(1))
+    monkeypatch.setattr(observability, "record_agent_error", lambda **_rotulos: contagem.append(1))
 
     whatsapp = _RecordingWhatsApp()
     graph = _graph(whatsapp, _FailingStartTransport())

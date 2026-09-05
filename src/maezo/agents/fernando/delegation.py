@@ -63,6 +63,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from maezo.a2a import Budget, DelegationEnvelope, HandlerOutput
+from maezo.runtime.metrics import classify_agent_error_type
 from maezo.runtime.start_outcome import StartProcessFailedError
 
 from .graph import (
@@ -361,14 +362,14 @@ def make_fernando_handler(
         state = state_from_envelope(envelope)
         try:
             result: dict[str, Any] = await compiled.ainvoke(state)
-        except Exception:
+        except Exception as exc:
             # ALERTS-WITHOUT-METRICS-a (mirrors carolina/delegation.py's handler exactly — see
             # its comment for the full rationale and the fence that pins this shape,
             # `tests/unit/platform/test_alert_metrics_fence.py::
             # test_every_graph_invocation_in_src_counts_agent_errors`).
             from maezo.platform.observability import record_agent_error  # noqa: PLC0415
 
-            record_agent_error()
+            record_agent_error(agent="fernando", error_type=classify_agent_error_type(exc))
             raise
         business_key = result.get("business_key") or _business_key(state)
         if result.get("start_failed") is True:

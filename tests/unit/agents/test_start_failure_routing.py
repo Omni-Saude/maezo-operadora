@@ -40,6 +40,7 @@ from typing import Any
 import pytest
 
 from maezo.platform import observability
+from maezo.platform.error_types import AGENT_ERROR_TYPE_OUTRO
 from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.dmn_transport import DmnVersion
 from tests.support.audit_fakes import FakeStartAuditSink
@@ -394,8 +395,13 @@ async def test_start_failure_yields_error_desfecho_and_counts_an_agent_error(
     O estado de entrada de cada caso ja carrega o desfecho de SUCESSO que o agente grava a
     montante — e exatamente o fato fabricado de CC-01. O teste prova que ele NAO sobrevive.
     """
-    contagem: list[int] = []
-    monkeypatch.setattr(observability, "record_agent_error", lambda: contagem.append(1))
+    # ALERT-COUNTER-LABELS / R-063: o contador agora e' rotulado (`agent`, `error_type`), entao o
+    # espiao captura os ROTULOS — o que prova, alem da contagem, que o sitio CC-01 declara o agente
+    # certo em vez de um rotulo generico.
+    contagem: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        observability, "record_agent_error", lambda **rotulos: contagem.append(rotulos)
+    )
 
     graph = _graph_class(agent_id, class_name)(
         inference=_FakeInference(),
@@ -423,9 +429,10 @@ async def test_start_failure_yields_error_desfecho_and_counts_an_agent_error(
         f"montante ({entrada.get('desfecho')!r}) sobreviveu a uma instancia que nunca nasceu"
     )
     assert saida.get("process_started") is not True, f"{agent_id}: process_started afirmado apos falha"
-    assert contagem == [1], (
-        f"{agent_id}: record_agent_error chamado {len(contagem)}x (esperado 1) — sem ele "
-        "MaezoAgentCrashLoop fica cego para esta classe inteira de falha"
+    assert contagem == [{"agent": agent_id, "error_type": AGENT_ERROR_TYPE_OUTRO}], (
+        f"{agent_id}: record_agent_error chamado {len(contagem)}x com {contagem!r} (esperado 1x "
+        f"com agent={agent_id!r}) — sem ele MaezoAgentCrashLoop fica cego para esta classe "
+        "inteira de falha, e sem o rotulo `agent` correto o alerta nao consegue apontar o agente"
     )
 
 

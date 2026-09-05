@@ -18,6 +18,27 @@ Design decisions (ADR-0010, ADR-0014):
 - Worker metrics: execution time histogram + error counter with labels
 - Prometheus + Grafana (dev local) / AMP + AMG (staging/prod)
 - SigV4 remote-write in prod via OTel Collector
+
+INVARIANTE — SEM ACOPLAMENTO EM TEMPO DE IMPORT AO RUNTIME DE AGENTES:
+importar este modulo NAO pode arrastar `maezo.runtime` (e portanto `langgraph`) para
+`sys.modules`. Duas razoes, ambas medidas:
+  (a) `maezo.gateway.seams._base` chama `record_tool_call` de forma preguicosa exatamente "para
+      manter o nucleo de politica do gateway livre de acoplamento em tempo de import a pilha de
+      observabilidade" (`_base.py:367`) — um import no topo daqui para `maezo.runtime.*` anularia
+      essa intencao, arrastando harness/checkpoint/inference no primeiro efeito gateado; e
+  (b) `maezo.runtime.harness` importa `record_agent_error` DESTE modulo. Se este modulo importasse
+      `maezo.runtime.*` no topo, o par fecharia um ciclo real
+      (observability -> runtime/__init__ -> harness -> observability), e qualquer futura promocao
+      do import preguicoso do harness para o topo passaria a levantar
+      `ImportError: partially initialized module`.
+Por isso o vocabulario `AGENT_ERROR_TYPE_*`/`AGENT_ERROR_TYPES` e importado no topo de
+`maezo.platform.error_types` — um modulo FOLHA, sem nenhum import de `maezo` — e nao de
+`maezo.runtime.metrics`, que apenas o re-exporta. `MetricsCollector` (que e' do runtime de fato)
+continua importado de forma preguicosa dentro de `_get_metrics_collector()`.
+A cerca que trava a invariante e
+`tests/unit/platform/test_alert_metrics_fence.py::test_importing_observability_does_not_pull_the_agent_runtime`,
+que mede em interpretador NOVO (subprocesso) quantos modulos `maezo.*` e se `langgraph` entram em
+`sys.modules` ao importar `maezo.platform.observability`.
 """
 
 from __future__ import annotations
@@ -35,6 +56,8 @@ from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
+from maezo.platform.error_types import AGENT_ERROR_TYPE_NONE, AGENT_ERROR_TYPE_OUTRO, AGENT_ERROR_TYPES
+
 if TYPE_CHECKING:
     from maezo.runtime.metrics import MetricsCollector
 
@@ -48,7 +71,13 @@ _metrics_collector: MetricsCollector | None = None
 
 
 def _get_metrics_collector() -> MetricsCollector:
-    """Lazy-init the singleton MetricsCollector for worker instrumentation."""
+    """Lazy-init the singleton MetricsCollector for worker instrumentation.
+
+    O import de `maezo.runtime.metrics` e' PREGUICOSO de proposito, e nao por estilo: ele e' o
+    unico import de `maezo.runtime` neste modulo, e promove-lo ao topo quebraria a invariante
+    "sem acoplamento em tempo de import ao runtime de agentes" descrita no docstring do modulo
+    (e fecharia o ciclo observability -> runtime -> harness -> observability).
+    """
     global _metrics_collector
     if _metrics_collector is None:
         from maezo.runtime.metrics import MetricsCollector
@@ -434,7 +463,7 @@ def bootstrap_observability(
 # ---------------------------------------------------------------------------
 
 
-def record_tool_call() -> None:
+def record_tool_call(*, agent: str) -> None:
     """Count ONE gated tool/effect invocation — `maezo_tool_calls_total`.
 
     Called from `maezo.gateway.seams._base.gate` — the ONE per-call chokepoint every gated seam
@@ -442,23 +471,26 @@ def record_tool_call() -> None:
     worker-side. Counting here rather than in each wrapper is what makes coverage structural: a
     seam that skipped this counter would also have skipped the policy decision.
 
-    NO LABELS, DELIBERATELY, and this is not laziness — it is read off the alert. The shipped
-    `MaezoSLAAgentErrorRateHigh` expr is
-    `rate(maezo_agent_errors_total[5m]) / rate(maezo_tool_calls_total[5m])`
-    (`deploy/observability/alert-rules.yml:38-42`), a binary operation whose default vector
-    matching requires the two operands to carry IDENTICAL label sets. Giving this counter a
-    `tool`/`principal` label that `maezo_agent_errors_total` cannot also carry would produce an
-    empty result — an alert that can never fire, which is the exact defect class
-    ALERTS-WITHOUT-METRICS-a exists to close. Widening both counters to a shared label set is a
-    real option and is recorded in `docs/review-queue.md` as an owner decision, because it is only
-    safe together with an `alert-rules.yml` edit and `deploy/` is owner-gated.
+    Args:
+        agent: `SeamContext.principal` — the agent id (or `worker_runtime` for the worker daemon).
+
+    LABELS (ALERT-COUNTER-LABELS / R-063, 2026-09-04): `labelnames=["agent", "error_type"]`,
+    widened from label-free. `error_type` is ALWAYS `metrics.AGENT_ERROR_TYPE_NONE` here — a tool
+    call is counted regardless of outcome, so "error_type" is not a meaningful concept at this
+    call site; the sentinel exists only so this counter's label SET matches
+    `maezo_agent_errors_total`'s. That still matters for the shipped
+    `MaezoSLAAgentErrorRateHigh` expr, `sum by (agent) (rate(maezo_agent_errors_total[5m])) / sum
+    by (agent) (rate(maezo_tool_calls_total[5m]))` (`deploy/observability/alert-rules.yml`): the
+    `by (agent)` aggregation is what makes the binary operation's vector matching succeed despite
+    `error_type` differing between numerator and denominator, NOT label-set equality — see
+    `docs/review-queue.md`'s now-resolved entry for the label-free-era rationale this replaces.
 
     Best-effort: telemetry must never break an effect call, so the caller guards it.
     """
-    _get_metrics_collector().tool_calls.inc()
+    _get_metrics_collector().tool_calls.labels(agent=agent, error_type=AGENT_ERROR_TYPE_NONE).inc()
 
 
-def record_agent_error() -> None:
+def record_agent_error(*, agent: str, error_type: str) -> None:
     """Count ONE failed agent turn — `maezo_agent_errors_total`.
 
     SEVEN call sites (`grep -rn 'record_agent_error()' src/`), of two shapes:
@@ -504,15 +536,34 @@ def record_agent_error() -> None:
     make `MaezoAgentCrashLoop` (`rate(maezo_agent_errors_total[1m]) > 0`) fire on correct
     refusals. That distinction is a judgement, so it is written down rather than implied.
 
-    Label-free for the same vector-matching reason as :func:`record_tool_call`.
+    LABELS (ALERT-COUNTER-LABELS / R-063): see :func:`record_tool_call` for the shared-label-set
+    rationale this pair now uses.
 
     GUARDED INTERNALLY (unlike :func:`record_tool_call`, whose caller guards it): every re-raise
     call site is an `except` block about to RE-RAISE the real failure, and the CC-01 in-graph site
     is about to return a terminal outcome rather than propagate one — either way a metrics fault
     here must never replace or block the turn's genuine result, the worst possible trade.
+
+    Args:
+        agent: the agent id (`Harness._agent_id`, or a literal per-module id at the delegation/
+            WhatsApp call sites). `metrics.AGENT_ERROR_TYPE_NONE`'s sibling sentinel for "no agent
+            declared" is deliberately NOT reused here — an undeclared AGENT is a different
+            situation from a NO-ERROR tool call, so callers pass `"nao_declarado"` explicitly
+            (`Harness._agent_id` can be `None` for the trivial default graph).
+        error_type: MUST be a `metrics.AGENT_ERROR_TYPES` member. An unknown value is NOT raised
+            on — this function's whole contract is "never break the turn's real exception" — it is
+            mapped to `metrics.AGENT_ERROR_TYPE_OUTRO` and logged, so a caller that ever passes a
+            free-text value gets a bounded label instead of an unbounded one, never a crash.
     """
     try:
-        _get_metrics_collector().errors.inc()
+        resolved_error_type = error_type if error_type in AGENT_ERROR_TYPES else AGENT_ERROR_TYPE_OUTRO
+        if resolved_error_type != error_type:
+            logger.debug(
+                "agent_error_type_not_in_catalogue_falling_back",
+                received=error_type,
+                fallback=resolved_error_type,
+            )
+        _get_metrics_collector().errors.labels(agent=agent, error_type=resolved_error_type).inc()
     except Exception:  # noqa: BLE001 — never mask the turn failure this is counting.
         logger.debug("agent_error_metric_emit_failed", exc_info=True)
 

@@ -23,17 +23,21 @@ def test_metrics_registry_exists() -> None:
 
 
 def test_metrics_counter_increment() -> None:
-    """Counters should correctly increment and expose their value."""
-    from maezo.runtime.metrics import MetricsCollector
+    """Counters should correctly increment and expose their value.
+
+    ALERT-COUNTER-LABELS / R-063: both counters now carry `labelnames=["agent", "error_type"]` —
+    a labelled `Counter.inc()` requires `.labels(...)` first (prometheus_client raises otherwise).
+    """
+    from maezo.runtime.metrics import AGENT_ERROR_TYPE_NONE, AGENT_ERROR_TYPE_VALIDACAO, MetricsCollector
 
     collector = MetricsCollector()
 
-    # Increment tool calls twice
-    collector.tool_calls.inc()
-    collector.tool_calls.inc()
+    # Increment tool calls twice, same agent/error_type (the sentinel — see AGENT_ERROR_TYPE_NONE).
+    collector.tool_calls.labels(agent="helena", error_type=AGENT_ERROR_TYPE_NONE).inc()
+    collector.tool_calls.labels(agent="helena", error_type=AGENT_ERROR_TYPE_NONE).inc()
 
-    # Increment errors once
-    collector.errors.inc()
+    # Increment errors once, with a real catalogued error_type.
+    collector.errors.labels(agent="helena", error_type=AGENT_ERROR_TYPE_VALIDACAO).inc()
 
     # Verify counter values via the registry
     samples = []
@@ -46,6 +50,21 @@ def test_metrics_counter_increment() -> None:
 
     assert tool_calls_total == 2.0
     assert errors_total == 1.0
+
+
+def test_metrics_counter_requires_labels_now() -> None:
+    """RED-on-revert proof: an unlabelled `.inc()` must fail once `labelnames` is set (R-063).
+
+    If a future edit dropped `labelnames=["agent", "error_type"]` from either counter, this test
+    would flip from raising to passing — i.e. it goes RED the moment the labels are reverted.
+    """
+    from maezo.runtime.metrics import MetricsCollector
+
+    collector = MetricsCollector()
+    with pytest.raises(ValueError, match="missing label values"):
+        collector.tool_calls.inc()
+    with pytest.raises(ValueError, match="missing label values"):
+        collector.errors.inc()
 
 
 def test_metrics_latency_histogram() -> None:

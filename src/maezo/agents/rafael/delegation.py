@@ -45,6 +45,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from maezo.a2a import DelegationEnvelope, HandlerOutput
+from maezo.runtime.metrics import classify_agent_error_type
 from maezo.runtime.start_outcome import StartProcessFailedError
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.dmn_transport import DmnTransport
@@ -153,7 +154,7 @@ def make_rafael_handler(
         state = state_from_envelope(envelope)
         try:
             result: dict[str, Any] = await compiled.ainvoke(state)
-        except Exception:
+        except Exception as exc:
             # ALERTS-WITHOUT-METRICS-a: a delegated turn that raised IS a failed agent turn, and
             # `maezo_agent_errors_total` is what `MaezoAgentCrashLoop` reads. Placed at the
             # `ainvoke` seam — the structural entry to a graph run — and NOT anywhere in rafael's
@@ -164,7 +165,7 @@ def make_rafael_handler(
             # test_every_graph_invocation_in_src_counts_agent_errors`.
             from maezo.platform.observability import record_agent_error  # noqa: PLC0415
 
-            record_agent_error()
+            record_agent_error(agent="rafael", error_type=classify_agent_error_type(exc))
             raise
         business_key = result.get("business_key") or _business_key(state)
         if result.get("start_failed") is True:

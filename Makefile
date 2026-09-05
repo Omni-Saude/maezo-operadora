@@ -1,8 +1,10 @@
 .PHONY: setup lint type test test-integration evals validate-artifacts validate-signoff \
         check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence \
         verify-amh-contract-pin \
+        check-alert-runbook-urls \
         xfail-census-check xfail-census-write \
         deviation-expiry-check \
+        check-lifecycle-expected-fail-expiry \
         check-ledger-hashes \
         release-floor-check release-floor-write \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint \
@@ -56,6 +58,13 @@ check-bpmn-error-allowlist: ## ADR-0030 §2: prova que todo WorkerBpmnError rais
 	# FALHA em raise nao-coberto/nao-catalogado; clausula (c) dead-model e warn-only no Tier-0..2
 	# (F5) — `--strict-dead-models` endurece para FALHA no fecho do Tier-3.
 	uv run python scripts/ci/check_bpmn_error_allowlist.py
+
+check-alert-runbook-urls: ## D12-01-b / R-007: toda regra alert: de alert-rules.yml carrega annotations.runbook_url resolvivel no repo
+	# Falha se uma regra `alert:` nao tem `runbook_url`, se o caminho apontado nao existe no
+	# repositorio, ou se a ancora `#anchor` (quando presente) nao bate com nenhum titulo real do
+	# arquivo-alvo. Regras `record:` (ex.: maezo_dead_letter_derived, ALERTS-WITHOUT-METRICS-b)
+	# nao paginam ninguem e sao ignoradas por design.
+	uv run python scripts/ci/check_alert_runbook_urls.py
 
 check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_instance fora do allowlist da fence (ADR-0007/T-C2)
 	# AST-scan repo-wide de src/maezo: `start_process_idempotent` (mcp_cibseven/transport.py:1052)
@@ -116,6 +125,21 @@ deviation-expiry-check: ## PLANS §0.8 (2a leva Q-2/Q-10): desvio de sombra rati
 	# NOVO E DATADO em PR de dados sob CODEOWNERS (disciplina Q-1) — e esse PR e verde por construcao,
 	# porque o gate le as datas da arvore em teste. `--today YYYY-MM-DD` simula qualquer data.
 	uv run python scripts/ci/check_deviation_expiry.py
+
+check-lifecycle-expected-fail-expiry: ## R-040/SC-07: marcador expected-fail-until dos CronJobs de ciclo de vida nao pode vencer em silencio
+	# O dono ratificou (2026-09-04) a anotacao `maezo.io/expected-fail-until` nos 3 CronJobs de
+	# ciclo de vida (todos falham POR DESENHO — nenhum comando implementado) mais uma exclusao em
+	# MaezoLifecycleJobFailed, com a MESMA disciplina de check_deviation_expiry.py: a data vive em
+	# deploy/helm/maezo-tenant/values.yaml (lifecycle.expectedFailUntil, default 2026-11-11) e este
+	# gate reprova a build a partir do dia seguinte ao prazo, alem de reprovar se a expressao do
+	# alerta parar de referenciar a serie derivada da anotacao. `--today YYYY-MM-DD` simula qualquer
+	# data. Terceiro check (D4, VERIFY-A1-OBS §Delta): RENDERIZA o chart com `helm template` em
+	# TODOS os overlays `values-*.yaml` e reprova se algum CronJob de ciclo de vida renderizado
+	# ficar sem a anotacao, ou com valor diferente da data rastreada — apagar o bloco da anotacao
+	# no template deixava values.yaml, o `unless` do alerta e `helm lint --strict` todos verdes.
+	# EXIGE `helm` no PATH (>=3.15, o mesmo binario de `make helm-lint`): a ausencia e' FALHA
+	# explicita, nunca skip.
+	uv run python scripts/ci/check_lifecycle_expected_fail_expiry.py
 
 check-ledger-hashes: ## LEDGER-HASH-RECOMPUTE-CHECK: recomputa o Test-hash das linhas NOVAS de docs/evidence-ledger.md que declaram caminho
 	# Uma linha nova opta em ser verificavel por maquina declarando, dentro da propria celula de

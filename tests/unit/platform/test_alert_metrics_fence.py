@@ -44,7 +44,11 @@ defect class ALERTS-WITHOUT-METRICS-a exists to close, re-created inside its own
 from __future__ import annotations
 
 import ast
+import json
 import re
+import subprocess
+import sys
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Final
 
@@ -64,13 +68,55 @@ _ALERT_RULES: Final[Path] = _REPO_ROOT / "deploy" / "observability" / "alert-rul
 #:   available" (`alert-rules.yml:118-120`). It is an EXPORTER series, not application telemetry.
 #: * `kube_job_status_failed` — kube-state-metrics, for the lifecycle CronJobs
 #:   (`alert-rules.yml:166-170`). Emitting it from `src/` would be fabricating a Kubernetes fact.
+#: * `kube_job_annotations` — also kube-state-metrics (R-040/SC-07): the info-metric that exports
+#:   the `maezo.io/expected-fail-until` Job annotation as the label
+#:   `annotation_maezo_io_expected_fail_until`, which `MaezoLifecycleJobFailed`'s `unless` clause
+#:   joins on to exclude by-design-failing lifecycle jobs while their marker is in date. Same
+#:   external-to-`src/` reasoning as `kube_job_status_failed` — it is the cluster's own annotation
+#:   echoed back, not application telemetry.
+#: * `maezo_dead_letter_inflow_rate` — also Kafka Exporter derived (`maezo_dead_letter_derived`
+#:   group, alongside `maezo_dead_letter_queue_size`): a correctly rate-then-summed reading of the
+#:   same exporter series, read only by `MaezoDeadLetterGrowth`. Same exporter source, same
+#:   external-to-`src/` reasoning, different aggregation order (see that recording rule's own
+#:   comment for why the order matters).
+#: * `kafka_topic_partition_current_offset` — finding 5 (VERIFY-A1-OBS): the danielqsj/
+#:   kafka_exporter series BOTH `record:` rules in `maezo_dead_letter_derived` read as their
+#:   SOURCE. Before this entry, nothing checked a recording rule's own source series at all (see
+#:   `_all_recording_rule_source_series` / `test_every_recording_rule_source_metric_is_declared_
+#:   in_repo_or_named_external`) — this is that trace's only external leaf today. Traced to the
+#:   real `job_name: "kafka-exporter"` in `deploy/observability/prometheus.yml` by
+#:   `EXTERNAL_METRIC_SCRAPE_JOB` below, not merely asserted in prose.
 #:
-#: Both belong to owner slice ALERTS-WITHOUT-METRICS-b (scrape targets are a `deploy/` change, and
-#: `deploy/` is owner-gated for this work package).
+#: All five belong to owner slice ALERTS-WITHOUT-METRICS-b / R-040 (scrape targets and cluster
+#: annotations are a `deploy/` change, and `deploy/` is owner-gated for this work package).
 EXTERNAL_ALERT_METRICS: Final[dict[str, str]] = {
     "maezo_dead_letter_queue_size": "ALERTS-WITHOUT-METRICS-b — Kafka/DLQ exporter series",
     "kube_job_status_failed": "ALERTS-WITHOUT-METRICS-b — kube-state-metrics series",
+    "kube_job_annotations": "R-040/SC-07 — kube-state-metrics annotation-derived series",
+    "maezo_dead_letter_inflow_rate": "ALERTS-WITHOUT-METRICS-b — Kafka/DLQ exporter series (rate-then-sum)",
+    "kafka_topic_partition_current_offset": "ALERTS-WITHOUT-METRICS-b — danielqsj/kafka_exporter (finding 5)",
 }
+
+#: Every `EXTERNAL_ALERT_METRICS` entry that is ITSELF scraped directly (as opposed to a
+#: `record:`-rule OUTPUT, which traces to a recording rule instead — see the two DLQ non-vacuity
+#: tests) -> the real `job_name:` in `deploy/observability/prometheus.yml` that produces it.
+#: "Produced by a scrape job" (finding 5's own phrasing) is a checked fact via
+#: `test_every_scrape_sourced_external_metric_traces_to_a_real_prometheus_job`, not a comment.
+EXTERNAL_METRIC_SCRAPE_JOB: Final[dict[str, str]] = {
+    "kube_job_status_failed": "kube-state-metrics",
+    "kube_job_annotations": "kube-state-metrics",
+    "kafka_topic_partition_current_offset": "kafka-exporter",
+}
+
+_PROMETHEUS_CONFIG: Final[Path] = _REPO_ROOT / "deploy" / "observability" / "prometheus.yml"
+
+
+def _scrape_job_names() -> set[str]:
+    """Every `job_name:` in the shipped `prometheus.yml` — the ground truth
+    `EXTERNAL_METRIC_SCRAPE_JOB` is traced against."""
+    document: Any = yaml.safe_load(_PROMETHEUS_CONFIG.read_text(encoding="utf-8"))
+    return {job["job_name"] for job in document.get("scrape_configs", [])}
+
 
 #: Every in-repo alert metric -> the `maezo.platform.observability` helper that writes it. The
 #: fence requires this table to cover the alert file EXACTLY, so a new alert on an unemitted metric
@@ -112,29 +158,72 @@ _SERIES_SUFFIXES: Final[tuple[str, ...]] = ("_bucket", "_count", "_sum")
 
 
 def _alert_exprs() -> list[tuple[str, str]]:
-    """Every `(alert_name, expr)` in the shipped rules file."""
+    """Every `(alert_name, expr)` in the shipped rules file.
+
+    ALERTS-WITHOUT-METRICS-b / R-056 added `record:` rules (`maezo_dead_letter_derived` group:
+    `maezo_dead_letter_queue_size` and, per finding 3 of VERIFY-A1-OBS,
+    `maezo_dead_letter_inflow_rate` — both deriving from the Kafka Exporter) alongside the
+    `alert:` rules. A Prometheus recording rule has no `alert` key, so it is skipped here — this
+    function is specifically about ALERTS, and the recording rules get their own non-vacuity
+    proofs below (`test_the_dlq_recording_rule_derives_from_the_kafka_exporter`,
+    `test_the_dlq_inflow_rate_recording_rule_takes_rate_before_sum`).
+    """
     document: Any = yaml.safe_load(_ALERT_RULES.read_text(encoding="utf-8"))
     exprs: list[tuple[str, str]] = []
     for group in document["groups"]:
         for rule in group["rules"]:
+            if "alert" not in rule:
+                continue
             exprs.append((rule["alert"], rule["expr"]))
     return exprs
+
+
+def _recording_rules() -> list[tuple[str, str]]:
+    """Every `(record_name, expr)` in the shipped rules file — the mirror of `_alert_exprs()`."""
+    document: Any = yaml.safe_load(_ALERT_RULES.read_text(encoding="utf-8"))
+    records: list[tuple[str, str]] = []
+    for group in document["groups"]:
+        for rule in group["rules"]:
+            if "record" not in rule:
+                continue
+            records.append((rule["record"], rule["expr"]))
+    return records
+
+
+#: PromQL vector-matching / set-operator keywords that read as bare identifiers not followed by
+#: `(` (the same shape as a metric name) but are never one: `unless`/`and`/`or` are binary set
+#: operators (R-040/SC-07's `... unless on (job_name) (...)` is the first shipped user of
+#: `unless`), and `bool` is the comparison-operator modifier (`> bool 0`). `on`/`ignoring` ARE
+#: followed by `(` and so are already excluded by the not-a-call test below, but are named here too
+#: for readers matching this set against the PromQL grammar.
+_PROMQL_KEYWORDS: Final[frozenset[str]] = frozenset({"and", "or", "unless", "bool"})
 
 
 def _metric_names(expr: str) -> set[str]:
     """The metric names an `expr` reads.
 
-    Strips, in order: quoted strings, `{...}` label matchers, `[...]` range selectors. What remains
-    is identifiers and operators, and a metric is an identifier NOT followed by `(` — which is what
-    separates `maezo_worker_execution_time_seconds_bucket` from `rate` and `histogram_quantile`.
+    Strips, in order: quoted strings, `{...}` label matchers, `[...]` range selectors, and
+    grouping/vector-matching clauses (`by (...)`/`without (...)`/`on (...)`/`ignoring (...)`/
+    `group_left(...)`/`group_right(...)`) — a PromQL label list in any of these (e.g.
+    `sum by (agent) (...)`, `unless on (job_name) (...)`) is neither a metric nor a function call,
+    and left unstripped both the clause keyword (`sum`, `on` — not followed directly by `(`... but
+    the label INSIDE the parens (`agent`, `job_name` — followed by `)` not `(`) would be
+    misidentified as a metric name by the heuristic below. What remains after those strips is
+    identifiers and operators; `_PROMQL_KEYWORDS` removes the binary set-operators/modifiers that
+    still read as bare identifiers (`unless`, `and`, `or`, `bool`) after the strip. A metric is
+    what is left: an identifier NOT followed by `(` and not a known keyword — which is what
+    separates `maezo_worker_execution_time_seconds_bucket` from `rate`/`histogram_quantile`
+    (function calls) and from `unless`/`on` (operators).
     """
     cleaned = re.sub(r'"[^"]*"', " ", expr)
     cleaned = re.sub(r"\{[^}]*\}", " ", cleaned)
     cleaned = re.sub(r"\[[^\]]*\]", " ", cleaned)
+    cleaned = re.sub(r"\b(?:by|without|on|ignoring)\s*\([^)]*\)", " ", cleaned)
+    cleaned = re.sub(r"\bgroup_(?:left|right)\s*\([^)]*\)", " ", cleaned)
     return {
         match.group(1)
         for match in re.finditer(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(\(?)", cleaned)
-        if not match.group(2)
+        if not match.group(2) and match.group(1) not in _PROMQL_KEYWORDS
     }
 
 
@@ -174,6 +263,36 @@ def _declared_metric_name(series: str, declared: dict[str, str]) -> str:
 
 def _all_alert_series() -> set[str]:
     return {name for _alert, expr in _alert_exprs() for name in _metric_names(expr)}
+
+
+def _all_recording_rule_source_series() -> set[str]:
+    """Every metric name a `record:` rule's OWN expression reads — its SOURCE, not its output.
+
+    Mirrors `_all_alert_series()` but over `_recording_rules()`. Closes finding 5
+    (VERIFY-A1-OBS): before this, a recording rule's source metric was invisible to the
+    declared-or-external fence entirely, because that fence only ever walked `_alert_exprs()` — a
+    FUTURE recording rule reading a metric nothing emits would ship green, its only coverage
+    whatever ad-hoc substring assertion that rule's own hand-written non-vacuity test happened to
+    include (as `test_the_dlq_recording_rule_derives_from_the_kafka_exporter` does today, by
+    construction rather than by a closing fence).
+    """
+    return {name for _record, expr in _recording_rules() for name in _metric_names(expr)}
+
+
+def _unaccounted_metrics(series_names: Iterable[str], declared: dict[str, str]) -> list[str]:
+    """The pure decision the alert-series fence and its recording-rule-source twin both make:
+    which of `series_names` is neither declared+emitted in `src/` nor disclosed EXTERNAL.
+
+    Extracted to one place so a synthetic case can drive the EXACT function the two real checks
+    call — `test_the_unaccounted_metric_detector_can_actually_go_red` below — rather than a
+    reimplementation of the logic that could silently drift from what actually gates the build.
+    """
+    return [
+        series
+        for series in sorted(series_names)
+        if series not in EXTERNAL_ALERT_METRICS
+        and _declared_metric_name(series, declared) not in ALERT_METRIC_EMITTERS
+    ]
 
 
 def _emitter_call_sites() -> dict[str, list[str]]:
@@ -319,22 +438,122 @@ def test_the_alert_file_is_parsed_non_vacuously() -> None:
     assert "maezo_tool_calls_total" in series, sorted(series)
 
 
+def test_the_dlq_recording_rule_derives_from_the_kafka_exporter() -> None:
+    """ALERTS-WITHOUT-METRICS-b / R-056: `maezo_dead_letter_queue_size` is now DERIVED, not absent.
+
+    `MaezoDeadLetterBacklog` reads `maezo_dead_letter_queue_size` — still correctly EXTERNAL from
+    `src/`'s point of view (see `EXTERNAL_ALERT_METRICS`), since the ultimate source is the Kafka
+    Exporter, not application code. What changed is that the series is no longer undefined: a
+    `record:` rule in the shipped file derives it from `kafka_topic_partition_current_offset`
+    (danielqsj/kafka_exporter, prometheus.yml job `kafka-exporter`). This is the non-vacuity proof
+    that the recording rule exists, targets the right name, and reads the exporter's real metric —
+    not merely that `_alert_exprs()` tolerates a `record:` entry without crashing.
+
+    `MaezoDeadLetterGrowth` does NOT read this series (finding 3, VERIFY-A1-OBS) — see
+    `test_the_dlq_inflow_rate_recording_rule_takes_rate_before_sum` below for its own series.
+    """
+    records = _recording_rules()
+    names = {name for name, _expr in records}
+    assert "maezo_dead_letter_queue_size" in names, sorted(names)
+    (expr,) = [expr for name, expr in records if name == "maezo_dead_letter_queue_size"]
+    assert "kafka_topic_partition_current_offset" in expr, expr
+    assert "environment" in expr, expr
+
+
+def test_the_dlq_inflow_rate_recording_rule_takes_rate_before_sum() -> None:
+    """Finding 3 (VERIFY-A1-OBS): rate-then-sum, not sum-then-rate.
+
+    A naive derivation sums the raw per-partition offset FIRST and takes `rate()` of the sum
+    afterward (`rate(sum by (...) (...))`, or equivalently `rate()` applied in the alert against
+    an already-summed recording rule, which is what the branch originally shipped) — the ordering
+    Prometheus's own instrumentation guidance forbids: a single partition's counter resetting
+    (exporter restart, partition reassignment, topic recreate) makes the SUMMED series drop, and
+    `rate()` applied afterward misreads that drop as a reset of the whole series and extrapolates
+    a spurious spike. This proves the shipped rule takes `rate()` PER PARTITION — directly
+    wrapping the raw metric, the innermost operation — and only THEN sums:
+    `sum by (...) (rate(...))`.
+    """
+    records = _recording_rules()
+    names = {name for name, _expr in records}
+    assert "maezo_dead_letter_inflow_rate" in names, sorted(names)
+    (expr,) = [expr for name, expr in records if name == "maezo_dead_letter_inflow_rate"]
+    assert "kafka_topic_partition_current_offset" in expr, expr
+    assert "environment" in expr, expr
+    # Structural: `rate(` must wrap the raw metric directly (rate-then-sum) — a regex anchored on
+    # the exact nesting, not merely "both tokens appear somewhere in the expression".
+    assert re.search(
+        r"sum\s+by\s*\([^)]*\)\s*\(\s*rate\(\s*kafka_topic_partition_current_offset",
+        expr,
+    ), expr
+
+    # And `MaezoDeadLetterGrowth` must read THIS pre-rated series directly, never apply its own
+    # `rate()` to `maezo_dead_letter_queue_size` (the sum-then-rate shape this fixes).
+    (growth_expr,) = [expr for name, expr in _alert_exprs() if name == "MaezoDeadLetterGrowth"]
+    assert "maezo_dead_letter_inflow_rate" in growth_expr, growth_expr
+    assert "rate(" not in growth_expr, growth_expr
+
+
 def test_every_alert_metric_is_declared_in_repo_or_named_external() -> None:
     """No alert may read a metric this repo neither emits nor explicitly disclaims (the fence)."""
     declared = _declared_series_names()
-    unaccounted: list[str] = []
-    for series in sorted(_all_alert_series()):
-        if series in EXTERNAL_ALERT_METRICS:
-            continue
-        if _declared_metric_name(series, declared) in ALERT_METRIC_EMITTERS:
-            continue
-        unaccounted.append(series)
+    unaccounted = _unaccounted_metrics(_all_alert_series(), declared)
     assert not unaccounted, (
         f"alert rule(s) read metric(s) {unaccounted} that are neither declared+emitted in `src/` "
         "nor listed in EXTERNAL_ALERT_METRICS with an owning register id. An alert on a metric "
         "nothing writes cannot fire — that is gap ALERTS-WITHOUT-METRICS-a. Either emit it, or "
         "declare it external here with the slice that owns it."
     )
+
+
+def test_every_recording_rule_source_metric_is_declared_in_repo_or_named_external() -> None:
+    """Finding 5 (VERIFY-A1-OBS): the SAME accounting, one hop upstream.
+
+    `_alert_exprs()`-only coverage let a `record:` rule's own SOURCE metric bypass the fence
+    entirely — the rule's OUTPUT (e.g. `maezo_dead_letter_queue_size`) is checked by the test
+    above because alerts read it, but nothing checked what the recording rule itself READS
+    (`kafka_topic_partition_current_offset`) until this test. A future recording rule deriving
+    from a metric nothing produces would otherwise ship green.
+    """
+    declared = _declared_series_names()
+    unaccounted = _unaccounted_metrics(_all_recording_rule_source_series(), declared)
+    assert not unaccounted, (
+        f"recording rule(s) read SOURCE metric(s) {unaccounted} that are neither declared+emitted "
+        "in `src/` nor listed in EXTERNAL_ALERT_METRICS with an owning register id. A recording "
+        "rule deriving from an unaccounted metric would ship green while reading from nothing "
+        "real — the same defect ALERTS-WITHOUT-METRICS-a exists to close, traced one hop upstream "
+        "of the alert that ultimately reads the derived series."
+    )
+
+
+def test_the_unaccounted_metric_detector_can_actually_go_red() -> None:
+    """Finding 5 (VERIFY-A1-OBS): non-vacuity proof for the shared detector both checks above use.
+
+    Before finding 5's fix, nothing walked a recording rule's own source series at all — a
+    detector that has never been shown capable of flagging anything is not evidence it works, only
+    evidence it has never been tried against a bad input. Drives `_unaccounted_metrics` — the
+    EXACT function both real checks call, not a reimplementation of its logic — against a
+    synthetic set holding one legitimately-external metric and one nobody accounts for.
+    """
+    declared = _declared_series_names()
+    unaccounted = _unaccounted_metrics(
+        {"kafka_topic_partition_current_offset", "totally_made_up_metric_nobody_emits"}, declared
+    )
+    assert unaccounted == ["totally_made_up_metric_nobody_emits"]
+
+
+def test_every_scrape_sourced_external_metric_traces_to_a_real_prometheus_job() -> None:
+    """Finding 5 (VERIFY-A1-OBS): "produced by a scrape job" is a checked fact, not a comment.
+
+    Every `EXTERNAL_METRIC_SCRAPE_JOB` entry must (a) also be a disclosed `EXTERNAL_ALERT_METRICS`
+    entry, and (b) name a `job_name:` that genuinely exists in the shipped `prometheus.yml` — a
+    scrape job renamed or removed there without updating this mapping would otherwise leave a
+    dangling claim nothing catches.
+    """
+    job_names = _scrape_job_names()
+    assert job_names, "no scrape_configs found in prometheus.yml — parser or file regressed"
+    for metric, job in EXTERNAL_METRIC_SCRAPE_JOB.items():
+        assert metric in EXTERNAL_ALERT_METRICS, metric
+        assert job in job_names, (metric, job, sorted(job_names))
 
 
 def test_the_emitter_table_covers_the_alert_file_exactly() -> None:
@@ -351,14 +570,17 @@ def test_the_emitter_table_covers_the_alert_file_exactly() -> None:
     )
 
 
-def test_external_metric_allowlist_is_exactly_the_two_owner_slice_series() -> None:
-    """The escape hatch is TWO named series, and widening it is a reviewed edit to this list."""
+def test_external_metric_allowlist_is_exactly_the_five_owner_slice_series() -> None:
+    """The escape hatch is FIVE named series, and widening it is a reviewed edit to this list."""
     assert set(EXTERNAL_ALERT_METRICS) == {
         "maezo_dead_letter_queue_size",
         "kube_job_status_failed",
+        "kube_job_annotations",
+        "maezo_dead_letter_inflow_rate",
+        "kafka_topic_partition_current_offset",
     }
     for series, reason in EXTERNAL_ALERT_METRICS.items():
-        assert "ALERTS-WITHOUT-METRICS-b" in reason, (series, reason)
+        assert "ALERTS-WITHOUT-METRICS-b" in reason or "R-040/SC-07" in reason, (series, reason)
         # And they must genuinely be absent from our own registry — an "external" metric that we
         # actually emit would be a mislabel that hides a real in-repo gap.
         assert series not in _declared_series_names(), series
@@ -485,10 +707,13 @@ def test_the_gated_seam_chokepoint_counts_every_tool_call() -> None:
 # =================================================================================================
 
 
-def _sample(name: str) -> float:
+def _sample(name: str, **labels: str) -> float:
+    """One labelled series' value (ALERT-COUNTER-LABELS / R-063: both counters are labelled now,
+    so `get_sample_value` needs the exact label dict a Prometheus scrape would carry — the metric
+    NAME alone no longer identifies a series)."""
     from maezo.platform.observability import get_metrics_collector
 
-    value = get_metrics_collector().registry.get_sample_value(name)
+    value = get_metrics_collector().registry.get_sample_value(name, labels or None)
     return float(value or 0.0)
 
 
@@ -496,11 +721,13 @@ def _sample(name: str) -> float:
 async def test_gate_counts_a_tool_call() -> None:
     """One `gate()` call == one `maezo_tool_calls_total` increment (cited from `seams/_base.py`)."""
     from maezo.gateway.seams._base import SeamContext, gate
+    from maezo.runtime.metrics import AGENT_ERROR_TYPE_NONE
 
     seam = SeamContext(tenant="amh", principal="helena")
-    before = _sample("maezo_tool_calls_total")
+    labels = {"agent": "helena", "error_type": AGENT_ERROR_TYPE_NONE}
+    before = _sample("maezo_tool_calls_total", **labels)
     await gate(seam, "inference.generate")
-    after = _sample("maezo_tool_calls_total")
+    after = _sample("maezo_tool_calls_total", **labels)
 
     assert after == before + 1.0, (before, after)
 
@@ -513,11 +740,13 @@ async def test_a_denied_gate_still_counts_the_attempted_tool_call() -> None:
     counter must already have moved by then — it is incremented before the ladder runs.
     """
     from maezo.gateway.seams._base import SeamContext, gate
+    from maezo.runtime.metrics import AGENT_ERROR_TYPE_NONE
 
     seam = SeamContext(tenant="amh", principal="helena")
-    before = _sample("maezo_tool_calls_total")
+    labels = {"agent": "helena", "error_type": AGENT_ERROR_TYPE_NONE}
+    before = _sample("maezo_tool_calls_total", **labels)
     decision = await gate(seam, "operacao.que.nao.existe")
-    after = _sample("maezo_tool_calls_total")
+    after = _sample("maezo_tool_calls_total", **labels)
 
     assert decision.allow is False
     assert after == before + 1.0, (before, after)
@@ -549,10 +778,64 @@ async def test_a_failed_agent_turn_counts_an_agent_error() -> None:
     harness._compiled = None  # noqa: SLF001
     assert graph is not None
 
-    before = _sample("maezo_agent_errors_total")
+    # `create_graph()` called with no `agent_id` above leaves `Harness._agent_id` None (the
+    # "trivial default graph" case `record_agent_error`'s docstring names) -> "nao_declarado".
+    # `_BoomError` is not in `_AGENT_ERROR_TYPE_BY_EXCEPTION_CLASS` (exact-class-name lookup, no
+    # subclass walk — by design) -> falls back to `AGENT_ERROR_TYPE_OUTRO`.
+    from maezo.runtime.metrics import AGENT_ERROR_TYPE_OUTRO
+
+    labels = {"agent": "nao_declarado", "error_type": AGENT_ERROR_TYPE_OUTRO}
+    before = _sample("maezo_agent_errors_total", **labels)
     with pytest.raises(_BoomError):
         await harness.invoke({"messages": []})
-    after = _sample("maezo_agent_errors_total")
+    after = _sample("maezo_agent_errors_total", **labels)
+
+    assert after == before + 1.0, (before, after)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_agent_turn_classifies_a_catalogued_exception_by_its_declared_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `ValueError` (a cataloged class, unlike `_BoomError` above) gets its real bounded label.
+
+    The harness is driven through its REAL public entry point, `create_graph(agent_id=...)` — the
+    same call that stamps `Harness._agent_id`, which is the label under test. Only the registry
+    RESOLVER is substituted (`_resolve_agent_build`, the module-level seam `create_graph` calls),
+    so the fail-closed loader contract is exercised end to end and the test needs neither a new
+    production API nor the inference/dmn/cibseven/whatsapp/audit_sink dependency set a real
+    `spec/agents/helena` build would demand. Only the LABEL matters here, not a real Helena run.
+    """
+    from maezo.runtime.harness import Harness
+    from maezo.runtime.metrics import AGENT_ERROR_TYPE_VALIDACAO
+
+    async def _explode(_state: dict[str, Any]) -> dict[str, Any]:
+        raise ValueError("bad state")
+
+    from langgraph.graph import StateGraph
+
+    def _fake_build(config: dict[str, Any]) -> StateGraph[Any]:
+        """Stands in for `maezo.agents.helena.graph:build` — same shape: `build(config)`."""
+        assert "inference" in config and "agent_version" in config, config
+        exploding: StateGraph[Any] = StateGraph(dict)
+        exploding.add_node("agent", _explode)
+        exploding.add_edge("__start__", "agent")
+        exploding.add_edge("agent", "__end__")
+        return exploding
+
+    monkeypatch.setattr(
+        "maezo.runtime.harness._resolve_agent_build",
+        lambda agent_id: _fake_build,
+    )
+
+    harness = Harness()
+    harness.create_graph(agent_id="helena")
+
+    labels = {"agent": "helena", "error_type": AGENT_ERROR_TYPE_VALIDACAO}
+    before = _sample("maezo_agent_errors_total", **labels)
+    with pytest.raises(ValueError, match="bad state"):
+        await harness.invoke({"messages": []})
+    after = _sample("maezo_agent_errors_total", **labels)
 
     assert after == before + 1.0, (before, after)
 
@@ -561,13 +844,15 @@ async def test_a_failed_agent_turn_counts_an_agent_error() -> None:
 async def test_a_completed_agent_turn_counts_no_error() -> None:
     """The counter must not move on the happy path — otherwise `MaezoAgentCrashLoop` fires always."""
     from maezo.runtime.harness import Harness
+    from maezo.runtime.metrics import AGENT_ERROR_TYPE_OUTRO
 
     harness = Harness()
     harness.create_graph()
 
-    before = _sample("maezo_agent_errors_total")
+    labels = {"agent": "nao_declarado", "error_type": AGENT_ERROR_TYPE_OUTRO}
+    before = _sample("maezo_agent_errors_total", **labels)
     await harness.invoke({"messages": ["oi"]})
-    after = _sample("maezo_agent_errors_total")
+    after = _sample("maezo_agent_errors_total", **labels)
 
     assert after == before, (before, after)
 
@@ -607,28 +892,212 @@ async def test_a_drained_turn_is_not_an_agent_error() -> None:
     harness._graph = graph  # noqa: SLF001 — driving the seam directly is the point of the test
     harness._compiled = None  # noqa: SLF001
 
-    before = _sample("maezo_agent_errors_total")
+    from maezo.runtime.metrics import AGENT_ERROR_TYPE_OUTRO
+
+    labels = {"agent": "nao_declarado", "error_type": AGENT_ERROR_TYPE_OUTRO}
+    before = _sample("maezo_agent_errors_total", **labels)
     turn = asyncio.create_task(harness.invoke({"messages": []}))
     await entered.wait()
     turn.cancel()
     with pytest.raises(asyncio.CancelledError):
         await turn
-    after = _sample("maezo_agent_errors_total")
+    after = _sample("maezo_agent_errors_total", **labels)
 
     assert after == before, (before, after)
 
 
-def test_the_two_agent_counters_are_label_free_so_the_ratio_alert_can_match() -> None:
-    """`MaezoSLAAgentErrorRateHigh` DIVIDES the two counters, so their label sets must be equal.
+def test_the_two_agent_counters_share_a_label_set_so_the_ratio_alert_can_aggregate_by_agent() -> None:
+    """`MaezoSLAAgentErrorRateHigh` DIVIDES the two counters — ALERT-COUNTER-LABELS / R-063.
 
-    PromQL's default vector matching requires identical label sets on both sides of a binary
-    operation. Giving `maezo_tool_calls_total` a `tool` label that `maezo_agent_errors_total`
-    cannot carry would make the division return an empty vector — an alert that never fires, i.e.
-    the same defect ALERTS-WITHOUT-METRICS-a exists to close, re-created in a subtler form. This
-    pins the shape until `alert-rules.yml` (owner-gated, `deploy/`) is edited to match.
+    This REPLACES the pre-R-063 label-free pin (`test_the_two_agent_counters_are_label_free_...`,
+    docs/review-queue.md's now-resolved entry): the owner ratified widening both counters to
+    `labelnames=["agent", "error_type"]` so the on-call knows WHICH agent failed, and
+    `alert-rules.yml`'s `MaezoSLAAgentErrorRateHigh`/`MaezoAgentCrashLoop` were edited in the SAME
+    PR to `sum by (agent) (...)` on both sides of the division/rate. That `by (agent)` aggregation
+    — not label-SET equality — is what keeps PromQL's default vector matching valid despite
+    `error_type` differing between the two counters in practice (`tool_calls` always carries the
+    `AGENT_ERROR_TYPE_NONE` sentinel; `errors` carries a real classified value). This test pins the
+    NEW shape: same label NAMES on both counters (so a future edit that drops one without
+    updating the other is caught here), and that the shipped alert exprs actually use `by (agent)`.
     """
-    from maezo.runtime.metrics import MetricsCollector
+    from maezo.runtime.metrics import AGENT_ERROR_TYPES, MetricsCollector
 
     collector = MetricsCollector()
-    assert collector.tool_calls._labelnames == ()  # noqa: SLF001 — the property under test
-    assert collector.errors._labelnames == ()  # noqa: SLF001
+    labelnames = collector.agent_counter_labelnames()
+    assert labelnames["tool_calls"] == ("agent", "error_type")
+    assert labelnames["errors"] == ("agent", "error_type")
+
+    # AGENT_ERROR_TYPES is non-empty and bounded — the whole point of a "declared catalogue".
+    assert AGENT_ERROR_TYPES, "the error_type catalogue must not be empty"
+    assert all(isinstance(v, str) and v for v in AGENT_ERROR_TYPES)
+
+    exprs = dict(_alert_exprs())
+    for alert_name in ("MaezoSLAAgentErrorRateHigh", "MaezoAgentCrashLoop"):
+        assert "by (agent)" in exprs[alert_name], (
+            f"{alert_name}'s expr no longer aggregates `by (agent)` — with labelled counters this "
+            "would either fail PromQL's default vector matching (division) or collapse every "
+            "agent into one series again (rate)."
+        )
+
+
+# =================================================================================================
+# D2 (VERIFY-A1-OBS §Delta) — a invariante "sem acoplamento em tempo de import ao runtime de agentes"
+# =================================================================================================
+
+#: Modulos `maezo.*` que `import maezo.platform.observability` pode carregar. `maezo.platform`
+#: (o `__init__` do pacote) arrasta `erasure`/`retention`, que nao importam nada de `maezo`;
+#: `error_types` e o modulo FOLHA que carrega o vocabulario `AGENT_ERROR_TYPE_*`. Qualquer nome
+#: fora deste conjunto — em particular QUALQUER `maezo.runtime.*` — significa que a invariante
+#: documentada no docstring de `observability.py` foi perdida.
+_OBSERVABILITY_IMPORT_TIME_ALLOWED: Final[frozenset[str]] = frozenset(
+    {
+        "maezo",
+        "maezo.platform",
+        "maezo.platform.erasure",
+        "maezo.platform.error_types",
+        "maezo.platform.observability",
+        "maezo.platform.retention",
+    }
+)
+
+
+def _import_time_footprint(module: str) -> dict[str, Any]:
+    """Import `module` in a FRESH interpreter and report what it dragged into `sys.modules`.
+
+    Subprocess and not `importlib.reload`, because the whole question is what a COLD import costs:
+    inside this test process `langgraph` and half of `maezo.runtime` are already loaded by the
+    other tests in this file, so any in-process measurement is vacuous by construction.
+
+    The probe's CONTRACT is validated here, not trusted (§Delta-2 Δ2-2): a probe that exits
+    non-zero, prints nothing, prints non-JSON, or returns the wrong shape must raise — because a
+    caller that computed `set(footprint["maezo"]) - allowlist` over an EMPTY list would pass with
+    a green tick while measuring nothing at all. The positive control (that the imported module
+    itself appears in its own footprint) lives in the caller, which is the only place that knows
+    which names MUST be there.
+    """
+    probe = (
+        "import json,sys;"
+        f"__import__({module!r});"
+        "print(json.dumps({"
+        "'maezo': sorted(m for m in sys.modules if m == 'maezo' or m.startswith('maezo.')),"
+        "'langgraph': any(m == 'langgraph' or m.startswith('langgraph.') for m in sys.modules)"
+        "}))"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        cwd=str(_REPO_ROOT),
+    )
+    assert completed.returncode == 0, (
+        f"the import probe for {module!r} exited {completed.returncode}; it measured nothing:\n"
+        f"{completed.stderr}"
+    )
+    stdout = completed.stdout.strip()
+    assert stdout, f"the import probe for {module!r} printed nothing (stderr: {completed.stderr})"
+    try:
+        payload: Any = json.loads(stdout.splitlines()[-1])
+    except json.JSONDecodeError as exc:  # pragma: no cover - only reachable if the probe changes
+        raise AssertionError(f"the import probe for {module!r} did not print JSON: {stdout!r}") from exc
+    assert isinstance(payload, dict), payload
+    assert set(payload) == {"maezo", "langgraph"}, sorted(payload)
+    assert isinstance(payload["maezo"], list) and all(isinstance(m, str) for m in payload["maezo"]), payload
+    assert isinstance(payload["langgraph"], bool), payload
+    assert payload["maezo"], (
+        f"the import probe reported an EMPTY maezo module set for {module!r}. Importing any maezo "
+        "module necessarily loads at least itself and its package, so an empty set means the probe "
+        "is broken — and an allowlist check over an empty set passes vacuously."
+    )
+    typed: dict[str, Any] = payload
+    return typed
+
+
+def test_importing_observability_does_not_pull_the_agent_runtime() -> None:
+    """`import maezo.platform.observability` must not load `maezo.runtime` (nor `langgraph`).
+
+    The invariant this pins is stated in `observability.py`'s own module docstring, and it has
+    already been lost once: moving `AGENT_ERROR_TYPE_*` to a top-level
+    `from maezo.runtime.metrics import ...` took the cold-import footprint from 5 `maezo` modules
+    (no langgraph) to 26 (langgraph loaded), because `maezo.runtime.__init__` imports
+    `harness`/`checkpoint`/`inference`. That is not merely fat: `maezo.runtime.harness` imports
+    `record_agent_error` from THIS module, so the top-level edge closes a real cycle — with it in
+    place, promoting the harness's own lazy import to the top raises
+    `ImportError: partially initialized module`.
+
+    Nothing else in the suite would notice: the import still works, every test still passes, and
+    `maezo.gateway`'s deliberately-lazy `record_tool_call` call quietly starts dragging the whole
+    agent runtime in on the first gated effect. Hence a measured fence rather than a comment.
+    """
+    footprint = _import_time_footprint("maezo.platform.observability")
+    loaded = set(footprint["maezo"])
+
+    # POSITIVE CONTROL (§Delta-2 Δ2-2): the two modules that MUST be in any honest measurement of
+    # this import. Without it, a probe that reported nothing would satisfy every assertion below —
+    # "no langgraph", "nothing outside the allowlist" and "no maezo.runtime" are all trivially
+    # true of the empty set, so the fence would go green precisely when it stopped measuring.
+    for required in ("maezo.platform.observability", "maezo.platform.error_types"):
+        assert required in loaded, (
+            f"{required} is missing from the measured import footprint — the probe is not measuring "
+            "the import it claims to. Measured: " + (", ".join(sorted(loaded)) or "<empty>")
+        )
+
+    assert not footprint["langgraph"], (
+        "importing maezo.platform.observability loaded langgraph — the agent runtime is being "
+        "pulled in at import time again. Loaded maezo modules: " + ", ".join(footprint["maezo"])
+    )
+    unexpected = sorted(loaded - _OBSERVABILITY_IMPORT_TIME_ALLOWED)
+    assert not unexpected, (
+        "importing maezo.platform.observability now also loads: "
+        + ", ".join(unexpected)
+        + ". Either the new import is lazy (inside the function that needs it), or its target is a "
+        "LEAF module and this allowlist is widened in a reviewed edit — never silently."
+    )
+    assert not any(m.startswith("maezo.runtime") for m in loaded), sorted(loaded)
+
+
+def test_the_error_type_vocabulary_module_imports_nothing_from_maezo() -> None:
+    """`maezo.platform.error_types` only works as the escape hatch while it stays a LEAF.
+
+    Read structurally from the AST, not by importing: a module that imports `maezo.<anything>` can
+    grow a path back into `maezo.runtime` at any depth, and the allowlist above would then be
+    satisfied by a module that is no longer a leaf.
+    """
+    source = (_SRC / "platform" / "error_types.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    maezo_imports: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "maezo":
+            maezo_imports.append(node.module or "")
+        elif isinstance(node, ast.Import):
+            maezo_imports.extend(a.name for a in node.names if a.name.split(".")[0] == "maezo")
+    assert maezo_imports == [], (
+        "maezo/platform/error_types.py imports from maezo: "
+        + ", ".join(maezo_imports)
+        + " — it exists precisely to have zero maezo dependencies (see its docstring)."
+    )
+
+
+def test_runtime_metrics_still_re_exports_the_error_type_vocabulary() -> None:
+    """Moving the vocabulary to a leaf module must not break the call sites that import it here.
+
+    `harness`, the four A2A delegation handlers and the WhatsApp dispatcher all do
+    `from maezo.runtime.metrics import classify_agent_error_type`. The re-export is the
+    compatibility contract; this pins it so a future cleanup of `metrics.py`'s imports cannot
+    silently break six production modules.
+    """
+    from maezo.platform import error_types
+    from maezo.runtime import metrics
+
+    for name in (
+        "AGENT_ERROR_TYPES",
+        "AGENT_ERROR_TYPE_NONE",
+        "AGENT_ERROR_TYPE_OUTRO",
+        "AGENT_ERROR_TYPE_RUNTIME",
+        "AGENT_ERROR_TYPE_TIMEOUT",
+        "AGENT_ERROR_TYPE_UPSTREAM_INDISPONIVEL",
+        "AGENT_ERROR_TYPE_VALIDACAO",
+        "classify_agent_error_type",
+    ):
+        assert getattr(metrics, name) is getattr(error_types, name), name
+        assert name in metrics.__all__, name
