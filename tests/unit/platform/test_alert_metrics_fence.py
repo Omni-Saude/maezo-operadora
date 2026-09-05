@@ -967,6 +967,13 @@ def _import_time_footprint(module: str) -> dict[str, Any]:
     Subprocess and not `importlib.reload`, because the whole question is what a COLD import costs:
     inside this test process `langgraph` and half of `maezo.runtime` are already loaded by the
     other tests in this file, so any in-process measurement is vacuous by construction.
+
+    The probe's CONTRACT is validated here, not trusted (§Delta-2 Δ2-2): a probe that exits
+    non-zero, prints nothing, prints non-JSON, or returns the wrong shape must raise — because a
+    caller that computed `set(footprint["maezo"]) - allowlist` over an EMPTY list would pass with
+    a green tick while measuring nothing at all. The positive control (that the imported module
+    itself appears in its own footprint) lives in the caller, which is the only place that knows
+    which names MUST be there.
     """
     probe = (
         "import json,sys;"
@@ -983,9 +990,27 @@ def _import_time_footprint(module: str) -> dict[str, Any]:
         timeout=120,
         cwd=str(_REPO_ROOT),
     )
-    assert completed.returncode == 0, completed.stderr
-    payload: dict[str, Any] = json.loads(completed.stdout.strip().splitlines()[-1])
-    return payload
+    assert completed.returncode == 0, (
+        f"the import probe for {module!r} exited {completed.returncode}; it measured nothing:\n"
+        f"{completed.stderr}"
+    )
+    stdout = completed.stdout.strip()
+    assert stdout, f"the import probe for {module!r} printed nothing (stderr: {completed.stderr})"
+    try:
+        payload: Any = json.loads(stdout.splitlines()[-1])
+    except json.JSONDecodeError as exc:  # pragma: no cover - only reachable if the probe changes
+        raise AssertionError(f"the import probe for {module!r} did not print JSON: {stdout!r}") from exc
+    assert isinstance(payload, dict), payload
+    assert set(payload) == {"maezo", "langgraph"}, sorted(payload)
+    assert isinstance(payload["maezo"], list) and all(isinstance(m, str) for m in payload["maezo"]), payload
+    assert isinstance(payload["langgraph"], bool), payload
+    assert payload["maezo"], (
+        f"the import probe reported an EMPTY maezo module set for {module!r}. Importing any maezo "
+        "module necessarily loads at least itself and its package, so an empty set means the probe "
+        "is broken — and an allowlist check over an empty set passes vacuously."
+    )
+    typed: dict[str, Any] = payload
+    return typed
 
 
 def test_importing_observability_does_not_pull_the_agent_runtime() -> None:
@@ -1005,19 +1030,30 @@ def test_importing_observability_does_not_pull_the_agent_runtime() -> None:
     agent runtime in on the first gated effect. Hence a measured fence rather than a comment.
     """
     footprint = _import_time_footprint("maezo.platform.observability")
+    loaded = set(footprint["maezo"])
+
+    # POSITIVE CONTROL (§Delta-2 Δ2-2): the two modules that MUST be in any honest measurement of
+    # this import. Without it, a probe that reported nothing would satisfy every assertion below —
+    # "no langgraph", "nothing outside the allowlist" and "no maezo.runtime" are all trivially
+    # true of the empty set, so the fence would go green precisely when it stopped measuring.
+    for required in ("maezo.platform.observability", "maezo.platform.error_types"):
+        assert required in loaded, (
+            f"{required} is missing from the measured import footprint — the probe is not measuring "
+            "the import it claims to. Measured: " + (", ".join(sorted(loaded)) or "<empty>")
+        )
 
     assert not footprint["langgraph"], (
         "importing maezo.platform.observability loaded langgraph — the agent runtime is being "
         "pulled in at import time again. Loaded maezo modules: " + ", ".join(footprint["maezo"])
     )
-    unexpected = sorted(set(footprint["maezo"]) - _OBSERVABILITY_IMPORT_TIME_ALLOWED)
+    unexpected = sorted(loaded - _OBSERVABILITY_IMPORT_TIME_ALLOWED)
     assert not unexpected, (
         "importing maezo.platform.observability now also loads: "
         + ", ".join(unexpected)
         + ". Either the new import is lazy (inside the function that needs it), or its target is a "
         "LEAF module and this allowlist is widened in a reviewed edit — never silently."
     )
-    assert not any(m.startswith("maezo.runtime") for m in footprint["maezo"]), footprint["maezo"]
+    assert not any(m.startswith("maezo.runtime") for m in loaded), sorted(loaded)
 
 
 def test_the_error_type_vocabulary_module_imports_nothing_from_maezo() -> None:
