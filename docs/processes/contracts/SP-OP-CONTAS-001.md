@@ -205,6 +205,12 @@ DMNs de glosa. Nenhuma das suas entradas (`tipo_lote`, `valor_apresentado_brl`,
 `UT_AnalistaContas` com `${sla.*}` irresolvivel (incidente no attach). Mantem a invariante ja
 declarada em SP-OP-REEMBOLSO-001 (`BRT_SlaAnalise`) e SP-OP-ANS-SUBMIT-001 (`BRT_AnsSla`):
 `resultVariable="sla"` resolvido em **toda** rota que alcanca uma User Task, antes dela.
+**Delta semantico declarado (VER-A2-CONTAS F2):** a mudanca de posicao faz `BRT_ContasSla` passar a
+ser avaliada TAMBEM na perna rapida sem glosa (`has_glosas=false`), que antes pulava a cadeia de
+DMNs inteira — aceitavel e sem efeito observavel: `contas_sla` tem `hitPolicy FIRST` com row
+catch-all (sempre casa, nunca fica sem saida), **nenhuma saida adversa**, e nessa perna o `sla`
+resultante nao e consumido por ninguem (ela nao cria User Task, logo nao ha timer `timeDate` para
+resolver) — o custo e uma avaliacao de DMN a mais, nao uma mudanca de desfecho.
 
 Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — usar valores conservadores e resolver calendario util no worker. **Substitui o `Task_AutoApprove`/timeout de 48h do reference** — no estouro de SLA a coordenacao humana assume; **nunca** ha desfecho automatico por timeout (inversao do anti-padrao).
 

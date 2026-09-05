@@ -724,7 +724,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-09-04",
-        pr="#320",
+        pr="#331",
         name="vencimento_ausente",
         name_delta=1,
         occurrence_delta=2,
