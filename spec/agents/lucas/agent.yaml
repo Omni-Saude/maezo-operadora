@@ -58,9 +58,16 @@ memory:
 # o mesmo gancho pronto para espelhar sem inventar um novo contrato de produto. Resposta do
 # beneficiario a um lembrete de Lucas chega (se chegar) apenas pelo webhook unico de Helena
 # (`HelenaDispatcher`, `src/maezo/platform/webhooks/whatsapp/dispatch.py`), sem contexto de
-# cobranca. `LucasState` tambem nao tem o gate de fronteira de entrada
-# (`_CALLER_INPUT_FIELDS`/`new_lucas_state`) que Helena/Rafael/Carolina/Fernando ja' tem —
-# pre-requisito de seguranca para qualquer canal de entrada futuro, ainda nao construido aqui.
+# cobranca. ATUALIZACAO (CC-14/LUC-09a, 2026-09-04): o gate de fronteira de entrada de
+# `LucasState` AGORA EXISTE — `graph.py::_CALLER_INPUT_FIELDS` (particao INPUT-ONLY x
+# OUTPUT-ONLY com guarda de completude em IMPORT TIME), `graph.py::new_lucas_state` (estrito:
+# chave desconhecida -> ValueError nomeando as chaves) e `graph.py::gate_inbound_state`
+# (permissivo: descarta e loga so os NOMES das chaves), no mesmo formato de Helena/Rafael.
+# O QUE ISSO NAO RESOLVE: o gap 11.7 CONTINUA ABERTO. Lucas segue sem canal de entrada proprio
+# (`accepted_task_types: []` abaixo permanece vazio, nenhum contrato cita handler para ele) e a
+# resposta do beneficiario continua chegando, se chegar, so pelo webhook unico de Helena sem
+# contexto de cobranca. O gate era o PRE-REQUISITO de seguranca ORDENADO desse canal: foi
+# construido antes para que o canal ja' nasca gateado (CC-02), nao para declara-lo pronto.
 a2a:
   capabilities:
     - member_billing_navigation
