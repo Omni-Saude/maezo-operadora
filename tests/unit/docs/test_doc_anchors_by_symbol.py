@@ -85,7 +85,7 @@ _REANCHORED_PASSAGES: tuple[tuple[str, str, str], ...] = (
     # note QUOTES the old rotted `:NN` numbers on purpose, as the historical record of the drift.
     (
         "docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md",
-        "  - `.github/CODEOWNERS` — comentario: \"AUDITORIA 2026-08-13:",
+        '  - `.github/CODEOWNERS` — comentario: "AUDITORIA 2026-08-13:',
         "  Nota de reancoragem 2026-09-05 (gap AF-18a/F2):",
     ),
 )
@@ -238,8 +238,7 @@ def test_every_symbol_the_reanchored_prose_cites_still_exists() -> None:
     ]
     assert not missing, (
         "AF-18a re-anchored ADR-0029 (and its erasure packet, and ADR-0041 §3) onto these symbols; "
-        "they moved or were renamed, so the documentation now points at nothing:\n  "
-        + "\n  ".join(missing)
+        "they moved or were renamed, so the documentation now points at nothing:\n  " + "\n  ".join(missing)
     )
 
 
