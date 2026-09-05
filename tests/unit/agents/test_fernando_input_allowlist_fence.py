@@ -45,10 +45,15 @@ _CONTRACT_PATH = (
     / "SP-OP-INADIMPLENCIA-001.md"
 )
 
-#: Campo de estado com dominio fechado -> a UNICA funcao do modulo autorizada a le-lo cru.
-#: Qualquer outra leitura tem de passar pelo normalizador (revalidacao do lado da leitura,
-#: mesma disciplina que `_STATUS_ALLOW` ja aplicava a `status_inadimplencia`).
-_NORMALIZADOR_POR_CAMPO: dict[str, str] = {"tipo_plano": "_tipo_plano", "canal": "_canal"}
+#: Campo de estado com dominio fechado -> o PAR de funcoes do modulo autorizado a le-lo cru
+#: (`_<campo>`, que sanitiza para consumo, e `_<campo>_recusado`, que `receive` usa para
+#: distinguir "o chamador declarou algo invalido" de "o chamador nao declarou nada"). Qualquer
+#: outra leitura tem de passar pelo par (revalidacao do lado da leitura, mesma disciplina que
+#: `_STATUS_ALLOW` ja aplicava a `status_inadimplencia`).
+_NORMALIZADOR_POR_CAMPO: dict[str, frozenset[str]] = {
+    "tipo_plano": frozenset({"_tipo_plano", "_tipo_plano_recusado"}),
+    "canal": frozenset({"_canal", "_canal_recusado"}),
+}
 
 
 def _module_tree() -> ast.Module:
@@ -74,42 +79,44 @@ def _mapping_reads(tree: ast.Module, campo: str) -> list[tuple[int, str]]:
     owner = _enclosing_functions(tree)
     hits: list[tuple[int, str]] = []
     for node in ast.walk(tree):
-        alvo = None
-        if (
+        le_por_get = (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "get"
-            and node.args
+            and bool(node.args)
             and isinstance(node.args[0], ast.Constant)
             and node.args[0].value == campo
-        ):
-            alvo = node
-        elif (
+        )
+        le_por_indice = (
             isinstance(node, ast.Subscript)
             and isinstance(node.slice, ast.Constant)
             and node.slice.value == campo
-        ):
-            alvo = node
-        if alvo is not None:
-            hits.append((alvo.lineno, owner.get(alvo, "")))
+        )
+        if le_por_get or le_por_indice:
+            hits.append((getattr(node, "lineno", -1), owner.get(node, "")))
     return hits
 
 
-@pytest.mark.parametrize(("campo", "normalizador"), sorted(_NORMALIZADOR_POR_CAMPO.items()))
-def test_closed_domain_field_is_only_read_through_its_normalizer(campo: str, normalizador: str) -> None:
+@pytest.mark.parametrize("campo", sorted(_NORMALIZADOR_POR_CAMPO))
+def test_closed_domain_field_is_only_read_through_its_normalizer(campo: str) -> None:
     """FER-04/FER-05: nenhuma leitura crua de um campo de dominio fechado fora do normalizador.
 
     Um `state.get("tipo_plano")` novo em qualquer no' (DMN, dossie, mensagem, variaveis de
     processo) reabre EXATAMENTE o vazamento que a auditoria plantou e provou.
     """
+    normalizadores = _NORMALIZADOR_POR_CAMPO[campo]
     tree = _module_tree()
     leituras = _mapping_reads(tree, campo)
     assert leituras, f"cerca vazia: nenhuma leitura de {campo!r} encontrada em {_GRAPH_PATH.name}"
-    fora = [(linha, fn) for linha, fn in leituras if fn != normalizador]
+    fora = [(linha, fn) for linha, fn in leituras if fn not in normalizadores]
     assert not fora, (
-        f"{_GRAPH_PATH.name}: leitura CRUA de {campo!r} fora de `{normalizador}` em "
-        f"{fora} — todo consumo de um campo de dominio fechado passa pelo normalizador "
+        f"{_GRAPH_PATH.name}: leitura CRUA de {campo!r} fora de {sorted(normalizadores)} em "
+        f"{fora} — todo consumo de um campo de dominio fechado passa pelo par normalizador "
         f"(revalidacao do lado da leitura, FER-04/FER-05)"
+    )
+    assert {fn for _, fn in leituras} == normalizadores, (
+        f"o par normalizador de {campo!r} nao esta completo/usado: leituras em "
+        f"{sorted({fn for _, fn in leituras})}, esperado {sorted(normalizadores)}"
     )
 
 
@@ -120,34 +127,80 @@ def test_normalizers_reject_out_of_domain_and_pass_through_the_domain() -> None:
     assert fernando_graph._tipo_plano({"tipo_plano": "individual CPF=123.456.789-09"}) == ""
     assert fernando_graph._tipo_plano({}) == ""
 
+    assert fernando_graph._tipo_plano_recusado({"tipo_plano": "individual CPF=123.456.789-09"})
+    assert not fernando_graph._tipo_plano_recusado({"tipo_plano": "individual"})
+    assert not fernando_graph._tipo_plano_recusado({}), "ausencia nao e' recusa (aresta A2A)"
+
     for valor in fernando_graph._CANAL_ALLOW:
         assert fernando_graph._canal({"canal": valor}) == valor
     assert fernando_graph._canal({"canal": "portal-hack"}) == ""
     assert fernando_graph._canal({}) == fernando_graph._CANAL_DEFAULT
+    assert fernando_graph._canal_recusado({"canal": "portal-hack"})
+    assert not fernando_graph._canal_recusado({"canal": "a2a"})
+    assert not fernando_graph._canal_recusado({}), "ausencia nao e' recusa (default do contrato)"
 
 
-def test_process_variables_carry_no_fabricated_literal_default() -> None:
-    """FER-10: `_inadimplencia_variables` nao pode ter nenhum `<expr> or "<literal>"` — a forma
-    exata que transformava a AUSENCIA de `origem_solicitacao` no fato `"agente_fernando"`.
+def _reads_a_caller_input_field(node: ast.AST) -> bool:
+    """`True` se a expressao le' ALGUM campo que o chamador pode semear (`_CALLER_INPUT_FIELDS`)."""
+    for sub in ast.walk(node):
+        if (
+            isinstance(sub, ast.Call)
+            and isinstance(sub.func, ast.Attribute)
+            and sub.func.attr == "get"
+            and sub.args
+            and isinstance(sub.args[0], ast.Constant)
+            and sub.args[0].value in fernando_graph._CALLER_INPUT_FIELDS
+        ):
+            return True
+        if (
+            isinstance(sub, ast.Subscript)
+            and isinstance(sub.slice, ast.Constant)
+            and sub.slice.value in fernando_graph._CALLER_INPUT_FIELDS
+        ):
+            return True
+    return False
 
-    `or ""` continua permitido: string vazia nao afirma nada (e' a propria ausencia, normalizada
-    para o tipo declarado no contrato).
+
+def _nonempty_str_constant(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and isinstance(node.value, str) and bool(node.value)
+
+
+def test_no_caller_input_field_gets_a_fabricated_literal_default() -> None:
+    """FER-10 (`SILENT-DEFAULT-MASKS-CALLER`) como CLASSE, no modulo inteiro.
+
+    Duas formas proibidas, ambas em cima de um campo que o CHAMADOR semeia
+    (`_CALLER_INPUT_FIELDS`): `state.get("<campo>") or "<literal>"` e
+    `state.get("<campo>", "<literal>")`. As duas colapsam "o chamador declarou X" e "o chamador
+    nao declarou nada" num unico valor indistinguivel — foi exatamente o que
+    `origem_solicitacao or "agente_fernando"` fazia com a trilha de auditoria.
+
+    `or ""` / `.get(..., "")` seguem permitidos: string vazia nao AFIRMA nada, e' a propria
+    ausencia normalizada para o tipo declarado no contrato. Um default declarado no CONTRATO
+    (o `_CANAL_DEFAULT` de `canal`) tambem passa, por ser uma constante NOMEADA e nao um literal
+    solto — a nomeacao e' o que o torna rastreavel ate a especificacao.
     """
     tree = _module_tree()
-    fn = next(
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef) and n.name == "_inadimplencia_variables"
-    )
-    fabricados = [
-        (node.lineno, ast.unparse(node))
-        for node in ast.walk(fn)
-        if isinstance(node, ast.BoolOp)
-        and isinstance(node.op, ast.Or)
-        and any(isinstance(v, ast.Constant) and isinstance(v.value, str) and v.value for v in node.values)
-    ]
+    fabricados: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.BoolOp)
+            and isinstance(node.op, ast.Or)
+            and _reads_a_caller_input_field(node.values[0])
+            and any(_nonempty_str_constant(v) for v in node.values[1:])
+        ):
+            fabricados.append((node.lineno, ast.unparse(node)))
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and len(node.args) == 2
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in fernando_graph._CALLER_INPUT_FIELDS
+            and _nonempty_str_constant(node.args[1])
+        ):
+            fabricados.append((node.lineno, ast.unparse(node)))
     assert not fabricados, (
-        "`_inadimplencia_variables` fabrica um valor literal para um campo ausente do chamador "
+        f"{_GRAPH_PATH.name} fabrica um valor literal para um campo AUSENTE do chamador "
         f"(FER-10): {fabricados}"
     )
 
@@ -164,14 +217,19 @@ def test_notify_desfecho_tables_are_declared_in_the_closed_vocabulary() -> None:
 
 
 def test_only_the_delivering_entrega_state_claims_a_send() -> None:
-    """FER-03/FER-04: apenas o estado `enviada` produz um rotulo que AFIRMA envio. Os outros
-    dois nunca podem terminar com o sufixo de envio (`_enviada`/`_enviado`)."""
+    """FER-03/FER-04: os tres estados de entrega produzem tres rotulos DISTINTOS, e so' o de
+    sucesso afirma um envio. Reverter a ramificacao (qualquer estado voltando a emitir o rotulo
+    de sucesso) reprova aqui, que e' a regressao exata que a auditoria encontrou."""
     for tabela in (fernando_graph._DESFECHO_NOTIFICACAO_PREVIA, fernando_graph._DESFECHO_LEMBRETE):
-        assert tabela["enviada"].endswith(("_enviada", "_enviado"))
-        for estado in ("nao_enviada", "canal_sem_entrega"):
-            assert not tabela[estado].endswith(("a_enviada", "o_enviado")), (
-                f"o desfecho de {estado!r} ({tabela[estado]!r}) afirma um envio que nao ocorreu"
-            )
+        assert len(set(tabela.values())) == len(tabela), f"rotulos repetidos entre estados: {tabela}"
+        sucesso = tabela["enviada"]
+        assert "nao_enviad" not in sucesso and "sem_entrega" not in sucesso
+        assert "nao_enviad" in tabela["nao_enviada"], (
+            f"o desfecho de envio falho ({tabela['nao_enviada']!r}) nao diz que o envio nao ocorreu"
+        )
+        assert "canal_sem_entrega" in tabela["canal_sem_entrega"], (
+            f"o desfecho de canal sem remetente ({tabela['canal_sem_entrega']!r}) nao diz isso"
+        )
 
 
 def test_delivering_canals_are_a_subset_of_the_declared_domain() -> None:

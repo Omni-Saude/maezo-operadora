@@ -144,13 +144,26 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   `settings.agent_ingress_enabled` in `service.py`) — but it exists ONLY for Rafael's
   `portal_tiss` channel today; there is still no HTTP ingress for Fernando or Lucas. THIS graph
   now has a live inbound path that is not HTTP: the worker->A2A dossier edge above.
-- `tipo_plano`/`canal` are consumed as opaque strings (passed straight to the DMN / dossier /
-  engine variables) with NO closed-allowlist validation of their own — unlike `intencao`. The
-  DMN's own catch-all rows (`spec/processes/dmn/inadimplencia_status.dmn`'s `r_catchall`,
-  `.../inadimplencia_sla.dmn`'s `r_catchall`) already fail safe to a conservative output for an
-  unrecognized `tipo_plano`, so an invalid value here cannot silently misroute a DMN decision —
-  it is a lower-severity residual than `intencao` (which directly drives THIS graph's own
-  Python-level routing, not just a DMN row match) and is disclosed, not hidden.
+- CLOSED 2026-09-05 (fleet audit FER-04/FER-05, WP-FERNANDO-INPUT-DESFECHO). This bullet used
+  to disclose that `tipo_plano`/`canal` were consumed as OPAQUE strings with no allowlist of
+  their own, relying on the DMNs' catch-all rows as the only safety net. That residual is gone:
+  both fields now have closed frozensets (`_TIPO_PLANO_ALLOW`/`_CANAL_ALLOW`, single-sourced
+  against the contract's own variable table by a fence) plus the same TWO-SIDED discipline
+  `intencao`/`status_inadimplencia` already had — `receive` fail-closes on a DECLARED
+  out-of-domain value (class token `invalid_tipo_plano`/`invalid_canal`, never the raw value),
+  and every read site goes through the normalizer pair (`_tipo_plano`/`_canal`), so a planted
+  value cannot reach the DMN inputs, the dossier, the message facts, or the engine's process
+  variables even on the escalate route (which still runs `start_process` after the fail-close).
+  RESIDUAL still disclosed, NOT closed here: `origem_solicitacao` has a documented closed domain
+  in the same contract table and has NO allowlist — the fleet audit's FER-10 only asked for (and
+  this WP only delivered) the removal of its fabricated `"agente_fernando"` literal default;
+  a planted `origem_solicitacao` still reaches the engine variable verbatim.
+- DELIVERY HONESTY (FER-03/FER-04): `notify`'s `desfecho` branches on the REAL send outcome
+  (`Entrega` = `enviada`/`nao_enviada`/`canal_sem_entrega`), never on `status_inadimplencia`
+  alone. Only `whatsapp` has a sender wired here (`_CANAL_COM_ENTREGA`) — `portal`/`telefone`/
+  `a2a` are legal canais with NO delivery seam, so they yield `*_canal_sem_entrega`. The live
+  A2A edge (`delegation.py::state_from_envelope` always sets `canal="a2a"`) is exactly where the
+  old label lied in production.
 
 DIVERGENCE FROM DONOR (spec wins — `spec/processes/dmn/inadimplencia_sla.dmn` vs the donor):
 the donor's `_assess_escalation` calls `inadimplencia_sla` with `{tipo_plano, motivo,
@@ -227,6 +240,56 @@ _STATUS_ALLOW: frozenset[str] = frozenset(
 )
 _STATUS_NOTIFY: frozenset[str] = frozenset({"AGUARDA_PURGA", "PENDENTE_NOTIFICACAO"})
 
+# Dominio FECHADO de `tipo_plano` (FER-05, auditoria de frota 2026-09-04). A FONTE do conjunto e'
+# o contrato do processo (`docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md`, tabela
+# `## Variaveis de entrada`), NUNCA esta linha: `tests/unit/agents/
+# test_fernando_input_allowlist_fence.py::test_allowlist_matches_the_contract_declared_domain`
+# prende as duas pontas, de modo que ampliar o dominio aqui sem tocar o contrato fica VERMELHO
+# (disciplina C3 — quem decide o dominio e' a especificacao, nao o Python). Mesma forma de
+# `_VALID_INTENCOES`/`_STATUS_ALLOW`, aplicada ao campo que a varredura do R1 ciclo-1 nao alcancou.
+_TIPO_PLANO_ALLOW: frozenset[str] = frozenset(
+    {"individual", "familiar", "coletivo_empresarial", "coletivo_adesao"}
+)
+
+# Dominio FECHADO de `canal` (FER-04). `a2a` faz parte do dominio porque `agents/fernando/
+# delegation.py::state_from_envelope` o semeia SEMPRE na aresta A2A VIVA (`tools/workers/
+# inadimplencia.py::make_prepare_dossier_handler` -> `delegate_arrears_followup`) — uma allowlist
+# que o rejeitasse quebraria uma jornada de producao, entao ele e' DECLARADO (no contrato tambem),
+# nao tolerado por omissao.
+_CANAL_ALLOW: frozenset[str] = frozenset({"whatsapp", "portal", "telefone", "a2a"})
+
+#: Default do contrato para a AUSENCIA de `canal` — jamais para um valor invalido (esse fica
+#: vazio, ver `_canal`): um canal recusado nunca vira "whatsapp" por conveniencia.
+_CANAL_DEFAULT: Final[str] = "whatsapp"
+
+#: Os canais deste grafo que tem remetente REALMENTE ligado. `portal`/`telefone`/`a2a` estao no
+#: dominio mas nao tem seam de entrega nenhuma aqui — e' exatamente essa diferenca que FER-04
+#: cobrava: pular o envio calado e ainda assim rotular o turno como "enviado".
+_CANAL_COM_ENTREGA: frozenset[str] = frozenset({"whatsapp"})
+
+#: Resultado REAL do envio no caminho `notify` (FER-03/FER-04). Nao e' um enum de negocio: e' a
+#: descricao do que aconteceu com o efeito externo, e e' ELE que escolhe o desfecho abaixo.
+Entrega = Literal["enviada", "nao_enviada", "canal_sem_entrega"]
+_ENTREGA_ESTADOS: Final[tuple[str, ...]] = ("enviada", "nao_enviada", "canal_sem_entrega")
+
+# Desfechos do caminho `notify`, por (jornada, resultado REAL do envio). Ate a auditoria de frota
+# o desfecho saia so' de `status_inadimplencia` e o turno AFIRMAVA um envio que nao aconteceu
+# (FER-03) — inclusive na aresta A2A, onde `canal="a2a"` nunca teve remetente (FER-04). Literais
+# explicitos (nao f-strings) de proposito: o vocabulario fechado de telemetria
+# (`runtime/turn_telemetry.py::_DESFECHO_VOCAB`) e' reproduzido por grep dos literais, e uma
+# cerca (`test_notify_desfecho_tables_are_declared_in_the_closed_vocabulary`) exige que cada um
+# esteja la — um rotulo nao declarado viraria `"outro"` no Prometheus, um KPI cego.
+_DESFECHO_NOTIFICACAO_PREVIA: Final[dict[str, str]] = {
+    "enviada": "notificacao_previa_enviada",
+    "nao_enviada": "notificacao_previa_nao_enviada",
+    "canal_sem_entrega": "notificacao_previa_canal_sem_entrega",
+}
+_DESFECHO_LEMBRETE: Final[dict[str, str]] = {
+    "enviada": "lembrete_regularizacao_enviado",
+    "nao_enviada": "lembrete_regularizacao_nao_enviado",
+    "canal_sem_entrega": "lembrete_regularizacao_canal_sem_entrega",
+}
+
 # Graph-level routing. STRUCTURALLY no adverse variant exists — `notify` is always informational,
 # `escalate` always routes to a human User Task; neither ever suspends/rescinds/denies.
 Route = Literal["notify", "escalate"]
@@ -268,13 +331,14 @@ class FernandoState(TypedDict, total=False):
     # Runtime identifiers / task framing.
     tenant_id: str
     intencao: Intencao
-    canal: str  # whatsapp | portal | telefone
+    canal: str  # dominio FECHADO — `_CANAL_ALLOW` (so' `whatsapp` tem remetente ligado)
     numero_contrato: str  # business key material (same identity CANCEL-001 uses)
     matricula_beneficiario: str  # pseudonymized enrollment key (fallback business key material)
     beneficiario_pseudo_id: str
     to_hash: str  # WhatsApp phone HASH (never the raw number) — message destination
-    tipo_plano: str  # individual | familiar | coletivo_empresarial | coletivo_adesao
-    origem_solicitacao: str  # cobranca | operadora | agente_fernando | juridico
+    tipo_plano: str  # dominio FECHADO — `_TIPO_PLANO_ALLOW` (fonte: contrato)
+    origem_solicitacao: str  # cobranca | operadora | agente_fernando | juridico (SEM allowlist —
+    #: residual divulgado no docstring do modulo; ausencia viaja vazia, nunca um literal fabricado)
     data_solicitacao_iso: str
 
     # Pre-resolved inadimplencia facts (worker `operadora.inadimplencia.resolve_facts`) —
@@ -349,6 +413,63 @@ def _business_key(state: FernandoState) -> str:
         matricula_beneficiario=state.get("matricula_beneficiario", ""),
         beneficiario_pseudo_id=state.get("beneficiario_pseudo_id", ""),
     )
+
+
+def _tipo_plano(state: FernandoState) -> str:
+    """Revalidacao do LADO DA LEITURA de `tipo_plano` (FER-05) — o unico ponto do modulo
+    autorizado a ler o campo cru (cerca de AST em `test_fernando_input_allowlist_fence.py`).
+
+    Fora do dominio fechado -> string vazia, NUNCA o valor cru: `receive` ja escala para humano
+    quando o chamador manda um valor invalido, mas a rota `escalate` segue para `start_process`,
+    e o LangGraph mescla o estado inicial do chamador verbatim — sem esta revalidacao o valor
+    plantado continuaria chegando as entradas da DMN, ao dossie e as variaveis de processo do
+    engine (zona geral, ADR-0006). Mesma disciplina que `_STATUS_ALLOW` ja aplicava a
+    `status_inadimplencia` em `_build_dossier`/`_build_message`.
+
+    Ausencia tambem devolve vazio: a DMN `inadimplencia_status` tem `r_catchall` conservador
+    (-> `ANALISE_HUMANA`, nunca adverso), entao a ausencia converge para humano em vez de
+    inventar um plano.
+    """
+    valor = str(state.get("tipo_plano") or "")
+    return valor if valor in _TIPO_PLANO_ALLOW else ""
+
+
+def _tipo_plano_recusado(state: FernandoState) -> bool:
+    """Segunda metade do PAR normalizador de `tipo_plano` (e o unico outro ponto autorizado a ler
+    o campo cru): `True` somente quando o chamador DECLAROU um valor e ele esta fora do dominio.
+
+    A ausencia NAO e' recusa — `receive` fail-closa em cima de uma DECLARACAO invalida, nunca do
+    silencio: recusar o silencio quebraria a aresta A2A viva (o `payload_meta` de
+    `delegation.py::state_from_envelope` so' copia chaves nao-vazias) e a DMN ja tem catch-all
+    conservador para a ausencia.
+    """
+    return bool(str(state.get("tipo_plano") or "")) and not _tipo_plano(state)
+
+
+def _canal(state: FernandoState) -> str:
+    """Revalidacao do LADO DA LEITURA de `canal` (FER-04) — unico ponto autorizado a ler o campo
+    cru (mesma cerca de AST).
+
+    Tres casos, deliberadamente distintos:
+      - AUSENTE/vazio -> `_CANAL_DEFAULT`, o default que o contrato declara para esta variavel;
+      - dentro do dominio -> o proprio valor;
+      - fora do dominio -> string vazia (o valor e' RECUSADO, nao substituido pelo default): um
+        canal invalido nunca pode virar `whatsapp` e disparar um envio que o chamador nao pediu,
+        nem ser ecoado para as variaveis de processo.
+    Como `""` nao esta em `_CANAL_COM_ENTREGA`, o caminho recusado tambem produz o desfecho
+    honesto `*_canal_sem_entrega` em `notify`, jamais um `*_enviad*`.
+    """
+    valor = str(state.get("canal") or "")
+    if not valor:
+        return _CANAL_DEFAULT
+    return valor if valor in _CANAL_ALLOW else ""
+
+
+def _canal_recusado(state: FernandoState) -> bool:
+    """Segunda metade do PAR normalizador de `canal` — mesma regra de `_tipo_plano_recusado`:
+    so' uma DECLARACAO fora do dominio e' recusada; a ausencia cai no default do contrato."""
+    valor = str(state.get("canal") or "")
+    return bool(valor) and valor not in _CANAL_ALLOW
 
 
 def _motivo_categoria(motivo: MotivoHumano) -> MotivoCategoria:
@@ -514,6 +635,15 @@ class FernandoGraph:
             return self._escalate_min("ambiguidade", "invalid_intencao")
         if not (state.get("numero_contrato") or state.get("matricula_beneficiario")):
             return self._escalate_min("falha_tecnica", "missing_contract_key")
+        # FER-05/FER-04: os outros dois campos de DOMINIO FECHADO do chamador. Um valor presente
+        # e fora do dominio e' recusado aqui (fail-closed -> humano), com TOKEN DE CLASSE — nunca
+        # o valor cru, que pode carregar PHI. AUSENCIA nao e' recusada: o contrato tem default
+        # para `canal` e a DMN tem catch-all conservador para `tipo_plano`, e recusar a ausencia
+        # quebraria a aresta A2A (o `payload_meta` so' copia chaves nao-vazias).
+        if _tipo_plano_recusado(state):
+            return self._escalate_min("ambiguidade", "invalid_tipo_plano")
+        if _canal_recusado(state):
+            return self._escalate_min("ambiguidade", "invalid_canal")
         return {**_output_field_resets(), "business_key": _business_key(state)}
 
     async def assess(self, state: FernandoState) -> dict[str, Any]:
@@ -542,7 +672,7 @@ class FernandoGraph:
                 "dentro_periodo_minimo": bool(state.get("dentro_periodo_minimo", False)),
                 "notificacao_previa_feita": bool(state.get("notificacao_previa_feita", False)),
                 "dentro_janela_purga": bool(state.get("dentro_janela_purga", False)),
-                "tipo_plano": str(state.get("tipo_plano", "")),
+                "tipo_plano": _tipo_plano(state),
             },
         )
         if status_result.get("error"):
@@ -582,7 +712,7 @@ class FernandoGraph:
         # Purga/notice deadlines — best-effort informational context for the message (mirrors
         # `inadimplencia_sla`'s best-effort stance below; never blocks the already-decided
         # `notify` route).
-        purga_result = await self._evaluate_dmn(DMN_PURGA, {"tipo_plano": str(state.get("tipo_plano", ""))})
+        purga_result = await self._evaluate_dmn(DMN_PURGA, {"tipo_plano": _tipo_plano(state)})
         prazo_purga = prazo_notif = periodo_minimo = fonte_purga = ""
         if not purga_result.get("error"):
             dmn_refs[DMN_PURGA] = purga_result["ref"]
@@ -608,20 +738,35 @@ class FernandoGraph:
         `_build_message`). A WhatsApp send failure is recorded but NEVER escalates — an
         undelivered notice is not an adverse effect."""
         mensagem = await self._build_message(state)
-        enviada = False
         to_hash = state.get("to_hash") or state.get("beneficiario_pseudo_id")
-        if to_hash and state.get("canal", "whatsapp") == "whatsapp":
+        entrega: Entrega
+        if _canal(state) not in _CANAL_COM_ENTREGA:
+            # FER-04: canal DENTRO do dominio (ou recusado por `_canal`) mas sem remetente
+            # ligado neste grafo — `portal`/`telefone`/`a2a`. Nada e' enviado; o turno diz isso.
+            entrega = "canal_sem_entrega"
+        elif not to_hash:
+            entrega = "nao_enviada"
+        else:
             try:
                 await self._whatsapp.send(to_hash, str(mensagem.get("texto", "")))
-                enviada = True
+                entrega = "enviada"
             except Exception as exc:  # noqa: BLE001 — best-effort send, never an adverse effect.
+                entrega = "nao_enviada"
                 mensagem["envio_nota"] = f"envio WhatsApp indisponivel: {type(exc).__name__}"
+        mensagem["entrega"] = entrega
+        enviada = entrega == "enviada"
 
-        desfecho = (
-            "notificacao_previa_enviada"
+        # FER-03: o desfecho ramifica no resultado REAL do envio, nao so' no `status_
+        # inadimplencia`. Ate a auditoria de frota este calculo ignorava o booleano que a propria
+        # funcao acabara de computar, e o turno AFIRMAVA um envio que nao aconteceu — a
+        # telemetria CC-09 ja emitia `enviada=False` ao lado do rotulo "...enviado", tornando a
+        # contradicao visivel na MESMA linha de log sem corrigi-la.
+        tabela = (
+            _DESFECHO_NOTIFICACAO_PREVIA
             if state.get("status_inadimplencia") == "PENDENTE_NOTIFICACAO"
-            else "lembrete_regularizacao_enviado"
+            else _DESFECHO_LEMBRETE
         )
+        desfecho = tabela[entrega]
         # CC-09: `notify` is a TERMINAL node (its only outgoing edge is END, no `start_process`
         # on this branch) — `desfecho`/`mensagem_enviada` are still LOCAL at this point, so both
         # are passed as explicit overrides rather than read back from `state`.
@@ -746,7 +891,7 @@ class FernandoGraph:
         sla` is consulted purely for informational SLA context (never a group/route decision,
         module docstring's donor divergence), best-effort (a failure never blocks the
         already-decided `escalate` route, mirrors Rafael's `auth_sla`)."""
-        sla_result = await self._evaluate_dmn(DMN_SLA, {"tipo_plano": str(state.get("tipo_plano", ""))})
+        sla_result = await self._evaluate_dmn(DMN_SLA, {"tipo_plano": _tipo_plano(state)})
         sla_analise = sla_alerta = fonte_sla = ""
         if not sla_result.get("error"):
             dmn_refs[DMN_SLA] = sla_result["ref"]
@@ -783,7 +928,7 @@ class FernandoGraph:
         status_validated = status_raw if status_raw in _STATUS_ALLOW else None
         facts: dict[str, Any] = {
             "numero_contrato": state.get("numero_contrato"),
-            "tipo_plano": state.get("tipo_plano"),
+            "tipo_plano": _tipo_plano(state) or None,
             "competencias_em_aberto": state.get("competencias_em_aberto", []),
             "status_inadimplencia": status_validated,
             "dentro_janela_purga": state.get("dentro_janela_purga"),
@@ -839,7 +984,7 @@ class FernandoGraph:
         facts: dict[str, Any] = {
             "intencao": intencao_validated,
             "numero_contrato": state.get("numero_contrato"),
-            "tipo_plano": state.get("tipo_plano"),
+            "tipo_plano": _tipo_plano(state) or None,
             "competencias_em_aberto": state.get("competencias_em_aberto", []),
             "meses_inadimplencia": state.get("meses_inadimplencia"),
             "valor_total_devido_cents": state.get("valor_total_devido_cents"),
@@ -896,9 +1041,12 @@ class FernandoGraph:
             "numero_contrato": state.get("numero_contrato", "") or state.get("matricula_beneficiario", ""),
             "matricula_beneficiario": state.get("matricula_beneficiario", ""),
             "beneficiario_pseudo_id": state.get("beneficiario_pseudo_id", ""),
-            "tipo_plano": state.get("tipo_plano", ""),
-            "origem_solicitacao": state.get("origem_solicitacao") or "agente_fernando",
-            "canal": state.get("canal", "whatsapp"),
+            "tipo_plano": _tipo_plano(state),
+            # FER-10: sem literal fabricado. O silencio do chamador e uma declaracao explicita de
+            # `agente_fernando` eram indistinguiveis nesta variavel; a ausencia agora viaja como
+            # string vazia (o tipo declarado no contrato), que e' o fato verdadeiro.
+            "origem_solicitacao": str(state.get("origem_solicitacao") or ""),
+            "canal": _canal(state),
             "motivo_categoria": state.get("motivo_categoria", "inadimplencia"),
             "competencias_em_aberto": state.get("competencias_em_aberto", []),
             "meses_inadimplencia": int(state.get("meses_inadimplencia", 0) or 0),
