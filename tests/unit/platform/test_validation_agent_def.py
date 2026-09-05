@@ -156,9 +156,7 @@ class TestA2AHandlerDisclosure:
 
     def test_a2a_block_without_handler_status_fails(self, tmp_path: Path) -> None:
         content = VALID_AGENT_YAML + (
-            "a2a:\n"
-            "  accepted_task_types: []\n"
-            "  queue_ref: agents.tasks.test-agent\n"
+            "a2a:\n  accepted_task_types: []\n  queue_ref: agents.tasks.test-agent\n"
         )
         path = _agent_file(tmp_path, content)
         report = Report()
@@ -244,9 +242,7 @@ class TestA2AHandlerDisclosure:
         report = Report()
         validate_file(path, frozenset({"dmn", "memory"}), report)
         assert not report.ok
-        assert any(
-            "handler_symbol must be" in f.message for f in report.findings
-        )
+        assert any("handler_symbol must be" in f.message for f in report.findings)
 
     def test_handler_symbol_that_does_not_resolve_fails(self, tmp_path: Path) -> None:
         content = VALID_AGENT_YAML.replace("id: test-agent", "id: rafael") + (

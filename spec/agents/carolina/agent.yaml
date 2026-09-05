@@ -70,3 +70,5 @@ a2a:
   accepted_task_types:
     - credentialing.analyze                   # SP-OP-CRED-001 delega a analise de (des)credenciamento
   queue_ref: agents.tasks.carolina
+  handler_status: registrado   # handler REGISTRADO no composition root (a2a_composition.py)
+  handler_symbol: maezo.agents.carolina.delegation::make_carolina_handler

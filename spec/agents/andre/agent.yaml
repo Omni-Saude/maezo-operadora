@@ -115,10 +115,10 @@ memory:
   semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
 # A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Andre e ALVO de delegacao: o worker
 # `operadora.pagto.prepare_approval_dossier` de SP-OP-PAGTO-001 delega `analytics.actuarial`/
-# `analytics.population` a ele (enriquece o dossie de risco). `accepted_task_types` declara o
-# contrato de delegacao (o dispatcher rejeita task_type fora desta lista — espelha AUTH->Rafael).
-# A montagem do inbound handler A2A (delegation.py) e GATED em W-R2/R9 (NAO autorada aqui — so a
-# metadata declarativa do contrato).
+# `analytics.population` a ele (enriquece o dossie de risco); o handler inbound
+# `agents/andre/delegation.py::make_andre_handler` EXISTE e esta REGISTRADO no composition root
+# (`runtime/agent_runtime/a2a_composition.py`, `handlers={"andre": andre_handler, ...}`) — ver
+# `a2a.handler_status` abaixo (CC-02: campo estruturado, nao mais so prosa).
 a2a:
   capabilities:
     - population_analytics                 # analytics populacional sobre agregados k-anon (coortes)
@@ -130,3 +130,5 @@ a2a:
     - analytics.population                 # PAGTO (prepare_approval_dossier) delega o enriquecimento populacional
     - analytics.actuarial                  # PAGTO (prepare_approval_dossier) delega o enriquecimento atuarial
   queue_ref: agents.tasks.andre
+  handler_status: registrado   # handler REGISTRADO no composition root (a2a_composition.py)
+  handler_symbol: maezo.agents.andre.delegation::make_andre_handler

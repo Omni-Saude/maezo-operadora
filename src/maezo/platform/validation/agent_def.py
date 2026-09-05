@@ -31,11 +31,27 @@ values) is intentionally skipped by `validate_dir` — it is not a real agent, a
 its `SP-OP-<AGENT>-001` token is a placeholder BY DESIGN. The derived agent is
 covered instead: an UNSUBSTITUTED placeholder in any non-template `agent.yaml`
 gets its own explicit error, so the skip can never be inherited by accident.
+
+Since WP A2A-YAML-DISCLOSURE (CC-02 residual / NEW-B2 / NEW-B3 / NEW-B4) it ALSO enforces the
+SHAPE of `a2a.handler_status`: five `agent.yaml` files described the A2A inbound-handler state
+only as free-text prose above the `a2a:` block — some of it stale (denying a handler that had
+since been built and wired), some of it simply absent — and no gate ever read a code comment.
+A non-empty `a2a:` block must now carry `handler_status` from a closed vocabulary (`registrado` /
+`pronto_sem_registro` / `ausente`), and, whenever a handler is disclosed to exist, the exact
+`<module>::make_<id>_handler` symbol, which this validator resolves via `importlib` the same way
+it already resolves `tools` entries against real `mcp_<server>/` directories. This validator only
+enforces that SHAPE (closed vocabulary + self-consistent symbol); the deeper cross-check — that
+the declared value actually matches `agents/<id>/delegation.py` and the composition root's live
+registration — is `tests/unit/a2a/test_agent_card_handlers_parity.py`'s job, the same division of
+labor this module already draws between "the process key has a contract" (here) and "the DMN
+actually reaches it at runtime" (the effect PEP).
 """
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -55,6 +71,14 @@ _CONTRACTS_SUBPATH = ("docs", "processes", "contracts")
 #: An `agent.yaml` derived from `_template` that forgot to substitute the token. Reported with
 #: its OWN message rather than the generic "no such contract" one, because the fix is different.
 _PLACEHOLDER_MARKERS = ("<", ">")
+
+#: The closed vocabulary CC-02's structured `a2a.handler_status` field is allowed to take
+#: (WP A2A-YAML-DISCLOSURE). pt-BR tokens, matching the rest of this repo's spec vocabulary
+#: (`triggers`, `dmn` outcomes, ...): `registrado` (a `make_<id>_handler` exists AND is a key of
+#: a `handlers={...}` registration in `runtime.agent_runtime.a2a_composition`), `pronto_sem_registro`
+#: (the handler exists but no composition root registers it — an OWNER decision, never a code
+#: bug), `ausente` (no importable `make_<id>_handler` at all).
+_HANDLER_STATUS_VALUES = frozenset({"registrado", "pronto_sem_registro", "ausente"})
 
 
 def default_contracts_root() -> Path:
@@ -119,6 +143,69 @@ def _validate_process_key(
         )
 
 
+def _validate_a2a_handler_disclosure(path: Path, agent_id: str, a2a: dict[str, Any], report: Report) -> None:
+    """CC-02/NEW-B2/NEW-B3/NEW-B4: `a2a.handler_status` must be a closed-vocabulary, self-
+    consistent structured field rather than the free-text prose that used to deny, omit, or go
+    stale on this exact fact. A non-empty `a2a:` block is REQUIRED to carry it; an agent that
+    declares no `a2a:` block at all has nothing to disclose (this function is a no-op then).
+
+    Only the SHAPE is enforced here (closed vocabulary, `handler_symbol` present iff a handler is
+    disclosed, and the symbol names THIS agent's own module/factory pair). Whether the disclosed
+    value matches the real `agents/<id>/delegation.py` + composition-root registration state is
+    the parity fence's job (`tests/unit/a2a/test_agent_card_handlers_parity.py`), the same way
+    `_validate_process_key` below checks a key has a contract without re-deriving whether the DMN
+    that guards it is reachable.
+    """
+    if not a2a:
+        return
+    status = a2a.get("handler_status")
+    if status not in _HANDLER_STATUS_VALUES:
+        report.error(
+            path,
+            f"a2a.handler_status must be one of {sorted(_HANDLER_STATUS_VALUES)}, got {status!r} "
+            "(CC-02: the A2A inbound-handler state must be a machine-checked field, not prose)",
+        )
+        return
+
+    symbol = a2a.get("handler_symbol")
+    if status == "ausente":
+        if symbol:
+            report.error(
+                path,
+                f"a2a.handler_status is 'ausente' but a2a.handler_symbol={symbol!r} is also set — "
+                "an absent handler cannot also name one (claim-and-deny contradiction)",
+            )
+        return
+
+    # registrado | pronto_sem_registro: a handler is disclosed to exist, so it must be named,
+    # named correctly (THIS agent's own delegation module/factory — copy-paste from another
+    # agent's block would otherwise pass silently), and actually resolve.
+    if not symbol:
+        report.error(
+            path,
+            f"a2a.handler_status is {status!r} but a2a.handler_symbol is missing — name the "
+            f"`<module>::make_{agent_id}_handler` this status is disclosing",
+        )
+        return
+
+    expected_symbol = f"maezo.agents.{agent_id}.delegation::make_{agent_id}_handler"
+    if symbol != expected_symbol:
+        report.error(
+            path,
+            f"a2a.handler_symbol must be {expected_symbol!r} for agent {agent_id!r}, got {symbol!r}",
+        )
+        return
+
+    module_name, _, attr_name = str(symbol).partition("::")
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as exc:
+        report.error(path, f"a2a.handler_symbol {symbol!r} names a module that does not import: {exc}")
+        return
+    if not callable(getattr(module, attr_name, None)):
+        report.error(path, f"a2a.handler_symbol {symbol!r} does not resolve to a callable attribute")
+
+
 def validate_file(
     path: Path,
     mcp_servers: frozenset[str],
@@ -167,6 +254,8 @@ def validate_file(
     escalation_process = definition.escalation.get("process")
     if isinstance(escalation_process, str) and escalation_process:
         _validate_process_key(path, escalation_process, "escalation.process", keys, report)
+
+    _validate_a2a_handler_disclosure(path, definition.id, definition.a2a, report)
 
 
 def validate_dir(
