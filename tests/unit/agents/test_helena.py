@@ -974,3 +974,169 @@ async def test_full_turn_missing_runtime_context_still_ends_in_human_handoff() -
 
     assert result["next_kind"] == "escalate"
     assert result["escalation_motivo"] == "falha_tecnica"
+
+
+# ---------------------------------------------------------------------------
+# CC-06 / HEL-05 — the free-text chain into `resumo_contexto`, at BOTH ends
+# ---------------------------------------------------------------------------
+
+
+def _neutralize_start_chokepoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Turn the SHARED chokepoint scrub into the identity function for the duration of one test.
+
+    CC-06 §Delta (REVISE-2). Helena scrubs `resumo_contexto` TWICE by design: once at the
+    PRODUCER (`_start_escalation`, defense in depth) and once at the shared chokepoint
+    (`start_process_idempotent` -> `redact_start_variables`). Both these regressions observe the
+    variables dict handed to `start_process_instance`, which is DOWNSTREAM of both — so with the
+    chokepoint live they pass even when the producer's own scrub is deleted (proven by the
+    verifier: removing `redact_free_text` from `_start_escalation` left the whole lane green).
+    Neutralizing the chokepoint here is what makes these tests observe the PRODUCER: the only
+    scrub left standing is Helena's own.
+
+    Patched on `maezo.tools.mcp_cibseven.transport`, which is the module where
+    `start_process_idempotent` resolves the name (`transport.py::start_process_idempotent` calls
+    the module-global `redact_start_variables`), NOT on the agent module — Helena never imports
+    it. `dict(...)` (not the input object) so a test can still tell a mutation from a copy.
+    """
+    monkeypatch.setattr(
+        "maezo.tools.mcp_cibseven.transport.redact_start_variables",
+        lambda variables: dict(variables),
+    )
+
+
+async def test_classify_llm_exception_text_never_reaches_engine_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HEL-05 (FEEDER): the inference provider raises, and its exception message echoes the
+    request — which carries the beneficiary's own message body and the CPF they typed into it.
+    That string becomes `state["error"]` (`classify`'s `falha_tecnica` return) and
+    `_start_escalation` appends it to `resumo_contexto` as `[falha tecnica: ...]`, IN THE SAME
+    TURN. Pre-fix, `str(exc)[:200]` bounded its LENGTH and nothing else. Synthetic CPF only.
+
+    CC-06 §Delta: the shared chokepoint is neutralized so this observes the FEEDER
+    (`_classify_llm`'s `redact_error_message`) and the SINK (`_start_escalation`'s suffix), not
+    the chokepoint standing behind them."""
+    _neutralize_start_chokepoint(monkeypatch)
+    cpf = "123.456.789-09"
+
+    class _ExplodingInference:
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            phi: bool = False,
+            agent_id: str | None = None,
+            tenant_id: str | None = None,
+        ) -> str:
+            raise RuntimeError(f"provider 400 on request body: 'meu CPF e {cpf}, quero ajuda'")
+
+    recording: list[dict[str, Any]] = []
+
+    class _RecordingCibSeven(FakeCibSevenTransport):
+        async def start_process_instance(
+            self, process_key: str, business_key: str, variables: dict[str, Any]
+        ) -> ProcessInstance:
+            recording.append(dict(variables))
+            return await super().start_process_instance(process_key, business_key, variables)
+
+    graph = _graph(inference=_ExplodingInference(), cibseven=_RecordingCibSeven()).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(_base_state(message_body=f"meu CPF e {cpf}, quero ajuda"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "falha_tecnica"
+    assert result["escalation_started"] is True
+    # The failure CLASS is still diagnosable by ops — only the identifier is gone.
+    assert "classify LLM call failed" in result["error"]
+    assert "RuntimeError" in result["error"]
+    assert cpf not in result["error"]
+
+    assert recording, "the escalation must have been started"
+    serialized = json.dumps(recording[0], ensure_ascii=False, default=str)
+    for fragment in (cpf, "123.456.789", "456.789-09"):
+        assert fragment not in serialized, (
+            f"engine-bound variables leaked {fragment!r} through the classify failure reason: {serialized}"
+        )
+    resumo = recording[0]["resumo_contexto"]
+    assert "falha tecnica:" in resumo and "[REDACTED_DIGITS]" in resumo
+
+
+async def test_falha_tecnica_suffix_is_redacted_at_the_producer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CC-06 §Delta — the THIRD producer-side scrub, which nothing exercised until now.
+
+    `_start_escalation` appends `[falha tecnica: {redact_error_message(state["error"])}]` to the
+    handoff summary. With the chokepoint neutralized, the verifier-style probe (delete that
+    `redact_error_message` call) left the WHOLE helena lane green: every existing test reaches
+    this suffix through an `error` some OTHER scrub had already cleaned
+    (`_classify_llm`/`respond`/`_evaluate_dmn` all call `redact_error_message` at their own
+    write site), so the suffix's own net was structurally unobservable.
+
+    `error` is CHECKPOINTED state (`HelenaState`, T4b live dispatch): it is read back on a LATER
+    turn than the one that wrote it, and the writer is not necessarily the code shipping today.
+    So it is fed here the way a checkpointer would hand it over — raw — which is precisely the
+    case this scrub exists for. Synthetic identifiers only."""
+    _neutralize_start_chokepoint(monkeypatch)
+    cpf = "123.456.789-09"
+    phone = "(11) 98765-4321"
+    recording: list[dict[str, Any]] = []
+
+    class _RecordingCibSeven(FakeCibSevenTransport):
+        async def start_process_instance(
+            self, process_key: str, business_key: str, variables: dict[str, Any]
+        ) -> ProcessInstance:
+            recording.append(dict(variables))
+            return await super().start_process_instance(process_key, business_key, variables)
+
+    inference = _FakeInference(["Resumo do atendimento.", "Um atendente humano vai continuar."])
+    graph = _graph(inference=inference, cibseven=_RecordingCibSeven())
+
+    # No `escalation_motivo` -> `escalate` derives `falha_tecnica` from the presence of `error`.
+    await graph.escalate(_base_state(error=f"start_process indisponivel: CPF {cpf} fone {phone}"))
+
+    assert recording
+    resumo = recording[0]["resumo_contexto"]
+    assert "falha tecnica:" in resumo, "ops must still see WHY the automated turn failed"
+    for fragment in (cpf, phone, "123.456.789", "98765-4321"):
+        assert fragment not in resumo, f"the falha-tecnica suffix leaked {fragment!r}: {resumo!r}"
+    assert "[REDACTED_DIGITS]" in resumo and "[REDACTED_PHONE]" in resumo
+
+
+async def test_resumo_contexto_identifiers_are_scrubbed_at_the_producer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HEL-05 (SINK): Helena is the direct producer of the contractual `resumo_contexto`, so the
+    identifier net is applied at `_start_escalation` too, not only at the shared chokepoint. The
+    summary SENTENCE must survive — SP-OP-ESCALATION-001 requires it pseudonimizado, not absent.
+
+    CC-06 §Delta: the shared chokepoint is neutralized (`_neutralize_start_chokepoint`) so the
+    only scrub between the LLM draft and the recorded variables is Helena's OWN — without that,
+    deleting `redact_free_text` from `_start_escalation` left this test green (verifier probe
+    (v)), i.e. it proved the chokepoint, not the producer it names."""
+    _neutralize_start_chokepoint(monkeypatch)
+    recording: list[dict[str, Any]] = []
+
+    class _RecordingCibSeven(FakeCibSevenTransport):
+        async def start_process_instance(
+            self, process_key: str, business_key: str, variables: dict[str, Any]
+        ) -> ProcessInstance:
+            recording.append(dict(variables))
+            return await super().start_process_instance(process_key, business_key, variables)
+
+    inference = _FakeInference(
+        [
+            "Beneficiario quer atendente; informou CPF 123.456.789-09 e fone (11) 98765-4321.",
+            "Um atendente humano vai continuar.",
+        ]
+    )
+    graph = _graph(inference=inference, cibseven=_RecordingCibSeven())
+
+    await graph.escalate(_base_state(escalation_motivo="solicitacao_humano", escalation_severidade="leve"))
+
+    assert recording
+    resumo = recording[0]["resumo_contexto"]
+    assert "123.456.789-09" not in resumo and "98765-4321" not in resumo
+    assert "[REDACTED_DIGITS]" in resumo and "[REDACTED_PHONE]" in resumo
+    assert "Beneficiario quer atendente" in resumo
