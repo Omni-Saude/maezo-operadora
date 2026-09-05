@@ -297,4 +297,7 @@ juridico/regulatorio + financas** que preenche `ratificado` / `revisor` / `ratif
 **binding sha256** dos bytes de cada tabela em disco, de modo que a assinatura cubra o texto lido
 e nao apenas um nome de arquivo. Os tres campos de ratificacao aparecem **vazios**: preenche-los e
 ato exclusivo dos signatarios. Enquanto `ratificado: false`, os criterios tecnico, regulatorio e
-contratual avaliam FALSE e — com o teto financeiro em 0 — **nada auto-aprova**.
+contratual avaliam FALSE via `auth.py::_gate_on_ratification` — o unico cadeado hoje, ja que
+`spec/policies/autonomy/tenants-amh.yaml` fixa `authorization_approval.max_value_brl = 500`
+(D-07 FECHADA em 25/08/2026) e o criterio financeiro ja pode passar sozinho; por isso **nada
+auto-aprova ainda**, mas por fonte nao ratificada, nao por teto zerado.

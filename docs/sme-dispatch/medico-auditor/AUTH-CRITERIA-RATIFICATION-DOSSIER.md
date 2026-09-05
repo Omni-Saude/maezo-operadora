@@ -16,9 +16,15 @@ deixar a contratual pendente) e a transformou num **ato unico datado**, com este
 
 > **O desfecho de hoje, sem exagero.** Enquanto `ratificado: false`, os criterios tecnico,
 > regulatorio e contratual avaliam **FALSE** com `*_FONTE_NAO_RATIFICADA`, independentemente do
-> que a tabela computa — e, com o teto financeiro em `0` (decisao D-07 em aberto), **NADA
-> auto-aprova**: toda solicitacao de autorizacao vai a revisao humana. Ratificar nao "corrige"
-> um erro: ela **abre** um caminho automatico que hoje esta fechado.
+> que a tabela computa — e esse e **o unico cadeado hoje, nao dois**: o teto financeiro de
+> `authorization_approval` **ja esta fechado em R$500** (`spec/policies/autonomy/tenants-amh.yaml`,
+> decisao **D-07 FECHADA em 25/08/2026**), e `auth.py::_criterio_financeiro` ja devolve `ok=True`
+> para um pedido precificado ate esse teto. Por isso **NADA auto-aprova ainda**: toda solicitacao
+> de autorizacao vai a revisao humana, mas por falta de fonte ratificada — nao por teto zerado.
+> Ratificar as fontes que um criterio consulta **abre**, sozinha e sem mudanca de codigo, a
+> aprovacao automatica desse criterio ate R$500 (`auth.py::_gate_on_ratification`, gate
+> conjuntivo: `all(sources.is_ratified(k) for k in consulted)`) — um caminho automatico que hoje
+> esta fechado.
 
 > **PHI.** Este documento nao contem dado de paciente. O conteudo citado das tabelas e **texto
 > de politica** (limiares, categorias, prazos), nao dado clinico de individuo.
@@ -216,10 +222,14 @@ tabelas consultadas por um criterio estejam ratificadas
 `[dut_rol_coverage]` mais a `dut_criteria_*` mapeada quando `requer_dut=true`. Consequencia
 pratica: **ratificar as 4 tabelas clinicas sem `dut_rol_coverage` nao muda absolutamente nada**.
 
-**4. Ratificar NAO abre aprovacao automatica sozinho.** Restam, fora do alcance desta assinatura:
-(a) o teto financeiro `authorization_approval.max_value_brl = 0` (decisao **D-07**, de financas —
-com teto 0, `within_l2_ceiling` nao autoriza nada, e o criterio financeiro **nao** e governado por
-este manifesto); (b) as entradas de `carencia_check` (`tipo_procedimento`, `dias_desde_adesao`,
+**4. Ratificar NAO abre aprovacao automatica sozinho — mas o criterio financeiro ja e diferente.**
+Ao contrario do que uma leitura antiga sugeria, o teto financeiro **nao** esta zerado hoje:
+`authorization_approval.max_value_brl = 500` (`spec/policies/autonomy/tenants-amh.yaml`, decisao
+**D-07 FECHADA em 25/08/2026**), e `auth.py::_criterio_financeiro` ja devolve `ok=True` para
+pedido precificado ate esse teto — esse criterio **nao e governado por este manifesto** (nao ha
+tabela DMN de teto a ratificar aqui). Restam, fora do alcance desta assinatura: (a) o teto
+`reembolso_auto_approval.max_value_brl = 0`, com D-07 **ainda em aberto** para essa outra acao
+(nao afeta AUTH); (b) as entradas de `carencia_check` (`tipo_procedimento`, `dias_desde_adesao`,
 `cpt_declarada`), que **nao existem** no contrato de start e sao dado cadastral da fronteira AMH
 (MZO-050b, bloqueado); (c) a politica de **combinacao** da `auth_auto_approval.dmn` v0.2.0 —
 notadamente que `carater_atendimento` e *don't-care* na regra `r1`, de modo que uma urgencia

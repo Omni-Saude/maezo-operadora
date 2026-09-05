@@ -33,9 +33,22 @@ tabela nao possa apodrecer em silencio quando os artefatos se moverem.
 ## 0. Como ler a tabela (e o que o estado atual do repositorio ja fez)
 
 A coluna **elemento anterior** e o lexico da versao doada (perspectiva do **prestador**), tal
-como levantado em `PERSPECTIVE-MATRIX.md` §2.1/§2.4 e §5.1 e re-derivado em ADR-0040 §Contexto.
-A coluna **termo do pagador PROPOSTO** e a substituicao proposta — e, **no estado atual do
-repositorio, ja e o que os artefatos dizem**: o redesenho de CONTAS/RECURSO ja esta em `main`.
+como levantado em `PERSPECTIVE-MATRIX.md` §2.1/§2.4 e §5.1 *(fonte gitignored, ver disclosure
+abaixo)* e re-derivado em ADR-0040 §Contexto. A coluna **termo do pagador PROPOSTO** e a
+substituicao proposta — e, **no estado atual do repositorio, ja e o que os artefatos dizem**: o
+redesenho de CONTAS/RECURSO ja esta em `main`.
+
+> **Disclosure — `PERSPECTIVE-MATRIX.md` nao faz parte do repositorio nem desta PR.** O arquivo
+> vive em `docs/audits/maezo-deep-audit/remediation/PERSPECTIVE-MATRIX.md`, esta em
+> `.gitignore` e e editado ao vivo por sessoes irmas — `git ls-files` nao o lista. As quatro
+> referencias a ele neste documento (aqui, e nas secoes 1, 2 e 4) sao, portanto, de segunda mao e
+> nao reproduziveis a partir do clone: a coluna **elemento anterior** herda dele a contagem e a
+> descricao do lexico doado. Para tornar essa dependencia auditavel sem versionar um arquivo
+> vivo, esta entrega tirou um snapshot no momento da preparacao — sha256
+> `6c3afd0a2673b82beeb12704c86686368e6120239be930c3f3ef3dadca6ac7e4`, 1139 linhas, 2026-09-04 —
+> e confirmou que o arquivo ao vivo ainda bate byte-a-byte com esse snapshot. Cada
+> `arquivo:linha` das tabelas abaixo, ao contrario, aponta para um artefato **rastreado** no
+> repositorio e resolve independentemente desta fonte.
 
 Isso **nao** ratifica nada, e a distincao e o ponto central desta pauta:
 
@@ -76,8 +89,8 @@ token — a supressao e verificavel ali, e nao numa ausencia.
 
 ## 1. SP-OP-CONTAS-001 — 12 elementos
 
-Inventario de origem: `PERSPECTIVE-MATRIX.md` §5.1 ("CONTAS-001 (A §3-bis)"), que enumera 12
-itens — os 11 da lista original mais `ST_RegisterGlosaAccept`, adicao do verificador adversarial
+Inventario de origem: `PERSPECTIVE-MATRIX.md` §5.1 ("CONTAS-001 (A §3-bis)") *(fonte gitignored,
+ver §0)*, que enumera 12 itens — os 11 da lista original mais `ST_RegisterGlosaAccept`, adicao do verificador adversarial
 (era o **unico** elemento de efeito adverso L0 do processo e estava ausente da matriz original).
 
 | # | Elemento anterior (perspectiva prestador) | Verbo/termo do pagador **PROPOSTO** | Razao — teste de perspectiva (ADR-0040 D2) | `arquivo:linha` | Status |
@@ -97,8 +110,8 @@ itens — os 11 da lista original mais `ST_RegisterGlosaAccept`, adicao do verif
 
 ## 2. SP-OP-RECURSO-001 — 26 elementos
 
-Inventario de origem: `PERSPECTIVE-MATRIX.md` §5.1 ("RECURSO-001 (A §3-bis)"), descrito no
-registro de gaps como "~25 elementos + KPI + prompts + 6 nomes de teste". A enumeracao explicita
+Inventario de origem: `PERSPECTIVE-MATRIX.md` §5.1 ("RECURSO-001 (A §3-bis)") *(fonte gitignored,
+ver §0)*, descrito no registro de gaps como "~25 elementos + KPI + prompts + 6 nomes de teste". A enumeracao explicita
 abaixo fecha em **26 linhas** (a diferenca e de agrupamento: R21 reune os dois campos obrigatorios
 `justificativa_desistencia`/`valor_glosa_aceito` e R26 reune KPI + prompts do agente Marina). Os
 **6 nomes de teste** estao em §4, fora da numeracao, por serem consequencia e nao decisao.
@@ -168,7 +181,7 @@ pacote **nao cria, nao pre-preenche e nao infere** nenhum arquivo de signoff.
 ## 4. Consequencias que a ratificacao arrasta (nao sao itens de decisao)
 
 **Nomes de teste** que carregavam o lexico do recorrente e ja foram reescritos junto com a cadeia
-(`PERSPECTIVE-MATRIX.md` §5.1 lista os 6 originais):
+(`PERSPECTIVE-MATRIX.md` §5.1 *(fonte gitignored, ver §0)* lista os 6 originais):
 `test_happy_path_recurso_indeferido_pela_operadora`, `test_happy_path_nao_recorrer_humano`,
 `test_happy_path_recorrer_e_deferido`, `test_nao_recorrer_exige_campos_obrigatorios`,
 `test_worker_guard_register_desistencia_*` e `test_coordenacao_assume_e_mantem_glosa_humano`.

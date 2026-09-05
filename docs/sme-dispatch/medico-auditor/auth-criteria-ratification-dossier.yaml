@@ -5,8 +5,14 @@
 #
 # NENHUM AGENTE PREENCHE `ratificado`, `revisor` OU `ratificado_em` EM
 # spec/processes/dmn/auth-criteria-ratification.yaml (CODEOWNED). Enquanto `ratificado: false`,
-# os criterios tecnico/regulatorio/contratual avaliam FALSE e — com o teto financeiro em 0 —
-# NADA auto-aprova: toda solicitacao vai a revisao humana.
+# os criterios tecnico/regulatorio/contratual avaliam FALSE via `auth.py::_gate_on_ratification`
+# — HOJE ESSE E O UNICO CADEADO, e nao dois: `spec/policies/autonomy/tenants-amh.yaml` fixa
+# `authorization_approval.max_value_brl = 500` (D-07 FECHADA em 25/08/2026), e
+# `auth.py::_criterio_financeiro` ja devolve `ok=True` para pedido precificado ate esse teto.
+# Ratificar as fontes consultadas por um criterio libera, sozinho e sem mudanca de codigo, a
+# aprovacao automatica desse criterio ate o teto de R$500 (gate conjuntivo:
+# `all(sources.is_ratified(k) for k in consulted)`); enquanto qualquer fonte consultada
+# permanecer nao ratificada, NADA auto-aprova. Ver `bloqueio_atual` abaixo.
 #
 # PHI: este dossie nao contem dado de paciente. O conteudo citado e texto de politica.
 origem:
@@ -22,6 +28,19 @@ manifesto:
   codeowned: true
   sha256: "899853c5cc078cf9563287cb02f6ca8b4edb215ca2674acfe28277fd19fc385c"
   fontes_declaradas: 6
+# `bloqueio_atual` e CAMPO ESTRUTURADO, RE-VERIFICADO CONTRA O VALOR AO VIVO de
+# spec/policies/autonomy/tenants-amh.yaml por
+# tests/unit/docs/test_sme_dispatch_dossiers.py::test_the_stated_ceiling_matches_the_live_tenant_policy
+# — se o teto ou o status da D-07 mudarem no arquivo fonte sem este campo ser atualizado, o teste
+# fica RED. `tipo: criterios_nao_ratificados` significa: o cadeado que resta HOJE e a falta de
+# ratificacao das fontes consultadas (`auth.py::_gate_on_ratification`), NAO um teto financeiro
+# zerado — o teto de `authorization_approval` ja esta fechado (D-07) e o criterio financeiro ja
+# passa sozinho para pedidos precificados ate ele.
+bloqueio_atual:
+  tipo: criterios_nao_ratificados
+  teto_financeiro_brl: 500
+  fonte: spec/policies/autonomy/tenants-amh.yaml
+  decisao_d07: FECHADA em 25/08/2026 para authorization_approval
 tabelas:
   - id: dut_rol_coverage
     grupo: "A — tabelas preenchidas, ratificaveis nesta sessao"

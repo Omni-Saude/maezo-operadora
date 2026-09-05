@@ -38,6 +38,7 @@ _VOCAB_MD = _SME_DIR / "regulatorio" / "PAYER-VOCAB-CORRESPONDENCE.md"
 _AUTH_YAML = _SME_DIR / "medico-auditor" / "auth-criteria-ratification-dossier.yaml"
 _AUTH_MD = _SME_DIR / "medico-auditor" / "AUTH-CRITERIA-RATIFICATION-DOSSIER.md"
 _MANIFEST = _REPO_ROOT / "spec" / "processes" / "dmn" / "auth-criteria-ratification.yaml"
+_TENANTS_AMH = _REPO_ROOT / "spec" / "policies" / "autonomy" / "tenants-amh.yaml"
 
 _RATIFICATION_FIELDS = ("ratificado", "revisor", "ratificado_em")
 
@@ -191,10 +192,44 @@ def test_auth_dossier_leaves_all_three_ratification_fields_empty_per_table() -> 
         assert all(ratificacao[field] is None for field in _RATIFICATION_FIELDS), table["id"]
 
 
-def test_auth_dossier_states_that_nothing_auto_approves_while_unratified() -> None:
+def test_the_stated_ceiling_matches_the_live_tenant_policy() -> None:
+    """V1 repair (was `test_auth_dossier_states_that_nothing_auto_approves_while_unratified`,
+    a substring-only guard on the very sentence the verifier found stale). The dossier used to
+    hardcode "com o teto financeiro em 0" in four places; that went false the day D-07 closed for
+    `authorization_approval` (`tenants-amh.yaml` set it to R$500 on 2026-08-25) while the prose
+    kept quoting the old zero. Instead of matching a substring, this reads the YAML twin's
+    structured `bloqueio_atual` field and checks it against the LIVE `authorization_approval.
+    max_value_brl` in `tenants-amh.yaml` AT TEST TIME — so the dossier goes RED the moment the
+    ceiling (or which lock is load-bearing) changes without the prose being updated to match."""
+    tenants = yaml.safe_load(_TENANTS_AMH.read_text(encoding="utf-8"))
+    live_teto = tenants["overrides"]["authorization_approval"]["params"]["max_value_brl"]
+
+    data = _load(_AUTH_YAML)
+    bloqueio = data["bloqueio_atual"]
+    assert bloqueio["fonte"] == "spec/policies/autonomy/tenants-amh.yaml"
+    assert bloqueio["teto_financeiro_brl"] == live_teto, (
+        f"dossier declares teto_financeiro_brl={bloqueio['teto_financeiro_brl']} but the live "
+        f"tenants-amh.yaml says max_value_brl={live_teto} -- the dossier prose (V1 in the "
+        "verify report) and `bloqueio_atual` must be updated together"
+    )
+    # Today the financial criterion is NOT the lock (the ceiling is closed and positive): what
+    # still gates AUTH is exactly the unratified sources this dossier prepares. If the tenant
+    # ceiling ever drops back to 0, the financial criterion becomes the (additional) lock again
+    # and this field must say so -- this assertion is what makes that drift loud.
+    if live_teto > 0:
+        assert bloqueio["tipo"] == "criterios_nao_ratificados", bloqueio
+
     md = _AUTH_MD.read_text(encoding="utf-8")
-    assert "NADA" in md and "auto-aprova" in md
     assert "`*_FONTE_NAO_RATIFICADA`" in md
+    assert f"max_value_brl = {live_teto}" in md, (
+        f"AUTH-CRITERIA-RATIFICATION-DOSSIER.md does not state the live ceiling ({live_teto}) "
+        "in those words -- it likely still quotes a stale value"
+    )
+    # The old unconditional claim must not survive as an unqualified assertion: it is only true
+    # while the financial criterion is NOT the lock (i.e. while the tenant ceiling is positive).
+    if live_teto > 0:
+        assert "com o teto financeiro em `0`" not in md
+        assert "com o teto financeiro em 0" not in md
 
 
 def test_the_codeowned_manifest_is_still_completely_unratified() -> None:
