@@ -27,11 +27,19 @@ class AgentRuntimeSettings(BaseSettings):
     superset Helm already injects (identity, dependency URLs, LLM keys) so the daemon can run
     its three readiness checks (config/policies/inference) honestly.
 
-    EXCECAO, e ela e' opt-in: com `MAEZO_AGENT_INGRESS_ENABLED=1` o daemon monta a rota de
-    ingresso (`agent_runtime/ingress.py`) e passa a EXECUTAR turnos. Medido em 19/08/2026, o
+    EXCECAO, e ela e' opt-in: com `MAEZO_AGENT_INGRESS_ENABLED=1` o daemon TENTA montar a rota
+    de ingresso (`agent_runtime/ingress.py`) e passar a EXECUTAR turnos. Medido em 19/08/2026, o
     motivo pelo qual isso precisou existir: `Harness.invoke` era chamado em exatamente dois
     lugares no repo — um exemplo de docstring e um teste unitario — e o `llm_token_usage` era
     zero em todos os log groups. O agente nao estava quebrado; nao havia por onde chama-lo.
+
+    A flag e' NECESSARIA mas NAO SUFICIENTE (NEW-02, corrigido em 05/09/2026): a rota so' e'
+    montada quando ESTE `agent_id` declara `ingress:` no seu `spec/agents/<id>/agent.yaml` e
+    tem entrada em `agent_runtime/ingress.py::INGRESS_BY_AGENT` — hoje, so' o rafael. Ligar a
+    flag para qualquer outro `agent_id` nao monta rota alguma: a montagem e' RECUSADA por
+    `agent_runtime/ingress.py::require_ingress_spec_or_fail_closed` (erro tipado
+    `IngressNotDeclaredForAgentError`, dois logs de nivel error), e a replica segue viva sem
+    executar turnos — fail-closed da CAPACIDADE, e nao um CrashLoop do pod.
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
@@ -53,10 +61,13 @@ class AgentRuntimeSettings(BaseSettings):
     # NOTE: the value is deliberately NOT stripped/normalized — `" local "` and `"Local"` must keep
     # failing closed to production (pinned in `tests/unit/a2a/attacks/test_idempotency_fail_open_attack.py`).
     agent_runtime_mode: str = Field(default="production", alias="AGENT_RUNTIME_MODE")
-    # Liga a rota de ingresso que EXECUTA turnos (`agent_runtime/ingress.py`). Default FALSE:
-    # um daemon que aceita trabalho por omissao e' um daemon que comeca a gastar modelo e a
-    # iniciar processo no motor sem ninguem ter decidido isso. Hoje so' o rafael recebe `1`
-    # (o contrato do corpo do POST e' o `RafaelState`).
+    # Liga a TENTATIVA de montar a rota de ingresso que EXECUTA turnos
+    # (`agent_runtime/ingress.py`). Default FALSE: um daemon que aceita trabalho por omissao e'
+    # um daemon que comeca a gastar modelo e a iniciar processo no motor sem ninguem ter
+    # decidido isso. NEW-02: a flag sozinha NAO monta mais nada — so' monta para o `agent_id`
+    # que declarar `ingress:` no proprio `agent.yaml` (hoje, so' o rafael, contrato
+    # `RafaelState`; ver `ingress.py::INGRESS_BY_AGENT`). Qualquer outro `agent_id` com a flag
+    # ligada e' RECUSADO, nao ignorado silenciosamente.
     agent_ingress_enabled: bool = Field(default=False, alias="MAEZO_AGENT_INGRESS_ENABLED")
     # Effective (merged) Agent Definition mounted from the per-agent ConfigMap (K8s). None in
     # local dev -> the service resolves `spec/agents/<agent_id>/agent.yaml` instead (T0.3).
