@@ -296,20 +296,70 @@ def test_af02_the_two_drivers_the_adr_is_about_are_gone() -> None:
         assert _src_and_spec_hits(symbol) == [], f"{symbol} reappeared; ADR-0041 §1 is stale"
 
 
-def test_af02_all_four_false_landing_documents_are_named_and_two_carry_an_errata() -> None:
-    """§1(e) inventories FOUR documents. Two got an errata; the other two must at least be LISTED."""
+#: §1(e)'s inventory: the residue document -> the errata heading that corrects it, in the document's
+#: OWN file (append-only: the false claim itself always stays, so the reader sees claim AND
+#: correction). The first two were written 2026-09-03 with ADR-0041 itself; the last two were the
+#: `PENDENTE` half of the table, closed 2026-09-05 by gap AF-02 of the round-5 batch. They are one
+#: dict, not two loops, because "corrected" is now the SAME contract for all four.
+#: `relative -> (errata heading, does this document claim the PR #181 LANDING?)`. The flag is not a
+#: convenience: three of the four assert the slice landed as PR #181 and their errata must therefore
+#: name the real `03c6437`; the fourth (`audit-emit-path-wiring.md`) makes a different false claim —
+#: that `PostgresDedupeStore` is an EXISTING house pattern to reuse — and naming a PR there would be
+#: noise. The flag is cross-checked against the file's own text below, so it cannot drift into a
+#: silently skipped assertion.
+_AF02_RESIDUE_ERRATA: dict[str, tuple[str, bool]] = {
+    "docs/archive/predeploy-dl-rows-STAGED.md": ("## ERRATA 2026-09-03", True),
+    "docs/reports/predeploy-audit-report.md": ("## ERRATA 2026-09-03", True),
+    "docs/archive/HANDOFF-predeploy.yaml": ("errata_2026_09_05_af02:", True),
+    "docs/design/audit-emit-path-wiring.md": ("## ERRATA 2026-09-05", False),
+}
+
+
+def test_af02_all_four_false_landing_documents_are_named_and_carry_an_errata() -> None:
+    """§1(e) inventories FOUR documents; since 2026-09-05 ALL FOUR carry an errata.
+
+    Two halves, and both must hold at once. (a) The residue itself SURVIVES — these are
+    historical records, and deleting the false claim would erase the evidence that it was made
+    (and would move the audit's line anchors into these files). (b) The correction of record sits
+    in the same file, so a reader who never reaches ADR-0041 still cannot be misled.
+
+    Reverting either half goes RED: drop an errata and the file is a bare false claim again; delete
+    the claim and the append-only rule was broken.
+    """
     adr = _adr0041()
-    for relative in ("docs/archive/predeploy-dl-rows-STAGED.md", "docs/reports/predeploy-audit-report.md"):
+    for relative, (errata_marker, claims_the_181_landing) in _AF02_RESIDUE_ERRATA.items():
         text = _read(_REPO_ROOT / relative)
-        assert "PR #181" in text, f"{relative}: the corrected claim itself must remain (append-only)"
-        assert "## ERRATA 2026-09-03" in text, f"{relative}: false-landing claim carries no errata"
-        assert "03c6437" in text, f"{relative}: errata must name the real PR #181 commit"
-        assert relative in adr, f"{relative} is not named in {_ADR_0041} §1(e)"
-    for relative in ("docs/archive/HANDOFF-predeploy.yaml", "docs/design/audit-emit-path-wiring.md"):
-        assert "PostgresDedupeStore" in _read(_REPO_ROOT / relative), (
-            f"{relative} no longer carries the residue; drop it from ADR-0041 §1(e) in the same change"
+        assert "PostgresDedupeStore" in text, (
+            f"{relative} no longer carries the residue; these files are append-only historical "
+            f"records — drop it from ADR-0041 §1(e) in the same change if that was deliberate"
         )
-        assert relative in adr, f"{relative} carries the residue but is not listed in {_ADR_0041} §1(e)"
+        assert errata_marker in text, (
+            f"{relative}: false-landing claim carries no errata ({errata_marker!r} missing)"
+        )
+        assert ("#181" in text) is claims_the_181_landing, (
+            f"{relative}: the table above says claims_the_181_landing={claims_the_181_landing}, "
+            "the file disagrees — update the table in the same change"
+        )
+        if claims_the_181_landing:
+            assert "03c6437" in text, f"{relative}: errata must name the real PR #181 commit"
+        assert relative in adr, f"{relative} is not named in {_ADR_0041} §1(e)"
+
+
+def test_af02_the_2026_09_03_erratas_do_not_point_at_a_section_that_no_longer_exists() -> None:
+    """The dangling pointer gap AF-02 (round 5) found: both 2026-09-03 erratas closed with
+    "Registro completo: `docs/adr/0024-*.md`, secao `## Emenda 2026-09-03`" — a section that was
+    REVERTED out of all seven ADRs by this very work package (see `## Convencao seguida`). An
+    errata whose "full record" pointer resolves to nothing is the same defect class it corrects.
+    """
+    assert not any("## Emenda" in _read(_ADR_DIR / name) for name in _RECONCILED_ADRS.values()), (
+        "an `## Emenda` section reappeared inside a reconciled ADR — this test's premise changed"
+    )
+    for relative in _AF02_RESIDUE_ERRATA:
+        text = _read(_REPO_ROOT / relative)
+        assert "0041-reconciliacao-adrs" in text, (
+            f"{relative}: its errata must point at the correction of record (ADR-0041), not at a "
+            "`## Emenda` section inside ADR-0024 that no longer exists"
+        )
 
 
 def test_af03_the_per_call_autonomy_chokepoint_exists() -> None:
