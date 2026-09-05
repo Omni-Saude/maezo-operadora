@@ -501,10 +501,18 @@ jobs:
           # `TimeoutError` em `test_notifications_bridge_live_kafka.py` contra um broker frio,
           # mitigado so' do lado do teste. Copia literal do padrao ja usado no job do simulador
           # Tasy (passo "Start Kafka and wait for readiness" deste mesmo arquivo): a prontidao e
-          # medida pelo PROPRIO broker (`kafka-broker-api-versions` responde) e nao pelo
-          # healthcheck do compose, que ja se provou falso-negativo sob pressao de memoria com
-          # tres JVMs no mesmo runner. Listener INTERNO (`kafka:29092`) porque o comando roda
-          # DENTRO do container, onde o hostname resolve por DNS do Docker.
+          # medida pelo PROPRIO broker (`kafka-broker-api-versions` responde), que e a mesma
+          # pergunta que os testes fazem, e nao pelo healthcheck do compose — usar a sonda do
+          # broker mantem as duas lanes com a MESMA definicao de "pronto", em vez de duas.
+          # (Uma versao anterior deste comentario afirmava que o healthcheck do compose "ja se
+          # provou falso-negativo sob pressao de memoria com tres JVMs": a contagem estava errada
+          # — este job sobe DUAS JVMs, `cibseven` e `kafka`, mais o Postgres — e a observacao nao
+          # tem registro neste repositorio. O unico incidente registrado, a run 33740368677, e
+          # atribuido em `docs/review-queue.md` e `docs/evidence-ledger.md` a criacao automatica de
+          # topico correndo com `group.initial.rebalance.delay.ms`, nao a um falso-negativo de
+          # healthcheck. Afirmacao retirada em 2026-09-04; a razao acima e' a que se sustenta.)
+          # Listener INTERNO (`kafka:29092`) porque o comando roda DENTRO do container, onde o
+          # hostname resolve por DNS do Docker.
           echo "Waiting for kafka (INTERNAL listener kafka:29092)..."
           timeout 90 bash -c 'until docker compose exec -T kafka kafka-broker-api-versions --bootstrap-server kafka:29092 > /dev/null 2>&1; do sleep 5; done' \
             || { echo "ERROR: Kafka did not become ready within 90s"; exit 1; }

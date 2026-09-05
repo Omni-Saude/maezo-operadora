@@ -15,12 +15,20 @@ each member. It cannot be satisfied by adding a service to an allowlist here —
 it green is to wait for the service, or to stop starting it.
 
 WHY THE BROKER'S OWN PROBE AND NOT THE COMPOSE HEALTHCHECK. `docker-compose.yml` does declare a
-Kafka healthcheck, and `docker compose up --wait` would appear simpler. It was rejected on measured
-grounds: this job runs two JVMs (cibseven, kafka) plus Postgres on one GitHub-hosted runner, and the
-compose healthcheck has already been observed reporting unhealthy under that memory pressure while
-the broker was in fact serving. `kafka-broker-api-versions` asks the broker the one question the
-tests care about — "will you answer a client?" — and is the pattern this same file already uses for
-the Tasy simulator job, so the two lanes cannot drift apart in what "ready" means.
+Kafka healthcheck, and `docker compose up --wait` would appear simpler. The reason for the broker's
+own probe is the one that can be shown here: `kafka-broker-api-versions` asks the broker the exact
+question the tests care about — "will you answer a client?" — and it is the pattern this same
+workflow already uses for the Tasy simulator job, so the two lanes cannot drift apart in what
+"ready" means.
+
+An earlier version of this paragraph also claimed the compose healthcheck "has already been observed
+reporting unhealthy under memory pressure while the broker was in fact serving", with "three JVMs" on
+the runner. Both halves were wrong and are withdrawn (2026-09-04): the job starts TWO JVMs
+(`cibseven`, `kafka`) plus Postgres, and no such healthcheck observation is recorded anywhere in this
+repository — the one recorded incident, run 33740368677, is attributed in `docs/review-queue.md` and
+`docs/evidence-ledger.md` to topic auto-creation racing `group.initial.rebalance.delay.ms`. A
+governance-shaped claim with no source in the tree is the species of defect this batch exists to
+correct, so it does not survive in the batch's own artefacts.
 
 WHAT THIS FENCE DOES NOT COVER. Whether `integration tests (real engine)` is a REQUIRED status check
 on the `main-protection` ruleset is server-side state that no file in this tree can assert; it is an
@@ -69,6 +77,35 @@ def _step_starting_with(job_id: str, prefix: str) -> dict[str, Any]:
     raise AssertionError(f"no step named {prefix!r} in job {job_id!r} — has the workflow been restructured?")
 
 
+def _wait_commands() -> str:
+    """The wait step's `run:` block with `#` comment lines REMOVED.
+
+    Load-bearing, and the reason is a real defect found in adversarial review (2026-09-04): the
+    per-service assertion below is a substring match, and the step's own explanatory comment quotes
+    the very fragments it looks for (`kafka-broker-api-versions`, `kafka:29092`). Deleting only the
+    two command lines and keeping the comment therefore left `…[kafka]` GREEN with the wait gone —
+    the assertion that carries the property's name was satisfied by prose. Commands only, from here
+    on: documentation can no longer stand in for a probe.
+    """
+    run = _step_starting_with(_INTEGRATION_JOB, _WAIT_STEP)["run"]
+    return "\n".join(line for line in str(run).splitlines() if not line.lstrip().startswith("#"))
+
+
+def test_the_comment_stripper_actually_removes_the_prose_that_quotes_the_probes() -> None:
+    """Non-vacuity for the helper above: the raw block really does contain the fragments inside
+    comments, and the stripped block really does not keep them there. Without this, a stripper that
+    silently stopped stripping would make every assertion below prose-satisfiable again."""
+    raw = str(_step_starting_with(_INTEGRATION_JOB, _WAIT_STEP)["run"])
+    comment_only = "\n".join(line for line in raw.splitlines() if line.lstrip().startswith("#"))
+    assert "kafka-broker-api-versions" in comment_only, (
+        "the wait step's comment no longer quotes the probe — this fence's premise moved; re-derive "
+        "it rather than deleting it, because the substring assertions depend on the distinction."
+    )
+    stripped = _wait_commands()
+    assert not any(line.lstrip().startswith("#") for line in stripped.splitlines())
+    assert "kafka-broker-api-versions" in stripped, "the actual command disappeared from the step"
+
+
 def _started_services() -> list[str]:
     """Derive the services the job brings up from its own `docker compose ... up -d` command."""
     run = _step_starting_with(_INTEGRATION_JOB, _START_STEP)["run"]
@@ -92,7 +129,7 @@ def test_the_derivation_finds_the_services_this_job_really_starts() -> None:
 def test_every_started_service_is_waited_for_before_the_tests_run(service: str) -> None:
     started = _started_services()
     assert service in started, f"{service!r} has a readiness probe declared but is no longer started"
-    run = _step_starting_with(_INTEGRATION_JOB, _WAIT_STEP)["run"]
+    run = _wait_commands()
     probe = _READINESS_PROBE[service]
     assert probe in run, (
         f"the integration job starts {service!r} but the wait step never probes it "
@@ -118,7 +155,7 @@ def test_the_kafka_probe_targets_the_internal_listener_the_compose_file_advertis
     compose = yaml.safe_load(_COMPOSE.read_text(encoding="utf-8"))
     advertised = compose["services"]["kafka"]["environment"]["KAFKA_ADVERTISED_LISTENERS"]
     internal = dict(entry.split("://", 1) for entry in advertised.split(","))["INTERNAL"]
-    run = _step_starting_with(_INTEGRATION_JOB, _WAIT_STEP)["run"]
+    run = _wait_commands()
     assert f"--bootstrap-server {internal}" in run, (
         f"the wait step must probe kafka on its INTERNAL advertised listener ({internal}); the "
         "command runs inside the container, where that is the address Docker DNS resolves."
@@ -127,8 +164,12 @@ def test_the_kafka_probe_targets_the_internal_listener_the_compose_file_advertis
 
 def test_the_wait_step_fails_loudly_rather_than_falling_through_on_timeout() -> None:
     """A `timeout` that is not checked lets a cold broker through as a green wait step. The kafka
-    line carries an explicit `|| { ...; exit 1; }`, the same shape the Tasy simulator job uses."""
-    run = _step_starting_with(_INTEGRATION_JOB, _WAIT_STEP)["run"]
+    line carries an explicit `|| { ...; exit 1; }`, the same shape the Tasy simulator job uses.
+
+    Reads the COMMAND lines only: on the raw block, `next(...)` matched the explanatory comment that
+    quotes the probe, so the `tail` searched for `exit 1` started before the command instead of after
+    it — passing for the wrong reason."""
+    run = _wait_commands()
     kafka_line = next(line for line in run.splitlines() if "kafka-broker-api-versions" in line)
     tail = run[run.index(kafka_line) + len(kafka_line) :]
     assert "exit 1" in tail.split('echo "All services healthy."')[0], (
