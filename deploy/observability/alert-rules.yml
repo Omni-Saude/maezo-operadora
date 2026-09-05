@@ -254,6 +254,53 @@ groups:
           )
 
   # ---------------------------------------------------------------------------
+  # Agent-KPI derived series (GAP 11.2 — round-5, 2026-09-05) — resolution_rate /
+  # escalation_rate for Helena and Lucas, the two agents whose `agent.yaml` declares them
+  # (spec/agents/helena/agent.yaml, spec/agents/lucas/agent.yaml). No alert is shipped on these:
+  # alert thresholds/dashboards are D12-02's scope, not this one's. `first_response_p95` (the
+  # third `agent.yaml` KPI GAP 11.2 closes) is NOT a recording rule — it is a real per-turn
+  # Histogram (`maezo_agent_first_response_seconds`, src/maezo/runtime/metrics.py) with its own
+  # `histogram_quantile(0.95, ...)` query left to Grafana/D12-02, exactly like every other
+  # latency KPI in this file.
+  #
+  # SOURCE: `maezo_agent_desfecho_total{agent_id,desfecho,...}` (CC-09) — already declared and
+  # emitted in `src/` (the ONE call site is `runtime.turn_telemetry.emit_turn_desfecho`). Each
+  # rule below reads exactly the `desfecho` tokens the agent's own CLOSED vocabulary declares
+  # (`runtime.turn_telemetry._DESFECHO_VOCAB`) — never a regex heuristic across agents, because
+  # the vocabularies do not share a uniform "this token means human-routed" shape (see the round-5
+  # KPI-LAG worktree's reproduction notes). The denominator is every desfecho the agent can emit,
+  # INCLUDING its one shared technical-failure token (`erro_inicio_processo`) — a KPI that quietly
+  # excluded technical failures from its own denominator would over-state the rate.
+  - name: maezo_agent_kpi_derived
+    rules:
+      # Helena resolution_rate ("resolvidas sem humano / total", agent.yaml:52): the share of
+      # turns Helena resolved WITHOUT a human handoff.
+      - record: maezo_helena_resolution_rate
+        expr: |
+          sum(maezo_agent_desfecho_total{agent_id="helena", desfecho="resolvido_automatico"})
+          /
+          sum(maezo_agent_desfecho_total{agent_id="helena"})
+
+      # Helena escalation_rate ("nem alto demais (inutil) nem baixo (risco)", agent.yaml:53): the
+      # share of turns Helena escalated to a human (SP-OP-ESCALATION-001).
+      - record: maezo_helena_escalation_rate
+        expr: |
+          sum(maezo_agent_desfecho_total{agent_id="helena", desfecho="escalado_humano"})
+          /
+          sum(maezo_agent_desfecho_total{agent_id="helena"})
+
+      # Lucas resolution_rate (agent.yaml:35): Lucas resolves a turn WITHOUT a human whenever it
+      # ends `resposta_informativa_enviada` or `lembrete_enviado` (its two non-escalation
+      # `_DESFECHO_VOCAB` tokens) — `escalado_humano` and the shared `erro_inicio_processo` are
+      # the only other members of that same vocabulary, so this is the vocabulary's complement,
+      # named explicitly rather than inferred as "everything else".
+      - record: maezo_lucas_resolution_rate
+        expr: |
+          sum(maezo_agent_desfecho_total{agent_id="lucas", desfecho=~"resposta_informativa_enviada|lembrete_enviado"})
+          /
+          sum(maezo_agent_desfecho_total{agent_id="lucas"})
+
+  # ---------------------------------------------------------------------------
   # Lifecycle CronJob Alerts (T2.9 — closes the gap self-documented at
   # deploy/helm/maezo-tenant/values.yaml `lifecycle.jobs` comment block)
   # ---------------------------------------------------------------------------

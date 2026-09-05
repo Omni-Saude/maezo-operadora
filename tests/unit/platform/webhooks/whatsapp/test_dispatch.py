@@ -245,6 +245,50 @@ async def test_dispatcher_derives_conversation_id_and_pseudo_id_never_raw_phone(
     assert whatsapp_client.sent[0][0] == "5511999999999"
 
 
+async def test_dispatch_observes_first_response_latency_for_helena() -> None:
+    """GAP 11.2 (`first_response_p95`): one completed `dispatch()` == one histogram observation.
+
+    Proves the emitter is really wired at this chokepoint (not merely named in a docstring — the
+    same "dead library" risk `test_alert_metrics_fence.py` guards against for the other
+    counters): the `maezo_agent_first_response_seconds_count{agent_id="helena"}` sample must
+    increase by exactly one after a turn that completes without raising, and the observed value
+    must be a real non-negative wall-clock duration.
+    """
+    from maezo.platform.observability import get_metrics_collector
+
+    dmn = FakeDmnTransport()
+    dmn.register("triage_redflag_adult", [{"red_flag": False, "conduta": "CONTINUE"}])
+    whatsapp_client = _FakeWhatsAppClient()
+    dispatcher = HelenaDispatcher(
+        tenant_id="amh",
+        inference=_FakeInference(
+            ['{"intent": "information", "population": "none", "psychosocial_risk": false}', "resposta"]
+        ),
+        dmn=dmn,
+        cibseven=FakeCibSevenTransport(),
+        whatsapp_client=whatsapp_client,  # type: ignore[arg-type]
+        pseudonymizer=Pseudonymizer(),
+        audit_sink=FakeStartAuditSink(),
+    )
+
+    collector = get_metrics_collector()
+    before = collector.registry.get_sample_value(
+        "maezo_agent_first_response_seconds_count", {"agent_id": "helena"}
+    )
+
+    await dispatcher.dispatch(InboundMessage(from_number="5511999999999", text="oi", message_id="wamid.1"))
+
+    after = collector.registry.get_sample_value(
+        "maezo_agent_first_response_seconds_count", {"agent_id": "helena"}
+    )
+    assert after == (before or 0.0) + 1.0, (before, after)
+
+    total_seconds = collector.registry.get_sample_value(
+        "maezo_agent_first_response_seconds_sum", {"agent_id": "helena"}
+    )
+    assert total_seconds is not None and total_seconds >= 0.0
+
+
 async def test_dispatcher_red_flag_message_starts_escalation() -> None:
     dmn = FakeDmnTransport()
     dmn.register(
