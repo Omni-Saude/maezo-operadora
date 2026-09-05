@@ -77,7 +77,10 @@ _REASON_TOOL_NAO_DECLARADA: Final[str] = "TOOL_NAO_DECLARADA"
 
 #: `(agente, operacao)` declarado no `agent.yaml` que NENHUM no chama, com o porque. Uma entrada
 #: aqui e uma DIVIDA nomeada, nao um perdao: `test_declared_without_call_site_inventory_is_exact`
-#: reprova tanto a entrada que virou wireada quanto a que sumiu do yaml.
+#: reprova tanto a entrada que virou wireada quanto a que sumiu do yaml, e
+#: `test_pinned_declaration_never_coexists_with_a_built_seam` reprova o dia em que um agente com
+#: declaracao pinada ganhar seam gated — que e o que de fato mantem a divida sendo papel e nao
+#: capacidade (o PEP NAO le `autonomy_actions`; ver a nota em `spec/agents/helena/agent.yaml`).
 _DECLARED_WITHOUT_CALL_SITE: Final[dict[tuple[str, str], str]] = {
     ("helena", "read_coverage"): (
         "OWNER-GATED (nao removivel por este WP): helena e o UNICO agent.yaml que declara "
@@ -300,6 +303,29 @@ def test_declared_without_call_site_inventory_is_exact() -> None:
         if operation in _invoked_operations(agent_id):
             stale.append(f"{agent_id}: mcp-fhir.{operation} agora tem call site — remova a entrada")
     assert not stale, "entradas obsoletas em _DECLARED_WITHOUT_CALL_SITE:\n" + "\n".join(stale)
+
+
+def test_pinned_declaration_never_coexists_with_a_built_seam() -> None:
+    """Uma declaracao PINADA (declarada, sem call site) nunca pode coexistir com um seam gated.
+
+    Esta e a forma EXECUTAVEL da nota de `spec/agents/helena/agent.yaml`. O que impede o id
+    pinado `mcp-fhir.read_coverage` de ser uma capacidade real de helena NAO e a ausencia da
+    acao `read_phi_data` no yaml dela — o PEP nao le `autonomy_actions` (`gateway/pep.py::
+    PEP.evaluate` decide sobre a matriz AGNOSTICA DE AGENTE do `L0-core.yaml`; `grep -rn
+    "\\.autonomy_actions" src/ scripts/` -> 0 hits) — e sim a ausencia do agente em
+    `_FHIR_ADAPTER_BY_AGENT`, o unico lugar que preenche `deps["fhir"]`. No dia em que alguem
+    der um seam a um agente que carrega declaracao pinada, a divida de menor privilegio deixa de
+    ser papel e vira capacidade injetada: e este teste que fica vermelho antes disso.
+    """
+    wired = sorted(
+        f"{agent_id}: mcp-fhir.{operation} esta pinado em _DECLARED_WITHOUT_CALL_SITE, mas "
+        f"{agent_id} recebe seam gated (_FHIR_ADAPTER_BY_AGENT -> "
+        f"{_FHIR_ADAPTER_BY_AGENT[agent_id]!r}) — uma declaracao sem uso deixou de ser papel e "
+        "virou capacidade injetada"
+        for agent_id, operation in _DECLARED_WITHOUT_CALL_SITE
+        if agent_id in _FHIR_ADAPTER_BY_AGENT
+    )
+    assert not wired, "declaracao pinada com seam construido:\n" + "\n".join(wired)
 
 
 # =================================================================================================

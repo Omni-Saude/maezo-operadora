@@ -55,10 +55,28 @@ autonomy_policy: ../../policies/autonomy
 autonomy_actions:                     # acoes REAIS da matriz L0-core exercidas por esta jornada
   - query_decision_engine             # DMN de triagem (mcp-dmn.evaluate) — L3
   - start_compliance_process          # SP-OP-ESCALATION-001 (mcp-cibseven.start_process) — L2
-  # read_phi_data REMOVIDO (NEW-09, WP FHIR-TOOL-SURFACE-PARITY): nenhum no de helena le FHIR.
-  # O unico mcp-fhir.* que resta acima esta la por pin de catalogo, nao por uso; sem esta acao a
-  # leitura, se um dia for ligada sem passar pela spec, e negada tambem no L2 do PEP
-  # (ACAO_NAO_AUTORIZADA) e nao so no L1 — fail-closed em duas camadas em vez de uma.
+  # read_phi_data REMOVIDO (NEW-09, WP FHIR-TOOL-SURFACE-PARITY): nenhum no de helena le FHIR
+  # (`graph.py` nao tem campo `_fhir`), entao declarar a acao seria afirmar uma capacidade que a
+  # jornada nao exerce. ISTO E HIGIENE DE SPEC, NAO UMA SEGUNDA CAMADA DE ENFORCEMENT: o L2 do
+  # PEP (`gateway/effect_pep.py::_l2_autonomy` -> `gateway/pep.py::PEP.evaluate`) decide sobre a
+  # matriz de `spec/policies/autonomy/L0-core.yaml` + overlay do tenant, que e AGNOSTICA DE
+  # AGENTE (o docstring de `PEP.evaluate` diz que o contexto do agente e "used only for audit
+  # logging; it does not influence the decision"), e `grep -rn "\.autonomy_actions" src/ scripts/`
+  # -> 0 hits: nenhum codigo de producao le este campo. Reintroduzir a acao aqui NAO deixa
+  # nenhuma cerca vermelha hoje (contrafactual medido) e removela nao acrescenta negacao alguma:
+  # com a acao ja removida, `decide_effect(principal='helena', operation='fhir.read_coverage')`
+  # atravessa L1..L4 devolvendo None (o L2 loga `pep_allow action=read_phi_data`) e so nega no
+  # L5. O motivo real do L2, quando ele nega, e `AUTONOMIA_NEGADA` — e nao e ele que dispara aqui.
+  # O QUE DE FATO SEGURA a leitura do `mcp-fhir.read_coverage` pinado acima sao duas coisas
+  # verificaveis: (1) L5 `MANIFESTO_NAO_RATIFICADO` — `action-approvals.yaml` esta `status:
+  # DRAFT`, negacao UNIVERSAL e owner-gated, nao especifica de helena, e e exatamente o gate que
+  # a ratificacao um dia levanta; e (2) a AUSENCIA de helena em
+  # `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`, unico lugar que preenche `deps["fhir"]` —
+  # ou seja, nenhuma raiz de composicao lhe constroi seam e a leitura NAO EXISTE. Apenas (2) e
+  # pinado por teste: `tests/unit/gateway/test_fhir_tool_surface_parity.py::
+  # {test_gated_seam_is_only_built_for_an_agent_that_actually_reads,
+  # test_pinned_declaration_never_coexists_with_a_built_seam}` ficam VERMELHAS no dia em que
+  # alguem acrescentar a chave de helena ao mapa.
   - send_beneficiary_message          # resposta WhatsApp (mcp-whatsapp.send_message) — L3
   - read_write_memory                 # memoria episodica/semantica (mcp-memory.read_write) — L3;
                                        # excecao disclosed (fence §8.5 item 2), sem no vivo hoje
