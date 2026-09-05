@@ -110,10 +110,12 @@ resource "aws_iam_role" "plan" {
 #   s3 / dynamodb   backend remoto de estado (envs/*/versions.tf:13) — hoje
 #                   concedido pela policy do bucket compartilhado do bootstrap
 #                   amh-data-platform, nao por esta role.
-#   budgets / ce    modules/cost-guardrails/main.tf:38,45,69 (aws_ce_anomaly_monitor,
-#                   aws_ce_anomaly_subscription, aws_budgets_budget) — o 7o modulo,
-#                   introduzido por ESTE MESMO branch (gap B-02-b / R-045). O
-#                   refresh desses recursos exige `budgets:ViewBudget` e
+#   budgets / ce    modules/cost-guardrails/main.tf, resources
+#                   aws_ce_anomaly_monitor.service, aws_ce_anomaly_subscription.alerts
+#                   e aws_budgets_budget.monthly (citados por simbolo, nao por linha —
+#                   por §Delta D1, a linha se move a cada edicao deste cabecalho) —
+#                   o 7o modulo, introduzido por ESTE MESMO branch (gap B-02-b /
+#                   R-045). O refresh desses recursos exige `budgets:ViewBudget` e
 #                   `ce:GetAnomaly*`/`ce:GetAnomalySubscriptions`. Nota: mesmo se
 #                   um dia entrassem, `budgets:ViewBudget` NAO casa o formato
 #                   `Describe*`/`Get*`/`List*` que R-041 aprovou para este bloco —
