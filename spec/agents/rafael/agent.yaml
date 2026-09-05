@@ -36,7 +36,16 @@ autonomy_actions:                         # acoes REAIS da matriz L0-core exerci
   # SP-OP-AUTH-001 emite a guia; Rafael apenas inicia o processo com DMN favoravel (ADR-0008).
 kpis:
   - { name: dossier_completeness, target: ">0.95" }   # dossies completos / total (fatos + refs DMN)
-  - { name: auto_approval_rate, target: "track" }      # auto-aprovados / total (nem alto nem baixo)
+  # ESTRUTURALMENTE 0 NO AGENTE NESTA FASE (RAF-01) — nao e' meta, e' divulgacao do que o
+  # desenho produz. A rota `auto_approve` do grafo e' inalcancavel a partir de todo seam
+  # tipado: os cinco booleanos exigidos pela r1 de `auth_auto_approval` v0.2.0
+  # (auto_criteria_verificado + os quatro criterio_*_ok) NAO estao em RAFAEL_INPUT_FIELDS,
+  # entao `new_rafael_state` os recusa e `gate_inbound_state` os descarta; e
+  # `ST_PrepararDossie` (o unico ponto do BPMN que convoca Rafael) so' e' alcancado por
+  # `Flow_GW_AnaliseHumana` — quando o motor chama Rafael, `GW_AutoAprovacao` ja' decidiu
+  # analise humana. A decisao L2 do SISTEMA vive no engine, e este KPI medido NO AGENTE le'
+  # zero por construcao. Ver `RafaelGraph.assess` e o contrato SP-OP-AUTH-001 v0.2.0.
+  - { name: auto_approval_rate, target: "track", note: "estruturalmente 0 no agente nesta fase (RAF-01): a decisao L2 e do engine (GW_AutoAprovacao), nao deste grafo" }
   - { name: human_routing_precision, target: "track" } # casos corretamente roteados ao auditor
   - { name: sla_analise_p95, target: "<RN259/395" }    # tempo ate dossie pronto (dentro do SLA da DMN)
   - { name: eval_score, target: ">0.9" }               # golden dataset (gate de promocao, ADR-0009)

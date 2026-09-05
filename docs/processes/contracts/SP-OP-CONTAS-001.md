@@ -106,6 +106,26 @@ sem detalhe NUNCA alcanca `End_ContaAprovadaIntegral` automatico).
 `decisao_contas` (`ENCAMINHAR_FRAUDE`), que e o que o BPMN sempre fez; a booleana era redundancia
 documental.
 
+## Variaveis de proveniencia do agente (Marina — ADR-0007/ADR-0015)
+
+Convencao repo-wide de nao-repudio (ADR-0007) e delegacao A2A (ADR-0015) — nao especifica de
+CONTAS (mirror `source_agent_id`/`source_agent_version` de
+`docs/processes/contracts/SP-OP-ESCALATION-001.md`). Semeadas por `MarinaGraph._contract_variables`
+(`src/maezo/agents/marina/graph.py`, flow `contas`) junto com as variaveis de entrada; NENHUMA
+delas e uma glosa aplicada — so proveniencia, dossie instrutivo e roteamento humano (CC-13 — Agent
+Fleet Audit: antes deste registro, `_contract_variables` as emitia sem declaracao no contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `source_agent_id` | string | nao | Agente que preparou o dossie da conta (`marina`) — cadeia de nao-repudio (ADR-0007) |
+| `source_agent_version` | string | nao | Versao do agente Marina que preparou o dossie (auditoria ADR-0007) |
+| `dossie_marina` | json | nao | Dossie factual de analise de conta montado por Marina — instrui `UT_AnalistaContas`; carrega `decisao_contas` sempre `None` (Marina NUNCA decide) |
+| `marina_flow` | string | nao | Fluxo do grafo compartilhado de Marina que originou o start (`contas` neste contrato — `recurso` inicia SP-OP-RECURSO-001; `reembolso` nunca inicia processo, ver aquele contrato) |
+| `marina_route` | string | nao | Roteamento do grafo do Marina (`auto_route` \| `human_review`) — espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Presente so quando `marina_route=human_review`; motivo do encaminhamento |
+| `grupo_destino` | string | nao | Presente so quando `marina_route=human_review`; grupo humano sugerido por Marina (catch-all `auditoria-contas`) |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra) das DMN que Marina consultou (`glosa_reason_normalization`/`glosa_classification`/`glosa_triage`/`contas_sla`) — cadeia de decisao (ADR-0007/ADR-0012) |
+
 ## Topicos
 
 Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_registry.yaml` — **W0.2 e o unico editor**; este contrato apenas declara o que precisa ser registrado).
