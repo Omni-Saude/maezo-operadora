@@ -794,8 +794,18 @@ async def test_a_failed_agent_turn_counts_an_agent_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_failed_agent_turn_classifies_a_catalogued_exception_by_its_declared_type() -> None:
-    """A `ValueError` (a cataloged class, unlike `_BoomError` above) gets its real bounded label."""
+async def test_a_failed_agent_turn_classifies_a_catalogued_exception_by_its_declared_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `ValueError` (a cataloged class, unlike `_BoomError` above) gets its real bounded label.
+
+    The harness is driven through its REAL public entry point, `create_graph(agent_id=...)` — the
+    same call that stamps `Harness._agent_id`, which is the label under test. Only the registry
+    RESOLVER is substituted (`_resolve_agent_build`, the module-level seam `create_graph` calls),
+    so the fail-closed loader contract is exercised end to end and the test needs neither a new
+    production API nor the inference/dmn/cibseven/whatsapp/audit_sink dependency set a real
+    `spec/agents/helena` build would demand. Only the LABEL matters here, not a real Helena run.
+    """
     from maezo.runtime.harness import Harness
     from maezo.runtime.metrics import AGENT_ERROR_TYPE_VALIDACAO
 
@@ -804,15 +814,22 @@ async def test_a_failed_agent_turn_classifies_a_catalogued_exception_by_its_decl
 
     from langgraph.graph import StateGraph
 
+    def _fake_build(config: dict[str, Any]) -> StateGraph[Any]:
+        """Stands in for `maezo.agents.helena.graph:build` — same shape: `build(config)`."""
+        assert "inference" in config and "agent_version" in config, config
+        exploding: StateGraph[Any] = StateGraph(dict)
+        exploding.add_node("agent", _explode)
+        exploding.add_edge("__start__", "agent")
+        exploding.add_edge("agent", "__end__")
+        return exploding
+
+    monkeypatch.setattr(
+        "maezo.runtime.harness._resolve_agent_build",
+        lambda agent_id: _fake_build,
+    )
+
     harness = Harness()
-    # agent_id set via the public set_graph() below, not via a real spec/agents/helena build
-    # (which needs inference/dmn/cibseven/whatsapp/audit_sink deps this test does not construct;
-    # only the LABEL matters here, not a real Helena run).
-    exploding: StateGraph[Any] = StateGraph(dict)
-    exploding.add_node("agent", _explode)
-    exploding.add_edge("__start__", "agent")
-    exploding.add_edge("agent", "__end__")
-    harness.set_graph(exploding, agent_id="helena")
+    harness.create_graph(agent_id="helena")
 
     labels = {"agent": "helena", "error_type": AGENT_ERROR_TYPE_VALIDACAO}
     before = _sample("maezo_agent_errors_total", **labels)

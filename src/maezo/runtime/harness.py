@@ -182,31 +182,6 @@ class Harness:
         logger.info("harness_graph_created", agent_id=agent_id)
         return cast("StateGraph[Any]", resolved_graph)
 
-    def set_graph(self, graph: StateGraph[Any], *, agent_id: str | None = None) -> None:
-        """Wire an already-built graph directly into this harness, bypassing the
-        `AgentLoader`/`maezo.agents.<agent_id>.graph:build` resolution `create_graph` performs.
-
-        The public counterpart to the three attribute writes `create_graph` itself makes
-        (`_graph`/`_agent_id`/`_compiled`) — for a caller that already HAS a `StateGraph` from
-        somewhere other than the agent registry (a test driving a deliberately-failing graph
-        without constructing a real agent's full dependency set, an ad-hoc graph assembled
-        outside `spec/agents/`) and wants `Harness.invoke`'s turn-execution seam (telemetry,
-        error classification, compile-on-first-use) around it, without duplicating that seam or
-        reaching into the harness's own internals to get it.
-
-        Args:
-            graph: the (uncompiled) StateGraph to wire in. `invoke()` compiles it lazily, exactly
-                as it does after `create_graph()`.
-            agent_id: the turn-telemetry label `record_agent_error`/`record_agent_turn` read
-                (`Harness._agent_id`). `None` (the default) reproduces the "trivial default
-                graph" case (label `"nao_declarado"`), matching `create_graph()`'s own
-                no-`agent_id` behaviour.
-        """
-        self._graph = graph
-        self._agent_id = agent_id
-        self._compiled = None
-        logger.info("harness_graph_set", agent_id=agent_id)
-
     async def invoke(self, state: dict[str, object], *, thread_id: str | None = None) -> dict[str, object]:
         """Compile the graph (if needed) and invoke it with the given state.
 
