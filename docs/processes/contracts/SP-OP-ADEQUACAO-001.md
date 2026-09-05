@@ -130,10 +130,15 @@ manifesto do Andre, nunca um binding):
   no topo deste documento; `PERSP-NETBRIDGE`/**AF-01**, `owner-decision`, ainda em aberto).
   Conceder `process_key` de ADEQUACAO a um agente hoje daria autoridade de efeito a um caminho
   inexistente.
-- O effect-PEP ja se comporta assim: `AgentCapabilities.of` intersecta as `process_keys`
-  declaradas com `KNOWN_PROCESS_KEYS` (ADR-0016) e `allows_process_key` e pertinencia sobre esse
-  conjunto — nenhum manifesto declara `SP-OP-ADEQUACAO-001`, logo todo start por agente e negado
-  em L-1 (`REASON_PROCESS_KEY_FORBIDDEN`). O que muda aqui e o REGISTRO, nao o comportamento.
+- O nucleo de decisao do effect-PEP ja se comporta assim: `AgentCapabilities.of` intersecta as
+  `process_keys` declaradas com `KNOWN_PROCESS_KEYS` (ADR-0016) e `allows_process_key` e
+  pertinencia sobre esse conjunto — nenhum manifesto declara `SP-OP-ADEQUACAO-001`, logo
+  `decide_effect` (L-1) devolve DENY para todo start por agente (`REASON_PROCESS_KEY_FORBIDDEN`).
+  Esse veredito e um fato de FUNCAO PURA, nao uma cerca de runtime: nenhuma costura em
+  `gateway/seams/` liga `start_process_instance` a `decide_effect` para este processo, e a
+  superficie de start correspondente segue `choked: false`/`modo: shadow` em
+  `spec/policies/autonomy/action-approvals.yaml` ate que uma futura coreografia a exercite. O que
+  muda aqui e o REGISTRO, nao o comportamento.
 
 **Fixado por teste:** `tests/unit/gateway/test_adequacao_sem_binding_de_agente.py` varre TODO
 `spec/agents/*/agent.yaml` e falha se qualquer manifesto passar a declarar `SP-OP-ADEQUACAO-001`

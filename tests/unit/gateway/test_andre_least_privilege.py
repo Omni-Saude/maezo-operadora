@@ -4,8 +4,13 @@ O defeito original: `spec/agents/andre/agent.yaml` declarava a tool `mcp-cibseve
 ("somente SP-OP-PAGTO-001") e a acao de autonomia `start_compliance_process`, mas NAO declarava
 nenhuma `process_keys`. Como `AgentCapabilities.of` intersecta `process_keys` com
 `KNOWN_PROCESS_KEYS` (ADR-0016) e `allows_process_key` e um teste de pertinencia sobre esse
-conjunto, o effect-PEP ja NEGAVA todo start do Andre — o manifesto afirmava uma autoridade que o
-PEP nunca concedeu. Fail-closed por acidente, nao por decisao.
+conjunto, o nucleo de decisao do effect-PEP (`decide_effect`, L-1) ja devolvia DENY para todo
+start do Andre — o manifesto afirmava uma autoridade que o veredito do PEP nunca concedeu.
+Fail-closed por acidente, nao por decisao. Esse veredito e um fato de FUNCAO PURA: nenhuma
+costura de runtime liga `start_process_instance` a `decide_effect` para este processo hoje
+(`gateway/seams/cibseven.py`, "o buraco deliberado"), e a superficie correspondente segue
+`choked: false`/`modo: shadow` em `spec/policies/autonomy/action-approvals.yaml` — este pacote
+fixa o VEREDITO, nao uma cerca de runtime ja em vigor.
 
 A decisao do dono (R-036, opcao B, 2026-09-04) foi ESTREITAR o manifesto ate o comportamento real:
 remover a tool e a acao de autonomia, e FIXAR a recusa do PEP num teste de regressao. Este arquivo

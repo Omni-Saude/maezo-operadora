@@ -23,10 +23,16 @@ tools:                                     # ids EXATOS de MCP servers JA regist
   # mcp-cibseven.get_process_status / correlate_process_message NAO entram ate um no os usar (allowlist tight).
   #
   # MENOR PRIVILEGIO — `mcp-cibseven.start_process` REMOVIDO (gap ANDRE-PROCESS-KEYS; decisao do
-  # dono R-036 de 2026-09-04, opcao B). Andre NAO declara `process_keys`, entao o effect-PEP ja
-  # recusava todo start ao chegar em `AgentCapabilities.allows_process_key` (`effect_pep.py`,
-  # L-1 -> REASON_PROCESS_KEY_FORBIDDEN): o manifesto declarava uma autoridade que o PEP nunca
-  # concedeu. Nenhum originador vivo alcanca o no `start_process` do grafo (`delegation.py` so
+  # dono R-036 de 2026-09-04, opcao B). Andre NAO declara `process_keys`, entao o nucleo de decisao
+  # do effect-PEP (`decide_effect`, L-1) ja devolvia DENY ao chegar em
+  # `AgentCapabilities.allows_process_key` (`effect_pep.py`, -> REASON_PROCESS_KEY_FORBIDDEN): o
+  # manifesto declarava uma autoridade que o veredito do PEP nunca concedeu. Esse veredito e
+  # HOJE consultivo, nao uma cerca de runtime: nenhuma costura liga `start_process_instance`
+  # (`gateway/seams/cibseven.py`, "o buraco deliberado"), a superficie de start
+  # `inicio_processo_regulatorio` e `choked: false` por decisao
+  # (`spec/policies/autonomy/action-approvals.yaml`), e a classe esta em `modo: shadow`. Estreitar
+  # o manifesto e o que faz o DENY virar a resposta certa QUANDO essa superficie for choked.
+  # Nenhum originador vivo alcanca o no `start_process` do grafo (`delegation.py` so
   # mapeia `adequacao-worker`, fluxo no-op; `pagto-worker` para na Ancora 1 e devolve
   # `start_skipped`). Conceder autoridade de efeito sobre um processo que MOVE DINHEIRO
   # (SP-OP-PAGTO-001) sem consumidor vivo e capacidade especulativa. Se um originador externo

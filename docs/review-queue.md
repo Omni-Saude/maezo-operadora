@@ -1477,3 +1477,20 @@ test_every_class_cites_a_runtime_referent_that_exists` ficou VERMELHO ("is past 
 | Artefato | O que foi encontrado / feito | Revisor | Status |
 |---|---|---|---|
 | `spec/policies/autonomy/action-approvals.yaml` (CODEOWNED: `@rodaquino-OMNI` + `@Omni-Saude/security-team`) | Dois campos `referencia:` da classe `comunicacao_beneficiario` re-ancorados: `lgpd.py:765` -> `:756` (`harness.register(_SEND_RESPONSE_TOPIC, ...)`) e `lgpd.py:763` -> `:754` (`harness.register(_REQUEST_PROOF_TOPIC, ...)`). Os alvos ANTIGOS eram linhas de docstring do `register_lgpd_workers`; os NOVOS sao as chamadas de registro reais — a superficie que a classe descreve. **Nada mais mudou:** nenhum `aprovado`, `aprovador`, `data`, `evidencia_ref`, `status`, `modo`, `enforcement`, `detalhe`, `choked`, nenhuma classe nova, nenhuma acao nova; a contagem de linhas do arquivo e IDENTICA (732 antes e depois) de proposito, porque `tests/unit/gateway/seams/test_seam_proofs.py::test_every_quoted_manifest_citation_points_at_the_quoted_text` verifica citacoes por INTERVALO DE LINHA a partir de `src/maezo/gateway/effect_classes.py` — inserir sequer uma linha de comentario aqui quebra essa prova (foi observado e revertido). O "porque" fica NESTA linha, nao no YAML. | dono + security-team (CODEOWNERS) | `aplicado 2026-09-04 (LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC) — PR owner-review` |
+
+## Nota de precisao herdada (INFO) — R-036 / ANDRE-PROCESS-KEYS, 2026-09-04
+
+Achado do verificador adversarial (`VERIFY-A2-AGENTS.md`, Finding 1): a `justificativa` aprovada
+do dono para R-036 diz que `src/maezo/gateway/effect_pep.py:591` **"ja nega hoje"** o start de
+Andre. Essa frase e VERDADEIRA apenas do VEREDITO da funcao pura `decide_effect` — nao do runtime
+ligado: nenhuma costura em `gateway/seams/` chama `decide_effect` para `start_process_instance`
+(`seams/cibseven.py` documenta isso como "o buraco deliberado"), a superficie de start
+`inicio_processo_regulatorio` e `choked: false` por decisao em
+`spec/policies/autonomy/action-approvals.yaml`, e a classe esta em `modo: shadow`
+(`approved_count=0`). A imprecisao e HERDADA do proprio registro do dono (a `justificativa` E os
+`notes` do gap dizem "o efeito e fail-closed (nega)" sem essa qualificacao) — o reparo deste
+pacote (`REP-A2-AGENTS`, achado 1) qualificou os quatro artefatos que a repetiam
+(`src/maezo/agents/andre/graph.py`, `spec/agents/andre/agent.yaml`,
+`docs/processes/contracts/SP-OP-ADEQUACAO-001.md`,
+`tests/unit/gateway/test_andre_least_privilege.py`) para dizer "veredito da decisao, ainda
+consultivo" em vez de "recusa de runtime". Nenhum comportamento mudou; nenhum teste mudou.

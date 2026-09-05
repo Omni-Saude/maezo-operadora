@@ -971,13 +971,19 @@ class AndreGraph:
         DECLARED AUTHORITY: NONE (gap `ANDRE-PROCESS-KEYS`, owner decision R-036, 2026-09-04).
         `spec/agents/andre/agent.yaml` no longer declares `mcp-cibseven.start_process` nor the
         `start_compliance_process` autonomy action, and it declares no `process_keys` — so the
-        effect-PEP's L-1 refuses this seam for `andre` (`AgentCapabilities.allows_tool` /
-        `allows_process_key`, pinned in `tests/unit/gateway/test_andre_least_privilege.py`). This
-        node is KEPT because no live originator reaches it today (Anchor 1 above returns
-        `start_skipped` for the only wired origin, and `delegation.py` maps only the no-op
-        `adequacao-worker`), so removing it is not what the decision ordered; if a foreign
-        originator ever appears, the grant returns as an explicit line of YAML under owner review
-        — never by omission.
+        effect-PEP's decision core (`decide_effect`, L-1) returns DENY for this seam for `andre`
+        (`AgentCapabilities.allows_tool` / `allows_process_key`, pinned in
+        `tests/unit/gateway/test_andre_least_privilege.py`). That verdict is ADVISORY today, not
+        a runtime fence: no seam wires `start_process_instance`
+        (`gateway/seams/cibseven.py`, "the one deliberate hole, disclosed"), the
+        `inicio_processo_regulatorio` start surface is `choked: false` by decision
+        (`spec/policies/autonomy/action-approvals.yaml`), and that class's `enforcement` is
+        `shadow` (`modo: shadow`, `approved_count=0`). Narrowing the manifest is what makes the
+        DENY the right answer WHEN that surface is eventually choked. This node is KEPT because
+        no live originator reaches it today (Anchor 1 above returns `start_skipped` for the only
+        wired origin, and `delegation.py` maps only the no-op `adequacao-worker`), so removing it
+        is not what the decision ordered; if a foreign originator ever appears, the grant returns
+        as an explicit line of YAML under owner review — never by omission.
         """
         if _flow(state) != "pagto_dossier":
             return {}

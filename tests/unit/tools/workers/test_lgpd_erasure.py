@@ -14,11 +14,15 @@ R-G raw handlers) are covered in `test_lgpd_send_response.py`/`test_lgpd_notify_
 NOTE (R-H, gap `LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC`): `publish_completed`
 (`PublishCompletedWorker`) was RETIRED for the same reason, and THREE tests went with it —
 `test_publish_completed_topic`, `test_publish_completed_publishes_event` and
-`test_publish_completed_includes_desfecho`. They were not neutral coverage: they asserted
+`test_publish_completed_includes_desfecho`. They were not neutral coverage, but only ONE of the
+three asserted the fabricated fact: `test_publish_completed_publishes_event` asserted
 `status == "published"` / `event == "agents.events.lgpd_dsr.completed"` out of a SYNCHRONOUS
-`WorkerBase.execute` with no publisher seam at all, i.e. three green tests pinning a false fact on
-LGPD/DSR ground. The DSR's completion is published by the BPMN's shared generic publisher
-(`ST_PublishCompleted` -> `operadora.events.publish`, `bpmn:286-297`); that path is exercised by
+`WorkerBase.execute` with no publisher seam at all. The other two pinned the worker's topic
+(`test_publish_completed_topic`) and its `desfecho` echo (`test_publish_completed_includes_desfecho`)
+— a real reason to delete them WITH the worker, but not the same false-fact claim. All three would
+have broken had the worker been made to return `{}` instead of being removed. The DSR's completion
+is published by the BPMN's shared generic publisher (`ST_PublishCompleted` ->
+`operadora.events.publish`, `bpmn:286-297`); that path is exercised by
 `tests/unit/tools/workers/test_events.py`, not here. Deleting the tests WITH the worker is the
 point — keeping them green against a rewritten worker would have preserved the fabrication.
 """
