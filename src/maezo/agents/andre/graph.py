@@ -1305,6 +1305,15 @@ class AndreGraph:
             # value `None`/`""` until a node sets them — the default must still apply then.
             "faixa_valor": str(state.get("faixa_valor") or ""),
             "grupo_aprovador": str(state.get("grupo_aprovador") or ""),
+            # AND-08 (fleet audit ciclo 2) STRUCTURAL GUARDRAIL (L0 hard): only the human
+            # UT_AprovacaoAlcada/UT_AprovacaoComite User Task fills this — mirrors gustavo's
+            # `decisao_envio`/`decisao_nip` explicit `None` guardrails (`gustavo/graph.py::
+            # _contract_variables`). Andre NEVER decides; the gated worker
+            # `operadora.pagto.release_high_value_payment` already refuses to release without a
+            # human-set `decisao_pagamento==APROVAR` regardless of what ships here, but leaving
+            # the key absent-by-omission made the L0 invariant implicit instead of explicit — an
+            # inconsistency with the sibling flows this convention exists in.
+            "decisao_pagamento": None,
         }
         if state.get("numero_lote_tiss"):
             variables["numero_lote_tiss"] = state["numero_lote_tiss"]
