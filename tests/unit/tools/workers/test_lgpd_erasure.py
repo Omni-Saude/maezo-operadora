@@ -1,7 +1,7 @@
 """Unit tests for SP-OP-LGPD-DSR-001 workers — TDD London School.
 
 Tests LGPD DSR workers: validate_identity, execute_export,
-execute_rectification, execute_erasure, publish_completed.
+execute_rectification, execute_erasure.
 
 CRITICAL: Workers must NEVER make adverse decisions (accusation of fraud, denial).
 
@@ -10,20 +10,47 @@ NOTE (#55 R-E, T2.8): `assess_request` (`AssessRequestWorker`) was RETIRED — r
 task; the worker was unreachable by construction. Its tests were removed with it (see
 `docs/compliance/lgpd-topic-reconciliation.md` R-E). `send_response`/`notify_sla_risk` (#55 R-F/
 R-G raw handlers) are covered in `test_lgpd_send_response.py`/`test_lgpd_notify_sla_risk.py`.
+
+NOTE (R-H, gap `LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC`): `publish_completed`
+(`PublishCompletedWorker`) was RETIRED for the same reason, and THREE tests went with it —
+`test_publish_completed_topic`, `test_publish_completed_publishes_event` and
+`test_publish_completed_includes_desfecho`. They were not neutral coverage, but only ONE of the
+three asserted the fabricated fact: `test_publish_completed_publishes_event` asserted
+`status == "published"` / `event == "agents.events.lgpd_dsr.completed"` out of a SYNCHRONOUS
+`WorkerBase.execute` with no publisher seam at all. The other two pinned the worker's topic
+(`test_publish_completed_topic`) and its `desfecho` echo (`test_publish_completed_includes_desfecho`)
+— a real reason to delete them WITH the worker, but not the same false-fact claim. Under the
+REMOVAL framing actually applied (the class deleted, the import gone), all three broke — the two
+survivors named a class that no longer exists. Under a return-`{}` framing (had the worker been
+kept but rewritten to no-op instead of removed), only `test_publish_completed_publishes_event` and
+`test_publish_completed_includes_desfecho` would have broken (`KeyError` on `"status"`/`"desfecho"`
+from an empty dict); `test_publish_completed_topic` would still PASS, because `topic` is set in
+`WorkerBase.__init__`, independent of what `execute` returns. The DSR's completion
+is published by the BPMN's shared generic publisher (`ST_PublishCompleted` ->
+`operadora.events.publish`, `bpmn:286-297`); that path is exercised by
+`tests/unit/tools/workers/test_events.py`, not here. Deleting the tests WITH the worker is the
+point — keeping them green against a rewritten worker would have preserved the fabrication.
 """
 
 from __future__ import annotations
 
 import pytest
 
+from maezo.tools.workers import lgpd as lgpd_module
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN, ERR_FRAUD_ACCUSATION_NOT_HUMAN
-from maezo.tools.workers.harness import WorkerBpmnError, WorkerFailureError
+from maezo.tools.workers.harness import (
+    FakeKafkaPublisher,
+    FakeWorkerTransport,
+    WorkerBpmnError,
+    WorkerFailureError,
+    WorkerHarness,
+)
 from maezo.tools.workers.lgpd import (
     ExecuteErasureWorker,
     ExecuteExportWorker,
     ExecuteRectificationWorker,
-    PublishCompletedWorker,
     ValidateIdentityWorker,
+    register_lgpd_workers,
 )
 
 # T3.1 (mirrors this file's own ADR-0031 `identidade_verificada` fail-closed matrix above):
@@ -396,43 +423,57 @@ def test_execute_rectification_fail_closed_rejects_non_true_human_approved(
 
 
 # ---------------------------------------------------------------------------
-# publish_completed
+# R-H — a aposentadoria de `publish_completed` e uma CERCA, nao so uma delecao
 # ---------------------------------------------------------------------------
+#
+# Espelha `test_cancel.py::test_register_cancel_workers_does_not_register_orphan_topics`, a mesma
+# especie de defeito (topico de codigo orfao registrado sem service task de BPMN). Sem estas
+# provas, apagar o worker seria uma mudanca que nada impede de voltar; com elas, o retorno do
+# `PublishCompletedWorker` ou do seu registro fica VERMELHO aqui.
+
+#: Os topicos `operadora.lgpd.*` que `register_lgpd_workers` DEVE registrar hoje — exatamente.
+#: Os tres `execute_*` continuam sendo ORPHAN CODE TOPICS (linhas O2-O4 de
+#: `docs/compliance/lgpd-topic-reconciliation.md`) e seguem aqui de proposito: o destino deles e
+#: R-D (a recomposicao de `execute_request`), que e DPO/SME-sign-off-gated e NAO foi tocado por
+#: R-H. Declara-los explicitamente e o que impede esta cerca de virar uma afirmacao vaga.
+_LGPD_TOPICOS_REGISTRADOS = frozenset(
+    {
+        "operadora.lgpd.verify_identity",  # T1 — ALINHADO ao BPMN (ST_VerificarIdentidade)
+        "operadora.lgpd.request_additional_proof",  # T2 — #55 R-B, handler cru
+        "operadora.lgpd.send_response",  # T5 — #55 R-F, handler cru
+        "operadora.lgpd.notify_sla_risk",  # T6 — #55 R-G, handler cru
+        "operadora.lgpd.execute_export",  # O2 — orfao, gated em R-D (DPO/SME)
+        "operadora.lgpd.execute_rectification",  # O3 — orfao, gated em R-D (DPO/SME)
+        "operadora.lgpd.execute_erasure",  # O4 — orfao, gated em R-D (DPO/SME)
+    }
+)
 
 
-def test_publish_completed_topic() -> None:
-    """publish_completed worker topic."""
-    worker = PublishCompletedWorker()
-    assert worker.topic == "operadora.lgpd.publish_completed"
+def _lgpd_harness() -> WorkerHarness:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="test-worker")
+    register_lgpd_workers(harness, FakeKafkaPublisher())
+    return harness
 
 
-def test_publish_completed_publishes_event() -> None:
-    """publish_completed publishes the final completion event."""
-    worker = PublishCompletedWorker()
+def test_register_lgpd_workers_nao_registra_o_topico_orfao_publish_completed() -> None:
+    """R-H: `operadora.lgpd.publish_completed` NAO corresponde a `camunda:topic` algum do BPMN.
 
-    result = worker.run(
-        {
-            "tenant_id": "amh",
-            "titular_pseudo_id": "pseudo-abc",
-            "desfecho": "atendida",
-        }
-    )
-
-    assert result["status"] == "published"
-    assert result["event"] == "agents.events.lgpd_dsr.completed"
-    assert result["desfecho"] == "atendida"
+    `grep -rn "operadora.lgpd.publish_completed" spec/` -> 0 ocorrencias. Quem publica a conclusao
+    do DSR e `ST_PublishCompleted` pelo topico generico `operadora.events.publish`.
+    """
+    assert "operadora.lgpd.publish_completed" not in _lgpd_harness().registered_topics
 
 
-def test_publish_completed_includes_desfecho() -> None:
-    """publish_completed must include the final desfecho."""
-    worker = PublishCompletedWorker()
+def test_o_modulo_lgpd_nao_expoe_mais_a_classe_publishcompletedworker() -> None:
+    """A classe foi APAGADA, nao neutralizada: reintroduzi-la (mesmo sem registrar) e vermelho.
 
-    for desfecho in ["atendida", "negada_fundamentada", "identidade_inverificavel"]:
-        result = worker.run(
-            {
-                "tenant_id": "amh",
-                "titular_pseudo_id": "pseudo-abc",
-                "desfecho": desfecho,
-            }
-        )
-        assert result["desfecho"] == desfecho
+    Um worker sincrono sem seam de publisher que devolve `{"status": "published"}` afirma um fato
+    falso — em terreno LGPD/DSR sujeito a auditoria — mesmo que o motor nunca o chame.
+    """
+    assert not hasattr(lgpd_module, "PublishCompletedWorker")
+
+
+def test_o_conjunto_de_topicos_lgpd_registrados_e_exatamente_o_declarado() -> None:
+    """Paridade EXATA: nem topico a menos (lacuna) nem a mais (novo orfao entrando de fininho)."""
+    registrados = {t for t in _lgpd_harness().registered_topics if t.startswith("operadora.lgpd.")}
+    assert registrados == _LGPD_TOPICOS_REGISTRADOS

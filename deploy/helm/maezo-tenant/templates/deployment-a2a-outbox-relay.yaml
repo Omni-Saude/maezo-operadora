@@ -1,0 +1,126 @@
+{{- /*
+A2A fact-outbox relay (SC-01 / R-004) — drains `a2a_fact_outbox` to Kafka, at-least-once.
+
+Sibling do notifications-bridge (structural copy, per OWNER-DECISIONS-REGISTER R-004 opcao B):
+mesma imagem, mesmo padrao de Deployment dedicado. Roda
+`python -m maezo.a2a.outbox_relay` SEM `--once` — o modulo faz poll ate SIGTERM/SIGINT por
+padrao (ver `src/maezo/a2a/outbox_relay.py` modulo docstring + `build_arg_parser`/`main`).
+
+Por que isto e' necessario: ate' este template, NADA no repo invocava `drain_once`/
+`run_relay_loop` fora dos proprios testes — `src/maezo/runtime/agent_runtime/a2a_composition.py`
+documenta explicitamente que o relay e' "explicitly-invoked ... never auto-started" e que a
+entrega e' uma decisao de DEPLOYMENT, nao de composition root. `outbox_relay.py` ja' vinha
+pronto (lease expiravel, `claimed_by`, batch/TTL parametricos) — faltava so' o invocador; este
+Deployment E' o invocador.
+
+Diferente do notifications-bridge, o relay tambem precisa de DATABASE_URL (drena o outbox
+Postgres) — mesmo secretKeyRef do Aurora que worker-daemon/agent-runtime usam (`build_relay`
+em outbox_relay.py recusa construir sem DATABASE_URL nem KAFKA_BOOTSTRAP_SERVERS — fail-closed,
+nunca reivindica linhas do outbox e as descarta em silencio).
+
+PROBE (SC-01/F3, reparo G1): mesma situacao do notifications-bridge — o relay NAO sobe servidor de
+health (so' roda o loop de poll). Liveness `exec`, mas NAO via `pgrep`: a imagem de runtime e'
+`python:3.12-slim` + `libpq5` (deploy/Dockerfile) e NAO instala `procps` — `pgrep` sairia com
+exit 127 e o kubelet reiniciaria o pod pra sempre (achado F3; a mesma forma ja' existia nas tres
+pontes irmas e continua la', ver docs/review-queue.md HELM-BRIDGE-LIVENESS-PGREP). Em vez disso,
+`run_relay_loop` (outbox_relay.py) toca o arquivo de heartbeat a CADA sweep completo; a probe le
+`A2A_OUTBOX_RELAY_HEARTBEAT_PATH`/`A2A_OUTBOX_RELAY_POLL_INTERVAL_S` do PROPRIO ambiente do
+container (os MESMOS env vars que o relay le) e compara o mtime do arquivo contra
+`max(3 * pollIntervalS, 5s)` — a formula de `heartbeat_stale_after_s` em outbox_relay.py, inlined
+aqui porque a probe roda como `python -c` isolado, sem `maezo` necessariamente importavel em todo
+contexto onde ela e' exercitada.
+
+Achado G1 (gatekeeper, revisao Delta): a versao anterior calculava o limiar em Helm via
+`{{ mul (pollIntervalS | int) 3 }}` — `| int` trunca, entao `pollIntervalS: 0.5` (configuracao
+legitima; `OutboxRelaySettings.poll_interval_s` e' `float`) virava limiar `0`, e
+`time.time() - mtime` nunca e' `< 0`: a probe falharia SEMPRE, restart-loop permanente — o EXATO
+modo de falha que este heartbeat existe para eliminar, reintroduzido por um caminho de config.
+Corrigido: zero aritmetica Helm — o calculo inteiro (incluindo o piso de 5s) roda em Python dentro
+da propria probe, a partir do env var real (string, nunca truncado pelo template).
+*/ -}}
+{{- if .Values.a2aOutboxRelay.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: a2a-outbox-relay
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: a2a-outbox-relay
+spec:
+  replicas: {{ .Values.a2aOutboxRelay.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "maezo-tenant.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: a2a-outbox-relay
+  template:
+    metadata:
+      labels:
+        {{- include "maezo-tenant.labels" . | nindent 8 }}
+        app.kubernetes.io/component: a2a-outbox-relay
+        # O relay so' carrega o payload do fato A2A ja' serializado pelo composition root que o
+        # escreveu no outbox (identificadores/refs de processo, nunca PHI cru) — zona general.
+        maezo.io/phi-zone: "false"
+    spec:
+      serviceAccountName: {{ include "maezo-tenant.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: a2a-outbox-relay
+          image: {{ include "maezo-tenant.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "maezo.a2a.outbox_relay"]
+          env:
+            - name: TENANT_ID
+              value: {{ .Values.tenant.id | quote }}
+            # `build_relay` recusa construir sem isto — sem outbox para drenar (fail-closed).
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.aurora.secretName }}
+                  key: database-url
+            # `build_relay` recusa construir sem isto — sem broker para entregar (fail-closed).
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: maezo-kafka-config
+                  key: bootstrap-servers
+            - name: A2A_OUTBOX_RELAY_BATCH_SIZE
+              value: {{ .Values.a2aOutboxRelay.batchSize | quote }}
+            - name: A2A_OUTBOX_RELAY_POLL_INTERVAL_S
+              value: {{ .Values.a2aOutboxRelay.pollIntervalS | quote }}
+            - name: A2A_OUTBOX_RELAY_HEARTBEAT_PATH
+              value: "/tmp/maezo-a2a-outbox-relay.heartbeat"
+            {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.a2aOutboxRelay.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          # SEAM (SC-01/F3, reparo G1): o relay nao expoe /healthz (sem app de health) e a imagem
+          # nao tem `pgrep` (ver comentario do bloco acima). Liveness por heartbeat: a probe le
+          # A2A_OUTBOX_RELAY_HEARTBEAT_PATH/A2A_OUTBOX_RELAY_POLL_INTERVAL_S do PROPRIO ambiente do
+          # container (os mesmos dois env vars acima — nunca um valor Helm re-interpolado) e
+          # calcula max(3 * pollIntervalS, 5) EM PYTHON, sem nenhuma aritmetica Helm/`mul`/`int`
+          # que pudesse truncar um pollIntervalS fracionario para 0 (achado G1).
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import os,sys,time; p=os.environ.get('A2A_OUTBOX_RELAY_HEARTBEAT_PATH',''); poll=float(os.environ.get('A2A_OUTBOX_RELAY_POLL_INTERVAL_S','2')); threshold=max(3.0*poll,5.0); sys.exit(0 if p and os.path.exists(p) and (time.time()-os.stat(p).st_mtime)<threshold else 1)"
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

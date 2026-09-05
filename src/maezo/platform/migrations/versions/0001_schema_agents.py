@@ -25,7 +25,29 @@ def upgrade() -> None:
     # pgvector extension — lives in 'public' (DL-0017).
     # Type/operator must be DB-global; per-tenant schemas can reference it
     # because search_path includes 'public'.
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
+    #
+    # DU-01-b (2026-09-04, decisao do dono R-005): pgvector deixou de ser dependencia da
+    # plataforma — `0009_drop_pgvector` remove a coluna `embedding` e a extensao, e a imagem do
+    # compose passou de `pgvector/pgvector:pg16` para `postgres:16`. Sem a guarda abaixo o PRIMEIRO
+    # passo de qualquer `alembic upgrade head` em ambiente novo morre aqui com
+    # `FeatureNotSupportedError: extension "vector" is not available`, e NENHUMA migration
+    # posterior pode consertar isso: a falha acontece DENTRO da 0001, antes de a 0009 existir para
+    # o runner. Esta e a unica razao pela qual esta migration ja aplicada e editada in-place
+    # (mesma classe de excecao ao forward-only do ADR-0011 registrada em DL-0017).
+    #
+    # A guarda e convergente, nao condicional-de-comportamento: num servidor COM pgvector o estado
+    # final da 0001 e o mesmo de antes (extensao + coluna), e a 0009 remove os dois; num servidor
+    # SEM pgvector nada e criado e os DROPs da 0009 sao no-op. Os dois caminhos chegam ao MESMO
+    # head. Bancos ja migrados nao sao tocados — a 0001 nao roda de novo neles.
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector') THEN
+                CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+            END IF;
+        END
+        $$
+    """)
 
     # LangGraph checkpointer table (ADR-0002, working layer).
     # Schema matches langgraph-checkpoint-postgres expectations.
@@ -69,9 +91,25 @@ def upgrade() -> None:
             fhir_patient_id   text,
             event_type        text NOT NULL,
             payload           jsonb NOT NULL DEFAULT '{}'::jsonb,
-            embedding         vector(1536),
             created_at        timestamptz NOT NULL DEFAULT now()
         )
+    """)
+
+    # `embedding vector(1536)` era declarada INLINE no corpo de `agent_memory`, logo acima. Um tipo
+    # de uma extensao ausente nao e ignoravel: a criacao da tabela inteira falharia com
+    # `type "vector" does not exist`. Por isso a coluna saiu do corpo e volta aqui, condicionada a
+    # extensao ter sido criada —
+    # mesma guarda convergente, mesma razao (DU-01-b). A ordem da coluna na tabela muda (passa a
+    # ser a ultima) e isso e irrelevante: `0009_drop_pgvector` a remove no passo seguinte, e nada
+    # neste repositorio le `agent_memory` por posicao ordinal.
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
+                EXECUTE 'ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS embedding public.vector(1536)';
+            END IF;
+        END
+        $$
     """)
 
     # Indexes for agent_memory

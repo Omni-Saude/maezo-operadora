@@ -434,7 +434,7 @@ def test_a_pseudonym_reference_can_count_nothing_anywhere() -> None:
         for f in report.findings
         if f.status is ep.LayerFindingStatus.NOT_COUNTED_IDENTITY_BRIDGE_ABSENT
     ]
-    assert bridge == ["agent_memory", "agent_memory.embedding", "erasure_log"]
+    assert bridge == ["agent_memory", "erasure_log"]
     assert report.counted_rows == 0
     assert len(report.uncounted_layers) == len(ep.PERSISTENCE_LAYERS)
 
@@ -453,8 +453,8 @@ def test_a_patient_reference_counts_exactly_the_subject_bearing_relations() -> N
         counter=counter,
     )
     counted = [f.layer.tabela for f in report.findings if f.status is ep.LayerFindingStatus.COUNTED]
-    assert counted == ["agent_memory", "agent_memory.embedding", "erasure_log"]
-    assert report.counted_rows == 9
+    assert counted == ["agent_memory", "erasure_log"]
+    assert report.counted_rows == 6
     # The reference reaches a BIND parameter and never the statement text.
     for statement, params in seen:
         assert _SENTINEL_REF not in statement
@@ -471,7 +471,7 @@ def test_no_count_is_fabricated_when_no_counter_is_supplied() -> None:
     no_counter = [
         f.layer.tabela for f in report.findings if f.status is ep.LayerFindingStatus.NOT_COUNTED_NO_COUNTER
     ]
-    assert no_counter == ["agent_memory", "agent_memory.embedding", "erasure_log"]
+    assert no_counter == ["agent_memory", "erasure_log"]
     assert all(f.row_count is None for f in report.findings)
 
 
@@ -488,7 +488,7 @@ def test_a_failing_counter_reports_failure_and_withholds_the_message() -> None:
         counter=counter,
     )
     failed = [f for f in report.findings if f.status is ep.LayerFindingStatus.COUNT_FAILED]
-    assert len(failed) == 3
+    assert len(failed) == 2
     for finding in failed:
         assert "RuntimeError" in finding.detail
         assert _SENTINEL_REF not in finding.detail
@@ -575,6 +575,90 @@ def test_artifact_and_code_enumerate_the_same_relations() -> None:
     """The two halves of the design cannot drift: one set, asserted in both directions."""
     from_artifact = {layer["tabela"] for layer in _shipped_raw()["camadas"]}
     assert from_artifact == set(ep.KNOWN_TABLES)
+
+
+# ---------------------------------------------------------------------------
+# Uma relacao RETIRADA por migracao continua ENUMERADA (achado F2 do gatekeeper R1)
+# ---------------------------------------------------------------------------
+#
+# A legenda do plano define `RETIRADA` como "a relacao existiu e foi removida por uma
+# migracao" e o proprio arquivo ja tinha dois casos — `agent_checkpoints` e
+# `agent_checkpoint_writes`, criadas por 0001 e removidas por 0006. `agent_memory.embedding`
+# (criada por 0001, removida por `0009_drop_pgvector`) e' a terceira e tem exatamente a mesma
+# forma. Uma primeira versao deste PR APAGOU a linha em vez de a retirar, levando junto os seus
+# tres campos `PENDENTE` intocados — ou seja, encolhendo em uma linha um escopo de revisao
+# humana (DPO) que decisao nenhuma do dono mandou encolher. As cercas abaixo tornam essa
+# diferenca detectavel: apagar uma relacao retirada fica VERMELHO; retira-la, verde.
+
+_RETIRED_TABLES: tuple[str, ...] = (
+    "agent_checkpoints",
+    "agent_checkpoint_writes",
+    "agent_memory.embedding",
+)
+
+
+def test_a_relation_a_migration_removed_stays_enumerated_as_retirada() -> None:
+    """Nas DUAS metades: o codigo e o artefato CODEOWNED continuam nomeando a relacao."""
+    by_table = {layer.tabela: layer for layer in ep.PERSISTENCE_LAYERS}
+    artifact = {entry["tabela"]: entry for entry in _shipped_raw()["camadas"]}
+    for table in _RETIRED_TABLES:
+        assert table in by_table, f"{table} sumiu de PERSISTENCE_LAYERS — foi APAGADA, nao retirada"
+        assert table in artifact, f"{table} sumiu do plano CODEOWNED — foi APAGADA, nao retirada"
+        assert by_table[table].resolucao is ep.IdentityResolution.RETIRADA
+        assert artifact[table]["resolucao_identidade"] == "RETIRADA"
+
+
+def test_a_retired_relation_carries_no_probe_at_all() -> None:
+    """O que a migracao aposenta e' a SONDA. `agent_memory.embedding` carregava
+    `AND embedding IS NOT NULL`, que sem a coluna e' um `UndefinedColumnError` NO MEIO de um
+    dry-run de eliminacao LGPD — exatamente o procedimento que existe para dizer a verdade."""
+    by_table = {layer.tabela: layer for layer in ep.PERSISTENCE_LAYERS}
+    for table in _RETIRED_TABLES:
+        assert by_table[table].count_statement is None, f"{table} ainda emite SQL apos ser retirada"
+        assert by_table[table].subject_column is None
+
+
+def test_a_retired_relation_keeps_the_dpo_decision_pending() -> None:
+    """O que a migracao NAO aposenta e' a decisao pendente do DPO. Retirar uma relacao e' fato
+    estrutural; decidir por ela seria ato humano, e nenhum agente o pratica aqui."""
+    artifact = {entry["tabela"]: entry for entry in _shipped_raw()["camadas"]}
+    for table in _RETIRED_TABLES:
+        entry = artifact[table]
+        assert entry["decisao_dpo"] == "PENDENTE", entry
+        assert entry["base_legal"].startswith("PENDENTE"), entry
+        assert entry["retencao"].startswith("PENDENTE"), entry
+
+
+def test_the_dpo_review_scope_did_not_shrink() -> None:
+    """A contagem e' o invariante que distingue "retirar" de "apagar": as 16 relacoes do plano
+    continuam 16, e as 16 decisoes PENDENTE continuam 16."""
+    camadas = _shipped_raw()["camadas"]
+    assert len(camadas) == 16, [entry["tabela"] for entry in camadas]
+    pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
+    assert len(pendentes) == 16, pendentes
+
+
+def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:
+    """O dry-run reporta a relacao retirada em vez de a esconder — e sem emitir SQL por ela."""
+    seen: list[str] = []
+
+    def counter(statement: str, params: Mapping[str, str]) -> int:
+        seen.append(statement)
+        return 1
+
+    report = ep.dry_run(
+        subject_ref=_SENTINEL_REF,
+        subject_ref_kind=ep.SubjectRefKind.FHIR_PATIENT_ID,
+        tenant_id="t1",
+        counter=counter,
+    )
+    retired = [
+        finding.layer.tabela
+        for finding in report.findings
+        if finding.status is ep.LayerFindingStatus.NOT_APPLICABLE_RETIRED
+    ]
+    assert sorted(retired) == sorted(_RETIRED_TABLES)
+    assert not [statement for statement in seen if "embedding" in statement]
 
 
 # F-4: broadened past the exact literal "CREATE TABLE IF NOT EXISTS " — case-insensitive,

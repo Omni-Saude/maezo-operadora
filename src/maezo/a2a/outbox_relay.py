@@ -74,6 +74,7 @@ import os
 import signal
 import socket
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any, Final, Protocol
 
 import structlog
@@ -93,6 +94,40 @@ logger = structlog.get_logger(__name__)
 #: outbox is a low-volume table — one to three rows per delegation) rather than LISTEN/NOTIFY,
 #: which would add a second durable-connection failure mode for a latency nobody has asked for.
 DEFAULT_POLL_INTERVAL_S: Final[float] = 2.0
+
+#: Where `run_relay_loop` touches its heartbeat file each sweep (SC-01/F3). `python:3.12-slim`
+#: (the runtime image, `deploy/Dockerfile`) does not install `procps`, so a `pgrep`-based
+#: livenessProbe exits 127 and restart-loops the pod forever — this file's mtime is the real
+#: liveness signal the chart's probe checks instead (`deployment-a2a-outbox-relay.yaml`: a `python
+#: -c` one-liner comparing the file's mtime against `heartbeat_stale_after_s(poll_interval_s)`).
+#: Under `readOnlyRootFilesystem: true` the chart mounts an `emptyDir` at `/tmp`, so this path is
+#: always writable there.
+DEFAULT_HEARTBEAT_PATH: Final[str] = "/tmp/maezo-a2a-outbox-relay.heartbeat"
+
+#: Floor on the heartbeat staleness threshold, in seconds (gatekeeper finding G1). `3 *
+#: poll_interval_s` alone breaks at a sub-second `pollIntervalS`: Helm's `mul` on a value like
+#: `0.5` inside an `int`-cast expression silently truncates to `0`, making the probe compare
+#: against `< 0` — never true — so the probe fails on EVERY invocation and the kubelet
+#: restart-loops the pod forever, the EXACT failure mode this heartbeat replaced `pgrep` to fix.
+#: `heartbeat_stale_after_s` below is pure Python (no Helm arithmetic at all) and is floored at
+#: this constant so even `poll_interval_s=0` cannot produce a threshold that never passes.
+MIN_HEARTBEAT_STALE_AFTER_S: Final[float] = 5.0
+
+
+def heartbeat_stale_after_s(poll_interval_s: float) -> float:
+    """Pure: the heartbeat-file staleness threshold (seconds) for a given `poll_interval_s`.
+
+    `max(3 * poll_interval_s, MIN_HEARTBEAT_STALE_AFTER_S)` — three sweep-cycles of slack before
+    declaring the loop dead, floored so a very short (or misconfigured `0`/negative) poll interval
+    still yields a threshold the process can realistically meet (gatekeeper finding G1). The SAME
+    formula is inlined, verbatim, into `deployment-a2a-outbox-relay.yaml`'s `livenessProbe` — that
+    probe runs as a bare `python -c` in a container that does not necessarily have `maezo` importable
+    in every context this is exercised from (`docker run --rm python:3.12-slim` in isolation, per the
+    gatekeeper's own verification method), so the formula cannot be shared by import; it is instead
+    proven identical by the tests in `tests/unit/platform/test_a2a_outbox_relay_deployment.py` that
+    render the chart and execute the rendered command directly.
+    """
+    return max(3.0 * poll_interval_s, MIN_HEARTBEAT_STALE_AFTER_S)
 
 
 class OutboxClaimStore(Protocol):
@@ -286,6 +321,59 @@ async def drain_once(
     return DrainReport(claimed=len(records), delivered=len(published), sealed=sealed)
 
 
+#: Module-level, not per-instance: `run_relay_loop` is a free function with no `self` to carry
+#: this on, and a process runs exactly one relay loop. Guards the ONCE-not-per-sweep logging
+#: `_touch_heartbeat` does on a write failure (gatekeeper finding G2) — reset only by
+#: `_reset_heartbeat_write_failure_logged_for_tests` (test-only; production never resets it,
+#: matching "log once for the life of the process", not "once per outage").
+_heartbeat_write_failure_logged = False
+
+
+def _reset_heartbeat_write_failure_logged_for_tests() -> None:
+    """Test-only reset of the module-level once-only-log flag `_touch_heartbeat` sets. Production
+    code never calls this — a process that starts failing to write its heartbeat logs it exactly
+    once for its whole lifetime, not once per outage."""
+    global _heartbeat_write_failure_logged
+    _heartbeat_write_failure_logged = False
+
+
+def _touch_heartbeat(path: str | None) -> None:
+    """Update the heartbeat file's mtime to now — the liveness probe's ONLY signal that the loop
+    is actually iterating (SC-01/F3).
+
+    `path` empty/`None` (ECS today, gatekeeper finding G2: `service-a2a-outbox-relay.tf` sets
+    `A2A_OUTBOX_RELAY_HEARTBEAT_PATH=""` because that task's `readonlyRootFilesystem=true` has no
+    writable mount) returns immediately, ABOVE the `try` below — the heartbeat is disabled there,
+    on purpose, and the `except OSError` branch is never reached on that path at all (gatekeeper
+    finding H1, §Delta-2: an earlier revision of this docstring called that branch "the guaranteed
+    path on ECS today", which was backwards — it is exactly the path ECS avoids by setting an empty
+    override).
+
+    The `except OSError` branch instead covers a DIFFERENT, genuinely real case: `path` is
+    non-empty (Helm's default, or any future/misconfigured override) but the underlying mount is
+    not actually writable — e.g. a future chart edit that changes `readOnlyRootFilesystem`/the
+    `emptyDir` mount without correspondingly updating or emptying the heartbeat path, or an
+    operator override pointed at a bad location. A write failure there must never crash the relay
+    over an observability side-channel: it is logged ONCE for the life of the process (never per
+    sweep — a per-sweep log at `pollIntervalS=2` is ~43k lines/day/task) and then silently swallowed
+    on every subsequent sweep. The loop keeps TRYING to write on every sweep regardless (cheap, and
+    recovers automatically if the mount ever becomes writable), only the log is throttled. This
+    branch has direct unit test coverage
+    (`test_touch_heartbeat_swallows_a_write_failure`,
+    `test_touch_heartbeat_logs_the_write_failure_exactly_once`) — the honest reason it no longer
+    carries `# pragma: no cover`, not because it is guaranteed to fire in any particular deployment.
+    """
+    global _heartbeat_write_failure_logged
+    if not path:
+        return
+    try:
+        Path(path).touch()
+    except OSError as exc:
+        if not _heartbeat_write_failure_logged:
+            logger.warning("a2a_outbox_relay_heartbeat_write_failed", path=path, error=str(exc))
+            _heartbeat_write_failure_logged = True
+
+
 async def run_relay_loop(
     outbox: OutboxClaimStore,
     publisher: FactBrokerPublisher,
@@ -296,6 +384,7 @@ async def run_relay_loop(
     poll_interval_s: float = DEFAULT_POLL_INTERVAL_S,
     stop_event: asyncio.Event | None = None,
     max_sweeps: int | None = None,
+    heartbeat_path: str | None = None,
 ) -> list[DrainReport]:
     """Drain repeatedly until `stop_event` is set (or `max_sweeps` sweeps have run).
 
@@ -306,6 +395,12 @@ async def run_relay_loop(
     `max_sweeps` exists for tests and for `--once`; `None` (production) loops forever. The loop
     never swallows a non-publish error: a database failure propagates and ends the process, the
     same fail-closed posture `notifications_bridge.run_consumer_loop` takes.
+
+    `heartbeat_path`, when given, is touched (mtime -> now) once per completed sweep — i.e. only
+    AFTER `drain_once` returns, so a hung sweep (a stuck broker/DB call) correctly goes stale
+    rather than the heartbeat firing on a fixed timer regardless of whether the loop is making
+    progress. `None` (the default) disables the heartbeat entirely — used by the unit tests above,
+    which have no filesystem opinion; the composition root in `main()` always passes one.
     """
     reports: list[DrainReport] = []
     sweeps = 0
@@ -320,6 +415,7 @@ async def run_relay_loop(
             claim_ttl_s=claim_ttl_s,
         )
         reports.append(report)
+        _touch_heartbeat(heartbeat_path)
         sweeps += 1
         if max_sweeps is not None and sweeps >= max_sweeps:
             break
@@ -348,6 +444,9 @@ class OutboxRelaySettings(BaseSettings):
     poll_interval_s: float = Field(default=DEFAULT_POLL_INTERVAL_S, alias="A2A_OUTBOX_RELAY_POLL_INTERVAL_S")
     connect_timeout_s: float = Field(default=10.0, alias="A2A_OUTBOX_RELAY_CONNECT_TIMEOUT_S")
     send_timeout_s: float = Field(default=10.0, alias="A2A_OUTBOX_RELAY_SEND_TIMEOUT_S")
+    # SC-01/F3: the livenessProbe's real signal (see `DEFAULT_HEARTBEAT_PATH`'s docstring for why
+    # `pgrep` cannot be used against this runtime image).
+    heartbeat_path: str = Field(default=DEFAULT_HEARTBEAT_PATH, alias="A2A_OUTBOX_RELAY_HEARTBEAT_PATH")
 
 
 def build_relay(settings: OutboxRelaySettings) -> tuple[PostgresFactOutbox, AioKafkaFactPublisher]:
@@ -421,6 +520,7 @@ async def main(argv: list[str] | None = None) -> None:
             poll_interval_s=settings.poll_interval_s,
             stop_event=stop_event,
             max_sweeps=1 if args.once else None,
+            heartbeat_path=settings.heartbeat_path,
         )
     finally:
         await publisher.stop()
