@@ -70,7 +70,7 @@ resource "aws_iam_role" "plan" {
 # que concedia leitura da conta INTEIRA a qualquer workflow de pull request e que
 # a AWS EXPANDE ao longo do tempo sem revisao nossa.
 #
-# Escopo derivado dos 6 modulos de `deploy/terraform/modules/` e das raizes de
+# Escopo derivado dos 7 modulos de `deploy/terraform/modules/` e das raizes de
 # `deploy/terraform/envs/` — um `sid` por servico que o `terraform plan` precisa
 # LER para dar refresh no estado:
 #
@@ -110,6 +110,17 @@ resource "aws_iam_role" "plan" {
 #   s3 / dynamodb   backend remoto de estado (envs/*/versions.tf:13) — hoje
 #                   concedido pela policy do bucket compartilhado do bootstrap
 #                   amh-data-platform, nao por esta role.
+#   budgets / ce    modules/cost-guardrails/main.tf:38,45,69 (aws_ce_anomaly_monitor,
+#                   aws_ce_anomaly_subscription, aws_budgets_budget) — o 7o modulo,
+#                   introduzido por ESTE MESMO branch (gap B-02-b / R-045). O
+#                   refresh desses recursos exige `budgets:ViewBudget` e
+#                   `ce:GetAnomaly*`/`ce:GetAnomalySubscriptions`. Nota: mesmo se
+#                   um dia entrassem, `budgets:ViewBudget` NAO casa o formato
+#                   `Describe*`/`Get*`/`List*` que R-041 aprovou para este bloco —
+#                   entao a role `plan` nao pode ler orcamentos por este desenho,
+#                   por construcao, ate o dono decidir alargar o formato. Vira
+#                   plan vermelho a partir do 2o plan de cada raiz (o 1o, com
+#                   estado vazio, nao faz refresh de recursos ja aplicados).
 #
 # `sts:GetCallerIdentity` nao aparece porque a AWS nao exige permissao para ela.
 # Prefixos que hoje nao casam com nenhuma acao real do servico (p.ex. `rds:Get*`)

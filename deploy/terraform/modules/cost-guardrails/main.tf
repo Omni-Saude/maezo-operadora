@@ -20,6 +20,36 @@
 #
 # Custo dos proprios guardrails: `aws_budgets_budget` e gratuito ate 2 budgets e
 # o Cost Anomaly Detection nao tem custo — o guardrail nao e o gasto.
+#
+# PREMISSA DE UMA CONTA POR RAIZ (nao verificada, achado do verificador VER-A3-TF
+# F2): este modulo assume UMA conta AWS por raiz de `deploy/terraform/envs/`. Ele
+# e' instanciado por staging-sa-east-1 E prod-amh-sa-east-1 com `cost_filter_tag`
+# no default `null` (orcamento e monitor de escopo de CONTA INTEIRA, nao de tag) e
+# com `aws_ce_anomaly_monitor.monitor_type = "DIMENSIONAL"` /
+# `monitor_dimension = "SERVICE"`. Se as duas raizes apontarem para a MESMA conta
+# AWS (os dois `terraform.tfvars.example` ainda trazem o mesmo placeholder de
+# `aws_account_id`, e as duas raizes compartilham o bucket de state do bootstrap
+# amh-data-platform — nada aqui prova contas separadas): (a) o teto de staging
+# passa a alarmar sobre gasto de prod e vice-versa, porque os dois orcamentos
+# medem a MESMA conta; e (b) a AWS pode permitir apenas UM monitor
+# DIMENSIONAL/SERVICE por conta (nao confirmado — sem credencial, sem apply
+# ainda: D13-03), caso em que o `apply` da segunda raiz falharia ao criar o seu
+# proprio `aws_ce_anomaly_monitor`. Nao e' regressao de seguranca nem viola o
+# `floor_note` de R-045 (nao envolve leitura de segredo); e' uma lacuna de
+# desenho para o dono resolver ANTES do primeiro apply real, configurando
+# `cost_filter_tag` por ambiente (exige a tag de alocacao de custo ativada em
+# Billing — ver acima) ou instanciando o modulo uma unica vez para as duas raizes
+# se elas de fato compartilharem conta. Nao alterado aqui: mudar o default
+# seria o agente decidindo por materia de financas/contas, nao documentando.
+#
+# ESCOPO FORA DESTE MODULO (INFO, gap F3 / R-045): `deploy/terraform/envs/**` e'
+# o unico escopo que a decisao aprovada nomeia. Este repositorio tambem contem
+# `deploy/aws-ecs/envs/dev-sa-east-1` (a infraestrutura dev de ECS/Fargate, com
+# `aws_rds_cluster`, `aws_lb`, `aws_codebuild_project` reais), `deploy/aws-identity-center`
+# e `deploy/cloudflare/envs/dev` — nenhum ganha guardrail de custo aqui, e a raiz
+# ECS/Fargate e' justamente a que mais provavelmente carrega gasto real hoje.
+# Nao e' lacuna deste pacote (a resposta aprovada nao pede essas raizes), mas o
+# dono deve decidir explicitamente se `cost-guardrails` deve ser estendido a elas.
 
 locals {
   common_tags = merge(var.tags, {
