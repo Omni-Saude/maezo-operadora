@@ -57,7 +57,7 @@ module "eks" {
 }
 
 # ---------------------------------------------------------------------------
-# Aurora PostgreSQL 16 — agent state, memory, audit + pgvector
+# Aurora PostgreSQL 16 — agent state, memory, audit
 # ---------------------------------------------------------------------------
 module "aurora" {
   source = "../../modules/aurora-postgres"
