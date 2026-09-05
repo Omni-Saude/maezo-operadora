@@ -2,10 +2,11 @@
         check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence \
         verify-amh-contract-pin \
         check-alert-runbook-urls \
+        check-plans-counts \
         xfail-census-check xfail-census-write \
         deviation-expiry-check \
         check-lifecycle-expected-fail-expiry \
-        check-ledger-hashes \
+        check-ledger-hashes check-ledger-row-cell-count \
         release-floor-check release-floor-write \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint \
         check-helm-entrypoints check-chart-env-reconciliation
@@ -65,6 +66,16 @@ check-alert-runbook-urls: ## D12-01-b / R-007: toda regra alert: de alert-rules.
 	# arquivo-alvo. Regras `record:` (ex.: maezo_dead_letter_derived, ALERTS-WITHOUT-METRICS-b)
 	# nao paginam ninguem e sao ignoradas por design.
 	uv run python scripts/ci/check_alert_runbook_urls.py
+
+check-plans-counts: ## AF-06: contagens de ADR declaradas em PLANS.md (ADRs numerados / ADRs (nao ...) / arquivos incl. README+template) reconciliam com docs/adr/
+	# PLANS.md declara em prosa quantos ADRs o repo tem, em duas formas (paragrafo "fonte de
+	# verdade" + tabela de reconciliacao §0.3) — nenhuma delas era recomputada contra o filesystem;
+	# ambas ficaram stale (achado AF-06: PLANS.md:39 alegava "32 ADRs (nao 24)" com a arvore ja em
+	# 39 arquivos, depois 48). O gate recomputa as tres formas de alegacao contra docs/adr/ real
+	# (nunca contra prosa historica preservada de §3, deliberadamente fora de escopo) e falha se
+	# qualquer uma delas divergir; zero alegacoes encontradas -> PASSA mas sempre imprime a
+	# contagem explicita (nunca verde silencioso).
+	uv run python scripts/ci/check_plans_counts.py
 
 check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_instance fora do allowlist da fence (ADR-0007/T-C2)
 	# AST-scan repo-wide de src/maezo: `start_process_idempotent` (mcp_cibseven/transport.py:1052)
@@ -158,6 +169,18 @@ check-ledger-hashes: ## LEDGER-HASH-RECOMPUTE-CHECK: recomputa o Test-hash das l
 	# `--all` (uso local apenas) verifica toda linha declarada do ledger atual, ignorando o
 	# intervalo base..HEAD.
 	uv run python scripts/ci/check_evidence_ledger_hashes.py --ledger-path docs/evidence-ledger.md
+
+check-ledger-row-cell-count: ## LEDGER-ROW-CELL-COUNT: toda linha NOVA de docs/evidence-ledger.md bate a contagem de celulas do cabecalho da tabela
+	# Uma linha com `|` nao escapado dentro de uma celula (a convencao e' `\|` — ja documentada no
+	# docstring de check_evidence_ledger_hashes.py) faz a tabela markdown crescer uma celula extra
+	# por ocorrencia, silenciosamente — um achado real (14 celulas, esperado 8) passou pelo gate de
+	# hash sem ser notado. Reusa a MESMA logica de intervalo `<base>..HEAD` do check acima
+	# (resolve_effective_base/get_ledger_diff_added_lines importados sem reimplementacao) para que
+	# o `main` continue verde: a arvore JA tem 30 linhas mal-formadas pre-existentes (contadas pelo
+	# gatekeeper de reembolso); o gate falha so numa linha NOVA malformada, nunca nas antigas.
+	# `--all` (uso local apenas) verifica toda linha do ledger atual com numero de linha real —
+	# usado para gerar o inventario de review-queue das 30 linhas legadas, nunca para gate de CI.
+	uv run python scripts/ci/check_ledger_row_cell_count.py --ledger-path docs/evidence-ledger.md
 
 release-floor-check: ## Audit §5 (W-fillers): candidato nao pode ficar ABAIXO do floor de capacidade de release comitado (gate de regressao)
 	# Composto de verdades JA GERADAS (nao um numero novo mantido a mao): total do censo de

@@ -237,4 +237,12 @@ resource "aws_grafana_role_association" "viewer" {
 #
 # Code location: deploy/terraform/modules/observability/main.tf (this comment block)
 # Blocker: issue #16 (no AWS creds) + AMG two-phase bootstrap
+#
+# D12-02 / R-030 (2026-09-05): the dashboards themselves are now versioned as JSON at
+# deploy/observability/dashboards/ (worker-runtime.json, agentes.json, dlq-lifecycle.json),
+# provisioned into the DEV Grafana (docker-compose) via deploy/observability/
+# grafana-provisioning/. AMG has no equivalent push path yet — pushing this same JSON into the
+# AMG workspace is future work gated on the SAME blocker as the datasource wiring above (the
+# `grafana` provider needs the AMG workspace URL from a completed first apply). Content is
+# provisional until D12-01-a (SLO document) exists.
 # ---------------------------------------------------------------------------

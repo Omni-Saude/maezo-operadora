@@ -165,6 +165,7 @@ de alcada. Revisores mapeados por phase3-plan §7. Conteudo regulatorio/clinico/
 | `docs/processes/contracts/SP-OP-PROGRAMA-001.md` (+ `programa_*.dmn`/`programa.py` futuros) | Consent-gate LGPD (art.7/11/8§5/18§2) + correlacao revogacao com SP-OP-LGPD-DSR-001; desligamento clinico L0-hard (decisao clinica); taxonomia/criterios de programa (cronicos/pre-natal/oncologia/APS); RN ANS de programas de promocao a saude (existe?); candidate groups `coordenacao-clinica`/`equipe-cuidado`; retencao/cessacao de PHI pos-revogacao; k-anon/small-cell para agregados populacionais (WP3.5); enrollment exige UT de consentimento antes do coordenador? | DPO + jurídico (consent/revogacao/retencao + k-anon/min-cohort); médico-auditor (criterios clinicos + desligamento); regulatório (RN de programa); PO/IdP (candidate groups); PO/produto (persona Valentina) | `DRAFT — requires human review before any deploy` |
 | `docs/adr/0019-amh-lake-of-record.md` (ADR-0019 — Proposed) | `ConsentGate scope=operational_analytics` (separacao de finalidade LGPD); k-anonimato/small-cell-suppression (piso `k` versionado); fronteira "agregado anonimo sobrevive ao erasure"; drop do surrogate `mpi_id<->fhir_patient_id`; grants LF-Tag tenant-scoped (desenho; enforcement AWS-blocked) | arquitetura + compliance (decisao ADR); DPO (k-anon/min-cohort + consent scope + fronteira de erasure); jurídico/regulatório/atuarial (base legal `operational_analytics`) | `DRAFT — requires human review before any deploy` |
 | `docs/adr/0020-custody-chain.md` (ADR-0020 — Proposed) | Custody chain como PROJECAO sobre ADR-0007 (nao fork); `bundle_root` Merkle selado antes da decisao humana; evidencia bruta como `input_hash`+Object-Lock S3 PHI-zone; freeze de snapshot de feature-store (reprodutibilidade); retencao 5+ anos vs erasure LGPD + legal-hold | arquitetura + compliance (decisao ADR + projecao sobre ADR-0007); jurídico + regulatório + DPO (retencao 5+ anos vs erasure/legal-hold; aceitabilidade probatoria) | `DRAFT — requires human review before any deploy` |
+| PERSP-PAGTO-STALE-CONTAS-ASSUMPTION resolvido em `spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn` (labels/documentation) + `docs/processes/contracts/SP-OP-PAGTO-001.md` (3 linhas novas na tabela "Variaveis de entrada") — commit `bc59c9c0`, linha `PERSP-PAGTO-STALE-CONTAS-ASSUMPTION` do evidence-ledger | A premissa "interacao com CONTAS-001 (conta adjudicada→ordem)" da linha ACIMA (`SP-OP-PAGTO-001.md (+ pagto_*.dmn/pagto.py futuros)`) agora nomeia o handoff real (`operadora.contas.handoff_pagamento`/`operadora.recurso.handoff_pagamento`, ADR-0040) nos 8 sites do gap — **6 dos 8 ja haviam sido reconciliados por `113ac5dc` (2026-09-03), antes desta PR; este fix cobre os 2 sites de documentacao BPMN que ainda faltavam** (`spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:26-27,52-58`) — e o contrato declara as 3 variaveis que os dois handoffs ja semeiam (`numero_guia_tiss`/`fonte_valor`/`glosa_id`) — cerca tree-derived em `tests/unit/spec/test_sp_op_pagto_001_contas_shape_fence.py`. **Isto NAO resolve a linha ACIMA**: escada de alcada (`threshold_brl`/faixas/teto L2), mapeamento faixa→grupo→tier e os candidate groups `aprovacao-financeira-*`/`comite-financeiro`/`coordenacao-financeira` continuam `DRAFT/verify` — sign-off de financas/PO/IdP, nao tocado por este fix, puramente de forma/vocabulario | financas (a linha ACIMA segue com o mesmo revisor — nada aqui muda quem assina) | `RESOLVIDO (o sub-item de forma/vocabulario da premissa CONTAS-001) — a linha ACIMA de financas/candidate-groups permanece DRAFT — requires human review before any deploy` |
 
 Itens transversais Phase 3 (gates de promocao — registrados aqui para nao se perderem):
 - **`_hard_frozen.yaml` promotion** — `provider_decredentialing` (L1, CRED-001), `contract_termination`
@@ -2002,3 +2003,195 @@ Esta secao CORRIGE e COMPLETA as quatro secoes `PERSP-AUTH-VOICE` acima, que fic
    **10598**.
 
 Nada aqui e' ratificacao de SME.
+
+## D12-02 — dashboards Grafana versionados (owner-review, `deploy/**` por politica do programa)
+
+Decisao do dono R-030 (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA) implementada no
+branch `r5/d12-02-dashboards`. Nenhum conteudo clinico/regulatorio — nao entra na tabela do topo
+deste arquivo; registrada aqui porque `deploy/**` e owner-review por politica do programa (owner
+prompt §8), nao por CODEOWNERS.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `deploy/observability/dashboards/{worker-runtime,agentes,dlq-lifecycle}.json` (novo) + `deploy/observability/grafana-provisioning/{dashboards/dashboards.yaml,datasources/datasources.yaml}` (novo) + `deploy/terraform/modules/observability/main.tf` (nota honesta na secao "6. AMG -> AMP datasource wiring") | Confirmar que cada query PromQL de cada painel referencia uma serie real (nao fabricada) da arvore neste base; confirmar que o CONTEUDO (quais paineis, quais limiares) e aceitavel como PROVISORIO ate `D12-01-a` (documento de SLO) existir — R-030 autoriza o versionamento agora e adia o refino de conteudo, nao o contrario | `@rodaquino-OMNI` (dono de infra/observabilidade) | `pendente — PR de owner-review; ver docs/evidence-ledger.md linha D12-02. CORRIGIDO 2026-09-05 (reparo REP-D12-02): a classificacao "nao por CODEOWNERS" acima do topo desta secao esta ERRADA — ver "## Correcao (D12-02, reparo pos-VERIFY, 2026-09-05, secao NOVA)" no fim deste arquivo` |
+
+## Correcao (D12-02, reparo pos-VERIFY, 2026-09-05, secao NOVA)
+
+Esta secao CORRIGE a secao "## D12-02 — dashboards Grafana versionados" acima. A secao anterior
+nao e apagada (este arquivo e append-only); tudo o que ela afirma e que aparece corrigido aqui
+deve ser lido como SUPERADO por esta secao. Origem: veredito `VERIFY-D12-02` (REVISE, 4 achados:
+F1 bloqueante, F2/F3/F4 informativos), reparo pelo terceiro agente (REP-D12-02).
+
+1. **Painel que afirmava espelhar um alerta, e nao espelhava (F1, bloqueante — CORRIGIDO).** O
+   painel "Lifecycle CronJob failures" de `dlq-lifecycle.json` tinha perdido o `> 0` que
+   `MaezoLifecycleJobFailed` usa para gatear a metade esquerda do `unless on (job_name) (...)` —
+   a propria descricao do painel afirmava "Mesma expressao de MaezoLifecycleJobFailed", o que era
+   falso: sem o `> 0`, o painel graficaria TODA serie `kube_job_status_failed` (tipicamente `0`
+   para jobs saudaveis), nao so as genuinamente falhas. Corrigido: `expr` do painel agora e
+   byte-idêntica a expr do alerta (`kube_job_status_failed{job_name=~"lifecycle-.*"} > 0 unless
+   on (job_name) (kube_job_annotations{annotation_maezo_io_expected_fail_until=~".+"})`).
+   **Cerca nova** (`tests/unit/deploy/test_grafana_dashboards.py::
+   test_painel_que_afirma_espelhar_um_alerta_bate_com_a_expr_do_alerta`) generaliza a checagem
+   para os 8 paineis dos 3 dashboards que declaram `maezo_mirrors_alert: "<AlertName>"` (campo
+   novo no JSON, ignorado pelo Grafana): expr do painel == expr do `alert:` nomeado em
+   `alert-rules.yml`, a menos apenas de um `> <threshold>` FINAL. Ao aplicar essa cerca contra a
+   arvore real, ela tambem encontrou (e este reparo corrigiu) um SEGUNDO desvio nao nomeado pelo
+   veredito original: o painel "Worker execution time p95" (`worker-runtime.json`) envolvia a
+   expressao de `MaezoSLAWorkerLatencyHigh` num `sum by (le, worker, topic) (...)` extra que o
+   alerta nao tem, apesar de a mesma descricao "Mesma expressao... com o limiar marcado como
+   threshold do painel" prometer identidade estrutural — corrigido para bater exatamente (o
+   `sum by` removido; ambos os labels `worker`/`topic` ja sao os UNICOS que a serie declara em
+   `metrics.py`, entao a remocao nao muda o resultado numerico em dev/CI de instancia unica, so
+   restaura a promessa literal do painel). Mutation-provado (arquivo, PYTHONPATH forcado,
+   assert-before-write): dropar o `> 0` de novo -> `test_painel_que_afirma_espelhar_um_alerta_
+   bate_com_a_expr_do_alerta[dlq-lifecycle.json]` FAILED; revertido -> 26 passed.
+
+2. **Lacuna de validacao de labels, confirmada pelo proprio veredito (F3 — FECHADA).** O veredito
+   mutou `worker-runtime.json` para `sum by (nonexistent_label) (rate(
+   maezo_worker_error_count_total[5m]))` e confirmou que a cerca anterior (so nomes de metrica)
+   ficava verde. Cerca nova (`test_toda_label_usada_em_toda_expr_pertence_ao_label_set_real_da_
+   metrica`): toda label usada num seletor `metrica{label=...}` ou numa clausula
+   `by/on/ignoring/without(...)` precisa pertencer ao label-set REAL daquela metrica — derivado de
+   `labelnames=[...]` em `metrics.py` (mais `le` implicito em series `_bucket` de Histogram) para
+   metricas `maezo_*`, ou do conjunto padrao `job`/`instance`/`pod`/`namespace` (documentado contra
+   os `scrape_configs`/`relabel_configs` reais de `prometheus.yml`) unido as labels ja literalmente
+   citadas com aquela metrica em `alert-rules.yml`, para metricas de exporter (`kube_*`/`kafka_*`)
+   — nunca uma label inventada so para o dashboard, mesmo principio ja usado para nomes de metrica.
+   Mutation-provada, DUAS vezes (arquivo, PYTHONPATH forcado, assert-before-write): (a) a mesma
+   mutacao do veredito (`sum by (nonexistent_label)` sobre `maezo_worker_error_count_total`, painel
+   que TAMBEM mirrors um alerta) -> 2 FAILED (a nova cerca de labels + a de F1, ambas corretamente
+   vermelhas); revertido -> 26 passed; (b) a mesma mutacao isolada num painel SEM
+   `maezo_mirrors_alert` (`sum by (worker, topic, nonexistent_label)` em "Worker execution count
+   (throughput)") -> exatamente 1 FAILED, so a cerca de labels; revertido -> 26 passed. Unit floor
+   sobe de 10714 (base) para **10721** (era 19 casos no arquivo de teste, agora 26 — +7 desta
+   cerca: o teste de F1 parametrizado por dashboard [3] + o de F3 parametrizado [3] + o guard
+   anti-regex-quebrada de F3 [1]).
+
+3. **Bug pre-existente de vector-matching em `MaezoSLAWorkerErrorRateHigh` (F2 — registrado, NAO
+   corrigido; ver tabela abaixo).** Achado pelo verificador durante o F1, NAO introduzido nem
+   corrigido por D12-02 nem por este reparo — `alert-rules.yml` nao foi tocado. Ver secao
+   "## ALERT-RULES-VECTOR-MATCH-MISMATCH" logo abaixo.
+
+4. **Classificacao CODEOWNERS errada (F4 — CORRIGIDO).** A secao "## D12-02" acima, o `REPORT`
+   original (§5) e a linha `D12-02` de `docs/evidence-ledger.md` afirmam "`deploy/**` e owner-
+   review por politica do programa... nao por CODEOWNERS". Isso esta ERRADO desde antes de D12-02
+   comecar: `/deploy/` e CODEOWNED desde o commit `2e4d4300` ("feat(codeowners): `/deploy/` passa a
+   ser CODEOWNED, como o dono ordenou (R-053)"), ja presente na base `8251278` deste branch —
+   `git show 8251278:.github/CODEOWNERS | grep '^/deploy/'` -> `/deploy/ @rodaquino-OMNI
+   @Omni-Saude/security-team`. Os 6 arquivos `deploy/**` tocados por D12-02 (3 dashboards JSON, 2
+   YAMLs de provisioning, o comentario em `main.tf`) sao CODEOWNERS-matched, nao so
+   "program-policy". Efeito PRATICO inalterado (os dois caminhos levam a owner-review, nunca a
+   merge autonomo) — a correcao e so de rotulo/atribuicao, mas evita que a proxima rodada copie a
+   afirmacao errada adiante (o mesmo lapso ja tinha se repetido pelo menos uma vez: BRIEF-COMMON.md
+   desta rodada, corrigido separadamente por este reparo, fora deste repositorio).
+
+Nada aqui e ratificacao de SME/conteudo: segue valendo que D12-02 versiona MECANISMO
+(dashboards+provisioning), com CONTEUDO (paineis/limiares) explicitamente PROVISORIO ate
+`D12-01-a` existir, por decisao do dono (R-030) nao revisitada por este reparo.
+
+## ALERT-RULES-VECTOR-MATCH-MISMATCH — bug pre-existente de vector-matching em `MaezoSLAWorkerErrorRateHigh` (achado por VERIFY-D12-02/REP-D12-02, 2026-09-05)
+
+| Artefato | Achado | Revisor | Status |
+|---|---|---|---|
+| `deploy/observability/alert-rules.yml:73-91` (`alert: MaezoSLAWorkerErrorRateHigh`) | **A expr divide dois contadores com label-sets diferentes, sem `sum by`, e provavelmente nunca casa nenhuma serie.** `expr: (rate(maezo_worker_error_count_total[5m]) / rate(maezo_worker_execution_time_seconds_count[5m])) > 0.05`. Lado esquerdo: `maezo_worker_error_count_total`, `labelnames=["worker","topic","error_type"]` (`src/maezo/runtime/metrics.py:159-165`). Lado direito: `maezo_worker_execution_time_seconds_count` (a serie `_count` do Histogram `maezo_worker_execution_time_seconds`), `labelnames=["worker","topic"]` (`metrics.py:152-157`) — SEM `error_type`. O vector-matching padrao do PromQL para um operador binario `/` exige o MESMO conjunto de labels nos dois lados, salvo modificador `on`/`ignoring`; nenhum dos dois existe aqui. Se a leitura do comportamento padrao do Prometheus estiver certa, toda serie do numerador (que carrega `error_type`) fica SEM PAR no denominador (que nao carrega) e a divisao produz vazio SEMPRE — o alerta nunca dispara, silenciosamente, independente do erro real do worker. **Precedente no proprio repo:** o alerta irmao `MaezoSLAAgentErrorRateHigh` (mesmo arquivo, `alert-rules.yml:52-71`) tem EXATAMENTE o mesmo formato de par de contadores (`maezo_agent_errors_total{agent,error_type}` / `maezo_tool_calls_total{agent,error_type}`) e evita o problema envolvendo AMBOS os lados em `sum by (agent) (...)` antes de dividir — comentario `ALERT-COUNTER-LABELS (R-063)` no proprio arquivo explica a tecnica; `MaezoSLAWorkerErrorRateHigh` nao tem o equivalente `sum by (worker, topic)`. **Sketch da correcao** (NAO aplicado — fora do escopo deste pacote, `alert-rules.yml` nao foi editado por D12-02 nem por este reparo): `expr: (sum by (worker, topic) (rate(maezo_worker_error_count_total[5m])) / sum by (worker, topic) (rate(maezo_worker_execution_time_seconds_count[5m]))) > 0.05` — mesmo padrao `sum by` que `MaezoSLAAgentErrorRateHigh` ja usa, aplicado aos dois labels que `maezo_worker_execution_time_seconds` de fato declara. **Nao confirmado contra um Prometheus rodando de verdade** (nenhum motor/stack live concedido a este pacote) — recomenda-se ao proximo executor validar a leitura de vector-matching contra uma instancia real antes de aplicar a correcao. O painel "Worker error ratio" de `worker-runtime.json` HERDA fielmente o mesmo defeito (por instrucao explicita: espelhar o alerta exatamente) — nota adicionada na propria `description` do painel apontando para este item. | dono do processo de observabilidade/plataforma (`deploy/**` CODEOWNED, R-053) | `ABERTO — bug pre-existente em alert-rules.yml, nao introduzido nem corrigido por D12-02/REP-D12-02; sketch de correcao acima, nao aplicado` |
+
+
+## D3-01 — terceira ocorrencia do padrao dead-model `<bpmn:error>`, ja coberta pela leitura de escopo do gate (2026-09-05)
+
+`D3-01` (WP-ADR-0030-COMPLETION) migrou `inadimplencia.py`'s `ERR_INAD_INVALID_CONTRATO` (2 raise
+sites em `handoff_rescisao`, antes um `InadimplenciaError(Exception)` cru duck-typed) para
+`InadContratoInvalidoError(ValueError)` — falha tecnica tipada, NAO um `WorkerBpmnError`. Prova de
+boundary (`grep`/leitura direta de `spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn`):
+`Error_InadContratoInvalido`/`ERR_INAD_INVALID_CONTRATO` esta DECLARADO no catalogo `<bpmn:error>`
+(`:16`) mas ZERO `boundaryEvent`+`errorEventDefinition` o referencia em todo o arquivo — a MESMA
+forma "declared-and-uncaught" que a secao `CONTAS-DEAD-ERROR-CATALOG` acima documenta para
+`ERR_CONTAS_LOTE_INVALIDO`/`ERR_GLOSA_ACCEPT_NOT_HUMAN`, e que a nota logo acima dela (linha da
+tabela `docs/adr/0030-...md` §2 clausula (c)) ja generaliza: "as 20 declaracoes `declared-uncaught`
+do repositorio (13 dos 16 BPMN) sao invisiveis por construcao" ao gate. `ERR_INAD_INVALID_CONTRATO`
+e' UMA dessas ~20 — nenhuma pergunta de escopo NOVA, a leitura existente ja a cobre. **Nao ha
+decisao de dono pendente aqui**: ao contrario de `ERR_CONTAS_GLOSA_NOT_HUMAN` (que TEM boundary
+faltando por decisao de modelagem, T-E-gated) e de `ERR_CANCEL_MANTER_NOT_HUMAN`/`ERR_CONTRACT_
+SUSPENSION_NOT_HUMAN` (que TEM boundary e sao apenas T-E-deferred), `ERR_INAD_INVALID_CONTRATO` e
+um erro de VALIDACAO DE INPUT determinístico sem boundary modelado — a mesma categoria de
+`ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`/`ERR_CANCEL_INVALID_CONTRATO`, que ja sao `ValueError`
+sem nenhuma linha de review-queue propria. Nenhum `spec/processes/bpmn/**` foi editado; a correcao
+foi so no raise-side (`src/`) + na tabela de codigos de erro do contrato (nao-CODEOWNED,
+`docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md`, que ja carregava a nota "tratamento a
+detalhar na promocao a FINAL" — agora refletindo o comportamento real em vez de sugerir um BPMN
+error que nunca poderia disparar).
+
+Registrado aqui por completude (o padrao e' o mesmo achado repetido, nao um item de acao novo).
+Nada aqui e' ratificacao de SME.
+
+## LEDGER-ROW-CELL-COUNT — 30 linhas pre-existentes de docs/evidence-ledger.md com contagem de celulas divergente do cabecalho (2026-09-05)
+
+Achado do gatekeeper de reembolso (2026-09-05): uma linha do ledger com `|` nao escapado dentro de
+uma celula (14 celulas, esperado 8) passou pelo gate de hash sem ser notado — nada nunca recomputava
+a contagem de celulas de uma linha contra o cabecalho da tabela. `scripts/ci/check_ledger_row_cell_count.py`
+(LEDGER-ROW-CELL-COUNT) fecha esse buraco, mas so' para linhas ADICIONADAS no intervalo `<base>..HEAD`
+de uma PR (mesma logica de escopo de `check_evidence_ledger_hashes.py` — reusada, nao reimplementada):
+retroativamente reprovar TODAS as linhas ja mal-formadas em `main` deixaria toda PR futura vermelha por
+um defeito que ela nao introduziu. `main` continua verde; o gate so' acusa uma linha NOVA malformada.
+
+As 30 linhas abaixo (numero de linha em `docs/evidence-ledger.md` **na arvore atual em HEAD desta
+branch** — `--all` sempre le o arquivo do working tree, nunca um ref antigo, entao a posicao e'
+relativa a HEAD, nao a nenhuma base fixa; identica nos poucos refs conferidos por este achado
+[`origin/main`, a base `bd4c2fad`, a base do branch `8251278`], mas so' porque nenhuma dessas 30
+linhas mudou de posicao entre eles — CORRIGIDO 2026-09-05 pelo R1 gatekeeper, F11, VERIFY-TOOLING-FENCES.md,
+que apontou a atribuicao original "na base" como incorreta) sao o inventario completo do estado
+pre-existente — nenhuma foi editada por esta tarefa (o ledger e' append-only; uma linha em `main`
+nunca e' reescrita). Cada uma tem, provavelmente, um `|` nao escapado dentro de uma celula de prosa
+(Evidence/Status) que precisa virar `\|`; a correcao e' escopo de uma tarefa de reparo separada.
+
+| Linha | Task ID | Celulas (real / esperado) |
+|---|---|---|
+| 102 | HEL-12 / HEL-13 / HEL-15 | 14 / 8 |
+| 104 | BEA-09 (honestidade dos workers fraude; handler/registro A2A = WP separado/owner) | 11 / 8 |
+| 105 | FAB-REFER-TO-LEGAL / FAB-INTAKE-CASO-REGISTRADO (fraude.py, familia FAB) | 10 / 8 |
+| 176 | T3.1 | 10 / 8 |
+| 302 | PERSP-C5-CANCEL-FILENAME | 9 / 8 |
+| 340 | PERSP-ADEQ-CRED-HANDOFF | 10 / 8 |
+| 345 | ANS-CRON-DEAD-CODE (absorve ANS-CRON-DEAD-COMPETENCIA; GAP-ANS-1) | 12 / 8 |
+| 348 | REP-ANS-CRON (reparo dos achados do gatekeeper R1 sobre ANS-CRON-DEAD-CODE) | 10 / 8 |
+| 370 | FAB-SLA-RISK-NOTIFIED-SLICE4 | 11 / 8 |
+| 385 | BEA-06 | 10 / 8 |
+| 396 | FLIP-GATE-BASE | 9 / 8 |
+| 411 | CI-KAFKA-HEALTH-WAIT | 10 / 8 |
+| 413 | R-051-CODEOWNERS-ERRORS-STEP | 9 / 8 |
+| 414 | R-053-CODEOWNERS-DEPLOY-E-APROVADORES | 9 / 8 |
+| 417 | SC-01 | 10 / 8 |
+| 421 | RAF-01 / RAF-06 | 10 / 8 |
+| 422 | CC-06 / HEL-05 | 9 / 8 |
+| 423 | W3-DOCS (AND-01 STALE, CONTRACT-DECL-GAPS×4, CC-07 desdeclaração, INFO cosméticos) | 9 / 8 |
+| 427 | CC-02 (handlers) / RAF-11 / BEA-09-handler / GUS-01 / VAL-01 — registro+origem OWNER-GATED | 10 / 8 |
+| 428 | CC-05 (HEL-01, RAF-03, GUS-02, LUC-01, BEA-03) | 9 / 8 |
+| 431 | CC-08 (goldens de falha DMN-down/PhiZone; CibSeven-down = CC-01) | 15 / 8 |
+| 434 | CC-09 (record_agent_desfecho + emissao nos nos terminais dos 10 grafos) | 10 / 8 |
+| 435 | REGISTER-APPROVAL-DOCS-20260904 | 10 / 8 |
+| 436 | LOTE3-INTEGRATION-FAKES-TASK-KIND | 9 / 8 |
+| 439 | LOG-FORMAT-RENDERER | 9 / 8 |
+| 440 | ANS-CRON-FINDING-2-NO-CONSUMER | 9 / 8 |
+| 441 | TZDATA-LOCK-MARKER-WIDENING | 9 / 8 |
+| 442 | PARTITIONS-BROKER-FACT | 9 / 8 |
+| 443 | SLA-ALERTS-CHANNEL-WIRING | 9 / 8 |
+| 472 | LOTE3C-INTEGRATION-CITATION-REANCHOR / LOTE3C-INTEGRATION-CC07-PGVECTOR-STALE | 11 / 8 |
+
+Reproducao: `python scripts/ci/check_ledger_row_cell_count.py --all` (local apenas — nunca cabeado
+em CI, ver o docstring do proprio gate). **Status: ABERTO** — reparo (escapar o `|` em cada linha,
+ou dividir a prosa) e' tarefa separada; este item so' registra o inventario e o fato de que o gate
+novo nao as reprova (por desenho, ver secao "Scope" do gate).
+
+## AF-06 — PLANS.md:43 contagem de linhas de tool_registry.py, tree-derivavel e nao fenceada (2026-09-05, achado F5 do R1 gatekeeper)
+
+`scripts/ci/check_plans_counts.py` (AF-06) reconcilia so' 3 formas de alegacao de contagem em
+`PLANS.md` (ADRs numerados / ADRs (nao ...) / arquivos incl. README+template), deliberadamente fora
+do §3 preservado como historico. `PLANS.md:43` (tabela §0.3, prosa de status M5, NAO e' o §3
+preservado — e' status corrente) alega `**≈540 linhas**` para `src/maezo/gateway/tool_registry.py`;
+`wc -l` real em 2026-09-05: **794 linhas**. Ja carrega o proprio aviso ("medir com `wc -l` antes de
+citar, este numero ja mudou uma vez") e o `≈` torna a alegacao aproximada, nao uma igualdade exata
+como as 3 formas que o gate ja reconcilia — por isso nao foi adicionada como uma 4a forma nesta
+tarefa (fora do escopo desta rodada, que so' pediu `PLANS.md:6`). **Status: ABERTO** — uma tarefa
+futura decide entre (a) estender `check_plans_counts.py` com uma 4a forma `~N linhas em
+tool_registry.py` (tolerancia `±`, ja que a alegacao usa `≈`) ou (b) remover o numero fixo da frase,
+igual ao reparo aplicado a `PLANS.md:6` nesta mesma tarefa (ver linha AF-06 do ledger, campo Status
+`PARTIAL`).
