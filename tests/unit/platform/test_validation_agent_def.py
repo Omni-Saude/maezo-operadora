@@ -244,7 +244,14 @@ class TestA2AHandlerDisclosure:
         assert not report.ok
         assert any("handler_symbol must be" in f.message for f in report.findings)
 
-    def test_handler_symbol_that_does_not_resolve_fails(self, tmp_path: Path) -> None:
+    def test_handler_symbol_with_wrong_factory_name_fails_the_naming_check(self, tmp_path: Path) -> None:
+        # §Delta A2A-YAML-DISCLOSURE F2: this test is named `..._that_does_not_resolve_fails` in
+        # its pre-repair form, but `make_nonexistent_handler` != the canonical
+        # `make_rafael_handler` it must equal — it never reaches `importlib.import_module` at all,
+        # it trips the EARLIER `expected_symbol` naming check (same branch as
+        # `test_handler_symbol_must_name_this_agent` above, different wrong value). Renamed to say
+        # what it actually checks; `test_handler_symbol_naming_a_module_that_does_not_import_fails`
+        # below is the one that reaches importlib.
         content = VALID_AGENT_YAML.replace("id: test-agent", "id: rafael") + (
             "a2a:\n"
             "  accepted_task_types: [x]\n"
@@ -256,6 +263,30 @@ class TestA2AHandlerDisclosure:
         report = Report()
         validate_file(path, frozenset({"dmn", "memory"}), report)
         assert not report.ok
+        assert any("handler_symbol must be" in f.message for f in report.findings)
+
+    def test_handler_symbol_naming_a_module_that_does_not_import_fails(self, tmp_path: Path) -> None:
+        # §Delta A2A-YAML-DISCLOSURE F2: the ONLY way to reach the `importlib.import_module` tail
+        # of `_validate_a2a_handler_disclosure` is a symbol that is ALREADY canonical (so it
+        # passes the `expected_symbol` naming check above) but whose module genuinely does not
+        # exist — an agent id with no `agents/<id>/delegation.py` at all. "novato" is not a real
+        # agent (`spec/agents/` has no such directory), so
+        # `maezo.agents.novato.delegation::make_novato_handler` is canonical-shaped for id=novato
+        # yet unimportable.
+        content = VALID_AGENT_YAML.replace("id: test-agent", "id: novato") + (
+            "a2a:\n"
+            "  accepted_task_types: [x]\n"
+            "  queue_ref: agents.tasks.novato\n"
+            "  handler_status: registrado\n"
+            "  handler_symbol: maezo.agents.novato.delegation::make_novato_handler\n"
+        )
+        path = _agent_file(tmp_path, content, agent_id="novato")
+        report = Report()
+        validate_file(path, frozenset({"dmn", "memory"}), report)
+        assert not report.ok
+        assert any("names a module that does not import" in f.message for f in report.findings), [
+            f.message for f in report.findings
+        ]
 
     def test_handler_symbol_that_resolves_passes(self, tmp_path: Path) -> None:
         content = VALID_AGENT_YAML.replace("id: test-agent", "id: rafael") + (
