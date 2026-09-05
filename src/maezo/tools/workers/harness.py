@@ -186,7 +186,13 @@ _SAFE_DECISION_BASIS_KEYS: frozenset[str] = frozenset(
         # (`events.py` sets it alongside `event_published=False` so the audit row records the
         # honest outcome, never a fabricated success).
         "event_publish_best_effort_failure",
-        "notice_sent",
+        # AUTH-CONTRACT-TRANSMIT-PROSE: "notice_sent" removed. AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL
+        # already stopped `SendDenialNoticeWorker` (the only worker that ever wrote this literal)
+        # from emitting `status="notice_sent"` -- grep '"notice_sent"' src/maezo/ finds it nowhere
+        # in a production worker any more, only as history in auth.py's own docstring and in a
+        # test fixture (test_action_execution_gateway.py). Keeping a dead key in this allowlist
+        # costs nothing operationally but invites a future worker to resurrect the fabricated
+        # "transmitted" claim by simply emitting the key again.
         # GK-ceiling finding 3: without these, a ceiling-refused issuance writes an audit row
         # reading `decision=COMPLETE` with NO guard evidence — the refusal was visible only in
         # engine history, not in the non-repudiable chain. Both are bounded non-PHI tokens.

@@ -171,7 +171,7 @@ Escada de alcada (**DRAFT/verify — sign-off financas obrigatorio; valores ilus
 - **Catch-all conservador → tier mais alto** (`comite-financeiro`/`ANALISE_HUMANA`): valor acima do maior tier configurado, faixa ambigua ou DMN indisponivel NUNCA auto-liberam — sobem para o comite. (ADR-0018 parte 3 — risco #5 do phase3-plan: "se o ramo L2 abaixo-do-teto for mal-escopado, pagamentos acima de alcada auto-liberam"; este catch-all e a defesa.)
 - A DMN emite `grupo_aprovador` como **string** consumida por `camunda:candidateGroups` da User Task (binding value-driven). O mapeamento faixa→grupo e **DRAFT/verify financas + PO/IdP**.
 
-### `pagto_sla` (hitPolicy UNIQUE — DRAFT; todos os prazos DRAFT/verify)
+### `pagto_sla` (hitPolicy FIRST — DRAFT; todos os prazos DRAFT/verify; CONTRACT-HITPOLICY-DRIFT: corrigido de UNIQUE, DMN shippada e FIRST — `spec/processes/dmn/pagto_sla.dmn:26`)
 in: `faixa_valor: string`, `tipo_pagamento: string`
 out: `sla_aprovacao: string` (ISO 8601), `sla_alerta: string` (ISO 8601), `fonte`: string
 Tiers mais altos podem ter SLA maior (mais aprovadores). Prazos como string ISO; politica financeira interna — **DRAFT/verify financas** (nao ha prazo RN ANS aqui).
