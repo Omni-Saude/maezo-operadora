@@ -120,6 +120,14 @@ def test_alembic_offline_sql_generation_still_works_with_the_var_default_syntax(
     from alembic import command
     from alembic.config import Config
 
+    # env.py's module-level `fileConfig(config.config_file_name)` (alembic's own logging setup,
+    # unrelated to this test) defaults to `disable_existing_loggers=True` -- a REAL, global,
+    # cross-test side effect: it silently disables every logger not named in alembic.ini's
+    # [loggers] section for the rest of the pytest process, breaking unrelated tests elsewhere
+    # (e.g. `test_harness.py`'s `structlog.testing.capture_logs`) that run afterwards. Neutered
+    # here since this test only cares about SQL generation, never alembic's own console output.
+    monkeypatch.setattr("logging.config.fileConfig", lambda *a, **k: None)
+
     cfg = Config(str(_ALEMBIC_INI))
     buf = io.StringIO()
     with redirect_stdout(buf):

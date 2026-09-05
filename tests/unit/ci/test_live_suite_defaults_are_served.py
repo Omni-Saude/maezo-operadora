@@ -133,6 +133,21 @@ def _compose() -> dict[str, Any]:
     return data
 
 
+#: D6-03: `docker-compose.yml`'s postgres credentials moved from a bare literal to
+#: `${VAR:-default}` (a normalized "password in repo" pattern, same fix as the port mapping
+#: below always used). This extracts the DEFAULT half of that syntax — the value docker compose
+#: actually serves when no override is exported, which is exactly what a bare `pytest` run (no
+#: env vars set) gets — so the fence keeps enforcing the real served coordinate, never a template
+#: string, and stays correct if the default changes.
+_VAR_DEFAULT_RE: Final = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}")
+
+
+def _resolve_var_default(value: str) -> str:
+    """`${VAR:-default}` -> `default`; a plain literal (no such token) passes through unchanged."""
+    match = _VAR_DEFAULT_RE.fullmatch(value)
+    return match.group(1) if match else value
+
+
 def _compose_pg_coordinates() -> tuple[str, str, str, str]:
     """(user, password, database, default host port) of the compose `postgres` service."""
     service = _compose()["services"]["postgres"]
@@ -143,7 +158,12 @@ def _compose_pg_coordinates() -> tuple[str, str, str, str]:
         f"docker-compose.yml's postgres port mapping is {published!r}, which this fence cannot "
         "parse — update the fence together with the compose file"
     )
-    return env["POSTGRES_USER"], env["POSTGRES_PASSWORD"], env["POSTGRES_DB"], match.group(1)
+    return (
+        _resolve_var_default(env["POSTGRES_USER"]),
+        _resolve_var_default(env["POSTGRES_PASSWORD"]),
+        _resolve_var_default(env["POSTGRES_DB"]),
+        match.group(1),
+    )
 
 
 def _compose_kafka_external_port() -> str:
