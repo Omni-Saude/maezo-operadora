@@ -77,7 +77,22 @@ jobs:
     name: validate-artifacts
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 (F2, r5/tooling-fences REVISE round): the two ledger range-scoped gates
+      # below (check-ledger-hashes, check-ledger-row-cell-count) resolve their `<base>..HEAD` range
+      # via `git merge-base origin/main HEAD` by default — that needs an `origin/main`
+      # remote-tracking ref AND the merge-base commit's history actually present locally, neither
+      # of which a shallow (fetch-depth: 1, the actions/checkout default) checkout provides. This
+      # is the ONLY job either gate is wired into; the `quality` job (lint / type / unit, above)
+      # deliberately stays shallow — it runs the FULL unit suite fast on every PR and has no reason
+      # to pay for full history, which is exactly why an earlier revision's unit test that called
+      # the cell-count gate's `main()` with no explicit --base against the real repo (assuming it
+      # would land in a full-history checkout) broke it (F1, VERIFY-TOOLING-FENCES.md) — fixed by
+      # deleting that test, not by deepening `quality`'s checkout. `fetch-depth: 0` fetches full
+      # history for all branches and tags (GitHub's own documented behaviour for that value), which
+      # is what makes `origin/main` resolvable here.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
 
       # `make check-lifecycle-expected-fail-expiry` (below) RENDERS the chart to prove the R-040
       # marker actually reaches every lifecycle CronJob — the one-sided-fence defect D4 of
@@ -118,6 +133,27 @@ jobs:
       # docstring "Scope").
       - name: PLANS.md ADR-count reconciliation gate (AF-06)
         run: make check-plans-counts
+
+      # F2 (r5/tooling-fences REVISE round): neither ledger range-scoped gate was wired into ANY CI
+      # job before this — both existed only as local `make` targets a human or agent had to
+      # remember to type. Wired here (not into `evidence-ledger.yml`'s `evidence-ledger-check` job,
+      # which runs `check_evidence_ledger.py` — a DIFFERENT, stdlib-only, no-git-needed script the
+      # workflow's own header comment deliberately keeps free of `uv sync`/dependency install so it
+      # never conflicts with concurrent CI-surgery PRs touching ci.yml; these two gates shell out to
+      # `pytest` per declared row, so they need the SAME `uv sync --extra dev` this job already
+      # pays for) and not into `quality` (shallow checkout by design, see the checkout step above).
+      # `check-ledger-hashes` recomputes the Test-hash of every NEW machine-verifiable ledger row;
+      # `check-ledger-row-cell-count` (this task's own new gate) catches an unescaped `|` growing a
+      # row's cell count past the header's 8. Both are genuinely range-scoped (`<base>..HEAD` only,
+      # `resolve_effective_base`/`get_ledger_diff_added_lines`) — neither retroactively fails on the
+      # legacy rows already declared/malformed on `main`; a `run:` step with no `continue-on-error`
+      # fails the job on any non-zero exit, so both are fail-closed like every other gate in this
+      # job.
+      - name: Evidence-ledger Test-hash recompute gate (LEDGER-HASH-RECOMPUTE-CHECK)
+        run: make check-ledger-hashes
+
+      - name: Evidence-ledger row cell-count gate (LEDGER-ROW-CELL-COUNT)
+        run: make check-ledger-row-cell-count
 
       # T3.4 F1: repo-wide AST gate — a direct `transport.start_process_instance(...)` call (or a
       # hand-rolled raw REST start-path literal) anywhere outside the pinned 2-file transport

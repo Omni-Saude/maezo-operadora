@@ -9,14 +9,16 @@ Three layers:
    range fails; a malformed row that already existed at `<base>` (pre-existing on "main") is
    ignored by the scoped path, proving the same Scope discipline `check_evidence_ledger_hashes.py`
    established.
-3. **Real-tree** tests run the gate against the SHIPPED `docs/evidence-ledger.md`: the scoped
-   (default) invocation passes non-vacuously, and `--all` reproduces the exact 30 pre-existing
-   malformed rows the reembolso gatekeeper counted live (regression proof for the review-queue
-   inventory this task discloses).
+3. **Real-tree** tests run `--all`'s pure core (`check_lines`) against the SHIPPED
+   `docs/evidence-ledger.md` — non-vacuous, and cross-checked against `docs/review-queue.md`'s own
+   disclosed inventory (F4: never a hard-coded row count against a live, multi-writer file). No
+   test in this file drives `main()` against the real repo with default (`origin/main`-relative)
+   base resolution — see the module comment above `TestAgainstTheRealShippedLedger` (F1).
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -286,17 +288,52 @@ class TestMainScopeDiscipline:
 
 # =================================================================================================
 # Real-tree regression proofs
+#
+# NEITHER test below drives `main()` against the real repo's default (origin/main-relative) base
+# resolution. An earlier revision of this file had a
+# `test_scoped_default_invocation_passes_non_vacuously` that called `main([], repo_root=_REPO_ROOT)`
+# — CI's `quality` job (`lint / type / unit`, .github/workflows/ci.yml) checks out with
+# `actions/checkout` and NO `fetch-depth` override (shallow, single commit, no `origin/main`
+# remote-tracking ref at all), so `resolve_effective_base` -> `git merge-base origin/main HEAD`
+# failed there with `fatal: Not a valid object name origin/main` on every PR after merge (found by
+# the R1 gatekeeper, F1, reproduced against a real `git clone --depth 1` copy). Fixed by DELETING
+# that test rather than adding a skip guard (BRIEF-COMMON forbids new skips): the non-vacuity proof
+# below already exercises the SHIPPED ledger without touching `main()`/git at all, and
+# `TestMainScopeDiscipline` above already exercises `main()` end-to-end with an EXPLICIT `--base`
+# against a synthetic repo — the two together cover both "does the pure core work on real data" and
+# "does main() wire scope correctly", with nothing left that needs `origin/main` to exist.
 # =================================================================================================
+
+_REVIEW_QUEUE = _REPO_ROOT / "docs" / "review-queue.md"
+_REVIEW_QUEUE_SECTION_HEADING = "## LEDGER-ROW-CELL-COUNT"
+_REVIEW_QUEUE_ROW_RE = re.compile(r"^\|\s*(\d+)\s*\|\s*(.+?)\s*\|\s*\d+\s*/\s*\d+\s*\|\s*$")
+
+
+def _parse_review_queue_ledger_cell_count_inventory(review_queue_text: str) -> dict[int, str]:
+    """Test-only helper (not production code): extracts `{line_no: task_id}` from
+    `docs/review-queue.md`'s own `## LEDGER-ROW-CELL-COUNT — ...` table — the inventory THIS task
+    wrote there (see the task report). Stops at the next `## ` heading (or EOF). Deliberately does
+    not touch `scripts/ci/check_ledger_row_cell_count.py` in any way: the point of F4 below is two
+    INDEPENDENTLY-maintained artefacts (the gate's own `--all` output vs. the prose table a human
+    reads) agreeing with each other, not the same code checking itself."""
+    lines = review_queue_text.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.startswith(_REVIEW_QUEUE_SECTION_HEADING)), None)
+    assert start is not None, f"{_REVIEW_QUEUE_SECTION_HEADING!r} section not found in docs/review-queue.md"
+    inventory: dict[int, str] = {}
+    for line in lines[start + 1 :]:
+        if line.startswith("## "):
+            break
+        match = _REVIEW_QUEUE_ROW_RE.match(line.strip())
+        if match:
+            inventory[int(match.group(1))] = match.group(2)
+    return inventory
 
 
 class TestAgainstTheRealShippedLedger:
-    def test_scoped_default_invocation_passes_non_vacuously(self) -> None:
-        # Scoped against origin/main's merge-base: the CI-shape invocation. Requires the real repo
-        # (not a synthetic fixture) so this is a genuine regression proof, not just a unit test.
-        exit_code = main([], repo_root=_REPO_ROOT)
-        assert exit_code == 0
-
-    def test_all_mode_reproduces_the_30_pre_existing_malformed_rows(self) -> None:
+    def test_all_mode_is_non_vacuous_on_the_real_shipped_ledger(self) -> None:
+        # git-independent (no main(), no subprocess): pure `check_lines` over the real file's TEXT,
+        # read straight off disk at whatever commit is checked out — works identically in a
+        # `git clone --depth 1` copy (see the module comment above).
         from scripts.ci.check_ledger_row_cell_count import find_expected_cell_count as _fecc
 
         ledger_text = _SHIPPED_LEDGER.read_text(encoding="utf-8")
@@ -306,5 +343,40 @@ class TestAgainstTheRealShippedLedger:
             ledger_text.splitlines(), expected_cells=expected, with_line_numbers=True
         )
         assert rows_checked > 30  # non-vacuity: real ledger has hundreds of rows
-        assert len(findings) == 30  # the exact count the reembolso gatekeeper counted live
+        # non-vacuity: the gate's own review-queue disclosure exists BECAUSE this is non-empty.
+        assert len(findings) >= 1
         assert all(f.line_no is not None for f in findings)
+
+    def test_all_mode_findings_match_the_disclosed_review_queue_inventory_exactly(self) -> None:
+        # F4: never a live-file literal (e.g. a bare `== 30`) against docs/evidence-ledger.md — a
+        # append-only, multi-writer file that legitimately grows every time ANY r5 task closes a
+        # gap, including ones that never touch this test file. Instead this cross-checks the gate's
+        # OWN live output against the human-readable inventory table this task committed into
+        # docs/review-queue.md in the SAME commit: both are read straight off HEAD, no git ops, no
+        # magic number — if a future repair task fixes some of these rows (or a sibling branch adds
+        # a new malformed one) WITHOUT updating the review-queue table to match, this goes red on
+        # the drift, which is the correct signal (the table is a claim about the ledger, and a
+        # stale claim is itself a defect this task's own convention forbids).
+        from scripts.ci.check_ledger_row_cell_count import find_expected_cell_count as _fecc
+
+        ledger_text = _SHIPPED_LEDGER.read_text(encoding="utf-8")
+        expected = _fecc(ledger_text)
+        assert expected == 8
+        findings, _rows_checked = check_lines(
+            ledger_text.splitlines(), expected_cells=expected, with_line_numbers=True
+        )
+        actual = {f.line_no: f.task_id for f in findings if f.line_no is not None}
+
+        disclosed = _parse_review_queue_ledger_cell_count_inventory(_REVIEW_QUEUE.read_text(encoding="utf-8"))
+        assert disclosed, "docs/review-queue.md's LEDGER-ROW-CELL-COUNT table parsed to zero rows"
+
+        assert set(actual) == set(disclosed), (
+            f"live gate vs. docs/review-queue.md disclosure disagree on WHICH lines are malformed: "
+            f"only-in-gate={sorted(set(actual) - set(disclosed))} "
+            f"only-in-review-queue={sorted(set(disclosed) - set(actual))}"
+        )
+        for line_no, disclosed_task_id in disclosed.items():
+            assert actual[line_no] == disclosed_task_id, (
+                f"line {line_no}: gate says task_id={actual[line_no]!r}, "
+                f"review-queue says {disclosed_task_id!r}"
+            )

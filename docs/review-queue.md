@@ -2011,11 +2011,15 @@ de uma PR (mesma logica de escopo de `check_evidence_ledger_hashes.py` — reusa
 retroativamente reprovar TODAS as linhas ja mal-formadas em `main` deixaria toda PR futura vermelha por
 um defeito que ela nao introduziu. `main` continua verde; o gate so' acusa uma linha NOVA malformada.
 
-As 30 linhas abaixo (numero de linha em `docs/evidence-ledger.md` na base `bd4c2fad1a099a354316773a6942745547c90bb6`,
-recontadas via `python scripts/ci/check_ledger_row_cell_count.py --all`) sao o inventario completo do
-estado pre-existente — nenhuma foi editada por esta tarefa (o ledger e' append-only; uma linha em
-`main` nunca e' reescrita). Cada uma tem, provavelmente, um `|` nao escapado dentro de uma celula de
-prosa (Evidence/Status) que precisa virar `\|`; a correcao e' escopo de uma tarefa de reparo separada.
+As 30 linhas abaixo (numero de linha em `docs/evidence-ledger.md` **na arvore atual em HEAD desta
+branch** — `--all` sempre le o arquivo do working tree, nunca um ref antigo, entao a posicao e'
+relativa a HEAD, nao a nenhuma base fixa; identica nos poucos refs conferidos por este achado
+[`origin/main`, a base `bd4c2fad`, a base do branch `8251278`], mas so' porque nenhuma dessas 30
+linhas mudou de posicao entre eles — CORRIGIDO 2026-09-05 pelo R1 gatekeeper, F11, VERIFY-TOOLING-FENCES.md,
+que apontou a atribuicao original "na base" como incorreta) sao o inventario completo do estado
+pre-existente — nenhuma foi editada por esta tarefa (o ledger e' append-only; uma linha em `main`
+nunca e' reescrita). Cada uma tem, provavelmente, um `|` nao escapado dentro de uma celula de prosa
+(Evidence/Status) que precisa virar `\|`; a correcao e' escopo de uma tarefa de reparo separada.
 
 | Linha | Task ID | Celulas (real / esperado) |
 |---|---|---|
@@ -2036,7 +2040,7 @@ prosa (Evidence/Status) que precisa virar `\|`; a correcao e' escopo de uma tare
 | 417 | SC-01 | 10 / 8 |
 | 421 | RAF-01 / RAF-06 | 10 / 8 |
 | 422 | CC-06 / HEL-05 | 9 / 8 |
-| 423 | W3-DOCS (AND-01 STALE, CONTRACT-DECL-GAPS×4, CC-07 desdeclaracao, INFO cosmeticos) | 9 / 8 |
+| 423 | W3-DOCS (AND-01 STALE, CONTRACT-DECL-GAPS×4, CC-07 desdeclaração, INFO cosméticos) | 9 / 8 |
 | 427 | CC-02 (handlers) / RAF-11 / BEA-09-handler / GUS-01 / VAL-01 — registro+origem OWNER-GATED | 10 / 8 |
 | 428 | CC-05 (HEL-01, RAF-03, GUS-02, LUC-01, BEA-03) | 9 / 8 |
 | 431 | CC-08 (goldens de falha DMN-down/PhiZone; CibSeven-down = CC-01) | 15 / 8 |
@@ -2054,3 +2058,18 @@ Reproducao: `python scripts/ci/check_ledger_row_cell_count.py --all` (local apen
 em CI, ver o docstring do proprio gate). **Status: ABERTO** — reparo (escapar o `|` em cada linha,
 ou dividir a prosa) e' tarefa separada; este item so' registra o inventario e o fato de que o gate
 novo nao as reprova (por desenho, ver secao "Scope" do gate).
+
+## AF-06 — PLANS.md:43 contagem de linhas de tool_registry.py, tree-derivavel e nao fenceada (2026-09-05, achado F5 do R1 gatekeeper)
+
+`scripts/ci/check_plans_counts.py` (AF-06) reconcilia so' 3 formas de alegacao de contagem em
+`PLANS.md` (ADRs numerados / ADRs (nao ...) / arquivos incl. README+template), deliberadamente fora
+do §3 preservado como historico. `PLANS.md:43` (tabela §0.3, prosa de status M5, NAO e' o §3
+preservado — e' status corrente) alega `**≈540 linhas**` para `src/maezo/gateway/tool_registry.py`;
+`wc -l` real em 2026-09-05: **794 linhas**. Ja carrega o proprio aviso ("medir com `wc -l` antes de
+citar, este numero ja mudou uma vez") e o `≈` torna a alegacao aproximada, nao uma igualdade exata
+como as 3 formas que o gate ja reconcilia — por isso nao foi adicionada como uma 4a forma nesta
+tarefa (fora do escopo desta rodada, que so' pediu `PLANS.md:6`). **Status: ABERTO** — uma tarefa
+futura decide entre (a) estender `check_plans_counts.py` com uma 4a forma `~N linhas em
+tool_registry.py` (tolerancia `±`, ja que a alegacao usa `≈`) ou (b) remover o numero fixo da frase,
+igual ao reparo aplicado a `PLANS.md:6` nesta mesma tarefa (ver linha AF-06 do ledger, campo Status
+`PARTIAL`).
