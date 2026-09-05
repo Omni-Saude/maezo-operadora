@@ -134,6 +134,10 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.runtime.error_text import (
+    dmn_unavailable_error,
+    start_unavailable_error,
+)
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.start_outcome import (
@@ -719,7 +723,7 @@ class ValentinaGraph:
             # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
             # `start_failed`, que e o que `route_after_start` le para desviar a
             # `notify_start_failure` em vez de seguir calado para o terminal.
-            return start_failed_state(business_key=business_key, error=f"start_process indisponivel: {exc}")
+            return start_failed_state(business_key=business_key, error=start_unavailable_error(exc))
         return {
             "process_started": True,
             "business_key": business_key,
@@ -810,7 +814,7 @@ class ValentinaGraph:
             rows, version = await self._dmn.evaluate(table, dmn_input)
             row = first_row(rows, table, dmn_input)
         except (DmnEvaluationError, DmnNoResultError) as exc:
-            return {"error": f"DMN `{table}` indisponivel: {exc}"}
+            return {"error": dmn_unavailable_error(table, exc)}
         # See `rafael/graph.py::_evaluate_dmn`/`helena/graph.py::_evaluate_dmn` for why this
         # cites the decision-definition id (ADR-0028 §2) rather than a rule id the engine's
         # evaluate response never returns.

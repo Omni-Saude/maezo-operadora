@@ -1330,7 +1330,12 @@ async def test_helena_class_probe_phi_bearing_error_text_never_reaches_engine_va
     assess_result = await graph.assess(state)
     assert assess_result["route"] == "human_review"
     assert assess_result["motivo_humano"] == "dmn_indisponivel"
-    assert leaked in assess_result["dmn_error"]  # state-only diagnostic
+    # NEW-01: `dmn_error` e' diagnostico de estado, e o diagnostico e' o token de classe + a
+    # tabela — nunca o texto cru que a DMN devolveu. Antes do fix, `leaked` chegava VERBATIM.
+    assert leaked not in assess_result["dmn_error"]
+    assert "123.456.789-00" not in assess_result["dmn_error"]
+    assert "[REDACTED_DIGITS]" in assess_result["dmn_error"]
+    assert "DmnEvaluationError" in assess_result["dmn_error"]
 
     merged: AndreState = {**state, **assess_result, "dossier": {}}  # type: ignore[typeddict-item]
     variables = graph._contract_variables(merged)
