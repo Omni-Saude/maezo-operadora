@@ -492,17 +492,17 @@ rows:
   nome_real: ''
 - grupo_declarado: analise-reembolso
   arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
-  linha: 183
+  linha: 189
   processo: SP-OP-REEMBOLSO-001
   em_escopo: false
-  tarefa_ou_regra_dmn: UT_DecidirPendenciaExpirada; UT_AnaliseReembolso (linha 304)
+  tarefa_ou_regra_dmn: UT_DecidirPendenciaExpirada; UT_AnaliseReembolso (linha 314)
   sla_ato: contrato Sec.Papeis linha 154 -- negativa/reducao SO aqui
   proposto: true
   notas: caveat PROPOSTO contrato linha 149
   nome_real: ''
 - grupo_declarado: medico-auditor
   arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
-  linha: 374
+  linha: 384
   processo: SP-OP-REEMBOLSO-001
   em_escopo: false
   tarefa_ou_regra_dmn: UT_RevisaoAuditorMedico
@@ -512,7 +512,7 @@ rows:
   nome_real: ''
 - grupo_declarado: coordenacao-reembolso
   arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
-  linha: 355
+  linha: 365
   processo: SP-OP-REEMBOLSO-001
   em_escopo: false
   tarefa_ou_regra_dmn: UT_CoordenacaoReembolso

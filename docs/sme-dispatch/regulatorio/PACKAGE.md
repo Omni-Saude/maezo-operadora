@@ -323,6 +323,14 @@ doesn't replace it.
      with finanças (actuarial) and jurídico.
   3. Confirm RN 259 currency for this process specifically (same RN as ADEQUACAO/AUTH — confirm
      it applies consistently to reimbursement too).
+  4. **(Novo — GAP REEMBOLSO-AUTO-OVERPAY / R-058 + R-059.) Verificar a escolha A vs B da
+     atuária** sobre o que o caminho automático paga quando `solicitado < tabela`. *recomendação —
+     pendente de assinatura de atuária (+ regulatório verifica)*. A pergunta completa, com o
+     achado, o bloqueio fail-closed em vigor e as três opções, está em
+     `../financas/PACKAGE.md` §SP-OP-REEMBOLSO-001, pergunta 4 — **a decisão é da atuária;
+     regulatório verifica** que a fórmula escolhida não conflita com RN 259/2011 nem com a
+     Lei 9.656 art. 12 (reembolso na livre escolha). Até a assinatura, o caminho automático não
+     paga nada e todo pedido vai a análise humana.
 
 ## Turnaround
 
