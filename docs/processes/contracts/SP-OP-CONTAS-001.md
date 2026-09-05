@@ -65,6 +65,7 @@ DEVE consultar a business key antes de iniciar (start idempotente, sem reprocess
 | `reason_codes_tiss` | json | sim | Codigos TISS de motivo de glosa **apurados pela analise de contas da operadora** sobre a conta apresentada (entrada da normalizacao; podem vir pre-computados pelo processamento de contas a montante — **nunca de terceiro**) |
 | `item_conforme_tabela` | boolean | sim* | Pre-resolvido por worker: item bate com tabela contratada/TUSS |
 | `documentacao_anexa` | boolean | sim* | Pre-resolvido por worker: anexos TISS presentes para o item |
+| `divergencia_valor` | boolean | sim* | Pre-resolvido por worker (`identify_glosa`/`calculate_impact`, ver "Fatos COMPUTADOS" abaixo): soma das linhas diverge do `valor_apresentado_brl` declarado ou ha glosa candidata na conta. Re-ecoada por `MarinaGraph._contract_variables` no start (`marina/graph.py`) e consumida como `in` de `BRT_TriagemGlosa`/`glosa_triage` — a fonte de verdade continua sendo `identify_glosa`/`calculate_impact` dentro do processo, nao Marina (achado do fleet audit: variavel escrita no engine mas ausente desta tabela, so em prosa/DMN-io) |
 | `indicio_fraude_sinalizado` | boolean | nao | Sinal **informativo** de worker de regras (NUNCA decide; so roteia a humano) |
 | `data_vencimento` | string (date ISO `YYYY-MM-DD`) | sim* | Vencimento da obrigacao de pagamento, vindo do lote/termo contratual. **Obrigatoria em SP-OP-PAGTO-001** (`SP-OP-PAGTO-001.md`, "sim") e o handoff a **RECUSA em branco** — um vencimento inventado e um prazo falso. Origem contratual **DRAFT/verify** (ADR-0040 OQ-2). **Produzida no runtime pelo INTAKE** (`operadora.contas.identify_glosa` / `ST_ApurarDivergencias`, a primeira tarefa de TODO caminho, inclusive na reentrada por `BME_LinhasAtualizadas`): ecoada **verbatim** (so `strip`) do lote/termo contratual e escrita de volta como variavel de processo, com **warning** quando ausente — nunca defaultada. Assim a falta do dado contratual fica visivel na trilha ja na primeira tarefa, em vez de so aparecer quatro tarefas adiante como um handoff recusado. ⚠️ **LIMITE DECLARADO do fail-closed (VER-PR4 MINOR-A):** o ponto que RECUSA continua sendo `operadora.contas.handoff_pagamento`, que fica **a jusante** de `ST_EmitirDemonstrativoIntegral`/`ST_EmitirDemonstrativoAprovado`/`ST_EmitirDemonstrativoParcial` e, na perna `PAGAR_PARCIAL`, tambem de `ST_RegistrarGlosaParcial`. Numa conta sem vencimento a operadora portanto **ja emitiu o demonstrativo ao prestador — e, no parcial, ja registrou o efeito adverso — quando a ordem de pagamento e recusada**: o prestador recebe a comunicacao de uma adjudicacao cuja ordem nunca nasce, e a instancia para num incidente. O intake torna a ausencia VISIVEL (warning na primeira tarefa) mas nao a bloqueia. A alavanca conservadora — **validar `data_vencimento` no proprio intake e rotear a `ANALISE_HUMANA` em vez de seguir para a perna automatica**, de modo que nenhum artefato ao prestador seja emitido antes de a conta ter um vencimento — e uma **decisao do dono, em aberto sob OQ-2**: ela muda o roteamento de um caso hoje automatico e depende de saber de que clausula contratual o vencimento vem. Registrada aqui, nao tomada |
 | `conta_origem_ref` | string | nao | Referencia da conta de origem; **ecoada verbatim** ao handoff de pagamento e deixada em branco quando o lote nao a carrega (nunca preenchida com um valor plausivel) |
@@ -72,7 +73,7 @@ DEVE consultar a business key antes de iniciar (start idempotente, sem reprocess
 
 \* Pre-resolvido por worker de fatos antes de `BRT_TriagemGlosa` (aritmetica/conferencia; **sem decisao adversa**).
 
-**Fatos COMPUTADOS (GAP-CONTAS-2 — nunca seeded/ecoados):** `has_glosas` (boolean; `identify_glosa`),
+**Fatos COMPUTADOS (GAP-CONTAS-2 — `has_glosas`/`denial_ratio`/`glosa_count`/`total_glosado_candidato_centavos` nunca seeded/ecoados; `divergencia_valor` e a excecao, re-ecoada por Marina no start — ver "Variaveis de entrada" acima):** `has_glosas` (boolean; `identify_glosa`),
 `denial_ratio` (double 0..1), `divergencia_valor` (boolean), `glosa_count` (integer) e
 `total_glosado_candidato_centavos` (integer/long — centavos; **Long acima de R$ 21,47M**, landmine
 int32) sao computados por `identify_glosa`/`calculate_impact` a partir de
@@ -197,6 +198,39 @@ NUNCA no attach da User Task (GAP-CONTAS-4 resolvido; o attach so acontece apos 
 4 DMNs + dossie de Marina, e pode se repetir na reentrada por `msg.contas.linhas_atualizadas`).
 
 Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — usar valores conservadores e resolver calendario util no worker. **Substitui o `Task_AutoApprove`/timeout de 48h do reference** — no estouro de SLA a coordenacao humana assume; **nunca** ha desfecho automatico por timeout (inversao do anti-padrao).
+
+## Desfecho de agente: falha de start (CC-01)
+
+| Desfecho | Onde vive | Quem escreve | Significado |
+|---|---|---|---|
+| `erro_inicio_processo` | **estado do agente marina** — NAO e variavel de processo | no `notify_start_failure` do grafo, via o helper unico `maezo.runtime.start_outcome.notify_start_failure` | o agente TENTOU iniciar SP-OP-CONTAS-001 pelo chokepoint `start_process_idempotent` e o engine recusou (`CibSevenError`). NENHUMA instancia nasceu |
+
+ONDE ESTE VALOR **NAO** ESTA, e por que. Ele nunca chega ao engine: nao consta de
+`## Variaveis de entrada` nem de `## Variaveis de saida`, nao tem `bpmnError` associado, nao
+aparece em nenhum `camunda:` do BPMN e **nao exige mudanca nenhuma no BPMN deste processo**. Nao
+poderia ser diferente — o processo NAO nasceu, entao nao existe instancia onde gravar uma
+variavel nem escopo onde lancar um erro. Ele e declarado AQUI, no contrato, porque e um desfecho
+CONTRATUAL do agente que serve este processo e porque quem consome o estado do agente (o handler
+A2A, um golden de eval, uma regra de alerta) precisa do literal exato e estavel.
+
+POR QUE ELE EXISTE (auditoria de frota 2026-09-04, achado CC-01). Ate essa data a falha de start
+era engolida: o `except CibSevenError` do no de start devolvia apenas `process_started=false` e a
+aresta seguinte era INCONDICIONAL para um terminal no-op, de modo que o desfecho de SUCESSO ja
+gravado a montante (`pagar_integral`/`triagem_humana`) sobrevivia — o estado do agente AFIRMAVA um fato que nao
+aconteceu. E o caso se perdia em silencio, porque os prazos desta especificacao vivem em timers
+da instancia BPMN que nunca nasceu: sem SLA, sem alerta, sem retry.
+
+EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
+
+* `process_started = false` (e, quando o agente distingue no-ops legitimos, o marcador
+  `start_failed = true`, que e o que a aresta condicional le);
+* `record_agent_error()` -> `maezo_agent_errors_total`, o contador que a regra
+  `MaezoAgentCrashLoop` observa;
+* evento estruturado `agent_process_start_failed` com a business key idempotente deste contrato —
+  este evento e o SUBSTITUTO operacional do prazo enquanto a instancia nao existe;
+* RETRY seguro por construcao: `start_process_idempotent` e idempotente por business key, entao
+  uma reentrega reencontra a instancia viva (`ALREADY_ACTIVE`) em vez de abrir uma segunda.
+
 
 ## Codigos de erro
 

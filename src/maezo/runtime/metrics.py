@@ -25,6 +25,16 @@ AF-12 model-tier routing (ADR-0009 §2, maezo.runtime.inference.InferenceProvide
 GAP-SC-04-a notifications-bridge dead-letter metering:
 - maezo_bridge_dlq_total (Counter) — poison messages shunted to `<topic>.dlq` by {topic,reason}
 
+CC-09 (Agent Fleet Audit, 2026-09-04) per-agent DESFECHO telemetry:
+- maezo_agent_desfecho_total (Counter) — ONE terminal turn outcome by
+  {agent_id,desfecho,route,motivo_categoria}. Emitted by
+  `runtime.turn_telemetry.emit_turn_desfecho`, adopted at the terminal node of all 10 agent
+  graphs (`complete`/`finalize`/`respond`/the two LGPD gates in Valentina) plus the ONE shared
+  start-failure site (`runtime.start_outcome.notify_start_failure`). This is what makes the
+  `agent.yaml` KPIs declared `track`/`>0.95`/`==0` (resolution_rate, escalation_precision,
+  false_denial_rate, ...) actually MEASURABLE — before CC-09 no per-agent outcome telemetry
+  existed at all (`grep -rln 'record_' src/maezo/agents/*/graph.py` was empty).
+
 WHICH OF THESE THE SHIPPED ALERTS READ (deploy/observability/alert-rules.yml, read-only here):
 `maezo_worker_execution_time_seconds`, `maezo_worker_error_count_total`, `maezo_agent_errors_total`
 and `maezo_tool_calls_total`. The last two had NO emitter in `src/` at all until AF-13
@@ -184,6 +194,25 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # CC-09 (Agent Fleet Audit): per-agent terminal-turn outcome. Emitted by
+        # `runtime.turn_telemetry.emit_turn_desfecho`, called from the terminal node of every
+        # agent graph (`complete`/`finalize`/`respond`/Valentina's two LGPD gate terminals) and
+        # from the one shared start-failure site (`runtime.start_outcome.notify_start_failure`).
+        #
+        # CLOSED VOCABULARIES ONLY, per agent (`turn_telemetry._DESFECHO_VOCAB`/`_ROUTE_VOCAB`/
+        # `_MOTIVO_CATEGORIA_VOCAB`) — a value outside an agent's declared set is normalized to
+        # "outro" BEFORE it reaches this label (never the raw string), same discipline
+        # `worker_task_total`/`phi_business_key_mint`/`bridge_dlq` document above. NEVER a
+        # tenant id, business key, or beneficiary/tenant identifier: every one of these four
+        # labels is a bounded routing/outcome TOKEN, not per-instance data.
+        self._agent_desfecho_total = Counter(
+            "maezo_agent_desfecho_total",
+            "Terminal turn outcome by agent/desfecho/route/motivo_categoria (CC-09; COUNTS "
+            "ONLY, closed vocabularies per agent, never PHI or a business/tenant identifier)",
+            labelnames=["agent_id", "desfecho", "route", "motivo_categoria"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -271,6 +300,17 @@ class MetricsCollector:
         comment for why `src/` cannot honestly emit that one.
         """
         return self._bridge_dlq
+
+    @property
+    def agent_desfecho_total(self) -> Counter:
+        """Counter for per-agent terminal-turn outcomes (CC-09).
+
+        Labels: agent_id (one of the 10 fleet agents), desfecho, route, motivo_categoria — the
+        last three are CLOSED VOCABULARIES PER AGENT (`turn_telemetry` module), normalized to
+        "outro" outside that set. This is the counter the `agent.yaml` KPIs (resolution_rate,
+        escalation_precision, false_denial_rate, ...) are measured FROM.
+        """
+        return self._agent_desfecho_total
 
     @property
     def phi_business_key_mint(self) -> Counter:

@@ -105,15 +105,19 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   reconciles the taxonomy in Python (that reconciliation is T2.6-3, which also clears the T1.5
   cutover hold).
 - A2A inbound delegation (`nip.instruct`, `spec/agents/gustavo/agent.yaml`'s
-  `accepted_task_types`) is NOT wired. CORRECTED (CC-04, fleet audit) — the prior text here
-  claimed v2's `a2a/` package had no `DelegationEnvelope`/`DelegationDispatcher`; both exist and
-  are fully built/tested (`a2a/delegation.py::DelegationEnvelope`, `a2a/dispatcher.py
-  ::DelegationDispatcher`, exported from `maezo.a2a`), and five agents (rafael/carolina/andre/
-  fernando/helena) already have a real `delegation.py` using them. What is missing for Gustavo
-  specifically is his own handler/registration/origin: there is no `src/maezo/agents/gustavo/
-  delegation.py` and `grep -n '"gustavo"' runtime/agent_runtime/a2a_composition.py` = 0 hits —
-  handler/registro/origem ausentes, ver GUS-01 do fleet audit. This graph is invoked directly
-  with an already-assembled `GustavoState`, not via a live delegation.
+  `accepted_task_types`) is HALF wired (GUS-01). CORRECTED (CC-04, fleet audit) — the prior text
+  here claimed v2's `a2a/` package had no `DelegationEnvelope`/`DelegationDispatcher`; both exist
+  and are fully built/tested (`a2a/delegation.py::DelegationEnvelope`, `a2a/dispatcher.py
+  ::DelegationDispatcher`, exported from `maezo.a2a`). UPDATED (A2A handlers, lote3) — CC-04's
+  companion claim that "there is no `src/maezo/agents/gustavo/delegation.py`" is NO LONGER TRUE
+  at this tip: the TARGET handler now exists (`agents/gustavo/delegation.py
+  ::make_gustavo_handler`), and nine of the ten agents (all but lucas) now have a real
+  `delegation.py` using that infra. What is still missing for Gustavo is registration and origin:
+  the handler is NOT registered with any dispatcher (`grep -n '"gustavo"' runtime/agent_runtime/
+  a2a_composition.py` = 0 hits) and `tools/workers/nip.py` does not originate the delegation —
+  both are an owner decision (gap `FERNANDO-DELEGATION-CALL-SITE`, ver GUS-01 do fleet audit).
+  This graph is still invoked directly with an already-assembled `GustavoState`, not via a live
+  delegation.
 - No episodic memory write (ADR-0002): the donor's `finalize` writes `mcp-memory.read_write`;
   v2's `MemoryServer.store_episodic` still refuses fail-closed — the table exists
   (`agent_memory`, migration `0001`), the tool's `(agent_id, event)` signature does not carry
@@ -148,11 +152,20 @@ DIVERGENCES FROM DONOR (disclosed — spec wins where they disagree):
 
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.start_outcome import (
+    notify_start_failure as emit_start_failure_notice,
+)
+from maezo.runtime.start_outcome import (
+    route_after_start,
+    start_failed_state,
+)
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -311,6 +324,10 @@ class GustavoState(TypedDict, total=False):
     # Filled by `start_process`.
     process_key: str
     process_started: bool
+    #: CC-01: o start foi TENTADO e FALHOU tecnicamente (`except CibSevenError` de
+    #: `start_process`). NAO e a mesma coisa que `process_started is False`, que tambem cobre
+    #: no-ops legitimos; e este marcador — e so ele — que a aresta condicional le.
+    start_failed: bool
     business_key: str
     process_ref: dict[str, Any]
 
@@ -425,12 +442,34 @@ def _output_field_resets() -> dict[str, Any]:
         # start_process outputs.
         "process_key": "",
         "process_started": False,
+        "start_failed": False,
         "business_key": "",
         "process_ref": {},
         # terminal outputs.
         "desfecho": "",
         "error": "",
     }
+
+
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+_FATOS_BOOLEANOS_ANS_SUBMIT: Final[dict[str, str]] = {
+    "dataset_complete": "dataset completo",
+    "schema_valid": "schema do envio valido",
+    "lgpd_anonimizado": "dataset anonimizado (LGPD)",
+}
+
+#: O fluxo NIP tem outro conjunto de fatos — mapa proprio, e nao a uniao dos dois: um rotulo de
+#: envio-ANS num dossie de NIP so' teria como conteudo um SEM DADO que nao diz nada.
+_FATOS_BOOLEANOS_NIP: Final[dict[str, str]] = {
+    "contesta_negativa": "a NIP contesta uma negativa anterior",
+    "documentacao_suficiente": "documentacao suficiente para responder",
+}
 
 
 class GustavoGraph:
@@ -725,11 +764,10 @@ class GustavoGraph:
                 provenance=provenance,
             )
         except CibSevenError as exc:
-            return {
-                "process_started": False,
-                "business_key": business_key,
-                "error": f"start_process indisponivel: {exc}",
-            }
+            # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
+            # `start_failed`, que e o que `route_after_start` le para desviar a
+            # `notify_start_failure` em vez de seguir calado para o terminal.
+            return start_failed_state(business_key=business_key, error=f"start_process indisponivel: {exc}")
         return {
             "process_started": True,
             "business_key": business_key,
@@ -740,9 +778,27 @@ class GustavoGraph:
             },
         }
 
+    async def notify_start_failure(self, state: GustavoState) -> dict[str, Any]:
+        """CC-01: o start FALHOU — grava o desfecho de erro e ALERTA, em vez de seguir calado.
+
+        Ate CC-01 a aresta que saia de `start_process` era INCONDICIONAL: o turno chegava ao
+        terminal com o `desfecho` de SUCESSO que um no a montante ja havia gravado, afirmando um
+        fato que nao aconteceu, e sem prazo nenhum — o timer de SLA vive na instancia BPMN que
+        nunca nasceu. O corpo deste no e o helper compartilhado
+        (`maezo.runtime.start_outcome.notify_start_failure`): uma definicao para os 9 agentes,
+        nunca 9 copias.
+        """
+        return emit_start_failure_notice(
+            dict(state), agent_id="gustavo", process_key=state.get("process_key") or _process_key(state)
+        )
+
     async def finalize(self, state: GustavoState) -> dict[str, Any]:
         """Terminal node — no further computation; `desfecho` was set by the work node. No
-        episodic memory write (module docstring's labeled boundary; donor divergence #6)."""
+        episodic memory write (module docstring's labeled boundary; donor divergence #6).
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn.
+        """
+        emit_turn_desfecho(state, agent_id="gustavo")
         return {}
 
     # -- Conditional routing ----------------------------------------------------------------
@@ -861,12 +917,21 @@ class GustavoGraph:
                 "dmn_refs": state.get("dmn_refs", {}),
                 "lacunas_enriquecimento": state.get("gather_notes", []),
             }
+        booleanos = (
+            _FATOS_BOOLEANOS_ANS_SUBMIT if state.get("fluxo") == "ans_submit" else _FATOS_BOOLEANOS_NIP
+        )
         prompt = (
-            f"{dossier_prompt()}\n\nroute={route} motivo_humano={state.get('motivo_humano')}\nfatos={facts}"
+            f"{dossier_prompt()}\n\nroute={route} motivo_humano={state.get('motivo_humano')}\n"
+            f"{render_fatos_para_prompt(facts, booleanos=booleanos)}"
         )
         try:
             narrativa = await self._llm.generate(
-                prompt, phi=True, agent_id="gustavo", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="gustavo",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human route.
             narrativa = ""
@@ -954,6 +1019,7 @@ class GustavoGraph:
         g.add_node("review_submission", self.review_submission)
         g.add_node("instruct_nip", self.instruct_nip)
         g.add_node("start_process", self.start_process)
+        g.add_node("notify_start_failure", self.notify_start_failure)
         g.add_node("finalize", self.finalize)
 
         g.add_edge(START, "receive")
@@ -966,7 +1032,16 @@ class GustavoGraph:
         )
         g.add_edge("review_submission", "start_process")
         g.add_edge("instruct_nip", "start_process")
-        g.add_edge("start_process", "finalize")
+        # CC-01: a aresta que sai de `start_process` e CONDICIONAL. Uma falha tecnica de
+        # start desvia para `notify_start_failure` (desfecho de erro + alerta); qualquer
+        # outro caminho — incluindo os no-ops legitimos com `process_started=False` —
+        # segue para o terminal de sempre. O predicado e compartilhado (uma definicao).
+        g.add_conditional_edges(
+            "start_process",
+            route_after_start,
+            {"notify_start_failure": "notify_start_failure", "continue": "finalize"},
+        )
+        g.add_edge("notify_start_failure", END)
         g.add_edge("finalize", END)
         return g
 

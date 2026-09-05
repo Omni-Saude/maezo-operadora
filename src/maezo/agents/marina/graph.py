@@ -126,30 +126,42 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
   signature, which carries neither `tenant_id` nor `thread_id` (both `text NOT NULL`) —
   GAP-DU-01-a. The semantic column was dropped by `0009_drop_pgvector`, ADR-0002 §3 SUSPENDED
   pending a consumer (ADR-0047, DRAFT).
-- No cross-agent A2A delegation (`operadora.contas/recurso/reembolso.*` -> Marina) is wired.
+- A2A delegation (`operadora.contas/recurso/reembolso.*` -> Marina) is HALF wired (CC-02/RAF-11).
   CORRECTED (CC-04, fleet audit) — the prior text here claimed v2's `a2a/` package had no
   `DelegationEnvelope`/`DelegationDispatcher`; both exist and are fully built/tested
   (`a2a/delegation.py::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported
-  from `maezo.a2a`), and five agents (rafael/carolina/andre/fernando/helena) already have a real
-  `delegation.py` using them. What is missing for Marina specifically is her own
-  handler/registration/origin: there is no `src/maezo/agents/marina/delegation.py` (the package
-  only has `__init__`/`adapters`/`graph`/`prompts`) and `grep -n '"marina"' runtime/
-  agent_runtime/a2a_composition.py` = 0 hits — handler/registro/origem ausentes, ver RAF-11 do
-  fleet audit. Marina's graph is invoked directly with an already-assembled case state, as the
-  unit tests do, rather than via a live delegation envelope. The T1.11 input-boundary gate
-  (`new_marina_state`/`gate_inbound_state`) is nonetheless present and tested, exactly as
-  Rafael's is, so the seam is gated on the day it lands (CC-02) rather than after.
+  from `maezo.a2a`). UPDATED (A2A handlers, lote3) — CC-04's companion claim that "there is no
+  `src/maezo/agents/marina/delegation.py`" is NO LONGER TRUE at this tip: the inbound TARGET
+  handler now exists (`agents/marina/delegation.py::make_marina_handler`, routing through the
+  T1.11 `new_marina_state` gate), and nine of the ten agents (all but lucas) now have a real
+  `delegation.py` using that infra. What is still missing for Marina is registration and origin:
+  the handler is NOT registered with any dispatcher (`grep -n '"marina"' runtime/agent_runtime/
+  a2a_composition.py` = 0 hits) and the three ORIGIN workers still assemble locally — both halves
+  are an owner decision (gap `FERNANDO-DELEGATION-CALL-SITE`, ver RAF-11 do fleet audit). No live
+  delegation reaches this graph yet: every non-test invocation still hands it an already-assembled
+  case state, as the unit tests do, rather than via a live delegation envelope. The T1.11
+  input-boundary gate (`new_marina_state`/`gate_inbound_state`) is nonetheless present and tested,
+  exactly as Rafael's is, so the seam is gated on the day it lands (CC-02) rather than after.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.start_outcome import (
+    notify_start_failure as emit_start_failure_notice,
+)
+from maezo.runtime.start_outcome import (
+    route_after_start,
+    start_failed_state,
+)
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -322,6 +334,10 @@ class MarinaState(TypedDict, total=False):
 
     # Filled by `start_process` (CONTAS/RECURSO only; no-op in `reembolso`).
     process_started: bool
+    #: CC-01: o start foi TENTADO e FALHOU tecnicamente (`except CibSevenError` de
+    #: `start_process`). NAO e a mesma coisa que `process_started is False`, que tambem cobre
+    #: no-ops legitimos; e este marcador — e so ele — que a aresta condicional le.
+    start_failed: bool
     business_key: str
     process_ref: dict[str, Any]
 
@@ -505,6 +521,7 @@ def _output_field_resets() -> dict[str, Any]:
         "dossier": {},
         "desfecho": "",
         "process_started": False,
+        "start_failed": False,
         "process_ref": {},
     }
 
@@ -570,6 +587,46 @@ def gate_inbound_state(raw: Mapping[str, Any]) -> MarinaState:
     if dropped:
         logger.warning("marina_inbound_output_fields_dropped", dropped=dropped)
     return cast(MarinaState, {k: raw[k] for k in _CALLER_INPUT_FIELDS if k in raw})
+
+
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+_FATOS_BOOLEANOS_CONTAS: Final[dict[str, str]] = {
+    "item_conforme_tabela": "item conforme a tabela",
+    "divergencia_valor": "divergencia de valor",
+    "documentacao_anexa": "documentacao anexa",
+    "indicio_fraude_sinalizado": "indicio de fraude sinalizado",
+}
+
+_FATOS_BOOLEANOS_RECURSO: Final[dict[str, str]] = {
+    "glosa_existe": "a glosa recorrida existe",
+    "dentro_prazo_recurso": "recurso dentro do prazo",
+    "documentacao_recurso_completa": "documentacao do recurso completa",
+}
+
+#: REEMBOLSO: todos pre-resolvidos pelas BusinessRuleTasks do SP-OP-REEMBOLSO-001 ANTES deste
+#: salto — a marina REPORTA. `dentro_teto_l2` incluso: aqui ele e' pass-through de fato de
+#: worker (docstring de `_reembolso_facts`), diferente do teto do rafael, que o motor computa
+#: DEPOIS do dossie e por isso nao e' fato daquele agente (C-02).
+_FATOS_BOOLEANOS_REEMBOLSO: Final[dict[str, str]] = {
+    "cobertura_prevista": "cobertura prevista no contrato",
+    "dentro_prazo": "pedido dentro do prazo",
+    "dentro_tabela": "valor dentro da tabela",
+    "dentro_teto_l2": "valor dentro do teto de alcada L2",
+}
+
+#: Fluxo -> mapa. A montagem dos fatos ja' e' despachada por fluxo em `_build_dossier`; a
+#: renderizacao segue o mesmo despacho para nao anunciar rotulo de um fluxo em outro.
+_FATOS_BOOLEANOS_POR_FLUXO: Final[dict[str, dict[str, str]]] = {
+    "contas": _FATOS_BOOLEANOS_CONTAS,
+    "recurso": _FATOS_BOOLEANOS_RECURSO,
+    "reembolso": _FATOS_BOOLEANOS_REEMBOLSO,
+}
 
 
 class MarinaGraph:
@@ -907,11 +964,10 @@ class MarinaGraph:
                 provenance=provenance,
             )
         except CibSevenError as exc:
-            return {
-                "process_started": False,
-                "business_key": business_key,
-                "error": f"start_process indisponivel: {exc}",
-            }
+            # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
+            # `start_failed`, que e o que `route_after_start` le para desviar a
+            # `notify_start_failure` em vez de seguir calado para o terminal.
+            return start_failed_state(business_key=business_key, error=f"start_process indisponivel: {exc}")
         return {
             "process_started": True,
             "business_key": business_key,
@@ -922,12 +978,30 @@ class MarinaGraph:
             },
         }
 
+    async def notify_start_failure(self, state: MarinaState) -> dict[str, Any]:
+        """CC-01: o start FALHOU — grava o desfecho de erro e ALERTA, em vez de seguir calado.
+
+        Ate CC-01 a aresta que saia de `start_process` era INCONDICIONAL: o turno chegava ao
+        terminal com o `desfecho` de SUCESSO que um no a montante ja havia gravado, afirmando um
+        fato que nao aconteceu, e sem prazo nenhum — o timer de SLA vive na instancia BPMN que
+        nunca nasceu. O corpo deste no e o helper compartilhado
+        (`maezo.runtime.start_outcome.notify_start_failure`): uma definicao para os 9 agentes,
+        nunca 9 copias.
+        """
+        return emit_start_failure_notice(dict(state), agent_id="marina", process_key=_process_key(state))
+
     async def finalize(self, state: MarinaState) -> dict[str, Any]:
         """Terminal node — no further computation; `desfecho` was already set upstream.
 
         No episodic memory write here (labeled boundary, module docstring — same rationale as
         Rafael's/Helena's graphs).
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn, tagged with `flow`
+        (`contas`/`recurso`/`reembolso`) so Marina's per-flow KPIs (`glosa_rate`,
+        `taxa_deferimento_recurso`, `prazo_medio_resposta_recurso`) can be sliced downstream from
+        the structured log line even though `flow` is not itself a Prometheus label.
         """
+        emit_turn_desfecho(state, agent_id="marina", flow=state.get("flow"))
         return {}
 
     # -- Conditional routing --------------------------------------------------------------
@@ -1117,10 +1191,19 @@ class MarinaGraph:
 
         motivo_humano = state.get("motivo_humano") if route == "human_review" else None
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
-        prompt = f"{prompt_text}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\nfatos={facts}"
+        booleanos = _FATOS_BOOLEANOS_POR_FLUXO.get(flow, _FATOS_BOOLEANOS_CONTAS)
+        prompt = (
+            f"{prompt_text}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\n"
+            f"{render_fatos_para_prompt(facts, booleanos=booleanos)}"
+        )
         try:
             narrativa = await self._llm.generate(
-                prompt, phi=True, agent_id="marina", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="marina",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
             narrativa = ""
@@ -1227,6 +1310,7 @@ class MarinaGraph:
         g.add_node("auto_route", self.auto_route)
         g.add_node("human_review", self.human_review)
         g.add_node("start_process", self.start_process)
+        g.add_node("notify_start_failure", self.notify_start_failure)
         g.add_node("finalize", self.finalize)
 
         g.add_edge(START, "receive")
@@ -1237,7 +1321,16 @@ class MarinaGraph:
         )
         g.add_edge("auto_route", "start_process")
         g.add_edge("human_review", "start_process")
-        g.add_edge("start_process", "finalize")
+        # CC-01: a aresta que sai de `start_process` e CONDICIONAL. Uma falha tecnica de
+        # start desvia para `notify_start_failure` (desfecho de erro + alerta); qualquer
+        # outro caminho — incluindo os no-ops legitimos com `process_started=False` —
+        # segue para o terminal de sempre. O predicado e compartilhado (uma definicao).
+        g.add_conditional_edges(
+            "start_process",
+            route_after_start,
+            {"notify_start_failure": "notify_start_failure", "continue": "finalize"},
+        )
+        g.add_edge("notify_start_failure", END)
         g.add_edge("finalize", END)
         return g
 

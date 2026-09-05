@@ -54,6 +54,8 @@ class _FakeInference:
     def __init__(self, responses: list[str] | None = None) -> None:
         self._responses = list(responses) if responses else ["narrativa factual sintetica"]
         self.calls: list[tuple[str, bool]] = []
+        #: AF-12 (CC-12): the `task_kind` of each call, in order.
+        self.task_kinds: list[str | None] = []
 
     async def generate(
         self,
@@ -62,8 +64,10 @@ class _FakeInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         self.calls.append((prompt, phi))
+        self.task_kinds.append(task_kind)
         return self._responses.pop(0) if self._responses else ""
 
 
@@ -77,6 +81,7 @@ class _RaisingInference(_FakeInference):
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         self.calls.append((prompt, phi))
         raise RuntimeError("provider unavailable")
@@ -92,6 +97,7 @@ class _AssertingInference(_FakeInference):
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         raise AssertionError("this path must never call the LLM")
 
@@ -689,7 +695,21 @@ async def test_instruct_llm_call_is_phi_tagged() -> None:
     assert len(inference.calls) == 1
     prompt, phi = inference.calls[0]
     assert phi is True  # Beatriz is PHI-zone (agent.yaml security_zone: phi; ADR-0006/0017)
-    assert "fatos=" in prompt
+    # CC-11: os fatos deixaram de viajar como `fatos={repr}` e vao renderizados — o booleano
+    # nomeado com SIM/NAO/SEM DADO, o resto do caso no contexto. A asserção antiga (`"fatos=" in
+    # prompt`) so' provava que ALGO chamado fatos foi interpolado; esta prova que o fato apurado
+    # chegou distinguivel, que e' o que o incidente de 24/08/2026 quebrou.
+    assert "fatos apurados:" in prompt
+    assert "indicio de fraude sinalizado" in prompt
+    assert "n_evidencia" in prompt  # o contexto nao-booleano continua no prompt
+
+
+async def test_instruct_llm_call_declares_task_kind_reasoning() -> None:
+    """CC-12/BEA-01 (ADR-0009 §2): the investigator dossier narrative is for the human's
+    review — `reasoning`, not `task_default`."""
+    inference = _FakeInference()
+    await _graph(inference=inference).instruct_investigation(_gathered_state())
+    assert inference.task_kinds == ["reasoning"]
 
 
 async def test_instruct_llm_failure_never_blocks_the_instruction() -> None:

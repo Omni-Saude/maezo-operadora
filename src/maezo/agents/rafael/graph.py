@@ -74,6 +74,15 @@ from langgraph.graph import END, START, StateGraph
 
 from maezo.platform.privacy.dossier_zone import dossier_narrative_requires_phi_zone
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt as render_fatos
+from maezo.runtime.start_outcome import (
+    notify_start_failure as emit_start_failure_notice,
+)
+from maezo.runtime.start_outcome import (
+    route_after_start,
+    start_failed_state,
+)
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -183,6 +192,10 @@ class RafaelState(TypedDict, total=False):
 
     # Filled by `start_process`.
     process_started: bool
+    #: CC-01: o start foi TENTADO e FALHOU tecnicamente (`except CibSevenError` de
+    #: `start_process`). NAO e a mesma coisa que `process_started is False`, que tambem cobre
+    #: no-ops legitimos; e este marcador — e so ele — que a aresta condicional le.
+    start_failed: bool
     business_key: str
     process_ref: dict[str, Any]
 
@@ -265,6 +278,7 @@ _RAFAEL_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "motivo_auditor": None,
     "dossier": None,
     "process_started": False,
+    "start_failed": False,
     "business_key": None,
     "process_ref": None,
     "desfecho": None,
@@ -340,49 +354,34 @@ _FATOS_BOOLEANOS: Final[dict[str, str]] = {
 }
 
 
+#: O TETO NAO E' FATO DO AGENTE, e por isso nao esta em `_FATOS_BOOLEANOS`.
+#:
+#: C-02, reportado pelo time de automacoes em 27/08: o dossie dizia "nao foi verificado se o
+#: valor esta dentro do teto" enquanto o motor tinha verificado e aprovado — e era o unico
+#: criterio que passava. As duas afirmacoes eram verdadeiras em momentos diferentes, e e' ai'
+#: que estava o defeito: o dossie e' escrito ANTES de `ST_ValidateAutoApprovalCriteria`
+#: rodar, e o motor COMPUTA `dentro_teto_l2` por conta propria (`ceilings.py`), sobrescrevendo
+#: qualquer valor de entrada. O docstring deste modulo ja' declarava o teto como territorio
+#: PROIBIDO para este grafo.
+#:
+#: Entao o agente para de afirmar sobre ele. A linha continua no dossie, porque o auditor
+#: precisa saber que o criterio existe — mas dizendo de quem e' a apuracao. Vai como
+#: `linhas_extra` porque nao e' um dos tres estados: nao e' SIM, nao e' NAO e NAO E' SEM DADO.
+_LINHA_TETO_DO_MOTOR: Final[str] = "  APURADO PELO MOTOR  valor dentro do teto de aprovacao automatica"
+
+
 def render_fatos_para_prompt(facts: dict[str, Any]) -> str:
-    """Serializa os fatos NOMEANDO o estado de cada booleano, em vez de despejar o dicionario.
+    """Renderiza os fatos do rafael com o mapa e a linha do motor deste agente.
 
-    Tres estados, tres formas visualmente distintas — e so o desfavoravel carrega instrucao,
-    porque foi exatamente esse que sumiu do texto quando os tres colapsavam num `repr()`.
+    CC-11: o renderizador em si vive em `runtime/prompt_format.py` desde 04/09/2026 — nasceu
+    aqui como conserto do incidente de 24/08, ficou num agente so', e a auditoria da frota achou
+    o mesmo defeito em 8 dos 9 agentes que passam fatos a um LLM. O que sobra neste modulo e' o
+    que E' do rafael: `_FATOS_BOOLEANOS` e `_LINHA_TETO_DO_MOTOR`.
 
-    O `is True` / `is False` e deliberado: `1`, `"nao"` e `[]` NAO sao fatos apurados, e um
-    `bool()` os converteria em afirmacao. Qualquer coisa que nao seja booleano cai em NAO
-    VERIFICADO, que e a leitura segura.
+    A saida e' byte-identica a de antes da promocao — congelada em
+    `tests/unit/agents/test_prompt_facts_rendering.py`.
     """
-    linhas: list[str] = []
-    for chave, rotulo in _FATOS_BOOLEANOS.items():
-        valor = facts.get(chave)
-        # A marcacao e' curta e SEM instrucao embutida, e isso e' conserto de 25/08/2026:
-        # a versao anterior escrevia `[FATO DESFAVORAVEL: cite nomeando]` no fim da linha, e o
-        # modelo COPIAVA a frase em caixa alta para a narrativa. Medido em 4 casos: vazou em 1
-        # ("FATO DESFAVORAVEL: beneficiario sem plano ativo"). Marcacao que parece frase pronta
-        # convida a ser reproduzida; token curto nao. A regra de como tratar cada estado mora
-        # no prompt, que tambem proibe copiar a marcacao.
-        if valor is True:
-            linhas.append(f"  SIM       {rotulo}")
-        elif valor is False:
-            linhas.append(f"  NAO       {rotulo}")
-        else:
-            linhas.append(f"  SEM DADO  {rotulo}")
-
-    # O TETO NAO E' FATO DO AGENTE, e por isso nao esta em `_FATOS_BOOLEANOS`.
-    #
-    # C-02, reportado pelo time de automacoes em 27/08: o dossie dizia "nao foi verificado se o
-    # valor esta dentro do teto" enquanto o motor tinha verificado e aprovado — e era o unico
-    # criterio que passava. As duas afirmacoes eram verdadeiras em momentos diferentes, e e' ai'
-    # que estava o defeito: o dossie e' escrito ANTES de `ST_ValidateAutoApprovalCriteria`
-    # rodar, e o motor COMPUTA `dentro_teto_l2` por conta propria (`ceilings.py`), sobrescrevendo
-    # qualquer valor de entrada. O docstring deste modulo ja' declarava o teto como territorio
-    # PROIBIDO para este grafo.
-    #
-    # Entao o agente para de afirmar sobre ele. A linha continua no dossie, porque o auditor
-    # precisa saber que o criterio existe — mas dizendo de quem e' a apuracao.
-    linhas.append("  APURADO PELO MOTOR  valor dentro do teto de aprovacao automatica")
-
-    contexto = {k: v for k, v in facts.items() if k not in _FATOS_BOOLEANOS}
-    corpo = "\n".join(linhas)
-    return f"fatos apurados:\n{corpo}\n\ndemais dados do caso: {contexto}"
+    return render_fatos(facts, booleanos=_FATOS_BOOLEANOS, linhas_extra=(_LINHA_TETO_DO_MOTOR,))
 
 
 class RafaelGraph:
@@ -668,11 +667,10 @@ class RafaelGraph:
                 provenance=provenance,
             )
         except CibSevenError as exc:
-            return {
-                "process_started": False,
-                "business_key": business_key,
-                "error": f"start_process indisponivel: {exc}",
-            }
+            # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
+            # `start_failed`, que e o que `route_after_start` le para desviar a
+            # `notify_start_failure` em vez de seguir calado para o terminal.
+            return start_failed_state(business_key=business_key, error=f"start_process indisponivel: {exc}")
         return {
             "process_started": True,
             "business_key": business_key,
@@ -683,8 +681,24 @@ class RafaelGraph:
             },
         }
 
+    async def notify_start_failure(self, state: RafaelState) -> dict[str, Any]:
+        """CC-01: o start FALHOU — grava o desfecho de erro e ALERTA, em vez de seguir calado.
+
+        Ate CC-01 a aresta que saia de `start_process` era INCONDICIONAL: o turno chegava ao
+        terminal com o `desfecho` de SUCESSO que um no a montante ja havia gravado, afirmando um
+        fato que nao aconteceu, e sem prazo nenhum — o timer de SLA vive na instancia BPMN que
+        nunca nasceu. O corpo deste no e o helper compartilhado
+        (`maezo.runtime.start_outcome.notify_start_failure`): uma definicao para os 9 agentes,
+        nunca 9 copias.
+        """
+        return emit_start_failure_notice(dict(state), agent_id="rafael", process_key=PROCESS_KEY)
+
     async def complete(self, state: RafaelState) -> dict[str, Any]:
-        """Terminal node — no further computation; `desfecho` was already set by `assess`."""
+        """Terminal node — no further computation; `desfecho` was already set by `assess`.
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn.
+        """
+        emit_turn_desfecho(state, agent_id="rafael")
         return {}
 
     # -- Conditional routing ------------------------------------------------------------------
@@ -754,6 +768,8 @@ class RafaelGraph:
                 phi=dossier_narrative_requires_phi_zone(),
                 agent_id="rafael",
                 tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
             narrativa = ""
@@ -814,6 +830,7 @@ class RafaelGraph:
         g.add_node("auto_approve", self.auto_approve)
         g.add_node("human_auditor", self.human_auditor)
         g.add_node("start_process", self.start_process)
+        g.add_node("notify_start_failure", self.notify_start_failure)
         g.add_node("complete", self.complete)
 
         g.add_edge(START, "receive")
@@ -824,7 +841,16 @@ class RafaelGraph:
         )
         g.add_edge("auto_approve", "start_process")
         g.add_edge("human_auditor", "start_process")
-        g.add_edge("start_process", "complete")
+        # CC-01: a aresta que sai de `start_process` e CONDICIONAL. Uma falha tecnica de
+        # start desvia para `notify_start_failure` (desfecho de erro + alerta); qualquer
+        # outro caminho — incluindo os no-ops legitimos com `process_started=False` —
+        # segue para o terminal de sempre. O predicado e compartilhado (uma definicao).
+        g.add_conditional_edges(
+            "start_process",
+            route_after_start,
+            {"notify_start_failure": "notify_start_failure", "continue": "complete"},
+        )
+        g.add_edge("notify_start_failure", END)
         g.add_edge("complete", END)
         return g
 

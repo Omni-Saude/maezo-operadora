@@ -64,6 +64,26 @@ INADIMPLENCIA_PROCESS_KEY = "SP-OP-INADIMPLENCIA-001"
 # PHI markers that must NEVER appear in evidence references
 _PHI_MARKERS = frozenset({"cpf", "nome", "nome_social", "endereco", "telefone", "email"})
 
+#: Class-token da UNICA lacuna que hoje impede `gather_evidence`/`assemble_dossier` de fazerem o
+#: que seus nomes prometem: a delegacao A2A `fraude.investigate` a Beatriz nao esta ligada (BEA-09).
+#: NAO e mensagem de erro nem texto livre — e um token fechado, sem PHI, declarado no contrato
+#: (docs/processes/contracts/SP-OP-FRAUDE-001.md, secao "Variaveis de saida") e por isso seguro
+#: para viver no escopo do processo, entrar na trilha ADR-0007 e ser lido pelo humano na
+#: `UT_DecisaoInvestigador`. Quando o handler A2A de Beatriz (`agents/beatriz/delegation.py` +
+#: registro em `a2a_composition`, WP SEPARADO e owner-gated) for ligado, o token deixa de ser
+#: emitido pelas duas funcoes — nao ha um segundo valor a acrescentar aqui.
+GAP_BEATRIZ_A2A_NAO_LIGADO = "beatriz_a2a_nao_ligado"
+
+#: Class-token da lacuna que hoje impede `refer_to_legal` de fazer o que seu nome promete: NAO
+#: existe integracao com juridico/ANS/esfera civel/penal neste repo, e as proprias obrigacoes de
+#: referral (prazo, forma, autoridade competente) seguem DRAFT/verify no contrato — nao ha nem o
+#: que integrar antes de juridico+compliance as pinarem (FAB-REFER-TO-LEGAL). Mesmo formato e
+#: mesma disciplina de `GAP_BEATRIZ_A2A_NAO_LIGADO` acima: token fechado, sem PHI, declarado no
+#: contrato (docs/processes/contracts/SP-OP-FRAUDE-001.md, secao "Variaveis de saida"), seguro
+#: para o escopo do processo e para a trilha ADR-0007. Quando o referral real for ligado, o token
+#: deixa de ser emitido — ausencia passa a significar "encaminhamento real ocorreu".
+GAP_REFERRAL_JURIDICO_NAO_LIGADO = "referral_juridico_nao_ligado"
+
 
 # ---------------------------------------------------------------
 # intake — neutral start (register case, no adverse effect)
@@ -71,25 +91,61 @@ _PHI_MARKERS = frozenset({"cpf", "nome", "nome_social", "endereco", "telefone", 
 
 
 def intake(variables: dict[str, Any]) -> dict[str, Any]:
-    """Register the fraud investigation case (NEUTRAL start).
+    """Registra a PROCEDENCIA do encaminhamento no log. Retorna `{}` — NAO afirma nada.
 
-    Records provenance: who referred the case (encaminhado_por_id from Phase 2).
+    Serve `ST_Intake` (topico `operadora.fraude.intake`,
+    SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn). Start neutro, jamais adverso.
+
+    FAB-INTAKE-CASO-REGISTRADO (o motivo desta docstring). O retorno era, em toda entrega e sem
+    calcular nada, `{"caso_registrado": True, "intake_ts": "now"}` — o segundo com o comentario
+    `# placeholder` no proprio codigo. A harness grava o retorno no escopo do processo no
+    `complete`, entao as duas constantes entravam na instancia como trilha de auditoria de um
+    registro que ESTA funcao nunca fez: seu corpo tinha uma unica instrucao (`logger.info`) e
+    nenhum sink. Mesma especie da familia FAB-* (`notify_sla_risk` neste mesmo modulo,
+    FAB-SLA-RISK-NOTIFIED-SLICE4).
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar, `grep -rnw 'caso_registrado|intake_ts' spec/
+    src/ tests/ docs/`): nenhuma `conditionExpression` de BPMN, `inputExpression` de DMN, worker a
+    jusante, golden de eval ou linha de contrato — so as duas atribuicoes e a assercao do teste
+    unitario.
+
+    POR QUE `{}` E NAO UM TOKEN DE LACUNA (a diferenca deliberada para BEA-09). O registro do caso
+    na cadeia de auditoria DE FATO acontece — so nao aqui: (i) a harness emite a linha ADR-0007
+    ANTES de todo `complete` (emit-before-complete, fail-closed: sem sink o task nem completa), e
+    (ii) a task seguinte do BPMN, `ST_PublishIntakeReceived`, publica
+    `agents.events.fraude.intake_received` carregando `encaminhado_por_id` no
+    `event_payload_vars`. Emitir um `intake_gap` afirmaria uma lacuna INEXISTENTE — o mesmo
+    defeito de honestidade na direcao oposta. `evidencia_gap`/`dossie_gap` existem porque la a
+    coleta e a montagem nao acontecem em lugar NENHUM; aqui acontecem, apenas fora desta funcao.
+
+    `intake_ts` foi removida sem substituicao por relogio real: alem de nao ter consumidor, o
+    instante do intake ja e fato do engine (`GET /history/activity-instance` de `ST_Intake`), e um
+    segundo carimbo no escopo do processo seria uma fonte de verdade redundante, nao uma correcao.
+
+    ACHADO COLATERAL, NAO CORRIGIDO AQUI: o BPMN e a tabela de codigos de erro do contrato dizem
+    que esta task lanca `ERR_FRAUDE_CASO_INVALIDO` "se o caso for inconsistente na origem"; a
+    constante existe (`:50`) mas NENHUM call site a levanta e esta funcao nao valida nada.
+    Definir o que torna um caso inconsistente e produto/juridico (a regra de correlacao de
+    `numero_caso` esta ela propria em aberto), nao engenharia — registrado em Pendencias do
+    contrato.
     """
     numero_caso = variables.get("numero_caso", "")
     origem = variables.get("origem_encaminhamento", "")
     encaminhado_por = variables.get("encaminhado_por_id", "")
 
+    # `registro_asserted=False` diz no log o que o retorno diz no escopo do processo: esta etapa
+    # nao registrou o caso em sink algum (o registro e da trilha da harness + ST_PublishIntake-
+    # Received). `info`, nao `warning`: ao contrario de `gather_evidence`, aqui nao ha lacuna —
+    # so uma atribuicao de responsabilidade que estava sendo afirmada no lugar errado.
     logger.info(
         "fraude_intake",
         numero_caso=numero_caso,
         origem=origem,
         encaminhado_por=encaminhado_por,
+        registro_asserted=False,
     )
 
-    return {
-        "caso_registrado": True,
-        "intake_ts": "now",  # placeholder
-    }
+    return {}
 
 
 # ---------------------------------------------------------------
@@ -98,30 +154,69 @@ def intake(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 def gather_evidence(variables: dict[str, Any]) -> dict[str, Any]:
-    """Collect/normalize evidence via Beatriz (fraude.investigate).
+    """NORMALIZA `evidencia_refs` e declara a lacuna. NAO coleta evidencia de lugar nenhum.
 
-    Beatriz is human-gated delegate; she instructs, NEVER decides.
-    All evidence as pseudonymized pointers — NEVER raw PHI (ADR-0006).
-    TASY write DROP (ADR-0013).
+    Serve `ST_GatherEvidence` (topico `operadora.fraude.gather_evidence`,
+    SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn). O contrato e o BPMN descrevem esta task como
+    "convoca Beatriz (delegacao A2A `fraude.investigate`, human-gated): coleta/normaliza evidencia
+    (CDC/TISS/feature store)". Desta funcao sai a NORMALIZACAO e nada mais: nenhuma chamada A2A,
+    nenhuma consulta a CDC/TISS/feature store, nenhum canal contatado. As `evidencia_refs` que ela
+    devolve sao as que ja chegaram no start (handoff `encaminhar_fraude` de Phase 2) ou pela
+    mensagem `msg.fraude.evidencia_anexada` — coercidas a lista quando vem com tipo errado, que e
+    o unico efeito real desta funcao hoje.
+
+    BEA-09 (o motivo desta docstring). O retorno era
+    `{"evidencia_refs": <o que ja veio>, "evidencia_coletada_em": "now"}`: um instante de coleta
+    constante, afirmado por uma funcao cujo proprio corpo carregava o comentario "Placeholder:
+    real implementation calls Beatriz via A2A". A harness grava o retorno no escopo do processo no
+    `complete` (`harness.py:1779-1783`), entao a constante entrava na instancia como trilha de
+    auditoria de uma coleta que nunca ocorreu — a jusante de um processo cuja proxima parada e a
+    selagem de custodia e a User Task L0-hard `UT_DecisaoInvestigador`. Mesma especie da familia
+    FAB-* (`notify_sla_risk`, logo abaixo neste modulo, e os dez handlers de
+    FAB-SLA-RISK-NOTIFIED-SLICE4).
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar, `grep -rn evidencia_coletada_em spec/ src/
+    tests/ docs/`): `evidencia_coletada_em` nao aparece em `conditionExpression` de BPMN,
+    `inputExpression` de DMN, worker a jusante, golden de eval ou linha de contrato — so na
+    atribuicao que o criava. Removido, portanto, sem caminho a religar.
+
+    A LACUNA NAO E SILENCIOSA. Em lugar da afirmacao falsa sai `evidencia_gap`
+    (`GAP_BEATRIZ_A2A_NAO_LIGADO`), token fechado e sem PHI, DECLARADO no contrato
+    (SP-OP-FRAUDE-001.md, "Variaveis de saida"): quem ler a instancia — incluindo o investigador
+    humano na UT, que decide um L0-hard — ve que nao houve coleta, em vez de ver um carimbo de
+    coleta. Espelha a perna de VISIBILIDADE do M-1 de `adequacao.measure_gap` ("FABRICATION IS NO
+    LONGER SILENT"), com a diferenca de que aqui a lacuna e uma variavel DECLARADA e nao so um log,
+    porque o consumidor que precisa ve-la e um humano dentro do processo.
+
+    Ligar a delegacao A2A e WP SEPARADO (handler em `agents/beatriz/delegation.py` + registro em
+    `a2a_composition` — registro e owner-decision, `FERNANDO-DELEGATION-CALL-SITE`). Ate la o token
+    e o estado honesto, nao um placeholder.
+
+    Zona PHI/ADR-0006 inalterada: so ponteiros pseudonimizados; a varredura final continua em
+    `seal_custody_bundle` (`ERR_PHI_IN_CUSTODY`). TASY write DROP (ADR-0013) — nada e escrito.
     """
     numero_caso = variables.get("numero_caso", "")
     entidade_tipo = variables.get("entidade_tipo", "")
 
-    # Placeholder: real implementation calls Beatriz via A2A
     evidencia_refs = variables.get("evidencia_refs", [])
     if not isinstance(evidencia_refs, list):
         evidencia_refs = []
 
-    logger.info(
-        "fraude_gather_evidence",
+    # `warning`, nao `info` (precedente `adequacao_medidas_fabricadas`): uma etapa de coleta que
+    # nao coleta e defeito operacional, nao progresso de rotina. `coleta_asserted=False` diz no
+    # log a mesma coisa que o retorno diz no escopo do processo.
+    logger.warning(
+        "fraude_evidencia_nao_coletada",
         numero_caso=numero_caso,
         entidade_tipo=entidade_tipo,
         evidencia_count=len(evidencia_refs),
+        coleta_asserted=False,
+        gap=GAP_BEATRIZ_A2A_NAO_LIGADO,
     )
 
     return {
         "evidencia_refs": evidencia_refs,
-        "evidencia_coletada_em": "now",
+        "evidencia_gap": GAP_BEATRIZ_A2A_NAO_LIGADO,
     }
 
 
@@ -412,27 +507,76 @@ def score_indicators(variables: dict[str, Any], *, dmn: DmnTransport | None = No
 
 
 def assemble_dossier(variables: dict[str, Any]) -> dict[str, Any]:
-    """Assemble the investigation dossier (Beatriz A2A).
+    """NAO monta dossie. Declara a lacuna e retorna SO isso — `{"dossie_gap": <token>}`.
 
-    Beatriz instructs, NEVER decides. Dossier includes: narrative,
-    evidence refs, indicators, feature snapshot ref.
+    Serve `ST_AssembleDossier` (topico `operadora.fraude.assemble_dossier`,
+    SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn), tambem alvo do loop de re-selagem
+    (`BME_EvidenciaAnexada` -> re-montar -> re-selar). O contrato descreve a task como "Beatriz
+    monta o dossie de investigacao (narrativa/montagem a partir de `evidencia_refs` +
+    `indicadores_presentes`); instrui, NAO decide". Nada disso acontece aqui: nao ha chamada A2A,
+    nao ha narrativa, nao ha artefato de dossie — nem em memoria, nem persistido.
+
+    BEA-09 (o motivo desta docstring). O retorno era, em toda entrega e sem calcular nada,
+    `{"dossie_montado": True, "dossie_items": len(evidencia_refs)}`. As DUAS chaves eram falsas:
+    `dossie_montado` afirmava uma montagem que nunca ocorreu, e `dossie_items` contava as
+    `evidencia_refs` que ja estavam no escopo como se fossem itens de um dossie que nao existe. A
+    harness grava o retorno no escopo do processo no `complete` (`harness.py:1779-1783`), e a
+    proxima parada do token e `seal_custody_bundle` seguido da User Task L0-hard
+    `UT_DecisaoInvestigador`: o investigador humano decidia sobre uma instancia que AFIRMAVA ter um
+    dossie montado. A fence estatica
+    (`tests/unit/tools/workers/test_worker_handler_purity.py::_FABRICATED_FACT_KEYS`) passa a
+    carregar `dossie_montado` para manter isso fixo.
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar, `grep -rn 'dossie_montado\\|dossie_items'
+    spec/ src/ tests/ docs/`): nenhuma `conditionExpression` de BPMN, nenhuma `inputExpression` de
+    DMN, nenhum worker a jusante (`seal_custody_bundle` le `evidencia_refs`, nunca estas duas),
+    nenhum golden de eval e nenhuma linha de contrato as le — so a atribuicao que as criava e a
+    asserção do proprio teste unitario. Removidas, portanto, sem caminho a religar. Nao ha eco:
+    `evidencia_refs`/`indicadores_presentes` ja estao no escopo e reescreve-las seria ruido de
+    auditoria (precedente `notify_sla_risk`, neste modulo).
+
+    O QUE ENTRA NO LUGAR, e por que nao e `{}`. `notify_sla_risk` pode retornar `{}` porque e
+    informativa e nao-adversa: sua ausencia nao muda decisao alguma. Aqui a ausencia do dossie e
+    justamente o que o decisor humano do L0-hard precisa saber, entao a lacuna sai como variavel
+    DECLARADA — `dossie_gap` = `GAP_BEATRIZ_A2A_NAO_LIGADO`, token fechado, sem PHI, declarado em
+    SP-OP-FRAUDE-001.md ("Variaveis de saida") ANTES deste codigo (spec-first). Nada silencioso:
+    a instancia diz "nao ha dossie montado, e este e o motivo", em vez de dizer "ha dossie".
+
+    O QUE ESTA FUNCAO DELIBERADAMENTE NAO FAZ. Nao monta um "dossie parcial" deterministico a
+    partir de `evidencia_refs` + `indicadores_presentes` para poder afirmar `dossie_montado=True`
+    honestamente: a narrativa/montagem que o contrato define e o ato de Beatriz, e um indice
+    montado localmente seria de novo uma coisa que "parece funcionar" — trocaria uma constante
+    falsa por um artefato fora de contrato com a mesma lacuna escondida dentro. Ligar a delegacao
+    A2A e WP SEPARADO (handler em `agents/beatriz/delegation.py` + registro em `a2a_composition`;
+    o registro e owner-decision, `FERNANDO-DELEGATION-CALL-SITE`).
+
+    PONTO DE FALHA-FECHADA NAO MOVIDO, e isso e declarado, nao esquecido. O caminho adverso
+    continua guardado onde ja estava — `register_fraud_accusation` (decisao humana + `bundle_root`
+    selado e re-verificado). Fazer esse guard recusar tambem sobre `dossie_gap` DESLIGARIA por
+    inteiro o unico caminho adverso do processo enquanto Beatriz nao for ligada; e uma decisao de
+    dono, nao de quem honestifica o worker, e esta registrada como recomendacao no relatorio de
+    BEA-09 em vez de tomada aqui.
     """
     evidencia_refs = variables.get("evidencia_refs", [])
     if not isinstance(evidencia_refs, list):
         evidencia_refs = []
     indicadores = variables.get("indicadores_presentes", [])
+    if not isinstance(indicadores, list):
+        indicadores = []
 
-    logger.info(
-        "fraude_assemble_dossier",
+    # `warning` pela mesma razao de `gather_evidence`: uma etapa de montagem que nao monta e
+    # defeito operacional. Os dois contadores sao do que a funcao RECEBEU (fato verdadeiro),
+    # nunca do que teria montado; `dossie_asserted=False` fecha a leitura.
+    logger.warning(
+        "fraude_dossie_nao_montado",
         numero_caso=variables.get("numero_caso"),
-        evidencia_count=len(evidencia_refs),
-        indicadores_count=len(indicadores),
+        evidencia_recebida_count=len(evidencia_refs),
+        indicadores_recebidos_count=len(indicadores),
+        dossie_asserted=False,
+        gap=GAP_BEATRIZ_A2A_NAO_LIGADO,
     )
 
-    return {
-        "dossie_montado": True,
-        "dossie_items": len(evidencia_refs),
-    }
+    return {"dossie_gap": GAP_BEATRIZ_A2A_NAO_LIGADO}
 
 
 # ---------------------------------------------------------------
@@ -685,19 +829,76 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 def refer_to_legal(variables: dict[str, Any]) -> dict[str, Any]:
-    """Refer case to legal/ANS/civil/criminal (downstream of accusation)."""
+    """DECLARA que o referral a juridico/ANS/civel/penal NAO foi executado. Nao encaminha nada.
+
+    Serve `ST_ReferToLegal` (topico `operadora.fraude.refer_to_legal`,
+    SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn). E o CAMINHO ADVERSO do processo: o engine so
+    alcanca esta task a jusante de (i) `UT_DecisaoInvestigador` com `decisao_fraude=ACUSAR_FRAUDE`
+    setado por humano (L0 hard `fraud_accusation`), (ii) `bundle_root` selado e re-verificado em
+    `register_fraud_accusation`, (iii) o SEGUNDO gate humano `UT_RevisaoReferral`
+    (juridico/compliance aprovando os destinos) e (iv) `GW_DestinoReferral`
+    (`${destino_referral_juridico == true || destino_referral_ans == true}`). Sua unica saida e
+    `ST_PublishEncaminhadoJuridico` -> `End_EncaminhadoJuridico`.
+
+    FAB-REFER-TO-LEGAL (o motivo desta docstring). O retorno era, em toda entrega e sem calcular
+    nada, `{"referral_executado": True, "destinos": <eco de destino_referral>}`, de um corpo cuja
+    unica instrucao era `logger.info`. NENHUMA autoridade e contatada por esta funcao nem por
+    qualquer outra deste repo: `fraude.py` nao tem NENHUM call site de `kafka.publish(`
+    (`register_fraude_workers` faz `del kafka  # unused`), nao ha transporte juridico/ANS
+    (nenhum equivalente ao `AnsGatewayTransport` de `ans_submit` e injetado aqui — esta funcao nao
+    recebe seam algum), e o contrato lista as proprias **Obrigacoes de referral** (prazo, forma,
+    autoridade competente, escada de alcada por destino) como DRAFT/verify, "nao estao pinadas em
+    nenhum repo" — nao ha nem especificacao do que integrar. A harness grava o retorno no escopo
+    do processo no `complete`, entao a constante entrava na instancia — e na trilha ADR-0007 de
+    uma acusacao de fraude JA CONSTITUIDA — afirmando a execucao de um ato regulatorio que nunca
+    saiu do processo. E a instancia mais grave da familia FAB-* neste modulo, por estar do lado
+    adverso da fronteira L0.
+
+    ZERO CONSUMIDORES (mapa refeito antes de editar, `grep -rnw 'referral_executado|destinos'
+    spec/ src/ tests/ docs/`): `referral_executado` so aparecia na propria atribuicao e na
+    assercao do teste unitario; `destinos` so na atribuicao (as duas ocorrencias da PALAVRA em
+    spec/docs sao prosa de `<bpmn:documentation>` de `UT_RevisaoReferral` e da linha de
+    `destino_referral` no contrato, nao referencia a variavel). Nenhuma `conditionExpression`
+    (o gateway le as flags planas `destino_referral_*`, nunca esta chave), nenhuma
+    `inputExpression` de DMN, nenhum worker a jusante, nenhum golden.
+
+    `destinos` NAO foi mantida: era eco byte-a-byte de `destino_referral`, que ja esta no escopo
+    desde `UT_DecisaoInvestigador` e foi confirmada em `UT_RevisaoReferral`. Reescreve-la sob um
+    segundo nome cria uma segunda fonte de verdade para uma decisao humana sem acrescentar fato
+    algum — mesmo tratamento que `notify_sla_risk` deu as suas chaves de eco.
+
+    A LACUNA NAO E SILENCIOSA. Em lugar da afirmacao falsa sai `referral_gap`
+    (`GAP_REFERRAL_JURIDICO_NAO_LIGADO`), token fechado e sem PHI, DECLARADO no contrato
+    (SP-OP-FRAUDE-001.md, "Variaveis de saida"), com semantica de AUSENCIA = referral real. Quem
+    ler a instancia — o revisor de juridico/compliance, o investigador, a auditoria que le o
+    desfecho `encaminhado_juridico` — ve que a autoridade NAO foi notificada, em vez de ver um
+    carimbo de execucao. Mesma perna de visibilidade de `evidencia_gap`/`dossie_gap` (BEA-09) e do
+    M-1 de `adequacao.measure_gap`.
+
+    NAO E FAIL-CLOSED, e por que: levantar aqui pararia toda instancia que chegasse ao referral —
+    uma lacuna de DEPLOY (a integracao nao existe para caso nenhum), nao um defeito do caso — e
+    deixaria a acusacao humana ja constituida sem terminal. O roteamento dos destinos aprovados
+    segue do `GW_DestinoReferral` e o desfecho segue publicado por `ST_PublishEncaminhadoJuridico`
+    (que continua funcionando: e o caminho generico `operadora.events.publish`). Fechar o caminho
+    e decisao de juridico/compliance, registrada em Pendencias do contrato — nao de engenharia.
+
+    Invariante L0 inalterada: esta funcao nao decide nada, nao acusa, e nunca e alcancada sem a
+    UT humana a montante.
+    """
     destino = variables.get("destino_referral", {})
 
-    logger.info(
-        "fraude_refer_to_legal",
+    # `warning`, nao `info` (precedente `fraude_evidencia_nao_coletada`): uma etapa de referral que
+    # nao refere e defeito operacional num caminho adverso, nao progresso de rotina.
+    # `referral_asserted=False` diz no log a mesma coisa que o retorno diz no escopo do processo.
+    logger.warning(
+        "fraude_referral_nao_executado",
         numero_caso=variables.get("numero_caso"),
         destino=destino,
+        referral_asserted=False,
+        gap=GAP_REFERRAL_JURIDICO_NAO_LIGADO,
     )
 
-    return {
-        "referral_executado": True,
-        "destinos": destino,
-    }
+    return {"referral_gap": GAP_REFERRAL_JURIDICO_NAO_LIGADO}
 
 
 # ---------------------------------------------------------------

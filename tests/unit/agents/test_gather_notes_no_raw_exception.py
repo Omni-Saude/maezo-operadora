@@ -168,6 +168,7 @@ class _RecordingInference:
 
     def __init__(self) -> None:
         self.prompts: list[str] = []
+        self.task_kinds: list[str | None] = []
 
     async def generate(
         self,
@@ -176,8 +177,16 @@ class _RecordingInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        # INTEGRACAO lote2 x lote3: este falso nasceu com CC-10 antes de CC-12 acrescentar
+        # `task_kind` ao Protocol (`runtime/inference::InferenceProvider.generate`). Sem o
+        # parametro, a chamada real levantava `TypeError`, que o `except Exception` de
+        # `_build_dossier` engolia -> `narrativa=""` e `self.prompts` VAZIO: a fence deixava de
+        # provar o que afirma (o prompt e' uma das duas superficies auditadas) e a propria
+        # asserceao de pre-condicao reprovava. A assinatura acompanha o Protocol de proposito.
+        task_kind: str | None = None,
     ) -> str:
         self.prompts.append(prompt)
+        self.task_kinds.append(task_kind)
         return "narrativa factual sintetica"
 
 

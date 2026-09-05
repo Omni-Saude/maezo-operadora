@@ -29,11 +29,20 @@ Task (`tools/workers/adequacao.py:731-749`, DL-0037) — never a silent bad key.
 
 Leaf module by design: it imports nothing from `graph.py` or `delegation.py` (delegation.py
 already imports graph.py, so anything shared must sit below both).
+
+CC-15 (Agent Fleet Audit): `key_segment`/`is_blank` moved to `maezo.platform.keys` — the same
+strict-refusal, position-preserving normalisation the `PAGTO-KEY-NORMALISATION` gap found missing
+in a THIRD key family, because it lived only inside this agent's own package. Both names are
+REEXPORTED here, byte-identical, for backward compatibility: every existing importer of
+`agents.andre.keys.key_segment`/`is_blank` keeps working unchanged. `adequacao_business_key` and
+`pagto_business_key` — Andre's own composers, not shared primitives — stay in this module.
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from maezo.platform.keys import is_blank, key_segment
 
 __all__ = [
     "ADEQ_PREFIX",
@@ -46,23 +55,6 @@ __all__ = [
 
 ADEQ_PREFIX = "ADEQ"
 PAGTO_PREFIX = "PAGTO"
-
-
-def key_segment(value: Any) -> str:
-    """Normalise ANY value into a business-key segment: `str(value or "").strip()`.
-
-    Single normalisation for BOTH composers — the M-8 divergence was precisely that one site
-    normalised and the other did not. `None` and `0` and `""` all normalise to `""` (an explicit
-    `None` must never become the literal `"None"`, the defect `tools/workers/base.py:non_blank`
-    documents), and every other value goes through `str()` so an `int` id composes identically no
-    matter which site holds it.
-    """
-    return str(value or "").strip()
-
-
-def is_blank(value: Any) -> bool:
-    """True iff `value` is absent / empty / whitespace-only after `key_segment` normalisation."""
-    return not key_segment(value)
 
 
 def adequacao_business_key(

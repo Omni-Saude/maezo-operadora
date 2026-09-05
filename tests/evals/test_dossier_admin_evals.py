@@ -135,17 +135,24 @@ def _case(cases: list[dict[str, Any]], case_id: str) -> dict[str, Any]:
 
 # ---------------------------------------------------------------------------
 # Dataset-count meta-check -- pins the T3.2 design doc's SS5.1 count reconciliation (carolina 3,
-# beatriz 3, gustavo 4 = 10) so a silently added/removed golden surfaces here first. Beatriz is
-# now 4: EVL-BEATRIZ-04 was ADDED by the BEA-06 remediation (upstream FHIR-summary projection) as
-# a new scenario beyond the ratified taxonomy -- it replaces none of the original three.
+# beatriz 3, gustavo 4 = 10) so a silently added/removed golden surfaces here first.
+# CC-01/CC-08 (2026-09-04) added ONE fail-start golden per process-starting agent (carolina 3->4,
+# gustavo 4->5; beatriz starts no process and is unchanged) -- the ratified counts move WITH the
+# dataset, deliberately, so this check keeps catching an UNDECLARED addition.
+# BEA-06 (2026-09-04, lote1) added EVL-BEATRIZ-04 (upstream FHIR-summary projection) as a new
+# scenario beyond the ratified taxonomy (beatriz 3->4) -- it replaces none of the original three.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.eval
 def test_dataset_counts_match_ratified_design() -> None:
-    assert len(CAROLINA_CASES) == 3
+    # CC-08 (2026-09-04) added ONE DMN-unavailable fail-safe golden each to carolina/gustavo
+    # (4->5, 5->6); beatriz evaluates no DMN at all (`agent.yaml`'s tools allowlist deliberately
+    # excludes `mcp-dmn.evaluate` -- module docstring) and is unchanged by CC-01/CC-08.
+    # BEA-06 (lote1) added EVL-BEATRIZ-04, so beatriz is 4 here (3 ratified + 1).
+    assert len(CAROLINA_CASES) == 5
     assert len(BEATRIZ_CASES) == 4
-    assert len(GUSTAVO_CASES) == 4
+    assert len(GUSTAVO_CASES) == 6
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +250,19 @@ async def test_evl_carolina_01_mutation_check_route_is_non_vacuous() -> None:
 async def test_evl_carolina_03_mutation_check_leak_is_non_vacuous() -> None:
     case = _case(CAROLINA_CASES, "EVL-CAROLINA-03")
     await _run_dossier_leak_mutation_check(carolina_build, case)
+
+
+@pytest.mark.eval
+async def test_evl_carolina_05_mutation_check_route_is_non_vacuous() -> None:
+    """CC-08: flipping EVL-CAROLINA-05's expected route (human_review -> auto_route) must fail
+    -- proves the fail-closed-on-`cred_admissibility`-down assertion is real, not a rubber
+    stamp."""
+    case = _case(CAROLINA_CASES, "EVL-CAROLINA-05")
+    await run_mutation_check(
+        carolina_build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "route", "auto_route"),
+    )
 
 
 @live_key_skip
@@ -432,6 +452,19 @@ async def test_evl_gustavo_01_mutation_check_route_is_non_vacuous() -> None:
 async def test_evl_gustavo_04_mutation_check_leak_is_non_vacuous() -> None:
     case = _case(GUSTAVO_CASES, "EVL-GUSTAVO-04")
     await _run_dossier_leak_mutation_check(gustavo_build, case)
+
+
+@pytest.mark.eval
+async def test_evl_gustavo_06_mutation_check_route_is_non_vacuous() -> None:
+    """CC-08: flipping EVL-GUSTAVO-06's expected route (instruct_nip -> review_submission) must
+    fail -- proves the fail-closed-on-`nip_classification`-down assertion is real (distinct DMN/
+    flow from EVL-GUSTAVO-03's `ans_calendar`-down case on the OTHER flow)."""
+    case = _case(GUSTAVO_CASES, "EVL-GUSTAVO-06")
+    await run_mutation_check(
+        gustavo_build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "route", "review_submission"),
+    )
 
 
 @live_key_skip

@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from maezo.agents.andre.keys import key_segment
+from maezo.platform.keys import key_segment
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
 from maezo.tools.workers.base import (
     FunctionWorker,
@@ -989,9 +989,10 @@ FONTE_VALOR: dict[str, str] = {
 def _pagto_business_key(tenant_id: str, numero_lote_tiss: str, prestador_id: str) -> str:
     """`PAGTO-{tenant_id}-{numero_lote_tiss}-{prestador_id}` — ONE order per adjudicated lote.
 
-    NORMALISED THROUGH `agents.andre.keys.key_segment`, the SAME normalisation
+    NORMALISED THROUGH `maezo.platform.keys.key_segment`, the SAME normalisation
     `recurso._pagto_business_key` uses (gate finding M2 on the RECURSO half) — one key shape for
-    both chains. That module's own header documents the identical defect for the identical family:
+    both chains. `agents.andre.keys`'s own header documents the identical defect for the identical
+    family (CC-15: the shared primitive now lives in `platform.keys`, `andre.keys` reexports it):
     "a whitespace-padded `ordem_pagamento_id` produced `PAGTO-{t}- 123 ` against the other site's
     `PAGTO-{t}-123`". Without it a re-delivered handoff whose `numero_lote_tiss` arrives with one
     extra space mints a DIFFERENT key, the STRICT dedup claim does not see the previous instance,

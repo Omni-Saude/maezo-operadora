@@ -246,7 +246,7 @@ rows:
   nome_real: ''
 - grupo_declarado: coordenacao-investigacao
   arquivo: spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn
-  linha: 275
+  linha: 282
   processo: SP-OP-FRAUDE-001
   em_escopo: false
   tarefa_ou_regra_dmn: UT_CoordenacaoInvestigacao
@@ -257,7 +257,7 @@ rows:
   nome_real: ''
 - grupo_declarado: juridico-fraude
   arquivo: spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn
-  linha: 307
+  linha: 314
   processo: SP-OP-FRAUDE-001
   em_escopo: false
   tarefa_ou_regra_dmn: UT_RevisaoReferral

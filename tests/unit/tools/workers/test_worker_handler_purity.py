@@ -234,6 +234,86 @@ def _nondeterministic_calls(tree: ast.AST) -> set[str]:
 # risk` handlers (recurso/reembolso/cancel/credenciamento/fraude/inadimplencia/pagto/adequacao/
 # programa) plus `nip.notify_deadline_risk` fabricated the identical fact under a compound name.
 # All ten are fixed IN THE SAME COMMIT as this widening, so the baseline below stays EMPTY.
+#
+# BEA-09 widened the set with `dossie_montado`. Same species, and the first instance of it that is
+# NOT a notification: `fraude.assemble_dossier` returned `{"dossie_montado": True, "dossie_items":
+# len(evidencia_refs)}` from a function whose own body carried the comment "Placeholder: real
+# implementation calls Beatriz via A2A" — no A2A call, no dossier, no narrative, on a process whose
+# next steps are `seal_custody_bundle` and the L0-hard human User Task `UT_DecisaoInvestigador`.
+# The claim went into process scope through the harness `complete` (`harness.py:1779-1783`) exactly
+# like the notification family, so the audit trail of a fraud investigation recorded a dossier that
+# was never assembled. Fixed IN THE SAME COMMIT as this widening (the fix commit; the widening
+# lands one commit earlier as the RED proof), so the baseline below stays EMPTY.
+#
+# The sibling fabrication in the SAME function pair — `gather_evidence`'s
+# `{"evidencia_coletada_em": "now"}` — is NOT added here, deliberately and not by oversight: this
+# detector matches `<key>: True` and `status: <literal>`, so a placeholder-timestamp STRING under
+# an arbitrary key is outside its two shapes. Adding the key would be an INERT entry that reads
+# like coverage. The `"now"` placeholder-timestamp shape has three more live instances in the
+# worker tree (`fraude.intake::intake_ts`, `programa::consent_verified_at`,
+# `programa::data_enrollment` — `grep -rn '": "now"' src/maezo/tools/workers/`), so widening into
+# it is its own slice with its own consumer map, not a free rider on this one. Reported by BEA-09,
+# not fixed by it.
+#
+# FAB-PROGRAMA-NOW-TIMESTAMPS is that slice for the two `programa` instances (`fraude.intake_ts`
+# was already fixed and REMOVED — no longer live — by FAB-INTAKE-CASO-REGISTRADO; see that
+# widening's own comment above). It adds detector FORM (d): a `return {...}` dict literal (or a
+# dict literal bound to a local the function then returns — same forms (a)-(c) reuse) mapping ANY
+# key to the string constant `"now"`, reported as `f"{key}='now'"`. Deliberately keyed on the
+# VALUE, not an allowlisted key name (unlike `_FABRICATED_FACT_KEYS`/`_FABRICATED_STATUS_LITERALS`
+# above): `"now"` is never a valid ISO-8601 instant under ANY key, so matching the literal value is
+# an explicit, narrow shape — not a silent allowlist, and it does not need a per-key entry to grow.
+# Consumer map (re-derived for this slice, `grep -rn 'consent_verified_at\|data_enrollment' spec/
+# src/ tests/ docs/processes/`): **zero** hits besides the two `programa.py` return sites and this
+# comment/the fence's own baseline docstrings — no `conditionExpression`, `inputExpression`, BPMN
+# `outputParameter`, downstream worker, golden or contract line reads either key
+# (`docs/processes/contracts/SP-OP-PROGRAMA-001.md` never declared them in "Variaveis de saida").
+# `check_consent` returned `{"consentimento_ativo": True, "consent_verified_at": "now"}` and
+# `enroll_beneficiario` returned `{"enrollment_realizado": True, "data_enrollment": "now"}` — both
+# real, gating/logging actions (unlike `intake`'s single-statement no-op body), but the wall-clock
+# instant of each is ALREADY a fact of the engine (`activity-instance` `endTime` of `ST_CheckConsent`
+# / `ST_BuildCarePlan`), so the in-scope copy was redundant, not honest, before it was even
+# considered fabricated. Re-verified with the widened detector BEFORE the fix (`ast.parse` over
+# `src/maezo/tools/workers/*.py`, same walk this fence runs): `programa` is the ONLY module that
+# trips form (d) — `{'data_enrollment', 'consent_verified_at'}` — confirming the widening has zero
+# collateral hits (the two prose mentions of `": "now"` inside `fraude.py`'s OWN docstrings, and the
+# one inside `inadimplencia.py`'s docstring, are plain text inside a `Constant` docstring string,
+# never a `Return`/`Assign` dict literal, so this AST-based detector cannot and does not see them).
+# Fixed IN THE SAME COMMIT as this widening lands one commit later (the fix commit; this widening
+# lands first as the RED proof), so the baseline below stays EMPTY.
+#
+# FAB-REFER-TO-LEGAL / FAB-INTAKE-CASO-REGISTRADO widen the set with `referral_executado` and
+# `caso_registrado` — the two instances BEA-09's verification surfaced in the SAME module, on the
+# two ends of the same process:
+#   - `fraude.refer_to_legal` returned `{"referral_executado": True, "destinos": <echo of the
+#     input>}` from a body whose only statement was `logger.info`. It is the ADVERSE path: the
+#     engine reaches it only DOWNSTREAM of the human accusation (`UT_DecisaoInvestigador`, L0
+#     hard), the sealed `bundle_root` and the SECOND human gate `UT_RevisaoReferral`
+#     (juridico/compliance approving the referral destinations), and its only outgoing flow ends
+#     at `End_EncaminhadoJuridico` ("Encaminhado a juridico/ANS/civel/penal"). No referral is
+#     performed anywhere: `fraude.py` has zero `kafka.publish(` call sites
+#     (`register_fraude_workers` does `del kafka  # unused`) and no legal/ANS transport exists —
+#     the contract itself lists the referral obligations (prazo/forma/autoridade) as DRAFT/verify,
+#     "nao estao pinadas em nenhum repo". So the non-repudiable trail of a fraud referral recorded
+#     `referral_executado=true` for an act that never left the process.
+#   - `fraude.intake` returned `{"caso_registrado": True, "intake_ts": "now"}` from a body whose
+#     only statement was `logger.info`. Both fixed IN THE SAME COMMIT as this widening, so the
+#     baseline below stays EMPTY.
+#
+# ENROLL-BENEFICIARIO-SEM-EFEITO-REAL (achado do verificador de FAB-PROGRAMA-NOW, VERIFY-FABPROG.md
+# §4(ii)/achado 1) widens the set with `enrollment_realizado` — the SAME species as
+# `dossie_montado`/`referral_executado` (BEA-09/FAB-REFER-TO-LEGAL) that this fence was already
+# blind to: `programa.enroll_beneficiario` returned `{"enrollment_realizado": True}` unconditionally
+# from a body whose only statement was `logger.info`, while the contract
+# (`docs/processes/contracts/SP-OP-PROGRAMA-001.md`, "Topicos" row for
+# `operadora.programa.build_care_plan`) and the BPMN (`programa.py:687`'s own disclosure comment,
+# "spec match: task name says 'care.enroll'") declare an A2A delegation `care.enroll` to Valentina
+# that the code never calls. NOT the desfecho STRING `enrollment_realizado` that
+# `ST_ProactiveContact`/the `programa.completed` fallback fix via BPMN `outputParameter`/ternary
+# literal (`spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn:157,334`) — that is a
+# fixed vocabulary value on an unrelated variable (`desfecho`), never read by this AST detector,
+# which only ever matches a `return {...}` dict-literal KEY. Fixed IN THE SAME COMMIT as this
+# widening, so `_FABRICATED_FACT_BASELINE` stays EMPTY.
 _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
     {
         "notificacao_previa_feita",
@@ -241,6 +321,10 @@ _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
         "notified",
         "sla_risk_notified",
         "deadline_risk_notified",
+        "dossie_montado",
+        "referral_executado",
+        "caso_registrado",
+        "enrollment_realizado",
     }
 )
 
@@ -314,7 +398,12 @@ _FABRICATED_FACT_BASELINE: dict[str, str] = {}
 
 
 def _dict_literal_fabrications(value: ast.Dict) -> set[str]:
-    """The two fabricated SHAPES inside one dict literal (see `_fabricated_fact_hits`)."""
+    """The THREE fabricated SHAPES inside one dict literal (see `_fabricated_fact_hits`).
+
+    FAB-PROGRAMA-NOW-TIMESTAMPS adds form (d): ANY key mapped to the string constant `"now"` — a
+    placeholder-timestamp value, never a valid ISO-8601 instant under any key name. Reported as
+    `f"{key}='now'"`, so it never collides with form (a)'s bare key-name hits.
+    """
     hits: set[str] = set()
     for key_node, val_node in zip(value.keys, value.values, strict=True):
         if not (isinstance(key_node, ast.Constant) and isinstance(key_node.value, str)):
@@ -325,6 +414,8 @@ def _dict_literal_fabrications(value: ast.Dict) -> set[str]:
             hits.add(key_node.value)
         elif key_node.value == "status" and val_node.value in _FABRICATED_STATUS_LITERALS:
             hits.add(f"status={val_node.value!r}")
+        elif val_node.value == "now":
+            hits.add(f"{key_node.value}='now'")
     return hits
 
 
@@ -346,7 +437,7 @@ def _returned_names(func: ast.AST) -> set[str]:
 
 
 def _fabricated_fact_hits(tree: ast.AST) -> set[str]:
-    """Static detector for the fabricated-fact shape, in its THREE known forms:
+    """Static detector for the fabricated-fact shape, in its FOUR known forms:
 
       (a) a `return {...}` dict literal mapping one of `_FABRICATED_FACT_KEYS` directly to the
           constant `True` — reported as the key name;
@@ -354,8 +445,12 @@ def _fabricated_fact_hits(tree: ast.AST) -> set[str]:
           `_FABRICATED_STATUS_LITERALS` — reported as `status='<literal>'`
           (FAB-SLA-RISK-NOTIFIED-SLICE4: the `auth.NotifySlaRiskWorker` escape, which claimed the
           notification in a STRING and so slipped past form (a) entirely);
-      (c) the SAME two shapes in a dict literal BOUND TO A LOCAL that the enclosing function then
-          returns — `notice = {...}; return redact_phi_vars(notice)`.
+      (c) the SAME shapes in a dict literal BOUND TO A LOCAL that the enclosing function then
+          returns — `notice = {...}; return redact_phi_vars(notice)`;
+      (d) a `return {...}` dict literal (direct or via (c)'s local-binding) mapping ANY key to the
+          string constant `"now"` — reported as `f"{key}='now'"` (FAB-PROGRAMA-NOW-TIMESTAMPS:
+          `programa.check_consent`/`enroll_beneficiario` claimed a real ISO-8601 instant with the
+          literal placeholder string `"now"` instead of computing or omitting one).
 
     Form (c) is not a refinement: without it this fence is blind exactly where it matters most.
     `auth.SendDenialNoticeWorker.execute` has both success paths, and the one that forms (a)/(b)
@@ -500,8 +595,10 @@ def test_no_domain_worker_returns_unconditional_true_for_fabricated_fact_keys() 
     the `sla_risk_notified`/`deadline_risk_notified`/`status='risk_notified'` forms across ELEVEN
     handlers in ten modules. AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL added
     `status='notice_sent'` plus detector form (c), closing `auth.SendDenialNoticeWorker`'s two
-    success paths — the L0 RN-395 denial one included. The baseline is EMPTY, so ANY hit in ANY
-    domain worker module fails here."""
+    success paths — the L0 RN-395 denial one included. FAB-PROGRAMA-NOW-TIMESTAMPS added detector
+    form (d) — ANY key mapped to the placeholder string `"now"` — closing `programa.check_consent`'s
+    `consent_verified_at` and `programa.enroll_beneficiario`'s `data_enrollment`. The baseline is
+    EMPTY, so ANY hit in ANY domain worker module fails here."""
     actual: dict[str, set[str]] = {}
     for name, path in _domain_worker_modules().items():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
