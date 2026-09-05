@@ -1743,3 +1743,49 @@ nenhum golden depende do texto do prompt (harness `ReplayInferenceProvider` repr
 `recorded_llm`). Cerca de regressao nova: `tests/unit/spec/test_no_payer_voice_emits_guia.py`
 (3 provas) — distinta e sem relacao de escopo com `maezo.platform.validation.perspective`
 (PR-1/ADR-0040 D7, restrita a cadeia CONTAS/RECURSO).
+
+## Correcao (INFO) — PERSP-AUTH-VOICE, 2026-09-05 (reparo pos-VERIFY, secao NOVA; a secao anterior fica intacta)
+
+Esta secao CORRIGE a "Nota de precisao (INFO) — PERSP-AUTH-VOICE, 2026-09-05" acima. A secao
+anterior nao e' apagada (este arquivo e' append-only); tudo o que ela afirma e que aparece
+corrigido aqui deve ser lido como SUPERADO por esta secao. Origem: veredito
+`VERIFY-PERSP-AUTH-VOICE` (REVISE, 7 achados), reparo pelo terceiro agente.
+
+1. **Afirmacao FALSA a retirar (F2).** A secao anterior, o docstring da primeira versao da cerca,
+   a linha do ledger e o corpo do commit `ec296b9` diziam que a excecao por caminho para
+   `docs/evidence-ledger.md`/`docs/review-queue.md` seguia "a mesma convencao" de
+   `maezo.platform.validation.perspective`. E' o contrario: aquele modulo declara em texto que
+   **nao ha mecanismo de excecao** e a ADR-0040 D7 recusa allowlist por arquivo e bloco
+   `historico:` pelo nome; a sua secao "Where historical references go" e' convencao sobre ONDE
+   escrever narrativa, aplicada ESTRUTURALMENTE pela escolha do que cada tier le, nunca allowlist.
+   A cerca foi reprojetada: `_AUDIT_LOG_EXEMPT` e a auto-excecao `_SELF` foram REMOVIDAS e o
+   escopo passou a ser estrutural (raizes normativas `spec/`, `src/`, `tests/evals/`,
+   `docs/processes/`, `docs/runbooks/`), de modo que os dois registros append-only ficam fora por
+   CONSTRUCAO. Nenhum allowlist foi introduzido no repo, e nenhuma decisao de dono sobre ADR-0040
+   foi presumida.
+
+2. **Enumeracao hermetica (F1).** A cerca passou a enumerar por `git ls-files` (so' arquivos
+   rastreados). A primeira versao varria o disco e ficava vermelha em qualquer checkout que
+   carregasse `docs/audits/` e `docs/prompts/` — gitignorados, vivos e editados por sessoes irmas.
+
+3. **O 4o artefato do GAP-REGISTER: o registro estava CERTO (F7).** A secao anterior dizia que o
+   golden `tests/evals/golden/rafael/EVL-RAFAEL-02.json:6` "ja' nao continha o padrao", o que
+   sugere um erro do registro. O golden CARREGAVA o defeito, em INGLES
+   (`git show 308626b0^:tests/evals/golden/rafael/EVL-RAFAEL-02.json`, linha 6: "SP-OP-AUTH-001's
+   own automatic path issues the TISS guide, never Rafael directly"), removido incidentalmente
+   pela regoldenizacao RAF-01/RAF-06. A reproducao original, so' em pt-BR, era estruturalmente
+   cega para ele. Por isso a cerca reprojetada tem padrao em INGLES (`P2-en-ativo`) e usa essa
+   frase historica como caso de teste.
+
+4. **Contagens (F5).** Onde a secao anterior diz "(3 provas)", leia-se **10 provas**; o unit floor
+   vai de 10584 (base `44e85ea`) para **10594** (+10).
+
+5. **Cobertura (F3) e deteccao (F4).** A cerca agora le tambem os atributos `name=` dos `.bpmn`
+   (o rotulo pre-fix de `ST_EmitirAutorizacaoAuto` fica vermelho) e substitui a heuristica de
+   "ator mais proximo" por um conjunto EXPLICITO e pinado de padroes pt-BR + ingles sobre texto
+   normalizado. As 10 frases construidas pelo verificador ficam 10/10 vermelhas (eram 2/10), com 0
+   falsos positivos na voz correta do prestador. O LIMITE que a cerca NAO ve esta declarado no
+   docstring e PINADO por teste.
+
+Nada aqui e' ratificacao de SME: segue valendo que a operadora AUTORIZA e o prestador emite a
+guia TISS conforme o GAP-REGISTER aprovado, sem assinatura clinica/regulatoria nova.
