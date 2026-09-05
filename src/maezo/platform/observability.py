@@ -785,6 +785,37 @@ def record_agent_desfecho(
     )
 
 
+def record_agent_first_response(*, agent_id: str, seconds: float) -> None:
+    """Record ONE inbound-to-reply-attempt latency observation (GAP 11.2, `first_response_p95`).
+
+    THE DEFECT THIS CLOSES. `spec/agents/helena/agent.yaml` declares
+    `{ name: first_response_p95, target: "<15s" }`, but no metric in this repo ever measured a
+    turn's LATENCY (`agent_desfecho_total`, CC-09, measures outcome COUNTS, not time — see its
+    own docstring). `grep -rn 'first_response_p95' src/ tests/` had exactly one hit — the
+    `agent.yaml` declaration itself — before this.
+
+    Observes `maezo_agent_first_response_seconds{agent_id}` — see
+    `MetricsCollector.agent_first_response_seconds` for the label contract and exactly what is
+    (and is not) measured. The ONE caller is
+    `platform.webhooks.whatsapp.dispatch.HelenaDispatcher.dispatch`, timing its own
+    `compiled.ainvoke(...)` call — the single synchronous receive..respond chokepoint for Helena,
+    the one agent that declares this KPI.
+
+    PHI-FREE BY CONSTRUCTION: `agent_id` is a closed, small vocabulary token (same one
+    `agent_desfecho_total` uses); `seconds` is a wall-clock float. Neither carries a conversation
+    id, phone hash, business key or message content.
+
+    Best-effort by construction (mirrors `record_agent_desfecho`): a telemetry defect must never
+    break the turn whose latency it is timing.
+    """
+    try:
+        collector = _get_metrics_collector()
+        collector.agent_first_response_seconds.labels(agent_id=agent_id).observe(seconds)
+        logger.info("agent_first_response_recorded", agent_id=agent_id, seconds=seconds)
+    except Exception:  # noqa: BLE001 — defensive: telemetry must never break a completed turn.
+        logger.debug("agent_first_response_telemetry_emit_failed", agent_id=agent_id, exc_info=True)
+
+
 def record_phi_business_key_mint(*, family: str, modo: str, anchor: str) -> None:
     """Record ONE business-key mint by derivation anchor (DL-0043 leg (c) shadow telemetry).
 

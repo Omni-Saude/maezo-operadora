@@ -116,3 +116,34 @@ def test_metrics_latency_histogram() -> None:
 
     assert total == pytest.approx(1.8, rel=0.01)
     assert count == 3.0
+
+
+def test_agent_first_response_seconds_histogram_shape() -> None:
+    """GAP 11.2 (`first_response_p95`): the histogram's name, label set and registration.
+
+    Pins the metric NAME (a Prometheus rename is a behavioural break for any dashboard/alert
+    built on it) and that it requires the `agent_id` label — same discipline
+    `test_metrics_counter_requires_labels_now` pins for the two agent counters.
+    """
+    from maezo.runtime.metrics import MetricsCollector
+
+    collector = MetricsCollector()
+
+    metric_names = {m.name for m in collector.registry.collect()}
+    assert "maezo_agent_first_response_seconds" in metric_names
+
+    with pytest.raises(ValueError, match="missing label values"):
+        collector.agent_first_response_seconds.observe(1.0)
+
+    collector.agent_first_response_seconds.labels(agent_id="helena").observe(1.5)
+    collector.agent_first_response_seconds.labels(agent_id="helena").observe(2.5)
+
+    samples = {
+        sample.name: sample.value
+        for metric in collector.registry.collect()
+        for sample in metric.samples
+        if sample.name.startswith("maezo_agent_first_response_seconds")
+        and sample.labels.get("agent_id") == "helena"
+    }
+    assert samples["maezo_agent_first_response_seconds_sum"] == pytest.approx(4.0)
+    assert samples["maezo_agent_first_response_seconds_count"] == 2.0
