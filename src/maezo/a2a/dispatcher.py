@@ -26,10 +26,13 @@ delegation passes through. In this order:
      itself terminal, so without these an ALLOWed delegation — whether it later completed or crashed
      — left no durable trace distinguishing the two (the facts are ephemeral observability, not the
      durable T-F audit). Uma excecao NAO-`DelegationError` do handler segue a fronteira de
-     `_TERMINAL_HANDLER_ERROR_TYPES` (NEW-B1): classe `validacao` (bug de produtor sobre um envelope
-     imutavel) -> a MESMA linha `FAILED` + fato `rejected`, razao `handler_error`, e o `task_id`
-     selado; qualquer outra classe PROPAGA sem selo, que e o canal retentavel de que RAF-02
-     (`StartProcessFailedError`) e `AuditPersistenceError` dependem.
+     `_TERMINAL_HANDLER_ERROR_CLASSES` (NEW-B1), decidida por `isinstance`: `ValueError`/
+     `TypeError`/`KeyError` E SUBCLASSES (bug de produtor sobre um envelope imutavel) -> a MESMA
+     linha `FAILED` + fato `rejected`, razao `handler_error`, e o `task_id` selado; QUALQUER OUTRA
+     classe PROPAGA sem selo — o canal retentavel de que RAF-02 (`StartProcessFailedError`) e
+     `AuditPersistenceError` dependem, e por onde sai tambem qualquer bug nao classificado do
+     grafo — mas sempre com a linha NAO-terminal `PROPAGATED` e o contador
+     (`_trace_propagated_handler_error`). Nenhuma excecao atravessa `delegate()` sem rastro.
 
 The runtime wires real handlers (agent graphs) in W3; here the handler is an injectable callable
 (`FakeAgentHandler` in tests). Handler and registry resolution are both injected.
@@ -46,7 +49,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 import structlog
 
 from maezo.gateway.audit import AuditRecord
-from maezo.platform.error_types import AGENT_ERROR_TYPE_VALIDACAO, classify_agent_error_type
+from maezo.platform.error_types import classify_agent_error_type
 from maezo.platform.observability import record_a2a_handler_error
 from maezo.tools.workers.phi_vars import redact_error_message
 
@@ -150,29 +153,44 @@ _DECISION_COMPLETED = "COMPLETED"
 # decisoes`) e, pior, mentiria para quem le a cadeia: um desfecho terminal que nao ocorreu.
 _DECISION_PROPAGATED = "PROPAGATED"
 
-# NEW-B1 — a FRONTEIRA entre uma falha de handler TERMINAL e uma RETENTAVEL, expressa no vocabulario
-# fechado `platform/error_types.py` (ALERT-COUNTER-LABELS / R-063) e nunca numa lista de classes
-# de excecao propria.
+# NEW-B1 — a FRONTEIRA entre uma falha de handler TERMINAL e uma RETENTAVEL. Ela e um teste de
+# `isinstance` contra CLASSES DE EXCECAO, e essa escolha e o conserto de um defeito real: a versao
+# anterior perguntava `classify_agent_error_type(exc) in {validacao}`, e aquele classificador e um
+# lookup EXATO por `type(exc).__name__`, SEM walk de MRO — o proprio `platform/error_types.py`
+# documenta a ausencia do walk como decisao deliberada, porque ele existe para limitar a
+# CARDINALIDADE de um rotulo de metrica (ALERT-COUNTER-LABELS / R-063), nao para decidir
+# retentabilidade. Consequencia medida: um `json.JSONDecodeError` (subclasse de `ValueError`) e
+# qualquer `class X(ValueError)` de dominio caiam no balde `outro` e escapavam CRUS — o defeito
+# NEW-B1 inteiro, reaberto por uma subclasse, sem nenhum teste notando.
 #
-# `validacao` (`ValueError`/`TypeError`/`KeyError`/`ValidationError`) e a classe do BUG DE PRODUTOR:
-# o handler recusou o proprio ENVELOPE. O envelope e imutavel e a idempotencia e por `task_id`, entao
-# a reentrega da MESMA entrega falharia identicamente para sempre — a falha e terminal, e a resposta
-# certa e uma rejeicao estruturada + selo, exatamente como qualquer outra rejeicao (ADR-0003: uma
-# rejeicao nunca retenta).
+# `classify_agent_error_type` continua no ramo, mas SO' no papel dele: o ROTULO limitado da metrica
+# e do `detail`. Nunca o oraculo de fluxo.
 #
-# TODA OUTRA CLASSE PROPAGA, sem selo e sem linha terminal, preservando byte-a-byte o comportamento
-# de hoje. E o canal RETENTAVEL de que dois mecanismos vivos dependem: `StartProcessFailedError`
-# (RAF-02 — os handlers a levantam DE PROPOSITO para que uma indisponibilidade transitoria do engine
-# NAO vire um sucesso/uma rejeicao selada e irretentavel, ver
-# `tests/unit/agents/test_start_failure_a2a_handlers.py::
+# TERMINAL = `ValueError`/`TypeError`/`KeyError` E SUBCLASSES: o BUG DE PRODUTOR, em que o handler
+# recusou o proprio ENVELOPE. O envelope e imutavel e a idempotencia e por `task_id`, entao a
+# reentrega da MESMA entrega falharia identicamente para sempre — a falha e terminal, e a resposta
+# certa e uma rejeicao estruturada + selo, como qualquer outra rejeicao (ADR-0003: uma rejeicao
+# nunca retenta). `DelegationError` tambem herda de `ValueError`, mas nunca chega aqui: o
+# `except DelegationError` acima o captura primeiro, e o classifica do mesmo lado da fronteira.
+#
+# TODA OUTRA CLASSE PROPAGA, sem selo e sem linha terminal — mas NUNCA em silencio: desde o traco
+# de `_trace_propagated_handler_error` ela sempre deixa linha de audit e contador. E o canal
+# RETENTAVEL de que dois mecanismos vivos dependem, ambos da familia `RuntimeError`:
+# `StartProcessFailedError` (RAF-02 — os handlers a levantam DE PROPOSITO para que uma
+# indisponibilidade transitoria do engine NAO vire um sucesso/uma rejeicao selada e irretentavel,
+# ver `tests/unit/agents/test_start_failure_a2a_handlers.py::
 # test_dispatcher_neither_seals_nor_completes_a_failed_start`) e `AuditPersistenceError` (um sink de
 # audit indisponivel ja propaga hoje, `test_dispatcher.py::
 # test_audit_sink_failure_propagates_and_handler_never_runs`). Converter esses em rejeicao terminal
-# REINTRODUZIRIA o agravante RAF-02 numa forma nova.
+# REINTRODUZIRIA o agravante RAF-02 numa forma nova. Junto com eles propaga tambem qualquer BUG NAO
+# CLASSIFICADO do grafo (`AttributeError`, `IndexError`, `ZeroDivisionError`, ...): a escolha
+# conservadora e deixar a entrega retentavel e VISIVEL, nunca sela-la por engano.
 #
 # A fronteira e verificada contra os SIMBOLOS REAIS em `tests/unit/a2a/
-# test_dispatcher_handler_escape.py::test_the_terminal_error_classes_exclude_every_retryable_channel`.
-_TERMINAL_HANDLER_ERROR_TYPES: frozenset[str] = frozenset({AGENT_ERROR_TYPE_VALIDACAO})
+# test_dispatcher_handler_escape.py::test_the_terminal_error_classes_exclude_every_retryable_channel`
+# e a sua FORMA (isinstance, nao classificador) em
+# `::test_the_terminal_boundary_is_decided_by_isinstance_not_by_the_label_classifier`.
+_TERMINAL_HANDLER_ERROR_CLASSES: tuple[type[Exception], ...] = (ValueError, TypeError, KeyError)
 
 
 class FactProducer:
@@ -511,12 +529,12 @@ class DelegationDispatcher:
             #
             # `Exception`, JAMAIS `BaseException`: uma delegacao drenada por `asyncio.CancelledError`
             # nao e uma falha de handler (a mesma regra que os `except` dos handlers seguem).
-            if classify_agent_error_type(exc) not in _TERMINAL_HANDLER_ERROR_TYPES:
+            if not isinstance(exc, _TERMINAL_HANDLER_ERROR_CLASSES):
                 # Classe RETENTAVEL: propaga, SEM selo, SEM linha terminal e SEM fato novo — a
-                # semantica de retentativa de hoje, preservada de proposito (ver
-                # `_TERMINAL_HANDLER_ERROR_TYPES`, canal RAF-02). O que MUDA aqui e' so' que ela
-                # deixa de ser INVISIVEL: o traco (linha de desfecho NAO-terminal + contador) e'
-                # escrito ANTES do `raise`.
+                # semantica de retentativa de sempre, preservada de proposito (ver
+                # `_TERMINAL_HANDLER_ERROR_CLASSES`, canal RAF-02). O que ela NAO e' mais e
+                # INVISIVEL: o traco (linha de desfecho NAO-terminal + contador) e escrito ANTES
+                # do `raise`.
                 await self._trace_propagated_handler_error(envelope, exc)
                 raise
             return await self._reject_handler_error(envelope, exc)
@@ -542,7 +560,8 @@ class DelegationDispatcher:
         """Converte uma falha TERMINAL de handler numa rejeicao estruturada (NEW-B1).
 
         Chamada apenas pelo ramo largo de `_execute`, e apenas para as classes de
-        `_TERMINAL_HANDLER_ERROR_TYPES`. Faz, nesta ordem e exatamente uma vez:
+        `_TERMINAL_HANDLER_ERROR_CLASSES` (por `isinstance`, subclasses incluidas). Faz, nesta
+        ordem e exatamente uma vez:
 
           1. a linha de audit TERMINAL (`_audit_delegation_outcome`, `FAILED`, chave `:outcome`) —
              primeiro, porque e o registro DURAVEL; se o sink estiver indisponivel a sua
