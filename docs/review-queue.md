@@ -1813,3 +1813,190 @@ o que efetivamente aterrissou no branch `r5/raf02-guards`.
 |---|---|---|---|
 | `FERNANDO-DELEGATION-CALL-SITE` / R-081, metade de ORIGEM — `src/maezo/tools/workers/inadimplencia.py::prepare_dossier` | A decisao aprovada do dono e' literalmente "SIM — ligar o call site em `inadimplencia.py::prepare_dossier` e registrar `make_fernando_handler` em `a2a_composition.py`, com a chamada fail-neutral". A metade de REGISTRO aterrissou (ver a linha do PR): `make_fernando_handler` esta' em `handlers={...}` de `build_dossier_delegation_dispatcher` e `_DOSSIER_EDGE_AGENT_IDS` inclui `fernando`, com prova ponta-a-ponta em `tests/unit/runtime/agent_runtime/test_a2a_composition.py::test_dossier_dispatcher_routes_the_registered_fernando_edge`. A metade de ORIGEM NAO aterrissou, e a razao e' estrutural, nao de vontade: `operadora.inadimplencia.prepare_dossier` esta' registrado como `FunctionWorker` SINCRONO (`register_inadimplencia_workers`), enquanto `dispatcher.delegate` e' assincrono — liga-lo exige converter o worker para a forma raw-async (o precedente sancionado e' `tools/workers/credenciamento.py::make_prepare_dossier_handler`) e ler o `dossier_dispatcher` de `**seams` em `register_inadimplencia_workers` (a costura JA chegava ate' la por `worker_runtime/service.py` -> `bootstrap(harness, kafka, **seams)`; a redacao anterior desta celula dizia que `service.py` tambem precisava mudar, o que era FALSO — ver a celula de status). A aresta e' agora ALCANCAVEL e ALCANCADA: o handler raw-async de `operadora.inadimplencia.prepare_dossier` e' o unico caminho de producao que origina `arrears.followup`. Condicao fail-neutral do dono implementada junto com o call site (ver a celula de status) | dono (arquitetura/produto) + autor do PR que converter o worker de inadimplencia | `RESOLVIDO 2026-09-05 — as DUAS metades de R-081 aterrissaram no branch r5/raf02-guards. CORRECAO desta propria linha (achado F1 do porteiro VER-RAF02-GUARDS): a frase original dizia que a conversao exigia passar o `dossier_dispatcher` por `register_inadimplencia_workers` E TAMBEM por `worker_runtime/service.py` — a segunda metade era FALSA e superdimensionava o trabalho. A costura JA chegava: `worker_runtime/service.py` passa `dossier_dispatcher=state.dossier_dispatcher` para `bootstrap.bootstrap(harness, kafka, **seams)`, que repassa `**seams` a `register_inadimplencia_workers` — igual as tres arestas irmas (cred/adequacao/pagto), nenhuma das quais precisou tocar `service.py`. A superficie real era so' `register_inadimplencia_workers` + o handler raw-async + `raw_handler_topics` em `tests/unit/tools/workers/test_bootstrap_registration.py`, e e' exatamente ela que mudou. ORIGEM implementada em `tools/workers/inadimplencia.py::make_prepare_dossier_handler` (precedente sancionado `credenciamento.py::make_prepare_dossier_handler`), FAIL-NEUTRAL como a condicao do dono exige: dispatcher ausente / identificadores ausentes / rejeicao estruturada / `StartProcessFailedError` (guarda RAF-02 do Fernando) / qualquer excecao => a tarefa CIB Seven COMPLETA com o dossie LOCAL intacto e divulga `arrears_followup_delegated=False` + `arrears_followup_gap=<token de classe>`, com log alto e contador `maezo_worker_error_count`; nunca levanta, nunca fabrica sucesso. Provas: `tests/unit/tools/workers/test_inadimplencia.py::test_prepare_dossier_handler_delega_arrears_followup_uma_vez` (envelope unico, `task_type=arrears.followup`, `task_id`=business key INAD), `::test_prepare_dossier_handler_sem_dispatcher_completa_e_marca_nao_tentada`, `::test_prepare_dossier_handler_falha_de_delegacao_nao_derruba_a_tarefa`, `::test_prepare_dossier_handler_start_failed_e_divulgado_com_token_proprio` e `::test_registered_prepare_dossier_threads_the_dossier_dispatcher_seam` (a costura chega ao handler REGISTRADO, nao so' a funcao nua). Suite viva SP-OP-INADIMPLENCIA-001 reexecutada com engine real APOS a conversao (`tests/integration/processes/test_sp_op_inadimplencia_001.py`, engine isolado, DEPLOY-VERIFIED: 24 passed, ZERO skip, 220s) — o handler raw-async continua dirigindo o processo real ate' `UT_AnaliseInadimplencia`. ESCOPO DESSA PROVA VIVA, dito exato: a fixture `inad_probe` nao passa `dossier_dispatcher`, entao o que a suite viva exercita e' o ramo FAIL-NEUTRAL (`dispatcher_unavailable`) — ou seja, prova que a conversao nao trava `ST_PrepareDossier` num runtime degradado, que e' a garantia que a condicao do dono pede. O ramo de delegacao entregue e' provado no lane unitario (envelope real pelo dispatcher fake e pela raiz de composicao REAL), nao com engine. Ligar um `DelegationDispatcher` real na fixture de integracao (chave de assinatura + Postgres) segue como trabalho aberto` |
 | `FERNANDO-DELEGATION-CALL-SITE` / R-082 — Lucas fora do escopo A2A | Decisao aprovada do dono, verbatim: "manter fora do escopo A2A — nao abrir contrato A2A novo para Lucas enquanto nao existir consumidor declarado". Registro documental, sem nenhuma edicao em `src/maezo/agents/lucas/graph.py` nem em `spec/agents/lucas/agent.yaml` (ambos intocados neste PR). CONDICAO DE REABERTURA, explicita: quando uma jornada NOMEAR o consumidor da delegacao, a investigacao de produto do contrato A2A de Lucas (`accepted_task_types` + `_CALLER_INPUT_FIELDS`) entra como pacote proprio. Estado verificado hoje: `grep -n accepted_task_types src/maezo/agents/lucas/graph.py` devolve so' duas linhas de DOCSTRING/comentario (`:82`, `:384`), ambas afirmando que `accepted_task_types` continua `[]` — nao ha' contrato algum, como a decisao quer | dono (arquitetura/produto) | `REGISTRADO 2026-09-05 — fora do escopo A2A por decisao do dono; reabre so quando uma jornada nomear o consumidor` |
+## Nota de precisao (INFO) — PERSP-AUTH-VOICE, 2026-09-05
+
+Renomeacao de voz (nao mudanca de comportamento; GAP-REGISTER `PERSP-AUTH-VOICE`, severity P1,
+classification agent-executable, merge_gate autonomous). Nenhum conteudo clinico/regulatorio;
+registrada aqui por rastreabilidade de um SYSTEM_PROMPT de agente PHI-zone (Rafael, ADR-0006).
+
+O GAP-REGISTER citava 4 artefatos com o padrao de voz de prestador "a operadora emite a guia
+TISS": `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:228` (rotulo de
+`ST_EmitirAutorizacaoAuto`), `spec/agents/rafael/agent.yaml:36` (comentario), `src/maezo/agents/rafael/prompts.py:22`
+(SYSTEM_PROMPT) e `tests/evals/golden/rafael/EVL-RAFAEL-02.json:6`. Reproducao no momento desta
+PR encontrou apenas 3, e uma linha ja' havia se deslocado (drift de citacao, nao de conteudo): o
+comentario do `agent.yaml` esta hoje em `:41`, nao `:36`; o golden JA' nao continha o padrao — foi
+regoldenizado em 04/09/2026 (RAF-01/RAF-06) por um pacote anterior, sem relacao com este gap. Os
+3 restantes foram renomeados
+mantendo o veredito PAYER do processo intocado: a operadora emite a AUTORIZACAO (numero de
+autorizacao), o prestador emite a guia TISS. `SYSTEM_PROMPT_VERSION`/`DOSSIER_PROMPT_VERSION` de
+Rafael foram bumpados `v1`->`v2` (convencao do proprio modulo: "a prompt change is a diffable,
+version-bumped edit"), com `agent.yaml.prompt_versions` sincronizado; `make evals` confirma que
+nenhum golden depende do texto do prompt (harness `ReplayInferenceProvider` reproduz
+`recorded_llm`). Cerca de regressao nova: `tests/unit/spec/test_no_payer_voice_emits_guia.py`
+(3 provas) — distinta e sem relacao de escopo com `maezo.platform.validation.perspective`
+(PR-1/ADR-0040 D7, restrita a cadeia CONTAS/RECURSO).
+
+## Correcao (INFO) — PERSP-AUTH-VOICE, 2026-09-05 (reparo pos-VERIFY, secao NOVA; a secao anterior fica intacta)
+
+Esta secao CORRIGE a "Nota de precisao (INFO) — PERSP-AUTH-VOICE, 2026-09-05" acima. A secao
+anterior nao e' apagada (este arquivo e' append-only); tudo o que ela afirma e que aparece
+corrigido aqui deve ser lido como SUPERADO por esta secao. Origem: veredito
+`VERIFY-PERSP-AUTH-VOICE` (REVISE, 7 achados), reparo pelo terceiro agente.
+
+1. **Afirmacao FALSA a retirar (F2).** A secao anterior, o docstring da primeira versao da cerca,
+   a linha do ledger e o corpo do commit `ec296b9` diziam que a excecao por caminho para
+   `docs/evidence-ledger.md`/`docs/review-queue.md` seguia "a mesma convencao" de
+   `maezo.platform.validation.perspective`. E' o contrario: aquele modulo declara em texto que
+   **nao ha mecanismo de excecao** e a ADR-0040 D7 recusa allowlist por arquivo e bloco
+   `historico:` pelo nome; a sua secao "Where historical references go" e' convencao sobre ONDE
+   escrever narrativa, aplicada ESTRUTURALMENTE pela escolha do que cada tier le, nunca allowlist.
+   A cerca foi reprojetada: `_AUDIT_LOG_EXEMPT` e a auto-excecao `_SELF` foram REMOVIDAS e o
+   escopo passou a ser estrutural (raizes normativas `spec/`, `src/`, `tests/evals/`,
+   `docs/processes/`, `docs/runbooks/`), de modo que os dois registros append-only ficam fora por
+   CONSTRUCAO. Nenhum allowlist foi introduzido no repo, e nenhuma decisao de dono sobre ADR-0040
+   foi presumida.
+
+2. **Enumeracao hermetica (F1).** A cerca passou a enumerar por `git ls-files` (so' arquivos
+   rastreados). A primeira versao varria o disco e ficava vermelha em qualquer checkout que
+   carregasse `docs/audits/` e `docs/prompts/` — gitignorados, vivos e editados por sessoes irmas.
+
+3. **O 4o artefato do GAP-REGISTER: o registro estava CERTO (F7).** A secao anterior dizia que o
+   golden `tests/evals/golden/rafael/EVL-RAFAEL-02.json:6` "ja' nao continha o padrao", o que
+   sugere um erro do registro. O golden CARREGAVA o defeito, em INGLES
+   (`git show 308626b0^:tests/evals/golden/rafael/EVL-RAFAEL-02.json`, linha 6: "SP-OP-AUTH-001's
+   own automatic path issues the TISS guide, never Rafael directly"), removido incidentalmente
+   pela regoldenizacao RAF-01/RAF-06. A reproducao original, so' em pt-BR, era estruturalmente
+   cega para ele. Por isso a cerca reprojetada tem padrao em INGLES (`P2-en-ativo`) e usa essa
+   frase historica como caso de teste.
+
+4. **Contagens (F5).** Onde a secao anterior diz "(3 provas)", leia-se **10 provas**; o unit floor
+   vai de 10584 (base `44e85ea`) para **10594** (+10).
+
+5. **Cobertura (F3) e deteccao (F4).** A cerca agora le tambem os atributos `name=` dos `.bpmn`
+   (o rotulo pre-fix de `ST_EmitirAutorizacaoAuto` fica vermelho) e substitui a heuristica de
+   "ator mais proximo" por um conjunto EXPLICITO e pinado de padroes pt-BR + ingles sobre texto
+   normalizado. As 10 frases construidas pelo verificador ficam 10/10 vermelhas (eram 2/10), com 0
+   falsos positivos na voz correta do prestador. O LIMITE que a cerca NAO ve esta declarado no
+   docstring e PINADO por teste.
+
+Nada aqui e' ratificacao de SME: segue valendo que a operadora AUTORIZA e o prestador emite a
+guia TISS conforme o GAP-REGISTER aprovado, sem assinatura clinica/regulatoria nova.
+
+## Correcao 2 (INFO) — PERSP-AUTH-VOICE, 2026-09-05 (reparo do veredito §Delta, D1-D4; secao NOVA)
+
+Esta secao CORRIGE numeros e afirmacoes das duas secoes `PERSP-AUTH-VOICE` acima, que ficam
+intactas (arquivo append-only) e devem ser lidas como SUPERADAS no que aqui se corrige. Origem:
+`VERIFY-PERSP-AUTH-VOICE` §Delta (REVISE — 4 achados).
+
+1. **D1 — "10/10 vermelhas" era um numero acima do medido.** Duas das dez frases do verificador
+   estavam parafraseadas no teste. A6 verbatim e' "a emissao da guia TISS e responsabilidade da
+   operadora" (o ator vem DEPOIS do nominal) e o padrao `P5-ptbr-nominal` exigia o ator ANTES:
+   verbatim, era falso negativo, e o numero real da rodada 1 era **9/10**. Onde as secoes acima
+   dizem "10/10", leia-se **9/10 na rodada 1**. A6 e A10 foram restauradas ao texto verbatim e
+   criou-se `P7-ptbr-nominal-posposto`; o valor MEDIDO agora e' **10/10** nas dez frases verbatim
+   e **5/5** nas cinco sondas novas do §Delta.
+
+2. **D2 — "0 falsos positivos" tambem estava acima do medido.** A remocao da heuristica de ator
+   deixara a cerca cega a negacao e disparando por proximidade. Cinco afirmacoes CORRETAS ficavam
+   VERMELHAS, entre elas "A operadora nao emite a guia TISS: quem emite e o prestador" — a frase
+   mais natural para DOCUMENTAR a regra correta, justamente em `docs/processes/`, que esta cerca
+   passou a varrer — e "A autorizacao e emitida pela operadora e a guia TISS pelo prestador", que
+   e' a formulacao canonica desta mesma regra. Tres guardas foram acrescentadas (negacao adjacente
+   ao verbo; prestador como sujeito local; objeto emitido tem de ser a guia). MEDIDO: **0 falsos
+   positivos em 15 formas permitidas**, incluindo as 4 sondas adversariais do verificador. As
+   guardas sao ESTRITAS de proposito: o defeito historico "o PROCESSO (nao voce) emite a guia"
+   continua VERMELHO, porque a palavra imediatamente anterior ao verbo ali e' "voce)", nao "nao".
+
+3. **D3 — o ingles so' estava coberto na voz ativa.** "The TISS guide is issued by the operadora"
+   passava. Criado `P8-en-passivo`, com a frase do verificador como caso de teste; o LIMITE
+   DECLARADO nao afirma mais cobertura geral de ingles.
+
+4. **D4 — o teste de hermeticidade escrevia na arvore de trabalho real.** Plantava uma sonda em
+   `spec/` e a removia no `finally`. Agora monta um repo git DESCARTAVEL em `tmp_path` e prova os
+   dois sentidos (fora do indice = invisivel; `git add` do mesmo texto = acusa), sem tocar no
+   checkout.
+
+5. **Contagens.** Onde as secoes acima dizem "10 provas" e "10594", leia-se **12 provas** e
+   **10596** (base 44e85ea = 10584, +12).
+
+6. **LIMITE DECLARADO tem duas metades, ambas pinadas por teste.** Falsos negativos
+   (`test_o_limite_declarado_da_cerca_esta_pinado`) e falsos positivos que sobram
+   (`test_os_falsos_positivos_conhecidos_estao_pinados`): negacao afastada do verbo ("a operadora
+   nao e quem emite a guia") e objeto emitido fora da lista enumerada ("o laudo e emitido pela
+   operadora junto com a guia"). Quem esbarrar num deles saiba que e' conhecido e declarado — nao
+   e' licenca para reintroduzir o defeito nem para alargar a cerca em silencio.
+
+Nada aqui e' ratificacao de SME.
+
+## Correcao 3 (INFO) — PERSP-AUTH-VOICE, 2026-09-05 (reparo do veredito §Delta-2, G1-G2; secao NOVA)
+
+Esta secao CORRIGE as tres secoes `PERSP-AUTH-VOICE` acima, que ficam intactas (arquivo
+append-only). Origem: `VERIFY-PERSP-AUTH-VOICE` §Delta-2 (REVISE — 2 achados).
+
+1. **G1 — a rodada 2 introduziu uma REGRESSAO de deteccao, nao apenas um residual.** A guarda de
+   objeto criada para D2 era aplicada tambem ao trecho entre o verbo e o objeto nos padroes de
+   ator-primeiro, onde o objeto casado JA' E' a guia. Com isso **"A operadora emite a autorizacao
+   e a guia TISS."** — o defeito enunciado da forma mais direta possivel — ficou VERDE na rodada 2
+   e estava VERMELHO uma versao antes. Corrigido: a checagem de objeto vale SO' nas passivas
+   `P4`/`P8`. Um segundo mecanismo de mascaramento foi fechado junto: os padroes eram preguicosos
+   e a varredura seguia depois de um candidato rejeitado, entao uma clausula negada escondia o
+   defeito posterior da mesma frase ("A operadora nao emite o parecer, mas emite a guia TISS.").
+   A lacuna ator->verbo passou a ser GULOSA (verbo mais proximo do objeto) e uma rejeicao por
+   guarda recomeca a busca um caractere adiante do inicio do candidato.
+
+2. **G2 — os pinos nao correspondiam a medicao, nos dois sentidos.** A guarda de sujeito-prestador
+   so' reconhecia `o`/`os` colados ao verbo, entao "cada prestador emite a guia", "o proprio
+   prestador emite a guia" e "prestadores credenciados emitem a guia" — afirmacoes CORRETAS e
+   fraseologia tipica de contrato em `docs/processes/`, que a cerca varre — ficavam vermelhas sem
+   estarem declaradas. A guarda passou a aceitar determinante e modificador opcionais e a forma
+   relativa, mantendo duas condicoes que impedem que ela engula defeito (preposicao antes do
+   sintagma; virgula entre o sintagma e o verbo).
+
+3. **Numeros MEDIDOS agora — e os pinos dizem exatamente estes:** 10/10 nas dez frases verbatim,
+   5/5 nas cinco sondas do §Delta, 3/3 nas tres regressoes E4/E5/E6, e **0 falsos positivos em 19
+   formas permitidas**. Onde as secoes acima dizem "12 provas" e "10596", leia-se **13 provas** e
+   **10597**.
+
+4. **LIMITE DECLARADO re-medido.** Falsos positivos que SOBRAM: negacao afastada do verbo, negacao
+   separada do verbo por uma incisa, e objeto emitido fora da lista enumerada de substantivos.
+   E1/E2/E3 sairam dessa lista porque deixaram de ser falso positivo. Falsos negativos: verbo fora
+   do conjunto, ator separado por `.`/`;` ou a mais de 80 caracteres, terceiro idioma, afirmacao
+   sem a palavra "guia". E4/E5/E6 sairam dessa lista porque passaram a ser detectados.
+
+Nada aqui e' ratificacao de SME.
+
+## Correcao 4 (INFO) — PERSP-AUTH-VOICE, 2026-09-05 (reparo do veredito §Delta-3, H1-H2; secao NOVA, ultima)
+
+Esta secao CORRIGE e COMPLETA as quatro secoes `PERSP-AUTH-VOICE` acima, que ficam intactas
+(arquivo append-only). Origem: `VERIFY-PERSP-AUTH-VOICE` §Delta-3 (REVISE — 2 achados).
+
+1. **H1 — o lexico de ator pagador nao tinha os termos pt-BR mais comuns.** `_PAGADOR` conhecia
+   `operadora`, `processo`, `payer`, `health plan` e `SP-OP-<CHAVE>-<NNN>`, entao "O plano de saude
+   emite a guia TISS" e "A seguradora emite a guia TISS" passavam. Acrescentados `plano(s) de
+   saude`, `seguradora(s)` e `convenio(s)`, sem remover nada. VERIFICADO: "plano de saude" ocorre
+   dentro do proprio SYSTEM_PROMPT de Rafael, numa frase de voz CORRETA — a arvore real segue com
+   **0 achados sobre 501 arquivos rastreados** depois da ampliacao.
+
+2. **H2 — o LIMITE DECLARADO passou a nomear DUAS classes GENERATIVAS, com a razao estrutural, em
+   vez de so' enumerar frases.** CLASSE A (falso negativo): o ator pagador vem de um LEXICO
+   ENUMERADO, nao de uma ontologia — "autogestao", "cooperativa medica" e "administradora de
+   beneficios" sao invisiveis, e estao pinados verdes; a resposta a essa classe e' ampliar a lista
+   quando um termo importar, nao perseguir frases. CLASSE B (falso positivo): o reconhecedor de
+   sujeito-prestador e' de SUPERFICIE, entao o prestador-sujeito nao adjacente ao verbo continua
+   acusando — "O prestador, que atende pela operadora, emite a guia TISS" (relativa com material
+   interposto) e "A operadora informa ao prestador que ele emite a guia" (sujeito pronominal),
+   ambos pinados VERMELHOS medidos. Fechar a classe B exigiria analise sintatica, nao regex.
+
+3. **Correcao de uma descricao de mutacao da rodada 3.** Onde a secao anterior diz que "MUT-J
+   (estreitar a guarda de prestador de volta a `o`/`os`)" quebra o teste, leia-se: reduzir SO' a
+   lista de determinantes, mantendo o grupo OPCIONAL, **nao quebra nada** (14 passed) — um grupo
+   opcional apenas deixa de participar do casamento. O que e' load-bearing, medido isoladamente:
+   tornar o grupo de determinante OBRIGATORIO quebra citando E3, e remover o grupo de ADJETIVO
+   tambem quebra citando E3; as duas coisas juntas (o que a rodada 3 de fato rodou) quebram
+   citando E1 e E3. Os MEMBROS especificos da lista de determinantes nao sao exercidos por nenhum
+   caso atual.
+
+4. **Contagens.** Onde as secoes acima dizem "13 provas" e "10597", leia-se **14 provas** e
+   **10598**.
+
+Nada aqui e' ratificacao de SME.
