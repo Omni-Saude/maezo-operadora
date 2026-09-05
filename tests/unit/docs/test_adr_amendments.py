@@ -351,9 +351,9 @@ def test_af02_the_2026_09_03_erratas_do_not_point_at_a_section_that_no_longer_ex
     REVERTED out of all seven ADRs by this very work package (see `## Convencao seguida`). An
     errata whose "full record" pointer resolves to nothing is the same defect class it corrects.
     """
-    assert not any(
-        "## Emenda" in _read(_ADR_DIR / name) for name in _RECONCILED_ADRS.values()
-    ), "an `## Emenda` section reappeared inside a reconciled ADR — this test's premise changed"
+    assert not any("## Emenda" in _read(_ADR_DIR / name) for name in _RECONCILED_ADRS.values()), (
+        "an `## Emenda` section reappeared inside a reconciled ADR — this test's premise changed"
+    )
     for relative in _AF02_RESIDUE_ERRATA:
         text = _read(_REPO_ROOT / relative)
         assert "0041-reconciliacao-adrs" in text, (

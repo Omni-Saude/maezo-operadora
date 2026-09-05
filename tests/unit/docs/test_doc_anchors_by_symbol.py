@@ -6,10 +6,11 @@ The mechanism never changed — the FILES moved. By 2026-09-05 `def verify_chain
 and `audit_postgres.py:561`, so an auditor following the ADR's own numbers read unrelated code and
 could reasonably conclude the ADR described something that no longer existed.
 
-Re-deriving the numbers is not the fix, and this repo has the receipt: `docs/reviews/adr-0029-erasure-packet.md`
-already re-derived them on 2026-08-09 (`audit.py:344-378`, `audit_postgres.py:560-637`) and those
-numbers had rotted again four weeks later. The fix is structural — anchor by SYMBOL — and this fence
-is what keeps it fixed, in two directions:
+Re-deriving the numbers is not the fix, and this repo has the receipt:
+`docs/reviews/adr-0029-erasure-packet.md` already re-derived them on 2026-08-09
+(`audit.py:344-378`, `audit_postgres.py:560-637`) and those numbers had rotted again four weeks
+later. The fix is structural — anchor by SYMBOL — and this fence is what keeps it fixed, in two
+directions:
 
   1. **Every symbol the re-anchored prose cites still exists in the tree.** The day someone renames
      `AuditSink.verify_chain`, this test — not a reader six months later — reports it.
@@ -53,7 +54,7 @@ _REANCHORED_PASSAGES: dict[str, tuple[str, str]] = {
 _CITED_SYMBOLS: tuple[tuple[str, str], ...] = (
     ("src/maezo/gateway/audit.py", "class AuditSink:"),
     ("src/maezo/gateway/audit.py", "    def verify_chain(self) -> bool:"),
-    ("src/maezo/gateway/audit.py", '    def _compute_hash(self) -> str:'),
+    ("src/maezo/gateway/audit.py", "    def _compute_hash(self) -> str:"),
     ("src/maezo/gateway/audit.py", 'GENESIS_PREV_HASH: str = "0" * 64'),
     ("src/maezo/gateway/audit.py", "        prev: str = GENESIS_PREV_HASH"),
     ("src/maezo/gateway/audit.py", "            if record.prev_hash != prev:"),
@@ -62,7 +63,10 @@ _CITED_SYMBOLS: tuple[tuple[str, str], ...] = (
     ("src/maezo/gateway/audit_postgres.py", "        if prev in by_prev:"),
     ("src/maezo/gateway/audit_postgres.py", "    current = by_prev.get(GENESIS_PREV_HASH)"),
     ("src/maezo/gateway/audit_postgres.py", "unreachable from genesis"),
-    ("src/maezo/gateway/audit_postgres.py", '_ADVISORY_LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtext($1))"'),
+    (
+        "src/maezo/gateway/audit_postgres.py",
+        '_ADVISORY_LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtext($1))"',
+    ),
     ("src/maezo/gateway/audit_postgres.py", "class PostgresAuditSink:"),
     ("src/maezo/gateway/audit_postgres.py", "    async def emit(self, record: AuditRecord) -> str:"),
     (
