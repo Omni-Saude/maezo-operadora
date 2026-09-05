@@ -2,7 +2,7 @@
 
 Stubs de integracao (pytest, marker `integration`) contra CIB Seven real. Arquivo alvo:
 `tests/integration/processes/test_sp_op_lgpd_dsr_001.py`. Dados sinteticos:
-`titular_pseudo_id="PSEUDO-TESTE-001"` (Paciente Teste 001), tenant `amh`.
+`titular_pseudo_id="PSEUDO-TESTE-001"` (Beneficiario Teste 001), tenant `amh`.
 Business key `DSR-amh-PSEUDO-TESTE-001-confirmacao_acesso-2026-06-12`.
 
 ## Happy paths
@@ -13,7 +13,7 @@ Business key `DSR-amh-PSEUDO-TESTE-001-confirmacao_acesso-2026-06-12`.
 - **Then** `send_response` executado; `lgpd_dsr.completed` publicado; fim `End_RequisicaoConcluida`; `lgpd_dsr.received` foi publicado no inicio
 
 ### test_happy_path_correcao_executa_e_envia
-- **Given** `tipo_requisicao=correcao` (Paciente Teste 002 corrige endereco), identidade ok
+- **Given** `tipo_requisicao=correcao` (Beneficiario Teste 002 corrige endereco), identidade ok
 - **When** revisor `dpo` completa com `decisao_dsr=EXECUTAR_E_ENVIAR`
 - **Then** `operadora.lgpd.execute_request` executado ANTES de `send_response`; `lgpd_dsr.completed`
 

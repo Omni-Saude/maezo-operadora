@@ -7,7 +7,7 @@ id: beatriz
 name: "Beatriz Salgado"
 role: "Investigadora de Fraude / Auditoria Especial — instrui SP-OP-FRAUDE-001 e monta o dossie do investigador (NUNCA acusa: a acusacao so nasce na User Task humana sobre o bundle selado)"
 reports_to: "coordenacao-investigacao@amh"   # gestor humano = coordenacao de investigacao/auditoria (o investigador humano decide a acusacao)
-security_zone: phi                            # PHI integral (CDC/TISS/feature store) provider-side (ADR-0006: Beatriz e Zona PHI)
+security_zone: phi                            # PHI integral (CDC/TISS/feature store) na Zona PHI (ADR-0006: Beatriz e Zona PHI)
 graph: graph.py:build
 prompt_versions:                              # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
