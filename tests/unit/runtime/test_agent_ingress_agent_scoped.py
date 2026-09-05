@@ -37,6 +37,7 @@ import pytest
 import structlog
 import yaml
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 import maezo.runtime.agent_runtime.ingress as ingresso
@@ -251,7 +252,12 @@ def test_exigir_spec_devolve_o_contrato_do_rafael() -> None:
 def test_rafael_continua_montando_a_rota() -> None:
     """Nenhuma mudanca de comportamento para o unico agente que declara o canal."""
     router = ingresso.build_ingress_router(_estado(_UNICO_DECLARANTE))
-    assert _ROTA in {r.path for r in router.routes}  # type: ignore[attr-defined]
+    # `router.routes` e' tipado como `list[BaseRoute]`, e `BaseRoute` nao declara `.path` — so'
+    # `APIRoute` (e as demais subclasses concretas) declara. Estreitar por `isinstance` da o
+    # tipo certo ao `mypy` sem suprimir nada: uma rota de ingresso e' sempre um `APIRoute`
+    # (montada por `router.post(...)`), entao o filtro nao muda o conjunto comparado.
+    caminhos_tipados = {r.path for r in router.routes if isinstance(r, APIRoute)}
+    assert _ROTA in caminhos_tipados
     app = FastAPI()
     app.include_router(router)
     assert _rota_montada(app)
