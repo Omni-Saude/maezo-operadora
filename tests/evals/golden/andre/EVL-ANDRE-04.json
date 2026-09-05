@@ -1,0 +1,54 @@
+{
+  "id": "EVL-ANDRE-04",
+  "agent": "andre",
+  "class": "GC",
+  "tier": [
+    "A"
+  ],
+  "description": "CC-01: o start de SP-OP-PAGTO-001 falha (engine indisponivel) no fluxo pagto_dossier. O desfecho `dossie_pronto_clerical` nao sobrevive — Andre termina em `erro_inicio_processo`. Note que `process_started=False` sozinho NAO discrimina: em Andre ele tambem significa no-op legitimo (fluxo sem processo, origem de dentro da instancia, ALREADY_COMPLETED); o marcador `start_failed` e que separa a falha tecnica do no-op. Mesmo input/DMN de EVL-ANDRE-02.",
+  "input": {
+    "state": {
+      "flow": "pagto_dossier",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "ordem_pagamento_id": "ORDEM-EVL-ANDRE-02",
+      "prestador_id": "PREST-TESTE-001",
+      "tipo_pagamento": "prestador_rede",
+      "valor_pagamento_cents": 50000,
+      "moeda": "BRL",
+      "competencia": "2026-06",
+      "data_vencimento": "2026-07-10",
+      "conta_origem_ref": "conta-origem-ref-teste",
+      "instrumento_pagamento": "pix",
+      "dados_pagamento_validos": true,
+      "lastro_confirmado": true,
+      "dentro_teto_l2": true,
+      "duplicidade_suspeita": false
+    }
+  },
+  "recorded_llm": [
+    "Pagamento de baixo valor dentro do teto L2; dossie clerical pronto."
+  ],
+  "cibseven": {
+    "start_fails": true
+  },
+  "dmn_fixture": {
+    "pagto_admissibility": {
+      "roteamento": "SEGUE_ROTEAMENTO"
+    },
+    "pagto_alcada": {
+      "faixa_valor": "DENTRO_TETO_L2",
+      "grupo_aprovador": "clerical-pagamentos"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "auto_route",
+      "faixa_valor": "DENTRO_TETO_L2",
+      "desfecho": "erro_inicio_processo",
+      "process_started": false,
+      "start_failed": true
+    }
+  },
+  "leak_canaries": []
+}

@@ -1,0 +1,30 @@
+{
+  "id": "EVL-HELENA-13",
+  "agent": "helena",
+  "class": "FC",
+  "tier": ["A"],
+  "description": "CC-08: the PHI-zone routing fail-closed path (I-6), not the DMN-down path. `inference.phi_capable=false` makes EVERY `generate(phi=True, ...)` call this turn raise `PhiZoneRoutingError` (`_harness._phi_capable_for`, additive harness extension). `_classify_llm`'s `except Exception` catches it -> classify failure -> escalate falha_tecnica (module docstring: 'a non-PHI-capable provider raises PhiZoneRoutingError -- this graph does NOT catch that error specially: in `_classify_llm` it is a classify failure -> escalate falha_tecnica'). `_resumo_contexto`/`_respond_llm` then hit the SAME error and degrade to their own documented safe canned text -- neither path ever silently downgrades to a general-zone provider nor to an `inform` outcome. `recorded_llm` is empty: no `generate()` call ever successfully returns a scripted response (every call raises before popping). Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-13",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-013",
+      "message_body": "Estou com dor forte no peito e falta de ar"
+    }
+  },
+  "recorded_llm": [],
+  "inference": {
+    "phi_capable": false
+  },
+  "dmn_fixture": {},
+  "expect": {
+    "next_kind": "escalate",
+    "fields": {
+      "escalation_motivo": "falha_tecnica",
+      "escalation_severidade": "leve",
+      "response_text": "Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."
+    }
+  },
+  "leak_canaries": []
+}

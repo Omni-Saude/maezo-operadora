@@ -97,7 +97,16 @@ class _FakeInference:
     model_id = "cc13-contract-provenance-probe"
 
     async def generate(
-        self, prompt: str, *, phi: bool = False, agent_id: str | None = None, tenant_id: str | None = None
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+        # CC-12 x integracao lote3 (LOTE3-INTEGRATION-FAKES-TASK-KIND): assinatura acompanha o
+        # Protocol real (`runtime/inference::InferenceProvider.generate`), mesma especie do
+        # defeito f1bc87f.
+        task_kind: str | None = None,
     ) -> str:
         return "sintetico"
 

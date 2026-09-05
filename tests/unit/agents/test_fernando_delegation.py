@@ -53,7 +53,13 @@ class _FakeInference:
         self.calls: list[tuple[str, bool]] = []
 
     async def generate(
-        self, prompt: str, *, phi: bool = False, agent_id: str | None = None, tenant_id: str | None = None
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         self.calls.append((prompt, phi))
         return self._responses.pop(0) if self._responses else ""

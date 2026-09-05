@@ -1,0 +1,38 @@
+{
+  "id": "EVL-LUCAS-07",
+  "agent": "lucas",
+  "class": "FC",
+  "tier": ["A"],
+  "description": "CC-08: `lucas_billing_admissibility` is UNAVAILABLE (decision_key omitted -> `self._dmn.evaluate` raises `DmnEvaluationError`, caught inline -- Lucas's two DMN calls do NOT go through the shared `_evaluate_dmn` helper). `assess` routes to `_assess_escalation(motivo=\"dmn_indisponivel\")` IMMEDIATELY -- route=escalate_human, motivo_categoria=falha_tecnica (`_motivo_categoria`), severidade=leve, desfecho=escalado_humano -- NEVER the neutral `respond_member` path. `lucas_escalation_routing` IS available (registered normally) so the suggested human group resolves deterministically (ATENDIMENTO_HUMANO -> atendimento-humano) rather than relying on the conservative catch-all -- isolates the admissibility-DMN failure as the sole variable under test. Same request as EVL-LUCAS-01; the only difference is the transport that fails. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-lucas-07",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-027",
+      "to_hash": "hash-evl-lucas-07",
+      "intencao": "cobranca_info",
+      "tipo_solicitacao": "2a_via",
+      "numero_boleto": "BOL-EVL-027",
+      "competencia": "2026-06"
+    }
+  },
+  "recorded_llm": [
+    "Encaminhamento automatico por indisponibilidade da tabela de admissibilidade de cobranca.",
+    "Um atendente humano vai continuar seu atendimento em breve."
+  ],
+  "dmn_fixture": {
+    "lucas_escalation_routing": { "roteamento": "ATENDIMENTO_HUMANO" }
+  },
+  "expect": {
+    "fields": {
+      "route": "escalate_human",
+      "motivo_humano": "dmn_indisponivel",
+      "motivo_categoria": "falha_tecnica",
+      "severidade": "leve",
+      "grupo_humano": "atendimento-humano",
+      "desfecho": "escalado_humano"
+    }
+  },
+  "leak_canaries": []
+}

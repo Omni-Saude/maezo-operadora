@@ -1,0 +1,65 @@
+{
+  "id": "EVL-MARINA-06",
+  "agent": "marina",
+  "class": "GC",
+  "tier": [
+    "A"
+  ],
+  "description": "CC-01: o start de SP-OP-CONTAS-001 falha (engine indisponivel). O desfecho `pagar_integral` gravado a montante nao sobrevive — Marina termina em `erro_inicio_processo`. Mesmo input/DMN de EVL-MARINA-01.",
+  "input": {
+    "state": {
+      "flow": "contas",
+      "tenant_id": "amh",
+      "canal": "portal_tiss",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-MARINA-01",
+      "prestador_id": "PREST-TESTE-001",
+      "numero_lote_tiss": "LOTE-EVL-MARINA-01",
+      "numero_guia_tiss": "GUIA-EVL-MARINA-01",
+      "numero_conta": "CONTA-EVL-MARINA-01",
+      "competencia": "2026-06",
+      "data_recebimento_lote": "2026-06-10",
+      "valor_apresentado_brl": 480.0,
+      "tipo_lote": "consulta",
+      "linhas_conta_refs": [],
+      "reason_codes_tiss": [
+        "55"
+      ],
+      "divergencia_valor": false,
+      "item_conforme_tabela": true,
+      "documentacao_anexa": true,
+      "denial_ratio": 0.0,
+      "indicio_fraude_sinalizado": false
+    }
+  },
+  "recorded_llm": [
+    "Conta em conformidade com a tabela contratada; sem divergencia de valor — segue para pagamento integral."
+  ],
+  "cibseven": {
+    "start_fails": true
+  },
+  "dmn_fixture": {
+    "glosa_reason_normalization": {
+      "categoria_normalizada": "documental"
+    },
+    "glosa_classification": {
+      "glosa_type": "administrativa"
+    },
+    "contas_sla": {
+      "sla_analise": "10d",
+      "sla_alerta": "5d"
+    },
+    "glosa_triage": {
+      "roteamento": "PAGAR"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "auto_route",
+      "triagem": "PAGAR",
+      "desfecho": "erro_inicio_processo",
+      "process_started": false,
+      "start_failed": true
+    }
+  },
+  "leak_canaries": []
+}

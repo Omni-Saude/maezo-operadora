@@ -205,6 +205,33 @@ async def test_helena_b1_evals_route_mutation_check_is_non_vacuous(case: dict[st
     )
 
 
+# ---------------------------------------------------------------------------
+# Helena — CC-08 (2026-09-04): DMN-down / PHI-zone-blocked infra-failure goldens (EVL-HELENA-11/
+# 12/13). Route mutation-check reuses the SAME `mutate_expected_route` shape as the B1 block
+# above — kept as its own named set (not merged into `_HELENA_B1_ROUTE_MUTATION_IDS`) so each
+# wave's own goldens stay traceable to the work package that added them.
+# ---------------------------------------------------------------------------
+
+_HELENA_CC08_MUTATION_IDS: frozenset[str] = frozenset({"EVL-HELENA-11", "EVL-HELENA-12", "EVL-HELENA-13"})
+_HELENA_CC08_MUTATION_CASES = [c for c in HELENA_CASES if c["id"] in _HELENA_CC08_MUTATION_IDS]
+
+
+@pytest.mark.eval
+@pytest.mark.parametrize("case", _HELENA_CC08_MUTATION_CASES, ids=lambda c: c["id"])
+async def test_helena_cc08_evals_route_mutation_check_is_non_vacuous(case: dict[str, Any]) -> None:
+    """Non-vacuousness proof (T3.2 design §7.1) for the three CC-08 infra-failure goldens:
+    flipping `expect.next_kind` must make the harness fail — otherwise these evals would rubber-
+    stamp ANY route `classify()`/`escalate()` produces regardless of whether the DMN-down/
+    PHI-zone-blocked path actually still escalates. Proves the goldens are watching the real
+    fail-safe behaviour, not merely echoing it."""
+    await run_mutation_check(
+        build,
+        case,
+        mutation=mutate_expected_route,
+        extra_config=_helena_extra_config(),
+    )
+
+
 @pytest.mark.eval
 async def test_evl_helena_07_cpf_absent_from_engine_bound_variables() -> None:
     """PL: EVL-HELENA-07 — the synthetic CPF the beneficiary typed into `message_body` must

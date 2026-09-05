@@ -32,17 +32,22 @@ tools:                               # ids EXATOS registrados pelos mcp_* server
   - mcp-fhir.read_coverage            # Coverage por id (leitura) — acao read_phi_data (L3); GAP-TRIAGE-5
   - mcp-fhir.search_coverage          # Coverage por paciente (leitura) — acao read_phi_data (L3); GAP-TRIAGE-5
   - mcp-cibseven.start_process        # somente SP-OP-ESCALATION-001 (start idempotente)
-  - mcp-cibseven.get_process_status   # status do escalonamento iniciado
   - mcp-whatsapp.send_message         # alias registrado de send_text (efeito L3)
-  - mcp-memory.read_write             # working/episodic/semantic (ADR-0002) — alias registrado
+  - mcp-memory.read_write             # working/episodic/semantic (ADR-0002) — alias registrado;
+                                       # excecao disclosed do fence §8.5 item 2 (nenhum no vivo
+                                       # escreve memoria hoje — GAP-DU-01-b/ADR-0047 DRAFT)
+  # mcp-cibseven.get_process_status removido: nenhum no deste grafo o exerce hoje (CC-05/HEL-01).
+  # Reintroduzir junto com o no que consultar status do escalonamento.
 autonomy_policy: ../../policies/autonomy
 autonomy_actions:                     # acoes REAIS da matriz L0-core exercidas por esta jornada
   - query_decision_engine             # DMN de triagem (mcp-dmn.evaluate) — L3
   - start_compliance_process          # SP-OP-ESCALATION-001 (mcp-cibseven.start_process) — L2
-  - query_process_status              # status do escalonamento (mcp-cibseven.get_process_status) — L3
   - read_phi_data                     # leitura FHIR Patient/Coverage (mcp-fhir.*) — L3
   - send_beneficiary_message          # resposta WhatsApp (mcp-whatsapp.send_message) — L3
-  - read_write_memory                 # memoria episodica/semantica (mcp-memory.read_write) — L3
+  - read_write_memory                 # memoria episodica/semantica (mcp-memory.read_write) — L3;
+                                       # excecao disclosed (fence §8.5 item 2), sem no vivo hoje
+  # query_process_status removido: nenhum no exerce mcp-cibseven.get_process_status hoje
+  # (CC-05/HEL-01). Reintroduzir junto com o tool e o no que os usar.
 kpis:
   - { name: resolution_rate, target: "track" }     # resolvidas sem humano / total
   - { name: escalation_rate, target: "track" }     # nem alto demais (inutil) nem baixo (risco)
@@ -59,8 +64,8 @@ escalation:
     - signal: tool_failure            # falha tecnica/loop   -> falha_tecnica
     - signal: psychosocial_risk       # suicidio/autolesao   -> risco_psicossocial (sempre)
 memory:
-  episodic: true
-  semantic: true
+  episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
+  semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
 # A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Helena ORIGINA delegacoes
 # (ex.: Helena->Rafael p/ analise de autorizacao); nao aceita delegacoes de terceiros no
 # Phase 1, entao `accepted_task_types` fica vazio (= recusa por contrato no dispatcher).

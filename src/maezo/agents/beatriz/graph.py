@@ -106,18 +106,22 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
   `(agent_id, event)` signature, which carries neither `tenant_id` nor `thread_id` (both
   `text NOT NULL`) — GAP-DU-01-a. The semantic column that once accompanied it was dropped by
   `0009_drop_pgvector`; ADR-0002 §3 is SUSPENDED pending a consumer (ADR-0047, DRAFT).
-- No inbound A2A delegation adapter (`fraude.investigate` handler). CORRECTED (CC-04, fleet
-  audit) — the prior text here claimed v2's `a2a/` package had no `DelegationEnvelope`/
-  `DelegationDispatcher`; both exist and are fully built/tested (`a2a/delegation.py
-  ::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported from `maezo.a2a`),
-  and five agents (rafael/carolina/andre/fernando/helena) already have a real `delegation.py`
-  using them. What is missing for Beatriz specifically is her own handler/registration/origin:
-  there is no `src/maezo/agents/beatriz/delegation.py` (`grep -n '"beatriz"' runtime/
-  agent_runtime/a2a_composition.py` = 0 hits) — handler/registro/origem ausentes, ver BEA-09 do
-  fleet audit. The graph is invoked directly with an already-assembled case state, as the unit
-  tests do. (The `ToolRegistry`/PEP-gateway claim two paragraphs above remains true for Beatriz
-  specifically: she is absent from `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`, so no
-  composition root ever builds her an `fhir` seam at all, gated or not.)
+- The inbound A2A delegation adapter (`fraude.investigate`) is HALF wired (BEA-09).
+  CORRECTED (CC-04, fleet audit) — the prior text here claimed v2's `a2a/` package had no
+  `DelegationEnvelope`/`DelegationDispatcher`; both exist and are fully built/tested
+  (`a2a/delegation.py::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported
+  from `maezo.a2a`). UPDATED (BEA-09, lote3) — CC-04's companion claim that "there is no
+  `src/maezo/agents/beatriz/delegation.py`" is NO LONGER TRUE at this tip: the handler now exists
+  (`agents/beatriz/delegation.py::make_beatriz_handler`), and nine of the ten agents (all but
+  lucas) now have a real `delegation.py` using that infra. What is still missing for Beatriz is
+  registration and origin: the handler is NOT registered with any dispatcher (`grep -n
+  '"beatriz"' runtime/agent_runtime/a2a_composition.py` = 0 hits) and `tools/workers/fraude.py`
+  still does not convoke her — both are an owner decision (gap `FERNANDO-DELEGATION-CALL-SITE`).
+  No live delegation reaches this graph; every non-test invocation still hands it an
+  already-assembled case state, as the unit tests do. (The `ToolRegistry`/PEP-gateway claim two
+  paragraphs above remains true for Beatriz specifically: she is absent from
+  `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`, so no composition root ever builds her an
+  `fhir` seam at all, gated or not.)
 - Unanchorable case (missing `tenant_id`/`numero_caso`): this build bails WITHOUT assembling a
   dossier (`dossier` stays `{}`, `desfecho="instrucao_incompleta"`) — a disclosed divergence
   from the donor, which assembled a best-effort dossier anyway. Rationale: without the
@@ -130,11 +134,13 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 
 from .prompts import DOSSIER_PROMPT_VERSION, SYSTEM_PROMPT_VERSION, dossier_prompt
 
@@ -439,6 +445,18 @@ def _score_consumed(state: BeatrizState) -> int:
     return value
 
 
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+_FATOS_BOOLEANOS: Final[dict[str, str]] = {
+    "indicio_fraude_sinalizado": "indicio de fraude sinalizado",
+}
+
+
 class BeatrizGraph:
     """Wires Beatriz's injected dependencies into a compilable `StateGraph[BeatrizState]`."""
 
@@ -555,7 +573,13 @@ class BeatrizGraph:
         No episodic memory write here (labeled boundary, module docstring — same rationale as
         Helena's/Rafael's/Marina's graphs). NEVER accuses, NEVER seals, NEVER triggers a
         downstream handoff — sealing and decision belong to the engine workers and the human.
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn. Beatriz has no `route` and
+        never calls `start_process` (L0 structural — no conditional edge exists), so `route` and
+        `start_failed` are always absent/`False` here; only `desfecho` (`dossie_instruido` |
+        `instrucao_incompleta`) carries signal.
         """
+        emit_turn_desfecho(state, agent_id="beatriz")
         return {}
 
     # -- Dossier assembly (ADR-0007 audit provenance; L0-hard structural guardrail) -------------
@@ -568,10 +592,15 @@ class BeatrizGraph:
         facts = self._facts(state)
         lacunas = list(state.get("gather_notes") or [])
 
-        prompt = f"{dossier_prompt()}\n\nfatos={facts}"
+        prompt = f"{dossier_prompt()}\n\n{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS)}"
         try:
             narrativa = await self._llm.generate(
-                prompt, phi=True, agent_id="beatriz", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="beatriz",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human-bound instruction.
             narrativa = ""
