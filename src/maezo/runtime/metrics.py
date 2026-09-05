@@ -43,6 +43,13 @@ R-104/WP-ALERTA-SLA-CANAL notifications-bridge SLA-alert -> human task (SP-OP-ES
   "unrecognised_shape" (shaped like an SLA-risk alert but not yet in the spec table) — never a
   silent drop, see `notifications_bridge._record_sla_alert_outcome`
 
+NEW-B1 (fleet hardening ciclo 2) A2A handler-failure metering:
+- maezo_a2a_handler_error_total (Counter) — delegacoes cujo handler alvo falhou TERMINALMENTE, por
+  {target,error_type}. Emitido por `a2a.dispatcher.DelegationDispatcher._reject_handler_error`.
+  Contador PROPRIO e nao `maezo_agent_errors_total` de proposito — ver o comentario no
+  `__init__` da classe: o handler A2A ja conta a sua propria falha de turno no `except` do
+  `ainvoke`, e a falha que ESTA serie mede muitas vezes acontece antes de qualquer turno comecar.
+
 WHICH OF THESE THE SHIPPED ALERTS READ (deploy/observability/alert-rules.yml, read-only here):
 `maezo_worker_execution_time_seconds`, `maezo_worker_error_count_total`, `maezo_agent_errors_total`
 and `maezo_tool_calls_total`. The last two had NO emitter in `src/` at all until AF-13
@@ -297,6 +304,30 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        #
+        # NEW-B1. DELIBERADAMENTE UM CONTADOR PROPRIO, nao `maezo_agent_errors_total`. Os quatro
+        # handlers A2A vivos ja contam a SUA falha de turno no proprio `except` do
+        # `compiled.ainvoke(state)` e RELEVANTAM; se o dispatcher somasse no MESMO contador, uma
+        # excecao de classe `validacao` vinda de dentro do grafo seria contada DUAS vezes para uma
+        # unica falha logica, inflando o numerador de `MaezoSLAAgentErrorRateHigh`
+        # (`sum by (agent) (rate(maezo_agent_errors_total[5m])) / ...`) — quebrando a invariante
+        # "EXATAMENTE UMA CONTAGEM POR TURNO FALHO" que o docstring de
+        # `platform.observability.record_agent_error` sustenta. E sao eventos diferentes: a falha
+        # que este contador mede acontece frequentemente ANTES de qualquer turno comecar (o
+        # `ValueError` de `state_from_envelope` e levantado fora do `try` do handler, sem nenhum
+        # `ainvoke`), entao ela nao e um "agent error" — e uma delegacao que nao pode ser
+        # executada. Rotulos limitados: `target` so pode ser um agent id REGISTRADO (`_validate`
+        # rejeita o resto com `no_handler` antes de rotear) e `error_type` e o vocabulario fechado
+        # de `platform/error_types.py` (ALERT-COUNTER-LABELS / R-063). Nenhuma regra de alerta
+        # embarcada le esta serie — a mesma postura de `maezo_effect_rate_limited_total`; propor a
+        # regra exige editar `deploy/observability/alert-rules.yml`, que e owner-gated.
+        self._a2a_handler_errors = Counter(
+            "maezo_a2a_handler_error_total",
+            "A2A delegations whose target handler failed terminally (COUNTS ONLY)",
+            labelnames=["target", "error_type"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -399,6 +430,16 @@ class MetricsCollector:
         COUNTS ONLY; no operation, no call argument, no business identifier.
         """
         return self._effect_rate_limited
+
+    @property
+    def a2a_handler_errors(self) -> Counter:
+        """Counter for A2A delegations whose target handler failed terminally (NEW-B1).
+
+        Labels: target (a REGISTERED agent id — `DelegationDispatcher._validate` rejects anything
+        else with `no_handler` before routing), error_type (the closed `AGENT_ERROR_TYPES`
+        vocabulary). COUNTS ONLY; no task_id, no chain, no payload reference.
+        """
+        return self._a2a_handler_errors
 
     @property
     def bridge_dlq(self) -> Counter:

@@ -264,9 +264,14 @@ async def delegate_care_task(
     """Originate and dispatch the worker->Valentina delegation. Idempotent by `task_id`.
 
     NOT CALLED from `tools/workers/programa.py` — see the module docstring's STOP boundary.
-    Returns the dispatcher's structured `DelegationResult` (never a raise out of the dispatcher).
-    On re-delivery of the same `task_id`, `idempotent_replay=True` and the handler does NOT run
-    again.
+    Returns the dispatcher's structured `DelegationResult` (never a raise out of the dispatcher
+    for a TERMINAL handler failure). On re-delivery of the same `task_id`,
+    `idempotent_replay=True` and the handler does NOT run again.
+
+    Com uma unica ressalva, RAF-02: uma falha TRANSITORIA do handler (o `StartProcessFailedError`
+    de um start recusado pelo engine, `AuditPersistenceError`) PROPAGA de proposito, sem selo de
+    idempotencia, para que a entrega continue retentavel — ver
+    `a2a/dispatcher.py::_TERMINAL_HANDLER_ERROR_TYPES`.
 
     SIGNING (ADR-0039 §4.4): `signer` defaults to the edge signer carried by `dispatcher`
     (`origin_signer_of`), so a future live worker call site signs without per-worker wiring.

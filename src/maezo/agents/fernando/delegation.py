@@ -224,8 +224,14 @@ async def delegate_arrears_followup(
     NOT CALLED from `tools/workers/inadimplencia.py` yet — see module docstring's STOP boundary.
     Returns the dispatcher's structured `DelegationResult` (success with `output_ref` = the
     case's process reference + `meta` = Fernando's bounded routing summary, or a structured
-    rejection — never a raise out of the dispatcher). On re-delivery of the same `task_id`,
-    `idempotent_replay=True` and the handler does NOT run again.
+    rejection — never a raise out of the dispatcher for a TERMINAL handler failure). On
+    re-delivery of the same `task_id`, `idempotent_replay=True` and the handler does NOT run
+    again.
+
+    Com uma unica ressalva, RAF-02: uma falha TRANSITORIA do handler (o `StartProcessFailedError`
+    de um start recusado pelo engine, `AuditPersistenceError`) PROPAGA de proposito, sem selo de
+    idempotencia, para que a entrega continue retentavel — ver
+    `a2a/dispatcher.py::_TERMINAL_HANDLER_ERROR_TYPES`.
 
     SIGNING (ADR-0039 §4.4): `signer` defaults to the edge signer carried by `dispatcher`
     (`origin_signer_of`), so a future live worker call site signs without any per-worker wiring

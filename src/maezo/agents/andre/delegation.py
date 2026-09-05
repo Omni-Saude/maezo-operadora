@@ -236,7 +236,12 @@ async def delegate_adequacao_dossier(
 
     Returns the dispatcher's structured `DelegationResult` (success with `output_ref` = the cell's
     anchor reference + `meta` = Andre's bounded routing summary, or a structured rejection —
-    never a raise out of the dispatcher).
+    never a raise out of the dispatcher for a TERMINAL handler failure).
+
+    Com uma unica ressalva, RAF-02: uma falha TRANSITORIA do handler (o `StartProcessFailedError`
+    de um start recusado pelo engine, `AuditPersistenceError`) PROPAGA de proposito, sem selo de
+    idempotencia, para que a entrega continue retentavel — ver
+    `a2a/dispatcher.py::_TERMINAL_HANDLER_ERROR_TYPES`.
 
     SIGNING (ADR-0039 §4.4): `signer` defaults to the edge signer carried by `dispatcher`
     (`origin_signer_of`), so the LIVE worker path signs with no per-worker wiring change.

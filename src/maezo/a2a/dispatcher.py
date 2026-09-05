@@ -25,7 +25,11 @@ delegation passes through. In this order:
      sub-delegation) -> a `FAILED` outcome row + a `rejected` fact. The pre-exec ALLOW row is not
      itself terminal, so without these an ALLOWed delegation — whether it later completed or crashed
      — left no durable trace distinguishing the two (the facts are ephemeral observability, not the
-     durable T-F audit).
+     durable T-F audit). Uma excecao NAO-`DelegationError` do handler segue a fronteira de
+     `_TERMINAL_HANDLER_ERROR_TYPES` (NEW-B1): classe `validacao` (bug de produtor sobre um envelope
+     imutavel) -> a MESMA linha `FAILED` + fato `rejected`, razao `handler_error`, e o `task_id`
+     selado; qualquer outra classe PROPAGA sem selo, que e o canal retentavel de que RAF-02
+     (`StartProcessFailedError`) e `AuditPersistenceError` dependem.
 
 The runtime wires real handlers (agent graphs) in W3; here the handler is an injectable callable
 (`FakeAgentHandler` in tests). Handler and registry resolution are both injected.
@@ -39,11 +43,18 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol
 
+import structlog
+
 from maezo.gateway.audit import AuditRecord
+from maezo.platform.error_types import AGENT_ERROR_TYPE_VALIDACAO, classify_agent_error_type
+from maezo.platform.observability import record_a2a_handler_error
+from maezo.tools.workers.phi_vars import redact_error_message
 
 from .delegation import DelegationEnvelope, DelegationError
 from .facts import DelegationFact, DelegationFactKind, build_fact
 from .registry import A2ARegistry, RegistryError
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from .envelope_signing import EnvelopeSigner, EnvelopeVerifier
@@ -113,6 +124,30 @@ _DECISION_DENY = "DENY"
 _DECISION_FAILED = "FAILED"
 _DECISION_COMPLETED = "COMPLETED"
 
+# NEW-B1 — a FRONTEIRA entre uma falha de handler TERMINAL e uma RETENTAVEL, expressa no vocabulario
+# fechado `platform/error_types.py` (ALERT-COUNTER-LABELS / R-063) e nunca numa lista de classes
+# de excecao propria.
+#
+# `validacao` (`ValueError`/`TypeError`/`KeyError`/`ValidationError`) e a classe do BUG DE PRODUTOR:
+# o handler recusou o proprio ENVELOPE. O envelope e imutavel e a idempotencia e por `task_id`, entao
+# a reentrega da MESMA entrega falharia identicamente para sempre — a falha e terminal, e a resposta
+# certa e uma rejeicao estruturada + selo, exatamente como qualquer outra rejeicao (ADR-0003: uma
+# rejeicao nunca retenta).
+#
+# TODA OUTRA CLASSE PROPAGA, sem selo e sem linha terminal, preservando byte-a-byte o comportamento
+# de hoje. E o canal RETENTAVEL de que dois mecanismos vivos dependem: `StartProcessFailedError`
+# (RAF-02 — os handlers a levantam DE PROPOSITO para que uma indisponibilidade transitoria do engine
+# NAO vire um sucesso/uma rejeicao selada e irretentavel, ver
+# `tests/unit/agents/test_start_failure_a2a_handlers.py::
+# test_dispatcher_neither_seals_nor_completes_a_failed_start`) e `AuditPersistenceError` (um sink de
+# audit indisponivel ja propaga hoje, `test_dispatcher.py::
+# test_audit_sink_failure_propagates_and_handler_never_runs`). Converter esses em rejeicao terminal
+# REINTRODUZIRIA o agravante RAF-02 numa forma nova.
+#
+# A fronteira e verificada contra os SIMBOLOS REAIS em `tests/unit/a2a/
+# test_dispatcher_handler_escape.py::test_the_terminal_error_classes_exclude_every_retryable_channel`.
+_TERMINAL_HANDLER_ERROR_TYPES: frozenset[str] = frozenset({AGENT_ERROR_TYPE_VALIDACAO})
+
 
 class FactProducer:
     """Thin adapter over the injected Kafka producer, partitioned by tenant."""
@@ -144,6 +179,12 @@ class RejectionReason(StrEnum):
     # FIRST check inside `delegate` (ahead of any idempotency claim/audit/routing) returns this as a
     # structured rejection — never a raise (the dispatcher's 'never raised to caller' contract).
     SIGNATURE_INVALID = "signature_invalid"
+    # NEW-B1: o handler ALVO falhou TERMINALMENTE (uma excecao de classe `validacao` — bug de
+    # produtor sobre um envelope imutavel), em vez de devolver um `HandlerOutput`. Antes desta
+    # entrada a excecao escapava CRUA de `delegate()`, deixando um fato `requested` sem irmao, sem
+    # linha de audit terminal e sem contador. `detail` carrega SO o token de CLASSE da excecao,
+    # nunca `str(exc)`. Token novo no vocabulario: ver `_reject_handler_error`.
+    HANDLER_ERROR = "handler_error"
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +197,13 @@ class HandlerOutput:
 
 @dataclass(frozen=True, slots=True)
 class DelegationResult:
-    """Structured result of `delegate`. Success or rejection — never a raise out of the dispatcher.
+    """Structured result of `delegate`. Success or rejection — nunca um raise por FALHA TERMINAL.
+
+    A ressalva e literal e tem um dono: a UNICA excecao que ainda atravessa `delegate()` e a de
+    classe RETENTAVEL levantada pelo handler (`StartProcessFailedError` do RAF-02,
+    `AuditPersistenceError`), que PROPAGA de proposito para que a entrega continue retentavel — ver
+    `_TERMINAL_HANDLER_ERROR_TYPES`. Toda falha TERMINAL de handler (classe `validacao`) volta como
+    `rejection_reason=HANDLER_ERROR` (NEW-B1), e nao mais como uma excecao crua.
 
     `idempotent_replay=True` indicates this response came from the `task_id` cache (Guard 4): the
     handler did NOT run again.
@@ -222,6 +269,24 @@ def _as_replay(prev: DelegationResult) -> DelegationResult:
         idempotent_replay=True,
         meta=prev.meta,
     )
+
+
+def _handler_error_detail(exc: BaseException, error_type: str) -> str:
+    """Descricao PHI-free e limitada de uma falha de handler (NEW-B1) — nunca `str(exc)`.
+
+    Duas partes, ambas de baixa cardinalidade: o TOKEN DE CLASSE da excecao (o que um operador
+    precisa para diagnosticar QUE especie de falha ocorreu) e o `error_type` do vocabulario fechado
+    R-063. A mensagem da excecao fica de fora INTEIRA — um bug de produtor pode te-la formatado com
+    dados do caso, e este texto viaja para tres superficies persistidas (o `detail` da
+    `DelegationResult`, que e gravado em `a2a_idempotency.result`; a linha de audit `:outcome`; e o
+    fato `rejected` no Kafka).
+
+    `type(exc).__name__` e um identificador Python em todo caso normal, mas nao ha nada que impeca
+    uma classe criada dinamicamente de carregar um `__name__` arbitrario — entao o resultado ainda
+    passa por `redact_error_message` (o net compartilhado de `tools/workers/phi_vars.py`), que
+    redige as familias de identificador e limita o comprimento. Reuso, nao um redator novo.
+    """
+    return redact_error_message(f"handler raised {type(exc).__name__} (error_type={error_type})")
 
 
 def _stored_to_result(stored: StoredResult) -> DelegationResult:
@@ -344,6 +409,17 @@ class DelegationDispatcher:
           rejection — BOTH are terminal; a rejection never retries, ADR-0003).
         - `claim_or_get` returns a `StoredResult` -> replay: the handler does NOT run; the
           persisted outcome comes back with `idempotent_replay=True`.
+
+        NEW-B1 — o SELO DA FALHA vive aqui e nao precisou de mecanismo novo. Uma falha TERMINAL de
+        handler agora volta de `_execute` como uma `DelegationResult` REJEITADA, entao a
+        `store.complete` desta linha a sela como qualquer outra rejeicao: a reentrega do mesmo
+        `task_id` devolve o resultado guardado em vez de reexecutar. Antes, a excecao crua saltava
+        POR CIMA desta chamada — `claim_or_get` ja tinha criado a linha `processing` e ninguem a
+        selava, entao cada reentrega gastava todo o `PostgresIdempotencyStore._poll_until_done`
+        (`_POLL_MAX_ATTEMPTS x _POLL_INTERVAL_S`) para so entao reexecutar e relevantar, para sempre.
+        Uma falha RETENTAVEL continua saltando por cima desta chamada, e e assim que RAF-02 mantem a
+        entrega retentavel — a mesma linha `processing`, o mesmo poll, mas agora e uma escolha
+        registrada em vez de um efeito colateral.
         """
         stored = await store.claim_or_get(tenant=envelope.tenant, task_id=envelope.task_id)
         if stored is not None:
@@ -398,6 +474,23 @@ class DelegationDispatcher:
             )
             await self._emit(envelope, DelegationFactKind.REJECTED, reason=str(exc))
             return DelegationResult.rejected(envelope.task_id, reason, detail=str(exc))
+        except Exception as exc:
+            # NEW-B1 — o RAMO LARGO COMPANHEIRO. `except DelegationError` sozinho era o defeito: os
+            # oito `agents/*/delegation.py` chamam `state_from_envelope(envelope)` FORA do `try` do
+            # proprio handler e sete deles levantam `ValueError` num bug de produtor, entao essa
+            # excecao atravessava `_execute`, `_delegate_inflight`/`_delegate_durable` e `delegate`
+            # inteiros e chegava CRUA ao chamador — deixando um fato `requested` orfao, nenhuma
+            # linha de audit terminal, nenhum contador e (no caminho duravel) uma linha
+            # `processing` que ninguem sela.
+            #
+            # `Exception`, JAMAIS `BaseException`: uma delegacao drenada por `asyncio.CancelledError`
+            # nao e uma falha de handler (a mesma regra que os `except` dos handlers seguem).
+            if classify_agent_error_type(exc) not in _TERMINAL_HANDLER_ERROR_TYPES:
+                # Classe RETENTAVEL (transitoria ou nao classificada): propaga, sem selo e sem
+                # linha terminal — comportamento de hoje, preservado de proposito. Ver
+                # `_TERMINAL_HANDLER_ERROR_TYPES` para o porque (canal RAF-02).
+                raise
+            return await self._reject_handler_error(envelope, exc)
 
         # TERMINAL-outcome audit (T-F completeness fix, LOW-1): the SUCCESS path is symmetric to the
         # handler-error branch above — the pre-exec ALLOW row is not itself terminal, so a durable
@@ -415,6 +508,57 @@ class DelegationDispatcher:
         # bounded non-PHI summary tokens only — `HandlerOutput.meta`'s own contract. The facts/
         # audit surfaces above deliberately keep EXCLUDING meta (unchanged posture).
         return DelegationResult.ok(envelope.task_id, output.output_ref, meta=output.meta)
+
+    async def _reject_handler_error(self, envelope: DelegationEnvelope, exc: Exception) -> DelegationResult:
+        """Converte uma falha TERMINAL de handler numa rejeicao estruturada (NEW-B1).
+
+        Chamada apenas pelo ramo largo de `_execute`, e apenas para as classes de
+        `_TERMINAL_HANDLER_ERROR_TYPES`. Faz, nesta ordem e exatamente uma vez:
+
+          1. a linha de audit TERMINAL (`_audit_delegation_outcome`, `FAILED`, chave `:outcome`) —
+             primeiro, porque e o registro DURAVEL; se o sink estiver indisponivel a sua
+             `AuditPersistenceError` propaga, igual ao ramo `DelegationError` que esta logo acima;
+          2. o fato `rejected`, que da ao `requested` ja emitido o irmao terminal que faltava;
+          3. o contador `maezo_a2a_handler_error_total` (`record_a2a_handler_error` — contador
+             PROPRIO e nao `maezo_agent_errors_total`, ver o docstring daquela funcao);
+          4. uma linha de log estruturada em nivel WARNING.
+
+        E devolve uma `DelegationResult` rejeitada, que os dois caminhos de idempotencia SELAM como
+        terminal pelos seus mecanismos ja existentes — nenhum "selo de falha" novo foi inventado:
+        `_delegate_inflight` guarda em `entry.result` e `_delegate_durable` chama `store.complete`,
+        cujo contrato ja e "success OR rejection — BOTH are terminal; a rejection never retries"
+        (ADR-0003). E isso que impede a reentrega de reexecutar o handler para sempre e, no
+        Postgres, de queimar todo o orcamento de `_poll_until_done` sobre uma linha `processing`
+        que ninguem selaria.
+
+        SEGURANCA PHI: `str(exc)` NUNCA viaja. A mensagem de um bug de produtor pode ter sido
+        formatada com dados do caso; so o TOKEN DE CLASSE (`type(exc).__name__`) e o rotulo limitado
+        `error_type` entram no `detail`, no fato, no audit e no log — e mesmo essa cadeia passa por
+        `redact_error_message` (o mesmo net de `phi_vars` usado no chokepoint agente->engine), que
+        tambem a limita em tamanho, para que nem um `__name__` patologico possa vazar ou crescer.
+        """
+        error_type = classify_agent_error_type(exc)
+        detail = _handler_error_detail(exc, error_type)
+        reason = RejectionReason.HANDLER_ERROR
+        await self._audit_delegation_outcome(
+            envelope,
+            decision=_DECISION_FAILED,
+            basis=f"A2A:handler_error:{reason}",
+            detail=detail,
+        )
+        await self._emit(envelope, DelegationFactKind.REJECTED, reason=detail)
+        record_a2a_handler_error(target=envelope.target, error_type=error_type)
+        logger.warning(
+            "a2a_handler_error",
+            task_id=envelope.task_id,
+            tenant=envelope.tenant,
+            origin=envelope.origin,
+            target=envelope.target,
+            task_type=envelope.task_type,
+            error_class=type(exc).__name__,
+            error_type=error_type,
+        )
+        return DelegationResult.rejected(envelope.task_id, reason, detail=detail)
 
     def _validate(self, envelope: DelegationEnvelope) -> DelegationResult | None:
         """Contract checks. Returns a rejection `DelegationResult`, or None (ok)."""
@@ -540,6 +684,9 @@ class DelegationDispatcher:
 
           - handler raised `DelegationError` (e.g. an internal cyclic sub-delegation) ->
             `decision=_DECISION_FAILED` + the exception message as `detail`.
+          - handler raised a TERMINAL non-`DelegationError` exception (NEW-B1, classe `validacao`)
+            -> `decision=_DECISION_FAILED` + o TOKEN DE CLASSE da excecao como `detail`, nunca a
+            mensagem (`_handler_error_detail`). Uma falha RETENTAVEL nao chega aqui: ela propaga.
           - handler returned successfully (LOW-1 completeness fix) ->
             `decision=_DECISION_COMPLETED`, no `detail`.
 
@@ -569,7 +716,9 @@ class DelegationDispatcher:
         `envelope.payload_meta` entirely; `detail`, when present, is the exception message, itself
         PHI-free by construction (`CyclicDelegationError`/`MaxHopsExceededError`/
         `BudgetExhaustedError` only ever name agent_ids, chain tuples, and counts — never envelope
-        payload data).
+        payload data). O ramo NEW-B1 e mais estrito ainda, porque a excecao dele NAO e da familia
+        estrutural e a sua mensagem pode ter sido formatada com dados do caso: la o `detail` e
+        construido a partir do token de classe e redigido (`_handler_error_detail`).
         """
         details: dict[str, Any] = {
             "task_id": envelope.task_id,

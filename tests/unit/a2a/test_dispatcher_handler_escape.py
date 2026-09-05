@@ -470,6 +470,53 @@ def _handler_names(handler: ast.ExceptHandler) -> list[str]:
     return [ast.unparse(handler.type)]
 
 
+def _dispatcher_tree() -> ast.Module:
+    import maezo.a2a.dispatcher as dispatcher_module
+
+    return ast.parse(Path(inspect.getfile(dispatcher_module)).read_text(encoding="utf-8"))
+
+
+def _branch_source_including_the_methods_it_delegates_to(branch: ast.ExceptHandler) -> str:
+    """O texto do ramo MAIS o corpo de todo `self._m(...)` que ele chama.
+
+    Sem isto a cerca seria trivialmente contornavel: mover o audit/fato/contador para um metodo
+    privado — que e' exatamente o que a correcao faz, e legitimamente — deixaria o ramo com tres
+    linhas e a cerca passaria a nao verificar nada. Um nivel de indirecao basta; a cerca cobre a
+    forma que o codigo tem hoje e falha alto se alguem a esconder mais fundo."""
+    tree = _dispatcher_tree()
+    methods = {
+        node.name: node for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef)
+    }
+    pieces = [ast.unparse(branch)]
+    for node in ast.walk(branch):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "self"
+            and node.func.attr in methods
+        ):
+            pieces.append(ast.unparse(methods[node.func.attr]))
+    return "\n".join(pieces)
+
+
+def _stringifies_the_exception(node: ast.AST) -> bool:
+    """Ha uma chamada `str(<nome>)` sobre o nome ligado ao `except ... as <nome>` neste ramo?
+
+    Checagem por AST e nao por texto: as docstrings do proprio ramo CITAM `str(exc)` para explicar
+    por que ele nao e usado, e um `in`-de-texto acusaria a explicacao junto com o defeito."""
+    bound = {h.name for h in ast.walk(node) if isinstance(h, ast.ExceptHandler) and h.name}
+    if isinstance(node, ast.ExceptHandler) and node.name:
+        bound.add(node.name)
+    return any(
+        isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "str"
+        and any(isinstance(a, ast.Name) and a.id in bound for a in call.args)
+        for call in ast.walk(node)
+    )
+
+
 def test_the_handler_call_is_guarded_by_a_broad_companion_branch() -> None:
     """CERCA. `except DelegationError` sozinho e' exatamente o defeito NEW-B1: qualquer outra
     excecao escapa crua de `delegate()`. Esta cerca morre se o ramo largo for removido, estreitado
@@ -489,14 +536,19 @@ def test_the_handler_call_is_guarded_by_a_broad_companion_branch() -> None:
     )
 
     broad = clauses["Exception"]
-    body = ast.unparse(broad)
+    body = _branch_source_including_the_methods_it_delegates_to(broad)
     for required in (
         "_audit_delegation_outcome",  # (b) do achado: a linha terminal duravel
-        "_emit",  # (c) do achado: o fato `rejected`
+        "DelegationFactKind.REJECTED",  # (c) do achado: o fato `rejected`
         "record_a2a_handler_error",  # (d) do achado: o contador
         "classify_agent_error_type",  # a fronteira terminal-vs-retentavel
+        "RejectionReason.HANDLER_ERROR",  # a razao tipada devolvida ao chamador
     ):
-        assert required in body, f"o ramo largo nao chama `{required}`: {body[:200]}"
+        assert required in body, f"o ramo largo nao chama/usa `{required}`: {body[:400]}"
+    assert not _stringifies_the_exception(broad), (
+        "o ramo largo carrega `str(exc)`: a mensagem de um bug de produtor pode ter sido formatada "
+        "com dados do caso e viaja para tres superficies persistidas (detail/audit/fato)"
+    )
     assert any(isinstance(n, ast.Raise) and n.exc is None for n in ast.walk(broad)), (
         "o ramo largo nao tem `raise` nu: o canal RETENTAVEL RAF-02 sumiu e uma falha transitoria "
         "seria selada como terminal"
