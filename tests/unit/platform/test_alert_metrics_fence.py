@@ -64,12 +64,19 @@ _ALERT_RULES: Final[Path] = _REPO_ROOT / "deploy" / "observability" / "alert-rul
 #:   available" (`alert-rules.yml:118-120`). It is an EXPORTER series, not application telemetry.
 #: * `kube_job_status_failed` — kube-state-metrics, for the lifecycle CronJobs
 #:   (`alert-rules.yml:166-170`). Emitting it from `src/` would be fabricating a Kubernetes fact.
+#: * `kube_job_annotations` — also kube-state-metrics (R-040/SC-07): the info-metric that exports
+#:   the `maezo.io/expected-fail-until` Job annotation as the label
+#:   `annotation_maezo_io_expected_fail_until`, which `MaezoLifecycleJobFailed`'s `unless` clause
+#:   joins on to exclude by-design-failing lifecycle jobs while their marker is in date. Same
+#:   external-to-`src/` reasoning as `kube_job_status_failed` — it is the cluster's own annotation
+#:   echoed back, not application telemetry.
 #:
-#: Both belong to owner slice ALERTS-WITHOUT-METRICS-b (scrape targets are a `deploy/` change, and
-#: `deploy/` is owner-gated for this work package).
+#: All three belong to owner slice ALERTS-WITHOUT-METRICS-b / R-040 (scrape targets and cluster
+#: annotations are a `deploy/` change, and `deploy/` is owner-gated for this work package).
 EXTERNAL_ALERT_METRICS: Final[dict[str, str]] = {
     "maezo_dead_letter_queue_size": "ALERTS-WITHOUT-METRICS-b — Kafka/DLQ exporter series",
     "kube_job_status_failed": "ALERTS-WITHOUT-METRICS-b — kube-state-metrics series",
+    "kube_job_annotations": "R-040/SC-07 — kube-state-metrics annotation-derived series",
 }
 
 #: Every in-repo alert metric -> the `maezo.platform.observability` helper that writes it. The
@@ -142,26 +149,40 @@ def _recording_rules() -> list[tuple[str, str]]:
     return records
 
 
+#: PromQL vector-matching / set-operator keywords that read as bare identifiers not followed by
+#: `(` (the same shape as a metric name) but are never one: `unless`/`and`/`or` are binary set
+#: operators (R-040/SC-07's `... unless on (job_name) (...)` is the first shipped user of
+#: `unless`), and `bool` is the comparison-operator modifier (`> bool 0`). `on`/`ignoring` ARE
+#: followed by `(` and so are already excluded by the not-a-call test below, but are named here too
+#: for readers matching this set against the PromQL grammar.
+_PROMQL_KEYWORDS: Final[frozenset[str]] = frozenset({"and", "or", "unless", "bool"})
+
+
 def _metric_names(expr: str) -> set[str]:
     """The metric names an `expr` reads.
 
     Strips, in order: quoted strings, `{...}` label matchers, `[...]` range selectors, and
-    aggregation grouping clauses (`by (...)`/`without (...)`) — a PromQL grouping label list
-    (e.g. `sum by (agent) (...)`) is neither a metric nor a function call, and left unstripped
-    both the aggregation operator (`sum`, not followed directly by `(`) and the label name inside
-    the parens (`agent`, followed by `)` not `(`) would be misidentified as metric names by the
-    heuristic below. What remains after all four strips is identifiers and operators, and a
-    metric is an identifier NOT followed by `(` — which is what separates
-    `maezo_worker_execution_time_seconds_bucket` from `rate` and `histogram_quantile`.
+    grouping/vector-matching clauses (`by (...)`/`without (...)`/`on (...)`/`ignoring (...)`/
+    `group_left(...)`/`group_right(...)`) — a PromQL label list in any of these (e.g.
+    `sum by (agent) (...)`, `unless on (job_name) (...)`) is neither a metric nor a function call,
+    and left unstripped both the clause keyword (`sum`, `on` — not followed directly by `(`... but
+    the label INSIDE the parens (`agent`, `job_name` — followed by `)` not `(`) would be
+    misidentified as a metric name by the heuristic below. What remains after those strips is
+    identifiers and operators; `_PROMQL_KEYWORDS` removes the binary set-operators/modifiers that
+    still read as bare identifiers (`unless`, `and`, `or`, `bool`) after the strip. A metric is
+    what is left: an identifier NOT followed by `(` and not a known keyword — which is what
+    separates `maezo_worker_execution_time_seconds_bucket` from `rate`/`histogram_quantile`
+    (function calls) and from `unless`/`on` (operators).
     """
     cleaned = re.sub(r'"[^"]*"', " ", expr)
     cleaned = re.sub(r"\{[^}]*\}", " ", cleaned)
     cleaned = re.sub(r"\[[^\]]*\]", " ", cleaned)
-    cleaned = re.sub(r"\b(?:by|without)\s*\([^)]*\)", " ", cleaned)
+    cleaned = re.sub(r"\b(?:by|without|on|ignoring)\s*\([^)]*\)", " ", cleaned)
+    cleaned = re.sub(r"\bgroup_(?:left|right)\s*\([^)]*\)", " ", cleaned)
     return {
         match.group(1)
         for match in re.finditer(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(\(?)", cleaned)
-        if not match.group(2)
+        if not match.group(2) and match.group(1) not in _PROMQL_KEYWORDS
     }
 
 
@@ -397,14 +418,15 @@ def test_the_emitter_table_covers_the_alert_file_exactly() -> None:
     )
 
 
-def test_external_metric_allowlist_is_exactly_the_two_owner_slice_series() -> None:
-    """The escape hatch is TWO named series, and widening it is a reviewed edit to this list."""
+def test_external_metric_allowlist_is_exactly_the_three_owner_slice_series() -> None:
+    """The escape hatch is THREE named series, and widening it is a reviewed edit to this list."""
     assert set(EXTERNAL_ALERT_METRICS) == {
         "maezo_dead_letter_queue_size",
         "kube_job_status_failed",
+        "kube_job_annotations",
     }
     for series, reason in EXTERNAL_ALERT_METRICS.items():
-        assert "ALERTS-WITHOUT-METRICS-b" in reason, (series, reason)
+        assert "ALERTS-WITHOUT-METRICS-b" in reason or "R-040/SC-07" in reason, (series, reason)
         # And they must genuinely be absent from our own registry — an "external" metric that we
         # actually emit would be a mislabel that hides a real in-repo gap.
         assert series not in _declared_series_names(), series

@@ -4,6 +4,7 @@
         check-alert-runbook-urls \
         xfail-census-check xfail-census-write \
         deviation-expiry-check \
+        check-lifecycle-expected-fail-expiry \
         check-ledger-hashes \
         release-floor-check release-floor-write \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint
@@ -123,6 +124,16 @@ deviation-expiry-check: ## PLANS §0.8 (2a leva Q-2/Q-10): desvio de sombra rati
 	# NOVO E DATADO em PR de dados sob CODEOWNERS (disciplina Q-1) — e esse PR e verde por construcao,
 	# porque o gate le as datas da arvore em teste. `--today YYYY-MM-DD` simula qualquer data.
 	uv run python scripts/ci/check_deviation_expiry.py
+
+check-lifecycle-expected-fail-expiry: ## R-040/SC-07: marcador expected-fail-until dos CronJobs de ciclo de vida nao pode vencer em silencio
+	# O dono ratificou (2026-09-04) a anotacao `maezo.io/expected-fail-until` nos 3 CronJobs de
+	# ciclo de vida (todos falham POR DESENHO — nenhum comando implementado) mais uma exclusao em
+	# MaezoLifecycleJobFailed, com a MESMA disciplina de check_deviation_expiry.py: a data vive em
+	# deploy/helm/maezo-tenant/values.yaml (lifecycle.expectedFailUntil, default 2026-11-11) e este
+	# gate reprova a build a partir do dia seguinte ao prazo, alem de reprovar se a expressao do
+	# alerta parar de referenciar a serie derivada da anotacao. `--today YYYY-MM-DD` simula qualquer
+	# data.
+	uv run python scripts/ci/check_lifecycle_expected_fail_expiry.py
 
 check-ledger-hashes: ## LEDGER-HASH-RECOMPUTE-CHECK: recomputa o Test-hash das linhas NOVAS de docs/evidence-ledger.md que declaram caminho
 	# Uma linha nova opta em ser verificavel por maquina declarando, dentro da propria celula de

@@ -100,6 +100,17 @@ scrape_configs:
   # `down` in Prometheus's targets page; that is expected (no k8s here to scrape), not a defect,
   # and it does not affect any other scrape job. `MaezoLifecycleJobFailed` documents the same
   # "not yet wired, not faked" posture at its own rule comment.
+  #
+  # R-040/SC-07 (2026-09-04): `MaezoLifecycleJobFailed` excludes jobs carrying the
+  # `maezo.io/expected-fail-until` Job annotation (cronjob-lifecycle.yaml). kube-state-metrics v2
+  # exports Job LABELS via `--metric-labels-allowlist` but ANNOTATIONS only via the separate
+  # `--metric-annotations-allowlist` flag (both OFF by default) — this repo does not own the
+  # kube-state-metrics Deployment (it ships WITH kube-prometheus-stack, per the paragraph above),
+  # so the flag must be set by whoever installs that chart:
+  #   --metric-annotations-allowlist=jobs=[maezo.io/expected-fail-until]
+  # Without it, `kube_job_annotations{annotation_maezo_io_expected_fail_until=~".+"}` never
+  # materialises, the alert's `unless` clause has no series to match, and the alert fires anyway
+  # (fail-open, not a silent fail-closed hole) — see the alert's own comment in alert-rules.yml.
   - job_name: "kube-state-metrics"
     metrics_path: "/metrics"
     static_configs:

@@ -543,6 +543,19 @@ migrations:
 # ---------------------------------------------------------------------------
 lifecycle:
   enabled: true
+  # R-040/SC-07 (WP-GOVERNANCA-DPO, decidido 2026-09-04, OWNER-DECISIONS-REGISTER): os 3 CronJobs
+  # abaixo falham POR DESENHO hoje (fail-closed T2.8/T2.9 — nenhum dos tres esta implementado, ver
+  # src/maezo/platform/lifecycle/__init__.py). templates/cronjob-lifecycle.yaml grava este valor
+  # como anotacao `maezo.io/expected-fail-until` no jobTemplate de cada Job, e
+  # deploy/observability/alert-rules.yml exclui `MaezoLifecycleJobFailed` para jobs que carregam
+  # essa anotacao — sem ela, o scrape de kube-state-metrics (ALERTS-WITHOUT-METRICS-b / R-056)
+  # converte 3 falhas por desenho em alarme diario. NUNCA gravar o literal "AF-07" aqui — a data e
+  # o teto rastreado, a mesma que spec/policies/autonomy/action-approvals.yaml:151 ja torna
+  # merge-bloqueante. scripts/ci/check_lifecycle_expected_fail_expiry.py reprova a build a partir
+  # do dia seguinte a esta data (fail-closed, sem renovacao silenciosa) — quem sair do vermelho
+  # remove a anotacao (AF-07 fechou, os jobs agora sao reais e DEVEM paginar) ou renova a data em
+  # PR de dados revisado.
+  expectedFailUntil: "2026-11-11"
   # Teto de execucao por job (segundos) — bounded para nunca travar um Job.
   activeDeadlineSeconds: 1800
   resources:

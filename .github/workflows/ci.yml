@@ -156,6 +156,16 @@ jobs:
       - name: Ratified shadow-deviation expiry gate (PLANS §0.8 Q-2/Q-10)
         run: make deviation-expiry-check
 
+      # R-040/SC-07 (owner-ratified 2026-09-04): the 3 by-design-failing lifecycle CronJobs
+      # (deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml) carry a dated
+      # `maezo.io/expected-fail-until` marker that `MaezoLifecycleJobFailed` excludes on while it
+      # is present — an exclusion that never expires would be the same alarm-normalisation D12-01-b
+      # already names. Same no-silent-renewal discipline as the shadow-deviation gate above,
+      # scoped to this one marker. Belt-and-suspenders with
+      # tests/unit/ci/test_check_lifecycle_expected_fail_expiry.py.
+      - name: Lifecycle expected-fail marker expiry gate (R-040/SC-07)
+        run: make check-lifecycle-expected-fail-expiry
+
       - name: Upload strict-xfail census
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

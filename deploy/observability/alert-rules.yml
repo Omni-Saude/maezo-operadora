@@ -246,9 +246,27 @@ groups:
       # does not fire falsely, it simply has nothing to alert on yet in dev — same "not yet wired,
       # not faked" posture as the DLQ rule above, now scoped to "not wireable outside a real
       # cluster" rather than "no scrape job configured anywhere".
+      #
+      # R-040/SC-07 (owner-decision, 2026-09-04): all 3 jobs fail BY DESIGN today (see the
+      # description below) — without an exclusion, the kube-state-metrics scrape this rule now
+      # depends on (R-056) would convert 3 by-design failures into a daily page, which is the
+      # exact alarm-normalisation defect D12-01-b's own justification cites. The `unless` clause
+      # excludes jobs carrying `maezo.io/expected-fail-until`
+      # (deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml,
+      # values.yaml:lifecycle.expectedFailUntil, default 2026-11-11) via kube-state-metrics'
+      # annotation-derived series — see the required `--metric-annotations-allowlist` flag in
+      # prometheus.yml's kube-state-metrics job comment; without it this `unless` matches nothing
+      # and the alert fires anyway (fail-open, never a silent fail-closed hole). The exclusion does
+      # NOT itself expire in PromQL (a string annotation carries no date arithmetic here) —
+      # `scripts/ci/check_lifecycle_expected_fail_expiry.py` is the mechanism that fails the build
+      # the day `expectedFailUntil` passes, forcing a human to either drop the annotation (the job
+      # is now real and SHOULD page) or renew the date in a reviewed PR. SEM RENOVACAO SILENCIOSA.
       - alert: MaezoLifecycleJobFailed
         expr: |
           kube_job_status_failed{job_name=~"lifecycle-.*"} > 0
+          unless on (job_name) (
+            kube_job_annotations{annotation_maezo_io_expected_fail_until=~".+"}
+          )
         for: 5m
         labels:
           severity: warning
@@ -264,5 +282,10 @@ groups:
             visible beyond `kubectl get jobs`. Check pod logs for the precise
             blocker (ADR-0020/ADR-0029 for audit-retention; the DPO
             legal-bases/retention matrix, plus the thread_id->fhir_patient_id
-            mapping gap for verify-erasure, for the other two).
+            mapping gap for verify-erasure, for the other two). If you are
+            seeing this page, either the `maezo.io/expected-fail-until`
+            annotation is missing/expired (R-040/SC-07 — check
+            values.yaml:lifecycle.expectedFailUntil) or a job that was
+            expected to succeed genuinely failed; either way this is a real
+            signal, not noise.
           runbook_url: "docs/runbooks/alerts/MaezoLifecycleJobFailed.md"
