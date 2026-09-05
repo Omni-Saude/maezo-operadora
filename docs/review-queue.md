@@ -1464,3 +1464,17 @@ prefixos):
 |---|---|---|
 | R-137 | despacho dos 6 pacotes SME (roster nomeado pelo dono, `docs/sme-dispatch/tracker.md`) | 2026-09-19 |
 | R-027 | designação do encarregado de dados (DPO, D7-03) — ato societário fora do repo + registro em `docs/compliance/ripd-kickoff.md` | 2026-09-19 |
+
+## Decisoes do dono levantadas por AF-14 / D6-01 (R4-SEC, 2026-09-05)
+
+Nenhuma linha acima foi editada. As quatro entradas abaixo sao decisoes que a implementacao de
+AF-14 (cofre de credenciais na raiz de composicao) e D6-01 (rate limiting no chokepoint de
+efeitos) EXPOS e deliberadamente NAO tomou — cada uma toca caminho owner-gated (`deploy/**`,
+`docs/adr/`) ou exige assinatura que agente nenhum pode dar.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `deploy/observability/alert-rules.yml` (nao editado) vs. `maezo_effect_rate_limited_total{tenant,principal}` | O contador de recusas por taxa passa a existir e a ser emitido por `gateway/seams/_base.py::gate`, mas NENHUMA regra de alerta o le'. Um principal estrangulado aparece na metrica e no log e nao acorda ninguem. A regra obvia (`rate(maezo_effect_rate_limited_total[5m]) > 0` por tenant/principal) exige editar `deploy/`, que e' owner-gated por politica do programa, e exige decidir limiar/severidade/rota de plantao. Nao proposta aqui para nao inventar politica de plantao | dono + SRE | `ABERTO — metrica emitida, alerta pendente de decisao do dono (D6-01)` |
+| `src/maezo/gateway/rate_limit.py` — escopo POR REPLICA, nao quota distribuida | O balde vive no processo. Um deployment com N replicas admite ate' N vezes a taxa configurada. Isso e' consequencia direta do I-9 ("zero I/O de rede adicional em classes de leitura"): uma quota distribuida exige store compartilhado, ou seja, I/O de rede em TODA chamada de efeito. Trocar um pelo outro e' decisao de arquitetura + SRE (custo de latencia vs. rigor da quota), nao de agente | dono + SRE (mesma mesa do Q-9 do design da Onda 1) | `ABERTO — limite de garantia divulgado no modulo, escolha pendente` |
+| Q-9 (orcamento de latencia, `docs/design/wave1-effect-chokepoint.md:166-171`) + o custo do limitador | O orcamento assinado e' "<= 1 ms p99 adicionados por chamada gated, ZERO I/O de rede adicional". O limitador acrescenta uma leitura de `time.monotonic()` e aritmetica de float sobre um dict — sem I/O — mas o Q-9 continua SEM assinatura de SRE, e agora ha' um item a mais para ela cobrir. Nao se afirma aqui que o orcamento foi medido | SRE (assinatura do Q-9) | `ABERTO — Q-9 segue nao assinado; item novo a cobrir` |
+| `HUMAN_CREDENTIAL_FIELDS` (`src/maezo/gateway/tool_registry.py`) + ADR-0005 mecanismo #3 | A tabela declara `negativa_assinatura_key` -> particao NEGATIVA e `fraude_investigacao_key` -> FRAUDE como DESTINO das credenciais humano-restritas. Hoje NENHUM desses campos existe em classe de settings alguma e nenhuma chave de assinatura de negativa e' injetada em `deploy/` — a garantia implementada e' estrutural, nao operacional. Quando a chave de assinatura de negativa (RN 259) existir de fato, o NOME do campo tem de bater com esta tabela, e a custodia da chave (quem a detem, onde, com que rotacao) e' decisao de seguranca + medico auditor, fora do repo | Seguranca/crypto (revisor R1 da ADR-0005) + Diretor(a) Medico(a) | `ABERTO — destino declarado em codigo; custodia e injecao da chave real pendentes (AF-14)` |
