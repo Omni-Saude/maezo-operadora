@@ -62,6 +62,10 @@ class _UnusedInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        # CC-12 x integracao lote3 (LOTE3-INTEGRATION-FAKES-TASK-KIND): assinatura acompanha o
+        # Protocol real (`runtime/inference::InferenceProvider.generate`), mesma especie do
+        # defeito f1bc87f.
+        task_kind: str | None = None,
     ) -> str:
         raise AssertionError("start_process must not call the inference provider")
 
