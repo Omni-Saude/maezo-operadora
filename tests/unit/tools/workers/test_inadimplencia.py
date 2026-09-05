@@ -972,13 +972,17 @@ def test_handoff_rescisao_invalid_contrato_never_reaches_boundary_even_when_allo
     assert len(failures) == 1
     assert failures[0][0] == "task-1"
     # retries == 0 pins the `except ValueError` branch (harness.py §9, `_report_failure(...,
-    # retries_override=0)` — deterministic, NEVER re-delivered). A class that were still the OLD
-    # bare `Exception` (no `.code`/`.message`, so `reclassify_coded_exception` cannot duck-type it
-    # either) would fall into the generic `except Exception` branch instead, which computes
-    # `retries` from `max_retry_attempts` (3 here) instead of hardcoding 0 — an ENGINE RETRY of a
-    # deterministic bad-input failure, exactly the fail-open hazard `WorkerBpmnError`/`ValueError`
-    # typing exists to prevent. This assertion is what actually distinguishes the two: it goes
-    # RED if `InadContratoInvalidoError` regresses off `ValueError`.
+    # retries_override=0)` — deterministic, NEVER re-delivered). NOTE: the OLD, actually-shipped
+    # `InadimplenciaError(Exception)` carried a duck-typed `.code`/`.message` pair, so
+    # `reclassify_coded_exception` (base.py) already reclassified it to `ValueError` and it ALSO
+    # got `failure(retries=0)` — this raise-side migration changes zero observable behaviour (see
+    # the class docstring above `InadContratoInvalidoError`). What this assertion actually pins is
+    # DEFENSE IN DEPTH: a hypothetical future class that lost BOTH the typed `ValueError` base AND
+    # the `.code`/`.message` duck-typing shape simultaneously (bare `Exception`, no attributes)
+    # would fall into the harness's generic `except Exception` branch instead, which computes
+    # `retries` from `max_retry_attempts` (3 here) instead of hardcoding 0 — a REAL retry-of-a-
+    # deterministic-failure hazard, but one that never existed in shipped code. This assertion
+    # goes RED if `InadContratoInvalidoError` ever regresses off `ValueError`.
     assert failures[0][2] == 0
 
 
