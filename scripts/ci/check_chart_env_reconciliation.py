@@ -54,15 +54,32 @@ Two reasoned exemption tables (never a prefix or wildcard)
 Both tables require a non-empty, non-whitespace reason per name — `_require_reasons` (called at
 import time) raises if either is violated, so an unreasoned entry cannot silently ship.
 
-"Read somewhere in `src/`" is resolved as EVERY string literal in `src/**/*.py` that exactly
-matches `_NAME_PATTERN`, UNION every name a `BaseSettings` subclass implies via
-`env_prefix + FIELD_NAME.upper()` when the field carries no explicit `alias`/`validation_alias` —
-this codebase's own convention is to spell every canonical env name out as a literal constant
-(`ENV_PHI_ENDPOINT_URL: Final[str] = "MAEZO_PHI_ENDPOINT_URL"`, `AliasChoices("WHATSAPP_APP_SECRET",
-...)`) even when it is later referenced through a constant, so a full literal-string scan has high
-recall without needing to trace indirection through arbitrary call chains — a name reached only
-through a helper function that BUILDS the string at runtime (e.g. an f-string) is the one
-documented blind spot (see `extract_settings_env_names`'s docstring).
+"Read somewhere in `src/`" is resolved as the UNION of two context-scoped scans, never a bare
+literal-string sweep (gatekeeper finding G3 — a bare sweep also matches plain non-env constants
+like `RATIFICADO`/`PASSED`/`FAILED`, which happen to be valid `UPPER_SNAKE_CASE`, so a chart
+declaring `- name: PASSED` would pass GREEN with nothing actually reading it):
+
+  1. `extract_literal_env_names`: a name is "read" only when it is the KEY argument of a real
+     env-read call — `os.environ.get(KEY, ...)`, `os.getenv(KEY, ...)`, or `os.environ[KEY]` —
+     either as a literal directly (`os.environ.get("MAEZO_TENANT_ID", "public")`) OR as a
+     module-level `NAME: Final[str] = "MAEZO_TENANT_ID"` (or a plain `NAME = "..."`) constant whose
+     literal value is resolved by matching the constant's NAME against every KEY argument that is a
+     bare `ast.Name` reference, repo-wide (`ENV_PHI_ENDPOINT_URL: Final[str] =
+     "MAEZO_PHI_ENDPOINT_URL"` in `br_regional.py`, later read as
+     `os.environ.get(ENV_PHI_ENDPOINT_URL, "")` in `br_resident_provider.py`, a different file). This
+     is a same-name heuristic, not true data-flow: two unrelated constants that happen to share a
+     Python variable name (but hold different literal values) would cross-pollinate — accepted as
+     the deliberate recall/precision trade this repo's own naming convention makes safe in practice,
+     and narrower by construction than the prior bare sweep.
+  2. `extract_settings_env_names`: every name a `BaseSettings` subclass implies via
+     `env_prefix + FIELD_NAME.upper()` when the field carries no explicit `alias`/`validation_alias`,
+     or the literal value of an explicit `alias=`/`AliasChoices(...)` — already context-scoped
+     (a `BaseSettings` field), unaffected by G3.
+
+A name reached only through a helper function that BUILDS the string at runtime (e.g. an f-string)
+is the one documented blind spot (see `extract_settings_env_names`'s docstring) — same as before
+G3; what changed is that a literal reached ONLY through prose, a docstring, an unrelated enum/status
+string, or any other non-env-read context is now correctly invisible to this scan.
 
 Design
 ------
@@ -395,29 +412,96 @@ def extract_declared_from_terraform(tf_root: Path) -> list[EnvNameRef]:
 # ---------------------------------------------------------------------------
 
 
-def extract_literal_env_names(src_dir: Path) -> set[str]:
-    """Every prefix-matched string literal anywhere in `<src_dir>/**/*.py`.
+def _is_os_name(node: ast.expr) -> bool:
+    return isinstance(node, ast.Name) and node.id == "os"
 
-    High recall for this codebase's own convention: every canonical env name is spelled out as a
-    literal at least once (`Field(alias="X")`, `AliasChoices("X", ...)`, `NAME: Final[str] = "X"`
-    read later via `os.environ.get(NAME)`) — verified against every `MAEZO_`/`WHATSAPP_`/
-    `CIBSEVEN_`/`KAFKA_` name this file's own module docstring enumerates. The one documented blind
-    spot: a name built at runtime ONLY via string formatting (e.g. an f-string with no matching
-    literal anywhere else) is invisible to this scan.
+
+def _is_os_environ(node: ast.expr) -> bool:
+    """`os.environ` as an attribute access (never a bare `environ` — this repo never does
+    `from os import environ`, verified: `grep -rn 'from os import' src/maezo/` is empty)."""
+    return isinstance(node, ast.Attribute) and node.attr == "environ" and _is_os_name(node.value)
+
+
+def _env_read_key_exprs(tree: ast.AST) -> Iterator[ast.expr]:
+    """Yield the KEY expression of every `os.environ.get(KEY, ...)`, `os.getenv(KEY, ...)`, or
+    `os.environ[KEY]` call/subscript in `tree` — the three env-read shapes this repo's `src/`
+    actually uses (verified: every `os.environ`/`os.getenv` call site in `src/maezo` matches one of
+    these three; see G3's module-docstring paragraph)."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.args:
+            is_environ_get = node.func.attr == "get" and _is_os_environ(node.func.value)
+            is_os_getenv = node.func.attr == "getenv" and _is_os_name(node.func.value)
+            if is_environ_get or is_os_getenv:
+                yield node.args[0]
+        elif isinstance(node, ast.Subscript) and _is_os_environ(node.value):
+            key = node.slice
+            # Python <3.9 wrapped a subscript's index in `ast.Index`; this repo requires 3.12
+            # (pyproject.toml) so `node.slice` is already the expression, but unwrap defensively.
+            if isinstance(key, ast.Index):  # pragma: no cover - py<3.9 shape, not reachable here
+                key = key.value  # type: ignore[attr-defined]
+            yield key
+
+
+def _module_level_string_constants(src_dir: Path) -> dict[str, set[str]]:
+    """name -> the set of `_NAME_PATTERN`-matching string literals ever assigned to that name,
+    anywhere in `<src_dir>/**/*.py` (`NAME: Final[str] = "X"` or plain `NAME = "X"`, at any scope —
+    this repo's canonical-constant convention is module-level but a class-level one would resolve
+    the same way). Resolving a same-named reference elsewhere by this dict is a heuristic, not true
+    data-flow — see the module docstring's G3 paragraph.
     """
-    names: set[str] = set()
+    constants: dict[str, set[str]] = {}
     for path in sorted(src_dir.rglob("*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         except SyntaxError:
             continue
         for node in ast.walk(tree):
+            target: ast.expr | None
+            value: ast.expr | None
+            if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target, value = node.targets[0], node.value
+            elif isinstance(node, ast.AnnAssign):
+                target, value = node.target, node.value
+            else:
+                continue
             if (
-                isinstance(node, ast.Constant)
-                and isinstance(node.value, str)
-                and _NAME_PATTERN.fullmatch(node.value)
+                isinstance(target, ast.Name)
+                and isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+                and _NAME_PATTERN.fullmatch(value.value)
             ):
-                names.add(node.value)
+                constants.setdefault(target.id, set()).add(value.value)
+    return constants
+
+
+def extract_literal_env_names(src_dir: Path) -> set[str]:
+    """Every env name genuinely READ in `<src_dir>/**/*.py` — a literal is only counted when it is
+    the KEY argument of a real env-read call (`os.environ.get`/`os.getenv`/`os.environ[...]`),
+    either directly or via a module-level constant resolved by name (see the module docstring's G3
+    paragraph for the exact two-pass design and its accepted same-name-heuristic limitation).
+
+    NOT counted: a literal reached only through prose, a docstring, a class attribute unrelated to
+    env access, or any other non-env-read context — closing the false-green surface where a
+    declared env name spelled like an ordinary constant (`RATIFICADO`, `PASSED`, `FAILED`, ...)
+    would otherwise pass this gate with nothing genuinely reading it (gatekeeper finding G3).
+
+    The one remaining documented blind spot (unchanged from before G3): a name built at runtime
+    ONLY via string formatting (e.g. an f-string with no matching literal constant anywhere) is
+    invisible to this scan.
+    """
+    constants = _module_level_string_constants(src_dir)
+    names: set[str] = set()
+    for path in sorted(src_dir.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except SyntaxError:
+            continue
+        for key_expr in _env_read_key_exprs(tree):
+            if isinstance(key_expr, ast.Constant) and isinstance(key_expr.value, str):
+                if _NAME_PATTERN.fullmatch(key_expr.value):
+                    names.add(key_expr.value)
+            elif isinstance(key_expr, ast.Name):
+                names.update(constants.get(key_expr.id, ()))
     return names
 
 

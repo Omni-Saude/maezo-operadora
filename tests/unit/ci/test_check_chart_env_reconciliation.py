@@ -16,6 +16,11 @@ Layers:
    prefixes — an unlisted declared name outside all four legacy prefixes must still go RED when
    unread; and every entry in both exemption tables must carry a non-empty reason, enforced by
    `_require_reasons` at import time and proven directly here.
+5. **Context-scoped reads** (gatekeeper finding G3, §Delta): widening the declared-name pattern
+   also widened the READ-side bare literal sweep to 700 names, 636 of them plain non-env constants
+   (`RATIFICADO`, `PASSED`, `FAILED`, ...) — a chart declaring `- name: PASSED` passed GREEN with
+   nothing reading it. `extract_literal_env_names` now counts a literal only when it is the KEY
+   argument of a real env-read call, directly or via a same-named module-level constant.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from scripts.ci.check_chart_env_reconciliation import (
     DEFERRED_UNRECONCILED_DECLARED,
     INFRA_OWNED_DECLARED,
     EnvNameRef,
+    _module_level_string_constants,
     _require_reasons,
     extract_declared_from_helm,
     extract_declared_from_terraform,
@@ -279,3 +285,93 @@ def test_require_reasons_rejects_a_whitespace_only_reason() -> None:
 
 def test_require_reasons_accepts_a_real_reason() -> None:
     _require_reasons({"SOME_VAR": "a real one-line reason"}, label="test-allowlist")  # no raise
+
+
+# ---------------------------------------------------------------------------
+# 5. Context-scoped reads (gatekeeper finding G3, §Delta)
+# ---------------------------------------------------------------------------
+
+
+def test_a_plain_non_env_constant_is_not_counted_as_read() -> None:
+    """The exact §Delta repro: `RATIFICADO`/`PASSED`/`FAILED` are valid UPPER_SNAKE_CASE strings
+    that appear as plain status/enum literals somewhere in `src/`, never as the key of a real
+    env-read call. Before G3's fix, the bare literal sweep counted them as "read" regardless."""
+    read = extract_literal_env_names(_SRC_DIR)
+    for name in ("RATIFICADO", "PASSED", "FAILED", "FINAL", "INFO", "WARNING", "ERROR", "POST"):
+        assert name not in read, f"{name} is a plain constant, not an env-read key — must not count"
+
+
+def test_injecting_ratificado_and_passed_as_declared_names_now_goes_red() -> None:
+    """End-to-end proof against the real render: declaring two fictitious env names that happen to
+    look like ordinary constants must be flagged, not silently pass — this is the exact scenario
+    the gatekeeper demonstrated was GREEN before this fix."""
+    result = _reconcile_real_tree()
+    declared = [
+        EnvNameRef(name="RATIFICADO", source="synthetic (gatekeeper G3 repro)"),
+        EnvNameRef(name="PASSED", source="synthetic (gatekeeper G3 repro)"),
+    ]
+    rendered = render_chart()
+    real_declared = extract_declared_from_helm(rendered) + extract_declared_from_terraform(_TF_ROOT)
+    literal_names = extract_literal_env_names(_SRC_DIR)
+    settings_all, settings_required = extract_settings_env_names(_SRC_DIR)
+    read_names = literal_names | settings_all
+    required_refs = [
+        EnvNameRef(name=n, source="src/ BaseSettings (no default)") for n in sorted(settings_required)
+    ]
+    injected = reconcile(real_declared + declared, read_names, required_refs)
+    assert not injected.ok
+    assert {r.name for r in injected.declared_unread} == {"RATIFICADO", "PASSED"}
+    assert result.ok, "sanity: the un-injected real tree must still be green"
+
+
+def test_every_genuine_declared_name_on_the_real_chart_still_resolves() -> None:
+    """The other half of G3's trade-off: tightening recall must not reintroduce false positives on
+    the real tree — every one of the 91 genuinely declared names must still be read, allowlisted,
+    or deferred (this is `test_real_tree_is_green` restated as an explicit non-regression check
+    tied to G3 by name, so a future reviewer sees why it matters)."""
+    result = _reconcile_real_tree()
+    assert result.ok, result.render()
+    assert result.declared_total >= 90
+
+
+def test_extract_literal_env_names_counts_a_direct_call_argument(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        'import os\nVALUE = os.environ.get("MAEZO_DIRECT_LITERAL_TEST", "x")\n', encoding="utf-8"
+    )
+    assert "MAEZO_DIRECT_LITERAL_TEST" in extract_literal_env_names(tmp_path)
+
+
+def test_extract_literal_env_names_counts_a_constant_resolved_by_name(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        'import os\nENV_NAME: str = "MAEZO_VIA_CONSTANT_TEST"\nVALUE = os.environ.get(ENV_NAME, None)\n',
+        encoding="utf-8",
+    )
+    assert "MAEZO_VIA_CONSTANT_TEST" in extract_literal_env_names(tmp_path)
+
+
+def test_extract_literal_env_names_ignores_a_constant_never_used_as_an_env_key(tmp_path: Path) -> None:
+    """The exact G3 shape: a module-level UPPER_SNAKE_CASE constant that is never the key argument
+    of any env-read call must NOT be counted, even though it satisfies `_NAME_PATTERN`."""
+    (tmp_path / "mod.py").write_text(
+        'STATUS_RATIFICADO = "RATIFICADO"\nprint(STATUS_RATIFICADO)\n', encoding="utf-8"
+    )
+    assert "RATIFICADO" not in extract_literal_env_names(tmp_path)
+
+
+def test_extract_literal_env_names_covers_os_getenv_and_subscript_forms(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        'import os\nA = os.getenv("MAEZO_GETENV_TEST")\nB = os.environ["MAEZO_SUBSCRIPT_TEST"]\n',
+        encoding="utf-8",
+    )
+    read = extract_literal_env_names(tmp_path)
+    assert "MAEZO_GETENV_TEST" in read
+    assert "MAEZO_SUBSCRIPT_TEST" in read
+
+
+def test_module_level_string_constants_resolves_cross_file_by_name() -> None:
+    """`ENV_PHI_ENDPOINT_URL: Final[str] = "MAEZO_PHI_ENDPOINT_URL"` really is defined in one file
+    (`br_regional.py`) and read via `os.environ.get(ENV_PHI_ENDPOINT_URL, "")` in ANOTHER
+    (`br_resident_provider.py`) — the cross-file case this heuristic exists to bridge."""
+    constants = _module_level_string_constants(_SRC_DIR)
+    assert "MAEZO_PHI_ENDPOINT_URL" in constants.get("ENV_PHI_ENDPOINT_URL", set())
+    assert "MAEZO_PHI_ENDPOINT_URL" in extract_literal_env_names(_SRC_DIR)
