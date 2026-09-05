@@ -3,9 +3,12 @@
 LABELED BOUNDARY (disclosed, not fabricated): this is an EXPLICIT, HONEST IN-PROCESS DISPATCH.
 There is no message queue/Kafka producer in this build (`service.py`'s own module docstring:
 "no downstream consumer yet") — each verified inbound WhatsApp message runs Helena's compiled
-graph to completion SYNCHRONOUSLY, within the same request that received it. A queue-backed
-upgrade (so a slow LLM/engine call does not hold the HTTP response open) is a follow-up, not
-built here.
+graph to completion SYNCHRONOUSLY, within the same request that received it, unless the receiver
+is running in ack-then-queue mode (owner decision R-072, `WHATSAPP_WEBHOOK_ACK_THEN_QUEUE`,
+DEFAULT OFF), in which case `app.py` claims the delivery durably, answers Meta first and runs
+this same code in a background task. Still no broker: the durable claim row is the entry leg, and
+`docs/processes/webhook-whatsapp-ack-then-queue.md` states exactly what that does and does not
+buy.
 
 DURABLE MULTI-TURN STATE (T4b, closing the T3.4/F4 boundary #165 left here): the dispatcher is
 now constructed WITH a durable LangGraph checkpointer (`runtime.checkpoint.Checkpointer`, wrapping
@@ -38,11 +41,22 @@ single-channel question (owner decision 9.6) are OPEN owner decisions, not somet
 may imply. A reply that promised a human while starting no escalation would be exactly the
 fabricated-fact pattern this repo's gates exist to prevent.
 
-NO wamid DEDUP (disclosed limitation, `WEBHOOK-WAMID-DEDUP`, owner-gated). Meta retries a webhook
-that did not answer 2xx, and this build has no idempotency store keyed by `wamid`
-(`docs/runbooks/whatsapp-webhook.md` §3 describes one that does not exist). A retried delivery of
-the same non-text message therefore re-sends the ack. That is a duplicate courtesy message, never
-a duplicate adverse effect: the ack starts no process and writes no state.
+wamid DEDUP — TWO LEGS, ONE DELIVERY (gap `WEBHOOK-WAMID-DEDUP`, owner decision R-071 option C,
+2026-09-04). Meta retries a webhook that did not answer 2xx (including one that merely took too
+long), and this module used to state that no idempotency store existed. It exists now, over the
+repurposed `driver_idempotency` table (`platform/driver_idempotency.py`, migration 0010):
+
+  INBOUND leg   `app.py` claims the `wamid` BEFORE calling anything here, so a redelivery never
+                reaches `dispatch`/`acknowledge_non_text` at all.
+  OUTBOUND leg  every send this module performs carries an idempotency key derived from the SAME
+                inbound wamid (`_ScopedWhatsAppSender` -> `WhatsAppServer.send_message`), which
+                covers the window the inbound claim cannot: the claim is released when a turn
+                fails, and a turn can fail AFTER the beneficiary was already answered (e.g. a
+                checkpoint write that raises after `respond`). Without the outbound leg, that
+                redelivery would legitimately re-run the turn and legitimately re-send the reply.
+
+The owner's words for treating them as one act: "mais idempotencia na saida `send`, tratadas como
+uma entrega so".
 
 PHI custody note: no persistent, reversible phone-number vault exists in v2 (ADR-0006 general-
 zone pseudonymization is one-way, `gateway/pseudonymizer.py`). Helena's own graph state NEVER
@@ -59,6 +73,7 @@ into `HelenaState`, never logged, and never persisted past this one dispatch cal
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -74,6 +89,7 @@ from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 from maezo.tools.workers.dmn_transport import DmnTransport
 
+from .dedup import WhatsAppDedupGuard
 from .security import hash_phone
 
 logger = structlog.get_logger(__name__)
@@ -187,10 +203,24 @@ class _ScopedWhatsAppSender:
     """Per-turn WhatsApp sender — closes over the RAW recipient number for exactly one inbound
     turn (module docstring: never stored on `HelenaState`, never persisted past this call)."""
 
-    def __init__(self, *, raw_to: str, expected_hash: str, client: WhatsAppServer) -> None:
+    def __init__(
+        self,
+        *,
+        raw_to: str,
+        expected_hash: str,
+        client: WhatsAppServer,
+        idempotency_key_for: Callable[[int], str] | None = None,
+    ) -> None:
         self._raw_to = raw_to
         self._expected_hash = expected_hash
         self._client = client
+        # OUTBOUND dedup leg (`WEBHOOK-WAMID-DEDUP`). A callable of the send ORDINAL, not a fixed
+        # string: exactly one send exists per inbound message today, but a turn that ever sent two
+        # messages would otherwise have its SECOND suppressed by its own first — a silently
+        # truncated reply. The ordinal restarts at 1 for a re-delivered turn, which is precisely
+        # what makes the replay's first send collide with the original's and be suppressed.
+        self._idempotency_key_for = idempotency_key_for
+        self._sends = 0
 
     async def send(self, to_hash: str, text: str) -> dict[str, Any]:
         if to_hash != self._expected_hash:
@@ -202,7 +232,15 @@ class _ScopedWhatsAppSender:
                 f"WhatsApp send hash mismatch: turn produced {to_hash!r}, dispatch expected "
                 f"{self._expected_hash!r} — refusing to send to an unverified destination"
             )
-        return await self._client.send_message(self._raw_to, text)
+        self._sends += 1
+        if self._idempotency_key_for is None:
+            # No dedup guard wired (unit tests; see `HelenaDispatcher.dedup`). The call stays
+            # BYTE-IDENTICAL to the pre-dedup one so a fake client with the old two-argument
+            # signature keeps working.
+            return await self._client.send_message(self._raw_to, text)
+        return await self._client.send_message(
+            self._raw_to, text, idempotency_key=self._idempotency_key_for(self._sends)
+        )
 
 
 @dataclass
@@ -240,8 +278,27 @@ class HelenaDispatcher:
     # `dispatch()` logs loudly at error level if it is ever absent — a disclosed, test-only
     # affordance, never a silent ungated live path.
     seam_context: SeamContext | None = None
+    # OUTBOUND dedup leg (`WEBHOOK-WAMID-DEDUP`, R-071). The SAME guard `app.py` uses for the
+    # inbound claim, so both legs derive their keys from one pseudonymizer and one tenant. Optional
+    # for the same reason `seam_context` is: the unit tests construct a dispatcher directly. The
+    # production root (`platform/webhooks/service.py::_build_dispatcher`) always supplies it.
+    dedup: WhatsAppDedupGuard | None = None
 
-    def _gated_scoped_sender(self, *, raw_to: str, phone_hash: str, conversation_id: str) -> WhatsAppSender:
+    def _outbound_key_factory(self, message_id: str) -> Callable[[int], str] | None:
+        """The per-send idempotency-key builder for ONE inbound message, or None with no guard."""
+        if self.dedup is None or not message_id:
+            return None
+        guard = self.dedup
+        return lambda occurrence: guard.outbound_key(message_id, occurrence=occurrence)
+
+    def _gated_scoped_sender(
+        self,
+        *,
+        raw_to: str,
+        phone_hash: str,
+        conversation_id: str,
+        idempotency_key_for: Callable[[int], str] | None = None,
+    ) -> WhatsAppSender:
         """Build THE per-turn outbound seam: a scoped sender, wrapped by the effect gate.
 
         ONDA 1 §5.5 / O4: the wrapper's INNER is the scoped sender, so the raw number stays exactly
@@ -263,7 +320,10 @@ class HelenaDispatcher:
         only guard.
         """
         sender: WhatsAppSender = _ScopedWhatsAppSender(
-            raw_to=raw_to, expected_hash=phone_hash, client=self.whatsapp_client
+            raw_to=raw_to,
+            expected_hash=phone_hash,
+            client=self.whatsapp_client,
+            idempotency_key_for=idempotency_key_for,
         )
         if self.seam_context is not None:
             return gate_whatsapp(sender, self.seam_context)
@@ -306,7 +366,10 @@ class HelenaDispatcher:
         phone_hash = hash_phone(message.from_number, self.tenant_id, self.pseudonymizer)
         conversation_id = f"wa:{self.tenant_id}:{phone_hash}"
         sender = self._gated_scoped_sender(
-            raw_to=message.from_number, phone_hash=phone_hash, conversation_id=conversation_id
+            raw_to=message.from_number,
+            phone_hash=phone_hash,
+            conversation_id=conversation_id,
+            idempotency_key_for=self._outbound_key_factory(message.message_id),
         )
         logger.info(
             "whatsapp_non_text_ack_started",
@@ -343,7 +406,10 @@ class HelenaDispatcher:
         beneficiario_pseudo_id = self.pseudonymizer.pseudonymize({"telefone": phone_hash})["telefone"]
 
         sender = self._gated_scoped_sender(
-            raw_to=message.from_number, phone_hash=phone_hash, conversation_id=conversation_id
+            raw_to=message.from_number,
+            phone_hash=phone_hash,
+            conversation_id=conversation_id,
+            idempotency_key_for=self._outbound_key_factory(message.message_id),
         )
         graph = build(
             {
