@@ -15,6 +15,20 @@ tools:                                     # ids EXATOS de MCP servers JA regist
   - mcp-dmn.evaluate                       # pagto_alcada (classifica faixa) / pagto_sla (DMN decide; ADR-0012)
   - mcp-memory.read_write                  # memoria episodica do dossie/coorte (ADR-0002)
   - mcp-fhir.read_patient                  # leitura PHI pseudonimizada SO no caminho do dossie de pagamento (enriquece, best-effort)
+  # AND-S3 (anotacao, 2026-09-04 — CC-03/AND-03): `mcp-fhir.read_patient` acima NAO e um id de tool
+  # registrado num MCP server. `tools/mcp_fhir/server.py::FhirServer` registra DOIS tools apenas
+  # (`read_resource`, `search_resources`); o id granular aqui e (a) o nome da CAPACIDADE que o PEP
+  # decide (`gateway/effect_classes.py` mapeia a operacao `fhir.read_patient` -> classe
+  # `leitura_phi_clinica`, C2) e (b) a chave que `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`
+  # traduz no ADAPTADOR injetado no composition root (`rafael/adapters.py::FhirServerReader`,
+  # embrulhado pelo `GatedFhirReader`). Andre NAO fala com o FHIR pelo Tool Gateway por este id: ele
+  # recebe o leitor JA CONSTRUIDO e JA GATEADO por INJECAO
+  # (`runtime/worker_runtime/service.py` STEP B -> `a2a_composition.build_dossier_delegation_
+  # dispatcher(fhir={"andre": ...})` -> `make_andre_handler(..., fhir=...)` -> `graph.build(config)`),
+  # exatamente como o `PopulationFeatureClient` da nota de allowlist abaixo. Ate 2026-09-04 essa
+  # injecao NAO existia na raiz do dossie e 100% dos dossies caiam no ramo degradado do grafo
+  # ("leitor FHIR nao configurado"); a linha declarativa acima ja estava certa, o wiring e que faltava.
+  # NENHUMA chave declarada muda com esta anotacao.
   # allowlist TIGHT (ADR-0011 / ownership §7): o mcp-datalake (cliente de populacao/lago) e PORT-PENDING
   # (port WB.4 — ainda nao no repo; validate-artifacts hard-falha em MCP server inexistente). Andre NAO
   # fala com o lago via Tool Gateway: ele reasona sobre AGREGADOS k-anon entregues por um cliente INJETADO

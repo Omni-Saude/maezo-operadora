@@ -87,6 +87,17 @@ paths. Defense in depth: the `gather`/`assess` error bails — now reachable ONL
 own missing-context guard — explicitly re-assert `route="human_review"` instead of returning
 `{}`, so the bail is fail-safe by construction even if sanitization were ever regressed.
 
+INPUT-BOUNDARY GATE (T1.11 layer 1 — CC-14/LUC-09a/RAF-13; the sanitization above is layer 2).
+The reset above is a HAND-ENUMERATED list: it neutralizes the output fields somebody remembered
+to list, and a state field added later is silently un-reset AND silently caller-settable. Layer 1
+closes that: `_CALLER_INPUT_FIELDS` declares the complete INPUT half of `MarinaState`, an
+import-time guard REFUSES TO LOAD THE MODULE if any state key is unclassified (or double
+classified), and `new_marina_state` (strict, raises `ValueError` naming the keys) /
+`gate_inbound_state` (lenient, drops + logs key NAMES only) are the two construction seams
+through which an output-only key cannot enter the state dict at all. Marina has no live inbound
+seam in this build (see LABELED BOUNDARIES) — the gate is built now because it is the ordered
+prerequisite for that seam, not after it.
+
 DIVERGENCE FROM DONOR (disclosed, spec wins per this task's charter): the v1 donor lets a
 `glosa_classification` DMN failure pass through silently (glosa_type stays `""`, `assess`
 proceeds straight to `contas_sla`/`glosa_triage`) — safe-by-defense-in-depth only because a later
@@ -122,11 +133,14 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
   only has `__init__`/`adapters`/`graph`/`prompts`) and `grep -n '"marina"' runtime/
   agent_runtime/a2a_composition.py` = 0 hits — handler/registro/origem ausentes, ver RAF-11 do
   fleet audit. Marina's graph is invoked directly with an already-assembled case state, as the
-  unit tests do, rather than via a live delegation envelope.
+  unit tests do, rather than via a live delegation envelope. The T1.11 input-boundary gate
+  (`new_marina_state`/`gate_inbound_state`) is nonetheless present and tested, exactly as
+  Rafael's is, so the seam is gated on the day it lands (CC-02) rather than after.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Literal, Protocol, TypedDict, cast
 
 import structlog
@@ -156,6 +170,8 @@ from .prompts import (
     recurso_prompt,
     reembolso_prompt,
 )
+
+logger = structlog.get_logger(__name__)
 
 # --- Domain enums (mirror the CONTAS/RECURSO/REEMBOLSO contracts + DMN schema) ----------------
 
@@ -349,6 +365,104 @@ def _process_key(state: MarinaState) -> str:
     return PROCESS_KEY_RECURSO if _flow(state) == "recurso" else PROCESS_KEY_CONTAS
 
 
+# --- Input boundary (T1.11 layer 1: partition + constructor) -----------------------------------
+#
+# `MarinaState` carries TWO disjoint classes of key (same split helena/rafael/beatriz/valentina
+# already enforce; added here by CC-14 — marina previously had ONLY the layer-2 reset below):
+#   * INPUT-ONLY  (`_CALLER_INPUT_FIELDS`): the ONLY keys a caller/upstream (a future A2A
+#     `glosa.analyze`/`recurso.analyze`/`reembolso.analyze` delegation seam, the portal-TISS
+#     worker) may set — the flow selector, the runtime identifiers, each flow's contract inputs,
+#     and the PRE-RESOLVED worker/BRT facts this graph legitimately CONSUMES (never computes;
+#     module docstring's L0-hard invariant).
+#   * OUTPUT-ONLY (`_output_field_resets()`): keys OWNED by this graph's nodes (route, the DMN
+#     verdicts, sla_*, dmn_refs, dossier, process_*, desfecho, error). A caller must NEVER set
+#     one — a planted output field is an injection, and on this graph it is the one that starts
+#     REAL SP-OP-CONTAS-001/SP-OP-RECURSO-001 instances (module docstring
+#     §CALLER-PLANTED-OUTPUT SANITIZATION).
+#
+# PER-FLOW SHAPE (mirrors `agents/valentina/graph.py` and `agents/andre/graph.py`, which also
+# carry a flow/task selector): the set is the UNION over the three flows, grouped by flow below,
+# not a per-flow dict. Rationale — the flow selector `flow` is itself caller-supplied, so a
+# per-flow narrowing would be gated by the very value the caller controls, buying no security
+# while manufacturing a second source of truth to drift. What the union DOES guarantee is the
+# property that matters: no OUTPUT-only key can enter the state dict under any flow. A
+# `recurso` turn carrying a stray CONTAS input is a benign upstream mis-fill and is already
+# ignored by `_business_key`/`_contract_variables`, which read only the active flow's fields.
+#
+# TWO defenses, both fail-closed:
+#   1. Per-graph entry sanitization (layer 2, pre-existing) — `receive` resets EVERY output-only
+#      field to its neutral default before any downstream node runs.
+#   2. Input-boundary gate (layer 1, THIS block) — a construction seam assembles state ONLY
+#      through the typed `new_marina_state` constructor or the `gate_inbound_state` allowlist
+#      filter, so an output-only key can never enter the state dict at all. Marina has NO live
+#      A2A/delegation seam in this build (module docstring's labeled boundary: the graph is
+#      invoked directly with an already-assembled case state, as the unit tests do); the gate is
+#      provided HERE so it is enforced the moment that seam lands (CC-02).
+#
+# The completeness guard below fails at IMPORT TIME if a newly added `MarinaState` field is not
+# classified into exactly one of the two sets — "any missed key is a hole". That is what the
+# hand-enumerated `_output_field_resets` alone could not give: a forgotten new field used to be
+# silently un-reset AND silently caller-settable.
+_CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
+    {
+        # Flow selector (decides process, DMN chain, human group).
+        "flow",
+        # Runtime identifiers / task origin.
+        "tenant_id",
+        "canal",
+        "beneficiario_pseudo_id",
+        "prestador_id",
+        # --- CONTAS inputs (SP-OP-CONTAS-001) + its pre-resolved worker facts ---
+        "numero_lote_tiss",
+        "numero_guia_tiss",
+        "numero_conta",
+        "competencia",
+        "data_recebimento_lote",
+        "valor_apresentado_brl",
+        "tipo_lote",
+        "linhas_conta_refs",
+        "reason_codes_tiss",
+        "divergencia_valor",
+        "item_conforme_tabela",
+        "documentacao_anexa",
+        "denial_ratio",
+        "indicio_fraude_sinalizado",
+        # --- RECURSO inputs (SP-OP-RECURSO-001) + its pre-resolved worker facts ---
+        "glosa_id",
+        "glosa_type",
+        "glosa_reason_code",
+        "valor_glosado_brl",
+        "codigo_procedimento_tuss",
+        "cid10",
+        "documentos_recurso_refs",
+        "data_ciencia_alegada_prestador",
+        "data_recebimento_recurso_iso",
+        "glosa_existe",
+        "dentro_prazo_recurso",
+        "documentacao_recurso_completa",
+        # --- REEMBOLSO inputs (SP-OP-REEMBOLSO-001) ---
+        # The booleans/`valor_calculado_tabela_cents` are outputs of the PROCESS's OWN
+        # BusinessRuleTasks (BRT_Admissibilidade/BRT_Calculo/BRT_AutoApproval) computed BEFORE
+        # this hop — inputs FROM MARINA'S POINT OF VIEW, which she REPORTS and never recomputes.
+        "protocolo_reembolso",
+        "tipo_reembolso",
+        "categoria_procedimento",
+        "valor_solicitado_cents",
+        "cobertura_prevista",
+        "documentacao_completa",
+        "dentro_prazo",
+        "beneficiario_ativo",
+        "carencia_cumprida",
+        "dentro_tabela",
+        "dentro_teto_l2",
+        "requer_avaliacao_clinica",
+        "valor_calculado_tabela_cents",
+        # FHIR reference consumed by `gather` (a pointer, never raw PHI).
+        "patient_summary_ref",
+    }
+)
+
+
 def _output_field_resets() -> dict[str, Any]:
     """Benign reset values for EVERY output-only `MarinaState` field — applied unconditionally at
     `receive` entry (R1 cycle-1 fix; module docstring §CALLER-PLANTED-OUTPUT SANITIZATION).
@@ -390,6 +504,69 @@ def _output_field_resets() -> dict[str, Any]:
         "process_started": False,
         "process_ref": {},
     }
+
+
+_MARINA_ALL_FIELDS: frozenset[str] = _CALLER_INPUT_FIELDS | frozenset(_output_field_resets())
+if frozenset(MarinaState.__annotations__) != _MARINA_ALL_FIELDS:
+    _unclassified = frozenset(MarinaState.__annotations__) - _MARINA_ALL_FIELDS
+    _stale = _MARINA_ALL_FIELDS - frozenset(MarinaState.__annotations__)
+    raise RuntimeError(
+        "MarinaState input/output field split is incomplete (T1.11 input-boundary gate, CC-14): "
+        f"unclassified fields={sorted(_unclassified)} stale entries={sorted(_stale)} — every "
+        "MarinaState key MUST be either a `_CALLER_INPUT_FIELDS` member or carry a neutral "
+        "default in `_output_field_resets()`."
+    )
+if _CALLER_INPUT_FIELDS & frozenset(_output_field_resets()):
+    raise RuntimeError(
+        "MarinaState field classified as BOTH input and output (T1.11 input-boundary gate, "
+        f"CC-14): {sorted(_CALLER_INPUT_FIELDS & frozenset(_output_field_resets()))}"
+    )
+
+
+def new_marina_state(raw: Mapping[str, Any]) -> MarinaState:
+    """Typed input-boundary constructor for a fresh Marina case (T1.11 layer 1).
+
+    Accepts a raw mapping — the shape a future A2A `glosa.analyze`/`recurso.analyze`/
+    `reembolso.analyze` delegation envelope or the portal-TISS worker would hand over — and
+    returns a `MarinaState` containing ONLY `_CALLER_INPUT_FIELDS` keys.
+
+    An unknown key is a HARD ERROR, and the error NAMES the offending keys. Unlike a lenient
+    public ingestion edge, a delegation seam is an INTERNAL contract: a stray key means a
+    producer bug (or an injection attempt at the one graph in this fleet that starts real
+    SP-OP-CONTAS-001/SP-OP-RECURSO-001 instances), and it must fail closed, LOUDLY, rather than
+    be silently tolerated. Mirrors `agents/rafael/graph.py::new_rafael_state` exactly.
+
+    NOTE the two error classes are deliberately NOT distinguished in the message beyond the key
+    list: an output-only key and a wholly-unknown key are both "not a legitimate caller input",
+    and telling a hostile caller which of its keys the state model recognizes would be a hint it
+    does not need.
+    """
+    unknown = sorted(k for k in raw if k not in _CALLER_INPUT_FIELDS)
+    if unknown:
+        raise ValueError(
+            "new_marina_state received non-input keys (T1.11 input-boundary gate): "
+            f"{unknown} — only `_CALLER_INPUT_FIELDS` may be set by a caller/delegation seam; "
+            "output-only fields are owned by Marina's graph nodes."
+        )
+    return cast(MarinaState, {k: raw[k] for k in _CALLER_INPUT_FIELDS if k in raw})
+
+
+def gate_inbound_state(raw: Mapping[str, Any]) -> MarinaState:
+    """Fail-closed input allowlist (drop-and-log variant of `new_marina_state`).
+
+    Only `_CALLER_INPUT_FIELDS` keys survive; every other key — any caller-planted output field,
+    any unknown key — is DROPPED and LOGGED. Use where tolerating benign upstream drift is
+    preferable to raising (a lenient ingestion edge); use `new_marina_state` on a strict internal
+    delegation seam.
+
+    LOG HYGIENE: the event carries the dropped KEY NAMES only, never their values — a planted
+    value is unbounded caller-controlled content and could carry PHI (Zona PHI, ADR-0006), the
+    same rule this graph applies to failure reasons in engine-bound variables.
+    """
+    dropped = sorted(k for k in raw if k not in _CALLER_INPUT_FIELDS)
+    if dropped:
+        logger.warning("marina_inbound_output_fields_dropped", dropped=dropped)
+    return cast(MarinaState, {k: raw[k] for k in _CALLER_INPUT_FIELDS if k in raw})
 
 
 class MarinaGraph:
