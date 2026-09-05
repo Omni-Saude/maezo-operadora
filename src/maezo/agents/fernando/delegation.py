@@ -12,18 +12,23 @@ missing TARGET half, mirroring the LIVE Rafael/Carolina/Andre exemplars end to e
 (`agents/carolina/delegation.py` is the closest structural twin — inadimplencia case facts
 instead of credentialing ones, same PHI/idempotency/HandlerOutput shape):
 
-- ORIGIN side (`delegate_arrears_followup` / `build_arrears_followup_envelope`): what a future
-  caller — the `operadora.inadimplencia.prepare_dossier` worker
-  (`tools/workers/inadimplencia.py`), from INSIDE a running SP-OP-INADIMPLENCIA-001 instance —
-  would call to actually originate the delegation. **NOT WIRED from that worker in this change**:
-  `tools/workers/` is outside this work package's editable surface (hard constraint) — the
-  origin function is built and tested here, ready for that one-line call site addition, but the
-  call site itself is the explicit STOP boundary this gap-closure session reports.
+- ORIGIN side (`delegate_arrears_followup` / `build_arrears_followup_envelope`): what the
+  `operadora.inadimplencia.prepare_dossier` worker (`tools/workers/inadimplencia.py`), from
+  INSIDE a running SP-OP-INADIMPLENCIA-001 instance, would call to actually originate the
+  delegation. **STILL NOT WIRED from that worker** (2026-09-05): owner decision R-081 authorized
+  it, but that worker is registered as a SYNC `FunctionWorker` and originating an A2A delegation
+  from it means converting it to the raw-async handler form
+  (`tools/workers/credenciamento.py::make_prepare_dossier_handler` is the sanctioned precedent)
+  plus threading the dossier dispatcher through `register_inadimplencia_workers` — the remaining
+  half of R-081, recorded in `docs/review-queue.md`. The origin function is built and tested
+  here; nothing in production calls it yet.
 - TARGET side (`state_from_envelope` + `make_fernando_handler`): the handler compiles Fernando's
   REAL graph (`agents.fernando.graph.build(config)`, fail-closed on missing `inference`/`dmn`/
-  `cibseven`/`audit_sink`) and runs it with envelope-materialized state — this half IS complete
-  and tested, and is registered with the SAME readiness-check composition Rafael/Carolina/Andre
-  already use (`runtime.agent_runtime.a2a_composition`).
+  `cibseven`/`audit_sink`/`whatsapp`) and runs it with envelope-materialized state — this half IS
+  complete, tested, and REGISTERED since 2026-09-05 (R-081) in
+  `runtime.agent_runtime.a2a_composition::build_dossier_delegation_dispatcher`'s
+  `handlers={...}`, alongside Carolina and Andre. So the edge is REACHABLE; it is simply not
+  reached until the origin half above lands.
 
 Idempotency (Guard 4): `task_id` IS the SP-OP-INADIMPLENCIA-001 business key
 (`fernando.graph._business_key`'s own derivation — `INAD-{tenant}-{numero_contrato}`, falling
@@ -221,7 +226,8 @@ async def delegate_arrears_followup(
 ) -> DelegationResult:
     """Originate and dispatch the worker->Fernando delegation. Idempotent by `task_id`.
 
-    NOT CALLED from `tools/workers/inadimplencia.py` yet — see module docstring's STOP boundary.
+    NOT CALLED from `tools/workers/inadimplencia.py` yet — the TARGET is registered (R-081) but
+    this ORIGIN half is not; see the module docstring.
     Returns the dispatcher's structured `DelegationResult` (success with `output_ref` = the
     case's process reference + `meta` = Fernando's bounded routing summary, or a structured
     rejection — never a raise out of the dispatcher). On re-delivery of the same `task_id`,
@@ -329,10 +335,10 @@ def make_fernando_handler(
     whatsapp: WhatsAppSender,
     agent_version: str = "fernando@v0",
 ) -> Callable[[DelegationEnvelope], Awaitable[HandlerOutput]]:
-    """Build Fernando's A2A handler (delegation target). A future worker-runtime composition
-    root registers it with the dispatcher (`handlers={"fernando": ...}`), mirroring
-    `runtime.agent_runtime.a2a_composition`'s existing `handlers={"carolina": ..., "andre": ...}`
-    wiring exactly.
+    """Build Fernando's A2A handler (delegation target). The worker-runtime composition root
+    registers it with the dispatcher (`handlers={..., "fernando": ...}`, since 2026-09-05 / owner
+    decision R-081), alongside `runtime.agent_runtime.a2a_composition`'s pre-existing
+    `handlers={"carolina": ..., "andre": ...}` wiring.
 
     Compiles the REAL Fernando graph via `fernando.graph.build(config)` (the same fail-closed
     contract every other caller goes through — `inference`/`dmn`/`cibseven`/`audit_sink`/

@@ -90,11 +90,13 @@ from maezo.a2a.outbox import build_outbox_fact_producer
 from maezo.agents.andre.delegation import make_andre_handler
 from maezo.agents.andre.graph import PopulationFeatureClient
 from maezo.agents.carolina.delegation import make_carolina_handler
+from maezo.agents.fernando.delegation import make_fernando_handler
 from maezo.agents.rafael.delegation import make_rafael_handler
 from maezo.gateway.tool_registry import (
     build_a2a_seam,
     build_agent_seam_context,
     build_inference_seam,
+    build_whatsapp_seam,
     build_worker_seam_context,
 )
 from maezo.runtime.inference import InferenceProvider
@@ -118,9 +120,22 @@ _EDGE_AGENT_IDS = ("helena", "rafael")
 #:   `operadora.pagto.prepare_approval_dossier`     -> Andre, `pagto-worker` origin -> his DEFAULT
 #:        `pagto_dossier` flow (added this wave — the AGENT set is unchanged, Andre's handler and
 #:        card already accept the shared type; only a THIRD origin now routes to him)
-#: The ORIGINS are workers (`credenciamento-worker`/`adequacao-worker`/`pagto-worker`), not
-#: agents — the dispatcher validates only the TARGET's Card, so no origin card exists or is needed.
-_DOSSIER_EDGE_AGENT_IDS = ("carolina", "andre")
+#:   `operadora.inadimplencia.prepare_dossier`     -> Fernando (`arrears.followup`), REGISTERED
+#:        by owner decision R-081 (gap `FERNANDO-DELEGATION-CALL-SITE`, approved 2026-09-04:
+#:        "SIM — ligar o call site em `inadimplencia.py::prepare_dossier` e registrar
+#:        `make_fernando_handler` em `a2a_composition.py`, com a chamada fail-neutral"). ONLY the
+#:        REGISTRATION half landed here; the ORIGIN call site is still absent, so this target is
+#:        REACHABLE but not yet REACHED — see `build_dossier_delegation_dispatcher`'s docstring.
+#: The ORIGINS are workers (`credenciamento-worker`/`adequacao-worker`/`pagto-worker`/
+#: `inadimplencia-worker`), not agents — the dispatcher validates only the TARGET's Card, so no
+#: origin card exists or is needed.
+_DOSSIER_EDGE_AGENT_IDS = ("carolina", "andre", "fernando")
+
+#: The subset of `_DOSSIER_EDGE_AGENT_IDS` whose graph declares a FHIR reader seam (CC-03/AND-03).
+#: Fernando's `build(config)` has NO `fhir` key at all (`agents/fernando/graph.py`), so accepting
+#: `fhir={"fernando": reader}` would silently swallow a reader nothing can consume — the same
+#: species of silent-degradation defect the unknown-key check below exists to refuse.
+_DOSSIER_EDGE_FHIR_AGENT_IDS = ("carolina", "andre")
 
 
 class FhirSummaryReader(Protocol):
@@ -727,6 +742,22 @@ def build_dossier_delegation_dispatcher(
     root's agent set or handler map — Andre's card already accepts `analytics.population` and his
     handler routes by origin, so the third edge is served by construction.
 
+    FERNANDO (`arrears.followup`) — REGISTERED, NOT YET ORIGINATED (owner decision R-081, gap
+    `FERNANDO-DELEGATION-CALL-SITE`, approved 2026-09-04). His handler is now in the map, so an
+    `arrears.followup` envelope delivered to this dispatcher routes into Fernando's REAL graph
+    instead of being refused for want of a handler. The OTHER half of R-081 — the ORIGIN call
+    site, `operadora.inadimplencia.prepare_dossier` actually calling `delegate_arrears_followup`
+    — did NOT land with it: that worker is still a SYNC `FunctionWorker`
+    (`tools/workers/inadimplencia.py::register_inadimplencia_workers`, `FunctionWorker(
+    "operadora.inadimplencia.prepare_dossier", prepare_dossier)`), and originating an A2A
+    delegation from it means converting it to the raw-async handler form
+    (`tools/workers/credenciamento.py::make_prepare_dossier_handler` is the sanctioned precedent)
+    and threading `dossier_dispatcher` through `register_inadimplencia_workers` — a change to the
+    inadimplencia worker's own surface, tracked as the remaining half of R-081 in
+    `docs/review-queue.md`. Until it lands, THIS edge is reachable and unreached: no production
+    code path delegates `arrears.followup`, exactly as `test_agent_card_handlers_parity.py`'s
+    module docstring says registration and liveness are different questions.
+
     Deps are INJECTED (not re-built here): the worker daemon already constructs the exact seams
     both target graphs need — `dmn` (`CibSevenDmnTransport`, fresh-client-per-call, loop-safe),
     `cibseven` (`FreshClientCibSevenTransport`, ditto) and `audit_sink` (the pooled
@@ -780,13 +811,13 @@ def build_dossier_delegation_dispatcher(
     from a default nobody reads.
     """
     fhir_by_agent = dict(fhir or {})
-    unknown_agents = sorted(set(fhir_by_agent) - set(_DOSSIER_EDGE_AGENT_IDS))
+    unknown_agents = sorted(set(fhir_by_agent) - set(_DOSSIER_EDGE_FHIR_AGENT_IDS))
     if unknown_agents:
         raise ValueError(
             f"cannot assemble the A2A dossier delegation edges: fhir map names agents this edge "
-            f"does not serve: {unknown_agents} (serves {list(_DOSSIER_EDGE_AGENT_IDS)}) — a "
-            "misspelled key would silently degrade the dossier, which is the defect CC-03/AND-03 "
-            "closed"
+            f"does not serve a FHIR seam to: {unknown_agents} (serves "
+            f"{list(_DOSSIER_EDGE_FHIR_AGENT_IDS)}) — a misspelled key would silently degrade the "
+            "dossier, which is the defect CC-03/AND-03 closed"
         )
     if dmn is None or cibseven is None or audit_sink is None:
         missing = [
@@ -801,7 +832,7 @@ def build_dossier_delegation_dispatcher(
         )
 
     signer = _require_signer_or_fail_closed(
-        runtime_mode=runtime_mode, tenant=tenant, edge="worker->Carolina/Andre dossier"
+        runtime_mode=runtime_mode, tenant=tenant, edge="worker->Carolina/Andre/Fernando dossier"
     )
     cards = build_agent_cards(tenant, _DOSSIER_EDGE_AGENT_IDS, signer=signer)
 
@@ -810,7 +841,7 @@ def build_dossier_delegation_dispatcher(
     # (`origin_signer_of`) and sign at construction, so the LIVE worker path produces SIGNED
     # envelopes the wired verifier admits (no per-worker wiring change). Fail-closed the same way.
     envelope_signer, envelope_verifier = _require_envelope_signing_or_fail_closed(
-        runtime_mode=runtime_mode, tenant=tenant, edge="worker->Carolina/Andre dossier"
+        runtime_mode=runtime_mode, tenant=tenant, edge="worker->Carolina/Andre/Fernando dossier"
     )
 
     # ONDA 1 §5.5 / C-A2, second of the two independent constructions: the dossier edge's LLM seam
@@ -838,6 +869,20 @@ def build_dossier_delegation_dispatcher(
         # BLOCKED(external WB.4) — see this function's docstring. Explicit, never omitted.
         population=population,
     )
+    # R-081: Fernando's `build(config)` fail-closes without a `whatsapp` sender because `notify()`
+    # is a real node in his graph. On THIS seam that branch is STRUCTURALLY unreachable —
+    # `agents/fernando/delegation.py::state_from_envelope` always sets `canal="a2a"` and
+    # `graph.py::notify` only sends when `canal == "whatsapp"` — so the seam is DECLARED and never
+    # touched, the same posture every other `build(config)` caller takes with a branch it does not
+    # exercise. Built through the ONE sanctioned constructor (`build_whatsapp_seam`), gated on the
+    # worker seam like the LLM above, never a hand-rolled or fabricated sender.
+    fernando_handler: AgentHandler = make_fernando_handler(
+        llm,
+        dmn=dmn,
+        cibseven=cibseven,
+        audit_sink=audit_sink,
+        whatsapp=build_whatsapp_seam(seam=worker_seam, adapter="fernando"),
+    )
 
     # Facts are DURABLE now (module docstring). This root is where the gate genuinely bites:
     # `database_url` is INDEPENDENT of the injected `audit_sink`, so "audit sink present, DSN
@@ -848,7 +893,7 @@ def build_dossier_delegation_dispatcher(
         or _require_fact_producer_or_fail_closed(
             runtime_mode=runtime_mode,
             tenant=tenant,
-            edge="worker->Carolina/Andre dossier",
+            edge="worker->Carolina/Andre/Fernando dossier",
             database_url=database_url,
         )
     )
@@ -860,7 +905,7 @@ def build_dossier_delegation_dispatcher(
     idempotency = _require_idempotency_store_or_fail_closed(
         runtime_mode=runtime_mode,
         tenant=tenant,
-        edge="worker->Carolina/Andre dossier",
+        edge="worker->Carolina/Andre/Fernando dossier",
         database_url=database_url,
     )
 
@@ -883,7 +928,11 @@ def build_dossier_delegation_dispatcher(
         inner=build_dispatcher(
             tenant=tenant,
             cards=cards,
-            handlers={"carolina": carolina_handler, "andre": andre_handler},
+            handlers={
+                "carolina": carolina_handler,
+                "andre": andre_handler,
+                "fernando": fernando_handler,
+            },
             audit=audit_sink,
             facts=facts,
             idempotency=idempotency,

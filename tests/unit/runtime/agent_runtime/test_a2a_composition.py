@@ -26,6 +26,7 @@ the originator. Live-PG durable-replay proof is DEFERRED to the PR CI lane (no d
 
 from __future__ import annotations
 
+import textwrap
 from typing import Any
 
 import pytest
@@ -35,6 +36,7 @@ from tests.unit.a2a.fakes import LabeledFakeTenantKeyset, RecordingProducer
 from maezo.a2a import TOPIC_COMPLETED, TOPIC_REQUESTED, CardSigner, per_tenant_key_env_var
 from maezo.agents.andre.delegation import delegate_adequacao_dossier
 from maezo.agents.carolina.delegation import delegate_cred_dossier
+from maezo.agents.fernando.delegation import delegate_arrears_followup
 from maezo.runtime.agent_runtime import a2a_composition
 from maezo.runtime.agent_runtime.a2a_composition import (
     ALLOW_UNSIGNED_CARDS_ENV_VAR,
@@ -365,3 +367,84 @@ async def test_dossier_dispatcher_routes_adequacao_edge_with_shared_task_type(
     assert result.meta["route"] == "human_review"
     assert result.meta["grupo_destino"] == "gestao-rede"
     assert result.meta["process_started"] == "False"
+
+
+async def test_dossier_dispatcher_routes_the_registered_fernando_edge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R-081: `arrears.followup` chega ao grafo REAL de Fernando pela raiz de composicao.
+
+    ANTES desta mudanca `make_fernando_handler` nao estava em `handlers={...}` (nem fernando em
+    `_DOSSIER_EDGE_AGENT_IDS`), entao este envelope morria no dispatcher — o alvo existia, era
+    testado, e nada podia alcanca-lo. Este teste e' a prova de que a metade de REGISTRO da decisao
+    do dono aterrissou: nao ha' `make_fernando_handler` construido aqui, so' a raiz de producao.
+
+    O caminho `intencao="rescisao"` (J3) e' escolhido de proposito: ele NUNCA consulta DMN
+    (`agents/fernando/graph.py`), entao o `FakeDmnTransport` de `_dossier_deps()` — que registra
+    so' as tabelas de credenciamento — basta, e o turno chega ao `start_process` de verdade.
+
+    A metade de ORIGEM (`operadora.inadimplencia.prepare_dossier` chamando
+    `delegate_arrears_followup`) NAO aterrissou: nenhum worker de producao origina esta aresta
+    hoje. Este teste afirma ALCANCABILIDADE, nunca liveness — a mesma distincao que
+    `tests/unit/a2a/test_agent_card_handlers_parity.py` faz no seu docstring.
+    """
+    monkeypatch.setenv(_SIGNING_KEY_ENV, _VALID_KEY)
+    producer = RecordingProducer()
+    dispatcher = build_dossier_delegation_dispatcher(
+        tenant="amh", runtime_mode="local", kafka_producer=producer, **_dossier_deps()
+    )
+
+    result = await delegate_arrears_followup(
+        dispatcher,
+        tenant="amh",
+        numero_contrato="CTR-COMP-1",
+        case_meta={
+            "intencao": "rescisao",
+            "tipo_plano": "individual",
+            "meses_inadimplencia": 3,
+            "valor_total_devido_cents": 30000,
+            "ja_em_rescisao_cancel": False,
+        },
+    )
+
+    assert result.success is True
+    assert result.output_ref == "process://INAD-amh-CTR-COMP-1"
+    assert result.meta["route"] == "escalate"
+    assert result.meta["motivo_humano"] == "indicio_rescisao"
+    assert result.meta["process_started"] == "True"
+    # O dossie NUNCA viaja pela costura: `meta` so' carrega tokens de classe.
+    assert "dossier" not in result.meta and "dossie" not in str(dict(result.meta)).lower()
+
+    # Guard 4: a reentrega do mesmo `task_id` replica sem reexecutar Fernando.
+    replay = await delegate_arrears_followup(
+        dispatcher,
+        tenant="amh",
+        numero_contrato="CTR-COMP-1",
+        case_meta={"intencao": "rescisao", "ja_em_rescisao_cancel": False},
+    )
+    assert replay.idempotent_replay is True
+    assert replay.output_ref == result.output_ref
+
+    assert producer.topics() == [TOPIC_REQUESTED, TOPIC_COMPLETED]
+
+
+def test_the_dossier_edge_registers_exactly_its_declared_agent_set() -> None:
+    """Nao-vacuidade do teste acima: o mapa de handlers da raiz e' EXATAMENTE
+    `_DOSSIER_EDGE_AGENT_IDS`. Sem esta cerca, um handler acrescentado ao mapa sem entrar na
+    tupla (ou o contrario) passaria despercebido — a tupla e' o que assina os Cards
+    (`build_agent_cards`), e um Card sem handler e' um envelope aceito que nada serve."""
+    import ast
+    import inspect
+
+    fonte = inspect.getsource(a2a_composition.build_dossier_delegation_dispatcher)
+    arvore = ast.parse(textwrap.dedent(fonte))
+    registrados: set[str] = set()
+    for no in ast.walk(arvore):
+        if not isinstance(no, ast.Call):
+            continue
+        for kw in no.keywords:
+            if kw.arg == "handlers" and isinstance(kw.value, ast.Dict):
+                registrados |= {
+                    k.value for k in kw.value.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)
+                }
+    assert registrados == set(a2a_composition._DOSSIER_EDGE_AGENT_IDS) == {"carolina", "andre", "fernando"}

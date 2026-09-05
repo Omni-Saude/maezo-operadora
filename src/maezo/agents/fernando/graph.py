@@ -114,28 +114,27 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   wire at all any more: `0009_drop_pgvector` removed the column, and ADR-0002 §3 is SUSPENDED
   pending a consumer (ADR-0047, DRAFT). The donor's `finalize`/memory node has no v2 analog
   here.
-- A2A inbound delegation (`arrears.followup`, Lucas -> Fernando, `spec/agents/fernando/
-  agent.yaml`'s `accepted_task_types`) is NOT wired. CORRECTED (GAP 11.7, re-checked this
-  session): the reason is NOT that `v2`'s `a2a/` package lacks `DelegationEnvelope`/
-  `DelegationDispatcher` — both exist and are fully built/tested (`a2a/delegation.py`,
-  `a2a/dispatcher.py`, exported from `maezo.a2a`), and THREE agents (Rafael/Carolina/Andre) DO
-  have a real `make_<agent>_handler` wired into a real `build_dispatcher(...)` call
-  (`runtime/agent_runtime/a2a_composition.py:618,672,762,765,808`). What is missing for Fernando
-  specifically is its own handler: no `make_fernando_handler` exists anywhere in this repo
-  (`grep -rn 'make_fernando_handler' src/maezo/` — 0 hits) — mirrors the shape of Rafael's/
-  Carolina's/Andre's, none built yet. Two further, more consequential findings this correction
-  surfaces: (1) even where a handler IS wired (Rafael/Carolina/Andre), `a2a_composition.py`
-  only CONSTRUCTS the dispatcher as a daemon readiness check — the ORIGINATION side is real for
-  three agents (Rafael/Carolina/Andre each have a `delegate_<x>(...)` helper that DOES call
-  `dispatcher.delegate(envelope)`, called in turn from a real BPMN external-task worker —
-  `tools/workers/credenciamento.py`/`adequacao.py`/`pagto.py` — so those three DO execute live,
-  engine-triggered delegations in production) but NO SUCH ORIGIN EXISTS for Fernando: this
-  session ADDS the missing TARGET half (`agents/fernando/delegation.py`,
-  `make_fernando_handler`/`state_from_envelope`, mirroring Carolina's exact pattern) but the
-  ORIGIN call (`operadora.inadimplencia.prepare_dossier` actually calling a new
-  `delegate_arrears_followup(...)`) lives in `tools/workers/inadimplencia.py`, which this work
-  package's hard constraints explicitly forbid editing — STOPPED there, listed precisely in the
-  gap-closure report; (2) neither this graph nor `agents/lucas/graph.py` is ever invoked (a
+- A2A inbound delegation (`arrears.followup`, `spec/agents/fernando/agent.yaml`'s
+  `accepted_task_types`) is REGISTERED but not yet ORIGINATED. UPDATED 2026-09-05 (owner decision
+  R-081, gap `FERNANDO-DELEGATION-CALL-SITE`) — the two earlier claims below this line were both
+  overtaken and are corrected here rather than left to rot: (a) "no `make_fernando_handler` exists
+  anywhere in this repo" is FALSE since `agents/fernando/delegation.py` landed
+  (`make_fernando_handler`/`state_from_envelope`, mirroring Carolina's pattern); (b) "NOT wired"
+  is now FALSE for the REGISTRATION half — `runtime/agent_runtime/a2a_composition.py::
+  build_dossier_delegation_dispatcher` registers `handlers={..., "fernando": fernando_handler}`
+  and `_DOSSIER_EDGE_AGENT_IDS` includes him, so an `arrears.followup` envelope delivered to that
+  dispatcher REACHES this graph (proved end to end by `tests/unit/runtime/agent_runtime/
+  test_a2a_composition.py::test_dossier_dispatcher_routes_the_registered_fernando_edge`). What is
+  STILL missing is the ORIGIN call: `operadora.inadimplencia.prepare_dossier` does not call
+  `delegate_arrears_followup(...)`, because that worker is still a sync `FunctionWorker`
+  (`tools/workers/inadimplencia.py::register_inadimplencia_workers`) and originating an A2A
+  delegation from it means converting it to the raw-async handler form
+  (`tools/workers/credenciamento.py::make_prepare_dossier_handler` is the precedent) and threading
+  the dossier dispatcher through — the remaining half of R-081, recorded in
+  `docs/review-queue.md`. Lucas is explicitly NOT the origin (owner decision R-082: no new A2A
+  contract for Lucas until a journey names the consumer), which is why this line no longer says
+  "Lucas -> Fernando". The second finding the original correction surfaced still stands: neither
+  this graph nor `agents/lucas/graph.py` is invoked (a
   turn executed) by ANY production code path at all — not through a static import (0 hits
   outside each package's own directory) and not through the dynamic `Harness.create_graph`/
   `_load_agent_graph` path either, which is used EXCLUSIVELY by `runtime/agent_runtime/

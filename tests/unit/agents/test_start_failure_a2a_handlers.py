@@ -175,18 +175,50 @@ async def test_dispatcher_still_completes_a_successful_start() -> None:
     assert "COMPLETED" in [record.decision for (record, _) in sink.emitted]
 
 
-@pytest.mark.parametrize("agent_id", ["rafael", "carolina", "andre", "fernando"])
+#: O conjunto GUARDADO: todo agente cujo `delegation.py` roda um grafo (`ainvoke`) E cujo
+#: `graph.py` registra um no `start_process` — isto e', todo handler A2A capaz de devolver um
+#: estado com `start_failed=True`. Curado a mao aqui e conferido contra um walk AST independente
+#: por `test_the_guarded_set_is_exactly_the_handlers_whose_graph_starts_a_process` abaixo, de modo
+#: que um agente novo (ou um que ganhe um no `start_process`) nao possa entrar calado.
+#:
+#: `beatriz` fica de fora POR ESTRUTURA, nao por esquecimento: seu grafo nao registra no
+#: `start_process` nenhum (`agents/beatriz/graph.py` so' tem `receive`/`gather`/
+#: `instruct_investigation`/`finalize`; o proprio `agents/beatriz/graph.py` declara
+#: "never calls `start_process` (L0 structural — no conditional edge exists)"), entao
+#: `start_failed` nunca pode aparecer no estado que o handler dela recebe e nao ha' o que guardar.
+#: E' o mesmo motivo pelo qual ela e' pulada pela cerca estrutural irma
+#: (`test_start_failure_routing.py::test_every_start_process_node_routes_to_notify_start_failure`).
+#: `helena` fica de fora por outro motivo estrutural: ela ORIGINA delegacoes e seu `delegation.py`
+#: nao roda grafo algum (zero chamadas a `ainvoke`).
+_GUARDED_DELEGATION_AGENT_IDS = [
+    "andre",
+    "carolina",
+    "fernando",
+    "gustavo",
+    "marina",
+    "rafael",
+    "valentina",
+]
+
+
+def _delegation_tree(agent_id: str) -> Any:
+    import ast
+    import importlib
+    from pathlib import Path
+
+    modulo = importlib.import_module(f"maezo.agents.{agent_id}.delegation")
+    return ast.parse(Path(modulo.__file__).read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("agent_id", _GUARDED_DELEGATION_AGENT_IDS)
 def test_every_live_delegation_handler_refuses_to_report_a_failed_start(agent_id: str) -> None:
     """Cerca duravel: todo handler A2A VIVO (o que roda um grafo por `ainvoke`) tem de levantar
     `StartProcessFailedError`. Um handler novo que devolva `HandlerOutput` sobre um estado
     marcado com `start_failed` reintroduz RAF-02 e quebra aqui.
     """
     import ast
-    import importlib
-    from pathlib import Path
 
-    modulo = importlib.import_module(f"maezo.agents.{agent_id}.delegation")
-    tree = ast.parse(Path(modulo.__file__).read_text(encoding="utf-8"))
+    tree = _delegation_tree(agent_id)
     assert any(
         isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "ainvoke"
         for n in ast.walk(tree)
@@ -199,4 +231,64 @@ def test_every_live_delegation_handler_refuses_to_report_a_failed_start(agent_id
     assert "StartProcessFailedError" in levantadas, (
         f"{agent_id}/delegation.py nao levanta StartProcessFailedError — um start falho voltaria "
         "ao dispatcher como sucesso e seria selado por task_id (RAF-02)"
+    )
+
+
+def test_the_guarded_set_is_exactly_the_handlers_whose_graph_starts_a_process() -> None:
+    """Inventario FECHADO — a cerca que impede o defeito de voltar por um agente novo.
+
+    Sem ela, `_GUARDED_DELEGATION_AGENT_IDS` seria uma lista curada a mao: um handler novo (ou um
+    agente que GANHE um no `start_process`) simplesmente nao seria parametrizado, e a lacuna
+    RAF-02-GUARD-MISSING-GUSTAVO-MARINA-VALENTINA — quatro handlers guardados e tres nao, todos
+    verdes — se reproduziria identica. O conjunto e' reapurado aqui de forma independente, por AST:
+    `delegation.py` que chama `ainvoke` (roda um grafo) X `graph.py` que registra
+    `add_node("start_process", ...)` (pode devolver `start_failed=True`).
+    """
+    import ast
+    from pathlib import Path
+
+    import maezo.agents as agents_pkg
+
+    raiz = Path(agents_pkg.__file__).parent
+    com_start_node: set[str] = set()
+    for graph_path in sorted(raiz.glob("*/graph.py")):
+        arvore = ast.parse(graph_path.read_text(encoding="utf-8"), filename=str(graph_path))
+        nos = {
+            arg.value
+            for chamada in ast.walk(arvore)
+            if isinstance(chamada, ast.Call)
+            and isinstance(chamada.func, ast.Attribute)
+            and chamada.func.attr == "add_node"
+            for arg in chamada.args[:1]
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+        }
+        if "start_process" in nos:
+            com_start_node.add(graph_path.parent.name)
+
+    roda_grafo: set[str] = set()
+    for delegation_path in sorted(raiz.glob("*/delegation.py")):
+        arvore = ast.parse(delegation_path.read_text(encoding="utf-8"), filename=str(delegation_path))
+        if any(
+            isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "ainvoke"
+            for n in ast.walk(arvore)
+        ):
+            roda_grafo.add(delegation_path.parent.name)
+
+    esperado = com_start_node & roda_grafo
+    assert esperado == set(_GUARDED_DELEGATION_AGENT_IDS), (
+        "o conjunto de handlers A2A que PODEM receber `start_failed=True` (delegation.py com "
+        f"`ainvoke` X graph.py com no `start_process`) e' {sorted(esperado)}, mas "
+        f"`_GUARDED_DELEGATION_AGENT_IDS` diz {sorted(_GUARDED_DELEGATION_AGENT_IDS)}. Um agente "
+        "novo entrou ou saiu: acrescente/remova a guarda RAF-02 no handler dele E atualize esta "
+        "lista — nunca so' a lista."
+    )
+    # Nao-vacuidade: a intersecao acima seria satisfeita por dois conjuntos vazios.
+    assert "beatriz" in roda_grafo and "beatriz" not in com_start_node, (
+        "beatriz deveria continuar sendo o caso de exclusao ESTRUTURAL (roda grafo, mas o grafo "
+        f"nao tem no `start_process`); roda_grafo={sorted(roda_grafo)}, "
+        f"com_start_node={sorted(com_start_node)}"
+    )
+    assert "helena" not in roda_grafo, (
+        "helena ORIGINA delegacoes e nao roda grafo no proprio delegation.py — se passou a rodar, "
+        "ela entra no escopo desta cerca e precisa da guarda RAF-02 tambem"
     )

@@ -426,8 +426,8 @@ class WorkerState:
     # raised (e.g. bad settings) -> every worker then sees `kafka=None`, the PRE-EXISTING
     # documented behavior (`events.py` module docstring), never a crash.
     kafka_publisher: AioKafkaEventsProducer | None = None
-    # Dossier-A2A seam (DL-0033 real wiring / DL-0037): the worker->Carolina/Andre delegation
-    # dispatcher assembled by `build_dossier_delegation_dispatcher` at bring-up. `None` = DEGRADED
+    # Dossier-A2A seam (DL-0033 real wiring / DL-0037): the worker->Carolina/Andre/Fernando
+    # delegation dispatcher assembled by `build_dossier_delegation_dispatcher` at bring-up. `None` = DEGRADED
     # (no signing key in non-local mode / missing DATABASE_URL / assembly failure): the daemon
     # still RUNS and serves every topic; the three dossier workers (cred/adequacao/PAGTO)
     # fail-neutral with a disclosed
@@ -607,9 +607,10 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         # key / degraded assembly must degrade the DOSSIER, never the whole daemon.
         ready = _state.dossier_dispatcher is not None
         detail = (
-            "dossier_delegation_ready=true — worker->Carolina/Andre dispatcher assembled "
-            "(cred.prepare_dossier / adequacao.prepare_remediation_dossier / "
-            "pagto.prepare_approval_dossier delegate for real)"
+            "dossier_delegation_ready=true — worker->Carolina/Andre/Fernando dispatcher "
+            "assembled (cred.prepare_dossier / adequacao.prepare_remediation_dossier / "
+            "pagto.prepare_approval_dossier delegate for real; fernando REGISTERED but not "
+            "yet originated — R-081 half two)"
             if ready
             else (
                 "dossier_delegation_ready=false — dossier A2A dispatcher NOT assembled "
@@ -903,9 +904,10 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
             )
 
     try:
-        # Dossier-A2A dispatcher (DL-0033 real wiring): worker->Carolina/Andre delegation edges,
-        # assembled with the SAME seams built above (pooled audit sink on THIS loop — raw async
-        # handlers run on it; fresh-per-call dmn/engine transports are loop-safe anywhere).
+        # Dossier-A2A dispatcher (DL-0033 real wiring): worker->Carolina/Andre/Fernando
+        # delegation edges, assembled with the SAME seams built above (pooled audit sink on THIS
+        # loop — raw async handlers run on it; fresh-per-call dmn/engine transports are loop-safe
+        # anywhere).
         # DEGRADATION POSTURE (DL-0037): assembly failure — no signing key in non-local mode
         # (`_require_signer_or_fail_closed` raises), missing DATABASE_URL/deps, card/registry
         # failure — is caught HERE: LOUD error, `dossier_dispatcher` stays None, the daemon RUNS,

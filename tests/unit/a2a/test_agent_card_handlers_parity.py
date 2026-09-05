@@ -76,9 +76,18 @@ _UNDECLARED_TASK_TYPES: Final[dict[str, frozenset[str]]] = {
 #:      second run. A caller needing the hops as distinct units must carry a per-hop key, which
 #:      SP-OP-FRAUDE-001 does not define — recorded rather than invented (same structural note as
 #:      valentina's `care.stratify`/`care.enroll`).
-_UNREGISTERED_HANDLERS: Final[frozenset[str]] = frozenset(
-    {"fernando", "marina", "beatriz", "gustavo", "valentina"}
-)
+#:
+#: `fernando` LEFT this set on 2026-09-05 (owner decision R-081, gap
+#: `FERNANDO-DELEGATION-CALL-SITE`, approved 2026-09-04: "SIM — ligar o call site em
+#: `inadimplencia.py::prepare_dossier` e registrar `make_fernando_handler` em
+#: `a2a_composition.py`, com a chamada fail-neutral"). Only the REGISTRATION half landed: his
+#: handler is in `build_dossier_delegation_dispatcher`'s `handlers={...}`, so the edge is
+#: REACHABLE; the ORIGIN call site (`operadora.inadimplencia.prepare_dossier` calling
+#: `delegate_arrears_followup`) did NOT land with it — that worker is still a sync
+#: `FunctionWorker` and converting it is a change to the inadimplencia worker's own surface. This
+#: file's docstring already says liveness is a DIFFERENT question from registration, and that
+#: distinction is precisely what fernando now stands for.
+_UNREGISTERED_HANDLERS: Final[frozenset[str]] = frozenset({"marina", "beatriz", "gustavo", "valentina"})
 
 
 def _accepted_task_types() -> dict[str, frozenset[str]]:
@@ -264,7 +273,7 @@ def test_the_handlers_not_registered_in_the_composition_root_are_the_documented_
 
     Every agent in `_UNREGISTERED_HANDLERS` HAS a working inbound handler and is NOT reachable by
     any dispatcher: `runtime.agent_runtime.a2a_composition` wires only rafael (auth edge) and
-    carolina+andre (dossier edge). That is deliberate — gap `FERNANDO-DELEGATION-CALL-SITE`
+    carolina+andre+fernando (dossier edge). That is deliberate — gap `FERNANDO-DELEGATION-CALL-SITE`
     classifies both the registration and the origin call site as an OWNER DECISION, so this work
     package built the target half and stopped.
 
