@@ -37,7 +37,13 @@ para ANALISE_HUMANA (linha catch-all conservadora). Aprovacao automatica (L2) ex
 DMN de admissibilidade favoravel E valor dentro da tabela E dentro do teto do tenant — e mesmo
 assim o caminho automatico produz SOMENTE APROVACAO INTEGRAL, jamais aprovacao parcial nem
 reducao (reducao = adverso = humano). Fora de tabela (SEM_TABELA -> dentro_tabela=false) nunca
-auto-aprova. No estouro do SLA a coordenacao humana assume — NUNCA auto-nega por timeout
+auto-aprova. BLOQUEIO R-058 (GAP REEMBOLSO-AUTO-OVERPAY-a, em vigor): enquanto a atuaria
+(+ regulatorio verifica) nao assinar o sign-off deste contrato, o caminho automatico NAO paga
+nada — a condicao de Flow_GW_AutoAprovar exige tambem `reembolso_auto_liberado` (escrito por
+ST_CalculateAmount a partir da constante REEMBOLSO_AUTO_PAGAMENTO_LIBERADO do worker, hoje
+sempre false), entao TODO pedido cai no default ANALISE_HUMANA. O bloqueio e GENERICO (nao
+distingue solicitado < tabela de solicitado >= tabela) e INDEPENDENTE do teto D-07: subir
+reembolso_auto_approval.max_value_brl de zero nao o reabre. No estouro do SLA a coordenacao humana assume — NUNCA auto-nega por timeout
 (inversao do anti-pattern auto-aplicado do reference). O efeito adverso e materializado SO pelo
 worker operadora.reembolso.send_reembolso_denial, guardado por ERR_REEMBOLSO_DENIAL_NOT_HUMAN.
 Os terminais End_ReembolsoNegado e End_ReembolsoParcial so sao alcancaveis apos User Task humana
@@ -224,7 +230,7 @@ docs/processes/contracts/SP-OP-REEMBOLSO-001.md.
 
     <bpmn:serviceTask id="ST_CalculateAmount" name="Calcular valor de reembolso (worker + DMN reembolso_calculo)"
                       camunda:type="external" camunda:topic="operadora.reembolso.calculate_amount">
-      <bpmn:documentation>Aritmetica pura: COMPUTA dentro_tabela (solicitado &lt;= calculo.valor_calculado_tabela_cents, GAP-REEMBOLSO-5) e dentro_teto_l2 (comparando o mesmo valor de referencia vs teto do tenant). NUNCA decide pagar/negar/reduzir; fora de tabela (SEM_TABELA) -> dentro_tabela=false -> analise humana. GAP F-1 (ADR-0012): o VALOR e' da DMN reembolso_calculo, NAO do worker — a tabela em Python (_BASE_VALUES_CENTS/_MULTIPLO_ACESSO) foi REMOVIDA; o worker RELAIA valor_calculado_tabela_cents/multiplo_tabela_aplicado/fonte_tabela e so' compara. `calculo` e' o resultVariable de BRT_Calculo (mapDecisionResult=singleResult) — um Map JAVA, entregue ao external task como valor Object NAO desserializado (fetchAndLock: deserializeValues default=false), nunca como objeto estruturado. Os tres inputParameter abaixo ACHATAM as saidas da DMN em variaveis simples, LOCAIS a esta task, avaliadas pelo motor a partir do MESMO `calculo` que BRT_Calculo acabou de escrever (espelha ST_IssuePaymentAuto aqui e ST_EmitirAutorizacaoAuto de SP-OP-AUTH-001). NAO-SPOOFAVEL: variavel LOCAL da activity — sombreia qualquer homonima de escopo de processo (inclusive um valor_calculado_tabela_cents semeado no start) e e' reescrita a cada entrada na task, a partir de `calculo`, que so' existe apos BRT_Calculo (unico predecessor desta task). Saida da DMN ausente/malformada =&gt; ERR_REEMBOLSO_CALCULO_DMN_INDISPONIVEL (incidente; sem dentro_tabela/dentro_teto_l2, logo sem auto-aprovacao e sem pagamento) — nao ha boundary de erro aqui por design.</bpmn:documentation>
+      <bpmn:documentation>Aritmetica pura: COMPUTA dentro_tabela (solicitado &lt;= calculo.valor_calculado_tabela_cents, GAP-REEMBOLSO-5) e dentro_teto_l2 (comparando o mesmo valor de referencia vs teto do tenant). NUNCA decide pagar/negar/reduzir; fora de tabela (SEM_TABELA) -> dentro_tabela=false -> analise humana. GAP F-1 (ADR-0012): o VALOR e' da DMN reembolso_calculo, NAO do worker — a tabela em Python (_BASE_VALUES_CENTS/_MULTIPLO_ACESSO) foi REMOVIDA; o worker RELAIA valor_calculado_tabela_cents/multiplo_tabela_aplicado/fonte_tabela e so' compara. `calculo` e' o resultVariable de BRT_Calculo (mapDecisionResult=singleResult) — um Map JAVA, entregue ao external task como valor Object NAO desserializado (fetchAndLock: deserializeValues default=false), nunca como objeto estruturado. Os tres inputParameter abaixo ACHATAM as saidas da DMN em variaveis simples, LOCAIS a esta task, avaliadas pelo motor a partir do MESMO `calculo` que BRT_Calculo acabou de escrever (espelha ST_IssuePaymentAuto aqui e ST_EmitirAutorizacaoAuto de SP-OP-AUTH-001). NAO-SPOOFAVEL: variavel LOCAL da activity — sombreia qualquer homonima de escopo de processo (inclusive um valor_calculado_tabela_cents semeado no start) e e' reescrita a cada entrada na task, a partir de `calculo`, que so' existe apos BRT_Calculo (unico predecessor desta task). Saida da DMN ausente/malformada =&gt; ERR_REEMBOLSO_CALCULO_DMN_INDISPONIVEL (incidente; sem dentro_tabela/dentro_teto_l2, logo sem auto-aprovacao e sem pagamento) — nao ha boundary de erro aqui por design. R-058: esta task tambem PUBLICA `reembolso_auto_liberado` (copia da constante REEMBOLSO_AUTO_PAGAMENTO_LIBERADO do worker, hoje sempre false), lida pela condicao de Flow_GW_AutoAprovar — bloqueio fail-closed generico do caminho automatico, independente do teto D-07.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="valor_calculado_tabela_cents">${calculo.valor_calculado_tabela_cents}</camunda:inputParameter>
@@ -251,13 +257,17 @@ docs/processes/contracts/SP-OP-REEMBOLSO-001.md.
       <bpmn:outgoing>Flow_GW_AnaliseHumana</bpmn:outgoing>
     </bpmn:exclusiveGateway>
 
-    <!-- Auto-aprovacao integral (L2): paga o valor calculado (= solicitado, por construcao do gate) -->
+    <!-- Auto-aprovacao integral (L2) — INALCANCAVEL enquanto o bloqueio R-058 estiver fechado
+         (ver a nota em Flow_GW_AutoAprovar). Elemento PRESERVADO de proposito: apagar a task
+         esconderia o desenho em vez de bloquea-lo, e o sign-off atuarial precisa revisar
+         exatamente este caminho. -->
     <bpmn:serviceTask id="ST_IssuePaymentAuto" name="Emitir pagamento do reembolso (auto-aprovacao integral)"
                       camunda:type="external" camunda:topic="operadora.reembolso.issue_payment">
-      <bpmn:documentation>Caminho automatico: paga valor_reembolso_aprovado_cents = valor_calculado_tabela_cents (= valor_solicitado_cents por construcao do gate dentro_tabela). Aprovacao INTEGRAL — jamais parcial.</bpmn:documentation>
+      <bpmn:documentation>Caminho automatico: pagaria valor_reembolso_aprovado_cents = valor_calculado_tabela_cents (o valor da TABELA). BLOQUEADO por R-058 (GAP REEMBOLSO-AUTO-OVERPAY-a): a condicao de Flow_GW_AutoAprovar exige `reembolso_auto_liberado` (hoje sempre false), e o worker recusa esta origem via `require_pagamento_autorizado` -> ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO (incidente, sem pagamento) — duas barreiras independentes. CORRECAO DE DOCUMENTACAO: a versao anterior afirmava "= valor_solicitado_cents por construcao do gate dentro_tabela"; isso era FALSO — `dentro_tabela` compara com `&lt;=`, nunca com `==`, entao `solicitado &lt; tabela` satisfaz o gate e esta task pagaria o valor MAIOR (sobrepagamento por construcao). Qual formula corrige (A `min(solicitado, tabela)` ou B rotear so quando `solicitado &lt; tabela`) e ato atuarial (R-059), nao de engenharia. Aprovacao INTEGRAL — jamais parcial. O inputParameter `origem_pagamento` e' LOCAL a esta activity: e' como o worker reconhece o caminho automatico mesmo se a condicao do gateway for reaberta, e nao e' spoofavel por variavel de escopo de processo.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="valor_reembolso_aprovado_cents">${calculo.valor_calculado_tabela_cents}</camunda:inputParameter>
+          <camunda:inputParameter name="origem_pagamento">AUTO_L2</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_GW_AutoAprovar</bpmn:incoming>
@@ -487,8 +497,20 @@ prazos DRAFT/verify). A decisao sai em nome do analista (assignee na trilha de a
     <bpmn:sequenceFlow id="Flow_BRTCalc_Calc" sourceRef="BRT_Calculo" targetRef="ST_CalculateAmount"/>
     <bpmn:sequenceFlow id="Flow_Calc_AutoApproval" sourceRef="ST_CalculateAmount" targetRef="BRT_AutoApproval"/>
     <bpmn:sequenceFlow id="Flow_AutoApproval_GW" sourceRef="BRT_AutoApproval" targetRef="GW_AutoAprovacao"/>
+    <!-- R-058 (GAP REEMBOLSO-AUTO-OVERPAY-a): a condicao passou a exigir DOIS termos. O segundo,
+         `reembolso_auto_liberado`, e' escrito por `ST_CalculateAmount` (worker reembolso.py,
+         constante REEMBOLSO_AUTO_PAGAMENTO_LIBERADO) e hoje e' SEMPRE false — logo o gateway cai no
+         seu `default` `Flow_GW_AnaliseHumana` e TODO reembolso do caminho automatico vai a analise
+         humana. Bloqueio GENERICO e INDEPENDENTE DO TETO D-07: subir `reembolso_auto_approval.
+         max_value_brl` de zero (tenants-amh.yaml) NAO o reabre; so' reabre quem virar a constante
+         no worker, ato que materializa o sign-off atuarial (+ regulatorio verifica) junto com a
+         formula que a atuaria escolher (A `min(solicitado, tabela)` vs B — ver
+         docs/sme-dispatch/financas/PACKAGE.md, SP-OP-REEMBOLSO-001, pergunta de revisao 4).
+         `ST_CalculateAmount` (via BRT_AutoApproval) e' o UNICO caminho ate este gateway, entao a
+         variavel sempre existe aqui; e por ser escrita pelo worker a CADA instancia, um
+         `reembolso_auto_liberado=true` semeado no start e' sobrescrito antes de ser lido. -->
     <bpmn:sequenceFlow id="Flow_GW_AutoAprovar" name="AUTO_APROVAR (L2 — integral)" sourceRef="GW_AutoAprovacao" targetRef="ST_IssuePaymentAuto">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${auto_aprovacao.recomendacao == 'AUTO_APROVAR'}</bpmn:conditionExpression>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${auto_aprovacao.recomendacao == 'AUTO_APROVAR' &amp;&amp; reembolso_auto_liberado}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GW_AnaliseHumana" name="ANALISE_HUMANA (default)" sourceRef="GW_AutoAprovacao" targetRef="BRT_SlaAnalise"/>
     <bpmn:sequenceFlow id="Flow_IssueAuto_Pub" sourceRef="ST_IssuePaymentAuto" targetRef="ST_PublishAprovadoAuto"/>

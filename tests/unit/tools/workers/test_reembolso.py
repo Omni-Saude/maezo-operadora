@@ -26,7 +26,11 @@ from maezo.tools.workers.harness import (
 )
 from maezo.tools.workers.reembolso import (
     ERR_REEMBOLSO_INVALID_PROTOCOLO,
+    ORIGEM_PAGAMENTO_AUTO,
+    REEMBOLSO_AUTO_PAGAMENTO_LIBERADO,
     REEMBOLSO_BPMN_ERROR_ALLOWLIST,
+    VAR_REEMBOLSO_AUTO_LIBERADO,
+    ReembolsoAutoPagamentoBloqueadoError,
     ReembolsoCalculoDmn,
     ReembolsoCalculoIndisponivelError,
     ReembolsoDenialInput,
@@ -1640,10 +1644,15 @@ def test_calculate_amount_entry_round_trips_calculate_value() -> None:
 
 
 def test_issue_payment_entry_round_trips_process_payment() -> None:
+    # R-058: com o bloqueio do caminho automatico fechado, `issue_payment_entry` so' emite com
+    # decisao humana no registro — os campos abaixo sao o contexto que as duas tasks humanas de
+    # pagamento sempre carregam (a User Task os escreve antes de o token chegar la').
     variables = {
         "protocolo_reembolso": "REEMB-1",
         "valor_reembolso_aprovado_cents": 30000,
         "beneficiario_pseudo_id": "B-1",
+        "decisao_reembolso": "APROVAR",
+        "analista_id": "analista-sintetico-001",
     }
     direct = process_payment("REEMB-1", 30000, "B-1")
     result = issue_payment_entry(variables)
@@ -1658,21 +1667,107 @@ def test_issue_payment_entry_round_trips_process_payment() -> None:
 # caminho automatico)" — ONE variable, three producers.
 
 
-def test_issue_payment_entry_auto_path_pays_calculated_amount() -> None:
-    """ST_IssuePaymentAuto (AUTO_APROVAR, L2 integral): the BPMN inputParameter
-    `valor_reembolso_aprovado_cents = ${calculo.valor_calculado_tabela_cents}` has already
-    resolved when the task is fetched, so the worker sees the calculated amount."""
+def test_issue_payment_entry_auto_path_e_bloqueado_fail_closed() -> None:
+    """R-058 (GAP REEMBOLSO-AUTO-OVERPAY-a): ST_IssuePaymentAuto NAO paga — recusa fail-closed.
+
+    Este teste ERA `test_issue_payment_entry_auto_path_pays_calculated_amount` e afirmava o
+    contrario: que o caminho automatico paga `valor_calculado_tabela_cents`. Esse era exatamente o
+    defeito — a task paga o valor da TABELA, e o gate `dentro_tabela` compara com `<=`, nunca com
+    `==`, entao `solicitado < tabela` a alcanca e ela paga o MAIOR. Enquanto a atuaria
+    (+ regulatorio verifica) nao assinar qual formula corrige (A `min(solicitado, tabela)` vs B),
+    o caminho automatico inteiro esta bloqueado e o pedido vai a analise humana.
+
+    Exercita o payload EXATO que o engine entregaria: o `valor_reembolso_aprovado_cents` ja
+    resolvido pelo inputParameter da task mais o marcador `origem_pagamento` LOCAL da activity.
+    """
     variables = {
         "protocolo_reembolso": "REEMB-AUTO",
         "beneficiario_pseudo_id": "B-1",
         # As delivered by the BPMN input mapping on ST_IssuePaymentAuto.
         "valor_reembolso_aprovado_cents": 12000,
         "valor_solicitado_cents": 12000,
+        "origem_pagamento": ORIGEM_PAGAMENTO_AUTO,
     }
-    result = issue_payment_entry(variables)
-    assert result["payment_issued"] is True
-    assert result["valor_cents"] == 12000
-    assert result["valor_reembolso_aprovado_cents"] == 12000
+    with pytest.raises(ReembolsoAutoPagamentoBloqueadoError):
+        issue_payment_entry(variables)
+
+
+def test_issue_payment_entry_auto_path_bloqueado_mesmo_sem_o_marcador_de_origem() -> None:
+    """SEGUNDO canal da guarda: sem `origem_pagamento`, a AUSENCIA de decisao humana ja recusa.
+
+    Prova que o bloqueio nao depende de um unico atributo do BPMN — apagar o inputParameter
+    `origem_pagamento` de `ST_IssuePaymentAuto` nao o torna inerte. As duas tasks humanas de
+    pagamento so' sao alcancaveis depois de uma User Task humana ter escrito
+    `decisao_reembolso`/`analista_id`, entao "sem decisao humana" e', por eliminacao, o caminho
+    automatico.
+    """
+    variables = {
+        "protocolo_reembolso": "REEMB-AUTO",
+        "beneficiario_pseudo_id": "B-1",
+        "valor_reembolso_aprovado_cents": 12000,
+    }
+    with pytest.raises(ReembolsoAutoPagamentoBloqueadoError):
+        issue_payment_entry(variables)
+
+
+def test_issue_payment_entry_bloqueio_independe_do_teto_d07() -> None:
+    """O bloqueio R-058 NAO le o teto: `dentro_teto_l2`/`max_value_brl` sao irrelevantes aqui.
+
+    Semeia o cenario POS-D-07 (teto positivo ja resolvido, tudo dentro da tabela e do teto, que e'
+    o mundo em que o sobrepagamento deixa de ser latente) e prova que o caminho automatico
+    continua recusado. E' a propriedade central pedida por R-058: quando o teto subir de zero, o
+    caminho automatico ainda falha fechado ate a assinatura da atuaria.
+    """
+    variables = {
+        "protocolo_reembolso": "REEMB-AUTO",
+        "beneficiario_pseudo_id": "B-1",
+        "origem_pagamento": ORIGEM_PAGAMENTO_AUTO,
+        "valor_reembolso_aprovado_cents": 12000,
+        "valor_solicitado_cents": 9000,  # solicitado < tabela: o caso de SOBREPAGAMENTO
+        "dentro_tabela": True,
+        "dentro_teto_l2": True,
+    }
+    with pytest.raises(ReembolsoAutoPagamentoBloqueadoError):
+        issue_payment_entry(variables)
+
+
+def test_issue_payment_entry_origem_auto_bloqueia_mesmo_com_decisao_humana_semeada() -> None:
+    """Canal 1 vence o canal 2: um `decisao_reembolso`/`analista_id` semeado no start nao abre.
+
+    `origem_pagamento` e' variavel LOCAL da activity `ST_IssuePaymentAuto` — nenhum payload de
+    start consegue remove-la de la'. Logo, forjar uma decisao humana no escopo de processo nao
+    transforma o caminho automatico num caminho humano.
+    """
+    variables = {
+        "protocolo_reembolso": "REEMB-AUTO",
+        "beneficiario_pseudo_id": "B-1",
+        "origem_pagamento": ORIGEM_PAGAMENTO_AUTO,
+        "valor_reembolso_aprovado_cents": 12000,
+        "decisao_reembolso": "APROVAR",
+        "analista_id": "analista-forjado-no-start",
+    }
+    with pytest.raises(ReembolsoAutoPagamentoBloqueadoError):
+        issue_payment_entry(variables)
+
+
+@pytest.mark.parametrize("origem", ["auto_l2", "  AUTO_L2  ", "Auto_L2"])
+def test_issue_payment_entry_origem_auto_normalizada(origem: str) -> None:
+    """O token de origem e normalizado (strip + upper) antes da comparacao — direcao fail-closed.
+
+    Mesma polaridade de `_is_sem_tabela`: o token e' um DENY token, entao normalizar amplia o
+    conjunto de recusas, nunca o de liberacoes. Um hop de decodificacao que mude espacamento ou
+    caixa nao pode transformar o caminho automatico num caminho pagavel.
+    """
+    variables = {
+        "protocolo_reembolso": "REEMB-AUTO",
+        "beneficiario_pseudo_id": "B-1",
+        "origem_pagamento": origem,
+        "valor_reembolso_aprovado_cents": 12000,
+        "decisao_reembolso": "APROVAR",
+        "analista_id": "analista-sintetico-001",
+    }
+    with pytest.raises(ReembolsoAutoPagamentoBloqueadoError):
+        issue_payment_entry(variables)
 
 
 def test_issue_payment_entry_analista_path_pays_human_approved_amount() -> None:
@@ -1713,6 +1808,9 @@ def test_issue_payment_entry_approved_overrides_calculated() -> None:
         "beneficiario_pseudo_id": "B-1",
         "valor_calculado_tabela_cents": 12000,
         "valor_reembolso_aprovado_cents": 8000,
+        # R-058: contexto humano que a User Task escreve antes de ST_IssuePaymentParcial.
+        "decisao_reembolso": "APROVAR_PARCIAL",
+        "analista_id": "analista-sintetico-001",
     }
     assert issue_payment_entry(variables)["valor_cents"] == 8000
 
@@ -1725,6 +1823,7 @@ def test_issue_payment_entry_never_falls_back_to_calculated_amount() -> None:
         "protocolo_reembolso": "REEMB-ANALISTA",
         "beneficiario_pseudo_id": "B-1",
         "decisao_reembolso": "APROVAR",
+        "analista_id": "analista-sintetico-001",
         "valor_calculado_tabela_cents": 12000,
     }
     with pytest.raises(ReembolsoValorPagamentoInvalidoError):
@@ -1739,6 +1838,9 @@ def test_issue_payment_entry_refuses_orphan_valor_cents_variable() -> None:
         "protocolo_reembolso": "REEMB-1",
         "beneficiario_pseudo_id": "B-1",
         "valor_cents": 30000,
+        # R-058: contexto humano, para que a guarda de VALOR continue sendo a que dispara aqui.
+        "decisao_reembolso": "APROVAR",
+        "analista_id": "analista-sintetico-001",
     }
     with pytest.raises(ReembolsoValorPagamentoInvalidoError):
         issue_payment_entry(variables)
@@ -1747,7 +1849,199 @@ def test_issue_payment_entry_refuses_orphan_valor_cents_variable() -> None:
 def test_issue_payment_entry_refuses_when_amount_absent() -> None:
     """Nothing resolvable => incident, never a R$0,00 payment (the pre-fix behaviour)."""
     with pytest.raises(ReembolsoValorPagamentoInvalidoError):
-        issue_payment_entry({"protocolo_reembolso": "REEMB-1", "beneficiario_pseudo_id": "B-1"})
+        issue_payment_entry(
+            {
+                "protocolo_reembolso": "REEMB-1",
+                "beneficiario_pseudo_id": "B-1",
+                # R-058: contexto humano, para isolar a guarda de VALOR (sem ele a guarda do
+                # caminho automatico dispararia antes — ver
+                # test_issue_payment_entry_auto_path_bloqueado_mesmo_sem_o_marcador_de_origem).
+                "decisao_reembolso": "APROVAR",
+                "analista_id": "analista-sintetico-001",
+            }
+        )
+
+
+# ===========================================================================
+# R-058 / GAP REEMBOLSO-AUTO-OVERPAY-a — bloqueio fail-closed do caminho automatico
+# ===========================================================================
+#
+# O que estes testes fixam: enquanto o interruptor nomeado
+# `REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` estiver fechado, NENHUM reembolso e' pago pelo caminho
+# automatico — nem no modelo (condicao de `Flow_GW_AutoAprovar`) nem no worker
+# (`require_pagamento_autorizado`). O bloqueio e' GENERICO (nao distingue `solicitado < tabela`
+# de `solicitado >= tabela`) e INDEPENDENTE do teto D-07. A escolha definitiva entre A
+# (`min(solicitado, tabela)`) e B (rotear so' quando `solicitado < tabela`) e ato atuarial
+# (+ regulatorio verifica) — R-059 — e esta registrada como pergunta de revisao 4 em
+# `docs/sme-dispatch/financas/PACKAGE.md` e no `docs/review-queue.md`.
+
+
+def test_interruptor_r058_esta_fechado() -> None:
+    """FENCE: a constante e' `False`. Vira-la e' o ato que materializa o sign-off atuarial.
+
+    Este teste existe para que abrir o caminho automatico seja impossivel de fazer em silencio:
+    qualquer PR que mude a constante FALHA aqui e obriga a discussao sobre a assinatura da atuaria
+    (+ regulatorio verifica) e sobre qual formula (A vs B) esta entrando junto.
+    """
+    assert REEMBOLSO_AUTO_PAGAMENTO_LIBERADO is False, (
+        "REEMBOLSO_AUTO_PAGAMENTO_LIBERADO foi aberto sem o sign-off atuarial de "
+        "SP-OP-REEMBOLSO-001 (R-058/R-059) — o caminho automatico voltaria a pagar o valor da "
+        "TABELA quando solicitado < tabela (sobrepagamento por construcao)"
+    )
+
+
+def test_calculate_value_nunca_libera_o_caminho_automatico(tmp_path: Path) -> None:
+    """O fato publicado e' `False` mesmo no cenario mais favoravel POSSIVEL — teto positivo incluso.
+
+    Cenario deliberadamente pos-D-07: teto positivo pinado, `dentro_tabela=True`,
+    `dentro_teto_l2=True` — exatamente o mundo em que o sobrepagamento deixa de ser latente. O
+    terceiro fato, `reembolso_auto_liberado`, continua `False`: e' a prova de que o bloqueio NAO le
+    o teto e nao e' um efeito colateral de `max_value_brl: 0`.
+    """
+    rule = _rule("r_consulta")
+    valor_brl = rule.valor_calculado_tabela_cents // 100
+    result = calculate_value(
+        _request(
+            categoria_procedimento="consulta",
+            valor_solicitado_cents=rule.valor_calculado_tabela_cents - 3000,
+        ),
+        _calculo(rule),
+        resolver=_pin_resolver(tmp_path / "teto-positivo", max_value_brl=valor_brl),
+    )
+    # O cenario de sobrepagamento: dentro da tabela E dentro do teto, com solicitado < tabela.
+    assert result.dentro_tabela is True
+    assert result.dentro_teto_l2 is True
+    assert result.valor_solicitado_cents < result.valor_calculado_tabela_cents
+    # ... e ainda assim o caminho automatico esta fechado.
+    assert result.reembolso_auto_liberado is False
+
+
+def test_calculate_amount_entry_publica_a_variavel_do_gateway() -> None:
+    """A saida do worker carrega a variavel EXATA que a condicao do gateway le.
+
+    `calculate_amount_entry` devolve `dataclasses.asdict(...)`, e o engine grava cada chave como
+    variavel de escopo de processo — e' assim que `reembolso_auto_liberado` chega a
+    `Flow_GW_AutoAprovar`. O nome vem de `VAR_REEMBOLSO_AUTO_LIBERADO`, a mesma constante que o
+    teste de modelo abaixo procura no XML: uma unica fonte do nome dos dois lados.
+    """
+    out = calculate_amount_entry(_entry_vars(_rule("r_consulta")))
+    assert VAR_REEMBOLSO_AUTO_LIBERADO in out
+    assert out[VAR_REEMBOLSO_AUTO_LIBERADO] is False
+
+
+def test_calculate_amount_entry_ignora_um_reembolso_auto_liberado_semeado() -> None:
+    """Um `reembolso_auto_liberado=true` semeado no start e' SOBRESCRITO, nunca lido.
+
+    Mesma especie do seed hostil que `test_calculate_amount_entry_ignores_a_seeded_dentro_tabela_
+    claim` ja cobre: o worker RECOMPUTA (aqui, relaia da constante) e o valor final que o gateway
+    le e' o do worker. `ST_CalculateAmount` e' o unico caminho ate `GW_AutoAprovacao`.
+    """
+    out = calculate_amount_entry(_entry_vars(_rule("r_consulta"), reembolso_auto_liberado=True))
+    assert out[VAR_REEMBOLSO_AUTO_LIBERADO] is False
+
+
+def test_bpmn_gateway_de_auto_aprovacao_exige_o_interruptor() -> None:
+    """MODELO: `Flow_GW_AutoAprovar` so' dispara com o interruptor aberto; o default segue humano.
+
+    Le o BPMN pelo ID do elemento (nao por numero de linha, que anda). Prova as tres metades do
+    bloqueio no modelo: (a) a condicao exige `reembolso_auto_liberado` ALEM da recomendacao da
+    DMN; (b) o gateway continua com `default="Flow_GW_AnaliseHumana"`, i.e. o token nao fica preso
+    nem vira incidente — ele VAI para a analise humana; (c) `ST_IssuePaymentAuto` NAO foi apagada
+    (o desenho segue visivel para o sign-off) e agora carrega o marcador de origem que o worker
+    reconhece.
+    """
+    root = ET.parse(_BPMN_REEMBOLSO_PATH).getroot()
+
+    flows = [
+        el for el in root.iter(f"{{{_BPMN_MODEL_NS}}}sequenceFlow") if el.get("id") == "Flow_GW_AutoAprovar"
+    ]
+    assert len(flows) == 1
+    condicao = (flows[0].findtext(f"{{{_BPMN_MODEL_NS}}}conditionExpression") or "").strip()
+    assert "auto_aprovacao.recomendacao == 'AUTO_APROVAR'" in condicao, (
+        f"o termo da DMN sumiu da condicao: {condicao!r}"
+    )
+    assert VAR_REEMBOLSO_AUTO_LIBERADO in condicao, (
+        "BLOQUEIO R-058 REMOVIDO do modelo: Flow_GW_AutoAprovar nao exige mais "
+        f"{VAR_REEMBOLSO_AUTO_LIBERADO} — o caminho automatico voltaria a pagar. Condicao: {condicao!r}"
+    )
+
+    gateways = [
+        el for el in root.iter(f"{{{_BPMN_MODEL_NS}}}exclusiveGateway") if el.get("id") == "GW_AutoAprovacao"
+    ]
+    assert len(gateways) == 1
+    assert gateways[0].get("default") == "Flow_GW_AnaliseHumana", (
+        "sem o default humano, uma condicao falsa nao roteia para lugar nenhum"
+    )
+
+    tasks = [
+        el for el in root.iter(f"{{{_BPMN_MODEL_NS}}}serviceTask") if el.get("id") == "ST_IssuePaymentAuto"
+    ]
+    assert len(tasks) == 1, "ST_IssuePaymentAuto foi apagada — o bloqueio nao remove elementos"
+    params = {
+        el.get("name"): (el.text or "").strip() for el in tasks[0].iter(f"{{{_CAMUNDA_NS}}}inputParameter")
+    }
+    assert params.get("origem_pagamento") == ORIGEM_PAGAMENTO_AUTO, (
+        f"marcador de origem ausente/divergente em ST_IssuePaymentAuto: {params!r}"
+    )
+
+
+def test_require_pagamento_autorizado_libera_as_duas_origens_humanas() -> None:
+    """A guarda NAO estorva os dois caminhos humanos de pagamento (APROVAR e APROVAR_PARCIAL).
+
+    Prova que o bloqueio e' cirurgico: com decisao humana no registro e sem o marcador de origem
+    automatica, a funcao e' um no-op (nao levanta). O `auditor_id` cobre o caminho
+    `UT_RevisaoAuditorMedico`, onde `analista_id` pode nao existir.
+    """
+    for decisao, analista, auditor in (
+        ("APROVAR", "analista-sintetico-001", ""),
+        ("APROVAR_PARCIAL", "analista-sintetico-001", ""),
+        ("APROVAR", "", "auditor-sintetico-001"),
+    ):
+        reembolso.require_pagamento_autorizado(
+            protocolo_reembolso="REEMB-1",
+            origem_pagamento="",
+            decisao_reembolso=decisao,
+            analista_id=analista,
+            auditor_id=auditor,
+        )
+
+
+def test_require_pagamento_autorizado_loga_sem_phi() -> None:
+    """O log da recusa nomeia motivo, protocolo e a linha do ledger — e NENHUM dado do beneficiario.
+
+    `beneficiario_pseudo_id`, matricula, valores, CID e documentos NAO entram no evento: a recusa
+    precisa ser diagnosticavel sem levar PHI para o pipeline de logs (ADR-0006). Usa o idioma
+    `structlog.testing.capture_logs` ja empregado neste arquivo.
+    """
+    with (
+        structlog.testing.capture_logs() as logs,
+        pytest.raises(ReembolsoAutoPagamentoBloqueadoError),
+    ):
+        reembolso.require_pagamento_autorizado(
+            protocolo_reembolso="REEMB-AUTO",
+            origem_pagamento=ORIGEM_PAGAMENTO_AUTO,
+            decisao_reembolso="",
+            analista_id="",
+            auditor_id="",
+        )
+
+    eventos = [e for e in logs if e.get("event") == "reembolso.issue_payment.auto_bloqueado"]
+    assert len(eventos) == 1, f"a recusa TEM de ser observavel exatamente uma vez: {logs!r}"
+    campos = eventos[0]
+    assert campos["protocolo_reembolso"] == "REEMB-AUTO"
+    assert campos["unlock_ledger"] == "R-058"
+    assert campos["gap"] == "REEMBOLSO-AUTO-OVERPAY-a"
+    assert campos["interruptor"] == "REEMBOLSO_AUTO_PAGAMENTO_LIBERADO"
+    assert ORIGEM_PAGAMENTO_AUTO in campos["motivo"]
+    proibidos = {
+        "beneficiario_pseudo_id",
+        "matricula_beneficiario",
+        "cid10",
+        "documentos_refs",
+        "valor_solicitado_cents",
+        "valor_reembolso_aprovado_cents",
+    }
+    assert not (proibidos & set(campos)), f"PHI no log de recusa: {sorted(proibidos & set(campos))}"
 
 
 def test_send_reembolso_denial_entry_guards_missing_human_decision() -> None:

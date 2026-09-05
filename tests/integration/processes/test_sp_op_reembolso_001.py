@@ -177,7 +177,9 @@ from maezo.tools.workers.harness import (
     WorkerHarness,
 )
 from maezo.tools.workers.reembolso import (
+    REEMBOLSO_AUTO_PAGAMENTO_LIBERADO,
     REEMBOLSO_BPMN_ERROR_ALLOWLIST,
+    VAR_REEMBOLSO_AUTO_LIBERADO,
     ReembolsoDenialNotHumanError,
     register_reembolso_workers,
     send_reembolso_denial_entry,
@@ -241,6 +243,8 @@ _UT_ANALISTA = "UT_AnaliseReembolso"
 _UT_AUDITOR = "UT_RevisaoAuditorMedico"
 _UT_COORDENACAO = "UT_CoordenacaoReembolso"
 _UT_PENDENCIA = "UT_DecidirPendenciaExpirada"
+
+_ST_ISSUE_PAYMENT_AUTO = "ST_IssuePaymentAuto"
 
 _END_AUTO = "End_ReembolsoAprovadoAutomatico"
 _END_ANALISTA = "End_ReembolsoAprovadoAnalista"
@@ -319,7 +323,15 @@ _REEMBOLSO_CEILING_D07_REASON = (
     "register_reembolso_workers(..., resolver=CeilingResolver(core_path=core))) cannot be ported: "
     "v2's register_reembolso_workers(harness, kafka=None, **seams) explicitly `del`s **seams — no "
     "resolver-injection point exists. src/** fix (either a real teto or a resolver seam) is out of "
-    "scope for this port."
+    "scope for this port. "
+    "SEGUNDA CAUSA desde REEMBOLSO-AUTO-OVERPAY-a (R-058): mesmo com um teto positivo este caminho "
+    "seguiria bloqueado — a condicao de Flow_GW_AutoAprovar exige reembolso_auto_liberado (worker: "
+    "REEMBOLSO_AUTO_PAGAMENTO_LIBERADO, hoje False) e o worker de pagamento recusa a origem "
+    "automatica (ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO). O xfail portanto NAO cai quando o teto "
+    "D-07 for resolvido: cai quando a atuaria (+ regulatorio verifica) assinar o sign-off e a "
+    "formula escolhida (A min(solicitado, tabela) vs B) entrar junto com a abertura do "
+    "interruptor. Ver test_bloqueio_r058_impede_o_caminho_automatico_de_pagar, que prova o "
+    "bloqueio LIVE."
 )
 
 # SP-OP-REEMBOLSO-001.md:100's "produz" obligation for agents.events.reembolso.pended RESOLVED by
@@ -721,6 +733,70 @@ async def test_teto_zero_d07_bloqueia_auto_aprovacao_mesmo_com_seed_true(
     assert not (ended & _END_ADVERSOS)
     await _assert_no_adverse_without_human_task(engine, iid)
     assert not reembolso_probe.notifications_of_type("reembolso.issue_payment")
+
+
+async def test_bloqueio_r058_impede_o_caminho_automatico_de_pagar(
+    engine: EngineRest,
+    reembolso_probe: ReembolsoEngineProbe,
+    start_reembolso: Callable[..., Any],
+) -> None:
+    """R-058 / GAP REEMBOLSO-AUTO-OVERPAY-a: `ST_IssuePaymentAuto` NUNCA e' alcancada.
+
+    O defeito: `ST_IssuePaymentAuto` paga `${calculo.valor_calculado_tabela_cents}` — o valor da
+    TABELA — enquanto o gate `dentro_tabela` compara com `<=`, nunca com `==`. Logo
+    `solicitado < tabela` satisfaz o gate e o caminho automatico pagaria o valor MAIOR
+    (sobrepagamento por construcao). Ate a atuaria (+ regulatorio verifica) assinar qual formula
+    corrige (A `min(solicitado, tabela)` vs B), o caminho automatico inteiro esta fechado.
+
+    O QUE ESTE TESTE ACRESCENTA ao `test_teto_zero_d07_bloqueia_auto_aprovacao_mesmo_com_seed_true`
+    acima: aquele prova que o TETO (D-07 = 0) bloqueia — uma decisao de FINANCAS que uma sessao
+    pode reverter (R-157). Este prova o bloqueio do MODELO, que nao le teto nenhum: a condicao de
+    `Flow_GW_AutoAprovar` exige `reembolso_auto_liberado`, escrito por `ST_CalculateAmount` a
+    partir da constante `REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`. Quando o teto subir de zero, este
+    bloqueio continua de pe'.
+
+    SEED HOSTIL: o start manda `reembolso_auto_liberado=True`. Ele nao sobrevive — o worker
+    reescreve a variavel de escopo de processo a cada instancia, e `ST_CalculateAmount` (via
+    `BRT_AutoApproval`) e' o unico caminho ate o gateway. E' a mesma prova de nao-spoofabilidade
+    que o teste de teto faz com `dentro_teto_l2=True`.
+
+    Alem do terminal, assere a ATIVIDADE `ST_IssuePaymentAuto` na historia do engine: o pedido do
+    R-058 e' "o caminho automatico nunca alcanca a emissao de pagamento", nao apenas "nao termina
+    no terminal automatico".
+    """
+    assert REEMBOLSO_AUTO_PAGAMENTO_LIBERADO is False, (
+        "este teste descreve o mundo com o interruptor R-058 FECHADO; abri-lo exige o sign-off "
+        "atuarial e a formula escolhida entrando junto"
+    )
+
+    inst = await start_reembolso(
+        # Sobrepagamento por construcao: solicitado (9000) < tabela da DMN para `consulta` (12000).
+        valor_solicitado_cents=9000,
+        # Seeds hostis: os tres fatos que o caminho automatico precisaria, todos semeados True.
+        dentro_tabela=True,
+        dentro_teto_l2=True,
+        **{VAR_REEMBOLSO_AUTO_LIBERADO: True},
+    )
+    iid = inst["id"]
+
+    ut = await _drive_to_analista(engine, reembolso_probe, iid)
+    assert "analise-reembolso" in ut.candidate_groups, (
+        "com o bloqueio R-058 fechado, TODO reembolso do caminho automatico cai em UT_AnaliseReembolso"
+    )
+
+    assert await engine.get_history_variable(iid, VAR_REEMBOLSO_AUTO_LIBERADO) is False, (
+        "o seed hostil reembolso_auto_liberado=true sobreviveu — o worker nao reescreveu a "
+        "variavel que a condicao do gateway le"
+    )
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _ST_ISSUE_PAYMENT_AUTO not in ended, (
+        f"BLOQUEIO R-058 VIOLADO: o caminho automatico alcancou {_ST_ISSUE_PAYMENT_AUTO} — a "
+        f"emissao de pagamento sem assinatura da atuaria. ended={ended}"
+    )
+    assert _END_AUTO not in ended, f"o terminal automatico nao pode ser atingido. ended={ended}"
+    assert not (ended & _END_ADVERSOS)
+    await _assert_no_adverse_without_human_task(engine, iid)
 
 
 @pytest.mark.xfail(reason=_REEMBOLSO_CEILING_D07_REASON, strict=True)

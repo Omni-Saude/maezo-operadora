@@ -167,6 +167,73 @@ class ReembolsoCalculoDmn:
 
 
 # ---------------------------------------------------------------------------
+# R-058 — bloqueio fail-closed do caminho AUTOMATICO de pagamento
+# ---------------------------------------------------------------------------
+#
+# O QUE ESTE BLOQUEIO E'. Enquanto a atuaria (+ regulatorio verifica) nao assinar o sign-off de
+# SP-OP-REEMBOLSO-001, NENHUM reembolso e' pago pelo caminho automatico: todo pedido que chegaria
+# a `ST_IssuePaymentAuto` e' roteado para analise humana (`BRT_SlaAnalise` -> `UT_AnaliseReembolso`).
+# E' o bloqueio GENERICO — nao distingue `solicitado < tabela` de `solicitado >= tabela` — decidido
+# na linha R-058 do UNLOCK-LEDGER ("Implementar em REEMBOLSO-AUTO-OVERPAY-a APENAS o bloqueio
+# fail-closed generico (todo o caminho automatico de reembolso vai a analise humana) ... NAO
+# implementar min(solicitado, tabela) antes da atuaria").
+#
+# POR QUE ELE EXISTE. `ST_IssuePaymentAuto` paga `${calculo.valor_calculado_tabela_cents}` — o valor
+# da TABELA — e sua documentacao afirmava que esse valor e' "= valor_solicitado_cents por construcao
+# do gate dentro_tabela". A afirmacao e' FALSA: `dentro_tabela` compara com `<=`
+# (`calculate_value`), nunca com `==`, entao `solicitado < tabela` satisfaz o gate e o caminho
+# automatico pagaria o valor MAIOR — sobrepagamento por construcao do desenho
+# (GAP REEMBOLSO-AUTO-OVERPAY-a). Qual das duas politicas corrige isso — A `min(solicitado, tabela)`
+# ou B "rotear a humano so quando solicitado < tabela" — e' ato atuarial, NAO de engenharia
+# (R-059, gatekeeper 2: "NENHUM agente implementa min(solicitado, tabela)"). Ate a assinatura, a
+# unica postura que nao decide dinheiro no lugar da atuaria e' nao pagar nada automaticamente.
+#
+# INDEPENDENTE DO TETO D-07 — de proposito. Hoje `reembolso_auto_approval.max_value_brl` e' 0
+# (`spec/policies/autonomy/tenants-amh.yaml`, D-07 em aberto) e `CeilingResolver.within_l2_ceiling`
+# e' fail-closed em teto 0, o que ja manda tudo a analise humana. Esse bloqueio e' um EFEITO
+# COLATERAL de uma decisao de FINANCAS (R-157) que pode ser revertida numa sessao: no dia em que o
+# teto subir de zero, o sobrepagamento vira explorable. Por isso o bloqueio abaixo NAO le o teto,
+# NAO le politica de tenant e NAO le nenhuma variavel de processo: ele e' a constante nomeada
+# abaixo. Subir o teto nao o abre; so' abre quem editar esta constante.
+#
+# COMO SE ABRE (e por quem). Virar `REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` para `True` e' o ato de
+# engenharia que MATERIALIZA o sign-off atuarial — e nunca deve acontecer sozinho: a mesma mudanca
+# tem de trazer a formula que a atuaria escolher (A ou B) e o registro em
+# `docs/processes/contracts/signoffs/SP-OP-REEMBOLSO-001.signoff.yaml` (arquivo criado e commitado
+# pelo revisor humano, `docs/sme-dispatch/README.md`). O item de agenda da sessao esta em
+# `docs/sme-dispatch/financas/PACKAGE.md` (SP-OP-REEMBOLSO-001, pergunta de revisao 4) e em
+# `docs/review-queue.md`. Enquanto a constante for `False`, tanto o modelo (a condicao de
+# `Flow_GW_AutoAprovar`) quanto o worker de pagamento recusam o caminho automatico — dois pontos
+# independentes, nenhum deles suficiente sozinho para reabrir o outro.
+
+#: O UNICO interruptor nomeado do caminho automatico de pagamento de reembolso (R-058). `False`
+#: ate a assinatura da atuaria (+ regulatorio verifica). NAO e' politica de tenant, NAO e' teto,
+#: NAO e' variavel de processo — e' constante de codigo, justamente para que abri-la seja uma
+#: mudanca revisavel e nomeada, e nao um efeito colateral de mexer no teto D-07.
+REEMBOLSO_AUTO_PAGAMENTO_LIBERADO: bool = False
+
+#: Nome da variavel de processo que `calculate_amount_entry` escreve a partir da constante acima e
+#: que `Flow_GW_AutoAprovar` le na sua condicao. Pinado aqui para que o modelo e o codigo tenham
+#: UMA unica fonte do nome (o teste de regressao compara os dois).
+VAR_REEMBOLSO_AUTO_LIBERADO = "reembolso_auto_liberado"
+
+#: Token que `ST_IssuePaymentAuto` injeta como `camunda:inputParameter` LOCAL da activity para se
+#: identificar como o caminho automatico. Variavel LOCAL: sombreia qualquer homonima de escopo de
+#: processo (inclusive uma semeada no start), exatamente como as tres variaveis achatadas de
+#: `ST_CalculateAmount` — logo NAO e' spoofavel na direcao insegura (semear `origem_pagamento` no
+#: start so' consegue ADICIONAR recusas, nunca remover uma).
+ORIGEM_PAGAMENTO_AUTO = "AUTO_L2"
+
+#: Nome da variavel que carrega o token acima.
+_ORIGEM_PAGAMENTO_VAR = "origem_pagamento"
+
+#: As UNICAS decisoes humanas que autorizam um pagamento de reembolso (contrato
+#: SP-OP-REEMBOLSO-001, "Variaveis de saida"; espelha o conjunto que `send_reembolso_denial` exige
+#: no sentido adverso). Um pagamento sem uma delas so' pode ter vindo do caminho automatico.
+_DECISOES_HUMANAS_DE_PAGAMENTO = frozenset({"APROVAR", "APROVAR_PARCIAL"})
+
+
+# ---------------------------------------------------------------------------
 # Error codes
 # ---------------------------------------------------------------------------
 
@@ -291,6 +358,40 @@ class ReembolsoCalculoIndisponivelError(ValueError):
         )
 
 
+class ReembolsoAutoPagamentoBloqueadoError(ValueError):
+    """Pagamento AUTOMATICO recusado (ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO) — bloqueio R-058.
+
+    Guarda fail-closed de `issue_payment_entry`: enquanto
+    :data:`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` for `False`, o topico
+    `operadora.reembolso.issue_payment` so' emite pagamento com uma decisao humana no registro
+    (`decisao_reembolso` em {APROVAR, APROVAR_PARCIAL} com `analista_id` ou `auditor_id`). Qualquer
+    outra chamada e' — por eliminacao — o caminho automatico, e e' recusada ANTES de o valor sequer
+    ser resolvido. Espelha `ReembolsoDenialNotHumanError` no sentido oposto: la' a maquina nao pode
+    NEGAR sozinha, aqui ela nao pode PAGAR sozinha.
+
+    Subclasse de `ValueError` DE PROPOSITO, pelo mesmo motivo ja documentado em
+    `ReembolsoValorPagamentoInvalidoError`: o harness roteia a familia `ValueError` para
+    `failure(retries=0)` (`harness.py` §9) — incidente imediato e visivel, nunca retry silencioso.
+    NAO e' `WorkerBpmnError` e `ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO` NAO e' codigo de fronteira
+    ADR-0030: nenhuma das tres `ST_IssuePayment*` carrega error boundary event (`attachedToRef` so'
+    existe em `ST_CheckCoverage` e `UT_AnaliseReembolso`), e um `bpmnError` nao modelado ENCERRA
+    silenciosamente o escopo no CIB Seven 2.1.0 (ADR-0030 §2) — fecharia o reembolso sem pagar e
+    sem incidente, que e' precisamente o desfecho que este bloqueio existe para evitar.
+
+    No fluxo modelado esta excecao NAO deve ser alcancavel: a condicao de `Flow_GW_AutoAprovar` ja
+    impede o token de chegar a `ST_IssuePaymentAuto`. Ela e' a SEGUNDA barreira, independente do
+    modelo — se alguem reabrir a condicao do gateway sem virar a constante, o dinheiro ainda nao
+    sai.
+    """
+
+    def __init__(self, detail: str = "") -> None:
+        super().__init__(
+            f"ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO: {detail}"
+            if detail
+            else "ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Input / Output types
 # ---------------------------------------------------------------------------
@@ -358,6 +459,12 @@ class ReembolsoCalculoResult:
     fonte_tabela: str = ""
     dmn_decisao_id: str = ""
     dmn_atividade_bpmn: str = ""
+    #: R-058: `reembolso_auto_liberado` — copia da constante
+    #: :data:`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`, publicada como variavel de processo por
+    #: `calculate_amount_entry` (via `dataclasses.asdict`) e lida pela condicao de
+    #: `Flow_GW_AutoAprovar`. Default `False` como todo default fail-safe desta classe: um
+    #: `ReembolsoCalculoResult` construido sem passar por `calculate_value` nunca libera nada.
+    reembolso_auto_liberado: bool = False
 
 
 @dataclass
@@ -499,6 +606,15 @@ def calculate_value(
       ceiling reads True — that fact is VACUOUS and is gated shut by ``dentro_tabela=False`` (the
       DMN's `reembolso_auto_approval` AUTO_APROVAR rule requires both).
 
+    Alem dos dois booleanos, RELAIA um terceiro fato que tambem nao originou:
+
+    - ``reembolso_auto_liberado`` — copia literal da constante
+      :data:`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` (R-058), publicada como variavel de processo para
+      que `Flow_GW_AutoAprovar` a leia. NAO e' computada a partir do pedido, do tenant nem do teto:
+      enquanto a atuaria nao assinar, ela e' `False` e o caminho automatico inteiro cai em analise
+      humana, INDEPENDENTEMENTE de `dentro_tabela`, de `dentro_teto_l2` e do valor de
+      `reembolso_auto_approval.max_value_brl`. Ver a nota de secao "R-058" no topo do modulo.
+
     Pure arithmetic — NEVER a decision to pay or deny. The DMN says how much would be due; the
     eventual reduction (APROVAR_PARCIAL) is a HUMAN decision.
 
@@ -551,6 +667,9 @@ def calculate_value(
         fonte_tabela=calculo.fonte_tabela,
         dmn_decisao_id=_DMN_DECISAO_ID,
         dmn_atividade_bpmn=_DMN_ATIVIDADE_BPMN,
+        # R-058: RELAIA a constante, nao um calculo. Nenhum dado do pedido, do tenant ou do teto
+        # entra aqui — e' exatamente o ponto do bloqueio generico.
+        reembolso_auto_liberado=REEMBOLSO_AUTO_PAGAMENTO_LIBERADO,
     )
 
     logger.info(
@@ -561,6 +680,7 @@ def calculate_value(
         fonte_tabela=result.fonte_tabela,
         dmn_decisao_id=result.dmn_decisao_id,
         dmn_atividade_bpmn=result.dmn_atividade_bpmn,
+        reembolso_auto_liberado=result.reembolso_auto_liberado,
     )
     return result
 
@@ -689,6 +809,70 @@ def notify_sla_risk(input_data: ReembolsoInput) -> dict[str, Any]:
         notified_asserted=False,
     )
     return {}
+
+
+def require_pagamento_autorizado(
+    *,
+    protocolo_reembolso: str,
+    origem_pagamento: str,
+    decisao_reembolso: str,
+    analista_id: str,
+    auditor_id: str,
+) -> None:
+    """Recusa a emissao AUTOMATICA de pagamento enquanto o interruptor R-058 estiver fechado.
+
+    No-op quando :data:`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` e' `True` (pos sign-off atuarial): a
+    guarda inteira desaparece e as tres `ST_IssuePayment*` voltam ao comportamento anterior. Com a
+    constante em `False` — o estado de hoje — recusa por DOIS canais independentes, cada um
+    suficiente sozinho, nenhum capaz de reabrir o outro:
+
+    1. ``origem_pagamento == ORIGEM_PAGAMENTO_AUTO``. O token e' um `camunda:inputParameter` LOCAL
+       de `ST_IssuePaymentAuto`, i.e. a propria task automatica se identificando. Variavel local
+       sombreia homonima de processo, entao um payload de start nao consegue REMOVER esse token de
+       la'; semea-lo em outro lugar so' ADICIONA recusas.
+    2. AUSENCIA de decisao humana no registro (`decisao_reembolso` fora de
+       {APROVAR, APROVAR_PARCIAL}, ou sem `analista_id`/`auditor_id`). Este canal e' o que sobrevive
+       a alguem APAGAR o inputParameter do canal 1: as duas tasks humanas de pagamento
+       (`ST_IssuePaymentAnalista`, `ST_IssuePaymentParcial`) so' sao alcancaveis depois de uma User
+       Task humana ter escrito esses campos, entao "sem decisao humana" e', por eliminacao, o
+       caminho automatico. Espelha a guarda adversa `send_reembolso_denial` (mesmos dois campos,
+       mesmo conjunto de decisoes), pela mesma razao L0-hard.
+
+    Roda ANTES de `process_payment` de proposito: recusar uma emissao nao autorizada nao pode
+    depender de o valor ser resolvivel. Um pagamento automatico com valor invalido tem DOIS
+    defeitos, e o que importa reportar e' o que estava prestes a mover dinheiro sem assinatura.
+
+    SEM PHI no log: apenas o protocolo (chave de negocio, ja logada em todo este modulo), o token de
+    origem e o motivo. Nunca `beneficiario_pseudo_id`, valores, CID ou documentos.
+    """
+    if REEMBOLSO_AUTO_PAGAMENTO_LIBERADO:
+        return
+
+    origem_automatica = origem_pagamento.strip().upper() == ORIGEM_PAGAMENTO_AUTO
+    decisao_humana = decisao_reembolso.strip().upper() in _DECISOES_HUMANAS_DE_PAGAMENTO and bool(
+        analista_id.strip() or auditor_id.strip()
+    )
+    if not origem_automatica and decisao_humana:
+        return
+
+    motivo = (
+        "origem_pagamento=AUTO_L2 (ST_IssuePaymentAuto)"
+        if origem_automatica
+        else "sem decisao humana no registro (decisao_reembolso/analista_id ausentes ou invalidos)"
+    )
+    logger.warning(
+        "reembolso.issue_payment.auto_bloqueado",
+        protocolo_reembolso=protocolo_reembolso,
+        origem_pagamento=origem_pagamento.strip(),
+        motivo=motivo,
+        interruptor="REEMBOLSO_AUTO_PAGAMENTO_LIBERADO",
+        gap="REEMBOLSO-AUTO-OVERPAY-a",
+        unlock_ledger="R-058",
+    )
+    raise ReembolsoAutoPagamentoBloqueadoError(
+        f"{motivo}; o caminho automatico de reembolso esta bloqueado (R-058) ate a assinatura da "
+        "atuaria (+ regulatorio verifica) — todo pedido vai a analise humana"
+    )
 
 
 def process_payment(
@@ -1162,11 +1346,16 @@ def issue_payment_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | No
     APROVAR/APROVAR_PARCIAL; = `valor_calculado_tabela_cents` no caminho automatico)". ONE topic
     serves the BPMN's THREE payment tasks, and all three resolve to that single variable:
 
-    - `ST_IssuePaymentAuto` (AUTO_APROVAR, L2 — integral): the BPMN itself derives it, via the
-      inputParameter `valor_reembolso_aprovado_cents = ${calculo.valor_calculado_tabela_cents}`
-      (contract §`reembolso_auto_approval`: the automatic path produces ONLY integral approval,
-      `= valor_calculado_tabela_cents` and, by construction of the `dentro_tabela` gate,
-      `= valor_solicitado_cents`).
+    - `ST_IssuePaymentAuto` (AUTO_APROVAR, L2 — integral): **BLOQUEADO (R-058)**. A task ainda
+      deriva o valor via `valor_reembolso_aprovado_cents = ${calculo.valor_calculado_tabela_cents}`,
+      mas `require_pagamento_autorizado` (abaixo, chamada ANTES da resolucao do valor) recusa esta
+      origem enquanto :data:`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` for `False`, e a condicao de
+      `Flow_GW_AutoAprovar` ja impede o token de chegar aqui. CORRIGIDA de passagem a afirmacao
+      FALSA que esta docstring carregava — "`= valor_solicitado_cents` by construction of the
+      `dentro_tabela` gate": o gate compara com `<=`, nunca com `==` (`calculate_value`), entao
+      `solicitado < tabela` o satisfaz e o valor da TABELA (o MAIOR) seria pago — o sobrepagamento
+      por construcao do GAP REEMBOLSO-AUTO-OVERPAY-a. Qual formula corrige isso (A
+      `min(solicitado, tabela)` ou B) e' ato atuarial, nao de engenharia (R-059).
     - `ST_IssuePaymentAnalista` (human APROVAR): the value the human set in `UT_AnaliseReembolso`
       / `UT_RevisaoAuditorMedico` / `UT_CoordenacaoReembolso` — already in process scope.
     - `ST_IssuePaymentParcial` (human APROVAR_PARCIAL): the human's REDUCED value, re-validated
@@ -1191,6 +1380,14 @@ def issue_payment_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | No
     """
     del kafka  # unused — process_payment emits no domain event itself
     protocolo_reembolso = variables.get("protocolo_reembolso", "")
+    # R-058 (bloqueio fail-closed do caminho automatico) — ANTES da resolucao do valor.
+    require_pagamento_autorizado(
+        protocolo_reembolso=str(protocolo_reembolso),
+        origem_pagamento=str(variables.get(_ORIGEM_PAGAMENTO_VAR, "") or ""),
+        decisao_reembolso=str(variables.get("decisao_reembolso", "") or ""),
+        analista_id=str(variables.get("analista_id", "") or ""),
+        auditor_id=str(variables.get("auditor_id", "") or ""),
+    )
     # Deliberately `Any` (not `int | None`): this is the untyped engine dict boundary — whatever
     # the engine delivered is handed UNCOERCED to `process_payment`, whose money guard is the one
     # place that decides what is payable (mirrors send_reembolso_denial_entry, where the entry

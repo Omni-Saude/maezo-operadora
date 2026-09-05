@@ -168,6 +168,45 @@ where applicable) before any of these contracts can leave DRAFT.
   3. Given `reembolso_auto_approval` has no DMN file yet (build gap), confirm the auto-approval
      ceiling policy you're signing off on is accurately described in the contract text even
      though the artifact doesn't exist to inspect directly.
+  4. **(Novo — GAP REEMBOLSO-AUTO-OVERPAY / R-058 + R-059.) Escolha A vs B: o que o caminho
+     automático paga quando `solicitado < tabela`.** *recomendação — pendente de assinatura de
+     atuária (+ regulatório verifica)*
+
+     **O achado.** `ST_IssuePaymentAuto` paga `${calculo.valor_calculado_tabela_cents}` — o valor
+     da **tabela**. O gate `dentro_tabela` que autoriza esse caminho compara com `<=`, nunca com
+     `==` (`src/maezo/tools/workers/reembolso.py::calculate_value`). Logo `solicitado < tabela`
+     satisfaz o gate e o caminho automático pagaria o valor **maior**: sobrepagamento por
+     construção do desenho, não por defeito de digitação. A documentação da própria task afirmava
+     "= `valor_solicitado_cents` por construção do gate `dentro_tabela`" — afirmação falsa, hoje
+     corrigida no BPMN.
+
+     **O que a engenharia já fez (e por que não decidiu por vocês).** Está em vigor o **bloqueio
+     fail-closed genérico**: a condição de `Flow_GW_AutoAprovar` exige também
+     `reembolso_auto_liberado`, escrito pelo worker a partir da constante nomeada
+     `REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` (hoje `False`), e o worker de pagamento recusa a origem
+     automática (`ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO`). Enquanto isso valer, **todo** pedido
+     do caminho automático vai a análise humana. O bloqueio é **independente do teto D-07**: subir
+     `reembolso_auto_approval.params.max_value_brl` de zero (pergunta 2 acima) **não** o reabre.
+
+     **A escolha que é de vocês (a engenharia não a fará sozinha).**
+     - **A — `min(solicitado, tabela)`:** o caminho automático paga o menor dos dois; nunca paga
+       acima do pedido nem acima da tabela. É a **recomendação registrada do dono** (revisão de
+       decisões 2026-09-04, linha R-058 do unlock-ledger), como *default fail-safe*.
+     - **B — rotear a humano só quando `solicitado < tabela`:** o caminho automático segue pagando
+       quando `solicitado == tabela`, e os casos de discrepância vão para análise. Fica registrado
+       como *fallback* na mesma linha.
+     - **C — manter o bloqueio genérico** (o estado de hoje): nada é pago automaticamente. É o
+       estado provisório, não uma decisão.
+
+     **O que assinar destrava.** A assinatura desta pergunta é o que autoriza virar
+     `REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` para `True` **junto com** a fórmula escolhida — nunca
+     uma coisa sem a outra. Ordem obrigatória (`dependencies_note` de R-157): esta assinatura vem
+     **antes** de o teto D-07 de reembolso subir de zero.
+
+     **Campos de ratificação (vazios — preenchidos só pelo revisor humano, em
+     `docs/processes/contracts/signoffs/SP-OP-REEMBOLSO-001.signoff.yaml`):** `reviewer_name:`,
+     `role: financas`, `date:`, `contract_version_reviewed:`, `verdict:`, `notes:` (registrar A,
+     B ou C). Este pacote não cria, não pré-preenche e não infere nenhum arquivo de signoff.
 
 ## Turnaround
 
