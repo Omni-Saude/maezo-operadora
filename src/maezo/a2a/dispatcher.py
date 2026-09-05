@@ -243,11 +243,20 @@ class HandlerOutput:
 class DelegationResult:
     """Structured result of `delegate`. Success or rejection — nunca um raise por FALHA TERMINAL.
 
-    A ressalva e literal e tem um dono: a UNICA excecao que ainda atravessa `delegate()` e a de
-    classe RETENTAVEL levantada pelo handler (`StartProcessFailedError` do RAF-02,
-    `AuditPersistenceError`), que PROPAGA de proposito para que a entrega continue retentavel — ver
-    `_TERMINAL_HANDLER_ERROR_TYPES`. Toda falha TERMINAL de handler (classe `validacao`) volta como
-    `rejection_reason=HANDLER_ERROR` (NEW-B1), e nao mais como uma excecao crua.
+    A REGRA REAL, enunciada sem exclusividade falsa: a fronteira e' `_TERMINAL_HANDLER_ERROR_CLASSES`
+    (`ValueError`/`TypeError`/`KeyError` E SUBCLASSES, por `isinstance`). Toda falha TERMINAL de
+    handler volta como `rejection_reason=HANDLER_ERROR` (NEW-B1) e e' selada; TODA OUTRA excecao do
+    handler ATRAVESSA `delegate()` sem selo — e sao duas familias, nao uma: o canal RETENTAVEL
+    RAF-02 (`StartProcessFailedError`, `AuditPersistenceError`), que propaga de proposito para que a
+    entrega continue retentavel, E qualquer bug NAO CLASSIFICADO do grafo alvo (`AttributeError`,
+    `IndexError`, `ZeroDivisionError`, ...), que propaga porque selar um bug desconhecido seria
+    pior. Um chamador que precise ser exaustivo TEM de tratar `except Exception`, nao apenas as
+    classes transitorias.
+
+    O que nao acontece mais em nenhum dos dois casos: propagar SEM RASTRO. Antes do traco de
+    `DelegationDispatcher._trace_propagated_handler_error`, uma excecao nao-terminal saia com o
+    fato `requested` orfao, sem linha de desfecho e sem contador; hoje ela deixa a linha
+    NAO-terminal `PROPAGATED` e uma contagem em `maezo_a2a_handler_error_total` por entrega.
 
     `idempotent_replay=True` indicates this response came from the `task_id` cache (Guard 4): the
     handler did NOT run again.
