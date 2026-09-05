@@ -16,9 +16,7 @@ import structlog.testing
 
 from maezo.tools.workers.base import WorkerBase
 from maezo.tools.workers.harness import (
-    CibSevenWorkerTransport as RealTransport,
-)
-from maezo.tools.workers.harness import (
+    _SAFE_DECISION_BASIS_KEYS,
     ExternalTask,
     FakeAuditSink,
     FakeKafkaPublisher,
@@ -30,10 +28,12 @@ from maezo.tools.workers.harness import (
     WorkerFailureError,
     WorkerHarness,
     WorkerTransport,
-    _SAFE_DECISION_BASIS_KEYS,
     _to_camunda_var,
     build_decision_basis,
     screen_bpmn_error_variables,
+)
+from maezo.tools.workers.harness import (
+    CibSevenWorkerTransport as RealTransport,
 )
 
 # `asyncio_mode = "auto"` (pyproject.toml) collects async def tests automatically — no

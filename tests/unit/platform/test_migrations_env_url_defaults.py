@@ -42,11 +42,11 @@ def _load_expand_env_defaults():
     wanted_funcs = {"_expand_env_defaults"}
     nodes: list[ast.stmt] = []
     for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
+        is_wanted_assign = isinstance(node, ast.Assign) and any(
             isinstance(t, ast.Name) and t.id in wanted_names for t in node.targets
-        ):
-            nodes.append(node)
-        elif isinstance(node, ast.FunctionDef) and node.name in wanted_funcs:
+        )
+        is_wanted_func = isinstance(node, ast.FunctionDef) and node.name in wanted_funcs
+        if is_wanted_assign or is_wanted_func:
             nodes.append(node)
     assert len(nodes) == 2, (
         f"expected 1 assignment + 1 function from env.py, found {len(nodes)} -- "
