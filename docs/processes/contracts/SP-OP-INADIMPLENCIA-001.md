@@ -74,7 +74,7 @@ INAD-{tenant_id}-{numero_contrato}
 | `matricula_beneficiario` | string | sim | Matricula/pseudo-id do titular (ADR-0006 — Zona Geral usa pseudonimo) |
 | `beneficiario_pseudo_id` | string | sim§ | Pseudonimo do beneficiario (ADR-0006 — nunca CPF/nome); semeada por `FernandoGraph._inadimplencia_variables` no start |
 | `tipo_plano` | string | sim | `individual` \| `familiar` \| `coletivo_empresarial` \| `coletivo_adesao` (dominio FECHADO — ver ¶Dominios fechados abaixo) |
-| `origem_solicitacao` | string | sim | `cobranca` \| `operadora` \| `agente_fernando` \| `juridico` — **ausente ⇒ string vazia**, nunca um valor fabricado (ver ¶Dominios fechados) |
+| `origem_solicitacao` | string | sim§ | `cobranca` \| `operadora` \| `agente_fernando` \| `juridico` — **opcional do lado do chamador**; ausente ⇒ string vazia (nunca um valor fabricado), semeada por Fernando no start (ver ¶Dominios fechados) |
 | `canal` | string | sim§ | `whatsapp` \| `portal` \| `telefone` \| `a2a` (dominio FECHADO — ver ¶Dominios fechados abaixo; default whatsapp na ausencia); semeada por Fernando no start |
 | `motivo_categoria` | string | sim§ | Categoria do motivo de encaminhamento (default `inadimplencia`); semeada por Fernando no start |
 | `resumo_contexto` | string | sim§ | Resumo da narrativa do dossie de Fernando (`dossier.narrativa`; fallback "Encaminhamento automatico (sem narrativa)" quando ausente); semeada por Fernando no start |
@@ -295,7 +295,10 @@ eval, uma regra de alerta, o KPI de `notice_compliance` da RN 593) precisa dos l
 * **Envio NAO realizado** = o canal TEM remetente ligado (`whatsapp`) mas a mensagem nao saiu:
   o gateway levantou, ou nao havia destinatario (`to_hash`/`beneficiario_pseudo_id` vazios).
 * **Canal sem entrega** = o canal e legitimo mas nao tem remetente algum neste agente
-  (`portal`/`telefone`/`a2a`). Nada foi tentado, e o desfecho diz isso.
+  (`portal`/`telefone`/`a2a`) — **ou foi RECUSADO por `_canal`** (valor fora do dominio declarado
+  acima vira string vazia, que tambem nao esta em `_CANAL_COM_ENTREGA`; mesmo comentario em
+  `graph.py::notify`: "canal DENTRO do dominio (ou recusado por `_canal`) mas sem remetente
+  ligado"). Em ambos os casos nada foi tentado, e o desfecho diz isso.
 * Em qualquer dos dois casos `mensagem_enviada = false`, `mensagem.entrega` registra o estado, e
   a emissao CC-09 leva `enviada=false` **coerente com o rotulo**.
 
