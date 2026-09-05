@@ -51,16 +51,20 @@ docker compose --profile observability up -d
 #   OTel:       localhost:4317 (gRPC), localhost:4318 (HTTP)
 ```
 
-> **Dashboard auto-provisioning does not currently work in local dev.** Grafana's
-> file provider (`deploy/observability/grafana-provisioning/dashboards/dashboards.yaml`)
-> serves from `/etc/grafana/provisioning/dashboards`, and `docker-compose.yml` mounts
-> only `./deploy/observability/grafana-provisioning:/etc/grafana/provisioning:ro` —
-> so that path resolves to `deploy/observability/grafana-provisioning/dashboards/` on
-> the host, which contains only `dashboards.yaml` itself (no dashboard JSON). The real
-> dashboard files (`engine.json`, `gateway.json`, `helena-employee.json`) live in the
-> sibling directory `deploy/observability/dashboards/`, which nothing mounts into the
-> container. Until that mount is fixed, import dashboards manually: Grafana UI (top
-> left) → Dashboards → New → Import → upload the JSON from `deploy/observability/dashboards/`.
+> **D12-02 / R-030 (2026-09-05): dashboard auto-provisioning now works in local dev.**
+> `deploy/observability/grafana-provisioning/dashboards/dashboards.yaml` is a Grafana file
+> provider whose `path` is `/etc/grafana/provisioning/dashboards/json` — the SECOND mount
+> `docker-compose.yml` declares on the `grafana` service
+> (`./deploy/observability/dashboards:/etc/grafana/provisioning/dashboards/json:ro`, kept
+> deliberately separate from the first mount so the dashboard JSON never shadows
+> `dashboards.yaml` itself). `deploy/observability/grafana-provisioning/datasources/
+> datasources.yaml` provisions the `Prometheus` datasource (`uid: prometheus`) every panel
+> references. The three versioned dashboards — `worker-runtime.json`, `agentes.json`,
+> `dlq-lifecycle.json` (`deploy/observability/dashboards/`) — should appear under the "Maezo"
+> folder automatically on `docker compose --profile observability up -d`; no manual import
+> step is needed any more. Content is provisional until `D12-01-a` (SLO document) exists — see
+> that gap. `tests/unit/deploy/test_grafana_dashboards.py` fences the provisioning wiring and
+> every panel's PromQL against the measured metric inventory.
 
 ### Running everything
 

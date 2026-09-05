@@ -2002,3 +2002,94 @@ Esta secao CORRIGE e COMPLETA as quatro secoes `PERSP-AUTH-VOICE` acima, que fic
    **10598**.
 
 Nada aqui e' ratificacao de SME.
+
+## D12-02 — dashboards Grafana versionados (owner-review, `deploy/**` por politica do programa)
+
+Decisao do dono R-030 (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA) implementada no
+branch `r5/d12-02-dashboards`. Nenhum conteudo clinico/regulatorio — nao entra na tabela do topo
+deste arquivo; registrada aqui porque `deploy/**` e owner-review por politica do programa (owner
+prompt §8), nao por CODEOWNERS.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `deploy/observability/dashboards/{worker-runtime,agentes,dlq-lifecycle}.json` (novo) + `deploy/observability/grafana-provisioning/{dashboards/dashboards.yaml,datasources/datasources.yaml}` (novo) + `deploy/terraform/modules/observability/main.tf` (nota honesta na secao "6. AMG -> AMP datasource wiring") | Confirmar que cada query PromQL de cada painel referencia uma serie real (nao fabricada) da arvore neste base; confirmar que o CONTEUDO (quais paineis, quais limiares) e aceitavel como PROVISORIO ate `D12-01-a` (documento de SLO) existir — R-030 autoriza o versionamento agora e adia o refino de conteudo, nao o contrario | `@rodaquino-OMNI` (dono de infra/observabilidade) | `pendente — PR de owner-review; ver docs/evidence-ledger.md linha D12-02. CORRIGIDO 2026-09-05 (reparo REP-D12-02): a classificacao "nao por CODEOWNERS" acima do topo desta secao esta ERRADA — ver "## Correcao (D12-02, reparo pos-VERIFY, 2026-09-05, secao NOVA)" no fim deste arquivo` |
+
+## Correcao (D12-02, reparo pos-VERIFY, 2026-09-05, secao NOVA)
+
+Esta secao CORRIGE a secao "## D12-02 — dashboards Grafana versionados" acima. A secao anterior
+nao e apagada (este arquivo e append-only); tudo o que ela afirma e que aparece corrigido aqui
+deve ser lido como SUPERADO por esta secao. Origem: veredito `VERIFY-D12-02` (REVISE, 4 achados:
+F1 bloqueante, F2/F3/F4 informativos), reparo pelo terceiro agente (REP-D12-02).
+
+1. **Painel que afirmava espelhar um alerta, e nao espelhava (F1, bloqueante — CORRIGIDO).** O
+   painel "Lifecycle CronJob failures" de `dlq-lifecycle.json` tinha perdido o `> 0` que
+   `MaezoLifecycleJobFailed` usa para gatear a metade esquerda do `unless on (job_name) (...)` —
+   a propria descricao do painel afirmava "Mesma expressao de MaezoLifecycleJobFailed", o que era
+   falso: sem o `> 0`, o painel graficaria TODA serie `kube_job_status_failed` (tipicamente `0`
+   para jobs saudaveis), nao so as genuinamente falhas. Corrigido: `expr` do painel agora e
+   byte-idêntica a expr do alerta (`kube_job_status_failed{job_name=~"lifecycle-.*"} > 0 unless
+   on (job_name) (kube_job_annotations{annotation_maezo_io_expected_fail_until=~".+"})`).
+   **Cerca nova** (`tests/unit/deploy/test_grafana_dashboards.py::
+   test_painel_que_afirma_espelhar_um_alerta_bate_com_a_expr_do_alerta`) generaliza a checagem
+   para os 8 paineis dos 3 dashboards que declaram `maezo_mirrors_alert: "<AlertName>"` (campo
+   novo no JSON, ignorado pelo Grafana): expr do painel == expr do `alert:` nomeado em
+   `alert-rules.yml`, a menos apenas de um `> <threshold>` FINAL. Ao aplicar essa cerca contra a
+   arvore real, ela tambem encontrou (e este reparo corrigiu) um SEGUNDO desvio nao nomeado pelo
+   veredito original: o painel "Worker execution time p95" (`worker-runtime.json`) envolvia a
+   expressao de `MaezoSLAWorkerLatencyHigh` num `sum by (le, worker, topic) (...)` extra que o
+   alerta nao tem, apesar de a mesma descricao "Mesma expressao... com o limiar marcado como
+   threshold do painel" prometer identidade estrutural — corrigido para bater exatamente (o
+   `sum by` removido; ambos os labels `worker`/`topic` ja sao os UNICOS que a serie declara em
+   `metrics.py`, entao a remocao nao muda o resultado numerico em dev/CI de instancia unica, so
+   restaura a promessa literal do painel). Mutation-provado (arquivo, PYTHONPATH forcado,
+   assert-before-write): dropar o `> 0` de novo -> `test_painel_que_afirma_espelhar_um_alerta_
+   bate_com_a_expr_do_alerta[dlq-lifecycle.json]` FAILED; revertido -> 26 passed.
+
+2. **Lacuna de validacao de labels, confirmada pelo proprio veredito (F3 — FECHADA).** O veredito
+   mutou `worker-runtime.json` para `sum by (nonexistent_label) (rate(
+   maezo_worker_error_count_total[5m]))` e confirmou que a cerca anterior (so nomes de metrica)
+   ficava verde. Cerca nova (`test_toda_label_usada_em_toda_expr_pertence_ao_label_set_real_da_
+   metrica`): toda label usada num seletor `metrica{label=...}` ou numa clausula
+   `by/on/ignoring/without(...)` precisa pertencer ao label-set REAL daquela metrica — derivado de
+   `labelnames=[...]` em `metrics.py` (mais `le` implicito em series `_bucket` de Histogram) para
+   metricas `maezo_*`, ou do conjunto padrao `job`/`instance`/`pod`/`namespace` (documentado contra
+   os `scrape_configs`/`relabel_configs` reais de `prometheus.yml`) unido as labels ja literalmente
+   citadas com aquela metrica em `alert-rules.yml`, para metricas de exporter (`kube_*`/`kafka_*`)
+   — nunca uma label inventada so para o dashboard, mesmo principio ja usado para nomes de metrica.
+   Mutation-provada, DUAS vezes (arquivo, PYTHONPATH forcado, assert-before-write): (a) a mesma
+   mutacao do veredito (`sum by (nonexistent_label)` sobre `maezo_worker_error_count_total`, painel
+   que TAMBEM mirrors um alerta) -> 2 FAILED (a nova cerca de labels + a de F1, ambas corretamente
+   vermelhas); revertido -> 26 passed; (b) a mesma mutacao isolada num painel SEM
+   `maezo_mirrors_alert` (`sum by (worker, topic, nonexistent_label)` em "Worker execution count
+   (throughput)") -> exatamente 1 FAILED, so a cerca de labels; revertido -> 26 passed. Unit floor
+   sobe de 10714 (base) para **10721** (era 19 casos no arquivo de teste, agora 26 — +7 desta
+   cerca: o teste de F1 parametrizado por dashboard [3] + o de F3 parametrizado [3] + o guard
+   anti-regex-quebrada de F3 [1]).
+
+3. **Bug pre-existente de vector-matching em `MaezoSLAWorkerErrorRateHigh` (F2 — registrado, NAO
+   corrigido; ver tabela abaixo).** Achado pelo verificador durante o F1, NAO introduzido nem
+   corrigido por D12-02 nem por este reparo — `alert-rules.yml` nao foi tocado. Ver secao
+   "## ALERT-RULES-VECTOR-MATCH-MISMATCH" logo abaixo.
+
+4. **Classificacao CODEOWNERS errada (F4 — CORRIGIDO).** A secao "## D12-02" acima, o `REPORT`
+   original (§5) e a linha `D12-02` de `docs/evidence-ledger.md` afirmam "`deploy/**` e owner-
+   review por politica do programa... nao por CODEOWNERS". Isso esta ERRADO desde antes de D12-02
+   comecar: `/deploy/` e CODEOWNED desde o commit `2e4d4300` ("feat(codeowners): `/deploy/` passa a
+   ser CODEOWNED, como o dono ordenou (R-053)"), ja presente na base `8251278` deste branch —
+   `git show 8251278:.github/CODEOWNERS | grep '^/deploy/'` -> `/deploy/ @rodaquino-OMNI
+   @Omni-Saude/security-team`. Os 6 arquivos `deploy/**` tocados por D12-02 (3 dashboards JSON, 2
+   YAMLs de provisioning, o comentario em `main.tf`) sao CODEOWNERS-matched, nao so
+   "program-policy". Efeito PRATICO inalterado (os dois caminhos levam a owner-review, nunca a
+   merge autonomo) — a correcao e so de rotulo/atribuicao, mas evita que a proxima rodada copie a
+   afirmacao errada adiante (o mesmo lapso ja tinha se repetido pelo menos uma vez: BRIEF-COMMON.md
+   desta rodada, corrigido separadamente por este reparo, fora deste repositorio).
+
+Nada aqui e ratificacao de SME/conteudo: segue valendo que D12-02 versiona MECANISMO
+(dashboards+provisioning), com CONTEUDO (paineis/limiares) explicitamente PROVISORIO ate
+`D12-01-a` existir, por decisao do dono (R-030) nao revisitada por este reparo.
+
+## ALERT-RULES-VECTOR-MATCH-MISMATCH — bug pre-existente de vector-matching em `MaezoSLAWorkerErrorRateHigh` (achado por VERIFY-D12-02/REP-D12-02, 2026-09-05)
+
+| Artefato | Achado | Revisor | Status |
+|---|---|---|---|
+| `deploy/observability/alert-rules.yml:73-91` (`alert: MaezoSLAWorkerErrorRateHigh`) | **A expr divide dois contadores com label-sets diferentes, sem `sum by`, e provavelmente nunca casa nenhuma serie.** `expr: (rate(maezo_worker_error_count_total[5m]) / rate(maezo_worker_execution_time_seconds_count[5m])) > 0.05`. Lado esquerdo: `maezo_worker_error_count_total`, `labelnames=["worker","topic","error_type"]` (`src/maezo/runtime/metrics.py:159-165`). Lado direito: `maezo_worker_execution_time_seconds_count` (a serie `_count` do Histogram `maezo_worker_execution_time_seconds`), `labelnames=["worker","topic"]` (`metrics.py:152-157`) — SEM `error_type`. O vector-matching padrao do PromQL para um operador binario `/` exige o MESMO conjunto de labels nos dois lados, salvo modificador `on`/`ignoring`; nenhum dos dois existe aqui. Se a leitura do comportamento padrao do Prometheus estiver certa, toda serie do numerador (que carrega `error_type`) fica SEM PAR no denominador (que nao carrega) e a divisao produz vazio SEMPRE — o alerta nunca dispara, silenciosamente, independente do erro real do worker. **Precedente no proprio repo:** o alerta irmao `MaezoSLAAgentErrorRateHigh` (mesmo arquivo, `alert-rules.yml:52-71`) tem EXATAMENTE o mesmo formato de par de contadores (`maezo_agent_errors_total{agent,error_type}` / `maezo_tool_calls_total{agent,error_type}`) e evita o problema envolvendo AMBOS os lados em `sum by (agent) (...)` antes de dividir — comentario `ALERT-COUNTER-LABELS (R-063)` no proprio arquivo explica a tecnica; `MaezoSLAWorkerErrorRateHigh` nao tem o equivalente `sum by (worker, topic)`. **Sketch da correcao** (NAO aplicado — fora do escopo deste pacote, `alert-rules.yml` nao foi editado por D12-02 nem por este reparo): `expr: (sum by (worker, topic) (rate(maezo_worker_error_count_total[5m])) / sum by (worker, topic) (rate(maezo_worker_execution_time_seconds_count[5m]))) > 0.05` — mesmo padrao `sum by` que `MaezoSLAAgentErrorRateHigh` ja usa, aplicado aos dois labels que `maezo_worker_execution_time_seconds` de fato declara. **Nao confirmado contra um Prometheus rodando de verdade** (nenhum motor/stack live concedido a este pacote) — recomenda-se ao proximo executor validar a leitura de vector-matching contra uma instancia real antes de aplicar a correcao. O painel "Worker error ratio" de `worker-runtime.json` HERDA fielmente o mesmo defeito (por instrucao explicita: espelhar o alerta exatamente) — nota adicionada na propria `description` do painel apontando para este item. | dono do processo de observabilidade/plataforma (`deploy/**` CODEOWNED, R-053) | `ABERTO — bug pre-existente em alert-rules.yml, nao introduzido nem corrigido por D12-02/REP-D12-02; sketch de correcao acima, nao aplicado` |

@@ -1,0 +1,27 @@
+# Grafana file-provider config (D12-02 / R-030) — dev local via docker-compose.
+#
+# `docker-compose.yml` mounts this whole directory (`deploy/observability/grafana-provisioning/`)
+# to `/etc/grafana/provisioning/` AND, separately, mounts the sibling directory
+# `deploy/observability/dashboards/` (where the dashboard JSON actually lives) to
+# `/etc/grafana/provisioning/dashboards/json` — a nested subdirectory chosen precisely so it does
+# NOT shadow this file itself (`/etc/grafana/provisioning/dashboards/dashboards.yaml`). `path`
+# below MUST keep matching that second mount — see the comment on the `grafana` service in
+# docker-compose.yml ("Keep in sync with that provider's path").
+#
+# Before this file existed, docs/runbooks/devops-stack.md correctly documented that
+# auto-provisioning did not work in local dev (this exact file provider config was missing) and
+# told operators to import dashboards by hand via the Grafana UI. That note is now stale — see
+# the fix landed alongside this file.
+apiVersion: 1
+
+providers:
+  - name: maezo-dashboards
+    orgId: 1
+    folder: Maezo
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards/json
+      foldersFromFilesStructure: false
