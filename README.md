@@ -71,7 +71,7 @@ make type   → Success: no issues found (mypy --strict; veja CI para output atu
 ```bash
 # Pré-requisitos: Python 3.12, Docker, make
 make setup             # uv sync --extra dev
-make dev-stack         # postgres+pgvector, cibseven, hapi-fhir, kafka
+make dev-stack         # postgres, cibseven, hapi-fhir, kafka
 cp .env.example .env   # preencher chaves
 make test              # testes unitários (veja CI para count)
 ```
