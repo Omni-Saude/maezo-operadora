@@ -349,10 +349,10 @@ acoes:
       - referencia: "src/maezo/tools/workers/programa.py:684"
         detalhe: "topic operadora.programa.proactive_contact (raw handler)"
         choked: true
-      - referencia: "src/maezo/tools/workers/lgpd.py:765"
+      - referencia: "src/maezo/tools/workers/lgpd.py:756"
         detalhe: "topic operadora.lgpd.send_response (raw handler)"
         choked: true
-      - referencia: "src/maezo/tools/workers/lgpd.py:763"
+      - referencia: "src/maezo/tools/workers/lgpd.py:754"
         detalhe: "topic operadora.lgpd.request_additional_proof (raw handler)"
         choked: true
       - referencia: "src/maezo/tools/mcp_whatsapp/server.py:111"
