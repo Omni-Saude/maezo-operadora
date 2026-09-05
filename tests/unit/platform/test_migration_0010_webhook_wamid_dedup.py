@@ -20,12 +20,23 @@ Four invariants:
     in the DDL equals the one `maezo.platform.driver_idempotency` writes, in both directions.
 4.  **`downgrade()` is honest and bounded**: it removes exactly what `upgrade()` added and never
     drops the table, the expiry index or anything belonging to 0003.
+5.  **No statement carries an accidental bind parameter.** Alembic wraps every `op.execute(...)`
+    string in `sqlalchemy.text()`, which reads a bare `:identifier` as a BIND PARAMETER. The
+    original `COMMENT ON COLUMN ... 'wa:{leg}:{tenant}:hk1_{hmac}'` therefore compiled to a
+    statement with an unbound `hk1_` parameter and `alembic upgrade head` died with a
+    `StatementError` before Postgres ever saw the DDL — a defect the structural fences above could
+    not see and only the live run surfaced. This one compiles the REAL runtime statements.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import re
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
+
+from sqlalchemy import text
 
 from maezo.platform.driver_idempotency import (
     DEDUP_MIGRATION_REVISION,
@@ -217,3 +228,58 @@ def test_downgrade_never_drops_the_table_or_the_expiry_index() -> None:
     ddl = _downgrade_ddl()
     assert "DROP TABLE" not in ddl
     assert "DROP INDEX IF EXISTS ix_driver_idempotency_expires" not in ddl
+
+
+# ---------------------------------------------------------------------------
+# 5. No accidental bind parameters (the defect the live run found)
+# ---------------------------------------------------------------------------
+
+
+def _runtime_statements() -> list[str]:
+    """The strings `upgrade()`/`downgrade()` actually hand to alembic.
+
+    Captured by importing the migration and intercepting `op.execute`, NOT by regex over the
+    source: the source carries Python-level escaping (`\\:`), and reading it textually would test
+    a different string than the one alembic compiles.
+    """
+    spec = importlib.util.spec_from_file_location("_migration_0010", _MIGRATION_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    captured: list[str] = []
+
+    def _capture(sql: Any) -> None:
+        captured.append(str(sql))
+
+    with patch.object(module.op, "execute", _capture):
+        module.upgrade()
+        module.downgrade()
+    return captured
+
+
+def test_no_statement_carries_an_accidental_bind_parameter() -> None:
+    """`:hk1_` inside a comment literal is a BIND PARAMETER to `sqlalchemy.text()`, and alembic
+    wraps every `op.execute` string in exactly that. The first live `alembic upgrade head` raised
+    `StatementError: A value is required for bind parameter 'hk1_'` — the migration never reached
+    Postgres. Escaping the colon (`\\:`) is the fix; this is the fence."""
+    statements = _runtime_statements()
+    assert len(statements) >= 10, "non-vacuity: upgrade+downgrade must have been captured"
+    offenders = {
+        statement.strip()[:60]: text(statement).compile().params
+        for statement in statements
+        if text(statement).compile().params
+    }
+    assert offenders == {}, f"statements with unbound parameters: {offenders}"
+
+
+def test_the_key_comment_still_reaches_postgres_with_its_real_colons() -> None:
+    """The escape must not change what the DBA reads: the compiled SQL carries the key format
+    verbatim, colons and all."""
+    key_comment = next(
+        statement
+        for statement in _runtime_statements()
+        if "COMMENT ON COLUMN driver_idempotency.key" in statement
+    )
+    compiled = str(text(key_comment).compile())
+    assert "wa:{leg}:{tenant}:hk1_{hmac}" in compiled
+    assert "\\" not in compiled

@@ -129,9 +129,14 @@ def upgrade() -> None:
             '(perna de entrada, webhooks/whatsapp/app.py) e o guarda de saida em '
             'tools/mcp_whatsapp/server.py::WhatsAppServer.send_message.'
     """)
+    # `\\:` escapes the colon: alembic wraps these strings in `sqlalchemy.text()`, which reads a
+    # bare `:identifier` as a BIND PARAMETER — `:hk1_` turned this DDL into a statement with an
+    # unbound parameter and `alembic upgrade head` raised `StatementError` before Postgres ever saw
+    # it (found by the first live run, fenced by the migration's unit suite:
+    # `test_no_statement_carries_an_accidental_bind_parameter`).
     op.execute("""
         COMMENT ON COLUMN driver_idempotency.key IS
-            'wa:{leg}:{tenant}:hk1_{hmac} — pseudonimo COM CHAVE (ADR-0035) do wamid, nunca o '
+            'wa:{leg}:{tenant}\\:hk1_{hmac} — pseudonimo COM CHAVE (ADR-0035) do wamid, nunca o '
             'wamid cru (que carrega o telefone da contraparte em base64). leg = inbound|outbound.'
     """)
     op.execute("""
