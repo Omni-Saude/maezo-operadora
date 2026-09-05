@@ -1,0 +1,303 @@
+{
+  "id": null,
+  "uid": "maezo-dlq-lifecycle",
+  "title": "Maezo / DLQ & Lifecycle",
+  "description": "Series de dead-letter (maezo_dead_letter_derived) + kube_job_* de lifecycle CronJobs (R-040/SC-07), espelhando exatamente as expressoes das alertas MaezoDeadLetterBacklog/MaezoDeadLetterGrowth/MaezoLifecycleJobFailed. kube-state-metrics nao tem alvo alcancavel em dev (docker-compose sem API Kubernetes) — painel mostra 'No data' localmente por design. Conteudo provisorio ate D12-01-a existir — ver nota do PR.",
+  "tags": [
+    "maezo",
+    "dlq",
+    "lifecycle",
+    "d12-02"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "style": "dark",
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "fiscalYearStartMonth": 0,
+  "weekStart": "",
+  "links": [],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "DLQ backlog proxy (MaezoDeadLetterBacklog > 0 por 10m)",
+      "description": "Recording rule maezo_dead_letter_derived (kafka_topic_partition_current_offset somado por particao). HONESTY LIMIT: offset monotonico, proxy grosseiro — ver o comentario da recording rule em alert-rules.yml.",
+      "maezo_mirrors_alert": "MaezoDeadLetterBacklog",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "pointSize": 5
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "last",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "maezo_dead_letter_queue_size",
+          "legendFormat": "{{topic}} ({{environment}})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "DLQ inflow rate (MaezoDeadLetterGrowth > 5/s por 5m)",
+      "description": "rate() por particao ANTES do sum — nunca rate(sum(...)). Proxy de crescimento, nao de backlog instantaneo.",
+      "maezo_mirrors_alert": "MaezoDeadLetterGrowth",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "pointSize": 5
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "last",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "maezo_dead_letter_inflow_rate",
+          "legendFormat": "{{topic}} ({{environment}})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Notifications-bridge poison-message shunt rate",
+      "description": "maezo_bridge_dlq_total (GAP-SC-04-a) — sinal src-side honesto de mensagens desviadas para <topic>.dlq; NAO e a mesma serie do gauge acima (ver docstring de MetricsCollector.bridge_dlq).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "pointSize": 5
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "last",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (topic, reason) (rate(maezo_bridge_dlq_total[5m]))",
+          "legendFormat": "{{topic}} / {{reason}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Lifecycle CronJob failures (MaezoLifecycleJobFailed, exclui expected-fail)",
+      "description": "Mesma expressao de MaezoLifecycleJobFailed (R-040/SC-07) — exclui jobs com a annotation maezo.io/expected-fail-until via kube-state-metrics --metric-annotations-allowlist=jobs=[maezo.io/expected-fail-until] (ver prometheus.yml). Sem alvo em dev (sem Kubernetes API) — 'No data' e esperado localmente.",
+      "maezo_mirrors_alert": "MaezoLifecycleJobFailed",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "pointSize": 5
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "last",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "kube_job_status_failed{job_name=~\"lifecycle-.*\"} > 0 unless on (job_name) (kube_job_annotations{annotation_maezo_io_expected_fail_until=~\".+\"})",
+          "legendFormat": "{{job_name}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Lifecycle CronJob failures — raw (sem exclusao, para comparacao)",
+      "description": "Serie bruta do kube-state-metrics, sem o 'unless' de expected-fail — referencia para depurar a exclusao acima.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "pointSize": 5
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "last",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "kube_job_status_failed{job_name=~\"lifecycle-.*\"}",
+          "legendFormat": "{{job_name}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    }
+  ]
+}

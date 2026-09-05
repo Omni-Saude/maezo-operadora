@@ -207,7 +207,7 @@ class TestNonVacuity:
             "SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn": 14,
             "SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn": 6,
             "SP-OP-NIP-001_Resposta_NIP.bpmn": 12,
-            "SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn": 15,
+            "SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn": 20,
             "SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn": 11,
             "SP-OP-RECURSO-001_Recurso_Glosa.bpmn": 19,
             "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn": 21,
@@ -789,6 +789,95 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "(#339, mesma PR da entrada acima; §Delta-F4)."
         ),
     ),
+    CorpusDelta(
+        date="2026-09-05",
+        pr="#345",
+        name="numero_guia_tiss",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "PERSP-PAGTO-STALE-CONTAS-ASSUMPTION — SP-OP-PAGTO-001's own contract/BPMN declared a "
+            "narrower CONTAS-001/RECURSO-001 shape than the real one landed by ADR-0040/#294/#331: "
+            "`operadora.contas.handoff_pagamento`/`operadora.recurso.handoff_pagamento` already "
+            "seed `numero_guia_tiss` (`contas.HANDOFF_PAGTO_SEEDED_KEYS`/"
+            "`recurso.HANDOFF_PAGTO_SEEDED_KEYS`), but PAGTO's own `VARIAVEIS DE ENTRADA` roll "
+            "(`SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:70`) and contract table never named it. "
+            "Fixed to match — one new `bpmn_declared_input` occurrence. Already a corpus name via "
+            "AUTH-001/CONTAS-001/RECURSO-001/REEMBOLSO-001's own rolls (identity/business-key "
+            "field, never beneficiary PHI — absent from PHI_PROCESS_VARS, ADR-0006), so no name "
+            "movement, CLEAN bucket."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-05",
+        pr="#345",
+        name="fonte_valor",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "Same PERSP-PAGTO-STALE-CONTAS-ASSUMPTION fix as `numero_guia_tiss` above. "
+            "`fonte_valor` was already a corpus name via the `camunda:inputParameter` on "
+            "CONTAS-001's `ST_HandoffPagamentoAuto`/`ST_HandoffPagamentoHumano`/"
+            "`ST_HandoffPagamentoParcial` and RECURSO-001's equivalent handoff tasks "
+            "(`bpmn_input_parameter` surface); PAGTO's roll never named it even though every "
+            "handoff seeds it (`fonte_valor in {apresentado, liberado}`, I-PAGTO-1). One new "
+            "`bpmn_declared_input` occurrence in `SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:73`, no "
+            "name movement (provenance-of-amount field, never PHI), CLEAN bucket."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-05",
+        pr="#345",
+        name="lastro_origem",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "Same PERSP-PAGTO-STALE-CONTAS-ASSUMPTION fix. `lastro_origem` was already a corpus "
+            "name via the same three CONTAS-001 `ST_HandoffPagamento*` `camunda:inputParameter` "
+            "declarations (`bpmn_input_parameter`); it was already in PAGTO's own contract table "
+            "(`docs/processes/contracts/SP-OP-PAGTO-001.md`, I-PAGTO-1 evidence field) but missing "
+            "from the BPMN's abbreviated `VARIAVEIS DE ENTRADA` roll — one new `bpmn_declared_input` "
+            "occurrence at `SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:75`, no name movement, CLEAN "
+            "bucket (evidence-of-provenance, never PHI)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-05",
+        pr="#345",
+        name="lastro_decisor_id",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "Same PERSP-PAGTO-STALE-CONTAS-ASSUMPTION fix. Unlike `lastro_origem`, "
+            "`lastro_decisor_id` is set by the WORKER (the human `analista_id`/`auditor_id`, "
+            "never a literal), so it is not a `camunda:inputParameter` value anywhere in "
+            "spec/processes/ — this is the ONE genuinely NEW name the fix adds to the corpus, via "
+            "the one occurrence it now has in PAGTO's `VARIAVEIS DE ENTRADA` roll "
+            "(`SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:76`), mirroring the row already present in "
+            "the contract table (`docs/processes/contracts/SP-OP-PAGTO-001.md`). Evidence field "
+            "(the analyst/auditor who adjudicated the account or the appeal, ADR-0007 — empty "
+            "string on the automatic leg, never invented); provider-side/internal-audit "
+            "identifier, never beneficiary PHI — absent from PHI_PROCESS_VARS (ADR-0006). CLEAN "
+            "bucket, no LISTED/SHAPE_SUSPECT movement. Corpus 331 -> 332 names."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-05",
+        pr="#345",
+        name="glosa_id",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "Same PERSP-PAGTO-STALE-CONTAS-ASSUMPTION fix. `glosa_id` was already a corpus name "
+            "via RECURSO-001's own `VARIAVEIS DE ENTRADA` roll (`bpmn_declared_input`, the glosa "
+            "being appealed); PAGTO never named it even though `operadora.recurso.handoff_pagamento` "
+            "seeds it as the third business-key form (`PAGTO-{tenant_id}-{numero_guia_tiss}-"
+            "{glosa_id}`, ADR-0040) on a reverted glosa. One new `bpmn_declared_input` occurrence "
+            "at `SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:76`, no name movement, CLEAN bucket "
+            "(business-key identity field, never beneficiary PHI). Corpus 1638 -> 1643 occurrences "
+            "over this and the four entries above."
+        ),
+    ),
 )
 
 
@@ -799,7 +888,7 @@ class TestBuckets:
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 9
-        assert expected_clean == 318
+        assert expected_clean == 319
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 9,
@@ -808,7 +897,7 @@ class TestBuckets:
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
 
     def test_the_occurrence_count_is_pinned(self, live_sweep: Sweep) -> None:
-        """333 names over 1640 occurrences — the number the ledger row quotes.
+        """334 names over 1645 occurrences — the number the ledger row quotes.
 
         Pinned because the first ledger draft quoted 1637, a figure no state of
         this branch produced. A number reported to a reader and reproducible by
@@ -816,12 +905,20 @@ class TestBuckets:
         `_BASELINE_NAMES`/`_BASELINE_OCCURRENCES` plus `CORPUS_DELTA_LOG` so a
         future move must come with a logged, reasoned entry: an unexplained
         edit to the bare literal fails the cross-check chain below. 1637 -> 1636
-        via RECURSO-EVENT-TOPIC-PENDED-PARAM's `event_topic_pended` entry above.
+        via RECURSO-EVENT-TOPIC-PENDED-PARAM's `event_topic_pended` entry, then
+        1638 -> 1640 via R-058's two entries (#339, `reembolso_auto_liberado` and
+        `origem_pagamento`, +2 names) and 1640 -> 1645 via
+        PERSP-PAGTO-STALE-CONTAS-ASSUMPTION's five entries (#345, +1 name,
+        `lastro_decisor_id` the only genuinely new one). The two sets landed on
+        DIFFERENT branches and both moved these pins: the literals below are the
+        UNION's totals, recomputed from the module by the r5/train-4 integration,
+        not either branch's figure. Each entry's own prose still quotes the running
+        total it saw on its own base -- component evidence, deliberately not rewritten.
         """
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
-        assert len(live_sweep.names) == expected_names == 333
-        assert len(live_sweep.refs) == expected_refs == 1640
+        assert len(live_sweep.names) == expected_names == 334
+        assert len(live_sweep.refs) == expected_refs == 1645
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -943,8 +1040,8 @@ class TestBuckets:
         assert f"## {LISTED} (6)" in rendered
         assert f"## {SHAPE_SUSPECT} (9)" in rendered
         assert (
-            f"## {CLEAN} (318)" in rendered
-        )  # see CORPUS_DELTA_LOG — reembolso_auto_liberado/origem_pagamento entered (R-058)
+            f"## {CLEAN} (319)" in rendered
+        )  # see CORPUS_DELTA_LOG — #339's two names and #345's `lastro_decisor_id` entered
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to

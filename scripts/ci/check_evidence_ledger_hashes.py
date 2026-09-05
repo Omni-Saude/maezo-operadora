@@ -111,22 +111,38 @@ Fail-closed contract
   print the explicit counts ("0 rows verified, N legacy rows skipped") — never silently green with
   no signal that nothing was actually checked.
 - Any git/subprocess error resolving the range or reading the ledger -> FAIL.
+- A declared row whose path is under `tests/integration/**` -> FAIL (refused, never silently
+  skipped or executed) unless the caller asserts `--allow-live` or `LEDGER_HASH_ALLOW_LIVE`
+  (HARNESS-LEDGER-HASH-AMBIENT-STACK, deviation D-24): this gate has no mutex over the
+  engine/PG/Kafka stack an integration test needs, and no way to tell a stack it brought up itself
+  from another agent's ambient one on the same standard ports.
+- A declared row's recomputed hash mismatches under the FIXED node-id recipe -> before failing,
+  IF the row's Date cell is strictly before `LEGACY_NODE_ID_RECIPE_CUTOFF_DATE`, also try the
+  LEGACY (pre-fix) node-id recipe against the SAME captured pytest run — a row declared before
+  LEDGER-HASH-PARAM-IDS-WITH-SPACES was fixed may have been hashed under the old, buggy
+  extraction. A match there is reported OK but explicitly labelled `recipe_version=legacy`, never
+  silently indistinguishable from a normal pass. Neither recipe matching is a genuine FAIL. A row
+  dated on/after the cutoff gets no such fallback — it must reproduce under the fixed recipe alone.
 
 Usage
 -----
     python3 scripts/ci/check_evidence_ledger_hashes.py               # CI: base = origin/main merge-base
     python3 scripts/ci/check_evidence_ledger_hashes.py --base <sha>  # CI: pull_request.base.sha
     python3 scripts/ci/check_evidence_ledger_hashes.py --all         # local spot-audit, every declared row
+    python3 scripts/ci/check_evidence_ledger_hashes.py --allow-live  # allow tests/integration/** rows
+                                                                      # (assert you hold the engine mutex)
+    LEDGER_HASH_ALLOW_LIVE=1 make check-ledger-hashes                # same assertion, zero Makefile diff
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -143,6 +159,40 @@ DEFAULT_LEDGER_PATH = "docs/evidence-ledger.md"
 # docs/evidence-ledger.md, dated 2026-08-09 — see module docstring "Convention"). Documented here
 # AND in docs/evidence-ledger.md's convention paragraph — keep both in sync if this ever changes.
 CONVENTION_START_DATE = "2026-09-04"
+
+# The date (ISO `YYYY-MM-DD`) on/after which a declared row's hash must reproduce under the FIXED
+# node-id recipe (`_RESULT_LINE_RE`) ALONE. A row dated STRICTLY BEFORE this constant is also
+# allowed to reproduce under the LEGACY (pre-fix) recipe (`_RESULT_LINE_RE_LEGACY`) — see
+# `verify_row`'s recipe-version dual-check.
+#
+# Why this exists (LEDGER-HASH-PARAM-IDS-WITH-SPACES, fixed 2026-09-05): the ORIGINAL node-id
+# regex required the WHOLE node id (both sides of `::`) to be whitespace-free, so a parametrized
+# id containing a literal space (e.g. a prose-built case id like `[RATIFICADO pelo DPO]`) made the
+# whole PASSED/FAILED line fail to match at all — not hashed, not reported as unparsed, simply
+# absent from the sorted set the hash was computed over. Fixing that regex is CORRECT going
+# forward, but it is not cost-free: recomputing the recipe against a test file that has ANY
+# spaced parametrize id now includes MORE result lines than the row's author saw when they
+# declared the hash, so the recomputed hash legitimately CHANGES for every such row — confirmed by
+# running this gate's own `--all` mode before and after the fix, over the CURRENT ledger: 11
+# declared rows (9 distinct test files: `test_fraude.py`, `test_nip.py`,
+# `test_validation_phi_completeness.py`, `test_validation_perspective.py`,
+# `test_check_flip_path_review.py`, `test_check_production_approval.py`, `test_programa.py`,
+# `test_escalation_notify_team.py`, `test_inadimplencia.py`) flip from OK to MISMATCH. None of
+# them are a real integrity problem — the code being hashed did not change, only the tool's own
+# extraction algorithm did — but a ledger row is NEVER retroactively edited (append-only,
+# `PR1-LEDGER-HASH-STALE-BY-DESIGN`), so those already-declared hashes must stay verifiable under
+# the recipe that was actually in effect when they were computed. Full before/after listing (task
+# ID, file, old hash -> new hash): the disclosure row `LEDGER-HASH-RECIPE-CHANGE-2026-09-05` in
+# `docs/evidence-ledger.md`.
+#
+# Set to the day AFTER the fix lands (not the fix's own date, 2026-09-05) so every row already in
+# the ledger as of the fix's commit — including same-day rows created earlier on 2026-09-05, before
+# this fix, under the old script — is grandfathered: date-only granularity cannot distinguish
+# "before this commit, same day" from "after this commit, same day", so the cutoff is deliberately
+# coarse in the SAFE direction (never rejects a genuinely pre-fix row) while still forcing every
+# row dated 2026-09-06 onward onto the fixed recipe alone — a future author cannot re-declare a
+# spaced-id row under the legacy recipe to dodge the fix.
+LEGACY_NODE_ID_RECIPE_CUTOFF_DATE = "2026-09-06"
 
 # ---------------------------------------------------------------------------
 # Row parsing (pure)
@@ -174,6 +224,13 @@ class DeclaredRow:
     task_id: str
     test_path: str
     declared_hash: str  # lowercase hex, no "sha256:" prefix
+    # The row's Date cell (ISO YYYY-MM-DD), or None when unavailable (e.g. a row built by hand in
+    # a test without one). Used ONLY by `verify_row` to decide recipe-version eligibility (see
+    # `LEGACY_NODE_ID_RECIPE_CUTOFF_DATE`) — never to decide declared/legacy status, which stays
+    # `select_rows`'s job via `is_date_qualified`. Defaulted so existing call sites that construct
+    # a `DeclaredRow` without a date (every test in this file predating the recipe-version dual
+    # check) keep compiling unchanged.
+    row_date: str | None = None
 
 
 def is_table_row(line: str) -> bool:
@@ -199,6 +256,10 @@ def parse_row_line(line: str) -> DeclaredRow | None:
         task_id=task_match.group(1).strip(),
         declared_hash=hash_match.group(1).lower(),
         test_path=hash_match.group(2),
+        # Still a pure, per-line, no-notion-of-"today" extraction (see this function's own
+        # docstring) — `extract_row_date` never consults CONVENTION_START_DATE or any other
+        # "today" state, it just reads the second cell.
+        row_date=extract_row_date(line),
     )
 
 
@@ -343,7 +404,33 @@ def get_ledger_diff_added_lines(repo_root: Path, effective_base: str, ledger_rel
 # after the node id, and PASSED/FAILED immediately after that, is what keeps this from matching
 # the exact false-positive ledger row t1.1 documents: a warnings-summary line carries a BARE node
 # id (no `::`+PASSED/FAILED token) or is indented — neither shape satisfies this pattern.
-_RESULT_LINE_RE = re.compile(r"^(\S+::\S+ (?:PASSED|FAILED)(?:\s.*)?)$", re.MULTILINE)
+#
+# The node id's PATH component (before the FIRST `::`) is required whitespace-free (`\S+`) — a
+# test file path never contains a space — but everything AFTER that first `::` (the rest of the
+# node id: class name(s), test name, and a parametrize id) is matched with `.+`, deliberately NOT
+# `\S+`. A parametrize id built from prose legitimately contains a literal space (e.g.
+# `test_x[RATIFICADO pelo DPO]`) and pytest -v renders it as part of the SAME PASSED/FAILED
+# line — the previous `\S+` requirement on that half meant the whole line silently failed to
+# match at all (LEDGER-HASH-PARAM-IDS-WITH-SPACES): not hashed, not reported as unparsed, simply
+# absent from the sorted set the hash is computed over. Greedy `.+` (not lazy) is required so that,
+# when a node id itself contains more than one `::` (a class-scoped test:
+# `path::TestClass::test_x[a b]`), the match anchors on the LAST ` PASSED`/` FAILED` token in the
+# line rather than an accidental earlier substring. The leading `\S+` (not `.*`) before the first
+# `::` is equally deliberate: it keeps a "short test summary info" line — e.g.
+# `FAILED tests/x.py::test_y - AssertionError` — excluded, because that line's first whitespace-free
+# token is `FAILED` itself with no `::` immediately following it, so `\S+::` never matches at
+# position 0; a looser `.*?::` would let such a line's leading token float across the space and
+# wrongly re-admit it whenever the failure reason happens to end in the literal word "PASSED" or
+# "FAILED".
+_RESULT_LINE_RE = re.compile(r"^(\S+::.+ (?:PASSED|FAILED))(?:\s.*)?$", re.MULTILINE)
+
+# The LEGACY (pre-fix) node-id extraction, kept verbatim — required the ENTIRE node id (both
+# sides of `::`) to be whitespace-free, so a parametrized id containing a literal space made the
+# whole line fail to match (LEDGER-HASH-PARAM-IDS-WITH-SPACES). Never used to extract NEW rows —
+# only `verify_row`'s recipe-version dual-check reaches for it, and only for a row dated strictly
+# before `LEGACY_NODE_ID_RECIPE_CUTOFF_DATE`, to keep an already-declared pre-fix hash verifiable
+# without ever retroactively editing the (append-only) ledger row.
+_RESULT_LINE_RE_LEGACY = re.compile(r"^(\S+::\S+ (?:PASSED|FAILED)(?:\s.*)?)$", re.MULTILINE)
 
 # pytest's right-aligned progress column, e.g. " [ 4%]" / "  [100%]". `\s+` (one or more), not a
 # single literal space — see module docstring for why (COLUMNS-dependent padding, ledger row
@@ -355,11 +442,15 @@ def strip_progress_marker(line: str) -> str:
     return _PROGRESS_MARKER_RE.sub("", line)
 
 
-def extract_result_lines(pytest_output: str) -> list[str]:
+def extract_result_lines(
+    pytest_output: str, *, node_id_regex: re.Pattern[str] = _RESULT_LINE_RE
+) -> list[str]:
     """Pure: pytest's captured stdout+stderr -> the stripped PASSED/FAILED result lines, in
     pytest's own (unsorted) emission order. Sorting is a separate step (`compute_recipe_hash`) so
-    this function's output is itself useful for the "strip changes the result" proof in tests."""
-    return [strip_progress_marker(m.group(1)) for m in _RESULT_LINE_RE.finditer(pytest_output)]
+    this function's output is itself useful for the "strip changes the result" proof in tests.
+    `node_id_regex` defaults to the current (fixed) recipe; `verify_row`'s recipe-version dual-
+    check passes `_RESULT_LINE_RE_LEGACY` explicitly to reproduce a pre-fix declared hash."""
+    return [strip_progress_marker(m.group(1)) for m in node_id_regex.finditer(pytest_output)]
 
 
 def compute_recipe_hash(result_lines: Sequence[str]) -> str:
@@ -381,9 +472,26 @@ class RecipeOutcome:
 _RECIPE_TIMEOUT_SECONDS = 300
 
 
-def run_recipe(repo_root: Path, test_path: str, python_exe: str) -> RecipeOutcome:
+@dataclass(frozen=True)
+class PytestCapture:
+    """I/O outcome of running the frozen recipe's pytest invocation exactly ONCE — deliberately
+    decoupled from which node-id regex later interprets its output. `verify_row`'s recipe-version
+    dual-check (LEDGER-HASH-PARAM-IDS-WITH-SPACES) needs to try TWO regexes against the SAME real
+    pytest run; without this split it would have to re-run pytest a second time to do that —
+    doubling every row's cost and, worse, risking a flaky/non-deterministic test producing a
+    genuinely different second run instead of re-reading the same captured bytes."""
+
+    ok: bool
+    combined_output: str | None
+    returncode: int | None
+    detail: str
+
+
+def capture_pytest_recipe(repo_root: Path, test_path: str, python_exe: str) -> PytestCapture:
     """I/O wrapper: runs the frozen recipe for real against `test_path` (relative to `repo_root`)
-    and returns the computed hash, or a non-ok outcome with a diagnosable `detail` — never raises."""
+    exactly once and returns the raw captured stdout+stderr, or a non-ok capture with a
+    diagnosable `detail` — never raises. Extraction/hashing is `recipe_outcome_from_capture`'s job,
+    kept separate so the SAME capture can be interpreted under more than one node-id regex."""
     try:
         proc = subprocess.run(
             [python_exe, "-m", "pytest", test_path, "-v", "--tb=no", "-p", "no:cacheprovider"],
@@ -394,33 +502,57 @@ def run_recipe(repo_root: Path, test_path: str, python_exe: str) -> RecipeOutcom
             timeout=_RECIPE_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
-        return RecipeOutcome(
-            False, None, 0, f"TIMEOUT after {_RECIPE_TIMEOUT_SECONDS}s running pytest {test_path}"
+        return PytestCapture(
+            False, None, None, f"TIMEOUT after {_RECIPE_TIMEOUT_SECONDS}s running pytest {test_path}"
         )
     combined = proc.stdout + proc.stderr
-    result_lines = extract_result_lines(combined)
-    if not result_lines:
-        tail = "\n".join(combined.splitlines()[-10:])
-        return RecipeOutcome(
-            False,
-            None,
-            0,
-            f"pytest produced 0 PASSED/FAILED result lines for {test_path} (exit={proc.returncode}); "
-            f"tail:\n{tail}",
-        )
     # exit 0 = all passed, exit 1 = some failed — both are legitimate recipe outcomes (a FAILED
     # line is still a valid, hashable result). Anything else (2/3/4/5 = usage/internal/collection
     # error) means the run itself is not trustworthy.
     if proc.returncode not in (0, 1):
         tail = "\n".join(combined.splitlines()[-10:])
-        return RecipeOutcome(
+        return PytestCapture(
             False,
-            None,
-            len(result_lines),
+            combined,
+            proc.returncode,
             f"pytest exited {proc.returncode} (neither 0=all-passed nor 1=some-failed) for "
             f"{test_path}; tail:\n{tail}",
         )
+    return PytestCapture(True, combined, proc.returncode, "ok")
+
+
+def recipe_outcome_from_capture(
+    capture: PytestCapture, test_path: str, *, node_id_regex: re.Pattern[str] = _RESULT_LINE_RE
+) -> RecipeOutcome:
+    """Pure (given `capture`): extracts+hashes result lines from an already-captured pytest run
+    using `node_id_regex`. A capture that failed at the I/O layer (timeout, bad exit code)
+    propagates its `detail` unchanged, never re-interpreted as "0 result lines"."""
+    if not capture.ok:
+        return RecipeOutcome(False, None, 0, capture.detail)
+    assert capture.combined_output is not None  # ok=True guarantees this
+    result_lines = extract_result_lines(capture.combined_output, node_id_regex=node_id_regex)
+    if not result_lines:
+        tail = "\n".join(capture.combined_output.splitlines()[-10:])
+        return RecipeOutcome(
+            False,
+            None,
+            0,
+            f"pytest produced 0 PASSED/FAILED result lines for {test_path} (exit={capture.returncode}); "
+            f"tail:\n{tail}",
+        )
     return RecipeOutcome(True, compute_recipe_hash(result_lines), len(result_lines), "ok")
+
+
+def run_recipe(
+    repo_root: Path, test_path: str, python_exe: str, *, node_id_regex: re.Pattern[str] = _RESULT_LINE_RE
+) -> RecipeOutcome:
+    """I/O wrapper: runs the frozen recipe for real against `test_path` (relative to `repo_root`)
+    and returns the computed hash, or a non-ok outcome with a diagnosable `detail` — never raises.
+    Back-compat single-shot convenience: `capture_pytest_recipe` + `recipe_outcome_from_capture`
+    in one call, for callers (and every pre-existing test in this suite) that don't need the
+    recipe-version dual-check and are fine with the default (fixed) node-id regex."""
+    capture = capture_pytest_recipe(repo_root, test_path, python_exe)
+    return recipe_outcome_from_capture(capture, test_path, node_id_regex=node_id_regex)
 
 
 # ---------------------------------------------------------------------------
@@ -439,6 +571,42 @@ def is_safe_test_path(path: str) -> bool:
     return ".." not in path.split("/")
 
 
+# HARNESS-LEDGER-HASH-AMBIENT-STACK: a `tests/integration/**` file's recipe run needs a real
+# engine/PG/Kafka stack up on well-known ports — this tool has no mutex over that stack and no way
+# to know whether it brought it up itself or is reaching another agent's ambient one (confirmed
+# once via `docker ps`: a queued agent's OWN `maezo-operadora-*` containers were up on the standard
+# ports at the moment this gate ran; the hash happened to still be correct that time — topics are
+# uniquely named per run — but the tool had no way to KNOW that). `is_live_test_path` names the
+# scope this refusal applies to; `verify_row` refuses to execute such a row unless the caller
+# explicitly asserts (`--allow-live` / `LEDGER_HASH_ALLOW_LIVE`) that they hold the engine mutex.
+_LIVE_TEST_PATH_PREFIX = "tests/integration/"
+
+
+def is_live_test_path(path: str) -> bool:
+    """Pure: True iff `path` falls under `tests/integration/**` — the scope this gate refuses to
+    execute without an explicit `--allow-live` assertion (see module docstring, deviation D-24)."""
+    return path.startswith(_LIVE_TEST_PATH_PREFIX)
+
+
+# Truthy values accepted for the `LEDGER_HASH_ALLOW_LIVE` env-var fallback to `--allow-live` (see
+# `resolve_allow_live`) — deliberately small and explicit, not "any non-empty string", so a stray
+# exported-but-empty or accidentally-"0"/"false" var never silently grants the assertion.
+_ALLOW_LIVE_ENV_TRUE_VALUES = {"1", "true", "yes"}
+
+
+def resolve_allow_live(cli_flag: bool, env: Mapping[str, str]) -> bool:
+    """Pure: True iff the caller asserted engine-mutex ownership via the CLI flag OR the
+    `LEDGER_HASH_ALLOW_LIVE` env var (case-insensitive, one of `_ALLOW_LIVE_ENV_TRUE_VALUES`). The
+    env-var path exists so `make check-ledger-hashes` — CODEOWNED, deliberately left unchanged by
+    this fix — can be invoked as `LEDGER_HASH_ALLOW_LIVE=1 make check-ledger-hashes` by a caller
+    that already holds the mutex, with ZERO Makefile diff: the exported var reaches the recipe's
+    subprocess through the normal shell-environment inheritance a Make recipe always has, without
+    the Makefile needing to name or forward it."""
+    if cli_flag:
+        return True
+    return env.get("LEDGER_HASH_ALLOW_LIVE", "").strip().lower() in _ALLOW_LIVE_ENV_TRUE_VALUES
+
+
 @dataclass(frozen=True)
 class RowVerification:
     row: DeclaredRow
@@ -446,7 +614,9 @@ class RowVerification:
     message: str
 
 
-def verify_row(repo_root: Path, row: DeclaredRow, python_exe: str) -> RowVerification:
+def verify_row(
+    repo_root: Path, row: DeclaredRow, python_exe: str, *, allow_live: bool = False
+) -> RowVerification:
     if not is_safe_test_path(row.test_path):
         return RowVerification(
             row,
@@ -455,35 +625,74 @@ def verify_row(repo_root: Path, row: DeclaredRow, python_exe: str) -> RowVerific
             f"^tests/[A-Za-z0-9_/.-]+\\.py$ or contains a '..' segment — refusing to execute it "
             "(path-injection guard).",
         )
+    if is_live_test_path(row.test_path) and not allow_live:
+        return RowVerification(
+            row,
+            False,
+            f"{row.task_id}: declared path {row.test_path} is under {_LIVE_TEST_PATH_PREFIX} — "
+            "refusing to recompute its hash (HARNESS-LEDGER-HASH-AMBIENT-STACK): this gate has no "
+            "mutex over the engine/PG/Kafka stack an integration test needs and no way to tell a "
+            "stack it brought up itself from another agent's ambient one on the same standard "
+            "ports. Re-run with --allow-live (or LEDGER_HASH_ALLOW_LIVE=1) ONLY while you "
+            "personally hold the engine mutex and control the stack.",
+        )
     file_path = repo_root / row.test_path
     if not file_path.is_file():
         return RowVerification(
             row, False, f"{row.task_id}: declared test file {row.test_path} does not exist at HEAD."
         )
-    outcome = run_recipe(repo_root, row.test_path, python_exe)
+    capture = capture_pytest_recipe(repo_root, row.test_path, python_exe)
+    outcome = recipe_outcome_from_capture(capture, row.test_path, node_id_regex=_RESULT_LINE_RE)
     if not outcome.ok:
         return RowVerification(
             row, False, f"{row.task_id}: recipe execution failed for {row.test_path}: {outcome.detail}"
         )
     declared_full = f"sha256:{row.declared_hash}"
     assert outcome.computed_hash is not None  # ok=True guarantees this
-    if outcome.computed_hash.lower() != declared_full.lower():
+    if outcome.computed_hash.lower() == declared_full.lower():
         return RowVerification(
             row,
-            False,
-            f"{row.task_id}: hash mismatch for {row.test_path} — declared {declared_full}, "
-            f"recomputed {outcome.computed_hash} ({outcome.result_line_count} result lines at "
-            "HEAD). Two possible causes: (1) the declared hash was computed wrong — fix it in "
-            "this same still-open PR before merge; (2) a LATER commit on this same branch edited "
-            f"{row.test_path} after the hash was taken — append a disclosure row noting the "
-            "recompute (PR1-LEDGER-HASH-STALE-BY-DESIGN), never silently edit an already-merged "
-            "row.",
+            True,
+            f"{row.task_id}: verified {declared_full} ({row.test_path}, {outcome.result_line_count} "
+            "result lines).",
         )
+    # The FIXED recipe didn't match. A row dated strictly before LEGACY_NODE_ID_RECIPE_CUTOFF_DATE
+    # may have been declared under the LEGACY (pre-fix) node-id extraction, which silently dropped
+    # a spaced parametrize id (LEDGER-HASH-PARAM-IDS-WITH-SPACES) — try that recipe too, against
+    # the SAME already-captured pytest run (no second subprocess), before concluding a real
+    # mismatch. This is never offered to a row dated on/after the cutoff: a future row must
+    # reproduce under the fixed recipe alone, or fixing the bug accomplishes nothing.
+    if row.row_date is not None and row.row_date < LEGACY_NODE_ID_RECIPE_CUTOFF_DATE:
+        legacy_outcome = recipe_outcome_from_capture(
+            capture, row.test_path, node_id_regex=_RESULT_LINE_RE_LEGACY
+        )
+        if (
+            legacy_outcome.ok
+            and legacy_outcome.computed_hash is not None
+            and legacy_outcome.computed_hash.lower() == declared_full.lower()
+        ):
+            return RowVerification(
+                row,
+                True,
+                f"{row.task_id}: verified {declared_full} ({row.test_path}, "
+                f"{legacy_outcome.result_line_count} result lines) via the LEGACY pre-fix node-id "
+                "recipe (recipe_version=legacy — this row predates LEDGER-HASH-PARAM-IDS-WITH-SPACES, "
+                "dated before LEGACY_NODE_ID_RECIPE_CUTOFF_DATE; see the disclosure row "
+                "LEDGER-HASH-RECIPE-CHANGE-2026-09-05 in docs/evidence-ledger.md). The FIXED recipe "
+                f"recomputes {outcome.computed_hash} ({outcome.result_line_count} result lines) for "
+                "the same file at HEAD — expected, not a new integrity problem: the file did not "
+                "change, only this tool's own node-id extraction did.",
+            )
     return RowVerification(
         row,
-        True,
-        f"{row.task_id}: verified {declared_full} ({row.test_path}, {outcome.result_line_count} "
-        "result lines).",
+        False,
+        f"{row.task_id}: hash mismatch for {row.test_path} — declared {declared_full}, "
+        f"recomputed {outcome.computed_hash} ({outcome.result_line_count} result lines at "
+        "HEAD). Two possible causes: (1) the declared hash was computed wrong — fix it in "
+        "this same still-open PR before merge; (2) a LATER commit on this same branch edited "
+        f"{row.test_path} after the hash was taken — append a disclosure row noting the "
+        "recompute (PR1-LEDGER-HASH-STALE-BY-DESIGN), never silently edit an already-merged "
+        "row.",
     )
 
 
@@ -521,6 +730,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--python",
         default=sys.executable,
         help="Interpreter used for the pytest subprocess (default: sys.executable).",
+    )
+    parser.add_argument(
+        "--allow-live",
+        action="store_true",
+        help="Assert that the caller holds the engine mutex and controls the stack, so this gate "
+        "may recompute a declared row whose path is under tests/integration/** "
+        "(HARNESS-LEDGER-HASH-AMBIENT-STACK, deviation D-24). Without this flag (or the "
+        "LEDGER_HASH_ALLOW_LIVE env var), such a row is refused, never silently skipped or run "
+        "against a stack this tool did not bring up itself.",
     )
     return parser
 
@@ -574,7 +792,10 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
         )
         return 0
 
-    results = [verify_row(root, row, args.python) for row in selection.declared]
+    effective_allow_live = resolve_allow_live(args.allow_live, os.environ)
+    results = [
+        verify_row(root, row, args.python, allow_live=effective_allow_live) for row in selection.declared
+    ]
     for result in results:
         status = "OK" if result.ok else "MISMATCH"
         print(f"{prefix} {status}: {result.message}")

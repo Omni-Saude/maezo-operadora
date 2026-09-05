@@ -1,0 +1,25 @@
+# Grafana datasource provisioning (D12-02 / R-030) — dev local via docker-compose.
+#
+# Points at the `prometheus` service (docker-compose.yml, profile `observability`) that scrapes
+# every job in ../../prometheus.yml and evaluates ../../alert-rules.yml's recording rules. `uid:
+# prometheus` is the literal value every panel `datasource.uid` in
+# ../../dashboards/*.json references — keep the two in sync.
+#
+# ADR-0014: staging/prod use Amazon Managed Grafana (AMG) consuming Amazon Managed Prometheus
+# (AMP) as its datasource instead of this file — see
+# deploy/terraform/modules/observability/main.tf ("6. AMG -> AMP datasource wiring"), which is
+# BLOCKED on a two-phase Terraform bootstrap (the `grafana` provider needs the AMG workspace URL,
+# only available after `aws_grafana_workspace.maezo` applies) and on issue #16 (no AWS creds).
+# This datasource file is dev-only; it has no prod equivalent yet.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
