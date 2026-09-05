@@ -917,3 +917,230 @@ re-checagem. Fonte primária de evidência: `docs/evidence-ledger.md`, `docs/dec
 `docs/adr/`, `PLANS.md` §0.5.3/§0.5.4/§0.6/§0.7. Para o histórico #65–#88, ver
 `docs/reports/autonomous-completion-report.md` §6; para a enumeração formal de revisão pré-launch
 #89–#221, ver `docs/reports/review-before-launch-extension.md`._
+
+
+---
+
+## Fila pós-aprovação do registro do dono (2026-09-04)
+
+> **Contexto.** Em 2026-09-04 o dono aprovou as 287 linhas do registro de decisões
+> (`docs/audits/maezo-deep-audit/remediation/OWNER-DECISIONS-REGISTER.csv`, local, gitignored,
+> status `APROVADO-APOS-REVISÃO-HUMANA`). O efeito por linha vive em
+> `docs/audits/maezo-deep-audit/remediation/UNLOCK-LEDGER.yaml` (287 entradas, também local e
+> gitignored): classe A = decisão tomada (engenharia pode começar); classe B = procedimento
+> aprovado, o conteúdo do papel SME nomeado continua gated (nunca ratifica DMN/RN/policy/DRAFT/
+> action-approvals/`_hard_frozen`); classe C = compromisso DATADO do dono (a aprovação registra o
+> prazo, não executa o ato — em linhas C com decisor SME o teto data a CONVOCAÇÃO, o conteúdo do
+> SME segue gated).
+
+**Contagens (reproduzidas por script contra `UNLOCK-LEDGER.yaml`, filtro `unlock_class`):**
+A = 86 · B = 189 · C = 12 (total 287).
+
+### Trabalho classe A, por work package (86 itens, 30 work packages)
+
+**SEM-WP** (3)
+
+- [ ] R-053 — PR em .github/CODEOWNERS acrescentando `/deploy/ @rodaquino-OMNI @Omni-Saude/security-team`, mergeado sob a regra Sec.8… — SEM-WP — `.github/CODEOWNERS`
+- [ ] R-079 — Atualizar summary.by_merge_gate em GAP-REGISTER.yaml e a nota de §4 na proxima passagem de planejamento; nenhuma mudanc… — SEM-WP — `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`, `docs/audits/maezo-deep-audit/remediation/EXECUTION-PLAN.md`
+- [ ] R-228 — Agente implementa o gate que falha se qualquer publicação de agregado populacional aparecer no processo e registra o fe… — SEM-WP — `docs/sme-dispatch/dpo/PACKAGE.md`, `docs/processes/contracts/SP-OP-PROGRAMA-001.md`, `spec/processes/dmn/programa_routing.dmn`
+
+**WP-ADR-0030-COMPLETION** (3)
+
+- [ ] R-075 — Registrar em docs/review-queue.md a fila T-E (inadimplencia, cred, cancel) como lote unico e o gatilho de habilitacao;… — WP-ADR-0030-COMPLETION — `docs/review-queue.md`
+- [ ] R-097 — Registrar a confirmacao como linha em `docs/decisions-log.md` e nota em `docs/processes/contracts/SP-OP-CONTAS-001.md`,… — WP-ADR-0030-COMPLETION — `docs/decisions-log.md`, `docs/processes/contracts/SP-OP-CONTAS-001.md`
+- [ ] R-098 — Quando o endurecimento for buscado: ADR nova (proximo numero livre em `docs/adr/`) declarando a convencao de 'declaraca… — WP-ADR-0030-COMPLETION — `docs/adr/`, `scripts/ci/check_bpmn_error_allowlist.py`
+
+**WP-ADR-RECONCILIACAO** (7)
+
+- [ ] R-052 — Abrir um PR-lote por pacote comecando por WP-ADR-RECONCILIACAO (7 emendas em docs/adr/), com um commit por ADR para rev… — WP-ADR-RECONCILIACAO — `docs/adr/`
+- [ ] R-073 — Migracao nova em src/maezo/platform/migrations/versions/ declarando o novo uso (indice de expiry incluso) + atualizacao… — WP-ADR-RECONCILIACAO — `src/maezo/platform/migrations/versions/`, `src/maezo/platform/lifecycle/erasure_plan.py`, `docs/adr/0024-durable-idempotency-resume-inbound-drivers.md`
+- [ ] R-076 — PR #285 (branch fix/adr-reconciliacao-emendas, docs/adr/0041-reconciliacao-*.md) segue para gatekeeper R1 independente;… — WP-ADR-RECONCILIACAO — `docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md`, `docs/reviews/`
+- [ ] R-077 — Manter PR #285 aberto e solicitar gatekeeper R1 independente (autor != revisor), registrando o veredito em docs/reviews… — WP-ADR-RECONCILIACAO — `docs/reviews/`, `docs/adr/`
+- [ ] R-085 — PR pequeno acrescentando marcador local nas tres ocorrencias remanescentes do vocabulario antigo de CONTAS (`docs/adr/0… — WP-ADR-RECONCILIACAO — `docs/adr/0018-no-denial-structural-replication.md`
+- [ ] R-088 — Acrescentar ADR-0025 a lista de ADRs reconciliadas em `docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0… — WP-ADR-RECONCILIACAO — `docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md`
+- [ ] R-089 — PR `docs/adr-anscron-citation-refresh` contra `main` `89a6c29`: remover `check_calendar` do exemplo de import em ADR-00… — WP-ADR-RECONCILIACAO — `docs/adr/0026-worker-standardization.md`, `docs/adr/0028-dmn-evaluation-engine-side.md`, `scripts/ci/check_doc_symbol_citations.py`
+
+**WP-AGENT-BINDINGS** (2)
+
+- [ ] R-036 — PR `fix/andre-least-privilege-pagto`: remover tools mcp-cibseven.start_process (spec/agents/andre/agent.yaml:16) e auto… — WP-AGENT-BINDINGS — `spec/agents/andre/agent.yaml`, `tests/unit/gateway/`
+- [ ] R-049 — PR com nota em docs/processes/contracts/SP-OP-ADEQUACAO-001.md e comentario em spec/agents/andre/agent.yaml declarando… — WP-AGENT-BINDINGS — `docs/processes/contracts/SP-OP-ADEQUACAO-001.md`, `spec/agents/andre/agent.yaml`
+
+**WP-ANS-CRON-COMPETENCIA** (2)
+
+- [ ] R-091 — Registrar o reconhecimento na revisão do PR de ANS-CRON e anotar no evidence-ledger a citação de pyproject.toml:43 e da… — WP-ANS-CRON-COMPETENCIA — `pyproject.toml`, `uv.lock`
+- [ ] R-112 — Nota de escopo no contrato `docs/processes/contracts/SP-OP-ANS-CRON-001.md` e mudanca do campo `status` da linha do reg… — WP-ANS-CRON-COMPETENCIA — `docs/processes/contracts/SP-OP-ANS-CRON-001.md`, `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+
+**WP-BUILD-HYGIENE** (1)
+
+- [ ] R-095 — Acrescentar a espera do broker ao loop de `.github/workflows/ci.yml:492-499` (ao lado de postgres/cibseven) e configura… — WP-BUILD-HYGIENE — `.github/workflows/ci.yml`, `ruleset main-protection (GitHub API)`
+
+**WP-COMPOSICAO-V2** (2)
+
+- [ ] R-062 — Linha em docs/review-queue.md registrando a decisao 'console' com gatilho de reabertura = primeiro receiver filelog ou… — WP-COMPOSICAO-V2 — `docs/review-queue.md`
+- [ ] R-114 — Bloco novo em `spec/policies/autonomy/action-approvals.yaml` com as 4 acoes canonicas, mais nota de sequencia C0->C4 em… — WP-COMPOSICAO-V2 — `spec/policies/autonomy/action-approvals.yaml`, `PLANS.md`
+
+**WP-CONTRATOS-SYNC** (2)
+
+- [ ] R-155 — Aplicar o redline que fecha a pergunta no pacote finanças, declarar a igualdade exata como invariante permanente no con… — WP-CONTRATOS-SYNC — `docs/sme-dispatch/financas/PACKAGE.md`, `docs/processes/contracts/SP-OP-RECURSO-001.md`, `src/maezo/tools/workers/recurso.py`
+- [ ] R-173 — Aplicar o redline que remove a pergunta de financas/PACKAGE.md:76, declarar Long no contrato (SP-OP-CONTAS-001.md:77) e… — WP-CONTRATOS-SYNC — `docs/sme-dispatch/financas/PACKAGE.md`, `docs/processes/contracts/SP-OP-CONTAS-001.md`, `spec/processes/bpmn/`
+
+**WP-CUSTO** (2)
+
+- [ ] R-045 — PR `feat/tf-cost-guardrails`: modulo deploy/terraform/modules/cost-guardrails/ com aws_ce_anomaly_monitor + aws_ce_anom… — WP-CUSTO — `deploy/terraform/modules/cost-guardrails/`, `deploy/terraform/envs/`
+- [ ] R-195 — Registrar a decisao em `docs/review-queue.md:891`; o bloco `model:` de `spec/agents/*/agent.yaml` so muda quando o prod… — WP-CUSTO — `docs/review-queue.md`, `spec/agents/`
+
+**WP-DEPLOY-P0** (7)
+
+- [ ] R-001 — Abrir PR `fix/af-01-bridges-disabled-fence`: `enabled: false` em networkChangeBridge/consentRevocationBridge do values.… — WP-DEPLOY-P0 — `deploy/helm/maezo-tenant/values.yaml`, `scripts/ci/check_helm_entrypoints.py`, `.github/workflows/ci.yml`, `tests/unit/ci/`
+- [ ] R-002 — PR `fix/du-02-tenant-id-env-fence`: renomear env[].name em job-migrations.yaml:103 + `scripts/ci/check_chart_env_reconc… — WP-DEPLOY-P0 — `deploy/helm/maezo-tenant/templates/job-migrations.yaml`, `scripts/ci/check_chart_env_reconciliation.py`, `.github/workflows/ci.yml`, `tests/unit/ci/`
+- [ ] R-003 — PR `fix/du-03-aurora-preload`: remover `,pgvector` do parameter shared_preload_libraries em modules/aurora-postgres/mai… — WP-DEPLOY-P0 — `deploy/terraform/modules/aurora-postgres/main.tf`
+- [ ] R-004 — PR `feat/sc-01-outbox-relay-deployment` depois de AF-01/DU-02: template deployment-a2a-outbox-relay.yaml + bloco a2aOut… — WP-DEPLOY-P0 — `deploy/helm/maezo-tenant/templates/deployment-a2a-outbox-relay.yaml`, `deploy/helm/maezo-tenant/values.yaml`, `deploy/aws-ecs/envs/dev-sa-east-1/`
+- [ ] R-086 — No PR `feat/helm-whatsapp-phone-number-id` (portador de M-45/M-74), trocar `contas.start_recurso` por `contas.start_fra… — WP-DEPLOY-P0 — `deploy/helm/maezo-tenant/templates/deployment-bridge.yaml`
+- [ ] R-101 — PR `feat/helm-whatsapp-phone-number-id`: chave `whatsapp.phoneNumberId` em `values.yaml` + env `WHATSAPP_PHONE_NUMBER_I… — WP-DEPLOY-P0 — `deploy/helm/maezo-tenant/values.yaml`, `deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml`, `scripts/ci/check_helm_required_envs.py`
+- [ ] R-198 — Agente cria ServiceAccount própria em deploy/helm/maezo-tenant/templates/deployment-bridge-netchange.yaml e registra a… — WP-DEPLOY-P0 — `deploy/helm/maezo-tenant/templates/deployment-bridge-netchange.yaml`, `docs/review-queue.md`
+
+**WP-DRIFT-REGISTRO-TOPICOS** (1)
+
+- [ ] R-181 — Abrir o PR de conformidade código-modelo colapsando os três Execute*Worker no tópico operadora.lgpd.execute_request, se… — WP-DRIFT-REGISTRO-TOPICOS — `src/maezo/tools/workers/lgpd.py`, `docs/sme-dispatch/dpo/PACKAGE.md`, `docs/processes/contracts/SP-OP-LGPD-DSR-001.md`
+
+**WP-ESCALA** (9)
+
+- [ ] R-023 — PR `docs/sc-02-tetos-por-replica`: chaves capacity.declaredCeilingPerReplica e capacity.measurementStatus: NAO_MEDIDO p… — WP-ESCALA — `deploy/helm/maezo-tenant/values.yaml`
+- [ ] R-024 — PR `docs/sc-04-b-singleton-declarado`: comentario acima de notificationsBridge.replicaCount (values.yaml:263) citando S… — WP-ESCALA — `deploy/helm/maezo-tenant/values.yaml`, `scripts/ci/`
+- [ ] R-025 — PR `docs/sc-05-aritmetica-de-conexoes`: bloco comentado em deploy/helm/maezo-tenant/values.yaml com conexoes/processo x… — WP-ESCALA — `deploy/helm/maezo-tenant/values.yaml`, `deploy/terraform/modules/aurora-postgres/`
+- [ ] R-026 — Registrar a decisao como nota de arquitetura e preparar modules/aurora-postgres/ com aws_db_proxy + aws_db_proxy_target… — WP-ESCALA — `deploy/terraform/modules/aurora-postgres/`, `docs/review-queue.md`
+- [ ] R-070 — Item novo no WP-DEPLOY-P0 do EXECUTION-PLAN.md (job kafka-topics --describe vs topic_registry.py, escrito no PR que pro… — WP-ESCALA — `docs/audits/maezo-deep-audit/remediation/EXECUTION-PLAN.md`, `src/maezo/platform/integrations/notifications_bridge.py`, `deploy/terraform/modules/`
+- [ ] R-074 — PR `fix/ci-integration-wait-kafka` acrescentando ao passo 'Wait for stack to be healthy' (.github/workflows/ci.yml:492-… — WP-ESCALA — `.github/workflows/ci.yml`
+- [ ] R-108 — Comentario-ancora em `src/maezo/a2a/idempotency.py:246-249`, replicado nos outros 3 sitios de `create_pool` (`outbox.py… — WP-ESCALA — `src/maezo/a2a/idempotency.py`, `docs/review-queue.md`
+- [ ] R-109 — PR `docs/chart-throughput-ceilings`: comentario de teto declarado em `deploy/helm/maezo-tenant/values.yaml` mais duas c… — WP-ESCALA — `deploy/helm/maezo-tenant/values.yaml`
+- [ ] R-113 — PR acrescentando o nome a `scripts/ci/check_effect_chokepoint_fence.py:115` e a §8.1 de `docs/design/wave1-effect-choke… — WP-ESCALA — `scripts/ci/check_effect_chokepoint_fence.py`, `docs/design/wave1-effect-chokepoint.md`
+
+**WP-EVALS** (2)
+
+- [ ] R-094 — Manter `merge_gate: autonomous` nas 2 linhas de `GAP-REGISTER.yaml`; nenhum PR novo de decisao, apenas aprovacao de mer… — WP-EVALS — `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+- [ ] R-196 — Provisionar a chave de API e o orcamento da lane noturna e wire-la aos 3 casos CLAREZA usando `score_live` (`tests/eval… — WP-EVALS — `tests/evals/README.md`, `.github/workflows/ (lane noturna)`, `chave de API do provedor LLM (segredo)`
+
+**WP-FATOS-FABRICADOS** (3)
+
+- [ ] R-093 — PR `fix/inad-notified-event-resemantica` trocando o `event_topic` de `ST_PublishInadimplenciaNotified` (BPMN :153) para… — WP-FATOS-FABRICADOS — `spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn`, `docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md`
+- [ ] R-104 — Registrar a escolha de canal na linha `SLA-ALERTS-CHANNEL-WIRING` do registro e abrir `WP-ALERTA-SLA-CANAL` com a regra… — WP-FATOS-FABRICADOS — `src/maezo/platform/integrations/notifications_bridge.py`, `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+- [ ] R-105 — Registrar a confirmacao em `GAP-REGISTER.yaml` (os 7 ids sem decisao pendente) e anotar `D-21` como a autorizacao de me… — WP-FATOS-FABRICADOS — `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+
+**WP-G4-INFRA** (5)
+
+- [ ] R-020 — PR `docs/m-10-corrigir-claim-de-gate`: reescrever os tres trechos de .github/workflows/cd.yml declarando que `productio… — WP-G4-INFRA — `.github/workflows/cd.yml`, `docs/audits/maezo-deep-audit/reports/domain-13-cicd-iac.md`
+- [ ] R-021 — PR `feat/m-10-preflight-approval-gate`: job `require-production-approval` como needs: de promote-production + `scripts/… — WP-G4-INFRA — `.github/workflows/cd.yml`, `scripts/ci/check_production_approval.py`, `tests/unit/ci/`, `branch protection / ruleset main-protection (GitHub)`
+- [ ] R-037 — Dono provisiona os dois valores no Secrets Manager fora do Terraform, restringe a resource policy de leitura de phi/hma… — WP-G4-INFRA — `AWS Secrets Manager (phi/hmac-key, llm/api-keys)`, `deploy/terraform/modules/secrets/main.tf`
+- [ ] R-038 — Executar terraform plan em deploy/terraform/envs/staging-sa-east-1/, anexar a saida como evidencia ao item G4 de PLANS.… — WP-G4-INFRA — `deploy/terraform/envs/staging-sa-east-1/`, `AWS (execucao do plan)`, `PLANS.md`, `docs/evidence-ledger.md`
+- [ ] R-041 — Abrir o PR fix/oidc-plan-least-privilege trocando aws_iam_role_policy_attachment.plan_readonly por data aws_iam_policy_… — WP-G4-INFRA — `deploy/terraform/modules/github-oidc/main.tf`
+
+**WP-GOVERNANCA-DPO** (3)
+
+- [ ] R-010 — Agente marca AF-13 como ENTREGUE no registro de gaps citando src/maezo/platform/observability.py:79-84 e os três call s… — WP-GOVERNANCA-DPO — `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+- [ ] R-103 — Abrir o PR fix/lgpd-retire-publish-completed-orphan-topic apagando o worker e sua entrada em src/maezo/tools/workers/lg… — WP-GOVERNANCA-DPO — `src/maezo/tools/workers/lgpd.py`, `tests/unit/tools/workers/test_lgpd_erasure.py`, `docs/compliance/lgpd-topic-reconciliation.md`
+- [ ] R-106 — Anotar os CronJobs de `deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml` com `maezo.io/expected-fail-until` (m… — WP-GOVERNANCA-DPO — `deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml`, `PLANS.md`
+
+**WP-IDEMPOTENCIA** (1)
+
+- [ ] R-197 — Linha em `docs/review-queue.md` registrando a aceitacao do residuo e dependencia explicita de XRD-10/MZO-060 no campo `… — WP-IDEMPOTENCIA — `docs/review-queue.md`, `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+
+**WP-LEDGER-HASH-CI** (2)
+
+- [ ] R-078 — Passo novo em .github/workflows/evidence-ledger.yml chamando `make check-ledger-hashes` quando o diff toca docs/evidenc… — WP-LEDGER-HASH-CI — `.github/workflows/evidence-ledger.yml`, `Makefile`, `scripts/ci/check_evidence_ledger_hashes.py`, `docs/evidence-ledger.md`
+- [ ] R-099 — Registrar como ENTREGUE o corte de data (`scripts/ci/check_evidence_ledger_hashes.py:145`, PR #304 @ `06d6e0d`, convenc… — WP-LEDGER-HASH-CI — `scripts/ci/check_evidence_ledger_hashes.py`, `docs/evidence-ledger.md`
+
+**WP-MEMORIA-PGVECTOR** (2)
+
+- [ ] R-005 — PR `feat/du-01-b-pgvector-remocao`: migration 0009_drop_pgvector (drop de agent_memory.embedding e da extensao vector),… — WP-MEMORIA-PGVECTOR — `src/maezo/platform/migrations/versions/0009_drop_pgvector.py`, `deploy/terraform/modules/aurora-postgres/main.tf`, `docker-compose.yml`, `docs/adr/0002-agent-state-three-layers.md`
+- [ ] R-006 — No PR `feat/du-01-b-pgvector-remocao`: emenda DRAFT a docs/adr/0002-agent-state-three-layers.md §3 (suspensao condicion… — WP-MEMORIA-PGVECTOR — `docs/adr/0002-agent-state-three-layers.md`, `docs/evidence-ledger.md`
+
+**WP-OBSERVABILITY-WIRING** (6)
+
+- [ ] R-007 — PR `feat/d12-01-b-runbook-urls`: annotations.runbook_url por regra nas 8 de deploy/observability/alert-rules.yml aponta… — WP-OBSERVABILITY-WIRING — `deploy/observability/alert-rules.yml`, `docs/runbooks/`, `scripts/ci/`
+- [ ] R-030 — PR `feat/d12-02-dashboards-versionados`: diretorio deploy/observability/dashboards/ com um JSON por dashboard (worker-r… — WP-OBSERVABILITY-WIRING — `deploy/observability/dashboards/`, `deploy/observability/`
+- [ ] R-056 — PR `feat/obs-kube-state-metrics-scrape`: job_name kube-state-metrics em deploy/observability/prometheus.yml + values do… — WP-OBSERVABILITY-WIRING — `deploy/observability/prometheus.yml`, `deploy/observability/alert-rules.yml`, `deploy/helm/maezo-tenant/values.yaml`
+- [ ] R-057 — PR `fix/tf-obs-alert-rules-ext` tocando deploy/terraform/modules/observability/main.tf:55 e :60 e variables.tf:49; nenh… — WP-OBSERVABILITY-WIRING — `deploy/terraform/modules/observability/main.tf`, `deploy/terraform/modules/observability/variables.tf`
+- [ ] R-063 — No PR de ALERTS-WITHOUT-METRICS-a: labelnames=['agent','error_type'] em src/maezo/runtime/metrics.py:65 e :70 e as expr… — WP-OBSERVABILITY-WIRING — `src/maezo/runtime/metrics.py`, `deploy/observability/alert-rules.yml`
+- [ ] R-069 — Sem PR proprio: registrar a confirmacao como nota na linha ALERTS-WITHOUT-METRICS-b do registro e no comentario de depl… — WP-OBSERVABILITY-WIRING — `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`, `deploy/observability/alert-rules.yml`
+
+**WP-PERSP-CONTAS-RECURSO** (4)
+
+- [ ] R-084 — Abrir PR `fix/contas-data-vencimento-intake-gate`: `operadora.contas.identify_glosa` roteia a `ANALISE_HUMANA` com `dat… — WP-PERSP-CONTAS-RECURSO — `src/maezo/tools/workers/contas.py`, `spec/processes/bpmn/SP-OP-CONTAS-001_Gestao_Contas.bpmn`, `docs/processes/contracts/SP-OP-CONTAS-001.md`
+- [ ] R-087 — Fechar `PERSPECTIVE-FENCE-XML-COMMENT-ASYMMETRY` pela Opcao (A) do branch `fix/perspective-fence-historical-marker` (se… — WP-PERSP-CONTAS-RECURSO — `src/maezo/platform/validation/perspective.py`, `CONTRIBUTING.md`
+- [ ] R-096 — Mesclar o branch `fix/perspective-fence-historical-marker` (secao «Where historical references go» em `perspective.py`… — WP-PERSP-CONTAS-RECURSO — `src/maezo/platform/validation/perspective.py`, `CONTRIBUTING.md`
+- [ ] R-194 — Nota de escopo em `docs/adr/0040-perspectiva-operadora-contas-recurso.md` declarando a regra de ponte como dormente por… — WP-PERSP-CONTAS-RECURSO — `docs/adr/0040-perspectiva-operadora-contas-recurso.md`
+
+**WP-PERSP-VOCABULARIO** (1)
+
+- [ ] R-035 — Quando os nomes de R-034 existirem: PR reabrindo docs/processes/contracts/SP-OP-ESCALATION-001.md para DRAFT (v1.1.0),… — WP-PERSP-VOCABULARIO — `docs/processes/contracts/SP-OP-ESCALATION-001.md`, `spec/processes/dmn/escalation_routing.dmn`, `docs/processes/contracts/signoffs/SP-OP-ESCALATION-001.signoff.yaml`
+
+**WP-PHI-COMPLETUDE** (2)
+
+- [ ] R-066 — Agente adiciona o comentário de uma linha em src/maezo/tools/workers/phi_vars.py registrando a decisão de manter as dua… — WP-PHI-COMPLETUDE — `src/maezo/tools/workers/phi_vars.py`
+- [ ] R-199 — Agente landa o manifesto em spec/policies/phi/ com o schema completo e os campos de ratificação vazios, no molde de phi… — WP-PHI-COMPLETUDE — `spec/policies/phi/`, `.github/CODEOWNERS`, `docs/review-queue.md`
+
+**WP-REEMBOLSO-DMN** (1)
+
+- [ ] R-060 — Ato do dono: acrescentar a coluna de output de versao em spec/processes/dmn/reembolso_calculo.dmn, no mesmo pacote do s… — WP-REEMBOLSO-DMN — `spec/processes/dmn/reembolso_calculo.dmn`, `scripts/ci/`
+
+**WP-SEC-GITLEAKS-ALLOWLIST** (1)
+
+- [ ] R-102 — Manter `merge_gate: autonomous` nas 8 linhas de `GAP-REGISTER.yaml` e aplicar `gh run view <id> --json jobs` antes de m… — WP-SEC-GITLEAKS-ALLOWLIST — `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+
+**WP-SECURITY-SMALL** (3)
+
+- [ ] R-042 — Abrir o PR fix/osv-threshold-high: security.yml:571 vira HIGH, entradas com reason em .github/osv-allowlist.json para o… — WP-SECURITY-SMALL — `.github/workflows/security.yml`, `.github/osv-allowlist.json`, `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+- [ ] R-061 — PR unico `feat/helm-whatsapp-phone-number-id`: chave whatsapp.phoneNumberId em values.yaml + env WHATSAPP_PHONE_NUMBER_… — WP-SECURITY-SMALL — `deploy/helm/maezo-tenant/values.yaml`, `deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml`
+- [ ] R-200 — Habilitar o entitlement GHAS na org GitHub (ato do dono) e abrir o PR de limpeza das branches remotas mergeadas; regist… — WP-SECURITY-SMALL — `docs/Tarefas_Pendentes.md`, `entitlement GHAS (configuracao da org GitHub)`
+
+**WP-SUPERFICIE-HUMANA** (2)
+
+- [ ] R-031 — PR unico registrando a decisao A+D: linha de docs/review-queue.md saindo de DRAFT, atualizacao de PLANS.md e nota 'demo… — WP-SUPERFICIE-HUMANA — `docs/review-queue.md`, `PLANS.md`, `src/maezo/platform/testchannel/README.md`
+- [ ] R-043 — Linha em docs/review-queue.md registrando a aceitacao + plano de contingencia em docs/ nomeando o canal humano de fallb… — WP-SUPERFICIE-HUMANA — `docs/review-queue.md`, `docs/ (plano de contingencia)`, `PLANS.md`
+
+**WP-SUPERFICIE-HUMANA-EXEC** (3)
+
+- [ ] R-081 — PR `feat/fernando-delegation-wire`: chamada a delegate_arrears_followup em src/maezo/tools/workers/inadimplencia.py:452… — WP-SUPERFICIE-HUMANA-EXEC — `src/maezo/tools/workers/inadimplencia.py`, `src/maezo/runtime/agent_runtime/a2a_composition.py`, `src/maezo/agents/fernando/graph.py`
+- [ ] R-082 — Registrar em `docs/review-queue.md` que Lucas fica fora do escopo A2A ate uma jornada nomear o consumidor, sem tocar `s… — WP-SUPERFICIE-HUMANA-EXEC — `docs/review-queue.md`
+- [ ] R-092 — Manter `merge_gate: autonomous` nas 8 linhas de `GAP-REGISTER.yaml` e aplicar a disciplina D-10 (`gh run view <id> --js… — WP-SUPERFICIE-HUMANA-EXEC — `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+
+**WP-WEBHOOK-DEDUP** (2)
+
+- [ ] R-071 — PR `feat/webhook-wamid-dedup` reusando driver_idempotency (migration 0003:61-72) como registro de dedup com TTL, guarda… — WP-WEBHOOK-DEDUP — `src/maezo/platform/webhooks/whatsapp/dispatch.py`, `src/maezo/platform/migrations/versions/`, `src/maezo/platform/webhooks/whatsapp/ (cliente send)`
+- [ ] R-072 — No PR de R-071: o registro duravel da dedup vira a perna de entrada da fila, com ack imediato ao Meta e feature flag em… — WP-WEBHOOK-DEDUP — `src/maezo/platform/webhooks/whatsapp/app.py`, `docs/processes/`
+
+**WP-WHATSAPP-NONTEXT-ACK** (2)
+
+- [ ] R-080 — Nenhum PR de construcao: registrar a ratificacao (janela de objecao) em docs/decisions-log.md apontando para src/maezo/… — WP-WHATSAPP-NONTEXT-ACK — `docs/decisions-log.md`, `src/maezo/platform/webhooks/whatsapp/dispatch.py`
+- [ ] R-100 — PR `fix/whatsapp-mixed-batch-observability`: rotulo `status=partial_failure` no `WEBHOOK_REQUESTS_TOTAL` do caminho de… — WP-WHATSAPP-NONTEXT-ACK — `src/maezo/platform/webhooks/whatsapp/app.py`
+
+### Prazos classe C (12 itens)
+
+| R-id | ato | data |
+|---|---|---|
+| R-051 | compromisso: WRITE do security-team + segundo humano + zero erros CODEOWNERS (MERGE-GATE-OWNER-REVIEW) | 2026-09-14 |
+| R-019 | sessão conjunta auditoria de contas + regulatório + finanças (PERSP-VOCAB) | 2026-09-19 |
+| R-027 | designação do encarregado de dados (DPO, D7-03) — ato societário fora do repo | 2026-09-19 |
+| R-028 | janela de designação DPO (D7-03, herda teto de R-027) | 2026-09-19 |
+| R-033 | PR do dono regulatório reordenando r_conforme em adequacao_gap.dmn | 2026-09-19 |
+| R-137 | despacho dos 6 pacotes SME (roster nomeado pelo dono) | 2026-09-19 |
+| R-163 | sessão conjunta médico auditor + jurídico/regulatório + finanças (AUTH-CRITERIA-RATIFICACAO-MANIFESTO) | 2026-09-19 |
+| R-040 | anotação maezo.io/expected-fail-until nos 3 CronJobs LGPD (SC-07) | 2026-11-11 |
+| R-054 | desvio Q-2 vira enforcing (MERGE-GATE-OWNER-REVIEW) | 2026-11-11 |
+| R-131 | ratificação registro legal-hold + re-anchor checkpoint assinado (LEGAL-HOLD-REGISTRY-REANCHOR) | 2026-11-11 |
+| R-083 | handoff ENCAMINHAR_CREDENCIAMENTO permanece ANALISE_HUMANA, ratchet (ADEQ-CRED-PRESTADOR-CANDIDATO) | 2026-12-03 |
+| R-110 | vigilância automatizada Renovate/Dependabot nos 3 sítios de pin (HX-15) | 2027-03-04 |
+
+### Restrições de ordem
+
+- **R-137 primeiro**: é a linha-pivô do lote — ~15 acelerações herdam o teto 2026-09-19 do
+  despacho dos 6 pacotes SME (ver `docs/sme-dispatch/tracker.md`).
+- **R-157 nunca antes de R-059**: o teto positivo de reembolso só entra depois de
+  `min(solicitado, tabela)` implementado (REEMBOLSO-AUTO-OVERPAY-a) e do sign-off atuarial de
+  REEMBOLSO-AUTO-OVERPAY-b em R-059 (gatekeeper rejeitou A→B nessa linha); depende também de
+  M-08/F-1-b (R-011..R-017).
+- **Cadeia DPO D7-03 → D7-01 / AF-07 / AF-16 / F-2 / SC-07**: D7-03 (designação do encarregado,
+  R-027, teto 2026-09-19) é a raiz — sem designação não há assinante. Destrava, nessa ordem
+  lógica, D7-01 (R-008/R-009), AF-07 (R-022, a maior alavanca — destrava AF-16, F-2, SC-03,
+  SC-07), F-2 (R-029), SC-07 (R-040), AF-16, e alimenta PHI-DISPOSITIONS-DPO (R-065/R-136) e
+  R-117/R-128/R-129/R-172/R-280.
