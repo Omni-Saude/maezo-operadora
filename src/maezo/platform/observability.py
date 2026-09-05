@@ -516,37 +516,46 @@ def record_effect_rate_limited(*, tenant: str, principal: str) -> None:
 def record_agent_error(*, agent: str, error_type: str) -> None:
     """Count ONE failed agent turn — `maezo_agent_errors_total`.
 
-    SEVEN call sites (`grep -rn 'record_agent_error()' src/`), of two shapes:
+    Every call site is KEYWORD-FORM (`record_agent_error(agent=..., error_type=...)`, never
+    zero-arg) and belongs to one of two shapes. No fixed count is written here — the two fences
+    below derive the set from the AST on every run, so this paragraph cannot go stale the way its
+    predecessor did:
+    `tests/unit/platform/test_alert_metrics_fence.py::test_every_graph_invocation_in_src_counts_agent_errors`
+    enumerates every `.ainvoke(` re-raise seam in `src/` (not a hand-kept list), and
+    `tests/unit/agents/test_delegation_agent_error_labels.py` asserts every
+    `agents/<id>/delegation.py`'s `record_agent_error(agent=...)` literal equals that module's own
+    directory id.
 
-    SIX are `.ainvoke(` re-raise seams, platform/delegation composition code, NONE of them inside
-    an agent graph — each wraps `compiled.ainvoke(state)` in `try: ... except Exception:
-    record_agent_error(); raise` (bare re-raise, `Exception` never `BaseException` — a drained
-    `asyncio.CancelledError` is not a failed agent):
+    MOST call sites are `.ainvoke(` re-raise seams, platform/delegation composition code, NONE of
+    them inside an agent graph — each wraps `compiled.ainvoke(state)` in `try: ...
+    except Exception as exc: record_agent_error(agent=..., error_type=
+    classify_agent_error_type(exc)); raise` (bare re-raise, `Exception` never `BaseException` — a
+    drained `asyncio.CancelledError` is not a failed agent):
       * `maezo.runtime.harness.Harness.invoke` (the agent-runtime ingress path);
       * `maezo.platform.webhooks.whatsapp.dispatch.HelenaDispatcher.dispatch` (the live WhatsApp
         receiver, which compiles and `ainvoke`s Helena's graph directly rather than through
         `Harness`); and
-      * the four A2A delegation handlers — `maezo.agents.{carolina,fernando,rafael,andre}
-        .delegation.py` — each wrapping its own `compiled.ainvoke(state)` identically. These four
-        predate CC-01; this docstring previously (wrongly) enumerated only the first two.
-    `tests/unit/platform/test_alert_metrics_fence.py::test_every_graph_invocation_in_src_counts_agent_errors`
-    derives this set from the AST (every `.ainvoke(` site in `src/`, not a hand-kept list) so a
-    seventh un-instrumented `.ainvoke(` cannot appear silently.
+      * each A2A delegation handler under `maezo.agents.<id>.delegation.py` (one per agent that
+        has a delegation target) — every one wrapping its own `compiled.ainvoke(state)`
+        identically.
 
-    The SEVENTH (CC-01, new) is `maezo.runtime.start_outcome.py::notify_start_failure` — called
+    ONE MORE call site (CC-01) is `maezo.runtime.start_outcome.py::notify_start_failure` — called
     FROM INSIDE an agent graph's own conditional-edge node (the shared `route_after_start` branch
     every start-process node routes through) when `start_process_idempotent` raises
     `CibSevenError`. It does NOT raise: it logs `agent_process_start_failed`, calls
-    `record_agent_error()`, and RETURNS a TERMINAL error outcome (`desfecho=
-    erro_inicio_processo`, `process_started=False`) that the graph's `ainvoke` completes
-    normally with. `tests/unit/agents/test_start_failure_routing.py` pins this site calling the
-    counter exactly once per start failure, across all 9 agents with a `start_process` node.
+    `record_agent_error(agent=agent_id, error_type=START_FAILURE_ERROR_TYPE)`, and RETURNS a
+    TERMINAL error outcome (`desfecho=erro_inicio_processo`, `process_started=False`) that the
+    graph's `ainvoke` completes normally with. `tests/unit/agents/test_start_failure_routing.py`
+    pins this site calling the counter exactly once per start failure, across every agent with a
+    `start_process` node, and (per `test_start_failure_routing.py`'s own assertion)
+    `START_FAILURE_ERROR_TYPE` is pinned equal to what `classify_agent_error_type` would return
+    for the `CibSevenError` this site stands in for.
 
     EXACTLY ONE COUNT PER FAILED TURN, proved rather than assumed: because the CC-01 site returns
     instead of raising, the graph's `ainvoke` completes WITHOUT an exception for this failure
     class — so the enclosing `except Exception` at `Harness.invoke`/`HelenaDispatcher.dispatch`/
-    each delegation handler never fires for it (no double count from the six re-raise seams).
-    Separately, the four A2A handlers DO raise a typed `StartProcessFailedError` after `ainvoke`
+    each delegation handler never fires for it (no double count from the re-raise seams).
+    Separately, each A2A handler DOES raise a typed `StartProcessFailedError` after `ainvoke`
     returns (`if result.get("start_failed") is True: raise ...`, RAF-02) so a failed-to-start
     delegation is retried rather than sealed as completed — but that `raise` sits OUTSIDE the
     `try` block wrapping `ainvoke`, so it does not loop back through this counter either. Either a
