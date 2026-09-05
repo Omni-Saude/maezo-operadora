@@ -334,3 +334,15 @@ doesn't replace it.
 Record your verdict in `docs/processes/contracts/signoffs/<CONTRACT-ID>.signoff.yaml` per
 `../README.md` §"Signoff artifact spec". This package does not create, pre-fill, or infer any
 signoff file.
+
+## Dossie de sessao — vocabulario de decisao do pagador (R-018/R-019, ate 2026-09-19)
+
+`PAYER-VOCAB-CORRESPONDENCE.md` (gemeo legivel por maquina: `payer-vocab-correspondence.yaml`) e a
+**pauta unica** da sessao conjunta **regulatorio + auditoria de contas** (com financas) que ratifica
+o vocabulario de decisao do pagador de SP-OP-CONTAS-001 e SP-OP-RECURSO-001. A tabela traz, por
+elemento, `elemento anterior -> verbo/termo do pagador PROPOSTO -> razao (teste de perspectiva
+ADR-0040 D2) -> arquivo:linha` (12 elementos de CONTAS, 26 de RECURSO), mais a **lista exata dos
+rotulos `PROPOSTO`** que a sessao remove. Cada linha esta marcada `PROPOSTO` e **nenhuma delas e
+mergeavel em `spec/` como decisao**; a sessao produz os dois `signoff.yaml` e remove os rotulos.
+Ver tambem `../medico-auditor/AUTH-CRITERIA-RATIFICATION-DOSSIER.md`, cuja sessao (R-163) tem o
+mesmo teto de 2026-09-19 e inclui juridico/regulatorio.
