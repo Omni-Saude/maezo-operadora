@@ -36,9 +36,9 @@ rows:
     acao_ao_ratificar: "remover o marcador DRAFT/verify da citacao (sem troca de norma)"
   - norma_citada: "RN 124 (sem ano explicito no texto)"
     arquivo: "docs/processes/contracts/SP-OP-ANS-CRON-001.md"
-    linha: 194
+    linha: 205
     norma_token: "RN 124"
-    arquivo_linha: "docs/processes/contracts/SP-OP-ANS-CRON-001.md:194"
+    arquivo_linha: "docs/processes/contracts/SP-OP-ANS-CRON-001.md:205 [re-anchored 2026-09-05, r5/docs-notes-a2 apos merge abb9d60 (scope note em SP-OP-ANS-CRON-001.md, +11 linhas); linha original 194]"
     o_que_afirma: "SIP — Sistema de Informacoes de Produtos"
     status_rn_currency_review_1: "revogada + citacao com assunto errado"
     norma_corrente_indicada: "RN 489/2022 (penalidades); SIP em si -> RN 551/2022, extinta por RN 639/2025 (Monitoramento TISS)"
@@ -48,9 +48,9 @@ rows:
     acao_ao_ratificar: "retirada cirurgica do timer `RN_124_SIP` (obrigacao extinta por RN 639/2025, DL-0028/DL-0029) -- nao e mera recitacao (R-214)"
   - norma_citada: "RN 209/2009"
     arquivo: "docs/processes/contracts/SP-OP-ANS-CRON-001.md"
-    linha: 187
+    linha: 198
     norma_token: "RN 209"
-    arquivo_linha: "docs/processes/contracts/SP-OP-ANS-CRON-001.md:187"
+    arquivo_linha: "docs/processes/contracts/SP-OP-ANS-CRON-001.md:198 [re-anchored 2026-09-05, r5/docs-notes-a2 apos merge abb9d60 (scope note em SP-OP-ANS-CRON-001.md, +11 linhas); linha original 187]"
     o_que_afirma: "utilizacao de servicos"
     status_rn_currency_review_1: "revogada + citacao com assunto errado"
     norma_corrente_indicada: "RN 451/2020"
@@ -60,9 +60,9 @@ rows:
     acao_ao_ratificar: "re-derivacao do literal `RN_209_UTILIZACAO` (nao e mera recitacao: o assunto e capital regulatorio, nao \"utilizacao\") -- decisao registrada em R-214"
   - norma_citada: "RN 388/2015"
     arquivo: "docs/processes/contracts/SP-OP-ANS-CRON-001.md"
-    linha: 188
+    linha: 199
     norma_token: "RN 388"
-    arquivo_linha: "docs/processes/contracts/SP-OP-ANS-CRON-001.md:188"
+    arquivo_linha: "docs/processes/contracts/SP-OP-ANS-CRON-001.md:199 [re-anchored 2026-09-05, r5/docs-notes-a2 apos merge abb9d60 (scope note em SP-OP-ANS-CRON-001.md, +11 linhas); linha original 188]"
     o_que_afirma: "indicadores/transparencia OU NIP"
     status_rn_currency_review_1: "revogada + citacao com assunto errado"
     norma_corrente_indicada: "RN 483/2022"
@@ -72,9 +72,9 @@ rows:
     acao_ao_ratificar: "re-derivacao do literal `RN_388_QUALIDADE` (nao e mera recitacao: o assunto e fiscalizacao/NIP, nao \"qualidade\") -- decisao registrada em R-214"
   - norma_citada: "RN 451/2020"
     arquivo: "docs/processes/contracts/SP-OP-ANS-CRON-001.md"
-    linha: 188
+    linha: 199
     norma_token: "RN 451"
-    arquivo_linha: "docs/processes/contracts/SP-OP-ANS-CRON-001.md:188"
+    arquivo_linha: "docs/processes/contracts/SP-OP-ANS-CRON-001.md:199 [re-anchored 2026-09-05, r5/docs-notes-a2 apos merge abb9d60 (scope note em SP-OP-ANS-CRON-001.md, +11 linhas); linha original 188]"
     o_que_afirma: "(norma sucessora indicada em §1 para RN 209/2009)"
     status_rn_currency_review_1: "vigente -- norma sucessora citada em §1/§4 (sem linha propria na tabela §1)"
     norma_corrente_indicada: "RN 451/2020"
@@ -84,9 +84,9 @@ rows:
     acao_ao_ratificar: "nenhuma acao direta nesta linha (norma sucessora ja mencionada como referencia); a acao esta na linha da norma revogada correspondente"
   - norma_citada: "RN 483/2022"
     arquivo: "docs/processes/contracts/SP-OP-ANS-CRON-001.md"
-    linha: 189
+    linha: 200
     norma_token: "RN 483"
-    arquivo_linha: "docs/processes/contracts/SP-OP-ANS-CRON-001.md:189"
+    arquivo_linha: "docs/processes/contracts/SP-OP-ANS-CRON-001.md:200 [re-anchored 2026-09-05, r5/docs-notes-a2 apos merge abb9d60 (scope note em SP-OP-ANS-CRON-001.md, +11 linhas); linha original 189]"
     o_que_afirma: "(norma sucessora indicada em §1 para RN 388/2015-2016)"
     status_rn_currency_review_1: "vigente -- norma sucessora citada em §1/§4 (sem linha propria na tabela §1)"
     norma_corrente_indicada: "RN 483/2022"
@@ -96,9 +96,9 @@ rows:
     acao_ao_ratificar: "nenhuma acao direta nesta linha (norma sucessora ja mencionada como referencia); a acao esta na linha da norma revogada correspondente"
   - norma_citada: "RN 551/2022"
     arquivo: "docs/processes/contracts/SP-OP-ANS-CRON-001.md"
-    linha: 177
+    linha: 188
     norma_token: "RN 551"
-    arquivo_linha: "docs/processes/contracts/SP-OP-ANS-CRON-001.md:177"
+    arquivo_linha: "docs/processes/contracts/SP-OP-ANS-CRON-001.md:188 [re-anchored 2026-09-05, r5/docs-notes-a2 apos merge abb9d60 (scope note em SP-OP-ANS-CRON-001.md, +11 linhas); linha original 177]"
     o_que_afirma: "(mencionada em §2.9 apenas como predecessora de RN 639/2025)"
     status_rn_currency_review_1: "NAO COBERTA pela tabela §1 (mencionada de passagem em §2.9)"
     norma_corrente_indicada: "revogada por RN 639/2025"
@@ -108,9 +108,9 @@ rows:
     acao_ao_ratificar: "aguardar resposta especifica do jurídico/regulatório -- nao ha veredito §1 aplicavel a esta linha isolada"
   - norma_citada: "RN 639/2025"
     arquivo: "docs/processes/contracts/SP-OP-ANS-CRON-001.md"
-    linha: 174
+    linha: 185
     norma_token: "RN 639"
-    arquivo_linha: "docs/processes/contracts/SP-OP-ANS-CRON-001.md:174 (+2 ocorrencia(s) tambem em linhas 177,205)"
+    arquivo_linha: "docs/processes/contracts/SP-OP-ANS-CRON-001.md:185 (+2 ocorrencia(s) tambem em linhas 188,216) [re-anchored 2026-09-05, r5/docs-notes-a2 apos merge abb9d60 (scope note em SP-OP-ANS-CRON-001.md, +11 linhas); linhas originais 174/177/205]"
     o_que_afirma: "Extingue a obrigacao SIP (revoga RN 551/2022) a partir do 1o tri/2026"
     status_rn_currency_review_1: "NAO COBERTA pela tabela §1 (tratada em §2.9/§4/§5-R1; refinada por docs/compliance/rn-639-primary-source.md)"
     norma_corrente_indicada: "ver §2.9/§4/§5-R1 + docs/compliance/rn-639-primary-source.md"
