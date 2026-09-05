@@ -372,22 +372,54 @@ PHI_FREE_TEXT_VARS: frozenset[str] = frozenset(
 #: variable is passed through untouched.
 _DOSSIER_VAR_PREFIX: str = "dossie_"
 
-#: Recursion bound for the dossier walk. A dossier is a small, hand-assembled dict (depth 3 at
-#: most: `dossie_x.fatos.dmn_refs`), so exceeding this means a malformed or self-referential
-#: payload — fail-closed (raise) rather than silently stopping the scrub mid-tree.
+#: Recursion bound for the dossier walk AND for the free-text subtree walk. A dossier is a small,
+#: hand-assembled dict (depth 3 at most: `dossie_x.fatos.dmn_refs`), so exceeding this means a
+#: malformed or self-referential payload — fail-closed (raise) rather than silently stopping the
+#: scrub mid-tree.
 _MAX_DOSSIER_DEPTH: int = 8
+
+#: CC-06 §Delta2 — the CLOSED set of non-`str` LEAF types tolerated INSIDE a value found under a
+#: free-text name. A free-text field carries prose; a scalar sitting next to that prose (a count,
+#: a flag, an absent optional) is harmless and passes byte-identical — `carolina/graph.py` emits
+#: `state.get("motivo_informado")`, which is `None` when the field was never filled, so refusing a
+#: `None` would turn a fail-closed control into a denial of service. EVERYTHING ELSE — `bytes`, a
+#: `set`, a date, an arbitrary object — is REFUSED by `_redact_free_text_value`: `redact_free_text`
+#: is a net over `str`, and a type it cannot inspect would be a SILENT passthrough of a value that
+#: arrived where prose was expected (exactly the REG-01 / CC-06-residual-#5 defect).
+#:
+#: Pinned by `tests/unit/tools/workers/test_phi_vars.py::test_free_text_passthrough_types_are_pinned`
+#: — widening this tuple flips that fence RED, so admitting a new type is a deliberate act with a
+#: justification here, never a slip. (`bool` is listed although `isinstance(True, int)` already
+#: covers it: the pin reads as the enumeration of what is allowed, not as a minimal isinstance
+#: argument.)
+_FREE_TEXT_PASSTHROUGH_TYPES: tuple[type, ...] = (bool, int, float, type(None))
 
 
 def redact_free_text_vars(values: Mapping[str, Any]) -> dict[str, Any]:
     """Return a COPY of process-start `values` with every FREE-TEXT field passed through
     `redact_free_text` (CC-06). Structured values are returned unchanged, by construction.
 
-    Scope, precisely:
-      - a top-level key in `PHI_FREE_TEXT_VARS` -> its string (or list-of-strings) value is
-        scrubbed.
+    Scope, precisely (CC-06 §Delta2 states the free-text branch EXACTLY — the older wording said
+    "string (or list-of-strings) ... anything else is left alone", and that pass-through WAS the
+    leak REG-01 and CC-06-residual-#5 reported: a tuple of prose, a nested mapping, a list of
+    mappings and a self-referential value all reached the engine verbatim under a free-text name):
+      - a top-level key in `PHI_FREE_TEXT_VARS`, or such a name found anywhere inside a walked
+        dossier -> its value is handled by `_redact_free_text_value`, which:
+          * SCRUBS every `str` leaf with `redact_free_text` (at any nesting level — under a
+            free-text name the whole subtree is prose by construction, whatever the inner keys
+            are called);
+          * RECURSES into `Mapping` / `list` / `tuple`, PRESERVING the container type (a tuple
+            comes back a tuple — a plain one, so a `NamedTuple` is flattened; a `Mapping` comes
+            back a plain `dict`, as everywhere else in this walk);
+          * PASSES `_FREE_TEXT_PASSTHROUGH_TYPES` leaves (`bool`/`int`/`float`/`None`) unchanged;
+          * REFUSES anything else — `bytes`, a `set`, a date, an arbitrary object — because
+            `redact_free_text` cannot inspect it and passing it on would be a silent leak;
+          * REFUSES a `Mapping` KEY that `looks_like_phi_text` flags. Keys are NOT scrubbed:
+            two keys redacted to the same class token would collide and silently drop one of the
+            two values, which is a worse failure than refusing.
       - a top-level `dossie_*` key whose value is a Mapping -> WALKED recursively (through nested
-        mappings and lists of mappings); inside it, the same `PHI_FREE_TEXT_VARS` names are
-        scrubbed and everything else passes through.
+        mappings, lists and tuples of mappings); inside it, the same `PHI_FREE_TEXT_VARS` names
+        are scrubbed as above and everything else passes through.
       - every other key -> passed through UNCHANGED (ids, business keys, enums, `process://`
         refs, pseudo-ids, DMN refs, booleans, amounts).
 
@@ -402,8 +434,17 @@ def redact_free_text_vars(values: Mapping[str, Any]) -> dict[str, Any]:
 
     MAY RAISE (deliberately, unlike `redact_phi_vars`/`redact_error_message`): the sole caller is
     the start chokepoint, where a scrub that cannot be completed must REFUSE the start rather
-    than fall through to a raw passthrough. `ValueError` on a payload deeper than
-    `_MAX_DOSSIER_DEPTH` (malformed or self-referential).
+    than fall through to a raw passthrough. `ValueError`, in exactly four cases — nothing else in
+    this function refuses, and nothing that reaches it is ever passed on unredacted:
+      1. a payload nested deeper than `_MAX_DOSSIER_DEPTH` (malformed);
+      2. a SELF-REFERENTIAL value under a free-text name (caught immediately by an identity guard
+         over the current path, not by exhausting the depth bound; a value shared by two SIBLING
+         branches is not a cycle and is not refused);
+      3. a value under a free-text name whose type `redact_free_text` cannot scrub and
+        `_FREE_TEXT_PASSTHROUGH_TYPES` does not admit;
+      4. a `Mapping` KEY under a free-text name that `looks_like_phi_text` flags.
+    `transport.py::redact_start_variables` converts any of them into
+    `StartVariableRedactionError` — no engine call, no durable claim, no passthrough.
     """
     return {key: _redact_var(key, value, depth=0) for key, value in values.items()}
 
@@ -411,7 +452,7 @@ def redact_free_text_vars(values: Mapping[str, Any]) -> dict[str, Any]:
 def _redact_var(key: str, value: Any, *, depth: int) -> Any:
     """One (key, value) pair of the start-variable tree. `depth` bounds the dossier walk."""
     if key in PHI_FREE_TEXT_VARS:
-        return _redact_free_text_value(value)
+        return _redact_free_text_value(value, depth=depth, path=())
     if depth == 0 and not key.startswith(_DOSSIER_VAR_PREFIX):
         # Top level: only a `dossie_*` variable is walked. Everything else is a structured
         # process variable and is returned as-is.
@@ -420,7 +461,10 @@ def _redact_var(key: str, value: Any, *, depth: int) -> Any:
 
 
 def _walk(value: Any, *, depth: int) -> Any:
-    """Recurse through mappings / lists inside a dossier, scrubbing free-text-named leaves."""
+    """Recurse through mappings / lists / tuples inside a dossier, scrubbing free-text-named
+    leaves. The TUPLE arm is REG-01: `{"dossie_rafael": ({"narrativa": "...CPF..."},)}` hid the
+    free-text mapping from the walk entirely, while the same value as a `list` was scrubbed. The
+    container type is preserved so the BPMN process's input contract keeps its shape."""
     if depth > _MAX_DOSSIER_DEPTH:
         raise ValueError(
             f"start variables nested deeper than {_MAX_DOSSIER_DEPTH} levels — refusing to scrub "
@@ -428,20 +472,58 @@ def _walk(value: Any, *, depth: int) -> Any:
         )
     if isinstance(value, Mapping):
         return {k: _redact_var(k, v, depth=depth + 1) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_walk(item, depth=depth + 1) for item in value]
+    if isinstance(value, list | tuple):
+        walked = [_walk(item, depth=depth + 1) for item in value]
+        return tuple(walked) if isinstance(value, tuple) else walked
     return value
 
 
-def _redact_free_text_value(value: Any) -> Any:
-    """Scrub a free-text-named value: a string, or a list of them. Anything else (a `None`, a
-    number, a nested structure under a free-text name) is left alone — `redact_free_text` is a
-    string net, and silently stringifying a non-string here would corrupt the variable's type."""
+def _redact_free_text_value(value: Any, *, depth: int, path: tuple[int, ...]) -> Any:
+    """Scrub a value found under a FREE-TEXT name, fail-closed and to the leaves (CC-06 §Delta2).
+
+    Under such a name the WHOLE subtree is prose by construction, so every `str` leaf is scrubbed
+    with `redact_free_text` no matter what the inner keys are called; `Mapping`/`list`/`tuple` are
+    recursed with the container type preserved; `_FREE_TEXT_PASSTHROUGH_TYPES` scalars pass
+    byte-identical; ANY other type is REFUSED. `path` carries the `id()`s of the containers
+    ALREADY OPEN above this call — a path, not a visited-set, so a value shared by two SIBLING
+    branches is copied twice rather than mistaken for a cycle.
+
+    The old contract was "a string, or a list of them; anything else is left alone", and that
+    "left alone" was the leak: REG-01 (a tuple of prose) and CC-06-residual-#5 (a nested mapping,
+    a list of mappings, and — despite the caller's docstring promising a refusal — a
+    self-referential value) all reached the engine verbatim. Refusing is the only safe answer for
+    a shape this net cannot read: the sole caller turns the `ValueError` into
+    `StartVariableRedactionError` and no process is started."""
     if isinstance(value, str):
         return redact_free_text(value)
-    if isinstance(value, list):
-        return [redact_free_text(item) if isinstance(item, str) else item for item in value]
-    return value
+    if isinstance(value, _FREE_TEXT_PASSTHROUGH_TYPES):
+        return value
+    if isinstance(value, Mapping | list | tuple):
+        if depth > _MAX_DOSSIER_DEPTH:
+            raise ValueError(
+                f"start variables nested deeper than {_MAX_DOSSIER_DEPTH} levels — refusing to "
+                "scrub a malformed or self-referential payload"
+            )
+        if id(value) in path:
+            raise ValueError(
+                "free-text variable carries a self-referential value — refusing to scrub a "
+                "payload that contains itself"
+            )
+        inner_path = (*path, id(value))
+        if isinstance(value, Mapping):
+            for key in value:
+                if looks_like_phi_text(key):
+                    raise ValueError(
+                        "free-text variable carries a PHI-shaped mapping key — refusing to scrub "
+                        "a payload whose structure itself carries an identifier"
+                    )
+            return {k: _redact_free_text_value(v, depth=depth + 1, path=inner_path) for k, v in value.items()}
+        scrubbed = [_redact_free_text_value(item, depth=depth + 1, path=inner_path) for item in value]
+        return tuple(scrubbed) if isinstance(value, tuple) else scrubbed
+    raise ValueError(
+        f"free-text variable carries a {type(value).__name__!r} value that cannot be scrubbed — "
+        "refusing to pass it through unredacted"
+    )
 
 
 # --------------------------------------------------------------------------------------------
