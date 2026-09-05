@@ -100,8 +100,7 @@ _DELIBERATELY_ABSENT: dict[str, str] = {
         "the NAME the ratified matrix would take; creating it is the encarregado's act (AF-07)"
     ),
     "docs/compliance/dsr-procedimento-manual.md": (
-        "the promotion target of DSR-PROCEDURE-DRAFT.md; promoting it is the encarregado's act "
-        "(R-029)"
+        "the promotion target of DSR-PROCEDURE-DRAFT.md; promoting it is the encarregado's act (R-029)"
     ),
     "docs/processes/contracts/signoffs/SP-OP-LGPD-DSR-001.signoff.yaml": (
         "the signoff the drafts explicitly do NOT create — `docs/sme-dispatch/README.md` rule 5 "
@@ -118,9 +117,7 @@ def test_every_repo_path_cited_by_the_drafts_exists_or_is_a_declared_absence() -
     cited = {m for m in _PATH_RE.findall(_all_draft_text())}
     assert cited, "expected the drafts to cite repo paths; the regex found none (fence inert?)"
 
-    missing = sorted(
-        p for p in cited if p not in _DELIBERATELY_ABSENT and not (_REPO_ROOT / p).exists()
-    )
+    missing = sorted(p for p in cited if p not in _DELIBERATELY_ABSENT and not (_REPO_ROOT / p).exists())
     assert not missing, f"draft(s) cite a repo path that does not exist: {missing}"
 
     landed = sorted(p for p in _DELIBERATELY_ABSENT if (_REPO_ROOT / p).exists())
@@ -177,9 +174,7 @@ _LINE_ANCHORS: dict[str, str] = {
     ),
 }
 
-_LINE_CITATION_RE = re.compile(
-    r"`([A-Za-z0-9_./-]+\.(?:py|yaml|yml|bpmn|dmn|md|sql)):(\d+)(?:-(\d+))?`"
-)
+_LINE_CITATION_RE = re.compile(r"`([A-Za-z0-9_./-]+\.(?:py|yaml|yml|bpmn|dmn|md|sql)):(\d+)(?:-(\d+))?`")
 
 
 def test_every_line_citation_is_registered_and_lands_on_its_anchor() -> None:
@@ -202,8 +197,7 @@ def test_every_line_citation_is_registered_and_lands_on_its_anchor() -> None:
         elif anchor not in lines[start - 1]:
             wrong[citation] = f"line {start} is {lines[start - 1].strip()!r}"
     assert not wrong, (
-        f"stale `path:line` citation(s) in docs/sme-dispatch/dpo/ — re-anchor or cite by "
-        f"symbol: {wrong}"
+        f"stale `path:line` citation(s) in docs/sme-dispatch/dpo/ — re-anchor or cite by symbol: {wrong}"
     )
 
 
@@ -249,9 +243,7 @@ def test_every_symbol_citation_resolves_in_the_file_it_names() -> None:
             checked += 1
             for part in dotted.split("."):
                 if not _defines(text, part):
-                    unresolved[key] = (
-                        f"{part!r} is not defined in {target.relative_to(_REPO_ROOT)}"
-                    )
+                    unresolved[key] = f"{part!r} is not defined in {target.relative_to(_REPO_ROOT)}"
                     break
     assert checked >= 20, f"expected the drafts to cite many symbols; only {checked} resolved"
     assert not unresolved, f"unresolved symbol citation(s) in the DPO drafts: {unresolved}"
@@ -413,6 +405,7 @@ def test_the_retention_matrix_template_is_still_the_unratified_placeholder() -> 
 # 4. The measured claims the recommendations rest on
 # ---------------------------------------------------------------------------------------------
 
+
 def test_redact_phi_vars_still_has_exactly_the_two_production_call_sites_the_draft_names() -> None:
     """`PHI-DISPOSITIONS-RECOMMENDATION.md` §3.0 replaced an overclaim ("todos os oito nomes já são
     suprimidos na egressão hoje") with a MEASUREMENT: two call sites, worker egress only. If a
@@ -437,10 +430,8 @@ def test_the_two_names_the_start_chokepoint_leaves_unscrubbed_are_still_those_tw
     """§3.2 of the dispositions draft is entirely about this: of the eight `PHI_PROCESS_VARS`,
     `matricula_beneficiario` and `cid10_referencia` are DECLARED out of `PHI_FREE_TEXT_VARS` and
     cross the agent->engine edge unchanged."""
-    assert PHI_PROCESS_VARS - PHI_FREE_TEXT_VARS == {
-        "matricula_beneficiario",
-        "cid10_referencia",
-    }
+    unscrubbed_at_the_start_edge = set(PHI_PROCESS_VARS - PHI_FREE_TEXT_VARS)
+    assert unscrubbed_at_the_start_edge == {"matricula_beneficiario", "cid10_referencia"}
     assert len(PHI_PROCESS_VARS) == 8
 
 
@@ -462,20 +453,11 @@ def test_the_two_dsr_free_text_names_are_still_outside_both_name_anchored_contro
 
 
 def _bpmn_topics() -> set[str]:
-    bpmn = (
-        _REPO_ROOT
-        / "spec"
-        / "processes"
-        / "bpmn"
-        / "SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn"
-    )
+    bpmn = _REPO_ROOT / "spec" / "processes" / "bpmn" / "SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn"
     ns = {"camunda": "http://camunda.org/schema/1.0/bpmn"}
     root = ET.parse(bpmn).getroot()
     return {
-        topic
-        for element in root.iter()
-        for topic in (element.get(f"{{{ns['camunda']}}}topic"),)
-        if topic
+        topic for element in root.iter() for topic in (element.get(f"{{{ns['camunda']}}}topic"),) if topic
     }
 
 
@@ -513,6 +495,7 @@ def test_the_lgpd_orphan_topics_are_the_four_the_runbook_names() -> None:
 # ---------------------------------------------------------------------------------------------
 # 5. PACKAGE.md's pointer section (the only part of that file R-055 owns)
 # ---------------------------------------------------------------------------------------------
+
 
 def test_package_pointer_does_not_claim_sc07_landed_on_main() -> None:
     """The verifier resolved this: the SC-07 annotation exists on PR #327's branch
