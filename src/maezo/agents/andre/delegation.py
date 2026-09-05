@@ -236,7 +236,19 @@ async def delegate_adequacao_dossier(
 
     Returns the dispatcher's structured `DelegationResult` (success with `output_ref` = the cell's
     anchor reference + `meta` = Andre's bounded routing summary, or a structured rejection —
-    never a raise out of the dispatcher).
+    never a raise out of the dispatcher for a TERMINAL handler failure).
+
+    A regra REAL, e ela nao e' uma ressalva unica: SO' as classes TERMINAIS (`ValueError`,
+    `TypeError`, `KeyError` E SUBCLASSES, decididas por `isinstance` em
+    `a2a/dispatcher.py::_TERMINAL_HANDLER_ERROR_CLASSES`) voltam como rejeicao estruturada e
+    selada. TODA OUTRA excecao do handler PROPAGA sem selar, para que a entrega continue
+    retentavel — e isso inclui DUAS coisas diferentes: o canal TRANSITORIO RAF-02
+    (`StartProcessFailedError` de um start recusado pelo engine, `AuditPersistenceError`), que
+    propaga de proposito, E qualquer bug NAO CLASSIFICADO do grafo (`AttributeError`,
+    `IndexError`, ...), que propaga porque selar um bug desconhecido seria pior. Nenhuma das duas
+    e' silenciosa: o dispatcher grava a linha de audit NAO-terminal `PROPAGATED` e conta em
+    `maezo_a2a_handler_error_total` antes de relevantar
+    (`a2a/dispatcher.py::DelegationDispatcher._trace_propagated_handler_error`).
 
     SIGNING (ADR-0039 §4.4): `signer` defaults to the edge signer carried by `dispatcher`
     (`origin_signer_of`), so the LIVE worker path signs with no per-worker wiring change.

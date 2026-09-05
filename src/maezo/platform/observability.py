@@ -606,6 +606,53 @@ def record_agent_error(*, agent: str, error_type: str) -> None:
         logger.debug("agent_error_metric_emit_failed", exc_info=True)
 
 
+def record_a2a_handler_error(*, target: str, error_type: str) -> None:
+    """Count ONE A2A delegation whose target handler failed TERMINALLY —
+    `maezo_a2a_handler_error_total` (NEW-B1).
+
+    Um unico sitio de chamada: `a2a.dispatcher.DelegationDispatcher._reject_handler_error`, o ramo
+    largo que converte a excecao de um handler numa `DelegationResult` rejeitada em vez de deixa-la
+    escapar crua de `delegate()`. Dispara EXATAMENTE uma vez por conversao.
+
+    POR QUE NAO `record_agent_error`. Sao quantidades diferentes e somar as duas na MESMA serie
+    seria um defeito, nao uma economia:
+
+      * cada `agents/<id>/delegation.py::handler` ja envolve o seu proprio `compiled.ainvoke(state)`
+        num `except Exception` que chama `record_agent_error(...)` e RELEVANTA. Uma excecao de
+        classe `validacao` vinda de dentro do grafo passaria pelos dois sitios, e
+        `maezo_agent_errors_total` contaria DUAS vezes uma unica falha logica — inflando o
+        numerador de `MaezoSLAAgentErrorRateHigh` e quebrando a invariante "EXATAMENTE UMA CONTAGEM
+        POR TURNO FALHO" que :func:`record_agent_error` documenta e prova;
+      * a falha dominante que esta funcao mede acontece ANTES de qualquer turno existir: os oito
+        `agents/*/delegation.py` chamam `state_from_envelope(envelope)` FORA do `try` do handler, e
+        um `ValueError` ali significa que nenhum `ainvoke` chegou a ser feito. Contar isso como
+        "erro de agente" descreveria mal o evento.
+
+    GUARDADA INTERNAMENTE, pela mesma razao que :func:`record_agent_error`: o unico chamador esta
+    prestes a devolver a rejeicao estruturada que fecha a delegacao, e uma falha de telemetria nunca
+    pode substituir esse resultado.
+
+    Args:
+        target: o agent id do alvo. Limitado por construcao — `DelegationDispatcher._validate` ja
+            rejeitou com `no_handler` qualquer alvo sem handler REGISTRADO antes do roteamento.
+        error_type: MUST be a `metrics.AGENT_ERROR_TYPES` member (mesmo contrato e mesmo fallback
+            para `AGENT_ERROR_TYPE_OUTRO` de :func:`record_agent_error`).
+    """
+    try:
+        resolved_error_type = error_type if error_type in AGENT_ERROR_TYPES else AGENT_ERROR_TYPE_OUTRO
+        if resolved_error_type != error_type:
+            logger.debug(
+                "a2a_handler_error_type_not_in_catalogue_falling_back",
+                received=error_type,
+                fallback=resolved_error_type,
+            )
+        _get_metrics_collector().a2a_handler_errors.labels(
+            target=target, error_type=resolved_error_type
+        ).inc()
+    except Exception:  # noqa: BLE001 — never mask the delegation failure this is counting.
+        logger.debug("a2a_handler_error_metric_emit_failed", exc_info=True)
+
+
 def record_llm_tier_resolution(*, task_kind: str, tier: str, resolution: str) -> None:
     """Record how ONE `task_kind` resolved to a model — `maezo_llm_tier_resolution_total` (AF-12).
 
