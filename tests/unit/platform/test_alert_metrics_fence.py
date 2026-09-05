@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import ast
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Final
 
@@ -75,15 +76,44 @@ _ALERT_RULES: Final[Path] = _REPO_ROOT / "deploy" / "observability" / "alert-rul
 #:   same exporter series, read only by `MaezoDeadLetterGrowth`. Same exporter source, same
 #:   external-to-`src/` reasoning, different aggregation order (see that recording rule's own
 #:   comment for why the order matters).
+#: * `kafka_topic_partition_current_offset` — finding 5 (VERIFY-A1-OBS): the danielqsj/
+#:   kafka_exporter series BOTH `record:` rules in `maezo_dead_letter_derived` read as their
+#:   SOURCE. Before this entry, nothing checked a recording rule's own source series at all (see
+#:   `_all_recording_rule_source_series` / `test_every_recording_rule_source_metric_is_declared_
+#:   in_repo_or_named_external`) — this is that trace's only external leaf today. Traced to the
+#:   real `job_name: "kafka-exporter"` in `deploy/observability/prometheus.yml` by
+#:   `EXTERNAL_METRIC_SCRAPE_JOB` below, not merely asserted in prose.
 #:
-#: All four belong to owner slice ALERTS-WITHOUT-METRICS-b / R-040 (scrape targets and cluster
+#: All five belong to owner slice ALERTS-WITHOUT-METRICS-b / R-040 (scrape targets and cluster
 #: annotations are a `deploy/` change, and `deploy/` is owner-gated for this work package).
 EXTERNAL_ALERT_METRICS: Final[dict[str, str]] = {
     "maezo_dead_letter_queue_size": "ALERTS-WITHOUT-METRICS-b — Kafka/DLQ exporter series",
     "kube_job_status_failed": "ALERTS-WITHOUT-METRICS-b — kube-state-metrics series",
     "kube_job_annotations": "R-040/SC-07 — kube-state-metrics annotation-derived series",
     "maezo_dead_letter_inflow_rate": "ALERTS-WITHOUT-METRICS-b — Kafka/DLQ exporter series (rate-then-sum)",
+    "kafka_topic_partition_current_offset": "ALERTS-WITHOUT-METRICS-b — danielqsj/kafka_exporter (finding 5)",
 }
+
+#: Every `EXTERNAL_ALERT_METRICS` entry that is ITSELF scraped directly (as opposed to a
+#: `record:`-rule OUTPUT, which traces to a recording rule instead — see the two DLQ non-vacuity
+#: tests) -> the real `job_name:` in `deploy/observability/prometheus.yml` that produces it.
+#: "Produced by a scrape job" (finding 5's own phrasing) is a checked fact via
+#: `test_every_scrape_sourced_external_metric_traces_to_a_real_prometheus_job`, not a comment.
+EXTERNAL_METRIC_SCRAPE_JOB: Final[dict[str, str]] = {
+    "kube_job_status_failed": "kube-state-metrics",
+    "kube_job_annotations": "kube-state-metrics",
+    "kafka_topic_partition_current_offset": "kafka-exporter",
+}
+
+_PROMETHEUS_CONFIG: Final[Path] = _REPO_ROOT / "deploy" / "observability" / "prometheus.yml"
+
+
+def _scrape_job_names() -> set[str]:
+    """Every `job_name:` in the shipped `prometheus.yml` — the ground truth
+    `EXTERNAL_METRIC_SCRAPE_JOB` is traced against."""
+    document: Any = yaml.safe_load(_PROMETHEUS_CONFIG.read_text(encoding="utf-8"))
+    return {job["job_name"] for job in document.get("scrape_configs", [])}
+
 
 #: Every in-repo alert metric -> the `maezo.platform.observability` helper that writes it. The
 #: fence requires this table to cover the alert file EXACTLY, so a new alert on an unemitted metric
@@ -230,6 +260,36 @@ def _declared_metric_name(series: str, declared: dict[str, str]) -> str:
 
 def _all_alert_series() -> set[str]:
     return {name for _alert, expr in _alert_exprs() for name in _metric_names(expr)}
+
+
+def _all_recording_rule_source_series() -> set[str]:
+    """Every metric name a `record:` rule's OWN expression reads — its SOURCE, not its output.
+
+    Mirrors `_all_alert_series()` but over `_recording_rules()`. Closes finding 5
+    (VERIFY-A1-OBS): before this, a recording rule's source metric was invisible to the
+    declared-or-external fence entirely, because that fence only ever walked `_alert_exprs()` — a
+    FUTURE recording rule reading a metric nothing emits would ship green, its only coverage
+    whatever ad-hoc substring assertion that rule's own hand-written non-vacuity test happened to
+    include (as `test_the_dlq_recording_rule_derives_from_the_kafka_exporter` does today, by
+    construction rather than by a closing fence).
+    """
+    return {name for _record, expr in _recording_rules() for name in _metric_names(expr)}
+
+
+def _unaccounted_metrics(series_names: Iterable[str], declared: dict[str, str]) -> list[str]:
+    """The pure decision the alert-series fence and its recording-rule-source twin both make:
+    which of `series_names` is neither declared+emitted in `src/` nor disclosed EXTERNAL.
+
+    Extracted to one place so a synthetic case can drive the EXACT function the two real checks
+    call — `test_the_unaccounted_metric_detector_can_actually_go_red` below — rather than a
+    reimplementation of the logic that could silently drift from what actually gates the build.
+    """
+    return [
+        series
+        for series in sorted(series_names)
+        if series not in EXTERNAL_ALERT_METRICS
+        and _declared_metric_name(series, declared) not in ALERT_METRIC_EMITTERS
+    ]
 
 
 def _emitter_call_sites() -> dict[str, list[str]]:
@@ -433,19 +493,64 @@ def test_the_dlq_inflow_rate_recording_rule_takes_rate_before_sum() -> None:
 def test_every_alert_metric_is_declared_in_repo_or_named_external() -> None:
     """No alert may read a metric this repo neither emits nor explicitly disclaims (the fence)."""
     declared = _declared_series_names()
-    unaccounted: list[str] = []
-    for series in sorted(_all_alert_series()):
-        if series in EXTERNAL_ALERT_METRICS:
-            continue
-        if _declared_metric_name(series, declared) in ALERT_METRIC_EMITTERS:
-            continue
-        unaccounted.append(series)
+    unaccounted = _unaccounted_metrics(_all_alert_series(), declared)
     assert not unaccounted, (
         f"alert rule(s) read metric(s) {unaccounted} that are neither declared+emitted in `src/` "
         "nor listed in EXTERNAL_ALERT_METRICS with an owning register id. An alert on a metric "
         "nothing writes cannot fire — that is gap ALERTS-WITHOUT-METRICS-a. Either emit it, or "
         "declare it external here with the slice that owns it."
     )
+
+
+def test_every_recording_rule_source_metric_is_declared_in_repo_or_named_external() -> None:
+    """Finding 5 (VERIFY-A1-OBS): the SAME accounting, one hop upstream.
+
+    `_alert_exprs()`-only coverage let a `record:` rule's own SOURCE metric bypass the fence
+    entirely — the rule's OUTPUT (e.g. `maezo_dead_letter_queue_size`) is checked by the test
+    above because alerts read it, but nothing checked what the recording rule itself READS
+    (`kafka_topic_partition_current_offset`) until this test. A future recording rule deriving
+    from a metric nothing produces would otherwise ship green.
+    """
+    declared = _declared_series_names()
+    unaccounted = _unaccounted_metrics(_all_recording_rule_source_series(), declared)
+    assert not unaccounted, (
+        f"recording rule(s) read SOURCE metric(s) {unaccounted} that are neither declared+emitted "
+        "in `src/` nor listed in EXTERNAL_ALERT_METRICS with an owning register id. A recording "
+        "rule deriving from an unaccounted metric would ship green while reading from nothing "
+        "real — the same defect ALERTS-WITHOUT-METRICS-a exists to close, traced one hop upstream "
+        "of the alert that ultimately reads the derived series."
+    )
+
+
+def test_the_unaccounted_metric_detector_can_actually_go_red() -> None:
+    """Finding 5 (VERIFY-A1-OBS): non-vacuity proof for the shared detector both checks above use.
+
+    Before finding 5's fix, nothing walked a recording rule's own source series at all — a
+    detector that has never been shown capable of flagging anything is not evidence it works, only
+    evidence it has never been tried against a bad input. Drives `_unaccounted_metrics` — the
+    EXACT function both real checks call, not a reimplementation of its logic — against a
+    synthetic set holding one legitimately-external metric and one nobody accounts for.
+    """
+    declared = _declared_series_names()
+    unaccounted = _unaccounted_metrics(
+        {"kafka_topic_partition_current_offset", "totally_made_up_metric_nobody_emits"}, declared
+    )
+    assert unaccounted == ["totally_made_up_metric_nobody_emits"]
+
+
+def test_every_scrape_sourced_external_metric_traces_to_a_real_prometheus_job() -> None:
+    """Finding 5 (VERIFY-A1-OBS): "produced by a scrape job" is a checked fact, not a comment.
+
+    Every `EXTERNAL_METRIC_SCRAPE_JOB` entry must (a) also be a disclosed `EXTERNAL_ALERT_METRICS`
+    entry, and (b) name a `job_name:` that genuinely exists in the shipped `prometheus.yml` — a
+    scrape job renamed or removed there without updating this mapping would otherwise leave a
+    dangling claim nothing catches.
+    """
+    job_names = _scrape_job_names()
+    assert job_names, "no scrape_configs found in prometheus.yml — parser or file regressed"
+    for metric, job in EXTERNAL_METRIC_SCRAPE_JOB.items():
+        assert metric in EXTERNAL_ALERT_METRICS, metric
+        assert job in job_names, (metric, job, sorted(job_names))
 
 
 def test_the_emitter_table_covers_the_alert_file_exactly() -> None:
@@ -462,13 +567,14 @@ def test_the_emitter_table_covers_the_alert_file_exactly() -> None:
     )
 
 
-def test_external_metric_allowlist_is_exactly_the_four_owner_slice_series() -> None:
-    """The escape hatch is FOUR named series, and widening it is a reviewed edit to this list."""
+def test_external_metric_allowlist_is_exactly_the_five_owner_slice_series() -> None:
+    """The escape hatch is FIVE named series, and widening it is a reviewed edit to this list."""
     assert set(EXTERNAL_ALERT_METRICS) == {
         "maezo_dead_letter_queue_size",
         "kube_job_status_failed",
         "kube_job_annotations",
         "maezo_dead_letter_inflow_rate",
+        "kafka_topic_partition_current_offset",
     }
     for series, reason in EXTERNAL_ALERT_METRICS.items():
         assert "ALERTS-WITHOUT-METRICS-b" in reason or "R-040/SC-07" in reason, (series, reason)
