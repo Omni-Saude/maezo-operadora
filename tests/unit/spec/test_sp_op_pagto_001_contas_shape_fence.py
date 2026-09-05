@@ -23,10 +23,33 @@ O lado CONSUMIDOR e PARSEADO da tabela markdown do contrato (coluna `Variavel`, 
 `` `nome` ``) — nunca reescrito a mao aqui. Rename um nome de qualquer lado (o `HANDOFF_PAGTO_
 SEEDED_KEYS` do produtor OU a celula do contrato) e este teste vai a RED, porque os dois
 conjuntos deixam de casar.
+
+REPARO §Δ (gatekeeper §Delta, REVISE F6 confirmado). Um primeiro reparo (F6, ja substituido pelo
+que segue) so checava que cada NOME semeado aparecesse em algum lugar do bloco/arquivo — o roll
+"VARIAVEIS DE ENTRADA" e a tabela ja garantiam isso, entao o teste passava mesmo com as mutacoes
+F/G/H do gatekeeper (reverter o paragrafo GATILHO do BPMN, apagar o paragrafo da terceira
+business key, reverter a prosa do contrato com a tabela intacta) — nenhuma delas mexe em nome
+nenhum, so em CONTEUDO de dois paragrafos/secoes especificos que nunca eram lidos. Os quatro
+testes abaixo checam o CONTEUDO desses dois sites, cada pedaco tree-derived: os topicos
+`camunda:topic` dos handoffs (lidos das `bpmn:serviceTask id="ST_HandoffPagamento*"` REAIS de
+`SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn`/`SP-OP-RECURSO-001_Recurso_Glosa.bpmn`, nunca
+digitados aqui) e o template da terceira forma da business key (parseado via `inspect.getsource`
+do corpo real de `recurso._pagto_business_key` — a f-string `PAGTO-{key_segment(tenant_id)}-...`
+vira o template `PAGTO-{tenant_id}-{numero_guia_tiss}-{glosa_id}` por substituicao mecanica de
+`{key_segment(NOME)}` por `{NOME}`, nunca escrito a mao). Cada site (paragrafo GATILHO do BPMN,
+paragrafo BUSINESS KEY do BPMN, linha Gatilho do contrato, secao Business key do contrato) e
+extraido isoladamente — nao o bloco/arquivo inteiro — para que uma regressao em UM site nao seja
+mascarada pelo mesmo conteudo sobrevivendo em outro. Aceita a forma curta do topico
+(`contas.handoff_pagamento`/`recurso.handoff_pagamento`, sem o prefixo `operadora.`) alem da
+forma completa: e assim que a prosa do CONTRATO ja nomeia o handoff de RECURSO hoje (a tabela e o
+paragrafo GATILHO usam a forma completa; a secao Business key usa a curta) — um fato do texto
+real, nao uma frouxidao inventada; ambas as formas sao derivadas mecanicamente do MESMO literal
+completo (`topico.split(".", 1)[1]`), nunca digitadas soltas.
 """
 
 from __future__ import annotations
 
+import inspect
 import re
 from pathlib import Path
 
@@ -34,16 +57,13 @@ from maezo.tools.workers.contas import HANDOFF_PAGTO_FORBIDDEN_KEYS as CONTAS_FO
 from maezo.tools.workers.contas import HANDOFF_PAGTO_SEEDED_KEYS as CONTAS_HANDOFF_KEYS
 from maezo.tools.workers.recurso import HANDOFF_PAGTO_FORBIDDEN_KEYS as RECURSO_FORBIDDEN_KEYS
 from maezo.tools.workers.recurso import HANDOFF_PAGTO_SEEDED_KEYS as RECURSO_HANDOFF_KEYS
+from maezo.tools.workers.recurso import _pagto_business_key
 
 _REPO = Path(__file__).resolve().parents[3]
 _CONTRATO_PAGTO = _REPO / "docs/processes/contracts/SP-OP-PAGTO-001.md"
 _BPMN_PAGTO = _REPO / "spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn"
-
-#: Uniao das duas chaves semeadas (CONTAS tem 15, RECURSO tem as mesmas 15 + `glosa_id`) —
-#: usada pelos testes de "prosa" abaixo (F6), que checam os DOIS sites narrativos (o bloco de
-#: `<bpmn:documentation>` de nivel de processo e o texto do contrato) em vez de so a tabela/roll
-#: ja cobertos acima.
-_TODAS_AS_CHAVES_SEMEADAS = CONTAS_HANDOFF_KEYS | RECURSO_HANDOFF_KEYS
+_BPMN_CONTAS = _REPO / "spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn"
+_BPMN_RECURSO = _REPO / "spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn"
 
 
 def _variaveis_declaradas_no_contrato_pagto() -> frozenset[str]:
@@ -133,32 +153,150 @@ def _bloco_documentacao_processo_bpmn() -> str:
     return m.group(1)
 
 
-def test_o_bloco_de_documentacao_do_bpmn_nomeia_toda_chave_semeada() -> None:
-    """F6: os dois sites de PROSA do BPMN (o paragrafo `GATILHO REGULATORIO`, que nomeia
-    `operadora.contas.handoff_pagamento`, e o paragrafo `BUSINESS KEY`, que nomeia a terceira
-    forma via `operadora.recurso.handoff_pagamento`) nao tinham fence nenhum antes deste teste —
-    so o roll `VARIAVEIS DE ENTRADA` (dentro do MESMO bloco) era coberto, pela cerca do corpus PHI
-    em `test_validation_phi_completeness.py`. Remover qualquer nome semeado do bloco inteiro
-    (prosa OU roll) derruba este teste.
+def _topicos_camunda_para_prefixo(bpmn_path: Path, prefixo_id: str) -> frozenset[str]:
+    """Le, do arquivo BPMN PRODUTOR real, o `camunda:topic` de TODO `bpmn:serviceTask` cujo `id`
+    comeca por `prefixo_id` (ex.: todas as pernas `ST_HandoffPagamento*`). Nao vacuo (>= 1 elemento
+    casado) e exige que TODAS concordem no mesmo topico — se um dia divergirem, isso e uma
+    inconsistencia real do produtor, entao o teste que usa isto tem de RED, nao adivinhar qual usar.
     """
-    bloco = _bloco_documentacao_processo_bpmn()
-    faltando = sorted(nome for nome in _TODAS_AS_CHAVES_SEMEADAS if nome not in bloco)
-    assert not faltando, (
-        f"bloco de documentacao de nivel de processo do BPMN de PAGTO nao nomeia {faltando}, que "
-        "os handoffs de CONTAS-001/RECURSO-001 semeiam de fato (gap PERSP-PAGTO-STALE-CONTAS-ASSUMPTION)."
+    texto = bpmn_path.read_text(encoding="utf-8")
+    achados = re.findall(
+        rf'<bpmn:serviceTask\s+id="{re.escape(prefixo_id)}[^"]*"[^>]*?camunda:topic="([^"]+)"[^>]*>',
+        texto,
+        re.DOTALL,
+    )
+    assert achados, f"nenhum bpmn:serviceTask id={prefixo_id}* encontrado em {bpmn_path.name}"
+    topicos = frozenset(achados)
+    assert len(topicos) == 1, f"topicos divergentes para {prefixo_id}* em {bpmn_path.name}: {topicos}"
+    return topicos
+
+
+CONTAS_HANDOFF_TOPIC = next(iter(_topicos_camunda_para_prefixo(_BPMN_CONTAS, "ST_HandoffPagamento")))
+RECURSO_HANDOFF_TOPIC = next(iter(_topicos_camunda_para_prefixo(_BPMN_RECURSO, "ST_HandoffPagamento")))
+
+
+def _forma_curta_do_topico(topico: str) -> str:
+    """`operadora.contas.handoff_pagamento` -> `contas.handoff_pagamento`. Derivacao mecanica do
+    MESMO literal completo (nunca um segundo literal digitado) — a prosa do CONTRATO usa essa
+    forma curta na secao Business key, enquanto o paragrafo Gatilho e a tabela usam a forma
+    completa; aceitar as duas e um fato do texto real, nao uma frouxidao inventada.
+    """
+    return topico.split(".", 1)[1]
+
+
+def _template_terceira_forma_business_key() -> str:
+    """Parseia o CORPO REAL de `recurso._pagto_business_key` (via `inspect.getsource`, nunca
+    reescrito a mao) e substitui cada `{key_segment(NOME)}` pelo template `{NOME}` que a prosa
+    (BPMN e contrato) documenta — deriva `PAGTO-{tenant_id}-{numero_guia_tiss}-{glosa_id}`
+    mecanicamente do codigo-fonte, nao de um literal solto neste arquivo de teste.
+    """
+    src = inspect.getsource(_pagto_business_key)
+    m = re.search(r'return f"(.+)"', src)
+    assert m, "corpo f-string de _pagto_business_key nao encontrado (assinatura mudou?)"
+    partes = re.split(r"\{key_segment\((\w+)\)\}", m.group(1))
+    assert len(partes) >= 3, f"_pagto_business_key nao usa key_segment(...) como esperado: {partes}"
+    template = "".join(p if i % 2 == 0 else f"{{{p}}}" for i, p in enumerate(partes))
+    assert template.startswith("PAGTO-"), template
+    return template
+
+
+def _paragrafo_por_prefixo(bloco: str, prefixo: str) -> str:
+    """Isola, dentro do bloco de documentacao (paragrafos separados por linha em branco), o UNICO
+    paragrafo cujo texto comeca por `prefixo` (ex.: "GATILHO REGULATORIO", "BUSINESS KEY"). Isolar
+    por paragrafo (nao o bloco inteiro) e o que faz uma mutacao QUE SO MEXE NESSE paragrafo
+    (gatekeeper §Delta, mutacoes F/G) derrubar exatamente o teste certo, sem que o mesmo conteudo
+    sobrevivendo em outro paragrafo mascare a regressao.
+    """
+    paragrafos = [p for p in bloco.split("\n\n") if p.strip().startswith(prefixo)]
+    assert len(paragrafos) == 1, (
+        f"esperava exatamente 1 paragrafo comecando por {prefixo!r} no bloco de documentacao do "
+        f"BPMN de PAGTO, achei {len(paragrafos)}"
+    )
+    return paragrafos[0]
+
+
+def test_o_paragrafo_gatilho_regulatorio_do_bpmn_nomeia_o_handoff_real_de_contas() -> None:
+    """F6/§Δ (mutacao F do gatekeeper: reverter bpmn:26-27 a premissa antiga, sem nomear o
+    handoff). Isolado ao paragrafo `GATILHO REGULATORIO` (nao o bloco inteiro): o topico de CONTAS
+    sobrevive em outro paragrafo (BUSINESS KEY) mesmo se este for revertido, entao so um teste
+    ESCOPADO a este paragrafo pega a regressao.
+    """
+    paragrafo = _paragrafo_por_prefixo(_bloco_documentacao_processo_bpmn(), "GATILHO REGULATORIO")
+    assert CONTAS_HANDOFF_TOPIC in paragrafo or _forma_curta_do_topico(CONTAS_HANDOFF_TOPIC) in paragrafo, (
+        f"paragrafo GATILHO REGULATORIO do BPMN de PAGTO nao nomeia o handoff real de CONTAS-001 "
+        f"({CONTAS_HANDOFF_TOPIC}, lido de bpmn:serviceTask ST_HandoffPagamento* em "
+        f"{_BPMN_CONTAS.name}) — premissa stale (gap PERSP-PAGTO-STALE-CONTAS-ASSUMPTION)."
     )
 
 
-def test_o_texto_do_contrato_nomeia_toda_chave_semeada() -> None:
-    """Espelho do teste acima para o segundo site de prosa (F6): o contrato de PAGTO
-    (`docs/processes/contracts/SP-OP-PAGTO-001.md`) tem de continuar nomeando toda chave que os
-    dois handoffs semeiam — tanto na tabela "Variaveis de entrada" (ja parseada estruturalmente
-    acima) quanto na prosa (`Gatilho regulatorio`, `Business key`). Le o arquivo INTEIRO, entao
-    cobre os dois.
+def test_o_paragrafo_business_key_do_bpmn_nomeia_os_dois_handoffs_e_a_terceira_forma() -> None:
+    """F6/§Δ (mutacao G do gatekeeper: apagar o paragrafo/trecho da terceira business key). Se o
+    paragrafo BUSINESS KEY inteiro sumir, `_paragrafo_por_prefixo` ja falha (0 achados); se so o
+    trecho da terceira forma sumir, as asserts de conteudo abaixo falham.
     """
+    paragrafo = _paragrafo_por_prefixo(_bloco_documentacao_processo_bpmn(), "BUSINESS KEY")
+    template = _template_terceira_forma_business_key()
+    assert CONTAS_HANDOFF_TOPIC in paragrafo or _forma_curta_do_topico(CONTAS_HANDOFF_TOPIC) in paragrafo, (
+        f"paragrafo BUSINESS KEY do BPMN nao nomeia o handoff de CONTAS-001 ({CONTAS_HANDOFF_TOPIC})"
+    )
+    assert RECURSO_HANDOFF_TOPIC in paragrafo or _forma_curta_do_topico(RECURSO_HANDOFF_TOPIC) in paragrafo, (
+        f"paragrafo BUSINESS KEY do BPMN nao nomeia o handoff de RECURSO-001 ({RECURSO_HANDOFF_TOPIC}, "
+        f"lido de bpmn:serviceTask ST_HandoffPagamento* em {_BPMN_RECURSO.name}) — a terceira forma "
+        "da business key (glosa revertida) ficou sem premissa (gap PERSP-PAGTO-STALE-CONTAS-ASSUMPTION)."
+    )
+    assert template in paragrafo, (
+        f"paragrafo BUSINESS KEY do BPMN nao contem o template real da terceira forma ({template!r}, "
+        "derivado de recurso._pagto_business_key via inspect.getsource)."
+    )
+
+
+def _linha_gatilho_regulatorio_contrato() -> str:
+    """Isola a linha `**Gatilho regulatorio:**` do contrato — o site analogo, no contrato, ao
+    paragrafo GATILHO REGULATORIO do BPMN."""
     texto = _CONTRATO_PAGTO.read_text(encoding="utf-8")
-    faltando = sorted(nome for nome in _TODAS_AS_CHAVES_SEMEADAS if nome not in texto)
-    assert not faltando, (
-        f"contrato de PAGTO nao nomeia {faltando} em lugar nenhum do texto, que os handoffs de "
-        "CONTAS-001/RECURSO-001 semeiam de fato (gap PERSP-PAGTO-STALE-CONTAS-ASSUMPTION)."
+    m = re.search(r"^\*\*Gatilho regulatorio:\*\*.*$", texto, re.MULTILINE)
+    assert m, "linha '**Gatilho regulatorio:**' nao encontrada no contrato de PAGTO"
+    return m.group(0)
+
+
+def _secao_business_key_contrato() -> str:
+    """Isola a secao `## Business key (idempotencia)` do contrato ate o proximo `## ` — o site
+    analogo, no contrato, ao paragrafo BUSINESS KEY do BPMN."""
+    texto = _CONTRATO_PAGTO.read_text(encoding="utf-8")
+    inicio = texto.find("## Business key")
+    assert inicio != -1, "secao '## Business key' nao encontrada no contrato de PAGTO"
+    fim = texto.find("\n## ", inicio + 1)
+    return texto[inicio : fim if fim != -1 else len(texto)]
+
+
+def test_a_linha_gatilho_regulatorio_do_contrato_nomeia_o_handoff_real_de_contas() -> None:
+    """F6/§Δ, contraparte de contrato da mutacao F/H do gatekeeper (reverter a prosa do contrato
+    com a tabela intacta): isolada a linha, nao o arquivo inteiro (a tabela ja nomeia
+    `numero_guia_tiss`/`glosa_id`/etc. e nao deve mascarar uma regressao so na prosa)."""
+    linha = _linha_gatilho_regulatorio_contrato()
+    assert CONTAS_HANDOFF_TOPIC in linha or _forma_curta_do_topico(CONTAS_HANDOFF_TOPIC) in linha, (
+        f"linha 'Gatilho regulatorio' do contrato de PAGTO nao nomeia o handoff real de CONTAS-001 "
+        f"({CONTAS_HANDOFF_TOPIC}) — premissa stale (gap PERSP-PAGTO-STALE-CONTAS-ASSUMPTION)."
+    )
+
+
+def test_a_secao_business_key_do_contrato_nomeia_os_dois_handoffs_e_a_terceira_forma() -> None:
+    """F6/§Δ, contraparte de contrato da mutacao G/H do gatekeeper. Isolada a secao "## Business
+    key" (nao o arquivo inteiro, pela mesma razao acima): a tabela "Variaveis de entrada" nomeia
+    `glosa_id`/`numero_guia_tiss` independentemente e NAO pode mascarar uma regressao na prosa
+    desta secao especifica.
+    """
+    secao = _secao_business_key_contrato()
+    template = _template_terceira_forma_business_key()
+    assert CONTAS_HANDOFF_TOPIC in secao or _forma_curta_do_topico(CONTAS_HANDOFF_TOPIC) in secao, (
+        f"secao 'Business key' do contrato nao nomeia o handoff de CONTAS-001 ({CONTAS_HANDOFF_TOPIC})"
+    )
+    assert RECURSO_HANDOFF_TOPIC in secao or _forma_curta_do_topico(RECURSO_HANDOFF_TOPIC) in secao, (
+        f"secao 'Business key' do contrato nao nomeia o handoff de RECURSO-001 ({RECURSO_HANDOFF_TOPIC}) "
+        "— a terceira forma da business key (glosa revertida) ficou sem premissa "
+        "(gap PERSP-PAGTO-STALE-CONTAS-ASSUMPTION)."
+    )
+    assert template in secao, (
+        f"secao 'Business key' do contrato nao contem o template real da terceira forma "
+        f"({template!r}, derivado de recurso._pagto_business_key via inspect.getsource)."
     )
