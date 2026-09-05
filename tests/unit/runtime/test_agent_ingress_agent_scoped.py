@@ -197,7 +197,22 @@ def test_agente_sem_declaracao_de_ingresso_e_recusado(agent_id: str) -> None:
     assert agent_id in str(capturado.value)
 
 
-@pytest.mark.parametrize("agent_id", ["RAFAEL", " rafael ", "rafael2", "rafae", ""])
+#: Ids EXPLICITOS, e não os gerados pelo pytest a partir do valor, por uma razão mecânica:
+#: `check_evidence_ledger_hashes.py` casa linha de resultado com `\S+::\S+`, então um id
+#: parametrizado que contenha ESPAÇO (`[ rafael ]`) some da recontagem e o Test-hash do ledger
+#: passa a ser recomputado sobre menos linhas que a receita documentada produz — o descompasso
+#: `LEDGER-HASH-RECIPE-WHITESPACE-IDS` (owner-gated). Nomear os casos evita criar mais uma
+#: instância dele; o VALOR sob teste continua sendo exatamente `" rafael "`.
+@pytest.mark.parametrize(
+    "agent_id",
+    [
+        pytest.param("RAFAEL", id="maiusculo"),
+        pytest.param(" rafael ", id="com_espacos_em_volta"),
+        pytest.param("rafael2", id="sufixado"),
+        pytest.param("rafae", id="prefixo_do_declarante"),
+        pytest.param("", id="vazio"),
+    ],
+)
 def test_id_quase_certo_e_recusado_sem_normalizacao(agent_id: str) -> None:
     """Nada de `strip()`/`lower()`/prefixo: a comparacao e' de igualdade exata.
 
