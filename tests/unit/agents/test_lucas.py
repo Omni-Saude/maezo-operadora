@@ -733,6 +733,26 @@ async def test_start_process_fail_closed_on_unset_route_starts_escalation() -> N
     assert recording, "unset route must fail CLOSED into a real start, never a silent skip"
 
 
+async def test_start_process_never_fabricates_outro_or_moderada_when_unresolved() -> None:
+    """LUCAS-MOTIVO-SEVERIDADE-DEFAULTS: mirrors GAP-ESC-SEVERITY-GROUP's own principle one layer
+    up. `_base_state()` never sets `motivo_categoria`/`severidade` (as if `assess`/
+    `escalate_human`/`_escalate_min` never ran — a state-machine invariant violation every real
+    path already prevents). Both are Literal-typed contract fields; an unresolved value must ride
+    through verbatim (`""`, since `receive`'s own reset never runs on a hand-built dict either),
+    never be laundered into the well-formed-looking `"outro"`/`"moderada"` tokens the ALREADY-
+    fixed worker boundary (`escalation.py`) would otherwise trust as real."""
+    cibseven = FakeCibSevenTransport()
+    recording = _record_start(cibseven)
+    graph = _graph(cibseven=cibseven)
+
+    result = await graph.start_process(_base_state())  # no `route`/`motivo_categoria`/`severidade`
+
+    assert result["process_started"] is True
+    assert recording, "unresolved contract fields must still fail CLOSED into a real start"
+    assert recording[0]["motivo_categoria"] == ""
+    assert recording[0]["severidade"] == ""
+
+
 async def test_start_process_skips_only_on_explicit_respond_member_route() -> None:
     """The informational path is the ONLY one that never opens a process — and it must be
     EXPLICIT (`route == "respond_member"`), never inferred from absence."""

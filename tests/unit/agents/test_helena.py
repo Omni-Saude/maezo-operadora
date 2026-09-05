@@ -835,6 +835,34 @@ async def test_escalate_defaults_motivo_from_error_when_absent() -> None:
     assert result["escalation_motivo"] == "falha_tecnica"
 
 
+async def test_escalate_never_fabricates_leve_when_severidade_absent() -> None:
+    """HELENA-SEVERIDADE-DEFAULT: mirrors GAP-ESC-SEVERITY-GROUP's own principle one layer up.
+    `escalate`'s ONLY reachable caller without a real, gatilho-assigned `escalation_severidade`
+    is `receive`'s missing-runtime-context escalate (`_base_state` here has no
+    `escalation_severidade` key at all, exactly like that path leaves it after the neutral-output
+    reset). A severity that was never determined is UNKNOWN, never the mildest `leve` — this must
+    ride through as `None` verbatim into the engine payload, never be fabricated, so the
+    ALREADY-fixed worker boundary (`escalation.py::_exigir_severidade`) is the one that fails
+    closed on it (refuse -> supervisor fallback -> mandatory HITL), not a silent Helena default."""
+    recording: list[dict[str, Any]] = []
+
+    class _RecordingCibSeven(FakeCibSevenTransport):
+        async def start_process_instance(
+            self, process_key: str, business_key: str, variables: dict[str, Any]
+        ) -> ProcessInstance:
+            recording.append(dict(variables))
+            return await super().start_process_instance(process_key, business_key, variables)
+
+    inference = _FakeInference(["resumo", "resposta"])
+    graph = _graph(inference=inference, cibseven=_RecordingCibSeven())
+
+    result = await graph.escalate(_base_state(error="tool failure upstream"))
+
+    assert result["escalation_severidade"] is None
+    assert recording, "escalate must still start SP-OP-ESCALATION-001 (never a dead end)"
+    assert recording[0]["severidade"] is None
+
+
 async def test_escalate_records_error_on_cibseven_failure_but_still_responds() -> None:
     class _FailingCibSeven(FakeCibSevenTransport):
         async def start_process_instance(self, *args: Any, **kwargs: Any) -> ProcessInstance:

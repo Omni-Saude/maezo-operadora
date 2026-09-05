@@ -938,9 +938,19 @@ class LucasGraph:
         resumo = str(dossier.get("narrativa", "")) or (
             f"Encaminhamento automatico ({state.get('motivo_humano') or 'outro'})."
         )
-        # `or`-fallbacks (not `.get(k, default)`) on the output-only fields: after `receive`'s
-        # R1 cycle-1 F2 reset these keys are PRESENT but "" until a node writes them — the
-        # engine variables must carry well-formed class tokens, never an empty string.
+        # LUCAS-MOTIVO-SEVERIDADE-DEFAULTS: NO `or`-fallback on `motivo_categoria`/`severidade`
+        # — both are Literal-typed contract fields (`:221,:226` domains), and inventing a
+        # well-formed-looking class token (`"outro"`/`"moderada"`) for a value this graph never
+        # actually determined is the SAME class of bug GAP-ESC-SEVERITY-GROUP fixed one layer
+        # down, in the worker (`escalation.py::_exigir_severidade`/`_rotulo_opcional_validado`):
+        # a fabricated label reads as authoritative and is indistinguishable from a real one.
+        # After `receive`'s R1 cycle-1 F2 reset these keys are PRESENT but `""` until `assess`/
+        # `escalate_human`/`_escalate_min` write a real value (every real path does); an
+        # UNRESOLVED `""` now rides through verbatim — `severidade` (contract-mandatory) refuses
+        # fail-closed at the ALREADY-fixed worker boundary (never silently `moderada`), and
+        # `motivo_categoria` (optional, ESC-D1-MOTIVO-STRICTER-THAN-R7) is simply treated as
+        # absent there — never silently `outro`. Every other field below keeps its plain
+        # `.get(k, "")`: those are free-text/administrative, not closed-domain contract tokens.
         variables: dict[str, Any] = {
             "tenant_id": state.get("tenant_id", ""),
             "source_agent_id": "lucas",
@@ -948,8 +958,8 @@ class LucasGraph:
             "conversation_id": state.get("conversation_id", ""),
             "beneficiario_pseudo_id": state.get("beneficiario_pseudo_id", ""),
             "canal": state.get("canal", "whatsapp"),
-            "motivo_categoria": state.get("motivo_categoria") or "outro",
-            "severidade": state.get("severidade") or "moderada",
+            "motivo_categoria": state.get("motivo_categoria", ""),
+            "severidade": state.get("severidade", ""),
             "resumo_contexto": resumo,
         }
         dmn_refs = state.get("dmn_refs")
