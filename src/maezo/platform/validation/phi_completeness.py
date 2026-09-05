@@ -582,7 +582,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                 evidence=(
                     "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59, "
                     "SP-OP-RECURSO-001_Recurso_Glosa.bpmn:69 and "
-                    "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:61 — all three "
+                    "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:67 — all three "
                     "VARIAVEIS DE ENTRADA rolls, i.e. a variable the CALLER sets at start."
                 ),
                 recommendation=(
