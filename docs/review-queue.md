@@ -1789,3 +1789,49 @@ corrigido aqui deve ser lido como SUPERADO por esta secao. Origem: veredito
 
 Nada aqui e' ratificacao de SME: segue valendo que a operadora AUTORIZA e o prestador emite a
 guia TISS conforme o GAP-REGISTER aprovado, sem assinatura clinica/regulatoria nova.
+
+## Correcao 2 (INFO) — PERSP-AUTH-VOICE, 2026-09-05 (reparo do veredito §Delta, D1-D4; secao NOVA)
+
+Esta secao CORRIGE numeros e afirmacoes das duas secoes `PERSP-AUTH-VOICE` acima, que ficam
+intactas (arquivo append-only) e devem ser lidas como SUPERADAS no que aqui se corrige. Origem:
+`VERIFY-PERSP-AUTH-VOICE` §Delta (REVISE — 4 achados).
+
+1. **D1 — "10/10 vermelhas" era um numero acima do medido.** Duas das dez frases do verificador
+   estavam parafraseadas no teste. A6 verbatim e' "a emissao da guia TISS e responsabilidade da
+   operadora" (o ator vem DEPOIS do nominal) e o padrao `P5-ptbr-nominal` exigia o ator ANTES:
+   verbatim, era falso negativo, e o numero real da rodada 1 era **9/10**. Onde as secoes acima
+   dizem "10/10", leia-se **9/10 na rodada 1**. A6 e A10 foram restauradas ao texto verbatim e
+   criou-se `P7-ptbr-nominal-posposto`; o valor MEDIDO agora e' **10/10** nas dez frases verbatim
+   e **5/5** nas cinco sondas novas do §Delta.
+
+2. **D2 — "0 falsos positivos" tambem estava acima do medido.** A remocao da heuristica de ator
+   deixara a cerca cega a negacao e disparando por proximidade. Cinco afirmacoes CORRETAS ficavam
+   VERMELHAS, entre elas "A operadora nao emite a guia TISS: quem emite e o prestador" — a frase
+   mais natural para DOCUMENTAR a regra correta, justamente em `docs/processes/`, que esta cerca
+   passou a varrer — e "A autorizacao e emitida pela operadora e a guia TISS pelo prestador", que
+   e' a formulacao canonica desta mesma regra. Tres guardas foram acrescentadas (negacao adjacente
+   ao verbo; prestador como sujeito local; objeto emitido tem de ser a guia). MEDIDO: **0 falsos
+   positivos em 15 formas permitidas**, incluindo as 4 sondas adversariais do verificador. As
+   guardas sao ESTRITAS de proposito: o defeito historico "o PROCESSO (nao voce) emite a guia"
+   continua VERMELHO, porque a palavra imediatamente anterior ao verbo ali e' "voce)", nao "nao".
+
+3. **D3 — o ingles so' estava coberto na voz ativa.** "The TISS guide is issued by the operadora"
+   passava. Criado `P8-en-passivo`, com a frase do verificador como caso de teste; o LIMITE
+   DECLARADO nao afirma mais cobertura geral de ingles.
+
+4. **D4 — o teste de hermeticidade escrevia na arvore de trabalho real.** Plantava uma sonda em
+   `spec/` e a removia no `finally`. Agora monta um repo git DESCARTAVEL em `tmp_path` e prova os
+   dois sentidos (fora do indice = invisivel; `git add` do mesmo texto = acusa), sem tocar no
+   checkout.
+
+5. **Contagens.** Onde as secoes acima dizem "10 provas" e "10594", leia-se **12 provas** e
+   **10596** (base 44e85ea = 10584, +12).
+
+6. **LIMITE DECLARADO tem duas metades, ambas pinadas por teste.** Falsos negativos
+   (`test_o_limite_declarado_da_cerca_esta_pinado`) e falsos positivos que sobram
+   (`test_os_falsos_positivos_conhecidos_estao_pinados`): negacao afastada do verbo ("a operadora
+   nao e quem emite a guia") e objeto emitido fora da lista enumerada ("o laudo e emitido pela
+   operadora junto com a guia"). Quem esbarrar num deles saiba que e' conhecido e declarado — nao
+   e' licenca para reintroduzir o defeito nem para alargar a cerca em silencio.
+
+Nada aqui e' ratificacao de SME.
