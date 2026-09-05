@@ -73,12 +73,30 @@ Tres GUARDAS reduzem falsos positivos (todas medidas e pinadas por teste):
   TISS: quem emite e o prestador" — a frase mais natural para DOCUMENTAR a regra correta — fica
   verde. A guarda e' ESTRITA de proposito: em "o PROCESSO (nao voce) emite a guia" a palavra
   anterior ao verbo e' "voce)", nao "nao", entao aquele defeito historico continua vermelho.
-* **prestador como sujeito local** — "..., o prestador emite a guia" e "..., que emite a guia"
-  (relativa cujo antecedente e' o prestador) nao sao achado, mesmo com "operadora" antes na frase.
-  "a operadora, diferentemente DO prestador, emite a guia" continua vermelho: ali o prestador e'
-  oblique, nao sujeito.
-* **objeto emitido** — as passivas e o objeto direto tem de ser a GUIA. "A autorizacao e emitida
-  pela operadora e a guia TISS pelo prestador" e' a formulacao CORRETA desta regra e fica verde.
+* **prestador como sujeito local** — o sintagma do prestador imediatamente antes do verbo, com
+  determinante e modificador OPCIONAIS ("o prestador", "cada prestador", "o proprio prestador",
+  "prestadores credenciados"), ou a relativa "prestador, que emite", e' voz CORRETA e nao e'
+  achado — mesmo com "operadora" antes na frase. Duas condicoes impedem que a guarda engula
+  defeito: uma PREPOSICAO antes do sintagma torna o prestador obliquo ("a operadora,
+  diferentemente DO prestador, emite a guia" continua vermelho) e uma VIRGULA entre o sintagma e
+  o verbo tambem ("a operadora, e nao o prestador, emite a guia" continua vermelho). A mesma
+  guarda vale para o trecho entre o verbo e o objeto, o que deixa verde a elipse correta "a
+  operadora emite a autorizacao e o prestador a guia TISS".
+* **objeto emitido, SO' nas passivas** — em `P4`/`P8` o sujeito do participio fica FORA do
+  casamento, entao o objeto e' checado na janela a esquerda: "A autorizacao e emitida pela
+  operadora e a guia TISS pelo prestador" e' a formulacao CORRETA desta regra e fica verde. Nos
+  padroes de ator-primeiro o objeto casado JA' E' a guia, e aplicar a checagem ali suprimia
+  defeitos reais ("a operadora emite a autorizacao e a guia TISS") — regressao encontrada pelo
+  verificador (§Delta-2 G1) e removida.
+
+Duas decisoes de varredura sustentam essas guardas:
+
+* a lacuna ATOR -> VERBO e' GULOSA, isto e', escolhe o verbo MAIS PROXIMO do objeto. Sem isso, em
+  "a operadora nao emite o parecer, mas emite a guia TISS" o casamento pegaria o PRIMEIRO verbo,
+  negado, e a guarda de negacao mascararia o defeito real do segundo;
+* uma rejeicao por guarda NAO encerra a busca naquele padrao: a varredura recomeca UM CARACTERE
+  adiante do inicio do candidato rejeitado, nunca depois do seu fim, de modo que um candidato
+  descartado nunca esconde um achado posterior.
 
 LIMITE DECLARADO (o que esta cerca NAO ve, e onde ela erra) — medido, nao estimado
 ----------------------------------------------------------------------------------
@@ -87,11 +105,15 @@ conjunto enumerado (p.ex. "libera"/"disponibiliza"), sujeito pagador separado do
 ou a mais de 80 caracteres, idioma alem de pt-BR/ingles, e qualquer afirmacao semantica que nao
 use a palavra "guia".
 
-`test_os_falsos_positivos_conhecidos_estao_pinados` fixa a classe de FALSO POSITIVO que sobra: a
-negacao afastada do verbo ("a operadora nao e quem emite a guia") e um objeto emitido fora da
-lista enumerada ("o laudo e emitido pela operadora junto com a guia"). Ambos ficam vermelhos hoje;
-o pino existe para que a lacuna seja fato verificavel e para que quem esbarrar nela saiba que e'
-conhecida — nunca para licenciar reintroduzir o defeito.
+`test_os_falsos_positivos_conhecidos_estao_pinados` fixa a classe de FALSO POSITIVO que sobra,
+RE-MEDIDA apos as guardas de §Delta-2 G2: a negacao afastada do verbo ("a operadora nao e quem
+emite a guia"), a negacao separada do verbo por uma incisa ("a operadora jamais, em nenhuma
+hipotese, emite a guia") e um objeto emitido fora da lista enumerada de substantivos ("o laudo e
+emitido pela operadora junto com a guia"). Os tres ficam vermelhos hoje; o pino existe para que a
+lacuna seja fato verificavel e para que quem esbarrar nela saiba que e' conhecida — nunca para
+licenciar reintroduzir o defeito. As tres construcoes que o verificador reportou como falso
+positivo NAO DECLARADO ("cada prestador", "o proprio prestador", "prestadores credenciados") NAO
+estao nesta lista porque deixaram de ser falso positivo: entraram nas formas PERMITIDAS.
 
 Esta e' uma cerca LEXICAL: ela impede a REGRESSAO das formulacoes conhecidas, nao substitui
 revisao. Declarar e pinar o limite (nos dois sentidos) e' o mesmo formato que
@@ -125,17 +147,21 @@ _PARTICIPIO = r"(?:emitid|expedid|gerad)(?:a|as|o|os)"
 _ARTIGO = r"(?:a|as|uma|umas)"
 _GUIA = r"gui" + r"as?\b"
 _GAP = r"[^.;]{0,80}?"
+# GULOSO de proposito nos padroes de ator-primeiro: escolhe o verbo MAIS PROXIMO do objeto,
+# nao o primeiro da frase. Sem isso, "a operadora nao emite o parecer, mas emite a guia"
+# casaria o PRIMEIRO "emite" (negado) e a guarda de negacao mascararia o defeito real.
+_GAP_ATOR = r"[^.;]{0,80}"
 _PERTO = r"[^.;]{0,40}?"
 _NOMINAL = r"(?:emiss[aã]o|expedi[cç][aã]o)"
 
 _PADROES: dict[str, re.Pattern[str]] = {
     "P1-ptbr-ativo": re.compile(
-        rf"{_PAGADOR}{_GAP}\b(?P<verbo>{_EMITIR}|{_SINONIMO})\b"
+        rf"{_PAGADOR}{_GAP_ATOR}\b(?P<verbo>{_EMITIR}|{_SINONIMO})\b"
         rf"(?P<meio>{_PERTO})\b{_ARTIGO}\s+{_GUIA}",
         re.IGNORECASE,
     ),
     "P2-en-ativo": re.compile(
-        rf"{_PAGADOR}{_GAP}\b(?P<verbo>issues?|issued|issuing)\b(?P<meio>{_PERTO})"
+        rf"{_PAGADOR}{_GAP_ATOR}\b(?P<verbo>issues?|issued|issuing)\b(?P<meio>{_PERTO})"
         rf"\b(?:the\s+)?(?:TISS\s+)?(?:guides?\b|{_GUIA})",
         re.IGNORECASE,
     ),
@@ -149,7 +175,7 @@ _PADROES: dict[str, re.Pattern[str]] = {
         re.IGNORECASE,
     ),
     "P5-ptbr-nominal": re.compile(
-        rf"{_PAGADOR}{_GAP}\b(?P<verbo>{_NOMINAL})\s+d(?:a|as)\s+(?P<meio>){_GUIA}",
+        rf"{_PAGADOR}{_GAP_ATOR}\b(?P<verbo>{_NOMINAL})\s+d(?:a|as)\s+(?P<meio>){_GUIA}",
         re.IGNORECASE,
     ),
     "P7-ptbr-nominal-posposto": re.compile(
@@ -201,9 +227,64 @@ _COPULAS = frozenset(
         "do",
     }
 )
-_PRESTADOR_SUJEITO = re.compile(
-    r"(?:\bo|\bos)\s+prestador(?:es)?\s+$|prestador(?:es)?\s*,\s*que\s+$", re.IGNORECASE
+# Sintagma do PRESTADOR como sujeito local do verbo: determinante e modificador opcionais
+# ("o prestador", "cada prestador", "o proprio prestador", "prestadores credenciados"), sem
+# virgula entre o sintagma e o verbo — ou a forma relativa "prestador, que emite".
+_NP_PRESTADOR = re.compile(
+    r"(?:\b(?:o|os|um|uns|cada|todo|toda|todos|todas|qualquer|quaisquer)\s+)?"
+    r"(?:(?:pr[oó]pri[oa]s?|mesm[oa]s?)\s+)?"
+    r"\bprestador(?:a|es|as)?\b(?P<adj>(?:\s+[A-Za-zÀ-ÿ]+){0,2})\s+$",
+    re.IGNORECASE,
 )
+_REL_PRESTADOR = re.compile(r"\bprestador(?:a|es|as)?\b\s*,\s*que\s+$", re.IGNORECASE)
+# Preposicao antes do sintagma torna o prestador OBLIQUO, nao sujeito ("diferentemente DO
+# prestador, emite a guia" continua sendo defeito).
+_PREP_ANTES = re.compile(
+    r"\b(?:d[eoa]s?|ao|aos|[aà]s?|pel[oa]s?|com|para|entre|sobre|por|contra|sem)\s*$",
+    re.IGNORECASE,
+)
+# Palavras funcionais que NAO podem contar como modificador do sintagma (senao "paga o prestador
+# e emite a guia" seria lido como prestador-sujeito).
+_NAO_MODIFICADOR = frozenset(
+    {
+        "e",
+        "ou",
+        "mas",
+        "que",
+        "nem",
+        "nao",
+        "não",
+        "se",
+        "ja",
+        "já",
+        "so",
+        "só",
+        "tambem",
+        "também",
+        "entao",
+        "então",
+        "porem",
+        "porém",
+        "logo",
+        "pois",
+        "quando",
+        "onde",
+    }
+)
+
+
+def _prestador_e_sujeito(antes: str) -> bool:
+    """O prestador e' o sujeito local do verbo? Entao e' a voz CORRETA e nao ha achado."""
+    if _REL_PRESTADOR.search(antes):
+        return True
+    m = _NP_PRESTADOR.search(antes)
+    if m is None:
+        return False
+    if any(tok.lower() in _NAO_MODIFICADOR for tok in (m.group("adj") or "").split()):
+        return False
+    return not _PREP_ANTES.search(antes[: m.start()])
+
+
 # Objetos que a operadora PODE emitir corretamente — se o objeto emitido e' um destes e nao a
 # guia, nao ha defeito ("A autorizacao e emitida pela operadora e a guia TISS pelo prestador").
 _OUTRO_OBJETO = re.compile(
@@ -278,19 +359,31 @@ def _hits_no_texto(texto: str, rotulo: str = "<texto>") -> list[str]:
     normalizado, linhas = _normalise(texto)
     achados: list[str] = []
     for nome, padrao in _PADROES.items():
-        for m in padrao.finditer(normalizado):
+        pos = 0
+        while pos <= len(normalizado):
+            m = padrao.search(normalizado, pos)
+            if m is None:
+                break
             inicio_verbo = m.start("verbo")
             antes = normalizado[max(0, inicio_verbo - 60) : inicio_verbo]
-            if _negado(antes) or _PRESTADOR_SUJEITO.search(antes):
+            meio = m.group("meio") or ""
+            # Uma rejeicao NAO pode mascarar um achado posterior: a varredura recomeca um
+            # caractere adiante do inicio do candidato rejeitado, nunca depois do seu fim.
+            if _negado(antes) or _prestador_e_sujeito(antes) or _prestador_e_sujeito(meio):
+                pos = m.start() + 1
                 continue
-            if _objeto_nao_e_a_guia(m.group("meio") or ""):
-                continue
+            # SO' as passivas precisam checar o objeto: nelas o sujeito do participio esta FORA
+            # do casamento. Nos padroes de ator-primeiro o objeto casado JA' E' a guia, e aplicar
+            # a checagem ao trecho `meio` suprimia defeitos reais ("a operadora emite a
+            # autorizacao e a guia TISS") — regressao encontrada pelo verificador (§Delta-2 G1).
             if nome in {"P4-guia-passivo", "P8-en-passivo"} and _objeto_nao_e_a_guia(antes):
+                pos = m.start() + 1
                 continue
             ini = linhas[m.start()] if m.start() < len(linhas) else 0
             fim = linhas[min(m.end(), len(linhas)) - 1] if linhas else 0
             onde = f"{ini}" if ini == fim else f"{ini}-{fim}"
             achados.append(f"{rotulo}:{onde}: [{nome}] {m.group().strip()}")
+            pos = max(m.end(), m.start() + 1)
     return achados
 
 
@@ -464,6 +557,10 @@ _FORMAS_PERMITIDAS: tuple[tuple[str, str], ...] = (
         "C4-relativa",
         "Na operadora o numero de autorizacao e devolvido ao prestador, que emite a guia TISS.",
     ),
+    ("E1-cada-prestador", "Segundo a operadora, cada prestador emite a guia TISS."),
+    ("E2-proprio-prestador", "A operadora esclarece: o proprio prestador emite a guia TISS."),
+    ("E3-prestadores-credenciados", "Na operadora, prestadores credenciados emitem a guia TISS."),
+    ("E7-elipse", "A operadora emite a autorizacao e o prestador a guia TISS."),
 )
 
 
@@ -530,6 +627,27 @@ _SENTENCAS_NOVAS_QUE_DEVEM_ACUSAR: tuple[tuple[str, str], ...] = (
 )
 
 
+# As 3 regressoes achadas pelo verificador em §Delta-2 G1 (defeitos reais que a rodada 2
+# deixara passar): objeto coordenado com a guia, e clausula negada MASCARANDO um defeito real.
+_SENTENCAS_G1_QUE_DEVEM_ACUSAR: tuple[tuple[str, str], ...] = (
+    ("E4-objeto-coordenado", _frag("A ", "operadora ", "emite ", "a autorizacao e ", "a ", "guia", " TISS.")),
+    (
+        "E5-clausula-negada-mascarando",
+        _frag("A ", "operadora ", "nao emite o parecer, mas ", "emite ", "a ", "guia", " TISS."),
+    ),
+    (
+        "E6-lista-coordenada",
+        _frag("A ", "operadora ", "emite ", "a autorizacao, o protocolo e tambem ", "a ", "guia", " TISS."),
+    ),
+)
+
+
+def test_as_tres_regressoes_g1_do_gatekeeper_ficam_vermelhas() -> None:
+    """G1: objeto coordenado com a guia e clausula negada que mascarava um defeito posterior."""
+    perdidas = [nome for nome, frase in _SENTENCAS_G1_QUE_DEVEM_ACUSAR if not _hits_no_texto(frase)]
+    assert perdidas == [], f"falsos negativos (regressao G1): {perdidas}"
+
+
 def test_as_dez_frases_construidas_pelo_gatekeeper_ficam_vermelhas() -> None:
     """F4/D1: as 10 frases VERBATIM do verificador tem de acusar — todas as 10."""
     perdidas = [nome for nome, frase in _SENTENCAS_QUE_DEVEM_ACUSAR if not _hits_no_texto(frase)]
@@ -576,6 +694,10 @@ def test_os_falsos_positivos_conhecidos_estao_pinados() -> None:
     """LIMITE DECLARADO (falsos POSITIVOS): o que a cerca ainda acusa por engano, medido."""
     conhecidos = (
         ("negacao afastada do verbo", "A operadora nao e quem emite a guia TISS."),
+        (
+            "negacao separada do verbo por uma incisa",
+            "A operadora jamais, em nenhuma hipotese, emite a guia TISS.",
+        ),
         (
             "objeto emitido fora da lista enumerada",
             "O laudo e emitido pela operadora junto com a guia TISS.",

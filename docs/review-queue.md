@@ -1835,3 +1835,40 @@ intactas (arquivo append-only) e devem ser lidas como SUPERADAS no que aqui se c
    e' licenca para reintroduzir o defeito nem para alargar a cerca em silencio.
 
 Nada aqui e' ratificacao de SME.
+
+## Correcao 3 (INFO) — PERSP-AUTH-VOICE, 2026-09-05 (reparo do veredito §Delta-2, G1-G2; secao NOVA)
+
+Esta secao CORRIGE as tres secoes `PERSP-AUTH-VOICE` acima, que ficam intactas (arquivo
+append-only). Origem: `VERIFY-PERSP-AUTH-VOICE` §Delta-2 (REVISE — 2 achados).
+
+1. **G1 — a rodada 2 introduziu uma REGRESSAO de deteccao, nao apenas um residual.** A guarda de
+   objeto criada para D2 era aplicada tambem ao trecho entre o verbo e o objeto nos padroes de
+   ator-primeiro, onde o objeto casado JA' E' a guia. Com isso **"A operadora emite a autorizacao
+   e a guia TISS."** — o defeito enunciado da forma mais direta possivel — ficou VERDE na rodada 2
+   e estava VERMELHO uma versao antes. Corrigido: a checagem de objeto vale SO' nas passivas
+   `P4`/`P8`. Um segundo mecanismo de mascaramento foi fechado junto: os padroes eram preguicosos
+   e a varredura seguia depois de um candidato rejeitado, entao uma clausula negada escondia o
+   defeito posterior da mesma frase ("A operadora nao emite o parecer, mas emite a guia TISS.").
+   A lacuna ator->verbo passou a ser GULOSA (verbo mais proximo do objeto) e uma rejeicao por
+   guarda recomeca a busca um caractere adiante do inicio do candidato.
+
+2. **G2 — os pinos nao correspondiam a medicao, nos dois sentidos.** A guarda de sujeito-prestador
+   so' reconhecia `o`/`os` colados ao verbo, entao "cada prestador emite a guia", "o proprio
+   prestador emite a guia" e "prestadores credenciados emitem a guia" — afirmacoes CORRETAS e
+   fraseologia tipica de contrato em `docs/processes/`, que a cerca varre — ficavam vermelhas sem
+   estarem declaradas. A guarda passou a aceitar determinante e modificador opcionais e a forma
+   relativa, mantendo duas condicoes que impedem que ela engula defeito (preposicao antes do
+   sintagma; virgula entre o sintagma e o verbo).
+
+3. **Numeros MEDIDOS agora — e os pinos dizem exatamente estes:** 10/10 nas dez frases verbatim,
+   5/5 nas cinco sondas do §Delta, 3/3 nas tres regressoes E4/E5/E6, e **0 falsos positivos em 19
+   formas permitidas**. Onde as secoes acima dizem "12 provas" e "10596", leia-se **13 provas** e
+   **10597**.
+
+4. **LIMITE DECLARADO re-medido.** Falsos positivos que SOBRAM: negacao afastada do verbo, negacao
+   separada do verbo por uma incisa, e objeto emitido fora da lista enumerada de substantivos.
+   E1/E2/E3 sairam dessa lista porque deixaram de ser falso positivo. Falsos negativos: verbo fora
+   do conjunto, ator separado por `.`/`;` ou a mais de 80 caracteres, terceiro idioma, afirmacao
+   sem a palavra "guia". E4/E5/E6 sairam dessa lista porque passaram a ser detectados.
+
+Nada aqui e' ratificacao de SME.
