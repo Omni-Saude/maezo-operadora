@@ -321,18 +321,41 @@ async def drain_once(
     return DrainReport(claimed=len(records), delivered=len(published), sealed=sealed)
 
 
+#: Module-level, not per-instance: `run_relay_loop` is a free function with no `self` to carry
+#: this on, and a process runs exactly one relay loop. Guards the ONCE-not-per-sweep logging
+#: `_touch_heartbeat` does on a write failure (gatekeeper finding G2) — reset only by
+#: `_reset_heartbeat_write_failure_logged_for_tests` (test-only; production never resets it,
+#: matching "log once for the life of the process", not "once per outage").
+_heartbeat_write_failure_logged = False
+
+
+def _reset_heartbeat_write_failure_logged_for_tests() -> None:
+    """Test-only reset of the module-level once-only-log flag `_touch_heartbeat` sets. Production
+    code never calls this — a process that starts failing to write its heartbeat logs it exactly
+    once for its whole lifetime, not once per outage."""
+    global _heartbeat_write_failure_logged
+    _heartbeat_write_failure_logged = False
+
+
 def _touch_heartbeat(path: str | None) -> None:
     """Update the heartbeat file's mtime to now — the liveness probe's ONLY signal that the loop
-    is actually iterating (SC-01/F3). A write failure (e.g. a full/unmounted `/tmp`) must never
-    crash the relay over an observability side-channel: it is logged and swallowed, exactly like
-    `default_worker_id`'s hostname lookup would be if it ever failed.
+    is actually iterating (SC-01/F3). A write failure (e.g. a read-only `/tmp` with no writable
+    mount — the GUARANTEED path on ECS today, gatekeeper finding G2, not merely a defensive branch)
+    must never crash the relay over an observability side-channel: it is logged ONCE for the life
+    of the process (never per sweep — a per-sweep log at `pollIntervalS=2` is ~43k lines/day/task)
+    and then silently swallowed on every subsequent sweep. The loop keeps TRYING to write on every
+    sweep regardless (cheap, and recovers automatically if the mount ever becomes writable), only
+    the log is throttled.
     """
+    global _heartbeat_write_failure_logged
     if not path:
         return
     try:
         Path(path).touch()
-    except OSError as exc:  # pragma: no cover - defensive; a missing/unmounted /tmp is untested here
-        logger.warning("a2a_outbox_relay_heartbeat_write_failed", path=path, error=str(exc))
+    except OSError as exc:
+        if not _heartbeat_write_failure_logged:
+            logger.warning("a2a_outbox_relay_heartbeat_write_failed", path=path, error=str(exc))
+            _heartbeat_write_failure_logged = True
 
 
 async def run_relay_loop(

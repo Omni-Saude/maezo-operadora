@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from maezo.a2a import outbox_relay
 from maezo.a2a.facts import DelegationFactKind, build_fact
 from maezo.a2a.outbox import OutboxRecord, outbox_row_params
 from maezo.a2a.outbox_relay import (
@@ -42,6 +43,17 @@ from maezo.a2a.outbox_relay import (
     heartbeat_stale_after_s,
     run_relay_loop,
 )
+
+
+@pytest.fixture
+def _reset_heartbeat_log_flag():
+    """The once-per-process log guard `_touch_heartbeat` uses (gatekeeper finding G2) is module
+    state, not per-call — reset it before AND after any test that exercises the failure path, so
+    test order never lets one test's failure "use up" the once-only log another test expects."""
+    outbox_relay._reset_heartbeat_write_failure_logged_for_tests()
+    yield
+    outbox_relay._reset_heartbeat_write_failure_logged_for_tests()
+
 
 # ---------------------------------------------------------------------------
 # In-memory doubles (never imported by production code)
@@ -379,13 +391,45 @@ def test_touch_heartbeat_is_a_no_op_when_path_is_none() -> None:
     _touch_heartbeat(None)  # must not raise
 
 
-def test_touch_heartbeat_swallows_a_write_failure_and_logs(caplog) -> None:
+def test_touch_heartbeat_swallows_a_write_failure(_reset_heartbeat_log_flag) -> None:
     """A heartbeat write failure (e.g. an unwritable directory) must never crash the relay over an
     observability side-channel — proven by pointing at a path whose PARENT does not exist."""
-    import logging
-
-    caplog.set_level(logging.WARNING)
     _touch_heartbeat("/this/directory/does/not/exist/heartbeat")  # must not raise
+
+
+def test_touch_heartbeat_logs_the_write_failure_exactly_once(monkeypatch, _reset_heartbeat_log_flag) -> None:
+    """Gatekeeper finding G2 (§Delta): on ECS the heartbeat write fails on EVERY sweep today
+    (read-only `/tmp`, no writable mount declared anywhere in `deploy/aws-ecs/envs/dev-sa-east-1/`)
+    — logging on every failure would be ~43k warning lines/day/task at the default
+    `pollIntervalS=2`. The relay must log the failure ONCE for the life of the process, then keep
+    retrying the write (cheap, self-healing if the mount ever becomes writable) silently."""
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(outbox_relay.logger, "warning", lambda *a, **kw: calls.append((a, kw)))
+    bad_path = "/this/directory/does/not/exist/heartbeat"
+
+    _touch_heartbeat(bad_path)
+    _touch_heartbeat(bad_path)
+    _touch_heartbeat(bad_path)
+
+    assert len(calls) == 1, f"expected exactly one warning log, got {len(calls)}: {calls}"
+    assert calls[0][1].get("path") == bad_path
+
+
+def test_touch_heartbeat_logs_again_after_an_explicit_test_reset(monkeypatch) -> None:
+    """Negative control for the once-only guard above: proves the flag genuinely gates future
+    calls (rather than the mock just never being invoked) by resetting it mid-test."""
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(outbox_relay.logger, "warning", lambda *a, **kw: calls.append((a, kw)))
+    bad_path = "/this/directory/does/not/exist/heartbeat"
+
+    outbox_relay._reset_heartbeat_write_failure_logged_for_tests()
+    _touch_heartbeat(bad_path)
+    _touch_heartbeat(bad_path)
+    assert len(calls) == 1
+
+    outbox_relay._reset_heartbeat_write_failure_logged_for_tests()
+    _touch_heartbeat(bad_path)
+    assert len(calls) == 2
 
 
 async def test_the_loop_touches_the_heartbeat_file_once_per_sweep(tmp_path) -> None:
