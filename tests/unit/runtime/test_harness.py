@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from tests.support.audit_fakes import FakeStartAuditSink
 
+import maezo.runtime.harness as harness_module
 from maezo.runtime.harness import Harness, UnknownAgentError
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
@@ -170,15 +171,49 @@ def test_create_graph_lucas_missing_deps_raises_value_error() -> None:
         harness.create_graph("lucas")
 
 
-def test_create_graph_stub_agent_uses_no_arg_build() -> None:
-    """A still-stubbed agent's `build()` takes no parameters — `create_graph` must call it with
-    no arguments (introspected via `inspect.signature`, not guessed). Post-B6 all 10 named
-    agents expose `build(config)`, so the `_template` scaffold (never a named agent) is the
-    durable no-arg-build example."""
+def test_create_graph_template_now_takes_config_and_fail_closes() -> None:
+    """HEL-13: the `_template` scaffold is no longer the no-arg-build example — it exposes the
+    canonical `build(config)` and fail-closes on missing deps, exactly like the 10 named agents.
+    `spec/agents/_template/agent.yaml` exists, so `AgentLoader` resolves it for real here."""
     harness = Harness()
+    with pytest.raises(ValueError, match="missing required dependencies"):
+        harness.create_graph("_template")
+
+
+def test_create_graph_template_builds_with_every_dependency_injected() -> None:
+    harness = Harness(
+        inference=MagicMock(),
+        tool_deps={
+            "dmn": FakeDmnTransport(),
+            "cibseven": FakeCibSevenTransport(),
+            "audit_sink": FakeStartAuditSink(),
+        },
+    )
     graph = harness.create_graph("_template")
     assert graph is not None
     assert hasattr(graph, "compile")
+
+
+def test_create_graph_warns_structurally_when_build_takes_no_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HEL-13 (harness side): the no-arg `build()` back-compat branch must NOT accept a mute
+    build. It still runs (back-compat), but it emits a structured warning naming the agent —
+    silence is what let the `_template` scaffold drift out of the canonical contract unnoticed."""
+
+    def _no_arg_build() -> object:
+        return "graph-sentinel"
+
+    monkeypatch.setattr(harness_module, "_resolve_agent_build", lambda agent_id: _no_arg_build)
+    harness = Harness()
+    with patch.object(harness_module, "logger") as mock_logger:
+        graph = harness.create_graph("legacy-stub")
+
+    assert graph == "graph-sentinel"
+    warnings = [c for c in mock_logger.warning.call_args_list if c.args]
+    assert warnings, "o ramo build() sem parametros nao pode ficar MUDO"
+    assert warnings[0].args[0] == "harness_build_fn_without_config"
+    assert warnings[0].kwargs["agent_id"] == "legacy-stub"
 
 
 def test_create_graph_none_agent_id_preserves_trivial_default() -> None:
