@@ -22,17 +22,31 @@ from maezo.platform.integrations.notifications_bridge import (
     REASON_INVALID_JSON,
     REASON_MISSING_TYPE,
     REASON_NOT_A_JSON_OBJECT,
+    SLA_ALERT_OUTCOME_ESCALATED,
+    SLA_ALERT_OUTCOME_NOT_ANCHORED,
+    SLA_ALERT_OUTCOME_UNRECOGNISED_SHAPE,
     BridgeDlqShunt,
     BridgeMessage,
     FakeBridgeKafkaConsumer,
     MalformedBridgeMessageError,
     NotificationsBridgeSettings,
     _deserialize_json_value,
+    _record_sla_alert_outcome,
     build_bridge,
     handle_bridge_message,
     run_consumer_loop,
 )
-from maezo.platform.notification_bridge import NotificationBridge, NotificationBridgeHandoffFailedError
+from maezo.platform.notification_bridge import (
+    PROCESS_KEY_ESCALATION,
+    SLA_ALERT_CANAL,
+    SLA_ALERT_MOTIVO_CATEGORIA,
+    SLA_ALERT_NOTIFICATION_TYPES,
+    SLA_ALERT_SEVERIDADE,
+    SLA_ALERT_SOURCE_AGENT_ID,
+    HandoffResult,
+    NotificationBridge,
+    NotificationBridgeHandoffFailedError,
+)
 from maezo.tools.workers.harness import FakeAuditSink
 
 # ---------------------------------------------------------------------------
@@ -123,6 +137,332 @@ async def test_handle_bridge_message_propagates_genuine_handoff_failure() -> Non
     bridge = NotificationBridge(cibseven_starter=spy)
     with pytest.raises(NotificationBridgeHandoffFailedError):
         await handle_bridge_message(bridge, dict(_INTAKE_RECURSO_MESSAGE))
+
+
+# ---------------------------------------------------------------------------
+# SLA-risk alert -> a REAL human task (R-104, WP-ALERTA-SLA-CANAL)
+#
+# What these tests pin is the EFFECT, not a pure function: an SLA alert on
+# `operadora.notifications.internal` must reach the fenced start chokepoint as an
+# SP-OP-ESCALATION-001 start, because that process's `UT_TratarEscalonamento` carries
+# `camunda:candidateGroups="${roteamento.grupo_atendimento}"` — the human queue the owner's
+# decision names. Every assertion below is made THROUGH `handle_bridge_message`, i.e. through the
+# production call path, so deleting the registration loop in `_register_default_handoffs` turns
+# them RED instead of leaving an inert rule nobody calls.
+# ---------------------------------------------------------------------------
+
+
+class _MetricRecorder:
+    """Records `record_sla_alert_human_task` calls instead of touching a Prometheus registry."""
+
+    def __init__(self, *, raises: Exception | None = None) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self._raises = raises
+
+    def __call__(self, *, alert_domain: str, outcome: str) -> None:
+        self.calls.append((alert_domain, outcome))
+        if self._raises is not None:
+            raise self._raises
+
+
+@pytest.fixture
+def sla_metric_recorder(monkeypatch: pytest.MonkeyPatch) -> _MetricRecorder:
+    recorder = _MetricRecorder()
+    monkeypatch.setattr(
+        "maezo.platform.integrations.notifications_bridge.record_sla_alert_human_task", recorder
+    )
+    return recorder
+
+
+_SLA_ALERT_MESSAGES: dict[str, dict[str, Any]] = {
+    # Exactly the payloads the three real publishers stamp (recurso.py/programa.py/lgpd.py
+    # `make_notify_sla_risk_handler`), so these are messages the bridge really can receive.
+    "recurso.notify_sla_risk": {
+        "type": "recurso.notify_sla_risk",
+        "tenant_id": "amh",
+        "numero_guia_tiss": "GUIA-1",
+        "glosa_id": "GLOSA-1",
+        "glosa_type": "tecnica",
+    },
+    "programa.notify_sla_risk": {
+        "type": "programa.notify_sla_risk",
+        "tenant_id": "amh",
+        "programa_id": "PROG-1",
+        "beneficiario_pseudo_id": "PSEUDO-1",
+    },
+    "lgpd.notify_sla_risk": {
+        "type": "lgpd.notify_sla_risk",
+        "tenant_id": "amh",
+        "titular_pseudo_id": "PSEUDO-9",
+        "tipo_requisicao": "acesso",
+        "sla_breach_task_name": "UT_RevisaoDpo",
+        "sla_breach_phase": "resolution",
+    },
+}
+
+_SLA_ALERT_BUSINESS_KEYS = {
+    "recurso.notify_sla_risk": "ESC-amh-sla-recurso-GUIA-1-GLOSA-1",
+    "programa.notify_sla_risk": "ESC-amh-sla-programa-PROG-1",
+    "lgpd.notify_sla_risk": "ESC-amh-sla-lgpd-PSEUDO-9-resolution",
+}
+
+
+@pytest.mark.asyncio
+async def test_um_alerta_de_sla_conhecido_inicia_escalation_pela_cerca() -> None:
+    """THE production wiring. A real `recurso.notify_sla_risk` message, driven through
+    `handle_bridge_message`, must reach the starter as an SP-OP-ESCALATION-001 start with the
+    contract's business key and the escalation input variables — that start is what puts a
+    `candidateGroups`-routed User Task in a human's queue.
+
+    Goes RED if the registration loop in `_register_default_handoffs` is removed (the rule stops
+    matching), if the target process changes, or if any escalation variable stops being derived.
+    """
+    bridge, spy = _bridge_with_spy()
+    results = await handle_bridge_message(bridge, dict(_SLA_ALERT_MESSAGES["recurso.notify_sla_risk"]))
+
+    assert len(spy.calls) == 1
+    process_key, variables = spy.calls[0]
+    assert process_key == PROCESS_KEY_ESCALATION
+    assert variables["business_key"] == "ESC-amh-sla-recurso-GUIA-1-GLOSA-1"
+    assert variables["conversation_id"] == "sla-recurso-GUIA-1-GLOSA-1"
+    assert variables["tenant_id"] == "amh"
+    assert variables["source_agent_id"] == SLA_ALERT_SOURCE_AGENT_ID
+    assert variables["motivo_categoria"] == SLA_ALERT_MOTIVO_CATEGORIA
+    assert variables["severidade"] == SLA_ALERT_SEVERIDADE
+    assert variables["canal"] == SLA_ALERT_CANAL
+    # A glosa appeal is prestador-side: no beneficiary in the payload, so none is fabricated.
+    assert variables["beneficiario_pseudo_id"] == ""
+    assert "SP-OP-RECURSO-001" in variables["resumo_contexto"]
+
+    assert len(results) == 1
+    assert results[0].handoff_triggered is True
+    assert results[0].target_process == PROCESS_KEY_ESCALATION
+    assert results[0].process_instance_id == f"instance-{PROCESS_KEY_ESCALATION}-spy"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sla_type", sorted(SLA_ALERT_NOTIFICATION_TYPES))
+async def test_todo_alerta_de_sla_publicado_hoje_vira_task_humana(sla_type: str) -> None:
+    """Each of the three `type`s a worker really publishes today opens its OWN escalation, keyed on
+    that domain's business anchor — so two cases never collapse onto one human task."""
+    bridge, spy = _bridge_with_spy()
+    await handle_bridge_message(bridge, dict(_SLA_ALERT_MESSAGES[sla_type]))
+
+    assert len(spy.calls) == 1
+    process_key, variables = spy.calls[0]
+    assert process_key == PROCESS_KEY_ESCALATION
+    assert variables["business_key"] == _SLA_ALERT_BUSINESS_KEYS[sla_type]
+
+
+@pytest.mark.asyncio
+async def test_um_realerta_do_mesmo_caso_converge_na_mesma_chave_de_negocio() -> None:
+    """Redelivery/repeat of the same alert derives the SAME business key, so
+    `start_process_idempotent` converges on the ONE open escalation instead of flooding the
+    queue — the reason this goes through the fenced chokepoint and not a raw POST."""
+    bridge, spy = _bridge_with_spy()
+    message = dict(_SLA_ALERT_MESSAGES["recurso.notify_sla_risk"])
+    await handle_bridge_message(bridge, dict(message))
+    await handle_bridge_message(bridge, dict(message))
+
+    assert [key for key, _ in spy.calls] == [PROCESS_KEY_ESCALATION, PROCESS_KEY_ESCALATION]
+    assert spy.calls[0][1]["business_key"] == spy.calls[1][1]["business_key"]
+
+
+@pytest.mark.asyncio
+async def test_as_duas_fases_de_sla_do_lgpd_abrem_tasks_distintas() -> None:
+    """`lgpd.py` serves TWO service tasks on one topic — the internal P7D ack alert and the LGPD
+    art. 19-II LEGAL-deadline breach. Anchoring on the titular alone would collapse the legal
+    breach into the still-open ack escalation and raise no new task; the phase anchor prevents it.
+    """
+    bridge, spy = _bridge_with_spy()
+    ack = dict(_SLA_ALERT_MESSAGES["lgpd.notify_sla_risk"], sla_breach_phase="ack")
+    await handle_bridge_message(bridge, ack)
+    await handle_bridge_message(bridge, dict(_SLA_ALERT_MESSAGES["lgpd.notify_sla_risk"]))
+
+    keys = [variables["business_key"] for _, variables in spy.calls]
+    assert keys == ["ESC-amh-sla-lgpd-PSEUDO-9-ack", "ESC-amh-sla-lgpd-PSEUDO-9-resolution"]
+
+
+@pytest.mark.asyncio
+async def test_duas_glosas_de_guias_diferentes_abrem_tasks_distintas() -> None:
+    """§Delta D1. SP-OP-RECURSO-001's business key is `RECURSO-{tenant}-{guia}-{glosa}` — "one
+    recurso per glosa PER GUIA TISS" — so `glosa_id` is NOT unique on its own. Two alerts about
+    DIFFERENT recursos that share a `glosa_id` under different guias must open TWO escalations;
+    anchoring on `glosa_id` alone would mint one key and, because the start is idempotent by
+    business key, the SECOND alert would open no human task at all."""
+    bridge, spy = _bridge_with_spy()
+    await handle_bridge_message(bridge, dict(_SLA_ALERT_MESSAGES["recurso.notify_sla_risk"]))
+    await handle_bridge_message(
+        bridge, dict(_SLA_ALERT_MESSAGES["recurso.notify_sla_risk"], numero_guia_tiss="GUIA-2")
+    )
+
+    keys = [variables["business_key"] for _, variables in spy.calls]
+    assert keys == ["ESC-amh-sla-recurso-GUIA-1-GLOSA-1", "ESC-amh-sla-recurso-GUIA-2-GLOSA-1"]
+
+
+@pytest.mark.asyncio
+async def test_um_alerta_de_recurso_sem_guia_fica_dormente_e_visivel(
+    sla_metric_recorder: _MetricRecorder,
+) -> None:
+    """§Delta D1, lado fail-closed. Sem `numero_guia_tiss` a chave seria
+    `ESC-amh-sla-recurso--GLOSA-1`, degenerada e colidente entre guias — a regra fica dormente e o
+    buraco e CONTADO, nunca silencioso."""
+    bridge, spy = _bridge_with_spy()
+    message = dict(_SLA_ALERT_MESSAGES["recurso.notify_sla_risk"])
+    del message["numero_guia_tiss"]
+    results = await handle_bridge_message(bridge, message)
+
+    assert len(spy.calls) == 0
+    assert results[0].handoff_triggered is False
+    assert sla_metric_recorder.calls == [("recurso", SLA_ALERT_OUTCOME_NOT_ANCHORED)]
+
+
+def test_um_handoff_sem_id_de_instancia_nao_conta_como_escalonado(
+    sla_metric_recorder: _MetricRecorder,
+) -> None:
+    """A handoff marked triggered but carrying a BLANK `process_instance_id` is not a human task
+    that exists, so it must not be counted `escalated`.
+
+    `execute_handoff`'s own fail-closed guard makes this shape unreachable through the normal
+    pipeline (it raises instead), which is exactly why the clause needs a direct test: without one,
+    dropping `and result.process_instance_id.strip()` from the predicate leaves the whole suite
+    green and the defence silently rots. Driven straight at `_record_sla_alert_outcome` because the
+    shape can only be constructed, never produced.
+    """
+    blank = HandoffResult(
+        evaluated=True,
+        handoff_triggered=True,
+        target_process=PROCESS_KEY_ESCALATION,
+        process_instance_id="   ",
+    )
+    _record_sla_alert_outcome("recurso.notify_sla_risk", [blank])
+
+    assert sla_metric_recorder.calls == [("recurso", SLA_ALERT_OUTCOME_NOT_ANCHORED)]
+
+
+@pytest.mark.asyncio
+async def test_o_alerta_de_sla_escalonado_e_contado(sla_metric_recorder: _MetricRecorder) -> None:
+    """The counter counts the REAL outcome. Goes RED if the increment is dropped, and — because it
+    is fed by `handle_bridge_message`'s own result list — also if the escalation stops happening.
+    """
+    bridge, _spy = _bridge_with_spy()
+    await handle_bridge_message(bridge, dict(_SLA_ALERT_MESSAGES["recurso.notify_sla_risk"]))
+
+    assert sla_metric_recorder.calls == [("recurso", SLA_ALERT_OUTCOME_ESCALATED)]
+
+
+@pytest.mark.asyncio
+async def test_uma_mensagem_nao_sla_segue_intocada(sla_metric_recorder: _MetricRecorder) -> None:
+    """An ordinary process-start message is BYTE-IDENTICALLY unaffected by this rule existing: the
+    same rule matches, the same starter call is made, and NO SLA sample is emitted."""
+    bridge, spy = _bridge_with_spy()
+    results = await handle_bridge_message(bridge, dict(_INTAKE_RECURSO_MESSAGE))
+
+    assert len(results) == 1
+    assert results[0].target_process == "SP-OP-RECURSO-001"
+    assert spy.calls[0][1]["business_key"] == "RECURSO-amh-GUIA-1-GLOSA-1"
+    assert sla_metric_recorder.calls == []
+
+
+@pytest.mark.asyncio
+async def test_um_alerta_de_sla_sem_ancora_fica_dormente_e_visivel(
+    sla_metric_recorder: _MetricRecorder,
+) -> None:
+    """FAIL-CLOSED, not silent. Without `glosa_id` the business key would be the degenerate
+    `ESC-amh-sla-recurso-`, colliding every recurso case onto one escalation — so the rule stays
+    dormant, and the gap is COUNTED (`not_anchored`) instead of vanishing as 'no rule matched'."""
+    bridge, spy = _bridge_with_spy()
+    message = dict(_SLA_ALERT_MESSAGES["recurso.notify_sla_risk"])
+    del message["glosa_id"]
+    results = await handle_bridge_message(bridge, message)
+
+    assert len(spy.calls) == 0
+    assert results[0].handoff_triggered is False
+    assert sla_metric_recorder.calls == [("recurso", SLA_ALERT_OUTCOME_NOT_ANCHORED)]
+
+
+@pytest.mark.asyncio
+async def test_um_alerta_de_sla_sem_tenant_fica_dormente(sla_metric_recorder: _MetricRecorder) -> None:
+    """`_anchored` requires `tenant_id` structurally for every rule — a tenant-less alert would
+    mint `ESC--sla-recurso-GLOSA-1`, an orphan outside every tenant's cockpit."""
+    bridge, spy = _bridge_with_spy()
+    message = dict(_SLA_ALERT_MESSAGES["recurso.notify_sla_risk"])
+    del message["tenant_id"]
+    await handle_bridge_message(bridge, message)
+
+    assert len(spy.calls) == 0
+    assert sla_metric_recorder.calls == [("recurso", SLA_ALERT_OUTCOME_NOT_ANCHORED)]
+
+
+@pytest.mark.asyncio
+async def test_um_type_de_sla_desconhecido_falha_fechado(sla_metric_recorder: _MetricRecorder) -> None:
+    """A tenth worker wired to publish before the spec table learns its `type` must NOT be
+    swallowed as an ordinary unmatched event: it is counted `unrecognised_shape` under the
+    `unknown` domain (the producer-controlled `type` is never a metric label) and warned about."""
+    bridge, spy = _bridge_with_spy()
+    results = await handle_bridge_message(
+        bridge, {"type": "credenciamento.notify_sla_risk", "tenant_id": "amh"}
+    )
+
+    assert len(spy.calls) == 0
+    assert results[0].handoff_triggered is False
+    assert sla_metric_recorder.calls == [("unknown", SLA_ALERT_OUTCOME_UNRECOGNISED_SHAPE)]
+
+
+@pytest.mark.asyncio
+async def test_uma_falha_de_start_do_escalation_propaga_e_nao_e_contada_como_escalonada(
+    sla_metric_recorder: _MetricRecorder,
+) -> None:
+    """FAIL-CLOSED. A genuine start failure propagates (EB-3 part 1) so `run_consumer_loop` never
+    commits the offset, and NOTHING is counted — a failed escalation can never be reported as a
+    human task that exists."""
+    spy = _StarterSpy(raises=RuntimeError("engine unreachable"))
+    bridge = NotificationBridge(cibseven_starter=spy)
+    with pytest.raises(NotificationBridgeHandoffFailedError):
+        await handle_bridge_message(bridge, dict(_SLA_ALERT_MESSAGES["recurso.notify_sla_risk"]))
+
+    assert sla_metric_recorder.calls == []
+
+
+@pytest.mark.asyncio
+async def test_uma_falha_de_telemetria_nao_derruba_o_despacho(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Telemetry is best-effort — but NARROWLY so: only the two failure modes the recorder really
+    has (`ImportError` from `observability._get_metrics_collector`'s lazy `maezo.runtime.metrics`
+    import, `ValueError` from prometheus_client) are
+    absorbed. The escalation already started before this runs, so nothing is lost."""
+    monkeypatch.setattr(
+        "maezo.platform.integrations.notifications_bridge.record_sla_alert_human_task",
+        _MetricRecorder(raises=ValueError("duplicated timeseries")),
+    )
+    bridge, spy = _bridge_with_spy()
+    results = await handle_bridge_message(bridge, dict(_SLA_ALERT_MESSAGES["recurso.notify_sla_risk"]))
+
+    assert spy.calls[0][0] == PROCESS_KEY_ESCALATION
+    assert results[0].handoff_triggered is True
+
+
+@pytest.mark.asyncio
+async def test_uma_falha_inesperada_de_telemetria_nao_e_engolida(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The guard is narrow ON PURPOSE (it replaced a blind `except Exception`): an error class the
+    recorder has no business raising is a bug this module must not hide."""
+    monkeypatch.setattr(
+        "maezo.platform.integrations.notifications_bridge.record_sla_alert_human_task",
+        _MetricRecorder(raises=RuntimeError("registry exploded")),
+    )
+    bridge, _spy = _bridge_with_spy()
+    with pytest.raises(RuntimeError, match="registry exploded"):
+        await handle_bridge_message(bridge, dict(_SLA_ALERT_MESSAGES["recurso.notify_sla_risk"]))
+
+
+def test_a_tabela_de_alertas_de_sla_e_o_conjunto_real_de_publicadores() -> None:
+    """Documents the spec table so a future edit is a REVIEWED diff, not a silent drift. Measured:
+    `grep -rln "_NOTIFY_SLA_RISK_NOTIFICATION_TYPE" src/maezo/tools/workers/` -> lgpd, programa,
+    recurso (2026-09-04)."""
+    assert {
+        "lgpd.notify_sla_risk",
+        "recurso.notify_sla_risk",
+        "programa.notify_sla_risk",
+    } == SLA_ALERT_NOTIFICATION_TYPES
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +602,8 @@ def test_build_bridge_constructs_bridge_with_fenced_starter() -> None:
     # splitting the daemon's audit chain across two instances.
     bridge, transport, audit_sink = build_bridge(settings)
     assert isinstance(bridge, NotificationBridge)
-    assert bridge.count_handoffs() == 7
+    # 10 = 5 pre-T2.6-7 + 2 T2.6-7 ANS-SUBMIT + 3 R-104 SLA-alert -> SP-OP-ESCALATION-001.
+    assert bridge.count_handoffs() == 10
     assert transport is not None
     assert audit_sink is not None
 

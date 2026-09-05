@@ -67,6 +67,31 @@ def test_metrics_counter_requires_labels_now() -> None:
         collector.errors.inc()
 
 
+def test_sla_alert_human_task_counter_increments_by_alert_domain_and_outcome() -> None:
+    """R-104/WP-ALERTA-SLA-CANAL: the Counter that
+    `notifications_bridge._record_sla_alert_outcome` increments exists with the CLOSED label set
+    it declares. That the bridge really emits it is proven end-to-end in
+    `tests/unit/platform/integrations/test_notifications_bridge.py` (this test only pins the
+    metric's shape)."""
+    from maezo.runtime.metrics import MetricsCollector
+
+    collector = MetricsCollector()
+
+    collector.sla_alert_human_task.labels(alert_domain="recurso", outcome="escalated").inc()
+    collector.sla_alert_human_task.labels(alert_domain="recurso", outcome="escalated").inc()
+    collector.sla_alert_human_task.labels(alert_domain="unknown", outcome="unrecognised_shape").inc()
+
+    samples = {
+        (sample.labels.get("outcome"), sample.labels.get("alert_domain")): sample.value
+        for metric in collector.registry.collect()
+        for sample in metric.samples
+        if sample.name == "maezo_sla_alert_human_task_total"
+    }
+
+    assert samples[("escalated", "recurso")] == 2.0
+    assert samples[("unrecognised_shape", "unknown")] == 1.0
+
+
 def test_metrics_latency_histogram() -> None:
     """Histogram should accept observation values."""
     from maezo.runtime.metrics import MetricsCollector

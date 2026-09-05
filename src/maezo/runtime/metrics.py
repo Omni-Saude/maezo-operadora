@@ -35,6 +35,14 @@ CC-09 (Agent Fleet Audit, 2026-09-04) per-agent DESFECHO telemetry:
   false_denial_rate, ...) actually MEASURABLE — before CC-09 no per-agent outcome telemetry
   existed at all (`grep -rln 'record_' src/maezo/agents/*/graph.py` was empty).
 
+R-104/WP-ALERTA-SLA-CANAL notifications-bridge SLA-alert -> human task (SP-OP-ESCALATION-001):
+- maezo_sla_alert_human_task_total (Counter) — what became of an SLA-risk alert, by
+  {alert_domain,outcome}; `outcome` is "escalated" (a real SP-OP-ESCALATION-001 User Task was
+  opened through the fenced chokepoint), "not_anchored" (a known SLA `type` whose payload lacked
+  `tenant_id`/its business-key anchor -> the rule stayed fail-closed dormant) or
+  "unrecognised_shape" (shaped like an SLA-risk alert but not yet in the spec table) — never a
+  silent drop, see `notifications_bridge._record_sla_alert_outcome`
+
 WHICH OF THESE THE SHIPPED ALERTS READ (deploy/observability/alert-rules.yml, read-only here):
 `maezo_worker_execution_time_seconds`, `maezo_worker_error_count_total`, `maezo_agent_errors_total`
 and `maezo_tool_calls_total`. The last two had NO emitter in `src/` at all until AF-13
@@ -257,6 +265,21 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # R-104/WP-ALERTA-SLA-CANAL. SLA-risk alerts turned into a human task, per
+        # `notifications_bridge._record_sla_alert_outcome`. CONTENT-FREE BY CONSTRUCTION, same rule
+        # as `bridge_dlq` above: `alert_domain` is a closed vocabulary (`notification_bridge.
+        # SLA_ALERT_DOMAINS` -> recurso | programa | lgpd, plus the literal `unknown` for a
+        # `<dominio>.notify_sla_risk` shape the spec table does not carry — the raw, producer-
+        # controlled `type` is NEVER a label), `outcome` is closed ("escalated" | "not_anchored" |
+        # "unrecognised_shape"). Never a tenant id, business key, or any payload byte.
+        self._sla_alert_human_task = Counter(
+            "maezo_sla_alert_human_task_total",
+            "SLA-risk alert notifications turned into an SP-OP-ESCALATION-001 human task "
+            "(COUNTS ONLY; alert_domain and outcome are closed vocabularies, never payload-derived)",
+            labelnames=["alert_domain", "outcome"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -375,6 +398,16 @@ class MetricsCollector:
         escalation_precision, false_denial_rate, ...) are measured FROM.
         """
         return self._agent_desfecho_total
+
+    @property
+    def sla_alert_human_task(self) -> Counter:
+        """Counter for SLA-risk alerts turned into a human task (R-104/WP-ALERTA-SLA-CANAL).
+
+        Labels: alert_domain (closed — recurso | programa | lgpd | unknown), outcome
+        ("escalated" | "not_anchored" | "unrecognised_shape"). COUNTS ONLY — see construction
+        comment.
+        """
+        return self._sla_alert_human_task
 
     @property
     def phi_business_key_mint(self) -> Counter:

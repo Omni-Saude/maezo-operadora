@@ -110,6 +110,17 @@ mas **nenhum consumidor vivo** le `operadora.notifications.internal` e chama
 SP-OP-ANS-SUBMIT-001 nasce de um tick hoje
 (`test_cron_dispara_fato_e_nao_inicia_submit_automaticamente`).
 
+> **Nota de escopo (decisao do dono, R-112, 2026-09-04).** Este estado e **intencional e
+> divulgado ate G4**: nenhum tick de cron abre uma instancia de SP-OP-ANS-SUBMIT-001 enquanto o
+> ambiente-alvo (broker e engine alcancaveis) nao estiver provisionado. O entrypoint Helm
+> (`deploy/helm/maezo-tenant/templates/deployment-bridge.yaml`) e o modulo consumidor
+> (`src/maezo/platform/integrations/notifications_bridge.py`) ja existem e sao coerentes entre
+> si — falta o ambiente, nao codigo. Nenhum invocador alternativo sera construido para
+> contornar essa ausencia (opcao C do memorando foi descartada como capacidade especulativa).
+> **Gatilho de reabertura:** provisionamento de G4 (broker Kafka e engine CIB Seven alcancaveis
+> no ambiente-alvo) — a partir dai, subir o Deployment do bridge (opcao A) volta a ser a acao
+> pendente. Ate la, a obrigacao periodica ANS permanece **sem execucao automatica real**.
+
 ## Variaveis seedadas pela ponte no start (ENGINE-16004-safe — todo identificador downstream SETADO)
 
 | Variavel | Valor no caminho cron | Racional |

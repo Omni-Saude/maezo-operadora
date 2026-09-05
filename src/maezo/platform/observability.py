@@ -816,6 +816,31 @@ def record_bridge_dlq(*, topic: str, reason: str) -> None:
     collector.bridge_dlq.labels(topic=topic, reason=reason).inc()
 
 
+def record_sla_alert_human_task(*, alert_domain: str, outcome: str) -> None:
+    """Record what became of ONE SLA-risk alert on the notifications bridge (R-104/
+    WP-ALERTA-SLA-CANAL). Increments `maezo_sla_alert_human_task_total{alert_domain,outcome}`.
+
+    Called by `maezo.platform.integrations.notifications_bridge._record_sla_alert_outcome` — the
+    single place a `type`-tagged message on `operadora.notifications.internal` is classified as an
+    SLA-risk alert. The EFFECT it observes is a real SP-OP-ESCALATION-001 start (a
+    `camunda:candidateGroups`-routed User Task), not this counter: the durable record of an
+    escalation is the ADR-0007 audit chain the start chokepoint writes plus the process instance
+    itself. This counter is the operator-facing rate signal on top of them.
+
+    BOTH LABELS ARE CLOSED VOCABULARIES — same rule `record_bridge_dlq` documents above, and the
+    reason a producer-controlled `type` never becomes a label. `alert_domain` is a value of
+    `notification_bridge.SLA_ALERT_DOMAINS` (`recurso` | `programa` | `lgpd`) or the literal
+    `unknown`; `outcome` is `escalated` | `not_anchored` | `unrecognised_shape` (see that
+    module's section comment). Never a tenant id, business key, `conversation_id` or payload byte.
+
+    This is the raw typed helper. The caller wraps it in a NARROW guard (`ImportError`/`ValueError`
+    only — telemetry must never fail the dispatch, but it must not hide real bugs either) — see
+    `notifications_bridge._record_sla_alert_metric`.
+    """
+    collector = _get_metrics_collector()
+    collector.sla_alert_human_task.labels(alert_domain=alert_domain, outcome=outcome).inc()
+
+
 def record_llm_token_usage(
     *,
     provider: str,
