@@ -63,7 +63,7 @@ autonomy_actions:                     # acoes REAIS da matriz L0-core exercidas 
   # AGENTE (o docstring de `PEP.evaluate` diz que o contexto do agente e "used only for audit
   # logging; it does not influence the decision"), e `grep -rn "\.autonomy_actions" src/ scripts/`
   # -> 0 hits: nenhum codigo de producao le este campo. Reintroduzir a acao aqui NAO deixa
-  # nenhuma cerca vermelha hoje (contrafactual medido) e removela nao acrescenta negacao alguma:
+  # nenhuma cerca vermelha hoje (contrafactual medido) e remove-la nao acrescenta negacao alguma:
   # com a acao ja removida, `decide_effect(principal='helena', operation='fhir.read_coverage')`
   # atravessa L1..L4 devolvendo None (o L2 loga `pep_allow action=read_phi_data`) e so nega no
   # L5. O motivo real do L2, quando ele nega, e `AUTONOMIA_NEGADA` — e nao e ele que dispara aqui.
