@@ -776,21 +776,27 @@ lifecycle:
 # ALERTS-WITHOUT-METRICS-b ja limpou em deploy/observability/alert-rules.yml:171).
 #
 # "Fan-in" aqui e' ACOPLAMENTO DE IMPORTACAO (quantos modulos de src/maezo importam o modulo,
-# direta ou indiretamente via `from X import Y`) — nao um limite de concorrencia em runtime. E' a
-# mesma metrica de docs/audits/maezo-deep-audit/recon/as-built-map.md secao 3 ("Acoplamento
-# interno — fan-in"), RECONFIRMADA (nao apenas copiada) por varredura AST direta contra `src/`
-# nesta PR (`tests/unit/deploy/test_sc06_throughput_ceilings.py` refaz a mesma varredura e falha
-# se os numeros abaixo saírem de sincronia com o código real):
+# direta ou indiretamente via `from X import Y`) — nao um limite de concorrencia em runtime. Os
+# dois numeros abaixo sao TREE-DERIVED, nao um valor copiado uma vez e congelado:
+# `tests/unit/deploy/test_sc06_throughput_ceilings.py` refaz a MESMA varredura AST contra `src/`
+# em toda run e compara contra os valores aqui — falha em QUALQUER direcao (o codigo ganha/perde
+# um importer e este arquivo nao acompanha, OU alguem edita um numero aqui sem ele bater com a
+# arvore real). Nao ha um numero "certo" fixo para pinar em prosa; o numero certo e' o que a
+# arvore tiver agora.
 #   - transportFanIn: `maezo.tools.mcp_cibseven.transport` — o unico ponto de acesso ao motor CIB
-#     Seven (SC-06's "chokepoint CIB Seven"). O relatorio original citava 30; a recontagem por AST
-#     (imports reais, nao ocorrencias de string) encontrou 29 — a diferenca e' `a2a/dispatcher.py`,
-#     que MENCIONA o modulo em prosa mas deliberadamente NAO o importa (o proprio arquivo declara
-#     seus tipos localmente para nao acoplar A2A ao transporte CIB Seven).
+#     Seven (SC-06's "chokepoint CIB Seven"). Reconfirmado por AST em 29 quando esta secao foi
+#     criada (relatorio original: 30, por MENCAO textual em `a2a/dispatcher.py`, que deliberadamente
+#     nao importa o modulo). Recontado em 32 apos o merge de `main` que trouxe
+#     `agents/{gustavo,marina,valentina}/delegation.py` — os tres passaram a importar
+#     `CibSevenTransport`/`AuditStartSink` diretamente de `maezo.tools.mcp_cibseven.transport`,
+#     no mesmo padrao dos demais agentes (`andre`/`carolina`/`fernando`/`rafael`/`valentina` ja
+#     importavam antes). REANCHOR-A2-HELM-CAPACITY (2026-09-05) recomputou o numero e removeu o
+#     pino literal do teste — a comparacao com o "30" do relatorio original nao carrega mais
+#     sentido (a arvore ja passou do numero do relatorio, por um motivo estrutural diferente).
 #   - harnessFanIn: `maezo.tools.workers.harness` — o padrao unico de execucao/dispatch de todo
 #     worker externo (SC-06's "fan-in 32"). A recontagem por AST encontrou 19, nao 32 — o relatorio
 #     original parece ter contado toda mencao textual a "harness" (70 arquivos), nao imports reais
-#     do modulo; o agent_prep_task de R-109 pedia exatamente esta reconfirmacao antes de expor os
-#     numeros como valores, entao os numeros AQUI sao os reconfirmados, nao os do relatorio.
+#     do modulo; ainda 19 apos o merge de `main` de 2026-09-05 (nenhum importer novo).
 #
 # Os dois valores sao injetados como env informativo (MAEZO_TRANSPORT_FAN_IN_CEILING /
 # MAEZO_HARNESS_FAN_IN_CEILING) nos deployments que de fato tocam estes chokepoints — worker-daemon
@@ -801,5 +807,5 @@ lifecycle:
 # runtime (nenhum codigo os le para agir — sao METADADO declarado, nao configuracao).
 # ---------------------------------------------------------------------------
 throughputCeilings:
-  transportFanIn: 29
+  transportFanIn: 32
   harnessFanIn: 19

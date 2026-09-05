@@ -1,15 +1,19 @@
 """SC-06 / R-109 (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA, opcao A): the two
 declared "fan-in" ceilings in `deploy/helm/maezo-tenant/values.yaml` (`throughputCeilings.
-transportFanIn` / `.harnessFanIn`) must be RECONFIRMED against the real import graph, not merely
+transportFanIn` / `.harnessFanIn`) must stay RECONFIRMED against the real import graph, not merely
 copied from `docs/audits/maezo-deep-audit/recon/as-built-map.md` (which the R-109 agent_prep_task
-explicitly distrusted — "nao localizadas na revisao da linha" — and which this test's own
-recount shows over-counted both: 30/32 by textual mention vs 29/19 by actual `import`).
+explicitly distrusted — "nao localizadas na revisao da linha").
 
-This test performs the SAME reconfirmation the values.yaml comment cites (AST-based, counting
-only real `import`/`from...import` statements resolved against the two target modules) and pins
-it against both the declared chart values AND the two runtime `BaseSettings` classes that
-surface them. It goes RED the moment either drifts: a new import of either target module changes
-the real fan-in, or the chart/settings/log wiring stops matching.
+TREE-DERIVED IN BOTH DIRECTIONS (REANCHOR-A2-HELM-CAPACITY, 2026-09-05): the first version of this
+test pinned the reconfirmed counts as literals (`== 29`, `== 19`). That is exactly the failure mode
+it was meant to prevent — main grew three new agent delegation modules
+(`agents/{gustavo,marina,valentina}/delegation.py`) that genuinely `import
+maezo.tools.mcp_cibseven.transport`, moving the real transport fan-in from 29 to 32, and the
+literal-pinned test went RED for the right reason but demanded a hand-edited number instead of
+re-deriving it. The two tests below instead compare TWO independently derived quantities —
+`values.yaml`'s declared value and this module's own AST re-scan of `src/` — so they go RED in
+EITHER direction: `values.yaml` drifts stale (declared value != tree), or the reverse (someone
+hand-edits `values.yaml` ahead of the tree). Neither test embeds a count of its own.
 """
 
 from __future__ import annotations
@@ -48,7 +52,8 @@ def _resolve_relative_import(module: str | None, level: int, file_path: Path) ->
 def _real_import_fan_in(target_module: str) -> set[str]:
     """Every file under `src/maezo` that genuinely IMPORTS `target_module` (an `import` or
     `from ... import ...` statement resolving to it — never a bare string mention in prose,
-    which is exactly the gap between the audit report's 30/32 and this scan's 29/19)."""
+    which is exactly the gap between the audit report's original 30/32 and this scan's real
+    counts)."""
     prefix, _, attr = target_module.rpartition(".")
     importers: set[str] = set()
     for path in sorted(_SRC_DIR.rglob("*.py")):
@@ -73,26 +78,27 @@ def _values() -> dict[str, Any]:
     return yaml.safe_load(_VALUES.read_text(encoding="utf-8"))
 
 
-def test_transport_fan_in_reconfirms_to_29_not_the_audit_reports_30() -> None:
-    importers = _real_import_fan_in(_TRANSPORT_MODULE)
-    assert len(importers) == 29, (
-        f"transport fan-in drifted to {len(importers)} — recompute values.yaml's "
-        "throughputCeilings.transportFanIn and its comment"
+def test_transport_fan_in_in_values_matches_the_tree() -> None:
+    """Goes RED whether `values.yaml` falls behind the tree OR gets hand-edited ahead of it —
+    neither side of the comparison is a literal."""
+    tree_count = len(_real_import_fan_in(_TRANSPORT_MODULE))
+    declared = _values()["throughputCeilings"]["transportFanIn"]
+    assert declared == tree_count, (
+        f"values.yaml throughputCeilings.transportFanIn={declared} but the real import graph "
+        f"has {tree_count} importer(s) of {_TRANSPORT_MODULE} — recompute the value AND the "
+        "comment block above it (deploy/helm/maezo-tenant/values.yaml)"
     )
 
 
-def test_harness_fan_in_reconfirms_to_19_not_the_audit_reports_32() -> None:
-    importers = _real_import_fan_in(_HARNESS_MODULE)
-    assert len(importers) == 19, (
-        f"harness fan-in drifted to {len(importers)} — recompute values.yaml's "
-        "throughputCeilings.harnessFanIn and its comment"
+def test_harness_fan_in_in_values_matches_the_tree() -> None:
+    """Same both-directions comparison as above, for the harness fan-in."""
+    tree_count = len(_real_import_fan_in(_HARNESS_MODULE))
+    declared = _values()["throughputCeilings"]["harnessFanIn"]
+    assert declared == tree_count, (
+        f"values.yaml throughputCeilings.harnessFanIn={declared} but the real import graph "
+        f"has {tree_count} importer(s) of {_HARNESS_MODULE} — recompute the value AND the "
+        "comment block above it (deploy/helm/maezo-tenant/values.yaml)"
     )
-
-
-def test_values_yaml_declares_the_reconfirmed_numbers() -> None:
-    ceilings = _values()["throughputCeilings"]
-    assert ceilings["transportFanIn"] == 29
-    assert ceilings["harnessFanIn"] == 19
 
 
 def _helm_template(*extra_args: str) -> list[dict[str, Any]]:
@@ -116,38 +122,43 @@ def _container(docs: list[dict[str, Any]], name: str) -> dict[str, Any]:
 
 def test_worker_daemon_gets_both_ceilings_from_the_declared_values() -> None:
     """RED proof: the keys are not dead — the rendered worker-daemon Deployment must carry BOTH
-    envs with the exact values `values.yaml` declares."""
+    envs with the exact values `values.yaml` declares (read from `values.yaml`, never a literal,
+    so this stays correct as the declared numbers move)."""
+    ceilings = _values()["throughputCeilings"]
     docs = _helm_template()
     container = _container(docs, "worker-daemon")
     env_by_name = {e["name"]: e["value"] for e in container["env"] if "value" in e}
-    assert env_by_name["MAEZO_TRANSPORT_FAN_IN_CEILING"] == "29"
-    assert env_by_name["MAEZO_HARNESS_FAN_IN_CEILING"] == "19"
+    assert env_by_name["MAEZO_TRANSPORT_FAN_IN_CEILING"] == str(ceilings["transportFanIn"])
+    assert env_by_name["MAEZO_HARNESS_FAN_IN_CEILING"] == str(ceilings["harnessFanIn"])
 
 
 def test_agent_runtime_gets_the_transport_ceiling_but_not_harness() -> None:
     """Agent-runtime never runs the WorkerHarness — it should get `transportFanIn` only."""
+    ceilings = _values()["throughputCeilings"]
     docs = _helm_template()
     for agent_name in ("helena", "rafael", "marina"):
         container = _container(docs, f"agent-{agent_name}")
         env_by_name = {e["name"]: e.get("value") for e in container["env"]}
-        assert env_by_name.get("MAEZO_TRANSPORT_FAN_IN_CEILING") == "29"
+        assert env_by_name.get("MAEZO_TRANSPORT_FAN_IN_CEILING") == str(ceilings["transportFanIn"])
         assert "MAEZO_HARNESS_FAN_IN_CEILING" not in env_by_name
 
 
 def test_both_settings_classes_genuinely_read_the_env_names() -> None:
     """The env vars the chart declares are actually READ by the two `BaseSettings` classes that
-    surface them in the start-up log — not merely declared in the chart with no consumer."""
+    surface them in the start-up log — not merely declared in the chart with no consumer. Uses
+    arbitrary probe values (settings parsing is generic over any int); the real declared/tree
+    values are covered by the two tests above."""
     from maezo.runtime.agent_runtime.settings import AgentRuntimeSettings
     from maezo.runtime.worker_runtime.settings import WorkerRuntimeSettings
 
     worker_settings = WorkerRuntimeSettings(
-        MAEZO_TRANSPORT_FAN_IN_CEILING="29", MAEZO_HARNESS_FAN_IN_CEILING="19"
+        MAEZO_TRANSPORT_FAN_IN_CEILING="32", MAEZO_HARNESS_FAN_IN_CEILING="19"
     )
-    assert worker_settings.transport_fan_in_ceiling == 29
+    assert worker_settings.transport_fan_in_ceiling == 32
     assert worker_settings.harness_fan_in_ceiling == 19
 
-    agent_settings = AgentRuntimeSettings(MAEZO_TRANSPORT_FAN_IN_CEILING="29")
-    assert agent_settings.transport_fan_in_ceiling == 29
+    agent_settings = AgentRuntimeSettings(MAEZO_TRANSPORT_FAN_IN_CEILING="32")
+    assert agent_settings.transport_fan_in_ceiling == 32
 
 
 def test_both_settings_default_to_none_never_fail_closed_when_absent() -> None:

@@ -1623,10 +1623,15 @@ inteiramente atras de `enable_rds_proxy = false` — ZERO recursos AWS criados p
 ## SC-06 — tetos de vazao declarados (transport/harness fan-in)
 
 `R-109` (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA, opcao A): `deploy/helm/
-maezo-tenant/values.yaml` ganhou `throughputCeilings.transportFanIn`/`.harnessFanIn`, RECONFIRMADOS
-por varredura AST direta contra `src/` (29/19 — nao os 30/32 do relatorio original, que contava
-mencao textual, nao import real; `tests/unit/deploy/test_sc06_throughput_ceilings.py` refaz a
-mesma varredura). Os dois valores sao injetados como env informativo
+maezo-tenant/values.yaml` ganhou `throughputCeilings.transportFanIn`/`.harnessFanIn`, TREE-DERIVED
+por varredura AST direta contra `src/` — nao um valor congelado uma vez. Na criacao desta secao:
+29/19 (nao os 30/32 do relatorio original, que contava mencao textual, nao import real). Apos o
+merge de `main` que trouxe `agents/{gustavo,marina,valentina}/delegation.py` (REANCHOR-A2-HELM-
+CAPACITY, 2026-09-05): `transportFanIn` recontado para 32 (os tres novos modulos importam
+`maezo.tools.mcp_cibseven.transport` diretamente); `harnessFanIn` continua 19.
+`tests/unit/deploy/test_sc06_throughput_ceilings.py` refaz a mesma varredura em toda run e compara
+o valor declarado contra a recontagem (vai a RED em qualquer direcao — nenhum dos dois lados e' um
+literal). Os dois valores sao injetados como env informativo
 (`MAEZO_TRANSPORT_FAN_IN_CEILING`/`MAEZO_HARNESS_FAN_IN_CEILING`) em `deployment-worker-daemon.yaml`
 (os dois) e `deployment-agent-runtime.yaml` (so' transport), lidos por
 `WorkerRuntimeSettings`/`AgentRuntimeSettings` e logados no start-up de cada daemon — nunca usados
