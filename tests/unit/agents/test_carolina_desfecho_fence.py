@@ -101,9 +101,12 @@ def _desfecho_expr(node: ast.Dict) -> ast.expr | None:
     return None
 
 
-def _human_routing_returns() -> list[tuple[str, ast.Return]]:
+def _human_routing_returns() -> list[tuple[str, ast.Dict]]:
+    """Os dicts retornados (nao os `Return` que os embrulham): `_desfecho_expr` opera sobre um
+    `ast.Dict`, e o `isinstance` acima ja' estreita `node.value` para esse tipo — devolver o
+    proprio dict evita o desalinhamento de tipos que exigia supressao no chamador."""
     cls = _carolina_graph_class(_module())
-    found: list[tuple[str, ast.Return]] = []
+    found: list[tuple[str, ast.Dict]] = []
     for name in _ROUTING_NODES:
         fn = _method(cls, name)
         for node in ast.walk(fn):
@@ -112,7 +115,7 @@ def _human_routing_returns() -> list[tuple[str, ast.Return]]:
                 and isinstance(node.value, ast.Dict)
                 and _routes_human(node.value)
             ):
-                found.append((name, node))
+                found.append((name, node.value))
     return found
 
 
@@ -132,13 +135,13 @@ def test_every_human_routing_return_names_a_constant_desfecho() -> None:
     estado (a porta por onde `direcao` entrou)."""
     faltando: list[str] = []
     nao_constante: list[str] = []
-    for name, ret in _human_routing_returns():
-        expr = _desfecho_expr(ret.value)  # type: ignore[arg-type]
+    for name, dict_node in _human_routing_returns():
+        expr = _desfecho_expr(dict_node)
         if expr is None:
-            faltando.append(f"{name}() linha {ret.lineno}")
+            faltando.append(f"{name}() linha {dict_node.lineno}")
             continue
         if not (isinstance(expr, ast.Constant) and expr.value in _DESFECHOS_DE_ROTEAMENTO):
-            nao_constante.append(f"{name}() linha {ret.lineno}: {ast.unparse(expr)}")
+            nao_constante.append(f"{name}() linha {dict_node.lineno}: {ast.unparse(expr)}")
     assert not faltando, (
         "CAR-01: retorno(s) que encaminham ao humano sem nomear o proprio `desfecho` — o valor "
         f"acabaria deduzido a jusante, fora do ramo que o decidiu: {faltando}"
