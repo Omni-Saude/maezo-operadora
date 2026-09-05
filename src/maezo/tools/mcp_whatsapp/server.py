@@ -18,12 +18,27 @@ from typing import Any
 
 import httpx
 import structlog
+from prometheus_client import Counter
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from maezo.platform.driver_idempotency import DedupRegistry
+from maezo.platform.observability import get_metrics_collector
 
 logger = structlog.get_logger(__name__)
+
+#: Outbound seals that failed AFTER the Cloud API had already accepted the message (VER-A2-WEBHOOK
+#: MINOR-2). Deliberately label-free: this client knows credentials and HTTP, not the tenant, and a
+#: label it would have to invent is worse than no label. Every increment means one delivered
+#: message whose duplicate protection degraded from the full TTL to one in-flight lease — the only
+#: signal an operator gets for that window, since the send itself correctly does NOT fail.
+#: Registered on the SAME dedicated registry `MetricsCollector` owns (never the global default),
+#: matching `platform/webhooks/whatsapp/app.py`'s counter.
+WHATSAPP_SEND_SEAL_FAILURES_TOTAL = Counter(
+    "maezo_whatsapp_send_seal_failures_total",
+    "Outbound WhatsApp sends delivered but whose durable idempotency claim could not be sealed",
+    registry=get_metrics_collector().registry,
+)
 
 
 def _secret(suffix: str) -> Any:
@@ -265,10 +280,35 @@ class WhatsAppServer:
             raise
 
         if registry is not None and guard_key is not None:
-            # Sealed AFTER the Cloud API accepted the message: from here on the key suppresses
-            # any repeat for the whole TTL, which is exactly the "no duplicate reply to the
+            # Sealed AFTER the Cloud API accepted the message: from here on the key suppresses any
+            # repeat for the whole TTL, which is exactly the "no duplicate reply to the
             # beneficiary" property R-071 asks for.
-            await registry.mark_processed(guard_key)
+            #
+            # VER-A2-WEBHOOK MINOR-2 — this seal must NOT be able to fail the send. It used to run
+            # outside any `try`, so a registry blip in the window between the Cloud API's 2xx and
+            # the seal raised out of `send_message`, failed the Helena turn, and made
+            # `webhooks/whatsapp/app.py::_withdraw_claim` withdraw the INBOUND claim — after which
+            # Meta re-delivered a message the beneficiary had ALREADY received. The failure the
+            # guard exists to prevent, caused by the guard's own bookkeeping.
+            #
+            # Same choice `app.py::_seal_claim` makes, for the same reason: the effect ALREADY
+            # happened, so nothing downstream may be told it did not. Logged loudly and counted,
+            # never silent. RESIDUAL, stated rather than hidden: an unsealed row stays `pending`,
+            # so it still suppresses a repeat for the LEASE (`WHATSAPP_WAMID_DEDUP_LEASE_S`,
+            # default 120s) instead of for the full TTL — the exposure is one lease of unprotected
+            # repeat for THIS key, which is strictly smaller than the certain duplicate the old
+            # shape produced.
+            try:
+                await registry.mark_processed(guard_key)
+            except Exception:  # noqa: BLE001 — see above: the message was already delivered.
+                WHATSAPP_SEND_SEAL_FAILURES_TOTAL.inc()
+                logger.error(
+                    "whatsapp_send_claim_seal_failed",
+                    dedup_key=guard_key,
+                    detail="the message WAS delivered; the outbound claim could not be sealed — "
+                    "duplicate protection for this key now lasts only until the in-flight lease "
+                    "expires, and the send is NOT failed over it",
+                )
 
         logger.info("whatsapp_message_sent", message_id=(data.get("messages") or [{}])[0].get("id"))
         return data

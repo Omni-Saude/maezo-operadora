@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from maezo.platform.driver_idempotency import DedupRegistryUnavailableError
+from maezo.platform.observability import get_metrics_collector
 from maezo.tools.mcp_whatsapp.server import WhatsAppServer, WhatsAppSettings
 from tests.support.dedup_fakes import FakeDedupRegistry
 
@@ -162,3 +163,55 @@ async def test_a_key_without_a_registry_is_announced_never_silently_ignored() ->
 
     assert client.post.await_count == 1, "the message must still be sent — refusing would be worse"
     assert any(entry["event"] == "whatsapp_send_idempotency_key_ignored" for entry in logs)
+
+
+def _seal_failures_total() -> float:
+    value = get_metrics_collector().registry.get_sample_value("maezo_whatsapp_send_seal_failures_total")
+    return float(value or 0.0)
+
+
+@pytest.mark.asyncio
+async def test_a_seal_failure_after_a_2xx_neither_raises_nor_withdraws_the_claim() -> None:
+    """VER-A2-WEBHOOK MINOR-2. The window between the Cloud API's 2xx and the seal.
+
+    With the seal outside the send's failure domain, a registry blip HERE raised out of
+    `send_message`, failed the Helena turn, and made `webhooks/whatsapp/app.py::_withdraw_claim`
+    withdraw the INBOUND claim — so Meta re-delivered a message the beneficiary had already
+    received. The effect ALREADY happened, so nothing downstream may be told it did not: the
+    failure is logged and counted, and the send returns normally.
+    """
+    import structlog
+
+    registry = FakeDedupRegistry(fail_ops=frozenset({"mark_processed"}))
+    server = WhatsAppServer(settings=_settings(), dedup=registry)
+    before = _seal_failures_total()
+
+    with (
+        patch("httpx.AsyncClient", return_value=_mock_httpx_client()),
+        structlog.testing.capture_logs() as logs,
+    ):
+        result = await server.send_message("5511999999999", "Ola!", idempotency_key=_KEY)
+
+    assert result["messages"][0]["id"] == "wamid.out1", "the delivered message is reported as sent"
+    assert registry.rows == {_KEY: "pending"}, "the claim is NOT withdrawn — the message went out"
+    assert _seal_failures_total() == before + 1
+    assert any(entry["event"] == "whatsapp_send_claim_seal_failed" for entry in logs)
+
+
+@pytest.mark.asyncio
+async def test_an_unsealed_claim_still_suppresses_a_repeat_within_the_lease() -> None:
+    """The residual of MINOR-2's choice, pinned rather than assumed: an unsealed row stays
+    `pending`, and a `pending` row still refuses a second claim — so duplicate protection for that
+    key degrades from the full TTL to one in-flight lease, it does not vanish. (The lease EXPIRY
+    itself is a property of the real store: only
+    `tests/integration/platform/test_wamid_dedup_live_pg.py` can prove it.)"""
+    registry = FakeDedupRegistry(fail_ops=frozenset({"mark_processed"}))
+    server = WhatsAppServer(settings=_settings(), dedup=registry)
+    client = _mock_httpx_client()
+
+    with patch("httpx.AsyncClient", return_value=client):
+        await server.send_message("5511999999999", "Ola!", idempotency_key=_KEY)
+        repeat = await server.send_message("5511999999999", "Ola!", idempotency_key=_KEY)
+
+    assert client.post.await_count == 1
+    assert repeat == {"suppressed_duplicate": True, "idempotency_key": _KEY}

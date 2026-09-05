@@ -99,6 +99,20 @@ def test_revision_and_down_revision() -> None:
     assert 'down_revision: str | None = "0009"' in _SOURCE
 
 
+def test_the_docstring_header_agrees_with_down_revision() -> None:
+    """VER-A2-WEBHOOK MINOR-1. Alembic reads `down_revision`; a human reads the `Revises:` line of
+    the header. This branch re-pointed the first from 0008 to 0009 when `0009_drop_pgvector` landed
+    and left the second saying 0008 — a header that lies about the chain to every reader who does
+    not scroll to the identifiers. Pinned in BOTH directions so the pair can never drift again."""
+    header = re.search(r"^Revises: (\S+)$", _SOURCE, re.MULTILINE)
+    declared = re.search(r'^down_revision: str \| None = "([^"]+)"', _SOURCE, re.MULTILINE)
+    assert header is not None, "the migration header declares no `Revises:` line"
+    assert declared is not None
+    assert header.group(1) == declared.group(1), (
+        f"header says Revises: {header.group(1)}, down_revision says {declared.group(1)}"
+    )
+
+
 def test_0010_is_the_unique_head_of_a_linear_chain() -> None:
     """No fork: every revision claimed once, exactly one revision unreferenced as a parent.
 

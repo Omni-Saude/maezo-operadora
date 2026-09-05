@@ -49,7 +49,7 @@ through the SAME vault-keyed `Pseudonymizer` the conversation id uses (ADR-0035)
 back to a beneficiary without `PHI_HMAC_KEY`.
 
 Revision ID: 0010
-Revises: 0008
+Revises: 0009
 Create Date: 2026-09-04
 """
 
