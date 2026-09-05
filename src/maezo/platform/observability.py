@@ -469,7 +469,8 @@ def record_agent_error(*, agent: str, error_type: str) -> None:
       * `maezo.platform.webhooks.whatsapp.dispatch.HelenaDispatcher.dispatch` (the live WhatsApp
         receiver, which compiles and `ainvoke`s Helena's graph directly rather than through
         `Harness`), and
-      * the three A2A delegation handlers (`agents/{rafael,andre,carolina}/delegation.py`).
+      * the four A2A delegation handlers
+        (`agents/{rafael,andre,carolina,fernando}/delegation.py`).
     `tests/unit/platform/test_alert_metrics_fence.py::test_every_graph_invocation_in_src_counts_agent_errors`
     pins that enumeration so a new turn seam cannot appear un-instrumented.
 
