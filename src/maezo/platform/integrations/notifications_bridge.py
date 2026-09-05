@@ -77,7 +77,11 @@ DLQ removes the second scale-out blocker: one poison message no longer stalls a 
 every entity behind it. What is NOT decided here and stays owner-gated: the REPLICA COUNT itself
 and the chart values that carry it (`deploy/`, slice SC-04-b — see `docs/review-queue.md`). Two
 operational facts an operator must know before flipping it: (a) parallelism is capped by the
-topic's partition count (registry default 3, `topic_registry.py:75`) — replicas beyond that idle;
+topic's partition count (registry default 3, `topic_registry.py::TopicEntry.partitions` dataclass
+default — cited by symbol, not line, because the line has already drifted once; per R-070 this
+default is DECLARED INTENT, not a fact confirmed against the real broker: no `AdminClient`
+call site reconciles it, and the reconciliation job is tracked as a `WP-DEPLOY-P0` item to land
+alongside the Kafka broker provisioning) — replicas beyond that idle;
 (b) `enable_auto_commit=False` plus the commit-after-dispatch order below keeps at-least-once
 delivery per replica, and the downstream `start_process_idempotent` fence is what makes a
 re-delivery converge instead of double-starting.
