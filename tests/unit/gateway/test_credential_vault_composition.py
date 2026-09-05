@@ -18,13 +18,17 @@ por onde as cinco raizes montam os seams. As tres provas e o mutante que cada um
      mutante: tirar `auth_token=engine_token` dos dois seams -> VERMELHO (nao-vacuidade: a
      credencial realmente flui do cofre ate' o transporte).
 
-AS TRES RAIZES (AF-14-F1). Existem exatamente TRES construcoes de seam gated contra o motor na
-arvore, e as tres passam pelo cofre: `gateway/tool_registry.py::build_agent_seams`,
-`runtime/worker_runtime/service.py::_engine_credential` e
-`platform/integrations/notifications_bridge.py::_engine_credential`. A terceira ficou de fora da
-primeira versao desta mudanca — lia `settings.cibseven_auth_token` direto — enquanto a docstring
-de `build_worker_credential_view` ja' a nomeava. Cada raiz tem aqui a sua prova: a recusa
-(`CredentialSeparationError`) e a entrega do Bearer do motor.
+AS TRES RAIZES QUE CARREGAM CREDENCIAL (AF-14-F1). `src/` tem QUATRO construcoes de seam gated
+contra o motor. Tres passam credencial e as tres passam pelo cofre:
+`gateway/tool_registry.py::build_agent_seams`, `runtime/worker_runtime/service.py::
+_engine_credential` e `platform/integrations/notifications_bridge.py::_engine_credential`. A
+terceira ficou de fora da primeira versao desta mudanca — lia `settings.cibseven_auth_token`
+direto — enquanto a docstring de `build_worker_credential_view` ja' a nomeava como coberta. A
+quarta, `platform/evidence/dmn_sweep.py::main`, nao passa `auth_token` algum (CLI de diagnostico
+nao autenticado), entao nao ha' credencial a governar la'. O transporte de tarefa externa
+(`CibSevenWorkerTransport`) nao e' seam gated mas carrega a mesma credencial, e tambem passou a
+le-la pelo cofre. Cada raiz tem aqui a sua prova: a recusa (`CredentialSeparationError`) e a
+entrega do Bearer do motor.
 """
 
 from __future__ import annotations
@@ -440,3 +444,106 @@ def test_a_guarda_de_vazamento_levanta_se_o_cofre_for_achatado(
     with pytest.raises(CredentialSeparationError) as excinfo:
         build_agent_credential_view(settings=settings, agent_id="helena")
     assert "negativa_assinatura_key" in str(excinfo.value)
+
+
+# =================================================================================================
+# 7. A superficie inteira: nenhuma leitura da credencial do motor por fora do cofre
+# =================================================================================================
+
+
+def test_o_transporte_de_tarefa_externa_do_worker_tambem_passa_pelo_cofre(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`CibSevenWorkerTransport` nao e' seam gated, mas carrega a MESMA credencial do motor.
+
+    Deixa-lo lendo `settings.cibseven_auth_token_value()` direto manteria um `getattr` que tabela
+    nenhuma governa DENTRO do proprio arquivo que esta mudanca reescreveu — o defeito de AF-14 em
+    miniatura, uma raiz de cada vez, que foi exatamente como AF-14-F1 aconteceu.
+
+    A assercao e' sobre o TEXTO da funcao porque `_bring_up_dependencies` nao pode ser exercitada
+    aqui: ela sobe Kafka, banco e servidor de health, e cada bloco e' isolado por `try/except`, de
+    modo que um transporte construido com a credencial errada nao levantaria nada observavel. O
+    repo ja' usa varredura de fonte como fence (`scripts/ci/check_start_process_fence.py`,
+    `check_effect_chokepoint_fence.py`). Fica VERMELHO se aquele bloco voltar as settings.
+    """
+    import inspect
+
+    import maezo.runtime.worker_runtime.service as servico
+    from maezo.runtime.worker_runtime.settings import WorkerRuntimeSettings
+
+    fonte = inspect.getsource(servico._bring_up_dependencies)
+    bloco = fonte[fonte.index("CibSevenWorkerTransport(") :]
+    # Ate' o parentese que FECHA a chamada (o unico `)` seguido de quebra de linha no bloco).
+    bloco = bloco[: bloco.index(")\n")]
+    assert "auth_token=_engine_credential(settings)" in bloco
+    assert "cibseven_auth_token" not in bloco
+
+    # E o valor entregue e' o MESMO de antes: nenhuma mudanca de comportamento em deployment algum.
+    settings = WorkerRuntimeSettings(cibseven_auth_token=TOKEN_MOTOR)
+    assert servico._engine_credential(settings) == settings.cibseven_auth_token_value()
+
+    # E a guarda de separacao passa a valer tambem para este transporte.
+    monkeypatch.setitem(
+        tool_registry.AGENT_CREDENTIAL_FIELDS,
+        "negativa_assinatura_key",
+        "negativa_assinatura_key",
+    )
+    with pytest.raises(CredentialSeparationError):
+        servico._engine_credential(settings)
+
+
+def test_nenhuma_leitura_da_credencial_do_motor_escapa_do_cofre_em_src() -> None:
+    """A afirmacao da docstring de `build_worker_credential_view`, virada prova.
+
+    Varredura por AST (nao por texto: prosa e comentario citam o nome do campo o tempo todo).
+    Todo acesso de ATRIBUTO a `cibseven_auth_token` / `cibseven_auth_token_value` em `src/` tem de
+    estar dentro de uma das funcoes que consultam o cofre (`_engine_credential`, as duas) ou dentro
+    da propria propriedade que devolve o campo cru em `WorkerRuntimeSettings`. As DECLARACOES dos
+    campos nas classes de settings sao `AnnAssign` sobre um `Name`, nao acesso de atributo, e por
+    isso nem aparecem aqui.
+
+    Uma leitura nova por fora derruba este teste — a unica forma de a garantia nao voltar a erodir
+    uma raiz por vez.
+    """
+    import ast
+    from pathlib import Path
+
+    campos = {"cibseven_auth_token", "cibseven_auth_token_value"}
+    funcoes_do_cofre = {"_engine_credential", "cibseven_auth_token_value"}
+    raiz = Path(tool_registry.__file__).resolve().parent.parent
+
+    class _Varredura(ast.NodeVisitor):
+        def __init__(self, arquivo: Path) -> None:
+            self.arquivo = arquivo
+            self.fugas: list[str] = []
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            if node.name in funcoes_do_cofre:
+                return
+            self.generic_visit(node)
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            if node.name in funcoes_do_cofre:
+                return
+            self.generic_visit(node)
+
+        def visit_Attribute(self, node: ast.Attribute) -> None:
+            if node.attr in campos:
+                self.fugas.append(f"{self.arquivo.relative_to(raiz)}:{node.lineno}: .{node.attr}")
+            self.generic_visit(node)
+
+    fugas: list[str] = []
+    arquivos_com_o_campo = 0
+    for arquivo in sorted(raiz.rglob("*.py")):
+        texto = arquivo.read_text(encoding="utf-8")
+        if not any(campo in texto for campo in campos):
+            continue
+        arquivos_com_o_campo += 1
+        varredura = _Varredura(arquivo)
+        varredura.visit(ast.parse(texto))
+        fugas.extend(varredura.fugas)
+
+    assert arquivos_com_o_campo >= 3, "varredura vacua: nem os arquivos conhecidos foram lidos"
+    assert fugas == [], (
+        "leitura da credencial do motor por fora do cofre (ADR-0005 mecanismo #3):\n" + "\n".join(fugas)
+    )

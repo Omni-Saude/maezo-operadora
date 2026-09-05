@@ -845,8 +845,10 @@ def _engine_credential(settings: NotificationsBridgeSettings) -> str | None:
     o mesmo `getattr` nao-auditado que o cofre existe para abolir — enquanto as outras duas raizes
     (`gateway/tool_registry.py::build_agent_seams` e
     `runtime/worker_runtime/service.py::_engine_credential`) ja' passavam pelo cofre. Um mecanismo
-    que cobre duas das tres construcoes de seam gated contra o motor nao e' estrutural: e' um
-    costume. Agora as tres usam a MESMA porta, com as MESMAS tabelas fechadas.
+    que cobre duas das tres construcoes que CARREGAM credencial nao e' estrutural: e' um costume.
+    Agora as tres usam a MESMA porta, com as MESMAS tabelas fechadas. (A quarta construcao de seam
+    gated contra o motor na arvore, `platform/evidence/dmn_sweep.py::main`, nao passa `auth_token`
+    algum — CLI de diagnostico nao autenticado —, entao nao ha' credencial a governar la'.)
 
     Uma credencial humano-restrita (`HUMAN_CREDENTIAL_FIELDS`: NEGATIVA/FRAUDE) nao chega aqui — a
     construcao LEVANTA `CredentialSeparationError`, que `build_bridge` NAO captura: a ponte recusa

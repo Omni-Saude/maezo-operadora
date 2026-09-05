@@ -293,10 +293,20 @@ def build_worker_credential_view(*, settings: Any, principal: str = WORKER_PRINC
 
     BOTH daemon principals really call it (AF-14-F1): `runtime/worker_runtime/service.py::
     _engine_credential` and `platform/integrations/notifications_bridge.py::_engine_credential`.
-    Together with :func:`build_agent_seams` those are the THREE — and the only three — gated
-    engine-seam constructions in the tree, so no gated seam reads the credential by a `getattr`
-    this table does not govern. The first version of this docstring named the bridge before the
-    bridge was wired; the tests in `test_credential_vault_composition.py` now cover each root.
+    The first version of this docstring named the bridge before the bridge was wired; the tests in
+    `test_credential_vault_composition.py` now cover each root.
+
+    THE EXACT SURFACE, counted rather than asserted (`grep -rn 'build_cibseven_seam(' src`,
+    `grep -rn 'build_dmn_seam(' src`, `grep -rn 'auth_token=' src`): `src/` holds FOUR gated
+    engine-seam constructions and one
+    raw engine transport. Three of the four carry a credential — :func:`build_agent_seams` and the
+    two daemon `_engine_credential`s — and all three read it here. The fourth,
+    `platform/evidence/dmn_sweep.py::main`, passes NO `auth_token` at all: it is an unauthenticated
+    diagnostic CLI against a dev engine, so there is no credential for a partition table to govern.
+    The raw one, `worker_runtime/service.py`'s `CibSevenWorkerTransport`, is not a gated seam (it
+    decides nothing) but carries the same credential and therefore also reads it here. What is
+    claimed, and what `grep -rn 'cibseven_auth_token' src` shows, is that no read of that field
+    reaches an engine transport by a `getattr` this table does not govern.
     """
     return build_agent_credential_view(settings=settings, agent_id=principal)
 

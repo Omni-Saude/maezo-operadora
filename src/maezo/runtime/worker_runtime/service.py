@@ -715,6 +715,13 @@ def _engine_credential(settings: WorkerRuntimeSettings) -> str | None:
     (`HUMAN_CREDENTIAL_FIELDS`: NEGATIVA/FRAUDE) NAO consegue chegar aqui — a construcao LEVANTA
     `CredentialSeparationError`.
 
+    TAMBEM O TRANSPORTE DE TAREFA EXTERNA, que nao e' seam gated (`CibSevenWorkerTransport`, o
+    primeiro bloco de `_bring_up_dependencies`): ele nao decide nada, mas carrega a MESMA
+    credencial, e deixa-lo de fora manteria um `getattr` nao-auditado no proprio arquivo que esta
+    mudanca reescreveu. Depois disso nao resta em `src/` nenhuma leitura de
+    `cibseven_auth_token`/`cibseven_auth_token_value()` que chegue a um transporte do motor por
+    fora do cofre.
+
     CHAMADA DE DENTRO DE CADA BLOCO `try` a proposito: `_bring_up_dependencies` isola cada bloco
     (falha registra + deixa a checagem vermelha, nunca propaga). Uma recusa do cofre e' portanto
     "o seam nao foi construido" -> os workers que dependem dele falham fechado depois, que e'
@@ -731,9 +738,16 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
     settings = state.settings
 
     try:
+        # AF-14: o transporte de tarefa externa NAO e' um seam gated (ele nao decide nada), mas
+        # carrega a MESMA credencial do motor, e uma credencial que chega a um transporte por
+        # `getattr` que tabela nenhuma governa e' exatamente o que o mecanismo #3 da ADR-0005
+        # existe para nao permitir. Passa pelo cofre como os dois seams gated abaixo; o valor
+        # entregue e' identico (`AGENT_CREDENTIAL_FIELDS['cibseven_auth_token']`), e uma
+        # composicao que vazaria credencial humano-restrita passa a deixar `engine_reachable`
+        # vermelho em vez de subir o transporte.
         state.transport = CibSevenWorkerTransport(
             settings.cibseven_base_url,
-            auth_token=settings.cibseven_auth_token_value(),
+            auth_token=_engine_credential(settings),
             timeout=settings.client_timeout_s,
         )
     except Exception:  # noqa: BLE001 — construction failure leaves engine_reachable unhealthy.
