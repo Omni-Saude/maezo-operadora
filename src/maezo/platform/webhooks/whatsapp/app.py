@@ -189,7 +189,7 @@ async def _run_one_message(
             # happened.
             await dispatcher.acknowledge_non_text(message)
             outcome = "acked"
-    except Exception:  # noqa: BLE001 — one message's failure must not drop the batch.
+    except Exception:  # deliberately total: one message's failure must not drop the batch.
         logger.error("whatsapp_dispatch_failed", message_id=message.message_id, exc_info=True)
         await _withdraw_claim(dedup, message, tenant=tenant)
         return "failed"

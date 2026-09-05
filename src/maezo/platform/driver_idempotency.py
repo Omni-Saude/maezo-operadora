@@ -237,7 +237,7 @@ class PostgresDriverIdempotencyRegistry:
             pool = await self._ensure_pool()
             async with pool.acquire() as conn:
                 return await conn.fetchval(sql, *args)
-        except Exception as exc:  # noqa: BLE001 — see the docstring: total, and never silent.
+        except Exception as exc:  # total by design (see the docstring), and never silent.
             raise DedupRegistryUnavailableError(f"{type(exc).__name__}: {exc}") from exc
 
     async def claim(self, key: str, *, ttl_s: float = DEFAULT_TTL_S) -> bool:

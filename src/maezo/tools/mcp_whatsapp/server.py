@@ -275,7 +275,7 @@ class WhatsAppServer:
             if registry is not None and guard_key is not None:
                 try:
                     await registry.release(guard_key)
-                except Exception:  # noqa: BLE001 — never mask the send failure being re-raised.
+                except Exception:  # deliberately total: never mask the send failure being re-raised.
                     logger.error("whatsapp_send_claim_release_failed", dedup_key=guard_key)
             raise
 
@@ -300,7 +300,7 @@ class WhatsAppServer:
             # shape produced.
             try:
                 await registry.mark_processed(guard_key)
-            except Exception:  # noqa: BLE001 — see above: the message was already delivered.
+            except Exception:  # deliberately total: see above — the message was already delivered.
                 WHATSAPP_SEND_SEAL_FAILURES_TOTAL.inc()
                 logger.error(
                     "whatsapp_send_claim_seal_failed",
