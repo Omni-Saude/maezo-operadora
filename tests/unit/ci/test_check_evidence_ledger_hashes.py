@@ -21,21 +21,27 @@ from pathlib import Path
 
 import pytest
 from scripts.ci.check_evidence_ledger_hashes import (
+    _RESULT_LINE_RE_LEGACY,
     CONVENTION_START_DATE,
+    LEGACY_NODE_ID_RECIPE_CUTOFF_DATE,
     REPO_ROOT,
     DeclaredRow,
     LegacyRow,
     RowSelection,
+    capture_pytest_recipe,
     compute_recipe_hash,
     extract_result_lines,
     extract_row_date,
     get_ledger_diff_added_lines,
     is_date_qualified,
+    is_live_test_path,
     is_safe_test_path,
     is_table_row,
     main,
     parse_diff_added_lines,
     parse_row_line,
+    recipe_outcome_from_capture,
+    resolve_allow_live,
     resolve_effective_base,
     run_recipe,
     select_rows,
@@ -75,7 +81,12 @@ class TestParseRowLine:
     def test_declared_row_parses(self) -> None:
         line = _declared_row_line("T-1", "tests/unit/x/test_y.py", "b" * 64)
         row = parse_row_line(line)
-        assert row == DeclaredRow(task_id="T-1", test_path="tests/unit/x/test_y.py", declared_hash="b" * 64)
+        assert row == DeclaredRow(
+            task_id="T-1",
+            test_path="tests/unit/x/test_y.py",
+            declared_hash="b" * 64,
+            row_date=CONVENTION_START_DATE,
+        )
 
     def test_declared_hash_normalized_to_lowercase(self) -> None:
         line = _declared_row_line("T-1", "tests/unit/x/test_y.py", "B" * 64)
@@ -126,7 +137,10 @@ class TestSelectRows:
         ]
         selection = select_rows(lines)
         expected_row = DeclaredRow(
-            task_id="NEW-1", test_path="tests/unit/a/test_b.py", declared_hash="d" * 64
+            task_id="NEW-1",
+            test_path="tests/unit/a/test_b.py",
+            declared_hash="d" * 64,
+            row_date=CONVENTION_START_DATE,
         )
         assert selection.declared == (expected_row,)
         assert [r.task_id for r in selection.legacy] == ["T0.1", "T0.2"]
@@ -171,7 +185,12 @@ class TestSelectRows:
         )
         selection = select_rows([line])
         assert selection.declared == (
-            DeclaredRow(task_id="T-BOUNDARY", test_path="tests/unit/x/test_y.py", declared_hash="d" * 64),
+            DeclaredRow(
+                task_id="T-BOUNDARY",
+                test_path="tests/unit/x/test_y.py",
+                declared_hash="d" * 64,
+                row_date=CONVENTION_START_DATE,
+            ),
         )
         assert selection.legacy == ()
 
@@ -252,6 +271,53 @@ class TestIsSafeTestPath:
         assert is_safe_test_path("tests/unit/ci/not_a_test.txt") is False
 
 
+class TestIsLiveTestPath:
+    """HARNESS-LEDGER-HASH-AMBIENT-STACK: only `tests/integration/**` is a "live" path — the
+    scope `verify_row` refuses to execute without `--allow-live`."""
+
+    def test_integration_path_is_live(self) -> None:
+        assert is_live_test_path("tests/integration/platform/test_kafka_partitions.py") is True
+
+    def test_unit_path_is_not_live(self) -> None:
+        assert is_live_test_path("tests/unit/ci/test_check_evidence_ledger_hashes.py") is False
+
+    def test_evals_path_is_not_live(self) -> None:
+        assert is_live_test_path("tests/evals/test_classifier_evals.py") is False
+
+    def test_a_path_merely_containing_the_word_integration_is_not_live(self) -> None:
+        # Prefix match only — a unit test file that happens to have "integration" in its own
+        # name/directory (not under tests/integration/) is NOT live.
+        assert is_live_test_path("tests/unit/platform/integrations/test_notifications_bridge.py") is False
+
+
+class TestResolveAllowLive:
+    """`resolve_allow_live` — the CLI flag OR the LEDGER_HASH_ALLOW_LIVE env var, case-insensitive,
+    restricted to an explicit small truthy set (never "any non-empty string")."""
+
+    def test_cli_flag_true_wins_regardless_of_env(self) -> None:
+        assert resolve_allow_live(True, {}) is True
+        assert resolve_allow_live(True, {"LEDGER_HASH_ALLOW_LIVE": "0"}) is True
+
+    def test_env_var_1_is_truthy(self) -> None:
+        assert resolve_allow_live(False, {"LEDGER_HASH_ALLOW_LIVE": "1"}) is True
+
+    def test_env_var_true_case_insensitive_is_truthy(self) -> None:
+        assert resolve_allow_live(False, {"LEDGER_HASH_ALLOW_LIVE": "True"}) is True
+        assert resolve_allow_live(False, {"LEDGER_HASH_ALLOW_LIVE": "YES"}) is True
+
+    def test_env_var_absent_is_false(self) -> None:
+        assert resolve_allow_live(False, {}) is False
+
+    def test_env_var_empty_or_zero_or_false_is_not_truthy(self) -> None:
+        assert resolve_allow_live(False, {"LEDGER_HASH_ALLOW_LIVE": ""}) is False
+        assert resolve_allow_live(False, {"LEDGER_HASH_ALLOW_LIVE": "0"}) is False
+        assert resolve_allow_live(False, {"LEDGER_HASH_ALLOW_LIVE": "false"}) is False
+
+    def test_env_var_garbage_value_is_not_truthy(self) -> None:
+        # Fail-closed: not "any non-empty string" grants the assertion.
+        assert resolve_allow_live(False, {"LEDGER_HASH_ALLOW_LIVE": "please"}) is False
+
+
 # ---------------------------------------------------------------------------
 # The recipe: progress-marker stripping (pure)
 # ---------------------------------------------------------------------------
@@ -307,6 +373,97 @@ class TestExtractResultLines:
 
     def test_no_result_lines_yields_empty_list(self) -> None:
         assert extract_result_lines("no tests ran\n") == []
+
+
+class TestExtractResultLinesSpacedParametrizeIds:
+    """LEDGER-HASH-PARAM-IDS-WITH-SPACES: a parametrized pytest id built from prose legitimately
+    contains a literal space (e.g. `[RATIFICADO pelo DPO]`); pytest -v renders it as part of the
+    SAME PASSED/FAILED line. The pre-fix regex required the WHOLE node id whitespace-free, so that
+    line silently failed to match at all — not hashed, not reported as unparsed, simply absent
+    from the sorted set the hash is computed over. This is the exact case the LEGACY regex
+    (`_RESULT_LINE_RE_LEGACY`, reproduced in `TestExtractResultLinesLegacyRecipe` below) drops and
+    the current (fixed) `extract_result_lines` default must keep."""
+
+    def test_a_spaced_parametrize_id_is_kept_not_dropped(self) -> None:
+        output = (
+            "tests/x.py::test_thing[case with space] PASSED [ 50%]\n"
+            "tests/x.py::test_thing[case_no_space] PASSED [100%]\n"
+        )
+        assert extract_result_lines(output) == [
+            "tests/x.py::test_thing[case with space] PASSED",
+            "tests/x.py::test_thing[case_no_space] PASSED",
+        ]
+
+    def test_a_class_scoped_node_id_with_a_spaced_param_is_kept(self) -> None:
+        # Two "::" in the node id (path::Class::test) — the fixed regex must anchor on the LAST
+        # " PASSED"/" FAILED" token, not an earlier substring, and still preserve the embedded
+        # space inside the parametrize id.
+        output = "tests/foo.py::TestClass::test_x[a b] PASSED [ 10%]\n"
+        assert extract_result_lines(output) == ["tests/foo.py::TestClass::test_x[a b] PASSED"]
+
+    def test_a_failed_spaced_parametrize_id_is_kept(self) -> None:
+        output = "tests/x.py::test_thing[case with space] FAILED [100%]\n"
+        assert extract_result_lines(output) == ["tests/x.py::test_thing[case with space] FAILED"]
+
+    def test_short_test_summary_info_line_stays_excluded_even_with_the_widened_regex(self) -> None:
+        # Regression guard for the widened regex: a "short test summary info" line starts with the
+        # BARE word FAILED (no `::` immediately following it, since the next char is a space), so
+        # it must never be mistaken for a node id even when its failure reason happens to contain
+        # the literal word "PASSED" near the end.
+        output = "FAILED tests/foo.py::test_y - AssertionError: expected PASSED\n"
+        assert extract_result_lines(output) == []
+
+    def test_real_pytest_run_with_a_prose_spaced_id_matches_the_dossiers_5_of_140_claim(self) -> None:
+        # Non-synthetic proof: tests/unit/platform/test_validation_phi_completeness.py carries a
+        # real `[RATIFICADO pelo DPO]` parametrize id (LEDGER-HASH-PARAM-IDS-WITH-SPACES dossier's
+        # own repro target, "5 of 140 result lines dropped"). Run it for real and assert the FIXED
+        # extraction recovers all 140, and that the id with the space really is one of them.
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "tests/unit/platform/test_validation_phi_completeness.py",
+                "-v",
+                "--tb=no",
+                "-p",
+                "no:cacheprovider",
+            ],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        combined = proc.stdout + proc.stderr
+        result_lines = extract_result_lines(combined)
+        assert len(result_lines) == 140
+        assert any("RATIFICADO pelo DPO" in line for line in result_lines)
+
+
+class TestExtractResultLinesLegacyRecipe:
+    """The LEGACY (pre-fix) regex, `_RESULT_LINE_RE_LEGACY`, must keep reproducing its ORIGINAL
+    (buggy) behaviour exactly — this is what lets an already-declared pre-fix ledger hash stay
+    verifiable without ever retroactively editing the append-only ledger row (see `verify_row`'s
+    recipe-version dual-check and `LEGACY_NODE_ID_RECIPE_CUTOFF_DATE`)."""
+
+    def test_legacy_regex_silently_drops_the_spaced_line(self) -> None:
+        output = (
+            "tests/x.py::test_thing[case with space] PASSED [ 50%]\n"
+            "tests/x.py::test_thing[case_no_space] PASSED [100%]\n"
+        )
+        assert extract_result_lines(output, node_id_regex=_RESULT_LINE_RE_LEGACY) == [
+            "tests/x.py::test_thing[case_no_space] PASSED",
+        ]
+
+    def test_legacy_regex_still_excludes_the_warnings_summary_line(self) -> None:
+        output = (
+            "tests/x.py::test_a PASSED [100%]\n"
+            "=============================== warnings summary ================================\n"
+            "tests/x.py::test_a\n"
+            "  /some/path.py:1: DeprecationWarning: PASSED FAILED are not result lines here\n"
+        )
+        assert extract_result_lines(output, node_id_regex=_RESULT_LINE_RE_LEGACY) == [
+            "tests/x.py::test_a PASSED"
+        ]
 
 
 class TestComputeRecipeHash:
@@ -511,6 +668,209 @@ class TestVerifyRow:
         assert result.ok is False
         assert "path-injection guard" in result.message
 
+    def test_a_tests_integration_row_is_refused_without_allow_live(self, tmp_path: Path) -> None:
+        # HARNESS-LEDGER-HASH-AMBIENT-STACK: refused BEFORE any subprocess is executed — the file
+        # deliberately does not exist, proving the refusal short-circuits ahead of the
+        # file-existence check (never silently reaches for an ambient stack).
+        row = DeclaredRow(
+            task_id="T-LIVE",
+            test_path="tests/integration/platform/test_kafka_partitions.py",
+            declared_hash="0" * 64,
+        )
+        result = verify_row(tmp_path, row, sys.executable)
+        assert result.ok is False
+        assert "HARNESS-LEDGER-HASH-AMBIENT-STACK" in result.message
+        assert "--allow-live" in result.message
+
+    def test_a_tests_integration_row_proceeds_with_allow_live(self, tmp_path: Path) -> None:
+        # allow_live=True lifts the refusal — normal file-existence/hash-mismatch handling resumes
+        # (proven here via the ordinary "does not exist" path, not a real integration run, per
+        # this task's no-engine constraint).
+        row = DeclaredRow(
+            task_id="T-LIVE-ALLOWED",
+            test_path="tests/integration/platform/test_kafka_partitions.py",
+            declared_hash="0" * 64,
+        )
+        result = verify_row(tmp_path, row, sys.executable, allow_live=True)
+        assert result.ok is False
+        assert "HARNESS-LEDGER-HASH-AMBIENT-STACK" not in result.message
+        assert "does not exist" in result.message
+
+    def test_a_non_integration_row_is_unaffected_by_allow_live_default(self, tmp_path: Path) -> None:
+        real_path = tmp_path / "tests"
+        real_path.mkdir()
+        (real_path / "test_not_live.py").write_text(_FIXTURE_TEST_FILE, encoding="utf-8")
+        outcome = run_recipe(tmp_path, "tests/test_not_live.py", sys.executable)
+        assert outcome.ok is True and outcome.computed_hash is not None
+        row = DeclaredRow(
+            task_id="T-NOT-LIVE",
+            test_path="tests/test_not_live.py",
+            declared_hash=outcome.computed_hash.removeprefix("sha256:"),
+        )
+        result = verify_row(tmp_path, row, sys.executable)  # allow_live defaults to False
+        assert result.ok is True
+
+
+_SPACED_PARAM_FIXTURE = '''"""Real pytest file with one plain id and one spaced parametrize id, used to prove
+verify_row's recipe-version dual-check (LEDGER-HASH-PARAM-IDS-WITH-SPACES) against a REAL
+subprocess run, not a synthetic string."""
+
+import pytest
+
+
+@pytest.mark.parametrize("case", ["a", "b"], ids=["plain", "has space"])
+def test_param(case):
+    assert True
+'''
+
+
+class TestVerifyRowRecipeVersionDualCheck:
+    """LEDGER-HASH-PARAM-IDS-WITH-SPACES: fixing `_RESULT_LINE_RE` legitimately changes the
+    recomputed hash for a row whose test file has a spaced parametrize id (the LEGACY recipe
+    silently dropped that result line; the FIXED recipe keeps it). A ledger row is never
+    retroactively edited, so a row ALREADY DECLARED under the legacy recipe must stay verifiable —
+    but ONLY while dated strictly before `LEGACY_NODE_ID_RECIPE_CUTOFF_DATE`, so a future row can
+    never re-declare under the legacy (buggy) recipe to dodge the fix. This uses a REAL fixture
+    file run for real (not synthetic hashes) so a mutation to either regex is actually caught."""
+
+    def _write_fixture(self, tmp_path: Path) -> Path:
+        repo_root = tmp_path / "repo"
+        tests_dir = repo_root / "tests"
+        tests_dir.mkdir(parents=True)
+        (tests_dir / "test_spaced_param.py").write_text(_SPACED_PARAM_FIXTURE, encoding="utf-8")
+        return repo_root
+
+    def _legacy_and_fixed_hashes(self, repo_root: Path) -> tuple[str, str]:
+        legacy_outcome = run_recipe(
+            repo_root, "tests/test_spaced_param.py", sys.executable, node_id_regex=_RESULT_LINE_RE_LEGACY
+        )
+        fixed_outcome = run_recipe(repo_root, "tests/test_spaced_param.py", sys.executable)
+        assert legacy_outcome.ok is True and fixed_outcome.ok is True
+        # Non-vacuity: the legacy recipe really did drop the spaced-id line (1 line vs 2), so the
+        # two hashes really differ — otherwise this whole test class would be proving nothing.
+        assert legacy_outcome.result_line_count == 1
+        assert fixed_outcome.result_line_count == 2
+        assert legacy_outcome.computed_hash != fixed_outcome.computed_hash
+        assert legacy_outcome.computed_hash is not None
+        assert fixed_outcome.computed_hash is not None
+        return (
+            legacy_outcome.computed_hash.removeprefix("sha256:"),
+            fixed_outcome.computed_hash.removeprefix("sha256:"),
+        )
+
+    def test_a_pre_fix_row_declaring_the_legacy_hash_still_verifies(self, tmp_path: Path) -> None:
+        repo_root = self._write_fixture(tmp_path)
+        legacy_hash, _fixed_hash = self._legacy_and_fixed_hashes(repo_root)
+        row = DeclaredRow(
+            task_id="T-LEGACY-OK",
+            test_path="tests/test_spaced_param.py",
+            declared_hash=legacy_hash,
+            row_date="2026-09-04",  # strictly before LEGACY_NODE_ID_RECIPE_CUTOFF_DATE
+        )
+        result = verify_row(repo_root, row, sys.executable)
+        assert result.ok is True
+        assert "recipe_version=legacy" in result.message
+        assert "LEDGER-HASH-PARAM-IDS-WITH-SPACES" in result.message
+
+    def test_a_row_declaring_the_fixed_hash_verifies_without_needing_the_fallback(
+        self, tmp_path: Path
+    ) -> None:
+        repo_root = self._write_fixture(tmp_path)
+        _legacy_hash, fixed_hash = self._legacy_and_fixed_hashes(repo_root)
+        row = DeclaredRow(
+            task_id="T-FIXED-OK",
+            test_path="tests/test_spaced_param.py",
+            declared_hash=fixed_hash,
+            row_date="2026-09-04",
+        )
+        result = verify_row(repo_root, row, sys.executable)
+        assert result.ok is True
+        assert "recipe_version=legacy" not in result.message
+
+    def test_a_row_dated_on_the_cutoff_date_cannot_use_the_legacy_fallback(self, tmp_path: Path) -> None:
+        # On/after LEGACY_NODE_ID_RECIPE_CUTOFF_DATE the fallback must NOT be offered — a future
+        # row cannot re-declare under the buggy legacy recipe to dodge the fix.
+        repo_root = self._write_fixture(tmp_path)
+        legacy_hash, _fixed_hash = self._legacy_and_fixed_hashes(repo_root)
+        row = DeclaredRow(
+            task_id="T-TOO-LATE",
+            test_path="tests/test_spaced_param.py",
+            declared_hash=legacy_hash,
+            row_date=LEGACY_NODE_ID_RECIPE_CUTOFF_DATE,
+        )
+        result = verify_row(repo_root, row, sys.executable)
+        assert result.ok is False
+        assert "hash mismatch" in result.message
+
+    def test_a_row_with_no_date_at_all_cannot_use_the_legacy_fallback(self, tmp_path: Path) -> None:
+        # row_date=None (e.g. a hand-built row in a test, or a genuinely unparseable Date cell)
+        # is fail-closed: no fallback, same as "dated on/after the cutoff".
+        repo_root = self._write_fixture(tmp_path)
+        legacy_hash, _fixed_hash = self._legacy_and_fixed_hashes(repo_root)
+        row = DeclaredRow(
+            task_id="T-NO-DATE",
+            test_path="tests/test_spaced_param.py",
+            declared_hash=legacy_hash,
+            row_date=None,
+        )
+        result = verify_row(repo_root, row, sys.executable)
+        assert result.ok is False
+        assert "hash mismatch" in result.message
+
+    def test_a_genuinely_wrong_hash_still_fails_even_with_the_fallback_available(
+        self, tmp_path: Path
+    ) -> None:
+        # The dual-check must not become a "accept anything" loophole: a hash that matches
+        # NEITHER recipe, on a row eligible for the fallback, is still a real mismatch.
+        repo_root = self._write_fixture(tmp_path)
+        row = DeclaredRow(
+            task_id="T-REALLY-WRONG",
+            test_path="tests/test_spaced_param.py",
+            declared_hash="0" * 64,
+            row_date="2026-09-04",
+        )
+        result = verify_row(repo_root, row, sys.executable)
+        assert result.ok is False
+        assert "hash mismatch" in result.message
+        assert "recipe_version=legacy" not in result.message
+
+
+class TestCapturePytestRecipeAndRecipeOutcomeFromCapture:
+    """The I/O (`capture_pytest_recipe`) / pure-extraction (`recipe_outcome_from_capture`) split
+    exists so `verify_row` can try two node-id regexes against ONE real pytest run — proves the
+    pieces independently and proves `run_recipe` (the back-compat single-shot wrapper) is exactly
+    their composition."""
+
+    def test_run_recipe_equals_capture_then_recipe_outcome_from_capture(self, tmp_path: Path) -> None:
+        fixture = tmp_path / "test_fixture_split.py"
+        fixture.write_text(_FIXTURE_TEST_FILE, encoding="utf-8")
+
+        direct = run_recipe(tmp_path, "test_fixture_split.py", sys.executable)
+
+        capture = capture_pytest_recipe(tmp_path, "test_fixture_split.py", sys.executable)
+        assert capture.ok is True
+        assert capture.combined_output is not None
+        composed = recipe_outcome_from_capture(capture, "test_fixture_split.py")
+
+        assert direct.ok is True
+        assert composed == direct
+
+    def test_one_capture_can_be_interpreted_under_two_different_regexes(self, tmp_path: Path) -> None:
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_spaced_param.py").write_text(_SPACED_PARAM_FIXTURE, encoding="utf-8")
+
+        capture = capture_pytest_recipe(tmp_path, "tests/test_spaced_param.py", sys.executable)
+        assert capture.ok is True
+
+        fixed = recipe_outcome_from_capture(capture, "tests/test_spaced_param.py")
+        legacy = recipe_outcome_from_capture(
+            capture, "tests/test_spaced_param.py", node_id_regex=_RESULT_LINE_RE_LEGACY
+        )
+        assert fixed.result_line_count == 2
+        assert legacy.result_line_count == 1
+        assert fixed.computed_hash != legacy.computed_hash
+
 
 # ---------------------------------------------------------------------------
 # Diff-range selection: pure parser
@@ -587,7 +947,12 @@ class TestGetLedgerDiffAddedLinesRealGitRepo:
         added = get_ledger_diff_added_lines(repo, base_sha, "docs/evidence-ledger.md")
         selection = select_rows(added)
         assert selection.declared == (
-            DeclaredRow(task_id="NEW-1", test_path="tests/unit/x/test_y.py", declared_hash="f" * 64),
+            DeclaredRow(
+                task_id="NEW-1",
+                test_path="tests/unit/x/test_y.py",
+                declared_hash="f" * 64,
+                row_date=CONVENTION_START_DATE,
+            ),
         )
         assert [r.task_id for r in selection.legacy] == ["T0.2"]
         # The pre-existing base row must NEVER appear as "added" (design fact 1: scope discipline).
@@ -710,6 +1075,85 @@ class TestMainEndToEnd:
         assert exit_code == 0
         assert "1/1 declared rows verified" in out
         assert "--all" in out
+
+
+class TestMainEndToEndAllowLive:
+    """HARNESS-LEDGER-HASH-AMBIENT-STACK end-to-end: a declared row citing `tests/integration/**`
+    is refused by `main` unless `--allow-live` (or `LEDGER_HASH_ALLOW_LIVE`) is asserted."""
+
+    def _repo_with_integration_row(self, tmp_path: Path) -> tuple[Path, str, str]:
+        repo, base_sha = _init_ledger_repo(tmp_path)
+        integration_dir = repo / "tests" / "integration"
+        integration_dir.mkdir(parents=True)
+        (integration_dir / "test_e2e_live.py").write_text(_FIXTURE_TEST_FILE, encoding="utf-8")
+        outcome = run_recipe(repo, "tests/integration/test_e2e_live.py", sys.executable)
+        assert outcome.ok is True and outcome.computed_hash is not None
+        declared_hash = outcome.computed_hash.removeprefix("sha256:")
+
+        ledger = repo / "docs" / "evidence-ledger.md"
+        ledger.write_text(
+            ledger.read_text(encoding="utf-8")
+            + _declared_row_line("NEW-LIVE", "tests/integration/test_e2e_live.py", declared_hash)
+            + "\n",
+            encoding="utf-8",
+        )
+        _git(["add", "."], repo)
+        _git(["commit", "-q", "-m", "add integration-path declared row"], repo)
+        return repo, base_sha, declared_hash
+
+    def test_default_invocation_refuses_the_integration_row(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("LEDGER_HASH_ALLOW_LIVE", raising=False)
+        repo, base_sha, _declared_hash = self._repo_with_integration_row(tmp_path)
+
+        exit_code = main(
+            ["--base", base_sha, "--ledger-path", "docs/evidence-ledger.md", "--python", sys.executable],
+            repo_root=repo,
+        )
+        out = capsys.readouterr().out
+        assert exit_code == 1
+        assert "HARNESS-LEDGER-HASH-AMBIENT-STACK" in out
+        assert "0/1 declared rows verified" in out
+
+    def test_allow_live_flag_lets_the_matching_row_pass(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("LEDGER_HASH_ALLOW_LIVE", raising=False)
+        repo, base_sha, _declared_hash = self._repo_with_integration_row(tmp_path)
+
+        exit_code = main(
+            [
+                "--base",
+                base_sha,
+                "--ledger-path",
+                "docs/evidence-ledger.md",
+                "--python",
+                sys.executable,
+                "--allow-live",
+            ],
+            repo_root=repo,
+        )
+        out = capsys.readouterr().out
+        assert exit_code == 0
+        assert "1/1 declared rows verified" in out
+
+    def test_env_var_lets_the_matching_row_pass_without_the_cli_flag(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # This is the Makefile-unchanged escape hatch: `LEDGER_HASH_ALLOW_LIVE=1 make
+        # check-ledger-hashes` reaches this same effective_allow_live via os.environ, with zero
+        # Makefile diff.
+        monkeypatch.setenv("LEDGER_HASH_ALLOW_LIVE", "1")
+        repo, base_sha, _declared_hash = self._repo_with_integration_row(tmp_path)
+
+        exit_code = main(
+            ["--base", base_sha, "--ledger-path", "docs/evidence-ledger.md", "--python", sys.executable],
+            repo_root=repo,
+        )
+        out = capsys.readouterr().out
+        assert exit_code == 0
+        assert "1/1 declared rows verified" in out
 
 
 # ---------------------------------------------------------------------------

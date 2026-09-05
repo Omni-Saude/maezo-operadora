@@ -111,6 +111,14 @@ jobs:
       - name: Boundary-proof BPMN-error allowlist gate (ADR-0030)
         run: make check-bpmn-error-allowlist
 
+      # AF-06: PLANS.md's ADR-count claims (the "fonte de verdade" header paragraph + the §0.3
+      # milestone-reconciliation table) are hand-written prose that went stale twice (32→39→48)
+      # with nothing ever recomputing them against docs/adr/. Reconciliation-only — never touches
+      # the preserved historical prose in §3, deliberately out of scope (see the gate's own
+      # docstring "Scope").
+      - name: PLANS.md ADR-count reconciliation gate (AF-06)
+        run: make check-plans-counts
+
       # T3.4 F1: repo-wide AST gate — a direct `transport.start_process_instance(...)` call (or a
       # hand-rolled raw REST start-path literal) anywhere outside the pinned 2-file transport
       # allowlist bypasses the `start_process_idempotent` fence (ADR-0007/T-C2 emit-before-effect
