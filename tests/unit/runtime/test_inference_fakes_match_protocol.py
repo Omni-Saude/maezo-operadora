@@ -3,10 +3,15 @@
 DE ONDE VEM ESTE ARQUIVO (fleet audit, WP lote3-integration-fakes-task-kind, 04/09/2026)
 
 O job CI `integration tests (real engine)` do PR #319 (run 33927690960, branch
-`fleet/train-w3-lote3`) deu `5 failed, 499 passed`:
-`TypeError: _FakeInference.generate() got an unexpected keyword argument 'task_kind'`
-em `tests/integration/agents/test_helena_escalation.py` (dois falsos, linhas 96 e 323),
-`test_marina_contas_dossier.py` (linha 55) e `test_rafael_auth_dossier.py` (linha 54).
+`fleet/train-w3-lote3`) deu `5 failed, 499 passed`, as 5 falhas TODAS em
+`tests/integration/agents/test_helena_escalation.py` (dois falsos: `_FakeInference:96`,
+`_RaisingInference:323`) --
+`TypeError: _FakeInference.generate() got an unexpected keyword argument 'task_kind'`.
+Os falsos identicos em `test_marina_contas_dossier.py:55` e `test_rafael_auth_dossier.py:54`
+(mesmos arquivos que o CI de fato coletou e rodou nesse run) NAO falharam nesta execucao
+especifica -- seus fluxos naquele run nao exercitam `.generate(task_kind=...)` -- mas
+compartilham a mesma classe de defeito e foram corrigidos preventivamente pela mesma cerca,
+junto com os demais 15 falsos abaixo.
 
 Causa-raiz: CC-12 acrescentou `task_kind` ao Protocol da facade externa
 (`runtime/inference::InferenceProvider.generate`, hoje
