@@ -525,3 +525,45 @@ async def test_unscrubbable_free_text_value_refuses_the_start() -> None:
 
     assert sink.calls == [], "no durable claim may exist for a start that was refused"
     assert recorded == [], "the engine must not have been called"
+
+
+# ---------------------------------------------------------------------------
+# 9 — §Delta F1: uma CHAVE de mapping nao-`str` sob um nome de texto livre
+# ---------------------------------------------------------------------------
+#
+# A recusa de chave PHI-shaped usava so `looks_like_phi_text`, que e' `str`-only por contrato.
+# A chave `int` 12345678901 sob `narrativa` CHEGAVA ao engine e o `json.dumps` do leg a
+# devolvia como a string `"12345678901"` — a mesma corrida de 11 digitos que a chave `str`
+# gemea ja recusava. As chaves `tuple`/`bytes` nem chegavam, mas morriam como `TypeError` sem
+# tipo dentro de `gateway/audit.py::hash_input`, fora do caminho fail-closed ratificado.
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        pytest.param(12345678901, id="int-11-digitos"),
+        pytest.param(12345678901.0, id="float-11-digitos"),
+        pytest.param((f"CPF {_CPF}",), id="tuple"),
+        pytest.param(b"123.456.789-09", id="bytes"),
+        pytest.param(None, id="none"),
+    ],
+)
+async def test_non_str_mapping_key_under_a_free_text_name_refuses_the_start(key: object) -> None:
+    """Ponta a ponta, no chokepoint real: uma chave de mapping nao-`str` sob um nome de texto
+    livre RECUSA o start pelo caminho tipado (`StartVariableRedactionError`) — sem chamada ao
+    engine, sem reivindicacao duravel, sem pass-through."""
+    transport, recorded = _recording_transport()
+    sink = FakeStartAuditSink()
+
+    with pytest.raises(StartVariableRedactionError):
+        await start_process_idempotent(
+            transport,
+            process_key="SP-OP-AUTH-001",
+            business_key="AUTH-amh-cc06-chave",
+            variables={"dossie_rafael": {"narrativa": {key: "nota"}}},
+            audit_sink=sink,
+            provenance=_provenance(),
+        )
+
+    assert sink.calls == [], "no durable claim may exist for a start that was refused"
+    assert recorded == [], "the engine must not have been called"

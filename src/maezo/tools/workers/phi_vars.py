@@ -414,9 +414,20 @@ def redact_free_text_vars(values: Mapping[str, Any]) -> dict[str, Any]:
           * PASSES `_FREE_TEXT_PASSTHROUGH_TYPES` leaves (`bool`/`int`/`float`/`None`) unchanged;
           * REFUSES anything else — `bytes`, a `set`, a date, an arbitrary object — because
             `redact_free_text` cannot inspect it and passing it on would be a silent leak;
-          * REFUSES a `Mapping` KEY that `looks_like_phi_text` flags. Keys are NOT scrubbed:
-            two keys redacted to the same class token would collide and silently drop one of the
-            two values, which is a worse failure than refusing.
+          * REFUSES a `Mapping` KEY that is NOT a `str`, or that `looks_like_phi_text` flags.
+            Keys are NOT scrubbed: two keys redacted to the same class token would collide and
+            silently drop one of the two values, which is a worse failure than refusing. The
+            non-`str` half is CC-06 §Delta F1: `looks_like_phi_text` is `str`-only by contract,
+            so the `int` key `12345678901` bypassed the flag entirely and reached the engine,
+            where `json.dumps` turned it back into the string `"12345678901"` — the very
+            11-digit run the flag exists to stop; a `tuple`/`bytes` key did not reach the engine
+            but died as an untyped `TypeError` in `gateway/audit.py::hash_input` instead of on
+            the ratified refusal path. A non-`str` key is unscrubbable for the same reason an
+            unsupported VALUE type is: `redact_free_text` is a net over `str`. (Deliberately
+            NARROWER than `_FREE_TEXT_PASSTHROUGH_TYPES`, which admits `bool`/`int`/`float`/
+            `None` LEAVES: a leaf keeps its JSON type on the engine leg, while a key is coerced
+            to a string there — and no live site puts a structured value under a free-text name
+            at all, so nothing legitimate is refused.)
       - a top-level `dossie_*` key whose value is a Mapping -> WALKED recursively (through nested
         mappings, lists and tuples of mappings); inside it, the same `PHI_FREE_TEXT_VARS` names
         are scrubbed as above and everything else passes through.
@@ -442,7 +453,8 @@ def redact_free_text_vars(values: Mapping[str, Any]) -> dict[str, Any]:
          branches is not a cycle and is not refused);
       3. a value under a free-text name whose type `redact_free_text` cannot scrub and
         `_FREE_TEXT_PASSTHROUGH_TYPES` does not admit;
-      4. a `Mapping` KEY under a free-text name that `looks_like_phi_text` flags.
+      4. a `Mapping` KEY under a free-text name that is not a `str` (§Delta F1) or that
+         `looks_like_phi_text` flags — two distinct messages, both naming the key.
     `transport.py::redact_start_variables` converts any of them into
     `StartVariableRedactionError` — no engine call, no durable claim, no passthrough.
     """
@@ -512,6 +524,20 @@ def _redact_free_text_value(value: Any, *, depth: int, path: tuple[int, ...]) ->
         inner_path = (*path, id(value))
         if isinstance(value, Mapping):
             for key in value:
+                if not isinstance(key, str):
+                    # CC-06 §Delta F1: `looks_like_phi_text` e' `str`-only por contrato, entao a
+                    # chave `int` 12345678901 (a GEMEA da chave `str` recusada abaixo) atravessava
+                    # esta guarda inteira e o `json.dumps` do leg do engine a devolvia como a
+                    # string "12345678901" — a mesma corrida de 11 digitos que a recusa existe
+                    # para barrar. Uma chave `tuple`/`bytes` nao chegava ao engine, mas morria como
+                    # `TypeError` sem tipo dentro de `gateway/audit.py::hash_input`, fora do
+                    # caminho fail-closed ratificado. Uma chave nao-`str` e' inescrutavel pelo
+                    # mesmo motivo que um VALOR de tipo nao suportado: `redact_free_text` e' uma
+                    # rede sobre `str`, e chaves nao sao redigidas (ver a recusa abaixo).
+                    raise ValueError(
+                        f"free-text variable carries a {type(key).__name__!r} mapping key that "
+                        "cannot be scrubbed — refusing to pass it through unredacted"
+                    )
                 if looks_like_phi_text(key):
                     raise ValueError(
                         "free-text variable carries a PHI-shaped mapping key — refusing to scrub "

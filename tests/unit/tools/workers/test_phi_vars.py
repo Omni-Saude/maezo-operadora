@@ -596,15 +596,45 @@ def test_free_text_deeper_than_the_bound_is_refused() -> None:
         redact_free_text_vars({"narrativa": deep})
 
 
-def test_free_text_mapping_with_a_phi_shaped_key_is_refused() -> None:
+@pytest.mark.parametrize(
+    "key",
+    [
+        pytest.param(f"CPF {_CPF}", id="str-phi-shaped"),
+        pytest.param("12345678901", id="str-11-digitos"),
+        pytest.param(12345678901, id="int-11-digitos"),
+        pytest.param(12345678901.0, id="float-11-digitos"),
+        pytest.param((f"CPF {_CPF}",), id="tuple"),
+        pytest.param(b"123.456.789-00", id="bytes"),
+        pytest.param(True, id="bool"),
+        pytest.param(None, id="none"),
+    ],
+)
+def test_free_text_mapping_with_a_phi_shaped_key_is_refused(key: object) -> None:
     """As CHAVES de um mapping sob um nome de texto livre nao sao redigidas (redigir duas chaves
     para o mesmo token de classe fundiria as duas entradas e perderia um valor em silencio) — por
     isso uma chave PHI-shaped e' RECUSADA, usando o detector que ja existe no modulo
-    (`looks_like_phi_text`). Uma chave estrutural comum passa."""
+    (`looks_like_phi_text`).
+
+    §Delta F1: o detector e' `str`-only por contrato ("Non-strings and empty strings are NOT
+    flagged"), entao a chave `int` GEMEA da chave `str` que ja era recusada atravessava o scrub
+    inteira; `json.dumps` a devolve como a string `"12345678901"` do outro lado, isto e', a mesma
+    corrida de 11 digitos que a recusa de chave existe para barrar. E uma chave `tuple`/`bytes`
+    morria como `TypeError` sem tipo em `gateway/audit.py::hash_input`, e nao pela recusa
+    ratificada. Por isso QUALQUER chave nao-`str` e' inescrutavel e e' recusada aqui: a
+    assimetria de tipo dentro do proprio scrub e' a mesma especie do REG-01 (`list` redigida /
+    `tuple` nao)."""
     with pytest.raises(ValueError, match="key"):
-        redact_free_text_vars({"narrativa": {f"CPF {_CPF}": "nota"}})
+        redact_free_text_vars({"narrativa": {key: "nota"}})
+
+
+def test_free_text_mapping_with_an_ordinary_str_key_is_not_refused() -> None:
+    """O lado VERDE da mesma regra (a recusa tem de ser estreita): uma chave estrutural comum,
+    `str` e sem forma de identificador, passa — e o valor sob ela continua sendo redigido."""
     out = redact_free_text_vars({"narrativa": {"cid10_referencia": "nota"}})
     assert out["narrativa"] == {"cid10_referencia": "nota"}
+    scrubbed = redact_free_text_vars({"narrativa": {"texto": _CPF_TEXT}})
+    assert _CPF not in scrubbed["narrativa"]["texto"]
+    assert REDACTED_DIGITS in scrubbed["narrativa"]["texto"]
 
 
 # -- CERCAS (falham sob mutacao; ver §Prova do relatorio) ------------------------------------------
