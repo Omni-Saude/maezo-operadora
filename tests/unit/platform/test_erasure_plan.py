@@ -434,7 +434,7 @@ def test_a_pseudonym_reference_can_count_nothing_anywhere() -> None:
         for f in report.findings
         if f.status is ep.LayerFindingStatus.NOT_COUNTED_IDENTITY_BRIDGE_ABSENT
     ]
-    assert bridge == ["agent_memory", "erasure_log"]
+    assert bridge == ["agent_memory", "agent_memory.embedding", "erasure_log"]
     assert report.counted_rows == 0
     assert len(report.uncounted_layers) == len(ep.PERSISTENCE_LAYERS)
 
@@ -453,8 +453,8 @@ def test_a_patient_reference_counts_exactly_the_subject_bearing_relations() -> N
         counter=counter,
     )
     counted = [f.layer.tabela for f in report.findings if f.status is ep.LayerFindingStatus.COUNTED]
-    assert counted == ["agent_memory", "erasure_log"]
-    assert report.counted_rows == 6
+    assert counted == ["agent_memory", "agent_memory.embedding", "erasure_log"]
+    assert report.counted_rows == 9
     # The reference reaches a BIND parameter and never the statement text.
     for statement, params in seen:
         assert _SENTINEL_REF not in statement
@@ -471,7 +471,7 @@ def test_no_count_is_fabricated_when_no_counter_is_supplied() -> None:
     no_counter = [
         f.layer.tabela for f in report.findings if f.status is ep.LayerFindingStatus.NOT_COUNTED_NO_COUNTER
     ]
-    assert no_counter == ["agent_memory", "erasure_log"]
+    assert no_counter == ["agent_memory", "agent_memory.embedding", "erasure_log"]
     assert all(f.row_count is None for f in report.findings)
 
 
@@ -488,7 +488,7 @@ def test_a_failing_counter_reports_failure_and_withholds_the_message() -> None:
         counter=counter,
     )
     failed = [f for f in report.findings if f.status is ep.LayerFindingStatus.COUNT_FAILED]
-    assert len(failed) == 2
+    assert len(failed) == 3
     for finding in failed:
         assert "RuntimeError" in finding.detail
         assert _SENTINEL_REF not in finding.detail
