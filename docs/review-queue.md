@@ -2000,3 +2000,31 @@ Esta secao CORRIGE e COMPLETA as quatro secoes `PERSP-AUTH-VOICE` acima, que fic
    **10598**.
 
 Nada aqui e' ratificacao de SME.
+
+
+## D3-01 — terceira ocorrencia do padrao dead-model `<bpmn:error>`, ja coberta pela leitura de escopo do gate (2026-09-05)
+
+`D3-01` (WP-ADR-0030-COMPLETION) migrou `inadimplencia.py`'s `ERR_INAD_INVALID_CONTRATO` (2 raise
+sites em `handoff_rescisao`, antes um `InadimplenciaError(Exception)` cru duck-typed) para
+`InadContratoInvalidoError(ValueError)` — falha tecnica tipada, NAO um `WorkerBpmnError`. Prova de
+boundary (`grep`/leitura direta de `spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn`):
+`Error_InadContratoInvalido`/`ERR_INAD_INVALID_CONTRATO` esta DECLARADO no catalogo `<bpmn:error>`
+(`:16`) mas ZERO `boundaryEvent`+`errorEventDefinition` o referencia em todo o arquivo — a MESMA
+forma "declared-and-uncaught" que a secao `CONTAS-DEAD-ERROR-CATALOG` acima documenta para
+`ERR_CONTAS_LOTE_INVALIDO`/`ERR_GLOSA_ACCEPT_NOT_HUMAN`, e que a nota logo acima dela (linha da
+tabela `docs/adr/0030-...md` §2 clausula (c)) ja generaliza: "as 20 declaracoes `declared-uncaught`
+do repositorio (13 dos 16 BPMN) sao invisiveis por construcao" ao gate. `ERR_INAD_INVALID_CONTRATO`
+e' UMA dessas ~20 — nenhuma pergunta de escopo NOVA, a leitura existente ja a cobre. **Nao ha
+decisao de dono pendente aqui**: ao contrario de `ERR_CONTAS_GLOSA_NOT_HUMAN` (que TEM boundary
+faltando por decisao de modelagem, T-E-gated) e de `ERR_CANCEL_MANTER_NOT_HUMAN`/`ERR_CONTRACT_
+SUSPENSION_NOT_HUMAN` (que TEM boundary e sao apenas T-E-deferred), `ERR_INAD_INVALID_CONTRATO` e
+um erro de VALIDACAO DE INPUT determinístico sem boundary modelado — a mesma categoria de
+`ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`/`ERR_CANCEL_INVALID_CONTRATO`, que ja sao `ValueError`
+sem nenhuma linha de review-queue propria. Nenhum `spec/processes/bpmn/**` foi editado; a correcao
+foi so no raise-side (`src/`) + na tabela de codigos de erro do contrato (nao-CODEOWNED,
+`docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md`, que ja carregava a nota "tratamento a
+detalhar na promocao a FINAL" — agora refletindo o comportamento real em vez de sugerir um BPMN
+error que nunca poderia disparar).
+
+Registrado aqui por completude (o padrao e' o mesmo achado repetido, nao um item de acao novo).
+Nada aqui e' ratificacao de SME.

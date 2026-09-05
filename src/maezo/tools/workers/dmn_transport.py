@@ -103,7 +103,7 @@ class DmnNoResultError(Exception):
     Deliberately NOT a `RuntimeError`: an empty result is a DETERMINISTIC function of the given
     inputs — retrying changes nothing, so this must reach a human immediately, the same as a
     guard failure, never be engine-retried. Carries `.code`/`.message` (this package's coded-
-    exception convention — mirrors `PagtoError`/`AdequacaoError`/`CredError`/`InadimplenciaError`)
+    exception convention — mirrors `PagtoError`/`AdequacaoError`/`CredError`)
     so `FunctionWorker.execute()` (`tools/workers/base.py:272-282`) reclassifies it into
     `ValueError`, which the harness maps to `failure(retries=0)` — an engine-guaranteed,
     human-visible incident (T1.1 design §9).
