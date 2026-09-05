@@ -177,13 +177,20 @@ BRIDGE_PRINCIPAL: Final[str] = "notifications_bridge"
 #: Settings fields that carry a credential an AGENT is allowed to hold, mapped to the vault key it
 #: is stored under. Deliberately a CLOSED table and not "every field whose name looks secret":
 #: a name-pattern rule would silently widen the moment someone adds a field, which is the failure
-#: mode this table exists to prevent. Every entry is a field that already exists on at least one
-#: of the five roots' settings classes (`worker_runtime.settings.WorkerRuntimeSettings.
-#: cibseven_auth_token`, `agent_runtime.settings.AgentRuntimeSettings.llm_phi_api_key` /
-#: `llm_general_api_key`, `webhooks.whatsapp.settings.WhatsAppWebhookSettings.whatsapp_token`).
+#: mode this table exists to prevent.
+#:
+#: EVERY ENTRY RESOLVES TO A REAL FIELD, and that is now a TEST rather than a claim
+#: (`test_todo_campo_agente_visivel_existe_em_alguma_classe_de_settings_real`):
+#: `worker_runtime.settings.WorkerRuntimeSettings.cibseven_auth_token` (also on
+#: `platform.integrations.notifications_bridge.NotificationsBridgeSettings`),
+#: `runtime.agent_runtime.settings.AgentRuntimeSettings.llm_phi_api_key` / `llm_general_api_key`,
+#: `platform.webhooks.whatsapp.settings.WhatsAppWebhookSettings.whatsapp_token`. A fifth entry,
+#: `fhir_auth_token`, was listed here and existed NOWHERE in `src/` — a row that could never carry
+#: a credential, asserted as though it could (AF-14-F2). Removed: the FHIR seams take their
+#: adapters already constructed, so no root reads such a field. A future FHIR credential is added
+#: here TOGETHER with the settings field, and the test above is what forces the pair.
 AGENT_CREDENTIAL_FIELDS: Final[dict[str, str]] = {
     "cibseven_auth_token": "cibseven_auth_token",
-    "fhir_auth_token": "fhir_auth_token",
     "llm_phi_api_key": "llm_phi_api_key",
     "llm_general_api_key": "llm_general_api_key",
     "whatsapp_token": "whatsapp_token",
@@ -283,6 +290,13 @@ def build_worker_credential_view(*, settings: Any, principal: str = WORKER_PRINC
     capability record), but ADR-0005 mechanism #3 is about the RUNTIME, not about the principal's
     kind: a denial-signing key must not exist in the worker's runtime either. Same vault, same
     closed tables, same view type — one credential vocabulary rather than two.
+
+    BOTH daemon principals really call it (AF-14-F1): `runtime/worker_runtime/service.py::
+    _engine_credential` and `platform/integrations/notifications_bridge.py::_engine_credential`.
+    Together with :func:`build_agent_seams` those are the THREE — and the only three — gated
+    engine-seam constructions in the tree, so no gated seam reads the credential by a `getattr`
+    this table does not govern. The first version of this docstring named the bridge before the
+    bridge was wired; the tests in `test_credential_vault_composition.py` now cover each root.
     """
     return build_agent_credential_view(settings=settings, agent_id=principal)
 
