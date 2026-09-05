@@ -73,9 +73,7 @@ def _protocol_kwonly_names() -> tuple[str, ...]:
     nunca hardcoded, para que um kwonly novo amanha quebre esta cerca sem editar o arquivo."""
     sig = inspect.signature(InferenceProvider.generate)
     return tuple(
-        nome
-        for nome, param in sig.parameters.items()
-        if param.kind is inspect.Parameter.KEYWORD_ONLY
+        nome for nome, param in sig.parameters.items() if param.kind is inspect.Parameter.KEYWORD_ONLY
     )
 
 
@@ -115,9 +113,7 @@ def _achados_em_fonte(fonte: str, rotulo: str) -> list[str]:
 
 
 def _achados_em_arquivo(caminho: Path) -> list[str]:
-    return _achados_em_fonte(
-        caminho.read_text(encoding="utf-8"), str(caminho.relative_to(_RAIZ))
-    )
+    return _achados_em_fonte(caminho.read_text(encoding="utf-8"), str(caminho.relative_to(_RAIZ)))
 
 
 # =================================================================================================
@@ -184,9 +180,7 @@ def test_achados_aceita_falso_com_task_kind_nomeado_ou_kwargs_catchall() -> None
         "        return ''\n"
     )
     fonte_kwargs = (
-        "class F:\n"
-        "    async def generate(self, prompt, *, phi=False, **_kwargs):\n"
-        "        return ''\n"
+        "class F:\n    async def generate(self, prompt, *, phi=False, **_kwargs):\n        return ''\n"
     )
     assert _achados_em_fonte(fonte_nomeado, "sintetico.py") == []
     assert _achados_em_fonte(fonte_kwargs, "sintetico.py") == []
