@@ -397,44 +397,75 @@ _RATE_LIMITER: RateLimiter | None = None
 def _rate_limiter() -> RateLimiter:
     """The process's `RateLimiter`, configured from `GatewaySettings` on first use.
 
-    LAZY, AND IMPORTED BRANCH-LOCALLY, for the module's existing reason: `maezo.gateway`'s policy
-    core must not acquire an import-time dependency on `pydantic-settings` (same discipline as
-    `_count_tool_call`'s observability import and `effect_pep`'s note on `maezo.tools`).
+    THE IMPORT IS LOCAL, AND IT IS NOT A CYCLE GUARD. Probed both ways: importing
+    `maezo.gateway.settings` at module scope from here creates no import cycle in any order. It is
+    local for the reason `_count_tool_call`'s observability import is — `maezo.gateway`'s policy
+    core keeps no IMPORT-TIME dependency on `pydantic-settings`, and reads no environment at import
+    time, so importing the chokepoint stays a pure operation.
 
-    A SETTINGS FAILURE DOES NOT DISABLE THE LIMIT. If `GatewaySettings()` raises — a malformed
-    `MAEZO_GATEWAY_RATE_LIMIT_*` value, most likely — this builds the limiter from
-    `rate_limit.py`'s DERIVED DEFAULTS and logs at ERROR. That is the conservative direction, not
-    a silent fallback: the defaults are the documented floor, the failure is loud, and the
-    alternative readings are both worse. Refusing to build would turn one typo into a total
-    outage of every effect in the replica; building an unlimited limiter would let a typo REMOVE
-    the control this gap exists to add.
+    A SETTINGS FAILURE FAILS LOUD, IN EVERY PROCESS (D6-01-F3). If `GatewaySettings()` raises — a
+    malformed `MAEZO_GATEWAY_RATE_LIMIT_*` value, most likely — this raises
+    `RateLimitConfigurationError` and builds NOTHING. The first version caught it and installed the
+    derived defaults, which had a consequence the settings validators' own docstrings ("fail LOUD
+    at settings construction rather than clamp") denied: those validators only bit in the gateway
+    health daemon, the one process that constructs `GatewaySettings` at bring-up. Everywhere else
+    the limiter is built lazily on the first gated call, so `..._CAPACITY=0` was an ERROR log and a
+    replica running silently on 120/20 — the operator's configured control replaced by a different
+    one. See `rate_limit.RateLimitConfigurationError` for why the outage is the correct reading.
+
+    Raises:
+        RateLimitConfigurationError: the gateway settings could not be constructed. The first
+            gated call in the replica fails; no effect happens un-throttled.
     """
     global _RATE_LIMITER
     if _RATE_LIMITER is None:
-        capacity = rate_limit.DEFAULT_CAPACITY
-        refill = rate_limit.DEFAULT_REFILL_PER_SECOND
-        try:
-            from maezo.gateway.settings import GatewaySettings  # noqa: PLC0415 — lazy, see above
+        # Local import: see the docstring. Not a cycle guard.
+        from maezo.gateway.settings import GatewaySettings
 
+        try:
             settings = GatewaySettings()
-            capacity = settings.rate_limit_capacity
-            refill = settings.rate_limit_refill_per_second
-        except Exception:  # noqa: BLE001 — see the docstring: loud, and still limited.
-            logger.error("effect_seam_rate_limit_settings_unreadable", exc_info=True)
-        _RATE_LIMITER = RateLimiter(capacity=capacity, refill_per_second=refill)
-        logger.info("effect_seam_rate_limit_configured", capacity=capacity, refill_per_second=refill)
+        except Exception as exc:
+            logger.error(
+                "effect_seam_rate_limit_settings_invalid",
+                error=type(exc).__name__,
+                exc_info=True,
+            )
+            raise rate_limit.RateLimitConfigurationError(
+                "gateway rate-limit settings are invalid or unreadable — refusing to build the "
+                "effect chokepoint limiter. Fix MAEZO_GATEWAY_RATE_LIMIT_CAPACITY / "
+                "MAEZO_GATEWAY_RATE_LIMIT_REFILL_PER_SECOND; there is deliberately no fallback to "
+                "the derived defaults, which would run this replica on numbers nobody chose."
+            ) from exc
+        _RATE_LIMITER = RateLimiter(
+            capacity=settings.rate_limit_capacity,
+            refill_per_second=settings.rate_limit_refill_per_second,
+        )
+        logger.info(
+            "effect_seam_rate_limit_configured",
+            capacity=_RATE_LIMITER.capacity,
+            refill_per_second=_RATE_LIMITER.refill_per_second,
+        )
     return _RATE_LIMITER
 
 
-def configure_rate_limiter(limiter: RateLimiter | None) -> None:
-    """Install the process-wide chokepoint limiter, or clear it so the next call rebuilds it.
+def _configure_rate_limiter_for_tests(limiter: RateLimiter | None) -> None:
+    """TEST/DIAGNOSTIC DOOR ONLY — install the process-wide limiter, or clear the memo.
 
-    Exists because the limiter is PROCESS state: a composition root that wants the limit built
-    from its own settings object rather than from a fresh `GatewaySettings()` env read installs it
-    here at bring-up, and anything that legitimately needs a clean process (a test asserting the
-    bucket maths through the real `gate`) restores the previous value through the same door
-    instead of reaching for the module global. Passing `None` does NOT disable the limit — it
-    clears the memo, and the next gated call rebuilds from settings.
+    NAMED FOR WHAT IT IS (D6-01-F2). It was `configure_rate_limiter`, public in `__all__`, with a
+    docstring describing a composition root that "installs it here at bring-up". No root does, and
+    none could reach it without importing a private module: it was never re-exported from
+    `maezo.gateway.seams`, and the only caller in the tree is `tests/unit/gateway/
+    test_rate_limit.py`. A door that can neuter the control (any capacity, from anywhere) must not
+    advertise itself as a production one it is not; the honest options were to wire a root or to
+    say so, and wiring a root nobody asked for would have been inventing scope.
+
+    Tests that assert the bucket maths through the real `gate` install a small limiter here and
+    restore the previous value through the same door rather than assigning the module global.
+    Passing `None` does NOT disable the limit — it clears the memo, and the next gated call
+    rebuilds from settings (raising if those settings are invalid).
+
+    If a composition root ever SHOULD configure the limiter from its own settings object, this
+    becomes public again together with that root and its test — not before.
     """
     global _RATE_LIMITER
     _RATE_LIMITER = limiter
@@ -483,10 +514,14 @@ def _rate_limited_denial(decision: EffectDecision, operation: str) -> EffectDeni
 def _count_rate_limited(seam: SeamContext) -> None:
     """Increment `maezo_effect_rate_limited_total` for ONE throttled call. Never raises."""
     try:
-        from maezo.platform.observability import record_effect_rate_limited  # noqa: PLC0415 — lazy
+        # Local import, mirroring `_count_tool_call`: the policy core keeps no import-time
+        # dependency on the observability stack. Not a cycle guard (probed).
+        from maezo.platform.observability import record_effect_rate_limited
 
         record_effect_rate_limited(tenant=seam.tenant, principal=seam.principal)
-    except Exception:  # noqa: BLE001 — a metric error must never break an effect call.
+    except Exception:
+        # Broad on purpose: telemetry never reaches a care path (`_emit`'s precedent). Nothing
+        # security-relevant is swallowed — the refusal itself is raised by `gate`, not here.
         logger.debug("effect_seam_rate_limit_metric_failed", exc_info=True)
 
 

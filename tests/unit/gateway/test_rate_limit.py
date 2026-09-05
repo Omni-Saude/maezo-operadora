@@ -39,7 +39,7 @@ from maezo.gateway.rate_limit import (
     TokenBucket,
 )
 from maezo.gateway.seams import _base
-from maezo.gateway.seams._base import EffectDeniedError, SeamContext, configure_rate_limiter, gate
+from maezo.gateway.seams._base import EffectDeniedError, SeamContext, _configure_rate_limiter_for_tests, gate
 from maezo.gateway.settings import GatewaySettings
 
 pytestmark = pytest.mark.anyio
@@ -54,12 +54,14 @@ def anyio_backend() -> str:
 def limiter_restaurado() -> Iterator[None]:
     """O limitador e' estado de PROCESSO: instalar um balde pequeno e devolver o anterior.
 
-    Feito pela porta publica (`configure_rate_limiter`) e nao mexendo no global do modulo, para
-    que o proprio teste use o caminho que uma raiz de composicao usaria.
+    Feito pela porta declarada de teste/diagnostico (`_configure_rate_limiter_for_tests`), nao
+    mexendo no global do modulo. A porta chamava-se `configure_rate_limiter` e descrevia uma raiz
+    de composicao que a usaria no bring-up; raiz nenhuma a usa nem a alcanca sem importar modulo
+    privado (achado D6-01-F2), entao passou a ter o nome do que e'.
     """
     anterior = _base._RATE_LIMITER
     yield
-    configure_rate_limiter(anterior)
+    _configure_rate_limiter_for_tests(anterior)
 
 
 def _seam(principal: str = "helena", tenant: str = "amh") -> SeamContext:
@@ -193,7 +195,7 @@ def test_settings_recusam_valores_que_neutralizariam_o_limitador(campo: str, val
 
 
 async def test_gate_permite_dentro_do_limite(limiter_restaurado: None) -> None:
-    configure_rate_limiter(RateLimiter(capacity=2, refill_per_second=1.0))
+    _configure_rate_limiter_for_tests(RateLimiter(capacity=2, refill_per_second=1.0))
     seam = _seam()
     decisao = await gate(seam, "dmn.evaluate")
     assert decisao.operation == "dmn.evaluate"
@@ -204,7 +206,7 @@ async def test_gate_recusa_a_chamada_acima_do_limite(limiter_restaurado: None) -
 
     Esta e' a prova que fica VERMELHA se o bloco `if not within_rate: ... raise` sair de `gate`.
     """
-    configure_rate_limiter(RateLimiter(capacity=1, refill_per_second=0.001))
+    _configure_rate_limiter_for_tests(RateLimiter(capacity=1, refill_per_second=0.001))
     seam = _seam()
     await gate(seam, "dmn.evaluate")
     with pytest.raises(EffectDeniedError) as excinfo:
@@ -223,7 +225,7 @@ async def test_a_recusa_por_taxa_chega_no_caminho_declarado_do_no(limiter_restau
     """
     from maezo.tools.workers.dmn_transport import DmnEvaluationError
 
-    configure_rate_limiter(RateLimiter(capacity=1, refill_per_second=0.001))
+    _configure_rate_limiter_for_tests(RateLimiter(capacity=1, refill_per_second=0.001))
     seam = _seam()
     await gate(seam, "dmn.evaluate")
     with pytest.raises(DmnEvaluationError):
@@ -232,7 +234,7 @@ async def test_a_recusa_por_taxa_chega_no_caminho_declarado_do_no(limiter_restau
 
 async def test_a_recusa_por_taxa_nao_carrega_phi_nem_argumento(limiter_restaurado: None) -> None:
     """I-3: so' tokens limitados na mensagem — operacao, classe, camada, motivo, forma."""
-    configure_rate_limiter(RateLimiter(capacity=1, refill_per_second=0.001))
+    _configure_rate_limiter_for_tests(RateLimiter(capacity=1, refill_per_second=0.001))
     seam = _seam()
     segredo = "SP-OP-" + "9" * 6
     await gate(seam, "cibseven.start_process", process_key=segredo)
@@ -250,7 +252,7 @@ async def test_a_recusa_por_taxa_incrementa_o_contador(limiter_restaurado: None)
 
     contador = get_metrics_collector().effect_rate_limited
     antes = contador.labels(tenant="amh", principal="helena")._value.get()
-    configure_rate_limiter(RateLimiter(capacity=1, refill_per_second=0.001))
+    _configure_rate_limiter_for_tests(RateLimiter(capacity=1, refill_per_second=0.001))
     seam = _seam()
     await gate(seam, "dmn.evaluate")
     with pytest.raises(EffectDeniedError):
@@ -261,7 +263,7 @@ async def test_a_recusa_por_taxa_incrementa_o_contador(limiter_restaurado: None)
 
 async def test_o_balde_e_por_principal_tambem_atraves_de_gate(limiter_restaurado: None) -> None:
     """Um agente estrangulado nao estrangula o outro — isolamento visto do chokepoint."""
-    configure_rate_limiter(RateLimiter(capacity=1, refill_per_second=0.001))
+    _configure_rate_limiter_for_tests(RateLimiter(capacity=1, refill_per_second=0.001))
     helena = _seam("helena")
     rafael = _seam("rafael")
     await gate(helena, "dmn.evaluate")
@@ -280,7 +282,7 @@ async def test_uma_chamada_que_a_politica_negaria_tambem_gasta_token(
     `shadow`, o DENY nao levanta; o token, porem, e' gasto — senao um loop de recusas ficaria
     sem qualquer limite.
     """
-    configure_rate_limiter(RateLimiter(capacity=1, refill_per_second=0.001))
+    _configure_rate_limiter_for_tests(RateLimiter(capacity=1, refill_per_second=0.001))
     seam = _seam()
     decisao = await gate(seam, "gateway.desconhecida")
     assert decisao.allow is False
@@ -292,7 +294,7 @@ async def test_uma_chamada_que_a_politica_negaria_tambem_gasta_token(
 
 async def test_o_limitador_do_processo_sai_das_settings(limiter_restaurado: None) -> None:
     """Sem limitador instalado, a primeira chamada gated constroi um a partir das settings."""
-    configure_rate_limiter(None)
+    _configure_rate_limiter_for_tests(None)
     seam = _seam()
     await gate(seam, "dmn.evaluate")
     limitador = _base._RATE_LIMITER
@@ -351,7 +353,7 @@ async def test_toda_operacao_gated_recusa_por_taxa_na_sua_forma_tipada(
     Aqui cada operacao e' dirigida acima do limite e a recusa tem de ser o tipo que a forma
     DECLARADA da classe manda, com o payload de taxa.
     """
-    configure_rate_limiter(RateLimiter(capacity=1, refill_per_second=0.001))
+    _configure_rate_limiter_for_tests(RateLimiter(capacity=1, refill_per_second=0.001))
     seam = _seam()
     await gate(seam, operacao)
     with pytest.raises(EffectDeniedError) as excinfo:
@@ -395,7 +397,7 @@ async def test_as_quatro_formas_de_no_amplo_tambem_sao_capturaveis_pelo_nome(
     from maezo.gateway import seams as seams_pkg
 
     esperado = getattr(seams_pkg, handler)
-    configure_rate_limiter(RateLimiter(capacity=1, refill_per_second=0.001))
+    _configure_rate_limiter_for_tests(RateLimiter(capacity=1, refill_per_second=0.001))
     seam = _seam()
     await gate(seam, operacao)
     with pytest.raises(esperado) as excinfo:
@@ -429,3 +431,53 @@ def test_a_forma_da_recusa_por_taxa_vem_da_classe_e_nao_da_decisao() -> None:
     assert recusa.decision.reason == rate_limit.REASON_RATE_LIMITED
     assert recusa.decision.layer == rate_limit.LAYER_RATE_LIMIT
     assert recusa.decision.enforced is True
+
+
+# =================================================================================================
+# D6-01-F3 — settings absurdas derrubam a PRIMEIRA chamada gated, em qualquer processo
+# =================================================================================================
+
+
+async def test_uma_capacidade_absurda_derruba_a_primeira_chamada_gated(
+    limiter_restaurado: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ "Fail LOUD, sem clamp" valia so' no daemon de health; agora vale em todo processo.
+
+    Nos pods de agent-runtime e do worker o limitador nasce PREGUICOSO, na primeira chamada gated —
+    e a versao anterior capturava a `ValidationError` ali e instalava os defaults derivados. Efeito:
+    `MAEZO_GATEWAY_RATE_LIMIT_CAPACITY=0` virava uma linha de ERROR e uma replica rodando calada em
+    120/20, o controle configurado pelo operador trocado por outro. Mutante: voltar a capturar e
+    instalar os defaults -> VERMELHO neste teste.
+    """
+    monkeypatch.setenv("MAEZO_GATEWAY_RATE_LIMIT_CAPACITY", "0")
+    _configure_rate_limiter_for_tests(None)
+    seam = _seam()
+    with pytest.raises(rate_limit.RateLimitConfigurationError):
+        await gate(seam, "dmn.evaluate")
+    # E NADA foi instalado: nenhuma replica segue com um limitador que ninguem escolheu.
+    assert _base._RATE_LIMITER is None
+
+
+async def test_uma_recarga_absurda_tambem_derruba_a_primeira_chamada_gated(
+    limiter_restaurado: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O mesmo para a recarga: um balde que nunca enche nao vira "os defaults" em silencio."""
+    monkeypatch.setenv("MAEZO_GATEWAY_RATE_LIMIT_REFILL_PER_SECOND", "0")
+    _configure_rate_limiter_for_tests(None)
+    with pytest.raises(rate_limit.RateLimitConfigurationError):
+        await gate(_seam(), "dmn.evaluate")
+    assert _base._RATE_LIMITER is None
+
+
+def test_a_porta_de_configuracao_nao_e_superficie_publica_do_pacote() -> None:
+    """D6-01-F2: a porta que pode neutralizar o controle nao se anuncia como producao.
+
+    Nao esta em `maezo.gateway.seams.__all__`, nem em `_base.__all__`, e o nome diz o escopo.
+    """
+    from maezo.gateway import seams as seams_pkg
+
+    assert "configure_rate_limiter" not in seams_pkg.__all__
+    assert "_configure_rate_limiter_for_tests" not in seams_pkg.__all__
+    assert not hasattr(seams_pkg, "configure_rate_limiter")
+    assert "configure_rate_limiter" not in _base.__all__
+    assert "_configure_rate_limiter_for_tests" not in _base.__all__

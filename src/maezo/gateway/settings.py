@@ -56,6 +56,12 @@ class GatewaySettings(BaseSettings):
         Fail LOUD at settings construction rather than clamp: a deployment that typed `0` meant
         something, and quietly substituting a working number would hide a misconfiguration behind
         a system that appears to run correctly.
+
+        LOUD IN EVERY PROCESS, not only in the health daemon that constructs this class at
+        bring-up: `seams/_base.py::_rate_limiter` builds the limiter lazily on the first gated call
+        in the agent-runtime and worker pods, and it re-raises this failure as
+        `rate_limit.RateLimitConfigurationError` instead of installing the derived defaults
+        (D6-01-F3). Without that, this docstring was true of one pod and false of the others.
         """
         if value < 1:
             raise ValueError(

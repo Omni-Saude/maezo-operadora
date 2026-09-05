@@ -117,6 +117,25 @@ REASON_RATE_LIMITED: Final[str] = "TAXA_EXCEDIDA"
 LAYER_RATE_LIMIT: Final[str] = "L_TAXA"
 
 
+class RateLimitConfigurationError(RuntimeError):
+    """The settings that configure the chokepoint limiter are invalid or unreadable (D6-01-F3).
+
+    RAISED, never swallowed. The first version of `seams/_base.py::_rate_limiter` caught every
+    exception from `GatewaySettings()` and installed the derived defaults, on the argument that
+    refusing to build would turn one typo into a total outage. The consequence was that
+    `GatewaySettings`'s own validators — whose docstrings say "fail LOUD at settings construction
+    rather than clamp" — only ever failed loudly in the ONE process that constructs the settings
+    object at bring-up (the gateway health daemon). In the agent-runtime and worker pods, where the
+    limiter is built lazily on the first gated call, `MAEZO_GATEWAY_RATE_LIMIT_CAPACITY=0` was an
+    ERROR log and a replica running silently on 120/20 — a configured control quietly replaced by a
+    different one, which is the exact shape of the defect D6-01 exists to remove.
+
+    A total outage is the CORRECT reading of "this replica is misconfigured": it is loud, it is
+    caught by any readiness path that exercises an effect, and it cannot be mistaken for the
+    operator's intent. Silently running on numbers nobody chose cannot.
+    """
+
+
 @dataclass(slots=True)
 class TokenBucket:
     """One (tenant, principal)'s bucket. Pure arithmetic — no clock reads except `monotonic`.
@@ -234,6 +253,7 @@ __all__ = [
     "DEFAULT_REFILL_PER_SECOND",
     "LAYER_RATE_LIMIT",
     "REASON_RATE_LIMITED",
+    "RateLimitConfigurationError",
     "RateLimiter",
     "TokenBucket",
 ]
