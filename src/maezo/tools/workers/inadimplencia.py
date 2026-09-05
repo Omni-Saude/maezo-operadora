@@ -510,7 +510,7 @@ def _record_dossier_delegation_gap(token: str) -> None:
     """
     try:
         record_worker_error(_DOSSIER_HANDLER_METRIC_NAME, "operadora.inadimplencia.prepare_dossier", token)
-    except Exception as exc:  # noqa: BLE001 - observabilidade nunca derruba a tarefa
+    except Exception as exc:  # observabilidade nunca derruba a tarefa (auth.py e o precedente)
         logger.warning("inadimplencia_dossier_delegation_metric_failed", error=str(exc))
 
 
@@ -593,7 +593,9 @@ def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> Tas
             _record_dossier_delegation_gap(_GAP_MISSING_IDENTIFIERS)
             return _com_lacuna(_GAP_MISSING_IDENTIFIERS)
 
-        from maezo.agents.fernando.delegation import delegate_arrears_followup  # noqa: PLC0415
+        # Import LOCAL de proposito (mesma forma de `credenciamento.py`): `agents.fernando`
+        # arrasta o grafo inteiro, e `tools/workers` nao pode depender de `agents` no import.
+        from maezo.agents.fernando.delegation import delegate_arrears_followup
 
         try:
             result = await delegate_arrears_followup(
@@ -615,7 +617,10 @@ def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> Tas
             )
             _record_dossier_delegation_gap(_GAP_START_FAILED)
             return _com_lacuna(_GAP_START_FAILED)
-        except Exception as exc:  # noqa: BLE001 — a UT humana TEM de abrir; nunca levantar aqui.
+        # `Exception` LARGO de proposito (DL-0037): a UT humana TEM de abrir, entao nenhuma
+        # classe de falha da delegacao pode escapar daqui. `BaseException` NAO — um
+        # `CancelledError` de shutdown nao e' uma falha de delegacao.
+        except Exception as exc:
             logger.error(
                 "inadimplencia_dossier_delegation_failed",
                 tenant_id=tenant_id,
