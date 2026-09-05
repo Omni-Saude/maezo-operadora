@@ -40,6 +40,7 @@ import yaml
 
 from maezo.platform.lifecycle.legal_bases_matrix import REQUIRED_ENTRY_FIELDS
 from maezo.tools.workers import lgpd
+from maezo.tools.workers.base import WorkerBase
 from maezo.tools.workers.phi_vars import PHI_FREE_TEXT_VARS, PHI_PROCESS_VARS
 
 _REPO_ROOT = Path(__file__).parents[3]
@@ -168,8 +169,11 @@ def _resolve(cited_path: str) -> Path:
 #: exist, but never unheld. (The house rule is "cite by symbol"; these three survive because the
 #: line IS the evidence: two `raise` statements and one numbered protocol rule.)
 _LINE_ANCHORS: dict[str, str] = {
-    "src/maezo/platform/erasure.py:152": "raise ErasureNotImplementedError(",
-    "src/maezo/platform/erasure.py:187": "raise ErasureNotImplementedError(",
+    # The last surviving line citation, kept because the line IS the evidence: a NUMBERED rule in
+    # a protocol document, not a moving code symbol. The two `erasure.py:152`/`:187` citations that
+    # used to live here were retired in the post-`abb9d60` re-anchoring — the pgvector removal
+    # shifted them to `:160`/`:195` and this fence went red, so they became
+    # `ErasureManager.erase` / `.verify` symbol citations (BRIEF-COMMON's rule).
     "docs/sme-dispatch/README.md:109-111": (
         "No agent — this one included — ever creates, edits, or backdates a signoff file."
     ),
@@ -500,35 +504,76 @@ def _bpmn_topics() -> set[str]:
     }
 
 
-def test_the_lgpd_orphan_topics_are_the_four_the_runbook_names() -> None:
-    """`DSR-PROCEDURE-DRAFT.md` §5 item 2 said "os três"; the tree says four (`publish_completed`
-    is carried by the shared `operadora.events.publish` in the BPMN, so its dedicated code topic
-    has zero service tasks). Re-derived here rather than trusted."""
-    registered = {
-        cls().topic
-        for cls in (
-            lgpd.ValidateIdentityWorker,
-            lgpd.ExecuteExportWorker,
-            lgpd.ExecuteRectificationWorker,
-            lgpd.ExecuteErasureWorker,
-            lgpd.PublishCompletedWorker,
-        )
-    } | {
-        lgpd._REQUEST_PROOF_TOPIC,
-        lgpd._SEND_RESPONSE_TOPIC,
-        lgpd._NOTIFY_SLA_RISK_TOPIC,
-    }
-    orphans = {t for t in registered if t not in _bpmn_topics()}
-    assert orphans == {
+#: pt-BR cardinals, so the runbook's PROSE has to state the number the tree yields. Deliberately
+#: small: an orphan set outside this range means something structural changed and a human should
+#: read the reconciliation document, not extend a lookup table.
+_PT_BR_CARDINAL: dict[int, str] = {1: "um", 2: "dois", 3: "três", 4: "quatro", 5: "cinco"}
+
+
+def _registered_lgpd_topics() -> set[str]:
+    """Every `operadora.lgpd.*` topic `register_lgpd_workers` puts on a harness, DERIVED from the
+    module: each `WorkerBase` subclass defined in `lgpd` plus each module-level `_*_TOPIC`
+    constant. Nothing is hardcoded — `abb9d60` (train #326) deleted `PublishCompletedWorker`
+    (R-H / owner decision R-103) and the previous hardcoded tuple raised `AttributeError` instead
+    of reporting the real, smaller orphan set."""
+    topics: set[str] = set()
+    for name in dir(lgpd):
+        obj = getattr(lgpd, name)
+        if (
+            isinstance(obj, type)
+            and issubclass(obj, WorkerBase)
+            and obj is not WorkerBase
+            and obj.__module__ == lgpd.__name__
+        ):
+            topics.add(obj().topic)
+        elif name.endswith("_TOPIC") and isinstance(obj, str):
+            topics.add(obj)
+    return {t for t in topics if t.startswith("operadora.lgpd.")}
+
+
+def test_the_runbook_states_the_orphan_topic_count_the_tree_actually_yields() -> None:
+    """The count is DERIVED (registered `operadora.lgpd.*` topics minus the BPMN's `camunda:topic`
+    set) and the runbook's §5 prose must state it in words.
+
+    History this fence carries, both directions: the first revision said "os três" when the tree
+    said four (`publish_completed` had no service task); the post-`abb9d60` re-anchoring says
+    "três" again because R-H/R-103 DELETED that worker. Hardcoding either number is what made the
+    prose rot, so neither the set nor the number is written down here."""
+    orphans = _registered_lgpd_topics() - _bpmn_topics()
+    assert orphans, "expected at least one orphan LGPD code topic; found none (fence inert?)"
+    assert orphans <= {
         "operadora.lgpd.execute_export",
         "operadora.lgpd.execute_rectification",
         "operadora.lgpd.execute_erasure",
         "operadora.lgpd.publish_completed",
-    }, f"the orphan LGPD code topics changed: {sorted(orphans)}"
+        "operadora.lgpd.assess_request",
+    }, (
+        f"a NEW orphan LGPD code topic appeared: {sorted(orphans)} — the runbook's §5 and the "
+        "reconciliation document both need re-reading before a DPO signs"
+    )
 
+    count = len(orphans)
+    assert count in _PT_BR_CARDINAL, f"unexpected orphan count {count}: {sorted(orphans)}"
     runbook = _draft_text("DSR-PROCEDURE-DRAFT.md")
-    assert "**quatro** tópicos que o BPMN não declara" in runbook
+    expected = f"**{_PT_BR_CARDINAL[count]}** tópicos que o BPMN não declara"
+    assert expected in runbook, (
+        f"DSR-PROCEDURE-DRAFT.md §5 does not state the derived orphan count: expected "
+        f"{expected!r} (orphans = {sorted(orphans)})"
+    )
+    for topic in orphans:
+        assert topic.rsplit(".", 1)[-1] in runbook, f"orphan topic {topic!r} is not named in the runbook"
     assert "docs/compliance/lgpd-topic-reconciliation.md" in runbook
+
+
+def test_publish_completed_stayed_retired_after_abb9d60() -> None:
+    """R-H / owner decision R-103 landed in `main` `abb9d60` (train #326): `PublishCompletedWorker`
+    and its registration were REMOVED. §8.1 of the runbook records that as the reason the orphan
+    count fell back to three. If the worker or its topic returns, that addendum is wrong."""
+    assert not hasattr(lgpd, "PublishCompletedWorker")
+    assert "operadora.lgpd.publish_completed" not in _registered_lgpd_topics()
+    runbook = _draft_text("DSR-PROCEDURE-DRAFT.md")
+    assert "Reancoragem pós-merge `abb9d60`" in runbook
+    assert "R-103" in runbook
 
 
 # ---------------------------------------------------------------------------------------------

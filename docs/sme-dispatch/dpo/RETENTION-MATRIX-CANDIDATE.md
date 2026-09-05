@@ -73,7 +73,7 @@ decreto.** O princípio de controle proposto: LGPD art. 18 VI (eliminação) ced
 
 | # | `categoria` | Onde materializa (relação → CronJob) | `base_legal` a confirmar | `retencao` proposta | `acao` proposta | Mecanismo de eliminação que **existe** hoje em `src/` |
 |---|---|---|---|---|---|---|
-| 1 | `dados_saude_prontuario` | `checkpoint_blobs` (BYTEA que carrega PHI) → `expurgo-working`; `agent_memory` + `agent_memory.embedding` → `verify-erasure` | LGPD art. 11 + art. 16 I; **Lei 13.787/2018 art. 6**; CFM Res. 1.821/2007 | **≥ 20 anos** do último lançamento | `RETER_COM_BASE_LEGAL` | **Nenhum.** `ErasureManager._erase_working/_erase_episodic/_erase_semantic` não existem como SQL; `erase()` levanta `ErasureNotImplementedError` (`src/maezo/platform/erasure.py:152`) |
+| 1 | `dados_saude_prontuario` | `checkpoint_blobs` (BYTEA que carrega PHI) → `expurgo-working`; `agent_memory` + `agent_memory.embedding` → `verify-erasure` | LGPD art. 11 + art. 16 I; **Lei 13.787/2018 art. 6**; CFM Res. 1.821/2007 | **≥ 20 anos** do último lançamento | `RETER_COM_BASE_LEGAL` | **Nenhum.** `ErasureManager._erase_working/_erase_episodic/_erase_semantic` não existem como SQL; `erase()` levanta `ErasureNotImplementedError` (`src/maezo/platform/erasure.py::ErasureManager.erase`) |
 | 2 | `cadastrais_contratuais` | `agent_memory` (linhas com `fhir_patient_id`) → `verify-erasure`; `checkpoints`/`checkpoint_writes` (variáveis de processo) → `expurgo-working` | LGPD art. 7 V (execução de contrato) + art. 16 I; Cód. Civil art. 206 | **vínculo + 5 anos** | `ELIMINAR` após o prazo | **Nenhum.** Mesmo bloqueio do item 1; ver também a ponte de identidade ausente em §5 |
 | 3 | `consentimento_revogacao` | `audit_chain` (`decision_basis` jsonb, migração `0002:36`) → `audit-retention` | LGPD art. 16 I; accountability art. 37/50 | enquanto durar + **5 anos** pós-cessação | `RETER_COM_BASE_LEGAL` | **Nenhum.** A poda de `audit_chain` está bloqueada (§5, ADR-0020/ADR-0029) |
 | 4 | `auditoria_nao_repudio` | `audit_chain`, `audit_emit_dedup` (`0005:59-67`) → `audit-retention` | ADR-0007; LGPD art. 16 I + art. 7 VI (defesa em processo) | **5 anos** (a mesma janela que `retention.py` assume) | `RETER_COM_BASE_LEGAL` — nunca eliminável a pedido do titular | **Bloqueado por desenho.** `RetentionManager.retention_query()` (`src/maezo/platform/retention.py`) constrói o `DELETE FROM audit_chain WHERE ts < cutoff` **sem** predicado de legal-hold e **sem** re-âncora; tem ZERO chamadores de produção, travado em CI |
@@ -192,8 +192,8 @@ deliberada.
 Assinar aqui não é um gatilho destrutivo. Três bloqueios independentes continuam de pé:
 
 1. **`ErasureManager` não executa nada.** `erase()`/`verify()` levantam
-   `ErasureNotImplementedError` (`src/maezo/platform/erasure.py:152` e
-   `src/maezo/platform/erasure.py:187`); o SQL por camada
+   `ErasureNotImplementedError` (`src/maezo/platform/erasure.py::ErasureManager.erase` e
+   `::ErasureManager.verify`); o SQL por camada
    não existe.
 2. **Duas pontes de identidade não existem** (`erasure_plan.py`, seção "THE TWO MISSING IDENTITY
    BRIDGES"): `titular_pseudo_id → fhir_patient_id` e `thread_id → fhir_patient_id`. Sem elas,

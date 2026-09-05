@@ -236,7 +236,8 @@ Em `NEGAR_FUNDAMENTADO`, `fundamentacao_legal` é **obrigatória** — o engine 
 
 Não há worker. E, mais grave que a ausência do worker: **a eliminação real não é executável**.
 `ErasureManager.erase()`/`.verify()` levantam `ErasureNotImplementedError` **sempre**
-(`src/maezo/platform/erasure.py:152` e `src/maezo/platform/erasure.py:187`), e as duas pontes de identidade
+(`src/maezo/platform/erasure.py::ErasureManager.erase` e
+`src/maezo/platform/erasure.py::ErasureManager.verify`), e as duas pontes de identidade
 (`titular_pseudo_id → fhir_patient_id`, `thread_id → fhir_patient_id`) não existem em lugar
 nenhum da árvore.
 
@@ -283,15 +284,15 @@ segue aberto e o jurídico é alertado.
    `operadora.lgpd.execute_request` (R-181) é um **PR de conformidade código↔modelo pendente**,
    **não feito aqui**.
 
-   Hoje `register_lgpd_workers` registra **quatro** tópicos que o BPMN não declara, não três:
-   `operadora.lgpd.execute_export`, `.execute_rectification`, `.execute_erasure` **e**
-   `.publish_completed` — o `ST_PublishCompleted` do BPMN usa o publicador genérico
-   `operadora.events.publish`, então nenhuma service task carrega `publish_completed`.
-   A reconciliação da casa já os enumera como **O2-O5** em
-   [`docs/compliance/lgpd-topic-reconciliation.md`](../../compliance/lgpd-topic-reconciliation.md)
-   (o O1, `assess_request`, foi RETIRADO em T2.8 e não conta mais). Os dois atos são **distintos**:
-   R-181 colapsa O2-O4 em `execute_request`; a ação **R-H** daquele documento pede a **retirada**
-   de `publish_completed` (O5). Assinar um não resolve o outro.
+   Hoje `register_lgpd_workers` registra **três** tópicos que o BPMN não declara —
+   `operadora.lgpd.execute_export`, `.execute_rectification` e `.execute_erasure` —, enumerados
+   como **O2-O4** em
+   [`docs/compliance/lgpd-topic-reconciliation.md`](../../compliance/lgpd-topic-reconciliation.md).
+   Os outros dois órfãos daquela tabela já foram **fechados**, cada um por um ato distinto de
+   R-181: **O1** (`assess_request`) foi retirado em T2.8, e **O5** (`publish_completed`) foi
+   retirado por **R-H** / decisão do dono **R-103**, que pousou em `main` no merge `abb9d60`
+   (trem #326) — ver §8.1. Sobra apenas o colapso **O2-O4 → `operadora.lgpd.execute_request`**,
+   que é R-181, e continua pendente.
 3. **Nenhum signoff.** `docs/processes/contracts/signoffs/SP-OP-LGPD-DSR-001.signoff.yaml`
    **não** foi criado por este rascunho e não pode sê-lo por um agente
    (`docs/sme-dispatch/README.md:109-111`, regra 5 do protocolo de redline).
@@ -306,13 +307,13 @@ segue aberto e o jurídico é alertado.
 | Risco | Origem verificada |
 |---|---|
 | Start manual sem proveniência ADR-0007 e sem idempotência | ausência de sítio de start pelo chokepoint (`transport.py`, bloco de `StartDedupPosture`) |
-| Eliminação prometida e não executada | `src/maezo/platform/erasure.py:152` / `src/maezo/platform/erasure.py:187` (`ErasureManager.erase`/`.verify`) |
+| Eliminação prometida e não executada | `src/maezo/platform/erasure.py::ErasureManager.erase` / `::ErasureManager.verify` |
 | Pacote compilado sem matriz ratificada | AF-07 (`load_retention_matrix` recusa) |
 | Prazos internos P7D/P10D ainda `DRAFT/verify` | contrato §SLAs |
 | Política de produtor de `identidade_verificada` não ratificada | ADR-0031 Decisão ponto 5 |
 | **`detalhes_requisicao` digitado no Passo 1 fica CRU no motor** — o nome não está em `PHI_PROCESS_VARS` nem em `PHI_FREE_TEXT_VARS`; a proteção de hoje é uma omissão manual num call site | §2.4; `phi_completeness.py::DISPOSITIONS["detalhes_requisicao"]` (`DRAFT/verify (DPO)`); `docs/review-queue.md` §GAP-DU-07 |
 | **`fundamentacao_legal` exigida no Passo 5 fica CRA no motor** — mesma classe do irmão JÁ listado `fundamentacao_dut`, e `ExecuteErasureWorker` já a devolve crua num dict de saída (latente enquanto o tópico for órfão; viva com R-181) | §2.4; `phi_completeness.py::DISPOSITIONS["fundamentacao_legal"]` (`DRAFT/verify (DPO)`); `docs/review-queue.md` §GAP-DU-07 |
-| **Quatro** workers registrados fora do tópico modelado (não três) | R-181 (O2-O4) + R-H/retirada de `publish_completed` (O5), `docs/compliance/lgpd-topic-reconciliation.md` |
+| **Três** workers registrados fora do tópico modelado (O2-O4) | R-181, `docs/compliance/lgpd-topic-reconciliation.md` (O5 fechado por R-H/R-103 em `abb9d60`) |
 
 ---
 
@@ -340,9 +341,36 @@ mudou na re-verificação, declarado em vez de reescrito em silêncio:
    pseudonimizado" e o §6 não listava nenhum dos dois nomes. Isso instruía o operador a digitar
    PHI num campo sem controle ancorado em nome, sem declarar o risco — o defeito mais grave
    apontado na verificação adversarial deste pacote.
-2. **§5.2 dizia "os três"; são quatro** (`publish_completed` incluído) — corrigido, com as duas
-   ações distintas (R-181 e R-H) separadas.
+2. **§5.2 dizia "os três"; eram quatro** (`publish_completed` incluído) — corrigido em
+   2026-09-05, com as duas ações distintas (R-181 e R-H) separadas. **Superado por §8.1:** R-H
+   pousou em `abb9d60` e o número voltou a **três**, agora por um motivo diferente (O5 fechado,
+   não O5 esquecido).
 3. **Citações por linha em `lgpd.py` (`:97`, `:754`) trocadas por citação por símbolo**, que é a
    regra da casa para documentos que sobrevivem a merges.
 4. Nada em `spec/`, `src/`, `tests/` ou `spec/policies/**` foi alterado por este rascunho; os
    campos de assinatura continuam **vazios**.
+
+### 8.1 Reancoragem pós-merge `abb9d60` (trem #326) — 2026-09-05
+
+O merge de `origin/main` `abb9d60` mudou dois fatos que este runbook afirmava. **A cerca
+`tests/unit/docs/test_dpo_drafts_citations.py` ficou VERMELHA nos dois** — que é exatamente para
+isso que ela existe:
+
+1. **O5 fechado: os órfãos passaram de quatro para TRÊS.** `PublishCompletedWorker` e o seu
+   registro foram **removidos** de `src/maezo/tools/workers/lgpd.py` (gap
+   `LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC`, ação **R-H**, decisão do dono **R-103**). A base da
+   remoção, registrada no próprio módulo, é o fato de engenharia — `operadora.lgpd.publish_completed`
+   não aparece em `spec/`, e o worker era pior que inalcançável: devolvia `{"status": "published"}`
+   afirmando uma publicação que nunca fazia. §5 item 2 e §6 foram corrigidos. **Isto reduz o
+   escopo de R-181, não o fecha:** o colapso O2-O4 em `operadora.lgpd.execute_request` continua
+   pendente, e com ele a pré-condição de §2.4 (o egresso cru de `fundamentacao_legal` em
+   `lgpd.py::ExecuteErasureWorker.execute`, **verificado ainda presente** em `abb9d60`).
+2. **`erasure.py` mudou de forma (remoção do pgvector) e as duas citações por linha
+   envelheceram** (`:152`/`:187` → `:160`/`:195`). Trocadas por
+   `erasure.py::ErasureManager.erase` / `::ErasureManager.verify`, que é a regra da casa. **O
+   piso não mudou:** os dois `raise ErasureNotImplementedError` continuam lá, e as cinco suítes
+   de fail-closed continuam verdes.
+
+A cerca também passou a **derivar** a contagem de órfãos da árvore (registros de
+`register_lgpd_workers` × `camunda:topic` do BPMN) e a exigir que a prosa deste §5 diga o número
+derivado — para que este parágrafo não possa envelhecer em silêncio de novo.
