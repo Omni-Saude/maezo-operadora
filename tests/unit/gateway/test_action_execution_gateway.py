@@ -731,7 +731,7 @@ def _task(topic: str = _TOPIC, task_id: str = "task-1") -> ExternalTask:
 def _harness(transport: FakeWorkerTransport, sink: FakeAuditSink) -> WorkerHarness:
     harness = WorkerHarness(transport, worker_id="w-1", tenant="fixture", audit_sink=sink)
     harness.register_worker(
-        FunctionWorker(_TOPIC, lambda variables: {"desfecho": "APROVAR", "notice_sent": True})
+        FunctionWorker(_TOPIC, lambda variables: {"desfecho": "APROVAR", "admissivel": True})
     )
     harness.register_worker(FunctionWorker(_OTHER_TOPIC, lambda variables: {"pagamento_liberado": True}))
     return harness
