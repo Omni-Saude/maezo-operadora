@@ -36,6 +36,7 @@
       "type": "timeseries",
       "title": "DLQ backlog proxy (MaezoDeadLetterBacklog > 0 por 10m)",
       "description": "Recording rule maezo_dead_letter_derived (kafka_topic_partition_current_offset somado por particao). HONESTY LIMIT: offset monotonico, proxy grosseiro — ver o comentario da recording rule em alert-rules.yml.",
+      "maezo_mirrors_alert": "MaezoDeadLetterBacklog",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -89,6 +90,7 @@
       "type": "timeseries",
       "title": "DLQ inflow rate (MaezoDeadLetterGrowth > 5/s por 5m)",
       "description": "rate() por particao ANTES do sum — nunca rate(sum(...)). Proxy de crescimento, nao de backlog instantaneo.",
+      "maezo_mirrors_alert": "MaezoDeadLetterGrowth",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -195,6 +197,7 @@
       "type": "timeseries",
       "title": "Lifecycle CronJob failures (MaezoLifecycleJobFailed, exclui expected-fail)",
       "description": "Mesma expressao de MaezoLifecycleJobFailed (R-040/SC-07) — exclui jobs com a annotation maezo.io/expected-fail-until via kube-state-metrics --metric-annotations-allowlist=jobs=[maezo.io/expected-fail-until] (ver prometheus.yml). Sem alvo em dev (sem Kubernetes API) — 'No data' e esperado localmente.",
+      "maezo_mirrors_alert": "MaezoLifecycleJobFailed",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -233,7 +236,7 @@
       },
       "targets": [
         {
-          "expr": "kube_job_status_failed{job_name=~\"lifecycle-.*\"} unless on (job_name) (kube_job_annotations{annotation_maezo_io_expected_fail_until=~\".+\"})",
+          "expr": "kube_job_status_failed{job_name=~\"lifecycle-.*\"} > 0 unless on (job_name) (kube_job_annotations{annotation_maezo_io_expected_fail_until=~\".+\"})",
           "legendFormat": "{{job_name}}",
           "refId": "A",
           "datasource": {

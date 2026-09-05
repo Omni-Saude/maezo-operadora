@@ -35,6 +35,7 @@
       "type": "timeseries",
       "title": "Agent error rate (SLA: 1% — MaezoSLAAgentErrorRateHigh)",
       "description": "Mesma expressao de MaezoSLAAgentErrorRateHigh (ALERT-COUNTER-LABELS/R-063).",
+      "maezo_mirrors_alert": "MaezoSLAAgentErrorRateHigh",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -88,6 +89,7 @@
       "type": "timeseries",
       "title": "Agent crash-loop proxy (MaezoAgentCrashLoop > 0/s por 2m)",
       "description": "Mesma expressao de MaezoAgentCrashLoop.",
+      "maezo_mirrors_alert": "MaezoAgentCrashLoop",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
