@@ -37,5 +37,10 @@ de registro.
   `docs/decisions-log.md`, e seus numeros COLIDEM com decisoes diferentes ja registradas la
   (`docs/decisions-log.md:26,27` usam DL-0029/DL-0028 para o re-scope ANS/RN 639). Nao trate este arquivo
   como decisions-log.
-- Registro completo: `docs/adr/0024-durable-idempotency-resume-inbound-drivers.md`, secao
-  `## Emenda 2026-09-03`.
+- Registro completo: `docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md`,
+  secao `### §1 — GAP AF-02` (**ponteiro corrigido em 2026-09-05, gap AF-02**: esta linha apontava
+  para uma secao `## Emenda 2026-09-03` DENTRO da propria ADR-0024 que nao existe mais — a primeira
+  leva do WP-ADR-RECONCILIACAO emendou as sete ADRs `Accepted` in-loco, a verificacao adversarial
+  rejeitou isso, e o conteudo foi movido para a ADR-0041 nova, com os sete arquivos restaurados
+  byte a byte e cercados por `tests/unit/docs/test_adr_amendments.py`. O ponteiro ficou pendurado;
+  `grep -rn '## Emenda 2026-09-03' docs/adr/` -> so a mencao historica em `0041:589`).
