@@ -128,6 +128,21 @@ ALERT_METRIC_EMITTERS: Final[dict[str, str]] = {
     "maezo_tool_calls_total": "record_tool_call",
 }
 
+#: The mirror of `ALERT_METRIC_EMITTERS`, one hop upstream (GAP 11.2, round-5 2026-09-05): every
+#: in-repo metric a `record:` rule's own SOURCE expression reads, that is NOT (also) read by any
+#: shipped `alert:` — so it correctly has no entry in `ALERT_METRIC_EMITTERS`, whose docstring
+#: scopes it to the alert file specifically, and `test_the_emitter_table_covers_the_alert_file_
+#: exactly` would break if it did. `maezo_agent_desfecho_total` (CC-09) is read by the three
+#: `maezo_{helena,lucas}_{resolution,escalation}_rate` rules in the `maezo_agent_kpi_derived`
+#: group — declared+emitted in `src/` exactly like every `ALERT_METRIC_EMITTERS` entry, just not
+#: (yet) read by an alert. Kept SEPARATE from `EXTERNAL_ALERT_METRICS`: that table is for metrics
+#: this repo does NOT and CANNOT emit (an exporter series); this one is for metrics it genuinely
+#: does, so mislabelling one as the other would hide a real gap either way (see
+#: `test_external_metric_allowlist_is_exactly_the_five_owner_slice_series`'s own cross-check).
+RECORDING_RULE_METRIC_EMITTERS: Final[dict[str, str]] = {
+    "maezo_agent_desfecho_total": "record_agent_desfecho",
+}
+
 #: A NON-VACUITY FLOOR, not the closed set. The set of graph-invocation seams is DERIVED from the
 #: AST of `src/` by `_ainvoke_lines()`/`_uninstrumented_graph_invocations()`; a sixth seam requires
 #: instrumentation, never an edit here. What this frozenset defends against is the opposite
@@ -279,23 +294,35 @@ def _all_recording_rule_source_series() -> set[str]:
     return {name for _record, expr in _recording_rules() for name in _metric_names(expr)}
 
 
-def _unaccounted_metrics(series_names: Iterable[str], declared: dict[str, str]) -> list[str]:
+def _unaccounted_metrics(
+    series_names: Iterable[str],
+    declared: dict[str, str],
+    *,
+    extra_emitters: dict[str, str] | None = None,
+) -> list[str]:
     """The pure decision the alert-series fence and its recording-rule-source twin both make:
     which of `series_names` is neither declared+emitted in `src/` nor disclosed EXTERNAL.
+
+    `extra_emitters` (GAP 11.2): additional in-repo `metric -> emitter` pairs to accept, beyond
+    `ALERT_METRIC_EMITTERS` — used by the recording-rule-source check to also accept
+    `RECORDING_RULE_METRIC_EMITTERS` without widening `ALERT_METRIC_EMITTERS` itself (which
+    `test_the_emitter_table_covers_the_alert_file_exactly` pins to the ALERT file exactly).
+    Defaults to None so every existing caller — including the synthetic-detector non-vacuity test
+    below — is unaffected.
 
     Extracted to one place so a synthetic case can drive the EXACT function the two real checks
     call — `test_the_unaccounted_metric_detector_can_actually_go_red` below — rather than a
     reimplementation of the logic that could silently drift from what actually gates the build.
     """
+    emitters = {**ALERT_METRIC_EMITTERS, **(extra_emitters or {})}
     return [
         series
         for series in sorted(series_names)
-        if series not in EXTERNAL_ALERT_METRICS
-        and _declared_metric_name(series, declared) not in ALERT_METRIC_EMITTERS
+        if series not in EXTERNAL_ALERT_METRICS and _declared_metric_name(series, declared) not in emitters
     ]
 
 
-def _emitter_call_sites() -> dict[str, list[str]]:
+def _emitter_call_sites(wanted: Iterable[str] | None = None) -> dict[str, list[str]]:
     """Emitter name -> the `src/` files that actually CALL it, outside the observability module.
 
     AST, not `substring in text`, and the difference IS the fence. A textual match is satisfied by
@@ -303,9 +330,12 @@ def _emitter_call_sites() -> dict[str, list[str]]:
     extensively described, never invoked. Verified by construction: deleting the real call from
     `gateway/seams/_base.py` while leaving its docstring intact keeps a textual check GREEN and
     turns this one RED.
+
+    `wanted` (GAP 11.2): defaults to `ALERT_METRIC_EMITTERS.values()`; the recording-rule dead-
+    library check passes `RECORDING_RULE_METRIC_EMITTERS.values()` instead.
     """
     observability = _SRC / "platform" / "observability.py"
-    wanted = set(ALERT_METRIC_EMITTERS.values())
+    wanted = set(wanted) if wanted is not None else set(ALERT_METRIC_EMITTERS.values())
     sites: dict[str, list[str]] = {name: [] for name in wanted}
     for path in sorted(_SRC.rglob("*.py")):
         if path == observability:
@@ -515,14 +545,63 @@ def test_every_recording_rule_source_metric_is_declared_in_repo_or_named_externa
     from a metric nothing produces would otherwise ship green.
     """
     declared = _declared_series_names()
-    unaccounted = _unaccounted_metrics(_all_recording_rule_source_series(), declared)
+    unaccounted = _unaccounted_metrics(
+        _all_recording_rule_source_series(), declared, extra_emitters=RECORDING_RULE_METRIC_EMITTERS
+    )
     assert not unaccounted, (
         f"recording rule(s) read SOURCE metric(s) {unaccounted} that are neither declared+emitted "
-        "in `src/` nor listed in EXTERNAL_ALERT_METRICS with an owning register id. A recording "
-        "rule deriving from an unaccounted metric would ship green while reading from nothing "
-        "real — the same defect ALERTS-WITHOUT-METRICS-a exists to close, traced one hop upstream "
-        "of the alert that ultimately reads the derived series."
+        "in `src/` nor listed in EXTERNAL_ALERT_METRICS/RECORDING_RULE_METRIC_EMITTERS with an "
+        "owning register id or emitter. A recording rule deriving from an unaccounted metric "
+        "would ship green while reading from nothing real — the same defect "
+        "ALERTS-WITHOUT-METRICS-a exists to close, traced one hop upstream of the alert that "
+        "ultimately reads the derived series."
     )
+
+
+def test_recording_rule_metric_emitter_has_a_caller_outside_the_observability_module() -> None:
+    """The dead-library detector, for `RECORDING_RULE_METRIC_EMITTERS` (GAP 11.2).
+
+    Mirrors `test_every_alert_metric_emitter_has_a_caller_outside_the_observability_module` for
+    the recording-rule-only emitter table: `record_agent_desfecho` must have a real caller in
+    `src/`, not merely a docstring that names it.
+    """
+    called = _emitter_call_sites(RECORDING_RULE_METRIC_EMITTERS.values())
+    orphans = [
+        f"{metric} (emitter {emitter}())"
+        for metric, emitter in sorted(RECORDING_RULE_METRIC_EMITTERS.items())
+        if not called[emitter]
+    ]
+    assert not orphans, (
+        f"no caller anywhere in src/ for: {orphans}. The metric is declared, the helper exists, "
+        "and nothing writes it — the recording rule built on it can never derive anything real."
+    )
+
+
+def test_the_agent_kpi_recording_rules_derive_from_agent_desfecho_total() -> None:
+    """GAP 11.2 non-vacuity proof: the three `maezo_agent_kpi_derived` rules exist, target the
+    right names, and read the right agent/desfecho pair from `maezo_agent_desfecho_total` — not
+    merely that `_recording_rules()` tolerates three more entries without crashing. Mirrors
+    `test_the_dlq_recording_rule_derives_from_the_kafka_exporter`'s shape for this group.
+    """
+    records = dict(_recording_rules())
+    expected = {
+        "maezo_helena_resolution_rate": ('agent_id="helena"', 'desfecho="resolvido_automatico"'),
+        "maezo_helena_escalation_rate": ('agent_id="helena"', 'desfecho="escalado_humano"'),
+        "maezo_lucas_resolution_rate": (
+            'agent_id="lucas"',
+            'desfecho=~"resposta_informativa_enviada|lembrete_enviado"',
+        ),
+    }
+    assert set(expected) <= set(records), sorted(records)
+    for name, (agent_clause, desfecho_clause) in expected.items():
+        expr = records[name]
+        assert "maezo_agent_desfecho_total" in expr, (name, expr)
+        assert agent_clause in expr, (name, expr)
+        assert desfecho_clause in expr, (name, expr)
+        # Ratio shape: numerator filtered by desfecho, denominator the whole agent (no desfecho
+        # filter) — a rule that forgot the denominator's own agent scope would silently divide
+        # one agent's numerator by every agent's total.
+        assert expr.count(agent_clause) == 2, (name, expr)
 
 
 def test_the_unaccounted_metric_detector_can_actually_go_red() -> None:

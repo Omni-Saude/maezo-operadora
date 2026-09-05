@@ -61,6 +61,28 @@ def test_prometheus_scrapes_maezo_metrics() -> None:
     assert any("maezo" in name for name in job_names), f"No maezo scrape job found in: {job_names}"
 
 
+def test_prometheus_scrapes_kafka_exporter_for_consumer_lag_measurement() -> None:
+    """GAP D4-03: the consumer-lag-per-topic measurement procedure needs a real scrape target.
+
+    `docs/runbooks/devops-stack.md`'s "Kafka lag" section documents `kafka_consumergroup_lag_sum`
+    as the PromQL to run BEFORE any `worker_runtime/settings.py` posture change — that reading is
+    only real if the `kafka-exporter` job (danielqsj/kafka_exporter, `docker-compose.yml`) is
+    genuinely scraped. This pins the job's existence and its target/port so a renamed or removed
+    job silently breaks this fence instead of the documented procedure silently reading nothing.
+    """
+    config_path = _repo_root() / "deploy" / "observability" / "prometheus.yml"
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    jobs = {job.get("job_name", ""): job for job in config["scrape_configs"]}
+    assert "kafka-exporter" in jobs, f"No kafka-exporter scrape job found in: {sorted(jobs)}"
+
+    targets = jobs["kafka-exporter"].get("static_configs", [{}])[0].get("targets", [])
+    assert any(":9308" in target for target in targets), (
+        f"kafka-exporter job does not target the exporter's :9308/metrics port: {targets}"
+    )
+
+
 def test_alert_rules_exists() -> None:
     """alert-rules.yml must exist in deploy/observability/."""
     rules_path = _repo_root() / "deploy" / "observability" / "alert-rules.yml"
