@@ -28,6 +28,7 @@ comportamento CONTRATADO destes nos, e continua valendo para a falha que o porto
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from typing import Any, Final, cast
 
@@ -504,6 +505,30 @@ async def test_corpo_fhir_ilegivel_volta_a_virar_nota_de_lacuna(
     assert any("FhirResponseError" in str(nota) for nota in notas), notas
 
 
+def _fachada_real(monkeypatch: pytest.MonkeyPatch, resposta: httpx.Response) -> InferenceProvider:
+    """A fachada REAL sobre o `AnthropicInferenceProvider` REAL sobre o cliente REAL do SDK.
+
+    O unico substituto e' o transporte HTTP: os blocos tortos que os testes abaixo exercitam sao
+    construidos pelo PROPRIO SDK a partir do corpo, nunca fabricados aqui.
+    """
+    chave = "sk-ant-" + "t" * 24
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", chave)
+    monkeypatch.setenv(SYNTHETIC_ONLY_ENV, "1")
+
+    def _handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(resposta.status_code, content=resposta.content, headers=dict(resposta.headers))
+
+    impl = AnthropicInferenceProvider()
+    impl._client = anthropic.AsyncAnthropic(
+        api_key=chave,
+        http_client=_ASYNC_CLIENT_REAL(transport=httpx.MockTransport(_handler)),
+        max_retries=0,
+    )
+    fachada = InferenceProvider()
+    fachada._impl = impl
+    return fachada
+
+
 @pytest.mark.asyncio
 async def test_corpo_do_provedor_de_llm_ilegivel_volta_a_degradar(
     monkeypatch: pytest.MonkeyPatch,
@@ -524,23 +549,49 @@ async def test_corpo_do_provedor_de_llm_ilegivel_volta_a_degradar(
     ratificacao assinada e' o operador declarar o ambiente como SOMENTE SINTETICO — exatamente o
     que este teste declara, e o que faz a chamada de fato sair.
     """
-    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-" + "t" * 24)
-    monkeypatch.setenv(SYNTHETIC_ONLY_ENV, "1")
-
-    def _handler(_: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=_CORPO_NAO_JSON, headers={"content-type": "application/json"})
-
-    impl = AnthropicInferenceProvider()
-    impl._client = anthropic.AsyncAnthropic(
-        api_key="sk-ant-" + "t" * 24,
-        http_client=_ASYNC_CLIENT_REAL(transport=httpx.MockTransport(_handler)),
-        max_retries=0,
+    fachada = _fachada_real(
+        monkeypatch,
+        httpx.Response(200, content=_CORPO_NAO_JSON, headers={"content-type": "application/json"}),
     )
-    fachada = InferenceProvider()
-    fachada._impl = impl
 
     # NAO-VACUIDADE: sem a conversao no provedor, a chamada abaixo levanta `json.JSONDecodeError`
     # (<: `ValueError`), que NAO esta em `EXTERNAL_DEPENDENCY_FAILURES` — o turno cai.
+    assert dossier_narrative_requires_phi_zone() is False
+    resultado = await _rafael_dossier(fachada)
+
+    assert resultado["narrativa"] == ""
+
+
+@pytest.mark.asyncio
+async def test_bloco_de_content_fora_do_schema_volta_a_degradar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§Delta-D1, o mesmo caminho um nivel mais fundo: o ITEM de `content` fora do schema.
+
+    A guarda anterior conferia so' que `content` era uma LISTA. Como o SDK valida de forma
+    NAO-ESTRITA, um 200 fora do schema entrega uma lista de itens tortos, e
+    `content=[{"type": "text"}]` (bloco de texto SEM o campo `text`) derrubava o turno com
+    `TypeError: expected str instance, NoneType found` — onde na base `87b51a8` degradava.
+    """
+    corpo = {
+        "id": "msg-1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-teste",
+        "content": [{"type": "text"}],
+        "stop_reason": "end_turn",
+        "stop_sequence": None,
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+    }
+    fachada = _fachada_real(
+        monkeypatch,
+        httpx.Response(
+            200,
+            content=json.dumps(corpo).encode("utf-8"),
+            headers={"content-type": "application/json"},
+        ),
+    )
+
     assert dossier_narrative_requires_phi_zone() is False
     resultado = await _rafael_dossier(fachada)
 

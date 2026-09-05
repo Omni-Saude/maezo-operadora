@@ -195,6 +195,79 @@ class NoopInferenceProvider(BaseInferenceProvider):
 # ---------------------------------------------------------------------------
 
 
+def _texto_dos_blocos(blocos: object, *, provider: str) -> str:
+    """Concatena os blocos `type="text"` de uma resposta, RECUSANDO qualquer item fora do schema.
+
+    §Delta-D1 — POR QUE A GUARDA DE LISTA NAO BASTAVA. O reparo anterior conferia que
+    `response.content` era uma LISTA e depois lia `bloco.type` / `bloco.text` com acesso direto de
+    atributo. A guarda estava exatamente UM NIVEL raso demais: o SDK valida a resposta de forma
+    NAO-ESTRITA por padrao, entao um 200 fora do schema produz uma lista com ITENS fora do schema,
+    e as quatro formas abaixo — todas 100% EXTERNAS — vazavam uma classe de `PROGRAMMING_ERRORS`
+    e DERRUBAVAM o turno, onde na base elas degradavam (medido com o SDK real, `MockTransport` so'
+    no socket):
+
+        content=[{"type": "text"}]            -> TypeError: expected str instance, NoneType found
+        content=[{"type": "text", "text": 1}] -> TypeError: expected str instance, int found
+        content=["ola"]                       -> AttributeError: 'str' object has no attribute 'type'
+        content=[null]                        -> AttributeError: 'NoneType' object has no attribute 'type'
+
+    O CONTRATO QUE ESTA FUNCAO APLICA, item a item: todo bloco tem `type` string; todo bloco
+    `type="text"` tem `text` string. Um bloco de outro tipo (`thinking`, `tool_use`) e' IGNORADO
+    sem exigir `text` — e' o que o `if block.type == "text"` original ja' fazia, e o que os duplos
+    de `test_inference_bedrock.py` exercitam.
+
+    NUNCA DEVOLVER `""` PARA UM CORPO PODRE. Filtrar o item invalido em silencio seria trocar um
+    turno derrubado por uma NARRATIVA VAZIA indistinguivel da degradacao legitima — o silent
+    fallback que este WP inteiro existe para fechar. O item invalido vira a falha DECLARADA, com o
+    token de CLASSE e nenhum byte do corpo (a resposta de um LLM sobre um dossie e' PHI).
+
+    NAO usa `isinstance(response, anthropic.types.Message)`: os ~20 duplos pre-existentes de
+    `tests/unit/runtime/test_inference.py::_fake_message` sao `SimpleNamespace`, e a checagem
+    estrita os deixaria vermelhos. Guardar a JUNCAO cobre a mesma superficie sem tocar neles.
+
+    Args:
+        blocos: o `content` cru da resposta — de proposito `object`, porque a pergunta "isto e'
+            sequer uma lista?" faz parte do contrato que esta funcao aplica.
+        provider: qual provedor nomear no erro (`"anthropic"` / `"bedrock"`).
+
+    Returns:
+        A concatenacao dos blocos de texto.
+
+    Raises:
+        InferenceProviderError: `content` nao e' lista, ou algum item esta fora do schema.
+    """
+    if not isinstance(blocos, list):
+        raise InferenceProviderError(
+            provider,
+            f"resposta 200 fora do contrato: sem blocos de conteudo utilizaveis ({type(blocos).__name__})",
+            retryable=True,
+        )
+
+    pedacos: list[str] = []
+    for posicao, bloco in enumerate(blocos):
+        tipo = getattr(bloco, "type", None)
+        if not isinstance(tipo, str):
+            raise InferenceProviderError(
+                provider,
+                f"resposta 200 fora do contrato: bloco {posicao} sem `type` utilizavel "
+                f"(bloco e' {type(bloco).__name__}, `type` e' {type(tipo).__name__})",
+                retryable=True,
+            )
+        if tipo != "text":
+            continue
+        trecho = getattr(bloco, "text", None)
+        if not isinstance(trecho, str):
+            raise InferenceProviderError(
+                provider,
+                f"resposta 200 fora do contrato: bloco {posicao} e' `type=text` mas o `text` "
+                f"nao e' uma string ({type(trecho).__name__})",
+                retryable=True,
+            )
+        pedacos.append(trecho)
+
+    return "".join(pedacos)
+
+
 def _emit_llm_token_usage(
     response: object,
     *,
@@ -389,23 +462,17 @@ class AnthropicInferenceProvider(BaseInferenceProvider):
                 retryable=True,
             ) from exc
 
-        # §Delta-F1, a FORMA da resposta, checada ANTES de qualquer leitura de atributo. O SDK
-        # so' devolve uma `Message` quando o corpo se parece com uma, e por duas vias ele nao
-        # devolve: (a) `content-type` que nao termina em `json` com validacao NAO-ESTRITA (o
-        # padrao) faz o SDK devolver o TEXTO CRU — uma `str` —, e (b) um corpo JSON fora do
-        # schema vira uma `Message` construida com `content=None`. Nos dois casos as leituras
-        # abaixo (`response.stop_reason`, `for block in response.content`) davam
-        # `AttributeError`/`TypeError`, classes de `PROGRAMMING_ERRORS`, e portanto DERRUBAVAM o
-        # turno por causa de um proxy mal configurado. `getattr` aqui nao e' leniencia: a linha
-        # seguinte converte qualquer forma que nao seja uma lista de blocos na falha DECLARADA.
-        blocos = getattr(response, "content", None)
-        if not isinstance(blocos, list):
-            raise InferenceProviderError(
-                "anthropic",
-                f"resposta 200 fora do contrato: sem blocos de conteudo utilizaveis "
-                f"({type(blocos).__name__})",
-                retryable=True,
-            )
+        # §Delta-F1/D1, a FORMA da resposta, validada ANTES de qualquer leitura de atributo. O
+        # SDK so' devolve uma `Message` quando o corpo se parece com uma, e ha' tres vias em que
+        # ele nao devolve: (a) `content-type` que nao termina em `json` com validacao NAO-ESTRITA
+        # (o padrao) faz o SDK devolver o TEXTO CRU — uma `str` —; (b) um corpo JSON fora do
+        # schema vira uma `Message` com `content=None`; e (c) um corpo JSON fora do schema com
+        # `content` que E' lista mas cujos ITENS estao fora do schema. Nas tres, as leituras
+        # seguintes (`response.stop_reason`, `bloco.type`, `bloco.text`) davam
+        # `AttributeError`/`TypeError` — classes de `PROGRAMMING_ERRORS` — e DERRUBAVAM o turno
+        # por causa de um proxy mal configurado. `_texto_dos_blocos` aplica o contrato inteiro,
+        # item a item, e roda ANTES de `response.stop_reason` justamente por causa de (a).
+        text = _texto_dos_blocos(getattr(response, "content", None), provider="anthropic")
 
         # T8: meter token usage for EVERY response that reaches this point — including a
         # refusal (still a genuine, billable-or-not API response with its own `usage`).
@@ -424,7 +491,6 @@ class AnthropicInferenceProvider(BaseInferenceProvider):
                 "anthropic", "request declined by safety classifiers (stop_reason=refusal)", retryable=False
             )
 
-        text = "".join(block.text for block in blocos if block.type == "text")
         logger.info(
             "inference_anthropic_generate",
             model=self._model,
@@ -620,6 +686,15 @@ class BedrockInferenceProvider(BaseInferenceProvider):
                 retryable=False,
             ) from exc
 
+        # §Delta-D1. A juncao deste provedor e' a MESMA de `AnthropicInferenceProvider.generate`
+        # ("MIRRORED ... clause for clause", acima), e por isso tinha o MESMO defeito: `content`
+        # lido sem checagem de forma e `block.type`/`block.text` lidos com acesso direto. Consertar
+        # so' um dos dois espelhos e declarar o seam fechado seria repetir exatamente o erro que
+        # este §Delta corrige, entao os dois passam pelo MESMO helper — uma definicao, nunca duas
+        # tabelas sutilmente diferentes. Roda ANTES da metrica e do `stop_reason` pelo mesmo motivo
+        # que no irmao: uma resposta que nem e' `Message` nao tem `stop_reason` para ler.
+        text = _texto_dos_blocos(getattr(response, "content", None), provider="bedrock")
+
         # T8: metered through the SAME seam as every other real provider — Bedrock returns the
         # 1P `usage.input_tokens`/`usage.output_tokens` shape `_emit_llm_token_usage` already
         # reads. Best-effort/never-raising, so it cannot turn a successful call into a failure.
@@ -639,7 +714,6 @@ class BedrockInferenceProvider(BaseInferenceProvider):
                 "bedrock", "request declined by safety classifiers (stop_reason=refusal)", retryable=False
             )
 
-        text = "".join(block.text for block in response.content if block.type == "text")
         logger.info(
             "inference_bedrock_generate",
             model=self._model,

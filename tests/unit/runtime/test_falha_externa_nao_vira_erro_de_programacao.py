@@ -35,7 +35,9 @@ Nada acima do socket e' falso aqui: `httpx.MockTransport` troca so' o transporte
 
 from __future__ import annotations
 
+import ast
 import json
+from pathlib import Path
 from typing import Any, Final
 
 import anthropic
@@ -43,7 +45,8 @@ import httpx
 import pytest
 
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
-from maezo.runtime.inference import AnthropicInferenceProvider, InferenceProviderError
+from maezo.runtime.inference import AnthropicInferenceProvider, InferenceProviderError, providers
+from maezo.runtime.inference.providers import _texto_dos_blocos
 from maezo.tools.mcp_fhir.server import (
     FhirAuthError,
     FhirResponseError,
@@ -371,3 +374,133 @@ async def test_resposta_bem_formada_do_provedor_continua_atravessando(
     )
 
     assert await provedor.generate("oi") == "narrativa"
+
+
+# =================================================================================================
+# (D) §Delta-D1 — os ITENS de `content`, nao so' o `content`
+# =================================================================================================
+#
+# A guarda do §Delta-F1 conferia que `response.content` era uma LISTA e depois lia `bloco.type` /
+# `bloco.text` com acesso direto de atributo — exatamente UM NIVEL raso demais. Como o SDK valida
+# de forma NAO-ESTRITA por padrao, um 200 fora do schema produz uma lista com ITENS fora do
+# schema, e as quatro formas abaixo (todas 100% EXTERNAS) vazavam uma classe de
+# `PROGRAMMING_ERRORS` e DERRUBAVAM o turno, onde na base `87b51a8` elas degradavam.
+#
+# O conserto e' um helper UNICO (`_texto_dos_blocos`) usado pelos DOIS provedores espelhados —
+# `AnthropicInferenceProvider` e `BedrockInferenceProvider` tem a mesma juncao, e o modulo diz em
+# voz alta que as disposicoes de um sao espelhadas no outro "clause for clause".
+
+_BLOCOS_FORA_DO_SCHEMA: Final[dict[str, list[Any]]] = {
+    "texto_sem_campo_text": [{"type": "text"}],
+    "text_nao_e_string": [{"type": "text", "text": 1}],
+    "lista_de_strings": ["ola"],
+    "lista_com_null": [None],
+    "bloco_sem_type": [{"foo": 1}],
+}
+
+
+def _resposta_message(content: Any) -> httpx.Response:
+    """Um 200 com corpo de `Message` cujo `content` e' o que o teste mandar."""
+    corpo = {
+        "id": "msg-1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-teste",
+        "content": content,
+        "stop_reason": "end_turn",
+        "stop_sequence": None,
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+    }
+    return httpx.Response(
+        200, content=json.dumps(corpo).encode("utf-8"), headers={"content-type": "application/json"}
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("forma", sorted(_BLOCOS_FORA_DO_SCHEMA), ids=sorted(_BLOCOS_FORA_DO_SCHEMA))
+async def test_item_de_content_fora_do_schema_vira_erro_declarado(
+    forma: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§Delta-D1: nenhuma das cinco formas pode escapar como `TypeError`/`AttributeError`.
+
+    Atraves do SDK REAL, com `MockTransport` so' no socket — e' o SDK que constroi os blocos
+    tortos a partir do corpo, nao o teste.
+    """
+    provedor = _provedor_anthropic(monkeypatch, _resposta_message(_BLOCOS_FORA_DO_SCHEMA[forma]))
+
+    with pytest.raises(InferenceProviderError, match="fora do contrato"):
+        await provedor.generate("oi")
+
+
+@pytest.mark.asyncio
+async def test_bloco_de_outro_tipo_e_ignorado_sem_exigir_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """NAO-VACUIDADE: a guarda de item nao pode ter apertado o que era legitimo.
+
+    Um bloco `thinking`/`tool_use` nao carrega `text` e nunca carregou — o `if type == "text"`
+    original ja' o ignorava, e os duplos de `test_inference_bedrock.py` exercitam exatamente
+    isso. Exigir `text` dele seria trocar um defeito por outro.
+    """
+    provedor = _provedor_anthropic(
+        monkeypatch,
+        _resposta_message(
+            [
+                {"type": "text", "text": "parte 1 "},
+                {"type": "thinking", "thinking": "nao deve aparecer"},
+                {"type": "text", "text": "parte 2"},
+            ]
+        ),
+    )
+
+    assert await provedor.generate("oi") == "parte 1 parte 2"
+
+
+@pytest.mark.parametrize("forma", sorted(_BLOCOS_FORA_DO_SCHEMA), ids=sorted(_BLOCOS_FORA_DO_SCHEMA))
+def test_o_helper_nomeia_o_provedor_que_falhou(forma: str) -> None:
+    """O mesmo contrato, exercitado direto no helper e com a etiqueta do OUTRO provedor.
+
+    `BedrockInferenceProvider` nao pode ser dirigido por `MockTransport` sem uma credencial AWS
+    (o SigV4 assina dentro do request), entao a metade Bedrock e' provada aqui, no helper que os
+    dois compartilham, mais a cerca estrutural abaixo que garante que os dois o chamam.
+    """
+    with pytest.raises(InferenceProviderError, match="fora do contrato") as capturado:
+        _texto_dos_blocos(_BLOCOS_FORA_DO_SCHEMA[forma], provider="bedrock")
+
+    assert "bedrock" in str(capturado.value)
+
+
+def test_content_que_nao_e_lista_tambem_e_recusado_pelo_helper() -> None:
+    """A guarda do §Delta-F1 continua viva DENTRO do helper (nao foi perdida na mudanca)."""
+    for forma in (None, "ola", 3, {"type": "text"}):
+        with pytest.raises(InferenceProviderError, match="sem blocos de conteudo utilizaveis"):
+            _texto_dos_blocos(forma, provider="anthropic")
+
+
+def test_os_dois_provedores_espelhados_usam_o_mesmo_helper() -> None:
+    """CERCA: uma definicao do contrato, nunca duas tabelas sutilmente diferentes.
+
+    O modulo declara que as disposicoes do Bedrock sao espelhadas nas da Anthropic "clause for
+    clause". Consertar so' um dos espelhos e declarar o seam fechado foi exatamente o erro que o
+    §Delta-D1 corrigiu; esta cerca faz o proximo autor tropecar nisso em vez de o descobrir em
+    producao.
+    """
+    fonte = Path(providers.__file__).read_bytes().decode("utf-8")
+    arvore = ast.parse(fonte)
+
+    chamadores = {
+        f"{classe.name}.{metodo.name}"
+        for classe in ast.walk(arvore)
+        if isinstance(classe, ast.ClassDef)
+        for metodo in classe.body
+        if isinstance(metodo, ast.AsyncFunctionDef | ast.FunctionDef)
+        for no in ast.walk(metodo)
+        if isinstance(no, ast.Call) and isinstance(no.func, ast.Name) and no.func.id == "_texto_dos_blocos"
+    }
+    assert chamadores == {
+        "AnthropicInferenceProvider.generate",
+        "BedrockInferenceProvider.generate",
+    }, chamadores
+
+    # E ninguem voltou a ler o bloco cru: a juncao antiga nao existe mais em lugar nenhum.
+    assert "block.text for block in" not in fonte
