@@ -25,12 +25,15 @@ import yaml
 
 from maezo.agents.lucas.graph import (
     AdmissibilidadeCobranca,
+    Intencao,
     LucasGraph,
     LucasState,
     MotivoCategoria,
+    MotivoHumano,
     RoteamentoEscalacao,
     Route,
     _business_key,
+    _motivo_categoria,
     build,
 )
 from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
@@ -609,6 +612,35 @@ def test_motivo_categoria_never_clinical() -> None:
     allowed = set(MotivoCategoria.__args__)  # type: ignore[attr-defined]
     assert allowed == {"outro", "solicitacao_humano", "falha_tecnica"}
     assert allowed.isdisjoint({"red_flag_clinico", "risco_psicossocial", "intencao_clinica"})
+
+
+def test_solicitacao_humano_is_disclosed_as_unreachable_pending_ratification() -> None:
+    """LUC-04 (Agent Fleet Audit, DEAD-FIELD-OR-LITERAL): `solicitacao_humano` is a REAL,
+    live value of the shared SP-OP-ESCALATION-001 `motivo_categoria` domain (helena emits it for
+    exactly this case, `helena/graph.py:709`) -- but no code path in Lucas can ever produce it: a
+    beneficiary explicitly asking for a human has no `Intencao` slot to land in, so `_motivo_
+    categoria` never returns it. Wiring a real path needs a new `Intencao` value the DMN's
+    `motivo`/`intencao` inputs would have to recognize -- `lucas_escalation_routing.dmn` is a
+    DRAFT table (needs the same owner ratification LUC-03 already names) -- so this is a
+    disclosed, OWNER-GATED gap, not a silently-broken one. This test pins BOTH halves of that
+    disclosure: the type-fidelity kept the value in `MotivoCategoria` (RIGHT, since helena's
+    fleet-wide domain needs it), and the source comment says WHY it is unreachable HERE and
+    names LUC-04 -- so this cannot silently regress into an undisclosed dead value again."""
+    assert "falar_com_humano" not in set(Intencao.__args__)  # type: ignore[attr-defined]
+    for motivo in MotivoHumano.__args__:  # type: ignore[attr-defined]
+        assert _motivo_categoria(motivo) != "solicitacao_humano", (
+            f"_motivo_categoria({motivo!r}) now reaches solicitacao_humano -- update this test "
+            "(no longer unreachable) and the LUC-04 disclosure comment above MotivoCategoria."
+        )
+    import inspect
+
+    import maezo.agents.lucas.graph as lucas_graph
+
+    source = inspect.getsource(lucas_graph)
+    marker = source.index("MotivoCategoria = Literal")
+    comment_block = source[max(0, marker - 1200) : marker]
+    assert "LUC-04" in comment_block, "the MotivoCategoria comment must cite LUC-04"
+    assert "OWNER-GATED" in comment_block or "ratifica" in comment_block.lower()
 
 
 async def test_conciliation_facts_passed_through_unchanged_never_recomputed() -> None:
