@@ -1,9 +1,9 @@
 {
   "id": "EVL-RAFAEL-02",
   "agent": "rafael",
-  "class": "CE",
+  "class": "DD",
   "tier": ["A"],
-  "description": "Clean, low-risk elective auth request with every worker-pre-resolved fact true -> admissibility SEGUE_ANALISE, auth_auto_approval AUTO_APROVAR -> the single L2 auto path (auto_approve). Rafael only finishes the dossier; SP-OP-AUTH-001's own automatic path issues the TISS guide, never Rafael directly. Synthetic data only.",
+  "description": "REGOLDENIZADO 04/09/2026 (RAF-01/RAF-06). ANTES: este caso registrava `auth_auto_approval -> AUTO_APROVAR` INCONDICIONAL e esperava `route=auto_approve`, fazendo a rota automatica de Rafael parecer alcancavel. Era vacuo: provava so que o grafo repassa o que a fixture disser. AGORA a fixture e FIEL a r1 v0.2.0 (AUTO_APROVAR somente com os CINCO booleanos true; catch-all r99 = ANALISE_HUMANA), e o caso passa a provar a verdade estrutural: mesmo com TODO fato pre-resolvido favoravel (documentacao/beneficiario/carencia/DUT/teto/rede todos true, eletivo, valor baixo), a rota resolve `human_auditor` — porque os cinco criterios da r1 NAO sao campos de entrada de Rafael (`RAFAEL_INPUT_FIELDS`), sao COMPUTADOS por `operadora.auth.validate_auto_criteria` no engine (contrato SP-OP-AUTH-001 v0.2.0), e `ST_PrepararDossie` so e alcancado por `Flow_GW_AnaliseHumana`. Classe mudou de CE para DD (disciplina de input de DMN), que e o que o caso de fato exercita. Isto NAO e negativa (Rafael nunca nega); e roteamento para humano. Dados sinteticos.",
   "input": {
     "state": {
       "tenant_id": "amh",
@@ -27,19 +27,34 @@
     }
   },
   "recorded_llm": [
-    "Exame simples eletivo dentro dos criterios automaticos; guia liberada para emissao automatica pelo processo."
+    "Exame simples eletivo com fatos cadastrais favoraveis; criterios de aprovacao automatica nao verificados pelo validador do processo, caso encaminhado ao medico auditor."
   ],
   "dmn_fixture": {
     "auth_admissibility": { "resultado": "SEGUE_ANALISE" },
     "auth_sla": { "sla_analise": "2d", "sla_alerta": "1d" },
-    "auth_auto_approval": { "recomendacao": "AUTO_APROVAR" }
+    "auth_auto_approval": {
+      "__rules__": [
+        {
+          "when": {
+            "auto_criteria_verificado": true,
+            "criterio_tecnico_ok": true,
+            "criterio_financeiro_ok": true,
+            "criterio_regulatorio_ok": true,
+            "criterio_contratual_ok": true
+          },
+          "then": { "recomendacao": "AUTO_APROVAR", "motivo": "r1" }
+        },
+        { "then": { "recomendacao": "ANALISE_HUMANA", "motivo": "r99_catch_all" } }
+      ]
+    }
   },
   "expect": {
     "fields": {
-      "route": "auto_approve",
-      "motivo_auditor": null,
-      "desfecho": "aprovacao_automatica_solicitada",
-      "recomendacao_auto": "AUTO_APROVAR"
+      "route": "human_auditor",
+      "motivo_auditor": "dmn_analise_humana",
+      "desfecho": "encaminhado_auditor",
+      "admissibilidade": "SEGUE_ANALISE",
+      "recomendacao_auto": "ANALISE_HUMANA"
     }
   },
   "leak_canaries": []

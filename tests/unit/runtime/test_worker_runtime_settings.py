@@ -14,6 +14,10 @@ def test_defaults_match_design_table() -> None:
     assert settings.worker_id == "maezo-worker-local"
     assert settings.cibseven_base_url == "http://cibseven:8080/engine-rest"
     assert settings.cibseven_auth_token is None
+    # CC-03/AND-03: mesmo default (e mesmo alias) do `agent_runtime/settings.py` — as duas raizes
+    # de composicao NAO podem discordar sobre onde o FHIR esta. Espelha
+    # `tests/unit/runtime/agent_runtime/test_settings.py::test_defaults`.
+    assert settings.fhir_base_url == "http://hapi-fhir:8080/fhir"
     assert settings.lock_duration_ms == 30_000
     assert settings.poll_interval_ms == 5_000
     assert settings.async_response_timeout_ms == 25_000

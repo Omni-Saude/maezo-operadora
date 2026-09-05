@@ -130,11 +130,12 @@ class Harness:
         With `agent_id`: resolves and invokes the agent's REAL `build(config)` (T1.11, defect
         B6) via `AgentLoader`/`maezo.agents.<agent_id>.graph:build` conventions. `config` is
         `self._tool_deps` merged with `inference` and a default `agent_version`. An agent whose
-        `build` takes no parameters (e.g. the `_template` scaffold; post-B6 all 10 named
-        agents expose `build(config)`) is called
-        with no arguments — introspected via `inspect.signature`, never guessed by try/except
-        (a real `TypeError` raised *inside* a real `build(config)` must propagate, not be
-        misread as "this build takes no config").
+        `build` takes no parameters is called with no arguments — introspected via
+        `inspect.signature`, never guessed by try/except (a real `TypeError` raised *inside* a
+        real `build(config)` must propagate, not be misread as "this build takes no config") —
+        and that branch now emits a structured `harness_build_fn_without_config` WARNING rather
+        than accepting a mute build (HEL-13). Post-B6 all 10 named agents expose `build(config)`,
+        and since HEL-13 so does the `_template` scaffold, so nothing in this repo reaches it.
 
         Raises:
             UnknownAgentError: `agent_id` has no `spec/agents/<agent_id>/agent.yaml`, no
@@ -174,6 +175,20 @@ class Harness:
             config.setdefault("agent_version", f"{agent_id}@v0")
             resolved_graph = build_fn(config)
         else:
+            # HEL-13: the no-arg branch stays (back-compat), but it is no longer MUTE. A
+            # parameterless `build()` gets no dependency injection and therefore no fail-closed
+            # dependency check — exactly how the `_template` scaffold drifted out of the canonical
+            # contract unnoticed until the fleet audit. Since `_template/graph.py::build` now takes
+            # `config`, no agent in this repo reaches this branch; a future one that does says so.
+            logger.warning(
+                "harness_build_fn_without_config",
+                agent_id=agent_id,
+                detail=(
+                    "build() declares no parameters: no dependency injection and no fail-closed "
+                    "dependency check. The canonical contract is build(config) — see "
+                    "src/maezo/agents/_template/graph.py::build."
+                ),
+            )
             resolved_graph = build_fn()
 
         self._graph = resolved_graph
