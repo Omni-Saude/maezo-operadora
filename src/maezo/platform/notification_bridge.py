@@ -19,6 +19,11 @@ Handoffs:
   BPMN `SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn:595-596`) routes it to the
   mandatory juridical review `UT_RevisarEnvioJuridico` — this handoff NEVER transmits;
   it only opens the gated pipeline (ADR-0007 HITL pre-filing is unchanged downstream).
+- SLA-RISK ALERT→ESCALATION (R-104, WP-ALERTA-SLA-CANAL): when a `{lgpd,programa,recurso}.
+  notify_sla_risk` alert lands on `operadora.notifications.internal`, starts
+  SP-OP-ESCALATION-001 so `UT_TratarEscalonamento` (`camunda:candidateGroups=
+  ${roteamento.grupo_atendimento}`) puts a REAL task in a human queue — the operadora staff
+  visibility the SLA alerts never had. The group is decided by `escalation_routing.dmn`, not here.
 - ans.cron_due→ANS-SUBMIT (T2.6-7): when SP-OP-ANS-CRON-001's per-report_type timer
   publishes the typed `ans.cron_due` fact, starts SP-OP-ANS-SUBMIT-001 seeded with
   fail-closed admissibility facts (`Start_DespachoEnvio` BPMN comment) — the human
@@ -56,9 +61,10 @@ CIB Seven HTTP calls are injected as async callables so tests remain fast.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Final
 
 import structlog
 
@@ -83,6 +89,76 @@ logger = structlog.get_logger(__name__)
 
 #: Target process key for both new T2.6-7 handoffs (contract `SP-OP-ANS-SUBMIT-001.md`).
 PROCESS_KEY_ANS_SUBMIT = "SP-OP-ANS-SUBMIT-001"
+
+# ---------------------------------------------------------------------------
+# R-104 / WP-ALERTA-SLA-CANAL — SLA-risk alert -> a REAL human task
+#
+# THE DECISION THIS IMPLEMENTS (owner, 2026-09-04): "a regra nova no bridge convertendo o `type`
+# de alerta de SLA em task humana roteada por `candidateGroups`", channel = the Cockpit's internal
+# human queue. What makes that a real touchpoint and not a log line: SP-OP-ESCALATION-001 is this
+# repo's UNIVERSAL human-escalation process (contract `SP-OP-ESCALATION-001.md`, "Escalonamento
+# Humano Universal"), and its `UT_TratarEscalonamento` carries
+# `camunda:candidateGroups="${roteamento.grupo_atendimento}"`
+# (`spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn:134`) — an engine
+# User Task a human sees in their queue. So the SLA alert becomes a candidate-group-routed human
+# task by STARTING that process, through the SAME fenced chokepoint every other rule in this module
+# uses (`build_cibseven_process_starter` -> `start_process_idempotent`, ADR-0007/T-C2): no raw
+# engine call, no new process key (`KNOWN_PROCESS_KEYS` stays 15), no BPMN change.
+#
+# THE GROUP IS NOT HARD-CODED HERE. `escalation_routing.dmn` decides it inside the process from
+# (`motivo_categoria`, `severidade`); `motivo_categoria="outro"` falls to the FAIL-SAFE catch-all
+# rule `r7` (`spec/processes/dmn/escalation_routing.dmn:83-90`) -> `P2` /
+# `grupo_atendimento="atendimento-humano"` / `sla_ack=PT30M` / `sla_resolucao=PT4H`. The bridge
+# therefore states FACTS about the alert and lets the ratified decision table route it — the
+# earlier draft of this rule hard-coded the group string, which asserted a routing decision the
+# DMN owns.
+# ---------------------------------------------------------------------------
+
+#: Target process key for the SLA-risk alert rules (contract `SP-OP-ESCALATION-001.md`).
+PROCESS_KEY_ESCALATION: Final[str] = "SP-OP-ESCALATION-001"
+
+#: The naming convention every SLA-risk alert `type` follows (`<dominio>.notify_sla_risk`). Used
+#: by the CONSUMER (`platform/integrations/notifications_bridge.py`) to notice a future domain's
+#: alert that starts publishing before `_SLA_ALERT_SPECS` learns it — that message must be counted
+#: and warned about, never silently treated as an ordinary unmatched event.
+SLA_ALERT_TYPE_SUFFIX: Final[str] = ".notify_sla_risk"
+
+#: ADR-0007 principal for an escalation opened by this daemon. Same identity the fenced starter
+#: and the DLQ shunt already audit under (`build_cibseven_process_starter`'s defaults,
+#: `integrations/notifications_bridge._DLQ_AGENT_ID`), so one daemon's audit chain shows its
+#: quarantine decisions and its start decisions under one principal. It is NOT an agent id: no
+#: agent decided anything here — a BPMN boundary timer fired and this bridge relayed it.
+SLA_ALERT_SOURCE_AGENT_ID: Final[str] = "notification_bridge"
+SLA_ALERT_SOURCE_AGENT_VERSION: Final[str] = "notification_bridge@v1"
+
+#: `motivo_categoria` for an SLA-risk alert. The contract's closed vocabulary
+#: (`red_flag_clinico` | `risco_psicossocial` | `intencao_clinica` | `solicitacao_humano` |
+#: `falha_tecnica` | `outro`) has no SLA-risk member, and inventing one would be a spec change no
+#: agent may ratify — so the honest member is `outro`, which is also what `LucasGraph.
+#: _escalation_variables` (`agents/lucas/graph.py`) already sends when its own reason does not map.
+#: Routing consequence is stated above: `outro` hits the DMN's fail-safe catch-all, P2 /
+#: `atendimento-humano` — never a clinical queue, which is exactly right for an administrative
+#: SLA clock.
+SLA_ALERT_MOTIVO_CATEGORIA: Final[str] = "outro"
+
+#: `severidade` for an SLA-risk alert. NOT load-bearing for routing: catch-all rule `r7` matches
+#: any `severidade` (`-`), so this value cannot change the group or the SLAs. `moderada` is the
+#: same neutral default `LucasGraph._escalation_variables` uses, and it agrees with the P2 the
+#: catch-all itself assigns. PROPOSTO — a real severity ladder for SLA risk is a gestao-assistencial
+#: call, not an engineering one.
+SLA_ALERT_SEVERIDADE: Final[str] = "moderada"
+
+#: `canal` for an SLA-risk alert — the ORIGIN of the escalation, per this repo's live usage.
+#: The contract's table lists the three BENEFICIARY conversation channels (`whatsapp` | `portal` |
+#: `telefone`), but the runtime vocabulary is already wider and deliberately so: the A2A delegation
+#: seams send `canal="a2a"` (`agents/{carolina,fernando,rafael,andre}/delegation.py`) and the auth
+#: evidence path sends `canal="portal_tiss"` (`platform/evidence/auth_instance.py`). An SLA alert
+#: arrives on `operadora.notifications.internal` from a BPMN boundary timer — there is no
+#: beneficiary conversation at all, so borrowing one of the three would be a fabricated fact.
+#: PROPOSTO: the contract's `canal` domain should gain the non-conversational origins (`a2a`,
+#: `portal_tiss`, `bridge_sla`); recorded in `docs/review-queue.md` for ratification, NOT edited
+#: into the contract here.
+SLA_ALERT_CANAL: Final[str] = "bridge_sla"
 
 # ---------------------------------------------------------------------------
 # EB-4 event_type reconciliation (option b — repoint to the REAL emitted event shape)
@@ -476,6 +552,185 @@ def _inadimplencia_business_key(tenant_id: str, numero_contrato: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# R-104 — SLA-risk alert -> SP-OP-ESCALATION-001 derivation (business key + variables)
+# ---------------------------------------------------------------------------
+
+
+def _escalation_business_key(tenant_id: str, conversation_id: str) -> str:
+    """`ESC-{tenant_id}-{conversation_id}` (contract `SP-OP-ESCALATION-001.md` "Business key
+    (idempotencia)") — "Maximo UMA instancia ativa por conversa".
+
+    For an SLA alert the "conversa" is the CASE whose clock is running (see
+    `_SlaAlertSpec.conversation_prefix`), so a re-delivered or repeated alert about the same case
+    converges on the SAME open escalation task instead of flooding the queue with duplicates —
+    which is the whole reason this goes through `start_process_idempotent` rather than a raw POST.
+    """
+    return f"ESC-{tenant_id}-{conversation_id}"
+
+
+@dataclass(frozen=True)
+class _SlaAlertSpec:
+    """One SLA-risk alert `type` that really publishes to `operadora.notifications.internal`, and
+    how its payload maps onto SP-OP-ESCALATION-001's input variables.
+
+    THE THREE SPECS BELOW ARE THE WHOLE PUBLISHER SET, measured not assumed
+    (`grep -rln "_NOTIFY_SLA_RISK_NOTIFICATION_TYPE" src/maezo/tools/workers/`, 2026-09-04 ->
+    `lgpd.py`, `programa.py`, `recurso.py`). Nine OTHER modules carry an SLA-risk alert step
+    (`adequacao`, `auth` — the class-based `NotifySlaRiskWorker` — `cancel`, `contas`,
+    `credenciamento`, `fraude`, `inadimplencia`, `pagto`, `reembolso`), and NONE of them publishes
+    an SLA `type` anywhere: the only other `"<dominio>.notify_sla_risk"` string literals in `src/`
+    (`cancel.py:450`, `contas.py:606`, `reembolso.py:686`) are STRUCTLOG EVENT NAMES inside
+    `logger.info(...)`, not Kafka `type` fields — measured, not assumed
+    (`grep -rn '"[a-z_]*[.]notify_sla_risk"' src/`). So no message with their `type` can reach this
+    bridge at all. (`adequacao.py` does define `_NOTIFICATIONS_TOPIC`, but for its
+    `update_monitoring_plan` notification — its `notify_sla_risk` publishes nothing.) Giving those nine a
+    producer is a worker-level change, deliberately out of R-104's scope; the consumer side notices
+    the day one appears, because `SLA_ALERT_TYPE_SUFFIX` makes an unknown `<dominio>.notify_sla_risk`
+    a WARNING + a counted `unrecognised_shape`, never a silent pass-through.
+    """
+
+    #: The `type` literal the publisher stamps on the notification.
+    event_type: str
+    #: Closed-vocabulary domain token — the counter label and the `conversation_id` prefix.
+    domain: str
+    #: Payload fields that MUST be present/non-blank for the rule to fire (on top of `tenant_id`,
+    #: which `_anchored` requires structurally). They compose the `conversation_id`, hence the
+    #: business key, so a missing one would mint a degenerate `ESC-{tenant}-sla-recurso-` key
+    #: colliding every case of that domain onto one escalation — fail-closed instead.
+    anchor_fields: tuple[str, ...]
+    #: Payload field carrying the already-pseudonymised beneficiary/titular id (Zona Geral,
+    #: ADR-0006), or `""` when this domain's alert legitimately has no beneficiary.
+    pseudo_id_field: str
+    #: What the human is being asked to look at — class tokens only, no payload bytes.
+    resumo_contexto: str
+
+
+#: Fail-closed anchors, per domain, read off the REAL published payloads:
+#: `recurso.py::make_notify_sla_risk_handler` -> {tenant_id, numero_guia_tiss, glosa_id, glosa_type};
+#: `programa.py::make_notify_sla_risk_handler` -> {tenant_id, programa_id, beneficiario_pseudo_id};
+#: `lgpd.py::make_notify_sla_risk_handler` -> {tenant_id, titular_pseudo_id, tipo_requisicao,
+#: sla_breach_task_name, sla_breach_phase}.
+#:
+#: WHY `lgpd` ANCHORS ON THE PHASE TOO. Its handler serves TWO service tasks on one topic — the
+#: internal P7D ack alert (`sla_breach_phase="ack"`) and the LGPD art. 19-II legal-deadline breach
+#: (`sla_breach_phase="resolution"`). Keying both on the titular alone would collapse the LEGAL
+#: breach into the still-open internal-ack escalation and the second alert would raise no new task.
+#: `recurso` has NO beneficiary field in its payload (a glosa appeal is prestador-side), so its
+#: `beneficiario_pseudo_id` goes out EMPTY rather than fabricated.
+_SLA_ALERT_SPECS: Final[tuple[_SlaAlertSpec, ...]] = (
+    _SlaAlertSpec(
+        event_type="recurso.notify_sla_risk",
+        domain="recurso",
+        anchor_fields=("glosa_id",),
+        pseudo_id_field="",
+        resumo_contexto=(
+            "Alerta de risco de SLA em SP-OP-RECURSO-001 (BT_AlertaSlaRecurso, boundary "
+            "nao-interruptivo sobre UT_AnaliseRecursoAnalista). O relogio de SLA do recurso esta "
+            "correndo e nenhuma decisao foi tomada. Nenhum agente decidiu nada: este escalonamento "
+            "so pede acao humana no caso correlacionado pelo conversation_id."
+        ),
+    ),
+    _SlaAlertSpec(
+        event_type="programa.notify_sla_risk",
+        domain="programa",
+        anchor_fields=("programa_id",),
+        pseudo_id_field="beneficiario_pseudo_id",
+        resumo_contexto=(
+            "Alerta de risco de SLA em SP-OP-PROGRAMA-001 (ST_NotifySlaRisk, timer "
+            "nao-interruptivo sobre UT_DecisaoClinica). O relogio de SLA do programa de cuidado "
+            "esta correndo e nenhuma decisao foi tomada. Nenhum agente decidiu nada: este "
+            "escalonamento so pede acao humana no caso correlacionado pelo conversation_id."
+        ),
+    ),
+    _SlaAlertSpec(
+        event_type="lgpd.notify_sla_risk",
+        domain="lgpd",
+        anchor_fields=("titular_pseudo_id", "sla_breach_phase"),
+        pseudo_id_field="titular_pseudo_id",
+        resumo_contexto=(
+            "Alerta de risco de SLA em SP-OP-LGPD-DSR-001 (ST_NotificarRiscoSla, ack interno P7D, "
+            "ou ST_NotificarJuridicoBreach, prazo legal LGPD art. 19-II). O relogio do DSR esta "
+            "correndo e nenhuma decisao foi tomada. Nenhum agente decidiu nada: este escalonamento "
+            "so pede acao humana no caso correlacionado pelo conversation_id."
+        ),
+    ),
+)
+
+#: `{event_type: domain}` — the CLOSED counter-label vocabulary the consumer module reads, derived
+#: from the specs so the two can never drift. A `type` absent from this map is, by construction,
+#: not something this bridge routes.
+SLA_ALERT_DOMAINS: Final[Mapping[str, str]] = MappingProxyType(
+    {spec.event_type: spec.domain for spec in _SLA_ALERT_SPECS}
+)
+
+#: The `type` literals this bridge routes to SP-OP-ESCALATION-001 (derived, never a second list).
+SLA_ALERT_NOTIFICATION_TYPES: Final[frozenset[str]] = frozenset(SLA_ALERT_DOMAINS)
+
+
+def _sla_alert_conversation_id(spec: _SlaAlertSpec, payload: dict[str, Any]) -> str:
+    """`sla-{dominio}-{ancoras}` — the "conversa" an SLA escalation is about.
+
+    SP-OP-ESCALATION-001 was built for agent conversations, so its idempotency unit is a
+    `conversation_id`. An SLA alert has no conversation; its unit is the CASE whose clock is
+    running. Deriving the id from the case's own anchors (never from a clock, a uuid, or the
+    processing time) is what makes redelivery converge — the same property
+    `_ans_cron_business_key`'s constants buy for the calendar path. The `sla-` prefix keeps these
+    ids in their own namespace, so a derived id can never collide with a real agent conversation.
+    Only called after the rule's predicate passed, so every anchor is present and non-blank.
+    """
+    anchors = "-".join(str(payload.get(field, "")).strip() for field in spec.anchor_fields)
+    return f"sla-{spec.domain}-{anchors}"
+
+
+def _sla_alert_predicate(spec: _SlaAlertSpec) -> Callable[[dict[str, Any]], bool]:
+    """Fail-closed predicate for one SLA-alert rule: `tenant_id` (structural, via `_anchored`)
+    plus every anchor the business key needs. A tenant-less or anchor-less alert leaves the rule
+    DORMANT — never a degenerate `ESC--sla-recurso-` key, exactly as the other 7 rules behave.
+
+    A factory (not a `lambda` in the registration loop) so each rule closes over ITS OWN spec —
+    a late-binding lambda would give all three rules the last spec's anchors.
+    """
+
+    def predicate(payload: dict[str, Any]) -> bool:
+        return _anchored(payload, *spec.anchor_fields)
+
+    return predicate
+
+
+def _sla_alert_variables(spec: _SlaAlertSpec) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Map one SLA-risk alert payload onto SP-OP-ESCALATION-001's input variables (contract
+    §"Variaveis de entrada"), for the fenced starter.
+
+    EVERY value is either read from the payload or a declared constant with its own rationale
+    above — nothing is invented per message, so the same alert always reconstructs the same
+    business key. NO free text from the payload reaches `resumo_contexto`: it is a per-spec
+    constant, so the escalation dossier carries zero unvalidated bytes (the chokepoint's
+    `redact_phi_vars` scrub is a backstop here, not the guarantee).
+
+    Same factory-not-lambda rule as `_sla_alert_predicate`.
+    """
+
+    def variables_fn(payload: dict[str, Any]) -> dict[str, Any]:
+        tenant_id = str(payload.get("tenant_id", ""))
+        conversation_id = _sla_alert_conversation_id(spec, payload)
+        pseudo_id = str(payload.get(spec.pseudo_id_field, "")) if spec.pseudo_id_field else ""
+        return {
+            "tenant_id": tenant_id,
+            "source_agent_id": SLA_ALERT_SOURCE_AGENT_ID,
+            "source_agent_version": SLA_ALERT_SOURCE_AGENT_VERSION,
+            "conversation_id": conversation_id,
+            "beneficiario_pseudo_id": pseudo_id,
+            "canal": SLA_ALERT_CANAL,
+            "motivo_categoria": SLA_ALERT_MOTIVO_CATEGORIA,
+            "severidade": SLA_ALERT_SEVERIDADE,
+            "resumo_contexto": spec.resumo_contexto,
+            "business_key": _escalation_business_key(tenant_id, conversation_id),
+        }
+
+    return variables_fn
+
+
+# ---------------------------------------------------------------------------
 # EB-3 part 1 — fail-closed execute_handoff error type
 # ---------------------------------------------------------------------------
 
@@ -561,10 +816,13 @@ class NotificationBridge:
     # -------------------------------------------------------------------
 
     def _register_default_handoffs(self) -> None:
-        """Register the seven cross-process handoff rules from the spec.
+        """Register the ten cross-process handoff rules from the spec.
 
         INTAKE→RECURSO, CONTAS→FRAUDE, FRAUDE→CRED, FRAUDE→CANCEL/INADIMPLENCIA (5, pre-T2.6-7)
-        + NIP→ANS-SUBMIT, ans.cron_due→ANS-SUBMIT (2, T2.6-7).
+        + NIP→ANS-SUBMIT, ans.cron_due→ANS-SUBMIT (2, T2.6-7)
+        + `{lgpd,programa,recurso}.notify_sla_risk`→ESCALATION (3, R-104/WP-ALERTA-SLA-CANAL —
+        see the `_SlaAlertSpec` block for why an SLA alert becomes a candidate-group-routed
+        User Task by starting SP-OP-ESCALATION-001).
 
         EB-3 part 4: all 5 pre-existing rules now derive `business_key` (see the module-level
         `_recurso_business_key`/`_fraude_business_key`/`_cred_business_key`/
@@ -762,6 +1020,21 @@ class NotificationBridge:
             target_process=PROCESS_KEY_ANS_SUBMIT,
             variables_fn=_ans_submit_variables_from_cron_due,
         )
+
+        # SLA-RISK ALERT -> ESCALATION (R-104, WP-ALERTA-SLA-CANAL). One rule per publishing
+        # domain: `_find_matches` compares `event_type` for EQUALITY, so a single rule cannot
+        # serve three literals, and each domain anchors its business key on its own fields.
+        # THIS LOOP IS THE PRODUCTION WIRING — deleting it makes an SLA alert an unmatched event
+        # again (pinned by
+        # `test_um_alerta_de_sla_conhecido_inicia_escalation_pela_cerca` in
+        # `tests/unit/platform/integrations/test_notifications_bridge.py`).
+        for spec in _SLA_ALERT_SPECS:
+            self.register_handoff(
+                event_type=spec.event_type,
+                predicate=_sla_alert_predicate(spec),
+                target_process=PROCESS_KEY_ESCALATION,
+                variables_fn=_sla_alert_variables(spec),
+            )
 
     # -------------------------------------------------------------------
     # Public API
@@ -1049,9 +1322,10 @@ def build_cibseven_process_starter(
     "raw engine start" this fence exists to make impossible in production.
 
     Requires `variables["business_key"]` to already be populated by the matched rule's
-    `variables_fn` (every one of the 7 rules registered by `_register_default_handoffs` sets it
-    — the 2 T2.6-7 ANS-SUBMIT rules from the start, and the 5 pre-existing rules
-    INTAKE→RECURSO, CONTAS→FRAUDE + FRAUDE→CRED/CANCEL/INADIMPLENCIA as of EB-3 part 4) — raises
+    `variables_fn` (every one of the 10 rules registered by `_register_default_handoffs` sets it
+    — the 2 T2.6-7 ANS-SUBMIT rules from the start, the 5 pre-existing rules
+    INTAKE→RECURSO, CONTAS→FRAUDE + FRAUDE→CRED/CANCEL/INADIMPLENCIA as of EB-3 part 4, and the 3
+    R-104 SLA-alert→ESCALATION rules) — raises
     `NotificationBridgeMissingBusinessKeyError` (fail-closed) rather than starting with a
     garbage/empty key when it is missing.
 
@@ -1065,7 +1339,7 @@ def build_cibseven_process_starter(
     test/dev starter still works — it just reports `start_outcome=""` (unknown), honestly.
 
     GATED-CAPABLE BY CONSTRUCTION. `process_key` comes from the matched rule, so this starter can
-    front ANY family and ANY `StartDedupPosture` (see `_START_DEDUP_POLICY`'s table). ONE of the 7
+    front ANY family and ANY `StartDedupPosture` (see `_START_DEDUP_POLICY`'s table). ONE of the 10
     rules registered today targets a gated family: FRAUDE→CANCEL (`:639`) targets
     `SP-OP-CANCEL-001`, which is `EXCLUSIVE` since GAP-D3-02 — so this starter's `transport` and
     `audit_sink` MUST satisfy `HistoryQueryingTransport` / `DedupReportingAuditSink` or that rule

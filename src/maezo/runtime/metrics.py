@@ -25,11 +25,13 @@ AF-12 model-tier routing (ADR-0009 §2, maezo.runtime.inference.InferenceProvide
 GAP-SC-04-a notifications-bridge dead-letter metering:
 - maezo_bridge_dlq_total (Counter) — poison messages shunted to `<topic>.dlq` by {topic,reason}
 
-R-104/WP-ALERTA-SLA-CANAL notifications-bridge SLA-alert human-task routing:
-- maezo_sla_alert_human_task_total (Counter) — an SLA-risk alert `type` routed to a human task by
-  {candidate_group,outcome}; `outcome` is "routed" (a known SLA-alert `type`) or
-  "unrecognised_shape" (fail-closed: shaped like an SLA-risk alert but not yet in the allowlist —
-  never a silent drop, see `notifications_bridge.route_sla_alert_to_human_task`)
+R-104/WP-ALERTA-SLA-CANAL notifications-bridge SLA-alert -> human task (SP-OP-ESCALATION-001):
+- maezo_sla_alert_human_task_total (Counter) — what became of an SLA-risk alert, by
+  {alert_domain,outcome}; `outcome` is "escalated" (a real SP-OP-ESCALATION-001 User Task was
+  opened through the fenced chokepoint), "not_anchored" (a known SLA `type` whose payload lacked
+  `tenant_id`/its business-key anchor -> the rule stayed fail-closed dormant) or
+  "unrecognised_shape" (shaped like an SLA-risk alert but not yet in the spec table) — never a
+  silent drop, see `notifications_bridge._record_sla_alert_outcome`
 
 WHICH OF THESE THE SHIPPED ALERTS READ (deploy/observability/alert-rules.yml, read-only here):
 `maezo_worker_execution_time_seconds`, `maezo_worker_error_count_total`, `maezo_agent_errors_total`
@@ -190,17 +192,18 @@ class MetricsCollector:
             registry=self._registry,
         )
 
-        # R-104/WP-ALERTA-SLA-CANAL. SLA-risk alert `type`s routed to a human task, per
-        # `notifications_bridge.route_sla_alert_to_human_task`. CONTENT-FREE BY CONSTRUCTION, same
-        # rule as `bridge_dlq` above: `candidate_group` is a closed vocabulary (today exactly one
-        # value, `atendimento-humano` — no group dedicated to SLA alerts exists in the taxonomy
-        # yet, see that function's PROPOSTO comment), `outcome` is closed ("routed" |
+        # R-104/WP-ALERTA-SLA-CANAL. SLA-risk alerts turned into a human task, per
+        # `notifications_bridge._record_sla_alert_outcome`. CONTENT-FREE BY CONSTRUCTION, same rule
+        # as `bridge_dlq` above: `alert_domain` is a closed vocabulary (`notification_bridge.
+        # SLA_ALERT_DOMAINS` -> recurso | programa | lgpd, plus the literal `unknown` for a
+        # `<dominio>.notify_sla_risk` shape the spec table does not carry — the raw, producer-
+        # controlled `type` is NEVER a label), `outcome` is closed ("escalated" | "not_anchored" |
         # "unrecognised_shape"). Never a tenant id, business key, or any payload byte.
         self._sla_alert_human_task = Counter(
             "maezo_sla_alert_human_task_total",
-            "SLA-risk alert notifications routed to a human task (COUNTS ONLY; candidate_group "
-            "and outcome are closed vocabularies, never payload-derived)",
-            labelnames=["candidate_group", "outcome"],
+            "SLA-risk alert notifications turned into an SP-OP-ESCALATION-001 human task "
+            "(COUNTS ONLY; alert_domain and outcome are closed vocabularies, never payload-derived)",
+            labelnames=["alert_domain", "outcome"],
             registry=self._registry,
         )
 
@@ -294,10 +297,11 @@ class MetricsCollector:
 
     @property
     def sla_alert_human_task(self) -> Counter:
-        """Counter for SLA-risk alerts routed to a human task (R-104/WP-ALERTA-SLA-CANAL).
+        """Counter for SLA-risk alerts turned into a human task (R-104/WP-ALERTA-SLA-CANAL).
 
-        Labels: candidate_group (closed vocabulary — today only `atendimento-humano`), outcome
-        ("routed" | "unrecognised_shape"). COUNTS ONLY — see construction comment.
+        Labels: alert_domain (closed — recurso | programa | lgpd | unknown), outcome
+        ("escalated" | "not_anchored" | "unrecognised_shape"). COUNTS ONLY — see construction
+        comment.
         """
         return self._sla_alert_human_task
 

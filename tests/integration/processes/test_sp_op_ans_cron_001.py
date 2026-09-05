@@ -257,8 +257,9 @@ def test_notification_bridge_ans_cron_rule_now_wired() -> None:
 
     targets = {h["target_process"] for h in bridge.list_handoffs()}
     assert _PROCESS_KEY_ANS_SUBMIT in targets
-    # Regressao: as 5 regras pre-T2.6-7 continuam intactas + as 2 novas (NIP + cron) = 7.
-    assert bridge.count_handoffs() == 7
+    # Regressao: as 5 regras pre-T2.6-7 continuam intactas + as 2 novas (NIP + cron) + as 3 de
+    # alerta de SLA -> SP-OP-ESCALATION-001 (R-104/WP-ALERTA-SLA-CANAL) = 10.
+    assert bridge.count_handoffs() == 10
 
 
 # ===========================================================================

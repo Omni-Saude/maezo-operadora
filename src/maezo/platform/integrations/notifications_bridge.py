@@ -20,10 +20,13 @@ This module provides:
     Kafka message in, `NotificationBridge.on_event(...)` out. Fail-closed on a malformed message
     (`MalformedBridgeMessageError`) — never silently drops or misclassifies a bad message as "no
     rule matched".
-  - `route_sla_alert_to_human_task` (R-104, WP-ALERTA-SLA-CANAL) — the same handler ALSO routes
-    an SLA-risk alert `type` to a human task (candidate group + log + `maezo_sla_alert_human_task_total`
-    counter), alongside the unchanged `on_event` dispatch above. No BPMN change, no engine call:
-    this ADDS a human touchpoint, it never removes one.
+  - `_record_sla_alert_outcome` (R-104, WP-ALERTA-SLA-CANAL) — the OBSERVATION half of the
+    SLA-risk alert route. The EFFECT half is three handoff rules in `platform/notification_bridge.py`
+    that start SP-OP-ESCALATION-001 through the fenced chokepoint, so an SLA alert becomes a
+    `camunda:candidateGroups`-routed User Task a human sees; this function counts/warns what
+    `on_event` did with it, including the two cases `on_event` cannot distinguish (a known `type`
+    left dormant by a missing anchor, and an unknown `<dominio>.notify_sla_risk` shape). No BPMN
+    change, no new process key, no raw engine call: this ADDS a human touchpoint, never removes one.
   - `run_consumer_loop` — drives the handler over ANY `BridgeKafkaConsumer` (real or fake); fully
     exercised in unit tests against the fake.
   - `main()` — composition root: builds the real transport/audit-sink/consumer and runs the loop
@@ -115,10 +118,14 @@ from maezo.gateway.tool_registry import (
     effect_seams_gated,
 )
 from maezo.platform.notification_bridge import (
+    PROCESS_KEY_ESCALATION,
+    SLA_ALERT_DOMAINS,
+    SLA_ALERT_TYPE_SUFFIX,
     HandoffResult,
     NotificationBridge,
     build_cibseven_process_starter,
 )
+from maezo.platform.observability import record_sla_alert_human_task
 from maezo.platform.topic_registry import dlq_topic_for
 from maezo.tools.mcp_cibseven.transport import DedupReportingAuditSink
 from maezo.tools.workers.phi_vars import redact_error_message
@@ -230,143 +237,114 @@ async def handle_bridge_message(bridge: NotificationBridge, message: Any) -> lis
     A genuine handoff failure for a WELL-FORMED, rule-matching message propagates
     `NotificationBridgeHandoffFailedError` unchanged (EB-3 part 1) — this function adds no
     additional try/except around `on_event`, so the fail-closed behavior lives in exactly one
-    place (`notification_bridge.py`), not duplicated here.
+    place (`notification_bridge.py`), not duplicated here. That is also why
+    `_record_sla_alert_outcome` runs AFTER the await and not around it: a failed escalation start
+    can never be counted as one that reached a human.
     """
     if not isinstance(message, Mapping):
         raise MalformedBridgeMessageError("not a JSON object", message, code=REASON_NOT_A_JSON_OBJECT)
     event_type = message.get("type")
     if not isinstance(event_type, str) or not event_type.strip():
         raise MalformedBridgeMessageError("missing/blank 'type' field", message, code=REASON_MISSING_TYPE)
-    route_sla_alert_to_human_task(event_type, message)
-    return await bridge.on_event(event_type, dict(message))
+    results = await bridge.on_event(event_type, dict(message))
+    _record_sla_alert_outcome(event_type, results)
+    return results
 
 
 # ---------------------------------------------------------------------------
-# SLA-risk alert -> human task routing (R-104, WP-ALERTA-SLA-CANAL). This ADDS a human
-# touchpoint; it never removes the ordinary `on_event`/handoff dispatch above, and it never
-# starts a CIB Seven process itself — "human task" here means a ROUTING DECISION (candidate
-# group + log + metric), not a live BPMN User Task. No BPMN change, no engine call: WP-ALERTA-
-# SLA-CANAL's owner-approved scope is the Cockpit's internal queue, and this repo has no Cockpit
-# consumer — this is the honest seam a future consumer of `maezo_sla_alert_human_task_total` /
-# the structured log line reads from, same "declare the seam, don't fabricate the far end"
-# posture as `notification_bridge.py`'s own module docstring.
+# SLA-risk alert -> human task: the OBSERVATION side (R-104, WP-ALERTA-SLA-CANAL)
+#
+# The EFFECT lives in `platform/notification_bridge.py`: three handoff rules that start
+# SP-OP-ESCALATION-001 through the fenced `start_process_idempotent` chokepoint, so the alert
+# becomes a `camunda:candidateGroups`-routed User Task a human actually sees. `bridge.on_event`
+# above already runs them — there is no second dispatch path here and no raw engine call.
+#
+# What this section adds is the part `on_event` cannot do, because it is keyed on EQUALITY and a
+# `type` it does not know is simply "no rule matched": telling apart the three outcomes an SLA
+# alert can have, and making the two non-success ones VISIBLE.
+#   - `escalated`           — a rule matched and the chokepoint returned an instance id.
+#   - `not_anchored`        — a KNOWN SLA `type` whose payload lacked `tenant_id` or its business-key
+#                             anchor, so the rule stayed fail-closed dormant (no degenerate key).
+#   - `unrecognised_shape`  — a `<dominio>.notify_sla_risk` `type` this bridge does not know: a
+#                             tenth worker wired to publish before `_SLA_ALERT_SPECS` learned it.
+# The last two are WARNINGs plus a counted sample, never a silent pass-through.
+#
+# A start FAILURE is not one of the three: `on_event` raises `NotificationBridgeHandoffFailedError`
+# (EB-3 part 1) before this function is reached, so nothing here can label a failed escalation as
+# `escalated`. The existing fail-closed path owns it — the exception propagates out of
+# `run_consumer_loop`, the offset is NOT committed, and redelivery re-attempts the (idempotent)
+# start. That is deliberate: a counter sample is not a substitute for not acking the message.
 # ---------------------------------------------------------------------------
 
-#: The exact `type` literals an SLA-risk alert worker publishes to `NOTIFICATIONS_TOPIC` today
-#: (grep evidence, 2026-09-04: `grep -rn '"type":.*_NOTIFY_SLA_RISK_NOTIFICATION_TYPE'
-#: src/maezo/tools/workers/`):
-#: `lgpd.py::_NOTIFY_SLA_RISK_NOTIFICATION_TYPE`, `recurso.py::_NOTIFY_SLA_RISK_NOTIFICATION_TYPE`,
-#: `programa.py::_NOTIFY_SLA_RISK_NOTIFICATION_TYPE`. The gap's "8 channel-less SLA-risk alert
-#: paths" also counts `auth`/`cancel`/`contas`/`credenciamento`/`fraude`/`inadimplencia`/`pagto`/
-#: `reembolso`'s own `notify_sla_risk` — those only `logger.info(...)` and never publish to THIS
-#: topic (`grep -rln '_NOTIFICATIONS_TOPIC\s*=' src/maezo/tools/workers/` excludes all eight), so
-#: no message with their `type` can ever reach this bridge; wiring their own Kafka producer is a
-#: separate, worker-level change, out of scope here (R-104's instruction is "no BPMN change, no
-#: engine" on THIS module — it is not authorization to wire new producers elsewhere).
-SLA_ALERT_NOTIFICATION_TYPES: Final[frozenset[str]] = frozenset(
-    {
-        "lgpd.notify_sla_risk",
-        "recurso.notify_sla_risk",
-        "programa.notify_sla_risk",
-    }
-)
+#: Counter label for a `<dominio>.notify_sla_risk` `type` outside `SLA_ALERT_DOMAINS`. The raw
+#: `type` is producer-controlled, so it is logged (bounded field) but NEVER used as a label —
+#: `maezo_sla_alert_human_task_total`'s label set stays closed and cardinality-bounded, the same
+#: rule `record_bridge_dlq` documents.
+_SLA_ALERT_DOMAIN_UNKNOWN: Final[str] = "unknown"
 
-#: The naming convention every known SLA-risk alert `type` follows (`<domain>.notify_sla_risk`).
-#: Used ONLY to detect a FUTURE domain's alert wired to publish before this allowlist learns its
-#: `type` — see `route_sla_alert_to_human_task`'s fail-closed branch.
-_SLA_ALERT_TYPE_SUFFIX: Final[str] = ".notify_sla_risk"
-
-#: PROPOSTO (R-104/WP-ALERTA-SLA-CANAL — an engineering routing choice pending ops/product
-#: ratification; this is NOT an SME-ratified `camunda:candidateGroups` binding). The existing
-#: taxonomy (`grep -rn candidateGroups spec/processes/bpmn/`) has NO group dedicated to SLA-risk
-#: alerts specifically, so this reuses the existing GENERIC human queue instead of inventing a new
-#: literal: `atendimento-humano` is the catch-all `spec/processes/dmn/escalation_routing.dmn`
-#: rule r7 already routes SP-OP-ESCALATION-001's unclassified escalations to (and rules r5/r6 use
-#: for its two other non-clinical reasons). If ops/product later stand up a dedicated queue, this
-#: is the one line to change.
-SLA_ALERT_CANDIDATE_GROUP: Final[str] = "atendimento-humano"
+#: The closed `outcome` vocabulary — see the section comment for what each one means.
+SLA_ALERT_OUTCOME_ESCALATED: Final[str] = "escalated"
+SLA_ALERT_OUTCOME_NOT_ANCHORED: Final[str] = "not_anchored"
+SLA_ALERT_OUTCOME_UNRECOGNISED_SHAPE: Final[str] = "unrecognised_shape"
 
 
-@dataclass(frozen=True)
-class HumanTaskRouted:
-    """A human-task ROUTING DECISION for an SLA-risk alert (R-104) — not a BPMN User Task, not an
-    engine call. `recognised` distinguishes a known SLA-alert `type` from one that only matches
-    the `<domain>.notify_sla_risk` SHAPE (fail-closed branch, `recognised=False`).
-    """
+def _record_sla_alert_metric(*, alert_domain: str, outcome: str) -> None:
+    """Emit `maezo_sla_alert_human_task_total{alert_domain,outcome}`. Never fails the dispatch.
 
-    event_type: str
-    candidate_group: str
-    tenant_id: str | None
-    recognised: bool
-
-
-def _record_sla_alert_metric(*, candidate_group: str, outcome: str) -> None:
-    """Emit `maezo_sla_alert_human_task_total{candidate_group,outcome}`. NEVER raises.
-
-    Same defensive posture as `BridgeDlqShunt._record_metric`: a metrics/registry problem must
-    never be able to fail — or silently alter — the routing decision itself.
+    NARROW, NOT BLIND (the neighbouring `BridgeDlqShunt._record_metric` still catches
+    `Exception`; this one does not, and the difference is deliberate). The two failure modes this
+    call really has are enumerable: `ImportError`, if `observability._get_metrics_collector`'s
+    lazy `maezo.runtime.metrics` import cannot resolve, and `ValueError`, which is what
+    `prometheus_client` raises for a duplicated registration or a wrong label set. Anything else
+    coming out of a counter increment is a bug this module must not hide, so it propagates — and
+    propagating is SAFE here precisely because the escalation already started and the start is
+    idempotent by business key: a redelivery converges on the same instance instead of opening a
+    second task.
     """
     try:
-        from maezo.platform.observability import record_sla_alert_human_task  # noqa: PLC0415 — lazy
+        record_sla_alert_human_task(alert_domain=alert_domain, outcome=outcome)
+    except (ImportError, ValueError):
+        logger.debug(
+            "notifications_bridge.sla_alert_metric_failed", alert_domain=alert_domain, outcome=outcome
+        )
 
-        record_sla_alert_human_task(candidate_group=candidate_group, outcome=outcome)
-    except Exception:  # noqa: BLE001 — telemetry is best-effort; routing must never fail on it
-        logger.debug("notifications_bridge.sla_alert_metric_failed", candidate_group=candidate_group)
 
+def _record_sla_alert_outcome(event_type: str, results: Sequence[HandoffResult]) -> None:
+    """Observe what `bridge.on_event` just did with an SLA-risk alert (R-104).
 
-def route_sla_alert_to_human_task(event_type: str, payload: Mapping[str, Any]) -> HumanTaskRouted | None:
-    """Route an SLA-risk alert `type` to a human task, per R-104 (WP-ALERTA-SLA-CANAL).
-
-    Returns `None` for any `type` that is neither a known SLA-alert literal
-    (`SLA_ALERT_NOTIFICATION_TYPES`) nor shaped like one (`_SLA_ALERT_TYPE_SUFFIX`) — the ordinary
-    case, and BYTE-IDENTICAL to this function not existing: `handle_bridge_message` still
-    dispatches every message to `bridge.on_event(...)` exactly as before, so a non-SLA `type` is
-    UNTOUCHED by this rule.
-
-    For a known SLA-alert `type`, returns a `HumanTaskRouted(recognised=True)` record, logs
-    `notifications_bridge.sla_alert_routed_to_human_task`, and counts
-    `maezo_sla_alert_human_task_total{candidate_group,outcome="routed"}`.
-
-    FAIL-CLOSED for the shaped-but-unknown case (a `type` ending in `_SLA_ALERT_TYPE_SUFFIX` that
-    is not yet in the allowlist — e.g. a ninth worker wired to publish before this rule learned
-    its `type`): never silently falls through as an ordinary unmatched event. Still routes to the
-    generic queue (a human seeing it in the "unrecognised" bucket beats no human seeing it at
-    all), but logs `notifications_bridge.sla_alert_type_unrecognised` at WARNING and counts
-    `outcome="unrecognised_shape"` so the gap in this allowlist is visible, never silent.
-
-    This function never raises and never touches `bridge.on_event`'s dispatch table — it ADDS a
-    side effect (log + counter + this return value) alongside the unchanged existing pipeline,
-    per the HITL invariant: this only ever ADDS a human touchpoint, never removes one.
+    A no-op for every `type` that is not shaped like an SLA-risk alert — so an ordinary
+    process-start message is BYTE-IDENTICALLY unaffected by this rule existing.
     """
-    tenant_id = payload.get("tenant_id")
-    tenant_id = tenant_id if isinstance(tenant_id, str) else None
-    if event_type in SLA_ALERT_NOTIFICATION_TYPES:
-        _record_sla_alert_metric(candidate_group=SLA_ALERT_CANDIDATE_GROUP, outcome="routed")
+    if not event_type.endswith(SLA_ALERT_TYPE_SUFFIX):
+        return
+    alert_domain = SLA_ALERT_DOMAINS.get(event_type, _SLA_ALERT_DOMAIN_UNKNOWN)
+    escalated = any(
+        result.handoff_triggered
+        and result.target_process == PROCESS_KEY_ESCALATION
+        and result.process_instance_id.strip()
+        for result in results
+    )
+    if escalated:
+        _record_sla_alert_metric(alert_domain=alert_domain, outcome=SLA_ALERT_OUTCOME_ESCALATED)
         logger.info(
-            "notifications_bridge.sla_alert_routed_to_human_task",
+            "notifications_bridge.sla_alert_escalated",
             event_type=event_type,
-            candidate_group=SLA_ALERT_CANDIDATE_GROUP,
+            alert_domain=alert_domain,
+            target_process=PROCESS_KEY_ESCALATION,
         )
-        return HumanTaskRouted(
-            event_type=event_type,
-            candidate_group=SLA_ALERT_CANDIDATE_GROUP,
-            tenant_id=tenant_id,
-            recognised=True,
-        )
-    if event_type.endswith(_SLA_ALERT_TYPE_SUFFIX):
-        _record_sla_alert_metric(candidate_group=SLA_ALERT_CANDIDATE_GROUP, outcome="unrecognised_shape")
-        logger.warning(
-            "notifications_bridge.sla_alert_type_unrecognised",
-            event_type=event_type,
-            candidate_group=SLA_ALERT_CANDIDATE_GROUP,
-        )
-        return HumanTaskRouted(
-            event_type=event_type,
-            candidate_group=SLA_ALERT_CANDIDATE_GROUP,
-            tenant_id=tenant_id,
-            recognised=False,
-        )
-    return None
+        return
+    outcome = (
+        SLA_ALERT_OUTCOME_NOT_ANCHORED
+        if event_type in SLA_ALERT_DOMAINS
+        else SLA_ALERT_OUTCOME_UNRECOGNISED_SHAPE
+    )
+    _record_sla_alert_metric(alert_domain=alert_domain, outcome=outcome)
+    logger.warning(
+        "notifications_bridge.sla_alert_not_escalated",
+        event_type=event_type,
+        alert_domain=alert_domain,
+        outcome=outcome,
+    )
 
 
 # ---------------------------------------------------------------------------
