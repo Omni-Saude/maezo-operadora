@@ -7,7 +7,8 @@
         check-lifecycle-expected-fail-expiry \
         check-ledger-hashes \
         release-floor-check release-floor-write \
-        deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint
+        deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint \
+        check-helm-entrypoints check-chart-env-reconciliation
 
 LOCALSTACK_COMPOSE := deploy/terraform/localstack/docker-compose.localstack.yml
 TF_SMOKE_ENV       := deploy/terraform/envs/staging-sa-east-1
@@ -227,3 +228,25 @@ tf-smoke:         ## plan de staging-sa-east-1 contra LocalStack (resolucao de d
 helm-lint:        ## helm lint do chart maezo-tenant (requer helm >=3.15)
 	helm lint deploy/helm/maezo-tenant/ --strict
 	helm lint deploy/helm/maezo-tenant/ --strict -f deploy/helm/maezo-tenant/values-amh.yaml
+
+check-helm-entrypoints: ## AF-01/R-001: todo `python -m maezo.<modulo>` que o chart renderiza resolve como import real (fence anti-CrashLoopBackOff)
+	# Renderiza o chart real (helm template, binario real) e resolve cada comando `python -m
+	# maezo.<modulo>` encontrado via importlib.util.find_spec contra o `maezo` instalado (editable)
+	# deste venv. Modulo fantasma (ou pacote-pai que nao importa) falha o gate nomeando o template
+	# Helm de origem (`# Source: ...`, default do `helm template`). Ver
+	# scripts/ci/check_helm_entrypoints.py para o desenho completo (fence pura + wrapper de
+	# subprocess) e tests/unit/ci/test_check_helm_entrypoints.py para a prova de mutacao (chart real
+	# com os dois bridges forcados de volta a `enabled: true` via --set -> vermelho nomeando os dois
+	# modulos fantasma).
+	uv run python scripts/ci/check_helm_entrypoints.py
+
+check-chart-env-reconciliation: ## DU-02/R-002: toda env declarada no chart/TF (prefixos MAEZO_/WHATSAPP_/CIBSEVEN_/KAFKA_) e' lida em src/, e vice-versa para o que os entrypoints EXIGEM
+	# Reconcilia (1) nome de env declarado em deploy/helm/** (renderizado) + deploy/**/*.tf contra
+	# leitura real em src/ (os.environ.get/os.getenv + Field(alias=...)/AliasChoices(...)/env_prefix
+	# de pydantic BaseSettings) — pega o typo MAEZO_TENANT vs MAEZO_TENANT_ID (DU-02) e qualquer
+	# futuro analogo; e (2) o inverso: toda env OBRIGATORIA (sem default) que um BaseSettings de
+	# src/ exige deve estar declarada em algum lugar do chart/TF. Allowlist pinada e' so' para env
+	# de processo de TERCEIROS que o proprio deploy declara mas nenhum modulo Python le (o broker
+	# Kafka em service-kafka.tf, o Spring datasource do CIB Seven em statefulset-cibseven.yaml) — ver
+	# scripts/ci/check_chart_env_reconciliation.py para o desenho + a lista exata.
+	uv run python scripts/ci/check_chart_env_reconciliation.py

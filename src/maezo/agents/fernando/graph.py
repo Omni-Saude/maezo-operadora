@@ -107,10 +107,13 @@ neutral notify or a human escalation (mirrors Helena's `_respond_llm`/Rafael's `
 fail-safe-open text, NOT a fail-closed route change — those are different failure classes).
 
 LABELED BOUNDARIES (this build, disclosed — never fabricated):
-- Episodic/semantic memory write (`mcp-memory.read_write`, ADR-0002) is NOT wired in this graph —
-  same follow-up as Helena/Rafael (v2's `MemoryServer` needs a live Postgres/pgvector schema that
-  does not exist in this repo's migrations yet). The donor's `finalize`/memory node has no v2
-  analog here.
+- Episodic memory write (`mcp-memory.read_write`, ADR-0002) is NOT wired in this graph — same
+  follow-up as Helena/Rafael. The episodic table exists (`agent_memory`, migration `0001`); what
+  blocks the write is `store_episodic`'s `(agent_id, event)` signature, which carries neither
+  `tenant_id` nor `thread_id` (both `text NOT NULL`) — GAP-DU-01-a. There is no SEMANTIC write to
+  wire at all any more: `0009_drop_pgvector` removed the column, and ADR-0002 §3 is SUSPENDED
+  pending a consumer (ADR-0047, DRAFT). The donor's `finalize`/memory node has no v2 analog
+  here.
 - A2A inbound delegation (`arrears.followup`, Lucas -> Fernando, `spec/agents/fernando/
   agent.yaml`'s `accepted_task_types`) is NOT wired. CORRECTED (GAP 11.7, re-checked this
   session): the reason is NOT that `v2`'s `a2a/` package lacks `DelegationEnvelope`/
