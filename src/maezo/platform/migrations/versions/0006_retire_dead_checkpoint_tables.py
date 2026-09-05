@@ -47,6 +47,33 @@ history without changing any already-applied database state. This file (and the 
 `erasure.py` docstrings) is the durable correction of the record. If checkpoint persistence is
 ever wired for real, the correct fix is calling `PostgresSaver(...).setup()` / `.asetup()` once
 per tenant connection -- NOT adding more Alembic DDL under these table names.
+
+NOTA DE RECONCILIACAO 2026-09-05 (gap AF-18a, docs-only; APPEND-ONLY -- nenhuma linha acima foi
+alterada, exatamente pela regra que este proprio arquivo enuncia: uma migration e registro
+historico append-only). O paragrafo acima que diz "Checkpoint persistence is therefore, today,
+wired nowhere in prod bootstrap" era VERDADE quando esta migration foi escrita (T3.4, 2026-07-26) e
+DEIXOU DE SER depois, em T4b. Hoje o checkpointer duravel e provisionado em DOIS bring-ups, ambos
+FAIL-CLOSED em producao:
+
+  - `maezo.runtime.agent_runtime.service` -- `AgentState.checkpointer` e a sonda de prontidao
+    `checkpointer_ready` (o daemon RECUSA rodar stateless quando `agent_runtime_mode` e producao);
+    o saver e injetado em `_load_agent_graph(..., checkpointer=...)`.
+  - `maezo.platform.webhooks.service` -- `_provision_dispatch_checkpointer`, que devolve `/webhook`
+    501 quando nao consegue provisionar.
+
+Ambos passam por `maezo.runtime.checkpoint.provision_checkpointer`, que AGUARDA `saver.setup()` --
+ou seja, a chamada cuja ausencia o paragrafo acima documentava (a varredura T3.4 F4 de
+`.setup(`/`.asetup(` daria hits hoje). Duas consequencias que NAO mudam:
+
+  1. As quatro tabelas do langgraph (`checkpoint_migrations`, `checkpoints`, `checkpoint_blobs`,
+     `checkpoint_writes`) continuam provisionadas IMPERATIVAMENTE por `setup()`, nunca por esta
+     cadeia Alembic -- a afirmacao central desta migration segue correta, e e por isso que
+     `spec/policies/retention/erasure-plan.template.yaml` as enumera a parte.
+  2. `agent_checkpoints`/`agent_checkpoint_writes` continuam mortas e removidas por esta migration.
+
+Nao ha citacao por numero de linha nesta nota, de proposito: a correcao estrutural do gap AF-18a e
+ancorar por SIMBOLO (modulo::simbolo), porque foi a deriva de `service.py:489,512` e de
+`audit.py:310-344` que fez a auditoria original citar codigo que ja tinha se movido.
 """
 
 from collections.abc import Sequence

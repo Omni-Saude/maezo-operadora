@@ -28,16 +28,16 @@ run safely, and both must be solved before any prune is lawful:
    prefix severs the hash chain's contiguity, and BOTH verifiers then report the *surviving* chain
    as corrupted:
 
-   - **In-memory** `AuditSink.verify_chain()` (`src/maezo/gateway/audit.py:310-344`) seeds its walk
-     with `prev = GENESIS_PREV_HASH` (`:319`, and `GENESIS_PREV_HASH = "0"*64` at `:48`) and, for
-     each record in order, requires `record.prev_hash == prev` (`:320-329`). After a prefix prune,
-     the oldest *surviving* record still carries the `prev_hash` of a now-deleted predecessor, so
-     verification fails **at index 0**.
-   - **Postgres** `verify_chain()` (`src/maezo/gateway/audit_postgres.py:333-410`) builds a
-     `by_prev` map keyed on `prev_record_hash` (`:365-377`, which also detects forks) and seeds its
-     walk at `by_prev.get(GENESIS_PREV_HASH)` (`:380`). With the genesis row deleted, that seed is
-     `None`, the walk visits nothing, and every surviving row is reported **"unreachable from
-     genesis"** (`:396-406`) — indistinguishable from a gap/fork corruption.
+   - **In-memory** `src/maezo/gateway/audit.py::AuditSink.verify_chain` seeds its walk with
+     `prev: str = GENESIS_PREV_HASH` (module constant `GENESIS_PREV_HASH: str = "0" * 64`, same
+     file) and, for each record in order, rejects on `if record.prev_hash != prev`. After a prefix
+     prune, the oldest *surviving* record still carries the `prev_hash` of a now-deleted
+     predecessor, so verification fails **at index 0**.
+   - **Postgres** `src/maezo/gateway/audit_postgres.py::verify_chain` (module-level coroutine)
+     builds a `by_prev` map keyed on `prev_record_hash` (the same loop that detects forks, via
+     `if prev in by_prev`) and seeds its walk at `by_prev.get(GENESIS_PREV_HASH)`. With the genesis
+     row deleted, that seed is `None`, the walk visits nothing, and every surviving row is reported
+     `"unreachable from genesis"` — indistinguishable from a gap/fork corruption.
 
    - **`UNIQUE(prev_record_hash)` ≠ contiguity.** The non-partitioned schema
      (`src/maezo/platform/migrations/versions/0002_audit_chain.py:27-51`) enforces
@@ -111,8 +111,10 @@ insert a new genesis at `prev_record_hash = "0"*64` and re-fork the head. The ch
 
 The prefix delete **and** the checkpoint insert run in **one transaction**, under the **same
 per-tenant advisory lock** `emit()` already takes
-(`pg_advisory_xact_lock(hashtext($1))`, `src/maezo/gateway/audit_postgres.py:137`, held across the
-insert transaction at `:219`). Ordering inside the single locked transaction:
+(`_ADVISORY_LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtext($1))"` in
+`src/maezo/gateway/audit_postgres.py`, executed as the first statement inside the transaction opened
+by `PostgresAuditSink.emit` and again by `PostgresAuditSink.emit_once_status`, so it is held for the
+whole insert). Ordering inside the single locked transaction:
 
 1. **SELECT + snapshot** the prune range (the eligible genesis prefix, §1/§6).
 2. **Compute** `H_k` (last pruned `record_hash`), the Merkle root, counts/ts-range, and the
@@ -229,3 +231,36 @@ makes the block explicit and designs the exit; it does not take it.
 
 None. Complements DL-0018 (adds the re-anchor precondition the DELETE always needed) and is the
 chain-integrity half of `ADR-0020-amendment-draft.md` §3-bis / §4.4. Does not amend ADR-0007.
+
+## Nota de reancoragem 2026-09-05 (gap AF-18a) — citações por SÍMBOLO, não por número de linha
+
+**Docs-only. Nenhuma decisão desta ADR foi alterada, adicionada ou removida, e o `Status` continua
+`Proposed — requires DPO + orchestrator ratification`.** Autor: `ADR-BATCH` (R1, AGENTE); `docs/adr/`
+é CODEOWNED, então isto entra por PR de revisão do dono. Edição in-loco é a convenção certa aqui e
+só aqui: esta ADR é `Proposed`, e é justamente o caso que a `## Convencao seguida` da ADR-0032
+(`0032:119-128`) separa do caso proibido — uma ADR `Accepted` só muda por ADR nova (foi por isso que
+as sete ADRs `Accepted` da ADR-0041 não foram tocadas, e a cerca
+`tests/unit/docs/test_adr_amendments.py` garante que continuem byte-idênticas).
+
+**O defeito.** As citações de código da §2 apontavam por número de linha (`audit.py:310-344`,
+`:319`, `:320-329`; `audit_postgres.py:333-410`, `:365-377`, `:380`, `:396-406`; e
+`audit_postgres.py:137` "held ... at `:219`"). Os arquivos se moveram desde 2026-07-17 e os números
+passaram a apontar para outro código — em 2026-09-05, `def verify_chain` estava em `audit.py:346` e
+`audit_postgres.py:561`, e `:219` caía em `PostgresAuditSink.check_ready`. O mecanismo descrito pela
+ADR permaneceu **intacto o tempo todo**; o que enganava o leitor (e o auditor) era a âncora.
+
+**A correção.** Os trechos afetados passaram a citar `arquivo::Classe.metodo` / `arquivo::funcao`,
+nomes de constante e trechos literais de SQL — âncoras que não se movem quando alguém insere uma
+linha. `docs/reviews/adr-0029-erasure-packet.md` §5, único consumidor destas citações no repo,
+recebeu o mesmo tratamento, e a "Nota de higiene para o revisor" que ele mantinha desde 2026-08-09
+foi fechada (os números que ELE re-derivou naquela data também já haviam apodrecido — a prova de que
+re-derivar números é remediar o sintoma).
+
+**O que NÃO foi reancorado, de propósito:** citações a migrations aplicadas (`0002_audit_chain.py:44-50`,
+`:50`, `:27-51`) e a seções da própria ADR (`§1 :64-70`). Uma migration aplicada é imutável por
+desenho — o número de linha ali é uma âncora estável, e trocá-la por símbolo perderia precisão.
+
+**Cerca.** `tests/unit/docs/test_doc_anchors_by_symbol.py` re-deriva da árvore cada símbolo citado
+por esta seção e fica vermelha (a) se o símbolo sumir e (b) se uma âncora `arquivo.py:NN` reaparecer
+nos trechos reancorados. É a lição do AF-18a aplicada ao próprio conserto: não basta corrigir os
+números, é preciso que a próxima deriva seja descoberta por um teste e não por um auditor.
