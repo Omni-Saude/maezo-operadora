@@ -259,7 +259,13 @@ humana.
 | 2 | [`PHI-DISPOSITIONS-RECOMMENDATION.md`](PHI-DISPOSITIONS-RECOMMENDATION.md) — disposição recomendada por NOME para os 8 `PHI_PROCESS_VARS` + a pergunta de `spec/policies/phi/dossier-narrative-zone.yaml` | `D7-01` (M-50) | R-008, R-009 |
 | 3 | [`DSR-PROCEDURE-DRAFT.md`](DSR-PROCEDURE-DRAFT.md) — runbook de atendimento de DSR que **abre a instância real** de `SP-OP-LGPD-DSR-001`, com os dois passos sem worker nomeados | `F-2` | R-029 |
 | 4 | [`PHI-BUSINESS-KEY-REMEDIATION-FIELDS-DRAFT.md`](PHI-BUSINESS-KEY-REMEDIATION-FIELDS-DRAFT.md) — o diff exato dos 4 campos de `spec/policies/privacy/phi-business-key-remediation.yaml` (arquivo **não** tocado; CODEOWNED) | `D7-01` | R-008, R-009 |
-| 5 | anotação `maezo.io/expected-fail-until: 2026-11-11` nos 3 CronJobs de lifecycle + seletor negativo no alerta + cerca de expiração em `scripts/ci/` — **não está neste pacote**: pousou pela via de observabilidade (PR #327) | `SC-07` | R-040 |
+| 5 | anotação `maezo.io/expected-fail-until: 2026-11-11` nos 3 CronJobs de lifecycle + seletor negativo no alerta + cerca de expiração em `scripts/ci/` — **não está neste pacote e ainda não está em `main`**: o artefato existe no PR **#327** (branch `r5/observability-wiring`), que **não foi mergeado** em `ce38100`. Verificado por comando, não por relato: `git show origin/r5/observability-wiring:deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml` carrega a anotação e `values.yaml` carrega `expectedFailUntil: "2026-11-11"`, mas `git merge-base --is-ancestor origin/r5/observability-wiring origin/main` é FALSO. Enquanto #327 não pousar, **SC-07 não tem artefato em `main`** | `SC-07` | R-040 |
+
+**Adendo de re-verificação 2026-09-05 (`ce38100`).** Os quatro rascunhos acima foram escritos
+sobre `0433db0` e **re-verificados** contra `ce38100` (merge de #318). Cada um carrega uma seção
+"Adendo de re-verificação" no fim, com o que mudou e por quê — o histórico fica declarado, não
+reescrito. As afirmações de citação dos quatro são seguradas por
+`tests/unit/docs/test_dpo_drafts_citations.py`, que fica vermelho quando uma citação envelhece.
 
 **O que continua verdadeiro depois destes rascunhos** (`floor_note` de R-055 — rascunho não é
 ratificação): `load_retention_matrix` continua recusando, `ErasureManager.erase()`/`.verify()`

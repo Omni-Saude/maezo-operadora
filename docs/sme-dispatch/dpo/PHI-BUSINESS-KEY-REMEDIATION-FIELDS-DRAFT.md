@@ -5,9 +5,9 @@
 > **recomendação — pendente de assinatura de DPO (+ operação/ANS ouvidos)**
 >
 > **O arquivo `spec/policies/privacy/phi-business-key-remediation.yaml` NÃO FOI TOCADO.** Ele é
-> CODEOWNED (`.github/CODEOWNERS:116` — `@rodaquino-OMNI @Omni-Saude/security-team
-> @lucasreisEvah`) e os quatro campos são assinatura humana. O que existe aqui é o diff exato que
-> o encarregado aplicaria.
+> CODEOWNED (`.github/CODEOWNERS` — regra `/spec/policies/privacy/`, donos `@rodaquino-OMNI
+> @Omni-Saude/security-team @lucasreisEvah`) e os quatro campos são assinatura humana. O que
+> existe aqui é o diff **aplicável** que o encarregado aplicaria.
 
 **Ratificado por (DPO):** ______________________  **data:** ______________________
 
@@ -42,15 +42,21 @@ declarando `modo: pseudo_keys` resolve para `off` — o carregador nunca promove
 ```diff
 --- a/spec/policies/privacy/phi-business-key-remediation.yaml
 +++ b/spec/policies/privacy/phi-business-key-remediation.yaml
-@@ -56,7 +56,7 @@
+@@ -54,9 +54,9 @@ version: 1
+ 
+ # ---------------------------------------------------------------------------------------------
  # status — DRAFT | RATIFICADO. Porta dura: em DRAFT, `modo` NAO vale (resolve para `off`).
 -# ESTADO DE HOJE: DRAFT. Nada foi decidido; nada esta ativo.
-+# RATIFICADO em <AAAA-MM-DD> pelo encarregado (LGPD art. 41) — ver `ratificacao` abaixo.
++# RATIFICADO em <AAAA-MM-DD> pelo encarregado (LGPD art. 41) -- ver `ratificacao` abaixo.
  # ---------------------------------------------------------------------------------------------
 -status: DRAFT
 +status: RATIFICADO
  
-@@ -119,9 +119,9 @@
+ # ---------------------------------------------------------------------------------------------
+ # modo — o que o codigo faz QUANDO ratificado. DECLARACAO, nao efeito.
+@@ -117,9 +117,9 @@ modo: "off"
+ # preenchimento parcial esquecido.
+ # ---------------------------------------------------------------------------------------------
  ratificacao:
 -  ratificado: false
 -  revisor: null
@@ -59,7 +65,18 @@ declarando `modo: pseudo_keys` resolve para `off` — o carregador nunca promove
 +  revisor: "<nome completo e funcao do encarregado>"
 +  ratificado_em: "<AAAA-MM-DD>"
    observacao: >-
+     DECISAO DO DONO, NAO DA ENGENHARIA. Sao tres perguntas distintas e uma delas nao e tecnica:
+     (1) LGPD/DPO — `matricula_beneficiario` dentro de uma business key persistida (Postgres de
 ```
+
+> **Este bloco aplica de verdade.** Foi gerado por `git diff` sobre uma cópia do arquivo real em
+> `ce38100`, nunca escrito à mão — a 1ª redação deste rascunho tinha as contagens `@@`
+> sub-descritas e `git apply --check` respondia *"corrupt patch at line 11"*. Para conferir à mão:
+> copie este bloco (sem as cercas) para um arquivo e rode `git apply --check <arquivo>` a partir
+> da raiz do repositório; o retorno esperado é 0, sem saída. O teste
+> `tests/unit/docs/test_dpo_drafts_citations.py` segura isso automaticamente: ele relê cada hunk
+> contra o arquivo real e fica **vermelho** se as contagens `@@` ou as linhas de contexto saírem
+> do lugar.
 
 **Conferência de tipos (o carregador é literal):** `ratificado` precisa ser o **booleano** `true`
 — a string `"true"` não conta. `revisor` e `ratificado_em` precisam ser **não vazios**.
@@ -76,13 +93,15 @@ precisa ser escolhido conscientemente, não por esquecimento.
 Recomendação (decisão aprovada do dono, **R-009**): manter `scrub_only`, **não** `pseudo_keys`.
 
 ```diff
-@@ -108,7 +108,7 @@
- # ASPAS SAO INTENCIONAIS. Em YAML 1.1 um `off` SEM aspas resolve para o booleano `false` (idem
+@@ -109,7 +109,7 @@ status: DRAFT
  # `on`/`yes`/`no`). O carregador trata esse caso explicitamente, entao desaspar nao muda o
  # significado — mas a forma com aspas e a que le como o token que e.
  # ---------------------------------------------------------------------------------------------
 -modo: "off"
 +modo: "scrub_only"
+ 
+ # ---------------------------------------------------------------------------------------------
+ # ratificacao — quem decidiu e quando (ADR-0007). Placeholders detectaveis por maquina:
 ```
 
 ### Por que `scrub_only` e não `pseudo_keys`
@@ -182,3 +201,16 @@ técnica**:
 - Gap: **D7-01** (P0).
 - Piso preservado: o arquivo continua `status: DRAFT`, `modo: "off"`, `ratificado: false` — modo
   efetivo `off`, runtime byte-idêntico.
+
+---
+
+## 9. Adendo de re-verificação — 2026-09-05 (`ce38100`)
+
+1. **Os dois blocos `diff` foram REGERADOS.** A 1ª redação (base `0433db0`) tinha as três
+   contagens `@@` sub-descritas — `git apply --check` recusava com *"corrupt patch at line 11"*.
+   Um documento que se apresenta como "o diff exato que o encarregado aplicaria" e não aplica é um
+   defeito de confiança, não de formatação. Os blocos atuais foram produzidos por `git diff` sobre
+   uma cópia do arquivo real e verificados com `git apply --check` (rc=0, os dois).
+2. **Citação por linha do `.github/CODEOWNERS` trocada por citação da regra** (`/spec/policies/privacy/`),
+   que é o que não se move.
+3. `spec/policies/privacy/phi-business-key-remediation.yaml` continua **byte-idêntico** ao `main`.

@@ -73,7 +73,7 @@ decreto.** O princípio de controle proposto: LGPD art. 18 VI (eliminação) ced
 
 | # | `categoria` | Onde materializa (relação → CronJob) | `base_legal` a confirmar | `retencao` proposta | `acao` proposta | Mecanismo de eliminação que **existe** hoje em `src/` |
 |---|---|---|---|---|---|---|
-| 1 | `dados_saude_prontuario` | `checkpoint_blobs` (BYTEA que carrega PHI) → `expurgo-working`; `agent_memory` + `agent_memory.embedding` → `verify-erasure` | LGPD art. 11 + art. 16 I; **Lei 13.787/2018 art. 6**; CFM Res. 1.821/2007 | **≥ 20 anos** do último lançamento | `RETER_COM_BASE_LEGAL` | **Nenhum.** `ErasureManager._erase_working/_erase_episodic/_erase_semantic` não existem como SQL; `erase()` levanta `ErasureNotImplementedError` (`erasure.py:152`) |
+| 1 | `dados_saude_prontuario` | `checkpoint_blobs` (BYTEA que carrega PHI) → `expurgo-working`; `agent_memory` + `agent_memory.embedding` → `verify-erasure` | LGPD art. 11 + art. 16 I; **Lei 13.787/2018 art. 6**; CFM Res. 1.821/2007 | **≥ 20 anos** do último lançamento | `RETER_COM_BASE_LEGAL` | **Nenhum.** `ErasureManager._erase_working/_erase_episodic/_erase_semantic` não existem como SQL; `erase()` levanta `ErasureNotImplementedError` (`src/maezo/platform/erasure.py:152`) |
 | 2 | `cadastrais_contratuais` | `agent_memory` (linhas com `fhir_patient_id`) → `verify-erasure`; `checkpoints`/`checkpoint_writes` (variáveis de processo) → `expurgo-working` | LGPD art. 7 V (execução de contrato) + art. 16 I; Cód. Civil art. 206 | **vínculo + 5 anos** | `ELIMINAR` após o prazo | **Nenhum.** Mesmo bloqueio do item 1; ver também a ponte de identidade ausente em §5 |
 | 3 | `consentimento_revogacao` | `audit_chain` (`decision_basis` jsonb, migração `0002:36`) → `audit-retention` | LGPD art. 16 I; accountability art. 37/50 | enquanto durar + **5 anos** pós-cessação | `RETER_COM_BASE_LEGAL` | **Nenhum.** A poda de `audit_chain` está bloqueada (§5, ADR-0020/ADR-0029) |
 | 4 | `auditoria_nao_repudio` | `audit_chain`, `audit_emit_dedup` (`0005:59-67`) → `audit-retention` | ADR-0007; LGPD art. 16 I + art. 7 VI (defesa em processo) | **5 anos** (a mesma janela que `retention.py` assume) | `RETER_COM_BASE_LEGAL` — nunca eliminável a pedido do titular | **Bloqueado por desenho.** `RetentionManager.retention_query()` (`src/maezo/platform/retention.py`) constrói o `DELETE FROM audit_chain WHERE ts < cutoff` **sem** predicado de legal-hold e **sem** re-âncora; tem ZERO chamadores de produção, travado em CI |
@@ -100,7 +100,8 @@ opção B declara.
 ## 4. O bloco YAML exato que o encarregado assinaria
 
 > **Este bloco NÃO é um arquivo.** Ele vive aqui dentro de propósito. `spec/policies/retention/`
-> é CODEOWNED (`.github/CODEOWNERS:134`) e continua intocado até a designação do encarregado
+> é CODEOWNED (`.github/CODEOWNERS`, regra `/spec/policies/retention/`, donos `@rodaquino-OMNI
+> @Omni-Saude/security-team @lucasreisEvah`) e continua intocado até a designação do encarregado
 > (R-027 / D7-03) estar registrada em `docs/compliance/`.
 >
 > A raiz `unratified: true` está **presente de propósito**: se alguém copiar este bloco para um
@@ -191,7 +192,8 @@ deliberada.
 Assinar aqui não é um gatilho destrutivo. Três bloqueios independentes continuam de pé:
 
 1. **`ErasureManager` não executa nada.** `erase()`/`verify()` levantam
-   `ErasureNotImplementedError` (`src/maezo/platform/erasure.py:152` e `:187`); o SQL por camada
+   `ErasureNotImplementedError` (`src/maezo/platform/erasure.py:152` e
+   `src/maezo/platform/erasure.py:187`); o SQL por camada
    não existe.
 2. **Duas pontes de identidade não existem** (`erasure_plan.py`, seção "THE TWO MISSING IDENTITY
    BRIDGES"): `titular_pseudo_id → fhir_patient_id` e `thread_id → fhir_patient_id`. Sem elas,
@@ -233,3 +235,19 @@ assinatura.
   e data em `docs/compliance/`. Enquanto isso não existir, não há assinante.
 - Gap fechado por esta cadeia quando assinado: **AF-07** (e, atrás dele, `AF-16`, `F-2`,
   `SC-03`, `SC-07`).
+
+---
+
+## 8. Adendo de re-verificação — 2026-09-05 (`ce38100`)
+
+Este dossiê foi escrito sobre `0433db0` e re-verificado contra `ce38100` (merge de #318). **Nenhum
+fato material mudou:** `PERSISTENCE_LAYERS` continua com 16 relações, os 3 CronJobs e seus
+`schedule` continuam os mesmos em `values.yaml::lifecycle.jobs`, `load_retention_matrix` continua
+recusando (incluindo a recusa pela raiz `unratified`), `ErasureManager.erase()/.verify()` continuam
+levantando `ErasureNotImplementedError`, e `spec/policies/retention/` continua intocado.
+
+O que mudou neste rascunho: a citação por linha de `.github/CODEOWNERS` foi trocada por citação da
+**regra** (`/spec/policies/retention/`), que é o que não se move entre merges. As afirmações de
+citação deste dossiê passam a ser seguradas por `tests/unit/docs/test_dpo_drafts_citations.py`,
+que também relê o bloco YAML da §4 com o carregador real e fica vermelho se a raiz
+`unratified: true` sumir ou se uma entrada deixar de satisfazer `REQUIRED_ENTRY_FIELDS`.
