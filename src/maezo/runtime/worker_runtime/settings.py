@@ -39,6 +39,19 @@ class WorkerRuntimeSettings(BaseSettings):
     # health-first bring-up keeps `/healthz` green (liveness) while `/readyz` stays red.
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
     kafka_bootstrap_servers: str = Field(default="localhost:9092", alias="KAFKA_BOOTSTRAP_SERVERS")
+    # HAPI FHIR base URL for the DOSSIER delegation edges' read seams (CC-03/AND-03). Same name,
+    # alias and default as `agent_runtime/settings.py::AgentRuntimeSettings.fhir_base_url` — the
+    # two roots must not disagree about where FHIR is. Declared here rather than left to
+    # `build_agent_fhir_seam`'s duck-typed `getattr` default so this daemon's FHIR endpoint is
+    # VISIBLE on its settings surface and overridable per deployment. NOT Helm-injected today:
+    # `deploy/helm/maezo-tenant/templates/deployment-worker-daemon.yaml` sets no `FHIR_BASE_URL`
+    # (the default resolves in-cluster to the `hapi-fhir` Service — ADR-0021 /
+    # `statefulset-hapi-fhir.yaml`); the ECS task definition DOES set it
+    # (`deploy/aws-ecs/envs/dev-sa-east-1/service-worker.tf:56`). Design §11 records both.
+    # EMPTY STRING = "this deployment has no
+    # FHIR": the root then builds NO reader and both dossier graphs emit their disclosed gap note
+    # (honest degradation, never a reader pointed at a fabricated host).
+    fhir_base_url: str = Field(default="http://hapi-fhir:8080/fhir", alias="FHIR_BASE_URL")
     # PHI pseudonymizer HMAC key (ADR-0006) — accepted for Helm/env parity (design §11 table);
     # not consumed by this build (no T1.1-registered worker publishes PHI-adjacent values to
     # Kafka yet). Kept so a later worker-egress seam can read it without a settings-surface change.

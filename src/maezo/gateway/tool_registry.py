@@ -446,17 +446,50 @@ def build_agent_seams(
     if whatsapp_adapter is not None:
         deps["whatsapp"] = build_whatsapp_seam(seam=seam, adapter=whatsapp_adapter)
 
-    fhir_adapter = _FHIR_ADAPTER_BY_AGENT.get(agent_id)
-    if fhir_adapter is not None:
-        deps["fhir"] = build_fhir_seam(
-            seam=seam,
-            base_url=getattr(settings, "fhir_base_url", "http://hapi-fhir:8080/fhir"),
-            adapter=fhir_adapter,
-        )
+    fhir_seam = build_agent_fhir_seam(settings=settings, agent_id=agent_id, seam=seam)
+    if fhir_seam is not None:
+        deps["fhir"] = fhir_seam
     # `population` is deliberately ABSENT: the lake client is PORT-PENDING (WB.4) and Andre's
     # `build(config)` treats its absence as a disclosed gap note, never a failure. See
     # `gateway/seams/population.py` for why the wrapper ships anyway.
     return deps
+
+
+def build_agent_fhir_seam(
+    *,
+    settings: Any,
+    agent_id: str,
+    seam: SeamContext | None = None,
+) -> GatedFhirReader | None:
+    """`agent_id`'s GATED FHIR reader — the same one `build_agent_seams` puts under `"fhir"`,
+    addressable on its own. `None` when the agent declares no FHIR adapter.
+
+    Extracted (CC-03/AND-03) because a root can legitimately need ONE agent's FHIR seam without
+    paying for the rest of that agent's dep map: `worker_runtime/service.py` STEP B needs
+    Carolina's and Andre's readers for the dossier delegation edges, while its `dmn`/`cibseven`/
+    `audit_sink` come from the DAEMON's own principal — calling `build_agent_seams` twice there
+    would have opened two extra `PostgresAuditSink`s and two duplicate engine transports for
+    seams the root already owns. `build_agent_seams` now delegates here, so the adapter choice
+    and the base-url default keep exactly ONE definition (no second, divergent construction
+    path — the very C-A2 counterexample this module exists to prevent).
+
+    PER-AGENT, NEVER SHARED. The wrapper closes over `SeamContext.principal`, and
+    `leitura_phi_clinica` (C2) is decided PER PRINCIPAL: handing Carolina's instance to Andre
+    would record and decide his PHI read under HER declared-capability record. `seam` is the
+    caller's already-built context (what `build_agent_seams` passes, so it keeps paying for one
+    PEP parse per call, not two); absent, one is built for `agent_id`.
+    """
+    adapter = _FHIR_ADAPTER_BY_AGENT.get(agent_id)
+    if adapter is None:
+        return None
+    context = seam or build_agent_seam_context(
+        tenant=getattr(settings, "tenant_id", "amh"), agent_id=agent_id
+    )
+    return build_fhir_seam(
+        seam=context,
+        base_url=getattr(settings, "fhir_base_url", "http://hapi-fhir:8080/fhir"),
+        adapter=adapter,
+    )
 
 
 # =================================================================================================
@@ -525,6 +558,7 @@ __all__ = [
     "WORKER_PRINCIPAL",
     "SeamContext",
     "build_a2a_seam",
+    "build_agent_fhir_seam",
     "build_agent_seam_context",
     "build_agent_seams",
     "build_cibseven_seam",

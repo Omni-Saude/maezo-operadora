@@ -62,7 +62,8 @@ provisioning in vault/KMS remains an external/infra dependency (design doc §6.2
 from __future__ import annotations
 
 import os
-from typing import TypeGuard
+from collections.abc import Mapping
+from typing import Any, Protocol, TypeGuard
 
 import structlog
 
@@ -87,6 +88,7 @@ from maezo.a2a.envelope_signing import (
 from maezo.a2a.keyset import EnvTenantKeyset, TenantKeyset, per_tenant_key_env_var
 from maezo.a2a.outbox import build_outbox_fact_producer
 from maezo.agents.andre.delegation import make_andre_handler
+from maezo.agents.andre.graph import PopulationFeatureClient
 from maezo.agents.carolina.delegation import make_carolina_handler
 from maezo.agents.rafael.delegation import make_rafael_handler
 from maezo.gateway.tool_registry import (
@@ -119,6 +121,21 @@ _EDGE_AGENT_IDS = ("helena", "rafael")
 #: The ORIGINS are workers (`credenciamento-worker`/`adequacao-worker`/`pagto-worker`), not
 #: agents — the dispatcher validates only the TARGET's Card, so no origin card exists or is needed.
 _DOSSIER_EDGE_AGENT_IDS = ("carolina", "andre")
+
+
+class FhirSummaryReader(Protocol):
+    """The ONE shape both dossier targets' FHIR seams have (CC-03/AND-03).
+
+    `carolina/graph.py::SummaryReader` and `andre/graph.py::PatientSummaryReader` are DIFFERENT
+    Protocols with IDENTICAL members — exactly `async read_patient(patient_id) -> dict`. Naming
+    that fact once here is what lets this root type ONE `fhir` map instead of two parameters,
+    without claiming the two agents may share an INSTANCE (they may not — the gate's principal
+    differs; see `build_dossier_delegation_dispatcher`). Satisfied structurally by the sanctioned
+    `gateway/seams/fhir.py::GatedFhirReader`, whose inner is `rafael/adapters.py::FhirServerReader`.
+    """
+
+    async def read_patient(self, patient_id: str) -> dict[str, Any]: ...
+
 
 #: The ONLY non-production `agent_runtime_mode`, and it must be set EXPLICITLY (ADR-0039 Q7 flipped
 #: `settings.py`'s default from "local" to the fail-closed "production"). Helm injects "kubernetes"
@@ -693,6 +710,8 @@ def build_dossier_delegation_dispatcher(
     database_url: str | None = None,
     inference: InferenceProvider | None = None,
     kafka_producer: KafkaLike | None = None,
+    fhir: Mapping[str, FhirSummaryReader] | None = None,
+    population: PopulationFeatureClient | None = None,
 ) -> DelegationDispatcher:
     """Assemble the WORKER-RUNTIME dossier delegation edges (DL-0033 real wiring, Option A).
 
@@ -714,8 +733,10 @@ def build_dossier_delegation_dispatcher(
     `PostgresAuditSink` on the daemon's MAIN loop — raw async handlers run on that same loop, so
     the ONE sink serves the harness's completion audit, the dispatcher's T-F delegation audit AND
     both graphs' `start_process_idempotent` fence, mirroring the audit-sink-reuse note in this
-    module's docstring). Missing any of the three -> `ValueError` (fail-closed), mirroring
-    `build_auth_delegation_dispatcher`.
+    module's docstring) and, since CC-03/AND-03, the PER-AGENT gated `fhir` readers
+    (`tool_registry.build_agent_fhir_seam`). Missing any of the three REQUIRED deps ->
+    `ValueError` (fail-closed), mirroring `build_auth_delegation_dispatcher`; `fhir`/`population`
+    are OPTIONAL and their absence degrades to each graph's disclosed gap note.
 
     T-G/F2: the SAME `_require_signer_or_fail_closed` key gate as the Helena->Rafael edge —
     `runtime_mode` comes from `worker_runtime_mode_from_env()` (fail-closed to "production" when
@@ -728,7 +749,45 @@ def build_dossier_delegation_dispatcher(
 
     Durable Guard 4: `PostgresIdempotencyStore` when `database_url` is present (it always is in
     the live daemon — the same DSN gates the audit sink, without which the daemon never serves).
+
+    **FHIR (CC-03 / AND-03, perna `fhir`).** `fhir` is a PER-AGENT map (`{"carolina": …,
+    "andre": …}`), NOT one shared reader, and its absence used to be silent: this root called
+    `make_carolina_handler`/`make_andre_handler` without the `fhir=` both factories accept, so
+    100% of the dossiers this LIVE path produced fell into the degraded branch of both graphs
+    (`carolina/graph.py::CarolinaGraph.gather` -> "leitor de resumo nao configurado …" + early
+    return; `andre/graph.py::AndreGraph.gather` -> "leitor FHIR nao configurado …"). The sibling
+    root already did it right for Rafael (`fhir=tool_deps.get("fhir")`, above).
+
+    WHY PER AGENT rather than one instance. The two Protocols are structurally IDENTICAL —
+    `carolina/graph.py::SummaryReader` and `andre/graph.py::PatientSummaryReader` both declare
+    exactly `async read_patient(patient_id) -> dict` — so a single object would type-check for
+    both. The GATE is what differs: `gateway/seams/fhir.py::GatedFhirReader` closes over a
+    `SeamContext` whose `principal` is the AGENT, and `leitura_phi_clinica` (C2) is decided per
+    principal. One shared instance would decide and record Andre's PHI read under CAROLINA's
+    declared-capability record — a fabricated governance attribution, which is worse than the
+    degradation it would fix. The daemon therefore builds one seam per agent through the ONE
+    sanctioned constructor (`gateway.tool_registry.build_agent_fhir_seam`).
+
+    FAIL-CLOSED ON AN UNKNOWN KEY. A typo (`{"carolinaa": reader}`) would silently reproduce the
+    exact defect this parameter closes — a dossier degraded with nothing said. Unknown keys raise
+    `ValueError` before any card/signer work.
+
+    `population` is BLOCKED(external WB.4) and is threaded EXPLICITLY as the `None` it is: there
+    is no concrete `PopulationFeatureClient` in `src/` (`andre/graph.py` defines the Protocol
+    only, `gateway/seams/population.py` ships unwired, and `build_agent_seams` omits the key on
+    purpose). Andre's `build(config)` turns its absence into a disclosed gap note. Passing the
+    argument rather than omitting it is the point: the gap is declared at the root, not inferred
+    from a default nobody reads.
     """
+    fhir_by_agent = dict(fhir or {})
+    unknown_agents = sorted(set(fhir_by_agent) - set(_DOSSIER_EDGE_AGENT_IDS))
+    if unknown_agents:
+        raise ValueError(
+            f"cannot assemble the A2A dossier delegation edges: fhir map names agents this edge "
+            f"does not serve: {unknown_agents} (serves {list(_DOSSIER_EDGE_AGENT_IDS)}) — a "
+            "misspelled key would silently degrade the dossier, which is the defect CC-03/AND-03 "
+            "closed"
+        )
     if dmn is None or cibseven is None or audit_sink is None:
         missing = [
             name
@@ -759,10 +818,26 @@ def build_dossier_delegation_dispatcher(
     # injected, not rebuilt here (this root's own docstring), so double-wrapping cannot happen.
     worker_seam = build_worker_seam_context(tenant=tenant)
     llm = build_inference_seam(seam=worker_seam, inner=inference)
+    # CC-03/AND-03: the per-agent GATED reader reaches BOTH graphs. `.get(...)` (not `[...]`) is
+    # deliberate — an absent key is the daemon's HONEST degraded posture (seam construction
+    # failed, or a runtime with no FHIR endpoint), and both graphs turn `None` into their
+    # disclosed gap note. Degradation, never a fabricated reader.
     carolina_handler: AgentHandler = make_carolina_handler(
-        llm, dmn=dmn, cibseven=cibseven, audit_sink=audit_sink
+        llm,
+        dmn=dmn,
+        cibseven=cibseven,
+        audit_sink=audit_sink,
+        fhir=fhir_by_agent.get("carolina"),
     )
-    andre_handler: AgentHandler = make_andre_handler(llm, dmn=dmn, cibseven=cibseven, audit_sink=audit_sink)
+    andre_handler: AgentHandler = make_andre_handler(
+        llm,
+        dmn=dmn,
+        cibseven=cibseven,
+        audit_sink=audit_sink,
+        fhir=fhir_by_agent.get("andre"),
+        # BLOCKED(external WB.4) — see this function's docstring. Explicit, never omitted.
+        population=population,
+    )
 
     # Facts are DURABLE now (module docstring). This root is where the gate genuinely bites:
     # `database_url` is INDEPENDENT of the injected `audit_sink`, so "audit sink present, DSN
