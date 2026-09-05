@@ -518,11 +518,12 @@ def test_no_call_site_in_src_passes_build_whatsapp_seam_an_unknown_adapter_liter
                 continue
             chamadas += 1
             for kw in no.keywords:
-                if kw.arg == "adapter" and isinstance(kw.value, ast.Constant):
-                    if kw.value.value not in adaptadores_validos:
-                        literais.append(
-                            (str(caminho.relative_to(src_root)), no.lineno, str(kw.value.value))
-                        )
+                if (
+                    kw.arg == "adapter"
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value not in adaptadores_validos
+                ):
+                    literais.append((str(caminho.relative_to(src_root)), no.lineno, str(kw.value.value)))
 
     assert chamadas >= 2, f"a cerca varreu {chamadas} chamadas — vacua (esperava >= 2)"
     assert not literais, (
