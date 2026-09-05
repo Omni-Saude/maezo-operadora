@@ -122,7 +122,7 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
             _DESFECHO_ERRO_INICIO_PROCESSO,
         }
     ),
-    # FERNANDO: os seis rotulos do caminho `notify` sao TRES jornadas x DOIS pares de entrega
+    # FERNANDO: os seis rotulos do caminho `notify` sao DUAS jornadas x TRES estados de entrega
     # (auditoria de frota 2026-09-04, FER-03/FER-04). Ate essa data so' existiam os dois de
     # SUCESSO, e `notify` os emitia mesmo quando o envio falhava ou o canal nao tinha remetente
     # nenhum — o `enviada=False` que este mesmo modulo ja carregava ao lado tornava a contradicao
