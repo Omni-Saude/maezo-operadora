@@ -1596,3 +1596,20 @@ si ou se o comentario sumir de um deles.
 | Artefato | O que precisa de revisao humana | Revisor | Status |
 |---|---|---|---|
 | `src/maezo/a2a/idempotency.py:246`, `src/maezo/a2a/outbox.py:397`, `src/maezo/platform/integrations/amh_inbox.py:918`, `src/maezo/gateway/audit_postgres.py:207` — `min_size=1`/`max_size=10` | **REABRE quando `SC-05` landar**: com a aritmetica agregada de conexoes disponivel (bloco SC-05 em `values.yaml`), decidir a Opcao A do memo original — expor `min`/`max` por ambiente em `values.yaml` -> env -> `WorkerRuntimeSettings`/`AgentRuntimeSettings`/settings equivalentes dos quatro sitios — ou manter o default deliberado permanentemente. Ate' la', os quatro numeros ficam fixos e documentados, nunca ajustados um de cada vez | dono de infraestrutura/plataforma (`deploy/helm/**` e' owner-gated) | `ABERTO — reaberto por design; aguarda SC-05 (ja' entregue nesta mesma PR, ver secao SC-05 abaixo) landar e ser avaliado antes de qualquer exposicao por ambiente` |
+
+## SC-05 — aritmetica de conexoes + escolha de RDS Proxy (declarado, nao provisionado)
+
+`R-025`+`R-026` (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA): `deploy/helm/
+maezo-tenant/values.yaml` (secao logo apos `aurora:`) agora declara a aritmetica agregada de
+conexoes — pools/processo (4 sitios `create_pool`, `max_size=10` cada, D4-02/R-108) x
+processos/pod (1) x replicaCount habilitado por padrao (11 pods) x tenants, contra o
+`max_connections` de cada ambiente Aurora (~3604 para prod `db.r6g.xlarge`; staging `serverless`
+escala com ACU ao vivo, nao e' fixo). `deploy/terraform/modules/aurora-postgres/` ganhou o
+scaffold de RDS Proxy (`aws_iam_role`/`aws_db_proxy`/`aws_db_proxy_default_target_group`/
+`aws_db_proxy_target`) inteiramente atras de `enable_rds_proxy = false` — ZERO recursos AWS
+criados por esta PR (`tests/unit/deploy/test_aurora_rds_proxy_scaffold.py` prova a gate).
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `deploy/terraform/modules/aurora-postgres/` (`enable_rds_proxy` variable + `aws_db_proxy*` scaffold, todos `count = var.enable_rds_proxy ? 1 : 0`) | Ligar `enable_rds_proxy = true` no ambiente do SEGUNDO tenant real (R-026), e so' entao apontar os DSNs da aplicacao (`aurora.endpoint` no Helm / secret) para `module.aurora.rds_proxy_endpoint` em vez do endpoint direto do cluster. Depende de credenciais AWS (`D6-04`/`D13-03`, HUMAN-GATED) para provisionar de fato — esta PR so' prepara o modulo, nao aplica `terraform apply` | dono de infraestrutura/plataforma (`deploy/terraform/**` e' owner-gated por politica do programa) | `ABERTO — scaffold pronto e desligado; ligamento real aguarda D6-04/D13-03 + segundo tenant` |
+| `deploy/helm/maezo-tenant/values.yaml`, secao "SC-05" (bloco de aritmetica) | Confirmar a premissa conservadora (4 pools x max_size 10 = 40 conexoes/processo, pior caso — a maioria dos processos abre um subconjunto, nao os quatro) e revisitar o numero de headroom quando um segundo tenant real for adicionado (a conta hoje e' para N=1..9 tenants hipoteticos, nao um fato medido) | dono de infraestrutura/plataforma | `ABERTO — numero DERIVADO, nao medido; revisitar com trafego real` |

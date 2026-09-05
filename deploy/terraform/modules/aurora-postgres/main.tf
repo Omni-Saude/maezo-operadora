@@ -174,3 +174,89 @@ resource "aws_rds_cluster_instance" "reader" {
 
   tags = merge(local.common_tags, { Name = "${local.cluster_identifier}-reader-${count.index + 1}", Role = "reader" })
 }
+
+# ---------------------------------------------------------------------------
+# RDS Proxy (SC-05 / R-026, OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA) — DESLIGADO
+# por padrao (`var.enable_rds_proxy = false`, zero recursos AWS criados enquanto assim for).
+#
+# Por que RDS Proxy e nao pgbouncer: este repo usa `asyncpg` em todos os quatro `create_pool`
+# (SC-05's bloco de aritmetica em `deploy/helm/maezo-tenant/values.yaml` os enumera), que emite
+# prepared statements por padrao — exatamente o que o modo `transaction` do pgbouncer quebra,
+# obrigando a desativar prepared statements em cada pool da aplicacao. RDS Proxy e nativo do
+# `aws_rds_cluster.this` (engine `aurora-postgresql`) ja provisionado acima, nao acrescenta
+# processo a operar, e no pior caso (pinning de sessao por prepared statement) degrada para o
+# comportamento de HOJE em vez de quebrar.
+#
+# Quando `enable_rds_proxy = true`: os DSNs da aplicacao passam a apontar para
+# `aws_db_proxy.this[0].endpoint` em vez do endpoint direto do cluster (`aws_rds_cluster.this.
+# endpoint`) — mudanca de configuracao (Helm `aurora.endpoint`/secret), nao deste modulo.
+# ---------------------------------------------------------------------------
+resource "aws_iam_role" "rds_proxy" {
+  count = var.enable_rds_proxy ? 1 : 0
+  name  = "${local.cluster_identifier}-rds-proxy"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "rds.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+
+  tags = local.common_tags
+}
+
+resource "aws_iam_role_policy" "rds_proxy_secrets" {
+  count = var.enable_rds_proxy ? 1 : 0
+  name  = "${local.cluster_identifier}-rds-proxy-secrets"
+  role  = aws_iam_role.rds_proxy[0].id
+
+  # Somente o secret master gerenciado por `manage_master_user_password` — o Proxy precisa dele
+  # para autenticar contra o cluster em nome da aplicacao (auth_scheme = SECRETS abaixo).
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue"]
+      Resource = [aws_rds_cluster.this.master_user_secret[0].secret_arn]
+    }]
+  })
+}
+
+resource "aws_db_proxy" "this" {
+  count                  = var.enable_rds_proxy ? 1 : 0
+  name                   = "${local.cluster_identifier}-proxy"
+  engine_family          = "POSTGRESQL"
+  role_arn               = aws_iam_role.rds_proxy[0].arn
+  vpc_subnet_ids         = var.db_subnet_ids
+  # Mesmo security group do cluster: quem alcanca o cluster hoje (EKS nodes, `var.
+  # allowed_security_group_ids`) alcanca o proxy pelas mesmas regras de ingress.
+  vpc_security_group_ids = [aws_security_group.aurora.id]
+  require_tls            = true
+
+  auth {
+    auth_scheme = "SECRETS"
+    iam_auth    = "DISABLED"
+    secret_arn  = aws_rds_cluster.this.master_user_secret[0].secret_arn
+  }
+
+  tags = merge(local.common_tags, { Name = "${local.cluster_identifier}-proxy" })
+}
+
+resource "aws_db_proxy_default_target_group" "this" {
+  count         = var.enable_rds_proxy ? 1 : 0
+  db_proxy_name = aws_db_proxy.this[0].name
+
+  connection_pool_config {
+    max_connections_percent      = 100
+    max_idle_connections_percent = 50
+  }
+}
+
+resource "aws_db_proxy_target" "this" {
+  count                 = var.enable_rds_proxy ? 1 : 0
+  db_proxy_name         = aws_db_proxy.this[0].name
+  target_group_name     = aws_db_proxy_default_target_group.this[0].name
+  db_cluster_identifier = aws_rds_cluster.this.id
+}

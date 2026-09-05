@@ -596,6 +596,59 @@ aurora:
   database: "maezo"         # terraform output aurora_database_name
 
 # ---------------------------------------------------------------------------
+# SC-05 / R-025+R-026 (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA): connection
+# arithmetic — DERIVADO a partir do que ja esta neste repositorio, NAO MEDIDO contra um cluster
+# real. Sem proxy de conexao provisionado ainda (R-026 escolheu RDS Proxy, `enable_rds_proxy =
+# false` em `deploy/terraform/modules/aurora-postgres/`), cada processo Python abre seu PROPRIO
+# pool `asyncpg` — este bloco e' o teto que nenhum gate detecta hoje sem ele.
+#
+# 1) Conexoes por processo (pior caso): ha' EXATAMENTE QUATRO sitios `asyncpg.create_pool` nesta
+#    arvore, cada um `min_size=1, max_size=10` (D4-02/R-108, comentario-ancora em cada um):
+#      src/maezo/a2a/idempotency.py:246, src/maezo/a2a/outbox.py:397,
+#      src/maezo/platform/integrations/amh_inbox.py:918, src/maezo/gateway/audit_postgres.py:207
+#    Nenhum processo abre mais que estes quatro (nao ha' um quinto `create_pool` em `src/`) — o
+#    teto POR PROCESSO, no pior caso em que um unico processo alcance os quatro, e'
+#      4 pools x max_size 10 = 40 conexoes/processo
+#    Isto e' deliberadamente conservador (a maioria dos processos abre um subconjunto, nao os
+#    quatro) — o objetivo e' um TETO que nao subestima, nao uma medicao exata de cada pod.
+#
+# 2) Processos por pod: 1. Nenhum entrypoint desta arvore usa multiplos workers OS (sem
+#    `--workers`/gunicorn — `deploy/Dockerfile` roda `python -m maezo.<modulo>` direto; grep
+#    `workers=|--workers|gunicorn` em `deploy/` e nos `__main__.py` = 0 hits).
+#
+# 3) replicaCount somado, SO' dos componentes habilitados por padrao (os desabilitados —
+#    `gateway`, `fhirSync`, `networkChangeBridge`, `consentRevocationBridge`, os agentes
+#    `gustavo`/`lucas` — contribuem ZERO ate' serem ligados):
+#      helena(2) + rafael(2) + marina(2)            = 6   (agents:, linhas 83-114 acima)
+#      workerDaemon(2)                               = 2   (:257 acima)
+#      notificationsBridge(1)                        = 1   (:296 acima)
+#      webhookReceiver(1)                            = 1   (:162 acima)
+#      a2aOutboxRelay(1)                              = 1   (:383 acima)
+#                                                      -----
+#      TOTAL de pods habilitados por padrao, por tenant = 11
+#
+# 4) Demanda no pior caso, por tenant = conexoes/processo(40) x processos/pod(1) x pods(11) = 440
+#    Multiplica por N tenants (cada release Helm = 1 tenant contra o MESMO cluster Aurora):
+#      N=1 -> 440   N=2 -> 880   N=4 -> 1760   N=8 -> 3520   N=9 -> 3960
+#
+# 5) Lado do Aurora — `aws_rds_cluster_parameter_group.this` / `aws_db_parameter_group.instance`
+#    (`deploy/terraform/modules/aurora-postgres/main.tf:47-75`) NAO sobrescrevem `max_connections`,
+#    entao a formula PADRAO da AWS para a familia `aurora-postgresql16` vale:
+#      max_connections = LEAST({DBInstanceClassMemory/9531392}, 5000)
+#    PROD (`deploy/terraform/envs/prod-amh-sa-east-1/main.tf`): `serverless = false`,
+#    `instance_class = "db.r6g.xlarge"` (32 GiB) -> max_connections ~ 3604.
+#      Folga (numero, nao adjetivo): N=1 -> 3164 de folga (~8x o pior caso); teto ultrapassado
+#      somente em N=9 tenants (3960 > 3604); N=8 (3520) ainda cabe.
+#    STAGING (`deploy/terraform/envs/staging-sa-east-1/main.tf`): `serverless = true`,
+#    `serverless_max_acu = 4.0` — o `max_connections` da Serverless v2 ESCALA com a capacidade
+#    (ACU) ALOCADA NO MOMENTO, nao e' um numero fixo derivavel do Terraform; leia
+#    `SHOW max_connections;` contra o cluster staging vivo em vez de assumir um valor daqui.
+#
+# Cruzamento com R-026: RDS Proxy foi escolhido como caminho a partir do SEGUNDO tenant real —
+# bem ANTES do teto calculado acima em qualquer um dos dois ambientes; e' margem de seguranca
+# deliberada, nao um remedio de ultima hora.
+
+# ---------------------------------------------------------------------------
 # Migrations Job — Helm hook pre-install/pre-upgrade. Roda `alembic upgrade head`
 # contra o schema-por-tenant ANTES dos runtimes subirem (cria audit_chain, agent_memory,
 # a2a_idempotency, indice de retencao). Ver templates/job-migrations.yaml.
