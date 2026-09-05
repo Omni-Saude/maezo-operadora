@@ -13,7 +13,7 @@ engine real (ADR-0011: sem mock de engine). Cada teste:
 4. dispara timers via job execution (NUNCA sleep) — o spec exige job execution para timers.
 
 Roteamento (P1/grupo/SLA) vem da DMN escalation_routing — regra deterministica, nunca do teste.
-Dados sempre sinteticos (`Paciente Teste 001`, tenant `amh`, `PSEUDO-TESTE-001`).
+Dados sempre sinteticos (`Beneficiario Teste 001`, tenant `amh`, `PSEUDO-TESTE-001`).
 
 PORT NOTES (fixture adaptation only — port rule 1; logic/assertions below are verbatim):
   - import paths: `maezo.tools.workers.escalation.register_escalation_workers` (v2's escalation
@@ -317,7 +317,7 @@ async def start_escalation(engine: EngineRest, deploy_artifacts: str) -> StartEs
             "canal": "whatsapp",
             "motivo_categoria": "red_flag_clinico",
             "severidade": "grave",
-            "resumo_contexto": "Paciente Teste 001 — sintese sintetica para humano",
+            "resumo_contexto": "Beneficiario Teste 001 — sintese sintetica para humano",
         }
         variables.update(overrides)
         business_key = f"ESC-amh-{conv}"

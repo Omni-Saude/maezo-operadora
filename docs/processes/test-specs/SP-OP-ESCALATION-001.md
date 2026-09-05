@@ -3,7 +3,7 @@
 Stubs de integracao (pytest, marker `integration`) contra CIB Seven REAL (CONTRIBUTING §3
 — sem mock de engine). Arquivo alvo sugerido: `tests/integration/processes/test_sp_op_escalation_001.py`.
 Timers: usar job execution via API de gerenciamento (executar job do timer), nunca sleep.
-Dados sempre sinteticos (`Paciente Teste 001`, tenant `amh`).
+Dados sempre sinteticos (`Beneficiario Teste 001`, tenant `amh`).
 
 ## Convencoes de fixture
 

@@ -55,7 +55,7 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 
 **Agent-controlável (construível agora):**
 - **Sprint P2-close (→ engenharia de G2):** substância T2.6 (validação XSD/TISS real — `validate_data` é stub; notification-bridge NIP/cron→SUBMIT); workers faltantes (LGPD R-C/R-D/R-F, recurso tópicos + caminho-auditor + `recurso.pended`); sub-tarefas de auditoria T-B/T-E/T-F/T-G; **verificar+merge #113**.
-- **Sprint P3 (→ G3, o maior bloco restante, quase não iniciado):** T3.2 (~44 evals + lane de CI), T3.3 (chaos/cross-process/anti-dupla), T3.4 (auditoria adversarial pré-deploy — por último). Mais A2A dispatcher + card-signing, divergência de checkpoint-schema.
+- **Sprint P3 (→ G3, o maior bloco restante, quase não iniciado):** T3.2 (~44 evals + lane de CI), T3.3 (chaos/cross-process/anti-dupla), T3.4 (auditoria adversarial pré-deploy — por último). Mais divergência de checkpoint-schema. (PLANS-A2A-CONTRADICTION: "A2A dispatcher + card-signing" removido daqui — já COMPLETO desde #156/2026-07-27, linha 43 acima; listá-lo também como pendente contradizia a própria tabela §0.3.)
 
 **External-blocked (agentes NÃO fecham — o teto real):**
 - **G2:** sign-offs de SME (médico-auditor → jurídico/DPO/regulatório/finanças/PO) para ≥12/16 contratos FINAL.

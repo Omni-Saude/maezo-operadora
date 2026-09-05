@@ -109,19 +109,14 @@ def test_fraude_contract_hit_policy_claims_match_the_deployed_dmn() -> None:
 # `test_worker_handler_purity.py`'s `_NONDETERMINISM_BASELINE`/`_FABRICATED_FACT_BASELINE`) — the
 # same COLLECT/UNIQUE-vs-real-FIRST drift confirmed for FRAUDE (fixed by GAP-FAB-NOTIF) also
 # existed in six other contract claims. WP-CONTRATOS-SYNC (PERSP-B5-HITPOLICY / CONTRACT-HITPOLICY-
-# DRIFT) closed four of them: `SP-OP-CRED-001.md::cred_prior_notice`/`cred_sla` and
-# `SP-OP-ADEQUACAO-001.md::adequacao_sla` (D-B6, part-B verification report §6, "CONFIRMADO 3/3")
-# plus `SP-OP-REEMBOLSO-001.md::reembolso_sla` (CONTRACT-HITPOLICY-DRIFT). Two remain OUT OF SCOPE
-# for this WP and stay grandfathered: `SP-OP-PAGTO-001.md::pagto_sla` (`SP-OP-PAGTO-001.md` is
-# owned by the parallel PR-3/PR-4 perspective-programme branches — WP-CONTRATOS-SYNC's brief
-# forbids editing it) and `SP-OP-REEMBOLSO-001.md::reembolso_calculo` (owned by the parallel
-# `fix/reembolso-consome-dmn` branch, only its own header changes there). Tracked, not silently
-# fixed: a NEW contract adopting the pattern (not listed here) still fails the fence below.
-_HIT_POLICY_DRIFT_BASELINE: frozenset[str] = frozenset(
-    {
-        "SP-OP-PAGTO-001.md::pagto_sla",  # out of scope — SP-OP-PAGTO-001.md owned by PR-3/PR-4
-    }
-)
+# DRIFT) closed five of them: `SP-OP-CRED-001.md::cred_prior_notice`/`cred_sla`,
+# `SP-OP-ADEQUACAO-001.md::adequacao_sla` (D-B6, part-B verification report Sec.6, "CONFIRMADO 3/3"),
+# `SP-OP-REEMBOLSO-001.md::reembolso_sla`, and `SP-OP-PAGTO-001.md::pagto_sla` (CONTRACT-HITPOLICY-
+# DRIFT, contract corrected to FIRST -- the DMN itself was never touched). One remains OUT OF SCOPE
+# for this WP and stays grandfathered: `SP-OP-REEMBOLSO-001.md::reembolso_calculo` (owned by the
+# parallel `fix/reembolso-consome-dmn` branch, only its own header changes there). Tracked, not
+# silently fixed: a NEW contract adopting the pattern (not listed here) still fails the fence below.
+_HIT_POLICY_DRIFT_BASELINE: frozenset[str] = frozenset()
 
 
 def test_no_new_contract_claims_collect_or_unique_for_a_dmn_actually_deployed_as_first() -> None:
