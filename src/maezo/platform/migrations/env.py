@@ -170,7 +170,13 @@ def run_migrations_offline() -> None:
 
     search_path is not injected in offline mode (no session).
     """
-    url = _ENV_DB_URL or _expand_env_defaults(config.get_main_option("sqlalchemy.url"))
+    _ini_url = config.get_main_option("sqlalchemy.url")
+    if _ENV_DB_URL:
+        url = _ENV_DB_URL
+    elif _ini_url is not None:
+        url = _expand_env_defaults(_ini_url)
+    else:
+        url = None
     context.configure(
         url=url,
         target_metadata=target_metadata,
