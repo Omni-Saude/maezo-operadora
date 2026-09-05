@@ -4,11 +4,13 @@ One row per contract in `docs/processes/contracts/` (15 DRAFT + 1 FINAL = 16, co
 listing the directory at HEAD `e1c0b34`). See `README.md` for the redline protocol and signoff
 spec, and `<role>/PACKAGE.md` for per-contract review questions per role.
 
-**Dispatch status legend:** all rows read `prepared — awaiting roster (blocked external)` — the
-six role packages and this tracker are complete and ready to send, but the actual send (naming a
-human reviewer, emailing/ticketing them) is blocked on the SME roster from Rodrigo. No contract
-below has been sent to anyone; "receipt" and "redline rounds" are consequently all zero/none —
-recording anything else would be fabrication.
+**Dispatch status legend:** all rows now read `owner action — due 2026-09-19` — o rótulo
+"blocked external" deixou de valer: a decisão do dono (registro OWNER-DECISIONS-REGISTER R-137,
+aprovada 2026-09-04, `unlock_class: C`) reclassifica o bloqueio do roster SME para ato do dono
+com teto de calendário — dono escreve os 6 nomes e despacha os 6 pacotes SME de uma só vez, prazo
+2026-09-19 (15 dias corridos contados da aprovação). No contract below has been sent to anyone
+yet; "receipt" and "redline rounds" remain all zero/none — recording anything else would be
+fabrication.
 
 **Role abbreviations:** MA = médico-auditor · JU = jurídico · DPO = DPO · REG = regulatório ·
 FIN = finanças · PO = PO. Full assignment rationale is in each role's `PACKAGE.md`, not repeated
@@ -16,22 +18,22 @@ here.
 
 | # | Contract ID | Status (version) | Roles assigned | Dispatch status | Receipt | Redline rounds | Signoff present |
 |---|---|---|---|---|---|---|---|
-| 1 | SP-OP-ADEQUACAO-001 | DRAFT (v0.1.0) | JU, REG, FIN, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 2 | SP-OP-ANS-CRON-001 | DRAFT (v0.2.0) | REG, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 3 | SP-OP-ANS-SUBMIT-001 | DRAFT (v0.1.0) | JU, REG, DPO, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 4 | SP-OP-AUTH-001 | DRAFT (v0.1.0) | MA, JU, REG, FIN, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 5 | SP-OP-CANCEL-001 | DRAFT (v0.1.0) | JU, REG, DPO, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 6 | SP-OP-CONTAS-001 | DRAFT (v0.1.0) | MA, JU, REG, FIN, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 7 | SP-OP-CRED-001 | DRAFT (v0.1.0) | MA (secondary), JU, REG, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 8 | SP-OP-ESCALATION-001 | **FINAL (v1.0.0)** | MA, REG, PO (retro-verification) | prepared — awaiting roster (blocked external) | none | 0 | **NO — see flag below** |
-| 9 | SP-OP-FRAUDE-001 | DRAFT (v0.1.0) | MA (secondary), JU, REG, DPO, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 10 | SP-OP-INADIMPLENCIA-001 | DRAFT (v0.2.0) | JU, REG, FIN, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 11 | SP-OP-LGPD-DSR-001 | DRAFT (v0.1.0) | DPO, JU, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 12 | SP-OP-NIP-001 | DRAFT (v0.1.0) | MA, JU, REG, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 13 | SP-OP-PAGTO-001 | DRAFT (v0.1.0) | FIN, JU (light), PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 14 | SP-OP-PROGRAMA-001 | DRAFT (v0.1.0) | MA, JU, DPO, REG, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 15 | SP-OP-RECURSO-001 | DRAFT (v0.1.0) | MA, JU, REG, FIN, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 16 | SP-OP-REEMBOLSO-001 | DRAFT (v0.1.0) | MA, JU, REG, FIN, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
+| 1 | SP-OP-ADEQUACAO-001 | DRAFT (v0.1.0) | JU, REG, FIN, PO | owner action — due 2026-09-19 | none | 0 | no |
+| 2 | SP-OP-ANS-CRON-001 | DRAFT (v0.2.0) | REG, PO | owner action — due 2026-09-19 | none | 0 | no |
+| 3 | SP-OP-ANS-SUBMIT-001 | DRAFT (v0.1.0) | JU, REG, DPO, PO | owner action — due 2026-09-19 | none | 0 | no |
+| 4 | SP-OP-AUTH-001 | DRAFT (v0.1.0) | MA, JU, REG, FIN, PO | owner action — due 2026-09-19 | none | 0 | no |
+| 5 | SP-OP-CANCEL-001 | DRAFT (v0.1.0) | JU, REG, DPO, PO | owner action — due 2026-09-19 | none | 0 | no |
+| 6 | SP-OP-CONTAS-001 | DRAFT (v0.1.0) | MA, JU, REG, FIN, PO | owner action — due 2026-09-19 | none | 0 | no |
+| 7 | SP-OP-CRED-001 | DRAFT (v0.1.0) | MA (secondary), JU, REG, PO | owner action — due 2026-09-19 | none | 0 | no |
+| 8 | SP-OP-ESCALATION-001 | **FINAL (v1.0.0)** | MA, REG, PO (retro-verification) | owner action — due 2026-09-19 | none | 0 | **NO — see flag below** |
+| 9 | SP-OP-FRAUDE-001 | DRAFT (v0.1.0) | MA (secondary), JU, REG, DPO, PO | owner action — due 2026-09-19 | none | 0 | no |
+| 10 | SP-OP-INADIMPLENCIA-001 | DRAFT (v0.2.0) | JU, REG, FIN, PO | owner action — due 2026-09-19 | none | 0 | no |
+| 11 | SP-OP-LGPD-DSR-001 | DRAFT (v0.1.0) | DPO, JU, PO | owner action — due 2026-09-19 | none | 0 | no |
+| 12 | SP-OP-NIP-001 | DRAFT (v0.1.0) | MA, JU, REG, PO | owner action — due 2026-09-19 | none | 0 | no |
+| 13 | SP-OP-PAGTO-001 | DRAFT (v0.1.0) | FIN, JU (light), PO | owner action — due 2026-09-19 | none | 0 | no |
+| 14 | SP-OP-PROGRAMA-001 | DRAFT (v0.1.0) | MA, JU, DPO, REG, PO | owner action — due 2026-09-19 | none | 0 | no |
+| 15 | SP-OP-RECURSO-001 | DRAFT (v0.1.0) | MA, JU, REG, FIN, PO | owner action — due 2026-09-19 | none | 0 | no |
+| 16 | SP-OP-REEMBOLSO-001 | DRAFT (v0.1.0) | MA, JU, REG, FIN, PO | owner action — due 2026-09-19 | none | 0 | no |
 
 ## Signoff-absent flag — SP-OP-ESCALATION-001
 
