@@ -11,17 +11,25 @@ Proves, against the REAL rendered chart (no mock):
   4. The template is fully gated OFF (renders nothing) when `a2aOutboxRelay.enabled=false`.
   5. (SC-01/F3, gatekeeper repair) The livenessProbe uses the heartbeat file, NOT `pgrep` — the
      runtime image (`python:3.12-slim` + `libpq5`, no `procps`) does not have `pgrep`, so the
-     ORIGINAL probe would exit 127 and restart-loop forever. The probe's embedded path is
-     byte-identical to the `A2A_OUTBOX_RELAY_HEARTBEAT_PATH` env var — the single source of truth
-     is the template's own `$heartbeatPath` variable, so the two can never drift independently.
+     ORIGINAL probe would exit 127 and restart-loop forever. The probe reads
+     `A2A_OUTBOX_RELAY_HEARTBEAT_PATH` from its OWN environment (the same env var the container
+     sets) rather than a Helm-interpolated literal, so the two can never drift independently.
+  6. (gatekeeper finding G1, §Delta) The probe's staleness threshold is computed IN PYTHON from
+     `A2A_OUTBOX_RELAY_POLL_INTERVAL_S`, never via Helm's `mul`/`int` (which truncates a legitimate
+     sub-second `pollIntervalS` to a threshold of `0`, failing the probe forever) — proven both by
+     inspecting the rendered script and by actually EXECUTING it for `pollIntervalS` in
+     `{0.5, 1, 2, 5}` against missing/fresh/stale heartbeat files.
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]  # tests/unit/platform -> repo root
@@ -111,22 +119,70 @@ def test_liveness_probe_checks_the_heartbeat_file_freshness_via_python() -> None
     assert "os.path.exists" in script
 
 
-def test_liveness_probe_path_matches_the_heartbeat_env_var_exactly() -> None:
-    """Single source of truth: both the probe's embedded path and the env var the relay reads come
-    from the template's own `$heartbeatPath` — this proves they are byte-identical, not merely
-    both plausible-looking, so a future edit to one cannot silently desync from the other."""
+def test_liveness_probe_reads_the_heartbeat_path_from_its_own_environment() -> None:
+    """Gatekeeper finding G1 (§Delta): the probe must not embed a Helm-interpolated literal path —
+    it reads `A2A_OUTBOX_RELAY_HEARTBEAT_PATH` from `os.environ` at exec time, the SAME variable
+    the container's `env:` block sets, so there is exactly one source of truth and no template
+    value can desync from what the probe actually checks."""
     docs = _helm_template()
     deployment = _find(docs, "Deployment", "a2a-outbox-relay")
     container = deployment["spec"]["template"]["spec"]["containers"][0]
     heartbeat_env = next(e for e in container["env"] if e["name"] == "A2A_OUTBOX_RELAY_HEARTBEAT_PATH")
-    probe_script = container["livenessProbe"]["exec"]["command"][2]
-    assert heartbeat_env["value"] in probe_script
     assert heartbeat_env["value"].startswith("/tmp/")  # writable under readOnlyRootFilesystem + emptyDir
+    probe_script = container["livenessProbe"]["exec"]["command"][2]
+    assert "os.environ.get('A2A_OUTBOX_RELAY_HEARTBEAT_PATH'" in probe_script
+    # No Helm-rendered literal path baked into the script — only the env-var lookup above.
+    assert heartbeat_env["value"] not in probe_script
 
 
-def test_liveness_probe_staleness_threshold_is_three_times_the_poll_interval() -> None:
-    docs = _helm_template("--set", "a2aOutboxRelay.pollIntervalS=5")
+def test_liveness_probe_computes_its_staleness_threshold_in_python_not_helm() -> None:
+    """Gatekeeper finding G1 (§Delta): the threshold used to be `{{ mul (pollIntervalS | int) 3 }}`
+    — Helm's `int` truncates a sub-second `pollIntervalS` (a legitimate float) to `0`, making the
+    probe fail on every invocation. The probe script must instead read
+    `A2A_OUTBOX_RELAY_POLL_INTERVAL_S` from its own environment and compute
+    `max(3.0*poll, 5.0)` itself — proven by rendering with several `pollIntervalS` values and
+    confirming the SCRIPT TEXT is byte-identical every time (all arithmetic moved into Python)."""
+    scripts = set()
+    for poll_interval_s in ("0.5", "1", "2", "5"):
+        docs = _helm_template("--set", f"a2aOutboxRelay.pollIntervalS={poll_interval_s}")
+        deployment = _find(docs, "Deployment", "a2a-outbox-relay")
+        container = deployment["spec"]["template"]["spec"]["containers"][0]
+        script = container["livenessProbe"]["exec"]["command"][2]
+        assert "mul" not in script
+        assert "os.environ.get('A2A_OUTBOX_RELAY_POLL_INTERVAL_S'" in script
+        assert "max(3.0*poll,5.0)" in script or "max(3.0 * poll, 5.0)" in script
+        scripts.add(script)
+    assert len(scripts) == 1, "the probe script must not vary with pollIntervalS — it reads it at runtime"
+
+
+@pytest.mark.parametrize("poll_interval_s", ["0.5", "1", "2", "5"])
+def test_rendered_probe_command_runs_correctly_for_every_poll_interval(
+    poll_interval_s: str, tmp_path
+) -> None:
+    """G1's own reproduction, executed for real: extract the exact rendered `python -c` script and
+    RUN it (no docker needed — it is pure stdlib, verified separately inside
+    `python:3.12-slim` itself) with the env vars a real pod would set, against a missing, fresh,
+    and stale heartbeat file. Before the fix, `pollIntervalS=0.5` failed even on the FRESH file
+    (threshold truncated to 0) — the exact permanent-restart-loop regression."""
+    docs = _helm_template("--set", f"a2aOutboxRelay.pollIntervalS={poll_interval_s}")
     deployment = _find(docs, "Deployment", "a2a-outbox-relay")
     container = deployment["spec"]["template"]["spec"]["containers"][0]
-    probe_script = container["livenessProbe"]["exec"]["command"][2]
-    assert "< 15" in probe_script  # 3 * 5
+    probe_command = container["livenessProbe"]["exec"]["command"]
+    heartbeat_path = str(tmp_path / "heartbeat")
+    env = {
+        **os.environ,
+        "A2A_OUTBOX_RELAY_HEARTBEAT_PATH": heartbeat_path,
+        "A2A_OUTBOX_RELAY_POLL_INTERVAL_S": poll_interval_s,
+    }
+
+    missing = subprocess.run(probe_command, env=env, timeout=10)
+    assert missing.returncode != 0, "no heartbeat file yet -> must fail (no sweep has completed)"
+
+    Path(heartbeat_path).touch()
+    fresh = subprocess.run(probe_command, env=env, timeout=10)
+    assert fresh.returncode == 0, f"fresh heartbeat must pass at pollIntervalS={poll_interval_s}"
+
+    old_mtime = time.time() - 3600
+    os.utime(heartbeat_path, (old_mtime, old_mtime))
+    stale = subprocess.run(probe_command, env=env, timeout=10)
+    assert stale.returncode != 0, "an hour-old heartbeat must fail regardless of poll interval"

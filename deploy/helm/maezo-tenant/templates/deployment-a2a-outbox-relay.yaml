@@ -18,17 +18,27 @@ Postgres) — mesmo secretKeyRef do Aurora que worker-daemon/agent-runtime usam 
 em outbox_relay.py recusa construir sem DATABASE_URL nem KAFKA_BOOTSTRAP_SERVERS — fail-closed,
 nunca reivindica linhas do outbox e as descarta em silencio).
 
-PROBE (SC-01/F3): mesma situacao do notifications-bridge — o relay NAO sobe servidor de health (so'
-roda o loop de poll). Liveness `exec`, mas NAO via `pgrep`: a imagem de runtime e'
+PROBE (SC-01/F3, reparo G1): mesma situacao do notifications-bridge — o relay NAO sobe servidor de
+health (so' roda o loop de poll). Liveness `exec`, mas NAO via `pgrep`: a imagem de runtime e'
 `python:3.12-slim` + `libpq5` (deploy/Dockerfile) e NAO instala `procps` — `pgrep` sairia com
-exit 127 e o kubelet reiniciaria o pod pra sempre (reparo REVISE do gatekeeper, achado F3; a mesma
-forma ja' existia nas tres pontes irmas e continua la', ver docs/review-queue.md
-HELM-BRIDGE-LIVENESS-PGREP). Em vez disso, `run_relay_loop` (outbox_relay.py) toca o arquivo de
-heartbeat abaixo a CADA sweep completo; a probe compara o mtime dele contra 3x `pollIntervalS` via
-`python -c` (o interpretador esta' sempre presente — e' o proprio processo do container).
+exit 127 e o kubelet reiniciaria o pod pra sempre (achado F3; a mesma forma ja' existia nas tres
+pontes irmas e continua la', ver docs/review-queue.md HELM-BRIDGE-LIVENESS-PGREP). Em vez disso,
+`run_relay_loop` (outbox_relay.py) toca o arquivo de heartbeat a CADA sweep completo; a probe le
+`A2A_OUTBOX_RELAY_HEARTBEAT_PATH`/`A2A_OUTBOX_RELAY_POLL_INTERVAL_S` do PROPRIO ambiente do
+container (os MESMOS env vars que o relay le) e compara o mtime do arquivo contra
+`max(3 * pollIntervalS, 5s)` — a formula de `heartbeat_stale_after_s` em outbox_relay.py, inlined
+aqui porque a probe roda como `python -c` isolado, sem `maezo` necessariamente importavel em todo
+contexto onde ela e' exercitada.
+
+Achado G1 (gatekeeper, revisao Delta): a versao anterior calculava o limiar em Helm via
+`{{ mul (pollIntervalS | int) 3 }}` — `| int` trunca, entao `pollIntervalS: 0.5` (configuracao
+legitima; `OutboxRelaySettings.poll_interval_s` e' `float`) virava limiar `0`, e
+`time.time() - mtime` nunca e' `< 0`: a probe falharia SEMPRE, restart-loop permanente — o EXATO
+modo de falha que este heartbeat existe para eliminar, reintroduzido por um caminho de config.
+Corrigido: zero aritmetica Helm — o calculo inteiro (incluindo o piso de 5s) roda em Python dentro
+da propria probe, a partir do env var real (string, nunca truncado pelo template).
 */ -}}
 {{- if .Values.a2aOutboxRelay.enabled }}
-{{- $heartbeatPath := "/tmp/maezo-a2a-outbox-relay.heartbeat" }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -84,7 +94,7 @@ spec:
             - name: A2A_OUTBOX_RELAY_POLL_INTERVAL_S
               value: {{ .Values.a2aOutboxRelay.pollIntervalS | quote }}
             - name: A2A_OUTBOX_RELAY_HEARTBEAT_PATH
-              value: {{ $heartbeatPath | quote }}
+              value: "/tmp/maezo-a2a-outbox-relay.heartbeat"
             {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.a2aOutboxRelay.resources | nindent 12 }}
@@ -93,16 +103,18 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
-          # SEAM (SC-01/F3): o relay nao expoe /healthz (sem app de health) e a imagem nao tem
-          # `pgrep` (ver comentario do bloco acima). Liveness por heartbeat: `run_relay_loop` toca
-          # $heartbeatPath a cada sweep; a probe falha se o arquivo nao existe OU esta mais velho
-          # que 3x o intervalo de poll (folga de ate' um sweep perdido/lento antes de reiniciar).
+          # SEAM (SC-01/F3, reparo G1): o relay nao expoe /healthz (sem app de health) e a imagem
+          # nao tem `pgrep` (ver comentario do bloco acima). Liveness por heartbeat: a probe le
+          # A2A_OUTBOX_RELAY_HEARTBEAT_PATH/A2A_OUTBOX_RELAY_POLL_INTERVAL_S do PROPRIO ambiente do
+          # container (os mesmos dois env vars acima — nunca um valor Helm re-interpolado) e
+          # calcula max(3 * pollIntervalS, 5) EM PYTHON, sem nenhuma aritmetica Helm/`mul`/`int`
+          # que pudesse truncar um pollIntervalS fracionario para 0 (achado G1).
           livenessProbe:
             exec:
               command:
                 - python
                 - -c
-                - "import os,sys,time; p='{{ $heartbeatPath }}'; sys.exit(0 if os.path.exists(p) and (time.time() - os.stat(p).st_mtime) < {{ mul (.Values.a2aOutboxRelay.pollIntervalS | int) 3 }} else 1)"
+                - "import os,sys,time; p=os.environ.get('A2A_OUTBOX_RELAY_HEARTBEAT_PATH',''); poll=float(os.environ.get('A2A_OUTBOX_RELAY_POLL_INTERVAL_S','2')); threshold=max(3.0*poll,5.0); sys.exit(0 if p and os.path.exists(p) and (time.time()-os.stat(p).st_mtime)<threshold else 1)"
             initialDelaySeconds: 20
             periodSeconds: 30
           volumeMounts:

@@ -98,10 +98,36 @@ DEFAULT_POLL_INTERVAL_S: Final[float] = 2.0
 #: Where `run_relay_loop` touches its heartbeat file each sweep (SC-01/F3). `python:3.12-slim`
 #: (the runtime image, `deploy/Dockerfile`) does not install `procps`, so a `pgrep`-based
 #: livenessProbe exits 127 and restart-loops the pod forever — this file's mtime is the real
-#: liveness signal the chart's probe checks instead (`deployment-a2a-outbox-relay.yaml`: `python -c`
-#: comparing the file's mtime against `3 * pollIntervalS`). Under `readOnlyRootFilesystem: true`
-#: the chart mounts an `emptyDir` at `/tmp`, so this path is always writable there.
+#: liveness signal the chart's probe checks instead (`deployment-a2a-outbox-relay.yaml`: a `python
+#: -c` one-liner comparing the file's mtime against `heartbeat_stale_after_s(poll_interval_s)`).
+#: Under `readOnlyRootFilesystem: true` the chart mounts an `emptyDir` at `/tmp`, so this path is
+#: always writable there.
 DEFAULT_HEARTBEAT_PATH: Final[str] = "/tmp/maezo-a2a-outbox-relay.heartbeat"
+
+#: Floor on the heartbeat staleness threshold, in seconds (gatekeeper finding G1). `3 *
+#: poll_interval_s` alone breaks at a sub-second `pollIntervalS`: Helm's `mul` on a value like
+#: `0.5` inside an `int`-cast expression silently truncates to `0`, making the probe compare
+#: against `< 0` — never true — so the probe fails on EVERY invocation and the kubelet
+#: restart-loops the pod forever, the EXACT failure mode this heartbeat replaced `pgrep` to fix.
+#: `heartbeat_stale_after_s` below is pure Python (no Helm arithmetic at all) and is floored at
+#: this constant so even `poll_interval_s=0` cannot produce a threshold that never passes.
+MIN_HEARTBEAT_STALE_AFTER_S: Final[float] = 5.0
+
+
+def heartbeat_stale_after_s(poll_interval_s: float) -> float:
+    """Pure: the heartbeat-file staleness threshold (seconds) for a given `poll_interval_s`.
+
+    `max(3 * poll_interval_s, MIN_HEARTBEAT_STALE_AFTER_S)` — three sweep-cycles of slack before
+    declaring the loop dead, floored so a very short (or misconfigured `0`/negative) poll interval
+    still yields a threshold the process can realistically meet (gatekeeper finding G1). The SAME
+    formula is inlined, verbatim, into `deployment-a2a-outbox-relay.yaml`'s `livenessProbe` — that
+    probe runs as a bare `python -c` in a container that does not necessarily have `maezo` importable
+    in every context this is exercised from (`docker run --rm python:3.12-slim` in isolation, per the
+    gatekeeper's own verification method), so the formula cannot be shared by import; it is instead
+    proven identical by the tests in `tests/unit/platform/test_a2a_outbox_relay_deployment.py` that
+    render the chart and execute the rendered command directly.
+    """
+    return max(3.0 * poll_interval_s, MIN_HEARTBEAT_STALE_AFTER_S)
 
 
 class OutboxClaimStore(Protocol):

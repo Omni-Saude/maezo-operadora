@@ -31,6 +31,7 @@ from maezo.a2a.facts import DelegationFactKind, build_fact
 from maezo.a2a.outbox import OutboxRecord, outbox_row_params
 from maezo.a2a.outbox_relay import (
     DEFAULT_HEARTBEAT_PATH,
+    MIN_HEARTBEAT_STALE_AFTER_S,
     AioKafkaFactPublisher,
     OutboxRelaySettings,
     _touch_heartbeat,
@@ -38,6 +39,7 @@ from maezo.a2a.outbox_relay import (
     build_relay,
     default_worker_id,
     drain_once,
+    heartbeat_stale_after_s,
     run_relay_loop,
 )
 
@@ -427,6 +429,35 @@ def test_settings_heartbeat_path_defaults_and_is_env_overridable() -> None:
         heartbeat_path="/tmp/custom-heartbeat",
     )
     assert overridden.heartbeat_path == "/tmp/custom-heartbeat"
+
+
+# ---------------------------------------------------------------------------
+# heartbeat_stale_after_s (gatekeeper finding G1) — pure threshold function
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("poll_interval_s", "expected_threshold"),
+    [
+        (0.5, 5.0),  # 3*0.5=1.5, floored to MIN_HEARTBEAT_STALE_AFTER_S — the exact G1 repro
+        (1.0, 5.0),  # 3*1=3, still floored
+        (2.0, 6.0),  # 3*2=6, above the floor (today's default)
+        (5.0, 15.0),  # 3*5=15, comfortably above the floor
+    ],
+)
+def test_heartbeat_stale_after_s_matches_expected_threshold(
+    poll_interval_s: float, expected_threshold: float
+) -> None:
+    assert heartbeat_stale_after_s(poll_interval_s) == expected_threshold
+
+
+def test_heartbeat_stale_after_s_never_returns_a_non_positive_threshold() -> None:
+    """G1's exact failure mode: a naive `3 * poll_interval_s` with a sub-second (or zero/negative)
+    `poll_interval_s` can produce a threshold `<= 0`, making `(age) < threshold` false on every
+    invocation — the probe would fail forever, restart-looping the pod. The floor makes that
+    impossible regardless of input."""
+    for poll_interval_s in (0.5, 0.0, -1.0, 0.001):
+        assert heartbeat_stale_after_s(poll_interval_s) >= MIN_HEARTBEAT_STALE_AFTER_S
 
 
 # ---------------------------------------------------------------------------
