@@ -468,4 +468,13 @@ so it never touched the port-5642/5643 ambiguity at all).
 > um `**` spread, uma dict-comprehension ou uma referência de nome agora fazem
 > `_registered_agents()` levantar `AssertionError` em vez de sub-relatar o registro (NEW-B4).
 > `carolina` manteve a prosa que a WP CAROLINA-CATCHALL já havia corrigido de forma independente;
-> `fernando`/`rafael`/`valentina`/`helena`/`lucas` já eram truthful e só ganharam o campo.
+> `rafael`/`valentina`/`helena`/`lucas` já eram truthful e só ganharam o campo.
+>
+> **CORREÇÃO (§Delta A2A-YAML-DISCLOSURE, F1).** A frase acima estava ERRADA sobre `fernando`: sua
+> prosa negava DOIS fatos já ao vivo desde `35b5d7e5`/#344 (owner decision R-081) — o registro do
+> handler em `a2a_composition.py` e a chamada do lado origem em
+> `tools/workers/inadimplencia.py::make_prepare_dossier_handler` — três linhas acima do próprio
+> `handler_status: registrado`. Nenhuma cerca pega essa espécie porque nenhuma lê texto de
+> comentário (`_declared_handler_disclosure` só lê o campo estruturado via `yaml.safe_load`); a
+> falsidade só apareceu por verificação independente contra a árvore. `spec/agents/fernando/
+> agent.yaml` foi reescrito nesta §Delta para que as duas frases batam com o código.
