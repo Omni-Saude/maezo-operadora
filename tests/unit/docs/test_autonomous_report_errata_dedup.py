@@ -95,7 +95,10 @@ def test_the_integration_note_joins_the_two_gap_ids() -> None:
     text = REPORT.read_text(encoding="utf-8")
     start = text.find(INTEGRATION_NOTE_HEADING)
     assert start != -1, f"the r5/train-3 integration note ({INTEGRATION_NOTE_HEADING!r}) is gone"
-    note = text[start:]
+    # Bound the section at the next top-level heading so a citation in a LATER section cannot
+    # satisfy an EARLIER one (same guard as test_both_erratas_are_present_and_each_cites_both_lines).
+    nxt = text.find("\n## ", start + 1)
+    note = text[start : nxt if nxt != -1 else len(text)]
     for gap in ERRATA_HEADINGS:
         assert gap in note, (
             f"the integration note no longer names gap {gap}; it would then be prose about "
@@ -120,7 +123,11 @@ def test_the_third_instance_at_139_is_still_uncorrected_and_still_disclosed() ->
     text = REPORT.read_text(encoding="utf-8")
     note_start = text.find(INTEGRATION_NOTE_HEADING)
     assert note_start != -1
-    assert "`:139`" in text[note_start:], (
+    # Bound the section at the next top-level heading so a citation in a LATER section cannot
+    # satisfy an EARLIER one (same guard as test_both_erratas_are_present_and_each_cites_both_lines).
+    nxt = text.find("\n## ", note_start + 1)
+    note = text[note_start : nxt if nxt != -1 else len(text)]
+    assert "`:139`" in note, (
         "the integration note stopped disclosing that `:139` is still uncorrected — the report "
         "would then read as fully repaired while a third instance of the same false attribution "
         "stands"
