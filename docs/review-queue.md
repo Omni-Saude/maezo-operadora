@@ -1464,3 +1464,31 @@ prefixos):
 |---|---|---|
 | R-137 | despacho dos 6 pacotes SME (roster nomeado pelo dono, `docs/sme-dispatch/tracker.md`) | 2026-09-19 |
 | R-027 | designação do encarregado de dados (DPO, D7-03) — ato societário fora do repo + registro em `docs/compliance/ripd-kickoff.md` | 2026-09-19 |
+
+---
+
+## CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM — gate de intake de `data_vencimento` (R-084, executado 2026-09-04)
+
+A alavanca que `docs/processes/contracts/SP-OP-CONTAS-001.md` registrava como **NOMEADA E NAO
+TOMADA** foi tomada: o dono decidiu (`OWNER-DECISIONS-REGISTER` R-084, aprovado 2026-09-04)
+*"validar agora — `ST_ApurarDivergencias` passa a rotear a `ANALISE_HUMANA` quando
+`data_vencimento` vier em branco, antes de qualquer demonstrativo"*. O intake passou a produzir
+`vencimento_ausente` e o novo `GW_VencimentoConta` desvia a conta a `ANALISE_HUMANA` antes dos tres
+`ST_EmitirDemonstrativo*` e de `ST_RegistrarGlosa`/`ST_RegistrarGlosaParcial`; a recusa de
+`operadora.contas.handoff_pagamento` fica como defesa em profundidade. **O que NAO foi decidido por
+isto:** a origem contratual do campo. Ela segue `DRAFT/verify` sob ADR-0040 OQ-2 e continua sendo
+o item aberto desta fila (linha `docs/adr/0040-...md` OQ-2 acima, INALTERADA).
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `docs/adr/0040-...md` OQ-2 — clausula de ORIGEM de `data_vencimento` | **INALTERADO por R-084.** O gate de intake muda o ROTEAMENTO de contas sem vencimento; ele nao diz de que clausula contratual o vencimento vem, nem valida o valor quando ele existe. De onde vem a data, e quem responde por ela, continua pergunta de juridico/regulatorio + financas | juridico/regulatorio + financas | `ABERTO — o gate de intake nao o pre-julga nem o fecha` |
+| `spec/processes/bpmn/SP-OP-CONTAS-001_...bpmn` `GW_VencimentoConta` + `UT_AnalistaContas` | **Carga operacional do desvio:** contas sem vencimento que hoje terminavam em incidente no handoff passam a entrar na FILA HUMANA de `auditoria-contas`, com o SLA de `contas_sla` correndo desde o recebimento do lote. Confirmar com a operacao que o volume e absorvivel e que `DEVOLVER` (com `justificativa_devolucao`) e a saida esperada para esse caso — o processo nao tem hoje um motivo de devolucao especifico para "lote sem vencimento" (`motivo_devolucao` segue `DRAFT/verify`, OQ-1) | auditoria de contas + operacao | `ABERTO — decorrencia operacional do gate, nao bloqueia o gate` |
+
+## CONTAS-DEAD-ERROR-CATALOG — reconhecimento do dono registrado (R-097/R-098, 2026-09-04)
+
+As duas linhas `ABERTO` da secao `CONTAS-DEAD-ERROR-CATALOG` acima **permanecem ABERTAS e
+inalteradas** — o dono confirmou a LEITURA, nao a condicao de saida dela.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `docs/decisions-log.md` DL-0047 + nota em `docs/processes/contracts/SP-OP-CONTAS-001.md` | Registro do reconhecimento do dono (`R-097`: *"SIM — confirmar a leitura; nenhuma acao de codigo hoje"*; `R-098`: um eventual endurecimento de `check_bpmn_error_allowlist` sera decisao de programa unica). **Nada de codigo mudou** e a confirmacao ratifica a LEITURA, **nunca a ADR-0040**, que segue `Proposed` sob CODEOWNERS de `/docs/adr/` | arquitetura (registro; ratificacao de ADR segue ato humano separado) | `resolvido 2026-09-04 (R-097/R-098) — apenas registro; as duas linhas ABERTO acima seguem abertas` |
