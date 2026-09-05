@@ -1464,3 +1464,9 @@ prefixos):
 |---|---|---|
 | R-137 | despacho dos 6 pacotes SME (roster nomeado pelo dono, `docs/sme-dispatch/tracker.md`) | 2026-09-19 |
 | R-027 | designação do encarregado de dados (DPO, D7-03) — ato societário fora do repo + registro em `docs/compliance/ripd-kickoff.md` | 2026-09-19 |
+
+## LOG-FORMAT-RENDERER — decisão "console" registrada (R-062, 2026-09-04)
+
+| Artefato | O que foi decidido | Revisor | Status |
+|---|---|---|---|
+| `src/maezo/platform/observability.py::setup_observability` (correção mecânica já em `main`: `structlog.processors.add_log_level` de volta na cadeia de processors em `:247`, e `structlog.dev.ConsoleRenderer(colors=colors)` TTY-aware em `:256-257`, com `colors = _console_colors_enabled()` — `:150` — em vez de `ConsoleRenderer()` bare) | O dono/SRE decidiu (`OWNER-DECISIONS-REGISTER` R-062) manter produção em **console** (`ConsoleRenderer` já corrigido) em vez de migrar para `JSONRenderer` estruturado agora que `AF-12`/`AF-13` dão chamadores reais à observabilidade. Justificativa: nenhum consumidor de máquina existe hoje para log estruturado — nenhum receiver `filelog` no `otel-collector` e nada em `deploy/observability/` parseia JSON —, então migrar agora construiria capacidade sem consumidor. O custo de trocar depois é uma linha de processor: adiamento barato e reversível | dono/SRE | `ENTREGUE — decisão "console" ratificada (R-062); gatilho de reabertura = primeiro receiver \`filelog\` OU pipeline CloudWatch Logs Insights adicionado a \`deploy/observability/\`; nenhuma mudança em \`src/maezo/platform/observability.py\` além da correção mecânica já mesclada` |
