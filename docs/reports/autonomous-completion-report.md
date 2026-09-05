@@ -151,3 +151,34 @@ Gap #6 ("audit partitioning & 5-yr retention") was first implemented as a partit
 ---
 
 _End state: 22 PRs merged, `main` green (2027+ unit/architecture tests), all 37 Section-4 gaps resolved. The only remaining work is the team's pre-launch review (§5) and the §6.2 manual actions an AI physically cannot perform._
+
+---
+
+## ERRATA 2026-09-05 — o pipeline `contract_extraction` nunca foi portado (GAP AF-18)
+
+**Status:** Proposto (errata) — DRAFT/verify · **Autor:** `ADR-BATCH` (R1, AGENTE) · **Base:** `44e85ea`
+
+Append-only: as linhas 58 e 89 acima NAO foram alteradas — reescrever o relatorio apagaria a
+evidencia de que a afirmacao foi feita e deslocaria as ancoras de linha que a auditoria
+`docs/audits/maezo-deep-audit/` e a `docs/adr/0041-*.md` §7 citam neste arquivo.
+
+- **Afirmacao (`:58`, tabela de PRs):** "| #81 | contract_extraction DMN-driven scaffold (#21) |".
+- **Afirmacao (`:89`, tabela de gaps):** "| 21 | contract_extraction pipeline (0012) | **scaffolded**
+  #81; source/LLM/SME = manual |".
+- **Verdade na arvore:** nao existe nada com esse nome, nem scaffold.
+  `grep -rn contract_extraction src/ spec/ | wc -l` -> `0`. Nenhum modulo, script ou artefato de
+  spec. Os unicos hits do repo sao documentais (`docs/adr/0011:12` lista o porte como algo A COLHER
+  do repo donor; `docs/adr/0028:125` cita em frase condicional) — nenhum deles e um realizador.
+- **O PR #81 real deste repo e `b762b5c`** — "feat(cancel): implement 3 BPMN-declared workers,
+  reconcile registry drift [T3.1] (#81)" — conteudo nao relacionado a extracao de contratos.
+- **Consequencia:** a `docs/adr/0012-dmn-deterministic-tool.md:16` ("Pipeline `contract_extraction`
+  (**portado**) gera DMN a partir de contratos do tenant") descreve uma INTENCAO nao realizada, nao
+  um estado do sistema; todo conteudo DMN por tenant e hoje artesanal e versionado em
+  `spec/processes/dmn/`. Construir ou descartar formalmente o pipeline e **decisao do dono**.
+- **Nota de padrao (a razao de esta errata existir):** este e o segundo relatorio autonomo desta
+  familia a afirmar uma entrega sem lastro reproduzivel — o primeiro foi
+  `docs/reports/predeploy-audit-report.md:317` (ADR-0024/`PostgresDedupeStore`, GAP AF-02). Duas
+  ocorrencias sao padrao, nao acidente: **o relatorio inteiro merece uma passagem de auditoria**, nao
+  so estas duas linhas. Fica registrado como follow-up ABERTO em `docs/review-queue.md`.
+- Registro completo: `docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md`,
+  secao `### §7 — GAP AF-18`.
