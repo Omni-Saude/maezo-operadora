@@ -549,7 +549,18 @@ lifecycle:
   # como anotacao `maezo.io/expected-fail-until` no jobTemplate de cada Job, e
   # deploy/observability/alert-rules.yml exclui `MaezoLifecycleJobFailed` para jobs que carregam
   # essa anotacao — sem ela, o scrape de kube-state-metrics (ALERTS-WITHOUT-METRICS-b / R-056)
-  # converte 3 falhas por desenho em alarme diario. NUNCA gravar o literal "AF-07" aqui — a data e
+  # converte 3 falhas por desenho em alarme diario.
+  #
+  # CONDICAO DO OPERADOR (leia antes de contar com a exclusao): ela SO existe se o kube-state-metrics
+  # do cluster estiver rodando com `--metric-annotations-allowlist=jobs=[maezo.io/expected-fail-until]`.
+  # Esse exporter NAO e' deste chart nem deste repositorio (ver o comentario do job
+  # `kube-state-metrics` em deploy/observability/prometheus.yml) — sem essa flag a serie
+  # `kube_job_annotations{annotation_maezo_io_expected_fail_until=~".+"}` nunca materializa, o
+  # `unless` do alerta nao casa nada e `MaezoLifecycleJobFailed` PAGINA nas 3 falhas por desenho
+  # assim mesmo. E fail-open honesto (nunca um buraco fail-closed silencioso), mas e' fail-open:
+  # anotar aqui NAO fecha a exposicao sozinho, so' a torna fechavel pelo operador.
+  #
+  # NUNCA gravar o literal "AF-07" aqui — a data e
   # o teto rastreado, a mesma que spec/policies/autonomy/action-approvals.yaml:151 ja torna
   # merge-bloqueante. scripts/ci/check_lifecycle_expected_fail_expiry.py reprova a build a partir
   # do dia seguinte a esta data (fail-closed, sem renovacao silenciosa) — quem sair do vermelho
