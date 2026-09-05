@@ -44,6 +44,16 @@ The two transport error classes are imported BRANCH-LOCALLY, inside the factory 
 import here would be a package-level cycle waiting to happen, and the policy core must stay free
 of `maezo.tools` — `action_execution.py:206-208`). The subclasses are built once and cached.
 
+THE RATE LIMIT LIVES INSIDE `gate`, NOT BESIDE IT (gap D6-01). `maezo/gateway/rate_limit.py` is a
+per-(tenant, principal) token bucket, and :func:`gate` is where it is consulted for exactly the
+reason this module exists: `gate` is the ONE function every gated seam calls once per invocation,
+so a throttle placed here cannot be walked around by a seam, a root, or a plugin (I-11 —
+"INEVITABLE, not merely available"). Unlike the policy ladder it ALWAYS enforces: `enforced` is
+False for every action class today, and a rate limit that only logs is not a rate limit. The
+refusal is the class's own declared denial shape, so it lands on the node's declared unavailable
+path; see :func:`_rate_limited_denial` for why the shape is re-derived from the class rather than
+read off the (allowing) decision.
+
 NO PHI IN A DENIAL (I-3). `EffectDeniedError.__str__` is assembled from bounded tokens only —
 operation, action class, layer, reason, denial shape. The arguments that triggered the call are
 never touched, so a denial that a node folds into a gap note (`f"... indisponivel: {exc}"`,
@@ -58,7 +68,7 @@ from typing import Any, Final, Protocol
 
 import structlog
 
-from maezo.gateway import effect_classes
+from maezo.gateway import effect_classes, rate_limit
 from maezo.gateway.effect_classes import (
     SHAPE_DEGRADACAO_SEM_DOSSIE,
     SHAPE_ESCALONAMENTO_HUMANO,
@@ -77,6 +87,7 @@ from maezo.gateway.effect_pep import (
     decide_effect,
     log_effect_decision,
 )
+from maezo.gateway.rate_limit import RateLimiter
 
 logger = structlog.get_logger(__name__)
 
@@ -347,6 +358,98 @@ async def _pre_effect_audit(seam: SeamContext, decision: EffectDecision, operati
         raise denial_for(decision)
 
 
+#: Process-wide throttle (D6-01). ONE limiter per process, built lazily on the first gated call,
+#: because the buckets must be shared across every seam of every principal in this replica — a
+#: per-`SeamContext` limiter would give a runaway agent a fresh budget for each of its seven seams.
+_RATE_LIMITER: RateLimiter | None = None
+
+
+def _rate_limiter() -> RateLimiter:
+    """The process's `RateLimiter`, configured from `GatewaySettings` on first use.
+
+    LAZY, AND IMPORTED BRANCH-LOCALLY, for the module's existing reason: `maezo.gateway`'s policy
+    core must not acquire an import-time dependency on `pydantic-settings` (same discipline as
+    `_count_tool_call`'s observability import and `effect_pep`'s note on `maezo.tools`).
+
+    A SETTINGS FAILURE DOES NOT DISABLE THE LIMIT. If `GatewaySettings()` raises — a malformed
+    `MAEZO_GATEWAY_RATE_LIMIT_*` value, most likely — this builds the limiter from
+    `rate_limit.py`'s DERIVED DEFAULTS and logs at ERROR. That is the conservative direction, not
+    a silent fallback: the defaults are the documented floor, the failure is loud, and the
+    alternative readings are both worse. Refusing to build would turn one typo into a total
+    outage of every effect in the replica; building an unlimited limiter would let a typo REMOVE
+    the control this gap exists to add.
+    """
+    global _RATE_LIMITER
+    if _RATE_LIMITER is None:
+        capacity = rate_limit.DEFAULT_CAPACITY
+        refill = rate_limit.DEFAULT_REFILL_PER_SECOND
+        try:
+            from maezo.gateway.settings import GatewaySettings  # noqa: PLC0415 — lazy, see above
+
+            settings = GatewaySettings()
+            capacity = settings.rate_limit_capacity
+            refill = settings.rate_limit_refill_per_second
+        except Exception:  # noqa: BLE001 — see the docstring: loud, and still limited.
+            logger.error("effect_seam_rate_limit_settings_unreadable", exc_info=True)
+        _RATE_LIMITER = RateLimiter(capacity=capacity, refill_per_second=refill)
+        logger.info("effect_seam_rate_limit_configured", capacity=capacity, refill_per_second=refill)
+    return _RATE_LIMITER
+
+
+def configure_rate_limiter(limiter: RateLimiter | None) -> None:
+    """Install the process-wide chokepoint limiter, or clear it so the next call rebuilds it.
+
+    Exists because the limiter is PROCESS state: a composition root that wants the limit built
+    from its own settings object rather than from a fresh `GatewaySettings()` env read installs it
+    here at bring-up, and anything that legitimately needs a clean process (a test asserting the
+    bucket maths through the real `gate`) restores the previous value through the same door
+    instead of reaching for the module global. Passing `None` does NOT disable the limit — it
+    clears the memo, and the next gated call rebuilds from settings.
+    """
+    global _RATE_LIMITER
+    _RATE_LIMITER = limiter
+
+
+def _rate_limited_denial(decision: EffectDecision, operation: str) -> EffectDeniedError:
+    """The refusal for an over-limit call, in the action class's OWN declared denial shape.
+
+    THE SHAPE COMES FROM THE CLASS, NOT FROM `decision`. `EffectDecision.denial_shape` is None on
+    an ALLOW (`effect_pep.EffectDecision`'s own docstring), and an over-limit call is precisely a
+    call the POLICY allowed — so reusing the field would hand every throttled call the base
+    `EffectDeniedError`, a plain `RuntimeError` that `_evaluate_dmn`'s
+    `except (DmnEvaluationError, DmnNoResultError)` does not catch. That is adversary A-12 (the
+    PEP harming the patient) with a new trigger. `effect_classes.denial_shape_for` re-derives the
+    class's declared shape instead, so a throttled call lands on the node's declared unavailable
+    path exactly like a policy denial does.
+    """
+    shape = effect_classes.denial_shape_for(decision.action_class) or decision.denial_shape
+    return denial_for(
+        EffectDecision(
+            allow=False,
+            # ALWAYS enforced: a rate limit is not on the per-class shadow ramp (see
+            # `rate_limit.py`'s "WHY IT REFUSES EVEN THOUGH THE POLICY LADDER IS IN SHADOW").
+            enforced=True,
+            reason=rate_limit.REASON_RATE_LIMITED,
+            layer=rate_limit.LAYER_RATE_LIMIT,
+            action_class=decision.action_class,
+            denial_shape=shape,
+            operation=operation,
+            mode=decision.mode,
+            enforcement=decision.enforcement,
+        )
+    )
+
+
+def _count_rate_limited(seam: SeamContext) -> None:
+    """Increment `maezo_effect_rate_limited_total` for ONE throttled call. Never raises."""
+    try:
+        from maezo.platform.observability import record_effect_rate_limited  # noqa: PLC0415 — lazy
+
+        record_effect_rate_limited(tenant=seam.tenant, principal=seam.principal)
+    except Exception:  # noqa: BLE001 — a metric error must never break an effect call.
+        logger.debug("effect_seam_rate_limit_metric_failed", exc_info=True)
+
+
 def _count_tool_call(operation: str) -> None:
     """Increment `maezo_tool_calls_total` for ONE gated invocation. Never raises onto the effect path.
 
@@ -392,8 +495,21 @@ async def gate(
     Also increments `maezo_tool_calls_total` (ALERTS-WITHOUT-METRICS-a) BEFORE deciding, so a
     denied call still counts as an attempted invocation — the alert's denominator is "tool calls
     the agents made", not "tool calls the policy allowed".
+
+    RATE LIMIT (D6-01). The token for this (tenant, principal) is taken FIRST, before the policy
+    decision, and the ORDER of the two refusals is deliberate:
+
+      * The token is taken for EVERY gated call, including one the policy denies. A loop that
+        hammers a denied operation is exactly the runaway this limit exists to bound; letting a
+        denial refund its budget would leave that loop unthrottled.
+      * The POLICY refusal still wins when both apply, so an approver reading a refusal never sees
+        `TAXA_EXCEDIDA` where the real story is `AUTONOMIA_NEGADA`. The throttle is reported on
+        the calls the policy would otherwise have let through.
+      * The shadow line is emitted either way, so `§9.2`'s evidence packet keeps one record per
+        attempted call — a throttled call is not a hole in the telemetry.
     """
     _count_tool_call(operation)
+    within_rate = _rate_limiter().allow(tenant=seam.tenant, principal=seam.principal)
     decision = decide_effect(
         tenant=seam.tenant,
         principal=seam.principal,
@@ -406,6 +522,20 @@ async def gate(
     _emit(seam, decision, operation, process_key, value_cents)
     if decision.enforced and not decision.allow:
         raise denial_for(decision)
+    if not within_rate:
+        _count_rate_limited(seam)
+        # Bounded tokens only (I-3) — no call argument, no PHI, ever.
+        logger.warning(
+            "effect_seam_rate_limited",
+            tenant=seam.tenant,
+            principal=seam.principal,
+            operation=operation,
+            action_class=decision.action_class,
+            reason=rate_limit.REASON_RATE_LIMITED,
+            capacity=_rate_limiter().capacity,
+            refill_per_second=_rate_limiter().refill_per_second,
+        )
+        raise _rate_limited_denial(decision, operation)
     await _pre_effect_audit(seam, decision, operation)
     return decision
 
@@ -416,6 +546,7 @@ __all__ = [
     "GatedSeam",
     "PreEffectAuditHook",
     "SeamContext",
+    "configure_rate_limiter",
     "denial_for",
     "gate",
     "is_gated_seam",

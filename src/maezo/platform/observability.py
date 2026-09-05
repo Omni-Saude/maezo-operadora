@@ -455,6 +455,29 @@ def record_tool_call() -> None:
     _get_metrics_collector().tool_calls.inc()
 
 
+def record_effect_rate_limited(*, tenant: str, principal: str) -> None:
+    """Count ONE gated effect call refused by the chokepoint rate limit — D6-01.
+
+    Called from `maezo.gateway.seams._base.gate`, the same single per-call chokepoint
+    :func:`record_tool_call` is called from, so a throttled call is counted exactly once and by
+    construction (a seam that skipped this counter would also have skipped the decision).
+
+    `maezo_effect_rate_limited_total` is NOT read by any shipped alert rule
+    (`deploy/observability/alert-rules.yml` is owner-gated and untouched by this change), so it is
+    deliberately absent from `test_alert_metrics_fence.py`'s emitter table — which is derived from
+    the alert file, not from this module. It is the src-side signal an operator and a future alert
+    can both read; proposing the alert itself is an owner decision, recorded in
+    `docs/review-queue.md`.
+
+    Args:
+        tenant: the throttled key's tenant. A bounded, non-PHI token.
+        principal: the throttled key's principal (agent id or daemon principal). Same.
+
+    Best-effort: telemetry must never break an effect call, so the caller guards it.
+    """
+    _get_metrics_collector().effect_rate_limited.labels(tenant=tenant, principal=principal).inc()
+
+
 def record_agent_error() -> None:
     """Count ONE failed agent turn — `maezo_agent_errors_total`.
 

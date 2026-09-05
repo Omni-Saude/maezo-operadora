@@ -184,6 +184,23 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # D6-01: the effect-chokepoint rate limit. Counts gated calls REFUSED by
+        # `gateway/rate_limit.py` inside `gateway/seams/_base.py::gate` — never a silent drop.
+        #
+        # LABELS ARE THE THROTTLE KEY AND NOTHING ELSE. `tenant` and `principal` are exactly the
+        # pair the bucket is keyed by, both bounded non-PHI tokens validated at `SeamContext`
+        # construction (`effect_pep._TOKEN_RE`) and both of small, closed cardinality (tenants;
+        # ~10 agent ids plus `worker_runtime`/`notifications_bridge`). `operation` is DELIBERATELY
+        # absent: an uncatalogued operation token is reachable at this point (it is an L-0 deny,
+        # not a construction error), so it is not a bounded label — it goes on the structured log
+        # line instead, the same rule `worker_task_total` documents for business identifiers.
+        self._effect_rate_limited = Counter(
+            "maezo_effect_rate_limited_total",
+            "Gated effect calls refused by the chokepoint rate limit (COUNTS ONLY)",
+            labelnames=["tenant", "principal"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -257,6 +274,15 @@ class MetricsCollector:
         "batch" | "nao_declarado" | "sem_mapa"), resolution (see `inference.TIER_RESOLUTIONS`).
         """
         return self._llm_tier_resolution
+
+    @property
+    def effect_rate_limited(self) -> Counter:
+        """Counter for effect calls refused by the chokepoint rate limit (D6-01).
+
+        Labels: tenant, principal — the (tenant, principal) pair the token bucket is keyed by.
+        COUNTS ONLY; no operation, no call argument, no business identifier.
+        """
+        return self._effect_rate_limited
 
     @property
     def bridge_dlq(self) -> Counter:
