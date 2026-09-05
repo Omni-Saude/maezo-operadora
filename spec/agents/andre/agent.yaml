@@ -13,21 +13,65 @@ model:
   reasoning:    { tier: frontier }        # coortes ambiguas / risco atuarial complexo
 tools:                                     # ids EXATOS de MCP servers JA registrados (validate-artifacts exige o dir mcp_<server>)
   - mcp-dmn.evaluate                       # pagto_alcada (classifica faixa) / pagto_sla (DMN decide; ADR-0012)
-  - mcp-cibseven.start_process             # somente SP-OP-PAGTO-001 (start idempotente)
   - mcp-memory.read_write                  # memoria episodica do dossie/coorte (ADR-0002)
   - mcp-fhir.read_patient                  # leitura PHI pseudonimizada SO no caminho do dossie de pagamento (enriquece, best-effort)
+  # AND-S3 (anotacao, 2026-09-04 — CC-03/AND-03): `mcp-fhir.read_patient` acima NAO e um id de tool
+  # registrado num MCP server. `tools/mcp_fhir/server.py::FhirServer` registra DOIS tools apenas
+  # (`read_resource`, `search_resources`); o id granular aqui e (a) o nome da CAPACIDADE que o PEP
+  # decide (`gateway/effect_classes.py` mapeia a operacao `fhir.read_patient` -> classe
+  # `leitura_phi_clinica`, C2) e (b) a chave que `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`
+  # traduz no ADAPTADOR injetado no composition root (`rafael/adapters.py::FhirServerReader`,
+  # embrulhado pelo `GatedFhirReader`). Andre NAO fala com o FHIR pelo Tool Gateway por este id: ele
+  # recebe o leitor JA CONSTRUIDO e JA GATEADO por INJECAO
+  # (`runtime/worker_runtime/service.py` STEP B -> `a2a_composition.build_dossier_delegation_
+  # dispatcher(fhir={"andre": ...})` -> `make_andre_handler(..., fhir=...)` -> `graph.build(config)`),
+  # exatamente como o `PopulationFeatureClient` da nota de allowlist abaixo. Ate 2026-09-04 essa
+  # injecao NAO existia na raiz do dossie e 100% dos dossies caiam no ramo degradado do grafo
+  # ("leitor FHIR nao configurado"); a linha declarativa acima ja estava certa, o wiring e que faltava.
+  # NENHUMA chave declarada muda com esta anotacao.
   # allowlist TIGHT (ADR-0011 / ownership §7): o mcp-datalake (cliente de populacao/lago) e PORT-PENDING
   # (port WB.4 — ainda nao no repo; validate-artifacts hard-falha em MCP server inexistente). Andre NAO
   # fala com o lago via Tool Gateway: ele reasona sobre AGREGADOS k-anon entregues por um cliente INJETADO
   # (Protocol PopulationFeatureClient em contracts.py — espelha o padrao de Protocol da gateway/custody),
   # nunca por um id mcp aqui. Quando o mcp-datalake cair (WB.4) e um no o exercer, o id + a constante entram.
   # mcp-cibseven.get_process_status / correlate_process_message NAO entram ate um no os usar (allowlist tight).
+  #
+  # MENOR PRIVILEGIO — `mcp-cibseven.start_process` REMOVIDO (gap ANDRE-PROCESS-KEYS; decisao do
+  # dono R-036 de 2026-09-04, opcao B). Andre NAO declara `process_keys`, entao o nucleo de decisao
+  # do effect-PEP (`decide_effect`, L-1) ja devolvia DENY ao chegar em
+  # `AgentCapabilities.allows_process_key` (`effect_pep.py`, -> REASON_PROCESS_KEY_FORBIDDEN): o
+  # manifesto declarava uma autoridade que o veredito do PEP nunca concedeu. Esse veredito e
+  # HOJE consultivo, nao uma cerca de runtime: nenhuma costura liga `start_process_instance`
+  # (`gateway/seams/cibseven.py`, "o buraco deliberado"), a superficie de start
+  # `inicio_processo_regulatorio` e `choked: false` por decisao
+  # (`spec/policies/autonomy/action-approvals.yaml`), e a classe esta em `modo: shadow`. Estreitar
+  # o manifesto e o que faz o DENY virar a resposta certa QUANDO essa superficie for choked.
+  # Nenhum originador vivo alcanca o no `start_process` do grafo (`delegation.py` so
+  # mapeia `adequacao-worker`, fluxo no-op; `pagto-worker` para na Ancora 1 e devolve
+  # `start_skipped`). Conceder autoridade de efeito sobre um processo que MOVE DINHEIRO
+  # (SP-OP-PAGTO-001) sem consumidor vivo e capacidade especulativa. Se um originador externo
+  # aparecer, a concessao volta como uma linha de YAML sob revisao explicita do dono — nunca por
+  # omissao. Fixado por `tests/unit/gateway/test_andre_least_privilege.py`.
+  #
+  # NENHUM AGENTE INICIA ADEQUACAO (gap PERSP-B5-ADEQ-BINDING; decisao do dono R-049 de
+  # 2026-09-04, opcao B). `SP-OP-ADEQUACAO-001` NAO tem — e nao deve ter — binding de start em
+  # `agent.yaml` nenhum: Andre e convocado por DELEGACAO A2A
+  # (`operadora.adequacao.prepare_remediation_dossier` -> `analytics.population`) sobre uma
+  # instancia que JA esta rodando (o no `start_process` do grafo e no-op fora do `pagto_dossier`;
+  # a business key `ADEQ-` so ANCORA o dossie), e a coreografia que iniciaria o processo
+  # (`network_change_bridge`, PERSP-NETBRIDGE/AF-01) NAO existe em `src/`. Esta e uma decisao
+  # registrada, nao uma omissao — o contrato do processo carrega a nota completa em
+  # `docs/processes/contracts/SP-OP-ADEQUACAO-001.md` (§Bindings de agente) e
+  # `tests/unit/gateway/test_adequacao_sem_binding_de_agente.py` varre TODOS os manifestos.
 autonomy_policy: ../../policies/autonomy
 autonomy_actions:                          # acoes REAIS da matriz L0-core exercidas por este fluxo
   - query_decision_engine                  # DMN pagto_alcada/pagto_sla (mcp-dmn.evaluate) — L3
-  - start_compliance_process               # SP-OP-PAGTO-001 (mcp-cibseven.start_process) — L2
   - read_write_memory                      # memoria episodica (mcp-memory.read_write) — L3
   - read_phi_data                          # leitura FHIR pseudonimizada SO no caminho do dossie (mcp-fhir.read_patient) — L3
+  # `start_compliance_process` (L2) REMOVIDO junto com a tool `mcp-cibseven.start_process` — mesma
+  # decisao R-036 / gap ANDRE-PROCESS-KEYS (ver a nota de MENOR PRIVILEGIO no bloco `tools:`).
+  # A acao continua existindo na matriz `spec/policies/autonomy/L0-core.yaml` e continua declarada
+  # pelos agentes que de fato iniciam processo; apenas Andre deixa de declara-la.
   # NOTA L0 HARD (intencional): Andre NAO exerce `high_value_payment` (L1 — a liberacao de pagamento de
   # alto valor NASCE SO na User Task humana `UT_AprovacaoAlcada`/`UT_AprovacaoComite` com tier-match;
   # SP-OP-PAGTO-001 §invariante L1 no-adverse, ADR-0018). Andre NAO decide preco/precificacao

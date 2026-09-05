@@ -8,11 +8,12 @@ against a real database and then exercises the claim protocol against the column
 
 Four invariants:
 
-1.  **Chain integrity.** 0010 is the sole head of a linear chain and no revision id is claimed
-    twice. This assertion MOVED here from `test_migration_0008_a2a_fact_outbox.py` (whose own
-    docstring prescribes the move: "the head belongs to whichever migration currently IS the
-    head"), and it is also what will fail loudly if the concurrently-open `0009` lands without
-    someone re-pointing one of the two `down_revision`s.
+1.  **Chain integrity.** 0010 is the sole head of a linear chain (0007->0008->0009->0010) and no
+    revision id is claimed twice. This assertion travels WITH the head: it moved from
+    `test_migration_0008_a2a_fact_outbox.py` to `test_migration_0009_drop_pgvector.py` when 0009
+    landed and to here when 0010 landed, exactly as the 0008 suite's own docstring prescribes. It
+    is also the test that would have caught the fork this branch briefly carried, when 0010 still
+    revised 0008 while `0009_drop_pgvector` was open in another PR.
 2.  **The repurpose is DECLARED, not merely implied.** The migration names the gap, the owner
     decision and the new writers in SQL `COMMENT ON` statements — the only form of declaration a
     DBA inspecting the database can ever see.
@@ -95,15 +96,15 @@ def test_migration_file_is_named_for_its_revision() -> None:
 
 def test_revision_and_down_revision() -> None:
     assert f'revision: str = "{DEDUP_MIGRATION_REVISION}"' in _SOURCE
-    assert 'down_revision: str | None = "0008"' in _SOURCE
+    assert 'down_revision: str | None = "0009"' in _SOURCE
 
 
 def test_0010_is_the_unique_head_of_a_linear_chain() -> None:
     """No fork: every revision claimed once, exactly one revision unreferenced as a parent.
 
     A forked chain is the failure mode where `alembic upgrade head` applies one branch while an
-    operator believes it applied the other. Moved here from 0008's suite when 0010 landed; the
-    next migration moves it again.
+    operator believes it applied the other. Inherited from 0009's suite when 0010 landed (and by
+    0009 from 0008's before that); the next migration moves it again — ONE file changes.
     """
     revisions: dict[str, str | None] = {}
     for path in sorted(_VERSIONS_DIR.glob("[0-9]*.py")):

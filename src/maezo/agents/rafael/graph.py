@@ -476,6 +476,39 @@ class RafaelGraph:
         `auth_sla` is evaluated unconditionally and is PURELY informative (never affects
         `route`). Neither DMN has a denial output by contract design — this method never
         produces anything but `{"auto_approve", "human_auditor"}` for `route`.
+
+        ROTA `auto_approve` INALCANCAVEL POR DESENHO A PARTIR DE TODO SEAM TIPADO (RAF-01).
+        Divulgacao, nao defeito — e' o resultado esperado das duas cercas abaixo somadas:
+
+        1. Os CINCO booleanos que a regra r1 de `auth_auto_approval` v0.2.0 exige
+           (`auto_criteria_verificado`, `criterio_tecnico_ok`, `criterio_financeiro_ok`,
+           `criterio_regulatorio_ok`, `criterio_contratual_ok`) NAO sao campos de
+           `RafaelState` nem membros de `RAFAEL_INPUT_FIELDS`, e nao estao em
+           `rafael/delegation.py::_BOOLEAN_META_KEYS`. Logo `new_rafael_state` os RECUSA
+           (`ValueError` — seam de ingresso `POST /v1/autorizacoes` e seam A2A
+           `authorization.analyze`) e `gate_inbound_state` os DESCARTA com log. Nenhum
+           chamador consegue planta-los; `state.get(...) is True` resolve `False` sempre; a
+           r1 nunca casa e o catch-all r99 devolve `ANALISE_HUMANA`. Isso e' EXATAMENTE o que
+           o contrato SP-OP-AUTH-001 §`auth_auto_approval` v0.2.0 manda: "Todos os inputs
+           booleanos sao COMPUTADOS por `operadora.auth.validate_auto_criteria`; nenhum vem
+           do payload de start". Acrescentar os cinco nomes ao input-boundary REABRIRIA
+           GAP-AUTH-4 (fatos de auto-aprovacao semeados no start), que a v0.2.0 fechou.
+
+        2. Quando o motor convoca este agente, a decisao L2 JA' FOI TOMADA — e nao por ele.
+           `ST_PrepararDossie` (topico `operadora.auth.analyze_request`, o unico ponto do
+           BPMN que convoca Rafael) tem UM UNICO incoming, `Flow_GW_AnaliseHumana`, saindo de
+           `GW_AutoAprovacao`. A sequencia e' `BRT_SlaAnalise -> ST_ValidateAutoApprovalCriteria
+           -> BRT_AutoApproval -> GW_AutoAprovacao`; a perna AUTO_APROVAR segue para a emissao
+           automatica e nunca passa por aqui.
+
+        Consequencia declarada: o no' `auto_approve` deste grafo e' PRE-DECISORIO/INFORMATIVO.
+        A rota L2 do SISTEMA vive no engine (`GW_AutoAprovacao`), nao neste `route`. O KPI
+        `auto_approval_rate` (`spec/agents/rafael/agent.yaml`) e' portanto estruturalmente 0 NO
+        AGENTE nesta fase — ver a nota la'. Nada disso afeta a invariante L0 hard: nenhuma das
+        duas DMNs tem saida de negativa, e negativa continua nascendo so' em
+        `UT_AnaliseMedicoAuditor` (AGENTS.md regra dura 7).
+
+        Cercas vivas: `tests/unit/agents/test_rafael_auto_approve_unreachable.py`.
         """
         dmn_refs: dict[str, str] = {}
 
@@ -589,7 +622,18 @@ class RafaelGraph:
     async def auto_approve(self, state: RafaelState) -> dict[str, Any]:
         """The L2 automatic path. Rafael does NOT issue the authorization itself — he starts
         SP-OP-AUTH-001, whose automatic path (engine + `operadora.auth.issue_authorization`
-        worker) emits the TISS guide. This node only finishes assembling the dossier."""
+        worker) emits the TISS guide. This node only finishes assembling the dossier.
+
+        NO INALCANCAVEL POR DESENHO a partir de todo seam tipado (RAF-01) — a divulgacao
+        completa esta no docstring de `assess`. Em resumo: os cinco booleanos exigidos pela r1
+        de `auth_auto_approval` v0.2.0 nao existem em `RAFAEL_INPUT_FIELDS`, e
+        `ST_PrepararDossie` so' e' alcancado por `Flow_GW_AnaliseHumana` (quando o motor chama
+        Rafael, `GW_AutoAprovacao` ja' decidiu analise humana).
+
+        MANTIDO no grafo, e de proposito: o no' e' PRE-DECISORIO/INFORMATIVO e e' a forma de o
+        codigo continuar espelhando a topologia do BPMN que ele instrui. Removido, o grafo
+        passaria a divergir do processo — e a leitura "Rafael nao tem rota automatica porque
+        alguem a apagou" e' pior que a verdade, que e' "a rota existe no motor, nao aqui"."""
         return {"dossier": await self._build_dossier(state)}
 
     async def human_auditor(self, state: RafaelState) -> dict[str, Any]:

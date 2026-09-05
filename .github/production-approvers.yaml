@@ -1,0 +1,57 @@
+# ==================================================================================================
+# LISTA DE REVISORES DE PROMOCAO A PRODUCAO (decisao do dono R-021, opcao B — 2026-09-04).
+#
+# POR QUE ESTE ARQUIVO EXISTE. O environment `production` deste repositorio existe com
+# `"protection_rules": []` (`GET /repos/Omni-Saude/maezo-operadora/environments/production`,
+# reconferido 2026-09-04): a org esta no plano *team* com repositorio privado, combinacao que
+# permite environments mas NAO permite protecao por revisores obrigatorios (a aplicacao da regra
+# retornou HTTP 422 duas vezes). Logo `environment: production` em `.github/workflows/cd.yml` NAO
+# pausa a run para aprovacao alguma. Esta lista, lida por `scripts/ci/check_production_approval.py`
+# no job `require-production-approval`, e o substituto CONSTRUIDO desse gate: sem uma aprovacao
+# casada contra um login daqui, `promote-production` nao roda.
+#
+# POR QUE ELE E CODEOWNED — E O QUE ISSO SIGNIFICA EXATAMENTE. Uma lista de aprovadores editavel sem
+# revisao seria um gate que se auto-amplia: bastaria um PR acrescentando um login para destravar a
+# producao. Por isso `.github/CODEOWNERS` (secao "AUTOPROTECAO DO APARATO DE GATE") carrega uma
+# regra que casa ESTE arquivo pelo nome: `/.github/production-approvers.yaml`.
+# NAO leia "esta em `.github/`, logo e CODEOWNED": `.github/**` NAO e coberto por glob algum neste
+# repositorio — as regras de `.github/` sao enumeradas uma a uma, e a primeira versao deste arquivo
+# afirmava a cobertura por glob que nao existe (achado de revisao adversarial, corrigido em
+# 2026-09-04 junto com a regra que faltava). Se esta linha for removida do CODEOWNERS, este arquivo
+# volta a ser editavel sem dono, e `tests/unit/ci/test_check_production_approval.py` fica VERMELHO —
+# a assercao resolve o caminho contra as regras reais (parser do proprio repo,
+# `scripts/ci/check_flip_path_review.py`), nao contra o prefixo do nome.
+# RESSALVA DE EFICACIA, declarada e nao contornada: enquanto `require_code_owner_review` estiver
+# `false` na ruleset `main-protection` (medido 2026-09-04) e o `@Omni-Saude/security-team` nao
+# resolver, ser CODEOWNED requisita revisor mas nao o EXIGE no merge — e HOJE NADA MAIS O EXIGE. O
+# mecanismo PRETENDIDO de exigencia e o check `flip-path-review-gate`, que le este mesmo CODEOWNERS,
+# mas ele e ADVISORY hoje: a mesma leitura de 2026-09-04 mostra a ruleset exigindo exatamente quatro
+# contextos, e ele nao esta entre eles. Torna-lo REQUIRED e ato PENDENTE do dono, junto do flip de
+# R-051 (linha (3) de `docs/review-queue.md`).
+#
+# GRAMATICA ACEITA — DELIBERADAMENTE MINIMA, E ISSO E A FEATURE. O leitor e stdlib-only (mesma
+# doutrina de `check_flip_path_review.py`: nenhuma dependencia externa no caminho que governa a
+# promocao a producao) e aceita EXATAMENTE quatro formas de linha:
+#   1. linha vazia;
+#   2. comentario de linha inteira (`#` na coluna 0, com ou sem espacos antes);
+#   3. a chave `approvers:` sozinha, uma unica vez;
+#   4. um item `  - <login>` (dois espacos, hifen, espaco, um login GitHub), opcionalmente seguido
+#      de um comentario ` # ...`.
+# QUALQUER outra construcao YAML valida — ancoras, aliases, mapas aninhados, listas em fluxo
+# (`[a, b]`), aspas, chaves adicionais, tabulacoes — e ERRO DE PARSE, e erro de parse e VERMELHO,
+# nunca "lista vazia". Um gate que le uma lista que nao entendeu e um gate que aprova por engano.
+#
+# ISTO NAO E UMA LISTA DE COMPETENCIA. Ser aprovador aqui e' um ato de AUTORIDADE de promocao
+# (quem pode deixar um artefato ir a producao), nao um atestado de que a pessoa revisou o conteudo
+# clinico/regulatorio — esse continua sendo `docs/review-queue.md`.
+#
+# LIMITE CONHECIDO E DECLARADO (nao e' bug deste arquivo). Hoje a lista tem UM unico login, que e'
+# tambem a identidade que autora os PRs. O GitHub recusa auto-aprovacao, entao na pratica o gate
+# exige que OUTRO humano aprove o PR do commit promovido. Enquanto o `@Omni-Saude/security-team`
+# nao tiver um segundo humano (pre-requisito (b) do cabecalho de `.github/CODEOWNERS`), a promocao
+# a producao fica bloqueada — o que e' o desfecho CORRETO e fail-closed, nao um defeito a contornar
+# afrouxando o checker.
+# ==================================================================================================
+
+approvers:
+  - rodaquino-OMNI

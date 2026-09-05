@@ -1,6 +1,6 @@
 # PROJECT.md — Arquitetura e Operação
 
-> Stack: **Python 3.12 · LangGraph · A2A v1.0 · MCP · CIB Seven 2.1.3 · HAPI FHIR R4 · Kafka · PostgreSQL+pgvector · Kubernetes**
+> Stack: **Python 3.12 · LangGraph · A2A v1.0 · MCP · CIB Seven 2.1.3 · HAPI FHIR R4 · Kafka · PostgreSQL · Kubernetes**
 
 ## Arquitetura em 30 segundos
 
@@ -51,7 +51,7 @@ Beneficiário (WhatsApp/Portal)        Prestador (Portal TISS)
 
 ```bash
 make setup        # pip install -e ".[dev]"
-make dev-stack    # postgres+pgvector, cibseven, hapi-fhir, kafka
+make dev-stack    # postgres, cibseven, hapi-fhir, kafka
 cp .env.example .env  # preencher chaves
 make test         # unit
 make test-integration # contra engine real

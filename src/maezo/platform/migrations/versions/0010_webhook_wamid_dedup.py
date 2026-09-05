@@ -59,15 +59,16 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 #
-# CHAIN NOTE (2026-09-04): revision `0009` is claimed by a SEPARATE, concurrently-open change
-# (the pgvector migration, PR #320) that is not on `main` at this file's base commit `bd84403`.
-# This file therefore takes `0010` as its id and revises `0008` — the real head of the chain in
-# THIS tree, so `alembic upgrade head` is valid here today. Whichever of the two lands SECOND
-# must re-point its `down_revision` at the other so the chain stays linear; the linear-chain test
-# (`tests/unit/platform/test_migration_0010_webhook_wamid_dedup.py`) fails loudly on a fork, which
-# is the mechanism that forces that edit instead of trusting a merge to notice.
+# CHAIN NOTE (2026-09-05, resolved): this file was written while `0009` was claimed by a
+# concurrently-open change (`0009_drop_pgvector`, PR #320/#326) that was NOT yet on `main`, so it
+# provisionally revised `0008` — the real head in that tree. PR #326 landed 0009 on `main`
+# (`abb9d60`), so on merging main into this branch the `down_revision` was re-pointed to `0009` and
+# the chain is linear again: 0007 -> 0008 -> 0009 -> 0010. The re-point is not a matter of trust:
+# `tests/unit/platform/test_migration_0010_webhook_wamid_dedup.py::
+# test_0010_is_the_unique_head_of_a_linear_chain` fails loudly on the fork that leaving `0008`
+# here would have produced.
 revision: str = "0010"
-down_revision: str | None = "0008"
+down_revision: str | None = "0009"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

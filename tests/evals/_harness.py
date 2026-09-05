@@ -22,6 +22,17 @@ here rather than in a family test module because it is generic, agent-agnostic t
 exactly the shared plumbing this module exists to hold. It judges ONLY the clarity of the
 wording a graph emits to a beneficiary (e.g. Helena's `response_text`) — never the clinical
 content of any SME-gated DMN table.
+
+`RuleAwareFakeDmnTransport` / the `__rules__` branch of `register_dmn_fixture` (RAF-06, RAF-01,
+2026-09-04) similarly ADD to this module — see their own docstrings below for the why (a static
+`dmn_fixture` row is vacuous for a routing assertion) and the shape. Unlike WP-EVALS' change
+above, RAF-06 is not purely additive: it also EDITS the single existing line in `run_case` that
+builds the fake DMN transport (`FakeDmnTransport()` -> `RuleAwareFakeDmnTransport()`), because a
+conditional (`__rules__`) fixture cannot be served by the base fake and `run_case` has no way to
+know in advance which cases will need it. This is the README's second documented exception to
+"nobody but B0 edits `_harness.py`". No existing eval's behavior changes: a case without
+`__rules__` in its `dmn_fixture` falls through `RuleAwareFakeDmnTransport.evaluate` to
+`FakeDmnTransport.evaluate`'s identical static-row path.
 """
 
 from __future__ import annotations
@@ -49,6 +60,8 @@ __all__ = [
     "ClarityReport",
     "ReplayExhaustedError",
     "ReplayUnconsumedResponsesError",
+    "RULES_KEY",
+    "RuleAwareFakeDmnTransport",
     "RunResult",
     "assert_clarity",
     "assert_expect",
@@ -93,6 +106,72 @@ class RunResult:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+#: Marcador de fixture CONDICIONAL num `dmn_fixture` de golden (ver `RuleAwareFakeDmnTransport`).
+RULES_KEY = "__rules__"
+
+
+class RuleAwareFakeDmnTransport(FakeDmnTransport):
+    """`FakeDmnTransport` que tambem entende fixture CONDICIONAL (`__rules__`), FIRST-hit.
+
+    POR QUE ISTO EXISTE (RAF-01/RAF-06, 04/09/2026). Uma fixture estatica registra a MESMA linha
+    para qualquer entrada, e isso torna vacuo todo golden cuja pergunta seja "esta tabela PODE
+    dizer isso a partir do que o grafo de fato lhe manda?". Foi o caso de EVL-RAFAEL-02/-03: as
+    duas registravam `auth_auto_approval -> AUTO_APROVAR` incondicional, e faziam a rota
+    `auto_approve` de Rafael PARECER alcancavel — quando, pelo seam tipado, ela nao e' (os cinco
+    booleanos da r1 v0.2.0 nao sao campos de entrada do agente). Um golden que so' prova
+    "o grafo repassa o que a DMN disser" nao prova nada sobre a rota.
+
+    A fixture condicional escreve a tabela como ela e', em vez de escrever a resposta desejada::
+
+        "auth_auto_approval": {
+          "__rules__": [
+            {"when": {"auto_criteria_verificado": true, "criterio_tecnico_ok": true},
+             "then": {"recomendacao": "AUTO_APROVAR", "motivo": "r1"}},
+            {"then": {"recomendacao": "ANALISE_HUMANA", "motivo": "r99_catch_all"}}
+          ]
+        }
+
+    Semantica, deliberadamente minima e igual a das tabelas que ela espelha: FIRST-hit na ordem
+    escrita; `when` ausente/vazio e' catch-all; uma regra casa quando TODO par de `when` e' igual
+    (`==`) ao valor recebido — chave ausente no input NAO casa. Sem operadores, sem ranges: uma
+    linguagem de regra aqui viraria uma segunda implementacao de DMN dentro dos testes, que e'
+    exatamente o que ADR-0012 mantem fora do Python.
+
+    NENHUMA regra casou = erro ALTO (`AssertionError`, que os grafos nao capturam — eles so'
+    tratam `DmnEvaluationError`/`DmnNoResultError`), nunca um fail-safe silencioso: uma tabela
+    real tem catch-all, entao uma fixture sem catch-all e' bug de fixture, nao "DMN indisponivel".
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._rules: dict[str, list[Mapping[str, Any]]] = {}
+
+    def register_rules(self, decision_key: str, rules: Sequence[Mapping[str, Any]]) -> None:
+        """Registra as regras FIRST-hit de `decision_key` (a `DmnVersion` vem de `register`)."""
+        self._rules[decision_key] = list(rules)
+
+    async def evaluate(
+        self,
+        decision_key: str,
+        variables: dict[str, Any],
+        *,
+        tenant: str | None = None,
+    ) -> tuple[list[dict[str, Any]], Any]:
+        if decision_key not in self._rules:
+            return await super().evaluate(decision_key, variables, tenant=tenant)
+        self.calls.append((decision_key, dict(variables)))
+        _, version = self._responses[decision_key]
+        for rule in self._rules[decision_key]:
+            when = rule.get("when") or {}
+            if all(variables.get(k) == v for k, v in when.items()):
+                return [dict(rule["then"])], version
+        raise AssertionError(
+            f"bug de fixture: nenhuma regra `__rules__` de `{decision_key}` casou com "
+            f"{variables!r} e nao ha' catch-all. Uma tabela DMN real sempre tem um; "
+            "adicione uma regra sem `when`."
+        )
+
+
 def register_dmn_fixture(dmn: FakeDmnTransport, fixture: Mapping[str, Any] | None) -> None:
     """Register every `decision_key -> row(s)` pair from a golden case's `dmn_fixture`.
 
@@ -102,8 +181,27 @@ def register_dmn_fixture(dmn: FakeDmnTransport, fixture: Mapping[str, Any] | Non
     live variant typically drives a single node directly (e.g. `HelenaGraph.classify`) rather
     than the full compiled graph, but still needs the same DMN fixture wired onto its own
     `FakeDmnTransport` instance.
+
+    A value carrying the `__rules__` key is a CONDITIONAL fixture and requires a
+    `RuleAwareFakeDmnTransport` — see that class for the why and the shape. Handing one to a
+    plain `FakeDmnTransport` raises loudly instead of silently degrading to a static row, which
+    would reintroduce exactly the vacuity the conditional fixture exists to remove.
     """
     for decision_key, value in (fixture or {}).items():
+        if isinstance(value, Mapping) and RULES_KEY in value:
+            if not isinstance(dmn, RuleAwareFakeDmnTransport):
+                raise TypeError(
+                    f"`dmn_fixture[{decision_key!r}]` usa `{RULES_KEY}` (fixture condicional) "
+                    "mas o transporte e' um FakeDmnTransport simples — use "
+                    "RuleAwareFakeDmnTransport (o que `run_case` ja' faz)."
+                )
+            rules = list(value[RULES_KEY])
+            # A `DmnVersion` (usada por `dmn_refs`) sai de `register`; as LINHAS saem das regras.
+            # A linha registrada aqui e' o `then` da ULTIMA regra (o catch-all) — nunca lida
+            # enquanto houver regras, e o default honesto se alguem remover o bloco `__rules__`.
+            dmn.register(decision_key, [dict(rules[-1]["then"])])
+            dmn.register_rules(decision_key, rules)
+            continue
         rows = value if isinstance(value, list) else [value]
         dmn.register(decision_key, rows)
 
@@ -177,7 +275,7 @@ async def run_case(
     EXACTLY, per README.md's documented schema (never a ceiling the turn merely stays under).
     """
     inference = ReplayInferenceProvider(case["recorded_llm"])
-    dmn = FakeDmnTransport()
+    dmn = RuleAwareFakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
     cibseven = FakeCibSevenTransport()
     audit_sink = FakeStartAuditSink()
