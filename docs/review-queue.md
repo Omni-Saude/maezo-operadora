@@ -1420,13 +1420,17 @@ linha `LIVE-SUITES-SILENT-SKIP-AUDIT` de `docs/evidence-ledger.md` para o reparo
 | `docker-compose.yml` — nenhum servico Postgres alternativo para suites que queiram um banco descartavel | As seis suites corrigidas justificavam a porta ficticia como isolamento. O isolamento real sempre veio do schema de tenant por execucao, e a auditoria provou as 7 suites unitarias rodando na MESMA base num unico processo (`59 passed in 16.87s`) e as 11 juntas (`74 passed in 49.98s`). Se o dono ainda quiser um banco descartavel de verdade, isso e um servico no compose (perfil proprio), nao um numero de porta no codigo do teste. `docker-compose.yml` nao foi tocado | dono do dev-stack | `ABERTO — opcional; a auditoria mostra que hoje nao e necessario` |
 | `tests/unit/platform/webhooks/whatsapp/test_dispatch_live_pg.py` + `tests/unit/runtime/agent_runtime/test_checkpoint_live_pg.py` compartilham `MAEZO_TEST_CHECKPOINT_DATABASE_URL` e agora o mesmo default | As duas suites escrevem na mesma tabela `checkpoints`. A prova PHI da primeira lia a tabela INTEIRA e exigia que toda linha casasse a convencao `wa:amh:` DELA — corrigido nesta PR para escopo GLOBAL (nenhum telefone cru, vale para qualquer escritor) + DELTA (convencao, so nas threads que o teste criou). Ambas as ordens de execucao foram medidas verdes antes e depois. **Para revisao:** se as duas deveriam ter variaveis de ambiente distintas (`..._CHECKPOINT_...` vs `..._DISPATCH_...`), o que separaria os bancos sem depender da disciplina de limpeza de cada teste | verificador R1 / dono do harness | `ABERTO — acoplamento mitigado no teste; separacao de env e decisao de design` |
 
-## WF-BATCH (R-020/R-021/R-074/R-095/R-042/R-051) — os TRES atos de organizacao que so' o dono pode executar (2026-09-04)
+## WF-BATCH (R-020/R-021/R-074/R-095/R-042/R-051/R-053) — o que ficou para o dono (2026-09-04)
 
 Esta secao registra o que ficou de fora do lote `.github/workflows` porque nao e ato de agente.
-Nenhum dos tres esta em disco: sao configuracoes de organizacao/repositorio no GitHub, e o estado
-real de cada um foi MEDIDO read-only nesta data — nao presumido — e esta citado abaixo com o
-comando que o produziu. Um agente que retomar isto deve REMEDIR antes de agir; nenhum deles pode
-ser atestado como cumprido por leitura de arquivo.
+Nada disso esta em disco: sao configuracoes de organizacao/repositorio no GitHub ou disparos de
+workflow, e o estado real de cada linha foi MEDIDO read-only nesta data — nao presumido — e esta
+citado abaixo com o comando que o produziu. Um agente que retomar isto deve REMEDIR antes de agir;
+nenhum item pode ser atestado como cumprido por leitura de arquivo.
+
+Atencao a uma assimetria que a versao anterior desta secao apagava: (2) e (3) SAO mudancas de
+ruleset/organizacao; (1) NAO e — ver a correcao logo abaixo. Tratar as tres como "o mesmo tipo de
+ato do dono" foi justamente o que produziu a instrucao errada.
 
 Contexto que amarra os tres: o gate de promocao a producao construido em `.github/workflows/cd.yml`
 vale dentro do grafo do proprio workflow de CD, que e onde a promocao acontece — e (1) NAO e um ato
