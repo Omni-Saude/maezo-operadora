@@ -37,7 +37,15 @@ tree, those behaviours are reached through the seam's OWN error type:
     (`rafael:349,:356`, `helena:713`, `andre:716,:729`, every `_llm.generate` site, and the
     dossier workers' "ANY delegation failure" branch — `credenciamento.py:580-601`), so
     `LACUNA_DECLARADA` / `ESCALONAMENTO_HUMANO` / `ROTA_LLM_INDISPONIVEL` /
-    `DEGRADACAO_SEM_DOSSIE` need no seam-specific base and stay plain :class:`EffectDeniedError`.
+    `DEGRADACAO_SEM_DOSSIE` need no SECOND base to land on their declared path. They are still
+    NAMED types (D6-01-F1): until that finding, ten of the sixteen catalogued operations refused
+    with the bare :class:`EffectDeniedError`, so a caller that wanted to tell "the beneficiary
+    communication was refused" from "the PHI read was refused" had only a string field to read,
+    and a refusal that reached a log or a gap note rendered as the generic base name. Depending on
+    a broad `except Exception` at each caller is a per-caller accident; a declared type is the
+    structural property this table is supposed to deliver. Each of the four therefore has its own
+    `EffectDeniedError` subclass below — a WIDENING of what callers can catch, never a narrowing:
+    `except EffectDeniedError`, `except RuntimeError` and `except Exception` all still catch.
 
 The two transport error classes are imported BRANCH-LOCALLY, inside the factory that needs them
 (`maezo/tools/mcp_cibseven/transport.py` itself imports `maezo.gateway.audit`, so a module-scope
@@ -134,8 +142,30 @@ class EffectDeniedError(RuntimeError):
         self.decision = decision
 
 
+class EscalonamentoHumanoDeniedError(EffectDeniedError):
+    """`ESCALONAMENTO_HUMANO` — the beneficiary communication does not go out; a human takes it.
+
+    A NAMED type rather than the base class (D6-01-F1), for the reason the module docstring gives:
+    every caller today catches bare `Exception`, so the name costs them nothing and buys a refusal
+    that identifies itself in a handler, a log and a gap note.
+    """
+
+
+class LacunaDeclaradaDeniedError(EffectDeniedError):
+    """`LACUNA_DECLARADA` — the PHI/population read did not happen; the node discloses the gap."""
+
+
+class RotaLlmIndisponivelDeniedError(EffectDeniedError):
+    """`ROTA_LLM_INDISPONIVEL` — the model route is refused; the node takes its no-LLM path."""
+
+
+class DegradacaoSemDossieDeniedError(EffectDeniedError):
+    """`DEGRADACAO_SEM_DOSSIE` — the A2A delegation is refused; the caller degrades without it."""
+
+
 #: Cache for the two shape-specific subclasses, which can only be built after a branch-local
-#: import of the transport module that owns their second base.
+#: import of the transport module that owns their second base. The four subclasses above need no
+#: cache: they have no second base, so they are ordinary module-level classes.
 _DENIAL_TYPES: dict[str, type[EffectDeniedError]] = {}
 
 
@@ -170,10 +200,10 @@ _DENIAL_FACTORIES: Final[dict[str, Any]] = {
     SHAPE_ROTA_DMN_INDISPONIVEL: _dmn_denial_type,
     SHAPE_LEITURA_INCONCLUSIVA: _cibseven_denial_type,
     SHAPE_INCIDENTE_FALHA_FECHADA: _cibseven_denial_type,
-    SHAPE_ESCALONAMENTO_HUMANO: lambda: EffectDeniedError,
-    SHAPE_LACUNA_DECLARADA: lambda: EffectDeniedError,
-    SHAPE_ROTA_LLM_INDISPONIVEL: lambda: EffectDeniedError,
-    SHAPE_DEGRADACAO_SEM_DOSSIE: lambda: EffectDeniedError,
+    SHAPE_ESCALONAMENTO_HUMANO: lambda: EscalonamentoHumanoDeniedError,
+    SHAPE_LACUNA_DECLARADA: lambda: LacunaDeclaradaDeniedError,
+    SHAPE_ROTA_LLM_INDISPONIVEL: lambda: RotaLlmIndisponivelDeniedError,
+    SHAPE_DEGRADACAO_SEM_DOSSIE: lambda: DegradacaoSemDossieDeniedError,
 }
 
 
@@ -421,6 +451,16 @@ def _rate_limited_denial(decision: EffectDecision, operation: str) -> EffectDeni
     PEP harming the patient) with a new trigger. `effect_classes.denial_shape_for` re-derives the
     class's declared shape instead, so a throttled call lands on the node's declared unavailable
     path exactly like a policy denial does.
+
+    THAT GUARD IS TESTED DIRECTLY, and it has to be. Today the shipped manifest is `status: DRAFT`
+    ("every action class denies"), so `decide_effect` never returns an ALLOW and
+    `decision.denial_shape` happens to be populated on every real call — meaning the whole
+    `or decision.denial_shape` fallback, and the `denial_shape_for` call in front of it, are
+    UNREACHABLE from an end-to-end `gate()` test. Mutating this line to
+    `shape = decision.denial_shape` therefore left the first version of the D6-01 suite entirely
+    green (finding D6-01-F1). `test_a_forma_da_recusa_por_taxa_vem_da_classe_e_nao_da_decisao`
+    builds the ALLOW decision this line exists for and asserts the type, so the guard is proved by
+    a test rather than by an argument.
     """
     shape = effect_classes.denial_shape_for(decision.action_class) or decision.denial_shape
     return denial_for(
@@ -542,11 +582,14 @@ async def gate(
 
 __all__ = [
     "EFFECT_SEAM_KEYS",
+    "DegradacaoSemDossieDeniedError",
     "EffectDeniedError",
+    "EscalonamentoHumanoDeniedError",
     "GatedSeam",
+    "LacunaDeclaradaDeniedError",
     "PreEffectAuditHook",
+    "RotaLlmIndisponivelDeniedError",
     "SeamContext",
-    "configure_rate_limiter",
     "denial_for",
     "gate",
     "is_gated_seam",

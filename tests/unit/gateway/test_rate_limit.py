@@ -13,6 +13,11 @@ O que estas provas cobrem, e por que cada uma existe:
     `worker_runtime/settings.py` (`max_tasks_per_poll`/`poll_interval_ms`), e a recusa fail-closed
     de valores que desligariam o controle.
 
+  * a FORMA TIPADA da recusa em TODAS as operacoes do catalogo, e nao so' em `dmn.evaluate`
+    (D6-01-F1) — mais a guarda de A-12 que so' e' alcancavel com uma decisao de PERMISSAO, e que
+    por isso precisa de prova direta: com o manifesto em `status: DRAFT` nenhuma chamada real
+    produz um ALLOW, entao um teste ponta-a-ponta nunca exercita aquela linha.
+
 MUTACAO QUE FICA VERMELHA (registrada no relatorio da tarefa): remover o bloco
 `if not within_rate: ... raise _rate_limited_denial(...)` de `gateway/seams/_base.py::gate`
 derruba `test_gate_recusa_a_chamada_acima_do_limite` e
@@ -26,7 +31,7 @@ from typing import Any
 
 import pytest
 
-from maezo.gateway import rate_limit
+from maezo.gateway import effect_classes, rate_limit
 from maezo.gateway.rate_limit import (
     DEFAULT_CAPACITY,
     DEFAULT_REFILL_PER_SECOND,
@@ -295,3 +300,132 @@ async def test_o_limitador_do_processo_sai_das_settings(limiter_restaurado: None
     settings = GatewaySettings()
     assert limitador.capacity == settings.rate_limit_capacity
     assert limitador.refill_per_second == settings.rate_limit_refill_per_second
+
+
+# =================================================================================================
+# D6-01-F1 — a recusa por taxa e' TIPADA em toda a superficie gated, nao so' em `dmn.evaluate`
+# =================================================================================================
+
+#: Forma declarada -> o tipo que a recusa TEM de ter. Escrito a mao a proposito: ler a resposta de
+#: `_DENIAL_FACTORIES` seria pedir a tabela que se confirme sozinha. As duas primeiras existem para
+#: serem capturadas pelo `except` especifico do no'; as quatro ultimas sao tipos NOMEADOS (antes de
+#: D6-01-F1 eram a base crua `EffectDeniedError`, em 10 das 16 operacoes do catalogo).
+_TIPO_POR_FORMA: dict[str, str] = {
+    "ROTA_DMN_INDISPONIVEL": "DmnEffectDeniedError",
+    "LEITURA_INCONCLUSIVA": "CibSevenEffectDeniedError",
+    "INCIDENTE_FALHA_FECHADA": "CibSevenEffectDeniedError",
+    "ESCALONAMENTO_HUMANO": "EscalonamentoHumanoDeniedError",
+    "LACUNA_DECLARADA": "LacunaDeclaradaDeniedError",
+    "ROTA_LLM_INDISPONIVEL": "RotaLlmIndisponivelDeniedError",
+    "DEGRADACAO_SEM_DOSSIE": "DegradacaoSemDossieDeniedError",
+}
+
+
+def test_a_tabela_de_formas_cobre_todas_as_formas_declaradas_e_nenhuma_cai_na_base() -> None:
+    """Nenhuma forma pode resolver para `EffectDeniedError` cru — a base e' o estado FAIL-CLOSED.
+
+    `denial_for` cai na base quando o catalogo e o manifesto discordam; e' uma condicao de erro
+    registrada em ERROR, nunca a forma NORMAL de uma classe declarada. Antes de D6-01-F1 quatro das
+    sete formas resolviam para ela por projeto.
+    """
+    from maezo.gateway.effect_classes import DENIAL_SHAPES
+
+    assert set(_TIPO_POR_FORMA) == set(DENIAL_SHAPES)
+    for forma in sorted(DENIAL_SHAPES):
+        fabrica = _base._DENIAL_FACTORIES[forma]
+        tipo = fabrica()
+        assert tipo is not EffectDeniedError, f"{forma} recusa com a base crua"
+        assert issubclass(tipo, EffectDeniedError)
+        assert tipo.__name__ == _TIPO_POR_FORMA[forma]
+
+
+@pytest.mark.parametrize("operacao", sorted(effect_classes.OPERATIONS))
+async def test_toda_operacao_gated_recusa_por_taxa_na_sua_forma_tipada(
+    limiter_restaurado: None, operacao: str
+) -> None:
+    """A prova de D6-01-F1: as 16 operacoes do catalogo, nao a unica que tinha teste.
+
+    O relatorio original generalizava de `dmn.evaluate` ("cai no handler ja' declarado do no',
+    exatamente como qualquer outra recusa do chokepoint") e 10 das 16 operacoes recusavam com
+    `EffectDeniedError` cru — um `RuntimeError` num caminho que o modo sombra NUNCA fizera levantar.
+    Aqui cada operacao e' dirigida acima do limite e a recusa tem de ser o tipo que a forma
+    DECLARADA da classe manda, com o payload de taxa.
+    """
+    configure_rate_limiter(RateLimiter(capacity=1, refill_per_second=0.001))
+    seam = _seam()
+    await gate(seam, operacao)
+    with pytest.raises(EffectDeniedError) as excinfo:
+        await gate(seam, operacao)
+
+    classe = effect_classes.OPERATIONS[operacao].action_class
+    forma = effect_classes.denial_shape_for(classe)
+    assert forma is not None
+    assert type(excinfo.value).__name__ == _TIPO_POR_FORMA[forma]
+    assert type(excinfo.value) is not EffectDeniedError
+    decisao = excinfo.value.decision
+    assert decisao.reason == rate_limit.REASON_RATE_LIMITED
+    assert decisao.layer == rate_limit.LAYER_RATE_LIMIT
+    assert decisao.denial_shape == forma
+    assert decisao.action_class == classe
+    assert decisao.operation == operacao
+    assert decisao.allow is False
+    assert decisao.enforced is True
+
+
+@pytest.mark.parametrize(
+    ("operacao", "handler"),
+    [
+        ("fhir.read_patient", "LacunaDeclaradaDeniedError"),
+        ("whatsapp.send_message", "EscalonamentoHumanoDeniedError"),
+        ("inference.generate", "RotaLlmIndisponivelDeniedError"),
+        ("population.actuarial_risk", "LacunaDeclaradaDeniedError"),
+        ("a2a.delegate", "DegradacaoSemDossieDeniedError"),
+    ],
+)
+async def test_as_quatro_formas_de_no_amplo_tambem_sao_capturaveis_pelo_nome(
+    limiter_restaurado: None, operacao: str, handler: str
+) -> None:
+    """Um handler que queira SO' esta recusa consegue escreve-la — sem alargar para `Exception`.
+
+    Os nos destas quatro formas capturam `except Exception` e dobram a excecao numa nota de lacuna;
+    isso continua funcionando (os tipos novos sao subclasses). O que muda e' que um consumidor pode
+    nomear a recusa em vez de depender do `except` largo de cada chamador, e o
+    `type(exc).__name__` que os grafos gravam em estado (CC-10) deixa de ser generico.
+    """
+    from maezo.gateway import seams as seams_pkg
+
+    esperado = getattr(seams_pkg, handler)
+    configure_rate_limiter(RateLimiter(capacity=1, refill_per_second=0.001))
+    seam = _seam()
+    await gate(seam, operacao)
+    with pytest.raises(esperado) as excinfo:
+        await gate(seam, operacao)
+    assert excinfo.value.decision.reason == rate_limit.REASON_RATE_LIMITED
+
+
+def test_a_forma_da_recusa_por_taxa_vem_da_classe_e_nao_da_decisao() -> None:
+    """A guarda de A-12, provada DIRETAMENTE — nenhum teste ponta-a-ponta a alcanca hoje.
+
+    Com o manifesto em `status: DRAFT` toda classe nega, entao `decide_effect` nunca devolve um
+    ALLOW e `decision.denial_shape` esta sempre preenchido: mutar
+    `denial_shape_for(...) or decision.denial_shape` para `decision.denial_shape` deixava a suite
+    inteira VERDE (achado D6-01-F1). Aqui a decisao de PERMISSAO — a unica em que a linha importa —
+    e' construida a mao. Mutante `shape = decision.denial_shape` -> VERMELHO neste teste.
+    """
+    from maezo.gateway.effect_pep import EffectDecision
+
+    permissao = EffectDecision(
+        allow=True,
+        enforced=False,
+        reason="PERMITIDO",
+        layer="L5_APROVACAO",
+        action_class="avaliacao_dmn",
+        denial_shape=None,
+        operation="dmn.evaluate",
+    )
+    recusa = _base._rate_limited_denial(permissao, "dmn.evaluate")
+    assert type(recusa).__name__ == "DmnEffectDeniedError"
+    assert recusa.decision.denial_shape == "ROTA_DMN_INDISPONIVEL"
+    assert recusa.decision.reason == rate_limit.REASON_RATE_LIMITED
+    assert recusa.decision.layer == rate_limit.LAYER_RATE_LIMIT
+    assert recusa.decision.enforced is True

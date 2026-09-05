@@ -26,13 +26,24 @@ governance question about the action, it is an availability and abuse control ov
 a control that is configured but does not refuse is not a control. So the refusal here is
 UNCONDITIONAL and fail-closed: over the limit, the effect does not happen.
 
-THE REFUSAL IS STRUCTURED, NEVER A SILENT DROP. It is raised as `EffectDeniedError` in the action
-class's OWN declared denial shape (`seams/_base.py::denial_for`), so it lands on the node's already
-declared unavailable-path handler exactly like every other chokepoint refusal, and it carries only
-bounded tokens (I-3: operation, class, layer, reason, shape — never a call argument, never PHI).
-It also increments `maezo_effect_rate_limited_total{tenant,principal}` and writes ONE structured
-log line, so a throttled principal is visible in both the metric and the log stream rather than
-inferred from missing work.
+THE REFUSAL IS STRUCTURED, NEVER A SILENT DROP, AND NEVER THE BASE CLASS. It is raised through
+`seams/_base.py::denial_for` in the action class's OWN declared denial shape, which since D6-01-F1
+is a NAMED `EffectDeniedError` subclass for every one of the seven shapes — the two that need a
+second base to be caught (`DmnEffectDeniedError` for `_evaluate_dmn`'s
+`except (DmnEvaluationError, DmnNoResultError)`; `CibSevenEffectDeniedError` for the nine
+`except CibSevenError` start-process nodes) and the five whose nodes catch bare `Exception` and
+fold the refusal into a gap note. That distinction is worth stating precisely rather than
+generalising from the DMN case: for the LACUNA_DECLARADA / ESCALONAMENTO_HUMANO /
+ROTA_LLM_INDISPONIVEL / DEGRADACAO_SEM_DOSSIE families the node's handler is a broad
+`except Exception`, so what the named type buys is identification (in a handler, a log line, a
+`type(exc).__name__` gap note), not reachability. Until D6-01-F1 those ten operations refused with
+the bare `EffectDeniedError`, and a `RuntimeError` on a raising path that shadow mode had never
+exercised is exactly the A-12 shape this control must not introduce.
+
+The refusal carries only bounded tokens (I-3: operation, class, layer, reason, shape — never a
+call argument, never PHI). It also increments `maezo_effect_rate_limited_total{tenant,principal}`
+and writes ONE structured log line, so a throttled principal is visible in both the metric and the
+log stream rather than inferred from missing work.
 
 NO I/O, NO LOCK, NO CLOCK SKEW. `time.monotonic()` plus float arithmetic over a dict — I-9's
 budget is "<= 1 ms p99 added per gated call, ZERO added network I/O", and a bucket update is a few
