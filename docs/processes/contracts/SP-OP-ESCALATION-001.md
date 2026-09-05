@@ -35,6 +35,24 @@ idempotente, sem duplicar escalonamento).
 | `resultado` | string | `resolvido_humano` \| `devolvido_agente` \| `emergencia_acionada` |
 | `notas_resolucao` | string | Notas do humano (pseudonimizadas) |
 
+## Variaveis de proveniencia do agente (Lucas — ADR-0007/ADR-0015)
+
+Este e o contrato universal de escalonamento (Helena tambem o inicia, sem variaveis aditivas —
+apenas o §"Variaveis de entrada" acima). Lucas, ao iniciar a MESMA SP-OP-ESCALATION-001, semeia
+anotacoes de auditoria adicionais via `LucasGraph._escalation_variables`
+(`src/maezo/agents/lucas/graph.py`, mirror do estilo aditivo `dossie_rafael`/`rafael_route` de
+SP-OP-AUTH-001) junto com as variaveis de entrada; NENHUMA delas e uma decisao — so proveniencia,
+dossie instrutivo e roteamento humano (CC-13 — Agent Fleet Audit: antes deste registro,
+`_escalation_variables` as emitia sem declaracao no contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `dossie_lucas` | json | nao | Dossie/narrativa de encaminhamento montado por Lucas — instrui o atendimento humano; carrega `decisao_cancelamento` sempre `None` (Lucas NUNCA decide) |
+| `lucas_route` | string | nao | Roteamento do grafo do Lucas (`respond_member` \| `escalate_human`) — espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Motivo do encaminhamento de Lucas (`inadimplencia_detectada` \| `pedido_cancelamento` \| `contestacao_cobranca` \| `ambiguidade` \| `dmn_indisponivel` \| `falha_tecnica`) |
+| `grupo_humano_sugerido` | string | nao | Grupo humano sugerido por Lucas (sugestao, catch-all `atendimento-humano`) — DIFERENTE do `dmn_decision_ref` singular ja declarado acima: aqui e a sugestao do agente, nao a saida da DMN `escalation_routing` |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra, plural — dict `{tabela: ref}`) das DMN que Lucas consultou; complementa o `dmn_decision_ref` (singular) ja declarado em §Variaveis de entrada |
+
 ## Topicos
 
 | Tipo | Topico | Sentido | Quando |
@@ -71,6 +89,15 @@ Fail-safe: catch-all = P2/`atendimento-humano` (motivo desconhecido nunca vira P
 | `atendimento-humano` | Atendimento ao beneficiario | `UT_TratarEscalonamento` (P3) |
 | `supervisao-atendimento` | Supervisor | `UT_SupervisorAssume` (SLA resolucao estourado) + alertas de ack |
 
+> **PROPOSTO — confirmar contra a taxonomia organizacional da operadora** (ver
+> `docs/review-queue.md`; R-034 / gap `PERSP-ESCALATION-VOCAB-a`). Os nomes `plantao-clinico` e
+> `enfermagem-triagem` sao candidatos DRAFT herdados de vocabulario de prestador e podem nao
+> corresponder aos grupos reais do IdP/console de User Tasks da operadora; `atendimento-humano` e
+> `supervisao-atendimento` tambem aguardam a mesma confirmacao. A tabela consolidada de
+> `grupo declarado -> arquivo:linha -> processo -> SLA/ato` para esta sessao de nomeacao esta em
+> `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`. Nenhum rename e aplicado sem os nomes reais do
+> dono organizacional da operadora.
+
 ## SLAs
 
 | Timer | Valor | Tipo | Fonte regulatoria |
@@ -79,6 +106,57 @@ Fail-safe: catch-all = P2/`atendimento-humano` (motivo desconhecido nunca vira P
 | Ciencia (ack) P2 / P3 | PT30M / PT4H | idem | idem |
 | Resolucao P1 | PT30M | interruptivo -> supervisor assume + evento breach(fase=resolucao) | idem |
 | Resolucao P2 / P3 | PT4H / PT24H | idem | idem |
+
+## Desfecho de agente: falha de start (CC-01)
+
+| Desfecho | Onde vive | Quem escreve | Significado |
+|---|---|---|---|
+| `erro_inicio_processo` | **estado do agente lucas e helena** — NAO e variavel de processo | no `notify_start_failure` do grafo, via o helper unico `maezo.runtime.start_outcome.notify_start_failure` | o agente TENTOU iniciar SP-OP-ESCALATION-001 pelo chokepoint `start_process_idempotent` e o engine recusou (`CibSevenError`). NENHUMA instancia nasceu |
+
+ONDE ESTE VALOR **NAO** ESTA, e por que. Ele nunca chega ao engine: nao consta de
+`## Variaveis de entrada` nem de `## Variaveis de saida`, nao tem `bpmnError` associado, nao
+aparece em nenhum `camunda:` do BPMN e **nao exige mudanca nenhuma no BPMN deste processo**. Nao
+poderia ser diferente — o processo NAO nasceu, entao nao existe instancia onde gravar uma
+variavel nem escopo onde lancar um erro. Ele e declarado AQUI, no contrato, porque e um desfecho
+CONTRATUAL do agente que serve este processo e porque quem consome o estado do agente (o handler
+A2A, um golden de eval, uma regra de alerta) precisa do literal exato e estavel.
+
+POR QUE ELE EXISTE (auditoria de frota 2026-09-04, achado CC-01). Ate essa data a falha de start
+era engolida: o `except CibSevenError` do no de start devolvia apenas `process_started=false` e a
+aresta seguinte era INCONDICIONAL para um terminal no-op, de modo que o desfecho de SUCESSO ja
+gravado a montante (`escalado_humano`) sobrevivia — o estado do agente AFIRMAVA um fato que nao
+aconteceu. E o caso se perdia em silencio, porque os prazos desta especificacao vivem em timers
+da instancia BPMN que nunca nasceu: sem SLA, sem alerta, sem retry.
+
+EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
+
+* `process_started = false` (e, quando o agente distingue no-ops legitimos, o marcador
+  `start_failed = true`, que e o que a aresta condicional le);
+* `record_agent_error()` -> `maezo_agent_errors_total`, o contador que a regra
+  `MaezoAgentCrashLoop` observa;
+* evento estruturado `agent_process_start_failed` com a business key idempotente deste contrato —
+  este evento e o SUBSTITUTO operacional do prazo enquanto a instancia nao existe;
+* RETRY seguro por construcao: `start_process_idempotent` e idempotente por business key, entao
+  uma reentrega reencontra a instancia viva (`ALREADY_ACTIVE`) em vez de abrir uma segunda.
+
+ORDEM DO ACK AO BENEFICIARIO (LUC-05). Este contrato e o unico dos dez cujo agente FALA com o
+beneficiario no mesmo turno em que abre o processo, e por isso ele carrega uma regra de ORDEM
+alem do desfecho:
+
+* **Lucas** montava o dossie e ENVIAVA o ACK ("um atendente humano vai continuar") dentro de
+  `escalate_human`, ANTES do start. O envio migrou para o no `send_escalation_ack`, alcancavel
+  somente pelo ramo de SUCESSO da aresta condicional que sai de `start_process`. Enquanto o ACK
+  nao sai, o estado carrega `ack_pending=true`; numa falha de start ele carrega tambem
+  `retryable_error=true`.
+* **Helena** redige a resposta de handoff ANTES do start (a chamada de LLM ocorre dentro de
+  `_start_escalation`) e a enviava no no `respond` mesmo apos um start falho. Agora `respond` so
+  envia o handoff quando `escalation_started` e verdadeiro; caso contrario substitui o texto pela
+  mensagem honesta de falha tecnica (`response_kind=falha_tecnica_start`), que NAO promete
+  atendente nem prazo.
+
+Em ambos os casos a regra e a mesma e nao e negociavel: **nao se promete ao beneficiario um
+humano que nao foi acionado.**
+
 
 ## Codigos de erro
 

@@ -76,6 +76,25 @@ only EMITS aggregates; an aggregate carrying resolvable-PHI indications is detec
 never egressed by omission. Suppression notes carry CLASS TOKENS only, never the suspect value
 itself (hardening beyond the donor, which echoed `cohort_id!r` into the note).
 
+WHAT AND-02 ADDED TO THAT GATE, and what it deliberately did not. The structural claim above was
+true of the aggregate's POINTER fields and false of its CONTENTS: `_scrub_aggregate` copied
+`metrics` through verbatim and tested only that a k was PRESENT (`k_anonymity < 1`), so a lake
+client returning `metrics={"paciente_CPF-<11 digits>": 1.0}` over a cohort of ONE
+(`cohort_size=1, k_anonymity=1`) egressed that cell name intact into the dossier and the
+approver's prompt. The gate now reads INSIDE the aggregate: every metric cell NAME and every
+`suppressed` name goes through the repo's PHI-shape net (`tools/workers/phi_vars.
+looks_like_phi_text` — CPF/CNPJ/11+-digit run/e-mail; ONE net, no private copy here), every
+metric VALUE must be a finite real number, and the k floor is `config["min_k_anonymity"]`.
+Any failure blocks the WHOLE aggregate (see `_scrub_aggregate` for why per-cell suppression
+would be the weaker choice).
+NOT CHANGED, ON PURPOSE: the floor's DEFAULT is still 1, i.e. a cohort of one still passes on a
+build that does not configure otherwise. ADR-0019 requires "um piso de k-anonimato (k minimo por
+celula)" without fixing its value; choosing that value (k=5) together with a CLOSED allowlist of
+admissible features is an ADR-P-003 decision the OWNER makes (`docs/adr/` is CODEOWNED). This
+module makes that flip a one-line config change and proves both sides of it under test — it does
+not make the flip. Today's exposure is latent, not live: no composition root injects `population`
+yet (port-pending WB.4), so the gate has no production traffic until `mcp-datalake` lands.
+
 CALLER-PLANTED-OUTPUT SANITIZATION (mandatory hardening — the defect class R1 found on ALL FOUR
 tranche-1 graphs, baked in from the start here): `receive` is the SINGLE graph entry (exactly one
 edge out of START, regression-tested) and overwrites EVERY output-only `AndreState` field with a
@@ -124,8 +143,13 @@ DIVERGENCES FROM DONOR (disclosed, spec wins per this task's charter):
    deployed table's output, never rewriting it. The human-destination group (`grupo_humano`) is
    still resolved from the CLOSED alcada-group allowlist only on human routes.
 5. **`finalize` does NOT write episodic memory** (donor's `finalize` calls
-   `mcp-memory.read_write`). v2 has no `MemoryServer`/pgvector schema wired into any agent graph
-   yet — same labeled boundary as `helena/rafael`'s graphs.
+   `mcp-memory.read_write`). v2 has no `MemoryServer` wired into any agent graph yet — same
+   labeled boundary as `helena/rafael`'s graphs. The blocker is NOT a missing table: `0001`
+   creates `agent_memory`, and the SEMANTIC layer that used to sit beside it
+   (`agent_memory.embedding`) was removed by `0009_drop_pgvector` with ADR-0002 §3 suspended
+   pending a consumer (ADR-0047, DRAFT). What is missing is `store_episodic`'s signature —
+   `(agent_id, event)` carries neither `tenant_id` nor `thread_id`, both `text NOT NULL` — which
+   is GAP-DU-01-a, an owner decision, not a graph change.
 6. **No `dossier_review` Flow literal.** The donor models the unrecognized-origin fallback as a
    fourth `Flow` member; v2's charter scopes Andre to THREE flows — the fail-neutral handling of
    an unrecognized `flow` value lives in `receive`/`assess`'s conservative catch-alls instead
@@ -144,25 +168,50 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   fabricating them.
 - `gather`'s FHIR read is a thin `PatientSummaryReader` Protocol over v2's generic `FhirServer`
   (`agents.rafael.adapters.FhirServerReader.read_patient`, injected by the runtime) — NOT the
-  donor's `ToolInvoker`/PEP `mcp-fhir.read_patient` gateway call (no PEP/ToolRegistry wiring for
-  agent tool calls yet, T2.4 gap). Best-effort, `pagto_dossier` only (per the agent.yaml tool
+  donor's `ToolInvoker`/PEP `mcp-fhir.read_patient` gateway call shape. CORRECTED (`grep -n
+  '"andre"' gateway/tool_registry.py`, `_FHIR_ADAPTER_BY_AGENT`): this reader IS wired through a
+  PEP-gated ToolRegistry now — `gateway/tool_registry.py::build_agent_seams` wraps it in
+  `gateway/seams/fhir.py::GatedFhirReader` (Andre is one of the five agents in
+  `_FHIR_ADAPTER_BY_AGENT`, adapter `read_patient`), and both live composition roots
+  (`runtime/agent_runtime/service.py::_build_tool_deps`, `platform/webhooks/service.py`) build
+  Andre's `fhir` dependency through it — the prior "no PEP/ToolRegistry wiring for agent tool
+  calls yet" claim is false today. Best-effort, `pagto_dossier` only (per the agent.yaml tool
   note), and the RAW summary never enters state/dossier (egress chokepoint) — a failure/absence
   degrades to a class-token gap note, never a fabricated fact.
-- No cross-agent A2A delegation envelope is wired in this build: v2's `a2a/` package has no
-  `DelegationEnvelope`/`DelegationDispatcher` yet (same gap disclosed by rafael/helena's
-  graphs). Andre's graph is invoked directly with an already-assembled case state (as the unit
-  tests do).
+- Cross-agent A2A delegation IS wired for Andre in this build. CORRECTED (CC-04, fleet audit) —
+  the prior text here claimed v2's `a2a/` package had no `DelegationEnvelope`/
+  `DelegationDispatcher`; both exist and are fully built/tested (`a2a/delegation.py
+  ::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported from `maezo.a2a`).
+  Andre has his own `agents/andre/delegation.py` (`make_andre_handler` TARGET side +
+  `delegate_adequacao_dossier`/`delegate_pagto_dossier` ORIGIN side, called from
+  `tools/workers/adequacao.py`/`pagto.py`) and is registered in the dossier composition root
+  (`runtime/agent_runtime/a2a_composition.py::_DOSSIER_EDGE_AGENT_IDS = ("carolina", "andre")`,
+  `handlers={"carolina": carolina_handler, "andre": andre_handler}`) — a real, live edge, not a
+  disclosed gap. Andre's graph is ALSO invoked directly with an already-assembled case state in
+  the unit tests (both paths exist).
 - No episodic memory write (divergence #5 above).
 """
 
 from __future__ import annotations
 
+import math
+import numbers
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, TypedDict, cast
+from decimal import Decimal
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.start_outcome import (
+    notify_start_failure as emit_start_failure_notice,
+)
+from maezo.runtime.start_outcome import (
+    route_after_start,
+    start_failed_state,
+)
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -177,6 +226,7 @@ from maezo.tools.workers.dmn_transport import (
     DmnTransport,
     first_row,
 )
+from maezo.tools.workers.phi_vars import looks_like_phi_text
 
 from .keys import adequacao_business_key, is_blank, pagto_business_key
 from .prompts import DOSSIER_PROMPT_VERSION, SYSTEM_PROMPT_VERSION, dossier_prompt
@@ -282,6 +332,39 @@ class PatientSummaryReader(Protocol):
     async def read_patient(self, patient_id: str) -> dict[str, Any]: ...
 
 
+#: Piso de k-anonimato DE FABRICA. Deliberately 1, which is byte-identical to the pre-AND-02
+#: `k_anonymity < 1` test — a cohort of ONE individual still passes at this default. That is NOT
+#: an endorsement: ADR-0019 (`docs/adr/0019-amh-lake-of-record.md`, "um piso de k-anonimato (k
+#: minimo por celula)") requires a floor but does not fix its value, and choosing the production
+#: value (k=5 is the usual answer, together with a CLOSED allowlist of admissible features) is an
+#: OWNER decision that belongs in ADR-P-003 — `docs/adr/` is CODEOWNED, so this WP cannot and does
+#: not make it. AND-02 makes the floor a one-line config change (`config["min_k_anonymity"]`) and
+#: proves both ends of it under test; flipping the DEFAULT is the owner's move, not this one's.
+DEFAULT_MIN_K_ANONYMITY: int = 1
+
+
+def _validated_min_k_anonymity(value: Any) -> int:
+    """Fail-closed parse of `config["min_k_anonymity"]`, raised at BUILD time.
+
+    A misconfigured egress floor must never be silently ignored or coerced: `"5"` from a YAML
+    round-trip, a `5.0` from a JSON one, a `True` from a careless flag, or a `0` meaning "off"
+    are all rejected. `bool` is excluded explicitly because it is an `int` subclass in Python and
+    `True == 1` would otherwise read as a legitimate floor of 1.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(
+            f"Andre min_k_anonymity must be an int >= 1, got {type(value).__name__} "
+            "(ADR-0019 k-anonymity floor; the production value is an ADR-P-003 owner decision)"
+        )
+    # Re-bound through an explicit `int` annotation rather than returning `value` directly: the
+    # compound guard above is not a narrowing form the checker follows, and the alternative
+    # (returning `Any` from an `int` function) would hide a real contract in a type hole.
+    narrowed: int = value
+    if narrowed < 1:
+        raise ValueError(f"Andre min_k_anonymity must be an int >= 1, got {narrowed} (ADR-0019)")
+    return narrowed
+
+
 @dataclass(frozen=True, slots=True)
 class CohortAggregate:
     """K-anon aggregate of a cohort — the ONLY shape that leaves the lake for Andre's graph.
@@ -303,12 +386,39 @@ class CohortAggregate:
 
     def has_resolvable_phi(self) -> bool:
         """Structural defense: True if a field carries a resolvable-PHI indication (NEVER
-        should). Since the *type* has no patient-id field, this checks that
-        `dataset_ref`/`cohort_id` are opaque pointers (no resolvable FHIR-resource prefix) —
-        defense in depth, not the only barrier."""
-        suspect = (self.cohort_id, self.dataset_ref)
+        should). Since the *type* has no patient-id field, this checks the STRINGS that egress
+        verbatim — defense in depth, not the only barrier.
+
+        AND-02 widened this in two ways, both because the pre-AND-02 sweep covered only
+        `cohort_id`/`dataset_ref` while `_scrub_aggregate` copied `metrics` and `suppressed`
+        through untouched:
+
+        1. SCOPE. Metric CELL NAMES (`metrics` keys) and suppressed cell names are echoed into
+           `actuarial_aggregate`/`population_aggregate`, from there into the dossier's
+           `fatos_agregados`, and from there into the approver's LLM prompt — exactly the same
+           egress path `dataset_ref` takes. A lake client that names a cell after the individual
+           it aggregated (`paciente_CPF-<11 digits>`) leaked that name in full. They are swept
+           now. Values are NOT swept here: a `float` cannot carry a name, and a non-float value
+           is a different failure that `_scrub_aggregate` refuses on its own grounds.
+        2. PATTERN. The literal prefixes (`Patient/`, `fhir:`, `cpf` anywhere) only ever caught a
+           producer that ANNOUNCED the leak. `looks_like_phi_text` adds the repo's existing
+           PHI-SHAPE net (`tools/workers/phi_vars`: CPF/CNPJ in any separator style, any 11+
+           digit run, e-mail) — one net for the whole repo, not a private copy here.
+
+        This stays a HEURISTIC: it is a backstop under the structural guarantee (the Protocol's
+        return type carries no patient id), never a substitute for it. Over-detection is the
+        deliberate failure mode — a false positive costs one human review; a false negative puts
+        a patient identifier in front of the approver.
+        """
+        suspect = (self.cohort_id, self.dataset_ref, *self.metrics, *self.suppressed)
         return any(
-            isinstance(v, str) and (v.startswith("Patient/") or v.startswith("fhir:") or "cpf" in v.lower())
+            isinstance(v, str)
+            and (
+                v.startswith("Patient/")
+                or v.startswith("fhir:")
+                or "cpf" in v.lower()
+                or looks_like_phi_text(v)
+            )
             for v in suspect
         )
 
@@ -416,6 +526,10 @@ class AndreState(TypedDict, total=False):
 
     # Filled by `start_process` (pagto_dossier only; no-op in the other flows).
     process_started: bool
+    #: CC-01: o start foi TENTADO e FALHOU tecnicamente (`except CibSevenError` de
+    #: `start_process`). NAO e a mesma coisa que `process_started is False`, que tambem cobre
+    #: no-ops legitimos; e este marcador — e so ele — que a aresta condicional le.
+    start_failed: bool
     business_key: str
     process_ref: dict[str, Any]
 
@@ -576,12 +690,39 @@ def _output_field_resets() -> dict[str, Any]:
         "grupo_humano": "",
         # start_process outputs
         "process_started": False,
+        "start_failed": False,
         "business_key": "",
         "process_ref": {},
         # terminal outputs
         "desfecho": "",
         "error": "",
     }
+
+
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+_FATOS_BOOLEANOS_PAGTO: Final[dict[str, str]] = {
+    "dados_pagamento_validos": "dados de pagamento validos",
+    "lastro_confirmado": "lastro do pagamento confirmado",
+    # Ao contrario do rafael (C-02), aqui o teto e' um fato PRE-RESOLVIDO por worker que este
+    # grafo CONSOME (`_route`/`auto_route` o leem) — entao ele e' fato do caso e vai como tal.
+    "dentro_teto_l2": "valor dentro do teto de alcada L2",
+    "duplicidade_suspeita": "suspeita de duplicidade",
+}
+
+#: Fatos booleanos que so' existem no fluxo `adequacao_dossier`, ANINHADOS sob `facts["adequacao"]`
+#: (por isso os caminhos pontilhados — ver `render_fatos_para_prompt`). Aparecem no prompt so'
+#: nesse fluxo: anunciar "SEM DADO: cobertura geografica suficiente" num dossie de pagamento
+#: seria ruido sobre um criterio que aquele caso nao tem.
+_FATOS_BOOLEANOS_ADEQUACAO: Final[dict[str, str]] = {
+    "adequacao.cobertura_geo_suficiente": "cobertura geografica suficiente",
+    "adequacao.dados_geo_completos": "dados geograficos completos",
+}
 
 
 class AndreGraph:
@@ -597,6 +738,7 @@ class AndreGraph:
         fhir: PatientSummaryReader | None = None,
         population: PopulationFeatureClient | None = None,
         agent_version: str = "andre@v0",
+        min_k_anonymity: int = DEFAULT_MIN_K_ANONYMITY,
     ) -> None:
         self._llm = inference
         self._dmn = dmn
@@ -608,6 +750,12 @@ class AndreGraph:
         self._fhir = fhir
         self._population = population
         self._agent_version = agent_version
+        # ADR-0019 k-anonymity floor for `_scrub_aggregate`. Validated HERE rather than only in
+        # `build` so a direct construction (tests, a future composition root) cannot slip an
+        # unvalidated floor past the gate — and, since `build` constructs this, an invalid
+        # `config["min_k_anonymity"]` still fails at BUILD time, where the other fail-closed
+        # dependency checks live. See `DEFAULT_MIN_K_ANONYMITY` for why the default is 1.
+        self._min_k_anonymity = _validated_min_k_anonymity(min_k_anonymity)
 
     # -- Nodes ----------------------------------------------------------------------------------
 
@@ -706,7 +854,7 @@ class AndreGraph:
             features = state.get("features") or ["sinistro_agregado", "utilizacao", "exposicao_atuarial"]
             try:
                 agg = await self._population.actuarial_risk(cohort_id, features=features)
-                scrubbed = _scrub_aggregate(agg, notes)
+                scrubbed = _scrub_aggregate(agg, notes, min_k_anonymity=self._min_k_anonymity)
                 if scrubbed is None:
                     egress_blocked = True
                 else:
@@ -718,7 +866,7 @@ class AndreGraph:
             if flow == "population_analytics":
                 try:
                     pagg = await self._population.population_metrics(cohort_id, features=features)
-                    pscrubbed = _scrub_aggregate(pagg, notes)
+                    pscrubbed = _scrub_aggregate(pagg, notes, min_k_anonymity=self._min_k_anonymity)
                     if pscrubbed is None:
                         egress_blocked = True
                     else:
@@ -954,6 +1102,23 @@ class AndreGraph:
         the active instance untouched; avoids a DUPLICATED payment release). A start failure
         never loses the case: it records the error and keeps the routing. NEVER releases a
         payment "on the side".
+
+        DECLARED AUTHORITY: NONE (gap `ANDRE-PROCESS-KEYS`, owner decision R-036, 2026-09-04).
+        `spec/agents/andre/agent.yaml` no longer declares `mcp-cibseven.start_process` nor the
+        `start_compliance_process` autonomy action, and it declares no `process_keys` — so the
+        effect-PEP's decision core (`decide_effect`, L-1) returns DENY for this seam for `andre`
+        (`AgentCapabilities.allows_tool` / `allows_process_key`, pinned in
+        `tests/unit/gateway/test_andre_least_privilege.py`). That verdict is ADVISORY today, not
+        a runtime fence: no seam wires `start_process_instance`
+        (`gateway/seams/cibseven.py`, "the one deliberate hole, disclosed"), the
+        `inicio_processo_regulatorio` start surface is `choked: false` by decision
+        (`spec/policies/autonomy/action-approvals.yaml`), and that class's `enforcement` is
+        `shadow` (`modo: shadow`, `approved_count=0`). Narrowing the manifest is what makes the
+        DENY the right answer WHEN that surface is eventually choked. This node is KEPT because
+        no live originator reaches it today (Anchor 1 above returns `start_skipped` for the only
+        wired origin, and `delegation.py` maps only the no-op `adequacao-worker`), so removing it
+        is not what the decision ordered; if a foreign originator ever appears, the grant returns
+        as an explicit line of YAML under owner review — never by omission.
         """
         if _flow(state) != "pagto_dossier":
             return {}
@@ -992,11 +1157,10 @@ class AndreGraph:
                 provenance=provenance,
             )
         except CibSevenError:
-            return {
-                "process_started": False,
-                "business_key": business_key,
-                "error": ERROR_START_PROCESS_ENGINE_UNAVAILABLE,
-            }
+            # CC-01: `start_failed_state` acrescenta o marcador que a aresta condicional le.
+            # Ele e indispensavel AQUI: em Andre `process_started=False` tambem e o retorno
+            # LEGITIMO do no-op de fluxo, do no-op de origem e do veredicto ALREADY_COMPLETED.
+            return start_failed_state(business_key=business_key, error=ERROR_START_PROCESS_ENGINE_UNAVAILABLE)
         # F3 BLOCKER-1 — HONEST REPORTING. `process_started` used to be a hard-coded `True` for
         # every non-raising return, including the strict dedup gate's "I refused to start this".
         # It is now derived from the chokepoint's own typed verdict: True iff a live instance
@@ -1017,13 +1181,32 @@ class AndreGraph:
             },
         }
 
+    async def notify_start_failure(self, state: AndreState) -> dict[str, Any]:
+        """CC-01: o start FALHOU — grava o desfecho de erro e ALERTA, em vez de seguir calado.
+
+        Ate CC-01 a aresta que saia de `start_process` era INCONDICIONAL: o turno chegava ao
+        terminal com o `desfecho` de SUCESSO que um no a montante ja havia gravado, afirmando um
+        fato que nao aconteceu, e sem prazo nenhum — o timer de SLA vive na instancia BPMN que
+        nunca nasceu. O corpo deste no e o helper compartilhado
+        (`maezo.runtime.start_outcome.notify_start_failure`): uma definicao para os 9 agentes,
+        nunca 9 copias.
+        """
+        return emit_start_failure_notice(dict(state), agent_id="andre", process_key=PROCESS_KEY_PAGTO)
+
     async def finalize(self, state: AndreState) -> dict[str, Any]:
         """Terminal node — no further computation; `desfecho` was already set upstream.
 
         No episodic memory write here (labeled boundary, module docstring divergence #5 — same
         rationale as Rafael's/Helena's graphs). NEVER releases a payment nor communicates an
         approval — that is the process's/human approver's alone.
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn (`desfecho`/`route` were
+        already set by `assess`/`human_review` and survive in the merged `state` this node
+        receives) — the ONLY place this happens on Andre's success path. `flow`
+        (`pagto_dossier`/`population_analytics`/`adequacao_dossier`) rides along in the
+        structured log line, not as a Prometheus label.
         """
+        emit_turn_desfecho(state, agent_id="andre", flow=state.get("flow"))
         return {}
 
     # -- Conditional routing --------------------------------------------------------------------
@@ -1155,13 +1338,21 @@ class AndreGraph:
         facts = self._facts(state)
         motivo_humano = state.get("motivo_humano") if route == "human_review" else None
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
+        booleanos = dict(_FATOS_BOOLEANOS_PAGTO)
+        if flow == "adequacao_dossier":
+            booleanos.update(_FATOS_BOOLEANOS_ADEQUACAO)
         prompt = (
             f"{dossier_prompt()}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\n"
-            f"fatos_agregados={facts}"
+            f"{render_fatos_para_prompt(facts, booleanos=booleanos)}"
         )
         try:
             narrativa = await self._llm.generate(
-                prompt, phi=True, agent_id="andre", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="andre",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
             narrativa = ""
@@ -1238,6 +1429,7 @@ class AndreGraph:
         g.add_node("auto_route", self.auto_route)
         g.add_node("human_review", self.human_review)
         g.add_node("start_process", self.start_process)
+        g.add_node("notify_start_failure", self.notify_start_failure)
         g.add_node("finalize", self.finalize)
 
         g.add_edge(START, "receive")
@@ -1248,28 +1440,107 @@ class AndreGraph:
         )
         g.add_edge("auto_route", "start_process")
         g.add_edge("human_review", "start_process")
-        g.add_edge("start_process", "finalize")
+        # CC-01: a aresta que sai de `start_process` e CONDICIONAL. Uma falha tecnica de
+        # start desvia para `notify_start_failure` (desfecho de erro + alerta); qualquer
+        # outro caminho — incluindo os no-ops legitimos com `process_started=False` —
+        # segue para o terminal de sempre. O predicado e compartilhado (uma definicao).
+        g.add_conditional_edges(
+            "start_process",
+            route_after_start,
+            {"notify_start_failure": "notify_start_failure", "continue": "finalize"},
+        )
+        g.add_edge("notify_start_failure", END)
         g.add_edge("finalize", END)
         return g
 
 
-def _scrub_aggregate(agg: CohortAggregate, notes: list[str]) -> dict[str, Any] | None:
-    """STRUCTURAL egress gate: accept the aggregate ONLY if k-anon and without resolvable-PHI
-    indication.
+def _metric_value_is_admissible(value: Any) -> bool:
+    """True only for a FINITE REAL NUMBER — the one shape an aggregated cell may carry.
+
+    `CohortAggregate.metrics` is typed `dict[str, float]`, but the producer is an INJECTED,
+    runtime-untyped seam (`PopulationFeatureClient`, port-pending WB.4 `mcp-datalake`), so the
+    annotation is a promise, not a check.
+
+    ADMITTED TYPES — the real-number family as the lake actually emits it, not just the two
+    builtins (AND-02 §Delta; the first cut admitted only `int`/`float` and would have failed
+    SHUT, blocking every well-formed aggregate the lake sends):
+      - `int` — a count is a legitimate aggregate and is compatible with the declared `float`;
+      - `float`;
+      - `decimal.Decimal` — what `asyncpg` decodes EVERY `NUMERIC`/`DECIMAL` column into, i.e.
+        the normal shape of a monetary/actuarial aggregate. It is a `numbers.Number` but is NOT
+        registered in `numbers.Real`, so the ABC arm below does not cover it and it has to be
+        named;
+      - any registered `numbers.Real` — covers `numpy.int64`/`numpy.float64` (a numpy-backed
+        aggregation layer is the other realistic producer; `numpy` is present at runtime as a
+        transitive dependency of `pgvector`) without this module importing or depending on numpy.
+
+    REFUSED, through that wider door:
+      - `str` / `dict` / `list` / `None` — free text or a structure, either of which can carry an
+        individual's data (the annotation says it cannot; the gate does not take its word);
+      - `bool` — an `int` subclass, so it would sneak past a bare `isinstance(v, (int, float))`,
+        and a boolean is not a measurement. `numpy.bool_` is refused too: it is neither a `bool`
+        nor a `numbers.Real`, so it never reaches the finiteness check;
+      - `complex` — a `numbers.Complex`, not a `numbers.Real`;
+      - `NaN` / `+-inf` IN ANY ADMITTED TYPE — not a real measurement; they poison every
+        downstream comparison and are the classic marker of a broken aggregation, which is not a
+        source to trust for the other cells either. `math.isfinite` handles `Decimal` and any
+        `numbers.Real` by converting through `float`, so one check covers the whole family;
+      - a value whose float conversion RAISES rather than returning a non-finite float
+        (`Decimal('sNaN')` raises `ValueError`) or one finite but outside the float range
+        (`Decimal('1e1000')` converts to `inf`). Both are refused as a DECISION here, not left to
+        propagate: an exception escaping this function would be swallowed by `gather`'s
+        best-effort `except Exception`, producing a "client failed" note and — the real defect —
+        NOT setting `egress_blocked`.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal, numbers.Real)):
+        return False
+    try:
+        return math.isfinite(value)
+    except (ArithmeticError, TypeError, ValueError):
+        # Fail-closed: an admitted type whose float conversion misbehaves is not a measurement
+        # this gate is willing to vouch for.
+        return False
+
+
+def _scrub_aggregate(
+    agg: CohortAggregate,
+    notes: list[str],
+    *,
+    min_k_anonymity: int = DEFAULT_MIN_K_ANONYMITY,
+) -> dict[str, Any] | None:
+    """STRUCTURAL egress gate: accept the aggregate ONLY if k-anon at/above the configured floor,
+    without resolvable-PHI indication, and carrying only well-formed aggregate cells.
 
     Andre is the egress chokepoint (ADR-0006/0019). Even though the injected client's type
     (`CohortAggregate`) has no patient-id field, this checks in depth: `has_resolvable_phi()`
-    (defense against a `dataset_ref`/`cohort_id` with a resolvable prefix) and
-    `k_anonymity >= 1`. On failure the aggregate is NOT emitted: a CLASS-TOKEN suppression note
-    is recorded (never the suspect value itself — hardening beyond the donor) and None is
-    returned — the caller marks `egress_blocked` and `assess` routes to human
-    (`phi_egress_risk`). Never egresses PHI by omission.
+    (which since AND-02 sweeps the metric CELL NAMES and the `suppressed` list as well as
+    `cohort_id`/`dataset_ref`), every metric VALUE (`_metric_value_is_admissible`), and
+    `k_anonymity >= min_k_anonymity`.
+
+    WHOLE-AGGREGATE BLOCK, NOT PER-CELL SUPPRESSION (AND-02 decision, deliberately the more
+    fail-closed of the two). Dropping only the offending cell would keep the rest of the SAME
+    payload, from the SAME producer, in the dossier — but the producer just demonstrated that it
+    can put an individual's identifier where a cohort feature belongs, so nothing else it sent in
+    that payload is trustworthy either, and the k-anon claim attached to it least of all. It also
+    keeps ONE outcome for the whole gate: every failure mode ends in `egress_blocked` ->
+    `assess` -> `human_review`/`phi_egress_risk`, so there is no half-emitted aggregate anywhere
+    in the graph and no second, weaker path a future edit could widen. The cost is a human
+    review; the alternative cost is a patient identifier in the approver's prompt.
+
+    On failure the aggregate is NOT emitted: a CLASS-TOKEN suppression note is recorded (never
+    the suspect value itself — the offending metric KEY *is* the PHI, so echoing it into
+    `gather_notes` would egress exactly what the gate just refused) and None is returned — the
+    caller marks `egress_blocked` and `assess` routes to human (`phi_egress_risk`). Never
+    egresses PHI by omission.
     """
     if agg.has_resolvable_phi():
         notes.append("agregado bloqueado: indicio de PHI resolvivel (egresso negado)")
         return None
-    if agg.k_anonymity < 1:
-        notes.append("agregado bloqueado: k-anonimato ausente (k<1)")
+    if not all(_metric_value_is_admissible(v) for v in agg.metrics.values()):
+        notes.append("agregado bloqueado: valor de metrica nao e um real finito (egresso negado)")
+        return None
+    if agg.k_anonymity < min_k_anonymity:
+        notes.append(f"agregado bloqueado: k-anonimato abaixo do piso (k<{min_k_anonymity})")
         return None
     if agg.suppressed:
         notes.append(f"celulas suprimidas por k-anon: {list(agg.suppressed)}")
@@ -1291,7 +1562,15 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[AndreState]:
     boundaries) — their absence never fails the build, only degrades `gather` to disclosed gap
     notes.
 
-    Fail-closed: missing a REQUIRED dependency raises `ValueError` at build time.
+    `min_k_anonymity` (OPTIONAL, default `DEFAULT_MIN_K_ANONYMITY` = 1) is the ADR-0019
+    k-anonymity floor the egress gate enforces: an aggregate with `k_anonymity` below it is
+    blocked entirely and the turn routes to human review. The default preserves the pre-AND-02
+    behavior EXACTLY (k=1 passes) — the production value, and the closed allowlist of admissible
+    features that belongs beside it, are an OWNER decision (ADR-P-003; `docs/adr/` is CODEOWNED),
+    not this build's to make.
+
+    Fail-closed: missing a REQUIRED dependency, or a `min_k_anonymity` that is not an int >= 1,
+    raises `ValueError` at build time.
     """
     cfg = config or {}
     inference = cfg.get("inference")
@@ -1323,6 +1602,9 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[AndreState]:
         fhir=cast("PatientSummaryReader | None", cfg.get("fhir")),
         population=cast("PopulationFeatureClient | None", cfg.get("population")),
         agent_version=agent_version,
+        # NOT `cast`-ed: the whole point of `_validated_min_k_anonymity` is that this value
+        # may be the wrong type, and a cast would be a claim the config cannot back.
+        min_k_anonymity=cfg.get("min_k_anonymity", DEFAULT_MIN_K_ANONYMITY),
     ).compile_graph()
 
 

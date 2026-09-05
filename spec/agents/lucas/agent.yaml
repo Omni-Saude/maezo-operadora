@@ -20,14 +20,16 @@ tools:
   - mcp-dmn.evaluate
   - mcp-whatsapp.send_message
   - mcp-cibseven.start_process
-  - mcp-memory.read_write
+  - mcp-memory.read_write    # declarada como excecao disclosed §8.5 item 2; sem no vivo hoje
+                              # (CC-05/LUC-01 — ver docstring graph.py:97-99; GAP-DU-01-b/ADR-0047
+                              # DRAFT: a camada semantica foi REMOVIDA, nao adiada)
 autonomy_policy: ../../policies/autonomy
 autonomy_actions:
   - informational_response
   - reminders_nudges
   - send_beneficiary_message
   - query_decision_engine
-  - read_write_memory
+  - read_write_memory         # excecao disclosed (fence §8.5 item 2), sem no vivo hoje (CC-05/LUC-01)
   - start_compliance_process
 kpis:
   - { name: resolution_rate, target: "track" }
@@ -46,8 +48,8 @@ escalation:
     - signal: dmn_unavailable
     - signal: ambiguity
 memory:
-  episodic: true
-  semantic: true
+  episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
+  semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
 # GAP 11.7 (canal de entrada — verificado nesta sessao, ver docs/processes/contracts/
 # SP-OP-CANCEL-001.md "Canal de entrada"): Lucas declara `mcp-whatsapp.send_message` (saida) mas
 # NAO tem canal de entrada proprio, nem do beneficiario nem agente-a-agente. Diferenca precisa
@@ -58,9 +60,16 @@ memory:
 # o mesmo gancho pronto para espelhar sem inventar um novo contrato de produto. Resposta do
 # beneficiario a um lembrete de Lucas chega (se chegar) apenas pelo webhook unico de Helena
 # (`HelenaDispatcher`, `src/maezo/platform/webhooks/whatsapp/dispatch.py`), sem contexto de
-# cobranca. `LucasState` tambem nao tem o gate de fronteira de entrada
-# (`_CALLER_INPUT_FIELDS`/`new_lucas_state`) que Helena/Rafael/Carolina/Fernando ja' tem —
-# pre-requisito de seguranca para qualquer canal de entrada futuro, ainda nao construido aqui.
+# cobranca. ATUALIZACAO (CC-14/LUC-09a, 2026-09-04): o gate de fronteira de entrada de
+# `LucasState` AGORA EXISTE — `graph.py::_CALLER_INPUT_FIELDS` (particao INPUT-ONLY x
+# OUTPUT-ONLY com guarda de completude em IMPORT TIME), `graph.py::new_lucas_state` (estrito:
+# chave desconhecida -> ValueError nomeando as chaves) e `graph.py::gate_inbound_state`
+# (permissivo: descarta e loga so os NOMES das chaves), no mesmo formato de Helena/Rafael.
+# O QUE ISSO NAO RESOLVE: o gap 11.7 CONTINUA ABERTO. Lucas segue sem canal de entrada proprio
+# (`accepted_task_types: []` abaixo permanece vazio, nenhum contrato cita handler para ele) e a
+# resposta do beneficiario continua chegando, se chegar, so pelo webhook unico de Helena sem
+# contexto de cobranca. O gate era o PRE-REQUISITO de seguranca ORDENADO desse canal: foi
+# construido antes para que o canal ja' nasca gateado (CC-02), nao para declara-lo pronto.
 a2a:
   capabilities:
     - member_billing_navigation

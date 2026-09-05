@@ -733,6 +733,26 @@ async def test_start_process_fail_closed_on_unset_route_starts_escalation() -> N
     assert recording, "unset route must fail CLOSED into a real start, never a silent skip"
 
 
+async def test_start_process_never_fabricates_outro_or_moderada_when_unresolved() -> None:
+    """LUCAS-MOTIVO-SEVERIDADE-DEFAULTS: mirrors GAP-ESC-SEVERITY-GROUP's own principle one layer
+    up. `_base_state()` never sets `motivo_categoria`/`severidade` (as if `assess`/
+    `escalate_human`/`_escalate_min` never ran — a state-machine invariant violation every real
+    path already prevents). Both are Literal-typed contract fields; an unresolved value must ride
+    through verbatim (`""`, since `receive`'s own reset never runs on a hand-built dict either),
+    never be laundered into the well-formed-looking `"outro"`/`"moderada"` tokens the ALREADY-
+    fixed worker boundary (`escalation.py`) would otherwise trust as real."""
+    cibseven = FakeCibSevenTransport()
+    recording = _record_start(cibseven)
+    graph = _graph(cibseven=cibseven)
+
+    result = await graph.start_process(_base_state())  # no `route`/`motivo_categoria`/`severidade`
+
+    assert result["process_started"] is True
+    assert recording, "unresolved contract fields must still fail CLOSED into a real start"
+    assert recording[0]["motivo_categoria"] == ""
+    assert recording[0]["severidade"] == ""
+
+
 async def test_start_process_skips_only_on_explicit_respond_member_route() -> None:
     """The informational path is the ONLY one that never opens a process — and it must be
     EXPLICIT (`route == "respond_member"`), never inferred from absence."""
@@ -826,3 +846,51 @@ async def test_caller_planted_output_fields_never_reach_engine_variables() -> No
             assert recording, "ambiguidade shortcut must still escalate (start recorded)"
             assert "dmn_decision_refs" not in recording[0]
             assert "dmn_decision_ref" not in recording[0]
+
+
+# ---------------------------------------------------------------------------
+# CC-06 — the dossier narrative Lucas copies into `resumo_contexto` is scrubbed at the chokepoint
+# ---------------------------------------------------------------------------
+
+
+async def test_dossier_narrativa_identifiers_never_reach_the_engine_variables() -> None:
+    """CC-06 (INFO-A's Lucas twin): `_escalation_variables` copies `dossier["narrativa"]` — free
+    LLM text — into BOTH the contractual `resumo_contexto` and the `dossie_lucas` annotation, and
+    `start_process_idempotent` shipped them to the engine VERBATIM. An identifier the model copies
+    out of the case must be gone from every engine-bound variable, while the summary itself (the
+    thing the human attendant reads) survives. Synthetic identifiers only."""
+    cpf = "123.456.789-09"
+    email = "beneficiario.teste@exemplo.com.br"
+    cibseven = FakeCibSevenTransport()
+    recording = _record_start(cibseven)
+    graph = _graph(cibseven=cibseven)
+
+    result = await graph.start_process(
+        _base_state(
+            route="escalate_human",
+            motivo_humano="inadimplencia_detectada",
+            motivo_categoria="outro",
+            dossier={
+                "prompt_version": "dossier@v1",
+                "tipo": "dossie_escalacao",
+                "narrativa": f"Beneficiario contestou a cobranca; informou CPF {cpf} e e-mail {email}.",
+                "fatos": {"competencia": "2026-08", "numero_boleto": "34191790010104351004791020"},
+                "decisao_cancelamento": None,
+            },
+        )
+    )
+
+    assert result["process_started"] is True
+    assert recording, "the escalation must have been started"
+    serialized = json.dumps(recording[0], ensure_ascii=False, default=str)
+    for fragment in (cpf, email, "123.456.789", "456.789-09"):
+        assert fragment not in serialized, (
+            f"engine-bound variables leaked {fragment!r} from the dossier narrative: {serialized}"
+        )
+    # Both copies of the narrative are covered — the contractual variable AND the annotation.
+    assert "Beneficiario contestou a cobranca" in recording[0]["resumo_contexto"]
+    assert "[REDACTED_DIGITS]" in recording[0]["resumo_contexto"]
+    assert "[REDACTED_EMAIL]" in recording[0]["dossie_lucas"]["narrativa"]
+    # Structured facts survive untouched (the boleto number is a long digit run BY CONSTRUCTION).
+    assert recording[0]["dossie_lucas"]["fatos"]["numero_boleto"] == "34191790010104351004791020"
+    assert recording[0]["dossie_lucas"]["decisao_cancelamento"] is None

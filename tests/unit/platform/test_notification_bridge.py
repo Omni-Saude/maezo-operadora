@@ -16,7 +16,9 @@ from maezo.platform.notification_bridge import (
     CONTAS_COMPLETED_EVENT,
     FRAUDE_COMPLETED_EVENT,
     PROCESS_KEY_ANS_SUBMIT,
+    PROCESS_KEY_ESCALATION,
     RECURSO_INTAKE_EVENT,
+    SLA_ALERT_NOTIFICATION_TYPES,
     HandoffEvent,
     HandoffResult,
     NotificationBridge,
@@ -83,13 +85,15 @@ class FailingStarterSpy:
 
 
 def test_bridge_initializes_with_default_handoffs() -> None:
-    """NotificationBridge registers the 7 default handoff rules on init (5 pre-T2.6-7 + 2 T2.6-7)."""
+    """NotificationBridge registers the 10 default handoff rules on init (5 pre-T2.6-7 + 2 T2.6-7
+    + 3 R-104 SLA-alert rules)."""
     bridge = _make_bridge()
     handoffs = bridge.list_handoffs()
-    # 7 rules: contas.glosa_confirmed, contas.encaminhar_fraude,
-    # fraude.acusacao_registrada (x3: CRED, CANCEL, INADIMPLENCIA),
-    # nip.handoff_ans_submit, ans.cron_due (T2.6-7).
-    assert len(handoffs) == 7
+    # 10 rules: agents.events.recurso.intake_recebido, agents.events.contas.completed,
+    # agents.events.fraude.completed (x3: CRED, CANCEL, INADIMPLENCIA),
+    # nip.handoff_ans_submit, ans.cron_due (T2.6-7),
+    # {lgpd,programa,recurso}.notify_sla_risk (R-104 -> SP-OP-ESCALATION-001).
+    assert len(handoffs) == 10
 
     targets = {h["target_process"] for h in handoffs}
     assert "SP-OP-RECURSO-001" in targets
@@ -104,6 +108,14 @@ def test_bridge_initializes_with_default_handoffs() -> None:
     }
     assert ans_submit_event_types == {"nip.handoff_ans_submit", "ans.cron_due"}
 
+    # R-104/WP-ALERTA-SLA-CANAL: the SLA-risk alerts are the only rules targeting the universal
+    # human-escalation process, one per publishing domain.
+    assert PROCESS_KEY_ESCALATION in targets
+    escalation_event_types = {
+        h["event_type"] for h in handoffs if h["target_process"] == PROCESS_KEY_ESCALATION
+    }
+    assert escalation_event_types == SLA_ALERT_NOTIFICATION_TYPES
+
 
 def test_bridge_register_custom_handoff() -> None:
     """register_handoff allows adding custom handoff rules."""
@@ -114,7 +126,7 @@ def test_bridge_register_custom_handoff() -> None:
         target_process="SP-CUSTOM-001",
         variables_fn=lambda p: {"value": p.get("x", 0)},
     )
-    assert len(bridge.list_handoffs()) == 8
+    assert len(bridge.list_handoffs()) == 11
 
     result = bridge.evaluate(HandoffEvent(event_type="custom.test", payload={"go": True, "x": 42}))
     assert result.handoff_triggered is True
@@ -675,7 +687,7 @@ def test_list_handoffs_returns_all() -> None:
     bridge = _make_bridge()
     handoffs = bridge.list_handoffs()
     assert isinstance(handoffs, list)
-    assert len(handoffs) == 7
+    assert len(handoffs) == 10
     assert all("event_type" in h and "target_process" in h for h in handoffs)
 
 
@@ -726,14 +738,14 @@ def test_get_handoff_unknown_returns_empty() -> None:
 def test_count_handoffs() -> None:
     """count_handoffs returns the number of registered rules."""
     bridge = _make_bridge()
-    assert bridge.count_handoffs() == 7
+    assert bridge.count_handoffs() == 10
     bridge.register_handoff(
         event_type="extra.rule.here",
         predicate=lambda p: True,
         target_process="SP-EXTRA-001",
         variables_fn=lambda p: {},
     )
-    assert bridge.count_handoffs() == 8
+    assert bridge.count_handoffs() == 11
 
 
 # ---------------------------------------------------------------------------
@@ -1502,12 +1514,14 @@ _FRAUDE_TO_CANCEL_PAYLOAD = {
 
 
 def test_fraude_to_cancel_is_the_only_bridge_rule_targeting_a_gated_family() -> None:
-    """Scope pin. Exactly one of the 7 registered rules targets a gated start-dedup family, and it
+    """Scope pin. Exactly one of the 10 registered rules targets a gated start-dedup family, and it
     is FRAUDE→CANCEL. If a future rule targets another one, this test names it — so the seam
-    requirements above get re-checked instead of being discovered in production."""
+    requirements above get re-checked instead of being discovered in production. (R-104's three
+    SLA-alert rules target SP-OP-ESCALATION-001, classified `NON_STRICT` in `_START_DEDUP_POLICY`,
+    so they do not widen this surface.)"""
     bridge = _make_bridge()
     registered = bridge.list_handoffs()
-    assert len(registered) == bridge.count_handoffs() == 7
+    assert len(registered) == bridge.count_handoffs() == 10
     gated = sorted({r["target_process"] for r in registered if is_strict_start_dedup(r["target_process"])})
     assert gated == ["SP-OP-CANCEL-001"]
     assert start_dedup_posture("SP-OP-CANCEL-001") is StartDedupPosture.EXCLUSIVE

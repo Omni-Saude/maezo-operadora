@@ -107,6 +107,27 @@ isso a ponte semeia os três explicitamente.
 | `protocolo_resposta_recurso` | string | Protocolo da **resposta** da operadora ao recurso (emitido por `operadora.recurso.comunicar_resposta`; determinístico pela business key) |
 | `desfecho` | string | `deferido_humano` \| `deferido_parcial_humano` \| `indeferido_humano` \| `inadmissivel_humano` |
 
+## Variaveis de proveniencia do agente (Marina — ADR-0007/ADR-0015)
+
+Convencao repo-wide de nao-repudio (ADR-0007) e delegacao A2A (ADR-0015) — nao especifica de
+RECURSO (mirror `source_agent_id`/`source_agent_version` de
+`docs/processes/contracts/SP-OP-ESCALATION-001.md`). Semeadas por `MarinaGraph._contract_variables`
+(`src/maezo/agents/marina/graph.py`, flow `recurso`) junto com as variaveis de entrada; NENHUMA
+delas e um indeferimento de recurso — so proveniencia, dossie instrutivo e roteamento humano
+(CC-13 — Agent Fleet Audit: antes deste registro, `_contract_variables` as emitia sem declaracao
+no contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `source_agent_id` | string | nao | Agente que preparou o dossie do recurso (`marina`) — cadeia de nao-repudio (ADR-0007) |
+| `source_agent_version` | string | nao | Versao do agente Marina que preparou o dossie (auditoria ADR-0007) |
+| `dossie_marina` | json | nao | Dossie factual de analise do recurso montado por Marina — instrui `UT_AnaliseRecursoAnalista`/`UT_RevisaoAuditorMedico`; carrega `decisao_recurso` sempre `None` (Marina NUNCA decide) |
+| `marina_flow` | string | nao | Fluxo do grafo compartilhado de Marina que originou o start (`recurso` neste contrato — `contas` inicia SP-OP-CONTAS-001; `reembolso` nunca inicia processo, ver aquele contrato) |
+| `marina_route` | string | nao | Roteamento do grafo do Marina (`auto_route` \| `human_review`) — espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Presente so quando `marina_route=human_review`; motivo do encaminhamento |
+| `grupo_destino` | string | nao | Presente so quando `marina_route=human_review`; grupo humano sugerido por Marina (`analista-recurso-glosa` \| `medico-auditor`) |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra) das DMN que Marina consultou (`recurso_admissibility`/`recurso_eligibility`/`recurso_sla`) — cadeia de decisao (ADR-0007/ADR-0012) |
+
 ## Topicos
 
 Convenção `{dominio}.{contexto}.{acao}` (W0.2 é o único editor de `config/topic_registry.yaml`;
@@ -204,6 +225,39 @@ interruptivo de análise → coordenação humana; o prazo máximo regulatório 
 
 Nota: prazos legais são em dias úteis; ISO 8601 usa dias corridos — valores conservadores; resolver
 calendário útil no worker. **Nenhum desses timers produz desfecho adverso** — sempre roteiam a humano.
+
+## Desfecho de agente: falha de start (CC-01)
+
+| Desfecho | Onde vive | Quem escreve | Significado |
+|---|---|---|---|
+| `erro_inicio_processo` | **estado do agente marina** — NAO e variavel de processo | no `notify_start_failure` do grafo, via o helper unico `maezo.runtime.start_outcome.notify_start_failure` | o agente TENTOU iniciar SP-OP-RECURSO-001 pelo chokepoint `start_process_idempotent` e o engine recusou (`CibSevenError`). NENHUMA instancia nasceu |
+
+ONDE ESTE VALOR **NAO** ESTA, e por que. Ele nunca chega ao engine: nao consta de
+`## Variaveis de entrada` nem de `## Variaveis de saida`, nao tem `bpmnError` associado, nao
+aparece em nenhum `camunda:` do BPMN e **nao exige mudanca nenhuma no BPMN deste processo**. Nao
+poderia ser diferente — o processo NAO nasceu, entao nao existe instancia onde gravar uma
+variavel nem escopo onde lancar um erro. Ele e declarado AQUI, no contrato, porque e um desfecho
+CONTRATUAL do agente que serve este processo e porque quem consome o estado do agente (o handler
+A2A, um golden de eval, uma regra de alerta) precisa do literal exato e estavel.
+
+POR QUE ELE EXISTE (auditoria de frota 2026-09-04, achado CC-01). Ate essa data a falha de start
+era engolida: o `except CibSevenError` do no de start devolvia apenas `process_started=false` e a
+aresta seguinte era INCONDICIONAL para um terminal no-op, de modo que o desfecho de SUCESSO ja
+gravado a montante (o desfecho de sucesso do fluxo de recurso) sobrevivia — o estado do agente AFIRMAVA um fato que nao
+aconteceu. E o caso se perdia em silencio, porque os prazos desta especificacao vivem em timers
+da instancia BPMN que nunca nasceu: sem SLA, sem alerta, sem retry.
+
+EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
+
+* `process_started = false` (e, quando o agente distingue no-ops legitimos, o marcador
+  `start_failed = true`, que e o que a aresta condicional le);
+* `record_agent_error()` -> `maezo_agent_errors_total`, o contador que a regra
+  `MaezoAgentCrashLoop` observa;
+* evento estruturado `agent_process_start_failed` com a business key idempotente deste contrato —
+  este evento e o SUBSTITUTO operacional do prazo enquanto a instancia nao existe;
+* RETRY seguro por construcao: `start_process_idempotent` e idempotente por business key, entao
+  uma reentrega reencontra a instancia viva (`ALREADY_ACTIVE`) em vez de abrir uma segunda.
+
 
 ## Codigos de erro
 

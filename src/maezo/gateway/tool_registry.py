@@ -104,6 +104,11 @@ from typing import Any, Final
 
 import structlog
 
+from maezo.gateway.credential_vault import (
+    AgentCredentialView,
+    CredentialVault,
+    HumanCredentialPartition,
+)
 from maezo.gateway.effect_pep import (
     PHI_ZONE_GENERAL,
     PHI_ZONES,
@@ -141,6 +146,189 @@ WORKER_PRINCIPAL: Final[str] = "worker_runtime"
 
 #: Same, for the notifications bridge daemon (`platform/integrations/notifications_bridge.py`).
 BRIDGE_PRINCIPAL: Final[str] = "notifications_bridge"
+
+
+# =================================================================================================
+# Credentials — ADR-0005 mechanism #3, wired HERE because this is the ONE sanctioned constructor
+# =================================================================================================
+#
+# WHY THIS SECTION EXISTS (gap AF-14). `gateway/credential_vault.py` implemented ADR-0005's THIRD
+# HITL mechanism — "a credencial da acao proibida nao existe no runtime do agente"
+# (`docs/adr/0005-hitl-architectural-guarantee.md:12`) — and then nothing in `src/` ever
+# constructed a `CredentialVault`. The only mentions outside its defining module were the
+# re-exports in `gateway/__init__.py`. A structural guarantee with no composition root is not a
+# guarantee: it is a class that PASSES ITS OWN UNIT TESTS while every real credential in the tree
+# reaches a seam by an unaudited `getattr(settings, ...)` that no partition table governs.
+#
+# THE HONEST OPTION, AND WHY IT IS WIRING RATHER THAN DELETION. Deleting the vault was the other
+# candidate. It was rejected because ADR-0005 is ACCEPTED and names this mechanism as one of four
+# INDEPENDENT ones; dropping the only code that encodes it would leave mechanism #3 with no
+# artefact at all, which is a governance regression, not a cleanup. So the vault becomes the ONE
+# path by which this module turns a settings surface into a credential a seam may use.
+#
+# WHAT IS AND IS NOT CLAIMED. This does NOT claim that a NEGATIVA signing key exists today — none
+# is injected anywhere in `deploy/` (checked), and inventing one would be inventing a governance
+# record. What it claims, and what the tests prove, is STRUCTURAL: a credential whose settings
+# field is in :data:`HUMAN_CREDENTIAL_FIELDS` is routed into its `HumanCredentialPartition` and
+# CANNOT appear in the `AgentCredentialView` the seams are built from, and a composition that
+# would place one in the agent scope RAISES at build time (I-2's shape — a red readiness check,
+# never a replica that is ready and leaking).
+
+#: Settings fields that carry a credential an AGENT is allowed to hold, mapped to the vault key it
+#: is stored under. Deliberately a CLOSED table and not "every field whose name looks secret":
+#: a name-pattern rule would silently widen the moment someone adds a field, which is the failure
+#: mode this table exists to prevent.
+#:
+#: EVERY ENTRY RESOLVES TO A REAL FIELD, and that is now a TEST rather than a claim
+#: (`test_todo_campo_agente_visivel_existe_em_alguma_classe_de_settings_real`):
+#: `worker_runtime.settings.WorkerRuntimeSettings.cibseven_auth_token` (also on
+#: `platform.integrations.notifications_bridge.NotificationsBridgeSettings`),
+#: `runtime.agent_runtime.settings.AgentRuntimeSettings.llm_phi_api_key` / `llm_general_api_key`,
+#: `platform.webhooks.whatsapp.settings.WhatsAppWebhookSettings.whatsapp_token`. A fifth entry,
+#: `fhir_auth_token`, was listed here and existed NOWHERE in `src/` — a row that could never carry
+#: a credential, asserted as though it could (AF-14-F2). Removed: the FHIR seams take their
+#: adapters already constructed, so no root reads such a field. A future FHIR credential is added
+#: here TOGETHER with the settings field, and the test above is what forces the pair.
+AGENT_CREDENTIAL_FIELDS: Final[dict[str, str]] = {
+    "cibseven_auth_token": "cibseven_auth_token",
+    "llm_phi_api_key": "llm_phi_api_key",
+    "llm_general_api_key": "llm_general_api_key",
+    "whatsapp_token": "whatsapp_token",
+}
+
+#: Settings fields that carry a HUMAN-RESTRICTED credential, and the ADR-0005 partition each one
+#: belongs to. NO field here is on any settings class today, and that is the point: the table is
+#: the DESTINATION declared in advance, so the first deployment that injects a denial-signing key
+#: routes it into the human partition by construction instead of by a reviewer noticing.
+HUMAN_CREDENTIAL_FIELDS: Final[dict[str, HumanCredentialPartition]] = {
+    "negativa_assinatura_key": HumanCredentialPartition.NEGATIVA,
+    "fraude_investigacao_key": HumanCredentialPartition.FRAUDE,
+}
+
+
+class CredentialSeparationError(RuntimeError):
+    """A composition that would hand an agent a human-restricted credential (ADR-0005 #3).
+
+    Raised at BUILD time, never at call time, and deliberately not caught anywhere in this module:
+    the roots already isolate seam-construction failures into a red readiness check, so the
+    failure mode stays "replica not ready" rather than "replica ready and leaking a denial key".
+    """
+
+
+def build_credential_vault(*, settings: Any, agent_id: str) -> CredentialVault:
+    """Load `settings`'s credentials into a vault, partitioned per ADR-0005 mechanism #3.
+
+    `settings` is read DUCK-TYPED, exactly as :func:`build_agent_seams` reads it — the five roots
+    carry four different settings types and this module must not import any of them. A field that
+    is absent, `None`, or empty is simply NOT stored: "no credential injected" is a real, honest
+    deployment state (`worker_runtime.settings.cibseven_auth_token_value`'s own words: "or None if
+    not injected (blocked seam)"), and storing an empty string would turn it into a credential
+    that exists and authenticates nothing.
+
+    Args:
+        settings: any root's settings object.
+        agent_id: the principal the agent-scoped credentials are stored under.
+
+    Returns:
+        A `CredentialVault` holding the agent scope AND any human partitions this settings surface
+        carries. The vault is NEVER handed to a seam — only :func:`build_agent_credential_view`'s
+        result is (that is the whole separation).
+
+    Raises:
+        CredentialSeparationError: if a field appears in BOTH tables. That can only happen through
+            an edit to this module, and it must fail loudly at build rather than resolve to
+            whichever table happens to be consulted first.
+    """
+    overlap = sorted(set(AGENT_CREDENTIAL_FIELDS) & set(HUMAN_CREDENTIAL_FIELDS))
+    if overlap:
+        raise CredentialSeparationError(
+            "credential field(s) declared BOTH agent-visible and human-restricted: "
+            f"{', '.join(overlap)} — ADR-0005 mechanism #3 admits no field that is both."
+        )
+    vault = CredentialVault()
+    for field, key in sorted(AGENT_CREDENTIAL_FIELDS.items()):
+        value = getattr(settings, field, None)
+        if not value or not isinstance(value, str):
+            continue
+        vault.store_agent_credential(agent_id=agent_id, level="runtime", key=key, value=value)
+    for field, partition in sorted(HUMAN_CREDENTIAL_FIELDS.items(), key=lambda item: item[0]):
+        value = getattr(settings, field, None)
+        if not value or not isinstance(value, str):
+            continue
+        vault.store_human_credential(partition=partition, key=field, value=value)
+    return vault
+
+
+def build_agent_credential_view(*, settings: Any, agent_id: str) -> AgentCredentialView:
+    """The ONLY credential surface a seam constructor may read (AF-14).
+
+    Returns the vault's `AgentCredentialView` for `agent_id` — a read-only object with no
+    reference back to the vault, so there is no attribute path from a seam to
+    `CredentialVault.get_human_credential`.
+
+    Raises:
+        CredentialSeparationError: if any human-restricted key is nonetheless visible in the view.
+            The check is redundant against `CredentialVault`'s own structure and is kept anyway:
+            it is the assertion that goes RED if a future edit "simplifies" the vault into one
+            flat dict, which is precisely how mechanism #3 would be lost silently.
+    """
+    vault = build_credential_vault(settings=settings, agent_id=agent_id)
+    view = vault.get_agent_view(agent_id=agent_id)
+    leaked = sorted(set(view.list_keys()) & set(HUMAN_CREDENTIAL_FIELDS))
+    if leaked:
+        raise CredentialSeparationError(
+            f"agent {agent_id!r} would see human-restricted credential(s): {', '.join(leaked)} — "
+            "ADR-0005 mechanism #3 (a credencial da acao proibida nao existe no runtime do agente)."
+        )
+    return view
+
+
+def build_worker_credential_view(*, settings: Any, principal: str = WORKER_PRINCIPAL) -> AgentCredentialView:
+    """The same surface for the daemon principals (`worker_runtime`, `notifications_bridge`).
+
+    A worker daemon is not an agent (:func:`build_worker_seam_context` explains why it has no
+    capability record), but ADR-0005 mechanism #3 is about the RUNTIME, not about the principal's
+    kind: a denial-signing key must not exist in the worker's runtime either. Same vault, same
+    closed tables, same view type — one credential vocabulary rather than two.
+
+    BOTH daemon principals really call it (AF-14-F1): `runtime/worker_runtime/service.py::
+    _engine_credential` and `platform/integrations/notifications_bridge.py::_engine_credential`.
+    The first version of this docstring named the bridge before the bridge was wired; the tests in
+    `test_credential_vault_composition.py` now cover each root.
+
+    THE EXACT SURFACE, counted rather than asserted (`grep -rn 'build_cibseven_seam(' src`,
+    `grep -rn 'build_dmn_seam(' src`, `grep -rn 'auth_token=' src`): `src/` holds FOUR gated
+    engine-seam constructions and one
+    raw engine transport. Three of the four carry a credential — :func:`build_agent_seams` and the
+    two daemon `_engine_credential`s — and all three read it here. The fourth,
+    `platform/evidence/dmn_sweep.py::main`, passes NO `auth_token` at all: it is an unauthenticated
+    diagnostic CLI against a dev engine, so there is no credential for a partition table to govern.
+    The raw one, `worker_runtime/service.py`'s `CibSevenWorkerTransport`, is not a gated seam (it
+    decides nothing) but carries the same credential and therefore also reads it here. What is
+    claimed is exactly what the fence
+    `test_credential_vault_composition.py::test_nenhuma_leitura_da_credencial_do_motor_escapa_do_cofre_em_src`
+    asserts by AST over all of `src/`: no LITERAL read of that field — attribute access,
+    `getattr`/`hasattr` with a literal name, or a constant-string subscript (so also via
+    `model_dump()` / `__dict__`) — exists outside the one exempt (module, function) pair,
+    `worker_runtime/settings.py::cibseven_auth_token_value`. The RESIDUAL, stated rather than
+    papered over: a field name built or chosen at RUNTIME is invisible to that fence, deliberately,
+    because a dynamic `getattr` is how :func:`build_credential_vault` reads this very table — a
+    fence that forbade it would forbid the vault.
+    """
+    return build_agent_credential_view(settings=settings, agent_id=principal)
+
+
+def agent_credential(view: AgentCredentialView, key: str) -> str | None:
+    """`view[key]` or None when this deployment injected no such credential.
+
+    NOT a silent fallback: absence is the documented blocked-seam state, it is reported by the
+    seam's own transport (an unauthenticated engine call fails at the engine, loudly), and the
+    alternative — substituting a default token — is the fabrication this repo forbids.
+    """
+    try:
+        return view.get(key)
+    except KeyError:
+        return None
 
 
 # =================================================================================================
@@ -420,14 +608,24 @@ def build_agent_seams(
         Exception: propagated from a seam constructor. I-2 — a seam that cannot be wrapped must
             never silently degrade into an un-gated call; the roots already isolate build failures
             into a red readiness check, so the failure mode stays "replica not ready".
+        CredentialSeparationError: propagated from :func:`build_agent_credential_view` when the
+            settings surface would put a human-restricted credential in the agent scope
+            (ADR-0005 mechanism #3). Same shape, same reason: refusing to build is the only
+            outcome that keeps "the credential does not exist in the agent's runtime" true.
     """
     seam = build_agent_seam_context(
         tenant=getattr(settings, "tenant_id", "amh"), agent_id=agent_id, approvals_path=approvals_path
     )
+    # AF-14 / ADR-0005 #3. Every credential this root hands a seam comes from the vault's AGENT
+    # view — the seams never see the `CredentialVault`, so no seam can reach a human partition.
+    # A settings surface that carried a NEGATIVA/FRAUDE key would have raised inside
+    # `build_agent_credential_view`, which propagates exactly like a failed seam constructor (I-2).
+    credentials = build_agent_credential_view(settings=settings, agent_id=agent_id)
+    engine_token = agent_credential(credentials, "cibseven_auth_token")
     cibseven_base_url = getattr(settings, "cibseven_base_url", "")
     deps: dict[str, Any] = {
-        "dmn": build_dmn_seam(seam=seam, base_url=cibseven_base_url),
-        "cibseven": build_cibseven_seam(seam=seam, base_url=cibseven_base_url),
+        "dmn": build_dmn_seam(seam=seam, base_url=cibseven_base_url, auth_token=engine_token),
+        "cibseven": build_cibseven_seam(seam=seam, base_url=cibseven_base_url, auth_token=engine_token),
     }
     if inference is not None:
         # Only when the root actually has one. Omitting the key preserves `Harness.create_graph`'s
@@ -446,17 +644,50 @@ def build_agent_seams(
     if whatsapp_adapter is not None:
         deps["whatsapp"] = build_whatsapp_seam(seam=seam, adapter=whatsapp_adapter)
 
-    fhir_adapter = _FHIR_ADAPTER_BY_AGENT.get(agent_id)
-    if fhir_adapter is not None:
-        deps["fhir"] = build_fhir_seam(
-            seam=seam,
-            base_url=getattr(settings, "fhir_base_url", "http://hapi-fhir:8080/fhir"),
-            adapter=fhir_adapter,
-        )
+    fhir_seam = build_agent_fhir_seam(settings=settings, agent_id=agent_id, seam=seam)
+    if fhir_seam is not None:
+        deps["fhir"] = fhir_seam
     # `population` is deliberately ABSENT: the lake client is PORT-PENDING (WB.4) and Andre's
     # `build(config)` treats its absence as a disclosed gap note, never a failure. See
     # `gateway/seams/population.py` for why the wrapper ships anyway.
     return deps
+
+
+def build_agent_fhir_seam(
+    *,
+    settings: Any,
+    agent_id: str,
+    seam: SeamContext | None = None,
+) -> GatedFhirReader | None:
+    """`agent_id`'s GATED FHIR reader — the same one `build_agent_seams` puts under `"fhir"`,
+    addressable on its own. `None` when the agent declares no FHIR adapter.
+
+    Extracted (CC-03/AND-03) because a root can legitimately need ONE agent's FHIR seam without
+    paying for the rest of that agent's dep map: `worker_runtime/service.py` STEP B needs
+    Carolina's and Andre's readers for the dossier delegation edges, while its `dmn`/`cibseven`/
+    `audit_sink` come from the DAEMON's own principal — calling `build_agent_seams` twice there
+    would have opened two extra `PostgresAuditSink`s and two duplicate engine transports for
+    seams the root already owns. `build_agent_seams` now delegates here, so the adapter choice
+    and the base-url default keep exactly ONE definition (no second, divergent construction
+    path — the very C-A2 counterexample this module exists to prevent).
+
+    PER-AGENT, NEVER SHARED. The wrapper closes over `SeamContext.principal`, and
+    `leitura_phi_clinica` (C2) is decided PER PRINCIPAL: handing Carolina's instance to Andre
+    would record and decide his PHI read under HER declared-capability record. `seam` is the
+    caller's already-built context (what `build_agent_seams` passes, so it keeps paying for one
+    PEP parse per call, not two); absent, one is built for `agent_id`.
+    """
+    adapter = _FHIR_ADAPTER_BY_AGENT.get(agent_id)
+    if adapter is None:
+        return None
+    context = seam or build_agent_seam_context(
+        tenant=getattr(settings, "tenant_id", "amh"), agent_id=agent_id
+    )
+    return build_fhir_seam(
+        seam=context,
+        base_url=getattr(settings, "fhir_base_url", "http://hapi-fhir:8080/fhir"),
+        adapter=adapter,
+    )
 
 
 # =================================================================================================
@@ -520,11 +751,17 @@ def effect_seams_gated(deps: Any) -> tuple[bool, str]:
 
 
 __all__ = [
+    "AGENT_CREDENTIAL_FIELDS",
     "BRIDGE_PRINCIPAL",
     "EFFECT_SEAM_KEYS",
+    "HUMAN_CREDENTIAL_FIELDS",
     "WORKER_PRINCIPAL",
+    "CredentialSeparationError",
     "SeamContext",
+    "agent_credential",
     "build_a2a_seam",
+    "build_agent_credential_view",
+    "build_agent_fhir_seam",
     "build_agent_seam_context",
     "build_agent_seams",
     "build_cibseven_seam",
@@ -532,7 +769,9 @@ __all__ = [
     "build_fhir_seam",
     "build_inference_seam",
     "build_population_seam",
+    "build_credential_vault",
     "build_whatsapp_seam",
+    "build_worker_credential_view",
     "build_worker_seam_context",
     "effect_seams_gated",
     "gated_seam_violations",

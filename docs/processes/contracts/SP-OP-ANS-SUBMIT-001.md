@@ -58,6 +58,9 @@ ANSSUB-{tenant_id}-{report_type}-{competencia}
 | `schema_valid` | boolean | sim | Pre-resolvido por worker (`regulatorio.anssubmit.validate` — XSD/TISS) |
 | `lgpd_anonimizado` | boolean | sim | Fail-closed `false` seedado pela ponte (`notifications_bridge` — nunca confia no fato do wire); ecoado por `regulatorio.anssubmit.assemble` (mesmo padrao non-computing de `dataset_complete` — **NAO** e um calculo real de anonimizacao: `mcp-regdata`, a fonte de um atestado real, esta AWS-blocked, issue #16); so passa a `true` quando um humano confirma explicitamente via `UT_CorrigirPendenciaEnvio` que o dataset referenciado por `dataset_ref` esta de fato agregado/anonimizado (ADR-0006; LGPD em relatorio regulatorio) — GAP-ANS-5 |
 | `dataset_ref` | string | sim | Referencia ao artefato montado (sem PHID; ponteiro de storage) |
+| `due_date` | string (date ISO `YYYY-MM-DD`) | nao* | Eco best-effort de `GustavoGraph._contract_variables` (`src/maezo/agents/gustavo/graph.py`, ramo `fluxo == "ans_submit"`) a partir da pre-avaliacao informativa da DMN `ans_calendar` — **NAO** e a fonte do timer interruptivo: o deadline real vem de `${calendario.due_date}`, resolvido pela re-avaliacao de `ans_calendar` dentro do proprio BPMN. Achado do fleet audit: semeada no start mas so documentada como saida `out` de DMN |
+
+\* Best-effort — se a pre-avaliacao de Gustavo falhar (DMN indisponivel), a variavel simplesmente nao e semeada; o timer de calendario depende so da re-avaliacao real dentro do BPMN, nunca deste eco.
 
 Nota: o dataset e **agregado/anonimizado** (Zona Geral, ADR-0006). Nenhuma variavel de processo
 carrega PHI direto — apenas `dataset_ref` (ponteiro) e flags.
@@ -74,6 +77,25 @@ carrega PHI direto — apenas `dataset_ref` (ponteiro) e flags.
 | `data_envio` | string | Timestamp ISO 8601 do envio (nao-repudio) |
 | `nack_motivo` | string | Motivo do NACK retornado pela ANS (preenchido apenas em retransmissao) |
 | `retry_attempt` | integer | Contador de tentativa de retransmissao (subprocess SUB_RetryEnvio; INPUT da DMN ans_retry_policy) |
+
+## Variaveis de proveniencia do agente (Gustavo — ADR-0007/ADR-0015)
+
+Convencao repo-wide de nao-repudio (ADR-0007) e delegacao A2A (ADR-0015) — nao especifica de
+ANS-SUBMIT (mirror `source_agent_id`/`source_agent_version` de
+`docs/processes/contracts/SP-OP-ESCALATION-001.md`). Semeadas por `GustavoGraph._contract_variables`
+(`src/maezo/agents/gustavo/graph.py`, fluxo `ans_submit`) junto com as variaveis de entrada; NENHUMA
+delas e uma decisao de envio — so proveniencia, dossie instrutivo e roteamento humano (CC-13 —
+Agent Fleet Audit: antes deste registro, `_contract_variables` as emitia sem declaracao no
+contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `source_agent_id` | string | nao | Agente que preparou o dossie do envio (`gustavo`) — cadeia de nao-repudio (ADR-0007) |
+| `source_agent_version` | string | nao | Versao do agente Gustavo que preparou o dossie (auditoria ADR-0007) |
+| `dossie_gustavo` | json | nao | Dossie factual do envio regulatorio montado por Gustavo — instrui `UT_RevisarEnvio`; carrega `decisao_envio` sempre `None` (Gustavo NUNCA decide) |
+| `gustavo_route` | string | nao | Roteamento do grafo do Gustavo (`review_submission` \| `instruct_nip`) — no fluxo `ans_submit` e sempre `review_submission`; espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Motivo do encaminhamento de Gustavo (`revisao_envio` \| `pendencia_envio` \| `dmn_indisponivel` \| `ambiguidade` \| `falha_tecnica`) |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra) das DMN que Gustavo consultou (`ans_calendar`/`ans_sla`/`ans_submission_admissibility`) — cadeia de decisao (ADR-0007/ADR-0012) |
 
 ## Topicos
 
@@ -196,6 +218,39 @@ catch-all (>3) → `""`/`continue_retry=false` (esgotado → `End_RetryEsgotado`
 Nota: o calendario regulatorio e por **dias corridos/data fixa de competencia** (diferente dos
 prazos em dias uteis dos processos negativa-like). Resolver feriados/fim de semana no worker de
 calendario conservadoramente (antecipar, nunca postergar). **Toda data e periodicidade e DRAFT.**
+
+## Desfecho de agente: falha de start (CC-01)
+
+| Desfecho | Onde vive | Quem escreve | Significado |
+|---|---|---|---|
+| `erro_inicio_processo` | **estado do agente gustavo** — NAO e variavel de processo | no `notify_start_failure` do grafo, via o helper unico `maezo.runtime.start_outcome.notify_start_failure` | o agente TENTOU iniciar SP-OP-ANS-SUBMIT-001 pelo chokepoint `start_process_idempotent` e o engine recusou (`CibSevenError`). NENHUMA instancia nasceu |
+
+ONDE ESTE VALOR **NAO** ESTA, e por que. Ele nunca chega ao engine: nao consta de
+`## Variaveis de entrada` nem de `## Variaveis de saida`, nao tem `bpmnError` associado, nao
+aparece em nenhum `camunda:` do BPMN e **nao exige mudanca nenhuma no BPMN deste processo**. Nao
+poderia ser diferente — o processo NAO nasceu, entao nao existe instancia onde gravar uma
+variavel nem escopo onde lancar um erro. Ele e declarado AQUI, no contrato, porque e um desfecho
+CONTRATUAL do agente que serve este processo e porque quem consome o estado do agente (o handler
+A2A, um golden de eval, uma regra de alerta) precisa do literal exato e estavel.
+
+POR QUE ELE EXISTE (auditoria de frota 2026-09-04, achado CC-01). Ate essa data a falha de start
+era engolida: o `except CibSevenError` do no de start devolvia apenas `process_started=false` e a
+aresta seguinte era INCONDICIONAL para um terminal no-op, de modo que o desfecho de SUCESSO ja
+gravado a montante (o desfecho de sucesso do fluxo de envio) sobrevivia — o estado do agente AFIRMAVA um fato que nao
+aconteceu. E o caso se perdia em silencio, porque os prazos desta especificacao vivem em timers
+da instancia BPMN que nunca nasceu: sem SLA, sem alerta, sem retry.
+
+EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
+
+* `process_started = false` (e, quando o agente distingue no-ops legitimos, o marcador
+  `start_failed = true`, que e o que a aresta condicional le);
+* `record_agent_error()` -> `maezo_agent_errors_total`, o contador que a regra
+  `MaezoAgentCrashLoop` observa;
+* evento estruturado `agent_process_start_failed` com a business key idempotente deste contrato —
+  este evento e o SUBSTITUTO operacional do prazo enquanto a instancia nao existe;
+* RETRY seguro por construcao: `start_process_idempotent` e idempotente por business key, entao
+  uma reentrega reencontra a instancia viva (`ALREADY_ACTIVE`) em vez de abrir uma segunda.
+
 
 ## Codigos de erro
 

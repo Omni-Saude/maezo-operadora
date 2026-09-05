@@ -58,13 +58,17 @@ escalation:
     - signal: dmn_unavailable                  # DMN indisponivel -> humano (nunca desfecho adverso por omissao)
     - signal: ambiguity                        # qualquer ambiguidade clinica -> coordenacao-clinica
 memory:
-  episodic: true
-  semantic: true                               # derivados minimizados referenciando o caso (ADR-0002)
+  episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
+  semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
 # A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Valentina e ALVO de delegacao:
 # SP-OP-PROGRAMA-001 delega `care.stratify` (estratificacao de risco in-zone) e `care.enroll`
 # (montagem do plano de cuidado/dossie) a ela. `accepted_task_types` declara o contrato de
-# delegacao; o inbound handler `make_valentina_handler` (delegation.py, R9) ja o consome (o
-# dispatcher valida via card.accepts() e roteia ao handler). Espelha AUTH->Rafael / CONTAS->Marina.
+# delegacao. ESTADO EXATO (VAL-01, corrigido — o texto anterior afirmava consumo que nao existia):
+# o inbound handler `make_valentina_handler` (`agents/valentina/delegation.py`) EXISTE e materializa
+# o estado a partir do envelope; o REGISTRO no dispatcher (`runtime.agent_runtime.a2a_composition`)
+# e o call site de ORIGEM (`tools/workers/programa.py`) seguem AUSENTES — decisao do dono (gap
+# FERNANDO-DELEGATION-CALL-SITE) — logo nenhuma delegacao viva chega a ela hoje. Espelha
+# AUTH->Rafael / CONTAS->Marina.
 a2a:
   capabilities:
     - care_risk_stratification                 # estratifica risco do beneficiario in-zone (instrui, nao decide)
@@ -72,7 +76,7 @@ a2a:
   skills:
     - programa_risk_stratification             # estratificacao de risco / SP-OP-PROGRAMA-001
     - programa_care_plan_dossier               # montagem do plano de cuidado / dossie clinico
-  accepted_task_types:                         # consumido por make_valentina_handler (delegation.py, R9)
+  accepted_task_types:                         # servido por make_valentina_handler (delegation.py); registro AUSENTE
     - care.stratify                            # PROGRAMA delega a estratificacao de risco (in-zone, apos consentimento)
     - care.enroll                              # PROGRAMA delega a montagem do plano de cuidado (sem decidir alta)
   queue_ref: agents.tasks.valentina

@@ -17,7 +17,7 @@ from __future__ import annotations
 import inspect
 import json
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, cast, get_args
 
 import pytest
 import yaml
@@ -54,6 +54,8 @@ class _FakeInference:
     def __init__(self, responses: list[str] | None = None) -> None:
         self._responses = list(responses) if responses else ["narrativa factual sintetica"]
         self.calls: list[tuple[str, bool]] = []
+        #: AF-12 (CC-12): the `task_kind` of each call, in order.
+        self.task_kinds: list[str | None] = []
 
     async def generate(
         self,
@@ -62,8 +64,10 @@ class _FakeInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         self.calls.append((prompt, phi))
+        self.task_kinds.append(task_kind)
         return self._responses.pop(0) if self._responses else ""
 
 
@@ -77,6 +81,7 @@ class _RaisingInference(_FakeInference):
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         self.calls.append((prompt, phi))
         raise RuntimeError("provider unavailable")
@@ -92,19 +97,27 @@ class _AssertingInference(_FakeInference):
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        task_kind: str | None = None,
     ) -> str:
         raise AssertionError("this path must never call the LLM")
 
 
 class _FakePatientSummaryReader:
-    def __init__(self, *, fail: bool = False) -> None:
+    """`payload` models an UPSTREAM-CONTROLLED answer (BEA-06): the reader is a generic
+    Protocol over v2's FHIR server, NOT the donor's PEP-gated `mcp-fhir.read_patient`, so the
+    graph must treat whatever it returns as hostile. `None` keeps the well-behaved default."""
+
+    def __init__(self, *, fail: bool = False, payload: Any = None) -> None:
         self._fail = fail
+        self._payload = payload
         self.calls: list[str] = []
 
     async def read_patient_summary(self, patient_id: str) -> dict[str, Any]:
         self.calls.append(patient_id)
         if self._fail:
             raise RuntimeError("HAPI FHIR unreachable at http://fhir.internal:8080")
+        if self._payload is not None:
+            return cast("dict[str, Any]", self._payload)
         return {"resourceType": "Patient", "id": patient_id}
 
 
@@ -384,9 +397,189 @@ async def test_gather_fhir_failure_is_best_effort_class_token_note() -> None:
     result = await _graph(fhir=_FakePatientSummaryReader(fail=True)).gather(_case_state())
     assert result["gathered"] is True
     assert NOTE_RESUMO_FHIR_INDISPONIVEL in result["gather_notes"]
+    # Fail-closed (BEA-06): a reader that raised NEVER leaves a partial/passthrough summary.
+    assert result["summary_facts"] == {}
     serialized = json.dumps(result["gather_notes"], ensure_ascii=False)
     assert "unreachable" not in serialized
     assert "fhir.internal" not in serialized
+
+
+# ---------------------------------------------------------------------------
+# gather — the FHIR summary is PROJECTED, never trusted verbatim (BEA-06)
+#
+# The `PatientSummaryReader` seam is a generic Protocol over v2's FHIR server, NOT the donor's
+# PEP-gated `mcp-fhir.read_patient` ToolInvoker (graph.py's own labeled boundary), so its
+# payload is controlled by a server UPSTREAM of this graph. Before the fix, `gather` assigned
+# `read_patient_summary`'s return value to `summary_facts` VERBATIM, and `_facts()` re-emitted
+# it as `resumo_fhir` into BOTH the `phi=True` dossier prompt and the custody-bound dossier —
+# with no allowlist, no refusal, and no backstop downstream (`operadora.fraude.
+# seal_custody_bundle` inspects ONLY `variables["evidencia_refs"]` STRING elements, so it never
+# sees the summary at all). The projection below is therefore the ONLY barrier.
+# ---------------------------------------------------------------------------
+
+# The bounded class token recorded when a summary is refused whole. Asserted as a LITERAL here
+# (not via the module constant) so the token's wire text itself is pinned — the dossier
+# `lacunas` these land in are read by the human investigator and sealed into the custody chain.
+_NOTE_RESUMO_RECUSADO = "resumo_fhir_recusado"
+
+#: The closed projection allowlist, restated as a literal for the same reason.
+_SUMMARY_KEYS = {"resourceType", "id"}
+
+
+class _ShapeShiftingReader:
+    """Returns a non-dict (or `None`) where the Protocol promises `dict[str, Any]` — models an
+    upstream server answering with an unexpected shape. Deliberately violates the annotation:
+    the point is that `gather` must not TRUST the annotation."""
+
+    def __init__(self, payload: Any) -> None:
+        self._payload = payload
+
+    async def read_patient_summary(self, patient_id: str) -> dict[str, Any]:
+        return cast("dict[str, Any]", self._payload)
+
+
+async def test_gather_refuses_whole_summary_carrying_a_raw_phi_key() -> None:
+    """A summary carrying ANY known raw-PHI key is refused WHOLE — never projected/laundered,
+    so the incident surfaces as a lacuna instead of disappearing into a stripped dict."""
+    fhir = _FakePatientSummaryReader(
+        payload={"resourceType": "Patient", "id": "pseudo-b1", "cpf": _RAW_CPF, "nome": _RAW_NAME}
+    )
+    result = await _graph(fhir=fhir).gather(_case_state())
+    assert result["summary_facts"] == {}
+    assert _NOTE_RESUMO_RECUSADO in result["gather_notes"]
+    serialized = json.dumps(result, ensure_ascii=False, default=str)
+    assert _RAW_CPF not in serialized
+    assert _RAW_NAME not in serialized
+
+
+async def test_gather_refuses_whole_summary_with_a_nested_phi_key() -> None:
+    """The refusal scan is RECURSIVE (dicts and lists): a PHI key one level down is exactly how
+    a real FHIR payload carries it (`subject`/`contained`/`entry`), and a top-level-only check
+    would wave it straight through."""
+    fhir = _FakePatientSummaryReader(
+        payload={
+            "resourceType": "Bundle",
+            "id": "pseudo-b1",
+            "entry": [{"resource": {"subject": {"cpf": _RAW_CPF, "nome": _RAW_NAME}}}],
+        }
+    )
+    result = await _graph(fhir=fhir).gather(_case_state())
+    assert result["summary_facts"] == {}
+    assert _NOTE_RESUMO_RECUSADO in result["gather_notes"]
+    assert _RAW_CPF not in json.dumps(result, ensure_ascii=False, default=str)
+
+
+async def test_gather_case_insensitively_refuses_phi_keys() -> None:
+    """Key matching folds case — `CPF`/`Nome` are the same contamination as `cpf`/`nome`."""
+    fhir = _FakePatientSummaryReader(payload={"resourceType": "Patient", "CPF": _RAW_CPF})
+    result = await _graph(fhir=fhir).gather(_case_state())
+    assert result["summary_facts"] == {}
+    assert _NOTE_RESUMO_RECUSADO in result["gather_notes"]
+
+
+async def test_gather_projects_summary_to_the_closed_allowlist() -> None:
+    """No PHI KEY present, but free text (which could smuggle raw PHI in its VALUE) under keys
+    the dossier never consumes: those keys are STRIPPED by the closed projection. This is the
+    barrier that matters most — a hostile server simply avoids the known PHI key names."""
+    fhir = _FakePatientSummaryReader(
+        payload={
+            "resourceType": "Patient",
+            "id": "pseudo-b1",
+            "resumo": f"Beneficiario {_RAW_NAME}, CPF {_RAW_CPF}",
+            "text": {"div": _RAW_CPF},
+            "identifier": [{"value": _RAW_CPF}],
+        }
+    )
+    result = await _graph(fhir=fhir).gather(_case_state())
+    assert set(result["summary_facts"]) <= _SUMMARY_KEYS
+    assert result["gather_notes"].count(_NOTE_RESUMO_RECUSADO) == 0
+    serialized = json.dumps(result, ensure_ascii=False, default=str)
+    assert _RAW_CPF not in serialized
+    assert _RAW_NAME not in serialized
+
+
+async def test_gather_preserves_the_admitted_summary_keys() -> None:
+    """The admitted keys survive: `resourceType` (closed value domain) and `id` (admitted ONLY
+    when it echoes the ALREADY-PSEUDONYMIZED reference the graph itself asked for)."""
+    result = await _graph(fhir=_FakePatientSummaryReader()).gather(_case_state())
+    assert result["summary_facts"] == {"resourceType": "Patient", "id": "pseudo-b1"}
+
+
+async def test_gather_drops_summary_id_that_is_not_the_requested_subject() -> None:
+    """`id` is admitted as an ECHO of the requested pseudonymized ref, never as new content: an
+    id the graph did not ask for is upstream-controlled (a CPF-shaped id is exactly the evasion)
+    and is dropped. Not a whole-summary refusal — no PHI key is present."""
+    fhir = _FakePatientSummaryReader(payload={"resourceType": "Patient", "id": _RAW_CPF})
+    result = await _graph(fhir=fhir).gather(_case_state())
+    assert result["summary_facts"] == {"resourceType": "Patient"}
+    assert _RAW_CPF not in json.dumps(result, ensure_ascii=False, default=str)
+
+
+async def test_gather_drops_an_out_of_domain_resource_type() -> None:
+    """`resourceType`'s admitted VALUES are a closed domain too — a free-text value under an
+    allowlisted key is content, not a resource type, and is dropped."""
+    fhir = _FakePatientSummaryReader(payload={"resourceType": _RAW_NAME, "id": "pseudo-b1"})
+    result = await _graph(fhir=fhir).gather(_case_state())
+    assert result["summary_facts"] == {"id": "pseudo-b1"}
+    assert _RAW_NAME not in json.dumps(result, ensure_ascii=False, default=str)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        f"resumo textual do beneficiario {_RAW_CPF}",
+        [{"cpf": _RAW_CPF}],
+        42,
+        None,
+    ],
+    ids=["str", "list", "int", "none"],
+)
+async def test_gather_fail_closed_on_unexpected_summary_shape(payload: Any) -> None:
+    """Fail-closed on an unexpected shape: empty summary + the bounded refusal token, NEVER a
+    passthrough of whatever the reader returned."""
+    graph = BeatrizGraph(inference=_FakeInference(), fhir=_ShapeShiftingReader(payload))
+    result = await graph.gather(_case_state())
+    assert result["summary_facts"] == {}
+    assert _NOTE_RESUMO_RECUSADO in result["gather_notes"]
+    assert _RAW_CPF not in json.dumps(result, ensure_ascii=False, default=str)
+
+
+async def test_gather_fail_closed_on_self_referential_summary() -> None:
+    """A self-referential payload must not blow the recursion limit on the gather hot path —
+    the depth-bounded scan refuses it instead of raising."""
+    payload: dict[str, Any] = {"resourceType": "Patient", "id": "pseudo-b1"}
+    payload["self"] = payload
+    result = await _graph(fhir=_FakePatientSummaryReader(payload=payload)).gather(_case_state())
+    assert result["summary_facts"] == {}
+    assert _NOTE_RESUMO_RECUSADO in result["gather_notes"]
+
+
+async def test_dossier_and_prompt_never_carry_the_upstream_summary_phi() -> None:
+    """End-to-end over the compiled graph: the canary the upstream reader answered with reaches
+    NEITHER the custody-bound dossier NOR the `phi=True` prompt (`_facts()["resumo_fhir"]` feeds
+    both). `seal_custody_bundle` is no backstop here — it inspects only `evidencia_refs`."""
+    inference = _FakeInference()
+    fhir = _FakePatientSummaryReader(
+        payload={
+            "resourceType": "Patient",
+            "id": "pseudo-b1",
+            "subject": {"nome": _RAW_NAME, "cpf": _RAW_CPF},
+            "resumo": f"Beneficiario {_RAW_NAME}, CPF {_RAW_CPF}",
+        }
+    )
+    compiled = _graph(inference=inference, fhir=fhir).compile_graph().compile()
+    result = await compiled.ainvoke(_case_state())
+    assert fhir.calls == ["pseudo-b1"]
+    assert result["desfecho"] == "dossie_instruido"
+    dossier_blob = json.dumps(result["dossier"], ensure_ascii=False, default=str)
+    assert _RAW_CPF not in dossier_blob
+    assert _RAW_NAME not in dossier_blob
+    assert result["dossier"]["fatos"]["resumo_fhir"] == {}
+    assert _NOTE_RESUMO_RECUSADO in result["dossier"]["lacunas"]
+    prompt, phi = inference.calls[0]
+    assert phi is True
+    assert _RAW_CPF not in prompt
+    assert _RAW_NAME not in prompt
 
 
 async def test_gather_normalizes_valid_pointers() -> None:
@@ -502,7 +695,21 @@ async def test_instruct_llm_call_is_phi_tagged() -> None:
     assert len(inference.calls) == 1
     prompt, phi = inference.calls[0]
     assert phi is True  # Beatriz is PHI-zone (agent.yaml security_zone: phi; ADR-0006/0017)
-    assert "fatos=" in prompt
+    # CC-11: os fatos deixaram de viajar como `fatos={repr}` e vao renderizados — o booleano
+    # nomeado com SIM/NAO/SEM DADO, o resto do caso no contexto. A asserção antiga (`"fatos=" in
+    # prompt`) so' provava que ALGO chamado fatos foi interpolado; esta prova que o fato apurado
+    # chegou distinguivel, que e' o que o incidente de 24/08/2026 quebrou.
+    assert "fatos apurados:" in prompt
+    assert "indicio de fraude sinalizado" in prompt
+    assert "n_evidencia" in prompt  # o contexto nao-booleano continua no prompt
+
+
+async def test_instruct_llm_call_declares_task_kind_reasoning() -> None:
+    """CC-12/BEA-01 (ADR-0009 §2): the investigator dossier narrative is for the human's
+    review — `reasoning`, not `task_default`."""
+    inference = _FakeInference()
+    await _graph(inference=inference).instruct_investigation(_gathered_state())
+    assert inference.task_kinds == ["reasoning"]
 
 
 async def test_instruct_llm_failure_never_blocks_the_instruction() -> None:

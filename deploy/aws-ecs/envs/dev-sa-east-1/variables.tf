@@ -416,3 +416,27 @@ variable "agent_runtime_mode" {
     error_message = "agent_runtime_mode deve ser 'production' ou 'local'."
   }
 }
+
+variable "a2a_outbox_relay_cpu" {
+  description = "CPU do a2a-outbox-relay (256 = 0.25 vCPU). Daemon leve: so drena o outbox Postgres para o Kafka."
+  type        = number
+  default     = 256
+}
+
+variable "a2a_outbox_relay_memory" {
+  description = "Memoria do a2a-outbox-relay em MB."
+  type        = number
+  default     = 512
+}
+
+variable "a2a_outbox_relay_desired_count" {
+  description = <<-EOT
+    Quantas tasks do a2a-outbox-relay (SC-01/R-004). 1 e' suficiente: o relay usa
+    `claim_batch`/lease para concorrencia segura (`src/maezo/a2a/outbox.py`), entao mais
+    replicas so' aumentam o paralelismo do drain, nunca corretude. 0 zera o custo sem quebrar
+    nada alem da entrega de fatos A2A (o outbox acumula com seguranca — nenhuma linha e'
+    perdida, so' fica pendente ate o proximo drain).
+  EOT
+  type        = number
+  default     = 1
+}

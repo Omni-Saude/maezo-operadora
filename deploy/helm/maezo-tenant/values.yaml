@@ -277,9 +277,21 @@ notificationsBridge:
 # tenant_id+regiao_saude+especialidade). Sibling do notifications-bridge, MESMA identidade de
 # principal de SERVICO `notifications-bridge` (allowlist minima: so start_process). NAO sobe app
 # de health (liveness por processo).
+#
+# DEFAULT FLIPPED TO false (AF-01 / R-001, mesmo padrao que `fhirSync` ja adota acima):
+# `deployment-bridge-netchange.yaml`'s `command: ["python", "-m",
+# "maezo.platform.integrations.network_change_bridge"]` aponta para um modulo que NAO existe em
+# src/ — `ls src/maezo/platform/integrations/` so tem `notifications_bridge.py` (+
+# `events_kafka_producer.py`, `amh_inbox.py`, `partition_key.py`, `__init__.py`). Todo pod desta
+# ponte entraria em CrashLoopBackOff imediato (`ModuleNotFoundError`) — mesma classe de defeito do
+# fhir-sync acima (DB-1/t5-deploy-hygiene). `scripts/ci/check_helm_entrypoints.py` (Makefile target
+# `check-helm-entrypoints`, job `validate-helm` em ci.yml) agora falha fechado se este flag voltar
+# a `true` sem o modulo existir — NAO reverta so' este valor sem construir
+# `maezo.platform.integrations.network_change_bridge` primeiro (isso e' a opcao D do memorando
+# M-01, recusada; ver OWNER-DECISIONS-REGISTER R-001).
 # ---------------------------------------------------------------------------
 networkChangeBridge:
-  enabled: true
+  enabled: false
   replicaCount: 1
   resources:
     requests:
@@ -299,10 +311,43 @@ networkChangeBridge:
 # identidade de principal de SERVICO DEDICADA `consent-revocation-bridge` (allowlist minima: so
 # correlate_message — nunca start_process, least-privilege). NAO sobe app de health (liveness por
 # processo).
+#
+# DEFAULT FLIPPED TO false (AF-01 / R-001, mesmo padrao que `fhirSync` ja adota acima):
+# `deployment-bridge-consent-revocation.yaml`'s `command: ["python", "-m",
+# "maezo.platform.integrations.consent_revocation_bridge"]` aponta para um modulo que NAO existe em
+# src/ (mesmo `ls` acima) — CrashLoopBackOff garantido. Mesmo fence e mesma condicao de reversao do
+# comentario de `networkChangeBridge` logo acima (ver OWNER-DECISIONS-REGISTER R-001).
 # ---------------------------------------------------------------------------
 consentRevocationBridge:
+  enabled: false
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+
+# ---------------------------------------------------------------------------
+# A2A fact-outbox relay (SC-01 / R-004) — Postgres outbox -> Kafka, at-least-once
+#
+# Deployment dedicado rodando `python -m maezo.a2a.outbox_relay` em loop (opcao B do memorando
+# M-04, ratificada — espelha o sibling `notificationsBridge` acima). Antes deste template, nada
+# no repo invocava o relay: `runtime/agent_runtime/a2a_composition.py` documenta que ele e'
+# "explicitly-invoked ... never auto-started" e que a entrega de fatos A2A e' uma decisao de
+# DEPLOYMENT — este bloco + `deployment-a2a-outbox-relay.yaml` SAO essa decisao. Mecanismo (lease
+# expiravel, `claimed_by`, batch/TTL parametricos) ja' pronto em `src/maezo/a2a/outbox_relay.py`;
+# faltava so' o invocador.
+# ---------------------------------------------------------------------------
+a2aOutboxRelay:
   enabled: true
   replicaCount: 1
+  # Linhas por sweep de drain (`A2A_OUTBOX_RELAY_BATCH_SIZE` — outbox.py `DEFAULT_BATCH_SIZE`).
+  batchSize: 100
+  # Segundos de espera entre sweeps QUANDO o sweep anterior nao achou nada
+  # (`A2A_OUTBOX_RELAY_POLL_INTERVAL_S` — outbox_relay.py `DEFAULT_POLL_INTERVAL_S`).
+  pollIntervalS: 2
   resources:
     requests:
       cpu: "50m"
@@ -515,7 +560,7 @@ aurora:
 # ---------------------------------------------------------------------------
 # Migrations Job — Helm hook pre-install/pre-upgrade. Roda `alembic upgrade head`
 # contra o schema-por-tenant ANTES dos runtimes subirem (cria audit_chain, agent_memory,
-# a2a_idempotency, indice de retencao + pgvector em public). Ver templates/job-migrations.yaml.
+# a2a_idempotency, indice de retencao). Ver templates/job-migrations.yaml.
 # Pre-requisito: o secret Aurora (ESO-synced) deve existir antes do helm upgrade.
 # ---------------------------------------------------------------------------
 migrations:
@@ -543,6 +588,30 @@ migrations:
 # ---------------------------------------------------------------------------
 lifecycle:
   enabled: true
+  # R-040/SC-07 (WP-GOVERNANCA-DPO, decidido 2026-09-04, OWNER-DECISIONS-REGISTER): os 3 CronJobs
+  # abaixo falham POR DESENHO hoje (fail-closed T2.8/T2.9 — nenhum dos tres esta implementado, ver
+  # src/maezo/platform/lifecycle/__init__.py). templates/cronjob-lifecycle.yaml grava este valor
+  # como anotacao `maezo.io/expected-fail-until` no jobTemplate de cada Job, e
+  # deploy/observability/alert-rules.yml exclui `MaezoLifecycleJobFailed` para jobs que carregam
+  # essa anotacao — sem ela, o scrape de kube-state-metrics (ALERTS-WITHOUT-METRICS-b / R-056)
+  # converte 3 falhas por desenho em alarme diario.
+  #
+  # CONDICAO DO OPERADOR (leia antes de contar com a exclusao): ela SO existe se o kube-state-metrics
+  # do cluster estiver rodando com `--metric-annotations-allowlist=jobs=[maezo.io/expected-fail-until]`.
+  # Esse exporter NAO e' deste chart nem deste repositorio (ver o comentario do job
+  # `kube-state-metrics` em deploy/observability/prometheus.yml) — sem essa flag a serie
+  # `kube_job_annotations{annotation_maezo_io_expected_fail_until=~".+"}` nunca materializa, o
+  # `unless` do alerta nao casa nada e `MaezoLifecycleJobFailed` PAGINA nas 3 falhas por desenho
+  # assim mesmo. E fail-open honesto (nunca um buraco fail-closed silencioso), mas e' fail-open:
+  # anotar aqui NAO fecha a exposicao sozinho, so' a torna fechavel pelo operador.
+  #
+  # NUNCA gravar o literal "AF-07" aqui — a data e
+  # o teto rastreado, a mesma que spec/policies/autonomy/action-approvals.yaml:151 ja torna
+  # merge-bloqueante. scripts/ci/check_lifecycle_expected_fail_expiry.py reprova a build a partir
+  # do dia seguinte a esta data (fail-closed, sem renovacao silenciosa) — quem sair do vermelho
+  # remove a anotacao (AF-07 fechou, os jobs agora sao reais e DEVEM paginar) ou renova a data em
+  # PR de dados revisado.
+  expectedFailUntil: "2026-11-11"
   # Teto de execucao por job (segundos) — bounded para nunca travar um Job.
   activeDeadlineSeconds: 1800
   resources:
@@ -579,14 +648,19 @@ lifecycle:
     # legivel e auto-documentado (Job falho em `kubectl get jobs`/failedJobsHistory + a mensagem-
     # bloqueador nos logs do pod). `suspend: true` seria mais quieto porem ESCONDERIA o sinal e,
     # emparelhado a uma futura implementacao do modulo, viraria uma armadilha silenciosa (basta
-    # des-suspender). NOTA (gap de monitoramento, T2.9): o alerta `MaezoLifecycleJobFailed` (grupo
-    # `maezo_lifecycle`, deploy/observability/alert-rules.yml) agora existe e casa com o rotulo
-    # `lifecycle-*` destes Jobs — mas ainda depende de um scrape kube-state-metrics (metric
-    # `kube_job_status_failed`) que NAO esta configurado em deploy/observability/prometheus.yml
-    # hoje; sem esse scrape a regra nao tem series para avaliar (nao dispara falso-positivo, so
-    # nao tem o que alertar ainda). Adicionar o scrape kube-state-metrics segue como follow-up. A
-    # recusa explicita continua sendo a defesa primaria (o modulo recusa; retention_query fica sem
-    # chamador, travado em CI).
+    # des-suspender). NOTA (gap de monitoramento, T2.9, atualizada ALERTS-WITHOUT-METRICS-b /
+    # R-056 2026-09-04): o alerta `MaezoLifecycleJobFailed` (grupo `maezo_lifecycle`,
+    # deploy/observability/alert-rules.yml) casa com o rotulo `lifecycle-*` destes Jobs, e o job
+    # `kube-state-metrics` (metric `kube_job_status_failed`) AGORA EXISTE em
+    # deploy/observability/prometheus.yml — mas so' resolve dentro de um cluster Kubernetes real:
+    # kube-state-metrics e' assumido cluster-provided (ships COM kube-prometheus-stack nos
+    # clusters de tenant que rodam o operator — a mesma suposicao que
+    # templates/podmonitor.yaml ja faz para o prometheus-operator em si; ver
+    # docs/runbooks/devops-stack.md). O docker-compose de dev nao tem API do Kubernetes, entao o
+    # alvo fica "down" la' por design (nao e' defeito, e' ausencia de cluster) e a regra continua
+    # sem serie para avaliar nesse ambiente (nao dispara falso-positivo). A recusa explicita
+    # continua sendo a defesa primaria (o modulo recusa; retention_query fica sem chamador,
+    # travado em CI).
     - name: audit-retention
       command: "audit-retention"
       schedule: "0 5 1 * *"

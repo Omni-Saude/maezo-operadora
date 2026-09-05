@@ -133,6 +133,24 @@ Uma instancia por guia TISS; reenvio retorna a instancia ativa.
 | `auto_criteria_shadow` | json | MODO SOMBRA: o que cada tabela DRAFT TERIA decidido — `{TECNICO,REGULATORIO,CONTRATUAL}_SOMBRA_{APROVARIA,REPROVARIA,INDETERMINADO}`. Evidencia de ratificacao para o revisor medico/ANS. **Nunca influencia o veredito** |
 | `motivo_bloqueio_criterios` | string | O PRIMEIRO token de `auto_criteria_falhas` na ordem tecnico->financeiro->regulatorio->contratual (`""` quando tudo passou). Token unico e limitado porque a cadeia ADR-0007 nao aceita listas — mesmo idioma de `motivo_bloqueio_teto` |
 
+## Variaveis de proveniencia do agente (Rafael — ADR-0007/ADR-0015)
+
+Convencao repo-wide de nao-repudio (ADR-0007) e delegacao A2A (ADR-0015) — nao especifica de AUTH
+(mirror `source_agent_id`/`source_agent_version` de `docs/processes/contracts/SP-OP-ESCALATION-001.md`).
+Semeadas por `RafaelGraph._contract_variables` (`src/maezo/agents/rafael/graph.py`) junto com as
+variaveis de entrada; NENHUMA delas e uma decisao de cobertura — so proveniencia, dossie instrutivo
+e roteamento humano (CC-13 — Agent Fleet Audit: antes deste registro, `_contract_variables` as
+emitia sem declaracao no contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `source_agent_id` | string | nao | Agente que preparou o dossie de auditoria medica (`rafael`) — cadeia de nao-repudio (ADR-0007) |
+| `source_agent_version` | string | nao | Versao do agente Rafael que preparou o dossie (auditoria ADR-0007) |
+| `dossie_rafael` | json | nao | Dossie factual de admissibilidade/cobertura montado por Rafael — instrui `UT_AnaliseMedicoAuditor`/`UT_RegistrarParecerJunta`; carrega `decisao_cobertura` sempre `None` (Rafael NUNCA decide a cobertura) |
+| `rafael_route` | string | nao | Roteamento do grafo do Rafael (`auto_approve` \| `human_auditor`) — espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Presente so quando `rafael_route=human_auditor`; motivo do encaminhamento a auditoria medica (`dmn_analise_humana` \| `documentacao_pendente` \| `dmn_indisponivel` \| `outro`) |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra) das DMN que Rafael consultou (`auth_admissibility`/`auth_auto_approval`/`auth_sla`) — cadeia de decisao (ADR-0007/ADR-0012) |
+
 ## Topicos
 
 | Tipo | Topico | Sentido | Quando |
@@ -201,6 +219,39 @@ out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria
 | Negativa por escrito | registro COMPOSTO pelo worker `send_denial_notice`; a TRANSMISSAO em si nao tem canal implementado (Fase 1) | — | RN 395 art. 10 (24h) — **DRAFT/verify** |
 
 Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — valores conservadores. Resolver calendario util no worker.
+
+## Desfecho de agente: falha de start (CC-01)
+
+| Desfecho | Onde vive | Quem escreve | Significado |
+|---|---|---|---|
+| `erro_inicio_processo` | **estado do agente rafael** — NAO e variavel de processo | no `notify_start_failure` do grafo, via o helper unico `maezo.runtime.start_outcome.notify_start_failure` | o agente TENTOU iniciar SP-OP-AUTH-001 pelo chokepoint `start_process_idempotent` e o engine recusou (`CibSevenError`). NENHUMA instancia nasceu |
+
+ONDE ESTE VALOR **NAO** ESTA, e por que. Ele nunca chega ao engine: nao consta de
+`## Variaveis de entrada` nem de `## Variaveis de saida`, nao tem `bpmnError` associado, nao
+aparece em nenhum `camunda:` do BPMN e **nao exige mudanca nenhuma no BPMN deste processo**. Nao
+poderia ser diferente — o processo NAO nasceu, entao nao existe instancia onde gravar uma
+variavel nem escopo onde lancar um erro. Ele e declarado AQUI, no contrato, porque e um desfecho
+CONTRATUAL do agente que serve este processo e porque quem consome o estado do agente (o handler
+A2A, um golden de eval, uma regra de alerta) precisa do literal exato e estavel.
+
+POR QUE ELE EXISTE (auditoria de frota 2026-09-04, achado CC-01). Ate essa data a falha de start
+era engolida: o `except CibSevenError` do no de start devolvia apenas `process_started=false` e a
+aresta seguinte era INCONDICIONAL para um terminal no-op, de modo que o desfecho de SUCESSO ja
+gravado a montante (`encaminhado_auditor`) sobrevivia — o estado do agente AFIRMAVA um fato que nao
+aconteceu. E o caso se perdia em silencio, porque os prazos desta especificacao vivem em timers
+da instancia BPMN que nunca nasceu: sem SLA, sem alerta, sem retry.
+
+EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
+
+* `process_started = false` (e, quando o agente distingue no-ops legitimos, o marcador
+  `start_failed = true`, que e o que a aresta condicional le);
+* `record_agent_error()` -> `maezo_agent_errors_total`, o contador que a regra
+  `MaezoAgentCrashLoop` observa;
+* evento estruturado `agent_process_start_failed` com a business key idempotente deste contrato —
+  este evento e o SUBSTITUTO operacional do prazo enquanto a instancia nao existe;
+* RETRY seguro por construcao: `start_process_idempotent` e idempotente por business key, entao
+  uma reentrega reencontra a instancia viva (`ALREADY_ACTIVE`) em vez de abrir uma segunda.
+
 
 ## Codigos de erro
 

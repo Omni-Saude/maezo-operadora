@@ -50,6 +50,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from maezo.a2a import Budget, DelegationEnvelope, HandlerOutput
 from maezo.a2a.dispatcher import origin_signer_of
+from maezo.runtime.metrics import classify_agent_error_type
+from maezo.runtime.start_outcome import StartProcessFailedError
 
 from .graph import (
     _CALLER_INPUT_FIELDS,
@@ -294,7 +296,7 @@ def make_carolina_handler(
         state = state_from_envelope(envelope)
         try:
             result: dict[str, Any] = await compiled.ainvoke(state)
-        except Exception:
+        except Exception as exc:
             # ALERTS-WITHOUT-METRICS-a: a delegated turn that raised IS a failed agent turn, and
             # `maezo_agent_errors_total` is what `MaezoAgentCrashLoop` reads. Placed at the
             # `ainvoke` seam — the structural entry to a graph run — and NOT anywhere in carolina's
@@ -305,9 +307,20 @@ def make_carolina_handler(
             # test_every_graph_invocation_in_src_counts_agent_errors`.
             from maezo.platform.observability import record_agent_error  # noqa: PLC0415
 
-            record_agent_error()
+            record_agent_error(agent="carolina", error_type=classify_agent_error_type(exc))
             raise
         business_key = result.get("business_key") or _business_key(state)
+        if result.get("start_failed") is True:
+            # RAF-02: o grafo TENTOU abrir o processo e o engine recusou. Devolver
+            # `HandlerOutput` aqui seria um sucesso para o dispatcher (`HandlerOutput` nao tem
+            # campo `success`): ele gravaria o audit terminal `_DECISION_COMPLETED`, emitiria o
+            # fato COMPLETED e SELARIA o resultado por `task_id` — tornando o falso sucesso
+            # irretentavel. A excecao tipada propaga, entao nada disso acontece e a reentrega do
+            # mesmo `task_id` reexecuta o handler. So tokens de classe na mensagem, nunca PHI.
+            raise StartProcessFailedError(
+                f"carolina nao conseguiu iniciar SP-OP-CRED-001 "
+                f"(business_key={business_key!r}): o turno NAO foi concluido"
+            )
         # GUARDRAIL: output_ref is the process business key — never a (des)credenciamento
         # decision. The dossier (whose `decisao_credenciamento`/`decisao_descredenciamento` are
         # structurally always None, `graph.py`'s own L1 guardrail) is deliberately NOT forwarded

@@ -71,6 +71,19 @@ here; disclosed, not hidden):
   `_OUTPUT_FIELDS_RESET` resets every output-only field on entry (plus `_escalate_min`'s
   explicit `dmn_refs` clear) — same defect class and fix shape as the sibling agents' cycles.
 
+INPUT-BOUNDARY GATE (T1.11 layer 1 — CC-14/LUC-09a/RAF-13; the F2 reset above is layer 2). The
+reset is a HAND-ENUMERATED list, so a `LucasState` field added later would be silently un-reset
+AND silently caller-settable — the drift `spec/agents/lucas/agent.yaml` recorded as the open
+security prerequisite for any inbound channel (gap 11.7). Layer 1 closes it: `_CALLER_INPUT_FIELDS`
+declares the complete INPUT half, an import-time guard REFUSES TO LOAD THE MODULE if any state key
+is unclassified (or double-classified), and `new_lucas_state` (strict, raises `ValueError` naming
+the keys) / `gate_inbound_state` (lenient, drops + logs key NAMES only) are the two construction
+seams. WHAT THIS DOES NOT DO: it does not give Lucas an inbound channel. Gap 11.7 stays open —
+`accepted_task_types` is still `[]` and a beneficiary reply still arrives, if at all, through
+Helena's single webhook without billing context. The gate is the ORDERED PREREQUISITE, built so
+the seam is gated on the day it lands (CC-02), which is the posture `agents/rafael/graph.py`
+already took for its own absent delegation seam.
+
 PHI discipline: every LLM call in this module passes `phi=True` (ADR-0006/ADR-0017/T1.7) — the
 one PHI-tagged content boundary is state derived from a beneficiary's billing case, treated the
 same as Helena's/Rafael's PHI-tagged content.
@@ -113,11 +126,22 @@ DIVERGENCES FROM THE v1 DONOR (disclosed, not hidden — `spec/` wins per this t
 
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol, TypedDict, cast
+from collections.abc import Mapping
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
+import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.start_outcome import (
+    notify_start_failure as emit_start_failure_notice,
+)
+from maezo.runtime.start_outcome import (
+    route_after_start,
+    start_failed_state,
+)
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -140,6 +164,8 @@ from .prompts import (
     escalation_ack_prompt,
     message_prompt,
 )
+
+logger = structlog.get_logger(__name__)
 
 PROCESS_KEY = "SP-OP-ESCALATION-001"
 
@@ -227,6 +253,10 @@ class WhatsAppSender(Protocol):
 # Literal-typed fields reset to "" (a value outside every allowlist — every consumer treats it
 # as absent/conservative); containers reset to their empty shape. `business_key` is re-derived
 # by `receive` itself (success path) or `start_process` (falsy -> `_business_key(state)`).
+# This dict is ALSO the OUTPUT half of the T1.11 input/output partition — see
+# `_CALLER_INPUT_FIELDS` below, whose import-time guard makes the two halves cover `LucasState`
+# exactly. Adding a key here without removing it from `_CALLER_INPUT_FIELDS` (or vice versa)
+# fails the module import, not a later test run.
 _OUTPUT_FIELDS_RESET: dict[str, Any] = {
     "gathered": False,
     "billing_facts": {},
@@ -242,8 +272,11 @@ _OUTPUT_FIELDS_RESET: dict[str, Any] = {
     "grupo_humano": "",
     "mensagem": {},
     "mensagem_enviada": False,
+    "ack_pending": False,
+    "retryable_error": False,
     "dossier": {},
     "process_started": False,
+    "start_failed": False,
     "business_key": "",
     "process_ref": {},
     "desfecho": "",
@@ -299,19 +332,146 @@ class LucasState(TypedDict, total=False):
     severidade: Severidade
     grupo_humano: str
 
-    # Filled by `respond_member` / `escalate_human`.
+    # Filled by `respond_member` / `escalate_human` / `send_escalation_ack`.
     mensagem: dict[str, Any]
     mensagem_enviada: bool
+    #: LUC-05: o ACK da escalacao ainda NAO foi ao beneficiario. True desde `escalate_human`
+    #: (que so monta o dossie) ate `send_escalation_ack` (que roda DEPOIS do start). Se o start
+    #: falha, permanece True — e o registro honesto de "prometemos nada a ninguem ainda".
+    ack_pending: bool
+    #: LUC-05: a falha e transitoria e o replay e seguro (business key idempotente).
+    retryable_error: bool
     dossier: dict[str, Any]
 
     # Filled by `start_process`.
     process_started: bool
+    #: CC-01: o start foi TENTADO e FALHOU tecnicamente (`except CibSevenError` de
+    #: `start_process`). NAO e a mesma coisa que `process_started is False`, que tambem cobre
+    #: no-ops legitimos; e este marcador — e so ele — que a aresta condicional le.
+    start_failed: bool
     business_key: str
     process_ref: dict[str, Any]
 
     # Output.
     desfecho: str
     error: str
+
+
+# --- Input boundary (T1.11 layer 1: partition + constructor) -----------------------------------
+#
+# `LucasState` carries TWO disjoint classes of key. Until CC-14 Lucas had ONLY layer 2 — the
+# `receive`-entry reset of the HAND-ENUMERATED `_OUTPUT_FIELDS_RESET` above — which is exactly
+# the gap `spec/agents/lucas/agent.yaml` recorded as the security PRE-REQUISITE for any future
+# inbound channel (gap 11.7). A hand list neutralizes the output fields somebody remembered to
+# list; a state field added later is silently un-reset AND silently caller-settable.
+#   * INPUT-ONLY  (`_CALLER_INPUT_FIELDS`): the ONLY keys a caller/upstream may set — the runtime
+#     identifiers, the turn's `intencao`/request fields, and the PRE-RESOLVED CNAB conciliation
+#     facts this graph CONSUMES and never computes (module docstring's L0-hard invariant).
+#   * OUTPUT-ONLY (`_OUTPUT_FIELDS_RESET`): keys OWNED by this graph's nodes (route, the DMN
+#     verdicts, motivo_*/severidade/grupo_humano, mensagem*, dossier, process_*, desfecho,
+#     error). A caller must NEVER set one — that is literally the R1 cycle-1 F2 defect, whose
+#     live probe watched a planted `dmn_refs` entry reach `dmn_decision_refs` in
+#     SP-OP-ESCALATION-001 (module docstring §R1 CYCLE-1).
+#
+# TWO defenses, both fail-closed (mirrors `agents/helena/graph.py`, the sibling that owns the one
+# WhatsApp webhook Lucas's beneficiary replies would arrive through):
+#   1. Per-graph entry sanitization (layer 2, pre-existing) — `receive` resets EVERY output-only
+#      field on EVERY branch before any downstream node runs.
+#   2. Input-boundary gate (layer 1, THIS block) — a construction seam assembles state ONLY
+#      through the typed `new_lucas_state` constructor or the `gate_inbound_state` allowlist
+#      filter, so an output-only key can never enter the state dict at all.
+#
+# WHY IT EXISTS BEFORE THE SEAM DOES. Lucas declares `accepted_task_types: []` and has no inbound
+# channel of his own (agent.yaml gap 11.7 — STILL OPEN; this block does NOT close it and does not
+# claim to). The gate is the ORDERED prerequisite: it is built now so the day a channel lands it
+# is gated by construction, the same posture `agents/rafael/graph.py` took.
+#
+# The completeness guard below fails at IMPORT TIME if a newly added `LucasState` field is not
+# classified into exactly one of the two sets — "any missed key is a hole".
+_CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
+    {
+        # Runtime identifiers (injected by the calling layer at turn start).
+        "tenant_id",
+        "conversation_id",
+        "canal",
+        "beneficiario_pseudo_id",
+        "to_hash",
+        # Turn input — `intencao` selects the JOURNEY, never a merit Lucas decides. It is an
+        # INPUT on purpose: `receive` validates it against `_VALID_INTENCOES` and fails closed to
+        # `ambiguidade`, so a hostile value cannot pick a journey, only forfeit the turn.
+        "intencao",
+        "tipo_solicitacao",
+        "numero_boleto",
+        "competencia",
+        # Pre-resolved by the deterministic CNAB conciliation worker upstream — CONSUMED, never
+        # computed here. These are FACTS a caller may assert; every VERDICT derived from them
+        # (`admissibilidade`, `roteamento_escalacao`, `route`, `severidade`) is output-only.
+        "status_conciliado",
+        "ciclos_sem_conciliacao",
+        "contesta_cobranca",
+        "pedido_cancelamento",
+        "cnab_ref",
+    }
+)
+
+_LUCAS_ALL_FIELDS: frozenset[str] = _CALLER_INPUT_FIELDS | frozenset(_OUTPUT_FIELDS_RESET)
+if frozenset(LucasState.__annotations__) != _LUCAS_ALL_FIELDS:
+    _unclassified = frozenset(LucasState.__annotations__) - _LUCAS_ALL_FIELDS
+    _stale = _LUCAS_ALL_FIELDS - frozenset(LucasState.__annotations__)
+    raise RuntimeError(
+        "LucasState input/output field split is incomplete (T1.11 input-boundary gate, CC-14): "
+        f"unclassified fields={sorted(_unclassified)} stale entries={sorted(_stale)} — every "
+        "LucasState key MUST be either a `_CALLER_INPUT_FIELDS` member or carry a neutral "
+        "default in `_OUTPUT_FIELDS_RESET`."
+    )
+if _CALLER_INPUT_FIELDS & frozenset(_OUTPUT_FIELDS_RESET):
+    raise RuntimeError(
+        "LucasState field classified as BOTH input and output (T1.11 input-boundary gate, "
+        f"CC-14): {sorted(_CALLER_INPUT_FIELDS & frozenset(_OUTPUT_FIELDS_RESET))}"
+    )
+
+
+def new_lucas_state(raw: Mapping[str, Any]) -> LucasState:
+    """Typed input-boundary constructor for a fresh Lucas turn (T1.11 layer 1).
+
+    Accepts a raw mapping — the shape a future inbound channel (an A2A envelope, or a
+    billing-context webhook handler) would hand over — and returns a `LucasState` containing ONLY
+    `_CALLER_INPUT_FIELDS` keys.
+
+    An unknown key is a HARD ERROR, and the error NAMES the offending keys: an internal seam is a
+    contract, so a stray key means a producer bug and must fail closed, LOUDLY. Mirrors
+    `agents/rafael/graph.py::new_rafael_state` and `agents/helena/graph.py::new_helena_state`.
+
+    The two error classes (an output-only key vs a wholly-unknown key) are deliberately NOT
+    distinguished beyond the key list — telling a hostile caller which of its keys the state
+    model recognizes is a hint it does not need.
+    """
+    unknown = sorted(k for k in raw if k not in _CALLER_INPUT_FIELDS)
+    if unknown:
+        raise ValueError(
+            "new_lucas_state received non-input keys (T1.11 input-boundary gate): "
+            f"{unknown} — only `_CALLER_INPUT_FIELDS` may be set by a caller/inbound seam; "
+            "output-only fields are owned by Lucas's graph nodes."
+        )
+    return cast(LucasState, {k: raw[k] for k in _CALLER_INPUT_FIELDS if k in raw})
+
+
+def gate_inbound_state(raw: Mapping[str, Any]) -> LucasState:
+    """Fail-closed input allowlist (drop-and-log variant of `new_lucas_state`).
+
+    Only `_CALLER_INPUT_FIELDS` keys survive; every other key — any caller-planted output field,
+    any unknown key — is DROPPED and LOGGED. Use where tolerating benign upstream drift is
+    preferable to raising (a lenient ingestion edge, e.g. a WhatsApp webhook payload); use
+    `new_lucas_state` on a strict internal delegation seam.
+
+    LOG HYGIENE: the event carries the dropped KEY NAMES only, never their values — a planted
+    value is unbounded caller-controlled content, the same reason `receive`'s failure reasons are
+    bounded class tokens that never echo `intencao`.
+    """
+    dropped = sorted(k for k in raw if k not in _CALLER_INPUT_FIELDS)
+    if dropped:
+        logger.warning("lucas_inbound_output_fields_dropped", dropped=dropped)
+    return cast(LucasState, {k: raw[k] for k in _CALLER_INPUT_FIELDS if k in raw})
 
 
 # --- Helpers -----------------------------------------------------------------------------------
@@ -363,6 +523,26 @@ def _severidade_humano(motivo: MotivoHumano) -> Severidade:
 
 
 # --- Graph -----------------------------------------------------------------------------------
+
+
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+_FATOS_BOOLEANOS_MENSAGEM: Final[dict[str, str]] = {
+    "status_conciliado": "pagamento conciliado no CNAB",
+}
+
+#: O dossie de escalacao (J3) acrescenta os dois sinais de contestacao/cancelamento — a
+#: mensagem ao beneficiario nao os menciona.
+_FATOS_BOOLEANOS_DOSSIE: Final[dict[str, str]] = {
+    "status_conciliado": "pagamento conciliado no CNAB",
+    "contesta_cobranca": "beneficiario contesta a cobranca",
+    "pedido_cancelamento": "ha pedido de cancelamento",
+}
 
 
 class LucasGraph:
@@ -593,21 +773,19 @@ class LucasGraph:
 
         dossier = await self._build_dossier(state)
 
-        enviada = False
-        to_hash = state.get("to_hash")
-        if to_hash and state.get("canal", "whatsapp") == "whatsapp":
-            ack_text = await self._build_escalation_ack(state)
-            try:
-                await self._whatsapp.send(to_hash, ack_text)
-                enviada = True
-            except Exception:  # noqa: BLE001 — best-effort ack, never blocks the handoff.
-                pass
-
+        # LUC-05 (ORDEM): este no NAO fala mais com o beneficiario. Ate 2026-09-04 o ACK ("um
+        # atendente humano vai continuar") saia DAQUI, ANTES de `start_process` — e quando o
+        # start falhava, o `except CibSevenError` so gravava `process_started=False`, o desfecho
+        # seguia `escalado_humano` e o turno terminava calado: o beneficiario informado de que um
+        # humano assumiria, e ZERO instancias de SP-OP-ESCALATION-001 existindo. O envio migrou
+        # para `send_escalation_ack`, alcancavel SO pelo ramo de sucesso da aresta condicional
+        # que sai de `start_process`. `ack_pending` registra a divida ate la.
         return {
             **defaults,
             "route": "escalate_human",  # authoritative stamp (F1a) — never inferred downstream
             "dossier": dossier,
-            "mensagem_enviada": enviada,
+            "mensagem_enviada": False,
+            "ack_pending": True,
             "desfecho": "escalado_humano",
         }
 
@@ -652,11 +830,10 @@ class LucasGraph:
                 provenance=provenance,
             )
         except CibSevenError as exc:
-            return {
-                "process_started": False,
-                "business_key": business_key,
-                "error": f"start_process indisponivel: {exc}",
-            }
+            # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
+            # `start_failed`, que e o que `route_after_start` le para desviar a
+            # `notify_start_failure` em vez de seguir calado para o terminal.
+            return start_failed_state(business_key=business_key, error=f"start_process indisponivel: {exc}")
         return {
             "process_started": True,
             "business_key": business_key,
@@ -667,8 +844,62 @@ class LucasGraph:
             },
         }
 
+    async def send_escalation_ack(self, state: LucasState) -> dict[str, Any]:
+        """LUC-05: o ACK ao beneficiario — SO depois que a escalacao existe de verdade.
+
+        GUARDA: so envia quando a rota e `escalate_human` E o start reportou uma instancia viva
+        (`process_started`, que em Lucas cobre STARTED e ALREADY_ACTIVE). A jornada informativa
+        (`respond_member`), que nunca abre processo, passa por aqui como no-op — ela ja respondeu
+        no seu proprio no.
+
+        O envio continua best-effort (uma falha de WhatsApp nao pode desfazer uma escalacao que
+        JA existe no engine), mas agora `mensagem_enviada` conta a verdade e `ack_pending`
+        registra o que ficou por entregar.
+        """
+        if state.get("route") != "escalate_human" or state.get("process_started") is not True:
+            return {}
+        to_hash = state.get("to_hash")
+        if not to_hash or state.get("canal", "whatsapp") != "whatsapp":
+            return {"ack_pending": True}
+
+        ack_text = await self._build_escalation_ack(state)
+        try:
+            await self._whatsapp.send(to_hash, ack_text)
+        except Exception:  # noqa: BLE001 — best-effort ack, never undoes a live escalation.
+            return {"mensagem_enviada": False, "ack_pending": True}
+        return {"mensagem_enviada": True, "ack_pending": False, "desfecho": "escalado_humano"}
+
+    async def notify_start_failure(self, state: LucasState) -> dict[str, Any]:
+        """CC-01: o start FALHOU — grava o desfecho de erro e ALERTA, em vez de seguir calado.
+
+        Ate CC-01 a aresta que saia de `start_process` era INCONDICIONAL: o turno chegava ao
+        terminal com o `desfecho` de SUCESSO que um no a montante ja havia gravado, afirmando um
+        fato que nao aconteceu, e sem prazo nenhum — o timer de SLA vive na instancia BPMN que
+        nunca nasceu. O corpo deste no e o helper compartilhado
+        (`maezo.runtime.start_outcome.notify_start_failure`): uma definicao para os 9 agentes,
+        nunca 9 copias.
+
+        LUC-05: `ack_pending`/`retryable_error` viajam junto porque o ACK ao
+        beneficiario NAO foi enviado (ele migrou para `send_escalation_ack`, depois do
+        start) e porque o replay e seguro — `start_process_idempotent` e idempotente por
+        business key, entao uma retentativa reencontra a instancia viva em vez de abrir
+        uma segunda.
+        """
+        return emit_start_failure_notice(
+            dict(state),
+            agent_id="lucas",
+            process_key=PROCESS_KEY,
+            extra={"mensagem_enviada": False, "ack_pending": True, "retryable_error": True},
+        )
+
     async def complete(self, state: LucasState) -> dict[str, Any]:
-        """Terminal node — no further computation; `desfecho` was already set upstream."""
+        """Terminal node — no further computation; `desfecho` was already set upstream.
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn (`route`/`motivo_categoria`/
+        `mensagem_enviada` were already set by `respond_member`/`escalate_human`/
+        `send_escalation_ack` and survive in the merged `state` this node receives).
+        """
+        emit_turn_desfecho(state, agent_id="lucas")
         return {}
 
     # -- Conditional routing ------------------------------------------------------------------
@@ -707,9 +938,19 @@ class LucasGraph:
         resumo = str(dossier.get("narrativa", "")) or (
             f"Encaminhamento automatico ({state.get('motivo_humano') or 'outro'})."
         )
-        # `or`-fallbacks (not `.get(k, default)`) on the output-only fields: after `receive`'s
-        # R1 cycle-1 F2 reset these keys are PRESENT but "" until a node writes them — the
-        # engine variables must carry well-formed class tokens, never an empty string.
+        # LUCAS-MOTIVO-SEVERIDADE-DEFAULTS: NO `or`-fallback on `motivo_categoria`/`severidade`
+        # — both are Literal-typed contract fields (`:221,:226` domains), and inventing a
+        # well-formed-looking class token (`"outro"`/`"moderada"`) for a value this graph never
+        # actually determined is the SAME class of bug GAP-ESC-SEVERITY-GROUP fixed one layer
+        # down, in the worker (`escalation.py::_exigir_severidade`/`_rotulo_opcional_validado`):
+        # a fabricated label reads as authoritative and is indistinguishable from a real one.
+        # After `receive`'s R1 cycle-1 F2 reset these keys are PRESENT but `""` until `assess`/
+        # `escalate_human`/`_escalate_min` write a real value (every real path does); an
+        # UNRESOLVED `""` now rides through verbatim — `severidade` (contract-mandatory) refuses
+        # fail-closed at the ALREADY-fixed worker boundary (never silently `moderada`), and
+        # `motivo_categoria` (optional, ESC-D1-MOTIVO-STRICTER-THAN-R7) is simply treated as
+        # absent there — never silently `outro`. Every other field below keeps its plain
+        # `.get(k, "")`: those are free-text/administrative, not closed-domain contract tokens.
         variables: dict[str, Any] = {
             "tenant_id": state.get("tenant_id", ""),
             "source_agent_id": "lucas",
@@ -717,8 +958,8 @@ class LucasGraph:
             "conversation_id": state.get("conversation_id", ""),
             "beneficiario_pseudo_id": state.get("beneficiario_pseudo_id", ""),
             "canal": state.get("canal", "whatsapp"),
-            "motivo_categoria": state.get("motivo_categoria") or "outro",
-            "severidade": state.get("severidade") or "moderada",
+            "motivo_categoria": state.get("motivo_categoria", ""),
+            "severidade": state.get("severidade", ""),
             "resumo_contexto": resumo,
         }
         dmn_refs = state.get("dmn_refs")
@@ -743,7 +984,9 @@ class LucasGraph:
             "admissibilidade": state.get("admissibilidade"),
             "dmn_refs": state.get("dmn_refs", {}),
         }
-        prompt = f"{message_prompt()}\n\nfatos={facts}"
+        prompt = (
+            f"{message_prompt()}\n\n{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_MENSAGEM)}"
+        )
         try:
             texto = await self._llm.generate(
                 prompt,
@@ -794,7 +1037,10 @@ class LucasGraph:
             "dmn_refs": state.get("dmn_refs", {}),
             "lacunas_enriquecimento": state.get("gather_notes", []),
         }
-        prompt = f"{dossier_prompt()}\n\nmotivo_humano={state.get('motivo_humano')}\nfatos={facts}"
+        prompt = (
+            f"{dossier_prompt()}\n\nmotivo_humano={state.get('motivo_humano')}\n"
+            f"{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_DOSSIE)}"
+        )
         try:
             narrativa = await self._llm.generate(
                 prompt,
@@ -844,6 +1090,8 @@ class LucasGraph:
         g.add_node("respond_member", self.respond_member)
         g.add_node("escalate_human", self.escalate_human)
         g.add_node("start_process", self.start_process)
+        g.add_node("notify_start_failure", self.notify_start_failure)
+        g.add_node("send_escalation_ack", self.send_escalation_ack)
         g.add_node("complete", self.complete)
 
         g.add_edge(START, "receive")
@@ -854,7 +1102,17 @@ class LucasGraph:
         )
         g.add_edge("respond_member", "start_process")
         g.add_edge("escalate_human", "start_process")
-        g.add_edge("start_process", "complete")
+        # CC-01: a aresta que sai de `start_process` e CONDICIONAL. Uma falha tecnica de
+        # start desvia para `notify_start_failure` (desfecho de erro + alerta); qualquer
+        # outro caminho — incluindo os no-ops legitimos com `process_started=False` —
+        # segue para o terminal de sempre. O predicado e compartilhado (uma definicao).
+        g.add_conditional_edges(
+            "start_process",
+            route_after_start,
+            {"notify_start_failure": "notify_start_failure", "continue": "send_escalation_ack"},
+        )
+        g.add_edge("notify_start_failure", END)
+        g.add_edge("send_escalation_ack", "complete")
         g.add_edge("complete", END)
         return g
 

@@ -20,6 +20,13 @@ This module provides:
     Kafka message in, `NotificationBridge.on_event(...)` out. Fail-closed on a malformed message
     (`MalformedBridgeMessageError`) — never silently drops or misclassifies a bad message as "no
     rule matched".
+  - `_record_sla_alert_outcome` (R-104, WP-ALERTA-SLA-CANAL) — the OBSERVATION half of the
+    SLA-risk alert route. The EFFECT half is three handoff rules in `platform/notification_bridge.py`
+    that start SP-OP-ESCALATION-001 through the fenced chokepoint, so an SLA alert becomes a
+    `camunda:candidateGroups`-routed User Task a human sees; this function counts/warns what
+    `on_event` did with it, including the two cases `on_event` cannot distinguish (a known `type`
+    left dormant by a missing anchor, and an unknown `<dominio>.notify_sla_risk` shape). No BPMN
+    change, no new process key, no raw engine call: this ADDS a human touchpoint, never removes one.
   - `run_consumer_loop` — drives the handler over ANY `BridgeKafkaConsumer` (real or fake); fully
     exercised in unit tests against the fake.
   - `main()` — composition root: builds the real transport/audit-sink/consumer and runs the loop
@@ -77,7 +84,11 @@ DLQ removes the second scale-out blocker: one poison message no longer stalls a 
 every entity behind it. What is NOT decided here and stays owner-gated: the REPLICA COUNT itself
 and the chart values that carry it (`deploy/`, slice SC-04-b — see `docs/review-queue.md`). Two
 operational facts an operator must know before flipping it: (a) parallelism is capped by the
-topic's partition count (registry default 3, `topic_registry.py:75`) — replicas beyond that idle;
+topic's partition count (registry default 3, `topic_registry.py::TopicEntry.partitions` dataclass
+default — cited by symbol, not line, because the line has already drifted once; per R-070 this
+default is DECLARED INTENT, not a fact confirmed against the real broker: no `AdminClient`
+call site reconciles it, and the reconciliation job is tracked as a `WP-DEPLOY-P0` item to land
+alongside the Kafka broker provisioning) — replicas beyond that idle;
 (b) `enable_auto_commit=False` plus the commit-after-dispatch order below keeps at-least-once
 delivery per replica, and the downstream `start_process_idempotent` fence is what makes a
 re-delivery converge instead of double-starting.
@@ -102,15 +113,21 @@ from maezo.gateway.audit_postgres import PostgresAuditSink
 from maezo.gateway.seams.cibseven import GatedCibSevenTransport
 from maezo.gateway.tool_registry import (
     BRIDGE_PRINCIPAL,
+    agent_credential,
     build_cibseven_seam,
+    build_worker_credential_view,
     build_worker_seam_context,
     effect_seams_gated,
 )
 from maezo.platform.notification_bridge import (
+    PROCESS_KEY_ESCALATION,
+    SLA_ALERT_DOMAINS,
+    SLA_ALERT_TYPE_SUFFIX,
     HandoffResult,
     NotificationBridge,
     build_cibseven_process_starter,
 )
+from maezo.platform.observability import record_sla_alert_human_task
 from maezo.platform.topic_registry import dlq_topic_for
 from maezo.tools.mcp_cibseven.transport import DedupReportingAuditSink
 from maezo.tools.workers.phi_vars import redact_error_message
@@ -222,14 +239,114 @@ async def handle_bridge_message(bridge: NotificationBridge, message: Any) -> lis
     A genuine handoff failure for a WELL-FORMED, rule-matching message propagates
     `NotificationBridgeHandoffFailedError` unchanged (EB-3 part 1) — this function adds no
     additional try/except around `on_event`, so the fail-closed behavior lives in exactly one
-    place (`notification_bridge.py`), not duplicated here.
+    place (`notification_bridge.py`), not duplicated here. That is also why
+    `_record_sla_alert_outcome` runs AFTER the await and not around it: a failed escalation start
+    can never be counted as one that reached a human.
     """
     if not isinstance(message, Mapping):
         raise MalformedBridgeMessageError("not a JSON object", message, code=REASON_NOT_A_JSON_OBJECT)
     event_type = message.get("type")
     if not isinstance(event_type, str) or not event_type.strip():
         raise MalformedBridgeMessageError("missing/blank 'type' field", message, code=REASON_MISSING_TYPE)
-    return await bridge.on_event(event_type, dict(message))
+    results = await bridge.on_event(event_type, dict(message))
+    _record_sla_alert_outcome(event_type, results)
+    return results
+
+
+# ---------------------------------------------------------------------------
+# SLA-risk alert -> human task: the OBSERVATION side (R-104, WP-ALERTA-SLA-CANAL)
+#
+# The EFFECT lives in `platform/notification_bridge.py`: three handoff rules that start
+# SP-OP-ESCALATION-001 through the fenced `start_process_idempotent` chokepoint, so the alert
+# becomes a `camunda:candidateGroups`-routed User Task a human actually sees. `bridge.on_event`
+# above already runs them — there is no second dispatch path here and no raw engine call.
+#
+# What this section adds is the part `on_event` cannot do, because it is keyed on EQUALITY and a
+# `type` it does not know is simply "no rule matched": telling apart the three outcomes an SLA
+# alert can have, and making the two non-success ones VISIBLE.
+#   - `escalated`           — a rule matched and the chokepoint returned an instance id.
+#   - `not_anchored`        — a KNOWN SLA `type` whose payload lacked `tenant_id` or its business-key
+#                             anchor, so the rule stayed fail-closed dormant (no degenerate key).
+#   - `unrecognised_shape`  — a `<dominio>.notify_sla_risk` `type` this bridge does not know: a
+#                             tenth worker wired to publish before `_SLA_ALERT_SPECS` learned it.
+# The last two are WARNINGs plus a counted sample, never a silent pass-through.
+#
+# A start FAILURE is not one of the three: `on_event` raises `NotificationBridgeHandoffFailedError`
+# (EB-3 part 1) before this function is reached, so nothing here can label a failed escalation as
+# `escalated`. The existing fail-closed path owns it — the exception propagates out of
+# `run_consumer_loop`, the offset is NOT committed, and redelivery re-attempts the (idempotent)
+# start. That is deliberate: a counter sample is not a substitute for not acking the message.
+# ---------------------------------------------------------------------------
+
+#: Counter label for a `<dominio>.notify_sla_risk` `type` outside `SLA_ALERT_DOMAINS`. The raw
+#: `type` is producer-controlled, so it is logged (bounded field) but NEVER used as a label —
+#: `maezo_sla_alert_human_task_total`'s label set stays closed and cardinality-bounded, the same
+#: rule `record_bridge_dlq` documents.
+_SLA_ALERT_DOMAIN_UNKNOWN: Final[str] = "unknown"
+
+#: The closed `outcome` vocabulary — see the section comment for what each one means.
+SLA_ALERT_OUTCOME_ESCALATED: Final[str] = "escalated"
+SLA_ALERT_OUTCOME_NOT_ANCHORED: Final[str] = "not_anchored"
+SLA_ALERT_OUTCOME_UNRECOGNISED_SHAPE: Final[str] = "unrecognised_shape"
+
+
+def _record_sla_alert_metric(*, alert_domain: str, outcome: str) -> None:
+    """Emit `maezo_sla_alert_human_task_total{alert_domain,outcome}`. Never fails the dispatch.
+
+    NARROW, NOT BLIND (the neighbouring `BridgeDlqShunt._record_metric` still catches
+    `Exception`; this one does not, and the difference is deliberate). The two failure modes this
+    call really has are enumerable: `ImportError`, if `observability._get_metrics_collector`'s
+    lazy `maezo.runtime.metrics` import cannot resolve, and `ValueError`, which is what
+    `prometheus_client` raises for a duplicated registration or a wrong label set. Anything else
+    coming out of a counter increment is a bug this module must not hide, so it propagates — and
+    propagating is SAFE here precisely because the escalation already started and the start is
+    idempotent by business key: a redelivery converges on the same instance instead of opening a
+    second task.
+    """
+    try:
+        record_sla_alert_human_task(alert_domain=alert_domain, outcome=outcome)
+    except (ImportError, ValueError):
+        logger.debug(
+            "notifications_bridge.sla_alert_metric_failed", alert_domain=alert_domain, outcome=outcome
+        )
+
+
+def _record_sla_alert_outcome(event_type: str, results: Sequence[HandoffResult]) -> None:
+    """Observe what `bridge.on_event` just did with an SLA-risk alert (R-104).
+
+    A no-op for every `type` that is not shaped like an SLA-risk alert — so an ordinary
+    process-start message is BYTE-IDENTICALLY unaffected by this rule existing.
+    """
+    if not event_type.endswith(SLA_ALERT_TYPE_SUFFIX):
+        return
+    alert_domain = SLA_ALERT_DOMAINS.get(event_type, _SLA_ALERT_DOMAIN_UNKNOWN)
+    escalated = any(
+        result.handoff_triggered
+        and result.target_process == PROCESS_KEY_ESCALATION
+        and result.process_instance_id.strip()
+        for result in results
+    )
+    if escalated:
+        _record_sla_alert_metric(alert_domain=alert_domain, outcome=SLA_ALERT_OUTCOME_ESCALATED)
+        logger.info(
+            "notifications_bridge.sla_alert_escalated",
+            event_type=event_type,
+            alert_domain=alert_domain,
+            target_process=PROCESS_KEY_ESCALATION,
+        )
+        return
+    outcome = (
+        SLA_ALERT_OUTCOME_NOT_ANCHORED
+        if event_type in SLA_ALERT_DOMAINS
+        else SLA_ALERT_OUTCOME_UNRECOGNISED_SHAPE
+    )
+    _record_sla_alert_metric(alert_domain=alert_domain, outcome=outcome)
+    logger.warning(
+        "notifications_bridge.sla_alert_not_escalated",
+        event_type=event_type,
+        alert_domain=alert_domain,
+        outcome=outcome,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -836,6 +953,27 @@ async def run_consumer_loop(
 # ---------------------------------------------------------------------------
 
 
+def _engine_credential(settings: NotificationsBridgeSettings) -> str | None:
+    """O token do motor, obtido pela visao de agente do `CredentialVault` (AF-14 / ADR-0005 #3).
+
+    A TERCEIRA raiz de composicao. Ate' aqui esta ponte lia `settings.cibseven_auth_token` direto —
+    o mesmo `getattr` nao-auditado que o cofre existe para abolir — enquanto as outras duas raizes
+    (`gateway/tool_registry.py::build_agent_seams` e
+    `runtime/worker_runtime/service.py::_engine_credential`) ja' passavam pelo cofre. Um mecanismo
+    que cobre duas das tres construcoes que CARREGAM credencial nao e' estrutural: e' um costume.
+    Agora as tres usam a MESMA porta, com as MESMAS tabelas fechadas. (A quarta construcao de seam
+    gated contra o motor na arvore, `platform/evidence/dmn_sweep.py::main`, nao passa `auth_token`
+    algum — CLI de diagnostico nao autenticado —, entao nao ha' credencial a governar la'.)
+
+    Uma credencial humano-restrita (`HUMAN_CREDENTIAL_FIELDS`: NEGATIVA/FRAUDE) nao chega aqui — a
+    construcao LEVANTA `CredentialSeparationError`, que `build_bridge` NAO captura: a ponte recusa
+    subir, na mesma forma fail-closed do `DATABASE_URL` ausente logo acima (I-2 — "replica nao
+    pronta", nunca "replica pronta e vazando"). Construir a visao nao custa I/O: e' varredura de
+    dicionario (I-9).
+    """
+    return agent_credential(build_worker_credential_view(settings=settings), "cibseven_auth_token")
+
+
 def build_bridge(
     settings: NotificationsBridgeSettings,
 ) -> tuple[NotificationBridge, GatedCibSevenTransport, PostgresAuditSink]:
@@ -869,10 +1007,12 @@ def build_bridge(
     # would-deny at L-1 (see `build_worker_seam_context`). Inventing a capability list to tidy the
     # telemetry would be inventing a governance record.
     seam = build_worker_seam_context(tenant=settings.tenant_id, principal=BRIDGE_PRINCIPAL)
+    # AF-14 / ADR-0005 #3: a credencial vem do COFRE, nunca de um `getattr` paralelo — ver
+    # `_engine_credential` acima para por que esta raiz tambem precisa passar por ele.
     transport = build_cibseven_seam(
         seam=seam,
         base_url=settings.cibseven_base_url,
-        auth_token=settings.cibseven_auth_token,
+        auth_token=_engine_credential(settings),
         timeout=settings.client_timeout_s,
     )
     gated, detail = effect_seams_gated({"cibseven": transport})

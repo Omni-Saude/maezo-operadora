@@ -1,11 +1,18 @@
 """Alembic environment — tenant-aware search_path (DL-0017).
 
 Per DL-0017:
-- pgvector extension lives in schema 'public' (type/operator is DB-global).
 - Per-tenant schemas are isolated; DDL is NOT schema-qualified.
-- search_path is set per-connection to "{tenant}, public" so that
-  all tables are created in the correct tenant schema and the pgvector
-  type/operator (in public) remains visible.
+- search_path is set per-connection to "{tenant}, public" so that all tables are created in the
+  correct tenant schema while DB-global objects (in `public`) remain visible.
+
+O motivo ORIGINAL do `public` no search_path era o tipo/operador `vector` da extensao pgvector,
+que e' DB-global. DU-01-b (decisao do dono R-005, 2026-09-04) removeu a extensao
+(`0009_drop_pgvector`), entao esse motivo especifico caducou. A FORMA `"{tenant}", public`
+permanece DELIBERADAMENTE inalterada: e' a mesma que `PostgresAuditSink` e
+`PostgresIdempotencyStore` pinam por-acquire nos seus pools asyncpg, e estreita-la aqui sem
+estreita-la la introduziria uma divergencia de search_path entre a migration e o runtime —
+justamente a classe de bug que DL-0017 registrou. Mexer nisso e' uma decisao separada, com prova
+viva, nao um efeito colateral da remocao do pgvector.
 
 To run migrations targeting a specific tenant:
     alembic -x tenant=amh upgrade head
@@ -48,7 +55,8 @@ except Exception:
 
 TENANT_ID: str = _x_tenant or os.environ.get("MAEZO_TENANT_ID", "public")
 
-# search_path: tenant schema first, then public (for pgvector type/operator).
+# search_path: tenant schema first, then public (objetos DB-global; ver o docstring do modulo
+# sobre por que a forma nao mudou com a saida do pgvector).
 # This mirrors the pattern used by PostgresAuditSink and PostgresIdempotencyStore
 # (setup=_set_search_path on asyncpg pool acquire — DL-0017).
 #
@@ -184,7 +192,7 @@ async def run_async_migrations() -> None:
 
     async with connectable.connect() as connection:
         # Set the tenant-aware search_path for this migration session.
-        # Per DL-0017: tenant schema first, then public for pgvector.
+        # Per DL-0017: tenant schema first, then public (objetos DB-global).
         # Each schema is its own quoted identifier (T1.10 fix — see SEARCH_PATH comment above:
         # a single quoted string here would set search_path to one bogus schema name).
         search_path_sql = ", ".join(f'"{schema}"' for schema in SEARCH_PATH)

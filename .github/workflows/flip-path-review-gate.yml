@@ -29,10 +29,32 @@ name: flip-path-review-gate
 # API state, so the verdict is always a function of the CURRENT reviews, never of history.
 #
 # PERMISSIONS are the minimum the evaluation needs and no more:
-#   contents: read       -> read `.github/CODEOWNERS` at the PR's BASE commit (see below).
-#   pull-requests: read  -> list the PR's changed files and its reviews.
+#   contents: read       -> read `.github/CODEOWNERS` at the PR's BASE commit (see below); PLUS,
+#                            since #305 (defect #254 fix), everything the merge-base-relative
+#                            touched-path computation reads: resolve the base branch's CURRENT tip
+#                            once per run (`repos/{repo}/branches/{ref}`); the three-dot COMPARE
+#                            between that tip and the head (`repos/{repo}/compare/{base}...{head}`,
+#                            merge-base semantics, paginated); and, only when the compare's `files`
+#                            list hits its hard 300-file whole-comparison cap (the compare endpoint
+#                            pages its `commits`, never its `files`), a per-commit file union fallback
+#                            (`repos/{repo}/commits/{sha}`, independently paginated) so the touched
+#                            set is never silently truncated. All still `contents: read` — no new
+#                            permission was needed for the fix.
+#   pull-requests: read  -> list the PR's reviews (`pulls/{n}/reviews`) — the only call this
+#                            permission buys on the workflow's own path, where the PR's base ref/sha,
+#                            head sha and author login come from $GITHUB_EVENT_PATH, not the API
+#                            (CONTEXT PRECEDENCE rule 3 in the script docstring). The local
+#                            `--repo/--pr` dry-run instead reads `pulls/{n}` for those fields (rule
+#                            2). Either way it is `base.ref` that feeds the `branches/{ref}` call
+#                            above. `pulls/{n}/files` — the OLD source of touched paths, dropped by
+#                            #305 because it diffs from the PR's possibly-weeks-stale recorded
+#                            `base.sha` and its own `files` list silently truncates at 300 with no
+#                            signal — is no longer called at all.
 # Note what is NOT requested: no `write` of any kind. The gate reports pass/fail through its own
-# exit status; it never posts a comment, never approves, never merges, and cannot.
+# exit status; it never posts a comment, never approves, never merges, and cannot. One more call the
+# evaluation makes needs no `permissions:` key at all, because none can grant it:
+# `orgs/{org}/teams/{team}/memberships/{login}` (`GitHubAPI.membership`,
+# `check_flip_path_review.py:1287`) — see FORK PRs §1 below for what happens when it is unreadable.
 #
 # CODEOWNERS IS READ FROM THE PR'S **BASE** COMMIT, NOT ITS HEAD. Load-bearing: a PR that read its
 # OWN head's CODEOWNERS could delete the lines that own the files it edits and thereby un-own itself

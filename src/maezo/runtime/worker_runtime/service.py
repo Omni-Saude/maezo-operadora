@@ -50,11 +50,15 @@ import structlog
 
 from maezo.a2a import DelegationDispatcher
 from maezo.gateway.audit_postgres import FreshSinkAuditEmitter, PostgresAuditSink
-from maezo.gateway.seams import SeamContext
+from maezo.gateway.seams import SeamContext, rate_limit_configured
 from maezo.gateway.seams.dmn import GatedDmnTransport
+from maezo.gateway.seams.fhir import GatedFhirReader
 from maezo.gateway.tool_registry import (
+    agent_credential,
+    build_agent_fhir_seam,
     build_cibseven_seam,
     build_dmn_seam,
+    build_worker_credential_view,
     build_worker_seam_context,
     effect_seams_gated,
 )
@@ -88,6 +92,20 @@ from maezo.tools.workers.reembolso import REEMBOLSO_BPMN_ERROR_ALLOWLIST
 from .settings import WorkerRuntimeSettings
 
 logger = structlog.get_logger(__name__)
+
+#: The TARGET agents of the dossier delegation edges whose graphs declare a FHIR read seam
+#: (CC-03/AND-03). Mirrors `a2a_composition._DOSSIER_EDGE_AGENT_IDS` — kept as a local literal
+#: rather than imported because that module is imported LAZILY inside `_bring_up_dependencies`
+#: (the pre-existing deferral, so the worker daemon does not pay for the A2A stack at import
+#: time). The root's refusal covers only ONE direction — an id in THIS tuple that the root does
+#: not serve raises at composition; the opposite (an edge the root DOES serve that this tuple
+#: forgets) raises nothing: that agent would simply get no reader, in silence, which is the
+#: CC-03/AND-03 defect itself. The both-directions guard is therefore a unit test over the two
+#: literals (`test_dossier_fhir_wiring.py::test_worker_fhir_agent_ids_match_the_a2a_root_edge_
+#: agents`) — a repo-level invariant CI catches before any deploy. Deliberately NOT a bare
+#: `assert` here (stripped under `python -O`) and NOT a raise at bring-up (that would turn a
+#: constant typo into a dossier outage for the three dossier workers).
+_DOSSIER_FHIR_AGENT_IDS: tuple[str, ...] = ("carolina", "andre")
 
 # T1.2/ADR-0026: the daemon now registers the FULL 17-module composition (16 + T3.1 R2's
 # `events` module, closing the events.publish gap)
@@ -417,6 +435,15 @@ class WorkerState:
     # /readyz — the dossier "instrui, nao decide", so its absence must not stop the human UTs).
     dossier_dispatcher: DelegationDispatcher | None = None
     dossier_dispatcher_detail: str = "not assembled (bring-up has not run)"
+    # CC-03/AND-03: the PER-AGENT gated FHIR readers the dossier edges' target graphs need
+    # (`{"carolina": GatedFhirReader, "andre": GatedFhirReader}`). Built at bring-up through the
+    # ONE sanctioned constructor (`tool_registry.build_agent_fhir_seam`) — never a raw
+    # `FhirServerReader`/httpx here, which is what the effect-chokepoint fence §8.1/§8.2 forbids
+    # of a composition root. An agent MISSING from this map is the honest degraded posture: its
+    # graph then emits its disclosed gap note ("leitor de resumo/FHIR nao configurado"), and the
+    # human User Tasks still open. Never fail-open, never a fabricated reader.
+    dossier_fhir_seams: dict[str, GatedFhirReader] = field(default_factory=dict)
+    dossier_fhir_detail: str = "not built (bring-up has not run)"
     # ONDA 1 §5.5 / I-11: the RUNTIME half of inevitability for the worker root's `dmn=`/`engine=`
     # seams. Snapshotted at bring-up so `/readyz` stays cheap. RED, never fatal: this daemon's
     # fail-closed gate for effect traffic is `audit_sink_ready`, and an ungated-but-inert seam
@@ -594,6 +621,18 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         )
         return CheckResult(name="dossier_delegation_ready", healthy=True, detail=detail)
 
+    async def dossier_fhir_ready(_state: WorkerState = state) -> CheckResult:
+        # CC-03/AND-03 DEGRADATION POSTURE, mirroring `dossier_delegation_ready` (and, like it,
+        # ALWAYS healthy=True): publishes WHICH dossier agents got a gated FHIR reader at
+        # bring-up, and — the point — which did NOT. Without this check `dossier_fhir_detail`
+        # was write-only: an empty `FHIR_BASE_URL` (or a per-agent build failure) left every
+        # A2A dossier enriching from worker facts alone while `effect_seams_gated` stayed GREEN
+        # (nothing ungated exists when nothing was built), so the operator had no signal at all.
+        # NEVER gates `/readyz`: the dossier "instrui, nao decide" — a missing reader must
+        # degrade the DOSSIER's enrichment (both graphs emit their disclosed gap note and the
+        # human User Tasks still open), never stop a daemon that serves ~110 topics.
+        return CheckResult(name="dossier_fhir_ready", healthy=True, detail=_state.dossier_fhir_detail)
+
     async def audit_sink_ready(_state: WorkerState = state) -> CheckResult:
         # FAIL-CLOSED L0 gate (ADR-0007, design §7 T-D / Revision MUST-FIX 2): `/readyz` stays RED
         # until a bounded connectivity probe proves the durable audit sink can reach the tenant
@@ -634,6 +673,14 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
             detail=_state.effect_seams_detail,
         )
 
+    async def rate_limit_configured_check() -> CheckResult:
+        # D6-01-F3. O limitador do chokepoint nasce PREGUICOSO na primeira chamada gated, entao
+        # sem esta checagem um `MAEZO_GATEWAY_RATE_LIMIT_*` invalido so' aparecia depois que o pod
+        # ja' tinha se declarado pronto e ja' tinha recebido trafego. Aqui a replica simplesmente
+        # nao fica pronta (I-2). Sem estado do daemon: o limitador e' estado de PROCESSO.
+        healthy, detail = rate_limit_configured()
+        return CheckResult(name="rate_limit_configured", healthy=healthy, detail=detail)
+
     return [
         observability_configured,
         engine_reachable,
@@ -641,7 +688,9 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         harness_running,
         kafka_ready,
         effect_seams_gated_check,
+        rate_limit_configured_check,
         dossier_delegation_ready,
+        dossier_fhir_ready,
         audit_sink_ready,
     ]
 
@@ -665,6 +714,38 @@ def _worker_seam(settings: WorkerRuntimeSettings) -> SeamContext:
     return _worker_seam_cached(settings.tenant_id)
 
 
+def _engine_credential(settings: WorkerRuntimeSettings) -> str | None:
+    """O token do motor, obtido pela visao de agente do `CredentialVault` (AF-14 / ADR-0005 #3).
+
+    Antes desta mudanca os dois seams gated abaixo liam `settings.cibseven_auth_token_value()`
+    direto: nenhuma tabela de particao governava a credencial e o mecanismo #3 da ADR-0005 nao
+    tinha raiz de composicao alguma (`CredentialVault` so' aparecia no re-export do
+    `gateway/__init__.py`). Agora a credencial passa pelo cofre, e uma credencial humano-restrita
+    (`HUMAN_CREDENTIAL_FIELDS`: NEGATIVA/FRAUDE) NAO consegue chegar aqui — a construcao LEVANTA
+    `CredentialSeparationError`.
+
+    TAMBEM O TRANSPORTE DE TAREFA EXTERNA, que nao e' seam gated (`CibSevenWorkerTransport`, o
+    primeiro bloco de `_bring_up_dependencies`): ele nao decide nada, mas carrega a MESMA
+    credencial, e deixa-lo de fora manteria um `getattr` nao-auditado no proprio arquivo que esta
+    mudanca reescreveu. O que fica provado depois disso e' exatamente o que o fence de
+    `test_credential_vault_composition.py::test_nenhuma_leitura_da_credencial_do_motor_escapa_do_cofre_em_src`
+    afirma por AST sobre todo `src/`: nenhuma leitura LITERAL de
+    `cibseven_auth_token`/`cibseven_auth_token_value` — atributo, `getattr`/`hasattr` com nome
+    literal, ou subscrito com string constante (logo, tambem via `model_dump()`/`__dict__`) — fora
+    do unico par (modulo, funcao) exento, que e' a propria propriedade em
+    `worker_runtime/settings.py`. RESIDUAL declarado: um nome de campo montado em tempo de execucao
+    o fence nao ve' — de proposito, porque e' por `getattr` dinamico que o cofre le' a sua propria
+    tabela.
+
+    CHAMADA DE DENTRO DE CADA BLOCO `try` a proposito: `_bring_up_dependencies` isola cada bloco
+    (falha registra + deixa a checagem vermelha, nunca propaga). Uma recusa do cofre e' portanto
+    "o seam nao foi construido" -> os workers que dependem dele falham fechado depois, que e'
+    exatamente a forma de falha ja documentada para uma construcao de seam que nao deu certo.
+    Construir a visao duas vezes nao custa I/O: e' varredura de dicionario (I-9).
+    """
+    return agent_credential(build_worker_credential_view(settings=settings), "cibseven_auth_token")
+
+
 async def _bring_up_dependencies(state: WorkerState) -> None:
     """Bring up the daemon's dependencies. Each block is isolated: failure logs + leaves the
     corresponding check unhealthy, but NEVER propagates (liveness must stay up)."""
@@ -672,9 +753,16 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
     settings = state.settings
 
     try:
+        # AF-14: o transporte de tarefa externa NAO e' um seam gated (ele nao decide nada), mas
+        # carrega a MESMA credencial do motor, e uma credencial que chega a um transporte por
+        # `getattr` que tabela nenhuma governa e' exatamente o que o mecanismo #3 da ADR-0005
+        # existe para nao permitir. Passa pelo cofre como os dois seams gated abaixo; o valor
+        # entregue e' identico (`AGENT_CREDENTIAL_FIELDS['cibseven_auth_token']`), e uma
+        # composicao que vazaria credencial humano-restrita passa a deixar `engine_reachable`
+        # vermelho em vez de subir o transporte.
         state.transport = CibSevenWorkerTransport(
             settings.cibseven_base_url,
-            auth_token=settings.cibseven_auth_token_value(),
+            auth_token=_engine_credential(settings),
             timeout=settings.client_timeout_s,
         )
     except Exception:  # noqa: BLE001 — construction failure leaves engine_reachable unhealthy.
@@ -691,7 +779,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         state.dmn_transport = build_dmn_seam(
             seam=_worker_seam(settings),
             base_url=settings.cibseven_base_url,
-            auth_token=settings.cibseven_auth_token_value(),
+            auth_token=_engine_credential(settings),
             timeout=settings.client_timeout_s,
         )
     except Exception:  # noqa: BLE001 — construction failure: DMN-calling workers fail closed later.
@@ -711,19 +799,68 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         state.engine_transport = build_cibseven_seam(
             seam=_worker_seam(settings),
             base_url=settings.cibseven_base_url,
-            auth_token=settings.cibseven_auth_token_value(),
+            auth_token=_engine_credential(settings),
             timeout=settings.client_timeout_s,
             fresh_client=True,
         )
     except Exception:  # noqa: BLE001 — construction failure: engine-seam workers fail closed later.
         logger.error("engine_transport_build_failed", exc_info=True)
 
-    # ONDA 1 §5.5: snapshot the gatedness of the two seams this daemon threads into every worker.
-    # Isolated like every block here; never blocks bring-up.
-    try:
-        state.effect_seams_gated, state.effect_seams_detail = effect_seams_gated(
-            {"dmn": state.dmn_transport, "cibseven": state.engine_transport}
+    # CC-03/AND-03: the dossier edges' PER-AGENT FHIR read seams. Before this, STEP B built NO
+    # FHIR seam at all and `build_dossier_delegation_dispatcher` took no `fhir=` — so every
+    # dossier this daemon produced over the A2A path took the DEGRADED branch of both target
+    # graphs, permanently and silently. Construction is PURE (`mcp_fhir.FhirServer` opens a fresh
+    # `httpx.AsyncClient` per call, so nothing is held and nothing is loop-bound) and goes through
+    # the ONE sanctioned constructor, which returns the GATED wrapper — this root never names a
+    # raw adapter (effect-chokepoint fence §8.1/§8.2/§8.4).
+    #
+    # PER AGENT, NEVER SHARED: `GatedFhirReader` closes over its `SeamContext.principal`, and
+    # `leitura_phi_clinica` (C2) is decided per principal — one instance for both would decide and
+    # record Andre's PHI read under Carolina's declared-capability record.
+    #
+    # runtime_mode/capabilities: the seam is built in EVERY mode, because refusing is not this
+    # layer's job — the PEP is (`gateway/seams/_base.py::gate`), per tenant and per principal,
+    # from `spec/policies/autonomy`. What this root owes is honesty about ABSENCE: no
+    # `FHIR_BASE_URL` (empty string) => NO reader for anyone, logged loudly, and both graphs emit
+    # their disclosed gap note. Never a reader aimed at a placeholder host.
+    if settings.fhir_base_url:
+        for agent_id in _DOSSIER_FHIR_AGENT_IDS:
+            try:
+                seam = build_agent_fhir_seam(settings=settings, agent_id=agent_id)
+            except Exception:  # one agent's seam failing must not sink bring-up.
+                logger.error("dossier_fhir_seam_build_failed", agent=agent_id, exc_info=True)
+                continue
+            if seam is None:
+                # The agent declares no FHIR adapter in `_FHIR_ADAPTER_BY_AGENT` — a REGISTRY
+                # fact, not a runtime failure. Loud anyway: this daemon believes it needs one.
+                logger.error("dossier_fhir_seam_absent_for_agent", agent=agent_id)
+                continue
+            state.dossier_fhir_seams[agent_id] = seam
+    else:
+        logger.error(
+            "dossier_fhir_unconfigured_fhir_base_url_empty",
+            tenant=settings.tenant_id,
+            detail="FHIR_BASE_URL is empty — the dossier graphs will emit their disclosed "
+            "gap note instead of enriching (degraded, never fail-open)",
         )
+    missing_fhir = [a for a in _DOSSIER_FHIR_AGENT_IDS if a not in state.dossier_fhir_seams]
+    state.dossier_fhir_detail = (
+        f"gated readers for {sorted(state.dossier_fhir_seams)}"
+        if not missing_fhir
+        else f"DEGRADED — no gated FHIR reader for {missing_fhir}"
+    )
+
+    # ONDA 1 §5.5: snapshot the gatedness of the seams this daemon threads onward. The two worker
+    # seams (`dmn`/`cibseven`, this daemon's own principal) plus, since CC-03/AND-03, each dossier
+    # agent's `fhir` reader — probed one at a time because `effect_seams_gated` takes ONE value
+    # per seam key and these are per-principal instances. Isolated; never blocks bring-up.
+    try:
+        gated, detail = effect_seams_gated({"dmn": state.dmn_transport, "cibseven": state.engine_transport})
+        for agent_id, seam in sorted(state.dossier_fhir_seams.items()):
+            agent_gated, agent_detail = effect_seams_gated({"fhir": seam})
+            detail = f"{detail}; {agent_id}.{agent_detail}"
+            gated = gated and agent_gated
+        state.effect_seams_gated, state.effect_seams_detail = gated, detail
         if not state.effect_seams_gated:
             logger.error("effect_seams_not_gated", detail=state.effect_seams_detail)
     except Exception as exc:  # noqa: BLE001 — probe failure leaves the check red, nothing else.
@@ -793,6 +930,16 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 cibseven=state.engine_transport,
                 audit_sink=state.audit_sink,
                 database_url=settings.database_url,
+                # CC-03/AND-03: the per-agent GATED readers built above. `or None` keeps the
+                # "nothing configured" case indistinguishable from the pre-existing degraded
+                # posture at the root's own boundary.
+                fhir=state.dossier_fhir_seams or None,
+                # BLOCKED(external WB.4): there is NO concrete `PopulationFeatureClient` in
+                # `src/` — `andre/graph.py` defines the Protocol only, `gateway/seams/population.
+                # py` ships unwired, and `tool_registry.build_agent_seams` omits the key on
+                # purpose. Passed EXPLICITLY as None so the gap is declared here rather than
+                # inferred from a default; Andre's graph turns it into a disclosed gap note.
+                population=None,
                 # Delegation facts ride the no-op FactProducer default (mirrors the auth edge):
                 # the DURABLE T-F record is the injected audit_sink, not a Kafka facts mirror, so
                 # the real events producer is deliberately NOT threaded here.

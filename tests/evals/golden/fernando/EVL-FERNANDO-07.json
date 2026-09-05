@@ -1,0 +1,41 @@
+{
+  "id": "EVL-FERNANDO-07",
+  "agent": "fernando",
+  "class": "FC",
+  "tier": ["A"],
+  "description": "CC-08: `inadimplencia_status` is UNAVAILABLE (decision_key omitted). `assess`'s status step reads `status_result.get(\"error\")` and calls `_assess_escalation(motivo=\"dmn_indisponivel\")` IMMEDIATELY -- route=escalate, motivo_categoria=dmn_unavailable (the contract's SP-OP-ESCALATION-001-equivalent token, `_motivo_categoria`), desfecho=encaminhado_analise_humana -- NEVER the neutral `notify` path (which requires the DMN's own PENDENTE_NOTIFICACAO/AGUARDA_PURGA result). Same contract facts as EVL-FERNANDO-01; the only difference is the transport that fails. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "intencao": "notificacao_previa",
+      "canal": "whatsapp",
+      "numero_contrato": "000000017",
+      "matricula_beneficiario": "MAT-EVL-017",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-017",
+      "to_hash": "hash-evl-fernando-07",
+      "tipo_plano": "individual",
+      "origem_solicitacao": "cobranca",
+      "competencias_em_aberto": ["2026-05"],
+      "meses_inadimplencia": 1,
+      "valor_total_devido_cents": 15000,
+      "dentro_periodo_minimo": true,
+      "notificacao_previa_feita": false,
+      "dentro_janela_purga": true,
+      "ja_em_rescisao_cancel": false,
+      "documentos_refs": []
+    }
+  },
+  "recorded_llm": [
+    "Tabela de status de inadimplencia indisponivel; caso encaminhado para analise humana por falha tecnica, nunca uma notificacao automatica de purga."
+  ],
+  "dmn_fixture": {},
+  "expect": {
+    "fields": {
+      "route": "escalate",
+      "motivo_humano": "dmn_indisponivel",
+      "motivo_categoria": "dmn_unavailable",
+      "desfecho": "encaminhado_analise_humana"
+    }
+  },
+  "leak_canaries": []
+}

@@ -5,7 +5,12 @@ Implements LGPD right to erasure (art. 18, VI) with a three-layer cascade:
    `checkpoint_blobs` / `checkpoint_writes` -- T3.4 F4 correction; NOT a schema literally
    named `agents`, and NOT `agent_checkpoints`/`agent_checkpoint_writes`)
 2. Episodic layer: Transcripts/decisions/events partition by fhir_patient_id
-3. Semantic layer: pgvector embeddings
+3. Semantic layer: SUSPENSA (DU-01-b, decisao do dono R-005 de 2026-09-04). A camada existia no
+   schema como `agent_memory.embedding vector(1536)` + extensao `vector` e NUNCA teve consumidor;
+   `0009_drop_pgvector` removeu as duas. O seam `semantic_*` deste modulo permanece declarado e
+   INERTE — como todo o resto deste modulo, que nao executa SQL nenhum — porque ADR-0002 §3 esta
+   suspenso ate existir consumidor, nao negado (emenda DRAFT em ADR-0047). Nenhuma relacao
+   semantica existe hoje para eliminar.
 
 The cascade is FAIL-SAFE: if any layer fails, the entire operation is rolled
 back (or at minimum reported as incomplete). Verification runs after erasure
@@ -61,7 +66,9 @@ class ErasureResult:
         tenant_id: The tenant scope.
         working_erased: Whether working layer (LangGraph checkpoint) was erased.
         episodic_erased: Whether episodic layer (transcripts/decisions) was erased.
-        semantic_erased: Whether semantic layer (pgvector embeddings) was erased.
+        semantic_erased: Whether the (suspended) semantic layer was erased. Nao ha relacao
+            semantica desde `0009_drop_pgvector` — o campo fica no contrato porque ADR-0002 §3
+            esta suspenso, nao negado.
         status: 'completed' (all layers), 'partial' (some layers), 'failed' (none).
         errors: List of error messages from any failed layers.
         timestamp: When the erasure was executed.
@@ -84,7 +91,7 @@ class ErasureManager:
     1. Working (LangGraph checkpointer — PostgreSQL `checkpoints`/`checkpoint_blobs`/
        `checkpoint_writes` tables, T3.4 F4 correction)
     2. Episodic (transcripts, decisions, events partitioned by fhir_patient_id)
-    3. Semantic (pgvector embeddings referencing FHIR resources)
+    3. Semantic (SUSPENSA — sem relacao no schema desde `0009_drop_pgvector`, DU-01-b)
 
     The manager is FAIL-SAFE: partial erasure is detected and reported.
     Verification confirms all layers are clean before returning 'completed'.
@@ -111,7 +118,8 @@ class ErasureManager:
         Args:
             working_db: Connection to the LangGraph checkpointer database.
             episodic_db: Connection to the episodic (transcripts/events) database.
-            semantic_db: Connection to the pgvector semantic database.
+            semantic_db: Connection to the semantic database, se algum dia existir uma. Nao ha
+                relacao semantica no schema desde `0009_drop_pgvector` (DU-01-b).
         """
         self._working = working_db
         self._episodic = episodic_db
@@ -235,11 +243,13 @@ class ErasureManager:
             pass
 
     def _erase_semantic(self, tenant_id: str, fhir_patient_id: str) -> None:
-        """Erase semantic layer (pgvector embeddings).
+        """Erase the (suspended) semantic layer — INERTE, e hoje sem sujeito.
 
-        In production, this executes:
-            DELETE FROM semantic.embeddings
-            WHERE fhir_patient_id = :pid OR source_ref LIKE '%' || :pid || '%'
+        A prosa anterior ILUSTRAVA um `DELETE FROM semantic.embeddings ...`. Essa relacao nunca
+        existiu em migration alguma, e desde `0009_drop_pgvector` (DU-01-b) nao existe nem a
+        coluna que de fato carregava a camada (`agent_memory.embedding`). O exemplo foi retirado
+        em vez de mantido porque um revisor que o tomasse por schema concluiria que a cobertura de
+        eliminacao e' maior do que e'.
 
         Args:
             tenant_id: The tenant scope.
@@ -287,9 +297,11 @@ class ErasureManager:
         return True
 
     def _verify_semantic(self, tenant_id: str, fhir_patient_id: str) -> bool:
-        """Verify semantic layer is clean.
+        """Verify the (suspended) semantic layer is clean — INERTE, e hoje trivialmente verdade.
 
-        Returns True if no embeddings remain.
+        Nao ha relacao semantica desde `0009_drop_pgvector` (DU-01-b): nao restam embeddings
+        porque nunca houve coluna com writer, e desde 2026-09-04 nao ha nem coluna. Como todo este
+        modulo, o metodo nao executa SQL — `verify()` recusa antes de chega-lo.
 
         Args:
             tenant_id: The tenant scope.

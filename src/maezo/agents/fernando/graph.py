@@ -107,10 +107,13 @@ neutral notify or a human escalation (mirrors Helena's `_respond_llm`/Rafael's `
 fail-safe-open text, NOT a fail-closed route change — those are different failure classes).
 
 LABELED BOUNDARIES (this build, disclosed — never fabricated):
-- Episodic/semantic memory write (`mcp-memory.read_write`, ADR-0002) is NOT wired in this graph —
-  same follow-up as Helena/Rafael (v2's `MemoryServer` needs a live Postgres/pgvector schema that
-  does not exist in this repo's migrations yet). The donor's `finalize`/memory node has no v2
-  analog here.
+- Episodic memory write (`mcp-memory.read_write`, ADR-0002) is NOT wired in this graph — same
+  follow-up as Helena/Rafael. The episodic table exists (`agent_memory`, migration `0001`); what
+  blocks the write is `store_episodic`'s `(agent_id, event)` signature, which carries neither
+  `tenant_id` nor `thread_id` (both `text NOT NULL`) — GAP-DU-01-a. There is no SEMANTIC write to
+  wire at all any more: `0009_drop_pgvector` removed the column, and ADR-0002 §3 is SUSPENDED
+  pending a consumer (ADR-0047, DRAFT). The donor's `finalize`/memory node has no v2 analog
+  here.
 - A2A inbound delegation (`arrears.followup`, Lucas -> Fernando, `spec/agents/fernando/
   agent.yaml`'s `accepted_task_types`) is NOT wired. CORRECTED (GAP 11.7, re-checked this
   session): the reason is NOT that `v2`'s `a2a/` package lacks `DelegationEnvelope`/
@@ -168,11 +171,20 @@ route, mirrors Rafael's `auth_sla`).
 
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.start_outcome import (
+    notify_start_failure as emit_start_failure_notice,
+)
+from maezo.runtime.start_outcome import (
+    route_after_start,
+    start_failed_state,
+)
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -306,6 +318,10 @@ class FernandoState(TypedDict, total=False):
 
     # `start_process` outputs.
     process_started: bool
+    #: CC-01: o start foi TENTADO e FALHOU tecnicamente (`except CibSevenError` de
+    #: `start_process`). NAO e a mesma coisa que `process_started is False`, que tambem cobre
+    #: no-ops legitimos; e este marcador — e so ele — que a aresta condicional le.
+    start_failed: bool
     process_ref: dict[str, Any]
 
     # Turn output.
@@ -396,6 +412,7 @@ def _output_field_resets() -> dict[str, Any]:
         "dossier": {},
         # `start_process` outputs.
         "process_started": False,
+        "start_failed": False,
         "process_ref": {},
         # Turn output.
         "desfecho": "",
@@ -436,6 +453,26 @@ _CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
 
 
 # --- Graph ------------------------------------------------------------------------------------
+
+
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+_FATOS_BOOLEANOS_MENSAGEM: Final[dict[str, str]] = {
+    "dentro_janela_purga": "dentro da janela de purga",
+}
+
+#: O dossie (J3) carrega os quatro booleanos do state — a mensagem so' o da purga.
+_FATOS_BOOLEANOS_DOSSIE: Final[dict[str, str]] = {
+    "dentro_periodo_minimo": "dentro do periodo minimo de inadimplencia",
+    "notificacao_previa_feita": "notificacao previa ao beneficiario feita",
+    "dentro_janela_purga": "dentro da janela de purga",
+    "ja_em_rescisao_cancel": "contrato ja em rescisao/cancelamento",
+}
 
 
 class FernandoGraph:
@@ -587,6 +624,10 @@ class FernandoGraph:
             if state.get("status_inadimplencia") == "PENDENTE_NOTIFICACAO"
             else "lembrete_regularizacao_enviado"
         )
+        # CC-09: `notify` is a TERMINAL node (its only outgoing edge is END, no `start_process`
+        # on this branch) — `desfecho`/`mensagem_enviada` are still LOCAL at this point, so both
+        # are passed as explicit overrides rather than read back from `state`.
+        emit_turn_desfecho(state, agent_id="fernando", desfecho=desfecho, enviada=enviada)
         return {"mensagem": mensagem, "mensagem_enviada": enviada, "desfecho": desfecho}
 
     async def escalate(self, state: FernandoState) -> dict[str, Any]:
@@ -626,11 +667,16 @@ class FernandoGraph:
                 provenance=provenance,
             )
         except CibSevenError as exc:
-            return {
-                "process_started": False,
-                "business_key": business_key,
-                "error": f"start_process indisponivel: {exc}",
-            }
+            # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
+            # `start_failed`, que e o que `route_after_start` le para desviar a
+            # `notify_start_failure` em vez de seguir calado para o terminal.
+            return start_failed_state(business_key=business_key, error=f"start_process indisponivel: {exc}")
+        # CC-09: on the `escalate` branch, `start_process`'s OWN success return is the last node
+        # body that runs before the graph's `continue` edge lands directly on END — Fernando has
+        # no separate `finalize`/`complete` node on this path (see `compile_graph`). `state` here
+        # already carries `escalate`'s merged `desfecho`/`route`/`motivo_categoria`, so no
+        # override is needed.
+        emit_turn_desfecho(state, agent_id="fernando")
         return {
             "process_started": True,
             "business_key": business_key,
@@ -640,6 +686,18 @@ class FernandoGraph:
                 "already_existed": instance.already_existed,
             },
         }
+
+    async def notify_start_failure(self, state: FernandoState) -> dict[str, Any]:
+        """CC-01: o start FALHOU — grava o desfecho de erro e ALERTA, em vez de seguir calado.
+
+        Ate CC-01 a aresta que saia de `start_process` era INCONDICIONAL: o turno chegava ao
+        terminal com o `desfecho` de SUCESSO que um no a montante ja havia gravado, afirmando um
+        fato que nao aconteceu, e sem prazo nenhum — o timer de SLA vive na instancia BPMN que
+        nunca nasceu. O corpo deste no e o helper compartilhado
+        (`maezo.runtime.start_outcome.notify_start_failure`): uma definicao para os 9 agentes,
+        nunca 9 copias.
+        """
+        return emit_start_failure_notice(dict(state), agent_id="fernando", process_key=PROCESS_KEY)
 
     # -- Conditional routing ----------------------------------------------------------------
 
@@ -737,10 +795,18 @@ class FernandoGraph:
         }
         intencao = state.get("intencao")
         intencao_validated = intencao if intencao in _VALID_INTENCOES else None
-        prompt = f"{message_prompt()}\n\nintencao={intencao_validated}\nfatos={facts}"
+        prompt = (
+            f"{message_prompt()}\n\nintencao={intencao_validated}\n"
+            f"{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_MENSAGEM)}"
+        )
         try:
             texto = await self._llm.generate(
-                prompt, phi=True, agent_id="fernando", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="fernando",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: frasear fatos que a DMN ja decidiu -> task_default.
+                task_kind="task_default",
             )
         except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
             texto = "Identificamos uma pendencia em seu contrato. Consulte os canais de regularizacao."
@@ -789,10 +855,18 @@ class FernandoGraph:
             "fonte_regulatoria_sla": state.get("fonte_regulatoria_sla"),
             "dmn_refs": state.get("dmn_refs", {}),
         }
-        prompt = f"{dossier_prompt()}\n\nmotivo={state.get('motivo_humano')}\nfatos={facts}"
+        prompt = (
+            f"{dossier_prompt()}\n\nmotivo={state.get('motivo_humano')}\n"
+            f"{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_DOSSIE)}"
+        )
         try:
             narrativa = await self._llm.generate(
-                prompt, phi=True, agent_id="fernando", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="fernando",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human escalation.
             narrativa = ""
@@ -864,13 +938,23 @@ class FernandoGraph:
         g.add_node("notify", self.notify)
         g.add_node("escalate", self.escalate)
         g.add_node("start_process", self.start_process)
+        g.add_node("notify_start_failure", self.notify_start_failure)
 
         g.add_edge(START, "receive")
         g.add_edge("receive", "assess")
         g.add_conditional_edges("assess", self._route, {"notify": "notify", "escalate": "escalate"})
         g.add_edge("notify", END)
         g.add_edge("escalate", "start_process")
-        g.add_edge("start_process", END)
+        # CC-01: a aresta que sai de `start_process` e CONDICIONAL. Uma falha tecnica de
+        # start desvia para `notify_start_failure` (desfecho de erro + alerta); qualquer
+        # outro caminho — incluindo os no-ops legitimos com `process_started=False` —
+        # segue para o terminal de sempre. O predicado e compartilhado (uma definicao).
+        g.add_conditional_edges(
+            "start_process",
+            route_after_start,
+            {"notify_start_failure": "notify_start_failure", "continue": END},
+        )
+        g.add_edge("notify_start_failure", END)
         return g
 
 

@@ -61,10 +61,54 @@ tests/evals/
 
 Each family builder wave owns its own test module + its own `golden/<agent>/` subdirectories —
 disjoint files, so B1/B2/B3 can run in parallel with zero collisions. Nobody but B0 edits
-`conftest.py` / `_harness.py` / this README — WP-EVALS (gaps 10.3/11.5, 2026-09) is the one
-documented exception: it ADDS (never edits existing lines in) `_harness.py`'s clarity helpers
-and this README's own documentation of them, per its brief ("if the runner cannot express it,
-extend the runner at the root"). See "Clarity/legibility checks" and "Journey evals" below.
+`conftest.py` / `_harness.py` / this README — WP-EVALS (gaps 10.3/11.5, 2026-09), RAF-06
+(RAF-01, 2026-09-04) and CC-01/CC-08 (2026-09-04) are the three documented exceptions. WP-EVALS ADDS (never edits existing
+lines in) `_harness.py`'s clarity helpers and this README's own documentation of them, per its
+brief ("if the runner cannot express it, extend the runner at the root"). See "Clarity/legibility
+checks" and "Journey evals" below. RAF-06's scope is honest, not purely additive like WP-EVALS':
+it ADDS `RuleAwareFakeDmnTransport` and the `__rules__` conditional-fixture branch of
+`register_dmn_fixture` (see "dmn_fixture" below), and separately EDITS the one existing line in
+`run_case` that instantiates the fake DMN transport (`FakeDmnTransport()` ->
+`RuleAwareFakeDmnTransport()`) — a conditional fixture cannot be served by the base fake, so
+`run_case` must hand every case the rule-aware transport, not only the ones whose `dmn_fixture`
+uses `__rules__`. No existing eval changes behavior: all but 2 of the golden cases carry no
+`__rules__` key and take the unchanged static-row path (`RuleAwareFakeDmnTransport.evaluate`
+falls through to `FakeDmnTransport.evaluate` verbatim whenever `decision_key` has no registered
+rules) — reproduce the count with `grep -l '__rules__' tests/evals/golden/*/*.json | wc -l` (2)
+against `ls tests/evals/golden/*/*.json | wc -l` (59 today; it was 49 when RAF-06 landed —
+CC-01/CC-08 added nine fail-start cases, none of them carrying `__rules__`).
+
+CC-01/CC-08's scope is purely ADDITIVE (like WP-EVALS', unlike RAF-06's): it ADDS
+`FailingStartCibSevenTransport` and the `_cibseven_for(case)` selector to `_harness.py`, and
+this paragraph plus the `cibseven` row of the schema below to this README. It EDITS no existing
+line of `run_case` beyond swapping the literal `FakeCibSevenTransport()` construction for the
+selector call, which returns exactly that same double for every case that does not opt in.
+Reproduce the blast radius with `grep -c '"cibseven"' tests/evals/golden/*/*.json` — only the
+nine `EVL-*` fail-start cases carry the key; every other golden takes the unchanged path.
+
+WHY THE RUNNER HAD TO BE EXTENDED AT ALL (the README's own "if the runner cannot express it,
+extend the runner at the root" rule): `run_case` hard-wired a CibSeven double whose start ALWAYS
+succeeds, so the engine-unavailable branch of every agent graph was unreachable from the golden
+dataset. CC-01 is precisely a defect ON that branch (a fabricated success desfecho on a start
+that never happened), so without this extension the fix would have shipped with no golden able
+to regress it.
+
+CC-08 (2026-09-04, same additive contract, second and final harness change of this wave) ADDS
+`_phi_capable_for(case)` to `_harness.py` — see that function's own docstring for the why — and
+EDITS the single `run_case` line that constructs `inference` to pass
+`phi_capable=_phi_capable_for(case)` instead of the implicit default. `ReplayInferenceProvider`
+itself is NOT edited (it already accepted a `phi_capable` constructor kwarg — see its own
+docstring above, "a case that wants to exercise the fail-closed PHI-routing path itself
+constructs `ReplayInferenceProvider(responses, phi_capable=False)`" — nothing there was ever
+reachable from a golden JSON file before this change); only `run_case`'s hard-wired construction
+call changes, and it returns the exact same `phi_capable=True` behaviour for every case that
+omits the new `inference` block (every golden before this wave, and every golden after it that
+does not opt in). CC-08's DMN-unavailable goldens need NO harness change at all — `run_case`
+already builds a case's `dmn_fixture` from exactly the `decision_key`s the case supplies
+(`register_dmn_fixture`), so simply OMITTING a `decision_key` a graph's turn will evaluate is
+already enough to make `FakeDmnTransport.evaluate` raise `DmnEvaluationError` for it — this is
+why CC-08's DMN-down goldens carry no new top-level block at all, unlike its PhiZoneRoutingError
+goldens (`inference`, new) and CC-01's start-failure goldens (`cibseven`, pre-existing).
 
 ## Golden case JSON schema
 
@@ -111,6 +155,33 @@ Field notes:
 - `dmn_fixture`: `{decision_key: row_or_rows}` registered onto a `FakeDmnTransport` via
   `register_dmn_fixture` — a bare dict is treated as a single row (wrapped in `[row]`); a list is
   used as-is (multiple candidate rows, first hit policy).
+  A value carrying `__rules__` is a **conditional fixture** (first-hit rules, `when`/`then`),
+  registered onto the `RuleAwareFakeDmnTransport` that `run_case` builds. Use it whenever the
+  question the eval asks is *"can this table say that, given what the graph actually sends it?"*
+  — a static row answers only *"does the graph relay whatever the fixture says?"*, which is
+  vacuous for a routing assertion. `EVL-RAFAEL-02`/`-03` are the worked example: their
+  `auth_auto_approval` fixture mirrors rule r1 of the real v0.2.0 table (AUTO_APROVAR only when
+  all five booleans arrive `true`, catch-all `ANALISE_HUMANA`), which is what makes them prove
+  Rafael's `auto_approve` route is unreachable from every typed seam instead of faking it
+  reachable. A `when` matches on `==` per key; a missing input key does NOT match; no rule
+  matching and no catch-all is a loud `AssertionError` (fixture bug), never a silent fail-safe.
+  A conditional fixture handed to a plain `FakeDmnTransport` raises `TypeError` — a Tier-B live
+  variant that builds its own transport must build a `RuleAwareFakeDmnTransport`.
+- `cibseven` (OPTIONAL, CC-01/CC-08): `{"start_fails": true}` swaps the case's CibSeven double
+  for `_harness.FailingStartCibSevenTransport`, whose `start_process_instance` raises
+  `CibSevenError` — the engine-unavailable branch. Use it to prove an agent's start-failure
+  routing (`desfecho == "erro_inicio_processo"`, no fabricated success, no message that promises
+  a human who was never summoned). Absent (every pre-CC-01 golden) = the unchanged
+  always-succeeds `FakeCibSevenTransport`.
+- `inference` (OPTIONAL, CC-08): `{"phi_capable": false}` makes `ReplayInferenceProvider`
+  raise `PhiZoneRoutingError` on every `generate(phi=True, ...)` call this turn (`_harness.
+  _phi_capable_for`) — the PHI-zone routing fail-closed branch (invariant I-6). Use it to prove
+  a graph never fails OPEN when its inference seam is PHI-zone-blocked (e.g. Helena's classify
+  call failing this way must still escalate `falha_tecnica`, exactly like a classify-LLM
+  exception or a DMN-down turn — never a silent `inform`). Absent (every pre-CC-08 golden) = the
+  unchanged `phi_capable=True` default. Every `generate()` call this turn will raise once set —
+  a case that opts in typically needs an EMPTY `recorded_llm` (`[]`), since no call ever
+  successfully returns a scripted response to consume.
 - `expect`: `next_kind` (RT) and/or `fields` (SF), checked by `assert_expect`.
 - `leak_canaries`: synthetic strings (e.g. a synthetic CPF `123.456.789-09`, NEVER a real one)
   that must be absent from the emitted output (`assert_no_leak`, ABS). Empty list = no PL

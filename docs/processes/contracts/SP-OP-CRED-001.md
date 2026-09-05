@@ -85,6 +85,26 @@ Variante por pedido (quando ha multiplos ciclos de credenciamento/descredenciame
 | `decisao_coordenacao` | string | `assumir_analise` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA — humano `coordenacao-rede`) |
 | `encaminhar_fraude` | boolean | Preenchida por `UT_AnaliseDescredenciamento`: encaminhar a SP-OP-FRAUDE-001 (indicio nunca auto-flagueia) |
 
+## Variaveis de proveniencia do agente (Carolina — ADR-0007/ADR-0015)
+
+Convencao repo-wide de nao-repudio (ADR-0007) e delegacao A2A (ADR-0015) — nao especifica de CRED
+(mirror `source_agent_id`/`source_agent_version` de
+`docs/processes/contracts/SP-OP-ESCALATION-001.md`). Semeadas por `CarolinaGraph._contract_variables`
+(`src/maezo/agents/carolina/graph.py`) junto com as variaveis de entrada; NENHUMA delas e uma
+negativa de credenciamento nem um descredenciamento — so proveniencia, dossie instrutivo e
+roteamento humano (CC-13 — Agent Fleet Audit: antes deste registro, `_contract_variables` as
+emitia sem declaracao no contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `source_agent_id` | string | nao | Agente que preparou o dossie de credenciamento/rede (`carolina`) — cadeia de nao-repudio (ADR-0007) |
+| `source_agent_version` | string | nao | Versao do agente Carolina que preparou o dossie (auditoria ADR-0007) |
+| `dossie_carolina` | json | nao | Dossie factual de credenciamento/descredenciamento montado por Carolina — instrui `UT_AnaliseCredenciamento`/`UT_AnaliseDescredenciamento`; carrega `decisao_cred` sempre `None` (Carolina NUNCA decide) |
+| `carolina_route` | string | nao | Roteamento do grafo do Carolina (`auto_route` \| `human_review`) — espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Presente so quando `carolina_route=human_review`; motivo do encaminhamento (`analise_credenciamento` \| `analise_descredenciamento` \| `documentacao_pendente` \| `dmn_indisponivel` \| `outro`) |
+| `grupo_destino` | string | nao | Presente so quando `carolina_route=human_review`; grupo humano sugerido por Carolina (`gestao-rede` para credenciamento, `juridico-rede` para descredenciamento) |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra) das DMN que Carolina consultou (`cred_admissibility`/`cred_route`/`cred_prior_notice`/`cred_sla`) — cadeia de decisao (ADR-0007/ADR-0012) |
+
 ## Topicos
 
 Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_registry.yaml` — **W0.2/orquestrador e o unico editor**; este contrato so declara o que precisa ser registrado — ver §"Registro de topicos exigido"). Contexto = `cred`.
@@ -161,6 +181,39 @@ Campos obrigatorios por decisao adversa (validacao de formulario/listener da Use
 | Notificacao previa / cure-window (`${cred_prior_notice.prazo_notificacao}`, ex. P30D) | event gateway: `msg.cred.notification_ack` **vs** timer → `UT_AnaliseDescredenciamento` (humano decide; expiracao NUNCA auto-descredencia) | RN 567 (antecedencia minima de notificacao em descredenciamento) — **DRAFT/verify** |
 
 > O event gateway de notificacao previa **substitui/INVERTE** o `Boundary_LicenseTimeout`(P30D)→`Task_ExpireRequest` do reference: a expiracao do prazo roteia para a User Task humana, nunca para um terminal adverso automatico. **Nunca** ha auto-descredenciamento/auto-expiracao por timeout.
+
+## Desfecho de agente: falha de start (CC-01)
+
+| Desfecho | Onde vive | Quem escreve | Significado |
+|---|---|---|---|
+| `erro_inicio_processo` | **estado do agente carolina** — NAO e variavel de processo | no `notify_start_failure` do grafo, via o helper unico `maezo.runtime.start_outcome.notify_start_failure` | o agente TENTOU iniciar SP-OP-CRED-001 pelo chokepoint `start_process_idempotent` e o engine recusou (`CibSevenError`). NENHUMA instancia nasceu |
+
+ONDE ESTE VALOR **NAO** ESTA, e por que. Ele nunca chega ao engine: nao consta de
+`## Variaveis de entrada` nem de `## Variaveis de saida`, nao tem `bpmnError` associado, nao
+aparece em nenhum `camunda:` do BPMN e **nao exige mudanca nenhuma no BPMN deste processo**. Nao
+poderia ser diferente — o processo NAO nasceu, entao nao existe instancia onde gravar uma
+variavel nem escopo onde lancar um erro. Ele e declarado AQUI, no contrato, porque e um desfecho
+CONTRATUAL do agente que serve este processo e porque quem consome o estado do agente (o handler
+A2A, um golden de eval, uma regra de alerta) precisa do literal exato e estavel.
+
+POR QUE ELE EXISTE (auditoria de frota 2026-09-04, achado CC-01). Ate essa data a falha de start
+era engolida: o `except CibSevenError` do no de start devolvia apenas `process_started=false` e a
+aresta seguinte era INCONDICIONAL para um terminal no-op, de modo que o desfecho de SUCESSO ja
+gravado a montante (`credenciamento_clerical`) sobrevivia — o estado do agente AFIRMAVA um fato que nao
+aconteceu. E o caso se perdia em silencio, porque os prazos desta especificacao vivem em timers
+da instancia BPMN que nunca nasceu: sem SLA, sem alerta, sem retry.
+
+EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
+
+* `process_started = false` (e, quando o agente distingue no-ops legitimos, o marcador
+  `start_failed = true`, que e o que a aresta condicional le);
+* `record_agent_error()` -> `maezo_agent_errors_total`, o contador que a regra
+  `MaezoAgentCrashLoop` observa;
+* evento estruturado `agent_process_start_failed` com a business key idempotente deste contrato —
+  este evento e o SUBSTITUTO operacional do prazo enquanto a instancia nao existe;
+* RETRY seguro por construcao: `start_process_idempotent` e idempotente por business key, entao
+  uma reentrega reencontra a instancia viva (`ALREADY_ACTIVE`) em vez de abrir uma segunda.
+
 
 ## Codigos de erro
 

@@ -7,8 +7,13 @@ name: "Agent Template"
 role: "Template role — base contract for all agents"
 phase: 0
 autonomy_level: L3
+# PLACEHOLDER — substituir na definicao do agente; a chave TEM de existir em
+# docs/processes/contracts/<chave>.md E em
+# src/maezo/tools/process_allowlist.py::KNOWN_PROCESS_KEYS. Sem as DUAS condicoes,
+# `make validate-artifacts` falha (cerca HEL-12 em platform/validation/agent_def.py)
+# e o EffectPolicy do gateway nega o start em runtime (fail-closed).
 process_keys:
-  - SP-OP-TEMPLATE-001
+  - SP-OP-<AGENT>-001
 tools:
   - mcp-dmn.evaluate
   - mcp-memory.read_write
@@ -30,12 +35,13 @@ autonomy_actions:
 kpis:
   - { name: resolution_rate, target: "track" }
 escalation:
-  process: SP-OP-TEMPLATE-001
+  # PLACEHOLDER — mesma regra do `process_keys` acima (contrato + KNOWN_PROCESS_KEYS).
+  process: SP-OP-<AGENT>-001
   triggers:
     - signal: ambiguity
 memory:
-  episodic: true
-  semantic: false
+  episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
+  semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
 a2a:
   capabilities: []
   skills: []

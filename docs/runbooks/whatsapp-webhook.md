@@ -10,16 +10,20 @@
 > default, this was a live CrashLoopBackOff. `src/maezo/platform/webhooks/` now
 > exists and implements §1 (Meta GET-verification handshake) and §2 (real
 > HMAC-SHA256 POST signature validation, timing-safe) exactly as documented below.
-> **§3/§4 are NOT wired yet**: there is no idempotency store, no
-> `WhatsAppMessageEvent`/`WhatsAppStatusEvent` normalization, and no Kafka publish
-> in this build — a signature-verified POST returns **HTTP 501** with an explicit
-> `"message queuing pending T1.11"` detail instead of silently pretending to queue
-> the message (no downstream consumer exists yet: Helena's WhatsApp intake graph
-> is T1.11's job). §5 ("Kafka producer unavailable") and the Kafka-publish rows of
-> §7's metrics table describe **target** behavior once that wiring lands, not
-> today's. Code: `src/maezo/platform/webhooks/whatsapp/{app,security,settings}.py`
-> (not the `whatsapp/app.py`-only layout §1 implies — `security.py`/`settings.py`
-> are separate modules, `idempotency.py` does not exist yet).
+> **§4 is still NOT wired**: no `WhatsAppMessageEvent`/`WhatsAppStatusEvent`
+> normalization and no Kafka publish in this build. §5 ("Kafka producer
+> unavailable") and the Kafka-publish rows of §7's metrics table describe
+> **target** behavior once that wiring lands, not today's.
+>
+> **§3 IS wired since 2026-09-04** (gap `WEBHOOK-WAMID-DEDUP`, owner decisions
+> R-071/R-072/R-073) — but NOT by the module this runbook used to name. There is
+> no `platform/webhooks/whatsapp/idempotency.py` and there never was (ADR-0041
+> §1); the durable registry lives in `platform/driver_idempotency.py` over the
+> repurposed `driver_idempotency` table, and §3 below has been rewritten to
+> describe what exists. Code:
+> `src/maezo/platform/webhooks/whatsapp/{app,security,settings,dedup,dispatch}.py`
+> — `security.py`/`settings.py`/`dedup.py` are separate modules, not the
+> `whatsapp/app.py`-only layout §1 implies.
 
 ---
 
@@ -77,9 +81,9 @@ Meta sends inbound messages and delivery status updates.
 8. Return 200 OK (Meta requires < 20s)
 
 > **O que o build SHIPPED faz com cada mensagem recebida (gap `WHATSAPP-NON-TEXT-DROPPED`,
-> 2026-09-03).** Os passos 4-5 e 7 acima descrevem comportamento-ALVO (nao ha store de
-> idempotencia nem producer Kafka nesta arvore — ver o aviso de status no topo). O que o codigo
-> realmente faz, por tipo de mensagem:
+> 2026-09-03; dedup do passo 4 em 2026-09-04).** O passo 4 e REAL desde 2026-09-04 (§3); os passos
+> 5 e 7 continuam sendo comportamento-ALVO (nao ha producer Kafka nesta arvore — ver o aviso de
+> status no topo). O que o codigo realmente faz, por tipo de mensagem:
 >
 > | Entrada | Comportamento hoje | Codigo |
 > |---|---|---|
@@ -93,10 +97,13 @@ Meta sends inbound messages and delivery status updates.
 > APENAS o que o codigo faz (o canal aceita texto) — nao promete humano, transcricao, Libras nem
 > retorno; a fallback mais rica e a decisao 10.2 do dono, ABERTA, e o canal unico e a 9.6.
 >
-> **Limite conhecido, `WEBHOOK-WAMID-DEDUP` (owner-gated, NAO implementado):** sem store de
-> idempotencia por `wamid` (§3 descreve um que nao existe), uma re-entrega do mesmo webhook pela
-> Meta re-envia a resposta fixa. E mensagem de cortesia duplicada, nunca efeito adverso duplicado
-> — o ack nao inicia processo nem grava estado.
+> **Dedup por `wamid` — IMPLEMENTADA em 2026-09-04** (gap `WEBHOOK-WAMID-DEDUP`, decisao do dono
+> R-071 opcao C). Toda mensagem do lote e reivindicada no registro duravel `driver_idempotency`
+> ANTES de qualquer efeito (§3), e o envio de saida carrega chave de idempotencia derivada do mesmo
+> `wamid`. Uma re-entrega da Meta dentro do TTL NAO roda turno da Helena e NAO re-envia o ack fixo:
+> responde `200` e conta `status="duplicate"`. Uma falha no tratamento RETIRA a reivindicacao, para
+> que a re-entrega seja uma segunda chance real — a dedup nunca transforma falha transitoria em
+> perda silenciosa.
 >
 > **Caminho de resposta inoperante em Helm:** `WhatsAppServer.send_message` RECUSA enquanto
 > `WHATSAPP_PHONE_NUMBER_ID` nao for provisionado (`tools/mcp_whatsapp/server.py`, divulgacao de
@@ -151,34 +158,51 @@ The raw phone is **never** stored, logged, or sent to Kafka.
 
 ## 3. Idempotency store configuration
 
-**Code:** `src/maezo/platform/webhooks/whatsapp/idempotency.py`
+**Code:** `src/maezo/platform/driver_idempotency.py` (registro) +
+`src/maezo/platform/webhooks/whatsapp/dedup.py` (derivacao de chave, PHI) ·
+**Schema:** `src/maezo/platform/migrations/versions/0010_webhook_wamid_dedup.py`
 
-Deduplication by `wamid` (WhatsApp message ID) with 24h TTL.
+Deduplicacao por `wamid` com TTL de 24h (default de `WHATSAPP_WAMID_DEDUP_TTL_S`; mesmo valor que
+`docs/adr/0024-durable-idempotency-resume-inbound-drivers.md:60` fixa).
 
-### In-memory store (dev/test)
+> **Correcao 2026-09-04.** Esta secao descrevia, ate hoje, um modulo
+> `platform/webhooks/whatsapp/idempotency.py` com `InMemoryIdempotencyStore` e
+> `RedisIdempotencyStore` que **nunca existiram** neste repo (ADR-0041 §1). O que existe agora e o
+> registro duravel em Postgres abaixo — a opcao C que o dono escolheu em R-071 justamente porque
+> uma janela em memoria nao sobrevive a multiplas replicas.
 
-```python
-from maezo.platform.webhooks.whatsapp.idempotency import InMemoryIdempotencyStore
+### Registro duravel (unico modo suportado)
 
-store = InMemoryIdempotencyStore()
-```
+Tabela `driver_idempotency`, no schema do tenant, **reaproveitada** (decisao do dono R-073, opcao
+`REPROPOR`) — nao ha tabela nova:
 
-No env vars needed. Suitable for local dev and unit tests.
+| Coluna | Papel na dedup |
+|---|---|
+| `key` | `wa:{inbound\|outbound}:{tenant}:hk1_{hmac}` — pseudonimo COM CHAVE do `wamid`, nunca o `wamid` cru |
+| `tenant` | escopo (alem do schema) |
+| `status` | `pending` (em voo) / `processed` (beneficiario respondido) |
+| `expires_at` | fim da janela de dedup (TTL) |
+| `created_at` | base do lease em voo |
 
-### Redis store (production)
-
-```python
-from maezo.platform.webhooks.whatsapp.idempotency import RedisIdempotencyStore
-
-store = RedisIdempotencyStore("redis://localhost:6379")
-```
-
-**Requires:** `pip install redis>=5.0`
+**Protocolo:** `claim` -> efeito -> `mark_processed`; falha -> `release`. Uma linha `pending` mais
+velha que o lease (`WHATSAPP_WAMID_DEDUP_LEASE_S`, default 120s) e re-reivindicavel — e a
+recuperacao para um receptor morto no meio do turno.
 
 **Env vars:**
-- `WHATSAPP_REDIS_URL` — Redis connection (optional, defaults to localhost)
+- `DATABASE_URL` — mesmo DSN que o dispatcher ja exige (nao ha DSN separado para a dedup).
+- `WHATSAPP_WAMID_DEDUP_TTL_S` — janela de dedup, default `86400`.
+- `WHATSAPP_WAMID_DEDUP_LEASE_S` — lease em voo, default `120`.
+- `WHATSAPP_WEBHOOK_ACK_THEN_QUEUE` — modo ack-then-queue, default `false`
+  (`docs/processes/webhook-whatsapp-ack-then-queue.md`).
 
-**TTL:** 24 hours (configurable per call). Messages re-delivered after 24h are reprocessed (acceptable).
+**Fail-closed:** registro inalcancavel => o receptor NAO despacha nada e responde `500`
+(`status="dedup_unavailable"`), para a Meta re-entregar. Despachar sem protecao seria reabrir a
+dupla resposta ao beneficiario exatamente quando a plataforma ja esta degradada.
+
+**Retencao:** DELETE por idade (`expires_at`), apoiado pelo indice `ix_driver_idempotency_expires`;
+a tabela esta inventariada no plano LGPD (`spec/policies/retention/erasure-plan.template.yaml`,
+camada `idempotencia`) como `SEM_COLUNA_DE_TITULAR` — o que so continua verdadeiro porque a chave
+e um pseudonimo com chave.
 
 ---
 
@@ -303,7 +327,10 @@ Expected response: `test_challenge_value`
 
 | Metric | Query | Alert threshold |
 |--------|-------|-----------------|
-| Requests by outcome | `rate(maezo_webhook_requests_total[5m])` — labels `tenant`, `status` (`ok`\|`invalid_signature`\|`parse_error`\|`dispatch_failed`\|`not_implemented`\|`non_text_acked`) | N/A (baseline) |
+| Requests by outcome | `rate(maezo_webhook_requests_total[5m])` — labels `tenant`, `status` (`ok`\|`invalid_signature`\|`parse_error`\|`dispatch_failed`\|`not_implemented`\|`non_text_acked`\|`duplicate`\|`partial_failure`\|`dedup_unavailable`\|`queued`) | N/A (baseline) |
+| Re-entregas da Meta absorvidas | `rate(maezo_webhook_requests_total{status="duplicate"}[5m])` — lotes inteiramente compostos de re-entrega que a dedup por `wamid` suprimiu (`WEBHOOK-WAMID-DEDUP`). Subida sustentada mede quanto a Meta esta retentando, i.e. quanto do orcamento de ack esta estourando | N/A (baseline) |
+| Lote misto (algo entregue, algo falhou) | `rate(maezo_webhook_requests_total{status="partial_failure"}[5m])` — gap `WHATSAPP-MIXED-BATCH-RETRY-TRADEOFF` (R-100): antes deste rotulo, um ack de nao-texto perdido dentro de um lote bem-sucedido era indistinguivel de um `ok` limpo | > 0 merece investigacao |
+| Registro de dedup indisponivel | `rate(maezo_webhook_requests_total{status="dedup_unavailable"}[5m])` — o receptor recusou-se a despachar sem protecao de duplicata (fail-closed). Enquanto isso durar, a Meta esta retentando e nenhuma mensagem esta sendo processada | > 0 e incidente |
 | Inbound que o canal NAO processa | `rate(maezo_webhook_requests_total{status="non_text_acked"}[5m])` — requests cujo lote so trazia mensagens NAO-texto, todas respondidas com o ack fixo (`app.py::receive_event`). E a medida de quanto do volume de entrada este canal so consegue recusar educadamente; subida sustentada e insumo para as decisoes 9.6/10.2 do dono, nao um alerta de falha | N/A (baseline) |
 | Messages processed/s | `rate(maezo_webhook_messages_total[5m])` — labels `tenant`, `message_type`, `deduplicated` | N/A (baseline) |
 | Invalid signatures | `rate(maezo_webhook_requests_total{status="invalid_signature"}[5m])` | > 0.1/s (attack) |

@@ -205,6 +205,33 @@ async def test_helena_b1_evals_route_mutation_check_is_non_vacuous(case: dict[st
     )
 
 
+# ---------------------------------------------------------------------------
+# Helena — CC-08 (2026-09-04): DMN-down / PHI-zone-blocked infra-failure goldens (EVL-HELENA-11/
+# 12/13). Route mutation-check reuses the SAME `mutate_expected_route` shape as the B1 block
+# above — kept as its own named set (not merged into `_HELENA_B1_ROUTE_MUTATION_IDS`) so each
+# wave's own goldens stay traceable to the work package that added them.
+# ---------------------------------------------------------------------------
+
+_HELENA_CC08_MUTATION_IDS: frozenset[str] = frozenset({"EVL-HELENA-11", "EVL-HELENA-12", "EVL-HELENA-13"})
+_HELENA_CC08_MUTATION_CASES = [c for c in HELENA_CASES if c["id"] in _HELENA_CC08_MUTATION_IDS]
+
+
+@pytest.mark.eval
+@pytest.mark.parametrize("case", _HELENA_CC08_MUTATION_CASES, ids=lambda c: c["id"])
+async def test_helena_cc08_evals_route_mutation_check_is_non_vacuous(case: dict[str, Any]) -> None:
+    """Non-vacuousness proof (T3.2 design §7.1) for the three CC-08 infra-failure goldens:
+    flipping `expect.next_kind` must make the harness fail — otherwise these evals would rubber-
+    stamp ANY route `classify()`/`escalate()` produces regardless of whether the DMN-down/
+    PHI-zone-blocked path actually still escalates. Proves the goldens are watching the real
+    fail-safe behaviour, not merely echoing it."""
+    await run_mutation_check(
+        build,
+        case,
+        mutation=mutate_expected_route,
+        extra_config=_helena_extra_config(),
+    )
+
+
 @pytest.mark.eval
 async def test_evl_helena_07_cpf_absent_from_engine_bound_variables() -> None:
     """PL: EVL-HELENA-07 — the synthetic CPF the beneficiary typed into `message_body` must
@@ -221,20 +248,77 @@ async def test_evl_helena_07_cpf_absent_from_engine_bound_variables() -> None:
     assert_no_leak(status.variables, [canary])
 
 
+def _plant_canary_at(case: Mapping[str, Any], canary: str, index: int) -> dict[str, Any]:
+    """Deep-copy `case` with `canary` appended to the `recorded_llm` response at `index`.
+
+    `_harness.mutate_plant_canary` plants on the LAST response only. For a Helena escalate turn
+    that is `_respond_llm`'s draft — which lands in `state["response_text"]` — so it exercises the
+    STATE leak surface and nothing else. The response that reaches the ENGINE is `recorded_llm[1]`
+    (`_resumo_contexto` -> `resumo_contexto`), which is why this local, index-addressed variant
+    exists (mirrors `_mutate_route_field`'s "kept in this file" rationale)."""
+    mutated = copy.deepcopy(dict(case))
+    responses = list(mutated.get("recorded_llm") or [])
+    if index >= len(responses):
+        raise ValueError(f"case {case.get('id')!r} has no `recorded_llm[{index}]` to plant into")
+    responses[index] = f"{responses[index]} {canary}"
+    mutated["recorded_llm"] = responses
+    return mutated
+
+
 @pytest.mark.eval
 async def test_evl_helena_07_mutation_check_canary_plant_is_non_vacuous() -> None:
-    """Non-vacuousness proof for EVL-HELENA-07 using the frozen `run_mutation_check` +
-    `mutate_plant_canary` helpers: planting the CPF canary onto the LAST scripted LLM response
-    (the escalate-path `_respond_llm` draft, which DOES flow into `state["response_text"]`) must
-    make the harness's own `assert_no_leak(state, ...)` fail — proving the leak check is
-    actually exercised, not vacuously green."""
+    """Non-vacuousness proof for EVL-HELENA-07's ENGINE-VARIABLE assertion (INFO-B repair).
+
+    THE DEFECT THIS REPLACES: the previous version planted the canary on the LAST scripted
+    response via `mutate_plant_canary` and let `run_mutation_check` assert against
+    `result.state`. That proved the STATE leak surface is live — it says nothing about the
+    variable set `test_evl_helena_07_cpf_absent_from_engine_bound_variables` actually checks,
+    whose input (`recorded_llm[1]`, the `_resumo_contexto` draft) was identifier-free BY
+    CONSTRUCTION in that golden. The engine-variable eval was therefore VACUOUS: it could not
+    have failed no matter what the graph did with the summary.
+
+    THE REPAIR: plant the canary on `recorded_llm[1]` — the ONE scripted response that reaches
+    `resumo_contexto` — and prove the value TRAVELLED to the engine-bound surface and was
+    REDACTED there, rather than merely never arriving. The class token is what distinguishes the
+    two: `[REDACTED_DIGITS]` can only be present if the CPF reached the scrub."""
     case = next(c for c in HELENA_CASES if c["id"] == "EVL-HELENA-07")
-    await run_mutation_check(
-        build,
-        case,
-        mutation=lambda c: mutate_plant_canary(c, "123.456.789-09"),
-        extra_config=_helena_extra_config(),
+    canary = "123.456.789-09"
+
+    result = await run_case(build, _plant_canary_at(case, canary, 1), extra_config=_helena_extra_config())
+
+    status = await result.cibseven.get_process_status(result.state["escalation_business_key"])
+    resumo = status.variables["resumo_contexto"]
+    assert canary not in resumo, f"engine-bound resumo_contexto leaked the planted CPF: {resumo!r}"
+    assert "[REDACTED_DIGITS]" in resumo, (
+        "the planted CPF never reached `resumo_contexto` at all — this eval's engine-variable "
+        f"assertion would be VACUOUS (got {resumo!r})"
     )
+    assert_no_leak(status.variables, [canary])
+
+
+@pytest.mark.eval
+async def test_evl_helena_09_llm_drafted_identifiers_absent_from_engine_bound_variables() -> None:
+    """PL: EVL-HELENA-09 (CC-06/HEL-05) — the LLM copies a synthetic CPF, e-mail and BR phone
+    into the handoff summary it drafts, and NONE of them may reach the SP-OP-ESCALATION-001
+    engine-bound process variables. Unlike EVL-HELENA-07 the identifiers are absent from
+    `message_body`, so they can only appear downstream by way of the model's own output.
+
+    Also asserts what SURVIVES: SP-OP-ESCALATION-001 §Variaveis requires `resumo_contexto`
+    pseudonimizado, not empty — a scrub that deleted the summary would break the human handoff
+    the contract exists to guarantee, and would still pass a canary-absent check alone."""
+    case = next(c for c in HELENA_CASES if c["id"] == "EVL-HELENA-09")
+    result = await run_case(build, case, extra_config=_helena_extra_config())
+
+    status = await result.cibseven.get_process_status(result.state["escalation_business_key"])
+    assert_no_leak(status.variables, case["leak_canaries"])
+
+    resumo = status.variables["resumo_contexto"]
+    assert "[REDACTED_DIGITS]" in resumo and "[REDACTED_EMAIL]" in resumo
+    assert "[REDACTED_PHONE]" in resumo
+    assert "Beneficiario solicitou atendente humano" in resumo
+    # Correlation identifiers a handoff MUST carry are untouched by the free-text net.
+    assert status.variables["beneficiario_pseudo_id"] == "PSEUDO-TESTE-009"
+    assert status.variables["motivo_categoria"] == "solicitacao_humano"
 
 
 # ---------------------------------------------------------------------------

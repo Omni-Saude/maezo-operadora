@@ -66,16 +66,28 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   SP-OP-ESCALATION-001 build steps in the T1.11 charter do not require it, and v2's `FhirServer`
   is a generic HAPI client with no PEP/ToolRegistry gateway yet (a real gap, not hidden here) —
   wiring it is a follow-up.
-- Episodic memory write (`mcp-memory.read_write`, ADR-0002) is NOT wired in this graph. v2's
-  `MemoryServer` requires a live Postgres/pgvector schema; adding it is a follow-up once that
-  schema exists in this repo's migrations.
+- Episodic memory write (`mcp-memory.read_write`, ADR-0002) is NOT wired in this graph. The
+  schema is NOT what is missing — migration `0001` creates `agent_memory`;
+  `MemoryServer.store_episodic` refuses because its `(agent_id, event)` signature carries neither
+  `tenant_id` nor `thread_id` (both `text NOT NULL`), which is GAP-DU-01-a, an owner decision. The semantic
+  column that once sat in the same table was dropped by `0009_drop_pgvector` and ADR-0002 §3 is
+  SUSPENDED pending a consumer (ADR-0047, DRAFT) — so there is no semantic write to follow up
+  on at all.
 - Free-text WhatsApp message content is NOT scanned for embedded PHI patterns (e.g. a
   beneficiary typing their own CPF into the message) before reaching the LLM — mitigated by the
-  mandatory `phi=True` routing (content never reaches a general-zone cloud provider), but a
-  dedicated free-text scrubber does not exist in v2 yet; this is a follow-up, not built here.
-- No multi-turn conversation checkpointing across separate webhook deliveries: each inbound
-  WhatsApp message runs this graph as ONE complete turn (receive..respond) with no LangGraph
-  checkpointer attached. Cross-turn memory is a follow-up (ADR-0002's episodic/semantic layers).
+  mandatory `phi=True` routing (content never reaches a general-zone cloud provider). What DOES
+  exist since CC-06/HEL-05 is the EGRESS scrub: `_start_escalation` runs
+  `phi_vars.redact_free_text` over the `resumo_contexto` it produces (and
+  `redact_error_message` over the `[falha tecnica: ...]` suffix), and the shared start chokepoint
+  `start_process_idempotent` runs the same net over every process-start variable. That is an
+  identifier net (CPF/CNPJ/e-mail/BR phone/long digit runs), NOT a PHI classifier: clinical
+  content in prose is still carried, in-zone, by design.
+- No multi-turn conversation checkpointing WITHIN this module: this graph is compiled here
+  without a checkpointer. The LIVE webhook path is NOT stateless, though:
+  `platform/webhooks/whatsapp/dispatch.py::HelenaDispatcher.dispatch` compiles it WITH a durable
+  LangGraph checkpointer (T4b, `runtime.checkpoint.Checkpointer`) and invokes it under a PHI-safe
+  per-conversation thread config, so cross-turn state does persist in production. The remaining
+  follow-up is ADR-0002's episodic/semantic memory layers, not the checkpointer.
 """
 
 from __future__ import annotations
@@ -89,6 +101,8 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.start_outcome import notify_start_failure as emit_start_failure_notice
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -102,6 +116,7 @@ from maezo.tools.workers.dmn_transport import (
     DmnTransport,
     first_row,
 )
+from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
 from .prompts import (
     ALLOWED_SINTOMA_CODIGOS,
@@ -119,6 +134,12 @@ logger = structlog.get_logger(__name__)
 Intent = Literal["symptom", "scheduling", "information", "human_request", "clinical_question"]
 Population = Literal["adult", "pediatric", "gestante", "mental_health", "none"]
 ResponseKind = Literal["inform", "schedule", "escalate"]
+#: CC-01: o vocabulario do `response_kind` EMITIDO e um superconjunto do de ROTEAMENTO. Helena
+#: pode responder um `falha_tecnica_start` (a resposta honesta quando a escalacao nao abriu), mas
+#: nunca ROTEIA para ele — `next_kind` continua sendo `ResponseKind`, com os tres destinos que
+#: `_route` sabe mapear. Alargar o tipo de roteamento aqui criaria um valor que nenhuma aresta
+#: conhece; alargar so o de saida nao cria destino nenhum.
+ResponseKindOut = Literal["inform", "schedule", "escalate", "falha_tecnica_start"]
 
 # Classify-output schema domains (classify-v1's own contract) — the R1 cycle-1 fail-closed
 # validator (`_validate_extraction`) checks membership against these. Kept as explicit
@@ -141,6 +162,20 @@ MotivoCategoria = Literal[
 Severidade = Literal["grave", "moderada", "leve"]
 
 PROCESS_KEY = "SP-OP-ESCALATION-001"
+
+#: CC-01: a resposta HONESTA quando a escalacao nao pode ser aberta. Constante, nunca um draft de
+#: LLM (ver `_respond_start_failure`). Nao promete atendente, nao promete prazo, nao cita
+#: identificador nenhum — diz o que houve e o que o beneficiario pode fazer agora.
+RESPOSTA_FALHA_TECNICA_START: str = (
+    "Nao consegui registrar seu atendimento agora por uma falha tecnica no nosso sistema, "
+    "e por isso nenhum atendente foi acionado ainda. Por favor, envie sua mensagem novamente "
+    "em alguns minutos. Se voce estiver passando por uma emergencia, procure o servico de "
+    "emergencia mais proximo."
+)
+
+#: `response_kind` do turno de falha de start. Token de classe fechado, como os demais — o que
+#: permite a um golden/alerta distinguir esta resposta de um handoff de verdade.
+RESPONSE_KIND_FALHA_TECNICA_START: str = "falha_tecnica_start"
 
 # DMN table per population (contract SP-OP-ESCALATION-001 + spec/processes/dmn/triage_redflag_*).
 _DMN_BY_POPULATION: dict[str, str] = {
@@ -194,16 +229,25 @@ class HelenaState(TypedDict, total=False):
     # Routing.
     next_kind: ResponseKind
     escalation_motivo: MotivoCategoria
-    escalation_severidade: Severidade
+    escalation_severidade: Severidade | None
 
     # `escalate` outputs.
     escalation_started: bool
     escalation_business_key: str
     escalation_process_ref: dict[str, Any]
+    #: CC-01: o start de SP-OP-ESCALATION-001 foi TENTADO e FALHOU tecnicamente
+    #: (`_start_escalation`'s `except CibSevenError`). Distinto de `escalation_started is False`,
+    #: que tambem e o valor NEUTRO de um turno informativo que nunca tentou escalar.
+    start_failed: bool
 
     # Turn output.
     response_text: str
-    response_kind: ResponseKind
+    response_kind: ResponseKindOut
+    #: CC-01: desfecho do turno. Helena nao tinha este campo — a conversa nao e um processo e o
+    #: turno feliz nao produz desfecho contratual nenhum (fica ""). Ele existe para o UNICO
+    #: desfecho que Helena PRECISA declarar: `erro_inicio_processo`, quando ela nao conseguiu
+    #: abrir a escalacao. Escrito exclusivamente por `respond` no ramo de falha.
+    desfecho: str
     error: str
 
 
@@ -250,12 +294,27 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "dmn_decision_ref": None,
     "next_kind": "inform",
     "escalation_motivo": None,
-    "escalation_severidade": "leve",
+    # HELENA-SEVERIDADE-DEFAULT: `None`, never `"leve"` — a clinical severity that was never
+    # determined is not the mildest one, it is UNKNOWN (same principle GAP-ESC-SEVERITY-GROUP
+    # fixed one layer down, in the worker). The reachable path this guards is `receive`'s own
+    # missing-runtime-context escalate (`next_kind="escalate"` set WITHOUT running `classify`,
+    # which is the only place that assigns a REAL severidade per gatilho) — before this fix that
+    # path silently announced every such case as `leve`. `escalate` now forwards whatever this
+    # is (including `None`) verbatim; a `None`/absent `severidade` refuses fail-closed at the
+    # ALREADY-fixed worker boundary (`escalation.py::_exigir_severidade`). `ST_NotificarFallback`
+    # runs the SAME check and refuses too (it shares the `operadora.escalation.notify_supervisor`
+    # topic and `_exigir_severidade`), so NO notification is published on either channel; the
+    # case still reaches the mandatory HITL through the modeled `BE_NotifFallbackFailed` ->
+    # `Flow_BENotifFallback_UT` -> `UT_TratarEscalonamento` edge — never a dead end, never a
+    # fabricated `leve`, but nobody is paged.
+    "escalation_severidade": None,
     "escalation_started": False,
     "escalation_business_key": None,
     "escalation_process_ref": None,
+    "start_failed": False,
     "response_text": None,
     "response_kind": None,
+    "desfecho": "",
     "error": None,
 }
 
@@ -636,11 +695,19 @@ class HelenaGraph:
         uses (`motivo_categoria="solicitacao_humano"` — the contract vocabulary's closest fit for
         "needs a human to act", `spec/agents/helena/agent.yaml`'s `escalation.triggers`), just
         with the scheduling-specific reply text (`response_kind="schedule"`) instead of the
-        generic escalate one."""
+        generic escalate one.
+
+        HELENA-SEVERIDADE-DEFAULT: `severidade="leve"` here is an EXPLICIT business value tied
+        1:1 to `motivo="solicitacao_humano"` — the same pairing `classify`'s own gatilho 3
+        (`intent == "human_request"`) assigns explicitly below — not a fallback for an unknown
+        clinical state. A scheduling request carries no clinical signal at all (`escalation_routing.
+        dmn` rule `r5` does not even read `severidade` for `solicitacao_humano`), so `leve` is a
+        valor de negocio explicito (nao revisado por SME), never a guess standing in for a missing one.
+        """
         return await self._start_escalation(
             state,
             motivo="solicitacao_humano",
-            severidade=state.get("escalation_severidade", "leve"),
+            severidade="leve",
             response_kind="schedule",
         )
 
@@ -650,11 +717,25 @@ class HelenaGraph:
         A tool failure here never blocks the turn — the response still tells the beneficiary a
         human will follow up (`error` records the failure for observability; the runtime's own
         fail-closed posture treats an unstarted escalation as an incident, never a silent drop).
+
+        HELENA-SEVERIDADE-DEFAULT: `severidade` is read WITHOUT a fallback. Every real gatilho in
+        `classify` (the only place that decides `next_kind="escalate"` off a genuine clinical/
+        administrative signal) assigns `escalation_severidade` explicitly; the one path that
+        reaches here without it is `receive`'s own missing-runtime-context escalate. That case's
+        severidade is genuinely UNKNOWN, and an unknown one is never announced as `leve` (mirrors
+        GAP-ESC-SEVERITY-GROUP's own principle, one layer down). `None` is forwarded verbatim into
+        `_start_escalation` — the ALREADY-fixed worker boundary (`escalation.py::_exigir_severidade`)
+        refuses fail-closed on it. `ST_NotificarFallback` shares the same
+        `operadora.escalation.notify_supervisor` topic and the same `_exigir_severidade`, so it
+        refuses too: NO notification is published on either channel. The case still reaches the
+        mandatory HITL through the modeled `BE_NotifFallbackFailed` -> `Flow_BENotifFallback_UT`
+        -> `UT_TratarEscalonamento` edge — never a dead end, only a fabricated value (and the
+        page nobody gets) is what's removed.
         """
         motivo: MotivoCategoria = state.get("escalation_motivo") or (
             "falha_tecnica" if state.get("error") else "outro"
         )
-        severidade: Severidade = state.get("escalation_severidade", "leve")
+        severidade: Severidade | None = state.get("escalation_severidade")
         return await self._start_escalation(
             state, motivo=motivo, severidade=severidade, response_kind="escalate"
         )
@@ -664,7 +745,7 @@ class HelenaGraph:
         state: HelenaState,
         *,
         motivo: MotivoCategoria,
-        severidade: Severidade,
+        severidade: Severidade | None,
         response_kind: ResponseKind,
     ) -> dict[str, Any]:
         """Shared SP-OP-ESCALATION-001 start, factored out of `escalate` (GAP 9.2) so `schedule`
@@ -674,16 +755,34 @@ class HelenaGraph:
         drafts (`"escalate"`'s generic handoff text vs `"schedule"`'s scheduling-specific one) —
         the escalation itself (business key, audit-before-effect, idempotent start, provenance)
         is identical regardless of caller.
+
+        HELENA-SEVERIDADE-DEFAULT: `severidade` is `Severidade | None` — `None` ONLY on
+        `escalate`'s missing-runtime-context path (never fabricated to `leve`); `schedule` and
+        every real `escalate` gatilho always pass a real domain value. `None` rides verbatim into
+        the `severidade` process variable so the worker's OWN fail-closed check refuses it
+        (`escalation.py::_exigir_severidade`), never this call.
         """
         business_key = _business_key(state)
 
-        resumo = await self._resumo_contexto(state, motivo)
+        # HEL-05 — DEFENSE IN DEPTH, on top of the chokepoint's own scrub. `_resumo_contexto` is
+        # a free-text LLM draft over the beneficiary's own message, and Helena is the DIRECT
+        # producer of the contractual `resumo_contexto` (SP-OP-ESCALATION-001 §Variaveis:
+        # "pseudonimizado"), so the identifier net is applied HERE, at the producer, and again at
+        # `start_process_idempotent` (CC-06). Scrubbing twice is idempotent: `redact_free_text`
+        # replaces identifier substrings with class tokens, and the class tokens match no pattern.
+        resumo = redact_free_text(await self._resumo_contexto(state, motivo))
         if motivo == "falha_tecnica" and state.get("error"):
             # R1 cycle-1 fix: carry the technical-failure reason into the human handoff so the
             # attendant sees WHY the automated turn failed. The reason is bounded and contains
             # no raw LLM output / no beneficiary text (see `_classify_llm`) — everything else in
             # this variable set is already pseudonymized (ADR-0006).
-            resumo = f"{resumo} [falha tecnica: {str(state['error'])[:300]}]"
+            #
+            # HEL-05: `str(...)[:300]` was a LENGTH bound, never a CONTENT one. `error` is not
+            # always the bounded classifier token this comment describes — `escalate`'s own
+            # `CibSevenError` handler writes `f"start_process indisponivel: {exc}"` into it, and a
+            # transport exception message is arbitrary text from another system. `redact_error_message`
+            # (which delegates to the same `redact_free_text` net) bounds BOTH.
+            resumo = f"{resumo} [falha tecnica: {redact_error_message(state['error'])}]"
         variables: dict[str, Any] = {
             "tenant_id": state.get("tenant_id", ""),
             "source_agent_id": "helena",
@@ -725,10 +824,17 @@ class HelenaGraph:
         except CibSevenError as exc:
             return {
                 "escalation_started": False,
+                # CC-01: o marcador que `respond` le para NAO prometer um humano que ninguem
+                # acionou. `escalation_started is False` sozinho nao serve: e tambem o neutro de
+                # um turno informativo, que nunca tentou escalar coisa nenhuma.
+                "start_failed": True,
                 "escalation_motivo": motivo,
                 "escalation_severidade": severidade,
                 "escalation_business_key": business_key,
-                "error": f"start_process indisponivel: {exc}",
+                # HEL-05 (feeder): a transport exception message is arbitrary text from another
+                # system, and this `error` survives into the NEXT turn's `[falha tecnica: ...]`
+                # suffix under the live checkpointed dispatch (T4b).
+                "error": f"start_process indisponivel: {redact_error_message(exc)}",
                 "response_text": response_text,
                 "response_kind": response_kind,
             }
@@ -750,13 +856,81 @@ class HelenaGraph:
     async def respond(self, state: HelenaState) -> dict[str, Any]:
         """Send the drafted response over WhatsApp. A policy refusal or transport failure is
         recorded in `error` (observable) — it never silently disappears (v1 landmine #2 this
-        design avoids by design: no blanket `except Exception: pass`)."""
-        text = state.get("response_text") or ""
+        design avoids by design: no blanket `except Exception: pass`).
+
+        CC-01 — A MENSAGEM TEM DE CORRESPONDER AO QUE ACONTECEU. `_start_escalation` redige o
+        texto de handoff (`_respond_llm`) ANTES de tentar o start, e ate 2026-09-04 este no
+        enviava esse texto tambem quando o start havia falhado: o beneficiario lia "um
+        profissional vai continuar seu atendimento" enquanto ZERO instancias de
+        SP-OP-ESCALATION-001 existiam — uma promessa de humano que ninguem acionou, sem prazo
+        (o SLA vive na instancia que nao nasceu) e sem alerta. Agora o handoff so sai quando a
+        escalacao existe; caso contrario o texto e SUBSTITUIDO pela mensagem honesta de falha
+        tecnica e o turno declara `desfecho=erro_inicio_processo`.
+
+        CC-09: emite UM `maezo_agent_desfecho_total` para este turno. `HelenaState.desfecho` e'
+        campo morto (nenhum no' de Helena escreve nele — ver `turn_telemetry`'s module
+        docstring), entao o `desfecho` do label e' DERIVADO aqui, via override, de
+        `escalation_started`/`response_kind`/`escalation_motivo` — os sinais reais desta
+        agente. O ramo `start_failed=True` NAO emite aqui: `_start_failure_outcome` ja delega
+        ao helper compartilhado (`runtime.start_outcome.notify_start_failure`), que emite por
+        conta propria — emitir aqui tambem duplicaria o turno.
+        """
+        # UM unico `send` e UM unico handler de falha de envio nos dois ramos — o que muda entre
+        # eles e O QUE se diz e O QUE o turno declara, nunca o mecanismo de envio.
+        if state.get("start_failed") is True:
+            saida = self._start_failure_outcome(state)
+            text = RESPOSTA_FALHA_TECNICA_START
+        else:
+            saida = {}
+            text = state.get("response_text") or ""
+        enviada = False
         try:
             await self._whatsapp.send(_to_hash_from_state(state), text)
+            enviada = True
         except Exception as exc:  # noqa: BLE001 — surfaced via `error`, never swallowed silently.
-            return {"error": f"whatsapp send failed: {exc}"}
-        return {}
+            # HEL-05 (feeder): same chain as the two above — `error` reaches `resumo_contexto`.
+            # O desfecho de falha de start (quando ha um) NAO e apagado por uma falha de envio:
+            # o caso continua marcado como start falho, que e o que a operacao precisa ver.
+            saida = {**saida, "error": f"whatsapp send failed: {redact_error_message(exc)}"}
+        if state.get("start_failed") is not True:
+            emit_turn_desfecho(
+                state,
+                agent_id="helena",
+                desfecho=(
+                    "escalado_humano" if state.get("escalation_started") is True else "resolvido_automatico"
+                ),
+                route=saida.get("response_kind") or state.get("response_kind"),
+                motivo_categoria=saida.get("escalation_motivo") or state.get("escalation_motivo"),
+                enviada=enviada,
+            )
+        return saida
+
+    def _start_failure_outcome(self, state: HelenaState) -> dict[str, Any]:
+        """CC-01: o desfecho + o alerta do turno em que a escalacao NAO pode ser aberta.
+
+        O texto que acompanha (`RESPOSTA_FALHA_TECNICA_START`) e uma CONSTANTE, nao um draft de
+        LLM: um modelo, pedido para "explicar uma falha tecnica", volta a prometer um atendente
+        com facilidade — e a promessa e exatamente o que nao pode existir aqui. Ele substitui o
+        handoff que `_start_escalation` ja havia redigido ANTES de tentar o start.
+
+        O desfecho e o alerta vem do helper compartilhado (uma definicao para os 9 agentes).
+
+        F1 (VERIFY-CC09): `HelenaState` nao tem chave `route` (usa `response_kind`), entao o
+        `state.get("route")` generico do helper devolveria `None` — passamos
+        `route=RESPONSE_KIND_FALHA_TECNICA_START` explicitamente, o literal que
+        `_ROUTE_VOCAB["helena"]` ja declara para este caso.
+        """
+        return emit_start_failure_notice(
+            dict(state),
+            agent_id="helena",
+            process_key=PROCESS_KEY,
+            route=RESPONSE_KIND_FALHA_TECNICA_START,
+            extra={
+                "response_text": RESPOSTA_FALHA_TECNICA_START,
+                "response_kind": RESPONSE_KIND_FALHA_TECNICA_START,
+                "escalation_started": False,
+            },
+        )
 
     # -- Conditional routing ----------------------------------------------------------------
 
@@ -804,7 +978,13 @@ class HelenaGraph:
             rows, version = await self._dmn.evaluate(table, dmn_input)
             row = first_row(rows, table, dmn_input)
         except (DmnEvaluationError, DmnNoResultError) as exc:
-            return {"dmn_table": table, "dmn_decision": {}, "error": f"DMN `{table}` indisponivel: {exc}"}
+            # HEL-05 (feeder): the DMN-down path routes to escalate `falha_tecnica` in THIS turn,
+            # so this message reaches `resumo_contexto` directly (`table` is a class token).
+            return {
+                "dmn_table": table,
+                "dmn_decision": {},
+                "error": f"DMN `{table}` indisponivel: {redact_error_message(exc)}",
+            }
 
         # Provenance reference: `{table}#{decision-definition id}` — the engine's evaluate
         # response does not return which RULE fired (no `ruleId` in the Camunda 7 REST evaluate
@@ -838,10 +1018,22 @@ class HelenaGraph:
         prompt = f"{classify_prompt()}\n\nMensagem do beneficiario:\n{state.get('message_body', '')}"
         try:
             raw = await self._llm.generate(
-                prompt, phi=True, agent_id="helena", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="helena",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: extracao estruturada (JSON) -> task_default.
+                task_kind="task_default",
             )
         except Exception as exc:  # noqa: BLE001 — classified into a failure reason, never swallowed.
-            return None, f"classify LLM call failed: {type(exc).__name__}: {str(exc)[:200]}"
+            # HEL-05 (feeder): `str(exc)[:200]` was a LENGTH bound, never a CONTENT one, and this
+            # string becomes `state["error"]` (`classify`) which `_start_escalation` appends to
+            # `resumo_contexto` as `[falha tecnica: ...]` — i.e. straight into engine process
+            # variables, IN THE SAME TURN. The exception comes from the inference provider, whose
+            # message may echo the request (which carries the beneficiary's own message body and
+            # any identifier typed into it). `redact_error_message` bounds BOTH, and keeps the
+            # `{ClassName}: ` prefix this f-string used to build by hand.
+            return None, f"classify LLM call failed: {redact_error_message(exc)}"
         data = _parse_json_object(raw)
         if data is None:
             return None, "classify LLM returned unparseable JSON"
@@ -862,7 +1054,12 @@ class HelenaGraph:
         )
         try:
             return await self._llm.generate(
-                prompt, phi=True, agent_id="helena", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="helena",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: fraseia fatos ja decididos (DMN motivo/severidade) -> task_default.
+                task_kind="task_default",
             )
         except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
             return "Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."
@@ -876,7 +1073,13 @@ class HelenaGraph:
         )
         try:
             text = await self._llm.generate(
-                prompt, phi=True, agent_id="helena", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="helena",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: o humano le isto antes de assumir o caso -> reasoning
+                # (mesma logica do dossie de escalacao do lucas).
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — fail-safe: never block the escalation on a summary.
             text = ""

@@ -17,7 +17,9 @@ model:
   reasoning:    { tier: frontier }            # casos com muitos indicadores / dossie complexo
 tools:                                         # ids EXATOS registrados pelos mcp_* servers (validate-artifacts exige o dir mcp_<server>)
   - mcp-fhir.read_patient                     # resumo pseudonimizado do beneficiario investigado (leitura, enriquece o dossie) — L3
-  - mcp-memory.read_write                     # memoria episodica do caso de investigacao (ADR-0002) — L3
+  - mcp-memory.read_write                     # memoria episodica do caso de investigacao (ADR-0002) — L3;
+                                               # declarada como excecao disclosed §8.5 item 2; sem no
+                                               # vivo hoje (CC-05/BEA-03 — ver docstring graph.py:85-87)
   # allowlist TIGHT (action-real, W4): a Beatriz so exerce FHIR(leitura) + memoria — exatamente o
   # que o no `instruct_investigation` exercita. NOTAS de ownership/decoupling (ADR-0011 §7):
   #   - NAO declara `mcp-cibseven.start_process`: o engine DIRIGE SP-OP-FRAUDE-001; Beatriz e
@@ -30,7 +32,8 @@ tools:                                         # ids EXATOS registrados pelos mc
 autonomy_policy: ../../policies/autonomy
 autonomy_actions:                             # acoes REAIS da matriz L0-core exercidas por este fluxo (W4)
   - read_phi_data                             # leitura FHIR resumo pseudonimizado (mcp-fhir.read_patient) — L3
-  - read_write_memory                         # memoria episodica do caso (mcp-memory.read_write) — L3
+  - read_write_memory                         # memoria episodica do caso (mcp-memory.read_write) — L3;
+                                               # excecao disclosed (fence §8.5 item 2), sem no vivo (CC-05/BEA-03)
   # NOTA L0 HARD (intencional — fronteira dura do invariante FRAUDE-001 / ADR-0018):
   # Beatriz NAO exerce `fraud_accusation` (a acusacao nasce SO na User Task humana
   # `UT_DecisaoInvestigador` sobre o `bundle_root` selado; o efeito e do worker gated
@@ -54,8 +57,8 @@ escalation:
     - signal: evidencia_indisponivel           # evidencia/snapshot indisponivel -> humano (nunca desfecho adverso por omissao)
     - signal: ambiguity                        # qualquer ambiguidade -> investigador humano conservador
 memory:
-  episodic: true
-  semantic: true                              # derivados minimizados referenciando o caso (ADR-0002)
+  episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
+  semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
 # A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Beatriz e ALVO de delegacao: o
 # engine de SP-OP-FRAUDE-001 a convoca (`operadora.fraude.gather_evidence`/`assemble_dossier`)
 # via DelegationDispatcher com task_type `fraude.investigate` (HUMAN-GATED). `accepted_task_types`

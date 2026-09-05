@@ -6,9 +6,11 @@ destructive statement, and it never invents a human decision. Two things live he
 1. **The structural enumeration** (`PERSISTENCE_LAYERS`): every persistence relation the
    custody/erasure design names, each carrying its migration citation, how a titular's rows
    are identified, and — where an honest one exists — a `SELECT count(*)` probe. The
-   enumeration is a FACT about the schema, derived from migrations 0001-0008 (16 layers; DU-05),
-   and it is authored here rather than read from YAML so that a human editing the (CODEOWNERS-gated)
-   plan artifact cannot introduce a statement this process would run. The plan and this
+   enumeration is a FACT about the schema, derived from migrations 0001-0009 (16 layers; DU-05 —
+   one of them, `agent_memory.embedding`, is RETIRADA since `0009_drop_pgvector`, DU-01-b: the
+   relation stays enumerated, its probe does not), and it is authored here rather than read from
+   YAML so that a human editing the (CODEOWNERS-gated) plan artifact cannot introduce a statement
+   this process would run. The plan and this
    enumeration must cover the SAME relations; drift fails a unit test in both directions.
 
 2. **The fail-closed loader** (`load_erasure_plan`) for the DPO's decisions, and
@@ -264,7 +266,7 @@ class PersistenceLayer:
 
 
 # ---------------------------------------------------------------------------------------
-# The enumeration. Derived from migrations 0001-0007; every entry cites its source. Held in
+# The enumeration. Derived from migrations 0001-0009; every entry cites its source. Held in
 # CODE, not read from the artifact, so that editing the (human-owned) plan can never change
 # which statement a probe would issue.
 #
@@ -349,16 +351,21 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
     PersistenceLayer(
         camada="semantica",
         tabela="agent_memory.embedding",
-        migracao="0001:72 (vector(1536) column); pgvector extension 0001:28",
-        identificacao="the same row as the episodic entry — not a separate relation",
-        resolucao=IdentityResolution.PONTE_AUSENTE,
+        # RETIRADA by `0009_drop_pgvector` (DU-01-b, owner decision R-005, 2026-09-04). The entry
+        # STAYS — same treatment as `agent_checkpoints`/`agent_checkpoint_writes` above (created by
+        # 0001, dropped by 0006), and the plan's own legend defines RETIRADA as exactly this: "a
+        # relacao existiu e foi removida por uma migracao". What the migration retires is the
+        # PROBE, not the DPO's pending decision: `count_statement` used to carry
+        # `AND embedding IS NOT NULL`, which after 0009 is an `UndefinedColumnError` in the middle
+        # of an LGPD dry-run, so it is now None and `_static_status` reports
+        # `NOT_APPLICABLE_RETIRED`. Deleting the row instead would silently shrink a DPO-gated
+        # review scope by one line — an act neither R-005 nor R-006 ordered.
+        migracao="0001:72 (vector(1536) column), pgvector extension 0001:28; 0009_drop_pgvector (dropped)",
+        identificacao="the same row as the episodic entry — never was a separate relation",
+        resolucao=IdentityResolution.RETIRADA,
         ordem=8,
-        subject_column="fhir_patient_id",
-        count_statement=(
-            "SELECT count(*) AS n FROM agent_memory "
-            "WHERE tenant_id = :tenant_id AND fhir_patient_id = :subject_ref "
-            "AND embedding IS NOT NULL"
-        ),
+        subject_column=None,
+        count_statement=None,
     ),
     PersistenceLayer(
         camada="auditoria",
@@ -416,8 +423,23 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
     PersistenceLayer(
         camada="idempotencia",
         tabela="driver_idempotency",
-        migracao="0003:61-67; expiry index 0003:69-72",
-        identificacao="key text PRIMARY KEY (0003:62) — a business key, not a subject column",
+        migracao="0003:61-67; expiry index 0003:69-72; repurpose + status column 0010",
+        # REPURPOSED 2026-09-04 (gap DRIVER-IDEMPOTENCY-ORPHAN-TABLE, owner decision R-073 option
+        # 2): the table stopped being an orphan of ADR-0024's never-built drivers and became the
+        # WhatsApp dedup registry (`platform/driver_idempotency.py`; migration 0010 declares the
+        # new use in the schema itself). The classification does NOT change, and the reason is a
+        # deliberate design property rather than an inherited assumption: the `key` now derives
+        # from Meta's `wamid`, which base64-embeds the counterpart phone number — so the key is
+        # written as the KEYED HMAC pseudonym of that wamid (`security.py::hash_message_id`,
+        # ADR-0035), irreversible without `PHI_HMAC_KEY`. No column of this table can therefore be
+        # resolved to a titular, which is exactly what SEM_COLUNA_DE_TITULAR asserts. Were the raw
+        # wamid ever stored instead, this row would have to become PONTE_AUSENTE and carry a
+        # subject_column — the pseudonymization is what keeps this line true.
+        identificacao=(
+            "key text PRIMARY KEY (0003:62) — since 0010 the keyed `hk1_` pseudonym of the "
+            "inbound wamid (never the raw wamid, which embeds the phone number); status text "
+            "(0010) is a claim state, not a subject reference"
+        ),
         resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
         ordem=14,
         subject_column=None,

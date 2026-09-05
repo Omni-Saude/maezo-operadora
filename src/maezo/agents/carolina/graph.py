@@ -60,8 +60,14 @@ todo LLM call em `helena/graph.py` e `rafael/graph.py`.
 
 Os nos sao curtos e idempotentes; checkpoint e ENTRE nos (ADR-0002). Toda acao externa via os
 transports injetados (`DmnTransport`/`CibSevenTransport`), nunca SDK direto (mirrors
-rafael/helena — v2 nao tem `ToolInvoker`/PEP-gateway wiring para chamadas de tool de agente
-ainda, T2.4 gap). Os dados chegam pseudonimizados (ADR-0006) e o grafo nunca reverte isso.
+rafael/helena). CORRIGIDO (`grep -n '"carolina"' gateway/tool_registry.py`,
+`_FHIR_ADAPTER_BY_AGENT`): a leitura FHIR de Carolina JA passa por um ToolRegistry/PEP-gateway —
+`gateway/tool_registry.py::build_agent_seams` embrulha `agents.rafael.adapters.FhirServerReader.
+read_patient` em `gateway/seams/fhir.py::GatedFhirReader` (Carolina esta em
+`_FHIR_ADAPTER_BY_AGENT`, adapter `read_patient`), injetado pelos dois composition roots vivos
+(`runtime/agent_runtime/service.py::_build_tool_deps`, `platform/webhooks/service.py`) — a
+alegacao anterior ("v2 nao tem `ToolInvoker`/PEP-gateway wiring...ainda, T2.4 gap") e falsa hoje.
+Os dados chegam pseudonimizados (ADR-0006) e o grafo nunca reverte isso.
 **TASY write DROP** (ADR-0013): este grafo nunca escreve no Tasy — so consome fatos ja
 pre-resolvidos por workers deterministicos upstream. O processo e iniciado de forma idempotente
 pela business key `CRED-{tenant_id}-{prestador_id}` (variante `-{protocolo_cred}`; o start
@@ -101,8 +107,12 @@ DIVERGENCIAS DO DONOR (disclosed, per charter "where donor and v2 spec disagree,
    choreografia CRED->ADEQUACAO (GAP-XPROC-2, `network_change_bridge`); passthrough quando
    presentes no estado.
 5. **`finalize` NAO escreve memoria episodica** (donor's `finalize` chama
-   `mcp-memory.read_write`). v2 nao tem `MemoryServer`/schema pgvector wired para grafos de
-   agente ainda — mesmo labeled boundary de `helena/graph.py`/`rafael/graph.py`.
+   `mcp-memory.read_write`). v2 nao tem `MemoryServer` wired para grafos de agente ainda — mesmo
+   labeled boundary de `helena/graph.py`/`rafael/graph.py`. A tabela existe (`agent_memory`,
+   migration `0001`); o que falta e a assinatura `(agent_id, event)` do `store_episodic`, que nao
+   carrega `tenant_id` nem `thread_id` (ambos `text NOT NULL`) — GAP-DU-01-a. A coluna semantica
+   que a acompanhava foi removida por `0009_drop_pgvector`; ADR-0002 §3 fica SUSPENSO ate existir
+   consumidor (ADR-0047, DRAFT).
 6. **`gather` usa um `SummaryReader` Protocol minimo** (best-effort, opcional) em vez do donor's
    `ToolInvoker`/PEP `mcp-fhir.read_patient_summary` — v2 nao tem esse tool dedicado ainda
    (mesmo labeled boundary do `FhirReader` de `rafael/graph.py`); reusa o adapter generico
@@ -119,22 +129,38 @@ DIVERGENCIAS DO DONOR (disclosed, per charter "where donor and v2 spec disagree,
 
 LABELED BOUNDARIES (this build, disclosed — never fabricated):
 - No episodic memory write (ADR-0002) — see divergence #5 above.
-- No cross-agent A2A delegation (`operadora.cred.prepare_dossier` -> Carolina
-  `credentialing.analyze`) is wired in this build: v2's `a2a/` package has no
-  `DelegationEnvelope`/`DelegationDispatcher` yet (same gap disclosed by `rafael/graph.py`).
-  Carolina's graph is invoked directly with an already-assembled state (as the unit/integration
-  tests do), not via a live engine-originated delegation.
+- Cross-agent A2A delegation (`operadora.cred.prepare_dossier` -> Carolina
+  `credentialing.analyze`) IS wired and LIVE in this build. CORRECTED (CC-04, fleet audit) — the
+  prior text here claimed v2's `a2a/` package had no `DelegationEnvelope`/`DelegationDispatcher`;
+  both exist and are fully built/tested (`a2a/delegation.py::DelegationEnvelope`,
+  `a2a/dispatcher.py::DelegationDispatcher`, exported from `maezo.a2a`). Carolina has her own
+  `agents/carolina/delegation.py` (`make_carolina_handler` TARGET side + `delegate_cred_dossier`
+  ORIGIN side, called from `tools/workers/credenciamento.py`) and is registered in the dossier
+  composition root (`runtime/agent_runtime/a2a_composition.py::_DOSSIER_EDGE_AGENT_IDS =
+  ("carolina", "andre")`, `handlers={"carolina": carolina_handler, "andre": andre_handler}`).
+  Carolina's graph is ALSO invoked directly with an already-assembled state in the unit/
+  integration tests (both paths exist; neither is a disclosed gap anymore).
 - `gather`'s FHIR summary read is best-effort and OPTIONAL (see divergence #6) — its absence
   never blocks routing, only degrades the dossier with a disclosed gap note (mirrors rafael).
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
+import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.start_outcome import (
+    notify_start_failure as emit_start_failure_notice,
+)
+from maezo.runtime.start_outcome import (
+    route_after_start,
+    start_failed_state,
+)
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -192,6 +218,9 @@ DMN_CRED_ADMISSIBILITY = "cred_admissibility"
 DMN_CRED_ROUTE = "cred_route"
 DMN_CRED_PRIOR_NOTICE = "cred_prior_notice"
 DMN_CRED_SLA = "cred_sla"
+
+
+logger = structlog.get_logger(__name__)
 
 
 class SummaryReader(Protocol):
@@ -268,6 +297,10 @@ class CarolinaState(TypedDict, total=False):
 
     # Inicio do processo (SP-OP-CRED-001).
     process_started: bool
+    #: CC-01: o start foi TENTADO e FALHOU tecnicamente (`except CibSevenError` de
+    #: `start_process`). NAO e a mesma coisa que `process_started is False`, que tambem cobre
+    #: no-ops legitimos; e este marcador — e so ele — que a aresta condicional le.
+    start_failed: bool
     business_key: str
     process_ref: dict[str, Any]
 
@@ -372,12 +405,36 @@ def _sanitized_output_fields() -> dict[str, Any]:
         "grupo_humano": "",
         # start_process outputs
         "process_started": False,
+        "start_failed": False,
         "business_key": "",
         "process_ref": {},
         # terminal outputs
         "desfecho": "",
         "error": "",
     }
+
+
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+_FATOS_BOOLEANOS: Final[dict[str, str]] = {
+    "licenca_valida": "licenca do prestador valida",
+    "documentacao_completa": "documentacao completa",
+    "dentro_criterios_rede": "dentro dos criterios de rede",
+    "notificacao_previa_feita": "notificacao previa ao prestador feita",
+    "substituto_equivalente_identificado": "prestador substituto equivalente identificado",
+    "tem_beneficiarios_vinculados": "ha beneficiarios vinculados ao prestador",
+    "indicio_irregularidade_sinalizado": "indicio de irregularidade sinalizado",
+    # Saidas de DMN (`cred_prior_notice`), e nao fatos apurados por worker — entram aqui porque
+    # sofrem o mesmo colapso de repr: "nao exige notificacao previa" e "nao se avaliou se exige"
+    # levam o juridico de rede a acoes opostas.
+    "exige_notificacao_previa": "exige notificacao previa (saida de DMN)",
+    "exige_substituto_equivalente": "exige substituto equivalente (saida de DMN)",
+}
 
 
 class CarolinaGraph:
@@ -454,7 +511,13 @@ class CarolinaGraph:
             try:
                 summary_facts = await self._fhir.read_patient(summary_ref)
             except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
-                notes.append(f"resumo indisponivel: {exc}")
+                # CLASS TOKEN ONLY (CC-10): `str(exc)` de um cliente FHIR tipicamente ecoa a
+                # URL / id em que falhou — o proprio `summary_ref` — e esta nota e' copiada para o
+                # prompt do dossie E para `dossie_carolina`, que o engine sela na zona geral
+                # (ADR-0006/ADR-0007). O trace completo fica no log estruturado, canal de
+                # diagnostico, nunca na nota.
+                logger.warning("carolina_fhir_resumo_indisponivel", exc_info=True)
+                notes.append(f"resumo indisponivel: {type(exc).__name__}")
 
         return {"gathered": True, "summary_facts": summary_facts, "gather_notes": notes}
 
@@ -632,11 +695,10 @@ class CarolinaGraph:
                 provenance=provenance,
             )
         except CibSevenError as exc:
-            return {
-                "process_started": False,
-                "business_key": business_key,
-                "error": f"start_process indisponivel: {exc}",
-            }
+            # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
+            # `start_failed`, que e o que `route_after_start` le para desviar a
+            # `notify_start_failure` em vez de seguir calado para o terminal.
+            return start_failed_state(business_key=business_key, error=f"start_process indisponivel: {exc}")
         return {
             "process_started": True,
             "business_key": business_key,
@@ -647,9 +709,25 @@ class CarolinaGraph:
             },
         }
 
+    async def notify_start_failure(self, state: CarolinaState) -> dict[str, Any]:
+        """CC-01: o start FALHOU — grava o desfecho de erro e ALERTA, em vez de seguir calado.
+
+        Ate CC-01 a aresta que saia de `start_process` era INCONDICIONAL: o turno chegava ao
+        terminal com o `desfecho` de SUCESSO que um no a montante ja havia gravado, afirmando um
+        fato que nao aconteceu, e sem prazo nenhum — o timer de SLA vive na instancia BPMN que
+        nunca nasceu. O corpo deste no e o helper compartilhado
+        (`maezo.runtime.start_outcome.notify_start_failure`): uma definicao para os 9 agentes,
+        nunca 9 copias.
+        """
+        return emit_start_failure_notice(dict(state), agent_id="carolina", process_key=PROCESS_KEY)
+
     async def finalize(self, state: CarolinaState) -> dict[str, Any]:
         """Terminal node — no further computation; `desfecho` was already set by `assess`/
-        `human_review`. No episodic memory write (module docstring's divergence #5)."""
+        `human_review`. No episodic memory write (module docstring's divergence #5).
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn.
+        """
+        emit_turn_desfecho(state, agent_id="carolina")
         return {}
 
     # -- Conditional routing ------------------------------------------------------------------
@@ -700,11 +778,16 @@ class CarolinaGraph:
         facts = self._cred_facts(state)
         prompt = (
             f"{dossier_prompt()}\n\ndirecao={direcao} route={route} motivo_humano={motivo_humano}\n"
-            f"fatos={facts}"
+            f"{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS)}"
         )
         try:
             narrativa = await self._llm.generate(
-                prompt, phi=True, agent_id="carolina", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="carolina",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — dossie deterministico minimo se LLM falhar.
             narrativa = ""
@@ -810,6 +893,7 @@ class CarolinaGraph:
         g.add_node("auto_route", self.auto_route)
         g.add_node("human_review", self.human_review)
         g.add_node("start_process", self.start_process)
+        g.add_node("notify_start_failure", self.notify_start_failure)
         g.add_node("finalize", self.finalize)
 
         g.add_edge(START, "receive")
@@ -820,7 +904,16 @@ class CarolinaGraph:
         )
         g.add_edge("auto_route", "start_process")
         g.add_edge("human_review", "start_process")
-        g.add_edge("start_process", "finalize")
+        # CC-01: a aresta que sai de `start_process` e CONDICIONAL. Uma falha tecnica de
+        # start desvia para `notify_start_failure` (desfecho de erro + alerta); qualquer
+        # outro caminho — incluindo os no-ops legitimos com `process_started=False` —
+        # segue para o terminal de sempre. O predicado e compartilhado (uma definicao).
+        g.add_conditional_edges(
+            "start_process",
+            route_after_start,
+            {"notify_start_failure": "notify_start_failure", "continue": "finalize"},
+        )
+        g.add_edge("notify_start_failure", END)
         g.add_edge("finalize", END)
         return g
 

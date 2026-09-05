@@ -28,6 +28,18 @@ spec:
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
+    metadata:
+      annotations:
+        {{- /* R-040/SC-07 (2026-09-04): os 3 jobs de ciclo de vida falham POR DESENHO ate esta
+               data (nenhum comando esta implementado — src/maezo/platform/lifecycle/__init__.py).
+               kube-state-metrics v2 so exporta esta anotacao como serie se o operador do cluster
+               subir o exporter com --metric-annotations-allowlist cobrindo-a (ver comentario em
+               deploy/observability/prometheus.yml, job kube-state-metrics) — sem isso, a exclusao
+               em alert-rules.yml (MaezoLifecycleJobFailed) nao tem serie para casar e o alerta
+               dispara mesmo assim (fail-open honesto, nao fail-closed silencioso). A data em si e
+               dado versionado (values.yaml lifecycle.expectedFailUntil), nunca hardcoded aqui, e
+               scripts/ci/check_lifecycle_expected_fail_expiry.py reprova a build quando ela passa. */}}
+        maezo.io/expected-fail-until: {{ $root.Values.lifecycle.expectedFailUntil | quote }}
     spec:
       backoffLimit: 2
       activeDeadlineSeconds: {{ $root.Values.lifecycle.activeDeadlineSeconds }}

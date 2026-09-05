@@ -21,22 +21,36 @@ tools:                                    # ids EXATOS registrados pelos mcp_* s
   - mcp-fhir.search_coverage              # cobertura do beneficiario (leitura)
   - mcp-dmn.evaluate                      # auth_admissibility / auth_auto_approval / auth_sla
   - mcp-cibseven.start_process            # somente SP-OP-AUTH-001 (start idempotente)
-  - mcp-cibseven.get_process_status       # status da instancia de autorizacao
-  - mcp-memory.read_write                 # memoria episodica do caso (ADR-0002)
+  - mcp-memory.read_write                 # memoria episodica do caso (ADR-0002); excecao
+                                           # disclosed do fence §8.5 item 2 (sem no vivo hoje —
+                                           # GAP-DU-01-b/ADR-0047 DRAFT)
+  # mcp-cibseven.get_process_status removido: nenhum no deste grafo o exerce hoje (CC-05/RAF-03a).
+  # Reintroduzir junto com o no que consultar status da instancia.
 autonomy_policy: ../../policies/autonomy
 autonomy_actions:                         # acoes REAIS da matriz L0-core exercidas por este fluxo
   - read_phi_data                         # leitura FHIR Patient/Coverage (mcp-fhir.*) — L3
   - query_decision_engine                 # DMN de autorizacao (mcp-dmn.evaluate) — L3
   - start_compliance_process              # SP-OP-AUTH-001 (mcp-cibseven.start_process) — L2
-  - query_process_status                  # status do processo (mcp-cibseven.get_process_status) — L3
-  - read_write_memory                     # memoria episodica (mcp-memory.read_write) — L3
+  - read_write_memory                     # memoria episodica (mcp-memory.read_write) — L3;
+                                           # excecao disclosed (fence §8.5 item 2), sem no vivo hoje
+  # query_process_status removido: nenhum no exerce mcp-cibseven.get_process_status hoje
+  # (CC-05/RAF-03a). Reintroduzir junto com o tool e o no que os usar.
   # NOTA L0 HARD (intencional): Rafael NAO exerce `authorization_denial` nem `clinical_decision`.
   # Negativa e decisao de cobertura sao SO do medico-auditor (User Task). A aprovacao automatica
   # L2 e expressa via `authorization_approval` no processo — o caminho automatico de
   # SP-OP-AUTH-001 emite a guia; Rafael apenas inicia o processo com DMN favoravel (ADR-0008).
 kpis:
   - { name: dossier_completeness, target: ">0.95" }   # dossies completos / total (fatos + refs DMN)
-  - { name: auto_approval_rate, target: "track" }      # auto-aprovados / total (nem alto nem baixo)
+  # ESTRUTURALMENTE 0 NO AGENTE NESTA FASE (RAF-01) — nao e' meta, e' divulgacao do que o
+  # desenho produz. A rota `auto_approve` do grafo e' inalcancavel a partir de todo seam
+  # tipado: os cinco booleanos exigidos pela r1 de `auth_auto_approval` v0.2.0
+  # (auto_criteria_verificado + os quatro criterio_*_ok) NAO estao em RAFAEL_INPUT_FIELDS,
+  # entao `new_rafael_state` os recusa e `gate_inbound_state` os descarta; e
+  # `ST_PrepararDossie` (o unico ponto do BPMN que convoca Rafael) so' e' alcancado por
+  # `Flow_GW_AnaliseHumana` — quando o motor chama Rafael, `GW_AutoAprovacao` ja' decidiu
+  # analise humana. A decisao L2 do SISTEMA vive no engine, e este KPI medido NO AGENTE le'
+  # zero por construcao. Ver `RafaelGraph.assess` e o contrato SP-OP-AUTH-001 v0.2.0.
+  - { name: auto_approval_rate, target: "track", note: "estruturalmente 0 no agente nesta fase (RAF-01): a decisao L2 e do engine (GW_AutoAprovacao), nao deste grafo" }
   - { name: human_routing_precision, target: "track" } # casos corretamente roteados ao auditor
   - { name: sla_analise_p95, target: "<RN259/395" }    # tempo ate dossie pronto (dentro do SLA da DMN)
   - { name: eval_score, target: ">0.9" }               # golden dataset (gate de promocao, ADR-0009)
@@ -50,8 +64,8 @@ escalation:
     - signal: dmn_unavailable             # DMN indisponivel -> humano (nunca auto-aprova por omissao)
     - signal: ambiguity                   # qualquer ambiguidade -> medico-auditor
 memory:
-  episodic: true
-  semantic: true                          # derivados minimizados referenciando o caso (ADR-0002)
+  episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
+  semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
 # A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Rafael e ALVO de delegacao: a Helena
 # delega "authorization.analyze" a ele via DelegationDispatcher. `accepted_task_types` declara o
 # contrato de delegacao (o dispatcher rejeita task_type fora desta lista).

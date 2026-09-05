@@ -215,29 +215,41 @@ camadas:
       E a UNICA tabela do encadeamento Alembic com coluna de titular alem de
       erasure_log. Duas consequencias que o DPO precisa ver: (a) fhir_patient_id e
       NULLABLE, entao linhas de memoria episodica gravadas sem ele NAO sao alcancadas
-      por nenhum predicado por titular e ficam orfas de qualquer eliminacao; (b) a
-      coluna `embedding vector(1536)` (0001:72) esta NESTA MESMA LINHA, logo a camada
-      semantica nao e uma tabela separada — ver a entrada agent_memory.embedding
-      abaixo, que existe para tornar a decisao explicita, nao para nomear outra relacao.
+      por nenhum predicado por titular e ficam orfas de qualquer eliminacao; (b) esta
+      tabela carregou tambem a camada SEMANTICA, na coluna `embedding vector(1536)` da
+      MESMA linha (0001:72); `0009_drop_pgvector` (DU-01-b) removeu essa coluna, entao a
+      entrada agent_memory.embedding abaixo esta agora RETIRADA e a decisao do DPO sobre
+      esta linha e uma so — a episodica — e nao mais duas sobre a mesma linha.
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO
 
   - camada: semantica
     tabela: agent_memory.embedding
-    migracao: "0001_schema_agents.py:72 (coluna vector(1536)); extensao pgvector em 0001:28"
-    identificacao: "a mesma linha da entrada episodica — nao ha relacao propria"
-    resolucao_identidade: PONTE_AUSENTE
+    migracao: "0001_schema_agents.py:72 (coluna vector(1536)) + extensao pgvector em 0001:28 (criada); 0009_drop_pgvector (removida)"
+    identificacao: "a mesma linha da entrada episodica — nunca houve relacao propria"
+    resolucao_identidade: RETIRADA
     ordem: 8
     tensao: null
     notas: >-
-      NAO E UMA TABELA. E uma COLUNA de agent_memory, listada separadamente porque a
-      escolha do DPO pode divergir da linha acima: anular so o embedding (ANONIMIZAR)
-      preserva a linha episodica, e eliminar a linha episodica leva o embedding junto.
-      Registro do desvio de documentacao: `erasure.py:240-242` descreve
+      RETIRADA. `0009_drop_pgvector` (decisao do dono R-005, 2026-09-04) removeu a coluna
+      `embedding vector(1536)` e a extensao `vector`; ADR-0002 §3 fica SUSPENSO ate
+      existir consumidor — nao negado — pela emenda DRAFT
+      `docs/adr/0047-emenda-adr0002-secao3-camada-semantica-suspensa.md`, cuja ratificacao
+      e ato exclusivo do dono. A entrada PERMANECE no plano, com a mesma resolucao
+      RETIRADA de agent_checkpoints/agent_checkpoint_writes (criadas por 0001, removidas
+      por 0006): o que a migracao aposenta e a SONDA, nao a decisao pendente do DPO. A
+      `count_statement` que esta linha carregava perguntava `AND embedding IS NOT NULL` e,
+      sem a coluna, seria um UndefinedColumnError NO MEIO de um dry-run de eliminacao
+      LGPD; agora nao ha sonda e o dry-run reporta NOT_APPLICABLE_RETIRED. Se a camada
+      voltar (des-suspensao de §3, ato do dono), esta linha volta a ter sonda.
+      HISTORICO, preservado porque ainda e verdade e o DPO precisa ver: enquanto a coluna
+      existiu, a escolha do DPO podia divergir da linha episodica — anular so o embedding
+      (ANONIMIZAR) preservaria a linha episodica, e eliminar a linha episodica levaria o
+      embedding junto. Registro do desvio de documentacao: `erasure.py:240-242` descreve
       `DELETE FROM semantic.embeddings WHERE fhir_patient_id = :pid OR source_ref ...`
       e `erasure.py:224-225` descreve `episodes.transcripts`/`episodes.decisions` —
-      NENHUMA dessas quatro relacoes existe em nenhuma das sete migracoes. Sao
+      NENHUMA dessas quatro relacoes existe em nenhuma das migracoes. Sao
       docstrings ilustrativas, nao schema, e um revisor que as tome por schema
       concluira que a cobertura e maior do que e.
     decisao_dpo: PENDENTE
@@ -338,19 +350,26 @@ camadas:
 
   - camada: idempotencia
     tabela: driver_idempotency
-    migracao: "0003_a2a_idempotency.py:61-67; indice por expiracao 0003:69-72"
-    identificacao: "key text PRIMARY KEY (0003:62) — chave derivada de negocio, nao coluna de titular"
+    migracao: "0003_a2a_idempotency.py:61-67; indice por expiracao 0003:69-72; reproposicao + coluna status 0010_webhook_wamid_dedup.py"
+    identificacao: "key text PRIMARY KEY (0003:62) — desde a 0010, o pseudonimo COM CHAVE (`hk1_`) do wamid de entrada, nunca o wamid cru; status text (0010) e estado de reivindicacao, nao referencia de titular"
     resolucao_identidade: SEM_COLUNA_DE_TITULAR
     ordem: 14
     tensao: REMATERIALIZACAO
     notas: >-
-      Unica tabela do encadeamento com expiracao propria (expires_at, 0003:64), entao
-      ja tem um prazo de fato — que NAO e uma decisao de retencao ratificada, e a
-      diferenca importa. Atencao do DPO: `key` e uma chave de NEGOCIO, e DL-0043
-      perna (c) / ADR-0035 tratam exatamente do risco de PHI dentro de chaves de
-      negocio persistidas; enquanto
-      `spec/policies/privacy/phi-business-key-remediation.yaml` nao estiver ratificado,
-      a forma dessa chave nao esta decidida.
+      REPROPOSTA em 2026-09-04 (gap DRIVER-IDEMPOTENCY-ORPHAN-TABLE, decisao do dono
+      R-073 opcao 2): deixou de ser tabela orfa dos drivers da ADR-0024, que nunca
+      foram construidos, e passou a ser o registro duravel de deduplicacao do canal
+      WhatsApp (`src/maezo/platform/driver_idempotency.py`; a migracao 0010 declara o
+      novo uso no proprio schema, via COMMENT ON). Unica tabela do encadeamento com
+      expiracao propria (expires_at, 0003:64), entao ja tem um prazo de fato — que NAO
+      e uma decisao de retencao ratificada, e a diferenca importa. Atencao do DPO:
+      `key` e uma chave de NEGOCIO, e DL-0043 perna (c) / ADR-0035 tratam exatamente do
+      risco de PHI dentro de chaves de negocio persistidas. O novo uso ENDERECA esse
+      risco por construcao — a chave e o pseudonimo HMAC COM CHAVE do `wamid`
+      (`webhooks/whatsapp/security.py::hash_message_id`), porque o `wamid` cru carrega
+      o telefone da contraparte em base64 —, mas isso e uma decisao de ENGENHARIA
+      registrada aqui, nao a ratificacao de
+      `spec/policies/privacy/phi-business-key-remediation.yaml`, que continua pendente.
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO

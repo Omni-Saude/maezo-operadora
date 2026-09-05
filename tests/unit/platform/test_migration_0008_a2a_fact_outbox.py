@@ -7,9 +7,13 @@ later edit which quietly breaks one fails CI rather than production.
 
 Five invariants:
 
-1.  **Chain integrity.** 0008 revises 0007 and is the sole head; no revision id is claimed twice
-    and no revision is claimed as parent by two children. A forked chain is the failure mode where
-    `alembic upgrade head` applies one branch and an operator believes it applied the other.
+1.  **Chain integrity.** 0008 revises 0007 and is claimed as parent by exactly one child. It is no
+    longer the head: the chain is now 0007->0008->0009->0010, and the sole-head / no-fork assertion
+    travels WITH the head — it moved from here to `test_migration_0009_drop_pgvector.py` when 0009
+    landed and from there to `test_migration_0010_webhook_wamid_dedup.py` when 0010 landed, exactly
+    as this file's own instruction prescribes ("the head belongs to whichever migration currently
+    IS the head"). A forked chain is the failure mode where `alembic upgrade head` applies one
+    branch and an operator believes it applied the other.
 2.  **The DDL and `maezo.a2a.outbox` cannot drift.** The table name, the revision id and the
     STATUS VOCABULARY are asserted equal to the module constants in both directions, and every
     column the module's SQL binds is asserted to exist in the DDL. A status the code writes and
@@ -164,27 +168,22 @@ def test_revision_and_down_revision() -> None:
     assert 'down_revision: str | None = "0007"' in _SOURCE
 
 
-def test_0008_is_the_unique_head_of_a_linear_chain() -> None:
-    """No fork: every revision claimed once, exactly one revision unreferenced as a parent.
+def test_0008_is_claimed_as_a_parent_by_exactly_one_migration() -> None:
+    """0008 is no longer the head — the chain is 0007->0008->0009->0010 — so the SOLE-HEAD
+    assertion lives in `test_migration_0010_webhook_wamid_dedup.py`, having travelled with the head
+    through 0009's suite, exactly as this file's own predecessor instruction prescribes.
 
-    This assertion moved HERE from `test_migration_0007_amh_inbox.py` when 0008 landed: the head
-    belongs to whichever migration currently IS the head, so a future 0009 changes one file
-    instead of editing a compliance-reviewed AMH suite.
+    What stays here is the half that is about 0008 itself: its revision id must be claimed as
+    parent by exactly ONE child (today `0009_drop_pgvector.py`), which is what makes a fork over
+    THIS node impossible even while the head moves on.
     """
-    revisions: dict[str, str | None] = {}
+    children = []
     for path in sorted(_VERSIONS_DIR.glob("[0-9]*.py")):
         text = path.read_text(encoding="utf-8")
-        rev = re.search(r'^revision: str = "([^"]+)"', text, re.MULTILINE)
-        down = re.search(r'^down_revision: str \| None = (?:"([^"]+)"|None)', text, re.MULTILINE)
-        assert rev is not None, f"{path.name} declares no revision"
-        assert down is not None, f"{path.name} declares no down_revision"
-        assert rev.group(1) not in revisions, f"duplicate revision id {rev.group(1)}"
-        revisions[rev.group(1)] = down.group(1)
-
-    parents = {down for down in revisions.values() if down is not None}
-    heads = set(revisions) - parents
-    assert heads == {OUTBOX_MIGRATION_REVISION}, f"expected 0008 to be the sole head, got {heads}"
-    assert len(parents) == len(revisions) - 1, "a revision is claimed as parent by two children"
+        down = re.search(r'^down_revision: str \| None = "([^"]+)"', text, re.MULTILINE)
+        if down is not None and down.group(1) == OUTBOX_MIGRATION_REVISION:
+            children.append(path.name)
+    assert children == ["0009_drop_pgvector.py"], f"expected 0009 as the only child of 0008, got {children}"
 
 
 # ---------------------------------------------------------------------------

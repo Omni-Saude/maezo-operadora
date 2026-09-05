@@ -13,3 +13,9 @@ create_eks_cluster = true
 
 eks_node_security_group_ids = []   # populated after cluster creation
 eks_node_role_arns          = []   # populated after cluster creation
+
+# Guardrails de custo (gap B-02-b / R-045). As duas linhas abaixo NAO tem default
+# no codigo: sem elas o `terraform plan` deste ambiente falha fechado, de proposito.
+# O valor e insumo de financas — este arquivo e so exemplo, nao um default.
+monthly_budget_amount = 5000         # USD/mes — substitua pelo teto aprovado
+cost_alert_email      = "finops@example.com"

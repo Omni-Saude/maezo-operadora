@@ -72,8 +72,12 @@ INAD-{tenant_id}-{numero_contrato}
 | `tenant_id` | string | sim | Tenant (ex.: `amh`) |
 | `numero_contrato` | string | sim | Numero do contrato (chave de negocio; mesma identidade usada por CANCEL-001) |
 | `matricula_beneficiario` | string | sim | Matricula/pseudo-id do titular (ADR-0006 — Zona Geral usa pseudonimo) |
+| `beneficiario_pseudo_id` | string | sim§ | Pseudonimo do beneficiario (ADR-0006 — nunca CPF/nome); semeada por `FernandoGraph._inadimplencia_variables` no start |
 | `tipo_plano` | string | sim | `individual` \| `familiar` \| `coletivo_empresarial` \| `coletivo_adesao` |
 | `origem_solicitacao` | string | sim | `cobranca` \| `operadora` \| `agente_fernando` \| `juridico` |
+| `canal` | string | sim§ | Canal do encaminhamento (default `whatsapp`); semeada por Fernando no start |
+| `motivo_categoria` | string | sim§ | Categoria do motivo de encaminhamento (default `inadimplencia`); semeada por Fernando no start |
+| `resumo_contexto` | string | sim§ | Resumo da narrativa do dossie de Fernando (`dossier.narrativa`; fallback "Encaminhamento automatico (sem narrativa)" quando ausente); semeada por Fernando no start |
 | `competencias_em_aberto` | json | sim | Lista de competencias (`YYYY-MM`) em aberto (FATO; alimenta a contagem) |
 | `meses_inadimplencia` | integer | sim* | Pre-resolvido por worker (`operadora.inadimplencia.resolve_facts`): contagem de meses em aberto (integer — **nunca `number`**) |
 | `valor_total_devido_cents` | integer | sim* | Pre-resolvido por worker: debito total em centavos de BRL (inteiro — **nunca `number`**) |
@@ -88,6 +92,8 @@ INAD-{tenant_id}-{numero_contrato}
 
 ‡ **NAO pre-resolvido por worker** (GAP-INAD-8, WP-FATOS-FABRICADOS slice 2): ao contrario de `meses_inadimplencia`/`valor_total_devido_cents`/`dentro_periodo_minimo`/`dentro_janela_purga`, nenhum worker deste processo confirma ou sobrescreve `notificacao_previa_feita`. `operadora.inadimplencia.check_prior_notice` (`dispatch_prior_notice`) retorna `{}`. Ausente ⇒ a `inadimplencia_status` roteia `PENDENTE_NOTIFICACAO` (fail-safe, nunca adverso: o timer daquele ramo converge na User Task humana). A obrigacao regulatoria real (RN 593 / art. 13, par. unico, II da Lei 9.656/98 — **DRAFT/verify**) e aplicada pelo guard humano `comprovacao_notificacao_previa`, e e dela que `handoff_rescisao` DERIVA o valor entregue a SP-OP-CANCEL-001.
 
+§ Semeada por `FernandoGraph._inadimplencia_variables` (`src/maezo/agents/fernando/graph.py`) no start do processo — nao e um fato pre-resolvido por worker aritmetico do processo em si (achado do fleet audit: escritas no engine por Fernando, ausentes desta tabela).
+
 ## Variaveis de saida (preenchidas pelas User Tasks humanas)
 
 | Variavel | Tipo | Descricao |
@@ -100,6 +106,26 @@ INAD-{tenant_id}-{numero_contrato}
 | `responsavel_id` | string | Aprovador humano (cadeia de auditoria ADR-0007) + tier; carregado nos workers adversos |
 | `data_efeito_iso` | string | Data de efeito (suspensao/rescisao), respeitada a antecedencia regulatoria |
 | `decisao_coordenacao` | string | `assumir_analise` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA — humano `coordenacao-cobranca`) |
+
+## Variaveis de proveniencia do agente (Fernando — ADR-0007/ADR-0015)
+
+Convencao repo-wide de nao-repudio (ADR-0007) e delegacao A2A (ADR-0015) — nao especifica de
+INADIMPLENCIA (mirror `source_agent_id`/`source_agent_version` de
+`docs/processes/contracts/SP-OP-ESCALATION-001.md`). Semeadas por
+`FernandoGraph._inadimplencia_variables` (`src/maezo/agents/fernando/graph.py`) junto com as
+variaveis de entrada; NENHUMA delas e uma suspensao/rescisao — so proveniencia, dossie instrutivo e
+roteamento humano (CC-13 — Agent Fleet Audit: antes deste registro, `_inadimplencia_variables` as
+emitia sem declaracao no contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `source_agent_id` | string | nao | Agente que preparou o dossie de cobranca (`fernando`) — cadeia de nao-repudio (ADR-0007) |
+| `source_agent_version` | string | nao | Versao do agente Fernando que preparou o dossie (auditoria ADR-0007) |
+| `dossie_fernando` | json | nao | Dossie factual de inadimplencia montado por Fernando — instrui `UT_AnaliseInadimplencia`; carrega `decisao_inadimplencia` sempre `None` (Fernando NUNCA decide) |
+| `fernando_route` | string | nao | Roteamento do grafo do Fernando (`notify` \| `escalate`) — espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Motivo do encaminhamento de Fernando (`segue_analise` \| `analise_humana` \| `analise_solicitada` \| `indicio_rescisao` \| `ambiguidade` \| `dmn_indisponivel` \| `falha_tecnica`) |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra, plural — dict `{tabela: ref}`) das DMN que Fernando consultou (`inadimplencia_status`/`inadimplencia_purga`/`inadimplencia_sla`) — cadeia de decisao (ADR-0007/ADR-0012) |
+| `dmn_decision_ref` | string | nao | Referencia singular (primeira do dict `dmn_decision_refs`) — convivio com o idioma singular ja usado em SP-OP-ESCALATION-001/PAGTO-001 |
 
 ## Topicos
 
@@ -182,6 +208,39 @@ Campos obrigatorios por decisao adversa (validacao de formulario/listener da Use
 | Alerta de risco (`${inadimplencia_sla.sla_alerta}`) | ~50–70% do SLA | nao-interruptivo → `operadora.inadimplencia.notify_sla_risk` | politica interna — **DRAFT** |
 
 > O event gateway de purga **substitui/INVERTE** qualquer padrao de "auto-suspender/auto-rescindir no estouro do prazo": a expiracao da janela de purga roteia para a User Task humana, nunca para um terminal adverso automatico. **Nunca** ha auto-suspensao/auto-rescisao por timeout.
+
+## Desfecho de agente: falha de start (CC-01)
+
+| Desfecho | Onde vive | Quem escreve | Significado |
+|---|---|---|---|
+| `erro_inicio_processo` | **estado do agente fernando** — NAO e variavel de processo | no `notify_start_failure` do grafo, via o helper unico `maezo.runtime.start_outcome.notify_start_failure` | o agente TENTOU iniciar SP-OP-INADIMPLENCIA-001 pelo chokepoint `start_process_idempotent` e o engine recusou (`CibSevenError`). NENHUMA instancia nasceu |
+
+ONDE ESTE VALOR **NAO** ESTA, e por que. Ele nunca chega ao engine: nao consta de
+`## Variaveis de entrada` nem de `## Variaveis de saida`, nao tem `bpmnError` associado, nao
+aparece em nenhum `camunda:` do BPMN e **nao exige mudanca nenhuma no BPMN deste processo**. Nao
+poderia ser diferente — o processo NAO nasceu, entao nao existe instancia onde gravar uma
+variavel nem escopo onde lancar um erro. Ele e declarado AQUI, no contrato, porque e um desfecho
+CONTRATUAL do agente que serve este processo e porque quem consome o estado do agente (o handler
+A2A, um golden de eval, uma regra de alerta) precisa do literal exato e estavel.
+
+POR QUE ELE EXISTE (auditoria de frota 2026-09-04, achado CC-01). Ate essa data a falha de start
+era engolida: o `except CibSevenError` do no de start devolvia apenas `process_started=false` e a
+aresta seguinte era INCONDICIONAL para um terminal no-op, de modo que o desfecho de SUCESSO ja
+gravado a montante (o desfecho de sucesso da rota de escalonamento) sobrevivia — o estado do agente AFIRMAVA um fato que nao
+aconteceu. E o caso se perdia em silencio, porque os prazos desta especificacao vivem em timers
+da instancia BPMN que nunca nasceu: sem SLA, sem alerta, sem retry.
+
+EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
+
+* `process_started = false` (e, quando o agente distingue no-ops legitimos, o marcador
+  `start_failed = true`, que e o que a aresta condicional le);
+* `record_agent_error()` -> `maezo_agent_errors_total`, o contador que a regra
+  `MaezoAgentCrashLoop` observa;
+* evento estruturado `agent_process_start_failed` com a business key idempotente deste contrato —
+  este evento e o SUBSTITUTO operacional do prazo enquanto a instancia nao existe;
+* RETRY seguro por construcao: `start_process_idempotent` e idempotente por business key, entao
+  uma reentrega reencontra a instancia viva (`ALREADY_ACTIVE`) em vez de abrir uma segunda.
+
 
 ## Codigos de erro
 

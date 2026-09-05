@@ -56,8 +56,8 @@ escalation:
     - signal: dmn_unavailable                  # DMN indisponivel -> humano (nunca desfecho adverso por omissao)
     - signal: ambiguity                        # qualquer ambiguidade -> gestao/juridico de rede
 memory:
-  episodic: true
-  semantic: true                              # derivados minimizados referenciando o caso (ADR-0002)
+  episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
+  semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
 # A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Carolina e ALVO de delegacao:
 # SP-OP-CRED-001 convoca via `operadora.cred.prepare_dossier` (delegacao `credentialing.analyze`).
 # `accepted_task_types` declara o contrato de delegacao (metadata; o handler A2A inbound e

@@ -429,11 +429,35 @@ async def test_dmn_routing_p1_plantao_clinico(
 async def test_dmn_routing_catchall_fail_safe(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
-    """motivo desconhecido => catch-all P2/atendimento-humano (nunca P3)."""
+    """motivo desconhecido => catch-all P2/atendimento-humano (nunca P3).
+
+    ESC-D1-MOTIVO-STRICTER-THAN-R7 (prova ao vivo): pre-fix, `notify_team` RECUSAVA a notificacao
+    para este mesmo `motivo_categoria` fora de dominio (`_rotulo_opcional_validado`) — mais
+    estrito que a propria DMN `escalation_routing`, cujo catch-all `r7` e' um FAIL-SAFE explicito
+    que TOLERA o motivo desconhecido e roteia mesmo assim. A recusa nao quebrava este teste (o
+    `candidateGroups` da User Task vem da DMN, nunca do resultado de `notify_team`), mas forcava
+    TODA escalacao de motivo desconhecido pelo canal de fallback (`ST_NotificarFallback` ->
+    supervisor) em vez do canal primario — silenciosamente, sem nenhum teste observando. As
+    asserts abaixo tornam esse residual visivel: o canal PRIMARIO deve ter sucesso (nenhuma
+    recusa), e o fallback do supervisor nunca deveria ter sido acionado."""
     inst = await start_escalation(motivo_categoria="categoria_inexistente", severidade="moderada")
     await probe.drain()
     task = await engine.await_user_task(inst["id"], "UT_TratarEscalonamento")
     assert task.candidate_groups == frozenset({"atendimento-humano"})
+
+    assert probe.notified_teams, (
+        "notify_team recusou a notificacao para um motivo_categoria fora de dominio — mais "
+        "estrito que o catch-all fail-safe r7 da propria DMN (ESC-D1-MOTIVO-STRICTER-THAN-R7)"
+    )
+    notificacao = probe.notified_teams[0]
+    assert notificacao["grupo_atendimento"] == "atendimento-humano"
+    assert notificacao["severidade"] == "moderada"
+    # motivo_categoria fora de dominio e' OMITIDO (degradado), nunca republicado nem inventado.
+    assert "motivo_categoria" not in notificacao
+    assert not probe.notified_supervisors, (
+        "o fallback do supervisor foi acionado — sinal de que o canal primario (notify_team) "
+        "recusou em vez de tolerar o motivo desconhecido"
+    )
 
 
 @pytest.mark.parametrize(

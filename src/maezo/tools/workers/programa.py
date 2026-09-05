@@ -54,6 +54,19 @@ PROGRAMA_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_PROGRAMA_NO_CONSE
 DECISAO_DESLIGAR_CLINICO = "DESLIGAR_CLINICO"
 DECISAO_ENROLL = "ENROLL"
 
+#: Class-token da UNICA lacuna que hoje impede `enroll_beneficiario` de fazer o que seu nome
+#: promete: a delegacao A2A `care.enroll` a Valentina (declarada no contrato,
+#: `docs/processes/contracts/SP-OP-PROGRAMA-001.md`, "Topicos" — linha de
+#: `operadora.programa.build_care_plan` — e ja disclosada NO PROPRIO codigo, no comentario de
+#: bootstrap deste modulo: "spec match: task name says 'care.enroll'") nao esta ligada. Mesma forma e
+#: mesma disciplina de `fraude.GAP_BEATRIZ_A2A_NAO_LIGADO`/`fraude.GAP_REFERRAL_JURIDICO_NAO_LIGADO`
+#: (BEA-09/FAB-REFER-TO-LEGAL): token fechado, sem PHI, declarado no contrato (secao "Variaveis de
+#: saida") e por isso seguro para viver no escopo do processo e ser lido pelo humano em
+#: `UT_DecisaoClinica`. Quando o handler A2A de Valentina para `care.enroll` for ligado (WP
+#: SEPARADO, owner-gated: registro em `a2a_composition`), o token deixa de ser emitido por esta
+#: funcao — nao ha um segundo valor a acrescentar aqui.
+GAP_ENROLL_A2A_NAO_LIGADO = "enroll_a2a_nao_ligado"
+
 
 # ---------------------------------------------------------------
 # check_consent — CHOKEPOINT: gates ALL PHI processing
@@ -65,6 +78,19 @@ def check_consent(variables: dict[str, Any]) -> dict[str, Any]:
 
     CHOKEPOINT: if no active consent, raises ERR_PROGRAMA_NO_CONSENT.
     NO PHI processing happens before this gate passes (fail-closed).
+
+    FAB-PROGRAMA-NOW-TIMESTAMPS (o motivo desta nota). O caminho feliz retornava
+    `{"consentimento_ativo": True, "consent_verified_at": "now"}` — o segundo, o literal string
+    `"now"`, nunca um instante ISO-8601. A chave tinha ZERO consumidores (mapa refeito: nenhuma
+    `conditionExpression`/`inputExpression`/worker a jusante/golden/linha de contrato le
+    `consent_verified_at`) e o instante em que este gate rodou e passou JA e um fato do engine —
+    `activity-instance` (`endTime`) de `ST_CheckConsent`
+    (`spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn:95`), consultavel via
+    `GET /history/activity-instance?processInstanceId=...&activityId=ST_CheckConsent`. Um segundo
+    carimbo no escopo do processo seria fonte de verdade redundante, nao correcao — mesmo
+    tratamento do `intake_ts` removido em SP-OP-FRAUDE-001 (FAB-INTAKE-CASO-REGISTRADO). A chave foi
+    REMOVIDA sem substituicao por relogio real; `consentimento_ativo` (o fato booleano real, lido a
+    jusante por `stratify_risk`/`proactive_contact`) permanece inalterado.
     """
     # FAIL-CLOSED (T3.1, mirrors lgpd.ValidateIdentityWorker / ADR-0031): consentimento confirmado
     # SO com sinal explicito `is True`. Ausente/False/lixo (string truthy como "true"/" ", int 1,
@@ -95,7 +121,6 @@ def check_consent(variables: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "consentimento_ativo": True,
-        "consent_verified_at": "now",
     }
 
 
@@ -105,24 +130,71 @@ def check_consent(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 def enroll_beneficiario(variables: dict[str, Any]) -> dict[str, Any]:
-    """Enroll beneficiary in the care program (L3, consent-gated).
+    """NAO executa enrollment. Declara a lacuna e retorna SO isso — `{"enrollment_gap": <token>}`.
 
-    This is neutral — enrollment is not an adverse effect.
-    The clinical discharge is separate (human-gated).
+    Serve `ST_BuildCarePlan` (topico `operadora.programa.build_care_plan`,
+    SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn). O contrato descreve a task como "monta plano de
+    cuidado / dossie para a User Task clinica (delegacao `care.enroll` a Valentina — sem decidir
+    alta)". Nada disso acontece aqui: nao ha chamada A2A, nao ha plano de cuidado, nao ha dossie —
+    nem em memoria, nem persistido.
+
+    ENROLL-BENEFICIARIO-SEM-EFEITO-REAL (achado do verificador de FAB-PROGRAMA-NOW,
+    VERIFY-FABPROG.md §4(ii)/achado 1 — o motivo desta docstring). O retorno era, em toda entrega e
+    sem calcular nada, `{"enrollment_realizado": True}`, de um corpo cuja unica instrucao era
+    `logger.info`. A chave afirmava um enrollment que nunca ocorria: a harness grava o retorno no
+    escopo do processo no `complete`, entao a constante entrava na instancia como se o plano de
+    cuidado tivesse sido montado. Mesma especie que BEA-09 corrigiu para
+    `dossie_montado`/`referral_executado` em SP-OP-FRAUDE-001 (True incondicional afirmando um ato
+    que nao ocorre) — mas `enrollment_realizado` NAO estava em `_FABRICATED_FACT_KEYS`
+    (`tests/unit/tools/workers/test_worker_handler_purity.py`), entao a fence era cega a ele; a
+    fence foi ampliada com esta chave para fixar a correcao.
+
+    ZERO CONSUMIDORES DA CHAVE DO RETORNO (mapa refeito antes de editar, `git grep -n
+    enrollment_realizado -- src spec docs tests`): nenhuma `conditionExpression` de BPMN, nenhuma
+    `inputExpression` de DMN, nenhum worker a jusante, nenhum golden e nenhuma linha de contrato le
+    a CHAVE `enrollment_realizado` do dicionario de retorno deste worker — so a propria atribuicao
+    e as asserçoes do teste unitario liam. **Distinto do desfecho-string** `enrollment_realizado`:
+    esse e um VALOR fixo por `outputParameter`/ternario literal em `ST_ProactiveContact` e no
+    fallback de `SE_ProgramaCompleted`
+    (`spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn:157,334`) — nunca le esta
+    funcao nem a chave que ela retorna, e por isso continua intocado.
+
+    O QUE ENTRA NO LUGAR, e por que nao e `{}`. A ausencia do plano de cuidado e informacao que o
+    decisor clinico de `UT_DecisaoClinica` (e quem le o desfecho `enrollment_realizado` publicado
+    em `programa.completed`) precisa ver, entao a lacuna sai como variavel DECLARADA —
+    `enrollment_gap` = `GAP_ENROLL_A2A_NAO_LIGADO`, token fechado, sem PHI, declarado no contrato
+    (`SP-OP-PROGRAMA-001.md`, "Variaveis de saida") ANTES deste codigo (spec-first). Nada
+    silencioso: a instancia diz "nao ha plano de cuidado montado, e este e o motivo", em vez de
+    dizer "ha um".
+
+    O QUE ESTA FUNCAO DELIBERADAMENTE NAO FAZ. Nao monta um "plano parcial" deterministico a partir
+    de `programa_id`/`beneficiario_pseudo_id` para poder afirmar `enrollment_realizado=True`
+    honestamente: a montagem que o contrato define e o ato de Valentina (`care.enroll`, in-zone
+    PHI, D10), e um plano montado localmente aqui — em Zona Geral, sem PHI clinico — seria de novo
+    uma coisa que "parece funcionar", trocando uma constante falsa por um artefato fora de contrato
+    com a mesma lacuna escondida dentro. Ligar a delegacao A2A e WP SEPARADO (handler + registro em
+    `a2a_composition`, owner-gated — mesmo padrao de `FERNANDO-DELEGATION-CALL-SITE`).
+
+    PONTO DE FALHA-FECHADA NAO MOVIDO. O gate de consentimento (`check_consent`) continua sendo o
+    UNICO chokepoint deste processo; esta funcao nunca decide alta nem desligamento clinico
+    (`decisao_programa` permanece de exclusividade da User Task humana) — a lacuna e puramente
+    informativa, nao adversa.
     """
     programa_id = variables.get("programa_id", "")
     beneficiario = variables.get("beneficiario_pseudo_id", "")
 
-    logger.info(
-        "programa_enroll_beneficiario",
+    # `warning`, pela mesma razao de `fraude.assemble_dossier`: uma etapa de montagem que nao monta
+    # e defeito operacional. `enrollment_asserted=False` diz no log a mesma coisa que o retorno diz
+    # no escopo do processo.
+    logger.warning(
+        "programa_enroll_gap",
         programa_id=programa_id,
         beneficiario=beneficiario,
+        enrollment_asserted=False,
+        gap=GAP_ENROLL_A2A_NAO_LIGADO,
     )
 
-    return {
-        "enrollment_realizado": True,
-        "data_enrollment": "now",
-    }
+    return {"enrollment_gap": GAP_ENROLL_A2A_NAO_LIGADO}
 
 
 # ---------------------------------------------------------------

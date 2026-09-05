@@ -260,15 +260,37 @@ async def test_notify_team_prioridade_outside_domain_fails_closed(prioridade: st
     assert kafka.published == []
 
 
-async def test_notify_team_motivo_categoria_outside_domain_fails_closed() -> None:
-    """MINOR-2 (VERIFY-WP-ESC.md): `motivo_categoria` is OPTIONAL but, when present, must be one
-    of the contract's 6 declared values. The exact adversarial payload the gatekeeper probed with
-    (a fake CPF riding inside a free-text-looking category) must refuse, not publish verbatim."""
+async def test_notify_team_motivo_categoria_outside_domain_degrades_never_refuses() -> None:
+    """ESC-D1-MOTIVO-STRICTER-THAN-R7: `motivo_categoria` is OPTIONAL, and a PRESENT out-of-domain
+    value now DEGRADES (omitted from the notification, loudly logged) instead of refusing the
+    whole notification — the `escalation_routing` DMN's own catch-all (`r7`) already tolerates an
+    unknown motivo and safely routes the case (`grupo_atendimento`/`prioridade` here are the DMN's
+    OWN output, read verbatim, so they are unaffected either way). Refusing the notification for a
+    case the DMN had already safely routed was STRICTER than the routing authority itself (the
+    residual D-1 of GAP-ESC-SEVERITY-GROUP, PR #272). The exact adversarial payload the gatekeeper
+    probed with (a fake CPF riding inside a free-text-looking category) must still never reach the
+    published notification — it is DROPPED, not refused, and never published verbatim either."""
+    kafka = FakeKafkaPublisher()
+    result = await make_notify_team_handler(kafka)(
+        _task(variables=_team_vars(motivo_categoria="CPF 123.456.789-00 do Sr. Joao"))
+    )
+    assert result["status"] == "teams_notified"
+    _topic, payload, _key = kafka.published[0]
+    assert "motivo_categoria" not in result
+    assert "motivo_categoria" not in payload
+    assert "CPF 123.456.789-00" not in str(payload)
+    # The DMN's OWN output is untouched by the degraded motivo — still routed correctly.
+    assert payload["grupo_atendimento"] == "plantao-clinico"
+    assert payload["severidade"] == "grave"
+
+
+async def test_notify_team_prioridade_outside_domain_still_fails_closed_unlike_motivo() -> None:
+    """`prioridade` is the DMN's OWN output (not an upstream-supplied category): an out-of-domain
+    value there means the ENGINE is corrupted, a different failure class from an unrecognized
+    `motivo_categoria` — it must NOT be tolerated the same way `motivo_categoria` now is."""
     kafka = FakeKafkaPublisher()
     with pytest.raises(WorkerBpmnError) as excinfo:
-        await make_notify_team_handler(kafka)(
-            _task(variables=_team_vars(motivo_categoria="CPF 123.456.789-00 do Sr. Joao"))
-        )
+        await make_notify_team_handler(kafka)(_task(variables=_team_vars(prioridade="P9-LIVRE <script>")))
     assert excinfo.value.error_code == _ERR_ESC_NOTIFY_FAILED
     assert kafka.published == []
 

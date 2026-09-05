@@ -47,10 +47,12 @@ state": it must never cross into the DOSSIER or the engine-bound process variabl
 `start_process` ships. Those three evals therefore assert with `assert_no_leak` SCOPED to
 `result.state["dossier"]` (+ the recorded CibSeven variables), never the generic unscoped
 `assert_no_leak(result.state, ...)` the other evals use (which would misfire on these three --
-see each test's docstring). ANDRE-03 is the exception: its canary lives inside a hostile
-`CohortAggregate` the injected population client returns, which the graph's OWN egress gate
-(`_scrub_aggregate`) blocks before it ever reaches state at all -- the unscoped check is correct
-and appropriately strict there.
+see each test's docstring). ANDRE-03 and ANDRE-05 are the exception: their canary lives inside a
+hostile `CohortAggregate` the injected population client returns, which the graph's OWN egress
+gate (`_scrub_aggregate`) blocks before it ever reaches state at all -- the unscoped check is
+correct and appropriately strict there. ANDRE-05 (AND-02) plants the canary in a metric CELL
+NAME rather than in `cohort_id`, so it needs its own population double and is excluded from the
+generic parametrized run (which injects the `cohort_id`-planting one).
 """
 
 from __future__ import annotations
@@ -72,6 +74,7 @@ from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
 from ._harness import (
+    RuleAwareFakeDmnTransport,
     RunResult,
     assert_expect,
     assert_no_leak,
@@ -93,7 +96,18 @@ ANDRE_CASES = load_golden("andre")
 _RAFAEL_GENERIC = [c for c in RAFAEL_CASES if c["id"] != "EVL-RAFAEL-03"]
 _VALENTINA_GENERIC = [c for c in VALENTINA_CASES if c["id"] != "EVL-VALENTINA-05"]
 _MARINA_GENERIC = [c for c in MARINA_CASES if c["id"] != "EVL-MARINA-03"]
-_ANDRE_GENERIC = ANDRE_CASES  # ANDRE-03's canary structurally never reaches state -- no scoping needed
+# ANDRE-03's canary structurally never reaches state -- no scoping needed. ANDRE-05 (AND-02) is
+# excluded for a DIFFERENT reason: its canary lives in a metrics CELL NAME, so it needs its own
+# population double (the generic one plants the canary in `cohort_id` instead, which would make
+# ANDRE-05's leak-check vacuously green). It gets dedicated tests below.
+# NUMERACAO: este caso e o QUINTO golden de Andre, nao o quarto. `EVL-ANDRE-04` esta
+# RESERVADO para o golden de falha de start do WP CC-01 (branch `fleet/cc01-start-fail-notify`),
+# criado em paralelo com o mesmo nome de arquivo e o mesmo `id`. Duas branches escrevendo o
+# MESMO `tests/evals/golden/andre/EVL-ANDRE-04.json` com conteudos diferentes COLIDEM: um
+# conflito ruidoso no merge na melhor das hipoteses, um golden silenciosamente perdido na
+# pior. E `load_golden` indexa por `id`, entao dois casos com o mesmo `id` fariam
+# `_case()` devolver um deles sem avisar. Renumerado aqui, no lado que ainda nao mergeou.
+_ANDRE_GENERIC = [c for c in ANDRE_CASES if c["id"] != "EVL-ANDRE-05"]
 
 
 def _case(cases: list[dict[str, Any]], case_id: str) -> dict[str, Any]:
@@ -201,6 +215,32 @@ class _LeakyPopulationClient:
         )
 
 
+class _PhiMetricKeyPopulationClient:
+    """Andre's `PopulationFeatureClient` double for AND-02 (EVL-ANDRE-05): `cohort_id` and
+    `dataset_ref` are BOTH clean -- the resolvable-PHI indication is the metric CELL NAME, over a
+    cohort of ONE (`k_anonymity=1`, which the pre-AND-02 `k_anonymity < 1` test admitted). Andre's
+    OWN egress chokepoint (`_scrub_aggregate`) must block the whole aggregate; this double exists
+    to prove that, not to simulate a well-behaved lake client."""
+
+    def __init__(self, *, hostile_cell_name: str) -> None:
+        self._hostile_cell_name = hostile_cell_name
+
+    def _hostile(self, dataset_ref: str) -> andre_graph.CohortAggregate:
+        return andre_graph.CohortAggregate(
+            cohort_id="cohort-evl-andre-04",
+            dataset_ref=dataset_ref,
+            metrics={self._hostile_cell_name: 1.0},
+            cohort_size=1,
+            k_anonymity=1,
+        )
+
+    async def actuarial_risk(self, cohort_id: str, *, features: list[str]) -> andre_graph.CohortAggregate:
+        return self._hostile("lake://ds/evl-andre-04")
+
+    async def population_metrics(self, cohort_id: str, *, features: list[str]) -> andre_graph.CohortAggregate:
+        return self._hostile("lake://ds/evl-andre-04-pop")
+
+
 def _make_rafael_fhir_fake() -> _LeakyFhirReader:
     return _LeakyFhirReader(cpf="123.456.789-09", nome="Fulano Teste Canario")
 
@@ -211,6 +251,10 @@ def _make_summary_fake() -> _LeakyPatientSummaryReader:
 
 def _make_andre_population_fake() -> _LeakyPopulationClient:
     return _LeakyPopulationClient(hostile_cohort_id="Patient/BEN-TESTE-001")
+
+
+def _make_andre_phi_metric_key_fake() -> _PhiMetricKeyPopulationClient:
+    return _PhiMetricKeyPopulationClient(hostile_cell_name="paciente_CPF-12345678901")
 
 
 class _RaisingInference:
@@ -229,6 +273,10 @@ class _RaisingInference:
         phi: bool = False,
         agent_id: str | None = None,
         tenant_id: str | None = None,
+        # CC-12 x integracao lote3 (LOTE3-INTEGRATION-FAKES-TASK-KIND): assinatura acompanha o
+        # Protocol real (`runtime/inference::InferenceProvider.generate`), mesma especie do
+        # defeito f1bc87f.
+        task_kind: str | None = None,
     ) -> str:
         raise RuntimeError("simulated LLM garbage/failure (eval-only, never a real model)")
 
@@ -271,10 +319,17 @@ async def test_evl_rafael_01_mutation_check_route_is_non_vacuous() -> None:
 
 @pytest.mark.eval
 async def test_evl_rafael_02_mutation_check_route_is_non_vacuous() -> None:
-    """CE: flipping EVL-RAFAEL-02's expected route (auto_approve -> human_auditor) must fail."""
+    """DD: flipping EVL-RAFAEL-02's expected route (human_auditor -> auto_approve) must fail.
+
+    Direcao INVERTIDA em 04/09/2026 (RAF-01/RAF-06) junto com a regoldenizacao do proprio caso:
+    a rota esperada deixou de ser `auto_approve` (que a fixture `AUTO_APROVAR` incondicional
+    fabricava) e passou a ser `human_auditor`, que e o que a r1 v0.2.0 de fato produz a partir do
+    payload que `assess` lhe manda. Ver `RafaelGraph.assess` e
+    `tests/unit/agents/test_rafael_auto_approve_unreachable.py`.
+    """
     case = _rafael_case("EVL-RAFAEL-02")
     await run_mutation_check(
-        rafael_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "human_auditor")
+        rafael_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_approve")
     )
 
 
@@ -283,6 +338,17 @@ async def test_evl_rafael_04_mutation_check_route_is_non_vacuous() -> None:
     """DD: flipping EVL-RAFAEL-04's expected route (human_auditor -> auto_approve) must fail --
     proves the fail-closed-on-DMN-down assertion is real, not a rubber stamp."""
     case = _rafael_case("EVL-RAFAEL-04")
+    await run_mutation_check(
+        rafael_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_approve")
+    )
+
+
+@pytest.mark.eval
+async def test_evl_rafael_06_mutation_check_route_is_non_vacuous() -> None:
+    """CC-08: flipping EVL-RAFAEL-06's expected route (human_auditor -> auto_approve) must fail
+    -- proves the fail-closed-on-`auth_auto_approval`-down assertion is real (distinct DMN/branch
+    from EVL-RAFAEL-04's `auth_admissibility`-down case)."""
+    case = _rafael_case("EVL-RAFAEL-06")
     await run_mutation_check(
         rafael_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_approve")
     )
@@ -348,7 +414,9 @@ async def test_evl_rafael_03_eval_tier_b_live() -> None:
     already proves deterministically. No structured extraction fields exist to threshold-score
     (dossier agents have no classify() JSON) -- see the golden's `live.note`."""
     case = _rafael_case("EVL-RAFAEL-03")
-    dmn = FakeDmnTransport()
+    # Rule-aware: EVL-RAFAEL-03's `auth_auto_approval` fixture is CONDITIONAL (mirrors r1 v0.2.0),
+    # so a plain FakeDmnTransport would reject it loudly (RAF-06).
+    dmn = RuleAwareFakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
     graph = rafael_graph.RafaelGraph(
         inference=_live_inference(),
@@ -433,6 +501,16 @@ async def test_evl_valentina_03_mutation_check_route_is_non_vacuous() -> None:
 @pytest.mark.eval
 async def test_evl_valentina_04_mutation_check_route_is_non_vacuous() -> None:
     case = _valentina_case("EVL-VALENTINA-04")
+    await run_mutation_check(
+        valentina_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
+    )
+
+
+@pytest.mark.eval
+async def test_evl_valentina_07_mutation_check_route_is_non_vacuous() -> None:
+    """CC-08: flipping EVL-VALENTINA-07's expected route (human_review -> auto_route) must fail
+    -- proves the fail-closed-on-`programa_routing`-down assertion is real, not a rubber stamp."""
+    case = _valentina_case("EVL-VALENTINA-07")
     await run_mutation_check(
         valentina_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
     )
@@ -554,6 +632,16 @@ async def test_evl_marina_04_mutation_check_route_is_non_vacuous() -> None:
 
 
 @pytest.mark.eval
+async def test_evl_marina_07_mutation_check_route_is_non_vacuous() -> None:
+    """CC-08: flipping EVL-MARINA-07's expected route (human_review -> auto_route) must fail --
+    proves the fail-closed-on-`glosa_reason_normalization`-down assertion is real."""
+    case = _marina_case("EVL-MARINA-07")
+    await run_mutation_check(
+        marina_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
+    )
+
+
+@pytest.mark.eval
 async def test_evl_marina_04_selects_recurso_process_key_not_contas() -> None:
     """SF proof beyond `assert_expect`'s field checks: MARINA-04's `start_process` must anchor
     the RECURSO process key, never CONTAS -- inspected directly off the recorded CibSeven
@@ -646,6 +734,16 @@ async def test_evl_andre_02_mutation_check_route_is_non_vacuous() -> None:
 
 
 @pytest.mark.eval
+async def test_evl_andre_06_mutation_check_route_is_non_vacuous() -> None:
+    """CC-08: flipping EVL-ANDRE-06's expected route (human_review -> auto_route) must fail --
+    proves the fail-closed-on-`pagto_admissibility`-down assertion is real, not a rubber stamp."""
+    case = _andre_case("EVL-ANDRE-06")
+    await run_mutation_check(
+        andre_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
+    )
+
+
+@pytest.mark.eval
 async def test_evl_andre_03_mutation_check_leak_is_non_vacuous() -> None:
     """PL: EVL-ANDRE-03's canary never legitimately touches state at all (the hostile
     CohortAggregate is blocked by `_scrub_aggregate` before it is ever copied anywhere) -- the
@@ -657,6 +755,32 @@ async def test_evl_andre_03_mutation_check_leak_is_non_vacuous() -> None:
         case,
         mutation=lambda c: mutate_plant_canary(c, canary),
         extra_config={"population": _make_andre_population_fake()},
+    )
+
+
+@pytest.mark.eval
+async def test_evl_andre_05_phi_bearing_metric_key_is_blocked() -> None:
+    """PL/AND-02: same unscoped leak posture as ANDRE-03 -- the hostile aggregate is blocked by
+    `_scrub_aggregate` before it reaches state at all, so the canary must be absent EVERYWHERE."""
+    case = _andre_case("EVL-ANDRE-05")
+    extra_config = {"population": _make_andre_phi_metric_key_fake()}
+    result = await run_case(andre_graph.build, case, extra_config=extra_config)
+    assert_expect(result.state, case["expect"])
+    assert_no_leak(result.state, case.get("leak_canaries") or [])
+    assert result.state.get("egress_blocked") is True
+    assert result.state.get("actuarial_aggregate") == {}
+    assert result.state.get("aggregate_dataset_refs") == []
+
+
+@pytest.mark.eval
+async def test_evl_andre_05_mutation_check_leak_is_non_vacuous() -> None:
+    case = _andre_case("EVL-ANDRE-05")
+    canary = case["leak_canaries"][0]
+    await run_mutation_check(
+        andre_graph.build,
+        case,
+        mutation=lambda c: mutate_plant_canary(c, canary),
+        extra_config={"population": _make_andre_phi_metric_key_fake()},
     )
 
 

@@ -87,6 +87,17 @@ paths. Defense in depth: the `gather`/`assess` error bails — now reachable ONL
 own missing-context guard — explicitly re-assert `route="human_review"` instead of returning
 `{}`, so the bail is fail-safe by construction even if sanitization were ever regressed.
 
+INPUT-BOUNDARY GATE (T1.11 layer 1 — CC-14/LUC-09a/RAF-13; the sanitization above is layer 2).
+The reset above is a HAND-ENUMERATED list: it neutralizes the output fields somebody remembered
+to list, and a state field added later is silently un-reset AND silently caller-settable. Layer 1
+closes that: `_CALLER_INPUT_FIELDS` declares the complete INPUT half of `MarinaState`, an
+import-time guard REFUSES TO LOAD THE MODULE if any state key is unclassified (or double
+classified), and `new_marina_state` (strict, raises `ValueError` naming the keys) /
+`gate_inbound_state` (lenient, drops + logs key NAMES only) are the two construction seams
+through which an output-only key cannot enter the state dict at all. Marina has no live inbound
+seam in this build (see LABELED BOUNDARIES) — the gate is built now because it is the ordered
+prerequisite for that seam, not after it.
+
 DIVERGENCE FROM DONOR (disclosed, spec wins per this task's charter): the v1 donor lets a
 `glosa_classification` DMN failure pass through silently (glosa_type stays `""`, `assess`
 proceeds straight to `contas_sla`/`glosa_triage`) — safe-by-defense-in-depth only because a later
@@ -110,22 +121,47 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
   fabricated fact. When no `fhir` dependency is injected at all, `gather` records an explicit gap
   note rather than silently producing empty facts that look like "no findings".
 - No episodic memory write (`mcp-memory.read_write`, ADR-0002) — same rationale as Helena's/
-  Rafael's graphs: v2's `MemoryServer` requires a live Postgres/pgvector schema not yet wired
-  into any agent graph in this repo; adding it is a follow-up once that schema exists.
-- No cross-agent A2A delegation (`operadora.contas/recurso/reembolso.*` -> Marina) is wired in
-  this build: v2's `a2a/` package has no `DelegationEnvelope`/`DelegationDispatcher` yet (only
-  `AgentCard`/`A2ARegistry`/`AntiLoopGuard` exist) — same gap Rafael's/Helena's graphs already
-  disclose. Marina's graph is invoked directly with an already-assembled case state, as the unit
-  tests do, rather than via a live delegation envelope.
+  Rafael's graphs: `MemoryServer.store_episodic` refuses fail-closed. The table exists
+  (`agent_memory`, migration `0001`); the missing piece is the tool's `(agent_id, event)`
+  signature, which carries neither `tenant_id` nor `thread_id` (both `text NOT NULL`) —
+  GAP-DU-01-a. The semantic column was dropped by `0009_drop_pgvector`, ADR-0002 §3 SUSPENDED
+  pending a consumer (ADR-0047, DRAFT).
+- A2A delegation (`operadora.contas/recurso/reembolso.*` -> Marina) is HALF wired (CC-02/RAF-11).
+  CORRECTED (CC-04, fleet audit) — the prior text here claimed v2's `a2a/` package had no
+  `DelegationEnvelope`/`DelegationDispatcher`; both exist and are fully built/tested
+  (`a2a/delegation.py::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported
+  from `maezo.a2a`). UPDATED (A2A handlers, lote3) — CC-04's companion claim that "there is no
+  `src/maezo/agents/marina/delegation.py`" is NO LONGER TRUE at this tip: the inbound TARGET
+  handler now exists (`agents/marina/delegation.py::make_marina_handler`, routing through the
+  T1.11 `new_marina_state` gate), and nine of the ten agents (all but lucas) now have a real
+  `delegation.py` using that infra. What is still missing for Marina is registration and origin:
+  the handler is NOT registered with any dispatcher (`grep -n '"marina"' runtime/agent_runtime/
+  a2a_composition.py` = 0 hits) and the three ORIGIN workers still assemble locally — both halves
+  are an owner decision (gap `FERNANDO-DELEGATION-CALL-SITE`, ver RAF-11 do fleet audit). No live
+  delegation reaches this graph yet: every non-test invocation still hands it an already-assembled
+  case state, as the unit tests do, rather than via a live delegation envelope. The T1.11
+  input-boundary gate (`new_marina_state`/`gate_inbound_state`) is nonetheless present and tested,
+  exactly as Rafael's is, so the seam is gated on the day it lands (CC-02) rather than after.
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol, TypedDict, cast
+from collections.abc import Mapping
+from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
+import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.start_outcome import (
+    notify_start_failure as emit_start_failure_notice,
+)
+from maezo.runtime.start_outcome import (
+    route_after_start,
+    start_failed_state,
+)
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -149,6 +185,8 @@ from .prompts import (
     recurso_prompt,
     reembolso_prompt,
 )
+
+logger = structlog.get_logger(__name__)
 
 # --- Domain enums (mirror the CONTAS/RECURSO/REEMBOLSO contracts + DMN schema) ----------------
 
@@ -187,6 +225,9 @@ DMN_CONTAS_SLA = "contas_sla"
 DMN_RECURSO_ADMISSIBILITY = "recurso_admissibility"
 DMN_RECURSO_ELIGIBILITY = "recurso_eligibility"
 DMN_RECURSO_SLA = "recurso_sla"
+
+
+logger = structlog.get_logger(__name__)
 
 
 class PatientSummaryReader(Protocol):
@@ -293,6 +334,10 @@ class MarinaState(TypedDict, total=False):
 
     # Filled by `start_process` (CONTAS/RECURSO only; no-op in `reembolso`).
     process_started: bool
+    #: CC-01: o start foi TENTADO e FALHOU tecnicamente (`except CibSevenError` de
+    #: `start_process`). NAO e a mesma coisa que `process_started is False`, que tambem cobre
+    #: no-ops legitimos; e este marcador — e so ele — que a aresta condicional le.
+    start_failed: bool
     business_key: str
     process_ref: dict[str, Any]
 
@@ -339,6 +384,104 @@ def _process_key(state: MarinaState) -> str:
     return PROCESS_KEY_RECURSO if _flow(state) == "recurso" else PROCESS_KEY_CONTAS
 
 
+# --- Input boundary (T1.11 layer 1: partition + constructor) -----------------------------------
+#
+# `MarinaState` carries TWO disjoint classes of key (same split helena/rafael/beatriz/valentina
+# already enforce; added here by CC-14 — marina previously had ONLY the layer-2 reset below):
+#   * INPUT-ONLY  (`_CALLER_INPUT_FIELDS`): the ONLY keys a caller/upstream (a future A2A
+#     `glosa.analyze`/`recurso.analyze`/`reembolso.analyze` delegation seam, the portal-TISS
+#     worker) may set — the flow selector, the runtime identifiers, each flow's contract inputs,
+#     and the PRE-RESOLVED worker/BRT facts this graph legitimately CONSUMES (never computes;
+#     module docstring's L0-hard invariant).
+#   * OUTPUT-ONLY (`_output_field_resets()`): keys OWNED by this graph's nodes (route, the DMN
+#     verdicts, sla_*, dmn_refs, dossier, process_*, desfecho, error). A caller must NEVER set
+#     one — a planted output field is an injection, and on this graph it is the one that starts
+#     REAL SP-OP-CONTAS-001/SP-OP-RECURSO-001 instances (module docstring
+#     §CALLER-PLANTED-OUTPUT SANITIZATION).
+#
+# PER-FLOW SHAPE (mirrors `agents/valentina/graph.py` and `agents/andre/graph.py`, which also
+# carry a flow/task selector): the set is the UNION over the three flows, grouped by flow below,
+# not a per-flow dict. Rationale — the flow selector `flow` is itself caller-supplied, so a
+# per-flow narrowing would be gated by the very value the caller controls, buying no security
+# while manufacturing a second source of truth to drift. What the union DOES guarantee is the
+# property that matters: no OUTPUT-only key can enter the state dict under any flow. A
+# `recurso` turn carrying a stray CONTAS input is a benign upstream mis-fill and is already
+# ignored by `_business_key`/`_contract_variables`, which read only the active flow's fields.
+#
+# TWO defenses, both fail-closed:
+#   1. Per-graph entry sanitization (layer 2, pre-existing) — `receive` resets EVERY output-only
+#      field to its neutral default before any downstream node runs.
+#   2. Input-boundary gate (layer 1, THIS block) — a construction seam assembles state ONLY
+#      through the typed `new_marina_state` constructor or the `gate_inbound_state` allowlist
+#      filter, so an output-only key can never enter the state dict at all. Marina has NO live
+#      A2A/delegation seam in this build (module docstring's labeled boundary: the graph is
+#      invoked directly with an already-assembled case state, as the unit tests do); the gate is
+#      provided HERE so it is enforced the moment that seam lands (CC-02).
+#
+# The completeness guard below fails at IMPORT TIME if a newly added `MarinaState` field is not
+# classified into exactly one of the two sets — "any missed key is a hole". That is what the
+# hand-enumerated `_output_field_resets` alone could not give: a forgotten new field used to be
+# silently un-reset AND silently caller-settable.
+_CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
+    {
+        # Flow selector (decides process, DMN chain, human group).
+        "flow",
+        # Runtime identifiers / task origin.
+        "tenant_id",
+        "canal",
+        "beneficiario_pseudo_id",
+        "prestador_id",
+        # --- CONTAS inputs (SP-OP-CONTAS-001) + its pre-resolved worker facts ---
+        "numero_lote_tiss",
+        "numero_guia_tiss",
+        "numero_conta",
+        "competencia",
+        "data_recebimento_lote",
+        "valor_apresentado_brl",
+        "tipo_lote",
+        "linhas_conta_refs",
+        "reason_codes_tiss",
+        "divergencia_valor",
+        "item_conforme_tabela",
+        "documentacao_anexa",
+        "denial_ratio",
+        "indicio_fraude_sinalizado",
+        # --- RECURSO inputs (SP-OP-RECURSO-001) + its pre-resolved worker facts ---
+        "glosa_id",
+        "glosa_type",
+        "glosa_reason_code",
+        "valor_glosado_brl",
+        "codigo_procedimento_tuss",
+        "cid10",
+        "documentos_recurso_refs",
+        "data_ciencia_alegada_prestador",
+        "data_recebimento_recurso_iso",
+        "glosa_existe",
+        "dentro_prazo_recurso",
+        "documentacao_recurso_completa",
+        # --- REEMBOLSO inputs (SP-OP-REEMBOLSO-001) ---
+        # The booleans/`valor_calculado_tabela_cents` are outputs of the PROCESS's OWN
+        # BusinessRuleTasks (BRT_Admissibilidade/BRT_Calculo/BRT_AutoApproval) computed BEFORE
+        # this hop — inputs FROM MARINA'S POINT OF VIEW, which she REPORTS and never recomputes.
+        "protocolo_reembolso",
+        "tipo_reembolso",
+        "categoria_procedimento",
+        "valor_solicitado_cents",
+        "cobertura_prevista",
+        "documentacao_completa",
+        "dentro_prazo",
+        "beneficiario_ativo",
+        "carencia_cumprida",
+        "dentro_tabela",
+        "dentro_teto_l2",
+        "requer_avaliacao_clinica",
+        "valor_calculado_tabela_cents",
+        # FHIR reference consumed by `gather` (a pointer, never raw PHI).
+        "patient_summary_ref",
+    }
+)
+
+
 def _output_field_resets() -> dict[str, Any]:
     """Benign reset values for EVERY output-only `MarinaState` field — applied unconditionally at
     `receive` entry (R1 cycle-1 fix; module docstring §CALLER-PLANTED-OUTPUT SANITIZATION).
@@ -378,8 +521,112 @@ def _output_field_resets() -> dict[str, Any]:
         "dossier": {},
         "desfecho": "",
         "process_started": False,
+        "start_failed": False,
         "process_ref": {},
     }
+
+
+_MARINA_ALL_FIELDS: frozenset[str] = _CALLER_INPUT_FIELDS | frozenset(_output_field_resets())
+if frozenset(MarinaState.__annotations__) != _MARINA_ALL_FIELDS:
+    _unclassified = frozenset(MarinaState.__annotations__) - _MARINA_ALL_FIELDS
+    _stale = _MARINA_ALL_FIELDS - frozenset(MarinaState.__annotations__)
+    raise RuntimeError(
+        "MarinaState input/output field split is incomplete (T1.11 input-boundary gate, CC-14): "
+        f"unclassified fields={sorted(_unclassified)} stale entries={sorted(_stale)} — every "
+        "MarinaState key MUST be either a `_CALLER_INPUT_FIELDS` member or carry a neutral "
+        "default in `_output_field_resets()`."
+    )
+if _CALLER_INPUT_FIELDS & frozenset(_output_field_resets()):
+    raise RuntimeError(
+        "MarinaState field classified as BOTH input and output (T1.11 input-boundary gate, "
+        f"CC-14): {sorted(_CALLER_INPUT_FIELDS & frozenset(_output_field_resets()))}"
+    )
+
+
+def new_marina_state(raw: Mapping[str, Any]) -> MarinaState:
+    """Typed input-boundary constructor for a fresh Marina case (T1.11 layer 1).
+
+    Accepts a raw mapping — the shape a future A2A `glosa.analyze`/`recurso.analyze`/
+    `reembolso.analyze` delegation envelope or the portal-TISS worker would hand over — and
+    returns a `MarinaState` containing ONLY `_CALLER_INPUT_FIELDS` keys.
+
+    An unknown key is a HARD ERROR, and the error NAMES the offending keys. Unlike a lenient
+    public ingestion edge, a delegation seam is an INTERNAL contract: a stray key means a
+    producer bug (or an injection attempt at the one graph in this fleet that starts real
+    SP-OP-CONTAS-001/SP-OP-RECURSO-001 instances), and it must fail closed, LOUDLY, rather than
+    be silently tolerated. Mirrors `agents/rafael/graph.py::new_rafael_state` exactly.
+
+    NOTE the two error classes are deliberately NOT distinguished in the message beyond the key
+    list: an output-only key and a wholly-unknown key are both "not a legitimate caller input",
+    and telling a hostile caller which of its keys the state model recognizes would be a hint it
+    does not need.
+    """
+    unknown = sorted(k for k in raw if k not in _CALLER_INPUT_FIELDS)
+    if unknown:
+        raise ValueError(
+            "new_marina_state received non-input keys (T1.11 input-boundary gate): "
+            f"{unknown} — only `_CALLER_INPUT_FIELDS` may be set by a caller/delegation seam; "
+            "output-only fields are owned by Marina's graph nodes."
+        )
+    return cast(MarinaState, {k: raw[k] for k in _CALLER_INPUT_FIELDS if k in raw})
+
+
+def gate_inbound_state(raw: Mapping[str, Any]) -> MarinaState:
+    """Fail-closed input allowlist (drop-and-log variant of `new_marina_state`).
+
+    Only `_CALLER_INPUT_FIELDS` keys survive; every other key — any caller-planted output field,
+    any unknown key — is DROPPED and LOGGED. Use where tolerating benign upstream drift is
+    preferable to raising (a lenient ingestion edge); use `new_marina_state` on a strict internal
+    delegation seam.
+
+    LOG HYGIENE: the event carries the dropped KEY NAMES only, never their values — a planted
+    value is unbounded caller-controlled content and could carry PHI (Zona PHI, ADR-0006), the
+    same rule this graph applies to failure reasons in engine-bound variables.
+    """
+    dropped = sorted(k for k in raw if k not in _CALLER_INPUT_FIELDS)
+    if dropped:
+        logger.warning("marina_inbound_output_fields_dropped", dropped=dropped)
+    return cast(MarinaState, {k: raw[k] for k in _CALLER_INPUT_FIELDS if k in raw})
+
+
+#: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
+#:
+#: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
+#: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
+#: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
+#: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
+#: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+_FATOS_BOOLEANOS_CONTAS: Final[dict[str, str]] = {
+    "item_conforme_tabela": "item conforme a tabela",
+    "divergencia_valor": "divergencia de valor",
+    "documentacao_anexa": "documentacao anexa",
+    "indicio_fraude_sinalizado": "indicio de fraude sinalizado",
+}
+
+_FATOS_BOOLEANOS_RECURSO: Final[dict[str, str]] = {
+    "glosa_existe": "a glosa recorrida existe",
+    "dentro_prazo_recurso": "recurso dentro do prazo",
+    "documentacao_recurso_completa": "documentacao do recurso completa",
+}
+
+#: REEMBOLSO: todos pre-resolvidos pelas BusinessRuleTasks do SP-OP-REEMBOLSO-001 ANTES deste
+#: salto — a marina REPORTA. `dentro_teto_l2` incluso: aqui ele e' pass-through de fato de
+#: worker (docstring de `_reembolso_facts`), diferente do teto do rafael, que o motor computa
+#: DEPOIS do dossie e por isso nao e' fato daquele agente (C-02).
+_FATOS_BOOLEANOS_REEMBOLSO: Final[dict[str, str]] = {
+    "cobertura_prevista": "cobertura prevista no contrato",
+    "dentro_prazo": "pedido dentro do prazo",
+    "dentro_tabela": "valor dentro da tabela",
+    "dentro_teto_l2": "valor dentro do teto de alcada L2",
+}
+
+#: Fluxo -> mapa. A montagem dos fatos ja' e' despachada por fluxo em `_build_dossier`; a
+#: renderizacao segue o mesmo despacho para nao anunciar rotulo de um fluxo em outro.
+_FATOS_BOOLEANOS_POR_FLUXO: Final[dict[str, dict[str, str]]] = {
+    "contas": _FATOS_BOOLEANOS_CONTAS,
+    "recurso": _FATOS_BOOLEANOS_RECURSO,
+    "reembolso": _FATOS_BOOLEANOS_REEMBOLSO,
+}
 
 
 class MarinaGraph:
@@ -465,7 +712,13 @@ class MarinaGraph:
             try:
                 summary_facts = await self._fhir.read_patient_summary(summary_ref)
             except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
-                notes.append(f"resumo FHIR indisponivel: {exc}")
+                # CLASS TOKEN ONLY (CC-10): `str(exc)` de um cliente FHIR tipicamente ecoa a
+                # URL / id em que falhou — o proprio `summary_ref` — e esta nota e' copiada para o
+                # prompt do dossie E para `dossie_marina`, que o engine sela na zona geral
+                # (ADR-0006/ADR-0007). O trace completo fica no log estruturado, canal de
+                # diagnostico, nunca na nota.
+                logger.warning("marina_fhir_resumo_indisponivel", exc_info=True)
+                notes.append(f"resumo FHIR indisponivel: {type(exc).__name__}")
 
         return {"gathered": True, "summary_facts": summary_facts, "gather_notes": notes}
 
@@ -711,11 +964,10 @@ class MarinaGraph:
                 provenance=provenance,
             )
         except CibSevenError as exc:
-            return {
-                "process_started": False,
-                "business_key": business_key,
-                "error": f"start_process indisponivel: {exc}",
-            }
+            # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
+            # `start_failed`, que e o que `route_after_start` le para desviar a
+            # `notify_start_failure` em vez de seguir calado para o terminal.
+            return start_failed_state(business_key=business_key, error=f"start_process indisponivel: {exc}")
         return {
             "process_started": True,
             "business_key": business_key,
@@ -726,12 +978,30 @@ class MarinaGraph:
             },
         }
 
+    async def notify_start_failure(self, state: MarinaState) -> dict[str, Any]:
+        """CC-01: o start FALHOU — grava o desfecho de erro e ALERTA, em vez de seguir calado.
+
+        Ate CC-01 a aresta que saia de `start_process` era INCONDICIONAL: o turno chegava ao
+        terminal com o `desfecho` de SUCESSO que um no a montante ja havia gravado, afirmando um
+        fato que nao aconteceu, e sem prazo nenhum — o timer de SLA vive na instancia BPMN que
+        nunca nasceu. O corpo deste no e o helper compartilhado
+        (`maezo.runtime.start_outcome.notify_start_failure`): uma definicao para os 9 agentes,
+        nunca 9 copias.
+        """
+        return emit_start_failure_notice(dict(state), agent_id="marina", process_key=_process_key(state))
+
     async def finalize(self, state: MarinaState) -> dict[str, Any]:
         """Terminal node — no further computation; `desfecho` was already set upstream.
 
         No episodic memory write here (labeled boundary, module docstring — same rationale as
         Rafael's/Helena's graphs).
+
+        CC-09: emits ONE `maezo_agent_desfecho_total` for this turn, tagged with `flow`
+        (`contas`/`recurso`/`reembolso`) so Marina's per-flow KPIs (`glosa_rate`,
+        `taxa_deferimento_recurso`, `prazo_medio_resposta_recurso`) can be sliced downstream from
+        the structured log line even though `flow` is not itself a Prometheus label.
         """
+        emit_turn_desfecho(state, agent_id="marina", flow=state.get("flow"))
         return {}
 
     # -- Conditional routing --------------------------------------------------------------
@@ -921,10 +1191,19 @@ class MarinaGraph:
 
         motivo_humano = state.get("motivo_humano") if route == "human_review" else None
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
-        prompt = f"{prompt_text}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\nfatos={facts}"
+        booleanos = _FATOS_BOOLEANOS_POR_FLUXO.get(flow, _FATOS_BOOLEANOS_CONTAS)
+        prompt = (
+            f"{prompt_text}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\n"
+            f"{render_fatos_para_prompt(facts, booleanos=booleanos)}"
+        )
         try:
             narrativa = await self._llm.generate(
-                prompt, phi=True, agent_id="marina", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=True,
+                agent_id="marina",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
+                task_kind="reasoning",
             )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
             narrativa = ""
@@ -1031,6 +1310,7 @@ class MarinaGraph:
         g.add_node("auto_route", self.auto_route)
         g.add_node("human_review", self.human_review)
         g.add_node("start_process", self.start_process)
+        g.add_node("notify_start_failure", self.notify_start_failure)
         g.add_node("finalize", self.finalize)
 
         g.add_edge(START, "receive")
@@ -1041,7 +1321,16 @@ class MarinaGraph:
         )
         g.add_edge("auto_route", "start_process")
         g.add_edge("human_review", "start_process")
-        g.add_edge("start_process", "finalize")
+        # CC-01: a aresta que sai de `start_process` e CONDICIONAL. Uma falha tecnica de
+        # start desvia para `notify_start_failure` (desfecho de erro + alerta); qualquer
+        # outro caminho — incluindo os no-ops legitimos com `process_started=False` —
+        # segue para o terminal de sempre. O predicado e compartilhado (uma definicao).
+        g.add_conditional_edges(
+            "start_process",
+            route_after_start,
+            {"notify_start_failure": "notify_start_failure", "continue": "finalize"},
+        )
+        g.add_edge("notify_start_failure", END)
         g.add_edge("finalize", END)
         return g
 

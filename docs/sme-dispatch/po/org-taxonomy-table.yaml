@@ -1,0 +1,522 @@
+origin: R-034
+sessao: sessao unica de taxonomia organizacional
+decisor: dono organizacional da operadora
+teto_herdado: 2026-09-19 (via R-137)
+status: recomendacao — pendente de nomeacao pelo dono
+escopo_do_dono:
+- ADEQUACAO
+- ANS-SUBMIT
+- AUTH
+- CANCEL
+- CRED
+- ESCALATION
+- NIP
+- PROGRAMA
+rows:
+- grupo_declarado: gestao-rede
+  arquivo: spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn
+  linha: 298
+  processo: SP-OP-ADEQUACAO-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_DecisaoFallback (co-candidate com coordenacao-rede)
+  sla_ato: contrato Sec.Papeis linha 217 -- compromisso financeiro de fallback (decisao_remediacao)
+  proposto: true
+  notas: caveat PROPOSTO no contrato linha 212-213
+  nome_real: ''
+- grupo_declarado: coordenacao-rede
+  arquivo: spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn
+  linha: 363
+  processo: SP-OP-ADEQUACAO-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_CoordenacaoRede
+  sla_ato: contrato Sec.Papeis linha 218 -- SLA de remediacao estourado, assume a decisao
+  proposto: true
+  notas: caveat PROPOSTO no contrato linha 212-213
+  nome_real: ''
+- grupo_declarado: (nenhum)
+  arquivo: spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn
+  linha: 1
+  processo: SP-OP-ANS-CRON-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: scheduler puro, sem User Task humana
+  sla_ato: n/a -- 0 ocorrencias de candidateGroups (grep confirmado)
+  proposto: false
+  notas: incluido por completude do inventario dos 16 processos; nao e um grupo real
+  nome_real: ''
+- grupo_declarado: regulatorio-ans
+  arquivo: spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn
+  linha: 205
+  processo: SP-OP-ANS-SUBMIT-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_CorrigirPendenciaEnvio; UT_RevisarEnvio (linha 281); UT_TratarNack (linha 571)
+  sla_ato: contrato Sec.Papeis linha 197 -- assina o envio oficial (decisao_envio==APROVAR_ENVIO)
+  proposto: true
+  notas: caveat PROPOSTO no titulo da secao (contrato linha 193) e linha 201-203
+  nome_real: ''
+- grupo_declarado: juridico-regulatorio
+  arquivo: spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn
+  linha: 237
+  processo: SP-OP-ANS-SUBMIT-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_RevisarEnvioJuridico
+  sla_ato: contrato Sec.Papeis linha 198 -- revisao quando origem_envio==nip_filing
+  proposto: true
+  notas: caveat PROPOSTO no titulo da secao (contrato linha 193) e linha 201-203
+  nome_real: ''
+- grupo_declarado: coordenacao-regulatorio
+  arquivo: spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn
+  linha: 344
+  processo: SP-OP-ANS-SUBMIT-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_CoordenacaoEnvioAssume
+  sla_ato: contrato Sec.Papeis linha 199 -- deadline-risk persistente / SLA de calendario estourado
+  proposto: true
+  notas: caveat PROPOSTO no titulo da secao (contrato linha 193) e linha 201-203
+  nome_real: ''
+- grupo_declarado: medico-auditor
+  arquivo: spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn
+  linha: 163
+  processo: SP-OP-AUTH-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_DecidirPendenciaExpirada; UT_AnaliseMedicoAuditor (linha 264)
+  sla_ato: contrato Sec.Papeis linha 206 -- negativa SO aqui
+  proposto: false
+  notas: contrato DRAFT v0.1.0 (caveat generico de topo), sem ressalva PROPOSTO explicita por grupo
+  nome_real: ''
+- grupo_declarado: coordenacao-auditoria-medica
+  arquivo: spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn
+  linha: 372
+  processo: SP-OP-AUTH-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_CoordenacaoAssume
+  sla_ato: contrato Sec.Papeis linha 207 -- SLA estourado
+  proposto: false
+  notas: contrato DRAFT v0.1.0 (caveat generico de topo), sem ressalva PROPOSTO explicita por grupo
+  nome_real: ''
+- grupo_declarado: junta-medica
+  arquivo: spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn
+  linha: 512
+  processo: SP-OP-AUTH-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_RegistrarParecerJunta
+  sla_ato: contrato Sec.Papeis linha 208 -- RN 424 (DRAFT)
+  proposto: false
+  notas: contrato DRAFT v0.1.0 (caveat generico de topo), sem ressalva PROPOSTO explicita por grupo
+  nome_real: ''
+- grupo_declarado: juridico-contratos
+  arquivo: spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn
+  linha: 261
+  processo: SP-OP-CANCEL-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_AnaliseRescisao
+  sla_ato: contrato Sec.Papeis linha 247 -- rescisao/negativa/suspensao SO aqui
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 241-243; grupo tambem citado em cancel_routing.dmn:50,57,64,71
+    (grupo_sugerido, ADVISORY -- promovido a variavel de processo, NAO alimenta candidateGroups, ver bpmn:234)
+  nome_real: ''
+- grupo_declarado: gestao-contratos
+  arquivo: spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn
+  linha: 261
+  processo: SP-OP-CANCEL-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_AnaliseRescisao (co-candidate)
+  sla_ato: contrato Sec.Papeis linha 248 -- pedido/efetivacao clerical revisada
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 241-243; tambem citado em cancel_routing.dmn:43 (grupo_sugerido,
+    ADVISORY)
+  nome_real: ''
+- grupo_declarado: coordenacao-contratos
+  arquivo: spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn
+  linha: 319
+  processo: SP-OP-CANCEL-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_CoordenacaoCancelamento
+  sla_ato: contrato Sec.Papeis linha 249 -- SLA de analise estourado
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 241-243
+  nome_real: ''
+- grupo_declarado: auditoria-contas
+  arquivo: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
+  linha: 190
+  processo: SP-OP-CONTAS-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_AnalistaContas
+  sla_ato: contrato Sec.Papeis linha 183 -- glosa SO nasce aqui (decisao_contas)
+  proposto: true
+  notas: Nota de taxonomia OQ-6, contrato linha 186
+  nome_real: ''
+- grupo_declarado: coordenacao-contas
+  arquivo: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
+  linha: 239
+  processo: SP-OP-CONTAS-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_CoordenacaoContasAssume
+  sla_ato: contrato Sec.Papeis linha 184 -- SLA de analise estourado
+  proposto: true
+  notas: Nota de taxonomia OQ-6, contrato linha 186
+  nome_real: ''
+- grupo_declarado: gestao-rede
+  arquivo: spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn
+  linha: 357
+  processo: SP-OP-CRED-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_AnaliseDescredenciamento (co-candidate); UT_AnaliseCredenciamento (linha 551,
+    primario)
+  sla_ato: contrato Sec.Papeis linha 163 -- negativa de credenciamento SO aqui (decisao_cred)
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 159
+  nome_real: ''
+- grupo_declarado: juridico-rede
+  arquivo: spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn
+  linha: 357
+  processo: SP-OP-CRED-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_AnaliseDescredenciamento
+  sla_ato: contrato Sec.Papeis linha 164 -- descredenciamento SO aqui (decisao_cred)
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 159
+  nome_real: ''
+- grupo_declarado: coordenacao-rede
+  arquivo: spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn
+  linha: 535
+  processo: SP-OP-CRED-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_CoordenacaoRedeDescred; UT_CoordenacaoRedeCred (linha 669)
+  sla_ato: contrato Sec.Papeis linha 165 -- SLA de analise estourado
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 159
+  nome_real: ''
+- grupo_declarado: plantao-clinico
+  arquivo: spec/processes/dmn/escalation_routing.dmn
+  linha: 33
+  processo: SP-OP-ESCALATION-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: regra r1 (red_flag_clinico/grave) + r2 (linha 42, risco_psicossocial); wireado
+    via bpmn:134 ${roteamento.grupo_atendimento} -> UT_TratarEscalonamento (P1)
+  sla_ato: contrato Sec.Papeis linha 87 (P1) + Sec.SLAs linha 96-97 (ack PT5M / resolucao PT30M)
+  proposto: false
+  notas: SEM ressalva PROPOSTO no contrato -- unico contrato FINAL do escopo (status linha 3); objeto
+    do bridge PR desta tarefa
+  nome_real: ''
+- grupo_declarado: enfermagem-triagem
+  arquivo: spec/processes/dmn/escalation_routing.dmn
+  linha: 51
+  processo: SP-OP-ESCALATION-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: regra r3 (red_flag_clinico nao-grave) + r4 (linha 60, intencao_clinica); wireado
+    via bpmn:134 -> UT_TratarEscalonamento (P2)
+  sla_ato: contrato Sec.Papeis linha 88 (P2) + Sec.SLAs linha 96-98 (ack PT30M / resolucao PT4H)
+  proposto: false
+  notas: SEM ressalva PROPOSTO no contrato -- unico contrato FINAL do escopo; objeto do bridge PR desta
+    tarefa
+  nome_real: ''
+- grupo_declarado: atendimento-humano
+  arquivo: spec/processes/dmn/escalation_routing.dmn
+  linha: 69
+  processo: SP-OP-ESCALATION-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: 'regra r5 (solicitacao_humano, P3) + r6 (linha 78, falha_tecnica, P3) + r7 catchall
+    (linha 87, FAIL-SAFE, retorna P2 -- nota: a tabela do contrato so lista P3, o catch-all real e P2);
+    wireado via bpmn:134 -> UT_TratarEscalonamento'
+  sla_ato: contrato Sec.Papeis linha 89 (P3) + Sec.SLAs linha 98-99 (ack PT4H / resolucao PT24H); catch-all
+    real usa os SLAs de P2
+  proposto: false
+  notas: SEM ressalva PROPOSTO no contrato; DRIFT observado -- ver item (6) do relatorio
+  nome_real: ''
+- grupo_declarado: supervisao-atendimento
+  arquivo: spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn
+  linha: 258
+  processo: SP-OP-ESCALATION-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_SupervisorAssume
+  sla_ato: contrato Sec.Papeis linha 90 -- SLA de resolucao estourado + alertas de ack
+  proposto: false
+  notas: SEM ressalva PROPOSTO no contrato; objeto do bridge PR desta tarefa
+  nome_real: ''
+- grupo_declarado: investigacao-fraude
+  arquivo: spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn
+  linha: 223
+  processo: SP-OP-FRAUDE-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_DecisaoInvestigador
+  sla_ato: contrato Sec.Papeis linha 166 -- acusacao SO aqui (decisao_fraude)
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 162; tambem citado em fraude_routing.dmn:52,61,70 (grupo_investigador,
+    ADVISORY)
+  nome_real: ''
+- grupo_declarado: coordenacao-investigacao
+  arquivo: spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn
+  linha: 282
+  processo: SP-OP-FRAUDE-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_CoordenacaoInvestigacao
+  sla_ato: contrato Sec.Papeis linha 167 -- SLA de investigacao estourado
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 162; tambem citado em fraude_routing.dmn:43,79 (grupo_investigador,
+    ADVISORY)
+  nome_real: ''
+- grupo_declarado: juridico-fraude
+  arquivo: spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn
+  linha: 314
+  processo: SP-OP-FRAUDE-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_RevisaoReferral
+  sla_ato: contrato Sec.Papeis linha 168 -- revisa/aprova referral ANS/civel/penal
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 162
+  nome_real: ''
+- grupo_declarado: juridico-contratos
+  arquivo: spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn
+  linha: 235
+  processo: SP-OP-INADIMPLENCIA-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_AnaliseInadimplencia
+  sla_ato: contrato Sec.Papeis linha 184 -- suspensao/encaminhamento SO aqui (decisao_inadimplencia)
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 180 (compartilhado com CANCEL-001)
+  nome_real: ''
+- grupo_declarado: gestao-cobranca
+  arquivo: spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn
+  linha: 235
+  processo: SP-OP-INADIMPLENCIA-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_AnaliseInadimplencia (co-candidate)
+  sla_ato: contrato Sec.Papeis linha 185 -- merito de cobranca
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 180
+  nome_real: ''
+- grupo_declarado: coordenacao-cobranca
+  arquivo: spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn
+  linha: 297
+  processo: SP-OP-INADIMPLENCIA-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_CoordenacaoCobranca
+  sla_ato: contrato Sec.Papeis linha 186 -- SLA de analise estourado
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 180
+  nome_real: ''
+- grupo_declarado: juridico-privacidade
+  arquivo: spec/processes/dmn/lgpd_dsr_routing.dmn
+  linha: 49
+  processo: SP-OP-LGPD-DSR-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: regras r1,r3,r5,r7 (EXPORTACAO c/ saude, RETIFICACAO c/ conflito legal, ELIMINACAO_AVALIACAO,
+    catch-all); wireado via bpmn:190 ${roteamento_dsr.grupo_revisor} -> UT_RevisaoDpo
+  sla_ato: contrato Sec.Papeis linha 97 -- dados de saude/eliminacao/tipos desconhecidos + alertas de
+    breach
+  proposto: false
+  notas: Sec.Papeis (contrato linha 92) SEM ressalva PROPOSTO -- ver item (6) do relatorio (drift potencial,
+    fora do escopo desta tarefa)
+  nome_real: ''
+- grupo_declarado: dpo
+  arquivo: spec/processes/dmn/lgpd_dsr_routing.dmn
+  linha: 58
+  processo: SP-OP-LGPD-DSR-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: regras r2,r4,r6 (acesso sem saude, RETIFICACAO simples, INFORMATIVO); wireado via
+    bpmn:190 -> UT_RevisaoDpo
+  sla_ato: contrato Sec.Papeis linha 96 -- requisicoes sem dados de saude
+  proposto: false
+  notas: Sec.Papeis (contrato linha 92) SEM ressalva PROPOSTO -- ver item (6) do relatorio
+  nome_real: ''
+- grupo_declarado: nucleo-ans
+  arquivo: spec/processes/dmn/nip_routing.dmn
+  linha: 60
+  processo: SP-OP-NIP-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: regra r_nao_assistencial_elaborar; wireado via bpmn:238 ${grupo_humano} (promovido
+    em BRT_Roteamento) -> UT_ElaborarRespostaNip
+  sla_ato: contrato Sec.Papeis linha 234 -- autora a minuta da resposta (nao-assistencial)
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 228-230; tambem citado em nip_classification.dmn:66 (grupo_revisor,
+    ADVISORY, NAO wireado -- bpmn:267)
+  nome_real: ''
+- grupo_declarado: regulatorio-ans
+  arquivo: spec/processes/dmn/nip_routing.dmn
+  linha: 67
+  processo: SP-OP-NIP-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: regra r_assistencial_outro_elaborar; wireado via bpmn:238 -> UT_ElaborarRespostaNip
+  sla_ato: contrato Sec.Papeis linha 234 -- autora a minuta (assistencial, sem contestacao)
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 228-230; tambem citado em nip_classification.dmn:57 (grupo_revisor,
+    ADVISORY)
+  nome_real: ''
+- grupo_declarado: juridico-regulatorio
+  arquivo: spec/processes/dmn/nip_routing.dmn
+  linha: 74
+  processo: SP-OP-NIP-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: regra r_pendente_info + r_assistencial_contesta_revisao (linha 81) + catchall (linha
+    88); UT_RevisaoJuridicaNip (bpmn:355, candidateGroups ESTATICO por design)
+  sla_ato: contrato Sec.Papeis linha 235 -- unica origem de decisao_nip==MANTER_NEGATIVA
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 228-230; tambem citado em nip_classification.dmn:48,75 (grupo_revisor,
+    ADVISORY)
+  nome_real: ''
+- grupo_declarado: medico-auditor
+  arquivo: spec/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn
+  linha: 355
+  processo: SP-OP-NIP-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_RevisaoJuridicaNip (co-candidate, static)
+  sla_ato: contrato Sec.Papeis linha 236 -- parecer assistencial quando o merito da NIP e clinico
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 228-230; grupo compartilhado com AUTH-001/CONTAS-001/RECURSO-001/REEMBOLSO-001
+  nome_real: ''
+- grupo_declarado: coordenacao-regulatorio
+  arquivo: spec/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn
+  linha: 341
+  processo: SP-OP-NIP-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_CoordenacaoNip
+  sla_ato: contrato Sec.Papeis linha 237 -- SLA estourado (proposto)
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 228-230; contrato ja marca este grupo como (proposto) na propria
+    tabela linha 237
+  nome_real: ''
+- grupo_declarado: clerical-pagamentos
+  arquivo: spec/processes/dmn/pagto_alcada.dmn
+  linha: 68
+  processo: SP-OP-PAGTO-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: regra r_dentro_teto_l2 (DENTRO_TETO_L2)
+  sla_ato: contrato nao lista este valor na tabela Sec.Papeis (linha 185-191) -- caminho clerical sem
+    grupo aprovador adverso
+  proposto: true
+  notas: NAO e um candidateGroups real (nao aparece em nenhuma User Task) -- literal de DMN para o caminho
+    sem aprovacao humana adversa; incluido por completude do inventario 'todo grupo nomeado em saida de
+    DMN'
+  nome_real: ''
+- grupo_declarado: aprovacao-financeira-l1
+  arquivo: spec/processes/dmn/pagto_alcada.dmn
+  linha: 78
+  processo: SP-OP-PAGTO-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: regra r_alcada_l1; wireado via bpmn:272 ${pagto_alcada.grupo_aprovador} -> UT_AprovacaoAlcada
+  sla_ato: contrato Sec.Papeis linha 187 -- tier 1, faixa ALCADA_L1
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 181-183 (binding value-driven)
+  nome_real: ''
+- grupo_declarado: aprovacao-financeira-l2
+  arquivo: spec/processes/dmn/pagto_alcada.dmn
+  linha: 88
+  processo: SP-OP-PAGTO-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: regra r_alcada_l2; wireado via bpmn:272 -> UT_AprovacaoAlcada
+  sla_ato: contrato Sec.Papeis linha 188 -- tier 2, faixa ALCADA_L2
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 181-183
+  nome_real: ''
+- grupo_declarado: aprovacao-financeira-l3
+  arquivo: spec/processes/dmn/pagto_alcada.dmn
+  linha: 98
+  processo: SP-OP-PAGTO-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: regra r_alcada_l3; wireado via bpmn:272 -> UT_AprovacaoAlcada
+  sla_ato: contrato Sec.Papeis linha 189 -- tier 3, faixa ALCADA_L3
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 181-183
+  nome_real: ''
+- grupo_declarado: comite-financeiro
+  arquivo: spec/processes/dmn/pagto_alcada.dmn
+  linha: 108
+  processo: SP-OP-PAGTO-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: regra r_catchall (FAIL-SAFE); wireado via bpmn:272 -> UT_AprovacaoComite
+  sla_ato: contrato Sec.Papeis linha 190 -- catch-all conservador, aprovacao colegiada DRAFT
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 181-183
+  nome_real: ''
+- grupo_declarado: coordenacao-financeira
+  arquivo: spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn
+  linha: 156
+  processo: SP-OP-PAGTO-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_AnaliseAdmissibilidade; UT_CoordenacaoAlcada (linha 338, SLA estourado)
+  sla_ato: contrato Sec.Papeis linha 191 -- humano de tier >= faixa assume
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 181-183
+  nome_real: ''
+- grupo_declarado: coordenacao-clinica
+  arquivo: spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn
+  linha: 181
+  processo: SP-OP-PROGRAMA-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_DecisaoClinica; UT_CoordenacaoDecisao (linha 225)
+  sla_ato: contrato Sec.Papeis linha 178 -- desligamento clinico SO aqui (decisao_programa)
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 173-174
+  nome_real: ''
+- grupo_declarado: equipe-cuidado
+  arquivo: spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn
+  linha: 181
+  processo: SP-OP-PROGRAMA-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_DecisaoClinica (co-candidate)
+  sla_ato: contrato Sec.Papeis linha 179 -- decisao clinica de cuidado revisada
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 173-174
+  nome_real: ''
+- grupo_declarado: analista-recurso-glosa
+  arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+  linha: 314
+  processo: SP-OP-RECURSO-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_AnaliseRecursoAnalista
+  sla_ato: contrato Sec.Papeis linha 210 -- unica origem primaria de decisao_recurso
+  proposto: true
+  notas: marcado (PROPOSTO) na propria tabela do contrato linha 210; tambem em recurso_eligibility.dmn:51,60
+    (grupo_revisor, ADVISORY)
+  nome_real: ''
+- grupo_declarado: medico-auditor
+  arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+  linha: 446
+  processo: SP-OP-RECURSO-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_RevisaoAuditorMedico
+  sla_ato: contrato Sec.Papeis linha 211 -- decide o merito de glosa tecnica/clinica
+  proposto: false
+  notas: contrato linha 205-206 diz que este reusa o grupo ja existente em AUTH-001/CONTAS-001 (nao remarcado
+    PROPOSTO aqui); tambem em recurso_eligibility.dmn:42 (grupo_revisor, ADVISORY)
+  nome_real: ''
+- grupo_declarado: coordenacao-recurso
+  arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+  linha: 371
+  processo: SP-OP-RECURSO-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_CoordenacaoRecursoAssume; UT_EscalonamentoPrazo (linha 425)
+  sla_ato: contrato Sec.Papeis linha 212 -- SLA de resposta estourado / teto de resposta
+  proposto: true
+  notas: marcado (PROPOSTO) na propria tabela do contrato linha 212
+  nome_real: ''
+- grupo_declarado: analise-reembolso
+  arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
+  linha: 183
+  processo: SP-OP-REEMBOLSO-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_DecidirPendenciaExpirada; UT_AnaliseReembolso (linha 304)
+  sla_ato: contrato Sec.Papeis linha 154 -- negativa/reducao SO aqui
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 149
+  nome_real: ''
+- grupo_declarado: medico-auditor
+  arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
+  linha: 374
+  processo: SP-OP-REEMBOLSO-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_RevisaoAuditorMedico
+  sla_ato: contrato Sec.Papeis linha 155 -- merito clinico (requer_avaliacao_clinica)
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 149; grupo compartilhado com AUTH-001/CONTAS-001/NIP-001/RECURSO-001
+  nome_real: ''
+- grupo_declarado: coordenacao-reembolso
+  arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
+  linha: 355
+  processo: SP-OP-REEMBOLSO-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_CoordenacaoReembolso
+  sla_ato: contrato Sec.Papeis linha 156 -- SLA de analise estourado
+  proposto: true
+  notas: caveat PROPOSTO contrato linha 149
+  nome_real: ''
