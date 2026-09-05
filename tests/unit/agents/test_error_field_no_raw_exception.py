@@ -51,6 +51,7 @@ import pytest
 from maezo.agents.andre.graph import ERROR_START_PROCESS_ENGINE_UNAVAILABLE
 from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, DmnVersion
+from maezo.tools.workers.phi_vars import _ERROR_MESSAGE_MAX_CHARS, _TRUNCATION_MARKER
 from tests.support.audit_fakes import FakeStartAuditSink
 
 # A tabela de casos da cerca IRMA de CC-01 e' a fonte unica dos estados minimos por agente
@@ -432,6 +433,47 @@ def test_error_text_helpers_preserve_the_class_token_and_scrub_the_body() -> Non
     assert dmn.startswith("DMN `cred_admissibility` indisponivel: ")
     assert "DmnEvaluationError" in dmn and _MARCADOR_REDACAO in dmn
     assert _CPF_SINTETICO not in dmn
+
+
+@pytest.mark.parametrize(
+    ("n", "espera_idempotente"),
+    [
+        (10, True),
+        (_ERROR_MESSAGE_MAX_CHARS - 40, False),
+        (_ERROR_MESSAGE_MAX_CHARS, False),
+        (_ERROR_MESSAGE_MAX_CHARS * 3, False),
+    ],
+    ids=["curta", "quase-no-teto", "no-teto", "muito-acima-do-teto"],
+)
+def test_redact_error_field_length_cap_reapplies_over_the_prefixed_text(
+    n: int, espera_idempotente: bool
+) -> None:
+    """F1 (achado da verificacao independente, 2026-09-05): fixa o comportamento REAL do teto.
+
+    A rede de identificadores E' idempotente sobre a saida dos construtores (nada de PHI sobra
+    para a segunda passada encontrar). O TETO DE COMPRIMENTO NAO E': ele e' reaplicado ao texto
+    JA prefixado com o MESMO numero (`_ERROR_MESSAGE_MAX_CHARS`) que os construtores ja' usaram
+    so' sobre o corpo, entao uma mensagem perto do teto do corpo ou acima dele perde mais alguns
+    caracteres de cauda nesta segunda passada -- e' exatamente o que os dois docstrings (deste
+    modulo e de `runtime/start_outcome.py::start_failed_state`) descrevem apos F1. Nenhum
+    identificador sobrevive em nenhum dos dois casos, idempotente ou nao.
+    """
+    from maezo.runtime.error_text import redact_error_field, start_unavailable_error
+
+    exc = CibSevenError("A" * n + f" CPF {_CPF_SINTETICO}")
+    uma = start_unavailable_error(exc)
+    duas = redact_error_field(uma)
+
+    assert _CPF_SINTETICO not in uma, f"n={n}: CPF vazou na primeira passada: {uma!r}"
+    assert _CPF_SINTETICO not in duas, f"n={n}: CPF vazou na segunda passada: {duas!r}"
+    assert (duas == uma) is espera_idempotente, (
+        f"n={n}: idempotencia da segunda passada mudou para {duas == uma!r}; atualize este teste "
+        "E os dois docstrings de F1 (error_text.py::redact_error_field / "
+        "start_outcome.py::start_failed_state) juntos, na mesma direcao"
+    )
+    if not espera_idempotente:
+        assert duas.endswith(_TRUNCATION_MARKER), f"n={n}: esperava um segundo corte com marcador"
+        assert len(duas) <= _ERROR_MESSAGE_MAX_CHARS + len(_TRUNCATION_MARKER)
 
 
 def test_start_failed_state_redacts_the_error_cell_as_a_backstop() -> None:

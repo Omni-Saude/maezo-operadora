@@ -134,8 +134,12 @@ def start_failed_state(*, business_key: str, error: str) -> dict[str, Any]:
     cerca AST `tests/unit/agents/test_error_field_no_raw_exception.py`), e esta fabrica aplica
     `redact_error_field` como SEGUNDA linha — porque ela e' a unica fabrica do marcador, e um
     caminho futuro que escape da cerca ainda assim nao consegue persistir texto cru no
-    checkpoint. A operacao e' idempotente sobre a saida do construtor e deixa um token de classe
-    constante (`andre/graph.py::ERROR_START_PROCESS_ENGINE_UNAVAILABLE`) intacto.
+    checkpoint. A rede de identificadores e' idempotente sobre a saida do construtor (nada de PHI
+    sobra para a segunda passada encontrar); o teto de comprimento NAO e' — ele pode cortar mais
+    alguns caracteres de cauda quando o texto ja' esta perto do teto ou acima dele (ver o
+    docstring de `redact_error_field`; nunca PHI). Um token de classe constante
+    (`andre/graph.py::ERROR_START_PROCESS_ENGINE_UNAVAILABLE`), bem abaixo do teto, atravessa
+    intacto.
     """
     return {
         "process_started": False,

@@ -106,11 +106,16 @@ def redact_error_field(error: str) -> str:
     (`tests/unit/agents/test_error_field_no_raw_exception.py`) ja' proibe o call site montar texto
     cru; este e' a SEGUNDA linha, para o caso de um caminho futuro escapar dela.
 
-    E' IDEMPOTENTE sobre a saida dos dois construtores acima (o texto redigido nao tem mais
-    identificador para a rede encontrar, e o teto de comprimento e' o mesmo), entao aplica-lo por
-    cima deles nao muda nada — e' de proposito: defesa em profundidade nao pode custar o
-    diagnostico. Constantes de token de classe (ex.:
-    `andre/graph.py::ERROR_START_PROCESS_ENGINE_UNAVAILABLE`) atravessam byte a byte.
+    A REDE DE IDENTIFICADORES e' idempotente sobre a saida dos dois construtores acima: o texto
+    redigido nao tem mais identificador para ela encontrar, entao a segunda passada nao acha nada
+    de PHI novo — e' de proposito: defesa em profundidade nao pode custar a seguranca. O TETO DE
+    COMPRIMENTO NAO e' idempotente: ele e' reaplicado ao texto JA prefixado (prefixo + token de
+    classe + corpo) com o MESMO numero (`phi_vars._ERROR_MESSAGE_MAX_CHARS`) que os construtores
+    ja' usaram so' sobre o corpo, entao uma mensagem perto do teto do corpo ou acima dele perde
+    mais alguns caracteres de cauda nesta segunda passada (poucas dezenas; nunca PHI, que ja' foi
+    substituido antes do corte — achado F1 da verificacao independente, 2026-09-05). Constantes de
+    token de classe (ex.: `andre/graph.py::ERROR_START_PROCESS_ENGINE_UNAVAILABLE`), bem abaixo do
+    teto, atravessam byte a byte sem perda.
 
     Recebe `str` (nao `BaseException`): quem tem o objeto da excecao em maos deve usar os
     construtores acima, que preservam o token de classe.
