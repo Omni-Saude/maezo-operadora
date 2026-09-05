@@ -50,6 +50,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from maezo.a2a import Budget, DelegationEnvelope, HandlerOutput
 from maezo.a2a.dispatcher import origin_signer_of
+from maezo.runtime.metrics import classify_agent_error_type
 
 from .graph import (
     _CALLER_INPUT_FIELDS,
@@ -304,7 +305,6 @@ def make_carolina_handler(
             # `tests/unit/platform/test_alert_metrics_fence.py::
             # test_every_graph_invocation_in_src_counts_agent_errors`.
             from maezo.platform.observability import record_agent_error  # noqa: PLC0415
-            from maezo.runtime.metrics import classify_agent_error_type  # noqa: PLC0415
 
             record_agent_error(agent="carolina", error_type=classify_agent_error_type(exc))
             raise

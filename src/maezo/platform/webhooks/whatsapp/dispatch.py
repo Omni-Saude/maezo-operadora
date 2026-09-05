@@ -70,6 +70,7 @@ from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.whatsapp import gate_whatsapp
 from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.metrics import classify_agent_error_type
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 from maezo.tools.workers.dmn_transport import DmnTransport
@@ -396,7 +397,6 @@ class HelenaDispatcher:
             # ALERT-COUNTER-LABELS / R-063: this dispatcher only ever runs Helena's graph
             # (`agent_version="helena@v0"` above), so the `agent` label is the literal id.
             from maezo.platform.observability import record_agent_error  # noqa: PLC0415
-            from maezo.runtime.metrics import classify_agent_error_type  # noqa: PLC0415
 
             record_agent_error(agent="helena", error_type=classify_agent_error_type(exc))
             raise

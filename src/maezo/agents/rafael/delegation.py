@@ -45,6 +45,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from maezo.a2a import DelegationEnvelope, HandlerOutput
+from maezo.runtime.metrics import classify_agent_error_type
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.dmn_transport import DmnTransport
 
@@ -162,7 +163,6 @@ def make_rafael_handler(
             # `tests/unit/platform/test_alert_metrics_fence.py::
             # test_every_graph_invocation_in_src_counts_agent_errors`.
             from maezo.platform.observability import record_agent_error  # noqa: PLC0415
-            from maezo.runtime.metrics import classify_agent_error_type  # noqa: PLC0415
 
             record_agent_error(agent="rafael", error_type=classify_agent_error_type(exc))
             raise

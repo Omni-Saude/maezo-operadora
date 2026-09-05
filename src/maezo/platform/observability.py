@@ -32,6 +32,8 @@ from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
+from maezo.runtime.metrics import AGENT_ERROR_TYPE_NONE, AGENT_ERROR_TYPE_OUTRO, AGENT_ERROR_TYPES
+
 if TYPE_CHECKING:
     from maezo.runtime.metrics import MetricsCollector
 
@@ -455,8 +457,6 @@ def record_tool_call(*, agent: str) -> None:
 
     Best-effort: telemetry must never break an effect call, so the caller guards it.
     """
-    from maezo.runtime.metrics import AGENT_ERROR_TYPE_NONE  # noqa: PLC0415 — lazy, no import-time coupling
-
     _get_metrics_collector().tool_calls.labels(agent=agent, error_type=AGENT_ERROR_TYPE_NONE).inc()
 
 
@@ -498,11 +498,6 @@ def record_agent_error(*, agent: str, error_type: str) -> None:
     would replace the turn's genuine exception with a telemetry one — the worst possible trade.
     """
     try:
-        from maezo.runtime.metrics import (  # noqa: PLC0415 — lazy, no import-time coupling
-            AGENT_ERROR_TYPE_OUTRO,
-            AGENT_ERROR_TYPES,
-        )
-
         resolved_error_type = error_type if error_type in AGENT_ERROR_TYPES else AGENT_ERROR_TYPE_OUTRO
         if resolved_error_type != error_type:
             logger.debug(

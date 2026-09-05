@@ -802,16 +802,14 @@ async def test_a_failed_agent_turn_classifies_a_catalogued_exception_by_its_decl
     from langgraph.graph import StateGraph
 
     harness = Harness()
-    harness.create_graph()  # default trivial graph — agent_id set directly below, not via
-    # a real spec/agents/helena build (which needs inference/dmn/cibseven/whatsapp/audit_sink
-    # deps this test does not construct; only the LABEL matters here, not a real Helena run).
+    # agent_id set via the public set_graph() below, not via a real spec/agents/helena build
+    # (which needs inference/dmn/cibseven/whatsapp/audit_sink deps this test does not construct;
+    # only the LABEL matters here, not a real Helena run).
     exploding: StateGraph[Any] = StateGraph(dict)
     exploding.add_node("agent", _explode)
     exploding.add_edge("__start__", "agent")
     exploding.add_edge("agent", "__end__")
-    harness._graph = exploding  # noqa: SLF001
-    harness._agent_id = "helena"  # noqa: SLF001 — driving the label directly is the point of the test
-    harness._compiled = None  # noqa: SLF001
+    harness.set_graph(exploding, agent_id="helena")
 
     labels = {"agent": "helena", "error_type": AGENT_ERROR_TYPE_VALIDACAO}
     before = _sample("maezo_agent_errors_total", **labels)
@@ -905,8 +903,9 @@ def test_the_two_agent_counters_share_a_label_set_so_the_ratio_alert_can_aggrega
     from maezo.runtime.metrics import AGENT_ERROR_TYPES, MetricsCollector
 
     collector = MetricsCollector()
-    assert collector.tool_calls._labelnames == ("agent", "error_type")  # noqa: SLF001
-    assert collector.errors._labelnames == ("agent", "error_type")  # noqa: SLF001
+    labelnames = collector.agent_counter_labelnames()
+    assert labelnames["tool_calls"] == ("agent", "error_type")
+    assert labelnames["errors"] == ("agent", "error_type")
 
     # AGENT_ERROR_TYPES is non-empty and bounded — the whole point of a "declared catalogue".
     assert AGENT_ERROR_TYPES, "the error_type catalogue must not be empty"

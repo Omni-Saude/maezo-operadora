@@ -274,6 +274,26 @@ class MetricsCollector:
         """Counter for agent errors."""
         return self._errors
 
+    def agent_counter_labelnames(self) -> dict[str, tuple[str, ...]]:
+        """The configured `labelnames` of `tool_calls`/`errors` (ALERT-COUNTER-LABELS / R-063),
+        keyed by attribute name — the public accessor callers pinning the label-SHAPE contract
+        should use instead of reaching into `prometheus_client.Counter`'s own internals directly.
+
+        `prometheus_client.Counter` exposes NO public way to read a metric's configured label
+        NAMES before its first observation: `collect()` — the one public introspection path —
+        yields zero `Sample`s until `.labels(...).inc()` has run at least once (a labelled metric
+        with no observation yet is indistinguishable, via `collect()`, from one that will never be
+        used). `_labelnames` (defined on `prometheus_client`'s own `MetricWrapperBase`, a class
+        this repo does not own) is the only place the answer lives before that. This method
+        confines that one unavoidable reach-in to the single place that already owns and
+        constructs both `Counter` instances, so every caller — starting with the test pinning the
+        two agent counters' shared label set — reads a genuinely public contract instead.
+        """
+        return {
+            name: counter._labelnames  # noqa: SLF001 — no public API exists; see docstring above.
+            for name, counter in (("tool_calls", self._tool_calls), ("errors", self._errors))
+        }
+
     @property
     def worker_execution_time(self) -> Histogram:
         """Histogram for worker execution time (M11).
