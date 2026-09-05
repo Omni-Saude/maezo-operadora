@@ -339,13 +339,29 @@ def _reset_heartbeat_write_failure_logged_for_tests() -> None:
 
 def _touch_heartbeat(path: str | None) -> None:
     """Update the heartbeat file's mtime to now — the liveness probe's ONLY signal that the loop
-    is actually iterating (SC-01/F3). A write failure (e.g. a read-only `/tmp` with no writable
-    mount — the GUARANTEED path on ECS today, gatekeeper finding G2, not merely a defensive branch)
-    must never crash the relay over an observability side-channel: it is logged ONCE for the life
-    of the process (never per sweep — a per-sweep log at `pollIntervalS=2` is ~43k lines/day/task)
-    and then silently swallowed on every subsequent sweep. The loop keeps TRYING to write on every
-    sweep regardless (cheap, and recovers automatically if the mount ever becomes writable), only
-    the log is throttled.
+    is actually iterating (SC-01/F3).
+
+    `path` empty/`None` (ECS today, gatekeeper finding G2: `service-a2a-outbox-relay.tf` sets
+    `A2A_OUTBOX_RELAY_HEARTBEAT_PATH=""` because that task's `readonlyRootFilesystem=true` has no
+    writable mount) returns immediately, ABOVE the `try` below — the heartbeat is disabled there,
+    on purpose, and the `except OSError` branch is never reached on that path at all (gatekeeper
+    finding H1, §Delta-2: an earlier revision of this docstring called that branch "the guaranteed
+    path on ECS today", which was backwards — it is exactly the path ECS avoids by setting an empty
+    override).
+
+    The `except OSError` branch instead covers a DIFFERENT, genuinely real case: `path` is
+    non-empty (Helm's default, or any future/misconfigured override) but the underlying mount is
+    not actually writable — e.g. a future chart edit that changes `readOnlyRootFilesystem`/the
+    `emptyDir` mount without correspondingly updating or emptying the heartbeat path, or an
+    operator override pointed at a bad location. A write failure there must never crash the relay
+    over an observability side-channel: it is logged ONCE for the life of the process (never per
+    sweep — a per-sweep log at `pollIntervalS=2` is ~43k lines/day/task) and then silently swallowed
+    on every subsequent sweep. The loop keeps TRYING to write on every sweep regardless (cheap, and
+    recovers automatically if the mount ever becomes writable), only the log is throttled. This
+    branch has direct unit test coverage
+    (`test_touch_heartbeat_swallows_a_write_failure`,
+    `test_touch_heartbeat_logs_the_write_failure_exactly_once`) — the honest reason it no longer
+    carries `# pragma: no cover`, not because it is guaranteed to fire in any particular deployment.
     """
     global _heartbeat_write_failure_logged
     if not path:

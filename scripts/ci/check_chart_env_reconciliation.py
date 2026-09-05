@@ -313,8 +313,13 @@ class ReconciliationResult:
         ]
         for ref in self.declared_unread:
             lines.append(
-                f"  DECLARED BUT NEVER READ: `{ref.name}` ({ref.source}) — no string literal or "
-                f"BaseSettings field in src/ names it. Typo, or a rename that missed one side?"
+                f"  DECLARED BUT NEVER READ: `{ref.name}` ({ref.source}) — not the key argument "
+                f"of any `os.environ.get(...)`/`os.getenv(...)`/`os.environ[...]` in src/ "
+                f"(directly, or via a module-level constant resolved by name), and no "
+                f"`BaseSettings` field aliases it either. Typo, a rename that missed one side, or "
+                f"a name genuinely unread — rename to match the real reader, add it to "
+                f"INFRA_OWNED_DECLARED with a reason if a third party consumes it, or to "
+                f"DEFERRED_UNRECONCILED_DECLARED with a tracked follow-up gap if it is neither."
             )
         for ref in self.required_undeclared:
             lines.append(
@@ -434,12 +439,10 @@ def _env_read_key_exprs(tree: ast.AST) -> Iterator[ast.expr]:
             if is_environ_get or is_os_getenv:
                 yield node.args[0]
         elif isinstance(node, ast.Subscript) and _is_os_environ(node.value):
-            key = node.slice
-            # Python <3.9 wrapped a subscript's index in `ast.Index`; this repo requires 3.12
-            # (pyproject.toml) so `node.slice` is already the expression, but unwrap defensively.
-            if isinstance(key, ast.Index):  # pragma: no cover - py<3.9 shape, not reachable here
-                key = key.value  # type: ignore[attr-defined]
-            yield key
+            # `node.slice` is already the plain expression on this repo's Python (3.12,
+            # pyproject.toml) — the `ast.Index` wrapper it would have needed unwrapping from was
+            # removed in 3.9. No compatibility shim for a Python this repo does not run.
+            yield node.slice
 
 
 def _module_level_string_constants(src_dir: Path) -> dict[str, set[str]]:
