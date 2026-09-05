@@ -289,3 +289,174 @@ def test_contas_nao_tem_error_boundary_sobre_external_task() -> None:
         "Modelar um exige ratificação (ADR-0030 §4: pré-T-E isso troca incidente visível por fim "
         "silencioso) e passa por CODEOWNERS de docs/adr/."
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# Gate de intake de `data_vencimento` — CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM (R-084)
+# ---------------------------------------------------------------------------------------------
+
+#: O gateway novo que a decisão do dono R-084 (2026-09-04, «validar agora») introduz no intake.
+_GW_VENCIMENTO = "GW_VencimentoConta"
+
+#: Toda tarefa que materializa um efeito EXTERNO ao prestador na adjudicação da conta: os três
+#: emissores de demonstrativo e os dois registros de glosa (o efeito adverso L0). Nenhuma delas
+#: pode ser alcançável a partir do start sem passar por `_GW_VENCIMENTO` — é exatamente esse
+#: «a jusante» que o gap nomeia.
+_EFEITOS_EXTERNOS_DA_ADJUDICACAO = frozenset(
+    {
+        "ST_EmitirDemonstrativoIntegral",
+        "ST_EmitirDemonstrativoAprovado",
+        "ST_EmitirDemonstrativoParcial",
+        "ST_EmitirDemonstrativo",
+        "ST_RegistrarGlosa",
+        "ST_RegistrarGlosaParcial",
+    }
+)
+
+#: As duas User Tasks humanas do processo. Ambas têm (ou herdam, via `UT_AnalistaContas`) timers
+#: `timeDate` que leem `${sla.*}` — logo `BRT_ContasSla` tem de dominar as duas.
+_USER_TASKS = frozenset({"UT_AnalistaContas", "UT_CoordenacaoContasAssume"})
+
+_START = "Start_LoteTissRecebido"
+
+
+def _grafo_de_fluxo() -> dict[str, set[str]]:
+    """`sourceRef -> {targetRef}` de todo `sequenceFlow`, mais as arestas implícitas de
+    `boundaryEvent` (o boundary é alcançável a partir da atividade a que está anexado)."""
+    adj: dict[str, set[str]] = {}
+    root = _bpmn_root()
+    for el in root.iter():
+        if _local(el.tag) == "sequenceFlow":
+            adj.setdefault(str(el.get("sourceRef")), set()).add(str(el.get("targetRef")))
+    for el in root.iter():
+        if _local(el.tag) == "boundaryEvent" and el.get("attachedToRef"):
+            adj.setdefault(str(el.get("attachedToRef")), set()).add(str(el.get("id")))
+    return adj
+
+
+def _alcancaveis_sem(bloqueado: str) -> set[str]:
+    """Nós alcançáveis a partir do start quando `bloqueado` é REMOVIDO do grafo.
+
+    É a definição operacional de dominância: se um nó continua alcançável com o gate removido,
+    então existe caminho que o alcança SEM passar pelo gate.
+    """
+    adj = _grafo_de_fluxo()
+    vistos: set[str] = set()
+    pilha = [_START]
+    while pilha:
+        no = pilha.pop()
+        if no in vistos or no == bloqueado:
+            continue
+        vistos.add(no)
+        pilha.extend(adj.get(no, ()))
+    return vistos
+
+
+def test_gate_de_vencimento_domina_todo_efeito_externo_da_adjudicacao() -> None:
+    """CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM: NENHUM demonstrativo ao prestador — e nenhum
+    registro de glosa — é alcançável sem passar pelo gate de vencimento do intake.
+
+    O defeito era topológico, não de mensagem: a recusa fail-closed de `data_vencimento` vivia em
+    `operadora.contas.handoff_pagamento`, A JUSANTE de `ST_EmitirDemonstrativo*` (flows
+    `Flow_EmitirIntegral_Handoff` / `Flow_EmitirAprovado_Handoff` / `Flow_EmitirParcial_Handoff`)
+    e, na perna `PAGAR_PARCIAL`, a jusante também de `ST_RegistrarGlosaParcial`. Numa conta sem
+    vencimento a operadora já tinha comunicado o prestador — e já tinha registrado o efeito
+    adverso — quando a ordem de pagamento era recusada.
+
+    A prova é de DOMINÂNCIA, não de existência: removendo `GW_VencimentoConta` do grafo, nenhum
+    dos efeitos externos pode continuar alcançável a partir do start. Um gateway acrescentado numa
+    perna só (ou depois de um dos emissores) falharia aqui, e um `assert` de presença não.
+    """
+    adj = _grafo_de_fluxo()
+    assert _GW_VENCIMENTO in adj, f"{_GW_VENCIMENTO} nao existe no BPMN — o gate de intake sumiu"
+
+    sem_gate = _alcancaveis_sem(_GW_VENCIMENTO)
+    escapam = _EFEITOS_EXTERNOS_DA_ADJUDICACAO & sem_gate
+    assert not escapam, (
+        f"efeitos externos alcancaveis SEM passar por {_GW_VENCIMENTO}: {sorted(escapam)}. "
+        "O gate de vencimento tem de DOMINAR os tres ST_EmitirDemonstrativo* e os dois "
+        "ST_RegistrarGlosa* (decisao do dono R-084)."
+    )
+
+    # Controle de não-vacuidade: com o gate no lugar, os efeitos CONTINUAM alcançáveis (o gate
+    # roteia, não amputa o processo).
+    com_gate = _alcancaveis_sem("__nenhum__")
+    assert com_gate >= _EFEITOS_EXTERNOS_DA_ADJUDICACAO, (
+        f"efeitos externos inalcancaveis mesmo COM o gate: "
+        f"{sorted(_EFEITOS_EXTERNOS_DA_ADJUDICACAO - com_gate)} — o teste acima seria vacuo"
+    )
+
+
+def test_gate_de_vencimento_e_fail_closed_por_construcao() -> None:
+    """A rota SEGURA (humana) é o `default`; a rota AUTOMÁTICA exige condição POSITIVA.
+
+    Se a polaridade fosse a inversa — condição `${vencimento_ausente}` na perna humana e a
+    automática como default — uma variável ausente, nula ou de tipo inesperado cairia na perna
+    automática, e o gate de intake teria criado exatamente o risco que existe para eliminar.
+    """
+    defaults = {
+        str(el.get("id")): el.get("default")
+        for el in _bpmn_root().iter()
+        if _local(el.tag) == "exclusiveGateway"
+    }
+    assert defaults.get(_GW_VENCIMENTO) == "Flow_GWVenc_Humano", (
+        f"o default de {_GW_VENCIMENTO} tem de ser a perna HUMANA; veio {defaults.get(_GW_VENCIMENTO)!r}"
+    )
+
+    condicoes = _condition_expressions()
+    assert "Flow_GWVenc_Humano" not in condicoes, (
+        "a perna humana e o default e NAO pode ter conditionExpression — senao deixa de ser o "
+        "destino de fallback do gateway"
+    )
+    automatica = condicoes.get("Flow_GWVenc_ComVencimento")
+    assert automatica == "${vencimento_ausente == false}", (
+        f"a perna automatica tem de exigir a condicao POSITIVA; veio {automatica!r}"
+    )
+
+    # A perna humana termina no MESMO caminho de ANALISE_HUMANA da triagem (nenhuma User Task
+    # nova, nenhum candidateGroup novo): o token entra em ST_PrepareTriageDossier.
+    alvos = {
+        str(el.get("id")): str(el.get("targetRef"))
+        for el in _bpmn_root().iter()
+        if _local(el.tag) == "sequenceFlow"
+    }
+    assert alvos.get("Flow_GWVenc_Humano") == "ST_PrepareTriageDossier", (
+        f"a perna sem-vencimento tem de rotear a ANALISE_HUMANA (ST_PrepareTriageDossier); veio "
+        f"{alvos.get('Flow_GWVenc_Humano')!r}"
+    )
+
+
+def test_vencimento_ausente_e_inicializada_fail_closed_no_primeiro_service_task() -> None:
+    """Mesma mecânica de engine de `decisao_contas`, polaridade oposta — e a polaridade é a tese.
+
+    `GW_VencimentoConta` lê `vencimento_ausente`; um identificador nunca setado faz o CIB Seven
+    2.1.0 lançar `Unknown property used in expression` ANTES de cair no default. `""` (o valor de
+    `decisao_contas`) não serviria aqui porque a condição é `== false`: o inicializador tem de ser
+    `true`, isto é, «até o intake provar o contrário, a conta NÃO tem vencimento». Inicializar
+    `false` seria fail-OPEN — um intake que não rodasse deixaria a perna automática aberta.
+    """
+    outputs = _publish_received_output_parameters()
+    assert outputs.get("vencimento_ausente") == "${true}", (
+        f"vencimento_ausente tem de ser inicializada como ${{true}} (fail-closed) em "
+        f"ST_PublishReceived; veio {outputs.get('vencimento_ausente')!r}"
+    )
+
+
+def test_sla_e_resolvido_antes_de_toda_user_task() -> None:
+    """`BRT_ContasSla` domina as duas User Tasks — a invariante que o gate de vencimento não pode
+    quebrar.
+
+    Os boundary timers de `UT_AnalistaContas` são `timeDate` sobre `${sla.sla_alerta_absoluto_iso}`
+    / `${sla.sla_analise_absoluto_iso}`. Uma rota nova para a User Task que não passasse pela DMN
+    de SLA criaria a UT com um timer irresolvível (incidente no attach). Foi por isso que o gate
+    R-084 exigiu mover `BRT_ContasSla` para logo depois do intake, em vez de deixá-la na cadeia de
+    DMNs de glosa: a perna sem-vencimento não atravessa essa cadeia. Mesma invariante declarada em
+    SP-OP-REEMBOLSO-001 (`BRT_SlaAnalise`) e SP-OP-ANS-SUBMIT-001 (`BRT_AnsSla`).
+    """
+    sem_sla = _alcancaveis_sem("BRT_ContasSla")
+    escapam = _USER_TASKS & sem_sla
+    assert not escapam, (
+        f"User Tasks alcancaveis sem BRT_ContasSla: {sorted(escapam)} — os timeDate de "
+        "${sla.*} ficariam irresolviveis nessa rota"
+    )
+    assert _alcancaveis_sem("__nenhum__") >= _USER_TASKS, "as User Tasks tem de ser alcancaveis"
