@@ -191,7 +191,12 @@ async def test_handler_notify_route_returns_process_reference_and_bounded_meta()
 
     assert output.output_ref == "process://INAD-amh-CTR-EDGE-1"
     assert output.meta["route"] == "notify"
-    assert output.meta["desfecho"] == "lembrete_regularizacao_enviado"
+    # FER-03/FER-04 (auditoria de frota 2026-09-04): esta aresta e' EXATAMENTE onde o rotulo
+    # mentia em producao. `state_from_envelope` fixa `canal="a2a"`, que nao tem remetente
+    # ligado, entao NENHUMA mensagem sai — e ate a correcao o turno respondia
+    # `lembrete_regularizacao_enviado` mesmo assim (com `mensagem_enviada=False` ao lado).
+    # O rotulo honesto e' o do canal sem entrega.
+    assert output.meta["desfecho"] == "lembrete_regularizacao_canal_sem_entrega"
     # `notify` never starts SP-OP-INADIMPLENCIA-001 (graph topology, `start_process`'s own
     # docstring) — this is the CORRECT desfecho for the a2a-delegated purge-window follow-up.
     assert output.meta["process_started"] == "False"
