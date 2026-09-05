@@ -5,10 +5,14 @@ O DEFEITO, REPRODUZIDO
 `carolina/graph.py::_build_dossier` construido com um duplo cujo `generate()` NAO aceita o kwarg
 `task_kind` que o no passa: o `TypeError` da ligacao de argumentos era ENGOLIDO pelo
 `except Exception:` do metodo e o dossie voltava COMPLETO, com `narrativa=""` — a mesma saida que
-"o provedor de LLM caiu" produz. O padrao estava em 25 sitios de 9 grafos, e o repositorio ja'
-tinha uma vitima registrada: o comentario de `_RecordingInference.generate` em
-`test_gather_notes_no_raw_exception.py` documenta uma cerca que ficou INERTE por exatamente este
-motivo (o prompt nunca era gravado porque o `TypeError` sumia).
+"o provedor de LLM caiu" produz. (A fixture deste arquivo desloca a deriva para a ARIDADE em vez
+do kwarg; ver o docstring de `_DriftedInference` para o porque — a cerca irma CC-12 proibe a
+forma historica em `tests/`, e nao ha' motivo para abrir excecao nela.)
+
+O padrao estava em 25 sitios de 9 grafos, e o repositorio ja' tinha uma vitima registrada: o
+comentario de `_RecordingInference.generate` em `test_gather_notes_no_raw_exception.py` documenta
+uma cerca que ficou INERTE por exatamente este motivo (o prompt nunca era gravado porque o
+`TypeError` sumia).
 
 O QUE ESTE ARQUIVO AFIRMA, POR SITIO
 --------------------------------------
@@ -46,23 +50,26 @@ from tests.support.audit_fakes import FakeStartAuditSink
 
 
 class _DriftedInference:
-    """`generate()` SEM o kwarg `task_kind` — a deriva de assinatura exata que CC-12 ja' custou.
+    """Duplo que NAO satisfaz o contrato de chamada do porto: `generate()` sem nem o `prompt`.
 
-    O corpo nunca roda: o `TypeError` nasce na LIGACAO dos argumentos. O `AssertionError` esta la'
-    para o dia em que um grafo parar de passar `task_kind` — nesse dia o corpo passa a rodar e o
-    teste fica vermelho por outra razao legitima, em vez de virar um falso verde.
+    POR QUE A ARIDADE, E NAO O `task_kind` QUE A AUDITORIA SONDOU. A forma historica de NEW-12
+    e' um duplo com `phi` e SEM `task_kind` (a deriva que CC-12 custou uma vez, reproduzida LIVE
+    nesta sessao contra `carolina/graph.py::_build_dossier` na base `87b51a8`). Essa forma NAO
+    pode ser escrita como uma `class` aqui: e' exatamente o que a cerca irma
+    `tests/unit/runtime/test_inference_fakes_match_protocol.py` existe para REJEITAR em todo
+    `tests/`, e escrever a fixture assim obrigaria a abrir uma excecao naquela cerca — pagar com
+    a protecao de todo o repositorio pelo conforto de um duplo. A aridade errada prova o MESMO
+    invariante (um duplo que nao satisfaz o contrato de chamada do porto levanta `TypeError` na
+    LIGACAO dos argumentos, e esse `TypeError` tem de escapar do no) sem tocar naquela cerca.
+
+    O corpo nunca roda: o `TypeError` nasce antes. O `AssertionError` esta la' para o dia em que
+    um grafo parar de passar o prompt — nesse dia o corpo passa a rodar e o teste fica vermelho
+    por outra razao legitima, em vez de virar um falso verde.
     """
 
     model_id = "fake-model"
 
-    async def generate(
-        self,
-        prompt: str,
-        *,
-        phi: bool = False,
-        agent_id: str | None = None,
-        tenant_id: str | None = None,
-    ) -> str:
+    async def generate(self) -> str:
         raise AssertionError("inalcancavel: a ligacao de argumentos levanta TypeError antes daqui")
 
 
@@ -238,8 +245,8 @@ _LLM_SITES: dict[str, Callable[[object], Awaitable[Any]]] = {
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sitio", sorted(_LLM_SITES), ids=sorted(_LLM_SITES))
 async def test_deriva_de_assinatura_do_provedor_propaga_type_error(sitio: str) -> None:
-    """NEW-12: um duplo cujo `generate()` nao aceita `task_kind` NAO vira `narrativa=''`."""
-    with pytest.raises(TypeError, match="task_kind"):
+    """NEW-12: um duplo que nao satisfaz o porto NAO vira `narrativa=''` em silencio."""
+    with pytest.raises(TypeError, match="generate"):
         await _LLM_SITES[sitio](_DriftedInference())
 
 

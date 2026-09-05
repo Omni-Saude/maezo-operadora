@@ -138,6 +138,7 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
+from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.turn_telemetry import emit_turn_desfecho
@@ -521,7 +522,9 @@ class BeatrizGraph:
             if summary_ref:
                 try:
                     raw_summary: Any = await self._fhir.read_patient_summary(summary_ref)
-                except Exception:  # noqa: BLE001 — best-effort enrichment; class token only.
+                except PROGRAMMING_ERRORS:
+                    raise
+                except EXTERNAL_DEPENDENCY_FAILURES:  # best-effort enrichment; class token only.
                     notes.append(NOTE_RESUMO_FHIR_INDISPONIVEL)
                 else:
                     # BEA-06: the reader's payload is UPSTREAM-CONTROLLED and NEVER lands in
@@ -602,7 +605,9 @@ class BeatrizGraph:
                 # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
                 task_kind="reasoning",
             )
-        except Exception:  # noqa: BLE001 — LLM failure never blocks the human-bound instruction.
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:  # LLM failure never blocks the human-bound instruction.
             narrativa = ""
             lacunas.append(NOTE_NARRATIVA_INDISPONIVEL)
 

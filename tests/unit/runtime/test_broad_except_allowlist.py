@@ -35,6 +35,12 @@ from typing import Final
 
 import pytest
 
+from maezo.runtime.dependency_failures import (
+    DECLARED_INFERENCE_FAILURES,
+    EXTERNAL_DEPENDENCY_FAILURES,
+    PROGRAMMING_ERRORS,
+)
+
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
 _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime")
 
@@ -197,8 +203,7 @@ def _is_broad(handler: ast.ExceptHandler) -> bool:
         return declared.id in {"Exception", "BaseException"}
     if isinstance(declared, ast.Tuple):
         return any(
-            isinstance(item, ast.Name) and item.id in {"Exception", "BaseException"}
-            for item in declared.elts
+            isinstance(item, ast.Name) and item.id in {"Exception", "BaseException"} for item in declared.elts
         )
     return False
 
@@ -267,11 +272,7 @@ def _guard_is_programming_errors_reraise(handler: ast.ExceptHandler) -> bool:
     declared = handler.type
     if not (isinstance(declared, ast.Name) and declared.id == "PROGRAMMING_ERRORS"):
         return False
-    return (
-        len(handler.body) == 1
-        and isinstance(handler.body[0], ast.Raise)
-        and handler.body[0].exc is None
-    )
+    return len(handler.body) == 1 and isinstance(handler.body[0], ast.Raise) and handler.body[0].exc is None
 
 
 def _absorbs_dependency_failure(node: ast.Try) -> bool:
@@ -311,4 +312,36 @@ def test_todo_try_de_graph_py_re_levanta_erro_de_programacao(graph_path: Path) -
     assert not faltando, (
         "`try` que absorve falha de dependencia sem `except PROGRAMMING_ERRORS: raise` como "
         f"PRIMEIRA clausula: {faltando}"
+    )
+
+
+def test_falhas_de_inferencia_declaradas_estao_cobertas_pelas_bases() -> None:
+    """A cobertura por MRO das bases e' um FATO CHECAVEL, nao uma leitura de hierarquia.
+
+    Se `InferenceProviderError` deixar de ser `RuntimeError`, ou `PhiZoneRoutingError` deixar de
+    ser `PermissionError`, os 15 sitios de LLM parariam de degradar e passariam a estourar o
+    turno. Esta afirmacao fica VERMELHA antes disso chegar a producao.
+    """
+    descobertas = [
+        tipo.__name__
+        for tipo in DECLARED_INFERENCE_FAILURES
+        if not issubclass(tipo, EXTERNAL_DEPENDENCY_FAILURES)
+    ]
+    assert not descobertas, f"falha de inferencia DECLARADA fora das bases absorvidas: {descobertas}"
+
+
+def test_as_duas_classes_de_bug_load_bearing_sao_subclasses_das_bases() -> None:
+    """Prova que a clausula `except PROGRAMMING_ERRORS: raise` NAO e' decorativa.
+
+    `NotImplementedError` e `RecursionError` sao subclasses de `RuntimeError`: sem a primeira
+    clausula, um porto stub ou uma recursao infinita seriam absorvidos como "fornecedor
+    indisponivel". Se algum dia deixarem de ser, esta afirmacao avisa que o motivo documentado da
+    clausula mudou.
+    """
+    cobertas = {
+        tipo.__name__ for tipo in PROGRAMMING_ERRORS if issubclass(tipo, EXTERNAL_DEPENDENCY_FAILURES)
+    }
+    assert cobertas == {"NotImplementedError", "RecursionError"}, (
+        "o conjunto de erros de programacao que as bases absorveriam mudou; reveja o motivo "
+        f"documentado da clausula de guarda: {sorted(cobertas)}"
     )

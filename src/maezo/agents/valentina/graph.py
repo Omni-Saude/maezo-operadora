@@ -134,6 +134,7 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.start_outcome import (
@@ -560,7 +561,9 @@ class ValentinaGraph:
         if summary_ref:
             try:
                 summary_facts = await self._fhir.read_patient_summary(summary_ref)
-            except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
+            except PROGRAMMING_ERRORS:
+                raise
+            except EXTERNAL_DEPENDENCY_FAILURES as exc:  # best-effort enrichment, never fatal.
                 # CLASS TOKEN ONLY (CC-10): `str(exc)` de um cliente FHIR tipicamente ecoa a
                 # URL / id em que falhou — o proprio `summary_ref` — e esta nota e' copiada para o
                 # prompt do dossie E para `dossie_valentina`, que o engine sela na zona geral
@@ -914,7 +917,9 @@ class ValentinaGraph:
                 # ADR-0009 §2 / CC-12: dossie lido pelo humano/clinico antes de decidir -> reasoning.
                 task_kind="reasoning",
             )
-        except Exception:  # noqa: BLE001 — deterministic minimal dossier; caller decides route.
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:  # deterministic minimal dossier; caller decides route.
             narrativa = ""
             llm_ok = False
 

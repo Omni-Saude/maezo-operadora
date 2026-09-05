@@ -132,6 +132,7 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.start_outcome import (
@@ -734,6 +735,8 @@ class LucasGraph:
             try:
                 await self._whatsapp.send(to_hash, str(mensagem.get("texto", "")))
                 enviada = True
+            except PROGRAMMING_ERRORS:
+                raise
             except Exception as exc:  # noqa: BLE001 — best-effort send, never an adverse outcome.
                 mensagem["envio_nota"] = f"whatsapp send failed: {type(exc).__name__}"
 
@@ -865,6 +868,8 @@ class LucasGraph:
         ack_text = await self._build_escalation_ack(state)
         try:
             await self._whatsapp.send(to_hash, ack_text)
+        except PROGRAMMING_ERRORS:
+            raise
         except Exception:  # noqa: BLE001 — best-effort ack, never undoes a live escalation.
             return {"mensagem_enviada": False, "ack_pending": True}
         return {"mensagem_enviada": True, "ack_pending": False, "desfecho": "escalado_humano"}
@@ -997,7 +1002,9 @@ class LucasGraph:
                 # "classificacao -> modelo rapido/barato").
                 task_kind="task_default",
             )
-        except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe default: never leave the beneficiary with nothing.
             texto = "Recebemos sua solicitacao. Em breve enviaremos os detalhes por aqui."
         return {
             "prompt_version": MESSAGE_PROMPT_VERSION,
@@ -1051,7 +1058,9 @@ class LucasGraph:
                 # `reasoning` (ADR-0009 §2 "raciocinio critico -> fronteira").
                 task_kind="reasoning",
             )
-        except Exception:  # noqa: BLE001 — LLM failure never blocks the escalation.
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:  # LLM failure never blocks the escalation.
             narrativa = ""
         return {
             "prompt_version": DOSSIER_PROMPT_VERSION,
@@ -1077,7 +1086,9 @@ class LucasGraph:
                 tenant_id=state.get("tenant_id", ""),
                 task_kind="task_default",  # AF-12: a short fixed-shape acknowledgement.
             )
-        except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe default: never leave the beneficiary with nothing.
             return "Recebemos sua solicitacao. Um atendente humano vai continuar por aqui em breve."
 
     # -- Graph assembly -----------------------------------------------------------------------
