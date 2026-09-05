@@ -1,4 +1,4 @@
-# ADR-0042: `driver_idempotency` re-ancorada como registro de dedup por `wamid` do webhook WhatsApp — re-anchor de ADR-0024 e nota de obsolescencia sobre ADR-0041 §1(d)
+# ADR-0048: `driver_idempotency` re-ancorada como registro de dedup por `wamid` do webhook WhatsApp — re-anchor de ADR-0024 e nota de obsolescencia sobre ADR-0041 §1(d)
 
 **Status:** **Proposto — DRAFT/verify. NADA AQUI ESTA RATIFICADO.** Redigido por AGENTE
 (unlock-executor R1, rodada 5 de fechamento de gaps); um agente nao ratifica ADR. Assinatura humana
