@@ -139,15 +139,27 @@ jobs:
   # sem dizer qual dos dois quebrou, e derrubaria o sinal de protecao de branch que hoje esta verde.
   # Como job separado, ele reporta o proprio contexto e pode ser exigido isoladamente na ruleset.
   #
-  # POR QUE NAO EM `pull_request` (nem dentro de `flip-path-review-gate.yml`). Hoje a contagem e' 29,
-  # e nao 0. Um check vermelho em TODO PR bloquearia inclusive os PRs que existem para cumprir os
-  # pre-requisitos — um gate que impede o proprio conserto nao e' fail-closed, e' deadlock, e foi
-  # esse exato modo de falha (`require_code_owner_review` inerte com donos nao-resolviveis) que o
-  # cabecalho de `.github/CODEOWNERS` documenta. Este job herda os gatilhos deste arquivo (push em
-  # `main`, varredura semanal, `workflow_dispatch`), entao o estado fica MEDIDO e datado a cada
-  # push e toda semana, sem travar a fila. Passar a exigi-lo como status check — ou acrescentar
-  # `pull_request` aos gatilhos depois que a contagem chegar a zero — e' ato do dono na ruleset,
-  # deliberadamente NAO feito aqui.
+  # POR QUE NAO EM `pull_request` (nem dentro de `flip-path-review-gate.yml`) — E O QUE ISSO NAO E'.
+  # A versao anterior deste paragrafo dizia "deadlock". Medido, nao e': na ruleset `main-protection`
+  # (id 20775655, lida read-only em 2026-09-04) `required_approving_review_count` e' 0,
+  # `require_code_owner_review` e' false, e os required status checks sao exatamente quatro
+  # contextos — `lint / type / unit`, `gitleaks / secrets`, `validate-artifacts`,
+  # `release-capability-floor (audit §5)`. Um check que NAO esta nesse conjunto nao bloqueia merge
+  # nenhum hoje. Entao um gatilho `pull_request` produziria RUIDO em todo PR (vermelho consultivo em
+  # cada um, incluindo os PRs que existem para cumprir os pre-requisitos), e ruido e' exatamente o
+  # que treina a fila a ignorar um sinal — o modo de morte de gate que R-051 existe para acabar.
+  # Ruido e' motivo suficiente para a escolha; "deadlock" seria uma afirmacao de governanca nao
+  # medida, que e' a especie de erro que este lote inteiro veio corrigir.
+  # Este job herda os gatilhos deste arquivo (push em `main`, varredura semanal, `workflow_dispatch`),
+  # entao o estado fica MEDIDO e datado a cada push e toda semana, sem ruido por PR.
+  # COMO TORNA-LO EXIGIVEL, quando a contagem chegar a zero — e a ordem importa: acrescentar
+  # `pull_request` aos gatilhos **e depois** exigir o contexto na ruleset. As duas coisas juntas, e
+  # nessa ordem. Exigir o contexto SEM o gatilho e' a armadilha: um required check que nunca reporta
+  # deixa todo PR em "Expected — waiting for status to be reported" — o GitHub le check
+  # nao-reportado como PENDENTE, nunca como vermelho — e a fila de merge congela. E' o mesmo
+  # mecanismo que `test_the_verdict_is_never_swallowed` enuncia logo abaixo, e a razao pela qual a
+  # instrucao para `require-production-approval` em `docs/review-queue.md` foi reescrita em
+  # 2026-09-04. Ambos os passos sao atos do dono, deliberadamente NAO feitos aqui.
   #
   # FAIL-CLOSED, NAO ADVISORY: contagem != 0 e' VERMELHO; falha de API, resposta ilegivel ou JSON
   # sem o campo `errors` tambem sao VERMELHO. Uma medicao que nao pode ser feita nunca e' lida como

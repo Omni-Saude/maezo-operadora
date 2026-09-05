@@ -59,11 +59,17 @@ THE FOUR PROPERTIES THAT MAKE THIS A GATE AND NOT THEATRE
 
 WHAT THIS GATE DOES *NOT* CLAIM
 -------------------------------
-* It does not make itself a required check. Adding `require-production-approval` to the
-  `main-protection` ruleset (or to any deployment protection) is an ORGANIZATION act by the owner,
-  outside this tree — the same species of act as the three CODEOWNERS prerequisites. Until then the
-  job is a gate on the CD workflow's own graph (`promote-production` has it in `needs:`), which is
-  real for anyone dispatching CD and is not a substitute for the ruleset entry.
+* It does not make itself a required status check — AND that is not a missing step, it is a
+  category error to attempt. `require-production-approval` runs only on `workflow_dispatch` with
+  `promote_to_production`, so it never reports on a pull request; adding its context to
+  `main-protection` would leave every PR at "Expected — waiting for status to be reported", because
+  GitHub reads a never-reported required check as pending rather than red. The binding this gate
+  actually has is the one that matters where promotion happens: `promote-production` carries
+  `needs: [require-production-approval]` and an `if:` that requires
+  `needs.require-production-approval.result == 'success'`, so no promotion runs without a green
+  verdict, ruleset or no ruleset. Merge-time protection of this apparatus (`cd.yml`, this script,
+  the approvers file) is CODEOWNERS plus the `flip-path-review-gate` check. The full reasoning, with
+  the measurements behind it, is in `docs/review-queue.md`, section `## WF-BATCH`.
 * It does not assert reviewer COMPETENCE. Being listed is authority to promote, not an attestation
   that the listed human reviewed clinical or regulatory content; that stays in `docs/review-queue.md`.
 * It does not attempt to detect self-approval. GitHub itself refuses to record an author's approval

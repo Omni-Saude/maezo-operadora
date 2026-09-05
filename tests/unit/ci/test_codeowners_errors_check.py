@@ -128,20 +128,59 @@ def test_the_failure_message_names_the_three_owner_prerequisites() -> None:
 
 
 def test_it_does_not_run_on_pull_request_while_the_count_is_still_nonzero() -> None:
-    """Deliberate, and the reason is in the workflow header: at a non-zero count a per-PR red check
-    would block the very PRs that exist to satisfy the prerequisites. That is deadlock, not
-    fail-closed — the same shape as an inert `require_code_owner_review`. Adding `pull_request`
-    (or requiring the context) is the owner's act once the count reaches zero."""
+    """Deliberate, and the reason is NOISE — measured, not "deadlock".
+
+    The first version of this docstring (and of the workflow header, the ledger row and the report)
+    justified the missing trigger as deadlock. Against the live ruleset that is false: measured
+    read-only on 2026-09-04, `main-protection` requires exactly four contexts and this job is not one
+    of them, with `required_approving_review_count: 0` and `require_code_owner_review: false` — a
+    check outside the required set blocks no merge at all. A `pull_request` trigger would put a red
+    advisory check on EVERY pull request, which is noise, and noise is what teaches a queue to ignore
+    a signal — the way gates actually die, and the failure R-051 exists to end. The design choice
+    stands; the reason is corrected (adversarial-review finding, 2026-09-04).
+
+    Turning it into a real pre-merge gate is TWO owner acts in this order: add `pull_request` to the
+    triggers, THEN require the context. Requiring it without the trigger is the trap that
+    `test_the_verdict_is_never_swallowed` names — a never-reported required check reads as pending,
+    not red, and freezes the queue.
+    """
     workflow = yaml.safe_load(_WORKFLOW.read_text(encoding="utf-8"))
     triggers = workflow[True] if True in workflow else workflow["on"]
     assert "pull_request" not in triggers, (
         "this workflow gained a `pull_request` trigger. That is only safe once "
-        "/codeowners/errors reports zero; until then it deadlocks the queue. Remove it, or land it "
-        "together with the evidence that the count is zero."
+        "/codeowners/errors reports zero; until then every PR carries a red advisory check. Remove "
+        "it, or land it together with the evidence that the count is zero."
     )
     assert "schedule" in triggers and "workflow_dispatch" in triggers, (
         "the measurement must keep happening on its own — a governance fact that is only ever read "
         "when someone remembers to read it is the state R-051 was written to end."
+    )
+
+
+def test_the_header_does_not_offer_requiring_the_context_without_the_pull_request_trigger() -> None:
+    """The trap this fence exists to keep out of the file.
+
+    The header used to offer the two acts as alternatives ("exigi-lo como status check — OU
+    acrescentar `pull_request` aos gatilhos"). Taken alone, the first branch of that `ou` freezes
+    every pull request in the repository: a required context that never reports stays PENDING
+    forever. Only the combination, in that order, is valid — and the header has to say so, because
+    the header is what the owner will act on.
+    """
+    header = _WORKFLOW.read_text(encoding="utf-8")
+    assert "Expected — waiting for status to be reported" in header, (
+        "the header no longer warns that a required-but-never-reporting check leaves PRs pending. "
+        "That warning is the whole reason the two acts (add `pull_request`, then require) may not "
+        "be offered as alternatives — without it the header hands the owner a queue-freezing act."
+    )
+    # The reason for the design choice must stay MEASURED. The ruleset id is the anchor: the header
+    # says a check outside the four required contexts blocks no merge, and that is a read of ruleset
+    # 20775655, not an opinion. (Scanning for the word "deadlock" is deliberately NOT the assertion:
+    # the header now QUOTES that word in order to refute it, and a scan that cannot tell the
+    # correction from the claim would punish the correction — the same reasoning as the `// []`
+    # exclusion in `test_a_payload_without_an_errors_array_is_red_not_zero`.)
+    assert "20775655" in header, (
+        "the header's justification lost the ruleset id it was measured against. A governance claim "
+        "without the measurement behind it is the species of defect this whole batch exists to fix."
     )
 
 
