@@ -703,7 +703,7 @@ class ValentinaGraph:
             decision_basis={
                 "route": state.get("route", ""),
                 "desfecho": state.get("desfecho", ""),
-                "programa": state.get("programa") or "",
+                "programa": state.get("programa_id") or "",
             },
         )
         try:
