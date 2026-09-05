@@ -26,10 +26,10 @@
 
 ## 1. Provider selection — `MAEZO_INFERENCE_PROVIDER`
 
-**Code:** `src/maezo/runtime/inference.py` (module docstring, `InferenceSettings`,
-`_PROVIDER_FACTORIES`, `_build_provider`)
+**Code:** `src/maezo/runtime/inference/__init__.py` (module docstring, `_PROVIDER_FACTORIES`,
+`_build_provider`), `src/maezo/runtime/inference/settings.py` (`InferenceSettings`)
 
-`src/maezo/runtime/inference.py` is the **single import point** for any LLM SDK in this codebase
+`src/maezo/runtime/inference/` is the **single import point** for any LLM SDK in this codebase
 (ADR-0009) — every other module MUST go through `InferenceProvider`, never import an LLM SDK
 directly. Five provider values, selected via `MAEZO_INFERENCE_PROVIDER`
 (`InferenceSettings(env_prefix="MAEZO_INFERENCE_")`):
@@ -81,7 +81,8 @@ echo "${MAEZO_INFERENCE_PROVIDER:-noop (default)}"
 
 ## 2. Fail-closed posture
 
-**Code:** `src/maezo/runtime/inference.py` (`InferenceConfigError`, `_build_provider`)
+**Code:** `src/maezo/runtime/inference/errors.py` (`InferenceConfigError`),
+`src/maezo/runtime/inference/__init__.py` (`_build_provider`)
 
 An unrecognized `MAEZO_INFERENCE_PROVIDER` value is a **fail-closed startup error** — the process
 refuses to boot with a misconfigured provider rather than silently degrading to `noop`:
@@ -118,7 +119,8 @@ provider-agnostic type so callers never need to import or catch an SDK-specific 
 
 ## 3. PHI-zone routing
 
-**Code:** `src/maezo/runtime/inference.py` (`PhiZoneRoutingError`, `InferenceProvider.generate`)
+**Code:** `src/maezo/runtime/inference/errors.py` (`PhiZoneRoutingError`),
+`src/maezo/runtime/inference/__init__.py` (`InferenceProvider.generate`)
 
 `InferenceProvider.generate(..., phi: bool = False, ...)` accepts a `phi` flag for requests that
 carry PHI-tagged content. Such a request may **only** be served by a provider explicitly marked
@@ -144,8 +146,8 @@ human/incident path, not that it was silently swallowed to keep a request flowin
 
 ## 4. Credential handling
 
-**Code:** `src/maezo/runtime/inference.py` (`_ANTHROPIC_API_KEY_ENV_VARS`,
-`AnthropicInferenceProvider._resolve_api_key`)
+**Code:** `src/maezo/runtime/inference/settings.py` (`_ANTHROPIC_API_KEY_ENV_VARS`),
+`src/maezo/runtime/inference/providers.py` (`AnthropicInferenceProvider._resolve_api_key`)
 
 ```python
 #: Env vars consulted for the Anthropic API key, in precedence order.
@@ -174,7 +176,8 @@ _ANTHROPIC_API_KEY_ENV_VARS = ("MAEZO_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")
 
 ## 5. Token-usage metering
 
-**Code:** `src/maezo/runtime/inference.py` (module docstring, `_emit_llm_token_usage`)
+**Code:** `src/maezo/runtime/inference/__init__.py` (module docstring),
+`src/maezo/runtime/inference/providers.py` (`_emit_llm_token_usage`)
 
 Every real response reaching `AnthropicInferenceProvider.generate` passes through
 `_emit_llm_token_usage`, which reads the raw Anthropic SDK's `response.usage`

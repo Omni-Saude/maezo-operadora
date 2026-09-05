@@ -36,9 +36,9 @@ services:
     image: postgres:16
     profiles: ["core"]
     environment:
-      POSTGRES_USER: maezo
-      POSTGRES_PASSWORD: maezo
-      POSTGRES_DB: maezo
+      POSTGRES_USER: ${MAEZO_PG_USER:-maezo}
+      POSTGRES_PASSWORD: ${MAEZO_PG_PASSWORD:-maezo}
+      POSTGRES_DB: ${MAEZO_PG_DB:-maezo}
     # Host port override (default 5433): avoids clobbering other local Postgres instances that
     # publish 0.0.0.0:5432 (e.g. intensicare-postgres, a sibling project on this host). Internal
     # container-to-container traffic (cibseven/hapi-fhir DB_URL below) always uses 5432 — unaffected.
@@ -249,7 +249,7 @@ services:
       # the K8s deployment gets this var from the Aurora ExternalSecret
       # (deployment-worker-daemon.yaml), but compose never injected it. Requires the
       # tenant migrations applied to the compose Postgres (alembic -x tenant=amh).
-      DATABASE_URL: postgresql+asyncpg://maezo:maezo@postgres:5432/maezo
+      DATABASE_URL: postgresql+asyncpg://${MAEZO_PG_USER:-maezo}:${MAEZO_PG_PASSWORD:-maezo}@postgres:5432/${MAEZO_PG_DB:-maezo}
       AGENT_RUNTIME_MODE: local
     ports: ["8020:8000"]
     depends_on:
@@ -290,7 +290,7 @@ services:
       # requires DATABASE_URL (fail-closed — /webhook degrades to 501 without it); the
       # Helm chart injects it from the Aurora ExternalSecret (deployment-webhook-
       # receiver.yaml:66-70) but compose never did.
-      DATABASE_URL: postgresql+asyncpg://maezo:maezo@postgres:5432/maezo
+      DATABASE_URL: postgresql+asyncpg://${MAEZO_PG_USER:-maezo}:${MAEZO_PG_PASSWORD:-maezo}@postgres:5432/${MAEZO_PG_DB:-maezo}
       AGENT_RUNTIME_MODE: local
     # Host 8030 (not 8080) — cibseven already claims host 8080:8080 in this same compose file;
     # the container's own port stays 8080 (matches Helm's containerPort, deployment-webhook-
