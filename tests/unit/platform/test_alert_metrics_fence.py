@@ -44,7 +44,10 @@ defect class ALERTS-WITHOUT-METRICS-a exists to close, re-created inside its own
 from __future__ import annotations
 
 import ast
+import json
 import re
+import subprocess
+import sys
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Final
@@ -918,3 +921,130 @@ def test_the_two_agent_counters_share_a_label_set_so_the_ratio_alert_can_aggrega
             "would either fail PromQL's default vector matching (division) or collapse every "
             "agent into one series again (rate)."
         )
+
+
+# =================================================================================================
+# D2 (VERIFY-A1-OBS §Delta) — a invariante "sem acoplamento em tempo de import ao runtime de agentes"
+# =================================================================================================
+
+#: Modulos `maezo.*` que `import maezo.platform.observability` pode carregar. `maezo.platform`
+#: (o `__init__` do pacote) arrasta `erasure`/`retention`, que nao importam nada de `maezo`;
+#: `error_types` e o modulo FOLHA que carrega o vocabulario `AGENT_ERROR_TYPE_*`. Qualquer nome
+#: fora deste conjunto — em particular QUALQUER `maezo.runtime.*` — significa que a invariante
+#: documentada no docstring de `observability.py` foi perdida.
+_OBSERVABILITY_IMPORT_TIME_ALLOWED: Final[frozenset[str]] = frozenset(
+    {
+        "maezo",
+        "maezo.platform",
+        "maezo.platform.erasure",
+        "maezo.platform.error_types",
+        "maezo.platform.observability",
+        "maezo.platform.retention",
+    }
+)
+
+
+def _import_time_footprint(module: str) -> dict[str, Any]:
+    """Import `module` in a FRESH interpreter and report what it dragged into `sys.modules`.
+
+    Subprocess and not `importlib.reload`, because the whole question is what a COLD import costs:
+    inside this test process `langgraph` and half of `maezo.runtime` are already loaded by the
+    other tests in this file, so any in-process measurement is vacuous by construction.
+    """
+    probe = (
+        "import json,sys;"
+        f"__import__({module!r});"
+        "print(json.dumps({"
+        "'maezo': sorted(m for m in sys.modules if m == 'maezo' or m.startswith('maezo.')),"
+        "'langgraph': any(m == 'langgraph' or m.startswith('langgraph.') for m in sys.modules)"
+        "}))"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        cwd=str(_REPO_ROOT),
+    )
+    assert completed.returncode == 0, completed.stderr
+    payload: dict[str, Any] = json.loads(completed.stdout.strip().splitlines()[-1])
+    return payload
+
+
+def test_importing_observability_does_not_pull_the_agent_runtime() -> None:
+    """`import maezo.platform.observability` must not load `maezo.runtime` (nor `langgraph`).
+
+    The invariant this pins is stated in `observability.py`'s own module docstring, and it has
+    already been lost once: moving `AGENT_ERROR_TYPE_*` to a top-level
+    `from maezo.runtime.metrics import ...` took the cold-import footprint from 5 `maezo` modules
+    (no langgraph) to 26 (langgraph loaded), because `maezo.runtime.__init__` imports
+    `harness`/`checkpoint`/`inference`. That is not merely fat: `maezo.runtime.harness` imports
+    `record_agent_error` from THIS module, so the top-level edge closes a real cycle — with it in
+    place, promoting the harness's own lazy import to the top raises
+    `ImportError: partially initialized module`.
+
+    Nothing else in the suite would notice: the import still works, every test still passes, and
+    `maezo.gateway`'s deliberately-lazy `record_tool_call` call quietly starts dragging the whole
+    agent runtime in on the first gated effect. Hence a measured fence rather than a comment.
+    """
+    footprint = _import_time_footprint("maezo.platform.observability")
+
+    assert not footprint["langgraph"], (
+        "importing maezo.platform.observability loaded langgraph — the agent runtime is being "
+        "pulled in at import time again. Loaded maezo modules: " + ", ".join(footprint["maezo"])
+    )
+    unexpected = sorted(set(footprint["maezo"]) - _OBSERVABILITY_IMPORT_TIME_ALLOWED)
+    assert not unexpected, (
+        "importing maezo.platform.observability now also loads: "
+        + ", ".join(unexpected)
+        + ". Either the new import is lazy (inside the function that needs it), or its target is a "
+        "LEAF module and this allowlist is widened in a reviewed edit — never silently."
+    )
+    assert not any(m.startswith("maezo.runtime") for m in footprint["maezo"]), footprint["maezo"]
+
+
+def test_the_error_type_vocabulary_module_imports_nothing_from_maezo() -> None:
+    """`maezo.platform.error_types` only works as the escape hatch while it stays a LEAF.
+
+    Read structurally from the AST, not by importing: a module that imports `maezo.<anything>` can
+    grow a path back into `maezo.runtime` at any depth, and the allowlist above would then be
+    satisfied by a module that is no longer a leaf.
+    """
+    source = (_SRC / "platform" / "error_types.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    maezo_imports: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "maezo":
+            maezo_imports.append(node.module or "")
+        elif isinstance(node, ast.Import):
+            maezo_imports.extend(a.name for a in node.names if a.name.split(".")[0] == "maezo")
+    assert maezo_imports == [], (
+        "maezo/platform/error_types.py imports from maezo: "
+        + ", ".join(maezo_imports)
+        + " — it exists precisely to have zero maezo dependencies (see its docstring)."
+    )
+
+
+def test_runtime_metrics_still_re_exports_the_error_type_vocabulary() -> None:
+    """Moving the vocabulary to a leaf module must not break the call sites that import it here.
+
+    `harness`, the four A2A delegation handlers and the WhatsApp dispatcher all do
+    `from maezo.runtime.metrics import classify_agent_error_type`. The re-export is the
+    compatibility contract; this pins it so a future cleanup of `metrics.py`'s imports cannot
+    silently break six production modules.
+    """
+    from maezo.platform import error_types
+    from maezo.runtime import metrics
+
+    for name in (
+        "AGENT_ERROR_TYPES",
+        "AGENT_ERROR_TYPE_NONE",
+        "AGENT_ERROR_TYPE_OUTRO",
+        "AGENT_ERROR_TYPE_RUNTIME",
+        "AGENT_ERROR_TYPE_TIMEOUT",
+        "AGENT_ERROR_TYPE_UPSTREAM_INDISPONIVEL",
+        "AGENT_ERROR_TYPE_VALIDACAO",
+        "classify_agent_error_type",
+    ):
+        assert getattr(metrics, name) is getattr(error_types, name), name
+        assert name in metrics.__all__, name

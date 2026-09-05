@@ -15,6 +15,27 @@ Design decisions (ADR-0010, ADR-0014):
 - Worker metrics: execution time histogram + error counter with labels
 - Prometheus + Grafana (dev local) / AMP + AMG (staging/prod)
 - SigV4 remote-write in prod via OTel Collector
+
+INVARIANTE — SEM ACOPLAMENTO EM TEMPO DE IMPORT AO RUNTIME DE AGENTES:
+importar este modulo NAO pode arrastar `maezo.runtime` (e portanto `langgraph`) para
+`sys.modules`. Duas razoes, ambas medidas:
+  (a) `maezo.gateway.seams._base` chama `record_tool_call` de forma preguicosa exatamente "para
+      manter o nucleo de politica do gateway livre de acoplamento em tempo de import a pilha de
+      observabilidade" (`_base.py:367`) — um import no topo daqui para `maezo.runtime.*` anularia
+      essa intencao, arrastando harness/checkpoint/inference no primeiro efeito gateado; e
+  (b) `maezo.runtime.harness` importa `record_agent_error` DESTE modulo. Se este modulo importasse
+      `maezo.runtime.*` no topo, o par fecharia um ciclo real
+      (observability -> runtime/__init__ -> harness -> observability), e qualquer futura promocao
+      do import preguicoso do harness para o topo passaria a levantar
+      `ImportError: partially initialized module`.
+Por isso o vocabulario `AGENT_ERROR_TYPE_*`/`AGENT_ERROR_TYPES` e importado no topo de
+`maezo.platform.error_types` — um modulo FOLHA, sem nenhum import de `maezo` — e nao de
+`maezo.runtime.metrics`, que apenas o re-exporta. `MetricsCollector` (que e' do runtime de fato)
+continua importado de forma preguicosa dentro de `_get_metrics_collector()`.
+A cerca que trava a invariante e
+`tests/unit/platform/test_alert_metrics_fence.py::test_importing_observability_does_not_pull_the_agent_runtime`,
+que mede em interpretador NOVO (subprocesso) quantos modulos `maezo.*` e se `langgraph` entram em
+`sys.modules` ao importar `maezo.platform.observability`.
 """
 
 from __future__ import annotations
@@ -32,7 +53,7 @@ from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-from maezo.runtime.metrics import AGENT_ERROR_TYPE_NONE, AGENT_ERROR_TYPE_OUTRO, AGENT_ERROR_TYPES
+from maezo.platform.error_types import AGENT_ERROR_TYPE_NONE, AGENT_ERROR_TYPE_OUTRO, AGENT_ERROR_TYPES
 
 if TYPE_CHECKING:
     from maezo.runtime.metrics import MetricsCollector
@@ -47,7 +68,13 @@ _metrics_collector: MetricsCollector | None = None
 
 
 def _get_metrics_collector() -> MetricsCollector:
-    """Lazy-init the singleton MetricsCollector for worker instrumentation."""
+    """Lazy-init the singleton MetricsCollector for worker instrumentation.
+
+    O import de `maezo.runtime.metrics` e' PREGUICOSO de proposito, e nao por estilo: ele e' o
+    unico import de `maezo.runtime` neste modulo, e promove-lo ao topo quebraria a invariante
+    "sem acoplamento em tempo de import ao runtime de agentes" descrita no docstring do modulo
+    (e fecharia o ciclo observability -> runtime -> harness -> observability).
+    """
     global _metrics_collector
     if _metrics_collector is None:
         from maezo.runtime.metrics import MetricsCollector
