@@ -712,6 +712,8 @@ async def run(settings: AgentRuntimeSettings) -> None:
         security_zone=settings.agent_security_zone,
         health_port=settings.health_port,
         observability=observability.detail,
+        # SC-06 / R-109: declared throughput-ceiling metadata, informational only.
+        transport_fan_in_ceiling=settings.transport_fan_in_ceiling,
     )
     shutdown = asyncio.Event()
     loop = asyncio.get_running_loop()

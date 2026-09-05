@@ -1613,3 +1613,19 @@ criados por esta PR (`tests/unit/deploy/test_aurora_rds_proxy_scaffold.py` prova
 |---|---|---|---|
 | `deploy/terraform/modules/aurora-postgres/` (`enable_rds_proxy` variable + `aws_db_proxy*` scaffold, todos `count = var.enable_rds_proxy ? 1 : 0`) | Ligar `enable_rds_proxy = true` no ambiente do SEGUNDO tenant real (R-026), e so' entao apontar os DSNs da aplicacao (`aurora.endpoint` no Helm / secret) para `module.aurora.rds_proxy_endpoint` em vez do endpoint direto do cluster. Depende de credenciais AWS (`D6-04`/`D13-03`, HUMAN-GATED) para provisionar de fato — esta PR so' prepara o modulo, nao aplica `terraform apply` | dono de infraestrutura/plataforma (`deploy/terraform/**` e' owner-gated por politica do programa) | `ABERTO — scaffold pronto e desligado; ligamento real aguarda D6-04/D13-03 + segundo tenant` |
 | `deploy/helm/maezo-tenant/values.yaml`, secao "SC-05" (bloco de aritmetica) | Confirmar a premissa conservadora (4 pools x max_size 10 = 40 conexoes/processo, pior caso — a maioria dos processos abre um subconjunto, nao os quatro) e revisitar o numero de headroom quando um segundo tenant real for adicionado (a conta hoje e' para N=1..9 tenants hipoteticos, nao um fato medido) | dono de infraestrutura/plataforma | `ABERTO — numero DERIVADO, nao medido; revisitar com trafego real` |
+
+## SC-06 — tetos de vazao declarados (transport/harness fan-in)
+
+`R-109` (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA, opcao A): `deploy/helm/
+maezo-tenant/values.yaml` ganhou `throughputCeilings.transportFanIn`/`.harnessFanIn`, RECONFIRMADOS
+por varredura AST direta contra `src/` (29/19 — nao os 30/32 do relatorio original, que contava
+mencao textual, nao import real; `tests/unit/deploy/test_sc06_throughput_ceilings.py` refaz a
+mesma varredura). Os dois valores sao injetados como env informativo
+(`MAEZO_TRANSPORT_FAN_IN_CEILING`/`MAEZO_HARNESS_FAN_IN_CEILING`) em `deployment-worker-daemon.yaml`
+(os dois) e `deployment-agent-runtime.yaml` (so' transport), lidos por
+`WorkerRuntimeSettings`/`AgentRuntimeSettings` e logados no start-up de cada daemon — nunca usados
+para decisao de runtime.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `docs/audits/maezo-deep-audit/recon/as-built-map.md` secao 3 (fan-in 30/32) | O relatorio original conta MENCAO TEXTUAL ao nome do modulo (grep de string), nao `import` real — esta PR reconfirmou por AST e encontrou 29/19. Decidir se o relatorio de auditoria deve ser corrigido (fora do escopo desta PR: `docs/audits/` e' gerenciado por sessao paralela) | dono do programa de auditoria | `INFO — nao corrigido aqui; docs/audits/ e' editado por sessao paralela, ver nota de higiene em BRIEF-COMMON` |
