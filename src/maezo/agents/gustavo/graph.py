@@ -1,12 +1,19 @@
 """Gustavo Andrade — Operador do Calendario Regulatorio ANS + Instrucao de NIP (Phase 2, T1.12).
 
 Two processes, one agent (mirrors the v1 donor's structure, READ-ONLY reference
-`Maezo-Healthcare-Plan src/maezo/agents/gustavo/graph.py`, adapted to v2's flatter seam set —
-same rationale as `agents/helena/graph.py` / `agents/rafael/graph.py` / `agents/carolina/
-graph.py`'s module docstrings: v2 has no `ToolRegistry`/PEP-gateway wiring for agent tool calls
-yet, so this graph's nodes call the seams already on `main` DIRECTLY: `DmnTransport.evaluate`
-(ADR-0028/T1.5), `InferenceProvider.generate(phi=True)` (ADR-0009/T1.7), and
-`CibSevenTransport`/`start_process_idempotent` (ADR-0001, T1.11)):
+`Maezo-Healthcare-Plan src/maezo/agents/gustavo/graph.py`, adapted to v2's flatter seam set):
+this graph's nodes call the injected seams — `DmnTransport.evaluate` (ADR-0028/T1.5),
+`InferenceProvider.generate(phi=True)` (ADR-0009/T1.7), and `CibSevenTransport`/
+`start_process_idempotent` (ADR-0001, T1.11). CORRECTED (`grep -n '"gustavo"' gateway/
+tool_registry.py`, `_FHIR_ADAPTER_BY_AGENT`): earlier text here said "v2 has no `ToolRegistry`/
+PEP-gateway wiring for agent tool calls yet" — `gateway/tool_registry.py::build_agent_seams` now
+PEP-gates all four of these seam kinds (`build_dmn_seam`/`build_cibseven_seam`/
+`build_inference_seam`/`build_fhir_seam`, each wrapped as `Gated*`), wired into both live
+composition roots (`runtime/agent_runtime/service.py::_build_tool_deps`, `platform/
+webhooks/service.py`). Gustavo's own FHIR seam (J2 only) is one of them (he is in
+`_FHIR_ADAPTER_BY_AGENT`, adapter `read_patient`). What is still undelivered for Gustavo is A2A
+delegation wiring (see LABELED BOUNDARIES below, GUS-01) — a separate gap from the PEP-gateway
+question:
 
     receive -> gather -> assess -> {review_submission | instruct_nip} -> start_process -> finalize
 
@@ -77,12 +84,18 @@ beneficiary-adjacent facts (tema, referencia da negativa) and the conservative p
 in-repo graph is uniform (helena/rafael/carolina/fernando all tag every call).
 
 LABELED BOUNDARIES (this build, disclosed — never fabricated):
-- SP-OP-ANS-SUBMIT-001 HAS NO LIVE TRIGGER TODAY (T2.6 re-scope design, merged —
-  `docs/design/T2.6-ans-submission-rescope.md` §1.5/§5 T2.6-7): `notification_bridge` registers
-  5 handoff rules, NONE targeting ANS-SUBMIT (neither NIP->SUBMIT nor cron->SUBMIT), and nothing
-  in `src/` starts SUBMIT. This graph's J1 assess/route logic is therefore implemented and
-  UNIT-PROVEN here, but no runtime path invokes it yet — wiring the bridge rules is T2.6-7,
-  explicitly out of this charter's scope. Disclosed residual, not fabricated liveness.
+- SP-OP-ANS-SUBMIT-001 IS REACHABLE TODAY, but starting it NEVER invokes Gustavo's graph
+  (T2.6 re-scope design, `docs/design/T2.6-ans-submission-rescope.md` §1.5/§5 T2.6-7).
+  CORRECTED (`grep -c 'self.register_handoff(' platform/notification_bridge.py` = 7, not 5; two
+  target ANS-SUBMIT): `nip.handoff_ans_submit` (NIP->SUBMIT) and `ans.cron_due` (cron->SUBMIT)
+  both call `register_handoff(..., target_process=PROCESS_KEY_ANS_SUBMIT)` — the prior claim
+  that the bridge "registers 5 handoff rules, NONE targeting ANS-SUBMIT" and that "nothing in
+  `src/` starts SUBMIT" is false today. What remains true: the started BPMN's `ST_PrepararDossie`
+  service task lands on `tools/workers/ans_submit.py::notify_regulatorio`, which only logs and
+  publishes an internal Kafka notification (`operadora.notifications.internal`) — it never
+  imports `maezo.a2a` nor calls `agents.gustavo.graph`, so no live path invokes this graph's J1
+  assess/route logic. This graph's J1 remains implemented and UNIT-PROVEN only; wiring an actual
+  Gustavo invocation onto the started process is a separate, still-undone task.
 - `ans_calendar` carries the T1.5 taxonomy hold (T2.6 design §1.4): the DMN keys `report_type`
   on RN-citation literals (`RN_124_SIP`/...) with zero overlap with the runtime scheduler's
   literals, all dates are `DRAFT_*` placeholders, and several RN citations are misattributed
@@ -92,9 +105,15 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   reconciles the taxonomy in Python (that reconciliation is T2.6-3, which also clears the T1.5
   cutover hold).
 - A2A inbound delegation (`nip.instruct`, `spec/agents/gustavo/agent.yaml`'s
-  `accepted_task_types`) is NOT wired: v2's `a2a/` package has no `DelegationEnvelope`/
-  `DelegationDispatcher` yet (same boundary rafael/fernando disclose). This graph is invoked
-  directly with an already-assembled `GustavoState`, not via a live delegation.
+  `accepted_task_types`) is NOT wired. CORRECTED (CC-04, fleet audit) — the prior text here
+  claimed v2's `a2a/` package had no `DelegationEnvelope`/`DelegationDispatcher`; both exist and
+  are fully built/tested (`a2a/delegation.py::DelegationEnvelope`, `a2a/dispatcher.py
+  ::DelegationDispatcher`, exported from `maezo.a2a`), and five agents (rafael/carolina/andre/
+  fernando/helena) already have a real `delegation.py` using them. What is missing for Gustavo
+  specifically is his own handler/registration/origin: there is no `src/maezo/agents/gustavo/
+  delegation.py` and `grep -n '"gustavo"' runtime/agent_runtime/a2a_composition.py` = 0 hits —
+  handler/registro/origem ausentes, ver GUS-01 do fleet audit. This graph is invoked directly
+  with an already-assembled `GustavoState`, not via a live delegation.
 - No episodic memory write (ADR-0002): the donor's `finalize` writes `mcp-memory.read_write`;
   v2's `MemoryServer.store_episodic` still refuses fail-closed — the table exists
   (`agent_memory`, migration `0001`), the tool's `(agent_id, event)` signature does not carry

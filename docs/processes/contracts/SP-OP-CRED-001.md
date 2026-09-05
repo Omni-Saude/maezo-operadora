@@ -85,6 +85,26 @@ Variante por pedido (quando ha multiplos ciclos de credenciamento/descredenciame
 | `decisao_coordenacao` | string | `assumir_analise` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA — humano `coordenacao-rede`) |
 | `encaminhar_fraude` | boolean | Preenchida por `UT_AnaliseDescredenciamento`: encaminhar a SP-OP-FRAUDE-001 (indicio nunca auto-flagueia) |
 
+## Variaveis de proveniencia do agente (Carolina — ADR-0007/ADR-0015)
+
+Convencao repo-wide de nao-repudio (ADR-0007) e delegacao A2A (ADR-0015) — nao especifica de CRED
+(mirror `source_agent_id`/`source_agent_version` de
+`docs/processes/contracts/SP-OP-ESCALATION-001.md`). Semeadas por `CarolinaGraph._contract_variables`
+(`src/maezo/agents/carolina/graph.py`) junto com as variaveis de entrada; NENHUMA delas e uma
+negativa de credenciamento nem um descredenciamento — so proveniencia, dossie instrutivo e
+roteamento humano (CC-13 — Agent Fleet Audit: antes deste registro, `_contract_variables` as
+emitia sem declaracao no contrato).
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `source_agent_id` | string | nao | Agente que preparou o dossie de credenciamento/rede (`carolina`) — cadeia de nao-repudio (ADR-0007) |
+| `source_agent_version` | string | nao | Versao do agente Carolina que preparou o dossie (auditoria ADR-0007) |
+| `dossie_carolina` | json | nao | Dossie factual de credenciamento/descredenciamento montado por Carolina — instrui `UT_AnaliseCredenciamento`/`UT_AnaliseDescredenciamento`; carrega `decisao_cred` sempre `None` (Carolina NUNCA decide) |
+| `carolina_route` | string | nao | Roteamento do grafo do Carolina (`auto_route` \| `human_review`) — espelha, nao decide, o roteamento do processo |
+| `motivo_encaminhamento` | string | nao | Presente so quando `carolina_route=human_review`; motivo do encaminhamento (`analise_credenciamento` \| `analise_descredenciamento` \| `documentacao_pendente` \| `dmn_indisponivel` \| `outro`) |
+| `grupo_destino` | string | nao | Presente so quando `carolina_route=human_review`; grupo humano sugerido por Carolina (`gestao-rede` para credenciamento, `juridico-rede` para descredenciamento) |
+| `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra) das DMN que Carolina consultou (`cred_admissibility`/`cred_route`/`cred_prior_notice`/`cred_sla`) — cadeia de decisao (ADR-0007/ADR-0012) |
+
 ## Topicos
 
 Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_registry.yaml` — **W0.2/orquestrador e o unico editor**; este contrato so declara o que precisa ser registrado — ver §"Registro de topicos exigido"). Contexto = `cred`.

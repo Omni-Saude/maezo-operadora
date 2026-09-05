@@ -75,11 +75,19 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   on at all.
 - Free-text WhatsApp message content is NOT scanned for embedded PHI patterns (e.g. a
   beneficiary typing their own CPF into the message) before reaching the LLM — mitigated by the
-  mandatory `phi=True` routing (content never reaches a general-zone cloud provider), but a
-  dedicated free-text scrubber does not exist in v2 yet; this is a follow-up, not built here.
-- No multi-turn conversation checkpointing across separate webhook deliveries: each inbound
-  WhatsApp message runs this graph as ONE complete turn (receive..respond) with no LangGraph
-  checkpointer attached. Cross-turn memory is a follow-up (ADR-0002's episodic/semantic layers).
+  mandatory `phi=True` routing (content never reaches a general-zone cloud provider). What DOES
+  exist since CC-06/HEL-05 is the EGRESS scrub: `_start_escalation` runs
+  `phi_vars.redact_free_text` over the `resumo_contexto` it produces (and
+  `redact_error_message` over the `[falha tecnica: ...]` suffix), and the shared start chokepoint
+  `start_process_idempotent` runs the same net over every process-start variable. That is an
+  identifier net (CPF/CNPJ/e-mail/BR phone/long digit runs), NOT a PHI classifier: clinical
+  content in prose is still carried, in-zone, by design.
+- No multi-turn conversation checkpointing WITHIN this module: this graph is compiled here
+  without a checkpointer. The LIVE webhook path is NOT stateless, though:
+  `platform/webhooks/whatsapp/dispatch.py::HelenaDispatcher.dispatch` compiles it WITH a durable
+  LangGraph checkpointer (T4b, `runtime.checkpoint.Checkpointer`) and invokes it under a PHI-safe
+  per-conversation thread config, so cross-turn state does persist in production. The remaining
+  follow-up is ADR-0002's episodic/semantic memory layers, not the checkpointer.
 """
 
 from __future__ import annotations
@@ -106,6 +114,7 @@ from maezo.tools.workers.dmn_transport import (
     DmnTransport,
     first_row,
 )
+from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
 from .prompts import (
     ALLOWED_SINTOMA_CODIGOS,
@@ -681,13 +690,25 @@ class HelenaGraph:
         """
         business_key = _business_key(state)
 
-        resumo = await self._resumo_contexto(state, motivo)
+        # HEL-05 — DEFENSE IN DEPTH, on top of the chokepoint's own scrub. `_resumo_contexto` is
+        # a free-text LLM draft over the beneficiary's own message, and Helena is the DIRECT
+        # producer of the contractual `resumo_contexto` (SP-OP-ESCALATION-001 §Variaveis:
+        # "pseudonimizado"), so the identifier net is applied HERE, at the producer, and again at
+        # `start_process_idempotent` (CC-06). Scrubbing twice is idempotent: `redact_free_text`
+        # replaces identifier substrings with class tokens, and the class tokens match no pattern.
+        resumo = redact_free_text(await self._resumo_contexto(state, motivo))
         if motivo == "falha_tecnica" and state.get("error"):
             # R1 cycle-1 fix: carry the technical-failure reason into the human handoff so the
             # attendant sees WHY the automated turn failed. The reason is bounded and contains
             # no raw LLM output / no beneficiary text (see `_classify_llm`) — everything else in
             # this variable set is already pseudonymized (ADR-0006).
-            resumo = f"{resumo} [falha tecnica: {str(state['error'])[:300]}]"
+            #
+            # HEL-05: `str(...)[:300]` was a LENGTH bound, never a CONTENT one. `error` is not
+            # always the bounded classifier token this comment describes — `escalate`'s own
+            # `CibSevenError` handler writes `f"start_process indisponivel: {exc}"` into it, and a
+            # transport exception message is arbitrary text from another system. `redact_error_message`
+            # (which delegates to the same `redact_free_text` net) bounds BOTH.
+            resumo = f"{resumo} [falha tecnica: {redact_error_message(state['error'])}]"
         variables: dict[str, Any] = {
             "tenant_id": state.get("tenant_id", ""),
             "source_agent_id": "helena",
@@ -732,7 +753,10 @@ class HelenaGraph:
                 "escalation_motivo": motivo,
                 "escalation_severidade": severidade,
                 "escalation_business_key": business_key,
-                "error": f"start_process indisponivel: {exc}",
+                # HEL-05 (feeder): a transport exception message is arbitrary text from another
+                # system, and this `error` survives into the NEXT turn's `[falha tecnica: ...]`
+                # suffix under the live checkpointed dispatch (T4b).
+                "error": f"start_process indisponivel: {redact_error_message(exc)}",
                 "response_text": response_text,
                 "response_kind": response_kind,
             }
@@ -759,7 +783,8 @@ class HelenaGraph:
         try:
             await self._whatsapp.send(_to_hash_from_state(state), text)
         except Exception as exc:  # noqa: BLE001 — surfaced via `error`, never swallowed silently.
-            return {"error": f"whatsapp send failed: {exc}"}
+            # HEL-05 (feeder): same chain as the two above — `error` reaches `resumo_contexto`.
+            return {"error": f"whatsapp send failed: {redact_error_message(exc)}"}
         return {}
 
     # -- Conditional routing ----------------------------------------------------------------
@@ -808,7 +833,13 @@ class HelenaGraph:
             rows, version = await self._dmn.evaluate(table, dmn_input)
             row = first_row(rows, table, dmn_input)
         except (DmnEvaluationError, DmnNoResultError) as exc:
-            return {"dmn_table": table, "dmn_decision": {}, "error": f"DMN `{table}` indisponivel: {exc}"}
+            # HEL-05 (feeder): the DMN-down path routes to escalate `falha_tecnica` in THIS turn,
+            # so this message reaches `resumo_contexto` directly (`table` is a class token).
+            return {
+                "dmn_table": table,
+                "dmn_decision": {},
+                "error": f"DMN `{table}` indisponivel: {redact_error_message(exc)}",
+            }
 
         # Provenance reference: `{table}#{decision-definition id}` — the engine's evaluate
         # response does not return which RULE fired (no `ruleId` in the Camunda 7 REST evaluate
@@ -845,7 +876,14 @@ class HelenaGraph:
                 prompt, phi=True, agent_id="helena", tenant_id=state.get("tenant_id", "")
             )
         except Exception as exc:  # noqa: BLE001 — classified into a failure reason, never swallowed.
-            return None, f"classify LLM call failed: {type(exc).__name__}: {str(exc)[:200]}"
+            # HEL-05 (feeder): `str(exc)[:200]` was a LENGTH bound, never a CONTENT one, and this
+            # string becomes `state["error"]` (`classify`) which `_start_escalation` appends to
+            # `resumo_contexto` as `[falha tecnica: ...]` — i.e. straight into engine process
+            # variables, IN THE SAME TURN. The exception comes from the inference provider, whose
+            # message may echo the request (which carries the beneficiary's own message body and
+            # any identifier typed into it). `redact_error_message` bounds BOTH, and keeps the
+            # `{ClassName}: ` prefix this f-string used to build by hand.
+            return None, f"classify LLM call failed: {redact_error_message(exc)}"
         data = _parse_json_object(raw)
         if data is None:
             return None, "classify LLM returned unparseable JSON"

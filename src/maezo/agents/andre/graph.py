@@ -149,14 +149,27 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   fabricating them.
 - `gather`'s FHIR read is a thin `PatientSummaryReader` Protocol over v2's generic `FhirServer`
   (`agents.rafael.adapters.FhirServerReader.read_patient`, injected by the runtime) — NOT the
-  donor's `ToolInvoker`/PEP `mcp-fhir.read_patient` gateway call (no PEP/ToolRegistry wiring for
-  agent tool calls yet, T2.4 gap). Best-effort, `pagto_dossier` only (per the agent.yaml tool
+  donor's `ToolInvoker`/PEP `mcp-fhir.read_patient` gateway call shape. CORRECTED (`grep -n
+  '"andre"' gateway/tool_registry.py`, `_FHIR_ADAPTER_BY_AGENT`): this reader IS wired through a
+  PEP-gated ToolRegistry now — `gateway/tool_registry.py::build_agent_seams` wraps it in
+  `gateway/seams/fhir.py::GatedFhirReader` (Andre is one of the five agents in
+  `_FHIR_ADAPTER_BY_AGENT`, adapter `read_patient`), and both live composition roots
+  (`runtime/agent_runtime/service.py::_build_tool_deps`, `platform/webhooks/service.py`) build
+  Andre's `fhir` dependency through it — the prior "no PEP/ToolRegistry wiring for agent tool
+  calls yet" claim is false today. Best-effort, `pagto_dossier` only (per the agent.yaml tool
   note), and the RAW summary never enters state/dossier (egress chokepoint) — a failure/absence
   degrades to a class-token gap note, never a fabricated fact.
-- No cross-agent A2A delegation envelope is wired in this build: v2's `a2a/` package has no
-  `DelegationEnvelope`/`DelegationDispatcher` yet (same gap disclosed by rafael/helena's
-  graphs). Andre's graph is invoked directly with an already-assembled case state (as the unit
-  tests do).
+- Cross-agent A2A delegation IS wired for Andre in this build. CORRECTED (CC-04, fleet audit) —
+  the prior text here claimed v2's `a2a/` package had no `DelegationEnvelope`/
+  `DelegationDispatcher`; both exist and are fully built/tested (`a2a/delegation.py
+  ::DelegationEnvelope`, `a2a/dispatcher.py::DelegationDispatcher`, exported from `maezo.a2a`).
+  Andre has his own `agents/andre/delegation.py` (`make_andre_handler` TARGET side +
+  `delegate_adequacao_dossier`/`delegate_pagto_dossier` ORIGIN side, called from
+  `tools/workers/adequacao.py`/`pagto.py`) and is registered in the dossier composition root
+  (`runtime/agent_runtime/a2a_composition.py::_DOSSIER_EDGE_AGENT_IDS = ("carolina", "andre")`,
+  `handlers={"carolina": carolina_handler, "andre": andre_handler}`) — a real, live edge, not a
+  disclosed gap. Andre's graph is ALSO invoked directly with an already-assembled case state in
+  the unit tests (both paths exist).
 - No episodic memory write (divergence #5 above).
 """
 
