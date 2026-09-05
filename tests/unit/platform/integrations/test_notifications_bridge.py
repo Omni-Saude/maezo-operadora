@@ -22,14 +22,18 @@ from maezo.platform.integrations.notifications_bridge import (
     REASON_INVALID_JSON,
     REASON_MISSING_TYPE,
     REASON_NOT_A_JSON_OBJECT,
+    SLA_ALERT_CANDIDATE_GROUP,
+    SLA_ALERT_NOTIFICATION_TYPES,
     BridgeDlqShunt,
     BridgeMessage,
     FakeBridgeKafkaConsumer,
+    HumanTaskRouted,
     MalformedBridgeMessageError,
     NotificationsBridgeSettings,
     _deserialize_json_value,
     build_bridge,
     handle_bridge_message,
+    route_sla_alert_to_human_task,
     run_consumer_loop,
 )
 from maezo.platform.notification_bridge import NotificationBridge, NotificationBridgeHandoffFailedError
@@ -123,6 +127,110 @@ async def test_handle_bridge_message_propagates_genuine_handoff_failure() -> Non
     bridge = NotificationBridge(cibseven_starter=spy)
     with pytest.raises(NotificationBridgeHandoffFailedError):
         await handle_bridge_message(bridge, dict(_INTAKE_RECURSO_MESSAGE))
+
+
+# ---------------------------------------------------------------------------
+# SLA-risk alert -> human task routing (R-104, WP-ALERTA-SLA-CANAL)
+# ---------------------------------------------------------------------------
+
+
+def test_sla_alert_notification_types_are_the_three_known_publishers() -> None:
+    """Documents the allowlist so a future edit to it is a REVIEWED diff, not a silent drift."""
+    expected = {"lgpd.notify_sla_risk", "recurso.notify_sla_risk", "programa.notify_sla_risk"}
+    assert expected == SLA_ALERT_NOTIFICATION_TYPES
+
+
+def test_a_known_sla_alert_type_produces_a_human_task_with_the_candidate_group() -> None:
+    routed = route_sla_alert_to_human_task(
+        "recurso.notify_sla_risk", {"tenant_id": "amh", "glosa_id": "GLOSA-1"}
+    )
+
+    assert routed == HumanTaskRouted(
+        event_type="recurso.notify_sla_risk",
+        candidate_group=SLA_ALERT_CANDIDATE_GROUP,
+        tenant_id="amh",
+        recognised=True,
+    )
+
+
+@pytest.mark.parametrize("sla_type", sorted(SLA_ALERT_NOTIFICATION_TYPES))
+def test_every_known_sla_alert_type_routes_to_a_human_task(sla_type: str) -> None:
+    routed = route_sla_alert_to_human_task(sla_type, {"tenant_id": "amh"})
+
+    assert routed is not None
+    assert routed.recognised is True
+    assert routed.candidate_group == SLA_ALERT_CANDIDATE_GROUP
+
+
+def test_a_non_sla_type_is_untouched() -> None:
+    """A `type` unrelated to SLA-risk alerts (an ordinary process-start rule) is not routed —
+    `route_sla_alert_to_human_task` returns `None`, so `handle_bridge_message`'s existing
+    `on_event` dispatch is the ONLY thing that runs for it (byte-identical to before this rule
+    existed)."""
+    assert route_sla_alert_to_human_task("contas.start_fraude", {"tenant_id": "amh"}) is None
+    assert route_sla_alert_to_human_task("ans.cron_due", {"tenant_id": "amh"}) is None
+    assert route_sla_alert_to_human_task("some.unregistered.event", {}) is None
+
+
+@pytest.mark.asyncio
+async def test_handle_bridge_message_leaves_on_event_dispatch_unchanged_for_a_non_sla_type() -> None:
+    """Wiring `route_sla_alert_to_human_task` into `handle_bridge_message` must not change the
+    outcome for a message `on_event` already handles — the starter is called the same way, with
+    the same variables, as before this rule existed."""
+    bridge, spy = _bridge_with_spy()
+    results = await handle_bridge_message(bridge, dict(_INTAKE_RECURSO_MESSAGE))
+
+    assert len(results) == 1
+    assert results[0].handoff_triggered is True
+    assert results[0].target_process == "SP-OP-RECURSO-001"
+    assert spy.calls[0][1]["business_key"] == "RECURSO-amh-GUIA-1-GLOSA-1"
+
+
+@pytest.mark.asyncio
+async def test_handle_bridge_message_routes_an_sla_alert_and_still_evaluates_on_event() -> None:
+    """An SLA-alert message is BOTH routed to a human task AND still dispatched through
+    `on_event` — no existing rule matches an SLA-alert `type`, so this is the same harmless
+    'no rule matched' outcome `test_handle_bridge_message_no_matching_rule_is_not_an_error`
+    proves, now alongside the new human-task routing side effect."""
+    bridge, spy = _bridge_with_spy()
+    results = await handle_bridge_message(bridge, {"type": "recurso.notify_sla_risk", "tenant_id": "amh"})
+
+    assert len(results) == 1
+    assert results[0].handoff_triggered is False
+    assert len(spy.calls) == 0
+
+
+def test_an_unrecognised_sla_shaped_type_fails_closed_instead_of_dropping_silently() -> None:
+    """A `type` that matches every known SLA-risk alert's `<domain>.notify_sla_risk` NAMING SHAPE,
+    but whose domain is not (yet) in the allowlist, is NOT silently ignored — it is still routed
+    (to the same generic queue) and marked `recognised=False`, so a caller can log/count the gap
+    instead of it vanishing as an ordinary unmatched event."""
+    routed = route_sla_alert_to_human_task("credenciamento.notify_sla_risk", {"tenant_id": "amh"})
+
+    assert routed == HumanTaskRouted(
+        event_type="credenciamento.notify_sla_risk",
+        candidate_group=SLA_ALERT_CANDIDATE_GROUP,
+        tenant_id="amh",
+        recognised=False,
+    )
+
+
+def test_sla_alert_routing_never_raises_even_when_the_metrics_registry_is_broken(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Telemetry must never be able to fail the routing decision (same posture as
+    `BridgeDlqShunt._record_metric`)."""
+    import maezo.platform.observability as observability_module
+
+    def _boom(**_kwargs: object) -> None:
+        raise RuntimeError("registry exploded")
+
+    monkeypatch.setattr(observability_module, "record_sla_alert_human_task", _boom)
+
+    routed = route_sla_alert_to_human_task("recurso.notify_sla_risk", {"tenant_id": "amh"})
+
+    assert routed is not None
+    assert routed.recognised is True
 
 
 # ---------------------------------------------------------------------------

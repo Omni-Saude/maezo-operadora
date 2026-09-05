@@ -643,6 +643,30 @@ def record_bridge_dlq(*, topic: str, reason: str) -> None:
     collector.bridge_dlq.labels(topic=topic, reason=reason).inc()
 
 
+def record_sla_alert_human_task(*, candidate_group: str, outcome: str) -> None:
+    """Record ONE SLA-risk alert `type` routed to a human task (R-104/WP-ALERTA-SLA-CANAL).
+
+    Called by `maezo.platform.integrations.notifications_bridge.route_sla_alert_to_human_task` —
+    the single place a `type`-tagged message on `operadora.notifications.internal` is recognised
+    as an SLA-risk alert. Increments `maezo_sla_alert_human_task_total{candidate_group,outcome}`.
+
+    `candidate_group` MUST be a `camunda:candidateGroups` value already used somewhere in the
+    repo's taxonomy (never a newly-invented literal — see the PROPOSTO comment on
+    `notifications_bridge.SLA_ALERT_CANDIDATE_GROUP`). `outcome` MUST be one of "routed" (the
+    `type` matched the known SLA-alert allowlist) or "unrecognised_shape" (fail-closed: the `type`
+    has the `<domain>.notify_sla_risk` SHAPE every known SLA-alert producer uses, but the domain
+    is not yet in the allowlist — logged and counted rather than silently falling through as an
+    ordinary unmatched event). Both are closed vocabularies — same rule `record_bridge_dlq`
+    documents above — never a tenant id, business key, or any payload byte.
+
+    This is the raw typed helper. The caller wraps it in a defensive guard (telemetry must never
+    fail — or silently alter — the routing decision) — see
+    `notifications_bridge._record_sla_alert_metric`.
+    """
+    collector = _get_metrics_collector()
+    collector.sla_alert_human_task.labels(candidate_group=candidate_group, outcome=outcome).inc()
+
+
 def record_llm_token_usage(
     *,
     provider: str,

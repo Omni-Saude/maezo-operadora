@@ -48,6 +48,30 @@ def test_metrics_counter_increment() -> None:
     assert errors_total == 1.0
 
 
+def test_sla_alert_human_task_counter_increments_by_candidate_group_and_outcome() -> None:
+    """R-104/WP-ALERTA-SLA-CANAL: the counter `notifications_bridge.route_sla_alert_to_human_task`
+    increments, labelled by candidate_group and outcome."""
+    from maezo.runtime.metrics import MetricsCollector
+
+    collector = MetricsCollector()
+
+    collector.sla_alert_human_task.labels(candidate_group="atendimento-humano", outcome="routed").inc()
+    collector.sla_alert_human_task.labels(candidate_group="atendimento-humano", outcome="routed").inc()
+    collector.sla_alert_human_task.labels(
+        candidate_group="atendimento-humano", outcome="unrecognised_shape"
+    ).inc()
+
+    samples = {
+        (sample.labels.get("outcome"), sample.labels.get("candidate_group")): sample.value
+        for metric in collector.registry.collect()
+        for sample in metric.samples
+        if sample.name == "maezo_sla_alert_human_task_total"
+    }
+
+    assert samples[("routed", "atendimento-humano")] == 2.0
+    assert samples[("unrecognised_shape", "atendimento-humano")] == 1.0
+
+
 def test_metrics_latency_histogram() -> None:
     """Histogram should accept observation values."""
     from maezo.runtime.metrics import MetricsCollector
