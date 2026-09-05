@@ -748,7 +748,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-09-05",
-        pr="#338",
+        pr="#345",
         name="numero_guia_tiss",
         name_delta=0,
         occurrence_delta=1,
@@ -767,7 +767,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-09-05",
-        pr="#338",
+        pr="#345",
         name="fonte_valor",
         name_delta=0,
         occurrence_delta=1,
@@ -784,7 +784,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-09-05",
-        pr="#338",
+        pr="#345",
         name="lastro_origem",
         name_delta=0,
         occurrence_delta=1,
@@ -800,7 +800,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-09-05",
-        pr="#338",
+        pr="#345",
         name="lastro_decisor_id",
         name_delta=1,
         occurrence_delta=1,
@@ -810,7 +810,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "never a literal), so it is not a `camunda:inputParameter` value anywhere in "
             "spec/processes/ — this is the ONE genuinely NEW name the fix adds to the corpus, via "
             "the one occurrence it now has in PAGTO's `VARIAVEIS DE ENTRADA` roll "
-            "(`SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:75`), mirroring the row already present in "
+            "(`SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:76`), mirroring the row already present in "
             "the contract table (`docs/processes/contracts/SP-OP-PAGTO-001.md`). Evidence field "
             "(the analyst/auditor who adjudicated the account or the appeal, ADR-0007 — empty "
             "string on the automatic leg, never invented); provider-side/internal-audit "
@@ -820,7 +820,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-09-05",
-        pr="#338",
+        pr="#345",
         name="glosa_id",
         name_delta=0,
         occurrence_delta=1,

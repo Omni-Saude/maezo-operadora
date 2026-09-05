@@ -30,20 +30,20 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from maezo.tools.workers.contas import HANDOFF_PAGTO_FORBIDDEN_KEYS as CONTAS_FORBIDDEN_KEYS
 from maezo.tools.workers.contas import HANDOFF_PAGTO_SEEDED_KEYS as CONTAS_HANDOFF_KEYS
+from maezo.tools.workers.recurso import HANDOFF_PAGTO_FORBIDDEN_KEYS as RECURSO_FORBIDDEN_KEYS
 from maezo.tools.workers.recurso import HANDOFF_PAGTO_SEEDED_KEYS as RECURSO_HANDOFF_KEYS
 
 _REPO = Path(__file__).resolve().parents[3]
 _CONTRATO_PAGTO = _REPO / "docs/processes/contracts/SP-OP-PAGTO-001.md"
+_BPMN_PAGTO = _REPO / "spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn"
 
-#: Variaveis que I-PAGTO-1 (ADR-0040) PROIBE qualquer processo de origem semear — sao FATOS que
-#: so PAGTO resolve (`operadora.pagto.validate_payment_data` / `UT_AnaliseAdmissibilidade`), nunca
-#: evidencia herdada. Ja testado NEGATIVAMENTE do lado produtor
-#: (`test_handoff_pagamento_recusa_...`/`HANDOFF_PAGTO_FORBIDDEN_KEYS` em contas.py/recurso.py);
-#: repetido aqui so como sanity de que o parser nao os confunde com variaveis "vindas de origem".
-_QUATRO_PROIBIDAS = frozenset(
-    {"lastro_confirmado", "dados_pagamento_validos", "duplicidade_suspeita", "dentro_teto_l2"}
-)
+#: Uniao das duas chaves semeadas (CONTAS tem 15, RECURSO tem as mesmas 15 + `glosa_id`) —
+#: usada pelos testes de "prosa" abaixo (F6), que checam os DOIS sites narrativos (o bloco de
+#: `<bpmn:documentation>` de nivel de processo e o texto do contrato) em vez de so a tabela/roll
+#: ja cobertos acima.
+_TODAS_AS_CHAVES_SEMEADAS = CONTAS_HANDOFF_KEYS | RECURSO_HANDOFF_KEYS
 
 
 def _variaveis_declaradas_no_contrato_pagto() -> frozenset[str]:
@@ -110,6 +110,55 @@ def test_as_quatro_proibidas_nao_sao_confundidas_com_semeadas_por_origem() -> No
     """Sanity cruzada com I-PAGTO-1: as quatro booleans que PAGTO resolve sozinho NUNCA estao nos
     conjuntos semeados pelos handoffs (isso ja e testado NEGATIVAMENTE do lado produtor; aqui so
     confirmamos que o fence acima nao passaria "por acidente" caso essa invariante quebrasse).
+    `HANDOFF_PAGTO_FORBIDDEN_KEYS` e IMPORTADO de cada modulo produtor (nunca copiado a mao aqui):
+    uma chave nova adicionada la que colida com o que o mesmo modulo semeia derruba este teste.
     """
-    assert not (CONTAS_HANDOFF_KEYS & _QUATRO_PROIBIDAS)
-    assert not (RECURSO_HANDOFF_KEYS & _QUATRO_PROIBIDAS)
+    assert not (CONTAS_HANDOFF_KEYS & CONTAS_FORBIDDEN_KEYS)
+    assert not (RECURSO_HANDOFF_KEYS & RECURSO_FORBIDDEN_KEYS)
+
+
+def _bloco_documentacao_processo_bpmn() -> str:
+    """Texto do UNICO `<bpmn:documentation>` de nivel de processo do BPMN de PAGTO — o primeiro,
+    envolto em `CDATA`, logo apos a abertura de `<bpmn:process>` e antes de qualquer elemento de
+    fluxo. Tree-derived: le o arquivo real; os demais `<bpmn:documentation>` do arquivo (por
+    tarefa, sem CDATA) nao entram por construcao do regex.
+    """
+    texto = _BPMN_PAGTO.read_text(encoding="utf-8")
+    m = re.search(
+        r"<bpmn:process\b.*?<bpmn:documentation><!\[CDATA\[(.*?)\]\]></bpmn:documentation>",
+        texto,
+        re.DOTALL,
+    )
+    assert m, "bloco de documentacao de nivel de processo nao encontrado no BPMN de PAGTO"
+    return m.group(1)
+
+
+def test_o_bloco_de_documentacao_do_bpmn_nomeia_toda_chave_semeada() -> None:
+    """F6: os dois sites de PROSA do BPMN (o paragrafo `GATILHO REGULATORIO`, que nomeia
+    `operadora.contas.handoff_pagamento`, e o paragrafo `BUSINESS KEY`, que nomeia a terceira
+    forma via `operadora.recurso.handoff_pagamento`) nao tinham fence nenhum antes deste teste —
+    so o roll `VARIAVEIS DE ENTRADA` (dentro do MESMO bloco) era coberto, pela cerca do corpus PHI
+    em `test_validation_phi_completeness.py`. Remover qualquer nome semeado do bloco inteiro
+    (prosa OU roll) derruba este teste.
+    """
+    bloco = _bloco_documentacao_processo_bpmn()
+    faltando = sorted(nome for nome in _TODAS_AS_CHAVES_SEMEADAS if nome not in bloco)
+    assert not faltando, (
+        f"bloco de documentacao de nivel de processo do BPMN de PAGTO nao nomeia {faltando}, que "
+        "os handoffs de CONTAS-001/RECURSO-001 semeiam de fato (gap PERSP-PAGTO-STALE-CONTAS-ASSUMPTION)."
+    )
+
+
+def test_o_texto_do_contrato_nomeia_toda_chave_semeada() -> None:
+    """Espelho do teste acima para o segundo site de prosa (F6): o contrato de PAGTO
+    (`docs/processes/contracts/SP-OP-PAGTO-001.md`) tem de continuar nomeando toda chave que os
+    dois handoffs semeiam — tanto na tabela "Variaveis de entrada" (ja parseada estruturalmente
+    acima) quanto na prosa (`Gatilho regulatorio`, `Business key`). Le o arquivo INTEIRO, entao
+    cobre os dois.
+    """
+    texto = _CONTRATO_PAGTO.read_text(encoding="utf-8")
+    faltando = sorted(nome for nome in _TODAS_AS_CHAVES_SEMEADAS if nome not in texto)
+    assert not faltando, (
+        f"contrato de PAGTO nao nomeia {faltando} em lugar nenhum do texto, que os handoffs de "
+        "CONTAS-001/RECURSO-001 semeiam de fato (gap PERSP-PAGTO-STALE-CONTAS-ASSUMPTION)."
+    )
