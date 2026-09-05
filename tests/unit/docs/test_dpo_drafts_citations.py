@@ -32,6 +32,7 @@ Same shape as `tests/unit/docs/test_contract_bpmn_dmn_citations.py` and
 from __future__ import annotations
 
 import re
+import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -256,20 +257,58 @@ def test_every_symbol_citation_resolves_in_the_file_it_names() -> None:
 _HUNK_HEADER_RE = re.compile(r"^@@ -(\d+),(\d+) \+(\d+),(\d+) @@")
 
 
+_DIFF_BLOCK_RE = re.compile(r"^```diff\n(.*?)^```", re.MULTILINE | re.DOTALL)
+
+
+def _diff_blocks_verbatim(text: str) -> list[str]:
+    """The ```diff blocks EXACTLY as the document prints them — nothing added, nothing stripped.
+
+    §Delta Δ1 is why this returns raw text and not parsed lines: the second block used to lack its
+    `--- a/… / +++ b/…` header, and the earlier parser tolerated that (it only skipped header lines
+    when present). A reader who copies the block out of the doc and runs `git apply` gets
+    "patch fragment without header at line 1" — so the fence must consume exactly what the reader
+    copies, with no reconstruction of any kind."""
+    return _DIFF_BLOCK_RE.findall(text)
+
+
 def _diff_blocks(text: str) -> list[list[str]]:
-    blocks: list[list[str]] = []
-    current: list[str] | None = None
-    for line in text.splitlines():
-        if line.strip() == "```diff":
-            current = []
-            continue
-        if current is not None and line.strip() == "```":
-            blocks.append(current)
-            current = None
-            continue
-        if current is not None:
-            current.append(line)
-    return blocks
+    return [block.splitlines() for block in _diff_blocks_verbatim(text)]
+
+
+def test_each_candidate_diff_block_applies_verbatim_as_printed(tmp_path: Path) -> None:
+    """§Delta Δ1 — hands each block, byte-for-byte as printed, to the real `git apply --check`.
+
+    Every block individually AND both together must apply, because the document tells the
+    encarregado to copy the block out and apply it. A block missing its file header, or with a
+    hunk header that drifted off the file, fails here exactly as it would in their hands."""
+    blocks = _diff_blocks_verbatim(_draft_text("PHI-BUSINESS-KEY-REMEDIATION-FIELDS-DRAFT.md"))
+    assert len(blocks) == 2, f"expected the 4-field block + the `modo` companion, found {len(blocks)}"
+
+    header = f"--- a/{_POLICY_YAML}\n+++ b/{_POLICY_YAML}\n"
+    for index, block in enumerate(blocks, start=1):
+        assert block.startswith(header), (
+            f"```diff block {index} does not open with its own `--- a/…` / `+++ b/…` header — "
+            "`git apply` refuses it with 'patch fragment without header at line 1'. Copy-pasting "
+            "the block out of the document must be enough (§Delta Δ1)"
+        )
+
+    candidates = {"bloco 1": blocks[0], "bloco 2": blocks[1], "bloco 1+2": blocks[0] + blocks[1]}
+    failures: dict[str, str] = {}
+    for label, patch_text in candidates.items():
+        patch_file = tmp_path / f"{label.replace(' ', '_').replace('+', 'e')}.patch"
+        patch_file.write_text(patch_text, encoding="utf-8")
+        completed = subprocess.run(
+            ["git", "apply", "--check", str(patch_file)],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            failures[label] = (completed.stderr or completed.stdout).strip()
+    assert not failures, (
+        f"the candidate diff the draft advertises as appliable does NOT apply as printed: {failures}"
+    )
 
 
 def test_the_candidate_diff_hunks_still_apply_to_the_real_policy_file() -> None:

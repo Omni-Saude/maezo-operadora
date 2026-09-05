@@ -93,6 +93,8 @@ precisa ser escolhido conscientemente, não por esquecimento.
 Recomendação (decisão aprovada do dono, **R-009**): manter `scrub_only`, **não** `pseudo_keys`.
 
 ```diff
+--- a/spec/policies/privacy/phi-business-key-remediation.yaml
++++ b/spec/policies/privacy/phi-business-key-remediation.yaml
 @@ -109,7 +109,7 @@ status: DRAFT
  # `on`/`yes`/`no`). O carregador trata esse caso explicitamente, entao desaspar nao muda o
  # significado — mas a forma com aspas e a que le como o token que e.
