@@ -14,11 +14,22 @@
 # sem trafego de entrada, sem ALB/Cloud Map).
 #
 # Sem healthCheck (ao contrario do worker): `outbox_relay.py` nao sobe servidor de health (mesma
-# situacao do notifications-bridge no chart Helm — so' roda o loop de poll). Um healthCheck via
-# `pgrep`, como a liveness do chart, nao existe como primitiva de container `healthCheck` do ECS
-# (que so' roda `CMD`/`CMD-SHELL` contra o PROPRIO container — pgrep funcionaria, mas mediria
-# apenas "o processo esta' vivo", o mesmo que ECS ja' garante via `essential = true` + o exit code
-# do container). Omitido por honestidade: nenhum sinal adicional real estaria sendo checado.
+# situacao do notifications-bridge no chart Helm — so' roda o loop de poll).
+#
+# [CORRIGIDO 2026-09-04 pelo reparo REVISE do gatekeeper R1, achado F3: esta secao afirmava
+# "pgrep funcionaria" — FALSO. A imagem de runtime e' `python:3.12-slim` + `libpq5`
+# (deploy/Dockerfile) e NAO instala `procps`; `pgrep` sairia com exit 127, nao com um resultado
+# util. O chart Helm tinha o MESMO defeito na sua livenessProbe (`deployment-a2a-outbox-relay.yaml`
+# rodava `pgrep` ate' este mesmo reparo) e foi corrigido para usar um arquivo de heartbeat que
+# `run_relay_loop` (outbox_relay.py) toca a cada sweep, checado via `python -c` (o interpretador
+# esta' sempre presente — e' o proprio processo do container). O ECS poderia reaproveitar o MESMO
+# heartbeat via `healthCheck.command: ["CMD-SHELL", "python -c \"...\""]` — nao implementado aqui
+# para nao alargar o escopo deste PR; ver docs/review-queue.md HELM-BRIDGE-LIVENESS-PGREP.]
+#
+# Um healthCheck via `CMD`/`CMD-SHELL` do ECS (que roda contra o PROPRIO container) mediria apenas
+# "o processo esta' vivo", o mesmo que ECS ja' garante via `essential = true` + o exit code do
+# container — omitido por honestidade: nenhum sinal adicional real estaria sendo checado sem o
+# heartbeat acima.
 
 resource "aws_cloudwatch_log_group" "a2a_outbox_relay" {
   name              = "/ecs/${local.name}/a2a-outbox-relay"

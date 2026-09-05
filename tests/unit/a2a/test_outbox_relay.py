@@ -30,8 +30,10 @@ import pytest
 from maezo.a2a.facts import DelegationFactKind, build_fact
 from maezo.a2a.outbox import OutboxRecord, outbox_row_params
 from maezo.a2a.outbox_relay import (
+    DEFAULT_HEARTBEAT_PATH,
     AioKafkaFactPublisher,
     OutboxRelaySettings,
+    _touch_heartbeat,
     build_arg_parser,
     build_relay,
     default_worker_id,
@@ -355,6 +357,76 @@ async def test_a_database_error_propagates_out_of_the_loop() -> None:
 
     with pytest.raises(ConnectionResetError):
         await run_relay_loop(_BrokenOutbox(), _RecordingPublisher(), claimed_by="w1", max_sweeps=1)
+
+
+# ---------------------------------------------------------------------------
+# The heartbeat (SC-01/F3) — the livenessProbe's real signal, not `pgrep`
+# ---------------------------------------------------------------------------
+
+
+def test_touch_heartbeat_updates_mtime(tmp_path) -> None:
+    path = tmp_path / "heartbeat"
+    _touch_heartbeat(str(path))
+    assert path.is_file()
+    first_mtime = path.stat().st_mtime
+    _touch_heartbeat(str(path))
+    assert path.stat().st_mtime >= first_mtime
+
+
+def test_touch_heartbeat_is_a_no_op_when_path_is_none() -> None:
+    _touch_heartbeat(None)  # must not raise
+
+
+def test_touch_heartbeat_swallows_a_write_failure_and_logs(caplog) -> None:
+    """A heartbeat write failure (e.g. an unwritable directory) must never crash the relay over an
+    observability side-channel — proven by pointing at a path whose PARENT does not exist."""
+    import logging
+
+    caplog.set_level(logging.WARNING)
+    _touch_heartbeat("/this/directory/does/not/exist/heartbeat")  # must not raise
+
+
+async def test_the_loop_touches_the_heartbeat_file_once_per_sweep(tmp_path) -> None:
+    """The mutation proof: delete the `_touch_heartbeat` call from `run_relay_loop` and this test
+    goes RED (the file is never created)."""
+    path = tmp_path / "heartbeat"
+    outbox, publisher = _seeded(2), _RecordingPublisher()
+    reports = await run_relay_loop(
+        outbox,
+        publisher,
+        claimed_by="w1",
+        max_sweeps=3,
+        poll_interval_s=0.0,
+        heartbeat_path=str(path),
+    )
+    assert len(reports) == 3
+    assert path.is_file()
+
+
+async def test_no_heartbeat_path_means_no_heartbeat_file(tmp_path) -> None:
+    """Default (`heartbeat_path=None`, what every other loop test in this file uses) writes
+    nothing — proves the heartbeat is opt-in at the loop level, not implicitly always-on."""
+    outbox, publisher = _seeded(1), _RecordingPublisher()
+    await run_relay_loop(outbox, publisher, claimed_by="w1", max_sweeps=1, poll_interval_s=0.0)
+    assert not (tmp_path / "heartbeat").exists()
+
+
+def test_default_heartbeat_path_is_under_tmp_matching_the_charts_emptydir_mount() -> None:
+    assert DEFAULT_HEARTBEAT_PATH.startswith("/tmp/")
+
+
+def test_settings_heartbeat_path_defaults_and_is_env_overridable() -> None:
+    default_settings = OutboxRelaySettings(
+        database_url="postgresql://m:m@localhost:5433/m", kafka_bootstrap_servers="k:9092"
+    )
+    assert default_settings.heartbeat_path == DEFAULT_HEARTBEAT_PATH
+
+    overridden = OutboxRelaySettings(
+        database_url="postgresql://m:m@localhost:5433/m",
+        kafka_bootstrap_servers="k:9092",
+        heartbeat_path="/tmp/custom-heartbeat",
+    )
+    assert overridden.heartbeat_path == "/tmp/custom-heartbeat"
 
 
 # ---------------------------------------------------------------------------

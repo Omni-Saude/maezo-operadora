@@ -18,10 +18,17 @@ Postgres) — mesmo secretKeyRef do Aurora que worker-daemon/agent-runtime usam 
 em outbox_relay.py recusa construir sem DATABASE_URL nem KAFKA_BOOTSTRAP_SERVERS — fail-closed,
 nunca reivindica linhas do outbox e as descarta em silencio).
 
-PROBE (seam): mesma situacao do notifications-bridge — o relay NAO sobe servidor de health (so'
-roda o loop de poll). Liveness `exec` (processo vivo) em vez de httpGet /healthz.
+PROBE (SC-01/F3): mesma situacao do notifications-bridge — o relay NAO sobe servidor de health (so'
+roda o loop de poll). Liveness `exec`, mas NAO via `pgrep`: a imagem de runtime e'
+`python:3.12-slim` + `libpq5` (deploy/Dockerfile) e NAO instala `procps` — `pgrep` sairia com
+exit 127 e o kubelet reiniciaria o pod pra sempre (reparo REVISE do gatekeeper, achado F3; a mesma
+forma ja' existia nas tres pontes irmas e continua la', ver docs/review-queue.md
+HELM-BRIDGE-LIVENESS-PGREP). Em vez disso, `run_relay_loop` (outbox_relay.py) toca o arquivo de
+heartbeat abaixo a CADA sweep completo; a probe compara o mtime dele contra 3x `pollIntervalS` via
+`python -c` (o interpretador esta' sempre presente — e' o proprio processo do container).
 */ -}}
 {{- if .Values.a2aOutboxRelay.enabled }}
+{{- $heartbeatPath := "/tmp/maezo-a2a-outbox-relay.heartbeat" }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -76,6 +83,8 @@ spec:
               value: {{ .Values.a2aOutboxRelay.batchSize | quote }}
             - name: A2A_OUTBOX_RELAY_POLL_INTERVAL_S
               value: {{ .Values.a2aOutboxRelay.pollIntervalS | quote }}
+            - name: A2A_OUTBOX_RELAY_HEARTBEAT_PATH
+              value: {{ $heartbeatPath | quote }}
             {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.a2aOutboxRelay.resources | nindent 12 }}
@@ -84,13 +93,16 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
-          # SEAM: o relay nao expoe /healthz (sem app de health). Liveness por processo vivo.
+          # SEAM (SC-01/F3): o relay nao expoe /healthz (sem app de health) e a imagem nao tem
+          # `pgrep` (ver comentario do bloco acima). Liveness por heartbeat: `run_relay_loop` toca
+          # $heartbeatPath a cada sweep; a probe falha se o arquivo nao existe OU esta mais velho
+          # que 3x o intervalo de poll (folga de ate' um sweep perdido/lento antes de reiniciar).
           livenessProbe:
             exec:
               command:
-                - sh
+                - python
                 - -c
-                - "pgrep -f maezo.a2a.outbox_relay > /dev/null"
+                - "import os,sys,time; p='{{ $heartbeatPath }}'; sys.exit(0 if os.path.exists(p) and (time.time() - os.stat(p).st_mtime) < {{ mul (.Values.a2aOutboxRelay.pollIntervalS | int) 3 }} else 1)"
             initialDelaySeconds: 20
             periodSeconds: 30
           volumeMounts:

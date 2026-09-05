@@ -74,6 +74,7 @@ import os
 import signal
 import socket
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any, Final, Protocol
 
 import structlog
@@ -93,6 +94,14 @@ logger = structlog.get_logger(__name__)
 #: outbox is a low-volume table — one to three rows per delegation) rather than LISTEN/NOTIFY,
 #: which would add a second durable-connection failure mode for a latency nobody has asked for.
 DEFAULT_POLL_INTERVAL_S: Final[float] = 2.0
+
+#: Where `run_relay_loop` touches its heartbeat file each sweep (SC-01/F3). `python:3.12-slim`
+#: (the runtime image, `deploy/Dockerfile`) does not install `procps`, so a `pgrep`-based
+#: livenessProbe exits 127 and restart-loops the pod forever — this file's mtime is the real
+#: liveness signal the chart's probe checks instead (`deployment-a2a-outbox-relay.yaml`: `python -c`
+#: comparing the file's mtime against `3 * pollIntervalS`). Under `readOnlyRootFilesystem: true`
+#: the chart mounts an `emptyDir` at `/tmp`, so this path is always writable there.
+DEFAULT_HEARTBEAT_PATH: Final[str] = "/tmp/maezo-a2a-outbox-relay.heartbeat"
 
 
 class OutboxClaimStore(Protocol):
@@ -286,6 +295,20 @@ async def drain_once(
     return DrainReport(claimed=len(records), delivered=len(published), sealed=sealed)
 
 
+def _touch_heartbeat(path: str | None) -> None:
+    """Update the heartbeat file's mtime to now — the liveness probe's ONLY signal that the loop
+    is actually iterating (SC-01/F3). A write failure (e.g. a full/unmounted `/tmp`) must never
+    crash the relay over an observability side-channel: it is logged and swallowed, exactly like
+    `default_worker_id`'s hostname lookup would be if it ever failed.
+    """
+    if not path:
+        return
+    try:
+        Path(path).touch()
+    except OSError as exc:  # pragma: no cover - defensive; a missing/unmounted /tmp is untested here
+        logger.warning("a2a_outbox_relay_heartbeat_write_failed", path=path, error=str(exc))
+
+
 async def run_relay_loop(
     outbox: OutboxClaimStore,
     publisher: FactBrokerPublisher,
@@ -296,6 +319,7 @@ async def run_relay_loop(
     poll_interval_s: float = DEFAULT_POLL_INTERVAL_S,
     stop_event: asyncio.Event | None = None,
     max_sweeps: int | None = None,
+    heartbeat_path: str | None = None,
 ) -> list[DrainReport]:
     """Drain repeatedly until `stop_event` is set (or `max_sweeps` sweeps have run).
 
@@ -306,6 +330,12 @@ async def run_relay_loop(
     `max_sweeps` exists for tests and for `--once`; `None` (production) loops forever. The loop
     never swallows a non-publish error: a database failure propagates and ends the process, the
     same fail-closed posture `notifications_bridge.run_consumer_loop` takes.
+
+    `heartbeat_path`, when given, is touched (mtime -> now) once per completed sweep — i.e. only
+    AFTER `drain_once` returns, so a hung sweep (a stuck broker/DB call) correctly goes stale
+    rather than the heartbeat firing on a fixed timer regardless of whether the loop is making
+    progress. `None` (the default) disables the heartbeat entirely — used by the unit tests above,
+    which have no filesystem opinion; the composition root in `main()` always passes one.
     """
     reports: list[DrainReport] = []
     sweeps = 0
@@ -320,6 +350,7 @@ async def run_relay_loop(
             claim_ttl_s=claim_ttl_s,
         )
         reports.append(report)
+        _touch_heartbeat(heartbeat_path)
         sweeps += 1
         if max_sweeps is not None and sweeps >= max_sweeps:
             break
@@ -348,6 +379,9 @@ class OutboxRelaySettings(BaseSettings):
     poll_interval_s: float = Field(default=DEFAULT_POLL_INTERVAL_S, alias="A2A_OUTBOX_RELAY_POLL_INTERVAL_S")
     connect_timeout_s: float = Field(default=10.0, alias="A2A_OUTBOX_RELAY_CONNECT_TIMEOUT_S")
     send_timeout_s: float = Field(default=10.0, alias="A2A_OUTBOX_RELAY_SEND_TIMEOUT_S")
+    # SC-01/F3: the livenessProbe's real signal (see `DEFAULT_HEARTBEAT_PATH`'s docstring for why
+    # `pgrep` cannot be used against this runtime image).
+    heartbeat_path: str = Field(default=DEFAULT_HEARTBEAT_PATH, alias="A2A_OUTBOX_RELAY_HEARTBEAT_PATH")
 
 
 def build_relay(settings: OutboxRelaySettings) -> tuple[PostgresFactOutbox, AioKafkaFactPublisher]:
@@ -421,6 +455,7 @@ async def main(argv: list[str] | None = None) -> None:
             poll_interval_s=settings.poll_interval_s,
             stop_event=stop_event,
             max_sweeps=1 if args.once else None,
+            heartbeat_path=settings.heartbeat_path,
         )
     finally:
         await publisher.stop()
