@@ -48,7 +48,7 @@ from maezo.tools.workers.fraude import (
     start_contratual,
     start_credenciamento,
 )
-from maezo.tools.workers.harness import AUDIT_AGENT_ID, WorkerHarness
+from maezo.tools.workers.harness import AUDIT_AGENT_ID, FakeWorkerTransport, WorkerHarness
 from tests.support.audit_fakes import FakeStartAuditSink
 
 # ---------------------------------------------------------------
@@ -1423,7 +1423,11 @@ def test_fraude_nao_registra_topico_orfao_publish_completed() -> None:
         "`evento_publicado: True` sem nenhuma costura de publish"
     )
 
-    harness = WorkerHarness(None, worker_id="unit-test-fraude-orphan")  # type: ignore[arg-type]
+    # Transporte FALSO TIPADO (`FakeWorkerTransport`, o double in-memory que a propria
+    # `harness.py` publica) em vez de `None` + supressao: este teste so REGISTRA topicos,
+    # nenhum `fetch_and_lock`/`complete` acontece, e a construcao passa a satisfazer o tipo
+    # `WorkerTransport` sem nenhuma supressao de tipo (reparo §Delta F3).
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="unit-test-fraude-orphan")
     register_fraude_workers(harness, None, dmn=FakeDmnTransport())
     assert "operadora.fraude.publish_completed" not in set(harness.registered_topics)
 

@@ -1577,6 +1577,9 @@ def test_pagto_nao_registra_topico_orfao_publish_completed() -> None:
         "`evento_publicado: True` sem nenhuma costura de publish"
     )
 
-    harness = WorkerHarness(None, worker_id="unit-test-pagto-orphan")  # type: ignore[arg-type]
+    # Transporte FALSO TIPADO (`FakeWorkerTransport`, ja importado por este modulo) em vez de
+    # `None` + supressao: o teste so REGISTRA topicos, nenhuma chamada de transporte ocorre,
+    # e a construcao satisfaz o tipo `WorkerTransport` sem supressao alguma (reparo §Delta F3).
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="unit-test-pagto-orphan")
     register_pagto_workers(harness, None, dmn=FakeDmnTransport())
     assert "operadora.pagto.publish_completed" not in set(harness.registered_topics)
