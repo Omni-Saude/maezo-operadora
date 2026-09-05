@@ -71,7 +71,10 @@ CPF/nome real; referencias de negativa original sinteticas (`AUTH-amh-GUIA-TESTE
 ### test_prazo_nip_dispara_alerta_nao_interruptivo
 - **Given** `UT_ElaborarRespostaNip` aberta; `nip_sla.sla_alerta_iso` atingido
 - **When** job do timer de alerta executado
-- **Then** `operadora.nip.notify_deadline_risk` recebeu task; `nip.deadline_risk` publicado (countdown WD.3); a User Task segue aberta (nao-interruptivo)
+- **Then** `operadora.events.publish` recebeu task (ST_NotificarRiscoPrazo, convertida do topico especifico
+  para o generico em t3.1); payload `agents.events.nip.deadline_risk` publicado (countdown WD.3) — ver as
+  9 asserções em `tests/integration/processes/test_sp_op_nip_001.py:1345,1375,1380,1392,1403,1423,1540,1626,1631`;
+  a User Task segue aberta (nao-interruptivo)
 
 ### test_prazo_nip_estourado_coordenacao_assume_interruptivo
 - **Given** instancia aberta alem de `nip_sla.prazo_resposta_iso`
