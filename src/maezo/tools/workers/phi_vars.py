@@ -11,6 +11,15 @@ cannot help there — it redacts whole values by KEY, not patterns embedded in f
 one-way, class-token, never-raises philosophy as `redact_phi_vars`; see that function's
 docstring for the shared invariant.
 
+CC-06 (2026-09-04) promotes that pattern net out of the exception-message backstop into
+`redact_free_text`, and adds `redact_free_text_vars` — the AGENT -> ENGINE leg's scrub, run by
+`mcp_cibseven/transport.py::start_process_idempotent` over the process-start `variables` that
+edge previously shipped VERBATIM (an LLM-drafted `resumo_contexto` / dossier `narrativa`). Two
+deliberate departures from this module's older contract, both documented at their definitions:
+`redact_free_text_vars` MAY RAISE (its only caller must refuse the start, never pass through
+raw), and it scrubs SUBSTRINGS under a named-key allowlist instead of nuking whole values —
+the handoff summary is contractually required to survive, pseudonimizado (SP-OP-ESCALATION-001).
+
 ## The invariant (ADR-0006, "Zona Geral" vs "Zona PHI")
 
 A domain event or notice a worker emits toward the GENERAL ZONE — Kafka `agents.events.*` /
@@ -118,15 +127,96 @@ _CPF_FORMATTED_RE = re.compile(rf"(?<!\d)\d{{3}}{_SEP}\d{{3}}{_SEP}\d{{3}}{_SEP}
 _CNPJ_FORMATTED_RE = re.compile(rf"(?<!\d)\d{{2}}{_SEP}\d{{3}}{_SEP}\d{{3}}{_SEP}\d{{4}}{_SEP}\d{{2}}(?!\d)")
 _DIGIT_RUN_RE = re.compile(r"\d{11,}")
 
+# CC-06 / HEL-05 — the two identifier families the CPF/CNPJ/digit-run net measurably does NOT
+# catch, added when this net was promoted from "exception messages only" to the shared free-text
+# scrubber (`redact_free_text`) the agent -> engine start chokepoint runs on every process
+# variable. Both are direct beneficiary identifiers under ADR-0006, and both survive the digit
+# arms above: an e-mail carries no digit run at all, and a BR phone written with separators
+# (`(11) 98765-4321`) is only 10-11 digits SPLIT by punctuation, so `_DIGIT_RUN_RE` never sees an
+# 11-run.
+#
+# E-MAIL: the ordinary `local@domain.tld` shape. No lookarounds needed — an `@` between two
+# label runs does not occur in any structured field this edge carries (`process://` refs, TUSS/
+# CID codes, pseudo-ids, business keys, ISO dates).
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
+# PHONE, BR, WITH SEPARATORS — deliberately TWO narrow arms instead of one broad one, because
+# over-redaction is NOT free here (unlike in an incident message): this scrubber also runs over a
+# clinical handoff summary, where destroying a legitimate short number (a date, a BRL amount, a
+# TUSS/CID/CEP code, a version string) would degrade the human handoff the contract requires.
+#   * `_PHONE_BR_DDD_RE` — anything carrying a DDD (or `+55`): optional `+55`, a 2-digit DDD bare
+#     or parenthesized, then the 4-5 + 4 digit-group shape. The DDD is what makes it a phone and
+#     not a numeric range: a bare `1234-5678` does NOT match this arm.
+#   * `_PHONE_BR_MOBILE_RE` — the DDD-less MOBILE shape only (`9` + 4 digits, separator, 4
+#     digits). Anchored on the mandatory Brazilian mobile `9` prefix precisely so that a bare
+#     4+4 numeric range (`1000-2000`, `2026-2027`) and a CEP (`12345-678`, 5+3) cannot match.
+# `/` is deliberately NOT a separator slot here (unlike the CPF/CNPJ family): `26/07/2026` and
+# `12/2026` are dates, and admitting `/` would redact them.
+# MEASURED, DISCLOSED GAP (not fixed here, so the boundary is not fabricated): a DDD-less
+# 8-digit LANDLINE (`3456-7890`) is indistinguishable from a numeric range by shape alone and is
+# NOT redacted; neither is a bare CEP.
+_PHONE_SEP = r"[ .\-]"
+_PHONE_BR_DDD_RE = re.compile(
+    rf"(?<!\d)(?:\+55{_PHONE_SEP}?)?(?:\(\d{{2}}\)|\d{{2}}){_PHONE_SEP}?9?\d{{4}}{_PHONE_SEP}\d{{4}}(?!\d)"
+)
+_PHONE_BR_MOBILE_RE = re.compile(rf"(?<!\d)9\d{{4}}{_PHONE_SEP}\d{{4}}(?!\d)")
+
 #: Class token substituted for a redacted PHI-shaped substring. Distinct from `REDACTED_PHI`
 #: (whole-value, key-based redaction) so an ops reader can tell the two backstops apart in a log.
 REDACTED_DIGITS: str = "[REDACTED_DIGITS]"
+
+#: Class tokens for the two families added by CC-06. Distinct from `REDACTED_DIGITS` so an ops
+#: reader (or a leak test) can tell WHICH family fired without seeing the value.
+REDACTED_EMAIL: str = "[REDACTED_EMAIL]"
+REDACTED_PHONE: str = "[REDACTED_PHONE]"
 
 #: Cap on the redacted message forwarded to the engine's incident store. Mirrors the existing
 #: `resp.text[:500]` truncation convention (`platform/deploy/engine_deploy.py`) used elsewhere in
 #: this codebase for bounding untrusted text before it lands in an error message.
 _ERROR_MESSAGE_MAX_CHARS: int = 500
 _TRUNCATION_MARKER: str = "...[TRUNCATED]"
+
+
+def redact_free_text(text: str, *, max_chars: int = _ERROR_MESSAGE_MAX_CHARS) -> str:
+    """Redact PHI-shaped substrings from ONE free-text string, one-way, and cap its length.
+
+    THE shared free-text net of this module (CC-06). `redact_error_message` is now a thin caller
+    of it (exception messages), and so is the agent -> engine start chokepoint
+    (`mcp_cibseven/transport.py::start_process_idempotent`), which had NO free-text scrub at all
+    before CC-06: an LLM-drafted `resumo_contexto` / dossier `narrativa` reached
+    `start_process_instance` verbatim, so a beneficiary-typed CPF the model copied into its
+    summary landed in the engine's process variables in the clear.
+
+    Redacted families, in the order applied (each to its own class token, so a reader can tell
+    them apart and a leak test can assert WHICH one fired):
+      1. e-mail (`REDACTED_EMAIL`) — first, so an address containing digit groups is removed as
+         one unit instead of being partly rewritten by the digit arms below.
+      2. separated CPF / CNPJ in any separator style, `[ .\\-/]` per slot (`REDACTED_DIGITS`).
+      3. BR phone with separators, DDD/`+55`-bearing or the DDD-less mobile shape
+         (`REDACTED_PHONE`).
+      4. any remaining run of 11+ contiguous digits (`REDACTED_DIGITS`) — bare CPF/CNS/CNPJ, or
+         any other long numeric identifier.
+    Then the result is capped at `max_chars` with `_TRUNCATION_MARKER`.
+
+    WHY THIS IS NOT `redact_phi_vars`. That sibling redacts a WHOLE value by KEY name, which is
+    right for a general-zone fact payload and WRONG here: `resumo_contexto` is the handoff summary
+    a human attendant reads, and SP-OP-ESCALATION-001 §Variáveis requires it "pseudonimizado",
+    not absent. This function removes the identifiers and keeps the sentence.
+
+    NOT a general PHI classifier, and never claimed to be: it is a deterministic pattern net over
+    the identifier families named above. Clinical narrative content (a diagnosis in prose, a rare
+    condition that is identifying in itself) is NOT removed — that is what the `phi=True` routing
+    (ADR-0006/ADR-0017) and the prompt's own "NAO inclua dado identificavel" instruction are for.
+    """
+    scrubbed = _EMAIL_RE.sub(REDACTED_EMAIL, text)
+    scrubbed = _CPF_FORMATTED_RE.sub(REDACTED_DIGITS, scrubbed)
+    scrubbed = _CNPJ_FORMATTED_RE.sub(REDACTED_DIGITS, scrubbed)
+    scrubbed = _PHONE_BR_DDD_RE.sub(REDACTED_PHONE, scrubbed)
+    scrubbed = _PHONE_BR_MOBILE_RE.sub(REDACTED_PHONE, scrubbed)
+    scrubbed = _DIGIT_RUN_RE.sub(REDACTED_DIGITS, scrubbed)
+    if len(scrubbed) > max_chars:
+        scrubbed = scrubbed[:max_chars] + _TRUNCATION_MARKER
+    return scrubbed
 
 
 def redact_error_message(error: BaseException | str) -> str:
@@ -144,6 +234,11 @@ def redact_error_message(error: BaseException | str) -> str:
         digit-boundary-anchored; widened from canonical-only per T3.4 R2 finding F5-1).
       - any remaining run of 11+ contiguous digits (bare CPF/CNS/CNPJ, or any other long numeric
         identifier) -> `REDACTED_DIGITS`.
+      - CC-06: an e-mail address -> `REDACTED_EMAIL` and a separator-bearing BR phone ->
+        `REDACTED_PHONE`. This function no longer owns the net — it DELEGATES to
+        `redact_free_text`, which is the same net the agent -> engine start chokepoint runs, so
+        the two edges cannot drift apart. Strictly WIDER than before (two families added, none
+        removed), which is the safe direction for an incident message.
       - the result is capped at `_ERROR_MESSAGE_MAX_CHARS`, truncated with `_TRUNCATION_MARKER` —
         bounds an unbounded/adversarial message length regardless of content.
 
@@ -151,15 +246,190 @@ def redact_error_message(error: BaseException | str) -> str:
     exception instance (plain strings, e.g. static harness messages with no exception, are
     returned without a prefix) — ops can still diagnose WHAT kind of failure occurred from the
     Cockpit incident view even though the message body may have been scrubbed.
+
+    Keeps its OWN never-raises wrapper (`redact_free_text` may raise on a pathological input):
+    this sits on the worker's failure-reporting hot path, where a defect in the scrubber must
+    never itself crash the failure report. The chokepoint caller deliberately does NOT swallow —
+    there, a scrub failure must refuse the start (`StartVariableRedactionError`).
     """
     try:
         error_class = type(error).__name__ if isinstance(error, BaseException) else None
-        raw = str(error)
-        scrubbed = _CPF_FORMATTED_RE.sub(REDACTED_DIGITS, raw)
-        scrubbed = _CNPJ_FORMATTED_RE.sub(REDACTED_DIGITS, scrubbed)
-        scrubbed = _DIGIT_RUN_RE.sub(REDACTED_DIGITS, scrubbed)
-        if len(scrubbed) > _ERROR_MESSAGE_MAX_CHARS:
-            scrubbed = scrubbed[:_ERROR_MESSAGE_MAX_CHARS] + _TRUNCATION_MARKER
+        scrubbed = redact_free_text(str(error), max_chars=_ERROR_MESSAGE_MAX_CHARS)
         return f"{error_class}: {scrubbed}" if error_class else scrubbed
     except Exception:  # noqa: BLE001 — backstop must never itself raise onto the failure path.
         return "[REDACTED_ERROR]"
+
+
+# --------------------------------------------------------------------------------------------
+# CC-06 — the AGENT -> ENGINE start edge: free-text scrub of process-start variables.
+# --------------------------------------------------------------------------------------------
+#
+# THE GAP THIS CLOSES. `redact_phi_vars` above guards the WORKER -> engine/Kafka leg and redacts
+# a whole value by key. `build_start_audit_record` runs it over `provenance.decision_basis` only,
+# and binds the start `variables` by a one-way `input_sha256`. Nothing ran over the VARIABLES
+# THEMSELVES, so the agent -> engine leg (`start_process_idempotent` ->
+# `transport.start_process_instance(process_key, business_key, variables)`) shipped LLM-drafted
+# free text to the engine verbatim: Helena's/Lucas's/Fernando's `resumo_contexto`, and the
+# `narrativa` nested in every `dossie_<agent>` dict.
+#
+# WHY A NAMED-KEY ALLOWLIST AND NOT "SCRUB EVERY STRING". These variables are a BPMN process's
+# input contract. Business keys, `*_pseudo_id`s, `process://`/`*_ref` pointers, TUSS/CID codes,
+# enum tokens, ISO dates and BRL amounts are STRUCTURED values a worker and a DMN read by shape;
+# running an identifier net over all of them would corrupt the process (a `numero_guia_tiss` or a
+# `matricula_beneficiario` is an 11+ digit run BY CONSTRUCTION). The scrub is therefore applied
+# ONLY to the variable names that carry human/LLM free text — the same discipline
+# `PHI_PROCESS_VARS` encodes, minus the two names in it that are structured IDENTIFIERS rather
+# than prose (`matricula_beneficiario`, `cid10_referencia`), plus the dossier's `narrativa`.
+#
+# DISCLOSED, NOT FIXED HERE: `matricula_beneficiario` and `cid10_referencia` therefore pass
+# through this edge unchanged. Neither is emitted as a start variable by any agent in this tree
+# (`grep -rn '"matricula_beneficiario"' src/maezo/agents/` -> only `fernando/delegation.py`'s A2A
+# envelope, a different edge with its own guard), and the right control for a whole-value
+# identifier is `redact_phi_vars`, not a substring net.
+
+#: Process-variable / dossier-field NAMES whose value is human or LLM-drafted FREE TEXT.
+#:
+#: The list is CLOSED and derived from an enumeration of every prose-shaped key the ten agent
+#: graphs write into a start variable or a dossier (`grep -n '"lacunas\|"notas\|"observac\|
+#: "comentario\|"resumo\|"narrativa\|"justificativa\|"fundamentacao\|"laudo\|"diagnostico\|
+#: "motivo_texto' src/maezo/agents/*/graph.py`). Everything the enumeration turned up that is
+#: NOT here is structured by construction and named in the "deliberately OUT" note below.
+#:
+#: NOTE ON LENGTH (CC-06 §Delta, declared not incidental): each value admitted here is passed
+#: through `redact_free_text`, which also CAPS the result at `_ERROR_MESSAGE_MAX_CHARS` (500)
+#: with `_TRUNCATION_MARKER`. A contractual handoff summary longer than that IS shortened, and
+#: visibly so. See `redact_free_text_vars`'s docstring.
+PHI_FREE_TEXT_VARS: frozenset[str] = frozenset(
+    {
+        # Names shared with `PHI_PROCESS_VARS` (prose fields only — see the block above).
+        "justificativa_clinica",
+        "fundamentacao_dut",
+        "notas_resolucao",
+        "resumo_contexto",
+        "laudo",
+        "diagnostico",
+        # The one free-text field EVERY `<agent>/graph.py::_build_dossier` produces, nested inside
+        # the `dossie_<agent>` process variable (andre, carolina, fernando, gustavo, lucas,
+        # marina, rafael, valentina — and beatriz, which starts no process).
+        "narrativa",
+        # CC-06 §Delta — THE ENRICHMENT-GAP NOTES. `lacunas_enriquecimento` is the `gather_notes`
+        # list every `_build_dossier` embeds in `fatos` (andre, carolina, gustavo, lucas, marina,
+        # rafael, valentina); `lacunas` is beatriz's same-shaped twin
+        # (`beatriz/graph.py::_build_dossier`). They read as bookkeeping, but they are assembled
+        # from EXCEPTION MESSAGES raised by the FHIR reader — e.g.
+        # `notes.append(f"cobertura FHIR indisponivel: {exc}")` — and an httpx 404 stringifies the
+        # whole request URL, so a patient path parameter (a CPF), a querystring e-mail or a
+        # contact phone lands in the note verbatim and shipped to the engine unredacted. Free
+        # text by provenance, not by looks. (Tightening the PRODUCERS to a class token is the
+        # separate, complementary WP CC-10; this closes the chokepoint regardless of what any
+        # producer does, which is the point of having a chokepoint.)
+        "lacunas_enriquecimento",
+        "lacunas",
+        # CC-06 §Delta — SP-OP-CRED-001's own DECLARED free-text input variable
+        # (`docs/processes/contracts/SP-OP-CRED-001.md`: "Texto livre (fundamento da solicitacao /
+        # motivo do descredenciamento) — sem PHI de beneficiario"; `carolina/graph.py` types it
+        # `motivo_informado: str  # texto livre`). "Contractually without beneficiary PHI" is a
+        # PROMISE made by whoever fills the field, never a control: `test_carolina.py`'s own
+        # helena-class probe feeds it "paciente CPF 123.456.789-00 relatou irregularidade" and
+        # asserts it reaches `_contract_variables` verbatim. It ships twice (top level, and inside
+        # `dossie_carolina.fatos`); the scrub keeps the sentence and drops the identifiers, which
+        # is exactly what the contract intends the field to be.
+        "motivo_informado",
+    }
+)
+
+# DELIBERATELY OUT (enumerated with the grep above, then decided one by one):
+#   * `motivo_humano` / `motivo_auditor` / `motivo_categoria` / `motivo_encaminhamento` /
+#     `motivo_estratificacao` — BOUNDED CLASS TOKENS, not prose: every write site is a literal
+#     (`"dmn_indisponivel"`, `"documentacao_pendente"`, `"falha_tecnica"`, `"outro"`) or a DMN row
+#     output (`valentina/graph.py`: `str(strat["row"].get("motivo", ""))`). Scrubbing them would
+#     buy nothing and put a pattern net on a routing token a BPMN gateway reads.
+#   * `motivo_desligamento_clinico`, `referencia_clinica`, `decisao_*` — STRUCTURAL GUARDRAILS,
+#     always `None` on the agent leg (SOLELY the human clinician's User Task fields).
+#   * `dmn_error` — carries an exception message, but NEVER ships: it is graph state only
+#     (`grep -rn '"dmn_error"' src/maezo/agents/*/graph.py` shows no `variables[...]` write, and
+#     `valentina/graph.py` states the intent: "`dmn_error` deliberately never ships").
+#   * `resumo_fhir`, `summary_facts`, `evidencia_normalizada`, `nip_facts`, `billing_facts`,
+#     `care_plan`, `stratification` — STRUCTURED mappings of FHIR/billing facts, not prose.
+#   * `texto` / `mensagem` / `message_body` / `response_text` — LLM-drafted prose, but on a
+#     DIFFERENT edge (the WhatsApp reply and the notification payload); none is a process-start
+#     variable (`grep -n 'variables' src/maezo/agents/*/graph.py`). Out of this chokepoint's
+#     scope by construction, not by judgement.
+#   * `matricula_beneficiario`, `cid10_referencia` — see the block above: whole-value structured
+#     IDENTIFIERS, whose control is `redact_phi_vars`, not a substring net.
+
+#: Prefix of the process-variable names carrying an agent DOSSIER (a nested mapping built by
+#: `<agent>/graph.py::_build_dossier`). Only these mappings are WALKED; every other structured
+#: variable is passed through untouched.
+_DOSSIER_VAR_PREFIX: str = "dossie_"
+
+#: Recursion bound for the dossier walk. A dossier is a small, hand-assembled dict (depth 3 at
+#: most: `dossie_x.fatos.dmn_refs`), so exceeding this means a malformed or self-referential
+#: payload — fail-closed (raise) rather than silently stopping the scrub mid-tree.
+_MAX_DOSSIER_DEPTH: int = 8
+
+
+def redact_free_text_vars(values: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a COPY of process-start `values` with every FREE-TEXT field passed through
+    `redact_free_text` (CC-06). Structured values are returned unchanged, by construction.
+
+    Scope, precisely:
+      - a top-level key in `PHI_FREE_TEXT_VARS` -> its string (or list-of-strings) value is
+        scrubbed.
+      - a top-level `dossie_*` key whose value is a Mapping -> WALKED recursively (through nested
+        mappings and lists of mappings); inside it, the same `PHI_FREE_TEXT_VARS` names are
+        scrubbed and everything else passes through.
+      - every other key -> passed through UNCHANGED (ids, business keys, enums, `process://`
+        refs, pseudo-ids, DMN refs, booleans, amounts).
+
+    LENGTH IS ALSO BOUNDED, and this is a CONTENT change a caller must know about (CC-06 §Delta,
+    declared after a verifier flagged it as undeclared): every scrubbed value goes through
+    `redact_free_text`, which caps its output at `_ERROR_MESSAGE_MAX_CHARS` (500 characters) and
+    appends `_TRUNCATION_MARKER` (`...[TRUNCATED]`). A `resumo_contexto` / `narrativa` shorter
+    than the cap is returned byte-identical; a longer one reaches the engine SHORTENED — visibly,
+    never silently. SP-OP-ESCALATION-001's handoff summary is well inside the cap in practice,
+    and the cap is the bound that keeps an adversarial or runaway LLM draft from being copied
+    unbounded into the engine's process-variable store.
+
+    MAY RAISE (deliberately, unlike `redact_phi_vars`/`redact_error_message`): the sole caller is
+    the start chokepoint, where a scrub that cannot be completed must REFUSE the start rather
+    than fall through to a raw passthrough. `ValueError` on a payload deeper than
+    `_MAX_DOSSIER_DEPTH` (malformed or self-referential).
+    """
+    return {key: _redact_var(key, value, depth=0) for key, value in values.items()}
+
+
+def _redact_var(key: str, value: Any, *, depth: int) -> Any:
+    """One (key, value) pair of the start-variable tree. `depth` bounds the dossier walk."""
+    if key in PHI_FREE_TEXT_VARS:
+        return _redact_free_text_value(value)
+    if depth == 0 and not key.startswith(_DOSSIER_VAR_PREFIX):
+        # Top level: only a `dossie_*` variable is walked. Everything else is a structured
+        # process variable and is returned as-is.
+        return value
+    return _walk(value, depth=depth)
+
+
+def _walk(value: Any, *, depth: int) -> Any:
+    """Recurse through mappings / lists inside a dossier, scrubbing free-text-named leaves."""
+    if depth > _MAX_DOSSIER_DEPTH:
+        raise ValueError(
+            f"start variables nested deeper than {_MAX_DOSSIER_DEPTH} levels — refusing to scrub "
+            "a malformed or self-referential payload"
+        )
+    if isinstance(value, Mapping):
+        return {k: _redact_var(k, v, depth=depth + 1) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_walk(item, depth=depth + 1) for item in value]
+    return value
+
+
+def _redact_free_text_value(value: Any) -> Any:
+    """Scrub a free-text-named value: a string, or a list of them. Anything else (a `None`, a
+    number, a nested structure under a free-text name) is left alone — `redact_free_text` is a
+    string net, and silently stringifying a non-string here would corrupt the variable's type."""
+    if isinstance(value, str):
+        return redact_free_text(value)
+    if isinstance(value, list):
+        return [redact_free_text(item) if isinstance(item, str) else item for item in value]
+    return value
