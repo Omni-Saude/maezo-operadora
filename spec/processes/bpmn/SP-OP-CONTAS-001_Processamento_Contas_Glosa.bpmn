@@ -109,13 +109,23 @@ docs/processes/contracts/SP-OP-CONTAS-001.md.
                recusando com ERR_CONTAS_GLOSA_NOT_HUMAN. Mesma mecanica, e pela mesma razao de
                engine, que desfecho_humano/decisao_recurso em SP-OP-RECURSO-001. -->
           <camunda:outputParameter name="decisao_contas">${""}</camunda:outputParameter>
+          <!-- Mesma mecanica, propria do gate de intake de data_vencimento (R-084): a
+               conditionExpression de GW_VencimentoConta le vencimento_ausente, e um identificador
+               nunca setado faz o CIB Seven 2.1.0 lancar `Unknown property used in expression`
+               ANTES de cair no default. O valor inicial e `true` — FAIL-CLOSED: enquanto o intake
+               (ST_ApurarDivergencias) nao provar que o lote traz vencimento, a conta e tratada
+               como SEM vencimento e o token cai no default humano. Inicializar `false` seria
+               fail-OPEN: um intake que nao rodasse deixaria a perna automatica aberta. Como o
+               unico consumidor e o gate, o valor inicial nao pode criar ato nenhum — a rota
+               automatica exige a condicao POSITIVA vencimento_ausente == false. -->
+          <camunda:outputParameter name="vencimento_ausente">${true}</camunda:outputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
       <bpmn:outgoing>Flow_PubReceived_Apurar</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:serviceTask id="ST_ApurarDivergencias" name="Apurar divergencias e glosas candidatas na conta apresentada" camunda:type="external" camunda:topic="operadora.contas.identify_glosa">
-      <bpmn:documentation>Worker COMPUTA has_glosas (boolean) das linhas TISS da conta APRESENTADA pelo prestador (linhas_conta_refs/reason_codes_tiss — GAP-CONTAS-2; fail-closed conservador quando o detalhe de linha falta: has_glosas=true, roteia a humano) e NORMALIZA data_recebimento_lote (string ISO YYYY-MM-DD; default fail-safe hoje/UTC — GAP-CONTAS-4/ENGINE-16004: e o intake, primeiro em TODO caminho ate BRT_ContasSla, inclusive nesta reentrada) e ECOA data_vencimento do lote/termo contratual (verbatim, so strip; NUNCA defaultada — um vencimento inventado e um prazo falso, e ST_HandoffPagamento* a recusa em branco). Esta e a tarefa em que as DUAS datas do lote passam a existir como variaveis de processo: a ausencia de data_vencimento fica visivel na trilha ja na primeira tarefa, em vez de so aparecer quatro tarefas adiante como um handoff travado. Origem contratual de data_vencimento: DRAFT/verify (ADR-0040 OQ-2). NAO decide glosar — apenas apura a candidata. TASY write DROP.</bpmn:documentation>
+      <bpmn:documentation>Worker COMPUTA has_glosas (boolean) das linhas TISS da conta APRESENTADA pelo prestador (linhas_conta_refs/reason_codes_tiss — GAP-CONTAS-2; fail-closed conservador quando o detalhe de linha falta: has_glosas=true, roteia a humano) e NORMALIZA data_recebimento_lote (string ISO YYYY-MM-DD; default fail-safe hoje/UTC — GAP-CONTAS-4/ENGINE-16004: e o intake, primeiro em TODO caminho ate BRT_ContasSla, inclusive nesta reentrada) e ECOA data_vencimento do lote/termo contratual (verbatim, so strip; NUNCA defaultada — um vencimento inventado e um prazo falso, e ST_HandoffPagamento* a recusa em branco). Esta e a tarefa em que as DUAS datas do lote passam a existir como variaveis de processo: a ausencia de data_vencimento fica visivel na trilha ja na primeira tarefa, em vez de so aparecer quatro tarefas adiante como um handoff travado. R-084 (2026-09-04, decisao do dono "validar agora"): alem de VISIVEL, a ausencia passa a ser BLOQUEANTE no proprio intake — o worker escreve tambem vencimento_ausente (boolean), lido por GW_VencimentoConta logo adiante, que roteia a conta a ANALISE_HUMANA antes de qualquer ST_EmitirDemonstrativo* e antes de ST_RegistrarGlosaParcial. Origem contratual de data_vencimento: DRAFT/verify (ADR-0040 OQ-2) — o gate de intake NAO a pre-julga. NAO decide glosar — apenas apura a candidata. TASY write DROP.</bpmn:documentation>
       <bpmn:incoming>Flow_PubReceived_Apurar</bpmn:incoming>
       <bpmn:incoming>Flow_Reavalia_Apurar</bpmn:incoming>
       <bpmn:outgoing>Flow_Apurar_Impact</bpmn:outgoing>
@@ -128,10 +138,21 @@ docs/processes/contracts/SP-OP-CONTAS-001.md.
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Apurar_Impact</bpmn:incoming>
-      <bpmn:outgoing>Flow_Impact_GWHasGlosas</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Impact_Sla</bpmn:outgoing>
     </bpmn:serviceTask>
+    <bpmn:businessRuleTask id="BRT_ContasSla" name="Determinar SLA de analise (DMN contas_sla)" camunda:resultVariable="sla" camunda:decisionRef="contas_sla" camunda:mapDecisionResult="singleResult">
+      <bpmn:documentation>Entrada: tipo_lote + valor_apresentado_brl + data_recebimento_lote (ancora contratual do prazo — GAP-CONTAS-4; a data em que a OPERADORA recebeu o lote, normalizada/defaultada pelo worker identify_glosa em TODO caminho, inclusive na reentrada por msg.contas.linhas_atualizadas — ENGINE-16004). Saidas: sla_analise/sla_alerta (string ISO — duracoes relativas, legado/observabilidade p/ notify_sla_risk), sla_analise_absoluto_iso/sla_alerta_absoluto_iso (string ISO datetime — deadline/alerta ABSOLUTOS = data_recebimento_lote + duracao; consumidos pelos timeDate de BT_SlaAnaliseContas/BT_AlertaSlaContas), fonte_regulatoria (prazo contratual + RN 501/2022 — DRAFT/verify). Nenhuma saida adversa. POSICAO (CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM / R-084): esta DMN roda IMEDIATAMENTE APOS O INTAKE, antes de GW_VencimentoConta — nenhuma das suas entradas depende de triagem/classificacao (todas nascem em ST_ApurarDivergencias ou no start), e o gate de vencimento passou a ter uma rota direta a ANALISE_HUMANA que nao atravessa a cadeia de DMNs de glosa. Mantem a invariante ja declarada em SP-OP-REEMBOLSO-001 (BRT_SlaAnalise) e SP-OP-ANS-SUBMIT-001 (BRT_AnsSla): resultVariable="sla" resolvido em TODA path que alcanca a User Task, ANTES dela, para que os timeDate dos boundary timers de UT_AnalistaContas (BT_AlertaSlaContas/BT_SlaAnaliseContas, que leem os dois campos absolutos desta DMN) sempre resolvam.</bpmn:documentation>
+      <bpmn:incoming>Flow_Impact_Sla</bpmn:incoming>
+      <bpmn:outgoing>Flow_Sla_GWVencimento</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+    <bpmn:exclusiveGateway id="GW_VencimentoConta" name="A conta tem vencimento contratual?" default="Flow_GWVenc_Humano">
+      <bpmn:documentation>GATE DE INTAKE do fail-closed de data_vencimento (CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM; decisao do dono R-084, 2026-09-04: "validar agora"). Fica ANTES dos tres ST_EmitirDemonstrativo* e antes de ST_RegistrarGlosaParcial, logo nenhuma conta sem vencimento chega a emitir demonstrativo ao prestador nem a registrar efeito adverso: ela vai para ANALISE_HUMANA, onde o analista pode DEVOLVER a conta ao prestador para correcao. FAIL-CLOSED PELO DEFAULT: a rota humana e o default, e a rota automatica exige a condicao POSITIVA vencimento_ausente == false; uma variavel ausente, nula ou de tipo inesperado nunca produz a perna automatica. vencimento_ausente e escrita por operadora.contas.identify_glosa (ST_ApurarDivergencias) em TODO caminho, inclusive na reentrada por msg.contas.linhas_atualizadas, e inicializada fail-closed como true em ST_PublishReceived. NAO pre-julga a ADR-0040 OQ-2 (a clausula contratual de ORIGEM de data_vencimento segue DRAFT/verify): so muda o ROTEAMENTO de contas que hoje terminariam em incidente no handoff. A recusa de operadora.contas.handoff_pagamento continua no lugar como defesa em profundidade (o analista pode decidir PAGAR sem o vencimento aparecer).</bpmn:documentation>
+      <bpmn:incoming>Flow_Sla_GWVencimento</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWVenc_ComVencimento</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWVenc_Humano</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
     <bpmn:exclusiveGateway id="GW_HasGlosas" name="Ha divergencias/glosas candidatas?" default="Flow_GWHasGlosas_Normalize">
-      <bpmn:incoming>Flow_Impact_GWHasGlosas</bpmn:incoming>
+      <bpmn:incoming>Flow_GWVenc_ComVencimento</bpmn:incoming>
       <bpmn:outgoing>Flow_GWHasGlosas_SemDivergencia</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWHasGlosas_Normalize</bpmn:outgoing>
     </bpmn:exclusiveGateway>
@@ -153,21 +174,17 @@ docs/processes/contracts/SP-OP-CONTAS-001.md.
     <bpmn:businessRuleTask id="BRT_TriagemGlosa" name="Triagem da conta (DMN glosa_triage)" camunda:resultVariable="triagem" camunda:decisionRef="glosa_triage" camunda:mapDecisionResult="singleResult">
       <bpmn:documentation>Dominio de roteamento EXATAMENTE {PAGAR, ANALISE_HUMANA}. Por design NAO existe saida GLOSAR (L0 hard): o adverso e a glosa, e ela nao pode ser valor de saida de DMN. Catch-all -&gt; ANALISE_HUMANA.</bpmn:documentation>
       <bpmn:incoming>Flow_Classify_Triagem</bpmn:incoming>
-      <bpmn:outgoing>Flow_Triagem_Sla</bpmn:outgoing>
-    </bpmn:businessRuleTask>
-    <bpmn:businessRuleTask id="BRT_ContasSla" name="Determinar SLA de analise (DMN contas_sla)" camunda:resultVariable="sla" camunda:decisionRef="contas_sla" camunda:mapDecisionResult="singleResult">
-      <bpmn:documentation>Entrada: tipo_lote + valor_apresentado_brl + data_recebimento_lote (ancora contratual do prazo — GAP-CONTAS-4; a data em que a OPERADORA recebeu o lote, normalizada/defaultada pelo worker identify_glosa em TODO caminho, inclusive na reentrada por msg.contas.linhas_atualizadas — ENGINE-16004). Saidas: sla_analise/sla_alerta (string ISO — duracoes relativas, legado/observabilidade p/ notify_sla_risk), sla_analise_absoluto_iso/sla_alerta_absoluto_iso (string ISO datetime — deadline/alerta ABSOLUTOS = data_recebimento_lote + duracao; consumidos pelos timeDate de BT_SlaAnaliseContas/BT_AlertaSlaContas), fonte_regulatoria (prazo contratual + RN 501/2022 — DRAFT/verify). Nenhuma saida adversa.</bpmn:documentation>
-      <bpmn:incoming>Flow_Triagem_Sla</bpmn:incoming>
-      <bpmn:outgoing>Flow_Sla_GWTriagem</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Triagem_GWTriagem</bpmn:outgoing>
     </bpmn:businessRuleTask>
     <bpmn:exclusiveGateway id="GW_Triagem" name="Resultado da triagem" default="Flow_GWTriagem_Humano">
-      <bpmn:incoming>Flow_Sla_GWTriagem</bpmn:incoming>
+      <bpmn:incoming>Flow_Triagem_GWTriagem</bpmn:incoming>
       <bpmn:outgoing>Flow_GWTriagem_Pagar</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWTriagem_Humano</bpmn:outgoing>
     </bpmn:exclusiveGateway>
     <bpmn:serviceTask id="ST_PrepareTriageDossier" name="Preparar dossie de triagem (agente Marina)" camunda:type="external" camunda:topic="operadora.contas.prepare_triage_dossier">
       <bpmn:documentation>Convoca Marina via A2A REAL (GAP-CONTAS-1: DelegationDispatcher.delegate, task_type glosa.analyze): dossie de triagem (recomendacao + evidencias + regras DMN avaliadas). O dossie INSTRUI a decisao humana, nunca a substitui (principio Rafael). Fail-safe: sem dispatcher injetado (worker-daemon sem A2A wiring) ou delegacao rejeitada, o worker publica a notificacao interna sem o resultado A2A — a UT humana abre do mesmo jeito.</bpmn:documentation>
       <bpmn:incoming>Flow_GWTriagem_Humano</bpmn:incoming>
+      <bpmn:incoming>Flow_GWVenc_Humano</bpmn:incoming>
       <bpmn:outgoing>Flow_Dossie_UTAnalista</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:userTask id="UT_AnalistaContas" name="Analise do analista de contas" camunda:candidateGroups="auditoria-contas">
@@ -436,7 +453,12 @@ valores DRAFT/verify). A decisao sai em nome do analista (assignee na trilha, AD
     <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_LoteTissRecebido" targetRef="ST_PublishReceived" />
     <bpmn:sequenceFlow id="Flow_PubReceived_Apurar" sourceRef="ST_PublishReceived" targetRef="ST_ApurarDivergencias" />
     <bpmn:sequenceFlow id="Flow_Apurar_Impact" sourceRef="ST_ApurarDivergencias" targetRef="ST_CalculateImpact" />
-    <bpmn:sequenceFlow id="Flow_Impact_GWHasGlosas" sourceRef="ST_CalculateImpact" targetRef="GW_HasGlosas" />
+    <bpmn:sequenceFlow id="Flow_Impact_Sla" sourceRef="ST_CalculateImpact" targetRef="BRT_ContasSla" />
+    <bpmn:sequenceFlow id="Flow_Sla_GWVencimento" sourceRef="BRT_ContasSla" targetRef="GW_VencimentoConta" />
+    <bpmn:sequenceFlow id="Flow_GWVenc_ComVencimento" name="conta COM vencimento contratual" sourceRef="GW_VencimentoConta" targetRef="GW_HasGlosas">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${vencimento_ausente == false}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWVenc_Humano" name="SEM vencimento -&gt; ANALISE_HUMANA (default, fail-closed)" sourceRef="GW_VencimentoConta" targetRef="ST_PrepareTriageDossier" />
     <bpmn:sequenceFlow id="Flow_GWHasGlosas_SemDivergencia" name="sem divergencias" sourceRef="GW_HasGlosas" targetRef="ST_EmitirDemonstrativoIntegral">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${has_glosas == false}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
@@ -444,8 +466,7 @@ valores DRAFT/verify). A decisao sai em nome do analista (assignee na trilha, AD
     <bpmn:sequenceFlow id="Flow_Normalize_Analyze" sourceRef="BRT_ReasonNormalization" targetRef="ST_AnalyzeReason" />
     <bpmn:sequenceFlow id="Flow_Analyze_Classify" sourceRef="ST_AnalyzeReason" targetRef="BRT_Classification" />
     <bpmn:sequenceFlow id="Flow_Classify_Triagem" sourceRef="BRT_Classification" targetRef="BRT_TriagemGlosa" />
-    <bpmn:sequenceFlow id="Flow_Triagem_Sla" sourceRef="BRT_TriagemGlosa" targetRef="BRT_ContasSla" />
-    <bpmn:sequenceFlow id="Flow_Sla_GWTriagem" sourceRef="BRT_ContasSla" targetRef="GW_Triagem" />
+    <bpmn:sequenceFlow id="Flow_Triagem_GWTriagem" sourceRef="BRT_TriagemGlosa" targetRef="GW_Triagem" />
     <bpmn:sequenceFlow id="Flow_GWTriagem_Pagar" name="PAGAR" sourceRef="GW_Triagem" targetRef="ST_EmitirDemonstrativoIntegral">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${triagem.roteamento == 'PAGAR'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
@@ -507,26 +528,29 @@ valores DRAFT/verify). A decisao sai em nome do analista (assignee na trilha, AD
       <bpmndi:BPMNShape id="Shape_ST_CalculateImpact" bpmnElement="ST_CalculateImpact">
         <dc:Bounds x="590" y="400" width="100" height="80" />
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_ContasSla" bpmnElement="BRT_ContasSla">
+        <dc:Bounds x="750" y="400" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_VencimentoConta" bpmnElement="GW_VencimentoConta" isMarkerVisible="true">
+        <dc:Bounds x="900" y="415" width="50" height="50" />
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_HasGlosas" bpmnElement="GW_HasGlosas" isMarkerVisible="true">
-        <dc:Bounds x="760" y="415" width="50" height="50" />
+        <dc:Bounds x="1000" y="415" width="50" height="50" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BRT_ReasonNormalization" bpmnElement="BRT_ReasonNormalization">
-        <dc:Bounds x="870" y="400" width="100" height="80" />
+        <dc:Bounds x="1100" y="400" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_AnalyzeReason" bpmnElement="ST_AnalyzeReason">
-        <dc:Bounds x="1030" y="400" width="100" height="80" />
+        <dc:Bounds x="1250" y="400" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BRT_Classification" bpmnElement="BRT_Classification">
-        <dc:Bounds x="1190" y="400" width="100" height="80" />
+        <dc:Bounds x="1400" y="400" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BRT_TriagemGlosa" bpmnElement="BRT_TriagemGlosa">
-        <dc:Bounds x="1350" y="400" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BRT_ContasSla" bpmnElement="BRT_ContasSla">
-        <dc:Bounds x="1510" y="400" width="100" height="80" />
+        <dc:Bounds x="1550" y="400" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_Triagem" bpmnElement="GW_Triagem" isMarkerVisible="true">
-        <dc:Bounds x="1680" y="415" width="50" height="50" />
+        <dc:Bounds x="1700" y="415" width="50" height="50" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PrepareTriageDossier" bpmnElement="ST_PrepareTriageDossier">
         <dc:Bounds x="1790" y="400" width="100" height="80" />
@@ -645,48 +669,57 @@ valores DRAFT/verify). A decisao sai em nome do analista (assignee na trilha, AD
         <di:waypoint x="530" y="440" />
         <di:waypoint x="590" y="440" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Impact_GWHasGlosas" bpmnElement="Flow_Impact_GWHasGlosas">
+      <bpmndi:BPMNEdge id="Edge_Flow_Impact_Sla" bpmnElement="Flow_Impact_Sla">
         <di:waypoint x="690" y="440" />
-        <di:waypoint x="760" y="440" />
+        <di:waypoint x="750" y="440" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_GWVencimento" bpmnElement="Flow_Sla_GWVencimento">
+        <di:waypoint x="850" y="440" />
+        <di:waypoint x="900" y="440" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWVenc_ComVencimento" bpmnElement="Flow_GWVenc_ComVencimento">
+        <di:waypoint x="950" y="440" />
+        <di:waypoint x="1000" y="440" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWVenc_Humano" bpmnElement="Flow_GWVenc_Humano">
+        <di:waypoint x="925" y="465" />
+        <di:waypoint x="925" y="700" />
+        <di:waypoint x="1840" y="700" />
+        <di:waypoint x="1840" y="480" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWHasGlosas_SemDivergencia" bpmnElement="Flow_GWHasGlosas_SemDivergencia">
-        <di:waypoint x="810" y="440" />
-        <di:waypoint x="1525" y="440" />
-        <di:waypoint x="1525" y="80" />
+        <di:waypoint x="1025" y="415" />
+        <di:waypoint x="1025" y="80" />
         <di:waypoint x="2240" y="80" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWHasGlosas_Normalize" bpmnElement="Flow_GWHasGlosas_Normalize">
-        <di:waypoint x="810" y="440" />
-        <di:waypoint x="870" y="440" />
+        <di:waypoint x="1050" y="440" />
+        <di:waypoint x="1100" y="440" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Normalize_Analyze" bpmnElement="Flow_Normalize_Analyze">
-        <di:waypoint x="970" y="440" />
-        <di:waypoint x="1030" y="440" />
+        <di:waypoint x="1200" y="440" />
+        <di:waypoint x="1250" y="440" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Analyze_Classify" bpmnElement="Flow_Analyze_Classify">
-        <di:waypoint x="1130" y="440" />
-        <di:waypoint x="1190" y="440" />
+        <di:waypoint x="1350" y="440" />
+        <di:waypoint x="1400" y="440" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Classify_Triagem" bpmnElement="Flow_Classify_Triagem">
-        <di:waypoint x="1290" y="440" />
-        <di:waypoint x="1350" y="440" />
+        <di:waypoint x="1500" y="440" />
+        <di:waypoint x="1550" y="440" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Triagem_Sla" bpmnElement="Flow_Triagem_Sla">
-        <di:waypoint x="1450" y="440" />
-        <di:waypoint x="1510" y="440" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Sla_GWTriagem" bpmnElement="Flow_Sla_GWTriagem">
-        <di:waypoint x="1610" y="440" />
-        <di:waypoint x="1680" y="440" />
+      <bpmndi:BPMNEdge id="Edge_Flow_Triagem_GWTriagem" bpmnElement="Flow_Triagem_GWTriagem">
+        <di:waypoint x="1650" y="440" />
+        <di:waypoint x="1700" y="440" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWTriagem_Pagar" bpmnElement="Flow_GWTriagem_Pagar">
-        <di:waypoint x="1730" y="440" />
+        <di:waypoint x="1750" y="440" />
         <di:waypoint x="1985" y="440" />
         <di:waypoint x="1985" y="80" />
         <di:waypoint x="2240" y="80" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWTriagem_Humano" bpmnElement="Flow_GWTriagem_Humano">
-        <di:waypoint x="1730" y="440" />
+        <di:waypoint x="1750" y="440" />
         <di:waypoint x="1790" y="440" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTAnalista" bpmnElement="Flow_Dossie_UTAnalista">

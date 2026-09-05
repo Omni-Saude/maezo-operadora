@@ -293,6 +293,24 @@ _ENDS_ADVERSOS = frozenset({_END_GLOSA_APLICADA, _END_PAGAMENTO_PARCIAL})
 
 _UT_HUMANAS_ACEITE = frozenset({_UT_ANALISTA, _UT_COORDENACAO})
 
+#: CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM (R-084): as tarefas que materializam um efeito
+#: EXTERNO ao prestador na adjudicacao — os tres emissores de demonstrativo (mais o da glosa
+#: integral) e os dois registros de glosa. `GW_VencimentoConta` fica ANTES de todas elas; numa
+#: conta sem `data_vencimento` nenhuma pode aparecer na historia de atividades do engine.
+#: A dominancia ESTATICA da mesma lista e provada sem engine em
+#: `tests/unit/spec/test_sp_op_contas_001_artefatos.py::
+#: test_gate_de_vencimento_domina_todo_efeito_externo_da_adjudicacao`.
+_EFEITOS_EXTERNOS_DA_ADJUDICACAO = frozenset(
+    {
+        "ST_EmitirDemonstrativoIntegral",
+        "ST_EmitirDemonstrativoAprovado",
+        "ST_EmitirDemonstrativoParcial",
+        "ST_EmitirDemonstrativo",
+        "ST_RegistrarGlosa",
+        "ST_RegistrarGlosaParcial",
+    }
+)
+
 # FINDING 1 (module docstring): contas.py's 9 dict-boundary entry functions never call
 # kafka.publish (each does `del kafka  # unused`) — the generic operadora.events.publish path
 # (events.py, T3.1 R2 fix, registered below via register_events_workers) is UNAFFECTED and
@@ -874,48 +892,133 @@ async def test_happy_path_pagamento_integral(
     assert contas_probe.has_event(_CONTAS_COMPLETED, desfecho="pagar_integral")
 
 
-async def test_lote_sem_data_vencimento_nao_gera_ordem_de_pagamento(
+async def test_lote_sem_data_vencimento_roteia_a_analise_humana_no_intake(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """FAIL-CLOSED de `data_vencimento` (ADR-0040 OQ-2), provado ponta-a-ponta.
+    """GATE DE INTAKE de `data_vencimento` (`CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM`,
+    decisao do dono R-084: *"validar agora"*), provado ponta-a-ponta contra o engine.
 
-    A perna automatica e a mais perigosa: nada nela e humano. Se o handoff DEFAULTASSE um
-    vencimento ausente, SP-OP-PAGTO-001 receberia uma ordem com um prazo INVENTADO e o revisor de
-    `UT_AnaliseAdmissibilidade` leria esse prazo como se viesse do termo contratual. O worker
-    recusa (`ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`) e a instancia para de forma VISIVEL —
-    incidente no engine — em vez de emitir uma ordem falsa.
+    REESCRITO de `test_lote_sem_data_vencimento_nao_gera_ordem_de_pagamento`, que provava a postura
+    ANTERIOR: a recusa vivia em `operadora.contas.handoff_pagamento`, A JUSANTE dos tres
+    `ST_EmitirDemonstrativo*` — o teste antigo exigia (corretamente, para o desenho de entao) que a
+    instancia CHEGASSE a `ST_HandoffPagamentoAuto`, isto e, que o demonstrativo ja tivesse sido
+    emitido ao prestador. Era exatamente o defeito: a operadora comunicava uma adjudicacao cuja
+    ordem nunca nasceria.
 
-    Este teste e o par negativo de `test_happy_path_pagamento_integral`: com a data, a perna fecha
-    em `End_ContaAprovadaIntegral`; sem ela, NENHUMA ordem de pagamento existe. Sem este par, a
-    semeadura de `data_vencimento` na fixture poderia estar escondendo a recusa em vez de
-    satisfazendo-a.
+    Agora `GW_VencimentoConta` fica antes de tudo isso. A perna AUTOMATICA (`has_glosas=false`) e a
+    prova mais forte porque nela nao ha humano nenhum: sem o gate ela emitiria o demonstrativo
+    sozinha.
+
+    A assercao e sobre a HISTORIA DE ATIVIDADES do engine, nao sobre eco de kafka: o que importa e
+    que as tarefas de efeito externo NUNCA foram executadas, e so o historico do engine sustenta
+    isso (um evento ausente pode ser um publicador quebrado).
     """
     await _deploy_pagto(engine)
     lote = _unique_lote("LOTE-SEM-VENC")
     inst = await start_contas(numero_lote_tiss=lote, has_glosas=False, data_vencimento="")
     iid = inst["id"]
 
+    ut = await _drive_to_analista(engine, contas_probe, iid)
+    assert "auditoria-contas" in ut.candidate_groups, (
+        "a conta sem vencimento tem de parar na fila HUMANA de auditoria de contas"
+    )
+
+    ended = await engine.activity_instances_ended(iid)
+    assert "GW_VencimentoConta" in ended, (
+        f"o gate de intake tem de aparecer na historia — senao a rota provada e outra. ended={ended}"
+    )
+    for efeito in _EFEITOS_EXTERNOS_DA_ADJUDICACAO:
+        assert efeito not in ended, (
+            f"{efeito} executou numa conta SEM vencimento — o gate de intake tem de vir ANTES de "
+            f"qualquer demonstrativo ao prestador e de qualquer registro de glosa. ended={ended}"
+        )
+    assert "GW_HasGlosas" not in ended, (
+        "a perna automatica nem chega a ser avaliada quando o vencimento falta (o gate desvia "
+        f"antes de GW_HasGlosas). ended={ended}"
+    )
+    assert _END_APROVADA_INTEGRAL not in ended
+    assert not (ended & _ENDS_ADVERSOS)
+    assert not await engine.find_active_instances(f"PAGTO-amh-{lote}-PRESTADOR-TESTE-001"), (
+        "nenhuma ordem de pagamento pode nascer de um lote sem vencimento"
+    )
+    assert not await engine.incidents(iid), (
+        "o desvio a humano NAO e um incidente: a instancia fica viva, na fila do analista"
+    )
+
+
+async def test_controle_negativo_com_vencimento_o_gate_libera_a_perna_automatica(
+    engine: EngineRest,
+    contas_probe: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """Controle de NAO-VACUIDADE do teste acima: o mesmo lote COM vencimento passa direto pelo gate.
+
+    Sem este par, um gate que roteasse TUDO a humano (ou uma fixture que nunca alcancasse a perna
+    automatica) satisfaria as assercoes negativas acima por construcao.
+    """
+    await _deploy_pagto(engine)
+    lote = _unique_lote("LOTE-COM-VENC")
+    inst = await start_contas(numero_lote_tiss=lote, has_glosas=False)
+    iid = inst["id"]
+
+    await contas_probe.drain()
+    ended = await _await_end(engine, iid)
+
+    assert "GW_VencimentoConta" in ended, f"o gate roda em TODO caminho. ended={ended}"
+    assert "GW_HasGlosas" in ended, f"com vencimento o token segue para GW_HasGlosas. ended={ended}"
+    assert "ST_EmitirDemonstrativoIntegral" in ended
+    assert _END_APROVADA_INTEGRAL in ended, f"a perna automatica continua fechando. ended={ended}"
+    assert not await engine.list_user_tasks(iid), "com vencimento o gate NAO cria User Task"
+
+
+async def test_sem_data_vencimento_recusa_no_handoff_segue_como_defesa_em_profundidade(
+    engine: EngineRest,
+    contas_probe: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """A recusa de `handoff_pagamento` NAO foi removida — e ainda e alcancavel, pelo unico caminho
+    que restou: o analista decide `PAGAR` numa conta cujo vencimento nunca apareceu.
+
+    Esta e a metade que impede a leitura de que o gate de intake "substituiu" o fail-closed a
+    jusante. O gate de intake muda o ROTEAMENTO; a recusa de `ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`
+    continua sendo o que impede uma ordem de pagamento com prazo inventado quando um humano manda
+    pagar assim mesmo. Aqui o demonstrativo E emitido — e correto: houve decisao humana, e o
+    prestador tem de ser comunicado dela.
+    """
+    await _deploy_pagto(engine)
+    lote = _unique_lote("LOTE-SEM-VENC-HUMANO")
+    inst = await start_contas(numero_lote_tiss=lote, has_glosas=False, data_vencimento="")
+    iid = inst["id"]
+
+    ut = await _drive_to_analista(engine, contas_probe, iid)
+    await engine.complete_task_as_human(
+        ut.id,
+        {
+            "decisao_contas": "PAGAR",
+            "valor_liberado_brl": _double_var(1800.00),
+            "analista_id": "analista-sintetico-001",
+        },
+    )
     await contas_probe.drain()
 
     ended = await engine.activity_instances_ended(iid)
-    assert "ST_HandoffPagamentoAuto" in ended, (
-        "o teste tem de CHEGAR ao handoff para ser discriminante — senao a ausencia de ordem "
-        f"valeria por construcao. ended={ended}"
+    assert "ST_HandoffPagamentoHumano" in ended, (
+        f"o teste tem de CHEGAR ao handoff para ser discriminante. ended={ended}"
     )
-    assert _END_APROVADA_INTEGRAL not in ended, (
+    assert _END_APROVADA_HUMANO not in ended, (
         "sem vencimento contratual a conta NAO pode ser dada por aprovada e encaminhada"
     )
     assert not await engine.find_active_instances(f"PAGTO-amh-{lote}-PRESTADOR-TESTE-001"), (
         "nenhuma ordem de pagamento pode nascer de um lote sem vencimento — um prazo inventado "
         "e um prazo falso (ADR-0040 OQ-2)"
     )
-    assert not contas_probe.has_event(_CONTAS_COMPLETED, desfecho="pagar_integral")
+    assert not contas_probe.has_event(_CONTAS_COMPLETED, desfecho="pagamento_aprovado_humano")
     incidents = await engine.incidents(iid)
-    handoff_incidents = [i for i in incidents if i.get("activityId") == "ST_HandoffPagamentoAuto"]
+    handoff_incidents = [i for i in incidents if i.get("activityId") == "ST_HandoffPagamentoHumano"]
     assert handoff_incidents, (
-        f"a recusa tem de ser VISIVEL: um incidente aberto em ST_HandoffPagamentoAuto, nunca um "
+        f"a recusa tem de ser VISIVEL: um incidente aberto em ST_HandoffPagamentoHumano, nunca um "
         f"no-op silencioso. Incidentes encontrados: {incidents}"
     )
     assert any("data_vencimento" in (i.get("incidentMessage") or "") for i in handoff_incidents), (

@@ -35,6 +35,14 @@ CC-09 (Agent Fleet Audit, 2026-09-04) per-agent DESFECHO telemetry:
   false_denial_rate, ...) actually MEASURABLE — before CC-09 no per-agent outcome telemetry
   existed at all (`grep -rln 'record_' src/maezo/agents/*/graph.py` was empty).
 
+R-104/WP-ALERTA-SLA-CANAL notifications-bridge SLA-alert -> human task (SP-OP-ESCALATION-001):
+- maezo_sla_alert_human_task_total (Counter) — what became of an SLA-risk alert, by
+  {alert_domain,outcome}; `outcome` is "escalated" (a real SP-OP-ESCALATION-001 User Task was
+  opened through the fenced chokepoint), "not_anchored" (a known SLA `type` whose payload lacked
+  `tenant_id`/its business-key anchor -> the rule stayed fail-closed dormant) or
+  "unrecognised_shape" (shaped like an SLA-risk alert but not yet in the spec table) — never a
+  silent drop, see `notifications_bridge._record_sla_alert_outcome`
+
 WHICH OF THESE THE SHIPPED ALERTS READ (deploy/observability/alert-rules.yml, read-only here):
 `maezo_worker_execution_time_seconds`, `maezo_worker_error_count_total`, `maezo_agent_errors_total`
 and `maezo_tool_calls_total`. The last two had NO emitter in `src/` at all until AF-13
@@ -47,7 +55,49 @@ from __future__ import annotations
 import structlog
 from prometheus_client import CollectorRegistry, Counter, Histogram
 
+from maezo.platform.error_types import (
+    AGENT_ERROR_TYPE_NONE,
+    AGENT_ERROR_TYPE_OUTRO,
+    AGENT_ERROR_TYPE_RUNTIME,
+    AGENT_ERROR_TYPE_TIMEOUT,
+    AGENT_ERROR_TYPE_UPSTREAM_INDISPONIVEL,
+    AGENT_ERROR_TYPE_VALIDACAO,
+    AGENT_ERROR_TYPES,
+    classify_agent_error_type,
+)
+
 logger = structlog.get_logger(__name__)
+
+#: Re-exportados de `maezo.platform.error_types` (ver o bloco de comentario abaixo). Declarados em
+#: `__all__` para que o re-export seja INTENCIONAL e nao um import acidentalmente nao usado.
+__all__ = [
+    "AGENT_ERROR_TYPES",
+    "AGENT_ERROR_TYPE_NONE",
+    "AGENT_ERROR_TYPE_OUTRO",
+    "AGENT_ERROR_TYPE_RUNTIME",
+    "AGENT_ERROR_TYPE_TIMEOUT",
+    "AGENT_ERROR_TYPE_UPSTREAM_INDISPONIVEL",
+    "AGENT_ERROR_TYPE_VALIDACAO",
+    "MetricsCollector",
+    "classify_agent_error_type",
+]
+
+
+# ---------------------------------------------------------------------------
+# ALERT-COUNTER-LABELS / R-063 (owner-ratified 2026-09-04): o vocabulario FECHADO do label
+# `error_type` dos contadores `maezo_tool_calls_total`/`maezo_agent_errors_total` abaixo MORA em
+# `maezo.platform.error_types` — um modulo FOLHA (zero imports de `maezo`) — e e apenas
+# RE-EXPORTADO por este modulo (import no topo + `__all__`), por compatibilidade com os call-sites
+# que ja importavam estes nomes daqui.
+#
+# Por que a fonte nao mora mais neste arquivo: importar `maezo.runtime.metrics` dispara
+# `maezo.runtime.__init__`, que importa `harness`/`checkpoint`/`inference` e portanto `langgraph`.
+# `maezo.platform.observability` precisa de `AGENT_ERROR_TYPE_*`/`AGENT_ERROR_TYPES` no TOPO do
+# arquivo e nao pode pagar esse acoplamento em tempo de import — nem fechar o ciclo
+# observability -> runtime -> harness -> observability. Ver o docstring de
+# `src/maezo/platform/error_types.py` e a cerca `test_importing_observability_does_not_pull_the_agent_runtime`
+# em `tests/unit/platform/test_alert_metrics_fence.py`.
+# ---------------------------------------------------------------------------
 
 
 class MetricsCollector:
@@ -74,12 +124,14 @@ class MetricsCollector:
         self._tool_calls = Counter(
             "maezo_tool_calls_total",
             "Total number of tool call invocations",
+            labelnames=["agent", "error_type"],
             registry=self._registry,
         )
 
         self._errors = Counter(
             "maezo_agent_errors_total",
             "Total number of agent errors",
+            labelnames=["agent", "error_type"],
             registry=self._registry,
         )
 
@@ -213,6 +265,38 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # R-104/WP-ALERTA-SLA-CANAL. SLA-risk alerts turned into a human task, per
+        # `notifications_bridge._record_sla_alert_outcome`. CONTENT-FREE BY CONSTRUCTION, same rule
+        # as `bridge_dlq` above: `alert_domain` is a closed vocabulary (`notification_bridge.
+        # SLA_ALERT_DOMAINS` -> recurso | programa | lgpd, plus the literal `unknown` for a
+        # `<dominio>.notify_sla_risk` shape the spec table does not carry — the raw, producer-
+        # controlled `type` is NEVER a label), `outcome` is closed ("escalated" | "not_anchored" |
+        # "unrecognised_shape"). Never a tenant id, business key, or any payload byte.
+        self._sla_alert_human_task = Counter(
+            "maezo_sla_alert_human_task_total",
+            "SLA-risk alert notifications turned into an SP-OP-ESCALATION-001 human task "
+            "(COUNTS ONLY; alert_domain and outcome are closed vocabularies, never payload-derived)",
+            labelnames=["alert_domain", "outcome"],
+            registry=self._registry,
+        )
+
+        # D6-01: the effect-chokepoint rate limit. Counts gated calls REFUSED by
+        # `gateway/rate_limit.py` inside `gateway/seams/_base.py::gate` — never a silent drop.
+        #
+        # LABELS ARE THE THROTTLE KEY AND NOTHING ELSE. `tenant` and `principal` are exactly the
+        # pair the bucket is keyed by, both bounded non-PHI tokens validated at `SeamContext`
+        # construction (`effect_pep._TOKEN_RE`) and both of small, closed cardinality (tenants;
+        # ~10 agent ids plus `worker_runtime`/`notifications_bridge`). `operation` is DELIBERATELY
+        # absent: an uncatalogued operation token is reachable at this point (it is an L-0 deny,
+        # not a construction error), so it is not a bounded label — it goes on the structured log
+        # line instead, the same rule `worker_task_total` documents for business identifiers.
+        self._effect_rate_limited = Counter(
+            "maezo_effect_rate_limited_total",
+            "Gated effect calls refused by the chokepoint rate limit (COUNTS ONLY)",
+            labelnames=["tenant", "principal"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -234,6 +318,26 @@ class MetricsCollector:
     def errors(self) -> Counter:
         """Counter for agent errors."""
         return self._errors
+
+    def agent_counter_labelnames(self) -> dict[str, tuple[str, ...]]:
+        """The configured `labelnames` of `tool_calls`/`errors` (ALERT-COUNTER-LABELS / R-063),
+        keyed by attribute name — the public accessor callers pinning the label-SHAPE contract
+        should use instead of reaching into `prometheus_client.Counter`'s own internals directly.
+
+        `prometheus_client.Counter` exposes NO public way to read a metric's configured label
+        NAMES before its first observation: `collect()` — the one public introspection path —
+        yields zero `Sample`s until `.labels(...).inc()` has run at least once (a labelled metric
+        with no observation yet is indistinguishable, via `collect()`, from one that will never be
+        used). `_labelnames` (defined on `prometheus_client`'s own `MetricWrapperBase`, a class
+        this repo does not own) is the only place the answer lives before that. This method
+        confines that one unavoidable reach-in to the single place that already owns and
+        constructs both `Counter` instances, so every caller — starting with the test pinning the
+        two agent counters' shared label set — reads a genuinely public contract instead.
+        """
+        return {
+            name: counter._labelnames  # noqa: SLF001 — no public API exists; see docstring above.
+            for name, counter in (("tool_calls", self._tool_calls), ("errors", self._errors))
+        }
 
     @property
     def worker_execution_time(self) -> Histogram:
@@ -288,6 +392,15 @@ class MetricsCollector:
         return self._llm_tier_resolution
 
     @property
+    def effect_rate_limited(self) -> Counter:
+        """Counter for effect calls refused by the chokepoint rate limit (D6-01).
+
+        Labels: tenant, principal — the (tenant, principal) pair the token bucket is keyed by.
+        COUNTS ONLY; no operation, no call argument, no business identifier.
+        """
+        return self._effect_rate_limited
+
+    @property
     def bridge_dlq(self) -> Counter:
         """Counter for notifications-bridge dead-letter shunts (GAP-SC-04-a).
 
@@ -311,6 +424,16 @@ class MetricsCollector:
         escalation_precision, false_denial_rate, ...) are measured FROM.
         """
         return self._agent_desfecho_total
+
+    @property
+    def sla_alert_human_task(self) -> Counter:
+        """Counter for SLA-risk alerts turned into a human task (R-104/WP-ALERTA-SLA-CANAL).
+
+        Labels: alert_domain (closed — recurso | programa | lgpd | unknown), outcome
+        ("escalated" | "not_anchored" | "unrecognised_shape"). COUNTS ONLY — see construction
+        comment.
+        """
+        return self._sla_alert_human_task
 
     @property
     def phi_business_key_mint(self) -> Counter:

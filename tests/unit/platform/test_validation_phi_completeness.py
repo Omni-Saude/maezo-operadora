@@ -722,6 +722,30 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "one declaration; corpus total 1637 -> 1636."
         ),
     ),
+    CorpusDelta(
+        date="2026-09-04",
+        pr="#331",
+        name="vencimento_ausente",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "fix/contas-data-vencimento-intake-gate (CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM, "
+            "owner decision R-084) adds the intake-gate routing fact of SP-OP-CONTAS-001: the "
+            "worker `operadora.contas.identify_glosa` now derives it from the same `strip()` that "
+            "normalises `data_vencimento`, and the new `GW_VencimentoConta` routes a conta with no "
+            "due date to ANALISE_HUMANA BEFORE any `ST_EmitirDemonstrativo*` and before "
+            "`ST_RegistrarGlosaParcial` — the refusal used to live downstream, in "
+            "`handoff_pagamento`, after the prestador had already been sent its demonstrativo. "
+            "Exactly TWO declarations, both non-free-text: the fail-closed "
+            '`camunda:outputParameter name="vencimento_ausente">${true}` on ST_PublishReceived '
+            "(bpmn_output_parameter — same engine mechanic as `decisao_contas`, opposite polarity) "
+            "and the gateway's own `${vencimento_ausente == false}` conditionExpression "
+            "(juel_root). New name, a boolean ROUTING fact about the lote's contractual due date "
+            "(provider/billing metadata, never beneficiary PHI — absent from PHI_PROCESS_VARS, "
+            "ADR-0006), CLEAN bucket, no LISTED/SHAPE_SUSPECT movement. Corpus 330 -> 331 names, "
+            "1636 -> 1638 occurrences."
+        ),
+    ),
 )
 
 
@@ -732,7 +756,7 @@ class TestBuckets:
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 9
-        assert expected_clean == 315
+        assert expected_clean == 316
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 9,
@@ -741,7 +765,7 @@ class TestBuckets:
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
 
     def test_the_occurrence_count_is_pinned(self, live_sweep: Sweep) -> None:
-        """330 names over 1636 occurrences — the number the ledger row quotes.
+        """331 names over 1638 occurrences — the number the ledger row quotes.
 
         Pinned because the first ledger draft quoted 1637, a figure no state of
         this branch produced. A number reported to a reader and reproducible by
@@ -753,8 +777,8 @@ class TestBuckets:
         """
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
-        assert len(live_sweep.names) == expected_names == 330
-        assert len(live_sweep.refs) == expected_refs == 1636
+        assert len(live_sweep.names) == expected_names == 331
+        assert len(live_sweep.refs) == expected_refs == 1638
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -876,8 +900,8 @@ class TestBuckets:
         assert f"## {LISTED} (6)" in rendered
         assert f"## {SHAPE_SUSPECT} (9)" in rendered
         assert (
-            f"## {CLEAN} (315)" in rendered
-        )  # see CORPUS_DELTA_LOG — lastro_origem entered the corpus (#294)
+            f"## {CLEAN} (316)" in rendered
+        )  # see CORPUS_DELTA_LOG — vencimento_ausente entered the corpus (#320)
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to

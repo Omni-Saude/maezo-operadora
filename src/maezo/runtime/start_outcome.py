@@ -60,6 +60,7 @@ from typing import Any, Literal
 import structlog
 
 from maezo.platform import observability
+from maezo.platform.error_types import AGENT_ERROR_TYPE_OUTRO
 from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.workers.phi_vars import redact_error_message
 
@@ -78,6 +79,18 @@ NODE_NOTIFY_START_FAILURE: str = "notify_start_failure"
 #: SEU proprio terminal (`complete`, `finalize`, `send_escalation_ack`, `END`), porque o nome do
 #: terminal varia por agente enquanto o predicado de roteamento nao varia.
 ROUTE_CONTINUE: str = "continue"
+
+#: `error_type` (ALERT-COUNTER-LABELS / R-063) do turno contado por :func:`notify_start_failure`.
+#: Este no' NAO tem objeto de excecao em escopo — quando ele roda, a excecao ja' foi convertida em
+#: string por :func:`start_failed_state` (que e' chamada EXCLUSIVAMENTE de blocos
+#: `except CibSevenError as exc` nos nos de `start_process`, cerca
+#: `tests/unit/agents/test_start_failure_routing.py`). Colocar a excecao no `state` (um `TypedDict`
+#: fechado que e' CHECKPOINTADO) para poder classifica-la aqui seria pior que o problema.
+#: O valor e' o MESMO que `classify_agent_error_type(exc)` devolveria em todo caminho que chega
+#: aqui: `CibSevenError` (e qualquer subclasse dela) NAO esta' em
+#: `_AGENT_ERROR_TYPE_BY_EXCEPTION_CLASS`, cuja busca e' por NOME EXATO de classe, sem caminhar a
+#: MRO — logo cai sempre em `AGENT_ERROR_TYPE_OUTRO`.
+START_FAILURE_ERROR_TYPE: str = AGENT_ERROR_TYPE_OUTRO
 
 #: Chave de estado (OUTPUT-ONLY) que marca "o start foi TENTADO e FALHOU tecnicamente".
 STATE_KEY_START_FAILED: str = "start_failed"
@@ -192,7 +205,7 @@ def notify_start_failure(
         # chokepoint (CC-06) antes de tocar um log.
         error=redact_error_message(str(state.get("error") or "")),
     )
-    observability.record_agent_error()
+    observability.record_agent_error(agent=agent_id, error_type=START_FAILURE_ERROR_TYPE)
     outcome: dict[str, Any] = {
         "desfecho": DESFECHO_ERRO_INICIO_PROCESSO,
         "process_started": False,

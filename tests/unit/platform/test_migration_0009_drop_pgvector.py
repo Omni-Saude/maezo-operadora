@@ -8,10 +8,13 @@ em producao.
 
 Cinco invariantes:
 
-1.  **Integridade da cadeia.** 0009 revisa 0008 e e' a UNICA cabeca; nenhum revision id e'
-    reivindicado duas vezes e nenhuma revisao e' pai de dois filhos. (Assercao herdada de
-    `test_migration_0008_a2a_fact_outbox.py`, por instrucao do docstring dela: a cabeca pertence
-    a quem POR ORA e' a cabeca.)
+1.  **Integridade da cadeia.** 0009 revisa 0008 e e' pai de exatamente UM filho. A 0009 deixou de
+    ser a cabeca quando a `0010_webhook_wamid_dedup` pousou, entao a assercao de CABECA UNICA /
+    sem-fork seguiu com a cabeca para `test_migration_0010_webhook_wamid_dedup.py` — exatamente o
+    que o docstring desta suite mandava ("a cabeca pertence a quem POR ORA e' a cabeca, entao uma
+    futura 0010 muda UM arquivo (este), nao a suite anterior"). O que fica aqui e' a metade que e'
+    sobre a PROPRIA 0009: ela revisa a 0008 e nenhuma outra migration reivindica a 0009 como pai,
+    o que torna um fork sobre ESTE no impossivel enquanto a cabeca segue adiante.
 
 2.  **O DROP da extensao e' GUARDADO, e as duas formas ingenuas sao PROIBIDAS POR NOME.** A
     extensao `vector` mora em `public` e e' DB-GLOBAL (DL-0017), mas esta migration roda uma vez
@@ -124,26 +127,23 @@ def test_revision_and_down_revision() -> None:
     assert 'down_revision: str | None = "0008"' in _SOURCE
 
 
-def test_0009_is_the_unique_head_of_a_linear_chain() -> None:
-    """Sem fork: cada revisao reivindicada uma vez, exatamente uma nao referenciada como pai.
+def test_0009_is_claimed_as_a_parent_by_exactly_one_migration() -> None:
+    """A 0009 nao e' mais a cabeca: a cadeia agora e' 0008->0009->0010, e a assercao de cabeca
+    unica / sem-fork foi COM a cabeca para `test_migration_0010_webhook_wamid_dedup.py`, como o
+    docstring desta suite mandava (uma futura 0010 muda UM arquivo — este).
 
-    Herdada de `test_migration_0008_a2a_fact_outbox.py` quando a 0009 pousou — a cabeca pertence
-    a quem POR ORA e' a cabeca, entao uma futura 0010 muda UM arquivo (este), nao a suite anterior.
+    O que se afirma aqui e' o que continua sendo sobre a 0009: exatamente UMA migration a
+    reivindica como pai. Dois filhos aqui seriam um fork silencioso sobre este no.
     """
-    revisions: dict[str, str | None] = {}
+    children = []
     for path in sorted(_VERSIONS_DIR.glob("[0-9]*.py")):
         text = path.read_text(encoding="utf-8")
-        rev = re.search(r'^revision: str = "([^"]+)"', text, re.MULTILINE)
-        down = re.search(r'^down_revision: str \| None = (?:"([^"]+)"|None)', text, re.MULTILINE)
-        assert rev is not None, f"{path.name} declares no revision"
-        assert down is not None, f"{path.name} declares no down_revision"
-        assert rev.group(1) not in revisions, f"duplicate revision id {rev.group(1)}"
-        revisions[rev.group(1)] = down.group(1)
-
-    parents = {down for down in revisions.values() if down is not None}
-    heads = set(revisions) - parents
-    assert heads == {_REVISION}, f"expected {_REVISION} to be the sole head, got {heads}"
-    assert len(parents) == len(revisions) - 1, "a revision is claimed as parent by two children"
+        down = re.search(r'^down_revision: str \| None = "([^"]+)"', text, re.MULTILINE)
+        if down is not None and down.group(1) == _REVISION:
+            children.append(path.name)
+    assert children == ["0010_webhook_wamid_dedup.py"], (
+        f"esperado 0010 como unico filho da 0009, veio {children}"
+    )
 
 
 # ---------------------------------------------------------------------------

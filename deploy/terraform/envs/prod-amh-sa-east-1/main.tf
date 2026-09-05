@@ -62,7 +62,7 @@ module "eks" {
   subnet_ids         = concat(data.aws_subnets.private_app.ids, data.aws_subnets.private_data.ids)
   private_subnet_ids = data.aws_subnets.private_app.ids
 
-  endpoint_public_access = false   # prod: private endpoint only
+  endpoint_public_access = false # prod: private endpoint only
   node_desired_size      = 3
   node_min_size          = 2
   node_max_size          = 10
@@ -119,7 +119,7 @@ module "github_oidc" {
   github_org           = var.github_org
   github_repo          = var.github_repo
   environment          = local.env
-  create_oidc_provider = false   # shared OIDC provider from amh-data-platform bootstrap
+  create_oidc_provider = false # shared OIDC provider from amh-data-platform bootstrap
 
   ecr_repository_arns  = [module.ecr.repository_arn]
   secrets_manager_arns = ["arn:aws:secretsmanager:${var.aws_region}:${var.aws_account_id}:secret:maezo/${local.env}/*"]
@@ -148,6 +148,24 @@ module "secrets" {
   name_prefix = local.name_prefix
   environment = local.env
   kms_key_arn = aws_kms_key.secrets.arn
+
+  tags = local.base_tags
+}
+
+# ---------------------------------------------------------------------------
+# Guardrails de custo — orcamento + deteccao de anomalia (gap B-02-b / R-045)
+# ---------------------------------------------------------------------------
+module "cost_guardrails" {
+  source = "../../modules/cost-guardrails"
+
+  providers = {
+    aws = aws.us_east_1
+  }
+
+  name_prefix           = local.name_prefix
+  environment           = local.env
+  monthly_budget_amount = var.monthly_budget_amount
+  notification_email    = var.cost_alert_email
 
   tags = local.base_tags
 }

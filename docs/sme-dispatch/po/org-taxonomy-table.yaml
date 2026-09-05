@@ -137,7 +137,7 @@ rows:
   nome_real: ''
 - grupo_declarado: auditoria-contas
   arquivo: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
-  linha: 173
+  linha: 190
   processo: SP-OP-CONTAS-001
   em_escopo: false
   tarefa_ou_regra_dmn: UT_AnalistaContas
@@ -147,7 +147,7 @@ rows:
   nome_real: ''
 - grupo_declarado: coordenacao-contas
   arquivo: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
-  linha: 222
+  linha: 239
   processo: SP-OP-CONTAS-001
   em_escopo: false
   tarefa_ou_regra_dmn: UT_CoordenacaoContasAssume

@@ -1,0 +1,379 @@
+# Tabela de correspondencia lexical do vocabulario do pagador — INSUMO DE SESSAO.
+# Origem: OWNER-DECISIONS-REGISTER R-018 (procedimento aprovado) + R-019 (sessao datada).
+# Gemeo legivel: PAYER-VOCAB-CORRESPONDENCE.md. Conferido por
+# tests/unit/docs/test_sme_dispatch_dossiers.py (arquivo:linha resolve e a linha contem a ancora).
+#
+# NENHUMA LINHA `PROPOSTO` E MERGEAVEL EM `spec/` COMO DECISAO. A ratificacao do vocabulario
+# do pagador e ato de regulatorio + auditoria de contas, tomado na sessao conjunta.
+origem:
+  registros: [R-018, R-019]
+  gap_id: PERSP-VOCAB
+  work_package: WP-PERSP-CONTAS-RECURSO
+  sessao: sessao conjunta regulatorio + auditoria de contas (com financas)
+  prazo_convocacao: '2026-09-19'
+  natureza: insumo de sessao — preparo, nunca ratificacao
+ratificacao:
+  ratificado:
+  revisor:
+  ratificado_em:
+rotulo: 'recomendacao — pendente de assinatura de regulatorio + auditoria de contas'
+rotulos_a_remover_na_sessao:
+  - arquivo: docs/processes/contracts/SP-OP-CONTAS-001.md
+    linha: 188
+    ancora: "**Nota de taxonomia (OQ-6"
+    descricao: "Nota de taxonomia OQ-6: `auditoria-contas` e `coordenacao-contas` sao nomes **PROPOSTOS**"
+  - arquivo: docs/processes/contracts/SP-OP-RECURSO-001.md
+    linha: 204
+    ancora: "> **OQ (open question):** `analista-recurso-glosa` e `coordenacao-recurso` são nomes **PROPOSTOS**"
+    descricao: "Nota OQ: `analista-recurso-glosa` e `coordenacao-recurso` sao nomes **PROPOSTOS**"
+  - arquivo: docs/processes/contracts/SP-OP-RECURSO-001.md
+    linha: 210
+    ancora: "| `analista-recurso-glosa` *(PROPOSTO)* |"
+    descricao: "Rotulo *(PROPOSTO)* na linha do grupo `analista-recurso-glosa`"
+  - arquivo: docs/processes/contracts/SP-OP-RECURSO-001.md
+    linha: 212
+    ancora: "| `coordenacao-recurso` *(PROPOSTO)* |"
+    descricao: "Rotulo *(PROPOSTO)* na linha do grupo `coordenacao-recurso`"
+linhas:
+  - id: C01
+    cadeia: CONTAS
+    status: PROPOSTO
+    elemento_anterior: "`Start_LoteRecebido` — \"Lote/demonstrativo TISS recebido\""
+    termo_pagador_proposto: "`Start_LoteTissRecebido` — \"Lote de guias TISS recebido do prestador\""
+    razao: "Q2 (direcao TISS): a operadora RECEBE o lote de guias; o demonstrativo e o que ela EMITE. Quem executa (Q1) e o intake da operadora."
+    arquivo: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
+    linha: 90
+    ancora: "id=\"Start_LoteTissRecebido\""
+  - id: C02
+    cadeia: CONTAS
+    status: PROPOSTO
+    elemento_anterior: "`ST_IdentifyGlosa` — \"Identificar glosas candidatas no demonstrativo\""
+    termo_pagador_proposto: "`ST_ApurarDivergencias` — \"Apurar divergencias e glosas candidatas na conta apresentada\""
+    razao: "Q1/Q2: quem apura divergencias e a analise de contas da operadora, sobre a conta que o prestador APRESENTOU — nao sobre um demonstrativo recebido de terceiro."
+    arquivo: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
+    linha: 127
+    ancora: "id=\"ST_ApurarDivergencias\""
+  - id: C03
+    cadeia: CONTAS
+    status: PROPOSTO
+    elemento_anterior: "`decisao_contas in {RECORRER, ACEITAR_GLOSA, REENVIAR}` (as tres acoes de quem SOFRE a glosa)"
+    termo_pagador_proposto: "`decisao_contas in {PAGAR, GLOSAR, PAGAR_PARCIAL, DEVOLVER, ENCAMINHAR_FRAUDE}`"
+    razao: "Q4 (vocabulario de saida) + Q3 (quem sofre o adverso): a operadora adjudica a conta; o adverso (GLOSAR/PAGAR_PARCIAL) recai sobre o prestador, nunca sobre o dono do processo."
+    arquivo: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
+    linha: 193
+    ancora: "decisao_contas in {PAGAR, GLOSAR"
+  - id: C04
+    cadeia: CONTAS
+    status: PROPOSTO
+    elemento_anterior: "`ST_RegisterGlosaAccept` — unico elemento de efeito adverso L0 do processo (registrava o ACEITE de uma glosa alheia)"
+    termo_pagador_proposto: "`ST_RegistrarGlosa` (+ `ST_RegistrarGlosaParcial`) — registra a APLICACAO da glosa"
+    razao: "Q3: mesma mecanica de gating, objeto invertido. O ato adverso do pagador e aplicar a glosa; aceitar uma glosa e ato de quem a sofre."
+    arquivo: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
+    linha: 330
+    ancora: "id=\"ST_RegistrarGlosa\""
+  - id: C05
+    cadeia: CONTAS
+    status: PROPOSTO
+    elemento_anterior: "`Error_GlosaAcceptNotHuman` / `ERR_GLOSA_ACCEPT_NOT_HUMAN` — \"Aceite de glosa sem decisao humana\""
+    termo_pagador_proposto: "`Error_ContasGlosaNotHuman` / `ERR_CONTAS_GLOSA_NOT_HUMAN` — \"Aplicacao de glosa sem decisao humana\""
+    razao: "Q3: o guard tem de proteger o ato do dono do processo. Sufixo `_NOT_HUMAN` preservado (reconhecimento automatico por `harness.is_guard_refusal_code`); semantica ADR-0030 (declarado-e-nao-capturado, PermissionError -> incidente) inalterada."
+    arquivo: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
+    linha: 5
+    ancora: "errorCode=\"ERR_CONTAS_GLOSA_NOT_HUMAN\""
+  - id: C06
+    cadeia: CONTAS
+    status: PROPOSTO
+    elemento_anterior: "worker `register_glosa_accept` / topico `operadora.contas.register_glosa_accept`"
+    termo_pagador_proposto: "worker `registrar_glosa` / topico `operadora.contas.registrar_glosa`"
+    razao: "Q1: o worker materializa o ato da operadora. O nome pt-BR alinha-se ao dominio (`registrar_glosa`), e o topico e a superficie que o BPMN chama."
+    arquivo: src/maezo/tools/workers/contas.py
+    linha: 486
+    ancora: "def registrar_glosa(input_data: GlosaRegistroInput)"
+  - id: C07
+    cadeia: CONTAS
+    status: PROPOSTO
+    elemento_anterior: "`End_GlosaAceitaHumano` — \"Glosa aceita pelo analista (L0 — unico adverso)\""
+    termo_pagador_proposto: "`End_GlosaAplicadaHumano` — \"Glosa aplicada pelo analista (L0 — adverso, humano-gated)\""
+    razao: "Q3: o terminal nomeia o ato do dono do processo. `aceita` descreve o prestador; `aplicada` descreve a operadora."
+    arquivo: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
+    linha: 356
+    ancora: "id=\"End_GlosaAplicadaHumano\""
+  - id: C08
+    cadeia: CONTAS
+    status: PROPOSTO
+    elemento_anterior: "`End_Reenviada` — \"Reenviada para correcao (decisao humana)\" (+ `ST_ReconcilePayment` \"Conciliar/registrar reenvio\")"
+    termo_pagador_proposto: "`End_ContaDevolvidaPrestador` — \"Conta devolvida ao prestador para correcao\" (+ `ST_DevolverConta`)"
+    razao: "Q1/Q2: reapresentar a conta e ato do prestador; devolver a conta para correcao e ato da operadora. A reapresentacao volta por `Msg_ContasLinhasAtualizadas` (a operadora RECEBE)."
+    arquivo: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
+    linha: 425
+    ancora: "id=\"End_ContaDevolvidaPrestador\""
+  - id: C09
+    cadeia: CONTAS
+    status: PROPOSTO
+    elemento_anterior: "`ST_StartRecurso` + `ST_PublishEncaminhadaRecurso` + `End_EncaminhadaRecurso` — o handoff CONTAS -> RECURSO disparado por `decisao_contas == RECORRER`"
+    termo_pagador_proposto: "SEM equivalente de pagador — a aresta e DELETADA: a operadora nao interpoe recurso contra a propria glosa. SP-OP-RECURSO-001 passa a nascer do recurso que o prestador transmite."
+    razao: "Q1/Q2: o recorrente e o prestador. Manter o handoff seria a plataforma recorrendo de si mesma. A supressao e o proprio termo do pagador nesta linha."
+    arquivo: docs/processes/contracts/SP-OP-RECURSO-001.md
+    linha: 55
+    ancora: "A aresta de handoff CONTAS → RECURSO **foi deletada**"
+  - id: C10
+    cadeia: CONTAS
+    status: PROPOSTO
+    elemento_anterior: "desfechos publicados `{sem_glosa, encaminhada_recurso, glosa_aceita_humano, reenviada}` (3 de 4 sao do recorrente)"
+    termo_pagador_proposto: "desfechos `{pagar_integral, pagamento_aprovado_humano, glosa_aplicada_humano, pagamento_parcial_humano, conta_devolvida_humano, encaminhada_fraude}`"
+    razao: "Q4: o evento de dominio e a declaracao publica do que o processo fez. Um desfecho `encaminhada_recurso` afirma que quem publicou recorreu."
+    arquivo: docs/processes/contracts/SP-OP-CONTAS-001.md
+    linha: 140
+    ancora: "`pagar_integral`"
+  - id: C11
+    cadeia: CONTAS
+    status: PROPOSTO
+    elemento_anterior: "DMN `glosa_triage`: dominio de `roteamento` = `{SEM_GLOSA, RECORRER, ANALISE_HUMANA}`; unica regra substantiva nao-humana `r_valor_recorrer` emite `\"RECORRER\"`"
+    termo_pagador_proposto: "dominio EXATAMENTE `{PAGAR, ANALISE_HUMANA}`; a regra substantiva nao-humana passa a ser `r_pagar` (favoravel ao prestador); toda candidata a glosa vai a `ANALISE_HUMANA`"
+    razao: "Q4 + ADR-0018 parte 2: na perspectiva do pagador o adverso E `GLOSAR`, logo ele nao pode existir como valor de saida de DMN. Achado M-4 (o conjunto negativo ainda admite `desconhecida`) segue ABERTO — ADR-0040 OQ-10."
+    arquivo: spec/processes/dmn/glosa_triage.dmn
+    linha: 16
+    ancora: "{PAGAR, ANALISE_HUMANA}"
+  - id: C12
+    cadeia: CONTAS
+    status: PROPOSTO
+    elemento_anterior: "`data_recebimento_lote` descrita como \"recebimento do demonstrativo\" e `reason_codes_tiss` como \"sinalizados no demonstrativo\" (ancora e fatos vindos de terceiro)"
+    termo_pagador_proposto: "`data_recebimento_lote` = \"data em que a operadora **recebeu** o lote do prestador\" (ancora contratual do prazo); `reason_codes_tiss` = \"apurados pela analise de contas da operadora\""
+    razao: "Q2/Q3: o relogio que este repositorio conta e o da RESPOSTA do pagador, ancorado num evento de RECEPCAO por ele. Os motivos de glosa sao apurados por ele, nunca recebidos prontos de terceiro."
+    arquivo: docs/processes/contracts/SP-OP-CONTAS-001.md
+    linha: 61
+    ancora: "Data em que a operadora **recebeu** o lote"
+  - id: R01
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`ST_SubmitAppeal` — \"Interpor recurso a operadora (TISS)\" (protocolo `RECAPPEAL-`)"
+    termo_pagador_proposto: "REMOVIDO sem shim. A entrada do processo passa a ser `Start_RecursoRecebido` — \"Recurso de glosa recebido do prestador (TISS)\""
+    razao: "Q1/Q2: a operadora nao interpoe recurso a si mesma; ela RECEBE o recurso. Esta era a evidencia estrutural do enxerto do doador."
+    arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    linha: 114
+    ancora: "id=\"Start_RecursoRecebido\""
+  - id: R02
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`GW_AguardarResposta` — \"Aguardar resposta da operadora\""
+    termo_pagador_proposto: "REMOVIDO. Nao ha termo de pagador: quem espera a resposta da operadora e o prestador. A regressao fica barrada pelo token `AguardarResposta` da familia R1 `ciclo-recorrente` da cerca de perspectiva."
+    razao: "Q1: esperar a resposta da operadora prova que o dono do processo NAO e a operadora."
+    arquivo: src/maezo/platform/validation/perspective.py
+    linha: 361
+    ancora: "\"AguardarResposta\""
+  - id: R03
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`ICE_RespostaRecebida` + `Msg_RecursoRespostaRecebida` / `msg.recurso.resposta_recebida`"
+    termo_pagador_proposto: "REMOVIDOS. Regressao barrada pela familia R1 `espera-resposta` (`resposta_recebida`, `RespostaRecebida`)."
+    razao: "Q2: uma mensagem chamada \"resposta recebida\" so existe do lado de quem pediu a decisao a outrem."
+    arquivo: src/maezo/platform/validation/perspective.py
+    linha: 382
+    ancora: "\"espera-resposta\""
+  - id: R04
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`ICE_AguardarResposta` — \"Aguardar resposta (P5D — loop TISS)\""
+    termo_pagador_proposto: "REMOVIDO. O unico prazo intermediario que sobra e `ICE_PrazoPendencia` (P5D), que fecha a pendencia de DOCUMENTACAO que a operadora abriu ao prestador."
+    razao: "Q1/Q3: o prazo que este processo cronometra e o da resposta do pagador e o da pendencia que ele abriu — nunca a espera por uma decisao de terceiro."
+    arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    linha: 239
+    ancora: "id=\"ICE_PrazoPendencia\""
+  - id: R05
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`ST_TrackStatus` — \"Acompanhar status do recurso interposto\""
+    termo_pagador_proposto: "REMOVIDO. Regressao barrada pelos tokens `track_status`/`TrackStatus` (familia `ciclo-recorrente`), e pelos pt-BR `acompanhar_recurso`/`acompanhar_status` acrescentados no PR-1."
+    razao: "Q1: acompanhar o status de um recurso e o que faz quem o interpos; o julgador o decide."
+    arquivo: src/maezo/platform/validation/perspective.py
+    linha: 358
+    ancora: "\"track_status\""
+  - id: R06
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`GW_LoopLimite` + variavel `loop_counter` (teto por CONTAGEM de iteracoes de espera)"
+    termo_pagador_proposto: "REMOVIDOS. O que limita o ciclo remanescente e o teto ABSOLUTO `sla.prazo_max_absoluto_iso` (ancora + P30D), identico nos 3 boundary de teto (GAP-RECURSO-1)."
+    razao: "Q3 + ADR-0018: um teto por contagem produz auto-desfecho por esgotamento. O relogio do pagador e absoluto e nao e adiado por reentrada no ciclo."
+    arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    linha: 397
+    ancora: "id=\"BT_PrazoMaxRecurso\""
+  - id: R07
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`GW_RecursoResolvido` — \"Resposta da operadora\", lendo `${resposta_operadora == ...}`; default `Flow_GWResolvido_Indeferido`"
+    termo_pagador_proposto: "`GW_DecisaoRecurso` — \"Decisao do recurso (humana)\", lendo `${decisao_recurso == ...}`; default `Flow_GWDec_Invalida` -> `ERR_RECURSO_DECISAO_INVALIDA` (fail-closed)"
+    razao: "Q1/Q4: a decisao do processo passa a ser produzida DENTRO dele, por humano da operadora, e a omissao vira erro visivel em vez de acao por default."
+    arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    linha: 431
+    ancora: "id=\"GW_DecisaoRecurso\""
+  - id: R08
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`ST_ReconcilePaymentDeferido` — \"Conciliar re-pagamento ao prestador (deferido)\", disparada por `${resposta_operadora}`"
+    termo_pagador_proposto: "`ST_HandoffPagamentoRecurso` — \"Encaminhar pagamento da glosa revertida (handoff SP-OP-PAGTO-001)\", `tipo_pagamento=glosa_revertida`"
+    razao: "Q1/Q3: o pagador nao concilia um credito recebido — ele ORIGINA a ordem de pagamento da glosa que reverteu. (A matriz rebaixou o elemento a MISTO bifacial: o nome era direcional-pagador; o invertido era o GATILHO.)"
+    arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    linha: 491
+    ancora: "id=\"ST_HandoffPagamentoRecurso\""
+  - id: R09
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`ST_ReconcilePaymentParcial` — \"Conciliar re-pagamento parcial ao prestador\""
+    termo_pagador_proposto: "`ST_HandoffPagamentoParcial` — \"Encaminhar pagamento da parcela revertida (handoff SP-OP-PAGTO-001)\""
+    razao: "Q1/Q3: idem R08, na perna do deferimento parcial."
+    arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    linha: 537
+    ancora: "id=\"ST_HandoffPagamentoParcial\""
+  - id: R10
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`End_RecursoDeferido` — \"Recurso deferido (re-pagamento conciliado)\""
+    termo_pagador_proposto: "`End_RecursoDeferido` — \"Recurso deferido pela operadora (decisao humana — glosa revertida)\". MESMO id, semantica invertida."
+    razao: "Q1: o terminal deixa de nomear a concessao de um terceiro e passa a nomear o proprio ato do dono do processo."
+    arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    linha: 514
+    ancora: "id=\"End_RecursoDeferido\""
+  - id: R11
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`End_RecursoParcial` — terminal nomeado pela concessao parcial de um terceiro"
+    termo_pagador_proposto: "`End_RecursoDeferidoParcial` — \"Recurso parcialmente deferido (decisao humana — L0, reducao adversa)\""
+    razao: "Q3: o parcial MANTEM parte da glosa contra o prestador; e adverso L0 por analogia ao precedente ja ratificado `End_ReembolsoParcial` (\"reducao adversa\"). Confirmar essa classificacao e OQ-8."
+    arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    linha: 560
+    ancora: "id=\"End_RecursoDeferidoParcial\""
+  - id: R12
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`End_RecursoIndeferido` — \"Recurso indeferido **pela operadora** (resposta de terceiro)\"; doc: \"Indeferimento pela operadora externa NAO e uma desistencia da Maezo — e resposta de terceiro\""
+    termo_pagador_proposto: "`End_RecursoIndeferido` — \"Recurso indeferido (decisao humana do analista — L0 adverso)\". Somem \"(resposta de terceiro)\" E \"pela operadora\"."
+    razao: "Q1: a evidencia isolada mais forte do repositorio. O dono do processo nao se nomeia como parte externa; a auto-referencia em terceira pessoa E a inversao."
+    arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    linha: 593
+    ancora: "id=\"End_RecursoIndeferido\""
+  - id: R13
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "variavel de entrada `resposta_operadora` (`deferido|parcialmente_deferido|indeferido`) — a decisao do processo chegando de FORA"
+    termo_pagador_proposto: "ELIMINADA. A decisao e `decisao_recurso` (analista/coordenacao) ou `decisao_auditor_recurso` (medico auditor), produzidas dentro do processo. Regressao barrada pela familia R1 `resposta-terceiro`."
+    razao: "Q1/Q4: so um terceiro nomeia a decisao da operadora como variavel de ENTRADA."
+    arquivo: src/maezo/platform/validation/perspective.py
+    linha: 350
+    ancora: "\"resposta_operadora\""
+  - id: R14
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`decisao_recurso in {RECORRER, NAO_RECORRER, SOLICITAR_INFO, ESCALAR_AUDITOR}`"
+    termo_pagador_proposto: "`decisao_recurso in {DEFERIR, DEFERIR_PARCIAL, INDEFERIR, SOLICITAR_INFO, ESCALAR_AUDITOR}`"
+    razao: "Q4: quem julga defere ou indefere; recorrer/nao-recorrer sao movimentos do recorrente. `SOLICITAR_INFO` e `ESCALAR_AUDITOR` ja eram vocabulario legitimo de julgador e ficam."
+    arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    linha: 318
+    ancora: "decisao_recurso in {DEFERIR"
+  - id: R15
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`decisao_auditor_recurso in {MANTER_RECURSO, ACEITAR_GLOSA, RECURSO_PARCIAL}` (doc: \"MANTER_RECURSO/RECURSO_PARCIAL -> interpoe o recurso\")"
+    termo_pagador_proposto: "`decisao_auditor_recurso in {DEFERIR, DEFERIR_PARCIAL, INDEFERIR}`"
+    razao: "Q3/Q4: o medico auditor decide o MERITO como julgador (espelha `JUNTA_MEDICA` de SP-OP-AUTH-001), nao mantem/desiste de um recurso proprio."
+    arquivo: spec/processes/dmn/recurso_eligibility.dmn
+    linha: 17
+    ancora: "decisao_auditor_recurso in {DEFERIR"
+  - id: R16
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`UT_EscalonamentoPrazo` — TERCEIRO canal humano emitindo `{RECORRER, NAO_RECORRER, SOLICITAR_INFO, ESCALAR_AUDITOR}` (achado MATERIAL do verificador, ausente das listas originais)"
+    termo_pagador_proposto: "`UT_EscalonamentoPrazo` — mesmo id, mesmas saidas do analista no vocabulario do pagador; a INADMISSIBILIDADE por prazo continua SEMPRE humana"
+    razao: "Q4: os quatro canais humanos tem de falar o MESMO vocabulario de pagador, senao o teto de prazo reintroduz o lexico do recorrente por uma porta lateral."
+    arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    linha: 424
+    ancora: "id=\"UT_EscalonamentoPrazo\""
+  - id: R17
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`End_RecursoNaoInterposto` — \"desistencia humana — adverso L0\" (+ `ST_PublishNaoInterposto`)"
+    termo_pagador_proposto: "REMOVIDO. O adverso equivalente do julgador ja existia e permanece: `End_RecursoInadmissivel` (inadmitir e ato do pagador)."
+    razao: "Q3: o adverso L0 do dono do processo nao pode ser a propria desistencia. Familia R1 `manutencao` (`NAO_INTERPOSTO`) barra o retorno."
+    arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    linha: 659
+    ancora: "id=\"End_RecursoInadmissivel\""
+  - id: R18
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`End_GlosaMantida` — \"Glosa mantida pelo auditor\" (mas materializada pelo worker `register_desistencia`, desfecho `nao_interposto_humano`)"
+    termo_pagador_proposto: "`End_RecursoIndeferidoAuditor` — \"Recurso indeferido pelo medico auditor (decisao humana — L0 adverso)\""
+    razao: "Q3/Q4: a linguagem ja era de pagador, mas o mecanismo por tras era de recorrente; o terminal passa a nomear o ato que de fato ocorre."
+    arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    linha: 626
+    ancora: "id=\"End_RecursoIndeferidoAuditor\""
+  - id: R19
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "worker `register_desistencia` / topico `operadora.recurso.register_desistencia`, servindo TRES tarefas — inclusive a inadmissibilidade, que ja era ato do pagador"
+    termo_pagador_proposto: "worker `registrar_indeferimento` / topico `operadora.recurso.registrar_indeferimento`, servindo as QUATRO tarefas adversas (indeferir, deferir parcial, indeferir pelo auditor, inadmitir)"
+    razao: "Q1/Q3: o unico worker de efeito adverso da cadeia se chamava \"desistencia\" — o ato de quem recorre. Sob a perspectiva do pagador, o adverso e o indeferimento."
+    arquivo: src/maezo/tools/workers/recurso.py
+    linha: 1561
+    ancora: "\"operadora.recurso.registrar_indeferimento\","
+  - id: R20
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`Error_DesistenciaNotHuman` / `ERR_DESISTENCIA_NOT_HUMAN` — \"Desistencia/manutencao de glosa sem decisao humana\""
+    termo_pagador_proposto: "`Error_RecursoIndeferimentoNotHuman` / `ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN` — \"Indeferimento/manutencao de glosa sem decisao humana\""
+    razao: "Q3: substituicao um-para-um do guard; sufixo `_NOT_HUMAN` preservado e semantica ADR-0030 (declarado-e-nao-capturado, `PermissionError` -> incidente auditado) inalterada."
+    arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    linha: 24
+    ancora: "errorCode=\"ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN\""
+  - id: R21
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "campos obrigatorios `justificativa_desistencia` e `valor_glosa_aceito`"
+    termo_pagador_proposto: "`fundamentacao_indeferimento`, `valor_glosa_mantido_brl` e `referencia_contratual` (e `valor_deferido_brl` no parcial)"
+    razao: "Q3: o que o julgador tem de fundamentar e a manutencao da glosa contra o prestador, com a clausula contratual que a sustenta — nao a justificativa da propria desistencia."
+    arquivo: docs/processes/contracts/SP-OP-RECURSO-001.md
+    linha: 99
+    ancora: "`fundamentacao_indeferimento`"
+  - id: R22
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "desfecho publicado `nao_interposto_humano` (no conjunto `{deferido, indeferido, parcialmente_deferido, inadmissivel, nao_interposto_humano}`)"
+    termo_pagador_proposto: "`desfecho in {deferido_humano, deferido_parcial_humano, indeferido_humano, inadmissivel_humano}` — todos humano-gated e todos atos do julgador"
+    razao: "Q4: o evento de dominio declara publicamente o que o processo fez; `nao_interposto` declara que o publicador desistiu de recorrer."
+    arquivo: docs/processes/contracts/SP-OP-RECURSO-001.md
+    linha: 108
+    ancora: "`inadmissivel_humano`"
+  - id: R23
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "DMN `recurso_eligibility`: dominio de `roteamento` = `{RECORRIVEL, ANALISE_HUMANA}`"
+    termo_pagador_proposto: "dominio EXATAMENTE `{SEGUE_MERITO, ANALISE_HUMANA}`"
+    razao: "Q4: \"recorrivel\" e predicado do recorrente sobre uma decisao alheia. O julgador decide se o recurso SEGUE PARA O MERITO."
+    arquivo: spec/processes/dmn/recurso_eligibility.dmn
+    linha: 14
+    ancora: "{SEGUE_MERITO, ANALISE_HUMANA}"
+  - id: R24
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "regras `r_administrativa_recorrivel` e `r_tecnica_clinica_auditor` emitindo ambas `\"RECORRIVEL\"` (a segunda ausente da lista original — adicao do verificador)"
+    termo_pagador_proposto: "`r_administrativa_merito` e `r_tecnica_clinica_auditor` emitindo `\"SEGUE_MERITO\"`; `grupo_revisor` (`analista-recurso-glosa` | `medico-auditor`) inalterado"
+    razao: "Q4: as DUAS regras substantivas emitiam o predicado do recorrente; renomear so uma deixaria metade da tabela invertida."
+    arquivo: spec/processes/dmn/recurso_eligibility.dmn
+    linha: 41
+    ancora: "<text>\"SEGUE_MERITO\"</text>"
+  - id: R25
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "`recurso_sla` com DUAS ancoras de partes opostas: o recebimento pelo pagador e o fail-safe `data_ciencia_glosa` (o relogio do RECORRENTE)"
+    termo_pagador_proposto: "ancora UNICA `data_recebimento_recurso_iso` (data em que a operadora recebeu o recurso), normalizada pelo intake; a data alegada pelo prestador vira `data_ciencia_alegada_prestador`, registro do que ele declarou e nunca base do prazo da operadora"
+    razao: "Q3: o prazo que este repositorio cronometra e o da RESPOSTA do pagador. O prazo de interposicao e do prestador e nao e responsabilidade nossa. Familia R1 `ancora-kpi` barra o retorno de `data_ciencia_glosa`."
+    arquivo: spec/processes/dmn/recurso_sla.dmn
+    linha: 27
+    ancora: "`data_recebimento_recurso_iso` — a data em que a OPERADORA recebeu o recurso"
+  - id: R26
+    cadeia: RECURSO
+    status: PROPOSTO
+    elemento_anterior: "KPI `recurso_recovery_rate` do agente Marina (taxa de recuperacao de receita glosada — metrica de CREDOR) + prompts na voz do recorrente (\"Voce NUNCA desiste de um recurso\"; \"Voce nao autora a peticao de recurso\")"
+    termo_pagador_proposto: "KPIs de pagador (`dossier_completeness`, `glosa_rate`, ...); `recurso_recovery_rate` removida e a remocao registrada em COMENTARIO YAML (Tier B da cerca le nos parseados, nao comentarios); prompts reescritos na voz do julgador"
+    razao: "Q3: a metrica de quem teve dinheiro retido nao e metrica de quem reteve. O prompt de sistema de um LLM e a superficie de maior consequencia da inversao."
+    arquivo: spec/agents/marina/agent.yaml
+    linha: 40
+    ancora: "{ name: glosa_rate"

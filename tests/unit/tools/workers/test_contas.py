@@ -1535,11 +1535,16 @@ def test_identify_glosa_entry_ecoa_data_vencimento_do_lote() -> None:
         }
     )
     assert out["data_vencimento"] == "2026-07-10"
+    assert out["vencimento_ausente"] is False, (
+        "com vencimento no lote o gate de intake NAO pode desviar a conta a ANALISE_HUMANA"
+    )
 
 
 def test_identify_glosa_entry_nao_inventa_data_vencimento_ausente() -> None:
     """A metade NEGATIVA da anterior: sem a data no lote, a variavel sai VAZIA — o intake nunca
-    fabrica um vencimento. A recusa fail-closed continua sendo do `handoff_pagamento`."""
+    fabrica um vencimento. A recusa do `handoff_pagamento` segue no lugar como defesa em
+    profundidade; o gate PRIMARIO agora e `GW_VencimentoConta`, alimentado por
+    `vencimento_ausente` (R-084)."""
     out = identify_glosa_entry(
         {
             "tenant_id": "amh",
@@ -1548,6 +1553,46 @@ def test_identify_glosa_entry_nao_inventa_data_vencimento_ausente() -> None:
         }
     )
     assert out["data_vencimento"] == ""
+    assert out["vencimento_ausente"] is True
+
+
+@pytest.mark.parametrize(
+    ("bruto", "esperado"),
+    [
+        (None, True),
+        ("", True),
+        ("   ", True),
+        ("\t\n", True),
+        ("2026-07-10", False),
+        ("  2026-07-10  ", False),
+    ],
+    ids=["none", "vazia", "espacos", "tabs", "iso", "iso_com_espacos"],
+)
+def test_identify_glosa_entry_computa_vencimento_ausente(bruto: str | None, esperado: bool) -> None:
+    """CONTAS-DATA-VENCIMENTO-FAILCLOSED-DOWNSTREAM (decisao do dono R-084, 2026-09-04): o INTAKE
+    passa a produzir o FATO DE ROTEAMENTO, nao so o warning.
+
+    `vencimento_ausente` e a unica entrada de `GW_VencimentoConta`, o gateway que fica ANTES dos
+    tres `ST_EmitirDemonstrativo*` e de `ST_RegistrarGlosaParcial`. Enquanto ele nao existia, uma
+    conta sem vencimento so era recusada em `handoff_pagamento` — a jusante da emissao do
+    demonstrativo ao prestador e, na perna `PAGAR_PARCIAL`, do registro do efeito adverso.
+
+    A propriedade que importa e que BRANCO E AUSENTE SAO O MESMO CASO: o mesmo `strip()` que
+    normaliza `data_vencimento` decide o roteamento, entao nao existe estado em que a variavel
+    saia vazia e o gate mesmo assim libere a perna automatica.
+    """
+    variables: dict[str, object] = {
+        "tenant_id": "amh",
+        "numero_lote_tiss": "LOTE-1",
+        "linhas_conta_refs": [{"valor_apresentado_brl": 100.0}],
+    }
+    if bruto is not None:
+        variables["data_vencimento"] = bruto
+    out = identify_glosa_entry(variables)
+    assert out["vencimento_ausente"] is esperado
+    assert bool(out["data_vencimento"]) is (not esperado), (
+        "o roteamento tem de derivar do MESMO valor normalizado que vai para o processo"
+    )
 
 
 @pytest.mark.parametrize(

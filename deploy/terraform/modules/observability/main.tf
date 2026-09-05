@@ -10,7 +10,7 @@
 #   1. AMP workspace (Amazon Managed Prometheus) — receives remote-write from OTel collector
 #   2. AMG workspace (Amazon Managed Grafana)     — dashboards + AMP datasource
 #   3. Grafana AMG datasource pointing at the AMP workspace
-#   4. AMP alert-rules upload (rule_group_namespace) from deploy/observability/alert-rules.yaml
+#   4. AMP alert-rules upload (rule_group_namespace) from deploy/observability/alert-rules.yml
 #   5. IRSA IAM role for the OTel collector (SigV4 for AMP remote-write + query)
 #   6. Secrets Manager secret shell for the AMP endpoint URL (ESO-injected into collector pod)
 
@@ -52,12 +52,12 @@ resource "aws_cloudwatch_log_group" "amp_audit" {
 
 # ---------------------------------------------------------------------------
 # 2. Alert rules — upload to AMP as a rule_group_namespace
-#    Source: deploy/observability/alert-rules.yaml (canonical rule set)
+#    Source: deploy/observability/alert-rules.yml (canonical rule set)
 #    ADR-0010 gap#31+32: rules authored AND actually wired to AMP.
 #
 #    The alert_rules_content variable holds the rule file contents.
 #    When calling this module from an env, pass:
-#      alert_rules_content = file("${path.root}/../../../../deploy/observability/alert-rules.yaml")
+#      alert_rules_content = file("${path.root}/../../../../deploy/observability/alert-rules.yml")
 #    The default is a placeholder that validates cleanly (no file() call in the module).
 # ---------------------------------------------------------------------------
 resource "aws_prometheus_rule_group_namespace" "maezo_alerts" {

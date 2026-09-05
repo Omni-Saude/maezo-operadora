@@ -112,11 +112,16 @@ _stdlib_logger = logging.getLogger(__name__)
 # What survives here is only the CLOSED DOMAIN of each field, used to fail closed on values the
 # engine could not have produced — no fallback, no default, no re-derivation.
 #
-# FOUR domains total: `severidade`/`grupo_atendimento` are REQUIRED (fail-closed if absent);
-# `prioridade`/`motivo_categoria` are OPTIONAL but, since MINOR-2 (VERIFY-WP-ESC.md), a PRESENT
-# out-of-domain value fails closed too — a probe put `'P9-LIVRE <script>'` and a fake CPF straight
-# through the old unchecked `.strip()`-only path (`_rotulo_opcional`, below `_recusar`). None of
-# the four is hand-typed alone: `test_contract_domains_match_the_artifacts`
+# FOUR domains total: `severidade`/`grupo_atendimento` are REQUIRED (fail-closed if absent).
+# `prioridade` is OPTIONAL but, since MINOR-2 (VERIFY-WP-ESC.md), a PRESENT out-of-domain value
+# fails closed too (it is the DMN's OWN output — out-of-domain means the engine is corrupted). A
+# probe put `'P9-LIVRE <script>'` straight through the old unchecked `.strip()`-only path
+# (`_rotulo_opcional`, below `_recusar`). `motivo_categoria` is OPTIONAL and validated too, but
+# since ESC-D1-MOTIVO-STRICTER-THAN-R7 a PRESENT out-of-domain value DEGRADES (omit + loud log,
+# `_rotulo_opcional_tolerante`) instead of failing closed — the `escalation_routing` DMN's own
+# catch-all (`r7`) already tolerates an unknown motivo and routes it safely; refusing the
+# notification for a case the DMN already routed was stricter than the routing authority itself.
+# None of the four is hand-typed alone: `test_contract_domains_match_the_artifacts`
 # (`tests/unit/tools/workers/test_escalation_notify_team.py`) PARSES `escalation_routing.dmn` (via
 # `tests.support.dmn_first_hit.read_live_table`, the repo's existing live-DMN-XML reader — see
 # `tests/unit/spec/test_glosa_triage_shadow_candidate.py` for the same idiom) and the contract
@@ -143,7 +148,9 @@ _PRIORIDADES_DMN: frozenset[str] = frozenset({"P1", "P2", "P3"})
 
 #: `motivo_categoria` domain — the contract's input-variable table (`SP-OP-ESCALATION-001.md:26`).
 #: Optional at the notify tasks (MINOR-2): validated when present, never required — the
-#: `escalation_routing` DMN already consumed it upstream of these tasks.
+#: `escalation_routing` DMN already consumed it upstream of these tasks. An out-of-domain PRESENT
+#: value DEGRADES rather than fails closed (ESC-D1-MOTIVO-STRICTER-THAN-R7, `_rotulo_opcional_
+#: tolerante`) — the DMN's own catch-all (`r7`) already tolerates an unknown motivo.
 _MOTIVOS_CONTRATUAIS: frozenset[str] = frozenset(
     {
         "red_flag_clinico",
@@ -340,6 +347,11 @@ def _rotulo_opcional_validado(
     one. Before this, `prioridade`/`motivo_categoria` were only `.strip()`-ed and forwarded
     verbatim — a probe put `'P9-LIVRE <script>'` and a fake-CPF string straight into the published
     notification through this gap, underneath a comment that claimed both were validated.
+
+    ESC-D1-MOTIVO-STRICTER-THAN-R7: used ONLY for `prioridade` now — it is the `escalation_routing`
+    DMN's OWN output (`_PRIORIDADES_DMN`), so a value outside it means the ENGINE produced garbage,
+    not that an upstream category was unrecognized; that failure class stays fail-closed. See
+    `_rotulo_opcional_tolerante` for `motivo_categoria`, which degrades instead.
     """
     rotulo = _rotulo_opcional(v, nome)
     if rotulo is not None and rotulo not in dominio:
@@ -348,6 +360,53 @@ def _rotulo_opcional_validado(
             f"{nome}_fora_do_dominio",
             f"`{nome}`={rotulo!r} fora do dominio {sorted(dominio)}",
         )
+    return rotulo
+
+
+def _rotulo_opcional_tolerante(
+    task: ExternalTask, v: Mapping[str, Any], nome: str, dominio: frozenset[str]
+) -> str | None:
+    """`_rotulo_opcional`, but a PRESENT out-of-domain value DEGRADES (omit + loud log) instead
+    of failing closed (ESC-D1-MOTIVO-STRICTER-THAN-R7, residual D-1 of GAP-ESC-SEVERITY-GROUP
+    PR #272).
+
+    Used ONLY for `motivo_categoria`. The `escalation_routing` DMN's own catch-all (`r7`,
+    `spec/processes/dmn/escalation_routing.dmn:82-89`) is an EXPLICIT fail-SAFE for an unknown
+    motivo: it still ROUTES the case (`P2`/`atendimento-humano`/`PT30M`/`PT4H`) rather than
+    refusing anything — "Catch-all FAIL-SAFE: motivo desconhecido nunca recebe prioridade baixa".
+    Before this fix, `make_notify_team_handler` refused the NOTIFICATION (via
+    `_rotulo_opcional_validado`) for a case the DMN had already safely routed — stricter than the
+    routing authority it defers to, and for no safety gain: `grupo_atendimento`/`prioridade` are
+    read from the DMN's OWN output (never re-derived here), so they are ALREADY guaranteed valid
+    regardless of what `motivo_categoria` says. Dropping just the label and still notifying the
+    (correctly DMN-routed) team is strictly safer than refusing the whole notification.
+
+    `prioridade` stays on `_rotulo_opcional_validado` (fail-closed): it is the DMN's OWN output,
+    not an upstream-supplied category, so an out-of-domain value there means the engine itself is
+    corrupted — a different failure class that must NOT be tolerated the same way.
+    """
+    rotulo = _rotulo_opcional(v, nome)
+    if rotulo is not None and rotulo not in dominio:
+        logger.warning(
+            "escalation_rotulo_fora_do_dominio_tolerado",
+            campo=nome,
+            valor=rotulo,
+            dominio=sorted(dominio),
+            business_key=task.business_key,
+            topic=task.topic,
+            process_instance_id=task.process_instance_id,
+        )
+        _stdlib_logger.warning(
+            "escalation_rotulo_fora_do_dominio_tolerado business_key=%s topic=%s campo=%s "
+            "valor=%r fora do dominio %s — OMITIDO da notificacao (a DMN escalation_routing ja' "
+            "tolera motivo desconhecido via seu catch-all r7; isto NAO e' uma recusa)",
+            task.business_key,
+            task.topic,
+            nome,
+            rotulo,
+            sorted(dominio),
+        )
+        return None
     return rotulo
 
 
@@ -371,9 +430,12 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
       - `severidade`         — process variable, contract `:27`; REQUIRED, fail-closed.
       - `grupo_atendimento`  — inputParameter BPMN `:96`, DMN output; REQUIRED, fail-closed.
       - `prioridade`         — inputParameter BPMN `:97`, DMN output `{P1,P2,P3}`; optional,
-        validated against that domain when present (MINOR-2), omitted if absent.
+        validated against that domain when present (MINOR-2) and FAILS CLOSED if out of it — it
+        is the DMN's own output, so out-of-domain means the engine is corrupted.
       - `motivo_categoria`   — process variable, contract `:26`, 6-value domain; optional,
-        validated against that domain when present (MINOR-2), omitted if absent.
+        validated against that domain when present, but (ESC-D1-MOTIVO-STRICTER-THAN-R7) an
+        out-of-domain value DEGRADES (omitted + logged) rather than failing closed — the
+        `escalation_routing` DMN's own catch-all (`r7`) already tolerates an unknown motivo.
       - `tenant_id`          — process variable, contract `:20`.
     """
 
@@ -383,7 +445,7 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         severidade = _exigir_severidade(task, v)
         grupo = _exigir_grupo_atendimento(task, v)
         prioridade = _rotulo_opcional_validado(task, v, "prioridade", _PRIORIDADES_DMN)
-        motivo = _rotulo_opcional_validado(task, v, "motivo_categoria", _MOTIVOS_CONTRATUAIS)
+        motivo = _rotulo_opcional_tolerante(task, v, "motivo_categoria", _MOTIVOS_CONTRATUAIS)
         tenant_id = v.get("tenant_id", "")
         result: dict[str, Any] = {
             "grupo_atendimento": grupo,
@@ -421,9 +483,11 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
 
         # No PHI: motivo_categoria/severidade/grupo_atendimento/prioridade are bounded routing
         # labels validated against their contractual/DMN domains above WHEN PRESENT —
-        # severidade/grupo_atendimento are REQUIRED and fail-closed; prioridade/motivo_categoria
-        # are OPTIONAL but, since MINOR-2 (VERIFY-WP-ESC.md), an out-of-domain value on either of
-        # THEM fails closed too, so none of the four rides through unchecked;
+        # severidade/grupo_atendimento are REQUIRED and fail-closed; prioridade is OPTIONAL but
+        # fails closed too on an out-of-domain value (MINOR-2, VERIFY-WP-ESC.md — it is the DMN's
+        # own output); motivo_categoria is OPTIONAL and an out-of-domain value there DEGRADES
+        # (omitted + logged, ESC-D1-MOTIVO-STRICTER-THAN-R7) rather than failing closed, so none
+        # of the four rides through UNCHECKED even though they no longer all fail the same way;
         # beneficiario_pseudo_id is a pseudonym and free-text fields are never copied into the
         # notification (ADR-0006).
         notification: dict[str, Any] = {

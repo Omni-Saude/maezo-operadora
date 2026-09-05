@@ -30,6 +30,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.metrics import classify_agent_error_type
 
 logger = structlog.get_logger(__name__)
 
@@ -236,7 +237,7 @@ class Harness:
         )
         try:
             result = await self._compiled.ainvoke(state, config=config)
-        except Exception:
+        except Exception as exc:
             # ALERTS-WITHOUT-METRICS-a: `maezo_agent_errors_total` is the numerator of
             # `MaezoSLAAgentErrorRateHigh` and the whole of `MaezoAgentCrashLoop`
             # (`deploy/observability/alert-rules.yml:36-52,:97-111`), and NOTHING in `src/`
@@ -251,9 +252,16 @@ class Harness:
             # fire critical on every rolling deploy — a false positive that would train the
             # on-call to ignore exactly the alert this repair exists to make fireable.
             # The bare `raise` re-raises regardless, so nothing is swallowed either way.
+            #
+            # ALERT-COUNTER-LABELS / R-063: `agent`/`error_type` labels. `self._agent_id` is None
+            # for the trivial default graph (`create_graph()` with no `agent_id`) — the
+            # `"nao_declarado"` fallback is a bounded token, not a silent unlabelled series.
             from maezo.platform.observability import record_agent_error  # noqa: PLC0415
 
-            record_agent_error()
+            record_agent_error(
+                agent=self._agent_id or "nao_declarado",
+                error_type=classify_agent_error_type(exc),
+            )
             raise
 
         # G3: emit ONE PHI-gated turn-telemetry record now that the turn has completed — message

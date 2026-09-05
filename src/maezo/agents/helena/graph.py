@@ -229,7 +229,7 @@ class HelenaState(TypedDict, total=False):
     # Routing.
     next_kind: ResponseKind
     escalation_motivo: MotivoCategoria
-    escalation_severidade: Severidade
+    escalation_severidade: Severidade | None
 
     # `escalate` outputs.
     escalation_started: bool
@@ -294,7 +294,20 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "dmn_decision_ref": None,
     "next_kind": "inform",
     "escalation_motivo": None,
-    "escalation_severidade": "leve",
+    # HELENA-SEVERIDADE-DEFAULT: `None`, never `"leve"` — a clinical severity that was never
+    # determined is not the mildest one, it is UNKNOWN (same principle GAP-ESC-SEVERITY-GROUP
+    # fixed one layer down, in the worker). The reachable path this guards is `receive`'s own
+    # missing-runtime-context escalate (`next_kind="escalate"` set WITHOUT running `classify`,
+    # which is the only place that assigns a REAL severidade per gatilho) — before this fix that
+    # path silently announced every such case as `leve`. `escalate` now forwards whatever this
+    # is (including `None`) verbatim; a `None`/absent `severidade` refuses fail-closed at the
+    # ALREADY-fixed worker boundary (`escalation.py::_exigir_severidade`). `ST_NotificarFallback`
+    # runs the SAME check and refuses too (it shares the `operadora.escalation.notify_supervisor`
+    # topic and `_exigir_severidade`), so NO notification is published on either channel; the
+    # case still reaches the mandatory HITL through the modeled `BE_NotifFallbackFailed` ->
+    # `Flow_BENotifFallback_UT` -> `UT_TratarEscalonamento` edge — never a dead end, never a
+    # fabricated `leve`, but nobody is paged.
+    "escalation_severidade": None,
     "escalation_started": False,
     "escalation_business_key": None,
     "escalation_process_ref": None,
@@ -682,11 +695,19 @@ class HelenaGraph:
         uses (`motivo_categoria="solicitacao_humano"` — the contract vocabulary's closest fit for
         "needs a human to act", `spec/agents/helena/agent.yaml`'s `escalation.triggers`), just
         with the scheduling-specific reply text (`response_kind="schedule"`) instead of the
-        generic escalate one."""
+        generic escalate one.
+
+        HELENA-SEVERIDADE-DEFAULT: `severidade="leve"` here is an EXPLICIT business value tied
+        1:1 to `motivo="solicitacao_humano"` — the same pairing `classify`'s own gatilho 3
+        (`intent == "human_request"`) assigns explicitly below — not a fallback for an unknown
+        clinical state. A scheduling request carries no clinical signal at all (`escalation_routing.
+        dmn` rule `r5` does not even read `severidade` for `solicitacao_humano`), so `leve` is a
+        valor de negocio explicito (nao revisado por SME), never a guess standing in for a missing one.
+        """
         return await self._start_escalation(
             state,
             motivo="solicitacao_humano",
-            severidade=state.get("escalation_severidade", "leve"),
+            severidade="leve",
             response_kind="schedule",
         )
 
@@ -696,11 +717,25 @@ class HelenaGraph:
         A tool failure here never blocks the turn — the response still tells the beneficiary a
         human will follow up (`error` records the failure for observability; the runtime's own
         fail-closed posture treats an unstarted escalation as an incident, never a silent drop).
+
+        HELENA-SEVERIDADE-DEFAULT: `severidade` is read WITHOUT a fallback. Every real gatilho in
+        `classify` (the only place that decides `next_kind="escalate"` off a genuine clinical/
+        administrative signal) assigns `escalation_severidade` explicitly; the one path that
+        reaches here without it is `receive`'s own missing-runtime-context escalate. That case's
+        severidade is genuinely UNKNOWN, and an unknown one is never announced as `leve` (mirrors
+        GAP-ESC-SEVERITY-GROUP's own principle, one layer down). `None` is forwarded verbatim into
+        `_start_escalation` — the ALREADY-fixed worker boundary (`escalation.py::_exigir_severidade`)
+        refuses fail-closed on it. `ST_NotificarFallback` shares the same
+        `operadora.escalation.notify_supervisor` topic and the same `_exigir_severidade`, so it
+        refuses too: NO notification is published on either channel. The case still reaches the
+        mandatory HITL through the modeled `BE_NotifFallbackFailed` -> `Flow_BENotifFallback_UT`
+        -> `UT_TratarEscalonamento` edge — never a dead end, only a fabricated value (and the
+        page nobody gets) is what's removed.
         """
         motivo: MotivoCategoria = state.get("escalation_motivo") or (
             "falha_tecnica" if state.get("error") else "outro"
         )
-        severidade: Severidade = state.get("escalation_severidade", "leve")
+        severidade: Severidade | None = state.get("escalation_severidade")
         return await self._start_escalation(
             state, motivo=motivo, severidade=severidade, response_kind="escalate"
         )
@@ -710,7 +745,7 @@ class HelenaGraph:
         state: HelenaState,
         *,
         motivo: MotivoCategoria,
-        severidade: Severidade,
+        severidade: Severidade | None,
         response_kind: ResponseKind,
     ) -> dict[str, Any]:
         """Shared SP-OP-ESCALATION-001 start, factored out of `escalate` (GAP 9.2) so `schedule`
@@ -720,6 +755,12 @@ class HelenaGraph:
         drafts (`"escalate"`'s generic handoff text vs `"schedule"`'s scheduling-specific one) —
         the escalation itself (business key, audit-before-effect, idempotent start, provenance)
         is identical regardless of caller.
+
+        HELENA-SEVERIDADE-DEFAULT: `severidade` is `Severidade | None` — `None` ONLY on
+        `escalate`'s missing-runtime-context path (never fabricated to `leve`); `schedule` and
+        every real `escalate` gatilho always pass a real domain value. `None` rides verbatim into
+        the `severidade` process variable so the worker's OWN fail-closed check refuses it
+        (`escalation.py::_exigir_severidade`), never this call.
         """
         business_key = _business_key(state)
 

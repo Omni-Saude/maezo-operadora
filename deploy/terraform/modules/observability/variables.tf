@@ -46,7 +46,7 @@ variable "alert_rules_content" {
   description = <<-EOT
     Content of the Prometheus alert rules YAML to upload to AMP.
     Pass via file() from the calling env root, e.g.:
-      alert_rules_content = file("$${path.root}/../../../../deploy/observability/alert-rules.yaml")
+      alert_rules_content = file("$${path.root}/../../../../deploy/observability/alert-rules.yml")
     Defaults to a minimal valid placeholder so `terraform validate` passes in isolation.
   EOT
   type    = string

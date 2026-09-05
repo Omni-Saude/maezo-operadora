@@ -48,7 +48,7 @@ spec:
         maezo.io/phi-zone: {{ $phiZone | quote }}
         # PodMonitor jobLabel target (podmonitor.yaml): jobLabel names a POD LABEL KEY
         # to copy from, not a literal job value — this is that key. Its value must stay
-        # in sync with the `up{job="maezo-agent-runtime"}` matcher in alert-rules.yaml.
+        # in sync with the `up{job="maezo-agent-runtime"}` matcher in alert-rules.yml.
         maezo.io/scrape-job: "maezo-agent-runtime"
       annotations:
         # Roll the pods when the effective Agent Definition changes (provenance: ADR-0007).
