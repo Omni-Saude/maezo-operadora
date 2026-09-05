@@ -481,3 +481,80 @@ def test_a_porta_de_configuracao_nao_e_superficie_publica_do_pacote() -> None:
     assert not hasattr(seams_pkg, "configure_rate_limiter")
     assert "configure_rate_limiter" not in _base.__all__
     assert "_configure_rate_limiter_for_tests" not in _base.__all__
+
+
+# =================================================================================================
+# §Delta F2 — a checagem de prontidao que faz a replica NAO FICAR PRONTA com settings invalidas
+# =================================================================================================
+
+
+def test_a_checagem_de_prontidao_reporta_o_limitador_configurado(limiter_restaurado: None) -> None:
+    _configure_rate_limiter_for_tests(None)
+    saudavel, detalhe = _base.rate_limit_configured()
+    settings = GatewaySettings()
+    assert saudavel is True
+    assert f"capacity={settings.rate_limit_capacity}" in detalhe
+    assert f"refill_per_second={settings.rate_limit_refill_per_second}" in detalhe
+
+
+def test_a_checagem_de_prontidao_fica_vermelha_com_settings_invalidas(
+    limiter_restaurado: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A afirmacao "e' captada por qualquer caminho de prontidao" era FALSA ate' aqui.
+
+    Antes desta checagem, `build_readiness_checks` de nenhuma das duas raizes tocava o limitador:
+    um `MAEZO_GATEWAY_RATE_LIMIT_*` invalido so' aparecia na PRIMEIRA CHAMADA GATED, ou seja,
+    depois de o pod ja' ter se declarado pronto e ja' ter recebido trafego. Agora a replica nao
+    fica pronta. Mutante: remover a checagem da lista -> VERMELHO em
+    `test_a_checagem_de_prontidao_esta_na_lista_das_duas_raizes`.
+    """
+    monkeypatch.setenv("MAEZO_GATEWAY_RATE_LIMIT_CAPACITY", "0")
+    _configure_rate_limiter_for_tests(None)
+    saudavel, detalhe = _base.rate_limit_configured()
+    assert saudavel is False
+    assert "RateLimitConfigurationError" in detalhe
+    assert "MAEZO_GATEWAY_RATE_LIMIT_CAPACITY" in detalhe
+    # E nada foi instalado: a proxima chamada nao encontra um limitador que ninguem escolheu.
+    assert _base._RATE_LIMITER is None
+
+
+def test_a_checagem_de_prontidao_nunca_levanta(
+    limiter_restaurado: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Contrato das checagens de prontidao: sempre devolvem veredito, nunca propagam."""
+
+    def _explode() -> RateLimiter:
+        raise OSError("disco em chamas")
+
+    monkeypatch.setattr(_base, "_rate_limiter", _explode)
+    saudavel, detalhe = _base.rate_limit_configured()
+    assert saudavel is False
+    assert "OSError" in detalhe
+
+
+@pytest.mark.parametrize("raiz", ["agent_runtime", "worker_runtime"])
+async def test_a_checagem_de_prontidao_esta_na_lista_das_duas_raizes(
+    limiter_restaurado: None, raiz: str
+) -> None:
+    """Presenca na lista RETORNADA e' obrigacao propria (mesma forma do fence de `effect_seams_gated`).
+
+    Uma checagem correta que a raiz nao devolve deixa `/readyz` verde exatamente no cenario que ela
+    existe para pegar, e todas as provas da checagem em si seguem verdes.
+    """
+    if raiz == "agent_runtime":
+        from maezo.runtime.agent_runtime.service import AgentState, build_readiness_checks
+        from maezo.runtime.agent_runtime.settings import AgentRuntimeSettings
+
+        estado: Any = AgentState(settings=AgentRuntimeSettings(agent_id="rafael"))
+    else:
+        from maezo.runtime.worker_runtime.service import WorkerState, build_readiness_checks
+        from maezo.runtime.worker_runtime.settings import WorkerRuntimeSettings
+
+        estado = WorkerState(settings=WorkerRuntimeSettings())
+
+    resultados = {r.name: r for r in [await checagem() for checagem in build_readiness_checks(estado)]}
+    assert "rate_limit_configured" in resultados, (
+        f"{raiz}: `rate_limit_configured` NAO esta no conjunto de prontidao — /readyz ficaria verde "
+        "com o limitador do chokepoint mal configurado, e o pod so' descobriria no primeiro efeito"
+    )
+    assert resultados["rate_limit_configured"].healthy is True

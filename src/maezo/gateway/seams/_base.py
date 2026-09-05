@@ -413,9 +413,13 @@ def _rate_limiter() -> RateLimiter:
     replica running silently on 120/20 — the operator's configured control replaced by a different
     one. See `rate_limit.RateLimitConfigurationError` for why the outage is the correct reading.
 
+    In practice the FIRST caller is the `rate_limit_configured` readiness check (see it below), so
+    a misconfigured replica reports NOT READY rather than reaching a gated call at all.
+
     Raises:
-        RateLimitConfigurationError: the gateway settings could not be constructed. The first
-            gated call in the replica fails; no effect happens un-throttled.
+        RateLimitConfigurationError: the gateway settings could not be constructed. Readiness goes
+            red; if something does reach a gated call first, that call fails. No effect happens
+            un-throttled either way.
     """
     global _RATE_LIMITER
     if _RATE_LIMITER is None:
@@ -446,6 +450,33 @@ def _rate_limiter() -> RateLimiter:
             refill_per_second=_RATE_LIMITER.refill_per_second,
         )
     return _RATE_LIMITER
+
+
+def rate_limit_configured() -> tuple[bool, str]:
+    """The `rate_limit_configured` readiness check's verdict + detail (D6-01-F3).
+
+    Returns `(healthy, detail)` rather than a `CheckResult` so `maezo.gateway` keeps no dependency
+    on `maezo.platform.health` — the shape `tool_registry.effect_seams_gated` already established;
+    each root wraps it in its own `CheckResult`, red on failure and never fatal to liveness.
+
+    IT BUILDS THE LIMITER, and that is the whole point. `_rate_limiter` is memoised and lazy, so
+    before this check existed a malformed `MAEZO_GATEWAY_RATE_LIMIT_*` was discovered by the FIRST
+    GATED CALL — i.e. by a pod that had already announced itself READY and had already been given
+    traffic. Calling it here moves the discovery to `/readyz`, which is the shape this repo prefers
+    everywhere else (I-2: "replica not ready", never "replica ready and about to fail an effect").
+    Cost is one env read on the first `/readyz` and a dict lookup on every one after it — no I/O,
+    inside the `/readyz` budget the other checks are written against.
+
+    NEVER RAISES (the readiness-check contract): a configuration failure is reported as UNHEALTHY
+    with the detail, which is fail-closed — the replica does not serve — and not a silent fallback.
+    """
+    try:
+        limiter = _rate_limiter()
+    except Exception as exc:
+        # Broad because a readiness check must always return a verdict. The verdict is RED, so
+        # nothing is swallowed: the replica does not go ready and the reason is in the detail.
+        return False, f"{type(exc).__name__}: {exc}"
+    return True, f"capacity={limiter.capacity} refill_per_second={limiter.refill_per_second}"
 
 
 def _configure_rate_limiter_for_tests(limiter: RateLimiter | None) -> None:
@@ -628,4 +659,5 @@ __all__ = [
     "denial_for",
     "gate",
     "is_gated_seam",
+    "rate_limit_configured",
 ]

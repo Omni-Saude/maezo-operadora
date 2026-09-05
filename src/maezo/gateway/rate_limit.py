@@ -130,9 +130,18 @@ class RateLimitConfigurationError(RuntimeError):
     ERROR log and a replica running silently on 120/20 — a configured control quietly replaced by a
     different one, which is the exact shape of the defect D6-01 exists to remove.
 
-    A total outage is the CORRECT reading of "this replica is misconfigured": it is loud, it is
-    caught by any readiness path that exercises an effect, and it cannot be mistaken for the
-    operator's intent. Silently running on numbers nobody chose cannot.
+    A total outage is the CORRECT reading of "this replica is misconfigured": it is loud, and it
+    cannot be mistaken for the operator's intent. Silently running on numbers nobody chose can.
+
+    AND IT IS CAUGHT BEFORE THE POD TAKES TRAFFIC — but only because a readiness check was added
+    for it (§Delta F2). This paragraph previously said the failure "is caught by any readiness path
+    that exercises an effect"; that was FALSE, because no readiness check in either effect-running
+    root touched the limiter, and the lazy build meant the discovery happened on the first gated
+    call of an already-READY pod. `seams/_base.py::rate_limit_configured` now builds the limiter
+    and both roots return it from `build_readiness_checks`, so an invalid
+    `MAEZO_GATEWAY_RATE_LIMIT_*` makes the replica NOT READY (I-2's shape) instead of
+    ready-then-failing. The gateway health daemon needs no such check: it constructs
+    `GatewaySettings` at bring-up, so the same typo is fatal there already.
     """
 
 

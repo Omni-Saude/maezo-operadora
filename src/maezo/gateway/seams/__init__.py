@@ -50,6 +50,7 @@ from maezo.gateway.seams._base import (
     denial_for,
     gate,
     is_gated_seam,
+    rate_limit_configured,
 )
 from maezo.gateway.seams.a2a import GatedDelegationDispatcher
 from maezo.gateway.seams.cibseven import GatedCibSevenTransport
@@ -79,4 +80,5 @@ __all__ = [
     "denial_for",
     "gate",
     "is_gated_seam",
+    "rate_limit_configured",
 ]

@@ -50,7 +50,7 @@ import structlog
 
 from maezo.a2a import DelegationDispatcher
 from maezo.gateway.audit_postgres import FreshSinkAuditEmitter, PostgresAuditSink
-from maezo.gateway.seams import SeamContext
+from maezo.gateway.seams import SeamContext, rate_limit_configured
 from maezo.gateway.seams.dmn import GatedDmnTransport
 from maezo.gateway.seams.fhir import GatedFhirReader
 from maezo.gateway.tool_registry import (
@@ -673,6 +673,14 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
             detail=_state.effect_seams_detail,
         )
 
+    async def rate_limit_configured_check() -> CheckResult:
+        # D6-01-F3. O limitador do chokepoint nasce PREGUICOSO na primeira chamada gated, entao
+        # sem esta checagem um `MAEZO_GATEWAY_RATE_LIMIT_*` invalido so' aparecia depois que o pod
+        # ja' tinha se declarado pronto e ja' tinha recebido trafego. Aqui a replica simplesmente
+        # nao fica pronta (I-2). Sem estado do daemon: o limitador e' estado de PROCESSO.
+        healthy, detail = rate_limit_configured()
+        return CheckResult(name="rate_limit_configured", healthy=healthy, detail=detail)
+
     return [
         observability_configured,
         engine_reachable,
@@ -680,6 +688,7 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         harness_running,
         kafka_ready,
         effect_seams_gated_check,
+        rate_limit_configured_check,
         dossier_delegation_ready,
         dossier_fhir_ready,
         audit_sink_ready,
@@ -718,9 +727,15 @@ def _engine_credential(settings: WorkerRuntimeSettings) -> str | None:
     TAMBEM O TRANSPORTE DE TAREFA EXTERNA, que nao e' seam gated (`CibSevenWorkerTransport`, o
     primeiro bloco de `_bring_up_dependencies`): ele nao decide nada, mas carrega a MESMA
     credencial, e deixa-lo de fora manteria um `getattr` nao-auditado no proprio arquivo que esta
-    mudanca reescreveu. Depois disso nao resta em `src/` nenhuma leitura de
-    `cibseven_auth_token`/`cibseven_auth_token_value()` que chegue a um transporte do motor por
-    fora do cofre.
+    mudanca reescreveu. O que fica provado depois disso e' exatamente o que o fence de
+    `test_credential_vault_composition.py::test_nenhuma_leitura_da_credencial_do_motor_escapa_do_cofre_em_src`
+    afirma por AST sobre todo `src/`: nenhuma leitura LITERAL de
+    `cibseven_auth_token`/`cibseven_auth_token_value` — atributo, `getattr`/`hasattr` com nome
+    literal, ou subscrito com string constante (logo, tambem via `model_dump()`/`__dict__`) — fora
+    do unico par (modulo, funcao) exento, que e' a propria propriedade em
+    `worker_runtime/settings.py`. RESIDUAL declarado: um nome de campo montado em tempo de execucao
+    o fence nao ve' — de proposito, porque e' por `getattr` dinamico que o cofre le' a sua propria
+    tabela.
 
     CHAMADA DE DENTRO DE CADA BLOCO `try` a proposito: `_bring_up_dependencies` isola cada bloco
     (falha registra + deixa a checagem vermelha, nunca propaga). Uma recusa do cofre e' portanto

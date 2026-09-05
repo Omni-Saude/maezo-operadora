@@ -305,8 +305,15 @@ def build_worker_credential_view(*, settings: Any, principal: str = WORKER_PRINC
     diagnostic CLI against a dev engine, so there is no credential for a partition table to govern.
     The raw one, `worker_runtime/service.py`'s `CibSevenWorkerTransport`, is not a gated seam (it
     decides nothing) but carries the same credential and therefore also reads it here. What is
-    claimed, and what `grep -rn 'cibseven_auth_token' src` shows, is that no read of that field
-    reaches an engine transport by a `getattr` this table does not govern.
+    claimed is exactly what the fence
+    `test_credential_vault_composition.py::test_nenhuma_leitura_da_credencial_do_motor_escapa_do_cofre_em_src`
+    asserts by AST over all of `src/`: no LITERAL read of that field — attribute access,
+    `getattr`/`hasattr` with a literal name, or a constant-string subscript (so also via
+    `model_dump()` / `__dict__`) — exists outside the one exempt (module, function) pair,
+    `worker_runtime/settings.py::cibseven_auth_token_value`. The RESIDUAL, stated rather than
+    papered over: a field name built or chosen at RUNTIME is invisible to that fence, deliberately,
+    because a dynamic `getattr` is how :func:`build_credential_vault` reads this very table — a
+    fence that forbade it would forbid the vault.
     """
     return build_agent_credential_view(settings=settings, agent_id=principal)
 

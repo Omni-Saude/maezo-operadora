@@ -1487,3 +1487,22 @@ deployment introduzida pelo reparo, que o dono/SRE deve conhecer antes do merge.
 | Artefato | O que precisa de revisao humana | Revisor | Status |
 |---|---|---|---|
 | `src/maezo/gateway/seams/_base.py::_rate_limiter` — settings invalidas passam a DERRUBAR a replica | Antes do reparo, `MAEZO_GATEWAY_RATE_LIMIT_CAPACITY`/`_REFILL_PER_SECOND` invalidos viravam uma linha de ERROR e os defaults derivados (120/20): o daemon de health falhava alto, os pods de agent-runtime e do worker rodavam calados com numeros que ninguem escolheu. Agora a primeira chamada gated levanta `RateLimitConfigurationError` e a replica nao serve efeito algum. E' a leitura fail-closed correta de "esta replica esta mal configurada", e nenhum valor dessas duas variaveis existe em `deploy/` hoje (so' os defaults derivados valem), entao o risco operacional imediato e' nulo — mas no dia em que `deploy/` passar a defini-las, um typo deixa de degradar em silencio e passa a impedir a replica de servir. Vale um `terminationMessagePolicy`/readiness que exercite um efeito, e vale decidir se o valor entra por ConfigMap revisado | dono + SRE | `ABERTO — modo de falha divulgado; nenhuma variavel definida em deploy/ hoje (D6-01-F3)` |
+
+## Correcao de afirmacao + checagem de prontidao nova (REP-R4-SEC §Delta F2, 2026-09-05)
+
+Nenhuma linha acima foi editada — a linha D6-01-F3 imediatamente anterior fica como esta' e esta
+entrada a CORRIGE ao final, na forma que este arquivo exige (resolver/atualizar por linha nova,
+nunca por edicao).
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| Correcao da linha anterior (D6-01-F3): "vale um readiness que exercite um efeito" -> FEITO, nao pendente | A linha anterior tratava a checagem de prontidao como sugestao, e a docstring de `RateLimitConfigurationError` afirmava que a falha "e' captada por qualquer caminho de prontidao que exercite um efeito" — afirmacao FALSA no momento em que foi escrita: `build_readiness_checks` de `agent_runtime` e de `worker_runtime` nao tocava o limitador, que nasce preguicoso na primeira chamada gated. Corrigido em codigo: `gateway/seams/_base.py::rate_limit_configured` constroi o limitador e as DUAS raizes devolvem a checagem `rate_limit_configured` em `/readyz`, entao um `MAEZO_GATEWAY_RATE_LIMIT_*` invalido deixa a replica NAO PRONTA em vez de pronta-e-quebrando no primeiro efeito. O daemon de health do gateway nao precisa da checagem: ele constroi `GatewaySettings` no bring-up. O que segue para o dono/SRE e' so' a decisao de config (ConfigMap revisado para as duas variaveis, hoje inexistentes em `deploy/`) | dono + SRE | `ABERTO — apenas a decisao de config; a lacuna de prontidao foi fechada em codigo (§Delta F2)` |
+
+## Ponto cego do gate de hash do ledger, encontrado por REP-R4-SEC §Delta (2026-09-05)
+
+Nenhuma linha acima foi editada. `scripts/ci/` e' CODEOWNED, entao nada foi tocado la': isto e'
+divulgacao para o dono decidir.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `scripts/ci/check_evidence_ledger_hashes.py::_RESULT_LINE_RE` — node id com espaco some do hash EM SILENCIO | A receita casa `^(\S+::\S+ (?:PASSED\|FAILED)(?:\s.*)?)$`. Um teste parametrizado cujo ID automatico contenha espaco em branco (o pytest embute o proprio valor do parametro no id: um snippet de codigo, uma frase, um dict) produz uma linha de resultado que NAO casa — e o gate segue verde, hasheando so' o subconjunto que casou. Encontrado ao vivo neste PR: `test_credential_vault_composition.py` tinha 30 testes e o gate declarava "20 result lines", sem nenhum aviso. Corrigido AQUI pelo lado do teste (ids explicitos sem espaco), que e' o que um agente pode fazer sem tocar `scripts/ci/`; a correcao geral (contar os testes coletados e FALHAR se divergir do numero de linhas casadas, ou tolerar espaco no node id) e' decisao do dono sobre um caminho CODEOWNED. Enquanto nao houver, toda linha nova do ledger cujo arquivo tenha parametrizacao com id espacoso pode declarar um hash que cobre menos do que parece | dono + @Omni-Saude/security-team (CODEOWNERS de `scripts/ci/`) | `ABERTO — mitigado neste PR pelo lado do teste; gate segue sem contagem de nao-vacuidade` |

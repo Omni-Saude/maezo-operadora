@@ -29,10 +29,19 @@ nao autenticado), entao nao ha' credencial a governar la'. O transporte de taref
 (`CibSevenWorkerTransport`) nao e' seam gated mas carrega a mesma credencial, e tambem passou a
 le-la pelo cofre. Cada raiz tem aqui a sua prova: a recusa (`CredentialSeparationError`) e a
 entrega do Bearer do motor.
+
+O FENCE DE SUPERFICIE (secao 7) fecha isso por AST sobre todo `src/`, e o que ele afirma e'
+exatamente isto, nem mais: nenhuma leitura LITERAL da credencial do motor — atributo,
+`getattr`/`hasattr` com nome literal, ou subscrito com string constante (logo tambem via
+`model_dump()`/`__dict__`) — fora do unico par (modulo, funcao) exento. RESIDUAL declarado: um nome
+de campo montado em tempo de execucao ele nao ve', de proposito — e' por `getattr` dinamico que o
+proprio cofre le' `AGENT_CREDENTIAL_FIELDS`.
 """
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -492,58 +501,184 @@ def test_o_transporte_de_tarefa_externa_do_worker_tambem_passa_pelo_cofre(
         servico._engine_credential(settings)
 
 
-def test_nenhuma_leitura_da_credencial_do_motor_escapa_do_cofre_em_src() -> None:
-    """A afirmacao da docstring de `build_worker_credential_view`, virada prova.
+#: Todo nome de campo que carrega a credencial do motor. O casamento e' por PREFIXO, entao
+#: `cibseven_auth_token_value` (a propriedade) entra sem precisar de linha propria.
+_PREFIXO_CREDENCIAL = "cibseven_auth_token"
 
-    Varredura por AST (nao por texto: prosa e comentario citam o nome do campo o tempo todo).
-    Todo acesso de ATRIBUTO a `cibseven_auth_token` / `cibseven_auth_token_value` em `src/` tem de
-    estar dentro de uma das funcoes que consultam o cofre (`_engine_credential`, as duas) ou dentro
-    da propria propriedade que devolve o campo cru em `WorkerRuntimeSettings`. As DECLARACOES dos
-    campos nas classes de settings sao `AnnAssign` sobre um `Name`, nao acesso de atributo, e por
-    isso nem aparecem aqui.
+#: As unicas (caminho de modulo, funcao) autorizadas a tocar o campo cru. Par, e nao so' o NOME da
+#: funcao: uma exencao por nome valeria para qualquer `_engine_credential` que alguem escrevesse em
+#: qualquer modulo — que e' a forma exata de como AF-14-F1 aconteceu (uma raiz por vez).
+_EXENCOES: frozenset[tuple[str, str]] = frozenset(
+    {("runtime/worker_runtime/settings.py", "cibseven_auth_token_value")}
+)
 
-    Uma leitura nova por fora derruba este teste — a unica forma de a garantia nao voltar a erodir
-    uma raiz por vez.
+
+def _fugas_de_credencial(codigo: str, *, caminho: str) -> list[str]:
+    """Toda leitura LITERAL da credencial do motor em `codigo`, fora das exencoes.
+
+    Cobre, por AST (nunca por texto — prosa e comentario citam o nome do campo o tempo todo):
+
+      * acesso de atributo: `settings.cibseven_auth_token`, `settings.cibseven_auth_token_value()`;
+      * `getattr`/`hasattr` com o nome LITERAL: `getattr(settings, "cibseven_auth_token", None)`;
+      * subscrito com string CONSTANTE: `dados["cibseven_auth_token"]`, e portanto tambem
+        `settings.model_dump()["cibseven_auth_token"]` e `settings.__dict__["cibseven_auth_token"]`.
+
+    NAO cobre — e este e' o residual, dito aqui e nos tres textos do codigo que citam este fence:
+    um nome de campo montado ou escolhido em tempo de execucao (`getattr(settings, campo, None)`
+    com `campo` variavel). E' deliberado: e' exatamente assim que
+    `tool_registry.build_credential_vault` le' a tabela `AGENT_CREDENTIAL_FIELDS`, isto e', a
+    propria porta do cofre. Um fence que proibisse `getattr` dinamico proibiria o cofre.
+
+    Tambem NAO sao fuga, e nao sao flagradas: uma chave de dict literal
+    (`AGENT_CREDENTIAL_FIELDS = {"cibseven_auth_token": ...}`) e o nome passado a
+    `agent_credential(view, "cibseven_auth_token")` — nenhuma le' settings; ambas nomeiam a chave
+    DENTRO do cofre, que e' o caminho autorizado.
     """
-    import ast
-    from pathlib import Path
+    fugas: list[str] = []
 
-    campos = {"cibseven_auth_token", "cibseven_auth_token_value"}
-    funcoes_do_cofre = {"_engine_credential", "cibseven_auth_token_value"}
-    raiz = Path(tool_registry.__file__).resolve().parent.parent
+    def _e_o_campo(valor: object) -> bool:
+        return isinstance(valor, str) and valor.startswith(_PREFIXO_CREDENCIAL)
 
     class _Varredura(ast.NodeVisitor):
-        def __init__(self, arquivo: Path) -> None:
-            self.arquivo = arquivo
-            self.fugas: list[str] = []
+        def _funcao(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+            if (caminho, node.name) in _EXENCOES:
+                return
+            self.generic_visit(node)
 
         def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-            if node.name in funcoes_do_cofre:
-                return
-            self.generic_visit(node)
+            self._funcao(node)
 
         def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-            if node.name in funcoes_do_cofre:
-                return
-            self.generic_visit(node)
+            self._funcao(node)
 
         def visit_Attribute(self, node: ast.Attribute) -> None:
-            if node.attr in campos:
-                self.fugas.append(f"{self.arquivo.relative_to(raiz)}:{node.lineno}: .{node.attr}")
+            if _e_o_campo(node.attr):
+                fugas.append(f"{caminho}:{node.lineno}: .{node.attr}")
             self.generic_visit(node)
 
+        def visit_Call(self, node: ast.Call) -> None:
+            alvo = node.func
+            if (
+                isinstance(alvo, ast.Name)
+                and alvo.id in {"getattr", "hasattr"}
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and _e_o_campo(node.args[1].value)
+            ):
+                fugas.append(f"{caminho}:{node.lineno}: {alvo.id}(..., {node.args[1].value!r})")
+            self.generic_visit(node)
+
+        def visit_Subscript(self, node: ast.Subscript) -> None:
+            indice = node.slice
+            if isinstance(indice, ast.Constant) and _e_o_campo(indice.value):
+                fugas.append(f"{caminho}:{node.lineno}: [{indice.value!r}]")
+            self.generic_visit(node)
+
+    _Varredura().visit(ast.parse(codigo))
+    return sorted(fugas)
+
+
+#: Ids dos casos abaixo. Nomeados aqui (e sem espaco) porque o node id entra no hash do ledger —
+#: ver o comentario no `ids=` do primeiro parametrize.
+_IDS_DE_IDIOMA = frozenset(
+    {"atributo", "propriedade", "getattr", "hasattr", "model_dump", "dunder_dict", "subscrito"}
+)
+_IDS_DE_NAO_FUGA = frozenset({"getattr_dinamico_do_cofre", "chave_de_dict_literal", "chave_do_cofre"})
+
+
+@pytest.mark.parametrize(
+    ("idioma", "codigo"),
+    [
+        ("atributo", "def f(settings):\n    return settings.cibseven_auth_token\n"),
+        ("propriedade", "def f(settings):\n    return settings.cibseven_auth_token_value()\n"),
+        ("getattr", 'def f(settings):\n    return getattr(settings, "cibseven_auth_token", None)\n'),
+        ("hasattr", 'def f(settings):\n    return hasattr(settings, "cibseven_auth_token")\n'),
+        ("model_dump", 'def f(settings):\n    return settings.model_dump()["cibseven_auth_token"]\n'),
+        ("dunder_dict", 'def f(settings):\n    return settings.__dict__["cibseven_auth_token"]\n'),
+        ("subscrito", 'def f(dados):\n    return dados["cibseven_auth_token_value"]\n'),
+    ],
+    # IDs EXPLICITOS, sem espaco em branco. O id automatico do pytest embutiria o snippet inteiro
+    # (com `\n` e indentacao) no node id, e a receita de hash do ledger casa
+    # `^(\S+::\S+ (?:PASSED|FAILED)...)$` (`scripts/ci/check_evidence_ledger_hashes.py`): um node
+    # id com espaco NAO casa, e a linha some do hash em silencio. Foi assim que este arquivo passou
+    # a declarar 20 linhas de resultado para 30 testes antes desta correcao.
+    ids=lambda valor: valor if valor in _IDS_DE_IDIOMA else "",
+)
+def test_o_fence_de_credencial_pega_cada_idioma_de_leitura(idioma: str, codigo: str) -> None:
+    """Cada idioma que a primeira versao do fence deixava passar, agora VERMELHO.
+
+    A primeira versao so' olhava acesso de atributo: `getattr(settings, "cibseven_auth_token")`,
+    `settings.model_dump()[...]` e `settings.__dict__[...]` atravessavam sem ser vistos, e a
+    exencao casava pelo NOME da funcao em qualquer modulo. Estes casos sao a prova de que nao
+    atravessam mais; remover o ramo correspondente de `_fugas_de_credencial` deixa um deles
+    VERMELHO.
+    """
+    assert _fugas_de_credencial(codigo, caminho="qualquer/modulo.py"), f"idioma nao detectado: {idioma}"
+
+
+@pytest.mark.parametrize(
+    ("idioma", "codigo"),
+    [
+        ("getattr_dinamico_do_cofre", "def f(s, campo):\n    return getattr(s, campo, None)\n"),
+        ("chave_de_dict_literal", 'TABELA = {"cibseven_auth_token": "cibseven_auth_token"}\n'),
+        ("chave_do_cofre", 'def f(v):\n    return agent_credential(v, "cibseven_auth_token")\n'),
+    ],
+    ids=lambda valor: valor if valor in _IDS_DE_NAO_FUGA else "",
+)
+def test_o_fence_nao_flagra_o_que_nao_le_settings(idioma: str, codigo: str) -> None:
+    """O residual e as nao-fugas, escritos como prova para nao virarem folclore."""
+    assert _fugas_de_credencial(codigo, caminho="qualquer/modulo.py") == [], idioma
+
+
+def test_a_exencao_do_fence_e_por_par_modulo_funcao_e_nao_por_nome() -> None:
+    """Uma exencao por NOME valeria para qualquer `_engine_credential` em qualquer modulo.
+
+    Este teste e' a diferenca entre as duas leituras: o MESMO corpo, no modulo exento e num modulo
+    qualquer.
+    """
+    codigo = "def cibseven_auth_token_value(self):\n    return self.cibseven_auth_token\n"
+    assert _fugas_de_credencial(codigo, caminho="runtime/worker_runtime/settings.py") == []
+    assert _fugas_de_credencial(codigo, caminho="runtime/outro/settings.py") != []
+
+
+def test_nenhuma_leitura_da_credencial_do_motor_escapa_do_cofre_em_src() -> None:
+    """A afirmacao das docstrings de `build_worker_credential_view` e de `_engine_credential`,
+    virada prova sobre TODO `src/`.
+
+    O que este fence garante, exatamente (nem mais): nenhuma leitura LITERAL da credencial do motor
+    — atributo, `getattr`/`hasattr` com nome literal, ou subscrito com string constante, inclusive
+    via `model_dump()`/`__dict__` — existe em `src/` fora do par (modulo, funcao) exento. O que ele
+    NAO ve': um nome montado em tempo de execucao. Ver `_fugas_de_credencial` para por que essa
+    lacuna e' deliberada (e' por `getattr` dinamico que o proprio cofre le' a tabela).
+
+    Uma leitura nova por fora derruba este teste — a unica forma de a garantia nao voltar a erodir
+    uma raiz por vez, que foi como AF-14-F1 aconteceu.
+    """
+    raiz = Path(tool_registry.__file__).resolve().parent.parent
     fugas: list[str] = []
+    fugas_sem_exencao: list[str] = []
     arquivos_com_o_campo = 0
+    exencoes_usadas: set[tuple[str, str]] = set()
     for arquivo in sorted(raiz.rglob("*.py")):
         texto = arquivo.read_text(encoding="utf-8")
-        if not any(campo in texto for campo in campos):
+        if _PREFIXO_CREDENCIAL not in texto:
             continue
         arquivos_com_o_campo += 1
-        varredura = _Varredura(arquivo)
-        varredura.visit(ast.parse(texto))
-        fugas.extend(varredura.fugas)
+        caminho = arquivo.relative_to(raiz).as_posix()
+        deste_arquivo = _fugas_de_credencial(texto, caminho=caminho)
+        # O MESMO arquivo com um caminho que nao casa exencao alguma: a diferenca entre os dois e'
+        # exatamente o que cada exencao suprime.
+        deste_arquivo_sem_exencao = _fugas_de_credencial(texto, caminho=f"__sem_exencao__/{caminho}")
+        fugas.extend(deste_arquivo)
+        fugas_sem_exencao.extend(deste_arquivo_sem_exencao)
+        if len(deste_arquivo_sem_exencao) > len(deste_arquivo):
+            exencoes_usadas.update(par for par in _EXENCOES if par[0] == caminho)
 
     assert arquivos_com_o_campo >= 3, "varredura vacua: nem os arquivos conhecidos foram lidos"
+    # Nao-vacuidade da varredura: sem as exencoes ela ENCONTRA leitura — nao esta calada por bug.
+    assert fugas_sem_exencao, "varredura vacua: nem a leitura conhecida do settings foi vista"
     assert fugas == [], (
         "leitura da credencial do motor por fora do cofre (ADR-0005 mecanismo #3):\n" + "\n".join(fugas)
     )
+    # Nao-vacuidade das exencoes: uma exencao que nao suprime nada e' uma porta aberta esquecida.
+    assert exencoes_usadas == _EXENCOES, f"exencao declarada e nao usada: {_EXENCOES - exencoes_usadas}"
