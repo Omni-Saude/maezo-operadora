@@ -147,19 +147,29 @@ class _VariableCollector:
         """Returns True iff this statement unconditionally ends the function (a `return`)."""
         if isinstance(stmt, ast.Return):
             return True
-        if isinstance(stmt, ast.Assign):
-            for target in stmt.targets:
+        if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+            # `variables: dict[str, Any] = {...}` (every builder's INITIAL declaration) is an
+            # `ast.AnnAssign` (singular `.target`, `.value` optional) — a DIFFERENT node type
+            # from a later plain `variables["key"] = ...` (`ast.Assign`, plural `.targets`).
+            # Missing this case would silently skip the bulk unconditional dict literal every
+            # single one of the 9 builders opens with.
+            targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+            value = stmt.value
+            for target in targets:
                 if (
                     isinstance(target, ast.Name)
                     and target.id == self._dict_var
-                    and isinstance(stmt.value, ast.Dict)
+                    and isinstance(value, ast.Dict)
                 ):
-                    self._collect_dict_literal(stmt.value)
-                if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name):
-                    if target.value.id == self._dict_var:
-                        name = _string_const(target.slice)
-                        if name is not None:
-                            self.keys.add(name)
+                    self._collect_dict_literal(value)
+                if (
+                    isinstance(target, ast.Subscript)
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == self._dict_var
+                ):
+                    name = _string_const(target.slice)
+                    if name is not None:
+                        self.keys.add(name)
             return False
         if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
             call = stmt.value
@@ -201,10 +211,7 @@ class _VariableCollector:
         return False
 
     def _visit_body(self, body: list[ast.stmt]) -> bool:
-        for stmt in body:
-            if self._visit(stmt):
-                return True
-        return False
+        return any(self._visit(stmt) for stmt in body)
 
     def collect(self, body: list[ast.stmt]) -> set[str]:
         self._visit_body(body)
@@ -320,7 +327,7 @@ def test_every_engine_variable_the_graph_writes_is_declared_in_its_contract(
     tree = _agent_module_tree(agent_id)
     func = _find_function(tree, method)
     written = _VariableCollector(dict_var, flow_field, flow_value).collect(func.body)
-    assert written, f"{agent_id}::{method}: AST walk found ZERO keys — extractor regressed, not a real finding"
+    assert written, f"{agent_id}::{method}: AST walk found ZERO keys — extractor regressed, not a real gap"
 
     declared = _declared_variables(contract_id)
     exception = _KNOWN_UNDECLARED_WRITES.get((agent_id, contract_id), frozenset())
