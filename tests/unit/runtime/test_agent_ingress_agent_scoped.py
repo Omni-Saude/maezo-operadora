@@ -310,3 +310,54 @@ def test_boot_com_flag_desligada_nao_monta_nem_para_o_declarante() -> None:
     assert not _rota_montada(app)
     assert estado.ingress_mounted is False
     assert estado.ingress_refusal is None, "flag desligada nao e' recusa — e' ausencia de pedido"
+
+
+# =================================================================================================
+# Observabilidade do boot: os dois logs que o design §19 e o docstring de
+# `mount_ingress_if_declared` afirmam, e que ainda nao tinham cerca (§Delta F3)
+# =================================================================================================
+
+
+def test_boot_recusado_emite_o_proprio_token_de_classe_do_boot() -> None:
+    """`mount_ingress_if_declared` emite O SEU PROPRIO log de recusa, alem do log do portao.
+
+    `test_recusa_emite_o_token_de_classe` ja fenca `agent_ingress_refused_undeclared_agent`,
+    mas esse token sai de DENTRO de `require_ingress_spec_or_fail_closed` — o portao. O boot
+    que o CHAMA (`mount_ingress_if_declared`) emite um segundo log, `agent_ingress_not_mounted`,
+    com o proprio `agent_id` e a flag lida; apagar ou renomear esse segundo log nao quebra
+    nenhum teste anterior, porque nenhum deles capturava logs em torno de `_boot`.
+    """
+    with structlog.testing.capture_logs() as registros:
+        app, _estado, montado = _boot("helena", ligado=True)
+    eventos = [r.get("event") for r in registros]
+    assert montado is False
+    assert not _rota_montada(app)
+    assert "agent_ingress_not_mounted" in eventos, eventos
+
+
+async def test_bring_up_depois_da_recusa_nao_afirma_execucao_de_turno() -> None:
+    """A linha de bring-up que um operador le para saber se a replica executa turnos tem de
+    dizer a verdade sobre a MONTAGEM que de fato aconteceu, e nao sobre a intencao da flag.
+
+    Sem esta cerca, trocar a condicao de `_bring_up_dependencies`
+    (`state.ingress_mounted` -> `settings.agent_ingress_enabled`) volta a mentir para um agente
+    com a flag ligada e sem declaracao — exatamente o defeito que motivou a mudanca (ver o
+    comentario acima do `if state.ingress_mounted:` em `service.py`) — e a suite inteira
+    continuava verde, porque nenhum teste chamava `_bring_up_dependencies` depois de uma recusa
+    de ingresso.
+    """
+    _app, estado, montado = _boot("helena", ligado=True)
+    assert montado is False  # helena nao declara ingresso — precondicao deste teste
+
+    # `_bring_up_dependencies` chama `_ensure_observability(state)` de novo (AF-13, no-op se ja'
+    # configurado) — SEM chama-lo antes, essa reconfiguracao do structlog acontece DENTRO da
+    # janela de `capture_logs()` e desliga a captura pro resto da chamada, entao o evento final
+    # nunca aparece em `registros` mesmo quando o comportamento esta correto. Configurando aqui,
+    # a segunda chamada vira o no-op que o docstring promete e a captura fica intacta.
+    servico._ensure_observability(estado)
+    with structlog.testing.capture_logs() as registros:
+        await servico._bring_up_dependencies(estado)
+    eventos = [r.get("event") for r in registros]
+
+    assert "agent_graph_execution_available_here" not in eventos, eventos
+    assert "agent_graph_execution_not_performed_here" in eventos, eventos
