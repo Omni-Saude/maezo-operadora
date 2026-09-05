@@ -70,9 +70,7 @@ def _owner_tokens(rule: Rule) -> set[str]:
 
 
 def _carries_team(owners: tuple[Owner, ...]) -> bool:
-    return any(
-        owner.kind is OwnerKind.TEAM and owner.raw == _SECURITY_TEAM for owner in owners
-    )
+    return any(owner.kind is OwnerKind.TEAM and owner.raw == _SECURITY_TEAM for owner in owners)
 
 
 def test_the_matcher_can_return_unowned_so_every_assertion_below_is_falsifiable() -> None:
@@ -121,9 +119,7 @@ def test_the_deploy_tree_resolves_to_a_real_owning_rule() -> None:
     """
     rules = _rules()
     real_files = sorted(
-        p.relative_to(_REPO_ROOT).as_posix()
-        for p in (_REPO_ROOT / "deploy").rglob("*")
-        if p.is_file()
+        p.relative_to(_REPO_ROOT).as_posix() for p in (_REPO_ROOT / "deploy").rglob("*") if p.is_file()
     )
     assert len(real_files) > 10, (
         f"only {len(real_files)} files found under deploy/ — the derivation is not exercising the "

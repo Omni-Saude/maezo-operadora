@@ -20,6 +20,7 @@ proved — otherwise it is asserting that the gate lets something through.
 
 from __future__ import annotations
 
+import email.message
 import io
 import json
 import re
@@ -139,7 +140,12 @@ def _review(login: str, state: str, commit: str, when: str, rid: int) -> Review:
     return Review(login=login, state=state, commit_id=commit, submitted_at=when, review_id=rid)
 
 
-PR_AT_HEAD = PullRequest(number=42, head_sha=HEAD, state="closed", merged=True)
+PR_AT_HEAD = PullRequest(number=42, head_sha=HEAD, state="closed", merged=True, merge_commit_sha=PROMOTED)
+"""The ordinary shape: a MERGED pull request whose merge commit is the commit being promoted.
+
+The `merge_commit_sha` is load-bearing rather than decorative — `decide` refuses a merged pull
+request whose merge commit is not the promoted sha, and refuses outright one that is closed and
+unmerged (see `test_an_approval_on_a_closed_unmerged_pull_request_is_denied`)."""
 
 
 def test_a_dismissed_approval_stops_counting_immediately() -> None:
@@ -214,6 +220,137 @@ def test_a_listed_login_approving_the_pull_requests_head_passes() -> None:
     assert "review id 7" in verdict.render()
 
 
+# ---------------------------------------------------------------------------------------------
+# 1c) Pure core — WHICH pull request may carry a promotion at all (fail-open found in adversarial
+#     review, 2026-09-04: `state` and `merged` were parsed and then never read).
+# ---------------------------------------------------------------------------------------------
+
+
+def _approval_at(commit: str = HEAD) -> dict[int, list[Review]]:
+    return {42: [_review(LISTED, "APPROVED", commit, "2026-09-01T10:00:00+00:00", 7)]}
+
+
+def test_an_approval_on_a_closed_unmerged_pull_request_is_denied() -> None:
+    """THE FAIL-OPEN THIS TEST EXISTS FOR. A change that was reviewed, approved and then CLOSED
+    WITHOUT MERGING — rejected or abandoned — still carries a standing `APPROVED` review on its head.
+    Before this rule, that review authorised promoting its head sha to production for anyone who
+    passed it as `image_tag`. It is the same species as the stale approval of property 3: an approval
+    that no longer describes what the repository decided."""
+    closed = PullRequest(number=42, head_sha=PROMOTED, state="closed", merged=False)
+    verdict = decide(
+        promotion_sha=PROMOTED,
+        approvers=[LISTED],
+        pull_requests=[closed],
+        reviews_by_pr=_approval_at(PROMOTED),
+    )
+    assert verdict.approved is False
+    assert "closed without merging" in verdict.render()
+
+
+def test_an_approval_on_an_open_pull_request_at_its_head_passes() -> None:
+    """Proves: @rodaquino-OMNI (listed) APPROVED the head of OPEN PR #42, and that head IS the commit
+    being promoted. Promoting a branch build under review is legitimate; the reviews check then binds
+    the approval to that same head."""
+    open_pr = PullRequest(number=42, head_sha=PROMOTED, state="open", merged=False)
+    verdict = decide(
+        promotion_sha=PROMOTED,
+        approvers=[LISTED],
+        pull_requests=[open_pr],
+        reviews_by_pr=_approval_at(PROMOTED),
+    )
+    assert verdict.approved is True
+
+
+def test_an_open_pull_request_whose_head_moved_past_the_promoted_commit_is_denied() -> None:
+    """An open PR authorises only the commit it currently carries: once it is pushed to, the older
+    commit is no longer what the review describes."""
+    open_pr = PullRequest(number=42, head_sha=HEAD, state="open", merged=False)
+    verdict = decide(
+        promotion_sha=PROMOTED,
+        approvers=[LISTED],
+        pull_requests=[open_pr],
+        reviews_by_pr=_approval_at(HEAD),
+    )
+    assert verdict.approved is False
+    assert "an open pull request authorises only the commit" in verdict.render()
+
+
+def test_a_merged_pull_request_authorises_its_merge_commit_and_not_its_branch_head() -> None:
+    """What lands on the base branch — and what CD builds an image from — is the merge commit, not
+    the branch head. Promoting the head sha of a merged PR is promoting an artifact the merge did not
+    produce, so it is refused rather than accepted on the strength of the same review."""
+    merged = PullRequest(number=42, head_sha=PROMOTED, state="closed", merged=True, merge_commit_sha=OLD_HEAD)
+    verdict = decide(
+        promotion_sha=PROMOTED,
+        approvers=[LISTED],
+        pull_requests=[merged],
+        reviews_by_pr=_approval_at(PROMOTED),
+    )
+    assert verdict.approved is False
+    assert "not the promoted" in verdict.render()
+
+
+def test_the_three_pull_request_states_decide_carriage_on_their_own() -> None:
+    """The decision table of `carriage_miss`, stated once so the three states cannot drift apart:
+    merged binds on the merge commit, open binds on the head, closed-unmerged never binds."""
+    merged_ok = PullRequest(number=1, head_sha=HEAD, state="closed", merged=True, merge_commit_sha=PROMOTED)
+    open_ok = PullRequest(number=2, head_sha=PROMOTED, state="open", merged=False)
+    closed = PullRequest(number=3, head_sha=PROMOTED, state="closed", merged=False)
+    assert gate.carriage_miss(merged_ok, PROMOTED) is None
+    assert gate.carriage_miss(open_ok, PROMOTED) is None
+    assert gate.carriage_miss(closed, PROMOTED) is not None
+
+
+# ---------------------------------------------------------------------------------------------
+# 1d) Pure core — review ORDERING: the LATEST standing review per login wins, both directions.
+# ---------------------------------------------------------------------------------------------
+
+
+def test_a_later_changes_requested_supersedes_an_earlier_approval() -> None:
+    """Same login, same head: the approval is not additive, it is superseded."""
+    reviews = [
+        _review(LISTED, "APPROVED", HEAD, "2026-09-01T10:00:00+00:00", 1),
+        _review(LISTED, "CHANGES_REQUESTED", HEAD, "2026-09-01T12:00:00+00:00", 2),
+    ]
+    assert standing_reviews(reviews)[LISTED.lower()].state == "CHANGES_REQUESTED"
+    verdict = decide(
+        promotion_sha=PROMOTED, approvers=[LISTED], pull_requests=[PR_AT_HEAD], reviews_by_pr={42: reviews}
+    )
+    assert verdict.approved is False
+
+
+def test_a_later_approval_supersedes_an_earlier_changes_requested() -> None:
+    """The other direction, and it must pass: a reviewer who asked for changes and then approved has
+    approved. Proves: @rodaquino-OMNI's LATEST standing review is APPROVED at PR #42's head, which is
+    the merge commit being promoted."""
+    reviews = [
+        _review(LISTED, "CHANGES_REQUESTED", HEAD, "2026-09-01T10:00:00+00:00", 1),
+        _review(LISTED, "APPROVED", HEAD, "2026-09-01T12:00:00+00:00", 2),
+    ]
+    verdict = decide(
+        promotion_sha=PROMOTED, approvers=[LISTED], pull_requests=[PR_AT_HEAD], reviews_by_pr={42: reviews}
+    )
+    assert verdict.approved is True
+
+
+def test_a_dismissal_after_an_approval_and_a_fresh_approval_after_the_dismissal_both_count() -> None:
+    """DISMISSED drops the reviewer entirely; a NEW approval afterwards restores them. Ordering is by
+    `submitted_at`, tie-broken by review id, so this cannot be satisfied by list order alone."""
+    dismissed_then_approved = [
+        _review(LISTED, "APPROVED", HEAD, "2026-09-01T10:00:00+00:00", 1),
+        _review(LISTED, "DISMISSED", HEAD, "2026-09-01T11:00:00+00:00", 2),
+        _review(LISTED, "APPROVED", HEAD, "2026-09-01T12:00:00+00:00", 3),
+    ]
+    assert standing_reviews(dismissed_then_approved)[LISTED.lower()].review_id == 3
+    verdict = decide(
+        promotion_sha=PROMOTED,
+        approvers=[LISTED],
+        pull_requests=[PR_AT_HEAD],
+        reviews_by_pr={42: list(reversed(dismissed_then_approved))},
+    )
+    assert verdict.approved is True
+
+
 def test_an_unorderable_submitted_at_denies_rather_than_being_skipped() -> None:
     with pytest.raises(ApprovalGateError, match="unparseable submitted_at"):
         standing_reviews([_review(LISTED, "APPROVED", HEAD, "not-a-timestamp", 1)])
@@ -257,7 +394,7 @@ def _install_fake_api(
         path = full.split("https://api.github.com/", 1)[-1].split("?", 1)[0]
         asked.append(path)
         if path not in routes:
-            raise urllib.error.HTTPError(full, 404, "Not Found", {}, None)  # type: ignore[arg-type]
+            raise urllib.error.HTTPError(full, 404, "Not Found", email.message.Message(), None)
         return _FakeResponse(statuses.get(path, 200), routes[path])
 
     monkeypatch.setattr(gate.urllib.request, "urlopen", fake_urlopen)
@@ -391,6 +528,32 @@ def test_main_ignores_a_pull_request_that_merely_contains_the_commit(
         ),
     )
     assert _run(tmp_path) == 1
+
+
+def test_main_denies_an_approval_carried_only_by_a_closed_unmerged_pull_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The fail-open, driven end to end over the fake transport rather than only through `decide`:
+    the API really does report `state: closed` with `merged_at: null`, and the gate really must
+    refuse it. The promoted sha here IS the PR's head, so nothing but the state stops it."""
+    monkeypatch.setenv("GITHUB_TOKEN", "tok-" + "q" * 28)
+    _install_fake_api(
+        monkeypatch,
+        _routes(
+            reviews=[_api_review(LISTED, "APPROVED", PROMOTED)],
+            pulls=[
+                {
+                    "number": 42,
+                    "state": "closed",
+                    "merged_at": None,
+                    "head": {"sha": PROMOTED},
+                    "merge_commit_sha": None,
+                }
+            ],
+        ),
+    )
+    assert _run(tmp_path) == 1
+    assert "closed without merging" in capsys.readouterr().out
 
 
 def test_the_environment_probe_cannot_turn_a_denial_into_a_pass(

@@ -26,8 +26,11 @@ THE FOUR PROPERTIES THAT MAKE THIS A GATE AND NOT THEATRE
 ---------------------------------------------------------
 1. DEFAULT IS DENY. Every path that does not END in a matched approval returns non-zero: no
    approvers file, unparseable approvers file, no token, unresolvable promotion ref, no pull request
-   carrying the commit, no reviews, a review from an unlisted login, a stale approval, an API error,
-   an unexpected payload shape. There is no `except: pass`, no `or True`, no default-allow branch.
+   carrying the commit, a pull request that was CLOSED WITHOUT MERGING (its approval describes a
+   change the repository did not take), a merged pull request whose merge commit is not the promoted
+   commit, an open pull request whose head is not the promoted commit, no reviews, a review from an
+   unlisted login, a stale approval, an API error, an unexpected payload shape. There is no
+   `except: pass`, no `or True`, no default-allow branch.
 
 2. THE ENVIRONMENT PROBE IS TELEMETRY, NEVER A CONDITION. `GET /environments/production` is called
    and printed so the run's log records what the environment actually looked like at promotion time
@@ -246,12 +249,60 @@ def standing_reviews(reviews: Iterable[Review]) -> dict[str, Review]:
 
 @dataclass(frozen=True)
 class PullRequest:
-    """The pull request that carries the commit being promoted."""
+    """The pull request that carries the commit being promoted.
+
+    `state` and `merged` are not decoration: `decide` reads them, because an approval on a pull
+    request that was CLOSED WITHOUT MERGING is an approval of a change the repository rejected.
+    """
 
     number: int
     head_sha: str
     state: str
     merged: bool
+    merge_commit_sha: str | None = None
+
+
+def carriage_miss(pull: PullRequest, promotion_sha: str) -> str | None:
+    """Why `pull` cannot authorise promoting `promotion_sha`, or `None` when it can.
+
+    Only two shapes carry a promotion, and both are stated positively so that anything unforeseen
+    falls through to a denial:
+
+    * MERGED, and the promoted commit is its `merge_commit_sha` — the ordinary path. The commit that
+      lands on `main` (and that CD builds an image from) is the merge/squash/rebase commit GitHub
+      created, not the branch head.
+    * OPEN, and the promoted commit is the pull request's current head — promoting a branch build
+      whose head is still under review, which the reviews check then binds to that same head.
+
+    Everything else is refused, and the case that made this function necessary is the third one:
+    CLOSED and NOT merged. A change that was reviewed, approved and then abandoned or rejected still
+    has a standing `APPROVED` review on its head; without this check that review authorised
+    promoting its head sha to production (fail-open found in adversarial review, 2026-09-04). A
+    merged pull request whose HEAD sha (rather than its merge commit) is being promoted is refused
+    for the same reason the stale-approval rule exists: the artifact being promoted is then not the
+    artifact the merge produced.
+    """
+    if pull.merged:
+        if pull.merge_commit_sha == promotion_sha:
+            return None
+        return (
+            f"PR #{pull.number}: merged, but its merge commit is "
+            f"{(pull.merge_commit_sha or '(none)')[:12]}, not the promoted {promotion_sha[:12]} — "
+            "only the commit the merge produced is what this pull request put on the base branch."
+        )
+    if pull.state.lower() == "open":
+        if pull.head_sha == promotion_sha:
+            return None
+        return (
+            f"PR #{pull.number}: open, but its head is {pull.head_sha[:12]}, not the promoted "
+            f"{promotion_sha[:12]} — an open pull request authorises only the commit it currently "
+            "carries at its head."
+        )
+    return (
+        f"PR #{pull.number}: state={pull.state!r} and NOT merged — an approval on a pull request "
+        "that was closed without merging describes a change this repository did not take. It "
+        "authorises no promotion."
+    )
 
 
 @dataclass(frozen=True)
@@ -294,6 +345,10 @@ def decide(
         )
     misses: list[str] = []
     for pull in pull_requests:
+        carriage = carriage_miss(pull, promotion_sha)
+        if carriage is not None:
+            misses.append(carriage)
+            continue
         standing = standing_reviews(reviews_by_pr.get(pull.number, ()))
         for login_lower, review in sorted(standing.items()):
             if login_lower not in allowed:
@@ -441,6 +496,7 @@ class GitHubAPI:
                     head_sha=head_sha,
                     state=state,
                     merged=bool(entry.get("merged_at")),
+                    merge_commit_sha=merge_commit_sha if isinstance(merge_commit_sha, str) else None,
                 )
             )
         return out
