@@ -141,6 +141,45 @@ class WhatsAppWebhookSettings(BaseSettings):
     # driven — HEALTH_PORT is accepted for local-dev override parity with the other two daemons.
     health_port: int = Field(default=8080, validation_alias=AliasChoices("HEALTH_PORT", "health_port"))
 
+    # --- Gap WEBHOOK-WAMID-DEDUP (owner decisions R-071/R-072, 2026-09-04) -------------------
+
+    # Dedup window for a `wamid`, in seconds. The default is NOT invented here: ADR-0024:60 fixes
+    # "TTL default 86400s (24h, igual ao whatsapp idempotency)" and `docs/runbooks/
+    # whatsapp-webhook.md` §3 documents the same 24h for `wamid` deduplication. Meta re-delivers
+    # an unacknowledged webhook with backoff over a window far longer than one request, which is
+    # why this is measured in hours; a deployment that measured a different window sets the env
+    # var instead of editing code. Mirrored in `platform/driver_idempotency.py::DEFAULT_TTL_S`.
+    wamid_dedup_ttl_s: float = Field(
+        default=86400.0,
+        validation_alias=AliasChoices("WHATSAPP_WAMID_DEDUP_TTL_S", "wamid_dedup_ttl_s"),
+    )
+
+    # In-flight lease: how long a claimed-but-unfinished delivery suppresses redelivery before it
+    # is treated as abandoned (receiver killed mid-turn) and becomes re-claimable. Must stay ABOVE
+    # the longest honest synchronous turn and far BELOW the TTL, or the dedup would either lose
+    # real messages (too long) or answer twice (too short).
+    wamid_dedup_lease_s: float = Field(
+        default=120.0,
+        validation_alias=AliasChoices("WHATSAPP_WAMID_DEDUP_LEASE_S", "wamid_dedup_lease_s"),
+    )
+
+    # R-072 ack-then-queue, DEFAULT OFF. ON, the receiver claims the `wamid` durably, answers Meta
+    # 200 immediately and runs the Helena turn in a background task — the ack no longer waits for
+    # an LLM/engine round trip, which is what closes the timeout window that CAUSES Meta's retry.
+    #
+    # WHY THE DEFAULT IS OFF, stated because the owner adopted ack-then-queue as the TARGET form:
+    # this build has no broker and no re-drive worker. With the flag ON, a turn that dies after
+    # the 200 leaves a `pending` row in `driver_idempotency` and NOTHING re-drives it — Meta was
+    # already told the delivery was accepted, so it will not re-deliver either. The durable row
+    # makes that loss auditable (`status='pending'` older than the lease is the exact query), but
+    # auditable loss is still loss. Turning this ON in production is safe only once a re-drive
+    # consumer exists; see `docs/processes/webhook-whatsapp-ack-then-queue.md` for the redelivery
+    # contract and the ack-latency budget that note fixes.
+    ack_then_queue: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("WHATSAPP_WEBHOOK_ACK_THEN_QUEUE", "ack_then_queue"),
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _map_bare_field_name_kwargs(cls, data: Any) -> Any:

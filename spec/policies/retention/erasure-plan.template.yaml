@@ -350,19 +350,26 @@ camadas:
 
   - camada: idempotencia
     tabela: driver_idempotency
-    migracao: "0003_a2a_idempotency.py:61-67; indice por expiracao 0003:69-72"
-    identificacao: "key text PRIMARY KEY (0003:62) — chave derivada de negocio, nao coluna de titular"
+    migracao: "0003_a2a_idempotency.py:61-67; indice por expiracao 0003:69-72; reproposicao + coluna status 0010_webhook_wamid_dedup.py"
+    identificacao: "key text PRIMARY KEY (0003:62) — desde a 0010, o pseudonimo COM CHAVE (`hk1_`) do wamid de entrada, nunca o wamid cru; status text (0010) e estado de reivindicacao, nao referencia de titular"
     resolucao_identidade: SEM_COLUNA_DE_TITULAR
     ordem: 14
     tensao: REMATERIALIZACAO
     notas: >-
-      Unica tabela do encadeamento com expiracao propria (expires_at, 0003:64), entao
-      ja tem um prazo de fato — que NAO e uma decisao de retencao ratificada, e a
-      diferenca importa. Atencao do DPO: `key` e uma chave de NEGOCIO, e DL-0043
-      perna (c) / ADR-0035 tratam exatamente do risco de PHI dentro de chaves de
-      negocio persistidas; enquanto
-      `spec/policies/privacy/phi-business-key-remediation.yaml` nao estiver ratificado,
-      a forma dessa chave nao esta decidida.
+      REPROPOSTA em 2026-09-04 (gap DRIVER-IDEMPOTENCY-ORPHAN-TABLE, decisao do dono
+      R-073 opcao 2): deixou de ser tabela orfa dos drivers da ADR-0024, que nunca
+      foram construidos, e passou a ser o registro duravel de deduplicacao do canal
+      WhatsApp (`src/maezo/platform/driver_idempotency.py`; a migracao 0010 declara o
+      novo uso no proprio schema, via COMMENT ON). Unica tabela do encadeamento com
+      expiracao propria (expires_at, 0003:64), entao ja tem um prazo de fato — que NAO
+      e uma decisao de retencao ratificada, e a diferenca importa. Atencao do DPO:
+      `key` e uma chave de NEGOCIO, e DL-0043 perna (c) / ADR-0035 tratam exatamente do
+      risco de PHI dentro de chaves de negocio persistidas. O novo uso ENDERECA esse
+      risco por construcao — a chave e o pseudonimo HMAC COM CHAVE do `wamid`
+      (`webhooks/whatsapp/security.py::hash_message_id`), porque o `wamid` cru carrega
+      o telefone da contraparte em base64 —, mas isso e uma decisao de ENGENHARIA
+      registrada aqui, nao a ratificacao de
+      `spec/policies/privacy/phi-business-key-remediation.yaml`, que continua pendente.
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO

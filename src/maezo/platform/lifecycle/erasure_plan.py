@@ -423,8 +423,23 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
     PersistenceLayer(
         camada="idempotencia",
         tabela="driver_idempotency",
-        migracao="0003:61-67; expiry index 0003:69-72",
-        identificacao="key text PRIMARY KEY (0003:62) — a business key, not a subject column",
+        migracao="0003:61-67; expiry index 0003:69-72; repurpose + status column 0010",
+        # REPURPOSED 2026-09-04 (gap DRIVER-IDEMPOTENCY-ORPHAN-TABLE, owner decision R-073 option
+        # 2): the table stopped being an orphan of ADR-0024's never-built drivers and became the
+        # WhatsApp dedup registry (`platform/driver_idempotency.py`; migration 0010 declares the
+        # new use in the schema itself). The classification does NOT change, and the reason is a
+        # deliberate design property rather than an inherited assumption: the `key` now derives
+        # from Meta's `wamid`, which base64-embeds the counterpart phone number — so the key is
+        # written as the KEYED HMAC pseudonym of that wamid (`security.py::hash_message_id`,
+        # ADR-0035), irreversible without `PHI_HMAC_KEY`. No column of this table can therefore be
+        # resolved to a titular, which is exactly what SEM_COLUNA_DE_TITULAR asserts. Were the raw
+        # wamid ever stored instead, this row would have to become PONTE_AUSENTE and carry a
+        # subject_column — the pseudonymization is what keeps this line true.
+        identificacao=(
+            "key text PRIMARY KEY (0003:62) — since 0010 the keyed `hk1_` pseudonym of the "
+            "inbound wamid (never the raw wamid, which embeds the phone number); status text "
+            "(0010) is a claim state, not a subject reference"
+        ),
         resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
         ordem=14,
         subject_column=None,

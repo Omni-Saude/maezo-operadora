@@ -54,12 +54,14 @@ from maezo.gateway.tool_registry import (
     build_agent_seams,
     effect_seams_gated,
 )
+from maezo.platform.driver_idempotency import PostgresDriverIdempotencyRegistry
 from maezo.platform.health import build_health_server
 from maezo.runtime.checkpoint import Checkpointer, provision_checkpointer
 from maezo.runtime.inference import InferenceProvider
 from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 
 from .whatsapp.app import create_app
+from .whatsapp.dedup import WhatsAppDedupGuard
 from .whatsapp.dispatch import HelenaDispatcher
 from .whatsapp.settings import WhatsAppWebhookSettings
 
@@ -157,7 +159,30 @@ def _build_dispatcher(
         inference=InferenceProvider(model_tiers=_helena_model_tiers()),
     )
     seam_context = build_agent_seam_context(tenant=settings.tenant_id, agent_id="helena")
-    whatsapp_client = WhatsAppServer()
+    # Gap `WEBHOOK-WAMID-DEDUP` (owner decisions R-071/R-072/R-073): the durable dedup registry
+    # over the repurposed `driver_idempotency` table. Built HERE, in the one place that already
+    # owns the mandatory DSN and the keyed pseudonymizer, so BOTH legs of the guard — the inbound
+    # claim in `whatsapp/app.py` and the outbound `send` claim in `WhatsAppServer.send_message` —
+    # share one registry, one pool and one key derivation. Construction opens NO connection (the
+    # pool is lazy), matching this function's "pure construction" contract; a DSN this receiver
+    # cannot reach surfaces on the first claim, where the receiver fails closed with a non-2xx
+    # instead of dispatching unprotected.
+    pseudonymizer = Pseudonymizer.from_settings(
+        phi_hmac_key=settings.phi_hmac_key,
+        production=settings.runtime_mode != _LOCAL_RUNTIME_MODE,
+        tenant_id=settings.tenant_id,
+    )
+    dedup = WhatsAppDedupGuard(
+        registry=PostgresDriverIdempotencyRegistry(
+            dsn=settings.database_url,
+            tenant=settings.tenant_id,
+            lease_s=settings.wamid_dedup_lease_s,
+        ),
+        pseudonymizer=pseudonymizer,
+        tenant=settings.tenant_id,
+        ttl_s=settings.wamid_dedup_ttl_s,
+    )
+    whatsapp_client = WhatsAppServer(dedup=dedup.registry)
     dispatcher = HelenaDispatcher(
         tenant_id=settings.tenant_id,
         inference=seams["inference"],
@@ -169,12 +194,10 @@ def _build_dispatcher(
         # `_bring_up_dependencies`, leaving `state.dispatcher` None so `/webhook` degrades to its
         # explicit 501 (never a fabricated dispatch, never a reversible unkeyed pseudonym). Same
         # fence discipline as the DATABASE_URL check above.
-        pseudonymizer=Pseudonymizer.from_settings(
-            phi_hmac_key=settings.phi_hmac_key,
-            production=settings.runtime_mode != _LOCAL_RUNTIME_MODE,
-            tenant_id=settings.tenant_id,
-        ),
+        pseudonymizer=pseudonymizer,
         audit_sink=seams["audit_sink"],
+        # OUTBOUND leg of the same guard (R-071: "tratadas como uma entrega so").
+        dedup=dedup,
         # ONDA 1 §5.5 / O4 — the per-request knot. The WhatsApp seam CANNOT be built here: it is
         # `_ScopedWhatsAppSender`, created per turn inside `dispatch()` around the raw recipient of
         # the one inbound request. So the DECISION half is built once, here, and frozen; the
@@ -294,8 +317,11 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
     # durable checkpointer connect+setup, `dep_connect_timeout_s`-bounded; module docstring).
     await _bring_up_dependencies(state)
 
-    # STEP B: bind the app (health + /webhook) with the STEP A result baked in.
-    app = create_app(settings, is_live=state.is_live, dispatcher=state.dispatcher)
+    # STEP B: bind the app (health + /webhook) with the STEP A result baked in. The dedup guard
+    # rides on the dispatcher (`_build_dispatcher` builds both or neither), so a replica that has
+    # a dispatcher NEVER serves `/webhook` without duplicate protection.
+    dedup = state.dispatcher.dedup if state.dispatcher is not None else None
+    app = create_app(settings, is_live=state.is_live, dispatcher=state.dispatcher, dedup=dedup)
     server = build_health_server(app, port=settings.health_port)
     server.capture_signals = contextlib.nullcontext  # type: ignore[assignment]  # we own the signals
     shutdown = asyncio.Event()
@@ -336,5 +362,11 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
     if state.checkpointer is not None:
         with contextlib.suppress(Exception):
             await state.checkpointer.aclose()
+
+    # Gap `WEBHOOK-WAMID-DEDUP`: release the dedup registry's pool the same way (lazy — a receiver
+    # that never claimed anything never opened it). Non-fatal, for the same reason.
+    if dedup is not None:
+        with contextlib.suppress(Exception):
+            await dedup.aclose()
 
     logger.info("webhook_receiver_stopped", tenant=settings.tenant_id)
