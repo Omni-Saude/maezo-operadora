@@ -10,6 +10,41 @@ citada literalmente em algum `expr:` daquele arquivo (nunca uma metrica inventad
 dashboard); (3) todo dashboard declara `uid`/`title`/`schemaVersion`. Deriva o inventario de
 metricas do PROPRIO codigo-fonte (regex sobre metrics.py + alert-rules.yml), nunca uma lista
 hardcoded paralela que possa driftar do que `src/` de fato emite.
+
+REPARO REP-D12-02 (2026-09-05, VERIFY-D12-02 REVISE F1/F3) acrescenta duas cercas:
+
+(4) **Painel que afirma espelhar um alerta bate com a expr do alerta, de fato.** Um painel
+declara a intencao com o campo `maezo_mirrors_alert: "<AlertName>"` (adicionado ao JSON, ignorado
+pelo Grafana — campo extra desconhecido). A cerca compara a `expr` do painel contra a `expr` do
+`alert:` nomeado em `alert-rules.yml`, modulo APENAS: (a) diferencas de espaco em branco puras da
+formatacao multi-linha do YAML block-scalar; (b) um UNICO par de parenteses externo redundante
+envolvendo a expressao inteira (a convencao "grafico vs alerta" ja usada por 7 dos 8 paineis deste
+PR: o alerta embrulha `(...) > limiar` e o painel arranca so o `> limiar`, nunca o `unless`/o
+proprio corpo). Um `> N` que NAO esta no fim da string (por exemplo, gateando um `unless` no meio
+da expressao, como `MaezoLifecycleJobFailed`) NAO e considerado "threshold final" — precisa
+sobreviver identico nos dois lados. Encontrada e corrigida pelo REP-D12-02: o painel "Lifecycle
+CronJob failures" tinha perdido o `> 0` que gate a metade esquerda do `unless`, alargando
+silenciosamente quais series o grafico mostra (toda serie `kube_job_status_failed`, nao so as
+genuinamente falhas) apesar de a propria descricao do painel afirmar "Mesma expressao".
+
+(5) **Toda label usada em toda expr pertence ao label-set real da metrica.** Para uma metrica
+`maezo_*` registrada em `metrics.py`, o label-set permitido e exatamente `labelnames=[...]`
+daquele Counter/Histogram (mais `le`, implicito em toda serie `_bucket` de Histogram — nunca
+declarado em `labelnames`, e sim injetado pelo `prometheus_client` na exposicao). Para uma metrica
+de exporter (`kube_*`/`kafka_*`, nao registrada em `metrics.py`) o label-set permitido e o
+conjunto padrao `job`/`instance`/`pod`/`namespace` (job/instance: injetados por TODO
+`scrape_configs` de `prometheus.yml` — `job` implicito por `job_name`, `instance` explicito via o
+`relabel_configs` do job `maezo-app`; pod/namespace: convencao padrao Kubernetes-SD/kube-state-
+metrics, ainda nao exercida por este `prometheus.yml` de dev sem descoberta k8s, mas permitida
+proativamente — nunca inventada por painel) UNIDO as labels que aquela MESMA metrica ja usa
+literalmente em algum `expr`/corpo de `record:` de `alert-rules.yml` (o mesmo principio de
+"ja vetada na arvore" usado para o inventario de NOMES de metrica acima — nunca uma label
+inventada so para o dashboard). Uma label usada num seletor `metric{label=...}` e validada contra
+o label-set daquela metrica especifica; uma label usada numa clausula `by(...)`/`on(...)`/
+`ignoring(...)`/`without(...)` e validada contra a UNIAO dos label-sets de toda metrica citada na
+mesma expr (aproximacao conservadora — nao tenta atribuir a clausula a um lado especifico de uma
+divisao/`unless`). Superada a lacuna que VERIFY-D12-02 F3 mutou e confirmou NAO pega pela cerca
+anterior (`sum by (nonexistent_label) (...)` sobre uma metrica real ficava verde).
 """
 
 from __future__ import annotations
@@ -230,3 +265,239 @@ def test_datasource_uid_referenciado_pelos_paineis_bate_com_o_provisionado() -> 
                 f"{path.name}: painel {panel.get('title')!r} referencia datasource uid "
                 f"{ds.get('uid')!r}, nao provisionado ({sorted(provisioned_uids)})"
             )
+
+
+# ---------------------------------------------------------------------------------------------
+# REP-D12-02 (2026-09-05) — F1: painel que afirma espelhar um alerta bate com a expr do alerta.
+# ---------------------------------------------------------------------------------------------
+
+
+def _alert_exprs() -> dict[str, str]:
+    """Nome do `alert:` -> texto bruto da sua `expr:` (block-scalar, com quebras de linha), lido
+    de `alert-rules.yml` via YAML de verdade (nunca regex sobre o alerta em si — so' sobre
+    metrics.py, onde nao ha parser estruturado equivalente)."""
+    data = yaml.safe_load(_ALERT_RULES_YML.read_text(encoding="utf-8"))
+    alerts: dict[str, str] = {}
+    for group in data.get("groups", []):
+        for rule in group.get("rules", []):
+            if "alert" in rule:
+                alerts[rule["alert"]] = rule["expr"]
+    assert alerts, f"nenhum `alert:` encontrado em {_ALERT_RULES_YML} — regex/YAML quebrou?"
+    return alerts
+
+
+_TRAILING_THRESHOLD_RE = re.compile(r"\s*>\s*[0-9.]+\s*$")
+
+
+def _normalize_promql_whitespace(expr: str) -> str:
+    """Colapsa quebras de linha/indentacao do YAML block-scalar para uma comparacao estrutural —
+    NUNCA remove espaco que mude o significado (so' colapsa runs de whitespace e o espaco colado
+    a um parenteses, que o YAML multi-linha introduz e o PromQL ignora)."""
+    text = re.sub(r"\s+", " ", expr).strip()
+    text = re.sub(r"\(\s+", "(", text)
+    text = re.sub(r"\s+\)", ")", text)
+    return text
+
+
+def _strip_one_redundant_outer_paren_pair(expr: str) -> str:
+    """Remove UM par de parenteses externo se — e so' se — ele envolve a expressao INTEIRA (o
+    parenteses de abertura so' fecha no ULTIMO caractere da string). Nunca remove um parenteses
+    que faz parte de uma chamada de funcao (`rate(...)`) ou de um `unless on (...)` no meio da
+    expressao — esses nao envolvem a expressao inteira, entao `depth` volta a 0 antes do fim."""
+    expr = expr.strip()
+    while expr.startswith("(") and expr.endswith(")"):
+        depth = 0
+        wraps_whole_expr = True
+        for index, char in enumerate(expr):
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0 and index != len(expr) - 1:
+                    wraps_whole_expr = False
+                    break
+        if not wraps_whole_expr:
+            break
+        expr = expr[1:-1].strip()
+    return expr
+
+
+def _canonicalize_promql(expr: str) -> str:
+    """Forma canonica para comparar painel vs alerta: whitespace normalizado, um trailing
+    `> <threshold>` removido SE ele estiver no fim literal da string (nunca um `> N` que apenas
+    aparece no meio, como o que gate um `unless`), e um par de parenteses externo redundante
+    removido."""
+    text = _normalize_promql_whitespace(expr)
+    text = _TRAILING_THRESHOLD_RE.sub("", text).strip()
+    text = _strip_one_redundant_outer_paren_pair(text)
+    return text
+
+
+@pytest.mark.parametrize("path", _dashboard_files(), ids=lambda p: p.name)
+def test_painel_que_afirma_espelhar_um_alerta_bate_com_a_expr_do_alerta(path: Path) -> None:
+    """Todo painel que declara `maezo_mirrors_alert: "<AlertName>"` precisa ter
+    `targets[0].expr` estruturalmente IGUAL a `expr` daquele `alert:` em alert-rules.yml, a menos
+    apenas de um `> <threshold>` final (ver `_canonicalize_promql`) — nunca uma divergencia
+    estrutural silenciosa por tras de uma descricao que afirma "mesma expressao"."""
+    alerts = _alert_exprs()
+    dashboard = json.loads(path.read_text(encoding="utf-8"))
+    for panel in _panels(dashboard):
+        alert_name = panel.get("maezo_mirrors_alert")
+        if not alert_name:
+            continue
+        assert alert_name in alerts, (
+            f"{path.name}: painel {panel.get('title')!r} declara "
+            f"maezo_mirrors_alert={alert_name!r}, mas nenhum `alert: {alert_name}` existe em "
+            f"{_ALERT_RULES_YML}"
+        )
+        targets = panel.get("targets", [])
+        assert targets, f"{path.name}: painel {panel.get('title')!r} sem targets"
+        panel_expr = _canonicalize_promql(targets[0]["expr"])
+        alert_expr = _canonicalize_promql(alerts[alert_name])
+        assert panel_expr == alert_expr, (
+            f"{path.name}: painel {panel.get('title')!r} declara maezo_mirrors_alert="
+            f"{alert_name!r}, mas a expr nao bate (modulo um '> <threshold>' final):\n"
+            f"  painel: {panel_expr!r}\n  alerta: {alert_expr!r}"
+        )
+
+
+# ---------------------------------------------------------------------------------------------
+# REP-D12-02 (2026-09-05) — F3: toda label usada em toda expr pertence ao label-set real.
+# ---------------------------------------------------------------------------------------------
+
+
+def _metric_labelnames() -> tuple[dict[str, set[str]], set[str]]:
+    """(nome_base -> set(labelnames declaradas), set(nomes base que sao Histogram)) — parseado
+    de `metrics.py` por varredura de bloco balanceado ate o proximo `registry=self._registry`
+    literal (nunca `[^)]*?`: a descricao de alguns instrumentos contem parenteses, o que quebraria
+    uma classe de caracteres que exclui ')')."""
+    source = _METRICS_PY.read_text(encoding="utf-8")
+    block_re = re.compile(
+        r'(Counter|Histogram)\(\s*\n?\s*"([a-z0-9_]+)".*?registry=self\._registry',
+        re.DOTALL,
+    )
+    labelnames_by_metric: dict[str, set[str]] = {}
+    histogram_bases: set[str] = set()
+    for match in block_re.finditer(source):
+        kind, name = match.group(1), match.group(2)
+        block = match.group(0)
+        labelnames_match = re.search(r"labelnames=\[([^\]]*)\]", block)
+        labels = (
+            set(re.findall(r'"([a-zA-Z0-9_]+)"', labelnames_match.group(1))) if labelnames_match else set()
+        )
+        labelnames_by_metric[name] = labels
+        if kind == "Histogram":
+            histogram_bases.add(name)
+    assert labelnames_by_metric, f"nenhum Counter/Histogram parseado de {_METRICS_PY}"
+    return labelnames_by_metric, histogram_bases
+
+
+#: Labels que TODO scrape em `prometheus.yml` injeta por construcao do Prometheus, documentadas
+#: contra os `scrape_configs` reais daquele arquivo — nunca inventadas: `job` e implicito por
+#: `job_name` em TODO job; `instance` e setado explicitamente pelo `relabel_configs` do job
+#: `maezo-app`. `pod`/`namespace` sao a convencao padrao Kubernetes-SD/kube-state-metrics para
+#: series de exporter — este `prometheus.yml` de dev nao tem descoberta k8s (so' `static_configs`)
+#: entao elas nao sao literalmente exercidas hoje, mas sao permitidas proativamente per o escopo
+#: do reparo F3 (nunca fabricadas so' para um painel especifico).
+_STANDARD_EXPORTER_LABELS: frozenset[str] = frozenset({"job", "instance", "pod", "namespace"})
+
+_SELECTOR_RE = re.compile(r"(\b(?:maezo|kube|kafka)_[a-zA-Z0-9_]*\b)\s*\{([^}]*)\}")
+_LABEL_KEY_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=~?|!~?=)")
+_AGG_CLAUSE_RE = re.compile(r"\b(?:by|on|ignoring|without)\s*\(([^)]*)\)")
+
+
+def _exporter_label_names_for_metric(metric: str) -> set[str]:
+    """Labels literalmente usadas com `metric` dentro de algum seletor `metric{...}` de
+    alert-rules.yml — o mesmo principio de "ja vetada na arvore" usado para o inventario de NOMES
+    de metrica (`_exporter_metric_names_cited_in_alert_rules`), aplicado a labels."""
+    source = _ALERT_RULES_YML.read_text(encoding="utf-8")
+    labels: set[str] = set()
+    for match in re.finditer(re.escape(metric) + r"\{([^}]*)\}", source):
+        labels |= set(_LABEL_KEY_RE.findall(match.group(1)))
+    return labels
+
+
+def _allowed_labels_for_metric_token(
+    token: str,
+    labelnames_by_metric: dict[str, set[str]],
+    histogram_bases: set[str],
+) -> set[str]:
+    """Label-set permitido para um token de metrica (ja confirmado pertencer ao inventario medido
+    pela cerca de nomes acima): labelnames declaradas em metrics.py (mais `le` para uma serie
+    `_bucket` de Histogram), OU — para uma metrica de exporter/recording-rule sem entrada em
+    metrics.py — o conjunto padrao mais as labels ja vetadas em alert-rules.yml para essa metrica."""
+    for suffix in _HISTOGRAM_SUFFIXES:
+        if token.endswith(suffix):
+            base = token[: -len(suffix)]
+            if base in histogram_bases:
+                labels = set(labelnames_by_metric[base])
+                if suffix == "_bucket":
+                    labels = labels | {"le"}
+                return labels
+    if token in labelnames_by_metric:
+        return set(labelnames_by_metric[token])
+    return _STANDARD_EXPORTER_LABELS | _exporter_label_names_for_metric(token)
+
+
+def _label_problems_in_expr(
+    expr: str,
+    labelnames_by_metric: dict[str, set[str]],
+    histogram_bases: set[str],
+) -> list[str]:
+    """Lista de descricoes de problema (vazia se a expr e limpa). Duas formas de uso de label:
+    (1) presa a um seletor especifico `metrica{label=...}` — validada contra o label-set DAQUELA
+    metrica; (2) numa clausula `by(...)/on(...)/ignoring(...)/without(...)` — validada contra a
+    UNIAO dos label-sets de toda metrica citada na mesma expr (aproximacao conservadora: a cerca
+    nao tenta resolver a qual lado de uma divisao/`unless` a clausula pertence)."""
+    problems: list[str] = []
+    referenced_tokens = set(_METRIC_TOKEN_RE.findall(expr))
+    union_allowed: set[str] = set()
+    for token in referenced_tokens:
+        union_allowed |= _allowed_labels_for_metric_token(token, labelnames_by_metric, histogram_bases)
+
+    for metric, body in _SELECTOR_RE.findall(expr):
+        allowed = _allowed_labels_for_metric_token(metric, labelnames_by_metric, histogram_bases)
+        used = set(_LABEL_KEY_RE.findall(body))
+        bad = used - allowed
+        if bad:
+            problems.append(
+                f"seletor {metric}{{...}}: label(is) {sorted(bad)} fora do label-set "
+                f"permitido {sorted(allowed)}"
+            )
+
+    for clause in _AGG_CLAUSE_RE.findall(expr):
+        labels = {token.strip() for token in clause.split(",") if token.strip()}
+        bad = labels - union_allowed
+        if bad:
+            problems.append(
+                f"clausula by/on/ignoring/without({clause}): label(is) {sorted(bad)} fora da "
+                f"uniao permitida {sorted(union_allowed)}"
+            )
+
+    return problems
+
+
+@pytest.mark.parametrize("path", _dashboard_files(), ids=lambda p: p.name)
+def test_toda_label_usada_em_toda_expr_pertence_ao_label_set_real_da_metrica(path: Path) -> None:
+    """Nucleo do reparo F3: uma expr pode citar so' metricas reais (a cerca acima ja garante isso)
+    E AINDA fabricar uma label que aquela metrica nunca declarou. Esta cerca fecha essa lacuna
+    (mutation-provada em VERIFY-D12-02 F3: `sum by (nonexistent_label) (rate(
+    maezo_worker_error_count_total[5m]))` ficava verde antes desta cerca existir)."""
+    labelnames_by_metric, histogram_bases = _metric_labelnames()
+    dashboard = json.loads(path.read_text(encoding="utf-8"))
+    for expr in _exprs_in_dashboard(dashboard):
+        problems = _label_problems_in_expr(expr, labelnames_by_metric, histogram_bases)
+        assert not problems, f"{path.name}: expr {expr!r} usa label fabricada:\n" + "\n".join(problems)
+
+
+def test_label_por_metrica_nao_esta_vazio_por_regex_quebrada() -> None:
+    """Falha alto e claro se a extracao de labelnames por regex parar de encontrar nada — um
+    dict vazio faria a cerca de labels acima passar trivialmente (falso positivo), o mesmo
+    principio de `test_inventario_medido_nao_esta_vazio_por_regex_quebrada` acima."""
+    labelnames_by_metric, histogram_bases = _metric_labelnames()
+    assert labelnames_by_metric
+    assert histogram_bases
+    # Sanidade: algumas labelnames que sabemos existir na arvore neste base.
+    assert labelnames_by_metric["maezo_worker_error_count_total"] == {"worker", "topic", "error_type"}
+    assert labelnames_by_metric["maezo_agent_latency_seconds"] == set()
+    assert "maezo_worker_execution_time_seconds" in histogram_bases

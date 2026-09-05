@@ -35,6 +35,7 @@
       "type": "timeseries",
       "title": "Worker execution time p95 (SLA: 5s — MaezoSLAWorkerLatencyHigh)",
       "description": "Mesma expressao de MaezoSLAWorkerLatencyHigh (alert-rules.yml), com o limiar de 5s marcado como threshold do painel.",
+      "maezo_mirrors_alert": "MaezoSLAWorkerLatencyHigh",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -73,7 +74,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, worker, topic) (rate(maezo_worker_execution_time_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, rate(maezo_worker_execution_time_seconds_bucket[5m]))",
           "legendFormat": "{{worker}} / {{topic}}",
           "refId": "A",
           "datasource": {
@@ -88,6 +89,7 @@
       "type": "timeseries",
       "title": "Worker error rate (crash-loop proxy: MaezoWorkerCrashLoop > 0.01/s)",
       "description": "Mesma serie de MaezoWorkerCrashLoop.",
+      "maezo_mirrors_alert": "MaezoWorkerCrashLoop",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -140,7 +142,8 @@
       "id": 3,
       "type": "timeseries",
       "title": "Worker error ratio (SLA: 5% — MaezoSLAWorkerErrorRateHigh)",
-      "description": "Mesma expressao de MaezoSLAWorkerErrorRateHigh.",
+      "description": "Mesma expressao de MaezoSLAWorkerErrorRateHigh; espelha o alerta; ver ALERT-RULES-VECTOR-MATCH-MISMATCH (docs/review-queue.md) — divisao sem `sum by` em ambos os lados, label sets divergentes (worker,topic,error_type vs worker,topic), serie provavelmente sempre vazia; bug pre-existente em alert-rules.yml, nao introduzido nem corrigido por este PR.",
+      "maezo_mirrors_alert": "MaezoSLAWorkerErrorRateHigh",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
