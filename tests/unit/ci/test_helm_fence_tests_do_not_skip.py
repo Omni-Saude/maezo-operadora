@@ -84,6 +84,6 @@ def test_the_skip_detector_would_catch_the_networkpolicy_precedent() -> None:
     assert precedent.is_file()
     text = precedent.read_text(encoding="utf-8")
     assert _SKIP_RE.search(text), (
-        "sanity: test_networkpolicy.py's own `pytest.skip(\"helm not available\")` must match "
+        'sanity: test_networkpolicy.py\'s own `pytest.skip("helm not available")` must match '
         "_SKIP_RE, or the detector above proves nothing"
     )

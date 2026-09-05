@@ -204,7 +204,7 @@ def test_extracts_sh_c_shell_form_and_catches_a_phantom_there() -> None:
     rendered = (
         "---\n"
         "# Source: maezo-tenant/templates/deployment-phantom-shellform.yaml\n"
-        "command: [\"sh\", \"-c\", \"set -eu\\nexec python -m "
+        'command: ["sh", "-c", "set -eu\\nexec python -m '
         'maezo.platform.integrations.totally_phantom_shellform"]\n'
     )
     refs = extract_entrypoints(rendered)
@@ -272,9 +272,7 @@ def test_extracts_from_deploy_tf_and_catches_a_phantom_there(tmp_path: Path) -> 
     )
     refs = extract_entrypoints_from_terraform(tmp_path)
     assert [r.module for r in refs] == ["maezo.platform.integrations.totally_phantom_terraform"]
-    assert refs[0].source_template is not None and refs[0].source_template.endswith(
-        "service-phantom.tf"
-    )
+    assert refs[0].source_template is not None and refs[0].source_template.endswith("service-phantom.tf")
     result = resolve_entrypoints(refs)
     assert not result.ok
 

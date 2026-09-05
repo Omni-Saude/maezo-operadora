@@ -23,7 +23,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from scripts.ci.check_chart_env_reconciliation import (
     DEFERRED_UNRECONCILED_DECLARED,
     INFRA_OWNED_DECLARED,
