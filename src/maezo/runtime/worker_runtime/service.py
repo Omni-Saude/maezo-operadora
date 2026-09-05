@@ -429,8 +429,8 @@ class WorkerState:
     # Dossier-A2A seam (DL-0033 real wiring / DL-0037): the worker->Carolina/Andre/Fernando
     # delegation dispatcher assembled by `build_dossier_delegation_dispatcher` at bring-up. `None` = DEGRADED
     # (no signing key in non-local mode / missing DATABASE_URL / assembly failure): the daemon
-    # still RUNS and serves every topic; the three dossier workers (cred/adequacao/PAGTO)
-    # fail-neutral with a disclosed
+    # still RUNS and serves every topic; the four dossier workers (cred/adequacao/PAGTO/
+    # INADIMPLENCIA) fail-neutral with a disclosed
     # gap marker and `dossier_delegation_ready` reports the degradation LOUDLY (never gates
     # /readyz — the dossier "instrui, nao decide", so its absence must not stop the human UTs).
     dossier_dispatcher: DelegationDispatcher | None = None
@@ -609,14 +609,15 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         detail = (
             "dossier_delegation_ready=true — worker->Carolina/Andre/Fernando dispatcher "
             "assembled (cred.prepare_dossier / adequacao.prepare_remediation_dossier / "
-            "pagto.prepare_approval_dossier delegate for real; fernando REGISTERED but not "
-            "yet originated — R-081 half two)"
+            "pagto.prepare_approval_dossier / inadimplencia.prepare_dossier delegate for real)"
             if ready
             else (
                 "dossier_delegation_ready=false — dossier A2A dispatcher NOT assembled "
-                f"({_state.dossier_dispatcher_detail}); the three dossier workers "
-                "(cred/adequacao/PAGTO) return "
-                "{'dossier_prepared': False, 'dossier_gap': ...} and the human User Tasks "
+                f"({_state.dossier_dispatcher_detail}); the four dossier workers "
+                "(cred/adequacao/PAGTO/inadimplencia) return their disclosed-gap marker "
+                "({'dossier_prepared': False, 'dossier_gap': ...}; inadimplencia keeps its LOCAL "
+                "dossier and marks {'arrears_followup_delegated': False, "
+                "'arrears_followup_gap': ...}) and the human User Tasks "
                 "still open (DL-0037 fail-neutral-with-disclosed-gap); not a readiness failure"
             )
         )

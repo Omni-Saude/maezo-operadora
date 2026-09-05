@@ -115,36 +115,35 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   pending a consumer (ADR-0047, DRAFT). The donor's `finalize`/memory node has no v2 analog
   here.
 - A2A inbound delegation (`arrears.followup`, `spec/agents/fernando/agent.yaml`'s
-  `accepted_task_types`) is REGISTERED but not yet ORIGINATED. UPDATED 2026-09-05 (owner decision
-  R-081, gap `FERNANDO-DELEGATION-CALL-SITE`) — the two earlier claims below this line were both
-  overtaken and are corrected here rather than left to rot: (a) "no `make_fernando_handler` exists
-  anywhere in this repo" is FALSE since `agents/fernando/delegation.py` landed
-  (`make_fernando_handler`/`state_from_envelope`, mirroring Carolina's pattern); (b) "NOT wired"
-  is now FALSE for the REGISTRATION half — `runtime/agent_runtime/a2a_composition.py::
+  `accepted_task_types`) is REGISTERED **and ORIGINATED**. UPDATED 2026-09-05 (owner decision
+  R-081, gap `FERNANDO-DELEGATION-CALL-SITE`) — three earlier claims were overtaken and are
+  corrected here rather than left to rot: (a) "no `make_fernando_handler` exists anywhere in this
+  repo" is FALSE since `agents/fernando/delegation.py` landed (`make_fernando_handler`/
+  `state_from_envelope`, mirroring Carolina's pattern); (b) "NOT wired" is FALSE for the
+  REGISTRATION half — `runtime/agent_runtime/a2a_composition.py::
   build_dossier_delegation_dispatcher` registers `handlers={..., "fernando": fernando_handler}`
   and `_DOSSIER_EDGE_AGENT_IDS` includes him, so an `arrears.followup` envelope delivered to that
   dispatcher REACHES this graph (proved end to end by `tests/unit/runtime/agent_runtime/
-  test_a2a_composition.py::test_dossier_dispatcher_routes_the_registered_fernando_edge`). What is
-  STILL missing is the ORIGIN call: `operadora.inadimplencia.prepare_dossier` does not call
-  `delegate_arrears_followup(...)`, because that worker is still a sync `FunctionWorker`
-  (`tools/workers/inadimplencia.py::register_inadimplencia_workers`) and originating an A2A
-  delegation from it means converting it to the raw-async handler form
-  (`tools/workers/credenciamento.py::make_prepare_dossier_handler` is the precedent) and threading
-  the dossier dispatcher through — the remaining half of R-081, recorded in
-  `docs/review-queue.md`. Lucas is explicitly NOT the origin (owner decision R-082: no new A2A
-  contract for Lucas until a journey names the consumer), which is why this line no longer says
-  "Lucas -> Fernando". The second finding the original correction surfaced still stands: neither
-  this graph nor `agents/lucas/graph.py` is invoked (a
-  turn executed) by ANY production code path at all — not through a static import (0 hits
-  outside each package's own directory) and not through the dynamic `Harness.create_graph`/
-  `_load_agent_graph` path either, which is used EXCLUSIVELY by `runtime/agent_runtime/
-  service.py`'s health-only readiness daemon (`graph_loaded`'s own comment: "Construction only —
-  no node ever runs from this check"). The platform DOES have a real, LIVE, turn-EXECUTING HTTP
-  ingress pattern (`runtime/agent_runtime/ingress.py::build_ingress_router`, mounted behind
+  test_a2a_composition.py::test_dossier_dispatcher_routes_the_registered_fernando_edge`); and
+  (c) "no production code path ORIGINATES a turn" is FALSE since the second half of R-081 landed
+  — `tools/workers/inadimplencia.py::make_prepare_dossier_handler` (the raw-async form of
+  `operadora.inadimplencia.prepare_dossier`, precedent `credenciamento.py::
+  make_prepare_dossier_handler`) calls `delegate_arrears_followup(...)` from INSIDE a running
+  SP-OP-INADIMPLENCIA-001 instance, FAIL-NEUTRALLY (a delegation failure never fails the CIB
+  Seven task and never fabricates success; the human User Task always opens with the gap
+  disclosed in `arrears_followup_gap`). Lucas is explicitly NOT the origin (owner decision
+  R-082: no new A2A contract for Lucas until a journey names the consumer), which is why this
+  line no longer says "Lucas -> Fernando". The second finding the original correction surfaced
+  still stands FOR LUCAS ONLY: `agents/lucas/graph.py` is not invoked (a turn executed) by ANY
+  production code path at all — not through a static import (0 hits outside its own package
+  directory) and not through the dynamic `Harness.create_graph`/`_load_agent_graph` path either,
+  which is used EXCLUSIVELY by `runtime/agent_runtime/service.py`'s health-only readiness daemon
+  (`graph_loaded`'s own comment: "Construction only — no node ever runs from this check"). The
+  platform DOES have a real, LIVE, turn-EXECUTING HTTP ingress pattern
+  (`runtime/agent_runtime/ingress.py::build_ingress_router`, mounted behind
   `settings.agent_ingress_enabled` in `service.py`) — but it exists ONLY for Rafael's
-  `portal_tiss` channel today; no equivalent exists for Fernando or Lucas. This graph is invoked
-  directly with an already-assembled `FernandoState` (as the unit tests do), not via any live
-  channel, inbound or outbound.
+  `portal_tiss` channel today; there is still no HTTP ingress for Fernando or Lucas. THIS graph
+  now has a live inbound path that is not HTTP: the worker->A2A dossier edge above.
 - `tipo_plano`/`canal` are consumed as opaque strings (passed straight to the DMN / dossier /
   engine variables) with NO closed-allowlist validation of their own — unlike `intencao`. The
   DMN's own catch-all rows (`spec/processes/dmn/inadimplencia_status.dmn`'s `r_catchall`,

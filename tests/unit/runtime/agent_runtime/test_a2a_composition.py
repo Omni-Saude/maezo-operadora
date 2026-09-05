@@ -37,6 +37,7 @@ from maezo.a2a import TOPIC_COMPLETED, TOPIC_REQUESTED, CardSigner, per_tenant_k
 from maezo.agents.andre.delegation import delegate_adequacao_dossier
 from maezo.agents.carolina.delegation import delegate_cred_dossier
 from maezo.agents.fernando.delegation import delegate_arrears_followup
+from maezo.gateway.tool_registry import whatsapp_adapter_for
 from maezo.runtime.agent_runtime import a2a_composition
 from maezo.runtime.agent_runtime.a2a_composition import (
     ALLOW_UNSIGNED_CARDS_ENV_VAR,
@@ -383,10 +384,14 @@ async def test_dossier_dispatcher_routes_the_registered_fernando_edge(
     (`agents/fernando/graph.py`), entao o `FakeDmnTransport` de `_dossier_deps()` — que registra
     so' as tabelas de credenciamento — basta, e o turno chega ao `start_process` de verdade.
 
-    A metade de ORIGEM (`operadora.inadimplencia.prepare_dossier` chamando
-    `delegate_arrears_followup`) NAO aterrissou: nenhum worker de producao origina esta aresta
-    hoje. Este teste afirma ALCANCABILIDADE, nunca liveness — a mesma distincao que
-    `tests/unit/a2a/test_agent_card_handlers_parity.py` faz no seu docstring.
+    Este teste afirma ALCANCABILIDADE — a distincao que
+    `tests/unit/a2a/test_agent_card_handlers_parity.py` faz no seu docstring. A metade de ORIGEM
+    (`operadora.inadimplencia.prepare_dossier` chamando `delegate_arrears_followup`) tambem
+    aterrissou, e e' provada do OUTRO lado, no worker:
+    `tests/unit/tools/workers/test_inadimplencia.py::
+    test_registered_prepare_dossier_threads_the_dossier_dispatcher_seam`. As duas provas sao
+    deliberadamente separadas: esta fixa o alvo na raiz de producao, aquela fixa a origem no
+    bootstrap do worker, e nenhuma das duas depende da outra para nao ser vacua.
     """
     monkeypatch.setenv(_SIGNING_KEY_ENV, _VALID_KEY)
     producer = RecordingProducer()
@@ -448,3 +453,35 @@ def test_the_dossier_edge_registers_exactly_its_declared_agent_set() -> None:
                     k.value for k in kw.value.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)
                 }
     assert registrados == set(a2a_composition._DOSSIER_EDGE_AGENT_IDS) == {"carolina", "andre", "fernando"}
+
+
+def test_the_root_builds_fernandos_whatsapp_seam_from_the_one_agent_adapter_map() -> None:
+    """A escolha agente->adaptador WhatsApp tem UMA definicao, e esta raiz usa ELA.
+
+    `build_whatsapp_seam` ramifica so' em `adapter == "lucas"`; qualquer outra string cai no
+    `else` do sender da Helena. Passar o ID DO AGENTE (`"fernando"`) daria hoje o MESMO objeto
+    que o mapa escolhe (`_WHATSAPP_ADAPTER_BY_AGENT["fernando"] == "helena"`) — por acidente, nao
+    por decisao. Esta cerca prende o valor que a raiz efetivamente passa ao construtor ao valor
+    do mapa, entao no dia em que um ramo `fernando` existir, ou o `else` mudar, a raiz nao pode
+    divergir em silencio do que `build_agent_seams` escolheria para o mesmo agente.
+    """
+    passados: list[str] = []
+    real = a2a_composition.build_whatsapp_seam
+
+    def espiao(*, seam: Any, inner: Any = None, adapter: str = "helena") -> Any:
+        passados.append(adapter)
+        return real(seam=seam, inner=inner, adapter=adapter)
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setenv(_SIGNING_KEY_ENV, _VALID_KEY)
+        monkeypatch.setattr(a2a_composition, "build_whatsapp_seam", espiao)
+        build_dossier_delegation_dispatcher(
+            tenant="amh", runtime_mode="local", kafka_producer=RecordingProducer(), **_dossier_deps()
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert passados == [whatsapp_adapter_for("fernando")]
+    # Nao-vacuidade: o mapa realmente nomeia fernando, e o valor NAO e' o id do agente.
+    assert whatsapp_adapter_for("fernando") == "helena"

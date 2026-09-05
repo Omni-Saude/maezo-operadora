@@ -14,14 +14,17 @@ instead of credentialing ones, same PHI/idempotency/HandlerOutput shape):
 
 - ORIGIN side (`delegate_arrears_followup` / `build_arrears_followup_envelope`): what the
   `operadora.inadimplencia.prepare_dossier` worker (`tools/workers/inadimplencia.py`), from
-  INSIDE a running SP-OP-INADIMPLENCIA-001 instance, would call to actually originate the
-  delegation. **STILL NOT WIRED from that worker** (2026-09-05): owner decision R-081 authorized
-  it, but that worker is registered as a SYNC `FunctionWorker` and originating an A2A delegation
-  from it means converting it to the raw-async handler form
-  (`tools/workers/credenciamento.py::make_prepare_dossier_handler` is the sanctioned precedent)
-  plus threading the dossier dispatcher through `register_inadimplencia_workers` — the remaining
-  half of R-081, recorded in `docs/review-queue.md`. The origin function is built and tested
-  here; nothing in production calls it yet.
+  INSIDE a running SP-OP-INADIMPLENCIA-001 instance, calls to originate the delegation.
+  **WIRED since 2026-09-05** (owner decision R-081, both halves): that worker was converted from
+  a SYNC `FunctionWorker` to the raw-async handler form
+  (`tools/workers/inadimplencia.py::make_prepare_dossier_handler`, sanctioned precedent
+  `tools/workers/credenciamento.py::make_prepare_dossier_handler`) and reads the
+  `dossier_dispatcher` seam that already reaches `register_inadimplencia_workers` through
+  `**seams`. The call is FAIL-NEUTRAL, as the owner's decision requires: a missing dispatcher,
+  a structured rejection, a `StartProcessFailedError` (Fernando's own RAF-02 guard) or ANY other
+  exception completes the CIB Seven task with the local dossier plus
+  `arrears_followup_delegated=False` and a bounded `arrears_followup_gap` token — never a raised
+  incident, never a fabricated success.
 - TARGET side (`state_from_envelope` + `make_fernando_handler`): the handler compiles Fernando's
   REAL graph (`agents.fernando.graph.build(config)`, fail-closed on missing `inference`/`dmn`/
   `cibseven`/`audit_sink`/`whatsapp`) and runs it with envelope-materialized state — this half IS
@@ -226,8 +229,9 @@ async def delegate_arrears_followup(
 ) -> DelegationResult:
     """Originate and dispatch the worker->Fernando delegation. Idempotent by `task_id`.
 
-    NOT CALLED from `tools/workers/inadimplencia.py` yet — the TARGET is registered (R-081) but
-    this ORIGIN half is not; see the module docstring.
+    CALLED from `tools/workers/inadimplencia.py::make_prepare_dossier_handler` (R-081, both
+    halves landed 2026-09-05) — the only production origin of this edge; see the module docstring
+    for the fail-neutral posture that call site is required to keep.
     Returns the dispatcher's structured `DelegationResult` (success with `output_ref` = the
     case's process reference + `meta` = Fernando's bounded routing summary, or a structured
     rejection — never a raise out of the dispatcher). On re-delivery of the same `task_id`,

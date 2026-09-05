@@ -98,6 +98,7 @@ from maezo.gateway.tool_registry import (
     build_inference_seam,
     build_whatsapp_seam,
     build_worker_seam_context,
+    whatsapp_adapter_for,
 )
 from maezo.runtime.inference import InferenceProvider
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
@@ -120,12 +121,13 @@ _EDGE_AGENT_IDS = ("helena", "rafael")
 #:   `operadora.pagto.prepare_approval_dossier`     -> Andre, `pagto-worker` origin -> his DEFAULT
 #:        `pagto_dossier` flow (added this wave — the AGENT set is unchanged, Andre's handler and
 #:        card already accept the shared type; only a THIRD origin now routes to him)
-#:   `operadora.inadimplencia.prepare_dossier`     -> Fernando (`arrears.followup`), REGISTERED
-#:        by owner decision R-081 (gap `FERNANDO-DELEGATION-CALL-SITE`, approved 2026-09-04:
+#:   `operadora.inadimplencia.prepare_dossier`     -> Fernando (`arrears.followup`), added by
+#:        owner decision R-081 (gap `FERNANDO-DELEGATION-CALL-SITE`, approved 2026-09-04:
 #:        "SIM — ligar o call site em `inadimplencia.py::prepare_dossier` e registrar
-#:        `make_fernando_handler` em `a2a_composition.py`, com a chamada fail-neutral"). ONLY the
-#:        REGISTRATION half landed here; the ORIGIN call site is still absent, so this target is
-#:        REACHABLE but not yet REACHED — see `build_dossier_delegation_dispatcher`'s docstring.
+#:        `make_fernando_handler` em `a2a_composition.py`, com a chamada fail-neutral"). BOTH
+#:        halves landed: the handler is registered here and the worker
+#:        (`tools/workers/inadimplencia.py::make_prepare_dossier_handler`) originates the
+#:        envelope fail-neutrally — see `build_dossier_delegation_dispatcher`'s docstring.
 #: The ORIGINS are workers (`credenciamento-worker`/`adequacao-worker`/`pagto-worker`/
 #: `inadimplencia-worker`), not agents — the dispatcher validates only the TARGET's Card, so no
 #: origin card exists or is needed.
@@ -136,6 +138,25 @@ _DOSSIER_EDGE_AGENT_IDS = ("carolina", "andre", "fernando")
 #: `fhir={"fernando": reader}` would silently swallow a reader nothing can consume — the same
 #: species of silent-degradation defect the unknown-key check below exists to refuse.
 _DOSSIER_EDGE_FHIR_AGENT_IDS = ("carolina", "andre")
+
+
+def _require_whatsapp_adapter_for(agent_id: str) -> str:
+    """`whatsapp_adapter_for(agent_id)`, FAIL-CLOSED when the map does not name the agent.
+
+    `build_whatsapp_seam`'s `adapter` parameter DEFAULTS to `"helena"` and its only branch is
+    `== "lucas"`, so an unmapped agent would silently receive Helena's sender. On this root that
+    would be a fabricated seam for a graph whose `build(config)` fail-closes precisely to avoid
+    one — so an agent that this repo's single agent->adapter map does not name is a refusal to
+    assemble, never a default.
+    """
+    adapter = whatsapp_adapter_for(agent_id)
+    if adapter is None:
+        raise ValueError(
+            f"cannot assemble the A2A dossier delegation edges: {agent_id!r} declares no WhatsApp "
+            "adapter in `gateway.tool_registry._WHATSAPP_ADAPTER_BY_AGENT`, and defaulting one "
+            "would hand a graph a sender the map never chose for it"
+        )
+    return adapter
 
 
 class FhirSummaryReader(Protocol):
@@ -742,21 +763,21 @@ def build_dossier_delegation_dispatcher(
     root's agent set or handler map — Andre's card already accepts `analytics.population` and his
     handler routes by origin, so the third edge is served by construction.
 
-    FERNANDO (`arrears.followup`) — REGISTERED, NOT YET ORIGINATED (owner decision R-081, gap
-    `FERNANDO-DELEGATION-CALL-SITE`, approved 2026-09-04). His handler is now in the map, so an
+    FERNANDO (`arrears.followup`) — REGISTERED **AND ORIGINATED** (owner decision R-081, gap
+    `FERNANDO-DELEGATION-CALL-SITE`, approved 2026-09-04). His handler is in the map, so an
     `arrears.followup` envelope delivered to this dispatcher routes into Fernando's REAL graph
-    instead of being refused for want of a handler. The OTHER half of R-081 — the ORIGIN call
-    site, `operadora.inadimplencia.prepare_dossier` actually calling `delegate_arrears_followup`
-    — did NOT land with it: that worker is still a SYNC `FunctionWorker`
-    (`tools/workers/inadimplencia.py::register_inadimplencia_workers`, `FunctionWorker(
-    "operadora.inadimplencia.prepare_dossier", prepare_dossier)`), and originating an A2A
-    delegation from it means converting it to the raw-async handler form
-    (`tools/workers/credenciamento.py::make_prepare_dossier_handler` is the sanctioned precedent)
-    and threading `dossier_dispatcher` through `register_inadimplencia_workers` — a change to the
-    inadimplencia worker's own surface, tracked as the remaining half of R-081 in
-    `docs/review-queue.md`. Until it lands, THIS edge is reachable and unreached: no production
-    code path delegates `arrears.followup`, exactly as `test_agent_card_handlers_parity.py`'s
-    module docstring says registration and liveness are different questions.
+    instead of being refused for want of a handler; and the ORIGIN call site landed with it —
+    `tools/workers/inadimplencia.py::make_prepare_dossier_handler` (the raw-async form of
+    `operadora.inadimplencia.prepare_dossier`, sanctioned precedent
+    `tools/workers/credenciamento.py::make_prepare_dossier_handler`) calls
+    `delegate_arrears_followup` on the `dossier_dispatcher` this function returns. That call is
+    FAIL-NEUTRAL by the owner's own condition: dispatcher absent, structured rejection,
+    `StartProcessFailedError` (Fernando's RAF-02 guard) or any other exception completes the CIB
+    Seven task with the LOCAL dossier plus a disclosed `arrears_followup_gap`, so a degraded
+    dossier edge can never stall `UT_AnaliseInadimplencia` — the same DL-0037 posture the three
+    older edges take. This edge is the FOURTH worker-originated dossier edge, not a fourth
+    reason to widen the FHIR map: Fernando's graph declares no FHIR seam (see
+    `_DOSSIER_EDGE_FHIR_AGENT_IDS`).
 
     Deps are INJECTED (not re-built here): the worker daemon already constructs the exact seams
     both target graphs need — `dmn` (`CibSevenDmnTransport`, fresh-client-per-call, loop-safe),
@@ -876,12 +897,18 @@ def build_dossier_delegation_dispatcher(
     # touched, the same posture every other `build(config)` caller takes with a branch it does not
     # exercise. Built through the ONE sanctioned constructor (`build_whatsapp_seam`), gated on the
     # worker seam like the LLM above, never a hand-rolled or fabricated sender.
+    #
+    # The adapter comes from `whatsapp_adapter_for` — the repo's ONE agent->adapter map — never
+    # from a literal here. `build_whatsapp_seam` branches only on `"lucas"`, so passing the AGENT
+    # id `"fernando"` would land on Helena's sender through an unguarded `else`: the same object
+    # the map names today, chosen by accident rather than by the map. Two construction paths for
+    # one decision is exactly the C-A2 counterexample this module exists to avoid.
     fernando_handler: AgentHandler = make_fernando_handler(
         llm,
         dmn=dmn,
         cibseven=cibseven,
         audit_sink=audit_sink,
-        whatsapp=build_whatsapp_seam(seam=worker_seam, adapter="fernando"),
+        whatsapp=build_whatsapp_seam(seam=worker_seam, adapter=_require_whatsapp_adapter_for("fernando")),
     )
 
     # Facts are DURABLE now (module docstring). This root is where the gate genuinely bites:
@@ -919,7 +946,8 @@ def build_dossier_delegation_dispatcher(
         envelope_verification_enforced=envelope_verifier is not None,
     )
     # ONDA 1 §5.5, third construction site. Principal `worker_runtime`: these edges are
-    # WORKER-originated (`operadora.cred.prepare_dossier` and the two adequacao/pagto topics), and
+    # WORKER-originated (`operadora.cred.prepare_dossier` plus the adequacao/pagto/inadimplencia
+    # topics), and
     # there is no `agent.yaml` for a worker daemon — see `build_worker_seam_context` for why the
     # honest consequence is a `CAPACIDADE_INDISPONIVEL` would-deny rather than a fabricated
     # capability record.
