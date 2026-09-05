@@ -361,7 +361,15 @@ jobs:
     name: promote → production (manual approval)
     runs-on: ubuntu-latest
     needs: [require-production-approval]
-    if: github.event_name == 'workflow_dispatch' && inputs.promote_to_production
+    # O `needs:` sozinho ja implica sucesso — MAS so' enquanto este `if:` nao contiver funcao de
+    # status. Acrescentar `always()` (ou `failure()`) aqui converteria o gate em no-op EM SILENCIO:
+    # o job passaria a rodar mesmo com o preflight VERMELHO, e nenhum teste que apenas fixasse a
+    # linha `needs:` notaria. Por isso a dependencia e' escrita de forma EXPLICITA em vez de
+    # implicita: `needs.require-production-approval.result == 'success'` diz, no proprio `if:`, que
+    # sem o veredito verde este job nao roda; `!cancelled()` mantem o par legivel sob cancelamento.
+    # `test_the_promotion_if_cannot_be_loosened_into_a_no_op` fica VERMELHO se esta condicao for
+    # afrouxada.
+    if: ${{ !cancelled() && needs.require-production-approval.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.promote_to_production }}
     # `environment: production` aqui NAO e um gate de aprovacao: o environment existe com
     # `protection_rules: []` porque o plano *team* da org nao admite required reviewers (HTTP
     # 422; ver o cabecalho). Mantido apenas pelo escopo de variaveis/segredos e pelo registro de

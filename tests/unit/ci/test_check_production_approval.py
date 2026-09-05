@@ -655,6 +655,31 @@ def test_cd_yml_wires_the_gate_ahead_of_the_production_promotion() -> None:
     assert re.search(r"^    needs: \[require-production-approval\]$", promote[1], re.MULTILINE)
 
 
+def test_the_promotion_if_cannot_be_loosened_into_a_no_op() -> None:
+    """`needs:` is fail-closed only while `promote-production`'s `if:` carries no status function.
+
+    Adding `always()` or `failure()` there makes the job run even when the preflight went RED — the
+    gate becomes a no-op silently, and a test that only pins the literal `needs:` line stays green
+    (adversarial-review finding, 2026-09-04). So the dependency is written EXPLICITLY in the `if:`
+    and this test pins both halves: the explicit success requirement is present, and no
+    always/failure escape hatch is.
+    """
+    workflow = _CD_WORKFLOW.read_text(encoding="utf-8")
+    promote = workflow.split("\n  promote-production:\n", 1)[1]
+    body = promote.split("\n    steps:", 1)[0]
+    condition = next(line for line in body.splitlines() if line.strip().startswith("if:"))
+    assert "needs.require-production-approval.result == 'success'" in condition, (
+        "`promote-production`'s `if:` no longer requires the preflight's success explicitly. With "
+        "only `needs:`, one added status function turns the production gate off in silence."
+    )
+    for escape in ("always(", "failure("):
+        assert escape not in condition, (
+            f"`promote-production`'s `if:` contains {escape!r}: a status function there overrides "
+            "the implicit success requirement of `needs:` and lets the promotion run past a RED "
+            "preflight."
+        )
+
+
 def test_cd_yml_no_longer_claims_a_required_reviewer_gate_that_does_not_exist() -> None:
     """R-020: the three passages that asserted GitHub manual-approval reviewers are gone. The live
     environment carries `protection_rules: []` (org on the *team* plan; required reviewers 422)."""
