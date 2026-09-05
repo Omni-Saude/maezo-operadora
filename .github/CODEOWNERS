@@ -23,11 +23,14 @@
 #      linha 33 produziu DOIS erros independentes), entao a linha continua valida pelo
 #      dono-usuario. Esse erro residual e o SEMAFORO desta migracao: enquanto ele existir, a
 #      separacao de revisor nao esta pronta.
-#      CONTAGEM ESPERADA hoje: 29 erros — exatamente UM por linha de regra que carrega o token do
+#      CONTAGEM ESPERADA hoje: 31 erros — exatamente UM por linha de regra que carrega o token do
 #      time (eram 27 antes das duas linhas de integridade de CI que esta auditoria acrescentou,
-#      `/Makefile` e `/scripts/ci/`). Derive sempre assim, nao decore o numero: se a contagem
-#      divergir de "linhas de regra com `@Omni-Saude/security-team`", ha um erro de OUTRA natureza
-#      escondido no meio, e e ele que interessa.
+#      `/Makefile` e `/scripts/ci/`; 29 ate 2026-09-04, quando entraram
+#      `/.github/production-approvers.yaml` (R-021) e `/deploy/` (R-053) — ver a secao de
+#      autoprotecao). Derive sempre assim, nao decore o numero: se a contagem divergir de "linhas
+#      de regra com `@Omni-Saude/security-team`", ha um erro de OUTRA natureza escondido no meio, e
+#      e ele que interessa. `tests/unit/ci/test_codeowners_rules.py` mantem este numero preso a
+#      derivacao: acrescentar uma regra sem atualizar esta linha fica VERMELHO, nao silencioso.
 #
 #   3. SEPARACAO DE REVISOR NAO EXISTE HOJE — E ESTE, NAO A SINTAXE, E O BLOQUEIO DO FLIP.
 #      O agente/orquestrador abre PR COMO `rodaquino-OMNI`, e o GitHub nao aceita auto-aprovacao.
@@ -220,6 +223,19 @@
 # PRs de workflow e justamente endurecimento de gate, que merece olho humano.
 /.github/workflows/        @rodaquino-OMNI @Omni-Saude/security-team
 #
+# `/.github/production-approvers.yaml` — a lista de logins que o job `require-production-approval`
+# (`.github/workflows/cd.yml`, decisao do dono R-021) aceita como prova de aprovacao para promover
+# um artefato a producao. LISTADO EXPLICITAMENTE, e a razao e um defeito real encontrado em revisao
+# adversarial: NAO EXISTE regra `/.github/` neste arquivo. As regras de `.github/` sao ENUMERADAS
+# (`/.github/CODEOWNERS`, `/.github/workflows/`, `/.github/osv-allowlist.json`), entao ate esta
+# linha o arquivo de aprovadores nao era casado por regra alguma — e a propria decisao R-021 exige
+# que a lista viva "em arquivo CODEOWNED". Sem esta linha, o unico artefato do aparato de gate que
+# escapava da revisao era exatamente aquele cuja edicao ampliaria quem pode mandar codigo a
+# producao: bastava um PR acrescentando um login. Nao substitua estas linhas por um glob
+# `/.github/`: a enumeracao e deliberada (`.github/` tambem hospeda ISSUE_TEMPLATE e afins, que nao
+# sao aparato de gate) e um glob esconderia a proxima omissao desta mesma especie.
+/.github/production-approvers.yaml @rodaquino-OMNI @Omni-Saude/security-team
+#
 # `/Makefile` + `/scripts/ci/` — a SUBSTANCIA dos checks que a linha de workflows acima apenas
 # AGENDA. O workflow diz QUAL comando roda; o alvo de make e o script dizem O QUE ele verifica.
 # Gatear so o workflow deixa o MESMO ataque de pe um nivel abaixo: preserva-se o job e o alvo e
@@ -258,6 +274,29 @@
 # aprovador humano, contraparte documental dos gates de `/spec/policies/**` acima. Editar o packet
 # e editar o registro de que a revisao aconteceu. 6 commits no periodo.
 /docs/reviews/             @rodaquino-OMNI @Omni-Saude/security-team
+#
+# `/deploy/` — decisao do dono R-053 (M-46, pergunta 53), 2026-09-04:
+#   "SIM — confirmar por escrito e, no mesmo ato, acrescentar `/deploy/` ao `.github/CODEOWNERS`
+#    para que a maquina passe a gatear o que hoje so a disciplina gateia."
+# O que a linha fecha, medido antes de existir (a justificativa do proprio dono: "`deploy/` nao
+# aparece em nenhuma das 31 linhas de regra de `.github/CODEOWNERS`", contagem de 2026-09-04):
+# `deploy/` nao era casado por regra alguma, logo `scripts/ci/check_flip_path_review.py` computava
+# "0 caminhos donados
+# tocados" e ficava VERDE num PR que so mexesse em Helm/Terraform — os P0 de `deploy/` (chart,
+# valores, modulos de IaC) eram gateados por disciplina humana, nao por mecanismo. E a mesma especie
+# de falha do environment `production` sem `protection_rules`: a regra existia na cabeca das pessoas
+# e nao na maquina.
+# LIMITE DECLARADO (floor_note da propria decisao): acrescentar a regra NAO a torna eficaz sozinha, e
+# HOJE NADA A EXIGE MECANICAMENTE. Enquanto `require_code_owner_review` estiver `false` (R-051, prazo
+# 2026-09-14), CODEOWNERS REQUISITA revisor sem EXIGI-LO. O mecanismo PRETENDIDO de exigencia e o
+# check `flip-path-review-gate`, que le este arquivo e fica vermelho num PR de `deploy/` sem
+# aprovacao qualificada — mas ele e ADVISORY hoje: medido read-only em 2026-09-04, a ruleset
+# `main-protection` (id 20775655) exige exatamente quatro contextos (`lint / type / unit`,
+# `gitleaks / secrets`, `validate-artifacts`, `release-capability-floor (audit §5)`) e ele NAO esta
+# entre eles, logo, pelo mesmo raciocinio do achado 8 desta rodada, um check fora do conjunto exigido
+# nao bloqueia merge algum. Torna-lo REQUIRED e ato PENDENTE do dono (R-051, linha (3) de
+# `docs/review-queue.md`). Nao leia esta linha como "deploy/ esta gateado por revisao obrigatoria".
+/deploy/                   @rodaquino-OMNI @Omni-Saude/security-team
 #
 # NAO GATEADO, DELIBERADAMENTE — registrado aqui para nao ser confundido com esquecimento:
 #   - `/pyproject.toml` (25 commits/6sem — o maior churn de qualquer candidato ja considerado

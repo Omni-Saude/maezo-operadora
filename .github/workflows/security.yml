@@ -491,12 +491,28 @@ jobs:
   #   - Findings are bucketed by severity (CVSS base score from
   #     osv-scanner's own per-group `max_severity`, widened by any member
   #     advisory's GHSA `database_specific.severity` of CRITICAL). Any
-  #     non-allowlisted CRITICAL finding FAILS the job — a red job here on a
-  #     genuine critical is the correct, intended outcome, not something to
-  #     allowlist away.
-  #   - Lower severities (HIGH/MEDIUM/LOW/UNKNOWN) do not fail the job; they
-  #     are rendered into the step summary so they stay visible without
-  #     requiring GHAS's dependency graph / Dependabot alerts UI.
+  #     non-allowlisted finding AT OR ABOVE `OSV_FAIL_ON_SEVERITY` FAILS the
+  #     job — a red job here on a genuine finding is the correct, intended
+  #     outcome, not something to allowlist away.
+  #   - THRESHOLD = HIGH since 2026-09-04 (owner decision R-042 / gap D6-05;
+  #     it was CRITICAL before). The reason is not "stricter is nicer": the
+  #     `dependency-review` job above, which uses `fail-on-severity: high`,
+  #     sits behind the GHAS probe and — as `:96-100` of this file states in
+  #     its own words — "has never actually executed" because
+  #     `code_security.status='disabled'`. This OSV lane is therefore the
+  #     ONLY LIVE dependency gate in the repository, and leaving the only
+  #     live gate at its loosest setting pushed every HIGH into a job summary
+  #     nobody is obliged to read — fail-open by construction. The
+  #     pressure-release valve against noise is the allowlist below, which is
+  #     itself fail-closed (every entry needs a non-empty `reason`), so the
+  #     friction that would justify CRITICAL is absorbable without switching
+  #     the gate off. Enumerated at the flip (osv-scanner v2.4.0, the same
+  #     pinned version and the same `scan source --lockfile=uv.lock` command
+  #     this job runs): 122 packages, ZERO findings at any severity — so the
+  #     allowlist stays EMPTY and no HIGH was silenced to make this green.
+  #   - Severities below the threshold do not fail the job; they are rendered
+  #     into the step summary so they stay visible without requiring GHAS's
+  #     dependency graph / Dependabot alerts UI.
   #   - The allowlist (`.github/osv-allowlist.json`) starts EMPTY and every
   #     entry must carry a non-empty `reason`; a malformed entry fails the
   #     job closed rather than being ignored.
@@ -560,15 +576,19 @@ jobs:
 
       # Severity gate + step-summary rendering (python3 stdlib only). See
       # the job-level comment above for the full fail-closed contract.
-      # OSV_FAIL_ON_SEVERITY is the tunable threshold (default CRITICAL,
-      # matching the charter's "known-exploited/critical -> fail" rule);
-      # the allowlist path is likewise a single tunable env var, but the
-      # file itself starts empty and every entry requires a reason.
+      # OSV_FAIL_ON_SEVERITY is the tunable threshold. HIGH since 2026-09-04
+      # (owner decision R-042 / gap D6-05) — see the job-level comment for
+      # why the only live dependency gate must not sit at its loosest
+      # setting. The allowlist path is likewise a single tunable env var, but
+      # the file itself starts empty and every entry requires a reason.
+      # `tests/unit/ci/test_security_osv_threshold.py` pins this value, so
+      # loosening it back is a visible, reviewed change and not a one-word
+      # edit that nothing notices.
       - name: Gate on severity + render summary (allowlist-aware, fail-closed)
         env:
           OSV_RESULTS_PATH: osv-results.json
           OSV_ALLOWLIST_PATH: .github/osv-allowlist.json
-          OSV_FAIL_ON_SEVERITY: "CRITICAL"
+          OSV_FAIL_ON_SEVERITY: "HIGH"
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -612,7 +632,10 @@ jobs:
 
           results_path = os.environ["OSV_RESULTS_PATH"]
           allowlist_path = os.environ["OSV_ALLOWLIST_PATH"]
-          fail_on = os.environ.get("OSV_FAIL_ON_SEVERITY", "CRITICAL").strip().upper()
+          # The fallback matches the value the step sets above. It is only reachable if the
+          # env block is deleted, and in that case the SAFE guess is the stricter threshold:
+          # a dropped env var must not silently relax the gate back to CRITICAL-only.
+          fail_on = os.environ.get("OSV_FAIL_ON_SEVERITY", "HIGH").strip().upper()
           if fail_on not in SEVERITY_ORDER:
               fail(f"OSV_FAIL_ON_SEVERITY={fail_on!r} is not one of {SEVERITY_ORDER} — refusing to guess a threshold (fail-closed).")
           fail_threshold = SEVERITY_ORDER.index(fail_on)
