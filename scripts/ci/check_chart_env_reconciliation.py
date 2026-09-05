@@ -322,10 +322,12 @@ class ReconciliationResult:
                 f"DEFERRED_UNRECONCILED_DECLARED with a tracked follow-up gap if it is neither."
             )
         for ref in self.required_undeclared:
-            lines.append(
-                f"  REQUIRED BUT NEVER DECLARED: `{ref.name}` ({ref.source}) has no default — "
-                f"src/ will fail closed at boot unless the chart/TF injects it."
-            )
+            # GATEKEEPER FINDING F4 (VERIFY-A2-HELM-CAPACITY.md): the old message hardcoded "has
+            # no default ... fails closed at boot" for EVERY required name — false for a
+            # `chart_required`-marker-derived name (which DOES have a pydantic default and fails
+            # closed at CALL time instead). `ref.source` now carries the full, name-specific
+            # explanation (see `_required_env_refs` below) instead of a one-size-fits-all suffix.
+            lines.append(f"  REQUIRED BUT NEVER DECLARED: `{ref.name}` ({ref.source})")
         if self.ok:
             lines.append("  Every declared name is read; every required name is declared. OK.")
         return "\n".join(lines)
@@ -572,10 +574,10 @@ def _has_chart_required_marker(field_call: ast.Call) -> bool:
     return False
 
 
-def extract_settings_env_names(src_dir: Path) -> tuple[set[str], set[str]]:
+def extract_settings_env_names(src_dir: Path) -> tuple[set[str], set[str], set[str]]:
     """AST-scan every `pydantic_settings.BaseSettings` subclass in `<src_dir>/**/*.py`.
 
-    Returns `(all_names, required_names)`:
+    Returns `(all_names, required_names, marker_required_names)`:
       - `all_names`: every env name a field implies — its explicit `alias`/`validation_alias`
         literal(s) if given, else `env_prefix + FIELD_NAME.upper()` (pydantic-settings' own
         implicit rule) when the field's default is a plain literal or an in-line `Field(...)` call.
@@ -585,9 +587,16 @@ def extract_settings_env_names(src_dir: Path) -> tuple[set[str], set[str]]:
         annotation, or `Field(...)` with neither `default=` nor `default_factory=` nor a leading
         positional default — UNION a field carrying the `chart_required` marker (see
         `_has_chart_required_marker`): FUNCTIONALLY required despite having a pydantic default.
+      - `marker_required_names`: the SUBSET of `required_names` that reached it ONLY via the
+        `chart_required` marker (a field WITH a pydantic default, so it never raises a
+        `ValidationError` at boot — the marker means some method fails closed on it at CALL time
+        instead). GATEKEEPER FINDING F4 (VERIFY-A2-HELM-CAPACITY.md): callers use this to print an
+        honest reason for a marker-derived name instead of the "(no default) ... fails closed at
+        boot" wording that is simply false for these fields.
     """
     all_names: set[str] = set()
     required_names: set[str] = set()
+    marker_required_names: set[str] = set()
     for path in sorted(src_dir.rglob("*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -604,6 +613,7 @@ def extract_settings_env_names(src_dir: Path) -> tuple[set[str], set[str]]:
                 default_value = stmt.value
                 aliases: list[str] = []
                 required = False
+                marker_required = False
                 derivable = True
                 if default_value is None:
                     required = True
@@ -618,6 +628,7 @@ def extract_settings_env_names(src_dir: Path) -> tuple[set[str], set[str]]:
                             required = True
                         if _has_chart_required_marker(default_value):
                             required = True
+                            marker_required = True
                         for kw in default_value.keywords:
                             if kw.arg not in ("alias", "validation_alias"):
                                 continue
@@ -641,7 +652,36 @@ def extract_settings_env_names(src_dir: Path) -> tuple[set[str], set[str]]:
                     all_names.add(name)
                     if required:
                         required_names.add(name)
-    return all_names, required_names
+                    if marker_required:
+                        marker_required_names.add(name)
+    return all_names, required_names, marker_required_names
+
+
+#: GATEKEEPER FINDING F4 (VERIFY-A2-HELM-CAPACITY.md): the two possible truthful reasons a name
+#: can be `required`, keyed by whether it reached that set via the `chart_required` marker or via
+#: a genuinely no-default `BaseSettings` field. The marker case explicitly does NOT claim a boot
+#: failure — it says the truth: a pydantic default exists, and a fail-closed refusal fires later,
+#: at call time, in some method of the class that declared it.
+_NO_DEFAULT_REASON = (
+    "src/ BaseSettings (no default) — has no default, fails closed at boot unless the chart/TF injects it"
+)
+_MARKER_REASON = (
+    "src/ BaseSettings field carries a pydantic default; `chart_required` marker — functionally "
+    "required, fails closed at CALL time (not at boot) unless the chart/TF injects it"
+)
+
+
+def _required_env_refs(required_names: set[str], marker_required_names: set[str]) -> list[EnvNameRef]:
+    """Build the `required` side's `EnvNameRef`s with an ACCURATE per-name reason (F4) — pure,
+    given the two sets `extract_settings_env_names` already returns, so `main()` and test helpers
+    that reconcile the real tree share this exact logic and never drift apart."""
+    return [
+        EnvNameRef(
+            name=name,
+            source=_MARKER_REASON if name in marker_required_names else _NO_DEFAULT_REASON,
+        )
+        for name in sorted(required_names)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -740,11 +780,9 @@ def main(argv: list[str] | None = None) -> int:
         REPO_ROOT / args.tf_root
     )
     literal_names = extract_literal_env_names(src_dir)
-    settings_all, settings_required = extract_settings_env_names(src_dir)
+    settings_all, settings_required, marker_required = extract_settings_env_names(src_dir)
     read_names = literal_names | settings_all
-    required_refs = [
-        EnvNameRef(name=name, source="src/ BaseSettings (no default)") for name in sorted(settings_required)
-    ]
+    required_refs = _required_env_refs(settings_required, marker_required)
 
     result = reconcile(declared, read_names, required_refs)
     print(result.render())
