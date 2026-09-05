@@ -37,8 +37,11 @@ Fernando's, unlike Marina's/Rafael's); her gate is `graph._CALLER_INPUT_FIELDS` 
 output-field reset. `state_from_envelope` enforces it by ALLOWLIST-BY-CONSTRUCTION — `raw` only
 ever copies named keys off the `_..._META_KEYS` tuples below (each a subset of
 `_CALLER_INPUT_FIELDS`), so an out-of-allowlist `payload_meta` entry is never read at all. The
-`unknown` check at the end is the same structural, currently-unreachable regression guard
-Carolina's and Fernando's carry.
+`unknown` check at the end is the same structural regression guard Carolina's and Fernando's
+carry — REG-06 (fleet audit): no longer `# pragma: no cover`, since `tests/unit/agents/
+test_beatriz_delegation.py::test_state_from_envelope_raises_if_a_meta_key_ever_escapes_the_input_boundary`
+now drives it for real (monkeypatches `_STRING_META_KEYS` to add a name outside
+`_CALLER_INPUT_FIELDS`, plants it in `payload_meta`, and asserts the raise).
 
 PHI / no-PHI-in-custody (ADR-0006, KPI `evidence_pseudonymized_rate == 1.0`) — WHAT NEVER RIDES
 THIS SEAM. `payload_meta` is a strict non-PHI allowlist: pseudonymized identifiers, bounded enums
@@ -248,9 +251,10 @@ def state_from_envelope(envelope: DelegationEnvelope) -> BeatrizState:
     (ADR-0004). Enforces her input boundary (`graph._CALLER_INPUT_FIELDS`) by ALLOWLIST-BY-
     CONSTRUCTION: `raw` only ever copies named keys off the three `_..._META_KEYS` tuples, so an
     unknown/output-only `payload_meta` key is silently DROPPED (never read, never copied) rather
-    than raising. The `unknown` check below is a structural, currently-unreachable regression
-    guard, identical to Carolina's and Fernando's; `receive` re-sanitizes every output-only field
-    on top of it as defense in depth.
+    than raising. The `unknown` check below is a structural regression guard, identical to
+    Carolina's and Fernando's (REG-06: exercised for real by a monkeypatch test, not
+    `# pragma: no cover`); `receive` re-sanitizes every output-only field on top of it as defense
+    in depth.
 
     Fails closed on a missing `numero_caso`: her graph derives the idempotent business key from it
     and `receive` refuses to assemble an UNANCHORED dossier (`instrucao_incompleta`) — the
@@ -279,7 +283,7 @@ def state_from_envelope(envelope: DelegationEnvelope) -> BeatrizState:
             raw[key] = _as_bool(meta[key])
 
     unknown = sorted(k for k in raw if k not in _CALLER_INPUT_FIELDS)
-    if unknown:  # pragma: no cover - structural guard; raw is built from the allowlists above.
+    if unknown:  # REG-06: exercised for real, see test_beatriz_delegation.py's monkeypatch fence.
         raise ValueError(
             f"state_from_envelope produced non-input keys for Beatriz: {unknown} — only "
             "graph._CALLER_INPUT_FIELDS may be seeded by a delegation seam"

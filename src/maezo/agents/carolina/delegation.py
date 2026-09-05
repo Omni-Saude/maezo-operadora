@@ -253,7 +253,7 @@ def state_from_envelope(envelope: DelegationEnvelope) -> CarolinaState:
             raw[key] = _as_bool(meta[key])
 
     unknown = sorted(k for k in raw if k not in _CALLER_INPUT_FIELDS)
-    if unknown:  # pragma: no cover — structural guard; raw is built from the allowlists above.
+    if unknown:  # REG-06: exercised for real, see test_carolina_delegation.py's monkeypatch fence.
         raise ValueError(
             f"state_from_envelope produced non-input keys for Carolina: {unknown} — only "
             "graph._CALLER_INPUT_FIELDS may be seeded by a delegation seam"
