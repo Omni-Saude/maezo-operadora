@@ -1720,3 +1720,26 @@ FORA DE ESCOPO deste PR — divulgado aqui, nao corrigido.
 | Artefato | O que precisa de revisao humana | Revisor | Status |
 |---|---|---|---|
 | `RAF-02-GUARD-MISSING-GUSTAVO-MARINA-VALENTINA` — 2026-09-05, fonte VERIFY-TRAIN2 §Delta | Pre-existente no main `75ed74f`: os handlers de delegacao `agents/{gustavo,marina,valentina}/delegation.py` NAO carregam a guarda RAF-02 (`if result.get("start_failed") is True: raise StartProcessFailedError(...)`) embora os grafos correspondentes (`agents/{gustavo,marina,valentina}/graph.py`) CHAMEM `start_failed_state`. So' `andre/carolina/fernando/rafael` levantam o `StartProcessFailedError` tipado apos `ainvoke` retornar (`git grep -c StartProcessFailedError -- src/maezo/agents/*/delegation.py` -> 2 cada um desses quatro, 0 nos demais). Sem a guarda, um start que falhou tecnicamente devolve `HandlerOutput` normalmente ao invocador A2A, que grava o audit terminal `_DECISION_COMPLETED` e SELA o resultado por `task_id` -- exatamente o falso-sucesso irretentavel que RAF-02 existe para impedir, so' que nos tres agentes sem a guarda. Nao corrigido em #336 (fora de escopo do reparo F4, que so' consertou a afirmacao do docstring). `beatriz` fica de fora desta lista: nao tem no `start_process` (confirmado pelos dois skips pre-existentes de `test_start_failure_routing.py`) | dono + autor do proximo trem que tocar esses tres handlers | `ABERTO — pre-existente no main 75ed74f; nao corrigido neste PR` |
+
+## Nota de precisao (INFO) — PERSP-AUTH-VOICE, 2026-09-05
+
+Renomeacao de voz (nao mudanca de comportamento; GAP-REGISTER `PERSP-AUTH-VOICE`, severity P1,
+classification agent-executable, merge_gate autonomous). Nenhum conteudo clinico/regulatorio;
+registrada aqui por rastreabilidade de um SYSTEM_PROMPT de agente PHI-zone (Rafael, ADR-0006).
+
+O GAP-REGISTER citava 4 artefatos com o padrao de voz de prestador "a operadora emite a guia
+TISS": `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:228` (rotulo de
+`ST_EmitirAutorizacaoAuto`), `spec/agents/rafael/agent.yaml:36` (comentario), `src/maezo/agents/rafael/prompts.py:22`
+(SYSTEM_PROMPT) e `tests/evals/golden/rafael/EVL-RAFAEL-02.json:6`. Reproducao no momento desta
+PR encontrou apenas 3, e uma linha ja' havia se deslocado (drift de citacao, nao de conteudo): o
+comentario do `agent.yaml` esta hoje em `:41`, nao `:36`; o golden JA' nao continha o padrao — foi
+regoldenizado em 04/09/2026 (RAF-01/RAF-06) por um pacote anterior, sem relacao com este gap. Os
+3 restantes foram renomeados
+mantendo o veredito PAYER do processo intocado: a operadora emite a AUTORIZACAO (numero de
+autorizacao), o prestador emite a guia TISS. `SYSTEM_PROMPT_VERSION`/`DOSSIER_PROMPT_VERSION` de
+Rafael foram bumpados `v1`->`v2` (convencao do proprio modulo: "a prompt change is a diffable,
+version-bumped edit"), com `agent.yaml.prompt_versions` sincronizado; `make evals` confirma que
+nenhum golden depende do texto do prompt (harness `ReplayInferenceProvider` reproduz
+`recorded_llm`). Cerca de regressao nova: `tests/unit/spec/test_no_payer_voice_emits_guia.py`
+(3 provas) — distinta e sem relacao de escopo com `maezo.platform.validation.perspective`
+(PR-1/ADR-0040 D7, restrita a cadeia CONTAS/RECURSO).
