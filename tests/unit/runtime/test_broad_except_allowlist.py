@@ -17,10 +17,29 @@ As tres afirmacoes desta cerca:
 2. :func:`test_todo_item_da_allowlist_declara_um_motivo` — nenhuma entrada entra so' com o nome:
    a allowlist e' uma lista de EXCECOES JUSTIFICADAS, nao um `# noqa` distribuido.
 3. :func:`test_todo_try_de_graph_py_re_levanta_erro_de_programacao` — em `agents/*/graph.py`,
-   TODO `try` que absorve falha de dependencia (largo OU narrow) tem, como PRIMEIRA clausula,
-   `except PROGRAMMING_ERRORS: raise`. Isto e' o que fecha os quatro sitios que continuam largos
-   por contrato (os envios WhatsApp best-effort): eles seguem absorvendo o fornecedor e passaram a
-   NAO absorver o bug.
+   TODO `try` que (i) chama uma DEPENDENCIA INJETADA no corpo e (ii) tem alguma clausula que
+   ABSORVERIA uma classe de bug tem, como PRIMEIRA clausula, `except PROGRAMMING_ERRORS: raise`.
+   Isto e' o que fecha os quatro sitios que continuam largos por contrato (os envios WhatsApp
+   best-effort): eles seguem absorvendo o fornecedor e passaram a NAO absorver o bug.
+
+   §Delta-F3 — A AFIRMACAO ANTES NAO ERA O QUE SE MEDIA. A versao original dizia "largo OU
+   narrow" e implementava um predicado que so' reconhecia (a) um handler largo e (b) o Name
+   literal `EXTERNAL_DEPENDENCY_FAILURES`. QUALQUER outro handler estreito era invisivel para as
+   DUAS asserçoes — nao era "largo", entao o inventario o ignorava; e nao "absorvia", entao a
+   guarda nao era exigida. Medido: trocar as duas clausulas de `carolina::_build_dossier` por um
+   unico `except RuntimeError:` deixava as 57 provas VERDES enquanto reabria exatamente o
+   defeito de NEW-12 (um `NotImplementedError` de porto stub voltando a virar "dossie
+   indisponivel"), e `except RuntimeError:` e' a coisa mais natural que o proximo desenvolvedor
+   escreve. Agora a pergunta e' resolvida por MRO sobre as classes REAIS que o handler captura
+   (nomes resolvidos nos globals do proprio modulo do grafo + builtins, com FALHA FECHADA em
+   qualquer nome que nao resolva), e nao por reconhecimento de um literal.
+
+   A conjuncao com "chama uma dependencia injetada" e' o que mantem a regra HONESTA em vez de
+   apenas severa: `andre::_metric_value_is_admissible` (`except (ArithmeticError, TypeError,
+   ValueError)` em volta de `math.isfinite`) e `helena::_parse_json_object` (`except (ValueError,
+   TypeError)` em volta de `json.loads`) capturam classes de bug DE PROPOSITO, sobre computacao
+   local e pura — nao ha' porto ali para um bug de porto se esconder atras. Exigir a guarda
+   deles seria ruido, e ruido e' como uma cerca vira `# noqa` coletivo.
 
 Ler `src/` por AST, nunca por `grep`: `except Exception` aparece em docstring e comentario deste
 proprio repositorio (o docstring de `gateway/seams/_base.py` cita a frase), e um grep contaria
@@ -30,8 +49,11 @@ prosa como codigo.
 from __future__ import annotations
 
 import ast
+import builtins
+import importlib
 from pathlib import Path
-from typing import Final
+from types import ModuleType
+from typing import Any, Final
 
 import pytest
 
@@ -43,6 +65,11 @@ from maezo.runtime.dependency_failures import (
 
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
 _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime")
+
+#: Quantos `try` de `agents/*/graph.py` a afirmacao 3 cobre HOJE (§Delta-F3): 25 sitios
+#: estreitados + os 4 envios WhatsApp que continuam largos por contrato. Pino de NAO-VACUIDADE —
+#: ver `test_a_afirmacao_3_cobre_os_sitios_de_fronteira_esperados`.
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 29
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:
@@ -275,14 +302,99 @@ def _guard_is_programming_errors_reraise(handler: ast.ExceptHandler) -> bool:
     return len(handler.body) == 1 and isinstance(handler.body[0], ast.Raise) and handler.body[0].exc is None
 
 
-def _absorbs_dependency_failure(node: ast.Try) -> bool:
-    for handler in node.handlers:
-        if _is_broad(handler):
-            return True
-        declared = handler.type
-        if isinstance(declared, ast.Name) and declared.id == "EXTERNAL_DEPENDENCY_FAILURES":
-            return True
+def _chama_dependencia_injetada(node: ast.Try) -> bool:
+    """O CORPO do `try` chama uma dependencia injetada — `self._<porto>.<metodo>(...)`?
+
+    E' a forma unica de toda chamada de porto nestes grafos (`self._llm.generate`,
+    `self._fhir.read_patient*`, `self._population.*`, `self._whatsapp.send`) e a linha que separa
+    "este `try` protege uma fronteira" de "este `try` protege uma conta local".
+    """
+    for stmt in node.body:
+        for inner in ast.walk(stmt):
+            if not isinstance(inner, ast.Call) or not isinstance(inner.func, ast.Attribute):
+                continue
+            alvo = inner.func.value
+            if (
+                isinstance(alvo, ast.Attribute)
+                and isinstance(alvo.value, ast.Name)
+                and alvo.value.id == "self"
+                and alvo.attr.startswith("_")
+            ):
+                return True
     return False
+
+
+def _classes_capturadas(
+    handler: ast.ExceptHandler, modulo: ModuleType
+) -> tuple[type[BaseException], ...] | None:
+    """As classes REAIS que este handler captura, ou `None` se algum nome nao resolver.
+
+    `None` e' FALHA FECHADA de proposito: um handler cuja forma esta cerca nao consegue resolver
+    (uma expressao computada, um alias importado que sumiu) e' tratado como absorvente, e portanto
+    passa a EXIGIR a guarda. Uma cerca que "assume que esta tudo bem" no que nao entende e' uma
+    cerca que nao vale o arquivo em que esta escrita.
+    """
+    declared = handler.type
+    if declared is None:
+        return (BaseException,)
+    if isinstance(declared, ast.Name):
+        nomes = [declared.id]
+    elif isinstance(declared, ast.Tuple) and all(isinstance(e, ast.Name) for e in declared.elts):
+        nomes = [e.id for e in declared.elts if isinstance(e, ast.Name)]
+    else:
+        return None
+
+    resolvidas: list[type[BaseException]] = []
+    for nome in nomes:
+        obj: Any = getattr(modulo, nome, None)
+        if obj is None:
+            obj = getattr(builtins, nome, None)
+        if obj is None:
+            return None
+        candidatas = obj if isinstance(obj, tuple) else (obj,)
+        for candidata in candidatas:
+            if not (isinstance(candidata, type) and issubclass(candidata, BaseException)):
+                return None
+            resolvidas.append(candidata)
+    return tuple(resolvidas)
+
+
+def _e_re_levantamento_nu(handler: ast.ExceptHandler) -> bool:
+    """Um handler cujo corpo e' SO' `raise` nao absorve nada — ele apenas re-levanta."""
+    return len(handler.body) == 1 and isinstance(handler.body[0], ast.Raise) and handler.body[0].exc is None
+
+
+def _absorve_classe_de_bug(handler: ast.ExceptHandler, modulo: ModuleType) -> bool:
+    """Este handler ENGOLIRIA algum item de :data:`PROGRAMMING_ERRORS`?"""
+    if _e_re_levantamento_nu(handler):
+        return False
+    capturadas = _classes_capturadas(handler, modulo)
+    if capturadas is None:
+        return True  # fail-closed: ver `_classes_capturadas`
+    return any(issubclass(bug, capturadas) for bug in PROGRAMMING_ERRORS)
+
+
+def _exige_clausula_de_guarda(node: ast.Try, modulo: ModuleType) -> bool:
+    """A regra da afirmacao 3, inteira: fronteira injetada E alguma clausula que engole bug."""
+    if not _chama_dependencia_injetada(node):
+        return False
+    return any(_absorve_classe_de_bug(handler, modulo) for handler in node.handlers)
+
+
+def _modulo_do_grafo(graph_path: Path) -> ModuleType:
+    return importlib.import_module(f"maezo.agents.{graph_path.parent.name}.graph")
+
+
+def _sitios_que_exigem_guarda(graph_path: Path) -> list[tuple[str, ast.Try]]:
+    tree = _parse(graph_path)
+    scopes = _qualified_symbol_map(tree)
+    modulo = _modulo_do_grafo(graph_path)
+    rel = graph_path.relative_to(_REPO_ROOT).as_posix()
+    return [
+        (f"{rel}::{scopes.get(id(node), '') or '<module>'} (try na linha {node.lineno})", node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Try) and _exige_clausula_de_guarda(node, modulo)
+    ]
 
 
 @pytest.mark.parametrize(
@@ -298,20 +410,35 @@ def test_todo_try_de_graph_py_re_levanta_erro_de_programacao(graph_path: Path) -
     serem absorvidas) e os quatro que continuam largos por contrato (onde ela e' o UNICO motivo
     pelo qual um `TypeError` de assinatura derivada nao vira mais 'envio indisponivel').
     """
-    tree = _parse(graph_path)
-    scopes = _qualified_symbol_map(tree)
-    rel = graph_path.relative_to(_REPO_ROOT).as_posix()
-
     faltando = [
-        f"{rel}::{scopes.get(id(node), '') or '<module>'} (try na linha {node.lineno})"
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Try)
-        and _absorbs_dependency_failure(node)
-        and not (node.handlers and _guard_is_programming_errors_reraise(node.handlers[0]))
+        rotulo
+        for rotulo, node in _sitios_que_exigem_guarda(graph_path)
+        if not (node.handlers and _guard_is_programming_errors_reraise(node.handlers[0]))
     ]
     assert not faltando, (
-        "`try` que absorve falha de dependencia sem `except PROGRAMMING_ERRORS: raise` como "
-        f"PRIMEIRA clausula: {faltando}"
+        "`try` que chama uma dependencia injetada e absorve alguma classe de bug, sem "
+        f"`except PROGRAMMING_ERRORS: raise` como PRIMEIRA clausula: {faltando}"
+    )
+
+
+def test_a_afirmacao_3_cobre_os_sitios_de_fronteira_esperados() -> None:
+    """NAO-VACUIDADE da afirmacao 3: a regra vale sobre um numero PINADO de sitios reais.
+
+    Sem este pino, um predicado que parasse de casar (um refactor que renomeie os atributos de
+    porto, uma resolucao de nome que passe a devolver `None`) deixaria a afirmacao 3 verde por
+    VACUIDADE — o modo de falha que esta cerca inteira existe para tornar impossivel. O numero e'
+    a contagem MEDIDA hoje: 25 sitios estreitados + os 4 envios que continuam largos por
+    contrato.
+    """
+    medidos = {
+        rotulo
+        for graph_path in sorted((_REPO_ROOT / "src/maezo/agents").glob("*/graph.py"))
+        for rotulo, _ in _sitios_que_exigem_guarda(graph_path)
+    }
+    assert len(medidos) == _SITIOS_COM_GUARDA_EXIGIDA, (
+        f"a afirmacao 3 passou a cobrir {len(medidos)} sitios (pino: "
+        f"{_SITIOS_COM_GUARDA_EXIGIDA}). Se o conserto foi legitimo, mova o pino no MESMO commit "
+        f"e diga por que: {sorted(medidos)}"
     )
 
 
