@@ -55,7 +55,7 @@ def _load_expand_env_defaults():
     module = ast.Module(body=nodes, type_ignores=[])
     ast.fix_missing_locations(module)
     ns: dict[str, object] = {"re": re, "os": os}
-    exec(compile(module, str(_ENV_PY), "exec"), ns)  # noqa: S102 -- test-only, real source, no input
+    exec(compile(module, str(_ENV_PY), "exec"), ns)  # test-only, real source, no input
     return ns["_expand_env_defaults"]
 
 
