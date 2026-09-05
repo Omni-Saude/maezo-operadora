@@ -104,6 +104,24 @@ def a2a_audit_outcome_dedup_key(tenant: str, task_id: str) -> str:
     return f"{tenant}:a2a:delegate:{task_id}:outcome"
 
 
+def a2a_audit_propagated_dedup_key(tenant: str, task_id: str) -> str:
+    """Chave exactly-once do traco NAO-TERMINAL de uma excecao que o dispatcher RELEVANTA.
+
+    ``f"{tenant}:a2a:delegate:{task_id}:propagated"`` — uma TERCEIRA chave, e ela precisa mesmo ser
+    a terceira. Reusar `a2a_audit_outcome_dedup_key` seria um defeito silencioso: `emit_once` e'
+    exactly-once POR CHAVE, entao a linha `COMPLETED` da entrega que — depois de uma falha
+    transitoria — finalmente desse certo seria engolida como duplicata, e o traco novo teria
+    APAGADO o registro terminal que o T-F exige (`test_a_propagated_delivery_does_not_consume_the_
+    terminal_outcome_dedup_key`).
+
+    A consequencia deliberada da chave ser por `task_id` (e nao por entrega, que nao existe como
+    conceito aqui): reentregas sucessivas da MESMA delegacao produzem UMA linha `PROPAGATED`
+    duravel, nao N. A cadencia por entrega esta no contador `maezo_a2a_handler_error_total`, que
+    nao passa por `emit_once`.
+    """
+    return f"{tenant}:a2a:delegate:{task_id}:propagated"
+
+
 # v2 `AuditRecord.decision` follows the PEP ALLOW/DENY/REQUIRE_HUMAN convention (`gateway/
 # audit.py`'s own docstring) — delegation admission is a binary allow/deny gate (no
 # REQUIRE_HUMAN path exists in the dispatcher).
@@ -123,6 +141,14 @@ _DECISION_DENY = "DENY"
 #                             `_audit_delegation_outcome`.
 _DECISION_FAILED = "FAILED"
 _DECISION_COMPLETED = "COMPLETED"
+
+# NAO-terminal, e e' esse o ponto. Registra que uma entrega ALLOWed terminou por PROPAGACAO de uma
+# excecao do handler: a delegacao NAO foi selada, a reentrega vai reexecutar, e portanto ela nao e'
+# nem `_DECISION_COMPLETED` nem `_DECISION_FAILED`. Escrever qualquer uma das duas aqui quebraria o
+# pino RAF-02 (`tests/unit/agents/test_start_failure_a2a_handlers.py::
+# test_dispatcher_neither_seals_nor_completes_a_failed_start`, que exige `"COMPLETED" not in
+# decisoes`) e, pior, mentiria para quem le a cadeia: um desfecho terminal que nao ocorreu.
+_DECISION_PROPAGATED = "PROPAGATED"
 
 # NEW-B1 — a FRONTEIRA entre uma falha de handler TERMINAL e uma RETENTAVEL, expressa no vocabulario
 # fechado `platform/error_types.py` (ALERT-COUNTER-LABELS / R-063) e nunca numa lista de classes
@@ -486,9 +512,12 @@ class DelegationDispatcher:
             # `Exception`, JAMAIS `BaseException`: uma delegacao drenada por `asyncio.CancelledError`
             # nao e uma falha de handler (a mesma regra que os `except` dos handlers seguem).
             if classify_agent_error_type(exc) not in _TERMINAL_HANDLER_ERROR_TYPES:
-                # Classe RETENTAVEL (transitoria ou nao classificada): propaga, sem selo e sem
-                # linha terminal — comportamento de hoje, preservado de proposito. Ver
-                # `_TERMINAL_HANDLER_ERROR_TYPES` para o porque (canal RAF-02).
+                # Classe RETENTAVEL: propaga, SEM selo, SEM linha terminal e SEM fato novo — a
+                # semantica de retentativa de hoje, preservada de proposito (ver
+                # `_TERMINAL_HANDLER_ERROR_TYPES`, canal RAF-02). O que MUDA aqui e' so' que ela
+                # deixa de ser INVISIVEL: o traco (linha de desfecho NAO-terminal + contador) e'
+                # escrito ANTES do `raise`.
+                await self._trace_propagated_handler_error(envelope, exc)
                 raise
             return await self._reject_handler_error(envelope, exc)
 
@@ -559,6 +588,61 @@ class DelegationDispatcher:
             error_type=error_type,
         )
         return DelegationResult.rejected(envelope.task_id, reason, detail=detail)
+
+    async def _trace_propagated_handler_error(self, envelope: DelegationEnvelope, exc: Exception) -> None:
+        """Registra a excecao que o dispatcher esta prestes a RELEVANTAR, sem mudar nada mais.
+
+        A metade do NEW-B1 que a primeira correcao deixou aberta: uma falha de handler que nao e'
+        TERMINAL continua propagando (e tem de continuar — e' o canal retentavel RAF-02), mas ela
+        atravessava `delegate()` sem NENHUM rastro: fato `requested` orfao, nenhuma linha de
+        desfecho, nenhum contador, e no caminho duravel uma linha `processing` que ninguem sela.
+        Retentabilidade e observabilidade eram protegidas pelo MESMO ramo; aqui elas se separam.
+
+        Faz DUAS coisas, e so' duas:
+
+          1. a linha de audit de desfecho com `decision=_DECISION_PROPAGATED` — NAO-terminal de
+             proposito — na chave `a2a_audit_propagated_dedup_key`, que nunca e' a chave
+             `:outcome` (ver aquela funcao: reusa-la apagaria o `COMPLETED` de uma entrega
+             posterior bem-sucedida);
+          2. o contador `maezo_a2a_handler_error_total`, com o MESMO rotulo fechado R-063 do ramo
+             terminal — e' ele que da a cadencia POR ENTREGA que a linha de audit, deduplicada por
+             `task_id`, deliberadamente nao da.
+
+        O que NAO faz, e por que: NENHUM fato novo. O pino RAF-02
+        (`test_dispatcher_neither_seals_nor_completes_a_failed_start`) exige
+        `producer.topics() == [TOPIC_REQUESTED]` numa entrega que falhou no start, e um fato
+        `rejected` aqui anunciaria uma rejeicao que nao houve — a delegacao continua viva e
+        retentavel. Tambem NAO sela e NAO devolve: quem chamou continua recebendo a excecao
+        original.
+
+        ORDEM E FALHA DO SINK: audit primeiro, contador depois, igual a `_reject_handler_error`. Se
+        o sink estiver indisponivel a `AuditPersistenceError` dele propaga NO LUGAR da excecao
+        original — o mesmo comportamento fail-closed do ramo `DelegationError` logo acima, e sem
+        consequencia semantica aqui, porque as duas propagam e nenhuma das duas sela.
+
+        PHI: identica ao ramo terminal — `str(exc)` NUNCA viaja; so' o TOKEN DE CLASSE e o rotulo
+        limitado entram, via `_handler_error_detail` (que ainda passa por `redact_error_message`).
+        """
+        error_type = classify_agent_error_type(exc)
+        detail = _handler_error_detail(exc, error_type)
+        await self._audit_delegation_outcome(
+            envelope,
+            decision=_DECISION_PROPAGATED,
+            basis="A2A:handler_error:propagated",
+            detail=detail,
+            dedup_key=a2a_audit_propagated_dedup_key(envelope.tenant, envelope.task_id),
+        )
+        record_a2a_handler_error(target=envelope.target, error_type=error_type)
+        logger.warning(
+            "a2a_handler_error_propagated",
+            task_id=envelope.task_id,
+            tenant=envelope.tenant,
+            origin=envelope.origin,
+            target=envelope.target,
+            task_type=envelope.task_type,
+            error_class=type(exc).__name__,
+            error_type=error_type,
+        )
 
     def _validate(self, envelope: DelegationEnvelope) -> DelegationResult | None:
         """Contract checks. Returns a rejection `DelegationResult`, or None (ok)."""
@@ -674,19 +758,25 @@ class DelegationDispatcher:
         decision: str,
         basis: str,
         detail: str | None = None,
+        dedup_key: str | None = None,
     ) -> None:
         """TERMINAL delegation-outcome audit (T-F follow-up — closes the W2 completeness gap).
 
         The pre-execution audit (`_audit_delegation`) fires an ALLOW row BEFORE the handler runs —
         but that row is NOT terminal: it records only that the delegation was admitted, not what
-        became of it. This method emits the SECOND, TERMINAL row recording the handler's actual
-        outcome, called from BOTH terminal branches of `_execute`:
+        became of it. This method emits the SECOND row recording what the handler actually did,
+        called from EVERY branch of `_execute` that ends a delivery:
 
           - handler raised `DelegationError` (e.g. an internal cyclic sub-delegation) ->
             `decision=_DECISION_FAILED` + the exception message as `detail`.
-          - handler raised a TERMINAL non-`DelegationError` exception (NEW-B1, classe `validacao`)
-            -> `decision=_DECISION_FAILED` + o TOKEN DE CLASSE da excecao como `detail`, nunca a
-            mensagem (`_handler_error_detail`). Uma falha RETENTAVEL nao chega aqui: ela propaga.
+          - handler raised uma excecao TERMINAL nao-`DelegationError` (NEW-B1, as classes de
+            `_TERMINAL_HANDLER_ERROR_CLASSES`) -> `decision=_DECISION_FAILED` + o TOKEN DE CLASSE
+            da excecao como `detail`, nunca a mensagem (`_handler_error_detail`).
+          - handler raised qualquer OUTRA excecao, que o dispatcher RELEVANTA ->
+            `decision=_DECISION_PROPAGATED`, NAO-terminal, na chave
+            `a2a_audit_propagated_dedup_key` (`_trace_propagated_handler_error`). Esta entrega nao
+            selou nada e vai ser reexecutada numa reentrega; a linha existe para que a propagacao
+            deixe de ser invisivel, nunca para afirmar um desfecho.
           - handler returned successfully (LOW-1 completeness fix) ->
             `decision=_DECISION_COMPLETED`, no `detail`.
 
@@ -701,16 +791,21 @@ class DelegationDispatcher:
           - `action` gets a `:outcome` suffix (`f"a2a.delegate:{target}:outcome"`) so a chain
             reader can tell the pre-exec admission row apart from the terminal-outcome row at a
             glance, without inspecting `decision`.
-          - `decision` is a TERMINAL-outcome value (`_DECISION_COMPLETED`/`_DECISION_FAILED`) —
-            NEVER the admission `_DECISION_ALLOW`/`_DECISION_DENY` — so this is never mistaken for a
-            second ADMISSION decision (the delegation WAS allowed; this records how it ended).
-          - `dedup_key` is `a2a_audit_outcome_dedup_key(tenant, task_id)` (the `:outcome`-suffixed
-            key), never the same key as the pre-exec row's `a2a_audit_dedup_key` — so `emit_once`
-            treats them as two independent, individually-deduplicated chain links, and a re-entry
-            of `_execute` for the same `task_id` (from a fresh process, mirroring the pre-exec
-            row's own re-entry-safety rationale) can never fork either one. Exactly ONE terminal
-            outcome fires per `task_id` (success XOR failure), so the single `:outcome` key never
-            collides between the two decisions.
+          - `decision` is an OUTCOME value (`_DECISION_COMPLETED`/`_DECISION_FAILED`, or the
+            NON-terminal `_DECISION_PROPAGATED`) — NEVER the admission `_DECISION_ALLOW`/
+            `_DECISION_DENY` — so this is never mistaken for a second ADMISSION decision (the
+            delegation WAS allowed; this records what happened to it).
+          - `dedup_key` defaults to `a2a_audit_outcome_dedup_key(tenant, task_id)` (the
+            `:outcome`-suffixed key), never the same key as the pre-exec row's
+            `a2a_audit_dedup_key` — so `emit_once` treats them as two independent,
+            individually-deduplicated chain links, and a re-entry of `_execute` for the same
+            `task_id` (from a fresh process, mirroring the pre-exec row's own re-entry-safety
+            rationale) can never fork either one. Exactly ONE TERMINAL outcome fires per `task_id`
+            (success XOR failure), so the single `:outcome` key never collides between the two
+            decisions. O `dedup_key` EXPLICITO existe para o unico chamador NAO-terminal
+            (`_trace_propagated_handler_error`): ele passa a chave `:propagated` justamente para
+            NAO consumir a chave `:outcome`, que a entrega seguinte — a que talvez conclua — ainda
+            vai precisar.
 
         PHI safety: identical discipline to `_audit_delegation` — `details` excludes
         `envelope.payload_meta` entirely; `detail`, when present, is the exception message, itself
@@ -739,7 +834,8 @@ class DelegationDispatcher:
             details=details,
         )
         await self._audit.emit_once(
-            record, dedup_key=a2a_audit_outcome_dedup_key(envelope.tenant, envelope.task_id)
+            record,
+            dedup_key=dedup_key or a2a_audit_outcome_dedup_key(envelope.tenant, envelope.task_id),
         )
 
     async def _emit(
