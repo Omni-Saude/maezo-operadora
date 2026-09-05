@@ -107,8 +107,12 @@ DIVERGENCIAS DO DONOR (disclosed, per charter "where donor and v2 spec disagree,
    choreografia CRED->ADEQUACAO (GAP-XPROC-2, `network_change_bridge`); passthrough quando
    presentes no estado.
 5. **`finalize` NAO escreve memoria episodica** (donor's `finalize` chama
-   `mcp-memory.read_write`). v2 nao tem `MemoryServer`/schema pgvector wired para grafos de
-   agente ainda — mesmo labeled boundary de `helena/graph.py`/`rafael/graph.py`.
+   `mcp-memory.read_write`). v2 nao tem `MemoryServer` wired para grafos de agente ainda — mesmo
+   labeled boundary de `helena/graph.py`/`rafael/graph.py`. A tabela existe (`agent_memory`,
+   migration `0001`); o que falta e a assinatura `(agent_id, event)` do `store_episodic`, que nao
+   carrega `tenant_id` nem `thread_id` (ambos `text NOT NULL`) — GAP-DU-01-a. A coluna semantica
+   que a acompanhava foi removida por `0009_drop_pgvector`; ADR-0002 §3 fica SUSPENSO ate existir
+   consumidor (ADR-0047, DRAFT).
 6. **`gather` usa um `SummaryReader` Protocol minimo** (best-effort, opcional) em vez do donor's
    `ToolInvoker`/PEP `mcp-fhir.read_patient_summary` — v2 nao tem esse tool dedicado ainda
    (mesmo labeled boundary do `FhirReader` de `rafael/graph.py`); reusa o adapter generico

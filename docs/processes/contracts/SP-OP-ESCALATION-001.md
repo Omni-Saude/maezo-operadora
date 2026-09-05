@@ -89,6 +89,15 @@ Fail-safe: catch-all = P2/`atendimento-humano` (motivo desconhecido nunca vira P
 | `atendimento-humano` | Atendimento ao beneficiario | `UT_TratarEscalonamento` (P3) |
 | `supervisao-atendimento` | Supervisor | `UT_SupervisorAssume` (SLA resolucao estourado) + alertas de ack |
 
+> **PROPOSTO — confirmar contra a taxonomia organizacional da operadora** (ver
+> `docs/review-queue.md`; R-034 / gap `PERSP-ESCALATION-VOCAB-a`). Os nomes `plantao-clinico` e
+> `enfermagem-triagem` sao candidatos DRAFT herdados de vocabulario de prestador e podem nao
+> corresponder aos grupos reais do IdP/console de User Tasks da operadora; `atendimento-humano` e
+> `supervisao-atendimento` tambem aguardam a mesma confirmacao. A tabela consolidada de
+> `grupo declarado -> arquivo:linha -> processo -> SLA/ato` para esta sessao de nomeacao esta em
+> `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`. Nenhum rename e aplicado sem os nomes reais do
+> dono organizacional da operadora.
+
 ## SLAs
 
 | Timer | Valor | Tipo | Fonte regulatoria |

@@ -271,21 +271,28 @@ spec:
 {{- end }}
 
 {{- /* ------------------------------------------------------------------- */}}
-{{- /* 5. W-R2 daemon egress (worker-daemon R7 + notifications-bridge R8)   */}}
+{{- /* 5. W-R2 daemon egress (worker-daemon R7 + notifications-bridge R8 +  */}}
+{{- /*    a2a-outbox-relay SC-01)                                           */}}
 {{- /*                                                                       */}}
-{{- /* Both daemons are general-zone NON-agents that must reach the CIB     */}}
+{{- /* These daemons are general-zone NON-agents that must reach the CIB    */}}
 {{- /* Seven engine (fetch-and-lock / start_process) + Kafka (publish/       */}}
 {{- /* consume). They are subject to default-deny-egress, so we open ONLY    */}}
 {{- /* their two egress targets to CONCRETE CIDRs (FIX 1; 0.0.0.0/0 is NOT   */}}
 {{- /* an allowlist). If no CIDRs are configured the egress list is EMPTY    */}}
 {{- /* (deny) — the correct fail-closed posture; configure per environment.  */}}
 {{- /* These are NOT agents: no PHI-relay concern (FIX 2) — they never hold  */}}
-{{- /* a cloud-LLM egress rule.                                              */}}
+{{- /* a cloud-LLM egress rule. a2a-outbox-relay (SC-01) mirrors what        */}}
+{{- /* notifications-bridge gets here — it does not call CIB Seven, but      */}}
+{{- /* opening it costs nothing this list doesn't already open for its       */}}
+{{- /* siblings, and keeping ONE shared daemon-egress policy (instead of a   */}}
+{{- /* least-privilege Kafka-only rule like webhook-receiver's below) is the */}}
+{{- /* literal "mirror deployment-bridge.yaml" ask (SC-01/R-004).            */}}
 {{- /* ------------------------------------------------------------------- */}}
 {{- if .Values.networkPolicy.daemonEgress.enabled }}
 {{- $components := list }}
 {{- if .Values.workerDaemon.enabled }}{{- $components = append $components "worker-daemon" }}{{- end }}
 {{- if .Values.notificationsBridge.enabled }}{{- $components = append $components "notifications-bridge" }}{{- end }}
+{{- if .Values.a2aOutboxRelay.enabled }}{{- $components = append $components "a2a-outbox-relay" }}{{- end }}
 {{- if $components }}
 ---
 apiVersion: networking.k8s.io/v1
@@ -296,7 +303,7 @@ metadata:
   labels:
     {{- include "maezo-tenant.labels" . | nindent 4 }}
   annotations:
-    maezo.io/note: "W-R2 daemons (worker-daemon/notifications-bridge) egress -> CIB Seven + Kafka. Concrete CIDRs only (FIX 1)."
+    maezo.io/note: "W-R2 daemons (worker-daemon/notifications-bridge/a2a-outbox-relay) egress -> CIB Seven + Kafka. Concrete CIDRs only (FIX 1)."
 spec:
   podSelector:
     matchExpressions:

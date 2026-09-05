@@ -74,7 +74,9 @@ def canonicalize_jsonb(payload: dict[str, Any]) -> dict[str, Any]:
     THIS function at construction, guaranteeing the invariant *bytes hashed at write == bytes
     recomputed at verify* for every value Postgres jsonb can round-trip.
 
-    The normalization (each rule verified empirically against the compose `pgvector/pgvector:pg16`
+    The normalization (each rule verified empirically against `pgvector/pgvector:pg16`, the image
+    the compose stack pinned at the time — it is `postgres:16` since DU-01-b; the jsonb behaviour
+    under test is core Postgres 16 and is unaffected by the extension —
     via `SELECT $1::jsonb::text` — see the H1-regression tests in test_audit_postgres.py):
 
     1. Structural: `json.loads(json.dumps(payload, sort_keys=True, default=str))` first, so the

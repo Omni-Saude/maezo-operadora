@@ -66,9 +66,13 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   SP-OP-ESCALATION-001 build steps in the T1.11 charter do not require it, and v2's `FhirServer`
   is a generic HAPI client with no PEP/ToolRegistry gateway yet (a real gap, not hidden here) —
   wiring it is a follow-up.
-- Episodic memory write (`mcp-memory.read_write`, ADR-0002) is NOT wired in this graph. v2's
-  `MemoryServer` requires a live Postgres/pgvector schema; adding it is a follow-up once that
-  schema exists in this repo's migrations.
+- Episodic memory write (`mcp-memory.read_write`, ADR-0002) is NOT wired in this graph. The
+  schema is NOT what is missing — migration `0001` creates `agent_memory`;
+  `MemoryServer.store_episodic` refuses because its `(agent_id, event)` signature carries neither
+  `tenant_id` nor `thread_id` (both `text NOT NULL`), which is GAP-DU-01-a, an owner decision. The semantic
+  column that once sat in the same table was dropped by `0009_drop_pgvector` and ADR-0002 §3 is
+  SUSPENDED pending a consumer (ADR-0047, DRAFT) — so there is no semantic write to follow up
+  on at all.
 - Free-text WhatsApp message content is NOT scanned for embedded PHI patterns (e.g. a
   beneficiary typing their own CPF into the message) before reaching the LLM — mitigated by the
   mandatory `phi=True` routing (content never reaches a general-zone cloud provider). What DOES

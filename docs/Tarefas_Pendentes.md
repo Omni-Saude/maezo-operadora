@@ -460,9 +460,10 @@ Hoje a CD é **no-op** quando `AWS_ENABLED != true`. Sem mudanças desde 2026-06
 Sem mudanças desde 2026-06-14. O chart **já** roda as migrations automaticamente via **Helm hook
 `pre-install,pre-upgrade`** (`deploy/helm/maezo-tenant/templates/job-migrations.yaml`, toggle
 `migrations.enabled`): executa `alembic upgrade head` no schema do tenant ANTES dos runtimes subirem
-(cria `audit_chain`, `agent_memory`, `a2a_idempotency`, índice de retenção + **pgvector em `public`**
-— DL-0017; migração 0006 desde então também **derrubou** as tabelas mortas `agent_checkpoints`/
-`agent_checkpoint_writes`, T3.4/F4). O Job deriva a URL síncrona do secret Aurora (`+asyncpg` →
+(cria `audit_chain`, `agent_memory`, `a2a_idempotency`, índice de retenção; migração 0006 desde então
+também **derrubou** as tabelas mortas `agent_checkpoints`/`agent_checkpoint_writes`, T3.4/F4, e a
+migração **0009** removeu a coluna `agent_memory.embedding` e a extensão **pgvector em `public`**
+— DL-0017 — porque a camada semântica nunca teve consumidor, DU-01-b). O Job deriva a URL síncrona do secret Aurora (`+asyncpg` →
 psycopg) e usa `MAEZO_TENANT`; o Dockerfile inclui `alembic.ini`. **Ações humanas restantes:**
 - garantir que o **secret Aurora (ESO-synced) exista ANTES do `helm upgrade`** (já é pré-requisito do
   app — §1.1); o `backoffLimit` cobre atrasos transitórios do ESO;
