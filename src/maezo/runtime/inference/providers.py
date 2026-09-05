@@ -389,6 +389,24 @@ class AnthropicInferenceProvider(BaseInferenceProvider):
                 retryable=True,
             ) from exc
 
+        # §Delta-F1, a FORMA da resposta, checada ANTES de qualquer leitura de atributo. O SDK
+        # so' devolve uma `Message` quando o corpo se parece com uma, e por duas vias ele nao
+        # devolve: (a) `content-type` que nao termina em `json` com validacao NAO-ESTRITA (o
+        # padrao) faz o SDK devolver o TEXTO CRU — uma `str` —, e (b) um corpo JSON fora do
+        # schema vira uma `Message` construida com `content=None`. Nos dois casos as leituras
+        # abaixo (`response.stop_reason`, `for block in response.content`) davam
+        # `AttributeError`/`TypeError`, classes de `PROGRAMMING_ERRORS`, e portanto DERRUBAVAM o
+        # turno por causa de um proxy mal configurado. `getattr` aqui nao e' leniencia: a linha
+        # seguinte converte qualquer forma que nao seja uma lista de blocos na falha DECLARADA.
+        blocos = getattr(response, "content", None)
+        if not isinstance(blocos, list):
+            raise InferenceProviderError(
+                "anthropic",
+                f"resposta 200 fora do contrato: sem blocos de conteudo utilizaveis "
+                f"({type(blocos).__name__})",
+                retryable=True,
+            )
+
         # T8: meter token usage for EVERY response that reaches this point — including a
         # refusal (still a genuine, billable-or-not API response with its own `usage`).
         # Best-effort/never-raising by construction (see `_emit_llm_token_usage`), so this
@@ -404,24 +422,6 @@ class AnthropicInferenceProvider(BaseInferenceProvider):
         if response.stop_reason == "refusal":
             raise InferenceProviderError(
                 "anthropic", "request declined by safety classifiers (stop_reason=refusal)", retryable=False
-            )
-
-        # §Delta-F1, segunda metade do seam do LLM. O SDK valida a resposta de forma NAO-ESTRITA
-        # por padrao (`_strict_response_validation=False`): um 200 cujo JSON e' valido mas nao
-        # tem a forma de uma `Message` NAO levanta `APIResponseValidationError` — ele constroi
-        # uma `Message` com `content=None`, e o `for block in response.content` logo abaixo
-        # levantava `TypeError: 'NoneType' object is not iterable`. `TypeError` esta em
-        # `PROGRAMMING_ERRORS`, entao depois do estreitamento de NEW-12 esse corpo externo
-        # DERRUBAVA o turno em vez de degradar — a mesma troca que o §Delta-F1 fecha do lado do
-        # FHIR. Aqui a resposta e' a mesma: vira o tipo declarado no `Raises:`, com o token de
-        # classe e sem nenhum byte do corpo.
-        blocos = response.content
-        if not isinstance(blocos, list):
-            raise InferenceProviderError(
-                "anthropic",
-                f"resposta 200 sem blocos de conteudo utilizaveis ({type(blocos).__name__}); "
-                "corpo fora do schema do SDK",
-                retryable=True,
             )
 
         text = "".join(block.text for block in blocos if block.type == "text")

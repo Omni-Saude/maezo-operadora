@@ -107,7 +107,7 @@ class _MappingQueLevantaKeyError:
 class _MappingComAssinaturaDerivada:
     """Deriva de assinatura: `.get` nao aceita o segundo argumento que o modulo passa."""
 
-    def get(self) -> Any:  # type: ignore[misc]
+    def get(self) -> Any:
         raise AssertionError("inalcancavel: a ligacao de argumentos levanta TypeError antes")
 
 

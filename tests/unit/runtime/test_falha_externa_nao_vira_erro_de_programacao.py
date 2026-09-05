@@ -83,15 +83,6 @@ def _instala_transporte(
     monkeypatch.setattr(httpx, "AsyncClient", _fabrica)
 
 
-def _levanta(exc: BaseException) -> Any:
-    """Devolve um callable async que so' levanta `exc` (sem `unittest.mock`)."""
-
-    async def _chamada(**_: Any) -> Any:
-        raise exc
-
-    return _chamada
-
-
 def _servidor() -> FhirServer:
     return FhirServer(FhirSettings(base_url="http://fhir.invalido/fhir/omni"))
 
@@ -318,26 +309,41 @@ async def test_corpo_json_fora_do_schema_vira_erro_declarado(
 
 
 @pytest.mark.asyncio
-async def test_erro_do_sdk_fora_das_cinco_clausulas_vira_erro_declarado(
+async def test_corpo_text_plain_do_provedor_vira_erro_declarado(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A metade `anthropic.AnthropicError` da clausula nao e' morta.
+    """O terceiro caminho: com `content-type` nao-JSON o SDK devolve o TEXTO CRU, nao `Message`.
 
-    `APIResponseValidationError` (o que o SDK levanta com validacao ESTRITA ligada, ou quando o
-    `content-type` nao e' JSON) nao e' `APIStatusError` e nao e' subclasse de `RuntimeError`,
-    `OSError` nem `httpx.HTTPError`: escapava dos cinco `except` e das tres bases absorvidas.
+    Com validacao NAO-ESTRITA (o padrao), o SDK nao levanta nada aqui — ele devolve uma `str`, e
+    o `response.stop_reason` do provedor virava `AttributeError` sobre ela, i.e. uma classe de
+    `PROGRAMMING_ERRORS` derrubando o turno por causa de um proxy que respondeu `text/plain`.
+    """
+    provedor = _provedor_anthropic(
+        monkeypatch,
+        httpx.Response(200, content=b"502 Bad Gateway", headers={"content-type": "text/plain"}),
+    )
+
+    with pytest.raises(InferenceProviderError, match="fora do contrato"):
+        await provedor.generate("oi")
+
+
+@pytest.mark.asyncio
+async def test_erro_do_sdk_fora_das_cinco_clausulas_e_absorvivel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A metade `anthropic.AnthropicError` da clausula nao e' decorativa.
+
+    `APIResponseValidationError` (o que o SDK levanta com validacao ESTRITA ligada) nao e'
+    `APIStatusError`, entao nao casava com nenhum dos cinco `except`, e nao e' subclasse de
+    `RuntimeError`, `OSError` nem `httpx.HTTPError`, entao tambem nao era absorvida pelos nos:
+    escapava crua e derrubava o turno. Este teste pina o FATO de MRO que torna a clausula
+    necessaria, junto com o de que o tipo declarado do provedor cai do lado absorvivel.
     """
     monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", _CHAVE_FALSA)
-    provedor = AnthropicInferenceProvider()
-    falha = anthropic.APIResponseValidationError(
-        response=httpx.Response(200, request=httpx.Request("POST", "http://provedor.invalido")),
-        body=None,
-    )
-    assert not isinstance(falha, EXTERNAL_DEPENDENCY_FAILURES)
-    provedor._client.messages.create = _levanta(falha)  # type: ignore[method-assign]
-
-    with pytest.raises(InferenceProviderError, match="APIResponseValidationError"):
-        await provedor.generate("oi")
+    assert issubclass(anthropic.APIResponseValidationError, anthropic.AnthropicError)
+    assert not issubclass(anthropic.APIResponseValidationError, anthropic.APIStatusError)
+    assert not issubclass(anthropic.APIResponseValidationError, EXTERNAL_DEPENDENCY_FAILURES)
+    assert issubclass(InferenceProviderError, EXTERNAL_DEPENDENCY_FAILURES)
 
 
 @pytest.mark.asyncio
