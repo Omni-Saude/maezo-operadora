@@ -54,9 +54,11 @@ from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.dmn import GatedDmnTransport
 from maezo.gateway.seams.fhir import GatedFhirReader
 from maezo.gateway.tool_registry import (
+    agent_credential,
     build_agent_fhir_seam,
     build_cibseven_seam,
     build_dmn_seam,
+    build_worker_credential_view,
     build_worker_seam_context,
     effect_seams_gated,
 )
@@ -703,6 +705,25 @@ def _worker_seam(settings: WorkerRuntimeSettings) -> SeamContext:
     return _worker_seam_cached(settings.tenant_id)
 
 
+def _engine_credential(settings: WorkerRuntimeSettings) -> str | None:
+    """O token do motor, obtido pela visao de agente do `CredentialVault` (AF-14 / ADR-0005 #3).
+
+    Antes desta mudanca os dois seams gated abaixo liam `settings.cibseven_auth_token_value()`
+    direto: nenhuma tabela de particao governava a credencial e o mecanismo #3 da ADR-0005 nao
+    tinha raiz de composicao alguma (`CredentialVault` so' aparecia no re-export do
+    `gateway/__init__.py`). Agora a credencial passa pelo cofre, e uma credencial humano-restrita
+    (`HUMAN_CREDENTIAL_FIELDS`: NEGATIVA/FRAUDE) NAO consegue chegar aqui — a construcao LEVANTA
+    `CredentialSeparationError`.
+
+    CHAMADA DE DENTRO DE CADA BLOCO `try` a proposito: `_bring_up_dependencies` isola cada bloco
+    (falha registra + deixa a checagem vermelha, nunca propaga). Uma recusa do cofre e' portanto
+    "o seam nao foi construido" -> os workers que dependem dele falham fechado depois, que e'
+    exatamente a forma de falha ja documentada para uma construcao de seam que nao deu certo.
+    Construir a visao duas vezes nao custa I/O: e' varredura de dicionario (I-9).
+    """
+    return agent_credential(build_worker_credential_view(settings=settings), "cibseven_auth_token")
+
+
 async def _bring_up_dependencies(state: WorkerState) -> None:
     """Bring up the daemon's dependencies. Each block is isolated: failure logs + leaves the
     corresponding check unhealthy, but NEVER propagates (liveness must stay up)."""
@@ -729,7 +750,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         state.dmn_transport = build_dmn_seam(
             seam=_worker_seam(settings),
             base_url=settings.cibseven_base_url,
-            auth_token=settings.cibseven_auth_token_value(),
+            auth_token=_engine_credential(settings),
             timeout=settings.client_timeout_s,
         )
     except Exception:  # noqa: BLE001 — construction failure: DMN-calling workers fail closed later.
@@ -749,7 +770,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         state.engine_transport = build_cibseven_seam(
             seam=_worker_seam(settings),
             base_url=settings.cibseven_base_url,
-            auth_token=settings.cibseven_auth_token_value(),
+            auth_token=_engine_credential(settings),
             timeout=settings.client_timeout_s,
             fresh_client=True,
         )
