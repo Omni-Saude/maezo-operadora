@@ -104,10 +104,19 @@ def test_rendered_replicas_stay_one_on_every_real_overlay_while_the_singleton_ke
 ) -> None:
     """Gatekeeper F2 RED proof target: a per-tenant overlay that raises `replicaCount` to 3 while
     `singletonByDesignUntil` is still set must fail THIS test, on the RENDERED manifest — not just
-    on a `yaml.safe_load` of the base file, which never sees the overlay's override."""
+    on a `yaml.safe_load` of the base file, which never sees the overlay's override.
+
+    No `pytest.skip` here even though the key is conditional by design: a future PR that removes
+    `singletonByDesignUntil` (ending the singleton-by-design period) must ALSO touch this test
+    deliberately, not have it go quietly inert — `test_notifications_bridge_declares_the_singleton_key`
+    would already fail in that scenario, and this assertion fails loudly alongside it rather than
+    skipping."""
     bridge = _notifications_bridge()
-    if not bridge.get("singletonByDesignUntil"):
-        pytest.skip("singletonByDesignUntil not set on the base file — guard inactive by design")
+    assert bridge.get("singletonByDesignUntil"), (
+        "singletonByDesignUntil was removed from values.yaml — this test (and "
+        "test_notifications_bridge_declares_the_singleton_key) must be deliberately updated, not "
+        "silently skipped, before the singleton-by-design guard is retired"
+    )
     docs = _helm_template("-f", str(_CHART_DIR / overlay))
     replicas = _notifications_bridge_replicas(docs)
     assert replicas == 1, (
