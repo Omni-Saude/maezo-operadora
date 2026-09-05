@@ -189,15 +189,20 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 
 Beneficiario nao tem canal de entrada proprio para esta jornada — quadro completo em
 `docs/processes/contracts/SP-OP-CANCEL-001.md` "Canal de entrada" (o mesmo achado cobre Lucas e
-Fernando). Resumo especifico deste processo: `prepare_dossier`
-(`operadora.inadimplencia.prepare_dossier`, tabela acima) convoca Fernando por citacao de texto
-("Fernando (general)... instrui, nao decide", §Notas de design) mas o worker shipped
-(`tools/workers/inadimplencia.py:366-390`) NAO chama nenhuma API de `maezo.a2a` — a linha
-"GAP-INAD-6, PR #134" na secao Pendencias abaixo estava FALSA contra o codigo e foi corrigida
-nesta sessao. O lado ALVO da delegacao `arrears.followup` agora EXISTE, real e testado
-(`src/maezo/agents/fernando/delegation.py::make_fernando_handler`) — o lado ORIGEM (a chamada
-efetiva dentro de `prepare_dossier`) continua NAO FEITO: `tools/workers/inadimplencia.py` fica
-fora da superficie editavel do work package que fechou este gap.
+Fernando): nenhuma resposta do beneficiario e roteada de volta a Fernando, so o webhook receptivo
+do WhatsApp (`HelenaDispatcher`) recebe mensagem do beneficiario, e despacha tudo para o grafo de
+Helena, sem contexto de cobranca. Resumo especifico deste processo, RECONFERIDO nesta sessao
+(NF-Δ1 — a versao anterior desta secao ficou FALSA contra o codigo shipped): `prepare_dossier`
+(`operadora.inadimplencia.prepare_dossier`, tabela acima) e' um handler RAW async
+(`tools/workers/inadimplencia.py::make_prepare_dossier_handler`) que CHAMA de fato
+`maezo.agents.fernando.delegation.delegate_arrears_followup` — nao e' mais so citacao de texto no
+docstring. O lado ALVO tambem esta ligado:
+`runtime/agent_runtime/a2a_composition.py::build_dossier_delegation_dispatcher` registra
+`"fernando": fernando_handler` no dict de handlers (R-081, `#344`). Os dois lados da delegacao
+`arrears.followup` estao codigo-a-codigo ligados e testados; o que segue genuinamente aberto NAO
+e essa delegacao (que e' operadora-para-Fernando, iniciada pelo worker) e sim o achado GAP 11.7
+em si: o BENEFICIARIO continua sem canal de entrada proprio ate Fernando — qualquer resposta dele
+no WhatsApp cai no mesmo `HelenaDispatcher`, sem contexto de inadimplencia nenhum.
 
 ## DMN referenciadas
 
@@ -358,7 +363,7 @@ NAO bloqueia arquitetura nem deploy do engine):**
 - **Dias uteis vs corridos** na janela de purga, notificacao previa e periodo minimo (RN 593)? — regulatório.
 - **RN 593 supersede/consolida RN 412/2016?** (e quaisquer dispositivos da Lei 9.656 art. 13) — regulatório + jurídico.
 - **Confirmacao dos candidate groups** `juridico-contratos`/`gestao-cobranca`/`coordenacao-cobranca` contra a taxonomia organizacional — PO/IdP.
-- **Fernando** (agente de inadimplencia) precisa de SP-OP-INADIMPLENCIA-001 proprio, ou opera como AGJ navegador que so escala para CANCEL-001 (igual Lucas)? Ja RESOLVIDO no sentido operacional (GAP-INAD-6, PR #134: `prepare_dossier` delega `arrears.followup` a Fernando via A2A real); a framing de produto (processo dedicado vs navegador) permanece PO/produto. **CORRECAO (GAP 11.7, re-checado nesta sessao):** essa linha estava FALSA contra o codigo shipped — `tools/workers/inadimplencia.py`'s `prepare_dossier` monta um dicionario localmente e nao chama nenhuma API de `maezo.a2a`; nao ha nenhum `delegate_arrears_followup`/`DelegationDispatcher.delegate` naquele worker. O lado ALVO da delegacao agora EXISTE de fato (`src/maezo/agents/fernando/delegation.py::make_fernando_handler`/`state_from_envelope`, testado, compila o grafo REAL de Fernando) — mas o call site em `prepare_dossier` continua NAO FEITO (fora da superficie editavel do work package que fechou este gap; ver `docs/processes/contracts/SP-OP-CANCEL-001.md` "Canal de entrada" para o quadro completo). Reclassificar como PARCIALMENTE resolvido: alvo pronto, origem pendente.
+- **Fernando** (agente de inadimplencia) precisa de SP-OP-INADIMPLENCIA-001 proprio, ou opera como AGJ navegador que so escala para CANCEL-001 (igual Lucas)? Ja RESOLVIDO no sentido operacional (GAP-INAD-6, PR #134: `prepare_dossier` delega `arrears.followup` a Fernando via A2A real); a framing de produto (processo dedicado vs navegador) permanece PO/produto. **CORRECAO (NF-Δ1, re-checado nesta sessao):** a "CORRECAO (GAP 11.7)" que ficava aqui tinha ela mesma envelhecido mal — dizia que `prepare_dossier` so montava um dicionario local e nao chamava nenhuma API de `maezo.a2a`. Isso nao e' mais verdade (e o codigo que a sustentava ja tinha mudado havia tempo): `tools/workers/inadimplencia.py::make_prepare_dossier_handler` chama de fato `delegate_arrears_followup`, e o lado ALVO esta registrado em `runtime/agent_runtime/a2a_composition.py::build_dossier_delegation_dispatcher` (`"fernando": fernando_handler`, R-081, #344). A linha original do bullet ("GAP-INAD-6, PR #134 ... via A2A real") estava certa; a correcao anterior que a contradizia estava desatualizada. Ver "Canal de entrada" acima para o que segue genuinamente aberto: o beneficiario nao tem canal de entrada proprio ate Fernando, so o webhook de Helena recebe mensagem dele.
 
 ## Notas de design / inversao do reference
 
