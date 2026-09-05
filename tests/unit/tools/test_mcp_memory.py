@@ -239,3 +239,90 @@ def test_memory_server_has_no_connection_pool() -> None:
     server = MemoryServer()
     assert not hasattr(server, "_get_pool")
     assert not hasattr(server, "_pool")
+
+
+# ---------------------------------------------------------------------------
+# GAP-DU-01-b: nenhuma query deste modulo referencia a coluna removida
+# ---------------------------------------------------------------------------
+
+
+def _mcp_memory_string_constants() -> list[str]:
+    """Toda constante `str` do modulo — docstrings INCLUSIVE de proposito? Nao: exclusive.
+
+    As docstrings e os `detail` de recusa CITAM `agent_memory.embedding vector(1536)` e
+    `0009_drop_pgvector` porque a citacao E o registro da remocao; uma cerca que lesse prosa como
+    SQL seria satisfeita apenas apagando a justificativa. O que esta cerca procura e' SQL
+    EXECUTAVEL, entao ela olha para strings que se parecem com comandos (comecam por um verbo
+    SQL depois de normalizar espacos), nao para prosa.
+    """
+    import maezo.tools.mcp_memory.server as server_module
+
+    source = pathlib.Path(inspect.getsourcefile(server_module) or "").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    docstrings: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            first = node.body[0] if node.body else None
+            if (
+                isinstance(first, ast.Expr)
+                and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)
+            ):
+                docstrings.add(id(first.value))
+    return [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
+    ]
+
+
+_SQL_VERBS = ("select", "insert", "update", "delete", "create", "alter", "drop", "with ")
+
+
+def test_the_module_issues_no_sql_at_all() -> None:
+    """A base da prova de DU-01-b: remover a coluna nao pode quebrar este servidor porque ele
+    nunca consultou nada. Nenhuma constante de string do modulo e' um comando SQL."""
+    statements = [
+        text for text in _mcp_memory_string_constants() if text.strip().lower().startswith(_SQL_VERBS)
+    ]
+    assert not statements, f"mcp_memory/server.py voltou a carregar SQL executavel: {statements}"
+
+
+def test_no_executable_string_references_the_dropped_embedding_column() -> None:
+    """E a outra metade: mesmo que um comando volte um dia, ele nao pode nomear a coluna que
+    `0009_drop_pgvector` removeu, nem o tipo `vector`, fora de prosa citacional."""
+    offenders = [
+        text
+        for text in _mcp_memory_string_constants()
+        if len(text) < 400 and ("embedding" in text.lower() or "vector(" in text.lower())
+    ]
+    assert not offenders, (
+        "constante de string executavel referenciando a coluna/tipo removidos por "
+        f"0009_drop_pgvector: {offenders}"
+    )
+
+
+def test_the_string_constant_scan_is_not_vacuous() -> None:
+    """Controle negativo: o extrator TEM de achar strings (senao as duas cercas acima passam por
+    vacuidade), e as citacoes em PROSA da coluna removida continuam la — a cerca nao foi
+    satisfeita apagando o registro da remocao."""
+    constants = _mcp_memory_string_constants()
+    assert constants, "o extrator de constantes nao achou nenhuma string — a cerca esta vazia"
+
+    import maezo.tools.mcp_memory.server as server_module
+
+    source = pathlib.Path(inspect.getsourcefile(server_module) or "").read_text(encoding="utf-8")
+    assert "0009_drop_pgvector" in source, "o modulo deixou de citar a migration que removeu a coluna"
+    assert "agent_memory.embedding" in source, "o modulo deixou de registrar QUAL coluna foi removida"
+
+
+def test_both_tools_still_refuse_after_the_column_removal() -> None:
+    """DU-01-b nao pode ter mudado o COMPORTAMENTO: as duas ferramentas seguem recusando
+    fail-closed, com os mesmos codigos de `reason`."""
+    from maezo.tools.mcp_memory.server import (
+        REASON_EPISODIC_SCHEMA_DRIFT,
+        REASON_SEMANTIC_SEARCH_NOT_WIRED,
+    )
+
+    assert REASON_EPISODIC_SCHEMA_DRIFT == "episodic_schema_drift"
+    assert REASON_SEMANTIC_SEARCH_NOT_WIRED == "semantic_search_not_wired"

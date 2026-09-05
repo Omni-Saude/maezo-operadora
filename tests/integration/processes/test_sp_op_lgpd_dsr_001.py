@@ -49,9 +49,15 @@ independently-verified v2 behavioral gap, not a fixture artifact:
      py's OWN bootstrap docstring: "only `operadora.lgpd.verify_identity` matches a `camunda:topic`
      ... today; that BPMN's other 5 topics (compile_data_package/execute_request/notify_sla_risk/
      request_additional_proof/send_response) postdate these classes and have no worker yet"):
-       - `register_lgpd_workers` registers 6 topics: `operadora.lgpd.{verify_identity,
-         assess_request, execute_export, execute_rectification, execute_erasure,
-         publish_completed}`.
+       - `register_lgpd_workers` registered 6 topics when this docstring was written:
+         `operadora.lgpd.{verify_identity, assess_request, execute_export,
+         execute_rectification, execute_erasure, publish_completed}`. TWO have since been
+         RETIRED, both for being orphan code topics no BPMN service task ever carried:
+         `assess_request` (#55 R-E, T2.8 — routing is the engine-side `BRT_RotearDsr` DMN) and
+         `publish_completed` (R-H, gap `LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC`, owner decision
+         R-103, 2026-09-04 — completion is published by the generic `ST_PublishCompleted` ->
+         `operadora.events.publish`). The module registers the remaining FOUR `WorkerBase`
+         topics plus the three #55 R-B/R-F/R-G raw handlers.
        - The BPMN declares 6 external-task topics (besides the generic publish): `operadora.lgpd.
          {verify_identity, request_additional_proof, compile_data_package, execute_request,
          send_response, notify_sla_risk}` (the last one on TWO service tasks,
@@ -67,8 +73,10 @@ independently-verified v2 behavioral gap, not a fixture artifact:
          single `ST_ExecutarRequisicao` (topic `operadora.lgpd.execute_request`) is meant to cover
          BOTH retificacao and eliminacao in ONE step ("Executar retificacao/eliminacao aprovada");
          v2 instead implements THREE separately-topic'd classes that the BPMN never calls.
-       - `publish_completed` has NO BPMN match: every `ST_Publish*` uses the generic `operadora.
-         events.publish` topic (`PublishCompletedWorker` is superseded/dead).
+       - `publish_completed` had NO BPMN match: every `ST_Publish*` uses the generic `operadora.
+         events.publish` topic, so `PublishCompletedWorker` was superseded/dead. RETIRED
+         2026-09-04 (R-H / R-103) — the class, its registration and its three unit tests are
+         gone; this bullet is kept as the reason, not as a live description.
        - `request_additional_proof`/`compile_data_package`/`execute_request`/`send_response`/
          `notify_sla_risk` have ZERO registered v2 worker.
      A test-fixture-only completion stub (`_gap_topic_stub`, mirrors `test_sp_op_reembolso_001.

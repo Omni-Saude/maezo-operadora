@@ -7,9 +7,9 @@ later edit which quietly breaks one fails CI rather than production.
 
 Five invariants:
 
-1.  **Chain integrity.** 0008 revises 0007 and is the sole head; no revision id is claimed twice
-    and no revision is claimed as parent by two children. A forked chain is the failure mode where
-    `alembic upgrade head` applies one branch and an operator believes it applied the other.
+1.  **Chain integrity.** 0008 revises 0007 and is named for its revision. The sole-head /
+    no-fork assertion moved to `test_migration_0009_drop_pgvector.py` when 0009 landed (see the
+    note where it used to live) — the head belongs to whichever migration currently IS the head.
 2.  **The DDL and `maezo.a2a.outbox` cannot drift.** The table name, the revision id and the
     STATUS VOCABULARY are asserted equal to the module constants in both directions, and every
     column the module's SQL binds is asserted to exist in the DDL. A status the code writes and
@@ -164,27 +164,11 @@ def test_revision_and_down_revision() -> None:
     assert 'down_revision: str | None = "0007"' in _SOURCE
 
 
-def test_0008_is_the_unique_head_of_a_linear_chain() -> None:
-    """No fork: every revision claimed once, exactly one revision unreferenced as a parent.
-
-    This assertion moved HERE from `test_migration_0007_amh_inbox.py` when 0008 landed: the head
-    belongs to whichever migration currently IS the head, so a future 0009 changes one file
-    instead of editing a compliance-reviewed AMH suite.
-    """
-    revisions: dict[str, str | None] = {}
-    for path in sorted(_VERSIONS_DIR.glob("[0-9]*.py")):
-        text = path.read_text(encoding="utf-8")
-        rev = re.search(r'^revision: str = "([^"]+)"', text, re.MULTILINE)
-        down = re.search(r'^down_revision: str \| None = (?:"([^"]+)"|None)', text, re.MULTILINE)
-        assert rev is not None, f"{path.name} declares no revision"
-        assert down is not None, f"{path.name} declares no down_revision"
-        assert rev.group(1) not in revisions, f"duplicate revision id {rev.group(1)}"
-        revisions[rev.group(1)] = down.group(1)
-
-    parents = {down for down in revisions.values() if down is not None}
-    heads = set(revisions) - parents
-    assert heads == {OUTBOX_MIGRATION_REVISION}, f"expected 0008 to be the sole head, got {heads}"
-    assert len(parents) == len(revisions) - 1, "a revision is claimed as parent by two children"
+# The head-of-chain assertion that used to live here MOVED to
+# `test_migration_0009_drop_pgvector.py` when 0009 landed — exactly as this test's own docstring
+# instructed: "the head belongs to whichever migration currently IS the head, so a future 0009
+# changes one file instead of editing a compliance-reviewed AMH suite." What stays here is the
+# half that is about 0008 itself: it revises 0007 and is named for its revision (above).
 
 
 # ---------------------------------------------------------------------------
