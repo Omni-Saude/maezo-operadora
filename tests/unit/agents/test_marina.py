@@ -829,7 +829,12 @@ async def test_dmn_error_detail_never_reaches_engine_variables() -> None:
 
     assert result["route"] == "human_review"
     assert result["motivo_humano"] == "dmn_indisponivel"
-    assert leaked_fragment in result["dmn_error"]  # state DOES carry it (observability)
+    # NEW-01: o estado carrega o DIAGNOSTICO (token de classe + tabela), nunca o eco do payload.
+    # Antes do fix, `dmn_error` continha `leaked_fragment` VERBATIM e este teste asseria isso.
+    assert leaked_fragment not in result["dmn_error"]
+    assert "123.456.789-00" not in result["dmn_error"]
+    assert "[REDACTED_DIGITS]" in result["dmn_error"]  # passou pela rede de PHI
+    assert "DmnEvaluationError" in result["dmn_error"]  # token de classe preservado
 
     assert recording, "start_process must still run on the human_review route"
     import json as _json
