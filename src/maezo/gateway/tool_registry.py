@@ -790,4 +790,5 @@ __all__ = [
     "effect_seams_gated",
     "gated_seam_violations",
     "is_gated_seam",
+    "whatsapp_adapter_for",
 ]

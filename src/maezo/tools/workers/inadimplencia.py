@@ -26,6 +26,7 @@ from maezo.tools.workers.base import (
 )
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import AUDIT_AGENT_ID, WorkerBpmnError, _resolve_app_version
+from maezo.tools.workers.phi_vars import redact_error_message
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -511,7 +512,10 @@ def _record_dossier_delegation_gap(token: str) -> None:
     try:
         record_worker_error(_DOSSIER_HANDLER_METRIC_NAME, "operadora.inadimplencia.prepare_dossier", token)
     except Exception as exc:  # observabilidade nunca derruba a tarefa (auth.py e o precedente)
-        logger.warning("inadimplencia_dossier_delegation_metric_failed", error=str(exc))
+        # D-F2 (superconjunto do pedido): redigido tambem aqui. A excecao vem do backend de
+        # metricas e nao deveria carregar PHI, mas `redact_error_message` e' de mao unica e nunca
+        # levanta, entao redigir e' gratuito e a regra fica UMA so' neste modulo.
+        logger.warning("inadimplencia_dossier_delegation_metric_failed", error=redact_error_message(exc))
 
 
 def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> TaskHandler:
@@ -613,7 +617,15 @@ def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> Tas
                 tenant_id=tenant_id,
                 numero_contrato=numero_contrato,
                 business_key=task.business_key,
-                error=str(exc),
+                # PHI (achado D-F2 do porteiro): `str(exc)` cru punha o texto da excecao no log
+                # do operador. Este handler roda a jusante de variaveis de caso COM PHI
+                # (`case_meta=dict(v)`), e as excecoes que ele apanha vem das camadas
+                # dispatcher/PG/engine, cujas mensagens rotineiramente ecoam o payload ofensor —
+                # um CPF/CNS num erro de driver cairia verbatim ali. `redact_error_message`
+                # (T3.4 F5) e' o MESMO backstop de mao unica, que nunca levanta, usado por
+                # `runtime/start_outcome.py` e `tools/workers/pagto.py`; preserva a CLASSE do
+                # erro para diagnostico.
+                error=redact_error_message(exc),
             )
             _record_dossier_delegation_gap(_GAP_START_FAILED)
             return _com_lacuna(_GAP_START_FAILED)
@@ -626,7 +638,7 @@ def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> Tas
                 tenant_id=tenant_id,
                 numero_contrato=numero_contrato,
                 business_key=task.business_key,
-                error=str(exc),
+                error=redact_error_message(exc),  # D-F2, mesma razao do sitio acima
             )
             _record_dossier_delegation_gap(_GAP_DELEGATION_FAILED)
             return _com_lacuna(_GAP_DELEGATION_FAILED)

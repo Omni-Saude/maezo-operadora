@@ -7,6 +7,7 @@ import asyncio
 from typing import Any
 
 import pytest
+import structlog.testing
 
 from maezo.a2a import DelegationResult, RejectionReason
 from maezo.gateway.audit_postgres import AuditPersistenceError, FreshSinkAuditEmitter
@@ -1545,6 +1546,49 @@ async def test_prepare_dossier_handler_falha_de_delegacao_nao_derruba_a_tarefa()
     assert result["arrears_followup_delegated"] is False
     assert result["arrears_followup_gap"] == "delegation_failed"
     assert "segredo" not in str(list(result.values()))
+
+
+async def test_prepare_dossier_handler_nao_vaza_phi_do_texto_da_excecao_no_log() -> None:
+    """D-F2: o texto CRU da excecao nunca chega ao log do operador.
+
+    Este handler roda a jusante de variaveis de caso COM PHI (`case_meta=dict(v)`) e as excecoes
+    que apanha vem das camadas dispatcher/PG/engine, cujas mensagens ecoam rotineiramente o payload
+    ofensor. Sem `redact_error_message`, um CPF vindo de um erro de driver de terceiro cairia
+    VERBATIM no registro estruturado. O teste cobre OS DOIS sitios novos de `except` (o largo e o
+    de `StartProcessFailedError`) e exige as tres coisas juntas: o registro existe (nao vacuo), o
+    CPF sumiu, e a CLASSE do erro sobreviveu (diagnostico do operador nao pode morrer junto).
+    """
+    cpf = "123.456.789-01"
+    cpf_nu = "12345678901"
+    casos = (
+        (
+            RuntimeError(f"driver: beneficiario cpf={cpf} ({cpf_nu}) nao encontrado"),
+            "inadimplencia_dossier_delegation_failed",
+            "RuntimeError",
+        ),
+        (
+            StartProcessFailedError(f"start recusado para cpf={cpf} ({cpf_nu})"),
+            "inadimplencia_dossier_delegation_start_failed",
+            "StartProcessFailedError",
+        ),
+    )
+
+    for exc, evento, classe in casos:
+        handler = make_prepare_dossier_handler(_FakeDossierDispatcher(exc=exc))
+        with structlog.testing.capture_logs() as logs:
+            result = await handler(_dossier_task(_INAD_DOSSIER_VARS))
+
+        registros = [entry for entry in logs if entry.get("event") == evento]
+        assert registros, f"o evento {evento} DEVE ser logado — nunca uma falha silenciosa"
+        (registro,) = registros
+        assert cpf not in registro["error"], f"{evento} vazou o CPF separado no log"
+        assert cpf_nu not in registro["error"], f"{evento} vazou o CPF nu no log"
+        assert "REDACTED_DIGITS" in registro["error"]
+        # A CLASSE do erro sobrevive: o operador ainda diagnostica O QUE falhou.
+        assert registro["error"].startswith(f"{classe}: ")
+        # E, do outro lado, o CPF tambem nao vai para as variaveis de engine (so' token de classe).
+        assert cpf not in str(list(result.values()))
+        assert cpf_nu not in str(list(result.values()))
 
 
 async def test_prepare_dossier_handler_start_failed_e_divulgado_com_token_proprio() -> None:
