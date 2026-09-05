@@ -274,10 +274,31 @@ workerDaemon:
 # Consome `operadora.notifications.internal` e inicia SP-OP-RECURSO-001 / SP-OP-ANS-SUBMIT-001
 # via mcp-cibseven.start_process (idempotente). Principal de SERVICO `notifications-bridge`
 # (allowlist minima: so start_process). NAO sobe app de health (liveness por processo).
+#
+# `replicaCount: 1` e' SINGLETON POR DESENHO, nao esquecimento (SC-04-b / R-024,
+# OWNER-DECISIONS-REGISTER, resposta_sugerida verbatim: "registrar replicaCount: 1 como
+# singleton por desenho ate SC-04-a, no comentario e numa chave explicita do values"). A chave
+# `singletonByDesignUntil` abaixo e' essa declaracao formal.
+#
+# ATUALIZACAO DE FATO (o codigo mudou depois que R-024 foi decidido): SC-04-a JA ATERRISSOU em
+# main — `events_kafka_producer.py` recusa `publish()` sem chave de particao por entidade a
+# menos que o chamador declare `unordered=True` (:73-81) e `notifications_bridge.py` tem DLQ
+# real (`BRIDGE_DLQ_REASONS`, :64-76,167-259) — os DOIS bloqueios TECNICOS que motivaram o `1`
+# original ja NAO existem mais. O que falta para subir `replicaCount` deixou de ser codigo: e'
+# OPERACIONAL — confirmar que o topico `operadora.notifications.internal` foi de fato criado com
+# mais de uma particao no broker de producao (o default do registry, `topic_registry.py:75`, e'
+# uma DECLARACAO do repo, nao um fato do broker medido) — ver docs/review-queue.md, secao "SC-04
+# — escala do notifications-bridge". So' remova a chave abaixo (e suba o numero) quando essa
+# confirmacao operacional entrar.
 # ---------------------------------------------------------------------------
 notificationsBridge:
   enabled: true
   replicaCount: 1
+  # SC-04-b / R-024: singleton por desenho ate a confirmacao operacional de particionamento
+  # descrita no comentario acima (docs/review-queue.md, secao SC-04). Ver
+  # tests/unit/deploy/test_notifications_bridge_singleton.py — falha se replicaCount > 1
+  # enquanto esta chave existir.
+  singletonByDesignUntil: "SC-04-a"
   resources:
     requests:
       cpu: "50m"
