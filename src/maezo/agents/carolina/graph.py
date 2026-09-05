@@ -151,6 +151,10 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.runtime.error_text import (
+    dmn_unavailable_error,
+    start_unavailable_error,
+)
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.start_outcome import (
@@ -218,6 +222,18 @@ DMN_CRED_ADMISSIBILITY = "cred_admissibility"
 DMN_CRED_ROUTE = "cred_route"
 DMN_CRED_PRIOR_NOTICE = "cred_prior_notice"
 DMN_CRED_SLA = "cred_sla"
+
+#: CAR-06 — token de classe FECHADO do unico `error` que `receive` escreve por conta propria.
+#: Era a frase livre `"contexto de runtime ausente (tenant_id/prestador_id)"`. Um campo de estado
+#: que aceita PROSA e' o mesmo campo em que os outros produtores desta familia (falha de start,
+#: DMN indisponivel) interpolavam `{exc}` cru (LUC-06/NEW-01): a invariante so' e' defensavel se
+#: o campo tiver um vocabulario, nao um estilo de redacao. O literal e' DELIBERADAMENTE identico
+#: ao de `agents/beatriz/graph.py::ERROR_CONTEXTO_RUNTIME_AUSENTE` — um alerta operacional so'
+#: consegue agregar a classe de falha se os agentes escreverem o MESMO token; a igualdade e'
+#: fixada por `tests/unit/agents/test_carolina.py::
+#: test_receive_writes_a_closed_class_token_into_error_never_free_prose`. Nao e' um import
+#: cruzado de proposito: um grafo de agente nao importa de outro (acoplamento entre agentes).
+ERROR_CONTEXTO_RUNTIME_AUSENTE = "contexto_runtime_ausente"
 
 
 logger = structlog.get_logger(__name__)
@@ -486,7 +502,7 @@ class CarolinaGraph:
                 "motivo_humano": "outro",
                 "grupo_humano": self._default_human_group(_direcao(state)),
                 "desfecho": "analise_humana",
-                "error": "contexto de runtime ausente (tenant_id/prestador_id)",
+                "error": ERROR_CONTEXTO_RUNTIME_AUSENTE,
             }
         return {**sanitized, "business_key": _business_key(state)}
 
@@ -698,7 +714,7 @@ class CarolinaGraph:
             # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
             # `start_failed`, que e o que `route_after_start` le para desviar a
             # `notify_start_failure` em vez de seguir calado para o terminal.
-            return start_failed_state(business_key=business_key, error=f"start_process indisponivel: {exc}")
+            return start_failed_state(business_key=business_key, error=start_unavailable_error(exc))
         return {
             "process_started": True,
             "business_key": business_key,
@@ -766,7 +782,7 @@ class CarolinaGraph:
             rows, version = await self._dmn.evaluate(table, dmn_input)
             row = first_row(rows, table, dmn_input)
         except (DmnEvaluationError, DmnNoResultError) as exc:
-            return {"error": f"DMN `{table}` indisponivel: {exc}"}
+            return {"error": dmn_unavailable_error(table, exc)}
         return {"row": row, "ref": f"{table}#{version.id}"}
 
     # -- Dossier assembly (ADR-0007 audit provenance; L1-hard structural guardrail) ------------

@@ -61,6 +61,7 @@ import structlog
 
 from maezo.platform import observability
 from maezo.platform.error_types import AGENT_ERROR_TYPE_OUTRO
+from maezo.runtime.error_text import redact_error_field
 from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.workers.phi_vars import redact_error_message
 
@@ -126,12 +127,21 @@ def start_failed_state(*, business_key: str, error: str) -> dict[str, Any]:
     Preserva EXATAMENTE as tres chaves que os nos ja devolviam (`process_started`,
     `business_key`, `error`) e acrescenta o marcador `start_failed`. E a UNICA fabrica do
     marcador — um grep por `start_failed=True` fora deste modulo e um desvio do padrao.
+
+    INVARIANTE DO CAMPO `error` (LUC-06/NEW-01): a celula NUNCA carrega o `str()` cru de uma
+    excecao — so' token de classe e texto ja' passado pela rede de identificadores. O call site
+    monta o texto com `runtime/error_text.py::start_unavailable_error` (proibicao fixada pela
+    cerca AST `tests/unit/agents/test_error_field_no_raw_exception.py`), e esta fabrica aplica
+    `redact_error_field` como SEGUNDA linha — porque ela e' a unica fabrica do marcador, e um
+    caminho futuro que escape da cerca ainda assim nao consegue persistir texto cru no
+    checkpoint. A operacao e' idempotente sobre a saida do construtor e deixa um token de classe
+    constante (`andre/graph.py::ERROR_START_PROCESS_ENGINE_UNAVAILABLE`) intacto.
     """
     return {
         "process_started": False,
         STATE_KEY_START_FAILED: True,
         "business_key": business_key,
-        "error": error,
+        "error": redact_error_field(error),
     }
 
 

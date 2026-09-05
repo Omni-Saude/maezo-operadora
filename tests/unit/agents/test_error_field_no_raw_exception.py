@@ -43,12 +43,12 @@ from __future__ import annotations
 
 import ast
 import json
-from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from maezo.agents.andre.graph import ERROR_START_PROCESS_ENGINE_UNAVAILABLE
 from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, DmnVersion
 from tests.support.audit_fakes import FakeStartAuditSink
@@ -218,6 +218,15 @@ def test_the_structural_fence_sees_every_sink_shape_cc10_was_blind_to() -> None:
 # =================================================================================================
 
 
+#: Agentes cujo `error` de falha de start e' um TOKEN DE CLASSE CONSTANTE, sem NENHUM texto da
+#: excecao — postura ainda MAIS estrita que a do helper `start_unavailable_error` (que preserva o
+#: nome da classe + o corpo redigido). Andre escolheu essa forma antes de LUC-06 existir e ela
+#: nao e' rebaixada aqui: o teste apenas troca o criterio "passou pela rede" pelo criterio mais
+#: forte "e' exatamente o literal declarado". Inventario FECHADO — um agente novo que apareca com
+#: um `error` sem o marcador de redacao e sem entrar nesta tabela reprova.
+_ERRO_TOKEN_CONSTANTE: dict[str, str] = {"andre": ERROR_START_PROCESS_ENGINE_UNAVAILABLE}
+
+
 class _VazandoStartTransport(FakeCibSevenTransport):
     """O engine recusa o start com uma mensagem que ecoa o identificador — a forma real do vazamento."""
 
@@ -266,6 +275,16 @@ async def test_start_failure_error_field_never_carries_the_exception_text(
     erro = str(saida.get("error") or "")
     assert erro, f"{agent_id}: o campo `error` ficou vazio — a degradacao tem de ser explicita"
     assert _CPF_SINTETICO not in _dump(saida), f"{agent_id}: CPF vazou no estado: {_dump(saida)}"
+
+    if agent_id in _ERRO_TOKEN_CONSTANTE:
+        # Postura ESTRITA (Andre): a celula e' um literal fechado — NADA da excecao entra, nem
+        # redigido. Fixar a IGUALDADE (e nao so' a ausencia do CPF) e' o que impede a degradacao
+        # silenciosa desse agente para prosa interpolada, que e' de onde LUC-06 veio.
+        assert erro == _ERRO_TOKEN_CONSTANTE[agent_id], (
+            f"{agent_id}: o token de classe constante mudou de forma: {erro!r}"
+        )
+        return
+
     assert _MARCADOR_REDACAO in erro, f"{agent_id}: `error` nao passou pela rede de PHI: {erro!r}"
     assert "CibSevenError" in erro, f"{agent_id}: o token de classe se perdeu: {erro!r}"
     assert "indisponivel" in erro, f"{agent_id}: o diagnostico se perdeu: {erro!r}"
@@ -393,8 +412,6 @@ async def test_lucas_inline_dmn_error_never_carries_the_exception_text() -> None
 # =================================================================================================
 # (D) O helper existe e e' UMA definicao (nunca N copias)
 # =================================================================================================
-
-_CONSTRUTORES: list[tuple[str, Callable[[], Awaitable[str] | str]]] = []
 
 
 def test_error_text_helpers_preserve_the_class_token_and_scrub_the_body() -> None:

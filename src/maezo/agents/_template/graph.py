@@ -67,6 +67,7 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.platform.keys import key_segment
+from maezo.runtime.error_text import start_unavailable_error
 from maezo.runtime.start_outcome import (
     DESFECHO_ERRO_INICIO_PROCESSO,
     route_after_start,
@@ -286,7 +287,7 @@ class TemplateGraph:
             # NAO engula: `start_failed_state` marca a falha (`start_failed=True`) e e' esse
             # marcador que `route_after_start` le para desviar a `notify_start_failure` (CC-01).
             return start_failed_state(
-                business_key=key, error=f"start de {self.PROCESS_KEY} indisponivel: {exc}"
+                business_key=key, error=start_unavailable_error(exc, process_key=self.PROCESS_KEY)
             )
         return {
             "process_started": True,

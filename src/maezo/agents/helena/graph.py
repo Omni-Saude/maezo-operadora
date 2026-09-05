@@ -100,6 +100,10 @@ from typing import Any, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.runtime.error_text import (
+    dmn_unavailable_error,
+    start_unavailable_error,
+)
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.start_outcome import notify_start_failure as emit_start_failure_notice
 from maezo.runtime.turn_telemetry import emit_turn_desfecho
@@ -834,7 +838,7 @@ class HelenaGraph:
                 # HEL-05 (feeder): a transport exception message is arbitrary text from another
                 # system, and this `error` survives into the NEXT turn's `[falha tecnica: ...]`
                 # suffix under the live checkpointed dispatch (T4b).
-                "error": f"start_process indisponivel: {redact_error_message(exc)}",
+                "error": start_unavailable_error(exc),
                 "response_text": response_text,
                 "response_kind": response_kind,
             }
@@ -983,7 +987,7 @@ class HelenaGraph:
             return {
                 "dmn_table": table,
                 "dmn_decision": {},
-                "error": f"DMN `{table}` indisponivel: {redact_error_message(exc)}",
+                "error": dmn_unavailable_error(table, exc),
             }
 
         # Provenance reference: `{table}#{decision-definition id}` — the engine's evaluate

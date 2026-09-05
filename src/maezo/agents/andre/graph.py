@@ -202,6 +202,7 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
+from maezo.runtime.error_text import dmn_unavailable_error
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.start_outcome import (
@@ -1261,7 +1262,7 @@ class AndreGraph:
             rows, version = await self._dmn.evaluate(table, dmn_input)
             row = first_row(rows, table, dmn_input)
         except (DmnEvaluationError, DmnNoResultError) as exc:
-            return {"error": f"DMN `{table}` indisponivel: {exc}"}
+            return {"error": dmn_unavailable_error(table, exc)}
         # See `rafael/graph.py::_evaluate_dmn` for why this cites the decision-definition id
         # (ADR-0028 §2) rather than a rule id the engine's evaluate response never returns.
         return {"row": row, "ref": f"{table}#{version.id}"}
