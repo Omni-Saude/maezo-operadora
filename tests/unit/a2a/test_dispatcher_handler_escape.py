@@ -885,20 +885,63 @@ def test_the_retryable_branch_writes_the_trace_before_it_re_raises() -> None:
     )
 
 
-def test_the_delegate_contract_docstrings_no_longer_claim_an_unconditional_no_raise() -> None:
-    """CC-04: os sete `delegate_*` afirmavam "never a raise out of the dispatcher" sem ressalva —
-    falso hoje (RAF-02) e falso antes desta correcao (NEW-B1). Toda ocorrencia da frase tem de
-    carregar a ressalva RAF-02 na MESMA docstring."""
-    offenders: list[str] = []
+#: Tokens que a REGRA REAL obriga toda docstring de contrato a carregar (comparados em minusculas).
+#: `RAF-02` sozinho NAO basta e era esse o buraco: ele so' prova que o autor lembrou do canal
+#: transitorio, nunca que a frase ficou VERDADEIRA. `_terminal_handler_error_classes` amarra o
+#: texto a fronteira real (por classe), e `nao classificado` obriga a admitir a outra metade —
+#: um bug de programacao do grafo tambem propaga, e ele nao tem nada de transitorio.
+_TOKENS_DA_REGRA_REAL: tuple[str, ...] = (
+    "raf-02",
+    "_terminal_handler_error_classes",
+    "nao classificado",
+)
+
+#: Frases que afirmam uma EXCLUSIVIDADE falsa ("a UNICA excecao que atravessa e' a transitoria").
+#: Sao a forma exata do achado F2 / CC-04: a docstring nega o runtime.
+_FRASES_DE_EXCLUSIVIDADE_FALSA: tuple[str, ...] = ("unica ressalva", "unica excecao")
+
+
+def test_the_delegate_contract_docstrings_state_the_real_propagation_rule() -> None:
+    """CERCA F2 (CC-04 / DOCSTRING-DENIES-RUNTIME). A cerca anterior pedia SO' o token `RAF-02` na
+    mesma docstring, e por isso ela passava verde sobre uma frase falsa: as oito docstrings de
+    contrato diziam que a UNICA excecao a atravessar `delegate()` era a TRANSITORIA, quando
+    `AttributeError`, `IndexError` e qualquer bug nao classificado do grafo atravessam tambem.
+
+    Agora a cerca exige os tokens da regra REAL e proibe a frase de exclusividade. Ela cobre as
+    sete `delegate_*` e o docstring de `DelegationResult`, que e' onde o contrato mora.
+    """
+    from maezo.a2a.dispatcher import DelegationResult as _DelegationResultContrato
+
+    docstrings: list[tuple[str, str]] = [
+        ("a2a/dispatcher.py::DelegationResult", _DelegationResultContrato.__doc__ or "")
+    ]
     for path in sorted(Path("src/maezo/agents").rglob("delegation.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
                 continue
             doc = ast.get_docstring(node) or ""
-            if "never a raise out of the dispatcher" in doc and "RAF-02" not in doc:
-                offenders.append(f"{path}::{node.name}")
-    assert not offenders, (
-        "docstring(s) afirmando um 'never a raise' incondicional que o canal retentavel RAF-02 "
-        f"torna falso: {offenders}"
+            if "never a raise out of the dispatcher" in doc:
+                docstrings.append((f"{path}::{node.name}", doc))
+
+    assert len(docstrings) == 8, (
+        "nao-vacuidade: esperado `DelegationResult` + as SETE `delegate_*` que prometem "
+        f"'never a raise out of the dispatcher', achei {len(docstrings)}: "
+        f"{[nome for nome, _ in docstrings]}"
+    )
+
+    faltando: list[str] = []
+    mentindo: list[str] = []
+    for nome, doc in docstrings:
+        baixo = doc.lower()
+        faltando += [f"{nome} -> falta `{token}`" for token in _TOKENS_DA_REGRA_REAL if token not in baixo]
+        mentindo += [f"{nome} -> diz {frase!r}" for frase in _FRASES_DE_EXCLUSIVIDADE_FALSA if frase in baixo]
+
+    assert not mentindo, (
+        "docstring(s) afirmando que a excecao TRANSITORIA e' a unica a atravessar `delegate()` — "
+        f"falso: um bug nao classificado do grafo atravessa tambem: {mentindo}"
+    )
+    assert not faltando, (
+        "docstring(s) de contrato que nao enunciam a regra REAL (fronteira por classe + o canal "
+        f"retentavel abrangendo o bug nao classificado): {faltando}"
     )
