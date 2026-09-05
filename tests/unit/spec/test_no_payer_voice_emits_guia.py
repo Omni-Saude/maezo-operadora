@@ -103,7 +103,12 @@ LIMITE DECLARADO (o que esta cerca NAO ve, e onde ela erra) — medido, nao esti
 `test_o_limite_declarado_da_cerca_esta_pinado` fixa a classe de FALSO NEGATIVO: verbo fora do
 conjunto enumerado (p.ex. "libera"/"disponibiliza"), sujeito pagador separado do verbo por `.`/`;`
 ou a mais de 80 caracteres, idioma alem de pt-BR/ingles, e qualquer afirmacao semantica que nao
-use a palavra "guia".
+use a palavra "guia" — mais a **CLASSE A**, que e' GERATIVA e nao uma lista de casos: o ator
+pagador vem de um LEXICO ENUMERADO (`_PAGADOR`), nao de uma ontologia, entao todo termo de pagador
+que a lista nao nomeia e' invisivel. "autogestao", "cooperativa medica" e "administradora de
+beneficios" sao os exemplos pinados; a resposta certa nao e' persegui-los um a um, e' saber que a
+lista E' a fronteira e amplia-la quando um termo passar a importar — foi o que se fez em H1 com
+"plano de saude", "seguradora" e "convenio".
 
 `test_os_falsos_positivos_conhecidos_estao_pinados` fixa a classe de FALSO POSITIVO que sobra,
 RE-MEDIDA apos as guardas de §Delta-2 G2: a negacao afastada do verbo ("a operadora nao e quem
@@ -114,6 +119,15 @@ lacuna seja fato verificavel e para que quem esbarrar nela saiba que e' conhecid
 licenciar reintroduzir o defeito. As tres construcoes que o verificador reportou como falso
 positivo NAO DECLARADO ("cada prestador", "o proprio prestador", "prestadores credenciados") NAO
 estao nesta lista porque deixaram de ser falso positivo: entraram nas formas PERMITIDAS.
+
+A esses soma-se a **CLASSE B**, tambem GERATIVA: o reconhecedor de sujeito-prestador e' de
+SUPERFICIE — casa uma FORMA de sintagma adjacente ao verbo, nao analisa a frase. Logo, toda
+construcao em que o prestador e' o sujeito real mas NAO esta adjacente ao verbo continua
+acusando: relativa com material interposto ("O prestador, QUE ATENDE PELA OPERADORA, emite a guia
+TISS") e sujeito pronominal ("A operadora informa ao prestador que ELE emite a guia"). As duas
+estao pinadas como VERMELHAS medidas. Fechar essa classe exigiria analise sintatica, nao mais
+regex; ate' la, quem escrever uma dessas frases num artefato varrido reformula ou trata o achado
+como conhecido — nunca alarga a cerca em silencio.
 
 Esta e' uma cerca LEXICAL: ela impede a REGRESSAO das formulacoes conhecidas, nao substitui
 revisao. Declarar e pinar o limite (nos dois sentidos) e' o mesmo formato que
@@ -140,7 +154,13 @@ def _frag(*partes: str) -> str:
 
 
 # --- vocabulario -----------------------------------------------------------------------------
-_PAGADOR = r"(?:operadoras?|processos?|payer|health\s+plan|SP-OP-[A-Za-z]+-\d{3})"
+# Lexico ENUMERADO do ator pagador. E' uma lista, nao uma ontologia — ver LIMITE DECLARADO
+# (classe A): um termo de pagador fora desta lista e' invisivel para a cerca.
+_PAGADOR = (
+    r"(?:operadoras?|processos?|payer|health\s+plan"
+    r"|planos?\s+de\s+sa[uú]de|seguradoras?|conv[eê]nios?"
+    r"|SP-OP-[A-Za-z]+-\d{3})\b"
+)
 _EMITIR = r"emit(?:e|em|es|ir|ida|idas|ido|idos|indo|iu|iram|ir[aá]|ir[aã]o)"
 _SINONIMO = r"(?:ger(?:a|am|ar|ada|adas|ando)|exped(?:e|em|ir|ida|idas|indo)|produz(?:em|ir)?)"
 _PARTICIPIO = r"(?:emitid|expedid|gerad)(?:a|as|o|os)"
@@ -648,6 +668,24 @@ def test_as_tres_regressoes_g1_do_gatekeeper_ficam_vermelhas() -> None:
     assert perdidas == [], f"falsos negativos (regressao G1): {perdidas}"
 
 
+# H1: termos de pagador em pt-BR que o lexico nao tinha. NOTA: "plano de saude" ocorre no proprio
+# SYSTEM_PROMPT de Rafael ("...para um plano de saude brasileiro"), numa frase de voz CORRETA — a
+# arvore real segue com 0 achados em 501 arquivos rastreados depois desta ampliacao.
+_SENTENCAS_H1_QUE_DEVEM_ACUSAR: tuple[tuple[str, str], ...] = (
+    ("H1a-plano-de-saude", _frag("O ", "plano de saude ", "emite ", "a ", "guia", " TISS.")),
+    ("H1b-seguradora", _frag("A ", "seguradora ", "emite ", "a ", "guia", " TISS.")),
+    ("H1c-convenio", _frag("O ", "convenio ", "emite ", "a ", "guia", " TISS.")),
+    ("H1d-plural", _frag("Os ", "planos de saude ", "emitem ", "as ", "guias", " TISS.")),
+    ("H1e-passiva", _frag("A ", "guia", " TISS e ", "emitida ", "pela ", "seguradora", ".")),
+)
+
+
+def test_os_termos_de_pagador_em_ptbr_ficam_vermelhos() -> None:
+    """H1: plano de saude / seguradora / convenio sao o mesmo ator pagador que "operadora"."""
+    perdidas = [nome for nome, frase in _SENTENCAS_H1_QUE_DEVEM_ACUSAR if not _hits_no_texto(frase)]
+    assert perdidas == [], f"falsos negativos (lexico de pagador): {perdidas}"
+
+
 def test_as_dez_frases_construidas_pelo_gatekeeper_ficam_vermelhas() -> None:
     """F4/D1: as 10 frases VERBATIM do verificador tem de acusar — todas as 10."""
     perdidas = [nome for nome, frase in _SENTENCAS_QUE_DEVEM_ACUSAR if not _hits_no_texto(frase)]
@@ -682,6 +720,12 @@ def test_o_limite_declarado_da_cerca_esta_pinado() -> None:
         _frag("A ", "operadora ", "e o elo final. ", "Emite ", "a ", "guia", " TISS."),
         _frag("A ", "operadora ", "emite ", "o documento de cobranca do prestador", "."),
         _frag("La ", "aseguradora ", "emite ", "la ", "guia", " TISS."),
+        # CLASSE A (generativa): termo de pagador FORA do lexico enumerado `_PAGADOR`. Nao ha
+        # ontologia de pagador aqui, so' uma lista; toda modalidade da ANS que ela nao nomeia e'
+        # invisivel — por construcao, nao por acidente.
+        _frag("A ", "autogestao ", "emite ", "a ", "guia", " TISS."),
+        _frag("A ", "cooperativa medica ", "emite ", "a ", "guia", " TISS."),
+        _frag("A ", "administradora de beneficios ", "emite ", "a ", "guia", " TISS."),
     )
     for frase in residual:
         assert _hits_no_texto(frase, "residual") == [], (
@@ -701,6 +745,17 @@ def test_os_falsos_positivos_conhecidos_estao_pinados() -> None:
         (
             "objeto emitido fora da lista enumerada",
             "O laudo e emitido pela operadora junto com a guia TISS.",
+        ),
+        # CLASSE B (generativa): o reconhecedor de sujeito-prestador e' de SUPERFICIE — casa uma
+        # FORMA de sintagma adjacente ao verbo, nao analisa a frase. Dai as duas construcoes
+        # abaixo, em que o prestador E' o sujeito real mas nao esta junto ao verbo.
+        (
+            "relativa com material interposto",
+            "O prestador, que atende pela operadora, emite a guia TISS.",
+        ),
+        (
+            "sujeito pronominal retomando o prestador",
+            "A operadora informa ao prestador que ele emite a guia.",
         ),
     )
     for rotulo, frase in conhecidos:

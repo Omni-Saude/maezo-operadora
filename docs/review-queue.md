@@ -1872,3 +1872,39 @@ append-only). Origem: `VERIFY-PERSP-AUTH-VOICE` §Delta-2 (REVISE — 2 achados)
    sem a palavra "guia". E4/E5/E6 sairam dessa lista porque passaram a ser detectados.
 
 Nada aqui e' ratificacao de SME.
+
+## Correcao 4 (INFO) — PERSP-AUTH-VOICE, 2026-09-05 (reparo do veredito §Delta-3, H1-H2; secao NOVA, ultima)
+
+Esta secao CORRIGE e COMPLETA as quatro secoes `PERSP-AUTH-VOICE` acima, que ficam intactas
+(arquivo append-only). Origem: `VERIFY-PERSP-AUTH-VOICE` §Delta-3 (REVISE — 2 achados).
+
+1. **H1 — o lexico de ator pagador nao tinha os termos pt-BR mais comuns.** `_PAGADOR` conhecia
+   `operadora`, `processo`, `payer`, `health plan` e `SP-OP-<CHAVE>-<NNN>`, entao "O plano de saude
+   emite a guia TISS" e "A seguradora emite a guia TISS" passavam. Acrescentados `plano(s) de
+   saude`, `seguradora(s)` e `convenio(s)`, sem remover nada. VERIFICADO: "plano de saude" ocorre
+   dentro do proprio SYSTEM_PROMPT de Rafael, numa frase de voz CORRETA — a arvore real segue com
+   **0 achados sobre 501 arquivos rastreados** depois da ampliacao.
+
+2. **H2 — o LIMITE DECLARADO passou a nomear DUAS classes GENERATIVAS, com a razao estrutural, em
+   vez de so' enumerar frases.** CLASSE A (falso negativo): o ator pagador vem de um LEXICO
+   ENUMERADO, nao de uma ontologia — "autogestao", "cooperativa medica" e "administradora de
+   beneficios" sao invisiveis, e estao pinados verdes; a resposta a essa classe e' ampliar a lista
+   quando um termo importar, nao perseguir frases. CLASSE B (falso positivo): o reconhecedor de
+   sujeito-prestador e' de SUPERFICIE, entao o prestador-sujeito nao adjacente ao verbo continua
+   acusando — "O prestador, que atende pela operadora, emite a guia TISS" (relativa com material
+   interposto) e "A operadora informa ao prestador que ele emite a guia" (sujeito pronominal),
+   ambos pinados VERMELHOS medidos. Fechar a classe B exigiria analise sintatica, nao regex.
+
+3. **Correcao de uma descricao de mutacao da rodada 3.** Onde a secao anterior diz que "MUT-J
+   (estreitar a guarda de prestador de volta a `o`/`os`)" quebra o teste, leia-se: reduzir SO' a
+   lista de determinantes, mantendo o grupo OPCIONAL, **nao quebra nada** (14 passed) — um grupo
+   opcional apenas deixa de participar do casamento. O que e' load-bearing, medido isoladamente:
+   tornar o grupo de determinante OBRIGATORIO quebra citando E3, e remover o grupo de ADJETIVO
+   tambem quebra citando E3; as duas coisas juntas (o que a rodada 3 de fato rodou) quebram
+   citando E1 e E3. Os MEMBROS especificos da lista de determinantes nao sao exercidos por nenhum
+   caso atual.
+
+4. **Contagens.** Onde as secoes acima dizem "13 provas" e "10597", leia-se **14 provas** e
+   **10598**.
+
+Nada aqui e' ratificacao de SME.
