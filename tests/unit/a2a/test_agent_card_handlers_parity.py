@@ -157,21 +157,72 @@ def _string_constants(value: ast.expr | None) -> set[str]:
     return {e.value for e in elements if isinstance(e, ast.Constant) and isinstance(e.value, str)}
 
 
-def _registered_agents() -> frozenset[str]:
-    """Agent ids appearing as keys of a `handlers={...}` keyword in the composition root."""
-    tree = ast.parse(_COMPOSITION_ROOT.read_text(encoding="utf-8"))
+def _handler_keys_from_literal(value: ast.expr) -> frozenset[str]:
+    """String keys of a STATICALLY-RESOLVABLE `handlers=` value — fail CLOSED on anything else
+    (WP A2A-YAML-DISCLOSURE, NEW-B4: the original version silently dropped a `**` spread key
+    instead of raising, which under-reports a live registration — the dangerous direction for a
+    security-relevant parity fact).
+
+    Accepts exactly the two shapes this composition root uses today: a dict literal with
+    string-constant keys (`{"x": handler}`), and a `dict(...)` call built from keyword arguments
+    (`dict(x=handler)`) or a single dict-literal positional argument (`dict({"x": handler})`). A
+    `**` spread, a dict comprehension, a bare name reference to a dict assembled elsewhere, or any
+    non-string-constant key is NOT resolvable from this file alone and raises `AssertionError`
+    rather than guessing.
+    """
+    if isinstance(value, ast.Dict):
+        keys: set[str] = set()
+        for key in value.keys:
+            if key is None:
+                raise AssertionError(
+                    "handlers={...} contains a `**` spread entry — not a statically-resolvable "
+                    'literal; use a plain {"agent": handler, ...} dict literal'
+                )
+            if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+                raise AssertionError(
+                    f"handlers={{...}} has a non-string-constant key ({ast.dump(key)}) — not a "
+                    "statically-resolvable literal"
+                )
+            keys.add(key.value)
+        return frozenset(keys)
+    if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id == "dict":
+        keys = set()
+        if value.args:
+            if len(value.args) == 1 and isinstance(value.args[0], ast.Dict):
+                keys |= _handler_keys_from_literal(value.args[0])
+            else:
+                raise AssertionError(
+                    "dict(...) with positional argument(s) other than a single dict literal is "
+                    "not a statically-resolvable literal"
+                )
+        for keyword in value.keywords:
+            if keyword.arg is None:
+                raise AssertionError(
+                    "dict(...) contains a `**` spread keyword argument — not a statically-resolvable literal"
+                )
+            keys.add(keyword.arg)
+        return frozenset(keys)
+    raise AssertionError(
+        f"handlers=... is a {type(value).__name__}, not a dict literal or a dict(...) call — not "
+        "a statically-resolvable literal (a name reference, comprehension, or function call "
+        "cannot be proven correct by reading this file alone; use a literal, or resolve it "
+        "explicitly here)"
+    )
+
+
+def _registered_agents(source: str | None = None) -> frozenset[str]:
+    """Agent ids appearing as keys of a `handlers={...}` keyword anywhere in `source` (defaults
+    to the real composition root's file contents)."""
+    text = source if source is not None else _COMPOSITION_ROOT.read_text(encoding="utf-8")
+    tree = ast.parse(text)
     registered: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         for keyword in node.keywords:
-            if keyword.arg != "handlers" or not isinstance(keyword.value, ast.Dict):
+            if keyword.arg != "handlers":
                 continue
-            registered |= {
-                key.value
-                for key in keyword.value.keys
-                if isinstance(key, ast.Constant) and isinstance(key.value, str)
-            }
+            registered |= _handler_keys_from_literal(keyword.value)
     return frozenset(registered)
 
 
@@ -316,16 +367,12 @@ def test_the_handlers_not_registered_in_the_composition_root_are_the_documented_
 # (WP A2A-YAML-DISCLOSURE, CC-02 residual / NEW-B2 / NEW-B3 / NEW-B4)
 # =================================================================================================
 
-_HANDLER_STATUS_VALUES: Final[frozenset[str]] = frozenset(
-    {"registrado", "pronto_sem_registro", "ausente"}
-)
+_HANDLER_STATUS_VALUES: Final[frozenset[str]] = frozenset({"registrado", "pronto_sem_registro", "ausente"})
 
 
 def _agent_ids() -> frozenset[str]:
     """Every non-template agent id under `spec/agents/` (directory name == its `id:`)."""
-    return frozenset(
-        p.parent.name for p in _SPEC_AGENTS.glob("*/agent.yaml") if p.parent.name != "_template"
-    )
+    return frozenset(p.parent.name for p in _SPEC_AGENTS.glob("*/agent.yaml") if p.parent.name != "_template")
 
 
 def _declared_handler_disclosure() -> dict[str, tuple[Any, Any]]:
@@ -333,9 +380,7 @@ def _declared_handler_disclosure() -> dict[str, tuple[Any, Any]]:
     (no defaulting — an absent key comes back `None`, which is itself a fact this fence checks)."""
     declared: dict[str, tuple[Any, Any]] = {}
     for agent_id in _agent_ids():
-        definition: Any = yaml.safe_load(
-            (_SPEC_AGENTS / agent_id / "agent.yaml").read_text(encoding="utf-8")
-        )
+        definition: Any = yaml.safe_load((_SPEC_AGENTS / agent_id / "agent.yaml").read_text(encoding="utf-8"))
         a2a = (definition or {}).get("a2a") or {}
         declared[agent_id] = (a2a.get("handler_status"), a2a.get("handler_symbol"))
     return declared
@@ -407,8 +452,7 @@ def test_declared_handler_symbol_matches_when_a_handler_exists(agent_id: str) ->
         return
     expected_symbol = f"maezo.agents.{agent_id}.delegation::make_{agent_id}_handler"
     assert symbol == expected_symbol, (
-        f"spec/agents/{agent_id}/agent.yaml a2a.handler_symbol should be {expected_symbol!r}, "
-        f"got {symbol!r}"
+        f"spec/agents/{agent_id}/agent.yaml a2a.handler_symbol should be {expected_symbol!r}, got {symbol!r}"
     )
 
 
