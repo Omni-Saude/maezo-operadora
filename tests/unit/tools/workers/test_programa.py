@@ -3,6 +3,9 @@
 TDD London School: tests verify the consent chokepoint and clinical discharge guard.
 """
 
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
 import pytest
 import structlog.testing
 
@@ -869,3 +872,86 @@ def test_register_programa_workers_accepts_kafka_none() -> None:
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_programa_workers(harness)
     assert len(harness.registered_topics) == 7
+
+
+# ---------------------------------------------------------------
+# REPARO §Delta F1/F2 (FAB-PUBLISH-CONTACT) — o evento de desfecho de SP-OP-PROGRAMA-001
+# passa a carregar os tokens de lacuna, como ja acontecia em SP-OP-FRAUDE-001 (NEW-05).
+# ---------------------------------------------------------------
+
+
+_PROGRAMA_BPMN = (
+    Path(__file__).resolve().parents[4]
+    / "spec"
+    / "processes"
+    / "bpmn"
+    / "SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn"
+)
+_CAMUNDA_NS = "{http://camunda.org/schema/1.0/bpmn}"
+
+
+def test_programa_completion_event_carrega_os_tokens_de_lacuna() -> None:
+    """§Delta F1/F2: `agents.events.programa.completed` leva `contato_gap` e `enrollment_gap`.
+
+    Irmao exato de `test_fraude.py::test_fraude_completion_events_carregam_os_tokens_de_lacuna`
+    (NEW-05), que a WP aplicou as SEIS tasks de desfecho de SP-OP-FRAUDE-001 e NAO a esta. Os dois
+    tokens viviam SO no escopo da instancia: quem consumia `programa.completed` lia
+    `desfecho=enrollment_realizado` sem sinal algum de que ninguem foi contatado
+    (`contato_gap`, NEW-A2-2) e de que nenhum plano de cuidado foi montado (`enrollment_gap`,
+    ENROLL-BENEFICIARIO-SEM-EFEITO-REAL) — verbatim o defeito que o mesmo commit corrigiu para
+    fraude.
+
+    Escopo: `ST_BuildCarePlan` e `ST_ProactiveContact` vivem em `SUB_Cuidado`, e o UNICO
+    predecessor de `ST_PublishCompleted` e `SUB_Cuidado` (grafo do proprio BPMN, checado abaixo) —
+    o subprocesso completa normalmente PARA esta task, entao a variavel esta em escopo quando ela
+    inicia.
+
+    Composicao continua sendo do BPMN (`event_payload_vars`), nunca do worker (C3), e `events.py`
+    so copia a variavel `if var_name in task.variables` — ao ligar o canal real de contato / a
+    delegacao `care.enroll`, a chave some do payload sozinha e "ausencia = ocorreu de verdade"
+    segue valendo.
+    """
+    tree = ET.parse(_PROGRAMA_BPMN)
+    root = tree.getroot()
+
+    alvo = None
+    for task in root.iter():
+        if not task.tag.endswith("serviceTask"):
+            continue
+        if task.get("id") != "ST_PublishCompleted":
+            continue
+        alvo = task
+        break
+
+    assert alvo is not None, (
+        "ST_PublishCompleted nao existe mais em SP-OP-PROGRAMA-001 — o parse quebrou ou a task "
+        "de publicacao de desfecho foi renomeada (nao-vacuidade)"
+    )
+
+    params = {el.get("name"): (el.text or "") for el in alvo.iter(f"{_CAMUNDA_NS}inputParameter")}
+    assert params.get("event_topic") == "agents.events.programa.completed", (
+        f"ST_PublishCompleted deixou de publicar o topico de desfecho: {params.get('event_topic')!r}"
+    )
+    assert "event_desfecho" in params, (
+        "ST_PublishCompleted perdeu o `event_desfecho` — este teste pina a task de DESFECHO"
+    )
+
+    payload_vars = {v.strip() for v in params.get("event_payload_vars", "").split(",") if v.strip()}
+    assert payload_vars, "event_payload_vars vazio — o parse quebrou (nao-vacuidade)"
+
+    faltando = {"contato_gap", "enrollment_gap"} - payload_vars
+    assert faltando == set(), (
+        "o evento `agents.events.programa.completed` nao carrega os tokens de lacuna "
+        f"{sorted(faltando)} — quem consome o desfecho volta a ler `enrollment_realizado` sem "
+        "saber que ninguem foi contatado nem que plano algum foi montado"
+    )
+
+    # O unico predecessor de ST_PublishCompleted e o subprocesso que hospeda os dois emissores:
+    # e por isso que as variaveis estao em escopo aqui (e nao por suposicao).
+    bpmn_ns = "{http://www.omg.org/spec/BPMN/20100524/MODEL}"
+    preds = [
+        flow.get("sourceRef")
+        for flow in root.iter(f"{bpmn_ns}sequenceFlow")
+        if flow.get("targetRef") == "ST_PublishCompleted"
+    ]
+    assert preds == ["SUB_Cuidado"], f"predecessores de ST_PublishCompleted mudaram: {preds}"

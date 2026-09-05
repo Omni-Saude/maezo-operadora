@@ -78,8 +78,26 @@ GAP_ENROLL_A2A_NAO_LIGADO = "enroll_a2a_nao_ligado"
 #: Mesma forma e mesma disciplina de `fraude.GAP_BEATRIZ_A2A_NAO_LIGADO`/
 #: `fraude.GAP_REFERRAL_JURIDICO_NAO_LIGADO` e de `GAP_ENROLL_A2A_NAO_LIGADO` acima: token fechado,
 #: sem PHI, declarado no contrato (`docs/processes/contracts/SP-OP-PROGRAMA-001.md`, secao
-#: "Variaveis de saida") e por isso seguro para viver no escopo do processo, entrar na trilha
-#: ADR-0007 e ser lido pelo humano em `UT_DecisaoClinica`. Quando o canal real for ligado, o token
+#: "Variaveis de saida") e por isso seguro para viver no escopo do processo.
+#:
+#: QUEM LE ESTE TOKEN, HOJE, EXATAMENTE (reparo §Delta F1 — a redacao anterior desta nota afirmava
+#: que ele entra "na trilha ADR-0007" e e "lido pelo humano em `UT_DecisaoClinica`"; as duas coisas
+#: sao FALSAS e sao a mesma especie de afirmacao-sem-lastro que esta WP existe para remover):
+#:   1. O ESCOPO DO PROCESSO. `harness._handle` chama `complete(task_id, worker_id, dict(out_vars))`
+#:      SEM filtro algum, entao o token vira variavel da instancia (visivel em Cockpit/history).
+#:   2. A LINHA ESTRUTURADA DE LOG `programa_proactive_contact_gap` (`warning`, com
+#:      `contato_asserted=False` e `gap=<token>`), emitida por `proactive_contact` antes do retorno.
+#:   3. O PAYLOAD DE `agents.events.programa.completed`, desde este reparo: `contato_gap` (e
+#:      `enrollment_gap`) entraram no `event_payload_vars` de `ST_PublishCompleted`.
+#: NAO ha humano lendo o token dentro do processo: `ST_ProactiveContact` e alcancada apenas pela
+#: saida ELEGIVEL de `GW_Elegibilidade` e seu UNICO sucessor e `End_EnrollmentRealizado` —
+#: `UT_DecisaoClinica` vive no ramo ANALISE_HUMANA/SLA e NAO e alcancavel a partir desta task.
+#: E o token NAO entra na trilha ADR-0007: `harness.build_decision_basis` admite de `out_vars`
+#: somente as chaves de `_SAFE_DECISION_BASIS_KEYS` (nenhuma chave `*_gap` esta la) e a decisao
+#: deliberada deste reparo foi NAO adiciona-lo — ampliar a superficie de auditoria pede
+#: justificativa propria, nao um atalho para tornar verdadeira uma frase de docstring.
+#:
+#: Quando o canal real for ligado, o token
 #: deixa de ser emitido — ausencia passa a significar "contato real ocorreu".
 GAP_CONTATO_BENEFICIARIO_NAO_LIGADO = "contato_beneficiario_nao_ligado"
 
@@ -462,8 +480,22 @@ def proactive_contact(variables: dict[str, Any]) -> dict[str, Any]:
     `comunicacao_beneficiario` sao as superficies WhatsApp dos agentes. Logo ha lacuna REAL a
     declarar, e ela sai como `contato_gap`, exatamente o tratamento de
     `evidencia_gap`/`dossie_gap`/`referral_gap` (BEA-09, FAB-REFER-TO-LEGAL) e de
-    `enrollment_gap` (ENROLL-BENEFICIARIO-SEM-EFEITO-REAL), para que a instancia, a trilha
-    ADR-0007 e o humano de `UT_DecisaoClinica` vejam a lacuna em vez de um fato fabricado.
+    `enrollment_gap` (ENROLL-BENEFICIARIO-SEM-EFEITO-REAL).
+
+    QUEM LE O TOKEN — os TRES leitores REAIS, e so eles (reparo §Delta F1; a redacao anterior
+    prometia "a instancia, a trilha ADR-0007 e o humano de `UT_DecisaoClinica`", e dois desses
+    tres nao existem): (1) o ESCOPO DO PROCESSO, porque `harness._handle` completa a task com
+    `dict(out_vars)` sem filtro; (2) a linha estruturada `programa_proactive_contact_gap`
+    (`warning`, `contato_asserted=False`) logo abaixo; (3) o PAYLOAD de
+    `agents.events.programa.completed`, desde este reparo — `contato_gap` e `enrollment_gap`
+    entraram no `event_payload_vars` de `ST_PublishCompleted`, unica task a jusante de
+    `SUB_Cuidado`, que e onde os dois emissores vivem.
+    NENHUM humano le o token dentro do processo neste ramo: `ST_ProactiveContact` so e alcancada
+    pela saida ELEGIVEL de `GW_Elegibilidade` e seu UNICO sucessor e `End_EnrollmentRealizado`;
+    `UT_DecisaoClinica` esta no ramo ANALISE_HUMANA/SLA, inalcancavel daqui.
+    E o token NAO entra no `decision_basis` do ADR-0007: `build_decision_basis` admite de
+    `out_vars` apenas as chaves de `_SAFE_DECISION_BASIS_KEYS`, que nao tem chave `*_gap` — e
+    este reparo deliberadamente NAO a acrescenta ali.
 
     O GUARD SEGUE INTACTO E FAIL-CLOSED (corpo byte-identico ao anterior). Espelha o padrao EXATO
     de `stratify_risk` — mesmo invariante (consentimento para `consent_scope`), mesmo codigo
