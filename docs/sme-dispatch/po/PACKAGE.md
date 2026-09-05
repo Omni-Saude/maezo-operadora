@@ -163,3 +163,16 @@ not a generic "please review."
 Record your verdict in `docs/processes/contracts/signoffs/<CONTRACT-ID>.signoff.yaml` per
 `../README.md` §"Signoff artifact spec". This package does not create, pre-fill, or infer any
 signoff file.
+
+## Taxonomia organizacional — sessão única (ROW R-034)
+
+O `candidateGroups` "confirm" ask repetido em quase todo item acima (`gestao-rede`,
+`auditoria-contas`, `medico-auditor`, `plantao-clinico`/`enfermagem-triagem` de
+SP-OP-ESCALATION-001 etc.) é a mesma pergunta de organograma feita processo a processo. A resposta
+aprovada de R-034 (`OWNER-DECISIONS-REGISTER`, APROVADO-APOS-REVISAO-HUMANA) consolida essa
+pergunta numa única sessão de taxonomia cobrindo os 8 processos do escopo do dono (ESCALATION,
+CANCEL, ADEQUACAO, CRED, NIP, PROGRAMA, AUTH, ANS-SUBMIT): a tabela preparatória
+`ORG-TAXONOMY-TABLE.md` (e sua contraparte `org-taxonomy-table.yaml`) neste mesmo diretório lista
+todo `grupo declarado → arquivo:linha → processo → User Task/regra DMN → SLA/ato → PROPOSTO?`,
+com o campo `nome_real` vazio para o dono preencher numa sentada. Isto não substitui os asks
+individuais acima — é o insumo consolidado para respondê-los todos de uma vez.
