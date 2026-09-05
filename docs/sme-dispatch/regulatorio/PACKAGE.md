@@ -346,3 +346,15 @@ rotulos `PROPOSTO`** que a sessao remove. Cada linha esta marcada `PROPOSTO` e *
 mergeavel em `spec/` como decisao**; a sessao produz os dois `signoff.yaml` e remove os rotulos.
 Ver tambem `../medico-auditor/AUTH-CRITERIA-RATIFICATION-DOSSIER.md`, cuja sessao (R-163) tem o
 mesmo teto de 2026-09-19 e inclui juridico/regulatorio.
+## Aditamento 2026-09-04 — matriz de currency de RN preparada para a sessão única (R-171)
+
+`R-171` (rodada 5 de fechamento de gaps) aprovou ratificar `docs/compliance/rn-currency-review.md`
+como artefato único numa sessão datada de regulatório + jurídico, em vez de repetir a pergunta "esta
+RN ainda é a vigente?" contrato a contrato (~12 linhas do registro dobradas: R-214, R-234, R-238,
+R-242, R-251, R-255, R-257, R-258, R-262, R-268, R-274, R-281 — a maioria com regulatório como
+co-decisor, e R-214/R-257 com regulatório como único decisor). A matriz de preparação que `R-171`
+pede antes da sessão está em `./RN-CURRENCY-MATRIX.md` (uma linha por citação normativa ×
+arquivo:linha, com o veredito do analista já preenchido e a coluna de veredito humano vazia para a
+sessão assinar) e em `./rn-currency-matrix.yaml` (mesmas linhas, machine-readable). Nenhum item das
+perguntas de RN-currency listadas acima neste pacote é respondido por este aditamento — ele apenas
+organiza a superfície de decisão para a sessão conjunta.

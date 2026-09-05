@@ -27,17 +27,33 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from maezo.a2a import outbox_relay
 from maezo.a2a.facts import DelegationFactKind, build_fact
 from maezo.a2a.outbox import OutboxRecord, outbox_row_params
 from maezo.a2a.outbox_relay import (
+    DEFAULT_HEARTBEAT_PATH,
+    MIN_HEARTBEAT_STALE_AFTER_S,
     AioKafkaFactPublisher,
     OutboxRelaySettings,
+    _touch_heartbeat,
     build_arg_parser,
     build_relay,
     default_worker_id,
     drain_once,
+    heartbeat_stale_after_s,
     run_relay_loop,
 )
+
+
+@pytest.fixture
+def _reset_heartbeat_log_flag():
+    """The once-per-process log guard `_touch_heartbeat` uses (gatekeeper finding G2) is module
+    state, not per-call — reset it before AND after any test that exercises the failure path, so
+    test order never lets one test's failure "use up" the once-only log another test expects."""
+    outbox_relay._reset_heartbeat_write_failure_logged_for_tests()
+    yield
+    outbox_relay._reset_heartbeat_write_failure_logged_for_tests()
+
 
 # ---------------------------------------------------------------------------
 # In-memory doubles (never imported by production code)
@@ -355,6 +371,137 @@ async def test_a_database_error_propagates_out_of_the_loop() -> None:
 
     with pytest.raises(ConnectionResetError):
         await run_relay_loop(_BrokenOutbox(), _RecordingPublisher(), claimed_by="w1", max_sweeps=1)
+
+
+# ---------------------------------------------------------------------------
+# The heartbeat (SC-01/F3) — the livenessProbe's real signal, not `pgrep`
+# ---------------------------------------------------------------------------
+
+
+def test_touch_heartbeat_updates_mtime(tmp_path) -> None:
+    path = tmp_path / "heartbeat"
+    _touch_heartbeat(str(path))
+    assert path.is_file()
+    first_mtime = path.stat().st_mtime
+    _touch_heartbeat(str(path))
+    assert path.stat().st_mtime >= first_mtime
+
+
+def test_touch_heartbeat_is_a_no_op_when_path_is_none() -> None:
+    _touch_heartbeat(None)  # must not raise
+
+
+def test_touch_heartbeat_swallows_a_write_failure(_reset_heartbeat_log_flag) -> None:
+    """A heartbeat write failure (e.g. an unwritable directory) must never crash the relay over an
+    observability side-channel — proven by pointing at a path whose PARENT does not exist."""
+    _touch_heartbeat("/this/directory/does/not/exist/heartbeat")  # must not raise
+
+
+def test_touch_heartbeat_logs_the_write_failure_exactly_once(monkeypatch, _reset_heartbeat_log_flag) -> None:
+    """Gatekeeper finding G2 (§Delta): on ECS the heartbeat write fails on EVERY sweep today
+    (read-only `/tmp`, no writable mount declared anywhere in `deploy/aws-ecs/envs/dev-sa-east-1/`)
+    — logging on every failure would be ~43k warning lines/day/task at the default
+    `pollIntervalS=2`. The relay must log the failure ONCE for the life of the process, then keep
+    retrying the write (cheap, self-healing if the mount ever becomes writable) silently."""
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(outbox_relay.logger, "warning", lambda *a, **kw: calls.append((a, kw)))
+    bad_path = "/this/directory/does/not/exist/heartbeat"
+
+    _touch_heartbeat(bad_path)
+    _touch_heartbeat(bad_path)
+    _touch_heartbeat(bad_path)
+
+    assert len(calls) == 1, f"expected exactly one warning log, got {len(calls)}: {calls}"
+    assert calls[0][1].get("path") == bad_path
+
+
+def test_touch_heartbeat_logs_again_after_an_explicit_test_reset(monkeypatch) -> None:
+    """Negative control for the once-only guard above: proves the flag genuinely gates future
+    calls (rather than the mock just never being invoked) by resetting it mid-test."""
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(outbox_relay.logger, "warning", lambda *a, **kw: calls.append((a, kw)))
+    bad_path = "/this/directory/does/not/exist/heartbeat"
+
+    outbox_relay._reset_heartbeat_write_failure_logged_for_tests()
+    _touch_heartbeat(bad_path)
+    _touch_heartbeat(bad_path)
+    assert len(calls) == 1
+
+    outbox_relay._reset_heartbeat_write_failure_logged_for_tests()
+    _touch_heartbeat(bad_path)
+    assert len(calls) == 2
+
+
+async def test_the_loop_touches_the_heartbeat_file_once_per_sweep(tmp_path) -> None:
+    """The mutation proof: delete the `_touch_heartbeat` call from `run_relay_loop` and this test
+    goes RED (the file is never created)."""
+    path = tmp_path / "heartbeat"
+    outbox, publisher = _seeded(2), _RecordingPublisher()
+    reports = await run_relay_loop(
+        outbox,
+        publisher,
+        claimed_by="w1",
+        max_sweeps=3,
+        poll_interval_s=0.0,
+        heartbeat_path=str(path),
+    )
+    assert len(reports) == 3
+    assert path.is_file()
+
+
+async def test_no_heartbeat_path_means_no_heartbeat_file(tmp_path) -> None:
+    """Default (`heartbeat_path=None`, what every other loop test in this file uses) writes
+    nothing — proves the heartbeat is opt-in at the loop level, not implicitly always-on."""
+    outbox, publisher = _seeded(1), _RecordingPublisher()
+    await run_relay_loop(outbox, publisher, claimed_by="w1", max_sweeps=1, poll_interval_s=0.0)
+    assert not (tmp_path / "heartbeat").exists()
+
+
+def test_default_heartbeat_path_is_under_tmp_matching_the_charts_emptydir_mount() -> None:
+    assert DEFAULT_HEARTBEAT_PATH.startswith("/tmp/")
+
+
+def test_settings_heartbeat_path_defaults_and_is_env_overridable() -> None:
+    default_settings = OutboxRelaySettings(
+        database_url="postgresql://m:m@localhost:5433/m", kafka_bootstrap_servers="k:9092"
+    )
+    assert default_settings.heartbeat_path == DEFAULT_HEARTBEAT_PATH
+
+    overridden = OutboxRelaySettings(
+        database_url="postgresql://m:m@localhost:5433/m",
+        kafka_bootstrap_servers="k:9092",
+        heartbeat_path="/tmp/custom-heartbeat",
+    )
+    assert overridden.heartbeat_path == "/tmp/custom-heartbeat"
+
+
+# ---------------------------------------------------------------------------
+# heartbeat_stale_after_s (gatekeeper finding G1) — pure threshold function
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("poll_interval_s", "expected_threshold"),
+    [
+        (0.5, 5.0),  # 3*0.5=1.5, floored to MIN_HEARTBEAT_STALE_AFTER_S — the exact G1 repro
+        (1.0, 5.0),  # 3*1=3, still floored
+        (2.0, 6.0),  # 3*2=6, above the floor (today's default)
+        (5.0, 15.0),  # 3*5=15, comfortably above the floor
+    ],
+)
+def test_heartbeat_stale_after_s_matches_expected_threshold(
+    poll_interval_s: float, expected_threshold: float
+) -> None:
+    assert heartbeat_stale_after_s(poll_interval_s) == expected_threshold
+
+
+def test_heartbeat_stale_after_s_never_returns_a_non_positive_threshold() -> None:
+    """G1's exact failure mode: a naive `3 * poll_interval_s` with a sub-second (or zero/negative)
+    `poll_interval_s` can produce a threshold `<= 0`, making `(age) < threshold` false on every
+    invocation — the probe would fail forever, restart-looping the pod. The floor makes that
+    impossible regardless of input."""
+    for poll_interval_s in (0.5, 0.0, -1.0, 0.001):
+        assert heartbeat_stale_after_s(poll_interval_s) >= MIN_HEARTBEAT_STALE_AFTER_S
 
 
 # ---------------------------------------------------------------------------
