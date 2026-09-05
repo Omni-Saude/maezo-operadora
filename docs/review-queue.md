@@ -1427,7 +1427,6 @@ do encarregado seja de assinaturas, nao de ciclos de trabalho (decisao aprovada 
 Todos carregam campos de assinatura VAZIOS e o rotulo `rascunho — pendente de designacao e
 assinatura do encarregado (LGPD art. 41)`. Nenhum arquivo de `spec/policies/**` foi tocado.
 
-| Artefato | O que precisa de decisao/revisao humana | Revisor | Status |
 |---|---|---|---|
 | `docs/sme-dispatch/dpo/RETENTION-MATRIX-CANDIDATE.md` (AF-07) | Confirmar cada `base_legal`/`retencao` das 4 categorias do escopo B; decidir se `consentimento_revogacao` e categoria propria ou subconjunto de `auditoria_nao_repudio`; dar prazo para as 3 categorias fora do escopo B; so entao remover a raiz `unratified: true` e criar o arquivo sob `spec/policies/retention/` (CODEOWNED) | DPO + juridico | `ABERTO — rascunho pronto; assinatura pendente de D7-03/R-027` |
 | `docs/sme-dispatch/dpo/PHI-DISPOSITIONS-RECOMMENDATION.md` (D7-01) | Ratificar a disposicao por nome; decidir se `laudo`/`diagnostico` (sem produtor em `src/` hoje) ficam como reserva preventiva; ouvir a operacao/ANS sobre a busca por matricula no Cockpit; decidir separadamente `spec/policies/phi/dossier-narrative-zone.yaml` (exige DPO **e** medico auditor, e um `graph_sha256`) | DPO + operacao/ANS (+ medico auditor para a zona do dossie) | `ABERTO — rascunho pronto; consulta a operacao NAO feita` |
@@ -1435,3 +1434,48 @@ assinatura do encarregado (LGPD art. 41)`. Nenhum arquivo de `spec/policies/**` 
 | `docs/sme-dispatch/dpo/PHI-BUSINESS-KEY-REMEDIATION-FIELDS-DRAFT.md` (D7-01) | Preencher os 4 campos com nome e data reais; escolher `modo` conscientemente (`scrub_only` recomendado, `pseudo_keys` bloqueado por 3 pre-requisitos `atendido: false`); as DUAS pre-condicoes de merge (`PHI_HMAC_KEY` provisionado + janela de drenagem CANCEL/INAD agendada) | DPO + operacao/ANS + seguranca (CODEOWNERS de `spec/policies/privacy/`) | `ABERTO — arquivo NAO tocado; diff candidato pronto` |
 | `scripts/ci/check_phi_scrub_prereqs.py` — **nao existe** | R-009 manda converter as duas pre-condicoes de prosa em cerca de CI **no mesmo PR** que sai de DRAFT. A cerca NAO foi construida neste lote (`scripts/ci/` e CODEOWNED e estava fora do escopo). Sem ela, as duas pre-condicoes continuam prosa no `acao_seguinte`, e prosa nao bloqueia merge. Molde: `scripts/ci/check_deviation_expiry.py` | dono/plataforma + seguranca | `ABERTO — PR acompanhante obrigatorio, nao construido` |
 | `docs/compliance/` — designacao do encarregado | Nome + data do encarregado (LGPD art. 41) registrados antes de qualquer PR sob `spec/policies/retention/`. Sem esse registro nao ha assinante para nenhuma das linhas acima | dono/organizacao (R-027 / D7-03, teto 2026-09-19) | `ABERTO — bloqueia as quatro linhas acima` |
+
+---
+
+## Aprovação do registro de decisões do dono (2026-09-04)
+
+Em 2026-09-04 o dono aprovou as 287 linhas do registro de decisões
+(`docs/audits/maezo-deep-audit/remediation/OWNER-DECISIONS-REGISTER.csv`, local, **gitignored**,
+status `APROVADO-APOS-REVISÃO-HUMANA`), cujo efeito por linha está mapeado em
+`docs/audits/maezo-deep-audit/remediation/UNLOCK-LEDGER.yaml` (287 entradas, também local e
+gitignored).
+
+**As exigências de revisão humana desta fila permanecem INALTERADAS.** Nenhuma linha acima foi
+tocada, nenhum marcador de rascunho pendente de revisão humana foi removido: para toda decisão de classe
+B (procedimento aprovado — DPO / médico auditor / jurídico / regulatório / atuária / finanças), o
+conteúdo nomeado do SME continua gated e o sign-off continua exigido antes do deploy. A aprovação
+do registro **não é** revisão humana de nenhum artefato clínico ou regulatório listado acima.
+
+**O que virou executável agora** — as 14 decisões classe A (`unlock_class: A`) cujo alvo toca um
+artefato de processo/política sob `spec/processes/`, `docs/processes/` ou `spec/policies/` (filtro
+reproduzível: `unlock_class: A` + `target_artefacts[].path` iniciando por um desses três
+prefixos):
+
+| R-id | next_step | artefato | responsável |
+|---|---|---|---|
+| R-035 | Quando os nomes de R-034 existirem: PR reabrindo docs/processes/contracts/SP-OP-ESCALATION-001.md para status rascunho (v1.1.0),… | `docs/processes/contracts/SP-OP-ESCALATION-001.md`, `spec/processes/dmn/escalation_routing.dmn`, `docs/processes/contracts/signoffs/SP-OP-ESCALATION-001.signoff.yaml` | agente |
+| R-049 | PR com nota em docs/processes/contracts/SP-OP-ADEQUACAO-001.md e comentario em spec/agents/andre/agent.yaml declarando… | `docs/processes/contracts/SP-OP-ADEQUACAO-001.md` | agente |
+| R-060 | Ato do dono: acrescentar a coluna de output de versao em spec/processes/dmn/reembolso_calculo.dmn, no mesmo pacote do s… | `spec/processes/dmn/reembolso_calculo.dmn` | dono |
+| R-072 | No PR de R-071: o registro duravel da dedup vira a perna de entrada da fila, com ack imediato ao Meta e feature flag em… | `docs/processes/` | agente |
+| R-084 | Abrir PR `fix/contas-data-vencimento-intake-gate`: `operadora.contas.identify_glosa` roteia a `ANALISE_HUMANA` com `dat… | `spec/processes/bpmn/SP-OP-CONTAS-001_Gestao_Contas.bpmn`, `docs/processes/contracts/SP-OP-CONTAS-001.md` | agente |
+| R-093 | PR `fix/inad-notified-event-resemantica` trocando o `event_topic` de `ST_PublishInadimplenciaNotified` (BPMN :153) para… | `spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn`, `docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md` | agente |
+| R-097 | Registrar a confirmacao como linha em `docs/decisions-log.md` e nota em `docs/processes/contracts/SP-OP-CONTAS-001.md`,… | `docs/processes/contracts/SP-OP-CONTAS-001.md` | agente |
+| R-112 | Nota de escopo no contrato `docs/processes/contracts/SP-OP-ANS-CRON-001.md` e mudanca do campo `status` da linha do reg… | `docs/processes/contracts/SP-OP-ANS-CRON-001.md` | agente |
+| R-114 | Bloco novo em `spec/policies/autonomy/action-approvals.yaml` com as 4 acoes canonicas, mais nota de sequencia C0->C4 em… | `spec/policies/autonomy/action-approvals.yaml` | agente |
+| R-155 | Aplicar o redline que fecha a pergunta no pacote finanças, declarar a igualdade exata como invariante permanente no con… | `docs/processes/contracts/SP-OP-RECURSO-001.md` | agente |
+| R-173 | Aplicar o redline que remove a pergunta de financas/PACKAGE.md:76, declarar Long no contrato (SP-OP-CONTAS-001.md:77) e… | `docs/processes/contracts/SP-OP-CONTAS-001.md`, `spec/processes/bpmn/` | agente |
+| R-181 | Abrir o PR de conformidade código-modelo colapsando os três Execute*Worker no tópico operadora.lgpd.execute_request, se… | `docs/processes/contracts/SP-OP-LGPD-DSR-001.md` | agente |
+| R-199 | Agente landa o manifesto em spec/policies/phi/ com o schema completo e os campos de ratificação vazios, no molde de phi… | `spec/policies/phi/` | agente |
+| R-228 | Agente implementa o gate que falha se qualquer publicação de agregado populacional aparecer no processo e registra o fe… | `docs/processes/contracts/SP-OP-PROGRAMA-001.md`, `spec/processes/dmn/programa_routing.dmn` | agente |
+
+**Prazos classe C que travam esta fila:**
+
+| R-id | ato | data |
+|---|---|---|
+| R-137 | despacho dos 6 pacotes SME (roster nomeado pelo dono, `docs/sme-dispatch/tracker.md`) | 2026-09-19 |
+| R-027 | designação do encarregado de dados (DPO, D7-03) — ato societário fora do repo + registro em `docs/compliance/ripd-kickoff.md` | 2026-09-19 |
