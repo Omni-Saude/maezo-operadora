@@ -447,6 +447,8 @@ class MetricsCollector:
 
         Labels: agent_id (closed vocabulary, same as `agent_desfecho_total`; only "helena" today).
         Not gated on transport-send success — see the construction comment for why.
+        Scope boundary: a non-text inbound handled by `acknowledge_non_text` (which never calls
+        `dispatch()`) is NOT observed here — only the text conversational path this KPI targets.
         """
         return self._agent_first_response_seconds
 

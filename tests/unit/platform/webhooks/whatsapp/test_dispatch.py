@@ -24,6 +24,7 @@ from maezo.platform.webhooks.whatsapp.dispatch import (
 )
 from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
+from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
@@ -52,6 +53,25 @@ class _FakeWhatsAppClient:
         self.sent: list[tuple[str, str]] = []
 
     async def send_message(self, to: str, text: str) -> dict[str, Any]:
+        self.sent.append((to, text))
+        return {"messages": [{"id": "wamid.reply.1"}]}
+
+
+class _TypedFakeWhatsAppClient(WhatsAppServer):
+    """A real `WhatsAppServer` subclass double — no `type: ignore[arg-type]` needed.
+
+    `_FakeWhatsAppClient` above is a duck-typed double whose `send_message` lacks the real
+    class's `idempotency_key` keyword-only parameter, which is why every call site that hands it
+    to `HelenaDispatcher(whatsapp_client=...)` (a `WhatsAppServer`-typed field, not a Protocol)
+    needs a suppression. This one subclasses `WhatsAppServer` and matches its full
+    `send_message` signature instead, so it satisfies the real type nominally.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.sent: list[tuple[str, str]] = []
+
+    async def send_message(self, to: str, text: str, *, idempotency_key: str | None = None) -> dict[str, Any]:
         self.sent.append((to, text))
         return {"messages": [{"id": "wamid.reply.1"}]}
 
@@ -258,7 +278,7 @@ async def test_dispatch_observes_first_response_latency_for_helena() -> None:
 
     dmn = FakeDmnTransport()
     dmn.register("triage_redflag_adult", [{"red_flag": False, "conduta": "CONTINUE"}])
-    whatsapp_client = _FakeWhatsAppClient()
+    whatsapp_client = _TypedFakeWhatsAppClient()
     dispatcher = HelenaDispatcher(
         tenant_id="amh",
         inference=_FakeInference(
@@ -266,7 +286,7 @@ async def test_dispatch_observes_first_response_latency_for_helena() -> None:
         ),
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
-        whatsapp_client=whatsapp_client,  # type: ignore[arg-type]
+        whatsapp_client=whatsapp_client,
         pseudonymizer=Pseudonymizer(),
         audit_sink=FakeStartAuditSink(),
     )

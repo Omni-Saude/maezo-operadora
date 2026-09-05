@@ -812,7 +812,7 @@ def record_agent_first_response(*, agent_id: str, seconds: float) -> None:
         collector = _get_metrics_collector()
         collector.agent_first_response_seconds.labels(agent_id=agent_id).observe(seconds)
         logger.info("agent_first_response_recorded", agent_id=agent_id, seconds=seconds)
-    except Exception:  # noqa: BLE001 — defensive: telemetry must never break a completed turn.
+    except Exception:  # defensive: telemetry must never break a completed turn.
         logger.debug("agent_first_response_telemetry_emit_failed", agent_id=agent_id, exc_info=True)
 
 
