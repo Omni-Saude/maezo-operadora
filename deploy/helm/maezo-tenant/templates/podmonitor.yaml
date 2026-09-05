@@ -42,7 +42,7 @@ spec:
   # scrape_configs[].job_name in config/prometheus.yml, which IS literal). The
   # deployment-agent-runtime.yaml pod template sets this exact label key to the
   # literal value "maezo-agent-runtime", which is what `up{job="maezo-agent-runtime"}`
-  # (MaezoAgentRuntimeDown, alert-rules.yaml) expects.
+  # (MaezoAgentRuntimeDown, alert-rules.yml) expects.
   jobLabel: maezo.io/scrape-job
   namespaceSelector:
     matchNames:

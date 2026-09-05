@@ -13,10 +13,14 @@ index — leaving burn-rate/multi-window SLO rewrites for after `D12-01-a`.
 
 This gate is the mechanism that keeps that true going forward: it fails on
 
-  1. an `alert:` rule with no `annotations.runbook_url` at all (or an empty one), and
-  2. a `runbook_url` whose PATH does not exist in the repository tree (a dangling pointer is
+  1. an `alert:` rule with no `annotations.runbook_url` at all (or an empty one),
+  2. a `runbook_url` naming a GENERIC target — `README.md`/`index.md` (any case) or the bare
+     `docs/runbooks` directory — rather than the specific file for THIS alert (finding 6,
+     VERIFY-A1-OBS: a generic index resolves, so the dangling-pointer check alone never caught it,
+     and it defeats R-007 exactly as thoroughly as no `runbook_url` at all),
+  3. a `runbook_url` whose PATH does not exist in the repository tree (a dangling pointer is
      scarcely better than no pointer — the on-call still has nothing to read), including
-  3. a `#anchor` fragment (when the URL carries one) that does not name a real Markdown heading in
+  4. a `#anchor` fragment (when the URL carries one) that does not name a real Markdown heading in
      the target file — a link that resolves to the top of the wrong section is the softer version
      of the same defect.
 
@@ -49,6 +53,17 @@ DEFAULT_ALERT_RULES: Final[Path] = Path("deploy/observability/alert-rules.yml")
 #: fragments against the target runbook's real headings — GitHub's own slugification rule
 #: (lowercase, spaces -> `-`, strip everything that is not a word char/hyphen/space first).
 _HEADING_RE: Final[re.Pattern[str]] = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
+
+#: Finding 6 (VERIFY-A1-OBS, INFO -> fixed): a `runbook_url` naming a generic index rather than the
+#: SPECIFIC file for this alert defeats R-007 exactly as thoroughly as no `runbook_url` at all —
+#: the on-call still has to go find the right document themselves. `README.md`/`index.md` resolve
+#: (they exist), so the dangling-pointer check alone never caught them; probe D of VERIFY-A1-OBS
+#: proved `docs/runbooks/README.md` passed before this fix.
+_GENERIC_RUNBOOK_BASENAMES: Final[frozenset[str]] = frozenset({"readme.md", "index.md"})
+
+#: A `runbook_url` naming the runbooks tree itself (with or without a trailing slash) rather than
+#: one file in it — the directory form of the same generic-target defect.
+_BARE_RUNBOOKS_DIR: Final[str] = "docs/runbooks"
 
 
 def _slugify(heading: str) -> str:
@@ -116,6 +131,24 @@ def evaluate(alert_rules_path: Path, repo_root: Path) -> list[Finding]:
 
         url = str(runbook_url).strip()
         path_part, _sep, anchor = url.partition("#")
+
+        basename = Path(path_part).name.lower()
+        normalized_dir = path_part.rstrip("/")
+        if basename in _GENERIC_RUNBOOK_BASENAMES or normalized_dir == _BARE_RUNBOOKS_DIR:
+            findings.append(
+                Finding(
+                    alert=name,
+                    reason=(
+                        f"`runbook_url: {url!r}` aponta para um indice generico "
+                        f"({path_part!r}) ou para o diretorio docs/runbooks/ inteiro, nunca para o "
+                        "arquivo ESPECIFICO deste alerta — um indice generico ensina o operador a "
+                        "ignorar o pointer e procurar por conta propria, o mesmo defeito que "
+                        "R-007 fechou ao exigir runbook_url."
+                    ),
+                )
+            )
+            continue
+
         target = repo_root / path_part
         if not target.is_file():
             findings.append(

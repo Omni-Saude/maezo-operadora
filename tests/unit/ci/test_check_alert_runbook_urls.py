@@ -116,26 +116,82 @@ def test_a_dangling_runbook_path_fails(tmp_path: Path) -> None:
     assert "NAO existe" in findings[0].reason
 
 
-def test_a_runbook_url_pointing_at_a_generic_index_is_a_dangling_target_if_it_does_not_exist(
+def test_a_runbook_url_pointing_at_an_existing_generic_index_is_now_rejected_as_generic(
     tmp_path: Path,
 ) -> None:
-    """The gate cannot judge "generic vs specific" semantically, but a nonexistent index still fails."""
+    """Finding 6 (VERIFY-A1-OBS): probe D proved `docs/runbooks/README.md` used to PASS (it
+    resolves — a real file, a real anchor). It is now rejected as a generic target BEFORE the
+    anchor is even checked, closing exactly the hole probe D found."""
     rules = _write_rules(
         tmp_path,
         """
         groups:
           - name: g
             rules:
-              - alert: PointsAtMissingIndex
+              - alert: PointsAtGenericIndex
                 expr: up == 0
                 annotations:
-                  runbook_url: "docs/runbooks/README.md#nonexistent-section"
+                  runbook_url: "docs/runbooks/README.md#some-real-heading"
         """,
     )
-    _write_runbook(tmp_path, "docs/runbooks/README.md", "# Index\n\nNo matching section here.\n")
+    _write_runbook(tmp_path, "docs/runbooks/README.md", "# Index\n\n## Some Real Heading\n\nBody.\n")
     findings = evaluate(rules, tmp_path)
     assert len(findings) == 1
-    assert "ancora" in findings[0].reason
+    assert findings[0].alert == "PointsAtGenericIndex"
+    assert "indice generico" in findings[0].reason
+
+
+@pytest.mark.parametrize(
+    "runbook_url",
+    [
+        "docs/runbooks/README.md",
+        "docs/runbooks/index.md",
+        "docs/runbooks/INDEX.MD",
+        "docs/runbooks",
+        "docs/runbooks/",
+    ],
+)
+def test_generic_runbook_targets_are_rejected_regardless_of_case_or_trailing_slash(
+    tmp_path: Path, runbook_url: str
+) -> None:
+    """Finding 6 (VERIFY-A1-OBS): README.md/index.md (any case) and the bare directory, with or
+    without a trailing slash, are ALL the same generic-target defect."""
+    rules = _write_rules(
+        tmp_path,
+        f"""
+        groups:
+          - name: g
+            rules:
+              - alert: PointsAtSomethingGeneric
+                expr: up == 0
+                annotations:
+                  runbook_url: "{runbook_url}"
+        """,
+    )
+    _write_runbook(tmp_path, "docs/runbooks/README.md", "# Index\n")
+    _write_runbook(tmp_path, "docs/runbooks/index.md", "# Index\n")
+    findings = evaluate(rules, tmp_path)
+    assert len(findings) == 1
+    assert "indice generico" in findings[0].reason
+
+
+def test_a_specific_runbook_two_directories_below_docs_runbooks_still_passes(tmp_path: Path) -> None:
+    """The generic-target rejection must not over-fire on a real, specific path that merely SITS
+    under `docs/runbooks/` — only the bare directory and the two named generic basenames."""
+    rules = _write_rules(
+        tmp_path,
+        """
+        groups:
+          - name: g
+            rules:
+              - alert: SpecificAndReal
+                expr: up == 0
+                annotations:
+                  runbook_url: "docs/runbooks/alerts/SpecificAndReal.md"
+        """,
+    )
+    _write_runbook(tmp_path, "docs/runbooks/alerts/SpecificAndReal.md", "# SpecificAndReal\n\nBody.\n")
+    assert evaluate(rules, tmp_path) == []
 
 
 # =================================================================================================
