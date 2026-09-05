@@ -343,7 +343,25 @@ def get_ledger_diff_added_lines(repo_root: Path, effective_base: str, ledger_rel
 # after the node id, and PASSED/FAILED immediately after that, is what keeps this from matching
 # the exact false-positive ledger row t1.1 documents: a warnings-summary line carries a BARE node
 # id (no `::`+PASSED/FAILED token) or is indented — neither shape satisfies this pattern.
-_RESULT_LINE_RE = re.compile(r"^(\S+::\S+ (?:PASSED|FAILED)(?:\s.*)?)$", re.MULTILINE)
+#
+# The node id's PATH component (before the FIRST `::`) is required whitespace-free (`\S+`) — a
+# test file path never contains a space — but everything AFTER that first `::` (the rest of the
+# node id: class name(s), test name, and a parametrize id) is matched with `.+`, deliberately NOT
+# `\S+`. A parametrize id built from prose legitimately contains a literal space (e.g.
+# `test_x[RATIFICADO pelo DPO]`) and pytest -v renders it as part of the SAME PASSED/FAILED
+# line — the previous `\S+` requirement on that half meant the whole line silently failed to
+# match at all (LEDGER-HASH-PARAM-IDS-WITH-SPACES): not hashed, not reported as unparsed, simply
+# absent from the sorted set the hash is computed over. Greedy `.+` (not lazy) is required so that,
+# when a node id itself contains more than one `::` (a class-scoped test:
+# `path::TestClass::test_x[a b]`), the match anchors on the LAST ` PASSED`/` FAILED` token in the
+# line rather than an accidental earlier substring. The leading `\S+` (not `.*`) before the first
+# `::` is equally deliberate: it keeps a "short test summary info" line — e.g.
+# `FAILED tests/x.py::test_y - AssertionError` — excluded, because that line's first whitespace-free
+# token is `FAILED` itself with no `::` immediately following it, so `\S+::` never matches at
+# position 0; a looser `.*?::` would let such a line's leading token float across the space and
+# wrongly re-admit it whenever the failure reason happens to end in the literal word "PASSED" or
+# "FAILED".
+_RESULT_LINE_RE = re.compile(r"^(\S+::.+ (?:PASSED|FAILED))(?:\s.*)?$", re.MULTILINE)
 
 # pytest's right-aligned progress column, e.g. " [ 4%]" / "  [100%]". `\s+` (one or more), not a
 # single literal space — see module docstring for why (COLUMNS-dependent padding, ledger row
