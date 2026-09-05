@@ -1,5 +1,14 @@
 # Gerado por build.py / render.py a partir de docs/compliance/rn-currency-review.md §1
 # NAO EDITAR A MAO -- regenerar via scripts do dossie R-171 se a fonte mudar.
+#
+# Se um merge de main deslocar linhas dos contratos/DMN/policies citados (ex.: blocos de
+# proveniencia CC-13 inseridos por #314/#318), o teste abaixo aponta o drift e ja diz para onde
+# re-ancorar cada linha (delta calculado, uma corrida so):
+#   env -u VIRTUAL_ENV uv run python -m pytest \
+#     tests/unit/docs/test_rn_currency_matrix.py::test_every_row_cited_line_matches_within_drift_window \
+#     -v --tb=short -p no:cacheprovider
+# Edite `linha`/`arquivo_linha` aqui e a celula correspondente em RN-CURRENCY-MATRIX.md com o valor
+# que o teste reportar; NAO adivinhar ocorrencia -- a sentenca citada deve continuar identica.
 rows:
   - norma_citada: "RN 259/2011"
     arquivo: "docs/processes/contracts/SP-OP-ADEQUACAO-001.md"
@@ -255,9 +264,9 @@ rows:
     acao_ao_ratificar: "remover o marcador DRAFT/verify da citacao (sem troca de norma)"
   - norma_citada: "RN 259 (sem ano explicito no texto)"
     arquivo: "docs/processes/contracts/SP-OP-CRED-001.md"
-    linha: 186
+    linha: 206
     norma_token: "RN 259"
-    arquivo_linha: "docs/processes/contracts/SP-OP-CRED-001.md:186 (+1 ocorrencia(s) tambem em linhas 200)"
+    arquivo_linha: "docs/processes/contracts/SP-OP-CRED-001.md:206 (+1 ocorrencia(s) tambem em linhas 220) [re-anchored 2026-09-04 apos merge ce38100 (#318, CC-13 provenance +20 linhas); linhas originais 186/200]"
     o_que_afirma: "Garantia de atendimento; tempos/distancias maximas"
     status_rn_currency_review_1: "revogada"
     norma_corrente_indicada: "RN 566/2022"
@@ -351,9 +360,9 @@ rows:
     acao_ao_ratificar: "recitar para RN 483/2022 (o assunto tratado nao e o desta RN) e remover o marcador DRAFT/verify"
   - norma_citada: "RN 305 (sem ano explicito no texto)"
     arquivo: "docs/processes/contracts/SP-OP-RECURSO-001.md"
-    linha: 220
+    linha: 241
     norma_token: "RN 305"
-    arquivo_linha: "docs/processes/contracts/SP-OP-RECURSO-001.md:220"
+    arquivo_linha: "docs/processes/contracts/SP-OP-RECURSO-001.md:241 [re-anchored 2026-09-04 apos merge ce38100 (#318, CC-13 provenance +21 linhas); linha original 220]"
     o_que_afirma: "Padrao TISS / Componente de Comunicacao"
     status_rn_currency_review_1: "revogada"
     norma_corrente_indicada: "RN 501/2022"

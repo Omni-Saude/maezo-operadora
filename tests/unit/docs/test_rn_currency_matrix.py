@@ -32,6 +32,13 @@ _MATRIX_YAML = _REPO_ROOT / "docs" / "sme-dispatch" / "regulatorio" / "rn-curren
 _MATRIX_MD = _REPO_ROOT / "docs" / "sme-dispatch" / "regulatorio" / "RN-CURRENCY-MATRIX.md"
 _RN_CURRENCY_REVIEW = _REPO_ROOT / "docs" / "compliance" / "rn-currency-review.md"
 
+_LINE_DRIFT_WINDOW = 40
+"""How far (in lines, either direction) `test_every_row_cited_line_matches_within_drift_window`
+searches for a norma_token that moved. Chosen to comfortably cover the CC-13 provenance-block
+insertions (+20/+21 lines, 2026-09-04) that caused the R-171 matrix's first drift without being so
+wide it could match an unrelated occurrence of a short, common token like "RN 259" far from the
+original citation."""
+
 _REQUIRED_ROW_KEYS = {
     "norma_citada",
     "arquivo",
@@ -107,6 +114,61 @@ def test_every_row_cited_line_actually_contains_the_norma_token() -> None:
                 (row["norma_citada"], row["arquivo"], row["linha"], row["norma_token"], cited_line[:120])
             )
     assert not drift, f"row(s) whose cited line no longer contains the norma token (rotted matrix): {drift}"
+
+
+def _find_token_near_line(
+    lines: list[str], declared_line: int, token: str, window: int = _LINE_DRIFT_WINDOW
+) -> int | None:
+    """Search outward from `declared_line` (closest match wins) for the 1-based line number within
+    `declared_line +/- window` where `token` appears. Returns None if not found anywhere in that
+    range. Diagnostic helper only -- it never grants a pass; see the caller below."""
+    n = len(lines)
+    if 1 <= declared_line <= n and token in lines[declared_line - 1]:
+        return declared_line
+    for offset in range(1, window + 1):
+        for candidate in (declared_line - offset, declared_line + offset):
+            if 1 <= candidate <= n and token in lines[candidate - 1]:
+                return candidate
+    return None
+
+
+def test_every_row_cited_line_matches_within_drift_window() -> None:
+    """Resilience companion to `test_every_row_cited_line_actually_contains_the_norma_token` (added
+    2026-09-04 after that fence caught a real drift: main merge `ce38100`/#318 inserted CC-13
+    provenance blocks into 7 contracts, shifting 2 rows' cited lines by +20/+21). This test does NOT
+    weaken the fence -- it fails on exactly the same condition (`norma_token not in cited_line`), so
+    a wrong or absent token still fails here too. What it adds is diagnosis: when the exact line is
+    wrong, it searches +/-`_LINE_DRIFT_WINDOW` lines for the same token and reports the delta, so the
+    next drift is a one-command re-anchor (see the header comment in rn-currency-matrix.yaml and the
+    'Manutenção / re-ancoragem' section of RN-CURRENCY-MATRIX.md for the exact command). If the token
+    is not found anywhere in the window either, the message says so explicitly instead of proposing a
+    guess -- that case means the citation may have genuinely been removed and needs a human look
+    (`status: "citação removida em main <sha>"`), never a fabricated re-anchor."""
+    rows = _load_rows()
+    unresolved = []
+    for row in rows:
+        p = _REPO_ROOT / row["arquivo"]
+        lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
+        declared = row["linha"]
+        cited_line = lines[declared - 1] if 1 <= declared <= len(lines) else ""
+        if row["norma_token"] in cited_line:
+            continue  # anchored correctly; nothing to diagnose
+        found_at = _find_token_near_line(lines, declared, row["norma_token"])
+        if found_at is not None:
+            delta = found_at - declared
+            unresolved.append(
+                f"{row['norma_citada']!r} @ {row['arquivo']}: declared linha={declared} is stale; "
+                f"token {row['norma_token']!r} found at linha={found_at} (delta {delta:+d}). "
+                f"Re-anchor: set linha: {found_at} for this row in rn-currency-matrix.yaml and "
+                f"update the matching row's arquivo:linha in RN-CURRENCY-MATRIX.md."
+            )
+        else:
+            unresolved.append(
+                f"{row['norma_citada']!r} @ {row['arquivo']}:{declared}: token {row['norma_token']!r} "
+                f"not found within +/-{_LINE_DRIFT_WINDOW} lines -- citation may have been removed; "
+                "do not guess a new line, confirm and mark status: 'citação removida em main <sha>'."
+            )
+    assert not unresolved, "row(s) need re-anchoring:\n" + "\n".join(unresolved)
 
 
 def test_veredito_analista_column_is_empty_for_every_row() -> None:
