@@ -786,11 +786,15 @@ lifecycle:
 #   - transportFanIn: `maezo.tools.mcp_cibseven.transport` — o unico ponto de acesso ao motor CIB
 #     Seven (SC-06's "chokepoint CIB Seven"). Reconfirmado por AST em 29 quando esta secao foi
 #     criada (relatorio original: 30, por MENCAO textual em `a2a/dispatcher.py`, que deliberadamente
-#     nao importa o modulo). Recontado em 32 apos o merge de `main` que trouxe
-#     `agents/{gustavo,marina,valentina}/delegation.py` — os tres passaram a importar
-#     `CibSevenTransport`/`AuditStartSink` diretamente de `maezo.tools.mcp_cibseven.transport`,
-#     no mesmo padrao dos demais agentes (`andre`/`carolina`/`fernando`/`rafael`/`valentina` ja
-#     importavam antes). REANCHOR-A2-HELM-CAPACITY (2026-09-05) recomputou o numero e removeu o
+#     nao importa o modulo) — os 4 importers `delegation.py` pre-merge eram `andre`/`carolina`/
+#     `fernando`/`rafael` (inalterados por este reanchor). Recontado em 32 apos o merge de `main`
+#     que trouxe os ARQUIVOS `agents/{gustavo,marina,valentina}/delegation.py` (fan-in conta por
+#     ARQUIVO, nao por agente): os tres agentes JA importavam `maezo.tools.mcp_cibseven.transport`
+#     no proprio `graph.py` desde antes do merge (nao sao agentes novos) — o `delegation.py` novo de
+#     cada um e' um SEGUNDO arquivo do mesmo agente que tambem importa `CibSevenTransport`/
+#     `AuditStartSink` diretamente, por isso soma +3 ao fan-in. `valentina` NAO tinha `delegation.py`
+#     antes do merge (so' `graph.py`, que ja importava) — e' um dos 3 arquivos novos, nao um dos 4
+#     importers pre-merge. REANCHOR-A2-HELM-CAPACITY (2026-09-05) recomputou o numero e removeu o
 #     pino literal do teste — a comparacao com o "30" do relatorio original nao carrega mais
 #     sentido (a arvore ja passou do numero do relatorio, por um motivo estrutural diferente).
 #   - harnessFanIn: `maezo.tools.workers.harness` — o padrao unico de execucao/dispatch de todo
