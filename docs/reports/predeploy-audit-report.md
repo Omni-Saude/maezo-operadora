@@ -568,5 +568,11 @@ cita neste arquivo. O que segue e a correcao de registro.
     migration (nip/programa) (#181)" — conteudo nao relacionado.
 - **A afirmacao "T3-PASS" nao tem lastro reproduzivel** neste repo: nenhuma linha de
   `docs/evidence-ledger.md` cita `PostgresDedupeStore`.
-- Registro completo: `docs/adr/0024-durable-idempotency-resume-inbound-drivers.md`, secao
-  `## Emenda 2026-09-03`.
+- Registro completo: `docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md`,
+  secao `### §1 — GAP AF-02` (**ponteiro corrigido em 2026-09-05, gap AF-02**: esta linha apontava
+  para uma secao `## Emenda 2026-09-03` DENTRO da propria ADR-0024 que nao existe mais — a primeira
+  leva do WP-ADR-RECONCILIACAO emendou as sete ADRs `Accepted` in-loco, a verificacao adversarial
+  rejeitou isso, e o conteudo foi movido para a ADR-0041 nova, com os sete arquivos restaurados
+  byte a byte e cercados por `tests/unit/docs/test_adr_amendments.py`. O ponteiro ficou pendurado;
+  `grep -rn '## Emenda 2026-09-03' docs/adr/` -> so a mencao historica na secao `## Convencao
+  seguida` da ADR-0041 (paragrafo `**Historico honesto deste documento.**`)).
