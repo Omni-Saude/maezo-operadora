@@ -2,8 +2,10 @@
   "id": "EVL-VALENTINA-02",
   "agent": "valentina",
   "class": "GC",
-  "tier": ["A"],
-  "description": "Missing runtime context (ciclo absent, even though consentimento_ativo/consent_checked are both asserted true): `receive` cannot assemble the idempotent business key nor verify consent for a concrete titular/scope, so it sets its own class-token error -- consent_gate treats inability-to-verify as NO consent (fail-closed), ignoring the (otherwise-looking-fine) consent facts entirely. Distinct code path from EVL-VALENTINA-01: there, receive succeeds and consent_gate itself computes ausente from the facts; here, receive's own guard fires first and consent_status stays ausente regardless of what the facts say.",
+  "tier": [
+    "A"
+  ],
+  "description": "Missing runtime context (ciclo absent, even though consentimento_ativo/consent_checked are both asserted true): `receive` cannot assemble the idempotent business key nor verify consent for a concrete titular/scope, so it sets its own class-token error -- consent_gate treats inability-to-verify as NO consent (fail-closed), ignoring the (otherwise-looking-fine) consent facts entirely. Distinct code path from EVL-VALENTINA-01: there, receive succeeds and consent_gate itself computes ausente from the facts; here, receive's own guard fires first and consent_status stays ausente regardless of what the facts say. VAL-05 (fleet audit ciclo 2, regoldened): `desfecho` now reads 'falha_verificacao_consentimento' instead of 'sem_consentimento' -- the primary audit-facing outcome itself distinguishes this inability-to-verify case from EVL-VALENTINA-01's genuine no-consent verdict, not just the side-channel `error` field.",
   "input": {
     "state": {
       "task": "stratify",
@@ -22,7 +24,7 @@
     "fields": {
       "consent_status": "ausente",
       "error": "contexto_de_runtime_ausente",
-      "desfecho": "sem_consentimento",
+      "desfecho": "falha_verificacao_consentimento",
       "process_started": false,
       "business_key": ""
     }

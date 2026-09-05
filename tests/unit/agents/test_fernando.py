@@ -738,6 +738,44 @@ async def test_build_dossier_read_side_allowlist_rejects_unknown_status() -> Non
     assert dossier["fatos"]["status_inadimplencia"] == "SEGUE_ANALISE"
 
 
+async def test_build_dossier_rejects_malformed_sla_analise_iso() -> None:
+    """FER-08 (fleet audit ciclo 2): `sla_analise_iso` is a DMN `typeRef="string"` ISO-8601
+    DURATION output (ADR-0018 §4-bis-A) — a malformed value must be blanked at the read-site,
+    never echoed as a fact that looks like a real deadline. A genuinely valid duration survives
+    unchanged."""
+    graph = _graph()
+    hostile = _base_state(sla_analise_iso="not-a-duration")
+    dossier = await graph._build_dossier(hostile)
+    assert dossier["fatos"]["sla_analise_iso"] is None
+
+    legit = _base_state(sla_analise_iso="P10D")
+    dossier = await graph._build_dossier(legit)
+    assert dossier["fatos"]["sla_analise_iso"] == "P10D"
+
+    absent = _base_state()
+    dossier = await graph._build_dossier(absent)
+    assert dossier["fatos"]["sla_analise_iso"] is None  # never populated -> also None, not ""
+
+
+async def test_build_message_rejects_malformed_prazo_iso_fields() -> None:
+    """FER-08: same read-side ISO-8601-duration guard on `_build_message`'s facts
+    (`prazo_purga_iso`/`prazo_notificacao_previa_iso`) — the message-drafting LLM prompt must
+    never receive a malformed deadline dressed up as a real one."""
+    graph = _graph()
+    hostile = _base_state(
+        prazo_purga_iso="'; DROP TABLE prazos; --",
+        prazo_notificacao_previa_iso="99 dias",
+    )
+    mensagem = await graph._build_message(hostile)
+    assert mensagem["fatos"]["prazo_purga_iso"] is None
+    assert mensagem["fatos"]["prazo_notificacao_previa_iso"] is None
+
+    legit = _base_state(prazo_purga_iso="P10D", prazo_notificacao_previa_iso="P50D")
+    mensagem = await graph._build_message(legit)
+    assert mensagem["fatos"]["prazo_purga_iso"] == "P10D"
+    assert mensagem["fatos"]["prazo_notificacao_previa_iso"] == "P50D"
+
+
 async def test_dmn_llm_calls_are_phi_tagged() -> None:
     dmn = FakeDmnTransport()
     _register_status(dmn, "AGUARDA_PURGA")
