@@ -5,10 +5,14 @@ O DEFEITO, REPRODUZIDO
 `carolina/graph.py::_build_dossier` construido com um duplo cujo `generate()` NAO aceita o kwarg
 `task_kind` que o no passa: o `TypeError` da ligacao de argumentos era ENGOLIDO pelo
 `except Exception:` do metodo e o dossie voltava COMPLETO, com `narrativa=""` — a mesma saida que
-"o provedor de LLM caiu" produz. O padrao estava em 25 sitios de 9 grafos, e o repositorio ja'
-tinha uma vitima registrada: o comentario de `_RecordingInference.generate` em
-`test_gather_notes_no_raw_exception.py` documenta uma cerca que ficou INERTE por exatamente este
-motivo (o prompt nunca era gravado porque o `TypeError` sumia).
+"o provedor de LLM caiu" produz. (A fixture deste arquivo desloca a deriva para a ARIDADE em vez
+do kwarg; ver o docstring de `_DriftedInference` para o porque — a cerca irma CC-12 proibe a
+forma historica em `tests/`, e nao ha' motivo para abrir excecao nela.)
+
+O padrao estava em 25 sitios de 9 grafos, e o repositorio ja' tinha uma vitima registrada: o
+comentario de `_RecordingInference.generate` em `test_gather_notes_no_raw_exception.py` documenta
+uma cerca que ficou INERTE por exatamente este motivo (o prompt nunca era gravado porque o
+`TypeError` sumia).
 
 O QUE ESTE ARQUIVO AFIRMA, POR SITIO
 --------------------------------------
@@ -46,23 +50,26 @@ from tests.support.audit_fakes import FakeStartAuditSink
 
 
 class _DriftedInference:
-    """`generate()` SEM o kwarg `task_kind` — a deriva de assinatura exata que CC-12 ja' custou.
+    """Duplo que NAO satisfaz o contrato de chamada do porto: `generate()` sem nem o `prompt`.
 
-    O corpo nunca roda: o `TypeError` nasce na LIGACAO dos argumentos. O `AssertionError` esta la'
-    para o dia em que um grafo parar de passar `task_kind` — nesse dia o corpo passa a rodar e o
-    teste fica vermelho por outra razao legitima, em vez de virar um falso verde.
+    POR QUE A ARIDADE, E NAO O `task_kind` QUE A AUDITORIA SONDOU. A forma historica de NEW-12
+    e' um duplo com `phi` e SEM `task_kind` (a deriva que CC-12 custou uma vez, reproduzida LIVE
+    nesta sessao contra `carolina/graph.py::_build_dossier` na base `87b51a8`). Essa forma NAO
+    pode ser escrita como uma `class` aqui: e' exatamente o que a cerca irma
+    `tests/unit/runtime/test_inference_fakes_match_protocol.py` existe para REJEITAR em todo
+    `tests/`, e escrever a fixture assim obrigaria a abrir uma excecao naquela cerca — pagar com
+    a protecao de todo o repositorio pelo conforto de um duplo. A aridade errada prova o MESMO
+    invariante (um duplo que nao satisfaz o contrato de chamada do porto levanta `TypeError` na
+    LIGACAO dos argumentos, e esse `TypeError` tem de escapar do no) sem tocar naquela cerca.
+
+    O corpo nunca roda: o `TypeError` nasce antes. O `AssertionError` esta la' para o dia em que
+    um grafo parar de passar o prompt — nesse dia o corpo passa a rodar e o teste fica vermelho
+    por outra razao legitima, em vez de virar um falso verde.
     """
 
     model_id = "fake-model"
 
-    async def generate(
-        self,
-        prompt: str,
-        *,
-        phi: bool = False,
-        agent_id: str | None = None,
-        tenant_id: str | None = None,
-    ) -> str:
+    async def generate(self) -> str:
         raise AssertionError("inalcancavel: a ligacao de argumentos levanta TypeError antes daqui")
 
 
@@ -238,8 +245,8 @@ _LLM_SITES: dict[str, Callable[[object], Awaitable[Any]]] = {
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sitio", sorted(_LLM_SITES), ids=sorted(_LLM_SITES))
 async def test_deriva_de_assinatura_do_provedor_propaga_type_error(sitio: str) -> None:
-    """NEW-12: um duplo cujo `generate()` nao aceita `task_kind` NAO vira `narrativa=''`."""
-    with pytest.raises(TypeError, match="task_kind"):
+    """NEW-12: um duplo que nao satisfaz o porto NAO vira `narrativa=''` em silencio."""
+    with pytest.raises(TypeError, match="generate"):
         await _LLM_SITES[sitio](_DriftedInference())
 
 
@@ -320,3 +327,87 @@ async def test_leitor_indisponivel_continua_virando_nota_de_lacuna(sitio: str) -
     resultado = await _READER_SITES[sitio](_UnavailableReader())
     notas = resultado.get("gather_notes") or resultado.get("notes") or []
     assert any("indisponivel" in str(nota) for nota in notas), notas
+
+
+# =================================================================================================
+# (C) Os 4 sitios de envio que CONTINUAM largos por contrato
+# =================================================================================================
+#
+# Estes quatro nao foram estreitados: a superficie de falha declarada de
+# `WhatsAppServer.send_message` inclui um `ValueError` cru ("phone_number_id is not configured —
+# refusing to send"), e estreitar trocaria um bug engolido por um TURNO DERRUBADO num ambiente mal
+# configurado. O que mudou neles e' a clausula de guarda: seguem absorvendo o fornecedor, e NAO
+# absorvem mais o bug. Sem esta secao, a allowlist da cerca seria uma promessa sem prova.
+
+
+class _DriftedSender:
+    """Duplo de envio que nao satisfaz `WhatsAppSender.send(self, to_hash, text)` (aridade)."""
+
+    async def send(self) -> dict[str, Any]:
+        raise AssertionError("inalcancavel: a ligacao de argumentos levanta TypeError antes daqui")
+
+
+class _UnavailableSender:
+    """A falha externa de um gateway de mensageria: fora do ar."""
+
+    def __init__(self) -> None:
+        self.chamadas = 0
+
+    async def send(self, to_hash: str, text: str) -> dict[str, Any]:
+        self.chamadas += 1
+        raise ConnectionError("whatsapp gateway unreachable (duplo de teste)")
+
+
+def _fernando_notify_state() -> Any:
+    return {
+        "tenant_id": "amh",
+        "contrato_id": "c-1",
+        "to_hash": "hash-1",
+        "canal": "whatsapp",
+        "status_inadimplencia": "PENDENTE_NOTIFICACAO",
+    }
+
+
+def _lucas_ack_state() -> Any:
+    return {
+        "tenant_id": "amh",
+        "message_body": "ola",
+        "to_hash": "hash-1",
+        "canal": "whatsapp",
+        "route": "escalate_human",
+        "process_started": True,
+    }
+
+
+async def _fernando_notify(sender: object) -> Any:
+    graph = FernandoGraph(inference=_llm(_UnavailableInference()), whatsapp=cast(Any, sender), **_seams())
+    return await graph.notify(_fernando_notify_state())
+
+
+async def _lucas_ack_send(sender: object) -> Any:
+    graph = LucasGraph(inference=_llm(_UnavailableInference()), whatsapp=cast(Any, sender), **_seams())
+    return await graph.send_escalation_ack(_lucas_ack_state())
+
+
+_SENDER_SITES: dict[str, Callable[[object], Awaitable[Any]]] = {
+    "fernando::notify": _fernando_notify,
+    "lucas::send_escalation_ack": _lucas_ack_send,
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sitio", sorted(_SENDER_SITES), ids=sorted(_SENDER_SITES))
+async def test_envio_largo_por_contrato_ainda_propaga_erro_de_programacao(sitio: str) -> None:
+    """A clausula de guarda e' o unico motivo pelo qual estes quatro deixam o bug passar."""
+    with pytest.raises(TypeError, match="send"):
+        await _SENDER_SITES[sitio](_DriftedSender())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sitio", sorted(_SENDER_SITES), ids=sorted(_SENDER_SITES))
+async def test_envio_largo_por_contrato_continua_absorvendo_o_fornecedor(sitio: str) -> None:
+    """E o contrato best-effort sobrevive: gateway fora do ar nao levanta, so' anota."""
+    sender = _UnavailableSender()
+    resultado = await _SENDER_SITES[sitio](sender)
+    assert sender.chamadas == 1
+    assert resultado
