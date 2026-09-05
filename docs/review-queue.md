@@ -1464,3 +1464,18 @@ prefixos):
 |---|---|---|
 | R-137 | despacho dos 6 pacotes SME (roster nomeado pelo dono, `docs/sme-dispatch/tracker.md`) | 2026-09-19 |
 | R-027 | designação do encarregado de dados (DPO, D7-03) — ato societário fora do repo + registro em `docs/compliance/ripd-kickoff.md` | 2026-09-19 |
+
+---
+
+## Guardrails de `deploy/terraform/**` — o que a decisao do dono deliberadamente NAO cobriu (2026-09-04)
+
+Duas decisoes aprovadas do dono pousaram nesta rodada: R-041 (gap D6-02, policy de menor privilegio
+da role `plan` do `github-oidc`) e R-045 (gap B-02-b, modulo `cost-guardrails`). Ambas foram
+implementadas exatamente no escopo aprovado. O que fica abaixo e' o RESIDUO que o escopo aprovado
+deixou de fora de proposito — nenhuma linha aqui e' defeito do que foi entregue, e nenhuma pode ser
+fechada por um agente.
+
+| Artefato | O que precisa de decisao/revisao humana | Revisor | Status |
+|---|---|---|---|
+| `deploy/terraform/modules/secrets/main.tf:139` — `data "aws_secretsmanager_secret_version" "msk_bootstrap"` | Este data source executa `secretsmanager:GetSecretValue` em tempo de PLAN, e o `floor_note` de R-041 proibe explicitamente essa acao na role `plan`. Consequencia: o primeiro `terraform plan` real das raizes de `envs/**` vai falhar nesse ponto. E' o modo de falha que a propria decisao escolheu ("fail-closed e visivel"), mas alguem tem de decidir COMO resolve-lo — conceder a acao so' para o ARN do segredo do MSK, mover o bootstrap do MSK para fora do plan, ou aceitar o plan vermelho. Nao ha' opcao correta que um agente possa escolher sozinho. | dono (seguranca/infra) | `ABERTO — decisao do dono, ancorada ao 1o plan real (dependencia D13-03)` |
+| `deploy/terraform/modules/github-oidc/main.tf` — servicos fora dos 6 aprovados em R-041 | A derivacao a partir dos 6 modulos encontrou recursos de `kms` (aurora-postgres:22,29; eks-cluster:39,47; `envs/*/main.tf`), `secretsmanager` (secrets:31-135; observability:151,164), `logs` (observability:43) e `grafana` (observability:174,194,202), alem do backend remoto `s3`/`dynamodb` (`envs/*/versions.tf:13`). A resposta aprovada nomeia apenas rds, ecr, eks, aps, iam e ec2/vpc, e o `floor_note` fecha a porta para leitura de segredo. Implementou-se o escopo aprovado, sem alarga-lo; a lista completa esta no cabecalho do bloco `plan_policy` para o dono iterar contra o 1o plan. | dono (seguranca/infra) | `ABERTO — decisao do dono, ancorada ao 1o plan real (dependencia D13-03)` |

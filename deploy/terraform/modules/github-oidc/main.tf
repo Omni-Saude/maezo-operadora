@@ -64,9 +64,135 @@ resource "aws_iam_role" "plan" {
   tags                 = local.common_tags
 }
 
-resource "aws_iam_role_policy_attachment" "plan_readonly" {
+# ---------------------------------------------------------------------------
+# Policy inline de menor privilegio da role `plan` (gap D6-02 / decisao do dono
+# R-041, opcao A). Substitui o attachment da policy gerenciada `ReadOnlyAccess`,
+# que concedia leitura da conta INTEIRA a qualquer workflow de pull request e que
+# a AWS EXPANDE ao longo do tempo sem revisao nossa.
+#
+# Escopo derivado dos 6 modulos de `deploy/terraform/modules/` e das raizes de
+# `deploy/terraform/envs/` — um `sid` por servico que o `terraform plan` precisa
+# LER para dar refresh no estado:
+#
+#   rds     modules/aurora-postgres/main.tf:37,45,69,106,143,158
+#           (aws_db_subnet_group, aws_rds_cluster_parameter_group,
+#            aws_db_parameter_group, aws_rds_cluster, aws_rds_cluster_instance)
+#   ecr     modules/ecr/main.tf:15,31,96
+#           (aws_ecr_repository, aws_ecr_lifecycle_policy, aws_ecr_repository_policy)
+#   eks     modules/eks-cluster/main.tf:25,53,120
+#           (data aws_eks_cluster, aws_eks_cluster, aws_eks_node_group)
+#   aps     modules/observability/main.tf:30,63
+#           (aws_prometheus_workspace, aws_prometheus_rule_group_namespace)
+#   iam     modules/github-oidc/main.tf:18,23,59,100,155;
+#           modules/eks-cluster/main.tf:98,105,111,150,164,170,176,190;
+#           modules/observability/main.tf:100,140
+#   ec2     envs/staging-sa-east-1/main.tf:26,30,38 e
+#           envs/prod-amh-sa-east-1/main.tf:30,34,42 (data aws_vpc / aws_subnets)
+#           + modules/aurora-postgres/main.tf:78 (aws_security_group)
+#
+# LIMITE QUE A PROPRIA DECISAO IMPOE (R-041, `floor_note`): nenhuma acao de
+# leitura de segredo entra aqui. Em particular NAO ha `secretsmanager:*` nem
+# `kms:Decrypt` — e por isso que os servicos abaixo ficaram DE FORA mesmo tendo
+# recursos nos modulos. Cada um vira um `plan` VERMELHO e visivel no primeiro uso
+# real (dependencia D13-03), que e exatamente o modo de falha escolhido:
+#
+#   secretsmanager  modules/secrets/main.tf:31,49,67,82,96,115,135,139 e
+#                   modules/observability/main.tf:151,164. Atencao: o data source
+#                   `aws_secretsmanager_secret_version.msk_bootstrap`
+#                   (modules/secrets/main.tf:139) executa `GetSecretValue` em
+#                   tempo de PLAN — a acao proibida pela decisao. Enquanto ela
+#                   nao entrar por decisao explicita do dono, o plan das raizes
+#                   falha ali.
+#   kms             modules/aurora-postgres/main.tf:22,29;
+#                   modules/eks-cluster/main.tf:39,47; envs/*/main.tf
+#   logs            modules/observability/main.tf:43
+#   grafana         modules/observability/main.tf:174,194,202
+#   s3 / dynamodb   backend remoto de estado (envs/*/versions.tf:13) — hoje
+#                   concedido pela policy do bucket compartilhado do bootstrap
+#                   amh-data-platform, nao por esta role.
+#
+# `sts:GetCallerIdentity` nao aparece porque a AWS nao exige permissao para ela.
+# Prefixos que hoje nao casam com nenhuma acao real do servico (p.ex. `rds:Get*`)
+# nao concedem nada; ficam pelo formato uniforme que a decisao aprovou.
+# ---------------------------------------------------------------------------
+data "aws_iam_policy_document" "plan_policy" {
+  statement {
+    sid    = "PlanReadRDS"
+    effect = "Allow"
+    actions = [
+      "rds:Describe*",
+      "rds:Get*",
+      "rds:List*",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "PlanReadECR"
+    effect = "Allow"
+    actions = [
+      "ecr:Describe*",
+      "ecr:Get*",
+      "ecr:List*",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "PlanReadEKS"
+    effect = "Allow"
+    actions = [
+      "eks:Describe*",
+      "eks:Get*",
+      "eks:List*",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "PlanReadAPS"
+    effect = "Allow"
+    actions = [
+      "aps:Describe*",
+      "aps:Get*",
+      "aps:List*",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "PlanReadIAM"
+    effect = "Allow"
+    actions = [
+      "iam:Describe*",
+      "iam:Get*",
+      "iam:List*",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "PlanReadEC2VPC"
+    effect = "Allow"
+    actions = [
+      "ec2:Describe*",
+      "ec2:Get*",
+      "ec2:List*",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "plan_least_privilege" {
+  name        = "maezo-github-plan-${var.environment}"
+  description = "Leitura de menor privilegio para `terraform plan` em PRs (gap D6-02 / R-041). Sem secretsmanager e sem kms:Decrypt."
+  policy      = data.aws_iam_policy_document.plan_policy.json
+  tags        = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "plan_least_privilege" {
   role       = aws_iam_role.plan.name
-  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+  policy_arn = aws_iam_policy.plan_least_privilege.arn
 }
 
 # ---------------------------------------------------------------------------
@@ -108,9 +234,9 @@ resource "aws_iam_role" "deploy" {
 data "aws_iam_policy_document" "deploy_policy" {
   # ECR: push images
   statement {
-    sid    = "ECRAuthToken"
-    effect = "Allow"
-    actions = ["ecr:GetAuthorizationToken"]
+    sid       = "ECRAuthToken"
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
     resources = ["*"]
   }
 
