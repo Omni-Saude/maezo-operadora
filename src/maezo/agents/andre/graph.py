@@ -124,8 +124,13 @@ DIVERGENCES FROM DONOR (disclosed, spec wins per this task's charter):
    deployed table's output, never rewriting it. The human-destination group (`grupo_humano`) is
    still resolved from the CLOSED alcada-group allowlist only on human routes.
 5. **`finalize` does NOT write episodic memory** (donor's `finalize` calls
-   `mcp-memory.read_write`). v2 has no `MemoryServer`/pgvector schema wired into any agent graph
-   yet — same labeled boundary as `helena/rafael`'s graphs.
+   `mcp-memory.read_write`). v2 has no `MemoryServer` wired into any agent graph yet — same
+   labeled boundary as `helena/rafael`'s graphs. The blocker is NOT a missing table: `0001`
+   creates `agent_memory`, and the SEMANTIC layer that used to sit beside it
+   (`agent_memory.embedding`) was removed by `0009_drop_pgvector` with ADR-0002 §3 suspended
+   pending a consumer (ADR-0047, DRAFT). What is missing is `store_episodic`'s signature —
+   `(agent_id, event)` carries neither `tenant_id` nor `thread_id`, both `text NOT NULL` — which
+   is GAP-DU-01-a, an owner decision, not a graph change.
 6. **No `dossier_review` Flow literal.** The donor models the unrecognized-origin fallback as a
    fourth `Flow` member; v2's charter scopes Andre to THREE flows — the fail-neutral handling of
    an unrecognized `flow` value lives in `receive`/`assess`'s conservative catch-alls instead
@@ -967,6 +972,23 @@ class AndreGraph:
         the active instance untouched; avoids a DUPLICATED payment release). A start failure
         never loses the case: it records the error and keeps the routing. NEVER releases a
         payment "on the side".
+
+        DECLARED AUTHORITY: NONE (gap `ANDRE-PROCESS-KEYS`, owner decision R-036, 2026-09-04).
+        `spec/agents/andre/agent.yaml` no longer declares `mcp-cibseven.start_process` nor the
+        `start_compliance_process` autonomy action, and it declares no `process_keys` — so the
+        effect-PEP's decision core (`decide_effect`, L-1) returns DENY for this seam for `andre`
+        (`AgentCapabilities.allows_tool` / `allows_process_key`, pinned in
+        `tests/unit/gateway/test_andre_least_privilege.py`). That verdict is ADVISORY today, not
+        a runtime fence: no seam wires `start_process_instance`
+        (`gateway/seams/cibseven.py`, "the one deliberate hole, disclosed"), the
+        `inicio_processo_regulatorio` start surface is `choked: false` by decision
+        (`spec/policies/autonomy/action-approvals.yaml`), and that class's `enforcement` is
+        `shadow` (`modo: shadow`, `approved_count=0`). Narrowing the manifest is what makes the
+        DENY the right answer WHEN that surface is eventually choked. This node is KEPT because
+        no live originator reaches it today (Anchor 1 above returns `start_skipped` for the only
+        wired origin, and `delegation.py` maps only the no-op `adequacao-worker`), so removing it
+        is not what the decision ordered; if a foreign originator ever appears, the grant returns
+        as an explicit line of YAML under owner review — never by omission.
         """
         if _flow(state) != "pagto_dossier":
             return {}

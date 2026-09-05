@@ -8,7 +8,6 @@ Workers:
 - ExecuteExportWorker: compilacao de dados para exportacao
 - ExecuteRectificationWorker: retificacao de dados
 - ExecuteErasureWorker: eliminacao de dados (guard: ERR_DENIAL_NOT_HUMAN)
-- PublishCompletedWorker: publicacao do evento de conclusao
 - send_response (#55 R-F): despacha/notifica o envio da resposta aprovada pelo humano
 - notify_sla_risk (#55 R-G): notifica risco/estouro de SLA (fase ack P7D e resolution P15D)
 
@@ -29,6 +28,20 @@ bpmn:172-179) evaluated ENGINE-SIDE (ADR-0028: DMN-as-sole-router, ratified). Th
 the DMN's routing logic and was unreachable by construction — no BPMN service task ever called its
 topic (verified: `docs/compliance/lgpd-topic-reconciliation.md` R-E). No `dmn` seam is consumed by
 this module anymore.
+
+NOTE (R-H, gap `LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC`): `PublishCompletedWorker` (topic
+`operadora.lgpd.publish_completed`) was RETIRED for the same reason, one class of defect further
+along. It was an ORPHAN CODE TOPIC — `grep -rn "operadora.lgpd.publish_completed" spec/` returns
+ZERO hits, no BPMN service task ever carried it — and it was worse than merely unreachable: a
+SYNCHRONOUS `WorkerBase.execute` with no publisher seam of any kind returned
+`{"status": "published", "event": "agents.events.lgpd_dsr.completed"}`, asserting a publication it
+never performed. The DSR's completion IS published, by the BPMN's shared generic publisher
+`ST_PublishCompleted` -> `operadora.events.publish`
+(`spec/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn`, with `event_topic`/
+`event_desfecho` computed in-engine by JUEL, GAP-LGPD-7), which is out of this module's scope
+(ADR-0026 §2b) and is untouched by the retirement. `docs/compliance/lgpd-topic-reconciliation.md`
+classifies the fix as "Fix code -> spec · MECHANICAL" (R-H); that document is itself DRAFT and
+ratifies nothing — the retirement stands on the engineering fact above, not on a sign-off.
 """
 
 from __future__ import annotations
@@ -398,47 +411,6 @@ class ExecuteErasureWorker(WorkerBase):
 
 
 # ---------------------------------------------------------------------------
-# PublishCompletedWorker
-# ---------------------------------------------------------------------------
-
-
-class PublishCompletedWorker(WorkerBase):
-    """External task: operadora.lgpd.publish_completed
-
-    Publica o evento final agents.events.lgpd_dsr.completed com o desfecho.
-    Chamado em todos os fins do processo (atendida, negada_fundamentada,
-    identidade_inverificavel, expirada_identidade).
-    """
-
-    def __init__(self) -> None:
-        super().__init__(topic="operadora.lgpd.publish_completed")
-
-    def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
-        """Publish the completion event.
-
-        Args:
-            process_vars: Must include desfecho.
-
-        Returns:
-            Dict with published event reference.
-        """
-        tenant_id = process_vars.get("tenant_id", "")
-        desfecho = process_vars.get("desfecho", "unknown")
-
-        self.logger.info(
-            "lgpd_dsr_completed",
-            tenant_id=tenant_id,
-            desfecho=desfecho,
-        )
-
-        return {
-            "status": "published",
-            "event": "agents.events.lgpd_dsr.completed",
-            "desfecho": desfecho,
-        }
-
-
-# ---------------------------------------------------------------------------
 # request_additional_proof (#55 R-B) — anti-social-engineering challenge step
 # ---------------------------------------------------------------------------
 
@@ -748,6 +720,10 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
 # here (no business-logic/topic edits). `operadora.lgpd.assess_request` (formerly
 # `AssessRequestWorker`) was RETIRED (#55 R-E, T2.8) — routing is a native engine-side DMN
 # decision (`BRT_RotearDsr` -> `lgpd_dsr_routing`), never an external task.
+# `operadora.lgpd.publish_completed` (formerly `PublishCompletedWorker`) was RETIRED too (R-H, gap
+# `LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC`): orphan code topic, zero BPMN service tasks, and the
+# completion event is published by the shared generic publisher `ST_PublishCompleted` ->
+# `operadora.events.publish` (out of scope here, ADR-0026 §2b). See this module's docstring.
 # ---------------------------------------------------------------------------
 
 
@@ -770,7 +746,6 @@ def register_lgpd_workers(
         ExecuteExportWorker,
         ExecuteRectificationWorker,
         ExecuteErasureWorker,
-        PublishCompletedWorker,
     ):
         harness.register_worker(worker_cls())
     # #55 R-B: request_additional_proof (raw handler — needs the async Kafka seam). Registered on

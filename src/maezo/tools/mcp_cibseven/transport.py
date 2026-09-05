@@ -57,14 +57,16 @@ import structlog
 # T-C2 provenance-chokepoint fence (ADR-0007, docs/design/audit-emit-path-wiring.md SHOULD-FIX 3).
 # Deliberate, load-bearing coupling — the fence makes a durable, PHI-safe ADR-0007 provenance
 # record a STRUCTURAL precondition of every process start, so `start_process_idempotent` must
-# reach the audit-record type + the one-way PHI redactor. This is the ONLY dependency this module
+# reach the audit-record type + the one-way PHI redactors (`redact_phi_vars` for the audit
+# record's `decision_basis`; CC-06's `redact_free_text_vars` for the start variables themselves,
+# which this edge used to forward verbatim). This is the ONLY dependency this module
 # takes beyond its self-contained transport primitives; both imports are cycle-free (neither
 # `maezo.gateway` nor `maezo.tools.workers.phi_vars` imports `mcp_cibseven` at load time) and
 # neither pulls `asyncpg` (the durable sink is duck-typed via the `AuditStartSink` Protocol below,
 # concrete-typed only under TYPE_CHECKING) — so a consumer of the read/transport primitives pays
 # no new heavyweight cost.
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
-from maezo.tools.workers.phi_vars import redact_phi_vars
+from maezo.tools.workers.phi_vars import redact_free_text_vars, redact_phi_vars
 
 logger = structlog.get_logger(__name__)
 
@@ -724,9 +726,10 @@ class AgentDecisionProvenance:
     allowlist of bounded routing/enum tokens ONLY (`route`, `desfecho`, `faixa_valor`,
     `grupo_aprovador`, `motivo_*`, `severidade`, ...) — NEVER raw clinical free text, and never a
     passthrough of `state`/`variables`. The chokepoint additionally runs it through the one-way
-    `redact_phi_vars` backstop and binds the raw start `variables` via a one-way `input_sha256`
+    `redact_phi_vars` backstop and binds the start `variables` via a one-way `input_sha256`
     (never persisting them), so a resolvable business key / clinical value never reaches the durable
-    chain even if a caller's allowlist slips.
+    chain even if a caller's allowlist slips. Since CC-06 those `variables` are themselves
+    free-text-scrubbed before the record is built (`start_process_idempotent` step -1).
 
     Attributes:
         agent_id: Stable agent identity (ADR-0007 `agent_id`), e.g. ``"andre"`` — NOT an ephemeral
@@ -760,6 +763,42 @@ _START_ACTION_PREFIX = "start_process"
 _START_DECISION = "START_PROCESS"
 
 
+class StartVariableRedactionError(RuntimeError):
+    """The CC-06 free-text scrub of the start `variables` could not be completed — NO START.
+
+    Deliberately NOT a `CibSevenError`. Every agent graph wraps its start call in
+    `except CibSevenError` and degrades to an honest `*_started: False` turn, which is the right
+    handling for a TRANSIENT engine outage and the WRONG handling for this: a scrub that cannot
+    run is a defect in the PHI control itself, not a retryable condition, and swallowing it would
+    turn a fail-closed refusal into a quiet per-turn degrade nobody reads. It therefore propagates
+    past every caller and fails the turn LOUDLY — the same posture `AuditPersistenceError` and
+    `StartClaimWithoutInstanceError` already have at this chokepoint.
+
+    There is no passthrough branch anywhere: `start_process_idempotent` scrubs BEFORE it writes
+    the durable claim and before it touches the engine, so this error can only ever be raised
+    with zero effects performed.
+    """
+
+
+def redact_start_variables(variables: dict[str, Any]) -> dict[str, Any]:
+    """Scrub LLM/human free text out of process-start `variables` — the CC-06 chokepoint step.
+
+    A thin, fail-closed wrapper over `phi_vars.redact_free_text_vars` (which owns the policy: WHICH
+    names are free text, and the identifier net). Kept as a named function here so the chokepoint's
+    control flow reads in one line and so a test can drive the scrub without a transport.
+
+    Raises `StartVariableRedactionError` on ANY scrub failure. Never returns the input unchanged
+    on error, and never logs the variables (that would recreate the leak in a log sink).
+    """
+    try:
+        return redact_free_text_vars(variables)
+    except Exception as exc:  # noqa: BLE001 — reclassified into the typed fail-closed refusal.
+        raise StartVariableRedactionError(
+            f"PHI free-text scrub of the start variables FAILED ({type(exc).__name__}) — refusing "
+            "to start the process; no engine effect and no durable claim were performed"
+        ) from exc
+
+
 def build_start_audit_record(
     provenance: AgentDecisionProvenance,
     *,
@@ -770,9 +809,13 @@ def build_start_audit_record(
     """Build the PHI-safe ADR-0007 process-start record from `provenance` + the start inputs.
 
     PHI discipline (design §3.3): the caller-curated `decision_basis` passes through the one-way
-    `redact_phi_vars` backstop; the raw start `variables` (which legitimately carry resolvable
+    `redact_phi_vars` backstop; the start `variables` (which legitimately carry resolvable
     business identifiers — e.g. a `numero_guia_tiss`-derived business key or payment order id) are
-    bound by a one-way `input_sha256` and NEVER stored in the clear. `business_key` itself is NOT
+    bound by a one-way `input_sha256` and NEVER stored in the clear. CC-06: when called from
+    `start_process_idempotent` the `variables` it receives are ALREADY free-text-scrubbed, so the
+    digest binds exactly the bytes the engine is given (that function's docstring, step -1). This
+    builder itself does not scrub them — it is pure, and a direct caller gets the digest of
+    whatever it passes. `business_key` itself is NOT
     placed in the durable chain (§3.3 "no resolvable business identifiers"); it lives only in the
     dedup key (a sibling table), mirroring how the engine already stores its own business key.
     `process_key` is a decision-definition class token, safe in the clear (it is also the `action`).
@@ -1413,6 +1456,23 @@ async def start_process_idempotent(
     enumerated list of call sites did (design SHOULD-FIX 3).
 
     Fail-closed ordering (design §4.2 — audit BEFORE effect):
+     -1. CC-06 PHI SCRUB (`redact_start_variables`), BEFORE the gate check, the durable claim and
+         the engine POST. Until CC-06 this edge had NO free-text scrub: `variables` went to
+         `transport.start_process_instance` verbatim, and `build_start_audit_record` ran
+         `redact_phi_vars` over `provenance.decision_basis` ONLY. Every agent that starts a
+         process ships LLM-drafted prose in them — `resumo_contexto` (helena/lucas/fernando) and
+         the `narrativa` nested in each `dossie_<agent>` — so a beneficiary-typed CPF the model
+         copied into its summary reached the engine's process variables in the clear. Failure to
+         scrub raises `StartVariableRedactionError` and NOTHING is started (no passthrough).
+
+         WHY BEFORE `build_start_audit_record`, i.e. why `input_sha256` binds the SCRUBBED form.
+         The hash exists to bind the start inputs one-way without persisting them; the only copy
+         of those inputs that outlives this call is the one the ENGINE holds. Hashing the raw
+         form would produce a digest nothing can ever be checked against — an auditor re-hashing
+         the engine's variables would get a mismatch on every started process, and the pre-scrub
+         bytes are retained nowhere. Binding what is actually persisted keeps the digest
+         verifiable, and keeps one canonical `variables` object across the claim and the effect
+         (a claim that attested different bytes than the engine received is its own defect).
       0. GATED POSTURES ONLY (`EXCLUSIVE`/`PERMANENT`) — verify both gate seams exist
          (`_require_strict_gate_seams`) BEFORE writing anything durable, so a mis-wired root never
          leaves an orphan claim. There is NO fallback to the un-gated path: a gated family whose
@@ -1478,6 +1538,11 @@ async def start_process_idempotent(
     exclusive right to perform it — permanently under `PERMANENT`, for the duration of the claimed
     generation under `EXCLUSIVE`.
     """
+    # -1. CC-06 PHI SCRUB, BEFORE ANYTHING ELSE. `variables` is rebound here and the raw mapping
+    #     is never read again in this function, so there is structurally no path on which raw
+    #     free text reaches either the durable claim or the engine.
+    variables = redact_start_variables(variables)
+
     posture = start_dedup_posture(process_key)
     gated = posture is not StartDedupPosture.NON_STRICT
     # 0. Both gate seams, checked BEFORE the claim exists (see `_require_strict_gate_seams`).

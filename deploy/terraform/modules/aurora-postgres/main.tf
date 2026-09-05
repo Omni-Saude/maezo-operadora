@@ -1,6 +1,8 @@
 # Module: aurora-postgres
 # Aurora PostgreSQL 16 cluster for Maezo agent state, memory, and audit.
-# Includes pgvector extension support (required by ADR-0002 semantic memory layer).
+# NAO inclui pgvector: DU-01-b (decisao do dono R-005, 2026-09-04) removeu a camada semantica —
+# `0009_drop_pgvector` dropa `agent_memory.embedding` e a extensao `vector`, e ADR-0002 §3 fica
+# suspenso ate existir consumidor (emenda DRAFT em ADR-0047).
 #
 # Per-tenant KMS CMK pattern mirrors amh-data-platform kms-tenant module.
 # Region: sa-east-1 (data residency for PHI — LGPD compliance).
@@ -12,7 +14,7 @@ locals {
     ManagedBy   = "terraform"
     Platform    = "maezo"
     environment = var.environment
-    DataClass   = "PHI-adjacent"   # pgvector embeddings; pseudonymized at gateway
+    DataClass   = "PHI-adjacent"   # memoria episodica de agente; pseudonimizada no gateway
   })
 }
 
@@ -47,10 +49,12 @@ resource "aws_rds_cluster_parameter_group" "this" {
   family      = "aurora-postgresql16"
   description = "Maezo Aurora PostgreSQL 16 parameter group"
 
-  # Enable pgvector. The extension itself is created by migrations post-cluster.
+  # `shared_preload_libraries` so aceita bibliotecas carregadas no start do servidor.
+  # pgvector NAO e uma delas: e uma extensao SQL, criada por `CREATE EXTENSION` nas
+  # migrations pos-cluster. Declara-la aqui faria o boot do cluster falhar (DU-03).
   parameter {
     name  = "shared_preload_libraries"
-    value = "pg_stat_statements,pgvector"
+    value = "pg_stat_statements"
   }
 
   parameter {
