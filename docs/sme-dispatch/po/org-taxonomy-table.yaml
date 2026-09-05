@@ -393,7 +393,7 @@ rows:
   linha: 78
   processo: SP-OP-PAGTO-001
   em_escopo: false
-  tarefa_ou_regra_dmn: regra r_alcada_l1; wireado via bpmn:272 ${pagto_alcada.grupo_aprovador} -> UT_AprovacaoAlcada
+  tarefa_ou_regra_dmn: regra r_alcada_l1; wireado via bpmn:278 ${pagto_alcada.grupo_aprovador} -> UT_AprovacaoAlcada
   sla_ato: contrato Sec.Papeis linha 187 -- tier 1, faixa ALCADA_L1
   proposto: true
   notas: caveat PROPOSTO contrato linha 181-183 (binding value-driven)
@@ -403,7 +403,7 @@ rows:
   linha: 88
   processo: SP-OP-PAGTO-001
   em_escopo: false
-  tarefa_ou_regra_dmn: regra r_alcada_l2; wireado via bpmn:272 -> UT_AprovacaoAlcada
+  tarefa_ou_regra_dmn: regra r_alcada_l2; wireado via bpmn:278 -> UT_AprovacaoAlcada
   sla_ato: contrato Sec.Papeis linha 188 -- tier 2, faixa ALCADA_L2
   proposto: true
   notas: caveat PROPOSTO contrato linha 181-183
@@ -413,7 +413,7 @@ rows:
   linha: 98
   processo: SP-OP-PAGTO-001
   em_escopo: false
-  tarefa_ou_regra_dmn: regra r_alcada_l3; wireado via bpmn:272 -> UT_AprovacaoAlcada
+  tarefa_ou_regra_dmn: regra r_alcada_l3; wireado via bpmn:278 -> UT_AprovacaoAlcada
   sla_ato: contrato Sec.Papeis linha 189 -- tier 3, faixa ALCADA_L3
   proposto: true
   notas: caveat PROPOSTO contrato linha 181-183
@@ -423,17 +423,17 @@ rows:
   linha: 108
   processo: SP-OP-PAGTO-001
   em_escopo: false
-  tarefa_ou_regra_dmn: regra r_catchall (FAIL-SAFE); wireado via bpmn:272 -> UT_AprovacaoComite
+  tarefa_ou_regra_dmn: regra r_catchall (FAIL-SAFE); wireado via bpmn:278 -> UT_AprovacaoComite
   sla_ato: contrato Sec.Papeis linha 190 -- catch-all conservador, aprovacao colegiada DRAFT
   proposto: true
   notas: caveat PROPOSTO contrato linha 181-183
   nome_real: ''
 - grupo_declarado: coordenacao-financeira
   arquivo: spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn
-  linha: 156
+  linha: 162
   processo: SP-OP-PAGTO-001
   em_escopo: false
-  tarefa_ou_regra_dmn: UT_AnaliseAdmissibilidade; UT_CoordenacaoAlcada (linha 338, SLA estourado)
+  tarefa_ou_regra_dmn: UT_AnaliseAdmissibilidade; UT_CoordenacaoAlcada (linha 344, SLA estourado)
   sla_ato: contrato Sec.Papeis linha 191 -- humano de tier >= faixa assume
   proposto: true
   notas: caveat PROPOSTO contrato linha 181-183

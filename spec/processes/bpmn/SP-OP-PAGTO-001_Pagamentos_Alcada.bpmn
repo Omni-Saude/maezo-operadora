@@ -24,7 +24,8 @@ de qualquer deploy — ver docs/review-queue.md.
 GATILHO REGULATORIO: politica financeira interna da operadora (escada de alcada / segregacao de
 funcoes / SOX-like controls — DRAFT/verify financas). NAO ha RN ANS especifica que defina o teto.
 Interage com Lei 9.656/1998 (pagamento a prestador) e com SP-OP-CONTAS-001 (a conta adjudicada
-gera a obrigacao de pagamento) — DRAFT/verify.
+gera a obrigacao de pagamento — desde ADR-0040 isto e verdade: o handoff real e
+operadora.contas.handoff_pagamento) — DRAFT/verify.
 
 INVARIANTE L1 (no-adverse, high_value_payment, ADR-0008 "agente propoe, humano aprova"): a
 LIBERACAO de pagamento de alto valor (efeito adverso de risco financeiro) SO nasce numa User Task
@@ -51,9 +52,12 @@ alcada. Qualquer coisa acima do teto L2 exige aprovador humano de tier adequado.
 
 BUSINESS KEY (idempotente): "PAGTO-{tenant_id}-{ordem_pagamento_id}" (variante
 PAGTO-{tenant_id}-{numero_lote_tiss}-{prestador_id} quando o pagamento decorre de conta adjudicada
-CONTAS-001). Uma instancia ativa por ordem de pagamento; reenvio retorna a instancia ativa
-(mcp-cibseven.start_process consulta a business key antes de iniciar — EVITA liberacao duplicada de
-pagamento, risco financeiro direto).
+CONTAS-001, cunhada por operadora.contas.handoff_pagamento; terceira forma
+PAGTO-{tenant_id}-{numero_guia_tiss}-{glosa_id}, cunhada por operadora.recurso.handoff_pagamento
+quando a operadora reverte uma glosa ao deferir um recurso — uma glosa revertida nao tem
+ordem_pagamento_id pre-existente, ADR-0040). Uma instancia ativa por ordem de pagamento; reenvio
+retorna a instancia ativa (mcp-cibseven.start_process consulta a business key antes de iniciar —
+EVITA liberacao duplicada de pagamento, risco financeiro direto).
 
 EVENTOS DE DOMINIO (worker operadora.events.publish):
   inicio -> agents.events.pagto.received
@@ -63,11 +67,13 @@ EVENTOS DE DOMINIO (worker operadora.events.publish):
   fim -> agents.events.pagto.completed (payload.desfecho = liberado_automatico | liberado_humano |
          recusado_humano | cancelado)
 
-VARIAVEIS DE ENTRADA: tenant_id, ordem_pagamento_id, numero_lote_tiss (opc), prestador_id,
-tipo_pagamento, valor_pagamento_cents (long/int64 — centavos BRL; centavos de alto valor excedem o
-int32 do Java, NUNCA number/Integer), moeda, competencia,
-data_vencimento, conta_origem_ref (token), instrumento_pagamento, dados_pagamento_validos (bool,
-pre-resolvido), lastro_confirmado (bool, pre-resolvido), dentro_teto_l2 (bool, pre-resolvido),
+VARIAVEIS DE ENTRADA: tenant_id, ordem_pagamento_id, numero_lote_tiss (opc), numero_guia_tiss (opc),
+prestador_id, tipo_pagamento, valor_pagamento_cents (long/int64 — centavos BRL; centavos de alto
+valor excedem o int32 do Java, NUNCA number/Integer), moeda, competencia,
+data_vencimento, conta_origem_ref (token), instrumento_pagamento, fonte_valor (opc, evidencia —
+apresentado|liberado), dados_pagamento_validos (bool,
+pre-resolvido), lastro_confirmado (bool, pre-resolvido), lastro_origem (opc, evidencia),
+lastro_decisor_id (opc, evidencia), glosa_id (opc), dentro_teto_l2 (bool, pre-resolvido),
 duplicidade_suspeita (bool, informativo). Contrato completo: docs/processes/contracts/SP-OP-PAGTO-001.md.
 ]]></bpmn:documentation>
 
