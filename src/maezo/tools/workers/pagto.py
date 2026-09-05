@@ -764,8 +764,12 @@ def register_payment_refusal(variables: dict[str, Any]) -> dict[str, Any]:
 # `FraudeError`), com as MESMAS tres razoes somadas: (1) `operadora.pagto.publish_completed` nao e
 # declarado por `serviceTask` algum de SP-OP-PAGTO-001 — os quatro `ST_Publish*` do processo
 # roteiam pelo generico `operadora.events.publish`; (2) o corpo tinha uma unica instrucao
-# (`logger.info`) e ainda assim devolvia `evento_publicado: True`, fato que a allowlist de escrita
-# de escopo da harness deixa entrar na instancia de um processo FINANCEIRO; (3) o `desfecho` era
+# (`logger.info`) e ainda assim devolvia `evento_publicado: True` num processo FINANCEIRO — e o
+# `complete` da harness grava o retorno INTEIRO no escopo (`dict(out_vars)`, sem filtro), enquanto
+# `_SAFE_DECISION_BASIS_KEYS` (a allowlist do `decision_basis` do ADR-0007, em
+# `harness.py::build_decision_basis`) era o que ADICIONALMENTE levava a chave para a trilha
+# nao-repudiavel (correcao §Delta F4: a redacao anterior chamava a lista de "allowlist de escrita
+# de escopo", o que subestima a exposicao); (3) o `desfecho` era
 # recalculado em Python a partir de `faixa_valor`/`decisao_pagamento`, duplicando o vocabulario que
 # o BPMN ja fixa como literal `event_desfecho` em cada task de publicacao (C3: decisao de negocio
 # nao migra para o worker). Nao ha lacuna a declarar — o evento E publicado por `events.py` — logo

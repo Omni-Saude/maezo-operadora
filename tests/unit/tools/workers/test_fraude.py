@@ -1406,8 +1406,12 @@ def test_fraude_nao_registra_topico_orfao_publish_completed() -> None:
     `operadora.events.publish`, servido por `events.py`, o UNICO ponto do repo que publica de
     verdade e que reporta `event_published` a partir do bool de entrega real do produtor. O corpo
     da funcao tinha uma unica instrucao (`logger.info`) e mesmo assim devolvia
-    `evento_publicado: True` (chave que a allowlist de escrita de escopo da harness deixa entrar na
-    instancia) mais um `desfecho` recalculado em Python a partir de `decisao_fraude` — segunda
+    `evento_publicado: True` (o `complete` da harness grava o retorno INTEIRO no escopo do
+    processo, `dict(out_vars)` sem filtro; e a chave estava em `_SAFE_DECISION_BASIS_KEYS`, a
+    allowlist do `decision_basis` do ADR-0007 em `harness.py::build_decision_basis`, que era o que
+    ADICIONALMENTE a levava para a trilha nao-repudiavel — correcao §Delta F4 da redacao anterior,
+    que chamava a lista de "allowlist de escrita de escopo" e assim subestimava a exposicao) mais
+    um `desfecho` recalculado em Python a partir de `decisao_fraude` — segunda
     fonte de verdade para um vocabulario que o BPMN ja fixa em cada `event_desfecho`, e ERRADA em
     4 dos 5 terminais (tudo que nao e `ACUSAR_FRAUDE` virava `arquivado_sem_indicio`, inclusive
     MONITORAR e os tres `encaminhado_*`).

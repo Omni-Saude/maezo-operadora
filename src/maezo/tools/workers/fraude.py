@@ -1188,9 +1188,14 @@ def start_contratual(
 #     roteia pelo generico `operadora.events.publish`. Um topico que nenhum `serviceTask` declara
 #     nunca recebe external task: a funcao era codigo morto do ponto de vista do engine.
 #  2. FATO FABRICADO. O corpo tinha uma unica instrucao (`logger.info`) e mesmo assim devolvia
-#     `evento_publicado: True` — chave que a allowlist de escrita de escopo da harness
-#     (`harness.py`, `_SAFE_DECISION_BASIS_KEYS`) DEIXAVA entrar na instancia, ou seja, a afirmacao de um
-#     publish que nunca ocorreu entrava na trilha ADR-0007 de uma investigacao de fraude. Este
+#     `evento_publicado: True`. CORRECAO §Delta F4 da redacao anterior desta nota (ela chamava
+#     `_SAFE_DECISION_BASIS_KEYS` de "allowlist de escrita de escopo da harness", o que esta
+#     errado e SUBESTIMA a exposicao): o `complete` da harness grava o retorno INTEIRO no escopo
+#     do processo (`dict(out_vars) if out_vars else {}`, sem filtro nenhum), entao a afirmacao
+#     entrava na instancia INDEPENDENTEMENTE de qualquer allowlist;
+#     `_SAFE_DECISION_BASIS_KEYS` (`harness.py::build_decision_basis`) e a allowlist do
+#     `decision_basis` do ADR-0007 — e o fato de a chave estar LA e o que ADICIONALMENTE levava o
+#     publish que nunca ocorreu para a trilha NAO-REPUDIAVEL de uma investigacao de fraude. Este
 #     modulo nao tem UM call site de `kafka.publish(` (`register_fraude_workers` faz
 #     `del kafka  # unused`). Quem publica de verdade e `events.py`, e ele reporta
 #     `event_published` a partir do bool de entrega REAL do produtor (mais

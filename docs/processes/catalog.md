@@ -59,8 +59,11 @@ declarados pelo BPMN; pinado por
 REMOVIDOS** (FAB-PUBLISH-CONTACT, achado NEW-A2-1): os dois workers estavam registrados sob topicos
 derivados do nome da funcao que NENHUM `serviceTask` declara — todo `ST_Publish*` de SP-OP-FRAUDE-001
 e de SP-OP-PAGTO-001 roteia pelo generico `operadora.events.publish` — logo eram orfaos inalcancaveis
-pelo engine. Cada um devolvia (a) `evento_publicado: True`, fato fabricado que a allowlist de escrita
-de escopo da harness deixava entrar na instancia, de um corpo cuja unica instrucao era `logger.info`
+pelo engine. Cada um devolvia (a) `evento_publicado: True`, fato fabricado que entrava na instancia de qualquer
+jeito — o `complete` da harness grava o retorno INTEIRO no escopo (`dict(out_vars)`, sem filtro) — e
+que, por a chave estar em `_SAFE_DECISION_BASIS_KEYS` (a allowlist do `decision_basis` do ADR-0007,
+`harness.py::build_decision_basis`), ainda ia parar na trilha NAO-REPUDIAVEL; tudo isso de um corpo
+cuja unica instrucao era `logger.info`
 (nenhum dos dois modulos tem call site de `kafka.publish(`; `register_fraude_workers` faz
 `del kafka  # unused`), e (b) um `desfecho` recalculado em Python, SEGUNDA fonte de verdade para o
 vocabulario que o BPMN ja fixa como literal `event_desfecho` em cada task de publicacao — e errada no
