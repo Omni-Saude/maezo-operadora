@@ -277,9 +277,21 @@ notificationsBridge:
 # tenant_id+regiao_saude+especialidade). Sibling do notifications-bridge, MESMA identidade de
 # principal de SERVICO `notifications-bridge` (allowlist minima: so start_process). NAO sobe app
 # de health (liveness por processo).
+#
+# DEFAULT FLIPPED TO false (AF-01 / R-001, mesmo padrao que `fhirSync` ja adota acima):
+# `deployment-bridge-netchange.yaml`'s `command: ["python", "-m",
+# "maezo.platform.integrations.network_change_bridge"]` aponta para um modulo que NAO existe em
+# src/ — `ls src/maezo/platform/integrations/` so tem `notifications_bridge.py` (+
+# `events_kafka_producer.py`, `amh_inbox.py`, `partition_key.py`, `__init__.py`). Todo pod desta
+# ponte entraria em CrashLoopBackOff imediato (`ModuleNotFoundError`) — mesma classe de defeito do
+# fhir-sync acima (DB-1/t5-deploy-hygiene). `scripts/ci/check_helm_entrypoints.py` (Makefile target
+# `check-helm-entrypoints`, job `validate-helm` em ci.yml) agora falha fechado se este flag voltar
+# a `true` sem o modulo existir — NAO reverta so' este valor sem construir
+# `maezo.platform.integrations.network_change_bridge` primeiro (isso e' a opcao D do memorando
+# M-01, recusada; ver OWNER-DECISIONS-REGISTER R-001).
 # ---------------------------------------------------------------------------
 networkChangeBridge:
-  enabled: true
+  enabled: false
   replicaCount: 1
   resources:
     requests:
@@ -299,10 +311,43 @@ networkChangeBridge:
 # identidade de principal de SERVICO DEDICADA `consent-revocation-bridge` (allowlist minima: so
 # correlate_message — nunca start_process, least-privilege). NAO sobe app de health (liveness por
 # processo).
+#
+# DEFAULT FLIPPED TO false (AF-01 / R-001, mesmo padrao que `fhirSync` ja adota acima):
+# `deployment-bridge-consent-revocation.yaml`'s `command: ["python", "-m",
+# "maezo.platform.integrations.consent_revocation_bridge"]` aponta para um modulo que NAO existe em
+# src/ (mesmo `ls` acima) — CrashLoopBackOff garantido. Mesmo fence e mesma condicao de reversao do
+# comentario de `networkChangeBridge` logo acima (ver OWNER-DECISIONS-REGISTER R-001).
 # ---------------------------------------------------------------------------
 consentRevocationBridge:
+  enabled: false
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+
+# ---------------------------------------------------------------------------
+# A2A fact-outbox relay (SC-01 / R-004) — Postgres outbox -> Kafka, at-least-once
+#
+# Deployment dedicado rodando `python -m maezo.a2a.outbox_relay` em loop (opcao B do memorando
+# M-04, ratificada — espelha o sibling `notificationsBridge` acima). Antes deste template, nada
+# no repo invocava o relay: `runtime/agent_runtime/a2a_composition.py` documenta que ele e'
+# "explicitly-invoked ... never auto-started" e que a entrega de fatos A2A e' uma decisao de
+# DEPLOYMENT — este bloco + `deployment-a2a-outbox-relay.yaml` SAO essa decisao. Mecanismo (lease
+# expiravel, `claimed_by`, batch/TTL parametricos) ja' pronto em `src/maezo/a2a/outbox_relay.py`;
+# faltava so' o invocador.
+# ---------------------------------------------------------------------------
+a2aOutboxRelay:
   enabled: true
   replicaCount: 1
+  # Linhas por sweep de drain (`A2A_OUTBOX_RELAY_BATCH_SIZE` — outbox.py `DEFAULT_BATCH_SIZE`).
+  batchSize: 100
+  # Segundos de espera entre sweeps QUANDO o sweep anterior nao achou nada
+  # (`A2A_OUTBOX_RELAY_POLL_INTERVAL_S` — outbox_relay.py `DEFAULT_POLL_INTERVAL_S`).
+  pollIntervalS: 2
   resources:
     requests:
       cpu: "50m"
