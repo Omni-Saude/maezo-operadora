@@ -339,6 +339,46 @@ async def test_receive_pagto_without_any_key_identifier_routes_human_review() ->
     assert result["motivo_humano"] == "analise_humana"
 
 
+async def test_receive_pagto_without_valor_routes_pendencia_dados_never_zero() -> None:
+    """AND-07 (Agent Fleet Audit): `receive` required only ordem_pagamento_id OR lote+prestador
+    for the pagto_dossier flow -- never valor_pagamento_cents -- so a case with an order but no
+    value fell through to `_contract_variables`' `int(state.get("valor_pagamento_cents", 0))`
+    and started the instance with a fabricated `valor=0` (`dentro_teto_l2` mitigates auto-release
+    of it, but the engine history still records a value the case never actually carried)."""
+    state = _pagto_state()
+    del state["valor_pagamento_cents"]  # caller never supplied a value at all
+    result = await _graph().receive(state)
+    assert result["route"] == "human_review"
+    assert result["motivo_humano"] == "pendencia_dados"
+    assert result["business_key"] == ""  # never a malformed/fabricated payment key
+    assert "valor_pagamento_cents" in result["error"]
+
+
+async def test_receive_pagto_with_zero_valor_routes_pendencia_dados() -> None:
+    """Same guard, explicit-zero shape: a caller-planted 0 is exactly as untrustworthy as an
+    absent value -- neither is a real payment amount."""
+    result = await _graph().receive(_pagto_state(valor_pagamento_cents=0))
+    assert result["route"] == "human_review"
+    assert result["motivo_humano"] == "pendencia_dados"
+    assert result["business_key"] == ""
+
+
+async def test_full_turn_pagto_without_valor_never_starts_process() -> None:
+    """The fail-safe fires BEFORE any DMN evaluation or process start -- no engine instance is
+    ever created for a case with no payment value (mirrors the existing sem-chave full-turn
+    coverage below)."""
+    cibseven = FakeCibSevenTransport()
+    state = _pagto_state()
+    del state["valor_pagamento_cents"]
+    graph = _graph(cibseven=cibseven)
+    compiled = graph.compile_graph().compile()
+
+    result = await compiled.ainvoke(state)
+
+    assert result["route"] == "human_review"
+    assert result["process_started"] is False
+
+
 async def test_receive_population_without_cohort_routes_human_review() -> None:
     result = await _graph().receive(_population_state(cohort_id=""))
     assert result["route"] == "human_review"
