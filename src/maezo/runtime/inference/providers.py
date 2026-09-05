@@ -368,6 +368,26 @@ class AnthropicInferenceProvider(BaseInferenceProvider):
             raise InferenceProviderError(
                 "anthropic", f"API error ({exc.status_code}): {exc.message}", retryable=retryable
             ) from exc
+        except (anthropic.AnthropicError, ValueError) as exc:
+            # §Delta-F1, o MESMO defeito que `tools/mcp_fhir/server.py::_corpo_de_recurso` fecha,
+            # do outro lado da fronteira. Os cinco `except` acima cobrem auth/rate-limit/timeout/
+            # conexao/status, e NAO cobrem o corpo: o SDK faz `response.json()` sem guarda quando
+            # o `content-type` termina em `json` (`anthropic/_response.py`), de modo que um 200
+            # com corpo nao-JSON — proxy/WAF respondendo pelo backend — levanta
+            # `json.JSONDecodeError`, subclasse de `ValueError`; e um corpo que nao casa com o
+            # schema levanta `anthropic.APIResponseValidationError`, que NAO e' `APIStatusError`
+            # e nao e' subclasse de `RuntimeError`/`OSError`/`httpx.HTTPError`. As duas escapavam
+            # deste modulo com tipo de SDK/stdlib cru e, depois de NEW-12 estreitar os nos,
+            # DERRUBARIAM o turno em vez de degradar. Ambas sao falha do FORNECEDOR: viram o tipo
+            # declarado no `Raises:` de `InferenceProvider.generate`. Mesma postura ja' escrita em
+            # `BedrockInferenceProvider.generate` ("no SDK/transport type may leak past this
+            # module") e em `br_regional.py`. Um bug local continua propagando: o corpo do `try`
+            # contem UMA chamada, a do SDK.
+            raise InferenceProviderError(
+                "anthropic",
+                f"resposta ilegivel do provedor ({type(exc).__name__})",
+                retryable=True,
+            ) from exc
 
         # T8: meter token usage for EVERY response that reaches this point — including a
         # refusal (still a genuine, billable-or-not API response with its own `usage`).
@@ -386,7 +406,25 @@ class AnthropicInferenceProvider(BaseInferenceProvider):
                 "anthropic", "request declined by safety classifiers (stop_reason=refusal)", retryable=False
             )
 
-        text = "".join(block.text for block in response.content if block.type == "text")
+        # §Delta-F1, segunda metade do seam do LLM. O SDK valida a resposta de forma NAO-ESTRITA
+        # por padrao (`_strict_response_validation=False`): um 200 cujo JSON e' valido mas nao
+        # tem a forma de uma `Message` NAO levanta `APIResponseValidationError` — ele constroi
+        # uma `Message` com `content=None`, e o `for block in response.content` logo abaixo
+        # levantava `TypeError: 'NoneType' object is not iterable`. `TypeError` esta em
+        # `PROGRAMMING_ERRORS`, entao depois do estreitamento de NEW-12 esse corpo externo
+        # DERRUBAVA o turno em vez de degradar — a mesma troca que o §Delta-F1 fecha do lado do
+        # FHIR. Aqui a resposta e' a mesma: vira o tipo declarado no `Raises:`, com o token de
+        # classe e sem nenhum byte do corpo.
+        blocos = response.content
+        if not isinstance(blocos, list):
+            raise InferenceProviderError(
+                "anthropic",
+                f"resposta 200 sem blocos de conteudo utilizaveis ({type(blocos).__name__}); "
+                "corpo fora do schema do SDK",
+                retryable=True,
+            )
+
+        text = "".join(block.text for block in blocos if block.type == "text")
         logger.info(
             "inference_anthropic_generate",
             model=self._model,

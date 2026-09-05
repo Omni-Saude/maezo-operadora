@@ -117,10 +117,24 @@ PROGRAMMING_ERRORS: Final[tuple[type[Exception], ...]] = (
 #:   `RuntimeError` nem de `OSError`, entao sem esta terceira entrada um 502 do HAPI FHIR
 #:   derrubaria o turno.
 #:
-#: `ValueError` esta DELIBERADAMENTE FORA: nenhum porto injetado declara `ValueError` como falha
-#: de dependencia (o unico `ValueError` do caminho de efeito e' o "credencial nao configurada" do
-#: `WhatsAppServer`, e os quatro sitios de envio continuam largos por contrato — ver a allowlist
-#: da cerca), enquanto `ValueError` e' a classe de bug mais comum que um duplo pode levantar.
+#: `ValueError` esta DELIBERADAMENTE FORA, e a PREMISSA foi corrigida no §Delta-F1: nao e'
+#: verdade que "nenhum porto injetado levanta `ValueError`" — o que e' verdade e' que nenhum
+#: porto injetado pode DEIXAR um `ValueError` escapar, e isso agora e' um contrato APLICADO na
+#: camada que possui o corpo, nao uma leitura otimista dos `Raises:`. A primeira versao deste
+#: paragrafo afirmava a forma otimista e estava FACTUALMENTE ERRADA em dois pontos, ambos
+#: reproduzidos LIVE: (1) `tools/mcp_fhir/server.py` terminava em `response.json()` sem guarda,
+#: entao um 200 com corpo nao-JSON (proxy/WAF, payload truncado, `base_url` que nao e' FHIR)
+#: levantava `json.JSONDecodeError` <: `ValueError` e DERRUBAVA o turno nos 10 sitios de leitura;
+#: (2) o SDK da Anthropic faz o mesmo `response.json()` sem guarda, e ainda levanta
+#: `APIResponseValidationError`, que nao e' subclasse de nenhuma das tres bases acima. Os dois
+#: foram fechados NA ORIGEM — `tools/mcp_fhir/server.py::{FhirResponseError, _corpo_de_recurso}`
+#: e o `except (anthropic.AnthropicError, ValueError)` de
+#: `runtime/inference/providers.py::AnthropicInferenceProvider.generate` —, cada um convertendo a
+#: falha externa no tipo `RuntimeError` que o seu proprio `Raises:` declara. Alargar ESTA tupla
+#: para `ValueError` teria sido o conserto errado: `ValueError` e' a classe de bug mais comum que
+#: um duplo de teste pode levantar (e o "credencial nao configurada" do `WhatsAppServer` — os
+#: quatro sitios de envio continuam largos por contrato, ver a allowlist da cerca), e absorve-lo
+#: aqui devolveria exatamente o silencio que NEW-12 foi aberto para fechar.
 EXTERNAL_DEPENDENCY_FAILURES: Final[tuple[type[Exception], ...]] = (
     RuntimeError,
     OSError,

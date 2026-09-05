@@ -29,8 +29,10 @@ comportamento CONTRATADO destes nos, e continua valendo para a falha que o porto
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Any, cast
+from typing import Any, Final, cast
 
+import anthropic
+import httpx
 import pytest
 
 from maezo.agents.andre.graph import AndreGraph
@@ -40,11 +42,22 @@ from maezo.agents.fernando.graph import FernandoGraph
 from maezo.agents.gustavo.graph import GustavoGraph
 from maezo.agents.helena.graph import HelenaGraph
 from maezo.agents.lucas.graph import LucasGraph
+from maezo.agents.marina.adapters import FhirServerReader as MarinaFhirReader
 from maezo.agents.marina.graph import MarinaGraph
+from maezo.agents.rafael.adapters import FhirServerReader as RafaelFhirReader
 from maezo.agents.rafael.graph import RafaelGraph
 from maezo.agents.valentina.graph import ValentinaGraph
-from maezo.runtime.inference import InferenceProvider, InferenceProviderError
+from maezo.platform.privacy.dossier_zone import (
+    SYNTHETIC_ONLY_ENV,
+    dossier_narrative_requires_phi_zone,
+)
+from maezo.runtime.inference import (
+    AnthropicInferenceProvider,
+    InferenceProvider,
+    InferenceProviderError,
+)
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
+from maezo.tools.mcp_fhir.server import FhirServer, FhirSettings
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
@@ -411,3 +424,124 @@ async def test_envio_largo_por_contrato_continua_absorvendo_o_fornecedor(sitio: 
     resultado = await _SENDER_SITES[sitio](sender)
     assert sender.chamadas == 1
     assert resultado
+
+
+# =================================================================================================
+# (D) §Delta-F1 — o corpo EXTERNO ilegivel volta a degradar, atraves dos seams REAIS
+# =================================================================================================
+#
+# O QUE ESTA SECAO PROVA, E POR QUE ELA NAO USA DUPLO NENHUM ACIMA DO SOCKET.
+#
+# O estreitamento de NEW-12 tirou `ValueError` das bases absorvidas de proposito. A justificativa
+# escrita era que "nenhum porto injetado declara `ValueError` como falha de dependencia" — e essa
+# premissa era FALSA no caminho de producao: `tools/mcp_fhir/server.py` terminava em
+# `response.json()` sem guarda, entao um 200 com corpo que nao e' JSON (proxy/WAF respondendo pelo
+# backend, payload truncado, `base_url` que nao e' FHIR) levantava `json.JSONDecodeError`
+# (<: `ValueError`) e passava a DERRUBAR O TURNO nos 10 sitios de leitura, onde antes virava nota
+# de lacuna. O conserto mora na camada que possui o corpo (`FhirResponseError`, `RuntimeError`),
+# nunca no `except` dos grafos — alargar os nos para `ValueError` devolveria o silencio que este
+# WP fechou.
+#
+# Por isso os testes abaixo montam a CADEIA REAL: `FhirServer` real -> os adaptadores REAIS
+# (`agents/{rafael,marina}/adapters.py`) -> o no real. So' o transporte HTTP e' de memoria
+# (`httpx.MockTransport`), i.e. o corte fica no socket, e a `httpx.Response` e o `.json()` que
+# quebram sao os de verdade.
+
+_ASYNC_CLIENT_REAL: Final[type[httpx.AsyncClient]] = httpx.AsyncClient
+
+_CORPO_NAO_JSON: Final[bytes] = b"<html><body>502 Bad Gateway</body></html>"
+
+
+def _corta_o_socket(monkeypatch: pytest.MonkeyPatch, corpo: bytes) -> None:
+    """Faz todo `httpx.AsyncClient()` responder 200 + `corpo`, sem tocar em nada acima disso."""
+
+    def _handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=corpo, headers={"content-type": "application/json"})
+
+    def _fabrica(**kwargs: Any) -> httpx.AsyncClient:
+        kwargs.pop("transport", None)
+        return _ASYNC_CLIENT_REAL(transport=httpx.MockTransport(_handler), **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _fabrica)
+
+
+class _LeitorRealComposto:
+    """Os ADAPTADORES REAIS sobre UM `FhirServer` real, reunidos num so' porto.
+
+    Os grafos declaram Protocols estruturais diferentes (`read_patient`, `read_patient_summary`,
+    `search_coverage`), e cada adaptador de producao implementa a sua parte. Esta classe nao
+    IMPLEMENTA nada: ela delega para `agents/rafael/adapters.py::FhirServerReader` e
+    `agents/marina/adapters.py::FhirServerReader`, que sao o codigo que roda em producao.
+    """
+
+    def __init__(self, servidor: FhirServer) -> None:
+        self._rafael = RafaelFhirReader(servidor)
+        self._marina = MarinaFhirReader(servidor)
+
+    async def read_patient(self, patient_id: str) -> dict[str, Any]:
+        return await self._rafael.read_patient(patient_id)
+
+    async def read_patient_summary(self, patient_id: str) -> dict[str, Any]:
+        return await self._marina.read_patient_summary(patient_id)
+
+    async def search_coverage(self, patient_id: str) -> Any:
+        return await self._rafael.search_coverage(patient_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sitio", sorted(_READER_SITES), ids=sorted(_READER_SITES))
+async def test_corpo_fhir_ilegivel_volta_a_virar_nota_de_lacuna(
+    sitio: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§Delta-F1: 200 com corpo nao-JSON DEGRADA (token de classe), nunca derruba o turno."""
+    _corta_o_socket(monkeypatch, _CORPO_NAO_JSON)
+    servidor = FhirServer(FhirSettings(base_url="http://fhir.invalido/fhir/omni"))
+
+    resultado = await _READER_SITES[sitio](_LeitorRealComposto(servidor))
+
+    notas = resultado.get("gather_notes") or resultado.get("notes") or []
+    assert any("indisponivel" in str(nota) for nota in notas), notas
+    assert any("FhirResponseError" in str(nota) for nota in notas), notas
+
+
+@pytest.mark.asyncio
+async def test_corpo_do_provedor_de_llm_ilegivel_volta_a_degradar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mesma prova do outro lado: o seam do LLM tambem tinha um `.json()` sem guarda.
+
+    Cadeia REAL de ponta a ponta: a fachada `InferenceProvider` (a unica coisa que um grafo
+    conhece) sobre o `AnthropicInferenceProvider` REAL sobre o cliente REAL do SDK, cujo unico
+    substituto e' o transporte HTTP. O corpo 200 nao-JSON faz o SDK levantar
+    `json.JSONDecodeError`; o provedor converte para `InferenceProviderError`, e o no volta a
+    devolver o dossie minimo em vez de estourar.
+
+    POR QUE RAFAEL, E POR QUE A VARIAVEL DE AMBIENTE. Os outros 14 sitios de LLM passam
+    `phi=True` fixo, e a fachada RECUSA antes de discar quando o provedor ativo nao e' PHI-capaz
+    (`PhiZoneRoutingError`, I-6) — um teste ali seria VACUO: a narrativa ficaria vazia pela
+    recusa de zona, sem nunca alcancar o corpo ilegivel. So' `rafael::_build_dossier` deriva o
+    `phi` de `dossier_narrative_requires_phi_zone()`, e o unico caminho que o torna `False` sem
+    ratificacao assinada e' o operador declarar o ambiente como SOMENTE SINTETICO — exatamente o
+    que este teste declara, e o que faz a chamada de fato sair.
+    """
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-" + "t" * 24)
+    monkeypatch.setenv(SYNTHETIC_ONLY_ENV, "1")
+
+    def _handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=_CORPO_NAO_JSON, headers={"content-type": "application/json"})
+
+    impl = AnthropicInferenceProvider()
+    impl._client = anthropic.AsyncAnthropic(
+        api_key="sk-ant-" + "t" * 24,
+        http_client=_ASYNC_CLIENT_REAL(transport=httpx.MockTransport(_handler)),
+        max_retries=0,
+    )
+    fachada = InferenceProvider()
+    fachada._impl = impl
+
+    # NAO-VACUIDADE: sem a conversao no provedor, a chamada abaixo levanta `json.JSONDecodeError`
+    # (<: `ValueError`), que NAO esta em `EXTERNAL_DEPENDENCY_FAILURES` — o turno cai.
+    assert dossier_narrative_requires_phi_zone() is False
+    resultado = await _rafael_dossier(fachada)
+
+    assert resultado["narrativa"] == ""
