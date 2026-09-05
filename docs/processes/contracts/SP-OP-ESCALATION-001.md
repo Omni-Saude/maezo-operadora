@@ -28,6 +28,30 @@ idempotente, sem duplicar escalonamento).
 | `resumo_contexto` | string | sim | Handoff escrito pelo agente, pseudonimizado |
 | `dmn_decision_ref` | string | nao | Tabela/regra DMN que disparou (ex.: `triage_redflag_adult#r1`) |
 
+### `severidade` quando `motivo_categoria = falha_tecnica` (HEL-04, 2026-09-05)
+
+A parentese acima (`red flag P1 => grave, P2 => moderada`) descreve o gatilho de red flag, o
+unico em que existe veredito de DMN. No gatilho **`falha_tecnica`** nao ha veredito nenhum — e' o
+proprio motor de decisao que faltou — e ate 2026-09-05 o agente emitia `leve` literal nos dois
+ramos, inclusive sobre um sintoma ja classificado como `grave`. A regra agora e:
+
+| Situacao | `severidade` | Por que |
+|---|---|---|
+| DMN indisponivel COM sintoma classificado | derivada da `intensidade` ja validada: `leve` so' quando a `intensidade` e' explicitamente `leve`; qualquer outro valor (`grave`, `moderada`, `desconhecida`, ausente) => `moderada` | ha' sinal para calibrar, e uma intensidade nao apurada nao e' a mais branda. **Teto em `moderada`**: `grave` fica reservado ao red flag P1, que so' a DMN emite |
+| Falha do classificador (excecao, JSON invalido, schema invalido, roteamento PHI recusado) | ausente (`null`) | nao houve extracao alguma de onde derivar. Uma severidade desconhecida nunca e' anunciada como `leve` — mesma decisao ja vigente para o escalonamento sem contexto de runtime (HELENA-SEVERIDADE-DEFAULT). Consequencia DECLARADA: o worker `operadora.escalation.notify_supervisor` recusa fail-closed uma severidade ausente (`escalation.py::_exigir_severidade`) e `ST_NotificarFallback` recusa igual, entao **nenhuma notificacao e publicada**; o caso continua chegando ao HITL obrigatorio pela aresta modelada `BE_NotifFallbackFailed` -> `Flow_BENotifFallback_UT` -> `UT_TratarEscalonamento`. Nunca um beco sem saida; o que deixa de existir e' o rotulo fabricado |
+
+### Fronteira de conteudo nao confiavel no caminho do agente (HEL-06/HEL-03, 2026-09-05)
+
+O texto que o beneficiario digita e' conteudo de terceiro e chega aos prompts do agente dentro de
+um bloco `<<<NAO_CONFIAVEL message_body ... NAO_CONFIAVEL message_body>>>`
+(`maezo.runtime.prompt_format.render_untrusted_block`), com preambulo fixo, delimitador
+nao-falsificavel e tamanho maximo. Isso **reduz** a chance de uma injecao funcionar; o que
+**tira dela o poder de roteamento** e' a precondicao deterministica da rota informativa
+(`agents/helena/graph.py::_inform_recusado`): um `sintoma_codigo` reportado — venha de que
+`intent` vier — nunca termina em resposta automatica sem veredito de DMN (`red_flag` explicito
+`false` e `conduta` fora de `ESCALATE*`). Nenhuma tabela DMN mudou: as quatro
+`triage_redflag_*` ja emitem `red_flag` em toda regra, catch-all inclusive.
+
 ## Variaveis de saida (preenchidas pela User Task)
 
 | Variavel | Tipo | Descricao |

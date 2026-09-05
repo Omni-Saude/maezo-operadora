@@ -12,7 +12,7 @@ security_zone: phi                            # ADR-0006 — Carolina e convocad
 graph: graph.py:build
 prompt_versions:                              # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
-  dossier: dossier-v1                         # dossie de (des)credenciamento (CRED)
+  dossier: dossier-v2                         # dossie de (des)credenciamento (CRED)
 model:
   task_default: { tier: fast }                # gather/assess/montagem do dossie
   reasoning:    { tier: frontier }            # casos ambiguos / descredenciamento hospitalar / dossie complexo

@@ -65,7 +65,9 @@ def test_o_texto_nao_consegue_fechar_nem_abrir_um_bloco(ataque: str) -> None:
 def test_texto_longo_e_truncado_com_marca_visivel() -> None:
     bloco = render_untrusted_block("message_body", "a" * (UNTRUSTED_MAX_CHARS + 500))
     assert UNTRUSTED_TRUNCADO in bloco
-    assert bloco.count("a") == UNTRUSTED_MAX_CHARS
+    # conta so' o MIOLO: o preambulo tambem tem a letra `a`
+    miolo = bloco.split(UNTRUSTED_PREAMBULO + "\n", 1)[1]
+    assert miolo.startswith("a" * UNTRUSTED_MAX_CHARS + UNTRUSTED_TRUNCADO)
 
 
 def test_o_teto_conta_o_texto_ja_neutralizado() -> None:

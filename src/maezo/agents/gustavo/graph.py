@@ -157,7 +157,11 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
-from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.prompt_format import (
+    render_fatos_para_prompt,
+    render_untrusted_block,
+    sem_campos_nao_confiaveis,
+)
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
 )
@@ -453,6 +457,21 @@ def _output_field_resets() -> dict[str, Any]:
 
 #: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
 #:
+#: HEL-06 (adocao irma da fronteira de entrada de Helena): campos de ENTRADA que sao TEXTO LIVRE
+#: fornecido por terceiro. Saem do repr de fatos e viajam num bloco NAO CONFIAVEL demarcado —
+#: deixar a chave nos dois lugares entregaria ao modelo o mesmo conteudo uma vez rotulado e outra
+#: vez cru, e o cru e' o que uma injecao usa. Ver
+#: `maezo.runtime.prompt_format.render_untrusted_block` e a cerca
+#: `tests/unit/agents/test_untrusted_input_boundary_fence.py`, cujo allowlist e' default-deny: um
+#: campo de entrada novo que alimente um prompt reprova ate' ser classificado.
+#: `tema_nip`: SP-OP-NIP-001 §Variaveis de entrada so' da' EXEMPLOS (`ex.: negativa_cobertura,
+#: prazo_atendimento, ...`) e a DMN `nip_classification` tem linha catch-all
+#: `<tema_desconhecido>` — o conjunto e' ABERTO, nao um enum.
+#: `referencia_negativa_original`: string sem formato declarado. O seam A2A deste mesmo
+#: agente (`delegation.py`) ja EXCLUI os dois do `payload_meta` por serem texto livre — aqui
+#: e' a mesma leitura, um andar acima.
+_CAMPOS_NAO_CONFIAVEIS: Final[tuple[str, ...]] = ("tema_nip", "referencia_negativa_original")
+
 #: Incidente de 24/08/2026 (contado por inteiro em `agents/rafael/graph.py::_FATOS_BOOLEANOS`):
 #: fatos passados ao modelo como repr de dicionario deixam `False` e `None` com a mesma cara de
 #: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
@@ -920,9 +939,21 @@ class GustavoGraph:
         booleanos = (
             _FATOS_BOOLEANOS_ANS_SUBMIT if state.get("fluxo") == "ans_submit" else _FATOS_BOOLEANOS_NIP
         )
+        # HEL-06: `facts` segue INTACTO para o dossie e para a proveniencia (ADR-0007); so' a
+        # COPIA que vai ao modelo perde o texto livre, que reaparece logo abaixo demarcado. Os
+        # blocos saem SEMPRE, inclusive no fluxo `ans_submit` (onde nenhum dos dois campos existe e
+        # o bloco fica explicitamente vazio): a forma do prompt fica estavel entre requisicoes — o
+        # que preserva o prefixo cacheavel e o baseline de eval — e um bloco vazio DIZ que o campo
+        # nao trouxe conteudo, em vez de deixar o modelo inferir por que ele sumiu (mesmo principio
+        # do `SEM DADO` de `render_fatos_para_prompt`).
+        fatos_para_prompt = sem_campos_nao_confiaveis(facts, _CAMPOS_NAO_CONFIAVEIS)
+        tema_nip = facts.get("tema_nip")
+        referencia = facts.get("referencia_negativa_original")
         prompt = (
             f"{dossier_prompt()}\n\nroute={route} motivo_humano={state.get('motivo_humano')}\n"
-            f"{render_fatos_para_prompt(facts, booleanos=booleanos)}"
+            f"{render_fatos_para_prompt(fatos_para_prompt, booleanos=booleanos)}\n"
+            f"{render_untrusted_block('tema_nip', tema_nip)}\n"
+            f"{render_untrusted_block('referencia_negativa_original', referencia)}"
         )
         try:
             narrativa = await self._llm.generate(

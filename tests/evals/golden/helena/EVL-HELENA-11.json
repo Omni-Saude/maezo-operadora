@@ -2,8 +2,10 @@
   "id": "EVL-HELENA-11",
   "agent": "helena",
   "class": "FC",
-  "tier": ["A"],
-  "description": "CC-08: adult reports a symptom (same clinical facts as EVL-HELENA-01) but `triage_redflag_adult` is UNAVAILABLE (decision_key omitted from dmn_fixture -> FakeDmnTransport.evaluate raises DmnEvaluationError). `_evaluate_dmn` never propagates that exception -- it returns `{\"error\": ...}` -- and `classify()`'s symptom branch reads `dmn_out.get(\"error\")` and MUST escalate falha_tecnica (trigger 4/6 gatilhos, agent.yaml's `signal: tool_failure`), NEVER read the missing decision as \"no red flag\" -> inform. Synthetic data only (tenant amh, pseudo id).",
+  "tier": [
+    "A"
+  ],
+  "description": "CC-08: adult reports a symptom (same clinical facts as EVL-HELENA-01) but `triage_redflag_adult` is UNAVAILABLE (decision_key omitted from dmn_fixture -> FakeDmnTransport.evaluate raises DmnEvaluationError). `_evaluate_dmn` never propagates that exception -- it returns `{\"error\": ...}` -- and `classify()`'s symptom branch reads `dmn_out.get(\"error\")` and MUST escalate falha_tecnica (trigger 4/6 gatilhos, agent.yaml's `signal: tool_failure`), NEVER read the missing decision as \"no red flag\" -> inform. Synthetic data only (tenant amh, pseudo id). REGOLDEN HEL-04 (2026-09-05): `escalation_severidade` was 'leve' -- a hardcoded literal in classify()'s DMN-down branch, emitted even here, where the symptom WAS classified intensidade='grave'. It now derives from that already-validated intensidade (`_severidade_de_intensidade`) and is 'moderada' -- capped at moderada on purpose, because SP-OP-ESCALATION-001 reserves 'grave' for a DMN-confirmed P1 red flag and no DMN verdict exists on this path.",
   "input": {
     "state": {
       "tenant_id": "amh",
@@ -23,7 +25,7 @@
     "next_kind": "escalate",
     "fields": {
       "escalation_motivo": "falha_tecnica",
-      "escalation_severidade": "leve"
+      "escalation_severidade": "moderada"
     }
   },
   "leak_canaries": []

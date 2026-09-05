@@ -152,7 +152,11 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
-from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.prompt_format import (
+    render_fatos_para_prompt,
+    render_untrusted_block,
+    sem_campos_nao_confiaveis,
+)
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
 )
@@ -421,6 +425,17 @@ def _sanitized_output_fields() -> dict[str, Any]:
 #: "vazio", e um fato APURADO-e-desfavoravel vira "nao ha registro". O conserto ficou num agente
 #: so' ate' a auditoria da frota; este mapa e' a adocao aqui. Chave -> rotulo; a ORDEM e' a ordem
 #: das linhas no prompt. So' entram fatos declarados `bool` no state — nada que seja enum/str.
+#: HEL-06 (adocao irma da fronteira de entrada de Helena): campos de ENTRADA que sao TEXTO LIVRE
+#: fornecido por terceiro. Saem do repr de fatos e viajam num bloco NAO CONFIAVEL demarcado —
+#: deixar a chave nos dois lugares entregaria ao modelo o mesmo conteudo uma vez rotulado e outra
+#: vez cru, e o cru e' o que uma injecao usa. Ver
+#: `maezo.runtime.prompt_format.render_untrusted_block` e a cerca
+#: `tests/unit/agents/test_untrusted_input_boundary_fence.py`, cujo allowlist e' default-deny: um
+#: campo de entrada novo que alimente um prompt reprova ate' ser classificado.
+#: `motivo_informado` e' anotado no proprio `CarolinaState` como "texto livre" — nao ha
+#: vocabulario nem formato que o feche.
+_CAMPOS_NAO_CONFIAVEIS: Final[tuple[str, ...]] = ("motivo_informado",)
+
 _FATOS_BOOLEANOS: Final[dict[str, str]] = {
     "licenca_valida": "licenca do prestador valida",
     "documentacao_completa": "documentacao completa",
@@ -776,9 +791,14 @@ class CarolinaGraph:
         motivo_humano = state.get("motivo_humano") if route == "human_review" else None
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
         facts = self._cred_facts(state)
+        # HEL-06: `facts` segue INTACTO para o dossie e para a proveniencia (ADR-0007); so' a
+        # COPIA que vai ao modelo perde o texto livre, que reaparece logo abaixo demarcado.
+        fatos_para_prompt = sem_campos_nao_confiaveis(facts, _CAMPOS_NAO_CONFIAVEIS)
+        motivo_informado = facts.get("motivo_informado")
         prompt = (
             f"{dossier_prompt()}\n\ndirecao={direcao} route={route} motivo_humano={motivo_humano}\n"
-            f"{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS)}"
+            f"{render_fatos_para_prompt(fatos_para_prompt, booleanos=_FATOS_BOOLEANOS)}\n"
+            f"{render_untrusted_block('motivo_informado', motivo_informado)}"
         )
         try:
             narrativa = await self._llm.generate(
