@@ -16,7 +16,7 @@ pointers + hashes — never raw PHI) and ASSEMBLES the investigation dossier fro
 `fraude_indicadores`/`fraude_routing` are engine-native `businessRuleTask`s downstream in the
 SAME BPMN). The LLM REASONS over the observed facts/indicators to organize the case — it NEVER
 decides. This graph evaluates NO DMN and starts NO process: per the R1-audited
-`spec/agents/beatriz/agent.yaml` (tools allowlist TIGHT — `mcp-fhir.read_patient` +
+`spec/agents/beatriz/agent.yaml` (tools allowlist TIGHT — `mcp-fhir.read_patient_summary` +
 `mcp-memory.read_write` ONLY; `mcp-cibseven.start_process`/`mcp-dmn.evaluate` deliberately NOT
 declared), the ENGINE drives SP-OP-FRAUDE-001 and convokes Beatriz — she never starts it and
 never re-evaluates the scoring chain (the donor's `len(evidencia)*10` heuristic was defect B10,
@@ -51,7 +51,7 @@ CPF/CNPJ/nome/CNS). BOTH corpora `gather` produces are CLOSED PROJECTIONS, never
     stripped before the dossier (defense in depth; the hard barrier for THIS corpus remains the
     `seal_custody_bundle` worker's `ERR_PHI_IN_CUSTODY` guard).
   - FHIR SUMMARY (`_normalize_summary`): the `PatientSummaryReader` seam is a GENERIC Protocol
-    over v2's FHIR server, NOT the donor's PEP-gated `mcp-fhir.read_patient` ToolInvoker (see
+    over v2's FHIR server, NOT the donor's PEP-gated `mcp-fhir.read_patient_summary` ToolInvoker (see
     the labeled boundary below), so its payload is controlled by a server UPSTREAM of this
     graph — it is untrusted input, exactly like `evidencia_refs`. It is refused WHOLE when any
     key (case-insensitively, RECURSIVELY through nested dicts/lists) is in `_PHI_KEYS`, and
@@ -96,9 +96,18 @@ investigator by design (`fraude_routing`'s output domain is exactly `{INVESTIGAC
 
 LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale as
 `agents/rafael/graph.py`'s/`agents/marina/graph.py`'s module docstrings):
-- `gather` uses a thin `PatientSummaryReader` Protocol over v2's generic FHIR server — NOT the
-  donor's PEP-gated `mcp-fhir.read_patient` ToolInvoker (v2 has no ToolRegistry/PEP gateway
-  wiring for agent tool calls yet, T2.4 gap). Best-effort: FHIR absence/failure degrades to a
+- `gather` uses a thin `PatientSummaryReader` Protocol over v2's generic FHIR server. CORRECTED
+  (WP FHIR-TOOL-SURFACE-PARITY): the T2.4 "no ToolRegistry/PEP gateway wiring for agent tool
+  calls yet" claim is FALSE fleet-wide — `gateway/seams/fhir.py::GatedFhirReader` gates every
+  agent named in `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`. What is true FOR BEATRIZ is
+  narrower and is stated in `_INVOKED_WITHOUT_GATED_SEAM` below/in the parity fence: she is
+  absent from that map, so no composition root builds her an `fhir` seam at all and this branch
+  never runs in production (it lives in `NOTE_FHIR_READER_NAO_CONFIGURADO`). Wiring her would
+  LIGHT UP a PHI read that does not happen today — an owner decision, not an implementation
+  follow-up. Her `agent.yaml` now declares `mcp-fhir.read_patient_summary`, the id this node
+  actually calls (it declared `mcp-fhir.read_patient`, so the PEP's L1 would have denied her own
+  read with `TOOL_NAO_DECLARADA` — the same species as carolina's NEW-04, masked only by
+  `leitura_phi_clinica`'s shadow enforcement). Best-effort: FHIR absence/failure degrades to a
   dossier gap note, never a fabricated fact, never a blocked instruction.
 - No episodic memory write (`mcp-memory.read_write`, ADR-0002) in `finalize` — same rationale
   as Helena's/Rafael's/Marina's graphs: `MemoryServer.store_episodic` still refuses fail-closed.
@@ -121,7 +130,9 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
   already-assembled case state, as the unit tests do. (The `ToolRegistry`/PEP-gateway claim two
   paragraphs above remains true for Beatriz specifically: she is absent from
   `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`, so no composition root ever builds her an
-  `fhir` seam at all, gated or not.)
+  `fhir` seam at all, gated or not — now also pinned by
+  `tests/unit/gateway/test_fhir_tool_surface_parity.py::_INVOKED_WITHOUT_GATED_SEAM`, which fails
+  loudly the day the map gains her key without this note being updated.)
 - Unanchorable case (missing `tenant_id`/`numero_caso`): this build bails WITHOUT assembling a
   dossier (`dossier` stays `{}`, `desfecho="instrucao_incompleta"`) — a disclosed divergence
   from the donor, which assembled a best-effort dossier anyway. Rationale: without the

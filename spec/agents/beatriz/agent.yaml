@@ -16,7 +16,23 @@ model:
   task_default: { tier: fast }                # gather/montagem do dossie
   reasoning:    { tier: frontier }            # casos com muitos indicadores / dossie complexo
 tools:                                         # ids EXATOS registrados pelos mcp_* servers (validate-artifacts exige o dir mcp_<server>)
-  - mcp-fhir.read_patient                     # resumo pseudonimizado do beneficiario investigado (leitura, enriquece o dossie) — L3
+  - mcp-fhir.read_patient_summary             # resumo pseudonimizado do beneficiario investigado (leitura, enriquece o dossie) — L3.
+                                               # CORRIGIDO de `mcp-fhir.read_patient` (WP FHIR-TOOL-SURFACE-PARITY): o no
+                                               # `gather` sempre chamou `PatientSummaryReader.read_patient_summary`, e o
+                                               # `GatedFhirReader` decide essa chamada como `fhir.read_patient_summary` ->
+                                               # tool_id `mcp-fhir.read_patient_summary`. Com o id antigo o L1 do PEP negava a
+                                               # leitura da PROPRIA Beatriz com TOOL_NAO_DECLARADA (mesma especie do NEW-04 da
+                                               # Carolina), invisivel so pelo enforcement=shadow de leitura_phi_clinica.
+                                               # Mesma classe de acao (C2 leitura_phi_clinica), mesma cardinalidade (1 id):
+                                               # correcao de nome, nao alargamento de superficie.
+                                               # DEPENDENCIA DE PEP (BEA-13, nivel de spec e nao so de docstring): esta leitura
+                                               # SO acontece se alguma raiz de composicao injetar um seam `fhir`, e hoje NENHUMA
+                                               # injeta — beatriz esta AUSENTE de gateway/tool_registry.py::
+                                               # _FHIR_ADAPTER_BY_AGENT e de worker_runtime/service.py::
+                                               # _DOSSIER_FHIR_AGENT_IDS. O ramo vive na nota NOTE_FHIR_READER_NAO_CONFIGURADO.
+                                               # Liga-lo ACENDE uma leitura de PHI que hoje nao ocorre -> decisao do dono.
+                                               # Registrado em tests/unit/gateway/test_fhir_tool_surface_parity.py
+                                               # (_INVOKED_WITHOUT_GATED_SEAM), nao so aqui.
   - mcp-memory.read_write                     # memoria episodica do caso de investigacao (ADR-0002) — L3;
                                                # declarada como excecao disclosed §8.5 item 2; sem no
                                                # vivo hoje (CC-05/BEA-03 — ver docstring graph.py:85-87)
@@ -31,7 +47,7 @@ tools:                                         # ids EXATOS registrados pelos mc
   #   reintroduzir qualquer id SO quando um no o exercer (allowlist tight — acao real, nao declarativa).
 autonomy_policy: ../../policies/autonomy
 autonomy_actions:                             # acoes REAIS da matriz L0-core exercidas por este fluxo (W4)
-  - read_phi_data                             # leitura FHIR resumo pseudonimizado (mcp-fhir.read_patient) — L3
+  - read_phi_data                             # leitura FHIR resumo pseudonimizado (mcp-fhir.read_patient_summary) — L3
   - read_write_memory                         # memoria episodica do caso (mcp-memory.read_write) — L3;
                                                # excecao disclosed (fence §8.5 item 2), sem no vivo (CC-05/BEA-03)
   # NOTA L0 HARD (intencional — fronteira dura do invariante FRAUDE-001 / ADR-0018):

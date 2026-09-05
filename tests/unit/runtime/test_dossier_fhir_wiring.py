@@ -95,8 +95,14 @@ class _FakeInference:
 
 
 class _RecordingReader:
-    """Duplo do seam de leitura FHIR — satisfaz `SummaryReader`/`PatientSummaryReader` (os dois
-    Protocols declaram EXATAMENTE `async read_patient(patient_id) -> dict`)."""
+    """Duplo do seam de leitura FHIR — satisfaz `carolina.graph.SummaryReader` E
+    `andre.graph.PatientSummaryReader`.
+
+    Os dois Protocols deixaram de ter o mesmo membro no WP FHIR-TOOL-SURFACE-PARITY (NEW-04):
+    Carolina le `read_patient_summary` e Andre le `read_patient`, cada um o id que o seu proprio
+    `agent.yaml` declara. O `GatedFhirReader` real expoe as quatro operacoes do catalogo, entao
+    um duplo que sirva aos dois lados precisa expor as duas — e e por isso que este falso as
+    declara em vez de escolher uma."""
 
     def __init__(self, label: str) -> None:
         self.label = label
@@ -105,6 +111,9 @@ class _RecordingReader:
     async def read_patient(self, patient_id: str) -> dict[str, Any]:
         self.calls.append(patient_id)
         return {"resourceType": "Patient", "id": patient_id, "_label": self.label}
+
+    async def read_patient_summary(self, patient_id: str) -> dict[str, Any]:
+        return await self.read_patient(patient_id)
 
 
 def _dossier_deps() -> dict[str, Any]:
@@ -356,7 +365,9 @@ async def test_worker_step_b_builds_gated_per_agent_fhir_seams(monkeypatch: pyte
     """STEP B constroi o(s) seam(s) FHIR pelo construtor SANCIONADO e os repassa a raiz do
     dossie: wrapper GATEADO (nao o adaptador cru), principal CORRETO por agente, `population`
     explicitamente None (BLOCKED(external WB.4))."""
-    from maezo.agents.rafael.adapters import FhirServerReader
+    from maezo.agents.rafael.adapters import FhirServerReader as PatientShim
+    from maezo.agents.valentina.adapters import FhirServerReader as SummaryShim
+    from maezo.gateway.tool_registry import _FHIR_ADAPTER_BY_AGENT
 
     state, captured = await _bring_up_worker(monkeypatch, WorkerRuntimeSettings(DATABASE_URL=_DSN))
     try:
@@ -365,8 +376,20 @@ async def test_worker_step_b_builds_gated_per_agent_fhir_seams(monkeypatch: pyte
             seam = captured["fhir"][agent_id]
             # GATEADO, nao o adaptador cru: `leitura_phi_clinica` (C2) precisa passar pelo PEP.
             assert isinstance(seam, GatedFhirReader)
-            assert not isinstance(seam, FhirServerReader)
-            assert isinstance(seam.inner, FhirServerReader)
+            assert not isinstance(seam, PatientShim | SummaryShim)
+            assert isinstance(seam.inner, PatientShim | SummaryShim)
+            # O shim embrulhado tem de implementar a operacao que o mapa sancionado escolheu para
+            # ESTE agente. Os dois alvos do dossie NAO compartilham mais a mesma operacao desde o
+            # WP FHIR-TOOL-SURFACE-PARITY (NEW-04): carolina le `read_patient_summary` (o id que o
+            # `agent.yaml` dela declara) e andre le `read_patient` — ids de tool distintos no
+            # catalogo, decididos separadamente pelo L1 do PEP. Asserir a CLASSE do shim aqui
+            # amarraria o teste a escolha de reuso (ADR-0004), nao a garantia; asserir a OPERACAO
+            # amarra o que importa.
+            operacao = _FHIR_ADAPTER_BY_AGENT[agent_id]
+            assert hasattr(seam.inner, operacao), (
+                f"{agent_id}: o shim embrulhado nao implementa {operacao!r} — o mapa de "
+                "adaptadores e o grafo divergiram"
+            )
             # O principal e POR AGENTE: a decisao do PEP e por principal, entao um leitor
             # compartilhado atribuiria a leitura PHI de andre a capacidade de carolina.
             assert seam.seam_context.principal == agent_id

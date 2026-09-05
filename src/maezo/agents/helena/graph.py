@@ -61,11 +61,23 @@ route is already decided) it degrades to a safe canned text. Neither path ever s
 downgrades to a general-zone provider.
 
 LABELED BOUNDARIES (this build, disclosed — never fabricated):
-- FHIR patient/coverage enrichment (`mcp-fhir.read_patient_summary`/`read_coverage`/
-  `search_coverage` in `spec/agents/helena/agent.yaml`) is NOT wired in this graph. The contract
-  SP-OP-ESCALATION-001 build steps in the T1.11 charter do not require it, and v2's `FhirServer`
-  is a generic HAPI client with no PEP/ToolRegistry gateway yet (a real gap, not hidden here) —
-  wiring it is a follow-up.
+- FHIR patient/coverage enrichment is NOT wired in this graph, and since the WP
+  FHIR-TOOL-SURFACE-PARITY (NEW-09/GAP-TRIAGE-5) the SPEC no longer pretends otherwise:
+  `mcp-fhir.read_patient_summary` and `mcp-fhir.search_coverage` were REMOVED from
+  `spec/agents/helena/agent.yaml`, together with the `read_phi_data` autonomy action, because no
+  node here has an `_fhir` field at all and helena is absent from
+  `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`. The contract SP-OP-ESCALATION-001 build
+  steps in the T1.11 charter do not require the enrichment. What SURVIVES in the yaml is
+  `mcp-fhir.read_coverage` alone, and NOT because anything uses it: helena is the only agent.yaml
+  declaring that id, and `test_every_catalogued_tool_id_is_declared_by_some_agent` requires every
+  `effect_classes.CATALOGUED_TOOL_IDS` entry to be declared by at least one agent — dropping it
+  from the catalogue would mean editing the CODEOWNED
+  `spec/policies/autonomy/action-approvals.yaml` (exact round-trip, fence §8.5 item 3). That
+  residue is an OWNER-GATED pin, recorded as such in the yaml comment and in
+  `tests/unit/gateway/test_fhir_tool_surface_parity.py::_DECLARED_WITHOUT_CALL_SITE` — not a
+  capability this graph holds. The correction to v2's `FhirServer` claim: it is a generic HAPI
+  client, but it IS reached through the PEP/ToolRegistry gateway for the agents that actually
+  read (`gateway/seams/fhir.py::GatedFhirReader`); helena simply is not one of them.
 - Episodic memory write (`mcp-memory.read_write`, ADR-0002) is NOT wired in this graph. The
   schema is NOT what is missing — migration `0001` creates `agent_memory`;
   `MemoryServer.store_episodic` refuses because its `(agent_id, event)` signature carries neither

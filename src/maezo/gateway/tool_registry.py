@@ -503,9 +503,9 @@ def build_inference_seam(*, seam: SeamContext, inner: Any = None) -> GatedInfere
 def build_fhir_seam(*, seam: SeamContext, base_url: str, adapter: str = "read_patient") -> GatedFhirReader:
     """A gated FHIR reader over `FhirServer`.
 
-    `adapter` selects which of the three in-repo shims wraps the generic client, preserving the
+    `adapter` selects which of the in-repo shims wraps the generic client, preserving the
     per-agent choices `_build_tool_deps` already makes (ADR-0004 federated independence is why
-    three near-identical adapters exist rather than one):
+    near-identical adapters exist rather than one):
       * `read_patient`         -> `agents/rafael/adapters.py::FhirServerReader`
       * `read_patient_summary` -> `agents/valentina/adapters.py::FhirServerReader`
 
@@ -514,6 +514,19 @@ def build_fhir_seam(*, seam: SeamContext, base_url: str, adapter: str = "read_pa
     are NOT literal MCP-registered tool names. `maezo.tools.mcp_fhir.server.FhirServer` only
     registers two tools (`read_resource`, `search_resources`); `adapter` (this parameter) is
     where the translation actually happens, invisibly to whoever reads only the agent.yaml side.
+
+    O QUE A TRADUCAO **NAO** PODE FAZER (NEW-04, WP FHIR-TOOL-SURFACE-PARITY): trocar de id no
+    caminho. O metodo escolhido aqui e o que `GatedFhirReader` traduz em
+    `gate(seam, "fhir.<metodo>")`, e e contra `mcp-fhir.<metodo>` que o L1 do PEP compara a
+    allowlist do `agent.yaml`. Escolher para um agente um adaptador cujo metodo ele nao declara
+    produz `TOOL_NAO_DECLARADA` em `L1_CAPACIDADE` — hoje invisivel porque `leitura_phi_clinica`
+    esta em `enforcement: shadow`. A cerca
+    `tests/unit/gateway/test_fhir_tool_surface_parity.py` compara os tres lados (yaml, call site
+    por AST, este mapa) e reprova a divergencia.
+
+    A leitura por baixo dos dois shims e TIPADA e fail-closed
+    (`tools/mcp_fhir/typed_reads.py`): um `resourceType` diferente do pedido e RECUSADO, nunca
+    encaminhado como se fosse o recurso pedido (VAL-02).
     """
     from maezo.tools.mcp_fhir.server import FhirServer, FhirSettings
 
@@ -568,9 +581,15 @@ def build_population_seam(*, seam: SeamContext, inner: Any) -> GatedPopulationFe
 
 #: Which FHIR adapter each agent's graph needs, re-derived from `_build_tool_deps`'s own per-agent
 #: branches. Absent => that agent's graph declares no FHIR seam and none is built.
+#: O ADAPTADOR ESCOLHIDO E O ID DE TOOL DECIDIDO PELO PEP, e nao apenas uma escolha de classe:
+#: `GatedFhirReader.<metodo>` decide sobre `fhir.<metodo>`, cujo `tool_id` catalogado e
+#: `mcp-fhir.<metodo>`. Uma entrada que nao case com o `agent.yaml` daquele agente faz o L1 do PEP
+#: negar a leitura do PROPRIO agente com `TOOL_NAO_DECLARADA` (era o caso de carolina ate o WP
+#: FHIR-TOOL-SURFACE-PARITY — achado NEW-04). `tests/unit/gateway/test_fhir_tool_surface_parity.py`
+#: e a cerca que amarra este mapa ao `agent.yaml` e ao call site real do grafo.
 _FHIR_ADAPTER_BY_AGENT: Final[dict[str, str]] = {
     "rafael": "read_patient",
-    "carolina": "read_patient",
+    "carolina": "read_patient_summary",
     "gustavo": "read_patient",
     "andre": "read_patient",
     "valentina": "read_patient_summary",
