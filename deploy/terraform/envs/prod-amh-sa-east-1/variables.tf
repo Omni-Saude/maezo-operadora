@@ -63,3 +63,18 @@ variable "eks_node_role_arns" {
   type        = list(string)
   default     = []
 }
+
+# ---------------------------------------------------------------------------
+# Guardrails de custo (gap B-02-b / decisao do dono R-045).
+# SEM DEFAULT de proposito: enquanto financas nao informar o teto e o e-mail de
+# alerta, `terraform plan` deste ambiente falha FECHADO. Nao acrescente default.
+# ---------------------------------------------------------------------------
+variable "monthly_budget_amount" {
+  description = "Teto mensal de custo em USD para prod-amh. Sem default (R-045): informe via tfvars."
+  type        = number
+}
+
+variable "cost_alert_email" {
+  description = "E-mail que recebe alertas de orcamento e de anomalia de custo. Sem default."
+  type        = string
+}
