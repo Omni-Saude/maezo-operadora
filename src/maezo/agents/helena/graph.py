@@ -905,7 +905,9 @@ class HelenaGraph:
             # bem-sucedido (self-disclosed como campo morto no comentario que citava esta linha).
             # Agora o mesmo valor rotulado na telemetria tambem e' gravado no estado — o campo
             # deixa de ser so-as-vezes-verdadeiro.
-            desfecho = "escalado_humano" if state.get("escalation_started") is True else "resolvido_automatico"
+            desfecho = (
+                "escalado_humano" if state.get("escalation_started") is True else "resolvido_automatico"
+            )
             emit_turn_desfecho(
                 state,
                 agent_id="helena",
