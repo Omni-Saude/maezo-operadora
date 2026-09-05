@@ -78,9 +78,11 @@ logger = structlog.get_logger(__name__)
 #: "not_implemented" (signature verified, an actual message needs dispatch, but no dispatcher is
 #: configured for this replica — see module docstring), "non_text_acked" (the batch contained ONLY
 #: non-text messages and every one of them was acknowledged — the operational signal for how much
-#: of the inbound volume this channel cannot actually process), plus the three the 2026-09-04 owner
+#: of the inbound volume this channel cannot actually process), plus the four the 2026-09-04 owner
 #: decisions add: "duplicate" (every message in the batch was a redelivery the `wamid` dedup
 #: suppressed — R-071; a sustained rate is the measure of how much Meta is actually retrying),
+#: "partial_failure" (a MIXED batch: something in it succeeded and something failed — R-100, whose
+#: whole point is that this outcome used to be indistinguishable from a clean "ok"),
 #: "dedup_unavailable" (the durable registry could not answer, so nothing was dispatched — the
 #: fail-closed branch) and "queued" (ack-then-queue mode accepted the batch for background
 #: processing — R-072). The label set stays CLOSED and tiny
@@ -459,6 +461,33 @@ def create_app(
             if non_text_present:
                 content["acked"] = acked
             return JSONResponse(status_code=500, content=content)
+
+        if failed > 0:
+            # MIXED BATCH — gap `WHATSAPP-MIXED-BATCH-RETRY-TRADEOFF`, owner decision R-100.
+            # Something in this batch really happened and something else failed. Until now the
+            # two were indistinguishable from a clean `ok` in the metric, so a lost non-text ack
+            # was invisible; the label below is the observability half of R-100.
+            #
+            # THE HTTP CODE IS THE FLIP CRITERION THE OWNER WROTE, EVALUATED IN CODE: "quando a
+            # guarda de dedup por `wamid` estiver ativa no caminho de entrada, o lote misto passa
+            # a devolver `500`, sem nova decisao do dono". With a guard (production), 500 is now
+            # SAFE and strictly better: Meta re-delivers the whole batch, the parts that already
+            # succeeded are suppressed as duplicates, and only the failed message runs again — so
+            # the beneficiary whose message failed gets a real second chance without anybody
+            # receiving a duplicate reply. Without a guard the old trade-off still holds (a 500
+            # would re-send what already succeeded), so the answer stays 200 and the failure is
+            # visible only in the label and in the `whatsapp_dispatch_failed` log line above.
+            WEBHOOK_REQUESTS_TOTAL.labels(tenant=settings.tenant_id, status="partial_failure").inc()
+            partial_content: dict[str, object] = {
+                "status": "partial_failure" if dedup is not None else "ok",
+                "dispatched": dispatched,
+                "failed": failed,
+            }
+            if non_text_present:
+                partial_content["acked"] = acked
+            if duplicates:
+                partial_content["duplicates"] = duplicates
+            return JSONResponse(status_code=500 if dedup is not None else 200, content=partial_content)
 
         # EXACTLY ONE counter increment per request, as everywhere else in this handler.
         if succeeded == 0 and duplicates > 0:

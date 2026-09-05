@@ -327,8 +327,9 @@ Expected response: `test_challenge_value`
 
 | Metric | Query | Alert threshold |
 |--------|-------|-----------------|
-| Requests by outcome | `rate(maezo_webhook_requests_total[5m])` — labels `tenant`, `status` (`ok`\|`invalid_signature`\|`parse_error`\|`dispatch_failed`\|`not_implemented`\|`non_text_acked`\|`duplicate`\|`dedup_unavailable`\|`queued`) | N/A (baseline) |
+| Requests by outcome | `rate(maezo_webhook_requests_total[5m])` — labels `tenant`, `status` (`ok`\|`invalid_signature`\|`parse_error`\|`dispatch_failed`\|`not_implemented`\|`non_text_acked`\|`duplicate`\|`partial_failure`\|`dedup_unavailable`\|`queued`) | N/A (baseline) |
 | Re-entregas da Meta absorvidas | `rate(maezo_webhook_requests_total{status="duplicate"}[5m])` — lotes inteiramente compostos de re-entrega que a dedup por `wamid` suprimiu (`WEBHOOK-WAMID-DEDUP`). Subida sustentada mede quanto a Meta esta retentando, i.e. quanto do orcamento de ack esta estourando | N/A (baseline) |
+| Lote misto (algo entregue, algo falhou) | `rate(maezo_webhook_requests_total{status="partial_failure"}[5m])` — gap `WHATSAPP-MIXED-BATCH-RETRY-TRADEOFF` (R-100): antes deste rotulo, um ack de nao-texto perdido dentro de um lote bem-sucedido era indistinguivel de um `ok` limpo | > 0 merece investigacao |
 | Registro de dedup indisponivel | `rate(maezo_webhook_requests_total{status="dedup_unavailable"}[5m])` — o receptor recusou-se a despachar sem protecao de duplicata (fail-closed). Enquanto isso durar, a Meta esta retentando e nenhuma mensagem esta sendo processada | > 0 e incidente |
 | Inbound que o canal NAO processa | `rate(maezo_webhook_requests_total{status="non_text_acked"}[5m])` — requests cujo lote so trazia mensagens NAO-texto, todas respondidas com o ack fixo (`app.py::receive_event`). E a medida de quanto do volume de entrada este canal so consegue recusar educadamente; subida sustentada e insumo para as decisoes 9.6/10.2 do dono, nao um alerta de falha | N/A (baseline) |
 | Messages processed/s | `rate(maezo_webhook_messages_total[5m])` — labels `tenant`, `message_type`, `deduplicated` | N/A (baseline) |
