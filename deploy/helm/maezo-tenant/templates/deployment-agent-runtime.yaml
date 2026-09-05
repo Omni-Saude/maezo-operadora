@@ -105,6 +105,13 @@ spec:
               value: "http://cibseven:8080/engine-rest"
             - name: FHIR_BASE_URL
               value: "http://hapi-fhir:8080/fhir"
+            # SC-06 / R-109: declared throughput-ceiling metadata (informational — logged at
+            # start-up by `AgentRuntimeSettings`, never read for a runtime decision). Agent
+            # graphs call the CIB Seven transport directly (never the WorkerHarness), so only
+            # the transport ceiling applies here — `deployment-worker-daemon.yaml` also carries
+            # `MAEZO_HARNESS_FAN_IN_CEILING`, which this daemon never touches.
+            - name: MAEZO_TRANSPORT_FAN_IN_CEILING
+              value: {{ $.Values.throughputCeilings.transportFanIn | quote }}
             {{- if eq ($agent.securityZone | toString) "phi" }}
             # PHI-zone agents use the BR-resident PHI LLM key (never the general cloud key).
             - name: LLM_PHI_API_KEY

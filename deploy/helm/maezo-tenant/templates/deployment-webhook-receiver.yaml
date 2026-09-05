@@ -54,6 +54,14 @@ spec:
                 secretKeyRef:
                   name: maezo-whatsapp-config
                   key: verify-token
+            # WHATSAPP-ENV-PREFIX-b / R-061 (OWNER-DECISIONS-REGISTER): the WABA sender number's
+            # Graph id. NOT a secret (`WhatsAppSettings.phone_number_id`'s own comment,
+            # `mcp_whatsapp/server.py`) — a plain `value:` from `values.yaml`, not routed through
+            # `maezo-whatsapp-config` like the three credentials above. `send_message` fails
+            # closed with a `ValueError` when this is unset (`server.py`, achado 9.4) — the same
+            # shape `check_chart_env_reconciliation.py`'s `chart_required` marker now catches.
+            - name: WHATSAPP_PHONE_NUMBER_ID
+              value: {{ .Values.whatsapp.phoneNumberId | quote }}
             # Tenant Postgres DSN (ADR-0007, T-C2, T4b) — Helena's in-process dispatch needs this
             # BOTH to construct the durable audit sink her escalation start (SP-OP-ESCALATION-001)
             # fails closed on AND to open the durable LangGraph checkpointer (multi-turn state that

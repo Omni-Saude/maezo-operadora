@@ -245,6 +245,16 @@ class PostgresIdempotencyStore:
         if self._pool is None:
             self._pool = await asyncpg.create_pool(
                 self._dsn,
+                # D4-02 / R-108 (OWNER-DECISIONS-REGISTER, opcao B): min_size/max_size abaixo sao
+                # DEFAULT DELIBERADO, nao esquecimento. O dono decidiu MANTER estes valores e
+                # documenta-los em vez de expor min/max por ambiente em values.yaml, adiando essa
+                # exposicao para depois de SC-05 — sem a aritmetica agregada de conexoes (pools x
+                # processos x replicas x tenants vs max_connections do Aurora) que SC-05 produz,
+                # expor knobs transferiria para quem preencher o valor o risco de estourar o teto do
+                # Aurora. Ha' QUATRO sitios com este MESMO default nesta arvore — a2a/idempotency.py,
+                # a2a/outbox.py, platform/integrations/amh_inbox.py, gateway/audit_postgres.py —
+                # mude os quatro juntos se mudar aqui. REABRE quando SC-05 landar (ver
+                # docs/review-queue.md, secao "D4-02 — pools asyncpg sem tuning por ambiente").
                 min_size=1,
                 max_size=10,
                 # `setup` (NOT `init`): runs on EVERY acquire. asyncpg's pool RESETs ALL on

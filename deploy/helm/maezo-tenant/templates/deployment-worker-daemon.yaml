@@ -95,6 +95,14 @@ spec:
               value: {{ .Values.workerDaemon.lockDurationMs | quote }}
             - name: WORKER_POLL_INTERVAL_MS
               value: {{ .Values.workerDaemon.pollIntervalMs | quote }}
+            # SC-06 / R-109: declared throughput-ceiling metadata (informational — logged at
+            # start-up by `WorkerRuntimeSettings`, never read for a runtime decision). This
+            # daemon touches BOTH chokepoints: it runs the WorkerHarness loop itself AND its
+            # workers call the CIB Seven transport (`cibseven_engine.py`).
+            - name: MAEZO_TRANSPORT_FAN_IN_CEILING
+              value: {{ .Values.throughputCeilings.transportFanIn | quote }}
+            - name: MAEZO_HARNESS_FAN_IN_CEILING
+              value: {{ .Values.throughputCeilings.harnessFanIn | quote }}
             {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
           ports:
             # Metrics + health endpoint (scraped by worker-daemon-metrics Service / PodMonitor).

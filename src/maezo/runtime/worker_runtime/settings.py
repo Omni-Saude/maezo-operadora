@@ -80,6 +80,15 @@ class WorkerRuntimeSettings(BaseSettings):
     # never hangs the boot sequence (health server binds first regardless, design §12).
     dep_connect_timeout_s: float = Field(default=5.0, alias="DEP_CONNECT_TIMEOUT_S")
 
+    # --- SC-06 / R-109: declared throughput-ceiling metadata (informational only) -------------
+    # Import fan-in of `maezo.tools.mcp_cibseven.transport` / `maezo.tools.workers.harness`
+    # (`deploy/helm/maezo-tenant/values.yaml`, section "Throughput ceilings"), surfaced in this
+    # daemon's start-up log (`run()`, `worker_runtime_starting`) for ops visibility. `None` when
+    # absent (dev/local) — NEVER used to gate or throttle anything; a missing declaration must
+    # never fail this daemon closed, unlike the genuinely-required fields above.
+    transport_fan_in_ceiling: int | None = Field(default=None, alias="MAEZO_TRANSPORT_FAN_IN_CEILING")
+    harness_fan_in_ceiling: int | None = Field(default=None, alias="MAEZO_HARNESS_FAN_IN_CEILING")
+
     @field_validator(
         "lock_duration_ms",
         "poll_interval_ms",

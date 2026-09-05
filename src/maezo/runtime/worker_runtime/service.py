@@ -1052,6 +1052,9 @@ async def run(settings: WorkerRuntimeSettings) -> None:
         tenant=settings.tenant_id,
         worker_id=settings.worker_id,
         health_port=settings.health_port,
+        # SC-06 / R-109: declared throughput-ceiling metadata, informational only.
+        transport_fan_in_ceiling=settings.transport_fan_in_ceiling,
+        harness_fan_in_ceiling=settings.harness_fan_in_ceiling,
         observability=observability.detail,
     )
     shutdown = asyncio.Event()
