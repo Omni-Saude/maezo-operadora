@@ -237,3 +237,33 @@ constraints (joint with médico-auditor).**
 Record your verdict in `docs/processes/contracts/signoffs/<CONTRACT-ID>.signoff.yaml` per
 `../README.md` §"Signoff artifact spec". This package does not create, pre-fill, or infer any
 signoff file.
+
+---
+
+## Pacote de rascunhos pré-designação (2026-09-04, R-055)
+
+Decisão aprovada do dono (`OWNER-DECISIONS-REGISTER` **R-055**): a designação do encarregado
+(`D7-03`) vem primeiro e, **em paralelo**, os artefatos que ele assinaria ficam prontos como
+rascunho — de modo que a primeira janela do DPO sejam assinaturas, não ciclos de trabalho.
+
+**Pré-requisito que ninguém aqui supre:** `R-027` / `D7-03` — o dono designa ou contrata o
+encarregado e registra **nome + data** em `docs/compliance/`. Enquanto esse registro não existir,
+não há assinante, e nenhum dos documentos abaixo é ratificação. Todos carregam campos de
+assinatura **vazios** e o rótulo *rascunho — pendente de designação e assinatura do encarregado
+(LGPD art. 41)*. `docs/sme-dispatch/README.md:109-111` proíbe que um agente supra assinatura
+humana.
+
+| # | Rascunho | Gap | Decisão do dono que o autoriza |
+|---|---|---|---|
+| 1 | [`RETENTION-MATRIX-CANDIDATE.md`](RETENTION-MATRIX-CANDIDATE.md) — matriz de bases legais/retenção, escopo B (só as camadas dos 3 CronJobs), com o bloco YAML exato a assinar | `AF-07` (e, atrás dele, `AF-16`, `F-2`, `SC-03`, `SC-07`) | R-022 |
+| 2 | [`PHI-DISPOSITIONS-RECOMMENDATION.md`](PHI-DISPOSITIONS-RECOMMENDATION.md) — disposição recomendada por NOME para os 8 `PHI_PROCESS_VARS` + a pergunta de `spec/policies/phi/dossier-narrative-zone.yaml` | `D7-01` (M-50) | R-008, R-009 |
+| 3 | [`DSR-PROCEDURE-DRAFT.md`](DSR-PROCEDURE-DRAFT.md) — runbook de atendimento de DSR que **abre a instância real** de `SP-OP-LGPD-DSR-001`, com os dois passos sem worker nomeados | `F-2` | R-029 |
+| 4 | [`PHI-BUSINESS-KEY-REMEDIATION-FIELDS-DRAFT.md`](PHI-BUSINESS-KEY-REMEDIATION-FIELDS-DRAFT.md) — o diff exato dos 4 campos de `spec/policies/privacy/phi-business-key-remediation.yaml` (arquivo **não** tocado; CODEOWNED) | `D7-01` | R-008, R-009 |
+| 5 | anotação `maezo.io/expected-fail-until: 2026-11-11` nos 3 CronJobs de lifecycle + seletor negativo no alerta + cerca de expiração em `scripts/ci/` — **não está neste pacote**: pousou pela via de observabilidade (PR #327) | `SC-07` | R-040 |
+
+**O que continua verdadeiro depois destes rascunhos** (`floor_note` de R-055 — rascunho não é
+ratificação): `load_retention_matrix` continua recusando, `ErasureManager.erase()`/`.verify()`
+continuam levantando `ErasureNotImplementedError`, e os 3 CronJobs de lifecycle continuam saindo
+com `REFUSAL_EXIT_CODE = 78` por desenho. A assinatura do encarregado é o único ato que muda
+qualquer um desses estados — e, mesmo ela, não liga a eliminação real (o mecanismo de execução e
+as duas pontes de identidade continuam ausentes).
