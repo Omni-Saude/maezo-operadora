@@ -645,7 +645,7 @@ async def test_bpmn_error_disallowed_key_refuses_the_whole_bpmn_error() -> None:
 @pytest.mark.parametrize(
     "value",
     [
-        "cliente recusado pela operadora",  # free text (spaces)
+        pytest.param("cliente recusado pela operadora", id="valor-com-espacos"),  # free text (spaces)
         "linha1\nlinha2",  # newline
         "a" * 129,  # over the length cap
         "-leading-punctuation",  # must start alphanumeric
