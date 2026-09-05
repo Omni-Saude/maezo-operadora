@@ -60,8 +60,8 @@ escalation:
     - signal: dmn_unavailable                # DMN indisponivel -> humano (nunca decide por omissao)
     - signal: ambiguity                      # qualquer ambiguidade -> humano conservador
 memory:
-  episodic: false  # reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043 — memoria ativar-ou-aposentar)
-  semantic: false  # reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043 — memoria ativar-ou-aposentar)
+  episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
+  semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
 # A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Fernando ORIGINA o ciclo de
 # inadimplencia e escalacoes humanas, E aceita uma delegacao INBOUND de acompanhamento de
 # cobranca: Lucas->Fernando `arrears.followup` (phase3-plan §4 — reconciliacao R9 sobre #58). O

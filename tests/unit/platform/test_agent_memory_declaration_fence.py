@@ -14,11 +14,16 @@ is worse than an honest "off", because a caller has no way to tell the two apart
 `agent.yaml` alone.
 
 The fix is a documentation-only desdeclaration (`episodic: false` / `semantic: false`, both
-commented "reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043 — memoria
-ativar-ou-aposentar)") — reactivation is gated on GAP-DU-01-b
-(an owner decision: wire a real pgvector/embedding path onto `agent_memory`, or retire the
-server outright). This fence makes the honest state a structural invariant instead of a
-one-time cleanup: it fails the moment either side of the pair drifts.
+commented with the reason the pair is off) — reactivation is gated on GAP-DU-01-b, which the
+owner has since SETTLED BY REMOVAL rather than by wiring: `0009_drop_pgvector` dropped
+`agent_memory.embedding vector(1536)` and the `vector` extension (owner decision R-005), and
+ADR-0002 §3 is SUSPENDED pending a consumer by the DRAFT amendment ADR-0047. Reactivation
+therefore needs a live consumer AND a new owner act — not merely "pgvector arriving". (This
+paragraph was re-anchored when `origin/main` abb9d60 landed that removal on top of CC-07: the
+earlier wording, "reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043)", promised
+the opposite of what the owner decided, and ADR-0043 does not exist.) This fence makes the
+honest state a structural invariant instead of a one-time cleanup: it fails the moment either
+side of the pair drifts.
 
 WHAT THIS FENCE ASSERTS, and what it deliberately does not:
   1. `MemoryServer.store_episodic`/`recall_semantic` refuse UNCONDITIONALLY today (the premise
@@ -97,11 +102,11 @@ def test_agent_yaml_does_not_declare_live_memory(path: Path) -> None:
     memory = data.get("memory") or {}
     assert memory.get("episodic") is not True, (
         f"{path}: memory.episodic=true but MemoryServer.store_episodic always refuses "
-        "(GAP-DU-01-a) — desdeclare until GAP-DU-01-b wires a real backing store"
+        "(GAP-DU-01-a) — desdeclare until a live backing store exists (GAP-DU-01-b/ADR-0047)"
     )
     assert memory.get("semantic") is not True, (
         f"{path}: memory.semantic=true but MemoryServer.recall_semantic always refuses "
-        "(GAP-DU-01-a) — desdeclare until GAP-DU-01-b wires a real backing store"
+        "(GAP-DU-01-a) — desdeclare until a live backing store exists (GAP-DU-01-b/ADR-0047)"
     )
 
 

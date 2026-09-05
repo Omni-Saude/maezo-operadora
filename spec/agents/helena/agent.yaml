@@ -35,7 +35,7 @@ tools:                               # ids EXATOS registrados pelos mcp_* server
   - mcp-whatsapp.send_message         # alias registrado de send_text (efeito L3)
   - mcp-memory.read_write             # working/episodic/semantic (ADR-0002) — alias registrado;
                                        # excecao disclosed do fence §8.5 item 2 (nenhum no vivo
-                                       # escreve memoria hoje — GAP-DU-01-b/ADR proposto 0043)
+                                       # escreve memoria hoje — GAP-DU-01-b/ADR-0047 DRAFT)
   # mcp-cibseven.get_process_status removido: nenhum no deste grafo o exerce hoje (CC-05/HEL-01).
   # Reintroduzir junto com o no que consultar status do escalonamento.
 autonomy_policy: ../../policies/autonomy
@@ -64,8 +64,8 @@ escalation:
     - signal: tool_failure            # falha tecnica/loop   -> falha_tecnica
     - signal: psychosocial_risk       # suicidio/autolesao   -> risco_psicossocial (sempre)
 memory:
-  episodic: false  # reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043 — memoria ativar-ou-aposentar)
-  semantic: false  # reabilitar quando GAP-DU-01-b ligar pgvector (ADR proposto 0043 — memoria ativar-ou-aposentar)
+  episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
+  semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
 # A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Helena ORIGINA delegacoes
 # (ex.: Helena->Rafael p/ analise de autorizacao); nao aceita delegacoes de terceiros no
 # Phase 1, entao `accepted_task_types` fica vazio (= recusa por contrato no dispatcher).
