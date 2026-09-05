@@ -3,7 +3,7 @@ Notifications bridge daemon (W-R2 / R8) — Kafka -> process-start.
 
 Sibling do worker-daemon e do fhir-sync: mesma imagem, command
 `python -m maezo.platform.integrations.notifications_bridge`. Consome o UNICO topico Kafka
-`operadora.notifications.internal` e, nos `type` acionaveis (contas.start_recurso /
+`operadora.notifications.internal` e, nos `type` acionaveis (contas.start_fraude /
 nip.handoff_ans_submit), inicia SP-OP-RECURSO-001 / SP-OP-ANS-SUBMIT-001 via
 mcp-cibseven.start_process (idempotente). Identidade = principal de SERVICO
 `notifications-bridge` (allowlist MINIMA: so start_process).

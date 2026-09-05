@@ -25,6 +25,7 @@ Layers:
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,7 @@ from scripts.ci.check_chart_env_reconciliation import (
     DEFERRED_UNRECONCILED_DECLARED,
     INFRA_OWNED_DECLARED,
     EnvNameRef,
+    _has_chart_required_marker,
     _module_level_string_constants,
     _require_reasons,
     extract_declared_from_helm,
@@ -169,6 +171,67 @@ def test_real_src_required_whatsapp_fields_are_declared_in_the_chart() -> None:
     declared_names = {ref.name for ref in extract_declared_from_helm(rendered)}
     assert "WHATSAPP_APP_SECRET" in declared_names
     assert "WHATSAPP_VERIFY_TOKEN" in declared_names
+
+
+def test_real_src_functionally_required_phone_number_id_is_declared_in_chart() -> None:
+    """WHATSAPP-ENV-PREFIX-b / R-101: `WhatsAppSettings.phone_number_id` carries the
+    `chart_required` marker (pydantic default `""`, but `send_message` fails closed at call time
+    without it) — the marker must make it show up in `required`, AND the chart must actually
+    declare `WHATSAPP_PHONE_NUMBER_ID` today. RED proof: revert either half (drop the marker from
+    `mcp_whatsapp/server.py`, or drop the env from `deployment-webhook-receiver.yaml`) and this
+    test — or, for the chart half, `test_real_tree_is_green` — fails."""
+    _, required = extract_settings_env_names(_SRC_DIR)
+    assert "WHATSAPP_PHONE_NUMBER_ID" in required
+    rendered = render_chart()
+    declared_names = {ref.name for ref in extract_declared_from_helm(rendered)}
+    assert "WHATSAPP_PHONE_NUMBER_ID" in declared_names
+
+
+def test_has_chart_required_marker_recognizes_the_marker_generically(tmp_path: Path) -> None:
+    """The marker mechanism is data on the field, not a hardcoded field-name allowlist — proven
+    against a SYNTHETIC field, independent of `WhatsAppSettings`."""
+    source = (
+        "from pydantic import Field\nx: str = Field(default='', json_schema_extra={'chart_required': True})\n"
+    )
+    call_node = ast.parse(source).body[1].value  # the AnnAssign's Field(...) call
+    assert isinstance(call_node, ast.Call)
+    assert _has_chart_required_marker(call_node) is True
+
+
+def test_has_chart_required_marker_ignores_a_field_without_it(tmp_path: Path) -> None:
+    source = "from pydantic import Field\nx: str = Field(default='', description='not a marker')\n"
+    call_node = ast.parse(source).body[1].value
+    assert isinstance(call_node, ast.Call)
+    assert _has_chart_required_marker(call_node) is False
+
+
+def test_has_chart_required_marker_ignores_json_schema_extra_without_the_true_flag(
+    tmp_path: Path,
+) -> None:
+    """`json_schema_extra` used for something else entirely (or `chart_required: False`) must not
+    be mistaken for the marker."""
+    source = (
+        "from pydantic import Field\n"
+        "x: str = Field(default='', json_schema_extra={'chart_required': False})\n"
+    )
+    call_node = ast.parse(source).body[1].value
+    assert isinstance(call_node, ast.Call)
+    assert _has_chart_required_marker(call_node) is False
+
+
+def test_a_synthetic_chart_required_field_surfaces_as_required(tmp_path: Path) -> None:
+    """End-to-end (not just the marker helper): a synthetic `BaseSettings` subclass with a
+    `chart_required`-marked field must appear in `extract_settings_env_names`'s required set."""
+    (tmp_path / "mod.py").write_text(
+        "from pydantic import Field\n"
+        "from pydantic_settings import BaseSettings, SettingsConfigDict\n"
+        "class SyntheticSettings(BaseSettings):\n"
+        "    model_config = SettingsConfigDict(env_prefix='SYNTH_')\n"
+        "    something: str = Field(default='', json_schema_extra={'chart_required': True})\n",
+        encoding="utf-8",
+    )
+    _, required = extract_settings_env_names(tmp_path)
+    assert "SYNTH_SOMETHING" in required
 
 
 def test_real_chart_covers_both_new_a2a_outbox_relay_env_names() -> None:

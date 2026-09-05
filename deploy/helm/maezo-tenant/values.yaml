@@ -172,6 +172,23 @@ webhookReceiver:
     port: 8080
 
 # ---------------------------------------------------------------------------
+# WhatsApp Cloud API — non-secret configuration (WHATSAPP-ENV-PREFIX-b / R-061,
+# OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA)
+#
+# `phoneNumberId` is the WABA sender number's Graph id — NOT a secret (see
+# `src/maezo/tools/mcp_whatsapp/server.py::WhatsAppSettings.phone_number_id`'s own comment), so
+# it lives here as a plain per-tenant value instead of a key in `maezo-whatsapp-config` (the
+# ExternalSecret that carries the three real credentials: token/app-secret/verify-token).
+# `send_message` (`server.py`, achado 9.4) fails closed with a `ValueError` when this is empty —
+# `scripts/ci/check_chart_env_reconciliation.py`'s `chart_required` marker on the field makes an
+# unset value here a CI-time RED, not a production surprise. Leave empty per-tenant until the
+# WABA number is provisioned for that tenant; the credentials in `maezo-whatsapp-config`
+# (`D6-04`) remain BLOCKED independently of this value.
+# ---------------------------------------------------------------------------
+whatsapp:
+  phoneNumberId: ""
+
+# ---------------------------------------------------------------------------
 # FHIR Sync (HAPI FHIR R4 ↔ Tasy integration)
 # ---------------------------------------------------------------------------
 # DEFAULT FLIPPED TO false (t5-deploy-hygiene, crash-loop footgun): `deployment-fhir-sync.yaml`'s

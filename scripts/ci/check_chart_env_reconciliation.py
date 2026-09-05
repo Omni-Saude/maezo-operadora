@@ -547,6 +547,31 @@ def _env_prefix_of(class_node: ast.ClassDef) -> str | None:
     return None
 
 
+def _has_chart_required_marker(field_call: ast.Call) -> bool:
+    """`Field(..., json_schema_extra={"chart_required": True})` — a repo-wide, opt-in marker for
+    a field that is FUNCTIONALLY required (a fail-closed `ValueError`/refusal somewhere in the
+    class's own methods when it's unset at call time) but carries a plain pydantic default, so it
+    would otherwise be invisible to the "no default -> required" rule below (WHATSAPP-ENV-PREFIX-b
+    / R-101: `WhatsAppSettings.phone_number_id` in `mcp_whatsapp/server.py` is the first user — a
+    default `""` that `send_message` refuses to operate on, mirroring the genuinely-required
+    `WhatsAppWebhookSettings.app_secret`/`.verify_token` one class over). This is data on the
+    field declaration itself (`json_schema_extra` never affects pydantic validation), not a
+    hardcoded field-name allowlist — any future field can opt in the same way.
+    """
+    for kw in field_call.keywords:
+        if kw.arg != "json_schema_extra" or not isinstance(kw.value, ast.Dict):
+            continue
+        for key_node, val_node in zip(kw.value.keys, kw.value.values, strict=True):
+            if (
+                isinstance(key_node, ast.Constant)
+                and key_node.value == "chart_required"
+                and isinstance(val_node, ast.Constant)
+                and val_node.value is True
+            ):
+                return True
+    return False
+
+
 def extract_settings_env_names(src_dir: Path) -> tuple[set[str], set[str]]:
     """AST-scan every `pydantic_settings.BaseSettings` subclass in `<src_dir>/**/*.py`.
 
@@ -558,7 +583,8 @@ def extract_settings_env_names(src_dir: Path) -> tuple[set[str], set[str]]:
         builds its alias via an f-string) is skipped rather than guessed — see the module docstring.
       - `required_names`: the subset with NO default (`ValidationError` at boot if unset) — a bare
         annotation, or `Field(...)` with neither `default=` nor `default_factory=` nor a leading
-        positional default.
+        positional default — UNION a field carrying the `chart_required` marker (see
+        `_has_chart_required_marker`): FUNCTIONALLY required despite having a pydantic default.
     """
     all_names: set[str] = set()
     required_names: set[str] = set()
@@ -589,6 +615,8 @@ def extract_settings_env_names(src_dir: Path) -> tuple[set[str], set[str]]:
                             kw.arg in ("default", "default_factory") for kw in default_value.keywords
                         )
                         if not has_default and not default_value.args:
+                            required = True
+                        if _has_chart_required_marker(default_value):
                             required = True
                         for kw in default_value.keywords:
                             if kw.arg not in ("alias", "validation_alias"):

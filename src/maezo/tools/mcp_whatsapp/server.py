@@ -1,8 +1,13 @@
 """MCP WhatsApp server — WhatsApp Business API client (ADR-0006: WhatsApp is a BLOCKED
 channel for PHI; the ToolRegistry PEP enforces that at the gateway, not here). Credential
-handling (auditoria 09, achados 9.3/9.4) is specified per method. OPS DISCLOSURE: reply
-path inoperative in Helm until `WHATSAPP_PHONE_NUMBER_ID` is provisioned (owner-gated,
-see OWNER-DECISIONS) — no deployment injects it; row in `docs/review-queue.md`.
+handling (auditoria 09, achados 9.3/9.4) is specified per method.
+
+WHATSAPP-ENV-PREFIX-b / R-061 (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA):
+`WHATSAPP_PHONE_NUMBER_ID` is now provisioned as a non-secret `values.yaml` key
+(`whatsapp.phoneNumberId`) and injected into `deployment-webhook-receiver.yaml` — see
+`docs/review-queue.md` for the closed row. The WABA credentials (`WHATSAPP_TOKEN`/
+`_APP_SECRET`/`_VERIFY_TOKEN`) remain BLOCKED (D6-04, unrelated to this field) — provisioning
+this id does not, by itself, make the channel operate end-to-end.
 """
 
 from __future__ import annotations
@@ -30,7 +35,16 @@ class WhatsAppSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="WHATSAPP_", extra="ignore")
 
     base_url: str = "https://graph.facebook.com/v18.0"
-    phone_number_id: str = ""  # NOT a secret: the sender number's Graph id (achado 9.4)
+    # NOT a secret: the sender number's Graph id (achado 9.4). Has a pydantic DEFAULT (empty
+    # string), so it is not "required" in the ValidationError-at-boot sense — but it IS
+    # functionally required: `send_message` (:below) fails closed with a `ValueError` when it is
+    # unset. `json_schema_extra={"chart_required": True}` is a repo-wide marker
+    # `scripts/ci/check_chart_env_reconciliation.py`'s AST scan recognizes for exactly this shape
+    # (a fail-closed-at-call-time field, not fail-closed-at-construction) — WHATSAPP-ENV-PREFIX-b /
+    # R-101 (OWNER-DECISIONS-REGISTER) added the marker so the CI fence goes RED if a future chart
+    # ever stops injecting `WHATSAPP_PHONE_NUMBER_ID`, the same way it already does for the
+    # genuinely-required `WhatsAppWebhookSettings.app_secret`/`.verify_token`.
+    phone_number_id: str = Field(default="", json_schema_extra={"chart_required": True})
     whatsapp_token: str = _secret("TOKEN")
     whatsapp_app_secret: str = _secret("APP_SECRET")
     whatsapp_verify_token: str = _secret("VERIFY_TOKEN")
