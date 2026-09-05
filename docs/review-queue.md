@@ -1579,3 +1579,20 @@ escaneado antes, achado F4), todos resolvidos.
 | `HELM-ENV-AUDIT-DIR-DEAD` (follow-up gap, F2) — `AUDIT_DIR` (declarado em `deployment-bridge.yaml` para `notifications-bridge`, valor `/tmp/maezo-audit`) nao tem campo correspondente em `NotificationsBridgeSettings`; o audit trail real do bridge e' `PostgresAuditSink`, nao um diretorio | Decidir se `AUDIT_DIR` deve ser removido do template ou se um uso futuro esta planejado. Nome vestigial, sem leitor sob nenhuma grafia — allowlisted como `DEFERRED_UNRECONCILED_DECLARED` | `@rodaquino-OMNI` ou dono do notifications-bridge | `ABERTO` |
 | `docs/sme-dispatch/regulatorio/RN-CURRENCY-MATRIX.md` + `docs/sme-dispatch/regulatorio/rn-currency-matrix.yaml` (R-171) | Matriz de preparacao (86 linhas) para a sessao unica e datada de regulatorio + juridico que ratifica `docs/compliance/rn-currency-review.md`. A coluna "veredito do analista -- a conferir" esta vazia em toda linha; nada aqui ratifica vigencia de RN nem remove `DRAFT/verify` de nenhum contrato. Dobra a pendencia de revisao de ~12 linhas do registro (R-214, R-234, R-238, R-242, R-251, R-255, R-257, R-258, R-262, R-268, R-274, R-281) que herdavam a mesma pergunta contrato a contrato | regulatorio + juridico (sessao conjunta) | `recomendacao — pendente de assinatura de regulatorio e juridico` |
 | `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md` + `docs/sme-dispatch/po/org-taxonomy-table.yaml` (R-034) | Tabela consolidada `grupo declarado -> arquivo:linha -> processo -> User Task/regra DMN -> SLA/ato -> PROPOSTO? -> nome real`, preparada pela sessao unica de taxonomia organizacional aprovada em R-034 (`OWNER-DECISIONS-REGISTER`, APROVADO-APOS-REVISAO-HUMANA). Cobre os 8 processos do escopo do dono (ESCALATION, CANCEL, ADEQUACAO, CRED, NIP, PROGRAMA, AUTH, ANS-SUBMIT) + os 8 restantes por completude do inventario. `nome_real` vazio em toda linha — nenhum rename foi aplicado. Precisa que o dono organizacional preencha os nomes reais numa sentada (teto herdado 2026-09-19 via R-137) | dono organizacional da operadora | `ABERTO — recomendacao; pendente de nomeacao pelo dono` |
+
+## D4-02 — pools asyncpg sem tuning por ambiente (reabertura ancorada em SC-05)
+
+`R-108` (OWNER-DECISIONS-REGISTER, opcao B, APROVADO-APOS-REVISAO-HUMANA): os quatro sitios
+`asyncpg.create_pool` desta arvore (`src/maezo/a2a/idempotency.py:246`, `src/maezo/a2a/outbox.py:397`,
+`src/maezo/platform/integrations/amh_inbox.py:918`, `src/maezo/gateway/audit_postgres.py:207`) mantem
+`min_size=1`/`max_size=10` como DEFAULT DELIBERADO — decisao do dono de NAO expor min/max por
+ambiente em `values.yaml` agora, porque a aritmetica agregada de conexoes (pools x processos x
+replicas x tenants vs `max_connections` do Aurora) so' existe apos `SC-05` (ver `docs/helm/
+maezo-tenant/values.yaml`, secao "PostgreSQL (Aurora) connection", bloco SC-05). Os quatro sitios
+ganharam o mesmo comentario-ancora (`D4-02 / R-108`) citando este fato e os outros tres irmaos —
+`tests/unit/platform/test_asyncpg_pool_defaults_documented.py` falha se os quatro divergirem entre
+si ou se o comentario sumir de um deles.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `src/maezo/a2a/idempotency.py:246`, `src/maezo/a2a/outbox.py:397`, `src/maezo/platform/integrations/amh_inbox.py:918`, `src/maezo/gateway/audit_postgres.py:207` — `min_size=1`/`max_size=10` | **REABRE quando `SC-05` landar**: com a aritmetica agregada de conexoes disponivel (bloco SC-05 em `values.yaml`), decidir a Opcao A do memo original — expor `min`/`max` por ambiente em `values.yaml` -> env -> `WorkerRuntimeSettings`/`AgentRuntimeSettings`/settings equivalentes dos quatro sitios — ou manter o default deliberado permanentemente. Ate' la', os quatro numeros ficam fixos e documentados, nunca ajustados um de cada vez | dono de infraestrutura/plataforma (`deploy/helm/**` e' owner-gated) | `ABERTO — reaberto por design; aguarda SC-05 (ja' entregue nesta mesma PR, ver secao SC-05 abaixo) landar e ser avaliado antes de qualquer exposicao por ambiente` |
