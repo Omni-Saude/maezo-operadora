@@ -79,6 +79,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
+      # `make check-lifecycle-expected-fail-expiry` (below) RENDERS the chart to prove the R-040
+      # marker actually reaches every lifecycle CronJob — the one-sided-fence defect D4 of
+      # VERIFY-A1-OBS §Delta. The gate FAILS (never skips) when helm is absent, so the binary has
+      # to be here. Same pinned action/version as the `validate-helm` job below.
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310  # v5.0.1
+        with:
+          version: "3.15.0"
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -161,7 +169,10 @@ jobs:
       # `maezo.io/expected-fail-until` marker that `MaezoLifecycleJobFailed` excludes on while it
       # is present — an exclusion that never expires would be the same alarm-normalisation D12-01-b
       # already names. Same no-silent-renewal discipline as the shadow-deviation gate above,
-      # scoped to this one marker. Belt-and-suspenders with
+      # scoped to this one marker. It RENDERS the chart (`helm template`, every shipped overlay)
+      # as its third check, so deleting the annotation from the template — which leaves the date,
+      # the alert `unless` clause and `helm lint --strict` all green — goes red here (D4,
+      # VERIFY-A1-OBS §Delta). Belt-and-suspenders with
       # tests/unit/ci/test_check_lifecycle_expected_fail_expiry.py.
       - name: Lifecycle expected-fail marker expiry gate (R-040/SC-07)
         run: make check-lifecycle-expected-fail-expiry

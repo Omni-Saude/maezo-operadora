@@ -132,7 +132,12 @@ check-lifecycle-expected-fail-expiry: ## R-040/SC-07: marcador expected-fail-unt
 	# deploy/helm/maezo-tenant/values.yaml (lifecycle.expectedFailUntil, default 2026-11-11) e este
 	# gate reprova a build a partir do dia seguinte ao prazo, alem de reprovar se a expressao do
 	# alerta parar de referenciar a serie derivada da anotacao. `--today YYYY-MM-DD` simula qualquer
-	# data.
+	# data. Terceiro check (D4, VERIFY-A1-OBS §Delta): RENDERIZA o chart com `helm template` em
+	# TODOS os overlays `values-*.yaml` e reprova se algum CronJob de ciclo de vida renderizado
+	# ficar sem a anotacao, ou com valor diferente da data rastreada — apagar o bloco da anotacao
+	# no template deixava values.yaml, o `unless` do alerta e `helm lint --strict` todos verdes.
+	# EXIGE `helm` no PATH (>=3.15, o mesmo binario de `make helm-lint`): a ausencia e' FALHA
+	# explicita, nunca skip.
 	uv run python scripts/ci/check_lifecycle_expected_fail_expiry.py
 
 check-ledger-hashes: ## LEDGER-HASH-RECOMPUTE-CHECK: recomputa o Test-hash das linhas NOVAS de docs/evidence-ledger.md que declaram caminho
