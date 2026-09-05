@@ -278,6 +278,14 @@ _DMN_NS = {"dmn": "https://www.omg.org/spec/DMN/20191111/MODEL/"}
 _BPMN_MODEL_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 _CAMUNDA_NS = "http://camunda.org/schema/1.0/bpmn"
 
+#: A condicao INTEIRA de `Flow_GW_AutoAprovar` (R-058), montada a partir do nome pinado no worker
+#: para que modelo e codigo tenham UMA fonte do nome da variavel. Fixar a expressao completa — e
+#: nao apenas os dois termos — e' o que impede a troca silenciosa de `&&` por `||` (§Delta-F1):
+#: com `||`, a recomendacao da DMN sozinha voltaria a abrir o caminho automatico.
+_CONDICAO_GW_AUTO_APROVAR_ESPERADA = (
+    "${auto_aprovacao.recomendacao == 'AUTO_APROVAR' && " + VAR_REEMBOLSO_AUTO_LIBERADO + "}"
+)
+
 #: The DMN's three output names, in table order — also the three process variables
 #: `ST_CalculateAmount`'s input mapping flattens and the worker reads.
 _DMN_OUTPUT_NAMES = ("valor_calculado_tabela_cents", "multiplo_tabela_aplicado", "fonte_tabela")
@@ -1645,14 +1653,15 @@ def test_calculate_amount_entry_round_trips_calculate_value() -> None:
 
 def test_issue_payment_entry_round_trips_process_payment() -> None:
     # R-058: com o bloqueio do caminho automatico fechado, `issue_payment_entry` so' emite com
-    # decisao humana no registro — os campos abaixo sao o contexto que as duas tasks humanas de
-    # pagamento sempre carregam (a User Task os escreve antes de o token chegar la').
+    # decisao humana no registro — `decisao_reembolso` e' o contexto que as duas tasks humanas de
+    # pagamento sempre carregam (a User Task o escreve antes de o token chegar la').
+    # §Delta-F3: NADA alem disso. Um `APROVAR` integral segue pagavel SEM `analista_id` —
+    # o contrato so' cobra o id nas decisoes adversas.
     variables = {
         "protocolo_reembolso": "REEMB-1",
         "valor_reembolso_aprovado_cents": 30000,
         "beneficiario_pseudo_id": "B-1",
         "decisao_reembolso": "APROVAR",
-        "analista_id": "analista-sintetico-001",
     }
     direct = process_payment("REEMB-1", 30000, "B-1")
     result = issue_payment_entry(variables)
@@ -1823,7 +1832,6 @@ def test_issue_payment_entry_never_falls_back_to_calculated_amount() -> None:
         "protocolo_reembolso": "REEMB-ANALISTA",
         "beneficiario_pseudo_id": "B-1",
         "decisao_reembolso": "APROVAR",
-        "analista_id": "analista-sintetico-001",
         "valor_calculado_tabela_cents": 12000,
     }
     with pytest.raises(ReembolsoValorPagamentoInvalidoError):
@@ -1840,7 +1848,6 @@ def test_issue_payment_entry_refuses_orphan_valor_cents_variable() -> None:
         "valor_cents": 30000,
         # R-058: contexto humano, para que a guarda de VALOR continue sendo a que dispara aqui.
         "decisao_reembolso": "APROVAR",
-        "analista_id": "analista-sintetico-001",
     }
     with pytest.raises(ReembolsoValorPagamentoInvalidoError):
         issue_payment_entry(variables)
@@ -1857,7 +1864,6 @@ def test_issue_payment_entry_refuses_when_amount_absent() -> None:
                 # caminho automatico dispararia antes — ver
                 # test_issue_payment_entry_auto_path_bloqueado_mesmo_sem_o_marcador_de_origem).
                 "decisao_reembolso": "APROVAR",
-                "analista_id": "analista-sintetico-001",
             }
         )
 
@@ -1944,11 +1950,14 @@ def test_bpmn_gateway_de_auto_aprovacao_exige_o_interruptor() -> None:
     """MODELO: `Flow_GW_AutoAprovar` so' dispara com o interruptor aberto; o default segue humano.
 
     Le o BPMN pelo ID do elemento (nao por numero de linha, que anda). Prova as tres metades do
-    bloqueio no modelo: (a) a condicao exige `reembolso_auto_liberado` ALEM da recomendacao da
-    DMN; (b) o gateway continua com `default="Flow_GW_AnaliseHumana"`, i.e. o token nao fica preso
-    nem vira incidente — ele VAI para a analise humana; (c) `ST_IssuePaymentAuto` NAO foi apagada
-    (o desenho segue visivel para o sign-off) e agora carrega o marcador de origem que o worker
-    reconhece.
+    bloqueio no modelo: (a) a condicao e' EXATAMENTE
+    `${auto_aprovacao.recomendacao == 'AUTO_APROVAR' && reembolso_auto_liberado}` — a expressao
+    inteira, nao dois substrings (§Delta-F1: fixar substrings deixava passar `&&` -> `||`, um
+    caractere que reabre o caminho automatico no dia em que a DMN voltar a recomendar
+    AUTO_APROVAR, i.e. quando o teto D-07 subir); (b) o gateway continua com
+    `default="Flow_GW_AnaliseHumana"`, i.e. o token nao fica preso nem vira incidente — ele VAI
+    para a analise humana; (c) `ST_IssuePaymentAuto` NAO foi apagada (o desenho segue visivel para
+    o sign-off) e agora carrega o marcador de origem que o worker reconhece.
     """
     root = ET.parse(_BPMN_REEMBOLSO_PATH).getroot()
 
@@ -1956,13 +1965,18 @@ def test_bpmn_gateway_de_auto_aprovacao_exige_o_interruptor() -> None:
         el for el in root.iter(f"{{{_BPMN_MODEL_NS}}}sequenceFlow") if el.get("id") == "Flow_GW_AutoAprovar"
     ]
     assert len(flows) == 1
-    condicao = (flows[0].findtext(f"{{{_BPMN_MODEL_NS}}}conditionExpression") or "").strip()
-    assert "auto_aprovacao.recomendacao == 'AUTO_APROVAR'" in condicao, (
-        f"o termo da DMN sumiu da condicao: {condicao!r}"
+    bruta = flows[0].findtext(f"{{{_BPMN_MODEL_NS}}}conditionExpression") or ""
+    condicao = " ".join(bruta.split())  # normaliza espacos/quebras; ET ja desescapou &amp;&amp;
+    assert condicao == _CONDICAO_GW_AUTO_APROVAR_ESPERADA, (
+        "BLOQUEIO R-058 ALTERADO no modelo: a condicao de Flow_GW_AutoAprovar deixou de ser "
+        f"exatamente {_CONDICAO_GW_AUTO_APROVAR_ESPERADA!r} — e' {condicao!r}. A EXPRESSAO INTEIRA "
+        "e' fixada aqui de proposito (§Delta-F1): fixar so' os dois termos deixava passar a "
+        "troca de `&&` por `||`, que reabre o caminho automatico assim que a DMN voltar a "
+        "recomendar AUTO_APROVAR (i.e. no dia em que o teto D-07 subir de zero)."
     )
-    assert VAR_REEMBOLSO_AUTO_LIBERADO in condicao, (
-        "BLOQUEIO R-058 REMOVIDO do modelo: Flow_GW_AutoAprovar nao exige mais "
-        f"{VAR_REEMBOLSO_AUTO_LIBERADO} — o caminho automatico voltaria a pagar. Condicao: {condicao!r}"
+    assert "||" not in condicao, (
+        f"disjuncao na condicao do gateway: qualquer `||` torna o interruptor R-058 dispensavel. "
+        f"Condicao: {condicao!r}"
     )
 
     gateways = [
@@ -1996,6 +2010,11 @@ def test_require_pagamento_autorizado_libera_as_duas_origens_humanas() -> None:
         ("APROVAR", "analista-sintetico-001", ""),
         ("APROVAR_PARCIAL", "analista-sintetico-001", ""),
         ("APROVAR", "", "auditor-sintetico-001"),
+        ("APROVAR_PARCIAL", "", "auditor-sintetico-001"),
+        # §Delta-F3: APROVAR integral SEM id nenhum — o contrato nao o exige, logo a guarda
+        # tambem nao pode exigir.
+        ("APROVAR", "", ""),
+        ("  aprovar  ", "", ""),
     ):
         reembolso.require_pagamento_autorizado(
             protocolo_reembolso="REEMB-1",
@@ -2003,6 +2022,49 @@ def test_require_pagamento_autorizado_libera_as_duas_origens_humanas() -> None:
             decisao_reembolso=decisao,
             analista_id=analista,
             auditor_id=auditor,
+        )
+
+
+def test_require_pagamento_autorizado_nao_amplia_o_caminho_humano_aprovar() -> None:
+    """§Delta-F3: um `APROVAR` humano SEM `analista_id`/`auditor_id` continua PAGANDO.
+
+    A guarda R-058 fecha o caminho AUTOMATICO — esse e' todo o escopo aprovado em R-058
+    ("bloqueio fail-closed generico do caminho automatico"). Ela NAO pode acrescentar precondicao
+    ao caminho humano: o contrato SP-OP-REEMBOLSO-001 exige `analista_id`/`auditor_id` apenas nas
+    decisoes ADVERSAS (`ERR_REEMBOLSO_DENIAL_NOT_HUMAN`: "recusa se `decisao_reembolso` fora de
+    {NEGAR, APROVAR_PARCIAL} setado por humano ou se faltar `analista_id`/`auditor_id`"), e a
+    documentacao de `UT_AnaliseReembolso` no BPMN so' os lista para NEGAR e APROVAR_PARCIAL. Uma
+    revisao anterior desta guarda exigia o id tambem no APROVAR integral: isso transformava em
+    INCIDENTE um pagamento humano que o contrato considera valido.
+
+    Este teste vai VERMELHO se alguem reintroduzir a exigencia.
+    """
+    variables = {
+        "protocolo_reembolso": "REEMB-ANALISTA",
+        "beneficiario_pseudo_id": "B-1",
+        "decisao_reembolso": "APROVAR",
+        "valor_reembolso_aprovado_cents": 12000,
+    }
+    assert issue_payment_entry(variables)["valor_cents"] == 12000
+
+
+def test_require_pagamento_autorizado_exige_id_somente_no_aprovar_parcial() -> None:
+    """§Delta-F3: o id humano segue OBRIGATORIO na reducao — exigencia do contrato, nao de R-058.
+
+    `APROVAR_PARCIAL` e' decisao ADVERSA (reduz o pedido) e o contrato ja a condiciona a
+    `analista_id`/`auditor_id` (mesmo conjunto que `send_reembolso_denial` cobra em
+    `ST_ComunicarReducao`, o predecessor imediato de `ST_IssuePaymentParcial`). Manter a exigencia
+    AQUI nao amplia nada — apenas espelha o guard adverso no ponto onde o dinheiro sai.
+    """
+    with pytest.raises(ReembolsoAutoPagamentoBloqueadoError):
+        issue_payment_entry(
+            {
+                "protocolo_reembolso": "REEMB-PARCIAL",
+                "beneficiario_pseudo_id": "B-1",
+                "decisao_reembolso": "APROVAR_PARCIAL",
+                "valor_solicitado_cents": 12000,
+                "valor_reembolso_aprovado_cents": 8000,
+            }
         )
 
 
@@ -2019,7 +2081,7 @@ def test_require_pagamento_autorizado_loga_sem_phi() -> None:
     ):
         reembolso.require_pagamento_autorizado(
             protocolo_reembolso="REEMB-AUTO",
-            origem_pagamento=ORIGEM_PAGAMENTO_AUTO,
+            origem_pagamento=f"  {ORIGEM_PAGAMENTO_AUTO.lower()}  ",
             decisao_reembolso="",
             analista_id="",
             auditor_id="",
@@ -2033,6 +2095,10 @@ def test_require_pagamento_autorizado_loga_sem_phi() -> None:
     assert campos["gap"] == "REEMBOLSO-AUTO-OVERPAY-a"
     assert campos["interruptor"] == "REEMBOLSO_AUTO_PAGAMENTO_LIBERADO"
     assert ORIGEM_PAGAMENTO_AUTO in campos["motivo"]
+    # §Delta-INFO-I3: `origem_pagamento` e' controlado pelo CHAMADOR (uma variavel de escopo de
+    # processo pode ser semeada no start). O log emite um token NORMALIZADO de conjunto fechado,
+    # nunca a string bruta — aqui a entrada era `"  auto_l2  "`.
+    assert campos["origem_pagamento"] == ORIGEM_PAGAMENTO_AUTO
     proibidos = {
         "beneficiario_pseudo_id",
         "matricula_beneficiario",
@@ -2042,6 +2108,41 @@ def test_require_pagamento_autorizado_loga_sem_phi() -> None:
         "valor_reembolso_aprovado_cents",
     }
     assert not (proibidos & set(campos)), f"PHI no log de recusa: {sorted(proibidos & set(campos))}"
+
+
+@pytest.mark.parametrize(
+    ("origem", "esperado"),
+    [
+        ("", "<ausente>"),
+        ("   ", "<ausente>"),
+        ("HUMANO-ANALISTA", "<desconhecida>"),
+        ("cpf 000.000.000-00 do beneficiario", "<desconhecida>"),
+    ],
+)
+def test_require_pagamento_autorizado_nao_ecoa_origem_bruta_no_log(origem: str, esperado: str) -> None:
+    """§Delta-INFO-I3: o valor bruto de `origem_pagamento` NUNCA chega ao log.
+
+    Nas duas tasks HUMANAS de pagamento nao existe `origem_pagamento` local, entao uma homonima
+    semeada no start do processo alcanca o worker e seria ecoada verbatim se a guarda logasse a
+    string crua. Como o campo e' texto nao confiavel (poderia carregar qualquer coisa, inclusive
+    dado do beneficiario), a recusa loga um token de um conjunto FECHADO:
+    `AUTO_L2` / `<ausente>` / `<desconhecida>`.
+    """
+    with (
+        structlog.testing.capture_logs() as logs,
+        pytest.raises(ReembolsoAutoPagamentoBloqueadoError),
+    ):
+        reembolso.require_pagamento_autorizado(
+            protocolo_reembolso="REEMB-1",
+            origem_pagamento=origem,
+            decisao_reembolso="",  # sem decisao humana => canal 2 recusa
+            analista_id="",
+            auditor_id="",
+        )
+
+    campos = next(e for e in logs if e.get("event") == "reembolso.issue_payment.auto_bloqueado")
+    assert campos["origem_pagamento"] == esperado
+    assert origem.strip() not in str(campos) or not origem.strip()
 
 
 def test_send_reembolso_denial_entry_guards_missing_human_decision() -> None:

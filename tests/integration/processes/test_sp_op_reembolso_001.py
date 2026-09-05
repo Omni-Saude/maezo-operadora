@@ -162,6 +162,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import uuid
+import xml.etree.ElementTree as ET
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -245,6 +246,17 @@ _UT_COORDENACAO = "UT_CoordenacaoReembolso"
 _UT_PENDENCIA = "UT_DecidirPendenciaExpirada"
 
 _ST_ISSUE_PAYMENT_AUTO = "ST_IssuePaymentAuto"
+
+_BPMN_MODEL_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+#: §Delta-F1 — a condicao INTEIRA de `Flow_GW_AutoAprovar` (R-058), montada a partir do nome que o
+#: worker pina. Gemea da fence unitaria `test_bpmn_gateway_de_auto_aprovacao_exige_o_interruptor`:
+#: aquela fixa o ARQUIVO do repo, esta fixa a definicao DEPLOYADA que a instancia carrega. As duas
+#: comparam a expressao completa de proposito — fixar so' os dois termos deixava passar a troca de
+#: `&&` por `||`, um caractere que reabre o caminho automatico quando o teto D-07 subir de zero.
+_CONDICAO_GW_AUTO_APROVAR_ESPERADA = (
+    "${auto_aprovacao.recomendacao == 'AUTO_APROVAR' && " + VAR_REEMBOLSO_AUTO_LIBERADO + "}"
+)
 
 _END_AUTO = "End_ReembolsoAprovadoAutomatico"
 _END_ANALISTA = "End_ReembolsoAprovadoAnalista"
@@ -717,6 +729,15 @@ async def test_teto_zero_d07_bloqueia_auto_aprovacao_mesmo_com_seed_true(
     Tudo favoravel + seed dentro_teto_l2=TRUE de upstream: o worker calculate_amount RECOMPUTA
     dentro_teto_l2=False (teto 0 fail-closed) ANTES de BRT_AutoApproval avaliar — o seed NAO fura
     o teto. Documenta o estado REAL, correto e fail-closed do v2 atual (nao um gap desta suite).
+
+    §Delta-F2 — ESTE TESTE ISOLA O TETO, e a assercao que o isola e' a de `dentro_teto_l2`. Depois
+    de R-058 o roteamento para `UT_AnaliseReembolso` passou a ter DUAS causas suficientes (o teto
+    zerado E o interruptor `REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`), de modo que as assercoes de
+    terminal/atividade sozinhas passariam mesmo com o teto positivo — o teste viraria vacuo como
+    teste de TETO. A assercao `dentro_teto_l2 is False` abaixo le a variavel que o worker
+    RECOMPUTOU e falha no dia em que o teto D-07 subir de zero, que e' exatamente quando este
+    teste tem de ser revisto. O bloqueio R-058, esse, e' documentado pelo teste seguinte
+    (`test_bloqueio_r058_impede_o_caminho_automatico_de_pagar`), que nao le teto nenhum.
     """
     inst = await start_reembolso()  # payload canonico ja seeda dentro_teto_l2=True
     iid = inst["id"]
@@ -724,6 +745,13 @@ async def test_teto_zero_d07_bloqueia_auto_aprovacao_mesmo_com_seed_true(
     ut = await _drive_to_analista(engine, reembolso_probe, iid)
     assert "analise-reembolso" in ut.candidate_groups, (
         "com teto 0 (D-07), o caminho AUTO_APROVAR deve cair em UT_AnaliseReembolso"
+    )
+
+    assert await engine.get_history_variable(iid, "dentro_teto_l2") is False, (
+        "este teste so' e' um teste de TETO enquanto o teto amh estiver em 0 (D-07 em aberto): o "
+        "worker calculate_amount tem de RECOMPUTAR dentro_teto_l2=False sobre o seed=True. Se esta "
+        "assercao falhou, o teto subiu de zero — reveja este teste (o roteamento para analise "
+        "humana passaria a ser explicado apenas pelo bloqueio R-058, nao mais pelo teto)"
     )
 
     ended = await engine.activity_instances_ended(iid)
@@ -763,6 +791,13 @@ async def test_bloqueio_r058_impede_o_caminho_automatico_de_pagar(
     Alem do terminal, assere a ATIVIDADE `ST_IssuePaymentAuto` na historia do engine: o pedido do
     R-058 e' "o caminho automatico nunca alcanca a emissao de pagamento", nao apenas "nao termina
     no terminal automatico".
+
+    §Delta-F1: assere tambem a condicao INTEIRA de `Flow_GW_AutoAprovar` na definicao DEPLOYADA que
+    esta instancia carrega (um GET em `/process-definition/{id}/xml`, sem custo de motor). Motivo:
+    hoje, com o teto D-07 em 0, a DMN nunca emite `AUTO_APROVAR`, entao uma troca de `&&` por `||`
+    no modelo seria INVISIVEL para o comportamento observado aqui (`false || false` continua caindo
+    no default humano) — e so' se tornaria visivel no dia em que o teto subir, que e' precisamente
+    o mundo que esta PR existe para proteger.
     """
     assert REEMBOLSO_AUTO_PAGAMENTO_LIBERADO is False, (
         "este teste descreve o mundo com o interruptor R-058 FECHADO; abri-lo exige o sign-off "
@@ -778,6 +813,23 @@ async def test_bloqueio_r058_impede_o_caminho_automatico_de_pagar(
         **{VAR_REEMBOLSO_AUTO_LIBERADO: True},
     )
     iid = inst["id"]
+
+    # §Delta-F1: a condicao do gateway e' fixada na DEFINICAO QUE ESTA INSTANCIA CARREGA (nao no
+    # arquivo do repo — isso o teste unitario `test_bpmn_gateway_de_auto_aprovacao_exige_o_
+    # interruptor` ja faz). Um GET em /process-definition/{id}/xml, sem custo de motor, prova que
+    # o modelo DEPLOYADO tem a conjuncao — e que ninguem publicou uma variante com `||`, que
+    # tornaria o interruptor R-058 dispensavel assim que a DMN voltar a recomendar AUTO_APROVAR.
+    raiz = ET.fromstring(await engine.definition_xml(str(inst["definitionId"])))
+    condicoes = [
+        " ".join((el.findtext(f"{{{_BPMN_MODEL_NS}}}conditionExpression") or "").split())
+        for el in raiz.iter(f"{{{_BPMN_MODEL_NS}}}sequenceFlow")
+        if el.get("id") == "Flow_GW_AutoAprovar"
+    ]
+    assert condicoes == [_CONDICAO_GW_AUTO_APROVAR_ESPERADA], (
+        f"o modelo DEPLOYADO nao tem a condicao esperada em Flow_GW_AutoAprovar: {condicoes!r} "
+        f"(esperado [{_CONDICAO_GW_AUTO_APROVAR_ESPERADA!r}]). Uma disjuncao (`||`) aqui tornaria "
+        "o interruptor R-058 dispensavel assim que a DMN voltar a recomendar AUTO_APROVAR"
+    )
 
     ut = await _drive_to_analista(engine, reembolso_probe, iid)
     assert "analise-reembolso" in ut.candidate_groups, (

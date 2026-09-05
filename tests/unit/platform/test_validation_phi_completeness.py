@@ -765,8 +765,8 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "not a BPMN surface. New name, a boolean GOVERNANCE-SWITCH fact about whether the "
             "automatic path may pay at all (never beneficiary PHI — absent from PHI_PROCESS_VARS, "
             "ADR-0006), CLEAN bucket, no LISTED/SHAPE_SUSPECT movement. Corpus 331 -> 332 names, "
-            "1638 -> 1639 occurrences. NOTA: o numero de PR e' PROVISORIO (o maior PR aberto no "
-            "momento da escrita era #338); o orquestrador corrige para o numero real ao abrir a PR."
+            "1638 -> 1639 occurrences. Numero de PR CONFIRMADO (#339, aberta pelo orquestrador em "
+            "2026-09-05; §Delta-F4 da revisao de gatekeeper)."
         ),
     ),
     CorpusDelta(
@@ -785,8 +785,8 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "start payload could seed — seeding it elsewhere can only ADD refusals, never remove "
             "one. Exactly ONE declaration; new name, a payment-path ORIGIN tag (never beneficiary "
             "PHI — absent from PHI_PROCESS_VARS, ADR-0006), CLEAN bucket, no LISTED/SHAPE_SUSPECT "
-            "movement. Corpus 332 -> 333 names, 1639 -> 1640 occurrences. Mesma nota sobre o numero "
-            "de PR provisorio."
+            "movement. Corpus 332 -> 333 names, 1639 -> 1640 occurrences. Numero de PR CONFIRMADO "
+            "(#339, mesma PR da entrada acima; §Delta-F4)."
         ),
     ),
 )

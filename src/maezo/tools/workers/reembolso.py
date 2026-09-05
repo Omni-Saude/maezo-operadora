@@ -232,6 +232,24 @@ _ORIGEM_PAGAMENTO_VAR = "origem_pagamento"
 #: no sentido adverso). Um pagamento sem uma delas so' pode ter vindo do caminho automatico.
 _DECISOES_HUMANAS_DE_PAGAMENTO = frozenset({"APROVAR", "APROVAR_PARCIAL"})
 
+#: Subconjunto de `_DECISOES_HUMANAS_DE_PAGAMENTO` para o qual o CONTRATO ja exige
+#: `analista_id`/`auditor_id` — e SO' ele. `APROVAR_PARCIAL` e' decisao ADVERSA (reduz o pedido):
+#: contrato SP-OP-REEMBOLSO-001 §"Guards" (`ERR_REEMBOLSO_DENIAL_NOT_HUMAN`: "recusa se
+#: `decisao_reembolso ∉ {NEGAR, APROVAR_PARCIAL}` setado por humano **ou** se faltar
+#: `analista_id`/`auditor_id`") e a documentacao de `UT_AnaliseReembolso` no BPMN
+#: ("APROVAR_PARCIAL exige justificativa + fundamentacao_contratual +
+#: valor_reembolso_aprovado_cents (< valor_solicitado_cents) + analista_id"). O `APROVAR` simples
+#: NAO tem essa exigencia em lugar nenhum do contrato: exigir um id dele seria ampliar o caminho
+#: HUMANO, coisa que R-058 ("bloqueio fail-closed generico do caminho AUTOMATICO") nao autoriza —
+#: ver §Delta-F3.
+_DECISOES_COM_ID_HUMANO_OBRIGATORIO = frozenset({"APROVAR_PARCIAL"})
+
+#: Valores logados no lugar de um `origem_pagamento` que nao e' o token conhecido. O campo e'
+#: eco de um valor CONTROLADO PELO CHAMADOR (uma variavel de processo pode ser semeada no start),
+#: entao a recusa loga um token NORMALIZADO de um conjunto fechado, nunca a string bruta.
+_ORIGEM_PAGAMENTO_AUSENTE = "<ausente>"
+_ORIGEM_PAGAMENTO_DESCONHECIDA = "<desconhecida>"
+
 
 # ---------------------------------------------------------------------------
 # Error codes
@@ -364,8 +382,9 @@ class ReembolsoAutoPagamentoBloqueadoError(ValueError):
     Guarda fail-closed de `issue_payment_entry`: enquanto
     :data:`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` for `False`, o topico
     `operadora.reembolso.issue_payment` so' emite pagamento com uma decisao humana no registro
-    (`decisao_reembolso` em {APROVAR, APROVAR_PARCIAL} com `analista_id` ou `auditor_id`). Qualquer
-    outra chamada e' — por eliminacao — o caminho automatico, e e' recusada ANTES de o valor sequer
+    (`decisao_reembolso` em {APROVAR, APROVAR_PARCIAL}; `analista_id`/`auditor_id` apenas onde o
+    contrato ja os exige — `_DECISOES_COM_ID_HUMANO_OBRIGATORIO`, ver §Delta-F3). Qualquer outra
+    chamada e' — por eliminacao — o caminho automatico, e e' recusada ANTES de o valor sequer
     ser resolvido. Espelha `ReembolsoDenialNotHumanError` no sentido oposto: la' a maquina nao pode
     NEGAR sozinha, aqui ela nao pode PAGAR sozinha.
 
@@ -831,39 +850,62 @@ def require_pagamento_autorizado(
        sombreia homonima de processo, entao um payload de start nao consegue REMOVER esse token de
        la'; semea-lo em outro lugar so' ADICIONA recusas.
     2. AUSENCIA de decisao humana no registro (`decisao_reembolso` fora de
-       {APROVAR, APROVAR_PARCIAL}, ou sem `analista_id`/`auditor_id`). Este canal e' o que sobrevive
-       a alguem APAGAR o inputParameter do canal 1: as duas tasks humanas de pagamento
-       (`ST_IssuePaymentAnalista`, `ST_IssuePaymentParcial`) so' sao alcancaveis depois de uma User
-       Task humana ter escrito esses campos, entao "sem decisao humana" e', por eliminacao, o
-       caminho automatico. Espelha a guarda adversa `send_reembolso_denial` (mesmos dois campos,
-       mesmo conjunto de decisoes), pela mesma razao L0-hard.
+       {APROVAR, APROVAR_PARCIAL}). Este canal e' o que sobrevive a alguem APAGAR o inputParameter
+       do canal 1: as duas tasks humanas de pagamento (`ST_IssuePaymentAnalista`,
+       `ST_IssuePaymentParcial`) so' sao alcancaveis depois de uma User Task humana ter escrito
+       esse campo, e o caminho automatico nunca o escreve (a DMN `reembolso_auto_approval` produz
+       `auto_aprovacao.recomendacao`, nao `decisao_reembolso`) — entao "sem decisao humana" e', por
+       eliminacao, o caminho automatico.
+
+    NAO acrescenta precondicao ao caminho HUMANO (§Delta-F3). `analista_id`/`auditor_id` so' sao
+    exigidos onde o CONTRATO ja os exige — `_DECISOES_COM_ID_HUMANO_OBRIGATORIO`, hoje
+    {APROVAR_PARCIAL}, a decisao ADVERSA cuja trilha de auditoria a guarda `send_reembolso_denial`
+    ja cobra em `ST_ComunicarReducao`, imediatamente antes de `ST_IssuePaymentParcial`. Um
+    `APROVAR` simples permanece pagavel exatamente como antes de R-058, sem id: exigi-lo aqui
+    transformaria em INCIDENTE um pagamento humano que o contrato considera valido, o que estaria
+    fora do escopo aprovado ("bloqueio fail-closed generico do caminho AUTOMATICO"). O canal 1
+    continua sendo o que fecha o caminho automatico mesmo com uma decisao humana forjada no start.
 
     Roda ANTES de `process_payment` de proposito: recusar uma emissao nao autorizada nao pode
     depender de o valor ser resolvivel. Um pagamento automatico com valor invalido tem DOIS
     defeitos, e o que importa reportar e' o que estava prestes a mover dinheiro sem assinatura.
 
     SEM PHI no log: apenas o protocolo (chave de negocio, ja logada em todo este modulo), o token de
-    origem e o motivo. Nunca `beneficiario_pseudo_id`, valores, CID ou documentos.
+    origem NORMALIZADO (conjunto fechado — o valor bruto e' controlado pelo chamador e nao e'
+    ecoado) e o motivo. Nunca `beneficiario_pseudo_id`, valores, CID ou documentos.
     """
     if REEMBOLSO_AUTO_PAGAMENTO_LIBERADO:
         return
 
-    origem_automatica = origem_pagamento.strip().upper() == ORIGEM_PAGAMENTO_AUTO
-    decisao_humana = decisao_reembolso.strip().upper() in _DECISOES_HUMANAS_DE_PAGAMENTO and bool(
+    origem = origem_pagamento.strip().upper()
+    origem_automatica = origem == ORIGEM_PAGAMENTO_AUTO
+    decisao = decisao_reembolso.strip().upper()
+    decisao_humana = decisao in _DECISOES_HUMANAS_DE_PAGAMENTO
+    id_humano_ausente = decisao in _DECISOES_COM_ID_HUMANO_OBRIGATORIO and not (
         analista_id.strip() or auditor_id.strip()
     )
-    if not origem_automatica and decisao_humana:
+    if not origem_automatica and decisao_humana and not id_humano_ausente:
         return
 
-    motivo = (
-        "origem_pagamento=AUTO_L2 (ST_IssuePaymentAuto)"
-        if origem_automatica
-        else "sem decisao humana no registro (decisao_reembolso/analista_id ausentes ou invalidos)"
-    )
+    if origem_automatica:
+        motivo = f"origem_pagamento={ORIGEM_PAGAMENTO_AUTO} (ST_IssuePaymentAuto)"
+    elif not decisao_humana:
+        motivo = "sem decisao humana no registro (decisao_reembolso fora de {APROVAR, APROVAR_PARCIAL})"
+    else:
+        motivo = (
+            "decisao humana adversa sem analista_id/auditor_id (exigencia de contrato para "
+            "APROVAR_PARCIAL, nao de R-058)"
+        )
+    if origem_automatica:
+        origem_logada = ORIGEM_PAGAMENTO_AUTO
+    elif not origem:
+        origem_logada = _ORIGEM_PAGAMENTO_AUSENTE
+    else:
+        origem_logada = _ORIGEM_PAGAMENTO_DESCONHECIDA
     logger.warning(
         "reembolso.issue_payment.auto_bloqueado",
         protocolo_reembolso=protocolo_reembolso,
-        origem_pagamento=origem_pagamento.strip(),
+        origem_pagamento=origem_logada,
         motivo=motivo,
         interruptor="REEMBOLSO_AUTO_PAGAMENTO_LIBERADO",
         gap="REEMBOLSO-AUTO-OVERPAY-a",
