@@ -32,11 +32,26 @@ A repair found by the gatekeeper (F1/F2/F4, VERIFY-ADR-BATCH REVISE) widens both
     `test_the_reanchored_passages_still_cite_every_symbol_they_claim_to` checks the third element
     against the UNION of every re-anchored passage.
 
-Deliberately NOT policed: line anchors into applied Alembic migrations (`0002_audit_chain.py:44-50`)
-and into ADR sections. An applied migration is immutable by design, so its line numbers are stable
-anchors; forcing a symbol there would lose precision, not gain it.
+A second repair, found by the §Delta re-verification of the F1/F2/F4 repair above (§Δ-D1): two
+SIBLING files (`docs/archive/predeploy-dl-rows-STAGED.md`, `docs/reports/predeploy-audit-report.md`)
+carried a dangling-pointer errata that cited a historical mention INSIDE `docs/adr/0041-*.md` BY LINE
+NUMBER (`0041:589`) — and that number moved TWICE (`:598`, then `:607`) purely from this PR's own
+earlier edits to that same ADR-0041 file, before the branch was even done. Re-anchored by section
+name + paragraph text (`## Convencao seguida`, paragraph `**Historico honesto deste documento.**`)
+and added as two more `_REANCHORED_PASSAGES` entries, each running to end-of-file (`end=None` — the
+sentence is the last line of both files). `_LINE_ANCHOR_RE` now also catches the bare `NNNN:MM`
+shape of an ADR self-citation, not just `*.py:NN`/`Makefile:NN`/`CODEOWNERS:NN`. No new test
+function was needed: `test_no_line_anchor_creeps_back_into_the_reanchored_passages` (direction 2)
+already iterates every `_REANCHORED_PASSAGES` entry, so it polices these two automatically.
 
-Scope note: this module fences the AF-18a (and its F1/F2/F4 repair) specifically. It is not a
+Deliberately NOT policed: line anchors into applied Alembic migrations (`0002_audit_chain.py:44-50`)
+and an ADR's citations of ITS OWN sections (e.g. `0029`'s `§1 :64-70`) or of a DIFFERENT ADR that is
+not under active edit in this same PR. An applied migration is immutable by design, so its line
+numbers are stable anchors; forcing a symbol there would lose precision, not gain it. §Δ-D1 is a
+different case — a citation FROM another document INTO an ADR that this very PR is still editing —
+and that instability is exactly why it needed policing.
+
+Scope note: this module fences the AF-18a (and its F1/F2/F4/§Δ-D1 repairs) specifically. It is not a
 repo-wide ban on line citations — that would be a different, much larger decision, and one for the
 owner.
 """
@@ -48,10 +63,11 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parents[3]
 
-#: The passages this fence polices: `(path, start marker, end marker)`. Slicing by CONTENT, never by
-#: line number — a fence that anchored itself by line number would be the very defect it exists to
-#: prevent. A path may appear more than once (ADR-0029 has two independent re-anchored passages).
-_REANCHORED_PASSAGES: tuple[tuple[str, str, str], ...] = (
+#: The passages this fence polices: `(path, start marker, end marker)`. `end=None` means "to end of
+#: file" (see `_slice`). Slicing by CONTENT, never by line number — a fence that anchored itself by
+#: line number would be the very defect it exists to prevent. A path may appear more than once
+#: (ADR-0029 has two independent re-anchored passages).
+_REANCHORED_PASSAGES: tuple[tuple[str, str, str | None], ...] = (
     (
         "docs/adr/0029-audit-chain-pruning-reanchor.md",
         "   - **In-memory** `src/maezo/gateway/audit.py::AuditSink.verify_chain`",
@@ -87,6 +103,21 @@ _REANCHORED_PASSAGES: tuple[tuple[str, str, str], ...] = (
         "docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md",
         '  - `.github/CODEOWNERS` — comentario: "AUDITORIA 2026-08-13:',
         "  Nota de reancoragem 2026-09-05 (gap AF-18a/F2):",
+    ),
+    # §Δ-D1 (VERIFY-ADR-BATCH §Delta, REVISE — D1): the AF-02 "dangling pointer" errata in these two
+    # sibling report files cited the historical `## Emenda 2026-09-03` mention inside ADR-0041 BY
+    # LINE NUMBER (`0041:589`) — and this very PR's OWN edits to ADR-0041 moved that line twice
+    # (`:589` -> `:598` -> `:607`) before the branch even finished. Re-anchored by section name +
+    # paragraph text instead. `end=None`: the sentence is the last line of the file in both cases.
+    (
+        "docs/archive/predeploy-dl-rows-STAGED.md",
+        "- Registro completo: `docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md`,",
+        None,
+    ),
+    (
+        "docs/reports/predeploy-audit-report.md",
+        "- Registro completo: `docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md`,",
+        None,
     ),
 )
 
@@ -190,10 +221,15 @@ _CITED_SYMBOLS: tuple[tuple[str, str, str], ...] = (
     ),
 )
 
-#: `file.py:NN` / `file.py:NN-MM`, and (F2) `Makefile:NN` / `CODEOWNERS:NN` — the anchor shapes
-#: AF-18a and its F2 repair removed from these passages. `.py:` covers source/migration citations;
-#: the other two alternatives cover the F2 passage, which anchors non-Python files by line number.
-_LINE_ANCHOR_RE = re.compile(r"[A-Za-z0-9_./-]+\.py:\d+|\bMakefile:\d+|\bCODEOWNERS:\d+")
+#: `file.py:NN` / `file.py:NN-MM`, (F2) `Makefile:NN` / `CODEOWNERS:NN`, and (§Δ-D1) `NNNN:MM` — a
+#: bare 4-digit ADR number followed by a line number, e.g. `0041:589` — the anchor shapes AF-18a and
+#: its F2/§Δ-D1 repairs removed from these passages. `.py:` covers source/migration citations; the
+#: next two cover the F2 passage (non-Python files anchored by line number); `\d{4}:\d+` covers the
+#: §Δ-D1 passages, where the anchor was into an ADR's OWN prose (`0041:589`, moved twice since —
+#: `:598`, then `:607` — by this very PR's edits to that same file).
+_LINE_ANCHOR_RE = re.compile(
+    r"[A-Za-z0-9_./-]+\.py:\d+|\bMakefile:\d+|\bCODEOWNERS:\d+|\b\d{4}:\d+(?:-\d+)?\b"
+)
 
 #: The second half of AF-18a: migration `0006`'s docstring claimed the checkpointer was wired
 #: nowhere. It is wired in two fail-closed bring-ups. `(module, symbol)` proving each.
@@ -214,11 +250,16 @@ def _read(relative: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _slice(relative: str, start: str, end: str) -> str:
+def _slice(relative: str, start: str, end: str | None) -> str:
+    """`end=None` means "to end of file" — for a passage that IS the tail of the document (§Δ-D1's
+    two dangling-pointer sentences each end the file they're in; there is no later marker to slice
+    against, and inventing one would be more fragile than saying so)."""
     text = _read(relative)
     assert start in text, f"{relative}: re-anchored passage no longer starts with {start!r}"
-    assert end in text, f"{relative}: re-anchored passage no longer ends before {end!r}"
     begin = text.index(start)
+    if end is None:
+        return text[begin:]
+    assert end in text, f"{relative}: re-anchored passage no longer ends before {end!r}"
     stop = text.index(end, begin)
     assert stop > begin, f"{relative}: passage markers are out of order"
     return text[begin:stop]

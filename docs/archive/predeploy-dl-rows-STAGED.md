@@ -43,4 +43,5 @@ de registro.
   leva do WP-ADR-RECONCILIACAO emendou as sete ADRs `Accepted` in-loco, a verificacao adversarial
   rejeitou isso, e o conteudo foi movido para a ADR-0041 nova, com os sete arquivos restaurados
   byte a byte e cercados por `tests/unit/docs/test_adr_amendments.py`. O ponteiro ficou pendurado;
-  `grep -rn '## Emenda 2026-09-03' docs/adr/` -> so a mencao historica em `0041:589`).
+  `grep -rn '## Emenda 2026-09-03' docs/adr/` -> so a mencao historica na secao `## Convencao
+  seguida` da ADR-0041 (paragrafo `**Historico honesto deste documento.**`)).
