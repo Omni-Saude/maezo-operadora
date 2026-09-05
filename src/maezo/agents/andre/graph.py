@@ -818,6 +818,25 @@ class AndreGraph:
                     **self._route_human("analise_humana", {}, _GRUPO_CONSERVADOR),
                     "error": "pagamento sem ordem_pagamento_id nem lote+prestador (sem chave)",
                 }
+            # AND-07: um valor ausente NUNCA vira 0 silencioso — `_contract_variables` embarca
+            # `int(state.get("valor_pagamento_cents", 0))`, e sem esta guarda uma ordem sem valor
+            # abria a instancia com um `valor_pagamento_cents=0` fabricado (o `dentro_teto_l2`
+            # pre-resolvido pelo worker mitiga o pior desfecho de roteamento, mas a trilha de
+            # auditoria do engine registrava um valor que o caso nunca teve). Reusa o motivo
+            # `pendencia_dados` + `_GRUPO_ADMISSIBILIDADE` ja usados para `PENDENTE_DADOS` da DMN
+            # (linha ~989) — mesma categoria de "faltam dados", nao uma nova regra de negocio.
+            # `valor_informado` (nao `valor_pagamento_cents`): presenca/positividade, nunca teto
+            # (o `test_l0_guard_graph_never_computes_the_ceiling_fact` AST fence proibe qualquer
+            # `ast.Compare` citando `valor_pagamento_cents`/`dentro_teto_l2` neste modulo — este e
+            # um check de dado ausente, nao aritmetica de alcada; o comparando e `None`/`0`, nunca
+            # um teto monetario).
+            valor_informado = state.get("valor_pagamento_cents")
+            if valor_informado is None or valor_informado <= 0:
+                return {
+                    **sanitized,
+                    **self._route_human("pendencia_dados", {}, _GRUPO_ADMISSIBILIDADE),
+                    "error": "pagamento sem valor_pagamento_cents (sem valor)",
+                }
             return {**sanitized, "business_key": _business_key(state)}
         # Unrecognized flow — fail-neutral: conservative human review, never treated as payment.
         return {
