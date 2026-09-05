@@ -31,12 +31,7 @@ import ast
 from pathlib import Path
 
 _GRAPH_PATH = (
-    Path(__file__).parent.parent.parent.parent
-    / "src"
-    / "maezo"
-    / "agents"
-    / "carolina"
-    / "graph.py"
+    Path(__file__).parent.parent.parent.parent / "src" / "maezo" / "agents" / "carolina" / "graph.py"
 )
 
 #: Os nos que DECIDEM o encaminhamento. `human_review`/`auto_route` so' montam o dossie — nenhum
@@ -77,7 +72,7 @@ def _method(cls: ast.ClassDef, name: str) -> ast.FunctionDef | ast.AsyncFunction
 
 def _routes_human(node: ast.Dict) -> bool:
     """O dict retornado encaminha ao humano (via `_route_human(...)` ou `route='human_review'`)?"""
-    for key, value in zip(node.keys, node.values):
+    for key, value in zip(node.keys, node.values, strict=True):
         if key is None and isinstance(value, ast.Call):
             func = value.func
             if isinstance(func, ast.Attribute) and func.attr == "_route_human":
@@ -94,7 +89,7 @@ def _routes_human(node: ast.Dict) -> bool:
 
 def _desfecho_expr(node: ast.Dict) -> ast.expr | None:
     """A expressao que decide o `desfecho` deste retorno: chave inline OU kwarg de `_route_human`."""
-    for key, value in zip(node.keys, node.values):
+    for key, value in zip(node.keys, node.values, strict=True):
         if isinstance(key, ast.Constant) and key.value == "desfecho":
             return value
         if key is None and isinstance(value, ast.Call):
@@ -112,9 +107,12 @@ def _human_routing_returns() -> list[tuple[str, ast.Return]]:
     for name in _ROUTING_NODES:
         fn = _method(cls, name)
         for node in ast.walk(fn):
-            if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
-                if _routes_human(node.value):
-                    found.append((name, node))
+            if (
+                isinstance(node, ast.Return)
+                and isinstance(node.value, ast.Dict)
+                and _routes_human(node.value)
+            ):
+                found.append((name, node))
     return found
 
 
@@ -157,8 +155,7 @@ def test_route_human_requires_the_desfecho_of_the_branch() -> None:
     helper = _method(_carolina_graph_class(_module()), "_route_human")
     kwonly = [a.arg for a in helper.args.kwonlyargs]
     assert "desfecho" in kwonly, (
-        "`_route_human` deixou de exigir `desfecho` como keyword-only obrigatoria: "
-        f"kwonly={kwonly}"
+        f"`_route_human` deixou de exigir `desfecho` como keyword-only obrigatoria: kwonly={kwonly}"
     )
     defaults = helper.args.kw_defaults[kwonly.index("desfecho")]
     assert defaults is None, "`desfecho` ganhou default — um ramo novo voltaria a poder omiti-lo"
@@ -169,11 +166,7 @@ def test_no_direcao_keyed_desfecho_fallback_remains() -> None:
     como helper nem como leitura defensiva dentro de `human_review`."""
     module = _module()
     cls = _carolina_graph_class(module)
-    nomes = {
-        node.name
-        for node in cls.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
+    nomes = {node.name for node in cls.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
     assert "_human_desfecho" not in nomes, (
         "`_human_desfecho` voltou: um desfecho deduzido de `direcao` contradiz o ramo DMN que "
         "de fato decidiu o encaminhamento (CAR-01)"
