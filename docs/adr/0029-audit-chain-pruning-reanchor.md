@@ -243,11 +243,15 @@ as sete ADRs `Accepted` da ADR-0041 não foram tocadas, e a cerca
 `tests/unit/docs/test_adr_amendments.py` garante que continuem byte-idênticas).
 
 **O defeito.** As citações de código da §2 apontavam por número de linha (`audit.py:310-344`,
-`:319`, `:320-329`; `audit_postgres.py:333-410`, `:365-377`, `:380`, `:396-406`; e
-`audit_postgres.py:137` "held ... at `:219`"). Os arquivos se moveram desde 2026-07-17 e os números
-passaram a apontar para outro código — em 2026-09-05, `def verify_chain` estava em `audit.py:346` e
-`audit_postgres.py:561`, e `:219` caía em `PostgresAuditSink.check_ready`. O mecanismo descrito pela
-ADR permaneceu **intacto o tempo todo**; o que enganava o leitor (e o auditor) era a âncora.
+`:319`, `:320-329`; `audit_postgres.py:333-410`, `:365-377`, `:380`, `:396-406`; e, na §3, a
+citação do lock em `audit_postgres.py:137` "held ... at `:219`" — apenas o `:219` que a
+acompanhava havia apodrecido; a própria `:137` continuava certa). Os arquivos se moveram desde
+2026-07-17 e os números passaram a apontar para outro código — em 2026-09-05, `def verify_chain`
+estava em `audit.py:346` e `audit_postgres.py:561`, e `:219` caía em
+`PostgresAuditSink.check_ready`. O mecanismo descrito pela ADR permaneceu **intacto o tempo
+todo**; o que enganava o leitor (e o auditor) eram as âncoras que de fato apodreceram — `:219` e
+os dois intervalos do `verify_chain` — não `:137`, que resolvia corretamente para
+`_ADVISORY_LOCK_SQL` o tempo todo.
 
 **A correção.** Os trechos afetados passaram a citar `arquivo::Classe.metodo` / `arquivo::funcao`,
 nomes de constante e trechos literais de SQL — âncoras que não se movem quando alguém insere uma
