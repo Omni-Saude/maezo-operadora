@@ -1,0 +1,74 @@
+{
+  "id": "EVL-MARINA-JOURNEY-01",
+  "agent": "marina",
+  "class": "JN",
+  "tier": ["A"],
+  "description": "End-to-end JOURNEY eval (gap 11.5, WP-EVALS) for Marina's `contas` flow -- receive (intake) -> gather+assess (triage: glosa_reason_normalization -> glosa_classification -> glosa_triage resolves PAGAR) -> auto_route -> start_process (hand-off: idempotent SP-OP-CONTAS-001 start with the contract's engine-bound variables). PAGAR is a ROUTING fact, never a merit decision -- the payer's decision to glosa is born solely in UT_AnalistaContas (module docstring); Marina anchors the account adjudication instance idempotently by guia+conta. Synthetic data only (tenant amh, pseudo beneficiary/provider ids).",
+  "input": {
+    "state": {
+      "flow": "contas",
+      "tenant_id": "amh",
+      "canal": "portal_tiss",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-MARINA-J01",
+      "prestador_id": "PREST-TESTE-J01",
+      "numero_lote_tiss": "LOTE-EVL-MARINA-J01",
+      "numero_guia_tiss": "GUIA-EVL-MARINA-J01",
+      "numero_conta": "CONTA-EVL-MARINA-J01",
+      "competencia": "2026-06",
+      "data_recebimento_lote": "2026-06-10",
+      "valor_apresentado_brl": 480.0,
+      "tipo_lote": "consulta",
+      "linhas_conta_refs": [],
+      "reason_codes_tiss": ["55"],
+      "divergencia_valor": false,
+      "item_conforme_tabela": true,
+      "documentacao_anexa": true,
+      "denial_ratio": 0.0,
+      "indicio_fraude_sinalizado": false
+    }
+  },
+  "recorded_llm": [
+    "Conta em conformidade com a tabela e documentacao anexa; pagamento integral recomendado."
+  ],
+  "dmn_fixture": {
+    "glosa_reason_normalization": { "categoria_normalizada": "documental" },
+    "glosa_classification": { "glosa_type": "administrativa" },
+    "contas_sla": { "sla_analise": "10d", "sla_alerta": "5d" },
+    "glosa_triage": { "roteamento": "PAGAR" }
+  },
+  "expect": {
+    "fields": {
+      "route": "auto_route",
+      "triagem": "PAGAR",
+      "desfecho": "pagar_integral"
+    }
+  },
+  "leak_canaries": [],
+  "journey": {
+    "intake": {
+      "no_error": true
+    },
+    "triage": {
+      "fields": {
+        "route": "auto_route",
+        "triagem": "PAGAR"
+      },
+      "dmn_tables_consulted": ["glosa_reason_normalization", "glosa_classification", "glosa_triage"]
+    },
+    "handoff": {
+      "fields": {
+        "desfecho": "pagar_integral",
+        "process_started": true
+      },
+      "business_key": "CONTAS-amh-GUIA-EVL-MARINA-J01-CONTA-EVL-MARINA-J01",
+      "process_key": "SP-OP-CONTAS-001",
+      "engine_variables": {
+        "tenant_id": "amh",
+        "beneficiario_pseudo_id": "PSEUDO-TESTE-MARINA-J01",
+        "marina_flow": "contas",
+        "marina_route": "auto_route",
+        "numero_guia_tiss": "GUIA-EVL-MARINA-J01"
+      }
+    }
+  }
+}
