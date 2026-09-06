@@ -126,6 +126,8 @@ DIVERGENCES FROM THE v1 DONOR (disclosed, not hidden — `spec/` wins per this t
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
 from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
@@ -244,13 +246,31 @@ class WhatsAppSender(Protocol):
     itself carried no key. `idempotency_key` is REQUIRED, never a silently-optional extra, so no
     caller can forget it.
 
-    The key reaches a REAL dedupe, never accepted-and-ignored:
-    `agents/lucas/adapters.py::WhatsAppServerSender.send` forwards it unchanged to
-    `tools/mcp_whatsapp/server.py::WhatsAppServer.send_message`, which claims it against the SAME
-    durable store `platform/webhooks/whatsapp/dispatch.py` already uses for Helena's outbound leg
-    (ADR-0024's `driver_idempotency` table, gap `WEBHOOK-WAMID-DEDUP`, R-073) — no new table, no
-    in-memory-only dedupe. The dedup window is that store's own default TTL (24h,
-    `platform/driver_idempotency.py::DEFAULT_TTL_S`), not a number invented here.
+    ESCOPO DA CHAVE (§Delta W4-HYGIENE F1, corrigido — a versao anterior desta frase era falsa).
+    A chave e' `f"{business_key}:{node}:{_turn_fingerprint(state)}"`: CONVERSA + NO + TURNO.
+    Sem o terceiro componente ela seria por CONVERSA (`ESC-{tenant}-{conversation_id}` repete em
+    todo turno, e o proprio repo classifica essa chave como NON_STRICT/"repete por design" em
+    `tools/mcp_cibseven/transport.py`), e duas mensagens GENUINAMENTE DIFERENTES ao mesmo
+    beneficiario dentro do TTL de 24h colapsariam numa chave so'. Ver `_turn_fingerprint` para o
+    que compoe o componente por turno e para o residual DECLARADO (dois turnos com entrada do
+    chamador byte-identica sao indistinguiveis aqui).
+
+    O QUE A CHAVE ALCANCA, dito sem promessa maior do que a fiacao entrega:
+    `agents/lucas/adapters.py::WhatsAppServerSender.send` a encaminha sem alteracao para
+    `tools/mcp_whatsapp/server.py::WhatsAppServer.send_message`. Quando o root de composicao
+    ligou um `DedupRegistry` (`gateway/tool_registry.py::build_agent_seams` liga, a partir do
+    MESMO `settings.database_url` que ja constroi o `PostgresAuditSink`), a chave e' reclamada
+    contra o store duravel EXISTENTE (ADR-0024, tabela `driver_idempotency`, gap
+    `WEBHOOK-WAMID-DEDUP`, R-073) — nenhuma tabela nova, nenhum dedupe em memoria — com janela
+    igual ao TTL padrao do proprio store (24h, `platform/driver_idempotency.py::DEFAULT_TTL_S`),
+    nao um numero inventado aqui. Quando NAO ligou (um root sem DSN), `send_message` RECUSA o
+    envio com `WhatsAppIdempotencyUnsupportedError` — nunca aceita-e-ignora a chave, e a recusa
+    cai no `except Exception` best-effort dos dois pontos de chamada, que gravam
+    `mensagem_enviada=False`.
+
+    DESFECHO DE ENTREGA HONESTO (§Delta W4-HYGIENE F1b): os chamadores leem o RETORNO deste
+    metodo, nunca a ausencia de excecao. `{"suppressed_duplicate": True}` NAO e' uma entrega —
+    ver `_entrega_de`, `respond_member` e `send_escalation_ack`.
 
     Operates on a phone HASH, never a raw number."""
 
@@ -495,6 +515,86 @@ def _business_key(state: LucasState) -> str:
     """Idempotent business key per the SHARED SP-OP-ESCALATION-001 contract (same format Helena
     uses — `ESC-{tenant_id}-{conversation_id}`)."""
     return f"ESC-{state.get('tenant_id', '')}-{state.get('conversation_id', '')}"
+
+
+def _turn_fingerprint(state: LucasState) -> str:
+    """Componente POR TURNO da chave de idempotencia de saida (§Delta W4-HYGIENE F1).
+
+    POR QUE EXISTE. `_business_key` e' por CONVERSA e `receive` o re-deriva em TODO turno, entao
+    `f"{business_key}:{node}"` e' CONSTANTE ao longo da conversa inteira: duas mensagens
+    genuinamente diferentes ao mesmo beneficiario dentro do TTL de 24h reclamariam a MESMA chave
+    e a segunda nunca chegaria a Cloud API. O precedente in-repo para o MESMO store deriva a
+    chave de saida POR MENSAGEM, nao por conversa
+    (`platform/webhooks/whatsapp/dedup.py::WhatsAppDedupGuard.outbound_key`, derivada do `wamid`
+    de ENTRADA — "the only identity available BEFORE the send").
+
+    LUCAS NAO CARREGA UM `wamid` HOJE — dito, nao contornado. `LucasState` nao tem
+    `message_id`/`wamid`: gap 11.7 (`spec/agents/lucas/agent.yaml`) e' exatamente "Lucas nao tem
+    canal de entrada proprio", entao nao existe id de entrega para propagar. O identificador por
+    turno MAIS ESTAVEL que o turno carrega e' a propria ENTRADA DO CHAMADOR — `_CALLER_INPUT_
+    FIELDS`, a metade INPUT da particao T1.11 — que e' precisamente o que uma redelivery do
+    MESMO turno reapresenta identica e o que um turno DIFERENTE muda. Ler a particao (e nao uma
+    lista escrita a mao aqui) tem uma consequencia deliberada: no dia em que um id de entrega
+    for declarado como campo de entrada, ele entra no digest sozinho, sem tocar esta funcao.
+
+    O digest e' sha256 TRUNCADO em 16 hex: nenhum valor de estado — nem pseudonimo, nem numero de
+    boleto — aparece em claro na chave que vai ao store duravel, e a chave continua curta o
+    bastante para caber ao lado do `business_key`. Truncar nao enfraquece nada aqui: a colisao
+    relevante e' entre turnos de UMA conversa dentro de 24h, nao um espaco adversarial.
+
+    RESIDUAL DECLARADO: dois turnos cuja entrada do chamador e' byte-identica produzem o MESMO
+    fingerprint e o segundo envio e' SUPRIMIDO. Isso e' o mesmo pedido repetido, e entrega unica
+    e' o comportamento pedido — mas, ao contrario de antes, o turno suprimido NAO e' mais
+    reportado como enviado (`_entrega_de` + os dois pontos de chamada).
+    """
+    material = json.dumps(
+        {field: state.get(field) for field in sorted(_CALLER_INPUT_FIELDS)},
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+
+def _idempotency_key(state: LucasState, *, node: str) -> str:
+    """A chave de UM envio de saida: conversa + no + turno. UMA definicao para os dois pontos de
+    chamada (`respond_member`, `send_escalation_ack`), para que nao possam divergir em silencio.
+
+    `business_key` usa a mesma fallback `state.get("business_key") or _business_key(state)` que
+    `start_process` ja usa, entao a chave e' estavel ate' no caminho raro em que `receive` nao
+    rodou. `node` mantem a separacao entre o lembrete informativo e o ACK de escalacao do mesmo
+    beneficiario: um nunca suprime o outro."""
+    business_key = state.get("business_key") or _business_key(state)
+    return f"{business_key}:{node}:{_turn_fingerprint(state)}"
+
+
+#: Desfechos de ENTREGA de um envio de saida (§Delta W4-HYGIENE F1b). Tres valores, porque
+#: "nao levantou excecao" nao e' o mesmo fato que "o beneficiario recebeu": o guard duravel pode
+#: ter SUPRIMIDO o envio, e nesse caso `send_message` devolve `{"suppressed_duplicate": True}`
+#: — deliberadamente NAO uma resposta fabricada da Cloud API.
+ENTREGA_ENVIADA: Final[str] = "enviada"
+ENTREGA_SUPRIMIDA_DUPLICATA: Final[str] = "suprimida_duplicata"
+ENTREGA_NAO_ENVIADA: Final[str] = "nao_enviada"
+
+#: Desfecho do turno quando o envio informativo foi SUPRIMIDO como duplicata. Token proprio,
+#: nunca `resposta_informativa_enviada`/`lembrete_enviado`: afirmar "enviada" sobre um envio que
+#: nao aconteceu e' a especie FAB. Declarado tambem em
+#: `runtime/turn_telemetry.py::_DESFECHO_VOCAB["lucas"]` (duplicado como LITERAL, nunca
+#: importado, para nao criar um import de `turn_telemetry` de volta para os grafos); o teste
+#: `test_lucas.py::test_o_desfecho_de_envio_suprimido_esta_no_vocabulario_de_telemetria` e' o que
+#: impede as duas copias de divergirem em silencio — sem ele o label iria para `outro`.
+DESFECHO_ENVIO_SUPRIMIDO_DUPLICATA: Final[str] = "envio_suprimido_duplicata"
+
+
+def _entrega_de(resultado: Any) -> str:
+    """O desfecho de entrega LIDO DO RETORNO do sender, nunca da ausencia de excecao.
+
+    Um chamador que tratasse "nao levantou" como entrega chamaria de ENVIADA uma mensagem que o
+    beneficiario nunca recebeu (o defeito da especie FAB). O unico fato que o retorno afirma e' o
+    que este helper le."""
+    if isinstance(resultado, Mapping) and bool(resultado.get("suppressed_duplicate")):
+        return ENTREGA_SUPRIMIDA_DUPLICATA
+    return ENTREGA_ENVIADA
 
 
 def _is_escalation_intent(state: LucasState) -> bool:
@@ -742,34 +842,50 @@ class LucasGraph:
         """J1/J2: draft + send the informational/reminder message. NEVER threatens suspension or
         cancellation, NEVER communicates a denial (structural guardrail in `_build_message`).
 
-        LUC-08: the outbound send carries a deterministic `idempotency_key`
-        (`f"{business_key}:respond_member"`) so an engine re-delivery of this exact turn claims
-        the SAME key on the durable store (`WhatsAppSender` docstring) instead of a fresh one —
-        a fresh key per attempt would never dedupe anything. `business_key` mirrors the same
-        `state.get("business_key") or _business_key(state)` fallback `start_process` already
-        uses, so the key is stable even on the rare path where `receive` never ran.
+        LUC-08 / §Delta F1: o envio carrega `_idempotency_key(state, node="respond_member")` —
+        conversa + no + TURNO (ver `_turn_fingerprint`). Uma redelivery do MESMO turno reclama a
+        MESMA chave; um turno DIFERENTE da mesma conversa reclama outra, entao a segunda mensagem
+        genuina nao e' suprimida como se fosse repeticao da primeira.
+
+        §Delta F1b: `mensagem_enviada`/`desfecho` saem do RETORNO do sender, nunca da ausencia de
+        excecao. Um envio SUPRIMIDO pelo guard duravel nao e' entrega: ele grava
+        `mensagem_enviada=False` e o desfecho proprio `envio_suprimido_duplicata`, nunca um token
+        terminado em "enviada".
         """
         mensagem = await self._build_message(state)
-        enviada = False
+        entrega = ENTREGA_NAO_ENVIADA
         to_hash = state.get("to_hash")
         if to_hash and state.get("canal", "whatsapp") == "whatsapp":
-            business_key = state.get("business_key") or _business_key(state)
             try:
-                await self._whatsapp.send(
+                resultado = await self._whatsapp.send(
                     to_hash,
                     str(mensagem.get("texto", "")),
-                    idempotency_key=f"{business_key}:respond_member",
+                    idempotency_key=_idempotency_key(state, node="respond_member"),
                 )
-                enviada = True
+                entrega = _entrega_de(resultado)
             except Exception as exc:  # noqa: BLE001 — best-effort send, never an adverse outcome.
                 mensagem["envio_nota"] = f"whatsapp send failed: {type(exc).__name__}"
 
-        desfecho = (
-            "lembrete_enviado"
-            if state.get("admissibilidade") == "LEMBRETE"
-            else "resposta_informativa_enviada"
-        )
-        return {"mensagem": mensagem, "mensagem_enviada": enviada, "desfecho": desfecho}
+        if entrega == ENTREGA_SUPRIMIDA_DUPLICATA:
+            # Registrado na propria mensagem pelo mesmo motivo que `envio_nota` existe: o que
+            # ficou por entregar NESTE turno tem de estar legivel, nao inferido do silencio.
+            mensagem["envio_nota"] = "whatsapp send suppressed: duplicate idempotency key"
+            desfecho = DESFECHO_ENVIO_SUPRIMIDO_DUPLICATA
+        else:
+            # RESIDUAL PRE-EXISTENTE, DECLARADO e NAO alterado aqui (fora do escopo do §Delta):
+            # no caminho `ENTREGA_NAO_ENVIADA` (excecao no envio, `to_hash` ausente ou canal nao
+            # WhatsApp) o desfecho segue sendo o token informativo, ainda que
+            # `mensagem_enviada=False` e `envio_nota` ja contem a verdade da entrega.
+            desfecho = (
+                "lembrete_enviado"
+                if state.get("admissibilidade") == "LEMBRETE"
+                else "resposta_informativa_enviada"
+            )
+        return {
+            "mensagem": mensagem,
+            "mensagem_enviada": entrega == ENTREGA_ENVIADA,
+            "desfecho": desfecho,
+        }
 
     async def escalate_human(self, state: LucasState) -> dict[str, Any]:
         """J3 / fail-safe: build the dossier for the human handoff and acknowledge the
@@ -883,9 +999,18 @@ class LucasGraph:
         JA existe no engine), mas agora `mensagem_enviada` conta a verdade e `ack_pending`
         registra o que ficou por entregar.
 
-        LUC-08: mesmo `idempotency_key` shape de `respond_member` (`f"{business_key}:{node}"`),
-        aqui com `node="send_escalation_ack"` — uma redelivery do MESMO turno do engine reclama a
-        MESMA chave no store duravel em vez de uma chave nova a cada tentativa.
+        LUC-08 / §Delta F1: mesma chave de `respond_member` (`_idempotency_key`), aqui com
+        `node="send_escalation_ack"` — conversa + no + TURNO. O componente por no mantem o ACK e
+        o lembrete informativo do mesmo beneficiario em chaves distintas; o componente por turno
+        impede que uma SEGUNDA escalacao da mesma conversa (caminho NON_STRICT, "escala de novo
+        por design") seja suprimida como duplicata da primeira.
+
+        §Delta F1b: um envio SUPRIMIDO pelo guard duravel NAO e' entrega deste turno — o retorno
+        `{"suppressed_duplicate": True}` prova que a chave ja estava reclamada, nao que a Cloud
+        API aceitou a mensagem (uma reclamacao em voo de um envio concorrente ainda nao concluido
+        suprime igual, e uma reclamacao NAO SELADA depois de um 2xx tambem). `ack_pending`
+        e' o registro conservador de "prometemos nada a ninguem ainda", entao ele CONTINUA True,
+        exatamente como no caminho de falha logo acima.
         """
         if state.get("route") != "escalate_human" or state.get("process_started") is not True:
             return {}
@@ -894,12 +1019,13 @@ class LucasGraph:
             return {"ack_pending": True}
 
         ack_text = await self._build_escalation_ack(state)
-        business_key = state.get("business_key") or _business_key(state)
         try:
-            await self._whatsapp.send(
-                to_hash, ack_text, idempotency_key=f"{business_key}:send_escalation_ack"
+            resultado = await self._whatsapp.send(
+                to_hash, ack_text, idempotency_key=_idempotency_key(state, node="send_escalation_ack")
             )
         except Exception:  # noqa: BLE001 — best-effort ack, never undoes a live escalation.
+            return {"mensagem_enviada": False, "ack_pending": True}
+        if _entrega_de(resultado) == ENTREGA_SUPRIMIDA_DUPLICATA:
             return {"mensagem_enviada": False, "ack_pending": True}
         return {"mensagem_enviada": True, "ack_pending": False, "desfecho": "escalado_humano"}
 

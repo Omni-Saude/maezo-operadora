@@ -305,9 +305,12 @@ async def test_j1_full_turn_sends_whatsapp_never_starts_process() -> None:
     assert result["route"] == "respond_member"
     assert result["mensagem_enviada"] is True
     assert result["desfecho"] == "resposta_informativa_enviada"
-    assert sender.sent == [
-        ("deadbeef", "Aqui esta a 2a via do seu boleto.", "ESC-amh-wa:amh:deadbeef:respond_member")
+    assert [(to_hash, text) for to_hash, text, _key in sender.sent] == [
+        ("deadbeef", "Aqui esta a 2a via do seu boleto.")
     ]
+    # §Delta W4-HYGIENE F1: conversation + node + TURN. The turn component is a digest, so the
+    # assertion pins the stable prefix and, separately, that a per-turn component exists at all.
+    assert sender.sent[0][2].startswith("ESC-amh-wa:amh:deadbeef:respond_member:")
     assert result["process_started"] is False
 
 
@@ -449,9 +452,10 @@ async def test_j3_full_turn_starts_process_and_sends_ack_never_the_adverse_text(
     assert result["route"] == "escalate_human"
     assert result["process_started"] is True
     assert result["business_key"] == "ESC-amh-wa:amh:deadbeef"
-    assert sender.sent == [
-        ("deadbeef", "Um atendente humano vai continuar.", "ESC-amh-wa:amh:deadbeef:send_escalation_ack")
+    assert [(to_hash, text) for to_hash, text, _key in sender.sent] == [
+        ("deadbeef", "Um atendente humano vai continuar.")
     ]
+    assert sender.sent[0][2].startswith("ESC-amh-wa:amh:deadbeef:send_escalation_ack:")
     for _to_hash, text, _idempotency_key in sender.sent:
         assert "suspens" not in text.lower()
         assert "cancelad" not in text.lower()
@@ -923,11 +927,29 @@ class _RecordingWhatsAppWithKey:
         return {"ok": True}
 
 
+class _SuppressingWhatsApp:
+    """Fake sender that answers EXACTLY what `WhatsAppServer.send_message` answers when the
+    durable guard suppressed the send: a well-formed dict saying `suppressed_duplicate`, and
+    deliberately NOT a fabricated Cloud API response with an invented `messages[].id`.
+
+    §Delta W4-HYGIENE F1b. Without this double the callers' honesty is untestable — the old code
+    derived "sent" from the ABSENCE of an exception, and a suppressed send raises nothing.
+    """
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, str]] = []
+
+    async def send(self, to_hash: str, text: str, *, idempotency_key: str) -> dict[str, Any]:
+        self.sent.append((to_hash, text, idempotency_key))
+        return {"suppressed_duplicate": True, "idempotency_key": idempotency_key}
+
+
 async def test_replayed_respond_member_turn_uses_the_same_idempotency_key_each_time() -> None:
     """LUC-08: an engine re-delivery of the SAME turn must claim the SAME key on the durable
     store, never a fresh one — a fresh key per attempt would never dedupe anything. The key is
-    derived ONLY from `business_key` (stable — `tenant_id`/`conversation_id`) and the node name,
-    never from anything that changes across a replay (no timestamp, no random id)."""
+    derived ONLY from `business_key` (stable — `tenant_id`/`conversation_id`), the node name and
+    the turn's own CALLER INPUT (`_turn_fingerprint`), never from anything that changes across a
+    replay (no timestamp, no random id)."""
     dmn = FakeDmnTransport()
     dmn.register("lucas_billing_admissibility", [{"roteamento": "RESPONDER"}])
     sender = _RecordingWhatsAppWithKey()
@@ -944,7 +966,8 @@ async def test_replayed_respond_member_turn_uses_the_same_idempotency_key_each_t
     assert len(sender.sent) == 2, "both replays must have actually sent through the fake"
     first_key = sender.sent[0][2]
     second_key = sender.sent[1][2]
-    assert first_key == second_key == "ESC-amh-wa:amh:deadbeef:respond_member"
+    assert first_key == second_key
+    assert first_key.startswith("ESC-amh-wa:amh:deadbeef:respond_member:")
 
 
 async def test_replayed_escalation_ack_turn_uses_the_same_idempotency_key_each_time() -> None:
@@ -968,4 +991,115 @@ async def test_replayed_escalation_ack_turn_uses_the_same_idempotency_key_each_t
     assert len(sender.sent) == 2, "both replays must have actually sent the ack through the fake"
     first_key = sender.sent[0][2]
     second_key = sender.sent[1][2]
-    assert first_key == second_key == "ESC-amh-wa:amh:deadbeef:send_escalation_ack"
+    assert first_key == second_key
+    assert first_key.startswith("ESC-amh-wa:amh:deadbeef:send_escalation_ack:")
+
+
+# ---------------------------------------------------------------------------
+# §Delta W4-HYGIENE F1 — the key must be per TURN, and a suppressed send is not a delivery
+# ---------------------------------------------------------------------------
+
+
+async def _run_turn(sender: Any, state: LucasState, dmn: FakeDmnTransport) -> dict[str, Any]:
+    compiled = (
+        _graph(dmn=dmn, cibseven=FakeCibSevenTransport(), whatsapp=sender, inference=_FakeInference())
+        .compile_graph()
+        .compile()
+    )
+    return dict(await compiled.ainvoke(state))
+
+
+def _respond_member_dmn() -> FakeDmnTransport:
+    dmn = FakeDmnTransport()
+    dmn.register("lucas_billing_admissibility", [{"roteamento": "RESPONDER"}])
+    return dmn
+
+
+def _escalation_dmn() -> FakeDmnTransport:
+    dmn = FakeDmnTransport()
+    dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
+    return dmn
+
+
+async def test_two_different_respond_member_turns_in_one_conversation_get_different_keys() -> None:
+    """§Delta F1 — the half the shipped LUC-08 tests never probed, and it was FALSE.
+
+    `business_key` is `ESC-{tenant}-{conversation_id}`, which `receive` re-derives on EVERY turn,
+    so `f"{business_key}:{node}"` is CONSTANT across a conversation. Two genuinely different
+    informational messages to the same beneficiary inside the store's 24h TTL would claim ONE
+    key: the second never reaches the Cloud API. The key must carry a per-TURN component.
+    """
+    sender = _RecordingWhatsAppWithKey()
+    dmn = _respond_member_dmn()
+
+    await _run_turn(sender, _base_state(tipo_solicitacao="2a_via", numero_boleto="111"), dmn)
+    await _run_turn(sender, _base_state(tipo_solicitacao="vencimento", numero_boleto="222"), dmn)
+
+    assert len(sender.sent) == 2, "both turns must have reached the sender"
+    first_key, second_key = sender.sent[0][2], sender.sent[1][2]
+    assert first_key != second_key, (
+        "two DIFFERENT turns of the same conversation claimed the SAME key — the second "
+        "message would be suppressed as a duplicate of a message it has nothing to do with"
+    )
+    # Same conversation and same node: only the per-turn component may differ.
+    assert (
+        first_key.rsplit(":", 1)[0]
+        == second_key.rsplit(":", 1)[0]
+        == ("ESC-amh-wa:amh:deadbeef:respond_member")
+    )
+
+
+async def test_two_separate_escalations_in_one_conversation_get_different_keys() -> None:
+    """Same property for the ACK leg. `SP-OP-ESCALATION-001`'s key is classified NON_STRICT by
+    `tools/mcp_cibseven/transport.py` precisely because "a conversation legitimately escalates
+    again after an earlier escalation closed" — so the second escalation's ACK must not be
+    suppressed as a duplicate of the first's."""
+    sender = _RecordingWhatsAppWithKey()
+    dmn = _escalation_dmn()
+
+    await _run_turn(sender, _base_state(intencao="inadimplencia", ciclos_sem_conciliacao=2), dmn)
+    await _run_turn(sender, _base_state(intencao="inadimplencia", ciclos_sem_conciliacao=5), dmn)
+
+    assert len(sender.sent) == 2
+    assert sender.sent[0][2] != sender.sent[1][2]
+
+
+async def test_a_suppressed_respond_member_send_is_never_reported_as_sent() -> None:
+    """§Delta F1b — the FAB half. `send_message` answers `{"suppressed_duplicate": True}` and
+    raises NOTHING, so the old `enviada = True` after a bare `await` claimed a delivery that did
+    not happen. `mensagem_enviada` must be False and the desfecho must not end in "enviada"."""
+    sender = _SuppressingWhatsApp()
+
+    final = await _run_turn(sender, _base_state(tipo_solicitacao="2a_via"), _respond_member_dmn())
+
+    assert len(sender.sent) == 1, "the send was attempted (the guard suppressed it, not the graph)"
+    assert final["mensagem_enviada"] is False
+    assert final["desfecho"] == "envio_suprimido_duplicata"
+    assert not final["desfecho"].endswith("enviada"), "a suppressed send is not a delivery"
+    assert "suppressed" in final["mensagem"]["envio_nota"]
+
+
+async def test_a_suppressed_escalation_ack_leaves_ack_pending_true() -> None:
+    """Same fix on the OTHER call site. `ack_pending` is `send_escalation_ack`'s own honest
+    record of "we promised nothing to anyone yet" — a suppressed ACK proves the key was already
+    claimed, NOT that the Cloud API accepted this turn's message, so the conservative marker
+    stays raised exactly as it does on the failure path two lines above it."""
+    sender = _SuppressingWhatsApp()
+
+    final = await _run_turn(sender, _base_state(intencao="inadimplencia"), _escalation_dmn())
+
+    assert final["process_started"] is True, "the escalation itself really happened"
+    assert len(sender.sent) == 1
+    assert final["mensagem_enviada"] is False
+    assert final["ack_pending"] is True
+
+
+def test_o_desfecho_de_envio_suprimido_esta_no_vocabulario_de_telemetria() -> None:
+    """The token is duplicated as a LITERAL in `runtime/turn_telemetry.py` (that module must
+    never import a graph). This is the test that stops the two copies from drifting: a token
+    missing from the vocab is silently normalized to `outro`, and the suppression rate — the one
+    signal an operator gets for this failure mode — would vanish into the fallback bucket."""
+    from maezo.agents.lucas.graph import DESFECHO_ENVIO_SUPRIMIDO_DUPLICATA
+    from maezo.runtime import turn_telemetry
+
+    assert DESFECHO_ENVIO_SUPRIMIDO_DUPLICATA in turn_telemetry._DESFECHO_VOCAB["lucas"]

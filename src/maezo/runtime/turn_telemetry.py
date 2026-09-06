@@ -144,6 +144,18 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
         {
             "resposta_informativa_enviada",
             "lembrete_enviado",
+            # §Delta W4-HYGIENE F1b: o envio informativo foi SUPRIMIDO pelo guard duravel de
+            # idempotencia (LUC-08) — nao houve entrega neste turno, entao ele nao pode ser
+            # contado sob um token terminado em "enviada". Declarado aqui, e nao normalizado
+            # para `outro`, porque a taxa de supressao e' justamente o sinal que um operador
+            # precisa ver. Literal duplicado de `agents/lucas/graph.py::
+            # DESFECHO_ENVIO_SUPRIMIDO_DUPLICATA` (nunca importado — este modulo nao importa
+            # grafos); o teste `test_lucas.py::
+            # test_o_desfecho_de_envio_suprimido_esta_no_vocabulario_de_telemetria` e' o que
+            # impede as duas copias de divergirem. Deliberadamente FORA do numerador de
+            # `maezo_lucas_resolution_rate` (`deploy/observability/alert-rules.yml`): uma
+            # supressao nao e' uma resolucao.
+            "envio_suprimido_duplicata",
             "escalado_humano",
             _DESFECHO_ERRO_INICIO_PROCESSO,
         }
