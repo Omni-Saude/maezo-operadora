@@ -4,6 +4,18 @@
 
 **Emendado por ADR-0040** (§"Emendas a ADRs anteriores (movidas de 0018/0030 em 2026-09-03)"): o padrao estrutural de cinco partes permanece INTACTO — apenas a instancia do efeito adverso em SP-OP-CONTAS-001/SP-OP-RECURSO-001 muda; texto completo em `docs/adr/0040-perspectiva-operadora-contas-recurso.md`. ADR-0040 amends, nao supersede.
 
+**Adendo 2026-09-06 (R-085 / gap `ADR-0018-CONTAS-SUPERSEDED`, owner-decision, `docs/adr/` CODEOWNED):**
+o corpo abaixo (nao editado — `docs/adr/README.md:8` proibe reescrita in-loco de ADR `Accepted`)
+ainda usa o vocabulario ANTERIOR de CONTAS que a ADR-0040 substitui em substancia, sem marcador
+local: o guard `ERR_GLOSA_ACCEPT_NOT_HUMAN` e o dominio `glosa_triage` `{SEM_GLOSA, RECORRER,
+ANALISE_HUMANA}` aparecem no bullet `SP-OP-CONTAS-001` de `## Contexto` e sao repetidos no bullet
+"PROVADO + enforce-ado em CI" de `## Decisao`. Vocabulario vigente, per **ADR-0040 D1** ("O dono de
+SP-OP-CONTAS-001 e SP-OP-RECURSO-001 e a OPERADORA (pagador)") e **D3** ("O efeito adverso guardado
+passa a ser o ato do pagador"): guard `ERR_CONTAS_GLOSA_NOT_HUMAN`, dominio `glosa_triage`
+`{PAGAR, ANALISE_HUMANA}` — texto completo em
+`docs/adr/0040-perspectiva-operadora-contas-recurso.md`. Este adendo e higiene documental; nao
+ratifica ADR-0040 (segue `Proposed`) nem promove este ADR-0018 para alem de `Accepted`.
+
 ## Contexto
 
 ADR-0005 estabeleceu o HITL como garantia *arquitetural* (nao prompt): a negativa nasce de um
