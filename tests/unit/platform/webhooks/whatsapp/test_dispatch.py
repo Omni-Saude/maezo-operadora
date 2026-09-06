@@ -22,6 +22,7 @@ from maezo.platform.webhooks.whatsapp.dispatch import (
     _ScopedWhatsAppSender,
     extract_inbound_messages,
 )
+from maezo.platform.webhooks.whatsapp.security import hash_message_id
 from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.mcp_whatsapp.server import WhatsAppServer
@@ -631,7 +632,15 @@ async def test_acknowledge_non_text_without_a_seam_context_announces_it_loudly()
 
 
 async def test_acknowledge_non_text_telemetry_carries_no_raw_number_and_no_media_reference() -> None:
-    """PHI: only the keyed `hk1_` pseudonym, the wamid and Meta's type token may be logged."""
+    """PHI: only the keyed `hk1_` pseudonym of the number, the keyed `hk1_` pseudonym of the WAMID
+    and Meta's type token may be logged.
+
+    Gap `WEBHOOK-LOG-RAW-WAMID`: this assertion used to REQUIRE the raw wamid on the line
+    (`message_id == "wamid.9"`), and this docstring used to bless it — but a wamid base64-embeds
+    the counterpart phone number (`security.py::hash_message_id`), so it was never a safe log
+    field. It now takes the same keyed treatment the dedup key already took in the database. The
+    exhaustive form of this rule (every module, every logger call, an adversarial real-shaped
+    wamid) lives in `test_wamid_log_redaction.py`."""
     dispatcher, _client, _sink = _ack_dispatcher(seam_context=_seam_context())
 
     with structlog.testing.capture_logs() as logs:
@@ -642,12 +651,14 @@ async def test_acknowledge_non_text_telemetry_carries_no_raw_number_and_no_media
     rendered = repr(logs)
     assert _ACK_RAW_NUMBER not in rendered, "the raw recipient reached a log line"
     assert hashlib.sha256(f"amh:{_ACK_RAW_NUMBER}".encode()).hexdigest() not in rendered
+    assert "wamid.9" not in rendered, "the raw wamid reached a log line"
     started = [entry for entry in logs if entry["event"] == "whatsapp_non_text_ack_started"]
     sent = [entry for entry in logs if entry["event"] == "whatsapp_non_text_ack_sent"]
     assert len(started) == 1 and len(sent) == 1
     assert started[0]["conversation_id"] == _expected_conversation_id()
     assert started[0]["message_type"] == "document"
-    assert started[0]["message_id"] == "wamid.9"
+    assert started[0]["message_pseudonym"] == hash_message_id("wamid.9", "amh", Pseudonymizer())
+    assert "message_id" not in started[0]
 
 
 async def test_acknowledge_non_text_runs_no_graph_and_writes_no_checkpoint(
