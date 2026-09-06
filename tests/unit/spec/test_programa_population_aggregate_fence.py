@@ -345,10 +345,48 @@ def _valentina_consumers(markers: frozenset[str]) -> list[Consumer]:
     return out
 
 
+#: Prefixo dos topicos de worker do PROGRAMA no registro estatico de topicos.
+_PROGRAMA_TOPIC_PREFIX = "operadora.programa."
+
+
+def _topic_map_consumers(markers: frozenset[str]) -> list[Consumer]:
+    """Topicos do PROGRAMA no registro ESTATICO (`action-approvals.yaml::mapeamento_topicos`).
+
+    `platform/topic_registry.py` NAO carrega catalogo estatico — ele valida convencao de nome e os
+    topicos entram por `register`/`register_batch` em runtime, entao nao ha inventario de arvore a
+    ancorar la. O sitio de declaracao estatica que EXISTE e este mapa topico -> classe de efeito,
+    e e ele que a cerca varre.
+    """
+    approvals = _load_yaml(_APPROVALS)
+    topic_map = approvals["mapeamento_topicos"]
+    declaration = _APPROVALS.read_text(encoding="utf-8")
+    out: list[Consumer] = []
+    for topic, effect_class in sorted(topic_map.items()):
+        if not topic.startswith(_PROGRAMA_TOPIC_PREFIX):
+            continue
+        marker = _matched_marker(topic, markers)
+        if marker is not None:
+            out.append(
+                Consumer(
+                    kind="topic-map",
+                    ident=f"{topic} -> {effect_class}",
+                    where=_APPROVALS.name,
+                    marker=marker,
+                    declaration=declaration,
+                )
+            )
+    return out
+
+
 def aggregate_consumers() -> list[Consumer]:
     """TODO consumidor de agregado populacional alcancavel pelo SP-OP-PROGRAMA-001."""
     markers = aggregate_markers()
-    return [*_bpmn_consumers(markers), *_dmn_consumers(markers), *_valentina_consumers(markers)]
+    return [
+        *_bpmn_consumers(markers),
+        *_dmn_consumers(markers),
+        *_valentina_consumers(markers),
+        *_topic_map_consumers(markers),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -392,6 +430,11 @@ def test_marker_derivation_is_anchored() -> None:
     assert {"population", "populac", "aggregate", "agregad"} <= markers, markers
     assert _programa_bpmn_paths(), "BPMN do PROGRAMA nao encontrado — a cerca varreria o vazio."
     assert _programa_dmn_paths(), "DMNs programa_* nao encontradas — a cerca varreria o vazio."
+    topic_map = _load_yaml(_APPROVALS)["mapeamento_topicos"]
+    assert any(t.startswith(_PROGRAMA_TOPIC_PREFIX) for t in topic_map), (
+        "nenhum topico `operadora.programa.*` em mapeamento_topicos — a superficie de topico "
+        "estatico sumiu e a cerca varreria o vazio nela."
+    )
 
 
 def test_no_k_floor_is_declared_today() -> None:
