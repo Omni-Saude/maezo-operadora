@@ -456,6 +456,29 @@ def _metodos_proprios_ast(
     }
 
 
+def _marcador_fixture_negativa(classe: ast.ClassDef) -> str | None:
+    """§Delta F3: le o valor do atributo de classe `__fence_negative_fixture__`, se declarado
+    DIRETAMENTE no corpo da classe como uma atribuicao literal de STRING NAO VAZIA -- a exempcao
+    ESTRUTURAL e explicita para um duplo NEGATIVO deliberado (ex.: DOSSIER-BROAD-EXCEPT's
+    `_DriftedReader`/`_DriftedSender`, que existem para provar que um `TypeError` de uma chamada
+    mal formada propaga em vez de ser engolido por um `except Exception` -- ver
+    `tests/unit/agents/test_dossier_propagates_programming_errors.py`). So' reconhece um
+    `ast.Constant` de tipo `str` (nunca uma expressao computada, F-string ou referencia a nome) --
+    a exempcao tem de ser LITERAL e legivel por AST, nunca um bypass indireto. Retorna `None`
+    (ausencia de marcador) para uma string vazia, para que um atributo declarado mas esquecido em
+    branco nao vire exempcao por acidente."""
+    for item in classe.body:
+        if not isinstance(item, ast.Assign):
+            continue
+        if len(item.targets) != 1 or not isinstance(item.targets[0], ast.Name):
+            continue
+        if item.targets[0].id != "__fence_negative_fixture__":
+            continue
+        if isinstance(item.value, ast.Constant) and isinstance(item.value.value, str) and item.value.value:
+            return item.value.value
+    return None
+
+
 def _nomes_posicionais_ast(no: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
     """Nomes posicionais (posonly + args), na ordem, SEM `self`."""
     todos = [*no.args.posonlyargs, *no.args.args]
@@ -694,6 +717,24 @@ def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
                 if achado:
                     achados_da_classe.append(achado)
 
+        marcador = _marcador_fixture_negativa(classe)
+        if marcador is not None:
+            # §Delta F3: `__fence_negative_fixture__` exime uma classe deliberadamente
+            # malformada (ex.: DOSSIER-BROAD-EXCEPT's `_DriftedReader`/`_DriftedSender`, que
+            # existem para provar que um `TypeError` de uma chamada mal formada PROPAGA em vez
+            # de ser engolido por um `except Exception`). Mas o marcador so' exime a classe se
+            # ela REALMENTE divergir (ao menos 1 ofensa) -- senao a propria presenca do marcador
+            # vira achado, para que nunca sirva de bypass de texto livre contra uma classe que na
+            # verdade acompanha o Protocol real.
+            if not achados_da_classe:
+                achados.append(
+                    f"{rotulo}:{classe.lineno} — classe `{classe.name}` declara "
+                    f"`__fence_negative_fixture__` ({marcador!r}) mas nao diverge do Protocol "
+                    "real em NADA (nenhuma ofensa encontrada) -- marcador sobre um falso "
+                    "CONFORME: o marcador so' exime um duplo deliberadamente malformado, nunca "
+                    "use-o para silenciar uma classe que acompanha o Protocol de verdade"
+                )
+            continue
         achados.extend(achados_da_classe)
     return achados
 
