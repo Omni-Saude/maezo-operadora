@@ -402,12 +402,16 @@ class ValidateAutoCriteriaWorker(WorkerBase):
     Shadow output is written AFTER every verdict is computed and is never read back:
     `_CriterionOutcome.ok` is derived without consulting `.sombra` anywhere.
 
-    OBSERVABLE BEHAVIOUR TODAY — stated plainly. With `authorization_approval.max_value_brl: 0`
-    (decision D-07 open) and every clinical table DRAFT/unratified, **all four criteria are
-    false and NOTHING auto-approves: every request routes to human review.** That is the same
-    safe outcome as before this worker existed — but now for four explicit, auditable,
-    per-criterion reasons instead of an unverified seed, and each criterion switches on
-    independently as its source is ratified/populated, with NO code change.
+    OBSERVABLE BEHAVIOUR TODAY — stated plainly. Decision D-07 CLOSED on 2026-08-25:
+    `authorization_approval.max_value_brl` now carries a real, positive ceiling in
+    `tenants-amh.yaml`, so `criterio_financeiro_ok` can legitimately return `True` for a request
+    priced within it (see `auth.py:484-490`). What still keeps **every request routing to human
+    review** is the three remaining criteria — technical/regulatory/contractual read from
+    clinical tables that are DRAFT/unratified, and an unratified source returns `false`
+    regardless of what the table computes. NOTHING auto-approves while they stay that way. That
+    is the same safe outcome as before this worker existed — but
+    now for explicit, auditable, per-criterion reasons instead of an unverified seed, and each
+    criterion switches on independently as its source is ratified/populated, with NO code change.
 
     INVARIANTS.
       1. NEVER auto-denies. This gate chooses auto-approve vs human review; no deny output
@@ -1173,13 +1177,14 @@ class IssueAuthorizationWorker(WorkerBase):
     DESFECHO OBSERVAVEL HOJE (governanca pendente, nao mais um gap estrutural): os criterios
     tecnico/regulatorio/contratual leem de tabelas SINTETICAS/DRAFT (portao de RATIFICACAO em
     `spec/processes/dmn/auth-criteria-ratification.yaml` — fonte nao-ratificada devolve `false`
-    independente do que a tabela computou) e o criterio financeiro herda o `max_value_brl: 0` de
-    hoje (estado D-07 em aberto). Logo os quatro criterios sao false e NENHUM pedido auto-aprova
-    — o MESMO desfecho seguro de antes, agora por motivos explicitos e auditaveis
-    (`auto_criteria_falhas`) em vez de uma checagem ausente. Quando o SME ratificar as fontes e o
-    D-07 definir um teto real, a emissao automatica passa a funcionar, ainda limitada pela
-    verificacao de teto no PONTO DE EMISSAO acima (defesa-em-profundidade, inalterada por esta
-    nota).
+    independente do que a tabela computou); o criterio financeiro ja NAO depende disso — a
+    decisao D-07 fechou em 25/08/2026 e `authorization_approval.max_value_brl` carrega hoje um
+    teto real e positivo em `tenants-amh.yaml` (ver `auth.py:484-490`). Logo o que ainda barra o
+    auto-aprova sao os tres criterios nao-ratificados, e NENHUM pedido auto-aprova enquanto eles
+    seguirem DRAFT — o MESMO desfecho seguro de antes, agora por motivos explicitos e auditaveis
+    (`auto_criteria_falhas`) em vez de uma checagem ausente. Quando o SME ratificar as tres fontes
+    restantes, a emissao automatica passa a funcionar, ainda limitada pela verificacao de teto no
+    PONTO DE EMISSAO acima (defesa-em-profundidade, inalterada por esta nota).
     """
 
     def __init__(self, resolver: CeilingResolver | None = None) -> None:
