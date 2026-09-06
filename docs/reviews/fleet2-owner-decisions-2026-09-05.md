@@ -19,36 +19,49 @@ gustavo e valentina no composition root — incluindo o task type `care.enroll` 
 se registrar algum, atualizar a cerca fleet-wide que hoje fixa exatamente esses quatro como
 não-registrados.
 
-**Contexto verificado por comando.**
-- `grep -n "make_.*_handler" src/maezo/runtime/agent_runtime/a2a_composition.py` (base `b9cdf245`):
-  só `make_andre_handler`, `make_carolina_handler`, `make_rafael_handler` são importados/chamados.
-  Marina, beatriz, gustavo e valentina **têm** `src/maezo/agents/<agente>/delegation.py` com
-  `make_<agente>_handler` pronto (`ls src/maezo/agents/*/delegation.py` lista os 9 módulos, um por
-  agente exceto andre/carolina/rafael/fernando/helena que já têm caminho próprio), mas nenhum dos
-  quatro é importado no composition root.
+**Contexto verificado por comando (re-verificado no fact-check, base `54b0f698` = main `6ffb974`,
+que já inclui #344 e #346 — ver `## Errata do fact-check` no fim deste documento).**
+- `grep -n "make_.*_handler" src/maezo/runtime/agent_runtime/a2a_composition.py` (base `6ffb974`,
+  hoje): **`make_andre_handler`, `make_carolina_handler`, `make_fernando_handler`,
+  `make_rafael_handler` são importados/chamados — fernando ENTROU desde que este memo foi
+  escrito** (era só andre/carolina/rafael na base `b9cdf245` original). Marina, beatriz, gustavo e
+  valentina **têm** `src/maezo/agents/<agente>/delegation.py` com `make_<agente>_handler` pronto
+  (`ls src/maezo/agents/*/delegation.py` lista os 9 módulos, um por agente exceto
+  andre/carolina/rafael/fernando/helena que já têm caminho próprio), mas nenhum desses quatro é
+  importado no composition root hoje.
 - A cerca fleet-wide `tests/unit/a2a/test_agent_card_handlers_parity.py::_UNREGISTERED_HANDLERS`
-  fixa, nesta base, `frozenset({"fernando", "marina", "beatriz", "gustavo", "valentina"})` — 5
-  agentes, não 4 — como o conjunto exato e executável do gap `FERNANDO-DELEGATION-CALL-SITE`
-  ("o registro em `a2a_composition` e o call site de origem são decisão do dono").
-- **A PR irmã aberta #342 (`r5/raf02-guards`, branch ainda não mesclada) já registra `fernando`** —
-  confirmado por `gh pr diff 342 -- ...a2a_composition.py`: adiciona
-  `from maezo.agents.fernando.delegation import make_fernando_handler`, estende
-  `_DOSSIER_EDGE_AGENT_IDS` para `("carolina", "andre", "fernando")` e monta
-  `fernando_handler = make_fernando_handler(...)`, citando "owner decision R-081 (gap
-  `FERNANDO-DELEGATION-CALL-SITE`, approved 2026-09-04: 'SIM — ligar o call site... e registrar
-  make_fernando_handler'". A mesma PR edita `_UNREGISTERED_HANDLERS` para
-  `frozenset({"marina", "beatriz", "gustavo", "valentina"})` — **fernando sai do conjunto** porque
-  registro E call-site de origem (`tools/workers/inadimplencia.py::make_prepare_dossier_handler`)
-  chegaram juntos. **Não toquei nem citei conteúdo de #342 além deste diff público — branch
-  pertence à sessão irmã.**
-- #342 também acrescenta um guard (RAF-02) aos `delegation.py` de gustavo/marina/valentina, mas
-  **não os registra** — eles continuam com handler pronto e sem ligação nenhuma no composition
-  root após #342.
-- Cada um dos quatro `delegation.py` restantes documenta pré-condições de registro que a decisão
-  do dono herdaria — ex.: beatriz precisa que o call site de origem carregue `evidencia_refs` por
-  um canal capaz de lista ANTES de qualquer registro (hoje `payload_meta` é `Mapping[str, str]`),
-  e `gather_evidence`/`assemble_dossier` compartilham um único `task_id`, então o 2º hop é sempre
-  um replay do Guard 4, nunca uma segunda execução.
+  fixa, na base atual, `frozenset({"marina", "beatriz", "gustavo", "valentina"})` — **já são 4
+  agentes, não mais 5** — fernando saiu do conjunto porque registro E call-site de origem
+  chegaram juntos (abaixo).
+- **PR #344 (`r5/train-3`, MESCLADA em `87b51a8e`, ancestral confirmado de `6ffb974`) já
+  registrou `fernando`**: `_DOSSIER_EDGE_AGENT_IDS` agora é `("carolina", "andre", "fernando")`
+  (`a2a_composition.py:134`) e `fernando_handler = make_fernando_handler(...)` é construído em
+  `a2a_composition.py:906` — citando "owner decision R-081 (gap `FERNANDO-DELEGATION-CALL-SITE`,
+  approved 2026-09-04)" no commit `35b5d7e5` ("fix(a2a): guarda RAF-02 em gustavo/marina/valentina
+  e registro de fernando"). O call site de ORIGEM (metade que faltava na versão anterior deste
+  memo) também chegou, no MESMO PR, por um commit seguinte (`e2deaf16`,
+  "feat(inadimplencia): metade de ORIGEM de R-081"): `src/maezo/tools/workers/inadimplencia.py`'s
+  `make_prepare_dossier_handler` agora delega de fato para `arrears.followup` via o handler raw-
+  async — a linha `FERNANDO-DELEGATION-CALL-SITE` de `docs/evidence-ledger.md` registra as duas
+  metades (registro + origem) e marca a de registro `⚠️ SUPERSEDIDO` apontando para a de origem.
+- **A mesma PR #344 (commit `35b5d7e5`) também fechou o gap de guarda RAF-02 que este memo, na
+  sua primeira versão, ainda descrevia como pendente numa PR aberta**: hoje,
+  `src/maezo/agents/{gustavo,marina,valentina}/delegation.py` já levantam `StartProcessFailedError`
+  quando `result.get("start_failed") is True` (mesma guarda que `rafael/delegation.py` já tinha),
+  confirmado por leitura direta (`grep -n "StartProcessFailedError\|start_failed" src/maezo/agents/
+  {gustavo,marina,valentina}/delegation.py`) e por uma cerca fleet-wide nova,
+  `tests/unit/agents/test_start_failure_a2a_handlers.py::test_the_guarded_set_is_exactly_the_handlers_whose_graph_starts_a_process`,
+  que reapura por AST o conjunto exato de handlers que devem ter essa guarda. **Isso fecha o P1 de
+  segurança CC-01/RAF-02 (falso sucesso reportado ao A2A quando o engine recusa iniciar o
+  processo) para gustavo/marina/valentina — mas NÃO os registra no composition root**: eles
+  continuam com handler pronto e guardado, e sem nenhuma ligação em `a2a_composition.py` hoje.
+  Beatriz e helena ficam fora dessa guarda POR ESTRUTURA (`beatriz/graph.py` não registra
+  `start_process`; helena origina sem rodar o grafo) — não é uma lacuna, é o desenho.
+- Cada um dos quatro `delegation.py` ainda não registrados documenta pré-condições de registro que
+  a decisão do dono herdaria — ex.: beatriz precisa que o call site de origem carregue
+  `evidencia_refs` por um canal capaz de lista ANTES de qualquer registro (hoje `payload_meta` é
+  `Mapping[str, str]`), e `gather_evidence`/`assemble_dossier` compartilham um único `task_id`,
+  então o 2º hop é sempre um replay do Guard 4, nunca uma segunda execução.
 
 **Opções.**
 1. **Manter tudo como está** (nenhum dos quatro registrado). Consequência: `glosa.analyze`,
@@ -99,18 +112,23 @@ não tem relação com `maezo_agent_desfecho_total` nem com regra de alerta. Nã
 `maezo_agent_desfecho_total`" — o fundamento real deste item é o próprio docstring de
 `record_agent_desfecho` (abaixo). Reporto a divergência em vez de inventar um id.
 
-**Contexto verificado por comando.**
-- `cat deploy/observability/alert-rules.yml` na base `b9cdf245`: 3 grupos de `alert:` (SLA,
-  crash-loop, dead-letter) + 1 grupo `maezo_lifecycle`; **nenhuma regra lê
-  `maezo_agent_desfecho_total`** hoje.
-- `gh pr diff 341 -- deploy/observability/alert-rules.yml` (PR irmã aberta `r5/kpi-lag`, não
-  mesclada): acrescenta o grupo `maezo_agent_kpi_derived` com **3 `record:` (recording rules), zero
-  `alert:`** — `maezo_helena_resolution_rate`, `maezo_helena_escalation_rate` (ambas
+**Contexto verificado por comando (re-verificado no fact-check, base `54b0f698` = main `6ffb974`).**
+- Na base ORIGINAL deste memo (`b9cdf245`), `deploy/observability/alert-rules.yml` tinha 3 grupos
+  de `alert:` (SLA, crash-loop, dead-letter) + 1 grupo `maezo_lifecycle`; nenhuma regra lia
+  `maezo_agent_desfecho_total`.
+- **PR #341 (`r5/kpi-lag`) já está MESCLADA** (`mergedAt: 2026-09-05T19:15:45Z`, ancestral
+  confirmado de `6ffb974` via #346) — na base atual, `deploy/observability/alert-rules.yml` **já
+  tem** o grupo `maezo_agent_kpi_derived` com **3 `record:` (recording rules), zero `alert:`**
+  (`grep -n "record:\|alert:" deploy/observability/alert-rules.yml`, linhas 274-301):
+  `maezo_helena_resolution_rate`, `maezo_helena_escalation_rate` (ambas
   `resolvido_automatico`/`escalado_humano` sobre o total de helena) e `maezo_lucas_resolution_rate`
   (`resposta_informativa_enviada|lembrete_enviado` sobre o total de lucas). O próprio commit
   message de #341 diz explicitamente "nenhum alert/dashboard novo (D12-02 é escopo separado)".
   Como são `record:`, não `alert:`, **não precisam de `runbook_url`** —
   `scripts/ci/check_alert_runbook_urls.py:16` só gate `alert:` sem `annotations.runbook_url`.
+  **A pergunta original deste item permanece aberta mesmo com #341 mesclada**: continua não
+  existindo, hoje, nenhuma regra `alert:` sobre `maezo_agent_desfecho_total` — só as 3 `record:`
+  acima, que agregam a taxa mas não disparam alarme.
 - `src/maezo/platform/observability.py::record_agent_desfecho` documenta um invariante `==0`
   esperado por design: `desfecho` num conjunto adverso (ex.: `false_denial_rate` de
   rafael/marina/gustavo/valentina/lucas/fernando, `false_decredentialing_rate` de carolina,
@@ -232,48 +250,64 @@ inerte (nada chama o chokepoint com essa operação).
 
 ## 4. `check_evidence_ledger_hashes.py` — ids parametrizados com espaço somem do hash
 
-**Decisão pedida.** Aprovar a correção do regex `_RESULT_LINE_RE` (hoje `\S+::\S+`) para não
-descartar silenciosamente linhas PASSED/FAILED cujo id de teste parametrizado contém espaço.
+**RESOLVIDO desde a escrita original deste memo — sem decisão pendente do dono.** Ver
+`## Errata do fact-check` no fim deste documento para a evidência completa. Mantenho a seção
+(em vez de apagá-la) para o rastro de auditoria: é assim que a lacuna foi descoberta, medida e
+depois fechada dentro do mesmo ciclo.
 
-**Contexto verificado por comando.**
-- `grep -n "_RESULT_LINE_RE\s*=" scripts/ci/check_evidence_ledger_hashes.py` (base `b9cdf245`):
+**Decisão pedida (histórica, já superada pelos fatos).** Aprovar a correção do regex
+`_RESULT_LINE_RE` (então `\S+::\S+`) para não descartar silenciosamente linhas PASSED/FAILED cujo
+id de teste parametrizado contém espaço.
+
+**Contexto verificado por comando — estado ORIGINAL (base `b9cdf245`, quando este item foi
+escrito).**
+- `grep -n "_RESULT_LINE_RE\s*=" scripts/ci/check_evidence_ledger_hashes.py`:
   `_RESULT_LINE_RE = re.compile(r"^(\S+::\S+ (?:PASSED|FAILED)(?:\s.*)?)$", re.MULTILINE)` — o lado
-  direito do `::` exige `\S+` (sem espaço), então um id como
-  `test_x[RATIFICADO pelo DPO]` nunca casa e a linha inteira é descartada do hash.
-- Medi eu mesma, na base `b9cdf245` (não herdado do brief): `pytest tests/unit/tools/workers/test_fraude.py -v --tb=no`
-  → **148 linhas de resultado, 21 descartadas** pelo regex atual (127 restam) — bate com o "21/148"
-  do brief. `test_programa.py` → **137 linhas, 15 descartadas** (122 restam) — o brief citava
-  "15/135"; a diferença (137 vs 135) é esperada por 2 testes terem sido adicionados depois que o
-  brief foi escrito — reporto como INFO, não como discrepância de causa.
-- **A sessão irmã já corrigiu isso**, mas **não em PR aberta** — verifiquei
-  `gh pr list --search "0d61680\|tooling-fences" --state all`: **0 resultados**. O commit existe
-  como ref local `refs/heads/r5/tooling-fences` (`0d616803`, "quatro cercas de tooling do
-  ledger/PLANS.md", com reparo subsequente `505551b8`, mesclado num branch de integração local
-  `r5/train-4` em `fb944424`) — **nenhum desses três commits está em `origin/main`**
-  (`git merge-base --is-ancestor 0d616803 origin/main` → não). Ou seja: a correção existe em
-  código, em algum lugar do disco compartilhado deste programa, mas **não passou por PR nem por
-  CI** até este momento. Cito a mensagem do commit: troca a regex para `\S+::.+` e mantém
-  `_RESULT_LINE_RE_LEGACY` + `LEGACY_NODE_ID_RECIPE_CUTOFF_DATE = "2026-09-06"` para não invalidar
-  retroativamente hashes já registrados.
+  direito do `::` exigia `\S+` (sem espaço), então um id como
+  `test_x[RATIFICADO pelo DPO]` nunca casava e a linha inteira era descartada do hash.
+- Medido na época: `pytest tests/unit/tools/workers/test_fraude.py -v --tb=no` →
+  **148 linhas de resultado, 21 descartadas** pelo regex antigo (127 restavam). `test_programa.py`
+  → **137 linhas, 15 descartadas** (122 restavam).
+- Na época, a correção existia só como ref local `r5/tooling-fences` (`0d616803`/`505551b8`), sem
+  PR e sem CI.
 
-**Opções.**
-1. **Aguardar a PR da sessão irmã** (quando/se ela abrir `r5/tooling-fences` como PR) e revisar ali.
-2. **Pedir que a correção seja aberta como PR agora**, dado que o achado é real e mensurável nesta
-   base (`b9cdf245`) e a correção já existe pronta em disco — só falta o veículo de revisão.
-3. **Implementar independentemente** (outro agente/sessão), correndo o risco de duplicar o trabalho
-   já feito em `r5/tooling-fences` caso ele apareça como PR depois.
+**Contexto verificado por comando — estado ATUAL (base `54b0f698` = main `6ffb974`, fact-check).**
+- **A correção JÁ ESTÁ em `origin/main`.** `git merge-base --is-ancestor 0d616803 HEAD` → sim.
+  Ela chegou pelo PR #346 (`r5/train-4`, "trem r5/train-4: integra 4 componentes verificados...
+  cercas de tooling do ledger", MESCLADA `2026-09-05T21:08:52Z`), que integrou o componente
+  `r5/tooling-fences` — o mesmo branch que este memo, na sua versão original, via só como ref
+  local sem veículo de revisão.
+- `grep -n "_RESULT_LINE_RE\s*=\|LEGACY_NODE_ID_RECIPE_CUTOFF_DATE" scripts/ci/check_evidence_ledger_hashes.py`
+  hoje: `_RESULT_LINE_RE = re.compile(r"^(\S+::.+ (?:PASSED|FAILED))(?:\s.*)?$", re.MULTILINE)` —
+  o lado direito do `::` agora é `.+` (aceita espaço); `_RESULT_LINE_RE_LEGACY` (a regex antiga,
+  preservada verbatim) + `LEGACY_NODE_ID_RECIPE_CUTOFF_DATE = "2026-09-06"` cobrem, com fallback
+  explícito (`recipe_version=legacy`, nunca silencioso), qualquer linha do ledger datada ANTES do
+  corte — nenhum hash já declarado foi invalidado retroativamente.
+- **Remedi eu mesma, hoje, a mesma suíte**: `test_fraude.py` → 148 linhas de resultado, **148
+  casam com o regex NOVO** (0 descartadas; eram 21 descartadas com o regex antigo) — confirmado
+  por script Python separado que aplica os dois regexes à mesma captura.
+- `docs/evidence-ledger.md` já tem a linha `LEDGER-HASH-PARAM-IDS-WITH-SPACES` (autor
+  `tooling-fences-implementer`, sonnet R2, branch `r5/tooling-fences`) descrevendo exatamente esta
+  correção, mais a linha-irmã de divulgação `LEDGER-HASH-RECIPE-CHANGE-2026-09-05` (lista as 11
+  linhas pré-existentes cujo hash recomputado mudou — nenhuma foi editada, todas continuam
+  verificáveis pelo fallback legado) e a linha `LEDGER-ROW-CELL-COUNT` (gate-irmão novo,
+  `make check-ledger-row-cell-count`, também já em `main`).
+
+**Não há mais opções a decidir neste item** — a correção já passou pelo processo normal do
+programa (commit, teste RED→GREEN, ledger, integração via trem, merge em `main`) sem necessidade
+de uma decisão avulsa do dono. As três opções originais ("aguardar PR da irmã" / "pedir PR agora" /
+"implementar de novo") ficam registradas acima só como contexto histórico de como a lacuna foi
+tratada.
 
 **Arquivos CODEOWNED envolvidos.** `scripts/ci/check_evidence_ledger_hashes.py` (`scripts/ci/` é
-CODEOWNED).
+CODEOWNED) — já mesclado via PR normal do programa (#346), não uma pendência.
 
-**O que já está pronto no código (símbolo).** Nada em `origin/main`; a correção existe apenas na
-ref local `r5/tooling-fences` (`0d616803`/`505551b8`), não em nenhum PR.
+**O que já está pronto no código (símbolo).** `scripts/ci/check_evidence_ledger_hashes.py::{_RESULT_LINE_RE,
+_RESULT_LINE_RE_LEGACY, LEGACY_NODE_ID_RECIPE_CUTOFF_DATE}` — em `main`, funcionando, testado.
 
-**O que fica bloqueado até a decisão.** `make check-ledger-hashes` continua com um "legacy row
-skipped" cego para toda linha cujo hash-alvo tem id parametrizado com espaço — inclusive linhas já
-registradas por `test_fraude.py`/`test_programa.py` neste mesmo ciclo.
+**O que fica bloqueado até a decisão.** Nada — não há decisão pendente.
 
-**Prazo sugerido.** 2026-09-12 (curto — a correção já existe, só falta abrir o veículo de PR).
+**Prazo sugerido.** Nenhum — item fechado.
 
 ---
 
@@ -568,31 +602,268 @@ detalhadas aqui com o que muda em `spec/agents/_template/agent.yaml` e
   3. Forma da cerca que valida o padrão fleet-wide: `scripts/ci/` + alvo de `Makefile`
      (dono-gated, `.github/CODEOWNERS`) ou teste unitário em `tests/` (não dono-gated).
   4. Correção da fronteira A2A: raise tipado do handler vs. campo `success` em `HandlerOutput`.
-     **Já implementada para rafael** — `rafael/delegation.py` levanta `StartProcessFailedError`
-     (verificado por leitura direta do código, linhas 171-179) em vez de devolver
-     `HandlerOutput` de sucesso quando `start_failed is True`; não verifiquei se os outros 7
-     agentes com A2A real seguem o mesmo padrão (fora do escopo deste memo).
+     **Correção do fact-check (era "só rafael" na versão original; hoje são 7 dos 7 agentes que
+     de fato iniciam processo via A2A).** Confirmado por `grep -c StartProcessFailedError
+     src/maezo/agents/*/delegation.py`: `andre` e `carolina` (já a tinham antes deste ciclo),
+     `rafael` (linhas 171-179, como o memo original já citava), e — chegados pelo PR #344
+     (commit `35b5d7e5`, mesmo achado do item 1) — `gustavo`, `marina` e `valentina` também
+     levantam `StartProcessFailedError` em vez de devolver `HandlerOutput` de sucesso quando
+     `start_failed is True`. `fernando` chegou a um padrão equivalente pelo mesmo PR (metade de
+     origem, commit `e2deaf16`). `beatriz` e `helena` ficam de fora POR ESTRUTURA — nenhuma das
+     duas registra `start_process` no próprio grafo (beatriz nunca inicia processo pelo `graph.py`;
+     helena origina sem rodar grafo) — não é uma lacuna, é o desenho; portanto a decisão 4 do ADR
+     já está, na prática, cumprida para os 7 agentes aos quais ela se aplica (incluindo fernando).
+     A cerca fleet-wide `tests/unit/agents/test_start_failure_a2a_handlers.py::test_the_guarded_set_is_exactly_the_handlers_whose_graph_starts_a_process`
+     (nova, chegada pelo mesmo PR) reapura esse conjunto por AST, então uma regressão futura (um
+     8º agente que inicie processo sem a guarda) quebraria essa cerca antes de chegar a produção.
   5. Adicionar `erro_inicio_processo` à enumeração de desfechos dos contratos `SP-OP-*` —
      **já feito em 10 contratos** (ver acima); os que faltam (se algum agente que inicia processo
      ainda não tiver a linha) ficariam pendentes de auditoria específica.
 
-**Opções.** Aprovar as 5 decisões em bloco, parcialmente (ex.: só formalizar 1 e 5, que já são
-fato consumado na prática, deixando 2/3/4 para depois), ou não aprovar (manter o padrão como
-"boa prática não obrigatória").
+**Opções.** Aprovar as 5 decisões em bloco, parcialmente (ex.: só formalizar 1, 4 e 5, que já são
+fato consumado na prática — correção do fact-check: a decisão 4 também já é fato consumado para
+os 7 agentes aplicáveis, não só rafael — deixando 2/3 para depois), ou não aprovar (manter o
+padrão como "boa prática não obrigatória").
 
 **Arquivos CODEOWNED envolvidos.** `docs/adr/0045-...md`; se a decisão 3 escolher `scripts/ci/`,
 também esse diretório + `Makefile`.
 
 **O que já está pronto no código (símbolo).** `src/maezo/runtime/start_outcome.py::{route_after_start,
 notify_start_failure, StartProcessFailedError, DESFECHO_ERRO_INICIO_PROCESSO}`;
-`_template/graph.py`'s próprio esqueleto; `rafael/delegation.py`'s `StartProcessFailedError` na
-fronteira A2A.
+`_template/graph.py`'s próprio esqueleto; `StartProcessFailedError` na fronteira A2A de
+`{andre,carolina,rafael,fernando,gustavo,marina,valentina}/delegation.py` (correção do
+fact-check — eram só rafael citado na versão original deste memo).
 
 **O que fica bloqueado até a decisão.** A obrigatoriedade formal (decisão 1) e a política de
 retry/alerta (decisão 2) — sem elas, um agente novo que copiar um `graph.py` antigo (não o
 `_template` atual) ainda poderia reintroduzir o fail-open original.
 
 **Prazo sugerido.** 2026-09-19 (mesma janela do item 10).
+
+---
+
+## 12. `solicitacao_humano` (Lucas) — desbloqueado só pela ratificação das DMNs DRAFT (LUC-03/LUC-04)
+
+**Item novo, surgido na verificação do ciclo 2 — não estava na versão original deste memo.**
+Achado de um work package irmão em andamento (`CONTRACT-DRIFT`, branch local
+`fleet2/contract-drift`, base `6ffb974` — **ainda NÃO mesclado em `main`**, confirmado por
+`git merge-base --is-ancestor 44b018f4 HEAD` → não), citado aqui porque a pergunta de governança
+que ele expõe é real e não depende de aquele PR específico ser aprovado.
+
+**Decisão pedida.** As duas tabelas DMN de roteamento de Lucas
+(`spec/processes/dmn/lucas_billing_admissibility.dmn`,
+`spec/processes/dmn/lucas_escalation_routing.dmn`) estão em `status: DRAFT — requires human review
+(financeiro/PO)` desde antes deste ciclo (achado LUC-03 do relatório de auditoria), mas o grafo já
+as usa como autoridade de roteamento em produção. Ratificar (ou não) essas duas tabelas é o que
+libera — ou não — o valor `solicitacao_humano` a ser roteado corretamente quando um beneficiário
+pede para falar com um humano.
+
+**Contexto verificado por comando.**
+- `grep -n status spec/processes/dmn/lucas_billing_admissibility.dmn
+  spec/processes/dmn/lucas_escalation_routing.dmn` (base `6ffb974`, hoje): ambas seguem
+  `v0.1.0 — status: DRAFT — requires human review (financeiro/PO)`.
+- `grep -n solicitacao_humano src/maezo/agents/lucas/graph.py` → `MotivoCategoria = Literal["outro",
+  "solicitacao_humano", "falha_tecnica"]` (linha 230) — o valor É um valor real e vivo do domínio
+  compartilhado `SP-OP-ESCALATION-001` (helena o emite corretamente para o mesmo caso), mas
+  `Intencao` (o campo de entrada do CALLER, não de Lucas) não tem nenhuma variante "beneficiário
+  pede um humano" — então esse pedido é hoje misclassificado como `ambiguidade->outro`.
+- O work package irmão investigou se dava para ligar isso sem tocar as DMNs DRAFT e concluiu que
+  NÃO: o catch-all das DMNs absorveria um novo valor com segurança, mas a peça que falta
+  (`Intencao`) é um campo de ENTRADA cujo domínio é produzido por um classificador upstream que
+  nenhum contrato documenta hoje (`grep` por `intencao` em `docs/processes/contracts/*.md` — 0
+  hits) — um segundo gap, não documentado, fora do escopo de qualquer WP atual.
+- Dado o impasse, o WP irmão optou por só DIVULGAR o gap no código (comentário em
+  `lucas/graph.py`, commit local `44b018f4`, "disclosa solicitacao_humano como owner-gated até
+  ratificação"), citando a mesma ratificação LUC-03 já pedida pela auditoria — sem inventar um
+  classificador nem remover o valor do domínio compartilhado.
+
+**Opções.**
+1. **Ratificar as duas DMNs como estão** (financeiro/PO assina `status: RATIFICADO`, sem mudança
+   de lógica) — libera a base para depois, separadamente, desenhar o classificador de `Intencao`
+   que faltaria para `solicitacao_humano` ser alcançável.
+2. **Não ratificar agora** — Lucas continua operando com as DMNs DRAFT como autoridade de fato
+   (mesma situação de hoje), e `solicitacao_humano` continua estruturalmente inalcançável.
+3. **Ratificar E encomendar, no mesmo pacote, o desenho do classificador de `Intencao`** que falta
+   para o valor ser de fato roteável — maior escopo, mas resolve as duas metades do gap de uma vez.
+
+**Arquivos CODEOWNED envolvidos.** Nenhum dos três arquivos citados
+(`spec/processes/dmn/lucas_billing_admissibility.dmn`,
+`spec/processes/dmn/lucas_escalation_routing.dmn`, `src/maezo/agents/lucas/graph.py`) está em
+`.github/CODEOWNERS` hoje.
+
+**O que já está pronto no código (símbolo).** `src/maezo/agents/lucas/graph.py::MotivoCategoria`
+(o valor `solicitacao_humano` já existe, tipado, documentado como intencionalmente inalcançável).
+
+**O que fica bloqueado até a decisão.** Qualquer beneficiário que peça explicitamente falar com um
+humano continua sendo roteado como `ambiguidade->outro` em vez de uma categoria própria, até a
+ratificação (e o classificador de `Intencao`, se a opção 3 for escolhida).
+
+**Prazo sugerido.** Mesma janela do LUC-03 original da auditoria — sem urgência adicional
+introduzida por este memo; sugiro alinhar com o próximo ciclo de revisão financeiro/PO.
+
+---
+
+## 13. Persona de Carolina DRAFT + registro NPI fora da allowlist (CAR-08)
+
+**Item novo, surgido na verificação do ciclo 2.** Achado P3 pré-existente do relatório de
+auditoria (dimensão 10, capacidade), confirmado ainda válido nesta base.
+
+**Decisão pedida.** Duas questões de produto distintas no mesmo agente: (a) assinar a persona de
+Carolina (hoje DRAFT, pendente de PO); (b) decidir se/quando o MCP server do registro de
+prestadores (NPI) deve existir, o que é pré-condição para trazer consulta ao registro para dentro
+do `gather` de Carolina.
+
+**Contexto verificado por comando.**
+- `sed -n '1,2p' spec/agents/carolina/agent.yaml` (base `6ffb974`, hoje): `# Carolina — Analista de
+  Credenciamento/rede (Phase 3 analogue of Marina/Rafael)` / `# PERSONA DRAFT (R-PERSONA-MAP — PO
+  sign-off pendente).`
+- `grep -n "NPI\|PORT-PENDING" spec/agents/carolina/agent.yaml` → linha 25: "memoria. NPI registry
+  mcp e PORT-PENDING -> fica FORA da allowlist ate um no do grafo o [exercer]" — o MCP server do
+  registro de prestadores **não existe em `src/` hoje**; não há nada para ligar na allowlist mesmo
+  que a spec fosse reaberta agora.
+- Este é um gap de evolução de capacidade, não um defeito de código: a identidade da persona é
+  contratualmente DRAFT por decisão de produto pendente, e o servidor MCP do registro NPI está
+  fora do repositório.
+
+**Opções.**
+1. **Assinar a persona agora** (PO ratifica nome/identidade de Carolina) independentemente do
+   registro NPI — desacopla as duas decisões.
+2. **Adiar ambas** — Carolina continua operando com persona DRAFT e sem consulta ao registro de
+   prestadores; nenhum comportamento muda.
+3. **Priorizar o MCP server do registro NPI no roadmap** (fora deste programa — depende de
+   fornecedor/infra externa) antes de decidir a persona, já que o ganho de capacidade real
+   (consultar o registro no `gather`) depende dele de qualquer forma.
+
+**Arquivos CODEOWNED envolvidos.** Nenhum — `spec/agents/carolina/agent.yaml` não está em
+`.github/CODEOWNERS`.
+
+**O que já está pronto no código (símbolo).** Nada a "pronto" aqui — é puramente uma decisão de
+produto/roadmap; o `agent.yaml` já documenta honestamente as duas pendências (comentários citados
+acima).
+
+**O que fica bloqueado até a decisão.** A identidade final de Carolina (nome/persona) e a consulta
+ao registro de prestadores no fluxo de credenciamento.
+
+**Prazo sugerido.** Sem prazo — depende de decisão de produto (persona) e de uma dependência
+externa (MCP server NPI), nenhuma das duas com custo de atraso técnico mensurável hoje.
+
+---
+
+## 14. `.gitleaksignore` — duas entradas cuja condição de remoção declarada nunca vai se cumprir (REG-07)
+
+**Item novo, surgido na verificação do ciclo 2.** Achado de um work package irmão já concluído
+(`FENCE-PINS`, branch `fleet2/fence-pins`) que investigou — sem alterar — uma divulgação existente
+no arquivo.
+
+**Decisão pedida.** Duas entradas de `.gitleaksignore` (fingerprints `6615de0.../tests/evals/
+test_dossier_adverse_evals.py` e `d3c5ac1.../.gitleaksignore`) trazem, em comentário, a condição
+de remoção "remover esta entrada assim que a branch for mesclada e apagada". Essa condição já não
+pode mais se cumprir do jeito que foi escrita — pedir ao dono que ratifique manter as duas
+entradas permanentemente, ou que reescreva o comentário para não prometer uma remoção que nunca
+vai acontecer.
+
+**Contexto verificado por comando.**
+- `git merge-base --is-ancestor 6615de0 HEAD` e `git merge-base --is-ancestor d3c5ac1 HEAD` (base
+  `6ffb974`, hoje) → **ambos SIM** — os dois commits são ancestrais permanentes de `main`.
+- `git ls-remote origin 'refs/heads/fleet/and02-metrics-egress-gate'` → vazio, a branch de origem
+  **foi de fato apagada**, como o comentário previa.
+- Mas `git log --format='%H %P' -1 75ed74f` (PR #319, `fleet/train-w3-lote3`, mesclado
+  `2026-09-05T06:10:15Z`) mostra **dois pais** (`abb9d60b... 40ac69ca...`) — um merge commit
+  GENUÍNO, não squash. Isso significa que os dois commits do fingerprint continuam para sempre
+  como ancestrais de `main`, **mesmo com a branch original apagada** — a condição de remoção do
+  comentário ("assim que a branch for mesclada e apagada") já se cumpriu pela metade (mesclada +
+  apagada) mas os fingerprints continuam necessários porque o gitleaks escaneia todo o histórico,
+  não só a ponta.
+- O WP irmão `FENCE-PINS` já tinha investigado isso empiricamente (sem tocar o arquivo): rodar
+  `gitleaks detect` sobre o histórico completo com as duas entradas removidas faz os dois
+  fingerprints reaparecerem verbatim ("leaks found: 2") — confirmando que continuam necessários
+  hoje, não são lixo esquecido.
+
+**Opções.**
+1. **Ratificar formalmente que as duas entradas ficam permanentes** — reescrever o comentário para
+   não prometer uma remoção condicionada a "branch apagada" (condição que, para um merge de
+   2-pais, nunca isola os commits de `main`), documentando a razão real (merge genuíno, não
+   squash).
+2. **Reescrever a história do commit `6615de0`** (única edição local de histórico, fora das regras
+   de operação normais do programa que proíbem rebase/reset/amend em branches de trabalho) —
+   eliminaria a necessidade do fingerprint, mas é uma operação sensível sobre histórico já
+   publicado.
+3. **Deixar como está** — as entradas continuam funcionando (o achado não é uma falha de segurança,
+   é uma imprecisão de comentário), só o texto da condição de remoção fica descasado da realidade.
+
+**Arquivos CODEOWNED envolvidos.** Nenhum — `.gitleaksignore` não está listado em
+`.github/CODEOWNERS` (diferente de `.gitleaks.toml`, que é CODEOWNED).
+
+**O que já está pronto no código (símbolo).** As duas entradas já existem e já funcionam
+(`.gitleaksignore`, linhas citadas nos comentários "AND-02" do arquivo); nada precisa ser
+construído — a pergunta é só sobre o texto do comentário e a expectativa que ele cria.
+
+**O que fica bloqueado até a decisão.** Nada tecnicamente — é uma correção de precisão
+documental, sem efeito em nenhum gate.
+
+**Prazo sugerido.** Baixa urgência — sugiro agrupar com a próxima revisão de `.gitleaks.toml`/
+`.gitleaksignore`, sem data própria.
+
+---
+
+## 15. Prosa vs. campo estruturado para escopo de skill/contrato — estender o precedente do `a2a.handler_status`?
+
+**Item novo, surgido na verificação do ciclo 2.** Não é um achado de defeito — é uma pergunta de
+padrão de governança que um work package irmão já resolveu para UM caso e que pode valer a pena
+repetir para outros dois.
+
+**Decisão pedida.** Um work package irmão (`A2A-YAML-DISCLOSURE`, branch local
+`fleet2/a2a-yaml-disclosure`, base `6ffb974` — **ainda NÃO mesclado em `main`**, confirmado por
+`git merge-base --is-ancestor 981d2e8b HEAD` → não, e por `grep -n handler_status
+spec/agents/*/agent.yaml` na base atual → 0 hits) substituiu, para o status do handler A2A de cada
+agente, uma frase de prosa (que podia negar ou omitir um handler já registrado, sem nenhum
+validador conferir) por um campo estruturado obrigatório e validado,
+`a2a.handler_status: {ausente|pronto_sem_registro|registrado}` + `handler_symbol`, cruzado por
+cerca contra a verdade real do código (`delegation.py` + registro em `a2a_composition.py`). A
+pergunta para o dono: vale a pena pedir o mesmo tratamento para outras duas divulgações que hoje
+também são só prosa/comentário, não campo validado?
+
+**Contexto verificado por comando.**
+- Candidato 1 — **`docs/processes/contracts/*.md`**: as seções "Variáveis de proveniência do
+  agente" (CC-13, ver item 5 deste memo) são texto em markdown, sem parser/validador que confira
+  se o agente realmente escreve exatamente essas chaves (a fence que existe,
+  `test_contract_provenance_parity.py`, roda no lado do TESTE, não como um campo do próprio
+  contrato).
+- Candidato 2 — **`spec/agents/*/agent.yaml`'s `a2a.skills`** (LUC-13/LUC-14, achado do mesmo WP
+  `CONTRACT-DRIFT` citado no item 12): o escopo real de `collection_nudge`/`boleto_2via` de Lucas
+  hoje só é divulgado por um COMENTÁRIO inline no yaml (`spec/agents/lucas/agent.yaml`), pinado
+  por uma cerca nova (`tests/unit/platform/test_lucas_skill_scope_disclosures.py`) que lê o
+  comentário como string — não um campo estruturado que um schema valide. Comentário YAML não é
+  lido por nenhum carregador (`AgentDefinition`), então essa divulgação é invisível para qualquer
+  código que não seja o teste específico que a pina.
+- O padrão do candidato 1/2 é estruturalmente o MESMO que motivou `a2a.handler_status`: uma
+  afirmação em prosa que pode divergir silenciosamente do comportamento real, corrigida ali por um
+  campo tipado + cerca cruzada, não por mais um comentário.
+
+**Opções.**
+1. **Estender o padrão de campo estruturado** para escopo de skill (`a2a.skills` ganha um
+   `scope:` tipado por skill, ex. `reativo`/`fim-a-fim`/`informativo`) e para as tabelas de
+   proveniência dos contratos (um bloco YAML/front-matter em vez de só uma tabela markdown) —
+   maior consistência entre WPs, mas mais schema/validador para manter.
+2. **Manter comentário/prosa para esses dois casos** — aceitar que são divulgações de menor risco
+   (P2/P3, não um P1 de segurança como o handler A2A) e que uma cerca de teste já pina o texto,
+   mesmo sem ser um campo de schema.
+3. **Padronizar caso a caso** — só migrar para campo estruturado quando um novo WP tocar aquele
+   arquivo de qualquer forma (não abrir um WP só para a migração de formato).
+
+**Arquivos CODEOWNED envolvidos.** Nenhum dos arquivos citados (`docs/processes/contracts/*.md`,
+`spec/agents/*/agent.yaml`) está em `.github/CODEOWNERS` hoje.
+
+**O que já está pronto no código (símbolo).** O PRECEDENTE já existe (não neste repositório
+`main` ainda, mas como WP irmão pronto): `src/maezo/platform/validation/agent_def.py::
+_validate_a2a_handler_disclosure` + `_HANDLER_STATUS_VALUES`, e a cerca
+`tests/unit/a2a/test_agent_card_handlers_parity.py::test_declared_handler_status_matches_the_delegation_and_registration_truth`.
+
+**O que fica bloqueado até a decisão.** Nada tecnicamente hoje — é uma pergunta de padrão a
+resolver antes que mais WPs pinem divulgações por comentário/prosa em vez de campo estruturado.
+
+**Prazo sugerido.** Sem prazo — sugiro decidir junto com a revisão do PR do `A2A-YAML-DISCLOSURE`
+quando ele for aberto, para que o padrão (se aprovado) já nasça no mesmo formato.
 
 ---
 
@@ -603,11 +874,61 @@ retry/alerta (decisão 2) — sem elas, um agente novo que copiar um `graph.py` 
 | 1 | Registrar marina/beatriz/gustavo/valentina (e `care.enroll`) no composition root A2A, e atualizar `_UNREGISTERED_HANDLERS`? | Sem recomendação — decisão de exposição de superfície, não técnica | 2026-09-19 |
 | 2 | Criar `alert:` sobre `maezo_agent_desfecho_total` com `runbook_url`? | Opção 2 — alertar sobre a taxa de `erro_inicio_processo` (une com item 11) | 2026-09-19 |
 | 3 | Classificar `mcp-memory.read_write` no catálogo `effect_classes.py` (arquivo do brief estava errado)? | Sem recomendação — acoplar a ADR-0043 | 2026-09-19 |
-| 4 | Aprovar o veículo de PR para o fix já pronto de `check_evidence_ledger_hashes.py` (regex de ids com espaço)? | Sim — abrir a PR agora, a correção já existe em disco | 2026-09-12 |
+| 4 | ~~Aprovar o veículo de PR para o fix de `check_evidence_ledger_hashes.py`?~~ **RESOLVIDO** — já mesclado em `main` via PR #346, nenhuma decisão pendente | N/A — já feito | fechado |
 | 5 | Criar gate de CI nomeado para CC-13 (ADR-P-002, ainda não redigida)? | Baixa urgência — a proteção via pytest geral já roda | 2026-09-19 |
 | 6 | Criar gate de CI nomeado para CC-12 + aceitar `task_kind="batch"` em call sites reais? | Acoplar à ratificação de ADR-0044 | 2026-09-19 |
 | 7 | Corrigir o mismatch `CAROLINA-FHIR-TOOL-DECLARED-MISMATCH` antes de promover `leitura_phi_clinica`? | Opção 1 — corrigir o `agent.yaml` para `mcp-fhir.read_patient` | 2026-09-19 |
 | 8 | Agendar MZO-050+/MZO-080 (adapter de `PopulationFeatureClient`)? | Sem recomendação — depende de data externa de WB.4 | sem prazo |
 | 9 | `scheduling` fica L3, cai a L2, ou outro nível — e agendamento direto entra na Fase 1? | Sem recomendação (ADR-0046 é deliberadamente sem recomendação) | sem prazo |
 | 10 | Ratificar ADR-0042–0048? | Ratificar 0047/0048 primeiro (só formalização); 0042/0043/0044/0045 têm decisões de mérito reais | 0047/0048: 2026-09-12; demais: 2026-09-19 |
-| 11 | Elevar o padrão fail-notify (CC-01) a requisito do `_template` (5 sub-decisões de ADR-0045)? | Aprovar decisões 1 e 5 (já fato consumado); 2/3/4 pedem escolha explícita | 2026-09-19 |
+| 11 | Elevar o padrão fail-notify (CC-01) a requisito do `_template` (5 sub-decisões de ADR-0045)? | Aprovar decisões 1, 4 e 5 (já fato consumado — correção do fact-check: 4 também já vale para 7 agentes, não só rafael); 2/3 pedem escolha explícita | 2026-09-19 |
+| 12 | Ratificar `lucas_billing_admissibility.dmn`/`lucas_escalation_routing.dmn` (LUC-03), o que também desbloqueia `solicitacao_humano` (LUC-04)? | Sem recomendação — decisão financeiro/PO | sem prazo próprio (alinhar com LUC-03) |
+| 13 | Assinar a persona de Carolina (R-PERSONA-MAP) e/ou priorizar o MCP server do registro NPI? | Sem recomendação — decisão de produto/roadmap | sem prazo |
+| 14 | Ratificar as duas entradas permanentes de `.gitleaksignore` (REG-07) ou reescrever o comentário de condição de remoção? | Sem recomendação — opções + consequências no item 14 | sem prazo |
+| 15 | Estender o padrão `a2a.handler_status` (campo estruturado) para escopo de skill e proveniência de contrato? | Sem recomendação — pergunta de padrão de governança | sem prazo |
+
+---
+
+## Errata do fact-check (main `6ffb974`)
+
+**Autor:** `owner-memo-factchecker` (agente, R2) — agente DIFERENTE de quem escreveu a versão
+original deste memo. **Base do fact-check:** worktree
+`/Users/familia/code/maezo-fleet2-wt/owner-memos`, branch `fleet2/owner-memos`, tip `54b0f698`
+(merge do memo original, commit `1a69e7b6`, escrito sobre `b9cdf245`, com `origin/main` em
+`6ffb974` — que já inclui os PRs #344 e #346, ambos mesclados DEPOIS que o memo original foi
+escrito). Todo comando abaixo foi executado de novo, nesta base, por mim — nenhuma reafirmação
+sem reexecução. Método: para cada uma das 11 seções originais + a tabela de fechamento, re-rodei
+os comandos citados e comandos adicionais que a alegação exigia; classifico cada bloco como
+VERIFIED (segue verdadeiro, sem edição), STALE (verdadeiro na época, hoje desatualizado — editei
+no lugar) ou WRONG (a alegação nunca foi correta — não encontrei nenhum caso WRONG novo além dos
+dois que a própria versão original já tinha se corrigido, itens 2 e 3, que reverifiquei como
+ainda corretos).
+
+| # | Item do memo | Veredito | Comando(s) chave | O que mudou / evidência |
+|---|---|---|---|---|
+| 1 | A2A — registro de fernando + guardas RAF-02 | **STALE → corrigido** | `grep -n "make_.*_handler" src/maezo/runtime/agent_runtime/a2a_composition.py`; `sed -n '90p' tests/unit/a2a/test_agent_card_handlers_parity.py`; `grep -n StartProcessFailedError src/maezo/agents/{gustavo,marina,valentina}/delegation.py` | PR #344 (mesclado `87b51a8e`, ancestral de `6ffb974`) registrou `fernando` (`a2a_composition.py:93,134,906`) e o call site de origem (`e2deaf16`); `_UNREGISTERED_HANDLERS` já é `{marina,beatriz,gustavo,valentina}` (4, não 5) na base atual — o memo original ainda descrevia isso como uma PR aberta (#342) prevendo o resultado. Guardas RAF-02 em gustavo/marina/valentina TAMBÉM já landaram no mesmo PR (commit `35b5d7e5`) — o memo original via isso como pendente. |
+| 2 | Alert rule sobre `maezo_agent_desfecho_total` — status de PR #341 | **STALE → corrigido** | `gh pr view 341 --json state,mergedAt`; `grep -n "record:\|alert:" deploy/observability/alert-rules.yml` | PR #341 (`r5/kpi-lag`) estava "aberta" no memo original; hoje está MESCLADA (`mergedAt: 2026-09-05T19:15:45Z`, ancestral de `6ffb974` via #346) e as 3 `record:` já estão em `alert-rules.yml` linhas 274-301. A pergunta de fundo (nenhuma regra `alert:` sobre o desfecho) continua aberta — só o status da PR-fonte mudou. Correção de rótulo "VAL-08" do memo original: RE-VERIFICADA, continua correta (`grep -n VAL-08` no relatório de auditoria confirma que é um achado diferente, sobre o grafo de Valentina não rodar em produção). |
+| 3 | `mcp-memory.read_write` — arquivo correto é `effect_classes.py`, não `process_allowlist.py` | **VERIFIED** | `sed -n '1,60p' src/maezo/gateway/effect_classes.py` (linha 38, "KNOWN GAP, DISCLOSED"); `find . -iname process_allowlist.yaml` (0 hits); `ls src/maezo/policies/` (não existe) | Nenhuma mudança — a correção de arquivo que o memo original já tinha feito continua válida byte a byte nesta base. |
+| 4 | `check_evidence_ledger_hashes.py` — regex de ids com espaço | **STALE → corrigido (item inteiro reescrito)** | `git merge-base --is-ancestor 0d616803 HEAD` (SIM); `grep -n "_RESULT_LINE_RE\s*=" scripts/ci/check_evidence_ledger_hashes.py`; medição própria: 148/148 linhas de `test_fraude.py` casam com o regex novo (eram 127/148 com o antigo) | O memo original descrevia a correção como existindo só numa ref local sem PR (`r5/tooling-fences`, `0d616803`). Ela chegou a `main` pelo PR #346 (`r5/train-4`, mesclado `2026-09-05T21:08:52Z`) — a "decisão pedida" original (qual veículo de PR usar) está resolvida: o veículo normal do programa já resolveu. Reescrevi a seção inteira mantendo o histórico para rastro de auditoria e marcando RESOLVIDO. `docs/evidence-ledger.md` já tem as linhas `LEDGER-HASH-PARAM-IDS-WITH-SPACES` + `LEDGER-HASH-RECIPE-CHANGE-2026-09-05` + `LEDGER-ROW-CELL-COUNT` documentando a correção e as 11 linhas pré-existentes cujo hash recomputado mudou (nenhuma editada, todas com fallback `LEGACY_NODE_ID_RECIPE_CUTOFF_DATE`). |
+| 5 | CC-13 sem gate de CI nomeado | **VERIFIED** | `uv run python -m pytest tests/unit/agents/test_contract_provenance_parity.py -q` → 9 passed; `grep -n "run: make" .github/workflows/ci.yml` (nenhum passo nomeado para este teste, ainda) | Sem mudanças. `.github/workflows/ci.yml` ganhou passos nomeados novos (`check-plans-counts`, `check-ledger-row-cell-count`, do PR #346) mas nenhum deles é para CC-13. |
+| 6 | CC-12 sem gate de CI nomeado, `task_kind="batch"` | **VERIFIED** | `uv run python -m pytest tests/unit/agents/test_llm_calls_declare_task_kind.py -q` → 26 passed; `grep -n MODEL_TASK_KINDS src/maezo/runtime/inference/__init__.py` (linha 282, catálogo de 3 inalterado) | Sem mudanças. |
+| 7 | `CAROLINA-FHIR-TOOL-DECLARED-MISMATCH` | **VERIFIED** | Reproduzi o probe ao vivo: `decide_effect(...)` para carolina → `False False TOOL_NAO_DECLARADA`; para andre → `False False MANIFESTO_NAO_RATIFICADO` | Idêntico ao que o memo original documentou; `carolina/graph.py:512` continua chamando `read_patient`, `agent.yaml:20` continua declarando `read_patient_summary`. |
+| 8 | `PopulationFeatureClient` (WB.4) | **VERIFIED** | `grep -n "class PopulationFeatureClient" src/maezo/agents/andre/graph.py` (linha 426); `grep -n "BLOCKED(external WB.4)" src/maezo/runtime/agent_runtime/a2a_composition.py` | Sem mudanças. |
+| 9 | HEL-11 / ADR-0046 | **VERIFIED** | `cat docs/adr/0046-memo-agendamento-direto-helena.md`; `grep -n scheduling spec/policies/autonomy/L0-core.yaml` → `L3` | Sem mudanças. |
+| 10 | Ratificação ADR-0042–0048 | **VERIFIED** | `for f in docs/adr/004[2-8]*.md; do grep -m1 "^\*\*Status" "$f"; done` (todas `DRAFT/verify` ou `MEMO`); `DEFAULT_MIN_K_ANONYMITY` = 1 (`andre/graph.py:343`); PRs #320/#335 confirmados ancestrais de `6ffb974` | Sem mudanças de status; todos os fatos numéricos/símbolos re-derivados batem. |
+| 11 | CC-01 → requisito do `_template` | **STALE → corrigido (decisão 4)** | `grep -c StartProcessFailedError src/maezo/agents/*/delegation.py` | O memo original citava só `rafael` para a decisão 4 (fronteira A2A). Hoje: `andre`, `carolina`, `rafael`, `fernando`, `gustavo`, `marina`, `valentina` (7 agentes) já levantam `StartProcessFailedError`; `beatriz`/`helena` ficam de fora por estrutura (não iniciam processo pelo grafo). Atualizei a seção e a linha 11 da tabela de fechamento. |
+| 12–15 | Itens novos (não existiam no memo original) | **NOVO** | ver seções 12–15 acima | Ver evidência em cada seção; 12/13/14 citam achados de work packages irmãos (dois ainda não mesclados em `main` — 12/15 citam branches locais `fleet2/contract-drift`/`fleet2/a2a-yaml-disclosure`, confirmado por `git merge-base --is-ancestor <sha> HEAD` → não, em ambos os casos; 14 cita um WP já concluído, `fleet2/fence-pins`, cujo achado (REG-07) foi reproduzido de forma independente aqui via `git log --format='%H %P' -1 75ed74f` — dois pais, merge genuíno). |
+
+**Gates re-executados nesta base (fact-check, sem alterar código/spec/testes — só prosa em
+`docs/reviews/`):**
+```
+$ env -u VIRTUAL_ENV make validate-artifacts
+[validate] OK — 0 errors, 0 notice(s).
+```
+`docs/reviews/` não é escaneado por nenhum gate de CI (confirmado: nenhum `check-*` do Makefile
+cita esse diretório) — o resultado acima é idêntico ao que já valia antes desta edição, como
+esperado para uma mudança que toca só um arquivo markdown fora do escopo de qualquer validador.
+
+Este errata não altera a autoria das 11 seções originais — cada correção fica embutida no lugar
+(marcada inline como "correção do fact-check" onde relevante) para que quem já leu a v1 do memo
+veja exatamente o que mudou sem precisar comparar diffs.
