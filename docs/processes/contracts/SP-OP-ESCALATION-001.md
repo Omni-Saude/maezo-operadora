@@ -86,7 +86,7 @@ Fail-safe: catch-all = P2/`atendimento-humano` (motivo desconhecido nunca vira P
 |---|---|---|
 | `plantao-clinico` | Enfermeiro/medico de plantao | `UT_TratarEscalonamento` (P1) |
 | `enfermagem-triagem` | Enfermagem de triagem | `UT_TratarEscalonamento` (P2) |
-| `atendimento-humano` | Atendimento ao beneficiario | `UT_TratarEscalonamento` (P3) |
+| `atendimento-humano` | Atendimento ao beneficiario | `UT_TratarEscalonamento` (P3 via `r5`/`r6`; TAMBEM P2 via o catch-all fail-safe `r7` da DMN — motivo desconhecido nunca vira P3, ver `escalation_routing.dmn` regra `r7`) |
 | `supervisao-atendimento` | Supervisor | `UT_SupervisorAssume` (SLA resolucao estourado) + alertas de ack |
 
 > **PROPOSTO — confirmar contra a taxonomia organizacional da operadora** (ver

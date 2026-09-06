@@ -151,3 +151,58 @@ def test_no_new_contract_claims_collect_or_unique_for_a_dmn_actually_deployed_as
     assert not any(k.startswith("SP-OP-FRAUDE-001.md::") for k in actual), (
         "FRAUDE contract regressed back to claiming COLLECT/UNIQUE for a FIRST table"
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# ESCALATION-CONTRACT-P3-VS-DMN-R7-P2: the contract's Papeis humanos table must disclose the
+# DMN's own fail-safe catch-all, not just the "normal" P3 routing for `atendimento-humano`.
+# ---------------------------------------------------------------------------------------------
+
+_DMN_NS = {"dmn": "https://www.omg.org/spec/DMN/20191111/MODEL/"}
+
+
+def _dmn_rule_outputs(decision_id: str, rule_id: str) -> dict[str, str]:
+    """Tree-derived: read a named rule's output values straight from the deployed DMN XML (never
+    the contract's prose), keyed by each `<output name=...>` column, in declaration order."""
+    dmn_path = _DMN_DIR / f"{decision_id}.dmn"
+    assert dmn_path.is_file(), f"expected DMN file for decision id {decision_id!r} at {dmn_path}"
+    root = ET.parse(dmn_path).getroot()
+    tables = root.findall(".//dmn:decisionTable", _DMN_NS)
+    assert len(tables) == 1, f"{dmn_path} expected exactly one decisionTable, found {len(tables)}"
+    table = tables[0]
+    output_names = [el.get("name") for el in table.findall("dmn:output", _DMN_NS)]
+    assert all(output_names), f"{dmn_path} has an <output> with no name attribute"
+    rule = next(
+        (r for r in table.findall("dmn:rule", _DMN_NS) if r.get("id") == rule_id),
+        None,
+    )
+    assert rule is not None, f"{dmn_path} has no rule id={rule_id!r}"
+    entries = rule.findall("dmn:outputEntry", _DMN_NS)
+    values = [(e.find("dmn:text", _DMN_NS).text or "").strip().strip('"') for e in entries]
+    return dict(zip(output_names, values, strict=True))
+
+
+def test_escalation_dmn_r7_catch_all_routes_atendimento_humano_to_p2() -> None:
+    """Ground truth, independently re-derived from `escalation_routing.dmn`'s own `r7` rule (not
+    the contract's prose): the FAIL-SAFE catch-all (unknown `motivo_categoria`/`severidade`)
+    routes to `atendimento-humano` under `P2`, matching the DMN's own module `<description>`
+    ("categoria desconhecida recebe prioridade P2, nunca menos")."""
+    outputs = _dmn_rule_outputs("escalation_routing", "r7")
+    assert outputs["prioridade"] == "P2"
+    assert outputs["grupo_atendimento"] == "atendimento-humano"
+
+
+def test_escalation_contract_papeis_table_discloses_the_r7_p2_catch_all() -> None:
+    """ESCALATION-CONTRACT-P3-VS-DMN-R7-P2. The contract's Papeis humanos table used to claim
+    `atendimento-humano` serves ONLY `P3` — but the DMN's own fail-safe catch-all rule `r7` routes
+    unknown-reason cases to that SAME group under `P2` SLAs (only `r5`/`r6`, explicit
+    `solicitacao_humano`/`falha_tecnica`, route it under `P3`). Revert the table row to drop the
+    `P2` mention (or drop `P3`) and this goes RED."""
+    text = (_CONTRACTS_DIR / "SP-OP-ESCALATION-001.md").read_text(encoding="utf-8")
+    row_re = re.compile(r"^\|\s*`atendimento-humano`\s*\|.*\|\s*$", re.MULTILINE)
+    rows = row_re.findall(text)
+    assert rows, "Papeis humanos table row for `atendimento-humano` not found"
+    assert any("P2" in row and "P3" in row for row in rows), (
+        "contract Papeis table row for `atendimento-humano` must disclose BOTH the normal `P3` "
+        f"routing (r5/r6) and the DMN's r7 catch-all `P2` -- got: {rows}"
+    )
