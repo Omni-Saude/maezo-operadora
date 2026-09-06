@@ -6,8 +6,9 @@ mapper is exercised here as a PURE unit test — no docker-compose stack. ADR-00
 *integration* lane (real engine, no engine mock); this is only the mapper's typing logic, which
 is deterministic and engine-free.
 
-Canonical parity (T3.1): this mapper MUST match the orchestrator-designated canonical
-single-value mapper `maezo.tools.workers.harness._to_camunda_var` (T1.1 §5) branch-for-branch:
+Canonical parity (T3.1): this mapper matches the orchestrator-designated canonical single-value
+mapper `maezo.tools.workers.harness._to_camunda_var` (T1.1 §5) branch-for-branch, WITH ONE
+DECLARED EXCEPTION recorded below:
 
   * float          -> {"value": v, "type": "Double"}          (NOT stringified)
   * raw dict|list  -> {"value": json.dumps(v, ensure_ascii=False, default=str), "type": "Json"}
@@ -16,6 +17,20 @@ single-value mapper `maezo.tools.workers.harness._to_camunda_var` (T1.1 §5) bra
   * int            -> Integer within java int32, else Long     (ADR-0018 part 2 boundary)
   * None           -> {"value": None, "type": "String"}
   * {"value": ..}  -> passed through UNCHANGED                 (caller-forced explicit type)
+
+THE EXCEPTION — the int branch, by NAME (owner decision R-173, 2026-09-04). The canonical mapper
+now consults `maezo.tools.workers.engine_var_types.camunda_int_type(name, value)`, which types
+the names in `LONG_TYPED_ENGINE_VARS` as `Long` for EVERY value; the magnitude boundary above
+still governs every other name. This mapper is NAME-BLIND: the key `k` is in scope in
+`_to_camunda_vars`, but the int branch decides on magnitude alone and never consults it. So for
+a declared name the two mappers disagree, and the parity claim above holds only for names
+OUTSIDE the declaration. That is deliberate, not drift: `EngineRest` is test infra that imports
+nothing from `maezo` by design, so it cannot consume the declaration without losing that
+property. (That zero-import property is true today — measured — but only DECLARED, in the module
+docstring of `test_engine_rest_ausencia_e_proveniencia.py`; no test fences it.) It is also inert for the only
+declared name today — `total_glosado_candidato_centavos` is a computed fact the SP-OP-CONTAS-001
+contract declares is never seeded or echoed, and it appears in no `.dmn` and nowhere under
+`tests/integration/` (measured). The tests below pass because `_map()` passes no name.
 
 The last branch is the backward-compat contract with the unmerged phase2-land suites, whose
 `_double_var()`/`_json_var()` helpers emit a PRE-SHAPED `{"value": .., "type": ..}` dict: it must

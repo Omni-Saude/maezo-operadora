@@ -117,6 +117,12 @@ _INFRA_MODULES: frozenset[str] = frozenset(
         # its one demonstration consumption function (`tiss_schema_pin_gate_entry`) is exercised
         # only by that module's own tests, never registered on any harness/topic.
         "tiss_schema_pin",
+        # R-173 (owner decision 2026-09-04): the engine-variable TYPING declaration
+        # (`LONG_TYPED_ENGINE_VARS` + `camunda_int_type`). A leaf module with ZERO imports — no
+        # engine client, no PHI, no policy file, no worker registration and no handler; it is the
+        # single copy of the Java int32 bounds shared by `harness`/`dmn_transport`/
+        # `mcp_cibseven.transport`, all three of which are already infra above.
+        "engine_var_types",
     }
 )
 

@@ -63,7 +63,8 @@ class RecursoIndeferimentoNotHumanError(PermissionError):
       auditor merito): `decisao_auditor_recurso in {INDEFERIR, DEFERIR_PARCIAL}` + `auditor_id`
     Both channels ALSO require `fundamentacao_indeferimento`, `valor_glosa_mantido_brl` and
     `referencia_contratual`; `DEFERIR_PARCIAL` additionally requires `valor_deferido_brl` and a
-    sum that closes against `valor_glosado_brl` (integer cents, exact — OQ-R2).
+    sum that closes against `valor_glosado_brl` (integer cents, exact equality — a PERMANENT
+    invariant of this guard, owner decision R-155; any tolerance is a new finanças-signed rule).
 
     Subclass of `PermissionError` so `harness._handle` classifies it as an AUDITED REFUSAL and
     opens an incident (ADR-0030 §4; `harness.is_guard_refusal_code` recognises the code by its
@@ -610,9 +611,35 @@ def registrar_indeferimento(input_data: RecursoIndeferimentoInput) -> RecursoInd
     feeds the SP-OP-PAGTO-001 order) and a SUM that closes exactly in integer cents:
     ``valor_deferido + valor_glosa_mantido == valor_glosado``. That is pure arithmetic, not a
     business rule — comparing `float`s for equality would fail spuriously on exact amounts
-    (``0.1 + 0.2 != 0.3``), so the comparison is in cents. If the operation uses rounding or a
-    tolerance, that is an SME decision (OQ-R2, `docs/review-queue.md`) and this guard changes;
-    until then it REFUSES a sum that does not close rather than rounding on its own authority.
+    (``0.1 + 0.2 != 0.3``), so the comparison is in cents.
+
+    **Exact equality in integer cents is a PERMANENT INVARIANT of this guard**, not a provisional
+    engineering default awaiting an SME. Owner decision **R-155** of 2026-09-04 closed OQ-R2 with
+    exactly that: *"Fechar a pergunta declarando a igualdade exata em centavos-inteiros como
+    invariante PERMANENTE do guard de `registrar_indeferimento` (não como default provisório):
+    qualquer tolerância futura entra depois como regra nova assinada por finanças, em PR próprio,
+    e o sign-off de SP-OP-RECURSO-001 deixa de esperar por ela."* The guard REFUSES a sum that
+    does not close instead of rounding on its own authority — exact equality never rounds in
+    anyone's favour and never closes a sum that does not close. A tolerance or a rounding rule
+    would LOOSEN it, and loosening stays human: it arrives as a new finanças-signed rule in its
+    own PR, never as an edit to this function.
+
+    LIMITE DECLARADO (o grão da CONVERSÃO, não uma tolerância da comparação — a comparação
+    não tem folga nenhuma): os TRÊS operandos (`valor_deferido_brl`, `valor_glosa_mantido_brl`,
+    `valor_glosado_brl`) passam por `_to_cents` de forma INDEPENDENTE, e `_to_cents` arredonda
+    (`int(round(brl * 100))`). Para entradas já no grão do centavo nada é absorvido: a igualdade
+    é exata. Para entradas sub-centavo cada operando é arredondado por conta própria e os
+    resíduos se somam em lados opostos da comparação. Como `round` é arredondamento ao mais
+    próximo, cada operando difere do seu valor em centavos por no máximo meio centavo, e o teto
+    do resíduo agregado é 3 × meio centavo = **1,5 centavo** — uma discrepância real de até 1,5
+    centavo pode ser absorvida e ainda fechar o guard. O teto é ATINGIDO, não apenas aproximado:
+    `0,005 + 0,025` contra `0,015` fecha com resíduo de exatamente 1,5 centavo (empate resolvido
+    pelo arredondamento bancário de `round`), e `60,0049 + 40,0049` contra `99,9951` fecha com
+    1,47 centavo. Ambos fixados em `test_recurso.py` por
+    `test_indeferimento_o_residuo_agregado_dos_tres_operandos_chega_a_um_centavo_e_meio` e pela
+    varredura de `test_indeferimento_nenhuma_soma_aceita_passa_do_teto_de_um_centavo_e_meio`,
+    para que uma troca do modo de arredondamento de `_to_cents` não passe silenciosa. Qualquer
+    regra sobre valores sub-centavo é igualmente regra nova assinada por finanças, em PR próprio.
     """
     logger.info(
         "recurso.registrar_indeferimento.start",
@@ -670,7 +697,9 @@ def registrar_indeferimento(input_data: RecursoIndeferimentoInput) -> RecursoInd
             raise RecursoIndeferimentoNotHumanError(
                 missing_fields=[
                     "soma nao fecha: valor_deferido_brl + valor_glosa_mantido_brl != "
-                    "valor_glosado_brl (centavos-inteiros, igualdade exata — OQ-R2)"
+                    "valor_glosado_brl (centavos-inteiros, igualdade exata — invariante "
+                    "permanente do guard, decisao do dono R-155; tolerancia/arredondamento "
+                    "seria regra nova assinada por financas, em PR proprio)"
                 ],
                 channel=channel,
             )
