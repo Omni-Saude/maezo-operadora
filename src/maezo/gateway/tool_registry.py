@@ -528,7 +528,7 @@ def build_fhir_seam(*, seam: SeamContext, base_url: str, adapter: str = "read_pa
 
 
 def build_whatsapp_seam(
-    *, seam: SeamContext, inner: Any = None, adapter: str = "helena"
+    *, seam: SeamContext, inner: Any = None, adapter: str = "helena", dedup: Any = None
 ) -> GatedWhatsAppSender:
     """A gated WhatsApp sender.
 
@@ -536,11 +536,22 @@ def build_whatsapp_seam(
     passes its per-turn `_ScopedWhatsAppSender` here (see the module docstring's O4). With
     `inner=None` the long-lived structural adapter is built instead, which is what the
     readiness-only roots want.
+
+    `dedup` (§Delta W4-HYGIENE F2) is the durable `DedupRegistry` the constructed `WhatsAppServer`
+    claims outbound keys against — the SAME store and the SAME injection point
+    `platform/webhooks/service.py` uses for Helena's live client (`WhatsAppServer(dedup=...)`),
+    never a second one. It is a PARAMETER rather than something built here because this function
+    owns no settings surface and therefore no DSN; :func:`build_agent_seams`, which does, is what
+    supplies it. `None` builds a registry-less server, which is honest and no longer silent:
+    since the same §Delta, `send_message` REFUSES a send that carries an `idempotency_key` on
+    such an instance instead of accepting the key and ignoring it. LUC-08 made Lucas's graph
+    supply a key on every send, so a `None` here means Lucas's sends fail closed and say so —
+    which is why the agent path passes a real registry whenever its settings carry a DSN.
     """
     if inner is None:
         from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 
-        server = WhatsAppServer()
+        server = WhatsAppServer(dedup=dedup)
         if adapter == "lucas":
             from maezo.agents.lucas.adapters import WhatsAppServerSender as LucasWhatsAppServerSender
 
@@ -596,6 +607,45 @@ def whatsapp_adapter_for(agent_id: str) -> str | None:
     construction paths for one decision, the counterexample C-A2 this module exists to prevent.
     """
     return _WHATSAPP_ADAPTER_BY_AGENT.get(agent_id)
+
+
+def _outbound_dedup_registry(settings: Any) -> Any | None:
+    """The durable outbound-dedup registry for the WhatsApp sender built from `settings`, or
+    `None` when this settings surface carries no DSN (§Delta W4-HYGIENE F2).
+
+    THE SAME STORE, THE SAME INJECTION POINT, NO SECOND DEFINITION. `platform/webhooks/service.py`
+    already builds `PostgresDriverIdempotencyRegistry(dsn=settings.database_url, ...)` and hands
+    it to `WhatsAppServer(dedup=...)` for Helena's live client; this is that construction, for
+    the agent seams, read from the SAME duck-typed field :func:`build_agent_seams` already uses
+    to build the `PostgresAuditSink`. ADR-0024 / R-073: the store is the EXISTING
+    `driver_idempotency` table, never a new one.
+
+    WHY IT IS NEEDED AT ALL: LUC-08 made Lucas's `WhatsAppSender` Protocol require an
+    `idempotency_key` on every send, and this root is the ONLY production construction site for
+    his sender. Built without a registry, the key reached a server that could not honour it —
+    the accepted-and-ignored shape the programme forbids (now a fail-closed refusal in
+    `send_message`, so the omission cannot be silent either way).
+
+    CONSTRUCTION OPENS NO CONNECTION (the asyncpg pool is lazy), which keeps this function inside
+    :func:`build_agent_seams`'s "pure construction" contract; an unreachable DSN surfaces on the
+    first `claim`, where the send fails closed. Helena's and Fernando's Protocols pass no key, so
+    for them the registry is inert — wired and never consulted.
+
+    RESIDUAL, stated: `runtime/agent_runtime/a2a_composition.py` builds Fernando's WhatsApp seam
+    through `build_whatsapp_seam` DIRECTLY (worker principal, no agent settings), so that one
+    gets no registry. It is unaffected because Fernando supplies no key; the day his Protocol
+    grows one, that call site must pass a registry or his sends will refuse.
+    """
+    database_url = getattr(settings, "database_url", None)
+    if not database_url:
+        return None
+    from maezo.platform.driver_idempotency import DEFAULT_LEASE_S, PostgresDriverIdempotencyRegistry
+
+    return PostgresDriverIdempotencyRegistry(
+        dsn=database_url,
+        tenant=getattr(settings, "tenant_id", "amh"),
+        lease_s=float(getattr(settings, "wamid_dedup_lease_s", DEFAULT_LEASE_S)),
+    )
 
 
 def build_agent_seams(
@@ -656,7 +706,9 @@ def build_agent_seams(
 
     whatsapp_adapter = whatsapp_adapter_for(agent_id)
     if whatsapp_adapter is not None:
-        deps["whatsapp"] = build_whatsapp_seam(seam=seam, adapter=whatsapp_adapter)
+        deps["whatsapp"] = build_whatsapp_seam(
+            seam=seam, adapter=whatsapp_adapter, dedup=_outbound_dedup_registry(settings)
+        )
 
     fhir_seam = build_agent_fhir_seam(settings=settings, agent_id=agent_id, seam=seam)
     if fhir_seam is not None:

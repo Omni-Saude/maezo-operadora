@@ -22,13 +22,25 @@ The key is forwarded UNCHANGED to `WhatsAppServer.send_message(..., idempotency_
 claims it against the SAME durable `driver_idempotency` table (ADR-0024, R-073) Helena's live
 dispatcher already uses for its own outbound leg — no new table, no in-memory-only dedupe here.
 Whether a `dedup` registry is actually wired into the `WhatsAppServer` this adapter wraps is a
-COMPOSITION-ROOT decision (`send_message`'s own docstring: "Ignored — with a loud log line,
-never silently — when no registry is wired"), not this adapter's: today the only construction
-site (`gateway/tool_registry.py::build_whatsapp_seam`, `adapter="lucas"`) builds a bare
-`WhatsAppServer()` for the SAME readiness-only reason named above (no live turn ever reaches
-`.send()` yet — `docs/processes/contracts/SP-OP-CANCEL-001.md` "Canal de entrada" section
-verifies this), so wiring a registry there has no live effect to prove today and is left for the
-driver that eventually calls this adapter for a real turn.
+COMPOSITION-ROOT decision, not this adapter's. CORRECTED (§Delta W4-HYGIENE F2) — the previous
+version of this paragraph said the only construction site built a BARE `WhatsAppServer()` and
+that wiring a registry there was left to a future driver. That is no longer true, and the
+"accepted and ignored" fallback it relied on no longer exists either:
+
+  * `gateway/tool_registry.py::build_agent_seams` — the root that builds this adapter for the
+    agent runtime — now passes `dedup=` (`_outbound_dedup_registry`), constructed from the SAME
+    `settings.database_url` it already uses for the `PostgresAuditSink` and pointing at the SAME
+    `driver_idempotency` store `platform/webhooks/service.py` gives Helena's live client.
+  * a settings surface WITHOUT a DSN still yields a registry-less server; on such an instance
+    `WhatsAppServer.send_message` now REFUSES a keyed send
+    (`WhatsAppIdempotencyUnsupportedError`) rather than delivering it unprotected, and the
+    refusal lands in Lucas's best-effort `except Exception`, which records `mensagem_enviada=
+    False` — a disclosed non-delivery, never a silent unprotected duplicate.
+
+What has NOT changed is reachability: Lucas still has no live invocation path
+(`docs/processes/contracts/SP-OP-CANCEL-001.md` "Canal de entrada"; gap 11.7 in
+`spec/agents/lucas/agent.yaml`), so none of the above has a production effect today. It is wired
+so the day the driver lands the seam is already correct (CC-02), not because a turn runs now.
 """
 
 from __future__ import annotations
