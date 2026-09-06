@@ -730,3 +730,122 @@ mapeamento_acoes:
   agente.population.population_metrics: leitura_populacional
 
   agente.a2a.delegate: delegacao_a2a
+
+# ---------------------------------------------------------------------------------------------
+# vocabulario_l0_canonico — os NOMES canônicos das 4 ações L0 que hoje NÃO têm nome.
+# [ADITIVO — 2026-09-06. Execução da Q-4, que o dono já ratificou em PLANS.md §0.8 ("quatro ações
+# canônicas, SEM aliases") sem fixar as strings; aqui as strings ficam fixadas.]
+#
+# O QUE ESTE BLOCO É. Uma DECLARAÇÃO DE NOME, e nada além disso. Escrever um nome aqui não cria
+# ação de autonomia, não muda classe nenhuma, não aprova nada e não pode produzir ALLOW: o
+# `status` deste arquivo segue `DRAFT` e o cabeçalho (linha 27) já declara que um arquivo DRAFT
+# NUNCA produz ALLOW, em modo nenhum. Nomear é o pré-requisito barato do que vem depois — não é
+# o que vem depois.
+#
+# O QUE ESTE BLOCO NÃO É — e a razão de cada NÃO:
+#
+#   * NÃO é a instalação do nome na matriz de autonomia. Enquanto o nome não estiver em
+#     `spec/policies/autonomy/L0-core.yaml`, o catálogo fechado
+#     (`src/maezo/gateway/effect_classes.py`) mantém `autonomy_action=None` para estas operações e
+#     a camada L-2 do PEP de efeito NEGA com `VOCABULARIO_PENDENTE`
+#     (`src/maezo/gateway/effect_pep.py`). Instalar é ato HUMANO ADR-0008/0025, COM o cross-check
+#     de `_hard_frozen.yaml`, e NÃO foi feito aqui: `instalado_em_l0_core: false` em toda entrada
+#     é o registro máquina-legível disso.
+#
+#   * NÃO é uma classe de ação. As classes vivem em `acoes:` acima e são espelho FECHADO do
+#     catálogo: a cerca §8.5 de `scripts/ci/check_effect_chokepoint_fence.py` recusa divergência
+#     nos DOIS sentidos, e `mapeamento_acoes` tem de bater exatamente com o catálogo. Nenhuma
+#     classe foi criada, removida ou renomeada por este bloco; `acoes:`, `mapeamento_topicos:` e
+#     `mapeamento_acoes:` seguem byte a byte.
+#
+#   * NÃO é uma aprovação. Nenhum campo `aprovado` aparece aqui, DE PROPÓSITO: neste arquivo
+#     `aprovado` significa "o domínio X atestou a classe Y", e reusar o token para um ato de
+#     VOCABULÁRIO daria dois significados à mesma palavra no mesmo arquivo. O par equivalente é
+#     `ratificado: false` com todo campo de accountability em `PENDENTE` — a mesma disciplina da
+#     linha 47 ("NO AGENT MAY FILL ANY BLOCK BELOW"), que vale aqui na mesma letra: NENHUM AGENTE
+#     PODE MARCAR `ratificado: true` NEM PREENCHER `ratificador`/`data`/`evidencia_ref`.
+#
+#   * NÃO estreita nem alarga `dominios_exigidos` de ninguém. As três classes citadas seguem
+#     exigindo `[medica, ans, seguranca]` em `acoes:`, inalterado — decidir quais domínios gateiam
+#     uma ação é conteúdo de Security, não de nomenclatura.
+#
+#   * NÃO muda a ordem nem a autoridade dos flips. Cada virada de enforcement C0→C4 continua ato
+#     humano de Security em PR revisado (Q-1); a sequência escrita está em PLANS.md §0.8.
+#
+# SEM ALIAS (Q-4; `src/maezo/gateway/pep.py`: "there is no PT↔EN alias layer — an alias map is a
+# second vocabulary and a fail-open surface"). Cada nome é próprio e distinto. Em particular:
+#   - a inferência é nomeada POR ZONA (ADR-0006: Zona Geral vs Zona PHI/Financeira) — DUAS strings
+#     distintas, não uma string com dois usos. O sufixo `_phi` marca a zona do mesmo modo que o
+#     token `phi` já marca `read_phi_data` e a própria operação `inference.generate_phi`;
+#   - a leitura populacional NÃO reusa `read_phi_data`: agregado k-anônimo não é PHI (ADR-0042), e
+#     apelidar seria exatamente o segundo vocabulário que a Q-4 proibiu.
+#
+# COBERTURA, DERIVADA DA ÁRVORE. As `operacoes` abaixo são exatamente as operações do catálogo
+# fechado cujo `autonomy_action` é `None`. `tests/unit/sec/test_l0_canonical_action_naming.py`
+# recomputa esse conjunto a partir de `effect_classes.OPERATIONS` e falha se as duas listas
+# divergirem — uma operação que perca (ou ganhe) nome aparece como vermelho, nunca como silêncio.
+# O mesmo teste prova o piso: mesmo com este arquivo forjado para `RATIFICADO` e todas as
+# aprovações preenchidas, as cinco operações continuam NEGANDO com `VOCABULARIO_PENDENTE` —
+# nomear aqui não abre caminho de ALLOW em lugar nenhum.
+# ---------------------------------------------------------------------------------------------
+vocabulario_l0_canonico:
+
+  generate_model_inference:
+    classe: inferencia_llm
+    zona: geral
+    operacoes: ["inference.generate"]
+    descricao: >-
+      Egresso para modelo de linguagem na Zona Geral (ADR-0006) — geração sem PHI no prompt.
+      Nenhuma ação da matriz descreve egresso para modelo; este é nome próprio, não apelido.
+    instalado_em_l0_core: false
+    ratificacao:
+      ratificado: false
+      ratificador: PENDENTE
+      data: PENDENTE
+      evidencia_ref: PENDENTE
+
+  generate_model_inference_phi:
+    classe: inferencia_llm
+    zona: phi
+    operacoes: ["inference.generate_phi"]
+    descricao: >-
+      Egresso para modelo de linguagem na Zona PHI/Financeira (ADR-0006) — geração com PHI. Nome
+      SEPARADO do irmão de Zona Geral porque a distinção de zona é o fato que a telemetria e o
+      aprovador precisam ver sem carregar o prompt. O roteamento `phi=True` do provider
+      (`PhiZoneRoutingError`) continua falhando fechado de forma INDEPENDENTE deste vocabulário e
+      do gateway (invariante I-6): nomear não é o controle, e não substitui o controle.
+    instalado_em_l0_core: false
+    ratificacao:
+      ratificado: false
+      ratificador: PENDENTE
+      data: PENDENTE
+      evidencia_ref: PENDENTE
+
+  delegate_agent_task:
+    classe: delegacao_a2a
+    operacoes: ["a2a.delegate"]
+    descricao: >-
+      Delegação agente-a-agente por envelope assinado — o contrato A2A é "instrui, não decide".
+      Atravessa fronteira de agente e carrega contexto, e por isso é efeito de tool no sentido do
+      XRD-09 mesmo não tocando o mundo externo.
+    instalado_em_l0_core: false
+    ratificacao:
+      ratificado: false
+      ratificador: PENDENTE
+      data: PENDENTE
+      evidencia_ref: PENDENTE
+
+  read_population_aggregate:
+    classe: leitura_populacional
+    operacoes: ["population.actuarial_risk", "population.population_metrics"]
+    descricao: >-
+      Leitura de agregados populacionais/atuariais com supressão k-anônima. UM nome para as duas
+      operações porque as duas são a mesma ação sobre a mesma superfície — isso é escopo de ação,
+      não alias. Deliberadamente NÃO é `read_phi_data`: agregado k-anônimo não é PHI (ADR-0042), e
+      o piso de k continua sendo decisão do dono (ADR-P-003), fora do alcance de uma nomeação.
+    instalado_em_l0_core: false
+    ratificacao:
+      ratificado: false
+      ratificador: PENDENTE
+      data: PENDENTE
+      evidencia_ref: PENDENTE

@@ -2195,3 +2195,16 @@ futura decide entre (a) estender `check_plans_counts.py` com uma 4a forma `~N li
 tool_registry.py` (tolerancia `±`, ja que a alegacao usa `≈`) ou (b) remover o numero fixo da frase,
 igual ao reparo aplicado a `PLANS.md:6` nesta mesma tarefa (ver linha AF-06 do ledger, campo Status
 `PARTIAL`).
+
+## R-114 — nomes canonicos das 4 acoes L0: vocabulario DECLARADO, nao instalado (2026-09-06)
+
+O dono ratificou a Q-4 (nomear as 4 acoes canonicas L0, sem alias) e R-114 fixou as STRINGS como
+dado em `spec/policies/autonomy/action-approvals.yaml`, bloco `vocabulario_l0_canonico`. Nomear NAO
+instala: nenhum dos 4 nomes esta em `L0-core.yaml`, toda entrada carrega `instalado_em_l0_core:
+false` e `ratificacao.ratificado: false` com accountability em `PENDENTE`, e o arquivo segue
+`status: DRAFT` / `modo: shadow`.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `spec/policies/autonomy/action-approvals.yaml` -> bloco `vocabulario_l0_canonico` (CODEOWNED) | Instalar (ou recusar) as 4 strings na matriz `L0-core.yaml` — ato ADR-0008/0025 COM o cross-check de `_hard_frozen.yaml`. O que falta decidir NAO e o nome e sim o NIVEL de autonomia (L0..L3) de cada um, que e decisao de Security, nao de nomenclatura. Enquanto nao instaladas, o catalogo mantem `autonomy_action=None` e a L-2 nega com `VOCABULARIO_PENDENTE` | Security (ADR-0008/0025) + dono (arquitetura) | `DRAFT — nomes declarados, ratificacao/instalacao PENDENTE` |
+| `PLANS.md` §0.8 — sequencia humana de flips C0→C4 | Confirmar a ordem escrita e as pre-condicoes antes do PRIMEIRO flip: sampler + ReviewQueue (Q-3), benchmarks p99 PEP/auditoria separados (Q-9), guarda single-tenant (Q-8), nenhum flip C2 com `consentimento_exigido` sem adapter (Q-5), e as duas pre-condicoes ja registradas em `acoes.consulta_processo` (residuo pos-claim; alcance sobre daemons sem registro de capacidade) | Security (dona de cada flip, Q-1) | `ABERTO — nenhum flip autorizado por este registro` |
