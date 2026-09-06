@@ -168,8 +168,12 @@ e a instancia aguarda em `GW_AguardarDocs` (mesmo sub-fluxo de pendencia do AUTH
 **Arbitragem registrada** (gap `PERSP-REEMBOLSO-BINDING`; achado originalmente em
 `phase1/perspective-part-A.md` Sec.5 item 5, REFUTADO por
 `phase1/perspective-part-A-VERIFICATION.md` C-4): **MENOR PRIVILEGIO CORRETO, nao lacuna**.
-`grep -rn REEMBOLSO spec/agents/*/agent.yaml` retorna **0 linhas** por desenho — nenhum
-`process_key` foi omitido por engano.
+Fato ESTRUTURAL, nao um grep de substring (um grep textual por `REEMBOLSO` sobre
+`spec/agents/*/agent.yaml` NAO serve de reproducao durável — comentarios explicativos, como o
+que a Marina carrega logo abaixo, citam a palavra "REEMBOLSO" sem declarar a chave, e fariam um
+grep de substring divergir do fato real): **nenhum `agent.yaml` declara `SP-OP-REEMBOLSO-001`
+em sua lista `process_keys:`** — por desenho, nao por omissao. Verificado por parse de YAML,
+campo a campo, nao por contagem de linhas de texto.
 
 **Fato de engenharia que sustenta a arbitragem:**
 
@@ -178,17 +182,22 @@ e a instancia aguarda em `GW_AguardarDocs` (mesmo sub-fluxo de pendencia do AUTH
   rodando** — as business-rule tasks proprias do processo (`BRT_Admissibilidade`/`BRT_Calculo`/
   `BRT_AutoApproval`) ja executaram antes dela ser chamada (`src/maezo/agents/marina/graph.py:28`).
   Marina NUNCA avalia DMN neste fluxo (so REPORTA fatos ja resolvidos) e o no `start_process` do
-  seu grafo e explicitamente NO-OP para `reembolso` (`graph.py:33-34`: "`start_process` is a
-  NO-OP (Marina never starts a second instance)") — ela monta o dossie factual e sempre roteia
-  para o grupo humano `analise-reembolso`.
+  seu grafo e explicitamente NO-OP para `reembolso` (bloco `reembolso` da docstring do modulo em
+  `graph.py`: "`start_process` is a NO-OP (Marina never starts a second instance)" — citado pelo
+  proprio texto, nao por numero de linha, que desloca a cada edicao do docstring) — ela monta o
+  dossie factual e sempre roteia para o grupo humano `analise-reembolso`.
 - `process_keys:` em `spec/agents/*/agent.yaml` e o UNICO allowlist que concede autoridade de
   start ao effect-PEP (`src/maezo/gateway/effect_pep.py:487,493-494`,
   `AgentCapabilities.allows_process_key`); a ausencia de `SP-OP-REEMBOLSO-001` em qualquer
   manifesto — incluindo o da Marina — e portanto MENOR PRIVILEGIO: nenhum agente tem autoridade
   de efeito que nao usa.
-- Esta secao existe para que a proxima auditoria nao reabra `grep -rn REEMBOLSO
-  spec/agents/*/agent.yaml -> 0 hits` como se fosse uma omissao. Cercado por
-  `tests/unit/gateway/test_reembolso_sem_binding_de_agente.py` (mesmo padrao de
+- Esta secao existe para que a proxima auditoria nao reabra a ausencia de
+  `SP-OP-REEMBOLSO-001` em `process_keys:` como se fosse uma omissao — e para que ela NAO
+  tente reproduzir esse fato com um `grep -rn REEMBOLSO spec/agents/*/agent.yaml`: esta MESMA
+  secao contem a palavra "REEMBOLSO" em texto explicativo (a comecar pelo proprio comentario que
+  a Marina carrega no manifesto, abaixo), o que faz esse grep de substring retornar linhas > 0
+  sem que isso signifique defeito algum. A reproducao durável e o parse de YAML acima, cercado
+  por `tests/unit/gateway/test_reembolso_sem_binding_de_agente.py` (mesmo padrao de
   `test_adequacao_sem_binding_de_agente.py`, gap `PERSP-B5-ADEQ-BINDING`/R-049).
 
 ## SLAs

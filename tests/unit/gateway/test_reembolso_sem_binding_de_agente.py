@@ -100,3 +100,25 @@ def test_reembolso_contract_documents_the_binding_arbitration() -> None:
     text = contract.read_text(encoding="utf-8")
     assert "PERSP-REEMBOLSO-BINDING" in text
     assert "NENHUM agente declara" in text or "NENHUM agente inicia" in text
+
+
+def test_reembolso_contract_reproduction_is_structural_not_a_substring_grep() -> None:
+    """The contract's stated reproduction for the binding arbitration must be the SAME fact this
+    fence checks mechanically above (a YAML parse of `process_keys:`) — never a bare
+    `grep -rn REEMBOLSO spec/agents/*/agent.yaml` substring count.
+
+    A substring grep is structurally unable to stay true: the arbitration comment this very
+    contract asks Marina's manifest to carry (`test_marina_declara_a_arbitragem_no_proprio_manifesto`
+    above) legitimately contains the word "REEMBOLSO" without declaring the process key, and so
+    does the contract's own explanatory prose about that comment — either one alone makes
+    `grep -rn REEMBOLSO spec/agents/*/agent.yaml` return more than 0 lines while the real,
+    structural fact (no `process_keys:` entry names `SP-OP-REEMBOLSO-001`) stays true. Mutation:
+    restoring the old "retorna **0 linhas**"/"-> 0 hits" substring-grep claim must turn this
+    test RED (VERIFY-DOCS-SWEEP F1)."""
+    repo_root = Path(__file__).resolve().parents[3]
+    contract = repo_root / "docs" / "processes" / "contracts" / "SP-OP-REEMBOLSO-001.md"
+    text = contract.read_text(encoding="utf-8")
+    assert "0 linhas" not in text, "reproducao de substring-grep falsificavel voltou ao contrato"
+    assert "0 hits" not in text, "reproducao de substring-grep falsificavel voltou ao contrato"
+    assert "process_keys:" in text
+    assert "parse de YAML" in text, "contrato deve apontar para a reproducao estrutural real"
