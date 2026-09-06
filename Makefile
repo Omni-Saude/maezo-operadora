@@ -3,6 +3,7 @@
         verify-amh-contract-pin \
         check-alert-runbook-urls \
         check-plans-counts \
+        check-doc-symbol-citations \
         xfail-census-check xfail-census-write \
         deviation-expiry-check \
         check-lifecycle-expected-fail-expiry \
@@ -76,6 +77,18 @@ check-plans-counts: ## AF-06: contagens de ADR declaradas em PLANS.md (ADRs nume
 	# qualquer uma delas divergir; zero alegacoes encontradas -> PASSA mas sempre imprime a
 	# contagem explicita (nunca verde silencioso).
 	uv run python scripts/ci/check_plans_counts.py
+
+check-doc-symbol-citations: ## R-089: citacoes path::symbol / import quotado em docs/adr/*.md resolvem contra a arvore (gap ADR-0026-0028-STALE-ANSCRON)
+	# Escaneia docs/adr/*.md por duas formas de citacao MACHINE-CHECKABLE: `path.py::Symbol`
+	# (convencao ja usada em ~40 citacoes existentes) e um `from maezo.x import a, b` quotado em
+	# exemplo de codigo. Falha se o arquivo ou o simbolo/nome nao resolve na arvore (via `git
+	# ls-files` + AST) — nao vacuo: o caso real que motivou o gate era `docs/adr/0026-*.md:72`
+	# citando `check_calendar`, removida de ans_cron.py. Uma terceira forma (`path:line` nu) e so
+	# CONTADA (rot-prone, nunca falha — uma linha pode mover sem que o fato citado mude). Um
+	# allowlist pequeno e datado (`_DISCLOSED_ROT`, no proprio script) cobre rot ja conhecida e
+	# divulgada (nunca silenciosa) e e auto-verificado: uma entrada que passa a resolver falha o
+	# gate ate ser removida (nunca fica esquecida mascarando uma regressao futura).
+	uv run python scripts/ci/check_doc_symbol_citations.py
 
 check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_instance fora do allowlist da fence (ADR-0007/T-C2)
 	# AST-scan repo-wide de src/maezo: `start_process_idempotent` (mcp_cibseven/transport.py:1052)
