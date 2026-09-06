@@ -33,7 +33,12 @@ competed with the DMN, which routes primarily on `motivo_categoria` (only `r1` r
 `grupo_atendimento` (the BPMN's `camunda:inputParameter` fed from
 `${roteamento.grupo_atendimento}`, `:96,:115,:206`), never re-derive routing, never default a
 clinical severity, and FAIL CLOSED when either is missing or outside its contractual domain (see
-`_exigir_severidade`/`_exigir_grupo_atendimento`). Deploy-window cost (MINOR-4, disclosed here, not
+`_exigir_severidade`/`_exigir_grupo_atendimento`). §Delta-3 narrowed exactly ONE hole in that
+posture — the contract's own declared `severidade`-is-`null` case for
+`motivo_categoria=falha_tecnica` (`_MOTIVO_SEM_SEVERIDADE`), where refusing was un-paging the very
+cases this process exists to hand to a human; `_exigir_severidade`'s docstring carries the measured
+regression and the DMN rule (`r6`) that makes accepting `null` cost no routing authority.
+Deploy-window cost (MINOR-4, disclosed here, not
 narrowed): an instance whose notify task completed under the pre-fix worker carries
 `group`/`severity` in process scope, and its NEXT notify task refuses under
 `_ALIASES_INGLES_PROIBIDOS` below — non-adverse (HITL and the breach event are unaffected) but it
@@ -112,7 +117,10 @@ _stdlib_logger = logging.getLogger(__name__)
 # What survives here is only the CLOSED DOMAIN of each field, used to fail closed on values the
 # engine could not have produced — no fallback, no default, no re-derivation.
 #
-# FOUR domains total: `severidade`/`grupo_atendimento` are REQUIRED (fail-closed if absent).
+# FOUR domains total: `grupo_atendimento` is REQUIRED (fail-closed if absent); `severidade` is
+# REQUIRED for every `motivo_categoria` except the one the contract itself declares `null`
+# (`_MOTIVO_SEM_SEVERIDADE`, §Delta-3) — and REQUIRED-IN-DOMAIN always, i.e. a PRESENT value outside
+# the domain fails closed on every motivo.
 # `prioridade` is OPTIONAL but, since MINOR-2 (VERIFY-WP-ESC.md), a PRESENT out-of-domain value
 # fails closed too (it is the DMN's OWN output — out-of-domain means the engine is corrupted). A
 # probe put `'P9-LIVRE <script>'` straight through the old unchecked `.strip()`-only path
@@ -130,7 +138,9 @@ _stdlib_logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 #: `severidade` domain — contract `docs/processes/contracts/SP-OP-ESCALATION-001.md:27,:57`
-#: (obligatory input variable) and `escalation_routing.dmn:21-23` (the DMN's 2nd input).
+#: (input variable, obligatory except under `_MOTIVO_SEM_SEVERIDADE`) and
+#: `escalation_routing.dmn:21-23` (the DMN's 2nd input). The domain itself is unconditional: it
+#: constrains a PRESENT value on every motivo.
 _SEVERIDADES_CONTRATUAIS: frozenset[str] = frozenset({"grave", "moderada", "leve"})
 
 #: `grupo_atendimento` domain — the `escalation_routing` DMN's `out_grupo` output values
@@ -161,6 +171,19 @@ _MOTIVOS_CONTRATUAIS: frozenset[str] = frozenset(
         "outro",
     }
 )
+
+#: The ONE `motivo_categoria` whose escalation may legitimately carry NO `severidade`
+#: (§Delta-3 HELENA-INPUT-BOUNDARY, regressao P-12 — see `_exigir_severidade`). Declared by the
+#: contract's own §`severidade` quando `motivo_categoria = falha_tecnica` section AND by the
+#: "Obrigatoria" cell of its `severidade` input-variable row, which now names this exception
+#: instead of a bare `sim`; both halves are re-derived from the markdown by
+#: `test_a_excecao_de_severidade_e_exatamente_a_que_o_contrato_declara`, so this constant can never
+#: drift away from the document it implements. Its ROUTING legitimacy comes from the
+#: `escalation_routing` DMN itself: rule `r6` matches this motivo with the `severidade` column at
+#: the `-` wildcard (any value, `null` included) -> P3 / `atendimento-humano` / PT4H / PT24H, so
+#: severidade was never a routing input here — pinned by
+#: `test_a_dmn_roteia_falha_tecnica_com_severidade_nula_pela_regra_r6`.
+_MOTIVO_SEM_SEVERIDADE: str = "falha_tecnica"
 
 #: English aliases of contract variables. NONE of these is ever set by SP-OP-ESCALATION-001 —
 #: their presence in a task's variables means either the pre-fix worker wrote them back into
@@ -266,19 +289,73 @@ def _recusar_aliases_ingles(task: ExternalTask, v: Mapping[str, Any]) -> None:
         )
 
 
-def _exigir_severidade(task: ExternalTask, v: Mapping[str, Any]) -> str:
-    """Read the CONTRACT variable `severidade` — never defaulted, never guessed.
+def _exigir_severidade(task: ExternalTask, v: Mapping[str, Any]) -> str | None:
+    """Read the CONTRACT variable `severidade` — never defaulted, never guessed, and `None` ONLY
+    where the contract itself declares the variable absent.
 
     A clinical severity that is absent or outside `{grave, moderada, leve}` is not `leve`: it is
-    unknown, and an unknown clinical severity must never be announced as the mildest one.
+    unknown, and an unknown clinical severity must never be announced as the mildest one. That is
+    still the rule for every `motivo_categoria` but ONE.
+
+    §Delta-3 (regressao P-12, HELENA-INPUT-BOUNDARY). The exception is `motivo_categoria =
+    falha_tecnica` (`_MOTIVO_SEM_SEVERIDADE`), where the contract DECLARES `severidade` `null` for
+    a classifier failure: there was no extraction at all to derive one from. Until this fix the
+    contract contradicted itself — the input-variable row said `obrigatoria: sim` while its own
+    HEL-04 section declared `null` — and this function implemented the row, so BOTH notify channels
+    refused (`ST_NotificarTime` and `ST_NotificarFallback` share the
+    `operadora.escalation.notify_supervisor` topic and this same check), `ERR_ESC_NOTIFY_FAILED`
+    fired on both, and the case never reached `UT_TratarEscalonamento`: NOBODY was paged about a
+    message the machine could not read. That was measured, not argued —
+    `tests/integration/agents/test_helena_escalation.py::{test_malformed_classifier_json_escalates_
+    falha_tecnica, test_classifier_llm_exception_escalates_falha_tecnica}` failed with `no user task
+    ever appeared` on the isolated engine.
+
+    Accepting `null` for that ONE motivo costs no routing authority: `escalation_routing`'s rule
+    `r6` matches it with the `severidade` column at `-`, so the group, the priority and both SLAs
+    are the DMN's regardless. The two fail-closed limits stay: a PRESENT value outside the
+    contractual domain refuses here too (absence is the declared truth; corruption is not), and no
+    other motivo — including an ABSENT one — buys the exception. `leve` is never fabricated on any
+    path.
     """
     bruta = v.get("severidade")
-    if not isinstance(bruta, str) or not bruta.strip():
+    # AUSENTE = chave inexistente, `null` vindo do motor (`_from_camunda_var` devolve `None`), ou
+    # texto vazio/so-espacos. Um valor PRESENTE que nao e' texto e' CORRUPCAO, nao ausencia, e cai
+    # no `_recusar` logo abaixo — nenhum motivo, nem o isento, compra a excecao com ele.
+    if bruta is None or (isinstance(bruta, str) and not bruta.strip()):
+        if _rotulo_opcional(v, "motivo_categoria") == _MOTIVO_SEM_SEVERIDADE:
+            logger.info(
+                "escalation_severidade_ausente_declarada_pelo_contrato",
+                motivo_categoria=_MOTIVO_SEM_SEVERIDADE,
+                business_key=task.business_key,
+                topic=task.topic,
+                process_instance_id=task.process_instance_id,
+            )
+            _stdlib_logger.info(
+                "escalation_severidade_ausente_declarada_pelo_contrato business_key=%s topic=%s "
+                "motivo_categoria=%s — severidade viaja como `null` (excecao declarada em "
+                "SP-OP-ESCALATION-001.md, linha `severidade` + secao HEL-04; DMN "
+                "escalation_routing r6 roteia este motivo com severidade `-`); a notificacao SAI e "
+                "o caso segue para UT_TratarEscalonamento. NENHUM `leve` e' fabricado",
+                task.business_key,
+                task.topic,
+                _MOTIVO_SEM_SEVERIDADE,
+            )
+            return None
         _recusar(
             task,
             "severidade_ausente",
-            "variavel de contrato `severidade` ausente/vazia (obrigatoria, "
-            "SP-OP-ESCALATION-001.md:27) — severidade clinica NUNCA e' assumida como `leve`",
+            "variavel de contrato `severidade` ausente/vazia (obrigatoria fora de "
+            f"`motivo_categoria={_MOTIVO_SEM_SEVERIDADE}`, SP-OP-ESCALATION-001.md:27) — "
+            "severidade clinica NUNCA e' assumida como `leve`",
+        )
+    if not isinstance(bruta, str):
+        _recusar(
+            task,
+            "severidade_tipo_invalido",
+            f"`severidade` chegou como {type(bruta).__name__} ({bruta!r}), nao texto — o contrato "
+            "a declara `string` (SP-OP-ESCALATION-001.md:27); um valor que o motor nao poderia ter "
+            f"produzido e' corrupcao, nunca a ausencia declarada de `motivo_categoria="
+            f"{_MOTIVO_SEM_SEVERIDADE}`",
         )
     severidade = bruta.strip()
     if severidade not in _SEVERIDADES_CONTRATUAIS:
@@ -424,10 +501,15 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     comes from the BPMN's `camunda:inputParameter` (`:96` <- `${roteamento.grupo_atendimento}`),
     the SAME expression that sets `UT_TratarEscalonamento`'s `candidateGroups` (`:134`), so the
     notification is structurally incapable of contradicting who is paged. `severidade` is the
-    contract's own process variable (`:27`), read verbatim, never defaulted.
+    contract's own process variable (`:27`), read verbatim, never defaulted — including when the
+    contract's `falha_tecnica` exception makes it `null` (§Delta-3), which the notification carries
+    as `null` rather than as a fabricated domain value.
 
     Variables consumed (all set by SP-OP-ESCALATION-001, none invented here):
-      - `severidade`         — process variable, contract `:27`; REQUIRED, fail-closed.
+      - `severidade`         — process variable, contract `:27`; REQUIRED and fail-closed, EXCEPT
+        under `motivo_categoria=falha_tecnica`, where the contract declares it `null` and it is
+        forwarded as `None` (§Delta-3, `_exigir_severidade`). A PRESENT out-of-domain value fails
+        closed on every motivo.
       - `grupo_atendimento`  — inputParameter BPMN `:96`, DMN output; REQUIRED, fail-closed.
       - `prioridade`         — inputParameter BPMN `:97`, DMN output `{P1,P2,P3}`; optional,
         validated against that domain when present (MINOR-2) and FAILS CLOSED if out of it — it
@@ -442,7 +524,9 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     async def handler(task: ExternalTask) -> Mapping[str, Any]:
         v = task.variables
         _recusar_aliases_ingles(task, v)
-        severidade = _exigir_severidade(task, v)
+        # §Delta-3: `None` ONLY under the contract's declared `falha_tecnica` exception; it rides
+        # verbatim into the completion payload and the notification, never coerced to a domain value.
+        severidade: str | None = _exigir_severidade(task, v)
         grupo = _exigir_grupo_atendimento(task, v)
         prioridade = _rotulo_opcional_validado(task, v, "prioridade", _PRIORIDADES_DMN)
         motivo = _rotulo_opcional_tolerante(task, v, "motivo_categoria", _MOTIVOS_CONTRATUAIS)
@@ -483,7 +567,9 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
 
         # No PHI: motivo_categoria/severidade/grupo_atendimento/prioridade are bounded routing
         # labels validated against their contractual/DMN domains above WHEN PRESENT —
-        # severidade/grupo_atendimento are REQUIRED and fail-closed; prioridade is OPTIONAL but
+        # grupo_atendimento is REQUIRED and fail-closed; severidade is too, except under the
+        # contract's declared `falha_tecnica` exception, where it rides as `None` (§Delta-3);
+        # prioridade is OPTIONAL but
         # fails closed too on an out-of-domain value (MINOR-2, VERIFY-WP-ESC.md — it is the DMN's
         # own output); motivo_categoria is OPTIONAL and an out-of-domain value there DEGRADES
         # (omitted + logged, ESC-D1-MOTIVO-STRICTER-THAN-R7) rather than failing closed, so none
@@ -575,7 +661,9 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     about the case — the supervisor (human) decides the next action.
 
     Variables consumed (GAP-ESC-SEVERITY-GROUP — every one of them is actually SET by the BPMN):
-      - `severidade`        — process variable, contract `:27`; REQUIRED, fail-closed.
+      - `severidade`        — process variable, contract `:27`; REQUIRED and fail-closed, EXCEPT
+        under `motivo_categoria=falha_tecnica` (§Delta-3, `_exigir_severidade`), where it is
+        forwarded as `None`. A PRESENT out-of-domain value fails closed on every motivo.
       - `grupo_atendimento` — inputParameter BPMN `:115` (fallback) / `:206` (SLA breach), from
         `${roteamento.grupo_atendimento}`; REQUIRED, fail-closed. It tells the supervisor WHICH
         team is (or was) on the hook — it is never the supervisor's own group.
@@ -591,7 +679,9 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     async def handler(task: ExternalTask) -> Mapping[str, Any]:
         v = task.variables
         _recusar_aliases_ingles(task, v)
-        severidade = _exigir_severidade(task, v)
+        # §Delta-3: `None` ONLY under the contract's declared `falha_tecnica` exception; it rides
+        # verbatim into the completion payload and the notification, never coerced to a domain value.
+        severidade: str | None = _exigir_severidade(task, v)
         grupo = _exigir_grupo_atendimento(task, v)
         prioridade = _rotulo_opcional_validado(task, v, "prioridade", _PRIORIDADES_DMN)
         motivo_alerta = _rotulo_opcional(v, "motivo") or _rotulo_opcional(v, "motivo_fallback")

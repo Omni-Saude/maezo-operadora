@@ -353,14 +353,19 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     # fixed one layer down, in the worker). The reachable path this guards is `receive`'s own
     # missing-runtime-context escalate (`next_kind="escalate"` set WITHOUT running `classify`,
     # which is the only place that assigns a REAL severidade per gatilho) — before this fix that
-    # path silently announced every such case as `leve`. `escalate` now forwards whatever this
-    # is (including `None`) verbatim; a `None`/absent `severidade` refuses fail-closed at the
-    # ALREADY-fixed worker boundary (`escalation.py::_exigir_severidade`). `ST_NotificarFallback`
-    # runs the SAME check and refuses too (it shares the `operadora.escalation.notify_supervisor`
-    # topic and `_exigir_severidade`), so NO notification is published on either channel; the
-    # case still reaches the mandatory HITL through the modeled `BE_NotifFallbackFailed` ->
-    # `Flow_BENotifFallback_UT` -> `UT_TratarEscalonamento` edge — never a dead end, never a
-    # fabricated `leve`, but nobody is paged.
+    # path silently announced every such case as `leve`. `escalate` forwards whatever this is
+    # (including `None`) verbatim.
+    # §Delta-3 (regressao P-12) — CORRECAO do que este bloco afirmava: ele dizia que uma
+    # `severidade` nula era RECUSADA fail-closed nos dois canais de notificacao e que "nobody is
+    # paged". Isso era verdade e era um DEFEITO: as duas provas de motor vivo
+    # (`tests/integration/agents/test_helena_escalation.py`) mostraram que o caso nem chegava a
+    # `UT_TratarEscalonamento` ("no user task ever appeared"). O contrato foi acertado consigo
+    # mesmo e o worker passou a implementar a excecao que ele ja' declarava: com
+    # `motivo_categoria=falha_tecnica` — que e' o motivo destes dois caminhos sem classificacao —
+    # `severidade` ausente e' ACEITA, viaja como `null`, a notificacao SAI para o grupo que a DMN
+    # `escalation_routing` escolheu (regra `r6`: P3 / atendimento-humano, severidade em `-`) e a
+    # instancia segue por `Flow_Notificar_UT` -> `UT_TratarEscalonamento`. Um humano E' paginado;
+    # o que continua nao existindo e' o rotulo fabricado `leve`.
     "escalation_severidade": None,
     "escalation_started": False,
     "escalation_business_key": None,
@@ -762,11 +767,21 @@ class HelenaGraph:
             # HEL-04: a severidade e' genuinamente DESCONHECIDA — nao houve extracao alguma de
             # onde deriva-la (nem `intensidade`, nem `sintoma_codigo`). `None`, nunca `"leve"`:
             # e' o mesmo principio de HELENA-SEVERIDADE-DEFAULT (ja em main) para o outro caminho
-            # sem classificacao, e a mesma consequencia declarada — o worker
-            # (`escalation.py::_exigir_severidade`) recusa fail-closed uma severidade ausente, de
-            # modo que NENHUMA notificacao e' publicada e o caso chega ao HITL obrigatorio pela
-            # aresta modelada `BE_NotifFallbackFailed` -> `UT_TratarEscalonamento`. Nunca um beco
-            # sem saida; o que deixa de existir e' o rotulo fabricado (e a pagina que ele gerava).
+            # sem classificacao.
+            # §Delta-3 (regressao P-12) — CORRECAO: este bloco afirmava que o worker recusa
+            # fail-closed uma severidade ausente e que "NENHUMA notificacao e' publicada", com o
+            # caso ainda chegando ao HITL pela aresta `BE_NotifFallbackFailed`. No motor vivo ele
+            # NAO chegava: as duas provas de falha do classificador
+            # (`tests/integration/agents/test_helena_escalation.py`) falharam com "no user task
+            # ever appeared". Trocar um `leve` desonesto por um processo parado nao e' um bom
+            # negocio justamente aqui, no caminho que existe para entregar a um humano o caso que
+            # a maquina nao conseguiu ler. Verdade atual: o contrato declara `null` para este
+            # motivo e o worker implementa a excecao (`escalation.py::_exigir_severidade`) — a
+            # `severidade` nula e' ACEITA em `motivo_categoria=falha_tecnica`, a notificacao SAI
+            # para o grupo da regra `r6` da DMN `escalation_routing` (P3 / atendimento-humano;
+            # aquela regra casa `severidade` no coringa `-`, entao nunca dependeu dela) e a
+            # instancia segue por `Flow_Notificar_UT` -> `UT_TratarEscalonamento`. O que deixa de
+            # existir e' o rotulo fabricado — nao a pagina.
             return {
                 "next_kind": "escalate",
                 "escalation_motivo": "falha_tecnica",
@@ -883,13 +898,20 @@ class HelenaGraph:
         reaches here without it is `receive`'s own missing-runtime-context escalate. That case's
         severidade is genuinely UNKNOWN, and an unknown one is never announced as `leve` (mirrors
         GAP-ESC-SEVERITY-GROUP's own principle, one layer down). `None` is forwarded verbatim into
-        `_start_escalation` — the ALREADY-fixed worker boundary (`escalation.py::_exigir_severidade`)
-        refuses fail-closed on it. `ST_NotificarFallback` shares the same
-        `operadora.escalation.notify_supervisor` topic and the same `_exigir_severidade`, so it
-        refuses too: NO notification is published on either channel. The case still reaches the
-        mandatory HITL through the modeled `BE_NotifFallbackFailed` -> `Flow_BENotifFallback_UT`
-        -> `UT_TratarEscalonamento` edge — never a dead end, only a fabricated value (and the
-        page nobody gets) is what's removed.
+        `_start_escalation`.
+
+        §Delta-3 (regressao P-12) — CORRECAO of what this docstring used to claim: that a `None`
+        `severidade` was REFUSED fail-closed on both notify channels and that "NO notification is
+        published on either channel", the case still reaching the HITL through
+        `BE_NotifFallbackFailed`. It did not reach it — the live engine proved the escalation
+        stopped short of `UT_TratarEscalonamento`. Both paths that arrive here without a severidade
+        (missing runtime context, and the classifier failure) carry
+        `motivo_categoria="falha_tecnica"`, which is exactly the motivo the contract declares
+        `null` for; `escalation.py::_exigir_severidade` now implements that declared exception, so
+        the notification IS published (to the group `escalation_routing`'s rule `r6` chose — that
+        rule matches `severidade` at the `-` wildcard, so it never read it) and the instance
+        continues along `Flow_Notificar_UT` -> `UT_TratarEscalonamento`. What is removed is the
+        fabricated value, not the page.
         """
         motivo: MotivoCategoria = state.get("escalation_motivo") or (
             "falha_tecnica" if state.get("error") else "outro"
@@ -915,11 +937,13 @@ class HelenaGraph:
         the escalation itself (business key, audit-before-effect, idempotent start, provenance)
         is identical regardless of caller.
 
-        HELENA-SEVERIDADE-DEFAULT: `severidade` is `Severidade | None` — `None` ONLY on
-        `escalate`'s missing-runtime-context path (never fabricated to `leve`); `schedule` and
-        every real `escalate` gatilho always pass a real domain value. `None` rides verbatim into
-        the `severidade` process variable so the worker's OWN fail-closed check refuses it
-        (`escalation.py::_exigir_severidade`), never this call.
+        HELENA-SEVERIDADE-DEFAULT: `severidade` is `Severidade | None` — `None` on `escalate`'s
+        missing-runtime-context path and on its classifier-failure path (never fabricated to
+        `leve`); `schedule` and every real clinical `escalate` gatilho always pass a real domain
+        value. `None` rides verbatim into the `severidade` process variable. §Delta-3: the worker
+        (`escalation.py::_exigir_severidade`) ACCEPTS that `None` under the contract's declared
+        `motivo_categoria=falha_tecnica` exception — it is not refused, and it is never coerced to
+        a domain value anywhere along the way; every OTHER motivo still fails closed there.
         """
         business_key = _business_key(state)
 
