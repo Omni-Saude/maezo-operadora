@@ -11,10 +11,17 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+from typing import Final
 
 from maezo.gateway.pseudonymizer import KEYED_PSEUDONYM_PREFIX, Pseudonymizer
 
 _SIGNATURE_PREFIX = "sha256="
+
+#: O que uma linha de log carrega NO LUGAR do `wamid` quando nao ha pseudonimizador alcancavel no
+#: ponto do log (ver `log_safe_message_id`). Um marcador constante, NAO um hash "so para
+#: depurar": qualquer digest sem chave do wamid seria reversivel pela mesma tabela precomputada
+#: que `hash_message_id` existe para impedir.
+MESSAGE_ID_LOG_OMITTED: Final[str] = "<wamid-sem-pseudonimo>"
 
 
 def verify_hub_signature(payload: bytes, signature_header: str | None, app_secret: str) -> bool:
@@ -78,3 +85,28 @@ def hash_message_id(message_id: str, tenant: str, pseudonymizer: Pseudonymizer) 
     """
     digest = pseudonymizer.pseudonymize({"telefone": f"{tenant}:{message_id}"})["telefone"]
     return f"{KEYED_PSEUDONYM_PREFIX}{digest}"
+
+
+def log_safe_message_id(message_id: str, tenant: str, pseudonymizer: Pseudonymizer | None) -> str:
+    """A UNICA forma de um `wamid` que pode aparecer num campo de log (gap `WEBHOOK-LOG-RAW-WAMID`).
+
+    O `wamid` bruto NAO e um token opaco: ele embute o telefone da contraparte em base64 dentro do
+    proprio payload (`hash_message_id` acima; provado por
+    `tests/unit/platform/webhooks/whatsapp/test_dedup_keys.py::test_a_real_shaped_wamid_leaks_the_phone_number_in_base64`).
+    `app.py` e `dispatch.py` logavam `message_id=<wamid bruto>` — o mesmo dado que a chave DURAVEL
+    de dedup ja se recusa a persistir — o que jogava um identificador de beneficiario em stdout,
+    no coletor de logs e na retencao desse coletor, fora de qualquer inventario LGPD.
+
+    Um SO ponto de decisao, para que nenhum call site invente a sua propria renderizacao:
+      - com pseudonimizador: exatamente o mesmo pseudonimo `hk1_` KEYED que a chave de dedup usa
+        (`hash_message_id`), correlacionavel com as linhas `dedup_key=` da mesma requisicao;
+      - sem pseudonimizador alcancavel (ou sem `wamid`): :data:`MESSAGE_ID_LOG_OMITTED`, um
+        marcador constante. NUNCA um sha256 sem chave do wamid — o docstring de `hash_message_id`
+        explica por que um digest sem chave sobre um espaco de chaves enumeravel nao e anonimizacao.
+
+    Nao ha caminho de retorno que devolva o `wamid` bruto: o parametro so e lido dentro do ramo
+    keyed, entao um pseudonimizador ausente degrada para o marcador em vez de vazar em silencio.
+    """
+    if pseudonymizer is None or not message_id:
+        return MESSAGE_ID_LOG_OMITTED
+    return hash_message_id(message_id, tenant, pseudonymizer)

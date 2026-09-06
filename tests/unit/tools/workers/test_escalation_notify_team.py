@@ -21,10 +21,12 @@ worker read and nothing in the process ever set), which is what masked the defec
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 import pytest
+import structlog
 
 from maezo.tools.workers.escalation import (
     ESCALATION_BPMN_ERROR_ALLOWLIST,
@@ -32,6 +34,7 @@ from maezo.tools.workers.escalation import (
     make_notify_team_handler,
 )
 from maezo.tools.workers.harness import ExternalTask, FakeKafkaPublisher, WorkerBpmnError
+from maezo.tools.workers.phi_vars import REDACTED_DIGITS, REDACTED_EMAIL, REDACTED_PHONE
 from tests.support.dmn_first_hit import DMN_DIR, REPO_ROOT, read_live_table
 
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
@@ -282,6 +285,57 @@ async def test_notify_team_motivo_categoria_outside_domain_degrades_never_refuse
     # The DMN's OWN output is untouched by the degraded motivo — still routed correctly.
     assert payload["grupo_atendimento"] == "plantao-clinico"
     assert payload["severidade"] == "grave"
+
+
+async def test_notify_team_tolerated_motivo_never_logs_the_rejected_value_raw(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Gap `ESC-TOLERANT-LOG-RAW-VALUE`: a NOTIFICACAO ja omitia o valor rejeitado; o LOG nao.
+
+    `_rotulo_opcional_tolerante` mandava `valor=<motivo_categoria bruto>` para as duas pernas de
+    log (structlog e stdlib), e o valor rejeitado e — por construcao — um texto que a DMN nao
+    reconhece, ou seja, texto livre vindo de cima. O gatekeeper R1 de VERIFY-R4-DEFAULTS provou o
+    vazamento com a sua propria sonda (`valor='CPF 123.456.789-00 do Sr. Joao'`), agora numa via
+    que COMPLETA com sucesso em vez de recusar. O valor passa por `phi_vars.redact_free_text`
+    antes de qualquer log.
+
+    LIMITE DECLARADO, nao vendido como mais do que e: `redact_free_text` e uma rede determinista
+    sobre as familias de IDENTIFICADORES (e-mail, CPF/CNPJ, telefone BR, corridas de 11+ digitos).
+    Um NOME proprio solto continua passando — e a limitacao documentada do helper em todo lugar
+    onde ele e usado, nao uma regressao introduzida aqui. Por isso as afirmacoes abaixo sao sobre
+    os identificadores, e nao sobre "nenhum PHI".
+    """
+    payload = "CPF 123.456.789-00, tel (11) 98888-7777, joao@example.com, cns 123456789012345"
+    kafka = FakeKafkaPublisher()
+
+    with (
+        caplog.at_level(logging.WARNING, logger="maezo.tools.workers.escalation"),
+        structlog.testing.capture_logs() as logs,
+    ):
+        result = await make_notify_team_handler(kafka)(_task(variables=_team_vars(motivo_categoria=payload)))
+
+    assert result["status"] == "teams_notified"
+    tolerados = [entry for entry in logs if entry["event"] == "escalation_rotulo_fora_do_dominio_tolerado"]
+    assert len(tolerados) == 1
+    tolerado = tolerados[0]
+
+    # A linha continua diagnostica: campo, dominio e identidade do caso permanecem inteiros.
+    assert tolerado["campo"] == "motivo_categoria"
+    assert tolerado["business_key"] == "ESC-amh-conv-1"
+    assert sorted(tolerado["dominio"]) == tolerado["dominio"]
+
+    # ...e nenhum identificador da sonda sobrevive, em NENHUMA das duas pernas de log.
+    for leak in ("123.456.789-00", "98888-7777", "joao@example.com", "123456789012345"):
+        assert leak not in repr(logs), f"{leak!r} vazou no structlog"
+        assert leak not in caplog.text, f"{leak!r} vazou no logger stdlib"
+    assert REDACTED_DIGITS in tolerado["valor"]
+    assert REDACTED_EMAIL in tolerado["valor"]
+    assert REDACTED_PHONE in tolerado["valor"]
+
+    # E a notificacao publicada segue limpa (a metade que ja estava correta antes deste gap).
+    _topic, published, _key = kafka.published[0]
+    assert "motivo_categoria" not in published
+    assert "123.456.789-00" not in str(published)
 
 
 async def test_notify_team_prioridade_outside_domain_still_fails_closed_unlike_motivo() -> None:

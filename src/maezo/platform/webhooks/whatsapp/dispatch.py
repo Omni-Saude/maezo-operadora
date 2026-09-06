@@ -93,7 +93,7 @@ from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 from maezo.tools.workers.dmn_transport import DmnTransport
 
 from .dedup import WhatsAppDedupGuard
-from .security import hash_phone
+from .security import hash_phone, log_safe_message_id
 
 logger = structlog.get_logger(__name__)
 
@@ -133,7 +133,11 @@ class InboundNonTextMessage:
     Carries NOTHING from the media itself: no media id, no caption, no filename, no mime type. Only
     `message_type` (Meta's own low-cardinality enum token, used for logs — never as a metric label)
     and the wamid, plus the raw number that the per-turn sender closure needs and that never
-    outlives :meth:`HelenaDispatcher.acknowledge_non_text`.
+    outlives :meth:`HelenaDispatcher.acknowledge_non_text`. The wamid HELD here is the raw one
+    (dedup e idempotencia de saida precisam do valor real); o que sai em log passa sempre por
+    `security.py::log_safe_message_id` (gap `WEBHOOK-LOG-RAW-WAMID`), que tem DOIS desfechos —
+    nao um so: o pseudonimo keyed `hk1_` quando ha wamid para pseudonimizar, e o marcador
+    `MESSAGE_ID_LOG_OMITTED` quando o wamid chega vazio. Em nenhum dos dois o wamid bruto sai.
     """
 
     from_number: str
@@ -354,8 +358,10 @@ class HelenaDispatcher:
         Same identity derivation and the SAME gated per-turn seam as `dispatch` — the ack is an
         EFFECT (`whatsapp.send_message`, action class `comunicacao_beneficiario`) and is choked
         exactly like a Helena reply. The raw number lives only inside the scoped sender's closure,
-        for this call; the telemetry carries the keyed `hk1_` pseudonym, the wamid and Meta's
-        `message_type` token, and NEVER the media id, caption, filename or the raw number.
+        for this call; the telemetry carries the keyed `hk1_` pseudonym of the NUMBER, the keyed
+        `hk1_` pseudonym of the WAMID (`message_pseudonym` — gap `WEBHOOK-LOG-RAW-WAMID`: this
+        line used to say "the wamid", and the code used to mean it) and Meta's `message_type`
+        token, and NEVER the media id, caption, filename, raw number or raw wamid.
 
         RETRY SEMANTICS (disclosed, module docstring): with no `wamid` idempotency store, a webhook
         that Meta re-delivers re-sends this ack. Duplicate courtesy message, never a duplicate
@@ -374,11 +380,15 @@ class HelenaDispatcher:
             conversation_id=conversation_id,
             idempotency_key_for=self._outbound_key_factory(message.message_id),
         )
+        # Gap `WEBHOOK-LOG-RAW-WAMID`: `message_pseudonym`, nunca `message_id`. O wamid bruto
+        # embute o telefone da contraparte em base64 (`security.py::hash_message_id`), entao ele
+        # recebe no log o MESMO tratamento keyed que a chave de dedup ja recebe no banco.
+        message_pseudonym = log_safe_message_id(message.message_id, self.tenant_id, self.pseudonymizer)
         logger.info(
             "whatsapp_non_text_ack_started",
             tenant_id=self.tenant_id,
             conversation_id=conversation_id,
-            message_id=message.message_id,
+            message_pseudonym=message_pseudonym,
             message_type=message.message_type,
         )
         ack = await sender.send(phone_hash, NON_TEXT_ACK_TEXT)
@@ -386,7 +396,7 @@ class HelenaDispatcher:
             "whatsapp_non_text_ack_sent",
             tenant_id=self.tenant_id,
             conversation_id=conversation_id,
-            message_id=message.message_id,
+            message_pseudonym=message_pseudonym,
             message_type=message.message_type,
         )
         return ack
@@ -453,7 +463,9 @@ class HelenaDispatcher:
             "helena_dispatch_turn_started",
             tenant_id=self.tenant_id,
             conversation_id=conversation_id,
-            message_id=message.message_id,
+            # Gap `WEBHOOK-LOG-RAW-WAMID` (ver `acknowledge_non_text`): pseudonimo keyed, nunca o
+            # wamid bruto que embute o telefone da contraparte.
+            message_pseudonym=log_safe_message_id(message.message_id, self.tenant_id, self.pseudonymizer),
             checkpointed=saver is not None,
         )
         # `thread_config` scopes the checkpoint thread when a saver is attached; None (stateless
