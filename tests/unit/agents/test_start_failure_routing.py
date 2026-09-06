@@ -107,7 +107,16 @@ class _RecordingWhatsApp:
 
     # P-17 (REG-04): `to` -> `to_hash`, o nome do Protocol real
     # `agents/helena/graph.py::WhatsAppSender.send` (chamadas reais sao posicionais).
-    async def send(self, to_hash: str, text: str) -> dict[str, Any]:
+    # Trem train-b (LUC-08 x P-17): este falso e COMPARTILHADO por helena/fernando/lucas
+    # (o grafo vem de `importlib.import_module(f"maezo.agents.{agent_id}.graph")`), e depois
+    # de LUC-08 os tres Protocols DIVERGEM: so lucas declara `*, idempotency_key: str` (sem
+    # default). Nenhuma assinatura EXPLICITA satisfaz os tres — medido: com o kwonly exigido a
+    # cerca aponta "keyword-only extra" contra helena/fernando; com default, aponta tambem
+    # "Protocol nao tem default, falso tem" contra lucas. `**_kwargs` e a saida que a PROPRIA
+    # cerca declara (`if not tem_varkw_fake:` em `_ofensas_de_assinatura`): um falso que aceita
+    # qualquer keyword nao pode quebrar chamador nenhum. Nada foi enfraquecido nem alargado nos
+    # Protocols de helena/fernando.
+    async def send(self, to_hash: str, text: str, **_kwargs: Any) -> dict[str, Any]:
         self.sent.append((to_hash, text))
         return {"ok": True}
 

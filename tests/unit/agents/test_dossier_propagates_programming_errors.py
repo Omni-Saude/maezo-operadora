@@ -107,6 +107,8 @@ class _UnavailableInference:
 class _DriftedReader:
     """Leitor FHIR com ARIDADE errada — nao satisfaz o Protocol que o grafo declara."""
 
+    __fence_negative_fixture__ = "NEW-12: prova que TypeError de aridade errada propaga"
+
     async def read_patient(self) -> dict[str, Any]:
         raise AssertionError("inalcancavel: a chamada passa 1 argumento posicional")
 
@@ -357,6 +359,8 @@ async def test_leitor_indisponivel_continua_virando_nota_de_lacuna(sitio: str) -
 class _DriftedSender:
     """Duplo de envio que nao satisfaz `WhatsAppSender.send(self, to_hash, text)` (aridade)."""
 
+    __fence_negative_fixture__ = "NEW-12: prova que TypeError de aridade errada propaga"
+
     async def send(self) -> dict[str, Any]:
         raise AssertionError("inalcancavel: a ligacao de argumentos levanta TypeError antes daqui")
 
@@ -367,7 +371,16 @@ class _UnavailableSender:
     def __init__(self) -> None:
         self.chamadas = 0
 
-    async def send(self, to_hash: str, text: str) -> dict[str, Any]:
+    # Trem train-b (LUC-08 x P-17): este falso e COMPARTILHADO por helena/fernando/lucas
+    # (o grafo vem de `importlib.import_module(f"maezo.agents.{agent_id}.graph")`), e depois
+    # de LUC-08 os tres Protocols DIVERGEM: so lucas declara `*, idempotency_key: str` (sem
+    # default). Nenhuma assinatura EXPLICITA satisfaz os tres — medido: com o kwonly exigido a
+    # cerca aponta "keyword-only extra" contra helena/fernando; com default, aponta tambem
+    # "Protocol nao tem default, falso tem" contra lucas. `**_kwargs` e a saida que a PROPRIA
+    # cerca declara (`if not tem_varkw_fake:` em `_ofensas_de_assinatura`): um falso que aceita
+    # qualquer keyword nao pode quebrar chamador nenhum. Nada foi enfraquecido nem alargado nos
+    # Protocols de helena/fernando.
+    async def send(self, to_hash: str, text: str, **_kwargs: Any) -> dict[str, Any]:
         self.chamadas += 1
         raise ConnectionError("whatsapp gateway unreachable (duplo de teste)")
 

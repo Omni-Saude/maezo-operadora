@@ -1093,26 +1093,44 @@ def test_familias_de_agente_tem_o_campo_agente_preenchido() -> None:
 def test_fhirsummaryreader_atomizada_continua_concordando_hoje() -> None:
     """§Delta-F7: substitui o antigo `test_membros_de_uma_familia_concordam_entre_si` (que
     exercitava o `assert` de auto-consistencia de um grupo multi-membro, removido junto com o
-    agrupamento). As 5 entradas atomizadas de `FhirSummaryReader` continuam concordando em
-    `read_patient` HOJE (verificado diretamente, sem nenhum `assert` interno bloqueante) --
-    `search_coverage` so' em `FhirSummaryReader:rafael`, a mesma assimetria unica-por-design de
-    sempre. Se uma delas divergir amanha, este teste aponta a causa aqui, e a cerca principal
+    agrupamento). As entradas atomizadas de `FhirSummaryReader` continuam concordando HOJE, cada
+    uma no metodo que DECLARA (verificado diretamente, sem nenhum `assert` interno bloqueante):
+    4 delas em `read_patient` e 2 (a generica e a de carolina, apos NEW-04) em
+    `read_patient_summary` -- `search_coverage` so' em `FhirSummaryReader:rafael`, a mesma
+    assimetria unica-por-design de sempre. Se uma delas divergir amanha, este teste aponta a
+    causa aqui, e a cerca principal
     (`_checa_metodo_ambiguo`) passa a apontar cada falso real contra a familia especifica que ele
     deixou de acompanhar -- nunca mais um crash de colecao para as outras 16 familias."""
-    nomes = (
+    # TREM train-b: a premissa original dizia "as 5 entradas concordam em `read_patient`". O WP
+    # FHIR-TOOL-SURFACE-PARITY (NEW-04, P1) desceu o CODIGO de carolina ate a superficie que o
+    # `spec/agents/carolina/agent.yaml` declara (`mcp-fhir.read_patient_summary`), entao a entrada
+    # `FhirSummaryReader:carolina` deixou de declarar `read_patient`. A premissa foi atualizada a
+    # paisagem REAL da uniao, nao relaxada: as 4 entradas que declaram `read_patient` continuam
+    # obrigadas a concordar entre si, e as 2 que declaram `read_patient_summary` (a generica e a de
+    # carolina) ganharam a MESMA obrigacao, que antes ninguem checava.
+    com_read_patient = (
         "FhirSummaryReader",
         "FhirSummaryReader:gustavo",
         "FhirSummaryReader:rafael",
-        "FhirSummaryReader:carolina",
         "FhirSummaryReader:andre",
     )
     formas = set()
-    for nome in nomes:
+    for nome in com_read_patient:
         metodos = _FAMILIA_POR_NOME[nome].metodos()
         assert "read_patient" in metodos, nome
         sig, e_coroutine = metodos["read_patient"]
         formas.add((_forma_assinatura(sig), e_coroutine))
-    assert len(formas) == 1, f"read_patient diverge entre as 5 entradas FhirSummaryReader: {formas}"
+    assert len(formas) == 1, f"read_patient diverge entre as 4 entradas FhirSummaryReader: {formas}"
+    assert "read_patient" not in _FAMILIA_POR_NOME["FhirSummaryReader:carolina"].metodos()
+
+    formas_resumo = set()
+    for nome in ("FhirSummaryReader", "FhirSummaryReader:carolina"):
+        metodos = _FAMILIA_POR_NOME[nome].metodos()
+        assert "read_patient_summary" in metodos, nome
+        sig, e_coroutine = metodos["read_patient_summary"]
+        formas_resumo.add((_forma_assinatura(sig), e_coroutine))
+    assert len(formas_resumo) == 1, f"read_patient_summary diverge entre as 2 entradas: {formas_resumo}"
+
     assert "search_coverage" in _FAMILIA_POR_NOME["FhirSummaryReader:rafael"].metodos()
     for nome in (
         "FhirSummaryReader",
@@ -1125,9 +1143,10 @@ def test_fhirsummaryreader_atomizada_continua_concordando_hoje() -> None:
 
 def test_formas_de_send_sao_tres_e_distintas_hoje() -> None:
     """Premissa da desambiguacao por FORMA (respaldo SECUNDARIO, §Delta-F7 item 2): hoje ha'
-    exatamente 3 formas distintas de `send` entre as 6 familias atomizadas que o declaram (as 3
-    `WhatsAppSender:<agente>` colapsam numa forma so', assim como `KafkaLike`/
-    `FactBrokerPublisher`, ambas por design) -- se esta premissa mudar (uma forma nova aparecer,
+    exatamente 3 formas distintas de `send` entre as 6 familias atomizadas que o declaram
+    (`WhatsAppSender:helena`/`:fernando` colapsam numa forma so'; `KafkaLike`/`FactBrokerPublisher`
+    noutra, por design, com `WhatsAppSender:lucas` junto desde LUC-08) -- se esta premissa mudar
+    (uma forma nova aparecer,
     ou duas formas hoje distintas colidirem), este teste aponta a causa antes da cerca de
     completude virar ruidosa demais para o proximo falso legitimo."""
     formas = _familias_por_forma_de_send()
@@ -1141,14 +1160,22 @@ def test_formas_de_send_sao_tres_e_distintas_hoje() -> None:
         "KafkaLike",
         "FactBrokerPublisher",
     }
+    # TREM train-b: continuam sendo 3 formas, mas a PERTINENCIA mudou. O WP W4-HYGIENE (LUC-08)
+    # acrescentou `*, idempotency_key: str` ao `WhatsAppSender` de lucas, entao a forma dele
+    # (2 posicionais + 1 keyword-only) passou a COLIDIR com a de `KafkaLike`/`FactBrokerPublisher`
+    # e saiu da forma de helena/fernando (2 posicionais). E' exatamente a mudanca de premissa que
+    # este teste existe para apontar; a colisao e' inofensiva porque
+    # `_formas_de_send_sao_realmente_intercambiaveis` compara NOMES, nao so' aridade, e portanto
+    # nao deixa o desempate por forma escolher arbitrariamente entre lucas e as duas familias
+    # Kafka-shaped.
     kafka_shaped = [familias for familias in formas.values() if "KafkaLike" in familias][0]
-    assert set(kafka_shaped) == {"KafkaLike", "FactBrokerPublisher"}
-    whatsapp_shaped = [familias for familias in formas.values() if "WhatsAppSender:lucas" in familias][0]
+    assert set(kafka_shaped) == {"KafkaLike", "FactBrokerPublisher", "WhatsAppSender:lucas"}
+    whatsapp_shaped = [familias for familias in formas.values() if "WhatsAppSender:helena" in familias][0]
     assert set(whatsapp_shaped) == {
         "WhatsAppSender:helena",
         "WhatsAppSender:fernando",
-        "WhatsAppSender:lucas",
     }
+    assert not _formas_de_send_sao_realmente_intercambiaveis(kafka_shaped)
 
 
 def test_achados_estruturais_recusa_fakedmn_com_nomes_da_evidencia_reg04() -> None:
