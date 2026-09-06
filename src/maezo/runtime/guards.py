@@ -62,8 +62,16 @@ def require_iso8601_duration(value: Any, *, field: str, notes: list[str] | None 
     (`f"{field}_ausente"` / `f"{field}_invalido"`); omitido, o chamador decide como registrar a
     lacuna (parametro opcional para nao forcar um canal de lacunas em grafos que ainda nao tem
     um, ex.: `fernando/graph.py`, que sinaliza via log estruturado em vez de uma lista de estado).
+
+    `ausente` e' SOMENTE `None`/string vazia (o valor genuinamente nao chegou); qualquer outro
+    valor falsy do TIPO ERRADO (`0`, `False`, `[]`, `{}`) e' `invalido`, nunca `ausente` --
+    espelha exatamente a distincao que `require_number` ja faz (`value is None` -> ausente;
+    tudo mais que nao serve -> invalido). Antes desta distincao um `0`/`False`/`[]`/`{}`
+    corrompido era classificado como "ausente" -- a mesma classe de "este ramo simplesmente
+    nao rodou" de um valor genuinamente omitido -- escondendo exatamente o sinal de qualidade
+    de dado que este modulo existe para tornar visivel.
     """
-    if not value:
+    if value is None or value == "":
         if notes is not None:
             notes.append(f"{field}_ausente")
         return None

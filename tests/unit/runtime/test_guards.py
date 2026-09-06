@@ -99,6 +99,21 @@ class TestRequireIso8601Duration:
         require_iso8601_duration("not-a-duration", field="prazo", notes=notes)
         assert notes == ["prazo_invalido"]
 
+    @pytest.mark.parametrize(
+        "value",
+        [0, False, [], {}],
+        ids=["zero_int", "false_bool", "empty_list", "empty_dict"],
+    )
+    def test_falsy_wrong_type_values_are_invalido_never_ausente(self, value: object) -> None:
+        """`ausente` is SOLELY `None`/`""` (the fact genuinely never arrived) — a falsy value of
+        the WRONG TYPE is a data-quality corruption (`invalido`), mirroring `require_number`'s
+        `value is None`-only `_ausente` classification. Before this split, `0`/`False`/`[]`/`{}`
+        collapsed into the SAME "ausente" bucket as a value that genuinely never arrived — the
+        exact "this reads like the DMN branch never ran" confusion this module exists to end."""
+        notes: list[str] = []
+        assert require_iso8601_duration(value, field="prazo", notes=notes) is None
+        assert notes == ["prazo_invalido"]
+
     def test_a_calendar_datetime_is_rejected_not_silently_accepted(self) -> None:
         """The precise divergence this helper exists to get right: `datetime.fromisoformat`
         would REJECT the fleet's real DMN output ("P10D" is not a datetime), while a naive

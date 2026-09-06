@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog
 import yaml
 
 from maezo.agents.fernando.graph import (
@@ -755,6 +756,21 @@ async def test_build_dossier_rejects_malformed_sla_analise_iso() -> None:
     absent = _base_state()
     dossier = await graph._build_dossier(absent)
     assert dossier["fatos"]["sla_analise_iso"] is None  # never populated -> also None, not ""
+
+
+async def test_build_dossier_logs_a_falsy_wrong_type_sla_analise_iso_not_just_bad_strings() -> None:
+    """F4 (§Delta NONE-GUARDRAIL, repair of `VERIFY-NONE-GUARDRAIL.md`): a falsy value of the
+    WRONG TYPE (`0`, never a genuinely absent field) must still be logged as a structured
+    warning. Before the fix, `_iso_duration_validated`'s `if validated is None and value:` guard
+    treated `0` exactly like an absent/never-ran field and stayed silent — the corruption class
+    FER-08 exists to surface would have gone unlogged."""
+    graph = _graph()
+    with structlog.testing.capture_logs() as logs:
+        dossier = await graph._build_dossier(_base_state(sla_analise_iso=0))
+    assert dossier["fatos"]["sla_analise_iso"] is None
+    eventos = [entry for entry in logs if entry.get("event") == "fernando_iso_duration_invalido"]
+    assert eventos, "a falsy WRONG-TYPE sla_analise_iso must still log fernando_iso_duration_invalido"
+    assert eventos[0]["field"] == "sla_analise_iso"
 
 
 async def test_build_message_rejects_malformed_prazo_iso_fields() -> None:

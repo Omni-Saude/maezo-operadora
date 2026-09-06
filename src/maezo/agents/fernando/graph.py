@@ -376,9 +376,12 @@ def _iso_duration_validated(state: FernandoState, field: str) -> str | None:
     be confused with "the DMN simply did not evaluate this row"."""
     value = state.get(field)
     validated = require_iso8601_duration(value, field=field)
-    if validated is None and value:
-        # Only a NON-empty rejection is worth a log line — an empty/absent value is the
-        # ordinary "this DMN branch never ran" case already covered by `_output_field_resets`.
+    if validated is None and value is not None and value != "":
+        # Only a NON-ausente rejection is worth a log line — `None`/`""` is the ordinary "this
+        # DMN branch never ran" case already covered by `_output_field_resets`. A falsy value
+        # of the WRONG TYPE (`0`/`False`/`[]`/`{}`) is NOT that case — it is data-quality
+        # corruption (§Delta NONE-GUARDRAIL F4) and must log exactly like a malformed string
+        # does, never fall through silently just because `bool(value)` happens to be `False`.
         logger.warning("fernando_iso_duration_invalido", field=field)
     return validated
 
