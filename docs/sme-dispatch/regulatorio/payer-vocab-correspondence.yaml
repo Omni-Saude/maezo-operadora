@@ -375,5 +375,5 @@ linhas:
     termo_pagador_proposto: "KPIs de pagador (`dossier_completeness`, `glosa_rate`, ...); `recurso_recovery_rate` removida e a remocao registrada em COMENTARIO YAML (Tier B da cerca le nos parseados, nao comentarios); prompts reescritos na voz do julgador"
     razao: "Q3: a metrica de quem teve dinheiro retido nao e metrica de quem reteve. O prompt de sistema de um LLM e a superficie de maior consequencia da inversao."
     arquivo: spec/agents/marina/agent.yaml
-    linha: 40
+    linha: 51
     ancora: "{ name: glosa_rate"
