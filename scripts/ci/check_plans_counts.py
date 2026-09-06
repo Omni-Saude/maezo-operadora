@@ -241,8 +241,10 @@ def evaluate(
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "AF-06: reconcile PLANS.md's ADR-count claims (ADRs numerados / ADRs (não ...) / "
-            "arquivos incl. README+template) against the real docs/adr/ tree."
+            "AF-06: reconcile PLANS.md's count claims against the real tree — three ADR-count "
+            "forms (ADRs numerados / ADRs (não ...) / arquivos incl. README+template) against "
+            "docs/adr/, plus the `gateway/tool_registry.py, classe ToolRegistry, ≈N linhas` "
+            "form against the real file, within a relative tolerance because the claim uses `≈`."
         )
     )
     parser.add_argument(
