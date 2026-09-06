@@ -125,6 +125,7 @@ delas e uma decisao de preco/liberacao — so proveniencia, dossie instrutivo e 
 | `grupo_destino` | string | nao | Presente so quando `andre_route=human_review`; grupo humano sugerido por Andre (espelha `grupo_aprovador` da DMN `pagto_alcada`; catch-all conservador `comite-financeiro`) |
 | `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra) das DMN que Andre consultou (`pagto_admissibility`/`pagto_alcada`/`pagto_sla`) — cadeia de decisao (ADR-0007/ADR-0012) |
 | `aggregate_dataset_refs` | json (list[string]) | nao | Ponteiros opacos k-anon dos datasets agregados usados no dossie de Andre — NUNCA PHI resolvivel (egress chokepoint, ADR-0006/ADR-0019) |
+| `decisao_pagamento` | string | nao | Guardrail estrutural L0 (fleet audit ciclo 2, AND-08) — semeado SEMPRE `None` por `Andre._contract_variables` no start do processo; SO a User Task humana (`UT_AprovacaoAlcada`/`UT_AprovacaoComite`) preenche o valor real. Distinto da linha `dossie_andre` acima: aquela documenta o campo HOMONIMO dentro do JSON aninhado do dossie (existente desde #84); esta e' a variavel de PROCESSO de nivel superior que `_contract_variables` passou a emitir explicitamente nesta leva (GAP-PAGTO-7 continuado) |
 
 ## Topicos
 
