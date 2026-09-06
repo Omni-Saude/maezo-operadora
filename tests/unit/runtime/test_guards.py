@@ -57,7 +57,18 @@ class TestRequireIso8601Duration:
 
     @pytest.mark.parametrize(
         "value",
-        ["", None, "x", "P", "PT", "10 dias", "'; DROP TABLE prazos; --", 123, "2026-08-01"],
+        [
+            "",
+            None,
+            "x",
+            "P",
+            "PT",
+            "10 dias",
+            "'; DROP TABLE prazos; --",
+            123,
+            "2026-08-01",
+            "P10D\n",
+        ],
         ids=[
             "empty",
             "none",
@@ -68,6 +79,7 @@ class TestRequireIso8601Duration:
             "sql_injection_shape",
             "int",
             "calendar_date_not_a_duration",
+            "trailing_newline",
         ],
     )
     def test_malformed_values_reject_to_none(self, value: object) -> None:
