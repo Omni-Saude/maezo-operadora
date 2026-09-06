@@ -841,9 +841,15 @@ async def test_escalate_never_fabricates_leve_when_severidade_absent() -> None:
     is `receive`'s missing-runtime-context escalate (`_base_state` here has no
     `escalation_severidade` key at all, exactly like that path leaves it after the neutral-output
     reset). A severity that was never determined is UNKNOWN, never the mildest `leve` — this must
-    ride through as `None` verbatim into the engine payload, never be fabricated, so the
-    ALREADY-fixed worker boundary (`escalation.py::_exigir_severidade`) is the one that fails
-    closed on it (refuse -> supervisor fallback -> mandatory HITL), not a silent Helena default."""
+    ride through as `None` verbatim into the engine payload, never fabricated by Helena.
+
+    §Delta-3 (regressao P-12) — CORRECAO: this docstring used to end "so the ALREADY-fixed worker
+    boundary (`escalation.py::_exigir_severidade`) is the one that fails closed on it (refuse ->
+    supervisor fallback -> mandatory HITL)". The live engine proved that refusal did NOT reach the
+    HITL. This state carries `escalation_motivo="falha_tecnica"` (derived from `error`) — the one
+    motivo the contract declares `null` for — so the worker now ACCEPTS the `None` and the
+    notification goes out. What this test pins is unchanged, and is Helena's half alone: `None`
+    leaves this graph verbatim, never a fabricated `leve`."""
     recording: list[dict[str, Any]] = []
 
     class _RecordingCibSeven(FakeCibSevenTransport):

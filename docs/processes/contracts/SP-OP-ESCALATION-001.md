@@ -24,7 +24,7 @@ idempotente, sem duplicar escalonamento).
 | `beneficiario_pseudo_id` | string | sim | Pseudonimo (Zona Geral, ADR-0006 — NUNCA CPF/nome) |
 | `canal` | string | sim | `whatsapp` \| `portal` \| `telefone` |
 | `motivo_categoria` | string | sim | `red_flag_clinico` \| `risco_psicossocial` \| `intencao_clinica` \| `solicitacao_humano` \| `falha_tecnica` \| `outro` |
-| `severidade` | string | sim | `grave` \| `moderada` \| `leve` (red flag P1 => `grave`, P2 => `moderada`) |
+| `severidade` | string | sim, EXCETO quando `motivo_categoria = falha_tecnica` (secao logo abaixo: `null` declarado) | `grave` \| `moderada` \| `leve` (red flag P1 => `grave`, P2 => `moderada`) |
 | `resumo_contexto` | string | sim | Handoff escrito pelo agente, pseudonimizado |
 | `dmn_decision_ref` | string | nao | Tabela/regra DMN que disparou (ex.: `triage_redflag_adult#r1`) |
 
@@ -38,7 +38,18 @@ ramos, inclusive sobre um sintoma ja classificado como `grave`. A regra agora e:
 | Situacao | `severidade` | Por que |
 |---|---|---|
 | DMN indisponivel COM sintoma classificado | derivada da `intensidade` ja validada: `leve` so' quando a `intensidade` e' explicitamente `leve`; qualquer outro valor (`grave`, `moderada`, `desconhecida`, ausente) => `moderada` | ha' sinal para calibrar, e uma intensidade nao apurada nao e' a mais branda. **Teto em `moderada`**: `grave` fica reservado ao red flag P1, que so' a DMN emite |
-| Falha do classificador (excecao, JSON invalido, schema invalido, roteamento PHI recusado) | ausente (`null`) | nao houve extracao alguma de onde derivar. Uma severidade desconhecida nunca e' anunciada como `leve` — mesma decisao ja vigente para o escalonamento sem contexto de runtime (HELENA-SEVERIDADE-DEFAULT). Consequencia DECLARADA: o worker `operadora.escalation.notify_supervisor` recusa fail-closed uma severidade ausente (`escalation.py::_exigir_severidade`) e `ST_NotificarFallback` recusa igual, entao **nenhuma notificacao e publicada**; o caso continua chegando ao HITL obrigatorio pela aresta modelada `BE_NotifFallbackFailed` -> `Flow_BENotifFallback_UT` -> `UT_TratarEscalonamento`. Nunca um beco sem saida; o que deixa de existir e' o rotulo fabricado |
+| Falha do classificador (excecao, JSON invalido, schema invalido, roteamento PHI recusado) | ausente (`null`) | nao houve extracao alguma de onde derivar. Uma severidade desconhecida nunca e' anunciada como `leve` — mesma decisao ja vigente para o escalonamento sem contexto de runtime (HELENA-SEVERIDADE-DEFAULT). **CORRECAO (§Delta-3, regressao P-12, 2026-09-06):** a redacao anterior desta celula declarava que o worker recusa fail-closed uma severidade ausente nos DOIS canais de notificacao (eles compartilham o topico `operadora.escalation.notify_supervisor` e a mesma checagem) e que **nenhuma notificacao e publicada**, mas que o caso ainda chegaria ao HITL pela aresta `BE_NotifFallbackFailed`. No motor vivo NAO chegava: `tests/integration/agents/test_helena_escalation.py::{test_malformed_classifier_json_escalates_falha_tecnica, test_classifier_llm_exception_escalates_falha_tecnica}` falharam com `no user task ever appeared`. Um caso que o classificador nao conseguiu ler e' exatamente o que este processo existe para entregar a um humano, entao a regra vigente e' a EXCECAO declarada na linha `severidade` da tabela de variaveis de entrada: com `motivo_categoria = falha_tecnica` uma `severidade` ausente/vazia e' ACEITA e viaja como `null` (`escalation.py::_exigir_severidade`), a notificacao SAI para o grupo que a DMN escolheu, e a instancia segue pelo caminho feliz `Flow_Notificar_UT` -> `UT_TratarEscalonamento` — uma escalacao de falha do classificador TEM de alcancar essa User Task; e' o proposito do contrato. Legitimidade da excecao: a DMN `escalation_routing` (hitPolicy FIRST) roteia esse motivo pela regra **`r6`**, cuja coluna `severidade` e' o coringa `-` (qualquer valor, `null` inclusive) -> `P3` / `atendimento-humano` / `PT4H` / `PT24H`; a severidade NUNCA foi entrada de roteamento neste motivo, entao aceitar `null` nao enfraquece decisao nenhuma. Limites da excecao, os dois fail-closed: um valor PRESENTE fora de `{grave, moderada, leve}` continua recusando (aqui como em qualquer motivo — ausencia e' a verdade declarada, corrupcao nao e'), e nenhum outro `motivo_categoria` (nem um ausente) aceita ausencia. O que continua nao existindo e' o rotulo fabricado `leve` |
+
+`event_payload_vars` de `ST_PublishRequested` (BPMN `:66`) e dos dois publicadores de breach
+(`:188`, `:243`) inclui `severidade`. O publicador generico
+(`workers/events.py::make_publish_event_handler`) copia a variavel exatamente como o motor a
+entrega e so' quando ela chega (`if var_name in task.variables`): com `null` o payload carrega
+`"severidade": null`, e se o motor a omitir a chave simplesmente nao aparece — em nenhum dos dois
+casos um leitor recebe um `leve` fabricado, e nao ha' default em lugar nenhum do caminho. Nenhum
+consumidor le esse campo: `grep -rn severidade src/maezo/tools/workers/events.py
+src/maezo/platform` devolve apenas prosa de docstring/comentario e a constante de PRODUCAO
+`notification_bridge.SLA_ALERT_SEVERIDADE` (o alerta de risco de SLA, que escreve `moderada` com
+`motivo_categoria=outro` e nada le de volta).
 
 ### Fronteira de conteudo nao confiavel no caminho do agente (HEL-06/HEL-03, 2026-09-05)
 
