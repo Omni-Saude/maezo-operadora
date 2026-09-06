@@ -114,19 +114,112 @@ def test_method_citation_resolves(tmp_path: Path) -> None:
 
 
 # ===================================================================================================
-# 4. Bare line citations are informational only — never a hard failure, even to a missing file
+# 4. Bare line citations: file existence IS hard-checked (reparo F4/VER-ADR-BATCH); the LINE
+#    NUMBER stays informational only, never checked.
 # ===================================================================================================
 
 
-def test_bare_line_citation_to_a_missing_file_does_not_fail_the_gate(tmp_path: Path) -> None:
+def test_bare_line_citation_to_a_missing_file_now_fails_the_gate(tmp_path: Path) -> None:
+    """Reparo F4/VER-ADR-BATCH (2026-09-06): this used to be
+    `test_bare_line_citation_to_a_missing_file_does_not_fail_the_gate` and asserted `result.ok` —
+    the gate collected shape 3 but never hard-checked it at all. File existence is now checked
+    (the line number itself is not — see the sibling test below for that half of the claim)."""
     root = _make_fixture_repo(
         tmp_path,
         adr_body="see `src/maezo/tools/workers/deleted_long_ago.py:42` for the old approach.\n",
         py_body="def still_here():\n    pass\n",
     )
     result = gate.run_gate(root, root / "docs" / "adr")
+    assert not result.ok, result.render()
+    assert result.line_citation_count == 1, result.render()
+    assert any("deleted_long_ago.py" in f and "file not found" in f for f in result.failures)
+
+
+def test_bare_line_citation_with_a_drifted_line_number_still_passes(tmp_path: Path) -> None:
+    """The half of shape 3 that stays deliberately unchecked: the FILE exists, so the citation
+    passes, even though line 9999 obviously has nothing to do with a 2-line file — proving the
+    reparo did not overreach into verifying the line number, only file existence."""
+    root = _make_fixture_repo(
+        tmp_path,
+        adr_body="see `src/maezo/tools/workers/widget.py:9999` for the old approach.\n",
+        py_body="def still_here():\n    pass\n",
+    )
+    result = gate.run_gate(root, root / "docs" / "adr")
     assert result.ok, result.render()
     assert result.line_citation_count == 1
+
+
+def test_bare_line_citation_with_a_literal_ellipsis_path_is_excluded_by_rule(tmp_path: Path) -> None:
+    """`docs/adr/0018-...md` (an elided placeholder in a summary table, per ADR-0040) is not a real
+    path — excluded by the structural `is_ellipsis_artifact_path` rule, not by `_DISCLOSED_ROT`."""
+    root = _make_fixture_repo(
+        tmp_path,
+        adr_body="see `docs/adr/0018-...md:513` for the pattern shared across the listed ADRs.\n",
+        py_body="def still_here():\n    pass\n",
+    )
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert result.ok, result.render()
+    assert result.disclosed == [], result.render()
+    assert result.line_citation_count == 1
+
+
+def test_bare_line_citation_under_a_gitignored_prefix_is_excluded_by_rule(tmp_path: Path) -> None:
+    """A citation under a directory this repo's OWN `.gitignore` excludes can never be confirmed
+    via `git ls-files` — excluded structurally (`gitignored_directory_prefixes`), not allowlisted,
+    since the gate cannot tell "gitignored but present on disk" from "genuinely gone" either way."""
+    root = tmp_path / "repo"
+    (root / "docs" / "adr").mkdir(parents=True)
+    (root / "docs" / "prompts").mkdir(parents=True)
+    (root / "docs" / "adr" / "0001-fixture.md").write_text(
+        "see `docs/prompts/SOME-PLAN.md:22` for the plan.\n", encoding="utf-8"
+    )
+    (root / ".gitignore").write_text("docs/prompts/\n", encoding="utf-8")
+    _init_git_repo(root)
+    _git_add_all(root)
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert result.ok, result.render()
+    assert result.disclosed == [], result.render()
+    assert result.line_citation_count == 1
+
+
+def test_disclosed_bare_line_citation_is_reported_but_does_not_fail_the_gate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Shape 3 participates in the SAME `_DISCLOSED_ROT` mechanism as shapes 1-2 — a known,
+    disclosed, genuinely-missing path is reported, not silently swallowed."""
+    root = _make_fixture_repo(
+        tmp_path,
+        adr_body="see `src/maezo/tools/workers/long_gone_module.py:1` for the old approach.\n",
+        py_body="def still_here():\n    pass\n",
+    )
+    fake_entry = gate.DisclosedRot(
+        doc="0001-fixture.md",
+        citation_repr="src/maezo/tools/workers/long_gone_module.py",
+        reason="test fixture: known, disclosed, genuinely-missing bare line citation",
+    )
+    monkeypatch.setattr(gate, "_DISCLOSED_ROT", (fake_entry,))
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert result.ok, result.render()
+    assert any("long_gone_module.py" in d for d in result.disclosed)
+
+
+def test_is_ellipsis_artifact_path() -> None:
+    assert gate.is_ellipsis_artifact_path("docs/adr/0018-...md") is True
+    assert gate.is_ellipsis_artifact_path("src/maezo/tools/workers/widget.py") is False
+
+
+def test_gitignored_directory_prefixes_and_membership(tmp_path: Path) -> None:
+    (tmp_path / ".gitignore").write_text(
+        "# comment, ignored\ndocs/prompts/\nnot-a-dir-pattern.txt\nbuild/\n", encoding="utf-8"
+    )
+    prefixes = gate.gitignored_directory_prefixes(tmp_path)
+    assert prefixes == ("docs/prompts/", "build/")
+    assert gate.is_under_gitignored_prefix("docs/prompts/PLAN.md", prefixes) is True
+    assert gate.is_under_gitignored_prefix("docs/adr/0001.md", prefixes) is False
+
+
+def test_gitignored_directory_prefixes_missing_gitignore_returns_empty(tmp_path: Path) -> None:
+    assert gate.gitignored_directory_prefixes(tmp_path / "no-such-dir") == ()
 
 
 # ===================================================================================================
@@ -250,15 +343,22 @@ def test_mutation_disabling_symbol_resolution_turns_a_passing_citation_red(
 # ===================================================================================================
 
 
-def test_the_real_docs_adr_corpus_passes_with_exactly_the_one_known_disclosed_entry() -> None:
+def test_the_real_docs_adr_corpus_passes_with_exactly_the_seven_known_disclosed_entries() -> None:
     """R-089's own two stale citations (0026:72, 0028:192) were FIXED FORWARD by reparo
-    F2/VER-ADR-BATCH (2026-09-06) instead of staying allowlisted — only the pre-existing,
-    out-of-scope ADR-0022 rot remains disclosed."""
+    F2/VER-ADR-BATCH (2026-09-06) instead of staying allowlisted. Reparo F4/VER-ADR-BATCH
+    (2026-09-06) then added a file-existence check for bare `path:line` citations, surfacing 6
+    more (5 distinct paths) alongside the pre-existing, out-of-scope ADR-0022 rot — 7 total."""
     result = gate.run_gate(_REPO_ROOT, _REPO_ROOT / "docs" / "adr")
     assert result.ok, result.render()
-    assert len(result.disclosed) == 1, result.render()
+    assert len(result.disclosed) == 7, result.render()
     disclosed_docs = {d.split(":", 1)[0] for d in result.disclosed}
-    assert disclosed_docs == {"0022-mcp-in-process-boot.md"}, result.render()
+    assert disclosed_docs == {
+        "0022-mcp-in-process-boot.md",
+        "0024-durable-idempotency-resume-inbound-drivers.md",
+        "0025-pep-policy-unification.md",
+        "0037-amh-compatibility-boundary-canonical-contracts.md",
+        "0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md",
+    }, result.render()
 
 
 # ===================================================================================================
