@@ -20,7 +20,7 @@ _SCRIPTS_CI = _REPO_ROOT / "scripts" / "ci"
 def _live_te_deferred_codes() -> frozenset[str]:
     if str(_SCRIPTS_CI) not in sys.path:
         sys.path.insert(0, str(_SCRIPTS_CI))
-    import check_bpmn_error_allowlist as gate  # noqa: PLC0415 (deliberate late import, sys.path setup above)
+    import check_bpmn_error_allowlist as gate  # deliberate late import, sys.path setup above
 
     result = gate.run_gate(
         _REPO_ROOT / "spec" / "processes" / "bpmn",
@@ -78,6 +78,6 @@ def test_no_code_changed_the_te_enabled_allowlists() -> None:
     allowlist flip."""
     if str(_SCRIPTS_CI) not in sys.path:
         sys.path.insert(0, str(_SCRIPTS_CI))
-    import check_bpmn_error_allowlist as gate  # noqa: PLC0415
+    import check_bpmn_error_allowlist as gate
 
     assert frozenset({"ERR_AUTH_DENIAL_INCOMPLETE"}) == gate.TE_ENABLED_CODES
