@@ -155,6 +155,21 @@ jobs:
       - name: Evidence-ledger row cell-count gate (LEDGER-ROW-CELL-COUNT)
         run: make check-ledger-row-cell-count
 
+      # R-009 (gap D7-01, Bold-Decision Review v2 CEO 2026-09-04): the owner's ratified answer
+      # turns the two prose pre-conditions of `spec/policies/privacy/phi-business-key-
+      # remediation.yaml`'s `modo` block (PHI_HMAC_KEY really provisioned, CANCEL/INAD drain
+      # window scheduled) into a red CI gate, in the SAME PR that would fill in the manifest's 4
+      # ratification fields. `status: DRAFT` always passes (nothing is in force); once
+      # `status: RATIFICADO` with `modo: scrub_only` or `modo: pseudo_keys` (which inherits the
+      # scrub_only prerequisites), both tracked items in `pre_requisitos_scrub_only` must be
+      # `atendido: true` with recorded evidence, or the build goes red. Reads the manifest only,
+      # through the SAME loader the runtime uses (`phi_key_policy.load_phi_key_policy`); never
+      # writes `status`/`ratificacao.*` — this is a merge gate, not a signature. stdlib+PyYAML
+      # only, no git — safe in a shallow (`fetch-depth: 1`) checkout too. Belt-and-suspenders with
+      # tests/unit/ci/test_check_phi_scrub_prereqs.py.
+      - name: PHI scrub_only/pseudo_keys prerequisite gate (R-009 / D7-01)
+        run: make check-phi-scrub-prereqs
+
       # T3.4 F1: repo-wide AST gate — a direct `transport.start_process_instance(...)` call (or a
       # hand-rolled raw REST start-path literal) anywhere outside the pinned 2-file transport
       # allowlist bypasses the `start_process_idempotent` fence (ADR-0007/T-C2 emit-before-effect
