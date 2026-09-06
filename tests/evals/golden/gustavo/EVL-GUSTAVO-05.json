@@ -57,5 +57,6 @@
       "start_failed": true
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": []
 }

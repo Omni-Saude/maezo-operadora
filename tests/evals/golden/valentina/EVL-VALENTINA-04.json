@@ -2,7 +2,9 @@
   "id": "EVL-VALENTINA-04",
   "agent": "valentina",
   "class": "EU",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "[SME-GATED -- clinical routing content, T3.2 design doc §8-3: the specific risco_estratificado/motivo input->expected mapping should be clinically ratified before this golden is treated as a frozen regression baseline. The FAIL-CLOSED STRUCTURE proven here (ambiguous stratification -> human_review, never an automatic disenrollment) does NOT depend on SME sign-off -- only the exact clinical-content labels do.] Consent active+verified, but programa_routing itself resolves ANALISE_HUMANA (ambiguous clinical picture) -> human_review, motivo_humano=estratificacao_analise_humana. NEVER a disenrollment/discharge/denial (false_denial_rate==0) -- the clinical decision is deferred to UT_DecisaoClinica.",
   "input": {
     "state": {
@@ -30,7 +32,10 @@
       "elegivel_programa": "ANALISE_HUMANA",
       "motivo": "quadro clinico ambiguo, estratificacao indeterminada"
     },
-    "programa_sla": { "sla_decisao": "2d", "sla_alerta": "1d" }
+    "programa_sla": {
+      "sla_decisao": "2d",
+      "sla_alerta": "1d"
+    }
   },
   "expect": {
     "fields": {
@@ -40,5 +45,9 @@
       "desfecho": "analise_humana_clinica"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "dmn:programa_routing=ANALISE_HUMANA",
+    "signal:ambiguity"
+  ]
 }

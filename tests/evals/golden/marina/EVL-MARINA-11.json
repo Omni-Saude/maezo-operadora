@@ -1,0 +1,47 @@
+{
+  "id": "EVL-MARINA-11",
+  "agent": "marina",
+  "class": "FC",
+  "tier": [
+    "A"
+  ],
+  "description": "RAF-14 (Marina): RECURSO-chain twin of EVL-MARINA-07's DMN-down fail-safe -- `recurso_admissibility` is UNAVAILABLE (decision_key omitted), never evaluated as an adverse indeferimento by omission; routed to analista-recurso-glosa (never medico-auditor). EVL-MARINA-07 already proves the `signal: dmn_unavailable` trigger for the CONTAS chain; this case proves it independently for the RECURSO chain, per RAF-14's own root-cause note that the recurso-chain DMN-down path 'is still uncovered'. Synthetic data only.",
+  "input": {
+    "state": {
+      "flow": "recurso",
+      "tenant_id": "amh",
+      "canal": "portal_tiss",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-MARINA-11",
+      "prestador_id": "PREST-TESTE-001",
+      "numero_guia_tiss": "GUIA-EVL-MARINA-11",
+      "glosa_id": "GLOSA-EVL-MARINA-11",
+      "glosa_type": "clinica",
+      "glosa_reason_code": "GC-12",
+      "valor_glosado_brl": 2000.0,
+      "codigo_procedimento_tuss": "40304361",
+      "cid10": "M54.5",
+      "documentos_recurso_refs": [],
+      "data_ciencia_alegada_prestador": "2026-05-01",
+      "data_recebimento_recurso_iso": "2026-05-20",
+      "glosa_existe": true,
+      "dentro_prazo_recurso": true,
+      "documentacao_recurso_completa": true
+    }
+  },
+  "recorded_llm": [
+    "Tabela de admissibilidade de recurso indisponivel; encaminhado para o analista de recurso, nunca uma decisao automatica de merito."
+  ],
+  "dmn_fixture": {},
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "motivo_humano": "dmn_indisponivel",
+      "grupo_humano": "analista-recurso-glosa",
+      "desfecho": "recurso_humano"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "signal:dmn_unavailable"
+  ]
+}

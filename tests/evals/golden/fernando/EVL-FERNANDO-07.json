@@ -2,7 +2,9 @@
   "id": "EVL-FERNANDO-07",
   "agent": "fernando",
   "class": "FC",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "CC-08: `inadimplencia_status` is UNAVAILABLE (decision_key omitted). `assess`'s status step reads `status_result.get(\"error\")` and calls `_assess_escalation(motivo=\"dmn_indisponivel\")` IMMEDIATELY -- route=escalate, motivo_categoria=dmn_unavailable (the contract's SP-OP-ESCALATION-001-equivalent token, `_motivo_categoria`), desfecho=encaminhado_analise_humana -- NEVER the neutral `notify` path (which requires the DMN's own PENDENTE_NOTIFICACAO/AGUARDA_PURGA result). Same contract facts as EVL-FERNANDO-01; the only difference is the transport that fails. Synthetic data only.",
   "input": {
     "state": {
@@ -15,7 +17,9 @@
       "to_hash": "hash-evl-fernando-07",
       "tipo_plano": "individual",
       "origem_solicitacao": "cobranca",
-      "competencias_em_aberto": ["2026-05"],
+      "competencias_em_aberto": [
+        "2026-05"
+      ],
       "meses_inadimplencia": 1,
       "valor_total_devido_cents": 15000,
       "dentro_periodo_minimo": true,
@@ -37,5 +41,8 @@
       "desfecho": "encaminhado_analise_humana"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "signal:dmn_unavailable"
+  ]
 }

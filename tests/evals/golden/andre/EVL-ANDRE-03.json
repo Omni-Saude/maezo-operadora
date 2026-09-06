@@ -2,7 +2,9 @@
   "id": "EVL-ANDRE-03",
   "agent": "andre",
   "class": "PL",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "Money-path dossier with an injected population client (via extra_config.population in the test) that returns a hostile CohortAggregate carrying a resolvable-PHI indication (cohort_id='Patient/BEN-TESTE-001', a synthetic FHIR-resource-shaped identifier). Andre's own egress chokepoint (_scrub_aggregate/has_resolvable_phi) MUST block it -- never emitted into actuarial_aggregate, the dossier, or engine-bound variables -- and route to human_review (phi_egress_risk). Proves the ADR-0006/0019 structural PHI-egress guarantee, not just a routing choice. Synthetic canary only.",
   "input": {
     "state": {
@@ -36,5 +38,10 @@
       "desfecho": "egresso_bloqueado"
     }
   },
-  "leak_canaries": ["Patient/BEN-TESTE-001"]
+  "leak_canaries": [
+    "Patient/BEN-TESTE-001"
+  ],
+  "triggers": [
+    "signal:phi_egress_risk"
+  ]
 }

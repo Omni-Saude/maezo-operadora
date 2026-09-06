@@ -1,0 +1,39 @@
+{
+  "id": "EVL-MARINA-09",
+  "agent": "marina",
+  "class": "CE",
+  "tier": [
+    "A"
+  ],
+  "description": "RAF-14 (Marina): REEMBOLSO flow -- Marina re-evaluates NO reembolso DMN (already resolved by SP-OP-REEMBOLSO-001's own BRT_Admissibilidade/BRT_Calculo/BRT_AutoApproval BEFORE she is convoked); she only ASSEMBLES the factual dossier and ALWAYS routes to the analise-reembolso human group (UT_AnaliseReembolso) -- no auto_route variant exists for this flow. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for marina's declared `signal: reembolso_dossie` trigger, which had zero golden coverage before this case. Synthetic data only.",
+  "input": {
+    "state": {
+      "flow": "reembolso",
+      "tenant_id": "amh",
+      "canal": "portal_tiss",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-MARINA-09",
+      "protocolo_reembolso": "PROTO-EVL-MARINA-09",
+      "cobertura_prevista": true,
+      "dentro_prazo": true,
+      "dentro_tabela": true,
+      "dentro_teto_l2": true,
+      "valor_calculado_tabela_cents": 50000
+    }
+  },
+  "recorded_llm": [
+    "Reembolso ja resolvido pelo DMN do processo; dossie factual organizado para a decisao humana em UT_AnaliseReembolso, nenhuma aprovacao automatica."
+  ],
+  "dmn_fixture": {},
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "motivo_humano": "reembolso_dossie",
+      "grupo_humano": "analise-reembolso",
+      "desfecho": "reembolso_dossie_humano"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "signal:reembolso_dossie"
+  ]
+}

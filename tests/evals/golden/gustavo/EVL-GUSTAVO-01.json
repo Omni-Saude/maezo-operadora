@@ -2,7 +2,9 @@
   "id": "EVL-GUSTAVO-01",
   "agent": "gustavo",
   "class": "CE",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "J2 (NIP) flow: a beneficiary contests a coverage denial (contesta_negativa=true). nip_classification resolves ASSISTENCIAL_CONTESTA_NEGATIVA -> nip_routing resolves REVISAO_JURIDICA -> Gustavo ALWAYS routes to instruct_nip (a human authors/approves the response; MANTER_NEGATIVA is born exclusively in UT_RevisaoJuridicaNip, never here). Flow-selection: fluxo=nip -> instruct_nip, never review_submission. Synthetic data only.",
   "input": {
     "state": {
@@ -53,5 +55,8 @@
       "desfecho": "nip_encaminhada_instrucao_humana"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "dmn:nip_routing=REVISAO_JURIDICA"
+  ]
 }

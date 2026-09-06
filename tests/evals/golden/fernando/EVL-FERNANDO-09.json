@@ -1,0 +1,61 @@
+{
+  "id": "EVL-FERNANDO-09",
+  "agent": "fernando",
+  "class": "EU",
+  "tier": [
+    "A"
+  ],
+  "description": "FER-06: J2 acompanhamento_purga with inadimplencia_status resolving SEGUE_ANALISE (purga window elapsed) -- the DMN-driven safety net escalates exactly like an explicit J3 analise_inadimplencia request, NEVER a silent notify. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for fernando's declared `dmn: inadimplencia_status=SEGUE_ANALISE` trigger, which had zero golden coverage before this case. NUMERACAO: numbered from 09 (not 08) -- the unmerged sibling fleet2/fernando-input-desfecho branch already claims EVL-FERNANDO-08.json. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "intencao": "acompanhamento_purga",
+      "canal": "whatsapp",
+      "numero_contrato": "000000019",
+      "matricula_beneficiario": "MAT-EVL-019",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-019",
+      "to_hash": "hash-evl-fernando-09",
+      "tipo_plano": "individual",
+      "origem_solicitacao": "cobranca",
+      "competencias_em_aberto": [
+        "2026-03",
+        "2026-04",
+        "2026-05"
+      ],
+      "meses_inadimplencia": 3,
+      "valor_total_devido_cents": 45000,
+      "dentro_periodo_minimo": true,
+      "notificacao_previa_feita": true,
+      "dentro_janela_purga": false,
+      "ja_em_rescisao_cancel": false,
+      "documentos_refs": []
+    }
+  },
+  "recorded_llm": [
+    "Janela de purga decorrida; dossie de analise de inadimplencia encaminhado para avaliacao humana, nenhuma suspensao automatica."
+  ],
+  "dmn_fixture": {
+    "inadimplencia_status": {
+      "roteamento": "SEGUE_ANALISE",
+      "motivo": "janela de purga decorrida"
+    },
+    "inadimplencia_sla": {
+      "sla_analise": "P10D",
+      "sla_alerta": "P7D",
+      "fonte_regulatoria": "RN 593"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "escalate",
+      "motivo_humano": "segue_analise",
+      "motivo_categoria": "inadimplencia",
+      "status_inadimplencia": "SEGUE_ANALISE"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "dmn:inadimplencia_status=SEGUE_ANALISE",
+    "signal:inadimplencia"
+  ]
+}

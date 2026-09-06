@@ -1,0 +1,58 @@
+{
+  "id": "EVL-ANDRE-10",
+  "agent": "andre",
+  "class": "EU",
+  "tier": [
+    "A"
+  ],
+  "description": "AND-06: pagto_admissibility clears to SEGUE_ROTEAMENTO but pagto_alcada itself resolves the ANALISE_HUMANA catch-all faixa (never a release faixa) -- routed to the conservative comite-financeiro, exactly mirroring the DENTRO_TETO_L2-consistency guardrail one level up. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for andre's declared `dmn: pagto_alcada=ANALISE_HUMANA` trigger, which had zero golden coverage before this case (EVL-ANDRE-01 only exercises the ALCADA_L1 faixa). Synthetic data only.",
+  "input": {
+    "state": {
+      "flow": "pagto_dossier",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "ordem_pagamento_id": "ORDEM-EVL-ANDRE-10",
+      "prestador_id": "PREST-TESTE-001",
+      "tipo_pagamento": "prestador_rede",
+      "valor_pagamento_cents": 15000000,
+      "moeda": "BRL",
+      "competencia": "2026-06",
+      "data_vencimento": "2026-07-10",
+      "conta_origem_ref": "conta-origem-ref-teste",
+      "instrumento_pagamento": "pix",
+      "dados_pagamento_validos": true,
+      "lastro_confirmado": true,
+      "dentro_teto_l2": false,
+      "duplicidade_suspeita": false
+    }
+  },
+  "recorded_llm": [
+    "Faixa de alcada ambigua/nao classificada; encaminhado para o comite financeiro conservador, nunca uma liberacao automatica."
+  ],
+  "dmn_fixture": {
+    "pagto_admissibility": {
+      "roteamento": "SEGUE_ROTEAMENTO"
+    },
+    "pagto_alcada": {
+      "faixa_valor": "ANALISE_HUMANA",
+      "grupo_aprovador": ""
+    },
+    "pagto_sla": {
+      "sla_aprovacao": "5d",
+      "sla_alerta": "2d"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "faixa_valor": "ANALISE_HUMANA",
+      "grupo_humano": "comite-financeiro",
+      "motivo_humano": "analise_humana",
+      "desfecho": "dossie_aprovacao_humana"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "dmn:pagto_alcada=ANALISE_HUMANA"
+  ]
+}

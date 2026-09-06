@@ -2,7 +2,9 @@
   "id": "EVL-VALENTINA-07",
   "agent": "valentina",
   "class": "FC",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "CC-08: consent is active+verified (same facts as EVL-VALENTINA-03), but `programa_routing` is UNAVAILABLE (decision_key omitted). `assess`'s stratification step reads `strat.get(\"error\")` and routes human IMMEDIATELY (`_route_human(\"dmn_indisponivel\", ...)`) -- route=human_review, grupo_humano=coordenacao-clinica, desfecho=analise_humana_clinica -- NEVER an automatic enrollment/non-inclusion by omission. Same enrollment case as EVL-VALENTINA-03; the only difference is the transport that fails. Synthetic data only.",
   "input": {
     "state": {
@@ -35,5 +37,8 @@
       "desfecho": "analise_humana_clinica"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "signal:dmn_unavailable"
+  ]
 }

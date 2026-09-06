@@ -146,6 +146,13 @@ def _case(cases: list[dict[str, Any]], case_id: str) -> dict[str, Any]:
 # (`cred_admissibility=ANALISE_HUMANA`, `cred_route=ANALISE_CREDENCIAMENTO`, the `cred_route=
 # ANALISE_HUMANA` catch-all, `signal: indicio_irregularidade`/`signal: ambiguity`) -- 3/8 covered
 # before, 8/8 after. Two of them (07/08) are also CAR-01's regression goldens.
+# GOLDENS-MISSING (2026-09-05, BEA-11/GUS-04) added EVL-BEATRIZ-05/06 (empty-intake
+# evidencia_indisponivel + missing-tenant ambiguity, closing beatriz's declared `escalation.
+# triggers` fence: beatriz 4->6) and EVL-GUSTAVO-07/08/09 (nip_routing-out-of-allowlist
+# ambiguidade, invalid-fluxo receive fail-safe, ans_submission_admissibility=REVISAO_HUMANA --
+# closing gustavo's own trigger fence: gustavo 6->9); carolina is untouched by this WP (its own
+# remaining trigger gaps are CAROLINA-CATCHALL's scope, tracked in
+# tests/evals/test_trigger_coverage.py's allowlist, not here).
 # ---------------------------------------------------------------------------
 
 
@@ -156,9 +163,13 @@ def test_dataset_counts_match_ratified_design() -> None:
     # excludes `mcp-dmn.evaluate` -- module docstring) and is unchanged by CC-01/CC-08.
     # BEA-06 (lote1) added EVL-BEATRIZ-04, so beatriz is 4 here (3 ratified + 1).
     # CAR-05 added EVL-CAROLINA-06/07/08, so carolina is 8 here (3 ratified + CC-01 + CC-08 + 3).
+    # GOLDENS-MISSING (2026-09-05) added 2 beatriz + 3 gustavo goldens (BEA-11/GUS-04) closing
+    # their declared-trigger fence gaps -- see the comment block above for exactly what each new
+    # case proves.
+    # Uniao do trem train-b: 8 carolina + 6 beatriz + 9 gustavo (contagens reais em disco).
     assert len(CAROLINA_CASES) == 8
-    assert len(BEATRIZ_CASES) == 4
-    assert len(GUSTAVO_CASES) == 6
+    assert len(BEATRIZ_CASES) == 6
+    assert len(GUSTAVO_CASES) == 9
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +471,41 @@ async def test_evl_beatriz_04_mutation_check_leak_is_non_vacuous() -> None:
 
 
 # ---------------------------------------------------------------------------
+# EVL-BEATRIZ-05/06 (BEA-11, GOLDENS-MISSING) -- the two declared `escalation.triggers` this
+# agent had zero golden coverage for: `signal: evidencia_indisponivel`'s empty-intake sub-case
+# (EVL-BEATRIZ-03 only covers the hostile-pointer sub-case) and `signal: ambiguity` (previously
+# proven only by a unit test). EVL-BEATRIZ-06 is the FIRST beatriz golden on the zero-LLM-call
+# path (missing tenant/case identifiers) -- this file's own module docstring above ("an
+# UNANCHORABLE case ... skips it, which none of these goldens use") is now stale for that one
+# sentence; left uncorrected in place (never silently rewritten) with this note as the pointer.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.eval
+async def test_evl_beatriz_05_mutation_check_desfecho_is_non_vacuous() -> None:
+    """Flipping EVL-BEATRIZ-05's expected desfecho must make the harness call fail -- otherwise
+    this eval would rubber-stamp any turn outcome over an empty intake."""
+    case = _case(BEATRIZ_CASES, "EVL-BEATRIZ-05")
+    await run_mutation_check(
+        beatriz_build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "desfecho", "instrucao_incompleta"),
+    )
+
+
+@pytest.mark.eval
+async def test_evl_beatriz_06_mutation_check_desfecho_is_non_vacuous() -> None:
+    """Flipping EVL-BEATRIZ-06's expected desfecho must make the harness call fail -- proves the
+    zero-LLM-call unanchorable-case fail-safe is real, not a rubber stamp."""
+    case = _case(BEATRIZ_CASES, "EVL-BEATRIZ-06")
+    await run_mutation_check(
+        beatriz_build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "desfecho", "dossie_instruido"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Gustavo -- SP-OP-ANS-SUBMIT-001 (calendario/envio ANS) + SP-OP-NIP-001 (instrucao NIP). Route
 # admits ONLY {review_submission, instruct_nip} -- BOTH are human-instruction destinations
 # (module docstring's L0 hard invariant). `dossier.decisao_merito`/`assinatura_envio` are ALWAYS
@@ -510,6 +556,50 @@ async def test_evl_gustavo_06_mutation_check_route_is_non_vacuous() -> None:
         gustavo_build,
         case,
         mutation=lambda c: _mutate_expected_field(c, "route", "review_submission"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# EVL-GUSTAVO-07/08/09 (GUS-04, GOLDENS-MISSING) -- the 3 declared `escalation.triggers`
+# sub-cases this agent had zero golden coverage for: `signal: ambiguity` (proven twice, via the
+# nip_routing-out-of-allowlist DMN-contract-violation branch AND the receive()-level
+# invalid_fluxo fail-safe -- two different code locations for the SAME agent.yaml trigger) and
+# `dmn: ans_submission_admissibility=REVISAO_HUMANA` (a literal declared trigger value no prior
+# golden exercised -- every J1 golden before this one only used SEGUE_ENVIO or the
+# ans_calendar-down fail-safe).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.eval
+async def test_evl_gustavo_07_mutation_check_route_is_non_vacuous() -> None:
+    case = _case(GUSTAVO_CASES, "EVL-GUSTAVO-07")
+    await run_mutation_check(
+        gustavo_build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "route", "review_submission"),
+    )
+
+
+@pytest.mark.eval
+async def test_evl_gustavo_08_mutation_check_route_is_non_vacuous() -> None:
+    case = _case(GUSTAVO_CASES, "EVL-GUSTAVO-08")
+    await run_mutation_check(
+        gustavo_build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "route", "review_submission"),
+    )
+
+
+@pytest.mark.eval
+async def test_evl_gustavo_09_mutation_check_route_is_non_vacuous() -> None:
+    """Flipping EVL-GUSTAVO-09's expected route (review_submission -> instruct_nip) must fail --
+    proves the ans_submission_admissibility=REVISAO_HUMANA -> pendencia_envio assertion is real,
+    not a rubber stamp of whichever work node `_route` happens to select."""
+    case = _case(GUSTAVO_CASES, "EVL-GUSTAVO-09")
+    await run_mutation_check(
+        gustavo_build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "route", "instruct_nip"),
     )
 
 

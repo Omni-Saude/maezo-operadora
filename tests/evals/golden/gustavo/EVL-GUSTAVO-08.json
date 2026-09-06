@@ -1,0 +1,32 @@
+{
+  "id": "EVL-GUSTAVO-08",
+  "agent": "gustavo",
+  "class": "EU",
+  "tier": [
+    "A"
+  ],
+  "description": "GUS-04: an unrecognized `fluxo` value (neither ans_submit nor nip) fails closed AT receive() -- BEFORE any DMN runs -- to motivo_humano=ambiguidade on the conservative instruct_nip destination, never a silent drop. Closes the audit's own named 'invalid_fluxo ... fail-safe' gap (GUS-04 fix_shape), proving the receive()-level guard behaviorally with a golden, not merely structurally. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "fluxo": "fluxo_invalido",
+      "canal": "portal_beneficiario"
+    }
+  },
+  "recorded_llm": [
+    "Fluxo de delegacao nao reconhecido; encaminhado para instrucao humana conservadora."
+  ],
+  "dmn_fixture": {},
+  "expect": {
+    "fields": {
+      "route": "instruct_nip",
+      "motivo_humano": "ambiguidade",
+      "error": "invalid_fluxo",
+      "desfecho": "nip_encaminhada_instrucao_humana"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "signal:ambiguity"
+  ]
+}

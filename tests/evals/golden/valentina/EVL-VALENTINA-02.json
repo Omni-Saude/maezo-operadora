@@ -2,7 +2,9 @@
   "id": "EVL-VALENTINA-02",
   "agent": "valentina",
   "class": "GC",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "Missing runtime context (ciclo absent, even though consentimento_ativo/consent_checked are both asserted true): `receive` cannot assemble the idempotent business key nor verify consent for a concrete titular/scope, so it sets its own class-token error -- consent_gate treats inability-to-verify as NO consent (fail-closed), ignoring the (otherwise-looking-fine) consent facts entirely. Distinct code path from EVL-VALENTINA-01: there, receive succeeds and consent_gate itself computes ausente from the facts; here, receive's own guard fires first and consent_status stays ausente regardless of what the facts say.",
   "input": {
     "state": {
@@ -27,5 +29,8 @@
       "business_key": ""
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "signal:sem_consentimento"
+  ]
 }

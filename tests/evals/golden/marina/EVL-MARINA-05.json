@@ -2,7 +2,9 @@
   "id": "EVL-MARINA-05",
   "agent": "marina",
   "class": "CE",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "CONTAS flow, value-divergence case: item conforme a tabela contratada e documentado, mas com divergencia de valor -> glosa_triage=ANALISE_HUMANA -> human_review. Cobre a lacuna do inventario anterior: nenhum golden exercitava a row de divergencia de valor, a unica row substantiva nao-humana da tabela viva antes de ADR-0040. Synthetic data only.",
   "input": {
     "state": {
@@ -19,7 +21,9 @@
       "valor_apresentado_brl": 480.0,
       "tipo_lote": "consulta",
       "linhas_conta_refs": [],
-      "reason_codes_tiss": ["31"],
+      "reason_codes_tiss": [
+        "31"
+      ],
       "divergencia_valor": true,
       "item_conforme_tabela": true,
       "documentacao_anexa": true,
@@ -31,10 +35,19 @@
     "Item conforme a tabela contratada e documentado, com divergencia entre o valor apresentado e o valor contratado. Glosa candidata de valor: a decisao de glosar ou pagar e do analista de contas."
   ],
   "dmn_fixture": {
-    "glosa_reason_normalization": { "categoria_normalizada": "valor" },
-    "glosa_classification": { "glosa_type": "valor" },
-    "contas_sla": { "sla_analise": "30d", "sla_alerta": "20d" },
-    "glosa_triage": { "roteamento": "ANALISE_HUMANA" }
+    "glosa_reason_normalization": {
+      "categoria_normalizada": "valor"
+    },
+    "glosa_classification": {
+      "glosa_type": "valor"
+    },
+    "contas_sla": {
+      "sla_analise": "30d",
+      "sla_alerta": "20d"
+    },
+    "glosa_triage": {
+      "roteamento": "ANALISE_HUMANA"
+    }
   },
   "expect": {
     "fields": {
@@ -43,5 +56,8 @@
       "triagem": "ANALISE_HUMANA"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "dmn:glosa_triage=ANALISE_HUMANA"
+  ]
 }
