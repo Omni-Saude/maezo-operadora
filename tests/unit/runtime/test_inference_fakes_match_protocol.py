@@ -341,67 +341,63 @@ def _forma_assinatura(sig: inspect.Signature) -> tuple[int, int, bool, bool]:
 
 @dataclass(frozen=True)
 class _Familia:
-    """Um Protocol real (ou um grupo de Protocols DIFERENTES, IDENTICOS por design -- ex.:
-    `FhirSummaryReader`/`FhirReader`/`SummaryReader`/`PatientSummaryReader`-de-andre, todos
-    `async def read_patient(patient_id) -> dict`) mais os achados que motivam vigia-lo."""
+    """§Delta-F7: um Protocol real ESPECIFICO -- UM (modulo, classe) por entrada, NUNCA um nome
+    compartilhado entre modulos. Antes desta correcao, Protocols "identicos por design" em
+    modulos diferentes (ex.: `WhatsAppSender` de helena/fernando/lucas) eram agrupados numa UNICA
+    entrada com um `assert` de auto-consistencia entre membros; quando um deles diverge
+    legitimamente (ex.: LUC-08 acrescenta um `idempotency_key` obrigatorio so' ao Protocol de
+    lucas), esse `assert` -- chamado transitivamente por quase todo teste do arquivo via
+    `.metodos()`/`_nomes_unicos()` -- derrubava a colecao inteira (18 das 25 provas), nao so' o
+    falso realmente desatualizado. Family membership agora e' MODULE-SCOPED: cada entrada tem
+    exatamente um `membro` real; `agente` identifica o agente dono (p.ex. "lucas") quando o
+    Protocol vive no `graph.py` de um agente especifico, ou e' `None` para um Protocol nao-ligado
+    a um agente (ex.: `KafkaLike`, `FhirSummaryReader` base). Uma divergencia futura entre
+    entradas historicamente identicas agora vira uma ofensa PONTUAL contra o falso que a
+    exercita, nunca mais um crash de colecao."""
 
     nome: str
     achados: tuple[str, ...]
-    membros: tuple[type, ...]
+    membro: type
+    agente: str | None = None
 
     def metodos(self) -> dict[str, tuple[inspect.Signature, bool]]:
-        """nome -> (assinatura canonica, e' coroutine). Uniao dos metodos PROPRIOS de cada
-        membro; se dois membros declararem o MESMO nome com formas diferentes, a premissa
-        "sao identicos por design" quebrou -- o `assert` abaixo aponta a causa direto, antes de
-        esta familia virar uma fonte de falso-positivo generalizado para todo falso real."""
-        canonico: dict[str, tuple[inspect.Signature, bool]] = {}
-        for membro in self.membros:
-            for nome, fn in _metodos_proprios(membro).items():
-                entrada = (inspect.signature(fn), inspect.iscoroutinefunction(fn))
-                if nome in canonico:
-                    sig_antiga, async_antigo = canonico[nome]
-                    assert _forma_assinatura(sig_antiga) == _forma_assinatura(entrada[0]) and (
-                        async_antigo == entrada[1]
-                    ), (
-                        f"familia {self.nome!r}: membros divergem em `{nome}` -- "
-                        f"{sig_antiga} (async={async_antigo}) vs {entrada[0]} (async={entrada[1]}) "
-                        f"em {membro.__module__}.{membro.__qualname__} -- a premissa de que estes "
-                        "Protocols sao identicos por design quebrou; corrija a tabela `_FAMILIAS` "
-                        "ou o Protocol que divergiu, nunca ignore esta divergencia"
-                    )
-                else:
-                    canonico[nome] = entrada
-        return canonico
+        """nome -> (assinatura, e' coroutine) dos metodos PROPRIOS do UNICO membro real desta
+        familia -- leitura direta, sem uniao nem auto-teste entre membros (nao ha' mais grupo)."""
+        return {
+            nome: (inspect.signature(fn), inspect.iscoroutinefunction(fn))
+            for nome, fn in _metodos_proprios(self.membro).items()
+        }
 
 
 _FAMILIAS: tuple[_Familia, ...] = (
-    _Familia("DmnTransport", ("NEW-12", "NEW-C1-2", "REG-04"), (DmnTransport,)),
+    _Familia("DmnTransport", ("NEW-12", "NEW-C1-2", "REG-04"), DmnTransport),
+    _Familia("WhatsAppSender:helena", ("NEW-12", "NEW-C1-2", "REG-04"), _HelenaWhatsAppSender, agente="helena"),
     _Familia(
-        "WhatsAppSender",
-        ("NEW-12", "NEW-C1-2", "REG-04"),
-        (_HelenaWhatsAppSender, _FernandoWhatsAppSender, _LucasWhatsAppSender),
+        "WhatsAppSender:fernando", ("NEW-12", "NEW-C1-2", "REG-04"), _FernandoWhatsAppSender, agente="fernando"
     ),
-    _Familia("IdempotencyStore", ("NEW-12", "NEW-C1-2"), (IdempotencyStore,)),
-    _Familia("TenantKeyset", ("NEW-12", "NEW-C1-2"), (TenantKeyset,)),
-    _Familia(
-        "FhirSummaryReader",
-        ("NEW-12", "NEW-C1-2"),
-        (
-            FhirSummaryReader,
-            _GustavoFhirReader,
-            _RafaelFhirReader,
-            _CarolinaSummaryReader,
-            _AndrePatientSummaryReader,
-        ),
-    ),
-    _Familia("BrRegionalTransport", ("NEW-12", "NEW-C1-2"), (BrRegionalTransport,)),
-    _Familia("OutboxClaimStore", ("NEW-12", "NEW-C1-2"), (OutboxClaimStore,)),
-    _Familia("FactBrokerPublisher", ("NEW-12", "NEW-C1-2"), (FactBrokerPublisher,)),
-    _Familia("AuditEmitter", ("NEW-12", "NEW-C1-2"), (_HarnessAuditEmitter, _DispatcherAuditEmitter)),
-    _Familia("KafkaLike", ("NEW-12", "NEW-C1-2"), (KafkaLike,)),
+    _Familia("WhatsAppSender:lucas", ("NEW-12", "NEW-C1-2", "REG-04"), _LucasWhatsAppSender, agente="lucas"),
+    _Familia("IdempotencyStore", ("NEW-12", "NEW-C1-2"), IdempotencyStore),
+    _Familia("TenantKeyset", ("NEW-12", "NEW-C1-2"), TenantKeyset),
+    _Familia("FhirSummaryReader", ("NEW-12", "NEW-C1-2"), FhirSummaryReader),
+    _Familia("FhirSummaryReader:gustavo", ("NEW-12", "NEW-C1-2"), _GustavoFhirReader, agente="gustavo"),
+    _Familia("FhirSummaryReader:rafael", ("NEW-12", "NEW-C1-2"), _RafaelFhirReader, agente="rafael"),
+    _Familia("FhirSummaryReader:carolina", ("NEW-12", "NEW-C1-2"), _CarolinaSummaryReader, agente="carolina"),
+    _Familia("FhirSummaryReader:andre", ("NEW-12", "NEW-C1-2"), _AndrePatientSummaryReader, agente="andre"),
+    _Familia("BrRegionalTransport", ("NEW-12", "NEW-C1-2"), BrRegionalTransport),
+    _Familia("OutboxClaimStore", ("NEW-12", "NEW-C1-2"), OutboxClaimStore),
+    _Familia("FactBrokerPublisher", ("NEW-12", "NEW-C1-2"), FactBrokerPublisher),
+    _Familia("AuditEmitter:harness", ("NEW-12", "NEW-C1-2"), _HarnessAuditEmitter),
+    _Familia("AuditEmitter:dispatcher", ("NEW-12", "NEW-C1-2"), _DispatcherAuditEmitter),
+    _Familia("KafkaLike", ("NEW-12", "NEW-C1-2"), KafkaLike),
 )
 
 _FAMILIA_POR_NOME: dict[str, _Familia] = {familia.nome: familia for familia in _FAMILIAS}
+
+#: Todo agent id que e' DONO de alguma familia desta tabela -- usado para reconhecer "este
+#: arquivo menciona o agente X" (§Delta-F7 item 2), nunca hardcoded.
+_AGENTES_CONHECIDOS: frozenset[str] = frozenset(
+    familia.agente for familia in _FAMILIAS if familia.agente is not None
+)
 
 #: Nomes de metodo genericos demais para servir de ANCORA INDEPENDENTE -- cada um colide, em
 #: `tests/`, com um Protocol DIFERENTE fora desta tabela que tambem usa o mesmo nome:
@@ -435,24 +431,45 @@ def _e_candidata_da_familia(no: ast.FunctionDef | ast.AsyncFunctionDef, async_re
     return isinstance(no, ast.AsyncFunctionDef) == async_real
 
 
-def _nomes_unicos() -> dict[str, str]:
-    """nome de metodo -> nome da UNICA familia que o declara, entre as 10 desta tabela --
-    exclui nomes ambiguos (`send`, hoje compartilhado por 4 familias) e os genericos-demais de
-    `_NOMES_SOMENTE_SECUNDARIOS`. Recalculado a cada chamada (nunca cacheado em modulo) porque
-    depende de `familia.metodos()`, que roda o AUTO-TESTE de consistencia entre membros."""
+def _nomes_por_familia() -> dict[str, list[str]]:
+    """nome de metodo -> nomes de TODAS as familias desta tabela que o declaram -- exclui os
+    genericos-demais de `_NOMES_SOMENTE_SECUNDARIOS`. Recalculado a cada chamada (nunca cacheado
+    em modulo) por simetria com o resto do arquivo, embora nao dependa mais de nenhum auto-teste
+    (§Delta-F7: `familia.metodos()` agora e' leitura direta de UM membro)."""
     contagem: dict[str, list[str]] = {}
     for familia in _FAMILIAS:
         for nome in familia.metodos():
             if nome in _NOMES_SOMENTE_SECUNDARIOS:
                 continue
             contagem.setdefault(nome, []).append(familia.nome)
-    return {nome: familias[0] for nome, familias in contagem.items() if len(familias) == 1}
+    return contagem
+
+
+def _nomes_unicos() -> dict[str, str]:
+    """nome de metodo -> nome da UNICA familia que o declara, entre as desta tabela -- exclui
+    nomes ambiguos (compartilhados por 2+ familias, ex.: `send`, `read_patient`, `emit_once` --
+    ver `_nomes_ambiguos`) e os genericos-demais de `_NOMES_SOMENTE_SECUNDARIOS`."""
+    return {nome: familias[0] for nome, familias in _nomes_por_familia().items() if len(familias) == 1}
+
+
+def _nomes_ambiguos() -> dict[str, list[str]]:
+    """nome de metodo -> nomes de TODAS as familias que o declaram, so' para nomes compartilhados
+    por 2+ familias desta tabela -- complemento de `_nomes_unicos` (§Delta-F7). Antes da
+    atomizacao module-scoped, so' `send` caia aqui (4 familias); atomizar `WhatsAppSender`/
+    `FhirSummaryReader`/`AuditEmitter` por (modulo, classe) tambem tornou `read_patient`/
+    `search_coverage`/`emit_once` ambiguos ENTRE as familias que antes eram um unico grupo
+    "identico por design" -- resolvidos pelo contexto do arquivo (`_candidatas_por_contexto`),
+    nunca por forma, exceto `send` quando nenhum contexto se aplica (compatibilidade regressiva,
+    ver essa funcao)."""
+    return {nome: familias for nome, familias in _nomes_por_familia().items() if len(familias) >= 2}
 
 
 def _familias_por_forma_de_send() -> dict[tuple[int, int, bool, bool], list[str]]:
-    """FORMA real de `send` (o unico nome ambiguo) -> familias que a declaram -- montado em
-    tempo de execucao a partir dos Protocols reais, nunca hardcoded, para que uma mudanca futura
-    na aridade de qualquer um mude este mapa sozinha."""
+    """FORMA real de `send` -> familias que a declaram -- montado em tempo de execucao a partir
+    dos Protocols reais, nunca hardcoded. Usado APENAS como respaldo quando nenhum contexto de
+    arquivo resolve `send` (§Delta-F7 item 2: "forma so' como criterio de desempate SECUNDARIO,
+    nunca como chave PRIMARIA") -- preserva o mecanismo original para as sondagens sinteticas
+    (sem nenhum arquivo/import real por tras) do §Delta anterior."""
     mapa: dict[tuple[int, int, bool, bool], list[str]] = {}
     for familia in _FAMILIAS:
         metodos = familia.metodos()
@@ -463,12 +480,130 @@ def _familias_por_forma_de_send() -> dict[tuple[int, int, bool, bool], list[str]
     return mapa
 
 
-def _classes_de_fonte(fonte: str) -> list[ast.ClassDef]:
+def _arvore_de_fonte(fonte: str) -> ast.Module | None:
     try:
-        arvore = ast.parse(fonte)
+        return ast.parse(fonte)
     except SyntaxError:
+        return None
+
+
+def _classes_da_arvore(arvore: ast.Module | None) -> list[ast.ClassDef]:
+    if arvore is None:
         return []
     return [n for n in ast.walk(arvore) if isinstance(n, ast.ClassDef)]
+
+
+def _classes_de_fonte(fonte: str) -> list[ast.ClassDef]:
+    return _classes_da_arvore(_arvore_de_fonte(fonte))
+
+
+def _modulos_importados_ast(arvore: ast.Module | None) -> set[str]:
+    """Modulos dotted-path referenciados por import ESTATICO no NIVEL DO MODULO (`import x.y` ou
+    `from x.y import ...`, incluindo dentro de `if`/`try` de topo -- ex.: guardas de
+    `TYPE_CHECKING`) -- primeiro sinal de "por qual Protocol este arquivo constroi o grafo"
+    (§Delta-F7 item 2). NUNCA desce no corpo de uma `def`/`async def`: um import LOCAL dentro de
+    uma funcao de teste (lazy-import, comum no repo) nao diz nada sobre o que o ARQUIVO inteiro
+    testa -- contá-lo produzia falso-positivo real (`test_seam_proofs.py`'s `FakeWhatsApp`
+    apontado contra `KafkaLike` so' porque uma OUTRA funcao do mesmo arquivo importa
+    `maezo.a2a.dispatcher` localmente, achado ao rodar a varredura completa antes de commitar)."""
+    modulos: set[str] = set()
+    if arvore is None:
+        return modulos
+
+    def _visita(corpo: list[ast.stmt]) -> None:
+        for no in corpo:
+            if isinstance(no, ast.ImportFrom) and no.module:
+                modulos.add(no.module)
+            elif isinstance(no, ast.Import):
+                for alias in no.names:
+                    modulos.add(alias.name)
+            elif isinstance(no, ast.If):
+                _visita(no.body)
+                _visita(no.orelse)
+            elif isinstance(no, ast.Try):
+                _visita(no.body)
+                for handler in no.handlers:
+                    _visita(handler.body)
+                _visita(no.orelse)
+                _visita(no.finalbody)
+            # nunca desce em FunctionDef/AsyncFunctionDef/ClassDef/Lambda.
+
+    _visita(arvore.body)
+    return modulos
+
+
+def _constroi_grafo_de_agente_dinamicamente_ast(arvore: ast.Module | None) -> bool:
+    """Detecta o padrao real `importlib.import_module(f"maezo.agents.{agent_id}.graph")` (ou
+    equivalente) -- um arquivo que CONSTROI o grafo de um agente dinamicamente, parametrizado por
+    uma string de agent_id (a "OU o grafo que ele constroi" do item 2 do fix; ex.:
+    `tests/unit/agents/test_start_failure_routing.py::_graph_module`). Procura por uma f-string
+    (`ast.JoinedStr`) cujas partes CONSTANTES (fora do `{...}` interpolado) contenham tanto
+    `maezo.agents.` quanto `.graph` -- robusto ao nome da variavel interpolada, nunca hardcoded a
+    `agent_id`. So' quando este padrao existe e' que uma string-literal solta batendo com um
+    agent id conhecido conta como mencao (`_agentes_mencionados_ast`) -- sem ele, um agent id
+    aparecendo a' toa no arquivo por outro motivo (ex.: `origin="helena"` num teste de A2A que
+    nada tem a ver com o `WhatsAppSender` dela) NAO deve virar contexto de atribuicao -- achado
+    real ao rodar a varredura completa (`tests/unit/a2a/test_a2a_edge_live_pg.py` e outros dois
+    apontavam contra `WhatsAppSender:helena` so' por citarem a string `"helena"`)."""
+    if arvore is None:
+        return False
+    for no in ast.walk(arvore):
+        if not isinstance(no, ast.JoinedStr):
+            continue
+        partes_constantes = "".join(
+            v.value for v in no.values if isinstance(v, ast.Constant) and isinstance(v.value, str)
+        )
+        if "maezo.agents." in partes_constantes and ".graph" in partes_constantes:
+            return True
+    return False
+
+
+def _agentes_mencionados_ast(arvore: ast.Module | None, modulos: set[str]) -> set[str]:
+    """Agent ids "mencionados" por este arquivo -- (1) import ESTATICO, no nivel do modulo,
+    ESPECIFICAMENTE de `maezo.agents.<agente>.graph` (o modulo onde `WhatsAppSender`/`FhirReader`
+    vivem -- nunca `.delegation`/`.adapters`/outro submodulo, que nao carrega esses Protocols),
+    OU (2) uma string-literal EXATAMENTE igual a um agent id CONHECIDO, mas SO' quando o arquivo
+    tambem contem o padrao de construcao dinamica de grafo (`_constroi_grafo_de_agente_
+    dinamicamente_ast`) -- sem esse padrao, (2) fica desligado (ver essa funcao para o
+    falso-positivo real que motivou o gate)."""
+    agentes: set[str] = set()
+    for modulo in modulos:
+        partes = modulo.split(".")
+        if (
+            len(partes) == 4
+            and partes[0] == "maezo"
+            and partes[1] == "agents"
+            and partes[2] in _AGENTES_CONHECIDOS
+            and partes[3] == "graph"
+        ):
+            agentes.add(partes[2])
+    if arvore is not None and _constroi_grafo_de_agente_dinamicamente_ast(arvore):
+        for no in ast.walk(arvore):
+            if isinstance(no, ast.Constant) and isinstance(no.value, str) and no.value in _AGENTES_CONHECIDOS:
+                agentes.add(no.value)
+    return agentes
+
+
+def _familia_mencionada_no_arquivo(nome_familia: str, agentes: set[str], modulos: set[str]) -> bool:
+    """Uma familia esta' "no contexto" de um arquivo se (a) e' dona-de-agente e esse agente e'
+    mencionado, ou (b) nao e' dona-de-agente e o MODULO do seu Protocol real e' importado
+    estaticamente."""
+    familia = _FAMILIA_POR_NOME[nome_familia]
+    if familia.agente is not None:
+        return familia.agente in agentes
+    return familia.membro.__module__ in modulos
+
+
+def _candidatas_por_contexto(
+    todas_as_familias: list[str], agentes_arquivo: set[str], modulos_arquivo: set[str]
+) -> list[str]:
+    """Restringe a lista de familias que declaram um nome ambiguo as que o CONTEXTO do arquivo
+    (imports + agent ids mencionados) torna plausiveis -- a atribuicao PRIMARIA de §Delta-F7 item
+    2. Pode devolver 0 (nenhum contexto detectado -- o chamador decide o respaldo), 1 (resolvido
+    sem ambiguidade, mesmo que a FORMA nao bata -- e' exatamente o caso de um falso de lucas sem
+    `idempotency_key`) ou 2+ (o contexto nao decide sozinho -- o chamador verifica contra cada
+    uma)."""
+    return [nome for nome in todas_as_familias if _familia_mencionada_no_arquivo(nome, agentes_arquivo, modulos_arquivo)]
 
 
 def _metodos_proprios_ast(
@@ -623,12 +758,11 @@ def _achado_sync_async(
     rotulo_familia: str,
     async_real: bool,
 ) -> str:
-    """Mensagem de ofensa para um sync/async ERRADO numa ancora SEM risco de colisao real (nome
-    unico na tabela via `_nomes_unicos`, OU forma de `send` que resolve para uma UNICA familia) --
-    §Delta F1: antes deste caso virava exclusao silenciosa da familia inteira (comportamento de
-    `_e_candidata_da_familia`, que so' e' correto quando existe colisao real com outro Protocol --
-    fora desta tabela, ou dentro dela via forma GENUINAMENTE ambigua de `send`, compartilhada por
-    DUAS OU MAIS familias)."""
+    """Mensagem de ofensa para um sync/async ERRADO numa familia ja' decidida (por ancora unica,
+    por contexto de arquivo, ou pela forma) -- §Delta F1: antes virava exclusao silenciosa da
+    familia inteira (comportamento de `_e_candidata_da_familia`, que so' e' correto quando existe
+    colisao REAL com outro Protocol -- fora desta tabela, ou dentro dela via forma GENUINAMENTE
+    ambigua de `send` que o contexto do arquivo tambem nao resolveu)."""
     real = "`async def`" if async_real else "`def` (sincrono)"
     falso = "`async def`" if isinstance(no, ast.AsyncFunctionDef) else "`def` (sincrono)"
     return (
@@ -645,6 +779,13 @@ def _achado_de_metodo(
     familia: _Familia,
     rotulo_familia: str,
 ) -> str | None:
+    """Verificacao ORIGINAL (pre-§Delta F1): sync/async errado vira exclusao SILENCIOSA, sem
+    ofensa. Preservada, sem alteracao de comportamento, EXCLUSIVAMENTE para o unico caso que
+    ainda precisa dela -- `send` cuja FORMA bate com DUAS OU MAIS familias e nenhum contexto de
+    arquivo desambiguou nenhuma delas (ex.: `KafkaLike`/`FactBrokerPublisher`, identicas por
+    design) -- ali' a colisao e' genuina e nao ha' base para apontar UMA das duas como "a"
+    divergente. Todo outro caminho usa `_achado_de_metodo_para_familia` (com o gate de forma do
+    F1)."""
     sig_real, async_real = familia.metodos()[nome_metodo]
     if not _e_candidata_da_familia(no, async_real):
         return None
@@ -657,11 +798,119 @@ def _achado_de_metodo(
     )
 
 
+def _achado_de_metodo_para_familia(
+    rotulo: str,
+    classe: ast.ClassDef,
+    nome_metodo: str,
+    no: ast.FunctionDef | ast.AsyncFunctionDef,
+    nome_familia: str,
+) -> str | None:
+    """§Delta-F7: verifica um metodo de falso contra UMA familia especifica ja' decidida --por
+    ancora unica (`_nomes_unicos`), por CONTEXTO de arquivo (`_candidatas_por_contexto`, item 2 do
+    fix), ou (para nomes ainda ambiguos sem nenhum contexto, fora de `send`) contra qualquer uma
+    das familias historicamente identicas. Sync/async errado vira ofensa quando a FORMA do falso
+    bate com a do Protocol real (mesmo gate do §Delta F1, aplicado agora a QUALQUER resolucao,
+    nao so' `_nomes_unicos`) -- e' o que faz um falso de lucas sem `idempotency_key` ser apontado
+    NOMEANDO `WhatsAppSender:lucas` especificamente, sem afetar helena/fernando."""
+    familia = _FAMILIA_POR_NOME[nome_familia]
+    sig_real, async_real = familia.metodos()[nome_metodo]
+    if not _e_candidata_da_familia(no, async_real):
+        if _forma_assinatura(sig_real) == _forma_assinatura_ast(no):
+            return _achado_sync_async(rotulo, classe, nome_metodo, no, nome_familia, async_real)
+        return None
+    ofensas = _ofensas_forma_vs_real(sig_real, no)
+    if not ofensas:
+        return None
+    return (
+        f"{rotulo}:{no.lineno} — classe `{classe.name}`.{nome_metodo} diverge do Protocol real "
+        f"`{nome_familia}.{nome_metodo}`: {'; '.join(ofensas)}"
+    )
+
+
+def _checa_metodo_ambiguo(
+    rotulo: str,
+    classe: ast.ClassDef,
+    nome_metodo: str,
+    no: ast.FunctionDef | ast.AsyncFunctionDef,
+    todas_as_familias: list[str],
+    agentes_arquivo: set[str],
+    modulos_arquivo: set[str],
+    formas_send: dict[tuple[int, int, bool, bool], list[str]],
+) -> tuple[list[str], set[str]]:
+    """§Delta-F7 item 2: resolve um metodo AMBIGUO (nome compartilhado por 2+ familias) contra a
+    familia certa -- CONTEXTO do arquivo primeiro (imports/agent ids mencionados), forma so'
+    como respaldo SECUNDARIO quando nenhum contexto se aplica. Devolve (achados, nomes de
+    familia ancorados -- para o laco de metodos SECUNDARIOS do chamador)."""
+    achados: list[str] = []
+    ancoradas: set[str] = set()
+
+    candidatas_ctx = _candidatas_por_contexto(todas_as_familias, agentes_arquivo, modulos_arquivo)
+    if candidatas_ctx:
+        # Contexto decide -- shape e' so' o GATE do sync/async dentro de cada candidata resolvida
+        # (§Delta F1), nunca a chave primaria de selecao (item 2 do fix).
+        ancoradas.update(candidatas_ctx)
+        for nome_familia in candidatas_ctx:
+            achado = _achado_de_metodo_para_familia(rotulo, classe, nome_metodo, no, nome_familia)
+            if achado and achado not in achados:
+                achados.append(achado)
+        return achados, ancoradas
+
+    if nome_metodo != "send":
+        # Sem contexto e sem ser o nome ambiguo classico: as familias que sobram sao
+        # historicamente IDENTICAS por design (ex.: `read_patient` dos 5 leitores FHIR,
+        # `emit_once` dos 2 AuditEmitters) -- verifica contra todas (o resultado e' o mesmo,
+        # ja' que concordam; se um dia divergirem, cada uma passa a ser apontada por si).
+        ancoradas.update(todas_as_familias)
+        for nome_familia in todas_as_familias:
+            achado = _achado_de_metodo_para_familia(rotulo, classe, nome_metodo, no, nome_familia)
+            if achado and achado not in achados:
+                achados.append(achado)
+        return achados, ancoradas
+
+    # `send` sem NENHUM contexto de arquivo -- respaldo por FORMA, mecanismo original preservado
+    # byte a byte (compatibilidade regressiva total com as sondagens sinteticas do §Delta
+    # anterior, que nao tem nenhum import/agent id por tras).
+    forma_fake = _forma_assinatura_ast(no)
+    candidatas_forma = formas_send.get(forma_fake)
+    if not candidatas_forma:
+        achados.append(
+            f"{rotulo}:{no.lineno} — classe `{classe.name}`.send tem forma "
+            f"(posicionais={forma_fake[0]}, kwonly={forma_fake[1]}, "
+            f"*args={forma_fake[2]}, **kwargs={forma_fake[3]}) que nao bate com "
+            "NENHUM Protocol `send` conhecido (WhatsAppSender, BrRegionalTransport, "
+            "KafkaLike, FactBrokerPublisher) — cerca de COMPLETUDE (P-17): registre "
+            "a forma nova em `_familias_por_forma_de_send` antes de prosseguir, nunca "
+            "ignore em silencio um falso ambiguo novo"
+        )
+        return achados, ancoradas
+    ancoradas.update(candidatas_forma)
+    familia = _FAMILIA_POR_NOME[candidatas_forma[0]]
+    if len(candidatas_forma) == 1:
+        # A forma resolveu para UMA UNICA familia -- mesmo gate do F1 (aplica
+        # `_achado_de_metodo_para_familia`, que ja' faz a checagem de forma para sync/async).
+        achado = _achado_de_metodo_para_familia(rotulo, classe, "send", no, candidatas_forma[0])
+        if achado:
+            achados.append(achado)
+        return achados, ancoradas
+    # 2+ familias com a MESMA forma (Kafka/FactBrokerPublisher hoje) -- ambiguidade GENUINA sem
+    # nenhum contexto para desempatar; preserva o comportamento ORIGINAL (`_achado_de_metodo`,
+    # exclusao silenciosa em sync/async errado, SEM o gate do F1) em vez do novo helper.
+    achado = _achado_de_metodo(rotulo, classe, "send", no, familia, " / ".join(candidatas_forma))
+    if achado:
+        achados.append(achado)
+    return achados, ancoradas
+
+
 def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
     achados: list[str] = []
     unicos = _nomes_unicos()
+    ambiguos = _nomes_ambiguos()
     formas_send = _familias_por_forma_de_send()
-    for classe in _classes_de_fonte(fonte):
+    arvore = _arvore_de_fonte(fonte)
+    modulos_arquivo = _modulos_importados_ast(arvore)
+    agentes_arquivo = _agentes_mencionados_ast(arvore, modulos_arquivo)
+
+    for classe in _classes_da_arvore(arvore):
         metodos_classe = _metodos_proprios_ast(classe)
         familias_ancoradas: set[str] = set()
         achados_da_classe: list[str] = []
@@ -673,61 +922,24 @@ def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
                 continue  # so' checados no laco de bonus abaixo, nunca como gatilho proprio
             if nome_metodo in unicos:
                 nome_familia = unicos[nome_metodo]
-                familia = _FAMILIA_POR_NOME[nome_familia]
-                sig_real, async_real = familia.metodos()[nome_metodo]
-                if not _e_candidata_da_familia(no, async_real):
-                    # §Delta F1: um nome de metodo UNICO na tabela (nenhuma das 10 familias
-                    # colide) ainda pode colidir com um Protocol de FORA da tabela (ex.:
-                    # `tests/support/dmn_first_hit.py::LinearSub.evaluate`, um simulador de
-                    # tabela sincrono com 1 posicional e 0 kwonly; `test_effect_pep.py::
-                    # _StubPep.evaluate`, que duck-typa `PepEvaluator`, 2 posicionais e 0
-                    # kwonly -- ver docstring do modulo). So' tratar o sync/async errado como
-                    # ofensa (em vez de exclusao de familia) quando a FORMA do falso (contagem
-                    # posicional/kwonly, *args/**kwargs -- tudo MENOS o proprio sync/async, que
-                    # e' exatamente o que esta errado) bate com a do Protocol real: aí' nao ha'
-                    # Protocol plausivel fora da tabela com a MESMA forma E o MESMO nome de
-                    # metodo por coincidencia -- e' o proprio defeito P-17 na MESMA familia.
-                    if _forma_assinatura(sig_real) == _forma_assinatura_ast(no):
-                        achados_da_classe.append(
-                            _achado_sync_async(rotulo, classe, nome_metodo, no, nome_familia, async_real)
-                        )
-                    continue
                 familias_ancoradas.add(nome_familia)
-                achado = _achado_de_metodo(rotulo, classe, nome_metodo, no, familia, nome_familia)
+                achado = _achado_de_metodo_para_familia(rotulo, classe, nome_metodo, no, nome_familia)
                 if achado:
                     achados_da_classe.append(achado)
                 continue
-            if nome_metodo == "send":
-                forma_fake = _forma_assinatura_ast(no)
-                candidatas = formas_send.get(forma_fake)
-                if not candidatas:
-                    achados_da_classe.append(
-                        f"{rotulo}:{no.lineno} — classe `{classe.name}`.send tem forma "
-                        f"(posicionais={forma_fake[0]}, kwonly={forma_fake[1]}, "
-                        f"*args={forma_fake[2]}, **kwargs={forma_fake[3]}) que nao bate com "
-                        "NENHUM Protocol `send` conhecido (WhatsAppSender, BrRegionalTransport, "
-                        "KafkaLike, FactBrokerPublisher) — cerca de COMPLETUDE (P-17): registre "
-                        "a forma nova em `_familias_por_forma_de_send` antes de prosseguir, nunca "
-                        "ignore em silencio um falso ambiguo novo"
-                    )
-                    continue
-                familias_ancoradas.update(candidatas)
-                familia = _FAMILIA_POR_NOME[candidatas[0]]
-                if len(candidatas) == 1:
-                    # §Delta F1: a forma resolveu para UMA UNICA familia -- mesmo raciocinio do
-                    # ramo `unicos` acima, so' que a ancora aqui e' por FORMA em vez de por nome.
-                    # A ambiguidade genuina (a que continua justificando a exclusao silenciosa)
-                    # so' existe quando DUAS OU MAIS familias compartilham a MESMA forma (Kafka/
-                    # FactBrokerPublisher hoje).
-                    _, async_real = familia.metodos()["send"]
-                    if not _e_candidata_da_familia(no, async_real):
-                        achados_da_classe.append(
-                            _achado_sync_async(rotulo, classe, "send", no, candidatas[0], async_real)
-                        )
-                        continue
-                achado = _achado_de_metodo(rotulo, classe, "send", no, familia, " / ".join(candidatas))
-                if achado:
-                    achados_da_classe.append(achado)
+            if nome_metodo in ambiguos:
+                novos_achados, novas_ancoras = _checa_metodo_ambiguo(
+                    rotulo,
+                    classe,
+                    nome_metodo,
+                    no,
+                    ambiguos[nome_metodo],
+                    agentes_arquivo,
+                    modulos_arquivo,
+                    formas_send,
+                )
+                achados_da_classe.extend(novos_achados)
+                familias_ancoradas.update(novas_ancoras)
 
         for nome_familia in familias_ancoradas:
             for nome_secundario in _SECUNDARIOS_POR_FAMILIA.get(nome_familia, ()):
@@ -777,19 +989,28 @@ def _achados_estruturais_em_arquivo(caminho: Path) -> list[str]:
 def test_lista_fechada_de_protocols_ainda_existe_em_src() -> None:
     """Fecha o contrato do WP: a lista de familias vigiadas por esta secao (alem de
     `InferenceProvider`, coberto por (A)/(B)) e' EXATAMENTE a que o brief fechou, apontada pelo
-    achado novo de ASSURANCE-F1-C1.md (NEW-12/NEW-C1-2) -- se uma classe for renomeada/removida
-    de `src/`, o IMPORT do topo do arquivo ja' quebra a colecao (falha alta, nao silenciosa);
-    este teste torna a lista fechada tambem uma asserção viva, nao so' um comentario."""
+    achado novo de ASSURANCE-F1-E.md (`NEW-12`) -- se uma classe for renomeada/removida de
+    `src/`, o IMPORT do topo do arquivo ja' quebra a colecao (falha alta, nao silenciosa); este
+    teste torna a lista fechada tambem uma asserção viva, nao so' um comentario. §Delta-F7:
+    17 entradas module-scoped (nao mais 10 agrupadas) -- `WhatsAppSender`/`FhirSummaryReader`/
+    `AuditEmitter` viraram 3/5/2 entradas por (modulo, classe), uma por agente/modulo dono."""
     esperado = {
         "DmnTransport",
-        "WhatsAppSender",
+        "WhatsAppSender:helena",
+        "WhatsAppSender:fernando",
+        "WhatsAppSender:lucas",
         "IdempotencyStore",
         "TenantKeyset",
         "FhirSummaryReader",
+        "FhirSummaryReader:gustavo",
+        "FhirSummaryReader:rafael",
+        "FhirSummaryReader:carolina",
+        "FhirSummaryReader:andre",
         "BrRegionalTransport",
         "OutboxClaimStore",
         "FactBrokerPublisher",
-        "AuditEmitter",
+        "AuditEmitter:harness",
+        "AuditEmitter:dispatcher",
         "KafkaLike",
     }
     assert {familia.nome for familia in _FAMILIAS} == esperado
@@ -802,29 +1023,74 @@ def test_familias_tem_ao_menos_um_metodo_proprio_cada() -> None:
         assert familia.metodos(), f"familia {familia.nome!r} nao declara nenhum metodo proprio"
 
 
-def test_membros_de_uma_familia_concordam_entre_si() -> None:
-    """Exercita o auto-teste de `_Familia.metodos()` num caso REAL (nao precisa quebrar nada
-    hoje): `FhirSummaryReader`/`FhirReader`(gustavo)/`FhirReader`(rafael)/`SummaryReader`/
-    `PatientSummaryReader`(andre) devem concordar em `read_patient` (mesma forma, mesmo
-    sync/async) -- e' a premissa citada no proprio docstring de `FhirSummaryReader`."""
-    familia = _FAMILIA_POR_NOME["FhirSummaryReader"]
-    metodos = familia.metodos()
-    assert "read_patient" in metodos
-    assert "search_coverage" in metodos  # so' `FhirReader` de rafael declara -- uniao, nao intersecao
+def test_familias_de_agente_tem_o_campo_agente_preenchido() -> None:
+    """§Delta-F7 item 1: toda familia cujo sufixo `Protocol:<x>` e' um AGENT ID conhecido declara
+    o campo `agente` correspondente -- e' o que `_agentes_mencionados_ast` usa para atribuir um
+    falso ao Protocol certo pelo CONTEXTO do arquivo (item 2), nunca pela forma. `AuditEmitter:
+    harness`/`AuditEmitter:dispatcher` sao module-scoped (o sufixo e' o MODULO dono, nao um
+    agente) -- `agente is None`, atribuidos por import do modulo, nao por agent id. Familias sem
+    `:` no nome (ex.: `KafkaLike`) tambem tem `agente is None`."""
+    for familia in _FAMILIAS:
+        if ":" in familia.nome:
+            _, sufixo = familia.nome.split(":", 1)
+            if sufixo in _AGENTES_CONHECIDOS:
+                assert familia.agente == sufixo, familia.nome
+            else:
+                assert familia.agente is None, familia.nome
+        else:
+            assert familia.agente is None, familia.nome
+
+
+def test_fhirsummaryreader_atomizada_continua_concordando_hoje() -> None:
+    """§Delta-F7: substitui o antigo `test_membros_de_uma_familia_concordam_entre_si` (que
+    exercitava o `assert` de auto-consistencia de um grupo multi-membro, removido junto com o
+    agrupamento). As 5 entradas atomizadas de `FhirSummaryReader` continuam concordando em
+    `read_patient` HOJE (verificado diretamente, sem nenhum `assert` interno bloqueante) --
+    `search_coverage` so' em `FhirSummaryReader:rafael`, a mesma assimetria unica-por-design de
+    sempre. Se uma delas divergir amanha, este teste aponta a causa aqui, e a cerca principal
+    (`_checa_metodo_ambiguo`) passa a apontar cada falso real contra a familia especifica que ele
+    deixou de acompanhar -- nunca mais um crash de colecao para as outras 16 familias."""
+    nomes = (
+        "FhirSummaryReader",
+        "FhirSummaryReader:gustavo",
+        "FhirSummaryReader:rafael",
+        "FhirSummaryReader:carolina",
+        "FhirSummaryReader:andre",
+    )
+    formas = set()
+    for nome in nomes:
+        metodos = _FAMILIA_POR_NOME[nome].metodos()
+        assert "read_patient" in metodos, nome
+        sig, e_coroutine = metodos["read_patient"]
+        formas.add((_forma_assinatura(sig), e_coroutine))
+    assert len(formas) == 1, f"read_patient diverge entre as 5 entradas FhirSummaryReader: {formas}"
+    assert "search_coverage" in _FAMILIA_POR_NOME["FhirSummaryReader:rafael"].metodos()
+    for nome in ("FhirSummaryReader", "FhirSummaryReader:gustavo", "FhirSummaryReader:carolina", "FhirSummaryReader:andre"):
+        assert "search_coverage" not in _FAMILIA_POR_NOME[nome].metodos(), nome
 
 
 def test_formas_de_send_sao_tres_e_distintas_hoje() -> None:
-    """Premissa da desambiguacao por FORMA: hoje ha' exatamente 3 formas distintas de `send`
-    entre as 4 familias que o declaram (`KafkaLike` e `FactBrokerPublisher` colapsam na MESMA
-    forma, por design) -- se esta premissa mudar (uma quinta familia aparecer, ou duas formas
-    hoje distintas colidirem), este teste aponta a causa antes da cerca de completude virar
-    ruidosa demais para o proximo falso legitimo."""
+    """Premissa da desambiguacao por FORMA (respaldo SECUNDARIO, §Delta-F7 item 2): hoje ha'
+    exatamente 3 formas distintas de `send` entre as 6 familias atomizadas que o declaram (as 3
+    `WhatsAppSender:<agente>` colapsam numa forma so', assim como `KafkaLike`/
+    `FactBrokerPublisher`, ambas por design) -- se esta premissa mudar (uma forma nova aparecer,
+    ou duas formas hoje distintas colidirem), este teste aponta a causa antes da cerca de
+    completude virar ruidosa demais para o proximo falso legitimo."""
     formas = _familias_por_forma_de_send()
     assert len(formas) == 3
     achatado = {familia for familias in formas.values() for familia in familias}
-    assert achatado == {"WhatsAppSender", "BrRegionalTransport", "KafkaLike", "FactBrokerPublisher"}
+    assert achatado == {
+        "WhatsAppSender:helena",
+        "WhatsAppSender:fernando",
+        "WhatsAppSender:lucas",
+        "BrRegionalTransport",
+        "KafkaLike",
+        "FactBrokerPublisher",
+    }
     kafka_shaped = [familias for familias in formas.values() if "KafkaLike" in familias][0]
     assert set(kafka_shaped) == {"KafkaLike", "FactBrokerPublisher"}
+    whatsapp_shaped = [familias for familias in formas.values() if "WhatsAppSender:lucas" in familias][0]
+    assert set(whatsapp_shaped) == {"WhatsAppSender:helena", "WhatsAppSender:fernando", "WhatsAppSender:lucas"}
 
 
 def test_achados_estruturais_recusa_fakedmn_com_nomes_da_evidencia_reg04() -> None:
@@ -928,17 +1194,36 @@ def test_achados_estruturais_recusa_ancora_unica_com_sync_async_trocado() -> Non
     assert "`async def`" in achados[0] and "sincrono" in achados[0]
 
 
-def test_achados_estruturais_recusa_whatsapp_send_sincrono_forma_unica() -> None:
-    """§Delta F1: `send` cuja FORMA resolve para uma UNICA familia (WhatsAppSender hoje, forma
-    (2 posicionais, 0 kwonly) nao compartilhada por nenhuma outra familia desta tabela) tambem
-    nao tem colisao real -- sync/async errado e' ofensa, nao exclusao silenciosa. A ambiguidade
-    genuina so' existe quando DUAS OU MAIS familias compartilham a MESMA forma (Kafka/
-    FactBrokerPublisher hoje), caso em que a exclusao silenciosa continua correta (ver proximo
-    teste, controle negativo)."""
-    fonte = "class _RecordingWhatsAppSincrono:\n    def send(self, to_hash, text):\n        return {}\n"
+def test_achados_estruturais_recusa_whatsapp_send_sincrono_com_contexto_de_agente() -> None:
+    """§Delta-F7 (substitui o antigo teste "...forma_unica", cuja premissa mudou com a atomizacao
+    module-scoped): sem NENHUM contexto de arquivo, a forma de `send` (2 posicionais, 0 kwonly)
+    hoje bate com TRES familias identicas (`WhatsAppSender:helena/fernando/lucas`) -- genuinamente
+    ambiguo por forma sozinha, exclusao silenciosa (ver o teste de controle logo abaixo). Mas
+    quando o arquivo constroi o grafo de um agente ESPECIFICO dinamicamente (o mesmo padrao real
+    de `test_start_failure_routing.py::_graph_module`) e menciona esse agent id como
+    string-literal, o CONTEXTO resolve para UMA UNICA familia -- o sync/async errado vira ofensa
+    NOMEANDO-A, mesmo sem nenhuma diferenca de FORMA (item 2 do fix: contexto e' PRIMARIO, forma
+    e' so' desempate SECUNDARIO)."""
+    fonte = (
+        "import importlib\n"
+        "def _graph_module(agent_id):\n"
+        "    return importlib.import_module(f'maezo.agents.{agent_id}.graph')\n"
+        "AGENTE = 'lucas'\n"
+        "class _RecordingWhatsAppSincrono:\n"
+        "    def send(self, to_hash, text):\n        return {}\n"
+    )
     achados = _achados_estruturais_em_fonte(fonte, "sintetico.py")
     assert len(achados) == 1
-    assert "WhatsAppSender" in achados[0]
+    assert "WhatsAppSender:lucas" in achados[0]
+
+
+def test_achados_estruturais_ainda_exclui_em_silencio_whatsapp_sincrono_sem_contexto() -> None:
+    """Controle NEGATIVO complementar ao teste acima: a MESMA classe sincrona, mas SEM o padrao
+    de construcao dinamica de grafo nem nenhum agent id mencionado -- genuinamente ambigua entre
+    as 3 familias `WhatsAppSender:*` (forma identica, nenhum sinal de qual agente), exclusao
+    silenciosa, mesmo comportamento do caso Kafka/FactBrokerPublisher (proximo teste)."""
+    fonte = "class _RecordingWhatsAppSincrono:\n    def send(self, to_hash, text):\n        return {}\n"
+    assert _achados_estruturais_em_fonte(fonte, "sintetico.py") == []
 
 
 def test_achados_estruturais_ainda_exclui_em_silencio_forma_ambigua_de_send_sincrona() -> None:
