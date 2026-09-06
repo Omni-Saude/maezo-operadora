@@ -266,9 +266,11 @@ def test_o_literal_da_faixa_int32_vive_num_unico_lugar() -> None:
     """The int32 bounds ARE the magnitude rule R-173 removes for this variable. One copy in
     `src/` — drifting copies are how a mapper silently keeps typing money by lote size. The scope
     is `src/` and only `src/`: `tests/integration/processes/engine_rest.py` holds a fourth copy of
-    the same constants, EXCLUDED on purpose because that mapper imports nothing from `maezo` (see
-    `tests/unit/integration_support/test_engine_rest_ausencia_e_proveniencia.py`), so it cannot
-    consume the declaration without losing that property."""
+    the same constants, EXCLUDED on purpose because that mapper imports nothing from `maezo`, so
+    it cannot consume the declaration without losing that property. That zero-import property is
+    true today (measured) but only DECLARED, in the module docstring of
+    `tests/unit/integration_support/test_engine_rest_ausencia_e_proveniencia.py`; no test fences
+    it, which is why the exclusion is documented here rather than left to be inferred."""
     raiz = _repo_root()
     portadores = sorted(
         str(caminho.relative_to(raiz / "src"))

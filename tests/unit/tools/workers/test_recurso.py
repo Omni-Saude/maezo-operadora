@@ -750,8 +750,10 @@ def test_indeferimento_residuo_acima_do_teto_de_um_centavo_e_meio_recusa(
 
 def test_indeferimento_nenhuma_soma_aceita_passa_do_teto_de_um_centavo_e_meio() -> None:
     """Tree-free sweep over the sub-centavo neighbourhood of 60 + 40 == 100 (21³ = 9261 trincas,
-    passo de 0,0005): EVERY triple the guard accepts has an aggregate residue of at most 1,5
-    centavo, and the sweep gets within 0,05 centavo of that ceiling. The second assertion is what
+    passo de 0,0005): every triple IN THIS SWEEP that the guard accepts has an aggregate residue
+    of at most 1,5 centavo, and the sweep gets within 0,05 centavo of that ceiling. The ceiling
+    itself is not an empirical guess — `round` is round-to-nearest, so each of the three operands
+    differs from its value in centavos by at most half a centavo. The second assertion is what
     makes this non-vacuous — under a truncating `_to_cents` the accepted residues top out at 1,0
     centavo, so the fence goes RED on a change of rounding mode instead of quietly re-passing."""
     passo = Decimal("0.0005")

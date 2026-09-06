@@ -29,9 +29,12 @@ from __future__ import annotations
 # Java `int32` (java.lang.Integer) bounds — the single copy in `src/`, which is the scope the
 # fence `test_o_literal_da_faixa_int32_vive_num_unico_lugar` enforces. `tests/integration/
 # processes/engine_rest.py` carries a fourth, deliberately excluded copy of the same constants:
-# it is test infra that imports NOTHING from `maezo` by design (stance pinned by
-# `tests/unit/integration_support/test_engine_rest_ausencia_e_proveniencia.py`), so importing
-# this module there would break the very property that makes it usable without the package.
+# it is test infra that imports NOTHING from `maezo` by design, so importing this module there
+# would break the very property that makes it usable without the package. That property is true
+# today (measured: `engine_rest.py` imports only `asyncio`, `json`, `dataclasses`, `pathlib`,
+# `typing` and `httpx`) and is DECLARED in the module docstring of
+# `tests/unit/integration_support/test_engine_rest_ausencia_e_proveniencia.py` — declared, not
+# fenced: no test asserts it, so nothing stops a future edit from adding a `maezo` import there.
 # An integer outside this range MUST be typed `Long` (int64) or the engine rejects the write with
 # "Cannot convert value '<n>' of type 'Integer' to java type java.lang.Integer" (ADR-0018 part 2).
 _JAVA_INT32_MIN = -(2**31)

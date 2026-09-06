@@ -190,7 +190,7 @@ where applicable) before any of these contracts can leave DRAFT.
      (`0,005 + 0,025` contra `0,015` fecha com 1,5 centavo exato). Acima de 1,5 centavo não fecha,
      e para entradas já em centavos nada é absorvido. **Se 1,5 centavo de absorção em entradas
      sub-centavo não for aceitável para a sua operação, isso é uma regra nova de finanças** — o
-     mesmo caminho descrito abaixo, e o único ponto deste item que ainda pode precisar de vocês.
+     mesmo caminho descrito abaixo, e é o ponto deste item que ainda pode precisar de vocês.
      Fixada por teste (`tests/unit/tools/workers/test_recurso.py`, secção "R-155"). **A assimetria
      é o ponto:** uma
      tolerância ou regra de arredondamento só pode **AFROUXAR** o guard, e afrouxar continua

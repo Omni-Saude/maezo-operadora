@@ -21,11 +21,13 @@ DECLARED EXCEPTION recorded below:
 THE EXCEPTION — the int branch, by NAME (owner decision R-173, 2026-09-04). The canonical mapper
 now consults `maezo.tools.workers.engine_var_types.camunda_int_type(name, value)`, which types
 the names in `LONG_TYPED_ENGINE_VARS` as `Long` for EVERY value; the magnitude boundary above
-still governs every other name. This mapper is NAME-BLIND — it never had a name to consult — so
-for a declared name the two mappers disagree, and the parity claim is scoped to names outside
-the declaration. That is deliberate, not drift: `EngineRest` is test infra that imports nothing
-from `maezo` by design (stance pinned by `test_engine_rest_ausencia_e_proveniencia.py`), so it
-cannot consume the declaration without losing that property. It is also inert for the only
+still governs every other name. This mapper is NAME-BLIND: the key `k` is in scope in
+`_to_camunda_vars`, but the int branch decides on magnitude alone and never consults it. So for
+a declared name the two mappers disagree, and the parity claim above holds only for names
+OUTSIDE the declaration. That is deliberate, not drift: `EngineRest` is test infra that imports
+nothing from `maezo` by design, so it cannot consume the declaration without losing that
+property. (That zero-import property is true today — measured — but only DECLARED, in the module
+docstring of `test_engine_rest_ausencia_e_proveniencia.py`; no test fences it.) It is also inert for the only
 declared name today — `total_glosado_candidato_centavos` is a computed fact the SP-OP-CONTAS-001
 contract declares is never seeded or echoed, and it appears in no `.dmn` and nowhere under
 `tests/integration/` (measured). The tests below pass because `_map()` passes no name.
