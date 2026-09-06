@@ -144,15 +144,22 @@ def count_all_adr_dir_files(adr_dir: Path) -> int:
 
 @dataclass(frozen=True, slots=True)
 class Finding:
-    """One reconciliation mismatch: a claimed count in PLANS.md that disagrees with the real
-    tree, named by 1-based line number so a human can jump straight to it."""
+    """One reconciliation problem: either a claimed count in PLANS.md that disagrees with the
+    real tree, or (when `real is None`) a claim `evaluate()` was given no real value to check
+    against at all — named by 1-based line number so a human can jump straight to it."""
 
     line_no: int
     claim_shape: str
     claimed: int
-    real: int
+    real: int | None
 
     def render(self) -> str:
+        if self.real is None:
+            return (
+                f"  - PLANS.md:{self.line_no}: alega \"{self.claimed}\" para '{self.claim_shape}', "
+                "mas não pôde ser verificada — quem chamou evaluate() não forneceu o caminho real "
+                "a comparar (tool_registry_path=None); passe o caminho real ou remova a alegação."
+            )
         return (
             f"  - PLANS.md:{self.line_no}: alega \"{self.claimed}\" para '{self.claim_shape}', "
             f"mas a árvore tem {self.real} — reconcilie o número ou corrija o gate se a árvore "
@@ -173,13 +180,17 @@ def evaluate(
 ) -> tuple[list[Finding], int]:
     """Pure(ish) — given the already-read PLANS.md text, the real `docs/adr/` path, and
     (optionally) the real `tool_registry.py` path, returns (findings, total_matches_checked).
-    `tool_registry_path=None` skips pattern 4 entirely (matches_checked stays accurate — it simply
-    never increments for that pattern) rather than failing: callers that only care about the ADR
-    patterns (most of this file's own test fixtures, which build a synthetic `adr_dir` with no
-    accompanying `tool_registry.py`) keep working unchanged. `main` always passes the real path.
-    `total_matches_checked` is always printed by `main`, even when it is zero, so a future rewrite
-    that removes this phrasing entirely is a visible PASS with an explicit "0 claims found" signal
-    — never a silent green with no evidence anything ran."""
+    `tool_registry_path=None` does NOT skip pattern 4 silently: `plans_text` is still scanned for
+    it, `matches_checked` still increments for every match found, and each such match becomes a
+    `Finding` with `real=None` — "this claim exists but nobody gave me a real tree to check it
+    against" — so a caller who omits the path cannot mistake an unverified claim for a verified
+    pass. Callers whose `plans_text` fixture never mentions the tool_registry.py claim shape at
+    all (most of this file's own ADR-only test fixtures) are unaffected either way, since there is
+    then no match to flag. `main` always passes the real path, so pattern 4 is always genuinely
+    checked in production; the `None` default exists only for callers that test the ADR patterns
+    in isolation. `total_matches_checked` is always printed by `main`, even when it is zero, so a
+    future rewrite that removes this phrasing entirely is a visible PASS with an explicit "0
+    claims found" signal — never a silent green with no evidence anything ran."""
     numbered_count = count_numbered_adr_files(adr_dir)
     total_count = count_all_adr_dir_files(adr_dir)
     tool_registry_lines = (
@@ -201,19 +212,29 @@ def evaluate(
                 if claimed != real:
                     findings.append(Finding(line_no=line_no, claim_shape=shape, claimed=claimed, real=real))
 
-        if tool_registry_lines is not None:
-            for match in _TOOL_REGISTRY_LINES_RE.finditer(line):
-                matches_checked += 1
-                claimed = int(match.group(1))
-                if not _within_tolerance(claimed, tool_registry_lines, TOOL_REGISTRY_LINES_TOLERANCE):
-                    findings.append(
-                        Finding(
-                            line_no=line_no,
-                            claim_shape="≈N linhas em tool_registry.py",
-                            claimed=claimed,
-                            real=tool_registry_lines,
-                        )
+        for match in _TOOL_REGISTRY_LINES_RE.finditer(line):
+            matches_checked += 1
+            claimed = int(match.group(1))
+            if tool_registry_lines is None:
+                # Loud path (F3): a claim exists but there is no real tree to check it against —
+                # this is a Finding, never a silent skip, so a caller cannot mistake it for a pass.
+                findings.append(
+                    Finding(
+                        line_no=line_no,
+                        claim_shape="≈N linhas em tool_registry.py",
+                        claimed=claimed,
+                        real=None,
                     )
+                )
+            elif not _within_tolerance(claimed, tool_registry_lines, TOOL_REGISTRY_LINES_TOLERANCE):
+                findings.append(
+                    Finding(
+                        line_no=line_no,
+                        claim_shape="≈N linhas em tool_registry.py",
+                        claimed=claimed,
+                        real=tool_registry_lines,
+                    )
+                )
     return findings, matches_checked
 
 
@@ -284,8 +305,8 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
 
     if findings:
         print(
-            f"{prefix} FAIL: {len(findings)} de {matches_checked} alegação(ões) de contagem de "
-            f"ADR em {plans_path} não reconcilia(m) com a árvore real:",
+            f"{prefix} FAIL: {len(findings)} de {matches_checked} alegação(ões) de contagem em "
+            f"{plans_path} não reconcilia(m) com a árvore real:",
             file=sys.stderr,
         )
         for finding in findings:
@@ -293,8 +314,8 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
         return 1
 
     print(
-        f"{prefix} PASS: {matches_checked} alegação(ões) de contagem de ADR em {plans_path} "
-        f"reconciliam com a árvore real ({adr_dir})."
+        f"{prefix} PASS: {matches_checked} alegação(ões) de contagem em {plans_path} "
+        f"reconciliam com a árvore real ({adr_dir}; {tool_registry_path})."
     )
     return 0
 

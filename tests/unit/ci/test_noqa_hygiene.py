@@ -3,13 +3,20 @@
 
 Why this matters (found by the round-6 sweep, 2026-09-06): a `# noqa: <CODE>` for a rule prefix
 outside `select` is not merely decorative — ruff never evaluates that code at all (it isn't
-selected), so the suppression is dead FOR THAT CODE. Worse, it was also observed to silently
-suppress `E501` (line-too-long, which IS enabled) on the SAME physical line regardless of which
-code the noqa comment actually names — `src/maezo/platform/health.py`'s `build_health_server`
-line carried `# noqa: S104 - ...` (S104/`hardcoded-bind-all-interfaces` is not in `select`) and
-was 168 characters wide, yet `ruff check` passed until the inert comment was removed and the line
-genuinely reformatted. So an inert noqa is not inert to a reader auditing the codebase for
-suppressions, and was not even inert to E501 in practice.
+selected), so the suppression is dead FOR THAT CODE. It is not, however, a blanket E501 shield:
+ruff excludes the `# noqa` directive comment itself from the width it measures for E501
+(line-too-long, which IS enabled), so an inert directive only ever hides the *comment's own*
+length — a CODE portion that is itself over the limit is still flagged even with an inert `# noqa`
+attached (verified: a 136-char code portion followed by `# noqa: S104` still raises
+`E501 Line too long (136 > 110)`). The corollary is what actually bit this sweep:
+`src/maezo/platform/health.py`'s `build_health_server` def line was 166 characters wide with a
+92-character code portion (well under 110) and a 74-character `# noqa: S104 - ...` directive
+comment that ruff was not counting — `ruff check` passed at both base and tip for that reason, not
+because the noqa hid an over-long code line. Downgrading the directive to a plain comment (this
+sweep's edit shape for a dead suppression) made the *comment* start counting toward the width,
+newly exposing `E501` on the same physical line. So an inert noqa is not inert to a reader
+auditing the codebase for suppressions, and removing or downgrading one can newly expose E501 on
+a long trailing comment — never the reverse.
 
 This fence reads the enabled prefixes from `pyproject.toml` itself (never hard-coded — the whole
 point is to track `select` if it ever changes) and fails on ANY future `# noqa: <CODE>` whose

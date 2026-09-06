@@ -299,15 +299,30 @@ class TestToolRegistryLinesPattern:
         )
         assert len(findings) == 1
 
-    def test_tool_registry_path_none_skips_pattern_4_entirely(self, tmp_path: Path) -> None:
-        """Callers that never pass `tool_registry_path` (e.g. `evaluate`'s own ADR-only fixtures
-        elsewhere in this file) must not have pattern 4 sprung on them by surprise."""
+    def test_tool_registry_path_none_flags_a_present_claim_as_unverifiable(self, tmp_path: Path) -> None:
+        """F3 (loud path): a caller that never passes `tool_registry_path` must not have a
+        pattern-4 claim silently dropped — `matches_checked` counts it AND it becomes a
+        `Finding(real=None)`, so the caller cannot mistake the omission for a verified pass."""
         plans = _write_plans(
             tmp_path, "`gateway/tool_registry.py`, classe `ToolRegistry`, ≈1 linhas em hoje.\n"
         )
         findings, matches_checked = evaluate(plans.read_text(encoding="utf-8"), _write_adr_tree(tmp_path, 1))
+        assert matches_checked == 1
+        assert findings == [
+            Finding(line_no=1, claim_shape="≈N linhas em tool_registry.py", claimed=1, real=None)
+        ]
+        assert "não pôde ser verificada" in findings[0].render()
+
+    def test_tool_registry_path_none_and_no_pattern_4_claim_is_still_a_clean_pass(
+        self, tmp_path: Path
+    ) -> None:
+        """The common case (ADR-only fixtures elsewhere in this file): when `plans_text` never
+        mentions the pattern-4 claim shape at all, omitting `tool_registry_path` stays a true,
+        non-vacuous pass — there is nothing to flag because nothing was claimed."""
+        plans = _write_plans(tmp_path, "docs/adr/ (1 ADRs numerados)\n")
+        findings, matches_checked = evaluate(plans.read_text(encoding="utf-8"), _write_adr_tree(tmp_path, 1))
         assert findings == []
-        assert matches_checked == 0
+        assert matches_checked == 1  # the "1 ADRs numerados" match, not pattern 4
 
     def test_unrelated_approx_line_claim_about_another_file_does_not_match(self, tmp_path: Path) -> None:
         """The pattern is anchored on `gateway/tool_registry.py` appearing on the SAME line — an

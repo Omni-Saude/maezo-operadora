@@ -67,14 +67,16 @@ check-alert-runbook-urls: ## D12-01-b / R-007: toda regra alert: de alert-rules.
 	# nao paginam ninguem e sao ignoradas por design.
 	uv run python scripts/ci/check_alert_runbook_urls.py
 
-check-plans-counts: ## AF-06: contagens de ADR declaradas em PLANS.md (ADRs numerados / ADRs (nao ...) / arquivos incl. README+template) reconciliam com docs/adr/
-	# PLANS.md declara em prosa quantos ADRs o repo tem, em duas formas (paragrafo "fonte de
-	# verdade" + tabela de reconciliacao §0.3) — nenhuma delas era recomputada contra o filesystem;
-	# ambas ficaram stale (achado AF-06: PLANS.md:39 alegava "32 ADRs (nao 24)" com a arvore ja em
-	# 39 arquivos, depois 48). O gate recomputa as tres formas de alegacao contra docs/adr/ real
-	# (nunca contra prosa historica preservada de §3, deliberadamente fora de escopo) e falha se
-	# qualquer uma delas divergir; zero alegacoes encontradas -> PASSA mas sempre imprime a
-	# contagem explicita (nunca verde silencioso).
+check-plans-counts: ## AF-06: contagens declaradas em PLANS.md (ADRs numerados / ADRs (nao ...) / arquivos incl. README+template / linhas de tool_registry.py) reconciliam com a arvore real
+	# PLANS.md declara em prosa quantas contagens o repo tem, em quatro formas (paragrafo "fonte de
+	# verdade" + tabela de reconciliacao §0.3, mais o residual `~N linhas` de tool_registry.py) —
+	# nenhuma delas era recomputada contra o filesystem; todas ficaram stale (achado AF-06:
+	# PLANS.md:39 alegava "32 ADRs (nao 24)" com a arvore ja em 39 arquivos, depois 48; PLANS.md:43
+	# alegava "≈540 linhas" com a arvore ja em 794). O gate recomputa as quatro formas de alegacao
+	# contra a arvore real (tres contra docs/adr/, uma contra tool_registry.py; nunca contra prosa
+	# historica preservada de §3, deliberadamente fora de escopo) e falha se qualquer uma delas
+	# divergir; zero alegacoes encontradas -> PASSA mas sempre imprime a contagem explicita (nunca
+	# verde silencioso).
 	uv run python scripts/ci/check_plans_counts.py
 
 check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_instance fora do allowlist da fence (ADR-0007/T-C2)
