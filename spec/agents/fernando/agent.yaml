@@ -67,19 +67,22 @@ memory:
 # cobranca: Lucas->Fernando `arrears.followup` (phase3-plan §4 — reconciliacao R9 sobre #58). O
 # dispatcher rejeita qualquer task_type fora de `accepted_task_types`.
 #
-# GAP 11.7 (canal de entrada — atualizado nesta sessao, ver docs/processes/contracts/
-# SP-OP-INADIMPLENCIA-001.md "Canal de entrada"): o lado ALVO agora e' REAL e testado
+# GAP 11.7 (canal de entrada — CORRIGIDO nesta sessao, §Delta A2A-YAML-DISCLOSURE F1; ver
+# docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md "Canal de entrada"): o lado ALVO e o lado
+# ORIGEM da delegacao `arrears.followup` estao AMBOS LIGADOS AO VIVO desde 35b5d7e5/#344 (owner
+# decision R-081, gap FERNANDO-DELEGATION-CALL-SITE, aprovada 2026-09-04) — um WP diferente, ja'
+# mergeado, nao este. O lado ALVO
 # (`src/maezo/agents/fernando/delegation.py::make_fernando_handler`/`state_from_envelope` —
-# compila o grafo REAL de Fernando, nao um stub). O lado ORIGEM (`delegate_arrears_followup`,
-# mesmo modulo) tambem existe, mas NAO esta chamado por nenhum worker ainda — o unico call site
-# possivel, `operadora.inadimplencia.prepare_dossier`, vive em `tools/workers/inadimplencia.py`,
-# fora da superficie editavel deste work package (restricao dura). O registro do handler no
-# dispatcher AO VIVO (`runtime.agent_runtime.a2a_composition`, ao lado de Carolina/Andre) tambem
-# NAO foi feito — e' composition-root de producao compartilhado com 3 agentes ja' ligados, fora
-# do escopo seguro de uma mudanca sem verificacao de engine. Este e' o canal de entrada AGENTE-A-
-# AGENTE (A2A); o beneficiario NAO tem, e continua sem, nenhum canal de entrada proprio para
-# Fernando — toda resposta do beneficiario a uma mensagem de Fernando chega (se chegar) apenas
-# pelo webhook unico de Helena (HelenaDispatcher), sem contexto de cobranca.
+# compila o grafo REAL de Fernando, nao um stub) esta REGISTRADO no dispatcher AO VIVO
+# (`runtime.agent_runtime.a2a_composition::build_dossier_delegation_dispatcher`'s
+# `handlers={...}`, ao lado de Carolina/Andre). O lado ORIGEM (`delegate_arrears_followup`, mesmo
+# modulo) agora E' CHAMADO por `tools/workers/inadimplencia.py::make_prepare_dossier_handler` (o
+# external task `operadora.inadimplencia.prepare_dossier`), fail-neutral por construcao (dispatcher
+# ausente / rejeicao estruturada / `StartProcessFailedError` completam a task com o dossie local +
+# `arrears_followup_gap`, nunca um incidente). Este e' o canal de entrada AGENTE-A-AGENTE (A2A); o
+# beneficiario NAO tem, e continua sem, nenhum canal de entrada proprio para Fernando — toda
+# resposta do beneficiario a uma mensagem de Fernando chega (se chegar) apenas pelo webhook unico
+# de Helena (HelenaDispatcher), sem contexto de cobranca.
 a2a:
   capabilities:
     - member_collections_navigation          # conduz o ciclo de cobranca avancada / inadimplencia
@@ -89,3 +92,5 @@ a2a:
   accepted_task_types:                       # ALVO de delegacao inbound (R9): acompanhamento de inadimplencia
     - arrears.followup                       # Lucas->Fernando: seguimento/notificacao de inadimplencia (informacional; adverso SO no humano)
   queue_ref: agents.tasks.fernando
+  handler_status: registrado   # handler REGISTRADO no composition root (a2a_composition.py)
+  handler_symbol: maezo.agents.fernando.delegation::make_fernando_handler

@@ -86,3 +86,5 @@ a2a:
     - care.stratify                            # PROGRAMA delega a estratificacao de risco (in-zone, apos consentimento)
     - care.enroll                              # PROGRAMA delega a montagem do plano de cuidado (sem decidir alta)
   queue_ref: agents.tasks.valentina
+  handler_status: pronto_sem_registro   # handler existe, registro NAO feito (decisao do dono)
+  handler_symbol: maezo.agents.valentina.delegation::make_valentina_handler

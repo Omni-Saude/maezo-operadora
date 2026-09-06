@@ -47,3 +47,9 @@ a2a:
   skills: []
   accepted_task_types: []
   queue_ref: agents.tasks.template
+  # DEFAULT do template (CC-02, WP A2A-YAML-DISCLOSURE): nenhum agente novo nasce com
+  # delegation.py. Troque para `registrado`/`pronto_sem_registro` (com `handler_symbol:
+  # maezo.agents.<id>.delegation::make_<id>_handler`) SO quando o handler inbound existir de
+  # verdade — `validate_dir` pula `_template/` por desenho, entao este valor nunca e checado
+  # aqui; o agente DERIVADO e' que fica sujeito a `agent_def.py::_validate_a2a_handler_disclosure`.
+  handler_status: ausente

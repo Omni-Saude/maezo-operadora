@@ -110,3 +110,4 @@ a2a:
     - whatsapp_triage
   accepted_task_types: []      # Helena nao e alvo de delegacao no Phase 1
   queue_ref: agents.tasks.helena
+  handler_status: ausente   # `agents/helena/delegation.py` so ORIGINA (nao tem make_helena_handler inbound)

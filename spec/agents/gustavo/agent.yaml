@@ -63,6 +63,10 @@ escalation:
 memory:
   episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
   semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
+# A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Gustavo e ALVO de delegacao
+# (`nip.instruct`); o handler inbound `agents/gustavo/delegation.py::make_gustavo_handler` EXISTE
+# mas NAO esta registrado em nenhum dispatcher do composition root — decisao do dono, ver
+# `_UNREGISTERED_HANDLERS` em `tests/unit/a2a/test_agent_card_handlers_parity.py`.
 a2a:
   capabilities:
     - regulatory_calendar_operation
@@ -73,3 +77,5 @@ a2a:
   accepted_task_types:
     - nip.instruct
   queue_ref: agents.tasks.gustavo
+  handler_status: pronto_sem_registro   # handler existe, registro NAO feito (decisao do dono)
+  handler_symbol: maezo.agents.gustavo.delegation::make_gustavo_handler
