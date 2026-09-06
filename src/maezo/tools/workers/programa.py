@@ -67,6 +67,40 @@ DECISAO_ENROLL = "ENROLL"
 #: funcao — nao ha um segundo valor a acrescentar aqui.
 GAP_ENROLL_A2A_NAO_LIGADO = "enroll_a2a_nao_ligado"
 
+#: Class-token da lacuna que hoje impede `proactive_contact` de fazer o que seu nome promete: NAO
+#: existe canal de contato ligado a `ST_ProactiveContact`. O handler raw
+#: (`make_proactive_contact_handler`) publica uma notificacao de OBSERVABILIDADE em
+#: `_NOTIFICATIONS_TOPIC` (`programa.proactive_contact`) — um envelope interno que nao chega a
+#: beneficiario algum e que nenhuma regra de `platform/notification_bridge.py` consome; e no
+#: caminho `kafka is None` nem essa notificacao sai. Os remetentes REAIS da classe de acao
+#: `comunicacao_beneficiario` (`spec/policies/autonomy/action-approvals.yaml`) sao as superficies
+#: WhatsApp dos agentes (fernando/helena/lucas, `mcp_whatsapp/server.py`), nunca este worker.
+#: Mesma forma e mesma disciplina de `fraude.GAP_BEATRIZ_A2A_NAO_LIGADO`/
+#: `fraude.GAP_REFERRAL_JURIDICO_NAO_LIGADO` e de `GAP_ENROLL_A2A_NAO_LIGADO` acima: token fechado,
+#: sem PHI, declarado no contrato (`docs/processes/contracts/SP-OP-PROGRAMA-001.md`, secao
+#: "Variaveis de saida") e por isso seguro para viver no escopo do processo.
+#:
+#: QUEM LE ESTE TOKEN, HOJE, EXATAMENTE (reparo §Delta F1 — a redacao anterior desta nota afirmava
+#: que ele entra "na trilha ADR-0007" e e "lido pelo humano em `UT_DecisaoClinica`"; as duas coisas
+#: sao FALSAS e sao a mesma especie de afirmacao-sem-lastro que esta WP existe para remover):
+#:   1. O ESCOPO DO PROCESSO. `harness._handle` chama `complete(task_id, worker_id, dict(out_vars))`
+#:      SEM filtro algum, entao o token vira variavel da instancia (visivel em Cockpit/history).
+#:   2. A LINHA ESTRUTURADA DE LOG `programa_proactive_contact_gap` (`warning`, com
+#:      `contato_asserted=False` e `gap=<token>`), emitida por `proactive_contact` antes do retorno.
+#:   3. O PAYLOAD DE `agents.events.programa.completed`, desde este reparo: `contato_gap` (e
+#:      `enrollment_gap`) entraram no `event_payload_vars` de `ST_PublishCompleted`.
+#: NAO ha humano lendo o token dentro do processo: `ST_ProactiveContact` e alcancada apenas pela
+#: saida ELEGIVEL de `GW_Elegibilidade` e seu UNICO sucessor e `End_EnrollmentRealizado` —
+#: `UT_DecisaoClinica` vive no ramo ANALISE_HUMANA/SLA e NAO e alcancavel a partir desta task.
+#: E o token NAO entra na trilha ADR-0007: `harness.build_decision_basis` admite de `out_vars`
+#: somente as chaves de `_SAFE_DECISION_BASIS_KEYS` (nenhuma chave `*_gap` esta la) e a decisao
+#: deliberada deste reparo foi NAO adiciona-lo — ampliar a superficie de auditoria pede
+#: justificativa propria, nao um atalho para tornar verdadeira uma frase de docstring.
+#:
+#: Quando o canal real for ligado, o token
+#: deixa de ser emitido — ausencia passa a significar "contato real ocorreu".
+GAP_CONTATO_BENEFICIARIO_NAO_LIGADO = "contato_beneficiario_nao_ligado"
+
 
 # ---------------------------------------------------------------
 # check_consent — CHOKEPOINT: gates ALL PHI processing
@@ -417,20 +451,69 @@ def stop_processing(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 def proactive_contact(variables: dict[str, Any]) -> dict[str, Any]:
-    """Contato proativo com o beneficiario (`ST_ProactiveContact`, BPMN:153-162, in-zone).
+    """NAO contata ninguem. Declara a lacuna e retorna SO isso — `{"contato_gap": <token>}`.
 
-    Defense-in-depth guard mirrors `stratify_risk`'s EXACT pattern — same invariant (consent for
-    `consent_scope`), same code (`ERR_PROGRAMA_NO_CONSENT`), same `ProgramaError`-not-
-    `WorkerBpmnError` posture: `ST_ProactiveContact` carries no error boundary in the BPMN (re-
-    verified: no `errorEventDefinition` attached to it), so a `WorkerBpmnError` here would
-    silently end the process scope on CIB Seven 2.1.0 (the same live-verified hazard documented
-    on `stratify_risk`/module docstring lines ~37-48) — it MUST stay a human-visible incident.
-    `check_consent` (the CHOKEPOINT) already gates entry to `SUB_Cuidado`; this re-checks the SAME
-    invariant in case the task is ever reached without the gate having passed (D9: "consent_checked
-    exigido antes de qualquer contato").
+    Serve `ST_ProactiveContact` (topico `operadora.programa.proactive_contact`,
+    SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn). O nome da task, o contrato e a classe de acao
+    `comunicacao_beneficiario` descrevem um CONTATO EXTERNO dirigido ao beneficiario.
 
-    Does NOT set `desfecho` — BPMN's own `ST_ProactiveContact` `outputParameter` literal (~157)
-    stamps `desfecho=enrollment_realizado`; this worker only performs the contact.
+    NEW-A2-2 (o motivo desta docstring). O retorno era, em toda entrega e sem depender de nada,
+    `{"contato_realizado": True}`, e a docstring anterior dizia literalmente "this worker only
+    performs the contact" — mas nenhum canal e contatado por linha alguma deste caminho. O que o
+    handler raw (`make_proactive_contact_handler`) faz e publicar uma notificacao de
+    OBSERVABILIDADE em `_NOTIFICATIONS_TOPIC` (`{"type": "programa.proactive_contact", ...}`), um
+    envelope INTERNO: nenhuma regra de `platform/notification_bridge.py` o consome e ele nao chega
+    a beneficiario algum. No caminho `kafka is None` nem essa notificacao sai — e ali a funcao
+    afirmava o contato tendo feito exatamente nada. A harness grava o retorno no escopo do processo
+    no `complete`, entao a constante entrava na instancia como fato de um contato que nunca houve,
+    a montante do terminal `End_EnrollmentRealizado`.
+
+    ZERO CONSUMIDORES (`grep -rnw contato_realizado src spec tests docs`): nenhuma
+    `conditionExpression` de BPMN, `inputExpression` de DMN, worker a jusante, golden de eval ou
+    linha de contrato — so a atribuicao e tres assercoes de teste unitario.
+
+    POR QUE UM TOKEN DE LACUNA E NAO `{}` (a diferenca deliberada para `notify_sla_risk` deste
+    mesmo modulo e para `fraude.intake`). Nos dois casos de `{}` a etapa nao afirma nada porque o
+    fato acontece DE VERDADE noutro lugar (a linha ADR-0007 que a harness emite antes do
+    `complete`; a task de publicacao seguinte). Aqui NAO acontece em lugar NENHUM: nenhum canal de
+    saida ao beneficiario esta ligado a esta task — os remetentes reais da classe
+    `comunicacao_beneficiario` sao as superficies WhatsApp dos agentes. Logo ha lacuna REAL a
+    declarar, e ela sai como `contato_gap`, exatamente o tratamento de
+    `evidencia_gap`/`dossie_gap`/`referral_gap` (BEA-09, FAB-REFER-TO-LEGAL) e de
+    `enrollment_gap` (ENROLL-BENEFICIARIO-SEM-EFEITO-REAL).
+
+    QUEM LE O TOKEN — os TRES leitores REAIS, e so eles (reparo §Delta F1; a redacao anterior
+    prometia "a instancia, a trilha ADR-0007 e o humano de `UT_DecisaoClinica`", e dois desses
+    tres nao existem): (1) o ESCOPO DO PROCESSO, porque `harness._handle` completa a task com
+    `dict(out_vars)` sem filtro; (2) a linha estruturada `programa_proactive_contact_gap`
+    (`warning`, `contato_asserted=False`) logo abaixo; (3) o PAYLOAD de
+    `agents.events.programa.completed`, desde este reparo — `contato_gap` e `enrollment_gap`
+    entraram no `event_payload_vars` de `ST_PublishCompleted`, unica task a jusante de
+    `SUB_Cuidado`, que e onde os dois emissores vivem.
+    NENHUM humano le o token dentro do processo neste ramo: `ST_ProactiveContact` so e alcancada
+    pela saida ELEGIVEL de `GW_Elegibilidade` e seu UNICO sucessor e `End_EnrollmentRealizado`;
+    `UT_DecisaoClinica` esta no ramo ANALISE_HUMANA/SLA, inalcancavel daqui.
+    E o token NAO entra no `decision_basis` do ADR-0007: `build_decision_basis` admite de
+    `out_vars` apenas as chaves de `_SAFE_DECISION_BASIS_KEYS`, que nao tem chave `*_gap` — e
+    este reparo deliberadamente NAO a acrescenta ali.
+
+    O GUARD SEGUE INTACTO E FAIL-CLOSED (corpo byte-identico ao anterior). Espelha o padrao EXATO
+    de `stratify_risk` — mesmo invariante (consentimento para `consent_scope`), mesmo codigo
+    (`ERR_PROGRAMA_NO_CONSENT`), mesma postura `ProgramaError`-e-nao-`WorkerBpmnError`:
+    `ST_ProactiveContact` nao carrega error boundary no BPMN (re-verificado: nenhum
+    `errorEventDefinition` anexado), entao um `WorkerBpmnError` aqui encerraria silenciosamente o
+    escopo do processo no CIB Seven 2.1.0 (o mesmo risco verificado ao vivo e documentado em
+    `stratify_risk`/docstring do modulo) — tem de continuar sendo incidente visivel a humano.
+    `check_consent` (o CHOKEPOINT) ja gateia a entrada em `SUB_Cuidado`; isto re-verifica o MESMO
+    invariante caso a task seja alcancada sem o gate ter passado (D9: "consent_checked exigido
+    antes de qualquer contato"). A recusa continua ANTES de qualquer efeito — e agora tambem antes
+    de qualquer declaracao de lacuna.
+
+    NAO seta `desfecho`: o `outputParameter` do proprio `ST_ProactiveContact` carimba
+    `desfecho=enrollment_realizado`. O vocabulario de desfecho e do BPMN, nao deste worker (C3), e
+    por isso NAO foi mexido aqui; a `<bpmn:documentation>` da task e que passou a divulgar que o
+    terminal significa hoje "o processo roteou o caminho consentido e terminou", NAO "o
+    beneficiario foi contatado".
     """
     consentimento_ativo = variables.get("consentimento_ativo") is True
     consent_checked = variables.get("consent_checked") is True
@@ -449,15 +532,19 @@ def proactive_contact(variables: dict[str, Any]) -> dict[str, Any]:
             f"proactive_contact recusado: consentimento ausente/revogado para escopo '{consent_scope}'",
         )
 
-    logger.info(
-        "programa_proactive_contact",
+    # `contato_asserted=False` diz no log o que o retorno diz no escopo do processo: esta etapa
+    # nao contatou o beneficiario por canal algum. `warning`, e nao `info` como em `fraude.intake`:
+    # ali nao havia lacuna (o registro ocorre noutro lugar), aqui ha — o contato nao acontece em
+    # lugar NENHUM, e a task se chama "Contato proativo com o beneficiario".
+    logger.warning(
+        "programa_proactive_contact_gap",
         beneficiario=beneficiario,
         programa_id=programa_id,
+        contato_asserted=False,
+        gap=GAP_CONTATO_BENEFICIARIO_NAO_LIGADO,
     )
 
-    return {
-        "contato_realizado": True,
-    }
+    return {"contato_gap": GAP_CONTATO_BENEFICIARIO_NAO_LIGADO}
 
 
 # ---------------------------------------------------------------
