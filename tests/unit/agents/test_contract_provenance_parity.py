@@ -112,8 +112,11 @@ class _FakeInference:
 
 
 class _FakeDmn:
+    # P-17 (PROTOCOL-FAKE-FENCES, REG-04): parametros renomeados para os do Protocol real
+    # `tools/workers/dmn_transport.py::DmnTransport.evaluate` -- so' o NOME mudou (chamadas
+    # reais sao posicionais), nenhum comportamento.
     async def evaluate(
-        self, table: str, dmn_input: dict[str, Any]
+        self, decision_key: str, variables: dict[str, Any], *, tenant: str | None = None
     ) -> tuple[list[dict[str, Any]], DmnVersion]:
         return (
             [
@@ -128,7 +131,8 @@ class _FakeDmn:
 
 
 class _FakeWhatsApp:
-    async def send(self, to: str, text: str) -> dict[str, Any]:
+    # P-17 (REG-04): `to` -> `to_hash`, o nome do Protocol real `WhatsAppSender.send`.
+    async def send(self, to_hash: str, text: str) -> dict[str, Any]:
         return {"ok": True}
 
 

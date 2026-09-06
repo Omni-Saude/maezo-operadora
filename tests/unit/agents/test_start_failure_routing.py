@@ -80,8 +80,14 @@ class _FakeInference:
 
 
 class _FakeDmn:
+    # P-17 (PROTOCOL-FAKE-FENCES, REG-04): parametros renomeados para os do Protocol real
+    # `tools/workers/dmn_transport.py::DmnTransport.evaluate` (`decision_key`, `variables`, kwonly
+    # `tenant`) -- so' o NOME mudou (chamadas reais sao posicionais, `self._dmn.evaluate(table,
+    # dmn_input)` em cada `graph.py`), nenhum comportamento. Sem esta correcao, uma chamada futura
+    # por keyword (`.evaluate(decision_key=..., variables=...)`) levantaria `TypeError` contra
+    # este falso, exatamente a especie do defeito `f1bc87f`/CC-12.
     async def evaluate(
-        self, table: str, dmn_input: dict[str, Any]
+        self, decision_key: str, variables: dict[str, Any], *, tenant: str | None = None
     ) -> tuple[list[dict[str, Any]], DmnVersion]:
         return (
             [
@@ -99,8 +105,10 @@ class _RecordingWhatsApp:
     def __init__(self) -> None:
         self.sent: list[tuple[str, str]] = []
 
-    async def send(self, to: str, text: str) -> dict[str, Any]:
-        self.sent.append((to, text))
+    # P-17 (REG-04): `to` -> `to_hash`, o nome do Protocol real
+    # `agents/helena/graph.py::WhatsAppSender.send` (chamadas reais sao posicionais).
+    async def send(self, to_hash: str, text: str) -> dict[str, Any]:
+        self.sent.append((to_hash, text))
         return {"ok": True}
 
 
