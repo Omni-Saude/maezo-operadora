@@ -5,7 +5,7 @@
   "tier": [
     "A"
   ],
-  "description": "FER-06: J2 acompanhamento_purga with inadimplencia_status resolving the ANALISE_HUMANA catch-all (collective/ambiguous case) -- escalates exactly like SEGUE_ANALISE, never a silent notify. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for fernando's declared `dmn: inadimplencia_status=ANALISE_HUMANA` trigger, which had zero golden coverage before this case. Synthetic data only.",
+  "description": "FER-06: J2 acompanhamento_purga with inadimplencia_status resolving the ANALISE_HUMANA catch-all (collective/ambiguous case) -- escalates exactly like SEGUE_ANALISE, never a silent notify. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for fernando's declared `dmn: inadimplencia_status=ANALISE_HUMANA` trigger, which had zero golden coverage before this case. Synthetic data only. Uniao do trem train-b (GOLDENS-MISSING x FERNANDO-INPUT-DESFECHO): `tipo_plano` era `coletivo`, token que o contrato SP-OP-INADIMPLENCIA-001 NUNCA declarou; com o dominio FECHADO de FER-05 vivo, `receive` fail-closa (`error=invalid_tipo_plano`, `motivo_humano=ambiguidade`) e o caso deixaria de exercer a rota que ele existe para cobrir. Trocado pelo token DECLARADO `coletivo_empresarial` -- exatamente o que a linha do contrato `tipo_plano IN {coletivo_empresarial, coletivo_adesao} -> ANALISE_HUMANA` descreve -- sem tocar a allowlist nem o `dmn_fixture`.",
   "input": {
     "state": {
       "tenant_id": "amh",
@@ -15,7 +15,7 @@
       "matricula_beneficiario": "MAT-EVL-020",
       "beneficiario_pseudo_id": "PSEUDO-TESTE-020",
       "to_hash": "hash-evl-fernando-10",
-      "tipo_plano": "coletivo",
+      "tipo_plano": "coletivo_empresarial",
       "origem_solicitacao": "cobranca",
       "competencias_em_aberto": [
         "2026-02",
