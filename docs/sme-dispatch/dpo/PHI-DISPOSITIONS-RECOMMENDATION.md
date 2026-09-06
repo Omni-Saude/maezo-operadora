@@ -262,11 +262,14 @@ as seis restantes para a rodada seguinte.
    `docs/compliance/`. Sem isso não há assinante para nada acima.
 2. **Posição da operação/ANS** sobre a busca por matrícula no Cockpit (§3.3). O registro de
    decisões (R-008) exige que a operação seja ouvida **antes** do PR de ratificação.
-3. **Cerca de CI dos pré-requisitos de `scrub_only`** (R-009): um
-   `scripts/ci/check_phi_scrub_prereqs.py` que reprove se o arquivo sair de `DRAFT` sem
-   `phi/hmac-key` provisionado e sem a janela de drenagem CANCEL/INAD registrada. **Não foi
-   construído neste rascunho** — `scripts/ci/` é CODEOWNED e a cerca não estava no escopo deste
-   lote. Fica declarada como PR acompanhante obrigatório.
+3. **Cerca de CI dos pré-requisitos de `scrub_only`** (R-009): `scripts/ci/check_phi_scrub_prereqs.py`
+   reprova qualquer PR que deixe o arquivo sair de `DRAFT` (com `modo: scrub_only`/`pseudo_keys`)
+   sem `phi/hmac-key` provisionado e sem a janela de drenagem CANCEL/INAD registrada. **Construída**
+   (Makefile `check-phi-scrub-prereqs`, wired em `.github/workflows/ci.yml`/`validate-artifacts`;
+   `pre_requisitos_scrub_only` no próprio manifesto). A cerca só LÊ o arquivo — nunca escreve
+   `status`/`ratificacao.*`; as duas pré-condições continuam pendentes de dado real (item 4 abaixo
+   + a janela de drenagem), o que a mantém vermelha caso o PR de ratificação tente sair de `DRAFT`
+   sem elas.
 4. **Provisionamento de `PHI_HMAC_KEY`** (M-24 / D6-04). Sem ele, um `scrub_only` ratificado faz
    cada composition root reportar **NOT READY no boot** — `bootstrap_observability` captura o
    `PseudonymizerKeyMissingError` e deixa a readiness vermelha
