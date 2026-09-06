@@ -59,7 +59,9 @@ async def test_helena_eval_tier_a(case: dict[str, Any]) -> None:
     """Drive the compiled Helena graph with the ReplayInferenceProvider; assert RT+SF+ABS."""
     result = await run_case(build, case, extra_config=_helena_extra_config())
     assert_expect(result.state, case["expect"])
-    assert_no_leak(result.state, case.get("leak_canaries") or [])
+    # EVAL-HARNESS-SENDER (NEW-07): `sender=` folds every WhatsApp text this turn actually sent
+    # into the SAME ABS scan -- `state` alone never sees `send_escalation_ack`-shaped leaks.
+    assert_no_leak(result.state, case.get("leak_canaries") or [], sender=result.whatsapp)
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +371,9 @@ async def test_fernando_eval_tier_a(case: dict[str, Any]) -> None:
     `expect` lives under `fields` (never `next_kind`, which this graph's state never sets)."""
     result = await run_case(build_fernando, case, extra_config=_fernando_extra_config())
     assert_expect(result.state, case["expect"])
-    assert_no_leak(result.state, case.get("leak_canaries") or [])
+    # EVAL-HARNESS-SENDER (NEW-07): `sender=` folds every WhatsApp text this turn actually sent
+    # into the SAME ABS scan -- `state` alone never sees `send_escalation_ack`-shaped leaks.
+    assert_no_leak(result.state, case.get("leak_canaries") or [], sender=result.whatsapp)
 
 
 @pytest.mark.eval
@@ -441,7 +445,9 @@ async def test_lucas_eval_tier_a(case: dict[str, Any]) -> None:
     never sets)."""
     result = await run_case(build_lucas, case, extra_config=_lucas_extra_config())
     assert_expect(result.state, case["expect"])
-    assert_no_leak(result.state, case.get("leak_canaries") or [])
+    # EVAL-HARNESS-SENDER (NEW-07): `sender=` folds every WhatsApp text this turn actually sent
+    # into the SAME ABS scan -- `state` alone never sees `send_escalation_ack`-shaped leaks.
+    assert_no_leak(result.state, case.get("leak_canaries") or [], sender=result.whatsapp)
 
 
 @pytest.mark.eval

@@ -62,7 +62,8 @@ tests/evals/
 Each family builder wave owns its own test module + its own `golden/<agent>/` subdirectories —
 disjoint files, so B1/B2/B3 can run in parallel with zero collisions. Nobody but B0 edits
 `conftest.py` / `_harness.py` / this README — WP-EVALS (gaps 10.3/11.5, 2026-09), RAF-06
-(RAF-01, 2026-09-04) and CC-01/CC-08 (2026-09-04) are the three documented exceptions. WP-EVALS ADDS (never edits existing
+(RAF-01, 2026-09-04), CC-01/CC-08 (2026-09-04) and EVAL-HARNESS-SENDER (NEW-07, 2026-09-05) are
+the four documented exceptions. WP-EVALS ADDS (never edits existing
 lines in) `_harness.py`'s clarity helpers and this README's own documentation of them, per its
 brief ("if the runner cannot express it, extend the runner at the root"). See "Clarity/legibility
 checks" and "Journey evals" below. RAF-06's scope is honest, not purely additive like WP-EVALS':
@@ -109,6 +110,33 @@ already builds a case's `dmn_fixture` from exactly the `decision_key`s the case 
 already enough to make `FakeDmnTransport.evaluate` raise `DmnEvaluationError` for it — this is
 why CC-08's DMN-down goldens carry no new top-level block at all, unlike its PhiZoneRoutingError
 goldens (`inference`, new) and CC-01's start-failure goldens (`cibseven`, pre-existing).
+
+EVAL-HARNESS-SENDER (NEW-07 `EVAL-ABS-CHECK-BLIND-TO-SENDER-OUTPUT`, 2026-09-05, purely
+ADDITIVE like WP-EVALS'/CC-01's/CC-08's, unlike RAF-06's) closes a gap in `assert_no_leak`
+itself, not in a fixture: every existing ABS check's shape, `assert_no_leak(result.state,
+leak_canaries)`, is structurally blind to any text a graph hands ONLY to an outbound sender —
+`src/maezo/agents/lucas/graph.py::LucasGraph.send_escalation_ack` drafts an LLM ack and sends it
+(`await self._whatsapp.send(to_hash, ack_text)`) but never places `ack_text` in the dict it
+returns, so `RunResult` carried no field any assertion could inspect to catch a leak planted
+there. This wave ADDS a `whatsapp` field to `RunResult` (`run_case` now defaults
+`config["whatsapp"]` to a fresh `FakeWhatsAppSender()` before `extra_config` is merged in, so
+every case gets one — the seven non-classifier agents' `build(config)` never read this key, so
+it is an unused, harmless entry for them) and a new keyword-only `sender` parameter on
+`assert_no_leak`, defaulting to `None`: passing `sender=result.whatsapp` folds every `(to_hash,
+text)` pair actually sent into the SAME serialized ABS scan. It EDITS the single internal
+`assert_no_leak` call inside `run_mutation_check` to always pass `sender=result.whatsapp` — a
+no-op for every existing mutation-check test today (their canaries already reach `state`), but
+it means every `*_mutation_check_leak_is_non_vacuous` test across every family file gains
+sender-output coverage for free, with no per-file edit needed. It additionally edits
+`test_classifier_evals.py`'s three `test_<agent>_eval_tier_a` functions (helena/fernando/lucas —
+the only family with an outbound `WhatsAppSender` seam) to pass `sender=result.whatsapp` at
+their own direct `assert_no_leak` call, closing the gap for the PRIMARY ABS check a real
+golden's `leak_canaries` drives, not only the harness's own synthetic mutation-check canary. No
+existing golden's pass/fail outcome changes (every current `leak_canaries` list for an
+escalate_human-routed lucas case is empty, `[]`) — reproduce with
+`tests/evals/test_harness_sender_leak.py`, which proves the fix non-vacuous by reusing
+`EVL-LUCAS-02` read-only (`load_golden`/`mutate_plant_canary` — no golden JSON file is edited by
+this wave).
 
 ## Golden case JSON schema
 
