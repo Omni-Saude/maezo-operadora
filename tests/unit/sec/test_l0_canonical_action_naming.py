@@ -60,7 +60,9 @@ _HARD_FROZEN = _AUTONOMY_DIR / "_hard_frozen.yaml"
 #: The block this file exists for.
 _BLOCK = "vocabulario_l0_canonico"
 
-#: The machine-detectable placeholder the manifest header defines (`:39-41`).
+#: The machine-detectable placeholder the manifest header defines: "The literal string
+#: `PENDENTE` is the machine-detectable placeholder: a field left as `PENDENTE` (or blank, or
+#: null) means NOT approved, even alongside `aprovado: true`."
 _PENDING = "PENDENTE"
 
 _TENANT = "amh"
@@ -219,10 +221,26 @@ def test_no_canonical_name_aliases_an_existing_matrix_action(block: dict[str, An
     )
 
 
+#: The closed key set the block itself declares (read from the shipped entries, never invented):
+#: every entry has exactly these keys, `zona` present only on the two inference names; every
+#: `ratificacao` sub-block has exactly these four accountability keys.
+_ENTRY_KEYS = {"classe", "zona", "operacoes", "descricao", "instalado_em_l0_core", "ratificacao"}
+_RATIFICACAO_KEYS = {"ratificado", "ratificador", "data", "evidencia_ref"}
+
+
 def test_every_ratification_field_is_the_pending_placeholder(block: dict[str, Any]) -> None:
-    """`:47` ("NO AGENT MAY FILL ANY BLOCK BELOW") reaches this block in the same letter."""
+    """The header's "NO AGENT MAY FILL ANY BLOCK BELOW." reaches this block in the same letter.
+
+    Closed-key fence (VER-R114 F1): an unknown key — an `aprovado` smuggled into an entry, or a
+    stray field inside `ratificacao` — would be invisible to the assertions below unless the key
+    SET itself is pinned first. `<=` (not `==`) on the entry because `zona` is legitimately absent
+    from the two non-inference entries (`test_inference_is_named_per_zone_with_two_distinct_names`
+    already pins which entries carry it).
+    """
     for canonical, entry in block.items():
+        assert set(entry) <= _ENTRY_KEYS, f"{canonical}: unknown key(s) {set(entry) - _ENTRY_KEYS}"
         ratification = entry["ratificacao"]
+        assert set(ratification) == _RATIFICACAO_KEYS, f"{canonical}.ratificacao: {set(ratification)}"
         assert ratification["ratificado"] is False, canonical
         for field in ("ratificador", "data", "evidencia_ref"):
             assert ratification[field] == _PENDING, f"{canonical}.{field}"

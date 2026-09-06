@@ -738,9 +738,9 @@ mapeamento_acoes:
 #
 # O QUE ESTE BLOCO É. Uma DECLARAÇÃO DE NOME, e nada além disso. Escrever um nome aqui não cria
 # ação de autonomia, não muda classe nenhuma, não aprova nada e não pode produzir ALLOW: o
-# `status` deste arquivo segue `DRAFT` e o cabeçalho (linha 27) já declara que um arquivo DRAFT
-# NUNCA produz ALLOW, em modo nenhum. Nomear é o pré-requisito barato do que vem depois — não é
-# o que vem depois.
+# `status` deste arquivo segue `DRAFT` e o cabeçalho já declara — em «A `status: DRAFT` file can
+# NEVER produce an ALLOW, in ANY mode» — que um arquivo DRAFT NUNCA produz ALLOW, em modo nenhum.
+# Nomear é o pré-requisito barato do que vem depois — não é o que vem depois.
 #
 # O QUE ESTE BLOCO NÃO É — e a razão de cada NÃO:
 #
@@ -761,9 +761,9 @@ mapeamento_acoes:
 #   * NÃO é uma aprovação. Nenhum campo `aprovado` aparece aqui, DE PROPÓSITO: neste arquivo
 #     `aprovado` significa "o domínio X atestou a classe Y", e reusar o token para um ato de
 #     VOCABULÁRIO daria dois significados à mesma palavra no mesmo arquivo. O par equivalente é
-#     `ratificado: false` com todo campo de accountability em `PENDENTE` — a mesma disciplina da
-#     linha 47 ("NO AGENT MAY FILL ANY BLOCK BELOW"), que vale aqui na mesma letra: NENHUM AGENTE
-#     PODE MARCAR `ratificado: true` NEM PREENCHER `ratificador`/`data`/`evidencia_ref`.
+#     `ratificado: false` com todo campo de accountability em `PENDENTE` — a mesma disciplina do
+#     aviso do cabeçalho («NO AGENT MAY FILL ANY BLOCK BELOW.»), que vale aqui na mesma letra:
+#     NENHUM AGENTE PODE MARCAR `ratificado: true` NEM PREENCHER `ratificador`/`data`/`evidencia_ref`.
 #
 #   * NÃO estreita nem alarga `dominios_exigidos` de ninguém. As três classes citadas seguem
 #     exigindo `[medica, ans, seguranca]` em `acoes:`, inalterado — decidir quais domínios gateiam
