@@ -535,12 +535,14 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                 evidence=(
                     "spec/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn:55 "
                     "(VARIAVEIS DE ENTRADA roll) — free-text detail of a data-subject request; "
-                    "src/maezo/tools/workers/lgpd.py:483 calls it '(free-text PHI)' in a comment "
-                    "and hand-omits it from the request-proof notification payload."
+                    "src/maezo/tools/workers/lgpd.py::make_request_additional_proof_handler "
+                    "calls it '(free-text PHI)' in a comment and hand-omits it from the "
+                    "request-proof notification payload."
                 ),
                 recommendation=(
                     "RECOMMEND adding it to PHI_PROCESS_VARS. The strongest case in this table: "
-                    "the repo's OWN code already names it free-text PHI (lgpd.py:483) and excludes "
+                    "the repo's OWN code already names it free-text PHI "
+                    "(lgpd.py::make_request_additional_proof_handler) and excludes "
                     "it from ONE egress by hand, which means today's protection is a manual "
                     "omission at a single call site instead of the name-anchored control. Any "
                     "other worker that copies process variables into an output dict emits it raw. "
@@ -1297,7 +1299,7 @@ def declared_input_names(text: str) -> list[tuple[str, int]]:
 #: Each one is attested by a line in this repo that uses it about a field the repo
 #: already treats as PHI: "texto livre PHI"
 #: (`SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn:145`), "(free-text
-#: PHI)" (`src/maezo/tools/workers/lgpd.py:483`), "narrativa"
+#: PHI)" (`src/maezo/tools/workers/lgpd.py::make_request_additional_proof_handler`), "narrativa"
 #: (`src/maezo/agents/beatriz/prompts.py:61`).
 FREE_TEXT_MARKERS: tuple[str, ...] = (
     "texto livre",

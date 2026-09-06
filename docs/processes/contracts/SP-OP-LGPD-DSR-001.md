@@ -76,11 +76,22 @@ Re-pedido do mesmo tipo no mesmo dia retorna a instancia ativa.
 | External task | `operadora.events.publish` | consome | publicador generico |
 | External task | `operadora.lgpd.verify_identity` | consome | verificacao de identidade |
 | External task | `operadora.lgpd.request_additional_proof` | consome | pedir prova adicional |
-| External task | `operadora.lgpd.compile_data_package` | consome | compila pacote/minuta conforme `fluxo` |
-| External task | `operadora.lgpd.execute_request` | consome | executa retificacao/eliminacao aprovada |
+| External task | `operadora.lgpd.compile_data_package` | consome | compila pacote/minuta conforme `fluxo` — **SEM worker** (#55 R-C, gated no DPO: matriz de bases legais/retencao) |
+| External task | `operadora.lgpd.execute_request` | consome | executa retificacao/eliminacao aprovada — worker unico `lgpd.py::ExecuteRequestWorker` (R-181); hoje **recusa em todo caminho**, ver a nota abaixo |
 | External task | `operadora.lgpd.send_response` | consome | envia resposta (ou negativa fundamentada) |
 | External task | `operadora.lgpd.notify_sla_risk` | consome | alertas de SLA (interno e legal) |
 | Message BPMN | `msg.lgpd.proof_received` | recebe | prova de identidade chegou |
+
+> **Topologia de execucao (R-181, 2026-09-06) — nenhuma ratificacao implicada.** Ate esta data o
+> codigo registrava TRES workers em topicos que este contrato e o BPMN nunca declararam
+> (`operadora.lgpd.execute_export`/`execute_rectification`/`execute_erasure`, linhas O2-O4 de
+> `docs/compliance/lgpd-topic-reconciliation.md`) enquanto `operadora.lgpd.execute_request` — o
+> unico topico de execucao que este contrato declara — ficava **sem worker**. A decisao do dono
+> R-181 autorizou conformar o codigo ao modelo. O worker unico `ExecuteRequestWorker` despacha
+> pelo `tipo_requisicao` declarado na tabela "Variaveis de entrada" acima e **recusa em todo
+> caminho** com incidente nao-retentado: nenhuma exportacao, retificacao ou eliminacao real esta
+> habilitada. A habilitacao continua **ato do DPO** (F-2 + matriz AF-07) e este contrato segue
+> `DRAFT (v0.1.0)` — nenhum campo de signoff foi tocado por essa mudanca.
 
 ## DMN referenciada
 

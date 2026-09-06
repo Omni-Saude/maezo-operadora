@@ -5,9 +5,8 @@ Provides BPMN external task handlers for Direitos do Titular (art. 18, LGPD).
 Workers:
 - ValidateIdentityWorker: verificacao de identidade (FAIL-CLOSED em identidade_verificada is True)
 - request_additional_proof (#55 R-B): pede prova adicional (challenge anti eng. social)
-- ExecuteExportWorker: compilacao de dados para exportacao
-- ExecuteRectificationWorker: retificacao de dados
-- ExecuteErasureWorker: eliminacao de dados (guard: ERR_DENIAL_NOT_HUMAN)
+- ExecuteRequestWorker (R-181): UNICO worker de execucao, no topico modelado
+  `operadora.lgpd.execute_request` (ST_ExecutarRequisicao); recusa fail-closed em TODO caminho
 - send_response (#55 R-F): despacha/notifica o envio da resposta aprovada pelo humano
 - notify_sla_risk (#55 R-G): notifica risco/estouro de SLA (fase ack P7D e resolution P15D)
 
@@ -42,12 +41,22 @@ never performed. The DSR's completion IS published, by the BPMN's shared generic
 (ADR-0026 §2b) and is untouched by the retirement. `docs/compliance/lgpd-topic-reconciliation.md`
 classifies the fix as "Fix code -> spec · MECHANICAL" (R-H); that document is itself DRAFT and
 ratifies nothing — the retirement stands on the engineering fact above, not on a sign-off.
+
+NOTE (R-181, gap `SP-OP-LGPD-DSR-001` / `LGPD-WORKER-DRIFT`, WP-DRIFT-REGISTRO-TOPICOS): the three
+`Execute*Worker` classes (`ExecuteExportWorker`/`ExecuteRectificationWorker`/`ExecuteErasureWorker`,
+topics `operadora.lgpd.execute_export`/`execute_rectification`/`execute_erasure`) were COLLAPSED
+into the single `ExecuteRequestWorker` on the BPMN-modelled topic
+`operadora.lgpd.execute_request` (`ST_ExecutarRequisicao`). Those three topics were ORPHAN CODE
+TOPICS — no `camunda:topic` in `spec/` ever carried them (rows O2-O4 of
+`docs/compliance/lgpd-topic-reconciliation.md`) — while the modelled topic had no worker at all
+(row T4). Every execution path stays FAIL-CLOSED: no export, rectification or erasure is enabled
+by this collapse, and the DPO ratifies ENABLEMENT later (F-2 + AF-07), never the topology. See
+`ExecuteRequestWorker`'s docstring for why every path must RAISE rather than return.
 """
 
 from __future__ import annotations
 
 import logging
-import uuid
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -165,247 +174,241 @@ class ValidateIdentityWorker(WorkerBase):
 
 
 # ---------------------------------------------------------------------------
-# ExecuteExportWorker
+# ExecuteRequestWorker (R-181) — o UNICO worker do topico modelado
 # ---------------------------------------------------------------------------
 
+_EXECUTE_REQUEST_TOPIC = "operadora.lgpd.execute_request"
 
-class ExecuteExportWorker(WorkerBase):
-    """External task: operadora.lgpd.execute_export
+# Direitos do art. 18 que `ST_ExecutarRequisicao` executaria, um por grupo de `tipo_requisicao`.
+_DIREITO_EXPORTACAO = "exportacao"
+_DIREITO_RETIFICACAO = "retificacao"
+_DIREITO_ELIMINACAO = "eliminacao"
+_DIREITO_INFORMATIVO = "informativo"
 
-    Compila pacote de dados para exportacao/portabilidade.
-    Guard: requires human_approved=True.
+#: Dominio de `tipo_requisicao` -> direito. Os seis valores sao os DECLARADOS pelo modelo, nunca
+#: inventados aqui: a `bpmn:documentation` do processo os enumera em "VARIAVEIS DE ENTRADA"
+#: (`spec/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn`) e o contrato os repete na
+#: tabela "Variaveis de entrada" (`docs/processes/contracts/SP-OP-LGPD-DSR-001.md`). O
+#: agrupamento espelha o `fluxo` que a DMN `lgpd_dsr_routing` deriva dos MESMOS seis valores
+#: (EXPORTACAO / RETIFICACAO / ELIMINACAO_AVALIACAO / INFORMATIVO). `tipo_requisicao` e a
+#: variavel de tipo-de-requisicao que o BPMN carrega — ela compoe a business key do processo e
+#: viaja em `event_payload_vars` de cinco `ST_Publish*`; nenhuma outra existe.
+_TIPO_REQUISICAO_PARA_DIREITO: dict[str, str] = {
+    "confirmacao_acesso": _DIREITO_EXPORTACAO,
+    "portabilidade": _DIREITO_EXPORTACAO,
+    "correcao": _DIREITO_RETIFICACAO,
+    "eliminacao": _DIREITO_ELIMINACAO,
+    "info_compartilhamento": _DIREITO_INFORMATIVO,
+    "revogacao_consentimento": _DIREITO_INFORMATIVO,
+}
 
-    LGPD art. 18, II e V — acesso e portabilidade.
+#: Prefixo de TODA recusa deste worker. Ele lidera com o FATO INVARIANTE (nada e executavel) e so
+#: depois nomeia o guard especifico — o inverso deixaria o diagnostico de producao mentir: como
+#: `human_approved` nao existe no modelo (ver `ExecuteRequestWorker`), reportar "sem aprovacao
+#: humana" como causa PRIMARIA culparia o revisor por uma lacuna de implementacao.
+_RECUSA_PREFIXO = (
+    "execute_request: a execucao real NAO esta implementada para direito algum do art. 18 "
+    "(exportacao/retificacao/eliminacao) — recusa FAIL-CLOSED, NUNCA um sucesso fabricado. A "
+    "habilitacao da execucao real e ato do DPO (F-2 + matriz AF-07), nunca deste PR de topologia. "
+)
+
+
+class ExecuteRequestWorker(WorkerBase):
+    """External task: operadora.lgpd.execute_request — `ST_ExecutarRequisicao`.
+
+    R-181 (WP-DRIFT-REGISTRO-TOPICOS): este worker SUBSTITUI os tres `Execute*Worker` que
+    ocupavam os topicos `operadora.lgpd.execute_export`/`execute_rectification`/`execute_erasure`
+    — topicos ORFAOS que `camunda:topic` algum do BPMN carregava (linhas O2-O4 de
+    `docs/compliance/lgpd-topic-reconciliation.md`), enquanto o topico MODELADO
+    `operadora.lgpd.execute_request` seguia sem worker (linha T4, "NAME + DECOMPOSITION
+    MISMATCH"). O BPMN declara UMA service task de execucao — `ST_ExecutarRequisicao`, "Executar
+    retificacao/eliminacao aprovada" — alcancada SO por `Flow_GWDec_Executar`
+    (`${decisao_dsr == 'EXECUTAR_E_ENVIAR'}`, guard do ENGINE).
+
+    NENHUM CAMINHO COMPLETA A TAREFA. Toda entrada possivel termina em
+    `WorkerFailureError(retries_left=0)` — um incidente imediato, nao-retentado. Isto NAO e
+    excesso de zelo, e a unica postura honesta disponivel, por duas razoes MEDIDAS:
+
+    1. **Nada esta implementado.** A cascata de delecao (`platform.erasure.ErasureManager`)
+       levanta `ErasureNotImplementedError`, nao ha resolucao `titular_pseudo_id`->
+       `fhir_patient_id` nas process_vars, e nao existe seam de retificacao nem de exportacao
+       neste modulo. Os dois workers aposentados MENTIAM nesse ponto: `ExecuteExportWorker`
+       devolvia `status="export_compiled"` com um `package_ref` cunhado por `uuid4()` e
+       `ExecuteRectificationWorker` devolvia `status="rectification_completed"` — ambos sem
+       executar UMA LINHA de SQL. Enquanto os topicos eram orfaos isso era LATENTE; no topico
+       modelado seria uma afirmacao VIVA e falsa ao titular (LGPD art. 18). Somente
+       `ExecuteErasureWorker` ja recusava (T3.4-F3); este worker estende a MESMA postura
+       auditada aos outros dois direitos.
+    2. **Completar a tarefa afirma a execucao pela POSICAO no fluxo.** `Flow_Executar_Enviar`
+       (`sourceRef=ST_ExecutarRequisicao targetRef=ST_EnviarResposta`) NAO tem
+       `conditionExpression`: qualquer `complete`, mesmo com um dict "blocked_by_guard", avanca o
+       token para "Enviar resposta ao titular" -> `ST_PublishCompleted`
+       (`event_desfecho=atendida`) -> `End_RequisicaoConcluida`. Devolver um dict de guard aqui
+       — o que os tres workers aposentados faziam — seria portanto FAIL-OPEN no topico modelado:
+       o titular receberia a resposta e o evento diria "atendida" sem nada ter sido executado, e
+       sem incidente algum. O incidente e o unico desfecho que SEGURA o token.
+
+    Guards preservados de O2-O4 (as tres condicoes que `lgpd-topic-reconciliation.md` R-D exige
+    que o colapso preserve): (a) nenhuma execucao sem aprovacao humana, (b) nenhuma execucao sem
+    `decisao_dsr == 'EXECUTAR_E_ENVIAR'` explicito (FAIL-CLOSED, GAP-LGPD-4), (c)
+    `NEGAR_FUNDAMENTADO` NUNCA executa. Eles agora escolhem QUAL recusa e reportada, nao SE ha
+    recusa — a barreira e total.
+
+    NOTA sobre `human_approved` (achado de R-181, reportado como INFO): esse nome nao aparece no
+    BPMN nem no contrato — `grep -n 'human_approved'` em ambos retorna ZERO. Ele e um sinal
+    exclusivo do codigo, que instancia real alguma semeia. A decisao humana RATIFICADA deste
+    processo e `decisao_dsr`, escrita por `UT_RevisaoDpo` e guardada pelo engine em
+    `Flow_GWDec_Executar`. O guard e mantido (defesa em profundidade, matriz T3.1 intacta) mas
+    NUNCA e a causa primaria relatada: `_RECUSA_PREFIXO` lidera toda mensagem com o fato de que
+    nada esta implementado.
+
+    NENHUM `WorkerBpmnError` e levantado aqui, de proposito. O BPMN declara
+    `ERR_DSR_ERASURE_FAILED` (`bpmn:19`) e `ERR_DSR_ERASURE_NOT_HUMAN` (`bpmn:22`) mas ambos
+    estao DECLARADOS e NAO-VINCULADOS — `errorRef` nenhum os referencia e `ST_ExecutarRequisicao`
+    nao carrega `bpmn:boundaryEvent` algum. Levanta-los reprovaria
+    `scripts/ci/check_bpmn_error_allowlist.py` (ADR-0030 §2 clausula b) e o harness os demoveria
+    a `failure(retries=0)` de qualquer forma. `LGPD_BPMN_ERROR_ALLOWLIST` segue com o UNICO codigo
+    consumption-covered do modulo (`ERR_DSR_IDENTITY_UNVERIFIED`). Adicionar boundary catches em
+    `ST_ExecutarRequisicao` e mudanca de spec com sign-off de SME — fora de R-181.
+
+    PHI (gap `LGPD-EXECUTE-ERASURE-RAW-FUNDAMENTACAO`): `fundamentacao_legal` e
+    `detalhes_requisicao` sao texto livre digitado por humano e NAO estao em `PHI_PROCESS_VARS`
+    nem em `PHI_FREE_TEXT_VARS` (ambos os conjuntos sao PINADOS fora deles por
+    `tests/unit/docs/test_dpo_drafts_citations.py`, que amarra os pins a §2.4 do runbook do DPO).
+    Este worker portanto NUNCA vincula o valor cru a variavel local alguma: dele sai no maximo a
+    PRESENCA (`tem_fundamentacao: bool`), exatamente o idioma que
+    `make_send_response_handler` ja aplica ao mesmo nome nesta mesma BPMN. Isso e ESTRITAMENTE
+    mais forte que redigir (`[REDACTED_PHI]` ainda embarcaria um campo) e nao desloca pin algum
+    do corpus PHI (`CORPUS_DELTA_LOG`).
     """
 
     def __init__(self) -> None:
-        super().__init__(topic="operadora.lgpd.execute_export")
+        # max_retries=1: toda recusa aqui e DETERMINISTICA (implementacao ausente / guard humano),
+        # nunca um fault transitorio. O retry in-process do WorkerBase (que re-tenta TODA Exception
+        # com time.sleep) nao deve mascarar nem atrasar o incidente — o engine e' dono do retry
+        # duravel (T1.1 design §9). Espelha ValidateIdentityWorker e os tres workers aposentados.
+        super().__init__(topic=_EXECUTE_REQUEST_TOPIC, max_retries=1)
 
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
-        """Compile a data package for export.
-
-        Guard: requires human_approved=True.
+        """Recusa, fail-closed, executar qualquer direito do art. 18 — em TODO caminho.
 
         Args:
-            process_vars: Must include titular_pseudo_id, decisao_dsr, human_approved.
+            process_vars: le `tenant_id`, `decisao_dsr`, `tipo_requisicao`, `human_approved` e a
+                PRESENCA de `fundamentacao_legal` (nunca o seu texto).
 
         Returns:
-            Dict with package reference or guard block.
-        """
-        tenant_id = process_vars.get("tenant_id", "")
-        decisao = process_vars.get("decisao_dsr", "")
-        # FAIL-CLOSED (T3.1, mirrors ValidateIdentityWorker / ADR-0031): aprovacao confirmada SO
-        # com sinal explicito `human_approved is True`. Ausente/False/lixo (string truthy como
-        # "true"/" ", int 1, list/dict) -> False -> guard bloqueia a exportacao.
-        human_approved = process_vars.get("human_approved") is True
-
-        # Guard: require human approval before exporting data
-        if not human_approved:
-            self.logger.warning(
-                "lgpd_export_blocked_by_guard",
-                tenant_id=tenant_id,
-            )
-            return {
-                "status": "blocked_by_guard",
-                "error_code": ERR_DENIAL_NOT_HUMAN,
-                "mensagem": "Exportacao de dados requer aprovacao humana (DPO/juridico)",
-            }
-
-        package_ref = f"lgpd-export-{uuid.uuid4().hex[:12]}"
-
-        self.logger.info(
-            "lgpd_export_compiled",
-            tenant_id=tenant_id,
-            package_ref=package_ref,
-            decisao=decisao,
-        )
-
-        return {
-            "status": "export_compiled",
-            "package_ref": package_ref,
-            "event": "agents.events.lgpd_dsr.completed",
-        }
-
-
-# ---------------------------------------------------------------------------
-# ExecuteRectificationWorker
-# ---------------------------------------------------------------------------
-
-
-class ExecuteRectificationWorker(WorkerBase):
-    """External task: operadora.lgpd.execute_rectification
-
-    Executa retificacao de dados do titular.
-    Guard: requires human_approved=True.
-
-    LGPD art. 18, III — correcao de dados incompletos, inexatos ou desatualizados.
-    """
-
-    def __init__(self) -> None:
-        super().__init__(topic="operadora.lgpd.execute_rectification")
-
-    def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
-        """Execute data rectification.
-
-        Guard: requires human_approved=True.
-
-        Args:
-            process_vars: Must include titular_pseudo_id, decisao_dsr, human_approved.
-
-        Returns:
-            Dict with rectification status.
-        """
-        tenant_id = process_vars.get("tenant_id", "")
-        # FAIL-CLOSED (T3.1, mirrors ValidateIdentityWorker / ADR-0031): aprovacao confirmada SO
-        # com sinal explicito `human_approved is True`. Ausente/False/lixo (string truthy como
-        # "true"/" ", int 1, list/dict) -> False -> guard bloqueia a retificacao.
-        human_approved = process_vars.get("human_approved") is True
-
-        if not human_approved:
-            self.logger.warning(
-                "lgpd_rectification_blocked_by_guard",
-                tenant_id=tenant_id,
-            )
-            return {
-                "status": "blocked_by_guard",
-                "error_code": ERR_DENIAL_NOT_HUMAN,
-                "mensagem": "Retificacao de dados requer aprovacao humana",
-            }
-
-        self.logger.info(
-            "lgpd_rectification_completed",
-            tenant_id=tenant_id,
-        )
-
-        return {
-            "status": "rectification_completed",
-            "data_type": "rectification",
-            "event": "agents.events.lgpd_dsr.completed",
-        }
-
-
-# ---------------------------------------------------------------------------
-# ExecuteErasureWorker
-# ---------------------------------------------------------------------------
-
-
-class ExecuteErasureWorker(WorkerBase):
-    """External task: operadora.lgpd.execute_erasure
-
-    Executa eliminacao de dados (LGPD art. 18, VI).
-    Guard DUPLO:
-    1. ERR_DENIAL_NOT_HUMAN: human_approved deve ser True
-    2. FAIL-CLOSED (GAP-LGPD-4): decisao_dsr deve ser EXECUTAR_E_ENVIAR
-
-    NUNCA elimina dados com NEGAR_FUNDAMENTADO (decisao humana de negar).
-    NUNCA elimina dados sem decisao_dsr explicita (fail-closed).
-
-    FAIL-CLOSED (T3.4-F3): mesmo com AMBOS os guards satisfeitos (human_approved is True +
-    decisao_dsr == EXECUTAR_E_ENVIAR), a eliminacao REAL ainda NAO e executavel — a cascata de
-    delecao (`platform.erasure.ErasureManager`) nao esta implementada (gated na matriz de bases
-    legais/retencao do DPO + reconciliacao de schema de checkpoint, T3.4-F4) E nao ha resolucao
-    `titular_pseudo_id`->`fhir_patient_id` disponivel nas process_vars. Retornar
-    `status="erasure_completed"` aqui — o comportamento anterior — mentia ao titular (art. 18, VI):
-    afirmava delecao concluida sem executar UMA LINHA de SQL. O worker portanto LEVANTA um INCIDENTE
-    fail-closed (`WorkerFailureError(retries_left=0)`), NUNCA reporta sucesso. Nao e um
-    `WorkerBpmnError`: o unico `bpmn:error` com boundary nesta BPMN e ERR_DSR_IDENTITY_UNVERIFIED;
-    `ERR_DSR_ERASURE_FAILED` e declarado no spec MAS SEM boundary event e sem service task no topico
-    de erasure, entao um raise dele reprovaria o gate de allowlist (ADR-0030 §2 clausula b) e seria
-    demovido a failure de qualquer forma. Um incidente (retries=0) e o desfecho honesto: exige
-    atencao humana, NUNCA avanca o processo para "enviar confirmacao ao titular".
-    """
-
-    def __init__(self) -> None:
-        # max_retries=1: este e um refuso DETERMINISTICO (delecao nao implementada), nao um fault
-        # transitorio. O WorkerFailureError(retries_left=0) abaixo NUNCA deve ser re-tentado pelo
-        # retry in-process do WorkerBase (base.py re-tenta TODA Exception com time.sleep) — o engine
-        # e' dono do retry duravel (T1.1 design §9). Espelha ValidateIdentityWorker/auth.
-        super().__init__(topic="operadora.lgpd.execute_erasure", max_retries=1)
-
-    def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
-        """Execute data erasure — or fail closed if real deletion is not yet possible.
-
-        Duplo guard: human_approved + decisao_dsr == EXECUTAR_E_ENVIAR.
-
-        Args:
-            process_vars: Must include titular_pseudo_id, decisao_dsr, human_approved.
-
-        Returns:
-            Dict with erasure status — for the GUARD-BLOCKED outcomes only (blocked_by_guard /
-            erasure_blocked). The APPROVED path never returns: it raises (see Raises).
+            Nunca retorna. A anotacao segue a de `WorkerBase.execute` por compatibilidade de
+            assinatura; toda saida desta funcao e uma excecao.
 
         Raises:
-            WorkerFailureError: retries_left=0 (immediate, non-retried engine incident) when both
-                guards pass but real deletion is unimplemented (T3.4-F3). NEVER reports success.
+            WorkerFailureError: sempre, com `retries_left=0` (incidente imediato, nao-retentado).
         """
         tenant_id = process_vars.get("tenant_id", "")
         decisao = process_vars.get("decisao_dsr", "")
-        # FAIL-CLOSED (T3.1, mirrors ValidateIdentityWorker / ADR-0031): aprovacao confirmada SO
-        # com sinal explicito `human_approved is True`. Ausente/False/lixo (string truthy como
-        # "true"/" ", int 1, list/dict) -> False -> Guard 1 bloqueia a eliminacao.
+        tipo_requisicao = process_vars.get("tipo_requisicao", "")
         human_approved = process_vars.get("human_approved") is True
-        fundamentacao = process_vars.get("fundamentacao_legal", "")
+        # PHI: so a PRESENCA. O texto cru de `fundamentacao_legal` nunca e vinculado a um local,
+        # entao nao ha valor a vazar para log, mensagem de incidente ou variavel de processo.
+        tem_fundamentacao = bool(process_vars.get("fundamentacao_legal"))
 
-        # Guard 1: human approval required
+        # Guard (a) — L0 hard: nenhuma execucao sem o sinal EXPLICITO `human_approved is True`.
+        # Ausente/False/lixo truthy ("true", " ", 1, [1], {...}) NUNCA e aprovacao (T3.1/ADR-0031).
         if not human_approved:
             self.logger.error(
-                "lgpd_erasure_blocked_by_guard",
+                "lgpd_execute_request_recusado_sem_aprovacao_humana",
                 tenant_id=tenant_id,
-                reason="human_approved flag missing (L0 hard)",
+                tipo_requisicao=tipo_requisicao,
+                decisao=decisao,
+                tem_fundamentacao=tem_fundamentacao,
             )
-            return {
-                "status": "blocked_by_guard",
-                "error_code": ERR_DENIAL_NOT_HUMAN,
-                "mensagem": "Eliminacao de dados requer aprovacao humana (DPO/juridico)",
-            }
+            raise WorkerFailureError(
+                _RECUSA_PREFIXO + "Guard (a): o sinal explicito `human_approved is True` esta "
+                f"ausente ou nao e o booleano True ({ERR_DENIAL_NOT_HUMAN}).",
+                retries_left=0,
+            )
 
-        # Guard 2: FAIL-CLOSED — must have explicit decision
+        # Guard (c) — `NEGAR_FUNDAMENTADO` NUNCA executa. Pelo modelo esta decisao sequer alcanca
+        # esta task (`Flow_GWDec_Negar` -> `GW_GuardFundamentacao` -> `ST_EnviarResposta`), entao
+        # chegar aqui com ela significa desvio do modelo (chamada REST direta ou edicao de BPMN):
+        # incidente, nao conclusao silenciosa.
         if decisao == "NEGAR_FUNDAMENTADO":
-            self.logger.info(
-                "lgpd_erasure_blocked_negada_fundamentada",
+            self.logger.error(
+                "lgpd_execute_request_recusado_negativa_fundamentada",
                 tenant_id=tenant_id,
-                fundamentacao=fundamentacao,
+                tipo_requisicao=tipo_requisicao,
+                tem_fundamentacao=tem_fundamentacao,
             )
-            return {
-                "status": "erasure_blocked",
-                "reason": "negada_fundamentada",
-                "fundamentacao_legal": fundamentacao,
-                "event": "agents.events.lgpd_dsr.completed",
-            }
+            raise WorkerFailureError(
+                _RECUSA_PREFIXO + "Guard (c): decisao_dsr='NEGAR_FUNDAMENTADO' NUNCA executa "
+                "(negativa fundamentada e decisao humana de NAO executar) — e pelo modelo nem "
+                "alcanca ST_ExecutarRequisicao, entao a chegada aqui e desvio do modelo.",
+                retries_left=0,
+            )
 
-        # FAIL-CLOSED (GAP-LGPD-4): decisao_dsr must be EXECUTAR_E_ENVIAR
+        # Guard (b) — FAIL-CLOSED (GAP-LGPD-4): decisao ausente/em branco/desconhecida NUNCA
+        # libera execucao por omissao.
         if decisao != "EXECUTAR_E_ENVIAR":
             self.logger.error(
-                "lgpd_erasure_blocked_invalid_decision",
+                "lgpd_execute_request_recusado_decisao_invalida",
                 tenant_id=tenant_id,
+                tipo_requisicao=tipo_requisicao,
                 decisao=decisao,
             )
-            return {
-                "status": "blocked_by_guard",
-                "error_code": ERR_DENIAL_NOT_HUMAN,
-                "mensagem": (
-                    "Eliminacao requer decisao_dsr='EXECUTAR_E_ENVIAR' explicita (fail-closed, GAP-LGPD-4)"
-                ),
-            }
+            raise WorkerFailureError(
+                _RECUSA_PREFIXO + "Guard (b): execucao exige decisao_dsr='EXECUTAR_E_ENVIAR' "
+                "explicita (FAIL-CLOSED, GAP-LGPD-4); ausente/em branco/desconhecida nao libera.",
+                retries_left=0,
+            )
 
-        # Both guards satisfied (human_approved is True + decisao_dsr == EXECUTAR_E_ENVIAR) — but
-        # real deletion is NOT IMPLEMENTED. FAIL CLOSED: raise a non-retried incident instead of
-        # fabricating "erasure_completed". A future implementor MUST wire the real cascade
-        # (`platform.erasure.ErasureManager` — currently raises ErasureNotImplementedError) AND the
-        # titular_pseudo_id->fhir_patient_id resolution, then consciously update this branch and its
-        # tests. Removing this raise without implementing deletion re-introduces the audited defect
-        # (LGPD art. 18, VI: telling the titular their data is gone while it remains).
+        direito = _TIPO_REQUISICAO_PARA_DIREITO.get(tipo_requisicao)
+
+        # Tipo fora do dominio declarado -> fail-closed, espelhando o catch-all da DMN
+        # `lgpd_dsr_routing` (regra r7: tipo desconhecido sobe para juridico-privacidade).
+        if direito is None:
+            self.logger.error(
+                "lgpd_execute_request_recusado_tipo_desconhecido",
+                tenant_id=tenant_id,
+                tipo_requisicao=tipo_requisicao,
+            )
+            raise WorkerFailureError(
+                _RECUSA_PREFIXO + "Alem disso `tipo_requisicao` esta ausente ou fora do dominio "
+                "declarado pelo BPMN/contrato (confirmacao_acesso, correcao, eliminacao, "
+                "portabilidade, info_compartilhamento, revogacao_consentimento) — FAIL-CLOSED.",
+                retries_left=0,
+            )
+
+        # Fluxo INFORMATIVO: o modelo nao tem execucao a fazer para estes tipos (a DMN os roteia
+        # a INFORMATIVO e a resposta sai por APROVAR_ENVIO direto para ST_EnviarResposta).
+        if direito == _DIREITO_INFORMATIVO:
+            self.logger.error(
+                "lgpd_execute_request_recusado_fluxo_informativo",
+                tenant_id=tenant_id,
+                tipo_requisicao=tipo_requisicao,
+                direito=direito,
+            )
+            raise WorkerFailureError(
+                _RECUSA_PREFIXO + f"Alem disso tipo_requisicao='{tipo_requisicao}' pertence ao "
+                "fluxo INFORMATIVO da DMN lgpd_dsr_routing, que nao tem execucao a fazer: a "
+                "resposta informativa sai por APROVAR_ENVIO direto para ST_EnviarResposta, sem "
+                "passar por ST_ExecutarRequisicao.",
+                retries_left=0,
+            )
+
         self.logger.error(
-            "lgpd_erasure_refused_not_implemented",
+            "lgpd_execute_request_recusado_execucao_nao_implementada",
             tenant_id=tenant_id,
-            reason="real deletion cascade unimplemented (T3.4-F3, gated on DPO matrix + T3.4-F4)",
+            tipo_requisicao=tipo_requisicao,
+            direito=direito,
         )
         raise WorkerFailureError(
-            "execute_erasure: eliminacao APROVADA (human_approved + decisao_dsr=EXECUTAR_E_ENVIAR) "
-            "mas a cascata de delecao real NAO esta implementada (platform.erasure.ErasureManager "
-            "levanta ErasureNotImplementedError; falta resolucao titular_pseudo_id->fhir_patient_id). "
-            "Recusando a reportar 'erasure_completed' sem executar SQL (LGPD art. 18, VI) — "
-            "incidente fail-closed, NAO retentar, NAO avancar para envio de confirmacao ao titular.",
+            _RECUSA_PREFIXO + f"Ambos os guards humanos estao satisfeitos (human_approved is True "
+            f"+ decisao_dsr='EXECUTAR_E_ENVIAR') e o direito pedido e '{direito}' "
+            f"(tipo_requisicao='{tipo_requisicao}'), mas nao existe seam de execucao: a cascata "
+            "de delecao (platform.erasure.ErasureManager) levanta ErasureNotImplementedError, "
+            "nao ha resolucao titular_pseudo_id->fhir_patient_id nas process_vars e nao existe "
+            "seam de retificacao nem de exportacao neste modulo. Recusando a reportar execucao "
+            "concluida sem executar SQL (LGPD art. 18) — incidente fail-closed, NAO retentar, "
+            "NAO avancar para o envio de confirmacao ao titular.",
             retries_left=0,
         )
 
@@ -714,10 +717,11 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
 # Bootstrap — donor contract (T1.2/ADR-0026 Decisao §3). Of
 # `spec/processes/bpmn/SP-OP-LGPD-DSR-001_*.bpmn`'s external-task topics,
 # `operadora.lgpd.verify_identity` (WorkerBase), `operadora.lgpd.request_additional_proof`
-# (#55 R-B), `operadora.lgpd.send_response` (#55 R-F), and `operadora.lgpd.notify_sla_risk`
-# (#55 R-G) are now served; that BPMN's remaining 2 topics (compile_data_package/
-# execute_request) still have no worker — #55 R-C/R-D, DPO/SME-sign-off-gated, out of scope
-# here (no business-logic/topic edits). `operadora.lgpd.assess_request` (formerly
+# (#55 R-B), `operadora.lgpd.execute_request` (R-181, `ExecuteRequestWorker`),
+# `operadora.lgpd.send_response` (#55 R-F), and `operadora.lgpd.notify_sla_risk` (#55 R-G) are
+# now served; that BPMN's ONE remaining topic, `operadora.lgpd.compile_data_package`, still has
+# no worker — #55 R-C, DPO/SME-sign-off-gated (the legal-bases / retention matrix that step must
+# carry is the DPO's to define), out of scope here. `operadora.lgpd.assess_request` (formerly
 # `AssessRequestWorker`) was RETIRED (#55 R-E, T2.8) — routing is a native engine-side DMN
 # decision (`BRT_RotearDsr` -> `lgpd_dsr_routing`), never an external task.
 # `operadora.lgpd.publish_completed` (formerly `PublishCompletedWorker`) was RETIRED too (R-H, gap
@@ -737,15 +741,18 @@ def register_lgpd_workers(
 
     `kafka` is threaded into the THREE raw handlers with a Kafka dependency: `request_additional_
     proof` (#55 R-B), `send_response` (#55 R-F), `notify_sla_risk` (#55 R-G). The remaining
-    `WorkerBase` classes take no constructor args. No `dmn`/other seam is consumed by this module
-    (#55 R-E: routing is the engine-side `BRT_RotearDsr` DMN, not a worker).
+    `WorkerBase` classes (`ValidateIdentityWorker`, `ExecuteRequestWorker`) take no constructor
+    args. No `dmn`/other seam is consumed by this module (#55 R-E: routing is the engine-side
+    `BRT_RotearDsr` DMN, not a worker).
     """
     del seams  # unused — no dmn/other seam is needed (#55 R-E: routing is engine-side DMN)
+    # R-181: `ExecuteRequestWorker` replaced the three orphan `Execute*Worker`s. Every
+    # `WorkerBase` topic registered here is a `camunda:topic` the BPMN actually declares — the
+    # drift row `LGPD-WORKER-DRIFT` is closed by construction, and pinned by
+    # `test_lgpd_erasure.py::test_nenhum_topico_lgpd_registrado_falta_no_bpmn`.
     for worker_cls in (
         ValidateIdentityWorker,
-        ExecuteExportWorker,
-        ExecuteRectificationWorker,
-        ExecuteErasureWorker,
+        ExecuteRequestWorker,
     ):
         harness.register_worker(worker_cls())
     # #55 R-B: request_additional_proof (raw handler — needs the async Kafka seam). Registered on

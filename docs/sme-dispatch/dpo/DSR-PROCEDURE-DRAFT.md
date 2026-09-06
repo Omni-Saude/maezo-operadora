@@ -111,16 +111,24 @@ BPMN espera fundamento **clínico** dentro dela (*"NEGAR_FUNDAMENTADO exige fund
 perguntas abertas ao DPO: `docs/review-queue.md`, seção **GAP-DU-07**, linhas `detalhes_requisicao`
 e `fundamentacao_legal`.
 
-**Aresta de vazamento que já existe no código — latente hoje, e NÃO corrigida por este rascunho.**
-`lgpd.py::ExecuteErasureWorker.execute` é literalmente "outro worker que copia process variables
-para um dict de saída": no ramo `NEGAR_FUNDAMENTADO` ele devolve `"fundamentacao_legal"` **cru**
-para as variáveis de processo e ainda o escreve numa linha structlog (`fundamentacao=...`). Isso
-está **latente**, não vivo: esse worker está registrado no tópico **órfão**
-`operadora.lgpd.execute_erasure`, que o BPMN não declara (§5.2) — nenhuma service task o aciona.
-O PR de conformidade **R-181**, que colapsa os três `Execute*Worker` no tópico modelado
-`operadora.lgpd.execute_request`, **torna essa aresta viva**. Isto é uma condição para a
-assinatura, não uma curiosidade: R-181 não é um PR de nomenclatura — ele precisa levar junto o
-tratamento de `fundamentacao_legal`.
+**Aresta de vazamento que existia no código — FECHADA por R-181, ver §8.2.** O worker aposentado
+`ExecuteErasureWorker` era literalmente "outro worker que copia process variables para um dict de
+saída": no ramo `NEGAR_FUNDAMENTADO` devolvia `"fundamentacao_legal"` **cru** para as variáveis de
+processo e ainda o escrevia numa linha structlog (`fundamentacao=...`). Estava **latente** porque
+o worker vivia no tópico **órfão** `operadora.lgpd.execute_erasure`, que o BPMN não declara —
+nenhuma service task o acionava; o PR de conformidade **R-181**, que colapsou os três
+`Execute*Worker` no tópico modelado `operadora.lgpd.execute_request`, **tornaria essa aresta
+viva**, e por isso levou junto o tratamento do campo. O worker unificado
+`lgpd.py::ExecuteRequestWorker.execute` **nunca vincula o texto cru a uma variável local**: dele
+sai no máximo a **presença** (`tem_fundamentacao: bool`), o mesmo idioma que
+`lgpd.py::make_send_response_handler` já aplicava a este nome nesta mesma BPMN.
+
+**O que R-181 NÃO fechou, e que continua sendo condição da assinatura.** A correção acima é
+**estrutural neste worker**, não uma disposição de nome: `fundamentacao_legal` e
+`detalhes_requisicao` **continuam fora** de `PHI_PROCESS_VARS` e de `PHI_FREE_TEXT_VARS`, então o
+valor que o humano digita **continua cru nas variáveis de processo do motor** e em qualquer outro
+call site que venha a copiá-lo. A regra do procedimento abaixo **permanece necessária**, e a
+disposição dos dois nomes continua sendo decisão do DPO.
 
 > **REGRA DO PROCEDIMENTO, enquanto o DPO não decidir a disposição desses dois nomes.**
 > Nos dois campos digita-se **apenas texto mínimo e pseudonimizado**:
@@ -228,9 +236,9 @@ Em `NEGAR_FUNDAMENTADO`, `fundamentacao_legal` é **obrigatória** — o engine 
 > **PHI: `fundamentacao_legal` é texto livre SEM controle ancorado em nome (§2.4).** O engine
 > exige que o campo esteja **preenchido**; nada limita **o que** ele contém. Escreva o
 > **fundamento**, não o caso: a base legal e a classe da retenção, nunca o relato clínico, nunca
-> identificador do titular. O valor persiste cru nas variáveis de processo do motor, e
-> `lgpd.py::ExecuteErasureWorker.execute` já o devolve cru num dict de saída (latente hoje;
-> vivo quando R-181 colapsar os workers no tópico modelado).
+> identificador do titular. O valor persiste cru nas variáveis de processo do motor — R-181
+> fechou a aresta do worker (`lgpd.py::ExecuteRequestWorker.execute` só emite a presença
+> booleana, §8.2), mas **não** a disposição do nome: nada impede o próximo call site.
 
 ### Passo 6 — **MANUAL**: executar (`execute_request`)
 
@@ -279,20 +287,18 @@ segue aberto e o jurídico é alertado.
 ## 5. O que este runbook NÃO habilita
 
 1. **Nenhuma eliminação real.** `ErasureManager` continua fail-closed.
-2. **Nenhuma alteração de código.** Em particular, o colapso dos três `ExecuteExportWorker` /
-   `ExecuteRectificationWorker` / `ExecuteErasureWorker` em **um** worker no tópico modelado
-   `operadora.lgpd.execute_request` (R-181) é um **PR de conformidade código↔modelo pendente**,
-   **não feito aqui**.
+2. **Nenhuma alteração de código feita POR ESTE RASCUNHO.** O colapso dos três
+   `ExecuteExportWorker` / `ExecuteRectificationWorker` / `ExecuteErasureWorker` em **um** worker
+   no tópico modelado `operadora.lgpd.execute_request` (R-181) **foi feito noutro PR**, não aqui
+   — ver §8.2.
 
-   Hoje `register_lgpd_workers` registra **três** tópicos que o BPMN não declara —
-   `operadora.lgpd.execute_export`, `.execute_rectification` e `.execute_erasure` —, enumerados
-   como **O2-O4** em
-   [`docs/compliance/lgpd-topic-reconciliation.md`](../../compliance/lgpd-topic-reconciliation.md).
-   Os outros dois órfãos daquela tabela já foram **fechados**, cada um por um ato distinto de
-   R-181: **O1** (`assess_request`) foi retirado em T2.8, e **O5** (`publish_completed`) foi
-   retirado por **R-H** / decisão do dono **R-103**, que pousou em `main` no merge `abb9d60`
-   (trem #326) — ver §8.1. Sobra apenas o colapso **O2-O4 → `operadora.lgpd.execute_request`**,
-   que é R-181, e continua pendente.
+   `register_lgpd_workers` registra hoje **zero** tópicos que o BPMN não declara: as linhas
+   **O2-O4** de
+   [`docs/compliance/lgpd-topic-reconciliation.md`](../../compliance/lgpd-topic-reconciliation.md)
+   foram fechadas por R-181, depois de **O1** (`assess_request`, retirado em T2.8) e **O5**
+   (`publish_completed`, retirado por **R-H** / decisão do dono **R-103**, merge `abb9d60`, trem
+   #326 — ver §8.1). **A topologia deixou de ser a lacuna; a habilitação da execução real
+   continua sendo** — nenhum caminho de `ExecuteRequestWorker` executa coisa alguma (item 1).
 3. **Nenhum signoff.** `docs/processes/contracts/signoffs/SP-OP-LGPD-DSR-001.signoff.yaml`
    **não** foi criado por este rascunho e não pode sê-lo por um agente
    (`docs/sme-dispatch/README.md:109-111`, regra 5 do protocolo de redline).
@@ -312,8 +318,8 @@ segue aberto e o jurídico é alertado.
 | Prazos internos P7D/P10D ainda `DRAFT/verify` | contrato §SLAs |
 | Política de produtor de `identidade_verificada` não ratificada | ADR-0031 Decisão ponto 5 |
 | **`detalhes_requisicao` digitado no Passo 1 fica CRU no motor** — o nome não está em `PHI_PROCESS_VARS` nem em `PHI_FREE_TEXT_VARS`; a proteção de hoje é uma omissão manual num call site | §2.4; `phi_completeness.py::DISPOSITIONS["detalhes_requisicao"]` (`DRAFT/verify (DPO)`); `docs/review-queue.md` §GAP-DU-07 |
-| **`fundamentacao_legal` exigida no Passo 5 fica CRA no motor** — mesma classe do irmão JÁ listado `fundamentacao_dut`, e `ExecuteErasureWorker` já a devolve crua num dict de saída (latente enquanto o tópico for órfão; viva com R-181) | §2.4; `phi_completeness.py::DISPOSITIONS["fundamentacao_legal"]` (`DRAFT/verify (DPO)`); `docs/review-queue.md` §GAP-DU-07 |
-| **Três** workers registrados fora do tópico modelado (O2-O4) | R-181, `docs/compliance/lgpd-topic-reconciliation.md` (O5 fechado por R-H/R-103 em `abb9d60`) |
+| **`fundamentacao_legal` exigida no Passo 5 fica CRA no motor** — mesma classe do irmão JÁ listado `fundamentacao_dut`; a aresta do worker foi fechada por R-181 (`lgpd.py::ExecuteRequestWorker.execute` só emite a presença booleana), mas o **nome** segue fora dos dois controles ancorados | §2.4; §8.2; `phi_completeness.py::DISPOSITIONS["fundamentacao_legal"]` (`DRAFT/verify (DPO)`); `docs/review-queue.md` §GAP-DU-07 |
+| **Zero** workers registrados fora do tópico modelado (O2-O4 fechados por R-181) — o risco que resta é o oposto: `ST_ExecutarRequisicao` agora tem worker e ele **recusa em todo caminho**, então nenhuma DSR de correção/eliminação conclui até o DPO habilitar a execução real | §8.2; R-181, `docs/compliance/lgpd-topic-reconciliation.md` (O5 fechado por R-H/R-103 em `abb9d60`) |
 
 ---
 
@@ -344,7 +350,7 @@ mudou na re-verificação, declarado em vez de reescrito em silêncio:
 2. **§5.2 dizia "os três"; eram quatro** (`publish_completed` incluído) — corrigido em
    2026-09-05, com as duas ações distintas (R-181 e R-H) separadas. **Superado por §8.1:** R-H
    pousou em `abb9d60` e o número voltou a **três**, agora por um motivo diferente (O5 fechado,
-   não O5 esquecido).
+   não O5 esquecido). **Superado de novo por §8.2:** R-181 fechou O2-O4 e o número é **zero**.
 3. **Citações por linha em `lgpd.py` (`:97`, `:754`) trocadas por citação por símbolo**, que é a
    regra da casa para documentos que sobrevivem a merges.
 4. Nada em `spec/`, `src/`, `tests/` ou `spec/policies/**` foi alterado por este rascunho; os
@@ -363,8 +369,11 @@ isso que ela existe:
    não aparece em `spec/`, e o worker era pior que inalcançável: devolvia `{"status": "published"}`
    afirmando uma publicação que nunca fazia. §5 item 2 e §6 foram corrigidos. **Isto reduz o
    escopo de R-181, não o fecha:** o colapso O2-O4 em `operadora.lgpd.execute_request` continua
-   pendente, e com ele a pré-condição de §2.4 (o egresso cru de `fundamentacao_legal` em
-   `lgpd.py::ExecuteErasureWorker.execute`, **verificado ainda presente** em `abb9d60`).
+   pendente, e com ele a pré-condição de §2.4 (o egresso cru de `fundamentacao_legal` no então
+   `ExecuteErasureWorker.execute`, **verificado ainda presente** em `abb9d60`). **Estado desta
+   frase hoje: superada por §8.2** — R-181 pousou; a classe citada não existe mais, e por isso
+   ela aparece aqui sem o prefixo de arquivo (é um fato histórico sobre `abb9d60`, não uma
+   citação de símbolo vivo).
 2. **`erasure.py` mudou de forma (remoção do pgvector) e as duas citações por linha
    envelheceram** (`:152`/`:187` → `:160`/`:195`). Trocadas por
    `erasure.py::ErasureManager.erase` / `::ErasureManager.verify`, que é a regra da casa. **O
@@ -374,3 +383,38 @@ isso que ela existe:
 A cerca também passou a **derivar** a contagem de órfãos da árvore (registros de
 `register_lgpd_workers` × `camunda:topic` do BPMN) e a exigir que a prosa deste §5 diga o número
 derivado — para que este parágrafo não possa envelhecer em silêncio de novo.
+
+### 8.2 Reancoragem pós-R-181 (colapso O2-O4) — 2026-09-06
+
+R-181 pousou: os três `Execute*Worker` foram colapsados num único `ExecuteRequestWorker` no
+tópico modelado `operadora.lgpd.execute_request` (`ST_ExecutarRequisicao`). **A cerca
+`tests/unit/docs/test_dpo_drafts_citations.py` ficou VERMELHA em dois pontos** — a contagem
+derivada de órfãos e a citação por símbolo de `ExecuteErasureWorker` —, que é exatamente para
+isso que ela existe. Três fatos mudaram:
+
+1. **O2-O4 fechados: os órfãos passaram de três para ZERO.** Nenhum tópico `operadora.lgpd.*`
+   registrado por `register_lgpd_workers` deixa de ter `serviceTask` no BPMN. O outro lado do
+   drift continua declarado e **não** mudou: `operadora.lgpd.compile_data_package` (#55 R-C)
+   segue **sem worker**, porque `ST_CompilarPacote` precisa embarcar a matriz de bases legais e
+   obrigações de retenção que **o DPO + jurídico ainda têm de definir**.
+2. **A aresta de `fundamentacao_legal` no worker foi fechada estruturalmente**, não por redação:
+   o worker unificado nunca vincula o texto cru a uma variável local (§2.4). **A disposição dos
+   dois nomes (`fundamentacao_legal`, `detalhes_requisicao`) continua aberta e continua sendo do
+   DPO** — os dois seguem fora de `PHI_PROCESS_VARS` e de `PHI_FREE_TEXT_VARS`, e §2.4 continua
+   necessária.
+3. **O piso não se moveu: nada de execução real foi habilitado.** `ExecuteRequestWorker` recusa
+   em **todo** caminho com `WorkerFailureError(retries_left=0)` — incidente imediato, nunca um
+   `complete`. Dois dos três workers aposentados **afirmavam** execução que nunca fizeram
+   (`export_compiled` com `package_ref` cunhado por `uuid4()`; `rectification_completed`);
+   enquanto os tópicos eram órfãos isso era latente, no tópico modelado seria uma afirmação viva
+   e falsa ao titular, porque `Flow_Executar_Enviar` não tem `conditionExpression` e qualquer
+   `complete` avança o token direto para "Enviar resposta ao titular". A habilitação da execução
+   real continua **gated no DPO** (F-2 + matriz AF-07), e o contrato continua `DRAFT (v0.1.0)`
+   com os campos de assinatura **vazios**.
+
+**Consequência operacional que o DPO precisa ver antes de assinar:** com o worker registrado e
+recusando, uma DSR de `correcao` ou `eliminacao` que o revisor aprove como `EXECUTAR_E_ENVIAR`
+**não conclui** — ela levanta incidente no motor e fica esperando ação humana. Esse é o
+comportamento pretendido (nunca dizer ao titular que executamos o que não executamos), mas é uma
+mudança de comportamento **observável em produção** e é a razão pela qual o Passo 6 deste runbook
+continua **MANUAL**.
