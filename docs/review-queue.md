@@ -2195,3 +2195,30 @@ futura decide entre (a) estender `check_plans_counts.py` com uma 4a forma `~N li
 tool_registry.py` (tolerancia `±`, ja que a alegacao usa `≈`) ou (b) remover o numero fixo da frase,
 igual ao reparo aplicado a `PLANS.md:6` nesta mesma tarefa (ver linha AF-06 do ledger, campo Status
 `PARTIAL`).
+
+## WEBHOOK-LOG-RAW-WAMID + ESC-TOLERANT-LOG-RAW-VALUE — egresso de PHI em log, fechados (2026-09-06)
+
+Duas linhas do registro de gaps da mesma especie (identificador de titular saindo em campo de log
+estruturado), fechadas na mesma PR. Nenhuma decidiu nada clinico ou regulatorio: sao redacoes de
+telemetria, sem mudanca de desfecho, de contrato de processo ou de artefato ratificado.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `src/maezo/platform/webhooks/whatsapp/app.py::_run_one_message` + `dispatch.py::HelenaDispatcher.acknowledge_non_text`/`dispatch` (4 sitios de log) | **RESOLVIDO — WEBHOOK-LOG-RAW-WAMID, 2026-09-06 (implemented — unverified).** Os quatro logs carregavam `message_id=<wamid bruto>`; um `wamid` embute o telefone da contraparte em base64, o mesmo fato que ja obrigava a chave DURAVEL de dedup a ser pseudonimizada. Passam a carregar `message_pseudonym=` derivado do unico renderizador autorizado `security.py::log_safe_message_id` (pseudonimo keyed `hk1_` de ADR-0035, ou marcador constante quando nao ha pseudonimizador alcancavel — nunca um sha256 sem chave). Cerca estatica AST nova sobre TODO o pacote, com auto-teste, em `tests/unit/platform/webhooks/whatsapp/test_wamid_log_redaction.py`. Ver docs/evidence-ledger.md linha WEBHOOK-LOG-RAW-WAMID | seguranca/privacidade (verificacao independente R1) | `RESOLVIDO — WEBHOOK-LOG-RAW-WAMID, 2026-09-06` |
+| `src/maezo/tools/workers/escalation.py::_rotulo_opcional_tolerante` (residuo de ESC-D1-MOTIVO-STRICTER-THAN-R7, achado do gatekeeper R1 de VERIFY-R4-DEFAULTS) | **RESOLVIDO — ESC-TOLERANT-LOG-RAW-VALUE, 2026-09-06 (implemented — unverified).** O valor `motivo_categoria` fora de dominio — por construcao texto livre, nao um rotulo de dominio — era logado verbatim nas duas pernas (structlog + stdlib) numa via de SUCESSO. Passa por `phi_vars.redact_free_text` uma unica vez, reusado pelas duas pernas; `campo`/`dominio`/`business_key` seguem inteiros. Limite declarado: a rede cobre familias de IDENTIFICADORES (CPF/CNPJ, telefone BR, e-mail, corridas de 11+ digitos), nao um nome proprio solto — limitacao ja documentada do helper. Ver docs/evidence-ledger.md linha ESC-TOLERANT-LOG-RAW-VALUE | seguranca/privacidade (verificacao independente R1) | `RESOLVIDO — ESC-TOLERANT-LOG-RAW-VALUE, 2026-09-06` |
+
+**ABERTO — adjacentes vistos e NAO corrigidos nesta PR** (fora das duas linhas do registro que ela
+executa; candidatos a linhas novas):
+
+1. `src/maezo/tools/mcp_whatsapp/server.py::WhatsAppServer.send_message` loga
+   `whatsapp_message_sent` com o `message_id` de SAIDA devolvido pela Meta — mesma especie do
+   WEBHOOK-LOG-RAW-WAMID, outro pacote. `WhatsAppServer` e deliberadamente sem tenant nem
+   pseudonimizador (o proprio modulo diz "knows credentials and HTTP, not the tenant"), entao o
+   conserto exige encanamento de um `Pseudonymizer` ate a fronteira do cliente — decisao de
+   desenho, nao uma linha de redacao.
+2. `src/maezo/tools/workers/escalation.py::_rotulo_opcional_validado` e `_exigir_grupo_atendimento`
+   interpolam o valor rejeitado bruto (`{rotulo!r}` / `{grupo!r}`) no `detalhe` que `_recusar`
+   loga nas duas pernas — mesma especie do ESC-TOLERANT-LOG-RAW-VALUE, no caminho de RECUSA em vez
+   de degradacao. Nao corrigido porque a linha aprovada do registro nomeia apenas
+   `_rotulo_opcional_tolerante`, e alterar a mensagem de uma excecao modelada
+   (`ERR_ESC_NOTIFY_FAILED`) e escopo proprio.
