@@ -74,7 +74,14 @@ id: PHI-DISPOSICOES-MIGRACAO-MANIFESTO
 work_package: WP-PHI-COMPLETUDE
 
 # ---------------------------------------------------------------------------------------------
-# status — DRAFT | RATIFICADO. Porta dura: em DRAFT nenhuma linha vale como assinada.
+# status — DRAFT | RATIFICADO. Governa SO a assinatura do MANIFESTO COMO UM TODO: RATIFICADO
+# exige os tres campos de responsabilizacao em `ratificacao` (ratificado/revisor/ratificado_em,
+# ver abaixo); DRAFT proibe `ratificacao.ratificado: true` na raiz. NAO e uma porta que barra as
+# LINHAS — uma disposicao com a sua propria `ratificacao` completa ja conta como assinada
+# (`ratificadas` nunca consulta este campo) e ja acende o gate descrito em "O EFEITO DA
+# ASSINATURA" acima, MESMO com `status: DRAFT` aqui. Isso e consistente com
+# `ratificacao.observacao` logo abaixo — assinar a raiz nao assina as linhas, e a reciproca
+# tambem vale: as linhas nao esperam a raiz.
 # ESTADO DE HOJE: DRAFT. Nada foi decidido; nada esta ativo.
 # ---------------------------------------------------------------------------------------------
 status: DRAFT

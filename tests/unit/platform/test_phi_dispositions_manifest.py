@@ -296,6 +296,29 @@ class TestEfeitoDaAssinatura:
         fence.check_sweep(_sweep_vazio(), report, manifest_path=_write(tmp_path, data))
         assert report.findings == []
 
+    def test_linha_ratificada_sob_status_draft_ja_conta_e_acende_o_gate(self, tmp_path: Path) -> None:
+        """`status: DRAFT` na raiz NAO e uma porta que barra as linhas (achado F1 do
+        verificador, forjadura V6): uma disposicao com a sua propria `ratificacao` completa ja
+        entra em `manifesto.ratificadas` e ja acende o gate, sem esperar o `status` da raiz virar
+        RATIFICADO — porque `PhiDispositionsManifest.ratificadas` nunca consulta `self.status`."""
+        data = _raw()
+        assert data["status"] == policy.PHI_DRAFT_STATUS
+        alvo = data["disposicoes"][0]
+        alvo.update(_assinada(PHI_DISPOSICAO_LISTAR))
+        assert alvo["nome"] not in PHI_LISTED_NAMES
+        manifest_path = _write(tmp_path, data)
+
+        manifesto = load_phi_dispositions(manifest_path)
+        assert manifesto.status == policy.PHI_DRAFT_STATUS
+        assert manifesto.ratificado is False
+        assert manifesto.ratificadas == {str(alvo["nome"]): PHI_DISPOSICAO_LISTAR}
+
+        report = Report()
+        fence.check_sweep(_sweep_vazio(), report, manifest_path=manifest_path)
+        assert len(report.findings) == 1
+        assert PHI_DISPOSICAO_LISTAR in report.findings[0].message
+        assert str(alvo["nome"]) in report.findings[0].message
+
 
 # ---------------------------------------------------------------------------
 # 5. CODEOWNERS de fato, nao no papel
@@ -311,13 +334,16 @@ class TestCodeownersDeFato:
         assert rule.pattern == "/spec/policies/phi/"
 
     def test_a_regra_carrega_o_par_de_donos_das_linhas_de_conteudo(self) -> None:
+        """Superset, nao igualdade (achado F2 do verificador): os dois donos mandatorios tem de
+        estar SEMPRE presentes, mas a regra pode crescer (ex.: a DPO `@lucasreisEvah`, item de
+        registro pendente de decisao do dono, §10) sem que essa alteracao tambem precise editar
+        este teste so por adicionar um owner — o que este teste protege e a AUSENCIA dos dois
+        donos originais, nunca a contagem exata deles."""
         rules = parse_codeowners(_CODEOWNERS.read_text(encoding="utf-8"))
         rule = owners_for_path(rules, str(_MANIFEST.relative_to(_REPO_ROOT)))
         assert rule is not None
-        assert [owner.raw for owner in rule.owners] == [
-            "@rodaquino-OMNI",
-            "@Omni-Saude/security-team",
-        ]
+        owners = {owner.raw for owner in rule.owners}
+        assert {"@rodaquino-OMNI", "@Omni-Saude/security-team"} <= owners
 
     def test_todo_arquivo_de_spec_policies_phi_esta_coberto(self) -> None:
         """Derivado da arvore, nao de uma lista: a regra e de DIRETORIO por isso mesmo."""
