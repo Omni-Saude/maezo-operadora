@@ -71,10 +71,12 @@ class _RecordingWhatsApp:
         self.sent: list[tuple[str, str]] = []
         self._fail = fail
 
-    async def send(self, to: str, text: str) -> dict[str, Any]:
+    # P-17 (PROTOCOL-FAKE-FENCES, REG-04): `to` -> `to_hash`, o nome do Protocol real
+    # `WhatsAppSender.send` (chamadas reais sao posicionais, nenhum comportamento muda).
+    async def send(self, to_hash: str, text: str) -> dict[str, Any]:
         if self._fail:
             raise RuntimeError("whatsapp indisponivel (probe CC-09)")
-        self.sent.append((to, text))
+        self.sent.append((to_hash, text))
         return {"ok": True}
 
 
