@@ -62,9 +62,10 @@ Os nos sao curtos e idempotentes; checkpoint e ENTRE nos (ADR-0002). Toda acao e
 transports injetados (`DmnTransport`/`CibSevenTransport`), nunca SDK direto (mirrors
 rafael/helena). CORRIGIDO (`grep -n '"carolina"' gateway/tool_registry.py`,
 `_FHIR_ADAPTER_BY_AGENT`): a leitura FHIR de Carolina JA passa por um ToolRegistry/PEP-gateway —
-`gateway/tool_registry.py::build_agent_seams` embrulha `agents.rafael.adapters.FhirServerReader.
-read_patient` em `gateway/seams/fhir.py::GatedFhirReader` (Carolina esta em
-`_FHIR_ADAPTER_BY_AGENT`, adapter `read_patient`), injetado pelos dois composition roots vivos
+`gateway/tool_registry.py::build_agent_seams` embrulha `agents.valentina.adapters.
+FhirServerReader.read_patient_summary` em `gateway/seams/fhir.py::GatedFhirReader` (Carolina
+esta em `_FHIR_ADAPTER_BY_AGENT`, adapter `read_patient_summary` desde o WP
+FHIR-TOOL-SURFACE-PARITY), injetado pelos dois composition roots vivos
 (`runtime/agent_runtime/service.py::_build_tool_deps`, `platform/webhooks/service.py`) — a
 alegacao anterior ("v2 nao tem `ToolInvoker`/PEP-gateway wiring...ainda, T2.4 gap") e falsa hoje.
 Os dados chegam pseudonimizados (ADR-0006) e o grafo nunca reverte isso.
@@ -113,10 +114,17 @@ DIVERGENCIAS DO DONOR (disclosed, per charter "where donor and v2 spec disagree,
    carrega `tenant_id` nem `thread_id` (ambos `text NOT NULL`) — GAP-DU-01-a. A coluna semantica
    que a acompanhava foi removida por `0009_drop_pgvector`; ADR-0002 §3 fica SUSPENSO ate existir
    consumidor (ADR-0047, DRAFT).
-6. **`gather` usa um `SummaryReader` Protocol minimo** (best-effort, opcional) em vez do donor's
-   `ToolInvoker`/PEP `mcp-fhir.read_patient_summary` — v2 nao tem esse tool dedicado ainda
-   (mesmo labeled boundary do `FhirReader` de `rafael/graph.py`); reusa o adapter generico
-   `agents.rafael.adapters.FhirServerReader` (`read_patient`) quando injetado pelo runtime.
+6. **`gather` usa um `SummaryReader` Protocol minimo** (best-effort, opcional) em vez do
+   `ToolInvoker` do donor; reusa o adapter `agents.valentina.adapters.FhirServerReader`
+   (`read_patient_summary`) quando injetado pelo runtime. CORRIGIDO (NEW-04, WP
+   FHIR-TOOL-SURFACE-PARITY): ate aqui o no chamava `read_patient` enquanto o `agent.yaml`
+   declarava `mcp-fhir.read_patient_summary` — divergencia de NOME que fazia
+   `decide_effect(operation="fhir.read_patient", principal="carolina")` negar em
+   `L1_CAPACIDADE` (`TOOL_NAO_DECLARADA`), mascarada apenas pelo `enforcement: shadow` da classe
+   `leitura_phi_clinica`. A superficie DECLARADA nao mudou; o codigo desceu ate ela. O que
+   permanece um labeled boundary e a FORMA: nesta build o "resumo" e uma unica leitura de
+   `Patient` (`tools/mcp_fhir/typed_reads.py::read_patient_resource`), nao o composto
+   multi-recurso do donor — um resumo composto seria ALARGAMENTO de leitura, decisao do dono.
 7. **`spec/agents/carolina/agent.yaml` estava desalinhado e FOI CORRIGIDO neste mesmo PR**
    (correcao autorada pelo R1 spec-audit, aplicada aqui): a versao pre-T1.12 descrevia um
    "Analista de Revenue Cycle / Pagamentos" para `SP-OP-PAGTO-001` — duplicando a ownership de
@@ -240,11 +248,25 @@ logger = structlog.get_logger(__name__)
 
 
 class SummaryReader(Protocol):
-    """Best-effort provider/beneficiary-summary read seam (`gather`). See module docstring's
-    divergence #6 — a minimal Protocol satisfied structurally by
-    `agents.rafael.adapters.FhirServerReader.read_patient` when the runtime injects it."""
+    """Seam best-effort de leitura do resumo do beneficiario vinculado (`gather`).
 
-    async def read_patient(self, patient_id: str) -> dict[str, Any]: ...
+    O metodo e `read_patient_summary` porque e ESSE o id que
+    `spec/agents/carolina/agent.yaml` declara (`mcp-fhir.read_patient_summary`), e o
+    `GatedFhirReader` decide a chamada pela operacao homonima
+    (`fhir.read_patient_summary` -> tool_id `mcp-fhir.read_patient_summary`). Ate o WP
+    FHIR-TOOL-SURFACE-PARITY este Protocol declarava `read_patient`: o PEP entao negava a
+    leitura da PROPRIA Carolina em `L1_CAPACIDADE` com `TOOL_NAO_DECLARADA` (achado NEW-04, P1),
+    invisivel so porque `leitura_phi_clinica` esta em `enforcement: shadow`. A correcao desceu o
+    CODIGO ate a superficie declarada — nunca o contrario — porque o contrato SP-OP-CRED-001 pede
+    o resumo de beneficiarios VINCULADOS ao prestador (`tem_beneficiarios_vinculados`), que e
+    exatamente o que o comentario do `agent.yaml` sempre disse.
+
+    Satisfeito estruturalmente por `agents.valentina.adapters.FhirServerReader.
+    read_patient_summary` quando o runtime injeta (`_FHIR_ADAPTER_BY_AGENT["carolina"] =
+    "read_patient_summary"`).
+    """
+
+    async def read_patient_summary(self, patient_id: str) -> dict[str, Any]: ...
 
 
 class CarolinaState(TypedDict, total=False):
@@ -525,7 +547,7 @@ class CarolinaGraph:
         summary_ref = state.get("patient_summary_ref", "")
         if summary_ref:
             try:
-                summary_facts = await self._fhir.read_patient(summary_ref)
+                summary_facts = await self._fhir.read_patient_summary(summary_ref)
             except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
                 # CLASS TOKEN ONLY (CC-10): `str(exc)` de um cliente FHIR tipicamente ecoa a
                 # URL / id em que falhou — o proprio `summary_ref` — e esta nota e' copiada para o

@@ -202,7 +202,11 @@ def test_beatriz_agent_yaml_matches_fraude_domain() -> None:
     assert data["escalation"]["process"] == "SP-OP-FRAUDE-001"
     # Allowlist TIGHT (action-real): FHIR read + memory ONLY — no cibseven/dmn tool, matching
     # this graph's deliberate refusal of those transports (`build`'s docstring).
-    assert data["tools"] == ["mcp-fhir.read_patient", "mcp-memory.read_write"]
+    # O id FHIR e `read_patient_summary` desde o WP FHIR-TOOL-SURFACE-PARITY (BEA-13): e o metodo
+    # que `gather` REALMENTE chama (`PatientSummaryReader.read_patient_summary`) e, portanto, o
+    # `tool_id` que o L1 do PEP compara com esta lista. Com o id anterior
+    # (`mcp-fhir.read_patient`) a leitura da propria Beatriz era negada com `TOOL_NAO_DECLARADA`.
+    assert data["tools"] == ["mcp-fhir.read_patient_summary", "mcp-memory.read_write"]
 
 
 def test_beatriz_agent_yaml_pins_zero_auto_accusation_kpis() -> None:

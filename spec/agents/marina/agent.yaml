@@ -21,7 +21,14 @@ model:
   task_default: { tier: fast }
   reasoning:    { tier: frontier }
 tools:
-  - mcp-fhir.read_patient_summary
+  - mcp-fhir.read_patient_summary            # FORMA REAL nesta build (VAL-02, mesma de valentina): UMA leitura do
+                                             # recurso `Patient`, tipada e fail-closed
+                                             # (tools/mcp_fhir/typed_reads.py::read_patient_resource) — nao o composto
+                                             # multi-recurso do donor. NAO WIREADA hoje: marina esta ausente de
+                                             # gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT, entao nenhuma raiz lhe
+                                             # injeta um seam `fhir` e o ramo FHIR do `gather` nunca roda. Ligar =
+                                             # acender uma leitura de PHI inexistente -> decisao do dono. Registrado em
+                                             # tests/unit/gateway/test_fhir_tool_surface_parity.py.
   - mcp-dmn.evaluate
   - mcp-cibseven.start_process
   - mcp-memory.read_write

@@ -16,7 +16,13 @@ model:
   task_default: { tier: fast }                 # gather/assess/montagem do dossie
   reasoning:    { tier: frontier }             # casos clinicos ambiguos / risco alto / plano complexo
 tools:                                          # ids EXATOS registrados pelos mcp_* servers (W4)
-  - mcp-fhir.read_patient_summary              # resumo clinico do beneficiario (leitura in-zone, APOS consentimento)
+  - mcp-fhir.read_patient_summary              # resumo clinico do beneficiario (leitura in-zone, APOS consentimento).
+                                               # FORMA REAL nesta build (VAL-02): UMA leitura do recurso `Patient`
+                                               # (agents/valentina/adapters.py -> tools/mcp_fhir/typed_reads.py::
+                                               # read_patient_resource), NAO o composto Patient+Observation+Condition do
+                                               # donor. A leitura e tipada e RECUSA fail-closed qualquer outro
+                                               # `resourceType`. Um resumo multi-recurso de verdade e ALARGAMENTO de
+                                               # leitura clinica -> decisao do dono, nao follow-up de implementacao.
   - mcp-dmn.evaluate                           # programa_routing / programa_sla (estratifica/sugere — nunca desliga)
   - mcp-cibseven.start_process                 # somente SP-OP-PROGRAMA-001 (start idempotente por business key)
   - mcp-memory.read_write                      # memoria episodica do caso de cuidado (ADR-0002)

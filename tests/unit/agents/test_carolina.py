@@ -71,7 +71,7 @@ class _FakeSummaryReader:
         self._fail = fail
         self.calls: list[str] = []
 
-    async def read_patient(self, patient_id: str) -> dict[str, Any]:
+    async def read_patient_summary(self, patient_id: str) -> dict[str, Any]:
         self.calls.append(patient_id)
         if self._fail:
             raise RuntimeError("HAPI FHIR unreachable")
