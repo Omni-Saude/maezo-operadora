@@ -6,7 +6,7 @@ INADIMPLENCIA-001 builder. Authored DESIGN-ONLY (no repo files touched).
 `docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md` §Harmonizacao before the BPMN is authored.
 **Sources read:** `spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn` (in main),
 `docs/processes/contracts/SP-OP-CANCEL-001.md`, `docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md`,
-`src/maezo/policies/autonomy/_hard_frozen.yaml` (confirms `contract_termination: L0`),
+`spec/policies/autonomy/_hard_frozen.yaml` (confirms `contract_termination: L0`),
 `maezo-p3-wa/.../workers/fraude.py` (`start_contratual` handoff precedent + `_deterministic_id`).
 
 ---

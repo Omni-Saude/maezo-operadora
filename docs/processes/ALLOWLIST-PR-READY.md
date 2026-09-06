@@ -1,5 +1,16 @@
 # ⚠️ HUMAN-GATED PR — Phase-3 process-key allowlist (DO NOT auto-merge with W-E)
 
+> **ADENDO DATADO 2026-09-06 (gap `ADR-PHANTOM-PATH-RESIDUE-NON-ADR`):** este documento é
+> HISTÓRICO em dois sentidos, e não é reescrito retroativamente. (1) `src/maezo/policies/
+> process_allowlist.yaml` (linhas 26, 37, 46 abaixo) nunca existiu no repo — o allowlist real vive
+> SÓ em `src/maezo/tools/process_allowlist.py::KNOWN_PROCESS_KEYS` (CODEOWNED junto com
+> `@Omni-Saude/security-team`, `.github/CODEOWNERS`); não existe overlay YAML por tenant para este
+> mecanismo. (2) os seis process keys Phase-3 listados abaixo (`SP-OP-FRAUDE-001`, `SP-OP-CRED-001`,
+> `SP-OP-PAGTO-001`, `SP-OP-PROGRAMA-001`, `SP-OP-INADIMPLENCIA-001`, `SP-OP-ADEQUACAO-001`) já
+> estão hoje em `KNOWN_PROCESS_KEYS` em `main` — confirmado por leitura direta do arquivo — então o
+> PR humano-gated que este documento prepara já foi aplicado; o checklist abaixo fica de referência
+> histórica, não de ação pendente.
+
 > **STOP.** This change makes six Phase-3 governance processes **start-enabled** on the engine.
 > Under **ADR-0016** (fail-closed `process_key` allowlist) adding a key to the sanctioned
 > universe **requires a separate, human-reviewed PR with CODEOWNERS approval**. It must **NOT**
