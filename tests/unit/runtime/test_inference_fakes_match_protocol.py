@@ -524,11 +524,19 @@ def _ofensas_forma_vs_real(
                 f"{'tem' if fake_tem_default else 'nao tem'}"
             )
 
-    # o falso exige um posicional A MAIS do que o Protocol declara, sem default -- todo CALLER
-    # real (que so' passa o que o Protocol promete) quebraria com `TypeError: missing 1 required
-    # positional argument`; nao e' coberto pelo loop acima, que so' anda pelos posicionais REAIS.
+    # o falso tem um posicional A MAIS do que o Protocol declara -- §Delta F2: uma assinatura com
+    # um extra NAO acompanha o Protocol real mesmo quando o extra tem default (o que nao quebra
+    # um CALLER que so' passa o que o Protocol promete, mas ainda diverge item por item, que e' o
+    # que a docstring do modulo promete comparar). SEM default, todo CALLER real quebraria com
+    # `TypeError: missing 1 required positional argument` -- os dois casos sao ofensa, com
+    # mensagens distintas; nenhum e' coberto pelo loop acima, que so' anda pelos posicionais REAIS.
     for i in range(len(pos_reais), len(nomes_fake)):
-        if not _posicional_tem_default_ast(no, i):
+        if _posicional_tem_default_ast(no, i):
+            ofensas.append(
+                f"falso tem o parametro posicional extra `{nomes_fake[i]}` (#{i + 1}, com "
+                "default) que o Protocol real nao declara"
+            )
+        else:
             ofensas.append(
                 f"falso exige o parametro posicional extra `{nomes_fake[i]}` (#{i + 1}), que o "
                 "Protocol real nao declara"
@@ -538,6 +546,15 @@ def _ofensas_forma_vs_real(
         faltando = sorted(set(kwonly_reais) - set(kwonly_fake))
         for nome in faltando:
             ofensas.append(f"falta o parametro keyword-only `{nome}`")
+        # §Delta F2: o falso tem um keyword-only EXTRA que o Protocol real nao declara -- antes so'
+        # o caso INVERSO (faltando) era apontado; sem esta checagem, um `**kwargs`-catchall FORA
+        # (tem_varkw_fake=False) mas com um kwonly extra nomeado passava sem nenhum achado.
+        extras = sorted(set(kwonly_fake) - set(kwonly_reais))
+        for nome in extras:
+            ofensas.append(
+                f"falso tem o parametro keyword-only extra `{nome}` "
+                f"({'com' if kwonly_fake[nome] else 'sem'} default) que o Protocol real nao declara"
+            )
         for nome in sorted(set(kwonly_reais) & set(kwonly_fake)):
             real_tem_default = kwonly_reais[nome].default is not inspect.Parameter.empty
             if real_tem_default != kwonly_fake[nome]:
