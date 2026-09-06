@@ -55,11 +55,15 @@ class _FakeDmn:
 
 
 class _RecordingWhatsApp:
-    def __init__(self) -> None:
-        self.sent: list[tuple[str, str]] = []
+    """LUC-08: `send` now requires `idempotency_key` (`graph.WhatsAppSender`'s real shape) —
+    recorded as the tuple's third element. Parameter also renamed `to` -> `to_hash` to match the
+    real Protocol's own parameter name (this fake predates that convention)."""
 
-    async def send(self, to: str, text: str) -> dict[str, Any]:
-        self.sent.append((to, text))
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, str]] = []
+
+    async def send(self, to_hash: str, text: str, *, idempotency_key: str) -> dict[str, Any]:
+        self.sent.append((to_hash, text, idempotency_key))
         return {"ok": True}
 
 
