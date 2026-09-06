@@ -230,7 +230,7 @@ Two test surfaces disagree, and the disagreement *confirms* the code→spec dire
   reescritos. Restam os asserts de `execute_export/rectification/erasure`, cujo destino é R-D,
   DPO/SME-gated.)* *(Atualização 2026-09-06: também saíram — R-181 migrou os asserts para
   `execute_request`, com o mapa old→new no comentário `MAPA DE MIGRACAO` do próprio arquivo de
-  teste. **Nenhum** assert de tópico de código órfão resta.)*
+  teste. **Nenhum** assert que EXIJA um tópico de código órfão resta.)*
 - **Integration test-spec** (`docs/processes/test-specs/SP-OP-LGPD-DSR-001.md:18,48,56`), which drives
   the **T3.1 donor port** from `Maezo-Healthcare-Plan/tests/integration/`, references the **BPMN/contract**
   topic names: `operadora.lgpd.execute_request` (`:18`), `compile_data_package` (`:48,56`),
