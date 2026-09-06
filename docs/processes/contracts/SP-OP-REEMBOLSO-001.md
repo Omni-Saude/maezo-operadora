@@ -163,6 +163,34 @@ sem eles a task NAO completa):
 `decisao_reembolso == SOLICITAR_INFO` → reexecuta `operadora.reembolso.request_documents`
 e a instancia aguarda em `GW_AguardarDocs` (mesmo sub-fluxo de pendencia do AUTH-001).
 
+## Bindings de agente — NENHUM agente declara `process_keys` para REEMBOLSO (arbitragem — nao e defeito)
+
+**Arbitragem registrada** (gap `PERSP-REEMBOLSO-BINDING`; achado originalmente em
+`phase1/perspective-part-A.md` Sec.5 item 5, REFUTADO por
+`phase1/perspective-part-A-VERIFICATION.md` C-4): **MENOR PRIVILEGIO CORRETO, nao lacuna**.
+`grep -rn REEMBOLSO spec/agents/*/agent.yaml` retorna **0 linhas** por desenho — nenhum
+`process_key` foi omitido por engano.
+
+**Fato de engenharia que sustenta a arbitragem:**
+
+- Marina e o UNICO agente que este processo convoca, e e convocada por DELEGACAO A2A
+  (`operadora.reembolso.analyze_request`) de DENTRO de uma instancia `SP-OP-REEMBOLSO-001` **ja
+  rodando** — as business-rule tasks proprias do processo (`BRT_Admissibilidade`/`BRT_Calculo`/
+  `BRT_AutoApproval`) ja executaram antes dela ser chamada (`src/maezo/agents/marina/graph.py:28`).
+  Marina NUNCA avalia DMN neste fluxo (so REPORTA fatos ja resolvidos) e o no `start_process` do
+  seu grafo e explicitamente NO-OP para `reembolso` (`graph.py:33-34`: "`start_process` is a
+  NO-OP (Marina never starts a second instance)") — ela monta o dossie factual e sempre roteia
+  para o grupo humano `analise-reembolso`.
+- `process_keys:` em `spec/agents/*/agent.yaml` e o UNICO allowlist que concede autoridade de
+  start ao effect-PEP (`src/maezo/gateway/effect_pep.py:487,493-494`,
+  `AgentCapabilities.allows_process_key`); a ausencia de `SP-OP-REEMBOLSO-001` em qualquer
+  manifesto — incluindo o da Marina — e portanto MENOR PRIVILEGIO: nenhum agente tem autoridade
+  de efeito que nao usa.
+- Esta secao existe para que a proxima auditoria nao reabra `grep -rn REEMBOLSO
+  spec/agents/*/agent.yaml -> 0 hits` como se fosse uma omissao. Cercado por
+  `tests/unit/gateway/test_reembolso_sem_binding_de_agente.py` (mesmo padrao de
+  `test_adequacao_sem_binding_de_agente.py`, gap `PERSP-B5-ADEQ-BINDING`/R-049).
+
 ## SLAs
 
 > Todos os prazos sao **DRAFT/verify** com regulatorio/juridico antes de qualquer timer em
