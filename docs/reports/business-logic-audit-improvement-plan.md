@@ -8,6 +8,8 @@
 
 Every gap below carries fresh `file:line`/element evidence in CURRENT code. Findings already resolved by the forensic audit are not re-reported unless a live regression is cited.
 
+**ADENDO DATADO 2026-09-06 (gap `ADR-PHANTOM-PATH-RESIDUE-NON-ADR`):** as 3 citacoes de `src/maezo/policies/autonomy/` neste documento (§4.4 banner de briefs, e os blocos `Files:` de `enforce-financial-ceilings` e `nip-autonomy-parity`) apontam para um diretorio que NUNCA existiu no repo (`.github/CODEOWNERS` documenta isso desde 2026-08-13; confirmado hoje por `git ls-files src/maezo/policies` -> vazio). A matriz de autonomia real sempre viveu — e vive hoje — em `spec/policies/autonomy/{L0-core,_hard_frozen,tenants-amh}.yaml`. Este relatorio e HISTORICO (gerado 2026-07-02, pre-datando a migracao T0.3/T0.4 para `spec/`) e nao e reescrito retroativamente; este adendo apenas registra o caminho real para quem consultar o documento hoje.
+
 ---
 
 ## 4.1 Executive Summary

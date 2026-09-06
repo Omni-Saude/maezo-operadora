@@ -40,6 +40,7 @@ _AUTH_BPMN = _SPEC / "bpmn" / "SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
 _AUTO_APPROVAL_DMN = _SPEC / "dmn" / "auth_auto_approval.dmn"
 _CONTRATUAL_DMN = _SPEC / "dmn" / "auth_criteria_contratual.dmn"
 _RATIFICATION = _SPEC / "dmn" / "auth-criteria-ratification.yaml"
+_TENANTS_AMH = _REPO_ROOT / "spec" / "policies" / "autonomy" / "tenants-amh.yaml"
 
 _BPMN_NS = {"bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL"}
 _VALIDATOR_TASK = "ST_ValidateAutoApprovalCriteria"
@@ -423,3 +424,50 @@ def test_remover_a_entrada_sem_cobertura_torna_a_ratificacao_efetiva(tmp_path: P
     result = _all_green_worker(path).execute(dict(_GREEN_VARS))
     assert result["criterio_contratual_ok"] is True
     assert result["auto_criteria_falhas"] == []
+
+
+# ---------------------------------------------------------------------------------------------
+# 5. AUTH-TETO-ZERO-STALE-CLAIM: D-07 closed 2026-08-25 — the "max_value_brl: 0 / D-07 aberto"
+#    framing must not survive in the worker docstrings or the BPMN documentation text.
+# ---------------------------------------------------------------------------------------------
+
+_STALE_TETO_SUBSTRINGS = (
+    "max_value_brl: 0",
+    "max_value_brl e 0",
+    "D-07 open",
+    "D-07 em aberto",
+    "D-07 aberto",
+)
+
+
+def test_live_ceiling_is_positive_precondition_for_the_stale_claim_fence() -> None:
+    """Sanity precondition: this fence only makes sense while D-07 stays closed (ceiling > 0).
+    If the tenant ceiling ever drops back to 0, the "nothing auto-approves" framing becomes true
+    for the financial criterion again and the stale-claim assertions below must be revisited."""
+    tenants = yaml.safe_load(_TENANTS_AMH.read_text(encoding="utf-8"))
+    live_teto = tenants["overrides"]["authorization_approval"]["params"]["max_value_brl"]
+    assert live_teto > 0, "D-07 reopened? test_worker_docstrings_and_bpmn_* must be re-derived"
+
+
+def test_worker_docstrings_do_not_repeat_the_closed_zero_ceiling_claim() -> None:
+    """AUTH-TETO-ZERO-STALE-CLAIM. `ValidateAutoCriteriaWorker` and `IssueAuthorizationWorker`
+    docstrings used to claim `authorization_approval.max_value_brl: 0 (D-07 open/em aberto)` —
+    stale since D-07 closed on 2026-08-25 (`tenants-amh.yaml` carries a positive ceiling). Revert
+    either docstring to the old wording and this goes RED."""
+    docstrings = "\n".join(
+        doc for doc in (auth.ValidateAutoCriteriaWorker.__doc__, auth.IssueAuthorizationWorker.__doc__) if doc
+    )
+    for stale in _STALE_TETO_SUBSTRINGS:
+        assert stale not in docstrings, f"stale claim {stale!r} resurfaced in a worker docstring"
+
+
+def test_bpmn_documentation_does_not_repeat_the_closed_zero_ceiling_claim(
+    bpmn_process: ET.Element,
+) -> None:
+    """Same gap, `SP-OP-AUTH-001` BPMN side: `BRT_AutoApproval`'s `camunda:documentation` used to
+    read "...authorization_approval.max_value_brl e 0 (D-07)...". Revert it and this goes RED."""
+    doc_texts = [(el.text or "") for el in bpmn_process.iter() if _local(el.tag) == "documentation"]
+    joined = "\n".join(doc_texts)
+    assert doc_texts, "no documentation elements found -- BPMN parsing regressed"
+    for stale in _STALE_TETO_SUBSTRINGS:
+        assert stale not in joined, f"stale claim {stale!r} resurfaced in BPMN documentation"

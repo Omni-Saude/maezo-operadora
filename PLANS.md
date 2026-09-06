@@ -77,7 +77,7 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 
 **Pendências reais (2026-07-27):**
 - **Tier 1 — FEITO:** PR #171 merged; #170 (versão hollow) curado pelo v2; PRs #172–#176 = bumps dependabot (fora de escopo).
-- **Tier 2 — agent-buildable, decision-gated (o PRÓXIMO orquestrador DECIDE + EXECUTA — ver §0.5.1):** (1) auditoria de postura dos 4 callers de swallow restantes em `operadora.notifications.internal` (`lgpd.request_additional_proof`/`send_response`, `recurso.notify_sla_risk`, `ans_submit.notify_regulatorio`) — mesma forma de perda-silenciosa que a Fix A fechou para escalation; (2) durabilidade do handoff one-shot NIP→ANS (outbox/reconciliação — hoje rides best-effort sem retry natural); (3) predicado bridge CONTAS→FRAUDE sem `non_blank(tenant_id)` (assimetria pré-existente); (4) correlation-ids do token-metering (`agent_id`/`tenant_id` = None hoje); (5) delegação A2A real de dossiê além dos stubs DL-0033 (adequacao `prepare_remediation_dossier`, cred `prepare_dossier`); (6) CronJobs de retenção/expurgo (`expurgo-working`/`verify-erasure`) — construir o seam completo fail-closed; (7) `PopulationFeatureClient` (André); (8) ratificação de ADRs Proposed (0025/0026/0028/0029/0030; há conflito de status em ADR-0028 ledger-vs-arquivo); (9) cauda de xfails por família (~102 sites/~39 constantes em origin/main — lista viva: `git grep '_.*_REASON =' tests/integration/processes/`). **Gated-por-valor (construir o seam, deixar o valor humano):** cost-table USD do LLM (#29 — os counts do metering já landaram), retention-matrix (item 6), módulo fhir-sync (Tasy-contract-gated).
+- **Tier 2 — agent-buildable, decision-gated (o PRÓXIMO orquestrador DECIDE + EXECUTA — ver §0.5.1):** (1) auditoria de postura dos 4 callers de swallow restantes em `operadora.notifications.internal` (`lgpd.request_additional_proof`/`send_response`, `recurso.notify_sla_risk`, `ans_submit.notify_regulatorio`) — mesma forma de perda-silenciosa que a Fix A fechou para escalation; (2) durabilidade do handoff one-shot NIP→ANS (outbox/reconciliação — hoje rides best-effort sem retry natural); (3) predicado bridge CONTAS→FRAUDE sem `non_blank(tenant_id)` (assimetria pré-existente); (4) correlation-ids do token-metering (`agent_id`/`tenant_id` = None hoje); (5) delegação A2A real de dossiê além dos stubs DL-0033 (adequacao `prepare_remediation_dossier`, cred `prepare_dossier`); (6) CronJobs de retenção/expurgo — **JÁ EXISTEM** (Helm `deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml`, três jobs `expurgo-working`/`verify-erasure`/`audit-retention`, anotados `maezo.io/expected-fail-until` — R-040/SC-07) e falham POR DESENHO até a matriz de retenção `AF-07` existir (`src/maezo/platform/lifecycle/__init__.py` recusa fail-closed, nenhum comando implementado); implementar o expurgo real é decisão B do dono (`OWNER-DECISIONS-REGISTER` R-106) — só depois de `AF-07`, sem antecipar código sem regra; (7) `PopulationFeatureClient` (André); (8) ratificação de ADRs Proposed (0025/0026/0028/0029/0030; há conflito de status em ADR-0028 ledger-vs-arquivo); (9) cauda de xfails por família (~102 sites/~39 constantes em origin/main — lista viva: `git grep '_.*_REASON =' tests/integration/processes/`). **Gated-por-valor (construir o seam, deixar o valor humano):** cost-table USD do LLM (#29 — os counts do metering já landaram), retention-matrix (item 6), módulo fhir-sync (Tasy-contract-gated).
 - **Tier 3 — teto humano (escalate/track SOMENTE — NÃO forçar):** sign-offs SME (contratos DRAFT→FINAL, médico-auditor→jurídico/DPO/regulatório/finanças/PO); AWS + `terraform apply` + billing; 6 secrets de produção (LLM/Tasy/WABA/**PHI_HMAC_KEY**/card-signing); DPA endpoint PHI-BR; DPO + RIPD + retention-matrix; sign-off DMN clínico + validação de personas (Beatriz↔Valentina) + atestação de segurança clínica; atestação ANS + competências reais; GHAS; **valores de teto D-07** (diretoria); parecer ANVISA SaMD (GAP-C10); emissão de cert T-G (ADR-0033); 3 gatekeepers + go/no-go. Detalhe humano: `docs/Tarefas_Pendentes.md`.
 - **Resolvido nesta janela:** edições BPMN obsoletas descartadas (stash-drop aprovado pelo dono, commit 259e6a42e) → main local sincronizado; higiene de branches remotas/locais executada.
 
@@ -171,6 +171,25 @@ delas falha o CI (`--check`); o texto ao redor permanece prosa normal.
    existe. Declarado em `criterios_nao_cobertos` **dentro do manifesto que o SME obrigatoriamente
    abre para ratificar** e pinado por teste de cerca — senão, ratificar `auth_criteria_contratual`
    abriria aprovação automática para prestador FORA DA REDE sem que critério nenhum dissesse nada.
+
+## 0.5.5 — Decisão do dono: superfície humana do operador (R-031, 2026-09-04) — RESOLVIDA
+
+**Pergunta [M-19 / gap `9.1`]:** a superfície do operador para as jornadas com User Task é o
+**Cockpit do CIB Seven**, e o `testchannel` é declarado **demo sem autenticação própria**?
+
+**Resposta aprovada, citada verbatim (OWNER-DECISIONS-REGISTER R-031, Bold-Decision Review v2 CEO
+2026-09-04, status `APROVADO-APOS-REVISÃO-HUMANA`):** *"Manter o SIM (Cockpit + `testchannel`
+declarado demo sem autenticação própria) e DELETAR a espera em vez de datá-la: a linha de
+`docs/review-queue.md` sai de DRAFT e a nota em `src/maezo/platform/testchannel/README.md` entra
+no MESMO PR que registra esta resposta do registro — sem teto de calendário, porque não sobra
+espera a limitar —, e `antes do 1º operador real` deixa de ser âncora e vira mera nota de
+revisão."*
+
+**Implementado por este registro:** `src/maezo/platform/testchannel/README.md` (novo — nota "demo
+sem autenticação própria") + linha em `docs/review-queue.md` citando esta resposta como o ato de
+sign-off do dono. Desbloqueia `WP-SUPERFICIE-HUMANA` (`9.1`, `11.1`, `9.2`, `9.6`, `10.1`, `10.2`,
+`11.7`) e, indiretamente, `WP-EVALS`. Dependência: `11.1` (mapa de personas de R-032, M-20) — as
+jornadas julgadas por `9.1` vêm de lá; ainda não resolvida por este registro.
 
 ## 0.6 — Programa de compatibilidade AMH (AMH-compat) — registrado 2026-08-05
 
