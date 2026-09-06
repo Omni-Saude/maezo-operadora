@@ -550,6 +550,28 @@ def _ofensas_forma_vs_real(
     return ofensas
 
 
+def _achado_sync_async(
+    rotulo: str,
+    classe: ast.ClassDef,
+    nome_metodo: str,
+    no: ast.FunctionDef | ast.AsyncFunctionDef,
+    rotulo_familia: str,
+    async_real: bool,
+) -> str:
+    """Mensagem de ofensa para um sync/async ERRADO numa ancora SEM risco de colisao real (nome
+    unico na tabela via `_nomes_unicos`, OU forma de `send` que resolve para uma UNICA familia) --
+    §Delta F1: antes deste caso virava exclusao silenciosa da familia inteira (comportamento de
+    `_e_candidata_da_familia`, que so' e' correto quando existe colisao real com outro Protocol --
+    fora desta tabela, ou dentro dela via forma GENUINAMENTE ambigua de `send`, compartilhada por
+    DUAS OU MAIS familias)."""
+    real = "`async def`" if async_real else "`def` (sincrono)"
+    falso = "`async def`" if isinstance(no, ast.AsyncFunctionDef) else "`def` (sincrono)"
+    return (
+        f"{rotulo}:{no.lineno} — classe `{classe.name}`.{nome_metodo} diverge do Protocol real "
+        f"`{rotulo_familia}.{nome_metodo}`: Protocol e' {real}, falso e' {falso}"
+    )
+
+
 def _achado_de_metodo(
     rotulo: str,
     classe: ast.ClassDef,
@@ -577,6 +599,7 @@ def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
     for classe in _classes_de_fonte(fonte):
         metodos_classe = _metodos_proprios_ast(classe)
         familias_ancoradas: set[str] = set()
+        achados_da_classe: list[str] = []
 
         for nome_metodo, no in metodos_classe.items():
             if nome_metodo == _NOME_COM_DISCRIMINADOR_PROPRIO:
@@ -586,19 +609,34 @@ def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
             if nome_metodo in unicos:
                 nome_familia = unicos[nome_metodo]
                 familia = _FAMILIA_POR_NOME[nome_familia]
-                _, async_real = familia.metodos()[nome_metodo]
+                sig_real, async_real = familia.metodos()[nome_metodo]
                 if not _e_candidata_da_familia(no, async_real):
-                    continue  # mesmo nome, Protocol DIFERENTE fora desta tabela -- nao e' achado
+                    # §Delta F1: um nome de metodo UNICO na tabela (nenhuma das 10 familias
+                    # colide) ainda pode colidir com um Protocol de FORA da tabela (ex.:
+                    # `tests/support/dmn_first_hit.py::LinearSub.evaluate`, um simulador de
+                    # tabela sincrono com 1 posicional e 0 kwonly; `test_effect_pep.py::
+                    # _StubPep.evaluate`, que duck-typa `PepEvaluator`, 2 posicionais e 0
+                    # kwonly -- ver docstring do modulo). So' tratar o sync/async errado como
+                    # ofensa (em vez de exclusao de familia) quando a FORMA do falso (contagem
+                    # posicional/kwonly, *args/**kwargs -- tudo MENOS o proprio sync/async, que
+                    # e' exatamente o que esta errado) bate com a do Protocol real: aí' nao ha'
+                    # Protocol plausivel fora da tabela com a MESMA forma E o MESMO nome de
+                    # metodo por coincidencia -- e' o proprio defeito P-17 na MESMA familia.
+                    if _forma_assinatura(sig_real) == _forma_assinatura_ast(no):
+                        achados_da_classe.append(
+                            _achado_sync_async(rotulo, classe, nome_metodo, no, nome_familia, async_real)
+                        )
+                    continue
                 familias_ancoradas.add(nome_familia)
                 achado = _achado_de_metodo(rotulo, classe, nome_metodo, no, familia, nome_familia)
                 if achado:
-                    achados.append(achado)
+                    achados_da_classe.append(achado)
                 continue
             if nome_metodo == "send":
                 forma_fake = _forma_assinatura_ast(no)
                 candidatas = formas_send.get(forma_fake)
                 if not candidatas:
-                    achados.append(
+                    achados_da_classe.append(
                         f"{rotulo}:{no.lineno} — classe `{classe.name}`.send tem forma "
                         f"(posicionais={forma_fake[0]}, kwonly={forma_fake[1]}, "
                         f"*args={forma_fake[2]}, **kwargs={forma_fake[3]}) que nao bate com "
@@ -610,9 +648,21 @@ def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
                     continue
                 familias_ancoradas.update(candidatas)
                 familia = _FAMILIA_POR_NOME[candidatas[0]]
+                if len(candidatas) == 1:
+                    # §Delta F1: a forma resolveu para UMA UNICA familia -- mesmo raciocinio do
+                    # ramo `unicos` acima, so' que a ancora aqui e' por FORMA em vez de por nome.
+                    # A ambiguidade genuina (a que continua justificando a exclusao silenciosa)
+                    # so' existe quando DUAS OU MAIS familias compartilham a MESMA forma (Kafka/
+                    # FactBrokerPublisher hoje).
+                    _, async_real = familia.metodos()["send"]
+                    if not _e_candidata_da_familia(no, async_real):
+                        achados_da_classe.append(
+                            _achado_sync_async(rotulo, classe, "send", no, candidatas[0], async_real)
+                        )
+                        continue
                 achado = _achado_de_metodo(rotulo, classe, "send", no, familia, " / ".join(candidatas))
                 if achado:
-                    achados.append(achado)
+                    achados_da_classe.append(achado)
 
         for nome_familia in familias_ancoradas:
             for nome_secundario in _SECUNDARIOS_POR_FAMILIA.get(nome_familia, ()):
@@ -625,7 +675,9 @@ def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
                     rotulo, classe, nome_secundario, metodos_classe[nome_secundario], familia, nome_familia
                 )
                 if achado:
-                    achados.append(achado)
+                    achados_da_classe.append(achado)
+
+        achados.extend(achados_da_classe)
     return achados
 
 
@@ -767,6 +819,135 @@ def test_achados_estruturais_checa_start_stop_so_apos_ancorar_em_factbrokerpubli
     assert len(achados) == 1
     assert ".stop diverge" in achados[0]
     assert "motivo" in achados[0]
+
+
+# =================================================================================================
+# (D) §Delta -- correcoes de verificacao independente (F1 sync/async em ancora sem colisao real,
+# F2 parametro extra do falso, F3 exempcao estrutural para fixture NEGATIVA deliberada)
+# =================================================================================================
+
+
+def test_achados_estruturais_recusa_ancora_unica_com_sync_async_trocado() -> None:
+    """§Delta F1: uma ancora UNICA (nome de metodo que so' uma familia desta tabela declara, ex.:
+    `evaluate` de `DmnTransport`) com sync/async ERRADO e' uma ofensa -- NAO uma exclusao
+    silenciosa da familia. A exclusao silenciosa de `_e_candidata_da_familia` so' faz sentido
+    contra um Protocol FORA da tabela que colide de NOME (ex.: `LinearSub.evaluate`, sincrono,
+    nada a ver com `DmnTransport`); aqui os nomes dos parametros estao certos e so' o sync/async
+    esta' errado, que e' o proprio defeito P-17 que esta cerca existe para pegar."""
+    fonte = (
+        "class _FakeDmnSincrono:\n"
+        "    def evaluate(self, decision_key, variables, *, tenant=None):\n"
+        "        return ([], None)\n"
+    )
+    achados = _achados_estruturais_em_fonte(fonte, "sintetico.py")
+    assert len(achados) == 1
+    assert "sintetico.py:2" in achados[0]
+    assert "`async def`" in achados[0] and "sincrono" in achados[0]
+
+
+def test_achados_estruturais_recusa_whatsapp_send_sincrono_forma_unica() -> None:
+    """§Delta F1: `send` cuja FORMA resolve para uma UNICA familia (WhatsAppSender hoje, forma
+    (2 posicionais, 0 kwonly) nao compartilhada por nenhuma outra familia desta tabela) tambem
+    nao tem colisao real -- sync/async errado e' ofensa, nao exclusao silenciosa. A ambiguidade
+    genuina so' existe quando DUAS OU MAIS familias compartilham a MESMA forma (Kafka/
+    FactBrokerPublisher hoje), caso em que a exclusao silenciosa continua correta (ver proximo
+    teste, controle negativo)."""
+    fonte = "class _RecordingWhatsAppSincrono:\n    def send(self, to_hash, text):\n        return {}\n"
+    achados = _achados_estruturais_em_fonte(fonte, "sintetico.py")
+    assert len(achados) == 1
+    assert "WhatsAppSender" in achados[0]
+
+
+def test_achados_estruturais_ainda_exclui_em_silencio_forma_ambigua_de_send_sincrona() -> None:
+    """Controle NEGATIVO do §Delta F1: quando a forma de `send` bate com DUAS familias
+    (Kafka/FactBrokerPublisher, ambiguidade REAL), um sync/async errado ainda e' exclusao
+    silenciosa -- nao vira ofensa, porque a colisao aqui e' genuina (nao ha' como saber, so'
+    pela forma, qual das duas o autor da fixture pretendia duck-typar). Preserva o comportamento
+    que o brief do §Delta manda MANTER, nao so' o que manda consertar."""
+    fonte = "class _AlgumaOutraCoisa:\n    def send(self, topic, value, *, key=None):\n        return None\n"
+    assert _achados_estruturais_em_fonte(fonte, "sintetico.py") == []
+
+
+def test_achados_estruturais_recusa_parametro_extra_posicional_com_default() -> None:
+    """§Delta F2: um parametro posicional EXTRA (alem dos que o Protocol real declara), mesmo
+    COM default, e' uma ofensa. Antes so' o caso SEM default (que quebraria um caller real com
+    `TypeError: missing required positional argument`) era apontado; um extra COM default nao
+    quebra um caller que so' passa o que o Protocol promete, mas ainda e' uma assinatura que NAO
+    acompanha o Protocol real -- exatamente o que a docstring do modulo promete comparar 'item
+    por item'."""
+    fonte = (
+        "class _FakeDmnComExtra:\n"
+        "    async def evaluate(self, decision_key, variables, modo_debug: bool = False, *,"
+        " tenant=None):\n"
+        "        return ([], None)\n"
+    )
+    achados = _achados_estruturais_em_fonte(fonte, "sintetico.py")
+    assert len(achados) == 1
+    assert "modo_debug" in achados[0]
+
+
+def test_achados_estruturais_recusa_parametro_extra_kwonly_com_default() -> None:
+    """§Delta F2: variante keyword-only do mesmo caso (`modo_debug` extra, com default, ao lado
+    do `tenant` correto)."""
+    fonte = (
+        "class _FakeDmnComExtraKwonly:\n"
+        "    async def evaluate(self, decision_key, variables, *, tenant=None,"
+        " modo_debug: bool = False):\n"
+        "        return ([], None)\n"
+    )
+    achados = _achados_estruturais_em_fonte(fonte, "sintetico.py")
+    assert len(achados) == 1
+    assert "modo_debug" in achados[0]
+
+
+def test_achados_estruturais_marcador_de_fixture_negativa_exime_classe_malformada() -> None:
+    """§Delta F3: `__fence_negative_fixture__` exime uma classe DELIBERADAMENTE malformada (ex.:
+    o par `_DriftedReader`/`_DriftedSender` de DOSSIER-BROAD-EXCEPT
+    `tests/unit/agents/test_dossier_propagates_programming_errors.py`, que existe para provar que
+    um `TypeError` de uma chamada mal formada PROPAGA em vez de ser engolido por um `except
+    Exception`). A classe abaixo tem a MESMA especie de drift do teste
+    `test_achados_estruturais_recusa_fakedmn_com_nomes_da_evidencia_reg04` (nomes trocados de
+    `table`/`dmn_input`), mas o marcador a exime porque ela e' uma fixture negativa, nao um falso
+    desatualizado por acidente."""
+    fonte = (
+        "class _DriftedDmnDeliberado:\n"
+        "    __fence_negative_fixture__ = 'NEW-12: prova que TypeError propaga'\n"
+        "    async def evaluate(self, table, dmn_input):\n"
+        "        raise AssertionError('inalcancavel')\n"
+    )
+    assert _achados_estruturais_em_fonte(fonte, "sintetico.py") == []
+
+
+def test_achados_estruturais_marcador_sobre_falso_conforme_e_ofensa() -> None:
+    """§Delta F3: o marcador so' pode exceptionar um duplo que REALMENTE diverge -- numa classe
+    CONFORME (nomes certos, sync/async certo), o proprio marcador vira ofensa, para que nunca
+    sirva de bypass de texto livre contra uma classe que na verdade acompanha o Protocol real
+    (mutation do brief: 'marcador sobre um falso conforme')."""
+    fonte = (
+        "class _FakeDmnComMarcadorIndevido:\n"
+        "    __fence_negative_fixture__ = 'X: nao deveria estar aqui'\n"
+        "    async def evaluate(self, decision_key, variables, *, tenant=None):\n"
+        "        return ([], None)\n"
+    )
+    achados = _achados_estruturais_em_fonte(fonte, "sintetico.py")
+    assert len(achados) == 1
+    assert "marcador" in achados[0].lower()
+    assert "_FakeDmnComMarcadorIndevido" in achados[0]
+
+
+def test_achados_estruturais_marcador_vazio_nao_exime() -> None:
+    """`__fence_negative_fixture__` precisa ser uma string NAO VAZIA para valer como exempcao
+    estrutural -- uma string vazia e' tratada como ausencia de marcador, entao a classe
+    malformada abaixo continua sendo apontada normalmente (nunca um bypass por acidente de um
+    atributo declarado mas esquecido em branco)."""
+    fonte = (
+        "class _FakeDmnComMarcadorVazio:\n"
+        "    __fence_negative_fixture__ = ''\n"
+        "    async def evaluate(self, table, dmn_input):\n"
+        "        return ([], None)\n"
+    )
+    achados = _achados_estruturais_em_fonte(fonte, "sintetico.py")
+    assert len(achados) == 1
 
 
 def test_falsos_estruturais_em_tests_acompanham_o_protocol_real() -> None:
