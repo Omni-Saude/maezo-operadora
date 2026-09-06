@@ -160,8 +160,14 @@ def aggregate_markers() -> frozenset[str]:
     markers.update(tok for tok in AGGREGATE_EFFECT_CLASS.split("_") if tok != "leitura")
     for type_name in aggregate_value_types():
         markers.update(_camel_tokens(type_name))  # "CohortAggregate" -> cohort, aggregate
-    for token in tuple(markers):
-        markers.update(_PT_BR_STEMS.get(token, ()))
+    # Aplica o par ortografico pt-BR sobre os TOKENS de cada marcador derivado (split em "_"), nao
+    # so sobre o marcador inteiro: "actuarial_risk" nunca bate em `_PT_BR_STEMS["actuarial_risk"]",
+    # mas o token "actuarial" (apos o split) bate em `_PT_BR_STEMS["actuarial"]` -> adiciona
+    # "atuarial". Um marcador sem "_" (p.ex. "population") tem split-de-um-token == ele mesmo, entao
+    # o comportamento anterior (lookup do marcador inteiro) continua coberto.
+    for marker in tuple(markers):
+        for token in marker.split("_"):
+            markers.update(_PT_BR_STEMS.get(token, ()))
     return frozenset(m for m in markers if m)
 
 
@@ -345,12 +351,14 @@ def _valentina_consumers(markers: frozenset[str]) -> list[Consumer]:
     return out
 
 
-#: Prefixo dos topicos de worker do PROGRAMA no registro estatico de topicos.
+#: Prefixo dos topicos de worker do PROGRAMA na declaração estática de mapeamento de tópicos
+#: (1 dos 8 tópicos do BPMN; `action-approvals.yaml::mapeamento_topicos` — NAO e um registro).
 _PROGRAMA_TOPIC_PREFIX = "operadora.programa."
 
 
 def _topic_map_consumers(markers: frozenset[str]) -> list[Consumer]:
-    """Topicos do PROGRAMA no registro ESTATICO (`action-approvals.yaml::mapeamento_topicos`).
+    """Topicos do PROGRAMA na declaração estática de mapeamento de tópicos (1 dos 8 tópicos do
+    BPMN; `action-approvals.yaml::mapeamento_topicos`).
 
     `platform/topic_registry.py` NAO carrega catalogo estatico — ele valida convencao de nome e os
     topicos entram por `register`/`register_batch` em runtime, entao nao ha inventario de arvore a
@@ -427,7 +435,7 @@ def test_marker_derivation_is_anchored() -> None:
         f"{operations!r} — a cadeia de derivacao quebrou."
     )
     markers = aggregate_markers()
-    assert {"population", "populac", "aggregate", "agregad"} <= markers, markers
+    assert {"population", "populac", "aggregate", "agregad", "atuarial"} <= markers, markers
     assert _programa_bpmn_paths(), "BPMN do PROGRAMA nao encontrado — a cerca varreria o vazio."
     assert _programa_dmn_paths(), "DMNs programa_* nao encontradas — a cerca varreria o vazio."
     topic_map = _load_yaml(_APPROVALS)["mapeamento_topicos"]
@@ -435,6 +443,35 @@ def test_marker_derivation_is_anchored() -> None:
         "nenhum topico `operadora.programa.*` em mapeamento_topicos — a superficie de topico "
         "estatico sumiu e a cerca varreria o vazio nela."
     )
+
+
+def test_ptbr_stem_map_applies_over_marker_tokens() -> None:
+    """Regressao VER-R228 F1 (probe M6b): `_PT_BR_STEMS["actuarial"]` tinha efeito zero porque
+    `aggregate_markers()` so aplicava o par ortografico sobre o marcador INTEIRO. O marcador
+    derivado de `agente.population.actuarial_risk` (`mapeamento_acoes`) e o leaf composto
+    `actuarial_risk`, nunca o token isolado `actuarial` — entao `_PT_BR_STEMS.get("actuarial_risk")`
+    sempre voltava vazio e `"atuarial"` nunca entrava no vocabulario. Um egresso batizado na grafia
+    pt-BR que a propria ADR-0042 Parte 2 propoe (`exposicao_atuarial`) atravessava a cerca sem
+    acionar nenhum marcador. Prova end-to-end: o campo estrutural bate em `_matched_marker` e
+    `evaluate_gate` (regime sem piso) o rejeita, exatamente como `_bpmn_consumers` trataria uma
+    entrada real de `event_payload_vars`.
+    """
+    markers = aggregate_markers()
+    assert "atuarial" in markers, markers
+    field = "exposicao_atuarial"
+    marker = _matched_marker(field, markers)
+    assert marker == "atuarial", (
+        f"a grafia pt-BR {field!r} do egresso deveria acionar o marcador 'atuarial'; bateu {marker!r}."
+    )
+    consumer = Consumer(
+        kind="bpmn",
+        ident=f"ST_PublishCompleted::{field}",
+        where="SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn",
+        marker=marker,
+        declaration="<serviceTask/>",
+    )
+    violations = evaluate_gate(None, [consumer])
+    assert len(violations) == 1 and "atuarial" in violations[0], violations
 
 
 def test_no_k_floor_is_declared_today() -> None:
@@ -545,12 +582,16 @@ def test_gate_without_floor_rejects_any_consumer() -> None:
 )
 def test_gate_with_floor_requires_every_consumer_to_reference_it(declaration: str, expected: int) -> None:
     """COM piso declarado a cerca MUDA DE EXIGENCIA — deixa de proibir e passa a exigir referencia."""
-    floor = KFloor(key="k_anonimato_min", value=5, source="spec/policies/privacy/fake.yaml")
+    # value=7 e um numero de teste NEUTRO — `evaluate_gate` so le `.key`/`.source` (linhas 408/410
+    # do modulo), nunca `.value`; 5 coincidiria com a opcao A (nao ratificada) da ADR-0042 (VER-R228 F2).
+    floor = KFloor(key="k_anonimato_min", value=7, source="spec/policies/privacy/fake.yaml")
     assert len(evaluate_gate(floor, [_fake_consumer(declaration)])) == expected
 
 
 def test_gate_with_floor_still_admits_the_empty_world() -> None:
-    floor = KFloor(key="k_anonimato_min", value=5, source="spec/policies/privacy/fake.yaml")
+    # value=7 e um numero de teste NEUTRO — `evaluate_gate` so le `.key`/`.source` (linhas 408/410
+    # do modulo), nunca `.value`; 5 coincidiria com a opcao A (nao ratificada) da ADR-0042 (VER-R228 F2).
+    floor = KFloor(key="k_anonimato_min", value=7, source="spec/policies/privacy/fake.yaml")
     assert evaluate_gate(floor, []) == []
 
 
