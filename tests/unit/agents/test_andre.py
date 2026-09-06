@@ -379,6 +379,46 @@ async def test_full_turn_pagto_without_valor_never_starts_process() -> None:
     assert result["process_started"] is False
 
 
+async def test_receive_pagto_string_valor_is_coerced_once_and_accepted() -> None:
+    """§Delta-F2 (CONTRACT-DRIFT): the guard used to validate the RAW state value while
+    `_contract_variables` embarked the `int()`-coerced one -- a numeric STRING (a legacy/worker
+    shape) was accepted at `receive` (raw `"85000" <= 0` never raised) but then regressed into
+    an unhandled `TypeError` deeper in the guard's own comparison once coercion was added
+    naively. Coercing ONCE, before the guard, closes it: the string is accepted and the coerced
+    INTEGER (never the raw string) is the one that reaches the engine."""
+    dmn = FakeDmnTransport()
+    _register_admissibility(dmn, "SEGUE_ROTEAMENTO")
+    _register_alcada(dmn, "DENTRO_TETO_L2", "clerical-pagamentos")
+    cibseven = _RecordingCibSeven()
+    compiled = _graph(dmn=dmn, cibseven=cibseven).compile_graph().compile()
+
+    result = await compiled.ainvoke(_pagto_state(valor_pagamento_cents="85000"))
+
+    assert result["route"] == "auto_route"
+    assert result["process_started"] is True
+    assert cibseven.started_variables[0]["valor_pagamento_cents"] == 85_000
+
+
+async def test_receive_pagto_subcentavo_float_valor_routes_pendencia_dados() -> None:
+    """§Delta-F2 (CONTRACT-DRIFT): a `0 < x < 1` amount passed the old RAW `<= 0` check (Python
+    lets int/float compare) and then `int(x) == 0` embarked the exact fabricated
+    `valor_pagamento_cents=0` AND-07 exists to prevent -- and the DMN still auto-routed it.
+    Coercing ONCE, before the guard, closes this residual: the truncated-to-zero amount now
+    fails the SAME positivity guard as an absent/explicit-zero value, before any DMN call."""
+    dmn = FakeDmnTransport()
+    _register_admissibility(dmn, "SEGUE_ROTEAMENTO")
+    _register_alcada(dmn, "DENTRO_TETO_L2", "clerical-pagamentos")
+    cibseven = _RecordingCibSeven()
+    compiled = _graph(dmn=dmn, cibseven=cibseven).compile_graph().compile()
+
+    result = await compiled.ainvoke(_pagto_state(valor_pagamento_cents=0.4))
+
+    assert result["route"] == "human_review"
+    assert result["motivo_humano"] == "pendencia_dados"
+    assert result["process_started"] is False
+    assert cibseven.started_variables == []
+
+
 async def test_receive_population_without_cohort_routes_human_review() -> None:
     result = await _graph().receive(_population_state(cohort_id=""))
     assert result["route"] == "human_review"
