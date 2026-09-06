@@ -972,21 +972,44 @@ todo item nasce e permanece `DRAFT/verify (DPO)` (o `__post_init__` recusa qualq
 | `exames_convencionais_inconclusivos` (`spec/processes/dmn/dut_criteria_oncologia_pet_ct.dmn:74`, `typeRef="boolean"` em `:73`) | NOVO nesta revisao: o nome era CLEAN ate o vocabulario PHI-shape ganhar radical para `exame` — a pergunta sempre esteve la e nao estava sendo feita. A prosa da propria tabela descreve o dado como "TC/RM/cintilografia convencionais realizados e inconclusivos para a finalidade solicitada" (`:34-36`). **Recomendacao da engenharia:** listar, pela MESMA leitura dos dois booleanos `diagnostico_*` acima — "exame convencional foi feito neste beneficiario e veio inconclusivo" afirma um evento de cuidado e seu resultado sobre titular identificado (LGPD art. 5, II), ao lado do pseudo-id que diz de quem. **Custo medido:** nenhum para a decisao (avaliacao DMN e engine-side, ADR-0028; `redact_phi_vars` age so na saida do worker). **Contraevidencia:** e criterio DUT booleano, nao texto livre, e os criterios DUT sao a base a partir da qual uma negativa e explicada — redigi-lo custa essa explicacao ao operador | DPO + medico auditor | `DRAFT/verify (DPO) — pergunta aberta` |
 | `sintoma_codigo` (`spec/processes/dmn/triage_redflag_adult.dmn:26`, `triage_redflag_gestante.dmn:19`, `triage_redflag_pediatric.dmn:19`, `triage_redflag_mental_health.dmn:22` — quatro `inputExpression`, `typeRef="string"`) | NOVO nesta revisao (radical `sintoma`). **Recomendacao da engenharia: registrar a pergunta E a tensao, nao uma listagem** — e a linha em que a leitura da engenharia esta menos assentada. A FAVOR de tratar como dado de saude: sintoma normalizado de beneficiario identificado e dado de saude (LGPD art. 5, II) por mais limitado que seja o codigo, e as quatro tabelas que o leem decidem escalonamento de red flag clinico. CONTRA: e codigo normalizado FECHADO, nunca narrativa (schema comum declarado em `triage_redflag_adult.dmn:16-20`), e o repo poe DELIBERADAMENTE o agente que o produz (Helena, `src/maezo/agents/helena/graph.py:12-13`, ADR-0012) na ZONA GERAL, onde todo campo e pseudonimizado ponta a ponta (`graph.py:157`) — listar contradiria uma escolha arquitetural viva, e por isso mesmo e pergunta de DPO e nao edicao de engenharia | DPO + medico auditor + arquitetura | `DRAFT/verify (DPO) — pergunta aberta` |
 | `auditor_id` (`spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:324`, `:409`, `:547` — `camunda:formField type="string"` sem dominio `camunda:value`) | NOVO nesta revisao, e o unico item da tabela levantado pelo SINAL ESTRUTURAL: nenhum token de nome dispara nele. **Recomendacao da engenharia: registrar como NAO-PHI**, e registrar POR QUE ele esta aqui. O rotulo do proprio artefato e "Id do medico auditor responsavel (obrigatorio se NEGAR)" (`:324`), e o BPMN o exige justamente para que uma decisao adversa carregue a identidade do humano que a tomou (trilha de auditoria, ADR-0007, `:272-273`) — identifica EQUIPE DA OPERADORA, nao beneficiario, e nao carrega conteudo clinico. E tambem TODO o custo de ruido do sinal estrutural no corpus de hoje (14 ocorrencias de campo ilimitado, 5 nomes, os outros 4 ja LISTED), e foi disposto em vez de recortado da heuristica: regra que exclui os proprios falsos positivos deixa de ser auditavel. **Contraevidencia:** identificador de operador continua sendo dado pessoal (LGPD art. 5, I) mesmo nao sendo dado de saude, e o campo ser ilimitado e o ponto — nada estruturalmente impede um revisor de digitar um nome ali | DPO | `DRAFT/verify (DPO) — pergunta aberta` |
+| `spec/policies/phi/phi-dispositions-migration.yaml` (NOVO — manifesto de disposicoes PHI, decisao do dono R-199) | **A linha de assinatura das perguntas desta secao, e a substituta declarada do bloco "Item de MIGRACAO" removido abaixo.** Nasce com TODAS as `disposicoes[].disposicao` em `null` e os tres campos de `ratificacao` vazios: nada foi decidido e a engenharia nao pode preencher nenhum deles. Assinar uma linha e mudanca de DADOS — nenhuma linha de codigo muda. O que ja esta ativo sem assinatura nenhuma: o FECHO fail-closed nos dois sentidos entre `phi_completeness.DISPOSITIONS` e as linhas do manifesto, e a validacao de schema em `make validate-artifacts`. O que a assinatura LIGA: uma disposicao ratificada como `LISTAR_EM_CONJUNTO_PHI` faz a cerca EXIGIR o nome em `PHI_PROCESS_VARS`/`PHI_FIELDS` — build VERMELHO ate a listagem existir. O que ela continua NAO fazendo: adicionar o nome a conjunto PHI algum por si so, ou mudar um byte de redacao em runtime | DPO (as perguntas seguem gated em R-065/R-136) | `DRAFT — nada ratificado; 9 disposicoes em branco` |
 
-**Item de MIGRACAO (ato do dono, nao da engenharia).** A tabela `DISPOSITIONS` mora HOJE dentro de
-`src/maezo/platform/validation/phi_completeness.py`, e nao em `spec/policies/privacy/`, por um
-motivo unico: aquele diretorio e CODEOWNED pelos revisores de DPO/seguranca
-(`.github/CODEOWNERS:116` — `/spec/policies/privacy/ @rodaquino-OMNI @Omni-Saude/security-team
-@lucasreisEvah`; `spec/policies/privacy/phi-business-key-remediation.yaml:48-49` afirma o mesmo
-fato mas cita `@rodrigotaquino`/`@Omni-Saude/security`, dois handles que o cabecalho de auditoria
-do proprio CODEOWNERS prova inexistentes, `.github/CODEOWNERS:8-20`),
-e uma tabela de recomendacoes NAO RATIFICADAS nao pode ser lavada para dentro de um caminho de
-politica do DPO pelo mesmo commit que a escreve. **Quando o DPO ratificar as 9 perguntas acima, a
-tabela deve MIGRAR para um manifesto de privacidade CODEOWNED** (nos moldes de
-`phi-business-key-remediation.yaml`: `status`/`ratificacao.ratificado`/`revisor`/`ratificado_em`,
-com o carregador recusando rascunho), e a constante no modulo e substituida pelo carregador desse
-manifesto. Enquanto a migracao nao acontece, uma disposicao **nao adiciona o nome a conjunto PHI
-algum e nao muda um byte de redacao em runtime** — so silencia a cerca e registra a pergunta.
+**Item de MIGRACAO — EXECUTADO em 2026-09-06 pela decisao do dono R-199.** A tabela provisoria
+que este bloco descrevia (o formulario de assinatura que vivia AQUI, em prosa de fila de revisao)
+deixou de existir: a linha de assinatura de cada nome agora e o manifesto CODEOWNED
+`spec/policies/phi/phi-dispositions-migration.yaml`, com `disposicao` e `ratificacao` VAZIOS. Ver
+a linha nova ao fim da tabela acima — nenhuma pendencia foi apagada sem ponteiro de substituicao.
+
+**A ordem foi INVERTIDA, e e isso que a decisao comprou.** O texto anterior dizia "quando o DPO
+ratificar, a tabela deve MIGRAR": isso fazia da assinatura o INICIO de um projeto de migracao em
+vez do fim do trabalho — mesmo depois de assinar, a disposicao continuaria sem efeito sobre
+conjunto PHI algum ate alguem construir o manifesto e o carregador. O manifesto e o carregador
+entraram ANTES, vazios. Consequencias medidas, sem exagero:
+
+- **O que NAO mudou.** A PERGUNTA de cada nome — evidencia com proveniencia + recomendacao da
+  engenharia — continua em `phi_completeness.DISPOSITIONS`, `DRAFT/verify (DPO)`, e continua sendo
+  a fonte das linhas da tabela acima. Nada de recomendacao nao ratificada foi lavado para dentro
+  do caminho de politica do DPO. E uma disposicao **continua nao adicionando o nome a conjunto PHI
+  algum e nao mudando um byte de redacao em runtime**.
+- **O que passou a existir.** (1) `/spec/policies/phi/` ganhou regra propria em
+  `.github/CODEOWNERS` no MESMO PR — antes disso o diretorio nao casava regra alguma e o manifesto
+  seria CODEOWNED so no papel. (2) Um FECHO fail-closed nos dois sentidos: nome disposto no codigo
+  sem linha no manifesto, ou linha no manifesto sem pergunta viva no codigo, e erro que bloqueia
+  (`phi_completeness.check_sweep`). (3) `make validate-artifacts` valida o schema do manifesto
+  (`maezo.platform.validation.policy`).
+- **O efeito que a assinatura liga.** Ratificar uma linha como `LISTAR_EM_CONJUNTO_PHI` faz a
+  cerca EXIGIR o nome em `PHI_PROCESS_VARS`/`PHI_FIELDS`: o build fica VERMELHO ate a listagem
+  acontecer. A assinatura nao lista o nome sozinha — listar segue sendo mudanca de codigo,
+  revisada como codigo —, ela torna impossivel ignora-la.
+- **Limite declarado.** `require_code_owner_review` segue `false` (R-051, prazo 2026-09-14): a
+  regra de CODEOWNERS REQUISITA revisor sem EXIGI-LO. As disposicoes em si seguem HUMAN-GATED em
+  R-065/R-136.
+
+Correcao de fato preservada do texto anterior, porque ela continua verdadeira e util:
+`spec/policies/privacy/phi-business-key-remediation.yaml` afirma que o diretorio e CODEOWNED
+citando `@rodrigotaquino`/`@Omni-Saude/security`, dois handles que o cabecalho de auditoria do
+proprio `.github/CODEOWNERS` prova inexistentes. O fato e verdadeiro pela linha viva, nao por
+aquela citacao.
 
 **Item de ACOMPANHAMENTO (engenharia, escopo declarado acima).** Variaveis de processo CRIADAS POR
 WORKER e declaradas por nenhum artefato de `spec/` ficam fora da varredura por construcao

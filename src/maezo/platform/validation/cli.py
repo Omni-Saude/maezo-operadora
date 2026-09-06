@@ -24,7 +24,8 @@ Each directory passed to `validate` is classified by its *structure*, not by
 name, so this gate does not silently go blind if a path is renamed (e.g.
 `src/maezo/agents` -> `spec/agents`, T0.3/B14):
   - a "processes" root has a `bpmn/` and/or `dmn/` subdirectory;
-  - a "policies" root has an `autonomy/` subdirectory;
+  - a "policies" root has an `autonomy/` subdirectory (and, since R-199, is also
+    where the CODEOWNED `phi/` dispositions manifest is validated);
   - an "agents" root has subdirectories that each contain an `agent.yaml`.
 A directory matching none of these is a fail-closed error, not a silent skip.
 """
@@ -139,6 +140,10 @@ def _validate_processes_root(path: Path, report: Report) -> None:
 
 def _validate_policies_root(path: Path, report: Report) -> None:
     policy.validate_dir(path / "autonomy", report)
+    # R-199: the CODEOWNED PHI dispositions manifest. SCHEMA ONLY. The code<->manifest
+    # closure deliberately lives on the completeness fence's side (its `check_sweep`), so
+    # this gate still does not import or run that module — see the test that pins it.
+    policy.validate_phi_dispositions_dir(path / policy.PHI_DISPOSITIONS_DIRNAME, report)
     perspective.check_policies_root(path, report)
 
 

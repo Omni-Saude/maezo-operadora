@@ -23,11 +23,12 @@
 #      linha 33 produziu DOIS erros independentes), entao a linha continua valida pelo
 #      dono-usuario. Esse erro residual e o SEMAFORO desta migracao: enquanto ele existir, a
 #      separacao de revisor nao esta pronta.
-#      CONTAGEM ESPERADA hoje: 31 erros — exatamente UM por linha de regra que carrega o token do
+#      CONTAGEM ESPERADA hoje: 32 erros — exatamente UM por linha de regra que carrega o token do
 #      time (eram 27 antes das duas linhas de integridade de CI que esta auditoria acrescentou,
 #      `/Makefile` e `/scripts/ci/`; 29 ate 2026-09-04, quando entraram
 #      `/.github/production-approvers.yaml` (R-021) e `/deploy/` (R-053) — ver a secao de
-#      autoprotecao). Derive sempre assim, nao decore o numero: se a contagem divergir de "linhas
+#      autoprotecao; 32 desde 2026-09-06, quando entrou `/spec/policies/phi/` pela decisao do
+#      dono R-199). Derive sempre assim, nao decore o numero: se a contagem divergir de "linhas
 #      de regra com `@Omni-Saude/security-team`", ha um erro de OUTRA natureza escondido no meio, e
 #      e ele que interessa. `tests/unit/ci/test_codeowners_rules.py` mantem este numero preso a
 #      derivacao: acrescentar uma regra sem atualizar esta linha fica VERMELHO, nao silencioso.
@@ -139,6 +140,30 @@
 # ULTIMO-match: se a linha de diretorio for algum dia estreitada, este arquivo nao pode perder
 # o revisor em silencio. Mesmo precedente de action-approvals.yaml acima.
 /spec/policies/retention/erasure-plan.template.yaml  @rodaquino-OMNI @Omni-Saude/security-team @lucasreisEvah
+# R-199 (decisao do dono, 2026-09-04) — o manifesto de DISPOSICOES PHI. Preencher `disposicao` +
+# os tres campos de `ratificacao` de uma linha de
+# `spec/policies/phi/phi-dispositions-migration.yaml` e o ato do DPO que transforma uma pergunta
+# aberta da cerca de completude PHI em decisao — e, quando a disposicao e LISTAR_EM_CONJUNTO_PHI,
+# faz a cerca EXIGIR a listagem do nome (build vermelho ate ela existir). Mesma logica das linhas
+# acima: a ativacao e mudanca de DADOS, sem codigo e sem redeploy, e por isso o dado precisa do
+# revisor que o caminho de codigo teria tido.
+# POR QUE ESTA LINHA EXISTE, medido antes de existir: `spec/policies/phi/` NAO casava regra alguma
+# deste arquivo (`grep -n 'spec/policies/phi' .github/CODEOWNERS` -> nenhuma linha, 2026-09-06),
+# embora o diretorio ja hospedasse `dossier-narrative-zone.yaml` — um interruptor que exige DPO
+# **e** medico auditor. Era o unico subdiretorio de `spec/policies/` sem dono declarado. A decisao
+# R-199 inverteu a ordem (o manifesto entra ANTES das assinaturas) justamente para que a
+# assinatura ja produza efeito de gate; sem esta regra o manifesto seria CODEOWNED so no papel.
+# LIMITE DECLARADO, na mesma forma da linha de `/deploy/`: acrescentar a regra NAO a torna eficaz
+# sozinha. Enquanto `require_code_owner_review` for `false` (R-051, prazo 2026-09-14), CODEOWNERS
+# REQUISITA revisor sem EXIGI-LO. Nao leia esta linha como "spec/policies/phi/ esta gateado por
+# revisao obrigatoria".
+# DONOS: o par padrao das linhas de conteudo. `@lucasreisEvah` NAO foi acrescentado aqui, e a
+# omissao e deliberada e tem custo declarado: ele e o unico dono valido deste arquivo que nao e a
+# identidade que autora os PRs (item 3 do cabecalho), entao esta linha nasce dentro do deadlock
+# que as tres linhas LGPD acima escapam — e o assinante desta trilha e literalmente o DPO.
+# Ampliar para o mesmo trio de `/spec/policies/privacy/` e decisao do dono: registrada como
+# pendencia no relatorio de R-199, nao tomada aqui.
+/spec/policies/phi/  @rodaquino-OMNI @Omni-Saude/security-team
 
 # ------------------------------------------------------------------------------------------------
 # W4 shadow candidates — as quatro tabelas irmas conhecidas-erradas da auditoria de calculo.
