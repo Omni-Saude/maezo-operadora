@@ -128,7 +128,8 @@ _CITED_CLAIMS: tuple[tuple[str, str, int], ...] = (
     ("0032-adr0015-status-correction.md", "BLOCKED-ON the dispatcher port (P3 backlog)", 104),
     (
         "0025-pep-policy-unification.md",
-        "Root cause: v2's PEP is never on the request path (`PEP.evaluate` has no runtime callers; `build_pep()`",
+        "Root cause: v2's PEP is never on the request path (`PEP.evaluate` has no runtime "
+        "callers; `build_pep()`",
         8,
     ),
 )
