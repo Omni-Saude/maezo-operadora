@@ -172,6 +172,25 @@ delas falha o CI (`--check`); o texto ao redor permanece prosa normal.
    abre para ratificar** e pinado por teste de cerca — senão, ratificar `auth_criteria_contratual`
    abriria aprovação automática para prestador FORA DA REDE sem que critério nenhum dissesse nada.
 
+## 0.5.5 — Decisão do dono: superfície humana do operador (R-031, 2026-09-04) — RESOLVIDA
+
+**Pergunta [M-19 / gap `9.1`]:** a superfície do operador para as jornadas com User Task é o
+**Cockpit do CIB Seven**, e o `testchannel` é declarado **demo sem autenticação própria**?
+
+**Resposta aprovada, citada verbatim (OWNER-DECISIONS-REGISTER R-031, Bold-Decision Review v2 CEO
+2026-09-04, status `APROVADO-APOS-REVISÃO-HUMANA`):** *"Manter o SIM (Cockpit + `testchannel`
+declarado demo sem autenticação própria) e DELETAR a espera em vez de datá-la: a linha de
+`docs/review-queue.md` sai de DRAFT e a nota em `src/maezo/platform/testchannel/README.md` entra
+no MESMO PR que registra esta resposta do registro — sem teto de calendário, porque não sobra
+espera a limitar —, e `antes do 1º operador real` deixa de ser âncora e vira mera nota de
+revisão."*
+
+**Implementado por este registro:** `src/maezo/platform/testchannel/README.md` (novo — nota "demo
+sem autenticação própria") + linha em `docs/review-queue.md` citando esta resposta como o ato de
+sign-off do dono. Desbloqueia `WP-SUPERFICIE-HUMANA` (`9.1`, `11.1`, `9.2`, `9.6`, `10.1`, `10.2`,
+`11.7`) e, indiretamente, `WP-EVALS`. Dependência: `11.1` (mapa de personas de R-032, M-20) — as
+jornadas julgadas por `9.1` vêm de lá; ainda não resolvida por este registro.
+
 ## 0.6 — Programa de compatibilidade AMH (AMH-compat) — registrado 2026-08-05
 
 > **Este documento não tinha, até este registro, nenhuma menção ao programa AMH-compat — lacuna de rastreio corrigida agora; §0/§0.5 não são reabertos.** Governado pela **ADR-0037** (Accepted, ratificado pelo dono do repositório em 2026-08-03, DL-0040): supersede PARCIAL o ADR-0013 (clausulas 1, 2 [wire dev-JSON], 3, 4, 5; princípios consume-not-duplicate/TASY-write-DROP re-ancorados) e AMENDS o ADR-0034 (XRD-09, chokepoint por chamada). Detalhe completo: `docs/adr/0037-*.md`; decisões: DL-0039 (draft)/DL-0040 (ratificação)/DL-0041 (XRG-3) em `docs/decisions-log.md`; ledger: rows `mzo-000`/`mzo-000-ratify`/`mzo-010`/`mzo-030` em `docs/evidence-ledger.md`.
