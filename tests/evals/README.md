@@ -19,7 +19,7 @@ one" / "how does CI consume this" mechanics.
 | Provider | `ReplayInferenceProvider` — scripted `recorded_llm` responses, no network, no key | the real `anthropic` provider (`InferenceProvider(settings=InferenceSettings(provider="anthropic"))`) |
 | Marker | `@pytest.mark.eval` | `@pytest.mark.eval` + `@pytest.mark.llm_live` + `@live_key_skip` |
 | Pass criterion | exact route / structured-field match / canary-absent (RT/SF/ABS) | threshold score >= `live.threshold` against the Tier-A baseline (TH) |
-| Runs when | always, keyless, no network — **the PR `evals` lane's merge-blocking gate** | only when `MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY` is set — nightly-only in CI, non-blocking; **loudly skips** otherwise |
+| Runs when | always, keyless, no network — the `evals (agent-touching paths)` CI job (runs on every agent-touching PR; **not a required check in the `main-protection` ruleset today** — owner action pending to make it required) | only when `MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY` is set — nightly-only in CI, non-blocking; **loudly skips** otherwise |
 | Cost/flakiness | zero (pure Python, deterministic) | one short LLM call per case; never gates a PR |
 
 A single golden JSON case can carry both tiers (`"tier": ["A", "B"]`) — Tier A always runs
@@ -27,9 +27,11 @@ A single golden JSON case can carry both tiers (`"tier": ["A", "B"]`) — Tier A
 when a key is present, re-runs the SAME node against the real model and scores it against the
 Tier-A baseline (`recorded_llm[0]`) rather than against a second hand-maintained dataset. This
 means a Tier-B failure is a **prompt/model drift signal**, never a routing-logic bug — those are
-already caught, merge-blocking, by Tier A.
+already caught by Tier A, which runs in CI via the `evals (agent-touching paths)` job (not a
+required/merge-blocking check in the `main-protection` ruleset today — owner action pending to
+make it required).
 
-**Never put a live-LLM assertion on the PR-blocking path.** Tier B is nightly-only and
+**Never put a live-LLM assertion on Tier A's always-run path.** Tier B is nightly-only and
 non-blocking by construction (loud `skipif`, not a marker-based deselect) — a keyless/fork PR run
 always sees Tier B skip, never fail.
 
