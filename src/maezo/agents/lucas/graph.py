@@ -236,11 +236,25 @@ Severidade = Literal["grave", "moderada", "leve"]
 
 
 class WhatsAppSender(Protocol):
-    """Outbound WhatsApp send seam — mirrors `helena/graph.py::WhatsAppSender` exactly (agent
-    independence: redeclared here, not imported, per ADR-0004's federated-definition
-    zero-cross-contamination stance). Operates on a phone HASH, never a raw number."""
+    """Outbound WhatsApp send seam — mirrors `helena/graph.py::WhatsAppSender` on the METHOD NAME
+    (agent independence: redeclared here, not imported, per ADR-0004's federated-definition
+    zero-cross-contamination stance), but NO LONGER on the signature (LUC-08, gap
+    `IDEMPOTENCY-KEY-MISSING`): an engine re-delivery of the same turn used to resend the
+    informational WhatsApp message or the escalation ACK with no way to dedupe it — the seam
+    itself carried no key. `idempotency_key` is REQUIRED, never a silently-optional extra, so no
+    caller can forget it.
 
-    async def send(self, to_hash: str, text: str) -> dict[str, Any]: ...
+    The key reaches a REAL dedupe, never accepted-and-ignored:
+    `agents/lucas/adapters.py::WhatsAppServerSender.send` forwards it unchanged to
+    `tools/mcp_whatsapp/server.py::WhatsAppServer.send_message`, which claims it against the SAME
+    durable store `platform/webhooks/whatsapp/dispatch.py` already uses for Helena's outbound leg
+    (ADR-0024's `driver_idempotency` table, gap `WEBHOOK-WAMID-DEDUP`, R-073) — no new table, no
+    in-memory-only dedupe. The dedup window is that store's own default TTL (24h,
+    `platform/driver_idempotency.py::DEFAULT_TTL_S`), not a number invented here.
+
+    Operates on a phone HASH, never a raw number."""
+
+    async def send(self, to_hash: str, text: str, *, idempotency_key: str) -> dict[str, Any]: ...
 
 
 # Output-only state fields — written EXCLUSIVELY by this graph's own nodes, never legitimate
@@ -726,13 +740,26 @@ class LucasGraph:
 
     async def respond_member(self, state: LucasState) -> dict[str, Any]:
         """J1/J2: draft + send the informational/reminder message. NEVER threatens suspension or
-        cancellation, NEVER communicates a denial (structural guardrail in `_build_message`)."""
+        cancellation, NEVER communicates a denial (structural guardrail in `_build_message`).
+
+        LUC-08: the outbound send carries a deterministic `idempotency_key`
+        (`f"{business_key}:respond_member"`) so an engine re-delivery of this exact turn claims
+        the SAME key on the durable store (`WhatsAppSender` docstring) instead of a fresh one —
+        a fresh key per attempt would never dedupe anything. `business_key` mirrors the same
+        `state.get("business_key") or _business_key(state)` fallback `start_process` already
+        uses, so the key is stable even on the rare path where `receive` never ran.
+        """
         mensagem = await self._build_message(state)
         enviada = False
         to_hash = state.get("to_hash")
         if to_hash and state.get("canal", "whatsapp") == "whatsapp":
+            business_key = state.get("business_key") or _business_key(state)
             try:
-                await self._whatsapp.send(to_hash, str(mensagem.get("texto", "")))
+                await self._whatsapp.send(
+                    to_hash,
+                    str(mensagem.get("texto", "")),
+                    idempotency_key=f"{business_key}:respond_member",
+                )
                 enviada = True
             except Exception as exc:  # noqa: BLE001 — best-effort send, never an adverse outcome.
                 mensagem["envio_nota"] = f"whatsapp send failed: {type(exc).__name__}"
@@ -855,6 +882,10 @@ class LucasGraph:
         O envio continua best-effort (uma falha de WhatsApp nao pode desfazer uma escalacao que
         JA existe no engine), mas agora `mensagem_enviada` conta a verdade e `ack_pending`
         registra o que ficou por entregar.
+
+        LUC-08: mesmo `idempotency_key` shape de `respond_member` (`f"{business_key}:{node}"`),
+        aqui com `node="send_escalation_ack"` — uma redelivery do MESMO turno do engine reclama a
+        MESMA chave no store duravel em vez de uma chave nova a cada tentativa.
         """
         if state.get("route") != "escalate_human" or state.get("process_started") is not True:
             return {}
@@ -863,8 +894,11 @@ class LucasGraph:
             return {"ack_pending": True}
 
         ack_text = await self._build_escalation_ack(state)
+        business_key = state.get("business_key") or _business_key(state)
         try:
-            await self._whatsapp.send(to_hash, ack_text)
+            await self._whatsapp.send(
+                to_hash, ack_text, idempotency_key=f"{business_key}:send_escalation_ack"
+            )
         except Exception:  # noqa: BLE001 — best-effort ack, never undoes a live escalation.
             return {"mensagem_enviada": False, "ack_pending": True}
         return {"mensagem_enviada": True, "ack_pending": False, "desfecho": "escalado_humano"}
