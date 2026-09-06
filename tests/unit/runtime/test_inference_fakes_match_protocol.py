@@ -371,9 +371,14 @@ class _Familia:
 
 _FAMILIAS: tuple[_Familia, ...] = (
     _Familia("DmnTransport", ("NEW-12", "NEW-C1-2", "REG-04"), DmnTransport),
-    _Familia("WhatsAppSender:helena", ("NEW-12", "NEW-C1-2", "REG-04"), _HelenaWhatsAppSender, agente="helena"),
     _Familia(
-        "WhatsAppSender:fernando", ("NEW-12", "NEW-C1-2", "REG-04"), _FernandoWhatsAppSender, agente="fernando"
+        "WhatsAppSender:helena", ("NEW-12", "NEW-C1-2", "REG-04"), _HelenaWhatsAppSender, agente="helena"
+    ),
+    _Familia(
+        "WhatsAppSender:fernando",
+        ("NEW-12", "NEW-C1-2", "REG-04"),
+        _FernandoWhatsAppSender,
+        agente="fernando",
     ),
     _Familia("WhatsAppSender:lucas", ("NEW-12", "NEW-C1-2", "REG-04"), _LucasWhatsAppSender, agente="lucas"),
     _Familia("IdempotencyStore", ("NEW-12", "NEW-C1-2"), IdempotencyStore),
@@ -603,7 +608,11 @@ def _candidatas_por_contexto(
     sem ambiguidade, mesmo que a FORMA nao bata -- e' exatamente o caso de um falso de lucas sem
     `idempotency_key`) ou 2+ (o contexto nao decide sozinho -- o chamador verifica contra cada
     uma)."""
-    return [nome for nome in todas_as_familias if _familia_mencionada_no_arquivo(nome, agentes_arquivo, modulos_arquivo)]
+    return [
+        nome
+        for nome in todas_as_familias
+        if _familia_mencionada_no_arquivo(nome, agentes_arquivo, modulos_arquivo)
+    ]
 
 
 def _metodos_proprios_ast(
@@ -1105,7 +1114,12 @@ def test_fhirsummaryreader_atomizada_continua_concordando_hoje() -> None:
         formas.add((_forma_assinatura(sig), e_coroutine))
     assert len(formas) == 1, f"read_patient diverge entre as 5 entradas FhirSummaryReader: {formas}"
     assert "search_coverage" in _FAMILIA_POR_NOME["FhirSummaryReader:rafael"].metodos()
-    for nome in ("FhirSummaryReader", "FhirSummaryReader:gustavo", "FhirSummaryReader:carolina", "FhirSummaryReader:andre"):
+    for nome in (
+        "FhirSummaryReader",
+        "FhirSummaryReader:gustavo",
+        "FhirSummaryReader:carolina",
+        "FhirSummaryReader:andre",
+    ):
         assert "search_coverage" not in _FAMILIA_POR_NOME[nome].metodos(), nome
 
 
@@ -1130,7 +1144,11 @@ def test_formas_de_send_sao_tres_e_distintas_hoje() -> None:
     kafka_shaped = [familias for familias in formas.values() if "KafkaLike" in familias][0]
     assert set(kafka_shaped) == {"KafkaLike", "FactBrokerPublisher"}
     whatsapp_shaped = [familias for familias in formas.values() if "WhatsAppSender:lucas" in familias][0]
-    assert set(whatsapp_shaped) == {"WhatsAppSender:helena", "WhatsAppSender:fernando", "WhatsAppSender:lucas"}
+    assert set(whatsapp_shaped) == {
+        "WhatsAppSender:helena",
+        "WhatsAppSender:fernando",
+        "WhatsAppSender:lucas",
+    }
 
 
 def test_achados_estruturais_recusa_fakedmn_com_nomes_da_evidencia_reg04() -> None:
