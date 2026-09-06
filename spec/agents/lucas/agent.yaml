@@ -70,6 +70,12 @@ memory:
 # resposta do beneficiario continua chegando, se chegar, so pelo webhook unico de Helena sem
 # contexto de cobranca. O gate era o PRE-REQUISITO de seguranca ORDENADO desse canal: foi
 # construido antes para que o canal ja' nasca gateado (CC-02), nao para declara-lo pronto.
+# IDEMPOTENCIA DE SAIDA (LUC-08, gap `IDEMPOTENCY-KEY-MISSING`, 2026-09-06): o envio de
+# `mcp-whatsapp.send_message` acima agora exige `idempotency_key` (`graph.py::WhatsAppSender`) —
+# uma redelivery do MESMO turno do engine reclama a MESMA chave (`f"{business_key}:{node}"`) no
+# store duravel `driver_idempotency` (ADR-0024) em vez de reenviar a mensagem/ACK ao
+# beneficiario. Sem tabela nova; mesmo store que `platform/webhooks/whatsapp/dispatch.py` ja usa
+# para a saida de Helena.
 a2a:
   capabilities:
     - member_billing_navigation

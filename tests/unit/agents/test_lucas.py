@@ -81,14 +81,18 @@ class _RaisingInference:
 
 
 class _FakeWhatsAppSender:
+    """LUC-08: `send` now REQUIRES `idempotency_key` (`graph.WhatsAppSender`'s real shape) —
+    recorded as the third element of each `sent` tuple so existing assertions can be extended
+    without losing their original (to_hash, text) coverage."""
+
     def __init__(self, *, fail: bool = False) -> None:
-        self.sent: list[tuple[str, str]] = []
+        self.sent: list[tuple[str, str, str]] = []
         self._fail = fail
 
-    async def send(self, to_hash: str, text: str) -> dict[str, Any]:
+    async def send(self, to_hash: str, text: str, *, idempotency_key: str) -> dict[str, Any]:
         if self._fail:
             raise RuntimeError("transport down")
-        self.sent.append((to_hash, text))
+        self.sent.append((to_hash, text, idempotency_key))
         return {"ok": True}
 
 
@@ -301,7 +305,9 @@ async def test_j1_full_turn_sends_whatsapp_never_starts_process() -> None:
     assert result["route"] == "respond_member"
     assert result["mensagem_enviada"] is True
     assert result["desfecho"] == "resposta_informativa_enviada"
-    assert sender.sent == [("deadbeef", "Aqui esta a 2a via do seu boleto.")]
+    assert sender.sent == [
+        ("deadbeef", "Aqui esta a 2a via do seu boleto.", "ESC-amh-wa:amh:deadbeef:respond_member")
+    ]
     assert result["process_started"] is False
 
 
@@ -443,8 +449,10 @@ async def test_j3_full_turn_starts_process_and_sends_ack_never_the_adverse_text(
     assert result["route"] == "escalate_human"
     assert result["process_started"] is True
     assert result["business_key"] == "ESC-amh-wa:amh:deadbeef"
-    assert sender.sent == [("deadbeef", "Um atendente humano vai continuar.")]
-    for _to_hash, text in sender.sent:
+    assert sender.sent == [
+        ("deadbeef", "Um atendente humano vai continuar.", "ESC-amh-wa:amh:deadbeef:send_escalation_ack")
+    ]
+    for _to_hash, text, _idempotency_key in sender.sent:
         assert "suspens" not in text.lower()
         assert "cancelad" not in text.lower()
         assert "negad" not in text.lower()

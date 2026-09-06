@@ -283,13 +283,24 @@ class ReplayInferenceProvider:
 
 
 class FakeWhatsAppSender:
-    """Records every send; never actually delivers anything (test-only, never imported by src/)."""
+    """Records every send; never actually delivers anything (test-only, never imported by src/).
+
+    LUC-08 (gap `IDEMPOTENCY-KEY-MISSING`): Lucas's real `WhatsAppSender.send` now REQUIRES an
+    `idempotency_key` kwarg that helena's/fernando's Protocols do not declare — this fake still
+    serves all three (module docstring above), so the kwarg is accepted but kept OPTIONAL here
+    and deliberately left out of the recorded `sent` tuple: no golden case in this shared harness
+    asserts on the key today, and widening `sent`'s shape for all three agents to satisfy only
+    one of them would be scope creep this fixture's own doc disclaims ("owned exclusively by
+    wave B0"). Recording nothing is honest here — a caller that DID want to assert on the key
+    would need a dedicated fake (see `tests/unit/agents/test_lucas.py::_RecordingWhatsAppWithKey`
+    for that shape), not a silently-widened shared one.
+    """
 
     def __init__(self, *, fail: bool = False) -> None:
         self.sent: list[tuple[str, str]] = []
         self._fail = fail
 
-    async def send(self, to_hash: str, text: str) -> dict[str, Any]:
+    async def send(self, to_hash: str, text: str, *, idempotency_key: str | None = None) -> dict[str, Any]:
         if self._fail:
             raise RuntimeError("fake transport down (eval fixture)")
         self.sent.append((to_hash, text))
