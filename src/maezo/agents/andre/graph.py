@@ -862,7 +862,7 @@ class AndreGraph:
                     actuarial = scrubbed
                     if agg.dataset_ref:
                         refs.append(agg.dataset_ref)
-            except Exception:  # noqa: BLE001 — best-effort enrichment, never fatal.
+            except Exception:  # best-effort enrichment, never fatal.
                 notes.append("risco atuarial agregado indisponivel (cliente de populacao falhou)")
             if flow == "population_analytics":
                 try:
@@ -874,7 +874,7 @@ class AndreGraph:
                         population = pscrubbed
                         if pagg.dataset_ref:
                             refs.append(pagg.dataset_ref)
-                except Exception:  # noqa: BLE001 — best-effort enrichment, never fatal.
+                except Exception:  # best-effort enrichment, never fatal.
                     notes.append("metricas populacionais indisponiveis (cliente de populacao falhou)")
         elif cohort_id:
             notes.append(
@@ -896,7 +896,7 @@ class AndreGraph:
                 if summary_ref:
                     try:
                         await self._fhir.read_patient(summary_ref)
-                    except Exception:  # noqa: BLE001 — best-effort enrichment, never fatal.
+                    except Exception:  # best-effort enrichment, never fatal.
                         notes.append("resumo FHIR indisponivel (leitura best-effort falhou)")
 
         return {
@@ -1355,7 +1355,7 @@ class AndreGraph:
                 # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
                 task_kind="reasoning",
             )
-        except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
+        except Exception:  # LLM failure never blocks the human/auto route.
             narrativa = ""
 
         return {

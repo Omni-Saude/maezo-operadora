@@ -128,6 +128,11 @@ FORBIDDEN_CONSTRUCTION_NAMES: Final[frozenset[str]] = frozenset(
         "BedrockInferenceProvider",
         "InferenceProvider",
         "AioKafkaEventsProducer",
+        # R-113 (GAP-SC-04-a's escalation, resolved 2026-09-06): a second real Kafka producer —
+        # the dead-letter shunt cannot reuse `AioKafkaEventsProducer` because the DLQ needs the
+        # raw bytes VERBATIM, so it is its own concrete construction site, not a scope exclusion.
+        # A fence with an undisclosed exception proves nothing about the next such class.
+        "AioKafkaDlqPublisher",
         "FactProducer",
         "DelegationDispatcher",
         "build_dispatcher",
@@ -216,6 +221,11 @@ CONSTRUCTION_ALLOWLIST_BY_NAME: Final[dict[str, frozenset[str]]] = {
             "runtime/worker_runtime/service.py",
         }
     ),
+    # R-113: `build_dlq_shunt` (the DLQ's own composition-root factory) constructs the raw
+    # producer and immediately hands it to `BridgeDlqShunt(publisher=...)` — same file as the
+    # class's own defining module, so one entry covers both the definition and the sole
+    # construction site (`grep -n "AioKafkaDlqPublisher(" src/maezo` finds exactly one call).
+    "AioKafkaDlqPublisher": frozenset({"platform/integrations/notifications_bridge.py"}),
     "FactProducer": frozenset(
         {
             "a2a/dispatcher.py",  # own defining module
@@ -976,14 +986,14 @@ def check_completeness(src_dir: Path, repo_root: Path) -> tuple[list[str], dict[
     counters: dict[str, int] = {}
 
     try:
-        import yaml  # noqa: PLC0415 - kept local so a missing dep only breaks §8.5, not the AST half
+        import yaml  # kept local so a missing dep only breaks §8.5, not the AST half
     except ImportError as exc:  # pragma: no cover - dev-dependency, always present in CI
         return [f"§8.5: PyYAML unavailable ({exc}) — cannot verify manifest completeness"], counters
 
     sys.path.insert(0, str(repo_root / "src"))
     try:
         from maezo.gateway import effect_classes
-    except Exception as exc:  # noqa: BLE001 - an unimportable catalogue is itself a fail-closed finding
+    except Exception as exc:  # an unimportable catalogue is itself a fail-closed finding
         return [f"§8.5: could not import maezo.gateway.effect_classes ({exc})"], counters
 
     # -- item 1: the registry constructs every §8.1 class at least once (one disclosed exception) -

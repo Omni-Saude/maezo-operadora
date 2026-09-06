@@ -1023,7 +1023,7 @@ async def test_fraude_nunca_le_de_volta_glosa(
 
     await _drive_to_decisao(engine, fraude_probe, iid)
 
-    topicos = {e["topic"] for e in fraude_probe._domain_events()}  # noqa: SLF001 -- leitura de teste
+    topicos = {e["topic"] for e in fraude_probe._domain_events()}  # - leitura de teste
     assert topicos, "deve ter publicado ao menos um evento de dominio (intake/custody_sealed)"
     for topico in topicos:
         assert topico.startswith("agents.events.fraude."), (

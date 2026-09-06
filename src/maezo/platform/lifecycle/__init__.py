@@ -234,6 +234,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     # structlog output is configuration-dependent and this entrypoint never configures
     # it; write to stderr unconditionally so the blocker is legible in `kubectl logs`
     # regardless of handler setup.
-    print(message, file=sys.stderr)  # noqa: T201 — operator-facing CLI output, not logging
+    print(message, file=sys.stderr)  # operator-facing CLI output, not logging
 
     return REFUSAL_EXIT_CODE

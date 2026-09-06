@@ -404,7 +404,7 @@ def build_self_check_cases() -> tuple[tuple[str, ActionApprovals, str], ...]:
     Raises if the built cases and the declared set ever disagree: the constant is the contract, and
     a scenario silently dropped from one side is precisely the drift this split exists to catch.
     """
-    from maezo.gateway.action_execution import (  # noqa: PLC0415 - deferred with the rest
+    from maezo.gateway.action_execution import (  # deferred with the rest
         ActionApprovals,
         DeviationRecord,
     )
@@ -538,8 +538,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     sys.path.insert(0, str(REPO_ROOT / "src"))
     try:
-        from maezo.gateway.action_execution import load_action_approvals  # noqa: PLC0415
-    except Exception as exc:  # noqa: BLE001 - an unimportable loader is itself a fail-closed finding
+        from maezo.gateway.action_execution import load_action_approvals
+    except Exception as exc:  # an unimportable loader is itself a fail-closed finding
         print(f"[deviation-expiry] FAIL: não consegui importar o loader ({exc})", file=sys.stderr)
         return 1
 

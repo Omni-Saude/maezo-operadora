@@ -265,7 +265,7 @@ def redact_error_message(error: BaseException | str) -> str:
         error_class = type(error).__name__ if isinstance(error, BaseException) else None
         scrubbed = redact_free_text(str(error), max_chars=_ERROR_MESSAGE_MAX_CHARS)
         return f"{error_class}: {scrubbed}" if error_class else scrubbed
-    except Exception:  # noqa: BLE001 — backstop must never itself raise onto the failure path.
+    except Exception:  # backstop must never itself raise onto the failure path.
         return "[REDACTED_ERROR]"
 
 

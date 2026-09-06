@@ -256,7 +256,7 @@ def _record_gap_shadow(
             prestadores_disponiveis=prestadores,
             cobertura_geo_suficiente=cobertura,
         )
-    except Exception as exc:  # noqa: BLE001 — reason 3 above: shadow never disturbs the worker.
+    except Exception as exc:  # reason 3 above: shadow never disturbs the worker.
         logger.warning("adequacao_gap_shadow_falhou", error=str(exc))
 
 
@@ -1011,7 +1011,7 @@ def make_prepare_remediation_dossier_handler(
                 case_meta=dict(v),
                 ciclo_avaliacao=ciclo_avaliacao,
             )
-        except Exception as exc:  # noqa: BLE001 — DL-0037: the UT must open; never raise here.
+        except Exception as exc:  # DL-0037: the UT must open; never raise here.
             logger.error(
                 "adequacao_prepare_remediation_dossier_delegation_failed",
                 tenant_id=tenant_id,

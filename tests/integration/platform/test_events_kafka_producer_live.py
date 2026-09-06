@@ -178,7 +178,7 @@ def _kafka_reachable(bootstrap_servers: str) -> bool:
         producer = AIOKafkaProducer(bootstrap_servers=bootstrap_servers)
         try:
             await asyncio.wait_for(producer.start(), timeout=_CONNECT_TIMEOUT_S)
-        except Exception:  # noqa: BLE001 - any failure means "skip loudly", never an error here
+        except Exception:  # any failure means "skip loudly", never an error here
             with contextlib.suppress(Exception):
                 await producer.stop()
             return False
@@ -188,7 +188,7 @@ def _kafka_reachable(bootstrap_servers: str) -> bool:
 
     try:
         return asyncio.run(_probe())
-    except Exception:  # noqa: BLE001 - defensive: a probe-internal crash is still "unreachable"
+    except Exception:  # defensive: a probe-internal crash is still "unreachable"
         return False
 
 
@@ -368,7 +368,7 @@ async def _await_topic_ready(
                 f"create_topics succeeded and partitions {sorted(partitions or ())} exist in "
                 "metadata, but none report an elected leader yet"
             )
-        except Exception as exc:  # noqa: BLE001 - any failure here is retried until the deadline
+        except Exception as exc:  # any failure here is retried until the deadline
             last_reason = f"{type(exc).__name__}: {exc}"
         print(
             f"[producer_live readiness] attempt {attempt}: topic {topic!r} not ready yet "
@@ -440,7 +440,7 @@ async def _delete_topic(bootstrap_servers: str, topic: str) -> None:
         await admin.start()
         await asyncio.wait_for(admin.delete_topics([topic]), timeout=10.0)
         print(f"[producer_live cleanup] deleted per-run topic {topic!r}", flush=True)
-    except Exception as exc:  # noqa: BLE001 - teardown must never mask the test's own outcome
+    except Exception as exc:  # teardown must never mask the test's own outcome
         print(
             f"[producer_live cleanup] could not delete per-run topic {topic!r} "
             f"({type(exc).__name__}: {exc}) — inert, the name is unique per run",
@@ -497,9 +497,9 @@ async def test_producer_publish_mirrors_contas_completed_onto_notifications_topi
         # assignment, then pin each starting position to the log end AS OF NOW — strictly before
         # the producer below ever sends — replacing the previous unbounded settle-delay guess.
         await _await_assigned(primary_consumer)
-        await _await_assigned(bridge_consumer._consumer)  # noqa: SLF001 - readiness-only reach-through
+        await _await_assigned(bridge_consumer._consumer)  # readiness-only reach-through
         await primary_consumer.seek_to_end()
-        await bridge_consumer._consumer.seek_to_end()  # noqa: SLF001 - see above
+        await bridge_consumer._consumer.seek_to_end()  # see above
         await producer.publish(primary_topic, payload, key=f"bk-{suffix}")
 
         primary_record = await asyncio.wait_for(primary_consumer.__anext__(), timeout=15.0)
@@ -569,8 +569,8 @@ async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_doe
 
     await consumer.start()
     try:
-        await _await_assigned(consumer._consumer)  # noqa: SLF001 - readiness-only reach-through
-        await consumer._consumer.seek_to_end()  # noqa: SLF001 - see above
+        await _await_assigned(consumer._consumer)  # readiness-only reach-through
+        await consumer._consumer.seek_to_end()  # see above
 
         # Dormant first: the REAL `ST_PublishGlosaAplicada` payload, every `event_payload_vars`
         # name that task declares. `codigo_glosa_tiss` is one of them and is NOT in
@@ -719,8 +719,8 @@ async def test_redelivered_message_is_idempotent_one_audit_row_same_instance(
 
     await consumer.start()
     try:
-        await _await_assigned(consumer._consumer)  # noqa: SLF001 - readiness-only reach-through
-        await consumer._consumer.seek_to_end()  # noqa: SLF001 - see above
+        await _await_assigned(consumer._consumer)  # readiness-only reach-through
+        await consumer._consumer.seek_to_end()  # see above
         await producer.publish(
             CONTAS_COMPLETED_EVENT,
             {
@@ -782,8 +782,8 @@ async def test_ans_cron_due_reaches_notifications_topic_unmirrored(
     await consumer.start()
     producer = AioKafkaEventsProducer(bootstrap_servers=kafka_bootstrap_servers)
     try:
-        await _await_assigned(consumer._consumer)  # noqa: SLF001 - readiness-only reach-through
-        await consumer._consumer.seek_to_end()  # noqa: SLF001 - see above
+        await _await_assigned(consumer._consumer)  # readiness-only reach-through
+        await consumer._consumer.seek_to_end()  # see above
         # CHANGED (GAP-SC-04-a): an explicit key is now required. This payload is the BPMN's own
         # literal shape and carries neither `_business_key` nor an `anssubmit`-family anchor
         # (`report_type`+`competencia` without a `tenant_id`), so the derivation yields nothing and
@@ -1008,9 +1008,9 @@ async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_contin
     seed = AIOKafkaProducer(bootstrap_servers=kafka_bootstrap_servers)
     await seed.start()
     try:
-        await _await_assigned(consumer._consumer)  # noqa: SLF001 - readiness-only reach-through
+        await _await_assigned(consumer._consumer)  # readiness-only reach-through
         await _await_assigned(dlq_consumer)
-        await consumer._consumer.seek_to_end()  # noqa: SLF001 - see above
+        await consumer._consumer.seek_to_end()  # see above
         await dlq_consumer.seek_to_end()
         await seed.send_and_wait(NOTIFICATIONS_TOPIC, poison_raw, key=b"poison-probe")
         await seed.send_and_wait(

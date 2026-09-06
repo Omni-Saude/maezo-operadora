@@ -407,7 +407,7 @@ class MetricsCollector:
         two agent counters' shared label set — reads a genuinely public contract instead.
         """
         return {
-            name: counter._labelnames  # noqa: SLF001 — no public API exists; see docstring above.
+            name: counter._labelnames  # no public API exists; see docstring above.
             for name, counter in (("tool_calls", self._tool_calls), ("errors", self._errors))
         }
 

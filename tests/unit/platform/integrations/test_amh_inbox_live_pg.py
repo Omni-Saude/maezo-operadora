@@ -456,7 +456,7 @@ async def test_this_repositorys_own_pool_declares_no_lock_or_statement_timeout(
     Asserted rather than described so that setting a timeout becomes a deliberate change to this
     test and to packet decision D-6, instead of a behaviour change nobody reviewed.
     """
-    pool = await inbox._ensure_pool()  # noqa: SLF001 - the session under test IS the pool's
+    pool = await inbox._ensure_pool()  # the session under test IS the pool's
     async with pool.acquire() as conn:
         lock_timeout = await conn.fetchval("SHOW lock_timeout")
         statement_timeout = await conn.fetchval("SHOW statement_timeout")

@@ -427,7 +427,7 @@ def test_contratual_reports_the_absence_of_any_ratified_rule() -> None:
 
 def test_contratual_fails_closed_when_the_table_is_unreachable() -> None:
     dmn = _dmn()
-    dmn._responses.pop("auth_criteria_contratual")  # noqa: SLF001 - simulate a missing deployment
+    dmn._responses.pop("auth_criteria_contratual")  # simulate a missing deployment
     result = _worker(dmn=dmn, sources=_sources(*_ALL_SOURCES)).execute(_vars())
     assert result["criterio_contratual_ok"] is False
     assert "CONTRATUAL_TABELA_INDISPONIVEL" in result["auto_criteria_falhas"]

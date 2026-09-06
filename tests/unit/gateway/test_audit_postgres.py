@@ -130,7 +130,7 @@ def _default_test_dsn() -> str:
 async def _postgres_reachable(dsn: str) -> bool:
     try:
         conn = await asyncio.wait_for(asyncpg.connect(normalize_dsn(dsn)), timeout=2.0)
-    except Exception:  # noqa: BLE001 — any connection failure means "skip", not "error"
+    except Exception:  # any connection failure means "skip", not "error"
         return False
     await conn.close()
     return True
@@ -786,7 +786,7 @@ async def test_kill_test_process_crash_loses_zero_committed_records(pg_dsn: str,
     count = 200
     kill_after = 20
 
-    proc = subprocess.Popen(  # noqa: S603, ASYNC220 — kill-test needs real-time stdout + a real OS signal
+    proc = subprocess.Popen(  # noqa: ASYNC220 — kill-test needs real-time stdout + a real OS signal
         [
             sys.executable,
             str(_KILLTEST_WRITER),
@@ -842,7 +842,7 @@ async def test_kill_test_process_crash_loses_zero_committed_records(pg_dsn: str,
     remaining = count - rows_after_kill
     assert remaining > 0, "kill happened after the writer had already finished — widen the race"
 
-    proc2 = subprocess.run(  # noqa: S603, ASYNC221 — restart writer must run to completion before verifying
+    proc2 = subprocess.run(  # noqa: ASYNC221 — restart writer must run to completion before verifying
         [
             sys.executable,
             str(_KILLTEST_WRITER),
@@ -900,7 +900,7 @@ async def test_kill_test_emit_once_atomic_across_crash(pg_dsn: str, tenant_schem
     """
     dedup_key = f"{tenant_schema}:killtest-effect-1"
 
-    proc = subprocess.Popen(  # noqa: S603, ASYNC220 — kill-test needs real-time stdout + a real OS signal
+    proc = subprocess.Popen(  # noqa: ASYNC220 — kill-test needs real-time stdout + a real OS signal
         [
             sys.executable,
             str(_KILLTEST_EMIT_ONCE_WRITER),
@@ -950,7 +950,7 @@ async def test_kill_test_emit_once_atomic_across_crash(pg_dsn: str, tenant_schem
 
     # Re-deliver the SAME effect (same dedup_key). It must emit cleanly — the crashed claim left
     # nothing behind to suppress it.
-    proc2 = subprocess.run(  # noqa: S603, ASYNC221 — re-delivery writer must finish before verifying
+    proc2 = subprocess.run(  # noqa: ASYNC221 — re-delivery writer must finish before verifying
         [
             sys.executable,
             str(_KILLTEST_EMIT_ONCE_WRITER),

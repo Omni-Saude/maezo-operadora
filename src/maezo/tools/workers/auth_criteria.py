@@ -419,7 +419,7 @@ def load_criteria_sources(path: str | Path | None = None) -> CriteriaSources:
     if not raw_path:
         try:
             raw_path = _manifest_default_path()
-        except Exception as exc:  # noqa: BLE001 - fail-closed: unresolvable spec/ ratifies nothing
+        except Exception as exc:  # fail-closed: unresolvable spec/ ratifies nothing
             return _refuse("path_unresolved", f"could not resolve the default manifest path: {exc}")
 
     manifest_path = Path(raw_path)

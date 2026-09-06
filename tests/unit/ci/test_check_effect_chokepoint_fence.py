@@ -169,6 +169,34 @@ def test_raw_construction_outside_any_allowlist_raises(tmp_path: Path) -> None:
     assert any("WhatsAppServer" in v and "[8.1]" in v for v in result.violations)
 
 
+def test_raw_construction_of_aio_kafka_dlq_publisher_in_an_agent_graph_raises(tmp_path: Path) -> None:
+    """R-113 (GAP-SC-04-a's escalation): a second real Kafka producer must be caught exactly like
+    `AioKafkaEventsProducer` above — an ad-hoc construction in an agent graph, not the DLQ's own
+    `build_dlq_shunt` composition root, is the violation this fence exists to prove is unreachable."""
+    _write(
+        tmp_path / "agents" / "example" / "graph.py",
+        "from maezo.platform.integrations.notifications_bridge import AioKafkaDlqPublisher\n\n"
+        "def build():\n    return AioKafkaDlqPublisher(bootstrap_servers='x')\n",
+    )
+    result = scan_tree(tmp_path)
+    assert not result.ok
+    assert any("AioKafkaDlqPublisher" in v and "[8.1]" in v for v in result.violations), result.render()
+
+
+def test_raw_construction_of_aio_kafka_dlq_publisher_in_its_own_composition_root_is_sanctioned(
+    tmp_path: Path,
+) -> None:
+    """The one legitimate construction site — `build_dlq_shunt`, same file as the class's own
+    definition — must NOT be flagged (positive counterpart to the test above)."""
+    _write(
+        tmp_path / "platform" / "integrations" / "notifications_bridge.py",
+        "class AioKafkaDlqPublisher:\n    pass\n\n"
+        "def build_dlq_shunt():\n    return AioKafkaDlqPublisher(bootstrap_servers='x')\n",
+    )
+    result = scan_tree(tmp_path)
+    assert result.ok, result.render()
+
+
 def test_cibseven_server_reintroduction_raises(tmp_path: Path) -> None:
     """§8.1's assert-absent arm, exercised on a synthetic tree — never on the real one."""
     _write(

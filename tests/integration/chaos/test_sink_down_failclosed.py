@@ -113,7 +113,7 @@ async def test_c1_down_worker_completion_fail_closed_no_unaudited_complete(
     )
 
     try:
-        await harness._handle(task)  # noqa: SLF001 — preserved v1 fixture surface (design §16.1)
+        await harness._handle(task)  # preserved v1 fixture surface (design §16.1)
     finally:
         await dead_sink.aclose()
 
@@ -171,7 +171,7 @@ async def test_c1_down_mutation_check_fail_open_swallow_turns_suite_red(
     )
 
     try:
-        await harness._handle(task)  # noqa: SLF001
+        await harness._handle(task)
     finally:
         await dead_sink.aclose()
 

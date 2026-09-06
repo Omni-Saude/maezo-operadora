@@ -79,35 +79,35 @@ async def broken_emit_once_chain_insert_outside_advisory_lock(
     sink: PostgresAuditSink, record: AuditRecord, *, dedup_key: str
 ) -> str:
     """B1a MUTATION double for `PostgresAuditSink.emit_once` — see module docstring."""
-    pool = await sink._ensure_pool()  # noqa: SLF001 — mutation scaffold reaches into the real sink
+    pool = await sink._ensure_pool()  # mutation scaffold reaches into the real sink
     async with pool.acquire() as conn, conn.transaction():
-        await conn.execute(_ADVISORY_LOCK_SQL, sink._tenant_id)  # noqa: SLF001
+        await conn.execute(_ADVISORY_LOCK_SQL, sink._tenant_id)
 
-        prior_hash: str | None = await conn.fetchval(_DEDUP_LOOKUP_SQL, sink._tenant_id, dedup_key)  # noqa: SLF001
+        prior_hash: str | None = await conn.fetchval(_DEDUP_LOOKUP_SQL, sink._tenant_id, dedup_key)
         if prior_hash is not None:
             return prior_hash
 
-        tail = await sink._fetch_tail(conn)  # noqa: SLF001
+        tail = await sink._fetch_tail(conn)
         record.prev_hash = tail
-        record.record_hash = record._compute_hash()  # noqa: SLF001
+        record.record_hash = record._compute_hash()
 
         claimed: str | None = await conn.fetchval(
             _DEDUP_CLAIM_SQL,
             sink._tenant_id,
             dedup_key,
-            record.record_hash,  # noqa: SLF001
+            record.record_hash,
         )
         if claimed is None:
             raise AuditPersistenceError(
-                f"audit_emit_dedup claim for tenant={sink._tenant_id!r} "  # noqa: SLF001
+                f"audit_emit_dedup claim for tenant={sink._tenant_id!r} "
                 f"dedup_key={dedup_key!r} collided — refusing to fork the chain"
             )
     # MUTATION: the `async with ... conn.transaction():` block above already COMMITTED the claim
     # HERE — the chain-insert below now runs in a brand-new connection/transaction, no longer
     # atomic with the claim. This is the exact defect row B1a's mutation describes.
-    pool2 = await sink._ensure_pool()  # noqa: SLF001
+    pool2 = await sink._ensure_pool()
     async with pool2.acquire() as conn2:
-        await sink._insert_chain_row(conn2, record)  # noqa: SLF001 — crash-injection lands here in tests
+        await sink._insert_chain_row(conn2, record)  # crash-injection lands here in tests
     return record.record_hash
 
 

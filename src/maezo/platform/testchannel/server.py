@@ -44,7 +44,7 @@ PORT = int(os.environ.get("CANAL_PORT", "8500"))
 
 #: 0.0.0.0 e' obrigatorio em container: ligado em 127.0.0.1 o processo sobe, o health
 #: check falha e o servico entra em ciclo de substituicao sem dizer por que.
-BIND = os.environ.get("CANAL_BIND", "0.0.0.0")  # noqa: S104 - ver comentario acima
+BIND = os.environ.get("CANAL_BIND", "0.0.0.0")  # ver comentario acima
 
 #: Link do Cockpit exibido na pagina. Local aponta para localhost; na AWS aponta para
 #: o hostname publico atras do Access.

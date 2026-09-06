@@ -241,7 +241,7 @@ class PostgresAuditSink:
             pool = await self._ensure_pool()
             async with pool.acquire() as conn:
                 table = await conn.fetchval("SELECT to_regclass('audit_chain')")
-        except Exception as exc:  # noqa: BLE001 — deliberately broad: FAIL CLOSED, always re-raise
+        except Exception as exc:  # deliberately broad: FAIL CLOSED, always re-raise
             raise AuditPersistenceError(
                 f"audit sink not ready for tenant={self._tenant_id!r} "
                 f"(schema {self._schema!r} unreachable): {exc}"
@@ -279,7 +279,7 @@ class PostgresAuditSink:
                 await self._insert_chain_row(conn, record)
         except AuditPersistenceError:
             raise
-        except Exception as exc:  # noqa: BLE001 — deliberately broad: FAIL CLOSED, always re-raise
+        except Exception as exc:  # deliberately broad: FAIL CLOSED, always re-raise
             logger.error(
                 "audit_persistence_write_failed",
                 tenant_id=self._tenant_id,
@@ -401,7 +401,7 @@ class PostgresAuditSink:
                 await self._insert_chain_row(conn, record)
         except AuditPersistenceError:
             raise
-        except Exception as exc:  # noqa: BLE001 — deliberately broad: FAIL CLOSED, always re-raise
+        except Exception as exc:  # deliberately broad: FAIL CLOSED, always re-raise
             logger.error(
                 "audit_emit_once_write_failed",
                 tenant_id=self._tenant_id,
@@ -658,7 +658,7 @@ def _cli(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     result = asyncio.run(verify_chain(args.dsn, args.tenant))
-    print(  # noqa: T201 — CLI output, not logging
+    print(  # CLI output, not logging
         json.dumps(
             {
                 "tenant_id": result.tenant_id,

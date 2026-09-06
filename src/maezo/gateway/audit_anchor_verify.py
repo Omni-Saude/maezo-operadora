@@ -1072,7 +1072,7 @@ async def verify_latest_anchor(
     prefix = f"{tenant_id}/"
     try:
         listed = frozenset(key for key in store.list_keys() if key.startswith(prefix))
-    except Exception as exc:  # noqa: BLE001 — any listing failure is SUSPECT, never clean
+    except Exception as exc:  # any listing failure is SUSPECT, never clean
         return _emit(
             AnchorVerificationOutcome(
                 status=STATUS_STORE_LISTING_SUSPECT,
@@ -1083,7 +1083,7 @@ async def verify_latest_anchor(
         )
     try:
         probed = frozenset(key for key in key_probe.probe_keys(tenant_id) if key.startswith(prefix))
-    except Exception as exc:  # noqa: BLE001 — an uncorroborated listing may not produce a verdict
+    except Exception as exc:  # an uncorroborated listing may not produce a verdict
         return _emit(
             AnchorVerificationOutcome(
                 status=STATUS_STORE_LISTING_SUSPECT,
@@ -1114,7 +1114,7 @@ async def verify_latest_anchor(
     for key in sorted(listed):
         try:
             payload = store.get(key)
-        except Exception as exc:  # noqa: BLE001 — listed-but-unreadable is store misbehaviour
+        except Exception as exc:  # listed-but-unreadable is store misbehaviour
             return _emit(
                 AnchorVerificationOutcome(
                     status=STATUS_STORE_LISTING_SUSPECT,
@@ -1137,7 +1137,7 @@ async def verify_latest_anchor(
             )
         try:
             signature_ok = verifier.verify(parsed.checkpoint_bytes, parsed.signature)
-        except Exception as exc:  # noqa: BLE001 — a verifier that raises has NOT verified
+        except Exception as exc:  # a verifier that raises has NOT verified
             return _emit(
                 AnchorVerificationOutcome(
                     status=STATUS_SIGNATURE_INVALID,
@@ -1228,7 +1228,7 @@ async def verify_latest_anchor(
 
     try:
         snapshot = await records.read_chain(tenant_id)
-    except Exception as exc:  # noqa: BLE001 — an unreadable chain is an UNVERIFIED chain
+    except Exception as exc:  # an unreadable chain is an UNVERIFIED chain
         return _emit(
             _partial(
                 status=STATUS_DB_ERROR,
@@ -1396,7 +1396,7 @@ EXIT_CLI_REFUSED: Final[int] = 3
 
 def _print_verdict_line(payload: dict[str, Any]) -> None:
     """Write the machine-readable verdict as the LAST LINE of stdout — see :func:`_cli`."""
-    print(json.dumps(payload, sort_keys=True, separators=(",", ":")))  # noqa: T201 — CLI output
+    print(json.dumps(payload, sort_keys=True, separators=(",", ":")))  # CLI output
 
 
 def _cli(

@@ -256,7 +256,7 @@ class Harness:
             # ALERT-COUNTER-LABELS / R-063: `agent`/`error_type` labels. `self._agent_id` is None
             # for the trivial default graph (`create_graph()` with no `agent_id`) — the
             # `"nao_declarado"` fallback is a bounded token, not a silent unlabelled series.
-            from maezo.platform.observability import record_agent_error  # noqa: PLC0415
+            from maezo.platform.observability import record_agent_error
 
             record_agent_error(
                 agent=self._agent_id or "nao_declarado",
@@ -269,7 +269,7 @@ class Harness:
         # thread id / business key), via the platform's existing structured-log sink. The local
         # import mirrors inference.py's `_emit_llm_token_usage` (no import-time coupling to the
         # observability stack); `record_agent_turn` is itself best-effort and never raises.
-        from maezo.platform.observability import record_agent_turn  # noqa: PLC0415
+        from maezo.platform.observability import record_agent_turn
 
         out_msgs = result.get("messages")
         record_agent_turn(

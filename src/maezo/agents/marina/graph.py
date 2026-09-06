@@ -715,7 +715,7 @@ class MarinaGraph:
         if summary_ref:
             try:
                 summary_facts = await self._fhir.read_patient_summary(summary_ref)
-            except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
+            except Exception as exc:  # best-effort enrichment, never fatal.
                 # CLASS TOKEN ONLY (CC-10): `str(exc)` de um cliente FHIR tipicamente ecoa a
                 # URL / id em que falhou — o proprio `summary_ref` — e esta nota e' copiada para o
                 # prompt do dossie E para `dossie_marina`, que o engine sela na zona geral
@@ -1209,7 +1209,7 @@ class MarinaGraph:
                 # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
                 task_kind="reasoning",
             )
-        except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
+        except Exception:  # LLM failure never blocks the human/auto route.
             narrativa = ""
 
         return {

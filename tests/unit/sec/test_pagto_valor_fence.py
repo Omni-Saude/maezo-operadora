@@ -187,7 +187,7 @@ def _matches(entry: str, value: int) -> bool:
     raise AssertionError(f"unsupported unary test {entry!r} — extend this matcher deliberately")
 
 
-def _matches_boolean(entry: str, value: bool) -> bool:  # noqa: FBT001
+def _matches_boolean(entry: str, value: bool) -> bool:
     """Minimal FEEL matcher for the unary-test forms `pagto_alcada`'s boolean column uses.
 
     MINOR-1: mirrors `_matches` above — deliberately narrow, an unrecognised form RAISES instead of
@@ -205,7 +205,7 @@ def _matches_boolean(entry: str, value: bool) -> bool:  # noqa: FBT001
     raise AssertionError(f"unsupported boolean unary test {entry!r} — extend this matcher deliberately")
 
 
-def _first_hit(table: ET.Element, *, valor: int, dentro_teto: bool) -> ET.Element:  # noqa: FBT001
+def _first_hit(table: ET.Element, *, valor: int, dentro_teto: bool) -> ET.Element:
     """Replay FIRST-hit policy over the REAL rules for one (valor, dentro_teto_l2) input pair.
 
     Shared by the sweep in `test_no_rule_can_yield_dentro_teto_l2_when_the_gate_is_pinned_false`
