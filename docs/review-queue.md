@@ -2195,3 +2195,26 @@ futura decide entre (a) estender `check_plans_counts.py` com uma 4a forma `~N li
 tool_registry.py` (tolerancia `±`, ja que a alegacao usa `≈`) ou (b) remover o numero fixo da frase,
 igual ao reparo aplicado a `PLANS.md:6` nesta mesma tarefa (ver linha AF-06 do ledger, campo Status
 `PARTIAL`).
+
+## 11.5 — varredura de hand-off observavel nos 10 agentes (2026-09-06, eval-author R2)
+
+Item exigido pelo brief da tarefa (gap 11.5, WP-EVALS): "liste qualquer agente cujo grafo nao
+tenha um hand-off observavel que se possa afirmar (diga por que)". Varredura feita lendo
+`src/maezo/agents/<agente>/graph.py` dos 10 agentes (nos/arestas do `StateGraph` compilado) antes
+de escrever cada golden `EVL-<AGENTE>-JOURNEY-01.json` (ver `docs/evidence-ledger.md` linha `11.5`
+desta mesma data para a lista completa de arquivos).
+
+**Resultado: NENHUM agente ficou sem um hand-off observavel.** Nove dos dez iniciam
+(idempotentemente) o processo do proprio contrato e expoem variaveis engine-bound consultaveis via
+`FakeCibSevenTransport.get_process_status(business_key)` (andre/SP-OP-PAGTO-001,
+carolina/SP-OP-CRED-001, fernando/SP-OP-INADIMPLENCIA-001, gustavo/SP-OP-NIP-001,
+helena+lucas/SP-OP-ESCALATION-001, marina/SP-OP-CONTAS-001, rafael/SP-OP-AUTH-001,
+valentina/SP-OP-PROGRAMA-001). O DECIMO, Beatriz, e' um caso estrutural diferente, nao uma lacuna:
+seu `agent.yaml` NAO declara `mcp-cibseven.start_process` (ela e' convocada de DENTRO de uma
+instancia JA rodando de SP-OP-FRAUDE-001, nunca a inicia) — mas o grafo AINDA tem um checkpoint
+observavel: o dossie de investigacao que `instruct_investigation` devolve no estado final e' o
+proprio ENVELOPE DE DELEGACAO que o worker `seal_custody_bundle` do processo consome, com os
+campos-guarda L0 (`decisao_fraude`/`bundle_root`/`destino_referral`) sempre `None` — testado em
+`tests/evals/test_beatriz_journey_evals.py`. Nenhum dos 10 grafos tem um ramo de sucesso cujo
+efeito final seja puramente interno (sem processo iniciado E sem envelope de delegacao
+devolvido) — se um agente futuro tiver esse formato, este item deve ser reaberto para ele.

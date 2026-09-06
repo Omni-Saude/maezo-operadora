@@ -1,0 +1,65 @@
+{
+  "id": "EVL-LUCAS-JOURNEY-01",
+  "agent": "lucas",
+  "class": "JN",
+  "tier": ["A"],
+  "description": "End-to-end JOURNEY eval (gap 11.5, WP-EVALS) for Lucas's J3 (`cancelamento`) escalation journey -- receive (intake) -> gather+assess (triage: lucas_escalation_routing DMN classifies CONTRATOS_HUMANO) -> escalate_human (dossier + authoritative route stamp, F1a fix) -> start_process (hand-off: idempotent SP-OP-ESCALATION-001 start -- the SAME shared contract Helena starts) -> send_escalation_ack (the beneficiary ACK is sent ONLY after the escalation actually exists in the engine, LUC-05). Synthetic data only (tenant amh, pseudo beneficiary id, wa:amh:* conversation id).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-lucas-journey-01",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-LJ01",
+      "to_hash": "hash-evl-lucas-journey-01",
+      "intencao": "cancelamento",
+      "tipo_solicitacao": "status_pagamento"
+    }
+  },
+  "recorded_llm": [
+    "Pedido de cancelamento identificado; dossie encaminhado para gestao de contratos.",
+    "Um atendente humano vai continuar seu atendimento sobre o pedido de cancelamento."
+  ],
+  "dmn_fixture": {
+    "lucas_escalation_routing": { "roteamento": "CONTRATOS_HUMANO" }
+  },
+  "expect": {
+    "fields": {
+      "route": "escalate_human",
+      "motivo_humano": "pedido_cancelamento",
+      "grupo_humano": "gestao-contratos",
+      "desfecho": "escalado_humano"
+    }
+  },
+  "leak_canaries": [],
+  "journey": {
+    "intake": {
+      "no_error": true
+    },
+    "triage": {
+      "fields": {
+        "route": "escalate_human",
+        "motivo_humano": "pedido_cancelamento",
+        "grupo_humano": "gestao-contratos"
+      },
+      "dmn_tables_consulted": ["lucas_escalation_routing"]
+    },
+    "handoff": {
+      "fields": {
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "mensagem_enviada": true,
+        "ack_pending": false
+      },
+      "business_key": "ESC-amh-wa:amh:evl-lucas-journey-01",
+      "process_key": "SP-OP-ESCALATION-001",
+      "engine_variables": {
+        "tenant_id": "amh",
+        "conversation_id": "wa:amh:evl-lucas-journey-01",
+        "beneficiario_pseudo_id": "PSEUDO-TESTE-LJ01",
+        "lucas_route": "escalate_human",
+        "motivo_encaminhamento": "pedido_cancelamento"
+      },
+      "whatsapp_delivered": true
+    }
+  }
+}

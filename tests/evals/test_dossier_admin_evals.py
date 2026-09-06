@@ -150,9 +150,12 @@ def test_dataset_counts_match_ratified_design() -> None:
     # (4->5, 5->6); beatriz evaluates no DMN at all (`agent.yaml`'s tools allowlist deliberately
     # excludes `mcp-dmn.evaluate` -- module docstring) and is unchanged by CC-01/CC-08.
     # BEA-06 (lote1) added EVL-BEATRIZ-04, so beatriz is 4 here (3 ratified + 1).
-    assert len(CAROLINA_CASES) == 5
-    assert len(BEATRIZ_CASES) == 4
-    assert len(GUSTAVO_CASES) == 6
+    # WP-EVALS gap 11.5 (2026-09-06) added ONE end-to-end JOURNEY golden (class JN) each to all
+    # three agents (`EVL-{CAROLINA,BEATRIZ,GUSTAVO}-JOURNEY-01.json`, mirroring
+    # `EVL-HELENA-JOURNEY-01`) -- carolina 5->6, beatriz 4->5, gustavo 6->7.
+    assert len(CAROLINA_CASES) == 6
+    assert len(BEATRIZ_CASES) == 5
+    assert len(GUSTAVO_CASES) == 7
 
 
 # ---------------------------------------------------------------------------

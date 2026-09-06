@@ -1,0 +1,74 @@
+{
+  "id": "EVL-RAFAEL-JOURNEY-01",
+  "agent": "rafael",
+  "class": "JN",
+  "tier": ["A"],
+  "description": "End-to-end JOURNEY eval (gap 11.5, WP-EVALS) for Rafael's `human_auditor` journey -- receive (intake) -> gather+assess (triage: auth_admissibility -> SEGUE_ANALISE -> auth_auto_approval -> ANALISE_HUMANA) -> human_auditor (dossier, decisao_cobertura ALWAYS None) -> start_process (hand-off: idempotent SP-OP-AUTH-001 start -- BOTH branches of Rafael's graph feed start_process unconditionally, module docstring topology; the human auditor decides via UT_AnaliseMedicoAuditor, never this graph). A high-value/high-complexity procedure with `dut_atendida=false` resolves ANALISE_HUMANA -- RAF-01/RAF-06 proved `auto_approve`'s real-table criteria are unreachable from this agent's typed seam, so `human_auditor` is Rafael's only demonstrated end-to-end hand-off path. Synthetic data only (tenant amh, pseudo beneficiary id).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "numero_guia_tiss": "GUIA-EVL-RAFAEL-J01",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-RAFAEL-J01",
+      "prestador_id": "PREST-TESTE-001",
+      "canal": "a2a",
+      "codigo_procedimento_tuss": "31309038",
+      "categoria_procedimento": "alta_complexidade",
+      "carater_atendimento": "eletivo",
+      "valor_estimado_brl": 45000.0,
+      "cid10": "C50.9",
+      "documentos_refs": [],
+      "requer_autorizacao": true,
+      "documentacao_completa": true,
+      "beneficiario_ativo": true,
+      "carencia_cumprida": true,
+      "dut_atendida": false,
+      "dentro_teto_l2": false,
+      "rede_credenciada": true
+    }
+  },
+  "recorded_llm": [
+    "Procedimento de alta complexidade sem DUT atendida; encaminhado para auditoria medica humana."
+  ],
+  "dmn_fixture": {
+    "auth_admissibility": { "resultado": "SEGUE_ANALISE" },
+    "auth_sla": { "sla_analise": "10d", "sla_alerta": "5d" },
+    "auth_auto_approval": { "recomendacao": "ANALISE_HUMANA" }
+  },
+  "expect": {
+    "fields": {
+      "route": "human_auditor",
+      "motivo_auditor": "dmn_analise_humana",
+      "desfecho": "encaminhado_auditor",
+      "admissibilidade": "SEGUE_ANALISE",
+      "recomendacao_auto": "ANALISE_HUMANA"
+    }
+  },
+  "leak_canaries": [],
+  "journey": {
+    "intake": {
+      "no_error": true
+    },
+    "triage": {
+      "fields": {
+        "admissibilidade": "SEGUE_ANALISE",
+        "recomendacao_auto": "ANALISE_HUMANA",
+        "route": "human_auditor"
+      },
+      "dmn_tables_consulted": ["auth_admissibility", "auth_sla", "auth_auto_approval"]
+    },
+    "handoff": {
+      "fields": {
+        "desfecho": "encaminhado_auditor",
+        "process_started": true
+      },
+      "business_key": "AUTH-amh-GUIA-EVL-RAFAEL-J01",
+      "process_key": "SP-OP-AUTH-001",
+      "engine_variables": {
+        "tenant_id": "amh",
+        "numero_guia_tiss": "GUIA-EVL-RAFAEL-J01",
+        "rafael_route": "human_auditor",
+        "motivo_encaminhamento": "dmn_analise_humana"
+      }
+    }
+  }
+}

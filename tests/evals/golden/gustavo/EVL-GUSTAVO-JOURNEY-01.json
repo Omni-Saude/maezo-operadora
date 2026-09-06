@@ -1,0 +1,76 @@
+{
+  "id": "EVL-GUSTAVO-JOURNEY-01",
+  "agent": "gustavo",
+  "class": "JN",
+  "tier": ["A"],
+  "description": "End-to-end JOURNEY eval (gap 11.5, WP-EVALS) for Gustavo's J2 (NIP instruction) flow -- receive (intake: the flow's `process_key`/`business_key` are computed HERE, before any DMN runs) -> gather+assess (triage: nip_classification -> nip_sla -> nip_routing all consulted) -> instruct_nip (the ONLY route this flow has -- ALWAYS a human, module docstring: 'Gustavo NEVER decides to maintain a denial') -> start_process (hand-off: idempotent SP-OP-NIP-001 start with the contract's engine-bound variables, including the ALWAYS-None `decisao_nip` L0 guardrail -- MANTER_NEGATIVA is exclusively UT_RevisaoJuridicaNip's). Synthetic data only (tenant amh, pseudo beneficiary id).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "fluxo": "nip",
+      "canal": "a2a",
+      "numero_nip_ans": "000000J01",
+      "protocolo_ans": "PROT-NIP-JOURNEY-01",
+      "beneficiario_pseudo_id": "pseudo-benef-journey-01",
+      "classificacao_nip": "assistencial",
+      "tema_nip": "negativa_cobertura_exame",
+      "referencia_negativa_original": "AUTH-guia-journey-01",
+      "data_recebimento_nip_iso": "2026-07-10",
+      "documentos_refs": [],
+      "contesta_negativa": true,
+      "documentacao_suficiente": true,
+      "origem_a2a": true
+    }
+  },
+  "recorded_llm": [
+    "NIP assistencial contestando negativa de cobertura; dossie encaminhado para revisao juridica."
+  ],
+  "dmn_fixture": {
+    "nip_classification": { "classificacao": "ASSISTENCIAL_CONTESTA_NEGATIVA", "prazo_dias": 5, "grupo_revisor": "juridico-regulatorio" },
+    "nip_sla": { "prazo_resposta_iso": "P5D", "prazo_resposta_absoluto_iso": "2026-07-15T00:00:00", "sla_alerta_iso": "P3D", "sla_alerta_absoluto_iso": "2026-07-13T00:00:00", "fonte_regulatoria": "RN 388/2016 - DRAFT/verify" },
+    "nip_routing": { "roteamento": "REVISAO_JURIDICA", "grupo_humano": "juridico-regulatorio" }
+  },
+  "expect": {
+    "fields": {
+      "route": "instruct_nip",
+      "motivo_humano": "revisao_juridica_nip",
+      "classificacao": "ASSISTENCIAL_CONTESTA_NEGATIVA",
+      "roteamento_nip": "REVISAO_JURIDICA",
+      "process_key": "SP-OP-NIP-001",
+      "desfecho": "nip_encaminhada_instrucao_humana"
+    }
+  },
+  "leak_canaries": [],
+  "journey": {
+    "intake": {
+      "no_error": true,
+      "fields": {
+        "process_key": "SP-OP-NIP-001",
+        "business_key": "NIP-amh-000000J01"
+      }
+    },
+    "triage": {
+      "fields": {
+        "route": "instruct_nip",
+        "classificacao": "ASSISTENCIAL_CONTESTA_NEGATIVA",
+        "roteamento_nip": "REVISAO_JURIDICA"
+      },
+      "dmn_tables_consulted": ["nip_classification", "nip_sla", "nip_routing"]
+    },
+    "handoff": {
+      "fields": {
+        "desfecho": "nip_encaminhada_instrucao_humana",
+        "process_started": true
+      },
+      "business_key": "NIP-amh-000000J01",
+      "process_key": "SP-OP-NIP-001",
+      "engine_variables": {
+        "tenant_id": "amh",
+        "numero_nip_ans": "000000J01",
+        "gustavo_route": "instruct_nip",
+        "motivo_encaminhamento": "revisao_juridica_nip",
+        "decisao_nip": null
+      }
+    }
+  }
+}
