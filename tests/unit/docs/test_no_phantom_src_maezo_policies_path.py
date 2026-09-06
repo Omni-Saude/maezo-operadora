@@ -43,6 +43,14 @@ _BASELINE: dict[str, str] = {
         '`_DEFAULT_CORE_PATH = "src/maezo/policies/autonomy/L0-core.yaml"` \'does NOT carry '
         "over' to v2, and that v2 resolves via `spec/policies/autonomy/` (line ~113)."
     ),
+    "docs/reviews/fleet2-owner-decisions-2026-09-05.md": (
+        "memo de decisoes do dono (PR #348, commit `1a69e7b6`), posterior a base desta cerca: as\n"
+        "QUATRO ocorrencias sao auto-refutantes — declaram que o caminho NUNCA EXISTIU\n"
+        "(linhas ~197-201: `.github/CODEOWNERS:75` cita `/src/maezo/policies/process_allowlist.yaml`\n"
+        "e o memo responde 'esse arquivo e todo o diretorio NUNCA EXISTIU', com `ls src/maezo/policies/`\n"
+        "-> nao existe; linha ~911: `find . -iname process_allowlist.yaml` -> 0 hits). Mesma especie\n"
+        "de G0-gate-review.md: registro de que o caminho e fantasma, nunca um ponteiro para conteudo."
+    ),
     "docs/reports/G0-gate-review.md": (
         "already declares the path 'confirmed nonexistent' (line ~71) and lists it as a fixed-"
         "elsewhere residual defect (C3, PROJECT.md/CONTRIBUTING.md, both since corrected) — not "
