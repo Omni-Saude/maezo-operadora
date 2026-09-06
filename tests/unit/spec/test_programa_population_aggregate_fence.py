@@ -329,7 +329,7 @@ def _valentina_consumers(markers: frozenset[str]) -> list[Consumer]:
     # Simbolos EXATOS do seam de agregado no grafo da Valentina (nomes de simbolo, nao prosa).
     symbols = {GatedPopulationFeatureClient.__name__, *aggregate_value_types()}
     symbols.update(op.rsplit(".", 1)[-1] for op in aggregate_operations())
-    for module in sorted(_VALENTINA_SRC.glob("*.py")):
+    for module in sorted(_VALENTINA_SRC.rglob("*.py")):
         text = module.read_text(encoding="utf-8")
         for symbol in sorted(symbols):
             if symbol in text:
