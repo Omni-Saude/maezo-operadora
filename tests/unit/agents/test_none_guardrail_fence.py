@@ -38,6 +38,14 @@ value of (walking up through any `int(...)`/`float(...)` wrapper) — or, when t
 a dict value at all, the normalized source text of the whole expression. Neither component moves
 when unrelated lines are inserted or removed elsewhere in the file. `lineno` is kept ONLY inside
 failure messages, for a human to find the current line — never as part of the identity itself.
+
+OCCURRENCE COUNT IS PART OF THE IDENTITY'S REVIEW (§Delta NONE-GUARDRAIL D2). Two DIFFERENT
+`or 0` occurrences can legitimately share one `(relpath, func, key)` identity (the same dict key
+assigned twice inside the same function is unusual but not impossible) — collapsing them would let
+a SECOND, unreviewed occurrence hide behind an already-allowlisted one, exactly the "silently
+multiply" this fence exists to prevent. `_ALLOWLIST` therefore declares, per identity, how many
+occurrences were reviewed (`_Allowed.count`); `test_every_or_zero_coercion_is_reviewed_and_allowlisted`
+compares the ACTUAL count found (`len(hits[hit])`) against it, not just set membership.
 """
 
 from __future__ import annotations
@@ -59,12 +67,21 @@ class _Hit(NamedTuple):
     key: str
 
 
+class _Allowed(NamedTuple):
+    """One allowlist entry: how many occurrences at this identity were reviewed (see the module
+    docstring's OCCURRENCE COUNT section), and why they are out of this WP's scope."""
+
+    count: int
+    reason: str
+
+
 #: Every `<expr> or 0`/`<expr> or 0.0` occurrence in `src/maezo/agents/*/graph.py` that predates
 #: this WP and is OUT OF SCOPE for it (not one of BEA-04/VAL-05/AND-08/FER-08's named fields) —
 #: reviewed here so it cannot silently multiply. Fixing one is a DIFFERENT WP's ledger row; when
 #: it lands, remove the entry (the stale-entry test below fails otherwise).
-_ALLOWLIST: Final[dict[_Hit, str]] = {
-    _Hit("fernando/graph.py", "assess", "meses_inadimplencia"): (
+_ALLOWLIST: Final[dict[_Hit, _Allowed]] = {
+    _Hit("fernando/graph.py", "assess", "meses_inadimplencia"): _Allowed(
+        1,
         "meses_inadimplencia (assess) -- DEAD-COLUMN residual, not a live masking: feeds "
         "`inadimplencia_status.dmn`'s `in_meses_inadimplencia` input column, which is `-` "
         "(wildcard) in EVERY rule and read by no output expression -- a frozen DEAD input per "
@@ -75,32 +92,36 @@ _ALLOWLIST: Final[dict[_Hit, str]] = {
         "predating fleet audit ciclo 2; not one of BEA-04/VAL-05/AND-08/FER-08's named fields "
         "(those are score_indicadores, the consent desfecho, decisao_pagamento, and the *_iso "
         "SLA/deadline fields) -- a residual of the SAME family, out of this WP's scope, not "
-        "fixed here."
+        "fixed here.",
     ),
-    _Hit("fernando/graph.py", "_inadimplencia_variables", "meses_inadimplencia"): (
+    _Hit("fernando/graph.py", "_inadimplencia_variables", "meses_inadimplencia"): _Allowed(
+        1,
         "meses_inadimplencia (_inadimplencia_variables, engine-bound): a SEPARATE read site of "
         "the same field, feeding the ENGINE PROCESS VARIABLE `meses_inadimplencia` -- "
         "informational (the engine's own businessRuleTask evaluation of "
         "`inadimplencia_status`/`inadimplencia_purga`/`inadimplencia_sla` reads its OWN process "
         "variables via `${...}`, never re-reads this one back as a DMN input). Also inside "
         "`_inadimplencia_variables`, which sibling WP FERNANDO-INPUT-DESFECHO is actively "
-        "revising in its own worktree -- not touched here."
+        "revising in its own worktree -- not touched here.",
     ),
-    _Hit("fernando/graph.py", "_inadimplencia_variables", "valor_total_devido_cents"): (
+    _Hit("fernando/graph.py", "_inadimplencia_variables", "valor_total_devido_cents"): _Allowed(
+        1,
         "valor_total_devido_cents (_inadimplencia_variables, engine-bound): a MONEY field "
         "silently defaulting to 0 by the same pre-existing convention as meses_inadimplencia "
         "above -- worth saying out loud (a null 'valor devido' masked to 0 could read to a "
         "human as 'nothing owed' rather than 'the fact is missing'), same engine-process-"
-        "variable/informational shape, out of this WP's named scope."
+        "variable/informational shape, out of this WP's named scope.",
     ),
-    _Hit("gustavo/graph.py", "_assess_nip", "prazo_dias"): (
+    _Hit("gustavo/graph.py", "_assess_nip", "prazo_dias"): _Allowed(
+        1,
         'prazo_dias (_assess_nip): read FROM a DMN row OUTPUT (`clf_row.get("prazo_dias")`, a '
         "value the `nip_classification` table's OWN matched rule already produced), never a DMN "
         "INPUT -- this `or 0` cannot mask a fact the DMN evaluates against, so it has no "
         "decision-input effect. Pre-existing convention predating fleet audit ciclo 2, not one "
-        "of this WP's named fields."
+        "of this WP's named fields.",
     ),
-    _Hit("lucas/graph.py", "assess", "ciclos_sem_conciliacao"): (
+    _Hit("lucas/graph.py", "assess", "ciclos_sem_conciliacao"): _Allowed(
+        1,
         "ciclos_sem_conciliacao (assess) -- RESIDUAL-ABERTO: LIVE DMN decision-input masking "
         '(§Delta NONE-GUARDRAIL F2). Feeds `admis_in["ciclos_sem_conciliacao"]` into '
         "`lucas_billing_admissibility.dmn` (hitPolicy=FIRST). That table's FIRST rule, "
@@ -122,9 +143,10 @@ _ALLOWLIST: Final[dict[_Hit, str]] = {
         "OPEN residual for a future owner-gated WP to pick up (see this WP's report's "
         "adjacencies section); the sibling gap LUCAS-MOTIVO-SEVERIDADE-DEFAULTS "
         "(GAP-REGISTER, MERGED #336) closed a DIFFERENT default in the same file (severidade), "
-        "not this counter."
+        "not this counter.",
     ),
-    _Hit("lucas/graph.py", "_assess_escalation", "ciclos_sem_conciliacao"): (
+    _Hit("lucas/graph.py", "_assess_escalation", "ciclos_sem_conciliacao"): _Allowed(
+        1,
         "ciclos_sem_conciliacao (_assess_escalation) -- DEAD-COLUMN residual, not a live "
         "masking: a SECOND read site of the same field, feeding `lucas_escalation_routing.dmn`'s "
         "`ler_in_ciclos` input column, which is `-` (wildcard) in EVERY rule and read by no "
@@ -135,7 +157,7 @@ _ALLOWLIST: Final[dict[_Hit, str]] = {
         "destination here is ALWAYS `escalate_human` regardless of this DMN's outcome -- it "
         "only picks the suggested human GROUP (`_assess_escalation`'s own docstring) -- so the "
         "`or 0` masking has no decision-input effect at this second site. Same field/family as "
-        "the LIVE `assess` site above; out of this WP's named scope either way."
+        "the LIVE `assess` site above; out of this WP's named scope either way.",
     ),
 }
 
@@ -245,7 +267,9 @@ def _all_hits() -> dict[_Hit, list[int]]:
 def test_every_or_zero_coercion_is_reviewed_and_allowlisted() -> None:
     """Every `<expr> or 0` idiom found by the AST scan today must be a REVIEWED, NAMED entry —
     a brand-new occurrence (a fresh footgun, or a mutation reintroducing a fixed one) fails here
-    instead of shipping silently."""
+    instead of shipping silently. Includes the OCCURRENCE COUNT (§Delta NONE-GUARDRAIL D2): a
+    SECOND `or 0` sharing an already-allowlisted identity is exactly as unreviewed as a brand-new
+    identity would be, and must fail here too, not hide behind the existing entry."""
     hits = _all_hits()
     unlisted = set(hits) - set(_ALLOWLIST)
     assert not unlisted, (
@@ -253,6 +277,17 @@ def test_every_or_zero_coercion_is_reviewed_and_allowlisted() -> None:
         f"parens): {sorted((hit, hits[hit]) for hit in unlisted)} "
         "-- either this is a NEW instance of NONE-GUARDRAIL-MISSING (fix it, do not allowlist "
         "it), or it is a legitimate default that needs a reviewed reason added to _ALLOWLIST."
+    )
+    miscounted = {
+        hit: {"found": len(hits[hit]), "found_at_lines": hits[hit], "reviewed": _ALLOWLIST[hit].count}
+        for hit in hits
+        if hit in _ALLOWLIST and len(hits[hit]) != _ALLOWLIST[hit].count
+    }
+    assert not miscounted, (
+        "allowlisted identity(ies) whose occurrence COUNT no longer matches what was reviewed: "
+        f"{miscounted} -- a second (or a removed) `or 0` at an already-allowlisted (relpath, func, "
+        "key) must be reviewed on its own, never silently absorbed by an existing entry that "
+        "shares its identity."
     )
 
 
