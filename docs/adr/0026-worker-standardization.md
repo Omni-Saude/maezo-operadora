@@ -76,6 +76,22 @@ to make all 16 registrable.
   sites). So the *tested unit* of the 13 modules is the free function; the *tested unit* of the 3 is
   `run()`.
 
+**Adendo 2026-09-06 (R-089 / gap `ADR-0026-0028-STALE-ANSCRON`, owner-decision, `docs/adr/` CODEOWNED,
+disclosed in `scripts/ci/check_doc_symbol_citations.py::_DISCLOSED_ROT`).** O exemplo acima (nao
+editado — `docs/adr/README.md:8` proibe reescrita in-loco de ADR `Accepted`) cita `check_calendar`
+como um dos dois nomes importados de `ans_cron.py` por `tests/unit/tools/workers/test_ans_cron.py`.
+`check_calendar` foi **REMOVIDA** desse modulo (nao renomeada, nao desativada) apos a reconciliacao
+de taxonomia GAP-ANS-1/ANS-CRON-DEAD-CODE: era uma reimplementacao Python de `ans_calendar.dmn` que
+a propria docstring do modulo ja declarava bloqueada pela divergencia de taxonomia; com a taxonomia
+reconciliada, o portao do **ADR-0028 §7** ("only after 100% parity in CI: delete the Python
+re-implementation") passou a valer, e a tabela e avaliada hoje ENGINE-SIDE pelo businessRuleTask
+`BRT_Calendario` (`camunda:decisionRef="ans_calendar"`) em
+`spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn`. O import real hoje (mesmo
+arquivo de teste) e `from maezo.tools.workers.ans_cron import (..., parse_competencia_referencia_iso,
+register_ans_cron_workers, trigger_submissions, ...)` — o ponto arquitetural do bullet acima ("tests
+bind to functions, not classes") continua verdadeiro com esses nomes; so o exemplo literal apodreceu.
+Ver **ADR-0028**'s proprio adendo 2026-09-06 para a re-ancoragem do lado da tabela de decision-keys.
+
 **Honesty note — v2 has already diverged from v1.** The v1 donor has **no** `WorkerBase` class at all:
 its workers are **async closures** `async def handler(task: ExternalTask) -> Mapping|None`, produced by
 `make_*_handler(...)` factories and registered by topic via `register_<name>_workers(harness, kafka)`;
