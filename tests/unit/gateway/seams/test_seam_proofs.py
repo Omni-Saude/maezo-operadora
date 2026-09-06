@@ -406,7 +406,7 @@ async def _exercise(seam: Any) -> list[Any]:
             continue
         try:
             out.append(("ok", await factory(seam)))
-        except Exception as exc:  # noqa: BLE001 - the exception TYPE is part of the observable
+        except Exception as exc:  # the exception TYPE is part of the observable
             out.append(("raised", type(exc).__name__))
     return out
 

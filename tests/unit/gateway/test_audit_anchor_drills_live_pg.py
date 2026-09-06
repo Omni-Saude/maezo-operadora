@@ -162,7 +162,7 @@ def _default_test_dsn() -> str:
 async def _postgres_reachable(dsn: str) -> bool:
     try:
         conn = await asyncio.wait_for(asyncpg.connect(normalize_dsn(dsn)), timeout=2.0)
-    except Exception:  # noqa: BLE001 — any connection failure means "skip", not "error"
+    except Exception:  # any connection failure means "skip", not "error"
         return False
     await conn.close()
     return True

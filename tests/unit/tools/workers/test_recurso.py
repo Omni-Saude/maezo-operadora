@@ -915,7 +915,7 @@ def test_validate_recurso_entry_escreve_de_volta_a_ancora_quando_ausente_do_star
     A data alegada pelo prestador nao pode virar a ancora: e o relogio do recorrente, e a
     tempestividade continua sendo o fato separado `dentro_prazo_recurso`.
     """
-    from datetime import UTC, datetime, timedelta  # noqa: PLC0415 — convencao local deste modulo
+    from datetime import UTC, datetime, timedelta  # convencao local deste modulo
 
     hoje = datetime.now(UTC).strftime("%Y-%m-%d")
     ciencia = (datetime.now(UTC) - timedelta(days=5)).strftime("%Y-%m-%d")

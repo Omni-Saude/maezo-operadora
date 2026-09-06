@@ -770,7 +770,7 @@ def render_chart(
     argv = ["helm", "template", release, chart]
     for vf in value_files:
         argv.extend(["-f", vf])
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell, helm is an explicit CI/dev dependency
+    proc = subprocess.run(  # fixed argv, no shell, helm is an explicit CI/dev dependency
         argv, cwd=repo_root, capture_output=True, text=True, check=False
     )
     if proc.returncode != 0:

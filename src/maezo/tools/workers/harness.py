@@ -368,13 +368,13 @@ def _resolve_app_version(override: str | None = None) -> str:
     if env:
         return env
     try:
-        from importlib.metadata import PackageNotFoundError, version  # noqa: PLC0415
+        from importlib.metadata import PackageNotFoundError, version
 
         try:
             return version("maezo-operadora")
         except PackageNotFoundError:
             return "unknown"
-    except Exception:  # noqa: BLE001 — metadata lookup must never break dispatch; fall back honestly.
+    except Exception:  # metadata lookup must never break dispatch; fall back honestly.
         return "unknown"
 
 
@@ -819,7 +819,7 @@ class CibSevenWorkerTransport:
                         retries=0,
                         retry_timeout_ms=0,
                     )
-                except Exception:  # noqa: BLE001 — best-effort: reporting the incident must
+                except Exception:  # best-effort: reporting the incident must
                     # never itself crash fetch_and_lock; an unreported task simply stays locked
                     # until it expires and is redelivered (safe fallback, never silently dropped
                     # forever).
@@ -1143,7 +1143,7 @@ def _emit_worker_task_outcome(
         if outcome not in WORKER_TASK_OUTCOMES:
             logger.debug("worker_task_metric_skipped", outcome=outcome, topic=topic)
             return
-        from maezo.platform.observability import record_worker_task_outcome  # noqa: PLC0415
+        from maezo.platform.observability import record_worker_task_outcome
 
         record_worker_task_outcome(
             tenant=tenant or "unknown",
@@ -1151,7 +1151,7 @@ def _emit_worker_task_outcome(
             outcome=outcome,
             duration_seconds=duration_seconds,
         )
-    except Exception:  # noqa: BLE001 — defensive: a metric error must never break dispatch.
+    except Exception:  # defensive: a metric error must never break dispatch.
         logger.debug("worker_task_metric_emit_failed", topic=topic, outcome=outcome, exc_info=True)
 
 
@@ -1215,7 +1215,7 @@ def _emit_raw_handler_worker_metrics(
     which is a bigger change than the gap it closes.
     """
     try:
-        from maezo.platform.observability import (  # noqa: PLC0415 — lazy, mirrors `_emit_worker_task_outcome`
+        from maezo.platform.observability import (  # lazy, mirrors `_emit_worker_task_outcome`
             record_worker_error,
             record_worker_execution,
         )
@@ -1224,7 +1224,7 @@ def _emit_raw_handler_worker_metrics(
             record_worker_execution(worker_name=worker_name, topic=topic, duration_seconds=duration_seconds)
         else:
             record_worker_error(worker_name=worker_name, topic=topic, error_type=error_type or "UnknownError")
-    except Exception:  # noqa: BLE001 — defensive: a metric error must never break dispatch.
+    except Exception:  # defensive: a metric error must never break dispatch.
         logger.debug("worker_raw_handler_metric_emit_failed", topic=topic, outcome=outcome, exc_info=True)
 
 
@@ -1395,7 +1395,7 @@ class WorkerHarness:
                     )
                 except asyncio.CancelledError:
                     raise
-                except Exception as exc:  # noqa: BLE001 — fail-closed backoff, never a silent []`.
+                except Exception as exc:  # fail-closed backoff, never a silent []`.
                     self._consecutive_fetch_errors += 1
                     self.fetch_errors_total += 1
                     if self._consecutive_fetch_errors >= self._engine_unreachable_after:
@@ -1494,7 +1494,7 @@ class WorkerHarness:
             await self._handle(task)
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001 — last-resort: dispatch must never crash the loop.
+        except Exception:  # last-resort: dispatch must never crash the loop.
             logger.error("worker_handle_task_crashed", task_id=task.task_id, topic=task.topic, exc_info=True)
 
     # -- dispatch -------------------------------------------------------------------------------
@@ -1719,7 +1719,7 @@ class WorkerHarness:
         """
         try:
             return evaluate_worker_task(topic=task.topic, tenant=self._tenant)
-        except Exception:  # noqa: BLE001 — belt-and-suspenders; the gateway is already total.
+        except Exception:  # belt-and-suspenders; the gateway is already total.
             logger.error("action_gateway_evaluate_failed", topic=task.topic, exc_info=True)
             return None
 
@@ -1924,7 +1924,7 @@ class WorkerHarness:
                         task, guard_code=refusal_code, dmn_versions=dict(dmn_versions)
                     )
                 outcome = await self._report_failure(task, exc, retries_override=0)
-            except Exception as exc:  # noqa: BLE001 — classified below; never escapes dispatch.
+            except Exception as exc:  # classified below; never escapes dispatch.
                 error_type = type(exc).__name__
                 _transient_types = (RuntimeError, OSError, TimeoutError, ConnectionError, httpx.HTTPError)
                 transient = isinstance(exc, _transient_types)

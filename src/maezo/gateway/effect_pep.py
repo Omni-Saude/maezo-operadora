@@ -527,7 +527,7 @@ def _load_approvals(path: str | Path | None) -> ActionApprovals:
     covers the residual (a corrupted cache, a monkeypatched accessor)."""
     try:
         return action_execution.action_approvals(path)
-    except Exception:  # noqa: BLE001 - fail-closed: an unreadable record approves nothing
+    except Exception:  # fail-closed: an unreadable record approves nothing
         logger.error("effect_pep_approvals_unavailable", exc_info=True)
         return action_execution.ActionApprovals(
             mode=MODE_UNRESOLVED,
@@ -656,7 +656,7 @@ def _outermost_enforcement(ctx: DecisionContext | None) -> tuple[str, bool]:
     """
     try:
         mode = action_execution.action_approvals(ctx.approvals_path if ctx is not None else None).mode
-    except Exception:  # noqa: BLE001 - nothing left to trust; refuse to claim enforcement
+    except Exception:  # nothing left to trust; refuse to claim enforcement
         return MODE_UNRESOLVED, False
     return mode, mode == action_execution.MODE_ENFORCING
 
@@ -678,7 +678,7 @@ def decide(call: EffectCall, ctx: DecisionContext | None = None) -> EffectDecisi
     """
     try:
         return _decide_ladder(call, ctx)
-    except Exception:  # noqa: BLE001 - design I-4: the PEP ITSELF must be total, not just its layers
+    except Exception:  # design I-4: the PEP ITSELF must be total, not just its layers
         # The log is suppressed-guarded because a RAISING LOGGER is one of the proven paths into
         # this handler; logging the containment must not re-raise out of it.
         with contextlib.suppress(Exception):
@@ -720,7 +720,7 @@ def _decide_ladder(call: EffectCall, ctx: DecisionContext | None = None) -> Effe
     # -- L-0 CATALOGUE -----------------------------------------------------------------------
     try:
         spec = effect_classes.lookup_operation(operation)
-    except Exception:  # noqa: BLE001 - a catalogue bug denies; it never crashes a care path
+    except Exception:  # a catalogue bug denies; it never crashes a care path
         logger.error("effect_pep_layer_error", layer=EffectLayer.CATALOGO.value, exc_info=True)
         return _deny(
             REASON_INTERNAL_ERROR,
@@ -767,7 +767,7 @@ def _decide_ladder(call: EffectCall, ctx: DecisionContext | None = None) -> Effe
     for layer, evaluate_layer in ladder:
         try:
             reason = evaluate_layer()
-        except Exception:  # noqa: BLE001 - an injected seam that misbehaves DENIES, never raises
+        except Exception:  # an injected seam that misbehaves DENIES, never raises
             logger.error("effect_pep_layer_error", layer=layer.value, exc_info=True)
             return deny_at(REASON_INTERNAL_ERROR, layer)
         if reason is not None:
@@ -778,7 +778,7 @@ def _decide_ladder(call: EffectCall, ctx: DecisionContext | None = None) -> Effe
     # exactly what it means on the worker leg.
     try:
         verdict = ActionExecutionGateway(approvals).evaluate(action_class, {"tenant": call.tenant})
-    except Exception:  # noqa: BLE001 - belt-and-suspenders over a function that cannot raise
+    except Exception:  # belt-and-suspenders over a function that cannot raise
         logger.error("effect_pep_layer_error", layer=EffectLayer.RATIFICACAO.value, exc_info=True)
         return deny_at(REASON_INTERNAL_ERROR, EffectLayer.RATIFICACAO)
     if not verdict.allow:
@@ -794,7 +794,7 @@ def _decide_ladder(call: EffectCall, ctx: DecisionContext | None = None) -> Effe
             action_class=action_class,
             sample_key=sample_key,
         )
-    except Exception:  # noqa: BLE001 - best-effort by contract (ADR-0034 :78-85)
+    except Exception:  # best-effort by contract (ADR-0034 :78-85)
         logger.warning("effect_pep_sampler_failed", operation=spec.operation, exc_info=True)
 
     return EffectDecision(
@@ -860,7 +860,7 @@ def decide_effect(
         # BEFORE `decide`'s own containment could see it, which would make the "total" claim true
         # of `decide` and false of the function the wrappers actually call.
         spec = effect_classes.lookup_operation(operation)
-    except Exception:  # noqa: BLE001 - a catalogue bug denies; it never crashes a care path
+    except Exception:  # a catalogue bug denies; it never crashes a care path
         logger.error("effect_pep_catalogue_error", layer=EffectLayer.CATALOGO.value, exc_info=True)
         mode, enforced = _outermost_enforcement(context)
         return EffectDecision(
@@ -898,7 +898,7 @@ def decide_effect(
             mode=approvals.mode,
             enforcement=enforcement,
         )
-    except Exception:  # noqa: BLE001 - nothing may escape onto an effect path
+    except Exception:  # nothing may escape onto an effect path
         logger.error("effect_pep_call_rejected", layer=EffectLayer.ENTRADA.value, exc_info=True)
         mode, enforced = _outermost_enforcement(context)
         return EffectDecision(
@@ -911,7 +911,7 @@ def decide_effect(
         )
     try:
         return decide(call, context)
-    except Exception:  # noqa: BLE001 - `decide` is total; this is the outermost belt-and-suspenders
+    except Exception:  # `decide` is total; this is the outermost belt-and-suspenders
         logger.error("effect_pep_internal_error", operation=call.operation, exc_info=True)
         mode, enforced = _outermost_enforcement(context)
         return EffectDecision(

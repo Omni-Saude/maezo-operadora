@@ -199,7 +199,7 @@ def _effective_mirror_allowlist() -> frozenset[str]:
     Returns the constant UNCHANGED under the shipped (`off`) policy — the mirrored envelope is
     byte-identical to before DL-0043.
     """
-    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # noqa: PLC0415 — lazy
+    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # lazy
 
     if phi_key_policy().scrubbing_enabled:
         return MIRROR_PAYLOAD_ALLOWLIST - _POLICY_REVOCABLE_ALLOWLIST_KEYS
@@ -341,7 +341,7 @@ class AioKafkaEventsProducer:
             return self._raw
         async with self._start_lock:
             if not self._started:
-                from aiokafka import (  # type: ignore[import-untyped]  # noqa: PLC0415 - lazy: no import-time network dep
+                from aiokafka import (  # type: ignore[import-untyped]  # lazy: no import-time network dep
                     AIOKafkaProducer,
                 )
 
@@ -477,7 +477,7 @@ class AioKafkaEventsProducer:
                 producer.send_and_wait(topic, _encode_json(value), key.encode("utf-8") if key else None),
                 timeout=self._send_timeout_s,
             )
-        except Exception as exc:  # noqa: BLE001 - fail-safe boundary; re-raise below when not best-effort
+        except Exception as exc:  # fail-safe boundary; re-raise below when not best-effort
             logger.error(failure_event, topic=topic, key=key, error=str(exc))
             if not best_effort:
                 raise

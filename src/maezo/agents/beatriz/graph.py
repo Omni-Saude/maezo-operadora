@@ -521,7 +521,7 @@ class BeatrizGraph:
             if summary_ref:
                 try:
                     raw_summary: Any = await self._fhir.read_patient_summary(summary_ref)
-                except Exception:  # noqa: BLE001 — best-effort enrichment; class token only.
+                except Exception:  # best-effort enrichment; class token only.
                     notes.append(NOTE_RESUMO_FHIR_INDISPONIVEL)
                 else:
                     # BEA-06: the reader's payload is UPSTREAM-CONTROLLED and NEVER lands in
@@ -602,7 +602,7 @@ class BeatrizGraph:
                 # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
                 task_kind="reasoning",
             )
-        except Exception:  # noqa: BLE001 — LLM failure never blocks the human-bound instruction.
+        except Exception:  # LLM failure never blocks the human-bound instruction.
             narrativa = ""
             lacunas.append(NOTE_NARRATIVA_INDISPONIVEL)
 

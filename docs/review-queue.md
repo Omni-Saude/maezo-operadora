@@ -2143,38 +2143,49 @@ pre-existente — nenhuma foi editada por esta tarefa (o ledger e' append-only; 
 nunca e' reescrita). Cada uma tem, provavelmente, um `|` nao escapado dentro de uma celula de prosa
 (Evidence/Status) que precisa virar `\|`; a correcao e' escopo de uma tarefa de reparo separada.
 
+**RENUMERADO 2026-09-06 (tooling-sweep, round 6):** esta tabela e' explicitamente "na arvore atual
+em HEAD desta branch" (paragrafo acima) — TOOLING-LEDGER-HASH-LIVE-DOC inseriu um paragrafo de 10
+linhas no cabecalho de `docs/evidence-ledger.md` (a escotilha do `check-ledger-hashes` para
+`tests/integration/**`), deslocando uniformemente as 30 linhas abaixo em exatamente +10 (mesmo
+Task ID, mesma contagem real/esperada de celulas em cada uma — reconferido com
+`check_lines()`/`find_expected_cell_count()` diretamente, `tests/unit/ci/test_check_ledger_row_cell_count.py::
+TestAgainstTheRealShippedLedger::test_all_mode_findings_match_the_disclosed_review_queue_inventory_exactly`
+e' o proprio teste que compara este inventario contra o gate ao vivo e teria pego a deriva).
+Nenhuma linha do ledger foi tocada; so' os NUMEROS abaixo, para a tabela continuar sendo uma
+alegacao verdadeira sobre HEAD.
+
 | Linha | Task ID | Celulas (real / esperado) |
 |---|---|---|
-| 102 | HEL-12 / HEL-13 / HEL-15 | 14 / 8 |
-| 104 | BEA-09 (honestidade dos workers fraude; handler/registro A2A = WP separado/owner) | 11 / 8 |
-| 105 | FAB-REFER-TO-LEGAL / FAB-INTAKE-CASO-REGISTRADO (fraude.py, familia FAB) | 10 / 8 |
-| 176 | T3.1 | 10 / 8 |
-| 302 | PERSP-C5-CANCEL-FILENAME | 9 / 8 |
-| 340 | PERSP-ADEQ-CRED-HANDOFF | 10 / 8 |
-| 345 | ANS-CRON-DEAD-CODE (absorve ANS-CRON-DEAD-COMPETENCIA; GAP-ANS-1) | 12 / 8 |
-| 348 | REP-ANS-CRON (reparo dos achados do gatekeeper R1 sobre ANS-CRON-DEAD-CODE) | 10 / 8 |
-| 370 | FAB-SLA-RISK-NOTIFIED-SLICE4 | 11 / 8 |
-| 385 | BEA-06 | 10 / 8 |
-| 396 | FLIP-GATE-BASE | 9 / 8 |
-| 411 | CI-KAFKA-HEALTH-WAIT | 10 / 8 |
-| 413 | R-051-CODEOWNERS-ERRORS-STEP | 9 / 8 |
-| 414 | R-053-CODEOWNERS-DEPLOY-E-APROVADORES | 9 / 8 |
-| 417 | SC-01 | 10 / 8 |
-| 421 | RAF-01 / RAF-06 | 10 / 8 |
-| 422 | CC-06 / HEL-05 | 9 / 8 |
-| 423 | W3-DOCS (AND-01 STALE, CONTRACT-DECL-GAPS×4, CC-07 desdeclaração, INFO cosméticos) | 9 / 8 |
-| 427 | CC-02 (handlers) / RAF-11 / BEA-09-handler / GUS-01 / VAL-01 — registro+origem OWNER-GATED | 10 / 8 |
-| 428 | CC-05 (HEL-01, RAF-03, GUS-02, LUC-01, BEA-03) | 9 / 8 |
-| 431 | CC-08 (goldens de falha DMN-down/PhiZone; CibSeven-down = CC-01) | 15 / 8 |
-| 434 | CC-09 (record_agent_desfecho + emissao nos nos terminais dos 10 grafos) | 10 / 8 |
-| 435 | REGISTER-APPROVAL-DOCS-20260904 | 10 / 8 |
-| 436 | LOTE3-INTEGRATION-FAKES-TASK-KIND | 9 / 8 |
-| 439 | LOG-FORMAT-RENDERER | 9 / 8 |
-| 440 | ANS-CRON-FINDING-2-NO-CONSUMER | 9 / 8 |
-| 441 | TZDATA-LOCK-MARKER-WIDENING | 9 / 8 |
-| 442 | PARTITIONS-BROKER-FACT | 9 / 8 |
-| 443 | SLA-ALERTS-CHANNEL-WIRING | 9 / 8 |
-| 472 | LOTE3C-INTEGRATION-CITATION-REANCHOR / LOTE3C-INTEGRATION-CC07-PGVECTOR-STALE | 11 / 8 |
+| 112 | HEL-12 / HEL-13 / HEL-15 | 14 / 8 |
+| 114 | BEA-09 (honestidade dos workers fraude; handler/registro A2A = WP separado/owner) | 11 / 8 |
+| 115 | FAB-REFER-TO-LEGAL / FAB-INTAKE-CASO-REGISTRADO (fraude.py, familia FAB) | 10 / 8 |
+| 186 | T3.1 | 10 / 8 |
+| 312 | PERSP-C5-CANCEL-FILENAME | 9 / 8 |
+| 350 | PERSP-ADEQ-CRED-HANDOFF | 10 / 8 |
+| 355 | ANS-CRON-DEAD-CODE (absorve ANS-CRON-DEAD-COMPETENCIA; GAP-ANS-1) | 12 / 8 |
+| 358 | REP-ANS-CRON (reparo dos achados do gatekeeper R1 sobre ANS-CRON-DEAD-CODE) | 10 / 8 |
+| 380 | FAB-SLA-RISK-NOTIFIED-SLICE4 | 11 / 8 |
+| 395 | BEA-06 | 10 / 8 |
+| 406 | FLIP-GATE-BASE | 9 / 8 |
+| 421 | CI-KAFKA-HEALTH-WAIT | 10 / 8 |
+| 423 | R-051-CODEOWNERS-ERRORS-STEP | 9 / 8 |
+| 424 | R-053-CODEOWNERS-DEPLOY-E-APROVADORES | 9 / 8 |
+| 427 | SC-01 | 10 / 8 |
+| 431 | RAF-01 / RAF-06 | 10 / 8 |
+| 432 | CC-06 / HEL-05 | 9 / 8 |
+| 433 | W3-DOCS (AND-01 STALE, CONTRACT-DECL-GAPS×4, CC-07 desdeclaração, INFO cosméticos) | 9 / 8 |
+| 437 | CC-02 (handlers) / RAF-11 / BEA-09-handler / GUS-01 / VAL-01 — registro+origem OWNER-GATED | 10 / 8 |
+| 438 | CC-05 (HEL-01, RAF-03, GUS-02, LUC-01, BEA-03) | 9 / 8 |
+| 441 | CC-08 (goldens de falha DMN-down/PhiZone; CibSeven-down = CC-01) | 15 / 8 |
+| 444 | CC-09 (record_agent_desfecho + emissao nos nos terminais dos 10 grafos) | 10 / 8 |
+| 445 | REGISTER-APPROVAL-DOCS-20260904 | 10 / 8 |
+| 446 | LOTE3-INTEGRATION-FAKES-TASK-KIND | 9 / 8 |
+| 449 | LOG-FORMAT-RENDERER | 9 / 8 |
+| 450 | ANS-CRON-FINDING-2-NO-CONSUMER | 9 / 8 |
+| 451 | TZDATA-LOCK-MARKER-WIDENING | 9 / 8 |
+| 452 | PARTITIONS-BROKER-FACT | 9 / 8 |
+| 453 | SLA-ALERTS-CHANNEL-WIRING | 9 / 8 |
+| 482 | LOTE3C-INTEGRATION-CITATION-REANCHOR / LOTE3C-INTEGRATION-CC07-PGVECTOR-STALE | 11 / 8 |
 
 Reproducao: `python scripts/ci/check_ledger_row_cell_count.py --all` (local apenas — nunca cabeado
 em CI, ver o docstring do proprio gate). **Status: ABERTO** — reparo (escapar o `|` em cada linha,
@@ -2240,3 +2251,54 @@ campos-guarda L0 (`decisao_fraude`/`bundle_root`/`destino_referral`) sempre `Non
 `tests/evals/test_beatriz_journey_evals.py`. Nenhum dos 10 grafos tem um ramo de sucesso cujo
 efeito final seja puramente interno (sem processo iniciado E sem envelope de delegacao
 devolvido) — se um agente futuro tiver esse formato, este item deve ser reaberto para ele.
+
+## LEDGER-D3-01-DUPLICATE-ID — dois registros distintos de `docs/evidence-ledger.md` lideram com o mesmo id `D3-01` (2026-09-06, achado F4 do gatekeeper de r5/train-4)
+
+`docs/evidence-ledger.md` tem DUAS linhas cuja primeira celula lidera com `D3-01`: a linha datada
+2026-09-03 (trabalho de allowlist ADR-0030, autor `IMPL-ADR0030 (R2)`, worktree `adr-0030`) e a
+linha datada 2026-09-05 (migracao de erros de worker desta rodada, autor `worker-error-migrator
+(sonnet, R2)`, worktree `maezo-r5-wt/d3-01-worker-errors`). Nenhuma das duas e' `train-authored`;
+sao trabalhos genuinamente distintos que coincidiram no mesmo id-lider — `grep -n '^| D3-01'
+docs/evidence-ledger.md` reproduz as 2 linhas.
+
+`extract_ledger_task_ids`/`evaluate()` (`scripts/ci/check_evidence_ledger.py`) tratam ids de ledger
+como um CONJUNTO — a garantia fail-closed do gate ("`Tasks: D3-01` exige QUE UMA linha exista")
+continua correta com a colisao, entao NENHUMA correcao era necessaria ali. O que faltava era uma
+regra de desambiguacao para quem precisa de UMA linha por id (nao apenas "existe alguma"): um
+humano ou ferramenta que faca `grep -A5 '^| D3-01'` e pegue o primeiro resultado encontra a linha
+ERRADA (a de 2026-09-03, nao relacionada ao que um `Tasks: D3-01` mais recente provavelmente quer
+dizer).
+
+**Reparo (sem editar a linha historica — a tabela e' append-only):** `scripts/ci/
+check_evidence_ledger.py` ganhou `find_leading_id_collisions(ledger_text)` (detecta todo id que
+lidera mais de uma linha, com os numeros de linha de cada ocorrencia) e `resolve_leading_id_line
+(ledger_text, task_id)` (resolve a colisao para a linha MAIS NOVA = ultima no arquivo, ja que o
+arquivo e' append-only e ordem-no-arquivo e' ordem cronologica). `main()` agora imprime uma linha
+INFO (nunca falha o build) quando o id citado no `Tasks:`/branch de uma PR colide, nomeando as
+linhas envolvidas e qual e' a canonica. Testado em `tests/unit/ci/test_check_evidence_ledger.py`
+(`TestLeadingIdCollisions`, `TestResolveLeadingIdLine`, `TestRealLedgerD3_01Collision` — reproduz a
+colisao real e prova que a resolucao aponta para a linha `worker-error-migrator`, nao para
+`IMPL-ADR0030`), mutation-provado (`matching_lines[-1]` -> `matching_lines[0]` derruba os 2 testes
+que fixam a regra "mais nova").
+
+Nenhuma linha do ledger foi renomeada/editada/removida. As DUAS linhas `D3-01` permanecem no
+arquivo, distinguiveis por conteudo e agora tambem pela regra de resolucao programatica acima.
+Nada aqui e' ratificacao de SME — e' higiene de ferramenta (WP-DOCS-HYGIENE), classificacao
+`agent-executable`, `merge_gate: autonomous` per o registro.
+
+## AF-06 — PLANS.md:43 RESOLVIDO (round-6 tooling-sweep, 2026-09-06; a secao anterior fica intacta)
+
+Opcao (a) da secao anterior foi a escolhida: `scripts/ci/check_plans_counts.py` ganhou uma 4a
+forma, `gateway/tool_registry.py`, classe `ToolRegistry`, ≈<N> linhas` -> N deve estar dentro de
+`TOOL_REGISTRY_LINES_TOLERANCE` (10%, relativa) de `wc -l src/maezo/gateway/tool_registry.py` —
+tolerante, nao exato, porque a alegacao usa `≈` de proposito (patterns 1-3 continuam exigindo
+igualdade exata, que nunca fizeram sentido aqui). `PLANS.md:43` foi atualizado de `≈540` para
+`≈794` (real em 2026-09-06), com a nota de historico estendida `[534→540→794]`. Gate ao vivo:
+`env -u VIRTUAL_ENV uv run python scripts/ci/check_plans_counts.py` -> `PASS: 4 alegação(ões) ...
+reconciliam com a árvore real` (era `1 de 4 ... não reconcilia` antes do reparo). Testes novos em
+`tests/unit/ci/test_check_plans_counts.py` (`TestToolRegistryLinesPattern`, 8 casos incl. limite
+de tolerancia inclusivo/exclusivo e um caso negativo de nao-match para um `≈N linhas` de outro
+arquivo); mutacao provada (reintroduzir `≈540` no `PLANS.md` real -> gate vermelho, restaurado).
+`--tool-registry PATH` e' o novo flag opcional (default `src/maezo/gateway/tool_registry.py`);
+`main()` falha fechado se o arquivo nao existir, mesma postura de `--adr-dir`. AF-06 fecha aqui;
+nenhuma linha do ledger desta secao foi editada, so' esta nota nova.
