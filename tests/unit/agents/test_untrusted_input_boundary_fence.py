@@ -292,6 +292,17 @@ def _atribuicoes_locais(escopo: ast.AST) -> dict[str, list[ast.expr]]:
             for alvo in no.targets:
                 if isinstance(alvo, ast.Name):
                     atribs.setdefault(alvo.id, []).append(no.value)
+                elif isinstance(alvo, ast.Tuple | ast.List):
+                    # Desempacotamento (`a, b = _score_consumed(state)`, BEA-04): cada nome do
+                    # alvo recebe o VALOR INTEIRO do lado direito. E' uma super-aproximacao
+                    # deliberada — numa cerca de seguranca, enxergar leitura DEMAIS so' pode
+                    # gerar um achado a mais para classificar; enxergar de MENOS e' o defeito
+                    # (era o que acontecia: com `score_indicadores, score_lacuna =
+                    # _score_consumed(state)` a leitura de `score_indicadores` sumia do fecho
+                    # transitivo e a entrada VIVA do allowlist parecia morta).
+                    for elemento in alvo.elts:
+                        if isinstance(elemento, ast.Name):
+                            atribs.setdefault(elemento.id, []).append(no.value)
         elif isinstance(no, ast.AnnAssign) and no.value is not None and isinstance(no.target, ast.Name):
             atribs.setdefault(no.target.id, []).append(no.value)
     return atribs
