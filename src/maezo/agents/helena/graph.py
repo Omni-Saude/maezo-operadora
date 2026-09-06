@@ -232,7 +232,7 @@ class HelenaState(TypedDict, total=False):
 
     # Routing.
     next_kind: ResponseKind
-    escalation_motivo: MotivoCategoria
+    escalation_motivo: MotivoCategoria | None
     escalation_severidade: Severidade | None
 
     # `escalate` outputs.
@@ -735,9 +735,24 @@ class HelenaGraph:
         mandatory HITL through the modeled `BE_NotifFallbackFailed` -> `Flow_BENotifFallback_UT`
         -> `UT_TratarEscalonamento` edge — never a dead end, only a fabricated value (and the
         page nobody gets) is what's removed.
+
+        HELENA-ESCALATION-MOTIVO-OUTRO-FALLBACK: `motivo` is read the SAME way — a real signal
+        (`escalation_motivo` set by a genuine `classify` gatilho, or `falha_tecnica` when `error`
+        is present) OR `None`, NEVER the fabricated `"outro"` this used to default to when
+        NEITHER was present. Mirrors the treatment `LUCAS-MOTIVO-SEVERIDADE-DEFAULTS` already
+        gave `motivo_categoria`/`severidade` in `lucas/graph.py::_escalation_variables`: `"outro"`
+        IS a legitimate domain value (`MotivoCategoria` above), but only when something actually
+        classified the case as such — inventing it for an UNCLASSIFIED case is indistinguishable
+        from a real one downstream. `None` rides verbatim into `_start_escalation`, which writes
+        it straight to the `motivo_categoria` process variable; the worker boundary
+        (`escalation.py::_rotulo_opcional_tolerante`) already treats a missing/non-string value as
+        ABSENT, never fabricates a label for it (its own docstring: "never a fabricated value").
+        Routing is unaffected either way (`escalation_routing.dmn`'s catch-all `r7` handles both
+        `"outro"` and absent identically) — only the notification's `motivo_categoria` label
+        stops lying about having classified something it never did.
         """
-        motivo: MotivoCategoria = state.get("escalation_motivo") or (
-            "falha_tecnica" if state.get("error") else "outro"
+        motivo: MotivoCategoria | None = state.get("escalation_motivo") or (
+            "falha_tecnica" if state.get("error") else None
         )
         severidade: Severidade | None = state.get("escalation_severidade")
         return await self._start_escalation(
@@ -748,7 +763,7 @@ class HelenaGraph:
         self,
         state: HelenaState,
         *,
-        motivo: MotivoCategoria,
+        motivo: MotivoCategoria | None,
         severidade: Severidade | None,
         response_kind: ResponseKind,
     ) -> dict[str, Any]:
@@ -1068,11 +1083,16 @@ class HelenaGraph:
         except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
             return "Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."
 
-    async def _resumo_contexto(self, state: HelenaState, motivo: str) -> str:
+    async def _resumo_contexto(self, state: HelenaState, motivo: MotivoCategoria | None) -> str:
+        # HELENA-ESCALATION-MOTIVO-OUTRO-FALLBACK: `motivo` can now genuinely be `None` (no
+        # fabricated `"outro"` stand-in) — `motivo_label` is a free-text DISPLAY token for the
+        # prompt/fallback sentence below, never the contract's `motivo_categoria` value, so
+        # spelling out "nao_classificado" here is honest, not a second fabrication.
+        motivo_label = motivo or "nao_classificado"
         prompt = (
             "Resuma em 1-2 frases, em portugues, o contexto desta conversa para um atendente "
             "humano assumir. NAO inclua dado identificavel. NAO de conduta clinica. Apenas o "
-            f"essencial do caso e o motivo do encaminhamento.\nmotivo={motivo}\n"
+            f"essencial do caso e o motivo do encaminhamento.\nmotivo={motivo_label}\n"
             f"mensagem={state.get('message_body', '')}"
         )
         try:
@@ -1087,7 +1107,7 @@ class HelenaGraph:
             )
         except Exception:  # noqa: BLE001 — fail-safe: never block the escalation on a summary.
             text = ""
-        return text or f"Encaminhamento automatico ({motivo})."
+        return text or f"Encaminhamento automatico ({motivo_label})."
 
     # -- Graph assembly -----------------------------------------------------------------------
 

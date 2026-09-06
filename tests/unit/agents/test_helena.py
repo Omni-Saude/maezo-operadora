@@ -835,6 +835,35 @@ async def test_escalate_defaults_motivo_from_error_when_absent() -> None:
     assert result["escalation_motivo"] == "falha_tecnica"
 
 
+async def test_escalate_never_fabricates_outro_when_motivo_absent() -> None:
+    """HELENA-ESCALATION-MOTIVO-OUTRO-FALLBACK: mirrors
+    `test_escalate_never_fabricates_leve_when_severidade_absent` one field over. `escalate`'s
+    ONLY reachable caller without a real, gatilho-assigned `escalation_motivo` AND without an
+    `error` is `receive`'s missing-runtime-context escalate (`_base_state` here plants neither
+    key, exactly like that path leaves them after the neutral-output reset). An unclassified
+    motivo is UNKNOWN, never the catch-all `"outro"` — it must ride through as `None` verbatim
+    into the engine payload (mirroring Lucas's own `LUCAS-MOTIVO-SEVERIDADE-DEFAULTS` treatment
+    of `motivo_categoria`), so the worker boundary (`escalation.py::_rotulo_opcional_tolerante`)
+    is the one that treats it as absent, never this graph fabricating a classified-looking label."""
+    recording: list[dict[str, Any]] = []
+
+    class _RecordingCibSeven(FakeCibSevenTransport):
+        async def start_process_instance(
+            self, process_key: str, business_key: str, variables: dict[str, Any]
+        ) -> ProcessInstance:
+            recording.append(dict(variables))
+            return await super().start_process_instance(process_key, business_key, variables)
+
+    inference = _FakeInference(["resumo", "resposta"])
+    graph = _graph(inference=inference, cibseven=_RecordingCibSeven())
+
+    result = await graph.escalate(_base_state())
+
+    assert result["escalation_motivo"] is None
+    assert recording, "escalate must still start SP-OP-ESCALATION-001 (never a dead end)"
+    assert recording[0]["motivo_categoria"] is None
+
+
 async def test_escalate_never_fabricates_leve_when_severidade_absent() -> None:
     """HELENA-SEVERIDADE-DEFAULT: mirrors GAP-ESC-SEVERITY-GROUP's own principle one layer up.
     `escalate`'s ONLY reachable caller without a real, gatilho-assigned `escalation_severidade`
