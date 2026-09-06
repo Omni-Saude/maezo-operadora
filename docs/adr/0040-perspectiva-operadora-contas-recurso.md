@@ -675,3 +675,21 @@ mudou **neste ADR**:
 integral esta nos dois documentos de desenho (`REDESIGN-SP-OP-{CONTAS,RECURSO}-001.md`); este ADR e
 o documento de ratificacao e nao duplica numeros que la sao derivados e citados com `file:line`.
 D-m6 e um argumento interno ao documento de desenho CONTAS e nao tem correspondente neste ADR.
+
+## Nota de escopo (OQ-R1, 2026-09-06)
+
+Origem: `OWNER-DECISIONS-REGISTER` id `R-194` (decisor: dono (produto) + integracoes; status
+`APROVADO-APOS-REVISAO-HUMANA`). A pergunta fechada era: constroi agora o adaptador de intake TISS
+do recurso, ou `SP-OP-RECURSO-001` continua iniciado por Marina e pela operacao com a regra de
+ponte dormente (**OQ-R1**, `:581`)? Resposta do dono, citada verbatim:
+
+> A — MANTER dormente e continuar iniciando por Marina/operacao, porque nao ha produtor TISS real
+> para o adaptador consumir.
+
+**O que esta nota declara, e o que ela nao faz.** Fecha OQ-R1 declarando o caminho de entrada de
+`SP-OP-RECURSO-001`: por Marina (`marina/graph.py:704`) ou pela operacao — nao pelo adaptador de
+intake TISS. A regra de bridge que OQ-R1 ja registra como **DORMENTE de proposito** (comentario de
+disclosure + o teste que assere a ausencia de publicador + o teste que prova a regra com payload
+ancorado) permanece exatamente como esta: **nenhum adaptador e construido, nenhuma costura e
+removida.** Esta nota nao ratifica o ADR, que segue `Proposed`; o merge continua sob revisao
+CODEOWNER de `/docs/adr/` (`.github/CODEOWNERS:61`).

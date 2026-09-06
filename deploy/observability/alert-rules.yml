@@ -70,12 +70,24 @@ groups:
           runbook_url: "docs/runbooks/alerts/MaezoSLAAgentErrorRateHigh.md"
 
       # Worker error rate SLA: > 5% error rate sustained for 5 minutes
+      #
+      # ALERT-RULES-VECTOR-MATCH-MISMATCH (found by VERIFY-D12-02/REP-D12-02, fixed here):
+      # `maezo_worker_error_count_total` carries labelnames=["worker","topic","error_type"] and
+      # `maezo_worker_execution_time_seconds` (whose `_count` series this denominator reads)
+      # carries labelnames=["worker","topic"] (metrics.py). Dividing the two RAW counters —
+      # `rate(A) / rate(B)` with no `sum by (...)` on either side — required PromQL's default
+      # vector matching, which needs IDENTICAL label sets on both operands: the numerator's extra
+      # `error_type` label meant no series ever matched, so the division silently produced an
+      # EMPTY VECTOR and this alert could never fire, independent of any real worker error rate.
+      # `sum by (worker, topic) (...)` on BOTH sides — same technique the sibling
+      # `MaezoSLAAgentErrorRateHigh` above already uses (`ALERT-COUNTER-LABELS (R-063)`) —
+      # aggregates away the mismatched `error_type` label instead of requiring the sets to match.
       - alert: MaezoSLAWorkerErrorRateHigh
         expr: |
           (
-            rate(maezo_worker_error_count_total[5m])
+            sum by (worker, topic) (rate(maezo_worker_error_count_total[5m]))
             /
-            rate(maezo_worker_execution_time_seconds_count[5m])
+            sum by (worker, topic) (rate(maezo_worker_execution_time_seconds_count[5m]))
           ) > 0.05
         for: 5m
         labels:
@@ -87,7 +99,7 @@ groups:
           description: >
             Worker {{ $labels.worker }} on topic {{ $labels.topic }}
             has error rate of {{ $value | humanizePercentage }} over last 5m.
-            Error type: {{ $labels.error_type }}. Check worker logs.
+            SLA threshold: 5%. Check worker logs.
           runbook_url: "docs/runbooks/alerts/MaezoSLAWorkerErrorRateHigh.md"
 
   # ---------------------------------------------------------------------------
