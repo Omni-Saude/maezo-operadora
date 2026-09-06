@@ -96,6 +96,16 @@ Catch-all: tipo desconhecido -> `juridico-privacidade`.
 | `dpo` | `UT_RevisaoDpo` (requisicoes sem dados de saude) |
 | `juridico-privacidade` | `UT_RevisaoDpo` (dados de saude, eliminacao, tipos desconhecidos) + alertas de breach |
 
+> **PROPOSTO — confirmar contra a taxonomia organizacional da operadora** (ver
+> `docs/review-queue.md`; mesmo padrao de R-034 / gap `PERSP-ESCALATION-VOCAB-a`, aplicado aqui
+> como follow-up mecanico — gap `AUTH-LGPD-CONTRACTS-NO-PROPOSTO-CAVEAT`; `SP-OP-LGPD-DSR-001`
+> fica FORA do escopo formal de nomeacao do dono em R-034, que cobriu 8 processos e nao este —
+> ver `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md` `escopo_do_dono`). Os grupos `dpo` e
+> `juridico-privacidade` sao candidatos DRAFT e podem nao corresponder aos grupos reais do
+> IdP/console de User Tasks da operadora; ja catalogados, para completude, em
+> `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md` (linhas 49-50). Nenhum rename e aplicado sem os
+> nomes reais do dono organizacional da operadora.
+
 ## SLAs
 
 | Timer | Valor | Tipo | Fonte |
