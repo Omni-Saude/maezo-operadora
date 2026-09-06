@@ -282,9 +282,65 @@ async def test_webhook_dispatch_failure_without_a_dedup_guard_omits_instead_of_l
 # Cerca estatica (AST) — nenhuma chamada de logger recebe a expressao crua do wamid
 # ---------------------------------------------------------------------------
 
-#: Nomes que ligam um logger neste pacote. Derivado por leitura dos modulos, nao adivinhado: a
-#: cerca falha alto (abaixo) se algum modulo ligar um logger com um nome fora desta lista.
-_LOGGER_BINDINGS = frozenset({"logger", "_stdlib_logger", "log", "_logger"})
+
+def _package_modules() -> list[Path]:
+    """Todo modulo do pacote do webhook WhatsApp, derivado da ARVORE (o diretorio do pacote
+    importado), nunca de uma lista escrita a mao que envelheceria em silencio."""
+    package_dir = Path(dispatch_module.__file__).parent
+    return sorted(package_dir.glob("*.py"))
+
+
+def _is_logger_factory_call(value: ast.AST) -> bool:
+    """`structlog.get_logger(...)` ou `logging.getLogger(...)` — a forma real que os tres modulos
+    do pacote usam hoje (`app.py`, `dedup.py`, `dispatch.py`: `logger = structlog.get_logger(__name__)`)."""
+    return (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Attribute)
+        and value.func.attr in {"get_logger", "getLogger"}
+        and isinstance(value.func.value, ast.Name)
+        and value.func.value.id in {"structlog", "logging"}
+    )
+
+
+def _logger_binding_names(source: str) -> set[str]:
+    """Todo nome que liga um logger NESTE modulo, em QUALQUER profundidade — uma atribuicao dentro
+    de um metodo liga um logger tanto quanto uma no topo do arquivo (e um binding assim escondido
+    e exatamente o que escapava da cerca antiga, ver `_derive_logger_bindings`). Duas familias:
+
+    * uma atribuicao (`ast.Assign`) cujo valor passe em `_is_logger_factory_call`;
+    * um `from <modulo do pacote> import logger` (com ou sem `as <alias>`) — importar o NOME
+      `logger` de outro modulo do MESMO pacote liga um logger aqui tanto quanto chamar a fabrica
+      diretamente. Nenhum modulo faz isso hoje (os tres que ligam um logger o fazem por atribuicao
+      direta), mas a cerca nao deve precisar ser reescrita no dia em que um modulo crescer assim.
+    """
+    tree = ast.parse(source)
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and _is_logger_factory_call(node.value):
+            names.update(target.id for target in node.targets if isinstance(target, ast.Name))
+        elif isinstance(node, ast.ImportFrom):
+            names.update((alias.asname or alias.name) for alias in node.names if alias.name == "logger")
+    return names
+
+
+def _derive_logger_bindings(modules: list[Path]) -> frozenset[str]:
+    """A UNIAO dos nomes de logger de todo modulo do pacote — DERIVADA da arvore, nunca de uma
+    lista escrita a mao.
+
+    Gap `WEBHOOK-LOG-RAW-WAMID`, achado F1 da verificacao independente: o comentario desta cerca
+    costumava AFIRMAR que ela "falha alto" sobre um binding de logger fora de uma lista fixa
+    (`{"logger", "_stdlib_logger", "log", "_logger"}`); a verificacao provou que nao — um logger
+    ligado sob um quinto nome (`_evento = structlog.get_logger(...)`, dentro de um metodo de
+    `dedup.py`) simplesmente nao era visto, e `test_no_logger_call_in_the_whatsapp_webhook_package_
+    carries_a_raw_wamid` ficava verde por nao ter olhado a chamada, nao por nao ter achado nada
+    nela (11 passed mesmo com um `message_id=` cru na chamada nao vista). Derivar em vez de listar
+    torna a afirmacao verdadeira: um binding novo, sob QUALQUER nome, entra na cerca no proximo
+    `pytest`, sem editar este arquivo — ver `test_deriving_an_unlisted_logger_binding_closes_the_
+    gap_the_hand_list_had` abaixo, que reproduz esse achado como regressao.
+    """
+    return frozenset().union(*(_logger_binding_names(path.read_text(encoding="utf-8")) for path in modules))
+
+
 #: A expressao que carrega o wamid bruto — como atributo (`message.message_id`) ou como nome solto.
 _RAW_WAMID_NAME = "message_id"
 #: FRONTEIRA DE REDACAO: funcoes cuja SAIDA comprovadamente nao contem o wamid bruto, entao passar
@@ -295,24 +351,29 @@ _RAW_WAMID_NAME = "message_id"
 _SANITIZERS = frozenset(
     {"log_safe_message_id", "hash_message_id", "pseudonym", "inbound_key", "outbound_key"}
 )
+#: Nomes que ligam um logger no pacote — DERIVADOS da arvore (`_derive_logger_bindings`), nunca
+#: adivinhados. O piso que faz uma derivacao vazia falhar alto vive nas asserçoes de nao-vacuidade
+#: da propria cerca, abaixo (`calls_per_module["app.py"] > 0` / `["dispatch.py"] > 0`): se este
+#: frozenset algum dia vier vazio, nenhum modulo bate ali e o teste reprova — nunca um verde
+#: silencioso por nao ter olhado nada.
+_LOGGER_BINDINGS = _derive_logger_bindings(_package_modules())
 
 
-def _package_modules() -> list[Path]:
-    """Todo modulo do pacote do webhook WhatsApp, derivado da ARVORE (o diretorio do pacote
-    importado), nunca de uma lista escrita a mao que envelheceria em silencio."""
-    package_dir = Path(dispatch_module.__file__).parent
-    return sorted(package_dir.glob("*.py"))
+def _logger_calls(tree: ast.AST, bindings: frozenset[str] | None = None) -> list[ast.Call]:
+    """Toda chamada `<binding>.<nivel>(...)` onde `<binding>` liga um logger.
 
-
-def _logger_calls(tree: ast.AST) -> list[ast.Call]:
-    """Toda chamada `<binding>.<nivel>(...)` onde `<binding>` liga um logger."""
+    `bindings` por omissao e o conjunto DERIVADO do pacote real (`_LOGGER_BINDINGS`); o teste de
+    regressao do achado F1 (`test_deriving_an_unlisted_logger_binding_closes_the_gap_the_hand_list_
+    had`) passa um conjunto derivado de um trecho SINTETICO, para provar o mecanismo sem precisar
+    mutar um modulo real do pacote."""
+    names = _LOGGER_BINDINGS if bindings is None else bindings
     return [
         node
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and isinstance(node.func.value, ast.Name)
-        and node.func.value.id in _LOGGER_BINDINGS
+        and node.func.value.id in names
     ]
 
 
@@ -346,6 +407,23 @@ def _raw_wamid_violations(call: ast.Call) -> list[str]:
       * a expressao crua `<algo>.message_id` / `message_id` em QUALQUER argumento (inclusive
         dentro de f-strings e de chamadas aninhadas) que NAO esteja dentro de um sanitizador —
         inclusive sob um nome de campo inocente como `message_pseudonym`.
+
+    LIMITES DA CERCA (declarados, nao vendidos como mais do que sao — achado F2 da verificacao
+    independente): esta funcao olha a EXPRESSAO da chamada, nao o valor em tempo de execucao, e
+    portanto NAO enxerga: um valor primeiro atribuido a um local com outro nome
+    (`mid = message.message_id; logger.info("e", campo=mid)`); um tuple-unpack que espalhe o wamid
+    para outro nome; `getattr(message, "message_id")`; `**asdict(message)` (um splat que injeta o
+    campo sem uma expressao `.message_id` literal na chamada); uma cadeia `logger.bind(...).info(...)`
+    (o `.info` nao e mais atributo direto do binding reconhecido); nem uma funcao que so tem NOME de
+    sanitizador (`_SANITIZERS` casa pelo NOME do callee, nunca pelo corpo — uma `def pseudonym(x):
+    return x` passaria a poda). Nenhum destes e alcancavel pelos tres sitios de log REAIS do pacote
+    hoje (provado em runtime pelos testes de COMPORTAMENTO acima —
+    `test_non_text_ack_telemetry_carries_the_pseudonym_never_the_raw_wamid`,
+    `test_dispatch_turn_started_telemetry_carries_the_pseudonym_never_the_raw_wamid`,
+    `test_webhook_dispatch_failure_logs_the_pseudonym_never_the_raw_wamid`), que sao a camada que
+    de fato cobre os sitios vivos; esta cerca AST e uma segunda camada, mais barata e mais ampla
+    (cobre o pacote inteiro a cada `pytest`), mas estritamente mais estreita na forma de expressao
+    que sabe reconhecer. Nao afirmamos exaustividade em lugar nenhum deste arquivo.
     """
     reasons: list[str] = []
     for keyword in call.keywords:
@@ -361,9 +439,9 @@ def _raw_wamid_violations(call: ast.Call) -> list[str]:
     return reasons
 
 
-def _scan(source: str, label: str) -> tuple[list[str], int]:
+def _scan(source: str, label: str, *, bindings: frozenset[str] | None = None) -> tuple[list[str], int]:
     tree = ast.parse(source)
-    calls = _logger_calls(tree)
+    calls = _logger_calls(tree, bindings)
     findings = [
         f"{label}:{call.lineno} — {reason}" for call in calls for reason in _raw_wamid_violations(call)
     ]
@@ -414,16 +492,42 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
     assert findings == [], "wamid bruto numa chamada de logger:\n" + "\n".join(findings)
 
 
+def test_deriving_an_unlisted_logger_binding_closes_the_gap_the_hand_list_had() -> None:
+    """Regressao do achado F1 da verificacao independente (mutante VM5): ANTES de `_LOGGER_BINDINGS`
+    ser derivado da arvore, um logger ligado DENTRO DE UM METODO sob um nome fora da lista fixa a
+    mao (`_evento = structlog.get_logger("probe")`, seguido de `_evento.info(..., message_id=...)`)
+    escapava por completo — a chamada nem era vista, entao `test_no_logger_call_in_the_whatsapp_
+    webhook_package_carries_a_raw_wamid` ficava verde (11 passed) com um `message_id=` cru dentro
+    dela. Reproduz a MESMA forma como um trecho SINTETICO, sem tocar `dedup.py`: primeiro prova que
+    a derivacao acha o binding escondido, depois prova que escanear com esse binding derivado
+    reprova o kwarg cru sobre ele — as duas metades que juntas fecham o buraco."""
+    snippet = (
+        "class _Probe:\n"
+        "    def _probe(self, message_id: str) -> None:\n"
+        '        _evento = structlog.get_logger("probe")\n'
+        '        _evento.info("dedup_probe_binding", message_id=message_id)\n'
+    )
+
+    derived = _logger_binding_names(snippet)
+    assert "_evento" in derived, "a derivacao AST nao achou o logger ligado dentro do metodo"
+
+    findings, call_count = _scan(snippet, "sintetico", bindings=derived)
+    assert call_count == 1, "a chamada sob o binding derivado nao foi vista pelo scanner"
+    assert findings, "o binding foi derivado mas a cerca nao reprovou o kwarg `message_id=` cru nele"
+
+
 def test_the_wamid_fence_actually_rejects_a_violating_snippet() -> None:
-    """Auto-teste: a cerca acima seria verde tambem se o detector nao detectasse nada. Os quatro
+    """Auto-teste: a cerca acima seria verde tambem se o detector nao detectasse nada. Os cinco
     primeiros trechos sao as formas que o defeito teve ou teria (campo cru, campo renomeado sobre o
-    valor cru, valor cru dentro de f-string, valor cru embrulhado numa funcao que NAO redige); os
-    dois ultimos sao as formas corretas, que a cerca precisa deixar passar."""
+    valor cru, valor cru dentro de f-string, valor cru embrulhado numa funcao que NAO redige, valor
+    cru como argumento POSICIONAL — o estilo de chamada `logger.warning("id=%s", valor)`, sem kwarg
+    algum para a cerca inspecionar pelo nome); os dois ultimos sao as formas corretas, que a cerca
+    precisa deixar passar."""
     campo_cru, _ = _scan('logger.error("e", message_id=message.message_id)', "sintetico")
     renomeado, _ = _scan('logger.info("e", message_pseudonym=message.message_id)', "sintetico")
     fstring, _ = _scan('logger.info("e", detail=f"id={message.message_id}")', "sintetico")
     falso_wrap, _ = _scan('logger.info("e", message_pseudonym=str(message.message_id))', "sintetico")
-    posicional, _ = _scan('_stdlib_logger.warning("id=%s", message.message_id)', "sintetico")
+    posicional, _ = _scan('logger.warning("id=%s", message.message_id)', "sintetico")
     keyed, _ = _scan(
         'logger.info("e", message_pseudonym=log_safe_message_id(m.message_id, t, p))', "sintetico"
     )

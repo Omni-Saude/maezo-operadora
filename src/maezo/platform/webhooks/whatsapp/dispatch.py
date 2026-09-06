@@ -134,8 +134,10 @@ class InboundNonTextMessage:
     `message_type` (Meta's own low-cardinality enum token, used for logs — never as a metric label)
     and the wamid, plus the raw number that the per-turn sender closure needs and that never
     outlives :meth:`HelenaDispatcher.acknowledge_non_text`. The wamid HELD here is the raw one
-    (dedup e idempotencia de saida precisam do valor real); o que sai em log e sempre o pseudonimo
-    keyed de `security.py::log_safe_message_id` (gap `WEBHOOK-LOG-RAW-WAMID`).
+    (dedup e idempotencia de saida precisam do valor real); o que sai em log passa sempre por
+    `security.py::log_safe_message_id` (gap `WEBHOOK-LOG-RAW-WAMID`), que tem DOIS desfechos —
+    nao um so: o pseudonimo keyed `hk1_` quando ha wamid para pseudonimizar, e o marcador
+    `MESSAGE_ID_LOG_OMITTED` quando o wamid chega vazio. Em nenhum dos dois o wamid bruto sai.
     """
 
     from_number: str
