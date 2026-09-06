@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 import yaml
@@ -626,8 +626,8 @@ def test_solicitacao_humano_is_disclosed_as_unreachable_pending_ratification() -
     disclosure: the type-fidelity kept the value in `MotivoCategoria` (RIGHT, since helena's
     fleet-wide domain needs it), and the source comment says WHY it is unreachable HERE and
     names LUC-04 -- so this cannot silently regress into an undisclosed dead value again."""
-    assert "falar_com_humano" not in set(Intencao.__args__)  # type: ignore[attr-defined]
-    for motivo in MotivoHumano.__args__:  # type: ignore[attr-defined]
+    assert "falar_com_humano" not in set(get_args(Intencao))
+    for motivo in get_args(MotivoHumano):
         assert _motivo_categoria(motivo) != "solicitacao_humano", (
             f"_motivo_categoria({motivo!r}) now reaches solicitacao_humano -- update this test "
             "(no longer unreachable) and the LUC-04 disclosure comment above MotivoCategoria."
