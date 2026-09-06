@@ -835,3 +835,237 @@ async def test_start_process_records_error_on_cibseven_failure() -> None:
     result = await graph.start_process(state)
     assert result["process_started"] is False
     assert "start_process indisponivel" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# Dominios FECHADOS de entrada + desfecho HONESTO de envio
+# (auditoria de frota 2026-09-04: FER-03, FER-04, FER-05, FER-10)
+# ---------------------------------------------------------------------------
+
+
+def _emit_spy(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """Captura cada chamada a `emit_turn_desfecho` feita pelo grafo de Fernando (CC-09)."""
+    calls: list[dict[str, Any]] = []
+
+    def _fake(state: Any, **kwargs: Any) -> None:
+        calls.append(dict(kwargs))
+
+    monkeypatch.setattr("maezo.agents.fernando.graph.emit_turn_desfecho", _fake)
+    return calls
+
+
+@pytest.mark.parametrize("valor", ["individual", "familiar", "coletivo_empresarial", "coletivo_adesao"])
+async def test_receive_accepts_every_tipo_plano_of_the_declared_domain(valor: str) -> None:
+    """NAO-VACUIDADE do fecho de FER-05: os quatro valores do dominio declarado
+    (`docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md`, tabela de variaveis de entrada)
+    passam por `receive` sem virar escalonamento — a allowlist fecha o dominio, nao o caminho."""
+    graph = _graph()
+    out = await graph.receive(_base_state(tipo_plano=valor))
+    assert out["error"] == ""
+    assert out["route"] is None  # segue para `assess`, sem fail-closed
+
+
+@pytest.mark.parametrize("valor", ["whatsapp", "portal", "telefone", "a2a"])
+async def test_receive_accepts_every_canal_of_the_declared_domain(valor: str) -> None:
+    """NAO-VACUIDADE do fecho de FER-04. `a2a` esta no dominio porque
+    `agents/fernando/delegation.py::state_from_envelope` o semeia SEMPRE na aresta A2A viva
+    (`operadora.inadimplencia.prepare_dossier` -> `delegate_arrears_followup`) — uma allowlist
+    que o rejeitasse quebraria uma jornada de producao."""
+    graph = _graph()
+    out = await graph.receive(_base_state(canal=valor))
+    assert out["error"] == ""
+    assert out["route"] is None
+
+
+async def test_receive_out_of_domain_tipo_plano_fails_closed_without_leaking_value() -> None:
+    """FER-05 (lado da ESCRITA): um `tipo_plano` fora do dominio fechado escala para humano com
+    TOKEN DE CLASSE — nunca o valor cru (mesma disciplina de `invalid_intencao`)."""
+    planted = "individual CPF=123.456.789-09"
+    graph = _graph()
+    out = await graph.receive(_base_state(tipo_plano=planted))
+    assert out["route"] == "escalate"
+    assert out["motivo_humano"] == "ambiguidade"
+    assert out["motivo_categoria"] == "ambiguity"
+    assert out["error"] == "invalid_tipo_plano"
+    assert planted not in str(out)
+
+
+async def test_receive_out_of_domain_canal_fails_closed_without_leaking_value() -> None:
+    """FER-04 (lado da ESCRITA): idem para `canal`."""
+    planted = "portal-hack CPF=123.456.789-09"
+    graph = _graph()
+    out = await graph.receive(_base_state(canal=planted))
+    assert out["route"] == "escalate"
+    assert out["motivo_humano"] == "ambiguidade"
+    assert out["motivo_categoria"] == "ambiguity"
+    assert out["error"] == "invalid_canal"
+    assert planted not in str(out)
+
+
+async def test_planted_tipo_plano_never_reaches_engine_variables_or_dossier() -> None:
+    """FER-05 (a sonda da auditoria virada teste): mesmo depois do fail-closed de `receive`, a
+    rota `escalate` segue para `start_process` — logo o valor plantado continua no state de
+    entrada que o LangGraph mescla. A revalidacao do LADO DA LEITURA
+    (`_build_dossier`/`_inadimplencia_variables`) e' o que impede o vazamento para o engine."""
+    planted = "individual CPF=123.456.789-09"
+    dmn = FakeDmnTransport()
+    _register_sla(dmn)
+    cibseven = FakeCibSevenTransport()
+    graph_instance = _graph(dmn=dmn, cibseven=cibseven)
+    compiled = graph_instance.compile_graph().compile()
+
+    result = await compiled.ainvoke(_base_state(intencao="analise_inadimplencia", tipo_plano=planted))
+
+    assert result["route"] == "escalate"
+    assert result["error"] == "invalid_tipo_plano"
+    assert result["dossier"]["fatos"]["tipo_plano"] is None
+    assert planted not in str(result["dossier"])
+
+    variables = graph_instance._inadimplencia_variables(result)
+    assert variables["tipo_plano"] == ""
+    assert planted not in str(variables)
+
+
+async def test_planted_tipo_plano_never_reaches_the_dmn_inputs() -> None:
+    """FER-05 (defesa em profundidade): chamando `assess` DIRETAMENTE (sem o fail-closed de
+    `receive` a montante) o valor plantado tambem nao chega as entradas da DMN."""
+    planted = "individual CPF=123.456.789-09"
+    dmn = FakeDmnTransport()
+    _register_status(dmn, "PENDENTE_NOTIFICACAO")
+    _register_purga(dmn)
+    graph = _graph(dmn=dmn)
+    await graph.assess(_base_state(intencao="notificacao_previa", tipo_plano=planted))
+    assert dmn.calls, "sanidade: `assess` precisa ter consultado ao menos uma DMN"
+    for _key, variables in dmn.calls:
+        assert variables.get("tipo_plano") == ""
+        assert planted not in str(variables)
+
+
+async def test_planted_canal_never_reaches_engine_variables() -> None:
+    """FER-04 (lado da LEITURA): idem para `canal` nas variaveis de processo."""
+    planted = "portal-hack CPF=123.456.789-09"
+    graph = _graph()
+    variables = graph._inadimplencia_variables(
+        _base_state(intencao="analise_inadimplencia", canal=planted, route="escalate")
+    )
+    assert variables["canal"] == ""
+    assert planted not in str(variables)
+
+
+async def test_notify_whatsapp_failure_desfecho_never_claims_it_was_sent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FER-03: o envio FALHOU — o desfecho tem de dizer isso. Ate a auditoria de frota o
+    `desfecho` era calculado so' a partir de `status_inadimplencia`, ignorando o booleano
+    `enviada` computado duas linhas acima, e o turno AFIRMAVA um envio que nao aconteceu."""
+    calls = _emit_spy(monkeypatch)
+    dmn = FakeDmnTransport()
+    _register_status(dmn, "AGUARDA_PURGA")
+    _register_purga(dmn)
+    graph = _graph(dmn=dmn, whatsapp=_FakeWhatsApp(fail=True))
+    state = _base_state(intencao="notificacao_previa")
+    state.update(await graph.assess(state))  # type: ignore[typeddict-item]
+
+    result = await graph.notify(state)
+
+    assert result["mensagem_enviada"] is False
+    assert result["desfecho"] == "lembrete_regularizacao_nao_enviado"
+    assert result["mensagem"]["entrega"] == "nao_enviada"
+    assert calls == [
+        {
+            "agent_id": "fernando",
+            "desfecho": "lembrete_regularizacao_nao_enviado",
+            "enviada": False,
+        }
+    ]
+
+
+async def test_notify_previa_whatsapp_failure_desfecho_never_claims_it_was_sent() -> None:
+    """FER-03 no par J1 `PENDENTE_NOTIFICACAO` (o outro literal do vocabulario)."""
+    dmn = FakeDmnTransport()
+    _register_status(dmn, "PENDENTE_NOTIFICACAO")
+    _register_purga(dmn)
+    graph = _graph(dmn=dmn, whatsapp=_FakeWhatsApp(fail=True))
+    state = _base_state(intencao="notificacao_previa")
+    state.update(await graph.assess(state))  # type: ignore[typeddict-item]
+
+    result = await graph.notify(state)
+
+    assert result["mensagem_enviada"] is False
+    assert result["desfecho"] == "notificacao_previa_nao_enviada"
+
+
+async def test_notify_canal_without_a_sender_reports_canal_sem_entrega() -> None:
+    """FER-04: `portal`/`telefone`/`a2a` estao no dominio mas NAO tem remetente ligado — o
+    envio nunca acontece. O desfecho tem de dizer `canal_sem_entrega`, jamais `enviado`."""
+    dmn = FakeDmnTransport()
+    _register_status(dmn, "PENDENTE_NOTIFICACAO")
+    _register_purga(dmn)
+    whatsapp = _FakeWhatsApp()
+    graph = _graph(dmn=dmn, whatsapp=whatsapp)
+    state = _base_state(intencao="notificacao_previa", canal="portal")
+    state.update(await graph.assess(state))  # type: ignore[typeddict-item]
+
+    result = await graph.notify(state)
+
+    assert whatsapp.sent == []  # nenhum envio ocorreu
+    assert result["mensagem_enviada"] is False
+    assert result["desfecho"] == "notificacao_previa_canal_sem_entrega"
+    assert result["mensagem"]["entrega"] == "canal_sem_entrega"
+
+
+async def test_notify_without_a_destination_reports_nao_enviada() -> None:
+    """FER-03 (variante irma): canal COM remetente, mas sem destinatario — o envio nao ocorre e
+    o desfecho tambem nao pode dizer que ocorreu."""
+    dmn = FakeDmnTransport()
+    _register_status(dmn, "AGUARDA_PURGA")
+    _register_purga(dmn)
+    graph = _graph(dmn=dmn)
+    state = _base_state(intencao="notificacao_previa")
+    state["to_hash"] = ""
+    state["beneficiario_pseudo_id"] = ""
+    state.update(await graph.assess(state))  # type: ignore[typeddict-item]
+
+    result = await graph.notify(state)
+
+    assert result["mensagem_enviada"] is False
+    assert result["desfecho"] == "lembrete_regularizacao_nao_enviado"
+
+
+async def test_notify_success_still_reports_the_sent_desfecho(monkeypatch: pytest.MonkeyPatch) -> None:
+    """NAO-VACUIDADE do fecho de FER-03/FER-04: o caminho de SUCESSO nao mudou de rotulo."""
+    calls = _emit_spy(monkeypatch)
+    dmn = FakeDmnTransport()
+    _register_status(dmn, "AGUARDA_PURGA")
+    _register_purga(dmn)
+    whatsapp = _FakeWhatsApp()
+    graph = _graph(dmn=dmn, whatsapp=whatsapp)
+    state = _base_state(intencao="notificacao_previa")
+    state.update(await graph.assess(state))  # type: ignore[typeddict-item]
+
+    result = await graph.notify(state)
+
+    assert whatsapp.sent
+    assert result["mensagem_enviada"] is True
+    assert result["desfecho"] == "lembrete_regularizacao_enviado"
+    assert result["mensagem"]["entrega"] == "enviada"
+    assert calls[0]["enviada"] is True
+
+
+async def test_absent_origem_solicitacao_never_becomes_a_literal() -> None:
+    """FER-10: o silencio do chamador e o `agente_fernando` explicito eram indistinguiveis na
+    variavel de processo. Ausencia agora viaja como string vazia — nunca um fato fabricado."""
+    graph = _graph()
+    state = _base_state(intencao="analise_inadimplencia", route="escalate")
+    state.pop("origem_solicitacao", None)  # type: ignore[misc]
+    variables = graph._inadimplencia_variables(state)
+    assert variables["origem_solicitacao"] == ""
+
+
+async def test_declared_origem_solicitacao_is_passed_through() -> None:
+    """NAO-VACUIDADE de FER-10: quando o chamador DECLARA a origem, ela viaja intacta."""
+    graph = _graph()
+    variables = graph._inadimplencia_variables(
+        _base_state(intencao="analise_inadimplencia", route="escalate", origem_solicitacao="juridico")
+    )
+    assert variables["origem_solicitacao"] == "juridico"

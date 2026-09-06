@@ -122,10 +122,22 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
             _DESFECHO_ERRO_INICIO_PROCESSO,
         }
     ),
+    # FERNANDO: os seis rotulos do caminho `notify` sao DUAS jornadas x TRES estados de entrega
+    # (auditoria de frota 2026-09-04, FER-03/FER-04). Ate essa data so' existiam os dois de
+    # SUCESSO, e `notify` os emitia mesmo quando o envio falhava ou o canal nao tinha remetente
+    # nenhum — o `enviada=False` que este mesmo modulo ja carregava ao lado tornava a contradicao
+    # visivel sem corrigi-la. Fonte dos literais: `agents/fernando/graph.py::
+    # {_DESFECHO_NOTIFICACAO_PREVIA,_DESFECHO_LEMBRETE}` (cerca:
+    # `tests/unit/agents/test_fernando_input_allowlist_fence.py::
+    # test_notify_desfecho_tables_are_declared_in_the_closed_vocabulary`).
     "fernando": frozenset(
         {
             "notificacao_previa_enviada",
+            "notificacao_previa_nao_enviada",
+            "notificacao_previa_canal_sem_entrega",
             "lembrete_regularizacao_enviado",
+            "lembrete_regularizacao_nao_enviado",
+            "lembrete_regularizacao_canal_sem_entrega",
             "encaminhado_analise_humana",
             _DESFECHO_ERRO_INICIO_PROCESSO,
         }
