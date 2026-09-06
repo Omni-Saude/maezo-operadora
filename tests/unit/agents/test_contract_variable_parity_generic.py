@@ -162,9 +162,12 @@ class _VariableCollector:
     records, in `blind_spots`, any of the four previously-undisclosed shapes the fixed
     `ast.AnnAssign` bug's own self-repair uncovered as a species: a `**` spread of a Dict literal
     (`variables = {**variables, **{...}}`), a `dict(...)` builtin call
-    (`variables.update(dict(k="x"))`), `dict_var` aliased to another Name (`alias = variables`),
-    or any statement type outside `_HANDLED_STMT_TYPES` (e.g. a `try:` body). A future refactor
-    into one of these shapes now makes the fence FAIL LOUDLY instead of silently staying green.
+    (`variables.update(dict(k="x"))`), `dict_var` aliased to another Name via EITHER
+    `ast.Assign` (`alias = variables`) OR `ast.AnnAssign` (`alias: dict[str, Any] = variables` —
+    §Delta-F8: the original alias check missed this annotated form, the very Assign-vs-AnnAssign
+    species the original collector bug was), or any statement type outside `_HANDLED_STMT_TYPES`
+    (e.g. a `try:`/`while:`/`with:` body). A future refactor into one of these shapes now makes
+    the fence FAIL LOUDLY instead of silently staying green.
     """
 
     def __init__(self, dict_var: str, flow_field: str | None, flow_value: str | None) -> None:
@@ -274,11 +277,17 @@ class _VariableCollector:
                     f"line {node.lineno}: `dict(...)` builtin call — its keys are never collected"
                 )
             elif (
-                isinstance(node, ast.Assign)
+                # §Delta-F8: BOTH `alias = variables` (`ast.Assign`) AND `alias: dict[str, Any] =
+                # variables` (`ast.AnnAssign`) bind `dict_var` to another name — the very
+                # Assign-vs-AnnAssign species that caused the original self-disclosed collector
+                # bug (every one of the 7 builders opens with an ANNOTATED `variables: dict[str,
+                # Any] = {...}`, so an annotated alias is the idiomatic shape, not an edge case).
+                isinstance(node, (ast.Assign, ast.AnnAssign))
                 and isinstance(node.value, ast.Name)
                 and node.value.id == self._dict_var
                 and not any(
-                    isinstance(target, ast.Name) and target.id == self._dict_var for target in node.targets
+                    isinstance(target, ast.Name) and target.id == self._dict_var
+                    for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
                 )
             ):
                 self.blind_spots.append(
