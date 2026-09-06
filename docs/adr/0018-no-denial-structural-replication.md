@@ -6,10 +6,15 @@
 
 **Adendo 2026-09-06 (R-085 / gap `ADR-0018-CONTAS-SUPERSEDED`, owner-decision, `docs/adr/` CODEOWNED):**
 o corpo abaixo (nao editado — `docs/adr/README.md:8` proibe reescrita in-loco de ADR `Accepted`)
-ainda usa o vocabulario ANTERIOR de CONTAS que a ADR-0040 substitui em substancia, sem marcador
-local: o guard `ERR_GLOSA_ACCEPT_NOT_HUMAN` e o dominio `glosa_triage` `{SEM_GLOSA, RECORRER,
-ANALISE_HUMANA}` aparecem no bullet `SP-OP-CONTAS-001` de `## Contexto` e sao repetidos no bullet
-"PROVADO + enforce-ado em CI" de `## Decisao`. Vocabulario vigente, per **ADR-0040 D1** ("O dono de
+ainda usa o vocabulario ANTERIOR de CONTAS que a ADR-0040 substitui em substancia: o guard
+`ERR_GLOSA_ACCEPT_NOT_HUMAN` e o dominio `glosa_triage` `{SEM_GLOSA, RECORRER, ANALISE_HUMANA}`
+aparecem no bullet `SP-OP-CONTAS-001` de `## Contexto` e sao repetidos no bullet "PROVADO +
+enforce-ado em CI" de `## Decisao` — cada ocorrencia leva agora, na linha imediatamente seguinte,
+um marcador local (`> _Adendo 2026-09-06 (R-085): vocabulario substituido por ADR-0040 D1/D3 — ver
+o adendo no cabecalho._`) logo apos "apos a UT humana." e logo apos "estao mergeados.", respectivamente,
+que aponta de volta para este cabecalho, fechando a exposicao que este adendo descrevia
+(F1/VER-ADR-BATCH, 2026-09-06).
+Vocabulario vigente, per **ADR-0040 D1** ("O dono de
 SP-OP-CONTAS-001 e SP-OP-RECURSO-001 e a OPERADORA (pagador)") e **D3** ("O efeito adverso guardado
 passa a ser o ato do pagador"): guard `ERR_CONTAS_GLOSA_NOT_HUMAN`, dominio `glosa_triage`
 `{PAGAR, ANALISE_HUMANA}` — texto completo em
@@ -46,6 +51,7 @@ Duas provas concretas ja existem em `main`:
   (`decisao_contas == ACEITAR_GLOSA`), materializado pelo worker `operadora.contas.register_glosa_accept`
   guardado por `ERR_GLOSA_ACCEPT_NOT_HUMAN`; o terminal `End_GlosaAceitaHumano` so e alcancavel
   apos a UT humana.
+  > _Adendo 2026-09-06 (R-085): vocabulario substituido por ADR-0040 D1/D3 — ver o adendo no cabecalho._
 
 Em ambos, o mesmo desenho de cinco partes foi *provado contra o engine real* (CIB Seven, sem mock —
 ADR-0011) e e **enforce-ado em CI**: a suite de integracao varre todas as combinacoes de input da
@@ -106,6 +112,7 @@ nenhuma sozinha basta:
   `ERR_GLOSA_ACCEPT_NOT_HUMAN`), as DMN sem saida adversa (`auth_admissibility`/`auth_auto_approval`,
   `glosa_triage` com dominio `{SEM_GLOSA, RECORRER, ANALISE_HUMANA}`) e os testes invariantes
   (`test_sp_op_auth_001.py`, `test_sp_op_contas_001.py`) estao mergeados.
+  > _Adendo 2026-09-06 (R-085): vocabulario substituido por ADR-0040 D1/D3 — ver o adendo no cabecalho._
 - **Autorado + in-flight (PR #38, em CI — NAO mergeado):** o mesmo padrao esta replicado em cinco
   bodies SP-OP: **SP-OP-RECURSO-001** (recurso de glosa), **SP-OP-NIP-001** (resposta NIP),
   **SP-OP-CANCEL-001** (cancelamento de contrato) e **SP-OP-REEMBOLSO-001** (reembolso ao
