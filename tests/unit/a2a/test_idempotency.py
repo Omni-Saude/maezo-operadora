@@ -11,9 +11,21 @@ path (no `idempotency=` store injected) plus its integration with a FAKE durable
 from __future__ import annotations
 
 import asyncio
+from typing import Literal
 
-from maezo.a2a import AgentCard, Budget, DelegationEnvelope, DelegationResult, RejectionReason, StoredResult
+import pytest
+
+from maezo.a2a import (
+    AgentCard,
+    Budget,
+    DelegationEnvelope,
+    DelegationResult,
+    HandlerOutput,
+    RejectionReason,
+    StoredResult,
+)
 from maezo.a2a.dispatcher import AgentHandler, DelegationDispatcher, FactProducer
+from maezo.a2a.facts import TOPIC_REQUESTED
 from maezo.a2a.idempotency import IdempotencyStore
 from maezo.a2a.registry import A2ARegistry
 from maezo.tools.workers.harness import FakeAuditSink
@@ -154,3 +166,64 @@ async def test_durable_store_persists_rejection_as_terminal() -> None:
     assert second.success is False
     assert second.rejection_reason is RejectionReason.TASK_TYPE_NOT_ACCEPTED
     assert handler.call_count == 0
+
+
+class _FakeIdempotencyStoreNeverSeals:
+    """Models a task_id whose FIRST claim is won but never sealed — a retryable handler failure
+    (or a crash) that never reaches `complete`, exactly the durable-store window
+    A2A-RETRY-REEMITS-REQUESTED-FACT reproduces. Mirrors `PostgresIdempotencyStore`'s real
+    contract: `None` on the FIRST call for a `task_id` (fresh claim — the caller executes AND
+    emits `requested`); `False` on every SUBSEQUENT call for the SAME `task_id` (the row exists,
+    is not 'done', and this fake's `complete` is a no-op, so it never will be — a REDELIVERY the
+    caller must still execute, but without re-emitting `requested`)."""
+
+    def __init__(self) -> None:
+        self._claimed: set[str] = set()
+
+    async def claim_or_get(self, *, tenant: str, task_id: str) -> StoredResult | Literal[False] | None:
+        if task_id in self._claimed:
+            return False
+        self._claimed.add(task_id)
+        return None
+
+    async def complete(self, *, tenant: str, task_id: str, result: DelegationResult) -> None:
+        pass  # never seals, by design — this fake models the crash/retryable-failure window
+
+
+async def test_durable_redelivery_of_unsealed_row_does_not_reemit_requested() -> None:
+    """A2A-RETRY-REEMITS-REQUESTED-FACT (durable path): a `task_id` whose row is claimed but never
+    sealed (a retryable handler failure, e.g. `StartProcessFailedError`) gets its handler
+    RE-EXECUTED on redelivery (retryability preserved, RAF-02) but the `requested` fact fires
+    exactly once across BOTH deliveries — not once per delivery.
+
+    Mutation: in `dispatcher._delegate_durable`, treat `stored is False` the same as `stored is
+    None` (drop the `skip_requested_fact=True` branch) -> this goes RED (2 `requested` facts for
+    1 logical delegation)."""
+    calls = 0
+
+    async def _failing_handler(envelope: DelegationEnvelope) -> HandlerOutput:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("engine indisponivel (probe A2A-RETRY-REEMITS-REQUESTED-FACT)")
+
+    store = _FakeIdempotencyStoreNeverSeals()
+    registry = A2ARegistry()
+    registry.register(make_card("rafael"))
+    producer = RecordingProducer()
+    dispatcher = DelegationDispatcher(
+        registry=registry,
+        handlers={"rafael": _failing_handler},
+        audit=FakeAuditSink(),
+        facts=FactProducer(producer),
+        idempotency=store,
+    )
+
+    with pytest.raises(RuntimeError):
+        await dispatcher.delegate(_envelope("dur-retry-1"))
+    with pytest.raises(RuntimeError):
+        await dispatcher.delegate(_envelope("dur-retry-1"))  # redelivery, same task_id
+
+    assert calls == 2, "a reentrega nao reexecutou o handler (retentabilidade RAF-02 quebrada)"
+    assert producer.topics() == [TOPIC_REQUESTED], (
+        f"reentrega reemitiu {TOPIC_REQUESTED!r} uma segunda vez (topics={producer.topics()!r})"
+    )

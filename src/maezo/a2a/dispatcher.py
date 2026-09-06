@@ -309,6 +309,13 @@ class _InflightEntry:
 
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     result: DelegationResult | None = None
+    #: A2A-RETRY-REEMITS-REQUESTED-FACT: set on the FIRST attempt at this `task_id` (in-memory
+    #: mirror of the durable store's row-already-exists signal, `idempotency.claim_or_get`'s
+    #: `False` outcome). A retryable handler failure leaves `result` `None` — this flag is what
+    #: lets a REDELIVERY (`_delegate_inflight` re-entering with the SAME entry) tell `_execute` to
+    #: skip re-emitting `agents.events.delegation.requested`, without preventing the re-execution
+    #: RAF-02's retryable channel depends on.
+    requested_emitted: bool = False
 
 
 def _as_replay(prev: DelegationResult) -> DelegationResult:
@@ -449,7 +456,15 @@ class DelegationDispatcher:
                 # Guard 4 — re-delivery of the same task_id: return the prior result, without
                 # re-executing the handler.
                 return _as_replay(entry.result)
-            result = await self._execute(envelope)
+            # A2A-RETRY-REEMITS-REQUESTED-FACT: `entry.result is None` here covers BOTH a
+            # brand-new task_id and a REDELIVERY after a retryable failure left it unsealed
+            # (`entry.result` is only ever set on the line below, which a raised exception never
+            # reaches). `requested_emitted` is the durable-in-this-process signal that
+            # distinguishes the two — set on the first attempt, so a redelivery skips the fact
+            # without skipping the (retryable) re-execution.
+            skip_requested_fact = entry.requested_emitted
+            entry.requested_emitted = True
+            result = await self._execute(envelope, skip_requested_fact=skip_requested_fact)
             entry.result = result
             return result
 
@@ -473,11 +488,21 @@ class DelegationDispatcher:
         Uma falha RETENTAVEL continua saltando por cima desta chamada, e e assim que RAF-02 mantem a
         entrega retentavel — a mesma linha `processing`, o mesmo poll, mas agora e uma escolha
         registrada em vez de um efeito colateral.
+
+        A2A-RETRY-REEMITS-REQUESTED-FACT: `claim_or_get` returning `False` (see `IdempotencyStore.
+        claim_or_get`'s own docstring) is a THIRD outcome — a REDELIVERY of a `task_id` an earlier
+        attempt already claimed but never sealed. The handler still runs (retryability preserved,
+        same as the `None`/fresh-claim path), but `_execute` is told to skip re-emitting
+        `requested`: an earlier attempt already emitted it, and re-emitting it here would be the
+        exact duplicate this fix closes.
         """
         stored = await store.claim_or_get(tenant=envelope.tenant, task_id=envelope.task_id)
-        if stored is not None:
+        if stored is None:
+            result = await self._execute(envelope)
+        elif stored is False:
+            result = await self._execute(envelope, skip_requested_fact=True)
+        else:
             return _stored_to_result(stored)
-        result = await self._execute(envelope)
         await store.complete(tenant=envelope.tenant, task_id=envelope.task_id, result=result)
         return result
 
@@ -489,7 +514,9 @@ class DelegationDispatcher:
                 self._inflight[task_id] = entry
             return entry
 
-    async def _execute(self, envelope: DelegationEnvelope) -> DelegationResult:
+    async def _execute(
+        self, envelope: DelegationEnvelope, *, skip_requested_fact: bool = False
+    ) -> DelegationResult:
         # --- Contract validation (chain/hops/budget already guaranteed at construction) ---
         validation = self._validate(envelope)
         if validation is not None:
@@ -507,7 +534,14 @@ class DelegationDispatcher:
 
         # --- Audit BEFORE the effect (delegation is an auditable external effect, ADR-0007) ---
         await self._audit_delegation(envelope, decision=_DECISION_ALLOW, basis="A2A:delegate:allow")
-        await self._emit(envelope, DelegationFactKind.REQUESTED)
+        # A2A-RETRY-REEMITS-REQUESTED-FACT: `skip_requested_fact` is set ONLY by a caller that
+        # already knows THIS `task_id` was claimed by an earlier attempt (`_delegate_durable`'s
+        # `False` branch, `_delegate_inflight`'s `requested_emitted` flag) — never inferred here.
+        # The pre-exec ALLOW audit row above is unaffected: `emit_once`'s OWN durable dedup key
+        # (`a2a_audit_dedup_key`) already collapses a repeated call to one row, so re-running it on
+        # a redelivery is safe and cheap; only the raw Kafka fact (no such dedup) needs the gate.
+        if not skip_requested_fact:
+            await self._emit(envelope, DelegationFactKind.REQUESTED)
 
         # --- Route to the target's handler ---
         handler = self._handlers[envelope.target]

@@ -236,6 +236,13 @@ async def test_claim_conflict_with_done_row_returns_stored_result() -> None:
 
 
 async def test_claim_conflict_with_processing_row_polls_then_times_out() -> None:
+    """A2A-RETRY-REEMITS-REQUESTED-FACT: a poll timeout on a row THIS call did NOT claim (the
+    `ON CONFLICT` branch — `fetchval_result=None` below) returns `False`, not `None`. The two
+    outcomes used to be indistinguishable to the caller, which is exactly why a redelivery of a
+    task_id whose first attempt failed retryably re-emitted `agents.events.delegation.requested` a
+    second time (`dispatcher._execute` had no way to tell a fresh claim from a REDELIVERY of an
+    already-claimed row) — `False` is the caller's (`_delegate_durable`) signal to execute the
+    handler again (best-effort; unchanged) WITHOUT re-emitting that fact."""
     processing_row = {"status": "processing", "result": None}
     conn = _FakeConn(fetchval_result=None, fetchrow_result=processing_row)
     store = _store(conn)
@@ -243,7 +250,8 @@ async def test_claim_conflict_with_processing_row_polls_then_times_out() -> None
     store._poll_interval_s = 0.001  # type: ignore[attr-defined]
     store._poll_max_attempts = 2  # type: ignore[attr-defined]
     result = await store.claim_or_get(tenant="amh", task_id="t1")
-    assert result is None  # best-effort timeout — caller falls back to the normal path
+    assert result is False  # best-effort timeout on an ALREADY-claimed row — caller falls back to
+    # the normal path, but knows NOT to re-emit `requested` (unlike a fresh claim's plain `None`)
 
 
 async def test_complete_seals_row_with_result_json() -> None:

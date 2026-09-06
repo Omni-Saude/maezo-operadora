@@ -47,11 +47,14 @@ schema, not a new migration — is:
 `claim_or_get(*, tenant, task_id)`:
   - Atomically claims `task_id`: `INSERT ... ON CONFLICT (task_id, tenant) DO NOTHING` under
     `pg_advisory_xact_lock(hashtext(task_id))` (serializes concurrent claims of the same task_id).
-  - NEW row (claim won) -> returns `None`: the caller (dispatcher) executes the handler.
+  - NEW row (claim won) -> returns `None`: the caller (dispatcher) executes the handler AND emits
+    the `requested` fact — this is the FIRST-EVER attempt at `task_id`.
   - ALREADY 'done' row -> returns the terminal `StoredResult` (replay; the handler does NOT run).
-  - 'processing' row (another replica executing) -> bounded poll until 'done'; if it doesn't seal
-    within budget, returns `None` (best-effort; the caller falls back to the normal path — the PK
-    still prevents double-persisting the terminal result via `complete`).
+  - 'processing' row that ALREADY EXISTED (this call lost the claim) -> bounded poll until 'done';
+    if it doesn't seal within budget, returns `Literal[False]` (A2A-RETRY-REEMITS-REQUESTED-FACT):
+    a REDELIVERY of an already-claimed `task_id` — the caller falls back to the normal path (the
+    PK still prevents double-persisting the terminal result via `complete`) but must NOT re-emit
+    `requested`, which the earlier, still-unsealed attempt already did.
 
 `complete(*, tenant, task_id, result)`: seals the row as 'done' (UPDATE), writing the packed
 `result` jsonb. Idempotent: only updates rows still 'processing'.
@@ -66,7 +69,7 @@ import asyncio
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import asyncpg  # type: ignore[import-untyped]  # no py.typed upstream
 
@@ -156,8 +159,30 @@ class StoredResult:
 class IdempotencyStore(Protocol):
     """The contract `DelegationDispatcher` consumes (durable Guard 4)."""
 
-    async def claim_or_get(self, *, tenant: str, task_id: str) -> StoredResult | None:
-        """Claim the task_id. `None` -> the caller executes; `StoredResult` -> replay (no execute)."""
+    async def claim_or_get(self, *, tenant: str, task_id: str) -> StoredResult | Literal[False] | None:
+        """Claim the task_id.
+
+        A2A-RETRY-REEMITS-REQUESTED-FACT: the return carries a THIRD outcome, distinguishing a
+        first-ever claim from a retry of one already made — `_execute` needs this to gate the
+        `agents.events.delegation.requested` fact to (at most) once per `task_id`, without losing
+        the retryable channel RAF-02 depends on (a redelivery must still re-run the handler).
+
+          - `None`   -> FRESH claim WON: this call's `INSERT` created the row. First-ever attempt
+                        at `task_id` — the caller executes the handler AND emits `requested`.
+          - `False`  -> the row ALREADY EXISTED (this call lost the `INSERT` race) and is still
+                        not `'done'` (a prior attempt's retryable failure, or a crash, left it
+                        `'processing'`, and the bounded poll for a seal timed out) — a REDELIVERY
+                        of an already-attempted `task_id`. The caller executes the handler again
+                        (retryability preserved — the row was never sealed) but must NOT re-emit
+                        `requested`: an earlier attempt already did, and `_execute`'s pre-effect
+                        audit row (`emit_once`, its OWN durable dedup key) already covers the
+                        audit side of this same redelivery.
+          - `StoredResult` -> the delegation already reached a terminal state: replay, no execute.
+
+        A store that never distinguishes retries (returns only `StoredResult | None`) is a valid,
+        backward-compatible implementer — it degrades to the PRE-fix behavior (every unsealed
+        redelivery looks like a fresh claim), never a type error.
+        """
         ...
 
     async def complete(self, *, tenant: str, task_id: str, result: DelegationResult) -> None:
@@ -271,14 +296,18 @@ class PostgresIdempotencyStore:
         # `self._schema` was validated by `schema_for_tenant()` in `__init__` (anti-injection).
         await conn.execute(f'SET search_path TO "{self._schema}"')
 
-    async def claim_or_get(self, *, tenant: str, task_id: str) -> StoredResult | None:
+    async def claim_or_get(self, *, tenant: str, task_id: str) -> StoredResult | Literal[False] | None:
         """Atomically claim `task_id` (durable Guard 4).
 
-        - Claim WON (new row) -> `None`: the caller executes the handler and calls `complete`.
+        - Claim WON (new row) -> `None`: the caller executes the handler, emits `requested`, and
+          calls `complete`.
         - ALREADY 'done' row -> the terminal `StoredResult` (replay; the handler does NOT run).
-        - 'processing' row (another replica) -> bounded poll; once sealed -> `StoredResult`. If
-          the budget is exceeded, `None` (best-effort — the PK + idempotent `complete` still
-          protect the persisted result).
+        - 'processing' row that ALREADY EXISTED (this call lost the `INSERT` race) -> bounded
+          poll; sealed meanwhile -> `StoredResult` (replay). Budget exceeded -> `False`: a
+          REDELIVERY of an already-claimed `task_id` (A2A-RETRY-REEMITS-REQUESTED-FACT) — the
+          caller executes the handler again (best-effort; the PK + idempotent `complete` still
+          protect the persisted result) but does NOT re-emit `requested`, which an earlier
+          attempt already did.
         """
         _ = tenant  # tenant already fixes the schema at construction; kept for Protocol parity.
         pool = await self._ensure_pool()
@@ -293,8 +322,11 @@ class PostgresIdempotencyStore:
             row = await conn.fetchrow(SELECT_SQL, task_id, self._tenant)
         if row is not None and row["status"] == STATUS_DONE:
             return _row_to_stored(task_id, row)
-        # 'processing' row (another replica executing): bounded poll outside the claim transaction.
-        return await self._poll_until_done(pool, task_id)
+        # 'processing' row that ALREADY EXISTED (another replica, or THIS replica's own earlier,
+        # still-unsealed attempt): bounded poll outside the claim transaction. `None` (timeout) ->
+        # `False` here, since the caller lost the claim race and must not re-emit `requested`.
+        polled = await self._poll_until_done(pool, task_id)
+        return polled if polled is not None else False
 
     async def _poll_until_done(self, pool: asyncpg.Pool, task_id: str) -> StoredResult | None:
         """Wait (bounded) for another replica to seal the 'processing' row. `None` if it times out."""
