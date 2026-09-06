@@ -240,12 +240,17 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
 
 ONDE ESTE VALOR **NAO** ESTA, e por que. So' e alcancavel por invocacao DIRETA do grafo (o
 gatilho proativo `agents.events.proactive`, D9) — nunca pela borda A2A: `delegation.py::
-state_from_envelope` VALIDA os tres identificadores e lanca `ValueError` ANTES de o grafo rodar
-quando algum falta, entao `ERROR_MISSING_CONTEXT` estruturalmente nunca nasce numa delegacao
-`care.stratify`/`care.enroll`. Como nenhuma chave de negocio existe sem os identificadores, nao
-ha instancia BPMN nem variavel de processo onde este desfecho poderia viver — mesma logica do
-`erro_inicio_processo` (CC-01) acima, aplicada a um ponto ainda mais cedo do turno (antes mesmo
-do chokepoint de consentimento, nao apenas antes do start).
+state_from_envelope` VALIDA tres dos quatro identificadores (`programa_id`/
+`beneficiario_pseudo_id`/`ciclo`) e lanca `ValueError` ANTES de o grafo rodar quando algum falta;
+o quarto, `tenant_id`, e' fechado UM NIVEL ACIMA, por `DelegationEnvelope.__post_init__`
+(`src/maezo/a2a/delegation.py`), que lanca `DelegationError` quando `tenant` esta vazio (a
+delegacao e' tenant-scoped por construcao, ADR-0004) — entao a envelope nem CHEGA a existir sem
+`tenant_id`, e `state_from_envelope` nunca precisa valida-lo de novo. Como nenhuma chave de
+negocio existe sem os quatro identificadores, `ERROR_MISSING_CONTEXT` estruturalmente nunca nasce
+numa delegacao `care.stratify`/`care.enroll`, e nao ha instancia BPMN nem variavel de processo
+onde este desfecho poderia viver — mesma logica do `erro_inicio_processo` (CC-01) acima, aplicada
+a um ponto ainda mais cedo do turno (antes mesmo do chokepoint de consentimento, nao apenas antes
+do start).
 
 POR QUE ELE EXISTE (auditoria de frota 2026-09-05, achado VAL-05). Ate esta correcao, um verdito
 genuino de ausencia de consentimento e uma FALHA DE CONTEXTO (identificadores ausentes — um
