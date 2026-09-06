@@ -308,9 +308,9 @@ def test_two_disclosed_rot_entries_on_the_same_doc_a_live_one_does_not_mask_a_st
         "the stale entry on an already-disclosed doc must fail the gate, not hide behind the "
         f"live entry's disclosure — got: {result.render()}"
     )
-    assert any(
-        "never_cited_anywhere" in f and "stale allowlist rot" in f for f in result.failures
-    ), result.render()
+    assert any("never_cited_anywhere" in f and "stale allowlist rot" in f for f in result.failures), (
+        result.render()
+    )
     # The live entry's own disclosure must still be reported, undisturbed by the sibling failure.
     assert any("long_gone" in d for d in result.disclosed), result.render()
     assert not any("long_gone" in f for f in result.failures), result.render()
