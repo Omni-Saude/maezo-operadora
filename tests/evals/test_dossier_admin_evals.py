@@ -141,6 +141,11 @@ def _case(cases: list[dict[str, Any]], case_id: str) -> dict[str, Any]:
 # dataset, deliberately, so this check keeps catching an UNDECLARED addition.
 # BEA-06 (2026-09-04, lote1) added EVL-BEATRIZ-04 (upstream FHIR-summary projection) as a new
 # scenario beyond the ratified taxonomy (beatriz 3->4) -- it replaces none of the original three.
+# CAR-05 (2026-09-05, WP CAROLINA-CATCHALL) added EVL-CAROLINA-06/07/08 (carolina 5->8), closing
+# the four `escalation.triggers` of `spec/agents/carolina/agent.yaml` that had no golden at all
+# (`cred_admissibility=ANALISE_HUMANA`, `cred_route=ANALISE_CREDENCIAMENTO`, the `cred_route=
+# ANALISE_HUMANA` catch-all, `signal: indicio_irregularidade`/`signal: ambiguity`) -- 3/8 covered
+# before, 8/8 after. Two of them (07/08) are also CAR-01's regression goldens.
 # ---------------------------------------------------------------------------
 
 
@@ -150,7 +155,8 @@ def test_dataset_counts_match_ratified_design() -> None:
     # (4->5, 5->6); beatriz evaluates no DMN at all (`agent.yaml`'s tools allowlist deliberately
     # excludes `mcp-dmn.evaluate` -- module docstring) and is unchanged by CC-01/CC-08.
     # BEA-06 (lote1) added EVL-BEATRIZ-04, so beatriz is 4 here (3 ratified + 1).
-    assert len(CAROLINA_CASES) == 5
+    # CAR-05 added EVL-CAROLINA-06/07/08, so carolina is 8 here (3 ratified + CC-01 + CC-08 + 3).
+    assert len(CAROLINA_CASES) == 8
     assert len(BEATRIZ_CASES) == 4
     assert len(GUSTAVO_CASES) == 6
 
@@ -250,6 +256,46 @@ async def test_evl_carolina_01_mutation_check_route_is_non_vacuous() -> None:
 async def test_evl_carolina_03_mutation_check_leak_is_non_vacuous() -> None:
     case = _case(CAROLINA_CASES, "EVL-CAROLINA-03")
     await _run_dossier_leak_mutation_check(carolina_build, case)
+
+
+@pytest.mark.eval
+async def test_evl_carolina_06_mutation_check_grupo_humano_is_non_vacuous() -> None:
+    """CAR-05: flipping EVL-CAROLINA-06's expected `grupo_humano` (gestao-rede -> juridico-rede)
+    must fail -- the ANALISE_CREDENCIAMENTO branch is precisely the one that must NOT land on the
+    co-review group, so an eval that passed either way would assert nothing about it."""
+    case = _case(CAROLINA_CASES, "EVL-CAROLINA-06")
+    await run_mutation_check(
+        carolina_build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "grupo_humano", "juridico-rede"),
+    )
+
+
+@pytest.mark.eval
+async def test_evl_carolina_07_mutation_check_desfecho_is_non_vacuous() -> None:
+    """CAR-01: flipping EVL-CAROLINA-07's expected `desfecho` back to the PRE-FIX value
+    (`analise_credenciamento`, the one derived from `direcao`) must fail. This is the exact
+    mutation that reintroduces CAR-01, so it is what proves this golden guards the fix instead of
+    rubber-stamping whatever `human_review` writes."""
+    case = _case(CAROLINA_CASES, "EVL-CAROLINA-07")
+    await run_mutation_check(
+        carolina_build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "desfecho", "analise_credenciamento"),
+    )
+
+
+@pytest.mark.eval
+async def test_evl_carolina_08_mutation_check_admissibilidade_is_non_vacuous() -> None:
+    """CAR-05: flipping EVL-CAROLINA-08's expected `admissibilidade` to CLERICAL_CREDENCIAR must
+    fail -- that is the automatic bypass `r_indicio_segue` exists to defeat, and a golden that
+    still passed with it asserted would prove the opposite of what this case is for."""
+    case = _case(CAROLINA_CASES, "EVL-CAROLINA-08")
+    await run_mutation_check(
+        carolina_build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "admissibilidade", "CLERICAL_CREDENCIAR"),
+    )
 
 
 @pytest.mark.eval

@@ -96,6 +96,10 @@ DIVERGENCIAS DO DONOR (disclosed, per charter "where donor and v2 spec disagree,
    (candidate groups `gestao-rede,juridico-rede` em `UT_AnaliseDescredenciamento`, com
    `cred_prior_notice` avaliada) — o ramo mais conservador dos dois, e o unico que passa pela
    obrigacao de notificacao previa RN 567. Este grafo segue o BPMN corrigido, nao o donor.
+   CAR-01 (auditoria de frota 05/09/2026): o `desfecho` do catch-all segue a MESMA regra do
+   motivo/grupo — e' `analise_descredenciamento`, do RAMO, e nao mais uma deducao a partir de
+   `direcao` feita depois, em `human_review`. Ate essa data os dois campos podiam discordar
+   dentro do mesmo caso; ver `_route_human`, onde `desfecho` agora e' argumento obrigatorio.
 3. **`cred_sla` e `cred_prior_notice` seguem exatamente a sequencia do BPMN**, nao a do donor:
    `cred_sla` e avaliada incondicionalmente uma vez que `cred_route` e alcancada (BPMN
    `BRT_CredSla`, ANTES de `GW_Natureza`) — nunca para `CLERICAL_CREDENCIAR`/
@@ -224,6 +228,20 @@ MotivoHumano = Literal[
     "documentacao_pendente",
     "dmn_indisponivel",
     "outro",
+]
+
+# Desfecho de ROTEAMENTO do agente (contrato SP-OP-CRED-001 §Desfecho de agente; espelhado em
+# `runtime/turn_telemetry.py::_DESFECHO_VOCAB["carolina"]`). CAR-01: cada valor pertence ao RAMO
+# que o produziu — quem decide o encaminhamento grava o desfecho ali mesmo, e nenhum no a jusante
+# o deduz de `direcao` (o pedido do CHAMADOR, eixo ortogonal ao que a DMN decidiu). Nenhum destes
+# e' um efeito adverso consumado. `erro_inicio_processo` NAO esta aqui: ele nasce so' em
+# `notify_start_failure`, pelo helper unico de runtime (CC-01), e nunca num encaminhamento.
+DesfechoRoteamento = Literal[
+    "analise_humana",
+    "documentacao_pendente",
+    "credenciamento_clerical",
+    "analise_descredenciamento",
+    "analise_credenciamento",
 ]
 
 DMN_CRED_ADMISSIBILITY = "cred_admissibility"
@@ -566,6 +584,10 @@ class CarolinaGraph:
 
         FAIL-SAFE: DMN indisponivel NUNCA vira desfecho adverso — sempre human_review. NENHUM
         caminho aqui produz uma negativa de credenciamento nem um descredenciamento.
+
+        CAR-01: este e' o no que DECIDE, entao e' aqui que o `desfecho` de cada ramo e' gravado —
+        todos os cinco encaminhamentos humanos passam por `_route_human`, que exige o desfecho
+        como argumento. Nenhum no a jusante deduz desfecho nenhum.
         """
         if state.get("error"):
             return {}
@@ -588,9 +610,13 @@ class CarolinaGraph:
         )
         if admis_result.get("error"):
             return {
-                **self._route_human("dmn_indisponivel", dmn_refs, self._default_human_group(direcao)),
+                **self._route_human(
+                    "dmn_indisponivel",
+                    dmn_refs,
+                    self._default_human_group(direcao),
+                    desfecho="analise_humana",
+                ),
                 "dmn_error": admis_result["error"],
-                "desfecho": "analise_humana",
             }
         admissibilidade = cast(Admissibilidade, str(admis_result["row"].get("roteamento", "ANALISE_HUMANA")))
         dmn_refs[DMN_CRED_ADMISSIBILITY] = admis_result["ref"]
@@ -602,8 +628,12 @@ class CarolinaGraph:
         if admissibilidade == "PENDENTE_DOCUMENTACAO":
             return {
                 **base,
-                **self._route_human("documentacao_pendente", dmn_refs, self._default_human_group(direcao)),
-                "desfecho": "documentacao_pendente",
+                **self._route_human(
+                    "documentacao_pendente",
+                    dmn_refs,
+                    self._default_human_group(direcao),
+                    desfecho="documentacao_pendente",
+                ),
             }
 
         # CLERICAL_CREDENCIAR -> roteamento NEUTRO favoravel. A UNICA direcao automatica; NUNCA um
@@ -636,9 +666,13 @@ class CarolinaGraph:
         if rota_result.get("error"):
             return {
                 **base,
-                **self._route_human("dmn_indisponivel", dmn_refs, self._default_human_group(direcao)),
+                **self._route_human(
+                    "dmn_indisponivel",
+                    dmn_refs,
+                    self._default_human_group(direcao),
+                    desfecho="analise_humana",
+                ),
                 "dmn_error": rota_result["error"],
-                "desfecho": "analise_humana",
             }
         roteamento = cast(RoteamentoNatureza, str(rota_result["row"].get("roteamento", "ANALISE_HUMANA")))
         dmn_refs[DMN_CRED_ROUTE] = rota_result["ref"]
@@ -685,12 +719,28 @@ class CarolinaGraph:
         # auto_route — a negativa de credenciamento e o descredenciamento SO nascem na User Task
         # humana (invariante L1).
         if roteamento == "ANALISE_CREDENCIAMENTO":
-            return {**base, **self._route_human("analise_credenciamento", dmn_refs, "gestao-rede")}
+            return {
+                **base,
+                **self._route_human(
+                    "analise_credenciamento",
+                    dmn_refs,
+                    "gestao-rede",
+                    desfecho="analise_credenciamento",
+                ),
+            }
         # ANALISE_DESCREDENCIAMENTO and the ANALISE_HUMANA catch-all both follow the co-review
         # branch (divergence #2) — juridico-rede is the primary group; the dossier + contract
         # variables still carry `roteamento_natureza`/`indicio_irregularidade_sinalizado` so the
         # human sees the full signal even for the catch-all.
-        return {**base, **self._route_human("analise_descredenciamento", dmn_refs, "juridico-rede")}
+        return {
+            **base,
+            **self._route_human(
+                "analise_descredenciamento",
+                dmn_refs,
+                "juridico-rede",
+                desfecho="analise_descredenciamento",
+            ),
+        }
 
     async def auto_route(self, state: CarolinaState) -> dict[str, Any]:
         """Roteamento NEUTRO (credenciamento clerical favoravel). NUNCA produz uma negativa de
@@ -702,10 +752,16 @@ class CarolinaGraph:
     async def human_review(self, state: CarolinaState) -> dict[str, Any]:
         """Prepara o dossie da gestao/juridico de rede humano. Esta e a rota de QUALQUER caso de
         descredenciamento, negativa-de-credenciamento candidata, pendencia, indicio-de-
-        irregularidade, ambiguidade ou DMN-indisponivel. Carolina instrui; o humano decide."""
-        dossier = await self._build_dossier(state, route="human_review")
-        desfecho = state.get("desfecho") or self._human_desfecho(state)
-        return {"dossier": dossier, "desfecho": desfecho}
+        irregularidade, ambiguidade ou DMN-indisponivel. Carolina instrui; o humano decide.
+
+        CAR-01: este no MONTA O DOSSIE e nada mais — nao escreve `desfecho`, exatamente como
+        `auto_route` nunca escreveu. O desfecho ja' foi gravado por quem DECIDIU o encaminhamento
+        (`assess`, via `_route_human`; ou o guard de contexto ausente de `receive`), e e' de la'
+        que ele tem de vir. Antes, este no completava um `desfecho` ausente com um fallback
+        chaveado em `direcao` e o caso terminava afirmando um ramo que a DMN nao escolheu (ver
+        `_route_human`). Nada resta para deduzir aqui.
+        """
+        return {"dossier": await self._build_dossier(state, route="human_review")}
 
     async def start_process(self, state: CarolinaState) -> dict[str, Any]:
         """Start SP-OP-CRED-001 idempotently (business key `CRED-{tenant}-{prestador}[-{protocolo}]`)."""
@@ -780,20 +836,33 @@ class CarolinaGraph:
         return "juridico-rede" if direcao == "descredenciamento" else "gestao-rede"
 
     @staticmethod
-    def _human_desfecho(state: CarolinaState) -> str:
-        return (
-            "analise_descredenciamento"
-            if _direcao(state) == "descredenciamento"
-            else "analise_credenciamento"
-        )
+    def _route_human(
+        motivo: MotivoHumano,
+        dmn_refs: dict[str, str],
+        grupo_humano: str,
+        *,
+        desfecho: DesfechoRoteamento,
+    ) -> dict[str, Any]:
+        """Monta o encaminhamento humano COMPLETO — motivo, grupo, refs DMN e desfecho.
 
-    @staticmethod
-    def _route_human(motivo: MotivoHumano, dmn_refs: dict[str, str], grupo_humano: str) -> dict[str, Any]:
+        CAR-01: `desfecho` e' keyword-only OBRIGATORIA. E' a assinatura, e nao a disciplina de
+        quem escrever o proximo ramo, que garante que todo encaminhamento humano diga qual e' o
+        seu desfecho no lugar onde o ramo foi escolhido. Antes desta correcao dois ramos
+        (`ANALISE_CREDENCIAMENTO` e o catch-all) saiam sem gravar nada, e `human_review`
+        completava a lacuna com um fallback chaveado em `direcao` — o pedido do CHAMADOR, um
+        eixo ORTOGONAL ao ramo que a DMN de fato escolheu. Quando os dois divergiam (indicio de
+        irregularidade num pedido de credenciamento; `direcao` fora da allowlist do contrato) o
+        MESMO caso afirmava os dois ramos em campos diferentes, e era o desfecho incoerente que
+        chegava ao contador `maezo_agent_desfecho_total` (CC-09) e ao estado que o handler A2A
+        devolve. Nenhum efeito adverso nascia disso (invariante L1 intacto): o dano era de
+        LEITURA — quem lia o desfecho lia o ramo errado.
+        """
         return {
             "route": "human_review",
             "motivo_humano": motivo,
             "grupo_humano": grupo_humano,
             "dmn_refs": dmn_refs,
+            "desfecho": desfecho,
         }
 
     # -- DMN (cred_admissibility / cred_route / cred_prior_notice / cred_sla; none has an
