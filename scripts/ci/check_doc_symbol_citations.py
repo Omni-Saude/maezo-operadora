@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """CI gate: `docs/adr/*.md` citations must resolve against the real tree (R-089).
 
-Non-vacuity case (the defect that motivated this gate — gap `ADR-0026-0028-STALE-ANSCRON`,
-`OWNER-DECISIONS-REGISTER` R-089, 2026-09-06): `docs/adr/0026-worker-standardization.md:72`
-quotes a Python import example — ``from maezo.tools.workers.ans_cron import check_calendar,
-trigger_submissions`` — as evidence that "tests bind to the *functions*, not classes."
-`check_calendar` was **removed** (not renamed) from `ans_cron.py` once the ANS-cron taxonomy
-reconciliation (GAP-ANS-1/ANS-CRON-DEAD-CODE) let `ADR-0028` §7's own gate fire ("only after 100%
-parity in CI: delete the Python re-implementation"). Nobody re-checked the quoted example against
-the tree, and an `Accepted` ADR is never rewritten in place (`docs/adr/README.md:8`) — so the rot
-would otherwise sit forever, undetected, unless something re-derives the citation from the tree on
-every run. This script is that something.
+Non-vacuity case (the defect that MOTIVATED this gate — gap `ADR-0026-0028-STALE-ANSCRON`,
+`OWNER-DECISIONS-REGISTER` R-089, 2026-09-06; FIXED FORWARD by the reparo below, 2026-09-06):
+`docs/adr/0026-worker-standardization.md:72` used to quote a Python import example —
+``from maezo.tools.workers.ans_cron import check_calendar, trigger_submissions`` — as evidence that
+"tests bind to the *functions*, not classes." `check_calendar` had been **removed** (not renamed)
+from `ans_cron.py` once the ANS-cron taxonomy reconciliation (GAP-ANS-1/ANS-CRON-DEAD-CODE) let
+`ADR-0028` §7's own gate fire ("only after 100% parity in CI: delete the Python re-implementation").
+Nobody had re-checked the quoted example against the tree. The owner's approved decision for R-089
+ordered the two stale citations (this one, and `docs/adr/0028-dmn-evaluation-engine-side.md:192`'s
+`ans_cron.py:116` row) corrected IN PLACE — a pointed, owner-authorised exception to the default
+`docs/adr/README.md:8` no-rewrite convention for exactly these two named lines (reparo F2/
+VER-ADR-BATCH, 2026-09-06; see the `CORRECAO 2026-09-06` addenda in both files for the record of
+the change). Both citations resolve cleanly today. This script remains so the NEXT rot of this kind
+— whichever citation drifts next — is caught the same day, not left for a reader to notice.
 
 Scope: `docs/adr/*.md` **only**. `ADR-PHANTOM-PATH-RESIDUE-NON-ADR`: roughly a dozen known
 phantom-path citations live in OTHER doc trees (reports, plans, review packets) — this gate does
@@ -46,17 +50,20 @@ still exists, which line-drift alone does not violate):
 be unresolved when this gate was built — never a substitute for fixing forward, and never silent.
 Each entry is actively re-checked: if the citation now RESOLVES, the entry is stale and the gate
 fails, telling the maintainer to delete it (an allowlist that nobody prunes is the same disclosure
-failure this gate exists to catch). Two entries ship with this gate:
+failure this gate exists to catch). One entry ships with this gate today:
 
-  - `docs/adr/0026-worker-standardization.md` :: the `check_calendar` import citation above — this
-    gate's own non-vacuity case, acknowledged by the `Adendo 2026-09-06` appended immediately after
-    it in the same file (never rewritten — the citation itself stays, as historical record).
   - `docs/adr/0022-mcp-in-process-boot.md` :: `src/maezo/runtime/tool_wiring.py::build_tool_invoker`
     — genuine PRE-EXISTING rot found while building this gate, unrelated to R-089's own scope
     (`tool_wiring.py` does not exist; already disclosed independently in
     `src/maezo/tools/mcp_cibseven/__init__.py`'s module docstring: "no `ToolRegistry`/
     `tool_wiring.py`/`build_tool_invoker` exists anywhere in this v2 tree"). Tracked as an open row
     in `docs/review-queue.md`; deliberately NOT fixed here (out of scope for R-089).
+
+  (Historical: this gate originally shipped a SECOND entry for
+  `docs/adr/0026-worker-standardization.md`'s `check_calendar` import citation — its own
+  non-vacuity case. Reparo F2/VER-ADR-BATCH (2026-09-06, terceiro agente) FIXED that citation
+  forward, per the owner's decision for R-089, instead of leaving it allowlisted; the entry was
+  removed once the citation resolved, exactly as the self-audit above demands of any entry.)
 
 Wired into `make check-doc-symbol-citations` and `.github/workflows/ci.yml`'s `validate-artifacts`
 job. Uses `git ls-files` only (no `git merge-base`/history walk), so it runs unchanged in a shallow
@@ -278,17 +285,15 @@ class DisclosedRot:
 
 
 _DISCLOSED_ROT: tuple[DisclosedRot, ...] = (
-    DisclosedRot(
-        doc="0026-worker-standardization.md",
-        citation_repr="import maezo.tools.workers.ans_cron::check_calendar",
-        reason=(
-            "R-089's own non-vacuity case: `check_calendar` was REMOVED (not renamed) from "
-            "ans_cron.py once the ANS-cron taxonomy reconciliation let ADR-0028 §7's gate fire. "
-            "The quoted import example is historical (an `Accepted` ADR is never rewritten in "
-            "place, docs/adr/README.md:8); acknowledged by the `Adendo 2026-09-06` appended right "
-            "after it in the same file."
-        ),
-    ),
+    # NOTE (reparo F2/VER-ADR-BATCH, 2026-09-06, terceiro agente): the R-089 entry that used to
+    # live here (`0026-worker-standardization.md` / `import maezo.tools.workers.ans_cron::check_calendar`)
+    # is REMOVED, not merely edited — the owner's approved decision ordered the import example fixed
+    # in place (see `docs/adr/0026-worker-standardization.md`'s `CORRECAO 2026-09-06` addendum), so
+    # the citation resolves cleanly now and would itself trip the stale-allowlist self-audit below if
+    # left here. `docs/adr/0028-dmn-evaluation-engine-side.md`'s sibling citation (`ans_cron.py:116`,
+    # re-anchored to `...bpmn::BRT_Calendario`) was never in this tuple to begin with — it was always
+    # a bare `path:line` citation, which this gate does not hard-check (see the module docstring and
+    # F4/VER-ADR-BATCH) — so there was nothing to remove for it.
     DisclosedRot(
         doc="0022-mcp-in-process-boot.md",
         citation_repr="src/maezo/runtime/tool_wiring.py::build_tool_invoker",

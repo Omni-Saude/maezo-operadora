@@ -202,15 +202,15 @@ def test_mutation_disabling_symbol_resolution_turns_a_passing_citation_red(
 # ===================================================================================================
 
 
-def test_the_real_docs_adr_corpus_passes_with_exactly_the_two_known_disclosed_entries() -> None:
+def test_the_real_docs_adr_corpus_passes_with_exactly_the_one_known_disclosed_entry() -> None:
+    """R-089's own two stale citations (0026:72, 0028:192) were FIXED FORWARD by reparo
+    F2/VER-ADR-BATCH (2026-09-06) instead of staying allowlisted — only the pre-existing,
+    out-of-scope ADR-0022 rot remains disclosed."""
     result = gate.run_gate(_REPO_ROOT, _REPO_ROOT / "docs" / "adr")
     assert result.ok, result.render()
-    assert len(result.disclosed) == 2, result.render()
+    assert len(result.disclosed) == 1, result.render()
     disclosed_docs = {d.split(":", 1)[0] for d in result.disclosed}
-    assert disclosed_docs == {
-        "0022-mcp-in-process-boot.md",
-        "0026-worker-standardization.md",
-    }, result.render()
+    assert disclosed_docs == {"0022-mcp-in-process-boot.md"}, result.render()
 
 
 # ===================================================================================================
