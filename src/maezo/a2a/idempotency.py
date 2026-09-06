@@ -53,8 +53,11 @@ schema, not a new migration — is:
   - 'processing' row that ALREADY EXISTED (this call lost the claim) -> bounded poll until 'done';
     if it doesn't seal within budget, returns `Literal[False]` (A2A-RETRY-REEMITS-REQUESTED-FACT):
     a REDELIVERY of an already-claimed `task_id` — the caller falls back to the normal path (the
-    PK still prevents double-persisting the terminal result via `complete`) but must NOT re-emit
-    `requested`, which the earlier, still-unsealed attempt already did.
+    PK still prevents double-persisting the terminal result via `complete`) and does not re-emit
+    `requested`. `False` diz "a linha ja existia", nao "o fato ja foi emitido": a reivindicacao
+    antecede a emissao, entao uma emissao falha depois de uma reivindicacao gravada perde aquele
+    `requested` para sempre (janela at-most-once declarada em `IdempotencyStore.claim_or_get`,
+    linha de registro A2A-DURABLE-REQUESTED-FACT-AT-MOST-ONCE-WINDOW).
 
 `complete(*, tenant, task_id, result)`: seals the row as 'done' (UPDATE), writing the packed
 `result` jsonb. Idempotent: only updates rows still 'processing'.
@@ -172,12 +175,23 @@ class IdempotencyStore(Protocol):
           - `False`  -> the row ALREADY EXISTED (this call lost the `INSERT` race) and is still
                         not `'done'` (a prior attempt's retryable failure, or a crash, left it
                         `'processing'`, and the bounded poll for a seal timed out) — a REDELIVERY
-                        of an already-attempted `task_id`. The caller executes the handler again
-                        (retryability preserved — the row was never sealed) but must NOT re-emit
-                        `requested`: an earlier attempt already did, and `_execute`'s pre-effect
-                        audit row (`emit_once`, its OWN durable dedup key) already covers the
-                        audit side of this same redelivery.
+                        of an already-CLAIMED `task_id`. The caller executes the handler again
+                        (retryability preserved — the row was never sealed) but does NOT re-emit
+                        `requested`; `_execute`'s pre-effect audit row (`emit_once`, its OWN
+                        durable dedup key) cobre o lado de audit dessa mesma reentrega.
           - `StoredResult` -> the delegation already reached a terminal state: replay, no execute.
+
+        A2A-DURABLE-REQUESTED-FACT-AT-MOST-ONCE-WINDOW — LIMITE DECLARADO DESTE CONTRATO. `False`
+        significa exatamente "a linha ja existia", e a linha nasce na REIVINDICACAO, que acontece
+        ANTES de o chamador emitir `requested`. Portanto `False` NAO significa, e nao pode
+        significar, "o fato `requested` ja foi emitido": se a emissao seguinte a uma reivindicacao
+        falhar (ou a replica morrer entre as duas), toda reentrega posterior recebe `False` e
+        aquele `requested` nunca e' publicado. A garantia deste caminho e' AT MOST ONCE, com a
+        janela = "linha gravada, emissao seguinte nao completada"; nessa janela o registro
+        sobrevivente e' a linha de audit ALLOW pre-efeito (duravel e deduplicada), nao o fato
+        Kafka. Distinguir os dois casos exige estado duravel novo (uma marca de emissao persistida,
+        ou reivindicacao e emissao na mesma transacao) — ou seja, MIGRACAO, deliberadamente fora do
+        escopo desta correcao. Nenhum implementador deve inferir emissao a partir deste `False`.
 
         A store that never distinguishes retries (returns only `StoredResult | None`) is a valid,
         backward-compatible implementer — it degrades to the PRE-fix behavior (every unsealed
@@ -306,8 +320,10 @@ class PostgresIdempotencyStore:
           poll; sealed meanwhile -> `StoredResult` (replay). Budget exceeded -> `False`: a
           REDELIVERY of an already-claimed `task_id` (A2A-RETRY-REEMITS-REQUESTED-FACT) — the
           caller executes the handler again (best-effort; the PK + idempotent `complete` still
-          protect the persisted result) but does NOT re-emit `requested`, which an earlier
-          attempt already did.
+          protect the persisted result) but does NOT re-emit `requested`. Esse `False` reporta
+          APENAS "a linha ja existia"; ele nao prova que o `requested` chegou a ser emitido (a
+          reivindicacao antecede a emissao) — janela at-most-once
+          A2A-DURABLE-REQUESTED-FACT-AT-MOST-ONCE-WINDOW, detalhada no docstring do Protocol.
         """
         _ = tenant  # tenant already fixes the schema at construction; kept for Protocol parity.
         pool = await self._ensure_pool()

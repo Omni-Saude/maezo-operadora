@@ -25,7 +25,7 @@ from maezo.a2a import (
     StoredResult,
 )
 from maezo.a2a.dispatcher import AgentHandler, DelegationDispatcher, FactProducer
-from maezo.a2a.facts import TOPIC_REQUESTED
+from maezo.a2a.facts import TOPIC_COMPLETED, TOPIC_REQUESTED
 from maezo.a2a.idempotency import IdempotencyStore
 from maezo.a2a.registry import A2ARegistry
 from maezo.tools.workers.harness import FakeAuditSink
@@ -226,4 +226,63 @@ async def test_durable_redelivery_of_unsealed_row_does_not_reemit_requested() ->
     assert calls == 2, "a reentrega nao reexecutou o handler (retentabilidade RAF-02 quebrada)"
     assert producer.topics() == [TOPIC_REQUESTED], (
         f"reentrega reemitiu {TOPIC_REQUESTED!r} uma segunda vez (topics={producer.topics()!r})"
+    )
+
+
+class _ProducerFailingFirstSend(RecordingProducer):
+    """Produtor cujo PRIMEIRO `send` falha (broker/outbox indisponivel) e os seguintes passam.
+
+    Modela a falha real do caminho de producao: `PostgresOutboxFactProducer.send` faz um `INSERT`
+    na outbox transacional e a falha PROPAGA por decisao explicita de `a2a/outbox.py`."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.failed_once = False
+
+    async def send(self, topic: str, value: bytes, *, key: bytes | None = None) -> None:
+        if not self.failed_once:
+            self.failed_once = True
+            raise RuntimeError("outbox indisponivel (falha da PRIMEIRA emissao)")
+        await super().send(topic, value, key=key)
+
+
+async def test_inmemory_failed_requested_emit_is_reemitted_on_redelivery() -> None:
+    """A2A-RETRY-REEMITS-REQUESTED-FACT (caminho em memoria): se a EMISSAO do `requested` falha, a
+    reentrega REEMITE — o fato nao se perde.
+
+    A supressao da reemissao (o guard `skip_requested_fact`) so pode se apoiar num fato OBSERVADO.
+    `_delegate_inflight` marca `entry.requested_emitted` pelo callback `on_requested_emitted`, que
+    `_execute` chama DEPOIS de `_emit(REQUESTED)` retornar. Se a marca fosse escrita antes de
+    `_execute` (como numa versao anterior desta correcao), uma emissao falha viraria PERDA
+    PERMANENTE: a reentrega veria a marca `True`, pularia a emissao para sempre e publicaria um
+    `completed` sem nenhum `requested` antes — uma duplicata o consumidor deduplica, uma perda nao.
+
+    Mutacao que leva este teste a RED: em `_delegate_inflight`, voltar a marcar
+    `entry.requested_emitted = True` ANTES da chamada a `_execute` (em vez de pelo callback)."""
+    calls = 0
+
+    async def _handler(envelope: DelegationEnvelope) -> HandlerOutput:
+        nonlocal calls
+        calls += 1
+        return HandlerOutput(output_ref="fhir://Task/ok")
+
+    producer = _ProducerFailingFirstSend()
+    dispatcher, _, _ = build_test_dispatcher(
+        cards=[make_card("rafael")], handlers={"rafael": _handler}, producer=producer
+    )
+
+    with pytest.raises(RuntimeError):
+        await dispatcher.delegate(_envelope("mem-emit-falha-1"))
+    assert producer.topics() == [], (
+        f"a emissao falhou; nada deveria ter sido publicado ({producer.topics()!r})"
+    )
+    assert calls == 0, "a emissao do `requested` precede o handler: ele nao deveria ter rodado"
+
+    result = await dispatcher.delegate(_envelope("mem-emit-falha-1"))  # reentrega do MESMO task_id
+
+    assert result.success, "a reentrega apos falha de emissao deveria executar normalmente"
+    assert calls == 1, "a reentrega nao executou o handler"
+    assert producer.topics() == [TOPIC_REQUESTED, TOPIC_COMPLETED], (
+        f"o fato `requested` foi PERDIDO: a reentrega publicou {producer.topics()!r} "
+        f"— um `completed` sem `requested` antes quebra a trilha de auditoria A2A"
     )

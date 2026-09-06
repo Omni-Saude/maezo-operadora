@@ -309,12 +309,13 @@ class _InflightEntry:
 
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     result: DelegationResult | None = None
-    #: A2A-RETRY-REEMITS-REQUESTED-FACT: set on the FIRST attempt at this `task_id` (in-memory
-    #: mirror of the durable store's row-already-exists signal, `idempotency.claim_or_get`'s
-    #: `False` outcome). A retryable handler failure leaves `result` `None` — this flag is what
-    #: lets a REDELIVERY (`_delegate_inflight` re-entering with the SAME entry) tell `_execute` to
-    #: skip re-emitting `agents.events.delegation.requested`, without preventing the re-execution
-    #: RAF-02's retryable channel depends on.
+    #: A2A-RETRY-REEMITS-REQUESTED-FACT: registra que `agents.events.delegation.requested` JA FOI
+    #: EMITIDO com sucesso para este `task_id`. A flag e' escrita NO PROPRIO PONTO DE EMISSAO
+    #: (`_execute`, imediatamente depois do `await self._emit(...)` retornar), nunca antes de
+    #: `_execute` — ver `_delegate_inflight`. Uma falha RETENTAVEL do handler deixa `result` `None`
+    #: com a flag JA `True` (o fato saiu), entao a reentrega reexecuta sem reemitir (RAF-02); uma
+    #: falha do PROPRIO `_emit` deixa a flag `False`, entao a reentrega REEMITE em vez de perder o
+    #: fato para sempre (janela fechada no caminho em memoria, declarada no duravel).
     requested_emitted: bool = False
 
 
@@ -456,15 +457,28 @@ class DelegationDispatcher:
                 # Guard 4 — re-delivery of the same task_id: return the prior result, without
                 # re-executing the handler.
                 return _as_replay(entry.result)
+
             # A2A-RETRY-REEMITS-REQUESTED-FACT: `entry.result is None` here covers BOTH a
             # brand-new task_id and a REDELIVERY after a retryable failure left it unsealed
             # (`entry.result` is only ever set on the line below, which a raised exception never
-            # reaches). `requested_emitted` is the durable-in-this-process signal that
-            # distinguishes the two — set on the first attempt, so a redelivery skips the fact
-            # without skipping the (retryable) re-execution.
-            skip_requested_fact = entry.requested_emitted
-            entry.requested_emitted = True
-            result = await self._execute(envelope, skip_requested_fact=skip_requested_fact)
+            # reaches). `requested_emitted` distingue os dois casos — e' escrita pelo callback
+            # abaixo, que `_execute` so' chama DEPOIS de `_emit(REQUESTED)` ter retornado.
+            #
+            # A ordem importa e ja custou um defeito: marcar ANTES de `_execute` (como esta linha
+            # fazia) transformava uma falha do proprio `_emit` em PERDA PERMANENTE do fato
+            # `requested` — a tentativa seguinte via a flag `True` e pulava a emissao para sempre,
+            # emitindo `completed` sem nenhum `requested` antes. Marcando no ponto de emissao:
+            #   - `_emit` falha  -> flag continua `False` -> a reentrega REEMITE (nada se perde);
+            #   - `_emit` passa e o handler falha de forma retentavel -> flag `True` -> a reentrega
+            #     reexecuta SEM reemitir (o canal retentavel de RAF-02, preservado).
+            def _mark_requested_emitted() -> None:
+                entry.requested_emitted = True
+
+            result = await self._execute(
+                envelope,
+                skip_requested_fact=entry.requested_emitted,
+                on_requested_emitted=_mark_requested_emitted,
+            )
             entry.result = result
             return result
 
@@ -493,8 +507,26 @@ class DelegationDispatcher:
         claim_or_get`'s own docstring) is a THIRD outcome — a REDELIVERY of a `task_id` an earlier
         attempt already claimed but never sealed. The handler still runs (retryability preserved,
         same as the `None`/fresh-claim path), but `_execute` is told to skip re-emitting
-        `requested`: an earlier attempt already emitted it, and re-emitting it here would be the
-        exact duplicate this fix closes.
+        `requested`, porque a reemissao numa reentrega e' a duplicata que esta correcao fecha.
+
+        A2A-DURABLE-REQUESTED-FACT-AT-MOST-ONCE-WINDOW — JANELA DECLARADA, NAO FECHADA. O sinal
+        usado aqui e' a EXISTENCIA da linha `a2a_idempotency`, e a linha nasce na REIVINDICACAO,
+        que acontece ANTES do `_emit(REQUESTED)` de `_execute`. Logo "linha existe" NAO implica
+        "fato emitido": se a reivindicacao gravar e a emissao seguinte falhar (em producao,
+        `PostgresOutboxFactProducer.send` -> `INSERT` na outbox transacional, cuja falha PROPAGA
+        por decisao explicita do modulo `a2a/outbox.py`), ou se a replica morrer entre as duas
+        escritas, a reentrega cai neste ramo `False` e o `requested` daquela delegacao NUNCA e'
+        publicado — sai um `completed` sem `requested` antes. A garantia entregue neste caminho e'
+        portanto AT MOST ONCE, e a janela e' exatamente: `claim_or_get` retornou (linha gravada) e
+        o `_emit(REQUESTED)` seguinte nao completou. Nessa janela o registro sobrevivente e' a
+        linha de audit ALLOW pre-efeito (`emit_once`, `a2a_audit_dedup_key`), que e' duravel e
+        deduplicada — e' por ela que a trilha se reconstroi, nao pelo fato Kafka.
+
+        Fechar a janela exige estado duravel novo ("requested emitido" persistido junto da linha,
+        ou reivindicacao e emissao na MESMA transacao) — isto e', migracao de schema, fora do
+        escopo desta correcao; ver a linha de registro homonima. O caminho EM MEMORIA nao tem essa
+        janela: la a marca e' escrita no proprio ponto de emissao (`_delegate_inflight` ->
+        `on_requested_emitted`), entao uma emissao falha reemite na reentrega.
         """
         stored = await store.claim_or_get(tenant=envelope.tenant, task_id=envelope.task_id)
         if stored is None:
@@ -515,7 +547,11 @@ class DelegationDispatcher:
             return entry
 
     async def _execute(
-        self, envelope: DelegationEnvelope, *, skip_requested_fact: bool = False
+        self,
+        envelope: DelegationEnvelope,
+        *,
+        skip_requested_fact: bool = False,
+        on_requested_emitted: Callable[[], None] | None = None,
     ) -> DelegationResult:
         # --- Contract validation (chain/hops/budget already guaranteed at construction) ---
         validation = self._validate(envelope)
@@ -534,14 +570,28 @@ class DelegationDispatcher:
 
         # --- Audit BEFORE the effect (delegation is an auditable external effect, ADR-0007) ---
         await self._audit_delegation(envelope, decision=_DECISION_ALLOW, basis="A2A:delegate:allow")
-        # A2A-RETRY-REEMITS-REQUESTED-FACT: `skip_requested_fact` is set ONLY by a caller that
-        # already knows THIS `task_id` was claimed by an earlier attempt (`_delegate_durable`'s
-        # `False` branch, `_delegate_inflight`'s `requested_emitted` flag) — never inferred here.
-        # The pre-exec ALLOW audit row above is unaffected: `emit_once`'s OWN durable dedup key
-        # (`a2a_audit_dedup_key`) already collapses a repeated call to one row, so re-running it on
-        # a redelivery is safe and cheap; only the raw Kafka fact (no such dedup) needs the gate.
+        # A2A-RETRY-REEMITS-REQUESTED-FACT: `skip_requested_fact` so' e' ligado por um chamador que
+        # ja sabe que ESTE `task_id` foi reivindicado por uma tentativa anterior — e os dois
+        # chamadores sabem disso com FORCA DIFERENTE, o que esta comentado onde cada um decide:
+        #   - `_delegate_inflight` (memoria): `entry.requested_emitted`, escrita pelo callback
+        #     `on_requested_emitted` LOGO ABAIXO — portanto `True` significa "o `_emit` retornou",
+        #     um fato observado, nao inferido;
+        #   - `_delegate_durable` (Postgres): a mera EXISTENCIA da linha `a2a_idempotency`, que NAO
+        #     distingue "emitiu" de "reivindicou e morreu antes de emitir". Essa e' a janela
+        #     at-most-once documentada em `_delegate_durable` e em `IdempotencyStore.claim_or_get`
+        #     (registro A2A-DURABLE-REQUESTED-FACT-AT-MOST-ONCE-WINDOW) — nao fechavel sem estado
+        #     duravel novo (migracao), logo DECLARADA em vez de silenciada.
+        # A linha de audit ALLOW pre-efeito acima nao e' afetada: a chave de dedup duravel do
+        # proprio `emit_once` (`a2a_audit_dedup_key`) ja colapsa a chamada repetida numa unica
+        # linha, entao reexecuta-la numa reentrega e' seguro e barato; so' o fato cru (sem dedup
+        # equivalente) precisa do portao.
         if not skip_requested_fact:
             await self._emit(envelope, DelegationFactKind.REQUESTED)
+            # PONTO DE EMISSAO: so' aqui — depois de `_emit` ter RETORNADO — o chamador pode marcar
+            # "requested emitido". Se `_emit` levantar, a excecao passa por cima desta linha, a
+            # marca nao acontece e a reentrega reemite (at-least-once) em vez de perder o fato.
+            if on_requested_emitted is not None:
+                on_requested_emitted()
 
         # --- Route to the target's handler ---
         handler = self._handlers[envelope.target]
