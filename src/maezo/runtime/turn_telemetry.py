@@ -280,9 +280,13 @@ def emit_turn_desfecho(
     NORMALIZACAO. Cada valor extraido passa por `_normalize` contra o vocabulario fechado do
     agente antes de alcancar `observability.record_agent_desfecho` — ver o docstring do modulo.
 
-    FAIL-SAFE. Nunca levanta: um defeito aqui (um `KeyError`, um `agent_id` sem vocabulario
-    registrado tentando `.labels()` com um valor inesperado) NAO pode derrubar um turno que ja
-    terminou. Mesma postura de `observability.record_agent_turn`/`notify_start_failure`.
+    FAIL-SAFE, MAS SO' CONTRA A FALHA DE METRICA (REG-03). Uma falha do registro Prometheus
+    (`.labels()` com nomes/quantidade errados, serie duplicada — sempre `ValueError`) NAO derruba
+    um turno que ja terminou: e' capturada e registrada em WARNING com o token de classe. Um BUG
+    deste modulo, porem, PROPAGA — `AttributeError` de um `state` que nao e' `Mapping`,
+    `TypeError` de uma assinatura derivada, `KeyError` de um contrato de estado violado. A postura
+    anterior (`except Exception:` + `logger.debug`) nao distinguia os dois e podia deixar o
+    contador `maezo_agent_desfecho_total` parar de emitir na frota inteira sem sinal nenhum.
     """
     try:
         raw_desfecho = state.get("desfecho") if desfecho is _UNSET else desfecho
@@ -311,5 +315,22 @@ def emit_turn_desfecho(
             start_failed=start_failed,
             flow=flow,
         )
-    except Exception:  # defensive: telemetry must never break a completed turn (BLE not in ruff select).
-        logger.debug("agent_desfecho_telemetry_emit_failed", agent_id=agent_id, exc_info=True)
+    except ValueError as exc:
+        # REG-03 (audit 2026-09-04). Antes: `except Exception:` + `logger.debug(...)`. Duas coisas
+        # erradas numa linha so'. (a) LARGURA — o corpo do `try` le `state` por `.get` e chama
+        # `_normalize`/`record_agent_desfecho`; um `AttributeError` de um chamador que passou algo
+        # que nao e' `Mapping`, ou um `TypeError` de uma assinatura derivada, sao BUGS deste
+        # modulo, e eram absorvidos exatamente como uma falha de metrica (reproduzido LIVE na base
+        # 87b51a8: `emit_turn_desfecho(objeto_sem_get, agent_id="carolina")` retornou em silencio).
+        # A falha EXTERNA real e' uma so': o `prometheus_client` levanta `ValueError` para uso
+        # indevido do registro (`.labels()` com nomes/quantidade errados, serie duplicada).
+        # (b) NIVEL — em DEBUG (que nenhum ambiente liga por padrao) o contador CC-09 podia parar
+        # de emitir NA FROTA INTEIRA sem sinal operacional nenhum, que e' precisamente o KPI
+        # inaferivel que CC-09 foi aberto para fechar. WARNING, com o token de CLASSE (nunca o
+        # texto do erro, que pode ecoar um label).
+        logger.warning(
+            "agent_desfecho_telemetry_emit_failed",
+            agent_id=agent_id,
+            erro=type(exc).__name__,
+            exc_info=True,
+        )

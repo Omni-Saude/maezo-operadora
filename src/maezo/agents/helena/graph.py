@@ -125,6 +125,7 @@ from typing import Any, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
     start_unavailable_error,
@@ -1060,6 +1061,8 @@ class HelenaGraph:
         try:
             await self._whatsapp.send(_to_hash_from_state(state), text)
             enviada = True
+        except PROGRAMMING_ERRORS:
+            raise
         except Exception as exc:  # noqa: BLE001 — surfaced via `error`, never swallowed silently.
             # HEL-05 (feeder): same chain as the two above — `error` reaches `resumo_contexto`.
             # O desfecho de falha de start (quando ha um) NAO e apagado por uma falha de envio:
@@ -1216,7 +1219,9 @@ class HelenaGraph:
                 # ADR-0009 §2 / CC-12: extracao estruturada (JSON) -> task_default.
                 task_kind="task_default",
             )
-        except Exception as exc:  # noqa: BLE001 — classified into a failure reason, never swallowed.
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES as exc:  # classified into a failure reason, never swallowed.
             # HEL-05 (feeder): `str(exc)[:200]` was a LENGTH bound, never a CONTENT one, and this
             # string becomes `state["error"]` (`classify`) which `_start_escalation` appends to
             # `resumo_contexto` as `[falha tecnica: ...]` — i.e. straight into engine process
@@ -1255,7 +1260,9 @@ class HelenaGraph:
                 # ADR-0009 §2 / CC-12: fraseia fatos ja decididos (DMN motivo/severidade) -> task_default.
                 task_kind="task_default",
             )
-        except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe default: never leave the beneficiary with nothing.
             return "Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."
 
     async def _resumo_contexto(self, state: HelenaState, motivo: str) -> str:
@@ -1281,7 +1288,9 @@ class HelenaGraph:
                 # (mesma logica do dossie de escalacao do lucas).
                 task_kind="reasoning",
             )
-        except Exception:  # noqa: BLE001 — fail-safe: never block the escalation on a summary.
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe: never block the escalation on a summary.
             text = ""
         return text or f"Encaminhamento automatico ({motivo})."
 

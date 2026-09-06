@@ -156,6 +156,7 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
+from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
     start_unavailable_error,
@@ -567,7 +568,9 @@ class GustavoGraph:
         elif patient_ref:
             try:
                 nip_facts = await self._fhir.read_patient(patient_ref)
-            except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
+            except PROGRAMMING_ERRORS:
+                raise
+            except EXTERNAL_DEPENDENCY_FAILURES as exc:  # best-effort enrichment, never fatal.
                 notes.append(f"beneficiario FHIR indisponivel: {type(exc).__name__}")
         return {"gathered": True, "nip_facts": nip_facts, "gather_notes": notes}
 
@@ -968,7 +971,9 @@ class GustavoGraph:
                 # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
                 task_kind="reasoning",
             )
-        except Exception:  # noqa: BLE001 — LLM failure never blocks the human route.
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:  # LLM failure never blocks the human route.
             narrativa = ""
         return {
             "prompt_version": DOSSIER_PROMPT_VERSION,

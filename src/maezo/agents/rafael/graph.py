@@ -73,6 +73,7 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.platform.privacy.dossier_zone import dossier_narrative_requires_phi_zone
+from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
     start_unavailable_error,
@@ -447,7 +448,9 @@ class RafaelGraph:
         coverage_ref = state.get("coverage_ref") or state.get("beneficiario_pseudo_id", "")
         try:
             coverage_facts = await self._fhir.search_coverage(coverage_ref)
-        except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES as exc:  # best-effort enrichment, never fatal.
             # CLASS TOKEN ONLY (CC-10): `str(exc)` from a FHIR client typically echoes the URL /
             # id it failed on — i.e. the `coverage_ref` argument — and this note is copied into
             # the dossier prompt AND into the engine-sealed `dossie_rafael` (general zone,
@@ -460,7 +463,9 @@ class RafaelGraph:
         if patient_ref:
             try:
                 patient_facts = await self._fhir.read_patient(patient_ref)
-            except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
+            except PROGRAMMING_ERRORS:
+                raise
+            except EXTERNAL_DEPENDENCY_FAILURES as exc:  # best-effort enrichment, never fatal.
                 # CLASS TOKEN ONLY (CC-10) — same rationale as the coverage note above; here the
                 # leaked argument would be `patient_ref` itself.
                 logger.warning("rafael_fhir_beneficiario_indisponivel", exc_info=True)
@@ -775,7 +780,9 @@ class RafaelGraph:
                 # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
                 task_kind="reasoning",
             )
-        except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:  # LLM failure never blocks the human/auto route.
             narrativa = ""
         return {
             "prompt_version": DOSSIER_PROMPT_VERSION,
