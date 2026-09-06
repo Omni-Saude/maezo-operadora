@@ -13,9 +13,7 @@ import sys
 from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts" / "ci"))
-import check_doc_symbol_citations as gate  # noqa: E402
+from scripts.ci import check_doc_symbol_citations as gate
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 

@@ -131,7 +131,8 @@ def extract_import_citations(doc_name: str, text: str) -> list[ImportCitation]:
     for m in _IMPORT_CITATION_RE.finditer(text):
         names = tuple(n.strip() for n in m.group("names").split(",") if n.strip())
         if names:
-            citations.append(ImportCitation(doc_name, _line_number(text, m.start()), m.group("module"), names))
+            doc_line = _line_number(text, m.start())
+            citations.append(ImportCitation(doc_name, doc_line, m.group("module"), names))
     return citations
 
 
@@ -153,9 +154,7 @@ def extract_line_citations(text: str) -> list[tuple[str, int]]:
 
 def tracked_files(repo_root: Path) -> list[str]:
     """`git ls-files` — works unchanged in a shallow clone (no history needed)."""
-    proc = subprocess.run(
-        ["git", "ls-files"], cwd=repo_root, capture_output=True, text=True, check=True
-    )
+    proc = subprocess.run(["git", "ls-files"], cwd=repo_root, capture_output=True, text=True, check=True)
     return proc.stdout.splitlines()
 
 
@@ -194,7 +193,7 @@ class _SymbolCollector(ast.NodeVisitor):
     def __init__(self) -> None:
         self.symbols: set[str] = set()
 
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802 (ast visitor naming)
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self.symbols.add(node.name)
         for child in node.body:
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -207,31 +206,31 @@ class _SymbolCollector(ast.NodeVisitor):
                 self.symbols.add(f"{node.name}.{child.target.id}")
         self.generic_visit(node)
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self.symbols.add(node.name)
         self.generic_visit(node)
 
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self.symbols.add(node.name)
         self.generic_visit(node)
 
-    def visit_Assign(self, node: ast.Assign) -> None:  # noqa: N802
+    def visit_Assign(self, node: ast.Assign) -> None:
         for target in node.targets:
             if isinstance(target, ast.Name):
                 self.symbols.add(target.id)
         self.generic_visit(node)
 
-    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:  # noqa: N802
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if isinstance(node.target, ast.Name):
             self.symbols.add(node.target.id)
         self.generic_visit(node)
 
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         for alias in node.names:
             self.symbols.add(alias.asname or alias.name)
         self.generic_visit(node)
 
-    def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
+    def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
             self.symbols.add((alias.asname or alias.name).split(".")[0])
         self.generic_visit(node)
@@ -359,10 +358,7 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
                 continue
             if not resolve_symbol(repo_root, candidates, sc.symbol):
                 reason = _disclosed_reason(doc_name, citation_repr)
-                msg = (
-                    f"{doc_name}:{sc.doc_line}: `{citation_repr}` — symbol not found "
-                    f"(tried {candidates})"
-                )
+                msg = f"{doc_name}:{sc.doc_line}: `{citation_repr}` — symbol not found (tried {candidates})"
                 (disclosed if reason else failures).append(
                     msg + (f" [DISCLOSED: {reason}]" if reason else "")
                 )
@@ -412,9 +408,7 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
                 "never found this run) — prune this entry, it is stale allowlist rot"
             )
 
-    return GateResult(
-        failures=failures, disclosed=disclosed, line_citation_count=line_count, ok=not failures
-    )
+    return GateResult(failures=failures, disclosed=disclosed, line_citation_count=line_count, ok=not failures)
 
 
 # ---------------------------------------------------------------------------
