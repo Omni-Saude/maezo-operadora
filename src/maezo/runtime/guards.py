@@ -67,7 +67,7 @@ def require_iso8601_duration(value: Any, *, field: str, notes: list[str] | None 
         if notes is not None:
             notes.append(f"{field}_ausente")
         return None
-    if not isinstance(value, str) or not _ISO8601_DURATION.match(value):
+    if not isinstance(value, str) or not _ISO8601_DURATION.fullmatch(value):
         if notes is not None:
             notes.append(f"{field}_invalido")
         return None
