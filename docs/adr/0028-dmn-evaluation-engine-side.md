@@ -194,6 +194,22 @@ Each Python re-implementation maps to a **deployed** decision key (all present i
 | `credenciamento.py:69` | `cred_admissibility` + `cred_route` | ✅ | no | provider credentialing |
 | `lgpd.py:102` | `lgpd_dsr_routing` | ✅ | no (list) | LGPD/PHI |
 
+**Adendo 2026-09-06 (R-089 / gap `ADR-0026-0028-STALE-ANSCRON`, owner-decision, `docs/adr/` CODEOWNED,
+disclosed in `scripts/ci/check_doc_symbol_citations.py::_DISCLOSED_ROT`).** A tabela acima (nao
+editada — `docs/adr/README.md:8` proibe reescrita in-loco de ADR `Accepted`) cita `ans_cron.py:116`
+como o worker fn Python que reimplementava `ans_calendar`. Essa citacao ficou stale de um jeito mais
+forte que os outros nove pares desta tabela: nao e so a LINHA que se moveu — **o worker fn foi
+DELETADO** (a funcao `check_calendar`, nao renomeada). §7 desta mesma ADR-0028 previa exatamente esse
+desfecho ("only after 100% parity in CI: delete the Python re-implementation, repoint the worker to
+the seam"), e e o que aconteceu: com a taxonomia Python<->DMN reconciliada (GAP-ANS-1/ANS-CRON-DEAD-CODE,
+prova em `tests/integration/dmn/test_dmn_golden_parity.py::test_ans_calendar_periodicidade_paridade_com_taxonomia_do_worker`),
+`ans_calendar` e avaliada hoje **so** engine-side, pelo businessRuleTask
+`spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn::BRT_Calendario`
+(`camunda:decisionRef="ans_calendar"`) — nao ha mais nenhum `path:line` Python para citar nessa
+linha da tabela. Das 10 linhas desta tabela, `ans_calendar` e a UNICA cujo "Worker fn" e hoje `—
+(engine-side only, ver Adendo 2026-09-06)`; as outras nove permanecem Python `path:line` genuinos
+(nao reverificados por este adendo, fora do escopo de R-089).
+
 **Scope warning (T1.5 must not under-scope).** The plan's explicit deletion list
 (`inadimplencia.py:80`, `contas.py:271`, `recurso.py:168`, `ans_submit.py:280`) and the acceptance grep
 `"DMN-like" → 0` are **different, only partially-overlapping** subsets. `grep "DMN-like"` today returns
