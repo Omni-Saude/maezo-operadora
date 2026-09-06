@@ -19,12 +19,20 @@ WHAT THIS CHECKS (per (agent, contract) pair of `test_contract_provenance_parity
 minus marina's excluded `reembolso` no-op flow — same exclusion, same reason):
 
   1. WRITE direction: every string-literal key the builder method
-     (`_contract_variables`/`_escalation_variables`/`_inadimplencia_variables`) can assign into
-     its `variables`/`common` dict for THIS flow — branch-aware for the ONE flow-discriminating
-     `if` marina/gustavo's shared builders use (`flow`/`fluxo`), unioned across every OTHER
-     (non-flow) conditional, mirroring `_CASES`'s own "full additive set" philosophy — must be
-     declared under one of `## Variaveis de entrada` / `## Variaveis de saida` / `## Variaveis de
-     proveniencia` in that contract's markdown.
+     (`_contract_variables`/`_escalation_variables`/`_inadimplencia_variables`) assigns into its
+     `variables`/`common` dict via one of `_VariableCollector`'s HANDLED shapes — an initial
+     `dict_var: dict[str, Any] = {...}` literal (`ast.AnnAssign`), a later
+     `dict_var["key"] = ...` (`ast.Assign` to a `Subscript`), `dict_var.update({...})`, a
+     `for opt in (<literals>): ...` tail, and (branch-aware) an `if`/`else` — for THIS flow,
+     branch-aware for the ONE flow-discriminating `if` marina/gustavo's shared builders use
+     (`flow`/`fluxo`), unioned across every OTHER (non-flow) conditional, mirroring `_CASES`'s
+     own "full additive set" philosophy — must be declared under one of `## Variaveis de
+     entrada` / `## Variaveis de saida` / `## Variaveis de proveniencia` in that contract's
+     markdown. NOT handled (§Delta-F4 whitelist, `_VariableCollector.blind_spots`, checked and
+     currently EMPTY for all 7 real builders): a `**` spread of a Dict literal, a `dict(...)`
+     builtin call, `dict_var` aliased to another Name, or any statement inside a `try:`/`while:`/
+     `with:` body — any of these appearing in a FUTURE builder fails the fence loudly instead of
+     silently under-collecting.
   2. READ direction: every variable declared "obrigatoria: sim" (or a `sim*`/`sim§`
      fail-safe/pre-resolved variant — still a hard input, per those contracts' own legend) under
      `## Variaveis de entrada` must be referenced somewhere in that agent's own `graph.py`
@@ -128,14 +136,43 @@ def _flow_branch_value(test: ast.expr, flow_field: str) -> str | None:
     return None
 
 
+# §Delta-F4: the ONLY statement shapes `_VariableCollector._visit` actually understands. Any
+# statement type outside this set found ANYWHERE in a builder (via `_check_whitelist`'s
+# `ast.walk`, not just the flow-selected branch) is a BLIND SPOT — recorded, never silently
+# dropped. `ast.Expr` covers both the docstring (`Expr(Constant)`) and `variables.update(...)`
+# calls; a non-`.update` Expr, a `dict(...)` call, a `**`-spread dict literal, or a `dict_var`
+# rebind to another Name are caught by the separate expression-level checks below (they are
+# still `ast.Assign`/`ast.Expr` at the STATEMENT level, so the statement whitelist alone would
+# miss them).
+_HANDLED_STMT_TYPES: tuple[type[ast.stmt], ...] = (
+    ast.Return,
+    ast.Assign,
+    ast.AnnAssign,
+    ast.Expr,
+    ast.If,
+    ast.For,
+)
+
+
 class _VariableCollector:
-    """Branch-aware AST walk of one contract-variable builder — see module docstring."""
+    """Branch-aware AST walk of one contract-variable builder — see module docstring.
+
+    §Delta-F4: `collect()` also runs `_check_whitelist`, a WHITELIST assertion over the builder's
+    ENTIRE body (`ast.walk`, not just the flow-selected branch `_visit` descends into) that
+    records, in `blind_spots`, any of the four previously-undisclosed shapes the fixed
+    `ast.AnnAssign` bug's own self-repair uncovered as a species: a `**` spread of a Dict literal
+    (`variables = {**variables, **{...}}`), a `dict(...)` builtin call
+    (`variables.update(dict(k="x"))`), `dict_var` aliased to another Name (`alias = variables`),
+    or any statement type outside `_HANDLED_STMT_TYPES` (e.g. a `try:` body). A future refactor
+    into one of these shapes now makes the fence FAIL LOUDLY instead of silently staying green.
+    """
 
     def __init__(self, dict_var: str, flow_field: str | None, flow_value: str | None) -> None:
         self._dict_var = dict_var
         self._flow_field = flow_field
         self._flow_value = flow_value
         self.keys: set[str] = set()
+        self.blind_spots: list[str] = []
 
     def _collect_dict_literal(self, node: ast.Dict) -> None:
         for key in node.keys:
@@ -213,8 +250,45 @@ class _VariableCollector:
     def _visit_body(self, body: list[ast.stmt]) -> bool:
         return any(self._visit(stmt) for stmt in body)
 
-    def collect(self, body: list[ast.stmt]) -> set[str]:
-        self._visit_body(body)
+    def _check_whitelist(self, func: ast.FunctionDef) -> None:
+        """§Delta-F4: `ast.walk(func)` reaches every nested node regardless of statement type —
+        including inside a `try:`/`while:`/`with:` body `_visit`'s catch-all `return False` would
+        otherwise silently skip. Any of the four previously-undisclosed shapes (or any other
+        statement type outside `_HANDLED_STMT_TYPES`) is appended to `self.blind_spots`, never
+        silently dropped."""
+        for node in ast.walk(func):
+            if node is func:
+                continue
+            if isinstance(node, ast.stmt) and not isinstance(node, _HANDLED_STMT_TYPES):
+                self.blind_spots.append(
+                    f"line {node.lineno}: unhandled statement type {type(node).__name__} "
+                    f"(outside {[t.__name__ for t in _HANDLED_STMT_TYPES]})"
+                )
+            elif isinstance(node, ast.Dict) and any(key is None for key in node.keys):
+                self.blind_spots.append(
+                    f"line {node.lineno}: dict literal contains a `**` spread — a nested key "
+                    "reached only through the spread is never collected"
+                )
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "dict":
+                self.blind_spots.append(
+                    f"line {node.lineno}: `dict(...)` builtin call — its keys are never collected"
+                )
+            elif (
+                isinstance(node, ast.Assign)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == self._dict_var
+                and not any(
+                    isinstance(target, ast.Name) and target.id == self._dict_var for target in node.targets
+                )
+            ):
+                self.blind_spots.append(
+                    f"line {node.lineno}: `{self._dict_var}` is aliased to another name — "
+                    "writes through the alias are never collected"
+                )
+
+    def collect(self, func: ast.FunctionDef) -> set[str]:
+        self._check_whitelist(func)
+        self._visit_body(func.body)
         return self.keys
 
 
@@ -326,8 +400,15 @@ def test_every_engine_variable_the_graph_writes_is_declared_in_its_contract(
 ) -> None:
     tree = _agent_module_tree(agent_id)
     func = _find_function(tree, method)
-    written = _VariableCollector(dict_var, flow_field, flow_value).collect(func.body)
+    collector = _VariableCollector(dict_var, flow_field, flow_value)
+    written = collector.collect(func)
     assert written, f"{agent_id}::{method}: AST walk found ZERO keys — extractor regressed, not a real gap"
+    assert not collector.blind_spots, (
+        f"{agent_id}::{method}: _VariableCollector's whitelist found shape(s) it cannot inspect "
+        f"(§Delta-F4) — {collector.blind_spots}. Extend `_VariableCollector` to handle the shape, "
+        f"or refactor the builder to avoid it; do NOT ignore this, a blind spot here means a "
+        f"future undeclared engine variable could slip through this fence unnoticed."
+    )
 
     declared = _declared_variables(contract_id)
     exception = _KNOWN_UNDECLARED_WRITES.get((agent_id, contract_id), frozenset())
