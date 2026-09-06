@@ -75,7 +75,7 @@ def _uncache_lazy_loggers() -> int:
         for value in list(namespace.values()):
             try:
                 is_proxy = isinstance(value, _LAZY_PROXY_TYPE)
-            except Exception:  # noqa: BLE001 — exotic __class__ descriptors must not break teardown.
+            except Exception:  # exotic __class__ descriptors must not break teardown.
                 continue
             if is_proxy and _CACHED_BIND_ATTR in vars(value):
                 del value.__dict__[_CACHED_BIND_ATTR]

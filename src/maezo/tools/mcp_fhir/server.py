@@ -124,7 +124,7 @@ class _Autenticador:
             corpo = r.json()
         except FhirAuthError:
             raise
-        except Exception as exc:  # noqa: BLE001 — qualquer falha de rede e' fail-closed
+        except Exception as exc:  # qualquer falha de rede e' fail-closed
             raise FhirAuthError(
                 f"nao foi possivel obter token do Cognito ({type(exc).__name__}: {exc}). "
                 "Recusando chamada FHIR sem credencial — um 401 do servidor clinico "

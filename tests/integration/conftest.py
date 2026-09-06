@@ -180,7 +180,7 @@ def _pg_reachable(dsn: str) -> bool:
     async def _probe() -> bool:
         try:
             conn = await asyncio.wait_for(asyncpg.connect(normalize_dsn(dsn)), timeout=3.0)
-        except Exception:  # noqa: BLE001 — any failure means "skip loudly", never an error here
+        except Exception:  # any failure means "skip loudly", never an error here
             return False
         await conn.close()
         return True

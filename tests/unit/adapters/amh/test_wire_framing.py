@@ -358,7 +358,7 @@ def test_no_hostile_decode_or_encode_input_ever_escapes_as_a_bare_stdlib_excepti
             candidate_codec.decode(atom)
         except WireFramingError:
             pass
-        except Exception as exc:  # noqa: BLE001 - the assertion IS that this never happens
+        except Exception as exc:  # the assertion IS that this never happens
             pytest.fail(f"decode({atom!r}) leaked {type(exc).__name__} instead of a WireFramingError")
 
     hostile_frames: tuple[DecodedFrame, ...] = (
@@ -372,7 +372,7 @@ def test_no_hostile_decode_or_encode_input_ever_escapes_as_a_bare_stdlib_excepti
             candidate_codec.encode(frame)
         except WireFramingError:
             pass
-        except Exception as exc:  # noqa: BLE001 - the assertion IS that this never happens
+        except Exception as exc:  # the assertion IS that this never happens
             pytest.fail(f"encode({frame!r}) leaked {type(exc).__name__} instead of a WireFramingError")
 
 

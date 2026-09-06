@@ -666,7 +666,7 @@ def make_andre_handler(
             # is not a failed agent. Enumerated and pinned by
             # `tests/unit/platform/test_alert_metrics_fence.py::
             # test_every_graph_invocation_in_src_counts_agent_errors`.
-            from maezo.platform.observability import record_agent_error  # noqa: PLC0415
+            from maezo.platform.observability import record_agent_error
 
             record_agent_error(agent="andre", error_type=classify_agent_error_type(exc))
             raise

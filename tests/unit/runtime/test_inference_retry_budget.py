@@ -743,5 +743,5 @@ def test_inertness_the_production_construction_path_has_retry_off_and_no_real_tr
     _set_owner_acts(monkeypatch)
     adapter = BrResidentInferenceProvider(model=_MODEL)
 
-    assert adapter._retry_budget.max_attempts == 1  # noqa: SLF001 — the inertness fact IS the probe
-    assert isinstance(adapter._transport, inf.RefusingBrRegionalTransport)  # noqa: SLF001
+    assert adapter._retry_budget.max_attempts == 1  # the inertness fact IS the probe
+    assert isinstance(adapter._transport, inf.RefusingBrRegionalTransport)

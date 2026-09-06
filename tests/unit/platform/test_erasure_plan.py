@@ -387,7 +387,7 @@ def test_the_probe_guard_survives_python_dash_o_optimize() -> None:
         "else:\n"
         "    raise SystemExit('GUARD DID NOT FIRE UNDER -O — regressed to assert-strippable')\n"
     )
-    result = subprocess.run(  # noqa: S603 — fixed argv, no shell
+    result = subprocess.run(  # fixed argv, no shell
         [sys.executable, "-O", "-c", script],
         cwd=str(_REPO_ROOT),
         capture_output=True,
@@ -916,7 +916,7 @@ def test_the_artifact_points_at_the_review_packet_that_exists() -> None:
 
 
 def test_the_cli_reports_the_unratified_state_and_has_no_effect() -> None:
-    result = subprocess.run(  # noqa: S603 — fixed argv, no shell
+    result = subprocess.run(  # fixed argv, no shell
         [sys.executable, "-m", "maezo.platform.lifecycle.erasure_plan", "--tenant", "t1"],
         cwd=str(_REPO_ROOT),
         capture_output=True,
@@ -932,7 +932,7 @@ def test_the_cli_reports_the_unratified_state_and_has_no_effect() -> None:
 
 def test_the_cli_never_takes_a_subject_reference_on_argv() -> None:
     """argv shows up in `ps` and in shell history; the reference is read from the env instead."""
-    result = subprocess.run(  # noqa: S603 — fixed argv, no shell
+    result = subprocess.run(  # fixed argv, no shell
         [
             sys.executable,
             "-m",

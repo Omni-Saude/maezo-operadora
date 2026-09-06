@@ -1,0 +1,163 @@
+"""INERT-NOQA-SWEEP: no `# noqa: <RULE>` in the tree may reference a rule prefix ruff's own
+`pyproject.toml` `[tool.ruff.lint] select` does not enable.
+
+Why this matters (found by the round-6 sweep, 2026-09-06): a `# noqa: <CODE>` for a rule prefix
+outside `select` is not merely decorative — ruff never evaluates that code at all (it isn't
+selected), so the suppression is dead FOR THAT CODE. Worse, it was also observed to silently
+suppress `E501` (line-too-long, which IS enabled) on the SAME physical line regardless of which
+code the noqa comment actually names — `src/maezo/platform/health.py`'s `build_health_server`
+line carried `# noqa: S104 - ...` (S104/`hardcoded-bind-all-interfaces` is not in `select`) and
+was 168 characters wide, yet `ruff check` passed until the inert comment was removed and the line
+genuinely reformatted. So an inert noqa is not inert to a reader auditing the codebase for
+suppressions, and was not even inert to E501 in practice.
+
+This fence reads the enabled prefixes from `pyproject.toml` itself (never hard-coded — the whole
+point is to track `select` if it ever changes) and fails on ANY future `# noqa: <CODE>` whose
+rule-letter prefix (e.g. "BLE" of "BLE001", "S" of "S104") is not currently enabled.
+"""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import tomllib
+from pathlib import Path
+
+import pytest
+
+# tests/unit/ci/<file> -> parents[3] == repo root.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# Matches a suppression directive with an explicit, comma-separated rule-code list anywhere on a
+# line (never a bare marker with no codes at all — this repo has none of those today; a bare one
+# suppresses everything and is a different, worse anti-pattern this fence does not (yet) police).
+# NOTE: written without the literal marker word immediately followed by ":" in this comment on
+# purpose — ruff's own scanner for that exact directive shape does not distinguish prose from the
+# real thing and would otherwise warn "Invalid directive" about this very sentence.
+_NOQA_DIRECTIVE_RE = re.compile(
+    r"#\s*noqa\s*:\s*(?P<codes>[A-Za-z][A-Za-z0-9]*(?:\s*,\s*[A-Za-z][A-Za-z0-9]*)*)"
+)
+
+# A rule code's PREFIX is its leading run of letters (e.g. "BLE" of "BLE001", "ASYNC" of
+# "ASYNC220", "E" of "E501") — ruff's `select` entries are exactly these letter prefixes.
+_RULE_PREFIX_RE = re.compile(r"^([A-Za-z]+)")
+
+
+def enabled_rule_prefixes(pyproject_path: Path) -> frozenset[str]:
+    """Pure: the `[tool.ruff.lint] select` list from `pyproject.toml`, as a frozenset of rule
+    prefixes. Read from disk every time — never hard-coded — so this fence tracks `select` if it
+    is ever widened or narrowed, instead of silently drifting from the real configuration."""
+    with open(pyproject_path, "rb") as fh:
+        data = tomllib.load(fh)
+    select = data["tool"]["ruff"]["lint"]["select"]
+    return frozenset(select)
+
+
+def rule_prefix(code: str) -> str:
+    """Pure: the letter-prefix of a rule code, e.g. `rule_prefix("BLE001") == "BLE"`."""
+    match = _RULE_PREFIX_RE.match(code)
+    return match.group(1) if match else code
+
+
+def find_inert_noqa_references(
+    paths: list[Path], enabled_prefixes: frozenset[str]
+) -> list[tuple[Path, int, str]]:
+    """Pure(ish) I/O: scan every file in `paths` for a `# noqa: CODE` directive whose code's
+    prefix is not in `enabled_prefixes`. Returns `(path, 1-indexed line number, code)` for every
+    such reference, in file order — one entry PER inert code, so a mixed line (some codes
+    enabled, some not) reports only the inert ones, matching how the sweep's own repair kept
+    enabled codes and dropped inert ones rather than treating the whole line as one unit."""
+    findings: list[tuple[Path, int, str]] = []
+    for path in paths:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            match = _NOQA_DIRECTIVE_RE.search(line)
+            if match is None:
+                continue
+            codes = [c.strip() for c in match.group("codes").split(",")]
+            for code in codes:
+                if rule_prefix(code) not in enabled_prefixes:
+                    findings.append((path, line_no, code))
+    return findings
+
+
+class TestEnabledRulePrefixes:
+    def test_reads_the_real_pyproject_select_list(self) -> None:
+        prefixes = enabled_rule_prefixes(_REPO_ROOT / "pyproject.toml")
+        # Sanity floor, not a hard pin: today's real select is a strict superset of this — if a
+        # future PR narrows `select` below this floor, THAT change should be reviewed deliberately
+        # (this test failing is the signal), not silently accepted by a test that hard-codes the
+        # full list and therefore never notices either direction of drift.
+        assert {"E", "F", "B"} <= prefixes
+
+
+class TestRulePrefix:
+    @pytest.mark.parametrize(
+        ("code", "expected"),
+        [("BLE001", "BLE"), ("S104", "S"), ("ASYNC220", "ASYNC"), ("E501", "E"), ("N801", "N")],
+    )
+    def test_extracts_the_letter_prefix(self, code: str, expected: str) -> None:
+        assert rule_prefix(code) == expected
+
+
+class TestFindInertNoqaReferencesFixture:
+    """Fixture-based: never mutates the real tree — proves the detector itself works before the
+    real-tree test below relies on it finding nothing."""
+
+    def test_inert_code_is_reported(self, tmp_path: Path) -> None:
+        target = tmp_path / "example.py"
+        target.write_text(
+            "def f():\n    x = 1  # noqa: BLE001 - hypothetical\n    return x\n",
+            encoding="utf-8",
+        )
+        findings = find_inert_noqa_references([target], frozenset({"E", "F"}))
+        assert findings == [(target, 2, "BLE001")]
+
+    def test_enabled_code_is_not_reported(self, tmp_path: Path) -> None:
+        target = tmp_path / "example.py"
+        target.write_text("import os  # noqa: E402\n", encoding="utf-8")
+        findings = find_inert_noqa_references([target], frozenset({"E"}))
+        assert findings == []
+
+    def test_mixed_line_reports_only_the_inert_code(self, tmp_path: Path) -> None:
+        target = tmp_path / "example.py"
+        target.write_text(
+            "proc = f()  # noqa: S603, ASYNC220 - mixed line\n",
+            encoding="utf-8",
+        )
+        findings = find_inert_noqa_references([target], frozenset({"ASYNC"}))
+        assert findings == [(target, 1, "S603")]
+
+    def test_no_noqa_at_all_is_not_reported(self, tmp_path: Path) -> None:
+        target = tmp_path / "example.py"
+        target.write_text("x = 1\n", encoding="utf-8")
+        assert find_inert_noqa_references([target], frozenset()) == []
+
+
+class TestRealTreeHasNoInertNoqa:
+    """The acceptance bar (INERT-NOQA-SWEEP): every `# noqa: CODE` in the real tree, tracked by
+    git (`git ls-files`, never a hand-maintained inventory — a new file is covered automatically),
+    references a rule prefix `pyproject.toml`'s `[tool.ruff.lint] select` actually enables."""
+
+    def test_no_tracked_python_file_carries_an_inert_noqa(self) -> None:
+        enabled_prefixes = enabled_rule_prefixes(_REPO_ROOT / "pyproject.toml")
+        tracked = subprocess.run(
+            ["git", "ls-files", "*.py"],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+        paths = [_REPO_ROOT / rel for rel in tracked]
+
+        findings = find_inert_noqa_references(paths, enabled_prefixes)
+
+        assert findings == [], (
+            f"{len(findings)} inert `# noqa` reference(s) found (rule prefix not in ruff's "
+            f"enabled select {sorted(enabled_prefixes)}): "
+            + "; ".join(f"{p.relative_to(_REPO_ROOT)}:{line}:{code}" for p, line, code in findings[:20])
+            + (" ..." if len(findings) > 20 else "")
+        )

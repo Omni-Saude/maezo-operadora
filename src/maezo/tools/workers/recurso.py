@@ -275,7 +275,7 @@ def _normalize_data_recebimento(raw: Any) -> tuple[str, bool]:
         # only the calendar date the DMN concatenates "T00:00:00" onto.
         candidate = text.split("T", 1)[0]
         try:
-            datetime.strptime(candidate, "%Y-%m-%d")  # noqa: DTZ007 — calendar date, not an instant
+            datetime.strptime(candidate, "%Y-%m-%d")  # calendar date, not an instant
         except ValueError:
             pass
         else:
@@ -665,7 +665,7 @@ def registrar_indeferimento(input_data: RecursoIndeferimentoInput) -> RecursoInd
         if valor_glosado is None:
             raise RecursoIndeferimentoNotHumanError(missing_fields=["valor_glosado_brl"], channel=channel)
         # mypy: both are non-None here (guarded above).
-        assert valor_deferido is not None and valor_mantido is not None  # noqa: S101
+        assert valor_deferido is not None and valor_mantido is not None
         if _to_cents(valor_deferido) + _to_cents(valor_mantido) != _to_cents(valor_glosado):
             raise RecursoIndeferimentoNotHumanError(
                 missing_fields=[

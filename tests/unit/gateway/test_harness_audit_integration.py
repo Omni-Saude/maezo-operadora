@@ -79,7 +79,7 @@ def _default_test_dsn() -> str:
 async def _postgres_reachable(dsn: str) -> bool:
     try:
         conn = await asyncio.wait_for(asyncpg.connect(normalize_dsn(dsn)), timeout=2.0)
-    except Exception:  # noqa: BLE001 — any connection failure means "skip", not "error"
+    except Exception:  # any connection failure means "skip", not "error"
         return False
     await conn.close()
     return True
@@ -258,7 +258,7 @@ async def test_kill_test_emit_before_complete_exactly_once(pg_dsn: str, tenant_s
     task_id = "kt-effect-1"
     dedup_key = f"{tenant_schema}:{task_id}"
 
-    proc = subprocess.Popen(  # noqa: S603, ASYNC220 — kill-test needs real-time stdout + a real OS signal
+    proc = subprocess.Popen(  # noqa: ASYNC220 — kill-test needs real-time stdout + a real OS signal
         [
             sys.executable,
             str(_HARNESS_KILLTEST_WRITER),
@@ -302,7 +302,7 @@ async def test_kill_test_emit_before_complete_exactly_once(pg_dsn: str, tenant_s
     )
 
     # Re-deliver the SAME task_id: emit dedups (no 2nd row), complete now succeeds.
-    proc2 = subprocess.run(  # noqa: S603, ASYNC221 — re-delivery writer must finish before verifying
+    proc2 = subprocess.run(  # noqa: ASYNC221 — re-delivery writer must finish before verifying
         [
             sys.executable,
             str(_HARNESS_KILLTEST_WRITER),

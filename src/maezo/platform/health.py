@@ -68,7 +68,7 @@ async def _run_one_check(check: ReadinessCheck) -> CheckResult:
             healthy=False,
             detail=f"timeout after {_READINESS_CHECK_TIMEOUT_SECONDS:.0f}s",
         )
-    except Exception as exc:  # noqa: BLE001 — intentional isolation: a probe never fails /readyz's own request.
+    except Exception as exc:  # intentional isolation: a probe never fails /readyz's own request.
         return CheckResult(name=name, healthy=False, detail=f"{type(exc).__name__}: {exc}")
 
 
@@ -119,12 +119,13 @@ def create_health_app(
     return app
 
 
-def build_health_server(app: FastAPI, *, host: str = "0.0.0.0", port: int = 8000) -> Server:  # noqa: S104 — bind-all is intentional inside a pod's network namespace.
+def build_health_server(app: FastAPI, *, host: str = "0.0.0.0", port: int = 8000) -> Server:
     """Build a controllable `uvicorn.Server` for the health app, without starting it.
 
     The caller runs `await server.serve()` as an asyncio task and, on shutdown, sets
     `server.should_exit = True` to stop it. `access_log=False` keeps Prometheus scrapes / kubelet
-    probes out of the log stream.
+    probes out of the log stream. `host="0.0.0.0"`'s bind-all default is intentional inside a
+    pod's network namespace (the pod itself is the isolation boundary, not this bind address).
     """
     config = Config(app, host=host, port=port, log_level="info", access_log=False)
     return Server(config)

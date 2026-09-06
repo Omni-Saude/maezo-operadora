@@ -19,7 +19,7 @@ from typing import Final
 import pytest
 
 from maezo.runtime.inference import (
-    _PROVIDER_FACTORIES,  # noqa: PLC2701 — the fenced registry IS the thing under test
+    _PROVIDER_FACTORIES,  # the fenced registry IS the thing under test
     PHI_DENIAL_CLASSIFICATION,
     PHI_DENIAL_NOT_ALLOWED,
     PHI_DENIAL_REGION,
@@ -598,7 +598,7 @@ def test_classification_order_covers_every_member() -> None:
 
     Guards the one place the sensitivity ladder could silently become partial.
     """
-    from maezo.runtime.inference import _CLASSIFICATION_ORDER  # noqa: PLC2701
+    from maezo.runtime.inference import _CLASSIFICATION_ORDER
 
     assert set(_CLASSIFICATION_ORDER) == set(DataClassification)
     assert len(_CLASSIFICATION_ORDER) == len(DataClassification)  # no duplicates

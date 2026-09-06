@@ -112,7 +112,7 @@ def _helena_model_tiers() -> dict[str, str]:
 
     try:
         return AgentLoader().load_by_id("helena").model_tiers()
-    except Exception as exc:  # noqa: BLE001 — see the docstring: total by design, never silent.
+    except Exception as exc:  # see the docstring: total by design, never silent.
         logger.error(
             "helena_model_tiers_unavailable",
             error=f"{type(exc).__name__}: {exc}",
@@ -269,7 +269,7 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
     try:
         state.dispatcher, state.cibseven_transport = _build_dispatcher(state.settings)
         logger.info("webhook_dispatcher_ready", tenant=state.settings.tenant_id)
-    except Exception as exc:  # noqa: BLE001 — isolated: liveness/readiness must stay up.
+    except Exception as exc:  # isolated: liveness/readiness must stay up.
         state.dispatcher_error = f"{type(exc).__name__}: {exc}"
         logger.error("webhook_dispatcher_build_failed", exc_info=True)
         return
@@ -302,7 +302,7 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
     # Isolated exactly like the construction above — a failure here must not crash bring-up.
     try:
         await _provision_dispatch_checkpointer(state)
-    except Exception as exc:  # noqa: BLE001 — isolated; never propagate (liveness stays up).
+    except Exception as exc:  # isolated; never propagate (liveness stays up).
         state.dispatcher = None
         state.dispatcher_error = f"checkpointer provisioning error: {type(exc).__name__}: {exc}"
         logger.error("webhook_dispatch_checkpointer_provision_failed", exc_info=True)

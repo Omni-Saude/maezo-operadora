@@ -414,7 +414,7 @@ class BrResidentInferenceProvider(BaseInferenceProvider):
             raw = await self._transport.send(request)
         except InferenceProviderError:
             raise  # already this module's own error type; do not re-wrap and lose `retryable`.
-        except Exception as exc:  # noqa: BLE001 — no transport-level type may leak past this module.
+        except Exception as exc:  # no transport-level type may leak past this module.
             raise BrRegionalTransportUnavailableError(
                 f"BR-regional transport failed: {type(exc).__name__}", retryable=False
             ) from exc

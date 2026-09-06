@@ -328,7 +328,7 @@ def test_audit_record_rejects_naive_timestamp() -> None:
             action="triagem",
             decision="ALLOW",
             details={},
-            timestamp=datetime(2026, 7, 17, 12, 0, 0),  # noqa: DTZ001 — the point of the test
+            timestamp=datetime(2026, 7, 17, 12, 0, 0),  # the point of the test
         )
 
 

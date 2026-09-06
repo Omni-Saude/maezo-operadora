@@ -368,7 +368,7 @@ class TestEngineDeployClientLifecycle:
         client = EngineDeployClient(base_url="http://engine.example/engine-rest")
         with client as c:
             assert c.base_url == "http://engine.example/engine-rest"
-        assert client._client.is_closed  # noqa: SLF001 - lifecycle assertion
+        assert client._client.is_closed  # lifecycle assertion
 
     def test_injected_client_not_closed_by_context_manager(self) -> None:
         real_client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={})))

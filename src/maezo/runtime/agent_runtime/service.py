@@ -534,7 +534,7 @@ async def _probe_a2a_audit_sink(sink: PostgresAuditSink, timeout_s: float) -> bo
     """
     try:
         await asyncio.wait_for(sink.check_ready(), timeout=timeout_s)
-    except Exception as exc:  # noqa: BLE001 — any failure means "not ready", never propagates.
+    except Exception as exc:  # any failure means "not ready", never propagates.
         logger.warning("a2a_audit_sink_probe_failed", error=str(exc))
         return False
     return True
@@ -549,7 +549,7 @@ async def _bring_up_dependencies(state: AgentState) -> None:
 
     try:
         state.agent_definition = _load_agent_definition(settings)
-    except Exception as exc:  # noqa: BLE001 — isolated per design §10/Q-6; leaves the check unhealthy.
+    except Exception as exc:  # isolated per design §10/Q-6; leaves the check unhealthy.
         state.agent_definition_error = f"{type(exc).__name__}: {exc}"
         logger.error("agent_definition_load_failed", agent_id=settings.agent_id, exc_info=True)
 
@@ -558,7 +558,7 @@ async def _bring_up_dependencies(state: AgentState) -> None:
     except PolicyError as exc:
         state.pep_error = str(exc)
         logger.error("agent_pep_build_failed", tenant=settings.tenant_id, exc_info=True)
-    except Exception as exc:  # noqa: BLE001 — same isolation as above.
+    except Exception as exc:  # same isolation as above.
         state.pep_error = f"{type(exc).__name__}: {exc}"
         logger.error("agent_pep_build_failed", tenant=settings.tenant_id, exc_info=True)
 
@@ -577,7 +577,7 @@ async def _bring_up_dependencies(state: AgentState) -> None:
             artifact_digests=dict(approvals.artifact_digests),
             default_enforcement=approvals.default_enforcement,
         )
-    except Exception as exc:  # noqa: BLE001 — same isolation as above.
+    except Exception as exc:  # same isolation as above.
         state.effect_policy_error = f"{type(exc).__name__}: {exc}"
         logger.error("effect_policy_pin_failed", exc_info=True)
 
@@ -592,7 +592,7 @@ async def _bring_up_dependencies(state: AgentState) -> None:
         state.inference_provider = InferenceProvider(
             model_tiers=_declared_model_tiers(state.agent_definition)
         )
-    except Exception as exc:  # noqa: BLE001 — same isolation as above.
+    except Exception as exc:  # same isolation as above.
         state.inference_error = f"{type(exc).__name__}: {exc}"
         logger.error("agent_inference_provider_build_failed", exc_info=True)
 
@@ -616,7 +616,7 @@ async def _bring_up_dependencies(state: AgentState) -> None:
                 agent_id=settings.agent_id,
                 detail=state.effect_seams_detail,
             )
-    except Exception as exc:  # noqa: BLE001 — same isolation as above.
+    except Exception as exc:  # same isolation as above.
         state.effect_seams_detail = f"{type(exc).__name__}: {exc}"
         logger.error("effect_seams_gated_probe_failed", agent_id=settings.agent_id, exc_info=True)
 
@@ -627,7 +627,7 @@ async def _bring_up_dependencies(state: AgentState) -> None:
     except (UnknownAgentError, ValueError) as exc:
         state.agent_graph_error = f"{type(exc).__name__}: {exc}"
         logger.error("agent_graph_build_failed", agent_id=settings.agent_id, exc_info=True)
-    except Exception as exc:  # noqa: BLE001 — same isolation as above.
+    except Exception as exc:  # same isolation as above.
         state.agent_graph_error = f"{type(exc).__name__}: {exc}"
         logger.error("agent_graph_build_failed", agent_id=settings.agent_id, exc_info=True)
 
@@ -645,7 +645,7 @@ async def _bring_up_dependencies(state: AgentState) -> None:
             state.a2a_dispatcher = build_auth_delegation_dispatcher(
                 settings, inference=state.inference_provider
             )
-        except Exception as exc:  # noqa: BLE001 — same isolation as above.
+        except Exception as exc:  # same isolation as above.
             state.a2a_dispatcher_error = f"{type(exc).__name__}: {exc}"
             logger.error("a2a_dispatcher_build_failed", agent_id=settings.agent_id, exc_info=True)
 
@@ -661,7 +661,7 @@ async def _bring_up_dependencies(state: AgentState) -> None:
                     state.a2a_audit_sink_ready = await _probe_a2a_audit_sink(
                         audit_sink, settings.dep_connect_timeout_s
                     )
-            except Exception as exc:  # noqa: BLE001 — same isolation as above.
+            except Exception as exc:  # same isolation as above.
                 state.a2a_audit_sink_error = f"{type(exc).__name__}: {exc}"
                 logger.error(
                     "a2a_audit_sink_probe_construction_failed", agent_id=settings.agent_id, exc_info=True

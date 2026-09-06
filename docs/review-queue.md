@@ -2195,3 +2195,54 @@ futura decide entre (a) estender `check_plans_counts.py` com uma 4a forma `~N li
 tool_registry.py` (tolerancia `±`, ja que a alegacao usa `≈`) ou (b) remover o numero fixo da frase,
 igual ao reparo aplicado a `PLANS.md:6` nesta mesma tarefa (ver linha AF-06 do ledger, campo Status
 `PARTIAL`).
+
+## LEDGER-D3-01-DUPLICATE-ID — dois registros distintos de `docs/evidence-ledger.md` lideram com o mesmo id `D3-01` (2026-09-06, achado F4 do gatekeeper de r5/train-4)
+
+`docs/evidence-ledger.md` tem DUAS linhas cuja primeira celula lidera com `D3-01`: a linha datada
+2026-09-03 (trabalho de allowlist ADR-0030, autor `IMPL-ADR0030 (R2)`, worktree `adr-0030`) e a
+linha datada 2026-09-05 (migracao de erros de worker desta rodada, autor `worker-error-migrator
+(sonnet, R2)`, worktree `maezo-r5-wt/d3-01-worker-errors`). Nenhuma das duas e' `train-authored`;
+sao trabalhos genuinamente distintos que coincidiram no mesmo id-lider — `grep -n '^| D3-01'
+docs/evidence-ledger.md` reproduz as 2 linhas.
+
+`extract_ledger_task_ids`/`evaluate()` (`scripts/ci/check_evidence_ledger.py`) tratam ids de ledger
+como um CONJUNTO — a garantia fail-closed do gate ("`Tasks: D3-01` exige QUE UMA linha exista")
+continua correta com a colisao, entao NENHUMA correcao era necessaria ali. O que faltava era uma
+regra de desambiguacao para quem precisa de UMA linha por id (nao apenas "existe alguma"): um
+humano ou ferramenta que faca `grep -A5 '^| D3-01'` e pegue o primeiro resultado encontra a linha
+ERRADA (a de 2026-09-03, nao relacionada ao que um `Tasks: D3-01` mais recente provavelmente quer
+dizer).
+
+**Reparo (sem editar a linha historica — a tabela e' append-only):** `scripts/ci/
+check_evidence_ledger.py` ganhou `find_leading_id_collisions(ledger_text)` (detecta todo id que
+lidera mais de uma linha, com os numeros de linha de cada ocorrencia) e `resolve_leading_id_line
+(ledger_text, task_id)` (resolve a colisao para a linha MAIS NOVA = ultima no arquivo, ja que o
+arquivo e' append-only e ordem-no-arquivo e' ordem cronologica). `main()` agora imprime uma linha
+INFO (nunca falha o build) quando o id citado no `Tasks:`/branch de uma PR colide, nomeando as
+linhas envolvidas e qual e' a canonica. Testado em `tests/unit/ci/test_check_evidence_ledger.py`
+(`TestLeadingIdCollisions`, `TestResolveLeadingIdLine`, `TestRealLedgerD3_01Collision` — reproduz a
+colisao real e prova que a resolucao aponta para a linha `worker-error-migrator`, nao para
+`IMPL-ADR0030`), mutation-provado (`matching_lines[-1]` -> `matching_lines[0]` derruba os 2 testes
+que fixam a regra "mais nova").
+
+Nenhuma linha do ledger foi renomeada/editada/removida. As DUAS linhas `D3-01` permanecem no
+arquivo, distinguiveis por conteudo e agora tambem pela regra de resolucao programatica acima.
+Nada aqui e' ratificacao de SME — e' higiene de ferramenta (WP-DOCS-HYGIENE), classificacao
+`agent-executable`, `merge_gate: autonomous` per o registro.
+
+## AF-06 — PLANS.md:43 RESOLVIDO (round-6 tooling-sweep, 2026-09-06; a secao anterior fica intacta)
+
+Opcao (a) da secao anterior foi a escolhida: `scripts/ci/check_plans_counts.py` ganhou uma 4a
+forma, `gateway/tool_registry.py`, classe `ToolRegistry`, ≈<N> linhas` -> N deve estar dentro de
+`TOOL_REGISTRY_LINES_TOLERANCE` (10%, relativa) de `wc -l src/maezo/gateway/tool_registry.py` —
+tolerante, nao exato, porque a alegacao usa `≈` de proposito (patterns 1-3 continuam exigindo
+igualdade exata, que nunca fizeram sentido aqui). `PLANS.md:43` foi atualizado de `≈540` para
+`≈794` (real em 2026-09-06), com a nota de historico estendida `[534→540→794]`. Gate ao vivo:
+`env -u VIRTUAL_ENV uv run python scripts/ci/check_plans_counts.py` -> `PASS: 4 alegação(ões) ...
+reconciliam com a árvore real` (era `1 de 4 ... não reconcilia` antes do reparo). Testes novos em
+`tests/unit/ci/test_check_plans_counts.py` (`TestToolRegistryLinesPattern`, 8 casos incl. limite
+de tolerancia inclusivo/exclusivo e um caso negativo de nao-match para um `≈N linhas` de outro
+arquivo); mutacao provada (reintroduzir `≈540` no `PLANS.md` real -> gate vermelho, restaurado).
+`--tool-registry PATH` e' o novo flag opcional (default `src/maezo/gateway/tool_registry.py`);
+`main()` falha fechado se o arquivo nao existir, mesma postura de `--adr-dir`. AF-06 fecha aqui;
+nenhuma linha do ledger desta secao foi editada, so' esta nota nova.
