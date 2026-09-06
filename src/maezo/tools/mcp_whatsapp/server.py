@@ -14,6 +14,13 @@ is the second leg of the "uma entrega so" guard — `send_message` can claim a d
 the POST so a re-delivered inbound webhook cannot produce a second reply to the beneficiary. The
 registry is injected (`dedup=`), never constructed here: this module owns credentials and HTTP,
 not connection pools.
+
+TWO composition roots inject it today: `platform/webhooks/service.py` (Helena's live receiver)
+and `gateway/tool_registry.py::build_agent_seams` (every agent seam built from a settings surface
+that carries a `database_url` — the same field that already builds the `PostgresAuditSink`). A
+root WITHOUT a DSN wires no registry, and since §Delta W4-HYGIENE F2 a key supplied to such an
+instance REFUSES the send (`WhatsAppIdempotencyUnsupportedError`) instead of being accepted and
+ignored. Callers that legitimately want the unprotected send pass no key at all.
 """
 
 from __future__ import annotations
@@ -58,6 +65,18 @@ def _secret(suffix: str) -> Any:
     """
     names = AliasChoices(f"WHATSAPP_{suffix}", f"whatsapp_{suffix.lower()}")
     return Field(default="", validation_alias=names, repr=False, exclude=True)
+
+
+class WhatsAppIdempotencyUnsupportedError(RuntimeError):
+    """A caller asked for once-only delivery on an instance that cannot provide it (§Delta
+    W4-HYGIENE F2).
+
+    Its own class, not a bare `ValueError`, so a composition root or a graph can tell "this
+    WhatsAppServer was built WITHOUT a dedup registry" apart from the two credential refusals
+    `send_message` also raises and from `DedupRegistryUnavailableError` (registry present but
+    unable to answer — a DIFFERENT, operational fact). Raised BEFORE the POST: the refusal is
+    the whole point.
+    """
 
 
 class WhatsAppSettings(BaseSettings):
@@ -252,16 +271,23 @@ class WhatsAppServer:
             to: Recipient phone number in international format (e.g., '5511999999999').
             text: The message body text.
             idempotency_key: Optional durable dedup key for this send (see above).
-                Ignored — with a loud log line, never silently — when no registry
-                is wired.
+                Supplying it on an instance with NO registry REFUSES the send
+                (`WhatsAppIdempotencyUnsupportedError`) — never accepted and
+                ignored. Callers that want the unprotected send pass no key.
 
         Returns:
             The API response as a dict containing message IDs, or
             `{"suppressed_duplicate": True, ...}` when the guard suppressed the send.
+            A suppressed return is NOT a delivery: a caller that reports it as one
+            fabricates a delivery claim (§Delta W4-HYGIENE F1b —
+            `agents/lucas/graph.py::_entrega_de` is the in-repo reader of this fact).
 
         Raises:
             ValueError: If `phone_number_id` or the WABA token is unconfigured.
                 Neither refusal names a configured value.
+            WhatsAppIdempotencyUnsupportedError: If an `idempotency_key` was
+                supplied and this instance has no dedup registry. Fail closed,
+                before the POST.
             DedupRegistryUnavailableError: If the guard was asked for a decision
                 and could not give one — fail closed, because sending anyway is
                 exactly the duplicate reply the guard exists to prevent.
@@ -274,13 +300,30 @@ class WhatsAppServer:
             raise ValueError("WhatsApp access token is not configured — refusing to send")
 
         if idempotency_key is not None and self._dedup is None:
-            # Announced, never silent: the caller asked for once-only delivery and this instance
-            # cannot provide it. (Reachable only from a composition root that wired a key factory
-            # without a registry — the production root wires both or neither.)
+            # §Delta W4-HYGIENE F2 — REFUSED, not ignored. This branch used to log and POST
+            # ANYWAY, on the reasoning that "refusing would be worse". That reasoning was
+            # written when the only caller with a key was Helena's live path, whose root always
+            # wires the registry; the parenthetical it carried ("the production root wires both
+            # or neither") became FALSE the moment LUC-08 made Lucas's graph supply a key
+            # unconditionally, and an accepted-and-ignored parameter is exactly the workaround
+            # the programme forbids: the caller asked for once-only delivery, got a 2xx, and has
+            # no way to learn the guarantee was not provided.
+            #
+            # Refusing is the smaller failure. A caller that supplies a key does so BECAUSE a
+            # re-delivery of its turn is possible, so "send anyway" is a duplicate message to a
+            # beneficiary; the graphs that call this treat a send failure as best-effort and
+            # record it honestly (`mensagem_enviada=False` + a note), which is a disclosed
+            # non-delivery instead of a silent, unbounded duplicate. A root that WANTS the
+            # unprotected send keeps it by passing no key at all — that path is untouched and is
+            # still what Helena's non-dedup unit wiring uses.
             logger.error(
-                "whatsapp_send_idempotency_key_ignored",
+                "whatsapp_send_idempotency_key_unsupported",
                 detail="an idempotency key was supplied but this WhatsAppServer has no dedup "
-                "registry — the send is NOT protected against duplicate delivery",
+                "registry — the send is REFUSED rather than delivered unprotected",
+            )
+            raise WhatsAppIdempotencyUnsupportedError(
+                "this WhatsAppServer has no dedup registry — an idempotency_key cannot be "
+                "honoured, and the send is refused rather than accepted and ignored"
             )
         # Bound to locals so the guarded branches below are narrowed by mypy without any cast.
         registry = self._dedup

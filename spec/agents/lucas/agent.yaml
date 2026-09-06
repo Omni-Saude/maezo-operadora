@@ -70,6 +70,28 @@ memory:
 # resposta do beneficiario continua chegando, se chegar, so pelo webhook unico de Helena sem
 # contexto de cobranca. O gate era o PRE-REQUISITO de seguranca ORDENADO desse canal: foi
 # construido antes para que o canal ja' nasca gateado (CC-02), nao para declara-lo pronto.
+# IDEMPOTENCIA DE SAIDA (LUC-08, gap `IDEMPOTENCY-KEY-MISSING`, 2026-09-06): o envio de
+# `mcp-whatsapp.send_message` acima agora exige `idempotency_key` (`graph.py::WhatsAppSender`) —
+# uma redelivery do MESMO turno do engine reclama a MESMA chave no store duravel
+# `driver_idempotency` (ADR-0024) em vez de reenviar a mensagem/ACK ao beneficiario. Sem tabela
+# nova; mesmo store que `platform/webhooks/whatsapp/dispatch.py` ja usa para a saida de Helena.
+# CORRECAO (§Delta W4-HYGIENE, 2026-09-06) — a frase anterior descrevia a chave como
+# `f"{business_key}:{node}"` e afirmava o dedupe sem ressalva; as duas coisas eram imprecisas:
+#   (1) ESCOPO DA CHAVE: `business_key` (`ESC-{tenant}-{conversation_id}`) e' por CONVERSA, entao
+#       `business_key:node` colapsaria DUAS mensagens diferentes do mesmo beneficiario dentro do
+#       TTL de 24h numa chave so'. A chave agora e' `f"{business_key}:{node}:{fingerprint}"`,
+#       onde o fingerprint e' um sha256 truncado da ENTRADA DO CHAMADOR do turno
+#       (`graph.py::_turn_fingerprint`). Lucas nao carrega um `wamid` por turno hoje — gap 11.7
+#       acima e' exatamente isso — e o fingerprint e' o identificador por turno mais estavel que
+#       o estado carrega. RESIDUAL: dois turnos com entrada byte-identica sao indistinguiveis e
+#       o segundo e' suprimido (mesmo pedido repetido); a supressao NAO e' mais reportada como
+#       envio (desfecho proprio `envio_suprimido_duplicata`, `mensagem_enviada=False`).
+#   (2) ONDE O DEDUPE ACONTECE DE FATO: o `DedupRegistry` e' ligado pelo root de composicao
+#       `gateway/tool_registry.py::build_agent_seams`, a partir do MESMO `settings.database_url`
+#       que ja constroi o `PostgresAuditSink`. Um root SEM DSN nao liga registry, e nesse caso
+#       `WhatsAppServer.send_message` RECUSA o envio com `WhatsAppIdempotencyUnsupportedError`
+#       (fail-closed) — a chave nunca e' aceita-e-ignorada. Lucas continua sem caminho de
+#       invocacao vivo (gap 11.7), entao nada disso tem efeito em producao hoje.
 a2a:
   capabilities:
     - member_billing_navigation
