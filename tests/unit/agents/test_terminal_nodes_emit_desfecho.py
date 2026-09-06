@@ -184,6 +184,73 @@ def test_desfecho_erro_inicio_processo_literal_matches_start_outcome() -> None:
         assert start_outcome.DESFECHO_ERRO_INICIO_PROCESSO in vocab, agent_id
 
 
+def test_fernando_desfecho_constants_are_declared_in_the_vocab() -> None:
+    """FERNANDO-NOTIFY-DESFECHO-LITERAL: `fernando/graph.py`'s three named `desfecho` constants
+    (mirroring `_DESFECHO_ERRO_INICIO_PROCESSO`/`DESFECHO_ERRO_INICIO_PROCESSO`'s own
+    two-independent-copies-checked-equal idiom, one level up) must never drift from the closed
+    vocabulary `_DESFECHO_VOCAB["fernando"]` declares."""
+    from maezo.agents.fernando import graph as fernando_graph
+
+    constantes = {
+        fernando_graph.DESFECHO_NOTIFICACAO_PREVIA_ENVIADA,
+        fernando_graph.DESFECHO_LEMBRETE_REGULARIZACAO_ENVIADO,
+        fernando_graph.DESFECHO_ENCAMINHADO_ANALISE_HUMANA,
+    }
+    assert constantes <= turn_telemetry._DESFECHO_VOCAB["fernando"]
+
+
+def _desfecho_literal_values(fn: ast.AsyncFunctionDef | ast.FunctionDef) -> list[str]:
+    """Every BARE string literal (never a `Name`/`Attribute` reference to a constant) that `fn`
+    writes as a `desfecho` value: a `return {"desfecho": ...}` dict entry, a `desfecho=` keyword
+    argument (e.g. to `emit_turn_desfecho`), or either branch of an `if/else` expression assigned
+    to a local named `desfecho`. Tree-derived (BRIEF-COMMON fence rule) — no `file:line`, no
+    hand-maintained inventory of what the function currently happens to contain."""
+    literais: list[str] = []
+
+    def _colhe(valor: ast.expr) -> None:
+        if isinstance(valor, ast.Constant) and isinstance(valor.value, str):
+            literais.append(valor.value)
+        elif isinstance(valor, ast.IfExp):
+            _colhe(valor.body)
+            _colhe(valor.orelse)
+
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values, strict=True):
+                if isinstance(key, ast.Constant) and key.value == "desfecho":
+                    _colhe(value)
+        elif isinstance(node, ast.Call):
+            for kw in node.keywords:
+                if kw.arg == "desfecho":
+                    _colhe(kw.value)
+        elif isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "desfecho" for t in node.targets
+        ):
+            _colhe(node.value)
+    return literais
+
+
+@pytest.mark.parametrize("node_name", ["notify", "escalate"])
+def test_fernando_graph_never_writes_a_bare_desfecho_literal(node_name: str) -> None:
+    """FERNANDO-NOTIFY-DESFECHO-LITERAL — RED PROOF. `notify()`/`escalate()` must write `desfecho`
+    through the module's named `DESFECHO_*` constants, never a bare string — structural (AST
+    shape), not value-based, so reverting either call site to a bare literal fails here even when
+    the literal's STRING VALUE is still in `_DESFECHO_VOCAB["fernando"]` (that value-domain check
+    is `test_fernando_desfecho_constants_are_declared_in_the_vocab`, above — a DIFFERENT property).
+    Mutation: put back `"desfecho": "encaminhado_analise_humana"` (or the `notify()` ternary's two
+    bare strings) -> this goes RED."""
+    path = _agent_graph_path("fernando")
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    fn = _find_function(tree, node_name)
+    literais = _desfecho_literal_values(fn)
+    assert not literais, (
+        f"fernando/graph.py::{node_name} atribui `desfecho` a partir de um literal de string "
+        f"bruto {literais!r} em vez de uma das constantes nomeadas "
+        "(DESFECHO_NOTIFICACAO_PREVIA_ENVIADA/DESFECHO_LEMBRETE_REGULARIZACAO_ENVIADO/"
+        "DESFECHO_ENCAMINHADO_ANALISE_HUMANA)"
+    )
+
+
 # ---------------------------------------------------------------------------------------------
 # 2. Cerca COMPORTAMENTAL — uma emissao por turno, labels corretos
 # ---------------------------------------------------------------------------------------------

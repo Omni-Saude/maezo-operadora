@@ -216,6 +216,21 @@ DMN_STATUS = "inadimplencia_status"
 DMN_PURGA = "inadimplencia_purga"
 DMN_SLA = "inadimplencia_sla"
 
+# FERNANDO-NOTIFY-DESFECHO-LITERAL: closed vocabulary of THIS agent's `desfecho` (CC-09) — named
+# constants, not the bare string literals `notify()`/`escalate()` used to write inline. Mirrors
+# `runtime.start_outcome.DESFECHO_ERRO_INICIO_PROCESSO`'s own idiom (a shared constant instead of
+# a re-typed literal at every call site) and `agents/_template/graph.py::DESFECHO_PROCESSO_INICIADO`
+# (the scaffold every real agent derives from). Kept in sync with
+# `runtime.turn_telemetry._DESFECHO_VOCAB["fernando"]` by
+# `test_fernando_desfecho_constants_are_declared_in_the_vocab` (tests/unit/agents/
+# test_terminal_nodes_emit_desfecho.py) — same discipline as that module's own
+# `test_desfecho_erro_inicio_processo_literal_matches_start_outcome`. `test_terminal_nodes_emit_
+# desfecho.py::test_fernando_graph_never_writes_a_bare_desfecho_literal` (AST, tree-derived) fails
+# if `notify`/`escalate` go back to a bare string for `desfecho` — the RED proof for this fix.
+DESFECHO_NOTIFICACAO_PREVIA_ENVIADA: Final[str] = "notificacao_previa_enviada"
+DESFECHO_LEMBRETE_REGULARIZACAO_ENVIADO: Final[str] = "lembrete_regularizacao_enviado"
+DESFECHO_ENCAMINHADO_ANALISE_HUMANA: Final[str] = "encaminhado_analise_humana"
+
 # Intencao (journey selector) — decides which of the three journeys to run, NEVER a merit.
 Intencao = Literal["notificacao_previa", "acompanhamento_purga", "analise_inadimplencia", "rescisao"]
 _VALID_INTENCOES: frozenset[str] = frozenset(
@@ -622,9 +637,9 @@ class FernandoGraph:
                 mensagem["envio_nota"] = f"envio WhatsApp indisponivel: {type(exc).__name__}"
 
         desfecho = (
-            "notificacao_previa_enviada"
+            DESFECHO_NOTIFICACAO_PREVIA_ENVIADA
             if state.get("status_inadimplencia") == "PENDENTE_NOTIFICACAO"
-            else "lembrete_regularizacao_enviado"
+            else DESFECHO_LEMBRETE_REGULARIZACAO_ENVIADO
         )
         # CC-09: `notify` is a TERMINAL node (its only outgoing edge is END, no `start_process`
         # on this branch) — `desfecho`/`mensagem_enviada` are still LOCAL at this point, so both
@@ -637,7 +652,7 @@ class FernandoGraph:
         INSTRUCTS the human, it never substitutes for `UT_AnaliseInadimplencia` (mirrors
         Rafael's `human_auditor`/`_build_dossier` discipline exactly)."""
         dossier = await self._build_dossier(state)
-        return {"dossier": dossier, "desfecho": "encaminhado_analise_humana"}
+        return {"dossier": dossier, "desfecho": DESFECHO_ENCAMINHADO_ANALISE_HUMANA}
 
     async def start_process(self, state: FernandoState) -> dict[str, Any]:
         """Start SP-OP-INADIMPLENCIA-001 idempotently (business key `INAD-{tenant}-{contrato}`).
