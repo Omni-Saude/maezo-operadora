@@ -50,6 +50,14 @@ a human task (`escalate`/`schedule` -> SP-OP-ESCALATION-001's `UT_TratarEscalona
 explicit, non-clinical response (`inform`) drafted by an LLM that is instructed to never give
 clinical guidance (see `prompts.py`).
 
+Since HEL-06/HEL-03 that invariant no longer rests on a prompt instruction alone. `inform` has a
+DETERMINISTIC precondition (`_inform_recusado`), applied in two layers — inside `classify`
+(`_rota_informativa`, which produces the honest motivo/severidade) and again on the conditional
+edge (`_route`, the structural backstop). A reported `sintoma_codigo` can never end in an
+automatic answer without a DMN verdict, whatever `intent` the classify output declared: that
+declaration is the ONE thing a prompt injection can still choose inside the closed schema, and
+this is what makes choosing it useless.
+
 PHI discipline (ADR-0006/ADR-0017, T1.7's gate): every LLM call in this module passes
 `phi=True` — inbound WhatsApp free text is treated as PHI-adjacent content even after the
 webhook-edge phone-number pseudonymization, so it may ONLY be served by a `phi_capable`
@@ -87,7 +95,12 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   on at all.
 - Free-text WhatsApp message content is NOT scanned for embedded PHI patterns (e.g. a
   beneficiary typing their own CPF into the message) before reaching the LLM — mitigated by the
-  mandatory `phi=True` routing (content never reaches a general-zone cloud provider). What DOES
+  mandatory `phi=True` routing (content never reaches a general-zone cloud provider). Since HEL-06
+  it IS demarcated: all three prompts carry the message inside a
+  `runtime.prompt_format.render_untrusted_block("message_body", ...)` block (fixed preamble, a
+  delimiter the text cannot forge, a length cap). That is a PROMPT boundary, not a PHI scrub — the
+  content stays in-zone by design, and scrubbing it here would destroy what the classifier must
+  read. What DOES
   exist since CC-06/HEL-05 is the EGRESS scrub: `_start_escalation` runs
   `phi_vars.redact_free_text` over the `resumo_contexto` it produces (and
   `redact_error_message` over the `[falha tecnica: ...]` suffix), and the shared start chokepoint
@@ -117,6 +130,7 @@ from maezo.runtime.error_text import (
     start_unavailable_error,
 )
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.prompt_format import render_untrusted_block
 from maezo.runtime.start_outcome import notify_start_failure as emit_start_failure_notice
 from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
@@ -188,6 +202,21 @@ RESPOSTA_FALHA_TECNICA_START: str = (
     "em alguns minutos. Se voce estiver passando por uma emergencia, procure o servico de "
     "emergencia mais proximo."
 )
+
+#: HEL-07: o `error` do turno em que o rascunho de resposta voltou VAZIO. Token de classe
+#: (nao carrega o texto, que e' justamente o que nao existe), para um alerta poder distinguir
+#: "nada foi enviado" de "enviei e o transporte falhou".
+ERRO_RESPOSTA_VAZIA: str = "resposta vazia: nada enviado ao beneficiario"
+
+#: HEL-07: desfecho do mesmo turno. Precisa estar em `turn_telemetry._DESFECHO_VOCAB["helena"]` —
+#: um valor fora do vocabulario e' normalizado para `"outro"`, o que apagaria exatamente a
+#: distincao que este achado cria.
+DESFECHO_RESPOSTA_VAZIA: str = "resposta_vazia_nao_enviada"
+
+#: HEL-03: prefixo do `error` quando a precondicao deterministica recusou a rota `inform`. O
+#: sufixo e' o TOKEN DE CLASSE da precondicao violada (`_inform_recusado`), nunca texto de
+#: terceiro — este `error` viaja para `resumo_contexto` e dali para variaveis de processo.
+ERRO_INFORM_RECUSADO: str = "inform recusado"
 
 #: `response_kind` do turno de falha de start. Token de classe fechado, como os demais — o que
 #: permite a um golden/alerta distinguir esta resposta de um handoff de verdade.
@@ -414,6 +443,103 @@ def _severidade_from_prioridade(prioridade: str) -> Severidade:
     return "leve"
 
 
+def _severidade_de_intensidade(intensidade: object) -> Severidade:
+    """HEL-04: severidade do gatilho 4 (`falha_tecnica`) a partir da `intensidade` JA VALIDADA.
+
+    O achado, reproduzido na base `87b51a8`: a DMN caia sobre um sintoma classificado com
+    `intensidade="grave"` e o caso chegava ao atendente rotulado `"leve"` — o literal estava
+    escrito no codigo, sem consultar campo nenhum.
+
+    TETO DELIBERADO EM `moderada`. O contrato SP-OP-ESCALATION-001 §Variaveis de entrada reserva
+    `grave` para red flag P1 — um veredito que so' a DMN emite, e neste ramo a DMN nao emitiu
+    nenhum. Anunciar `grave` aqui seria fabricar o veredito que faltou; anunciar `leve` seria
+    fabricar o oposto.
+
+    SO' UM `leve` EXPLICITO PRODUZ `leve` — `desconhecida`, ausente ou qualquer outro valor viram
+    `moderada`. E' o mesmo idioma de `_is_explicitly_false` neste modulo, pela mesma razao: uma
+    intensidade que ninguem apurou nao e' a mais branda, e o proprio HELENA-SEVERIDADE-DEFAULT (ja
+    em main) fixou que um valor desconhecido nunca vira `leve`. A diferenca em relacao aquele gap
+    e' que la' nao havia sintoma nenhum (contexto de runtime ausente) e aqui HA' um sintoma
+    reportado — por isso aqui a leitura conservadora e' `moderada`, e nao `None`.
+    """
+    if isinstance(intensidade, str) and intensidade.strip().lower() == "leve":
+        return "leve"
+    return "moderada"
+
+
+#: HEL-03: os UNICOS `intent` que podem terminar em `inform`. Allowlist FECHADA: um `intent` novo
+#: (ou nenhum) e' recusado por omissao, em vez de cair na rota informativa por ser o `else` do
+#: encadeamento de gatilhos.
+_INTENTS_ADMISSIVEIS_INFORM: frozenset[str] = frozenset({"information", "symptom"})
+
+
+def _inform_recusado(estado: Mapping[str, Any]) -> str | None:
+    """HEL-03: precondicao DETERMINISTICA da rota `inform`. Devolve o TOKEN DE CLASSE da condicao
+    violada, ou `None` quando `inform` e' admissivel.
+
+    O ACHADO. Ate' `87b51a8` a unica barreira contra a rota informativa era a instrucao de prompt
+    (`prompts.py`) — e a saida do LLM sozinha escolhia a rota. A reproducao viva: uma extracao
+    `{"intent":"information", "sintoma_codigo":"dor_toracica", "intensidade":"grave"}` — dentro do
+    schema fechado, portanto ACEITA pelo validador — roteava para `inform` com
+    `dmn_decision_ref = None`, ou seja, com a DMN de red flag nunca consultada. E' exatamente o que
+    uma injecao pelo WhatsApp consegue pedir (HEL-06): nao inventar um campo, apenas escolher o
+    valor valido que suprime o escalonamento.
+
+    A REGRA, E POR QUE ELA NAO E' UMA REGRA DE NEGOCIO NOVA (C3). Nenhuma decisao clinica mora
+    aqui: quem decide `red_flag`/`conduta` continua sendo a DMN (ADR-0012). Esta funcao so' exige
+    que o veredito EXISTA antes de a conversa terminar em resposta automatica — `sintoma_codigo`
+    preenchido (venha de que `intent` vier) obriga a haver `dmn_decision_ref`, e so' um
+    `red_flag is False` EXPLICITO com `conduta` fora de `ESCALATE*` libera. As quatro tabelas
+    `spec/processes/dmn/triage_redflag_*.dmn` emitem `red_flag` em TODA regra, catch-all inclusive
+    (typeRef `boolean`), entao exigir o `False` explicito nao pede nada que as tabelas nao deem —
+    e nenhuma DMN precisou mudar para isto.
+
+    Chamada em DUAS camadas, como a barreira de entrada deste mesmo modulo (`receive` + o gate de
+    construcao): `_rota_informativa` (dentro de `classify`) e `HelenaGraph._route` (a aresta
+    condicional). A segunda e' o backstop estrutural — se um `classify` futuro regredir e devolver
+    `next_kind="inform"` sem justificativa, a aresta nao entrega o turno ao no' `inform`.
+    """
+    if estado.get("error"):
+        return "erro_do_turno"
+    if estado.get("psychosocial_risk") is True:
+        return "risco_psicossocial"
+    if estado.get("intent") not in _INTENTS_ADMISSIVEIS_INFORM:
+        return "intent_fora_da_allowlist"
+    if not (estado.get("sintoma_codigo") or estado.get("intent") == "symptom"):
+        return None
+    if not estado.get("dmn_decision_ref"):
+        return "sintoma_sem_veredito_da_dmn"
+    decisao = estado.get("dmn_decision") or {}
+    if decisao.get("red_flag") is not False:
+        return "red_flag_da_dmn"
+    if str(decisao.get("conduta", "")).startswith("ESCALATE"):
+        return "conduta_de_escalonamento_da_dmn"
+    return None
+
+
+def _rota_informativa(update: dict[str, Any]) -> dict[str, Any]:
+    """HEL-03, camada 1: so' roteia para `inform` se `_inform_recusado` deixar; caso contrario
+    converte o turno em escalonamento `falha_tecnica`.
+
+    `falha_tecnica` e' o rotulo honesto para toda recusa desta guarda: os demais tokens de
+    `_inform_recusado` (`risco_psicossocial`, `red_flag_da_dmn`, ...) descrevem estados que os
+    gatilhos de `classify` JA tratam antes de chegar aqui — ve-los significa que o grafo alcancou
+    um estado que nao sabe justificar, e um estado injustificado e' uma falha da automacao, nao um
+    veredito clinico que ela possa nomear. A severidade vem de `_severidade_de_intensidade`
+    (HEL-04), nunca de um literal.
+    """
+    recusa = _inform_recusado(update)
+    if recusa is None:
+        update["next_kind"] = "inform"
+        return update
+    logger.warning("helena_inform_recusado", motivo=recusa, node="classify")
+    update["next_kind"] = "escalate"
+    update["escalation_motivo"] = "falha_tecnica"
+    update["escalation_severidade"] = _severidade_de_intensidade(update.get("intensidade"))
+    update["error"] = f"{ERRO_INFORM_RECUSADO}: {recusa}"
+    return update
+
+
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
@@ -624,10 +750,18 @@ class HelenaGraph:
         if extraction is None:
             # Gatilho 4: classifier failure is a TECHNICAL failure -> human, NEVER read as a
             # benign administrative turn (fail-safe; see `_classify_llm`'s docstring).
+            # HEL-04: a severidade e' genuinamente DESCONHECIDA — nao houve extracao alguma de
+            # onde deriva-la (nem `intensidade`, nem `sintoma_codigo`). `None`, nunca `"leve"`:
+            # e' o mesmo principio de HELENA-SEVERIDADE-DEFAULT (ja em main) para o outro caminho
+            # sem classificacao, e a mesma consequencia declarada — o worker
+            # (`escalation.py::_exigir_severidade`) recusa fail-closed uma severidade ausente, de
+            # modo que NENHUMA notificacao e' publicada e o caso chega ao HITL obrigatorio pela
+            # aresta modelada `BE_NotifFallbackFailed` -> `UT_TratarEscalonamento`. Nunca um beco
+            # sem saida; o que deixa de existir e' o rotulo fabricado (e a pagina que ele gerava).
             return {
                 "next_kind": "escalate",
                 "escalation_motivo": "falha_tecnica",
-                "escalation_severidade": "leve",
+                "escalation_severidade": None,
                 "error": classify_failure or "classify LLM failed",
             }
         intent = cast(Intent, extraction.get("intent", "information"))
@@ -674,7 +808,9 @@ class HelenaGraph:
                 # treated as "no red flag" (fail-safe, ADR-0028 §3).
                 update["next_kind"] = "escalate"
                 update["escalation_motivo"] = "falha_tecnica"
-                update["escalation_severidade"] = "leve"
+                # HEL-04: AQUI ha' classificacao — o sintoma foi extraido e validado antes de a
+                # DMN cair —, entao a severidade DERIVA dela em vez de ser um literal.
+                update["escalation_severidade"] = _severidade_de_intensidade(update.get("intensidade"))
                 return update
             decision = dmn_out.get("dmn_decision", {})
             conduta = str(decision.get("conduta", "CONTINUE"))
@@ -685,15 +821,13 @@ class HelenaGraph:
                 update["escalation_motivo"] = "risco_psicossocial" if is_mental else "red_flag_clinico"
                 update["escalation_severidade"] = _severidade_from_prioridade(prioridade)
                 return update
-            update["next_kind"] = "inform"
-            return update
+            return _rota_informativa(update)
 
         if intent == "scheduling":
             update["next_kind"] = "schedule"
             return update
 
-        update["next_kind"] = "inform"
-        return update
+        return _rota_informativa(update)
 
     async def inform(self, state: HelenaState) -> dict[str, Any]:
         """Administrative response (no clinical guidance, no red flag)."""
@@ -899,6 +1033,29 @@ class HelenaGraph:
         else:
             saida = {}
             text = state.get("response_text") or ""
+        if not text.strip():
+            # HEL-07: NADA e' enviado. Uma mensagem em branco no WhatsApp nao informa e ainda
+            # parece um sistema quebrado; e o canned de handoff ("um profissional vai continuar")
+            # NAO serve de substituto num turno `inform`, onde ninguem foi acionado — seria a
+            # promessa sem lastro que CC-01 acabou de remover do ramo de falha de start. Entao a
+            # postura e' fail-closed e OBSERVAVEL: sem envio, `error` com token de classe,
+            # `desfecho` proprio e um contador com `enviada=False`.
+            #
+            # O ramo `start_failed=True` nao alcanca este ponto — seu texto e a constante
+            # `RESPOSTA_FALHA_TECNICA_START` —, e a guarda esta assim mesmo DEPOIS dos dois ramos
+            # de proposito: e' estrutural, imediatamente antes do unico `send` do no'. Se um dia
+            # aquela constante ficasse vazia, este e' o lugar que pegaria.
+            saida = {**saida, "error": ERRO_RESPOSTA_VAZIA, "desfecho": DESFECHO_RESPOSTA_VAZIA}
+            if state.get("start_failed") is not True:
+                emit_turn_desfecho(
+                    state,
+                    agent_id="helena",
+                    desfecho=DESFECHO_RESPOSTA_VAZIA,
+                    route=state.get("response_kind"),
+                    motivo_categoria=state.get("escalation_motivo"),
+                    enviada=False,
+                )
+            return saida
         enviada = False
         try:
             await self._whatsapp.send(_to_hash_from_state(state), text)
@@ -952,11 +1109,23 @@ class HelenaGraph:
 
     @staticmethod
     def _route(state: HelenaState) -> str:
+        """HEL-03, camada 2 (backstop ESTRUTURAL): a aresta condicional nao entrega o turno ao no'
+        `inform` sem a precondicao deterministica, mesmo que `next_kind` diga `inform`.
+
+        Camada 1 (`_rota_informativa`, dentro de `classify`) e' quem produz o rotulo honesto —
+        motivo, severidade e `error`. Esta aqui existe para o dia em que um `classify` futuro
+        regredir: o turno cai em `escalate`, que deriva `motivo_categoria` do proprio estado
+        (`falha_tecnica` quando ha `error`, `outro` caso contrario) e encaminha ao humano. Um
+        backstop nao precisa nomear bem; precisa nao deixar passar."""
         kind = state.get("next_kind", "inform")
         if kind == "escalate":
             return "escalate"
         if kind == "schedule":
             return "schedule"
+        recusa = _inform_recusado(state)
+        if recusa is not None:
+            logger.warning("helena_inform_recusado", motivo=recusa, node="_route")
+            return "escalate"
         return "inform"
 
     # -- DMN (ADR-0012/ADR-0028): the DMN decides red flag, never the LLM -------------------
@@ -1031,7 +1200,13 @@ class HelenaGraph:
         into engine process variables via `resumo_contexto` — a live-proven PHI leak vector
         when the LLM copies a beneficiary-typed identifier into a field).
         """
-        prompt = f"{classify_prompt()}\n\nMensagem do beneficiario:\n{state.get('message_body', '')}"
+        # HEL-06: a mensagem crua do WhatsApp e' conteudo de TERCEIRO. Ela viaja demarcada
+        # (`render_untrusted_block`), no FIM do prompt — o bloco e' a parte variavel por
+        # requisicao, e por-lo depois do texto estatico preserva o prefixo cacheavel que
+        # `prompt_format` documenta.
+        prompt = (
+            f"{classify_prompt()}\n\n{render_untrusted_block('message_body', state.get('message_body', ''))}"
+        )
         try:
             raw = await self._llm.generate(
                 prompt,
@@ -1064,9 +1239,12 @@ class HelenaGraph:
             "dmn_motivo": (state.get("dmn_decision") or {}).get("motivo"),
             "escalation_severidade": state.get("escalation_severidade"),
         }
+        # HEL-06: mesma fronteira do `_classify_llm`. Aqui o poder da injecao seria sobre o
+        # TEXTO enviado ao beneficiario (a rota ja esta decidida), o que nao a torna menos
+        # necessaria: a resposta e' a unica coisa que a pessoa do outro lado le'.
         prompt = (
             f"{response_prompt()}\n\ncontexto={context}\n"
-            f"mensagem_beneficiario={state.get('message_body', '')}"
+            f"{render_untrusted_block('message_body', state.get('message_body', ''))}"
         )
         try:
             return await self._llm.generate(
@@ -1081,11 +1259,17 @@ class HelenaGraph:
             return "Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."
 
     async def _resumo_contexto(self, state: HelenaState, motivo: str) -> str:
+        # HEL-06: este resumo e' lido por um ATENDENTE HUMANO e aterra em variaveis de processo
+        # (Zona Geral) depois do scrub de identificadores de `_start_escalation`. Uma injecao que
+        # sequestrasse este prompt escreveria no handoff o que quisesse sobre o proprio caso — por
+        # isso a mensagem vem demarcada aqui tambem. O scrub de PHI continua sendo do EGRESSO
+        # (`redact_free_text`, em `_start_escalation`), nao deste bloco: a chamada e' `phi=True`,
+        # ou seja, o texto nao sai de zona aqui.
         prompt = (
             "Resuma em 1-2 frases, em portugues, o contexto desta conversa para um atendente "
             "humano assumir. NAO inclua dado identificavel. NAO de conduta clinica. Apenas o "
             f"essencial do caso e o motivo do encaminhamento.\nmotivo={motivo}\n"
-            f"mensagem={state.get('message_body', '')}"
+            f"{render_untrusted_block('message_body', state.get('message_body', ''))}"
         )
         try:
             text = await self._llm.generate(

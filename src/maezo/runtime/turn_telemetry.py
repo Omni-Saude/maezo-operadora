@@ -139,7 +139,18 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
     ),
     # HELENA: `HelenaState.desfecho` e' campo morto (ver docstring do modulo) — o call site em
     # `respond` passa um `desfecho` DERIVADO via override, um destes tres tokens.
-    "helena": frozenset({"resolvido_automatico", "escalado_humano", _DESFECHO_ERRO_INICIO_PROCESSO}),
+    "helena": frozenset(
+        {
+            "resolvido_automatico",
+            "escalado_humano",
+            _DESFECHO_ERRO_INICIO_PROCESSO,
+            # HEL-07: o rascunho de resposta voltou VAZIO e Helena NAO enviou nada. Precisa de
+            # token proprio: sem ele o valor cairia na normalizacao `"outro"` e o turno ficaria
+            # indistinguivel de qualquer outro desvio — que e' justamente o que este achado
+            # existe para tornar visivel (`agents/helena/graph.py::DESFECHO_RESPOSTA_VAZIA`).
+            "resposta_vazia_nao_enviada",
+        }
+    ),
     "lucas": frozenset(
         {
             "resposta_informativa_enviada",

@@ -21,8 +21,8 @@ security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
 prompt_versions:                      # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
-  classify: classify-v1
-  response: response-v1
+  classify: classify-v2
+  response: response-v2
 model:
   task_default: { tier: fast }        # triagem/classificacao
   reasoning:    { tier: frontier }    # casos ambiguos
