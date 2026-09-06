@@ -95,7 +95,7 @@ class TestWhatsappChannelPosture:
         assert any("channels.whatsapp.inbound" in f.message for f in report.findings)
 
     def test_non_boolean_inbound_fails(self, tmp_path: Path) -> None:
-        content = WHATSAPP_AGENT_YAML + "channels:\n  whatsapp:\n    inbound: \"no\"\n"
+        content = WHATSAPP_AGENT_YAML + 'channels:\n  whatsapp:\n    inbound: "no"\n'
         path = _agent_file(tmp_path, content)
         report = Report()
         validate_file(path, frozenset({"whatsapp"}), report)
