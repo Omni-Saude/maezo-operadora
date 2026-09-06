@@ -692,4 +692,5 @@ intake TISS. A regra de bridge que OQ-R1 ja registra como **DORMENTE de proposit
 disclosure + o teste que assere a ausencia de publicador + o teste que prova a regra com payload
 ancorado) permanece exatamente como esta: **nenhum adaptador e construido, nenhuma costura e
 removida.** Esta nota nao ratifica o ADR, que segue `Proposed`; o merge continua sob revisao
-CODEOWNER de `/docs/adr/` (`.github/CODEOWNERS:61`).
+CODEOWNER pela regra `/docs/adr/` de `.github/CODEOWNERS` (citada por texto de regra, nao por
+numero de linha, que muda — achado F3/VER-SMALL-DECISIONS).
