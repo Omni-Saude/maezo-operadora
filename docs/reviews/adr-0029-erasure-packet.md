@@ -311,31 +311,37 @@ esperada é a trivial, mas ela deve ser **registrada**, não presumida.
 ## 5. A tensão da cadeia de auditoria — apresentada, não resolvida
 
 **A propriedade.** `record_hash` é computado sobre todos os campos persistidos, e o preimage inclui
-`details` (a coluna `decision_basis`) e `input_hash` (`src/maezo/gateway/audit.py:266-284`). O
+`details` (a coluna `decision_basis`) e `input_hash` (`src/maezo/gateway/audit.py::AuditRecord._compute_hash`). O
 sucessor guarda esse hash em `prev_record_hash`. Portanto:
 
 > **Anonimizar um campo dentro de `decision_basis` quebra a cadeia EXATAMENTE como eliminar a
 > linha.** "Anonimizar em vez de eliminar" não é a saída barata que aparenta ser em `audit_chain`.
 
-E o que quebra, quebra para os dois verificadores: o in-memory `AuditSink.verify_chain()`
-(`src/maezo/gateway/audit.py:344-378`) semeia a caminhada com `GENESIS_PREV_HASH` (`:353`, e
-`GENESIS_PREV_HASH = "0"*64` em `:48`) e exige `record.prev_hash == prev` (`:356-363`), logo falha
-**no índice 0**; e o `verify_chain()` do Postgres (`src/maezo/gateway/audit_postgres.py:560-637`)
-monta o mapa `by_prev` (`:592-604`), semeia em `by_prev.get(GENESIS_PREV_HASH)` (`:607`) e, sem a
-linha genesis, reporta todo sobrevivente como **"unreachable from genesis"** (`:624-633`) —
-indistinguível de corrupção. `UNIQUE(prev_record_hash)` (`0002:44-50`) **não** ajuda: ADR-0029
-`:42-47` explica que ele é anti-fork e é *ortogonal* à contiguidade — uma cadeia furada continua
-satisfazendo o UNIQUE enquanto falha a verificação.
+E o que quebra, quebra para os dois verificadores: o in-memory
+`src/maezo/gateway/audit.py::AuditSink.verify_chain` semeia a caminhada com
+`prev: str = GENESIS_PREV_HASH` (a constante de módulo `GENESIS_PREV_HASH: str = "0" * 64`, mesmo
+arquivo) e recusa em `if record.prev_hash != prev`, logo falha **no índice 0**; e a corrotina de
+módulo `src/maezo/gateway/audit_postgres.py::verify_chain` monta o mapa `by_prev`, semeia em
+`by_prev.get(GENESIS_PREV_HASH)` e, sem a linha genesis, reporta todo sobrevivente como
+`"unreachable from genesis"` — indistinguível de corrupção. `UNIQUE(prev_record_hash)`
+(`0002_audit_chain.py`, `CONSTRAINT uq_audit_chain_prev_hash`) **não** ajuda: ADR-0029, no bullet
+"`UNIQUE(prev_record_hash)` ≠ contiguidade" da seção 2, explica que ele é anti-fork e é *ortogonal*
+à contiguidade — uma cadeia furada continua satisfazendo o UNIQUE enquanto falha a verificação.
 
-> **Nota de higiene para o revisor.** As citações de linha que a própria ADR-0029 dá para estes
-> dois verificadores (`ADR-0029:31-40` — `audit.py:310-344`/`:319`/`:320-329` e
-> `audit_postgres.py:333-410`/`:365-377`/`:380`/`:396-406`) estão **desatualizadas**: os arquivos
-> se moveram desde 2026-07-17 e esses números hoje apontam para outro código (`audit.py:310`, por
-> exemplo, é hoje uma docstring de outro método). A única que continua exata é
-> `GENESIS_PREV_HASH` em `audit.py:48`. As citações do parágrafo acima foram re-derivadas contra a
-> árvore em 2026-08-09. A **substância** da ADR-0029 continua correta em cada ponto — só os
-> ponteiros envelheceram — mas quem for conferir o argumento seguindo os números da ADR vai ler o
-> trecho errado, e é melhor saber disso antes de decidir D-1.
+> **Nota de higiene para o revisor — RESOLVIDA em 2026-09-05 (gap AF-18a).** Esta nota registrava,
+> em 2026-08-09, que as citações de linha da própria ADR-0029 para estes dois verificadores
+> (`audit.py:310-344`/`:319`/`:320-329` e `audit_postgres.py:333-410`/`:365-377`/`:380`/`:396-406`)
+> estavam **desatualizadas**, e re-derivava números novos no parágrafo acima. **Os números novos
+> envelheceram também** — em 2026-09-05 `def verify_chain` estava em `audit.py:346` (a nota de
+> 2026-08-09 dizia `:344`) e em `audit_postgres.py:561` (dizia `:560`): quatro semanas bastaram
+> para a re-derivação apodrecer, que é exatamente o achado do gap AF-18a. A correção agora é
+> **estrutural, não aritmética**: tanto a ADR-0029 quanto o parágrafo acima passaram a ancorar por
+> **símbolo** (`arquivo::Classe.metodo`, nome de constante, texto do `CONSTRAINT`), que não se move
+> quando alguém insere uma linha. A cerca `tests/unit/docs/test_doc_anchors_by_symbol.py` fica
+> vermelha se um símbolo citado desaparecer ou se uma âncora de linha reaparecer nestes trechos. A
+> **substância** da ADR-0029 continua correta em cada ponto — era só o mecanismo de citação que
+> estava errado. Âncoras de linha para MIGRATIONS (`0002:44-50`) e para seções da própria ADR foram
+> deliberadamente mantidas onde ainda resolvem: uma migration aplicada é imutável por desenho.
 
 **O descompasso central, dito de uma vez.** ADR-0029 §1 (`:64-70`) admite **apenas prefixo a partir
 do genesis**, e proíbe em termos um buraco no meio: *"A hole in the middle would create a second

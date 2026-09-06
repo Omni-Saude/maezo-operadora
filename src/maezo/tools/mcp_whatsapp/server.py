@@ -1,8 +1,13 @@
 """MCP WhatsApp server — WhatsApp Business API client (ADR-0006: WhatsApp is a BLOCKED
 channel for PHI; the ToolRegistry PEP enforces that at the gateway, not here). Credential
-handling (auditoria 09, achados 9.3/9.4) is specified per method. OPS DISCLOSURE: reply
-path inoperative in Helm until `WHATSAPP_PHONE_NUMBER_ID` is provisioned (owner-gated,
-see OWNER-DECISIONS) — no deployment injects it; row in `docs/review-queue.md`.
+handling (auditoria 09, achados 9.3/9.4) is specified per method.
+
+WHATSAPP-ENV-PREFIX-b / R-061 (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA):
+`WHATSAPP_PHONE_NUMBER_ID` is now provisioned as a non-secret `values.yaml` key
+(`whatsapp.phoneNumberId`) and injected into `deployment-webhook-receiver.yaml` — see
+`docs/review-queue.md` for the closed row. The WABA credentials (`WHATSAPP_TOKEN`/
+`_APP_SECRET`/`_VERIFY_TOKEN`) remain BLOCKED (D6-04, unrelated to this field) — provisioning
+this id does not, by itself, make the channel operate end-to-end.
 
 OUTBOUND IDEMPOTENCY (gap `WEBHOOK-WAMID-DEDUP`, owner decision R-071, 2026-09-04): this client
 is the second leg of the "uma entrega so" guard — `send_message` can claim a durable key before
@@ -42,7 +47,15 @@ WHATSAPP_SEND_SEAL_FAILURES_TOTAL = Counter(
 
 
 def _secret(suffix: str) -> Any:
-    """CANONICAL `WHATSAPP_<suffix>` env name + the field it binds; never rendered."""
+    """CANONICAL `WHATSAPP_<suffix>` env name + the field it binds; never rendered.
+
+    NOTE (GATEKEEPER FINDING F3, VERIFY-A2-HELM-CAPACITY.md): this factory is intentionally OPAQUE
+    to `check_chart_env_reconciliation.py`'s AST scan — the scan does not resolve calls to a LOCAL
+    helper function, and this one builds its alias via an f-string (see that module's docstring,
+    "the one documented blind spot"). A field that must be visible to the `chart_required` marker
+    is therefore declared INLINE instead (see `whatsapp_token` / `whatsapp_verify_token` below),
+    not by adding `json_schema_extra` in here — that would be silently ignored by the scan.
+    """
     names = AliasChoices(f"WHATSAPP_{suffix}", f"whatsapp_{suffix.lower()}")
     return Field(default="", validation_alias=names, repr=False, exclude=True)
 
@@ -53,10 +66,41 @@ class WhatsAppSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="WHATSAPP_", extra="ignore")
 
     base_url: str = "https://graph.facebook.com/v18.0"
-    phone_number_id: str = ""  # NOT a secret: the sender number's Graph id (achado 9.4)
-    whatsapp_token: str = _secret("TOKEN")
+    # NOT a secret: the sender number's Graph id (achado 9.4). Has a pydantic DEFAULT (empty
+    # string), so it is not "required" in the ValidationError-at-boot sense — but it IS
+    # functionally required: `send_message` (:below) fails closed with a `ValueError` when it is
+    # unset. `json_schema_extra={"chart_required": True}` is a repo-wide marker
+    # `scripts/ci/check_chart_env_reconciliation.py`'s AST scan recognizes for exactly this shape
+    # (a fail-closed-at-call-time field, not fail-closed-at-construction) — WHATSAPP-ENV-PREFIX-b /
+    # R-101 (OWNER-DECISIONS-REGISTER) added the marker so the CI fence goes RED if a future chart
+    # ever stops injecting `WHATSAPP_PHONE_NUMBER_ID`, the same way it already does for the
+    # genuinely-required `WhatsAppWebhookSettings.app_secret`/`.verify_token`.
+    phone_number_id: str = Field(default="", json_schema_extra={"chart_required": True})
+    # GATEKEEPER FINDING F3 (VERIFY-A2-HELM-CAPACITY.md): R-101's approved text asks the fence to
+    # catch "qualquer env exigida" in this module going undeclared in the chart — not only
+    # `phone_number_id` above. `send_message` (:below) fails closed on THIS field too
+    # (`if not self._settings.whatsapp_token: raise ValueError(...)`), so it carries the same
+    # marker. Declared INLINE rather than via `_secret()` (see that factory's docstring): the
+    # scan's AST walk treats a call to a local helper function as opaque and cannot see a marker
+    # placed inside it.
+    whatsapp_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("WHATSAPP_TOKEN", "whatsapp_token"),
+        repr=False,
+        exclude=True,
+        json_schema_extra={"chart_required": True},
+    )
     whatsapp_app_secret: str = _secret("APP_SECRET")
-    whatsapp_verify_token: str = _secret("VERIFY_TOKEN")
+    # Same species as `whatsapp_token` above: `verify_webhook` (:below) refuses when this is empty
+    # (`if not expected: raise ValueError("Invalid verify token")`) — functionally required at
+    # call time, so it carries the marker too (and is declared inline for the same reason).
+    whatsapp_verify_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("WHATSAPP_VERIFY_TOKEN", "whatsapp_verify_token"),
+        repr=False,
+        exclude=True,
+        json_schema_extra={"chart_required": True},
+    )
 
 
 class WhatsAppServer:

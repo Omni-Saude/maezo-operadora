@@ -909,3 +909,44 @@ instance, one chain link); non-matching desfecho starts nothing. Captured by
 3 full-BPMN handoff tests in `tests/integration/processes/test_sp_op_{contas,fraude}_001.py`
 (now wiring the `engine=`/`audit_sink=` seams + deploying the downstream BPMN, mirroring the
 inadimplencia→CANCEL handoff test).
+
+---
+
+## ERRATA 2026-09-05 — `PostgresDedupeStore` nunca existiu (GAP AF-02)
+
+**Status:** Proposto (errata) — DRAFT/verify · **Autor:** `ADR-BATCH` (R1, AGENTE) · **Base:** `44e85ea`
+
+Append-only: as linhas 409 e 493 acima NAO foram alteradas — reescrever o desenho apagaria a
+evidencia de que a afirmacao foi feita e deslocaria as ancoras de linha que a auditoria
+`docs/audits/maezo-deep-audit/` e a `docs/adr/0041-*.md` §1(e) citam neste arquivo. O que segue e a
+correcao de registro.
+
+- **Afirmacao (`:409`, secao "References"):** "**ADR-0024** ... — the Postgres durable-dedup pattern
+  (`PostgresDedupeStore` / `driver_idempotency`) T-A reuses."
+- **Afirmacao (`:493`, secao "(b) Architectural rule"):** "... its **own audited + idempotent
+  boundary** (a deterministic idempotency key + its own emit — the a2a/driver `PostgresDedupeStore`
+  pattern, ADR-0024) ...".
+- **Verdade na arvore:** a classe `PostgresDedupeStore` **nunca existiu neste repo**, entao nao ha
+  "padrao de casa" a reusar e nenhuma implementacao futura deve procura-la:
+  - `grep -rn PostgresDedupeStore src/ spec/` -> 0 linhas;
+  - `git log --all -S PostgresDedupeStore --oneline -- src/` -> 0 commits (em nenhum ponto da
+    historia);
+  - a ADR-0024 a PRESCREVE (`0024:44`, `:76`, `:89`, `:99`) — prescricao, nao registro de entrega.
+- **O que existe de verdade, e que um implementador futuro deve ler no lugar:**
+  - a tabela `driver_idempotency` existe, criada pela migracao **`0003`**
+    (`src/maezo/platform/migrations/versions/0003_a2a_idempotency.py`, `CREATE TABLE IF NOT EXISTS
+    driver_idempotency`) — **nao** pela `0008` que a ADR-0024 prescreve (a `0008` real e
+    `0008_a2a_fact_outbox.py`);
+  - o padrao asyncpg de idempotencia REALMENTE existente e o do dispatcher A2A,
+    `src/maezo/a2a/idempotency.py` (`PostgresIdempotencyStore`), cujo protocolo
+    (`claim_or_get`/`complete`) e **diferente** do que a ADR-0024 descrevia — foi exatamente essa
+    incompatibilidade (ESC-002) que motivou a classe irma que nunca foi construida;
+  - o leitor/escritor da `driver_idempotency` foi finalmente escrito em outro pacote de trabalho
+    (`src/maezo/platform/driver_idempotency.py`, ADR-0048, dedup de `wamid` do webhook) — **esse** e
+    o padrao vivo a reusar, se houver o que reusar.
+- **Consequencia para a T-A e para a regra arquitetural (b):** a referencia continua valida quanto a
+  INTENCAO (fronteira propria, chave de idempotencia deterministica, emit proprio), e invalida quanto
+  ao ARTEFATO citado. Leia `PostgresDedupeStore` como "o padrao de dedup duravel em Postgres", nunca
+  como um simbolo importavel.
+- Registro completo: `docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md`,
+  secao `### §1 — GAP AF-02`, item **(e)**.

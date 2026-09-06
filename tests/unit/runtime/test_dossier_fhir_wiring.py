@@ -28,9 +28,13 @@ O que estes testes provam:
   6. o mesmo vale para andre (simetria com o item 2): o leitor que a raiz entrega a ele basta
      para silenciar o ramo degradado do `AndreGraph.gather` (fluxo `pagto_dossier`);
   7. os dois literais de id de agente (`service._DOSSIER_FHIR_AGENT_IDS` e
-     `a2a_composition._DOSSIER_EDGE_AGENT_IDS`) sao IGUAIS — a recusa da raiz so cobre uma
+     `a2a_composition._DOSSIER_EDGE_FHIR_AGENT_IDS`) sao IGUAIS — a recusa da raiz so cobre uma
      direcao (id que ela nao serve); a direcao oposta (aresta servida sem seam construido)
-     degradaria em silencio e e este teste que a impede;
+     degradaria em silencio e e este teste que a impede. Desde R-081 o par correto e' o
+     SUBCONJUNTO FHIR da aresta, nao a aresta inteira: `_DOSSIER_EDGE_AGENT_IDS` passou a incluir
+     `fernando`, cujo `build(config)` nao tem chave `fhir` alguma — e uma terceira cerca reapura
+     esse subconjunto pela ASSINATURA real de cada `make_<id>_handler`, para que um agente da
+     aresta que ACEITE `fhir=` nao possa ficar de fora dele em silencio;
   8. `population` continua `None` explicito — BLOCKED(external WB.4): nao existe cliente de lago
      concreto em `src/` (`andre/graph.py::PopulationFeatureClient` e so Protocol,
      `gateway/seams/population.py` "SHIPS UNWIRED", `build_agent_seams` omite a chave de
@@ -435,8 +439,51 @@ def test_worker_fhir_agent_ids_match_the_a2a_root_edge_agents() -> None:
     dossie servida pela raiz que este literal esquece) nao levanta nada: aquele agente
     simplesmente ficaria sem leitor, em silencio, que e o proprio defeito CC-03/AND-03.
     Este teste e a guarda dessa direcao, no unico lugar onde ela e barata e nao pode ser
-    apagada por `python -O` nem virar uma queda de dossie em bring-up."""
-    from maezo.runtime.agent_runtime.a2a_composition import _DOSSIER_EDGE_AGENT_IDS
+    apagada por `python -O` nem virar uma queda de dossie em bring-up.
+
+    O par correto e' `_DOSSIER_EDGE_FHIR_AGENT_IDS` (o SUBCONJUNTO da aresta cujos grafos
+    declaram leitor FHIR), nao `_DOSSIER_EDGE_AGENT_IDS`: desde R-081 a aresta serve tambem
+    `fernando`, cujo `build(config)` nao tem chave `fhir` alguma — igualar os dois literais faria
+    a raiz ACEITAR `fhir={"fernando": leitor}` e engolir em silencio um leitor que nada consome.
+    """
+    from maezo.runtime.agent_runtime.a2a_composition import (
+        _DOSSIER_EDGE_AGENT_IDS,
+        _DOSSIER_EDGE_FHIR_AGENT_IDS,
+    )
     from maezo.runtime.worker_runtime.service import _DOSSIER_FHIR_AGENT_IDS
 
-    assert set(_DOSSIER_FHIR_AGENT_IDS) == set(_DOSSIER_EDGE_AGENT_IDS)
+    assert set(_DOSSIER_FHIR_AGENT_IDS) == set(_DOSSIER_EDGE_FHIR_AGENT_IDS)
+    assert set(_DOSSIER_EDGE_FHIR_AGENT_IDS) <= set(_DOSSIER_EDGE_AGENT_IDS)
+
+
+def test_the_fhir_subset_is_exactly_the_edge_agents_whose_handler_takes_a_reader() -> None:
+    """A terceira direcao, a que ficou aberta quando o subconjunto FHIR se separou da aresta.
+
+    `_DOSSIER_EDGE_FHIR_AGENT_IDS` passa a ser um literal curado a mao; um agente da aresta cujo
+    `make_<id>_handler` ACEITA `fhir=` mas que fique de fora dele nao levanta nada — a raiz
+    simplesmente nunca lhe passaria leitor, e todo dossie desse agente cairia no ramo degradado
+    em silencio. E' o defeito CC-03/AND-03 na sua forma original. Reapurado aqui pela ASSINATURA
+    real de cada fabrica, nunca por uma segunda lista.
+    """
+    import importlib
+    import inspect
+
+    from maezo.runtime.agent_runtime.a2a_composition import (
+        _DOSSIER_EDGE_AGENT_IDS,
+        _DOSSIER_EDGE_FHIR_AGENT_IDS,
+    )
+
+    def _fabrica(agent_id: str) -> Any:
+        modulo = importlib.import_module(f"maezo.agents.{agent_id}.delegation")
+        return getattr(modulo, f"make_{agent_id}_handler")
+
+    aceitam_fhir = {
+        agent_id
+        for agent_id in _DOSSIER_EDGE_AGENT_IDS
+        if "fhir" in inspect.signature(_fabrica(agent_id)).parameters
+    }
+    assert aceitam_fhir == set(_DOSSIER_EDGE_FHIR_AGENT_IDS), (
+        f"as fabricas de handler da aresta de dossie que aceitam `fhir=` sao {sorted(aceitam_fhir)}, "
+        f"mas `_DOSSIER_EDGE_FHIR_AGENT_IDS` diz {sorted(_DOSSIER_EDGE_FHIR_AGENT_IDS)} — um "
+        "agente esquecido aqui recebe `None` e degrada todo dossie em silencio (CC-03/AND-03)"
+    )

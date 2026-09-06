@@ -77,6 +77,18 @@ variable "reader_count" {
   default     = 1
 }
 
+# SC-05 / R-026 (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA): RDS Proxy e' o caminho
+# escolhido pelo dono a partir do segundo tenant real; pgbouncer fica formalmente descartado (o
+# modo transaction do pgbouncer quebra prepared statements, que `asyncpg` — todos os quatro
+# `create_pool` desta arvore, SC-05's bloco em `deploy/helm/maezo-tenant/values.yaml` — usa por
+# padrao). DEFAULT `false`: nenhum recurso AWS e' criado por esta variavel ate alguem ligar. O
+# ligamento real depende de D6-04/D13-03 (credenciais AWS, HUMAN-GATED) e do segundo tenant.
+variable "enable_rds_proxy" {
+  description = "Provision an RDS Proxy in front of this Aurora cluster (SC-05/R-026). false = no proxy resources created at all; DSNs keep pointing at the cluster endpoint directly."
+  type        = bool
+  default     = false
+}
+
 variable "tags" {
   description = "Additional tags to merge onto all resources."
   type        = map(string)

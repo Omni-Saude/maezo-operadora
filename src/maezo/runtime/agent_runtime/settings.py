@@ -82,3 +82,12 @@ class AgentRuntimeSettings(BaseSettings):
     # `a2a_audit_sink_ready` gate, mirroring `worker_runtime.settings.WorkerRuntimeSettings`'s
     # identically-named/defaulted T-D field — never let a slow/hung Postgres hang bring-up.
     dep_connect_timeout_s: float = Field(default=5.0, alias="DEP_CONNECT_TIMEOUT_S")
+
+    # --- SC-06 / R-109: declared throughput-ceiling metadata (informational only) -------------
+    # Import fan-in of `maezo.tools.mcp_cibseven.transport` (`deploy/helm/maezo-tenant/
+    # values.yaml`, section "Throughput ceilings") — surfaced in this daemon's start-up log
+    # (`run()`, `agent_runtime_starting`) for ops visibility. `None` when absent (dev/local) —
+    # NEVER used to gate or throttle anything. Mirrors `WorkerRuntimeSettings.
+    # transport_fan_in_ceiling`; agent-runtime has no `harness_fan_in_ceiling` counterpart
+    # because agent graphs never run the WorkerHarness.
+    transport_fan_in_ceiling: int | None = Field(default=None, alias="MAEZO_TRANSPORT_FAN_IN_CEILING")

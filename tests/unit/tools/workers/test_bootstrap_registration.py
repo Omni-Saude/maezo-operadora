@@ -164,6 +164,11 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
     so it can publish an internal notification too (`register_adequacao_workers` used to
     `del kafka # unused`); same async-Kafka-seam rationale, adequacao.py's own module-level
     docstring.
+
+    R-081 metade de ORIGEM: `raw_handler_topics` tambem exclui
+    `operadora.inadimplencia.prepare_dossier` — virou handler raw async para poder
+    `await dispatcher.delegate(...)` (`arrears.followup` -> Fernando), a QUARTA aresta de dossie,
+    mesma razao estrutural das tres anteriores (inadimplencia.py's own topic-map note).
     """
     harness = _fresh_harness()
     register_all_workers(harness)
@@ -190,6 +195,9 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
         # pagto's dossier edge (item9-w3): the LAST worker-originated dossier edge, converted from
         # the DL-0033 local stub to the same raw async Andre delegation as adequacao/cred.
         "operadora.pagto.prepare_approval_dossier",
+        # R-081 (metade de ORIGEM): a aresta dossie de inadimplencia — o handler monta o dossie
+        # local e delega `arrears.followup` a Fernando, pela MESMA costura async do dispatcher.
+        "operadora.inadimplencia.prepare_dossier",
         # item-9 wave-5: programa's 4 raw handlers (module-level rationale above).
         "operadora.programa.stratify_risk",
         "operadora.programa.stop_processing",
@@ -232,6 +240,9 @@ def test_raw_handler_module_registers_outside_the_worker_registry() -> None:
         "operadora.cred.prepare_dossier",
         "operadora.adequacao.prepare_remediation_dossier",
         "operadora.pagto.prepare_approval_dossier",
+        # R-081 (metade de ORIGEM): a aresta dossie de inadimplencia — o handler monta o dossie
+        # local e delega `arrears.followup` a Fernando, pela MESMA costura async do dispatcher.
+        "operadora.inadimplencia.prepare_dossier",
         # item-9 wave-5: programa's 4 raw handlers (module-level rationale above).
         "operadora.programa.stratify_risk",
         "operadora.programa.stop_processing",

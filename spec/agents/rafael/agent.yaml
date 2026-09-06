@@ -11,8 +11,8 @@ reports_to: "medico-auditor@amh"        # gestor humano = medico-auditor (decide
 security_zone: phi                       # PHI integral on-prem/endpoint BR (ADR-0006: Rafael e Zona PHI)
 graph: graph.py:build
 prompt_versions:                         # versionados (ADR-0009) — gate de eval no golden
-  system: system-v1
-  dossier: dossier-v1
+  system: system-v2                      # PERSP-AUTH-VOICE: renomeacao de voz (operadora emite
+  dossier: dossier-v2                    # autorizacao; prestador emite guia), sem mudanca de comportamento
 model:
   task_default: { tier: fast }           # gather/assess/montagem do dossie
   reasoning:    { tier: frontier }       # casos ambiguos / dossie complexo
@@ -38,7 +38,8 @@ autonomy_actions:                         # acoes REAIS da matriz L0-core exerci
   # NOTA L0 HARD (intencional): Rafael NAO exerce `authorization_denial` nem `clinical_decision`.
   # Negativa e decisao de cobertura sao SO do medico-auditor (User Task). A aprovacao automatica
   # L2 e expressa via `authorization_approval` no processo — o caminho automatico de
-  # SP-OP-AUTH-001 emite a guia; Rafael apenas inicia o processo com DMN favoravel (ADR-0008).
+  # SP-OP-AUTH-001 emite a autorizacao (numero de autorizacao na guia TISS; a guia em si e'
+  # emitida pelo prestador); Rafael apenas inicia o processo com DMN favoravel (ADR-0008).
 kpis:
   - { name: dossier_completeness, target: ">0.95" }   # dossies completos / total (fatos + refs DMN)
   # ESTRUTURALMENTE 0 NO AGENTE NESTA FASE (RAF-01) — nao e' meta, e' divulgacao do que o

@@ -4,11 +4,15 @@ TDD London School: tests verify the guard contracts from the SP-OP contract.
 """
 
 import asyncio
+import functools
 from typing import Any
 
 import pytest
+import structlog.testing
 
+from maezo.a2a import DelegationResult, RejectionReason
 from maezo.gateway.audit_postgres import AuditPersistenceError, FreshSinkAuditEmitter
+from maezo.runtime.start_outcome import StartProcessFailedError
 from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
     DedupReportingAuditSink,
@@ -42,12 +46,13 @@ from maezo.tools.workers.inadimplencia import (
     DECISAO_SUSPENDER,
     ERR_CONTRACT_SUSPENSION_NOT_HUMAN,
     ERR_INAD_INVALID_CONTRATO,
-    InadimplenciaError,
+    InadContratoInvalidoError,
     _cancel_business_key,
     assess_status,
     calculate_purge,
     dispatch_prior_notice,
     handoff_rescisao,
+    make_prepare_dossier_handler,
     notify_sla_risk,
     prepare_dossier,
     register_contract_suspension,
@@ -289,10 +294,10 @@ def test_inadimplencia_guard_suspension_happy_path() -> None:
 
 def test_inadimplencia_guard_rejects_wrong_decisao() -> None:
     """Root-cause proof (ADR-0030 Tier-3, WP-ADR-0030-COMPLETION D3-01): the suspension guard now
-    raises WorkerBpmnError (a MODELED bpmn error), NOT InadimplenciaError (which FunctionWorker
-    reclassifies to a bare ValueError -> incident, leaving BE_SuspensaoNaoHumano structurally
-    unreachable) — mirrors credenciamento's two `*_NOT_HUMAN` guards and cancel's
-    ERR_CANCEL_MANTER_NOT_HUMAN."""
+    raises WorkerBpmnError (a MODELED bpmn error), NOT the old duck-typed InadimplenciaError
+    (which FunctionWorker reclassifies to a bare ValueError -> incident, leaving
+    BE_SuspensaoNaoHumano structurally unreachable) — mirrors credenciamento's two `*_NOT_HUMAN`
+    guards and cancel's ERR_CANCEL_MANTER_NOT_HUMAN."""
     with pytest.raises(WorkerBpmnError) as excinfo:
         register_contract_suspension(
             {
@@ -307,7 +312,7 @@ def test_inadimplencia_guard_rejects_wrong_decisao() -> None:
         )
     assert excinfo.value.error_code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
     assert "MANTER" in str(excinfo.value)
-    assert not isinstance(excinfo.value, InadimplenciaError)
+    assert not isinstance(excinfo.value, InadContratoInvalidoError)
 
 
 def test_inadimplencia_guard_rejects_missing_responsavel() -> None:
@@ -380,7 +385,7 @@ def test_inadimplencia_register_suspension_alias() -> None:
 # ---------------------------------------------------------------------------
 # Boundary REACHABILITY (WP-ADR-0030-COMPLETION, D3-01) — the suspension guard raises
 # WorkerBpmnError so its modeled BPMN boundary catch (BE_SuspensaoNaoHumano) CAN fire, instead of
-# an InadimplenciaError -> ValueError reclassification that could ONLY ever demote to an uncaught
+# the old InadimplenciaError -> ValueError reclassification that could ONLY ever demote to an uncaught
 # engine incident. Mutation-minded: allowlisted -> boundary (handle_bpmn_error); NOT allowlisted
 # (the actual production posture today — the code stays T-E-deferred) -> the fail-closed incident
 # (handle_failure, retries=0), so the runtime behavior is UNCHANGED by this raise-side migration.
@@ -846,13 +851,13 @@ def test_handoff_rescisao_fail_closed_no_contract_identity() -> None:
     """No numero_contrato/matricula -> never start CANCEL-001 with an empty business key: raises."""
     engine = FakeCibSevenTransport()
     sink = FakeStartAuditSink()
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(InadContratoInvalidoError) as excinfo:
         handoff_rescisao(
             {"decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO, "tenant_id": "t1"},
             engine=engine,
             audit_sink=sink,
         )
-    assert excinfo.value.code == ERR_INAD_INVALID_CONTRATO
+    assert ERR_INAD_INVALID_CONTRATO in str(excinfo.value)
     assert sink.calls == []  # refused BEFORE any audit emit — no record for a refused handoff
 
 
@@ -876,10 +881,10 @@ def test_handoff_rescisao_fail_closed_blank_tenant_anchor(tenant_id: object) -> 
     if tenant_id is not None:
         variables["tenant_id"] = tenant_id
 
-    with pytest.raises(InadimplenciaError) as excinfo:
+    with pytest.raises(InadContratoInvalidoError) as excinfo:
         handoff_rescisao(variables, engine=engine, audit_sink=sink)
 
-    assert excinfo.value.code == ERR_INAD_INVALID_CONTRATO
+    assert ERR_INAD_INVALID_CONTRATO in str(excinfo.value)
     assert sink.calls == [], "refused BEFORE any audit emit — no claim on a degenerate key"
     assert asyncio.run(engine.find_active_instance("CANCEL--C-1")) is None
     assert asyncio.run(engine.find_active_instance("CANCEL-None-C-1")) is None
@@ -892,7 +897,7 @@ def test_handoff_rescisao_explicit_none_tenant_is_refused_not_stringified() -> N
     engine = FakeCibSevenTransport()
     sink = FakeStartAuditSink()
 
-    with pytest.raises(InadimplenciaError):
+    with pytest.raises(InadContratoInvalidoError):
         handoff_rescisao(
             {
                 "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
@@ -904,6 +909,94 @@ def test_handoff_rescisao_explicit_none_tenant_is_refused_not_stringified() -> N
         )
 
     assert sink.calls == []
+
+
+# ---------------------------------------------------------------------------
+# handoff_rescisao — ERR_INAD_INVALID_CONTRATO harness outcome (D3-01, WP-ADR-0030-COMPLETION):
+# `InadContratoInvalidoError` is a `ValueError` subclass, NOT a `WorkerBpmnError` — it has no
+# admitting BPMN boundary (`Error_InadContratoInvalido` is declared in the spec's `<bpmn:error>`
+# catalog but ZERO `boundaryEvent`+`errorEventDefinition` reference it — see the class docstring).
+# Drives the REAL harness dispatch path (`harness._handle`) end-to-end, no live engine, mirroring
+# `_drive_suspension_guard_failure` above: proves the outcome is `failure(retries=0)`
+# UNCONDITIONALLY — allowlist state is irrelevant for a `ValueError`, unlike a `WorkerBpmnError`.
+# ---------------------------------------------------------------------------
+
+
+def _drive_handoff_rescisao_failure(variables: dict, *, allowlist: frozenset[str]):
+    """Run handoff_rescisao through the real harness; return (bpmn_errors, failures)."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(
+        transport,
+        worker_id="inad-handoff-boundary-test",
+        tenant="amh",
+        audit_sink=HarnessFakeAuditSink(),
+        bpmn_error_allowlist=allowlist,
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.inadimplencia.handoff_rescisao",
+            functools.partial(handoff_rescisao, engine=engine, audit_sink=sink),
+        )
+    )
+    task = ExternalTask(
+        task_id="task-1",
+        topic="operadora.inadimplencia.handoff_rescisao",
+        process_instance_id="proc-1",
+        business_key="INAD-amh-C-123",
+        worker_id="inad-handoff-boundary-test",
+        variables=variables,
+    )
+    asyncio.run(harness._handle(task))
+    return transport.bpmn_errors, transport.failures
+
+
+_HANDOFF_INVALID_CONTRATO = {
+    "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+    "tenant_id": "t1",
+    # numero_contrato/matricula_beneficiario both absent -> ERR_INAD_INVALID_CONTRATO
+}
+
+
+def test_handoff_rescisao_invalid_contrato_never_reaches_boundary_even_when_allowlisted() -> None:
+    """Even with the code (hypothetically) allowlisted, `ValueError` NEVER routes through
+    `handle_bpmn_error` — `_handle`'s `except ValueError` branch (harness.py §9) is checked before
+    `bpmn_error_allowlist` is ever consulted for a `WorkerBpmnError`. Allowlisting an unmodeled
+    code is a no-op by construction; this pins that fact for `ERR_INAD_INVALID_CONTRATO`."""
+    bpmn_errors, failures = _drive_handoff_rescisao_failure(
+        _HANDOFF_INVALID_CONTRATO,
+        allowlist=frozenset({ERR_INAD_INVALID_CONTRATO}),
+    )
+    assert bpmn_errors == []
+    assert len(failures) == 1
+    assert failures[0][0] == "task-1"
+    # retries == 0 pins the `except ValueError` branch (harness.py §9, `_report_failure(...,
+    # retries_override=0)` — deterministic, NEVER re-delivered). NOTE: the OLD, actually-shipped
+    # `InadimplenciaError(Exception)` carried a duck-typed `.code`/`.message` pair, so
+    # `reclassify_coded_exception` (base.py) already reclassified it to `ValueError` and it ALSO
+    # got `failure(retries=0)` — this raise-side migration changes zero observable behaviour (see
+    # the class docstring above `InadContratoInvalidoError`). What this assertion actually pins is
+    # DEFENSE IN DEPTH: a hypothetical future class that lost BOTH the typed `ValueError` base AND
+    # the `.code`/`.message` duck-typing shape simultaneously (bare `Exception`, no attributes)
+    # would fall into the harness's generic `except Exception` branch instead, which computes
+    # `retries` from `max_retry_attempts` (3 here) instead of hardcoding 0 — a REAL retry-of-a-
+    # deterministic-failure hazard, but one that never existed in shipped code. This assertion
+    # goes RED if `InadContratoInvalidoError` ever regresses off `ValueError`.
+    assert failures[0][2] == 0
+
+
+def test_handoff_rescisao_invalid_contrato_demotes_to_incident_when_not_allowlisted() -> None:
+    """NOT ALLOWLISTED (the actual production posture): fail-closed by construction — demotes to
+    a failure/incident, never a silent scope-end."""
+    bpmn_errors, failures = _drive_handoff_rescisao_failure(
+        _HANDOFF_INVALID_CONTRATO,
+        allowlist=frozenset(),
+    )
+    assert bpmn_errors == []
+    assert len(failures) == 1
+    assert failures[0][0] == "task-1"
+    assert failures[0][2] == 0  # retries == 0, see sibling test's comment for the full proof
 
 
 def test_handoff_rescisao_transport_error_propagates() -> None:
@@ -1131,13 +1224,24 @@ class _HistoryBlindCibSevenTransport:
 
 
 class _RecordingHarness:
-    """Minimal harness double capturing registered workers by topic (register_worker only)."""
+    """Minimal harness double capturing BOTH registration surfaces by topic.
+
+    `register_worker` (dict-first `FunctionWorker`) e `register` (handler RAW async) — desde
+    R-081 `operadora.inadimplencia.prepare_dossier` usa a segunda, exatamente como as tres
+    arestas de dossie cred/adequacao/pagto (`WorkerHarness.register` popula `_handlers`, NAO o
+    `WorkerRegistry`).
+    """
 
     def __init__(self) -> None:
         self.workers: dict[str, Any] = {}
+        self.handlers: dict[str, Any] = {}
 
     def register_worker(self, worker: Any) -> None:
         self.workers[worker.topic] = worker
+
+    def register(self, topic: str, handler: Any, *, variables: list[str] | None = None) -> None:
+        del variables  # a superficie real aceita o kwarg; este duble nao o usa
+        self.handlers[topic] = handler
 
 
 def _seed_active_cancel(fake: FakeCibSevenTransport, business_key: str) -> None:
@@ -1435,6 +1539,228 @@ def test_prepare_dossier_no_adverse_origination() -> None:
 
 
 # ---------------------------------------------------------------
+# make_prepare_dossier_handler — delegacao REAL `arrears.followup` (R-081, metade de ORIGEM)
+# ---------------------------------------------------------------
+
+
+class _FakeDossierDispatcher:
+    """Registra o envelope; devolve um `DelegationResult` programado (ou levanta)."""
+
+    def __init__(self, result: DelegationResult | None = None, exc: Exception | None = None) -> None:
+        self.envelopes: list[Any] = []
+        self._result = result
+        self._exc = exc
+
+    async def delegate(self, envelope: Any) -> DelegationResult:
+        self.envelopes.append(envelope)
+        if self._exc is not None:
+            raise self._exc
+        assert self._result is not None
+        return self._result
+
+
+def _dossier_task(variables: dict[str, Any]) -> ExternalTask:
+    return ExternalTask(
+        task_id="et-inad-1",
+        topic="operadora.inadimplencia.prepare_dossier",
+        process_instance_id="pi-inad-1",
+        business_key="INAD-amh-C-123",
+        worker_id="w-1",
+        variables=variables,
+    )
+
+
+_INAD_DOSSIER_VARS: dict[str, Any] = {
+    "tenant_id": "amh",
+    "numero_contrato": "C-123",
+    "matricula_beneficiario": "pseudo-abc",
+    "tipo_plano": "individual",
+    "meses_inadimplencia": 3,
+    "valor_total_devido_cents": 150000,
+    "dentro_periodo_minimo": True,
+    "notificacao_previa_feita": True,
+    "ja_em_rescisao_cancel": False,
+}
+
+
+async def test_prepare_dossier_handler_delega_arrears_followup_uma_vez() -> None:
+    """Dispatcher presente -> UM envelope `arrears.followup` para Fernando, com `task_id` igual a
+    business key SP-OP-INADIMPLENCIA-001, E o dossie local intacto na mesma resposta."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok("INAD-amh-C-123", "process://INAD-amh-C-123")
+    )
+    handler = make_prepare_dossier_handler(dispatcher)
+
+    result = await handler(_dossier_task(_INAD_DOSSIER_VARS))
+
+    # O dossie local — a saida que a User Task humana le — continua completo e inalterado.
+    assert result["dossier_prepared"] is True
+    assert result["dossier_ref"].startswith("dossier-inad-")
+    assert result["dossier_summary"]["meses_inadimplencia"] == 3
+    # ...e a delegacao aconteceu de verdade, UMA vez.
+    assert result["arrears_followup_delegated"] is True
+    assert result["arrears_followup_ref"] == "process://INAD-amh-C-123"
+    assert "arrears_followup_gap" not in result
+    (envelope,) = dispatcher.envelopes
+    assert envelope.task_type == "arrears.followup"
+    assert envelope.target == "fernando"
+    assert envelope.task_id == "INAD-amh-C-123"
+    assert envelope.payload_meta["numero_contrato"] == "C-123"
+    assert envelope.payload_meta["meses_inadimplencia"] == "3"
+
+
+async def test_prepare_dossier_handler_sem_dispatcher_completa_e_marca_nao_tentada() -> None:
+    """Runtime degradado (dispatcher `None`): a tarefa COMPLETA com o dossie, a delegacao e
+    marcada como NAO tentada, e nada e levantado — a UT humana tem de abrir."""
+    handler = make_prepare_dossier_handler(None)
+
+    result = await handler(_dossier_task(_INAD_DOSSIER_VARS))
+
+    assert result["dossier_prepared"] is True
+    assert result["arrears_followup_delegated"] is False
+    assert result["arrears_followup_gap"] == "dispatcher_unavailable"
+    assert "arrears_followup_ref" not in result
+
+
+async def test_prepare_dossier_handler_falha_de_delegacao_nao_derruba_a_tarefa() -> None:
+    """QUALQUER excecao da delegacao -> a tarefa COMPLETA com o dossie + lacuna divulgada; o texto
+    cru do erro fica FORA das variaveis de engine (so' token de classe)."""
+    handler = make_prepare_dossier_handler(
+        _FakeDossierDispatcher(exc=RuntimeError("pg fora do ar: dsn=segredo"))
+    )
+
+    result = await handler(_dossier_task(_INAD_DOSSIER_VARS))
+
+    assert result["dossier_prepared"] is True
+    assert result["arrears_followup_delegated"] is False
+    assert result["arrears_followup_gap"] == "delegation_failed"
+    assert "segredo" not in str(list(result.values()))
+
+
+async def test_prepare_dossier_handler_nao_vaza_phi_do_texto_da_excecao_no_log() -> None:
+    """D-F2: o texto CRU da excecao nunca chega ao log do operador.
+
+    Este handler roda a jusante de variaveis de caso COM PHI (`case_meta=dict(v)`) e as excecoes
+    que apanha vem das camadas dispatcher/PG/engine, cujas mensagens ecoam rotineiramente o payload
+    ofensor. Sem `redact_error_message`, um CPF vindo de um erro de driver de terceiro cairia
+    VERBATIM no registro estruturado. O teste cobre OS DOIS sitios novos de `except` (o largo e o
+    de `StartProcessFailedError`) e exige as tres coisas juntas: o registro existe (nao vacuo), o
+    CPF sumiu, e a CLASSE do erro sobreviveu (diagnostico do operador nao pode morrer junto).
+    """
+    cpf = "123.456.789-01"
+    cpf_nu = "12345678901"
+    casos = (
+        (
+            RuntimeError(f"driver: beneficiario cpf={cpf} ({cpf_nu}) nao encontrado"),
+            "inadimplencia_dossier_delegation_failed",
+            "RuntimeError",
+        ),
+        (
+            StartProcessFailedError(f"start recusado para cpf={cpf} ({cpf_nu})"),
+            "inadimplencia_dossier_delegation_start_failed",
+            "StartProcessFailedError",
+        ),
+    )
+
+    for exc, evento, classe in casos:
+        handler = make_prepare_dossier_handler(_FakeDossierDispatcher(exc=exc))
+        with structlog.testing.capture_logs() as logs:
+            result = await handler(_dossier_task(_INAD_DOSSIER_VARS))
+
+        registros = [entry for entry in logs if entry.get("event") == evento]
+        assert registros, f"o evento {evento} DEVE ser logado — nunca uma falha silenciosa"
+        (registro,) = registros
+        assert cpf not in registro["error"], f"{evento} vazou o CPF separado no log"
+        assert cpf_nu not in registro["error"], f"{evento} vazou o CPF nu no log"
+        assert "REDACTED_DIGITS" in registro["error"]
+        # A CLASSE do erro sobrevive: o operador ainda diagnostica O QUE falhou.
+        assert registro["error"].startswith(f"{classe}: ")
+        # E, do outro lado, o CPF tambem nao vai para as variaveis de engine (so' token de classe).
+        assert cpf not in str(list(result.values()))
+        assert cpf_nu not in str(list(result.values()))
+
+
+async def test_prepare_dossier_handler_start_failed_e_divulgado_com_token_proprio() -> None:
+    """A guarda RAF-02 do handler do Fernando levanta `StartProcessFailedError` ATRAVES do
+    dispatcher (nao e' `DelegationError`, entao nao vira rejeicao estruturada). O worker COMPLETA
+    fail-neutral, com um token PROPRIO — quem le a variavel distingue "o processo do Fernando nao
+    nasceu" de uma falha de transporte qualquer."""
+    handler = make_prepare_dossier_handler(
+        _FakeDossierDispatcher(
+            exc=StartProcessFailedError("fernando nao conseguiu iniciar SP-OP-INADIMPLENCIA-001")
+        )
+    )
+
+    result = await handler(_dossier_task(_INAD_DOSSIER_VARS))
+
+    assert result["dossier_prepared"] is True
+    assert result["arrears_followup_delegated"] is False
+    assert result["arrears_followup_gap"] == "delegation_start_failed"
+
+
+async def test_prepare_dossier_handler_rejeicao_estruturada_carrega_razao_limitada() -> None:
+    handler = make_prepare_dossier_handler(
+        _FakeDossierDispatcher(
+            result=DelegationResult.rejected(
+                "INAD-amh-C-123", RejectionReason.TASK_TYPE_NOT_ACCEPTED, detail="nao aceito"
+            )
+        )
+    )
+
+    result = await handler(_dossier_task(_INAD_DOSSIER_VARS))
+
+    assert result["dossier_prepared"] is True
+    assert result["arrears_followup_delegated"] is False
+    assert result["arrears_followup_gap"] == "delegation_rejected:task_type_not_accepted"
+
+
+async def test_prepare_dossier_handler_sem_identificadores_nunca_delega() -> None:
+    """Sem tenant, ou sem contrato E sem matricula (inclusive so-espacos, disciplina `non_blank`),
+    nenhum `task_id` INAD idempotente existe — jamais delegar com chave degenerada, porque a
+    Guarda 4 selaria casos DIFERENTES sob a mesma chave."""
+    dispatcher = _FakeDossierDispatcher(result=DelegationResult.ok("x", "process://x"))
+    handler = make_prepare_dossier_handler(dispatcher)
+
+    sem_tenant = await handler(
+        _dossier_task({**_INAD_DOSSIER_VARS, "tenant_id": "   "}),
+    )
+    sem_identidade = await handler(
+        _dossier_task(
+            {**_INAD_DOSSIER_VARS, "numero_contrato": "  ", "matricula_beneficiario": ""},
+        )
+    )
+
+    for result in (sem_tenant, sem_identidade):
+        assert result["dossier_prepared"] is True
+        assert result["arrears_followup_delegated"] is False
+        assert result["arrears_followup_gap"] == "missing_business_identifiers"
+    assert dispatcher.envelopes == []
+
+
+async def test_prepare_dossier_handler_nunca_origina_decisao_adversa() -> None:
+    """A conversao para handler NAO abriu porta para originacao adversa: mesmo com a decisao
+    adversa ja no escopo de entrada, nem o dossie nem os campos novos a propagam."""
+    handler = make_prepare_dossier_handler(
+        _FakeDossierDispatcher(result=DelegationResult.ok("INAD-amh-C-123", "process://INAD-amh-C-123"))
+    )
+
+    result = await handler(
+        _dossier_task(
+            {
+                **_INAD_DOSSIER_VARS,
+                "decisao_inadimplencia": DECISAO_SUSPENDER,
+                "suspensao_registrada": True,
+            }
+        )
+    )
+
+    assert "decisao_inadimplencia" not in result
+    assert "suspensao_registrada" not in result
+    adverse_values = {DECISAO_SUSPENDER, DECISAO_ENCAMINHAR_RESCISAO, "RESCINDIR"}
+    assert adverse_values.isdisjoint(_flatten_values(dict(result)))
+
+
+# ---------------------------------------------------------------
 # notify_sla_risk — informational, never adverse
 # ---------------------------------------------------------------
 
@@ -1481,15 +1807,53 @@ def test_notify_sla_risk_no_adverse_outcome() -> None:
 
 
 def test_register_inadimplencia_workers_registers_new_topics() -> None:
+    """Os 8 topicos continuam servidos — 7 como `FunctionWorker` e, desde R-081, `prepare_dossier`
+    como handler RAW async (a costura `dossier_dispatcher` e assincrona)."""
     harness = _RecordingHarness()
     register_inadimplencia_workers(harness, None, dmn=FakeDmnTransport(), engine=FakeCibSevenTransport())
-    topics = set(harness.workers)
+    topics = set(harness.workers) | set(harness.handlers)
     assert "operadora.inadimplencia.prepare_dossier" in topics
     assert "operadora.inadimplencia.notify_sla_risk" in topics
     assert "operadora.inadimplencia.resolve_facts" in topics
     assert len(topics) == 8  # resolve_facts, assess_status, calculate_purge, check_prior_notice,
     #                          prepare_dossier, register_contract_suspension, handoff_rescisao,
     #                          notify_sla_risk
+    # R-081: prepare_dossier saiu do WorkerRegistry e entrou em `_handlers` — a MESMA forma das
+    # tres arestas de dossie cred/adequacao/pagto.
+    assert set(harness.handlers) == {"operadora.inadimplencia.prepare_dossier"}
+    assert "operadora.inadimplencia.prepare_dossier" not in harness.workers
+
+
+def test_prepare_dossier_topico_registra_mesmo_sem_dispatcher() -> None:
+    """Sem a costura (`dossier_dispatcher` ausente = runtime degradado) o topico REGISTRA do mesmo
+    jeito — nunca um topico sem worker, que travaria `ST_PrepareDossier` na instancia."""
+    harness = _RecordingHarness()
+    register_inadimplencia_workers(harness, None, dmn=FakeDmnTransport(), engine=FakeCibSevenTransport())
+    assert harness.handlers["operadora.inadimplencia.prepare_dossier"] is not None
+
+
+def test_registered_prepare_dossier_threads_the_dossier_dispatcher_seam() -> None:
+    """A costura chega REALMENTE ao handler registrado (nao so' a funcao nua): dispatch pelo
+    handler que `register_inadimplencia_workers` gravou entrega o envelope no dispatcher passado
+    por `**seams` — a prova de que a metade de ORIGEM de R-081 esta ligada de ponta a ponta."""
+    harness = _RecordingHarness()
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok("INAD-amh-C-123", "process://INAD-amh-C-123")
+    )
+    register_inadimplencia_workers(
+        harness,
+        None,
+        dmn=FakeDmnTransport(),
+        engine=FakeCibSevenTransport(),
+        dossier_dispatcher=dispatcher,
+    )
+    handler = harness.handlers["operadora.inadimplencia.prepare_dossier"]
+
+    result = asyncio.run(handler(_dossier_task(_INAD_DOSSIER_VARS)))
+
+    assert result["arrears_followup_delegated"] is True
+    (envelope,) = dispatcher.envelopes
+    assert envelope.target == "fernando"
 
 
 def test_registered_resolve_facts_threads_engine_seam() -> None:

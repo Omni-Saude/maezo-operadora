@@ -560,9 +560,13 @@ def record_agent_error(*, agent: str, error_type: str) -> None:
     raise ...`) so a failed-to-start delegation is retried rather than sealed as completed — but
     that `raise` sits OUTSIDE the `try` block wrapping `ainvoke`, so it does not loop back through
     this counter either. Either a call site re-raises the real failure, or (CC-01) it records the
-    terminal error outcome in-graph — never both, for the same turn. (The RAF-02 guard's own
-    coverage across A2A handlers is tracked separately — see `docs/review-queue.md`, not this
-    docstring, for which handlers have it.)
+    terminal error outcome in-graph — never both, for the same turn. (Which handlers carry that
+    guard is not quantified here — it is an EXECUTABLE inventory, closed by
+    `tests/unit/agents/test_start_failure_a2a_handlers.py::
+    test_the_guarded_set_is_exactly_the_handlers_whose_graph_starts_a_process`: every
+    `agents/<id>/delegation.py` that runs a graph whose `graph.py` registers a `start_process`
+    node, and only those. A prose count in this docstring is exactly what went stale before —
+    gap `RAF-02-GUARD-MISSING-GUSTAVO-MARINA-VALENTINA`.)
 
     WHAT IS AND IS NOT AN "AGENT ERROR" HERE. A turn that raised out of the graph is one; so is a
     graph-internal start failure that never raises (CC-01). A policy DENIAL at the effect
@@ -783,6 +787,37 @@ def record_agent_desfecho(
         start_failed=start_failed,
         flow=flow,
     )
+
+
+def record_agent_first_response(*, agent_id: str, seconds: float) -> None:
+    """Record ONE inbound-to-reply-attempt latency observation (GAP 11.2, `first_response_p95`).
+
+    THE DEFECT THIS CLOSES. `spec/agents/helena/agent.yaml` declares
+    `{ name: first_response_p95, target: "<15s" }`, but no metric in this repo ever measured a
+    turn's LATENCY (`agent_desfecho_total`, CC-09, measures outcome COUNTS, not time — see its
+    own docstring). `grep -rn 'first_response_p95' src/ tests/` had exactly one hit — the
+    `agent.yaml` declaration itself — before this.
+
+    Observes `maezo_agent_first_response_seconds{agent_id}` — see
+    `MetricsCollector.agent_first_response_seconds` for the label contract and exactly what is
+    (and is not) measured. The ONE caller is
+    `platform.webhooks.whatsapp.dispatch.HelenaDispatcher.dispatch`, timing its own
+    `compiled.ainvoke(...)` call — the single synchronous receive..respond chokepoint for Helena,
+    the one agent that declares this KPI.
+
+    PHI-FREE BY CONSTRUCTION: `agent_id` is a closed, small vocabulary token (same one
+    `agent_desfecho_total` uses); `seconds` is a wall-clock float. Neither carries a conversation
+    id, phone hash, business key or message content.
+
+    Best-effort by construction (mirrors `record_agent_desfecho`): a telemetry defect must never
+    break the turn whose latency it is timing.
+    """
+    try:
+        collector = _get_metrics_collector()
+        collector.agent_first_response_seconds.labels(agent_id=agent_id).observe(seconds)
+        logger.info("agent_first_response_recorded", agent_id=agent_id, seconds=seconds)
+    except Exception:  # defensive: telemetry must never break a completed turn.
+        logger.debug("agent_first_response_telemetry_emit_failed", agent_id=agent_id, exc_info=True)
 
 
 def record_phi_business_key_mint(*, family: str, modo: str, anchor: str) -> None:

@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.platform.observability import record_worker_error
+from maezo.runtime.start_outcome import StartProcessFailedError
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
 from maezo.tools.workers.base import (
     CANCEL_KEY_FAMILY,
@@ -24,10 +26,14 @@ from maezo.tools.workers.base import (
 )
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import AUDIT_AGENT_ID, WorkerBpmnError, _resolve_app_version
+from maezo.tools.workers.phi_vars import redact_error_message
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from maezo.a2a import DelegationDispatcher
     from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
-    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
+    from maezo.tools.workers.harness import ExternalTask, KafkaPublisher, TaskHandler, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -39,16 +45,17 @@ logger = structlog.get_logger(__name__)
 # SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn: `Error_ContractSuspensionNotHuman`, caught by
 # `BE_SuspensaoNaoHumano` on `ST_RegisterSuspension` -> the NEUTRO terminal
 # `End_SuspensaoBloqueadaNaoHumano`). The guard below therefore raises `WorkerBpmnError(code)` —
-# NOT a `.code`/`.message` `InadimplenciaError` — mirroring `cancel.confirm_maintained_decision`
+# NOT a duck-typed `.code`/`.message` exception — mirroring `cancel.confirm_maintained_decision`
 # (`ERR_CANCEL_MANTER_NOT_HUMAN`) and `credenciamento`'s two adverse `*_NOT_HUMAN` guards
 # (ADR-0030 §2/§4, Tier-3 G2-guard; this family was the ADR's own disclosed "unmigrated" example —
-# ADR-0030 ratification amendment note). Rationale (unchanged from cred/cancel): an
-# `InadimplenciaError` is reclassified by `FunctionWorker.execute` (base.py:284-293) into a bare
-# `ValueError`, which `WorkerHarness._handle`'s `except ValueError` branch reports as a generic
-# `failure(retries=0)` incident and NEVER consults the `bpmn_error_allowlist` — so the modeled
-# boundary could NEVER fire (the guard blocked the suspension, but the clean neutral terminal was
-# structurally UNREACHABLE, left as an opaque engine incident). `WorkerBpmnError` propagates
-# unchanged through `execute` (it exposes `.error_code`, not `.code`/`.message`) to the harness's
+# ADR-0030 ratification amendment note). Rationale (unchanged from cred/cancel): the OLD bare-
+# `Exception` `InadimplenciaError(code, message)` this guard used to raise was reclassified by
+# `FunctionWorker.execute` (base.py:284-293) into a bare `ValueError`, which
+# `WorkerHarness._handle`'s `except ValueError` branch reports as a generic `failure(retries=0)`
+# incident and NEVER consults the `bpmn_error_allowlist` — so the modeled boundary could NEVER
+# fire (the guard blocked the suspension, but the clean neutral terminal was structurally
+# UNREACHABLE, left as an opaque engine incident). `WorkerBpmnError` propagates unchanged through
+# `execute` (it exposes `.error_code`, not `.code`/`.message`) to the harness's
 # `except WorkerBpmnError` branch, which routes it to `handle_bpmn_error` (the boundary) when the
 # code is allowlisted. `_NOT_HUMAN` adverse guard -> T-E-gated (ADR-0030 §4): consumption-covered
 # by the boundary-proof gate (`scripts/ci/check_bpmn_error_allowlist.py`), yet DEFERRED out of
@@ -60,6 +67,11 @@ logger = structlog.get_logger(__name__)
 # `INADIMPLENCIA_BPMN_ERROR_ALLOWLIST` constant is added: with only a T-E-deferred code to
 # contribute, there is nothing to wire into `service.py` yet — mirrors `cancel`, whose sole
 # gate-proven code (`ERR_CANCEL_MANTER_NOT_HUMAN`) also exposes no allowlist constant.
+#
+# ERR_INAD_INVALID_CONTRATO (`handoff_rescisao`'s tenant/contract-identity guard, D3-01,
+# WP-ADR-0030-COMPLETION) is declared in the BPMN's `<bpmn:error>` catalog but has ZERO
+# boundary catching it (see `InadContratoInvalidoError`'s docstring below for the full proof) —
+# it stays a technical failure (`ValueError` subclass), NOT a `WorkerBpmnError`.
 ERR_CONTRACT_SUSPENSION_NOT_HUMAN = "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
 ERR_INAD_INVALID_CONTRATO = "ERR_INAD_INVALID_CONTRATO"
 
@@ -479,6 +491,194 @@ def prepare_dossier(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
+# prepare_dossier — call site A2A REAL de Fernando (handler raw-async; R-081 metade de ORIGEM)
+# ---------------------------------------------------------------
+
+#: Rotulo `worker` dos contadores `maezo_worker_error_count_total` deste handler. Literal fixo
+#: (o handler raw nao e uma classe `WorkerBase`, entao nao ha `type(self).__name__` a usar) —
+#: mesma disciplina de rotulo LIMITADO do precedente `auth.AutoCriteriaWorker._record_unavailability`.
+_DOSSIER_HANDLER_METRIC_NAME = "InadimplenciaPrepareDossierHandler"
+
+#: Tokens de CLASSE (nunca texto de erro cru) publicados em `arrears_followup_gap`. Sao variaveis
+#: de engine, entao a cardinalidade e limitada por construcao (higiene de variavel de engine +
+#: rotulo de metrica); a mensagem real do erro fica SO no log.
+_GAP_DISPATCHER_UNAVAILABLE = "dispatcher_unavailable"
+_GAP_MISSING_IDENTIFIERS = "missing_business_identifiers"
+_GAP_START_FAILED = "delegation_start_failed"
+_GAP_DELEGATION_FAILED = "delegation_failed"
+
+
+def _record_dossier_delegation_gap(token: str) -> None:
+    """Conta UMA falha de MECANISMO da delegacao (nunca um "nao" de negocio).
+
+    Espelha `auth.AutoCriteriaWorker._record_unavailability`: engole a propria falha, porque um
+    problema no backend de metricas nao pode virar o incidente que a postura fail-neutral existe
+    justamente para evitar.
+    """
+    try:
+        record_worker_error(_DOSSIER_HANDLER_METRIC_NAME, "operadora.inadimplencia.prepare_dossier", token)
+    except Exception as exc:  # observabilidade nunca derruba a tarefa (auth.py e o precedente)
+        # D-F2 (superconjunto do pedido): redigido tambem aqui. A excecao vem do backend de
+        # metricas e nao deveria carregar PHI, mas `redact_error_message` e' de mao unica e nunca
+        # levanta, entao redigir e' gratuito e a regra fica UMA so' neste modulo.
+        logger.warning("inadimplencia_dossier_delegation_metric_failed", error=redact_error_message(exc))
+
+
+def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> TaskHandler:
+    """Cria o handler de `operadora.inadimplencia.prepare_dossier` — dossie local + delegacao REAL.
+
+    METADE DE ORIGEM de R-081 (decisao do dono, `APROVADO-APOS-REVISÃO-HUMANA` 2026-09-04, gap
+    `FERNANDO-DELEGATION-CALL-SITE`): *"SIM — ligar o call site em `inadimplencia.py::
+    prepare_dossier` e registrar `make_fernando_handler` em `a2a_composition.py`, com a chamada
+    fail-neutral."* A metade de registro ja aterrissou em
+    `runtime/agent_runtime/a2a_composition.py::build_dossier_delegation_dispatcher`; esta e a
+    outra metade — o unico caminho de producao que ORIGINA um envelope `arrears.followup`.
+
+    HANDLER RAW ASSINCRONO (precedente sancionado DL-0034 / DL-0033, forma identica a
+    `credenciamento.py::make_prepare_dossier_handler`): a fronteira `FunctionWorker.execute(dict)`
+    e SINCRONA e `DelegationDispatcher.delegate` e assincrona — a forma `harness.register()` roda
+    este handler no proprio loop da harness, onde vive o audit sink em pool do dispatcher. Popula
+    `_handlers` mas NAO o `WorkerRegistry` (ver `raw_handler_topics` em
+    `tests/unit/tools/workers/test_bootstrap_registration.py`).
+
+    O DOSSIE LOCAL CONTINUA SENDO A SAIDA PRINCIPAL, e e' produzido SEMPRE. Diferente das arestas
+    cred/adequacao/pagto (onde o dossie E' o produto do agente), aqui `prepare_dossier` ja monta o
+    dossie que `UT_AnaliseInadimplencia` le, e a delegacao a Fernando e um ACOMPANHAMENTO
+    (`arrears.followup`) em cima dele. Por isso este handler chama a funcao pura `prepare_dossier`
+    inalterada e so' ACRESCENTA campos de divulgacao — nunca substitui nem suprime o dossie.
+
+    FAIL-NEUTRAL (condicao do dono; mesma postura DL-0037 de `credenciamento`): dispatcher ausente
+    (runtime degradado — sem chave de assinatura / sem DATABASE_URL), identificadores de negocio
+    ausentes, rejeicao estruturada, `StartProcessFailedError` (a guarda RAF-02 do handler do
+    Fernando) ou QUALQUER outra excecao => a tarefa CIB Seven COMPLETA com o dossie e com
+    `arrears_followup_delegated: False` + `arrears_followup_gap: <token de classe>`, log ALTO e
+    contador de erro de worker. Este handler NUNCA levanta e NUNCA fabrica sucesso: a User Task
+    humana TEM de abrir, e um acompanhamento nao entregue jamais pode ser registrado como entregue.
+
+    ISSO NAO ENFRAQUECE RAF-02. A garantia de RAF-02 e' do DISPATCHER: um
+    `StartProcessFailedError` sobe de `delegate` sem selar resultado por `task_id`, sem linha de
+    audit terminal e sem fato `COMPLETED` (`runtime/start_outcome.py`), entao uma delegacao futura
+    com o MESMO `task_id` REEXECUTA em vez de reproduzir um sucesso falso. O que este handler faz
+    e' nao transformar essa falha em incidente da instancia de inadimplencia — e ele a DIVULGA na
+    variavel de processo em vez de engoli-la.
+
+    SEM PHI NO LOG: so' `numero_contrato`/`tenant_id`/`business_key` (identificadores de contrato
+    ja usados pelos demais logs deste modulo) e tokens de classe; texto de erro cru fica no campo
+    `error` do log estruturado e NUNCA nas variaveis de engine (ADR-0006/ADR-0010).
+    """
+
+    async def handler(task: ExternalTask) -> Mapping[str, Any]:
+        v = dict(task.variables)
+        dossier = dict(prepare_dossier(v))
+        tenant_id = str(v.get("tenant_id", "") or "")
+        numero_contrato = str(v.get("numero_contrato", "") or "")
+        matricula_beneficiario = str(v.get("matricula_beneficiario", "") or "")
+
+        def _com_lacuna(token: str) -> dict[str, Any]:
+            return {**dossier, "arrears_followup_delegated": False, "arrears_followup_gap": token}
+
+        if dispatcher is None:
+            # Runtime DEGRADADO (DL-0037): dispatcher ausente na composicao (sem chave de
+            # assinatura / sem DATABASE_URL — `worker_runtime` reporta
+            # dossier_delegation_ready=false). A UT abre do mesmo jeito, com a lacuna divulgada.
+            logger.warning(
+                "inadimplencia_dossier_dispatcher_unavailable",
+                tenant_id=tenant_id,
+                numero_contrato=numero_contrato,
+                business_key=task.business_key,
+            )
+            _record_dossier_delegation_gap(_GAP_DISPATCHER_UNAVAILABLE)
+            return _com_lacuna(_GAP_DISPATCHER_UNAVAILABLE)
+
+        if not non_blank(tenant_id) or not (non_blank(numero_contrato) or non_blank(matricula_beneficiario)):
+            # Nenhum `task_id` INAD idempotente pode ser derivado (disciplina `non_blank` EB-4):
+            # jamais delegar com chave degenerada — `fernando.graph._business_key` mintaria uma
+            # identidade vazia, e a Guarda 4 selaria casos DIFERENTES sob o mesmo `task_id`.
+            logger.error(
+                "inadimplencia_dossier_missing_identifiers",
+                tenant_id=tenant_id,
+                numero_contrato=numero_contrato,
+                business_key=task.business_key,
+            )
+            _record_dossier_delegation_gap(_GAP_MISSING_IDENTIFIERS)
+            return _com_lacuna(_GAP_MISSING_IDENTIFIERS)
+
+        # Import LOCAL de proposito (mesma forma de `credenciamento.py`): `agents.fernando`
+        # arrasta o grafo inteiro, e `tools/workers` nao pode depender de `agents` no import.
+        from maezo.agents.fernando.delegation import delegate_arrears_followup
+
+        try:
+            result = await delegate_arrears_followup(
+                dispatcher,
+                tenant=tenant_id.strip(),
+                case_meta=v,
+                numero_contrato=numero_contrato.strip() or None,
+                matricula_beneficiario=matricula_beneficiario.strip() or None,
+            )
+        except StartProcessFailedError as exc:
+            # Guarda RAF-02 do handler do Fernando: o turno dele NAO iniciou o processo e o
+            # dispatcher deliberadamente NAO selou o resultado — a delegacao segue retentavel.
+            logger.error(
+                "inadimplencia_dossier_delegation_start_failed",
+                tenant_id=tenant_id,
+                numero_contrato=numero_contrato,
+                business_key=task.business_key,
+                # PHI (achado D-F2 do porteiro): `str(exc)` cru punha o texto da excecao no log
+                # do operador. Este handler roda a jusante de variaveis de caso COM PHI
+                # (`case_meta=dict(v)`), e as excecoes que ele apanha vem das camadas
+                # dispatcher/PG/engine, cujas mensagens rotineiramente ecoam o payload ofensor —
+                # um CPF/CNS num erro de driver cairia verbatim ali. `redact_error_message`
+                # (T3.4 F5) e' o MESMO backstop de mao unica, que nunca levanta, usado por
+                # `runtime/start_outcome.py` e `tools/workers/pagto.py`; preserva a CLASSE do
+                # erro para diagnostico.
+                error=redact_error_message(exc),
+            )
+            _record_dossier_delegation_gap(_GAP_START_FAILED)
+            return _com_lacuna(_GAP_START_FAILED)
+        # `Exception` LARGO de proposito (DL-0037): a UT humana TEM de abrir, entao nenhuma
+        # classe de falha da delegacao pode escapar daqui. `BaseException` NAO — um
+        # `CancelledError` de shutdown nao e' uma falha de delegacao.
+        except Exception as exc:
+            logger.error(
+                "inadimplencia_dossier_delegation_failed",
+                tenant_id=tenant_id,
+                numero_contrato=numero_contrato,
+                business_key=task.business_key,
+                error=redact_error_message(exc),  # D-F2, mesma razao do sitio acima
+            )
+            _record_dossier_delegation_gap(_GAP_DELEGATION_FAILED)
+            return _com_lacuna(_GAP_DELEGATION_FAILED)
+
+        if not result.success:
+            reason = str(result.rejection_reason or "unknown")
+            logger.error(
+                "inadimplencia_dossier_delegation_rejected",
+                tenant_id=tenant_id,
+                numero_contrato=numero_contrato,
+                business_key=task.business_key,
+                reason=reason,
+            )
+            _record_dossier_delegation_gap(f"delegation_rejected:{reason}")
+            return _com_lacuna(f"delegation_rejected:{reason}")
+
+        logger.info(
+            "inadimplencia_dossier_delegated",
+            tenant_id=tenant_id,
+            numero_contrato=numero_contrato,
+            business_key=task.business_key,
+            followup_ref=result.output_ref,
+            idempotent_replay=result.idempotent_replay,
+        )
+        return {
+            **dossier,
+            "arrears_followup_delegated": True,
+            "arrears_followup_ref": result.output_ref or "",
+        }
+
+    return handler
+
+
+# ---------------------------------------------------------------
 # notify_sla_risk — informational SLA alert (non-interruptive timer)
 # ---------------------------------------------------------------
 
@@ -616,8 +816,9 @@ def _register_contract_suspension(variables: dict[str, Any]) -> dict[str, Any]:
             errors=errors,
             numero_contrato=variables.get("numero_contrato"),
         )
-        # MODELED boundary error (BE_SuspensaoNaoHumano) — WorkerBpmnError, not InadimplenciaError;
-        # see the error-codes section above and cancel.confirm_maintained_decision for the rationale.
+        # MODELED boundary error (BE_SuspensaoNaoHumano) — WorkerBpmnError, not a duck-typed
+        # `.code`/`.message` exception; see the error-codes section above and
+        # cancel.confirm_maintained_decision for the rationale.
         raise WorkerBpmnError(ERR_CONTRACT_SUSPENSION_NOT_HUMAN, "; ".join(errors))
 
     logger.info(
@@ -786,9 +987,9 @@ def handoff_rescisao(
       - a missing engine seam (``engine is None`` — composition root not wired) raises (transient);
       - a missing audit seam (``audit_sink is None``) raises (transient) — the handoff can never
         start CANCEL-001 un-audited (ADR-0007 L0);
-      - a missing contract identity raises ``InadimplenciaError`` (deterministic -> immediate
-        incident) — the handoff can never target an empty CANCEL business key;
-      - a missing/blank/``None`` ``tenant_id`` raises ``InadimplenciaError`` the same way (GK
+      - a missing contract identity raises ``InadContratoInvalidoError`` (deterministic ->
+        immediate incident) — the handoff can never target an empty CANCEL business key;
+      - a missing/blank/``None`` ``tenant_id`` raises ``InadContratoInvalidoError`` the same way (GK
         MINOR F7, validated with the SHARED ``base.non_blank`` — the same idiom
         ``fraude.start_contratual`` and the bridge's ``_anchored`` already used): a degenerate
         ``CANCEL--{contrato}`` key would collapse every tenant's contract onto ONE business key,
@@ -817,8 +1018,7 @@ def handoff_rescisao(
             "inadimplencia_handoff_rescisao_no_tenant_anchor",
             **_contract_identity_log_fields(numero_contrato, matricula_beneficiario),
         )
-        raise InadimplenciaError(
-            ERR_INAD_INVALID_CONTRATO,
+        raise InadContratoInvalidoError(
             "handoff_rescisao: tenant_id ausente, em branco ou None — nao ha ancora de tenant "
             "para a business key de CANCEL-001 (recusado, nunca inicia com chave degenerada "
             "'CANCEL--{contrato}' que colapsaria tenants distintos numa unica chave)",
@@ -833,8 +1033,7 @@ def handoff_rescisao(
             "inadimplencia_handoff_rescisao_no_contract_identity",
             tenant_id=tenant_id,
         )
-        raise InadimplenciaError(
-            ERR_INAD_INVALID_CONTRATO,
+        raise InadContratoInvalidoError(
             "handoff_rescisao: sem numero_contrato/matricula_beneficiario — nao ha identidade de "
             "contrato para iniciar CANCEL-001 (recusado, nunca inicia com business key vazia)",
         )
@@ -934,13 +1133,38 @@ def handoff_rescisao(
 # ---------------------------------------------------------------
 
 
-class InadimplenciaError(Exception):
-    """Worker guard error for inadimplencia adverse effects."""
+class InadContratoInvalidoError(ValueError):
+    """Raised by `handoff_rescisao` when there is no valid contract identity/tenant anchor to
+    key the SP-OP-CANCEL-001 handoff (`ERR_INAD_INVALID_CONTRATO`).
 
-    def __init__(self, code: str, message: str) -> None:
-        self.code = code
-        self.message = message
-        super().__init__(f"{code}: {message}")
+    A `ValueError` subclass DELIBERATELY (mirrors `cancel.CancelContratoInvalidoError` and
+    `contas.ContasHandoffPagamentoInvalidoError`/`ContasFraudeSemAlvoError`/
+    `ContasDevolucaoInvalidaError`) — NOT a `WorkerBpmnError`, and NOT the old duck-typed, bare
+    `Exception` `InadimplenciaError(code, message)` this replaces (D3-01, WP-ADR-0030-COMPLETION):
+    `Error_InadContratoInvalido`/`ERR_INAD_INVALID_CONTRATO` IS declared in the BPMN's own
+    `<bpmn:error>` catalog (`spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn:16`)
+    but has ZERO `boundaryEvent`+`errorEventDefinition` referencing it anywhere in that file
+    (confirmed by direct inspection — the ONLY boundary-caught error in the file is
+    `Error_ContractSuspensionNotHuman`/`BE_SuspensaoNaoHumano`) — the SAME declared-and-uncaught
+    posture the owner already ratified for `contas`'s two dead-model codes
+    (`CONTAS-DEAD-ERROR-CATALOG`, OWNER-DECISIONS-REGISTER R-097/R-098). Raising
+    `WorkerBpmnError(ERR_INAD_INVALID_CONTRATO)` here would FAIL
+    `scripts/ci/check_bpmn_error_allowlist.py` clause (b) outright (an unproven raise — the gate
+    treats "no spec boundary at all" as a hard violation, not a warn-only dead model), so this code
+    stays a technical failure by design, not an oversight.
+
+    Subclassing `ValueError` directly (rather than the old duck-typed `.code`/`.message` pair on a
+    bare `Exception`) means `WorkerHarness._handle`'s `except ValueError` branch
+    (`harness.py` §9) classifies it DIRECTLY via `isinstance` — `failure(retries=0)`, an
+    immediate, human-visible incident, never silently retried. `reclassify_coded_exception`
+    (`base.py`) still passes it through unchanged either way (`ValueError` is already in its
+    `_HARNESS_CLASSIFIED` tuple), so the observable runtime behavior is UNCHANGED by this
+    raise-side migration — only the raise site sheds the untyped, duck-typed exception shape.
+    """
+
+    def __init__(self, detail: str = "") -> None:
+        msg = f"{ERR_INAD_INVALID_CONTRATO}: {detail}" if detail else ERR_INAD_INVALID_CONTRATO
+        super().__init__(msg)
 
 
 # ---------------------------------------------------------------
@@ -953,8 +1177,10 @@ class InadimplenciaError(Exception):
 #   dispatch_prior_notice -> operadora.inadimplencia.check_prior_notice
 #     (spec match: RN 593 prior-notice dispatch STEP; asserts no fact — GAP-INAD-8, was
 #     `notify_beneficiario`, which returned a constant `notificacao_previa_feita=True`)
-#   prepare_dossier -> operadora.inadimplencia.prepare_dossier (exact spec match; INSTRUCTS the
-#     human User Task, never originates an adverse decision — cancel/auth dossier pattern)
+#   make_prepare_dossier_handler -> operadora.inadimplencia.prepare_dossier (exact spec match;
+#     handler RAW async desde R-081: monta o dossie local pela funcao pura `prepare_dossier`
+#     — que INSTRUI a User Task humana e nunca origina decisao adversa, padrao cancel/auth — e
+#     DEPOIS delega `arrears.followup` a Fernando pela costura `dossier_dispatcher`, fail-neutral)
 #   register_suspension (alias register_contract_suspension)
 #     -> operadora.inadimplencia.register_contract_suspension (exact spec match, GUARDED)
 #   handoff_rescisao -> operadora.inadimplencia.handoff_rescisao (exact spec match)
@@ -993,11 +1219,20 @@ def register_inadimplencia_workers(
     un-audited CANCEL-001 start is structurally impossible, ADR-0007 L0). In the live daemon it is
     a `FreshSinkAuditEmitter` (gateway/audit_postgres.py) — the sink-side mirror of the
     fresh-client-per-call pattern, because each sync dispatch emits on its own `asyncio.run` loop.
+
+    `dossier_dispatcher` (costura dossie-A2A, metade de ORIGEM de R-081) e' threaded into the
+    `prepare_dossier` RAW async handler — um `DelegationDispatcher` montado pela raiz de
+    composicao do worker-runtime (`build_dossier_delegation_dispatcher`), que ja chega aqui pelo
+    mesmo canal `**seams` (`worker_runtime/service.py` -> `bootstrap.bootstrap(harness, kafka,
+    **seams)`), sem nenhuma mudanca de assinatura. ABSENTE (`None`, o default da sonda de topicos
+    e a postura de runtime degradado) o topico REGISTRA do mesmo jeito e o handler fail-neutral
+    com a lacuna divulgada (DL-0037): o dossie local sai completo e a UT humana sempre abre.
     """
     del kafka  # unused — no inadimplencia.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
     engine: CibSevenTransport | None = seams.get("engine")
     audit_sink: AuditStartSink | None = seams.get("audit_sink")
+    dossier_dispatcher: DelegationDispatcher | None = seams.get("dossier_dispatcher")
     harness.register_worker(
         FunctionWorker(
             "operadora.inadimplencia.resolve_facts", functools.partial(resolve_facts, engine=engine)
@@ -1010,7 +1245,11 @@ def register_inadimplencia_workers(
     harness.register_worker(
         FunctionWorker("operadora.inadimplencia.check_prior_notice", dispatch_prior_notice)
     )
-    harness.register_worker(FunctionWorker("operadora.inadimplencia.prepare_dossier", prepare_dossier))
+    # HANDLER RAW (NAO `register_worker`) — precisa da costura assincrona do dispatcher (R-081,
+    # metade de ORIGEM; nota do mapa de topicos deste modulo e o precedente `credenciamento.py`).
+    harness.register(
+        "operadora.inadimplencia.prepare_dossier", make_prepare_dossier_handler(dossier_dispatcher)
+    )
     harness.register_worker(
         FunctionWorker("operadora.inadimplencia.register_contract_suspension", register_contract_suspension)
     )

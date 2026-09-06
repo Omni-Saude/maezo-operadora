@@ -51,16 +51,20 @@ docker compose --profile observability up -d
 #   OTel:       localhost:4317 (gRPC), localhost:4318 (HTTP)
 ```
 
-> **Dashboard auto-provisioning does not currently work in local dev.** Grafana's
-> file provider (`deploy/observability/grafana-provisioning/dashboards/dashboards.yaml`)
-> serves from `/etc/grafana/provisioning/dashboards`, and `docker-compose.yml` mounts
-> only `./deploy/observability/grafana-provisioning:/etc/grafana/provisioning:ro` —
-> so that path resolves to `deploy/observability/grafana-provisioning/dashboards/` on
-> the host, which contains only `dashboards.yaml` itself (no dashboard JSON). The real
-> dashboard files (`engine.json`, `gateway.json`, `helena-employee.json`) live in the
-> sibling directory `deploy/observability/dashboards/`, which nothing mounts into the
-> container. Until that mount is fixed, import dashboards manually: Grafana UI (top
-> left) → Dashboards → New → Import → upload the JSON from `deploy/observability/dashboards/`.
+> **D12-02 / R-030 (2026-09-05): dashboard auto-provisioning now works in local dev.**
+> `deploy/observability/grafana-provisioning/dashboards/dashboards.yaml` is a Grafana file
+> provider whose `path` is `/etc/grafana/provisioning/dashboards/json` — the SECOND mount
+> `docker-compose.yml` declares on the `grafana` service
+> (`./deploy/observability/dashboards:/etc/grafana/provisioning/dashboards/json:ro`, kept
+> deliberately separate from the first mount so the dashboard JSON never shadows
+> `dashboards.yaml` itself). `deploy/observability/grafana-provisioning/datasources/
+> datasources.yaml` provisions the `Prometheus` datasource (`uid: prometheus`) every panel
+> references. The three versioned dashboards — `worker-runtime.json`, `agentes.json`,
+> `dlq-lifecycle.json` (`deploy/observability/dashboards/`) — should appear under the "Maezo"
+> folder automatically on `docker compose --profile observability up -d`; no manual import
+> step is needed any more. Content is provisional until `D12-01-a` (SLO document) exists — see
+> that gap. `tests/unit/deploy/test_grafana_dashboards.py` fences the provisioning wiring and
+> every panel's PromQL against the measured metric inventory.
 
 ### Running everything
 
@@ -334,13 +338,58 @@ the steps below as manual triage guidance once either fires.
 
 ### Kafka lag
 
-**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoKafkaConsumerLagHigh` rule exists in
-`deploy/observability/alert-rules.yml`, and no consumer-lag metric is scraped anywhere in this
-repo today (RUNBOOK-PHANTOM-ALERTS-5-MORE, verified 2026-09-03: `grep -n 'alert:
-MaezoKafkaConsumerLagHigh' deploy/observability/alert-rules.yml` and `grep -rni consumer.lag
-deploy/observability/` both 0 hits). The rule belongs in `deploy/observability/alert-rules.yml`
-(owner-gated). Meanwhile, operators should check consumer-group lag directly against the broker
-(`kafka-consumer-groups.sh --describe --group <group>`) rather than rely on an alert.  
+**Status:** PLANNED — NOT YET IMPLEMENTED as an ALERT. No `MaezoKafkaConsumerLagHigh` rule exists
+in `deploy/observability/alert-rules.yml` (verified 2026-09-05: `grep -n 'alert:
+MaezoKafkaConsumerLagHigh' deploy/observability/alert-rules.yml` — 0 hits). The rule (and any
+dashboard) belongs there and remains owner-gated / D12-02 scope — not added by this note.
+
+**Drift correction (GAP D4-03, round-5, 2026-09-05):** this section previously claimed "no
+consumer-lag metric is scraped anywhere in this repo today" (RUNBOOK-PHANTOM-ALERTS-5-MORE,
+verified 2026-09-03). That is now STALE: `deploy/observability/prometheus.yml` job
+`kafka-exporter` (added by #327 / ALERTS-WITHOUT-METRICS-b, R-056, 2026-09-04) scrapes
+danielqsj/kafka_exporter v1.7.0 (`docker-compose.yml` service `kafka-exporter`, no
+`--group.filter` set — every consumer group on the broker is discovered and exported), which
+exposes **`kafka_consumergroup_lag{consumergroup,topic,partition}`** and
+**`kafka_consumergroup_lag_sum{consumergroup,topic}`** (summed across partitions) alongside the
+`kafka_topic_partition_current_offset` series the `maezo_dead_letter_derived` recording-rule
+group already reads. No `record:`/`alert:` rule reads either lag series yet — this note only
+disclaims the "0 scraped anywhere" claim, it does not wire an alert.
+
+**Measurement procedure — consumer lag per topic (run BEFORE any worker-runtime posture change,
+per D4-03's own recommendation):**
+
+```promql
+# Instant lag, per consumer group + topic (already pre-summed across partitions):
+kafka_consumergroup_lag_sum{consumergroup="<group>"}
+
+# Same reading, derived from the per-partition series (equivalent; use if you need the
+# per-partition breakdown too):
+sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup="<group>"})
+
+# Trend over the last 30 minutes, to distinguish a transient blip from sustained starvation
+# before touching src/maezo/runtime/worker_runtime/settings.py's lock/poll/task-count posture:
+avg_over_time(kafka_consumergroup_lag_sum{consumergroup="<group>"}[30m])
+```
+
+Local/dev: Prometheus at `http://localhost:9090` (`make dev-observability`), or query the
+exporter directly: `curl -s http://localhost:9308/metrics | grep kafka_consumergroup_lag_sum`
+(exporter port per `docker-compose.yml`'s `kafka-exporter` service). Kubernetes: the same PromQL
+against the in-cluster Prometheus/AMP, once the `kafka-exporter` scrape job is deployed there too
+(today it is dev/CI-only — no `deploy/helm/**kafka-exporter**` template exists; extending it to a
+tenant cluster is a separate, undone piece of work).
+
+**Decision note (D4-03):** `worker_runtime/settings.py`'s posture (`WORKER_LOCK_DURATION_MS=
+30_000`, `WORKER_POLL_INTERVAL_MS=5_000`, `WORKER_MAX_TASKS_PER_POLL=10`) is UNCHANGED by this
+gap, deliberately. The register's own concern — "99+ topicos num unico worker-daemon" starving a
+cold topic behind a busy one — is a hypothesis about production-scale topic fan-out that this
+repo's dev/CI stack (a handful of topics, one worker replica) cannot exercise realistically. The
+measurement above is now POSSIBLE (it was not, before the kafka-exporter wiring); it has not been
+RUN against a representative topic count, so there is no `kafka_consumergroup_lag_sum` reading
+yet to justify a specific new value for any of the three knobs. Changing worker posture without
+that reading would be exactly the "guess, then hope" `_positive`/`_validate_long_poll_fits_
+client_timeout` validators in `settings.py` already refuse to accept for internally-inconsistent
+values — this note is the same discipline applied to cross-topic fairness, which those validators
+cannot check.  
 **Alert:** `MaezoKafkaConsumerLagHigh`  
 **Meaning:** Event processing is behind; agents may receive delayed CDC events.  
 **Steps:**

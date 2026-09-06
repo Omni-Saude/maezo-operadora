@@ -206,3 +206,26 @@ ready_to_merge_queue:  # live view 18:35Z — user merging manually; REMAINING o
   - {pr: 190, lane: observability, order: "merge on green (T3-VERIFIED)", verified: "T3-PASS FULL 19:1xZ: 17 gates re-run green; label-parity of all new alerts re-derived from harness.py/ans_submit.py source; record_escalation negative-case asserted; LGPD sla_metrics correctly extends NIP (phase discriminator); ans-cron coverage test now DERIVES from bpmn dir (drift class non-recurring); bare-default byte-identical", note: "LATENT-until-infra: MaezoPodCrashLooping needs kube-state-metrics, kafka alerts need exporter (ledgered). CONFLICT-EXPECTED with #189 on devops-stack.md — second-to-land rebases"}
   - {pr: 191, lane: a2a, order: "after T3 verify (NEXT SESSION — do not merge on self-report)", verified: "builder self-PASS: 5/6 seams (fraude→beatriz, nip→gustavo, recurso→marina, cred→carolina, inad→fernando) w/ fail-on-main proof tests, 2848 unit + DI 100% + no-denial green; real-engine 139/143 (4 fails = PRE-EXISTING shared-engine residue, proven identical on origin/main via stash-roundtrip)", note: "seam 6 lucas-glosa BLOCKED by design (ESC-017); human gates preserved by construction (handlers return None / non-routing outputs)"}
   - {pr: 192, lane: port-5433, order: "last, after T2 verify (NEXT SESSION)", verified: "builder self-PASS (compose ${MAEZO_PG_HOST_PORT:-5433}:5432 + ci.yml integration pin =5432 keeps CI byte-identical; local defaults→5433; survivors documented); gates all 0", note: "user decision 3 implemented; verify focus: ci.yml pin actually preserves CI behavior + no missed local-dev 5432 ref"}
+
+# ============================================================
+# ERRATA 2026-09-05 — GAP AF-02 (append-only; as linhas 17 e 54 acima NAO foram alteradas)
+# Autor: ADR-BATCH (R1, AGENTE). Status: Proposto (errata) — DRAFT/verify. Base: 44e85ea.
+# Reescrever um arquivo de estado historico apagaria a evidencia de que a afirmacao falsa foi
+# feita, e deslocaria as ancoras de linha que `docs/adr/0041-*.md` §1(e) cita aqui.
+# ============================================================
+errata_2026_09_05_af02:
+  status: "Proposto (errata) — DRAFT/verify; nada ratificado"
+  gap: AF-02
+  registro_completo: "docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md, secao '### §1 — GAP AF-02'"
+  afirmacoes_corrigidas:
+    - onde: "accomplished.ws4 (linha 17)"
+      afirmacao: "ADR-0024 ACCEPTED -> PR #181 (PostgresDedupeStore + migration 0008 + wiring; T3-VERIFIED w/ mutation-tested #55 guard)"
+    - onde: "escalation_register ESC-002 (linha 54)"
+      afirmacao: "PostgresIdempotencyStore protocol-incompatible; sibling PostgresDedupeStore built instead"
+  verdade_na_arvore:
+    classe: "PostgresDedupeStore NUNCA existiu neste repo. `grep -rn PostgresDedupeStore src/ spec/` -> 0 linhas; `git log --all -S PostgresDedupeStore --oneline -- src/` -> 0 commits. A classe irma de ESC-002 foi PRESCRITA pela ADR-0024 (0024:44,76,89,99) e nunca construida."
+    migracao: "Nao existe migracao 0008_driver_idempotency. A 0008 real e 0008_a2a_fact_outbox.py; a tabela driver_idempotency nasceu na 0003 (src/maezo/platform/migrations/versions/0003_a2a_idempotency.py)."
+    fiacao: "Os dois call sites nao existem mais: src/maezo/runtime/inbound_driver.py foi removido e `grep -rn 'class InboundDriver\\|class ResumeDriver\\|IdempotencyGuard\\|InMemoryIdempotencyStore' src/ --include='*.py'` -> 0 linhas. O caminho inbound hoje e dispatch in-process do webhook (src/maezo/platform/webhooks/whatsapp/dispatch.py)."
+    pr_181: "O PR #181 REAL deste repo e 03c6437 — 'Item 9 wave-2: pagto bucket-1 (12/12) + ADR-0030 guard migration (nip/programa) (#181)' — conteudo nao relacionado a idempotencia de drivers."
+    t3_verified: "A alegacao 'T3-VERIFIED' nao tem lastro reproduzivel: nenhuma linha de docs/evidence-ledger.md anterior a 2026-09-03 cita PostgresDedupeStore."
+  por_que_este_arquivo_importa: "E o primeiro arquivo que um agente que retoma o trabalho le; sem esta errata ele parte da premissa de que a fatia de idempotencia duravel ja pousou."
