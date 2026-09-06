@@ -278,7 +278,7 @@ def _assert_converts(entry_point: str, case: str, call: Callable[[], object]) ->
         # reach the rendered refusal either. A converted exception that pasted the foreign message
         # into its own text would satisfy the TYPE rule and still leak.
         assert "PHI-SHAPED-SECRET" not in str(exc), f"{entry_point}[{case}] disclosed the foreign message"
-    except Exception as exc:  # noqa: BLE001 - the assertion IS that this never happens
+    except Exception as exc:  # the assertion IS that this never happens
         pytest.fail(
             f"{entry_point}[{case}] leaked {type(exc).__name__} across the port boundary: {exc!r}\n"
             "maezo.ports.errors forbids ANY non-AmhAdapterError leaving this package — a port "

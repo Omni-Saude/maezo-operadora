@@ -784,7 +784,7 @@ async def test_the_pool_is_created_without_a_command_timeout_and_that_is_disclos
     repo = build_amh_inbox_repository(
         dsn=_DSN, tenant="public", ratification_path=_write(tmp_path, _ratified_mapping())
     )
-    assert await repo._ensure_pool() == "pool-sentinel"  # noqa: SLF001
+    assert await repo._ensure_pool() == "pool-sentinel"
     assert "command_timeout" not in captured, (
         "the pool now sets a command_timeout — that is packet decision D-6 and must be recorded there"
     )

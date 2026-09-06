@@ -157,7 +157,7 @@ def egress_message_key(key: Any) -> Any:
     `scrub_only` is ratified, CANCEL/INAD keys become `{FAMILY}-hk1_<hmac>` and every other
     family is still returned untouched. See `pseudonymize_message_key` for the partitioning note.
     """
-    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # noqa: PLC0415 — lazy
+    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # lazy
 
     if not phi_key_policy().scrubbing_enabled:
         return key

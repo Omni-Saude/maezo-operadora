@@ -955,7 +955,7 @@ def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | Non
                 timeout_s=_DOSSIER_DELEGATION_TIMEOUT_S,
             )
             return {"dossier_prepared": False, "dossier_gap": "delegation_timeout"}
-        except Exception as exc:  # noqa: BLE001 — DL-0037: the UT must open; never raise here.
+        except Exception as exc:  # DL-0037: the UT must open; never raise here.
             logger.error(
                 "pagto_prepare_approval_dossier_delegation_failed",
                 tenant_id=tenant_id,

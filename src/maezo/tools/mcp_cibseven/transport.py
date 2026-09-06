@@ -792,7 +792,7 @@ def redact_start_variables(variables: dict[str, Any]) -> dict[str, Any]:
     """
     try:
         return redact_free_text_vars(variables)
-    except Exception as exc:  # noqa: BLE001 — reclassified into the typed fail-closed refusal.
+    except Exception as exc:  # reclassified into the typed fail-closed refusal.
         raise StartVariableRedactionError(
             f"PHI free-text scrub of the start variables FAILED ({type(exc).__name__}) — refusing "
             "to start the process; no engine effect and no durable claim were performed"

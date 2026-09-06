@@ -233,7 +233,7 @@ def resolve_entrypoints(refs: Sequence[EntrypointRef]) -> EntrypointCheckResult:
         except (ImportError, ModuleNotFoundError) as exc:
             result.errored.append((ref, f"{type(exc).__name__}: {exc}"))
             continue
-        except Exception as exc:  # noqa: BLE001 - any import-time exception is a hard failure here
+        except Exception as exc:  # any import-time exception is a hard failure here
             result.errored.append((ref, f"{type(exc).__name__}: {exc}"))
             continue
         if spec is None:
@@ -259,7 +259,7 @@ def render_chart(
         argv.extend(["-f", vf])
     for override in set_overrides:
         argv.extend(["--set", override])
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell, helm is an explicit CI/dev dependency
+    proc = subprocess.run(  # fixed argv, no shell, helm is an explicit CI/dev dependency
         argv, cwd=repo_root, capture_output=True, text=True, check=False
     )
     if proc.returncode != 0:

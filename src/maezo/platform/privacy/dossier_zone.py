@@ -166,7 +166,7 @@ def load_ratification(path: str | Path | None = None) -> DossierZoneRatification
 
     try:
         raw: Any = yaml.safe_load(artifact.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001 — qualquer falha de leitura é DRAFT
+    except Exception as exc:  # qualquer falha de leitura é DRAFT
         raise DossierZoneNotRatifiedError(REASON_UNREADABLE, f"{artifact}: {exc}") from exc
 
     if not isinstance(raw, dict):

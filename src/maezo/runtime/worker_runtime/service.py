@@ -475,7 +475,7 @@ async def _probe_audit_sink(sink: PostgresAuditSink, timeout_s: float) -> bool:
     """
     try:
         await asyncio.wait_for(sink.check_ready(), timeout=timeout_s)
-    except Exception as exc:  # noqa: BLE001 — any failure means "not ready", never propagates.
+    except Exception as exc:  # any failure means "not ready", never propagates.
         logger.warning("audit_sink_probe_failed", error=str(exc))
         return False
     return True
@@ -767,7 +767,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
             auth_token=_engine_credential(settings),
             timeout=settings.client_timeout_s,
         )
-    except Exception:  # noqa: BLE001 — construction failure leaves engine_reachable unhealthy.
+    except Exception:  # construction failure leaves engine_reachable unhealthy.
         logger.error("worker_transport_build_failed", exc_info=True)
 
     try:
@@ -784,7 +784,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
             auth_token=_engine_credential(settings),
             timeout=settings.client_timeout_s,
         )
-    except Exception:  # noqa: BLE001 — construction failure: DMN-calling workers fail closed later.
+    except Exception:  # construction failure: DMN-calling workers fail closed later.
         logger.error("dmn_transport_build_failed", exc_info=True)
 
     try:
@@ -805,7 +805,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
             timeout=settings.client_timeout_s,
             fresh_client=True,
         )
-    except Exception:  # noqa: BLE001 — construction failure: engine-seam workers fail closed later.
+    except Exception:  # construction failure: engine-seam workers fail closed later.
         logger.error("engine_transport_build_failed", exc_info=True)
 
     # CC-03/AND-03: the dossier edges' PER-AGENT FHIR read seams. Before this, STEP B built NO
@@ -865,7 +865,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         state.effect_seams_gated, state.effect_seams_detail = gated, detail
         if not state.effect_seams_gated:
             logger.error("effect_seams_not_gated", detail=state.effect_seams_detail)
-    except Exception as exc:  # noqa: BLE001 — probe failure leaves the check red, nothing else.
+    except Exception as exc:  # probe failure leaves the check red, nothing else.
         state.effect_seams_detail = f"{type(exc).__name__}: {exc}"
         logger.error("effect_seams_gated_probe_failed", exc_info=True)
 
@@ -875,7 +875,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         # actual `.publish()` call connects lazily and is itself best-effort for the topics that
         # matter (`events_kafka_producer.py`).
         state.kafka_publisher = AioKafkaEventsProducer(bootstrap_servers=settings.kafka_bootstrap_servers)
-    except Exception:  # noqa: BLE001 — construction failure: workers fall back to kafka=None.
+    except Exception:  # construction failure: workers fall back to kafka=None.
         logger.error("kafka_publisher_build_failed", exc_info=True)
 
     if settings.database_url:
@@ -885,7 +885,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
             # unreachable Postgres does NOT fail here; it surfaces as a red `audit_sink_ready` probe
             # below, which is what keeps the daemon out of the fetch rotation (fail-closed).
             state.audit_sink = PostgresAuditSink(settings.database_url, settings.tenant_id)
-        except Exception:  # noqa: BLE001 — a bad tenant id / DSN leaves audit_sink None -> red.
+        except Exception:  # a bad tenant id / DSN leaves audit_sink None -> red.
             logger.error("audit_sink_build_failed", exc_info=True)
     else:
         # FAIL-CLOSED (design §7 T-D / Revision MUST-FIX 2): no DATABASE_URL -> no sink -> the
@@ -958,7 +958,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 tenant=settings.tenant_id,
                 detail=state.dossier_dispatcher_detail,
             )
-    except Exception as exc:  # noqa: BLE001 — DL-0037: degrade the dossier, never the daemon.
+    except Exception as exc:  # DL-0037: degrade the dossier, never the daemon.
         state.dossier_dispatcher_detail = f"assembly failed: {type(exc).__name__}"
         logger.error("dossier_delegation_dispatcher_build_failed", tenant=settings.tenant_id, exc_info=True)
 
@@ -1010,7 +1010,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
             )
             state.harness = harness
             state.expected_topics = _expected_worker_topics()
-    except Exception:  # noqa: BLE001 — registration failure leaves workers_registered unhealthy.
+    except Exception:  # registration failure leaves workers_registered unhealthy.
         logger.error("worker_harness_build_failed", exc_info=True)
 
     try:
@@ -1025,7 +1025,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 detail="harness built but NOT started — audit sink is not verified reachable "
                 "(fail-closed, ADR-0007)",
             )
-    except Exception:  # noqa: BLE001 — spawn failure leaves harness_running unhealthy.
+    except Exception:  # spawn failure leaves harness_running unhealthy.
         logger.error("worker_harness_spawn_failed", exc_info=True)
 
     logger.info(

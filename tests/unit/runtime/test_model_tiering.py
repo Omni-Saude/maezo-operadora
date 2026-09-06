@@ -191,8 +191,8 @@ async def test_the_tier_never_selects_a_model_other_than_the_configured_one() ->
     settings = InferenceSettings(provider="noop", model="modelo-configurado")
     provider = InferenceProvider(settings, model_tiers=dict(_HELENA_TIERS))
 
-    assert provider._resolve_task_model("task_default") == "modelo-configurado"  # noqa: SLF001
-    assert provider._resolve_task_model("reasoning") == "modelo-configurado"  # noqa: SLF001
+    assert provider._resolve_task_model("task_default") == "modelo-configurado"
+    assert provider._resolve_task_model("reasoning") == "modelo-configurado"
     assert provider.model_id == "modelo-configurado"
 
 
@@ -273,13 +273,13 @@ def test_the_agent_runtime_root_passes_the_declared_tiers_to_the_provider() -> N
 async def test_lucas_routes_the_dossier_narrative_to_reasoning_and_the_message_to_default() -> None:
     """The disclosure in `agents/lucas/graph.py` claimed no tiering existed. It must now be true
     that the graph names its kinds — otherwise removing the disclosure would be the fabrication."""
-    from tests.unit.agents.test_lucas import _FakeInference, _graph  # noqa: PLC0415
+    from tests.unit.agents.test_lucas import _FakeInference, _graph
 
     inference = _FakeInference(["texto", "narrativa", "ack"])
     graph = _graph(inference=inference)
     state: Any = {"tenant_id": "amh", "tipo_solicitacao": "boleto", "motivo_humano": "outro"}
-    await graph._build_message(state)  # noqa: SLF001
-    await graph._build_dossier(state)  # noqa: SLF001
-    await graph._build_escalation_ack(state)  # noqa: SLF001
+    await graph._build_message(state)
+    await graph._build_dossier(state)
+    await graph._build_escalation_ack(state)
 
     assert inference.task_kinds == ["task_default", "reasoning", "task_default"]

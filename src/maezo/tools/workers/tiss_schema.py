@@ -176,7 +176,7 @@ class TissSchemaValidator:
 
         try:
             schema_root = self._resolved_schema_root()
-        except Exception as exc:  # noqa: BLE001 - fail-closed: unresolvable config never validates
+        except Exception as exc:  # fail-closed: unresolvable config never validates
             logger.warning("tiss_schema.root_unresolved", error=str(exc))
             return TissValidationResult(
                 schema_valid=False,

@@ -157,7 +157,7 @@ def test_bedrock_is_selectable_via_the_provider_env_var(monkeypatch: pytest.Monk
     provider = InferenceProvider(settings=InferenceSettings())
 
     assert provider.provider_name == "bedrock"
-    assert isinstance(provider._impl, BedrockInferenceProvider)  # noqa: SLF001
+    assert isinstance(provider._impl, BedrockInferenceProvider)
 
 
 def test_default_provider_is_still_noop(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -206,14 +206,14 @@ def test_model_defaults_to_the_global_inference_profile_id() -> None:
     """
     impl = BedrockInferenceProvider()
 
-    assert impl._model == "global.anthropic.claude-opus-5" == DEFAULT_BEDROCK_MODEL  # noqa: SLF001
-    assert impl._model.startswith("global.anthropic.")  # noqa: SLF001
+    assert impl._model == "global.anthropic.claude-opus-5" == DEFAULT_BEDROCK_MODEL
+    assert impl._model.startswith("global.anthropic.")
 
 
 def test_bedrock_model_id_env_overrides_the_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MAEZO_BEDROCK_MODEL_ID", "global.anthropic.claude-haiku-4-5")
 
-    assert BedrockInferenceProvider()._model == "global.anthropic.claude-haiku-4-5"  # noqa: SLF001
+    assert BedrockInferenceProvider()._model == "global.anthropic.claude-haiku-4-5"
 
 
 def test_inference_model_wins_over_bedrock_model_id(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -224,7 +224,7 @@ def test_inference_model_wins_over_bedrock_model_id(monkeypatch: pytest.MonkeyPa
 
     impl = BedrockInferenceProvider(model="global.anthropic.claude-opus-5")
 
-    assert impl._model == "global.anthropic.claude-opus-5"  # noqa: SLF001
+    assert impl._model == "global.anthropic.claude-opus-5"
 
 
 def test_inference_model_reaches_the_provider_through_the_registry(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -237,7 +237,7 @@ def test_inference_model_reaches_the_provider_through_the_registry(monkeypatch: 
 
     provider = InferenceProvider(settings=InferenceSettings(provider="bedrock"))
 
-    assert provider._impl._model == "global.anthropic.claude-sonnet-5"  # noqa: SLF001
+    assert provider._impl._model == "global.anthropic.claude-sonnet-5"
 
 
 def test_region_defaults_to_sa_east_1_and_reaches_the_client() -> None:
@@ -246,8 +246,8 @@ def test_region_defaults_to_sa_east_1_and_reaches_the_client() -> None:
     request going to the SDK's own default region."""
     impl = BedrockInferenceProvider()
 
-    assert impl._region == "sa-east-1" == DEFAULT_BEDROCK_REGION  # noqa: SLF001
-    assert impl._client.aws_region == "sa-east-1"  # noqa: SLF001
+    assert impl._region == "sa-east-1" == DEFAULT_BEDROCK_REGION
+    assert impl._client.aws_region == "sa-east-1"
 
 
 def test_bedrock_region_env_overrides_the_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -255,8 +255,8 @@ def test_bedrock_region_env_overrides_the_default(monkeypatch: pytest.MonkeyPatc
 
     impl = BedrockInferenceProvider()
 
-    assert impl._region == "us-east-1"  # noqa: SLF001
-    assert impl._client.aws_region == "us-east-1"  # noqa: SLF001
+    assert impl._region == "us-east-1"
+    assert impl._client.aws_region == "us-east-1"
 
 
 def test_explicitly_blank_region_refuses_to_construct(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -315,10 +315,10 @@ def test_uses_the_classic_bedrock_runtime_client_not_the_mantle_one() -> None:
     """
     impl = BedrockInferenceProvider()
 
-    assert type(impl._client) is anthropic.AsyncAnthropicBedrock  # noqa: SLF001
-    assert type(impl._client) is not anthropic.AsyncAnthropicBedrockMantle  # noqa: SLF001
-    assert "bedrock-runtime" in str(impl._client.base_url)  # noqa: SLF001
-    assert "bedrock-mantle" not in str(impl._client.base_url)  # noqa: SLF001
+    assert type(impl._client) is anthropic.AsyncAnthropicBedrock
+    assert type(impl._client) is not anthropic.AsyncAnthropicBedrockMantle
+    assert "bedrock-runtime" in str(impl._client.base_url)
+    assert "bedrock-mantle" not in str(impl._client.base_url)
 
 
 def test_construction_resolves_no_aws_credential() -> None:
@@ -371,7 +371,7 @@ async def test_phi_request_never_reaches_the_bedrock_client() -> None:
     ``test_phi_routing_never_reaches_anthropic_client``."""
     provider = InferenceProvider(settings=InferenceSettings(provider="bedrock"))
     create_mock = AsyncMock(return_value=_fake_message("should never be called"))
-    provider._impl._client.messages.create = create_mock  # type: ignore[attr-defined]  # noqa: SLF001
+    provider._impl._client.messages.create = create_mock  # type: ignore[attr-defined]
 
     with pytest.raises(PhiZoneRoutingError):
         await provider.generate("dados PHI", phi=True)
@@ -396,7 +396,7 @@ async def test_general_zone_traffic_is_not_blocked() -> None:
     """OVER-FIRE CONTROL for the two refusals above: with ``phi=False`` the provider serves
     normally. Without this, an unconditional raise would pass every PHI test in this file."""
     provider = InferenceProvider(settings=InferenceSettings(provider="bedrock"))
-    provider._impl._client.messages.create = AsyncMock(  # type: ignore[attr-defined]  # noqa: SLF001
+    provider._impl._client.messages.create = AsyncMock(  # type: ignore[attr-defined]
         return_value=_fake_message("resposta geral")
     )
 
@@ -413,7 +413,7 @@ async def test_generate_happy_path() -> None:
     impl = _provider_with_response(_fake_message("oi"))
 
     assert await impl.generate("olá") == "oi"
-    impl._client.messages.create.assert_awaited_once()  # type: ignore[attr-defined]  # noqa: SLF001
+    impl._client.messages.create.assert_awaited_once()  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -439,7 +439,7 @@ async def test_request_carries_the_bedrock_model_id_and_the_prompt() -> None:
 
     await impl.generate("prompt exato")
 
-    kwargs = impl._client.messages.create.await_args.kwargs  # type: ignore[attr-defined]  # noqa: SLF001
+    kwargs = impl._client.messages.create.await_args.kwargs  # type: ignore[attr-defined]
     assert kwargs["model"] == "global.anthropic.claude-sonnet-5"
     assert kwargs["messages"] == [{"role": "user", "content": "prompt exato"}]
     assert kwargs["max_tokens"] == 4096
@@ -459,7 +459,7 @@ async def test_request_sends_none_of_the_parameters_the_current_models_reject() 
 
     await impl.generate("olá")
 
-    kwargs = impl._client.messages.create.await_args.kwargs  # type: ignore[attr-defined]  # noqa: SLF001
+    kwargs = impl._client.messages.create.await_args.kwargs  # type: ignore[attr-defined]
     assert set(kwargs) == {"model", "max_tokens", "messages"}
 
 
@@ -471,7 +471,7 @@ async def test_request_sends_none_of_the_parameters_the_current_models_reject() 
 @pytest.mark.asyncio
 async def test_rate_limit_is_retryable() -> None:
     impl = _provider_with_response(_fake_message())
-    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]  # noqa: SLF001
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
         side_effect=anthropic.RateLimitError("rate limited", response=_fake_httpx_response(429), body=None)
     )
 
@@ -486,7 +486,7 @@ async def test_rate_limit_is_retryable() -> None:
 @pytest.mark.asyncio
 async def test_authentication_error_is_not_retryable() -> None:
     impl = _provider_with_response(_fake_message())
-    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]  # noqa: SLF001
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
         side_effect=anthropic.AuthenticationError("bad sigv4", response=_fake_httpx_response(401), body=None)
     )
 
@@ -502,7 +502,7 @@ async def test_timeout_is_retryable() -> None:
     request = httpx.Request(
         "POST", "https://bedrock-runtime.sa-east-1.amazonaws.com/model/global.anthropic.claude-opus-5/invoke"
     )
-    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]  # noqa: SLF001
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
         side_effect=anthropic.APITimeoutError(request=request)
     )
 
@@ -519,7 +519,7 @@ async def test_connection_error_is_retryable() -> None:
     request = httpx.Request(
         "POST", "https://bedrock-runtime.sa-east-1.amazonaws.com/model/global.anthropic.claude-opus-5/invoke"
     )
-    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]  # noqa: SLF001
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
         side_effect=anthropic.APIConnectionError(request=request)
     )
 
@@ -542,7 +542,7 @@ async def test_status_errors_split_on_the_5xx_boundary(status_code: int, expecte
     a permission failure just burns the budget.
     """
     impl = _provider_with_response(_fake_message())
-    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]  # noqa: SLF001
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
         side_effect=anthropic.APIStatusError("boom", response=_fake_httpx_response(status_code), body=None)
     )
 
@@ -562,7 +562,7 @@ async def test_botocore_credential_failure_is_wrapped_not_leaked() -> None:
     reach an agent graph as a raw ``NoCredentialsError``.
     """
     impl = _provider_with_response(_fake_message())
-    impl._client.messages.create = AsyncMock(side_effect=NoCredentialsError())  # type: ignore[method-assign]  # noqa: SLF001
+    impl._client.messages.create = AsyncMock(side_effect=NoCredentialsError())  # type: ignore[method-assign]
 
     with pytest.raises(InferenceProviderError) as excinfo:
         await impl.generate("olá")
@@ -586,7 +586,7 @@ async def test_wrapped_aws_error_message_carries_only_the_exception_type() -> No
         pass
 
     impl = _provider_with_response(_fake_message())
-    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]  # noqa: SLF001
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
         side_effect=ProfileNotFound("profile 'amh-data-dev' with arn:aws:iam::123456789012:role/x")
     )
 
@@ -769,7 +769,7 @@ async def test_facade_forwards_correlation_ids_to_the_bedrock_provider() -> None
     """The public facade threads ``agent_id``/``tenant_id`` through unchanged."""
     provider = InferenceProvider(settings=InferenceSettings(provider="bedrock"))
     generate_mock = AsyncMock(return_value="ok")
-    provider._impl.generate = generate_mock  # type: ignore[attr-defined, method-assign]  # noqa: SLF001
+    provider._impl.generate = generate_mock  # type: ignore[attr-defined, method-assign]
 
     await provider.generate("olá", agent_id="rafael", tenant_id="tenant-x")
 

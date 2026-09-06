@@ -117,7 +117,7 @@ def test_aware_datetime_is_accepted_and_normalised_to_utc() -> None:
 def test_naive_datetime_is_refused_not_assumed_utc() -> None:
     """Guessing a timezone is how an audit trail acquires a silent offset error."""
     with pytest.raises(AmhMappingError) as exc:
-        millis_to_utc(datetime(2026, 8, 4, 10, 0, 0), field="occurred_at")  # noqa: DTZ001
+        millis_to_utc(datetime(2026, 8, 4, 10, 0, 0), field="occurred_at")
     assert exc.value.field == "occurred_at"
     assert "naive" in exc.value.reason
 
@@ -134,7 +134,7 @@ def test_ambiguous_timestamp_forms_are_refused(value: object) -> None:
 
 def test_naive_datetime_is_refused_on_egress_too() -> None:
     with pytest.raises(AmhMappingError, match="naive"):
-        utc_to_millis(datetime(2026, 8, 4, 10, 0, 0), field="occurred_at")  # noqa: DTZ001
+        utc_to_millis(datetime(2026, 8, 4, 10, 0, 0), field="occurred_at")
 
 
 # ---------------------------------------------------------------------------
@@ -1055,7 +1055,7 @@ def test_outcome_egress_refuses_a_naive_timestamp(pin: Any) -> None:
 
     outcome = dataclasses.replace(
         map_outcome(_outcome_event(), pin=pin),
-        occurred_at=datetime(2026, 8, 4, 10, 0, 0),  # noqa: DTZ001
+        occurred_at=datetime(2026, 8, 4, 10, 0, 0),
     )
     with pytest.raises(AmhMappingError, match="naive"):
         outcome_to_wire(outcome, pin=pin)
@@ -1147,7 +1147,7 @@ def _failure_cases(pin: Any) -> list[tuple[str, Any]]:
     cases.append(("bad timestamp", lambda: map_work_item(bad_ts, pin=pin)))
 
     naive_ts = _phi_laden_event()
-    naive_ts["occurred_at"] = datetime(2026, 8, 4, 10, 0, 0)  # noqa: DTZ001
+    naive_ts["occurred_at"] = datetime(2026, 8, 4, 10, 0, 0)
     cases.append(("naive timestamp", lambda: map_work_item(naive_ts, pin=pin)))
 
     bad_count = _phi_laden_event()

@@ -614,10 +614,10 @@ class InferenceProvider:
             provider=self._settings.provider,
         )
         try:
-            from maezo.platform.observability import record_llm_tier_resolution  # noqa: PLC0415
+            from maezo.platform.observability import record_llm_tier_resolution
 
             record_llm_tier_resolution(task_kind=kind, tier=tier, resolution="modelo_unico")
-        except Exception:  # noqa: BLE001 — telemetry must never break a generation.
+        except Exception:  # telemetry must never break a generation.
             logger.debug("llm_tier_resolution_metric_failed", task_kind=kind, exc_info=True)
         return effective_model
 

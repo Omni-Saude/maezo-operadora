@@ -110,7 +110,7 @@ async def drain_topics(
     donor's unconditional inter-round pause so async engine-side continuations (e.g. a service
     task completing unlocks the next one) have time to land before the next fetch.
     """
-    import asyncio  # noqa: PLC0415 - kept local: this helper is the only asyncio.sleep call site
+    import asyncio  # kept local: this helper is the only asyncio.sleep call site
 
     subs = [TopicSubscription(t, lock_duration_ms) for t in topics]
     idle = 0
@@ -119,7 +119,7 @@ async def drain_topics(
             worker_id, subs, max_tasks=10, async_response_timeout_ms=async_response_timeout_ms
         )
         for task in tasks:
-            await harness._handle(task)  # noqa: SLF001 — preserved v1 fixture surface (design §16.1)
+            await harness._handle(task)  # preserved v1 fixture surface (design §16.1)
         if tasks:
             idle = 0
             await asyncio.sleep(settle_delay)

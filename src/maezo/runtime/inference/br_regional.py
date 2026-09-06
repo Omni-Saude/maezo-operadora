@@ -396,8 +396,8 @@ class BedrockBrRegionalTransport:
         if client is not None:
             self._client = client
         else:
-            import boto3  # type: ignore[import-untyped]  # noqa: PLC0415 — extra [bedrock] opcional
-            from botocore.config import Config  # type: ignore[import-untyped]  # noqa: PLC0415
+            import boto3  # type: ignore[import-untyped]  # extra [bedrock] opcional
+            from botocore.config import Config  # type: ignore[import-untyped]
 
             self._client = boto3.client(
                 "bedrock-runtime",
@@ -430,7 +430,7 @@ class BedrockBrRegionalTransport:
                 messages=[{"role": "user", "content": [{"text": request.prompt}]}],
                 inferenceConfig={"maxTokens": request.max_tokens, "temperature": 0.2},
             )
-        except Exception as exc:  # noqa: BLE001 — nenhum erro de SDK escapa deste módulo
+        except Exception as exc:  # nenhum erro de SDK escapa deste módulo
             nome = type(exc).__name__
             # `ThrottlingException` e afins são a única classe re-tentável; o resto não é.
             retryable = "Throttl" in nome or "TooManyRequests" in nome

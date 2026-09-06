@@ -120,7 +120,7 @@ def _load_matrix_cached(core_path: str, overlay_path: str | None, tenant: str) -
     """
     try:
         return load_matrix(core_path, tenant=tenant, overlay_path=overlay_path)
-    except Exception as exc:  # noqa: BLE001 - fail-closed: a config problem never auto-approves
+    except Exception as exc:  # fail-closed: a config problem never auto-approves
         logger.warning(
             "ceiling_matrix_load_failed",
             core_path=core_path,
@@ -180,7 +180,7 @@ class CeilingResolver:
                 if self._overlay_path is not None
                 else self._discover_overlay(tenant, core_path)
             )
-        except Exception as exc:  # noqa: BLE001 - fail-closed: unresolvable config never auto-approves
+        except Exception as exc:  # fail-closed: unresolvable config never auto-approves
             logger.warning("ceiling_core_path_unresolved", tenant=tenant, error=str(exc))
             return None
         return _load_matrix_cached(core_path, overlay, tenant)

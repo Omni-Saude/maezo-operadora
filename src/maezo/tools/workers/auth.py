@@ -518,7 +518,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                 param=_CEILING_PARAM,
                 value_cents=valor_cents,
             )
-        except Exception as exc:  # noqa: BLE001 - fail-closed: resolver down never auto-approves
+        except Exception as exc:  # fail-closed: resolver down never auto-approves
             self.logger.error("auth_auto_criteria_resolver_failed", tenant_id=tenant, error=str(exc))
             return _CriterionOutcome(ok=False, falhas=(_FIN_RESOLVER_INDISPONIVEL,))
 
@@ -557,7 +557,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                 _DMN_DUT_ROL_COVERAGE,
                 {"codigo_procedimento_tuss": codigo, "categoria_procedimento": categoria},
             )
-        except Exception as exc:  # noqa: BLE001 - fail-closed: unreachable table never approves
+        except Exception as exc:  # fail-closed: unreachable table never approves
             self.logger.error("auth_auto_criteria_dmn_failed", decision=_DMN_DUT_ROL_COVERAGE, error=str(exc))
             return _CriterionOutcome(ok=False, falhas=(_TEC_TABELA_INDISPONIVEL,))
 
@@ -589,7 +589,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                     criteria_row = self._evaluate_dmn(
                         criteria_key, _dut_criteria_inputs(criteria_key, process_vars)
                     )
-                except Exception as exc:  # noqa: BLE001 - fail-closed
+                except Exception as exc:  # fail-closed
                     self.logger.error("auth_auto_criteria_dmn_failed", decision=criteria_key, error=str(exc))
                     return _CriterionOutcome(ok=False, falhas=(_TEC_TABELA_INDISPONIVEL,))
                 atendida = _as_bool(criteria_row.get("dut_atendida"))
@@ -649,7 +649,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                 _DMN_CARENCIA_CHECK,
                 {"tipo_procedimento": tipo, "dias_desde_adesao": dias, "cpt_declarada": cpt},
             )
-        except Exception as exc:  # noqa: BLE001 - fail-closed
+        except Exception as exc:  # fail-closed
             self.logger.error("auth_auto_criteria_dmn_failed", decision=_DMN_CARENCIA_CHECK, error=str(exc))
             return _CriterionOutcome(ok=False, falhas=(_REG_TABELA_INDISPONIVEL,))
 
@@ -695,7 +695,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                 _DMN_CRITERIA_CONTRATUAL,
                 {"tenant_id": tenant, "categoria_procedimento": categoria},
             )
-        except Exception as exc:  # noqa: BLE001 - fail-closed
+        except Exception as exc:  # fail-closed
             self.logger.error(
                 "auth_auto_criteria_dmn_failed", decision=_DMN_CRITERIA_CONTRATUAL, error=str(exc)
             )
@@ -740,7 +740,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
         """
         try:
             return self._evaluate_criteria(process_vars)
-        except Exception as exc:  # noqa: BLE001 - degradation (design §6): fail-safe AND visible
+        except Exception as exc:  # degradation (design §6): fail-safe AND visible
             # Fail-safe, not an incident: an incident stalls a care-authorization request, which
             # is worse for the beneficiary than routing it to a human auditor (mirrors DL-0037's
             # fail-neutral-with-disclosed-gap). Logged at error, metered, and audited.
@@ -772,7 +772,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
         """
         try:
             record_worker_error(type(self).__name__, self.topic, token)
-        except Exception as exc:  # noqa: BLE001 - observability must never break the gate
+        except Exception as exc:  # observability must never break the gate
             self.logger.warning("auth_auto_criteria_metric_failed", error=str(exc))
 
     def _evaluate_criteria(self, process_vars: dict[str, Any]) -> dict[str, Any]:
@@ -1213,7 +1213,7 @@ class IssueAuthorizationWorker(WorkerBase):
                 param=_CEILING_PARAM,
                 value_cents=valor_cents,
             )
-        except Exception as exc:  # noqa: BLE001 - fail-closed: resolver indisponivel nunca emite
+        except Exception as exc:  # fail-closed: resolver indisponivel nunca emite
             self.logger.error(
                 "auth_issue_ceiling_resolver_failed",
                 tenant_id=tenant,

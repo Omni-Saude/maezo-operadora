@@ -75,7 +75,7 @@ def _kafka_reachable(bootstrap_servers: str) -> bool:
         producer = AIOKafkaProducer(bootstrap_servers=bootstrap_servers)
         try:
             await asyncio.wait_for(producer.start(), timeout=_CONNECT_TIMEOUT_S)
-        except Exception:  # noqa: BLE001 - any failure means "skip loudly", never an error here
+        except Exception:  # any failure means "skip loudly", never an error here
             with contextlib.suppress(Exception):  # best-effort cleanup (start() never completed)
                 await producer.stop()
             return False
@@ -85,7 +85,7 @@ def _kafka_reachable(bootstrap_servers: str) -> bool:
 
     try:
         return asyncio.run(_probe())
-    except Exception:  # noqa: BLE001 - defensive: a probe-internal crash is still "unreachable"
+    except Exception:  # defensive: a probe-internal crash is still "unreachable"
         return False
 
 
@@ -205,7 +205,7 @@ async def _await_topic_ready(
                 f"create_topics succeeded and partitions {sorted(partitions or ())} exist in "
                 "metadata, but none report an elected leader yet"
             )
-        except Exception as exc:  # noqa: BLE001 - any failure here is retried until the deadline
+        except Exception as exc:  # any failure here is retried until the deadline
             last_reason = f"{type(exc).__name__}: {exc}"
         print(
             f"[live_kafka readiness] attempt {attempt}: topic {topic!r} not ready yet "
@@ -241,7 +241,7 @@ async def _await_consumer_assigned(consumer: AioKafkaBridgeConsumer, *, timeout_
     `AssertionError` (fails, never skips) if the bound expires: a consumer whose own already-proven-
     reachable broker never hands it a partition is a real defect.
     """
-    real_consumer = consumer._consumer  # noqa: SLF001 - no public seam; see docstring above
+    real_consumer = consumer._consumer  # no public seam; see docstring above
     deadline = time.monotonic() + timeout_s
     attempt = 0
     while time.monotonic() < deadline:
@@ -310,7 +310,7 @@ async def test_aiokafka_bridge_consumer_consumes_a_real_published_message(
         await _await_consumer_assigned(consumer)
         # Pin the starting position to the log end AS OF NOW, strictly before the producer below
         # ever sends — see this function's docstring and the test's own docstring.
-        real_consumer = consumer._consumer  # noqa: SLF001 - see _await_consumer_assigned
+        real_consumer = consumer._consumer  # see _await_consumer_assigned
         await real_consumer.seek_to_end()
 
         producer = AIOKafkaProducer(bootstrap_servers=kafka_bootstrap_servers)

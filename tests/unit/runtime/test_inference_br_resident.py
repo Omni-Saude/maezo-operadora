@@ -313,7 +313,7 @@ async def test_a_mutated_endpoint_is_refused_at_call_time(monkeypatch: pytest.Mo
     guards — so the per-call check is what actually covers it.
     """
     provider, transport = _provider(monkeypatch)
-    provider._endpoint_url = "https://api.anthropic.com/v1/messages"  # noqa: SLF001
+    provider._endpoint_url = "https://api.anthropic.com/v1/messages"
 
     with pytest.raises(BrEndpointNotApprovedError) as excinfo:
         await provider.generate(_PROMPT_CANARY)

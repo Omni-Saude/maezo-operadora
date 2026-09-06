@@ -1507,7 +1507,7 @@ def _normalize_data_recebimento_lote(raw: Any) -> tuple[str, bool]:
         # "T00:00:00" onto.
         candidate = text.split("T", 1)[0]
         try:
-            datetime.strptime(candidate, "%Y-%m-%d")  # noqa: DTZ007 — calendar date, not an instant
+            datetime.strptime(candidate, "%Y-%m-%d")  # calendar date, not an instant
         except ValueError:
             pass
         else:
