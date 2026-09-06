@@ -1,0 +1,39 @@
+{
+  "id": "EVL-BEATRIZ-05",
+  "agent": "beatriz",
+  "class": "EU",
+  "tier": [
+    "A"
+  ],
+  "description": "BEA-11: empty intake -- evidencia_refs=[] and no patient_summary_ref/beneficiario_pseudo_id (the FHIR reader is also not configured for this build) -- instruct_investigation still assembles the dossier (dossie_instruido) over the lacunas, NEVER a failure/incomplete marker: an empty intake is a documented lacuna, the dossier can grow later by annexation (msg.fraude.evidencia_anexada). Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for beatriz's declared `signal: evidencia_indisponivel` trigger's empty-intake sub-case (the existing EVL-BEATRIZ-03 only covers the hostile-pointer sub-case, per BEA-11's own root-cause). Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "numero_caso": "000105",
+      "origem_encaminhamento": "auditoria_qualidade",
+      "entidade_tipo": "prestador",
+      "entidade_pseudo_id": "ent-prest-eval-05",
+      "prestador_id": "prest-eval-05",
+      "numero_contrato": "CONTR-EVAL-05",
+      "encaminhado_por_id": "analista-eval-05",
+      "competencia": "2026-06",
+      "evidencia_refs": []
+    }
+  },
+  "recorded_llm": [
+    "Caso recebido sem evidencia anexada no intake; dossie organizado com a lacuna registrada, aberto para futura anexacao pelo prestador ou pela auditoria."
+  ],
+  "expect": {
+    "fields": {
+      "desfecho": "dossie_instruido",
+      "gather_notes": [
+        "fhir_reader_nao_configurado",
+        "sem_evidencia_no_intake"
+      ]
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "signal:evidencia_indisponivel"
+  ]
+}

@@ -2,7 +2,9 @@
   "id": "EVL-GUSTAVO-03",
   "agent": "gustavo",
   "class": "EU",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "Regulatory-deadline safety-net escalation: the `ans_calendar` DMN (the table that resolves the ANS filing due-date/alert deadline, contract SP-OP-ANS-SUBMIT-001) is unavailable/ambiguous for this filing. FAIL-SAFE FECHADO: Gustavo NEVER invents a deadline and NEVER proceeds past an unresolved regulatory calendar -- the case routes to review_submission with motivo_humano=dmn_indisponivel immediately (admissibility is not even consulted on this path, donor parity), and the human-bound dossier is still assembled (never a silent drop). NOTE (interpretation flag, not SME-gated -- see report): this graph has no literal 'elapsed timestamp' check of its own (deadlines are DMN/BPMN-timer resolved, never computed in Python); 'regulatory-deadline elapsed/ambiguous' is interpreted here as 'the regulatory-calendar DMN could not be resolved', the closest concrete fail-safe path this graph's own logic expresses. Synthetic data only.",
   "input": {
     "state": {
@@ -30,5 +32,8 @@
       "desfecho": "envio_encaminhado_revisao_humana"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "signal:dmn_unavailable"
+  ]
 }

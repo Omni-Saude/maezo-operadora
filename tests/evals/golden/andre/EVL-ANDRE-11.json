@@ -1,0 +1,32 @@
+{
+  "id": "EVL-ANDRE-11",
+  "agent": "andre",
+  "class": "CE",
+  "tier": [
+    "A"
+  ],
+  "description": "AND-06: the `adequacao_dossier` flow (the only LIVE A2A edge into Andre at audit time, per the audit's own text) -- a well-formed cell identity (regiao_saude+especialidade) ALWAYS routes to the gestao-rede human (UT_DecisaoFallback), no auto variant exists, no pagto DMN is re-evaluated (SP-OP-ADEQUACAO-001 already resolved its own DMNs before this hop) and no process is started (a second SP-OP-ADEQUACAO-001 instance would duplicate the cell). Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap named in AND-06's own claim ('the entire adequacao_dossier flow' had zero golden coverage). Synthetic data only.",
+  "input": {
+    "state": {
+      "flow": "adequacao_dossier",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "regiao_saude": "REGIAO-SUL-EVL-011",
+      "especialidade": "cardiologia"
+    }
+  },
+  "recorded_llm": [
+    "Dossie factual de adequacao de rede organizado a partir dos fatos ja resolvidos pelo processo; encaminhado para a gestao de rede decidir, nenhum roteamento automatico."
+  ],
+  "dmn_fixture": {},
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "motivo_humano": "dossie_remediacao",
+      "grupo_humano": "gestao-rede",
+      "desfecho": "dossie_remediacao_humano"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": []
+}

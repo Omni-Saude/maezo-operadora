@@ -2,7 +2,9 @@
   "id": "EVL-FERNANDO-05",
   "agent": "fernando",
   "class": "PL",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "An invalid intencao value that itself carries a synthetic CPF fails closed to escalate ambiguidade at receive() -- the raw value is NEVER echoed, only the bounded class token ambiguidade/invalid_intencao. The CPF harmlessly persists in the in-memory graph state's own intencao echo (LangGraph preserves untouched input keys), which is why this golden's own leak_canaries is deliberately empty; the real assertion (what actually reaches the BPM engine's process variables) lives in the dedicated engine-variable test in test_classifier_evals.py. Synthetic CPF only (123.456.789-09), never real PHI.",
   "input": {
     "state": {
@@ -35,5 +37,8 @@
       "error": "invalid_intencao"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "signal:ambiguity"
+  ]
 }

@@ -1,0 +1,55 @@
+{
+  "id": "EVL-MARINA-08",
+  "agent": "marina",
+  "class": "EU",
+  "tier": [
+    "A"
+  ],
+  "description": "RAF-14 (Marina): CONTAS flow with indicio_fraude_sinalizado=true -- the fraud signal is INFORMATIVE (L0 hard) and takes precedence over the normal glosa triage chain: assess() never evaluates glosa_reason_normalization/classification/triage on this path, routing straight to human (auditoria-contas) to decide the referral, NEVER an automatic accusation/glosa. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for marina's declared `signal: indicio_fraude` trigger, which had zero golden coverage before this case. Synthetic data only.",
+  "input": {
+    "state": {
+      "flow": "contas",
+      "tenant_id": "amh",
+      "canal": "portal_tiss",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-MARINA-08",
+      "prestador_id": "PREST-TESTE-008",
+      "numero_lote_tiss": "LOTE-EVL-MARINA-08",
+      "numero_guia_tiss": "GUIA-EVL-MARINA-08",
+      "numero_conta": "CONTA-EVL-MARINA-08",
+      "competencia": "2026-06",
+      "data_recebimento_lote": "2026-06-10",
+      "valor_apresentado_brl": 900.0,
+      "tipo_lote": "consulta",
+      "linhas_conta_refs": [],
+      "reason_codes_tiss": [
+        "55"
+      ],
+      "divergencia_valor": false,
+      "item_conforme_tabela": true,
+      "documentacao_anexa": true,
+      "denial_ratio": 0.0,
+      "indicio_fraude_sinalizado": true
+    }
+  },
+  "recorded_llm": [
+    "Indicio de fraude sinalizado pelo worker; conta encaminhada para a auditoria humana decidir o encaminhamento, nenhuma glosa automatica."
+  ],
+  "dmn_fixture": {
+    "contas_sla": {
+      "sla_analise": "10d",
+      "sla_alerta": "5d"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "motivo_humano": "indicio_fraude",
+      "grupo_humano": "auditoria-contas",
+      "desfecho": "triagem_humana"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "signal:indicio_fraude"
+  ]
+}

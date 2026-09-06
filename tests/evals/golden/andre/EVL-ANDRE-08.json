@@ -1,0 +1,50 @@
+{
+  "id": "EVL-ANDRE-08",
+  "agent": "andre",
+  "class": "EU",
+  "tier": [
+    "A"
+  ],
+  "description": "AND-06: pagto_admissibility resolves ANALISE_HUMANA with duplicidade_suspeita=true -- the DMN-decided duplicity precedence (module docstring divergence #1) refines the bounded class token to motivo_humano=duplicidade_suspeita (never an auto-cancel), routed to coordenacao-financeira. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for andre's declared `dmn: pagto_admissibility=ANALISE_HUMANA` trigger AND the audit's own named 'duplicidade_suspeita=true routing' gap. Synthetic data only.",
+  "input": {
+    "state": {
+      "flow": "pagto_dossier",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "ordem_pagamento_id": "ORDEM-EVL-ANDRE-08",
+      "prestador_id": "PREST-TESTE-001",
+      "tipo_pagamento": "prestador_rede",
+      "valor_pagamento_cents": 50000,
+      "moeda": "BRL",
+      "competencia": "2026-06",
+      "data_vencimento": "2026-07-10",
+      "conta_origem_ref": "conta-origem-ref-teste",
+      "instrumento_pagamento": "pix",
+      "dados_pagamento_validos": true,
+      "lastro_confirmado": true,
+      "dentro_teto_l2": true,
+      "duplicidade_suspeita": true
+    }
+  },
+  "recorded_llm": [
+    "Possivel duplicidade de pagamento sinalizada; ordem encaminhada para confirmacao da coordenacao financeira, nunca um cancelamento automatico."
+  ],
+  "dmn_fixture": {
+    "pagto_admissibility": {
+      "roteamento": "ANALISE_HUMANA"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "motivo_humano": "duplicidade_suspeita",
+      "grupo_humano": "coordenacao-financeira",
+      "admissibilidade": "ANALISE_HUMANA",
+      "desfecho": "dossie_aprovacao_humana"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "dmn:pagto_admissibility=ANALISE_HUMANA"
+  ]
+}

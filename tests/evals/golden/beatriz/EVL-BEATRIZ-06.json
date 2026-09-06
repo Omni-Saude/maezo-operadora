@@ -1,0 +1,25 @@
+{
+  "id": "EVL-BEATRIZ-06",
+  "agent": "beatriz",
+  "class": "EU",
+  "tier": [
+    "A"
+  ],
+  "description": "BEA-11: missing tenant_id (numero_caso present) -- receive()'s minimum-contract guard fails closed to desfecho=instrucao_incompleta WITHOUT ever assembling a dossier (instruct_investigation's own error-bail returns before calling _build_dossier, so this turn makes ZERO LLM calls) -- never a fabricated 'dossier assembled' signal for an unanchorable case. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for beatriz's declared `signal: ambiguity` trigger, which had zero golden coverage before this case (previously proven only by a unit test, per BEA-11's own root-cause). Synthetic data only.",
+  "input": {
+    "state": {
+      "numero_caso": "000106"
+    }
+  },
+  "recorded_llm": [],
+  "expect": {
+    "fields": {
+      "desfecho": "instrucao_incompleta",
+      "error": "contexto_runtime_ausente"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "signal:ambiguity"
+  ]
+}

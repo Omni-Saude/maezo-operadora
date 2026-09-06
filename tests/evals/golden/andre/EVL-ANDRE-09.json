@@ -1,0 +1,48 @@
+{
+  "id": "EVL-ANDRE-09",
+  "agent": "andre",
+  "class": "EU",
+  "tier": [
+    "A"
+  ],
+  "description": "AND-06: pagto_admissibility resolves PENDENTE_DADOS (duplicidade_suspeita=false) -- BPMN's non-admissible branch (UT_AnaliseAdmissibilidade, coordenacao-financeira), terminating BEFORE pagto_alcada/pagto_sla ever run. Closes the audit's own named 'PENDENTE_DADOS' gap (AND-06 fix_shape); not itself a literal agent.yaml `triggers:` line (that list only names the ANALISE_HUMANA value), but the SAME `pagto_admissibility` DMN and the same non-adverse human-routing invariant. Synthetic data only.",
+  "input": {
+    "state": {
+      "flow": "pagto_dossier",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "ordem_pagamento_id": "ORDEM-EVL-ANDRE-09",
+      "prestador_id": "PREST-TESTE-001",
+      "tipo_pagamento": "prestador_rede",
+      "valor_pagamento_cents": 50000,
+      "moeda": "BRL",
+      "competencia": "2026-06",
+      "data_vencimento": "2026-07-10",
+      "conta_origem_ref": "conta-origem-ref-teste",
+      "instrumento_pagamento": "pix",
+      "dados_pagamento_validos": true,
+      "lastro_confirmado": true,
+      "dentro_teto_l2": true,
+      "duplicidade_suspeita": false
+    }
+  },
+  "recorded_llm": [
+    "Dados de pagamento pendentes de confirmacao; ordem encaminhada para a coordenacao financeira corrigir antes de qualquer roteamento de alcada."
+  ],
+  "dmn_fixture": {
+    "pagto_admissibility": {
+      "roteamento": "PENDENTE_DADOS"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "motivo_humano": "pendencia_dados",
+      "grupo_humano": "coordenacao-financeira",
+      "admissibilidade": "PENDENTE_DADOS",
+      "desfecho": "pagamento_pendente_dados"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": []
+}

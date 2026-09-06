@@ -2,7 +2,9 @@
   "id": "EVL-MARINA-07",
   "agent": "marina",
   "class": "FC",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "CC-08: `glosa_reason_normalization` is UNAVAILABLE (decision_key omitted). `_assess_contas`'s step 1 reads `norm.get(\"error\")` and routes human immediately (`_route_human(\"dmn_indisponivel\", ...)`) -- route=human_review, motivo_humano=dmn_indisponivel, grupo_humano=auditoria-contas, desfecho=triagem_humana (`_human_desfecho`'s default for a non-recurso/reembolso flow) -- `glosa_classification`/`contas_sla`/`glosa_triage` are never even called on this branch. Module docstring's disclosed divergence: EVERY DMN in the CONTAS assess chain routes human on failure, uniformly (`agent.yaml`'s unqualified `signal: dmn_unavailable` trigger). Same packet as EVL-MARINA-01; the only difference is the transport that fails. Synthetic data only.",
   "input": {
     "state": {
@@ -19,7 +21,9 @@
       "valor_apresentado_brl": 480.0,
       "tipo_lote": "consulta",
       "linhas_conta_refs": [],
-      "reason_codes_tiss": ["55"],
+      "reason_codes_tiss": [
+        "55"
+      ],
       "divergencia_valor": false,
       "item_conforme_tabela": true,
       "documentacao_anexa": true,
@@ -39,5 +43,8 @@
       "desfecho": "triagem_humana"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "signal:dmn_unavailable"
+  ]
 }
