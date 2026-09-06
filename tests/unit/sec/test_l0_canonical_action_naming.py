@@ -221,9 +221,12 @@ def test_no_canonical_name_aliases_an_existing_matrix_action(block: dict[str, An
     )
 
 
-#: The closed key set the block itself declares (read from the shipped entries, never invented):
-#: every entry has exactly these keys, `zona` present only on the two inference names; every
-#: `ratificacao` sub-block has exactly these four accountability keys.
+#: The closed key set the block itself declares, TRANSCRIBED by hand from the shipped block —
+#: a literal by design, NOT derived. Deriving this set from the very file the fence checks
+#: would make the fence vacuous (it would accept any key the file happens to carry); it proves
+#: something only because the literal is independent of the data. Every entry has exactly
+#: these keys, `zona` present only on the two inference names; every `ratificacao` sub-block
+#: has exactly these four accountability keys.
 _ENTRY_KEYS = {"classe", "zona", "operacoes", "descricao", "instalado_em_l0_core", "ratificacao"}
 _RATIFICACAO_KEYS = {"ratificado", "ratificador", "data", "evidencia_ref"}
 
