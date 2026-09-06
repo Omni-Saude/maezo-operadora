@@ -380,9 +380,10 @@ async def test_fernando_start_process_success_emits_one_desfecho(monkeypatch: py
 
 
 async def test_helena_respond_inform_emits_resolvido_automatico(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Caminho `inform` (sem escalacao): `HelenaState.desfecho` e' campo morto (nunca escrito por
-    nenhum no de Helena) — o `desfecho` do label e' DERIVADO de `escalation_started`/
-    `response_kind`, nao lido de `state["desfecho"]`."""
+    """Caminho `inform` (sem escalacao): `HelenaState.desfecho` NAO e' mais campo morto (NEW-10,
+    §Delta-F3) — `respond` GRAVA o mesmo valor em `saida["desfecho"]` neste ramo tambem — mas o
+    `desfecho` do LABEL de telemetria continua DERIVADO de `escalation_started`/`response_kind`,
+    nunca LIDO de volta de `state["desfecho"]`."""
     from maezo.agents.helena.graph import HelenaGraph
 
     calls = _spy(monkeypatch)

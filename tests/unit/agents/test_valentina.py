@@ -927,6 +927,22 @@ async def test_start_process_is_idempotent_by_business_key() -> None:
     assert result["process_ref"]["already_existed"] is True
 
 
+async def test_start_process_provenance_decision_basis_carries_the_real_programa_id() -> None:
+    """VAL-04 (Agent Fleet Audit): `decision_basis["programa"]` read `state.get("programa")`, a
+    key `ValentinaState` never defines (the real field is `programa_id`) -- the provenance's
+    `programa` identifier was always the empty string, for every instance ever started."""
+    dmn = FakeDmnTransport()
+    _register_routing(dmn)
+    _register_sla(dmn)
+    sink = FakeStartAuditSink()
+    compiled = _graph(dmn=dmn, audit_sink=sink).compile_graph().compile()
+
+    await compiled.ainvoke(_consented_state(programa_id="cronicos-p1"))
+
+    assert sink.records, "start_process never emitted an audit record"
+    assert sink.records[0].details["programa"] == "cronicos-p1"
+
+
 async def test_start_process_failure_records_error_and_keeps_route() -> None:
     dmn = FakeDmnTransport()
     _register_routing(dmn)

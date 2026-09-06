@@ -54,6 +54,12 @@ kpis:
   - { name: false_denial_rate, target: "==0" }
 escalation:
   process: SP-OP-NIP-001
+  # GUS-06 (Agent Fleet Audit): process_keys declara os DOIS processos (SP-OP-NIP-001 e
+  # SP-OP-ANS-SUBMIT-001) mas escalation.process so tinha um slot escalar — o campo ficava
+  # espec-inconsistente com o proprio escopo declarado do agente (J1/UT_RevisarEnvio pertence ao
+  # contrato ANS-SUBMIT). Mesma convencao ja precedente em lucas/agent.yaml
+  # (escalation.secondary_process: SP-OP-CANCEL-001); validate-artifacts agora tambem a valida.
+  secondary_process: SP-OP-ANS-SUBMIT-001
   human_manager: juridico-regulatorio
   triggers:
     - dmn: nip_routing=REVISAO_JURIDICA

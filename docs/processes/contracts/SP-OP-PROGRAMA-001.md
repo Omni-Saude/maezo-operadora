@@ -91,6 +91,8 @@ idempotente, sem duplicar enrollment do mesmo beneficiario no mesmo ciclo).
 | `consent_checked` | boolean | sim | Veio do trigger proativo (D9 exige `consent_checked==true` antes de contato com beneficiario); re-verificado in-zone pelo chokepoint |
 | `risco_estratificado` | string | nao | Pre-resolvido in-zone por worker/agente (Valentina) APOS o gate de consentimento; banda de risco (nunca conteudo clinico cru em Zona Geral) |
 | `elegibilidade_criterios_atendidos` | boolean | nao | Pre-resolvido in-zone APOS consentimento (criterios do programa) |
+| `criterio_alta_aparente` | boolean | nao | Pre-resolvido in-zone (sinal INFORMATIVO — nunca decide alta): indica um possivel criterio de alta clinica aparente nos fatos, roteando SEMPRE a `UT_DecisaoClinica` (motivo `criterio_alta_aparente`) em vez de decidir (achado do fleet audit, NEW-C1-3: variavel escrita no engine mas ausente desta tabela) |
+| `patient_summary_ref` | string | nao | Referencia FHIR do resumo do paciente (NUNCA PHI cru) — `gather` a usa para `read_patient_summary`; re-ecoada por `ValentinaGraph._contract_variables` no start quando presente, so para proveniencia/auditoria (achado do fleet audit, NEW-C1-3: variavel escrita no engine mas ausente desta tabela) |
 
 \* `consentimento_ativo` e resolvido **dentro do gate** `check_consent`; nenhuma variavel de PHI clinico (`risco_estratificado`, criterios) e populada **antes** do gate passar. PHI clinico permanece em Zona PHI (Valentina = `security_zone: phi`, D10); Zona Geral so ve bandas/pseudonimos.
 
@@ -98,6 +100,7 @@ idempotente, sem duplicar enrollment do mesmo beneficiario no mesmo ciclo).
 
 | Variavel | Tipo | Descricao |
 |---|---|---|
+| `consent_status` | string | `ativo` \| `ausente` \| `revogado` — o VEREDITO de consentimento computado por `consent_gate` (FAIL-CLOSED: nunca plantado pelo chamador, resetado em toda entrada); re-ecoado por `ValentinaGraph._contract_variables` no start (achado do fleet audit, NEW-C1-3: variavel escrita no engine mas ausente desta tabela) |
 | `elegivel_programa` | string | `ELEGIVEL` \| `NAO_ELEGIVEL` \| `ANALISE_HUMANA` (estratificacao informativa da DMN; **sugere, nao decide cuidado/alta**) |
 | `decisao_programa` | string | `ENROLL` \| `MANTER_ACOMPANHAMENTO` \| `DESLIGAR_CLINICO` \| `SOLICITAR_INFO` (preenchida SO por User Task humana quando ha decisao clinica adversa; `ENROLL`/`MANTER` podem ser L3 quando consentidos e nao-adversos) |
 | `motivo_desligamento_clinico` | string | **Obrigatoria se `DESLIGAR_CLINICO`** — fundamentacao clinica da alta/desligamento |

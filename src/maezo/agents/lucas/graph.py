@@ -232,6 +232,16 @@ MotivoHumano = Literal[
 # (`docs/processes/contracts/SP-OP-ESCALATION-001.md`) — Lucas is billing/collection, never
 # clinical, so `red_flag_clinico`/`risco_psicossocial`/`intencao_clinica` are structurally
 # unreachable from this module (L0 hard — see `test_motivo_categoria_never_clinical` below).
+#
+# `solicitacao_humano` IS kept (type-fidelity with the shared domain — helena emits it for
+# exactly this case, `helena/graph.py:709`) but is DISCLOSED, OWNER-GATED UNREACHABLE from
+# Lucas today (LUC-04, Agent Fleet Audit): `Intencao` below has no "beneficiario pede um
+# humano" variant, so a beneficiary explicitly asking to talk to a person is misfiled as
+# ambiguidade->outro instead of the correct category. Wiring a real path needs a new
+# `Intencao` value the `lucas_escalation_routing.dmn`/`lucas_billing_admissibility.dmn`
+# inputs would have to recognize — both are DRAFT tables, so this needs the SAME owner
+# ratification LUC-03 already names, not a Python-only fix (C3: no business rule invented
+# here). See `test_solicitacao_humano_is_disclosed_as_unreachable_pending_ratification`.
 MotivoCategoria = Literal["outro", "solicitacao_humano", "falha_tecnica"]
 
 # Full shared contract domain (kept for type-fidelity with `docs/processes/contracts/

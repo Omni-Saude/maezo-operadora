@@ -297,10 +297,10 @@ class HelenaState(TypedDict, total=False):
     # Turn output.
     response_text: str
     response_kind: ResponseKindOut
-    #: CC-01: desfecho do turno. Helena nao tinha este campo — a conversa nao e um processo e o
-    #: turno feliz nao produz desfecho contratual nenhum (fica ""). Ele existe para o UNICO
-    #: desfecho que Helena PRECISA declarar: `erro_inicio_processo`, quando ela nao conseguiu
-    #: abrir a escalacao. Escrito exclusivamente por `respond` no ramo de falha.
+    #: CC-01/NEW-10: desfecho do turno. Escrito exclusivamente por `respond`, nos DOIS ramos:
+    #: `erro_inicio_processo` no ramo de falha de start (via `notify_start_failure`) e
+    #: `escalado_humano`/`resolvido_automatico` no ramo de sucesso (mesmo valor rotulado na
+    #: telemetria CC-09, gravado tambem aqui desde NEW-10 — antes ficava "" ate a proxima falha).
     desfecho: str
     error: str
 
@@ -1026,13 +1026,18 @@ class HelenaGraph:
         escalacao existe; caso contrario o texto e SUBSTITUIDO pela mensagem honesta de falha
         tecnica e o turno declara `desfecho=erro_inicio_processo`.
 
-        CC-09: emite UM `maezo_agent_desfecho_total` para este turno. `HelenaState.desfecho` e'
-        campo morto (nenhum no' de Helena escreve nele — ver `turn_telemetry`'s module
-        docstring), entao o `desfecho` do label e' DERIVADO aqui, via override, de
-        `escalation_started`/`response_kind`/`escalation_motivo` — os sinais reais desta
-        agente. O ramo `start_failed=True` NAO emite aqui: `_start_failure_outcome` ja delega
-        ao helper compartilhado (`runtime.start_outcome.notify_start_failure`), que emite por
-        conta propria — emitir aqui tambem duplicaria o turno.
+        CC-09: emite UM `maezo_agent_desfecho_total` para este turno. O `desfecho` do label e'
+        DERIVADO aqui, via override, de `escalation_started`/`response_kind`/`escalation_motivo`
+        — os sinais reais desta agente — nunca lido de volta de `state.get("desfecho")` (o valor
+        so existiria se um turno ANTERIOR ja o tivesse escrito, e o resultado deste turno e' o
+        que importa). NEW-10: o MESMO valor tambem e' gravado em `saida["desfecho"]` logo abaixo
+        — ate 2026-09-05 esse ramo de sucesso so passava o valor para a telemetria, nunca de
+        volta ao proprio estado, entao `HelenaState.desfecho` ficava "" apos qualquer turno
+        bem-sucedido (so o ramo `start_failed=True`, via `notify_start_failure`, o escrevia). O
+        ramo `start_failed=True` NAO emite aqui: `_start_failure_outcome` ja delega ao helper
+        compartilhado (`runtime.start_outcome.notify_start_failure`), que emite por conta
+        propria E ja grava `desfecho=erro_inicio_processo` no dict que retorna — emitir aqui
+        tambem duplicaria o turno.
         """
         # UM unico `send` e UM unico handler de falha de envio nos dois ramos — o que muda entre
         # eles e O QUE se diz e O QUE o turno declara, nunca o mecanismo de envio.
@@ -1077,16 +1082,25 @@ class HelenaGraph:
             # o caso continua marcado como start falho, que e o que a operacao precisa ver.
             saida = {**saida, "error": f"whatsapp send failed: {redact_error_message(exc)}"}
         if state.get("start_failed") is not True:
+            # NEW-10: antes, so o ramo de falha de start escrevia `desfecho` em `state`
+            # (via `notify_start_failure`, chamado por `_start_failure_outcome` acima) — este
+            # ramo de sucesso so passava o valor por `desfecho=` ao helper de telemetria, nunca
+            # de volta ao proprio `saida`, entao `HelenaState.desfecho` ficava "" apos um turno
+            # bem-sucedido (self-disclosed como campo morto no comentario que citava esta linha).
+            # Agora o mesmo valor rotulado na telemetria tambem e' gravado no estado — o campo
+            # deixa de ser so-as-vezes-verdadeiro.
+            desfecho = (
+                "escalado_humano" if state.get("escalation_started") is True else "resolvido_automatico"
+            )
             emit_turn_desfecho(
                 state,
                 agent_id="helena",
-                desfecho=(
-                    "escalado_humano" if state.get("escalation_started") is True else "resolvido_automatico"
-                ),
+                desfecho=desfecho,
                 route=saida.get("response_kind") or state.get("response_kind"),
                 motivo_categoria=saida.get("escalation_motivo") or state.get("escalation_motivo"),
                 enviada=enviada,
             )
+            saida = {**saida, "desfecho": desfecho}
         return saida
 
     def _start_failure_outcome(self, state: HelenaState) -> dict[str, Any]:

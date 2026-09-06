@@ -37,15 +37,16 @@ O PADRAO (uma definicao, adotada por todos os 10 grafos — nunca 10 copias)
    pode derrubar um turno que ja terminou (mesma postura de `record_agent_turn`/
    `notify_start_failure`).
 
-NOTA HELENA (campo morto pre-existente, DISCLOSED, nao corrigido aqui)
+NOTA HELENA (campo morto FECHADO — NEW-10, §Delta-F3)
 -----------------------------------------------------------------------
 `HelenaState.desfecho` existe no TypedDict (`graph.py:245`) e e' inicializado como `""`
-(`graph.py:299`), mas NENHUM no de `helena/graph.py` jamais escreve nele — o sinal real de
-desfecho de Helena vive em `response_kind`/`escalation_started`/`escalation_motivo`. CC-09 NAO
-resssuscita o campo morto (fora do escopo: seria uma mudanca de forma de estado, nao de
-telemetria) — em vez disso, o call site em `helena/graph.py::respond` PASSA um `desfecho`
-derivado explicitamente via override, computado so' para esta chamada, sem tocar o `dict` que o
-no devolve.
+(`graph.py:299`). Ate 2026-09-05 NENHUM no de `helena/graph.py` escrevia nele fora do ramo de
+falha de start; desde entao `respond` GRAVA o mesmo valor em `saida["desfecho"]` em AMBOS os
+ramos (sucesso E falha) — deixou de ser campo morto. O LABEL da telemetria continua DERIVADO
+aqui, via override de `escalation_started`/`response_kind`/`escalation_motivo` — os sinais reais
+desta agente — e NUNCA lido de volta de `state.get("desfecho")`: o valor deste modulo e o valor
+gravado no estado sao a MESMA computacao feita uma vez, nunca uma leitura do outro (ver
+`helena/graph.py::respond` para a narracao completa e a razao de nao ler de volta).
 
 DISCIPLINA C3 (telemetria nao decide nada)
 --------------------------------------------
@@ -149,8 +150,9 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
             _DESFECHO_ERRO_INICIO_PROCESSO,
         }
     ),
-    # HELENA: `HelenaState.desfecho` e' campo morto (ver docstring do modulo) — o call site em
-    # `respond` passa um `desfecho` DERIVADO via override, um destes tres tokens.
+    # HELENA: `HelenaState.desfecho` NAO e' mais campo morto (ver NOTA HELENA no docstring do
+    # modulo, §Delta-F3) — `respond` GRAVA o mesmo `desfecho` DERIVADO via override, um destes
+    # quatro tokens, tanto no label da telemetria quanto de volta no `dict` que o no devolve.
     "helena": frozenset(
         {
             "resolvido_automatico",

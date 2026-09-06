@@ -74,9 +74,12 @@ a2a:
   capabilities:
     - member_billing_navigation
   skills:
-    - boleto_2via
+    - boleto_2via  # LUC-14: informacional -- so explica como obter a 2a via a partir dos fatos
+                   # ja fornecidos; sem worker/tool de emissao de boleto/link no allowlist.
     - payment_confirmation
-    - collection_nudge
+    - collection_nudge  # LUC-13: reativo -- unico ponto de entrada (receive), sem no/timer que
+                        # inicie contato; o LEMBRETE da DMN so dispara DENTRO de um turno ja
+                        # recebido (J2, confirmacao_pagamento).
   accepted_task_types: []
   queue_ref: agents.tasks.lucas
   handler_status: ausente   # nenhum agents/lucas/delegation.py existe (gap 11.7, prosa acima)

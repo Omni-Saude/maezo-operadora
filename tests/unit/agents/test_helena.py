@@ -972,8 +972,22 @@ async def test_respond_sends_via_whatsapp_using_hash_not_raw_number() -> None:
 
     result = await graph.respond(_base_state(response_text="oi, tudo bem?"))
 
-    assert result == {}
+    # NEW-10: `desfecho` e' agora gravado no estado tambem no ramo de sucesso (o mesmo valor
+    # rotulado na telemetria CC-09) -- antes deste WP `HelenaState.desfecho` era campo morto
+    # em qualquer turno que nao falhasse ao iniciar o processo.
+    assert result == {"desfecho": "resolvido_automatico"}
     assert sender.sent == [("deadbeef", "oi, tudo bem?")]
+
+
+async def test_respond_records_escalado_humano_desfecho_when_escalation_started() -> None:
+    """NEW-10: o mesmo campo, agora wired no OUTRO ramo de sucesso -- quando a escalacao
+    realmente abriu, `desfecho` reflete `escalado_humano`, nunca a string vazia."""
+    sender = _FakeWhatsAppSender()
+    graph = _graph(inference=_FakeInference([]), whatsapp=sender)
+
+    result = await graph.respond(_base_state(response_text="oi", escalation_started=True))
+
+    assert result["desfecho"] == "escalado_humano"
 
 
 async def test_respond_surfaces_transport_failure_never_swallows_silently() -> None:

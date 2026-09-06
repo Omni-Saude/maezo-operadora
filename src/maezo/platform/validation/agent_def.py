@@ -254,6 +254,16 @@ def validate_file(
     escalation_process = definition.escalation.get("process")
     if isinstance(escalation_process, str) and escalation_process:
         _validate_process_key(path, escalation_process, "escalation.process", keys, report)
+    # GUS-06: `escalation.secondary_process` is the SAME kind of reference, for a two-process
+    # agent (lucas's own precedented convention — `escalation.secondary_process:
+    # SP-OP-CANCEL-001`) that `escalation.process`'s single scalar slot has no room for. A
+    # phantom key here was previously unvalidated at artifact time (only caught, if at all, at
+    # runtime by the effect PEP).
+    escalation_secondary_process = definition.escalation.get("secondary_process")
+    if isinstance(escalation_secondary_process, str) and escalation_secondary_process:
+        _validate_process_key(
+            path, escalation_secondary_process, "escalation.secondary_process", keys, report
+        )
 
     _validate_a2a_handler_disclosure(path, definition.id, definition.a2a, report)
 
