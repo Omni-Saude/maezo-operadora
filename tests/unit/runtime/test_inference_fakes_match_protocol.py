@@ -390,9 +390,7 @@ _SECUNDARIOS_POR_FAMILIA: dict[str, tuple[str, ...]] = {
     "IdempotencyStore": ("complete",),
     "FactBrokerPublisher": ("start", "stop"),
 }
-_NOMES_SOMENTE_SECUNDARIOS = frozenset(
-    nome for nomes in _SECUNDARIOS_POR_FAMILIA.values() for nome in nomes
-)
+_NOMES_SOMENTE_SECUNDARIOS = frozenset(nome for nomes in _SECUNDARIOS_POR_FAMILIA.values() for nome in nomes)
 
 #: `generate` tem discriminador proprio (marcador `phi`, secoes A/B acima) porque o MESMO nome
 #: serve dois Protocols DELIBERADAMENTE diferentes (a facade `InferenceProvider` e o `_impl`
@@ -553,8 +551,12 @@ def _ofensas_forma_vs_real(
 
 
 def _achado_de_metodo(
-    rotulo: str, classe: ast.ClassDef, nome_metodo: str, no: ast.FunctionDef | ast.AsyncFunctionDef,
-    familia: _Familia, rotulo_familia: str,
+    rotulo: str,
+    classe: ast.ClassDef,
+    nome_metodo: str,
+    no: ast.FunctionDef | ast.AsyncFunctionDef,
+    familia: _Familia,
+    rotulo_familia: str,
 ) -> str | None:
     sig_real, async_real = familia.metodos()[nome_metodo]
     if not _e_candidata_da_familia(no, async_real):
@@ -608,9 +610,7 @@ def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
                     continue
                 familias_ancoradas.update(candidatas)
                 familia = _FAMILIA_POR_NOME[candidatas[0]]
-                achado = _achado_de_metodo(
-                    rotulo, classe, "send", no, familia, " / ".join(candidatas)
-                )
+                achado = _achado_de_metodo(rotulo, classe, "send", no, familia, " / ".join(candidatas))
                 if achado:
                     achados.append(achado)
 
@@ -636,9 +636,7 @@ def _forma_assinatura_ast(no: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[i
 
 
 def _achados_estruturais_em_arquivo(caminho: Path) -> list[str]:
-    return _achados_estruturais_em_fonte(
-        caminho.read_text(encoding="utf-8"), str(caminho.relative_to(_RAIZ))
-    )
+    return _achados_estruturais_em_fonte(caminho.read_text(encoding="utf-8"), str(caminho.relative_to(_RAIZ)))
 
 
 def test_lista_fechada_de_protocols_ainda_existe_em_src() -> None:
@@ -697,11 +695,7 @@ def test_formas_de_send_sao_tres_e_distintas_hoje() -> None:
 def test_achados_estruturais_recusa_fakedmn_com_nomes_da_evidencia_reg04() -> None:
     """Sondagem sintetica com os NOMES EXATOS de REG-04 (`table`/`dmn_input`) -- prova que o
     helper aponta o defeito sem depender de nenhum arquivo real continuar quebrado."""
-    fonte = (
-        "class _FakeDmn:\n"
-        "    async def evaluate(self, table, dmn_input):\n"
-        "        return ([], None)\n"
-    )
+    fonte = "class _FakeDmn:\n    async def evaluate(self, table, dmn_input):\n        return ([], None)\n"
     achados = _achados_estruturais_em_fonte(fonte, "sintetico.py")
     assert len(achados) == 1
     assert "sintetico.py:2" in achados[0]
@@ -735,9 +729,7 @@ def test_achados_estruturais_distingue_kafkalike_de_br_regional_pela_forma() -> 
     a familia certa (prova indireta: se a desambiguacao por forma estivesse comparando o
     `send` de BrRegionalTransport contra o Protocol errado, `request` teria virado ofensa)."""
     fonte_kafka = (
-        "class _RecordingKafka:\n"
-        "    async def send(self, topic, value, *, key=None):\n"
-        "        return None\n"
+        "class _RecordingKafka:\n    async def send(self, topic, value, *, key=None):\n        return None\n"
     )
     fonte_br = "class _LyingUsageTransport:\n    async def send(self, request):\n        return None\n"
     assert _achados_estruturais_em_fonte(fonte_kafka, "sintetico.py") == []
@@ -748,11 +740,7 @@ def test_achados_estruturais_recusa_send_com_forma_desconhecida() -> None:
     """Cerca de COMPLETUDE (brief, item 2): um falso `send` com uma forma que NAO bate com
     nenhum Protocol conhecido e' apontado — nunca ignorado em silencio, nem confundido com
     qualquer uma das 3 formas existentes."""
-    fonte = (
-        "class _AmbiguoNaoRegistrado:\n"
-        "    async def send(self, a, b, c, d):\n"
-        "        return None\n"
-    )
+    fonte = "class _AmbiguoNaoRegistrado:\n    async def send(self, a, b, c, d):\n        return None\n"
     achados = _achados_estruturais_em_fonte(fonte, "sintetico.py")
     assert len(achados) == 1
     assert "COMPLETUDE" in achados[0]
