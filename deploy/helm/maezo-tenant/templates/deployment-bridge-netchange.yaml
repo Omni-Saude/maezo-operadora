@@ -6,8 +6,10 @@ Sibling do notifications-bridge e do worker-daemon: mesma imagem, command
 DOMINIO `agents.events.cred.network_changed` (fato de rede publicado por SP-OP-CRED-001) e, para
 cada tipo_mudanca (prestador_credenciado / prestador_descredenciado / substituicao_registrada),
 inicia SP-OP-ADEQUACAO-001 via mcp-cibseven.start_process (idempotente; correlacao
-tenant_id+regiao_saude+especialidade). Identidade = principal de SERVICO `notifications-bridge`
-(allowlist MINIMA: so start_process) — a MESMA das duas pontes (ambas so iniciam processos).
+tenant_id+regiao_saude+especialidade). Identidade = principal de SERVICO PROPRIO
+`maezo-network-change-bridge` (allowlist MINIMA: so start_process) — DISTINTO do
+notifications-bridge (R-198 / NETBRIDGE-SERVICE-PRINCIPAL-IDENTITY, OWNER-DECISIONS-REGISTER:
+menor privilegio + trilha de auditoria atribuivel por ponte).
 
 PROBE (seam): o daemon da ponte NAO sobe um servidor de health (o `main.py` so roda o loop do
 consumer). Liveness `exec` (processo vivo) em vez de httpGet /healthz — espelha o notifications-bridge.
@@ -36,7 +38,7 @@ spec:
         # cadastral), nunca PHI cru de beneficiario.
         maezo.io/phi-zone: "false"
     spec:
-      serviceAccountName: {{ include "maezo-tenant.serviceAccountName" . }}
+      serviceAccountName: {{ include "maezo-tenant.networkChangeBridgeServiceAccountName" . }}
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
@@ -58,8 +60,6 @@ spec:
                 secretKeyRef:
                   name: maezo-kafka-config
                   key: bootstrap-servers
-            - name: AUDIT_DIR
-              value: "/tmp/maezo-audit"
             {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.networkChangeBridge.resources | nindent 12 }}

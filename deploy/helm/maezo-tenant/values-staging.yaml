@@ -37,36 +37,31 @@ agents:
     securityZone: general
     replicaCount: 1
     irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-helena-irsa-staging"
-    env:
-      ENVIRONMENT: "staging"
+    env: {}
   - name: rafael
     enabled: true
     securityZone: phi
     replicaCount: 1
     irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-rafael-irsa-staging"
-    env:
-      ENVIRONMENT: "staging"
+    env: {}
   - name: marina
     enabled: true
     securityZone: phi
     replicaCount: 1
     irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-marina-irsa-staging"
-    env:
-      ENVIRONMENT: "staging"
+    env: {}
   - name: gustavo
     enabled: false
     securityZone: general
     replicaCount: 1
     irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-gustavo-irsa-staging"
-    env:
-      ENVIRONMENT: "staging"
+    env: {}
   - name: lucas
     enabled: false
     securityZone: general
     replicaCount: 1
     irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-lucas-irsa-staging"
-    env:
-      ENVIRONMENT: "staging"
+    env: {}
 
 # gateway: DISABLED platform-wide (gateway.enabled=false in values.yaml) — orphaned
 # Deployment with no runnable module (library-only per ADR-0006; predeploy DB-1,

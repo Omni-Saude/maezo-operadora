@@ -39,6 +39,19 @@ maezo-agent-{{ .name }}
 {{- end }}
 
 {{/*
+network-change-bridge ServiceAccount name (R-198 / NETBRIDGE-SERVICE-PRINCIPAL-IDENTITY): its OWN
+service principal, distinct from `maezo-tenant.serviceAccountName` (which the notifications-bridge
+still uses) — least privilege, attributable audit trail per bridge.
+*/}}
+{{- define "maezo-tenant.networkChangeBridgeServiceAccountName" -}}
+{{- if .Values.networkChangeBridge.serviceAccount.create -}}
+    {{ default "maezo-network-change-bridge" .Values.networkChangeBridge.serviceAccount.name }}
+{{- else -}}
+    {{ .Values.networkChangeBridge.serviceAccount.name }}
+{{- end -}}
+{{- end }}
+
+{{/*
 Per-agent PHI-zone boolean pod label value.
 The task contract is explicit: each agent Deployment carries
 `maezo.io/phi-zone: "true|false"`. PHI-zone agents (securityZone=phi) -> "true".
