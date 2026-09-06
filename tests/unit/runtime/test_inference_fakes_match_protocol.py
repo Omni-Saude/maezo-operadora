@@ -57,10 +57,12 @@ fechar essa classe de defeito de uma vez, nao so' os 4 do CI. Ver `docs/evidence
 (linha `LOTE3-INTEGRATION-FAKES-TASK-KIND`) para a contagem exata e a lista arquivo:linha.
 
 GENERALIZACAO P-17 (fleet hardening ciclo 2, WP PROTOCOL-FAKE-FENCES, 05/09/2026) -- NEW-12 /
-NEW-C1-2 / REG-04
+REG-04 (citacao corrigida pelo §Delta -- ver "CORRECAO DE CITACAO (§Delta F4/F6)" no final desta
+docstring; os 4 commits ja' landados e a linha do ledger antes desta correcao ainda citam
+"NEW-C1-2" no texto/subject, id que nunca existiu em nenhuma fonte de evidencia)
 
-ASSURANCE-F1-C1.md (achado novo, nao triado) apontou que `grep -rn 'class .*Protocol'
-src/maezo/runtime src/maezo/a2a` mostra 8 Protocols alem de `InferenceProvider` sem NENHUMA
+ASSURANCE-F1-E.md (achado formalmente triado `NEW-12`) apontou que `grep -rn 'class .*Protocol'
+src/maezo/runtime src/maezo/a2a` mostra Protocols alem de `InferenceProvider` sem NENHUMA
 cerca de paridade de assinatura contra seus falsos em `tests/` -- so' `KafkaLike` tinha uma
 (pino estreito de UMA classe em `test_outbox.py:267-274`, contra `PostgresOutboxFactProducer`,
 uma classe de PRODUCAO, nao um falso de teste). ASSURANCE-F1-D.md (REG-04) confirmou DRIFT REAL,
@@ -114,6 +116,29 @@ Protocols de `platform/integrations/*.py` FORA desta tabela, com metodos `publis
 cercaria Protocols que nao sao desta tabela. Em vez disso, `start`/`stop` so' sao checados numa
 classe que JA foi classificada como `FactBrokerPublisher` pela FORMA do seu `send` -- nunca
 como gatilho proprio.
+
+CORRECAO DE CITACAO (§Delta F4/F6, VERIFY-PROTOCOL-FAKE-FENCES.md)
+
+O texto original (herdado do brief do WP, reproduzido fielmente pelo autor) citava
+"ASSURANCE-F1-C1.md (achado novo, nao triado)" como a FONTE UNICA da analise "8 Protocols alem de
+`InferenceProvider` sem cerca" e usava um segundo id, `NEW-C1-2`, ao lado de `NEW-12`/`REG-04`.
+Verificado nesta correcao: `ASSURANCE-F1-C1.md` REALMENTE contem uma analise equivalente (secao
+"New findings (nao triado)", item 2, dentro do bloco do id `CC-12`: "Signature-parity fences exist
+for only 1 of 8 Protocols with test fakes ... The other 7 have zero") -- entao o conteudo citado
+nao esta' factualmente errado. Mas esse item e' PROSA NAO NUMERADA de um apendice "nao triado",
+sem NENHUM esquema de id proprio (`ASSURANCE-F1-C1.md` so' atribui id aos achados FORMALMENTE
+triados, ex.: `CC-04`, `CC-12`, `CC-13`, `RAF-03`) -- `NEW-C1-2` foi INVENTADO (pelo brief do
+orquestrador do WP, propagado fielmente pelo autor e ate' pelo brief do verificador desta mesma
+sessao) e nao existe em `ASSURANCE-F1-C1.md`, `ASSURANCE-F1-E.md` nem em
+`$S/snap/GAP-REGISTER.yaml` (grep, zero hits nos tres, confirmado nesta correcao). A fonte
+FORMALMENTE triada e citavel, que chega a' MESMA conclusao (com uma varredura mais ampla, 15
+Protocols em vez de 8, incluindo `src/maezo/tools`) e' `$S/phase1/ASSURANCE-F1-E.md`, bloco
+`- id: NEW-12`. Esta correcao (§Delta) ajusta APENAS esta docstring e a celula de Evidencia da
+linha do ledger para citar `NEW-12`/`ASSURANCE-F1-E.md` como fonte primaria (com
+`ASSURANCE-F1-C1.md` mencionada como corroboracao secundaria, nao mais como origem de id); os
+QUATRO commits ja' landados (`340fb102`/`ba875684`/`4aabe133`/`9e94852e`) e o subject/body deles
+nao podem ser reescritos (historico append-only) e continuam citando "NEW-C1-2" -- divulgado, nao
+corrigido, no relatorio desta reparo.
 """
 
 from __future__ import annotations
