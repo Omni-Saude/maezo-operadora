@@ -894,3 +894,70 @@ async def test_dossier_narrativa_identifiers_never_reach_the_engine_variables() 
     # Structured facts survive untouched (the boleto number is a long digit run BY CONSTRUCTION).
     assert recording[0]["dossie_lucas"]["fatos"]["numero_boleto"] == "34191790010104351004791020"
     assert recording[0]["dossie_lucas"]["decisao_cancelamento"] is None
+
+
+# ---------------------------------------------------------------------------
+# LUC-08 — outbound idempotency key (gap `IDEMPOTENCY-KEY-MISSING`)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingWhatsAppWithKey:
+    """Dedicated fake for the LUC-08 tests below — kept separate from `_FakeWhatsAppSender`
+    (whose signature/assertions are updated together with the `graph.py` fix itself) so these
+    tests pin ONLY the new `idempotency_key` behaviour, never anything about the send path this
+    task did not touch."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, str]] = []
+
+    async def send(self, to_hash: str, text: str, *, idempotency_key: str) -> dict[str, Any]:
+        self.sent.append((to_hash, text, idempotency_key))
+        return {"ok": True}
+
+
+async def test_replayed_respond_member_turn_uses_the_same_idempotency_key_each_time() -> None:
+    """LUC-08: an engine re-delivery of the SAME turn must claim the SAME key on the durable
+    store, never a fresh one — a fresh key per attempt would never dedupe anything. The key is
+    derived ONLY from `business_key` (stable — `tenant_id`/`conversation_id`) and the node name,
+    never from anything that changes across a replay (no timestamp, no random id)."""
+    dmn = FakeDmnTransport()
+    dmn.register("lucas_billing_admissibility", [{"roteamento": "RESPONDER"}])
+    sender = _RecordingWhatsAppWithKey()
+    state = _base_state(tipo_solicitacao="2a_via")
+
+    for _ in range(2):
+        compiled = (
+            _graph(dmn=dmn, cibseven=FakeCibSevenTransport(), whatsapp=sender, inference=_FakeInference())
+            .compile_graph()
+            .compile()
+        )
+        await compiled.ainvoke(state)
+
+    assert len(sender.sent) == 2, "both replays must have actually sent through the fake"
+    first_key = sender.sent[0][2]
+    second_key = sender.sent[1][2]
+    assert first_key == second_key == "ESC-amh-wa:amh:deadbeef:respond_member"
+
+
+async def test_replayed_escalation_ack_turn_uses_the_same_idempotency_key_each_time() -> None:
+    """Same property as above, for `send_escalation_ack` — the OTHER outbound call site LUC-08
+    closes. Node name differs (`send_escalation_ack`, not `respond_member`), so a beneficiary
+    with BOTH an informational reminder and an escalation in flight never has one send's key
+    collide with — and wrongly suppress — the other."""
+    dmn = FakeDmnTransport()
+    dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
+    sender = _RecordingWhatsAppWithKey()
+    state = _base_state(intencao="inadimplencia")
+
+    for _ in range(2):
+        compiled = (
+            _graph(dmn=dmn, cibseven=FakeCibSevenTransport(), whatsapp=sender, inference=_FakeInference())
+            .compile_graph()
+            .compile()
+        )
+        await compiled.ainvoke(state)
+
+    assert len(sender.sent) == 2, "both replays must have actually sent the ack through the fake"
+    first_key = sender.sent[0][2]
+    second_key = sender.sent[1][2]
+    assert first_key == second_key == "ESC-amh-wa:amh:deadbeef:send_escalation_ack"
