@@ -766,20 +766,39 @@ async def test_instruct_score_is_consumed_never_recomputed() -> None:
     assert result["dossier"]["fatos"]["n_evidencia"] == 2
 
 
-async def test_instruct_missing_score_defaults_zero_never_derived_from_evidence() -> None:
+async def test_instruct_missing_score_becomes_lacuna_never_a_silent_zero() -> None:
+    """BEA-04 (fleet audit ciclo 2): an ABSENT `score_indicadores` used to collapse to `0`,
+    a value indistinguishable from a genuine "zero indicators" routing fact. It must now surface
+    as `None` + a visible class-token lacuna in the sealed dossier a human investigator reads."""
     state = _gathered_state(
         evidencia_normalizada=[{"ref": f"evd://n/{i}"} for i in range(5)],
     )
     del state["score_indicadores"]  # type: ignore[misc]
     result = await _graph().instruct_investigation(state)
-    assert result["dossier"]["score_indicadores"] == 0  # absent -> 0, never len(evidencia)*10
+    assert result["dossier"]["score_indicadores"] is None  # absent -> None, never a masking 0
+    assert "score_indicadores_ausente" in result["dossier"]["lacunas"]
+    assert "score_indicadores_ausente" in result["dossier"]["fatos"]["lacunas"]
 
 
-async def test_instruct_non_int_score_collapses_to_zero() -> None:
+async def test_instruct_non_int_score_becomes_lacuna_never_a_silent_zero() -> None:
+    """BEA-04: a corrupted (non-int) `score_indicadores` used to collapse to `0` with NO trace
+    in the dossier — the exact defect the audit's own probe reproduced. It must now surface as
+    `None` + `score_indicadores_invalido`, never len(evidencia)*10, never a masking 0."""
     result = await _graph().instruct_investigation(
         _gathered_state(score_indicadores="99; DROP TABLE")  # type: ignore[typeddict-item]
     )
-    assert result["dossier"]["score_indicadores"] == 0
+    assert result["dossier"]["score_indicadores"] is None
+    assert "score_indicadores_invalido" in result["dossier"]["lacunas"]
+    assert "score_indicadores_invalido" in result["dossier"]["fatos"]["lacunas"]
+
+
+async def test_instruct_bool_score_is_rejected_never_treated_as_zero_or_one() -> None:
+    """`bool` is an `int` subclass in Python — `require_number` must reject it explicitly, or a
+    planted `score_indicadores=False`/`True` would silently read as a genuine 0/1 score."""
+    hostile = cast(BeatrizState, {**_gathered_state(), "score_indicadores": False})
+    result = await _graph().instruct_investigation(hostile)
+    assert result["dossier"]["score_indicadores"] is None
+    assert "score_indicadores_invalido" in result["dossier"]["lacunas"]
 
 
 async def test_instruct_indicadores_and_intensidade_are_passthrough_facts() -> None:

@@ -236,6 +236,35 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
   uma reentrega reencontra a instancia viva (`ALREADY_ACTIVE`) em vez de abrir uma segunda.
 
 
+## Desfecho de agente: falha de verificacao de consentimento (VAL-05)
+
+| Desfecho | Onde vive | Quem escreve | Significado |
+|---|---|---|---|
+| `falha_verificacao_consentimento` | **estado do agente valentina** — NAO e variavel de processo | `no_consent`, quando `error == ERROR_MISSING_CONTEXT` | o grafo NAO CONSEGUIU nem verificar consentimento (identificadores de contrato ausentes em `receive` — `tenant_id`/`programa_id`/`beneficiario_pseudo_id`/`ciclo`); DISTINTO de `sem_consentimento` (verdito genuino de "titular nao consentiu/revogou", computado por `consent_gate` a partir dos fatos) |
+
+ONDE ESTE VALOR **NAO** ESTA, e por que. So' e alcancavel por invocacao DIRETA do grafo (o
+gatilho proativo `agents.events.proactive`, D9) — nunca pela borda A2A: `delegation.py::
+state_from_envelope` VALIDA tres dos quatro identificadores (`programa_id`/
+`beneficiario_pseudo_id`/`ciclo`) e lanca `ValueError` ANTES de o grafo rodar quando algum falta;
+o quarto, `tenant_id`, e' fechado UM NIVEL ACIMA, por `DelegationEnvelope.__post_init__`
+(`src/maezo/a2a/delegation.py`), que lanca `DelegationError` quando `tenant` esta vazio (a
+delegacao e' tenant-scoped por construcao, ADR-0004) — entao a envelope nem CHEGA a existir sem
+`tenant_id`, e `state_from_envelope` nunca precisa valida-lo de novo. Como nenhuma chave de
+negocio existe sem os quatro identificadores, `ERROR_MISSING_CONTEXT` estruturalmente nunca nasce
+numa delegacao `care.stratify`/`care.enroll`, e nao ha instancia BPMN nem variavel de processo
+onde este desfecho poderia viver — mesma logica do `erro_inicio_processo` (CC-01) acima, aplicada
+a um ponto ainda mais cedo do turno (antes mesmo do chokepoint de consentimento, nao apenas antes
+do start).
+
+POR QUE ELE EXISTE (auditoria de frota 2026-09-05, achado VAL-05). Ate esta correcao, um verdito
+genuino de ausencia de consentimento e uma FALHA DE CONTEXTO (identificadores ausentes — um
+possivel bug do produtor/chamador, nao um fato de LGPD) surgiam com o MESMO
+`desfecho="sem_consentimento"`; o unico diferenciador era `error`, um campo de canal lateral, nao
+o campo primario que um consumidor a jusante (handler A2A, golden de eval, regra de alerta) le
+para saber "o que aconteceu neste turno". Os dois permanecem o MESMO terminal neutro (zero PHI,
+zero DMN, zero processo) — nenhuma decisao nova nasce aqui (C3); so' o rotulo muda.
+
+
 ## Codigos de erro
 
 | Codigo | Onde | Tratamento |

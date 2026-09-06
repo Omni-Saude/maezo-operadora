@@ -303,7 +303,9 @@ class ValentinaState(TypedDict, total=False):
 
     # Output (contract §payload.desfecho — NO automatic adverse variant exists).
     desfecho: str  # enrollment_realizado | nao_elegivel | sem_consentimento |
-    #                 interrompido_revogacao | analise_humana_clinica
+    #                 interrompido_revogacao | analise_humana_clinica |
+    #                 falha_verificacao_consentimento (VAL-05: `no_consent` reached via
+    #                 `receive`'s missing-context guard, never a genuine consent verdict)
     error: str  # bounded class token for a technical/context failure (internal-only)
 
 
@@ -521,11 +523,25 @@ class ValentinaGraph:
 
         Mirrors `End_SemConsentimento` (LGPD fail-safe, NOT adverse to the beneficiary): no PHI
         gather ran, no clinical DMN ran, NO process was started (structural: this node's only
-        outgoing edge is END — `start_process` is unreachable from here). Also the fail-closed
-        landing for `receive`'s missing-context guard (inability to verify consent = no
-        consent; the class-token `error` field preserves the distinction for observability).
+        outgoing edge is END — `start_process` is unreachable from here).
+
+        VAL-05 (fleet audit ciclo 2): a genuine no-consent VERDICT (`consent_gate` computed
+        `ausente` from the facts) and an inability-to-VERIFY consent (`receive`'s own
+        missing-context guard, `error=ERROR_MISSING_CONTEXT`) used to surface as the IDENTICAL
+        `desfecho="sem_consentimento"` — only the side-channel `error` field told them apart,
+        and `desfecho` is the PRIMARY audit-facing outcome (contract §payload.desfecho). Branches
+        on that same class token to emit a DISTINCT desfecho for the inability-to-verify case —
+        never a new decision (C3): both branches remain the SAME neutral terminal (zero PHI,
+        zero DMN, zero process); only the recorded label changes, so a downstream reader of just
+        `desfecho` can tell "titular negou/nao deu consentimento" de "nao foi possivel nem
+        verificar o consentimento" (a producer/context bug, not an LGPD fact).
         """
-        outcome = {"desfecho": "sem_consentimento", "process_started": False}
+        desfecho = (
+            "falha_verificacao_consentimento"
+            if state.get("error") == ERROR_MISSING_CONTEXT
+            else "sem_consentimento"
+        )
+        outcome = {"desfecho": desfecho, "process_started": False}
         emit_turn_desfecho({**state, **outcome}, agent_id="valentina")
         return outcome
 

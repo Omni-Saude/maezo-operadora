@@ -194,6 +194,10 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
     "valentina": frozenset(
         {
             "sem_consentimento",
+            # VAL-05 (fleet audit ciclo 2): distinct from a genuine no-consent verdict — reached
+            # only via `receive`'s missing-context guard (inability to VERIFY consent, never a
+            # verdict). Without this entry the label would silently normalize to "outro".
+            "falha_verificacao_consentimento",
             "interrompido_revogacao",
             "analise_humana_clinica",
             "enrollment_realizado",

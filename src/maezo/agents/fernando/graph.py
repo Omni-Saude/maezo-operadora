@@ -92,11 +92,22 @@ where `assess` deliberately never classifies — and it read through verbatim in
     `status_inadimplencia` against `_STATUS_ALLOW` at the point of use — out-of-allowlist ->
     `None`, never echoed.
 See `test_caller_planted_status_never_reaches_engine_variables_on_rescisao` (the verifier's
-exact probe) and the `test_caller_planted_*` family. Residual (disclosed): `sla_analise_iso`/
-`sla_alerta_iso`/`fonte_regulatoria_*`/`prazo_*_iso` have no read-side closed-vocabulary check
-of their own (they are free-form DMN output strings with no finite domain to allowlist) — for
-these, the write-side reset is the load-bearing guard; they are only ever populated from DMN
-evaluation results after the reset.
+exact probe) and the `test_caller_planted_*` family. `fonte_regulatoria_*` (free-form regulatory
+CITATION text, no finite domain and no declared format — ADR-0018 does not shape it) still has
+no read-side check of its own; the write-side reset remains its load-bearing guard.
+
+FER-08 (fleet audit ciclo 2, CLOSED for the `*_iso` fields): `sla_analise_iso`/`prazo_purga_iso`/
+`prazo_notificacao_previa_iso` DO have a declared shape — ADR-0018 §4-bis-A ("dias/SLA -> string
+ISO 8601") and the deployed DMNs themselves (`spec/processes/dmn/inadimplencia_{purga,sla}.dmn`,
+`typeRef="string"` outputs like `"P10D"`/`"P7D"`) both fix them as ISO-8601 DURATIONS — a shape a
+corrupted DMN response or a future non-conforming table revision could violate. `_build_message`/
+`_build_dossier` now re-validate them at the dossier-assembly read-site via
+`maezo.runtime.guards.require_iso8601_duration` (format-only, C3: no threshold/business rule) —
+an out-of-shape value is blanked (never echoed as a fact that looks like a real deadline) and
+logged as a structured warning (`fernando_iso_duration_invalido`), citing only the FIELD NAME,
+never the raw value (which the DMN never sources from caller input, but is untrusted transport
+content regardless). This is defense in depth on top of the same write-side reset — the DMN
+integration is the load-bearing source either way.
 
 PHI discipline (ADR-0006/ADR-0017, T1.7's gate): every LLM call in this module passes `phi=True`
 (the message/dossier text is built from beneficiary-adjacent facts) — a non-PHI-capable provider
@@ -184,6 +195,7 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
+import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
@@ -191,6 +203,7 @@ from maezo.runtime.error_text import (
     dmn_unavailable_error,
     start_unavailable_error,
 )
+from maezo.runtime.guards import require_iso8601_duration
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.start_outcome import (
@@ -229,6 +242,8 @@ PROCESS_KEY = "SP-OP-INADIMPLENCIA-001"
 DMN_STATUS = "inadimplencia_status"
 DMN_PURGA = "inadimplencia_purga"
 DMN_SLA = "inadimplencia_sla"
+
+logger = structlog.get_logger(__name__)
 
 # Intencao (journey selector) — decides which of the three journeys to run, NEVER a merit.
 Intencao = Literal["notificacao_previa", "acompanhamento_purga", "analise_inadimplencia", "rescisao"]
@@ -475,6 +490,26 @@ def _canal_recusado(state: FernandoState) -> bool:
     so' uma DECLARACAO fora do dominio e' recusada; a ausencia cai no default do contrato."""
     valor = str(state.get("canal") or "")
     return bool(valor) and valor not in _CANAL_ALLOW
+
+
+def _iso_duration_validated(state: FernandoState, field: str) -> str | None:
+    """FER-08 (fleet audit ciclo 2): read-side format guard for a DMN-sourced ISO-8601 DURATION
+    fact (`sla_analise_iso`/`prazo_purga_iso`/`prazo_notificacao_previa_iso` — module docstring's
+    FER-08 section). Delegates the shape check to `maezo.runtime.guards.require_iso8601_duration`
+    (format-only, C3: no threshold/business rule); a rejection is logged as a structured warning
+    naming only the FIELD, never the raw value (untrusted transport content, even though the DMN
+    never sources it from caller input) — a data-quality signal, never a silent blank that could
+    be confused with "the DMN simply did not evaluate this row"."""
+    value = state.get(field)
+    validated = require_iso8601_duration(value, field=field)
+    if validated is None and value is not None and value != "":
+        # Only a NON-ausente rejection is worth a log line — `None`/`""` is the ordinary "this
+        # DMN branch never ran" case already covered by `_output_field_resets`. A falsy value
+        # of the WRONG TYPE (`0`/`False`/`[]`/`{}`) is NOT that case — it is data-quality
+        # corruption (§Delta NONE-GUARDRAIL F4) and must log exactly like a malformed string
+        # does, never fall through silently just because `bool(value)` happens to be `False`.
+        logger.warning("fernando_iso_duration_invalido", field=field)
+    return validated
 
 
 def _motivo_categoria(motivo: MotivoHumano) -> MotivoCategoria:
@@ -939,8 +974,10 @@ class FernandoGraph:
             "competencias_em_aberto": state.get("competencias_em_aberto", []),
             "status_inadimplencia": status_validated,
             "dentro_janela_purga": state.get("dentro_janela_purga"),
-            "prazo_purga_iso": state.get("prazo_purga_iso"),
-            "prazo_notificacao_previa_iso": state.get("prazo_notificacao_previa_iso"),
+            # FER-08: read-side ISO-8601-duration format guard (docstring's FER-08 section) —
+            # a malformed DMN response is blanked, never echoed as a fact that looks real.
+            "prazo_purga_iso": _iso_duration_validated(state, "prazo_purga_iso"),
+            "prazo_notificacao_previa_iso": _iso_duration_validated(state, "prazo_notificacao_previa_iso"),
             "fonte_regulatoria_purga": state.get("fonte_regulatoria_purga"),
         }
         intencao = state.get("intencao")
@@ -1003,7 +1040,8 @@ class FernandoGraph:
             "ja_em_rescisao_cancel": state.get("ja_em_rescisao_cancel"),
             "motivo_humano": state.get("motivo_humano"),
             "status_inadimplencia": status_validated,
-            "sla_analise_iso": state.get("sla_analise_iso"),
+            # FER-08: same read-side ISO-8601-duration format guard as `_build_message`.
+            "sla_analise_iso": _iso_duration_validated(state, "sla_analise_iso"),
             "fonte_regulatoria_sla": state.get("fonte_regulatoria_sla"),
             "dmn_refs": state.get("dmn_refs", {}),
         }

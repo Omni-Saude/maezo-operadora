@@ -1755,6 +1755,38 @@ def test_contract_variables_never_include_motivo_on_auto_route() -> None:
     assert "grupo_destino" not in variables
 
 
+def test_contract_variables_ship_decisao_pagamento_as_a_none_guardrail() -> None:
+    """AND-08 (fleet audit ciclo 2): `_contract_variables` never embarked `decisao_pagamento` at
+    all (not even as an explicit `None`) — inconsistent with gustavo's equivalent
+    `decisao_envio`/`decisao_nip` STRUCTURAL GUARDRAIL convention for the same L0 invariant
+    (only a human User Task ever sets the real value). The gated release worker already refuses
+    without a human-set `APROVAR`, so this is audit-trail/convention hardening, not a live
+    bypass — but the key must now be present and explicitly `None`, on BOTH routes."""
+    graph = _graph()
+    for route in ("auto_route", "human_review"):
+        variables = graph._contract_variables(_pagto_state(route=route))
+        assert "decisao_pagamento" in variables
+        assert variables["decisao_pagamento"] is None
+
+
+async def test_l0_guard_pagto_start_ships_decisao_pagamento_as_none_guardrail() -> None:
+    """L0 GUARD, full-graph turn: the started engine instance's variables carry the
+    `decisao_pagamento=None` guardrail explicitly — mirrors gustavo's
+    `test_l0_guard_ans_submit_never_ships_a_signature_or_protocol`."""
+    dmn = FakeDmnTransport()
+    _register_admissibility(dmn, "SEGUE_ROTEAMENTO")
+    _register_alcada(dmn, "DENTRO_TETO_L2", "clerical-pagamentos")
+    cibseven = _RecordingCibSeven()
+    inference = _FakeInference(["dossie sintetico"])
+    compiled = _graph(inference=inference, dmn=dmn, cibseven=cibseven).compile_graph().compile()
+
+    await compiled.ainvoke(_pagto_state())
+
+    variables = cibseven.started_variables[0]
+    assert "decisao_pagamento" in variables
+    assert variables["decisao_pagamento"] is None
+
+
 # ---------------------------------------------------------------------------
 # Full-graph turns (compiled, in-memory — no engine; see PR body for integration disclosure)
 # ---------------------------------------------------------------------------
