@@ -45,6 +45,19 @@ async def tasks_for_instance(client: httpx.AsyncClient, process_instance_id: str
     return result
 
 
+async def process_variables(client: httpx.AsyncClient, process_instance_id: str) -> dict[str, dict[str, Any]]:
+    """The instance's process variables in the ENGINE's own wire shape (`{name: {"value": ...,
+    "type": ...}}`) — deliberately NOT decoded, so a variable the engine holds as `null` is
+    distinguishable from one that does not exist at all (`"severidade" in vars` vs
+    `vars["severidade"]["value"] is None`). That distinction is the whole point at the one call
+    site that uses it (§Delta-3: `severidade` must be PRESENT and NULL on a `falha_tecnica`
+    escalation, never absent and never a fabricated `leve`)."""
+    resp = await client.get(f"/process-instance/{process_instance_id}/variables")
+    resp.raise_for_status()
+    result: dict[str, dict[str, Any]] = resp.json()
+    return result
+
+
 async def candidate_groups(client: httpx.AsyncClient, task_id: str) -> set[str]:
     resp = await client.get(f"/task/{task_id}/identity-links", params={"type": "candidate"})
     resp.raise_for_status()

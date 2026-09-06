@@ -47,12 +47,65 @@ from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.escalation import register_escalation_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, WorkerHarness
+from tests.support.dmn_first_hit import DMN_DIR, evaluate, read_live_table
 
-from ._engine_helpers import active_instances, candidate_groups, noop_events_publish, wait_for_task
+from ._engine_helpers import (
+    active_instances,
+    candidate_groups,
+    noop_events_publish,
+    process_variables,
+    wait_for_task,
+)
 
 pytestmark = pytest.mark.integration
 
 _RUN_ID = uuid.uuid4().hex[:8]
+
+
+async def _assert_falha_tecnica_roteada_pela_r6_com_severidade_nula(
+    engine_client: httpx.AsyncClient, instance_id: str, task: dict[str, Any]
+) -> None:
+    """§Delta-3 (regressao P-12) — o que estas duas provas tem de dizer sobre a instancia VIVA.
+
+    A regressao que elas pegaram: HEL-04 passou a emitir `severidade=None` na falha do
+    classificador (o valor honesto — nao houve extracao de onde derivar), mas
+    `escalation.py::_exigir_severidade` recusava fail-closed nos DOIS canais de notificacao, e o
+    caso morria antes de `UT_TratarEscalonamento`: NENHUM humano via um caso que a maquina nao
+    conseguiu ler. `wait_for_task` falhava com "no user task ever appeared".
+
+    Reaparecer a User Task nao basta como prova — um `leve` fabricado a faria reaparecer tambem, e
+    foi exatamente esse rotulo que HEL-04 removeu. Entao, alem da tarefa, exigimos:
+
+    1. a variavel de processo `severidade` EXISTE e vale `null` (nunca `leve`, nunca ausente);
+    2. o roteamento saiu da regra `r6` da `escalation_routing` — `prioridade`/`grupo_atendimento`
+       sao lidos da DMN VIVA aqui (nunca digitados), e a DMN e' CODEOWNED e NAO foi tocada;
+    3. o `candidateGroups` da User Task (`${roteamento.grupo_atendimento}`) e' o mesmo grupo da
+       `r6`, ou seja quem foi paginado e' quem a tabela escolheu.
+    """
+    tabela = read_live_table(DMN_DIR / "escalation_routing.dmn")
+    r6 = evaluate(tabela, {"motivo_categoria": "falha_tecnica", "severidade": None})
+    assert r6.regra == "r6", f"a DMN viva nao roteia mais falha_tecnica/null por r6: {r6.regra}"
+
+    variaveis = await process_variables(engine_client, instance_id)
+    assert "severidade" in variaveis, (
+        "`severidade` tem de EXISTIR na instancia (presente e nula), nao sumir do escopo"
+    )
+    assert variaveis["severidade"]["value"] is None, (
+        "falha do classificador nao tem severidade a derivar: a variavel e' `null`, nunca `leve` "
+        f"— o motor tem {variaveis['severidade']['value']!r}"
+    )
+    assert variaveis["motivo_categoria"]["value"] == "falha_tecnica"
+    # Escritas de volta ao escopo pelo worker `notify_team` a partir da saida da DMN (`${roteamento.*}`)
+    # — sua presenca prova que a tarefa de notificacao COMPLETOU em vez de recusar.
+    assert variaveis["grupo_atendimento"]["value"] == r6.saidas["grupo_atendimento"]
+    assert variaveis["prioridade"]["value"] == r6.saidas["prioridade"]
+    assert variaveis["severidade"]["value"] != "leve"
+
+    groups = await candidate_groups(engine_client, task["id"])
+    assert groups == {r6.saidas["grupo_atendimento"]}, (
+        f"falha_tecnica -> escalation_routing r6 -> {r6.saidas['prioridade']} "
+        f"{r6.saidas['grupo_atendimento']}; got {groups!r}"
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -399,10 +452,7 @@ async def test_malformed_classifier_json_escalates_falha_tecnica(
         )
         instance_id = str(actives[0]["id"])
         task = await wait_for_task(engine_client, instance_id)
-        groups = await candidate_groups(engine_client, task["id"])
-        assert groups == {"atendimento-humano"}, (
-            f"falha_tecnica -> escalation_routing r6 -> P3 atendimento-humano; got {groups!r}"
-        )
+        await _assert_falha_tecnica_roteada_pela_r6_com_severidade_nula(engine_client, instance_id, task)
     finally:
         await dmn.close()
         await cibseven.close()
@@ -456,8 +506,7 @@ async def test_classifier_llm_exception_escalates_falha_tecnica(
         assert actives
         instance_id = str(actives[0]["id"])
         task = await wait_for_task(engine_client, instance_id)
-        groups = await candidate_groups(engine_client, task["id"])
-        assert groups == {"atendimento-humano"}
+        await _assert_falha_tecnica_roteada_pela_r6_com_severidade_nula(engine_client, instance_id, task)
     finally:
         await dmn.close()
         await cibseven.close()
