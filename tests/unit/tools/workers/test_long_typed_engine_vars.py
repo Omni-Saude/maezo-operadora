@@ -207,7 +207,10 @@ def test_calculate_impact_tambem_reemite_a_variavel_e_ela_e_long() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. Tree-derived fence: no FOURTH mapper may reintroduce the magnitude-only rule
+# 5. Tree-derived fence, scoped to `src/`: no mapper in `src/` may reintroduce the
+#    magnitude-only rule. A fourth mapper already exists OUTSIDE that scope and does exactly
+#    that — `tests/integration/processes/engine_rest.py::EngineRest._to_camunda_vars`, test infra
+#    with zero `maezo` imports by design; it is deliberately not fenced here.
 # ---------------------------------------------------------------------------
 
 
@@ -260,8 +263,12 @@ def test_todo_mapper_de_variavel_camunda_consulta_a_declaracao() -> None:
 
 
 def test_o_literal_da_faixa_int32_vive_num_unico_lugar() -> None:
-    """The int32 bounds ARE the magnitude rule R-173 removes for this variable. One copy only —
-    three drifting copies are how a mapper silently keeps typing money by lote size."""
+    """The int32 bounds ARE the magnitude rule R-173 removes for this variable. One copy in
+    `src/` — drifting copies are how a mapper silently keeps typing money by lote size. The scope
+    is `src/` and only `src/`: `tests/integration/processes/engine_rest.py` holds a fourth copy of
+    the same constants, EXCLUDED on purpose because that mapper imports nothing from `maezo` (see
+    `tests/unit/integration_support/test_engine_rest_ausencia_e_proveniencia.py`), so it cannot
+    consume the declaration without losing that property."""
     raiz = _repo_root()
     portadores = sorted(
         str(caminho.relative_to(raiz / "src"))

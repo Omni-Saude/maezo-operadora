@@ -624,10 +624,22 @@ def registrar_indeferimento(input_data: RecursoIndeferimentoInput) -> RecursoInd
     would LOOSEN it, and loosening stays human: it arrives as a new finanças-signed rule in its
     own PR, never as an edit to this function.
 
-    DECLARED LIMIT (the grain, not a tolerance): both sides are converted to cents by `_to_cents`
-    before the comparison, so the equality is exact AT THE CENTAVO. A sub-centavo residue in an
-    input amount is resolved by that conversion, not by any comparison slack — and any rule about
-    sub-centavo amounts is likewise a new finanças-signed rule, in its own PR.
+    LIMITE DECLARADO (o grão da CONVERSÃO, não uma tolerância da comparação — a comparação
+    não tem folga nenhuma): os TRÊS operandos (`valor_deferido_brl`, `valor_glosa_mantido_brl`,
+    `valor_glosado_brl`) passam por `_to_cents` de forma INDEPENDENTE, e `_to_cents` arredonda
+    (`int(round(brl * 100))`). Para entradas já no grão do centavo nada é absorvido: a igualdade
+    é exata. Para entradas sub-centavo cada operando é arredondado por conta própria e os
+    resíduos se somam em lados opostos da comparação. Como `round` é arredondamento ao mais
+    próximo, cada operando difere do seu valor em centavos por no máximo meio centavo, e o teto
+    do resíduo agregado é 3 × meio centavo = **1,5 centavo** — uma discrepância real de até 1,5
+    centavo pode ser absorvida e ainda fechar o guard. O teto é ATINGIDO, não apenas aproximado:
+    `0,005 + 0,025` contra `0,015` fecha com resíduo de exatamente 1,5 centavo (empate resolvido
+    pelo arredondamento bancário de `round`), e `60,0049 + 40,0049` contra `99,9951` fecha com
+    1,47 centavo. Ambos fixados em `test_recurso.py` por
+    `test_indeferimento_o_residuo_agregado_dos_tres_operandos_chega_a_um_centavo_e_meio` e pela
+    varredura de `test_indeferimento_nenhuma_soma_aceita_passa_do_teto_de_um_centavo_e_meio`,
+    para que uma troca do modo de arredondamento de `_to_cents` não passe silenciosa. Qualquer
+    regra sobre valores sub-centavo é igualmente regra nova assinada por finanças, em PR próprio.
     """
     logger.info(
         "recurso.registrar_indeferimento.start",

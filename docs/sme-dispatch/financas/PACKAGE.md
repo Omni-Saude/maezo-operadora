@@ -181,9 +181,18 @@ where applicable) before any of these contracts can leave DRAFT.
      operation uses a rounding rule or a tolerance, the guard has to reflect it — tell us which.~~
      **REMOVIDA DO CAMINHO CRÍTICO DO SIGN-OFF — REDLINE R-155 (decisão do dono, 2026-09-04).** A
      igualdade exata em centavos-inteiros passa a ser **invariante PERMANENTE** do guard de
-     `registrar_indeferimento`, não um default provisório à espera de finanças: ela nunca arredonda
-     a favor de ninguém e nunca fecha uma soma que não fecha. Fixada por teste
-     (`tests/unit/tools/workers/test_recurso.py`, secção "R-155"). **A assimetria é o ponto:** uma
+     `registrar_indeferimento`, não um default provisório à espera de finanças: a comparação não
+     tem folga nenhuma e não arredonda a favor de ninguém. **Limite declarado, para que o número
+     que vocês veem seja o verdadeiro:** os **três** operandos são convertidos a centavos
+     **independentemente** (`int(round(brl * 100))`), então para entradas **sub-centavo** os
+     resíduos se somam em lados opostos e uma discrepância real de até **1,5 centavo**
+     (3 × meio centavo) ainda fecha a soma — o teto é atingido, não só aproximado
+     (`0,005 + 0,025` contra `0,015` fecha com 1,5 centavo exato). Acima de 1,5 centavo não fecha,
+     e para entradas já em centavos nada é absorvido. **Se 1,5 centavo de absorção em entradas
+     sub-centavo não for aceitável para a sua operação, isso é uma regra nova de finanças** — o
+     mesmo caminho descrito abaixo, e o único ponto deste item que ainda pode precisar de vocês.
+     Fixada por teste (`tests/unit/tools/workers/test_recurso.py`, secção "R-155"). **A assimetria
+     é o ponto:** uma
      tolerância ou regra de arredondamento só pode **AFROUXAR** o guard, e afrouxar continua
      humano — entra depois como **regra nova assinada por finanças, em PR próprio**. Se a sua
      operação usa uma dessas regras, ela é bem-vinda por esse caminho; o sign-off de

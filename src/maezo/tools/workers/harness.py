@@ -94,7 +94,9 @@ _stdlib_logger = logging.getLogger(__name__)
 # Integer typing on the engine wire is decided by `engine_var_types.camunda_int_type`: by NAME for
 # the variables declared `Long` unconditionally (owner decision R-173), by magnitude otherwise
 # (Java `int32` bounds, ADR-0018 part 2 — high-value BRL cents overflow int32). The bounds
-# constants live in that leaf module, the single copy in the tree; see `_to_camunda_var`.
+# constants live in that leaf module, the single copy in `src/`; see `_to_camunda_var`. (The
+# test-infra mapper `tests/integration/processes/engine_rest.py` keeps its own copy on purpose —
+# it imports nothing from `maezo` by design; it is outside this declaration, not covered by it.)
 
 #: Terminal dispatch outcomes emitted on the `maezo_worker_task_total` / `_duration_seconds`
 #: metrics (design §13). `incident` is additive over v1's {completed, bpmn_error, failed} — it

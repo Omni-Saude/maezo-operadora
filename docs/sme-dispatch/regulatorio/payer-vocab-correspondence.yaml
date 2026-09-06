@@ -312,7 +312,7 @@ linhas:
     termo_pagador_proposto: "worker `registrar_indeferimento` / topico `operadora.recurso.registrar_indeferimento`, servindo as QUATRO tarefas adversas (indeferir, deferir parcial, indeferir pelo auditor, inadmitir)"
     razao: "Q1/Q3: o unico worker de efeito adverso da cadeia se chamava \"desistencia\" — o ato de quem recorre. Sob a perspectiva do pagador, o adverso e o indeferimento."
     arquivo: src/maezo/tools/workers/recurso.py
-    linha: 1578
+    linha: 1590
     ancora: "\"operadora.recurso.registrar_indeferimento\","
   - id: R20
     cadeia: RECURSO

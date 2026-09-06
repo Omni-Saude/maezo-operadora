@@ -11,6 +11,7 @@ renamed. What replaces them is `comunicar_resposta` (the payer's answer) and `ha
 
 import asyncio
 import re
+from decimal import Decimal
 from itertools import product
 from pathlib import Path
 from typing import Any
@@ -670,12 +671,15 @@ def test_indeferimento_a_comparacao_e_em_centavos_inteiros_nao_em_float(
 
 
 def test_indeferimento_o_grao_da_igualdade_e_o_centavo_inteiro() -> None:
-    """DECLARED LIMIT, pinned so a change cannot be silent: both sides are converted to centavos by
-    `_to_cents` BEFORE the comparison, so the equality is exact at the CENTAVO. A sub-centavo
-    residue in an input is resolved by that conversion — it is not slack in the comparison, and a
-    sum that misses by a full centavo still refuses. Any rule about sub-centavo amounts is a new
-    finanças-signed rule in its own PR (R-155), which is why this behaviour is pinned rather than
-    changed here."""
+    """DECLARED LIMIT, part 1 — ONE operand's residue. Each operand is converted to centavos by
+    `_to_cents` BEFORE the comparison, so a sub-centavo residue in an input is resolved by that
+    conversion and not by slack in the comparison: the comparison itself has none, which is why a
+    miss of a whole centavo IN THE CONVERTED VALUE refuses. What this case does NOT show is that
+    the three operands are converted independently, so their residues compound — that is part 2,
+    `test_indeferimento_o_residuo_agregado_dos_tres_operandos_chega_a_um_centavo_e_meio`, and it
+    is the case that bounds what the guard really absorbs. Any rule about sub-centavo amounts is a
+    new finanças-signed rule in its own PR (R-155), which is why this behaviour is pinned rather
+    than changed here."""
     # 60,004 + 40,00 == 100,00 at centavo grain (6000 + 4000 == 10000).
     assert (
         registrar_indeferimento(
@@ -689,6 +693,92 @@ def test_indeferimento_o_grao_da_igualdade_e_o_centavo_inteiro() -> None:
             _parcial(valor_deferido_brl=60.004, valor_glosa_mantido_brl=40.0, valor_glosado_brl=100.01)
         )
     assert "soma nao fecha" in str(exc.value)
+
+
+def _residuo_centavos(deferido: float, mantido: float, glosado: float) -> Decimal:
+    """Discrepância REAL da trinca, em centavos, calculada em decimal exato (nunca em float) a
+    partir do texto do número — é o valor que o guard absorve, não o que ele compara."""
+    return (Decimal(str(deferido)) + Decimal(str(mantido)) - Decimal(str(glosado))) * 100
+
+
+@pytest.mark.parametrize(
+    ("deferido", "mantido", "glosado", "residuo"),
+    [
+        (60.0049, 40.0049, 99.9951, Decimal("1.47")),
+        (60.005, 40.0049, 99.995, Decimal("1.49")),
+        (0.005, 0.025, 0.015, Decimal("1.50")),
+    ],
+)
+def test_indeferimento_o_residuo_agregado_dos_tres_operandos_chega_a_um_centavo_e_meio(
+    deferido: float, mantido: float, glosado: float, residuo: Decimal
+) -> None:
+    """DECLARED LIMIT, part 2 — the bound the operator is entitled to know. `_to_cents` quantises
+    each of the THREE operands INDEPENDENTLY, so the residues compound on opposite sides of the
+    comparison: a real discrepancy of up to 1,5 centavo (3 × meio centavo) closes the guard. The
+    third row ATTAINS the ceiling — `round`'s banker's tie-breaking makes 1,50 exact, not merely
+    approached. Nothing here changes behaviour; it makes the true bound visible, so replacing
+    `_to_cents`'s rounding mode (truncation, `Decimal`, half-up) cannot pass silently."""
+    assert _residuo_centavos(deferido, mantido, glosado) == residuo, "linha nao exercita o residuo declarado"
+    assert (
+        registrar_indeferimento(
+            _parcial(valor_deferido_brl=deferido, valor_glosa_mantido_brl=mantido, valor_glosado_brl=glosado)
+        ).registered
+        is True
+    )
+
+
+@pytest.mark.parametrize(
+    ("deferido", "mantido", "glosado"),
+    [
+        (60.0049, 40.0049, 99.9931),  # 1,67 centavo
+        (60.006, 40.006, 99.99),  # 2,20 centavos
+    ],
+)
+def test_indeferimento_residuo_acima_do_teto_de_um_centavo_e_meio_recusa(
+    deferido: float, mantido: float, glosado: float
+) -> None:
+    """The other side of the same bound: above 1,5 centavo the compounded residues can no longer
+    make the cents agree, and the guard refuses. Without this the ceiling would be an upper claim
+    with nothing on the far side of it."""
+    assert _residuo_centavos(deferido, mantido, glosado) > Decimal("1.5"), "a linha nao passa do teto"
+    with pytest.raises(RecursoIndeferimentoNotHumanError) as exc:
+        registrar_indeferimento(
+            _parcial(valor_deferido_brl=deferido, valor_glosa_mantido_brl=mantido, valor_glosado_brl=glosado)
+        )
+    assert "soma nao fecha" in str(exc.value)
+
+
+def test_indeferimento_nenhuma_soma_aceita_passa_do_teto_de_um_centavo_e_meio() -> None:
+    """Tree-free sweep over the sub-centavo neighbourhood of 60 + 40 == 100 (21³ = 9261 trincas,
+    passo de 0,0005): EVERY triple the guard accepts has an aggregate residue of at most 1,5
+    centavo, and the sweep gets within 0,05 centavo of that ceiling. The second assertion is what
+    makes this non-vacuous — under a truncating `_to_cents` the accepted residues top out at 1,0
+    centavo, so the fence goes RED on a change of rounding mode instead of quietly re-passing."""
+    passo = Decimal("0.0005")
+    deltas = [passo * i for i in range(-10, 11)]
+    aceitas = 0
+    pior = Decimal(0)
+    for a in deltas:
+        deferido = float(Decimal("60") + a)
+        for b in deltas:
+            mantido = float(Decimal("40") + b)
+            for c in deltas:
+                glosado = float(Decimal("100") + c)
+                try:
+                    registrar_indeferimento(
+                        _parcial(
+                            valor_deferido_brl=deferido,
+                            valor_glosa_mantido_brl=mantido,
+                            valor_glosado_brl=glosado,
+                        )
+                    )
+                except RecursoIndeferimentoNotHumanError:
+                    continue
+                aceitas += 1
+                pior = max(pior, abs(_residuo_centavos(deferido, mantido, glosado)))
+    assert aceitas > 0, "a varredura nao aceitou nenhuma trinca (revise a vizinhanca)"
+    assert pior <= Decimal("1.5"), f"trinca aceita com residuo acima do teto declarado: {pior}"
+    assert pior >= Decimal("1.45"), f"a varredura nao chega perto do teto declarado: {pior}"
 
 
 def test_a_recusa_declara_a_invariante_permanente_ao_operador() -> None:
