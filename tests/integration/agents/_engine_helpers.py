@@ -17,6 +17,7 @@ unblocking the BPMN sequence flow) purely to exercise the REST of the flow this 
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -55,6 +56,64 @@ async def process_variables(client: httpx.AsyncClient, process_instance_id: str)
     resp = await client.get(f"/process-instance/{process_instance_id}/variables")
     resp.raise_for_status()
     result: dict[str, dict[str, Any]] = resp.json()
+    return result
+
+
+def mapa_de_variavel_estruturada(
+    entrada: dict[str, Any], chaves_esperadas: set[str]
+) -> dict[str, Any] | None:
+    """O mapa dentro de UMA entrada de variavel do motor, ou `None` se ESTA forma nao o contem.
+
+    PURA (sem rede) de proposito — e' o unico pedaco desta assercao que nao da' para exercitar
+    contra o motor, entao ele e' provado offline em
+    `tests/unit/integration_support/test_engine_helpers_roteamento.py`.
+
+    Duas formas sao aceitas e NENHUMA e' assumida (§Delta-3): `value` ja' desserializado num objeto
+    JSON (o caso de uma variavel `Object`, como a `roteamento` que `camunda:mapDecisionResult=
+    "singleResult"` grava) e `value` como STRING JSON (o caso de uma `Json`/SPIN pedida com
+    `deserializeValue=false`). A guarda `chaves_esperadas <= chaves` e' o que impede o falso
+    positivo documentado em `tests/integration/processes/engine_rest.py::get_variable`: com o
+    DEFAULT do endpoint, uma variavel SPIN volta como a INTROSPECAO do bean `SpinJsonNode`
+    (`{'array': True, 'nodeType': 'ARRAY', 'dataFormatName': 'application/json', ...}`) — um dict,
+    e um dict que NAO e' o mapa procurado; sem a guarda ele seria aceito e a assercao morreria
+    depois, por `KeyError`, dizendo a coisa errada.
+
+    Devolver `None` NAO afrouxa assercao nenhuma: o chamador tenta a outra codificacao da MESMA
+    variavel e, esgotadas as duas, FALHA — com as duas formas observadas no texto do erro.
+    """
+    valor = entrada.get("value")
+    if isinstance(valor, str):
+        try:
+            valor = json.loads(valor)
+        except json.JSONDecodeError:
+            return None
+    if isinstance(valor, dict) and chaves_esperadas <= set(valor):
+        return valor
+    return None
+
+
+async def process_variable_not_deserialized(
+    client: httpx.AsyncClient, process_instance_id: str, name: str
+) -> dict[str, Any]:
+    """ONE process variable, asking the engine NOT to deserialize it (`deserializeValue=false`).
+
+    The second encoding of the same fact, needed because the RUNTIME variable endpoint's DEFAULT
+    (`deserializeValue=true`) is not always the usable one — `tests/integration/processes/
+    engine_rest.py::get_variable`'s docstring records the live-confirmed case: a SPIN-typed `Json`
+    variable comes back as a Jackson INTROSPECTION of the `SpinJsonNode` bean (`{'array': True,
+    'nodeType': 'ARRAY', 'dataFormatName': 'application/json', ...}`) — a dict, but not the data —
+    while `deserializeValue=false` returns the raw JSON STRING, which `json.loads` decodes. An
+    `Object`-typed variable is the mirror image (the deserialized form is the usable one), so a
+    caller that must read a structured variable without knowing which of the two it is has to be
+    able to ask for both. Returns the whole engine entry (`{"value": ..., "type": ...}`), never
+    just the value: the `type`/`valueInfo` are what a failure message needs to be diagnostic.
+    """
+    resp = await client.get(
+        f"/process-instance/{process_instance_id}/variables/{name}",
+        params={"deserializeValue": "false"},
+    )
+    resp.raise_for_status()
+    result: dict[str, Any] = resp.json()
     return result
 
 

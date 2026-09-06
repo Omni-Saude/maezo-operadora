@@ -52,7 +52,9 @@ from tests.support.dmn_first_hit import DMN_DIR, evaluate, read_live_table
 from ._engine_helpers import (
     active_instances,
     candidate_groups,
+    mapa_de_variavel_estruturada,
     noop_events_publish,
+    process_variable_not_deserialized,
     process_variables,
     wait_for_task,
 )
@@ -77,10 +79,21 @@ async def _assert_falha_tecnica_roteada_pela_r6_com_severidade_nula(
     foi exatamente esse rotulo que HEL-04 removeu. Entao, alem da tarefa, exigimos:
 
     1. a variavel de processo `severidade` EXISTE e vale `null` (nunca `leve`, nunca ausente);
-    2. o roteamento saiu da regra `r6` da `escalation_routing` — `prioridade`/`grupo_atendimento`
-       sao lidos da DMN VIVA aqui (nunca digitados), e a DMN e' CODEOWNED e NAO foi tocada;
-    3. o `candidateGroups` da User Task (`${roteamento.grupo_atendimento}`) e' o mesmo grupo da
-       `r6`, ou seja quem foi paginado e' quem a tabela escolheu.
+    2. o roteamento saiu da regra `r6` da `escalation_routing`, lida da DMN VIVA aqui (nunca
+       digitada; a DMN e' CODEOWNED e NAO foi tocada);
+    3. o `candidateGroups` da User Task e' o grupo dessa regra, ou seja quem foi paginado e' quem
+       a tabela escolheu.
+
+    ONDE MORA A SAIDA DA DMN (§Delta-3, correcao da primeira redacao desta funcao). Ela NAO esta em
+    variaveis de processo de nome `grupo_atendimento`/`prioridade`. `BRT_RotearEscalonamento`
+    mapeia o resultado com `camunda:mapDecisionResult="singleResult"` para
+    `camunda:resultVariable="roteamento"` (BPMN `:82-84`), e `ST_NotificarTime` le
+    `${roteamento.grupo_atendimento}`/`${roteamento.prioridade}` como `camunda:inputParameter`
+    (`:96-97`) — entrada LOCAL da atividade, nao variavel de processo. A primeira redacao desta
+    funcao afirmava que o worker de notificacao escrevia esses dois nomes de volta no escopo do
+    processo; o motor desmentiu (`KeyError: 'grupo_atendimento'` nas duas provas, enquanto
+    `severidade` e `motivo_categoria` — que SAO variaveis de processo — estavam la'). A fonte
+    autoritativa e' `roteamento`, e e' dela que estas assercoes leem agora.
     """
     tabela = read_live_table(DMN_DIR / "escalation_routing.dmn")
     r6 = evaluate(tabela, {"motivo_categoria": "falha_tecnica", "severidade": None})
@@ -94,12 +107,38 @@ async def _assert_falha_tecnica_roteada_pela_r6_com_severidade_nula(
         "falha do classificador nao tem severidade a derivar: a variavel e' `null`, nunca `leve` "
         f"— o motor tem {variaveis['severidade']['value']!r}"
     )
-    assert variaveis["motivo_categoria"]["value"] == "falha_tecnica"
-    # Escritas de volta ao escopo pelo worker `notify_team` a partir da saida da DMN (`${roteamento.*}`)
-    # — sua presenca prova que a tarefa de notificacao COMPLETOU em vez de recusar.
-    assert variaveis["grupo_atendimento"]["value"] == r6.saidas["grupo_atendimento"]
-    assert variaveis["prioridade"]["value"] == r6.saidas["prioridade"]
     assert variaveis["severidade"]["value"] != "leve"
+    assert variaveis["motivo_categoria"]["value"] == "falha_tecnica"
+
+    # A prova de que a tarefa de notificacao COMPLETOU em vez de recusar e' a propria existencia da
+    # User Task (`wait_for_task` acima): `Flow_Notificar_UT` e' a UNICA aresta do caminho feliz que
+    # sai de `ST_NotificarTime`. O que resta provar aqui e' QUAL regra roteou o caso.
+    assert "roteamento" in variaveis, (
+        "`roteamento` (camunda:resultVariable de BRT_RotearEscalonamento, BPMN :82-84) tem de "
+        f"existir na instancia; variaveis presentes: {sorted(variaveis)}"
+    )
+    esperadas = set(r6.saidas)
+    entrada_desserializada = variaveis["roteamento"]
+    mapa = mapa_de_variavel_estruturada(entrada_desserializada, esperadas)
+    entrada_crua: dict[str, Any] | None = None
+    if mapa is None:
+        entrada_crua = await process_variable_not_deserialized(engine_client, instance_id, "roteamento")
+        mapa = mapa_de_variavel_estruturada(entrada_crua, esperadas)
+    assert mapa is not None, (
+        "nao consegui ler o mapa de roteamento em NENHUMA das duas codificacoes do motor "
+        f"(esperava as chaves {sorted(esperadas)}). deserializeValue=true -> "
+        f"type={entrada_desserializada.get('type')!r} "
+        f"valueInfo={entrada_desserializada.get('valueInfo')!r} "
+        f"value={str(entrada_desserializada.get('value'))[:300]!r}; deserializeValue=false -> "
+        f"{str(entrada_crua)[:300]!r}"
+    )
+    assert mapa["grupo_atendimento"] == r6.saidas["grupo_atendimento"], (
+        f"roteamento.grupo_atendimento={mapa['grupo_atendimento']!r}, r6 diz "
+        f"{r6.saidas['grupo_atendimento']!r}"
+    )
+    assert mapa["prioridade"] == r6.saidas["prioridade"], (
+        f"roteamento.prioridade={mapa['prioridade']!r}, r6 diz {r6.saidas['prioridade']!r}"
+    )
 
     groups = await candidate_groups(engine_client, task["id"])
     assert groups == {r6.saidas["grupo_atendimento"]}, (
