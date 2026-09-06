@@ -105,6 +105,28 @@ not blocked:
      boundary-proof gate (consumption coverage) — same posture as `ERR_DECRED_NOT_HUMAN`/
      `ERR_CRED_DENIAL_NOT_HUMAN`/`ERR_CONTRACT_SUSPENSION_NOT_HUMAN`.
 
+  > **ATUALIZACAO 2026-09-06 — a metade de TOPOLOGIA de R-D pousou (R-181); a habilitacao NAO.**
+  > A decisao do dono **R-181** autorizou o colapso como "PR de conformidade codigo-modelo",
+  > registrando que "o DPO ratifica depois apenas QUANDO a execucao real e habilitada, nao a
+  > topologia". O colapso foi feito: os tres `Execute*Worker` sumiram e um unico
+  > `ExecuteRequestWorker` serve `operadora.lgpd.execute_request`.
+  >
+  > **A pergunta 2 acima segue ABERTA na parte que importa para a assinatura.** O que mudou:
+  > a implementacao **nao** levanta os dois codigos declarados-e-nao-vinculados (isso reprovaria
+  > `scripts/ci/check_bpmn_error_allowlist.py`, ADR-0030 §2 clausula b) — ela levanta
+  > `WorkerFailureError(retries_left=0)`, que e a leitura "incident-fail-closed intent — no BPMN
+  > edit needed" desta propria pergunta. O que **continua sendo do DPO**: (a) se um
+  > `bpmn:boundaryEvent` modelado deve ser adicionado a `ST_ExecutarRequisicao` (mudanca de spec,
+  > pergunta 3), e (b) **a habilitacao da execucao real** (F-2 + matriz AF-07) — hoje NENHUM
+  > caminho executa: exportacao, retificacao e eliminacao **todos** recusam.
+  >
+  > Consequencia operacional a declarar na assinatura: com o worker registrado e recusando, uma
+  > DSR aprovada como `EXECUTAR_E_ENVIAR` levanta incidente e **nao conclui**. Isso e deliberado
+  > (nunca afirmar ao titular uma execucao que nao houve) e substitui o comportamento anterior,
+  > em que o topico modelado simplesmente **nao tinha worker** e a tarefa ficava pendente para
+  > sempre. Detalhe em `docs/sme-dispatch/dpo/DSR-PROCEDURE-DRAFT.md` §8.2. Nenhum campo de
+  > assinatura foi preenchido por este PR; o contrato segue `DRAFT (v0.1.0)`.
+
   **What is NOT blocked (status check, not a question — refreshed 2026-07-25 post-merge).** The
   identity gate is LIVE and adversarially verified in production shape: `ValidateIdentityWorker`
   (#55 R-A) fail-closes on an explicit `identidade_verificada is True` signal, and #55 R-B

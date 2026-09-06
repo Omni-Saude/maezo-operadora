@@ -151,7 +151,12 @@ _NONDETERMINISM_BASELINE: dict[str, str] = {
     # latent non-deterministic identifier is worth removing, not because a live path consumed it.
     # Pinned by `test_contas_glosa_id_m9_landed_deterministic` below.
     "inadimplencia": "dossier_ref = uuid4 — latent; same P1 caveat.",
-    "lgpd": "package_ref = uuid4 — latent; same P1 caveat.",
+    # `lgpd` REMOVIDO (R-181): o unico mint de relogio/aleatorio do modulo era o
+    # `package_ref = f"lgpd-export-{uuid.uuid4().hex[:12]}"` de `ExecuteExportWorker`, e ele morreu
+    # com o colapso dos tres `Execute*Worker` no topico modelado `operadora.lgpd.execute_request`.
+    # O worker unico (`ExecuteRequestWorker`) nao cunha identificador algum: TODO caminho levanta
+    # `WorkerFailureError(retries_left=0)`. O modulo nao importa mais `uuid` — pinado por
+    # `test_lgpd_erasure.py::test_execute_request_exportacao_nao_fabrica_pacote`.
     # `recurso` REMOVIDO (ADR-0040): o unico mint de relogio do modulo era
     # `register_desistencia`'s `RECDESIST-{sha256(time_ns())}`, e ele morreu com a reescrita de
     # perspectiva. Os dois protocolos que sobraram sao DETERMINISTICOS por business key —
