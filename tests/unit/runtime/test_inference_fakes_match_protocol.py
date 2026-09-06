@@ -804,18 +804,24 @@ def _achado_de_metodo_para_familia(
     nome_metodo: str,
     no: ast.FunctionDef | ast.AsyncFunctionDef,
     nome_familia: str,
+    *,
+    exige_forma_igual_para_sync_async: bool = True,
 ) -> str | None:
-    """§Delta-F7: verifica um metodo de falso contra UMA familia especifica ja' decidida --por
+    """§Delta-F7: verifica um metodo de falso contra UMA familia especifica ja' decidida -- por
     ancora unica (`_nomes_unicos`), por CONTEXTO de arquivo (`_candidatas_por_contexto`, item 2 do
     fix), ou (para nomes ainda ambiguos sem nenhum contexto, fora de `send`) contra qualquer uma
-    das familias historicamente identicas. Sync/async errado vira ofensa quando a FORMA do falso
-    bate com a do Protocol real (mesmo gate do §Delta F1, aplicado agora a QUALQUER resolucao,
-    nao so' `_nomes_unicos`) -- e' o que faz um falso de lucas sem `idempotency_key` ser apontado
-    NOMEANDO `WhatsAppSender:lucas` especificamente, sem afetar helena/fernando."""
+    das familias historicamente identicas. Sync/async errado vira ofensa -- gated pela FORMA
+    batendo (mesmo gate do §Delta F1) SO' quando `exige_forma_igual_para_sync_async=True` (o caso
+    de `_nomes_unicos`, onde o NOME por si so' pode colidir com um Protocol de fora da tabela).
+    Quando a familia foi resolvida por CONTEXTO de arquivo (import/agent id, nao por nome nem por
+    forma), o gate e' DESLIGADO -- o contexto ja' identificou POSITIVAMENTE o Protocol real, entao
+    uma FORMA diferente (alem do sync/async) e' so' MAIS um sinal do mesmo drift, nunca motivo
+    para excluir (e' o que faz um falso de lucas sem `idempotency_key`, sincrono OU nao, ser
+    apontado NOMEANDO `WhatsAppSender:lucas` especificamente, sem afetar helena/fernando)."""
     familia = _FAMILIA_POR_NOME[nome_familia]
     sig_real, async_real = familia.metodos()[nome_metodo]
     if not _e_candidata_da_familia(no, async_real):
-        if _forma_assinatura(sig_real) == _forma_assinatura_ast(no):
+        if not exige_forma_igual_para_sync_async or _forma_assinatura(sig_real) == _forma_assinatura_ast(no):
             return _achado_sync_async(rotulo, classe, nome_metodo, no, nome_familia, async_real)
         return None
     ofensas = _ofensas_forma_vs_real(sig_real, no)
@@ -825,6 +831,27 @@ def _achado_de_metodo_para_familia(
         f"{rotulo}:{no.lineno} — classe `{classe.name}`.{nome_metodo} diverge do Protocol real "
         f"`{nome_familia}.{nome_metodo}`: {'; '.join(ofensas)}"
     )
+
+
+def _formas_de_send_sao_realmente_intercambiaveis(candidatas: list[str]) -> bool:
+    """As candidatas partilham a MESMA forma (por construcao, via `_familias_por_forma_de_send`)
+    -- mas so' sao verdadeiramente INTERCAMBIAVEIS (escolher QUALQUER uma da' o MESMO veredito
+    contra um falso qualquer) se tambem concordarem nos NOMES dos parametros (nao so' na
+    aridade). `KafkaLike`/`FactBrokerPublisher` sao identicas por design (mesmos nomes). Um
+    Protocol de agente que passe a COMPARTILHAR a forma delas por coincidencia de aridade (ex.:
+    `WhatsAppSender:lucas` pos-LUC-08, `(2 posicionais, 1 kwonly)` igual a Kafka) tem nomes
+    DIFERENTES -- ali' a escolha arbitraria de uma representante ficaria ERRADA (a ofensa
+    reportada dependeria de qual a tabela lista primeiro), entao NENHUMA e' escolhida (ver
+    chamador)."""
+    referencia: tuple[str, ...] | None = None
+    for nome in candidatas:
+        sig, _ = _FAMILIA_POR_NOME[nome].metodos()["send"]
+        chave = tuple(p.name for p in sig.parameters.values() if p.name != "self")
+        if referencia is None:
+            referencia = chave
+        elif chave != referencia:
+            return False
+    return True
 
 
 def _checa_metodo_ambiguo(
@@ -846,11 +873,13 @@ def _checa_metodo_ambiguo(
 
     candidatas_ctx = _candidatas_por_contexto(todas_as_familias, agentes_arquivo, modulos_arquivo)
     if candidatas_ctx:
-        # Contexto decide -- shape e' so' o GATE do sync/async dentro de cada candidata resolvida
-        # (§Delta F1), nunca a chave primaria de selecao (item 2 do fix).
+        # Contexto decide -- NUNCA gateado por forma (item 2 do fix: contexto e' a chave
+        # PRIMARIA; uma forma diferente da esperada e' so' mais um sinal do mesmo drift).
         ancoradas.update(candidatas_ctx)
         for nome_familia in candidatas_ctx:
-            achado = _achado_de_metodo_para_familia(rotulo, classe, nome_metodo, no, nome_familia)
+            achado = _achado_de_metodo_para_familia(
+                rotulo, classe, nome_metodo, no, nome_familia, exige_forma_igual_para_sync_async=False
+            )
             if achado and achado not in achados:
                 achados.append(achado)
         return achados, ancoradas
@@ -859,7 +888,9 @@ def _checa_metodo_ambiguo(
         # Sem contexto e sem ser o nome ambiguo classico: as familias que sobram sao
         # historicamente IDENTICAS por design (ex.: `read_patient` dos 5 leitores FHIR,
         # `emit_once` dos 2 AuditEmitters) -- verifica contra todas (o resultado e' o mesmo,
-        # ja' que concordam; se um dia divergirem, cada uma passa a ser apontada por si).
+        # ja' que concordam; se um dia divergirem, cada uma passa a ser apontada por si). Aqui o
+        # gate de forma FICA LIGADO (default) -- sem contexto, o NOME sozinho ainda pode colidir
+        # com um Protocol de fora da tabela.
         ancoradas.update(todas_as_familias)
         for nome_familia in todas_as_familias:
             achado = _achado_de_metodo_para_familia(rotulo, classe, nome_metodo, no, nome_familia)
@@ -868,8 +899,8 @@ def _checa_metodo_ambiguo(
         return achados, ancoradas
 
     # `send` sem NENHUM contexto de arquivo -- respaldo por FORMA, mecanismo original preservado
-    # byte a byte (compatibilidade regressiva total com as sondagens sinteticas do §Delta
-    # anterior, que nao tem nenhum import/agent id por tras).
+    # (compatibilidade regressiva total com as sondagens sinteticas do §Delta anterior, que nao
+    # tem nenhum import/agent id por tras).
     forma_fake = _forma_assinatura_ast(no)
     candidatas_forma = formas_send.get(forma_fake)
     if not candidatas_forma:
@@ -883,21 +914,30 @@ def _checa_metodo_ambiguo(
             "ignore em silencio um falso ambiguo novo"
         )
         return achados, ancoradas
-    ancoradas.update(candidatas_forma)
-    familia = _FAMILIA_POR_NOME[candidatas_forma[0]]
+    ancoradas.update(candidatas_forma)  # sempre ancora TODAS (checagens SECUNDARIAS, ex. start/stop,
+    # independem de qual delas e' "a" duck-typada pelo `send`)
     if len(candidatas_forma) == 1:
-        # A forma resolveu para UMA UNICA familia -- mesmo gate do F1 (aplica
-        # `_achado_de_metodo_para_familia`, que ja' faz a checagem de forma para sync/async).
+        # A forma resolveu para UMA UNICA familia -- mesmo gate do F1 (moot aqui: a forma ja'
+        # bate por construcao da propria busca em `formas_send`).
         achado = _achado_de_metodo_para_familia(rotulo, classe, "send", no, candidatas_forma[0])
         if achado:
             achados.append(achado)
         return achados, ancoradas
-    # 2+ familias com a MESMA forma (Kafka/FactBrokerPublisher hoje) -- ambiguidade GENUINA sem
-    # nenhum contexto para desempatar; preserva o comportamento ORIGINAL (`_achado_de_metodo`,
-    # exclusao silenciosa em sync/async errado, SEM o gate do F1) em vez do novo helper.
-    achado = _achado_de_metodo(rotulo, classe, "send", no, familia, " / ".join(candidatas_forma))
-    if achado:
-        achados.append(achado)
+    if _formas_de_send_sao_realmente_intercambiaveis(candidatas_forma):
+        # 2+ familias com a MESMA forma E OS MESMOS NOMES (Kafka/FactBrokerPublisher hoje) --
+        # ambiguidade GENUINA sem nenhum contexto para desempatar, mas a escolha de QUAL delas e'
+        # inocua (dao o mesmo veredito); preserva o comportamento ORIGINAL (`_achado_de_metodo`,
+        # exclusao silenciosa em sync/async errado, SEM o gate do F1).
+        familia = _FAMILIA_POR_NOME[candidatas_forma[0]]
+        achado = _achado_de_metodo(rotulo, classe, "send", no, familia, " / ".join(candidatas_forma))
+        if achado:
+            achados.append(achado)
+        return achados, ancoradas
+    # 2+ familias com a MESMA forma mas NOMES DIFERENTES (ex.: `WhatsAppSender:lucas` pos-LUC-08
+    # colidindo em forma com Kafka/FactBrokerPublisher) -- nao ha' pick seguro (qual delas
+    # escolher mudaria a ofensa reportada) e nenhum contexto para desempatar; a unica opcao
+    # honesta e' nao apontar NADA para `send` aqui (`ancoradas` ja' foi atualizado acima, entao um
+    # `stop`/`complete` secundario ainda e' checado normalmente).
     return achados, ancoradas
 
 
