@@ -945,7 +945,7 @@ class GitHubAPI:
 
     def _request(self, path: str) -> tuple[int, Any]:
         """GET `path`. Returns `(status, parsed_json)`; a non-2xx returns `(status, None)`."""
-        request = urllib.request.Request(  # noqa: S310 — fixed https api root, not user input
+        request = urllib.request.Request(  # fixed https api root, not user input
             f"{self._api_root}/{path.lstrip('/')}",
             headers={
                 "Accept": "application/vnd.github+json",
@@ -955,7 +955,7 @@ class GitHubAPI:
             },
         )
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+            with urllib.request.urlopen(request, timeout=30) as response:
                 return response.status, json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             return exc.code, None

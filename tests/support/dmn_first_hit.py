@@ -559,7 +559,7 @@ def load_candidate_ratification(path: Path) -> CandidateRatification:
     """
     try:
         data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 - fail-closed: an unreadable manifest ratifies nothing
+    except Exception:  # fail-closed: an unreadable manifest ratifies nothing
         return _NOT_RATIFIED
     if not isinstance(data, dict) or data.get(RATIFIED_FLAG) is not True:
         return _NOT_RATIFIED

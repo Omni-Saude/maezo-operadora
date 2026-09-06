@@ -717,8 +717,14 @@ evidence).
 
 `CibSevenHttpTransport`, `FreshClientCibSevenTransport`, `CibSevenDmnTransport`, `FhirServer`,
 `WhatsAppServer`, `AnthropicInferenceProvider`, `InferenceProvider`, `AioKafkaEventsProducer`,
-`FactProducer`, `DelegationDispatcher`, `build_dispatcher`, `RealAnsGatewayTransport`,
-`FhirServerReader`, `WhatsAppServerSender`, `ValentinaFhirServerReader`, `LucasWhatsAppServerSender`
+`AioKafkaDlqPublisher`, `FactProducer`, `DelegationDispatcher`, `build_dispatcher`,
+`RealAnsGatewayTransport`, `FhirServerReader`, `WhatsAppServerSender`, `ValentinaFhirServerReader`,
+`LucasWhatsAppServerSender`
+
+*R-113 (2026-09-06): `AioKafkaDlqPublisher` (`notifications_bridge.py`) added per owner decision —
+a fence with an undisclosed exception for a real Kafka producer proves nothing about the next such
+class (GAP-SC-04-a's escalation). Its sole construction site is its own defining module
+(`build_dlq_shunt`), same footing as `AioKafkaEventsProducer`.*
 
 **Allowlist (relative to `src/maezo`):** `gateway/tool_registry.py`, `gateway/seams/*.py`, plus each
 class's own defining module (a `def`/`class` is not a `Call`, so definitions never trip it — the

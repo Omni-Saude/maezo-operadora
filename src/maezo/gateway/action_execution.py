@@ -356,7 +356,7 @@ def parse_deviation(slot: str, raw: Any) -> tuple[DeviationRecord | None, tuple[
     if defects:
         return None, tuple(defects)
     # Every branch above filled its slot or appended a defect, so these are total.
-    assert deadline_field is not None and deadline is not None  # noqa: S101 - narrowing, not a check
+    assert deadline_field is not None and deadline is not None  # narrowing, not a check
     return (
         DeviationRecord(
             slot=slot,
@@ -836,7 +836,7 @@ def _parse(
             that leg used to sit, below the override fence.
     """
     try:
-        data = yaml.load(raw_text, Loader=_RefusingDuplicatesLoader)  # noqa: S506 - hardened SafeLoader
+        data = yaml.load(raw_text, Loader=_RefusingDuplicatesLoader)  # hardened SafeLoader
     except DuplicateManifestKeyError as exc:
         return _refuse("duplicate_key", f"{manifest_path}: {exc}")
     except yaml.constructor.ConstructorError as exc:
@@ -1118,7 +1118,7 @@ def load_action_approvals(path: str | Path | None = None) -> ActionApprovals:
             # The ONE failure this loader does not swallow (see the docstring): a production
             # policy-plane substitution is a governance refusal, and it must be loud.
             raise
-        except Exception as exc:  # noqa: BLE001 - fail-closed: unresolvable spec/ approves nothing
+        except Exception as exc:  # fail-closed: unresolvable spec/ approves nothing
             return _refuse("path_unresolved", f"could not resolve the default manifest path: {exc}")
         if spec_dir_override:
             # PROVENANCE IS STILL RECORDED ON EVERY LOAD (§5.7 item 1). It is `info`, not `error`,
@@ -1299,13 +1299,13 @@ def evaluate_worker_task(*, topic: str, tenant: str = "unknown", path: str | Pat
         action_class = gateway.classify(topic)
         decision = gateway.evaluate(action_class, {"tenant": tenant})
         _log_decision(decision, topic=topic, tenant=tenant)
-    except Exception:  # noqa: BLE001 — a gateway bug must never crash dispatch; see below.
+    except Exception:  # a gateway bug must never crash dispatch; see below.
         # Fail closed on the VERDICT while resolving the mode from the already-cached manifest, so
         # an internal error cannot fail OPEN once a human has flipped to `enforcing`. The cached
         # accessor is a dict read after the first successful load, so this second call is safe.
         try:
             mode = action_approvals(path).mode
-        except Exception:  # noqa: BLE001 — nothing left to trust; refuse to claim enforcement.
+        except Exception:  # nothing left to trust; refuse to claim enforcement.
             mode = MODE_UNRESOLVED
         # ONDA 1 §7.3, AND THE ONE PLACE §7.3 MUST NOT REACH. The per-class dimension is NOT
         # applied here. An internal error left us with no resolved class, and reading that as "an

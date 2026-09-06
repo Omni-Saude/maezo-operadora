@@ -45,7 +45,7 @@ def _install_hang_before_chain(dedup_key: str) -> None:
     """
 
     async def _hang(self: PostgresAuditSink, conn: object, record: AuditRecord) -> None:
-        print(f"CLAIMED {dedup_key}", flush=True)  # noqa: T201 — IPC protocol, not logging
+        print(f"CLAIMED {dedup_key}", flush=True)  # IPC protocol, not logging
         await asyncio.sleep(3600)  # wait to be SIGKILLed mid-transaction
 
     audit_postgres.PostgresAuditSink._insert_chain_row = _hang  # type: ignore[method-assign]
@@ -67,7 +67,7 @@ async def _run(dsn: str, tenant: str, dedup_key: str, mode: str) -> None:
         )
         record_hash = await sink.emit_once(record, dedup_key=dedup_key)
         # Only reached in --mode complete (hang-before-chain never returns).
-        print(f"DONE {record_hash}", flush=True)  # noqa: T201 — IPC protocol, not logging
+        print(f"DONE {record_hash}", flush=True)  # IPC protocol, not logging
     finally:
         await sink.aclose()
 
@@ -82,8 +82,8 @@ def main() -> int:
 
     try:
         asyncio.run(_run(args.dsn, args.tenant, args.dedup_key, args.mode))
-    except Exception as exc:  # noqa: BLE001 — report to parent via stdout protocol, then exit non-zero
-        print(f"ERROR {exc}", flush=True)  # noqa: T201
+    except Exception as exc:  # report to parent via stdout protocol, then exit non-zero
+        print(f"ERROR {exc}", flush=True)
         return 1
     return 0
 

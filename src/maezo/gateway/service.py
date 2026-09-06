@@ -126,7 +126,7 @@ async def _bring_up_dependencies(state: GatewayState) -> None:
     except PolicyError as exc:
         state.pep_error = str(exc)
         logger.error("gateway_pep_build_failed", tenant=state.settings.tenant_id, exc_info=True)
-    except Exception as exc:  # noqa: BLE001 — isolated: liveness must stay up (design pattern, T1.1/T1.6).
+    except Exception as exc:  # isolated: liveness must stay up (design pattern, T1.1/T1.6).
         state.pep_error = f"{type(exc).__name__}: {exc}"
         logger.error("gateway_pep_build_failed", tenant=state.settings.tenant_id, exc_info=True)
 

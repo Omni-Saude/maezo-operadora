@@ -285,7 +285,7 @@ async def test_p1_a_mutated_endpoint_puts_nothing_on_the_wire(monkeypatch: pytes
     transport saw ZERO requests: PHI never left for the wrong host.
     """
     adapter, transport = _br_adapter(monkeypatch)
-    adapter._endpoint_url = "https://api.anthropic.com/v1/messages"  # noqa: SLF001 — the mutation IS the probe
+    adapter._endpoint_url = "https://api.anthropic.com/v1/messages"  # the mutation IS the probe
 
     with pytest.raises(BrEndpointNotApprovedError):
         await adapter.generate(_PROMPT_CANARY)
@@ -304,7 +304,7 @@ async def test_p1_red_control_neutered_allowlist_would_dial_the_wrong_host(
     turn red.
     """
     adapter, transport = _br_adapter(monkeypatch)
-    adapter._endpoint_url = "https://api.anthropic.com/v1/messages"  # noqa: SLF001
+    adapter._endpoint_url = "https://api.anthropic.com/v1/messages"
     _neuter_endpoint_allowlist(monkeypatch)
 
     # `br_endpoint_denial_reasons` guards BOTH the pre-dial check AND the redirect check, so neutering
@@ -679,7 +679,7 @@ async def test_p5a_a_crlf_endpoint_produces_no_request_on_the_wire(monkeypatch: 
     refuses per-call and the transport sees NOTHING — the CRLF never reaches a request line.
     """
     adapter, transport = _br_adapter(monkeypatch)
-    adapter._endpoint_url = (  # noqa: SLF001 — simulate the stored-URL control-char case
+    adapter._endpoint_url = (  # simulate the stored-URL control-char case
         "https://x.br-sao-paulo.phi.maezo.internal/v1\r\nX-Injected: 1"
     )
 
@@ -701,7 +701,7 @@ async def test_p5a_red_control_neutered_allowlist_would_send_the_crlf_on_the_wir
     """
     adapter, transport = _br_adapter(monkeypatch)
     crlf = "https://x.br-sao-paulo.phi.maezo.internal/v1\r\nX-Injected: 1"
-    adapter._endpoint_url = crlf  # noqa: SLF001
+    adapter._endpoint_url = crlf
     _neuter_endpoint_allowlist(monkeypatch)
 
     # Neutering the pre-dial allowlist also neuters the redirect check (both call the same function),

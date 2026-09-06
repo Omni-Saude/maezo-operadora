@@ -187,7 +187,7 @@ class AioKafkaFactPublisher:
         self._producer: Any | None = None
 
     async def start(self) -> None:
-        from aiokafka import (  # type: ignore[import-untyped]  # noqa: PLC0415 - lazy: no import-time network dep
+        from aiokafka import (  # type: ignore[import-untyped]  # lazy: no import-time network dep
             AIOKafkaProducer,
         )
 
@@ -287,7 +287,7 @@ async def drain_once(
                 record.payload,
                 key=None if record.partition_key is None else record.partition_key.encode("utf-8"),
             )
-        except Exception as exc:  # noqa: BLE001 - the whole point: a broker failure must not lose the row
+        except Exception as exc:  # the whole point: a broker failure must not lose the row
             failure = f"{type(exc).__name__}: {exc}"
             logger.error(
                 "a2a_outbox_relay_publish_failed",

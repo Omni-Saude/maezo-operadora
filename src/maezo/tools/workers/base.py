@@ -312,7 +312,7 @@ def reclassify_coded_exception(fn: Callable[[], dict[str, Any]]) -> dict[str, An
         return fn()
     except _HARNESS_CLASSIFIED:
         raise
-    except Exception as exc:  # noqa: BLE001 — reclassified below, see docstring.
+    except Exception as exc:  # reclassified below, see docstring.
         code = getattr(exc, "code", None)
         message = getattr(exc, "message", None)
         if isinstance(code, str) and isinstance(message, str):
@@ -446,10 +446,10 @@ def _record_key_mint(family: str, modo: str, anchor: str) -> None:
     must never be able to fail — or worse, silently alter — a business-key derivation.
     """
     try:
-        from maezo.platform.observability import record_phi_business_key_mint  # noqa: PLC0415
+        from maezo.platform.observability import record_phi_business_key_mint
 
         record_phi_business_key_mint(family=family, modo=modo, anchor=anchor)
-    except Exception:  # noqa: BLE001 — telemetry is best-effort; a key mint must never fail on it
+    except Exception:  # telemetry is best-effort; a key mint must never fail on it
         structlog.get_logger(__name__).debug(
             "phi_business_key_mint_metric_failed", family=family, anchor=anchor
         )
@@ -490,7 +490,7 @@ def resolve_contract_identity(
     if numero_contrato:
         return numero_contrato, _ANCHOR_CONTRATO
 
-    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # noqa: PLC0415 — lazy
+    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # lazy
 
     if phi_key_policy().pseudo_keys_enabled and beneficiario_pseudo_id:
         return beneficiario_pseudo_id, _ANCHOR_PSEUDO
@@ -528,7 +528,7 @@ def mint_contract_business_key(
         matricula_beneficiario=matricula_beneficiario,
         beneficiario_pseudo_id=beneficiario_pseudo_id,
     )
-    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # noqa: PLC0415 — lazy
+    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # lazy
 
     _record_key_mint(family, phi_key_policy().modo.value, anchor)
     return contract_business_key(family, tenant_id, contrato)
@@ -588,7 +588,7 @@ def contract_business_key_forms(
     """
     anchors = [numero_contrato, matricula_beneficiario]
 
-    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # noqa: PLC0415 — lazy
+    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # lazy
 
     if phi_key_policy().pseudo_keys_enabled:
         anchors.append(beneficiario_pseudo_id)

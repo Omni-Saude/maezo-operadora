@@ -330,7 +330,7 @@ async def provision_checkpointer(
             return CheckpointerProvision(
                 checkpointer=checkpointer, backend="postgres", ready=True, error=None
             )
-        except Exception as exc:  # noqa: BLE001 — captured; fail-closed in prod, fallback in dev.
+        except Exception as exc:  # captured; fail-closed in prod, fallback in dev.
             error = f"AsyncPostgresSaver setup failed: {type(exc).__name__}: {exc}"
             logger.error(
                 "checkpointer_postgres_setup_failed",

@@ -48,7 +48,7 @@ class _HangOnCompleteTransport:
         raise NotImplementedError
 
     async def complete(self, task_id: str, worker_id: str, variables: dict[str, Any]) -> None:
-        print(f"EMITTED {self._dedup_key}", flush=True)  # noqa: T201 — IPC protocol
+        print(f"EMITTED {self._dedup_key}", flush=True)  # IPC protocol
         await asyncio.sleep(3600)  # wait to be SIGKILLed AFTER the audit row committed
 
     async def handle_failure(self, *a: Any, **k: Any) -> None:  # pragma: no cover
@@ -75,7 +75,7 @@ class _RecordingTransport(_HangOnCompleteTransport):
         self._task_id = task_id
 
     async def complete(self, task_id: str, worker_id: str, variables: dict[str, Any]) -> None:
-        print(f"COMPLETED {self._task_id}", flush=True)  # noqa: T201 — IPC protocol
+        print(f"COMPLETED {self._task_id}", flush=True)  # IPC protocol
 
 
 async def _run(dsn: str, tenant: str, task_id: str, topic: str, mode: str) -> None:
@@ -119,8 +119,8 @@ def main() -> int:
 
     try:
         asyncio.run(_run(args.dsn, args.tenant, args.task_id, args.topic, args.mode))
-    except Exception as exc:  # noqa: BLE001 — report to parent via stdout protocol, then exit non-zero
-        print(f"ERROR {exc}", flush=True)  # noqa: T201
+    except Exception as exc:  # report to parent via stdout protocol, then exit non-zero
+        print(f"ERROR {exc}", flush=True)
         return 1
     return 0
 

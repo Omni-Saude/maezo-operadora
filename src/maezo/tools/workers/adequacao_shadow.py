@@ -404,7 +404,7 @@ def live_table_digest() -> str | None:
     """
     try:
         return hashlib.sha256(live_table_path().read_bytes()).hexdigest()
-    except Exception as exc:  # noqa: BLE001 - fail-closed: an unreadable table binds nothing
+    except Exception as exc:  # fail-closed: an unreadable table binds nothing
         logger.error("adequacao_live_table_unreadable", detail=f"could not read the live table: {exc}")
         return None
 
@@ -484,7 +484,7 @@ def load_candidate_ratification(path: str | Path | None = None) -> CandidateRati
     if not raw_path:
         try:
             raw_path = _manifest_default_path()
-        except Exception as exc:  # noqa: BLE001 - fail-closed: unresolvable spec/ ratifies nothing
+        except Exception as exc:  # fail-closed: unresolvable spec/ ratifies nothing
             return _refuse("path_unresolved", f"could not resolve the default manifest path: {exc}")
 
     manifest_path = Path(raw_path)
@@ -607,7 +607,7 @@ def shadow_divergence_event(
             "prestadores_disponiveis": prestadores_disponiveis,
             "cobertura_geo_suficiente": cobertura_geo_suficiente,
         }
-    except Exception as exc:  # noqa: BLE001 — shadow observation may never disturb a caller
+    except Exception as exc:  # shadow observation may never disturb a caller
         logger.warning("adequacao_gap_shadow_indisponivel", error=str(exc))
         return None
 

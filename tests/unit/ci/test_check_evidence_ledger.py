@@ -27,7 +27,9 @@ from scripts.ci.check_evidence_ledger import (
     evaluate,
     extract_ledger_task_ids,
     find_conflict_markers,
+    find_leading_id_collisions,
     main,
+    resolve_leading_id_line,
 )
 
 # Repo root, three levels up from tests/unit/ci/test_check_evidence_ledger.py.
@@ -1370,3 +1372,154 @@ class TestMutationWitnesses:
         assert TestTasksLineLeadingRun.test_pr_167_style_line_binds_only_the_declared_id
         assert TestTasksLineLeadingRun.test_parenthetical_after_the_id_stops_the_run
         assert TestTasksLineLeadingRun.test_end_to_end_prose_tail_does_not_demand_a_row
+
+
+# ---------------------------------------------------------------------------
+# LEDGER-D3-01-DUPLICATE-ID: two real rows lead with `D3-01` (2026-09-03
+# ADR-0030 allowlist work at one line, the round-5 worker-errors row at a
+# later one). `extract_ledger_task_ids`'s set semantics answer "does D3-01
+# have a row" correctly either way (evaluate() never needs to be fixed), but
+# a caller that needs exactly ONE row for a colliding id has no rule to
+# follow without `find_leading_id_collisions`/`resolve_leading_id_line`.
+# ---------------------------------------------------------------------------
+
+
+class TestLeadingIdCollisions:
+    def test_no_collision_on_unique_ids(self) -> None:
+        ledger = LEDGER_HEADER + "| A-01 | 2026-09-01 | x | y | z | ev | hash | s |\n"
+        assert find_leading_id_collisions(ledger) == {}
+
+    def test_two_rows_sharing_an_id_are_reported_with_both_line_numbers(self) -> None:
+        ledger = (
+            LEDGER_HEADER
+            + "| D3-01 | 2026-09-03 | old work | v | c1 | ev1 | hash1 | s |\n"
+            + "| OTHER-ID | 2026-09-04 | unrelated | v | c2 | ev2 | hash2 | s |\n"
+            + "| D3-01 | 2026-09-05 | new work | v | c3 | ev3 | hash3 | s |\n"
+        )
+        collisions = find_leading_id_collisions(ledger)
+        assert set(collisions) == {"D3-01"}
+        # Header (2 lines) + blank line = row 1 at line 4, row 2 (OTHER-ID) at
+        # line 5, row 3 (2nd D3-01) at line 6 — asserted structurally, not by
+        # a magic number, so a header edit cannot silently break this test.
+        header_line_count = LEDGER_HEADER.count("\n")
+        assert collisions["D3-01"] == (header_line_count + 1, header_line_count + 3)
+
+    def test_three_way_collision_reports_every_line(self) -> None:
+        ledger = LEDGER_HEADER + "".join(f"| DUP-1 | 2026-09-0{n} | a | b | c | d | e | f |\n" for n in (1, 2, 3))
+        collisions = find_leading_id_collisions(ledger)
+        assert len(collisions["DUP-1"]) == 3
+
+    def test_case_insensitive_ids_still_collide(self) -> None:
+        ledger = (
+            LEDGER_HEADER
+            + "| d3-01 | 2026-09-03 | x | y | z | ev | hash | s |\n"
+            + "| D3-01 | 2026-09-05 | x | y | z | ev | hash | s |\n"
+        )
+        assert set(find_leading_id_collisions(ledger)) == {"D3-01"}
+
+
+class TestResolveLeadingIdLine:
+    def test_unknown_id_resolves_to_none(self) -> None:
+        assert resolve_leading_id_line(LEDGER_HEADER, "NOPE") is None
+
+    def test_single_row_resolves_to_its_own_line(self) -> None:
+        ledger = LEDGER_HEADER + "| A-01 | 2026-09-01 | x | y | z | ev | hash | s |\n"
+        line = resolve_leading_id_line(ledger, "A-01")
+        assert ledger.split("\n")[line - 1].startswith("| A-01")
+
+    def test_colliding_id_resolves_to_the_last_file_occurrence(self) -> None:
+        ledger = (
+            LEDGER_HEADER
+            + "| D3-01 | 2026-09-03 | old ADR-0030 work | v | c1 | ev1 | hash1 | s |\n"
+            + "| D3-01 | 2026-09-05 | new worker-errors work | v | c2 | ev2 | hash2 | s |\n"
+        )
+        line = resolve_leading_id_line(ledger, "D3-01")
+        resolved_row = ledger.split("\n")[line - 1]
+        assert "new worker-errors work" in resolved_row
+        assert "old ADR-0030 work" not in resolved_row
+
+    def test_normalizes_case_like_the_rest_of_the_module(self) -> None:
+        ledger = LEDGER_HEADER + "| a-01 | 2026-09-01 | x | y | z | ev | hash | s |\n"
+        assert resolve_leading_id_line(ledger, "A-01") == resolve_leading_id_line(ledger, "a-01")
+
+
+class TestRealLedgerD3_01Collision:
+    """Reproduction: the real ledger on disk has exactly this collision today. If a future PR
+    ever fixes it by deleting/renaming a row (never by editing the historical one in place — see
+    docs/evidence-ledger.md's append-only convention), this test should be updated, not deleted."""
+
+    def test_real_ledger_has_the_documented_d3_01_collision(self) -> None:
+        ledger_path = _REPO_ROOT / "docs" / "evidence-ledger.md"
+        text = ledger_path.read_text(encoding="utf-8")
+        collisions = find_leading_id_collisions(text)
+        assert "D3-01" in collisions, (
+            "expected the documented D3-01 collision (LEDGER-D3-01-DUPLICATE-ID) — if this fails "
+            "because the collision was resolved, update/remove this reproduction test"
+        )
+        assert len(collisions["D3-01"]) == 2
+
+    def test_resolves_to_the_round_5_worker_errors_row_not_the_adr_0030_row(self) -> None:
+        ledger_path = _REPO_ROOT / "docs" / "evidence-ledger.md"
+        text = ledger_path.read_text(encoding="utf-8")
+        line = resolve_leading_id_line(text, "D3-01")
+        resolved_row = text.split("\n")[line - 1]
+        # "worker-error-migrator" (the round-5 row's own author) present; the OLDER row's own
+        # distinguishing author cell ("IMPL-ADR0030 (R2), worktree `adr-0030`") absent — not the
+        # bare substring "IMPL-ADR0030", which the round-5 row's own prose also cites in passing
+        # ("confirmado por ... evidence-ledger D3-01/IMPL-ADR0030 anterior").
+        assert "worker-error-migrator" in resolved_row
+        assert "IMPL-ADR0030 (R2), worktree `adr-0030`" not in resolved_row
+
+
+class TestMainDisclosesCollisionsOnlyForCitedIds:
+    """`main()`'s INFO disclosure never changes the exit code (LEDGER-D3-01-DUPLICATE-ID stays a
+    P3 audit note, not a new fail-closed rule that would break `main`'s already-merged rows)."""
+
+    def _write_ledger(self, tmp_path: Path, content: str) -> Path:
+        path = tmp_path / "evidence-ledger.md"
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def test_pass_with_info_line_when_the_cited_id_collides(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        ledger = (
+            LEDGER_HEADER
+            + "| D3-01 | 2026-09-03 | old | v | c1 | ev1 | hash1 | s |\n"
+            + "| D3-01 | 2026-09-05 | new | v | c2 | ev2 | hash2 | s |\n"
+        )
+        ledger_path = self._write_ledger(tmp_path, ledger)
+        exit_code = main(
+            [
+                "--branch",
+                "feature-x",
+                "--pr-body",
+                "Tasks: D3-01",
+                "--ledger-path",
+                str(ledger_path),
+            ]
+        )
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "INFO: leading id 'D3-01'" in captured.out
+        assert "resolves to the NEWEST row" in captured.out
+
+    def test_no_info_line_when_the_cited_id_does_not_collide(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        ledger = (
+            LEDGER_HEADER
+            + "| D3-01 | 2026-09-03 | old | v | c1 | ev1 | hash1 | s |\n"
+            + "| D3-01 | 2026-09-05 | new | v | c2 | ev2 | hash2 | s |\n"
+            + "| UNRELATED | 2026-09-06 | x | v | c3 | ev3 | hash3 | s |\n"
+        )
+        ledger_path = self._write_ledger(tmp_path, ledger)
+        exit_code = main(
+            [
+                "--branch",
+                "feature-y",
+                "--pr-body",
+                "Tasks: UNRELATED",
+                "--ledger-path",
+                str(ledger_path),
+            ]
+        )
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "INFO: leading id" not in captured.out

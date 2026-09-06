@@ -266,7 +266,7 @@ def _parse_bpmn_file(path: Path) -> tuple[list[BoundaryDecl], dict[str, set[str]
     keyed by topic / process_id respectively. Raises ``ET.ParseError``/``OSError`` to the caller,
     which turns it into a hard, per-file parse-error finding (never a silent skip).
     """
-    root = ET.parse(path).getroot()  # noqa: S314 — trusted in-repo spec artifact (repo posture)
+    root = ET.parse(path).getroot()  # trusted in-repo spec artifact (repo posture)
     # `bpmn:error` catalog is defined at `definitions` (root) level; errorRef resolves against it.
     error_catalog = {
         e.get("id"): e.get("errorCode") for e in root.iter(_q("error")) if e.get("id") and e.get("errorCode")

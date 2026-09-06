@@ -618,7 +618,7 @@ class FernandoGraph:
             try:
                 await self._whatsapp.send(to_hash, str(mensagem.get("texto", "")))
                 enviada = True
-            except Exception as exc:  # noqa: BLE001 — best-effort send, never an adverse effect.
+            except Exception as exc:  # best-effort send, never an adverse effect.
                 mensagem["envio_nota"] = f"envio WhatsApp indisponivel: {type(exc).__name__}"
 
         desfecho = (
@@ -810,7 +810,7 @@ class FernandoGraph:
                 # ADR-0009 §2 / CC-12: frasear fatos que a DMN ja decidiu -> task_default.
                 task_kind="task_default",
             )
-        except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
+        except Exception:  # fail-safe default: never leave the beneficiary with nothing.
             texto = "Identificamos uma pendencia em seu contrato. Consulte os canais de regularizacao."
 
         return {
@@ -870,7 +870,7 @@ class FernandoGraph:
                 # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
                 task_kind="reasoning",
             )
-        except Exception:  # noqa: BLE001 — LLM failure never blocks the human escalation.
+        except Exception:  # LLM failure never blocks the human escalation.
             narrativa = ""
 
         return {

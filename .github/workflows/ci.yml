@@ -148,7 +148,10 @@ jobs:
       # `resolve_effective_base`/`get_ledger_diff_added_lines`) — neither retroactively fails on the
       # legacy rows already declared/malformed on `main`; a `run:` step with no `continue-on-error`
       # fails the job on any non-zero exit, so both are fail-closed like every other gate in this
-      # job.
+      # job. TOOLING §Δ D1: this step runs `check-ledger-hashes` WITHOUT `--allow-live`, so a NEW
+      # row declaring a `tests/integration/**` path would fail here PERMANENTLY (no engine/PG/Kafka
+      # stack, no mutex) — the escape hatch is to OMIT the parenthesised path on that row, which
+      # falls back to LEGACY for this gate (see docs/evidence-ledger.md's convention paragraph).
       - name: Evidence-ledger Test-hash recompute gate (LEDGER-HASH-RECOMPUTE-CHECK)
         run: make check-ledger-hashes
 

@@ -894,7 +894,7 @@ def _probe(
     params: Mapping[str, str] = {"tenant_id": tenant_id, "subject_ref": subject_ref}
     try:
         count = counter(layer.count_statement, params)
-    except Exception as exc:  # noqa: BLE001 — a caller-supplied callable; its raise set is theirs
+    except Exception as exc:  # a caller-supplied callable; its raise set is theirs
         # The message is bounded to the exception TYPE on purpose: a driver error can echo the
         # bind values, and a report that quotes them would carry the very reference this
         # report is built not to carry.
@@ -1066,7 +1066,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         counter=None,
         plan=plan,
     )
-    print(render_report(report, plan_state))  # noqa: T201 — operator-facing CLI output
+    print(render_report(report, plan_state))  # operator-facing CLI output
     return 0
 
 

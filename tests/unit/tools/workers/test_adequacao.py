@@ -1274,7 +1274,7 @@ class _FakeDossierDispatcher:
         self._result = result
         self._exc = exc
 
-    async def delegate(self, envelope) -> DelegationResult:  # noqa: ANN001 — duck-typed fake
+    async def delegate(self, envelope) -> DelegationResult:  # duck-typed fake
         self.envelopes.append(envelope)
         if self._exc is not None:
             raise self._exc

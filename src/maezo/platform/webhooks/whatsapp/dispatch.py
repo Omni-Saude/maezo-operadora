@@ -469,7 +469,7 @@ class HelenaDispatcher:
             # `maezo.platform.observability.record_agent_error` for the full contract.
             # ALERT-COUNTER-LABELS / R-063: this dispatcher only ever runs Helena's graph
             # (`agent_version="helena@v0"` above), so the `agent` label is the literal id.
-            from maezo.platform.observability import record_agent_error  # noqa: PLC0415
+            from maezo.platform.observability import record_agent_error
 
             record_agent_error(agent="helena", error_type=classify_agent_error_type(exc))
             raise
