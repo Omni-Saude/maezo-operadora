@@ -168,12 +168,19 @@ def _find_or_zero_nodes(tree: ast.AST) -> list[ast.BoolOp]:
     ]
 
 
-def _annotate_parents(tree: ast.AST) -> None:
-    """One-time pass wiring a `.parent` back-pointer onto every node, so `_enclosing_function`/
-    `_dict_key_or_source` can walk UP from a hit without a second traversal per node."""
+def _parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
+    """Every node's parent, computed once per file scan into a plain dict keyed by node identity
+    (`ast.AST` never overrides `__eq__`/`__hash__`, so default identity hashing is exactly what a
+    parent lookup needs). Deliberately NOT a `.parent` attribute monkey-patched onto the nodes
+    (§Delta NONE-GUARDRAIL D1): that shape needs a mypy suppression naming the undeclared attribute
+    (`ast.AST` has none such) -- or, swapping the plain assignment for `setattr`, trips ruff's B010
+    ("do not call setattr with a constant attribute value") instead. There was no zero-suppression
+    way to keep either shape. A plain dict avoids both categorically."""
+    parents: dict[ast.AST, ast.AST] = {}
     for node in ast.walk(tree):
         for child in ast.iter_child_nodes(node):
-            child.parent = node  # type: ignore[attr-defined]
+            parents[child] = node
+    return parents
 
 
 def _normalize(text: str) -> str:
@@ -182,25 +189,25 @@ def _normalize(text: str) -> str:
     return " ".join(text.split())
 
 
-def _enclosing_function(node: ast.AST) -> str:
+def _enclosing_function(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> str:
     """The innermost enclosing `def`/`async def` name, or `"<module>"` if the node sits at
     module level (e.g. a module-level constant's `or 0`, which none of today's hits are, but the
     scan must not crash if one ever appears)."""
-    current: ast.AST | None = getattr(node, "parent", None)
+    current: ast.AST | None = parents.get(node)
     while current is not None and not isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        current = getattr(current, "parent", None)
+        current = parents.get(current)
     if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
         return current.name
     return "<module>"
 
 
-def _dict_key_or_source(node: ast.expr, source: str) -> str:
+def _dict_key_or_source(node: ast.expr, source: str, parents: dict[ast.AST, ast.AST]) -> str:
     """The dict key this expression is the VALUE of — walking up through any `int(...)`/
     `float(...)` wrapper to find the nearest enclosing `ast.Dict` whose `values` entry is on the
     path back down to `node` — or, when no enclosing dict entry is found at all, the normalized
     source text of the expression itself. Either way the result never depends on a line number."""
     prev: ast.AST = node
-    current: ast.AST | None = getattr(node, "parent", None)
+    current: ast.AST | None = parents.get(node)
     while current is not None:
         if isinstance(current, ast.Dict):
             for key_node, value_node in zip(current.keys, current.values, strict=True):
@@ -211,18 +218,18 @@ def _dict_key_or_source(node: ast.expr, source: str) -> str:
                         return _normalize(ast.get_source_segment(source, key_node) or "<dict-key>")
                     return "<dict-spread-value>"
         prev = current
-        current = getattr(current, "parent", None)
+        current = parents.get(current)
     return _normalize(ast.get_source_segment(source, node) or "<unknown>")
 
 
 def _scan(path: Path) -> dict[_Hit, list[int]]:
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(path))
-    _annotate_parents(tree)
+    parents = _parent_map(tree)
     relpath = f"{path.parent.name}/graph.py"
     hits: dict[_Hit, list[int]] = {}
     for node in _find_or_zero_nodes(tree):
-        hit = _Hit(relpath, _enclosing_function(node), _dict_key_or_source(node, source))
+        hit = _Hit(relpath, _enclosing_function(node, parents), _dict_key_or_source(node, source, parents))
         hits.setdefault(hit, []).append(node.lineno)
     return hits
 
