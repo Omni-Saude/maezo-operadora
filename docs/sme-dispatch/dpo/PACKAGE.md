@@ -207,10 +207,27 @@ not blocked:
      (`consent_revocation_bridge`, fan-out by `{tenant_id, beneficiario_pseudo_id}` since a
      titular can have multiple active PROGRAMA-001 instances) is the right design — does
      `all_matching=True` correctly reach every active enrollment for that titular?
-  4. Confirm k-anonymity / small-cell-suppression parameters for any population-level aggregate
-     this program exposes to Zona Geral (noted as pending, WP3.5).
-  5. Confirm retention/cessation of PHI after revocation, given the interaction with Lei
+  4. Confirm retention/cessation of PHI after revocation, given the interaction with Lei
      13.787/2018/CFM prontuário retention (joint with jurídico).
+
+**Redline R-228 (2026-09-06) — a pergunta de k-anonimato SAIU desta fila.** A pergunta original,
+preservada aqui como evidência, era:
+
+> «4. Confirm k-anonymity / small-cell-suppression parameters for any population-level aggregate
+> this program exposes to Zona Geral (noted as pending, WP3.5).»
+
+Decisão aprovada do dono (`OWNER-DECISIONS-REGISTER` **R-228**): «Retirar a pergunta do pacote do
+DPO e fechar a pendência WP3.5 como 'sem sujeito hoje', substituindo-a por um gate que falhe se
+qualquer publicação de agregado populacional aparecer no processo antes de o parâmetro existir; o
+DPO é acionado quando o primeiro consumidor for proposto, não antes.» O fato de engenharia que a
+sustenta: `programa_routing` roda in-zone e só emite banda/roteamento **por instância** à Zona
+Geral (a própria `<description>` de `spec/processes/dmn/programa_routing.dmn` diz isso), logo não
+existe hoje agregado populacional para o qual fixar um parâmetro.
+
+**Isto NÃO ratifica piso de k algum.** O gate substituto
+(`tests/unit/spec/test_programa_population_aggregate_fence.py`) é a **condição de retorno** a esta
+fila: no primeiro consumidor de agregado proposto, o piso k ratificado (**R-117** / ADR-0019
+cláusula 4) volta a ser pré-condição e a pergunta acima volta ao pacote — desta vez com sujeito.
 
 **T2.9 addendum (2026-07-24, `t2.9-sme-packages`) — `proactive_contact` channel/consent
 constraints (joint with médico-auditor).**

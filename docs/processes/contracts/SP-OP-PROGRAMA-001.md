@@ -291,8 +291,26 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
   organizacional da operadora.
 - Politica de retencao/cessacao de PHI apos revogacao (interacao com retencao legal de prontuario —
   Lei 13.787/2018/CFM, espelha LGPD-DSR) — **DRAFT/verify DPO/juridico**.
-- Parametros de k-anonimato / small-cell-suppression para qualquer agregado populacional do
-  programa exposto a Zona Geral (WP3.5).
+<!-- R-228-WP3.5-FECHAMENTO-INICIO -->
+- ~~Parametros de k-anonimato / small-cell-suppression para qualquer agregado populacional do
+  programa exposto a Zona Geral (WP3.5).~~ **FECHADA como 'sem sujeito hoje' (R-228, 2026-09-06).**
+  Decisao aprovada do dono (`OWNER-DECISIONS-REGISTER` R-228): retirar a pergunta do pacote do DPO
+  e fechar WP3.5, substituindo-a por um gate que falhe se qualquer publicacao de agregado
+  populacional aparecer no processo antes de o parametro existir; o DPO e acionado quando o
+  primeiro consumidor for proposto, nao antes. **Fato de engenharia:** este processo nao expoe
+  agregado populacional algum a Zona Geral — `programa_routing` roda in-zone e so emite
+  banda/roteamento POR INSTANCIA (ver a `<description>` da propria
+  `spec/processes/dmn/programa_routing.dmn`), e as service tasks `operadora.events.publish` deste
+  BPMN publicam so identificadores por instancia. Sem consumidor, um parametro de k-anonimato
+  seria um numero sem sujeito.
+  **Este fechamento NAO ratifica piso de k algum** e nao vale como aprovacao da classe de efeito
+  `leitura_populacional` (que segue `enforcement: shadow`, sem aprovacao nos tres dominios). O
+  gate substituto e `tests/unit/spec/test_programa_population_aggregate_fence.py`
+  (`test_programa_population_aggregate_fence`), e ele e a **condicao de retorno ao DPO**: no
+  primeiro consumidor de agregado proposto, o piso k ratificado (**R-117** / ADR-0019 clausula 4)
+  volta a ser pre-condicao. O gate VIRA DE SENTIDO em vez de desligar — declarado o piso, ele
+  passa a exigir que todo consumidor de agregado o referencie.
+<!-- R-228-WP3.5-FECHAMENTO-FIM -->
 - Definir se enrollment exige captura de consentimento (User Task de consentimento) **antes** da
   decisao do coordenador (OQ do phase3-plan: "Enrollment exige captura de consentimento (UT) antes
   da decisao do coordenador?").
