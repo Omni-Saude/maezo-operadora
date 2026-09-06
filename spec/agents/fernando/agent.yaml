@@ -89,3 +89,11 @@ a2a:
   accepted_task_types:                       # ALVO de delegacao inbound (R9): acompanhamento de inadimplencia
     - arrears.followup                       # Lucas->Fernando: seguimento/notificacao de inadimplencia (informacional; adverso SO no humano)
   queue_ref: agents.tasks.fernando
+# GAP 11.7 (estrutural — validado por validation.agent_def): `inbound: false` — o canal AGENTE-A-
+# AGENTE acima (`arrears.followup`) e' real, mas nenhum webhook receptivo do BENEFICIARIO aponta
+# para Fernando; ver o comentario GAP 11.7 acima e `docs/processes/contracts/
+# SP-OP-INADIMPLENCIA-001.md` "Canal de entrada" para o quadro completo.
+channels:
+  whatsapp:
+    outbound: true
+    inbound: false

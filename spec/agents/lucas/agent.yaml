@@ -79,3 +79,10 @@ a2a:
     - collection_nudge
   accepted_task_types: []
   queue_ref: agents.tasks.lucas
+# GAP 11.7 (estrutural — validado por validation.agent_def): `inbound: false` porque nenhum
+# webhook receptivo aponta para Lucas — ver o comentario GAP 11.7 acima (canal de entrada) e
+# `docs/processes/contracts/SP-OP-CANCEL-001.md` "Canal de entrada" para o quadro completo.
+channels:
+  whatsapp:
+    outbound: true
+    inbound: false

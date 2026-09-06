@@ -72,6 +72,57 @@ class TestUnknownMcpServer:
         assert any("does not follow the mcp-<server>.<action> pattern" in f.message for f in report.findings)
 
 
+WHATSAPP_AGENT_YAML = """\
+id: test-agent
+name: "Test Agent"
+role: "Testing"
+phase: 0
+autonomy_level: L3
+tools:
+  - mcp-whatsapp.send_message
+"""
+
+
+class TestWhatsappChannelPosture:
+    """GAP 11.7: an agent granting `mcp-whatsapp.send_message` must declare
+    `channels.whatsapp.inbound` explicitly (true/false) — never silently assumed."""
+
+    def test_missing_channels_block_fails(self, tmp_path: Path) -> None:
+        path = _agent_file(tmp_path, WHATSAPP_AGENT_YAML)
+        report = Report()
+        validate_file(path, frozenset({"whatsapp"}), report)
+        assert not report.ok
+        assert any("channels.whatsapp.inbound" in f.message for f in report.findings)
+
+    def test_non_boolean_inbound_fails(self, tmp_path: Path) -> None:
+        content = WHATSAPP_AGENT_YAML + "channels:\n  whatsapp:\n    inbound: \"no\"\n"
+        path = _agent_file(tmp_path, content)
+        report = Report()
+        validate_file(path, frozenset({"whatsapp"}), report)
+        assert not report.ok
+        assert any("channels.whatsapp.inbound" in f.message for f in report.findings)
+
+    def test_explicit_inbound_false_passes(self, tmp_path: Path) -> None:
+        content = WHATSAPP_AGENT_YAML + "channels:\n  whatsapp:\n    outbound: true\n    inbound: false\n"
+        path = _agent_file(tmp_path, content)
+        report = Report()
+        validate_file(path, frozenset({"whatsapp"}), report)
+        assert report.ok, [f.message for f in report.findings]
+
+    def test_explicit_inbound_true_passes(self, tmp_path: Path) -> None:
+        content = WHATSAPP_AGENT_YAML + "channels:\n  whatsapp:\n    outbound: true\n    inbound: true\n"
+        path = _agent_file(tmp_path, content)
+        report = Report()
+        validate_file(path, frozenset({"whatsapp"}), report)
+        assert report.ok, [f.message for f in report.findings]
+
+    def test_agent_without_the_tool_is_unaffected(self, tmp_path: Path) -> None:
+        path = _agent_file(tmp_path, VALID_AGENT_YAML)  # no mcp-whatsapp.send_message
+        report = Report()
+        validate_file(path, frozenset({"dmn", "memory"}), report)
+        assert report.ok, [f.message for f in report.findings]
+
+
 class TestEmptyToolsAllowlist:
     def test_empty_tools_fails(self, tmp_path: Path) -> None:
         content = VALID_AGENT_YAML.replace(
