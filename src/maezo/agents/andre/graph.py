@@ -841,10 +841,15 @@ class AndreGraph:
             # depois virava `int(x) == 0` — o exato zero fabricado que esta guarda existe para
             # prevenir. `None`/string nao-numerica/objeto nao coercivel viram `0` (fail-safe:
             # cai na mesma guarda de positividade, nunca uma excecao vazando do no de entrada).
+            # §Delta-F9: `int(float('inf'))` nao levanta `ValueError`/`TypeError` -- levanta
+            # `OverflowError` (caso separado, verificado pelo verificador com um probe adicional)
+            # -- tambem capturado aqui pelo MESMO motivo fail-safe. (`int()` trunca um float
+            # fracionario, ex. `85000.7` -> `85000`; comportamento pre-existente do `int()`,
+            # fora do escopo desta guarda -- nao e' uma excecao, entao nao precisa de captura.)
             valor_bruto: Any = state.get("valor_pagamento_cents")
             try:
                 valor_informado = int(valor_bruto)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 valor_informado = 0
             if valor_informado <= 0:
                 return {

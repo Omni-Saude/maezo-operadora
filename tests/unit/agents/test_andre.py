@@ -419,6 +419,24 @@ async def test_receive_pagto_subcentavo_float_valor_routes_pendencia_dados() -> 
     assert cibseven.started_variables == []
 
 
+async def test_receive_pagto_infinite_float_valor_routes_pendencia_dados() -> None:
+    """§Delta-F9 (CONTRACT-DRIFT): `int(float('inf'))` does not raise `ValueError`/`TypeError`
+    -- it raises `OverflowError`, a case the coerce-once guard's `except` tuple did not name, so
+    an infinite float still escaped `receive` as an unhandled exception (the exact 'never an
+    exception leaking from the entry node' claim the guard's own comment makes). Catching
+    `OverflowError` too closes it: `float('inf')` now fails the SAME positivity guard as any
+    other non-coercible value, before any DMN call."""
+    cibseven = _RecordingCibSeven()
+    compiled = _graph(cibseven=cibseven).compile_graph().compile()
+
+    result = await compiled.ainvoke(_pagto_state(valor_pagamento_cents=float("inf")))
+
+    assert result["route"] == "human_review"
+    assert result["motivo_humano"] == "pendencia_dados"
+    assert result["process_started"] is False
+    assert cibseven.started_variables == []
+
+
 async def test_receive_population_without_cohort_routes_human_review() -> None:
     result = await _graph().receive(_population_state(cohort_id=""))
     assert result["route"] == "human_review"
