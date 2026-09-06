@@ -76,13 +76,14 @@ import httpx
 import structlog
 
 from maezo.tools.workers._audit_ctx import record_dmn_version
+from maezo.tools.workers.engine_var_types import camunda_int_type
 
 logger = structlog.get_logger(__name__)
 
-# Java `int32` (java.lang.Integer) bounds — identical to `harness.py`'s constants (ADR-0018
-# part 2). Duplicated (not imported) so this module has zero dependency on `harness.py`.
-_JAVA_INT32_MIN = -(2**31)
-_JAVA_INT32_MAX = 2**31 - 1
+# Integer wire typing is delegated to `engine_var_types.camunda_int_type`, the leaf declaration
+# module (zero imports) that carries the Java `int32` bounds (ADR-0018 part 2) AND the names typed
+# `Long` unconditionally (owner decision R-173). This module still has zero dependency on
+# `harness.py`; what it now shares with it is the DECLARATION, so the mappers cannot drift.
 
 
 class DmnEvaluationError(RuntimeError):
@@ -189,11 +190,12 @@ class DmnTransport(Protocol):
 
 
 def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
-    """Type DMN inputs for the engine wire format — `Long` for ints outside int32 (ADR-0028 §2).
+    """Type DMN inputs for the engine wire format — `Long` for ints outside int32 (ADR-0028 §2),
+    and for every name declared int64 unconditionally (R-173).
 
     Ported verbatim from the v1 donor (`mcp_dmn/server.py:88-107`, READ-ONLY reference) — same
-    rule as `harness.py::_to_camunda_var` (T1.1 §5), duplicated here (not imported) so this
-    module carries no dependency on `harness.py`. **Load-bearing**: `pagto_alcada`'s
+    rule as `harness.py::_to_camunda_var` (T1.1 §5), now sharing that rule through the
+    `engine_var_types` leaf declaration instead of a third copy of it. **Load-bearing**: `pagto_alcada`'s
     `valor_pagamento_cents` is unbounded on its top band — a payment above int32-max cents
     (R$21.47M) typed as `Integer` gets HTTP 400 "Cannot convert value ... to java type
     java.lang.Integer" from the engine (verified — ADR-0028 §1).
@@ -223,8 +225,7 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
         elif isinstance(v, bool):
             camunda_vars[k] = {"value": v, "type": "Boolean"}
         elif isinstance(v, int):
-            fits_int32 = _JAVA_INT32_MIN <= v <= _JAVA_INT32_MAX
-            camunda_vars[k] = {"value": v, "type": "Integer" if fits_int32 else "Long"}
+            camunda_vars[k] = {"value": v, "type": camunda_int_type(k, v)}
         elif isinstance(v, float):
             camunda_vars[k] = {"value": v, "type": "Double"}
         elif isinstance(v, dict | list):

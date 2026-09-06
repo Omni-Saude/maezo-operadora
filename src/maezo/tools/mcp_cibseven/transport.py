@@ -66,15 +66,17 @@ import structlog
 # concrete-typed only under TYPE_CHECKING) — so a consumer of the read/transport primitives pays
 # no new heavyweight cost.
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
+from maezo.tools.workers.engine_var_types import camunda_int_type
 from maezo.tools.workers.phi_vars import redact_free_text_vars, redact_phi_vars
 
 logger = structlog.get_logger(__name__)
 
-# Java `int32` (java.lang.Integer) bounds — identical rationale/constants as
-# `dmn_transport.py`/`tools/workers/harness.py` (ADR-0018 part 2). Duplicated (not imported) so
-# this module has zero dependency on those modules, matching their own stated convention.
-_JAVA_INT32_MIN = -(2**31)
-_JAVA_INT32_MAX = 2**31 - 1
+# Integer wire typing is delegated to `engine_var_types.camunda_int_type` — the leaf declaration
+# module (zero imports) shared with `dmn_transport.py`/`tools/workers/harness.py`. It carries the
+# Java `int32` bounds (ADR-0018 part 2) AND the names typed `Long` unconditionally (owner decision
+# R-173). Sharing the DECLARATION is what the previous per-module duplication could not do: the
+# zero-dependency stance of this module is preserved (the leaf imports nothing), while the three
+# mappers can no longer drift apart on which variables are int64.
 
 
 class CibSevenError(RuntimeError):
@@ -239,11 +241,13 @@ class HistoryQueryingTransport(Protocol):
 
 
 def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
-    """Type process variables for the engine wire format — `Long` for ints outside int32.
+    """Type process variables for the engine wire format — `Long` for ints outside int32, and for
+    every name declared int64 unconditionally (R-173).
 
     Ported verbatim from the v1 donor's `_to_camunda_vars` (`mcp_cibseven/server.py:161-177`) —
-    same rule as `dmn_transport.py`'s helper, duplicated (not imported) per this module's
-    zero-dependency stance.
+    same rule as `dmn_transport.py`'s helper. The int branch now delegates to
+    `engine_var_types.camunda_int_type` so the three mappers share ONE declaration instead of
+    three copies of the rule.
     """
     camunda_vars: dict[str, Any] = {}
     for k, v in variables.items():
@@ -252,8 +256,7 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
         elif isinstance(v, bool):
             camunda_vars[k] = {"value": v, "type": "Boolean"}
         elif isinstance(v, int):
-            fits_int32 = _JAVA_INT32_MIN <= v <= _JAVA_INT32_MAX
-            camunda_vars[k] = {"value": v, "type": "Integer" if fits_int32 else "Long"}
+            camunda_vars[k] = {"value": v, "type": camunda_int_type(k, v)}
         elif isinstance(v, float):
             camunda_vars[k] = {"value": v, "type": "Double"}
         elif isinstance(v, dict | list):

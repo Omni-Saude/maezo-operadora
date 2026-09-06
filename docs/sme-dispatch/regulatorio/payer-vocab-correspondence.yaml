@@ -19,7 +19,7 @@ ratificacao:
 rotulo: 'recomendacao — pendente de assinatura de regulatorio + auditoria de contas'
 rotulos_a_remover_na_sessao:
   - arquivo: docs/processes/contracts/SP-OP-CONTAS-001.md
-    linha: 188
+    linha: 198
     ancora: "**Nota de taxonomia (OQ-6"
     descricao: "Nota de taxonomia OQ-6: `auditoria-contas` e `coordenacao-contas` sao nomes **PROPOSTOS**"
   - arquivo: docs/processes/contracts/SP-OP-RECURSO-001.md
@@ -123,7 +123,7 @@ linhas:
     termo_pagador_proposto: "desfechos `{pagar_integral, pagamento_aprovado_humano, glosa_aplicada_humano, pagamento_parcial_humano, conta_devolvida_humano, encaminhada_fraude}`"
     razao: "Q4: o evento de dominio e a declaracao publica do que o processo fez. Um desfecho `encaminhada_recurso` afirma que quem publicou recorreu."
     arquivo: docs/processes/contracts/SP-OP-CONTAS-001.md
-    linha: 140
+    linha: 150
     ancora: "`pagar_integral`"
   - id: C11
     cadeia: CONTAS
@@ -312,7 +312,7 @@ linhas:
     termo_pagador_proposto: "worker `registrar_indeferimento` / topico `operadora.recurso.registrar_indeferimento`, servindo as QUATRO tarefas adversas (indeferir, deferir parcial, indeferir pelo auditor, inadmitir)"
     razao: "Q1/Q3: o unico worker de efeito adverso da cadeia se chamava \"desistencia\" — o ato de quem recorre. Sob a perspectiva do pagador, o adverso e o indeferimento."
     arquivo: src/maezo/tools/workers/recurso.py
-    linha: 1561
+    linha: 1578
     ancora: "\"operadora.recurso.registrar_indeferimento\","
   - id: R20
     cadeia: RECURSO

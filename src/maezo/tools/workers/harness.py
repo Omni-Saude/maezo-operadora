@@ -81,6 +81,7 @@ from maezo.gateway.action_execution import evaluate_worker_task
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
 from maezo.tools.workers._audit_ctx import collect_dmn_versions
 from maezo.tools.workers.base import WorkerBase, WorkerRegistry
+from maezo.tools.workers.engine_var_types import camunda_int_type
 from maezo.tools.workers.phi_vars import redact_error_message
 
 logger = structlog.get_logger(__name__)
@@ -90,11 +91,10 @@ logger = structlog.get_logger(__name__)
 # `maezo.runtime.log_phi`), so warnings/errors are never silently lost outside the structlog chain.
 _stdlib_logger = logging.getLogger(__name__)
 
-# Java `int32` (java.lang.Integer) bounds. Integers outside this range are typed as `Long`
-# (int64) when written back to the engine — high-value BRL cents overflow int32 (ADR-0018 part
-# 2; see `_to_camunda_var`).
-_JAVA_INT32_MIN = -(2**31)
-_JAVA_INT32_MAX = 2**31 - 1
+# Integer typing on the engine wire is decided by `engine_var_types.camunda_int_type`: by NAME for
+# the variables declared `Long` unconditionally (owner decision R-173), by magnitude otherwise
+# (Java `int32` bounds, ADR-0018 part 2 — high-value BRL cents overflow int32). The bounds
+# constants live in that leaf module, the single copy in the tree; see `_to_camunda_var`.
 
 #: Terminal dispatch outcomes emitted on the `maezo_worker_task_total` / `_duration_seconds`
 #: metrics (design §13). `incident` is additive over v1's {completed, bpmn_error, failed} — it
@@ -590,7 +590,7 @@ def extract_refusal_code(exc: BaseException) -> str | None:
 TaskHandler = Callable[["ExternalTask"], Coroutine[Any, Any, Mapping[str, Any] | None]]
 
 
-def _to_camunda_var(value: Any) -> dict[str, Any]:
+def _to_camunda_var(value: Any, *, name: str | None = None) -> dict[str, Any]:
     """Type an output-variable value into the CIB Seven / Camunda variable wire format.
 
     Mirrors the canonical serialization used elsewhere in this codebase (`mcp_cibseven`), with
@@ -601,18 +601,23 @@ def _to_camunda_var(value: Any) -> dict[str, Any]:
 
     **Load-bearing**: money (BRL cents) and dossier round-trips depend on the `Long`/`Json`
     typing below — v1 fixtures assert it; preserved verbatim (design §5/§16.1).
+
+    `name` is the variable NAME the value will be written under. It is what lets
+    `engine_var_types.camunda_int_type` honour the names declared `Long` UNCONDITIONALLY (owner
+    decision R-173) instead of typing them by magnitude; callers that hold no name (a bare value
+    conversion) pass none and get the magnitude rule.
     """
     if isinstance(value, dict) and "value" in value:
         return value
     if isinstance(value, bool):
         return {"value": value, "type": "Boolean"}
     if isinstance(value, int):
-        # Fits Java int32 -> Integer; otherwise -> Long (int64). High-value BRL cents (e.g. a
-        # R$50MM payment = 5,000,000,000 cents) overflow int32 and MUST be Long, or the engine
-        # rejects the complete with "Cannot convert value '<n>' of type 'Integer' to java type
+        # `Long` by NAME for the variables declared int64 unconditionally (R-173); otherwise by
+        # magnitude — fits Java int32 -> Integer, else Long. High-value BRL cents (e.g. a R$50MM
+        # payment = 5,000,000,000 cents) overflow int32 and MUST be Long, or the engine rejects
+        # the complete with "Cannot convert value '<n>' of type 'Integer' to java type
         # java.lang.Integer" (ADR-0018 part 2).
-        fits_int32 = _JAVA_INT32_MIN <= value <= _JAVA_INT32_MAX
-        return {"value": value, "type": "Integer" if fits_int32 else "Long"}
+        return {"value": value, "type": camunda_int_type(name, value)}
     if isinstance(value, float):
         return {"value": value, "type": "Double"}
     if isinstance(value, dict | list):
@@ -837,7 +842,7 @@ class CibSevenWorkerTransport:
         return tasks
 
     async def complete(self, task_id: str, worker_id: str, variables: dict[str, Any]) -> None:
-        camunda_vars = {k: _to_camunda_var(v) for k, v in variables.items()}
+        camunda_vars = {k: _to_camunda_var(v, name=k) for k, v in variables.items()}
         resp = await self._client.post(
             f"/external-task/{task_id}/complete",
             json={"workerId": worker_id, "variables": camunda_vars},
@@ -880,7 +885,7 @@ class CibSevenWorkerTransport:
             "errorMessage": error_message,
         }
         if variables:
-            payload["variables"] = {k: _to_camunda_var(v) for k, v in variables.items()}
+            payload["variables"] = {k: _to_camunda_var(v, name=k) for k, v in variables.items()}
         resp = await self._client.post(f"/external-task/{task_id}/bpmnError", json=payload)
         resp.raise_for_status()
 

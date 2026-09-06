@@ -598,6 +598,114 @@ def test_indeferimento_deferir_parcial_soma_confere() -> None:
 
 
 # ---------------------------------------------------------------------------
+# registrar_indeferimento — R-155: exact integer-cent equality is a PERMANENT invariant
+# ---------------------------------------------------------------------------
+#
+# Owner decision R-155 of 2026-09-04 closed OQ-R2: *"Fechar a pergunta declarando a igualdade
+# exata em centavos-inteiros como invariante PERMANENTE do guard de `registrar_indeferimento`
+# (nao como default provisorio): qualquer tolerancia futura entra depois como regra nova assinada
+# por financas, em PR proprio, e o sign-off de SP-OP-RECURSO-001 deixa de esperar por ela."*
+#
+# What these tests pin is the SHAPE of the comparison, because that is what a future edit would
+# quietly change. Before them, `test_indeferimento_deferir_parcial_soma_confere` above proved the
+# guard refuses a sum off by ONE REAL — so a guard rewritten with a tolerance of a few centavos
+# stayed green (measured: injecting `abs(...) > 1` left all 144 tests of this file passing).
+# Three mutation classes must now go RED: a float comparison, ANY tolerance, and a comparison
+# that is not at integer-cent grain.
+
+
+def _parcial(**over: object) -> RecursoIndeferimentoInput:
+    base: dict[str, object] = {
+        "decisao_recurso": "DEFERIR_PARCIAL",
+        "valor_deferido_brl": 60.0,
+        "valor_glosa_mantido_brl": 40.0,
+        "valor_glosado_brl": 100.0,
+    }
+    base.update(over)
+    return _indeferimento_input(**base)
+
+
+@pytest.mark.parametrize("delta_centavos", [1, -1, 2, -2, 7, -7, 50, -50, 99, -99])
+def test_indeferimento_soma_nao_fecha_recusa_sem_qualquer_tolerancia(delta_centavos: int) -> None:
+    """NO tolerance, at any width. The smallest possible miss — ONE CENTAVO — refuses exactly like
+    a miss of one real. This is the test that a `abs(soma - total) <= N` rewrite fails, for every
+    N >= 1; loosening the guard is a finanças-signed rule in its own PR (R-155), never an edit."""
+    with pytest.raises(RecursoIndeferimentoNotHumanError) as exc:
+        registrar_indeferimento(_parcial(valor_deferido_brl=60.0 + delta_centavos / 100))
+    assert "soma nao fecha" in str(exc.value)
+
+
+def test_indeferimento_um_centavo_a_menos_e_um_centavo_a_mais_recusam_igual() -> None:
+    """Symmetry: the guard has no favoured direction — it does not round toward the operadora on
+    a short sum nor toward the prestador on a long one."""
+    for valor_mantido in (39.99, 40.01):
+        with pytest.raises(RecursoIndeferimentoNotHumanError) as exc:
+            registrar_indeferimento(_parcial(valor_glosa_mantido_brl=valor_mantido))
+        assert "soma nao fecha" in str(exc.value)
+    assert registrar_indeferimento(_parcial(valor_glosa_mantido_brl=40.0)).registered is True
+
+
+@pytest.mark.parametrize(
+    ("deferido", "mantido", "glosado"),
+    [
+        (0.1, 0.2, 0.3),  # 0.1 + 0.2 == 0.30000000000000004 as floats
+        (1.1, 2.2, 3.3),  # 3.3000000000000003
+        (0.1, 0.7, 0.8),  # 0.7999999999999999
+        (100.1, 200.2, 300.3),  # 300.29999999999995
+    ],
+)
+def test_indeferimento_a_comparacao_e_em_centavos_inteiros_nao_em_float(
+    deferido: float, mantido: float, glosado: float
+) -> None:
+    """A sum that closes EXACTLY in centavos is accepted even where binary floats disagree with
+    decimal arithmetic. A guard rewritten to compare the floats directly refuses every row here —
+    it would reject correct money because of a representation artefact."""
+    assert deferido + mantido != glosado, "row nao exercita a divergencia float (revise o caso)"
+    assert (
+        registrar_indeferimento(
+            _parcial(valor_deferido_brl=deferido, valor_glosa_mantido_brl=mantido, valor_glosado_brl=glosado)
+        ).registered
+        is True
+    )
+
+
+def test_indeferimento_o_grao_da_igualdade_e_o_centavo_inteiro() -> None:
+    """DECLARED LIMIT, pinned so a change cannot be silent: both sides are converted to centavos by
+    `_to_cents` BEFORE the comparison, so the equality is exact at the CENTAVO. A sub-centavo
+    residue in an input is resolved by that conversion — it is not slack in the comparison, and a
+    sum that misses by a full centavo still refuses. Any rule about sub-centavo amounts is a new
+    finanças-signed rule in its own PR (R-155), which is why this behaviour is pinned rather than
+    changed here."""
+    # 60,004 + 40,00 == 100,00 at centavo grain (6000 + 4000 == 10000).
+    assert (
+        registrar_indeferimento(
+            _parcial(valor_deferido_brl=60.004, valor_glosa_mantido_brl=40.0, valor_glosado_brl=100.0)
+        ).registered
+        is True
+    )
+    # ...and the very next centavo does not close.
+    with pytest.raises(RecursoIndeferimentoNotHumanError) as exc:
+        registrar_indeferimento(
+            _parcial(valor_deferido_brl=60.004, valor_glosa_mantido_brl=40.0, valor_glosado_brl=100.01)
+        )
+    assert "soma nao fecha" in str(exc.value)
+
+
+def test_a_recusa_declara_a_invariante_permanente_ao_operador() -> None:
+    """The refusal message is the operator-facing declaration: it names the invariant and where a
+    tolerance would have to come from. It must not advertise an OPEN SME question — R-155 closed
+    OQ-R2, and the sign-off of SP-OP-RECURSO-001 no longer waits on it."""
+    with pytest.raises(RecursoIndeferimentoNotHumanError) as exc:
+        registrar_indeferimento(_parcial(valor_glosa_mantido_brl=41.0))
+    mensagem = str(exc.value)
+    assert "centavos-inteiros, igualdade exata" in mensagem
+    assert "invariante permanente do guard" in mensagem
+    assert "R-155" in mensagem
+    assert "financas" in mensagem
+    assert "OQ-R2" not in mensagem
+
+
+# ---------------------------------------------------------------------------
 # registrar_indeferimento — auditor channel (finding 4, t3.1-recurso-findings-a)
 # ---------------------------------------------------------------------------
 

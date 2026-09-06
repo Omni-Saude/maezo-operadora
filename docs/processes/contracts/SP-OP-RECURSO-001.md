@@ -98,7 +98,7 @@ isso a ponte semeia os três explicitamente.
 | `decisao_recurso` | string | `DEFERIR` \| `DEFERIR_PARCIAL` \| `INDEFERIR` \| `SOLICITAR_INFO` \| `ESCALAR_AUDITOR` (origem: User Tasks humanas) |
 | `fundamentacao_indeferimento` | string | **Obrigatória se `INDEFERIR` ou `DEFERIR_PARCIAL`** — fundamentação da resposta adversa |
 | `valor_glosa_mantido_brl` | double | **Obrigatória se `INDEFERIR`/`DEFERIR_PARCIAL`** — valor da glosa **mantido** pela operadora (money = double) |
-| `valor_deferido_brl` | double | **Obrigatória se `DEFERIR`/`DEFERIR_PARCIAL`** — valor da glosa **revertido**; alimenta o handoff a SP-OP-PAGTO-001. Em `DEFERIR_PARCIAL` a soma `valor_deferido_brl + valor_glosa_mantido_brl == valor_glosado_brl` é conferida em **centavos-inteiros, igualdade exata** (tolerância/arredondamento é **OQ-R2**, decisão de finanças) |
+| `valor_deferido_brl` | double | **Obrigatória se `DEFERIR`/`DEFERIR_PARCIAL`** — valor da glosa **revertido**; alimenta o handoff a SP-OP-PAGTO-001. Em `DEFERIR_PARCIAL` a soma `valor_deferido_brl + valor_glosa_mantido_brl == valor_glosado_brl` é conferida em **centavos-inteiros, igualdade exata** — **invariante PERMANENTE do guard**, não default provisório (decisão do dono **R-155** de 2026-09-04, que fechou **OQ-R2**). Qualquer tolerância ou regra de arredondamento **afrouxa** o guard e por isso continua humana: entra como **regra nova assinada por finanças, em PR próprio**, nunca como edição deste contrato ou do worker. O grão da igualdade é o **centavo**: os dois lados são convertidos a centavos-inteiros antes da comparação (`recurso.py::_to_cents`), e regra sobre valores sub-centavo é igualmente regra nova assinada por finanças |
 | `referencia_contratual` | string | **Obrigatória se `INDEFERIR`/`DEFERIR_PARCIAL`** — cláusula/fundamentação contratual |
 | `parecer_auditor` | string | Obrigatória quando `UT_RevisaoAuditorMedico` decide o mérito (glosa técnica/clínica) |
 | `decisao_auditor_recurso` | string | `DEFERIR` \| `DEFERIR_PARCIAL` \| `INDEFERIR` (auditor médico decide o mérito) |
@@ -282,8 +282,14 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
 - Registro dos tópicos em `config/topic_registry.yaml` (W0.2) e dos candidate groups onde aplicável.
 - Política de suspensão de prazo durante pendência de documentação (confirmar regra RN).
 - **Handoff de pagamento da glosa revertida** a SP-OP-PAGTO-001 (`operadora.recurso.handoff_pagamento`):
-  confirmar com finanças + jurídico a origem de `data_vencimento` numa reversão de glosa (**OQ-3**)
-  e a regra de arredondamento em `DEFERIR_PARCIAL` (**OQ-R2**).
+  confirmar com finanças + jurídico a origem de `data_vencimento` numa reversão de glosa (**OQ-3**).
+  ~~E a regra de arredondamento em `DEFERIR_PARCIAL` (**OQ-R2**).~~ **FECHADA** pela decisão do dono
+  **R-155** de 2026-09-04: a igualdade exata em centavos-inteiros é **invariante permanente** do
+  guard de `registrar_indeferimento`, e **o sign-off deste contrato não espera mais por ela**.
+  Uma tolerância futura só pode AFROUXAR o guard, e afrouxar segue humano — regra nova assinada
+  por finanças, em PR próprio. Fixada por teste em
+  `tests/unit/tools/workers/test_recurso.py` (secção "R-155"). As demais perguntas de finanças
+  deste contrato (R-154, R-156, R-189, R-190) seguem no pacote datado por R-137.
 - **Adaptador de intake TISS do recurso** (`agents.events.recurso.intake_recebido`): a regra de
   bridge existe e está fenceada, o publicador **não** (**OQ-R1**).
 - Confirmação dos nomes TISS "Recurso de Glosa" / "Resposta ao Recurso de Glosa" (**OQ-1**).

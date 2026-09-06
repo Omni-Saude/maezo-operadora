@@ -70,7 +70,9 @@ Business key `RECURSO-amh-GUIA-TESTE-0001-GLOSA-TESTE-0001`.
 - **When** completar com `decisao_recurso=DEFERIR_PARCIAL` sem `valor_deferido_brl`
 - **Then** o guard **RECUSA** — sem o valor revertido não há ordem de pagamento a emitir.
   A soma `valor_deferido_brl + valor_glosa_mantido_brl == valor_glosado_brl` é conferida em
-  **centavos-inteiros, igualdade exata** (arredondamento/tolerância é **OQ-R2**).
+  **centavos-inteiros, igualdade exata** — **invariante PERMANENTE** do guard (decisão do dono
+  **R-155** de 2026-09-04, que fechou **OQ-R2**). Tolerância/arredondamento só AFROUXA e por isso
+  segue humano: regra nova assinada por finanças, em PR próprio.
 
 ### test_worker_guard_registrar_indeferimento_recusa_sem_humano
 - **Given** o worker `operadora.recurso.registrar_indeferimento` recebe uma external task sem que
