@@ -345,6 +345,15 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
     tracked = tracked_files(repo_root)
     failures: list[str] = []
     disclosed: list[str] = []
+    # Reparo F3/VER-ADR-BATCH (2026-09-06, terceiro agente): the allowlist-rot self-audit below
+    # used to ask "did ANY disclosed message mention this doc's FILENAME?" — a substring match on
+    # `entry.doc` against the rendered `disclosed` strings. Two entries on the SAME doc cover for
+    # each other under that check: a bogus, fully-resolvable entry parked on a doc that already has
+    # one genuine disclosure passes silently, because the doc name still shows up in `disclosed`
+    # from the OTHER entry. Tracking exactly which `(doc, citation_repr)` PAIR actually fired —
+    # rather than re-deriving it from rendered text — makes the self-audit ask the right question:
+    # "was THIS entry the thing that got disclosed?"
+    fired_pairs: set[tuple[str, str]] = set()
     line_count = 0
 
     for md_path in sorted(adr_dir.glob("*.md")):
@@ -356,6 +365,8 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
             citation_repr = f"{sc.path}::{sc.symbol}"
             if not candidates:
                 reason = _disclosed_reason(doc_name, citation_repr)
+                if reason:
+                    fired_pairs.add((doc_name, citation_repr))
                 msg = f"{doc_name}:{sc.doc_line}: `{citation_repr}` — file not found in tree"
                 (disclosed if reason else failures).append(
                     msg + (f" [DISCLOSED: {reason}]" if reason else "")
@@ -363,6 +374,8 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
                 continue
             if not resolve_symbol(repo_root, candidates, sc.symbol):
                 reason = _disclosed_reason(doc_name, citation_repr)
+                if reason:
+                    fired_pairs.add((doc_name, citation_repr))
                 msg = f"{doc_name}:{sc.doc_line}: `{citation_repr}` — symbol not found (tried {candidates})"
                 (disclosed if reason else failures).append(
                     msg + (f" [DISCLOSED: {reason}]" if reason else "")
@@ -375,6 +388,8 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
                 for name in ic.names:
                     citation_repr = f"import {ic.module}::{name}"
                     reason = _disclosed_reason(doc_name, citation_repr)
+                    if reason:
+                        fired_pairs.add((doc_name, citation_repr))
                     msg = (
                         f"{doc_name}:{ic.doc_line}: `from {ic.module} import {name}` — "
                         f"module does not resolve to {module_path}"
@@ -388,6 +403,8 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
                     continue
                 citation_repr = f"import {ic.module}::{name}"
                 reason = _disclosed_reason(doc_name, citation_repr)
+                if reason:
+                    fired_pairs.add((doc_name, citation_repr))
                 msg = (
                     f"{doc_name}:{ic.doc_line}: `from {ic.module} import {name}` — "
                     f"name not found in {module_path}"
@@ -402,11 +419,16 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
     # maintainer must prune it, or a fixed citation could regress silently under the same name.
     # An entry whose `doc` is not even part of THIS scan (a different `--adr-dir`, or a synthetic
     # fixture repo in tests) is simply not applicable here — skipped, not failed.
+    #
+    # Keyed on the (doc, citation_repr) PAIR that actually fired this run (`fired_pairs`), not on
+    # a substring match of the doc name against the rendered `disclosed` messages — see the
+    # `fired_pairs` comment above for why the old check let a second, bogus entry on an
+    # already-disclosed doc pass silently (reparo F3/VER-ADR-BATCH).
     for entry in _DISCLOSED_ROT:
         doc_path = adr_dir / entry.doc
         if not doc_path.is_file():
             continue
-        still_present = any(entry.doc in item for item in disclosed)
+        still_present = (entry.doc, entry.citation_repr) in fired_pairs
         if not still_present:
             failures.append(
                 f"_DISCLOSED_ROT: `{entry.citation_repr}` in {entry.doc} now resolves (or was "

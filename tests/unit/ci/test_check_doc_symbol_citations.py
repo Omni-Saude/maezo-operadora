@@ -175,6 +175,54 @@ def test_a_disclosed_rot_entry_that_now_resolves_fails_as_stale_allowlist(
     assert any("stale allowlist rot" in f for f in result.failures)
 
 
+def test_two_disclosed_rot_entries_on_the_same_doc_a_live_one_does_not_mask_a_stale_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Reparo F3/VER-ADR-BATCH (2026-09-06, terceiro agente). Regression for the exact bug the
+    verifier's M1 mutation exposed: the allowlist-rot self-audit used to ask "did ANY disclosed
+    message mention this DOC'S FILENAME?" — a substring match on `entry.doc`, not on the specific
+    `(doc, citation_repr)` pair that actually fired. Two `_DISCLOSED_ROT` entries naming the SAME
+    doc covered for each other under that check: as long as ONE of them was genuinely disclosed
+    this run, the doc's filename showed up in `disclosed`, and a SECOND, bogus entry on that same
+    doc — one whose citation was never even present in the text, so it can never legitimately fire
+    — passed silently instead of being flagged as stale allowlist rot.
+
+    This fixture puts exactly that shape in front of the gate: one doc, one real unresolved
+    citation (`long_gone`, genuinely disclosed) plus one `_DISCLOSED_ROT` entry for a citation that
+    plain does not appear anywhere in the doc (`never_cited_anywhere` — cannot possibly have fired).
+    Before the reparo this passed GREEN (2 disclosed, the bogus entry along for the ride). After
+    the reparo it must fail specifically on the bogus entry, while the real disclosure stays
+    reported (not double-penalised)."""
+    root = _make_fixture_repo(
+        tmp_path,
+        adr_body="cites `src/maezo/tools/workers/widget.py::long_gone` — known, disclosed rot.\n",
+        py_body="def still_here():\n    pass\n",
+    )
+    live_entry = gate.DisclosedRot(
+        doc="0001-fixture.md",
+        citation_repr="src/maezo/tools/workers/widget.py::long_gone",
+        reason="test fixture: genuinely disclosed — this citation IS in the doc and unresolved",
+    )
+    stale_entry = gate.DisclosedRot(
+        doc="0001-fixture.md",
+        citation_repr="src/maezo/tools/workers/widget.py::never_cited_anywhere",
+        reason="test fixture: BOGUS — this citation never appears in the doc, so it can never fire",
+    )
+    monkeypatch.setattr(gate, "_DISCLOSED_ROT", (live_entry, stale_entry))
+    result = gate.run_gate(root, root / "docs" / "adr")
+
+    assert not result.ok, (
+        "the stale entry on an already-disclosed doc must fail the gate, not hide behind the "
+        f"live entry's disclosure — got: {result.render()}"
+    )
+    assert any(
+        "never_cited_anywhere" in f and "stale allowlist rot" in f for f in result.failures
+    ), result.render()
+    # The live entry's own disclosure must still be reported, undisturbed by the sibling failure.
+    assert any("long_gone" in d for d in result.disclosed), result.render()
+    assert not any("long_gone" in f for f in result.failures), result.render()
+
+
 # ===================================================================================================
 # 6. Mutation proof — a broken resolver must turn a passing citation RED
 # ===================================================================================================
