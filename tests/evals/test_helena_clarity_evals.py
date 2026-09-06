@@ -90,7 +90,11 @@ async def test_helena_clareza_eval_tier_a(case: dict[str, Any]) -> None:
     it drafts for the beneficiary."""
     result = await run_case(build, case, extra_config=_helena_extra_config())
     assert_expect(result.state, case["expect"])
-    assert_no_leak(result.state, case.get("leak_canaries") or [])
+    # NEW-07 (Delta F1, VERIFY-EVAL-HARNESS-SENDER.md): this case sends via the sender wired by
+    # `_helena_extra_config()` — `sender=result.whatsapp` folds every text Helena actually sent
+    # into the same ABS scan, closing the same blind spot the original fix closed for
+    # `test_classifier_evals.py::test_helena_eval_tier_a`.
+    assert_no_leak(result.state, case.get("leak_canaries") or [], sender=result.whatsapp)
     assert_clarity(_clarity_report(result.state, case["clarity"]))
 
 

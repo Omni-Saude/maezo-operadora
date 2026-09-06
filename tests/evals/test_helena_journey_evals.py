@@ -70,7 +70,11 @@ async def test_helena_journey_eval_intake_triage_handoff(case: dict[str, Any]) -
 
     # The turn-level RT/SF/ABS criterion still holds — this IS also an ordinary Tier-A eval.
     assert_expect(result.state, case["expect"])
-    assert_no_leak(result.state, case.get("leak_canaries") or [])
+    # NEW-07 (Delta F1, VERIFY-EVAL-HARNESS-SENDER.md): this case sends via the `sender` above
+    # (wired through `_helena_extra_config`) — `sender=result.whatsapp` folds every text Helena
+    # actually sent into the same ABS scan, closing the same blind spot the original fix closed
+    # for `test_classifier_evals.py::test_helena_eval_tier_a`.
+    assert_no_leak(result.state, case.get("leak_canaries") or [], sender=result.whatsapp)
 
     # --- Stage 1: intake (`saudacao_identificacao`) ------------------------------------------
     intake = journey["intake"]
