@@ -12,12 +12,16 @@ cheap regression fence so the claim cannot silently drift back in.
 
 Two checks:
   1. NO `src/maezo/agents/*/graph.py` module docstring may contain the stale denial (regex).
-  2. Every agent THIS WORK PACKAGE vouches for that has a real `agents/<agent>/delegation.py`
-     (rafael/carolina/andre) must mention "delegation.py" in its module docstring — so a future
-     docstring rewrite that silently drops the disclosure trips this fence too. Scoped
-     deliberately to this WP's charter (see module docstring above): `helena` also has a
-     `delegation.py` but its `graph.py` docstring was OUT OF SCOPE for CC-04 and is not touched
-     here (reported as an adjacency NOT fixed, not silently swept under a broader assertion).
+  2. Every agent that has a real `agents/<agent>/delegation.py` must mention "delegation.py" in
+     its `graph.py` module docstring — so a future docstring rewrite that silently drops the
+     disclosure trips this fence too. `_AGENTS_WITH_REAL_DELEGATION_IN_SCOPE` is DERIVED from the
+     filesystem (every `agents/*/delegation.py`), not hand-curated: CC-04's original list was a
+     hardcoded 3-tuple (`rafael`/`carolina`/`andre`, this WP's own charter at the time), which
+     silently stopped covering beatriz/marina/gustavo/valentina/fernando/helena once each grew a
+     real `delegation.py` later — five of those six already disclose it correctly in prose
+     (verified unenforced good luck, not fence-guaranteed, until this fix); `helena` did not and
+     is fixed here too (FENCE-PINS). A future agent that grows a `delegation.py` enters this set
+     automatically, with no fence edit needed.
 
 A third, narrower check covers the GUS-01-adjacent finding surfaced mid-WP: two worker
 docstrings (`tools/workers/nip.py::assemble_response`,
@@ -41,10 +45,12 @@ REPO_SRC = Path(__file__).resolve().parents[3] / "src" / "maezo"
 # (past tense) never re-trips it.
 _STALE_A2A_DENIAL = re.compile(r"has no .*DelegationEnvelope|a2a/`? package has no|no DelegationDispatcher")
 
-# Agents this WP (cc04-docstrings-a2a) is authoring/vouching for. Scoped exactly to the 7 graphs
-# named in the WP brief plus the 3 that already had a correct, wired `delegation.py` disclosure
-# before this WP touched anything (rafael/carolina/andre overlap both sets).
-_AGENTS_WITH_REAL_DELEGATION_IN_SCOPE = ("rafael", "carolina", "andre")
+# Every agent with a real `agents/<agent>/delegation.py` on disk TODAY, re-derived by walking the
+# filesystem every run (FENCE-PINS/CC-04): the fence-shape gap this replaces was a hardcoded
+# 3-tuple that could not notice a new delegation.py landing under a different WP's charter.
+_AGENTS_WITH_REAL_DELEGATION_IN_SCOPE = tuple(
+    sorted(p.parent.name for p in (REPO_SRC / "agents").glob("*/delegation.py"))
+)
 
 _ALL_AGENT_GRAPH_FILES = sorted((REPO_SRC / "agents").glob("*/graph.py"))
 

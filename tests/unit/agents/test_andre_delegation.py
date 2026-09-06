@@ -368,6 +368,33 @@ def test_state_from_envelope_sets_pagto_dossier_flow_explicitly_and_materializes
     assert state["dentro_teto_l2"] is False
 
 
+def test_state_from_envelope_raises_if_a_meta_key_ever_escapes_the_input_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REG-06: the `unknown` guard at the end of `state_from_envelope` is a REAL, fail-closed
+    check, not a `# pragma: no cover` promise — proven by making it fire for real instead of
+    trusting the comment's "structural guard" claim. `_PAGTO_STRING_META_KEYS` is monkeypatched
+    to add a name outside `graph._CALLER_INPUT_FIELDS`, the same name is planted in
+    `payload_meta` (the only way `raw` ever gains a key on the pagto flow), and the guard is
+    asserted to raise instead of silently widening the state.
+    """
+    import maezo.agents.andre.delegation as delegation_module
+
+    bogus_key = "reg06_mutation_probe_unknown_key"
+    assert bogus_key not in _CALLER_INPUT_FIELDS
+    monkeypatch.setattr(
+        delegation_module,
+        "_PAGTO_STRING_META_KEYS",
+        (*delegation_module._PAGTO_STRING_META_KEYS, bogus_key),
+    )
+    envelope = _pagto_envelope()
+    planted = {**dict(envelope.payload_meta), bogus_key: "valor-fora-do-limite"}
+    object.__setattr__(envelope, "payload_meta", planted)
+
+    with pytest.raises(ValueError, match="non-input keys for Andre"):
+        state_from_envelope(envelope)
+
+
 def _pagto_dmn(*, faixa_valor: str = "ALCADA_L1", grupo: str = "aprovacao-financeira-l1") -> FakeDmnTransport:
     dmn = FakeDmnTransport()
     dmn.register("pagto_admissibility", [{"roteamento": "SEGUE_ROTEAMENTO", "motivo": "test"}])

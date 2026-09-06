@@ -113,6 +113,14 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   LangGraph checkpointer (T4b, `runtime.checkpoint.Checkpointer`) and invokes it under a PHI-safe
   per-conversation thread config, so cross-turn state does persist in production. The remaining
   follow-up is ADR-0002's episodic/semantic memory layers, not the checkpointer.
+
+A2A / DELEGATION (ADR-0003, CC-04/FENCE-PINS disclosure): THIS graph does not change to gain
+that capability — `agents/helena/delegation.py` is a SIBLING module (not a node of the graph
+above) that lets a harness/authorization journey ORIGINATE a prior-authorization-analysis
+sub-task and delegate it to Rafael via `DelegationDispatcher.delegate`. Helena is not a
+delegation TARGET in Phase 1 (`spec/agents/helena/agent.yaml`'s `accepted_task_types: []`
+confirms it); `agents/helena/delegation.py` only originates, never receives, and this graph's own
+routing (`receive -> classify -> {...} -> respond`) is unaffected either way.
 """
 
 from __future__ import annotations

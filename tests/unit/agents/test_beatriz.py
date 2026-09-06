@@ -24,6 +24,8 @@ import yaml
 
 from maezo.agents.beatriz.graph import (
     _CALLER_INPUT_FIELDS,
+    _SUMMARY_ALLOWED_KEYS,
+    _SUMMARY_PROJECTION,
     ERROR_CONTEXTO_RUNTIME_AUSENTE,
     NOTE_FHIR_READER_NAO_CONFIGURADO,
     NOTE_NARRATIVA_INDISPONIVEL,
@@ -428,6 +430,23 @@ _NOTE_RESUMO_RECUSADO = "resumo_fhir_recusado"
 
 #: The closed projection allowlist, restated as a literal for the same reason.
 _SUMMARY_KEYS = {"resourceType", "id"}
+
+
+def test_summary_projection_allowlist_is_pinned_by_membership() -> None:
+    """BEA-06 hardening. `test_gather_projects_summary_to_the_closed_allowlist` below only
+    asserts `set(result["summary_facts"]) <= _SUMMARY_KEYS`, a check that fires ONLY for keys
+    present in one fake reader's payload — a WIDENED `_SUMMARY_PROJECTION` (e.g. a new free-text
+    key such as `narrativa`) is invisible to it as long as no test payload happens to carry that
+    key (proven live during assurance: adding `"narrativa": lambda value, ref: isinstance(value,
+    str)` to `_SUMMARY_PROJECTION` leaves the FULL unit lane green while a CPF-bearing value
+    flows through to the dossier). This pins the allowlist by MEMBERSHIP instead of by
+    payload-dependent subset, and also wires `_SUMMARY_ALLOWED_KEYS` into an executable check
+    (REG-05: previously referenced only in docstring prose — zero executable references) so the
+    two constants cannot silently drift apart either.
+    """
+    assert set(_SUMMARY_PROJECTION) == _SUMMARY_KEYS
+    assert frozenset(_SUMMARY_KEYS) == _SUMMARY_ALLOWED_KEYS
+    assert frozenset(_SUMMARY_PROJECTION) == _SUMMARY_ALLOWED_KEYS
 
 
 class _ShapeShiftingReader:
