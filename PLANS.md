@@ -421,6 +421,52 @@ delegação + idempotência durável p/ A2A não-local.
 - **Q-4 — quatro ações canônicas, SEM aliases:** inferência de zona-split, A2A e leitura
   populacional entram no vocabulário como nomes próprios. Nada de camada de alias PT↔EN
   (`pep.py:12-18`: um mapa de alias é um segundo vocabulário e uma superfície fail-open).
+  **STRINGS FIXADAS (2026-09-06)**, como DADO no bloco `vocabulario_l0_canonico` de
+  `spec/policies/autonomy/action-approvals.yaml` — a Q-4 decidiu NOMEAR; o que faltava eram as
+  strings:
+  - `generate_model_inference` — inferência na Zona Geral (`inference.generate`).
+  - `generate_model_inference_phi` — inferência na Zona PHI/Financeira
+    (`inference.generate_phi`). Duas strings, não uma com dois usos: a zona é o fato que o
+    aprovador precisa ver sem carregar o prompt. O `PhiZoneRoutingError` do provider segue
+    fail-closed INDEPENDENTE deste vocabulário (I-6) — nomear não é o controle.
+  - `delegate_agent_task` — delegação A2A por envelope assinado (`a2a.delegate`).
+  - `read_population_aggregate` — agregados populacionais/atuariais k-anônimos
+    (`population.actuarial_risk`, `population.population_metrics`). Um nome para duas operações é
+    escopo de ação, não alias. Deliberadamente NÃO é `read_phi_data`: agregado k-anônimo não é
+    PHI (ADR-0042).
+  - **NOMEAR NÃO É INSTALAR.** Nenhum destes nomes está em `L0-core.yaml`: toda entrada carrega
+    `instalado_em_l0_core: false` e `ratificacao.ratificado: false`, com accountability em
+    `PENDENTE`. Instalar na matriz é ato HUMANO ADR-0008/0025 COM o cross-check de
+    `_hard_frozen.yaml`; até lá o catálogo mantém `autonomy_action=None` e a camada L-2 do PEP de
+    efeito NEGA com `VOCABULARIO_PENDENTE`. `tests/unit/sec/test_l0_canonical_action_naming.py`
+    prova o piso: nem um manifesto forjado para `RATIFICADO`, com todas as aprovações
+    preenchidas, abre ALLOW para essas operações.
+- **Sequência humana de flips de enforcement C0→C4 — fixada por escrito (2026-09-06). Nenhum
+  passo é ato de agente.** A Q-1 já dizia QUE cada virada é um PR sob CODEOWNERS; isto fixa a
+  ORDEM e os passos. Ordem de degrau, crescente e sem pular: **C0 (leitura interna) → C1
+  (notificação) → C2 (PHI ou modelo) → C3 (mutação de engine) → C4 (adverso / dinheiro /
+  regulatório)**. Qual classe está em qual degrau é dado de código (`RUNG_C0_LEITURA_INTERNA` ..
+  `RUNG_C4_ADVERSO` em `src/maezo/gateway/effect_classes.py`) e NÃO é redigitado aqui — uma
+  segunda cópia só existiria para divergir. Passos, por classe, nesta ordem:
+  1. Os três domínios preenchem CADA UM o seu bloco em `acoes.<classe>.aprovacoes`. Preenchimento
+     parcial é recusado pelo loader — nunca lido como ratificação.
+  2. `status: RATIFICADO` — uma única vez, no primeiro flip de todos.
+  3. `modo: enforcing` — uma única vez, no primeiro flip de todos. É o TETO, não o interruptor.
+  4. `acoes.<classe>.enforcement: enforcing` — **este é o interruptor por classe.**
+  5. Verificar CONTRA TELEMETRIA: o evento tem de virar `action_execution_gateway_enforced` e o
+     campo `mode` tem de ler `enforcing`. Um flip que falhou é, de fora, idêntico a uma sombra
+     saudável — por isso verificar é PASSO, não zelo.
+  6. Soak pela janela acordada; só então o degrau seguinte.
+  7. **Ato terminal, depois do último degrau:** `enforcement_padrao_nao_mapeado: enforcing`,
+     restaurando o XRD-09 do ADR-0037 na letra.
+  Pré-condições que atravessam a sequência e não são dispensáveis por conveniência: sampler +
+  ReviewQueue construídos ANTES de qualquer enforcement (Q-3); benchmarks p99 de PEP e auditoria
+  separados e assinados (Q-9); guarda de single-tenant para o manifesto global (Q-8); nenhum flip
+  de C2 com `consentimento_exigido` enquanto o adapter de consentimento não existir (Q-5); e as
+  duas PRÉ-CONDIÇÕES já registradas dentro de `acoes.consulta_processo` (resíduo pós-claim; e o
+  alcance do enforcement sobre daemons sem registro de capacidade). O detalhe operacional vive em
+  `docs/design/wave1-effect-chokepoint.md` §9.4; o que fica aqui é a ORDEM e a AUTORIDADE — **cada
+  passo é ato humano de Security, jamais de agente e jamais de runtime.**
 - **Q-5 — consentimento NUNCA é declarado implementado até haver adapter completo.** Enquanto só
   existir a porta (`ports/consent.py`), a perna L-4 permanece honestamente não-implementada.
 - **Q-7 — rollback = restart**, com **SLO e teste** que provem a latência de rollback (em vez de
