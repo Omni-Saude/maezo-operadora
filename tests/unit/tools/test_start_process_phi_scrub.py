@@ -463,3 +463,107 @@ async def test_real_graph_start_process_node_propagates_the_redaction_error() ->
 
     assert recorded == [], "the engine must not have been called"
     assert sink.calls == [], "no durable claim may exist for a refused start"
+
+
+# ---------------------------------------------------------------------------
+# 8 — CC-06 §Delta2 (REG-01 + residuo #5): valores ESTRUTURADOS sob um nome de texto livre
+# ---------------------------------------------------------------------------
+#
+# `phi_vars._redact_free_text_value` conhecia `str` e `list[str]`. Uma TUPLA de prosa (REG-01) e
+# um mapping / lista-de-mappings sob o mesmo nome (residuo #5) chegavam ao engine VERBATIM. Os
+# testes abaixo pinam as duas metades NO CHOKEPOINT: o que e' redigivel e' redigido, e o que nao
+# e' inspecionavel RECUSA o start (sem reivindicacao duravel e sem chamada ao engine).
+
+
+async def test_structured_narrativa_is_scrubbed_at_the_chokepoint() -> None:
+    """As formas do REG-01 e do residuo #5, no ponto onde o controle e' de fato aplicado."""
+    transport, recorded = _recording_transport()
+
+    await _start(
+        transport,
+        {
+            "narrativa": (f"tupla com CPF {_CPF}",),
+            "dossie_rafael": {
+                "narrativa": {"texto": f"mapping aninhado com e-mail {_EMAIL}"},
+                "fatos": {
+                    "lacunas_enriquecimento": [{"nota": f"lista de mappings, fone {_PHONE}"}],
+                    "numero_guia_tiss": "GUIA-2026-000123456789",
+                },
+            },
+        },
+    )
+
+    sent = recorded[0]
+    blob = repr(sent)
+    for identifier in (_CPF, _EMAIL, _PHONE, "123.456.789", "98765-4321"):
+        assert identifier not in blob, f"engine-bound variables leaked {identifier!r}: {blob}"
+    assert isinstance(sent["narrativa"], tuple), "o tipo do container tem de sobreviver ao scrub"
+    assert REDACTED_DIGITS in sent["narrativa"][0]
+    assert REDACTED_EMAIL in sent["dossie_rafael"]["narrativa"]["texto"]
+    assert REDACTED_PHONE in sent["dossie_rafael"]["fatos"]["lacunas_enriquecimento"][0]["nota"]
+    # O irmao estruturado no MESMO `fatos` continua byte-identico.
+    assert sent["dossie_rafael"]["fatos"]["numero_guia_tiss"] == "GUIA-2026-000123456789"
+
+
+async def test_unscrubbable_free_text_value_refuses_the_start() -> None:
+    """Fail-closed, ponta a ponta: um valor sob um nome de texto livre que o scrub nao consegue
+    inspecionar (aqui `bytes`, que antes passava intacto) tem de RECUSAR o start pelo mesmo
+    caminho tipado do payload nao-caminhavel — nenhuma reivindicacao duravel, nenhuma chamada ao
+    engine, nenhum pass-through."""
+    transport, recorded = _recording_transport()
+    sink = FakeStartAuditSink()
+
+    with pytest.raises(StartVariableRedactionError):
+        await start_process_idempotent(
+            transport,
+            process_key="SP-OP-AUTH-001",
+            business_key="AUTH-amh-cc06-bytes",
+            variables={"dossie_rafael": {"narrativa": f"CPF {_CPF}".encode()}},
+            audit_sink=sink,
+            provenance=_provenance(),
+        )
+
+    assert sink.calls == [], "no durable claim may exist for a start that was refused"
+    assert recorded == [], "the engine must not have been called"
+
+
+# ---------------------------------------------------------------------------
+# 9 — §Delta F1: uma CHAVE de mapping nao-`str` sob um nome de texto livre
+# ---------------------------------------------------------------------------
+#
+# A recusa de chave PHI-shaped usava so `looks_like_phi_text`, que e' `str`-only por contrato.
+# A chave `int` 12345678901 sob `narrativa` CHEGAVA ao engine e o `json.dumps` do leg a
+# devolvia como a string `"12345678901"` — a mesma corrida de 11 digitos que a chave `str`
+# gemea ja recusava. As chaves `tuple`/`bytes` nem chegavam, mas morriam como `TypeError` sem
+# tipo dentro de `gateway/audit.py::hash_input`, fora do caminho fail-closed ratificado.
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        pytest.param(12345678901, id="int-11-digitos"),
+        pytest.param(12345678901.0, id="float-11-digitos"),
+        pytest.param((f"CPF {_CPF}",), id="tuple"),
+        pytest.param(b"123.456.789-09", id="bytes"),
+        pytest.param(None, id="none"),
+    ],
+)
+async def test_non_str_mapping_key_under_a_free_text_name_refuses_the_start(key: object) -> None:
+    """Ponta a ponta, no chokepoint real: uma chave de mapping nao-`str` sob um nome de texto
+    livre RECUSA o start pelo caminho tipado (`StartVariableRedactionError`) — sem chamada ao
+    engine, sem reivindicacao duravel, sem pass-through."""
+    transport, recorded = _recording_transport()
+    sink = FakeStartAuditSink()
+
+    with pytest.raises(StartVariableRedactionError):
+        await start_process_idempotent(
+            transport,
+            process_key="SP-OP-AUTH-001",
+            business_key="AUTH-amh-cc06-chave",
+            variables={"dossie_rafael": {"narrativa": {key: "nota"}}},
+            audit_sink=sink,
+            provenance=_provenance(),
+        )
+
+    assert sink.calls == [], "no durable claim may exist for a start that was refused"
+    assert recorded == [], "the engine must not have been called"

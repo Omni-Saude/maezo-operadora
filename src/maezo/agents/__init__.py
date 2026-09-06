@@ -304,6 +304,19 @@ class AgentDefinition(BaseModel):
     escalation: dict[str, Any] = Field(default_factory=dict, description="Escalation configuration")
     memory: dict[str, Any] = Field(default_factory=dict, description="Memory configuration (ADR-0002)")
     a2a: dict[str, Any] = Field(default_factory=dict, description="Agent-to-Agent configuration (ADR-0003)")
+    ingress: dict[str, Any] = Field(
+        default_factory=dict, description="HTTP ingress channel declared by this agent (NEW-02)"
+    )
+    # ^ SPEC-FIRST half of the agent-scoped ingress invariant. `runtime/agent_runtime/ingress.py`
+    #   mounts a route whose body is validated by ONE agent's typed state constructor; until
+    #   05/09/2026 `service.py` mounted it under `MAEZO_AGENT_INGRESS_ENABLED` alone, so any
+    #   agent_id with the flag on got a route carrying a FOREIGN contract (NEW-02, reproduced
+    #   live: `agent_id="helena"` answered 200 and fed a Rafael-shaped state to Helena's harness).
+    #   Declared HERE and mirrored by `ingress.py::INGRESS_BY_AGENT`; a parity fence over all 11
+    #   `agent.yaml` (`tests/unit/runtime/test_agent_ingress_agent_scoped.py`) refuses either half
+    #   alone. PARSED, not merely accepted: without this field pydantic's default `extra="ignore"`
+    #   would DROP the block, and the yaml would look declarative while computing nothing — the
+    #   same dead-config-that-looks-live failure the `model:` field's own comment describes.
 
     def model_tiers(self) -> dict[str, str]:
         """The declared `task_kind -> tier` map from this agent's `model:` block (AF-12, ADR-0009).
@@ -445,6 +458,10 @@ class AgentLoader:
             escalation=data.get("escalation", {}),
             memory=data.get("memory", {}),
             a2a=data.get("a2a", {}),
+            # NEW-02: the declared HTTP ingress channel. This loader enumerates fields
+            # EXPLICITLY, so a new model field that is not listed here stays empty no matter
+            # what the yaml says — the block would parse and compute nothing.
+            ingress=data.get("ingress", {}),
         )
 
         logger.info("agent_loader_parsed", agent_id=definition.id, name=definition.name)

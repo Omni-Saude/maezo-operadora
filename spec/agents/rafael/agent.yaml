@@ -64,6 +64,20 @@ escalation:
     - dmn: auth_admissibility=PENDENTE_DOCUMENTACAO  # documentacao incompleta -> humano
     - signal: dmn_unavailable             # DMN indisponivel -> humano (nunca auto-aprova por omissao)
     - signal: ambiguity                   # qualquer ambiguidade -> medico-auditor
+# CANAL DE INGRESSO HTTP (NEW-02) — declaracao SPEC-FIRST, e o Rafael e o unico que a tem.
+# `RafaelState.canal` ja declarava `a2a | portal_tiss`; este bloco diz qual dos dois tem porta
+# HTTP propria no daemon deste agente, e e o lado do spec do invariante: sem ele, a entrada
+# correspondente em `src/maezo/runtime/agent_runtime/ingress.py::INGRESS_BY_AGENT` fica ILEGAL
+# (a cerca de paridade de `tests/unit/runtime/test_agent_ingress_agent_scoped.py` exige os dois
+# lados). Sem os dois, `build_ingress_router` RECUSA — o corpo do POST e validado por
+# `new_rafael_state`, entao montar essa rota no daemon de outro agente entregaria um estado com
+# forma de Rafael ao grafo dele. Ate 05/09/2026 o unico freio era a convencao de IaC em
+# `deploy/aws-ecs/envs/dev-sa-east-1/service-agents.tf` (`each.key == "rafael" ? "1" : "0"`).
+# A flag `MAEZO_AGENT_INGRESS_ENABLED` continua sendo o opt-in de operacao; esta declaracao
+# apenas ESTREITA quem ela pode alcancar.
+ingress:
+  canal: portal_tiss                      # o segundo dos dois canais de `RafaelState.canal`
+  rota: "POST /v1/autorizacoes"           # espelhada por `ingress.py::ROTA_DECLARADA`
 memory:
   episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
   semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)

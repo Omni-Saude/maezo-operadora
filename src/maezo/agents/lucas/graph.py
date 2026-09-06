@@ -132,6 +132,10 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.runtime.error_text import (
+    dmn_unavailable_error,
+    start_unavailable_error,
+)
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.start_outcome import (
@@ -658,7 +662,7 @@ class LucasGraph:
                 state,
                 dmn_refs,
                 motivo="dmn_indisponivel",
-                dmn_error=f"DMN `{DMN_BILLING_ADMISSIBILITY}` indisponivel: {exc}",
+                dmn_error=dmn_unavailable_error(DMN_BILLING_ADMISSIBILITY, exc),
             )
         dmn_refs[DMN_BILLING_ADMISSIBILITY] = f"{DMN_BILLING_ADMISSIBILITY}#{version.id}"
 
@@ -833,7 +837,7 @@ class LucasGraph:
             # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
             # `start_failed`, que e o que `route_after_start` le para desviar a
             # `notify_start_failure` em vez de seguir calado para o terminal.
-            return start_failed_state(business_key=business_key, error=f"start_process indisponivel: {exc}")
+            return start_failed_state(business_key=business_key, error=start_unavailable_error(exc))
         return {
             "process_started": True,
             "business_key": business_key,

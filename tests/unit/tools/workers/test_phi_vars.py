@@ -6,9 +6,14 @@ One-way, class-token redaction at the engine/Kafka-facing edge (ADR-0006, GAP-XP
 
 from __future__ import annotations
 
+import datetime
+import itertools
+from collections.abc import Callable
+
 import pytest
 
 from maezo.tools.workers.phi_vars import (
+    _MAX_DOSSIER_DEPTH,
     PHI_FREE_TEXT_VARS,
     PHI_PROCESS_VARS,
     REDACTED_DIGITS,
@@ -441,3 +446,241 @@ def test_free_text_vars_raises_on_an_unwalkable_payload() -> None:
     dossier["self"] = dossier
     with pytest.raises(ValueError, match="deeper than"):
         redact_free_text_vars({"dossie_rafael": dossier})
+
+
+# -- CC-06 §Delta2 (REG-01 + residuo #5) — valores ESTRUTURADOS sob um nome de texto livre ---------
+#
+# `_redact_free_text_value` tratava `str` e `list[str]` e mais nada. Qualquer outra forma sob um
+# nome de texto livre — uma TUPLA de prosa (REG-01), um mapping aninhado, uma lista de mappings,
+# as mesmas formas dentro de um `dossie_*` — chegava ao engine VERBATIM, e um valor
+# auto-referente sob esse nome era silenciosamente PASSADO em vez de recusado (a clausula
+# "MAY RAISE ... malformed or self-referential" do docstring nao valia para essa forma). A
+# correcao RECORRE por todo container encontrado sob um nome de texto livre, redige toda folha
+# `str`, tolera um conjunto FIXADO de folhas escalares e RECUSA qualquer outra coisa —
+# fail-closed, nunca um pass-through silencioso.
+#
+# Identificadores sinteticos apenas.
+
+_CPF = "123.456.789-00"
+_CPF_TEXT = f"paciente CPF {_CPF}"
+
+
+def test_free_text_tuple_is_scrubbed_and_keeps_its_type() -> None:
+    """REG-01: a TUPLA de prosa passava intacta enquanto a MESMA lista era redigida. O tipo do
+    container e' preservado — o contrato de entrada do BPMN nao pode mudar de forma por causa do
+    scrub."""
+    out = redact_free_text_vars({"narrativa": (_CPF_TEXT, "sem identificador")})
+    assert isinstance(out["narrativa"], tuple)
+    assert _CPF not in out["narrativa"][0]
+    assert REDACTED_DIGITS in out["narrativa"][0]
+    assert out["narrativa"][1] == "sem identificador"
+
+
+def test_free_text_nested_mapping_is_scrubbed() -> None:
+    """Residuo #5: `{'narrativa': {'texto': '<CPF>'}}` — toda folha `str` abaixo de um nome de
+    texto livre e' prosa por construcao, qualquer que seja o nome da chave interna."""
+    out = redact_free_text_vars({"narrativa": {"texto": _CPF_TEXT, "n": 3}})
+    assert _CPF not in out["narrativa"]["texto"]
+    assert REDACTED_DIGITS in out["narrativa"]["texto"]
+    assert out["narrativa"]["n"] == 3
+
+
+def test_free_text_list_of_mappings_is_scrubbed() -> None:
+    """Residuo #5, segunda forma: `{'narrativa': [{'texto': '<CPF>'}]}`."""
+    out = redact_free_text_vars({"lacunas_enriquecimento": [{"texto": _CPF_TEXT}, "nota simples"]})
+    assert _CPF not in out["lacunas_enriquecimento"][0]["texto"]
+    assert REDACTED_DIGITS in out["lacunas_enriquecimento"][0]["texto"]
+    assert out["lacunas_enriquecimento"][1] == "nota simples"
+
+
+def test_dossier_nested_free_text_mapping_is_scrubbed() -> None:
+    """Residuo #5, terceira forma: a mesma estrutura DENTRO de um `dossie_*`, que e' o caminho
+    que os 8 `_build_dossier` produtores realmente percorrem."""
+    out = redact_free_text_vars({"dossie_x": {"narrativa": {"t": _CPF_TEXT}, "n_evidencia": 3}})
+    assert _CPF not in out["dossie_x"]["narrativa"]["t"]
+    assert out["dossie_x"]["n_evidencia"] == 3
+
+
+def test_dossier_tuple_is_walked_and_keeps_its_type() -> None:
+    """REG-01, segunda reproducao: uma TUPLA dentro de um dossie escondia o mapping cuja chave
+    `narrativa` deveria ter sido redigida — `_walk` so conhecia `list`."""
+    out = redact_free_text_vars({"dossie_rafael": ({"narrativa": _CPF_TEXT}, {"n": 1})})
+    assert isinstance(out["dossie_rafael"], tuple)
+    assert _CPF not in out["dossie_rafael"][0]["narrativa"]
+    assert out["dossie_rafael"][1] == {"n": 1}
+
+
+def test_free_text_scalar_leaves_pass_through() -> None:
+    """GUARDA DE REGRESSAO (verde antes e depois): os escalares que os grafos vivos realmente
+    produzem sob um nome de texto livre passam byte-identicos. `carolina/graph.py` emite
+    `state.get('motivo_informado')`, que e' `None` quando o campo nao foi preenchido; recusar um
+    `None` transformaria a correcao fail-closed numa negacao de servico."""
+    out = redact_free_text_vars(
+        {"motivo_informado": None, "narrativa": {"n": 3, "taxa": 1.5, "ok": True, "vazio": None}}
+    )
+    assert out["motivo_informado"] is None
+    assert out["narrativa"] == {"n": 3, "taxa": 1.5, "ok": True, "vazio": None}
+    assert out["narrativa"]["ok"] is True
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(b"CPF 123.456.789-00", id="bytes"),
+        pytest.param({"CPF 123.456.789-00"}, id="set"),
+        pytest.param(frozenset({"CPF 123.456.789-00"}), id="frozenset"),
+        pytest.param(datetime.date(2026, 1, 1), id="date"),
+        pytest.param(object(), id="object"),
+    ],
+)
+def test_free_text_unscrubbable_type_is_refused(value: object) -> None:
+    """Fail-closed: `redact_free_text` e' uma rede sobre `str`. Um tipo que ela nao consegue
+    inspecionar sob um nome de texto livre NAO pode passar — o chokepoint converte este
+    `ValueError` em `StartVariableRedactionError` e recusa o start."""
+    with pytest.raises(ValueError, match="cannot be scrubbed"):
+        redact_free_text_vars({"narrativa": value})
+
+
+@pytest.mark.parametrize("container", ["dict", "list", "tuple"])
+def test_free_text_self_referential_value_is_refused(container: str) -> None:
+    """Residuo #5: um valor auto-referente sob um nome de texto livre era silenciosamente
+    PASSADO (o `_redact_free_text_value` antigo devolvia qualquer nao-`str`/nao-`list` intacto),
+    contradizendo a propria clausula MAY RAISE do docstring. Agora e' recusado de imediato pelo
+    guarda de identidade, sem depender do teto de profundidade.
+
+    A assercao casa a mensagem ESPECIFICA do guarda ("contains itself"), nao um "self-referential"
+    solto: a mensagem do teto de profundidade tambem contem a palavra "self-referential", entao a
+    forma frouxa passava com o guarda REMOVIDO (medido: a mutacao que apaga o guarda deixava os
+    141 testes verdes). O teto continua sendo a rede de seguranca; esta cerca pina o guarda."""
+    cycle: object
+    if container == "dict":
+        dict_cycle: dict[str, object] = {}
+        dict_cycle["texto"] = dict_cycle
+        cycle = dict_cycle
+    elif container == "list":
+        list_cycle: list[object] = []
+        list_cycle.append(list_cycle)
+        cycle = list_cycle
+    else:
+        inner: list[object] = []
+        tuple_cycle: tuple[object, ...] = (inner,)
+        inner.append(tuple_cycle)
+        cycle = tuple_cycle
+    with pytest.raises(ValueError, match="contains itself"):
+        redact_free_text_vars({"narrativa": cycle})
+
+
+def test_free_text_shared_but_acyclic_value_is_not_refused() -> None:
+    """O guarda e' de CAMINHO, nao de visitados: o mesmo mapping referenciado por dois ramos
+    IRMAOS nao e' um ciclo e nao pode virar uma recusa falsa (isso seria uma negacao de servico
+    sobre um dossie perfeitamente valido)."""
+    shared = {"texto": _CPF_TEXT}
+    out = redact_free_text_vars({"narrativa": {"a": shared, "b": shared}})
+    assert _CPF not in out["narrativa"]["a"]["texto"]
+    assert _CPF not in out["narrativa"]["b"]["texto"]
+
+
+def test_free_text_deeper_than_the_bound_is_refused() -> None:
+    """O teto de recursao reusado e' `_MAX_DOSSIER_DEPTH` (o mesmo do walk do dossie): uma
+    estrutura mais funda e' malformada, e parar o scrub no meio da arvore seria exatamente o
+    pass-through silencioso que esta correcao fecha. Uma estrutura rasa NAO e' recusada."""
+    shallow: object = _CPF_TEXT
+    for _ in range(3):
+        shallow = {"n": shallow}
+    assert _CPF not in str(redact_free_text_vars({"narrativa": shallow}))
+
+    deep: object = _CPF_TEXT
+    for _ in range(_MAX_DOSSIER_DEPTH + 3):
+        deep = {"n": deep}
+    with pytest.raises(ValueError, match="deeper than"):
+        redact_free_text_vars({"narrativa": deep})
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        pytest.param(f"CPF {_CPF}", id="str-phi-shaped"),
+        pytest.param("12345678901", id="str-11-digitos"),
+        pytest.param(12345678901, id="int-11-digitos"),
+        pytest.param(12345678901.0, id="float-11-digitos"),
+        pytest.param((f"CPF {_CPF}",), id="tuple"),
+        pytest.param(b"123.456.789-00", id="bytes"),
+        pytest.param(True, id="bool"),
+        pytest.param(None, id="none"),
+    ],
+)
+def test_free_text_mapping_with_a_phi_shaped_key_is_refused(key: object) -> None:
+    """As CHAVES de um mapping sob um nome de texto livre nao sao redigidas (redigir duas chaves
+    para o mesmo token de classe fundiria as duas entradas e perderia um valor em silencio) — por
+    isso uma chave PHI-shaped e' RECUSADA, usando o detector que ja existe no modulo
+    (`looks_like_phi_text`).
+
+    §Delta F1: o detector e' `str`-only por contrato ("Non-strings and empty strings are NOT
+    flagged"), entao a chave `int` GEMEA da chave `str` que ja era recusada atravessava o scrub
+    inteira; `json.dumps` a devolve como a string `"12345678901"` do outro lado, isto e', a mesma
+    corrida de 11 digitos que a recusa de chave existe para barrar. E uma chave `tuple`/`bytes`
+    morria como `TypeError` sem tipo em `gateway/audit.py::hash_input`, e nao pela recusa
+    ratificada. Por isso QUALQUER chave nao-`str` e' inescrutavel e e' recusada aqui: a
+    assimetria de tipo dentro do proprio scrub e' a mesma especie do REG-01 (`list` redigida /
+    `tuple` nao)."""
+    with pytest.raises(ValueError, match="key"):
+        redact_free_text_vars({"narrativa": {key: "nota"}})
+
+
+def test_free_text_mapping_with_an_ordinary_str_key_is_not_refused() -> None:
+    """O lado VERDE da mesma regra (a recusa tem de ser estreita): uma chave estrutural comum,
+    `str` e sem forma de identificador, passa — e o valor sob ela continua sendo redigido."""
+    out = redact_free_text_vars({"narrativa": {"cid10_referencia": "nota"}})
+    assert out["narrativa"] == {"cid10_referencia": "nota"}
+    scrubbed = redact_free_text_vars({"narrativa": {"texto": _CPF_TEXT}})
+    assert _CPF not in scrubbed["narrativa"]["texto"]
+    assert REDACTED_DIGITS in scrubbed["narrativa"]["texto"]
+
+
+# -- CERCAS (falham sob mutacao; ver §Prova do relatorio) ------------------------------------------
+
+_SHAPE_BUILDERS: dict[str, Callable[[object], object]] = {
+    "dict": lambda inner: {"k": inner},
+    "list": lambda inner: [inner],
+    "tuple": lambda inner: (inner,),
+}
+
+_SHAPES: list[tuple[str, ...]] = [
+    combo for depth in (1, 2, 3) for combo in itertools.product(sorted(_SHAPE_BUILDERS), repeat=depth)
+]
+
+
+@pytest.mark.parametrize("shape", _SHAPES, ids=["-".join(s) for s in _SHAPES])
+def test_no_container_shape_under_a_free_text_name_can_carry_an_identifier(
+    shape: tuple[str, ...],
+) -> None:
+    """CERCA EXAUSTIVA de forma: para TODA combinacao de `dict`/`list`/`tuple` ate profundidade 3
+    sob um nome de texto livre, ZERO ocorrencia do identificador plantado pode sobreviver. E' a
+    generalizacao do defeito: REG-01 era uma celula desta matriz (`tuple`), o residuo #5 eram
+    outras tres (`dict`, `list-dict`, `dict-dict`). Reverter qualquer braco de recursao deixa
+    esta cerca VERMELHA."""
+    payload: object = _CPF_TEXT
+    for name in reversed(shape):
+        payload = _SHAPE_BUILDERS[name](payload)
+
+    out = redact_free_text_vars({"narrativa": payload})
+
+    assert _CPF not in repr(out), f"forma {'-'.join(shape)} vazou {_CPF!r}: {out!r}"
+    assert REDACTED_DIGITS in repr(out), f"forma {'-'.join(shape)} nao foi redigida: {out!r}"
+
+
+def test_free_text_passthrough_types_are_pinned() -> None:
+    """CERCA DE MEMBRESIA (o padrao que o proprio relatorio F1-A1 apontou como o correto para uma
+    allowlist): os tipos de folha NAO-`str` tolerados sob um nome de texto livre sao fixados aqui.
+    Alargar `_FREE_TEXT_PASSTHROUGH_TYPES` — acrescentar `bytes`, por exemplo — deixa esta cerca
+    VERMELHA, entao a decisao vira um ato deliberado em vez de um deslize. Lido por `getattr`
+    porque a ausencia da constante e' exatamente o que esta cerca precisa reportar como uma
+    ASSERCAO legivel, e nao como um `ImportError` do modulo inteiro."""
+    import maezo.tools.workers.phi_vars as phi_vars_module
+
+    pinned = getattr(phi_vars_module, "_FREE_TEXT_PASSTHROUGH_TYPES", None)
+    assert pinned is not None, "_FREE_TEXT_PASSTHROUGH_TYPES ausente — a allowlist nao esta fixada"
+    assert pinned == (bool, int, float, type(None)), (
+        "os tipos de folha tolerados sob um nome de texto livre mudaram — justifique no docstring "
+        f"da constante antes de alterar esta cerca: {pinned!r}"
+    )

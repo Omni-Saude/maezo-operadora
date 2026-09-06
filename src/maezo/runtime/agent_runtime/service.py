@@ -66,6 +66,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from fastapi import FastAPI
 from langgraph.graph import StateGraph
 
 from maezo.a2a import DelegationDispatcher
@@ -172,6 +173,17 @@ class AgentState:
     # composition's durable audit sink is VERIFIED reachable, not merely present/constructed.
     a2a_audit_sink_ready: bool = False
     a2a_audit_sink_error: str | None = None
+    # NEW-02: a decisao de montagem da rota de ingresso, tomada UMA vez no STEP A e registrada
+    # aqui. Os dois campos nao sao redundantes e a diferenca e' o ponto:
+    #   - `ingress_mounted=False` + `ingress_refusal=None`  -> ninguem pediu (flag desligada);
+    #   - `ingress_mounted=False` + `ingress_refusal=<texto>` -> PEDIRAM e foi RECUSADO, porque
+    #     este `agent_id` nao declara canal de ingresso no seu `agent.yaml`.
+    # Sem o segundo campo, um daemon mal configurado ficaria indistinguivel de um daemon
+    # corretamente sem ingresso — e' a mesma frase que o log de bring-up precisava parar de
+    # dizer errado (`agent_graph_execution_available_here` afirmava que a replica executa turnos
+    # a partir da FLAG, nao a partir da montagem que de fato aconteceu).
+    ingress_mounted: bool = False
+    ingress_refusal: str | None = None
 
     def is_live(self) -> bool:
         return self.live
@@ -683,7 +695,12 @@ async def _bring_up_dependencies(state: AgentState) -> None:
     # comportamento e' pior que log nenhum: foi exatamente esta frase que sustentou o
     # diagnostico "o agente nao atua", e ela continuaria sustentando-o depois de deixar de ser
     # verdade.
-    if settings.agent_ingress_enabled:
+    #
+    # NEW-02: a condicao passou a ser `state.ingress_mounted` — a montagem que DE FATO
+    # aconteceu — e nao `settings.agent_ingress_enabled`, a intencao. Com a flag ligada num
+    # daemon que nao declara canal, a rota e' recusada e a replica NAO executa turnos; ler a
+    # flag aqui reintroduziria a mesma mentira, so' que na direcao contraria.
+    if state.ingress_mounted:
         logger.info(
             "agent_graph_execution_available_here",
             agent_id=settings.agent_id,
@@ -696,9 +713,69 @@ async def _bring_up_dependencies(state: AgentState) -> None:
             "agent_graph_execution_not_performed_here",
             agent_id=settings.agent_id,
             note="the graph builds/compiles (graph_loaded check) but this replica has no intake "
-            "route (MAEZO_AGENT_INGRESS_ENABLED is off), so it does not execute turns — see "
-            "docs/design/T1.1-runtime-spine.md §10/§17 Q-6 and this module's STEP B point 4.",
+            "route, so it does not execute turns — see docs/design/T1.1-runtime-spine.md "
+            "§10/§17 Q-6, §19 (agent-scoped ingress) and this module's STEP B point 4.",
+            ingress_refusal=state.ingress_refusal,
         )
+
+
+# --- STEP A helper: the agent-scoped ingress mount decision (NEW-02) ----------------------------
+
+
+def mount_ingress_if_declared(app: FastAPI, state: AgentState) -> bool:
+    """Monta a rota de ingresso SE o agente deste daemon declarar canal. Devolve se montou.
+
+    A ASSERCAO DE BOOT, no mesmo estilo dos `_require_*_or_fail_closed` das raizes de
+    composicao: o portao e' `ingress.require_ingress_spec_or_fail_closed`, que LEVANTA, e aqui
+    a recusa e' ISOLADA — exatamente como `_bring_up_dependencies` isola cada bloco.
+
+    POR QUE ISOLAR E NAO DEIXAR SUBIR (e isto e' escolha, nao omissao): esta funcao roda no
+    STEP A, antes do bring-up, no caminho que existe para `/healthz` responder 200 de imediato.
+    Uma excecao propagando daqui derrubaria `run()` e poria o pod em CrashLoopBackOff — e um
+    pod em CrashLoop nao mostra nem a `/readyz` nem o log que explicam POR QUE. Fail-closed
+    aqui e' da CAPACIDADE (nenhuma rota montada, nenhum turno executado, nenhum estado de forma
+    alheia chegando a um grafo estranho), com o daemon vivo para contar o motivo. A recusa fica
+    em `state.ingress_refusal` e sai em DOIS logs de nivel error (`agent_ingress_refused_
+    undeclared_agent`, do portao, e `agent_ingress_not_mounted`, daqui) — nao e' fallback
+    silencioso.
+
+    O import e' local porque `ingress.py` puxa `maezo.agents.rafael.graph` no topo: um daemon
+    que nao monta ingresso nao deve pagar por esse grafo so' para descobrir que nao o monta.
+    """
+    from maezo.runtime.agent_runtime.ingress import (
+        IngressNotDeclaredForAgentError,
+        build_ingress_router,
+        require_ingress_spec_or_fail_closed,
+    )
+
+    settings = state.settings
+    if not settings.agent_ingress_enabled:
+        # Nao e' recusa: e' ausencia de pedido. `ingress_refusal` fica None de proposito, para
+        # que a leitura de `/readyz`/log distinga "ninguem pediu" de "pediram e foi negado".
+        return False
+
+    try:
+        spec = require_ingress_spec_or_fail_closed(settings.agent_id)
+    except IngressNotDeclaredForAgentError as exc:
+        state.ingress_refusal = str(exc)
+        logger.error(
+            "agent_ingress_not_mounted",
+            agent_id=settings.agent_id,
+            flag="MAEZO_AGENT_INGRESS_ENABLED=1",
+            motivo=str(exc),
+        )
+        return False
+
+    app.include_router(build_ingress_router(state))
+    state.ingress_mounted = True
+    logger.info(
+        "agent_ingress_mounted",
+        agent_id=settings.agent_id,
+        canal=spec.canal,
+        rota=spec.rota,
+        porta=settings.health_port,
+    )
+    return True
 
 
 # --- run() — orchestrates STEP A..D -------------------------------------------------------------
@@ -743,16 +820,11 @@ async def run(settings: AgentRuntimeSettings) -> None:
     # Ela le `state` a cada chamada (nao captura o harness): este bloco roda ANTES do bring-up,
     # e um harness capturado aqui seria `None` para sempre. Enquanto o bring-up nao terminar, a
     # rota responde 503 — a mesma leitura que `/readyz` da'.
-    if settings.agent_ingress_enabled:
-        from maezo.runtime.agent_runtime.ingress import build_ingress_router  # noqa: PLC0415
-
-        app.include_router(build_ingress_router(state))
-        logger.info(
-            "agent_ingress_mounted",
-            agent_id=settings.agent_id,
-            rota="POST /v1/autorizacoes",
-            porta=settings.health_port,
-        )
+    #
+    # NEW-02: a flag deixou de ser a UNICA condicao. `mount_ingress_if_declared` so' monta para
+    # um `agent_id` que DECLARA o canal no seu `agent.yaml` e tem entrada em
+    # `ingress.INGRESS_BY_AGENT`; qualquer outro e' recusado, sem rota, com o daemon vivo.
+    mount_ingress_if_declared(app, state)
 
     server = build_health_server(app, port=settings.health_port)
     server.capture_signals = contextlib.nullcontext  # type: ignore[assignment]  # we own the signals

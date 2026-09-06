@@ -244,6 +244,35 @@ async def test_receive_missing_runtime_context_routes_human_review() -> None:
     assert result["business_key"] == ""
 
 
+async def test_receive_writes_a_closed_class_token_into_error_never_free_prose() -> None:
+    """CAR-06: `error` e' um TOKEN DE CLASSE fechado, nunca uma frase livre em portugues.
+
+    `error` e' estado CHECKPOINTADO e alimentado, no resto da frota, por texto de excecao de
+    outro sistema (LUC-06/NEW-01). Uma frase livre neste campo tem duas consequencias: nao e'
+    agregavel por operacao (cada agente escreve a sua propria prosa, com parenteses e acentos
+    diferentes) e afrouxa a invariante que a cerca de LUC-06/NEW-01 impoe aos OUTROS produtores
+    do mesmo campo — se um campo aceita prosa, um dia alguem interpola `{exc}` nela.
+
+    O literal e' o MESMO que Beatriz ja' declara (`beatriz/graph.py::
+    ERROR_CONTEXTO_RUNTIME_AUSENTE`), de proposito: um alerta so' consegue agregar a classe de
+    falha se os agentes escreverem o MESMO token.
+    """
+    from maezo.agents.beatriz.graph import (
+        ERROR_CONTEXTO_RUNTIME_AUSENTE as ERROR_BEATRIZ,
+    )
+    from maezo.agents.carolina.graph import ERROR_CONTEXTO_RUNTIME_AUSENTE
+
+    graph = _graph()
+    result = await graph.receive(_base_state(tenant_id="", prestador_id=""))
+
+    assert result["error"] == ERROR_CONTEXTO_RUNTIME_AUSENTE == "contexto_runtime_ausente"
+    assert result["error"] == ERROR_BEATRIZ, (
+        "o token de contexto ausente divergiu entre carolina e beatriz — um alerta operacional "
+        "deixa de conseguir agregar a classe de falha"
+    )
+    assert " " not in result["error"], "token de classe nao carrega espaco (nao e' prosa)"
+
+
 # ---------------------------------------------------------------------------
 # R1 cycle-1 regression: caller-planted output fields (DMN-gate bypass / audit forgery).
 # Reproduces the verifier's exact probes (a)/(b)/(c) against the fixed graph.
@@ -452,7 +481,7 @@ async def test_gather_fhir_failure_is_best_effort_never_raises() -> None:
 
 async def test_gather_noop_when_already_routed_by_receive_guard() -> None:
     graph = _graph()
-    result = await graph.gather(_base_state(error="contexto de runtime ausente"))
+    result = await graph.gather(_base_state(error="contexto_runtime_ausente"))
     assert result == {}
 
 
