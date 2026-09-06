@@ -772,9 +772,8 @@ async def test_instruct_non_int_score_becomes_lacuna_never_a_silent_zero() -> No
 async def test_instruct_bool_score_is_rejected_never_treated_as_zero_or_one() -> None:
     """`bool` is an `int` subclass in Python — `require_number` must reject it explicitly, or a
     planted `score_indicadores=False`/`True` would silently read as a genuine 0/1 score."""
-    result = await _graph().instruct_investigation(
-        _gathered_state(score_indicadores=False)  # type: ignore[typeddict-item]
-    )
+    hostile = cast(BeatrizState, {**_gathered_state(), "score_indicadores": False})
+    result = await _graph().instruct_investigation(hostile)
     assert result["dossier"]["score_indicadores"] is None
     assert "score_indicadores_invalido" in result["dossier"]["lacunas"]
 
