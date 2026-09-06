@@ -65,32 +65,77 @@ class _Hit(NamedTuple):
 #: it lands, remove the entry (the stale-entry test below fails otherwise).
 _ALLOWLIST: Final[dict[_Hit, str]] = {
     _Hit("fernando/graph.py", "assess", "meses_inadimplencia"): (
-        "meses_inadimplencia (assess): pre-existing convention predating fleet audit ciclo 2; "
-        "not one of BEA-04/VAL-05/AND-08/FER-08's named fields (those are score_indicadores, "
-        "the consent desfecho, decisao_pagamento, and the *_iso SLA/deadline fields) — a "
-        "residual of the SAME family, out of this WP's scope, not fixed here."
+        "meses_inadimplencia (assess) -- DEAD-COLUMN residual, not a live masking: feeds "
+        "`inadimplencia_status.dmn`'s `in_meses_inadimplencia` input column, which is `-` "
+        "(wildcard) in EVERY rule and read by no output expression -- a frozen DEAD input per "
+        "`tests/unit/agents/test_dmn_dead_inputs_fence.py::KNOWN_DEAD_INPUTS`, row "
+        '("inadimplencia_status.dmn", "in_meses_inadimplencia", "meses_inadimplencia"). The DMN '
+        "never actually reads this fact, so the `or 0` masking has NO decision-input effect "
+        "today (unlike lucas:assess below, which is a LIVE masking). Pre-existing convention "
+        "predating fleet audit ciclo 2; not one of BEA-04/VAL-05/AND-08/FER-08's named fields "
+        "(those are score_indicadores, the consent desfecho, decisao_pagamento, and the *_iso "
+        "SLA/deadline fields) -- a residual of the SAME family, out of this WP's scope, not "
+        "fixed here."
     ),
     _Hit("fernando/graph.py", "_inadimplencia_variables", "meses_inadimplencia"): (
-        "meses_inadimplencia (_inadimplencia_variables, engine-bound): same field/reason as "
-        "line 573; also inside `_inadimplencia_variables`, which sibling WP "
-        "FERNANDO-INPUT-DESFECHO is actively revising in its own worktree — not touched here."
+        "meses_inadimplencia (_inadimplencia_variables, engine-bound): a SEPARATE read site of "
+        "the same field, feeding the ENGINE PROCESS VARIABLE `meses_inadimplencia` -- "
+        "informational (the engine's own businessRuleTask evaluation of "
+        "`inadimplencia_status`/`inadimplencia_purga`/`inadimplencia_sla` reads its OWN process "
+        "variables via `${...}`, never re-reads this one back as a DMN input). Also inside "
+        "`_inadimplencia_variables`, which sibling WP FERNANDO-INPUT-DESFECHO is actively "
+        "revising in its own worktree -- not touched here."
     ),
     _Hit("fernando/graph.py", "_inadimplencia_variables", "valor_total_devido_cents"): (
-        "valor_total_devido_cents (_inadimplencia_variables, engine-bound): same shape/reason "
-        "as line 939 — a money field defaulting to 0 by the same pre-existing convention, out "
-        "of this WP's named scope."
+        "valor_total_devido_cents (_inadimplencia_variables, engine-bound): a MONEY field "
+        "silently defaulting to 0 by the same pre-existing convention as meses_inadimplencia "
+        "above -- worth saying out loud (a null 'valor devido' masked to 0 could read to a "
+        "human as 'nothing owed' rather than 'the fact is missing'), same engine-process-"
+        "variable/informational shape, out of this WP's named scope."
     ),
     _Hit("gustavo/graph.py", "_assess_nip", "prazo_dias"): (
-        "prazo_dias (DMN row read in classify/escalation informational context): pre-existing "
-        "convention predating fleet audit ciclo 2, not one of this WP's named fields."
+        'prazo_dias (_assess_nip): read FROM a DMN row OUTPUT (`clf_row.get("prazo_dias")`, a '
+        "value the `nip_classification` table's OWN matched rule already produced), never a DMN "
+        "INPUT -- this `or 0` cannot mask a fact the DMN evaluates against, so it has no "
+        "decision-input effect. Pre-existing convention predating fleet audit ciclo 2, not one "
+        "of this WP's named fields."
     ),
     _Hit("lucas/graph.py", "assess", "ciclos_sem_conciliacao"): (
-        "ciclos_sem_conciliacao (assess): pre-existing convention predating fleet audit ciclo "
-        "2 — the sibling gap LUCAS-MOTIVO-SEVERIDADE-DEFAULTS (GAP-REGISTER, MERGED #336) "
-        "closed a DIFFERENT default in the same file (severidade), not this counter."
+        "ciclos_sem_conciliacao (assess) -- RESIDUAL-ABERTO: LIVE DMN decision-input masking "
+        '(§Delta NONE-GUARDRAIL F2). Feeds `admis_in["ciclos_sem_conciliacao"]` into '
+        "`lucas_billing_admissibility.dmn` (hitPolicy=FIRST). That table's FIRST rule, "
+        "`lba_r_atraso_escala`, fires when `ciclos_sem_conciliacao >= 1` and routes to "
+        "`ESCALAR_HUMANO` -- the ONLY input that can trigger this table's human-escalation "
+        "rule. A present-but-NULL `ciclos_sem_conciliacao` is masked to `0` here, so "
+        "`0 >= 1` is false, `lba_r_atraso_escala` never fires, and the case instead falls "
+        "through to whichever LATER rule matches (e.g. `lba_r_vencimento` -> `LEMBRETE`, a "
+        "merely-informational reminder) or the conservative catch-all `ESCALAR_HUMANO` for a "
+        "truly unmapped combination -- i.e. the masking can move a case AWAY from the exact "
+        "human-escalation rule that exists to catch a delinquency indicator. This is the same "
+        "NONE-GUARDRAIL-MISSING harm this WP exists to end, living in a field this WP was NOT "
+        "scoped to fix (BEA-04/VAL-05/AND-08/FER-08 are score_indicadores, the consent "
+        "desfecho, decisao_pagamento, and the *_iso SLA/deadline fields -- not this counter). "
+        "Fixing the CODE at this site is OUT of this WP's scope: the honest fix is a "
+        "null-handling rule inside `lucas_billing_admissibility.dmn` itself (CODEOWNED under "
+        "`spec/processes/dmn/`, owner decision) -- routing a lacuna to human escalation from "
+        "Python instead would move a business rule OUT of the DMN (C3). Registered here as an "
+        "OPEN residual for a future owner-gated WP to pick up (see this WP's report's "
+        "adjacencies section); the sibling gap LUCAS-MOTIVO-SEVERIDADE-DEFAULTS "
+        "(GAP-REGISTER, MERGED #336) closed a DIFFERENT default in the same file (severidade), "
+        "not this counter."
     ),
     _Hit("lucas/graph.py", "_assess_escalation", "ciclos_sem_conciliacao"): (
-        "ciclos_sem_conciliacao (a second read site, same field/reason as line 651)."
+        "ciclos_sem_conciliacao (_assess_escalation) -- DEAD-COLUMN residual, not a live "
+        "masking: a SECOND read site of the same field, feeding `lucas_escalation_routing.dmn`'s "
+        "`ler_in_ciclos` input column, which is `-` (wildcard) in EVERY rule and read by no "
+        "output expression -- a frozen DEAD input per "
+        "`tests/unit/agents/test_dmn_dead_inputs_fence.py::KNOWN_DEAD_INPUTS`, row "
+        '("lucas_escalation_routing.dmn", "ler_in_ciclos", "ciclos_sem_conciliacao"). Unlike '
+        "the `assess` site above, this table never reads the column at all (dead) AND the "
+        "destination here is ALWAYS `escalate_human` regardless of this DMN's outcome -- it "
+        "only picks the suggested human GROUP (`_assess_escalation`'s own docstring) -- so the "
+        "`or 0` masking has no decision-input effect at this second site. Same field/family as "
+        "the LIVE `assess` site above; out of this WP's named scope either way."
     ),
 }
 
@@ -158,7 +203,7 @@ def _dict_key_or_source(node: ast.expr, source: str) -> str:
     current: ast.AST | None = getattr(node, "parent", None)
     while current is not None:
         if isinstance(current, ast.Dict):
-            for key_node, value_node in zip(current.keys, current.values):
+            for key_node, value_node in zip(current.keys, current.values, strict=True):
                 if value_node is prev:
                     if isinstance(key_node, ast.Constant) and isinstance(key_node.value, str):
                         return key_node.value
