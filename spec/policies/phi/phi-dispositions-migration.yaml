@@ -1,0 +1,213 @@
+# === PHI-DISPOSICOES-MIGRACAO-MANIFESTO — o veiculo da assinatura do DPO (WP-PHI-COMPLETUDE) ===
+#
+# O QUE ESTE ARQUIVO E
+# --------------------
+# O manifesto CODEOWNED que recebe a DISPOSICAO do encarregado (DPO) sobre cada nome de variavel
+# de processo que a cerca de completude PHI classificou como PHI-SHAPE e NAO LISTADO. Ele nasce
+# com TODOS os campos de disposicao e de ratificacao VAZIOS: nada aqui foi decidido, e a
+# engenharia nao pode preencher nenhum deles.
+#
+# POR QUE ELE ENTRA ANTES DAS ASSINATURAS (decisao do dono R-199, 2026-09-04)
+# --------------------------------------------------------------------------
+# A ordem anterior era "quando o DPO ratificar, a tabela MIGRA para um manifesto CODEOWNED". Isso
+# transformava a assinatura no INICIO de um projeto de migracao em vez do fim do trabalho: mesmo
+# depois de assinar, a disposicao continuaria sem efeito sobre conjunto PHI algum ate alguem
+# construir o manifesto e o carregador. A ordem foi INVERTIDA: o manifesto e o carregador entram
+# AGORA, vazios, de modo que a assinatura do DPO seja um preenchimento de campos que ja produz
+# efeito de gate no mesmo ato.
+#
+# O QUE ESTE ARQUIVO **NAO** FAZ, HOJE E DEPOIS
+# ---------------------------------------------
+# Ele NAO adiciona nome algum a `PHI_PROCESS_VARS` nem a `gateway.pseudonymizer.PHI_FIELDS`, e NAO
+# muda um byte de redacao em runtime. Essa e a regra que a propria fila de revisao ja declarava e
+# que continua valendo: uma disposicao com ratificacao vazia nao adiciona o nome a conjunto PHI
+# algum. O que a assinatura produz e EFEITO DE GATE — ver "O EFEITO DA ASSINATURA" abaixo.
+#
+# ONDE MORA A PERGUNTA (e por que ela NAO foi copiada para ca)
+# ------------------------------------------------------------
+# O texto integral de cada pergunta — a EVIDENCIA com proveniencia e a RECOMENDACAO da engenharia,
+# com a contraevidencia que o DPO precisa pesar — vive em
+# `src/maezo/platform/validation/phi_completeness.py::DISPOSITIONS`, onde toda linha nasce e
+# permanece `DRAFT/verify (DPO)` (o `__post_init__` recusa qualquer outro status). Duplicar aquele
+# texto aqui criaria duas copias que envelhecem em direcoes diferentes. Este manifesto carrega o
+# NOME e o campo de assinatura; o codigo carrega a pergunta. O FECHO abaixo prende os dois.
+#
+# O FECHO CODIGO<->MANIFESTO (fail-closed, ja ativo)
+# ---------------------------------------------------
+# `phi_completeness.check_sweep` compara, a cada execucao da cerca, o conjunto de nomes de
+# `DISPOSITIONS` com o conjunto de `disposicoes[].nome` deste arquivo. Divergencia em QUALQUER
+# direcao e ERRO que bloqueia:
+#   * nome disposto no codigo e ausente daqui  -> a pergunta existe e nao tem onde ser assinada;
+#   * nome aqui e ausente do codigo            -> ha um campo de assinatura sem pergunta viva.
+# Isso e o que impede a migracao de virar duas listas que divergem em silencio.
+#
+# O EFEITO DA ASSINATURA (o gate que o preenchimento liga, sem mudanca de codigo)
+# -------------------------------------------------------------------------------
+# Preencher uma linha com `disposicao: LISTAR_EM_CONJUNTO_PHI` + os tres campos de
+# `ratificacao` (`ratificado: true`, `revisor`, `ratificado_em`) faz a cerca EXIGIR que o nome
+# esteja de fato em `PHI_PROCESS_VARS` ou em `PHI_FIELDS`. Enquanto nao estiver, o build fica
+# VERMELHO. Ou seja: a assinatura nao lista o nome sozinha (isso continua sendo uma mudanca de
+# codigo, revisada como codigo) — ela torna IMPOSSIVEL ignora-la. `REGISTRAR_NAO_PHI` e a
+# disposicao simetrica e nao exige ato nenhum da engenharia.
+#
+# O VOCABULARIO DE `disposicao` E DA ENGENHARIA; O VALOR E DO DPO. Os dois tokens abaixo sao o
+# schema (as duas formas de recomendacao que a tabela em codigo ja usa), nao uma escolha:
+#   LISTAR_EM_CONJUNTO_PHI  o nome e dado do titular e deve entrar no controle ancorado em nome;
+#   REGISTRAR_NAO_PHI       o nome nao e dado do titular; a cerca registra a decisao e se cala.
+# `null` e o estado de hoje em TODAS as linhas: nao decidido.
+#
+# NAO HA MODO DEGRADADO. Um arquivo malformado, com nome duplicado, com `status: RATIFICADO` sem
+# os tres campos de accountability, ou com disposicao ratificada sem valor, e RECUSADO pelo
+# carregador — nunca "avisa e continua". A direcao fail-closed aqui e recusar, porque este
+# arquivo nao tem um "modo off" que pudesse ser o desfecho seguro.
+#
+# CODEOWNERS: `/spec/policies/phi/` passou a ser regra propria em `.github/CODEOWNERS` no MESMO PR
+# que criou este arquivo (antes dele, este diretorio nao casava regra alguma — o manifesto seria
+# "CODEOWNED" so no papel). Limite declarado, na forma honesta: a ruleset `main-protection` esta
+# com `require_code_owner_review: false`, entao CODEOWNERS REQUISITA revisor sem EXIGI-LO. Nao
+# leia a regra como "este arquivo esta gateado por revisao obrigatoria".
+
+version: 1
+
+# Identificador do ato de migracao no registro de decisoes do dono (R-199).
+id: PHI-DISPOSICOES-MIGRACAO-MANIFESTO
+work_package: WP-PHI-COMPLETUDE
+
+# ---------------------------------------------------------------------------------------------
+# status — DRAFT | RATIFICADO. Porta dura: em DRAFT nenhuma linha vale como assinada.
+# ESTADO DE HOJE: DRAFT. Nada foi decidido; nada esta ativo.
+# ---------------------------------------------------------------------------------------------
+status: DRAFT
+
+# Rotulo obrigatorio enquanto a assinatura nao existe. O carregador exige que ele esteja presente
+# e nao vazio em todo manifesto/linha nao ratificada.
+rotulo: "recomendação — pendente de assinatura do DPO"
+
+# Onde a pergunta de cada nome esta escrita por extenso (citacao por SIMBOLO, nao por linha).
+pergunta_em: src/maezo/platform/validation/phi_completeness.py::DISPOSITIONS
+
+# ---------------------------------------------------------------------------------------------
+# ratificacao — a assinatura do manifesto COMO UM TODO (ADR-0007). Placeholders detectaveis por
+# maquina: `ratificado: false` + `revisor`/`ratificado_em` nulos = "ninguem decidiu ainda".
+# Assinar aqui NAO assina as linhas: cada disposicao tem o seu proprio bloco.
+# ---------------------------------------------------------------------------------------------
+ratificacao:
+  ratificado: false
+  revisor: null
+  ratificado_em: null
+  observacao: >-
+    DECISAO DO DPO, NAO DA ENGENHARIA. Este bloco registra que o encarregado leu o conjunto das
+    perguntas; ele nao substitui a assinatura linha a linha, e nenhuma das duas adiciona nome
+    algum a conjunto PHI. As disposicoes que preenchem estas linhas sao as pendencias humanas
+    registradas em R-065 e R-136 sobre o gap PHI-DISPOSITIONS-DPO; enquanto elas nao existirem,
+    este arquivo e um formulario em branco com dono declarado — que e exatamente o que a decisao
+    do dono R-199 mandou construir.
+
+# ---------------------------------------------------------------------------------------------
+# disposicoes — UMA linha por nome que a cerca classificou como PHI-SHAPE e NAO LISTADO.
+#
+# O conjunto de nomes NAO e escolha deste arquivo: ele e derivado da cerca e preso a ela pelo
+# fecho descrito no cabecalho. Acrescentar ou remover um nome aqui sem o movimento correspondente
+# em `phi_completeness.DISPOSITIONS` fica VERMELHO.
+#
+# Campos de cada linha:
+#   nome            a variavel de processo (chave do fecho);
+#   disposicao      null hoje; LISTAR_EM_CONJUNTO_PHI ou REGISTRAR_NAO_PHI quando o DPO decidir;
+#   ratificacao     ratificado/revisor/ratificado_em — os tres, ou a linha nao conta;
+#   rotulo          o rotulo obrigatorio enquanto a linha nao esta assinada.
+# ---------------------------------------------------------------------------------------------
+disposicoes:
+  - nome: detalhes_requisicao
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: fundamentacao_legal
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: cid10
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: diagnostico_oncologico_confirmado
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: diagnostico_tea_ou_neurodesenvolvimento
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: has_cid10_codes
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: exames_convencionais_inconclusivos
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: sintoma_codigo
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: auditor_id
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+# ---------------------------------------------------------------------------------------------
+# evidencia — o que este arquivo muda de OBSERVAVEL hoje, dito sem exagero.
+# ---------------------------------------------------------------------------------------------
+evidencia:
+  efeito_em_runtime: >-
+    NENHUM. Nenhum daemon, worker ou agente le este arquivo. Ele e lido por
+    `maezo.platform.validation.policy` (no gate `make validate-artifacts`) e por
+    `maezo.platform.validation.phi_completeness.check_sweep` (a cerca de completude PHI) — os
+    dois sao caminhos de BUILD. A redacao em runtime continua ancorada exclusivamente em
+    `PHI_PROCESS_VARS` e `PHI_FIELDS`, byte-identica ao anterior a este manifesto.
+  gate_ativo_hoje: >-
+    O FECHO. `make validate-artifacts` valida o schema deste arquivo (estrutura, porta DRAFT,
+    campos de accountability, rotulos, nomes sem duplicata) e a lane unitaria executa o fecho
+    codigo<->manifesto pela cerca. As duas divergencias possiveis — nome no codigo sem linha
+    aqui, linha aqui sem nome no codigo — sao ERRO que bloqueia.
+  gate_que_a_assinatura_liga: >-
+    `disposicao: LISTAR_EM_CONJUNTO_PHI` ratificado passa a EXIGIR o nome em `PHI_PROCESS_VARS`
+    ou em `PHI_FIELDS`; enquanto a listagem nao acontecer, a cerca fica VERMELHA. E o efeito de
+    gate que a decisao R-199 quis produzir "no mesmo ato" da assinatura.
+  o_que_continua_gated_por_humano: >-
+    As disposicoes em si (R-065 e R-136, gap PHI-DISPOSITIONS-DPO) e a listagem propriamente
+    dita. Nada neste arquivo antecipa, sugere ou registra qualquer uma delas.

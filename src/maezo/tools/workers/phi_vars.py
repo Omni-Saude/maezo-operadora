@@ -66,6 +66,7 @@ PHI_PROCESS_VARS: frozenset[str] = frozenset(
         "notas_resolucao",
         "resumo_contexto",
         "matricula_beneficiario",
+        # R-066 (dono, 2026-09-04): MANTIDOS como defesa em profundidade; remover exige ato do DPO.
         "laudo",
         "diagnostico",
     }
