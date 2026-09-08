@@ -95,8 +95,17 @@ def test_expected_failure():
     assert report["case_counts"]["passed"] == 1
     assert report["case_counts"]["xfailed_executed"] == 1
     published = ET.parse(root / "result.xml").getroot()
-    published_keys = [(case.get("classname"), case.get("name")) for case in published.findall(".//testcase")]
-    validated_keys = [(case["classname"], case["name"]) for case in report["cases"]]
+    published_keys = [
+        (
+            case.get("classname"),
+            case.get("name"),
+            case.get("junit_identity_sha256"),
+        )
+        for case in published.findall(".//testcase")
+    ]
+    validated_keys = [
+        (case["classname"], case["name"], case["junit_identity_sha256"]) for case in report["cases"]
+    ]
     assert published_keys == validated_keys
     assert not (root / ".result.xml.private").exists()
 
@@ -189,22 +198,74 @@ def test_labels_without_verified_execution_never_authorize_a_pass(tmp_path: Path
     assert any("não verificado" in error for error in report["errors"])
 
 
-def test_published_junit_redacts_failure_text_without_changing_identity(tmp_path: Path) -> None:
+def test_safe_artifacts_redact_structured_secrets_and_keep_distinct_identities(
+    tmp_path: Path,
+) -> None:
+    sentinels = (
+        "synthetic secret with spaces",
+        "synthetic api key with spaces",
+        "first uri password",
+        "second uri password",
+    )
     root = _prepare(
         tmp_path,
-        """def test_failure():
-    raise RuntimeError("password=synthetic-secret")
+        """import pytest
+
+REASON = 'payload={"password": "synthetic secret with spaces", "api_key": "synthetic api key with spaces"}'
+
+@pytest.mark.xfail(strict=True, reason=REASON)
+@pytest.mark.parametrize(
+    "value",
+    [1, 2],
+    ids=[
+        "postgresql://synthetic:first uri password@127.0.0.1:9/probe",
+        "postgresql://synthetic:second uri password@127.0.0.1:9/probe",
+    ],
+)
+def test_private(value):
+    raise AssertionError(REASON)
 """,
+    )
+
+    result, report = _run(root)
+
+    assert result.returncode == 0, result.stdout
+    assert report["return_code"] == 0
+    assert report["case_counts"] == {"xfailed_executed": 2}
+    artifacts = [
+        root / "collection.json",
+        root / "execution.json",
+        root / "validation.json",
+        root / "result.xml",
+    ]
+    published = "\n".join(path.read_text(encoding="utf-8") for path in artifacts)
+    assert all(secret not in published for secret in sentinels)
+    cases = ET.parse(root / "result.xml").getroot().findall(".//testcase")
+    assert len(cases) == 2
+    assert len({case.get("name") for case in cases}) == 2
+    assert len({case.get("junit_identity_sha256") for case in cases}) == 2
+    assert all(case.get("name", "").startswith("test_private[parameters:") for case in cases)
+    assert not (root / ".result.xml.private").exists()
+
+
+def test_failed_collection_cannot_reuse_stale_public_artifacts(tmp_path: Path) -> None:
+    root = _prepare(tmp_path, "def test_control(): pass\n")
+    stale_paths = [root / name for name in ("execution.json", "result.xml", "validation.json")]
+    for path in stale_paths:
+        path.write_text("STALE-PASS", encoding="utf-8")
+    (root / "test_probe.py").write_text(
+        "raise KeyboardInterrupt(\"payload={'password': 'interrupted secret with spaces'}\")\n",
+        encoding="utf-8",
     )
 
     result, report = _run(root)
 
     assert result.returncode != 0
     assert report["return_code"] != 0
-    published = (root / "result.xml").read_text(encoding="utf-8")
-    assert "synthetic-secret" not in published
-    assert "&lt;redacted&gt;" in published
-    case = ET.fromstring(published).find(".//testcase")
-    assert case is not None
-    assert case.get("name") == "test_failure"
+    assert all("STALE-PASS" not in path.read_text(encoding="utf-8") for path in stale_paths)
+    assert all(
+        "interrupted secret with spaces" not in path.read_text(encoding="utf-8") for path in stale_paths
+    )
     assert not (root / ".result.xml.private").exists()
+    assert not (root / ".result.xml.publishing").exists()
+    assert not (root / ".validation.json.tmp").exists()

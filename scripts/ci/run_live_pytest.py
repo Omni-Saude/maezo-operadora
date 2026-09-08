@@ -22,11 +22,18 @@ if TYPE_CHECKING:
     from scripts.ci.pytest_execution_evidence import (
         SCHEMA_VERSION,
         EvidencePlugin,
+        public_junit_identity,
         redact,
         validate_execution,
     )
 else:
-    from pytest_execution_evidence import SCHEMA_VERSION, EvidencePlugin, redact, validate_execution
+    from pytest_execution_evidence import (
+        SCHEMA_VERSION,
+        EvidencePlugin,
+        public_junit_identity,
+        redact,
+        validate_execution,
+    )
 
 
 def _pytest_args(raw: Sequence[str]) -> list[str]:
@@ -50,7 +57,16 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.unlink(missing_ok=True)
+    try:
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _remove_stale(*paths: Path) -> None:
@@ -58,10 +74,23 @@ def _remove_stale(*paths: Path) -> None:
         path.unlink(missing_ok=True)
 
 
+def _safe_exception(context: str, exc: BaseException) -> str:
+    """Redige a mensagem completa para manter o contexto de chaves estruturadas."""
+    return redact(f"{context}: {type(exc).__name__}: {exc}")
+
+
 def _publish_sanitized_junit(private_path: Path, public_path: Path) -> None:
-    """Publica XML válido sem texto sensível e sem mudar a identidade dos casos."""
+    """Projeta identidades do XML já validado e publica conteúdo seguro."""
     tree = ET.parse(private_path)
     for element in tree.getroot().iter():
+        if element.tag == "testcase":
+            identity = public_junit_identity(
+                element.get("classname", ""),
+                element.get("name", ""),
+            )
+            element.set("classname", identity["classname"])
+            element.set("name", identity["name"])
+            element.set("junit_identity_sha256", identity["junit_identity_sha256"])
         for name, value in tuple(element.attrib.items()):
             if name not in {"classname", "name"}:
                 element.set(name, redact(value))
@@ -70,14 +99,25 @@ def _publish_sanitized_junit(private_path: Path, public_path: Path) -> None:
         if element.tail:
             element.tail = redact(element.tail)
     public_path.parent.mkdir(parents=True, exist_ok=True)
-    tree.write(public_path, encoding="utf-8", xml_declaration=True)
+    temporary = public_path.with_name(f".{public_path.name}.publishing")
+    temporary.unlink(missing_ok=True)
+    try:
+        tree.write(temporary, encoding="utf-8", xml_declaration=True)
+        temporary.replace(public_path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def collect(output: Path, root: Path, raw_pytest_args: Sequence[str]) -> int:
-    args = _pytest_args(raw_pytest_args)
     _remove_stale(output)
-    plugin = EvidencePlugin(output=output, root=root)
-    pytest_rc = int(pytest.main([*args, "--collect-only"], plugins=[plugin]))
+    args = _pytest_args(raw_pytest_args)
+    try:
+        plugin = EvidencePlugin(output=output, root=root)
+        pytest_rc = int(pytest.main([*args, "--collect-only"], plugins=[plugin]))
+    except BaseException as exc:
+        _remove_stale(output)
+        print(f"[live-pytest] FAIL coleta: {_safe_exception('pytest interrompido', exc)}", file=sys.stderr)
+        return 3
     if pytest_rc != 0:
         return pytest_rc
     try:
@@ -94,7 +134,8 @@ def collect(output: Path, root: Path, raw_pytest_args: Sequence[str]) -> int:
         ):
             raise ValueError("manifesto de coleta vazio, duplicado, incompleto ou inconsistente")
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        print(f"[live-pytest] FAIL coleta: {type(exc).__name__}: {exc}", file=sys.stderr)
+        _remove_stale(output)
+        print(f"[live-pytest] FAIL coleta: {_safe_exception('manifesto invalido', exc)}", file=sys.stderr)
         return 3
     print(f"[live-pytest] coleta fixada: {len(nodeids)} casos em {output}")
     return 0
@@ -108,9 +149,18 @@ def run(
     root: Path,
     raw_pytest_args: Sequence[str],
 ) -> int:
-    args = _pytest_args(raw_pytest_args)
     private_junit_path = junit_path.with_name(f".{junit_path.name}.private")
-    _remove_stale(evidence_path, private_junit_path, junit_path, validation_path)
+    publishing_path = junit_path.with_name(f".{junit_path.name}.publishing")
+    validation_temporary = validation_path.with_name(f".{validation_path.name}.tmp")
+    _remove_stale(
+        evidence_path,
+        private_junit_path,
+        publishing_path,
+        junit_path,
+        validation_temporary,
+        validation_path,
+    )
+    args = _pytest_args(raw_pytest_args)
     try:
         expected = _read_json(expected_path)
         expected_items = expected["collection"]
@@ -124,35 +174,44 @@ def run(
         ):
             raise ValueError("manifesto de coleta não é uma coleta completa e não vazia")
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        print(f"[live-pytest] FAIL manifesto: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"[live-pytest] FAIL manifesto: {_safe_exception('manifesto invalido', exc)}", file=sys.stderr)
         return 3
 
-    plugin = EvidencePlugin(output=evidence_path, root=root)
-    pytest_rc = int(pytest.main([*args, f"--junitxml={private_junit_path}"], plugins=[plugin]))
+    pytest_rc = 3
+    validation_completed = False
     try:
+        plugin = EvidencePlugin(output=evidence_path, root=root)
+        pytest_rc = int(pytest.main([*args, f"--junitxml={private_junit_path}"], plugins=[plugin]))
         evidence = _read_json(evidence_path)
         report = validate_execution(private_junit_path, evidence, expected_items, pytest_rc)
-    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        validation_completed = True
+    except BaseException as exc:
         report = {
             "return_code": pytest_rc or 3,
-            "errors": [f"validação interrompida: {type(exc).__name__}: {exc}"],
+            "errors": [_safe_exception("validacao interrompida", exc)],
         }
     try:
-        _publish_sanitized_junit(private_junit_path, junit_path)
-    except (OSError, ET.ParseError, ValueError) as exc:
-        report.setdefault("errors", []).append(
-            f"JUnit privado não pôde ser publicado com redação: {type(exc).__name__}: {exc}"
-        )
-        report["return_code"] = pytest_rc or 3
-        junit_path.unlink(missing_ok=True)
+        if validation_completed:
+            try:
+                _publish_sanitized_junit(private_junit_path, junit_path)
+            except (OSError, ET.ParseError, ValueError) as exc:
+                report.setdefault("errors", []).append(_safe_exception("publicacao JUnit recusada", exc))
+                report["return_code"] = pytest_rc or 3
+                junit_path.unlink(missing_ok=True)
     finally:
         private_junit_path.unlink(missing_ok=True)
-    _write_json(validation_path, report)
+        publishing_path.unlink(missing_ok=True)
+    try:
+        _write_json(validation_path, report)
+    except OSError as exc:
+        validation_path.unlink(missing_ok=True)
+        print(f"[live-pytest] FAIL: {_safe_exception('relatorio nao publicado', exc)}", file=sys.stderr)
+        return pytest_rc or 3
 
     return_code = int(report.get("return_code", 3))
     if return_code:
         for error in report.get("errors", ["relatório sem lista de erros"]):
-            print(f"[live-pytest] FAIL: {error}", file=sys.stderr)
+            print(f"[live-pytest] FAIL: {redact(str(error))}", file=sys.stderr)
         print(f"[live-pytest] relatório: {validation_path}", file=sys.stderr)
         return return_code
     counts = report["case_counts"]
@@ -198,7 +257,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.pytest_args,
         )
     except ValueError as exc:
-        print(f"[live-pytest] FAIL argumentos: {exc}", file=sys.stderr)
+        print(f"[live-pytest] FAIL argumentos: {redact(str(exc))}", file=sys.stderr)
         return 3
 
 

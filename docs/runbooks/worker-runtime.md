@@ -171,15 +171,22 @@ O alvo `make test-integration` continua limitado a `tests/integration/`. A lane 
 coleta globalmente `tests -m "integration and not chaos"`, porque também existem suítes live-PG
 e live-CIB sob `tests/unit/`; a lane `chaos` executa separadamente `-m chaos`. A união das duas
 lanes cobre o conjunto global `-m integration`, sem interseção. A lane unitária usa
-`-m "not integration"`. Antes de subir serviços, cada lane live grava um manifesto JSON da coleção
-com node ID, identidade JUnit, hash da fonte, política de xfail e eventual companion derivado da
-guarda canônica `mutation_active`. A execução grava outro JSON com as fases setup/call/teardown e
-prova de entrada no corpo, além do JUnit e do relatório de validação. Os quatro artefatos precisam
-concordar exatamente; caso ausente/substituído/duplicado, fonte alterada, relatório parcial, skip
-ordinário, xfail sem fase call e qualquer XPASS falham fechado. Strict-xfails só são aceitos quando
-o corpo entrou e falhou como esperado. Os seis companions canônicos continuam skips explícitos
-quando a mutação opt-in não foi ativada e ficam declarados como obrigação de RED separado; texto
-livre contendo `MAEZO_CHAOS_MUTATE` não cria um companion.
+`-m "not integration"`. Antes de subir serviços, cada lane live grava um manifesto JSON schema 2
+da coleção com rótulos públicos opacos, fingerprints das identidades completas, hash da fonte,
+política de xfail e eventual companion derivado da guarda canônica `mutation_active`. A execução
+grava outro JSON seguro com as fases setup/call/teardown e prova de entrada no corpo. O JUnit bruto
+fica em staging privado: a validação confronta suas identidades completas com o manifesto
+independente antes de projetar `classname`/`name` e publicar o fingerprint de correlação
+`junit_identity_sha256`. Só então o XML redigido e o relatório de validação podem ser publicados.
+Os quatro artefatos precisam concordar exatamente; caso ausente/substituído/duplicado, fonte
+alterada, relatório parcial, interrupção, skip ordinário, xfail sem fase call e qualquer XPASS
+falham fechado. Artefatos anteriores e temporários privados são removidos antes da execução e não
+podem sustentar um resultado verde. Strict-xfails só são aceitos quando o corpo entrou e falhou
+como esperado. Os seis companions canônicos continuam skips explícitos quando a mutação opt-in
+não foi ativada e ficam declarados como obrigação de RED separado; texto livre contendo
+`MAEZO_CHAOS_MUTATE` não cria um companion. Razões estruturadas são redigidas com o contexto
+completo das chaves, inclusive JSON/repr citado e valores com espaços; parâmetros nunca aparecem
+em claro nos JSONs, nos casos de validação ou no JUnit publicado.
 
 **The `down -v` consideration between integration runs.** Per `docs/design/T3.3-chaos-resilience.md`
 (§1.3), CI's `integration` job (`.github/workflows/ci.yml`) does: `docker compose --profile core
