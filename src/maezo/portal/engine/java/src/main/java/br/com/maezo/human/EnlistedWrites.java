@@ -24,7 +24,7 @@ final class EnlistedWrites implements SqlSource {
       }
       configuration.addMappedStatement(
           new MappedStatement.Builder(configuration, ID, new EnlistedWrites(configuration), SqlCommandType.SELECT)
-              .dirtySelect(true)
+              .dirtySelect(false)
               .flushCacheRequired(true)
               .useCache(false)
               .resultMaps(List.of(new ResultMap.Builder(configuration, ID + ".count", Integer.class, List.of()).build()))
