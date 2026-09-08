@@ -227,9 +227,40 @@ O token operacional de `owner.json` é mantido somente no caminho privado de pos
 público permanece redigido. Variáveis de credencial externas não entram no filho; o runner não
 imprime o ambiente nem copia `.env`.
 
-As fases de mutação continuam sendo provas RED explícitas fora deste runner e nunca resultados
-aprovados. Use o comando declarado no docstring do módulo, com `MAEZO_CHAOS_MUTATE=<id>`, e espere
-falha. Não passe essa variável ao runner: a fronteira hermética a remove deliberadamente.
+A interface opt-in `run-mutation` seleciona exatamente um dos seis nodeids canônicos do protocolo
+`completion-engine-mutation-protocol/REPORT.md`. Exemplo (após revisão dos gates e SHAs):
+
+```bash
+python3 -I -S scripts/dev/run_engine_integration.py run-mutation \
+  --checkout "$CHECKOUT" --sha "$SHA" --results-dir "$RESULTS_DIR" --lock-timeout 0 \
+  --nodeid tests/integration/chaos/test_crash_between_seams.py::test_b1a_mutation_check_chain_insert_outside_lock_turns_suite_red
+```
+
+`run-mutation --help` enumera as seis seleções admitidas. Não há argumento de token, suite,
+comando subordinado ou argumentos pytest livres: suite/arquivo/token são derivados do nodeid.
+Os dois companions A1/A2 usam `a1_a2`, mas são invocações distintas. Cada invocação cria e
+encerra sua própria stack; quatro companions usam seams PostgreSQL existentes, dois exigem CIB.
+Não há handoff nem reaproveitamento da stack de `run`.
+
+A descoberta sem mutação autentica a declaração pelo catálogo fixo do núcleo; a coleta ativa
+exige o mesmo item/fonte e a guarda desativada. O token derivado é instalado no bootstrap Python
+antes de importar pytest/conftests/testes, tanto na coleta seletiva quanto na execução. Ambiente
+herdado continua sem autoridade: `MAEZO_CHAOS_MUTATE` é removido da fronteira de subprocesso, e
+`run` normal continua sem ativar companions. Snapshot, lock canônico PID/token, endpoints, grupos
+de processo, timeouts, quiescência e teardown são os mesmos do modo normal.
+
+`suite-results.json` preserva `pytest_return_code`, resultado do validador positivo e seus erros;
+`mutation-selection.json` identifica seleção/declaracão/coleção ativa. Um RED correto permanece
+rc1 e não verde. Um mutante que passe tem pytest rc0 preservado, mas a invocação retorna rc1:
+não demonstrou RED. Não há classificação automática da asserção esperada. O núcleo não aceita
+call failed como pass/xfail/skip, e exceção do validador falha fechada com publicação/teardown.
+
+A revisão independente deve correlacionar `pytest-execution.json`, `junit.xml` e `pytest.log`:
+setup/teardown passed, call failed com corpo observado, pytest rc1 e AssertionError na asserção
+final com os valores exatos da matriz. Falha de conexão, setup, assert anterior, skip, xfail,
+timeout ou teardown incompleto não demonstram o RED canônico. Os artefatos são redigidos e
+preservam a linha assertional/valores para essa revisão. Controles GREEN no mesmo SHA e integração
+global continuam obrigatórios; esta interface não concede aprovação nem prova execução real.
 
 No encerramento, inclusive após `SIGINT`/`SIGTERM`, o dono tenta apenas:
 
