@@ -1,0 +1,16 @@
+collected_utc=2026-09-08T19:49:41Z
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-ci-repair
+argv=uv run python scripts/ci/check_evidence_ledger_hashes.py --base 3125fea992e607836a6adccbfb8593a1cc062a46 --ledger-path docs/evidence-ledger.md
+revision=7201a588d56cd7deb73425dfefb3b22c4d4cac15
+rc=0
+
+[check-evidence-ledger-hashes] OK: EVAL-HARNESS-SENDER: historical claim verified at exact source_commit 7db9e0b42dfe8e63c8214c63cbf3ece61c1406d9 (tests/evals/test_harness_sender_leak.py, 7 result lines; 43 archived maezo imports attested).
+[check-evidence-ledger-hashes] OK: ESC-TOLERANT-LOG-RAW-VALUE: historical claim verified at exact source_commit 8f0e5f4720b1ea7885fefdda13cbbe4079601532 (tests/unit/tools/workers/test_escalation_notify_team.py, 49 result lines; 25 archived maezo imports attested).
+[check-evidence-ledger-hashes] OK: ESC-TOLERANT-LOG-RAW-VALUE-CURRENT-7B34: verified sha256:f5f527334aacf94a2ede4a74606e5a415be874369d2e9df942408c53a1dcbcbd (tests/unit/tools/workers/test_escalation_notify_team.py, 75 result lines).
+[check-evidence-ledger-hashes] OK: EVAL-HARNESS-SENDER-CURRENT-7B34: verified sha256:7fe5dedae01a5bd31a387298143dbda77471ca46b39984da26c8e91944a841ce (tests/evals/test_harness_sender_leak.py, 11 result lines).
+[check-evidence-ledger-hashes] OK: FLEET-LEDGER-SUPERSESSION-PROVENANCE / FLC-01 / FLC-02: verified sha256:e32f41e126018e01020aaff4d518f9bc74e8d7d068652b2e6fa7e46ed5850fba (tests/unit/ci/test_check_evidence_ledger_supersession.py, 19 result lines).
+[check-evidence-ledger-hashes] SUMMARY: 20/20 declared-row proofs verified (19 selected rows; 20 total current/historical proofs), 0 legacy rows skipped — rows added in 3125fea992e607836a6adccbfb8593a1cc062a46..HEAD of docs/evidence-ledger.md.
+
+Note: this durable excerpt retains every FLC-01/FLC-02 decisive line and the complete verdict. The
+command's other fifteen OK lines were unrelated imported declarations and are omitted from this
+focal packet; the session capture recorded all twenty proof lines.

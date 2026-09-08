@@ -1,0 +1,19 @@
+collected_utc=2026-09-08T19:44:00Z
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-ci-repair
+tree=998a482a00430232eb1024e80102c61ab563a8f4
+
+argv=uv run ruff check scripts/ci/check_evidence_ledger_hashes.py scripts/ci/generate_release_floor.py tests/unit/ci/test_check_evidence_ledger_supersession.py
+rc=0
+All checks passed!
+
+argv=uv run ruff format --check scripts/ci/check_evidence_ledger_hashes.py scripts/ci/generate_release_floor.py tests/unit/ci/test_check_evidence_ledger_supersession.py
+rc=0
+3 files already formatted
+
+argv=uv run mypy scripts/ci/check_evidence_ledger_hashes.py scripts/ci/generate_release_floor.py --strict
+rc=0
+Success: no issues found in 2 source files
+
+argv=uv run python scripts/ci/check_ledger_row_cell_count.py --base 3125fea992e607836a6adccbfb8593a1cc062a46 --ledger-path docs/evidence-ledger.md
+rc=0
+[check-ledger-row-cell-count] PASS: 19 row(s) checked, all 8-cell — rows added in 3125fea992e607836a6adccbfb8593a1cc062a46..HEAD of docs/evidence-ledger.md.
