@@ -171,11 +171,7 @@ def _collect(checkout: Path, args: list[str], log_path: Path) -> set[str]:
     )
     if result.returncode != 0:
         raise RunnerError(f"coleta pytest falhou (rc={result.returncode}); veja {log_path}")
-    return {
-        line.strip()
-        for line in result.stdout.splitlines()
-        if line.startswith("tests/integration/") and "::" in line
-    }
+    return {line.strip() for line in result.stdout.splitlines() if line.startswith("tests/") and "::" in line}
 
 
 def _dependency_evidence(checkout: Path, nodeids: set[str], pattern: re.Pattern[str]) -> list[str]:
@@ -183,6 +179,33 @@ def _dependency_evidence(checkout: Path, nodeids: set[str], pattern: re.Pattern[
     return [
         relative for relative in files if pattern.search((checkout / relative).read_text(errors="replace"))
     ]
+
+
+def _dependencies_for(
+    checkout: Path,
+    suite_name: str,
+    nodeids: set[str],
+    *,
+    engine_pattern: re.Pattern[str],
+    kafka_pattern: re.Pattern[str],
+    hapi_pattern: re.Pattern[str],
+) -> dict[str, object]:
+    engine_evidence = _dependency_evidence(checkout, nodeids, engine_pattern)
+    kafka_evidence = _dependency_evidence(checkout, nodeids, kafka_pattern)
+    hapi_evidence = _dependency_evidence(checkout, nodeids, hapi_pattern)
+    engine_required = suite_name == "core" or bool(engine_evidence)
+    # Quando CIB é necessário, a fundação segue a ordem operacional exigida:
+    # Postgres+Kafka prontos antes do engine, mesmo se o teste não usa Kafka diretamente.
+    kafka_required = suite_name == "core" or engine_required or bool(kafka_evidence)
+    return {
+        "postgres_required": True,
+        "engine_required": engine_required,
+        "engine_evidence": engine_evidence,
+        "kafka_required": kafka_required,
+        "kafka_evidence": kafka_evidence,
+        "hapi_required": bool(hapi_evidence),
+        "hapi_evidence": hapi_evidence,
+    }
 
 
 def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict[str, Any]:
@@ -233,23 +256,35 @@ def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict
     kafka_pattern = re.compile(r"KAFKA_BOOTSTRAP_SERVERS|AioKafka|aiokafka")
     hapi_pattern = re.compile(r"FHIR_BASE_URL|HAPI_FHIR_BASE_URL|localhost:8081|/fhir/")
     suite_dependencies: dict[str, dict[str, object]] = {}
+    execution_manifest: list[dict[str, Any]] = []
     for suite_name, nodeids in (("core", core), ("chaos", chaos), ("db-unit", db_unit)):
-        engine_evidence = _dependency_evidence(checkout, nodeids, engine_pattern)
-        kafka_evidence = _dependency_evidence(checkout, nodeids, kafka_pattern)
-        hapi_evidence = _dependency_evidence(checkout, nodeids, hapi_pattern)
-        engine_required = suite_name == "core" or bool(engine_evidence)
-        # Quando CIB é necessário, a fundação segue a ordem operacional exigida:
-        # Postgres+Kafka prontos antes do engine, mesmo se o teste não usa Kafka diretamente.
-        kafka_required = suite_name == "core" or engine_required or bool(kafka_evidence)
-        suite_dependencies[suite_name] = {
-            "postgres_required": True,
-            "engine_required": engine_required,
-            "engine_evidence": engine_evidence,
-            "kafka_required": kafka_required,
-            "kafka_evidence": kafka_evidence,
-            "hapi_required": bool(hapi_evidence),
-            "hapi_evidence": hapi_evidence,
-        }
+        suite_dependencies[suite_name] = _dependencies_for(
+            checkout,
+            suite_name,
+            nodeids,
+            engine_pattern=engine_pattern,
+            kafka_pattern=kafka_pattern,
+            hapi_pattern=hapi_pattern,
+        )
+        files = sorted({nodeid.split("::", 1)[0] for nodeid in nodeids})
+        for test_file in files:
+            file_nodeids = {nodeid for nodeid in nodeids if nodeid.startswith(f"{test_file}::")}
+            execution_manifest.append(
+                {
+                    "suite": suite_name,
+                    "test_file": test_file,
+                    "expected_count": len(file_nodeids),
+                    "nodeids": sorted(file_nodeids),
+                    "dependencies": _dependencies_for(
+                        checkout,
+                        suite_name,
+                        file_nodeids,
+                        engine_pattern=engine_pattern,
+                        kafka_pattern=kafka_pattern,
+                        hapi_pattern=hapi_pattern,
+                    ),
+                }
+            )
 
     payload: dict[str, Any] = {
         "generated_at": _now(),
@@ -273,6 +308,7 @@ def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict
         "missing_test_files": missing_files,
         "required_families": required_families,
         "suite_dependencies": suite_dependencies,
+        "execution_manifest": execution_manifest,
     }
     failures: list[str] = []
     if not integration:
@@ -285,6 +321,9 @@ def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict
         failures.append("há arquivos test_*.py sem nodeid coletado")
     if not all(required_families.values()):
         failures.append("famílias obrigatórias LGPD/escalation não foram coletadas")
+    manifest_nodeids = {str(nodeid) for entry in execution_manifest for nodeid in entry["nodeids"]}
+    if manifest_nodeids != integration or any(not entry["expected_count"] for entry in execution_manifest):
+        failures.append("manifest por arquivo está vazio ou não cobre a coleta integration exatamente")
     payload["validation_errors"] = failures
     _json_write(results_dir / "discovery.json", payload)
     if failures:
@@ -426,15 +465,13 @@ def _http_ready(url: str) -> bool:
 
 def _start_stack(
     checkout: Path,
-    suite: str,
-    discovery_payload: dict[str, Any],
+    dependencies: dict[str, object],
     env: dict[str, str],
     results_dir: Path,
     lock: EngineLock,
 ) -> list[str]:
     _compose(checkout, ["down", "-v", "--remove-orphans"], env=env, log_path=results_dir / "fresh-down.log")
     lock.update("fresh_project_removed")
-    dependencies = discovery_payload["suite_dependencies"][suite]
     if not dependencies["kafka_required"]:
         _compose(checkout, ["up", "-d", "postgres"], env=env, log_path=results_dir / "start-postgres.log")
         services = ["postgres"]
@@ -593,23 +630,34 @@ def _parse_outcomes(output: str) -> dict[str, int]:
     return outcomes
 
 
+def _junit_counts(path: Path) -> dict[str, int]:
+    if not path.is_file():
+        return {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+    try:
+        root = ET.parse(path).getroot()
+    except (ET.ParseError, OSError) as exc:
+        raise RunnerError(f"JUnit inválido em {path}: {exc}") from exc
+    suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
+    return {
+        name: sum(int(suite.attrib.get(name, "0")) for suite in suites)
+        for name in ("tests", "failures", "errors", "skipped")
+    }
+
+
 def _run_pytest(
     checkout: Path,
     suite: str,
+    test_file: str,
     env: dict[str, str],
     results_dir: Path,
     expected_count: int,
 ) -> dict[str, Any]:
-    selections = {
-        "chaos": ["tests/integration/chaos", "-m", "integration and chaos"],
-        "core": [
-            "tests/integration",
-            "-m",
-            "integration and not chaos",
-        ],
-        "db-unit": ["tests/unit", "-m", "integration"],
+    markers = {
+        "chaos": "integration and chaos",
+        "core": "integration and not chaos",
+        "db-unit": "integration",
     }
-    selection = selections[suite]
+    selection = [test_file, "-m", markers[suite]]
     junit = results_dir / "junit.xml"
     command = [
         "uv",
@@ -626,11 +674,23 @@ def _run_pytest(
     ]
     result = _run(command, cwd=checkout, env=env, timeout=7200, log_path=results_dir / "pytest.log")
     output = result.stdout + result.stderr
+    junit_counts = _junit_counts(junit)
+    result_code = result.returncode
+    collection_error = None
+    if junit_counts["tests"] != expected_count:
+        collection_error = (
+            f"JUnit executou {junit_counts['tests']} casos; manifest esperava "
+            f"{expected_count} para {test_file}"
+        )
+        result_code = result_code or 1
     payload = {
         "finished_at": _now(),
         "suite": suite,
-        "return_code": result.returncode,
+        "test_file": test_file,
+        "return_code": result_code,
         "expected_collected": expected_count,
+        "junit_counts": junit_counts,
+        "collection_error": collection_error,
         "outcomes": _parse_outcomes(output),
         "junit_xml": junit.as_posix(),
         "pytest_log": (results_dir / "pytest.log").as_posix(),
@@ -663,6 +723,7 @@ def run_suite(args: argparse.Namespace) -> int:
         "started_at": _now(),
         "state": "preflight",
         "suite": args.suite,
+        "test_file": args.test_file,
         "return_code": None,
         "project": PROJECT,
         "lock": LOCK_DIR.as_posix(),
@@ -674,14 +735,29 @@ def run_suite(args: argparse.Namespace) -> int:
     try:
         checkout, imported = validate_checkout(args.checkout, args.sha)
         discovery_payload = discover(checkout, results_dir, imported_module=imported)
-        expected_count = int(discovery_payload[f"{args.suite.replace('-', '_')}_count"])
+        requested_path = Path(args.test_file)
+        if requested_path.is_absolute() or ".." in requested_path.parts:
+            raise RunnerError("--test-file deve ser caminho relativo seguro dentro do CHECKOUT")
+        test_file = requested_path.as_posix()
+        manifest_matches = [
+            entry
+            for entry in discovery_payload["execution_manifest"]
+            if entry["suite"] == args.suite and entry["test_file"] == test_file
+        ]
+        if len(manifest_matches) != 1:
+            raise RunnerError(
+                "arquivo/grupo não aparece exatamente uma vez no manifest: "
+                f"suite={args.suite}, file={test_file}"
+            )
+        manifest_entry = manifest_matches[0]
+        expected_count = int(manifest_entry["expected_count"])
         if expected_count <= 0:
-            raise RunnerError(f"suíte {args.suite} não coletou testes")
+            raise RunnerError(f"arquivo {test_file} não coletou testes na suíte {args.suite}")
         lock = EngineLock.create(
             LOCK_DIR,
             checkout=checkout.as_posix(),
             sha=args.sha,
-            suite=args.suite,
+            suite=f"{args.suite}:{test_file}",
         )
         if not lock.acquire(args.lock_timeout):
             state.update(state="lock_busy", return_code=BUSY_EXIT, finished_at=_now())
@@ -691,14 +767,21 @@ def run_suite(args: argparse.Namespace) -> int:
         state["state"] = "lock_acquired"
         _json_write(results_dir / "run-state.json", state)
         env = _runtime_env()
-        services = _start_stack(checkout, args.suite, discovery_payload, env, results_dir, lock)
-        dependencies = discovery_payload["suite_dependencies"][args.suite]
+        dependencies = manifest_entry["dependencies"]
+        services = _start_stack(checkout, dependencies, env, results_dir, lock)
         if dependencies["engine_required"]:
             lock.update("deploying")
             _deploy_and_verify(checkout, env, results_dir)
             lock.update("deployment_verified")
         lock.update("pytest_running")
-        suite_result = _run_pytest(checkout, args.suite, env, results_dir, expected_count)
+        suite_result = _run_pytest(
+            checkout,
+            args.suite,
+            test_file,
+            env,
+            results_dir,
+            expected_count,
+        )
         return_code = int(suite_result["return_code"])
         state["state"] = "passed" if return_code == 0 else "pytest_failed"
     except (KeyboardInterrupt, RunnerInterrupted):
@@ -794,6 +877,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--checkout", required=True)
     run_parser.add_argument("--sha", required=True)
     run_parser.add_argument("--suite", choices=("core", "chaos", "db-unit"), required=True)
+    run_parser.add_argument("--test-file", required=True)
     run_parser.add_argument("--results-dir", required=True)
     run_parser.add_argument("--lock-timeout", type=float, default=0.0)
     run_parser.set_defaults(func=run_suite)
