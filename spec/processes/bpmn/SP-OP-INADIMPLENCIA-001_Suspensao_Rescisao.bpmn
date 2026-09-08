@@ -57,7 +57,7 @@ profundidade contra dupla-terminacao (recusa com ERR_CONTRACT_SUSPENSION_NOT_HUM
 
 EVENTOS DE DOMINIO (worker operadora.events.publish):
   inicio -> agents.events.inadimplencia.received
-  notificacao -> agents.events.inadimplencia.notified
+  etapa de disparo da notificacao -> agents.events.inadimplencia.notice_dispatched
   breach -> agents.events.inadimplencia.sla_breached
   fim -> agents.events.inadimplencia.completed (payload.desfecho = suspenso | rescisao_handoff |
          purgado | mantido)
@@ -130,14 +130,14 @@ Contrato completo: docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md.
     <!-- Dispara/registra notificacao previa ao beneficiario (RN 593). -->
     <bpmn:serviceTask id="ST_CheckPriorNotice" name="Disparar/registrar notificacao previa (RN 593)"
                       camunda:type="external" camunda:topic="operadora.inadimplencia.check_prior_notice">
-      <bpmn:documentation>Dispara/registra a notificacao previa ao beneficiario (RN 593 — notificacao ate o 50o dia; DRAFT/verify). NAO suspende/rescinde. Worker dict-first (ADR-0026, del kafka): NAO publica agents.events.inadimplencia.notified diretamente — ver ST_PublishInadimplenciaNotified logo a seguir (T3.1 event-gap remedy B, wave 4 latent conformance).</bpmn:documentation>
+      <bpmn:documentation>Dispara/registra a notificacao previa ao beneficiario (RN 593 — notificacao ate o 50o dia; DRAFT/verify). NAO suspende/rescinde. Worker dict-first (ADR-0026, del kafka): NAO publica agents.events.inadimplencia.notice_dispatched diretamente — ver ST_PublishInadimplenciaNotified logo a seguir (T3.1 event-gap remedy B, wave 4 latent conformance). O evento registra somente a etapa de disparo; NAO afirma entrega ou recebimento.</bpmn:documentation>
       <bpmn:incoming>Flow_Purga_RequestNotif</bpmn:incoming>
       <bpmn:outgoing>Flow_RequestNotif_PubPended</bpmn:outgoing>
     </bpmn:serviceTask>
 
     <!-- T3.1 event-gap remedy B, wave 4 latent conformance (event-gap design doc §2.8; contract
-         SP-OP-INADIMPLENCIA-001.md:109 "produz" agents.events.inadimplencia.notified na
-         notificacao previa disparada/registrada; worker-row SP-OP-INADIMPLENCIA-001.md:114).
+         SP-OP-INADIMPLENCIA-001.md "produz" agents.events.inadimplencia.notice_dispatched na
+         etapa de disparo da notificacao previa; worker-row no mesmo contrato).
          ST_CheckPriorNotice e' dict-first (ADR-0026) e nao publica; o generico
          operadora.events.publish fecha o gap aqui, mirror byte-a-byte de
          ST_PublishSlaBreach/ST_PublishCompleted (mesmo padrao event_topic/event_payload_vars,
@@ -146,11 +146,11 @@ Contrato completo: docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md.
          deliberadamente NAO incluido, mesma convencao das demais ST_Publish* deste BPMN). Nao
          havia teste red pre-existente pinando esta obrigacao (latent B) — regressao nova em
          test_sp_op_inadimplencia_001.py. -->
-    <bpmn:serviceTask id="ST_PublishInadimplenciaNotified" name="Publicar evento: inadimplencia.notified"
+    <bpmn:serviceTask id="ST_PublishInadimplenciaNotified" name="Publicar evento: inadimplencia.notice_dispatched"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
         <camunda:inputOutput>
-          <camunda:inputParameter name="event_topic">agents.events.inadimplencia.notified</camunda:inputParameter>
+          <camunda:inputParameter name="event_topic">agents.events.inadimplencia.notice_dispatched</camunda:inputParameter>
           <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>

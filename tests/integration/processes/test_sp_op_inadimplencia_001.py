@@ -208,7 +208,7 @@ _INAD_WORKER_TOPICS = [
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
 
 _INAD_RECEIVED = "agents.events.inadimplencia.received"
-_INAD_NOTIFIED = "agents.events.inadimplencia.notified"
+_INAD_NOTICE_DISPATCHED = "agents.events.inadimplencia.notice_dispatched"
 _INAD_SLA_BREACHED = "agents.events.inadimplencia.sla_breached"
 _INAD_COMPLETED = "agents.events.inadimplencia.completed"
 
@@ -254,7 +254,8 @@ _NOTIFY_SLA_RISK_UNOBSERVABLE_REASON = (
     "history (ST_NotificarRiscoSla ended), live-proven PASS; zero xfail call sites remain."
 )
 
-# SP-OP-INADIMPLENCIA-001.md:111's "produz" obligation for agents.events.inadimplencia.notified
+# SP-OP-INADIMPLENCIA-001.md's "produz" obligation for
+# agents.events.inadimplencia.notice_dispatched
 # RESOLVED by t3.1-event-gap-w4-reemb-inad (T3.1 event-gap remedy B, wave 4 latent conformance) —
 # ST_PublishInadimplenciaNotified (boundary-free operadora.events.publish task between
 # ST_CheckPriorNotice and GW_CureWindow) now emits it. LIVE-PROVEN against a real CIB Seven 2.1.0
@@ -565,7 +566,7 @@ async def test_pagamento_dentro_janela_purga_purgado_nunca_adverso(
     assert inad_probe.has_event(_INAD_COMPLETED, desfecho="purgado")
 
 
-async def test_notificacao_previa_publica_inadimplencia_notified(
+async def test_notificacao_previa_publica_notice_dispatched(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
     start_inad: Callable[..., Any],
@@ -574,8 +575,9 @@ async def test_notificacao_previa_publica_inadimplencia_notified(
 
     dentro_janela_purga=True => BRT_Status roteia AGUARDA_PURGA => BRT_PurgaPrazos =>
     ST_CheckPriorNotice roda => ST_PublishInadimplenciaNotified (novo, boundary-free) publica
-    agents.events.inadimplencia.notified com os business keys do processo. NENHUM teste
-    pre-existente pinava esta obrigacao de contrato (SP-OP-INADIMPLENCIA-001.md:111 "produz") —
+    agents.events.inadimplencia.notice_dispatched com os business keys do processo. O evento
+    registra somente que a etapa de disparo foi publicada; nao afirma entrega ou recebimento.
+    NENHUM teste pre-existente pinava esta obrigacao de contrato (SP-OP-INADIMPLENCIA-001.md) —
     regressao NOVA, nao adaptacao de um xfail vermelho ja existente (contraste com o padrao
     recurso/cancel/auth Wave 1). LIVE-PROVEN (t3.1-event-gap-w4 live validation):
     ST_PublishInadimplenciaNotified completou no engine history, o token avancou ao GW_CureWindow
@@ -590,12 +592,12 @@ async def test_notificacao_previa_publica_inadimplencia_notified(
 
     assert await engine.instance_is_active(iid), "Instancia deve aguardar no cure-window de purga"
     assert inad_probe.has_event(
-        _INAD_NOTIFIED,
+        _INAD_NOTICE_DISPATCHED,
         tenant_id="amh",
         numero_contrato=contrato,
     ), (
-        "inadimplencia.notified (ST_PublishInadimplenciaNotified) deve ser publicado com os "
-        "business keys do processo"
+        "inadimplencia.notice_dispatched (ST_PublishInadimplenciaNotified) deve ser publicado "
+        "incondicionalmente com os business keys do processo"
     )
 
 

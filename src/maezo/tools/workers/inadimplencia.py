@@ -398,15 +398,13 @@ def dispatch_prior_notice(variables: dict[str, Any]) -> dict[str, Any]:
     `platform/notification_bridge.py` is a process-to-process HANDOFF bridge (it STARTS processes
     from events), not a messaging channel. One task later, the BPMN itself DOES already publish an
     event on this path, via the generic `operadora.events.publish`
-    (`ST_PublishInadimplenciaNotified` -> `agents.events.inadimplencia.notified`, BPMN `:149-158`)
-    — but that publish is UNCONDITIONAL and asserts NOTHING about delivery: it fires on every
+    (`ST_PublishInadimplenciaNotified` -> `agents.events.inadimplencia.notice_dispatched`)
+    — that publish is UNCONDITIONAL and asserts NOTHING about delivery: it fires on every
     instance, right after this task, in a tree where no worker can notify a beneficiary (see WHY
-    above). It is not a safe "notice requested" fact this handler could duplicate; it is the same
-    false-assertion species this fix exists to remove, one layer up, with zero consumers today and
-    left untouched here — renaming/re-semanticising a live BPMN topic is an owner/spec decision,
-    not a worker-handler fix (tracked as GAP-INAD-9, `docs/review-queue.md`). Re-publishing from
-    here would add nothing either way: an internal Kafka record is at best a dispatch trace, never
-    the `comprovada notificacao` the statute requires.
+    above). Its name now describes only the dispatch step, not a request sent to a real channel;
+    it has zero consumers today. Re-publishing from here would add nothing either way: an internal
+    Kafka record is at best a dispatch trace, never the `comprovada notificacao` the statute
+    requires.
 
     WHERE THE HONEST FACT COMES FROM INSTEAD (both pre-existing, neither invented here):
       - `msg.inadimplencia.notificacao_ack` (BPMN `:14,:180-184`) — the receipt-confirmation
