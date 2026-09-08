@@ -116,7 +116,7 @@ class AuthorizedAssignment(Closed):
     """Minimized request to the dedicated transactional admission port.
 
     No narrative, clinical inputs or generic engine variables. This object is neither
-    a signature nor an engine command envelope. D5/D6 must define the wire profile.
+    a signature nor an engine command envelope. D6 projects the D5 wire profile explicitly.
     """
 
     scope: Scope
@@ -130,9 +130,9 @@ class AuthorizedAssignment(Closed):
 class PendingAdmission(Closed):
     """Returned by durable adapter after intent+outbox commit; never synthesized by gateway.
 
-    Shape validation cannot prove persistence. The production factory has no adapter yet
-    and refuses configuration. A subsequent D6 implementation must prove transactional
-    linkage and recovery. This is deliberately not an engine execution receipt.
+    Shape validation cannot prove persistence. PostgresHumanAdmission constructs this
+    only after confirmed commit. The production factory still refuses absent verified
+    authority/credential provisioning. This is not an engine execution receipt.
     """
 
     schema_version: SchemaVersion

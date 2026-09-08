@@ -603,8 +603,12 @@ async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
     assert set(n for n in dir(HumanTaskTransport) if not n.startswith("_")) == {"read_task"}
     assert set(n for n in dir(DurableAdmission) if not n.startswith("_")) == {"admit"}
     source = "\n".join(p.read_text() for p in Path(module.__file__).parent.glob("*.py"))
+    # D6 adds the dedicated, authenticated transport. D4 authorization/admission
+    # and every other human module remain forbidden from making HTTP requests.
+    assert "import httpx" not in "\n".join(
+        p.read_text() for p in Path(module.__file__).parent.glob("*.py") if p.name != "transport.py"
+    )
     for forbidden in (
-        "import httpx",
         "import requests",
         "import anthropic",
         "ActionExecutionGateway(",

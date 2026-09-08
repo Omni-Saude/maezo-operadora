@@ -156,9 +156,9 @@ async def test_populated_linear_upgrade_replay_and_bounded_downgrade(has_request
         before = await _snapshot(conn, _OLD_TABLES)
         assert all(before.values()), "each old store must have actual sentinel rows"
         assert (await verify_chain(dsn, tenant)).valid
-        for target in ("0011", "head"):
+        for target in ("0011", "0012"):
             await _migrate(dsn, tenant, "upgrade", target)
-            await _assert_version(conn, tenant, "0012" if target == "head" else target)
+            await _assert_version(conn, tenant, target)
             assert await _snapshot(conn, _OLD_TABLES, marker="null") == before
             assert (await verify_chain(dsn, tenant)).valid
         assert all(not rows for rows in (await _snapshot(conn, _PORTAL_TABLES)).values())
@@ -189,7 +189,7 @@ async def test_populated_linear_upgrade_replay_and_bounded_downgrade(has_request
         assert await restarted.get_session(old_session.secret_hash, datetime.now(UTC)) == old_session
         assert await restarted.get_membership(review.issuer, review.subject) == review
         assert not await restarted.claim_code("synthetic-code-hash", datetime.now(UTC) + timedelta(hours=1))
-        await _migrate(dsn, tenant, "upgrade", "head")
+        await _migrate(dsn, tenant, "upgrade", "0012")
         assert await _snapshot(conn, _PORTAL_TABLES) == portal_before
         assert await _snapshot(conn, _OLD_TABLES, marker="null") == before
 
@@ -232,7 +232,7 @@ async def test_populated_linear_upgrade_replay_and_bounded_downgrade(has_request
             del row["requested_enqueued_at"]
         assert expected == after_replay
         assert (await verify_chain(dsn, tenant)).valid
-        await _migrate(dsn, tenant, "upgrade", "head")
+        await _migrate(dsn, tenant, "upgrade", "0012")
         await _assert_version(conn, tenant, "0012")
         assert await _snapshot(conn, _OLD_TABLES, marker="null") == expected
         assert all(not rows for rows in (await _snapshot(conn, _PORTAL_TABLES)).values())

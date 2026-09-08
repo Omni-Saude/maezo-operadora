@@ -24,6 +24,7 @@ from .models import (
     Scope,
 )
 from .ports import BoundHumanPorts
+from .receipt import BoundReceiptPorts, CurrentReceiptAuthority, PublicReceipt, ReceiptIdentity
 
 _PINS = (
     "task_id",
@@ -41,7 +42,7 @@ _PINS = (
 class HumanGateway:
     """Trusted DI service, not an authentication endpoint accepting a principal DTO.
 
-    Concrete production adapters are absent; create_production_gateway refuses startup.
+    Production authority/credential composition is absent; its factory refuses startup.
     Port substitution is useful for unit proofs, never evidence of a real durable outbox
     or atomic engine execution. Every public entry point resolves session/membership anew.
     """
@@ -53,11 +54,13 @@ class HumanGateway:
         scope: Scope,
         ports: BoundHumanPorts,
         credentials: HumanCommandCredentialPartition,
+        receipt_ports: BoundReceiptPorts | None = None,
     ) -> None:
         self._scope = Scope.model_validate(scope)
         self._resolver = resolver
         self._ports = ports
         self._credentials = credentials
+        self._receipt_ports = receipt_ports
         self._check_scope()
 
     def _check_scope(self) -> None:
@@ -67,6 +70,57 @@ class HumanGateway:
             for port in (self._ports.task, self._ports.authority, self._ports.admission)
         ):
             raise GatewayRefusalError("credential_scope_mismatch")
+        if self._receipt_ports is not None and any(
+            port.scope != self._scope for port in (self._receipt_ports.store, self._receipt_ports.authority)
+        ):
+            raise GatewayRefusalError("credential_scope_mismatch")
+
+    async def read_receipt(self, *, session_secret: str, task_id: str, command_id: str) -> PublicReceipt:
+        """Current resource authority permits historical receipts after task completion.
+
+        The original task's active state and admission grant do not substitute for the
+        receipt projector's current role/subject/consent policy. No browser principal
+        or generic administrator override enters this read boundary.
+        """
+        resolved = await self._session(session_secret)
+        try:
+            task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
+            command_id = TypeAdapter(OpaqueRef).validate_python(command_id)
+            if self._receipt_ports is None:
+                raise ValueError("receipt ports unavailable")
+            result = PublicReceipt.model_validate(
+                await self._receipt_ports.store.read_owned(resolved.principal, task_id, command_id)
+            )
+            if (
+                result.tenant != self._scope.tenant
+                or result.task_id != task_id
+                or result.command_id != command_id
+                or result.principal_ref != resolved.principal.principal_ref
+                or result.workload_ref != self._scope.workload_ref
+            ):
+                raise ValueError("receipt scope mismatch")
+            identity = ReceiptIdentity.model_validate(
+                result.model_dump(include=set(ReceiptIdentity.model_fields))
+            )
+            authority = CurrentReceiptAuthority.model_validate(
+                await self._receipt_ports.authority.current_authority(resolved.principal, identity)
+            )
+            if (
+                not authority.read_permitted
+                or authority.identity != identity
+                or authority.issuer != resolved.principal.issuer
+                or authority.subject != resolved.principal.subject
+                or authority.membership_revision != resolved.principal.membership_revision
+            ):
+                raise ValueError("receipt authority unavailable")
+        except Exception:
+            raise GatewayRefusalError("authority_unavailable") from None
+        current = await self._session(session_secret)
+        if current.principal != resolved.principal:
+            raise GatewayRefusalError("revision_conflict")
+        if authority.valid_until <= datetime.now(UTC):
+            raise GatewayRefusalError("authority_unavailable")
+        return result
 
     async def _session(
         self, secret: str, *, csrf: str | None = None, origin: str | None = None, mutation: bool = False
@@ -280,11 +334,11 @@ class HumanGateway:
 
 
 def create_production_gateway(*, resolver: HumanSessionResolver, scope: Scope) -> HumanGateway:
-    """Fail closed: D5 signed transport/receipt and D6 durable adapters are not implemented.
+    """Fail closed until verified authority and dedicated credentials are provisioned.
 
     No mode flag, supplied arbitrary ports, in-memory persistence or noop credentials can
-    make this factory activate. A later reviewed package must implement and wire verified
-    adapters plus key isolation and classified form contracts. Configuration refusal is
+    make this factory activate. A later reviewed package must compose the D6 adapters
+    with verified authority, key isolation and classified form contracts. Configuration refusal is
     not proof of engine enforcement, network isolation or durable acceptance.
     """
     raise GatewayRefusalError("production_capabilities_unavailable")

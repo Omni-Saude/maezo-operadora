@@ -1,4 +1,4 @@
-# HumanGateway — fundação D4
+# HumanGateway — autorização D4 e admissão/recuperação D6
 
 Fontes: ADR-0049 D3–D7/D9, ADR-0006/0008/0037, DL-0048/0005,
 SP-OP-AUTH-001, SP-OP-ESCALATION-001 e SP-OP-PAGTO-001. Esta implementação
@@ -21,7 +21,7 @@ objetos ou endpoints que o browser pode fornecer:
 - `AuthorityProjection.current_authority`: principal imutável, pins completos de
   processo/formulário, revisões de membership/tarefa/evidência/autoridade e
   consentimentos atuais. O adaptador deve recusar fontes indisponíveis ou atrasadas.
-- `DurableAdmission.admit`: futura TX única tenant de audit intent + outbox humano,
+- `DurableAdmission.admit`: `PostgresHumanAdmission` usa TX única tenant de audit intent + outbox humano,
   com dedup/conflito por comando e cadeia íntegra. Retorna `PendingAdmission`
   somente após commit. Não envia comando ao engine.
 
@@ -38,13 +38,14 @@ confere o escopo. Não carrega chave, não assina e não reutiliza partição de
 admin, OIDC, PHI HMAC ou A2A. A exclusividade do material real em KMS/cofre precisa
 da futura implementação/prova de provisionamento; um nome de referência não a prova.
 Principal humano e workload executor continuam distintos. Não existe assinatura
-pessoal humana nem envelope D5 implícito neste pacote.
+pessoal humana. `PartitionedEd25519Signer` assina envelopes D5 somente com chave
+humana explicitamente provisionada, validade operacional fornecida e partição atual.
 
 ## Limite funcional e dependências obrigatórias
 
 `create_production_gateway` recusa configuração com
-`production_capabilities_unavailable`: não existem adaptadores concretos D5/D6
-neste pacote. A composição por portas permite testes unitários das cercas, mas
+`production_capabilities_unavailable`: faltam composição autoritativa e provisionamento
+verificado de credenciais, classificação de formulários e D7. A composição por portas permite testes unitários das cercas, mas
 não é uma factory de produção alternativa. Não há fallback de persistência em
 memória, noop de auditoria, credencial default ou emissão direta de `/complete`.
 `PendingAdmission` só representa o retorno do adaptador; seu schema não prova
@@ -69,8 +70,8 @@ criamos regra clínica/financeira nova. As outras 37 tarefas seguem dependentes 
 respectivos contratos/formulários, sem fallback de variáveis abertas.
 
 Ainda obrigatórios: adaptadores autoritativos com pins/freshness verificáveis,
-classificação e custódia por formulário, D5 JCS/assinatura/receipt e TX CIB real,
-D6 outbox/auditoria duráveis e recuperação, D7 permissões e migração dos callers,
+classificação e custódia por formulário, prova conjunta D5/D6 contra CIB real,
+D7 permissões e migração dos callers,
 composição BFF e autorização de documentos/recibos. Nenhuma rota BFF foi ativada.
 Esta fundação não prova egress, credenciais reais, REST protegido, atomicidade,
 Cognito live, jornadas completas, deploy ou prontidão de produção.
@@ -84,6 +85,63 @@ uv sync --frozen --extra dev
 .venv/bin/mypy src/maezo/gateway/human
 ```
 
-Os dublês de portas existem somente nos testes unitários. Testes reais de engine,
-PostgreSQL e recuperação pertencem aos pacotes D5/D6; não foram substituídos por
-mocks de integração ou declarados executados neste pacote.
+## Admissão, entrega e leitura D6
+
+`projection.py` compara os pins e converte revisões Python estritas em strings
+decimais canônicas D5, inclusive além de 4.300 dígitos, sem mudar limites globais.
+`EvidenceReferenceSource` é uma dependência confiável obrigatória: a referência
+de evidência não existe no snapshot D4 e não pode ser inventada a partir do digest.
+Essa fonte resolve a referência já publicada no engine, com mesma revisão/digest.
+
+`PostgresHumanOutbox` recebe pool tenant-bound da composição. Em cada transação
+aplica `SET LOCAL search_path`, adquire o advisory lock original de auditoria antes
+dos locks próprios e enlista `PostgresAuditSink.emit_once_on` na mesma conexão.
+O ACK `PendingAdmission` é construído após commit confirmado. Seu `committed_at`
+é a observação posterior do commit, não um timestamp fabricado do PostgreSQL.
+Falha ou resultado incerto de commit não produz ACK; a mesma identidade reconcilia.
+
+A migração 0013 adiciona `human_command_outbox` imutável e
+`human_command_delivery` para lease/fence/resultado. Nenhuma tabela A2A ou WhatsApp
+é reaproveitada. Payload, principal, workload, digest e referências não mudam em
+retry; UPDATE/DELETE/TRUNCATE do comando e alterações de resultado terminal são
+recusados. Não há TTL, retenção ou expurgo automático novo. A matriz DPO/segurança
+deve definir eventual limpeza coordenada de payload, receipts e claims de auditoria.
+O downgrade é uma operação destrutiva explícita, não um mecanismo de compensação.
+
+`HumanCommandRelay` assume lease durável e encerra a TX antes do HTTP. Consulta
+primeiro o receipt autenticado do mesmo tenant/task/command/digest/principal/workload;
+somente `RECEIPT_NOT_FOUND` autenticado permite retry do payload idêntico. O
+`MTLSHumanEngineTransport` exige HTTPS com CA/hostname/certificado cliente, não
+segue redirects nem proxies de ambiente e limita resposta/envelope ao perfil D5.
+`HumanTLSIdentity` e o signer ficam exclusivamente neste gateway. Os intervalos
+de lease, retry, polling, timeout e envelope são configurações operacionais
+positivas explícitas, sem defaults que inventem prazo regulatório ou retenção.
+
+O relay revalida lease antes das chamadas e recusa a escrita de worker vencido.
+Uma chamada de rede já em curso pode sobreviver à lease; o comando imutável e
+a idempotência transacional D5 impedem duplicação do efeito. Somente receipt
+autenticado validado e auditado vira `committed`. Resultado técnico 409 conhecido
+vira `conflict` auditado, sem campos de execução. Falha no audit/mark mantém
+reconciliação pendente; não afirma rollback de um efeito já commitado no engine.
+
+`HumanGateway.read_receipt` exige `BoundReceiptPorts`: store com identidade exata
+e `ReceiptResourceAuthority` atual por recurso (papel/vínculo/consentimento). A
+autorização pode legitimamente permitir histórico após conclusão da tarefa; a
+posse dos IDs e o grant histórico não bastam. A sessão/membership e a validade da
+autoridade são conferidas após o último I/O. A auditoria ligada é recalculada com
+o algoritmo existente; o resultado inclui digest dos bytes do receipt.
+
+`PublicReceipt` tem schema explícito `human-public-receipt.v1` e revisões decimais
+para o browser. É separado de `PendingAdmission`, `EngineReceipt` e do DTO D3
+`HumanCommandReceipt`: D5 não fornece `engine_commit_ref`, e D6 não o inventa.
+A reconciliação versionada desse contrato D3 permanece necessária. O timestamp
+exposto é `engine_recorded_at`, não um instante exato de commit alegado.
+
+Os dublês HTTP existem apenas nos testes unitários. Os testes em
+`tests/integration/gateway/test_human_outbox_live_pg.py` e
+`test_human_outbox_migration_live_pg.py` exercitam PostgreSQL real, com recibos
+como entradas tipadas de storage, sem engine simulado. Usam o resolver canônico
+de banco de testes (`MAEZO_TEST_DATABASE_URL` ou compose/`MAEZO_PG_HOST_PORT`).
+O ROOT executa essa lane serialmente; ela não prova uma jornada HTTP/CIB real.
+O plugin Java ainda recusa todos os bindings reais, inclusive claim/release;
+o fixture sintético D5 não foi ativado na produção por este pacote.
