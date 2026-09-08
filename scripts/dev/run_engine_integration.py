@@ -480,15 +480,25 @@ def execution_checkout(checkout: Path, expected_sha: str, results_dir: Path) -> 
         )
         if _git(target, "rev-parse", "HEAD") != expected_sha:
             raise RunnerError("cópia de execução diverge do SHA esperado")
-        tracked = _git(target, "ls-files", "-z").split("\0")
+        tracked = _git(target, "ls-tree", "-rz", expected_sha).split("\0")
         digests: dict[str, str] = {}
-        for relative in filter(None, tracked):
+        git_blobs: dict[str, str] = {}
+        for entry in filter(None, tracked):
+            header, relative = entry.split("\t", 1)
+            mode, kind, blob_id = header.split()
+            if kind != "blob" or mode not in {"100644", "100755"}:
+                raise RunnerError("entrada de execução não regular no SHA")
             path = target / relative
             if path.is_symlink() or not path.is_file():
                 raise RunnerError("entrada de execução não regular no SHA")
             if path.name == ".env":
                 raise RunnerError("arquivo dotenv executável no SHA recusado")
-            digests[relative] = _sha256(path)
+            content = path.read_bytes()
+            blob = b"blob " + str(len(content)).encode() + b"\0" + content
+            if hashlib.sha1(blob, usedforsecurity=False).hexdigest() != blob_id:
+                raise RunnerError("bytes materializados divergem do blob declarado pelo SHA Git")
+            git_blobs[relative] = blob_id
+            digests[relative] = hashlib.sha256(content).hexdigest()
         probe = _checked(
             _uv_python(target, "-c", "import pathlib,maezo; print(pathlib.Path(maezo.__file__).resolve())"),
             cwd=target,
@@ -505,6 +515,7 @@ def execution_checkout(checkout: Path, expected_sha: str, results_dir: Path) -> 
                 "execution_checkout": str(target),
                 "maezo_import": str(imported),
                 "tracked_sha256": digests,
+                "tracked_git_blob": git_blobs,
                 "uv_lock_sha256": digests["uv.lock"],
                 "owned_fresh_environment": True,
             },

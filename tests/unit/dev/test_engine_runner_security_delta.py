@@ -278,6 +278,14 @@ def test_owned_snapshot_ignores_origin_venv_dotenv_shadow_and_ancestor_conftest(
         )
         assert not (owned / ".env").exists()
         assert not (owned / "json.py").exists()
+        configuration = owned / "pyproject.toml"
+        original_configuration = configuration.read_bytes()
+        _git(owned, "update-index", "--assume-unchanged", "pyproject.toml")
+        configuration.write_bytes(original_configuration + b"\n# synthetic drift\n")
+        with pytest.raises(runner.RunnerError, match="mudou"):
+            runner._assert_execution_source(owned)
+        configuration.write_bytes(original_configuration)
+        _git(owned, "update-index", "--no-assume-unchanged", "pyproject.toml")
     assert not owned.exists()
     assert all((source / relative).read_text() == body for relative, body in foreign.items())
     evidence = json.loads((results / "execution-source.json").read_text())
