@@ -9,10 +9,16 @@ com o manifesto fixado e grava um relatório de validação legível por máquin
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
+import re
 import sys
+import tempfile
+import traceback
 import xml.etree.ElementTree as ET
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -74,14 +80,71 @@ def _remove_stale(*paths: Path) -> None:
         path.unlink(missing_ok=True)
 
 
+@contextmanager
+def _private_pytest_output(anchor: Path) -> Iterator[None]:
+    """Retém saída Python e FD (incluindo filhos) fora das superfícies públicas.
+
+    Cada invocação tem custódia própria; nenhum texto arbitrário é reconstruído
+    por regex para o console. O log inclui traceback e permanece disponível ao
+    operador local. O workflow publica somente os quatro artefatos nomeados.
+    """
+    anchor.parent.mkdir(parents=True, exist_ok=True)
+    directory = Path(tempfile.mkdtemp(prefix=f".{anchor.name}.pytest-", dir=anchor.parent))
+    with ExitStack() as stack:
+        fd = os.open(directory / "output.log", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        stream = stack.enter_context(os.fdopen(fd, "w", encoding="utf-8"))
+        sys.stdout.flush()
+        sys.stderr.flush()
+        for target in (1, 2):
+            saved = os.dup(target)
+            stack.callback(os.close, saved)
+            stack.callback(os.dup2, saved, target)
+            os.dup2(stream.fileno(), target)
+        stack.enter_context(redirect_stdout(stream))
+        stack.enter_context(redirect_stderr(stream))
+        try:
+            yield
+        except BaseException:
+            traceback.print_exc(file=stream)
+            raise
+        finally:
+            stream.flush()
+
+
+def _print_collection(items: list[dict[str, Any]]) -> None:
+    for item in items:
+        print(f"[live-pytest] caso: {item['nodeid']} sha256={item['nodeid_sha256']}")
+
+
 def _safe_exception(context: str, exc: BaseException) -> str:
-    """Redige a mensagem completa para manter o contexto de chaves estruturadas."""
-    return redact(f"{context}: {type(exc).__name__}: {exc}")
+    """Não publica conteúdo arbitrário de exceções; conserva tipo e correlação."""
+    digest = hashlib.sha256(str(exc).encode("utf-8")).hexdigest()
+    return f"{context}: {type(exc).__name__} sha256={digest}"
 
 
 def _publish_sanitized_junit(private_path: Path, public_path: Path) -> None:
     """Projeta identidades do XML já validado e publica conteúdo seguro."""
     tree = ET.parse(private_path)
+    secrets: set[str] = set()
+    for prop in tree.iter("property"):
+        name, value = prop.get("name", ""), prop.get("value", "")
+        # Reutiliza a semântica de chave do núcleo sem inferi-la da folha.
+        context = f'{json.dumps(name)}: "pytest-property-value"'
+        if redact(context) == f'{json.dumps(name)}: "<redacted>"':
+            if value:
+                secrets.update((value, repr(value)[1:-1], json.dumps(value)[1:-1]))
+            prop.set("value", "<redacted>")
+    # Alternativas são somente literais conhecidos no XML, nunca padrões de segredo.
+    literals = (
+        re.compile("|".join(re.escape(value) for value in sorted(secrets, key=len, reverse=True)))
+        if secrets
+        else None
+    )
+
+    def diagnostic(value: str) -> str:
+        safe = literals.sub(lambda _: "<redacted>", value) if literals else value
+        return redact(safe)
+
     for element in tree.getroot().iter():
         if element.tag == "testcase":
             identity = public_junit_identity(
@@ -92,12 +155,20 @@ def _publish_sanitized_junit(private_path: Path, public_path: Path) -> None:
             element.set("name", identity["name"])
             element.set("junit_identity_sha256", identity["junit_identity_sha256"])
         for name, value in tuple(element.attrib.items()):
-            if name not in {"classname", "name"}:
+            if element.tag == "property" and name == "value" and value == "<redacted>":
+                continue
+
+            if element.tag == "testcase" and name in {"classname", "name", "junit_identity_sha256"}:
+                continue  # Fingerprints/identidade vêm exclusivamente do par original.
+            # Metadados estruturais (contagens, tempo, linha) não são narrativas.
+            if name in {"tests", "errors", "failures", "skipped", "time", "timestamp", "line"}:
                 element.set(name, redact(value))
+            else:
+                element.set(name, diagnostic(value))
         if element.text:
-            element.text = redact(element.text)
+            element.text = diagnostic(element.text)
         if element.tail:
-            element.tail = redact(element.tail)
+            element.tail = diagnostic(element.tail)
     public_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = public_path.with_name(f".{public_path.name}.publishing")
     temporary.unlink(missing_ok=True)
@@ -112,13 +183,18 @@ def collect(output: Path, root: Path, raw_pytest_args: Sequence[str]) -> int:
     _remove_stale(output)
     args = _pytest_args(raw_pytest_args)
     try:
-        plugin = EvidencePlugin(output=output, root=root)
-        pytest_rc = int(pytest.main([*args, "--collect-only"], plugins=[plugin]))
+        with _private_pytest_output(output):
+            plugin = EvidencePlugin(output=output, root=root)
+            pytest_rc = int(pytest.main([*args, "--collect-only"], plugins=[plugin]))
     except BaseException as exc:
         _remove_stale(output)
         print(f"[live-pytest] FAIL coleta: {_safe_exception('pytest interrompido', exc)}", file=sys.stderr)
         return 3
     if pytest_rc != 0:
+        print(
+            f"[live-pytest] FAIL coleta: pytest rc={pytest_rc}; diagnostico em custodia privada",
+            file=sys.stderr,
+        )
         return pytest_rc
     try:
         evidence = _read_json(output)
@@ -137,6 +213,7 @@ def collect(output: Path, root: Path, raw_pytest_args: Sequence[str]) -> int:
         _remove_stale(output)
         print(f"[live-pytest] FAIL coleta: {_safe_exception('manifesto invalido', exc)}", file=sys.stderr)
         return 3
+    _print_collection(items)
     print(f"[live-pytest] coleta fixada: {len(nodeids)} casos em {output}")
     return 0
 
@@ -180,8 +257,13 @@ def run(
     pytest_rc = 3
     validation_completed = False
     try:
-        plugin = EvidencePlugin(output=evidence_path, root=root)
-        pytest_rc = int(pytest.main([*args, f"--junitxml={private_junit_path}"], plugins=[plugin]))
+        with _private_pytest_output(evidence_path):
+            # O produtor não deve criar o XML cru com a umask pública do job.
+            private_junit_path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(private_junit_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            os.close(fd)
+            plugin = EvidencePlugin(output=evidence_path, root=root)
+            pytest_rc = int(pytest.main([*args, f"--junitxml={private_junit_path}"], plugins=[plugin]))
         evidence = _read_json(evidence_path)
         report = validate_execution(private_junit_path, evidence, expected_items, pytest_rc)
         validation_completed = True

@@ -188,6 +188,23 @@ não foi ativada e ficam declarados como obrigação de RED separado; texto livr
 completo das chaves, inclusive JSON/repr citado e valores com espaços; parâmetros nunca aparecem
 em claro nos JSONs, nos casos de validação ou no JUnit publicado.
 
+A coleta e a execução capturam stdout/stderr Python e descritores 1/2, incluindo saída de
+subprocessos, antes de entrar no pytest. O console recebe somente contagens, identidades
+projetadas/fingerprints e erros de validação; exceções do wrapper têm tipo e digest, sem texto
+arbitrário. O diagnóstico bruto, incluindo tracebacks, fica em `.ARTEFATO.pytest-*/output.log`
+ao lado do JSON de coleta/execução, com diretório 0700 e arquivo 0600. Esses diretórios são
+custódia local, não artefatos públicos: não os inclua em uploads recursivos. Os quatro uploads
+nomeados continuam sendo a fronteira de publicação; ao encerrar o job, o workspace efêmero
+elimina a custódia local. Falhas e interrupções preservam rc não verde e restauram os streams.
+No JUnit, `property.name` determina a sensibilidade de `property.value`; nomes de elementos
+que não são testcases também são redigidos. A identidade original é validada antes dessa
+projeção, e apenas os atributos de identidade projetados de `testcase` são preservados.
+Valores conhecidos de propriedades sensíveis também são ocultados quando reaparecem no
+traceback/source/assertion do XML (inclusive literais JSON/repr escapados). Essa substituição
+não altera fingerprints nem metadados de contagem/tempo/linha. Se o próprio valor sensível
+for uma testemunha assertional (por exemplo `1`), sua redação impede usar esse trecho para
+classificar um RED; o rc não verde permanece, sem fabricar evidência negativa.
+
 **The `down -v` consideration between integration runs.** Per `docs/design/T3.3-chaos-resilience.md`
 (§1.3), CI's `integration` job (`.github/workflows/ci.yml`) does: `docker compose --profile core
 up -d postgres kafka cibseven` → wait for readiness of all three → run the global normal
