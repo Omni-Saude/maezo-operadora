@@ -68,7 +68,7 @@ from maezo.agents.andre import graph as andre_graph
 from maezo.agents.marina import graph as marina_graph
 from maezo.agents.rafael import graph as rafael_graph
 from maezo.agents.valentina import graph as valentina_graph
-from maezo.runtime.inference import InferenceProvider, InferenceSettings
+from maezo.runtime.inference import InferenceProvider
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
@@ -84,6 +84,7 @@ from ._harness import (
     run_case,
     run_mutation_check,
 )
+from ._live import LiveEvalInference, assert_live_narrative
 from .conftest import live_key_skip
 
 RAFAEL_CASES = load_golden("rafael")
@@ -281,10 +282,6 @@ class _RaisingInference:
         raise RuntimeError("simulated LLM garbage/failure (eval-only, never a real model)")
 
 
-def _live_inference() -> InferenceProvider:
-    return InferenceProvider(settings=InferenceSettings(provider="anthropic"))
-
-
 async def _engine_variables(result: RunResult) -> dict[str, Any]:
     """Fetch the variables `start_process` actually shipped to the (fake) engine for this run."""
     business_key = result.state["business_key"]
@@ -407,8 +404,8 @@ async def test_evl_rafael_03_mutation_check_leak_is_non_vacuous() -> None:
 @live_key_skip
 @pytest.mark.eval
 @pytest.mark.llm_live
-async def test_evl_rafael_03_eval_tier_b_live() -> None:
-    """Re-runs EVL-RAFAEL-03's full turn against the REAL Anthropic provider (same DMN fixture +
+async def test_evl_rafael_03_eval_tier_b_live(live_inference: LiveEvalInference) -> None:
+    """Re-runs EVL-RAFAEL-03's full turn against the configured PHI provider (same DMN fixture +
     leaky FHIR fake as the Tier-A run) and re-asserts the dossier/engine-bound variables never
     carry the leak_canaries -- a live-model drift signal on the same no-leak invariant Tier A
     already proves deterministically. No structured extraction fields exist to threshold-score
@@ -419,7 +416,7 @@ async def test_evl_rafael_03_eval_tier_b_live() -> None:
     dmn = RuleAwareFakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
     graph = rafael_graph.RafaelGraph(
-        inference=_live_inference(),
+        inference=cast(InferenceProvider, live_inference),
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
@@ -427,6 +424,7 @@ async def test_evl_rafael_03_eval_tier_b_live() -> None:
     )
     compiled = graph.compile_graph().compile()
     result_state = dict(await compiled.ainvoke(cast(rafael_graph.RafaelState, dict(case["input"]["state"]))))
+    assert_live_narrative(result_state.get("dossier"))
     assert_no_leak(result_state.get("dossier"), case["leak_canaries"])
 
 
@@ -544,14 +542,14 @@ async def test_evl_valentina_05_mutation_check_leak_is_non_vacuous() -> None:
 @live_key_skip
 @pytest.mark.eval
 @pytest.mark.llm_live
-async def test_evl_valentina_05_eval_tier_b_live() -> None:
-    """Re-runs EVL-VALENTINA-05's full turn against the REAL Anthropic provider; re-asserts the
+async def test_evl_valentina_05_eval_tier_b_live(live_inference: LiveEvalInference) -> None:
+    """Re-runs EVL-VALENTINA-05's full turn against the configured PHI provider; re-asserts the
     same no-leak invariant against a live model's narrative."""
     case = _valentina_case("EVL-VALENTINA-05")
     dmn = FakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
     graph = valentina_graph.ValentinaGraph(
-        inference=_live_inference(),
+        inference=cast(InferenceProvider, live_inference),
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
@@ -561,6 +559,7 @@ async def test_evl_valentina_05_eval_tier_b_live() -> None:
     result_state = dict(
         await compiled.ainvoke(cast(valentina_graph.ValentinaState, dict(case["input"]["state"])))
     )
+    assert_live_narrative(result_state.get("dossier"))
     assert_no_leak(result_state.get("dossier"), case["leak_canaries"])
 
 
@@ -682,14 +681,14 @@ async def test_evl_marina_03_mutation_check_leak_is_non_vacuous() -> None:
 @live_key_skip
 @pytest.mark.eval
 @pytest.mark.llm_live
-async def test_evl_marina_03_eval_tier_b_live() -> None:
-    """Re-runs EVL-MARINA-03's full turn against the REAL Anthropic provider; re-asserts the same
+async def test_evl_marina_03_eval_tier_b_live(live_inference: LiveEvalInference) -> None:
+    """Re-runs EVL-MARINA-03's full turn against the configured PHI provider; re-asserts the same
     no-leak invariant against a live model's narrative."""
     case = _marina_case("EVL-MARINA-03")
     dmn = FakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
     graph = marina_graph.MarinaGraph(
-        inference=_live_inference(),
+        inference=cast(InferenceProvider, live_inference),
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
@@ -697,6 +696,7 @@ async def test_evl_marina_03_eval_tier_b_live() -> None:
     )
     compiled = graph.compile_graph().compile()
     result_state = dict(await compiled.ainvoke(cast(marina_graph.MarinaState, dict(case["input"]["state"]))))
+    assert_live_narrative(result_state.get("dossier"))
     assert_no_leak(result_state.get("dossier"), case["leak_canaries"])
 
 

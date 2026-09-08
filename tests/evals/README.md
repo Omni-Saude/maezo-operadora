@@ -19,7 +19,7 @@ one" / "how does CI consume this" mechanics.
 | Provider | `ReplayInferenceProvider` — scripted `recorded_llm` responses, no network, no key | the real `anthropic` provider (`InferenceProvider(settings=InferenceSettings(provider="anthropic"))`) |
 | Marker | `@pytest.mark.eval` | `@pytest.mark.eval` + `@pytest.mark.llm_live` + `@live_key_skip` |
 | Pass criterion | exact route / structured-field match / canary-absent (RT/SF/ABS) | threshold score >= `live.threshold` against the Tier-A baseline (TH) |
-| Runs when | always, keyless, no network — the `evals (agent-touching paths)` CI job (runs on every agent-touching PR; **not a required check in the `main-protection` ruleset today** — owner action pending to make it required) | nightly-only in CI, outside the PR gate; strict mode **fails as unavailable** without a nonblank Anthropic key; ordinary local runs retain loud skips |
+| Runs when | always, keyless, no network — the `evals (agent-touching paths)` CI job (runs on every agent-touching PR; **not a required check in the `main-protection` ruleset today** — owner action pending to make it required) | nightly-only in CI, outside the PR gate; strict mode **fails as unavailable** without explicit compatible PHI configuration; ordinary local runs retain loud skips |
 | Cost/flakiness | zero (pure Python, deterministic) | live calls may incur cost; see the dossier refusal limitation below; never gates a PR |
 
 A single golden JSON case can carry both tiers (`"tier": ["A", "B"]`) — Tier A always runs
@@ -235,58 +235,73 @@ There is nothing extra to "record" to add Tier B to a case: set `"tier": ["A", "
 `"live"` block naming which fields to compare and the pass threshold, then add a
 `test_<agent>_eval_tier_b_live` parametrized case mirroring `test_helena_eval_tier_b_live`.
 
-To exercise it locally, inject an Anthropic key into the process environment through a
-secure secret manager (`MAEZO_ANTHROPIC_API_KEY`, or the local fallback
-`ANTHROPIC_API_KEY`), then run:
+The current seven live functions collect eleven cases: five Helena `classify` cases and
+six dossier narratives (Carolina, Beatriz, Gustavo, Rafael, Valentina, Marina). All call
+`generate(phi=True)`; Helena's label as a general-zone agent does not override that call.
+The production fallback remains unchanged and may correctly return an empty narrative.
+The evaluation must then fail.
+
+Configure an authorized PHI evaluation environment using the existing runtime settings:
+
+| Variable | Required configuration |
+|---|---|
+| `MAEZO_INFERENCE_PROVIDER` | `bedrock_br` (existing PHI-capable regional transport) |
+| `MAEZO_INFERENCE_PHI_ZONE_REQUIRED` | Explicit true declaration |
+| `MAEZO_INFERENCE_MODEL` | Actual authorized regional model; no default or invented identifier |
+| `MAEZO_PHI_ENDPOINT_URL` | Must equal the existing transport's `https://bedrock-runtime.sa-east-1.amazonaws.com` |
+| `MAEZO_PHI_VENDOR_DPA_REF` | Actual signed contractual reference supplied by its authorized owner |
+
+AWS SigV4 credentials resolve inside `runtime.inference` through its existing credential
+chain. They must be provided securely in the authorized environment; these tests do not
+read them or introduce an authentication mechanism. An Anthropic key does not unlock PHI.
+`br_resident` alone selects a refusing transport and is also rejected. No model is sanctioned
+by the empty `supported_model_versions` catalogue. DPA text, retention/training attestations,
+model availability, workload credentials and egress controls are external prerequisites;
+nonblank settings do not establish those approvals. This package supplies none of them.
+R-009 and the dossier-narrative-zone manifesto remain DRAFT; no synthetic-only override or
+PHI-to-general downgrade is enabled.
 
 ```sh
 uv run pytest tests/evals -m "eval and llm_live" --require-live-evals -v
 ```
 
-`--require-live-evals` requires a nonblank effective key, constructs the real Anthropic
-provider without sending a request at startup, requires nonzero collection of tests marked
-both `eval` and `llm_live`, and rejects skipped/xfail bodies or incomplete execution.
-The actual classifier bodies explicitly construct `InferenceSettings(provider="anthropic")`;
-the runtime's generic `noop` default is not used by these live bodies.
+The factory refuses missing/incompatible configuration before the body. An entirely
+unconfigured optional local run retains an explicit skip; required mode rejects it.
+Collection-only checks configuration shape and nonzero discovery, never authentication or
+completion. Each live body requests its own `live_inference` fixture. The observer requires
+exactly one successful nonempty facade completion and an HTTP 2xx response from the original
+regional client's HTTP send in that same invocation. The ContextVar follows Bedrock's
+`asyncio.to_thread`; another instance, unrelated task, late context, mock/replay/fake
+transport, constructor-only test or stubbed completion cannot supply its receipt.
+The fixture checks after the body and strict pytest checks the node's owned observer, so
+production `except Exception` fallbacks cannot swallow this gate. All six dossiers also
+require nonblank `narrativa`; existing canary assertions and Helena thresholds are preserved.
 
-Precedence follows runtime: a nonempty `MAEZO_ANTHROPIC_API_KEY` shadows
-`ANTHROPIC_API_KEY`. A whitespace-only primary is invalid even with a valid fallback;
-it does not silently switch credentials. An absent or empty primary permits the local fallback.
-Without the strict option, ordinary keyless runs retain the explicit Tier-B skip guard.
-Collection-only proves discovery and configuration, never a successful live call.
+Receipts contain counters only, with static errors. They never retain prompt, response,
+headers, credentials, request IDs or raw exceptions. This is instrumentation of the installed
+HTTP implementation in a trusted Python process, not cryptographic authenticity against
+arbitrary monkeypatches. Positive unit seams test the instrumentation; they are never live
+LLM evidence. A real live run remains unavailable until actual authorized configuration and
+credentials are supplied, and must pass completion plus quality/leak checks.
 
 ## How CI consumes this
 
-The `evals` job keeps the agent-path filter and runs only `eval and not llm_live`.
-It receives no LLM secret, including on trusted PRs. Collection failures and zero collected
-cases fail; deterministic replay remains the merge-blocking PR gate.
+`evals` stays keyless and runs only `eval and not llm_live`. Collection errors and zero
+collection fail. `evals-nightly` remains schedule-only, runs replay, then invokes the unchanged
+private `scripts/ci/run_live_pytest.py` with `--require-live-evals`. Its live step maps the
+five configuration names above from repository `vars` of the same name. Those are references,
+not provisioning or proof the values exist. Missing/blank configuration fails visibly.
+The job does not provision IAM, roles, OIDC, credentials, network policy, model access or DPA;
+its hosted runner is not certified as an authorized PHI environment by this change.
 
-`evals-nightly` runs only for `github.event_name == 'schedule'`, independently of the
-agent-path filter. It runs replay first, then the live subset with `--require-live-evals`.
-Only that live step receives `secrets.MAEZO_ANTHROPIC_API_KEY` under the same environment name.
-This is an explicit **Anthropic-only secret contract**. No identity is assumed for the old
-generic `LLM_GENERAL_API_KEY`, which is no longer injected into either eval job.
-Provisioning that named secret remains an operator prerequisite; this change does not establish
-that it exists or that authentication succeeds. Missing/blank credentials fail the nightly
-step with `LIVE EVAL UNAVAILABLE`, rather than producing a qualified-as-success eval job.
-Nightly has no PR trigger, so its failures do not replace or weaken the keyless PR gate.
-
-The existing generic `scripts/ci/run_live_pytest.py` fixes the nonzero live collection and
-validates the execution against it, including source hashes, JUnit, and body execution.
-Public logs expose counts and failures; only its public collection/execution/JUnit/validation
-projections are uploaded. Raw captures stay in private custody and `.pytest_cache/` is not
-uploaded. No engine runner, schema, or authentication protocol is changed.
-This validates credential/configuration, collection and test-body execution, **not proof of a
-successful LLM response in each body**. Six current dossier variants (Carolina, Beatriz,
-Gustavo, Rafael, Valentina, Marina) can catch PHI-zone refusal and assert canary absence on an
-empty/minimal dossier. Their `llm_live` marker alone does not prove a network completion;
-fixing that vacuity requires a separate evaluation-body change preserving ADR-0006. The five
-Helena classifier cases also call `generate(phi=True)` (`helena/graph.py`, `_classify_llm`),
-so the same Anthropic PHI refusal prevents their SDK call and becomes a classification failure.
-Thus **none of the eleven currently collected variants establishes an authorized Anthropic
-live path on this base**. The credential interface exposes this limitation; it does not change
-PHI policy or make the suite ready for live promotion. Live-call evidence, provider/zone
-compatibility and the six dossier body-level fences remain separate pending work.
+The runner fixes source hashes and nodeids across collection/execution, rejects skip/xfail or
+partial execution and publishes only safe collection/execution/JUnit/validation projections.
+Raw captures stay private; no `.pytest_cache/` upload. No engine runner, authentication,
+production fallback or policy is changed. The previous Anthropic constructor-only interface
+is preserved in Git history; its 23 unit fences now reject construction without completion.
+Their collection-invalid historical payload remains literal to preserve parametrized nodeids
+and the canonical result recipe. New observer fences live in
+`tests/unit/evals/test_live_phi_completion.py`.
 
 ## Clarity/legibility checks (gap 10.3, WP-EVALS)
 

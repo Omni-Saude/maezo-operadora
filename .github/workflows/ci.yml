@@ -1007,15 +1007,24 @@ jobs:
       - name: Run keyless Tier-A eval gate
         run: uv run pytest tests/evals -q -m "eval and not llm_live"
 
-      - name: Require and run Anthropic live evals
+      - name: Require and run PHI live evals
         id: live
         env:
-          MAEZO_ANTHROPIC_API_KEY: ${{ secrets.MAEZO_ANTHROPIC_API_KEY }}
+          # Configuration references only; this does not provision the approved PHI
+          # environment or AWS workload credentials. Missing prerequisites fail closed.
+          MAEZO_INFERENCE_PROVIDER: ${{ vars.MAEZO_INFERENCE_PROVIDER }}
+          MAEZO_INFERENCE_MODEL: ${{ vars.MAEZO_INFERENCE_MODEL }}
+          MAEZO_INFERENCE_PHI_ZONE_REQUIRED: ${{ vars.MAEZO_INFERENCE_PHI_ZONE_REQUIRED }}
+          MAEZO_PHI_ENDPOINT_URL: ${{ vars.MAEZO_PHI_ENDPOINT_URL }}
+          MAEZO_PHI_VENDOR_DPA_REF: ${{ vars.MAEZO_PHI_VENDOR_DPA_REF }}
         run: |
-          if [ -z "${MAEZO_ANTHROPIC_API_KEY//[[:space:]]/}" ]; then
-            echo "::error::LIVE EVAL UNAVAILABLE — configure the Anthropic-only secret MAEZO_ANTHROPIC_API_KEY. No live evaluation was verified."
-            exit 1
-          fi
+          for required in MAEZO_INFERENCE_PROVIDER MAEZO_INFERENCE_MODEL MAEZO_INFERENCE_PHI_ZONE_REQUIRED MAEZO_PHI_ENDPOINT_URL MAEZO_PHI_VENDOR_DPA_REF; do
+            value="${!required}"
+            if [ -z "${value//[[:space:]]/}" ]; then
+              echo "::error::LIVE EVAL UNAVAILABLE — explicit PHI configuration and authorized environment required."
+              exit 1
+            fi
+          done
           uv run python scripts/ci/run_live_pytest.py collect \
             --output eval-results/live-collection.json \
             -- tests/evals -q -m "eval and llm_live" --require-live-evals
@@ -1032,8 +1041,8 @@ jobs:
           LIVE_OUTCOME: ${{ steps.live.outcome }}
         run: |
           {
-            echo "## Anthropic live evaluations"
-            echo "Step outcome: ${LIVE_OUTCOME}. Success requires nonzero executed cases with no skips."
+            echo "## PHI live evaluations"
+            echo "Step outcome: ${LIVE_OUTCOME}. Success requires nonzero executed cases with verified completions and no skips."
             echo "Missing credentials, collection failures and interrupted runs are not verified evaluations."
           } >> "$GITHUB_STEP_SUMMARY"
 

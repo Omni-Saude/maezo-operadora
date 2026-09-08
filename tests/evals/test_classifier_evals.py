@@ -13,14 +13,14 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from maezo.agents.fernando.graph import build as build_fernando
 from maezo.agents.helena.graph import HelenaGraph, build
 from maezo.agents.lucas.graph import build as build_lucas
-from maezo.runtime.inference import InferenceProvider, InferenceSettings
+from maezo.runtime.inference import InferenceProvider
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
@@ -37,6 +37,7 @@ from ._harness import (
     run_mutation_check,
     score_live,
 )
+from ._live import LiveEvalInference
 from .conftest import FakeWhatsAppSender, live_key_skip
 
 HELENA_CASES = load_golden("helena")
@@ -84,9 +85,8 @@ async def test_evl_helena_01_mutation_check_route_is_non_vacuous() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tier B — live Anthropic call, threshold-scored, nightly-only, non-blocking. Loudly skips
-# without MAEZO_ANTHROPIC_API_KEY/ANTHROPIC_API_KEY (mirrors test_inference_live.py) — never
-# runs on a keyless PR or fork.
+# Tier B — PHI live completion, threshold-scored, nightly-only. Optional local runs
+# skip only when entirely unconfigured; --require-live-evals fails closed.
 # ---------------------------------------------------------------------------
 
 
@@ -94,8 +94,8 @@ async def test_evl_helena_01_mutation_check_route_is_non_vacuous() -> None:
 @pytest.mark.eval
 @pytest.mark.llm_live
 @pytest.mark.parametrize("case", _HELENA_TIER_B_CASES, ids=lambda c: c["id"])
-async def test_helena_eval_tier_b_live(case: dict[str, Any]) -> None:
-    """Re-run `classify()` against the REAL Anthropic provider; score against the Tier-A
+async def test_helena_eval_tier_b_live(case: dict[str, Any], live_inference: LiveEvalInference) -> None:
+    """Re-run `classify()` against the configured PHI provider; score against the Tier-A
     baseline (`recorded_llm[0]`, the same JSON the replay provider would have returned) rather
     than a second hand-maintained dataset."""
     live = case["live"]
@@ -104,7 +104,7 @@ async def test_helena_eval_tier_b_live(case: dict[str, Any]) -> None:
     dmn = FakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
     graph = HelenaGraph(
-        inference=InferenceProvider(settings=InferenceSettings(provider="anthropic")),
+        inference=cast(InferenceProvider, live_inference),
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),

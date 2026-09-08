@@ -12,12 +12,28 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 SYNTHETIC = "synthetic-interface-test-not-a-credential"
+CONFIG = {
+    "MAEZO_INFERENCE_PROVIDER": "bedrock_br",
+    "MAEZO_INFERENCE_MODEL": "synthetic-regional-model",
+    "MAEZO_INFERENCE_PHI_ZONE_REQUIRED": "true",
+    "MAEZO_PHI_ENDPOINT_URL": "https://bedrock-runtime.sa-east-1.amazonaws.com",
+    "MAEZO_PHI_VENDOR_DPA_REF": "synthetic-unit-only-not-an-approval",
+    "AWS_ACCESS_KEY_ID": "synthetic-unit-only",
+    "AWS_SECRET_ACCESS_KEY": SYNTHETIC,
+    "AWS_EC2_METADATA_DISABLED": "true",
+    "AWS_CONFIG_FILE": "/dev/null",
+    "AWS_SHARED_CREDENTIALS_FILE": "/dev/null",
+}
 BOOTSTRAP = """
 import socket, sys, pytest
 def refuse(*args, **kwargs):
     raise AssertionError('network forbidden in configuration test')
 socket.socket.connect = refuse
 socket.create_connection = refuse
+socket.socket.connect_ex = refuse
+socket.getaddrinfo = refuse
+socket.gethostbyname = refuse
+socket.gethostbyname_ex = refuse
 raise SystemExit(pytest.main(sys.argv[1:]))
 """
 
@@ -54,6 +70,16 @@ def invoke(tmp_path: Path, body: str, credentials: dict[str, str], *extra: str):
     )
 
 
+PHI_BODY = """
+@pytest.mark.eval
+@pytest.mark.llm_live
+def test_effective_provider(live_inference):
+    from maezo.runtime.inference.br_resident_provider import BrResidentInferenceProvider
+    assert type(live_inference._provider._impl) is BrResidentInferenceProvider
+    assert live_inference.provider_name == "bedrock_br"
+"""
+
+# Historical collection-only payload; retained to preserve parametrized nodeids.
 BODY = """
 @pytest.mark.eval
 @pytest.mark.llm_live
@@ -69,15 +95,16 @@ def test_effective_provider(request):
 @pytest.mark.parametrize(
     "credentials",
     [
-        {"MAEZO_ANTHROPIC_API_KEY": SYNTHETIC},
-        {"ANTHROPIC_API_KEY": SYNTHETIC},
-        {"MAEZO_ANTHROPIC_API_KEY": "", "ANTHROPIC_API_KEY": SYNTHETIC},
+        CONFIG,
+        CONFIG | {"MAEZO_INFERENCE_PHI_ZONE_REQUIRED": "1"},
+        CONFIG | {"MAEZO_INFERENCE_PHI_ZONE_REQUIRED": "yes"},
     ],
 )
 def test_valid_configuration_constructs_actual_provider_without_network(tmp_path, credentials):
-    result = invoke(tmp_path, BODY, credentials)
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "LIVE EVAL: collected=1 passed=1" in result.stdout
+    result = invoke(tmp_path, PHI_BODY, credentials)
+    assert result.returncode != 0
+    assert "LIVE EVAL FAILED" in result.stdout
+    assert "LIVE EVAL: collected=1 passed=0" in result.stdout
 
 
 @pytest.mark.parametrize(
@@ -107,14 +134,14 @@ def test_missing_or_whitespace_effective_key_fails_explicitly(tmp_path, credenti
     ],
 )
 def test_empty_broken_or_invalid_collection_never_passes(tmp_path, body, extra):
-    result = invoke(tmp_path, body, {"MAEZO_ANTHROPIC_API_KEY": SYNTHETIC}, *extra)
+    result = invoke(tmp_path, body, CONFIG, *extra)
     assert result.returncode != 0
 
 
 @pytest.mark.parametrize("statement", ["pytest.skip('synthetic')", "pytest.xfail('synthetic')"])
 def test_skipped_or_xfailed_body_is_not_live_success(tmp_path, statement):
     body = f"@pytest.mark.eval\n@pytest.mark.llm_live\ndef test_case(): {statement}\n"
-    result = invoke(tmp_path, body, {"MAEZO_ANTHROPIC_API_KEY": SYNTHETIC})
+    result = invoke(tmp_path, body, CONFIG)
     assert result.returncode != 0
     assert "LIVE EVAL: collected=1 passed=0" in result.stdout
 
@@ -127,10 +154,14 @@ def test_workflow_keeps_pr_keyless_and_nightly_explicit():
     assert "eval and not llm_live" in str(pr)
     assert nightly["if"] == "github.event_name == 'schedule'"
     assert "LLM_GENERAL_API_KEY" not in str(nightly)
-    live_steps = [s for s in nightly["steps"] if "MAEZO_ANTHROPIC_API_KEY" in s.get("env", {})]
+    live_steps = [s for s in nightly["steps"] if "MAEZO_INFERENCE_PROVIDER" in s.get("env", {})]
     assert len(live_steps) == 1
     live = live_steps[0]
-    assert live["env"]["MAEZO_ANTHROPIC_API_KEY"] == "${{ secrets.MAEZO_ANTHROPIC_API_KEY }}"
+    assert live["env"]["MAEZO_INFERENCE_PROVIDER"] == "${{ vars.MAEZO_INFERENCE_PROVIDER }}"
+    assert "ANTHROPIC_API_KEY" not in str(live)
+    for key in CONFIG:
+        if key.startswith("MAEZO_"):
+            assert key in live["env"]
     assert "--require-live-evals" in live["run"]
     assert "run_live_pytest.py collect" in live["run"]
     assert "run_live_pytest.py run" in live["run"]
@@ -150,6 +181,10 @@ def refuse(*args, **kwargs):
     raise AssertionError("network forbidden")
 socket.socket.connect = refuse
 socket.create_connection = refuse
+socket.socket.connect_ex = refuse
+socket.getaddrinfo = refuse
+socket.gethostbyname = refuse
+socket.gethostbyname_ex = refuse
 sys.path.insert(0, "scripts/ci")
 sys.argv = ["scripts/ci/run_live_pytest.py", *sys.argv[1:]]
 runpy.run_path(sys.argv[0], run_name="__main__")
@@ -198,12 +233,12 @@ runpy.run_path(sys.argv[0], run_name="__main__")
 
 
 def test_actual_private_runner_executes_synthetic_config_and_publishes_counts(tmp_path):
-    credentials = {"MAEZO_ANTHROPIC_API_KEY": SYNTHETIC}
-    collected = wrapper(tmp_path, "collect", BODY, credentials)
+    credentials = CONFIG
+    collected = wrapper(tmp_path, "collect", PHI_BODY, credentials)
     assert collected.returncode == 0, collected.stdout + collected.stderr
-    result = wrapper(tmp_path, "run", BODY, credentials)
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "passed=1" in result.stdout
+    result = wrapper(tmp_path, "run", PHI_BODY, credentials)
+    assert result.returncode != 0
+    assert "[live-pytest] PASS" not in result.stdout
     assert SYNTHETIC not in result.stdout + result.stderr
 
 
@@ -211,7 +246,7 @@ def test_actual_private_runner_executes_synthetic_config_and_publishes_counts(tm
     "body, credentials",
     [
         (BODY, {}),
-        ("def test_other(): pass\n", {"MAEZO_ANTHROPIC_API_KEY": SYNTHETIC}),
+        ("def test_other(): pass\n", CONFIG),
     ],
 )
 def test_actual_private_runner_rejects_unavailable_and_empty_collection(tmp_path, body, credentials):
@@ -223,7 +258,7 @@ def test_actual_private_runner_rejects_unavailable_and_empty_collection(tmp_path
 
 def test_actual_private_runner_rejects_live_skip_after_successful_collection(tmp_path):
     body = "@pytest.mark.eval\n@pytest.mark.llm_live\ndef test_case(): pytest.skip('synthetic')\n"
-    credentials = {"MAEZO_ANTHROPIC_API_KEY": SYNTHETIC}
+    credentials = CONFIG
     assert wrapper(tmp_path, "collect", body, credentials).returncode == 0
     result = wrapper(tmp_path, "run", body, credentials)
     assert result.returncode != 0
@@ -263,7 +298,7 @@ def test_actual_nightly_step_stops_before_runner_when_credential_unavailable(tmp
     fake_uv.chmod(0o700)
     result = subprocess.run(
         ["/bin/bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", step["run"]],
-        env={"PATH": str(tmp_path), "MAEZO_ANTHROPIC_API_KEY": key},
+        env={"PATH": str(tmp_path), "MAEZO_INFERENCE_PROVIDER": key},
         cwd=ROOT,
         capture_output=True,
         text=True,

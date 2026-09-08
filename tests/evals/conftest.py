@@ -52,16 +52,15 @@ wave table). Provides:
   Fails LOUDLY (raises) on a missing directory / empty directory / malformed case — collection
   must never silently report "0 evals" when a golden file is actually broken (mirrors the CI
   guard's own "import error != no datasets yet" distinction, `ci.yml:530-537`).
-- `live_key_skip` — a `pytest.mark.skipif` mirroring `tests/unit/runtime/test_inference_live.py`
-  (`_HAS_KEY` gate on `MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY`) for Tier-B (live-LLM,
-  threshold-scored, nightly-only) eval variants. Reuses the existing `llm_live` pytest marker
-  (already registered in `pyproject.toml`) — no new marker is registered for Tier B.
+- `live_key_skip` — optional entirely unconfigured local PHI evals skip explicitly.
+  An explicit incompatible configuration fails. Required live mode never accepts
+  absent configuration, skips, empty collection, or a body without its own completion.
+
 """
 
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,6 +69,14 @@ from typing import Any, ClassVar
 import pytest
 
 from maezo.runtime.inference import PhiZoneRoutingError
+
+from ._live import (
+    LiveEvalError,
+    LiveEvalInference,
+    build_live_inference,
+    live_configuration_absent,
+    validate_live_configuration,
+)
 
 # ---------------------------------------------------------------------------
 # ReplayInferenceProvider — Tier A (deterministic, no network, no key)
@@ -350,25 +357,26 @@ def load_golden(agent: str, *, root: Path | None = None) -> list[dict[str, Any]]
 # Tier B (live-LLM) skip gate — same credential names as the runtime liveness test.
 # ---------------------------------------------------------------------------
 
-# Preserve runtime precedence: a nonempty primary (even whitespace) shadows the fallback.
-# Whitespace cannot authorize live execution; strict nightly reports it as unavailable.
-_HAS_LLM_KEY = bool(
-    (os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+
+live_key_skip = pytest.mark.skipif(
+    live_configuration_absent(),
+    reason="LIVE EVAL UNAVAILABLE: optional local run has no explicit PHI configuration",
 )
 
-#: Apply to any Tier-B (live) eval test/parametrize case. Reuses the existing `llm_live` marker
-#: (`pyproject.toml`) rather than registering a new one — Tier B is "the same live-Anthropic-call
-#: liveness gate, applied to an eval case" structurally, not a new kind of skip.
-live_key_skip = pytest.mark.skipif(
-    not _HAS_LLM_KEY,
-    reason=(
-        "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY in environment — skipping Tier-B "
-        "live-LLM eval variant. This is a loud, explicit skip, not a silent pass (mirrors "
-        "tests/unit/runtime/test_inference_live.py): Tier-A (replay) evals are the PR "
-        "merge-blocking gate and are unaffected; Tier-B is nightly-only, threshold-scored, "
-        "non-blocking, and requires a real Anthropic key to ever execute."
-    ),
-)
+
+_LIVE_OBSERVER = pytest.StashKey[LiveEvalInference]()
+
+
+@pytest.fixture
+def live_inference(request):
+    """One observer per body; teardown checks survive graph Exception fallbacks."""
+    live = build_live_inference()
+    request.node.stash[_LIVE_OBSERVER] = live
+    try:
+        yield live
+        live.verify()
+    finally:
+        live.close()
 
 
 __all__ = [
@@ -389,7 +397,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--require-live-evals",
         action="store_true",
         default=False,
-        help="Require configured Anthropic, nonzero live collection and every body passed.",
+        help="Require configured PHI inference, nonzero live collection and successful completions.",
     )
 
 
@@ -405,17 +413,37 @@ class _RequiredLiveEvals:
         self.nonpass = False
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:
-        if not _HAS_LLM_KEY:
-            raise pytest.UsageError(
-                "LIVE EVAL UNAVAILABLE: missing or whitespace effective Anthropic credential. "
-                "Set MAEZO_ANTHROPIC_API_KEY (nightly secret contract) or local "
-                "ANTHROPIC_API_KEY; a nonempty primary shadows the fallback."
-            )
-        # Construction only, no request; the live bodies use this same explicit setting.
-        # Credential resolution and SDK construction remain inside runtime.inference.
-        from maezo.runtime.inference import InferenceProvider, InferenceSettings
+        try:
+            validate_live_configuration()
+        except LiveEvalError as exc:
+            raise pytest.UsageError(str(exc)) from None
 
-        self.provider = InferenceProvider(settings=InferenceSettings(provider="anthropic"))
+    @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+    def pytest_runtest_makereport(self, item, call):
+        outcome = yield
+        report = outcome.get_result()
+        if report.when == "call" and report.passed:
+            live = item.stash.get(_LIVE_OBSERVER, None)
+            try:
+                if type(live) is not LiveEvalInference or item.funcargs.get("live_inference") is not live:
+                    raise LiveEvalError("LIVE EVAL FAILED: body has no completion observer")
+                live.verify()
+            except LiveEvalError as exc:
+                report.outcome = "failed"
+                report.longrepr = str(exc)
+
+        # The generic runner redacts recognized sensitive values. PHI evals have
+        # a stricter contract: no arbitrary assertion/narrative text is public.
+        # Project every phase, including setup/teardown failures and skipped/xfail
+        # reasons, before JUnit and runner report consumers see the TestReport.
+        report.sections = []
+        report.user_properties = []
+        if hasattr(report, "wasxfail"):
+            report.wasxfail = "LIVE EVAL INVALID: xfail is not completion evidence"
+        if report.failed:
+            report.longrepr = "LIVE EVAL FAILED: inspect private execution; no completion certified"
+        elif report.skipped:
+            report.longrepr = ("<live-eval>", 0, "LIVE EVAL INVALID: skipped execution")
 
     def pytest_collection_finish(self, session: pytest.Session) -> None:
         self.collected = {item.nodeid for item in session.items}

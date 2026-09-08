@@ -107,7 +107,7 @@ from maezo.agents.carolina.graph import CarolinaGraph, CarolinaState
 from maezo.agents.carolina.graph import build as carolina_build
 from maezo.agents.gustavo.graph import GustavoGraph, GustavoState
 from maezo.agents.gustavo.graph import build as gustavo_build
-from maezo.runtime.inference import InferenceProvider, InferenceSettings
+from maezo.runtime.inference import InferenceProvider
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
@@ -122,6 +122,7 @@ from ._harness import (
     run_case,
     run_mutation_check,
 )
+from ._live import LiveEvalInference, assert_live_narrative
 from .conftest import live_key_skip
 
 CAROLINA_CASES = load_golden("carolina")
@@ -271,8 +272,8 @@ async def test_evl_carolina_05_mutation_check_route_is_non_vacuous() -> None:
 @live_key_skip
 @pytest.mark.eval
 @pytest.mark.llm_live
-async def test_carolina_eval_tier_b_live_no_leak() -> None:
-    """EVL-CAROLINA-03 (PL) Tier-B: re-run the SAME scenario against the REAL Anthropic provider
+async def test_carolina_eval_tier_b_live_no_leak(live_inference: LiveEvalInference) -> None:
+    """EVL-CAROLINA-03 (PL) Tier-B: re-run the SAME scenario against the configured PHI provider
     and assert the LIVE-generated narrative still never carries the leak canary, scoped to the
     emitted dossier (module docstring's leak-scope note). A dossier narrative is free text, not
     structured JSON -- there are no fields for `score_live` to diff against a baseline, so unlike
@@ -284,13 +285,14 @@ async def test_carolina_eval_tier_b_live_no_leak() -> None:
     dmn = FakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
     graph = CarolinaGraph(
-        inference=InferenceProvider(settings=InferenceSettings(provider="anthropic")),
+        inference=cast(InferenceProvider, live_inference),
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
     )
     compiled = graph.compile_graph().compile()
     result = await compiled.ainvoke(cast(CarolinaState, dict(case["input"]["state"])))
+    assert_live_narrative(result.get("dossier"))
     assert_no_leak(result.get("dossier") or {}, case["leak_canaries"])
 
 
@@ -337,13 +339,14 @@ async def test_evl_beatriz_03_mutation_check_leak_is_non_vacuous() -> None:
 @live_key_skip
 @pytest.mark.eval
 @pytest.mark.llm_live
-async def test_beatriz_eval_tier_b_live_no_leak() -> None:
+async def test_beatriz_eval_tier_b_live_no_leak(live_inference: LiveEvalInference) -> None:
     """EVL-BEATRIZ-03 (PL) Tier-B live variant -- see `test_carolina_eval_tier_b_live_no_leak`'s
     docstring for why this reuses the ABS criterion rather than `score_live`/TH."""
     case = _case(BEATRIZ_CASES, "EVL-BEATRIZ-03")
-    graph = BeatrizGraph(inference=InferenceProvider(settings=InferenceSettings(provider="anthropic")))
+    graph = BeatrizGraph(inference=cast(InferenceProvider, live_inference))
     compiled = graph.compile_graph().compile()
     result = await compiled.ainvoke(cast(BeatrizState, dict(case["input"]["state"])))
+    assert_live_narrative(result.get("dossier"))
     assert_no_leak(result.get("dossier") or {}, case["leak_canaries"])
 
 
@@ -473,18 +476,19 @@ async def test_evl_gustavo_06_mutation_check_route_is_non_vacuous() -> None:
 @live_key_skip
 @pytest.mark.eval
 @pytest.mark.llm_live
-async def test_gustavo_eval_tier_b_live_no_leak() -> None:
+async def test_gustavo_eval_tier_b_live_no_leak(live_inference: LiveEvalInference) -> None:
     """EVL-GUSTAVO-04 (PL) Tier-B live variant -- see `test_carolina_eval_tier_b_live_no_leak`'s
     docstring for why this reuses the ABS criterion rather than `score_live`/TH."""
     case = _case(GUSTAVO_CASES, "EVL-GUSTAVO-04")
     dmn = FakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
     graph = GustavoGraph(
-        inference=InferenceProvider(settings=InferenceSettings(provider="anthropic")),
+        inference=cast(InferenceProvider, live_inference),
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
     )
     compiled = graph.compile_graph().compile()
     result = await compiled.ainvoke(cast(GustavoState, dict(case["input"]["state"])))
+    assert_live_narrative(result.get("dossier"))
     assert_no_leak(result.get("dossier") or {}, case["leak_canaries"])
