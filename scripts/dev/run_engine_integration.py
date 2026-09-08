@@ -1246,11 +1246,47 @@ def _publish_xml(
     destination: Path,
     *,
     identity_projector: Callable[[str, str], dict[str, str]] | None = None,
+    diagnostic_log: tuple[Path, Path] | None = None,
 ) -> None:
+    def publish_log(project: Callable[[str], str] | None = None) -> None:
+        if diagnostic_log is None:
+            return
+        private_log, public_log = diagnostic_log
+        if not private_log.exists():
+            return
+        raw = private_log.read_text()
+        # XML ausente/parcial não fornece contexto para publicar narrativa livre.
+        safe = (
+            project(raw)
+            if project is not None
+            else "Diagnostico pytest retido: XML sem contexto valido de propriedades; "
+            f"sha256={hashlib.sha256(raw.encode()).hexdigest()}\n"
+        )
+        public_log.write_text(safe)
+
     if not source.exists():
+        publish_log()
         return
     try:
         tree = ET.parse(source)
+        secrets: set[str] = set()
+        for prop in tree.iter("property"):
+            if _SECRET_KEY.fullmatch(prop.get("name", "")):
+                value = prop.get("value", "")
+                if value:
+                    secrets.update((value, repr(value)[1:-1], json.dumps(value)[1:-1]))
+                prop.set("value", "<redacted>")
+        # Apenas literais conhecidos nas propriedades, sem ampliar a política.
+        literals = (
+            re.compile("|".join(re.escape(value) for value in sorted(secrets, key=len, reverse=True)))
+            if secrets
+            else None
+        )
+
+        def diagnostic(value: str) -> str:
+            safe = literals.sub(lambda _: "<redacted>", value) if literals else value
+            return _redact_text(safe)
+
         for node in tree.iter():
             if node.tag == "testcase":
                 if identity_projector is None:
@@ -1262,14 +1298,25 @@ def _publish_xml(
                     node.set("classname", identity["classname"])
                     node.set("name", identity["name"])
                     node.set("maezo_identity_sha256", identity["junit_identity_sha256"])
-            node.attrib.update({key: _redact_text(value) for key, value in node.attrib.items()})
+            for key, value in tuple(node.attrib.items()):
+                if node.tag == "property" and key == "value" and value == "<redacted>":
+                    continue
+
+                if node.tag == "testcase" and key in {"classname", "name", "maezo_identity_sha256"}:
+                    continue
+                if key in {"tests", "errors", "failures", "skipped", "time", "timestamp", "line"}:
+                    node.set(key, _redact_text(value))
+                else:
+                    node.set(key, diagnostic(value))
             if node.text:
-                node.text = _redact_text(node.text)
+                node.text = diagnostic(node.text)
             if node.tail:
-                node.tail = _redact_text(node.tail)
+                node.tail = diagnostic(node.tail)
         tree.write(destination, encoding="utf-8", xml_declaration=True)
+        publish_log(diagnostic)
     except (OSError, ET.ParseError):
         destination.write_text("<!-- XML bruto inválido retido da publicação -->\n")
+        publish_log()
 
 
 def _run_pytest(
@@ -1293,6 +1340,11 @@ def _run_pytest(
         expected_items = _collected_items[results_dir / "collect-selected.log"]
     raw_dir = Path(tempfile.mkdtemp(prefix="maezo-private-junit-")).resolve()
     raw_xml = raw_dir / "junit.xml"
+    raw_log = raw_dir / "pytest.log"
+    fd = os.open(raw_log, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    os.close(fd)
+    public_log = results_dir / "pytest.log"
+    public_log.unlink(missing_ok=True)
     raw_evidence = raw_dir / "execution.json"
     evidence_path = results_dir / "pytest-execution.json"
     evidence_path.unlink(missing_ok=True)
@@ -1309,7 +1361,7 @@ def _run_pytest(
     )
     evidence_api = _evidence_api(checkout)
     try:
-        result = _run(command, cwd=checkout, env=env, timeout=7200, log_path=results_dir / "pytest.log")
+        result = _run(command, cwd=checkout, env=env, timeout=7200, log_path=raw_log)
         _assert_execution_source(checkout)
         evidence = json.loads(raw_evidence.read_text()) if raw_evidence.exists() else {}
         # Valida identidades completas antes de projetar artefatos seguros.
@@ -1317,7 +1369,12 @@ def _run_pytest(
     finally:
         with _cleanup_signal_mask():
             try:
-                _publish_xml(raw_xml, junit, identity_projector=evidence_api.public_junit_identity)
+                _publish_xml(
+                    raw_xml,
+                    junit,
+                    identity_projector=evidence_api.public_junit_identity,
+                    diagnostic_log=(raw_log, public_log),
+                )
                 if raw_evidence.exists():
                     _publish_execution_json(raw_evidence, evidence_path)
             finally:

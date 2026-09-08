@@ -209,6 +209,19 @@ nos testes antigos são auxiliares de apresentação e não participam da decis�
 Logs, stdout/stderr, razões e estados publicados redigem senhas em URIs/campos usuais de segredo,
 incluindo chaves citadas em JSON/repr e valores com espaços. Objetos aninhados são projetados com
 o contexto das chaves antes da serialização; hashes de correlação já fornecidos são preservados.
+Na publicação JUnit, uma `property` associa a chave em `name` ao conteúdo em `value`:
+nomes de credencial reconhecidos pela política existente ocultam o valor inteiro. O próprio
+nome continua sujeito à redação textual (inclusive `api_key=...`); propriedades públicas
+mantêm diagnóstico útil. A projeção acontece após validar o XML original privado, preservando
+`maezo_identity_sha256` de cada testcase e sem recalcular a identidade a partir do rótulo.
+Valores conhecidos dessas propriedades são ocultados também em traceback/source/assertion,
+inclusive como literais JSON/repr escapados. Contagens, tempos, linhas e fingerprints não
+participam dessa substituição. O `pytest.log` fica no staging privado0700/0600 até a projeção
+contextual final, inclusive em falha/interrupção; o log público stale é removido antes do pytest.
+Se o XML estiver ausente/parcial, publica-se apenas diagnóstico fixo de retenção e hash do log:
+essa saída não comprova RED assertional. O staging segue a limpeza existente do runner.
+Se a própria testemunha assertional for sensível (por exemplo `1`), ela é redigida e não pode
+sustentar classificação RED; assertions independentes como `assert 1 == 0` permanecem úteis.
 O token operacional de `owner.json` é mantido somente no caminho privado de posse, sob diretório
 0700, para que acquire/update/release continuem verificando PID/token. Um `token` em diagnóstico
 público permanece redigido. Variáveis de credencial externas não entram no filho; o runner não
