@@ -2114,16 +2114,18 @@ def test_same_owner_current_approval_or_dismissal_clears_objection(
     later_stale: bool,
 ) -> None:
     reviews = [
-        Review(OWNER_USER, "CHANGES_REQUESTED", "2026-08-13T10:00:00Z", 1, "a" * 40),
+        # REST dismissal updates the objection's own ID in place, never a new event ID.
         Review(
-            OWNER_USER.upper(),
-            release,
-            "2026-08-13T11:00:00Z",
-            2,
-            HEAD_SHA if release == "APPROVED" else None,
+            OWNER_USER,
+            "DISMISSED" if release == "DISMISSED" else "CHANGES_REQUESTED",
+            "2026-08-13T10:00:00Z",
+            1,
+            "a" * 40,
         ),
         approval(OTHER_OWNER),
     ]
+    if release == "APPROVED":
+        reviews.append(approval(OWNER_USER.upper(), when="2026-08-13T11:00:00Z", review_id=2))
     if later_stale:
         reviews.append(approval(OWNER_USER, when="2026-08-13T12:00:00Z", review_id=3, commit_id="a" * 40))
     decision = run(
@@ -2147,3 +2149,79 @@ def test_objection_order_uses_review_id_when_timestamps_tie(later_state: str) ->
         ),
     )
     assert decision.ok == (later_state == "APPROVED"), decision.render()
+
+
+# EIR-HEAD-02: list-reviews is a snapshot of review IDs, not principal-wide dismissal events.
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("uppercase", [False, True])
+@pytest.mark.parametrize(
+    ("states", "expected_ok"),
+    [
+        (("CHANGES_REQUESTED", "DISMISSED"), False),
+        (("DISMISSED", "CHANGES_REQUESTED"), False),
+        (("CHANGES_REQUESTED", "CHANGES_REQUESTED", "DISMISSED"), False),
+        # Dismissing the newer objection in place leaves the older objection live.
+        (("CHANGES_REQUESTED", "DISMISSED", "APPROVED_STALE"), False),
+        # The sole objection itself was dismissed in place; Bob supplies coverage.
+        (("DISMISSED", "APPROVED_STALE"), True),
+        (("CHANGES_REQUESTED", "DISMISSED", "APPROVED"), True),
+        (("APPROVED", "CHANGES_REQUESTED", "DISMISSED"), False),
+    ],
+    ids=[
+        "distinct-dismissal-after-objection",
+        "distinct-dismissal-before-objection",
+        "multiple-live-objections",
+        "newer-objection-dismissed-older-still-live",
+        "sole-objection-dismissed-in-place",
+        "current-approval-releases-objection",
+        "new-objection-after-approval-remains-live",
+    ],
+)
+def test_rest_dismissal_respects_review_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    states: tuple[str, ...],
+    expected_ok: bool,
+    reverse: bool,
+    uppercase: bool,
+) -> None:
+    reviews = [
+        review_payload(
+            id=index,
+            user={"login": OWNER_USER.upper() if uppercase and index > 1 else OWNER_USER},
+            state="APPROVED" if state == "APPROVED_STALE" else state,
+            commit_id=HEAD_SHA if state == "APPROVED" else "a" * 40,
+            submitted_at=f"2026-08-13T10:{index:02d}:00Z",
+        )
+        for index, state in enumerate(states, 1)
+    ]
+    reviews.append(review_payload(id=20, user={"login": OTHER_OWNER}, submitted_at="2026-08-13T11:00:00Z"))
+    calls = rest_gate_fixture(
+        monkeypatch,
+        reviews=list(reversed(reviews)) if reverse else reviews,
+        codeowners=f"/spec/policies/autonomy/ @{OWNER_USER} @{OTHER_OWNER}\n",
+    )
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == (0 if expected_ok else 1)
+    out = capsys.readouterr().out
+    assert ("has requested changes" in out) is not expected_ok
+    assert any("SATISFIED by" in line and f"@{OTHER_OWNER}" in line for line in out.splitlines())
+    assert calls.count("repos/Omni-Saude/maezo-operadora/pulls/244") == 2
+    assert calls.count("repos/Omni-Saude/maezo-operadora/branches/main") == 2
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_rest_tied_distinct_dismissal_preserves_objection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reverse: bool
+) -> None:
+    reviews = [
+        review_payload(id=1, state="CHANGES_REQUESTED", commit_id="a" * 40),
+        review_payload(id=2, state="DISMISSED", user={"login": OWNER_USER.upper()}),
+        review_payload(id=3, user={"login": OTHER_OWNER}),
+    ]
+    rest_gate_fixture(
+        monkeypatch,
+        reviews=list(reversed(reviews)) if reverse else reviews,
+        codeowners=f"/spec/policies/autonomy/ @{OWNER_USER} @{OTHER_OWNER}\n",
+    )
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1

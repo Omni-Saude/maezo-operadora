@@ -214,7 +214,7 @@ QUALIFIED REVIEWER — the fail-closed hierarchy
 ----------------------------------------------
 For a review to count toward a path P:
   a. it is the reviewer's LATEST standing review (COMMENTED and PENDING never change a reviewer's
-     approval state, so they are ignored; a DISMISSED review clears that reviewer entirely);
+     approval state, so they are ignored; a latest DISMISSED review supplies no positive coverage);
   b. its state is APPROVED and its full `commit_id` equals the current PR head SHA;
   c. `reviewer.login != pull_request.user.login` — a self-approval NEVER qualifies, at any tier;
   d. the reviewer satisfies P's ownership:
@@ -613,10 +613,12 @@ def standing_reviews(reviews: Iterable[Review]) -> dict[str, Review]:
 
 
 def unresolved_objections(reviews: Iterable[Review], head_sha: str) -> dict[str, Review]:
-    """Keep objections until the same principal approves this head or is explicitly dismissed.
+    """Keep live objections until the same principal subsequently approves this head.
 
     This state is separate from latest-standing positive coverage: an ineligible later approval
     must neither erase an objection nor revive an earlier approval (Design Decisions 2 and 4).
+    REST returns each review's current state: a dismissed objection is itself DISMISSED instead
+    of CHANGES_REQUESTED. A distinct DISMISSED review cannot clear another live objection.
     Comments and pending reviews have no effect, including when their timestamps are absent.
     """
     objections: dict[str, Review] = {}
@@ -627,9 +629,7 @@ def unresolved_objections(reviews: Iterable[Review], head_sha: str) -> dict[str,
         state = review.state.upper()
         if state == "CHANGES_REQUESTED":
             objections[login] = review
-        elif state == "DISMISSED" or (
-            state == "APPROVED" and _is_full_sha(review.commit_id) and review.commit_id == head_sha
-        ):
+        elif state == "APPROVED" and _is_full_sha(review.commit_id) and review.commit_id == head_sha:
             objections.pop(login, None)
     return objections
 
