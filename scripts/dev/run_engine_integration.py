@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
-import importlib.util
 import json
 import os
 import re
@@ -21,11 +20,12 @@ import urllib.error
 import urllib.request
 import uuid
 import xml.etree.ElementTree as ET
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 PROJECT = "maezo-completion-engine"
@@ -95,7 +95,15 @@ RUNTIME_ENV_KEYS = frozenset(
     )
 )
 _URI_PASSWORD = re.compile(r"(?i)(\b[a-z][a-z0-9+.-]*://[^\s:/@]+:)[^\s/@]+(@)")
-_NAMED_SECRET = re.compile(r"(?i)(\b(?:password|passwd|secret|token|api[_-]?key)\b\s*[:=]\s*)([^\s,;]+)")
+_NAMED_SECRET = re.compile(
+    r"""(?ix)
+    (\b(?:password|passwd|secret|token|api[_-]?key)\b["']?\s*[:=]\s*)
+    ("(?:\\.|[^"\\])*(?:"|\Z)|'(?:\\.|[^'\\])*(?:'|\Z)|[^\s,;}\]]+)
+    """
+)
+_SECRET_KEY = re.compile(
+    r"(?i)(?:password|passwd|secret|token|api[_-]?key|.+[_-](?:password|secret|token))\Z"
+)
 
 
 class RunnerError(RuntimeError):
@@ -114,33 +122,31 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _junit_identity_digest(classname: str, name: str) -> str:
-    return hashlib.sha256(json.dumps([classname, name], ensure_ascii=True).encode()).hexdigest()
-
-
 def _safe_data(payload: Any) -> Any:
+    """Projeção pública preserva hashes do núcleo; chaves têm semântica própria."""
     if isinstance(payload, str):
         return _redact_text(payload)
     if isinstance(payload, dict):
-        safe = {key: _safe_data(value) for key, value in payload.items()}
-        if isinstance(payload.get("nodeid"), str):
-            safe["nodeid_sha256"] = hashlib.sha256(payload["nodeid"].encode()).hexdigest()
-        for class_key, name_key in (("classname", "name"), ("junit_classname", "junit_name")):
-            if class_key in payload and name_key in payload:
-                safe["junit_identity_sha256"] = _junit_identity_digest(
-                    str(payload[class_key]), str(payload[name_key])
-                )
-        return safe
+        return {
+            _redact_text(key) if isinstance(key, str) else key: "<redacted>"
+            if isinstance(key, str) and _SECRET_KEY.fullmatch(key)
+            else _safe_data(value)
+            for key, value in payload.items()
+        }
     if isinstance(payload, list | tuple):
         return [_safe_data(value) for value in payload]
     return payload
 
 
-def _json_write(path: Path, payload: object) -> None:
+def _atomic_json_write(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(json.dumps(_safe_data(payload), indent=2, sort_keys=True) + "\n")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     os.replace(temporary, path)
+
+
+def _json_write(path: Path, payload: object) -> None:
+    _atomic_json_write(path, _safe_data(payload))
 
 
 def _append_event(path: Path, event: str, **fields: object) -> None:
@@ -151,8 +157,11 @@ def _append_event(path: Path, event: str, **fields: object) -> None:
 
 
 def _redact_text(value: str) -> str:
-    value = _URI_PASSWORD.sub(r"\1<redacted>\2", value)
-    return _NAMED_SECRET.sub(r"\1<redacted>", value)
+    def named(match: re.Match[str]) -> str:
+        quote = match[2][0] if match[2].startswith(('"', "'")) else ""
+        return f"{match[1]}{quote}<redacted>{quote}"
+
+    return _NAMED_SECRET.sub(named, _URI_PASSWORD.sub(r"\1<redacted>\2", value))
 
 
 def _base_env(source: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -362,33 +371,55 @@ def _uv_python(checkout: Path, *args: str) -> list[str]:
     ]
 
 
-EVIDENCE_MODULE = Path(__file__).resolve().parents[1] / "ci/pytest_execution_evidence.py"
+EVIDENCE_RELATIVE = "scripts/ci/pytest_execution_evidence.py"
 _PYTEST_BOOTSTRAP = """
-import importlib.util, pathlib, sys, pytest
-spec = importlib.util.spec_from_file_location('maezo_execution_evidence', sys.argv[1])
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-plugin = module.EvidencePlugin(pathlib.Path(sys.argv[3]), pathlib.Path(sys.argv[2]))
-raise SystemExit(pytest.main(sys.argv[4:], plugins=[plugin]))
+import hashlib, pathlib, sys, types, pytest
+path = pathlib.Path(sys.argv[1])
+content = path.read_bytes()
+if hashlib.sha256(content).hexdigest() != sys.argv[2]:
+    raise SystemExit("núcleo pytest diverge dos bytes autenticados")
+module = types.ModuleType('maezo_execution_evidence')
+module.__file__ = str(path)
+sys.modules[module.__name__] = module
+exec(compile(content, str(path), 'exec'), module.__dict__)
+plugin = module.EvidencePlugin(pathlib.Path(sys.argv[4]), pathlib.Path(sys.argv[3]))
+raise SystemExit(pytest.main(sys.argv[5:], plugins=[plugin]))
 """
 
 
-def _evidence_validator() -> Any:
-    spec = importlib.util.spec_from_file_location("maezo_execution_evidence", EVIDENCE_MODULE)
-    if spec is None or spec.loader is None:
-        raise RunnerError("núcleo de evidência indisponível")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.validate_execution
+def _evidence_source(checkout: Path) -> tuple[Path, bytes, str]:
+    checkout = checkout.resolve()
+    _assert_execution_source(checkout)
+    expected = _source_digests[checkout][1].get(EVIDENCE_RELATIVE)
+    path = checkout / EVIDENCE_RELATIVE
+    content = path.read_bytes()
+    if expected is None or hashlib.sha256(content).hexdigest() != expected:
+        raise RunnerError("núcleo de evidência fora dos bytes autenticados")
+    return path, content, expected
+
+
+def _evidence_api(checkout: Path) -> Any:
+    path, content, _ = _evidence_source(checkout)
+    # Compila exatamente os bytes conferidos, sem loader/pyc nem releitura da origem.
+    module = ModuleType("maezo_execution_evidence")
+    module.__file__ = str(path)
+    exec(compile(content, str(path), "exec"), module.__dict__)
+    if module.SCHEMA_VERSION != 2:
+        raise RunnerError("núcleo de evidência requer schema 2")
+    return module
+
+
+def _evidence_validator(checkout: Path) -> Any:
+    return _evidence_api(checkout).validate_execution
 
 
 def _pytest_command(checkout: Path, *args: str, evidence_path: Path | None = None) -> list[str]:
     checkout = checkout.resolve()
-    entry = (
-        ["-m", "pytest"]
-        if evidence_path is None
-        else ["-c", _PYTEST_BOOTSTRAP, str(EVIDENCE_MODULE), str(checkout), str(evidence_path)]
-    )
+    if evidence_path is None:
+        entry = ["-m", "pytest"]
+    else:
+        path, _, digest = _evidence_source(checkout)
+        entry = ["-c", _PYTEST_BOOTSTRAP, str(path), digest, str(checkout), str(evidence_path)]
     return _uv_python(
         checkout,
         *entry,
@@ -531,7 +562,7 @@ def execution_checkout(checkout: Path, expected_sha: str, results_dir: Path) -> 
 
 def _assert_execution_source(checkout: Path) -> None:
     if checkout not in _source_digests:
-        return
+        raise RunnerError("fonte de execução não autenticada por snapshot")
     sha, digests = _source_digests[checkout]
     validate_checkout(str(checkout), sha)
     for relative, digest in digests.items():
@@ -566,8 +597,12 @@ def _collect(checkout: Path, args: list[str], log_path: Path) -> set[str]:
         raise RunnerError(f"coleta pytest falhou (rc={result.returncode}); veja {log_path}")
     _assert_execution_source(checkout)
     nodeids = [item["nodeid"] for item in payload["collection"]]
-    if len(set(nodeids)) != len(nodeids) or not payload.get("finished"):
-        raise RunnerError("coleta duplicada ou interrompida")
+    if (
+        len(set(nodeids)) != len(nodeids)
+        or not payload.get("finished")
+        or payload.get("schema") != _evidence_api(checkout).SCHEMA_VERSION
+    ):
+        raise RunnerError("coleta duplicada, interrompida ou schema divergente")
     _collected_items[log_path] = payload["collection"]
     return set(nodeids)
 
@@ -720,8 +755,9 @@ def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict
 
     payload: dict[str, Any] = {
         "generated_at": _now(),
-        "evidence_schema": 1,
-        "evidence_module_sha256": _sha256(EVIDENCE_MODULE),
+        "evidence_schema": _evidence_api(checkout).SCHEMA_VERSION,
+        "evidence_module_sha256": _evidence_source(checkout)[2],
+        "evidence_module": str(checkout / EVIDENCE_RELATIVE),
         "checkout": checkout.as_posix(),
         "sha": _git(checkout, "rev-parse", "HEAD"),
         "maezo_import": imported_module,
@@ -823,7 +859,11 @@ class EngineLock:
         self.owner.update(fields)
         self.owner["checkpoint"] = checkpoint
         self.owner["updated_at"] = _now()
-        _json_write(self.owner_path, self.owner)
+        # Token de posse é estado privado de controle (diretório 0700), não credencial
+        # publicável. Somente este caminho restaura o token criado pelo próprio dono.
+        private_owner = _safe_data(self.owner)
+        private_owner["token"] = self.token
+        _atomic_json_write(self.owner_path, private_owner)
         return True
 
     def release(self) -> bool:
@@ -1201,17 +1241,27 @@ def _publish_execution_json(source: Path, destination: Path) -> None:
     _json_write(destination, payload)
 
 
-def _publish_xml(source: Path, destination: Path) -> None:
+def _publish_xml(
+    source: Path,
+    destination: Path,
+    *,
+    identity_projector: Callable[[str, str], dict[str, str]] | None = None,
+) -> None:
     if not source.exists():
         return
     try:
         tree = ET.parse(source)
         for node in tree.iter():
             if node.tag == "testcase":
-                node.set(
-                    "maezo_identity_sha256",
-                    _junit_identity_digest(node.get("classname", ""), node.get("name", "")),
-                )
+                if identity_projector is None:
+                    # Leitor legado de apresentação sem autoridade para publicar IDs.
+                    node.attrib.pop("classname", None)
+                    node.attrib.pop("name", None)
+                else:
+                    identity = identity_projector(node.get("classname", ""), node.get("name", ""))
+                    node.set("classname", identity["classname"])
+                    node.set("name", identity["name"])
+                    node.set("maezo_identity_sha256", identity["junit_identity_sha256"])
             node.attrib.update({key: _redact_text(value) for key, value in node.attrib.items()})
             if node.text:
                 node.text = _redact_text(node.text)
@@ -1257,16 +1307,17 @@ def _run_pytest(
         f"--junitxml={raw_xml}",
         evidence_path=raw_evidence,
     )
+    evidence_api = _evidence_api(checkout)
     try:
         result = _run(command, cwd=checkout, env=env, timeout=7200, log_path=results_dir / "pytest.log")
         _assert_execution_source(checkout)
         evidence = json.loads(raw_evidence.read_text()) if raw_evidence.exists() else {}
         # Valida identidades completas antes de projetar artefatos seguros.
-        validation = _evidence_validator()(raw_xml, evidence, expected_items, result.returncode)
+        validation = evidence_api.validate_execution(raw_xml, evidence, expected_items, result.returncode)
     finally:
         with _cleanup_signal_mask():
             try:
-                _publish_xml(raw_xml, junit)
+                _publish_xml(raw_xml, junit, identity_projector=evidence_api.public_junit_identity)
                 if raw_evidence.exists():
                     _publish_execution_json(raw_evidence, evidence_path)
             finally:
@@ -1388,7 +1439,7 @@ def run_suite(args: argparse.Namespace) -> int:
             manifest_entry["items"],
         )
         return_code = int(suite_result["return_code"])
-        state["state"] = "passed" if return_code == 0 else "pytest_failed"
+        state["state"] = "pytest_complete" if return_code == 0 else "pytest_failed"
     except (KeyboardInterrupt, RunnerInterrupted):
         return_code = 130
         state["state"] = "interrupted"
@@ -1403,54 +1454,93 @@ def run_suite(args: argparse.Namespace) -> int:
         state["error"] = _redact_text(str(exc))
         print(f"ERRO: {_redact_text(str(exc))}", file=sys.stderr)
     finally:
-        state.update(return_code=return_code, services=services, finished_at=_now())
+        state.update(return_code=return_code, services=services)
         _json_write(results_dir / "run-state.json", state)
-        if lock is not None and lock.owns():
-            if _pending_groups or lock.owner.get("subprocess_quiescent") is False:
-                return_code = 1
-                state.update(state="subprocess_cleanup_unconfirmed", return_code=1)
-                _json_write(results_dir / "run-state.json", state)
-                lock.update(
-                    "subprocess_cleanup_unconfirmed",
-                    return_code=return_code,
-                    state=state["state"],
-                )
-            elif not stack_touched:
-                if not lock.release():
-                    state["lock_release_error"] = "posse mudou ou diretório contém arquivos inesperados"
-                    return_code = return_code or 1
-                    state["return_code"] = return_code
-                    _json_write(results_dir / "run-state.json", state)
-            else:
-                lock.update("teardown", return_code=return_code, state=state["state"])
-                try:
-                    _compose(
-                        checkout,
-                        ["down", "-v", "--remove-orphans"],
-                        env=env,
-                        timeout=300,
-                        log_path=results_dir / "teardown.log",
-                    )
-                except (RunnerError, subprocess.TimeoutExpired, OSError) as exc:
-                    state["teardown_error"] = str(exc)
-                    return_code = return_code or 1
-                    state["return_code"] = return_code
-                    _json_write(results_dir / "run-state.json", state)
-                    lock.update("teardown_failed", teardown_error=str(exc), return_code=return_code)
-                else:
-                    lock.update("teardown_complete", return_code=return_code)
+        try:
+            if lock is not None and lock.owns():
+                if _pending_groups or lock.owner.get("subprocess_quiescent") is False:
+                    return_code = 1
+                    state.update(state="subprocess_cleanup_unconfirmed", return_code=1)
+                    lock.update("subprocess_cleanup_unconfirmed", return_code=1, state=state["state"])
+                elif not stack_touched:
                     if not lock.release():
-                        state["lock_release_error"] = "posse mudou ou diretório contém arquivos inesperados"
+                        state.update(
+                            state="lock_release_failed",
+                            lock_release_error="posse mudou ou diretório contém arquivos inesperados",
+                        )
                         return_code = return_code or 1
-                        state["return_code"] = return_code
+                else:
+                    outcome_before_teardown = state["state"]
+                    # Nem o estado nem o rc durável são verdes durante a desmontagem.
+                    # A persistência precede o primeiro efeito e é atômica contra sinais.
+                    with _cleanup_signal_mask():
+                        state.update(
+                            state="teardown",
+                            return_code=return_code or 1,
+                            pytest_return_code=return_code,
+                            teardown_started_at=_now(),
+                        )
                         _json_write(results_dir / "run-state.json", state)
-        elif lock is not None and lock.acquired:
-            state["ownership_lost"] = True
+                        if not lock.update("teardown", return_code=state["return_code"], state="teardown"):
+                            raise RunnerError("posse perdida antes do teardown")
+                    try:
+                        _compose(
+                            checkout,
+                            ["down", "-v", "--remove-orphans"],
+                            env=env,
+                            timeout=300,
+                            log_path=results_dir / "teardown.log",
+                        )
+                    except (KeyboardInterrupt, RunnerInterrupted) as exc:
+                        return_code = 130
+                        state.update(state="teardown_interrupted", teardown_error=type(exc).__name__)
+                        lock.update(
+                            "teardown_interrupted", return_code=130, teardown_error=state["teardown_error"]
+                        )
+                    except (RunnerError, subprocess.TimeoutExpired, OSError) as exc:
+                        return_code = return_code or 1
+                        state.update(state="teardown_failed", teardown_error=_redact_text(str(exc)))
+                        lock.update(
+                            "teardown_failed", return_code=return_code, teardown_error=state["teardown_error"]
+                        )
+                    else:
+                        _assert_execution_source(checkout)
+                        if not lock.update("teardown_complete", return_code=return_code):
+                            raise RunnerError("posse perdida ao confirmar teardown")
+                        state.update(state=outcome_before_teardown, teardown_finished_at=_now())
+                        if not lock.release():
+                            state.update(
+                                state="lock_release_failed",
+                                lock_release_error="posse mudou ou diretório contém arquivos inesperados",
+                            )
+                            return_code = return_code or 1
+                    if _pending_groups or lock.owner.get("subprocess_quiescent") is False:
+                        return_code = 1
+                        state["state"] = "subprocess_cleanup_unconfirmed"
+                        lock.update("subprocess_cleanup_unconfirmed", return_code=1)
+            elif lock is not None and lock.acquired:
+                state.update(state="ownership_lost", ownership_lost=True)
+                return_code = return_code or 1
+        except (KeyboardInterrupt, RunnerInterrupted) as exc:
+            return_code = 130
+            state.update(state="cleanup_interrupted", teardown_error=type(exc).__name__)
+        except (RunnerError, subprocess.TimeoutExpired, OSError) as exc:
             return_code = return_code or 1
-            state["return_code"] = return_code
+            state.update(state="cleanup_failed", teardown_error=_redact_text(str(exc)))
+        finally:
+            try:
+                if source_context is not None:
+                    source_context.__exit__(None, None, None)
+            except (KeyboardInterrupt, RunnerInterrupted) as exc:
+                return_code = 130
+                state.update(state="source_cleanup_interrupted", error=type(exc).__name__)
+            except (RunnerError, OSError) as exc:
+                return_code = return_code or 1
+                state.update(state="source_cleanup_failed", error=_redact_text(str(exc)))
+            if state["state"] == "pytest_complete" and return_code == 0:
+                state["state"] = "passed"
+            state.update(return_code=return_code, services=services, finished_at=_now())
             _json_write(results_dir / "run-state.json", state)
-        if source_context is not None:
-            source_context.__exit__(None, None, None)
     return return_code
 
 

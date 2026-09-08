@@ -60,7 +60,11 @@ RESULTS=/Users/familia/code/maezo-operadora/docs/audits/maezo-deep-audit/remedia
 `execution_manifest` divide a coleção por arquivo e informa grupo, contagem esperada e serviços
 necessários, identidades JUnit, hashes de fontes e estados canônicos dos marcadores.
 `execution-source.json` identifica o checkout original, a cópia, importação real e hashes de
-todos os arquivos rastreados. As fontes são conferidas antes/depois da coleta e dos testes. Cada entrada é uma execução separada em stack fresca. Ele
+todos os arquivos rastreados. As fontes são conferidas antes/depois da coleta e dos testes,
+e novamente após teardown. Plugin e validador vêm do núcleo dessa mesma cópia: o pai compara
+os bytes com o digest autenticado, compila exatamente o conteúdo conferido e passa o digest
+ao subprocesso, que o verifica antes de executar o plugin. Não há fallback à origem do
+launcher nem carregamento de pyc do núcleo. Cada entrada é uma execução separada em stack fresca. Ele
 falha se a coleta for vazia, se algum arquivo `tests/integration/**/test_*.py` não gerar nodeid,
 se houver teste nessa árvore sem `integration`, se a união das três suítes não for exata ou se
 LGPD/escalation desaparecerem. Assim os testes live-PG que vivem sob `tests/unit/` não ficam fora
@@ -180,24 +184,35 @@ stack foi tocada, `docker compose down -v --remove-orphans` concluído no contex
 Cada execução grava `run-state.json` mesmo em erro ou interrupção. O núcleo compartilhado
 `scripts/ci/pytest_execution_evidence.py` captura a coleção e as fases setup/call/teardown por
 item; o profiler na fase call observa entrada no código do corpo, inclusive corrotinas.
-A comparação usa as identidades completas em staging privado antes da publicação. Os JSONs
-publicados e XML são redigidos; `nodeid_sha256` e `junit_identity_sha256` nos JSONs, e
-`maezo_identity_sha256` no XML, preservam correlação distinta quando dois IDs contêm credenciais.
+O schema 2 compara fingerprints das identidades completas em staging privado antes da
+publicação. Parâmetros são projetados em rótulos opacos e únicos; o prefixo do arquivo continua
+usável para particionar o censo, mas o rótulo parametrizado não é seletor pytest. O runner
+preserva `nodeid_sha256` e `junit_identity_sha256` fornecidos pelo núcleo, sem recalculá-los dos
+rótulos. `public_junit_identity(classname, name)` do mesmo núcleo autenticado projeta os
+atributos XML; seu fingerprint vira `maezo_identity_sha256`, correlacionado aos JSONs. O XML
+projetado não é revalidado como se fosse o XML cru original. O leitor de apresentação sem
+projetor autenticado omite classname/name e não autoriza resultados.
 `pytest-execution.json`, `junit.xml` e `suite-results.json` permitem confrontar exatamente
 identidades únicas, fontes/marcadores, fases, outcomes e totais XML. Header sozinho, substituição,
 duplicação, XML ausente/parcial, XPASS (inclusive não estrito), skip de infraestrutura e xfail
 em setup ou `run=False` produzem falha mesmo se o pytest retornar zero.
 
 `xfailed_executed` exige marcador estrito e corpo observado; `inactive_companion` é uma omissão
-explícita com obrigação `separate_opt_in_RED_required`. A exceção de companion é derivada da
-guarda AST `not mutation_active(id)`, do callable canônico em `tests/integration/chaos/mutations.py`,
-de suas referências `broken_*` e dos hashes de ambas as fontes na coleção fixada. Razão ou nome
-parametrizado não autorizam skips. O baseline examinado tem dois companions core e quatro chaos;
-o runner deriva isso do SHA, sem hardcode de contagem/IDs. Os leitores numéricos legados usados
+explícita com obrigação `separate_opt_in_RED_required`. A exceção de companion vem do catálogo
+canônico do núcleo: identidade, origem, token, declaração completa e helper autenticados precisam
+corresponder. A presença de uma referência `broken_*`, token, razão ou nome parametrizado não
+concede a exceção. Expansão/refatoração exige revisão explícita do catálogo no núcleo e prova
+negativa, sem substituir o RED separado. O baseline examinado tem dois companions core e quatro
+chaos; o runner recebe isso do núcleo no SHA, sem catálogo alternativo ou exceção local. Os leitores numéricos legados usados
 nos testes antigos são auxiliares de apresentação e não participam da decisão de aceite.
 
-Logs, razões e estados publicados redigem senhas em URIs/campos usuais de segredo. Variáveis de
-credencial externas não entram no filho; o runner não imprime o ambiente nem copia `.env`.
+Logs, stdout/stderr, razões e estados publicados redigem senhas em URIs/campos usuais de segredo,
+incluindo chaves citadas em JSON/repr e valores com espaços. Objetos aninhados são projetados com
+o contexto das chaves antes da serialização; hashes de correlação já fornecidos são preservados.
+O token operacional de `owner.json` é mantido somente no caminho privado de posse, sob diretório
+0700, para que acquire/update/release continuem verificando PID/token. Um `token` em diagnóstico
+público permanece redigido. Variáveis de credencial externas não entram no filho; o runner não
+imprime o ambiente nem copia `.env`.
 
 As fases de mutação continuam sendo provas RED explícitas fora deste runner e nunca resultados
 aprovados. Use o comando declarado no docstring do módulo, com `MAEZO_CHAOS_MUTATE=<id>`, e espere
@@ -209,6 +224,12 @@ No encerramento, inclusive após `SIGINT`/`SIGTERM`, o dono tenta apenas:
 docker compose --project-name maezo-completion-engine ... down -v --remove-orphans
 ```
 
-Se o teardown falhar, o erro fica em `run-state.json` e `owner.json`, e a trava permanece para
-impedir outra execução de assumir que os recursos estão limpos. Se a posse tiver mudado, o
-processo não executa teardown nem remove a trava.
+Antes do primeiro efeito de teardown, `run-state.json` registra `state=teardown` e rc não zero;
+o resultado pytest fica separado em `pytest_return_code`. `passed` somente é persistido após
+teardown confirmado, fonte revalidada e liberação da trava. Erro, timeout ou SIGTERM durante
+teardown deixa estado/rc duráveis não verdes e a trava retida; quiescência incerta tem precedência
+como `subprocess_cleanup_unconfirmed`. O erro fica em `run-state.json` e `owner.json`, impedindo
+outra execução de assumir que os recursos estão limpos. Se a posse tiver mudado, o processo
+não executa teardown nem remove a trava. Esse protocolo não afirma sucesso de engine quando a
+execução não ocorreu: descoberta, xfails apenas coletados e companions inativos são evidências
+com limites distintos.

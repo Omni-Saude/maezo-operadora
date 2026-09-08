@@ -180,6 +180,9 @@ def test_runner_uses_phase_evidence_and_sanitized_xml(
     (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\nmarkers=["integration"]\n')
     test_file = tmp_path / "test_fixture.py"
     test_file.write_text("import pytest\npytestmark=pytest.mark.integration\n" + body)
+    from tests.unit.dev.test_engine_runner_final_repair import authenticate_fixture
+
+    authenticate_fixture(tmp_path)
     result = runner._run_pytest(
         tmp_path, "core", test_file.name, runner._runtime_env(), tmp_path / "result", body.count("def test_")
     )
@@ -212,6 +215,9 @@ def test_parameter_credentials_are_redacted_after_distinct_identities_are_verifi
         f"'postgresql://a:{SENTINEL}B@127.0.0.1:9/x'])\n"
         "def test_value(value): assert value > 0\n"
     )
+    from tests.unit.dev.test_engine_runner_final_repair import authenticate_fixture
+
+    authenticate_fixture(tmp_path)
     result_dir = tmp_path / "evidence"
     result = runner._run_pytest(tmp_path, "core", "test_params.py", runner._runtime_env(), result_dir, 2)
     assert result["return_code"] == 0, result
