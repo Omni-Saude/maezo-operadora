@@ -123,6 +123,17 @@ inside the transaction. Losing timers, reassignment or other task clients must f
 the CIB optimistic revision check. D7 must separately deny alternate REST writes to
 human authority and decision variables before cutover.
 
+The tenant lock stabilizes published authority, evidence and revocation state;
+it does not stop wall-clock validity from expiring during a database wait. New
+commands therefore recheck signed envelope/key, principal and evidence deadlines
+immediately before mutation and again in `COMMITTING`, after the last receipt SQL.
+Receipt reads and exact retries recheck the new envelope/key and current principal
+after their reads; they do not require the original evidence or membership revision
+to remain current. Authority publication rechecks its envelope/key and any published
+deadline after its SQL and normal engine flush. These checks use the current clock,
+not the transaction's start timestamp, and introduce no TTL. This is the application
+check immediately before JDBC commit, not a claim that physical commit takes no time.
+
 Exact retries return the original receipt only after current key/workload/principal
 validation. Changed digest, principal or workload for the same tenant/task/command
 returns409. A revoked principal cannot retrieve even a previously committed receipt.

@@ -72,11 +72,16 @@ final class EngineStore {
         rows("SELECT * FROM MZO_HUMAN_PRINCIPAL WHERE TENANT_=? AND PRINCIPAL_=?", tenant, ref);
     if (rs.size() != 1) throw Rejected.denied();
     var p = rs.get(0);
-    if (!Boolean.TRUE.equals(p.get("active_"))
-        || ((Number) p.get("valid_until_")).longValue() <= now
-        || !issuer.equals(p.get("issuer_"))
+    requireCurrentPrincipal(p, now);
+    if (!issuer.equals(p.get("issuer_"))
         || !subject.equals(p.get("subject_"))) throw Rejected.denied();
     return p;
+  }
+
+  static void requireCurrentPrincipal(Map<String, Object> principal, long now) {
+    if (!Boolean.TRUE.equals(principal.get("active_"))
+        || ((Number) principal.get("valid_until_")).longValue() <= now)
+      throw Rejected.denied();
   }
 
   byte[] receipt(String task, String command, String digest, String principal, String workload) {

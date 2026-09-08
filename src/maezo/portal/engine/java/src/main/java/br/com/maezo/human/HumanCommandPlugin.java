@@ -87,15 +87,25 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
                   || !task.equals(c.get("task_id"))
                   || !command.equals(c.get("command_id"))) throw Rejected.invalid();
               String principal = Jcs.ref(c, "principal_ref");
-              db.principal(
-                  principal,
-                  Jcs.string(c, "principal_issuer"),
-                  Jcs.ref(c, "principal_subject"),
-                  now);
+              var currentPrincipal =
+                  db.principal(
+                      principal,
+                      Jcs.string(c, "principal_issuer"),
+                      Jcs.ref(c, "principal_subject"),
+                      now);
               byte[] result =
                   db.receipt(
                       task, command, Jcs.hash(c, "payload_digest"), principal, v.key().workload());
               if (result == null) throw new Rejected(404, "RECEIPT_NOT_FOUND");
+              context
+                  .getTransactionContext()
+                  .addTransactionListener(
+                      TransactionState.COMMITTING,
+                      ignored -> {
+                        long current = java.time.Instant.now().getEpochSecond();
+                        v.requireCurrent(current);
+                        EngineStore.requireCurrentPrincipal(currentPrincipal, current);
+                      });
               return result;
             });
   }

@@ -6,7 +6,13 @@ import java.util.function.Predicate;
 
 /** Ed25519 is fixed by the versioned profile, never negotiated from request data. */
 final class Envelope {
-  record Verified(Map<String, Object> command, String digest, Trust.Key key) {}
+  record Verified(
+      Map<String, Object> command, String digest, Trust.Key key, long issuedAt, long expiresAt) {
+    void requireCurrent(long now) {
+      if (issuedAt > now || now >= expiresAt || now < key.notBefore() || now >= key.notAfter())
+        throw Rejected.denied();
+    }
+  }
 
   static Verified verify(
       byte[] raw,
@@ -70,6 +76,6 @@ final class Envelope {
     } catch (GeneralSecurityException | IllegalArgumentException ex) {
       throw Rejected.denied();
     }
-    return new Verified(Collections.unmodifiableMap(command), digest, key);
+    return new Verified(Collections.unmodifiableMap(command), digest, key, issued, expires);
   }
 }

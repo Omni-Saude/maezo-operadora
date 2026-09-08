@@ -46,6 +46,10 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
       context
           .getTransactionContext()
           .addTransactionListener(
+              TransactionState.COMMITTING, ignored -> requireCurrent(verified, principal, null));
+      context
+          .getTransactionContext()
+          .addTransactionListener(
               TransactionState.COMMITTED, ignored -> result.committed = previous);
       return result;
     }
@@ -99,6 +103,7 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
         || !c.formKey().equals(SYNTHETIC_FORM)
         || !c.formVersion().equals("1")
         || !c.formDigest().equals(FORM_DIGEST)) throw new Rejected(409, "FORM_NOT_ACTIVATED");
+    requireCurrent(verified, principal, evidence);
     if (c.operation().equals("claim")) {
       if (task.getAssignee() != null) throw Rejected.conflict();
       task.setAssignee(c.principalRef());
@@ -121,13 +126,26 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
         .addTransactionListener(
             TransactionState.COMMITTING,
             committing -> {
-              byte[] bytes = persistReceipt(db, c, verified.digest(), now);
+              byte[] bytes =
+                  persistReceipt(db, c, verified.digest(), java.time.Instant.now().getEpochSecond());
+              // Last local blocking SQL has returned. The tenant lock still fences
+              // state changes, but only a fresh clock can fence elapsed validity.
+              requireCurrent(verified, principal, evidence);
               committing
                   .getTransactionContext()
                   .addTransactionListener(
                       TransactionState.COMMITTED, ignored -> result.committed = bytes);
             });
     return result;
+  }
+
+  private static void requireCurrent(
+      Envelope.Verified verified, Map<String, Object> principal, Map<String, Object> evidence) {
+    long now = java.time.Instant.now().getEpochSecond();
+    verified.requireCurrent(now);
+    EngineStore.requireCurrentPrincipal(principal, now);
+    if (evidence != null && ((Number) evidence.get("valid_until_")).longValue() <= now)
+      throw Rejected.conflict();
   }
 
   private byte[] persistReceipt(EngineStore db, HumanCommand c, String digest, long now) {

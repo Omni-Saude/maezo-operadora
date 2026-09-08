@@ -2,6 +2,7 @@ package br.com.maezo.human;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import org.cibseven.bpm.engine.impl.cfg.TransactionState;
 import org.cibseven.bpm.engine.impl.interceptor.*;
 
 /**
@@ -155,6 +156,16 @@ final class AuthorityCommand implements Command<byte[]> {
             trust.tenant,
             revision)
         != 1) throw Rejected.conflict();
+    context
+        .getTransactionContext()
+        .addTransactionListener(
+            TransactionState.COMMITTING,
+            ignored -> {
+              long current = java.time.Instant.now().getEpochSecond();
+              v.requireCurrent(current);
+              if (!op.equals("revoke-key") && Jcs.seconds(c, "valid_until") <= current)
+                throw Rejected.invalid();
+            });
     return Jcs.canonical(
         Map.of(
             "schema",
