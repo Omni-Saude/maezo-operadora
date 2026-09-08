@@ -113,7 +113,7 @@ def test_the_docstring_header_agrees_with_down_revision() -> None:
     )
 
 
-def test_0010_is_the_unique_head_of_a_linear_chain() -> None:
+def test_0011_is_the_unique_head_of_a_linear_chain() -> None:
     """No fork: every revision claimed once, exactly one revision unreferenced as a parent.
 
     A forked chain is the failure mode where `alembic upgrade head` applies one branch while an
@@ -132,7 +132,7 @@ def test_0010_is_the_unique_head_of_a_linear_chain() -> None:
 
     parents = {down for down in revisions.values() if down is not None}
     heads = set(revisions) - parents
-    assert heads == {DEDUP_MIGRATION_REVISION}, f"expected 0010 to be the sole head, got {heads}"
+    assert heads == {"0011"}, f"expected 0011 to be the sole head, got {heads}"
     assert len(parents) == len(revisions) - 1, "a revision is claimed as parent by two children"
 
 

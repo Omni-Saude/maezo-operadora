@@ -365,40 +365,7 @@ class PostgresAuditSink:
         try:
             pool = await self._ensure_pool()
             async with pool.acquire() as conn, conn.transaction():
-                await conn.execute(_ADVISORY_LOCK_SQL, self._tenant_id)
-
-                # 1. Already audited? Serialized with the tail read below by the advisory lock —
-                #    no TOCTOU. Returns the prior chain link's identity for a re-delivered effect.
-                prior_hash: str | None = await conn.fetchval(_DEDUP_LOOKUP_SQL, self._tenant_id, dedup_key)
-                if prior_hash is not None:
-                    logger.debug(
-                        "audit_emit_once_deduped",
-                        tenant_id=self._tenant_id,
-                        dedup_key=dedup_key,
-                        record_hash=prior_hash,
-                    )
-                    return EmitOnceOutcome(record_hash=prior_hash, deduped=True)
-
-                # 2. First time for this effect — chain the record onto the current tail.
-                tail = await self._fetch_tail(conn)
-                record.prev_hash = tail
-                record.record_hash = record._compute_hash()
-
-                # 3. Claim the key AND insert the chain link, atomically. The claim carries the
-                #    new record_hash so a later re-delivery gets it back (step 1). ON CONFLICT
-                #    returning zero rows means a concurrent claim slipped past the advisory lock
-                #    (should be impossible) — fail closed rather than fork the chain.
-                claimed: str | None = await conn.fetchval(
-                    _DEDUP_CLAIM_SQL, self._tenant_id, dedup_key, record.record_hash
-                )
-                if claimed is None:
-                    raise AuditPersistenceError(
-                        f"audit_emit_dedup claim for tenant={self._tenant_id!r} "
-                        f"dedup_key={dedup_key!r} collided under the advisory lock "
-                        "(concurrent claim bypassed serialization) — refusing to fork the chain"
-                    )
-
-                await self._insert_chain_row(conn, record)
+                outcome = await self.emit_once_on(conn, record, dedup_key=dedup_key)
         except AuditPersistenceError:
             raise
         except Exception as exc:  # deliberately broad: FAIL CLOSED, always re-raise
@@ -415,6 +382,8 @@ class PostgresAuditSink:
                 f"agent={record.agent_id!r} action={record.action!r} dedup_key={dedup_key!r}: {exc}"
             ) from exc
 
+        if outcome.deduped:
+            return outcome
         logger.debug(
             "audit_emit_once_persisted",
             tenant_id=self._tenant_id,
@@ -424,6 +393,55 @@ class PostgresAuditSink:
             dedup_key=dedup_key,
             record_hash=record.record_hash,
         )
+        return outcome
+
+    async def emit_once_on(
+        self, conn: asyncpg.Connection, record: AuditRecord, *, dedup_key: str
+    ) -> EmitOnceOutcome:
+        """Enlist the original chain operation in the caller's tenant transaction.
+
+        No acquire/commit here. Audit lock MUST precede task locks when combined
+        with A2A idempotency (ADR-0007, DL-0017/18). Standalone emit_once retains
+        its existing transaction and failure translation.
+        """
+        if record.tenant_id != self._tenant_id or not conn.is_in_transaction():
+            raise AuditPersistenceError("invalid enlisted audit transaction")
+        if await conn.fetchval("SELECT current_schema()") != self._schema:
+            raise AuditPersistenceError("enlisted audit schema mismatch")
+        await conn.execute(_ADVISORY_LOCK_SQL, self._tenant_id)
+
+        # 1. Already audited? Serialized with the tail read below by the advisory lock —
+        #    no TOCTOU. Returns the prior chain link's identity for a re-delivered effect.
+        prior_hash: str | None = await conn.fetchval(_DEDUP_LOOKUP_SQL, self._tenant_id, dedup_key)
+        if prior_hash is not None:
+            logger.debug(
+                "audit_emit_once_deduped",
+                tenant_id=self._tenant_id,
+                dedup_key=dedup_key,
+                record_hash=prior_hash,
+            )
+            return EmitOnceOutcome(record_hash=prior_hash, deduped=True)
+
+        # 2. First time for this effect — chain the record onto the current tail.
+        tail = await self._fetch_tail(conn)
+        record.prev_hash = tail
+        record.record_hash = record._compute_hash()
+
+        # 3. Claim the key AND insert the chain link, atomically. The claim carries the
+        #    new record_hash so a later re-delivery gets it back (step 1). ON CONFLICT
+        #    returning zero rows means a concurrent claim slipped past the advisory lock
+        #    (should be impossible) — fail closed rather than fork the chain.
+        claimed: str | None = await conn.fetchval(
+            _DEDUP_CLAIM_SQL, self._tenant_id, dedup_key, record.record_hash
+        )
+        if claimed is None:
+            raise AuditPersistenceError(
+                f"audit_emit_dedup claim for tenant={self._tenant_id!r} "
+                f"dedup_key={dedup_key!r} collided under the advisory lock "
+                "(concurrent claim bypassed serialization) — refusing to fork the chain"
+            )
+
+        await self._insert_chain_row(conn, record)
         return EmitOnceOutcome(record_hash=record.record_hash, deduped=False)
 
     async def _insert_chain_row(self, conn: asyncpg.Connection, record: AuditRecord) -> None:
