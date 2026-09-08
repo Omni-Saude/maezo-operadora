@@ -7,9 +7,11 @@ especificação técnica **DRAFT/verify**, revisão independente e implementaç�
 **Proveniência:** plano consolidado `docs/plan.md`, §3 Wave 1 e §4–5, e mandato de execução
 `docs/prompts/execute-maezo-completion-plan.md`. Registro documental do agente sob esse mandato;
 não é ratificação autônoma, assinatura individual ou aprovação de software ainda não construído.
-**Rastreio:** `PLAN-PRODUCT-PORTAL-SUPERSEDE-TASKLIST` (identificador novo de coordenação, sem ID
-histórico original localizado); dependências `PORTAL-HUMAN-GATEWAY`, `PORTAL-ATOMIC-COMMAND`,
-`PORTAL-AUDIT-OUTBOX`; DL-0048.
+**Rastreio:** antecedente histórico `R-031` / `M-19` / gap `9.1`, sob a redação original
+**Cockpit do CIB Seven + `testchannel` declarado demo sem autenticação própria**;
+`PLAN-PRODUCT-PORTAL-SUPERSEDE-TASKLIST` é o identificador novo somente desta mudança de produto
+(não existe ID histórico literalmente chamado “Tasklist-only”); dependências
+`PORTAL-HUMAN-GATEWAY`, `PORTAL-ATOMIC-COMMAND`, `PORTAL-AUDIT-OUTBOX`; DL-0048.
 
 Nenhuma aprovação clínica, DPO, jurídica, atuarial, financeira, regulatória ou de produção é
 concedida por este documento. A autorização de engenharia permite construir e verificar os
@@ -26,6 +28,14 @@ O plano consolidado lido nesta redação tem SHA-256
 `53215026ed494a928f062627db87aa71ade1cc27bf257be257c957510ec4a6bf`.
 Esses arquivos eram locais no início do pacote; as decisões necessárias estão reproduzidas aqui
 para a coordenação versionada não depender apenas de um link para Downloads ou de um transcript.
+
+“Tasklist-only” é o rótulo resumido usado pelo plano atual; não é a redação literal da decisão
+histórica. O antecedente versionado é `R-031` / `M-19` / gap `9.1`: `PLANS.md` §0.5.5,
+`docs/review-queue.md` §SUPERFICIE-HUMANA-OPERADOR e
+`src/maezo/platform/testchannel/README.md` registram **Cockpit do CIB Seven + `testchannel`
+declarado demo sem autenticação própria**. A autorização atual do usuário muda essa escolha de
+produto/engenharia para o portal completo descrito neste ADR; não reescreve R-031, não transforma
+o demo em produto e não elimina por inferência a dependência R-032/M-20.
 
 `docs/runbooks/devops-stack.md`, seção HITL, ainda descreve humanos completando User Tasks pela
 Tasklist diretamente. Essa é evidência do fluxo existente, preservada sem reescrita retroativa.
@@ -473,7 +483,7 @@ fabricar nomes, assinaturas, retention, parâmetros financeiros/clínicos ou lib
 
 | Fonte anterior | Emenda/relação delimitada nesta decisão |
 |---|---|
-| Escolha histórica Tasklist-only, primeiro plano §Wave 1 e runbook HITL | **Substituída como decisão de produto** por D1–D10. Runbook preserva realidade anterior até cutover verificado; não há ID ADR histórico inventado |
+| `R-031` / `M-19` / gap `9.1`: Cockpit do CIB Seven + `testchannel` declarado demo sem autenticação própria; rótulo resumido “Tasklist-only” no plano atual; primeiro plano §Wave 1 e runbook HITL | **Substituída como decisão de produto/engenharia** pela autorização atual do usuário e por D1–D10. A redação e os IDs históricos permanecem íntegros; o identificador `PLAN-PRODUCT-PORTAL-SUPERSEDE-TASKLIST` pertence apenas à mudança atual. Runbook preserva a realidade operacional até cutover verificado |
 | ADR-0004, decisão de namespace K8s por tenant | **Emenda do mecanismo nesta implantação ECS**: isolamento por tenant/ambiente passa a serviços/tasks, identidades, redes e acessos a bancos segregados; não autoriza engine/banco compartilhado entre hospital e pagador nem mistura tenants |
 | ADR-0006 e ADR-0017, mecanismo NetworkPolicy/Helm | **Emenda do mecanismo nesta implantação ECS**, preservando integralmente as duas zonas, pseudonimização, residência/zero-retention contratados e minimização. O pacote de rede deve substituir os controles K8s por controles ECS/VPC verificáveis: deny por padrão, destinos/portas aprovados e concretos, recusa de CIDR ausente ou universal IPv4/IPv6, sem relay PHI→agente geral→cloud, acesso interno só ao gateway/infra permitida e zona coerente com Agent Definition efetiva. Sem alegar enforcement por FQDN que não exista; o cutover depende da prova negativa de egress |
 | ADR-0007, cláusula de identidade/tuple | **Estendida** para preservar principal humano issuer/subject e workload separados em intent/receipt/resultado. Campos de agente não são preenchidos com humano fictício e tuple existente de agente não é reescrita |
@@ -512,7 +522,10 @@ não funcionamento do portal. Revisão independente desta redação também é p
 
 ## Supersedes
 
-Substitui **somente a escolha histórica Tasklist-only de produto**, sem inventar ID anterior.
+Substitui **somente a escolha de produto/engenharia registrada em `R-031` / `M-19` / gap `9.1`**
+(Cockpit do CIB Seven + `testchannel` declarado demo sem autenticação própria), chamada resumidamente de
+“Tasklist-only” no plano atual. A redação histórica continua válida como história e o novo ID de
+coordenação não a renomeia retroativamente.
 **Amends** ADR-0004/0006/0007/0017/0021/0027/0037 nas cláusulas delimitadas em D11; não supersede
 esses ADRs integralmente. ADR-0018/0030/0039/0040/0048 e todos os contratos/políticas humanos
 permanecem com seus estados e requisitos próprios. A proveniência da escolha é o plano autorizado, registrada
