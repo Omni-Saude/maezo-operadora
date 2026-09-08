@@ -124,6 +124,10 @@ assert result2.already_existed == True
 
 **Code:** CIB Seven REST API; Tasklist UI
 
+> **Estado no candidato `e9689e7d`:** Tasklist é a interface operacional documentada aqui. A
+> substituição por portal próprio pertence ao pacote separado ADR-0049/DL-0048 e permanece
+> prospectiva até esse pacote aterrissar e ser verificado; esta nota não o ratifica nem o entrega.
+
 User Tasks (manual approval steps) are **not** completed by the agent. They are completed by humans via the Tasklist interface.
 
 ### Example: SP-OP-ESCALATION-001 escalation review

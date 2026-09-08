@@ -614,8 +614,10 @@ today.
 3. Check task age and priority: identify if any are P1 (highest urgency)
 4. Verify the engine is running: there is no `auditor-console` (or any `console`)
    Deployment in this chart — `deploy/helm/maezo-tenant/templates/` defines no such
-   resource. Humans complete User Tasks via the CIB Seven Tasklist UI directly,
-   backed by the `cibseven` StatefulSet: `kubectl get statefulset cibseven -n maezo-{tenant}`
+   resource. No candidato `e9689e7d`, humanos completam User Tasks diretamente pela UI Tasklist
+   do CIB Seven, apoiada pelo StatefulSet `cibseven`: `kubectl get statefulset cibseven -n
+   maezo-{tenant}`. A transição prospectiva para portal próprio pertence ao pacote separado
+   ADR-0049/DL-0048, ainda pendente de aterrissagem e verificação; esta referência não a ratifica.
 
 **If tasks are old but the engine is healthy:**
 1. Check operator shift schedule — verify on-call auditor is scheduled
