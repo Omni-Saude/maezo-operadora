@@ -22,6 +22,8 @@ ROOT = Path(__file__).resolve().parents[3]
 RESOURCES = ROOT / "src/maezo/portal/engine/java/src/test/resources"
 # Public RFC8032 test material; never a deployment credential.
 SEED = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
+# Public synthetic form identifier, shared with the committed Java wire vector.
+SYNTHETIC_FORM = "maezo.synthetic-ack.v1"
 
 
 def command():
@@ -39,7 +41,7 @@ def command():
         process_definition_version="1",
         process_definition_digest="a" * 64,
         task_definition_key="UT_Acknowledge",
-        form_key="maezo.synthetic-ack.v1",
+        form_key=SYNTHETIC_FORM,
         form_version="1",
         form_digest="b" * 64,
         task_revision="2",

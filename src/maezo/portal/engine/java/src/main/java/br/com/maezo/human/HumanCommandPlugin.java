@@ -52,7 +52,8 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
       case "human-command" ->
           configuration
               .getCommandExecutorTxRequired()
-              .execute(new AtomicHumanCommand(trust, raw, peer));
+              .execute(new AtomicHumanCommand(trust, raw, peer))
+              .bytes();
       case "human-authority" ->
           configuration
               .getCommandExecutorTxRequired()

@@ -2,10 +2,21 @@ package br.com.maezo.human;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import org.cibseven.bpm.engine.impl.cfg.TransactionState;
 import org.cibseven.bpm.engine.impl.interceptor.*;
 
 /** ADR0049 D5. All state and receipt participate in the engine CommandContext TX. */
-final class AtomicHumanCommand implements Command<byte[]> {
+final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
+  /** Populated only by a committed transaction; never exposes a pre-commit receipt. */
+  static final class Result {
+    private byte[] committed;
+
+    byte[] bytes() {
+      if (committed == null) throw EngineStore.unavailable();
+      return committed.clone();
+    }
+  }
+
   static final String SYNTHETIC_FORM = "maezo.synthetic-ack.v1";
   static final String FORM_DIGEST = Jcs.digest(SYNTHETIC_FORM.getBytes(StandardCharsets.UTF_8));
   private final Trust trust;
@@ -19,7 +30,7 @@ final class AtomicHumanCommand implements Command<byte[]> {
   }
 
   @Override
-  public byte[] execute(CommandContext context) {
+  public Result execute(CommandContext context) {
     EngineStore db = new EngineStore(context, trust.tenant);
     long authorityRevision = db.lockTenant();
     long now = java.time.Instant.now().getEpochSecond();
@@ -30,7 +41,14 @@ final class AtomicHumanCommand implements Command<byte[]> {
     // not remain unchanged merely to retrieve an already committed result after a renewal.
     byte[] previous =
         db.receipt(c.taskId(), c.commandId(), verified.digest(), c.principalRef(), c.workloadRef());
-    if (previous != null) return previous;
+    Result result = new Result();
+    if (previous != null) {
+      context
+          .getTransactionContext()
+          .addTransactionListener(
+              TransactionState.COMMITTED, ignored -> result.committed = previous);
+      return result;
+    }
     if (!Long.toString(authorityRevision).equals(c.authorityRevision())
         || !principal.get("rev_").toString().equals(c.membershipRevision()))
       throw Rejected.conflict();
@@ -95,10 +113,27 @@ final class AtomicHumanCommand implements Command<byte[]> {
         task.complete();
       }
     }
-    // Explicit revision fence, including no-op assignee changes, and flush engine SQL
-    // before receipt insert. Flush DOES NOT commit; a failed insert rolls it all back.
+    // Keep CIB's optimistic revision fence and its single normal deferred flush.
+    // A manual flush replays retained metric/history inserts at CommandContext.close.
     if (!c.operation().equals("decision")) context.getDbEntityManager().forceUpdate(task);
-    context.getDbEntityManager().flush();
+    context
+        .getTransactionContext()
+        .addTransactionListener(
+            TransactionState.COMMITTING,
+            committing -> {
+              byte[] bytes = persistReceipt(db, c, verified.digest(), now);
+              committing
+                  .getTransactionContext()
+                  .addTransactionListener(
+                      TransactionState.COMMITTED, ignored -> result.committed = bytes);
+            });
+    return result;
+  }
+
+  private byte[] persistReceipt(EngineStore db, HumanCommand c, String digest, long now) {
+    // COMMITTING runs after normal flush and before JDBC commit in pinned CIB 2.1.
+    // Read the actual resulting revision, not a predicted increment, on the same
+    // enlisted connection. An insert or final commit failure still rolls back all state.
     String resulting = null;
     if (!c.operation().equals("decision")) {
       var rs =
@@ -116,7 +151,7 @@ final class AtomicHumanCommand implements Command<byte[]> {
     receipt.put("task_id", c.taskId());
     receipt.put("command_id", c.commandId());
     receipt.put("operation", c.operation());
-    receipt.put("payload_digest", verified.digest());
+    receipt.put("payload_digest", digest);
     receipt.put("principal_ref", c.principalRef());
     receipt.put("workload_ref", c.workloadRef());
     receipt.put("audit_intent_ref", c.auditIntentRef());
@@ -125,7 +160,7 @@ final class AtomicHumanCommand implements Command<byte[]> {
     receipt.put("engine_receipt_ref", UUID.randomUUID().toString());
     receipt.put("recorded_at", Long.toString(now));
     byte[] bytes = Jcs.canonical(receipt);
-    db.insertReceipt(c, verified.digest(), bytes);
+    db.insertReceipt(c, digest, bytes);
     return bytes;
   }
 }

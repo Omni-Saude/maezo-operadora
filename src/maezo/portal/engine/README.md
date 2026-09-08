@@ -114,7 +114,10 @@ commit/rollback. Tenant row `FOR UPDATE` serializes authority updates, revoked k
 checks and receipt identity. Task current revision, assignment, candidate group
 membership, actual deployed process bytes and current accepted evidence are checked.
 Claim/release force the task optimistic fence; completion uses the real task entity
-and engine flush. Receipt insert follows that flush on the same connection. A failed
+and the normal deferred engine flush. A `COMMITTING` transaction listener reads the
+actual resulting revision and inserts the receipt on the same connection after that
+single flush and before persistence commit. A `COMMITTED` listener makes the result
+available to the plugin, which unwraps it only after the command executor returns. A failed
 insert, flush or final engine commit rolls all of them back. No remote call occurs
 inside the transaction. Losing timers, reassignment or other task clients must fail
 the CIB optimistic revision check. D7 must separately deny alternate REST writes to

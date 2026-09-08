@@ -255,6 +255,58 @@ class AtomicEngineIT {
     }
   }
 
+  long taskMetricCount() throws Exception {
+    try (var c = connection();
+        var s = c.createStatement();
+        var r = s.executeQuery("SELECT COUNT(*) FROM ACT_RU_TASK_METER_LOG")) {
+      assertTrue(r.next());
+      return r.getLong(1);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"claim", "release", "decision"})
+  void deferredFlushPreservesReceiptRevisionMetricsAndHistory(String operation) throws Exception {
+    assertTrue(config.isTaskMetricsEnabled(), "CIB task metric inserts must remain enabled");
+    Task t = operation.equals("claim") ? task() : claimed();
+    var c = command(t, operation, "deferred-flush");
+    long before = countReceipts();
+    long metricsBefore = taskMetricCount();
+    byte[] bytes = send(c);
+    var receipt = Jcs.object(Jcs.parse(bytes));
+    assertEquals("committed", receipt.get("status"));
+    assertEquals(c.get("task_revision"), receipt.get("consumed_task_revision"));
+    assertArrayEquals(bytes, lookup(c, "human-test", "subject-human-test"));
+    Task after = engine.getTaskService().createTaskQuery().taskId(t.getId()).singleResult();
+    var history =
+        engine.getHistoryService().createHistoricTaskInstanceQuery().taskId(t.getId()).singleResult();
+    assertNotNull(history, "Normal CIB full-history writes must remain present");
+    if (operation.equals("decision")) {
+      assertNull(after);
+      assertNull(receipt.get("resulting_task_revision"));
+      assertNotNull(history.getEndTime());
+      assertEquals("human-test", history.getAssignee());
+    } else {
+      assertNotNull(after);
+      String revision = (String) command(after, operation, "readback").get("task_revision");
+      assertEquals(revision, receipt.get("resulting_task_revision"));
+      assertEquals(
+          Long.parseLong((String) c.get("task_revision")) + 1,
+          Long.parseLong(revision),
+          "Only one deferred revision update must commit");
+      assertEquals(operation.equals("claim") ? "human-test" : null, after.getAssignee());
+      assertEquals(after.getAssignee(), history.getAssignee());
+      assertNull(history.getEndTime());
+    }
+    long metricsAfter = taskMetricCount();
+    if (operation.equals("claim"))
+      assertEquals(metricsBefore + 1, metricsAfter, "One successful assignment records one metric");
+    else assertEquals(metricsBefore, metricsAfter);
+    assertArrayEquals(bytes, send(c));
+    assertEquals(before + 1, countReceipts());
+    assertEquals(metricsAfter, taskMetricCount(), "Exact retry cannot replay task metrics");
+  }
+
   @Test
   void claimReleaseDecisionAndExactRetryHaveOneReceiptEach() throws Exception {
     Task t = task();
