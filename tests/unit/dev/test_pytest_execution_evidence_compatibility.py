@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from scripts.ci import pytest_execution_evidence as core
+
 from tests.unit.dev.test_pytest_execution_evidence_repair import BOOTSTRAP, REPO, invoke, prepare
 
 # Alterações literais de 63ca2a84, presentes em a3471496 e ausentes em 14eeb930.
