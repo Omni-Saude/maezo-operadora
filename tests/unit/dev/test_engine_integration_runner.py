@@ -154,14 +154,23 @@ def test_discovery_covers_every_current_integration_test_and_required_families(t
 
     assert result.returncode == 0, result.stderr
     discovery = json.loads((tmp_path / "discovery.json").read_text())
-    assert discovery["all_count"] > 0
-    assert discovery["integration_count"] == discovery["all_count"]
-    assert discovery["core_count"] + discovery["chaos_count"] == discovery["integration_count"]
+    assert discovery["integration_count"] > 0
+    assert discovery["integration_dir_count"] > 0
+    assert discovery["db_unit_count"] > 0
+    assert (
+        discovery["core_count"] + discovery["chaos_count"] + discovery["db_unit_count"]
+        == discovery["integration_count"]
+    )
     assert discovery["unmarked_nodeids"] == []
     assert discovery["overlap_nodeids"] == []
     assert discovery["required_families"]["lgpd"]
     assert discovery["required_families"]["escalation"]
     assert discovery["missing_test_files"] == []
+    assert discovery["suite_dependencies"]["db-unit"]["engine_required"]
+    assert (
+        "tests/unit/gateway/test_audit_dmn_versions.py"
+        in discovery["suite_dependencies"]["db-unit"]["engine_evidence"]
+    )
 
 
 def test_discovery_rejects_a_checkout_at_the_wrong_sha(tmp_path: Path) -> None:
