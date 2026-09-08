@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 import asyncpg
 import pytest
@@ -29,18 +29,40 @@ from .test_outbox_live_pg import _default_test_dsn
 pytestmark = pytest.mark.integration
 
 
+def _quoted_identifier(value: str) -> str:
+    """Quote an internally generated PostgreSQL identifier without weakening collision checks."""
+    return '"' + value.replace('"', '""') + '"'
+
+
+async def _create_owned_schema(dsn: str, tenant: str) -> None:
+    conn = await asyncpg.connect(dsn)
+    try:
+        await conn.execute(f"CREATE SCHEMA {_quoted_identifier(tenant)}")
+    finally:
+        await conn.close()
+
+
+async def _drop_owned_schema(dsn: str, tenant: str) -> None:
+    conn = await asyncpg.connect(dsn)
+    try:
+        await conn.execute(f"DROP SCHEMA {_quoted_identifier(tenant)} CASCADE")
+    finally:
+        await conn.close()
+
+
 @pytest.fixture
 async def database():
     dsn = _default_test_dsn()
     tenant = "ax" + uuid.uuid4().hex[:16]
-    await asyncio.to_thread(_apply_migrations, dsn, tenant)
-    conn = await asyncpg.connect(dsn)
-    await conn.execute(f'SET search_path TO "{tenant}"')
-    try:
+    async with AsyncExitStack() as cleanup:
+        await _create_owned_schema(dsn, tenant)
+        cleanup.push_async_callback(_drop_owned_schema, dsn, tenant)
+        await asyncio.to_thread(_apply_migrations, dsn, tenant)
+        conn = await asyncpg.connect(dsn)
+        cleanup.push_async_callback(conn.close)
+        await conn.execute(f"SET search_path TO {_quoted_identifier(tenant)}")
+        assert await conn.fetchval("SELECT current_schema()") == tenant
         yield dsn, tenant, conn
-    finally:
-        await conn.execute(f'DROP SCHEMA "{tenant}" CASCADE')
-        await conn.close()
 
 
 def envelope_for(tenant):
@@ -314,14 +336,20 @@ async def test_deleted_admission_cannot_be_recreated_by_terminal_commit(database
 async def test_same_task_id_in_two_tenants_has_independent_admission_and_results(database):
     dsn, tenant, conn = database
     other = "ay" + uuid.uuid4().hex[:16]
-    await asyncio.to_thread(_apply_migrations, dsn, other)
-    other_conn = await asyncpg.connect(dsn)
-    await other_conn.execute(f'SET search_path TO "{other}"')
+    cleanup = AsyncExitStack()
+    await cleanup.__aenter__()
 
     async def handler(envelope):
         return HandlerOutput(output_ref="fhir://Task/" + envelope.tenant)
 
     try:
+        await _create_owned_schema(dsn, other)
+        cleanup.push_async_callback(_drop_owned_schema, dsn, other)
+        await asyncio.to_thread(_apply_migrations, dsn, other)
+        other_conn = await asyncpg.connect(dsn)
+        cleanup.push_async_callback(other_conn.close)
+        await other_conn.execute(f"SET search_path TO {_quoted_identifier(other)}")
+        assert await other_conn.fetchval("SELECT current_schema()") == other
         async with (
             dispatcher_for(dsn, tenant, handler) as (a, _),
             dispatcher_for(dsn, other, handler) as (b, _),
@@ -336,8 +364,7 @@ async def test_same_task_id_in_two_tenants_has_independent_admission_and_results
             other
         }
     finally:
-        await other_conn.execute(f'DROP SCHEMA "{other}" CASCADE')
-        await other_conn.close()
+        await cleanup.aclose()
 
 
 async def _cross_process_worker(tenant):
@@ -439,19 +466,31 @@ async def test_populated_0010_upgrade_preserves_all_rows_bytes_chain_and_valid_r
     from .test_envelope_signing import _signer, _verifier
 
     dsn, tenant = _default_test_dsn(), "az" + uuid.uuid4().hex[:16]
-    await asyncio.to_thread(_upgrade_to, dsn, tenant, "0010")
-    conn = await asyncpg.connect(dsn)
-    await conn.execute(f'SET search_path TO "{tenant}"')
-    audit, outbox = PostgresAuditSink(dsn, tenant), PostgresFactOutbox(dsn=dsn, tenant=tenant)
-    envelopes = [replace(envelope_for(tenant), task_id=f"legacy-{state}") for state in ("processing", "done")]
-    original_bytes = {}
-    calls = []
+    cleanup = AsyncExitStack()
+    await cleanup.__aenter__()
 
     async def handler(envelope):
         calls.append(envelope.task_id)
         return HandlerOutput(output_ref="fhir://Task/new-result")
 
     try:
+        await _create_owned_schema(dsn, tenant)
+        cleanup.push_async_callback(_drop_owned_schema, dsn, tenant)
+        await asyncio.to_thread(_upgrade_to, dsn, tenant, "0010")
+        conn = await asyncpg.connect(dsn)
+        cleanup.push_async_callback(conn.close)
+        await conn.execute(f"SET search_path TO {_quoted_identifier(tenant)}")
+        assert await conn.fetchval("SELECT current_schema()") == tenant
+        audit = PostgresAuditSink(dsn, tenant)
+        cleanup.push_async_callback(audit.aclose)
+        outbox = PostgresFactOutbox(dsn=dsn, tenant=tenant)
+        cleanup.push_async_callback(outbox.aclose)
+        envelopes = [
+            replace(envelope_for(tenant), task_id=f"legacy-{state}")
+            for state in ("processing", "done")
+        ]
+        original_bytes = {}
+        calls = []
         assert await conn.fetchval(f'SELECT version_num FROM "{tenant}_alembic_version"') == "0010"
         assert not await conn.fetchval(
             "SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=$1 "
@@ -539,10 +578,7 @@ async def test_populated_0010_upgrade_preserves_all_rows_bytes_chain_and_valid_r
                 assert bytes(row["payload"]) == original_bytes[key]
         assert (await verify_chain(dsn, tenant)).valid
     finally:
-        await audit.aclose()
-        await outbox.aclose()
-        await conn.execute(f'DROP SCHEMA "{tenant}" CASCADE')
-        await conn.close()
+        await cleanup.aclose()
 
 
 async def _die_after_claim_worker(tenant):
