@@ -1,0 +1,110 @@
+package br.com.maezo.human;
+
+import java.nio.charset.StandardCharsets;
+import java.sql.*;
+import java.util.*;
+import org.cibseven.bpm.engine.impl.interceptor.CommandContext;
+
+/** ADR0049 D5: exclusively the CIB MyBatis connection, no DataSource.getConnection(). */
+final class EngineStore {
+  final Connection connection;
+  final String tenant;
+
+  EngineStore(CommandContext context, String tenant) {
+    connection = context.getDbSqlSession().getSqlSession().getConnection();
+    this.tenant = tenant;
+    try {
+      if (connection.getAutoCommit()
+          || !"PostgreSQL".equals(connection.getMetaData().getDatabaseProductName()))
+        throw new IllegalStateException("human commands require enlisted PostgreSQL transaction");
+    } catch (SQLException ex) {
+      throw unavailable();
+    }
+  }
+
+  static IllegalStateException unavailable() {
+    return new IllegalStateException("human engine store unavailable");
+  }
+
+  List<Map<String, Object>> rows(String sql, Object... args) {
+    try (PreparedStatement ps = connection.prepareStatement(sql)) {
+      for (int i = 0; i < args.length; i++) ps.setObject(i + 1, args[i]);
+      try (ResultSet rs = ps.executeQuery()) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        while (rs.next()) {
+          Map<String, Object> row = new HashMap<>();
+          for (int i = 1; i <= rs.getMetaData().getColumnCount(); i++)
+            row.put(rs.getMetaData().getColumnLabel(i).toLowerCase(Locale.ROOT), rs.getObject(i));
+          result.add(row);
+        }
+        return result;
+      }
+    } catch (SQLException ex) {
+      throw unavailable();
+    }
+  }
+
+  int update(String sql, Object... args) {
+    try (PreparedStatement ps = connection.prepareStatement(sql)) {
+      for (int i = 0; i < args.length; i++) ps.setObject(i + 1, args[i]);
+      return ps.executeUpdate();
+    } catch (SQLException ex) {
+      throw unavailable();
+    }
+  }
+
+  long lockTenant() {
+    var rows = rows("SELECT REV_ FROM MZO_HUMAN_TENANT WHERE TENANT_=? FOR UPDATE", tenant);
+    if (rows.size() != 1) throw Rejected.denied();
+    return ((Number) rows.get(0).get("rev_")).longValue();
+  }
+
+  boolean revoked(String fingerprint) {
+    return !rows(
+            "SELECT REV_ FROM MZO_HUMAN_REVOKED_KEY WHERE TENANT_=? AND FINGERPRINT_=?",
+            tenant,
+            fingerprint)
+        .isEmpty();
+  }
+
+  Map<String, Object> principal(String ref, String issuer, String subject, long now) {
+    var rs =
+        rows("SELECT * FROM MZO_HUMAN_PRINCIPAL WHERE TENANT_=? AND PRINCIPAL_=?", tenant, ref);
+    if (rs.size() != 1) throw Rejected.denied();
+    var p = rs.get(0);
+    if (!Boolean.TRUE.equals(p.get("active_"))
+        || ((Number) p.get("valid_until_")).longValue() <= now
+        || !issuer.equals(p.get("issuer_"))
+        || !subject.equals(p.get("subject_"))) throw Rejected.denied();
+    return p;
+  }
+
+  byte[] receipt(String task, String command, String digest, String principal, String workload) {
+    var rs =
+        rows(
+            "SELECT * FROM MZO_HUMAN_RECEIPT WHERE TENANT_=? AND TASK_=? AND COMMAND_=?",
+            tenant,
+            task,
+            command);
+    if (rs.isEmpty()) return null;
+    var r = rs.get(0);
+    if (!digest.equals(r.get("digest_"))
+        || !principal.equals(r.get("principal_"))
+        || !workload.equals(r.get("workload_"))) throw Rejected.conflict();
+    return ((String) r.get("receipt_")).getBytes(StandardCharsets.UTF_8);
+  }
+
+  void insertReceipt(HumanCommand c, String digest, byte[] receipt) {
+    update(
+        "INSERT INTO"
+            + " MZO_HUMAN_RECEIPT(TENANT_,TASK_,COMMAND_,DIGEST_,PRINCIPAL_,WORKLOAD_,RECEIPT_)"
+            + " VALUES(?,?,?,?,?,?,?)",
+        tenant,
+        c.taskId(),
+        c.commandId(),
+        digest,
+        c.principalRef(),
+        c.workloadRef(),
+        new String(receipt, StandardCharsets.UTF_8));
+  }
+}
