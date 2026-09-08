@@ -523,6 +523,7 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         # order is pinned so that adding an escalation anchor group later cannot silently derive a
         # key from a payload that is missing fields the message carries.
         message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        publish_failed = False
         try:
             # best_effort=False (t8-escalation-boundary ROOT-CAUSE fix): _NOTIFICATIONS_TOPIC is in
             # the producer's BEST_EFFORT_TOPICS, so the DEFAULT posture would SWALLOW a broker-down
@@ -530,7 +531,7 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             # bug). Forcing best_effort=False makes the real producer PROPAGATE, so the failure
             # reaches the except below and the modeled boundary actually fires.
             await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
-        except Exception as exc:
+        except Exception:
             # ADR-0030 Tier-1 (G2-fs): a notify-channel failure is a MODELED fail-safe, NOT an
             # incident. Raise ERR_ESC_NOTIFY_FAILED so `BE_FalhaNotificacao` (attached to
             # ST_NotificarTime) routes to the supervisor fallback (ST_NotificarFallback) and STILL
@@ -545,12 +546,15 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
                 grupo_atendimento=grupo,
                 prioridade=prioridade,
                 business_key=task.business_key,
-                error=str(exc),
             )
+            publish_failed = True
+        if publish_failed:
+            # ADR-0006: discard broker text and leave the except scope before raising,
+            # so neither rendered traces nor __context__ retain the broker exception.
             raise WorkerBpmnError(
                 _ERR_ESC_NOTIFY_FAILED,
-                f"Falha ao notificar time humano ({grupo}): {exc}",
-            ) from exc
+                f"Falha ao notificar time humano ({grupo})",
+            ) from None
         logger.info(
             "escalation_notify_team_sent",
             tenant_id=tenant_id,
@@ -660,12 +664,13 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         # order is pinned so that adding an escalation anchor group later cannot silently derive a
         # key from a payload that is missing fields the message carries.
         message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        publish_failed = False
         try:
             # best_effort=False (t8-escalation-boundary ROOT-CAUSE fix): force the real producer to
             # PROPAGATE a broker-down failure on _NOTIFICATIONS_TOPIC (otherwise topic-default
             # best-effort would swallow it below and this except would never fire).
             await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
-        except Exception as exc:
+        except Exception:
             # ADR-0030 Tier-1 (G2-fs): this handler serves BOTH ST_NotificarSupervisor (SLA breach)
             # AND ST_NotificarFallback (the notify_team channel fallback). On a publish failure raise
             # ERR_ESC_NOTIFY_FAILED so the attached boundary continues the fail-safe route:
@@ -680,12 +685,15 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
                 grupo_atendimento=grupo,
                 motivo_alerta=motivo_alerta,
                 business_key=task.business_key,
-                error=str(exc),
             )
+            publish_failed = True
+        if publish_failed:
+            # ADR-0006: no arbitrary broker diagnostics or retained exception chain.
+            # The modeled failure still reaches the same mandatory human fallback.
             raise WorkerBpmnError(
                 _ERR_ESC_NOTIFY_FAILED,
-                f"Falha ao notificar supervisor: {exc}",
-            ) from exc
+                "Falha ao notificar supervisor",
+            ) from None
         logger.warning(
             "escalation_supervisor_notified",
             tenant_id=tenant_id,
