@@ -123,6 +123,12 @@ env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
 
 ## Evidências e falhas
 
+Cada subprocesso longo abre seu log antes de iniciar e escreve stdout/stderr diretamente nele;
+assim timeout ou sinal preserva a saída anterior à falha. O runner cria um grupo de processo
+separado para cada comando. Em timeout, `SIGINT` ou `SIGTERM`, envia TERM ao grupo, espera por até
+10 segundos, escala para KILL se necessário e recolhe o filho antes de autorizar teardown ou
+liberar a trava.
+
 Cada execução grava `run-state.json` mesmo em erro ou interrupção. `suite-results.json` registra
 o return code e contagens de `passed`, `failed`, `skipped`, `xfailed`, `xpassed` e `errors`;
 `pytest.log` mantém razões de skip/xfail e `junit.xml` fornece os casos individuais. A contagem

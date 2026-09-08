@@ -17,6 +17,7 @@ import urllib.error
 import urllib.request
 import uuid
 import xml.etree.ElementTree as ET
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -78,19 +79,55 @@ def _run(
 ) -> subprocess.CompletedProcess[str]:
     process_env = os.environ.copy() if env is None else env.copy()
     process_env.pop("VIRTUAL_ENV", None)
-    result = subprocess.run(
+    log_stream = None
+    if log_path is not None:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_stream = log_path.open("w")
+    process = subprocess.Popen(
         command,
         cwd=cwd,
         env=process_env,
         text=True,
-        capture_output=True,
-        timeout=timeout,
-        check=False,
+        stdout=log_stream if log_stream is not None else subprocess.PIPE,
+        stderr=subprocess.STDOUT if log_stream is not None else subprocess.PIPE,
+        start_new_session=True,
     )
+
+    def terminate_group() -> tuple[str | None, str | None]:
+        if process.poll() is None:
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGTERM)
+        try:
+            return process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            if process.poll() is None:
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+            return process.communicate(timeout=10)
+
+    stdout: str | None
+    stderr: str | None
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+        return_code = int(process.returncode)
+    except subprocess.TimeoutExpired:
+        stdout, stderr = terminate_group()
+        return_code = 124
+        if log_stream is not None:
+            log_stream.write(f"\n[runner] timeout após {timeout}s; grupo de processo recolhido\n")
+    except BaseException:
+        terminate_group()
+        if log_stream is not None:
+            log_stream.write("\n[runner] interrupção; grupo de processo recolhido\n")
+        raise
+    finally:
+        if log_stream is not None:
+            log_stream.flush()
+            log_stream.close()
     if log_path is not None:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_path.write_text(result.stdout + result.stderr)
-    return result
+        stdout = log_path.read_text(errors="replace")
+        stderr = ""
+    return subprocess.CompletedProcess(command, return_code, stdout or "", stderr or "")
 
 
 def _checked(
@@ -883,6 +920,44 @@ def lock_probe(args: argparse.Namespace) -> int:
     return return_code
 
 
+def child_probe(args: argparse.Namespace) -> int:
+    """Exercita supervisão de um filho real sem tocar Docker."""
+    events = Path(args.events).resolve()
+    lock = EngineLock.create(Path(args.lock_dir).resolve(), checkout="probe", sha="probe", suite="child")
+    if not lock.acquire(0):
+        _append_event(events, "lock_busy")
+        return BUSY_EXIT
+    _append_event(events, "lock_acquired")
+    _append_event(events, "child_started")
+    return_code = 1
+    child_code = (
+        "import os,pathlib,sys,time; "
+        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); "
+        "print('child-started', flush=True); time.sleep(3600)"
+    )
+    try:
+        result = _run(
+            [sys.executable, "-c", child_code, str(Path(args.child_pid_file).resolve())],
+            cwd=Path.cwd(),
+            timeout=args.timeout,
+            log_path=Path(args.child_log).resolve(),
+        )
+        return_code = result.returncode
+        if result.returncode == 124:
+            lock.update("child_timeout", return_code=return_code)
+            _append_event(events, "child_timeout", return_code=return_code)
+    except (KeyboardInterrupt, RunnerInterrupted):
+        return_code = 130
+        lock.update("interrupted", return_code=return_code)
+        _append_event(events, "interrupted", return_code=return_code)
+    finally:
+        if lock.owns():
+            _append_event(events, "cleanup_permitted")
+            if lock.release():
+                _append_event(events, "lock_released")
+    return return_code
+
+
 def discovery_command(args: argparse.Namespace) -> int:
     try:
         checkout, imported = validate_checkout(args.checkout, args.sha)
@@ -921,6 +996,14 @@ def build_parser() -> argparse.ArgumentParser:
     probe.add_argument("--wait-for", required=True)
     probe.add_argument("--timeout", type=float, default=0.0)
     probe.set_defaults(func=lock_probe)
+
+    child = subparsers.add_parser("child-probe", help=argparse.SUPPRESS)
+    child.add_argument("--lock-dir", required=True)
+    child.add_argument("--events", required=True)
+    child.add_argument("--child-pid-file", required=True)
+    child.add_argument("--child-log", required=True)
+    child.add_argument("--timeout", type=float, required=True)
+    child.set_defaults(func=child_probe)
     return parser
 
 
