@@ -137,7 +137,8 @@ def test_successor_proves_historical_archive_and_current_head(
 ) -> None:
     history = _history_repo(tmp_path)
     exit_code = main(["--base", history.source_commit, "--python", sys.executable], repo_root=history.root)
-    output = capsys.readouterr().out
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
     assert exit_code == 0
     assert "historical claim verified at exact source_commit" in output
     assert "archived Python source files attested" in output
@@ -242,6 +243,38 @@ def test_unknown_or_malformed_metadata_is_rejected(tmp_path: Path, mutation: str
         )
 
 
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
+        ("missing_declaration", "requires a declared successor"),
+        ("predated", "requires a convention-qualified successor Date"),
+        ("malformed_date", "requires a convention-qualified successor Date"),
+    ],
+)
+def test_valid_v1_marker_cannot_fall_back_to_legacy(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    mutation: str,
+    expected: str,
+) -> None:
+    history = _history_repo(tmp_path)
+    if mutation == "missing_declaration":
+        replacement = history.successor_row.replace("sha256:", "sha257:")
+    elif mutation == "predated":
+        replacement = history.successor_row.replace(CONVENTION_START_DATE, "2000-01-01")
+    else:
+        replacement = history.successor_row.replace(CONVENTION_START_DATE, "not-a-date")
+    _replace_and_commit(history.root, history.successor_row, replacement)
+
+    exit_code = main(["--base", history.source_commit, "--python", sys.executable], repo_root=history.root)
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+
+    assert exit_code == 1
+    assert expected in output
+    assert "SKIP (legacy)" not in output
+
+
 def test_historical_source_path_escape_is_rejected(tmp_path: Path) -> None:
     history = _history_repo(tmp_path, target_path="tests/../test_escape.py")
     with pytest.raises(SupersessionError, match="historical target path.*unsafe"):
@@ -251,26 +284,64 @@ def test_historical_source_path_escape_is_rejected(tmp_path: Path) -> None:
         )
 
 
-def test_historical_import_escape_is_rejected_without_head_fallback(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize("external_name", ["outside.py", "outside.txt", "outside.pyw", "outside"])
+def test_historical_executed_source_escape_is_rejected_regardless_of_suffix(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], external_name: str
 ) -> None:
-    external = tmp_path / "outside.py"
+    external = tmp_path / external_name
     external.write_text("VALUE = 1\n", encoding="utf-8")
     source = (
+        "from importlib.machinery import SourceFileLoader\n"
         "import importlib.util\nimport sys\n"
         f"EXTERNAL = {str(external)!r}\n\n"
         "def test_escape():\n"
-        "    spec = importlib.util.spec_from_file_location('historical_helper_escape', EXTERNAL)\n"
+        "    loader = SourceFileLoader('historical_helper_escape', EXTERNAL)\n"
+        "    spec = importlib.util.spec_from_loader(loader.name, loader)\n"
         "    assert spec is not None and spec.loader is not None\n"
         "    module = importlib.util.module_from_spec(spec)\n"
         "    sys.modules['historical_helper_escape'] = module\n"
-        "    spec.loader.exec_module(module)\n"
+        "    loader.exec_module(module)\n"
+        "    assert module.VALUE == 1\n"
     )
     history = _history_repo(tmp_path, source_test=source)
     exit_code = main(["--base", history.source_commit, "--python", sys.executable], repo_root=history.root)
     output = capsys.readouterr().out
     assert exit_code == 1
     assert "historical source import escaped archive" in output
+
+
+def test_unselected_historical_claim_allows_an_unrelated_committed_lock_update(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    history = _history_repo(tmp_path)
+    base = _git(history.root, "rev-parse", "HEAD")
+    lock = history.root / "uv.lock"
+    lock.write_bytes(lock.read_bytes() + b"\n# unrelated dependency update\n")
+    _git(history.root, "add", "uv.lock")
+    _git(history.root, "commit", "-q", "-m", "unrelated dependency update")
+
+    exit_code = main(["--base", base, "--python", sys.executable], repo_root=history.root)
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "PASS: 0 rows verified, 0 legacy rows skipped" in output
+
+
+def test_selected_historical_claim_still_requires_the_exact_current_lock(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    history = _history_repo(tmp_path)
+    lock = history.root / "uv.lock"
+    lock.write_bytes(lock.read_bytes() + b"\n# incompatible dependency update\n")
+    _git(history.root, "add", "uv.lock")
+    _git(history.root, "commit", "-q", "-m", "incompatible dependency update")
+
+    exit_code = main(["--base", history.source_commit, "--python", sys.executable], repo_root=history.root)
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "historical uv.lock differs from HEAD" in output
+    assert "1/2 declared-row proofs verified" in output
 
 
 def test_historical_live_test_is_refused_without_engine_mutex(
@@ -348,6 +419,51 @@ def test_historical_live_environment_rejects_non_loopback_coordinates() -> None:
         recipe_environment(
             live_coordinates={"MAEZO_TEST_DATABASE_URL": "postgresql://user:secret@db.prod/maezo"}
         )
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "host=db.example.invalid",
+        "hostaddr=203.0.113.10",
+        "port=6432",
+        "service=production",
+        "servicefile=/tmp/pg_service.conf",
+        "host=%2Fvar%2Frun%2Fpostgresql",
+        "%68ost=db.example.invalid",
+    ],
+)
+def test_historical_database_coordinate_rejects_libpq_destination_overrides(query: str) -> None:
+    value = f"postgresql://127.0.0.1:5432/maezo?{query}"
+    with pytest.raises(ValueError, match="non-loopback.*MAEZO_TEST_DATABASE_URL"):
+        recipe_environment(live_coordinates={"MAEZO_TEST_DATABASE_URL": value})
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "postgresql://127.0.0.1:5432/maezo",
+        "postgres://user:password@localhost:5546/maezo?sslmode=disable",
+        "postgresql://[::1]:5432/maezo",
+    ],
+)
+def test_historical_database_coordinate_preserves_unambiguous_loopback_urls(value: str) -> None:
+    env = recipe_environment(live_coordinates={"MAEZO_TEST_DATABASE_URL": value})
+    assert env["MAEZO_TEST_DATABASE_URL"] == value
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("CIBSEVEN_BASE_URL", "ftp://127.0.0.1:18080/engine-rest"),
+        ("ENGINE_REST_URL", "http://127.0.0.1:70000/engine-rest"),
+        ("MAEZO_TEST_DATABASE_URL", "mysql://127.0.0.1:3306/maezo"),
+        ("KAFKA_BOOTSTRAP_SERVERS", "127.0.0.1:9092/topic"),
+    ],
+)
+def test_historical_live_coordinates_reject_invalid_coordinate_grammar(key: str, value: str) -> None:
+    with pytest.raises(ValueError, match=f"non-loopback.*{key}"):
+        recipe_environment(live_coordinates={key: value})
 
 
 def test_wrong_historical_hash_fails_and_refuses_head_fallback(

@@ -155,7 +155,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, parse_qsl, urlparse
 
 # scripts/ci/<file> -> parents[2] == repo root.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -552,8 +552,9 @@ def build_supersession_plan(
     collision.
     """
     _validate_ledger_rel_path(ledger_rel_path)
+    ledger_lines = ledger_text.splitlines()
     try:
-        selection = select_rows(ledger_text.splitlines())
+        selection = select_rows(ledger_lines)
     except SupersessionError:
         raise
     rows = selection.declared
@@ -561,21 +562,25 @@ def build_supersession_plan(
     by_successor: dict[str, SupersessionEdge] = {}
 
     # A malformed marker on a non-declared row must not fall through the legacy path.
-    for line in ledger_text.splitlines():
+    for line in ledger_lines:
         if is_table_row(line) and _SUPERSESSION_HINT in line:
             parse_supersession_claim(line)
+            successor = parse_row_line(line)
+            if successor is None:
+                raise SupersessionError(
+                    "ledger-supersedes marker requires a declared successor with the exact "
+                    "sha256:<digest> (tests/...py) Test-hash form"
+                )
+            if not is_date_qualified(successor.row_date):
+                date_desc = successor.row_date if successor.row_date is not None else "missing/unparseable"
+                raise SupersessionError(
+                    "ledger-supersedes marker requires a convention-qualified successor Date; "
+                    f"got {date_desc}, expected {CONVENTION_START_DATE} or later"
+                )
 
     claim_rows = [row for row in rows if row.supersession is not None]
     if not claim_rows:
         return SupersessionPlan({}, {})
-
-    current_lock_path = repo_root / "uv.lock"
-    if not current_lock_path.is_file():
-        raise SupersessionError("current uv.lock is missing; historical dependency provenance is unbound")
-    current_lock = current_lock_path.read_bytes()
-    head_lock = _source_blob(repo_root, "HEAD", "uv.lock")
-    if current_lock != head_lock:
-        raise SupersessionError("working-tree uv.lock differs from HEAD; refusing historical execution")
 
     for successor in claim_rows:
         claim = successor.supersession
@@ -648,12 +653,6 @@ def build_supersession_plan(
         source_lock = _source_blob(repo_root, claim.source_commit, "uv.lock")
         if _sha256_bytes(source_lock) != claim.source_lock_sha256:
             raise SupersessionError(f"{successor.task_id}: historical uv.lock digest mismatch")
-        if source_lock != current_lock:
-            raise SupersessionError(
-                f"{successor.task_id}: historical uv.lock differs from HEAD; the current locked "
-                "environment cannot truthfully execute that historical tree"
-            )
-
         edge = SupersessionEdge(successor, target, claim)
         by_target[target_digest] = edge
         by_successor[successor_digest] = edge
@@ -767,6 +766,64 @@ def _is_loopback_host(host: str | None) -> bool:
         return False
 
 
+def _has_valid_url_port(parsed: ParseResult) -> bool:
+    """Reject malformed/out-of-range ports without letting ``ParseResult.port`` raise."""
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    return port is None or 0 < port <= 65535
+
+
+def _is_safe_loopback_http_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return (
+        parsed.scheme in {"http", "https"}
+        and bool(parsed.netloc)
+        and _is_loopback_host(parsed.hostname)
+        and _has_valid_url_port(parsed)
+        and not parsed.fragment
+    )
+
+
+_LIBPQ_DESTINATION_QUERY_KEYS = {"host", "hostaddr", "port", "service", "servicefile"}
+
+
+def _is_safe_loopback_postgres_url(value: str) -> bool:
+    parsed = urlparse(value)
+    if (
+        parsed.scheme not in {"postgres", "postgresql"}
+        or not parsed.netloc
+        or not _is_loopback_host(parsed.hostname)
+        or not _has_valid_url_port(parsed)
+        or parsed.params
+        or parsed.fragment
+    ):
+        return False
+    try:
+        query = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
+    except ValueError:
+        return False
+    # libpq gives these query options precedence over the URI authority.  Reject every
+    # destination selector, including percent-encoded spellings and Unix-socket hosts, so the
+    # textual loopback authority is the destination the archived consumer actually receives.
+    return not any(key.lower() in _LIBPQ_DESTINATION_QUERY_KEYS for key, _value in query)
+
+
+def _is_safe_kafka_endpoint(value: str) -> bool:
+    parsed = urlparse("//" + value)
+    return (
+        bool(parsed.netloc)
+        and _is_loopback_host(parsed.hostname)
+        and _has_valid_url_port(parsed)
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.path
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
 def _is_safe_historical_live_coordinate(key: str, value: str) -> bool:
     """Allow archived code to reach only an explicitly selected local/isolated lane."""
     if key == "MAEZO_PG_HOST_PORT":
@@ -774,10 +831,12 @@ def _is_safe_historical_live_coordinate(key: str, value: str) -> bool:
     if key == "KAFKA_BOOTSTRAP_SERVERS":
         endpoints = [item.strip() for item in value.split(",")]
         return bool(endpoints) and all(
-            endpoint and _is_loopback_host(urlparse("//" + endpoint).hostname) for endpoint in endpoints
+            endpoint and _is_safe_kafka_endpoint(endpoint) for endpoint in endpoints
         )
-    if key in {"CIBSEVEN_BASE_URL", "ENGINE_REST_URL", "MAEZO_TEST_DATABASE_URL"}:
-        return _is_loopback_host(urlparse(value).hostname)
+    if key in {"CIBSEVEN_BASE_URL", "ENGINE_REST_URL"}:
+        return _is_safe_loopback_http_url(value)
+    if key == "MAEZO_TEST_DATABASE_URL":
+        return _is_safe_loopback_postgres_url(value)
     return False
 
 
@@ -935,8 +994,7 @@ def _record(raw):
     if not raw or raw.startswith("<"):
         return
     path = Path(raw).resolve()
-    if path.suffix in {".py", ".pyc", ".pyo"}:
-        _SEEN.add(path)
+    _SEEN.add(path)
 
 
 def _audit(event, args):
@@ -1281,6 +1339,34 @@ def verify_historical_row(
             f"{row.task_id}: historical declared path {row.test_path} is under "
             f"{_LIVE_TEST_PATH_PREFIX}; HARNESS-LEDGER-HASH-AMBIENT-STACK applies equally to "
             "archived tests. Re-run with --allow-live only while holding the engine mutex.",
+        )
+    current_lock_path = repo_root / "uv.lock"
+    if not current_lock_path.is_file():
+        return RowVerification(
+            row,
+            False,
+            f"{edge.successor.task_id}: current uv.lock is missing; historical dependency "
+            "provenance is unbound",
+        )
+    current_lock = current_lock_path.read_bytes()
+    try:
+        head_lock = _source_blob(repo_root, "HEAD", "uv.lock")
+        source_lock = _source_blob(repo_root, edge.claim.source_commit, "uv.lock")
+    except SupersessionError as exc:
+        return RowVerification(row, False, f"{edge.successor.task_id}: {exc}")
+    if current_lock != head_lock:
+        return RowVerification(
+            row,
+            False,
+            f"{edge.successor.task_id}: working-tree uv.lock differs from HEAD; refusing "
+            "historical execution",
+        )
+    if source_lock != current_lock:
+        return RowVerification(
+            row,
+            False,
+            f"{edge.successor.task_id}: historical uv.lock differs from HEAD; the current locked "
+            "environment cannot truthfully execute that historical tree",
         )
     capture = _capture_historical_recipe(repo_root, edge, python_exe, allow_live=allow_live)
     outcome = recipe_outcome_from_capture(capture, row.test_path, node_id_regex=_RESULT_LINE_RE)
