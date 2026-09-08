@@ -20,7 +20,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 async def test_actual_head_0013_preserves_populated_0012_and_bounded_downgrade():
     dsn = _default_test_dsn()
     raw = normalize_dsn(dsn)
-    tenant = "human_migration_" + uuid4().hex
+    tenant = "human_mig_" + uuid4().hex
     admin = await asyncpg.connect(raw)
     await admin.execute(f'CREATE SCHEMA "{tenant}"')
     pool = await asyncpg.create_pool(raw, min_size=1, max_size=2)
