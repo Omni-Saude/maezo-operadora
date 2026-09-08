@@ -281,9 +281,12 @@ successful LLM response in each body**. Six current dossier variants (Carolina, 
 Gustavo, Rafael, Valentina, Marina) can catch PHI-zone refusal and assert canary absence on an
 empty/minimal dossier. Their `llm_live` marker alone does not prove a network completion;
 fixing that vacuity requires a separate evaluation-body change preserving ADR-0006. The five
-Helena classifier cases are the current direct classification path. Live-call evidence and
-those six body-level fences remain pending; enabling this credential interface does not
-resolve them.
+Helena classifier cases also call `generate(phi=True)` (`helena/graph.py`, `_classify_llm`),
+so the same Anthropic PHI refusal prevents their SDK call and becomes a classification failure.
+Thus **none of the eleven currently collected variants establishes an authorized Anthropic
+live path on this base**. The credential interface exposes this limitation; it does not change
+PHI policy or make the suite ready for live promotion. Live-call evidence, provider/zone
+compatibility and the six dossier body-level fences remain separate pending work.
 
 ## Clarity/legibility checks (gap 10.3, WP-EVALS)
 
