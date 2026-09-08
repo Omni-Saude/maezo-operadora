@@ -178,13 +178,24 @@ def _collect(checkout: Path, args: list[str], log_path: Path) -> set[str]:
     }
 
 
+def _dependency_evidence(checkout: Path, nodeids: set[str], pattern: re.Pattern[str]) -> list[str]:
+    files = sorted({nodeid.split("::", 1)[0] for nodeid in nodeids})
+    return [
+        relative for relative in files if pattern.search((checkout / relative).read_text(errors="replace"))
+    ]
+
+
 def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict[str, Any]:
     results_dir.mkdir(parents=True, exist_ok=True)
-    all_nodeids = _collect(checkout, ["tests/integration"], results_dir / "collect-all.log")
     integration = _collect(
         checkout,
-        ["tests/integration", "-m", "integration"],
+        ["tests", "-m", "integration"],
         results_dir / "collect-integration.log",
+    )
+    integration_dir = _collect(
+        checkout,
+        ["tests/integration"],
+        results_dir / "collect-integration-dir.log",
     )
     core = _collect(
         checkout,
@@ -196,40 +207,64 @@ def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict
         ["tests/integration/chaos", "-m", "integration and chaos"],
         results_dir / "collect-chaos.log",
     )
+    db_unit = _collect(
+        checkout,
+        ["tests/unit", "-m", "integration"],
+        results_dir / "collect-db-unit.log",
+    )
     test_files = {
         path.relative_to(checkout).as_posix() for path in (checkout / "tests/integration").rglob("test_*.py")
     }
-    collected_files = {nodeid.split("::", 1)[0] for nodeid in all_nodeids}
-    unmarked = sorted(all_nodeids - integration)
-    overlap = sorted(core & chaos)
-    uncovered = sorted(integration - (core | chaos))
-    unexpected = sorted((core | chaos) - integration)
+    collected_files = {nodeid.split("::", 1)[0] for nodeid in integration_dir}
+    unmarked = sorted(integration_dir - integration)
+    overlap = sorted((core & chaos) | (core & db_unit) | (chaos & db_unit))
+    partition = core | chaos | db_unit
+    uncovered = sorted(integration - partition)
+    unexpected = sorted(partition - integration)
     missing_files = sorted(test_files - collected_files)
     required_families = {
         "lgpd": sorted(nodeid for nodeid in integration if "test_sp_op_lgpd_dsr_001.py::" in nodeid),
         "escalation": sorted(nodeid for nodeid in integration if "test_sp_op_escalation_001.py::" in nodeid),
     }
 
-    hapi_patterns = re.compile(r"FHIR_BASE_URL|HAPI_FHIR_BASE_URL|localhost:8081|/fhir/")
-    hapi_evidence: list[str] = []
-    inputs = sorted(collected_files | {"tests/integration/conftest.py"})
-    for relative in inputs:
-        path = checkout / relative
-        if path.is_file() and hapi_patterns.search(path.read_text(errors="replace")):
-            hapi_evidence.append(relative)
+    engine_pattern = re.compile(
+        r"ENGINE_REST_URL|CIBSEVEN_BASE_URL|resolve_engine_rest_url|CibSeven(?:Dmn|Http|Worker)?Transport|/engine-rest"
+    )
+    kafka_pattern = re.compile(r"KAFKA_BOOTSTRAP_SERVERS|AioKafka|aiokafka")
+    hapi_pattern = re.compile(r"FHIR_BASE_URL|HAPI_FHIR_BASE_URL|localhost:8081|/fhir/")
+    suite_dependencies: dict[str, dict[str, object]] = {}
+    for suite_name, nodeids in (("core", core), ("chaos", chaos), ("db-unit", db_unit)):
+        engine_evidence = _dependency_evidence(checkout, nodeids, engine_pattern)
+        kafka_evidence = _dependency_evidence(checkout, nodeids, kafka_pattern)
+        hapi_evidence = _dependency_evidence(checkout, nodeids, hapi_pattern)
+        engine_required = suite_name == "core" or bool(engine_evidence)
+        # Quando CIB é necessário, a fundação segue a ordem operacional exigida:
+        # Postgres+Kafka prontos antes do engine, mesmo se o teste não usa Kafka diretamente.
+        kafka_required = suite_name == "core" or engine_required or bool(kafka_evidence)
+        suite_dependencies[suite_name] = {
+            "postgres_required": True,
+            "engine_required": engine_required,
+            "engine_evidence": engine_evidence,
+            "kafka_required": kafka_required,
+            "kafka_evidence": kafka_evidence,
+            "hapi_required": bool(hapi_evidence),
+            "hapi_evidence": hapi_evidence,
+        }
 
     payload: dict[str, Any] = {
         "generated_at": _now(),
         "checkout": checkout.as_posix(),
         "sha": _git(checkout, "rev-parse", "HEAD"),
         "maezo_import": imported_module,
-        "all_count": len(all_nodeids),
         "integration_count": len(integration),
+        "integration_dir_count": len(integration_dir),
         "core_count": len(core),
         "chaos_count": len(chaos),
-        "all_nodeids": sorted(all_nodeids),
+        "db_unit_count": len(db_unit),
+        "integration_nodeids": sorted(integration),
         "core_nodeids": sorted(core),
         "chaos_nodeids": sorted(chaos),
+        "db_unit_nodeids": sorted(db_unit),
         "unmarked_nodeids": unmarked,
         "overlap_nodeids": overlap,
         "uncovered_nodeids": uncovered,
@@ -237,16 +272,15 @@ def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict
         "test_files": sorted(test_files),
         "missing_test_files": missing_files,
         "required_families": required_families,
-        "hapi_required": bool(hapi_evidence),
-        "hapi_evidence": hapi_evidence,
+        "suite_dependencies": suite_dependencies,
     }
     failures: list[str] = []
-    if not all_nodeids:
-        failures.append("coleta integral vazia")
+    if not integration:
+        failures.append("coleta canônica pytest tests -m integration vazia")
     if unmarked:
         failures.append("há testes de integração sem marker integration")
     if overlap or uncovered or unexpected:
-        failures.append("partição core/chaos não cobre a coleção integral exatamente uma vez")
+        failures.append("partição core/chaos/db-unit não cobre a coleção integration exatamente uma vez")
     if missing_files:
         failures.append("há arquivos test_*.py sem nodeid coletado")
     if not all(required_families.values()):
@@ -400,7 +434,8 @@ def _start_stack(
 ) -> list[str]:
     _compose(checkout, ["down", "-v", "--remove-orphans"], env=env, log_path=results_dir / "fresh-down.log")
     lock.update("fresh_project_removed")
-    if suite == "chaos":
+    dependencies = discovery_payload["suite_dependencies"][suite]
+    if not dependencies["kafka_required"]:
         _compose(checkout, ["up", "-d", "postgres"], env=env, log_path=results_dir / "start-postgres.log")
         services = ["postgres"]
     else:
@@ -422,7 +457,7 @@ def _start_stack(
         return result.returncode == 0
 
     _poll("Postgres", postgres_ready, timeout=90)
-    if suite == "core":
+    if dependencies["kafka_required"]:
 
         def kafka_ready() -> bool:
             result = _run(
@@ -443,8 +478,9 @@ def _start_stack(
 
         _poll("Kafka no listener interno kafka:29092", kafka_ready, timeout=120, interval=5)
         lock.update("foundation_ready")
+    if dependencies["engine_required"] or dependencies["hapi_required"]:
         engine_services = ["cibseven"]
-        if discovery_payload["hapi_required"]:
+        if dependencies["hapi_required"]:
             engine_services.append("hapi-fhir")
         _compose(
             checkout,
@@ -454,11 +490,11 @@ def _start_stack(
         )
         services.extend(engine_services)
         _poll("CIB Seven", lambda: _http_ready(f"{ENGINE_URL}/version"), timeout=360, interval=5)
-        if discovery_payload["hapi_required"]:
+        if dependencies["hapi_required"]:
             _poll("HAPI FHIR", lambda: _http_ready(HAPI_URL), timeout=360, interval=5)
         lock.update("engine_ready")
     else:
-        lock.update("postgres_ready")
+        lock.update("selected_services_ready")
     return services
 
 
@@ -564,15 +600,16 @@ def _run_pytest(
     results_dir: Path,
     expected_count: int,
 ) -> dict[str, Any]:
-    selection = (
-        ["tests/integration/chaos", "-m", "integration and chaos"]
-        if suite == "chaos"
-        else [
+    selections = {
+        "chaos": ["tests/integration/chaos", "-m", "integration and chaos"],
+        "core": [
             "tests/integration",
             "-m",
             "integration and not chaos",
-        ]
-    )
+        ],
+        "db-unit": ["tests/unit", "-m", "integration"],
+    }
+    selection = selections[suite]
     junit = results_dir / "junit.xml"
     command = [
         "uv",
@@ -637,7 +674,7 @@ def run_suite(args: argparse.Namespace) -> int:
     try:
         checkout, imported = validate_checkout(args.checkout, args.sha)
         discovery_payload = discover(checkout, results_dir, imported_module=imported)
-        expected_count = int(discovery_payload[f"{args.suite}_count"])
+        expected_count = int(discovery_payload[f"{args.suite.replace('-', '_')}_count"])
         if expected_count <= 0:
             raise RunnerError(f"suíte {args.suite} não coletou testes")
         lock = EngineLock.create(
@@ -655,7 +692,8 @@ def run_suite(args: argparse.Namespace) -> int:
         _json_write(results_dir / "run-state.json", state)
         env = _runtime_env()
         services = _start_stack(checkout, args.suite, discovery_payload, env, results_dir, lock)
-        if args.suite == "core":
+        dependencies = discovery_payload["suite_dependencies"][args.suite]
+        if dependencies["engine_required"]:
             lock.update("deploying")
             _deploy_and_verify(checkout, env, results_dir)
             lock.update("deployment_verified")
@@ -755,7 +793,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser("run", help="executa exatamente uma suíte em stack nova")
     run_parser.add_argument("--checkout", required=True)
     run_parser.add_argument("--sha", required=True)
-    run_parser.add_argument("--suite", choices=("core", "chaos"), required=True)
+    run_parser.add_argument("--suite", choices=("core", "chaos", "db-unit"), required=True)
     run_parser.add_argument("--results-dir", required=True)
     run_parser.add_argument("--lock-timeout", type=float, default=0.0)
     run_parser.set_defaults(func=run_suite)

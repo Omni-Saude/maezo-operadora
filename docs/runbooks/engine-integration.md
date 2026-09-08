@@ -47,11 +47,13 @@ env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
   --results-dir "$RESULTS"
 ```
 
-`discovery.json` contém cada nodeid e falha se a coleta for vazia, se algum arquivo
-`test_*.py` não gerar nodeid, se houver teste sem `integration`, se a união das suítes não for
-exata ou se LGPD/escalation desaparecerem. A decisão de subir HAPI é refeita sobre os arquivos
-da coleção; no estado atual ele não é necessário. Os quatro logs de coleta preservam stderr e
-stdout.
+`discovery.json` parte da coleta canônica `pytest tests -m integration` e contém cada nodeid. Ele
+falha se a coleta for vazia, se algum arquivo `tests/integration/**/test_*.py` não gerar nodeid,
+se houver teste nessa árvore sem `integration`, se a união das três suítes não for exata ou se
+LGPD/escalation desaparecerem. Assim os testes live-PG que vivem sob `tests/unit/` não ficam fora
+do censo. As decisões de subir CIB, Kafka e HAPI são refeitas sobre os arquivos coletados; no
+estado atual um teste `db-unit` exige CIB real e HAPI não é necessário. Os logs de coleta
+preservam stderr e stdout.
 
 ## Execução serial
 
@@ -92,6 +94,24 @@ env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
   --sha "$TARGET_SHA" \
   --suite chaos \
   --results-dir "$CHAOS_RESULTS" \
+  --lock-timeout 0
+```
+
+Os testes marcados `integration` fora de `tests/integration/` formam a terceira partição. No
+checkout atual são testes sob `tests/unit/`, majoritariamente live-PG, mas a descoberta detecta
+`tests/unit/gateway/test_audit_dmn_versions.py` como dependente do engine real. Por isso esta
+suíte sobe Postgres+Kafka, espera os dois, sobe CIB, verifica/deploya o spec e só então executa os
+nodeids. Isso impede que o caso DMN seja convertido em skip por uma classificação PG-only:
+
+```bash
+DB_UNIT_RESULTS=/Users/familia/code/maezo-operadora/docs/audits/maezo-deep-audit/remediation/engine-runs/db-unit-$TARGET_SHA
+
+env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
+  "$CHECKOUT/scripts/dev/run_engine_integration.py" run \
+  --checkout "$CHECKOUT" \
+  --sha "$TARGET_SHA" \
+  --suite db-unit \
+  --results-dir "$DB_UNIT_RESULTS" \
   --lock-timeout 0
 ```
 
