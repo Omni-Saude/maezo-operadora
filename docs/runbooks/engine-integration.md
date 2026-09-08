@@ -47,7 +47,9 @@ env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
   --results-dir "$RESULTS"
 ```
 
-`discovery.json` parte da coleta canônica `pytest tests -m integration` e contém cada nodeid. Ele
+`discovery.json` parte da coleta canônica `pytest tests -m integration` e contém cada nodeid. Seu
+`execution_manifest` divide a coleção por arquivo e informa grupo, contagem esperada e serviços
+necessários. Cada entrada é uma execução separada em stack fresca. Ele
 falha se a coleta for vazia, se algum arquivo `tests/integration/**/test_*.py` não gerar nodeid,
 se houver teste nessa árvore sem `integration`, se a união das três suítes não for exata ou se
 LGPD/escalation desaparecerem. Assim os testes live-PG que vivem sob `tests/unit/` não ficam fora
@@ -70,11 +72,12 @@ env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
   --checkout "$CHECKOUT" \
   --sha "$TARGET_SHA" \
   --suite core \
+  --test-file tests/integration/processes/test_sp_op_lgpd_dsr_001.py \
   --results-dir "$RUN_RESULTS" \
   --lock-timeout 0
 ```
 
-A suíte `core` sobe Postgres e Kafka, espera prontidão real, sobe o CIB Seven e então envia todos
+A entrada `core` sobe Postgres e Kafka, espera prontidão real, sobe o CIB Seven e então envia todos
 os BPMN/DMN pelo CLI `maezo.platform.deploy --spec-dir "$CHECKOUT/spec"`. Antes de pytest, o
 runner consulta cada definição latest no engine e compara o SHA-256 do XML devolvido com o
 arquivo do checkout. `deployment-provenance.json` fixa imagem declarada, versão respondida,
@@ -93,11 +96,13 @@ env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
   --checkout "$CHECKOUT" \
   --sha "$TARGET_SHA" \
   --suite chaos \
+  --test-file tests/integration/chaos/test_sink_down_failclosed.py \
   --results-dir "$CHAOS_RESULTS" \
   --lock-timeout 0
 ```
 
-Os testes marcados `integration` fora de `tests/integration/` formam a terceira partição. No
+Os testes marcados `integration` fora de `tests/integration/` formam a terceira partição. Cada
+arquivo também recebe sua própria stack fresca. No
 checkout atual são testes sob `tests/unit/`, majoritariamente live-PG, mas a descoberta detecta
 `tests/unit/gateway/test_audit_dmn_versions.py` como dependente do engine real. Por isso esta
 suíte sobe Postgres+Kafka, espera os dois, sobe CIB, verifica/deploya o spec e só então executa os
@@ -111,6 +116,7 @@ env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
   --checkout "$CHECKOUT" \
   --sha "$TARGET_SHA" \
   --suite db-unit \
+  --test-file tests/unit/gateway/test_audit_dmn_versions.py \
   --results-dir "$DB_UNIT_RESULTS" \
   --lock-timeout 0
 ```
@@ -119,7 +125,9 @@ env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
 
 Cada execução grava `run-state.json` mesmo em erro ou interrupção. `suite-results.json` registra
 o return code e contagens de `passed`, `failed`, `skipped`, `xfailed`, `xpassed` e `errors`;
-`pytest.log` mantém razões de skip/xfail e `junit.xml` fornece os casos individuais. O runner não
+`pytest.log` mantém razões de skip/xfail e `junit.xml` fornece os casos individuais. A contagem
+`tests` do JUnit precisa ser idêntica a `expected_count` do manifest; seleção vazia ou parcial
+transforma até um rc 0 do pytest em falha do runner. O runner não
 imprime o ambiente nem copia `.env`, credenciais ou secrets.
 
 No encerramento, inclusive após `SIGINT`/`SIGTERM`, o dono tenta apenas:
