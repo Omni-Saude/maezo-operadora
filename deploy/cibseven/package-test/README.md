@@ -5,6 +5,13 @@ carregamento do plugin na imagem CIB Seven 2.1.0 e autenticação TLS direta.
 Não implementa D7 (migração de todos os callers/REST), deployment produtivo ou
 transação adicional; as provas PostgreSQL de atomicidade permanecem separadas.
 
+Estado observado no SHA `060139c08b485c1754238b12b6b2b84837ccdc63`: o build
+real da imagem passou, mas a primeira execução parou no bootstrap PostgreSQL,
+antes de Tomcat e dos cinco testes. A comparação pública posterior mostrou que
+o daemon Colima não via o bind sob o temporary directory do macOS (`rc=125`),
+enquanto leu os mesmos 61 bytes sob `~/.cache` (`rc=0`, digest igual). Esta
+receita corrige a interface da fixture; não transforma aquela execução em PASS.
+
 ## Execução pelo ROOT, dono exclusivo dos serviços
 
 O ROOT deve adquirir e manter o `EngineLock` canônico durante **toda** a sequência,
@@ -25,24 +32,53 @@ Não usar a stack existente. O projeto Compose deve ser exclusivo desta execuç�
    `docker cp EXTRACTION:/camunda/conf/server.xml ORIGINAL_XML`, depois remover
    somente esse container (`docker rm EXTRACTION`). Não substituir o descriptor
    BPM original: o plugin é registrado pelo Dockerfile na distribuição verdadeira.
-4. Gerar fixture, onde `PRIVATE` é diretório novo sob o temporary directory do
-   sistema (por exemplo Python `tempfile.gettempdir()`), externo a Git/evidência:
+4. Criar `PRIVATE_ROOT` como diretório **novo**, absoluto e canônico, externo à
+   checkout e a `EVIDENCE`, pertencente ao usuário executor e mode `0700`, sob
+   uma raiz que o daemon realmente compartilha (neste host, `~/.cache`). Não usar
+   symlink, `..`, `TMPDIR`, diretório da evidência ou diretório da checkout.
+   `PRIVATE` deve ser um caminho novo que seja filho direto de `PRIVATE_ROOT`;
+   `prepare.py` o cria mode `0700`, recusa overwrite/escape e não inicia serviço.
+
+   Antes de subir PostgreSQL, o ROOT deve executar dois preflights sob o mesmo
+   lock e projeto exclusivo: criar em `PRIVATE_ROOT` um marcador **público**
+   aleatório mode `0600`, registrar seus bytes/digest esperados e exigir leitura
+   byte-exata por um container descartável; depois apontar outro Compose mínimo
+   para uma fonte pública inexistente e exigir `rc != 0`, mantendo a fonte
+   inexistente. A montagem negativa deve usar a forma longa abaixo:
+
+   ```json
+   {
+     "type": "bind",
+     "source": "/ABS/PRIVATE_ROOT/missing-public-marker",
+     "target": "/probe",
+     "read_only": true,
+     "bind": {"create_host_path": false}
+   }
+   ```
+
+   Se leitura, tamanho, digest, falha negativa ou ausência final divergirem,
+   abortar **antes** de `postgres up`. O marcador não contém credencial e fica
+   co-localizado apenas para provar a visibilidade da raiz; não copiar à
+   evidência. Todos os oito binds gerados em `compose.json` declaram
+   `bind.create_host_path=false`.
+
+5. Gerar a fixture e executar PostgreSQL, Tomcat e a suíte:
 
    ```sh
-   .venv/bin/python deploy/cibseven/package-test/prepare.py --checkout "$PWD" --sha "$SHA" --base-server-xml "$ORIGINAL_XML" --output "$PRIVATE" --image "$IMAGE"
+   .venv/bin/python deploy/cibseven/package-test/prepare.py --checkout "$PWD" --sha "$SHA" --base-server-xml "$ORIGINAL_XML" --private-root "$PRIVATE_ROOT" --evidence-root "$EVIDENCE" --output "$PRIVATE" --image "$IMAGE"
    docker compose -p "$PROJECT" -f "$PRIVATE/compose.json" up -d --wait postgres
    docker compose -p "$PROJECT" -f "$PRIVATE/compose.json" exec -T postgres psql -U maezo -d maezo -v ON_ERROR_STOP=1 -c "SELECT tenant_, rev_ FROM mzo_human_tenant"
    docker compose -p "$PROJECT" -f "$PRIVATE/compose.json" up -d engine
    .venv/bin/python deploy/cibseven/package-test/check.py --fixture "$PRIVATE" --junit "$EVIDENCE/package-junit.xml"
    ```
 
-5. Esperar **5 PASS**, zero skips/errors: os três testes originais preservados
+6. Esperar **5 PASS**, zero skips/errors: os três testes originais preservados
    (`mTLS + {}` → 400 INVALID_COMMAND/no-store, sem certificado recusado,
    HTTP + forwarded headers → 403) e dois novos testes que exigem alertas da
    camada TLS: certificado ausente e certificado de CA não confiável. Resposta
    HTTP 403 isolada não satisfaz os dois novos oráculos. 400 exige plugin carregado;
    503 indica que trust/schema/bootstrap do engine falhou e é uma falha real.
-6. Capturar `docker compose ... logs --no-color engine postgres` em arquivo privado
+7. Capturar `docker compose ... logs --no-color engine postgres` em arquivo privado
    para revisão; não publicar logs brutos automaticamente. Capturar
    `docker compose ... exec -T engine java -version`,
    `docker compose ... exec -T engine /camunda/bin/version.sh`,
@@ -50,7 +86,7 @@ Não usar a stack existente. O projeto Compose deve ser exclusivo desta execuç�
    e query PostgreSQL `SELECT version(); SELECT COUNT(*) FROM mzo_human_tenant;`.
    Registrar nomes/versões dos JARs `cibseven-engine-*.jar`, `postgresql-*.jar` no
    runtime. Copiar `public-receipt.json` (único arquivo gerado publicável) à evidência.
-7. **Em finally, inclusive falha:** `docker compose -p "$PROJECT" -f "$PRIVATE/compose.json" down -v --remove-orphans`.
+8. **Em finally, inclusive falha:** `docker compose -p "$PROJECT" -f "$PRIVATE/compose.json" down -v --remove-orphans`.
    Verificar ausência dos containers/volumes/rede desse projeto; não apagar recursos
    de outro projeto. Apagar apenas a fixture privada gerada após teardown confirmado;
    nunca copiar chaves, certificados, XML com senhas, compose ou env a Git/evidência.
@@ -63,8 +99,10 @@ original pinado, mantém listeners/JNDI e adiciona JSSE TLS1.3 com
 `certificateVerification=required`; nenhum RemoteIpValve/forwarded-cert é aceito.
 HTTP existe apenas em loopback para o teste negativo. O CIB **descartável** executa
 como UID0 para ler mounts individuais mode0600; isso não é configuração produtiva.
-Os SQLs públicos são0444 pois PostgreSQL reduz seu UID antes do bootstrap. Os outros
-arquivos são0600 sob diretório0700. Senhas aleatórias só entram em arquivos privados.
+Os SQLs públicos são0444 pois PostgreSQL reduz seu UID antes do bootstrap. Todos os
+arquivos privados são0600 sob diretório0700. Senhas aleatórias só entram em arquivos
+privados. Nenhum arquivo gerado é aceito por symlink ou por caminho fora da raiz
+privada validada.
 
 ## Proposta de classificação e CI (sem alteração compartilhada neste pacote)
 

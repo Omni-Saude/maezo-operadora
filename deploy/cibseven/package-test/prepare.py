@@ -2,7 +2,8 @@
 """ADR0049 D5: offline disposable mTLS fixture, never a deployment default.
 
 Run from a fresh, clean exact-SHA checkout. This program does not operate Docker.
-All generated credentials stay in a new private temporary directory, outside Git.
+All generated credentials stay under an explicit daemon-visible private root,
+outside the checkout and evidence tree.
 """
 
 from __future__ import annotations
@@ -14,8 +15,8 @@ import ipaddress
 import json
 import os
 import secrets
+import stat
 import subprocess
-import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -41,7 +42,56 @@ def public_bytes(key) -> bytes:
     )
 
 
-def prepare(checkout: Path, sha: str, original: Path, output: Path, image: str) -> None:
+def canonical_existing(path: Path, label: str, *, directory: bool) -> Path:
+    if not path.is_absolute():
+        raise ValueError(f"{label} must be an absolute path")
+    try:
+        resolved = path.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise ValueError(f"{label} must exist") from exc
+    if resolved != path:
+        raise ValueError(f"{label} must be canonical and contain no symlink")
+    mode = path.lstat().st_mode
+    if directory and not stat.S_ISDIR(mode):
+        raise ValueError(f"{label} must be a directory")
+    if not directory and not stat.S_ISREG(mode):
+        raise ValueError(f"{label} must be a regular file")
+    return path
+
+
+def overlaps(left: Path, right: Path) -> bool:
+    return left == right or left.is_relative_to(right) or right.is_relative_to(left)
+
+
+def validate_output_roots(checkout: Path, private_root: Path, evidence_root: Path, output: Path) -> None:
+    canonical_existing(checkout, "checkout", directory=True)
+    canonical_existing(private_root, "private root", directory=True)
+    canonical_existing(evidence_root, "evidence root", directory=True)
+    root_stat = private_root.stat()
+    if stat.S_IMODE(root_stat.st_mode) != 0o700:
+        raise ValueError("private root must have mode 0700")
+    if root_stat.st_uid != os.geteuid():
+        raise ValueError("private root must be owned by the current user")
+    for label, protected in (("checkout", checkout), ("evidence root", evidence_root)):
+        if overlaps(private_root, protected):
+            raise ValueError(f"private root must not overlap {label}")
+    if not output.is_absolute() or output.resolve(strict=False) != output:
+        raise ValueError("output must be an absolute canonical path with no symlink escape")
+    if output.parent != private_root:
+        raise ValueError("output must be a direct child of the private root")
+    if os.path.lexists(output):
+        raise ValueError("output must be a NEW path")
+
+
+def prepare(
+    checkout: Path,
+    sha: str,
+    original: Path,
+    private_root: Path,
+    evidence_root: Path,
+    output: Path,
+    image: str,
+) -> None:
     if len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
         raise ValueError("full exact source SHA required")
     actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
@@ -50,12 +100,17 @@ def prepare(checkout: Path, sha: str, original: Path, output: Path, image: str) 
     )
     if actual != sha or dirty:
         raise ValueError("checkout must be clean and at the specified SHA")
-    if output.exists() or not output.is_relative_to(Path(tempfile.gettempdir()).resolve()):
-        raise ValueError("output must be a NEW directory under the OS temporary directory")
-    if output.is_relative_to(checkout):
-        raise ValueError("credential directory cannot be within the checkout")
+    canonical_existing(original, "base server XML", directory=False)
+    validate_output_roots(checkout, private_root, evidence_root, output)
+    old_umask = os.umask(0o077)
+    try:
+        _generate_fixture(checkout, sha, original, output, image)
+    finally:
+        os.umask(old_umask)
+
+
+def _generate_fixture(checkout: Path, sha: str, original: Path, output: Path, image: str) -> None:
     output.mkdir(mode=0o700)
-    os.umask(0o077)
     now = datetime.now(UTC)
 
     def issue(name: str, ca_key=None, ca_cert=None, purpose=None):
@@ -202,6 +257,7 @@ def prepare(checkout: Path, sha: str, original: Path, output: Path, image: str) 
             "source": str(output / name),
             "target": target,
             "read_only": True,
+            "bind": {"create_host_path": False},
         }
 
     dump(
@@ -292,10 +348,18 @@ if __name__ == "__main__":
     parser.add_argument("--checkout", type=Path, required=True)
     parser.add_argument("--sha", required=True)
     parser.add_argument("--base-server-xml", type=Path, required=True)
+    parser.add_argument("--private-root", type=Path, required=True)
+    parser.add_argument("--evidence-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--image", required=True)
     args = parser.parse_args()
     prepare(
-        args.checkout.resolve(), args.sha, args.base_server_xml.resolve(), args.output.resolve(), args.image
+        args.checkout,
+        args.sha,
+        args.base_server_xml,
+        args.private_root,
+        args.evidence_root,
+        args.output,
+        args.image,
     )
     print("Private disposable fixture prepared; no services started and no tests executed.")
