@@ -267,24 +267,27 @@ def setup_observability(
     # THE RULE THIS CHAIN OBEYS (WP-COMPOSICAO-V2 review, MAJOR-1): wiring the daemons must not
     # silently change what an operator's `grep` finds. Everything structlog's own default chain
     # provides is provided here too — `merge_contextvars`, `add_log_level`, TTY-aware colours —
-    # and the only deliberate deltas are the ISO-8601/UTC timestamp and the DL-0043 scrubber slot.
+    # with ISO-8601/UTC timestamps, the DL-0043 scrubber slot and always-on error minimization.
     # Concretely: `add_log_level` is what puts the `[error    ]` token on the line that
     # `docs/runbooks/devops-stack.md:318` and the SLA-alert runbook grep for (structlog renders it
     # LOWER-case — `grep -i` — which was already true of the pre-wiring default), and TTY-aware
     # colours are what keep `topic=t` an unbroken substring in a container's log stream.
     log_level = os.environ.get("MAEZO_LOG_LEVEL", "NOTSET").upper()
+    from maezo.gateway.log_scrubber import ErrorLogScrubber
+
     scrubber = _build_key_scrubber()
     processors: list[Any] = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
     ]
     if scrubber is not None:
-        # Scrub LAST before rendering: every earlier processor may still ADD fields to the
-        # event dict, so a scrubber placed before them would miss whatever they contribute.
+        # Keep the policy-gated business-key pass after context/metadata enrichment.
+        # Error minimization below adds only class/code metadata, never a business key.
         processors.append(scrubber)
+    # Always minimize arbitrary errors, independently of the business-key migration policy.
+    # This processor renders class/frames without ever stringifying exception values.
+    processors.append(ErrorLogScrubber())
     colors = _console_colors_enabled()
     processors.append(structlog.dev.ConsoleRenderer(colors=colors))
     structlog.configure(

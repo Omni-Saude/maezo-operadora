@@ -317,8 +317,9 @@ class ExecuteRequestWorker(WorkerBase):
             self.logger.error(
                 "lgpd_execute_request_recusado_sem_aprovacao_humana",
                 tenant_id=tenant_id,
-                tipo_requisicao=tipo_requisicao,
-                decisao=decisao,
+                tipo_requisicao_declarado=isinstance(tipo_requisicao, str)
+                and tipo_requisicao in _TIPO_REQUISICAO_PARA_DIREITO,
+                decisao_executar=decisao == "EXECUTAR_E_ENVIAR",
                 tem_fundamentacao=tem_fundamentacao,
             )
             raise WorkerFailureError(
@@ -335,7 +336,8 @@ class ExecuteRequestWorker(WorkerBase):
             self.logger.error(
                 "lgpd_execute_request_recusado_negativa_fundamentada",
                 tenant_id=tenant_id,
-                tipo_requisicao=tipo_requisicao,
+                tipo_requisicao_declarado=isinstance(tipo_requisicao, str)
+                and tipo_requisicao in _TIPO_REQUISICAO_PARA_DIREITO,
                 tem_fundamentacao=tem_fundamentacao,
             )
             raise WorkerFailureError(
@@ -351,8 +353,9 @@ class ExecuteRequestWorker(WorkerBase):
             self.logger.error(
                 "lgpd_execute_request_recusado_decisao_invalida",
                 tenant_id=tenant_id,
-                tipo_requisicao=tipo_requisicao,
-                decisao=decisao,
+                tipo_requisicao_declarado=isinstance(tipo_requisicao, str)
+                and tipo_requisicao in _TIPO_REQUISICAO_PARA_DIREITO,
+                decisao_executar=decisao == "EXECUTAR_E_ENVIAR",
             )
             raise WorkerFailureError(
                 _RECUSA_PREFIXO + "Guard (b): execucao exige decisao_dsr='EXECUTAR_E_ENVIAR' "
@@ -360,7 +363,12 @@ class ExecuteRequestWorker(WorkerBase):
                 retries_left=0,
             )
 
-        direito = _TIPO_REQUISICAO_PARA_DIREITO.get(tipo_requisicao)
+        # LGPD-UNHASHABLE / REFUSAL-LOG: REST/JSON can supply lists or mappings. Shape is
+        # checked before hashing; malformed input is the same terminal technical refusal as
+        # an unknown string, never a generic retry. No refused value enters a diagnostic.
+        direito = (
+            _TIPO_REQUISICAO_PARA_DIREITO.get(tipo_requisicao) if isinstance(tipo_requisicao, str) else None
+        )
 
         # Tipo fora do dominio declarado -> fail-closed, espelhando o catch-all da DMN
         # `lgpd_dsr_routing` (regra r7: tipo desconhecido sobe para juridico-privacidade).
@@ -368,7 +376,8 @@ class ExecuteRequestWorker(WorkerBase):
             self.logger.error(
                 "lgpd_execute_request_recusado_tipo_desconhecido",
                 tenant_id=tenant_id,
-                tipo_requisicao=tipo_requisicao,
+                tipo_requisicao_declarado=isinstance(tipo_requisicao, str)
+                and tipo_requisicao in _TIPO_REQUISICAO_PARA_DIREITO,
             )
             raise WorkerFailureError(
                 _RECUSA_PREFIXO + "Alem disso `tipo_requisicao` esta ausente ou fora do dominio "

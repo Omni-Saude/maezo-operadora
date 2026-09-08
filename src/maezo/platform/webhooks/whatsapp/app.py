@@ -137,7 +137,8 @@ async def _seal_claim(dedup: WhatsAppDedupGuard | None, message: InboundEvent, *
             "whatsapp_webhook_dedup_seal_failed",
             tenant=tenant,
             dedup_key=dedup.inbound_key(message.message_id),
-            error=str(exc),
+            # The error processor keeps class/frames; never stringify an upstream payload.
+            error=exc,
             detail="the message WAS processed; the claim could not be sealed — redelivery stays "
             "suppressed only until the in-flight lease expires",
         )
@@ -159,7 +160,7 @@ async def _withdraw_claim(dedup: WhatsAppDedupGuard | None, message: InboundEven
             "whatsapp_webhook_dedup_release_failed",
             tenant=tenant,
             dedup_key=dedup.inbound_key(message.message_id),
-            error=str(exc),
+            error=exc,
             detail="handling failed AND the claim could not be withdrawn — redelivery is "
             "suppressed until the in-flight lease expires",
         )
@@ -405,7 +406,7 @@ def create_app(
                         logger.error(
                             "whatsapp_webhook_dedup_unavailable",
                             tenant=settings.tenant_id,
-                            error=str(exc),
+                            error=exc,
                             exc_info=True,
                         )
                         WEBHOOK_REQUESTS_TOTAL.labels(
