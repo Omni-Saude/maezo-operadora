@@ -370,6 +370,7 @@ def _evidence_validator() -> Any:
 
 
 def _pytest_command(checkout: Path, *args: str, evidence_path: Path | None = None) -> list[str]:
+    checkout = checkout.resolve()
     entry = (
         ["-m", "pytest"]
         if evidence_path is None
@@ -386,6 +387,8 @@ def _pytest_command(checkout: Path, *args: str, evidence_path: Path | None = Non
         "-c",
         str(checkout / "pyproject.toml"),
         "--confcutdir",
+        str(checkout),
+        "--rootdir",
         str(checkout),
         *args,
     )
@@ -449,7 +452,7 @@ def validate_checkout(checkout_input: str, expected_sha: str) -> tuple[Path, str
 @contextmanager
 def execution_checkout(checkout: Path, expected_sha: str, results_dir: Path) -> Iterator[tuple[Path, str]]:
     """Cópia própria dos blobs Git; nenhum reset/clean no checkout do usuário."""
-    scratch = Path(tempfile.mkdtemp(prefix="maezo-engine-source-"))
+    scratch = Path(tempfile.mkdtemp(prefix="maezo-engine-source-")).resolve()
     target = scratch / "checkout"
     try:
         _checked(
