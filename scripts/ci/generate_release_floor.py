@@ -250,9 +250,11 @@ def evaluate_unit_tests(
     return passed, []
 
 
-#: Safety-net bound — measured ~40-52s for the real suite on this repo; generous headroom for a
-#: slower CI runner, but a genuine hang must still fail loudly rather than block the job forever.
-_UNIT_TESTS_TIMEOUT_SECONDS = 900
+#: Safety-net bound. The suite grew from the historical 40-52s snapshot to 885.98s on the R6
+#: floor and 1242.60s on the integrated Fleet candidate (12210 passed, 14 skipped, 662 deselected,
+#: 1 xfailed; no assertion failure). 1800s leaves measured CI headroom while remaining a finite,
+#: fail-closed subprocess deadline: a timeout still returns rc=-1 and can never satisfy the floor.
+_UNIT_TESTS_TIMEOUT_SECONDS = 1800
 
 
 def measure_unit_tests(repo_root: Path, python_exe: str) -> tuple[dict[str, int], int, str]:
