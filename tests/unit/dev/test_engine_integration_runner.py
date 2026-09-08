@@ -171,6 +171,13 @@ def test_discovery_covers_every_current_integration_test_and_required_families(t
         "tests/unit/gateway/test_audit_dmn_versions.py"
         in discovery["suite_dependencies"]["db-unit"]["engine_evidence"]
     )
+    manifest_nodeids = {nodeid for entry in discovery["execution_manifest"] for nodeid in entry["nodeids"]}
+    assert manifest_nodeids == set(discovery["integration_nodeids"])
+    assert (
+        sum(entry["expected_count"] for entry in discovery["execution_manifest"])
+        == discovery["integration_count"]
+    )
+    assert all(entry["expected_count"] > 0 for entry in discovery["execution_manifest"])
 
 
 def test_discovery_rejects_a_checkout_at_the_wrong_sha(tmp_path: Path) -> None:
