@@ -195,3 +195,87 @@ def test_xml_and_json_redaction_preserves_parseable_artifacts(tmp_path: Path) ->
     assert SENTINEL not in safe.read_text()
     runner._json_write(tmp_path / "state.json", {"error": f"token={SENTINEL}"})
     assert json.loads((tmp_path / "state.json").read_text())["error"] == "token=<redacted>"
+
+
+def test_parameter_credentials_are_redacted_after_distinct_identities_are_verified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runner, "_uv_python", lambda _root, *args: [sys.executable, "-I", *args])
+    (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\nmarkers=["integration"]\n')
+    (tmp_path / "test_params.py").write_text(
+        "import pytest\npytestmark=pytest.mark.integration\n"
+        f"@pytest.mark.parametrize('value',[1,2],ids=['postgresql://a:{SENTINEL}A@127.0.0.1:9/x',"
+        f"'postgresql://a:{SENTINEL}B@127.0.0.1:9/x'])\n"
+        "def test_value(value): assert value > 0\n"
+    )
+    result_dir = tmp_path / "evidence"
+    result = runner._run_pytest(tmp_path, "core", "test_params.py", runner._runtime_env(), result_dir, 2)
+    assert result["return_code"] == 0, result
+    for path in result_dir.iterdir():
+        assert SENTINEL not in path.read_text(), path.name
+    published = json.loads((result_dir / "pytest-execution.json").read_text())
+    assert len({item["nodeid_sha256"] for item in published["collection"]}) == 2
+    identities = {item["junit_identity_sha256"] for item in published["collection"]}
+    assert len(identities) == 2
+    xml = ET.parse(result_dir / "junit.xml")
+    assert {case.get("maezo_identity_sha256") for case in xml.iter("testcase")} == identities
+
+
+def test_owned_snapshot_ignores_origin_venv_dotenv_shadow_and_ancestor_conftest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parent = tmp_path / "ancestor"
+    parent.mkdir()
+    source = parent / "source"
+    subprocess.run(["git", "clone", "--shared", "--quiet", str(ROOT), str(source)], check=True)
+    sha = _git(source, "rev-parse", "HEAD")
+    (parent / "conftest.py").write_text("raise RuntimeError('ancestral conftest executed')\n")
+    foreign = {
+        ".env": "MAEZO_GATEWAY_RATE_LIMIT_CAPACITY=123457\n",
+        "conftest.py": "raise RuntimeError('origin conftest executed')\n",
+        "json.py": "raise RuntimeError('origin json shadow executed')\n",
+        ".venv/lib/python3.12/site-packages/sitecustomize.py": "raise RuntimeError('origin site executed')\n",
+        "tests/unit/test_ignored_delta.py": "raise RuntimeError('ignored test executed')\n",
+    }
+    for relative, body in foreign.items():
+        path = source / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body)
+    with (source / ".git/info/exclude").open("a") as stream:
+        stream.write("\n" + "\n".join(foreign) + "\n")
+    with pytest.raises(runner.RunnerError):
+        runner.validate_checkout(str(source), sha)
+    monkeypatch.setattr(runner.tempfile, "tempdir", str(parent))
+    results = tmp_path / "results"
+    with runner.execution_checkout(source, sha, results) as (owned, imported):
+        assert owned.parent.parent == parent
+        assert owned / "src/maezo" in Path(imported).parents
+        probe = runner._run(
+            runner._uv_python(
+                owned,
+                "-c",
+                "import json; from maezo.gateway.settings import GatewaySettings; "
+                "s=GatewaySettings(); print(json.dumps({'capacity':s.rate_limit_capacity,"
+                "'default':GatewaySettings.model_fields['rate_limit_capacity'].default}))",
+            ),
+            cwd=owned,
+            env=runner._runtime_env(),
+            timeout=120,
+        )
+        assert probe.returncode == 0, probe.stderr
+        settings = json.loads(probe.stdout)
+        assert settings["capacity"] == settings["default"] != 123457
+        collected = runner._collect(
+            owned, ["tests/integration/processes/test_sp_op_lgpd_dsr_001.py"], results / "collect-lgpd.log"
+        )
+        assert collected
+        assert all(
+            node.startswith("tests/integration/processes/test_sp_op_lgpd_dsr_001.py::") for node in collected
+        )
+        assert not (owned / ".env").exists()
+        assert not (owned / "json.py").exists()
+    assert not owned.exists()
+    assert all((source / relative).read_text() == body for relative, body in foreign.items())
+    evidence = json.loads((results / "execution-source.json").read_text())
+    assert evidence["sha"] == sha
+    assert evidence["owned_fresh_environment"] is True

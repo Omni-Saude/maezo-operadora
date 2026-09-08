@@ -180,6 +180,9 @@ stack foi tocada, `docker compose down -v --remove-orphans` concluído no contex
 Cada execução grava `run-state.json` mesmo em erro ou interrupção. O núcleo compartilhado
 `scripts/ci/pytest_execution_evidence.py` captura a coleção e as fases setup/call/teardown por
 item; o profiler na fase call observa entrada no código do corpo, inclusive corrotinas.
+A comparação usa as identidades completas em staging privado antes da publicação. Os JSONs
+publicados e XML são redigidos; `nodeid_sha256` e `junit_identity_sha256` nos JSONs, e
+`maezo_identity_sha256` no XML, preservam correlação distinta quando dois IDs contêm credenciais.
 `pytest-execution.json`, `junit.xml` e `suite-results.json` permitem confrontar exatamente
 identidades únicas, fontes/marcadores, fases, outcomes e totais XML. Header sozinho, substituição,
 duplicação, XML ausente/parcial, XPASS (inclusive não estrito), skip de infraestrutura e xfail

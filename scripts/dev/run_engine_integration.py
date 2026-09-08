@@ -43,6 +43,7 @@ PROCESS_KILL_GRACE = 3.0
 _pending_groups: set[int] = set()
 _process_owner: EngineLock | None = None
 _source_digests: dict[Path, tuple[str, dict[str, str]]] = {}
+_collected_items: dict[Path, list[dict[str, Any]]] = {}
 
 CHECKOUT_INPUTS = (
     "docker-compose.yml",
@@ -113,11 +114,23 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _junit_identity_digest(classname: str, name: str) -> str:
+    return hashlib.sha256(json.dumps([classname, name], ensure_ascii=True).encode()).hexdigest()
+
+
 def _safe_data(payload: Any) -> Any:
     if isinstance(payload, str):
         return _redact_text(payload)
     if isinstance(payload, dict):
-        return {key: _safe_data(value) for key, value in payload.items()}
+        safe = {key: _safe_data(value) for key, value in payload.items()}
+        if isinstance(payload.get("nodeid"), str):
+            safe["nodeid_sha256"] = hashlib.sha256(payload["nodeid"].encode()).hexdigest()
+        for class_key, name_key in (("classname", "name"), ("junit_classname", "junit_name")):
+            if class_key in payload and name_key in payload:
+                safe["junit_identity_sha256"] = _junit_identity_digest(
+                    str(payload[class_key]), str(payload[name_key])
+                )
+        return safe
     if isinstance(payload, list | tuple):
         return [_safe_data(value) for value in payload]
     return payload
@@ -518,21 +531,33 @@ def _assert_execution_source(checkout: Path) -> None:
 
 def _collect(checkout: Path, args: list[str], log_path: Path) -> set[str]:
     _assert_execution_source(checkout)
+    private = Path(tempfile.mkdtemp(prefix="maezo-private-collection-")).resolve()
+    raw_evidence = private / "execution.json"
     evidence = log_path.with_suffix(".execution.json")
     evidence.unlink(missing_ok=True)
-    result = _run(
-        _pytest_command(checkout, *args, "--collect-only", "-q", evidence_path=evidence),
-        cwd=checkout,
-        timeout=180,
-        log_path=log_path,
-    )
+    payload: dict[str, Any] = {}
+    try:
+        result = _run(
+            _pytest_command(checkout, *args, "--collect-only", "-q", evidence_path=raw_evidence),
+            cwd=checkout,
+            timeout=180,
+            log_path=log_path,
+        )
+        payload = json.loads(raw_evidence.read_text()) if raw_evidence.exists() else {}
+    finally:
+        with _cleanup_signal_mask():
+            try:
+                if raw_evidence.exists():
+                    _publish_execution_json(raw_evidence, evidence)
+            finally:
+                shutil.rmtree(private)
     if result.returncode != 0:
         raise RunnerError(f"coleta pytest falhou (rc={result.returncode}); veja {log_path}")
     _assert_execution_source(checkout)
-    payload = json.loads(evidence.read_text())
     nodeids = [item["nodeid"] for item in payload["collection"]]
     if len(set(nodeids)) != len(nodeids) or not payload.get("finished"):
         raise RunnerError("coleta duplicada ou interrompida")
+    _collected_items[log_path] = payload["collection"]
     return set(nodeids)
 
 
@@ -628,7 +653,7 @@ def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict
         ["tests/unit", "-m", "integration"],
         results_dir / "collect-db-unit.log",
     )
-    identities = json.loads((results_dir / "collect-integration.execution.json").read_text())["collection"]
+    identities = _collected_items[results_dir / "collect-integration.log"]
     test_files = {
         path.relative_to(checkout).as_posix() for path in (checkout / "tests/integration").rglob("test_*.py")
     }
@@ -1157,12 +1182,25 @@ def verified_result_code(
     return pytest_return_code, None
 
 
+def _publish_execution_json(source: Path, destination: Path) -> None:
+    try:
+        payload = json.loads(source.read_text())
+    except (OSError, ValueError):
+        payload = {"finished": False, "error": "JSON bruto inválido retido da publicação"}
+    _json_write(destination, payload)
+
+
 def _publish_xml(source: Path, destination: Path) -> None:
     if not source.exists():
         return
     try:
         tree = ET.parse(source)
         for node in tree.iter():
+            if node.tag == "testcase":
+                node.set(
+                    "maezo_identity_sha256",
+                    _junit_identity_digest(node.get("classname", ""), node.get("name", "")),
+                )
             node.attrib.update({key: _redact_text(value) for key, value in node.attrib.items()})
             if node.text:
                 node.text = _redact_text(node.text)
@@ -1191,11 +1229,10 @@ def _run_pytest(
     results_dir.mkdir(parents=True, exist_ok=True)
     if expected_items is None:
         _collect(checkout, selection, results_dir / "collect-selected.log")
-        expected_items = json.loads((results_dir / "collect-selected.execution.json").read_text())[
-            "collection"
-        ]
-    raw_dir = Path(tempfile.mkdtemp(prefix="maezo-private-junit-"))
+        expected_items = _collected_items[results_dir / "collect-selected.log"]
+    raw_dir = Path(tempfile.mkdtemp(prefix="maezo-private-junit-")).resolve()
     raw_xml = raw_dir / "junit.xml"
+    raw_evidence = raw_dir / "execution.json"
     evidence_path = results_dir / "pytest-execution.json"
     evidence_path.unlink(missing_ok=True)
     junit = results_dir / "junit.xml"
@@ -1207,18 +1244,22 @@ def _run_pytest(
         "-ra",
         "--durations=40",
         f"--junitxml={raw_xml}",
-        evidence_path=evidence_path,
+        evidence_path=raw_evidence,
     )
     try:
         result = _run(command, cwd=checkout, env=env, timeout=7200, log_path=results_dir / "pytest.log")
+        _assert_execution_source(checkout)
+        evidence = json.loads(raw_evidence.read_text()) if raw_evidence.exists() else {}
+        # Valida identidades completas antes de projetar artefatos seguros.
+        validation = _evidence_validator()(raw_xml, evidence, expected_items, result.returncode)
     finally:
         with _cleanup_signal_mask():
-            _publish_xml(raw_xml, junit)
-            if not _pending_groups:
+            try:
+                _publish_xml(raw_xml, junit)
+                if raw_evidence.exists():
+                    _publish_execution_json(raw_evidence, evidence_path)
+            finally:
                 shutil.rmtree(raw_dir)
-    _assert_execution_source(checkout)
-    evidence = json.loads(evidence_path.read_text()) if evidence_path.exists() else {}
-    validation = _evidence_validator()(junit, evidence, expected_items, result.returncode)
     if len(expected_items) != expected_count:
         validation["errors"].append("manifest de identidades diverge da contagem esperada")
         validation["return_code"] = result.returncode or 1
