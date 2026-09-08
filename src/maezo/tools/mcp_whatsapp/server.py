@@ -354,5 +354,8 @@ class WhatsAppServer:
                     "expires, and the send is NOT failed over it",
                 )
 
-        logger.info("whatsapp_message_sent", message_id=(data.get("messages") or [{}])[0].get("id"))
+        # ADR-0006: outbound WAMIDs can embed the recipient. No response identifier is
+        # needed for this diagnostic; keep the payload solely in the authorized return.
+        # Do not traverse optional response fields after an already accepted delivery.
+        logger.info("whatsapp_message_sent")
         return data
