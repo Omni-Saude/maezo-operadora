@@ -261,3 +261,20 @@ XML ausente/parcial retém narrativas livres (diagnóstico fixo/hash) e razões 
 com erro explícito e rc não verde. Falhas de publicação não deixam um resultado de suíte
 antigo nem temporários de JSON; o staging bruto 0700/0600 é recolhido inclusive após
 interrupções. O protocolo de posse, supervisão e teardown não é alterado.
+
+As coletas de discovery e de seleção também usam staging 0700/0600 desde a origem.
+O log público contém somente rc, contagem, estado da validação e hash do diagnóstico;
+o stdout de collect-only nunca é publicado. Sem propriedades do corpo, todas as
+razões livres da coleção são retidas no JSON público, conservando hashes, identidades,
+fonte e flags dos marcadores. A política vale também para `execution_manifest.items`
+de `discovery.json` e `collection` do JSON final de execução.
+
+Os itens originais ficam em memória: `_collect` alimenta o cache privado, `discover`
+retorna o manifesto original para `run_suite`, e o núcleo compara esse original com
+a coleção original da execução. `discovery.json` público é uma projeção de diagnóstico,
+não uma fonte alternativa de expected_items. Não há sidecar nem reconstrução de razões.
+Nova coleta invalida cache e arquivos anteriores antes de verificar a fonte; nova
+descoberta invalida os cinco pares de coleta conhecidos mesmo se a primeira falhar.
+Erro, interrupção, timeout, fonte divergente ou JSON incompleto não deixam cache válido;
+quando possível, publicam somente recibo seguro não concluído e hashes. Falhas de I/O
+removem publicações parciais e temporários; o staging é recolhido no finally.

@@ -573,37 +573,83 @@ def _assert_execution_source(checkout: Path) -> None:
 
 
 def _collect(checkout: Path, args: list[str], log_path: Path) -> set[str]:
-    _assert_execution_source(checkout)
+    evidence = log_path.with_suffix(".execution.json")
+    _collected_items.pop(log_path, None)
+    evidence.unlink(missing_ok=True)
+    log_path.unlink(missing_ok=True)
     private = Path(tempfile.mkdtemp(prefix="maezo-private-collection-")).resolve()
     raw_evidence = private / "execution.json"
-    evidence = log_path.with_suffix(".execution.json")
-    evidence.unlink(missing_ok=True)
+    raw_log = private / "collection.log"
     payload: dict[str, Any] = {}
+    return_code: int | None = None
+    validated = False
     try:
+        _assert_execution_source(checkout)
+        for path in (raw_evidence, raw_log):
+            path.touch(mode=0o600)
         result = _run(
             _pytest_command(checkout, *args, "--collect-only", "-q", evidence_path=raw_evidence),
             cwd=checkout,
             timeout=180,
-            log_path=log_path,
+            log_path=raw_log,
         )
+        return_code = result.returncode
         payload = json.loads(raw_evidence.read_text()) if raw_evidence.exists() else {}
+        if return_code != 0:
+            raise RunnerError(f"coleta pytest falhou (rc={return_code})")
+        _assert_execution_source(checkout)
+        nodeids = [item["nodeid"] for item in payload["collection"]]
+        if (
+            not nodeids
+            or len(set(nodeids)) != len(nodeids)
+            or payload.get("finished") is not True
+            or payload.get("pytest_exitstatus") != return_code
+            or payload.get("reports") != []
+            or payload.get("schema") != _evidence_api(checkout).SCHEMA_VERSION
+        ):
+            raise RunnerError("coleta vazia, duplicada, interrompida ou schema divergente")
+        validated = True
+    except Exception as exc:
+        digest = hashlib.sha256(str(exc).encode()).hexdigest()
+        raise RunnerError(f"coleta pytest falhou: {type(exc).__name__} sha256={digest}") from None
     finally:
         with _cleanup_signal_mask():
             try:
-                if raw_evidence.exists():
+                if validated:
                     _publish_execution_json(raw_evidence, evidence)
+                else:
+                    _json_write(
+                        evidence,
+                        {
+                            "finished": False,
+                            "pytest_exitstatus": return_code,
+                            "error": "Coleta sem validacao completa; original retido da publicacao",
+                            "evidence_sha256": _sha256(raw_evidence) if raw_evidence.exists() else None,
+                        },
+                    )
+                # Na coleta ainda não há XML/propriedades do corpo. Nenhuma
+                # narrativa livre do console possui contexto para publicação.
+                summary = {
+                    "pytest_return_code": return_code,
+                    "collection_validated": validated,
+                    "collected": len(payload.get("collection", [])) if validated else 0,
+                    "log_sha256": _sha256(raw_log) if raw_log.exists() else None,
+                    "diagnostic": "Diagnostico pytest retido da publicacao",
+                }
+                _json_write(log_path, summary)
+            except BaseException as exc:
+                evidence.unlink(missing_ok=True)
+                log_path.unlink(missing_ok=True)
+                if isinstance(exc, Exception):
+                    digest = hashlib.sha256(str(exc).encode()).hexdigest()
+                    raise RunnerError(
+                        f"publicacao da coleta recusada: {type(exc).__name__} sha256={digest}"
+                    ) from None
+                raise
             finally:
+                for public in (evidence, log_path):
+                    public.with_name(f".{public.name}.{os.getpid()}.tmp").unlink(missing_ok=True)
                 shutil.rmtree(private)
-    if result.returncode != 0:
-        raise RunnerError(f"coleta pytest falhou (rc={result.returncode}); veja {log_path}")
-    _assert_execution_source(checkout)
-    nodeids = [item["nodeid"] for item in payload["collection"]]
-    if (
-        len(set(nodeids)) != len(nodeids)
-        or not payload.get("finished")
-        or payload.get("schema") != _evidence_api(checkout).SCHEMA_VERSION
-    ):
-        raise RunnerError("coleta duplicada, interrompida ou schema divergente")
     _collected_items[log_path] = payload["collection"]
     return set(nodeids)
 
@@ -675,6 +721,15 @@ def _dependencies_for(
 
 def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict[str, Any]:
     results_dir.mkdir(parents=True, exist_ok=True)
+    discovery_path = results_dir / "discovery.json"
+    discovery_path.unlink(missing_ok=True)
+    # Uma nova descoberta invalida a tentativa inteira, mesmo se a primeira
+    # coleta falhar e as seleções seguintes nunca chegarem a executar.
+    for label in ("integration", "integration-dir", "core", "chaos", "db-unit"):
+        path = results_dir / f"collect-{label}.log"
+        _collected_items.pop(path, None)
+        path.unlink(missing_ok=True)
+        path.with_suffix(".execution.json").unlink(missing_ok=True)
     integration = _collect(
         checkout,
         ["tests", "-m", "integration"],
@@ -796,7 +851,20 @@ def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict
     if manifest_nodeids != integration or any(not entry["expected_count"] for entry in execution_manifest):
         failures.append("manifest por arquivo está vazio ou não cobre a coleta integration exatamente")
     payload["validation_errors"] = failures
-    _json_write(results_dir / "discovery.json", payload)
+    # O retorno e o cache são os originais privados usados pela execução.
+    # Só a cópia publicada pode reter narrativas sem contexto pré-corpo.
+    try:
+        _json_write(discovery_path, _project_narratives(payload, _withhold_narrative))
+    except BaseException as exc:
+        discovery_path.unlink(missing_ok=True)
+        if isinstance(exc, Exception):
+            digest = hashlib.sha256(str(exc).encode()).hexdigest()
+            raise RunnerError(
+                f"publicacao discovery recusada: {type(exc).__name__} sha256={digest}"
+            ) from None
+        raise
+    finally:
+        discovery_path.with_name(f".{discovery_path.name}.{os.getpid()}.tmp").unlink(missing_ok=True)
     if failures:
         raise RunnerError("descoberta incompleta: " + "; ".join(failures))
     return payload
@@ -1297,6 +1365,11 @@ def _project_narratives(payload: Any, diagnostic: Callable[[str], str], *, narra
     return diagnostic(payload) if narrative and isinstance(payload, str) else payload
 
 
+def _withhold_narrative(value: str) -> str:
+    """Sem corpo/XML, nenhuma razão livre é sabidamente pública."""
+    return "<redacted: contexto indisponivel>" if value else value
+
+
 def _publish_execution_json(
     source: Path, destination: Path, diagnostic: Callable[[str], str] | None = None
 ) -> None:
@@ -1306,8 +1379,10 @@ def _publish_execution_json(
         payload = {"finished": False, "error": "JSON bruto inválido retido da publicação"}
     if diagnostic is not None:
         payload = _project_narratives(payload, diagnostic)
-    elif payload.get("reports"):
-        payload = _project_narratives(payload, lambda _: "<redacted: contexto indisponivel>")
+    else:
+        payload = _project_narratives(payload, _withhold_narrative)
+    if "collection" in payload:
+        payload["collection"] = _project_narratives(payload["collection"], _withhold_narrative)
     try:
         _json_write(destination, payload)
     except BaseException:
