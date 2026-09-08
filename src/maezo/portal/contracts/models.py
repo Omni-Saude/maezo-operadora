@@ -48,7 +48,7 @@ OpaqueRef = Annotated[
         strict=True,
         min_length=1,
         max_length=512,
-        pattern=r"^[^\s/?#]+$",
+        pattern=r"^[^\s\x00-\x1f\x7f/?#]+$",
     ),
 ]
 Sha256Digest = Annotated[
@@ -100,7 +100,15 @@ class Centavos(RootModel[CanonicalCentavos]):
     model_config = ConfigDict(frozen=True, strict=True)
 
     def as_int(self) -> int:
-        return int(self.root)
+        # Small decimal chunks avoid Python's global decimal-string conversion limit without
+        # changing that process-wide protection or introducing a financial ceiling (ADR-0049 D3).
+        negative = self.root.startswith("-")
+        digits = self.root[1:] if negative else self.root
+        result = 0
+        for offset in range(0, len(digits), 9):
+            chunk = digits[offset : offset + 9]
+            result = result * 10 ** len(chunk) + int(chunk)
+        return -result if negative else result
 
 
 class MembershipBinding(_FrozenContract):
@@ -139,11 +147,20 @@ class HumanPrincipal(_FrozenContract):
     @field_validator("issuer")
     @classmethod
     def _issuer_is_an_origin_url(cls, value: str) -> str:
+        # urlsplit strips some controls before parsing. Reject them in the original identity,
+        # and detect forbidden delimiters even when their query/fragment/credentials are empty.
+        if any(ord(char) < 32 or ord(char) == 127 or char.isspace() for char in value):
+            raise ValueError("issuer URL must not contain controls or whitespace")
+        if "?" in value or "#" in value:
+            raise ValueError("issuer URL must not contain query or fragment")
         parsed = urlsplit(value)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or not parsed.hostname:
             raise ValueError("issuer must be an absolute HTTP(S) issuer URL")
-        if parsed.username or parsed.password or parsed.query or parsed.fragment:
-            raise ValueError("issuer URL must not contain credentials, query, or fragment")
+        if "@" in parsed.netloc:
+            raise ValueError("issuer URL must not contain credentials")
+        # Accessing port is necessary: urlsplit alone accepts non-numeric/out-of-range ports.
+        if parsed.port is None and parsed.netloc.endswith(":"):
+            raise ValueError("issuer URL must have a valid port when specified")
         return value
 
     @field_validator("authenticated_at")
