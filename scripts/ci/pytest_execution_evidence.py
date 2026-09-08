@@ -42,7 +42,7 @@ _GUARD_SHA256 = "8a5b703081314182953a0cf12b844976e2f3908cbf4d5a701b70e3999efa3cc
 
 # Catálogo de declarações, não heurística de nomes/reasons. População autorizada
 # em docs/design/T3.3-chaos-resilience.md §4 (B1b-posture: GAP-D3-02/DL-0046),
-# conferida na fonte eb6b7355. Cada pin é SHA-256 do texto UTF-8 da função
+# conferida na fonte eb6b7355 (ancestral de 14eeb930). Cada pin é SHA-256 do texto UTF-8 da função
 # (dedent/getsource, newlines LF), incluindo guarda E corpo. Assim, substituir o uso
 # real por referência inerte, trocar token/callable ou copiar outro teste não
 # cria uma nova exceção. Não existe auto-registro, arquivo de entrada ou env para
@@ -86,6 +86,32 @@ _COMPANIONS: dict[str, tuple[str, str, str]] = {
         "260c453e743137eaf571f04786c98cd7949a568e9ed5b038ec560dc7705e5543",
     ),
 }
+
+
+# PEC-D1: 63ca2a84 removeu somente comentários noqa; fonte conferida em
+# a3471496 (R6). Pares exatos, sem normalização AST/textual nem combinação
+# cartesiana: C1 antigo com helper R6 (ou o inverso) não está autorizado.
+# Os outros cinco corpos são bytewise idênticos nas duas origens. Uma terceira
+# fonte continua exigindo revisão explícita; não há catálogo configurável.
+_R6_GUARD_SHA256 = "3e84f392e8157d3056036e3f6bcbef94de116199caa3ad55858e33d56aac2d99"
+_R6_COMPANIONS = {
+    **_COMPANIONS,
+    "tests/integration/chaos/test_sink_down_failclosed.py::"
+    "test_c1_down_mutation_check_fail_open_swallow_turns_suite_red": (
+        "c1_down",
+        "broken_emit_once_fail_open_swallow",
+        "9b4f076a9dbbe066b22156105aa748aa2ea5172f4c317760587eced421267e21",
+    ),
+}
+
+
+def _companion_catalog(guard_hash: str) -> dict[str, tuple[str, str, str]] | None:
+    """Seleciona apenas pares de fontes revisados; nunca deriva pins da entrada."""
+    if guard_hash == _GUARD_SHA256:
+        return _COMPANIONS
+    if guard_hash == _R6_GUARD_SHA256:
+        return _R6_COMPANIONS
+    return None
 
 
 def redact(value: str) -> str:
@@ -145,7 +171,14 @@ def _companion(item: Any, root: Path) -> dict[str, str] | None:
     declaration = _COMPANIONS.get(item.nodeid)
     if declaration is None or root.resolve() != _COMPANION_ROOT.resolve():
         return None
-    expected_token, expected_broken, expected_source_hash = declaration
+    module_path = root / "tests/integration/chaos/mutations.py"
+    if not module_path.is_file():
+        return None
+    guard_hash = hashlib.sha256(module_path.read_bytes()).hexdigest()
+    catalog = _companion_catalog(guard_hash)
+    if catalog is None:
+        return None
+    expected_token, expected_broken, expected_source_hash = catalog[item.nodeid]
     source = root / item.nodeid.split("::", 1)[0]
     if Path(item.path).resolve() != source.resolve():
         return None
@@ -164,9 +197,6 @@ def _companion(item: Any, root: Path) -> dict[str, str] | None:
     if declaration_hash != expected_source_hash:
         return None
     namespace = function.__globals__
-    module_path = root / "tests/integration/chaos/mutations.py"
-    if not module_path.is_file() or hashlib.sha256(module_path.read_bytes()).hexdigest() != _GUARD_SHA256:
-        return None
     guards: list[tuple[str, str]] = []
     for decorator in definition.decorator_list:
         if not isinstance(decorator, ast.Call) or not decorator.args:
@@ -216,7 +246,7 @@ def _companion(item: Any, root: Path) -> dict[str, str] | None:
         "reason_sha256": _fingerprint("pytest-reason-v2", canonical_reason),
         "declaration_sha256": declaration_hash,
         "guard_source": module_path.relative_to(root).as_posix(),
-        "guard_sha256": hashlib.sha256(module_path.read_bytes()).hexdigest(),
+        "guard_sha256": guard_hash,
         "broken_callables": ",".join(sorted(broken)),
         "obligation": "separate_opt_in_RED_required",
     }
