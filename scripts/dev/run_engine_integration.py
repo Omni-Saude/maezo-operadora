@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import codecs
 import hashlib
 import json
 import os
@@ -1233,12 +1234,87 @@ def verified_result_code(
     return pytest_return_code, None
 
 
-def _publish_execution_json(source: Path, destination: Path) -> None:
+def _publication_context(source: Path) -> Callable[[str], str]:
+    """Propaga somente valores privados conhecidos; o XML original é autoridade."""
+    tree = ET.parse(source)
+    secrets: set[str] = set()
+
+    def remember(value: str) -> None:
+        if value:
+            secrets.update((value, repr(value)[1:-1], json.dumps(value)[1:-1]))
+
+    for prop in tree.iter("property"):
+        if _SECRET_KEY.fullmatch(prop.get("name", "")):
+            remember(prop.get("value", ""))
+    for case in tree.iter("testcase"):
+        for key in ("classname", "name"):
+            _, marker, parameter = case.get(key, "").partition("[")
+            if marker:
+                parameter = parameter.removesuffix("]")
+                remember(parameter)
+                # Pytest escapa IDs Unicode/controle; decodifica escapes individuais
+                # sem reinterpretar caracteres Unicode que já chegaram literais.
+                remember(
+                    re.sub(
+                        r"\\(?:x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|[\\abfnrtv])",
+                        lambda match: codecs.decode(match[0], "unicode_escape"),
+                        parameter,
+                    )
+                )
+    literals = (
+        re.compile("|".join(re.escape(value) for value in sorted(secrets, key=len, reverse=True)))
+        if secrets
+        else None
+    )
+
+    def diagnostic(value: str) -> str:
+        safe = literals.sub(lambda _: "<redacted>", value) if literals else value
+        return _redact_text(safe)
+
+    return diagnostic
+
+
+def _project_narratives(payload: Any, diagnostic: Callable[[str], str], *, narrative: bool = False) -> Any:
+    """Preserva autoridade estrutural/identidades; projeta folhas narrativas."""
+    if isinstance(payload, dict):
+        return {
+            key: _project_narratives(
+                value,
+                diagnostic,
+                narrative=key
+                in {
+                    "skip_reason",
+                    "wasxfail",
+                    "errors",
+                    "collection_error",
+                    "reason",
+                },
+            )
+            for key, value in payload.items()
+        }
+    if isinstance(payload, list):
+        return [_project_narratives(value, diagnostic, narrative=narrative) for value in payload]
+    return diagnostic(payload) if narrative and isinstance(payload, str) else payload
+
+
+def _publish_execution_json(
+    source: Path, destination: Path, diagnostic: Callable[[str], str] | None = None
+) -> None:
     try:
         payload = json.loads(source.read_text())
     except (OSError, ValueError):
         payload = {"finished": False, "error": "JSON bruto inválido retido da publicação"}
-    _json_write(destination, payload)
+    if diagnostic is not None:
+        payload = _project_narratives(payload, diagnostic)
+    elif payload.get("reports"):
+        payload = _project_narratives(payload, lambda _: "<redacted: contexto indisponivel>")
+    try:
+        _json_write(destination, payload)
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
+    finally:
+        destination.with_name(f".{destination.name}.{os.getpid()}.tmp").unlink(missing_ok=True)
 
 
 def _publish_xml(
@@ -1269,24 +1345,10 @@ def _publish_xml(
         return
     try:
         tree = ET.parse(source)
-        secrets: set[str] = set()
+        diagnostic = _publication_context(source)
         for prop in tree.iter("property"):
             if _SECRET_KEY.fullmatch(prop.get("name", "")):
-                value = prop.get("value", "")
-                if value:
-                    secrets.update((value, repr(value)[1:-1], json.dumps(value)[1:-1]))
                 prop.set("value", "<redacted>")
-        # Apenas literais conhecidos nas propriedades, sem ampliar a política.
-        literals = (
-            re.compile("|".join(re.escape(value) for value in sorted(secrets, key=len, reverse=True)))
-            if secrets
-            else None
-        )
-
-        def diagnostic(value: str) -> str:
-            safe = literals.sub(lambda _: "<redacted>", value) if literals else value
-            return _redact_text(safe)
-
         for node in tree.iter():
             if node.tag == "testcase":
                 if identity_projector is None:
@@ -1314,7 +1376,7 @@ def _publish_xml(
                 node.tail = diagnostic(node.tail)
         tree.write(destination, encoding="utf-8", xml_declaration=True)
         publish_log(diagnostic)
-    except (OSError, ET.ParseError):
+    except ET.ParseError:
         destination.write_text("<!-- XML bruto inválido retido da publicação -->\n")
         publish_log()
 
@@ -1335,6 +1397,8 @@ def _run_pytest(
     }
     selection = [test_file, "-m", markers[suite]]
     results_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("suite-results.json", "pytest-execution.json", "junit.xml", "pytest.log"):
+        (results_dir / name).unlink(missing_ok=True)
     if expected_items is None:
         _collect(checkout, selection, results_dir / "collect-selected.log")
         expected_items = _collected_items[results_dir / "collect-selected.log"]
@@ -1360,6 +1424,7 @@ def _run_pytest(
         evidence_path=raw_evidence,
     )
     evidence_api = _evidence_api(checkout)
+    diagnostic: Callable[[str], str] | None = None
     try:
         result = _run(command, cwd=checkout, env=env, timeout=7200, log_path=raw_log)
         _assert_execution_source(checkout)
@@ -1369,6 +1434,10 @@ def _run_pytest(
     finally:
         with _cleanup_signal_mask():
             try:
+                try:
+                    diagnostic = _publication_context(raw_xml)
+                except (OSError, ET.ParseError):
+                    diagnostic = None
                 _publish_xml(
                     raw_xml,
                     junit,
@@ -1376,9 +1445,19 @@ def _run_pytest(
                     diagnostic_log=(raw_log, public_log),
                 )
                 if raw_evidence.exists():
-                    _publish_execution_json(raw_evidence, evidence_path)
+                    _publish_execution_json(raw_evidence, evidence_path, diagnostic)
+            except BaseException:
+                for public in (junit, public_log, evidence_path):
+                    public.unlink(missing_ok=True)
+                raise
             finally:
                 shutil.rmtree(raw_dir)
+    if diagnostic is None:
+        validation = _project_narratives(validation, lambda _: "<redacted: contexto indisponivel>")
+        validation["errors"].append("publicacao sem contexto XML completo")
+        validation["return_code"] = result.returncode or 1
+    else:
+        validation = _project_narratives(validation, diagnostic)
     if len(expected_items) != expected_count:
         validation["errors"].append("manifest de identidades diverge da contagem esperada")
         validation["return_code"] = result.returncode or 1
@@ -1394,7 +1473,14 @@ def _run_pytest(
         "pytest_log": (results_dir / "pytest.log").as_posix(),
         "execution_evidence": evidence_path.as_posix(),
     }
-    _json_write(results_dir / "suite-results.json", payload)
+    suite_results = results_dir / "suite-results.json"
+    try:
+        _json_write(suite_results, payload)
+    except BaseException:
+        suite_results.unlink(missing_ok=True)
+        raise
+    finally:
+        suite_results.with_name(f".{suite_results.name}.{os.getpid()}.tmp").unlink(missing_ok=True)
     return payload
 
 

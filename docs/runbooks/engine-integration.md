@@ -246,3 +246,18 @@ outra execução de assumir que os recursos estão limpos. Se a posse tiver muda
 não executa teardown nem remove a trava. Esse protocolo não afirma sucesso de engine quando a
 execução não ocorreu: descoberta, xfails apenas coletados e companions inativos são evidências
 com limites distintos.
+
+
+O contexto de publicação também inclui o sufixo privado dos IDs parametrizados originais,
+com suas representações literais, repr/JSON e escapes Unicode/controle usados pelo pytest.
+Valores conhecidos de propriedades sensíveis e desses IDs são removidos das narrativas
+XML e dos campos `reports.skip_reason`, `reports.wasxfail`, `cases.skip_reason` e erros
+antes da publicação. A validação usa os inputs originais; fingerprints, identidades opacas,
+fases, outcomes, contagens e rc permanecem autoritativos. Propriedades públicas e testemunhas
+assertionais não sensíveis continuam disponíveis. A fronteira não classifica valores
+arbitrários sem contexto nem transforma um skip/xfail não verificado em PASS.
+O mesmo contexto alcança `pytest.log`, `pytest-execution.json` e `suite-results.json`.
+XML ausente/parcial retém narrativas livres (diagnóstico fixo/hash) e razões JSON,
+com erro explícito e rc não verde. Falhas de publicação não deixam um resultado de suíte
+antigo nem temporários de JSON; o staging bruto 0700/0600 é recolhido inclusive após
+interrupções. O protocolo de posse, supervisão e teardown não é alterado.
