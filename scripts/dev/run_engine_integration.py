@@ -1578,8 +1578,6 @@ def _run_pytest(
     raw_dir = Path(tempfile.mkdtemp(prefix="maezo-private-junit-")).resolve()
     raw_xml = raw_dir / "junit.xml"
     raw_log = raw_dir / "pytest.log"
-    fd = os.open(raw_log, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    os.close(fd)
     public_log = results_dir / "pytest.log"
     public_log.unlink(missing_ok=True)
     raw_evidence = raw_dir / "execution.json"
@@ -1600,9 +1598,14 @@ def _run_pytest(
     evidence_api = _evidence_api(checkout)
     diagnostic: Callable[[str], str] | None = None
     try:
+        # Os escritores filhos preservam estes modos desde a primeira escrita,
+        # independentemente do umask herdado, sem alterar o umask global.
+        for path in (raw_xml, raw_evidence, raw_log):
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            os.close(fd)
         result = _run(command, cwd=checkout, env=env, timeout=7200, log_path=raw_log)
         _assert_execution_source(checkout)
-        evidence = json.loads(raw_evidence.read_text()) if raw_evidence.exists() else {}
+        evidence = json.loads(raw_evidence.read_text() or "{}") if raw_evidence.exists() else {}
         # Valida identidades completas antes de projetar artefatos seguros.
         try:
             validation = evidence_api.validate_execution(raw_xml, evidence, expected_items, result.returncode)
@@ -1622,7 +1625,7 @@ def _run_pytest(
                     identity_projector=evidence_api.public_junit_identity,
                     diagnostic_log=(raw_log, public_log),
                 )
-                if raw_evidence.exists():
+                if raw_evidence.exists() and raw_evidence.stat().st_size:
                     _publish_execution_json(raw_evidence, evidence_path, diagnostic)
             except BaseException:
                 for public in (junit, public_log, evidence_path):
