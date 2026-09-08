@@ -248,6 +248,7 @@ def test_unknown_or_malformed_metadata_is_rejected(tmp_path: Path, mutation: str
     [
         ("missing_declaration", "requires a declared successor"),
         ("predated", "requires a convention-qualified successor Date"),
+        ("missing_date", "requires a convention-qualified successor Date"),
         ("malformed_date", "requires a convention-qualified successor Date"),
     ],
 )
@@ -262,6 +263,8 @@ def test_valid_v1_marker_cannot_fall_back_to_legacy(
         replacement = history.successor_row.replace("sha256:", "sha257:")
     elif mutation == "predated":
         replacement = history.successor_row.replace(CONVENTION_START_DATE, "2000-01-01")
+    elif mutation == "missing_date":
+        replacement = history.successor_row.replace(CONVENTION_START_DATE, "")
     else:
         replacement = history.successor_row.replace(CONVENTION_START_DATE, "not-a-date")
     _replace_and_commit(history.root, history.successor_row, replacement)
