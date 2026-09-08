@@ -51,6 +51,7 @@ def test_actual_tomcat_plugin_loaded_after_schema_and_trust_bootstrap() -> None:
 
 
 def test_actual_tomcat_rejects_client_without_mutual_tls_identity() -> None:
+    """The pinned HTTPX/httpcore path retains the native alert as a typed payload."""
     context = server_authenticated_tls13_context(required("MAEZO_HUMAN_PACKAGE_CA_FILE"))
     with (
         httpx.Client(verify=context, trust_env=False, follow_redirects=False) as client,

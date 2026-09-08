@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import ssl
+from typing import Any
 
+import httpcore
 import httpx
 import pytest
+from httpcore._backends.sync import SyncStream
 from tests.support.tls_oracle import (
     PINNED_JSSE_MISSING_CLIENT_CERTIFICATE_REASON,
     assert_pinned_jsse_missing_client_certificate_alert,
@@ -36,7 +39,82 @@ def _raise_from(outer: BaseException, cause: BaseException) -> BaseException:
             return chained
 
 
-def test_exact_native_peer_alert_is_accepted_through_httpx_causal_chain() -> None:
+class _SocketSpecimen:
+    def __init__(self, failure: BaseException) -> None:
+        self.failure = failure
+
+    def settimeout(self, timeout: float | None) -> None:
+        del timeout
+
+    def send(self, data: bytes) -> int:
+        return len(data)
+
+    def recv(self, max_bytes: int) -> bytes:
+        del max_bytes
+        raise self.failure
+
+    def close(self) -> None:
+        pass
+
+
+class _Stream(SyncStream):
+    def start_tls(self, **kwargs: Any) -> SyncStream:
+        del kwargs
+        return self
+
+    def get_extra_info(self, info: str) -> object:
+        return False if info == "is_readable" else None
+
+
+class _Backend:
+    def __init__(self, failure: BaseException) -> None:
+        self.failure = failure
+
+    def connect_tcp(self, **kwargs: Any) -> SyncStream:
+        del kwargs
+        return _Stream(_SocketSpecimen(self.failure))
+
+
+def _request_failure(native: BaseException) -> httpx.ReadError:
+    transport = httpx.HTTPTransport()
+    transport._pool.close()
+    transport._pool = httpcore.ConnectionPool(network_backend=_Backend(native))
+    with httpx.Client(transport=transport, trust_env=False) as client:
+        try:
+            client.post("https://offline.invalid/commands", json={})
+        except httpx.ReadError as failure:
+            return failure
+    raise AssertionError("pinned HTTPX/httpcore path returned without ReadError")
+
+
+def test_exact_native_peer_alert_is_accepted_through_pinned_library_path() -> None:
+    native = _ssl_error()
+    outer = _request_failure(native)
+    inner = outer.__cause__
+
+    assert httpx.__version__ == "0.28.1"
+    assert httpcore.__version__ == "1.0.9"
+    assert type(inner) is httpcore.ReadError
+    assert inner.__cause__ is None
+    assert inner.__suppress_context__ is True
+    assert len(inner.args) == 1
+    assert inner.args[0] is native
+    assert_pinned_jsse_missing_client_certificate_alert(outer)
+
+
+def test_pinned_library_path_retains_reset_without_satisfying_oracle() -> None:
+    native = ConnectionResetError("reset")
+    outer = _request_failure(native)
+    inner = outer.__cause__
+
+    assert type(inner) is httpcore.ReadError
+    assert len(inner.args) == 1
+    assert inner.args[0] is native
+    with pytest.raises(AssertionError, match="expected native SSL peer alert"):
+        assert_pinned_jsse_missing_client_certificate_alert(outer)
+
+
+def test_exact_native_peer_alert_is_accepted_through_explicit_causal_chain() -> None:
     request = httpx.Request("POST", "https://localhost/maezo-human/v1/commands")
     inner = _raise_from(RuntimeError("httpcore wrapper"), _ssl_error())
     outer = _raise_from(httpx.ReadError("read failed", request=request), inner)
@@ -56,11 +134,37 @@ def test_exact_native_peer_alert_is_accepted_through_httpx_causal_chain() -> Non
         _ssl_error("CERTIFICATE_UNKNOWN"),
         _ssl_error(library="not-SSL"),
         _ssl_error(error_type=ssl.SSLCertVerificationError),
+        httpcore.ReadError("SSLV3_ALERT_BAD_CERTIFICATE"),
+        httpcore.ReadError(ConnectionResetError("reset")),
+        httpcore.ReadError(TimeoutError("timed out")),
+        httpcore.ReadError(EOFError("EOF")),
+        httpcore.ReadError(_ssl_error("WRONG_VERSION_NUMBER")),
+        httpcore.ReadError(_ssl_error("CERTIFICATE_UNKNOWN")),
+        httpcore.ReadError(_ssl_error(library="not-SSL")),
+        httpcore.ReadError(_ssl_error(error_type=ssl.SSLCertVerificationError)),
+        httpcore.ReadError(_ssl_error(), "extra argument"),
+        RuntimeError(_ssl_error()),
+        httpcore.ReadError(RuntimeError(_ssl_error())),
     ],
 )
 def test_unrelated_failures_do_not_satisfy_missing_client_certificate_oracle(
     failure: BaseException,
 ) -> None:
+    with pytest.raises(AssertionError, match="expected native SSL peer alert"):
+        assert_pinned_jsse_missing_client_certificate_alert(failure)
+
+
+def test_httpcore_read_error_subclass_payload_is_not_an_authorized_edge() -> None:
+    class DerivedReadError(httpcore.ReadError):
+        pass
+
+    with pytest.raises(AssertionError, match="expected native SSL peer alert"):
+        assert_pinned_jsse_missing_client_certificate_alert(DerivedReadError(_ssl_error()))
+
+
+def test_explicit_cause_takes_precedence_over_httpcore_payload() -> None:
+    failure = _raise_from(httpcore.ReadError(_ssl_error()), ConnectionResetError("current cause"))
+
     with pytest.raises(AssertionError, match="expected native SSL peer alert"):
         assert_pinned_jsse_missing_client_certificate_alert(failure)
 
@@ -83,6 +187,15 @@ def test_cyclic_exception_chain_is_rejected() -> None:
     failure.__cause__ = failure
 
     with pytest.raises(AssertionError, match="cyclic exception chain"):
+        assert_pinned_jsse_missing_client_certificate_alert(failure)
+
+
+def test_overlong_exception_chain_is_rejected() -> None:
+    failure: BaseException = RuntimeError("root")
+    for depth in range(9):
+        failure = _raise_from(RuntimeError(f"wrapper {depth}"), failure)
+
+    with pytest.raises(AssertionError, match="too deep"):
         assert_pinned_jsse_missing_client_certificate_alert(failure)
 
 

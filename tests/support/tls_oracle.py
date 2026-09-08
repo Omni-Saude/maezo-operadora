@@ -17,6 +17,8 @@ import ssl
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+import httpcore
+
 PINNED_JSSE_MISSING_CLIENT_CERTIFICATE_REASON = "SSLV3_ALERT_BAD_CERTIFICATE"
 _MAX_CAUSAL_CHAIN_DEPTH = 8
 
@@ -48,13 +50,22 @@ def assert_pinned_jsse_missing_client_certificate_alert(exc: BaseException) -> N
     observed: list[tuple[str, object, object]] = []
     for item in _causal_chain(exc):
         observed.append((type(item).__name__, getattr(item, "library", None), getattr(item, "reason", None)))
-        if (
-            isinstance(item, ssl.SSLError)
-            and not isinstance(item, ssl.SSLCertVerificationError)
-            and item.library == "SSL"
-            and item.reason == PINNED_JSSE_MISSING_CLIENT_CERTIFICATE_REASON
-        ):
-            return
+        candidates = [item]
+        # httpcore 1.0.9 SyncStream passes the native OSError to ReadError's
+        # constructor, then ConnectionPool uses ``raise exc from None``.  This
+        # exact payload edge is the only fallback when no explicit cause exists.
+        if type(item) is httpcore.ReadError and item.__cause__ is None and len(item.args) == 1:
+            payload = item.args[0]
+            if isinstance(payload, ssl.SSLError):
+                candidates.append(payload)
+        for candidate in candidates:
+            if (
+                isinstance(candidate, ssl.SSLError)
+                and not isinstance(candidate, ssl.SSLCertVerificationError)
+                and candidate.library == "SSL"
+                and candidate.reason == PINNED_JSSE_MISSING_CLIENT_CERTIFICATE_REASON
+            ):
+                return
     raise AssertionError(
         "expected native SSL peer alert "
         f"library='SSL' reason={PINNED_JSSE_MISSING_CLIENT_CERTIFICATE_REASON!r}; "
