@@ -2,7 +2,8 @@
 
 Este runbook opera o CIB Seven usado pelas suítes `integration` sem compartilhar estado com
 outros checkouts ou stacks locais. O runner executa exatamente uma suíte por invocação em um
-projeto Compose novo, derivado de arquivos rastreados no próprio checkout alvo.
+projeto Compose novo, derivado de uma cópia própria dos blobs do SHA alvo. O checkout original
+não recebe reset, clean, remoção de caches ou sincronização de ambiente.
 
 ## Pré-requisitos e limites
 
@@ -12,14 +13,17 @@ projeto Compose novo, derivado de arquivos rastreados no próprio checkout alvo.
   não rode a suíte unitária em paralelo.
 - O checkout precisa estar em um SHA completo de 40 caracteres e sem alterações tracked. As
   entradas de execução em `src/`, `spec/`, toda a árvore `tests/`, toda a árvore `scripts/`,
-  `docker-compose.yml`, `pyproject.toml` e `uv.lock` também não podem ser untracked.
+  `config/`, arquivos Python/configuração de raiz, `docker-compose.yml`, `pyproject.toml` e
+  `uv.lock` também não podem ser untracked ou ignored. `.env` é recusado sem ler seus valores.
+  Caches reconhecidos e a `.venv` original são preservados e não entram na cópia.
 - O runner remove apenas o projeto Compose `maezo-completion-engine`. Ele não usa `docker system
   prune`, não enumera nem remove outros worktrees e não atua sobre containers de outros projetos.
 - Não apague uma trava antiga automaticamente. Se `engine.lock` existir após um processo morto,
   examine `engine.lock/owner.json`, o processo indicado e os recursos do projeto antes de uma
   decisão humana de recuperação.
 - O Compose é sempre chamado com os dois arquivos rastreados, projeto/perfil explícitos e
-  `--env-file /dev/null`. Um `.env` ignorado no checkout não participa da renderização.
+  `--env-file /dev/null`. A aplicação Python também não recebe `.env`: a origem o recusa e a
+  cópia de execução contém somente arquivos do SHA, sem symlinks ou submódulos externos.
 
 Portas publicadas pelo override rastreado, todas vinculadas somente a `127.0.0.1`:
 
@@ -36,15 +40,16 @@ O listener anunciado ao host é `localhost:19092`; o listener interno continua
 
 ## Descoberta sem iniciar containers
 
-Use um diretório de resultados fora do checkout. Remova `VIRTUAL_ENV` do ambiente para impedir
-que outro worktree forneça o pacote importado.
+Use um diretório de resultados fora do checkout e um intérprete CPython 3.12+ confiável.
+`-I -S` impede que a inicialização do próprio runner execute `.pth`, sitecustomize ou user site
+da venv de origem. Cada cópia cria sua própria venv a partir do lockfile antes da coleta.
 
 ```bash
 CHECKOUT=/Users/familia/code/maezo-completion-wt/engine-runner
 TARGET_SHA=$(git -C "$CHECKOUT" rev-parse HEAD)
 RESULTS=/Users/familia/code/maezo-operadora/docs/audits/maezo-deep-audit/remediation/engine-runs/discovery-$TARGET_SHA
 
-env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
+"$CHECKOUT/.venv/bin/python" -I -S \
   "$CHECKOUT/scripts/dev/run_engine_integration.py" discover \
   --checkout "$CHECKOUT" \
   --sha "$TARGET_SHA" \
@@ -53,7 +58,9 @@ env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
 
 `discovery.json` parte da coleta canônica `pytest tests -m integration` e contém cada nodeid. Seu
 `execution_manifest` divide a coleção por arquivo e informa grupo, contagem esperada e serviços
-necessários. Cada entrada é uma execução separada em stack fresca. Ele
+necessários, identidades JUnit, hashes de fontes e estados canônicos dos marcadores.
+`execution-source.json` identifica o checkout original, a cópia, importação real e hashes de
+todos os arquivos rastreados. As fontes são conferidas antes/depois da coleta e dos testes. Cada entrada é uma execução separada em stack fresca. Ele
 falha se a coleta for vazia, se algum arquivo `tests/integration/**/test_*.py` não gerar nodeid,
 se houver teste nessa árvore sem `integration`, se a união das três suítes não for exata ou se
 LGPD/escalation desaparecerem. Assim os testes live-PG que vivem sob `tests/unit/` não ficam fora
@@ -68,21 +75,22 @@ que poderiam alterar seleção, import, dependências, daemon ou endpoints e a d
 
 | Superfície | Controles externos | Disposição |
 |---|---|---|
-| pytest | `PYTEST_ADDOPTS`, `PYTEST_PLUGINS`, plugins instalados por entry point | ambiente removido; autoload desativado; somente `pytest_asyncio.plugin`, declarado no extra `dev`, é carregado; `pyproject.toml` rastreado é passado por `-c` |
-| Python | `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, user site e `sitecustomize` do usuário | variáveis removidas por allowlist e interpreter chamado com `-I` |
-| uv | `VIRTUAL_ENV` e todos os `UV_*` (`UV_PROJECT`, `UV_PROJECT_ENVIRONMENT`, `UV_CONFIG_FILE`, índices e seleção de Python incluídos) | removidos; `uv run --locked --project <checkout>` resolve o projeto rastreado |
-| Git | `GIT_DIR`, `GIT_WORK_TREE`, configs e alternates injetados por ambiente | todos os `GIT_*` removidos antes das provas de SHA/dirty/untracked |
+| pytest | `PYTEST_ADDOPTS`, `PYTEST_PLUGINS`, plugins instalados por entry point | ambiente removido; autoload desativado; somente `pytest_asyncio.plugin`, declarado no extra `dev`, é carregado; `pyproject.toml` rastreado é passado por `-c`; `--confcutdir` limita conftests à cópia |
+| Python | `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, user site e `sitecustomize` do usuário | variáveis removidas por allowlist, venv nova na cópia e intérprete chamado com `-I`; código/venv de origem e conftests ancestrais não entram |
+| uv | `VIRTUAL_ENV` e todos os `UV_*` (`UV_PROJECT`, `UV_PROJECT_ENVIRONMENT`, `UV_CONFIG_FILE`, índices e seleção de Python incluídos) | removidos; `--no-config --no-env-file --locked --extra dev --project <cópia>`; cutoff de resolução lido do lockfile |
+| Git | `GIT_DIR`, `GIT_WORK_TREE`, configs e alternates injetados por ambiente | ambiente externo removido; configuração global/sistema, hooks, fsmonitor, external diff e textconv desativados nas provas |
 | Docker | `DOCKER_HOST`, `DOCKER_CONTEXT`, `DOCKER_CONFIG`, TLS | removidos; CLI fixa `--context colima` e valida previamente que o endpoint é socket Unix local em `~/.colima/` |
 | Compose | `.env`, `COMPOSE_FILE`, `COMPOSE_PROFILES`, `COMPOSE_PROJECT_NAME`, overrides implícitos | removidos; `--env-file /dev/null`, dois `-f`, perfil `core`, diretório e projeto são explícitos |
-| pytest de mutação | `MAEZO_CHAOS_MUTATE` | removido. Companions de mutação ficam registrados como `mutation_skipped`; a execução normal nunca os ativa nem os conta como prova positiva |
+| pytest de mutação | `MAEZO_CHAOS_MUTATE` | removido. Companions de mutação ficam registrados como `inactive_companion`; a execução normal nunca os ativa nem os conta como prova positiva |
 | banco | `DATABASE_URL`, `MAEZO_TEST_DATABASE_URL`, `MAEZO_TEST_A2A_EDGE_DATABASE_URL`, `MAEZO_TEST_AMH_INBOX_DATABASE_URL`, `MAEZO_TEST_AUDIT_ANCHOR_DRILL_DATABASE_URL`, `MAEZO_TEST_CHECKPOINT_DATABASE_URL`, `MAEZO_PG_*` | todos fixados no Postgres isolado em `127.0.0.1:15433`; nenhum DSN do usuário é herdado |
-| engine/eventos/FHIR | `ENGINE_REST_URL`, `CIBSEVEN_BASE_URL`, `KAFKA_BOOTSTRAP_SERVERS`, `FHIR_BASE_URL`, `HAPI_FHIR_BASE_URL`, proxies HTTP | endpoints fixados em loopback nas portas 18080/19092/18081; proxies não são herdados e `NO_PROXY=localhost,127.0.0.1` |
+| engine/eventos/FHIR | `ENGINE_REST_URL`, `CIBSEVEN_BASE_URL`, `KAFKA_BOOTSTRAP_SERVERS`, `FHIR_BASE_URL`, `HAPI_FHIR_BASE_URL`, proxies HTTP | endpoints fixados em loopback nas portas 18080/19092/18081; proxies não são herdados; HTTP no pai usa ProxyHandler vazio, portas fixas e recusa redirects |
 | credenciais externas | chaves LLM e demais variáveis não enumeradas | não entram no ambiente filho. Logs passam por redação de senha em URI e campos usuais de segredo antes de serem persistidos/propagados |
 
-As únicas variáveis do sistema preservadas são `PATH`, `HOME`, locale, `TMPDIR` e caminhos de
-certificados. Elas permitem localizar os binários/cache/contexto local, mas não alteram seleção,
-proveniência ou endpoints. O extra `dev` deve ter sido sincronizado com `uv sync --locked --extra
-dev` antes do runner; ambiente divergente falha no import/plugin, não recebe fallback.
+As variáveis do sistema preservadas são `PATH`, `HOME`, locale e `TMPDIR`. O sistema operacional,
+CPython, Git, uv, cache de distribuições e binários Docker são a base de confiança da máquina;
+o runner não é uma sandbox contra adulteração desses binários pelo próprio usuário.
+Configurações SSL/proxy/pytest/uv do ambiente não são herdadas. O extra `dev` é sincronizado na
+venv própria com o lockfile, e a importação de `maezo` deve resolver em `src/maezo` dessa cópia.
 
 ## Execução serial
 
@@ -94,7 +102,7 @@ com o arquivo pode desmontar o projeto e liberar a trava.
 ```bash
 RUN_RESULTS=/Users/familia/code/maezo-operadora/docs/audits/maezo-deep-audit/remediation/engine-runs/core-$TARGET_SHA
 
-env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
+"$CHECKOUT/.venv/bin/python" -I -S \
   "$CHECKOUT/scripts/dev/run_engine_integration.py" run \
   --checkout "$CHECKOUT" \
   --sha "$TARGET_SHA" \
@@ -105,7 +113,7 @@ env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
 ```
 
 A entrada `core` sobe Postgres e Kafka, espera prontidão real, sobe o CIB Seven e então envia todos
-os BPMN/DMN pelo CLI `maezo.platform.deploy --spec-dir "$CHECKOUT/spec"`. Antes de pytest, o
+os BPMN/DMN pelo CLI `maezo.platform.deploy`, com `--spec-dir` apontando à mesma cópia do SHA. Antes de pytest, o
 runner consulta cada definição latest no engine e compara o SHA-256 do XML devolvido com o
 arquivo do checkout. `deployment-provenance.json` fixa imagem declarada, versão respondida,
 deployment IDs, versões, hashes dos dois Compose e hashes de todos os artefatos.
@@ -118,7 +126,7 @@ primeira tiver liberado a trava:
 ```bash
 CHAOS_RESULTS=/Users/familia/code/maezo-operadora/docs/audits/maezo-deep-audit/remediation/engine-runs/chaos-$TARGET_SHA
 
-env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
+"$CHECKOUT/.venv/bin/python" -I -S \
   "$CHECKOUT/scripts/dev/run_engine_integration.py" run \
   --checkout "$CHECKOUT" \
   --sha "$TARGET_SHA" \
@@ -138,7 +146,7 @@ nodeids. Isso impede que o caso DMN seja convertido em skip por uma classificaç
 ```bash
 DB_UNIT_RESULTS=/Users/familia/code/maezo-operadora/docs/audits/maezo-deep-audit/remediation/engine-runs/db-unit-$TARGET_SHA
 
-env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
+"$CHECKOUT/.venv/bin/python" -I -S \
   "$CHECKOUT/scripts/dev/run_engine_integration.py" run \
   --checkout "$CHECKOUT" \
   --sha "$TARGET_SHA" \
@@ -150,14 +158,18 @@ env -u VIRTUAL_ENV uv run --directory "$CHECKOUT" --locked python \
 
 ## Evidências e falhas
 
-Cada subprocesso longo abre seu log antes de iniciar e escreve stdout/stderr diretamente nele;
-assim timeout ou sinal preserva a saída anterior à falha. O runner cria um grupo de processo
+Cada subprocesso longo cria seu log antes de iniciar. Saída bruta fica num descritor temporário
+anônimo; o finally publica o conteúdo redigido, inclusive em timeout, sinal ou EPERM. O JUnit é
+produzido em staging privado e publicado após redação dos atributos/textos XML, preservando sua
+sintaxe. Um XML parcial inválido é retido da publicação e faz a validação falhar. O runner cria um grupo de processo
 separado para cada comando. Em timeout, `SIGINT` ou `SIGTERM`, envia TERM ao grupo, espera por até
 1 segundo, escala para KILL e exige que o grupo deixe de existir em até mais 3 segundos antes de
 autorizar teardown ou liberar a trava. Essa verificação usa o PGID criado pelo próprio `Popen`,
 nunca enumera ou sinaliza grupos alheios. Vale também quando o líder retorna 0 deixando um
 descendente e durante `SIGINT`/`SIGTERM`. Se a quiescência não puder ser comprovada, o estado vira
-`subprocess_cleanup_unconfirmed` e a trava permanece.
+`subprocess_cleanup_unconfirmed` e a trava permanece. `owner.json` registra quiescência falsa
+antes do spawn, lista os PGIDs pendentes e só registra quiescência após ESRCH e reaping. Sinais
+pendentes/repetidos ou o tipo de exceção não podem substituir essa prova durável.
 
 O mapa de propagação é: runner → `Popen(start_new_session=True)` (PID do líder = PGID exclusivo) →
 uv/Python/pytest ou Docker CLI → descendentes que herdam o mesmo PGID. O daemon Docker não é um
@@ -165,16 +177,24 @@ descendente do CLI; sua contenção é o projeto Compose fixo e o teardown autor
 Por isso a liberação depende de duas provas separadas: grupo de subprocesso vazio e, quando a
 stack foi tocada, `docker compose down -v --remove-orphans` concluído no contexto local validado.
 
-Cada execução grava `run-state.json` mesmo em erro ou interrupção. `suite-results.json` registra
-o return code e contagens de `passed`, `failed`, `skipped`, `xfailed`, `xpassed` e `errors`;
-`pytest.log` mantém razões de skip/xfail e `junit.xml` fornece os casos individuais. A contagem
-`tests` do JUnit precisa ser idêntica a `expected_count` do manifest; seleção vazia ou parcial
-transforma até um rc 0 do pytest em falha do runner. Skips de infraestrutura, inclusive `COULD
-NOT VERIFY`, são `skipped` inesperados e tornam o módulo vermelho mesmo com rc 0 do pytest.
-Strict-xfails continuam `xfailed`; os companions opt-in cuja razão declara
-`MAEZO_CHAOS_MUTATE=<id>` ficam separados como `mutation_skipped`. Todo caso e motivo aparece em
-`suite-results.json`; XPASS também bloqueia. O runner não imprime o ambiente nem copia `.env`,
-credenciais ou secrets, e redige senhas em URIs/campos de segredo dos logs.
+Cada execução grava `run-state.json` mesmo em erro ou interrupção. O núcleo compartilhado
+`scripts/ci/pytest_execution_evidence.py` captura a coleção e as fases setup/call/teardown por
+item; o profiler na fase call observa entrada no código do corpo, inclusive corrotinas.
+`pytest-execution.json`, `junit.xml` e `suite-results.json` permitem confrontar exatamente
+identidades únicas, fontes/marcadores, fases, outcomes e totais XML. Header sozinho, substituição,
+duplicação, XML ausente/parcial, XPASS (inclusive não estrito), skip de infraestrutura e xfail
+em setup ou `run=False` produzem falha mesmo se o pytest retornar zero.
+
+`xfailed_executed` exige marcador estrito e corpo observado; `inactive_companion` é uma omissão
+explícita com obrigação `separate_opt_in_RED_required`. A exceção de companion é derivada da
+guarda AST `not mutation_active(id)`, do callable canônico em `tests/integration/chaos/mutations.py`,
+de suas referências `broken_*` e dos hashes de ambas as fontes na coleção fixada. Razão ou nome
+parametrizado não autorizam skips. O baseline examinado tem dois companions core e quatro chaos;
+o runner deriva isso do SHA, sem hardcode de contagem/IDs. Os leitores numéricos legados usados
+nos testes antigos são auxiliares de apresentação e não participam da decisão de aceite.
+
+Logs, razões e estados publicados redigem senhas em URIs/campos usuais de segredo. Variáveis de
+credencial externas não entram no filho; o runner não imprime o ambiente nem copia `.env`.
 
 As fases de mutação continuam sendo provas RED explícitas fora deste runner e nunca resultados
 aprovados. Use o comando declarado no docstring do módulo, com `MAEZO_CHAOS_MUTATE=<id>`, e espere
