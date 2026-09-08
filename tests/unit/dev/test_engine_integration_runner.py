@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 import pytest
+from scripts.dev.run_engine_integration import verified_result_code
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER = REPO_ROOT / "scripts" / "dev" / "run_engine_integration.py"
@@ -245,3 +246,16 @@ def test_discovery_rejects_a_checkout_at_the_wrong_sha(tmp_path: Path) -> None:
     assert result.returncode == 64
     assert "SHA esperado" in result.stderr
     assert not (tmp_path / "discovery.json").exists()
+
+
+def test_junit_empty_or_partial_cannot_turn_into_a_successful_suite() -> None:
+    assert verified_result_code(0, actual_count=4, expected_count=4, test_file="tests/x.py") == (0, None)
+    partial_rc, partial_error = verified_result_code(
+        0, actual_count=3, expected_count=4, test_file="tests/x.py"
+    )
+    empty_rc, empty_error = verified_result_code(0, actual_count=0, expected_count=4, test_file="tests/x.py")
+
+    assert partial_rc == 1
+    assert "executou 3" in str(partial_error)
+    assert empty_rc == 1
+    assert "executou 0" in str(empty_error)
