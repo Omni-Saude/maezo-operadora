@@ -1,0 +1,10 @@
+utc_start=2026-09-08T20:57:29.429488+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-boundary-repair
+argv=["git", "show", "<ref>:docs/evidence-ledger.md"] plus byte-prefix and row-count checks
+{"bytes": 1618623, "data_rows": 477, "physical_lines": 588, "ref": "7b34cf44ae9e531092f92994a8347fbe0116784c", "sha256": "b5e659d64a277b776d413dbb378a219305084cd24b5132f9d266e77acd5720cb"}
+{"bytes": 1623016, "data_rows": 480, "physical_lines": 603, "ref": "ac775f8dd86418402bc42bae1eb11756fe90c038", "sha256": "23bee9636421beaf5e240a128533d8cbf611bf4ab6d68611b0a7742722c766bf"}
+{"bytes": 1625194, "data_rows": 481, "physical_lines": 604, "ref": "c97631d9865b87842c014037b3ac6a5c7025d26c", "sha256": "1663c58dfd21aa991585599e89b15ae5da1fbbba0e002d1abd73bb504f251918"}
+{"author_is_literal_prefix_of_candidate": true, "candidate_appended_bytes": 2178, "original_is_literal_prefix_of_author": true, "original_is_literal_prefix_of_candidate": true}
+numstat=1	0	docs/evidence-ledger.md
+utc_end=2026-09-08T20:57:29.653815+00:00
+rc=0

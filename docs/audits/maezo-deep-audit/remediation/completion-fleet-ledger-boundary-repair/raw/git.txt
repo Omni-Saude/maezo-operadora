@@ -1,0 +1,28 @@
+utc_start=2026-09-08T21:02:04.034842+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-boundary-repair
+argv=["git", "rev-parse", "HEAD", "HEAD^{tree}"]
+c97631d9865b87842c014037b3ac6a5c7025d26c
+da95cbc5c53949a0c48c56c1bf310f5a786ee859
+rc=0
+argv=["git", "log", "--oneline", "--decorate", "ac775f8dd86418402bc42bae1eb11756fe90c038..HEAD"]
+c97631d9 (HEAD -> completion/fleet-ledger-boundary-repair) docs(auditoria): anexa linha ao fim do ledger
+4ae3ce29 docs(auditoria): registra reparo de limites do ledger
+07ebb91d test(ci): cobre data ausente no sucessor do ledger
+ea564269 fix(ci): fecha limites do replay historico do ledger
+rc=0
+argv=["git", "diff", "--stat", "ac775f8dd86418402bc42bae1eb11756fe90c038", "HEAD"]
+ docs/evidence-ledger.md                            |   1 +
+ scripts/ci/check_evidence_ledger_hashes.py         | 130 ++++++++++++++++----
+ .../ci/test_check_evidence_ledger_supersession.py  | 131 ++++++++++++++++++++-
+ 3 files changed, 234 insertions(+), 28 deletions(-)
+rc=0
+argv=["git", "diff", "--name-status", "ac775f8dd86418402bc42bae1eb11756fe90c038", "HEAD"]
+M	docs/evidence-ledger.md
+M	scripts/ci/check_evidence_ledger_hashes.py
+M	tests/unit/ci/test_check_evidence_ledger_supersession.py
+rc=0
+argv=["git", "status", "--short", "--branch"]
+## completion/fleet-ledger-boundary-repair
+rc=0
+utc_end=2026-09-08T21:02:04.270563+00:00
+overall_rc=0

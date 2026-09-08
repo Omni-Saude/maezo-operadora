@@ -1,0 +1,6 @@
+utc_start=2026-09-08T21:01:35.612135+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-boundary-repair
+argv=["git", "diff", "--unified=0", "ac775f8dd86418402bc42bae1eb11756fe90c038", "HEAD", "--", "docs/evidence-ledger.md"]
+{"added_lines": 1, "added_rows": 1, "cells_per_added_row": [8], "removed_lines": 0, "task_ids": ["FLEET-LEDGER-BOUNDARY-REPAIR / FLTV-01 / FLTV-02 / FLTV-03 / FLTV-04"]}
+rc=0
+utc_end=2026-09-08T21:01:35.718022+00:00

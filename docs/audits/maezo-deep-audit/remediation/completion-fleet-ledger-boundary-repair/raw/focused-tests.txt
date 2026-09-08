@@ -1,0 +1,10 @@
+utc_start=2026-09-08T20:47:34.744388+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-boundary-repair
+argv=[".venv/bin/python", "-m", "pytest", "tests/unit/ci/test_check_evidence_ledger_hashes.py", "tests/unit/ci/test_check_evidence_ledger_supersession.py", "tests/unit/ci/test_generate_release_floor.py", "-q", "-p", "no:cacheprovider"]
+revision=SOURCE_07ebb91d398c76b7e747a824c35122eb81a876ab_PLUS_UNCOMMITTED_LEDGER
+........................................................................ [ 44%]
+........................................................................ [ 88%]
+..................                                                       [100%]
+162 passed in 58.03s
+rc=0
+utc_end=2026-09-08T20:48:33.598182+00:00
