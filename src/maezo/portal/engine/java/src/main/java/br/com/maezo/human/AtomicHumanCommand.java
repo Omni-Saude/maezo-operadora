@@ -160,7 +160,7 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
               c.taskId(),
               trust.tenant);
       if (rs.size() != 1) throw Rejected.conflict();
-      resulting = rs.get(0).get("rev_").toString();
+      resulting = c.taskRevision();
     }
     Map<String, Object> receipt = new TreeMap<>();
     receipt.put("schema", "human-engine-receipt.v1");
