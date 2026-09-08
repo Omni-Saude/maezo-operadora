@@ -34,7 +34,6 @@ from maezo.tools.workers.escalation import (
     make_notify_team_handler,
 )
 from maezo.tools.workers.harness import ExternalTask, FakeKafkaPublisher, WorkerBpmnError
-from maezo.tools.workers.phi_vars import REDACTED_DIGITS, REDACTED_EMAIL, REDACTED_PHONE
 from tests.support.dmn_first_hit import DMN_DIR, REPO_ROOT, read_live_table
 
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
@@ -328,9 +327,18 @@ async def test_notify_team_tolerated_motivo_never_logs_the_rejected_value_raw(
     for leak in ("123.456.789-00", "98888-7777", "joao@example.com", "123456789012345"):
         assert leak not in repr(logs), f"{leak!r} vazou no structlog"
         assert leak not in caplog.text, f"{leak!r} vazou no logger stdlib"
-    assert REDACTED_DIGITS in tolerado["valor"]
-    assert REDACTED_EMAIL in tolerado["valor"]
-    assert REDACTED_PHONE in tolerado["valor"]
+    assert "valor" not in tolerado
+    assert set(tolerado) == {
+        "event",
+        "campo",
+        "dominio",
+        "business_key",
+        "topic",
+        "process_instance_id",
+        "log_level",
+    }
+    assert "CPF" not in repr(logs) + caplog.text
+    assert "[REDACTED" not in repr(logs) + caplog.text
 
     # E a notificacao publicada segue limpa (a metade que ja estava correta antes deste gap).
     _topic, published, _key = kafka.published[0]
