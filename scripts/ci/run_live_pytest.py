@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import sys
 import tempfile
 import traceback
@@ -188,6 +189,90 @@ def _project_narratives(payload: Any, diagnostic: Callable[[str], str], *, narra
     return diagnostic(payload) if narrative and isinstance(payload, str) else payload
 
 
+def _withhold_narrative(value: str) -> str:
+    """A coleta não tem contexto do corpo para classificar razões livres."""
+    return "<redacted: contexto indisponivel>" if value else value
+
+
+def _collection_projection(payload: dict[str, Any]) -> dict[str, Any]:
+    items = []
+    for original in payload["collection"]:
+        item = dict(original)
+        for key in ("xfail", "inactive_companion"):
+            marker = item.get(key)
+            if marker is not None and "reason" in marker:
+                item[key] = {**marker, "reason": _withhold_narrative(marker["reason"])}
+        items.append(item)
+    return {**payload, "collection": items}
+
+
+def _private_json_write(path: Path, payload: dict[str, Any]) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        stream.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def _custody_binding(output: Path, root: Path, reference: dict[str, str]) -> dict[str, Any]:
+    return {"schema": 1, "manifest": str(output.resolve()), "root": str(root.resolve()), **reference}
+
+
+def _private_bytes(path: Path) -> bytes:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as stream:
+        metadata = os.fstat(stream.fileno())
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_uid != os.getuid()
+        ):
+            raise ValueError("arquivo de custodia deve ser regular privado 0600")
+        return stream.read()
+
+
+def _expected_original(output: Path, root: Path) -> dict[str, Any]:
+    """Autentica a ligação local; não é assinatura contra o próprio usuário OS.
+
+    O manifesto público nunca se torna expected_items. Digest e parse usam os
+    mesmos bytes privados, e a projeção inteira deve coincidir com o manifesto.
+    A mesma coleta íntegra pode ser executada novamente.
+    """
+    if not stat.S_ISREG(output.lstat().st_mode):
+        raise ValueError("manifesto deve ser arquivo regular sem symlink")
+    public = _read_json(output)
+    reference = public.get("private_collection")
+    if (
+        not isinstance(reference, dict)
+        or set(reference) != {"directory", "sha256"}
+        or not all(isinstance(value, str) for value in reference.values())
+        or re.fullmatch(r"[a-f0-9]{64}", reference["sha256"]) is None
+    ):
+        raise ValueError("referencia de custodia ausente ou invalida")
+    name = reference["directory"]
+    if Path(name).name != name or not name.startswith(f".{output.name}.pytest-"):
+        raise ValueError("referencia de custodia fora do confinamento")
+    directory = output.parent.resolve() / name
+    metadata = directory.lstat()
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or stat.S_IMODE(metadata.st_mode) != 0o700
+        or metadata.st_uid != os.getuid()
+    ):
+        raise ValueError("diretorio de custodia deve ser privado 0700 sem symlink")
+    binding = json.loads(_private_bytes(directory / "binding.json"))
+    if binding != _custody_binding(output, root, reference):
+        raise ValueError("vinculo da coleta diverge do root, manifesto ou instancia")
+    raw = _private_bytes(directory / "collection.json")
+    if hashlib.sha256(raw).hexdigest() != reference["sha256"]:
+        raise ValueError("bytes da coleta divergem do digest fixado")
+    original = json.loads(raw)
+    if not isinstance(original, dict):
+        raise ValueError("coleta original deve ser objeto")
+    projected = {**_collection_projection(original), "private_collection": reference}
+    if projected != public:
+        raise ValueError("projecao da coleta diverge do manifesto publico")
+    return original
+
+
 def _publish_sanitized_junit(private_path: Path, public_path: Path) -> None:
     """Projeta identidades do XML já validado e publica conteúdo seguro."""
     tree = ET.parse(private_path)
@@ -251,7 +336,8 @@ def collect(output: Path, root: Path, raw_pytest_args: Sequence[str]) -> int:
         )
         return pytest_rc
     try:
-        evidence = _read_json(raw_evidence)
+        original_bytes = _private_bytes(raw_evidence)
+        evidence = json.loads(original_bytes)
         items = evidence["collection"]
         nodeids = [item["nodeid"] for item in items]
         if (
@@ -268,8 +354,10 @@ def collect(output: Path, root: Path, raw_pytest_args: Sequence[str]) -> int:
         print(f"[live-pytest] FAIL coleta: {_safe_exception('manifesto invalido', exc)}", file=sys.stderr)
         return 3
     try:
-        _write_json(output, evidence)
-    except OSError as exc:
+        reference = {"directory": private.name, "sha256": hashlib.sha256(original_bytes).hexdigest()}
+        _private_json_write(private / "binding.json", _custody_binding(output, root, reference))
+        _write_json(output, {**_collection_projection(evidence), "private_collection": reference})
+    except BaseException as exc:
         _remove_stale(output)
         print(f"[live-pytest] FAIL coleta: {_safe_exception('publicacao recusada', exc)}", file=sys.stderr)
         return 3
@@ -299,7 +387,7 @@ def run(
     )
     args = _pytest_args(raw_pytest_args)
     try:
-        expected = _read_json(expected_path)
+        expected = _expected_original(expected_path, root)
         expected_items = expected["collection"]
         if (
             expected.get("schema") != SCHEMA_VERSION
@@ -338,7 +426,7 @@ def run(
         if validation_completed:
             try:
                 diagnostic = _publication_context(private_junit_path)
-                safe_evidence = _project_narratives(evidence, diagnostic)
+                safe_evidence = _collection_projection(_project_narratives(evidence, diagnostic))
                 report = _project_narratives(report, diagnostic)
                 _publish_sanitized_junit(private_junit_path, junit_path)
                 _write_json(evidence_path, safe_evidence)

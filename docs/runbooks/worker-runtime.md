@@ -270,3 +270,21 @@ A publicação é atômica sobre conteúdo já projetado. XML ausente/parcial ou
 contexto/projeção remove os destinos de execução/XML e publica somente erro seguro com
 rc não verde. Falhas de I/O e interrupções mantêm diagnósticos privados e não reutilizam
 artefatos stale; a custódia local deve ser excluída dos uploads.
+
+A coleta retém todas as razões livres de `xfail`/companion na projeção pública, desde
+o primeiro manifesto, inclusive quando a propriedade sensível só aparecerá no corpo.
+`reason_sha256`, identidades, fonte e marcadores permanecem intactos. A mesma projeção
+de coleção aparece em `execution.json`; o validador recebe os dois originais completos.
+
+`collection.json` público inclui `private_collection` com o basename da custódia e
+o digest dos bytes originais. No diretório `.collection.json.pytest-*` 0700,
+`collection.json` e `binding.json` 0600 vinculam esses bytes ao root, ao path absoluto
+do manifesto e à instância da coleta. `run --expected` exige os arquivos regulares
+sem symlink, os modos/owner locais, digest, vínculo e projeção integral coincidentes.
+Referência ausente, bytes/projeção alterados ou custódia de outro root/path recusam
+a execução antes do corpo. O manifesto público sozinho não substitui a custódia.
+Uma coleta íntegra pode ser executada novamente; não há regra de uso único.
+Essa ligação fornece integridade e correlação local, não uma assinatura nem proteção
+contra o próprio usuário do sistema operacional que controla ambos os arquivos.
+Falha ao criar o vínculo ou publicar remove manifesto público e temporários, preserva
+o original/log privados e retorna erro seguro. Nova coleta invalida o manifesto anterior.
