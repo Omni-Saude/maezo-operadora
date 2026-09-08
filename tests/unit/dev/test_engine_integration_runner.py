@@ -15,6 +15,8 @@ import pytest
 from scripts.dev import run_engine_integration as runner
 from scripts.dev.run_engine_integration import (
     _compose_base,
+    _junit_cases,
+    _parse_outcomes,
     _runtime_env,
     verified_result_code,
 )
@@ -628,3 +630,45 @@ def test_real_pytest_skip_is_rejected_while_strict_xfail_is_reported(tmp_path: P
     )
     assert rejected == 1
     assert "skip inesperado" in str(reason)
+
+    canonical_file = tmp_path / "test_canonical_outcomes.py"
+    canonical_file.write_text(
+        "import pytest\n"
+        "def test_pass(): pass\n"
+        "@pytest.mark.xfail(strict=True, reason='known strict gap')\n"
+        "def test_xfail(): assert False\n"
+        "@pytest.mark.skip(reason='only runs when MAEZO_CHAOS_MUTATE=a1_a2 (explicit RED)')\n"
+        "def test_mutation_companion(): pass\n"
+    )
+    canonical_junit = tmp_path / "canonical-junit.xml"
+    canonical = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            str(canonical_file),
+            "-q",
+            "-ra",
+            f"--junitxml={canonical_junit}",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    cases = _junit_cases(canonical_junit)
+    statuses = [case["status"] for case in cases]
+    parsed = _parse_outcomes(canonical.stdout + canonical.stderr)
+    accepted, accepted_reason = verified_result_code(
+        canonical.returncode,
+        actual_count=3,
+        expected_count=3,
+        passed_count=statuses.count("passed"),
+        skipped_count=statuses.count("skipped"),
+        xfailed_count=statuses.count("xfailed"),
+        xpassed_count=parsed["xpassed"],
+        test_file=canonical_file.as_posix(),
+    )
+    assert canonical.returncode == 0
+    assert statuses == ["passed", "xfailed", "mutation_skipped"]
+    assert (accepted, accepted_reason) == (0, None)
