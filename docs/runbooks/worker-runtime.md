@@ -159,7 +159,7 @@ make dev-stack                    # = docker compose --profile core up -d
 # Wait for health (all four have healthchecks; CIB Seven is the slow one — JVM cold start):
 docker compose ps                 # watch for "healthy" on all core services
 
-# Run the integration suite against the live engine:
+# Run the historical path-scoped target against the live engine:
 make test-integration             # = uv run pytest tests/integration -q -m integration
 
 # Tear down. Two forms, NOT equivalent:
@@ -167,10 +167,20 @@ docker compose --profile core down       # stops containers, KEEPS named volumes
 docker compose --profile core down -v    # stops containers AND destroys volumes
 ```
 
+O alvo `make test-integration` continua limitado a `tests/integration/`. A lane CI é mais ampla:
+coleta globalmente `tests -m "integration and not chaos"`, porque também existem suítes live-PG
+e live-CIB sob `tests/unit/`; a lane `chaos` executa separadamente `-m chaos`. A união das duas
+lanes cobre o conjunto global `-m integration`, sem interseção. A lane unitária usa
+`-m "not integration"`. A execução normal publica JUnit e a lista coletada, exige a mesma contagem
+nos dois artefatos, mostra motivos de skip/xfail e reprova qualquer skip ordinário. Somente os
+companions que declaram `MAEZO_CHAOS_MUTATE` continuam skips explícitos quando sua mutação não foi
+ativada; strict-xfails continuam visíveis e qualquer XPASS estrito mantém o pytest vermelho.
+
 **The `down -v` consideration between integration runs.** Per `docs/design/T3.3-chaos-resilience.md`
 (§1.3), CI's `integration` job (`.github/workflows/ci.yml`) does: `docker compose --profile core
-up -d` (postgres, cibseven 2.1.0, hapi-fhir, kafka) → wait for health → `make test-integration`
-→ `docker compose --profile core down -v`. It always tears down **with** `-v`. CI gets a fresh
+up -d postgres kafka cibseven` → wait for readiness of all three → run the global normal
+integration-marker set → `docker compose --profile core down -v`. It always tears down **with**
+`-v`. CI gets a fresh
 runner every time either way, but a local iteration loop reuses the same Docker host across runs,
 which is where this matters in practice: numerous rows in `docs/evidence-ledger.md` (e.g. "Probe
 engine torn down clean after (`docker compose down -v`)", "docker -p td_sink down -v after")

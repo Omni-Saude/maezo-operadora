@@ -58,7 +58,8 @@ jobs:
       # --cov-report=html here makes htmlcov/ real.
       - name: Unit tests + coverage gate (>=85%)
         run: |
-          uv run pytest tests/ -q --cov=src/maezo --cov-report=term --cov-report=html --cov-fail-under=85
+          uv run pytest tests/ -q -m "not integration" -ra --junitxml=unit-junit.xml \
+            --cov=src/maezo --cov-report=term --cov-report=html --cov-fail-under=85
 
       - name: Upload unit test results
         if: always()
@@ -68,6 +69,7 @@ jobs:
           path: |
             .pytest_cache/
             htmlcov/
+            unit-junit.xml
           retention-days: 7
 
   # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
@@ -413,19 +415,16 @@ jobs:
           uv run pytest tests/unit/platform/test_provision_tenant.py -v \
             --tb=short -q
 
-  # ── T2.3 (B9 CI surgery, guard-step pattern): tests/integration/ does not exist yet
-  # (no code has landed there since M0). Previously this job ran `make test-integration`
-  # unconditionally against a missing directory, which made it EXPECTED-RED on every
-  # PR/push and kept main permanently red (red-main-alarm firing every ~2h). It is no
-  # longer allowed to be silently disabled (`if: false`) OR expected-red — instead a
-  # guard step checks for real, collectable tests and decides at runtime:
+  # ── T2.3 + CI-LIVE-PG-JOB-MISSING: the integration contract is marker-based, globally.
+  # The quality job excludes `integration`; this job runs every normal integration-marked case
+  # anywhere under tests/, while the dedicated chaos job runs the disjoint `chaos` subset.
+  # A guard step checks the same global selector the execution step uses:
   #   - tests exist and collect  -> run them for real against the real engine, fail on
   #     failure (no mock, ADR-0011).
   #   - nothing to collect yet   -> emit a LOUD ::notice:: + step-summary marker and
   #     exit 0 (visible skip, not silent, not expected-red).
-  # Unblock condition: T3.1 (V2-COMPLETION-PLAN) lands integration tests under
-  # tests/integration/. The moment that happens this lane auto-activates — no
-  # workflow edit needed.
+  # New integration-marked modules are therefore covered regardless of their directory; no
+  # workflow path list or per-module allowlist needs maintenance.
   #
   # ── CI-minutes hygiene (2026-09-03): this lane is ~80% of every CI minute the repo bills
   # (~93 min/run, flat since at least 2026-08-07; every other job in this workflow is <10 min).
@@ -459,11 +458,16 @@ jobs:
       # hardcoded localhost:5432 DSN when MAEZO_TEST_DATABASE_URL is unset (which it is here), so
       # pinning to 5432 keeps this job's behavior byte-for-byte unchanged.
       MAEZO_PG_HOST_PORT: "5432"
+      # Some integration-marked modules under tests/unit predate MAEZO_PG_HOST_PORT and resolve
+      # only this explicit DSN. Pin both conventions to the same compose Postgres so none of the
+      # 12 PG-only modules can green-by-skip on its old localhost:5433 fallback.
+      MAEZO_TEST_DATABASE_URL: "postgresql://maezo:maezo@localhost:5432/maezo"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       # ── Docs-only gate (CI-minutes hygiene). A docs-only PR cannot change this lane's verdict:
-      # nothing under tests/integration/ reads docs/** or any *.md. The filter is FAIL-CLOSED by
+      # nothing in today's globally collected integration-marker set reads docs/** or any *.md.
+      # The filter is FAIL-CLOSED by
       # construction — `code` is 'true' when ANY changed file falls outside the two ignorable
       # patterns, so an unlisted path (a new top-level dir, a workflow, a lockfile, spec/,
       # config/, ...) always RUNS the lane; only the exact verdict 'false' skips, and a
@@ -504,8 +508,8 @@ jobs:
           {
             echo "## integration tests (real engine): NOT APPLICABLE (docs-only change)"
             echo ""
-            echo "Every changed file matches \`docs/**\` or \`**/*.md\`; nothing under"
-            echo "\`tests/integration/\` reads those paths. The real-engine lane (~93 min) was"
+            echo "Every changed file matches \`docs/**\` or \`**/*.md\`; no test in the"
+            echo "global integration-marker set reads those paths. The real-engine lane (~93 min) was"
             echo "not started. The nightly schedule still runs the full lane on main."
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -538,8 +542,9 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         run: |
           set +e
-          uv run pytest tests/integration --collect-only -q
-          code=$?
+          uv run pytest tests --collect-only -q -m "integration and not chaos" \
+            | tee integration-collection.txt
+          code=${PIPESTATUS[0]}
           set -e
           echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
           case "${code}" in
@@ -552,7 +557,7 @@ jobs:
               echo "run=false" >> "$GITHUB_OUTPUT"
               ;;
             *)
-              echo "::error::COLLECTION BROKEN — tests/integration exists but cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no tests yet' — failing the job."
+              echo "::error::COLLECTION BROKEN — the global integration marker set cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no tests yet' — failing the job."
               exit 1
               ;;
           esac
@@ -564,9 +569,9 @@ jobs:
           {
             echo "## integration tests (real engine): SKIPPED"
             echo ""
-            echo "No collectable tests under \`tests/integration/\` (pytest --collect-only exit"
-            echo "${{ steps.guard.outputs.collect_code }}). This lane auto-activates the"
-            echo "moment T3.1 (V2-COMPLETION-PLAN) lands tests there — no workflow edit needed."
+            echo "No collectable tests in the global \`-m integration\` set (pytest --collect-only exit"
+            echo "${{ steps.guard.outputs.collect_code }}). This lane auto-activates when any"
+            echo "module under \`tests/\` declares the integration marker — no path-list edit needed."
           } >> "$GITHUB_STEP_SUMMARY"
 
       # hapi-fhir is a `core`-profile service that only the `app` profile's daemons consume;
@@ -609,8 +614,10 @@ jobs:
             || { echo "ERROR: Kafka did not become ready within 90s"; exit 1; }
           echo "All services healthy."
 
-      # Direct pytest instead of `make test-integration` — three CI-only deltas the local target
-      # must not carry: `-m "integration and not chaos"` (tests/integration/chaos/ is marked BOTH
+      # Direct pytest instead of `make test-integration` — the global collection root is
+      # load-bearing: integration-marked live-PG/DMN modules also live under tests/unit/, where
+      # the unit lane now excludes them. `-m "integration and not chaos"` keeps
+      # tests/integration/chaos/ (marked BOTH
       # `integration` and `chaos` and already runs, PG-only, in the dedicated `chaos` job below —
       # running it here again was duplicate coverage on the same SHA); `--durations=40` (per-test
       # wall-clock of the slowest 40 — the evidence the next optimization round needs; this lane
@@ -619,14 +626,21 @@ jobs:
       # in this job's env — shows up in the log as text, not as a silent `s`).
       - name: Integration tests
         if: steps.guard.outputs.run == 'true'
-        run: uv run python -m pytest tests/integration -q -m "integration and not chaos" --durations=40 -rs
+        run: |
+          uv run python -m pytest tests -q -m "integration and not chaos" --durations=40 -ra \
+            --junitxml=integration-junit.xml
+          uv run python scripts/ci/check_live_junit.py integration-junit.xml \
+            --collection integration-collection.txt
 
       - name: Upload integration test results
-        if: always() && steps.guard.outputs.run == 'true'
+        if: always() && steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: integration-test-results-${{ github.sha }}
-          path: .pytest_cache/
+          path: |
+            .pytest_cache/
+            integration-collection.txt
+            integration-junit.xml
           retention-days: 7
 
       - name: Collect stack logs on failure
@@ -701,8 +715,9 @@ jobs:
         id: guard
         run: |
           set +e
-          uv run pytest tests/integration/chaos --collect-only -q -m chaos
-          code=$?
+          uv run pytest tests/integration/chaos --collect-only -q -m chaos \
+            | tee chaos-collection.txt
+          code=${PIPESTATUS[0]}
           set -e
           echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
           case "${code}" in
@@ -744,14 +759,20 @@ jobs:
 
       - name: Chaos tests (seam-level fault injection)
         if: steps.guard.outputs.run == 'true'
-        run: uv run pytest tests/integration/chaos -q -m chaos
+        run: |
+          uv run pytest tests/integration/chaos -q -m chaos -ra --junitxml=chaos-junit.xml
+          uv run python scripts/ci/check_live_junit.py chaos-junit.xml \
+            --collection chaos-collection.txt
 
       - name: Upload chaos test results
         if: always() && steps.guard.outputs.run == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: chaos-test-results-${{ github.sha }}
-          path: .pytest_cache/
+          path: |
+            .pytest_cache/
+            chaos-collection.txt
+            chaos-junit.xml
           retention-days: 7
 
       - name: Collect Postgres logs on failure
