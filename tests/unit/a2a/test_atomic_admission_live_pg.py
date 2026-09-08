@@ -338,3 +338,61 @@ async def test_same_task_id_in_two_tenants_has_independent_admission_and_results
     finally:
         await other_conn.execute(f'DROP SCHEMA "{other}" CASCADE')
         await other_conn.close()
+
+
+async def _cross_process_worker(tenant):
+    """Real replica for R9; its handler barrier lives in PostgreSQL, outside A2A TX."""
+    dsn = _default_test_dsn()
+    conn = await asyncpg.connect(dsn)
+    await conn.execute(f'SET search_path TO "{tenant}"')
+
+    both = asyncio.Event()
+    await conn.add_listener(tenant + "_ready", lambda *args: both.set())
+
+    async def handler(envelope):
+        await conn.execute("INSERT INTO handler_entries DEFAULT VALUES")
+        if await conn.fetchval("SELECT count(*) FROM handler_entries") == 2:
+            await conn.execute("SELECT pg_notify($1, 'ready')", tenant + "_ready")
+        else:
+            await asyncio.wait_for(both.wait(), 20)
+        assert await conn.fetchval("SELECT count(*) FROM handler_entries") == 2
+        return HandlerOutput(output_ref="fhir://Task/result")
+
+    try:
+        async with dispatcher_for(dsn, tenant, handler) as (dispatcher, _):
+            assert (await dispatcher.delegate(envelope_for(tenant))).success
+    finally:
+        await conn.close()
+
+
+async def test_two_real_processes_share_one_requested_intent(database):
+    import sys
+
+    dsn, tenant, conn = database
+    await conn.execute("CREATE TABLE handler_entries (id bigserial PRIMARY KEY)")
+    children = []
+    try:
+        for _ in range(2):
+            child = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                "import asyncio,sys; from tests.unit.a2a.test_atomic_admission_live_pg "
+                "import _cross_process_worker; asyncio.run(_cross_process_worker(sys.argv[1]))",
+                tenant,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            children.append(child)
+        outputs = await asyncio.wait_for(asyncio.gather(*(child.communicate() for child in children)), 30)
+        assert [child.returncode for child in children] == [0, 0], outputs
+        assert await conn.fetchval("SELECT count(*) FROM handler_entries") == 2
+        assert await counts(conn) == (1, 2, 2, 2)
+        assert (
+            await conn.fetchval("SELECT count(*) FROM a2a_fact_outbox WHERE topic=$1", TOPIC_REQUESTED) == 1
+        )
+        assert (await verify_chain(dsn, tenant)).valid
+    finally:
+        for child in children:
+            if child.returncode is None:
+                child.kill()
+                await child.wait()
