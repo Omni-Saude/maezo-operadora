@@ -3,7 +3,7 @@ package br.com.maezo.human;
 import java.io.IOException;
 import java.security.cert.X509Certificate;
 import java.util.*;
-import javax.servlet.http.*;
+import jakarta.servlet.http.*;
 import org.cibseven.bpm.engine.OptimisticLockingException;
 
 /** Private workload endpoint: direct Tomcat mutual TLS, no forwarded identity headers. */
@@ -60,7 +60,7 @@ public final class HumanServlet extends HttpServlet {
   }
 
   static String peer(HttpServletRequest request) {
-    Object certificates = request.getAttribute("javax.servlet.request.X509Certificate");
+    Object certificates = request.getAttribute("jakarta.servlet.request.X509Certificate");
     if (!request.isSecure()
         || !(certificates instanceof X509Certificate[] chain)
         || chain.length == 0) throw Rejected.denied();
