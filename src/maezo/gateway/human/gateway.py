@@ -165,6 +165,9 @@ class HumanGateway:
             except GatewayRefusalError:
                 continue
             actions.append(operation)
+        # Both grants must survive authority I/O and the final session resolution.
+        if min(task.valid_until, authority.valid_until) <= datetime.now(UTC):
+            raise GatewayRefusalError("authority_unavailable")
         return TaskSnapshot.model_validate(
             task.snapshot.model_copy(update={"allowed_actions": tuple(actions)})
         )
