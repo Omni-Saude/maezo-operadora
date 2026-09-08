@@ -701,9 +701,19 @@ def _collect(
     return set(nodeids)
 
 
+def _invalidate_mutation_selection(results_dir: Path) -> None:
+    """Retira somente a selecao propria anterior, sem varrer outros artefatos."""
+    log = results_dir / "collect-mutation.log"
+    _collected_items.pop(log, None)
+    for path in (results_dir / "mutation-selection.json", log, log.with_suffix(".execution.json")):
+        path.unlink(missing_ok=True)
+        path.with_name(f".{path.name}.{os.getpid()}.tmp").unlink(missing_ok=True)
+
+
 def _collect_mutation(
     checkout: Path, nodeid: str, inactive_items: list[dict[str, Any]], results_dir: Path
 ) -> list[dict[str, Any]]:
+    _invalidate_mutation_selection(results_dir)
     _, _, mutation = _mutation_selection(nodeid)
     candidates = [item for item in inactive_items if item.get("nodeid") == nodeid]
     if len(candidates) != 1:
@@ -802,6 +812,7 @@ def _dependencies_for(
 
 def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict[str, Any]:
     results_dir.mkdir(parents=True, exist_ok=True)
+    _invalidate_mutation_selection(results_dir)
     discovery_path = results_dir / "discovery.json"
     discovery_path.unlink(missing_ok=True)
     # Uma nova descoberta invalida a tentativa inteira, mesmo se a primeira
@@ -1701,6 +1712,7 @@ def run_suite(args: argparse.Namespace) -> int:
     env = _runtime_env()
     source_context = None
     try:
+        _invalidate_mutation_selection(results_dir)
         original, _ = validate_checkout(args.checkout, args.sha)
         source_context = execution_checkout(original, args.sha, results_dir)
         checkout, imported = source_context.__enter__()

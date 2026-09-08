@@ -164,7 +164,7 @@ def test_context_failure_and_publication_io_cleanup(
 
             patch.setattr(runner, "_json_write", refuse_json)
         if fault in {"validator", "projection", "jsonio", "suiteio"}:
-            with pytest.raises(ValueError if fault == "validator" else OSError):
+            with pytest.raises(runner.RunnerError if fault == "validator" else OSError):
                 runner._run_pytest(tmp_path, "core", "test_subject.py", runner._runtime_env(), out, 1)
             assert not (out / "suite-results.json").exists()
         else:

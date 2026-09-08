@@ -309,3 +309,11 @@ descoberta invalida os cinco pares de coleta conhecidos mesmo se a primeira falh
 Erro, interrupção, timeout, fonte divergente ou JSON incompleto não deixam cache válido;
 quando possível, publicam somente recibo seguro não concluído e hashes. Falhas de I/O
 removem publicações parciais e temporários; o staging é recolhido no finally.
+
+
+Na união MUI/privacidade, toda nova run, discovery ou coleta de companion invalida
+primeiro `mutation-selection.json`, `collect-mutation.log`, seu `.execution.json`
+e o cache dessa coleta. A invalidação precede inclusive recusas de fonte, nodeid ou
+declaração inativa. Só esses destinos e seus temporários do PID atual são removidos;
+outros artefatos permanecem. Recibos seguros de uma nova falha dentro de `_collect`
+são preservados e distinguem a tentativa recusada da seleção anterior.

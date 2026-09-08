@@ -155,7 +155,7 @@ def test_secret(record_property):
     monkeypatch.setattr(runner, "_run", intervene)
     monkeypatch.setattr(runner, "_evidence_api", api_with_fault)
     if fault in {"validator", "interrupt"}:
-        with pytest.raises(ValueError if fault == "validator" else KeyboardInterrupt):
+        with pytest.raises(runner.RunnerError if fault == "validator" else KeyboardInterrupt):
             runner._run_pytest(tmp_path, "core", "test_subject.py", runner._runtime_env(), destination, 1)
     else:
         result = runner._run_pytest(
