@@ -67,7 +67,7 @@ def _pid_exists(pid: int) -> bool:
 
 
 def _kill_probe_group(group_id: int) -> None:
-    with suppress(ProcessLookupError):
+    with suppress(ProcessLookupError, PermissionError):
         os.killpg(group_id, signal.SIGKILL)
 
 

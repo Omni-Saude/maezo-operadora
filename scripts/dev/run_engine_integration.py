@@ -17,30 +17,71 @@ import urllib.error
 import urllib.request
 import uuid
 import xml.etree.ElementTree as ET
-from contextlib import suppress
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 PROJECT = "maezo-completion-engine"
+DOCKER_CONTEXT = "colima"
 LOCK_DIR = Path("/Users/familia/code/maezo-operadora/engine.lock")
 ENGINE_URL = "http://localhost:18080/engine-rest"
 PG_PORT = "15433"
 KAFKA_PORT = "19092"
 HAPI_URL = "http://localhost:18081/fhir/metadata"
+PG_DSN = f"postgresql://maezo:maezo@127.0.0.1:{PG_PORT}/maezo"
 BUSY_EXIT = 73
 USAGE_EXIT = 64
+PROCESS_TERM_GRACE = 1.0
+PROCESS_KILL_GRACE = 3.0
 CHECKOUT_INPUTS = (
     "docker-compose.yml",
     "pyproject.toml",
     "uv.lock",
     "src",
     "spec",
-    "tests/integration",
-    "scripts/dev",
+    "tests",
+    "scripts",
 )
 SUMMARY_OUTCOMES = ("passed", "failed", "skipped", "xfailed", "xpassed", "error", "errors")
+PASSTHROUGH_ENV = (
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "PATH",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
+    "TMPDIR",
+)
+PINNED_DSN_ENV = (
+    "MAEZO_TEST_DATABASE_URL",
+    "MAEZO_TEST_A2A_EDGE_DATABASE_URL",
+    "MAEZO_TEST_AMH_INBOX_DATABASE_URL",
+    "MAEZO_TEST_AUDIT_ANCHOR_DRILL_DATABASE_URL",
+    "MAEZO_TEST_CHECKPOINT_DATABASE_URL",
+)
+RUNTIME_ENV_KEYS = frozenset(
+    (
+        "DATABASE_URL",
+        "ENGINE_REST_URL",
+        "CIBSEVEN_BASE_URL",
+        "FHIR_BASE_URL",
+        "HAPI_FHIR_BASE_URL",
+        "KAFKA_BOOTSTRAP_SERVERS",
+        "MAEZO_PG_DB",
+        "MAEZO_PG_HOST_PORT",
+        "MAEZO_PG_PASSWORD",
+        "MAEZO_PG_USER",
+        "NO_PROXY",
+        "PYTHONHASHSEED",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
+        *PINNED_DSN_ENV,
+    )
+)
+_URI_PASSWORD = re.compile(r"(?i)(\b[a-z][a-z0-9+.-]*://[^\s:/@]+:)[^\s/@]+(@)")
+_NAMED_SECRET = re.compile(r"(?i)(\b(?:password|passwd|secret|token|api[_-]?key)\b\s*[:=]\s*)([^\s,;]+)")
 
 
 class RunnerError(RuntimeError):
@@ -49,6 +90,10 @@ class RunnerError(RuntimeError):
 
 class RunnerInterrupted(BaseException):
     """Interrupção solicitada por sinal."""
+
+
+class ProcessGroupCleanupError(RunnerError):
+    """O grupo criado pelo runner não atingiu quiescência no prazo."""
 
 
 def _now() -> str:
@@ -69,6 +114,93 @@ def _append_event(path: Path, event: str, **fields: object) -> None:
         stream.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
+def _redact_text(value: str) -> str:
+    value = _URI_PASSWORD.sub(r"\1<redacted>\2", value)
+    return _NAMED_SECRET.sub(r"\1<redacted>", value)
+
+
+def _redact_file(path: Path) -> None:
+    try:
+        original = path.read_text(errors="replace")
+    except OSError:
+        return
+    redacted = _redact_text(original)
+    if redacted != original:
+        path.write_text(redacted)
+
+
+def _base_env(source: Mapping[str, str] | None = None) -> dict[str, str]:
+    ambient = os.environ if source is None else source
+    env = {key: ambient[key] for key in PASSTHROUGH_ENV if key in ambient}
+    env.setdefault("PATH", os.defpath)
+    env.update(
+        {
+            "NO_PROXY": "localhost,127.0.0.1",
+            "PYTHONHASHSEED": "0",
+            "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+        }
+    )
+    return env
+
+
+def _subprocess_env(source: Mapping[str, str] | None) -> dict[str, str]:
+    env = _base_env(source)
+    if source is not None:
+        env.update({key: source[key] for key in RUNTIME_ENV_KEYS if key in source})
+    return env
+
+
+def _group_exists(group_id: int) -> bool:
+    try:
+        os.killpg(group_id, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Darwin reports EPERM briefly while a killed orphan is awaiting reaping.
+        # It is still not proof of quiescence, so keep waiting until ESRCH.
+        return True
+    return True
+
+
+def _wait_group_gone(group_id: int, timeout: float, *, leader: subprocess.Popen[str] | None = None) -> bool:
+    deadline = time.monotonic() + timeout
+    while _group_exists(group_id):
+        if leader is not None:
+            leader.poll()
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(min(0.02, max(deadline - time.monotonic(), 0)))
+    return True
+
+
+@contextmanager
+def _cleanup_signal_mask() -> Iterator[None]:
+    signals = {signal.SIGINT, signal.SIGTERM}
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, signals)
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
+
+def _quiesce_group(process: subprocess.Popen[str], group_id: int) -> tuple[str | None, str | None]:
+    with _cleanup_signal_mask():
+        if _group_exists(group_id):
+            with suppress(ProcessLookupError):
+                os.killpg(group_id, signal.SIGTERM)
+            if not _wait_group_gone(group_id, PROCESS_TERM_GRACE, leader=process):
+                with suppress(ProcessLookupError):
+                    os.killpg(group_id, signal.SIGKILL)
+                if not _wait_group_gone(group_id, PROCESS_KILL_GRACE, leader=process):
+                    raise ProcessGroupCleanupError(f"grupo {group_id} permaneceu ativo após TERM e KILL")
+        try:
+            return process.communicate(timeout=PROCESS_KILL_GRACE)
+        except subprocess.TimeoutExpired as exc:
+            raise ProcessGroupCleanupError(
+                f"líder {process.pid} não foi recolhido após quiescência do grupo {group_id}"
+            ) from exc
+
+
 def _run(
     command: list[str],
     *,
@@ -77,8 +209,7 @@ def _run(
     timeout: float = 300,
     log_path: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    process_env = os.environ.copy() if env is None else env.copy()
-    process_env.pop("VIRTUAL_ENV", None)
+    process_env = _subprocess_env(env)
     log_stream = None
     if log_path is not None:
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -93,30 +224,21 @@ def _run(
         start_new_session=True,
     )
 
-    def terminate_group() -> tuple[str | None, str | None]:
-        if process.poll() is None:
-            with suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGTERM)
-        try:
-            return process.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            if process.poll() is None:
-                with suppress(ProcessLookupError):
-                    os.killpg(process.pid, signal.SIGKILL)
-            return process.communicate(timeout=10)
-
     stdout: str | None
     stderr: str | None
     try:
         stdout, stderr = process.communicate(timeout=timeout)
         return_code = int(process.returncode)
+        cleanup_stdout, cleanup_stderr = _quiesce_group(process, process.pid)
+        stdout = cleanup_stdout if cleanup_stdout is not None else stdout
+        stderr = cleanup_stderr if cleanup_stderr is not None else stderr
     except subprocess.TimeoutExpired:
-        stdout, stderr = terminate_group()
+        stdout, stderr = _quiesce_group(process, process.pid)
         return_code = 124
         if log_stream is not None:
             log_stream.write(f"\n[runner] timeout após {timeout}s; grupo de processo recolhido\n")
     except BaseException:
-        terminate_group()
+        _quiesce_group(process, process.pid)
         if log_stream is not None:
             log_stream.write("\n[runner] interrupção; grupo de processo recolhido\n")
         raise
@@ -125,9 +247,15 @@ def _run(
             log_stream.flush()
             log_stream.close()
     if log_path is not None:
+        _redact_file(log_path)
         stdout = log_path.read_text(errors="replace")
         stderr = ""
-    return subprocess.CompletedProcess(command, return_code, stdout or "", stderr or "")
+    return subprocess.CompletedProcess(
+        command,
+        return_code,
+        _redact_text(stdout or ""),
+        _redact_text(stderr or ""),
+    )
 
 
 def _checked(
@@ -148,6 +276,35 @@ def _checked(
 def _git(checkout: Path, *args: str) -> str:
     result = _checked(["git", *args], cwd=checkout, timeout=30)
     return result.stdout.strip()
+
+
+def _uv_python(checkout: Path, *args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--locked",
+        "--project",
+        str(checkout),
+        "python",
+        "-I",
+        *args,
+    ]
+
+
+def _pytest_command(checkout: Path, *args: str) -> list[str]:
+    return _uv_python(
+        checkout,
+        "-m",
+        "pytest",
+        "--disable-plugin-autoload",
+        "-p",
+        "pytest_asyncio.plugin",
+        "-p",
+        "no:cacheprovider",
+        "-c",
+        str(checkout / "pyproject.toml"),
+        *args,
+    )
 
 
 def validate_checkout(checkout_input: str, expected_sha: str) -> tuple[Path, str]:
@@ -182,14 +339,11 @@ def validate_checkout(checkout_input: str, expected_sha: str) -> tuple[Path, str
             raise RunnerError(f"entrada Compose não rastreada no SHA alvo: {relative}")
 
     probe = _checked(
-        [
-            "uv",
-            "run",
-            "--locked",
-            "python",
+        _uv_python(
+            checkout,
             "-c",
             "import pathlib,maezo; print(pathlib.Path(maezo.__file__).resolve())",
-        ],
+        ),
         cwd=checkout,
         timeout=120,
     )
@@ -202,7 +356,7 @@ def validate_checkout(checkout_input: str, expected_sha: str) -> tuple[Path, str
 
 def _collect(checkout: Path, args: list[str], log_path: Path) -> set[str]:
     result = _run(
-        ["uv", "run", "--locked", "python", "-m", "pytest", *args, "--collect-only", "-q"],
+        _pytest_command(checkout, *args, "--collect-only", "-q"),
         cwd=checkout,
         timeout=180,
         log_path=log_path,
@@ -477,7 +631,11 @@ class EngineLock:
 def _compose_base(checkout: Path) -> list[str]:
     return [
         "docker",
+        "--context",
+        DOCKER_CONTEXT,
         "compose",
+        "--env-file",
+        "/dev/null",
         "--project-directory",
         str(checkout),
         "-f",
@@ -489,6 +647,36 @@ def _compose_base(checkout: Path) -> list[str]:
         "--profile",
         "core",
     ]
+
+
+def _validate_docker_context(checkout: Path, env: dict[str, str]) -> str:
+    result = _checked(
+        [
+            "docker",
+            "--context",
+            DOCKER_CONTEXT,
+            "context",
+            "inspect",
+            DOCKER_CONTEXT,
+            "--format",
+            "{{json .Endpoints.docker.Host}}",
+        ],
+        cwd=checkout,
+        env=env,
+        timeout=30,
+    )
+    try:
+        endpoint = str(json.loads(result.stdout.strip()))
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise RunnerError(f"endpoint Docker inválido para contexto {DOCKER_CONTEXT}") from exc
+    if not endpoint.startswith("unix://"):
+        raise RunnerError(f"contexto Docker {DOCKER_CONTEXT} não aponta para socket Unix local")
+    socket_path = Path(endpoint.removeprefix("unix://")).expanduser().resolve()
+    home = Path(env.get("HOME", "")).expanduser().resolve()
+    allowed_root = (home / ".colima").resolve()
+    if socket_path != Path("/var/run/docker.sock") and allowed_root not in socket_path.parents:
+        raise RunnerError(f"contexto Docker {DOCKER_CONTEXT} aponta fora do Colima local")
+    return endpoint
 
 
 def _compose(
@@ -626,18 +814,15 @@ def _definition_keys(path: Path) -> list[tuple[str, str]]:
 def _deploy_and_verify(checkout: Path, env: dict[str, str], results_dir: Path) -> dict[str, Any]:
     deploy_log = results_dir / "deployment.log"
     _checked(
-        [
-            "uv",
-            "run",
-            "--locked",
-            "python",
+        _uv_python(
+            checkout,
             "-m",
             "maezo.platform.deploy",
             "--engine-url",
             ENGINE_URL,
             "--spec-dir",
             str(checkout / "spec"),
-        ],
+        ),
         cwd=checkout,
         env=env,
         timeout=300,
@@ -714,17 +899,74 @@ def _junit_counts(path: Path) -> dict[str, int]:
     }
 
 
+_MUTATION_SKIP_REASON = re.compile(
+    r"^(?:Skipped:\s*)?(?:only runs when|mutation-check only runs when) "
+    r"MAEZO_CHAOS_MUTATE=[a-z0-9_]+\b"
+)
+
+
+def _junit_cases(path: Path) -> list[dict[str, str]]:
+    if not path.is_file():
+        return []
+    try:
+        root = ET.parse(path).getroot()
+    except (ET.ParseError, OSError) as exc:
+        raise RunnerError(f"JUnit inválido em {path}: {exc}") from exc
+    cases: list[dict[str, str]] = []
+    for case in root.iter("testcase"):
+        status = "passed"
+        reason = ""
+        for child in case:
+            tag = child.tag.rsplit("}", 1)[-1]
+            if tag in {"failure", "error"}:
+                status = "failed" if tag == "failure" else "error"
+                reason = child.attrib.get("message", "") or child.text or ""
+                break
+            if tag == "skipped":
+                reason = child.attrib.get("message", "") or child.text or ""
+                if child.attrib.get("type") == "pytest.xfail":
+                    status = "xfailed"
+                elif _MUTATION_SKIP_REASON.match(reason):
+                    status = "mutation_skipped"
+                else:
+                    status = "skipped"
+        cases.append(
+            {
+                "node": "::".join(
+                    part for part in (case.attrib.get("classname", ""), case.attrib.get("name", "")) if part
+                ),
+                "status": status,
+                "reason": _redact_text(reason.strip()),
+            }
+        )
+    return cases
+
+
 def verified_result_code(
     pytest_return_code: int,
     *,
     actual_count: int,
     expected_count: int,
+    passed_count: int,
+    skipped_count: int,
+    xfailed_count: int,
+    xpassed_count: int,
     test_file: str,
 ) -> tuple[int, str | None]:
-    if actual_count == expected_count and expected_count > 0:
-        return pytest_return_code, None
-    error = f"JUnit executou {actual_count} casos; manifest esperava {expected_count} para {test_file}"
-    return pytest_return_code or 1, error
+    errors: list[str] = []
+    if actual_count != expected_count or expected_count <= 0:
+        errors.append(
+            f"JUnit executou {actual_count} casos; manifest esperava {expected_count} para {test_file}"
+        )
+    if skipped_count:
+        errors.append(f"{skipped_count} skip inesperado impediu verificação em {test_file}")
+    if xpassed_count:
+        errors.append(f"{xpassed_count} XPASS inesperado em {test_file}")
+    if actual_count > 0 and passed_count + xfailed_count == 0:
+        errors.append(f"nenhum corpo de teste foi verificado em {test_file}")
+    if errors:
+        return pytest_return_code or 1, "; ".join(errors)
+    return pytest_return_code, None
 
 
 def _run_pytest(
@@ -742,26 +984,31 @@ def _run_pytest(
     }
     selection = [test_file, "-m", markers[suite]]
     junit = results_dir / "junit.xml"
-    command = [
-        "uv",
-        "run",
-        "--locked",
-        "python",
-        "-m",
-        "pytest",
+    command = _pytest_command(
+        checkout,
         *selection,
         "-q",
         "-ra",
         "--durations=40",
         f"--junitxml={junit}",
-    ]
+    )
     result = _run(command, cwd=checkout, env=env, timeout=7200, log_path=results_dir / "pytest.log")
     output = result.stdout + result.stderr
     junit_counts = _junit_counts(junit)
+    cases = _junit_cases(junit)
+    case_counts = {
+        status: sum(case["status"] == status for case in cases)
+        for status in ("passed", "failed", "error", "skipped", "xfailed", "mutation_skipped")
+    }
+    parsed_outcomes = _parse_outcomes(output)
     result_code, collection_error = verified_result_code(
         result.returncode,
         actual_count=junit_counts["tests"],
         expected_count=expected_count,
+        passed_count=case_counts["passed"],
+        skipped_count=case_counts["skipped"],
+        xfailed_count=case_counts["xfailed"],
+        xpassed_count=parsed_outcomes["xpassed"],
         test_file=test_file,
     )
     payload = {
@@ -771,8 +1018,10 @@ def _run_pytest(
         "return_code": result_code,
         "expected_collected": expected_count,
         "junit_counts": junit_counts,
+        "case_counts": case_counts,
+        "cases": cases,
         "collection_error": collection_error,
-        "outcomes": _parse_outcomes(output),
+        "outcomes": parsed_outcomes,
         "junit_xml": junit.as_posix(),
         "pytest_log": (results_dir / "pytest.log").as_posix(),
     }
@@ -781,20 +1030,22 @@ def _run_pytest(
 
 
 def _runtime_env() -> dict[str, str]:
-    env = os.environ.copy()
-    env.pop("VIRTUAL_ENV", None)
+    env = _base_env()
     env.update(
         {
             "MAEZO_PG_HOST_PORT": PG_PORT,
             "MAEZO_PG_USER": "maezo",
             "MAEZO_PG_PASSWORD": "maezo",
             "MAEZO_PG_DB": "maezo",
-            "MAEZO_TEST_DATABASE_URL": f"postgresql://maezo:maezo@localhost:{PG_PORT}/maezo",
+            "DATABASE_URL": PG_DSN,
             "ENGINE_REST_URL": ENGINE_URL,
             "CIBSEVEN_BASE_URL": ENGINE_URL,
             "KAFKA_BOOTSTRAP_SERVERS": f"localhost:{KAFKA_PORT}",
+            "FHIR_BASE_URL": "http://localhost:18081/fhir",
+            "HAPI_FHIR_BASE_URL": "http://localhost:18081/fhir",
         }
     )
+    env.update(dict.fromkeys(PINNED_DSN_ENV, PG_DSN))
     return env
 
 
@@ -813,6 +1064,9 @@ def run_suite(args: argparse.Namespace) -> int:
     lock: EngineLock | None = None
     services: list[str] = []
     return_code = 1
+    subprocess_cleanup_confirmed = True
+    stack_touched = False
+    env = _runtime_env()
     try:
         checkout, imported = validate_checkout(args.checkout, args.sha)
         discovery_payload = discover(checkout, results_dir, imported_module=imported)
@@ -841,14 +1095,18 @@ def run_suite(args: argparse.Namespace) -> int:
             suite=f"{args.suite}:{test_file}",
         )
         if not lock.acquire(args.lock_timeout):
+            return_code = BUSY_EXIT
             state.update(state="lock_busy", return_code=BUSY_EXIT, finished_at=_now())
             _json_write(results_dir / "run-state.json", state)
             return BUSY_EXIT
         lock.update("preflight_complete", results_dir=results_dir.as_posix())
         state["state"] = "lock_acquired"
         _json_write(results_dir / "run-state.json", state)
-        env = _runtime_env()
+        docker_endpoint = _validate_docker_context(checkout, env)
+        state.update(docker_context=DOCKER_CONTEXT, docker_endpoint=docker_endpoint)
+        lock.update("docker_context_validated", docker_context=DOCKER_CONTEXT)
         dependencies = manifest_entry["dependencies"]
+        stack_touched = True
         services = _start_stack(checkout, dependencies, env, results_dir, lock)
         if dependencies["engine_required"]:
             lock.update("deploying")
@@ -868,6 +1126,12 @@ def run_suite(args: argparse.Namespace) -> int:
     except (KeyboardInterrupt, RunnerInterrupted):
         return_code = 130
         state["state"] = "interrupted"
+    except ProcessGroupCleanupError as exc:
+        subprocess_cleanup_confirmed = False
+        return_code = 1
+        state["state"] = "subprocess_cleanup_unconfirmed"
+        state["error"] = str(exc)
+        print(f"ERRO: {_redact_text(str(exc))}", file=sys.stderr)
     except (RunnerError, subprocess.TimeoutExpired, OSError, KeyError, ValueError) as exc:
         return_code = 1
         state["state"] = "failed"
@@ -877,29 +1141,42 @@ def run_suite(args: argparse.Namespace) -> int:
         state.update(return_code=return_code, services=services, finished_at=_now())
         _json_write(results_dir / "run-state.json", state)
         if lock is not None and lock.owns():
-            lock.update("teardown", return_code=return_code, state=state["state"])
-            try:
-                checkout = Path(args.checkout).expanduser().resolve()
-                _compose(
-                    checkout,
-                    ["down", "-v", "--remove-orphans"],
-                    env=_runtime_env(),
-                    timeout=300,
-                    log_path=results_dir / "teardown.log",
+            if not subprocess_cleanup_confirmed:
+                lock.update(
+                    "subprocess_cleanup_unconfirmed",
+                    return_code=return_code,
+                    state=state["state"],
                 )
-            except (RunnerError, subprocess.TimeoutExpired, OSError) as exc:
-                state["teardown_error"] = str(exc)
-                return_code = return_code or 1
-                state["return_code"] = return_code
-                _json_write(results_dir / "run-state.json", state)
-                lock.update("teardown_failed", teardown_error=str(exc), return_code=return_code)
-            else:
-                lock.update("teardown_complete", return_code=return_code)
+            elif not stack_touched:
                 if not lock.release():
                     state["lock_release_error"] = "posse mudou ou diretório contém arquivos inesperados"
                     return_code = return_code or 1
                     state["return_code"] = return_code
                     _json_write(results_dir / "run-state.json", state)
+            else:
+                lock.update("teardown", return_code=return_code, state=state["state"])
+                try:
+                    checkout = Path(args.checkout).expanduser().resolve()
+                    _compose(
+                        checkout,
+                        ["down", "-v", "--remove-orphans"],
+                        env=env,
+                        timeout=300,
+                        log_path=results_dir / "teardown.log",
+                    )
+                except (RunnerError, subprocess.TimeoutExpired, OSError) as exc:
+                    state["teardown_error"] = str(exc)
+                    return_code = return_code or 1
+                    state["return_code"] = return_code
+                    _json_write(results_dir / "run-state.json", state)
+                    lock.update("teardown_failed", teardown_error=str(exc), return_code=return_code)
+                else:
+                    lock.update("teardown_complete", return_code=return_code)
+                    if not lock.release():
+                        state["lock_release_error"] = "posse mudou ou diretório contém arquivos inesperados"
+                        return_code = return_code or 1
+                        state["return_code"] = return_code
+                        _json_write(results_dir / "run-state.json", state)
         elif lock is not None and lock.acquired:
             state["ownership_lost"] = True
             return_code = return_code or 1
@@ -941,6 +1218,7 @@ def child_probe(args: argparse.Namespace) -> int:
     _append_event(events, "lock_acquired")
     _append_event(events, "child_started")
     return_code = 1
+    cleanup_confirmed = True
     child_code = (
         "import os,pathlib,sys,time; "
         "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); "
@@ -961,8 +1239,12 @@ def child_probe(args: argparse.Namespace) -> int:
         return_code = 130
         lock.update("interrupted", return_code=return_code)
         _append_event(events, "interrupted", return_code=return_code)
+    except ProcessGroupCleanupError as exc:
+        cleanup_confirmed = False
+        lock.update("subprocess_cleanup_unconfirmed", error=str(exc))
+        _append_event(events, "subprocess_cleanup_unconfirmed")
     finally:
-        if lock.owns():
+        if lock.owns() and cleanup_confirmed:
             _append_event(events, "cleanup_permitted")
             if lock.release():
                 _append_event(events, "lock_released")
