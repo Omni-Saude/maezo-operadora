@@ -1,11 +1,13 @@
-"""LIVE-Postgres proof: the Helena->Rafael A2A delegation edge's "T-F becomes real" claim (W3).
+"""LIVE engine/Postgres proof for the Helena->Rafael A2A delegation edge (T-F/T-G).
 
 Tier 2 (`@pytest.mark.integration`), placed HERE (not under `tests/integration/`) deliberately —
 mirrors `tests/unit/a2a/test_idempotency_store.py`'s own placement rationale: this suite needs a
-REAL Postgres but explicitly NOT the CIB Seven BPMN engine (`tests/integration/`'s package-wide
-autouse `_skip_if_engine_unreachable` fixture would gate every test in that tree on the engine's
-reachability, which this suite must not depend on — `docs/design/A2A-dispatcher-card-signing.md`
-§9/design §4.2: "No BPMN engine for the A2A hop itself").
+REAL Postgres and, for the three positive Rafael composition scenarios, a REAL CIB Seven engine.
+The file stays outside `tests/integration/` to avoid that package's unrelated autouse fixtures; its
+own fixture resolves the same engine URL as the repository runner and verifies that the live AUTH
+definition is the authentic BPMN from `spec/processes/`. The A2A hop itself remains
+engine-independent, but Rafael's real handler is not: a successful turn includes starting
+SP-OP-AUTH-001 (RAF-02).
 
 What this proves that the W2 unit suite (fakes only) could not:
   1. **T-F becomes real**: a real `DelegationDispatcher` (assembled via `agent_runtime.
@@ -20,14 +22,13 @@ What this proves that the W2 unit suite (fakes only) could not:
      instance (simulating a second replica) replays instead of re-auditing/re-running the handler —
      backed by the REAL `a2a_idempotency` table (migration 0003), not the in-memory `_inflight` map.
   5. **Two distinct audit surfaces, not conflated**: the SAME `PostgresAuditSink` instance also
-     durably records Rafael's OWN process-start attempt (T-C2, `action` prefix `start_process:`) —
+     durably records Rafael's OWN successful process start (T-C2, `action` prefix `start_process:`) —
      this suite asserts on `action="a2a.delegate:rafael"` specifically and never confuses the two.
 
-No CIB Seven engine is used: `cibseven_base_url` in `AgentRuntimeSettings` points at an
-intentionally unreachable address, so Rafael's `start_process` node hits `CibSevenError` and
-degrades to `process_started=False` (by design, `agents/rafael/graph.py::start_process`) — the
-delegation itself still SUCCEEDS (`output_ref` is the business-key reference regardless). Kafka is
-a recording fake (facts are observability, not the T-F audit — see `a2a_composition`'s docstring).
+The intentionally unreachable address is confined to an explicit negative RAF-02 proof. That case
+requires `StartProcessFailedError`, keeps durable idempotency unsealed, and proves that neither a
+terminal COMPLETED audit row nor a completed fact can be fabricated. Kafka is a recording fake
+(facts are observability, not the T-F audit — see `a2a_composition`'s docstring).
 `PhiZoneMockProvider` (not `noop`) is used so the dossier's `generate(phi=True)` call is actually
 exercised, per the design's explicit "noop swallows errors and false-greens the seam" warning.
 """
@@ -36,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import uuid
 from collections.abc import AsyncIterator
@@ -60,9 +62,12 @@ from maezo.a2a import (
 from maezo.a2a.dispatcher import a2a_audit_dedup_key, a2a_audit_outcome_dedup_key
 from maezo.agents.helena.delegation import delegate_auth_analysis
 from maezo.gateway.audit_postgres import PostgresAuditSink, normalize_dsn, verify_chain
+from maezo.platform.deploy.engine_deploy import resolve_engine_rest_url
 from maezo.runtime.agent_runtime.a2a_composition import build_auth_delegation_dispatcher
 from maezo.runtime.agent_runtime.settings import AgentRuntimeSettings
 from maezo.runtime.inference import InferenceProvider, InferenceSettings
+from maezo.runtime.start_outcome import StartProcessFailedError
+from tests.integration.processes.engine_rest import EngineRest
 
 pytestmark = pytest.mark.integration
 
@@ -71,15 +76,17 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 # Gap LIVE-SUITES-SILENT-SKIP-AUDIT (2026-09-04): this used to be a "FREE, dedicated port"
 # (5643, itself a reconciliation of a 5642/5643 drift the W3/W4 rows flagged) that NOTHING in this
 # repo ever served — no compose service, no CI service, no documented bring-up — so with the
-# project's own stack up and no env exported all 7 tests below reported "COULD NOT VERIFY"
+# project's own stack up and no env exported every test below reported "COULD NOT VERIFY"
 # forever. The dedicated port never was the isolation mechanism: `tenant_schema` below gives each
 # run its OWN `a2aw3<hex>` schema (created, migrated and dropped here), which is what actually
 # keeps concurrent suites off each other's rows. Default is now the compose Postgres, resolved by
 # `_default_test_dsn()` below; `MAEZO_TEST_A2A_EDGE_DATABASE_URL` still overrides it.
 
-# An address guaranteed to refuse a connection instantly (no CIB Seven engine — port 1 requires
-# root to bind and is never a real HTTP service on any dev/CI host).
+# An address guaranteed to refuse a connection instantly. It is used only by the RAF-02 negative;
+# all positive composition proofs use `resolve_engine_rest_url()` through `live_engine_url`.
 _UNREACHABLE_CIBSEVEN_URL = "http://127.0.0.1:1/engine-rest"
+
+_AUTH_BPMN = _REPO_ROOT / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
 
 _CASE_META: dict[str, Any] = {
     "beneficiario_pseudo_id": "pseudo-livepg-1",
@@ -187,18 +194,48 @@ def tenant_schema(pg_dsn: str) -> AsyncIterator[str]:
     asyncio.run(_drop_schema())
 
 
-def _settings(*, tenant: str, database_url: str) -> AgentRuntimeSettings:
+def _resolve_verified_live_auth_engine() -> str:
+    """Resolve the runner-owned engine and verify its AUTH definition against this checkout.
+
+    `resolve_engine_rest_url()` is the same source used by the engine runner; its dependency scan
+    recognizes that executable name and therefore provisions CIB Seven for this db-unit module.
+    The runner already deploys and byte-verifies all canonical artifacts before pytest. This fixture
+    repeats the AUTH lookup without mutating that deployment, and fails closed if the latest
+    SP-OP-AUTH-001 is absent, stale, or from another checkout.
+    """
+    base_url = resolve_engine_rest_url()
+
+    async def _read_live_bpmn() -> str:
+        engine = EngineRest(base_url)
+        try:
+            return await engine.latest_definition_xml("SP-OP-AUTH-001")
+        finally:
+            await engine.aclose()
+
+    live_bpmn = asyncio.run(_read_live_bpmn()).encode()
+    assert live_bpmn == _AUTH_BPMN.read_bytes(), (
+        "latest SP-OP-AUTH-001 in the live engine does not match this checkout's canonical BPMN"
+    )
+    return base_url
+
+
+@pytest.fixture(scope="module")
+def live_engine_url() -> str:
+    return _resolve_verified_live_auth_engine()
+
+
+def _settings(*, tenant: str, database_url: str, engine_rest_url: str) -> AgentRuntimeSettings:
     return AgentRuntimeSettings(
         tenant_id=tenant,
         agent_id="rafael",
         database_url=database_url,
-        cibseven_base_url=_UNREACHABLE_CIBSEVEN_URL,
+        cibseven_base_url=engine_rest_url,
         # ADR-0039 Q7: EXPLICIT now. This suite exercises the dev/unsigned composition path, which
         # used to be inherited from `AgentRuntimeSettings`' pydantic default; that default is now
         # the fail-closed "production", where the unsigned-Cards opt-out is IGNORED. Passing it
-        # here keeps these tests proving what they are named for. NOTE: this suite is skipped
-        # without a live Postgres, so the flip would NOT have reddened CI — it would have surfaced
-        # as a confusing local failure the next time someone ran the live-PG lane.
+        # here keeps these tests proving what they are named for. The suite is classified as both
+        # Postgres- and engine-dependent, so these explicit local opt-outs never bypass either
+        # live dependency.
         agent_runtime_mode="local",
     )
 
@@ -294,8 +331,10 @@ async def _count_audit_rows(dsn: str, tenant_id: str) -> int:
 # --- 1/2/3/5: T-F fires live, chain-valid, PHI-safe, two distinct surfaces --------------------
 
 
-async def test_live_delegation_audit_fires_chain_valid_and_phi_safe(pg_dsn: str, tenant_schema: str) -> None:
-    settings = _settings(tenant=tenant_schema, database_url=pg_dsn)
+async def test_live_delegation_audit_fires_chain_valid_and_phi_safe(
+    pg_dsn: str, tenant_schema: str, live_engine_url: str
+) -> None:
+    settings = _settings(tenant=tenant_schema, database_url=pg_dsn, engine_rest_url=live_engine_url)
     dispatcher = build_auth_delegation_dispatcher(
         settings, inference=_phi_capable_inference(), kafka_producer=_RecordingKafkaProducer()
     )
@@ -335,8 +374,8 @@ async def test_live_delegation_audit_fires_chain_valid_and_phi_safe(pg_dsn: str,
     assert dedup_row["record_hash"] == row["record_hash"]
 
     # Surface 5 (distinct, never conflated): Rafael's OWN process-start audit (T-C2) ALSO landed
-    # on this same sink (audit-before-effect fires even though CibSevenError degrades the actual
-    # engine call right after) — a DIFFERENT action prefix, asserted separately.
+    # on this same sink after the real engine accepted the start — a DIFFERENT action prefix,
+    # asserted separately.
     start_rows = await _fetch_start_process_rows(pg_dsn, tenant_schema)
     assert len(start_rows) >= 1
     assert all(r["action"] != "a2a.delegate:rafael" for r in start_rows)
@@ -373,8 +412,10 @@ async def test_live_delegation_audit_fires_chain_valid_and_phi_safe(pg_dsn: str,
 # --- 4: durable idempotency across independent dispatcher instances ("two replicas") ----------
 
 
-async def test_live_durable_idempotency_across_dispatcher_instances(pg_dsn: str, tenant_schema: str) -> None:
-    settings = _settings(tenant=tenant_schema, database_url=pg_dsn)
+async def test_live_durable_idempotency_across_dispatcher_instances(
+    pg_dsn: str, tenant_schema: str, live_engine_url: str
+) -> None:
+    settings = _settings(tenant=tenant_schema, database_url=pg_dsn, engine_rest_url=live_engine_url)
 
     dispatcher_a = build_auth_delegation_dispatcher(
         settings, inference=_phi_capable_inference(), kafka_producer=_RecordingKafkaProducer()
@@ -424,6 +465,60 @@ async def test_live_durable_idempotency_across_dispatcher_instances(pg_dsn: str,
     assert idem_row["status"] == "done"
 
 
+# --- RAF-02: an unreachable engine is retryable, never falsely completed or sealed ------------
+
+
+async def test_live_unreachable_engine_propagates_without_false_completed_or_seal(
+    pg_dsn: str, tenant_schema: str
+) -> None:
+    producer = _RecordingKafkaProducer()
+    settings = _settings(
+        tenant=tenant_schema,
+        database_url=pg_dsn,
+        engine_rest_url=_UNREACHABLE_CIBSEVEN_URL,
+    )
+    dispatcher = build_auth_delegation_dispatcher(
+        settings, inference=_phi_capable_inference(), kafka_producer=producer
+    )
+    task_id = f"auth-{tenant_schema}-GUIA-LIVEPG-RAF02"
+
+    with pytest.raises(StartProcessFailedError):
+        await delegate_auth_analysis(
+            dispatcher,
+            tenant=tenant_schema,
+            numero_guia_tiss="GUIA-LIVEPG-RAF02",
+            coverage_ref="fhir://Coverage/livepg-raf02",
+            case_meta=_CASE_META,
+        )
+
+    # T-F records admission and the non-terminal propagation trace, never a terminal completion.
+    rows = await _fetch_a2a_delegate_and_outcome_rows(pg_dsn, tenant_schema, task_id=task_id)
+    assert [row["decision"] for row in rows] == ["ALLOW", "PROPAGATED"]
+    assert "COMPLETED" not in {row["decision"] for row in rows}
+
+    # Durable claim remains retryable: RAF-02 must not seal a result for a process that never began.
+    conn = await asyncpg.connect(normalize_dsn(pg_dsn))
+    try:
+        await conn.execute(f'SET search_path TO "{tenant_schema}"')
+        idem_row = await conn.fetchrow(
+            "SELECT status, result FROM a2a_idempotency WHERE task_id = $1 AND tenant = $2",
+            task_id,
+            tenant_schema,
+        )
+    finally:
+        await conn.close()
+    assert idem_row is not None
+    assert idem_row["status"] == "processing"
+    assert idem_row["result"] is None
+
+    facts = [json.loads(value) for _topic, value, _key in producer.sent]
+    assert [fact["kind"] for fact in facts] == ["requested"]
+    assert all(fact["kind"] != "completed" for fact in facts)
+
+    verification = await verify_chain(pg_dsn, tenant_schema)
+    assert verification.valid, verification.reason
+
+
 # --- T-G enforcement (W4, design doc §10): the signed-Card ENFORCEMENT proof, LIVE --------------
 #
 # Through the REAL production composition (`build_auth_delegation_dispatcher`) for the positive
@@ -437,7 +532,7 @@ _TG_OTHER_KEY = "a-completely-different-live-pg-signing-key"
 
 
 async def test_live_tg_enforcement_signed_card_admits_and_dispatches(
-    pg_dsn: str, tenant_schema: str, monkeypatch: pytest.MonkeyPatch
+    pg_dsn: str, tenant_schema: str, live_engine_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """T-G ENFORCEMENT, the positive case, through the REAL production composition: with this
     tenant's PER-TENANT key (`MAEZO_A2A_CARD_SIGNING_KEY__<TENANT>`, ADR-0039 §4.4 leg E2) set,
@@ -445,7 +540,7 @@ async def test_live_tg_enforcement_signed_card_admits_and_dispatches(
     makes) — a validly-signed Card is admitted and the delegation actually dispatches, persisting a
     real audit row exactly like the dev-path (unsigned) proof earlier in this module."""
     monkeypatch.setenv(per_tenant_key_env_var(tenant_schema), _TG_TEST_KEY)
-    settings = _settings(tenant=tenant_schema, database_url=pg_dsn)
+    settings = _settings(tenant=tenant_schema, database_url=pg_dsn, engine_rest_url=live_engine_url)
     dispatcher = build_auth_delegation_dispatcher(
         settings, inference=_phi_capable_inference(), kafka_producer=_RecordingKafkaProducer()
     )
