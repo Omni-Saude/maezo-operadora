@@ -178,7 +178,7 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
     receipt.put("engine_receipt_ref", UUID.randomUUID().toString());
     receipt.put("recorded_at", Long.toString(now));
     byte[] bytes = Jcs.canonical(receipt);
-    db.insertReceipt(c, digest, bytes);
+    // Mutant: omit durable receipt insert.
     return bytes;
   }
 }
