@@ -1,0 +1,15 @@
+# Dedicated Java image context: the application root .dockerignore excludes deploy/.
+# Only the Maven sources and the human servlet descriptor are required here.
+**
+!src/
+!src/maezo/
+!src/maezo/portal/
+!src/maezo/portal/engine/
+!src/maezo/portal/engine/java/
+!src/maezo/portal/engine/java/pom.xml
+!src/maezo/portal/engine/java/src/
+!src/maezo/portal/engine/java/src/**
+!deploy/
+!deploy/cibseven/
+!deploy/cibseven/human-webapp/
+!deploy/cibseven/human-webapp/**

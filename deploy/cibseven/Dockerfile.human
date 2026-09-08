@@ -1,11 +1,11 @@
 # ADR0049 D5: opt-in pinned Tomcat package, build context is repository root.
 # This image fails engine startup without explicit trust config and preinstalled SQL.
-FROM maven:3.9.9-eclipse-temurin-17 AS human-build
+FROM maven:3.9.9-eclipse-temurin-17@sha256:f58d59b6273e785ac0a4477f6e9b5ba1d7731c75b906c0f7b34076f1851318cc AS human-build
 WORKDIR /build
 COPY src/maezo/portal/engine/java/pom.xml ./pom.xml
 COPY src/maezo/portal/engine/java/src ./src
 RUN mvn -B -DskipTests package
-FROM cibseven/cibseven:2.1.0
+FROM cibseven/cibseven:tomcat-2.1.0@sha256:20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169
 RUN rm -rf /camunda/webapps/camunda-invoice /camunda/webapps/camunda-invoice.war \
     && rm -f /camunda/lib/camunda-invoice*.jar \
     && test ! -e /camunda/webapps/camunda-invoice \

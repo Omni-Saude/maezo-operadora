@@ -12,6 +12,11 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 
+from tests.support.tls_oracle import (
+    expect_pinned_jsse_missing_client_certificate_alert,
+    server_authenticated_tls13_context,
+)
+
 pytestmark = pytest.mark.integration
 
 
@@ -46,16 +51,13 @@ def test_actual_tomcat_plugin_loaded_after_schema_and_trust_bootstrap() -> None:
 
 
 def test_actual_tomcat_rejects_client_without_mutual_tls_identity() -> None:
-    context = ssl.create_default_context(cafile=required("MAEZO_HUMAN_PACKAGE_CA_FILE"))
-    with httpx.Client(verify=context, trust_env=False, follow_redirects=False) as client:
-        try:
-            response = client.post(endpoint(), json={})
-        except httpx.TransportError as exc:
-            # clientAuth=required may reject during TLS, before the servlet can return 403.
-            assert "CERTIFICATE_REQUIRED" in str(exc).upper()
-            return
-    assert response.status_code == 403
-    assert response.json() == {"error": "AUTHORITY_DENIED"}
+    """The pinned HTTPX/httpcore path retains the native alert as a typed payload."""
+    context = server_authenticated_tls13_context(required("MAEZO_HUMAN_PACKAGE_CA_FILE"))
+    with (
+        httpx.Client(verify=context, trust_env=False, follow_redirects=False) as client,
+        expect_pinned_jsse_missing_client_certificate_alert(),
+    ):
+        client.post(endpoint(), json={})
 
 
 def test_plaintext_and_forwarded_identity_headers_do_not_authenticate() -> None:
@@ -69,3 +71,41 @@ def test_plaintext_and_forwarded_identity_headers_do_not_authenticate() -> None:
         )
     assert response.status_code == 403
     assert response.json() == {"error": "AUTHORITY_DENIED"}
+
+
+def test_missing_client_certificate_is_rejected_by_tls_before_http() -> None:
+    """Application 403 alone cannot prove the connector requires client auth."""
+    import socket
+
+    url = urlparse(endpoint())
+    context = server_authenticated_tls13_context(required("MAEZO_HUMAN_PACKAGE_CA_FILE"))
+    with (
+        expect_pinned_jsse_missing_client_certificate_alert(),
+        socket.create_connection((url.hostname, url.port), timeout=5) as sock,
+        context.wrap_socket(sock, server_hostname=url.hostname) as tls,
+    ):
+        tls.sendall(
+            b"POST /maezo-human/v1/commands HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n\r\n{}"
+        )
+        tls.recv(4096)
+
+
+def test_untrusted_client_certificate_is_rejected_by_tls() -> None:
+    import socket
+
+    url = urlparse(endpoint())
+    context = ssl.create_default_context(cafile=required("MAEZO_HUMAN_PACKAGE_CA_FILE"))
+    context.minimum_version = ssl.TLSVersion.TLSv1_3
+    context.maximum_version = ssl.TLSVersion.TLSv1_3
+    context.load_cert_chain(
+        required("MAEZO_HUMAN_PACKAGE_UNTRUSTED_CERT"), required("MAEZO_HUMAN_PACKAGE_UNTRUSTED_KEY")
+    )
+    with (
+        socket.create_connection((url.hostname, url.port), timeout=5) as sock,
+        pytest.raises(ssl.SSLError, match="(?i)(CERTIFICATE_UNKNOWN|UNKNOWN_CA|BAD_CERTIFICATE)"),
+        context.wrap_socket(sock, server_hostname=url.hostname) as tls,
+    ):
+        tls.sendall(
+            b"POST /maezo-human/v1/commands HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n\r\n{}"
+        )
+        tls.recv(4096)
