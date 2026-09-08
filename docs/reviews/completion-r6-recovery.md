@@ -135,12 +135,32 @@ Nada neste pacote entrega ou simula esses dois itens.
 
 ## 6. Integridade do ledger e IDs
 
-A comparação escape-aware da tabela produz:
+Recontagem CD-V2 com cortes congelados: `main@fe91b912811db34a24583fe00805ab9ab945af99`
+e `candidato@428adca12bf3de18a43312569433cc51b1f7b5c2` (inclui o append original C/D).
+Appends de reparos posteriores não entram nesses dois cortes. O parser escape-aware conta
+**400/439 linhas de dados no total**, incluindo **30 linhas históricas de 9–15 células** em
+cada corte; 370/409 é somente o subconjunto de exatamente oito células, não o total.
 
-| Corte | Linhas de dados | IDs únicos | Grupos duplicados | Excedentes por duplicação |
-|---|---:|---:|---:|---:|
-| `main@fe91b912` | 370 | 283 | 42 | 87 |
-| candidato após este append | 409 | 322 | 42 | 87 |
+| População e definição de ID | Corte | Linhas de dados | IDs únicos | Grupos duplicados | Excedentes por duplicação |
+|---|---|---:|---:|---:|---:|
+| Todas as linhas de dados; célula líder inteira | `main@fe91b912` | 400 | 309 | 45 | 91 |
+| Todas as linhas de dados; célula líder inteira | `candidato@428adca1` | 439 | 348 | 45 | 91 |
+| Somente 8 células; célula líder inteira | `main@fe91b912` | 370 | 283 | 42 | 87 |
+| Somente 8 células; célula líder inteira | `candidato@428adca1` | 409 | 322 | 42 | 87 |
+| Todas as linhas de dados; token líder normalizado | `main@fe91b912` | 400 | 291 | 41 | 109 |
+| Todas as linhas de dados; token líder normalizado | `candidato@428adca1` | 439 | 330 | 41 | 109 |
+
+“Célula líder inteira” conserva o conteúdo completo da primeira célula, retirando apenas espaços
+nas extremidades. “Token líder normalizado” usa o primeiro ID reconhecido por
+`check_evidence_ledger.py::_LEDGER_ROW_RE` e sua normalização do gate de PR; anotações e outros
+IDs na mesma célula não tornam as duas métricas intercambiáveis. Grupo duplicado tem frequência
+maior que um; excedente é a soma de frequência menos um por grupo. O gate de células valida
+somente linhas novas no delta: passar não corrige nem elimina as 30 linhas históricas malformadas.
+
+A recontagem e a errata das evidências autorais congeladas ficam em
+`docs/audits/maezo-deep-audit/remediation/completion-r6-disclosure-repair/REPORT.md` no checkout
+principal. `completion-r6-disclosure-build/REPORT.md` e `ledger-integrity.json`, assim como o
+parecer independente original, são preservados como fontes históricas, não reescritos.
 
 As **501 linhas físicas** do ledger de `main@fe91b912` permanecem byte-idênticas e na mesma ordem.
 O ledger já continha duas linhas `AF-06` em main; elas não foram alteradas. Três linhas criadas no
