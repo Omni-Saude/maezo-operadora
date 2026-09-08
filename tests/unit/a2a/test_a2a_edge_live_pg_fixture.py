@@ -9,57 +9,64 @@ engine dependency from the integration runner.
 from __future__ import annotations
 
 import inspect
-from pathlib import Path
-from types import TracebackType
 
 import pytest
 
 from . import test_a2a_edge_live_pg as live
 
 
-class _RecordingDeployClient:
-    instances: list[_RecordingDeployClient] = []
+class _RecordingEngineRest:
+    instances: list[_RecordingEngineRest] = []
 
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url
-        self.deploy_calls: list[tuple[tuple[Path, ...], str]] = []
+        self.definition_lookups: list[str] = []
+        self.closed = False
         self.instances.append(self)
 
-    def __enter__(self) -> _RecordingDeployClient:
-        return self
+    async def latest_definition_xml(self, process_definition_key: str) -> str:
+        self.definition_lookups.append(process_definition_key)
+        return live._AUTH_BPMN.read_text()
 
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        return None
-
-    def deploy(self, paths: tuple[Path, ...], *, name: str) -> None:
-        self.deploy_calls.append((paths, name))
+    async def aclose(self) -> None:
+        self.closed = True
 
 
-def test_positive_fixture_resolves_live_engine_and_deploys_auth_source(
+def test_positive_fixture_resolves_live_engine_and_verifies_auth_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolved_url = "http://127.0.0.1:18080/engine-rest"
-    _RecordingDeployClient.instances.clear()
+    _RecordingEngineRest.instances.clear()
     monkeypatch.setattr(live, "resolve_engine_rest_url", lambda: resolved_url)
-    monkeypatch.setattr(live, "EngineDeployClient", _RecordingDeployClient)
+    monkeypatch.setattr(live, "EngineRest", _RecordingEngineRest)
 
-    assert live._deploy_auth_process_to_live_engine() == resolved_url
-    assert len(_RecordingDeployClient.instances) == 1
-    client = _RecordingDeployClient.instances[0]
-    assert client.base_url == resolved_url
-    assert client.deploy_calls == [(live._AUTH_ARTIFACTS, "a2a-live-pg-auth-fixture")]
-    assert [path.relative_to(live._REPO_ROOT).as_posix() for path in live._AUTH_ARTIFACTS] == [
-        "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn",
-        "spec/processes/dmn/auth_admissibility.dmn",
-        "spec/processes/dmn/auth_auto_approval.dmn",
-        "spec/processes/dmn/auth_sla.dmn",
-    ]
-    assert all(path.is_file() for path in live._AUTH_ARTIFACTS)
+    assert live._resolve_verified_live_auth_engine() == resolved_url
+    assert len(_RecordingEngineRest.instances) == 1
+    engine = _RecordingEngineRest.instances[0]
+    assert engine.base_url == resolved_url
+    assert engine.definition_lookups == ["SP-OP-AUTH-001"]
+    assert engine.closed is True
+    assert live._AUTH_BPMN.relative_to(live._REPO_ROOT).as_posix() == (
+        "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+    )
+    assert live._AUTH_BPMN.is_file()
+
+
+def test_positive_fixture_fails_closed_on_foreign_auth_definition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _ForeignEngineRest(_RecordingEngineRest):
+        async def latest_definition_xml(self, process_definition_key: str) -> str:
+            self.definition_lookups.append(process_definition_key)
+            return "<definitions><process id='SP-OP-AUTH-001'/></definitions>"
+
+    _ForeignEngineRest.instances.clear()
+    monkeypatch.setattr(live, "resolve_engine_rest_url", lambda: "http://127.0.0.1:18080/engine-rest")
+    monkeypatch.setattr(live, "EngineRest", _ForeignEngineRest)
+
+    with pytest.raises(AssertionError, match="does not match this checkout"):
+        live._resolve_verified_live_auth_engine()
+    assert _ForeignEngineRest.instances[0].closed is True
 
 
 def test_positive_settings_take_the_resolved_url_and_raf02_is_an_explicit_negative() -> None:
@@ -79,5 +86,5 @@ def test_positive_settings_take_the_resolved_url_and_raf02_is_an_explicit_negati
 
 
 def test_runner_dependency_signal_stays_executable_in_the_live_module() -> None:
-    source = inspect.getsource(live._deploy_auth_process_to_live_engine)
+    source = inspect.getsource(live._resolve_verified_live_auth_engine)
     assert "resolve_engine_rest_url()" in source

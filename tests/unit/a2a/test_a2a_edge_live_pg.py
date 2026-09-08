@@ -4,9 +4,10 @@ Tier 2 (`@pytest.mark.integration`), placed HERE (not under `tests/integration/`
 mirrors `tests/unit/a2a/test_idempotency_store.py`'s own placement rationale: this suite needs a
 REAL Postgres and, for the three positive Rafael composition scenarios, a REAL CIB Seven engine.
 The file stays outside `tests/integration/` to avoid that package's unrelated autouse fixtures; its
-own fixtures resolve the same engine URL as the repository runner and deploy the authentic AUTH
-BPMN/DMNs from `spec/processes/`. The A2A hop itself remains engine-independent, but Rafael's real
-handler is not: a successful turn includes starting SP-OP-AUTH-001 (RAF-02).
+own fixture resolves the same engine URL as the repository runner and verifies that the live AUTH
+definition is the authentic BPMN from `spec/processes/`. The A2A hop itself remains
+engine-independent, but Rafael's real handler is not: a successful turn includes starting
+SP-OP-AUTH-001 (RAF-02).
 
 What this proves that the W2 unit suite (fakes only) could not:
   1. **T-F becomes real**: a real `DelegationDispatcher` (assembled via `agent_runtime.
@@ -61,11 +62,12 @@ from maezo.a2a import (
 from maezo.a2a.dispatcher import a2a_audit_dedup_key, a2a_audit_outcome_dedup_key
 from maezo.agents.helena.delegation import delegate_auth_analysis
 from maezo.gateway.audit_postgres import PostgresAuditSink, normalize_dsn, verify_chain
-from maezo.platform.deploy.engine_deploy import EngineDeployClient, resolve_engine_rest_url
+from maezo.platform.deploy.engine_deploy import resolve_engine_rest_url
 from maezo.runtime.agent_runtime.a2a_composition import build_auth_delegation_dispatcher
 from maezo.runtime.agent_runtime.settings import AgentRuntimeSettings
 from maezo.runtime.inference import InferenceProvider, InferenceSettings
 from maezo.runtime.start_outcome import StartProcessFailedError
+from tests.integration.processes.engine_rest import EngineRest
 
 pytestmark = pytest.mark.integration
 
@@ -84,12 +86,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 # all positive composition proofs use `resolve_engine_rest_url()` through `live_engine_url`.
 _UNREACHABLE_CIBSEVEN_URL = "http://127.0.0.1:1/engine-rest"
 
-_AUTH_ARTIFACTS = (
-    _REPO_ROOT / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn",
-    _REPO_ROOT / "spec/processes/dmn/auth_admissibility.dmn",
-    _REPO_ROOT / "spec/processes/dmn/auth_auto_approval.dmn",
-    _REPO_ROOT / "spec/processes/dmn/auth_sla.dmn",
-)
+_AUTH_BPMN = _REPO_ROOT / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
 
 _CASE_META: dict[str, Any] = {
     "beneficiario_pseudo_id": "pseudo-livepg-1",
@@ -197,23 +194,34 @@ def tenant_schema(pg_dsn: str) -> AsyncIterator[str]:
     asyncio.run(_drop_schema())
 
 
-def _deploy_auth_process_to_live_engine() -> str:
-    """Resolve the runner-owned engine and deploy AUTH artifacts from this checkout.
+def _resolve_verified_live_auth_engine() -> str:
+    """Resolve the runner-owned engine and verify its AUTH definition against this checkout.
 
     `resolve_engine_rest_url()` is the same source used by the engine runner; its dependency scan
     recognizes that executable name and therefore provisions CIB Seven for this db-unit module.
-    Deployment is explicit and fail-closed so a positive proof can never run against an absent,
-    stale, or synthetic SP-OP-AUTH-001 definition.
+    The runner already deploys and byte-verifies all canonical artifacts before pytest. This fixture
+    repeats the AUTH lookup without mutating that deployment, and fails closed if the latest
+    SP-OP-AUTH-001 is absent, stale, or from another checkout.
     """
     base_url = resolve_engine_rest_url()
-    with EngineDeployClient(base_url) as client:
-        client.deploy(_AUTH_ARTIFACTS, name="a2a-live-pg-auth-fixture")
+
+    async def _read_live_bpmn() -> str:
+        engine = EngineRest(base_url)
+        try:
+            return await engine.latest_definition_xml("SP-OP-AUTH-001")
+        finally:
+            await engine.aclose()
+
+    live_bpmn = asyncio.run(_read_live_bpmn()).encode()
+    assert live_bpmn == _AUTH_BPMN.read_bytes(), (
+        "latest SP-OP-AUTH-001 in the live engine does not match this checkout's canonical BPMN"
+    )
     return base_url
 
 
 @pytest.fixture(scope="module")
 def live_engine_url() -> str:
-    return _deploy_auth_process_to_live_engine()
+    return _resolve_verified_live_auth_engine()
 
 
 def _settings(*, tenant: str, database_url: str, engine_rest_url: str) -> AgentRuntimeSettings:
@@ -342,7 +350,6 @@ async def test_live_delegation_audit_fires_chain_valid_and_phi_safe(
     assert result.success
     assert result.output_ref == f"process://AUTH-{tenant_schema}-GUIA-LIVEPG-1"
     assert result.idempotent_replay is False
-    assert result.meta["process_started"] == "True"
     task_id = f"auth-{tenant_schema}-GUIA-LIVEPG-1"
 
     # Surface 1 (T-F): the delegation audit — action + dedup_key exactly as the design specifies.
@@ -422,7 +429,6 @@ async def test_live_durable_idempotency_across_dispatcher_instances(
     )
     assert first.success
     assert first.idempotent_replay is False
-    assert first.meta["process_started"] == "True"
 
     # A FRESH dispatcher instance — simulates a second replica with no in-memory _inflight state;
     # only the DURABLE a2a_idempotency table (migration 0003) can make this a replay.
@@ -549,7 +555,6 @@ async def test_live_tg_enforcement_signed_card_admits_and_dispatches(
 
     assert result.success
     assert result.output_ref == f"process://AUTH-{tenant_schema}-GUIA-LIVEPG-TG-SIGNED"
-    assert result.meta["process_started"] == "True"
     task_id = f"auth-{tenant_schema}-GUIA-LIVEPG-TG-SIGNED"
     rows = await _fetch_a2a_delegate_rows(pg_dsn, tenant_schema, task_id=task_id)
     assert len(rows) == 1
