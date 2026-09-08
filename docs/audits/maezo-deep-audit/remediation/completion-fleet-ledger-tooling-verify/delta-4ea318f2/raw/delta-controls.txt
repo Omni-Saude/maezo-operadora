@@ -1,0 +1,17 @@
+utc_start=2026-09-08T21:16:16.584109+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-delta
+argv=["/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-delta/.venv/bin/python", "/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-delta/docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-tooling-verify/delta-4ea318f2/raw/delta-controls.py"]
+revision=4ea318f28923c73bf5aacdc01eab647398c2aaee
+{"control": "selected_dirty_lock", "output": "[check-evidence-ledger-hashes] MISMATCH: CURRENT-CLAIM: working-tree uv.lock differs from HEAD; refusing historical execution\n[check-evidence-ledger-hashes] OK: CURRENT-CLAIM: verified sha256:ccc71b8b1ae82a137e27d1491b902cd1fcd434b857c59b91a66736fa899568b8 (tests/test_claim.py, 2 result lines).\n[check-evidence-ledger-hashes] SUMMARY: 1/2 declared-row proofs verified (1 selected rows; 2 total current/historical proofs), 0 legacy rows skipped \u2014 rows added in 77375c64f5f5386e45b3633fed3eb16cb568911a..HEAD of docs/evidence-ledger.md.\n", "rc": 1}
+{"control": "selected_missing_lock", "output": "[check-evidence-ledger-hashes] MISMATCH: CURRENT-CLAIM: current uv.lock is missing; historical dependency provenance is unbound\n[check-evidence-ledger-hashes] OK: CURRENT-CLAIM: verified sha256:ccc71b8b1ae82a137e27d1491b902cd1fcd434b857c59b91a66736fa899568b8 (tests/test_claim.py, 2 result lines).\n[check-evidence-ledger-hashes] SUMMARY: 1/2 declared-row proofs verified (1 selected rows; 2 total current/historical proofs), 0 legacy rows skipped \u2014 rows added in 7888efc0dc4e1c0eb37ba8e517531cbe71065eeb..HEAD of docs/evidence-ledger.md.\n", "rc": 1}
+{"control": "global_forged_source", "output": "[check-evidence-ledger-hashes] ERROR: invalid ledger supersession provenance: CURRENT-CLAIM: historical test blob digest mismatch for tests/test_claim.py\n", "rc": 1}
+{"control": "selected_committed_lock", "output": "[check-evidence-ledger-hashes] MISMATCH: CURRENT-CLAIM: historical uv.lock differs from HEAD; the current locked environment cannot truthfully execute that historical tree\n[check-evidence-ledger-hashes] OK: CURRENT-CLAIM: verified sha256:ccc71b8b1ae82a137e27d1491b902cd1fcd434b857c59b91a66736fa899568b8 (tests/test_claim.py, 2 result lines).\n[check-evidence-ledger-hashes] SUMMARY: 1/2 declared-row proofs verified (1 selected rows; 2 total current/historical proofs), 0 legacy rows skipped \u2014 rows added in 37c1b1958bee13a35ac31c59388725d2f3ef1274..HEAD of docs/evidence-ledger.md.\n", "rc": 1}
+{"control": "unselected_committed_lock", "output": "[check-evidence-ledger-hashes] PASS: 0 rows verified, 0 legacy rows skipped \u2014 rows added in ac3e7049b8fbeddd9b17757c7e47d2a7a010889f..HEAD of docs/evidence-ledger.md.\n", "rc": 0}
+{"control": "postgres_endpoint_override_matrix", "network_calls": 0, "rejected": 20}
+{"control": "allowed_DSN_resolves_loopback", "host": "127.0.0.1", "port": "5546"}
+{"control": "allowed_DSN_resolves_loopback", "host": "localhost", "port": "5546"}
+{"control": "allowed_DSN_resolves_loopback", "host": "::1", "port": "5546"}
+{"configured_bound": 1800, "control": "independent_real_deadline", "counts": {}, "elapsed_s": 0.204, "passed": null, "raw": "TIMEOUT after 0.2s running pytest tests/ -q: Command '['/var/folders/03/1rdbcdk105qf0m9zctqqlhtr0000gn/T/ledger-delta-owgg11te/sleeping-python', '-m', 'pytest', 'tests/', '-q']' timed out after 0.2 seconds", "rc": -1, "temporary_control_bound": 0.2, "violations": 2}
+
+rc=0
+utc_end=2026-09-08T21:16:27.296332+00:00

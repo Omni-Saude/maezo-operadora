@@ -1,0 +1,387 @@
+diff --git a/docs/evidence-ledger.md b/docs/evidence-ledger.md
+index 71d17f82..88695285 100644
+--- a/docs/evidence-ledger.md
++++ b/docs/evidence-ledger.md
+@@ -601,3 +601,4 @@ separadamente em HEAD e nunca recebe a receita legacy. Campo ausente/desconhecid
+ ambígua, duplicada ou cíclica, commit não ancestral, blob divergente, import fora do archive ou
+ hash antigo/novo divergente falha sem fallback para HEAD. A recusa de `tests/integration/**` sem
+ posse explícita do mutex vale também para o teste histórico.
++| FLEET-LEDGER-BOUNDARY-REPAIR / FLTV-01 / FLTV-02 / FLTV-03 / FLTV-04 | 2026-09-08 | fleet-ledger-boundary-repair (Sol high, terceiro especialista distinto do autor/verificador), branch `completion/fleet-ledger-boundary-repair` sobre `ac775f8d` | pendente: delta independente do mesmo `fleet_ledger_tooling_assurance` (Astra) | `ea564269` + `07ebb91d` + commit desta linha | Fecha os quatro limites reproduzidos pelo verificador: o hook histórico atesta todo filename real de código executado sem depender de sufixo e mantém somente filenames sintéticos fora do censo; marcador v1 exige sucessor declarado e data qualificada, sem queda para legacy; grafo/digests/ancestralidade continuam validados globalmente, mas igualdade do lock atual é exigida somente quando a prova histórica foi selecionada; DSN histórico aceita somente autoridade PostgreSQL loopback não ambígua e rejeita overrides libpq de host/hostaddr/port/service/socket, inclusive chaves percent-encoded, sem conexão. A linha FLC anterior e seu teste original são provados no archive ancestral, sem fallback HEAD; esta linha mede 45 resultados atuais pela receita canônica. Cercas incluem `.py`, `.txt`, `.pyw` e extensionless, data ausente/inválida/antiga, lock futuro sem rows vs replay selecionado, DSNs simples IPv4/IPv6/localhost e gramática por coordenada. Receita HEAD/argv/herança de ambiente, timeout 1800, pisos e `generate_release_floor.py` permanecem intactos. RED/GREEN e 162 focais em `docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/`; sem serviços, rede, Docker, full-unit, CI, push ou merge. [ledger-supersedes:v1;target=FLEET-LEDGER-SUPERSESSION-PROVENANCE / FLC-01 / FLC-02;source_commit=3009bbe5490e28b89b606dc6e656d6b2b3ad98d8;source_row_sha256=3043bad9dfe3e4e677aeebada77248f3c92d5ba28158838fc65f77d0a64f4853;source_test_sha256=4204f8f7d0304fbc094cbd4981422fd3b56ba2fa203fd35f46e3e3e922652277;source_lock_sha256=b2204cb37affc44306a05c3c2b24af2241bb6b3aaede74dbde4bbd46e86ef94f] | sha256:0cf6b113432cdbd276475b1dee21b9f1b491f84333b04b1a12a2534adbe46e89 (tests/unit/ci/test_check_evidence_ledger_supersession.py) | implemented — unverified |
+diff --git a/scripts/ci/check_evidence_ledger_hashes.py b/scripts/ci/check_evidence_ledger_hashes.py
+index 5b2ce260..6101ac16 100644
+--- a/scripts/ci/check_evidence_ledger_hashes.py
++++ b/scripts/ci/check_evidence_ledger_hashes.py
+@@ -155,7 +155,7 @@ import tempfile
+ from collections.abc import Mapping, Sequence
+ from dataclasses import dataclass, field
+ from pathlib import Path
+-from urllib.parse import urlparse
++from urllib.parse import ParseResult, parse_qsl, urlparse
+ 
+ # scripts/ci/<file> -> parents[2] == repo root.
+ REPO_ROOT = Path(__file__).resolve().parents[2]
+@@ -552,8 +552,9 @@ def build_supersession_plan(
+     collision.
+     """
+     _validate_ledger_rel_path(ledger_rel_path)
++    ledger_lines = ledger_text.splitlines()
+     try:
+-        selection = select_rows(ledger_text.splitlines())
++        selection = select_rows(ledger_lines)
+     except SupersessionError:
+         raise
+     rows = selection.declared
+@@ -561,22 +562,26 @@ def build_supersession_plan(
+     by_successor: dict[str, SupersessionEdge] = {}
+ 
+     # A malformed marker on a non-declared row must not fall through the legacy path.
+-    for line in ledger_text.splitlines():
++    for line in ledger_lines:
+         if is_table_row(line) and _SUPERSESSION_HINT in line:
+             parse_supersession_claim(line)
++            successor = parse_row_line(line)
++            if successor is None:
++                raise SupersessionError(
++                    "ledger-supersedes marker requires a declared successor with the exact "
++                    "sha256:<digest> (tests/...py) Test-hash form"
++                )
++            if not is_date_qualified(successor.row_date):
++                date_desc = successor.row_date if successor.row_date is not None else "missing/unparseable"
++                raise SupersessionError(
++                    "ledger-supersedes marker requires a convention-qualified successor Date; "
++                    f"got {date_desc}, expected {CONVENTION_START_DATE} or later"
++                )
+ 
+     claim_rows = [row for row in rows if row.supersession is not None]
+     if not claim_rows:
+         return SupersessionPlan({}, {})
+ 
+-    current_lock_path = repo_root / "uv.lock"
+-    if not current_lock_path.is_file():
+-        raise SupersessionError("current uv.lock is missing; historical dependency provenance is unbound")
+-    current_lock = current_lock_path.read_bytes()
+-    head_lock = _source_blob(repo_root, "HEAD", "uv.lock")
+-    if current_lock != head_lock:
+-        raise SupersessionError("working-tree uv.lock differs from HEAD; refusing historical execution")
+-
+     for successor in claim_rows:
+         claim = successor.supersession
+         if claim is None:
+@@ -648,12 +653,6 @@ def build_supersession_plan(
+         source_lock = _source_blob(repo_root, claim.source_commit, "uv.lock")
+         if _sha256_bytes(source_lock) != claim.source_lock_sha256:
+             raise SupersessionError(f"{successor.task_id}: historical uv.lock digest mismatch")
+-        if source_lock != current_lock:
+-            raise SupersessionError(
+-                f"{successor.task_id}: historical uv.lock differs from HEAD; the current locked "
+-                "environment cannot truthfully execute that historical tree"
+-            )
+-
+         edge = SupersessionEdge(successor, target, claim)
+         by_target[target_digest] = edge
+         by_successor[successor_digest] = edge
+@@ -767,6 +766,64 @@ def _is_loopback_host(host: str | None) -> bool:
+         return False
+ 
+ 
++def _has_valid_url_port(parsed: ParseResult) -> bool:
++    """Reject malformed/out-of-range ports without letting ``ParseResult.port`` raise."""
++    try:
++        port = parsed.port
++    except ValueError:
++        return False
++    return port is None or 0 < port <= 65535
++
++
++def _is_safe_loopback_http_url(value: str) -> bool:
++    parsed = urlparse(value)
++    return (
++        parsed.scheme in {"http", "https"}
++        and bool(parsed.netloc)
++        and _is_loopback_host(parsed.hostname)
++        and _has_valid_url_port(parsed)
++        and not parsed.fragment
++    )
++
++
++_LIBPQ_DESTINATION_QUERY_KEYS = {"host", "hostaddr", "port", "service", "servicefile"}
++
++
++def _is_safe_loopback_postgres_url(value: str) -> bool:
++    parsed = urlparse(value)
++    if (
++        parsed.scheme not in {"postgres", "postgresql"}
++        or not parsed.netloc
++        or not _is_loopback_host(parsed.hostname)
++        or not _has_valid_url_port(parsed)
++        or parsed.params
++        or parsed.fragment
++    ):
++        return False
++    try:
++        query = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
++    except ValueError:
++        return False
++    # libpq gives these query options precedence over the URI authority.  Reject every
++    # destination selector, including percent-encoded spellings and Unix-socket hosts, so the
++    # textual loopback authority is the destination the archived consumer actually receives.
++    return not any(key.lower() in _LIBPQ_DESTINATION_QUERY_KEYS for key, _value in query)
++
++
++def _is_safe_kafka_endpoint(value: str) -> bool:
++    parsed = urlparse("//" + value)
++    return (
++        bool(parsed.netloc)
++        and _is_loopback_host(parsed.hostname)
++        and _has_valid_url_port(parsed)
++        and parsed.username is None
++        and parsed.password is None
++        and not parsed.path
++        and not parsed.query
++        and not parsed.fragment
++    )
++
++
+ def _is_safe_historical_live_coordinate(key: str, value: str) -> bool:
+     """Allow archived code to reach only an explicitly selected local/isolated lane."""
+     if key == "MAEZO_PG_HOST_PORT":
+@@ -774,10 +831,12 @@ def _is_safe_historical_live_coordinate(key: str, value: str) -> bool:
+     if key == "KAFKA_BOOTSTRAP_SERVERS":
+         endpoints = [item.strip() for item in value.split(",")]
+         return bool(endpoints) and all(
+-            endpoint and _is_loopback_host(urlparse("//" + endpoint).hostname) for endpoint in endpoints
++            endpoint and _is_safe_kafka_endpoint(endpoint) for endpoint in endpoints
+         )
+-    if key in {"CIBSEVEN_BASE_URL", "ENGINE_REST_URL", "MAEZO_TEST_DATABASE_URL"}:
+-        return _is_loopback_host(urlparse(value).hostname)
++    if key in {"CIBSEVEN_BASE_URL", "ENGINE_REST_URL"}:
++        return _is_safe_loopback_http_url(value)
++    if key == "MAEZO_TEST_DATABASE_URL":
++        return _is_safe_loopback_postgres_url(value)
+     return False
+ 
+ 
+@@ -935,8 +994,7 @@ def _record(raw):
+     if not raw or raw.startswith("<"):
+         return
+     path = Path(raw).resolve()
+-    if path.suffix in {".py", ".pyc", ".pyo"}:
+-        _SEEN.add(path)
++    _SEEN.add(path)
+ 
+ 
+ def _audit(event, args):
+@@ -1282,6 +1340,34 @@ def verify_historical_row(
+             f"{_LIVE_TEST_PATH_PREFIX}; HARNESS-LEDGER-HASH-AMBIENT-STACK applies equally to "
+             "archived tests. Re-run with --allow-live only while holding the engine mutex.",
+         )
++    current_lock_path = repo_root / "uv.lock"
++    if not current_lock_path.is_file():
++        return RowVerification(
++            row,
++            False,
++            f"{edge.successor.task_id}: current uv.lock is missing; historical dependency "
++            "provenance is unbound",
++        )
++    current_lock = current_lock_path.read_bytes()
++    try:
++        head_lock = _source_blob(repo_root, "HEAD", "uv.lock")
++        source_lock = _source_blob(repo_root, edge.claim.source_commit, "uv.lock")
++    except SupersessionError as exc:
++        return RowVerification(row, False, f"{edge.successor.task_id}: {exc}")
++    if current_lock != head_lock:
++        return RowVerification(
++            row,
++            False,
++            f"{edge.successor.task_id}: working-tree uv.lock differs from HEAD; refusing "
++            "historical execution",
++        )
++    if source_lock != current_lock:
++        return RowVerification(
++            row,
++            False,
++            f"{edge.successor.task_id}: historical uv.lock differs from HEAD; the current locked "
++            "environment cannot truthfully execute that historical tree",
++        )
+     capture = _capture_historical_recipe(repo_root, edge, python_exe, allow_live=allow_live)
+     outcome = recipe_outcome_from_capture(capture, row.test_path, node_id_regex=_RESULT_LINE_RE)
+     if not outcome.ok:
+diff --git a/tests/unit/ci/test_check_evidence_ledger_supersession.py b/tests/unit/ci/test_check_evidence_ledger_supersession.py
+index 04235360..c21d2b27 100644
+--- a/tests/unit/ci/test_check_evidence_ledger_supersession.py
++++ b/tests/unit/ci/test_check_evidence_ledger_supersession.py
+@@ -137,7 +137,8 @@ def test_successor_proves_historical_archive_and_current_head(
+ ) -> None:
+     history = _history_repo(tmp_path)
+     exit_code = main(["--base", history.source_commit, "--python", sys.executable], repo_root=history.root)
+-    output = capsys.readouterr().out
++    captured = capsys.readouterr()
++    output = captured.out + captured.err
+     assert exit_code == 0
+     assert "historical claim verified at exact source_commit" in output
+     assert "archived Python source files attested" in output
+@@ -242,6 +243,41 @@ def test_unknown_or_malformed_metadata_is_rejected(tmp_path: Path, mutation: str
+         )
+ 
+ 
++@pytest.mark.parametrize(
++    ("mutation", "expected"),
++    [
++        ("missing_declaration", "requires a declared successor"),
++        ("predated", "requires a convention-qualified successor Date"),
++        ("missing_date", "requires a convention-qualified successor Date"),
++        ("malformed_date", "requires a convention-qualified successor Date"),
++    ],
++)
++def test_valid_v1_marker_cannot_fall_back_to_legacy(
++    tmp_path: Path,
++    capsys: pytest.CaptureFixture[str],
++    mutation: str,
++    expected: str,
++) -> None:
++    history = _history_repo(tmp_path)
++    if mutation == "missing_declaration":
++        replacement = history.successor_row.replace("sha256:", "sha257:")
++    elif mutation == "predated":
++        replacement = history.successor_row.replace(CONVENTION_START_DATE, "2000-01-01")
++    elif mutation == "missing_date":
++        replacement = history.successor_row.replace(CONVENTION_START_DATE, "")
++    else:
++        replacement = history.successor_row.replace(CONVENTION_START_DATE, "not-a-date")
++    _replace_and_commit(history.root, history.successor_row, replacement)
++
++    exit_code = main(["--base", history.source_commit, "--python", sys.executable], repo_root=history.root)
++    captured = capsys.readouterr()
++    output = captured.out + captured.err
++
++    assert exit_code == 1
++    assert expected in output
++    assert "SKIP (legacy)" not in output
++
++
+ def test_historical_source_path_escape_is_rejected(tmp_path: Path) -> None:
+     history = _history_repo(tmp_path, target_path="tests/../test_escape.py")
+     with pytest.raises(SupersessionError, match="historical target path.*unsafe"):
+@@ -251,20 +287,24 @@ def test_historical_source_path_escape_is_rejected(tmp_path: Path) -> None:
+         )
+ 
+ 
+-def test_historical_import_escape_is_rejected_without_head_fallback(
+-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
++@pytest.mark.parametrize("external_name", ["outside.py", "outside.txt", "outside.pyw", "outside"])
++def test_historical_executed_source_escape_is_rejected_regardless_of_suffix(
++    tmp_path: Path, capsys: pytest.CaptureFixture[str], external_name: str
+ ) -> None:
+-    external = tmp_path / "outside.py"
++    external = tmp_path / external_name
+     external.write_text("VALUE = 1\n", encoding="utf-8")
+     source = (
++        "from importlib.machinery import SourceFileLoader\n"
+         "import importlib.util\nimport sys\n"
+         f"EXTERNAL = {str(external)!r}\n\n"
+         "def test_escape():\n"
+-        "    spec = importlib.util.spec_from_file_location('historical_helper_escape', EXTERNAL)\n"
++        "    loader = SourceFileLoader('historical_helper_escape', EXTERNAL)\n"
++        "    spec = importlib.util.spec_from_loader(loader.name, loader)\n"
+         "    assert spec is not None and spec.loader is not None\n"
+         "    module = importlib.util.module_from_spec(spec)\n"
+         "    sys.modules['historical_helper_escape'] = module\n"
+-        "    spec.loader.exec_module(module)\n"
++        "    loader.exec_module(module)\n"
++        "    assert module.VALUE == 1\n"
+     )
+     history = _history_repo(tmp_path, source_test=source)
+     exit_code = main(["--base", history.source_commit, "--python", sys.executable], repo_root=history.root)
+@@ -273,6 +313,40 @@ def test_historical_import_escape_is_rejected_without_head_fallback(
+     assert "historical source import escaped archive" in output
+ 
+ 
++def test_unselected_historical_claim_allows_an_unrelated_committed_lock_update(
++    tmp_path: Path, capsys: pytest.CaptureFixture[str]
++) -> None:
++    history = _history_repo(tmp_path)
++    base = _git(history.root, "rev-parse", "HEAD")
++    lock = history.root / "uv.lock"
++    lock.write_bytes(lock.read_bytes() + b"\n# unrelated dependency update\n")
++    _git(history.root, "add", "uv.lock")
++    _git(history.root, "commit", "-q", "-m", "unrelated dependency update")
++
++    exit_code = main(["--base", base, "--python", sys.executable], repo_root=history.root)
++    output = capsys.readouterr().out
++
++    assert exit_code == 0
++    assert "PASS: 0 rows verified, 0 legacy rows skipped" in output
++
++
++def test_selected_historical_claim_still_requires_the_exact_current_lock(
++    tmp_path: Path, capsys: pytest.CaptureFixture[str]
++) -> None:
++    history = _history_repo(tmp_path)
++    lock = history.root / "uv.lock"
++    lock.write_bytes(lock.read_bytes() + b"\n# incompatible dependency update\n")
++    _git(history.root, "add", "uv.lock")
++    _git(history.root, "commit", "-q", "-m", "incompatible dependency update")
++
++    exit_code = main(["--base", history.source_commit, "--python", sys.executable], repo_root=history.root)
++    output = capsys.readouterr().out
++
++    assert exit_code == 1
++    assert "historical uv.lock differs from HEAD" in output
++    assert "1/2 declared-row proofs verified" in output
++
++
+ def test_historical_live_test_is_refused_without_engine_mutex(
+     tmp_path: Path, capsys: pytest.CaptureFixture[str]
+ ) -> None:
+@@ -350,6 +424,51 @@ def test_historical_live_environment_rejects_non_loopback_coordinates() -> None:
+         )
+ 
+ 
++@pytest.mark.parametrize(
++    "query",
++    [
++        "host=db.example.invalid",
++        "hostaddr=203.0.113.10",
++        "port=6432",
++        "service=production",
++        "servicefile=/tmp/pg_service.conf",
++        "host=%2Fvar%2Frun%2Fpostgresql",
++        "%68ost=db.example.invalid",
++    ],
++)
++def test_historical_database_coordinate_rejects_libpq_destination_overrides(query: str) -> None:
++    value = f"postgresql://127.0.0.1:5432/maezo?{query}"
++    with pytest.raises(ValueError, match="non-loopback.*MAEZO_TEST_DATABASE_URL"):
++        recipe_environment(live_coordinates={"MAEZO_TEST_DATABASE_URL": value})
++
++
++@pytest.mark.parametrize(
++    "value",
++    [
++        "postgresql://127.0.0.1:5432/maezo",
++        "postgres://user:password@localhost:5546/maezo?sslmode=disable",
++        "postgresql://[::1]:5432/maezo",
++    ],
++)
++def test_historical_database_coordinate_preserves_unambiguous_loopback_urls(value: str) -> None:
++    env = recipe_environment(live_coordinates={"MAEZO_TEST_DATABASE_URL": value})
++    assert env["MAEZO_TEST_DATABASE_URL"] == value
++
++
++@pytest.mark.parametrize(
++    "key,value",
++    [
++        ("CIBSEVEN_BASE_URL", "ftp://127.0.0.1:18080/engine-rest"),
++        ("ENGINE_REST_URL", "http://127.0.0.1:70000/engine-rest"),
++        ("MAEZO_TEST_DATABASE_URL", "mysql://127.0.0.1:3306/maezo"),
++        ("KAFKA_BOOTSTRAP_SERVERS", "127.0.0.1:9092/topic"),
++    ],
++)
++def test_historical_live_coordinates_reject_invalid_coordinate_grammar(key: str, value: str) -> None:
++    with pytest.raises(ValueError, match=f"non-loopback.*{key}"):
++        recipe_environment(live_coordinates={key: value})
++
++
+ def test_wrong_historical_hash_fails_and_refuses_head_fallback(
+     tmp_path: Path, capsys: pytest.CaptureFixture[str]
+ ) -> None:

@@ -1,0 +1,130 @@
+utc_start=2026-09-08T21:17:16.340087+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-delta
+
+argv=["git", "rev-parse", "HEAD", "HEAD^{tree}"]
+4ea318f28923c73bf5aacdc01eab647398c2aaee
+43172b5c3cf21b95bfe3b49cc7a9a4681b1b5644
+
+rc=0
+
+argv=["git", "diff", "--name-only", "c97631d9865b87842c014037b3ac6a5c7025d26c", "HEAD"]
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/MANIFEST.md
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/REPORT.md
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/raw/adversarial-controls-after.txt
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/raw/adversarial-controls-before.txt
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/raw/adversarial-controls.py
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/raw/cell-count.txt
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/raw/focused-tests.txt
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/raw/git.txt
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/raw/identity-preservation.txt
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/raw/ledger-preservation.txt
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/raw/recipe-hash.txt
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/raw/stacked-launcher-relative.txt
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/raw/stacked-launcher-resolved-symlink.txt
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/raw/stacked-ledger.txt
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/raw/static-checks.txt
+
+rc=0
+
+argv=["git", "diff", "--stat", "ac775f8dd86418402bc42bae1eb11756fe90c038", "HEAD"]
+ .../MANIFEST.md                                    |  60 +++++++++
+ .../REPORT.md                                      | 140 +++++++++++++++++++++
+ .../raw/adversarial-controls-after.txt             |  17 +++
+ .../raw/adversarial-controls-before.txt            |  12 ++
+ .../raw/adversarial-controls.py                    |  87 +++++++++++++
+ .../raw/cell-count.txt                             |   6 +
+ .../raw/focused-tests.txt                          |  10 ++
+ .../raw/git.txt                                    |  28 +++++
+ .../raw/identity-preservation.txt                  |   8 ++
+ .../raw/ledger-preservation.txt                    |  10 ++
+ .../raw/recipe-hash.txt                            |   7 ++
+ .../raw/stacked-launcher-relative.txt              |  26 ++++
+ .../raw/stacked-launcher-resolved-symlink.txt      |  46 +++++++
+ .../raw/stacked-ledger.txt                         |  28 +++++
+ .../raw/static-checks.txt                          |  20 +++
+ docs/evidence-ledger.md                            |   1 +
+ scripts/ci/check_evidence_ledger_hashes.py         | 130 +++++++++++++++----
+ .../ci/test_check_evidence_ledger_supersession.py  | 131 ++++++++++++++++++-
+ 18 files changed, 739 insertions(+), 28 deletions(-)
+
+rc=0
+
+argv=[".venv/bin/ruff", "check", "scripts/ci/check_evidence_ledger_hashes.py", "tests/unit/ci/test_check_evidence_ledger_supersession.py"]
+All checks passed!
+
+rc=0
+
+argv=[".venv/bin/ruff", "format", "--check", "scripts/ci/check_evidence_ledger_hashes.py", "tests/unit/ci/test_check_evidence_ledger_supersession.py"]
+2 files already formatted
+
+rc=0
+
+argv=[".venv/bin/mypy", "--strict", "scripts/ci/check_evidence_ledger_hashes.py", "scripts/ci/generate_release_floor.py"]
+Success: no issues found in 2 source files
+
+rc=0
+
+argv=["git", "diff", "--check", "ac775f8dd86418402bc42bae1eb11756fe90c038", "HEAD"]
+
+rc=0
+
+argv=[".venv/bin/python", "scripts/ci/check_ledger_row_cell_count.py", "--base", "3125fea992e607836a6adccbfb8593a1cc062a46"]
+[check-ledger-row-cell-count] PASS: 20 row(s) checked, all 8-cell — rows added in 3125fea992e607836a6adccbfb8593a1cc062a46..HEAD of docs/evidence-ledger.md.
+
+rc=0
+
+{"ROOT_author_packet": "/Users/familia/code/maezo-operadora/docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/REPORT.md", "sha256": "dfb304f752ce09353789c44085bf790fcf10c8689d3ae6f7459157ea1a335a8d", "matches_root_pin": true}
+
+{"ROOT_author_packet": "/Users/familia/code/maezo-operadora/docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-boundary-repair/MANIFEST.md", "sha256": "841772685bf6faf5c574e33ad2e97aea98907c48f21f76e944e0a6c84441ea9a", "matches_root_pin": true}
+
+{"author_artifact": "REPORT.md", "matches_manifest": true, "sha256": "dfb304f752ce09353789c44085bf790fcf10c8689d3ae6f7459157ea1a335a8d", "bytes": 9039}
+
+{"author_artifact": "raw/adversarial-controls-after.txt", "matches_manifest": true, "sha256": "8f0646f9254282cde0a03489a03baab4336470c9b796dee3d14bfcd84c09c5f8", "bytes": 2670}
+
+{"author_artifact": "raw/adversarial-controls-before.txt", "matches_manifest": true, "sha256": "f4932f3a8e17f3db87885442ec44627ae8b06f0971b5517a5bf77a6624cf5860", "bytes": 2639}
+
+{"author_artifact": "raw/adversarial-controls.py", "matches_manifest": true, "sha256": "b1bdf14e5c9fdbe46b1615caa47bf13c088406e0fc31461929e340c71996024f", "bytes": 4124}
+
+{"author_artifact": "raw/cell-count.txt", "matches_manifest": true, "sha256": "f10ca4c581b25cd0ec22338fb07ffc4ea7e2111a43fe82ae7082e7300c88a018", "bytes": 453}
+
+{"author_artifact": "raw/focused-tests.txt", "matches_manifest": true, "sha256": "dd1f7d7c64f0ca1c53180c2fdfaad275c3b18e3b174dcecb86f69278ea70a651", "bytes": 740}
+
+{"author_artifact": "raw/git.txt", "matches_manifest": true, "sha256": "b5a93fc24894cf8635b3791593d6bb91beee0bc6590ba00e6be8ea0a4f92c430", "bytes": 1377}
+
+{"author_artifact": "raw/identity-preservation.txt", "matches_manifest": true, "sha256": "31636c1e9befafaab6c0cd823c5661d90fb5cfb8df9ffc50a6827a60bade3a5d", "bytes": 1037}
+
+{"author_artifact": "raw/ledger-preservation.txt", "matches_manifest": true, "sha256": "6a4715d3c42d9b6eefba850d3e687ec8665240598764175571816643e29d59d3", "bytes": 1034}
+
+{"author_artifact": "raw/recipe-hash.txt", "matches_manifest": true, "sha256": "0be28cd8d5c4ebe44d15403433b7c7cb1bf3103e63a47d2fa9b722ea3acbaa2c", "bytes": 572}
+
+{"author_artifact": "raw/stacked-launcher-relative.txt", "matches_manifest": true, "sha256": "6c0ee36cd861573e32c58316d057f2d26e8aecf1dec6c3b8dc66a8f68a9bd0fe", "bytes": 2080}
+
+{"author_artifact": "raw/stacked-launcher-resolved-symlink.txt", "matches_manifest": true, "sha256": "c687b9bad30b9d85f9c6af0ee25aaada30a205ad979dc724361a748b8e70e550", "bytes": 8241}
+
+{"author_artifact": "raw/stacked-ledger.txt", "matches_manifest": true, "sha256": "5e2fad2684c462193c850fe0cb880c1514de80788f48d4b40bdf5d0cf61a75c0", "bytes": 5549}
+
+{"author_artifact": "raw/static-checks.txt", "matches_manifest": true, "sha256": "a37213c605cab279f93fa35ac89e62fe16585a0a528efc20cc1640be43399fab", "bytes": 1396}
+
+{"author_artifact": "scripts/ci/check_evidence_ledger_hashes.py", "matches_manifest": true, "sha256": "8ac5085b95b6d4e3cbaee4decfa1315306ae3747eb77a54a57024096c38bfcac", "bytes": 74325}
+
+{"author_artifact": "scripts/ci/generate_release_floor.py", "matches_manifest": true, "sha256": "c6ff686d85a5c133e097600854fb105e915dff2b163e6327cacdbd4965f5520b", "bytes": 29145}
+
+{"author_artifact": "tests/unit/ci/test_check_evidence_ledger_supersession.py", "matches_manifest": true, "sha256": "41e8177624b4883379d158c4928cb74b120aa04de137fff996724a915e572542", "bytes": 20767}
+
+{"author_artifact": "docs/evidence-ledger.md", "matches_manifest": true, "sha256": "1663c58dfd21aa991585599e89b15ae5da1fbbba0e002d1abd73bb504f251918", "bytes": 1625194}
+
+{"original_controls_immutable": true, "sha256": "b1bdf14e5c9fdbe46b1615caa47bf13c088406e0fc31461929e340c71996024f"}
+
+{"base": "7b34cf44ae9e531092f92994a8347fbe0116784c", "base_bytes": 1618623, "base_physical_lines": 588, "base_data_rows": 477, "base_sha256": "b5e659d64a277b776d413dbb378a219305084cd24b5132f9d266e77acd5720cb", "literal_prefix": true, "added_physical_lines": 16}
+
+{"base": "ac775f8dd86418402bc42bae1eb11756fe90c038", "base_bytes": 1623016, "base_physical_lines": 603, "base_data_rows": 480, "base_sha256": "23bee9636421beaf5e240a128533d8cbf611bf4ab6d68611b0a7742722c766bf", "literal_prefix": true, "added_physical_lines": 1}
+
+{"candidate_ledger_bytes": 1625194, "candidate_ledger_lines": 604, "candidate_ledger_data_rows": 481, "candidate_ledger_sha256": "1663c58dfd21aa991585599e89b15ae5da1fbbba0e002d1abd73bb504f251918"}
+
+{"current_capture_AST_identical_to": "7b34cf44ae9e531092f92994a8347fbe0116784c"}
+
+{"current_capture_AST_identical_to": "ac775f8dd86418402bc42bae1eb11756fe90c038"}
+
+release_floor_byte_identical_to_ac775=true
+
+utc_end=2026-09-08T21:17:22.025425+00:00

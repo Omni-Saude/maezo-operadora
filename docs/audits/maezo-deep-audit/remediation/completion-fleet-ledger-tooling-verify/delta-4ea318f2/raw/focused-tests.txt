@@ -1,0 +1,11 @@
+utc_start=2026-09-08T21:15:19.288647+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-delta
+argv=["/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-delta/.venv/bin/python", "-m", "pytest", "tests/unit/ci/test_check_evidence_ledger_hashes.py", "tests/unit/ci/test_check_evidence_ledger_supersession.py", "tests/unit/ci/test_generate_release_floor.py", "-q", "-p", "no:cacheprovider"]
+revision=4ea318f28923c73bf5aacdc01eab647398c2aaee
+........................................................................ [ 44%]
+........................................................................ [ 88%]
+..................                                                       [100%]
+162 passed in 94.61s (0:01:34)
+
+rc=0
+utc_end=2026-09-08T21:16:55.187766+00:00

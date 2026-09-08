@@ -1,0 +1,18 @@
+utc_start=2026-09-08T21:15:07.329139+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-delta
+argv=["/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-delta/.venv/bin/python", "/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-delta/docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-tooling-verify/delta-4ea318f2/raw/original-controls.py"]
+revision=4ea318f28923c73bf5aacdc01eab647398c2aaee
+{"control": "missing_declaration", "gate_rc": 1, "output": "[check-evidence-ledger-hashes] ERROR: invalid ledger supersession provenance: ledger-supersedes marker requires a declared successor with the exact sha256:<digest> (tests/...py) Test-hash form\n"}
+{"control": "predated_successor", "gate_rc": 1, "output": "[check-evidence-ledger-hashes] ERROR: invalid ledger supersession provenance: ledger-supersedes marker requires a convention-qualified successor Date; got 2000-01-01, expected 2026-09-04 or later\n"}
+{"control": "unrelated_lock_update", "gate_rc": 0, "output": "[check-evidence-ledger-hashes] PASS: 0 rows verified, 0 legacy rows skipped \u2014 rows added in 9dea01a56eac4bd9aa39ff90168c3e652f09087f..HEAD of docs/evidence-ledger.md.\n"}
+{"control": "non_python_suffix_escape", "gate_rc": 1, "output": "[check-evidence-ledger-hashes] MISMATCH: OLD-CLAIM: historical recipe execution failed at 2c92b6d8ede2d33b7c995f03e1ca6e18ad0bcc02: historical source import escaped archived tree: /private/var/folders/03/1rdbcdk105qf0m9zctqqlhtr0000gn/T/ledger-verifier-m_fh7vq9/non_python_suffix_escape/outside.txt\n[check-evidence-ledger-hashes] OK: CURRENT-CLAIM: verified sha256:ccc71b8b1ae82a137e27d1491b902cd1fcd434b857c59b91a66736fa899568b8 (tests/test_claim.py, 2 result lines).\n[check-evidence-ledger-hashes] SUMMARY: 1/2 declared-row proofs verified (1 selected rows; 2 total current/historical proofs), 0 legacy rows skipped \u2014 rows added in 2c92b6d8ede2d33b7c995f03e1ca6e18ad0bcc02..HEAD of docs/evidence-ledger.md.\n"}
+Traceback (most recent call last):
+  File "/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-delta/docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-tooling-verify/delta-4ea318f2/raw/original-controls.py", line 69, in <module>
+    accepted = gate.recipe_environment(live_coordinates={'MAEZO_TEST_DATABASE_URL': value})
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-delta/scripts/ci/check_evidence_ledger_hashes.py", line 868, in recipe_environment
+    raise ValueError(
+ValueError: refusing non-loopback historical live coordinate MAEZO_TEST_DATABASE_URL; archived recipes may target only an explicitly isolated local lane
+
+rc=1
+utc_end=2026-09-08T21:15:19.288033+00:00
