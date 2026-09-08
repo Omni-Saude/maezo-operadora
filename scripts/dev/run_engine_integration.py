@@ -1,0 +1,779 @@
+#!/usr/bin/env python3
+"""Executa uma suíte de integração por stack CIB Seven nova e com posse exclusiva."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+import uuid
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+PROJECT = "maezo-completion-engine"
+LOCK_DIR = Path("/Users/familia/code/maezo-operadora/engine.lock")
+ENGINE_URL = "http://localhost:18080/engine-rest"
+PG_PORT = "15433"
+KAFKA_PORT = "19092"
+HAPI_URL = "http://localhost:18081/fhir/metadata"
+BUSY_EXIT = 73
+USAGE_EXIT = 64
+CHECKOUT_INPUTS = (
+    "docker-compose.yml",
+    "pyproject.toml",
+    "uv.lock",
+    "src",
+    "spec",
+    "tests/integration",
+    "scripts/dev",
+)
+SUMMARY_OUTCOMES = ("passed", "failed", "skipped", "xfailed", "xpassed", "error", "errors")
+
+
+class RunnerError(RuntimeError):
+    """Erro operacional que deve aparecer no resultado, sem traceback ruidoso."""
+
+
+class RunnerInterrupted(BaseException):
+    """Interrupção solicitada por sinal."""
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _json_write(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    os.replace(temporary, path)
+
+
+def _append_event(path: Path, event: str, **fields: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"at": _now(), "event": event, **fields}
+    with path.open("a") as stream:
+        stream.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def _run(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+    timeout: float = 300,
+    log_path: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    process_env = os.environ.copy() if env is None else env.copy()
+    process_env.pop("VIRTUAL_ENV", None)
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        env=process_env,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+    if log_path is not None:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(result.stdout + result.stderr)
+    return result
+
+
+def _checked(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+    timeout: float = 300,
+    log_path: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    result = _run(command, cwd=cwd, env=env, timeout=timeout, log_path=log_path)
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip()[-2000:]
+        raise RunnerError(f"comando falhou (rc={result.returncode}): {' '.join(command)}\n{detail}")
+    return result
+
+
+def _git(checkout: Path, *args: str) -> str:
+    result = _checked(["git", *args], cwd=checkout, timeout=30)
+    return result.stdout.strip()
+
+
+def validate_checkout(checkout_input: str, expected_sha: str) -> tuple[Path, str]:
+    checkout = Path(checkout_input).expanduser().resolve()
+    if not checkout.is_dir() or not (checkout / ".git").exists():
+        raise RunnerError(f"checkout Git inexistente: {checkout}")
+    if not re.fullmatch(r"[0-9a-f]{40}", expected_sha):
+        raise RunnerError("SHA esperado deve ter exatamente 40 caracteres hexadecimais minúsculos")
+    root = Path(_git(checkout, "rev-parse", "--show-toplevel")).resolve()
+    if root != checkout:
+        raise RunnerError(f"CHECKOUT deve ser a raiz do worktree: informado={checkout}, raiz={root}")
+    actual_sha = _git(checkout, "rev-parse", "HEAD")
+    if actual_sha != expected_sha:
+        raise RunnerError(f"SHA esperado {expected_sha}, mas CHECKOUT está em {actual_sha}")
+
+    tracked_dirty = set(filter(None, _git(checkout, "diff", "--name-only").splitlines()))
+    tracked_dirty.update(filter(None, _git(checkout, "diff", "--cached", "--name-only").splitlines()))
+    if tracked_dirty:
+        raise RunnerError("checkout possui alterações tracked: " + ", ".join(sorted(tracked_dirty)))
+    untracked = _git(checkout, "ls-files", "--others", "--exclude-standard", "--", *CHECKOUT_INPUTS)
+    if untracked:
+        raise RunnerError("entradas de execução untracked: " + ", ".join(untracked.splitlines()))
+
+    required = (
+        checkout / "docker-compose.yml",
+        checkout / "scripts/dev/docker-compose.engine-integration.yml",
+    )
+    for path in required:
+        relative = path.relative_to(checkout).as_posix()
+        result = _run(["git", "ls-files", "--error-unmatch", "--", relative], cwd=checkout, timeout=30)
+        if result.returncode:
+            raise RunnerError(f"entrada Compose não rastreada no SHA alvo: {relative}")
+
+    probe = _checked(
+        [
+            "uv",
+            "run",
+            "--locked",
+            "python",
+            "-c",
+            "import pathlib,maezo; print(pathlib.Path(maezo.__file__).resolve())",
+        ],
+        cwd=checkout,
+        timeout=120,
+    )
+    imported = Path(probe.stdout.strip().splitlines()[-1]).resolve()
+    expected_package = (checkout / "src" / "maezo").resolve()
+    if expected_package not in imported.parents:
+        raise RunnerError(f"import maezo resolveu fora do CHECKOUT: {imported}")
+    return checkout, imported.as_posix()
+
+
+def _collect(checkout: Path, args: list[str], log_path: Path) -> set[str]:
+    result = _run(
+        ["uv", "run", "--locked", "python", "-m", "pytest", *args, "--collect-only", "-q"],
+        cwd=checkout,
+        timeout=180,
+        log_path=log_path,
+    )
+    if result.returncode != 0:
+        raise RunnerError(f"coleta pytest falhou (rc={result.returncode}); veja {log_path}")
+    return {
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.startswith("tests/integration/") and "::" in line
+    }
+
+
+def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict[str, Any]:
+    results_dir.mkdir(parents=True, exist_ok=True)
+    all_nodeids = _collect(checkout, ["tests/integration"], results_dir / "collect-all.log")
+    integration = _collect(
+        checkout,
+        ["tests/integration", "-m", "integration"],
+        results_dir / "collect-integration.log",
+    )
+    core = _collect(
+        checkout,
+        ["tests/integration", "-m", "integration and not chaos"],
+        results_dir / "collect-core.log",
+    )
+    chaos = _collect(
+        checkout,
+        ["tests/integration/chaos", "-m", "integration and chaos"],
+        results_dir / "collect-chaos.log",
+    )
+    test_files = {
+        path.relative_to(checkout).as_posix() for path in (checkout / "tests/integration").rglob("test_*.py")
+    }
+    collected_files = {nodeid.split("::", 1)[0] for nodeid in all_nodeids}
+    unmarked = sorted(all_nodeids - integration)
+    overlap = sorted(core & chaos)
+    uncovered = sorted(integration - (core | chaos))
+    unexpected = sorted((core | chaos) - integration)
+    missing_files = sorted(test_files - collected_files)
+    required_families = {
+        "lgpd": sorted(nodeid for nodeid in integration if "test_sp_op_lgpd_dsr_001.py::" in nodeid),
+        "escalation": sorted(nodeid for nodeid in integration if "test_sp_op_escalation_001.py::" in nodeid),
+    }
+
+    hapi_patterns = re.compile(r"FHIR_BASE_URL|HAPI_FHIR_BASE_URL|localhost:8081|/fhir/")
+    hapi_evidence: list[str] = []
+    inputs = sorted(collected_files | {"tests/integration/conftest.py"})
+    for relative in inputs:
+        path = checkout / relative
+        if path.is_file() and hapi_patterns.search(path.read_text(errors="replace")):
+            hapi_evidence.append(relative)
+
+    payload: dict[str, Any] = {
+        "generated_at": _now(),
+        "checkout": checkout.as_posix(),
+        "sha": _git(checkout, "rev-parse", "HEAD"),
+        "maezo_import": imported_module,
+        "all_count": len(all_nodeids),
+        "integration_count": len(integration),
+        "core_count": len(core),
+        "chaos_count": len(chaos),
+        "all_nodeids": sorted(all_nodeids),
+        "core_nodeids": sorted(core),
+        "chaos_nodeids": sorted(chaos),
+        "unmarked_nodeids": unmarked,
+        "overlap_nodeids": overlap,
+        "uncovered_nodeids": uncovered,
+        "unexpected_nodeids": unexpected,
+        "test_files": sorted(test_files),
+        "missing_test_files": missing_files,
+        "required_families": required_families,
+        "hapi_required": bool(hapi_evidence),
+        "hapi_evidence": hapi_evidence,
+    }
+    failures: list[str] = []
+    if not all_nodeids:
+        failures.append("coleta integral vazia")
+    if unmarked:
+        failures.append("há testes de integração sem marker integration")
+    if overlap or uncovered or unexpected:
+        failures.append("partição core/chaos não cobre a coleção integral exatamente uma vez")
+    if missing_files:
+        failures.append("há arquivos test_*.py sem nodeid coletado")
+    if not all(required_families.values()):
+        failures.append("famílias obrigatórias LGPD/escalation não foram coletadas")
+    payload["validation_errors"] = failures
+    _json_write(results_dir / "discovery.json", payload)
+    if failures:
+        raise RunnerError("descoberta incompleta: " + "; ".join(failures))
+    return payload
+
+
+@dataclass
+class EngineLock:
+    path: Path
+    token: str
+    owner: dict[str, object]
+    acquired: bool = False
+
+    @classmethod
+    def create(cls, path: Path, *, checkout: str, sha: str, suite: str) -> EngineLock:
+        token = uuid.uuid4().hex
+        owner: dict[str, object] = {
+            "pid": os.getpid(),
+            "token": token,
+            "checkout": checkout,
+            "sha": sha,
+            "suite": suite,
+            "project": PROJECT,
+            "checkpoint": "acquiring",
+            "created_at": _now(),
+            "updated_at": _now(),
+        }
+        return cls(path=path, token=token, owner=owner)
+
+    @property
+    def owner_path(self) -> Path:
+        return self.path / "owner.json"
+
+    def acquire(self, timeout: float) -> bool:
+        deadline = time.monotonic() + max(timeout, 0)
+        while True:
+            try:
+                self.path.mkdir(mode=0o700)
+            except FileExistsError:
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(min(1.0, max(deadline - time.monotonic(), 0.05)))
+                continue
+            self.acquired = True
+            self.update("acquired")
+            return True
+
+    def owns(self) -> bool:
+        if not self.acquired:
+            return False
+        try:
+            disk = json.loads(self.owner_path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return False
+        if not isinstance(disk, dict):
+            return False
+        return disk.get("pid") == os.getpid() and disk.get("token") == self.token
+
+    def update(self, checkpoint: str, **fields: object) -> bool:
+        if checkpoint != "acquired" and not self.owns():
+            return False
+        self.owner.update(fields)
+        self.owner["checkpoint"] = checkpoint
+        self.owner["updated_at"] = _now()
+        _json_write(self.owner_path, self.owner)
+        return True
+
+    def release(self) -> bool:
+        if not self.owns():
+            return False
+        self.owner_path.unlink()
+        try:
+            self.path.rmdir()
+        except OSError:
+            return False
+        self.acquired = False
+        return True
+
+
+def _compose_base(checkout: Path) -> list[str]:
+    return [
+        "docker",
+        "compose",
+        "--project-directory",
+        str(checkout),
+        "-f",
+        str(checkout / "docker-compose.yml"),
+        "-f",
+        str(checkout / "scripts/dev/docker-compose.engine-integration.yml"),
+        "--project-name",
+        PROJECT,
+        "--profile",
+        "core",
+    ]
+
+
+def _compose(
+    checkout: Path,
+    args: list[str],
+    *,
+    env: dict[str, str],
+    timeout: float = 300,
+    log_path: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return _checked(_compose_base(checkout) + args, cwd=checkout, env=env, timeout=timeout, log_path=log_path)
+
+
+def _poll(label: str, probe: Any, *, timeout: float, interval: float = 3.0) -> None:
+    deadline = time.monotonic() + timeout
+    last = ""
+    while time.monotonic() < deadline:
+        try:
+            if probe():
+                return
+        except Exception as exc:  # readiness guarda o último erro e falha ao fim do prazo
+            last = str(exc)
+        time.sleep(min(interval, max(deadline - time.monotonic(), 0)))
+    raise RunnerError(f"timeout aguardando {label}: {last}")
+
+
+def _http_json(url: str, *, timeout: float = 10) -> Any:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310 - URL local fixa
+            if response.status // 100 != 2:
+                raise RunnerError(f"HTTP {response.status} em {url}")
+            return json.loads(response.read())
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise RunnerError(f"falha HTTP em {url}: {exc}") from exc
+
+
+def _http_ready(url: str) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:  # noqa: S310 - URL local fixa
+            return int(response.status) // 100 == 2
+    except (urllib.error.URLError, TimeoutError):
+        return False
+
+
+def _start_stack(
+    checkout: Path,
+    suite: str,
+    discovery_payload: dict[str, Any],
+    env: dict[str, str],
+    results_dir: Path,
+    lock: EngineLock,
+) -> list[str]:
+    _compose(checkout, ["down", "-v", "--remove-orphans"], env=env, log_path=results_dir / "fresh-down.log")
+    lock.update("fresh_project_removed")
+    if suite == "chaos":
+        _compose(checkout, ["up", "-d", "postgres"], env=env, log_path=results_dir / "start-postgres.log")
+        services = ["postgres"]
+    else:
+        _compose(
+            checkout,
+            ["up", "-d", "postgres", "kafka"],
+            env=env,
+            log_path=results_dir / "start-foundation.log",
+        )
+        services = ["postgres", "kafka"]
+
+    def postgres_ready() -> bool:
+        result = _run(
+            _compose_base(checkout) + ["exec", "-T", "postgres", "pg_isready", "-U", "maezo", "-d", "maezo"],
+            cwd=checkout,
+            env=env,
+            timeout=15,
+        )
+        return result.returncode == 0
+
+    _poll("Postgres", postgres_ready, timeout=90)
+    if suite == "core":
+
+        def kafka_ready() -> bool:
+            result = _run(
+                _compose_base(checkout)
+                + [
+                    "exec",
+                    "-T",
+                    "kafka",
+                    "kafka-broker-api-versions",
+                    "--bootstrap-server",
+                    "kafka:29092",
+                ],
+                cwd=checkout,
+                env=env,
+                timeout=20,
+            )
+            return result.returncode == 0
+
+        _poll("Kafka no listener interno kafka:29092", kafka_ready, timeout=120, interval=5)
+        lock.update("foundation_ready")
+        engine_services = ["cibseven"]
+        if discovery_payload["hapi_required"]:
+            engine_services.append("hapi-fhir")
+        _compose(
+            checkout,
+            ["up", "-d", *engine_services],
+            env=env,
+            log_path=results_dir / "start-engine.log",
+        )
+        services.extend(engine_services)
+        _poll("CIB Seven", lambda: _http_ready(f"{ENGINE_URL}/version"), timeout=360, interval=5)
+        if discovery_payload["hapi_required"]:
+            _poll("HAPI FHIR", lambda: _http_ready(HAPI_URL), timeout=360, interval=5)
+        lock.update("engine_ready")
+    else:
+        lock.update("postgres_ready")
+    return services
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _definition_keys(path: Path) -> list[tuple[str, str]]:
+    root = ET.parse(path).getroot()
+    kind = "process" if path.suffix == ".bpmn" else "decision"
+    return [
+        (kind, str(element.attrib["id"]))
+        for element in root.iter()
+        if element.tag.rsplit("}", 1)[-1] == kind and element.attrib.get("id")
+    ]
+
+
+def _deploy_and_verify(checkout: Path, env: dict[str, str], results_dir: Path) -> dict[str, Any]:
+    deploy_log = results_dir / "deployment.log"
+    _checked(
+        [
+            "uv",
+            "run",
+            "--locked",
+            "python",
+            "-m",
+            "maezo.platform.deploy",
+            "--engine-url",
+            ENGINE_URL,
+            "--spec-dir",
+            str(checkout / "spec"),
+        ],
+        cwd=checkout,
+        env=env,
+        timeout=300,
+        log_path=deploy_log,
+    )
+    records: list[dict[str, Any]] = []
+    for path in sorted((checkout / "spec/processes").glob("*/*.bpmn")) + sorted(
+        (checkout / "spec/processes").glob("*/*.dmn")
+    ):
+        source_hash = _sha256(path)
+        for kind, key in _definition_keys(path):
+            definition = _http_json(f"{ENGINE_URL}/{kind}-definition/key/{key}")
+            definition_id = str(definition["id"])
+            xml_field = "bpmn20Xml" if kind == "process" else "dmnXml"
+            xml_payload = _http_json(f"{ENGINE_URL}/{kind}-definition/{definition_id}/xml")
+            engine_xml = str(xml_payload[xml_field]).encode()
+            engine_hash = hashlib.sha256(engine_xml).hexdigest()
+            record = {
+                "kind": kind,
+                "key": key,
+                "definition_id": definition_id,
+                "deployment_id": definition.get("deploymentId"),
+                "version": definition.get("version"),
+                "resource": path.relative_to(checkout).as_posix(),
+                "source_sha256": source_hash,
+                "engine_xml_sha256": engine_hash,
+                "exact_match": engine_hash == source_hash,
+            }
+            records.append(record)
+    mismatches = [record for record in records if not record["exact_match"]]
+    if not records or mismatches:
+        _json_write(
+            results_dir / "deployment-provenance.json", {"definitions": records, "mismatches": mismatches}
+        )
+        raise RunnerError(
+            f"proveniência de deploy inválida: definitions={len(records)}, mismatches={len(mismatches)}"
+        )
+    payload = {
+        "verified_at": _now(),
+        "engine": _http_json(f"{ENGINE_URL}/version"),
+        "declared_image": "cibseven/cibseven:2.1.0",
+        "checkout_sha": _git(checkout, "rev-parse", "HEAD"),
+        "compose_sha256": _sha256(checkout / "docker-compose.yml"),
+        "override_sha256": _sha256(checkout / "scripts/dev/docker-compose.engine-integration.yml"),
+        "definitions": records,
+        "mismatches": [],
+    }
+    _json_write(results_dir / "deployment-provenance.json", payload)
+    return payload
+
+
+def _parse_outcomes(output: str) -> dict[str, int]:
+    outcomes = {name: 0 for name in ("passed", "failed", "skipped", "xfailed", "xpassed", "errors")}
+    pattern = re.compile(r"(?P<count>\d+) (?P<name>passed|failed|skipped|xfailed|xpassed|errors?)\b")
+    for match in pattern.finditer(output):
+        name = match.group("name")
+        if name == "error":
+            name = "errors"
+        outcomes[name] = max(outcomes[name], int(match.group("count")))
+    return outcomes
+
+
+def _run_pytest(
+    checkout: Path,
+    suite: str,
+    env: dict[str, str],
+    results_dir: Path,
+    expected_count: int,
+) -> dict[str, Any]:
+    selection = (
+        ["tests/integration/chaos", "-m", "integration and chaos"]
+        if suite == "chaos"
+        else [
+            "tests/integration",
+            "-m",
+            "integration and not chaos",
+        ]
+    )
+    junit = results_dir / "junit.xml"
+    command = [
+        "uv",
+        "run",
+        "--locked",
+        "python",
+        "-m",
+        "pytest",
+        *selection,
+        "-q",
+        "-ra",
+        "--durations=40",
+        f"--junitxml={junit}",
+    ]
+    result = _run(command, cwd=checkout, env=env, timeout=7200, log_path=results_dir / "pytest.log")
+    output = result.stdout + result.stderr
+    payload = {
+        "finished_at": _now(),
+        "suite": suite,
+        "return_code": result.returncode,
+        "expected_collected": expected_count,
+        "outcomes": _parse_outcomes(output),
+        "junit_xml": junit.as_posix(),
+        "pytest_log": (results_dir / "pytest.log").as_posix(),
+    }
+    _json_write(results_dir / "suite-results.json", payload)
+    return payload
+
+
+def _runtime_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.pop("VIRTUAL_ENV", None)
+    env.update(
+        {
+            "MAEZO_PG_HOST_PORT": PG_PORT,
+            "MAEZO_PG_USER": "maezo",
+            "MAEZO_PG_PASSWORD": "maezo",
+            "MAEZO_PG_DB": "maezo",
+            "MAEZO_TEST_DATABASE_URL": f"postgresql://maezo:maezo@localhost:{PG_PORT}/maezo",
+            "ENGINE_REST_URL": ENGINE_URL,
+            "CIBSEVEN_BASE_URL": ENGINE_URL,
+            "KAFKA_BOOTSTRAP_SERVERS": f"localhost:{KAFKA_PORT}",
+        }
+    )
+    return env
+
+
+def run_suite(args: argparse.Namespace) -> int:
+    results_dir = Path(args.results_dir).expanduser().resolve()
+    state: dict[str, Any] = {
+        "started_at": _now(),
+        "state": "preflight",
+        "suite": args.suite,
+        "return_code": None,
+        "project": PROJECT,
+        "lock": LOCK_DIR.as_posix(),
+    }
+    _json_write(results_dir / "run-state.json", state)
+    lock: EngineLock | None = None
+    services: list[str] = []
+    return_code = 1
+    try:
+        checkout, imported = validate_checkout(args.checkout, args.sha)
+        discovery_payload = discover(checkout, results_dir, imported_module=imported)
+        expected_count = int(discovery_payload[f"{args.suite}_count"])
+        if expected_count <= 0:
+            raise RunnerError(f"suíte {args.suite} não coletou testes")
+        lock = EngineLock.create(
+            LOCK_DIR,
+            checkout=checkout.as_posix(),
+            sha=args.sha,
+            suite=args.suite,
+        )
+        if not lock.acquire(args.lock_timeout):
+            state.update(state="lock_busy", return_code=BUSY_EXIT, finished_at=_now())
+            _json_write(results_dir / "run-state.json", state)
+            return BUSY_EXIT
+        lock.update("preflight_complete", results_dir=results_dir.as_posix())
+        state["state"] = "lock_acquired"
+        _json_write(results_dir / "run-state.json", state)
+        env = _runtime_env()
+        services = _start_stack(checkout, args.suite, discovery_payload, env, results_dir, lock)
+        if args.suite == "core":
+            lock.update("deploying")
+            _deploy_and_verify(checkout, env, results_dir)
+            lock.update("deployment_verified")
+        lock.update("pytest_running")
+        suite_result = _run_pytest(checkout, args.suite, env, results_dir, expected_count)
+        return_code = int(suite_result["return_code"])
+        state["state"] = "passed" if return_code == 0 else "pytest_failed"
+    except (KeyboardInterrupt, RunnerInterrupted):
+        return_code = 130
+        state["state"] = "interrupted"
+    except (RunnerError, subprocess.TimeoutExpired, OSError, KeyError, ValueError) as exc:
+        return_code = 1
+        state["state"] = "failed"
+        state["error"] = str(exc)
+        print(f"ERRO: {exc}", file=sys.stderr)
+    finally:
+        state.update(return_code=return_code, services=services, finished_at=_now())
+        _json_write(results_dir / "run-state.json", state)
+        if lock is not None and lock.owns():
+            lock.update("teardown", return_code=return_code, state=state["state"])
+            try:
+                checkout = Path(args.checkout).expanduser().resolve()
+                _compose(
+                    checkout,
+                    ["down", "-v", "--remove-orphans"],
+                    env=_runtime_env(),
+                    timeout=300,
+                    log_path=results_dir / "teardown.log",
+                )
+            except (RunnerError, subprocess.TimeoutExpired, OSError) as exc:
+                state["teardown_error"] = str(exc)
+                return_code = return_code or 1
+                state["return_code"] = return_code
+                _json_write(results_dir / "run-state.json", state)
+                lock.update("teardown_failed", teardown_error=str(exc), return_code=return_code)
+            else:
+                lock.update("teardown_complete", return_code=return_code)
+                if not lock.release():
+                    state["lock_release_error"] = "posse mudou ou diretório contém arquivos inesperados"
+                    return_code = return_code or 1
+                    state["return_code"] = return_code
+                    _json_write(results_dir / "run-state.json", state)
+        elif lock is not None and lock.acquired:
+            state["ownership_lost"] = True
+            return_code = return_code or 1
+            state["return_code"] = return_code
+            _json_write(results_dir / "run-state.json", state)
+    return return_code
+
+
+def lock_probe(args: argparse.Namespace) -> int:
+    events = Path(args.events).resolve()
+    lock = EngineLock.create(Path(args.lock_dir).resolve(), checkout="probe", sha="probe", suite="probe")
+    if not lock.acquire(args.timeout):
+        _append_event(events, "lock_busy")
+        return BUSY_EXIT
+    _append_event(events, "lock_acquired")
+    return_code = 0
+    try:
+        while not Path(args.wait_for).exists():
+            time.sleep(0.05)
+    except (KeyboardInterrupt, RunnerInterrupted):
+        return_code = 130
+        lock.update("interrupted", return_code=return_code)
+        _append_event(events, "interrupted", return_code=return_code)
+    finally:
+        if lock.owns():
+            _append_event(events, "cleanup_permitted")
+            if lock.release():
+                _append_event(events, "lock_released")
+    return return_code
+
+
+def discovery_command(args: argparse.Namespace) -> int:
+    try:
+        checkout, imported = validate_checkout(args.checkout, args.sha)
+        discover(checkout, Path(args.results_dir).expanduser().resolve(), imported_module=imported)
+    except (RunnerError, subprocess.TimeoutExpired, OSError) as exc:
+        print(f"ERRO: {exc}", file=sys.stderr)
+        return USAGE_EXIT
+    return 0
+
+
+def _signal_handler(signum: int, _frame: object) -> None:
+    raise RunnerInterrupted(f"signal {signum}")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    discover_parser = subparsers.add_parser("discover", help="valida checkout e coleta todas as suítes")
+    discover_parser.add_argument("--checkout", required=True)
+    discover_parser.add_argument("--sha", required=True)
+    discover_parser.add_argument("--results-dir", required=True)
+    discover_parser.set_defaults(func=discovery_command)
+
+    run_parser = subparsers.add_parser("run", help="executa exatamente uma suíte em stack nova")
+    run_parser.add_argument("--checkout", required=True)
+    run_parser.add_argument("--sha", required=True)
+    run_parser.add_argument("--suite", choices=("core", "chaos"), required=True)
+    run_parser.add_argument("--results-dir", required=True)
+    run_parser.add_argument("--lock-timeout", type=float, default=0.0)
+    run_parser.set_defaults(func=run_suite)
+
+    probe = subparsers.add_parser("lock-probe", help=argparse.SUPPRESS)
+    probe.add_argument("--lock-dir", required=True)
+    probe.add_argument("--events", required=True)
+    probe.add_argument("--wait-for", required=True)
+    probe.add_argument("--timeout", type=float, default=0.0)
+    probe.set_defaults(func=lock_probe)
+    return parser
+
+
+def main() -> int:
+    signal.signal(signal.SIGTERM, _signal_handler)
+    args = build_parser().parse_args()
+    return int(args.func(args))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

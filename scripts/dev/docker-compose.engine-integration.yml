@@ -1,0 +1,21 @@
+# Override exclusivo do runner scripts/dev/run_engine_integration.py.
+# O projeto Compose fixo fornece o prefixo maezo-completion-engine aos recursos.
+services:
+  postgres:
+    ports: !override
+      - "15433:5432"
+
+  cibseven:
+    ports: !override
+      - "18080:8080"
+
+  hapi-fhir:
+    ports: !override
+      - "18081:8080"
+
+  kafka:
+    ports: !override
+      - "19092:9092"
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: EXTERNAL://localhost:19092,INTERNAL://kafka:29092
+
