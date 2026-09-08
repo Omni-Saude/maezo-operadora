@@ -267,7 +267,11 @@ def test_companion_catalog_matches_all_real_opt_in_declarations() -> None:
                             ).encode()
                         ).hexdigest(),
                     )
-    assert discovered == {nodeid: (token, pin) for nodeid, (token, _, pin) in core._COMPANIONS.items()}
+    # PEC-D1: confronta a população com o par revisado do helper deste checkout.
+    guard_hash = hashlib.sha256((REPO / "tests/integration/chaos/mutations.py").read_bytes()).hexdigest()
+    catalog = core._companion_catalog(guard_hash)
+    assert catalog is not None
+    assert discovered == {nodeid: (token, pin) for nodeid, (token, _, pin) in catalog.items()}
     assert len(discovered) == 6
 
 
