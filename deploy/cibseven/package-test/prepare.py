@@ -228,7 +228,7 @@ def _generate_fixture(checkout: Path, sha: str, original: Path, output: Path, im
         tls,
         "SSLHostConfig",
         {
-            "certificateVerification": "required",
+            "certificateVerification": "optional",
             "protocols": "TLSv1.3",
             "truststoreFile": "/run/maezo/truststore.p12",
             "truststoreType": "PKCS12",
