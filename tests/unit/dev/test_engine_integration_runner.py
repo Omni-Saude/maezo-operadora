@@ -140,6 +140,66 @@ def test_supervisor_reaps_term_resistant_grandchild_before_return(
             _kill_probe_group(int((tmp_path / "parent.pid").read_text()))
 
 
+@pytest.mark.parametrize("interrupt_signal", [signal.SIGINT, signal.SIGTERM])
+def test_interruption_reaps_term_resistant_grandchild_before_lock_release(
+    tmp_path: Path, interrupt_signal: signal.Signals
+) -> None:
+    supervisor_code = """
+import json
+from pathlib import Path
+import signal
+import sys
+from scripts.dev import run_engine_integration as runner
+
+directory = Path(sys.argv[1])
+signal.signal(signal.SIGTERM, runner._signal_handler)
+lock = runner.EngineLock.create(directory / "engine.lock", checkout="probe", sha="probe", suite="probe")
+assert lock.acquire(0)
+return_code = 1
+try:
+    runner._run(
+        [sys.executable, "-c", sys.argv[2], str(directory), "sleep"],
+        cwd=Path.cwd(),
+        timeout=60,
+        log_path=directory / "partial.log",
+    )
+except (KeyboardInterrupt, runner.RunnerInterrupted):
+    return_code = 130
+finally:
+    released = lock.release()
+(directory / "supervisor-result.json").write_text(
+    json.dumps({"return_code": return_code, "lock_released": released})
+)
+raise SystemExit(return_code)
+"""
+    supervisor = subprocess.Popen(
+        [sys.executable, "-c", supervisor_code, str(tmp_path), _descendant_probe_code()],
+        cwd=REPO_ROOT,
+    )
+    grandchild_pid = 0
+    parent_pid = 0
+    try:
+        _wait_for(tmp_path / "grandchild.pid")
+        grandchild_pid = int((tmp_path / "grandchild.pid").read_text())
+        parent_pid = int((tmp_path / "parent.pid").read_text())
+        supervisor.send_signal(interrupt_signal)
+        assert supervisor.wait(timeout=10) == 130
+        result = json.loads((tmp_path / "supervisor-result.json").read_text())
+        heartbeat = (tmp_path / "heartbeat").read_text()
+        time.sleep(0.1)
+        assert result == {"return_code": 130, "lock_released": True}
+        assert not _pid_exists(parent_pid)
+        assert not _pid_exists(grandchild_pid)
+        assert (tmp_path / "heartbeat").read_text() == heartbeat
+        assert not (tmp_path / "engine.lock").exists()
+    finally:
+        if supervisor.poll() is None:
+            supervisor.kill()
+            supervisor.wait(timeout=5)
+        if parent_pid:
+            _kill_probe_group(parent_pid)
+
+
 def test_lock_contention_never_grants_cleanup_and_owner_releases_on_interrupt(tmp_path: Path) -> None:
     lock_dir = tmp_path / "engine.lock"
     owner_events = tmp_path / "owner.jsonl"
