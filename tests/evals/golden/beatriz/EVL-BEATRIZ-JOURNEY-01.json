@@ -1,0 +1,68 @@
+{
+  "id": "EVL-BEATRIZ-JOURNEY-01",
+  "agent": "beatriz",
+  "class": "JN",
+  "tier": ["A"],
+  "description": "End-to-end JOURNEY eval (gap 11.5, WP-EVALS) for Beatriz -- receive (intake) -> gather (evidence custody: raw pointer refs normalized to the {ref,hash,tipo,origem} allowlist projection, no-PHI-in-custody) -> instruct_investigation (hand-off: the investigation DOSSIER -- a DELEGATION ENVELOPE handed back to the SP-OP-FRAUDE-001 process's own seal_custody_bundle worker, never an engine start -- Beatriz's tools allowlist deliberately excludes mcp-cibseven.start_process) -> finalize. The `journey` block below names the observable output asserted at EACH stage (see test_beatriz_journey_evals.py). Synthetic data only (tenant amh, pseudo entity/provider ids, no real evidence content).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "numero_caso": "000105",
+      "origem_encaminhamento": "auditoria_qualidade",
+      "entidade_tipo": "prestador",
+      "entidade_pseudo_id": "ent-prest-journey-01",
+      "prestador_id": "prest-journey-01",
+      "numero_contrato": "CONTR-JOURNEY-01",
+      "encaminhado_por_id": "analista-journey-01",
+      "competencia": "2026-06",
+      "evidencia_refs": [
+        { "ref": "evd://tiss/lote-journey-01", "hash": "h-journey-01a", "origem": "tiss" },
+        { "ref": "evd://cdc/item-journey-01", "hash": "h-journey-01b", "origem": "cdc", "tipo": "conta" }
+      ],
+      "feature_snapshot_ref": "snap://prov-journey-01/2026-06",
+      "indicadores_presentes": ["upcoding_ceiling", "peer_deviation"],
+      "score_indicadores": 78,
+      "intensidade_investigacao": "PRIORITARIA",
+      "indicio_fraude_sinalizado": true
+    }
+  },
+  "recorded_llm": [
+    "Prestador com indicadores de upcoding e desvio de pares; dossie instruido para decisao humana."
+  ],
+  "dmn_fixture": {},
+  "expect": {
+    "fields": {
+      "desfecho": "dossie_instruido"
+    }
+  },
+  "leak_canaries": [],
+  "journey": {
+    "intake": {
+      "no_error": true
+    },
+    "gather": {
+      "fields": {
+        "gathered": true
+      },
+      "evidencia_normalizada": [
+        { "ref": "evd://tiss/lote-journey-01", "hash": "h-journey-01a", "origem": "tiss" },
+        { "ref": "evd://cdc/item-journey-01", "hash": "h-journey-01b", "origem": "cdc", "tipo": "conta" }
+      ]
+    },
+    "handoff": {
+      "fields": {
+        "desfecho": "dossie_instruido"
+      },
+      "business_key": "FRAUDE-amh-000105",
+      "dossier_fields": {
+        "business_key": "FRAUDE-amh-000105",
+        "numero_caso": "000105",
+        "indicadores_observados": ["upcoding_ceiling", "peer_deviation"],
+        "score_indicadores": 78,
+        "decisao_fraude": null,
+        "bundle_root": null,
+        "destino_referral": null
+      }
+    }
+  }
+}

@@ -326,7 +326,7 @@ def build_ingress_router(state: AgentState) -> APIRouter:
         inicio = time.monotonic()
         try:
             resultado = await harness.invoke(dict(entrada), thread_id=thread_id)
-        except Exception as exc:  # noqa: BLE001 - a borda traduz qualquer falha em 502
+        except Exception as exc:  # a borda traduz qualquer falha em 502
             duracao_ms = int((time.monotonic() - inicio) * 1000)
             logger.error(
                 "agent_ingress_turn_failed",

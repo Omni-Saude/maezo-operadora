@@ -38,8 +38,7 @@ agents:
       limits:
         cpu: "2000m"
         memory: "2Gi"
-    env:
-      ENVIRONMENT: "prod"
+    env: {}
   - name: rafael
     enabled: true
     securityZone: phi
@@ -52,8 +51,7 @@ agents:
       limits:
         cpu: "2000m"
         memory: "2Gi"
-    env:
-      ENVIRONMENT: "prod"
+    env: {}
   - name: marina
     enabled: true
     securityZone: phi
@@ -66,22 +64,19 @@ agents:
       limits:
         cpu: "2000m"
         memory: "2Gi"
-    env:
-      ENVIRONMENT: "prod"
+    env: {}
   - name: gustavo
     enabled: false
     securityZone: general
     replicaCount: 2
     irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-gustavo-irsa-amh"
-    env:
-      ENVIRONMENT: "prod"
+    env: {}
   - name: lucas
     enabled: false
     securityZone: general
     replicaCount: 2
     irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-lucas-irsa-amh"
-    env:
-      ENVIRONMENT: "prod"
+    env: {}
 
 # gateway: DISABLED platform-wide (gateway.enabled=false in values.yaml) — orphaned
 # Deployment with no runnable module (library-only per ADR-0006; predeploy DB-1,

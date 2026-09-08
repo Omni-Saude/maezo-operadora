@@ -368,6 +368,46 @@ def extract_ledger_task_ids(ledger_text: str) -> set[str]:
     return {_normalize_task_id(m.group(1)) for m in _LEDGER_ROW_RE.finditer(ledger_text)}
 
 
+def find_leading_id_collisions(ledger_text: str) -> dict[str, tuple[int, ...]]:
+    """Pure: group every ledger row's leading id and return only the ids that lead MORE than one
+    row, mapped to the 1-indexed line number of every occurrence, in ascending file order.
+
+    LEDGER-D3-01-DUPLICATE-ID: `extract_ledger_task_ids` (above) treats ledger ids as a SET on
+    purpose — `evaluate()`'s fail-closed guarantee only needs "does id X have A row", and a set
+    answers that correctly even when two rows share a leading id. What a set cannot answer is an
+    audit question: which of the colliding rows is `Tasks: D3-01` actually about? This function
+    finds every such collision; `resolve_leading_id_line` below states the tie-break rule.
+    """
+    occurrences: dict[str, list[int]] = {}
+    for match in _LEDGER_ROW_RE.finditer(ledger_text):
+        task_id = _normalize_task_id(match.group(1))
+        line_no = ledger_text.count("\n", 0, match.start()) + 1
+        occurrences.setdefault(task_id, []).append(line_no)
+    return {task_id: tuple(lines) for task_id, lines in occurrences.items() if len(lines) > 1}
+
+
+def resolve_leading_id_line(ledger_text: str, task_id: str) -> int | None:
+    """Pure: the 1-indexed line number of the CANONICAL row for `task_id`, or None if no row
+    leads with it at all.
+
+    Resolution rule (LEDGER-D3-01-DUPLICATE-ID): the ledger is append-only (docs/evidence-ledger.md's
+    own convention paragraph; a row on `main` is never edited or renamed in place), so file order
+    IS chronological order — the row appearing LAST in the file is the newest one. When a leading
+    id collides across more than one row (`find_leading_id_collisions` reports which), THIS is the
+    row any caller that needs exactly ONE row for an id — not merely "does a row exist" — must
+    resolve to, instead of an unspecified, order-of-appearance first-match scan. The colliding
+    older row(s) stay in the table, disambiguated by content and by `docs/review-queue.md`'s
+    disclosure row for the collision, never by being rewritten.
+    """
+    normalized = _normalize_task_id(task_id)
+    matching_lines = [
+        ledger_text.count("\n", 0, match.start()) + 1
+        for match in _LEDGER_ROW_RE.finditer(ledger_text)
+        if _normalize_task_id(match.group(1)) == normalized
+    ]
+    return matching_lines[-1] if matching_lines else None
+
+
 # ---------------------------------------------------------------------------
 # Pure evaluation core
 # ---------------------------------------------------------------------------
@@ -561,6 +601,23 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     result = evaluate(detected_ids, ledger_text)
     prefix = "[evidence-ledger-check]"
+
+    # LEDGER-D3-01-DUPLICATE-ID: informational only — never affects the exit code. A collision
+    # already on `main` (this table is append-only; the historical row is never rewritten to fix
+    # it, see docs/evidence-ledger.md's convention paragraph) must not turn a previously-green
+    # check red forever. Reported only for ids THIS PR actually cites, so an unrelated PR's output
+    # stays quiet.
+    if ledger_text is not None:
+        collisions = find_leading_id_collisions(ledger_text)
+        for collided_id in sorted(detected_ids & collisions.keys()):
+            newest_line = resolve_leading_id_line(ledger_text, collided_id)
+            print(
+                f"{prefix} INFO: leading id '{collided_id}' has rows at lines "
+                f"{list(collisions[collided_id])} of docs/evidence-ledger.md — resolves to the "
+                f"NEWEST row (line {newest_line}) per LEDGER-D3-01-DUPLICATE-ID; the older row(s) "
+                "are historical and are never rewritten to disambiguate."
+            )
+
     print(f"{prefix} {'PASS' if result.ok else 'FAIL'}: {result.message}")
     return 0 if result.ok else 1
 

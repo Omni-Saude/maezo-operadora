@@ -127,12 +127,10 @@ jobs:
   # `require_code_owner_review: true` e tornar `flip-path-review-gate` REQUIRED. A frase que este
   # job existe para honrar e: "o estado do gate passa a ser medido, nunca presumido".
   #
-  # (a), (b) e (c) sao atos de ORGANIZACAO/PESSOAS e nenhum agente pode executa-los nem atestar que
-  # foram cumpridos. O que da para construir — e e' o que esta aqui — e a MEDICAO de (c), que e' o
-  # unico dos tres legivel por uma API read-only e que, por construcao, so' fica verde depois de (a)
-  # e (b): todo erro que este repositorio reporta hoje e' "Unknown owner" para o token do TIME, e o
-  # GitHub so' para de reporta-lo quando o time existir COM acesso de escrita aqui. Ou seja, (c) e'
-  # o indicador observavel dos outros dois, e nao um quarto requisito independente.
+  # (a), (b) e (c) sao atos de ORGANIZACAO/PESSOAS. Este job mede somente (c). ZERO erros prova que
+  # o token do time esta resolvivel e tem acesso ao repositorio; nao prova a composicao humana do
+  # time. O requisito separado de um segundo humano deve ser medido fora deste endpoint e continua
+  # pendente enquanto members_count == 1.
   #
   # POR QUE UM JOB PROPRIO, E NAO UM PASSO NO JOB ACIMA. Sao dois fatos de governanca distintos
   # (protecao da branch vs. resolvibilidade dos donos); fundi-los faria um unico contexto vermelho

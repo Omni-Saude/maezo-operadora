@@ -67,7 +67,7 @@ from maezo.platform.observability import get_metrics_collector
 
 from .dedup import WhatsAppDedupGuard
 from .dispatch import HelenaDispatcher, InboundEvent, InboundMessage, extract_inbound_messages
-from .security import verify_hub_signature
+from .security import log_safe_message_id, verify_hub_signature
 from .settings import WhatsAppWebhookSettings
 
 logger = structlog.get_logger(__name__)
@@ -137,7 +137,8 @@ async def _seal_claim(dedup: WhatsAppDedupGuard | None, message: InboundEvent, *
             "whatsapp_webhook_dedup_seal_failed",
             tenant=tenant,
             dedup_key=dedup.inbound_key(message.message_id),
-            error=str(exc),
+            # The error processor keeps class/frames; never stringify an upstream payload.
+            error=exc,
             detail="the message WAS processed; the claim could not be sealed — redelivery stays "
             "suppressed only until the in-flight lease expires",
         )
@@ -159,7 +160,7 @@ async def _withdraw_claim(dedup: WhatsAppDedupGuard | None, message: InboundEven
             "whatsapp_webhook_dedup_release_failed",
             tenant=tenant,
             dedup_key=dedup.inbound_key(message.message_id),
-            error=str(exc),
+            error=exc,
             detail="handling failed AND the claim could not be withdrawn — redelivery is "
             "suppressed until the in-flight lease expires",
         )
@@ -190,7 +191,21 @@ async def _run_one_message(
             await dispatcher.acknowledge_non_text(message)
             outcome = "acked"
     except Exception:  # deliberately total: one message's failure must not drop the batch.
-        logger.error("whatsapp_dispatch_failed", message_id=message.message_id, exc_info=True)
+        # Gap `WEBHOOK-LOG-RAW-WAMID`: esta linha carregava `message_id=<wamid bruto>` — o mesmo
+        # identificador que embute o telefone da contraparte e que o registro DURAVEL de dedup ja
+        # se recusa a persistir (`security.py::hash_message_id`). O unico renderizador PHI-safe
+        # alcancavel aqui e o guard de dedup (`dedup.py`, que existe justamente para que a
+        # derivacao da chave nao varie por call site); sem ele `log_safe_message_id` devolve o
+        # marcador constante, e a ausencia do guard ja e anunciada em nivel error na propria
+        # requisicao (`whatsapp_webhook_dedup_guard_absent`) — nunca um caminho silencioso.
+        logger.error(
+            "whatsapp_dispatch_failed",
+            tenant=tenant,
+            message_pseudonym=log_safe_message_id(
+                message.message_id, tenant, dedup.pseudonymizer if dedup is not None else None
+            ),
+            exc_info=True,
+        )
         await _withdraw_claim(dedup, message, tenant=tenant)
         return "failed"
     await _seal_claim(dedup, message, tenant=tenant)
@@ -391,7 +406,7 @@ def create_app(
                         logger.error(
                             "whatsapp_webhook_dedup_unavailable",
                             tenant=settings.tenant_id,
-                            error=str(exc),
+                            error=exc,
                             exc_info=True,
                         )
                         WEBHOOK_REQUESTS_TOTAL.labels(

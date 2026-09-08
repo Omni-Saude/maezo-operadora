@@ -678,7 +678,7 @@ def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> Tas
                 case_meta=dict(v),
                 protocolo_cred=protocolo_cred,
             )
-        except Exception as exc:  # noqa: BLE001 — DL-0037: the UT must open; never raise here.
+        except Exception as exc:  # DL-0037: the UT must open; never raise here.
             logger.error(
                 "cred_prepare_dossier_delegation_failed",
                 tenant_id=tenant_id,

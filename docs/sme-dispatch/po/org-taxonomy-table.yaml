@@ -80,8 +80,8 @@ rows:
   em_escopo: true
   tarefa_ou_regra_dmn: UT_DecidirPendenciaExpirada; UT_AnaliseMedicoAuditor (linha 264)
   sla_ato: contrato Sec.Papeis linha 206 -- negativa SO aqui
-  proposto: false
-  notas: contrato DRAFT v0.1.0 (caveat generico de topo), sem ressalva PROPOSTO explicita por grupo
+  proposto: true
+  notas: caveat PROPOSTO no contrato linha 210-217 (gap AUTH-LGPD-CONTRACTS-NO-PROPOSTO-CAVEAT)
   nome_real: ''
 - grupo_declarado: coordenacao-auditoria-medica
   arquivo: spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn
@@ -90,8 +90,8 @@ rows:
   em_escopo: true
   tarefa_ou_regra_dmn: UT_CoordenacaoAssume
   sla_ato: contrato Sec.Papeis linha 207 -- SLA estourado
-  proposto: false
-  notas: contrato DRAFT v0.1.0 (caveat generico de topo), sem ressalva PROPOSTO explicita por grupo
+  proposto: true
+  notas: caveat PROPOSTO no contrato linha 210-217 (gap AUTH-LGPD-CONTRACTS-NO-PROPOSTO-CAVEAT)
   nome_real: ''
 - grupo_declarado: junta-medica
   arquivo: spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn
@@ -100,8 +100,8 @@ rows:
   em_escopo: true
   tarefa_ou_regra_dmn: UT_RegistrarParecerJunta
   sla_ato: contrato Sec.Papeis linha 208 -- RN 424 (DRAFT)
-  proposto: false
-  notas: contrato DRAFT v0.1.0 (caveat generico de topo), sem ressalva PROPOSTO explicita por grupo
+  proposto: true
+  notas: caveat PROPOSTO no contrato linha 210-217 (gap AUTH-LGPD-CONTRACTS-NO-PROPOSTO-CAVEAT)
   nome_real: ''
 - grupo_declarado: juridico-contratos
   arquivo: spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn
@@ -304,9 +304,9 @@ rows:
     catch-all); wireado via bpmn:190 ${roteamento_dsr.grupo_revisor} -> UT_RevisaoDpo
   sla_ato: contrato Sec.Papeis linha 97 -- dados de saude/eliminacao/tipos desconhecidos + alertas de
     breach
-  proposto: false
-  notas: Sec.Papeis (contrato linha 92) SEM ressalva PROPOSTO -- ver item (6) do relatorio (drift potencial,
-    fora do escopo desta tarefa)
+  proposto: true
+  notas: caveat PROPOSTO no contrato linha 99-107 (gap AUTH-LGPD-CONTRACTS-NO-PROPOSTO-CAVEAT); fora
+    do escopo formal de R-034 (nao esta em escopo_do_dono)
   nome_real: ''
 - grupo_declarado: dpo
   arquivo: spec/processes/dmn/lgpd_dsr_routing.dmn
@@ -316,8 +316,9 @@ rows:
   tarefa_ou_regra_dmn: regras r2,r4,r6 (acesso sem saude, RETIFICACAO simples, INFORMATIVO); wireado via
     bpmn:190 -> UT_RevisaoDpo
   sla_ato: contrato Sec.Papeis linha 96 -- requisicoes sem dados de saude
-  proposto: false
-  notas: Sec.Papeis (contrato linha 92) SEM ressalva PROPOSTO -- ver item (6) do relatorio
+  proposto: true
+  notas: caveat PROPOSTO no contrato linha 99-107 (gap AUTH-LGPD-CONTRACTS-NO-PROPOSTO-CAVEAT); fora
+    do escopo formal de R-034 (nao esta em escopo_do_dono)
   nome_real: ''
 - grupo_declarado: nucleo-ans
   arquivo: spec/processes/dmn/nip_routing.dmn

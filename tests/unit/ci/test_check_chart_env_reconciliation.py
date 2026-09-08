@@ -113,17 +113,28 @@ def test_reconcile_exempts_an_allowlisted_infra_owned_name() -> None:
     assert result.allowlisted[0].name == "KAFKA_NODE_ID"
 
 
-def test_reconcile_exempts_a_deferred_name_but_keeps_it_visible() -> None:
+def test_reconcile_exempts_a_deferred_name_but_keeps_it_visible(monkeypatch: pytest.MonkeyPatch) -> None:
     """A deferred (not-infra-owned, tracked-follow-up-gap) name does not fail the gate, but is
     reported in its OWN bucket — never silently merged into `allowlisted`, which would misrepresent
-    it as infra-owned (the exact "false provenance" shape gatekeeper finding F2 flagged)."""
-    assert "ENVIRONMENT" in DEFERRED_UNRECONCILED_DECLARED  # sanity
-    declared = [EnvNameRef(name="ENVIRONMENT", source="values-amh.yaml (agents[].env)")]
+    it as infra-owned (the exact "false provenance" shape gatekeeper finding F2 flagged).
+
+    Uses a SYNTHETIC deferred entry (monkeypatched onto the module dict) rather than a real one:
+    `DEFERRED_UNRECONCILED_DECLARED` is empty as of HELM-ENV-AUDIT-DIR-DEAD /
+    HELM-ENV-PASSTHROUGH-UNREAD (2026-09-06) — its two former real entries (`ENVIRONMENT`,
+    `AUDIT_DIR`) were removed from the chart entirely rather than left deferred — so this test's
+    behavioural claim about `reconcile()`'s deferred bucket must not depend on the table being
+    non-empty at any given moment.
+    """
+    monkeypatch.setattr(
+        "scripts.ci.check_chart_env_reconciliation.DEFERRED_UNRECONCILED_DECLARED",
+        {"SYNTHETIC_DEFERRED_VAR": "synthetic reason for this test"},
+    )
+    declared = [EnvNameRef(name="SYNTHETIC_DEFERRED_VAR", source="synthetic")]
     result = reconcile(declared, read_names=set(), required=[])
     assert result.ok, result.render()
     assert result.allowlisted == []
     assert len(result.deferred) == 1
-    assert result.deferred[0].name == "ENVIRONMENT"
+    assert result.deferred[0].name == "SYNTHETIC_DEFERRED_VAR"
 
 
 # ---------------------------------------------------------------------------
@@ -291,9 +302,15 @@ def test_allowlist_entries_that_are_declared_today_are_genuinely_unread_by_src()
 
 
 def test_deferred_entries_that_are_declared_today_are_genuinely_unread_by_src() -> None:
-    """Same non-vacuity property for `DEFERRED_UNRECONCILED_DECLARED`: both entries must actually
-    surface in the real chart AND be genuinely unread — otherwise they are stale or hiding a
-    defect that should instead be a real (non-deferred) failure."""
+    """Same non-vacuity property for `DEFERRED_UNRECONCILED_DECLARED`: every entry present must
+    actually surface in the real chart AND be genuinely unread — otherwise it is stale or hiding a
+    defect that should instead be a real (non-deferred) failure.
+
+    `DEFERRED_UNRECONCILED_DECLARED` is EMPTY as of HELM-ENV-AUDIT-DIR-DEAD /
+    HELM-ENV-PASSTHROUGH-UNREAD (2026-09-06) — its two former entries (`ENVIRONMENT`, `AUDIT_DIR`)
+    were removed from the chart entirely rather than left deferred, so this assertion holds
+    vacuously today; it stays a real, load-bearing check the moment a future name is deferred.
+    """
     declared_names = _real_declared_names()
     literal_names = extract_literal_env_names(_SRC_DIR)
     settings_all, _, _, _ = extract_settings_env_names(_SRC_DIR)
@@ -341,7 +358,10 @@ def test_infra_owned_allowlist_has_a_reason_for_every_entry() -> None:
 
 
 def test_deferred_allowlist_has_a_reason_for_every_entry() -> None:
-    assert DEFERRED_UNRECONCILED_DECLARED  # sanity: not accidentally emptied
+    """`DEFERRED_UNRECONCILED_DECLARED` is deliberately EMPTY as of HELM-ENV-AUDIT-DIR-DEAD /
+    HELM-ENV-PASSTHROUGH-UNREAD (2026-09-06) — both former entries were removed from the chart
+    rather than left deferred. This loop still holds (vacuously today) for whatever the table
+    contains, so a future deferred entry with a missing reason is still caught here."""
     for name, reason in DEFERRED_UNRECONCILED_DECLARED.items():
         assert reason and reason.strip(), f"{name} has no reason"
 

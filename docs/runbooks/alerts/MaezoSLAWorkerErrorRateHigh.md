@@ -28,9 +28,9 @@
 - alert: MaezoSLAWorkerErrorRateHigh
   expr: |
     (
-      rate(maezo_worker_error_count_total[5m])
+      sum by (worker, topic) (rate(maezo_worker_error_count_total[5m]))
       /
-      rate(maezo_worker_execution_time_seconds_count[5m])
+      sum by (worker, topic) (rate(maezo_worker_execution_time_seconds_count[5m]))
     ) > 0.05
   for: 5m
   labels:
@@ -47,6 +47,15 @@ More than 5% of worker executions error out over a 5-minute window. Unlike the a
 **neither** the numerator nor the denominator — an error spike confined to those topics is
 invisible to this alert. Full trace: `docs/observability/SLO.md` §2.
 
+Both sides are wrapped in `sum by (worker, topic) (...)` (the same vector-matching fix the sibling
+`MaezoSLAAgentErrorRateHigh` already used, `ALERT-COUNTER-LABELS`/R-063): the numerator's raw
+`error_type` label is aggregated away so PromQL's default vector matching on `/` finds an operand
+on both sides. As a direct consequence, the fired alert's own labels carry only `worker`/`topic`
+— **not** `error_type` — and the `description` annotation no longer references
+`{{ $labels.error_type }}`. The failure mode (which `error_type`) is still available, just not on
+the alert itself: read it from the raw `maezo_worker_error_count_total` series (which still
+carries the label) or from the worker logs for that `worker`/`topic` pair (§3, §4 below).
+
 ## 2. What this means in business terms
 
 Same worker/topic → SP-OP process mapping as `MaezoSLAWorkerLatencyHigh` (§2 there). An elevated
@@ -59,7 +68,9 @@ the affected BPMN processes until a human resolves them.
 ## 3. First 5 minutes
 
 ```bash
-# 1. Read the alert labels — worker, topic, error_type tell you the failure mode directly.
+# 1. Read the alert labels — worker/topic tell you WHERE. The alert's own labels do NOT carry
+#    error_type (aggregated away by the sum-by fix); pull error_type from the raw
+#    maezo_worker_error_count_total series or the worker's own logs for that worker/topic.
 
 # 2. Local dev:
 docker compose logs -f worker-runtime | grep -E "worker_failed|worker_error"
@@ -80,7 +91,8 @@ curl -sf http://localhost:8020/readyz | jq '.checks.audit_sink_ready // .'
 ## 4. Triage tree
 
 ```
-Is error_type consistent across the alert's samples (one exception class), or mixed?
+Once error_type is pulled from the raw metric/logs (§3 step 1 — it is NOT on the fired alert's
+own labels post-aggregation): is it consistent (one exception class), or mixed?
 ├── ONE class (e.g. a specific ValueError/PermissionError) →
 │   Guard/validation errors (*NotHumanError, ValueError family) ALWAYS report retries=0 by
 │   design (harness.py design §9) — an immediate incident, not a transient blip. Check if this

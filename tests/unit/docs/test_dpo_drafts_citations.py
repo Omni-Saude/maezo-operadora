@@ -609,7 +609,7 @@ def _bpmn_topics() -> set[str]:
 #: pt-BR cardinals, so the runbook's PROSE has to state the number the tree yields. Deliberately
 #: small: an orphan set outside this range means something structural changed and a human should
 #: read the reconciliation document, not extend a lookup table.
-_PT_BR_CARDINAL: dict[int, str] = {1: "um", 2: "dois", 3: "três", 4: "quatro", 5: "cinco"}
+_PT_BR_CARDINAL: dict[int, str] = {0: "zero", 1: "um", 2: "dois", 3: "três", 4: "quatro", 5: "cinco"}
 
 
 def _registered_lgpd_topics() -> set[str]:
@@ -637,21 +637,21 @@ def test_the_runbook_states_the_orphan_topic_count_the_tree_actually_yields() ->
     """The count is DERIVED (registered `operadora.lgpd.*` topics minus the BPMN's `camunda:topic`
     set) and the runbook's §5 prose must state it in words.
 
-    History this fence carries, both directions: the first revision said "os três" when the tree
-    said four (`publish_completed` had no service task); the post-`abb9d60` re-anchoring says
-    "três" again because R-H/R-103 DELETED that worker. Hardcoding either number is what made the
-    prose rot, so neither the set nor the number is written down here."""
+    History this fence carries, in every direction it has been pushed: the first revision said
+    "os três" when the tree said four (`publish_completed` had no service task); the
+    post-`abb9d60` re-anchoring said "três" again because R-H/R-103 DELETED that worker; R-181
+    then collapsed the last three (O2-O4) onto the modelled `operadora.lgpd.execute_request` and
+    the derived count is now ZERO (§8.2). Hardcoding any of those numbers is what made the prose
+    rot, so neither the set nor the number is written down here — only the derivation.
+
+    The fence is NOT inert at zero: it now holds the CLOSED state (a returning orphan goes red),
+    and it still binds the prose, plus the OTHER side of the drift — the one BPMN topic that
+    remains worker-less, which is DPO-gated and must stay named."""
     orphans = _registered_lgpd_topics() - _bpmn_topics()
-    assert orphans, "expected at least one orphan LGPD code topic; found none (fence inert?)"
-    assert orphans <= {
-        "operadora.lgpd.execute_export",
-        "operadora.lgpd.execute_rectification",
-        "operadora.lgpd.execute_erasure",
-        "operadora.lgpd.publish_completed",
-        "operadora.lgpd.assess_request",
-    }, (
-        f"a NEW orphan LGPD code topic appeared: {sorted(orphans)} — the runbook's §5 and the "
-        "reconciliation document both need re-reading before a DPO signs"
+    assert orphans == set(), (
+        f"an orphan LGPD code topic is back: {sorted(orphans)} — R-181 (§8.2) collapsed the last "
+        "three into operadora.lgpd.execute_request; the runbook's §5 and the reconciliation "
+        "document both need re-reading before a DPO signs"
     )
 
     count = len(orphans)
@@ -662,9 +662,24 @@ def test_the_runbook_states_the_orphan_topic_count_the_tree_actually_yields() ->
         f"DSR-PROCEDURE-DRAFT.md §5 does not state the derived orphan count: expected "
         f"{expected!r} (orphans = {sorted(orphans)})"
     )
-    for topic in orphans:
-        assert topic.rsplit(".", 1)[-1] in runbook, f"orphan topic {topic!r} is not named in the runbook"
     assert "docs/compliance/lgpd-topic-reconciliation.md" in runbook
+
+    # The other side of the same drift, also derived: BPMN topics with NO worker. Exactly one —
+    # `compile_data_package` (#55 R-C) — and the runbook must keep naming it, because it is
+    # DPO-gated (the legal-bases / retention matrix `ST_CompilarPacote` must carry).
+    # `_bpmn_topics()` is unfiltered: it also yields the SHARED generic publisher
+    # `operadora.events.publish` (5 `ST_Publish*` tasks), which `register_events_workers` serves
+    # and `register_lgpd_workers` deliberately does not (ADR-0026 §2b). Only the `operadora.lgpd.*`
+    # namespace is this module's to answer for.
+    sem_worker = {t for t in _bpmn_topics() if t.startswith("operadora.lgpd.")} - _registered_lgpd_topics()
+    assert sem_worker == {"operadora.lgpd.compile_data_package"}, (
+        f"the set of worker-less BPMN LGPD topics changed: {sorted(sem_worker)} — the runbook's "
+        "§8.2 and the reconciliation document need re-reading before a DPO signs"
+    )
+    for topic in sem_worker:
+        assert topic.rsplit(".", 1)[-1] in runbook, (
+            f"worker-less BPMN topic {topic!r} is not named in the runbook"
+        )
 
 
 def test_publish_completed_stayed_retired_after_abb9d60() -> None:

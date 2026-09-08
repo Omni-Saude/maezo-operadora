@@ -41,6 +41,15 @@ serviceAccount:
 # Agent defaults — fallback resources for any agent that omits `resources`.
 # ---------------------------------------------------------------------------
 agentDefaults:
+  # R-023 / SC-02: declaredCeilingPerReplica NAO DERIVADO — `agent-runtime` (T1.6/Q-6) e' hoje um
+  # scaffold health-only (grafo LangGraph so' executa quando `MAEZO_AGENT_INGRESS_ENABLED=1` E o
+  # agente declara `ingress:`); nenhum Semaphore/pool de concorrencia de turno existe em
+  # `src/maezo/runtime/agent_runtime/` (grep confirmado). Sem knob do qual derivar um teto por
+  # replica honestamente. `null`. Fallback de TODO agente que nao sobrescrever `capacity` na sua
+  # entrada em `agents:` abaixo — mesmo padrao de fallback que `resources` ja usa.
+  capacity:
+    declaredCeilingPerReplica: null
+    measurementStatus: "NAO_MEDIDO"
   resources:
     requests:
       cpu: "250m"
@@ -136,6 +145,13 @@ agents:
 gateway:
   enabled: false
   replicaCount: 2
+  # R-023 / SC-02: declaredCeilingPerReplica NAO DERIVADO — `src/maezo/gateway/` tem ZERO rotas
+  # HTTP de negocio hoje (so' /healthz, /readyz, /metrics, ver o comentario acima); nao ha' knob
+  # de concorrencia de request (sem Semaphore, sem `--workers`/gunicorn no Dockerfile) do qual
+  # derivar um teto. `null` em vez de um numero inventado.
+  capacity:
+    declaredCeilingPerReplica: null
+    measurementStatus: "NAO_MEDIDO"
   resources:
     requests:
       cpu: "100m"
@@ -160,6 +176,13 @@ gateway:
 webhookReceiver:
   enabled: true
   replicaCount: 1
+  # R-023 / SC-02: declaredCeilingPerReplica NAO DERIVADO — nenhum Semaphore/pool de concorrencia
+  # de request existe em `src/maezo/platform/webhooks/` (grep confirmado), e o Dockerfile roda
+  # `python -m maezo.<modulo>` direto (sem `--workers`/gunicorn). Concorrencia estruturalmente
+  # ilimitada pelo event loop asyncio; sem teto para derivar honestamente. `null`.
+  capacity:
+    declaredCeilingPerReplica: null
+    measurementStatus: "NAO_MEDIDO"
   resources:
     requests:
       cpu: "100m"
@@ -207,6 +230,11 @@ whatsapp:
 fhirSync:
   enabled: false
   replicaCount: 1
+  # R-023 / SC-02: declaredCeilingPerReplica NAO DERIVADO — `maezo.platform.integrations.fhir_sync`
+  # NAO EXISTE em `src/` (comentario acima); nao ha' codigo do qual derivar um teto. `null`.
+  capacity:
+    declaredCeilingPerReplica: null
+    measurementStatus: "NAO_MEDIDO"
   resources:
     requests:
       cpu: "100m"
@@ -260,6 +288,22 @@ workerDaemon:
   pollIntervalMs: 5000
   # Nome do secret (em namespace) com a chave `cibseven-auth-token` (BLOQUEADO/seam — vazio = sem auth).
   cibsevenAuthTokenSecret: ""
+  # R-023 / SC-02 (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA, resposta_sugerida
+  # verbatim: "declarar os tetos estruturais deriváveis hoje e carimbar explicitamente como NÃO
+  # MEDIDO o que só carga real responde"). NENHUM HPA/autoscaling e construido por esta chave —
+  # documentation-as-data ate o primeiro volume real (SC-04-a/ADR).
+  #
+  # declaredCeilingPerReplica DERIVADO do unico knob de concorrencia real deste daemon:
+  # `WorkerRuntimeSettings.max_tasks_per_poll` (default 10, env `WORKER_MAX_TASKS_PER_POLL`,
+  # `src/maezo/runtime/worker_runtime/settings.py:73`) — o numero de external tasks que
+  # `fetch_and_lock` pode manter LOCKED simultaneamente numa unica replica (harness.py:672-677,
+  # 1251, 1383-1386). O proprio repo ja usa este numero como teto derivado (nao adivinhado) em
+  # `src/maezo/gateway/rate_limit.py:76-78`: "10 tasks / 5 s per replica". O chart NAO sobrescreve
+  # este env var hoje (nao ha' `WORKER_MAX_TASKS_PER_POLL` em deployment-worker-daemon.yaml), entao
+  # o default do codigo e' o teto vigente.
+  capacity:
+    declaredCeilingPerReplica: 10
+    measurementStatus: "NAO_MEDIDO"
   resources:
     requests:
       cpu: "100m"
@@ -302,6 +346,15 @@ notificationsBridge:
   # `values-amh.yaml`) enquanto esta chave existir; a leitura direta deste arquivo sozinho NAO
   # basta, porque um overlay pode sobrescrever `replicaCount` sem tocar esta linha.
   singletonByDesignUntil: "SC-04-a"
+  # R-023 / SC-02: declaredCeilingPerReplica DERIVADO do proprio loop de consumo —
+  # `run_consumer_loop` (src/maezo/platform/integrations/notifications_bridge.py:892-946) e'
+  # `async for message in consumer:` seguido de `await consumer.commit()` ANTES da proxima
+  # iteracao: NENHUM batching, NENHUM `asyncio.gather` — exatamente UMA mensagem em voo por vez
+  # por replica. measurementStatus continua NAO_MEDIDO (teto estrutural, nunca validado contra
+  # carga real).
+  capacity:
+    declaredCeilingPerReplica: 1
+    measurementStatus: "NAO_MEDIDO"
   resources:
     requests:
       cpu: "50m"
@@ -315,9 +368,20 @@ notificationsBridge:
 #
 # Consome `agents.events.cred.network_changed` (fato de rede de SP-OP-CRED-001) e INICIA
 # SP-OP-ADEQUACAO-001 via mcp-cibseven.start_process (idempotente; correlacao
-# tenant_id+regiao_saude+especialidade). Sibling do notifications-bridge, MESMA identidade de
-# principal de SERVICO `notifications-bridge` (allowlist minima: so start_process). NAO sobe app
-# de health (liveness por processo).
+# tenant_id+regiao_saude+especialidade). Sibling do notifications-bridge, mas com principal de
+# SERVICO PROPRIO (`serviceAccount.name` abaixo — allowlist minima: so start_process). NAO sobe
+# app de health (liveness por processo).
+#
+# NETBRIDGE-SERVICE-PRINCIPAL-IDENTITY / R-198 (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-
+# HUMANA, decisor dono(arquitetura)+seguranca, resposta_sugerida verbatim: "A — principals
+# DISTINTOS por ponte, que e' o menor privilegio e o que torna a trilha de auditoria atribuivel"):
+# esta ponte usava, ate esta decisao, a MESMA ServiceAccount do notifications-bridge
+# (`maezo-tenant.serviceAccountName`) — duas pontes com poderes de start de processo apareceriam
+# na trilha de auditoria sob uma UNICA identidade. Agora tem a sua PROPRIA ServiceAccount
+# (`maezo-network-change-bridge`, ver serviceaccount.yaml), gated pelo mesmo `enabled` deste
+# bloco. `automountServiceAccountToken: false` e' preservado (deployment-bridge-netchange.yaml
+# nao monta token — a identidade e' so' para o IRSA role-arn de allowlist, nunca para chamar a
+# API do Kubernetes).
 #
 # DEFAULT FLIPPED TO false (AF-01 / R-001, mesmo padrao que `fhirSync` ja adota acima):
 # `deployment-bridge-netchange.yaml`'s `command: ["python", "-m",
@@ -334,6 +398,21 @@ notificationsBridge:
 networkChangeBridge:
   enabled: false
   replicaCount: 1
+  # R-198: principal de servico PROPRIO desta ponte (distinto do notifications-bridge).
+  serviceAccount:
+    create: true
+    name: "maezo-network-change-bridge"
+    annotations: {}
+      # eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT:role/maezo-network-change-bridge-irsa-TENANT"
+  # R-023 / SC-02: declaredCeilingPerReplica NAO DERIVADO — `maezo.platform.integrations
+  # .network_change_bridge` NAO EXISTE em `src/` ainda (AF-01/R-001, comentario acima); nao ha'
+  # codigo real do qual derivar um teto de concorrencia. `null` em vez de um numero inventado.
+  # Quando o modulo for construido como sibling do notifications-bridge (mesmo loop
+  # consume-process-commit serial), o teto esperado e' 1 — mas isso e' PROJECAO de design, nao
+  # fato de codigo, entao nao entra aqui como numero.
+  capacity:
+    declaredCeilingPerReplica: null
+    measurementStatus: "NAO_MEDIDO"
   resources:
     requests:
       cpu: "50m"
@@ -362,6 +441,12 @@ networkChangeBridge:
 consentRevocationBridge:
   enabled: false
   replicaCount: 1
+  # R-023 / SC-02: mesma postura de `networkChangeBridge` acima — `maezo.platform.integrations
+  # .consent_revocation_bridge` NAO EXISTE em `src/` ainda (AF-01/R-001), entao nao ha' codigo do
+  # qual derivar um teto de concorrencia. `null`, nunca um numero inventado.
+  capacity:
+    declaredCeilingPerReplica: null
+    measurementStatus: "NAO_MEDIDO"
   resources:
     requests:
       cpu: "50m"
@@ -389,6 +474,12 @@ a2aOutboxRelay:
   # Segundos de espera entre sweeps QUANDO o sweep anterior nao achou nada
   # (`A2A_OUTBOX_RELAY_POLL_INTERVAL_S` — outbox_relay.py `DEFAULT_POLL_INTERVAL_S`).
   pollIntervalS: 2
+  # R-023 / SC-02: declaredCeilingPerReplica DERIVADO diretamente de `batchSize` acima — linhas
+  # do outbox drenadas por sweep, por replica (o relay e' 1 replica por desenho, uma unica lease
+  # exclusiva por linha via `claimed_by`).
+  capacity:
+    declaredCeilingPerReplica: 100
+    measurementStatus: "NAO_MEDIDO"
   resources:
     requests:
       cpu: "50m"

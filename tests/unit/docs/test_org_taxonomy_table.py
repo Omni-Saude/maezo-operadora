@@ -24,6 +24,7 @@ _PO_DIR = _REPO_ROOT / "docs" / "sme-dispatch" / "po"
 _YAML_PATH = _PO_DIR / "org-taxonomy-table.yaml"
 _MD_PATH = _PO_DIR / "ORG-TAXONOMY-TABLE.md"
 _PACKAGE_PATH = _PO_DIR / "PACKAGE.md"
+_CONTRACTS_DIR = _REPO_ROOT / "docs" / "processes" / "contracts"
 
 _OWNER_SCOPE = {"ESCALATION", "CANCEL", "ADEQUACAO", "CRED", "NIP", "PROGRAMA", "AUTH", "ANS-SUBMIT"}
 
@@ -140,3 +141,60 @@ def test_package_md_points_to_the_new_table() -> None:
     text = _PACKAGE_PATH.read_text(encoding="utf-8")
     assert "ORG-TAXONOMY-TABLE.md" in text
     assert "R-034" in text
+
+
+# ---------------------------------------------------------------------------------------------
+# AUTH-LGPD-CONTRACTS-NO-PROPOSTO-CAVEAT: the per-group PROPOSTO caveat R-034 added to
+# SP-OP-ESCALATION-001.md's Papeis section must also exist in SP-OP-AUTH-001.md and
+# SP-OP-LGPD-DSR-001.md — this contract carried NO caveat at all before this gap's fix (only the
+# generic top-of-file DRAFT banner), while ESCALATION-001 already had one.
+# ---------------------------------------------------------------------------------------------
+
+_CAVEAT_CONTRACTS_AND_GROUPS: dict[str, tuple[str, ...]] = {
+    "SP-OP-ESCALATION-001.md": ("plantao-clinico", "enfermagem-triagem", "atendimento-humano"),
+    "SP-OP-AUTH-001.md": ("medico-auditor", "coordenacao-auditoria-medica", "junta-medica"),
+    "SP-OP-LGPD-DSR-001.md": ("dpo", "juridico-privacidade"),
+}
+
+
+def test_escalation_auth_and_lgpd_dsr_contracts_all_carry_the_per_group_proposto_caveat() -> None:
+    """Generalizes the R-034 caveat shape: every contract in `_CAVEAT_CONTRACTS_AND_GROUPS` must
+    have, somewhere in its Papeis humanos section, a `PROPOSTO` caveat block that names EVERY one
+    of that contract's candidate groups. Before this fix, `SP-OP-AUTH-001.md` and
+    `SP-OP-LGPD-DSR-001.md` had zero `PROPOSTO` hits at all (only the generic top-of-file DRAFT
+    banner) — reverting either contract's new caveat block goes RED here."""
+    missing: dict[str, list[str]] = {}
+    for filename, groups in _CAVEAT_CONTRACTS_AND_GROUPS.items():
+        text = (_CONTRACTS_DIR / filename).read_text(encoding="utf-8")
+        papeis_idx = text.index("## Papeis humanos")
+        # Scope the search to the Papeis section (up to the next '## ' heading) so a PROPOSTO
+        # mention elsewhere in the file (e.g. a DMN-shape banner) cannot fake this fence.
+        next_heading = text.find("\n## ", papeis_idx + 1)
+        section = text[papeis_idx : next_heading if next_heading != -1 else None]
+        assert "PROPOSTO" in section, f"{filename}: no PROPOSTO caveat found in Papeis humanos section"
+        for group in groups:
+            if f"`{group}`" not in section:
+                missing.setdefault(filename, []).append(group)
+    assert not missing, f"contract(s) missing a group from their PROPOSTO caveat: {missing}"
+
+
+def test_auth_and_lgpd_dsr_taxonomy_rows_are_now_marked_proposto_true() -> None:
+    """The 5 rows this gap's contract fix affects (`medico-auditor`/`coordenacao-auditoria-
+    medica`/`junta-medica` for AUTH, `dpo`/`juridico-privacidade` for LGPD-DSR) used to say
+    `proposto: false` because the contract had no caveat yet — now that it does, the table must
+    say so too, or a reader trusting the table alone would wrongly conclude no caveat exists."""
+    data = _load_yaml()
+    affected = {
+        ("SP-OP-AUTH-001", "medico-auditor"),
+        ("SP-OP-AUTH-001", "coordenacao-auditoria-medica"),
+        ("SP-OP-AUTH-001", "junta-medica"),
+        ("SP-OP-LGPD-DSR-001", "dpo"),
+        ("SP-OP-LGPD-DSR-001", "juridico-privacidade"),
+    }
+    seen = set()
+    for row in data["rows"]:
+        key = (row["processo"], row["grupo_declarado"])
+        if key in affected:
+            seen.add(key)
+            assert row["proposto"] is True, f"{key} must be proposto: true now that the contract has a caveat"
+    assert seen == affected, f"expected rows not found in the table: {affected - seen}"

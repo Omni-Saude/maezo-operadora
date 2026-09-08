@@ -75,8 +75,18 @@ DEVE consultar a business key antes de iniciar (start idempotente, sem reprocess
 
 **Fatos COMPUTADOS (GAP-CONTAS-2 — `has_glosas`/`denial_ratio`/`glosa_count`/`total_glosado_candidato_centavos` nunca seeded/ecoados; `divergencia_valor` e a excecao, re-ecoada por Marina no start — ver "Variaveis de entrada" acima):** `has_glosas` (boolean; `identify_glosa`),
 `denial_ratio` (double 0..1), `divergencia_valor` (boolean), `glosa_count` (integer) e
-`total_glosado_candidato_centavos` (integer/long — centavos; **Long acima de R$ 21,47M**, landmine
-int32) sao computados por `identify_glosa`/`calculate_impact` a partir de
+`total_glosado_candidato_centavos` (**`Long` (int64) INCONDICIONALMENTE** — centavos-inteiros;
+nao "integer abaixo de R$ 21,47M e long acima": a decisao do dono **R-173** de 2026-09-04 fechou o
+landmine int32 declarando o tipo de engine **fixo, independente do tamanho do lote**, porque o tipo
+de wire de um fato financeiro nao pode depender de quantas linhas a conta trouxe. `identify_glosa`
+ja soma em inteiro de precisao arbitraria (`contas.py::identify_glosa`); a serializacao era a unica
+superficie de 32 bits que restava, e R$ 21.474.836,47 e um lote real. A declaracao vive em
+`src/maezo/tools/workers/engine_var_types.py::LONG_TYPED_ENGINE_VARS` e e honrada pelos tres
+mappers de variavel Camunda; fixada por teste em
+`tests/unit/tools/workers/test_long_typed_engine_vars.py`, que **falha se o literal voltar a 32
+bits**. E decisao de TIPAGEM: nenhum valor, teto ou regra de glosa e decidido aqui, e o signoff de
+financas deste contrato segue exigido pelas demais perguntas (R-144, R-145, R-174)) sao computados
+por `identify_glosa`/`calculate_impact` a partir de
 `linhas_conta_refs`/`reason_codes_tiss`/`valor_apresentado_brl` (aritmetica pura em
 centavos-inteiros; thresholds de RULE vivem nas DMN `glosa_*`). Definicoes: linha glosada candidata
 = `valor_glosado > 0` OU reason code na linha; `has_glosas` = alguma linha candidata OU

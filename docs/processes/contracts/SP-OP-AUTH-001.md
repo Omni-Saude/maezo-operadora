@@ -207,6 +207,15 @@ out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria
 | `coordenacao-auditoria-medica` | `UT_CoordenacaoAssume` (SLA estourado) |
 | `junta-medica` | `UT_RegistrarParecerJunta` (RN 424 — DRAFT) |
 
+> **PROPOSTO — confirmar contra a taxonomia organizacional da operadora** (ver
+> `docs/review-queue.md`; mesmo padrao de R-034 / gap `PERSP-ESCALATION-VOCAB-a`, aplicado aqui
+> como follow-up mecanico — gap `AUTH-LGPD-CONTRACTS-NO-PROPOSTO-CAVEAT`). Os grupos
+> `medico-auditor`, `coordenacao-auditoria-medica` e `junta-medica` sao candidatos DRAFT e podem
+> nao corresponder aos grupos reais do IdP/console de User Tasks da operadora. A tabela
+> consolidada de `grupo declarado -> arquivo:linha -> processo -> SLA/ato` para esta sessao de
+> nomeacao esta em `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md` (linhas 28-30). Nenhum rename e
+> aplicado sem os nomes reais do dono organizacional da operadora.
+
 ## SLAs
 
 | Timer | Valor | Tipo | Fonte |

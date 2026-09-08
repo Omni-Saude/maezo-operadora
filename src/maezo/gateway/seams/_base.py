@@ -324,7 +324,7 @@ def _emit(
             value_cents=value_cents,
             phi_zone=seam.phi_zone,
         )
-    except Exception:  # noqa: BLE001 - only the per-call fields can fail; drop them and still log
+    except Exception:  # only the per-call fields can fail; drop them and still log
         try:
             call = EffectCall(
                 tenant=seam.tenant,
@@ -333,7 +333,7 @@ def _emit(
                 action_ref=action_ref,
                 phi_zone=seam.phi_zone,
             )
-        except Exception:  # noqa: BLE001 - nothing may escape onto a care path
+        except Exception:  # nothing may escape onto a care path
             logger.error("effect_seam_telemetry_unbuildable", operation=operation, exc_info=True)
             return
     with contextlib.suppress(Exception):
@@ -373,7 +373,7 @@ async def _pre_effect_audit(seam: SeamContext, decision: EffectDecision, operati
                 action_class=decision.action_class or "",
                 decision_reason=decision.reason,
             )
-        except Exception as exc:  # noqa: BLE001 - I-1: no effect without a preceding record
+        except Exception as exc:  # I-1: no effect without a preceding record
             failure = exc
     if failure is None:
         return
@@ -578,10 +578,10 @@ def _count_tool_call(operation: str, *, agent: str) -> None:
     Proof: `tests/unit/platform/test_alert_metrics_fence.py::test_gate_counts_a_tool_call`.
     """
     try:
-        from maezo.platform.observability import record_tool_call  # noqa: PLC0415 — lazy
+        from maezo.platform.observability import record_tool_call  # lazy
 
         record_tool_call(agent=agent)
-    except Exception:  # noqa: BLE001 — a metric error must never break an effect call.
+    except Exception:  # a metric error must never break an effect call.
         logger.debug("effect_seam_tool_call_metric_failed", operation=operation, exc_info=True)
 
 

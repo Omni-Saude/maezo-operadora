@@ -1383,7 +1383,7 @@ def test_importing_the_anchor_module_does_not_drag_in_asyncpg() -> None:
         "      any(m == 'asyncpg' or m.startswith('asyncpg.') for m in sys.modules),\n"
         "      'maezo.gateway.audit_postgres' in sys.modules)\n"
     )
-    completed = subprocess.run(  # noqa: S603 - fixed argv, no shell, this interpreter
+    completed = subprocess.run(  # fixed argv, no shell, this interpreter
         [sys.executable, "-c", program],
         capture_output=True,
         text=True,

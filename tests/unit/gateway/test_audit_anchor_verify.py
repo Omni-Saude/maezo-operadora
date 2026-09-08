@@ -651,7 +651,7 @@ async def test_disabled_verification_touches_no_seam_and_no_filesystem(
     assert outcome.anchor_key is None
     assert outcome.anchor_root is None
     assert outcome.database_root is None
-    assert os.listdir(tmp_path) == []  # noqa: PTH208 - pathlib in an async test trips ASYNC240
+    assert os.listdir(tmp_path) == []  # pathlib in an async test trips ASYNC240
 
 
 async def test_disabled_verification_creates_nothing_with_the_real_seams(
@@ -2792,10 +2792,10 @@ def test_the_two_fence_predicates_agree_on_the_anchor_spellings() -> None:
     leg 1's own spelling matrix. Without this, two fences guarding two dark modules could quietly
     develop two different ideas of what an import is — and the weaker one would be the one nobody
     noticed."""
-    from tests.unit.gateway.test_audit_anchor import (  # noqa: PLC0415 - deliberate cross-pin
+    from tests.unit.gateway.test_audit_anchor import (  # deliberate cross-pin
         _CAUGHT_IMPORT_SPELLINGS as _LEG1_SPELLINGS,
     )
-    from tests.unit.gateway.test_audit_anchor import (  # noqa: PLC0415 - deliberate cross-pin
+    from tests.unit.gateway.test_audit_anchor import (  # deliberate cross-pin
         _imports_the_anchor_module,
     )
 

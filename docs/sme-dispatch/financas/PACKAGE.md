@@ -3,6 +3,28 @@
 **Task:** T0.6 dispatch packaging. **Status:** prepared — awaiting SME roster (`blocked(external)`,
 see `../README.md` and `../tracker.md`). No reviewer has been named or contacted.
 
+**Este pacote é uma `recomendação — pendente de assinatura de finanças`.** Nada nele está
+ratificado; os campos de ratificação seguem **VAZIOS** e nenhum agente cria o artefato de sign-off
+(`docs/processes/contracts/signoffs/<CONTRACT-ID>.signoff.yaml` é criado e commitado pelo próprio
+revisor humano — `../README.md:150-152`).
+
+## Redlines aplicados por decisão do dono (não são respostas de finanças)
+
+Duas perguntas saíram do pacote por decisão registrada do dono do produto, não por resposta de um
+SME. Elas ficam **riscadas no lugar onde estavam** (protocolo de redline, `../README.md`), com o
+motivo, para que a trilha de auditoria mostre o que foi perguntado e por que deixou de ser
+necessário. Nenhuma das duas afrouxa nada: uma FIXA o comportamento que já vale, a outra é
+tipagem.
+
+| Decisão | Contrato | Pergunta retirada | O que passou a valer | Onde está fixado |
+|---|---|---|---|---|
+| **R-155** (2026-09-04) | SP-OP-RECURSO-001 | 4 (**OQ-R2**) — tolerância/arredondamento em `DEFERIR_PARCIAL` | Igualdade exata em centavos-inteiros é **invariante PERMANENTE** do guard de `registrar_indeferimento`. Só o AFROUXAMENTO (tolerância/arredondamento) exige finanças, e entra como **regra nova em PR próprio** | `src/maezo/tools/workers/recurso.py::registrar_indeferimento`; `tests/unit/tools/workers/test_recurso.py` (secção "R-155") |
+| **R-173** (2026-09-04) | SP-OP-CONTAS-001 | 1 — lote real que estouraria o `int32` | `total_glosado_candidato_centavos` é **`Long` (int64) incondicionalmente**; a tipagem não depende do tamanho do lote. **Tipagem, não política financeira** | `src/maezo/tools/workers/engine_var_types.py::LONG_TYPED_ENGINE_VARS`; `tests/unit/tools/workers/test_long_typed_engine_vars.py` |
+
+**O sign-off de finanças destes dois contratos continua exigido** pelas demais perguntas
+(SP-OP-RECURSO-001: R-154, R-156, R-189, R-190; SP-OP-CONTAS-001: R-144, R-145, R-174). O que estas
+duas decisões removem é a espera por uma resposta que não mudaria a engenharia.
+
 ## How to use this package
 
 1. Read the contract at the canonical path listed for each item (`docs/processes/contracts/` —
@@ -73,8 +95,18 @@ where applicable) before any of these contracts can leave DRAFT.
 - **DMN:** `spec/processes/dmn/glosa_reason_normalization.dmn`, `glosa_classification.dmn`,
   `glosa_triage.dmn`, `contas_sla.dmn`.
 - **Review questions:**
-  1. Confirm the `Long`-above-R$21.47M landmine note on `total_glosado_candidato_centavos` (int32
-     overflow risk) is adequately handled — is there a real-world lote size that could hit this?
+  1. ~~Confirm the `Long`-above-R$21.47M landmine note on `total_glosado_candidato_centavos` (int32
+     overflow risk) is adequately handled — is there a real-world lote size that could hit this?~~
+     **REMOVIDA DO PACOTE — REDLINE R-173 (decisão do dono, 2026-09-04).** Era uma pergunta de SME
+     cuja resposta **não muda a decisão de engenharia**: qualquer que seja o maior lote real, a
+     variável de engine tem de ser `Long`, porque o worker já soma em inteiro de precisão
+     arbitrária e um `int32` truncaria acima de R$ 21,47M. `total_glosado_candidato_centavos` passa
+     a ser **`Long` (int64) incondicionalmente** — declarado no contrato, declarado na variável de
+     engine (`src/maezo/tools/workers/engine_var_types.py::LONG_TYPED_ENGINE_VARS`) e fixado por
+     teste que falha se o literal voltar a 32 bits
+     (`tests/unit/tools/workers/test_long_typed_engine_vars.py`). **Mudança de tipagem, não de
+     política financeira:** nenhum valor, teto ou regra de glosa foi decidido, e o sign-off de
+     finanças deste contrato **segue exigido** pelas perguntas restantes.
   2. Confirm the reconciliation path (`reconcile_payment` on `REENVIAR`) matches your actual
      payment-reconciliation process.
 
@@ -143,10 +175,28 @@ where applicable) before any of these contracts can leave DRAFT.
   3. **(New — OQ-3.)** `data_vencimento` is mandatory in SP-OP-PAGTO-001 and the handoff REFUSES it
      blank (never defaults). Where does it come from for a reverted glosa — the original bill's due
      date, or a new term counted from the deferimento? **DRAFT/verify with finanças + jurídico.**
-  4. **(New — OQ-R2.)** In `DEFERIR_PARCIAL` the guard enforces
+  4. ~~**(New — OQ-R2.)** In `DEFERIR_PARCIAL` the guard enforces
      `valor_deferido + valor_glosa_mantido == valor_glosado` in **integer cents, exact equality**,
      and REFUSES a sum that does not close rather than rounding on its own authority. If your
-     operation uses a rounding rule or a tolerance, the guard has to reflect it — tell us which.
+     operation uses a rounding rule or a tolerance, the guard has to reflect it — tell us which.~~
+     **REMOVIDA DO CAMINHO CRÍTICO DO SIGN-OFF — REDLINE R-155 (decisão do dono, 2026-09-04).** A
+     igualdade exata em centavos-inteiros passa a ser **invariante PERMANENTE** do guard de
+     `registrar_indeferimento`, não um default provisório à espera de finanças: a comparação não
+     tem folga nenhuma e não arredonda a favor de ninguém. **Limite declarado, para que o número
+     que vocês veem seja o verdadeiro:** os **três** operandos são convertidos a centavos
+     **independentemente** (`int(round(brl * 100))`), então para entradas **sub-centavo** os
+     resíduos se somam em lados opostos e uma discrepância real de até **1,5 centavo**
+     (3 × meio centavo) ainda fecha a soma — o teto é atingido, não só aproximado
+     (`0,005 + 0,025` contra `0,015` fecha com 1,5 centavo exato). Acima de 1,5 centavo não fecha,
+     e para entradas já em centavos nada é absorvido. **Se 1,5 centavo de absorção em entradas
+     sub-centavo não for aceitável para a sua operação, isso é uma regra nova de finanças** — o
+     mesmo caminho descrito abaixo, e é o ponto deste item que ainda pode precisar de vocês.
+     Fixada por teste (`tests/unit/tools/workers/test_recurso.py`, secção "R-155"). **A assimetria
+     é o ponto:** uma
+     tolerância ou regra de arredondamento só pode **AFROUXAR** o guard, e afrouxar continua
+     humano — entra depois como **regra nova assinada por finanças, em PR próprio**. Se a sua
+     operação usa uma dessas regras, ela é bem-vinda por esse caminho; o sign-off de
+     SP-OP-RECURSO-001 **deixa de esperar por ela**.
 
 ### SP-OP-REEMBOLSO-001 — Reembolso ao Beneficiário (DRAFT, v0.1.0)
 

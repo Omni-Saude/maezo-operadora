@@ -94,6 +94,7 @@ import structlog
 
 from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.tools.workers.harness import WorkerBpmnError
+from maezo.tools.workers.phi_vars import redact_free_text
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import ExternalTask, KafkaPublisher, TaskHandler, WorkerHarness
@@ -384,13 +385,27 @@ def _rotulo_opcional_tolerante(
     `prioridade` stays on `_rotulo_opcional_validado` (fail-closed): it is the DMN's OWN output,
     not an upstream-supplied category, so an out-of-domain value there means the engine itself is
     corrupted — a different failure class that must NOT be tolerated the same way.
+
+    PHI (gap `ESC-TOLERANT-LOG-RAW-VALUE`): o valor rejeitado NAO vai bruto para o log. Por
+    construcao ele e um valor que a DMN nao reconhece — texto livre vindo de cima, nao um rotulo
+    do dominio — e a sonda adversarial do gatekeeper de VERIFY-R4-DEFAULTS provou um CPF completo
+    saindo verbatim em WARNING. Ele passa por `phi_vars.redact_free_text` antes das duas pernas de
+    log; o `campo` e o `dominio` continuam inteiros, entao a linha permanece diagnostica.
     """
     rotulo = _rotulo_opcional(v, nome)
     if rotulo is not None and rotulo not in dominio:
+        # Gap `ESC-TOLERANT-LOG-RAW-VALUE`: o valor logado aqui e, POR DEFINICAO, um valor que a
+        # DMN nao reconhece — ou seja, texto arbitrario vindo de cima, nao um rotulo do dominio.
+        # A sonda adversarial do gatekeeper de VERIFY-R4-DEFAULTS provou o vazamento verbatim
+        # (`valor='CPF 123.456.789-00 do Sr. Joao'`). A notificacao publicada ja omitia o valor;
+        # faltava o log. `redact_free_text` e a MESMA rede de texto livre do chokepoint
+        # agente -> engine (CC-06), aplicada uma vez e reutilizada nas DUAS pernas (structlog e
+        # stdlib) para que elas nao possam divergir.
+        valor_redigido = redact_free_text(rotulo)
         logger.warning(
             "escalation_rotulo_fora_do_dominio_tolerado",
             campo=nome,
-            valor=rotulo,
+            valor=valor_redigido,
             dominio=sorted(dominio),
             business_key=task.business_key,
             topic=task.topic,
@@ -399,11 +414,12 @@ def _rotulo_opcional_tolerante(
         _stdlib_logger.warning(
             "escalation_rotulo_fora_do_dominio_tolerado business_key=%s topic=%s campo=%s "
             "valor=%r fora do dominio %s — OMITIDO da notificacao (a DMN escalation_routing ja' "
-            "tolera motivo desconhecido via seu catch-all r7; isto NAO e' uma recusa)",
+            "tolera motivo desconhecido via seu catch-all r7; isto NAO e' uma recusa; valor "
+            "redigido por redact_free_text, gap ESC-TOLERANT-LOG-RAW-VALUE)",
             task.business_key,
             task.topic,
             nome,
-            rotulo,
+            valor_redigido,
             sorted(dominio),
         )
         return None

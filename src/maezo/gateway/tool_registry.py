@@ -370,7 +370,7 @@ def build_agent_seam_context(
         )
         if definition.security_zone in PHI_ZONES:
             phi_zone = definition.security_zone
-    except Exception:  # noqa: BLE001 - absence DENIES at L-1; it never widens permission
+    except Exception:  # absence DENIES at L-1; it never widens permission
         logger.error("effect_seam_capabilities_unavailable", agent_id=agent_id, exc_info=True)
 
     return SeamContext(
@@ -433,7 +433,7 @@ def _build_autonomy(tenant: str) -> Any:
         from maezo.gateway.pep import build_pep
 
         return build_pep(tenant=tenant)
-    except Exception:  # noqa: BLE001 - `POLITICA_INDISPONIVEL` at L-2 is the fail-closed outcome
+    except Exception:  # `POLITICA_INDISPONIVEL` at L-2 is the fail-closed outcome
         logger.error("effect_seam_autonomy_unavailable", tenant=tenant, exc_info=True)
         return None
 
@@ -714,7 +714,7 @@ def gated_seam_violations(deps: Any) -> list[str]:
     violations: list[str] = []
     try:
         items = dict(deps)
-    except Exception:  # noqa: BLE001 - an unreadable dep map is itself a violation
+    except Exception:  # an unreadable dep map is itself a violation
         return ["<deps unreadable>"]
     for key in sorted(EFFECT_SEAM_KEYS):
         if key not in items:
@@ -742,7 +742,7 @@ def effect_seams_gated(deps: Any) -> tuple[bool, str]:
     """
     try:
         items = dict(deps)
-    except Exception:  # noqa: BLE001 - unreadable => red, never a silent green
+    except Exception:  # unreadable => red, never a silent green
         return False, "dep map unreadable"
     present = sorted(k for k in EFFECT_SEAM_KEYS if items.get(k) is not None)
     if not present:

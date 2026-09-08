@@ -84,10 +84,18 @@ Fail-safe: catch-all = P2/`atendimento-humano` (motivo desconhecido nunca vira P
 
 | Grupo | Papel | Tarefa |
 |---|---|---|
-| `plantao-clinico` | Enfermeiro/medico de plantao | `UT_TratarEscalonamento` (P1) |
-| `enfermagem-triagem` | Enfermagem de triagem | `UT_TratarEscalonamento` (P2) |
-| `atendimento-humano` | Atendimento ao beneficiario | `UT_TratarEscalonamento` (P3) |
-| `supervisao-atendimento` | Supervisor | `UT_SupervisorAssume` (SLA resolucao estourado) + alertas de ack |
+| `plantao-clinico` | Enfermeiro/medico de plantao — **DRAFT/verify** (nome candidato, R-034; ver `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`) | `UT_TratarEscalonamento` (P1) |
+| `enfermagem-triagem` | Enfermagem de triagem — **DRAFT/verify** (nome candidato, R-034; ver `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`) | `UT_TratarEscalonamento` (P2) |
+| `atendimento-humano` | Atendimento ao beneficiario — **DRAFT/verify** (nome candidato, R-034; ver `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`) | `UT_TratarEscalonamento` (P3 via `r5`/`r6`; TAMBEM P2 via o catch-all fail-safe `r7` da DMN — motivo desconhecido nunca vira P3, ver `escalation_routing.dmn` regra `r7`) |
+| `supervisao-atendimento` | Supervisor — **DRAFT/verify** (nome candidato, R-034; ver `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`) | `UT_SupervisorAssume` (SLA resolucao estourado) + alertas de ack |
+
+> **PERSP-ESCALATION-VOCAB-b (parcial — rename bloqueado por R-034):** as 4 linhas acima ganham a
+> marca `DRAFT/verify` diretamente na tabela (antes so o paragrafo PROPOSTO abaixo explicava a
+> ressalva em prosa). O RENAME de fato dos `candidateGroups` (`plantao-clinico`,
+> `enfermagem-triagem`, `atendimento-humano`, `supervisao-atendimento` — 6 locais no total, incl.
+> `escalation_routing.dmn`, `escalation.py::_SEVERITY_TO_GROUP`, `test-specs/SP-OP-ESCALATION-001.md`)
+> continua BLOQUEADO ate a sessao de nomeacao de R-034 produzir os nomes reais do dono
+> organizacional. Nenhum rename foi aplicado por esta linha.
 
 > **PROPOSTO — confirmar contra a taxonomia organizacional da operadora** (ver
 > `docs/review-queue.md`; R-034 / gap `PERSP-ESCALATION-VOCAB-a`). Os nomes `plantao-clinico` e

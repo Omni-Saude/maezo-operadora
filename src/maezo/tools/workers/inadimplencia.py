@@ -184,7 +184,7 @@ def _query_ja_em_rescisao_cancel(
     for cancel_business_key in cancel_business_key_forms:
         try:
             instance = asyncio.run(engine.find_active_instance(cancel_business_key))
-        except Exception as exc:  # noqa: BLE001 — engine/transport error -> fail closed (block).
+        except Exception as exc:  # engine/transport error -> fail closed (block).
             logger.warning(
                 "inadimplencia_cancel_correlation_query_failed",
                 error=str(exc),

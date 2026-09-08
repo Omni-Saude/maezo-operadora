@@ -79,7 +79,7 @@ SP-OP-PAGTO-001, que a RECUSA em branco), valor_apresentado_brl (double), tipo_l
 linhas_conta_refs (json), reason_codes_tiss (json), item_conforme_tabela*, documentacao_anexa*,
 indicio_fraude_sinalizado (opc), conta_origem_ref (opc), instrumento_pagamento (opc).
 (* pre-resolvidos por worker antes de BRT_TriagemGlosa.) has_glosas, denial_ratio,
-divergencia_valor, glosa_count e total_glosado_candidato_centavos sao COMPUTADOS pelos workers
+divergencia_valor, glosa_count e total_glosado_candidato_centavos (Long int64 incondicional, R-173) sao COMPUTADOS pelos workers
 identify_glosa/calculate_impact a partir de linhas_conta_refs/reason_codes_tiss
 (GAP-CONTAS-2 — nunca seeded/ecoados; fail-closed conservador sem detalhe de linha).
 data_recebimento_lote e a ANCORA dos prazos (GAP-CONTAS-4) — a data em que a OPERADORA RECEBEU o
@@ -131,7 +131,7 @@ docs/processes/contracts/SP-OP-CONTAS-001.md.
       <bpmn:outgoing>Flow_Apurar_Impact</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:serviceTask id="ST_CalculateImpact" name="Calcular impacto da glosa candidata (aritmetica pura)" camunda:type="external" camunda:topic="operadora.contas.calculate_impact">
-      <bpmn:documentation>Worker COMPUTA denial_ratio (double 0..1), divergencia_valor (boolean), glosa_count e total_glosado_candidato_centavos das linhas TISS (GAP-CONTAS-2; centavos-inteiros — Long acima de R$ 21,47M; fail-closed conservador sem detalhe de linha: divergencia_valor=true/denial_ratio=1.0 — a row permissiva da glosa_triage nunca casa). Aritmetica pura; nunca decide glosar. Publica contas.glosa_identified quando ha candidatas.</bpmn:documentation>
+      <bpmn:documentation>Worker COMPUTA denial_ratio (double 0..1), divergencia_valor (boolean), glosa_count e total_glosado_candidato_centavos das linhas TISS (GAP-CONTAS-2; centavos-inteiros — o total candidato e Long (int64) INCONDICIONALMENTE, decisao do dono R-173 de 2026-09-04: a tipagem nao depende do tamanho do lote, e o landmine int32 acima de R$ 21,47M deixa de existir; fail-closed conservador sem detalhe de linha: divergencia_valor=true/denial_ratio=1.0 — a row permissiva da glosa_triage nunca casa). Aritmetica pura; nunca decide glosar. Publica contas.glosa_identified quando ha candidatas.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic_glosa_identified">agents.events.contas.glosa_identified</camunda:inputParameter>
