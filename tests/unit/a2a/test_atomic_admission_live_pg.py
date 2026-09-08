@@ -503,7 +503,7 @@ async def test_populated_0010_upgrade_preserves_all_rows_bytes_chain_and_valid_r
             replace(envelope_for(tenant), task_id=f"legacy-{state}")
             for state in ("processing", "done")
         ]
-        original_bytes = {}
+        original_rows = {}
         calls = []
         assert await conn.fetchval(f'SELECT version_num FROM "{tenant}_alembic_version"') == "0010"
         assert not await conn.fetchval(
@@ -539,8 +539,8 @@ async def test_populated_0010_upgrade_preserves_all_rows_bytes_chain_and_valid_r
                     delegation_chain=envelope.delegation_chain,
                 )
                 value = fact.to_value()
-                await outbox.enqueue(fact.topic, value, key=tenant.encode())
-                original_bytes[(envelope.task_id, kind.value)] = value
+                row_id = await outbox.enqueue(fact.topic, value, key=tenant.encode())
+                original_rows[row_id] = value
         await conn.execute(
             "UPDATE a2a_idempotency SET status='done', result=$1::jsonb, completed_at=now() "
             "WHERE task_id='legacy-done'",
@@ -585,11 +585,31 @@ async def test_populated_0010_upgrade_preserves_all_rows_bytes_chain_and_valid_r
             env.task_id for env in envelopes
         }
         assert len(requested) == 2
-        for row in await conn.fetch("SELECT payload FROM a2a_fact_outbox"):
-            payload = json.loads(bytes(row["payload"]))
-            key = (payload["task_id"], payload["kind"])
-            if key in original_bytes:
-                assert bytes(row["payload"]) == original_bytes[key]
+        final_rows = await conn.fetch("SELECT id, payload FROM a2a_fact_outbox ORDER BY id")
+        final_bytes_by_id = {int(row["id"]): bytes(row["payload"]) for row in final_rows}
+        assert {row_id: final_bytes_by_id[row_id] for row_id in original_rows} == original_rows
+
+        additional = [
+            json.loads(bytes(row["payload"]))
+            for row in final_rows
+            if int(row["id"]) not in original_rows
+        ]
+        completed = [payload for payload in additional if payload["kind"] == "completed"]
+        assert len(completed) == 1
+        assert completed[0]["task_id"] == "legacy-processing"
+        assert completed[0]["output_ref"] == "fhir://Task/new-result"
+        assert completed[0]["tenant"] == tenant
+        assert completed[0]["origin"] == "helena"
+        assert completed[0]["target"] == "rafael"
+        assert datetime.fromisoformat(completed[0]["ts"]).tzinfo is not None
+
+        additional_requested = {
+            payload["task_id"] for payload in additional if payload["kind"] == "requested"
+        }
+        assert additional_requested == (
+            set() if has_requested else {envelope.task_id for envelope in envelopes}
+        )
+        assert len(additional) == 1 + (0 if has_requested else 2)
         assert (await verify_chain(dsn, tenant)).valid
     finally:
         await cleanup.aclose()
