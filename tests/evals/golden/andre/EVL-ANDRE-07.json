@@ -1,0 +1,33 @@
+{
+  "id": "EVL-ANDRE-07",
+  "agent": "andre",
+  "class": "EU",
+  "tier": [
+    "A"
+  ],
+  "description": "AND-06: an unrecognized `flow` value (neither pagto_dossier, adequacao_dossier nor population_analytics) fails closed at receive() to human_review/ambiguidade -- NEVER treated as a payment, NEVER a silent default. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for andre's declared `signal: ambiguity` trigger (agent.yaml), which had zero golden coverage before this case. Synthetic data only.",
+  "input": {
+    "state": {
+      "flow": "fluxo_nao_reconhecido",
+      "tenant_id": "amh",
+      "canal": "a2a"
+    }
+  },
+  "recorded_llm": [
+    "Fluxo de delegacao nao reconhecido; encaminhado para revisao humana conservadora do comite financeiro."
+  ],
+  "dmn_fixture": {},
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "motivo_humano": "ambiguidade",
+      "grupo_humano": "comite-financeiro",
+      "desfecho": "dossie_aprovacao_humana",
+      "error": "fluxo de delegacao nao reconhecido (revisao humana conservadora)"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "signal:ambiguity"
+  ]
+}

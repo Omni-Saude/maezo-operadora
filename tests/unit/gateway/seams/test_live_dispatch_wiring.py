@@ -177,9 +177,18 @@ async def test_per_turn_wrapping_builds_no_decision_context() -> None:
 
 
 def test_the_gated_sender_takes_no_principal_from_its_caller() -> None:
-    """(3) A-8. `send(to_hash, text)` — there is nowhere for a forged principal to enter."""
+    """(3) A-8. There is nowhere for a forged principal to enter.
+
+    §Delta W4-HYGIENE F2 widened the signature by exactly one OPTIONAL kwonly parameter,
+    `idempotency_key` (LUC-08's Protocol requires it and this decorator is what Lucas's
+    composition root hands his graph). It is a delivery-dedup token, not an identity: it never
+    reaches `decide_effect` (`EffectCall` has no field for it). The assertion is kept EXACT — a
+    set, not a subset — so any further widening still has to come through this test, and the
+    identity-parameter half is now pinned by name rather than only by the closed set.
+    """
     params = set(inspect.signature(GatedWhatsAppSender.send).parameters)
-    assert params == {"self", "to_hash", "text"}
+    assert params == {"self", "to_hash", "text", "idempotency_key"}
+    assert not params & {"principal", "agent_id", "tenant", "tenant_id", "actor", "seam"}
 
 
 # --- (4): the production root always supplies the context ---------------------------------------

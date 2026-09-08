@@ -1,0 +1,49 @@
+{
+  "id": "EVL-FERNANDO-08",
+  "agent": "fernando",
+  "class": "CE",
+  "tier": ["A"],
+  "description": "FER-04/FER-03: J1 notificacao_previa on canal=portal -- a canal INSIDE the closed domain but with NO sender wired. The send never happens, so the turn must report the honest desfecho notificacao_previa_canal_sem_entrega, never a '...enviada' label. Before the fleet-audit fix this same case reported notificacao_previa_enviada with mensagem_enviada=False alongside it. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "intencao": "notificacao_previa",
+      "canal": "portal",
+      "numero_contrato": "000000018",
+      "matricula_beneficiario": "MAT-EVL-018",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-018",
+      "to_hash": "hash-evl-fernando-08",
+      "tipo_plano": "individual",
+      "origem_solicitacao": "cobranca",
+      "competencias_em_aberto": ["2026-05"],
+      "meses_inadimplencia": 1,
+      "valor_total_devido_cents": 15000,
+      "dentro_periodo_minimo": true,
+      "notificacao_previa_feita": false,
+      "dentro_janela_purga": true,
+      "ja_em_rescisao_cancel": false,
+      "documentos_refs": []
+    }
+  },
+  "recorded_llm": [
+    "Identificamos uma pendencia de pagamento em seu contrato. Regularize dentro do prazo para evitar a purga da inadimplencia."
+  ],
+  "dmn_fixture": {
+    "inadimplencia_status": {"roteamento": "PENDENTE_NOTIFICACAO", "motivo": "aviso previo pendente"},
+    "inadimplencia_purga": {
+      "prazo_purga": "P10D",
+      "prazo_notificacao_previa": "P50D",
+      "periodo_minimo": "P60D",
+      "fonte_regulatoria": "RN 593"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "notify",
+      "status_inadimplencia": "PENDENTE_NOTIFICACAO",
+      "desfecho": "notificacao_previa_canal_sem_entrega",
+      "mensagem_enviada": false
+    }
+  },
+  "leak_canaries": []
+}

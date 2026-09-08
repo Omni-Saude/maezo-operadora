@@ -50,11 +50,13 @@ copying named keys off `_STRING_META_KEYS`/`_INTEGER_META_KEYS`/`_BOOLEAN_META_K
 already a subset of `_CALLER_INPUT_FIELDS` by construction), so an out-of-allowlist
 `payload_meta` entry is silently DROPPED by omission — never inspected, never copied, never
 seen. That is the real, fail-closed mechanism: unrecognized producer noise cannot reach the
-state at all. The `unknown = sorted(...)` check at the end of the function is a separate,
-currently-unreachable STRUCTURAL guard (`# pragma: no cover`, identical to Carolina's own) —
-defense-in-depth against a FUTURE regression (someone adding a key to one of the three
-`_..._META_KEYS` tuples without also adding it to `_CALLER_INPUT_FIELDS`), not a live check
-against a malicious/malformed envelope's extra `payload_meta` fields.
+state at all. The `unknown = sorted(...)` check at the end of the function is a separate
+STRUCTURAL guard, identical to Carolina's own — defense-in-depth against a FUTURE regression
+(someone adding a key to one of the three `_..._META_KEYS` tuples without also adding it to
+`_CALLER_INPUT_FIELDS`), not a live check against a malicious/malformed envelope's extra
+`payload_meta` fields. REG-06 (fleet audit): no longer `# pragma: no cover` — `tests/unit/agents/
+test_fernando_delegation.py::test_state_from_envelope_raises_if_a_meta_key_ever_escapes_the_input_boundary`
+now drives it for real by monkeypatching `_STRING_META_KEYS`.
 
 WHAT NEVER RIDES THIS SEAM (PHI/ADR-0006): `beneficiario_pseudo_id`/`to_hash` (WhatsApp-turn
 identity — this delegation always sets `canal="a2a"`, so Fernando's own `notify()` WhatsApp
@@ -299,10 +301,11 @@ def state_from_envelope(envelope: DelegationEnvelope) -> FernandoState:
     CONSTRUCTION, not by a raise: `raw` only ever copies named keys off the three `_..._META_
     KEYS` tuples (each a subset of `_CALLER_INPUT_FIELDS`), so an unknown/out-of-allowlist
     `payload_meta` key is silently DROPPED — never read, never seen — rather than triggering an
-    exception. The `unknown` check below is a structural, currently-unreachable regression
-    guard (`# pragma: no cover`, mirrors Carolina's identical one), not a live rejection of a
-    malformed envelope's extra fields; his `receive` node still re-sanitizes every output-only
-    field on top of this as defense in depth (`_output_field_resets()`).
+    exception. The `unknown` check below is a structural regression guard, mirrors Carolina's
+    identical one (REG-06: exercised for real by a monkeypatch test, not `# pragma: no cover`),
+    not a live rejection of a malformed envelope's extra fields; his `receive` node still
+    re-sanitizes every output-only field on top of this as defense in depth
+    (`_output_field_resets()`).
 
     Fails closed on a missing identity: Fernando's graph derives the idempotent business key
     from `numero_contrato`/`matricula_beneficiario`, and neither `receive` nor `start_process`
@@ -335,7 +338,7 @@ def state_from_envelope(envelope: DelegationEnvelope) -> FernandoState:
             raw[key] = _as_bool(meta[key])
 
     unknown = sorted(k for k in raw if k not in _CALLER_INPUT_FIELDS)
-    if unknown:  # pragma: no cover - structural guard; raw is built from the allowlists above.
+    if unknown:  # REG-06: exercised for real, see test_fernando_delegation.py's monkeypatch fence.
         raise ValueError(
             f"state_from_envelope produced non-input keys for Fernando: {unknown} — only "
             "graph._CALLER_INPUT_FIELDS may be seeded by a delegation seam"

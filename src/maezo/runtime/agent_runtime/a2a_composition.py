@@ -160,17 +160,27 @@ def _require_whatsapp_adapter_for(agent_id: str) -> str:
 
 
 class FhirSummaryReader(Protocol):
-    """The ONE shape both dossier targets' FHIR seams have (CC-03/AND-03).
+    """A forma que os seams FHIR dos DOIS alvos de dossie tem de satisfazer (CC-03/AND-03).
 
-    `carolina/graph.py::SummaryReader` and `andre/graph.py::PatientSummaryReader` are DIFFERENT
-    Protocols with IDENTICAL members — exactly `async read_patient(patient_id) -> dict`. Naming
-    that fact once here is what lets this root type ONE `fhir` map instead of two parameters,
-    without claiming the two agents may share an INSTANCE (they may not — the gate's principal
-    differs; see `build_dossier_delegation_dispatcher`). Satisfied structurally by the sanctioned
-    `gateway/seams/fhir.py::GatedFhirReader`, whose inner is `rafael/adapters.py::FhirServerReader`.
+    `carolina/graph.py::SummaryReader` e `andre/graph.py::PatientSummaryReader` sao Protocols
+    DIFERENTES, e desde o WP FHIR-TOOL-SURFACE-PARITY (NEW-04) tambem com membros diferentes:
+    Carolina le `read_patient_summary` (o id que o `agent.yaml` dela declara,
+    `mcp-fhir.read_patient_summary`) e Andre le `read_patient` (idem, `mcp-fhir.read_patient`).
+    Sao ids de tool distintos no catalogo, decididos separadamente pelo L1 do PEP — por isso NAO
+    podem ser colapsados num membro so "para o Protocol ficar bonito": foi exatamente esse
+    colapso que manteve Carolina chamando a operacao que o contrato dela nunca declarou.
+
+    O Protocol declara os DOIS membros porque o valor real do mapa e sempre o mesmo objeto
+    sancionado — `gateway/seams/fhir.py::GatedFhirReader`, que expoe as quatro operacoes do
+    catalogo e delega para o shim escolhido por `_FHIR_ADAPTER_BY_AGENT`. Tipar o mapa uma vez
+    aqui e o que permite a esta raiz ter UM parametro `fhir` em vez de dois, sem afirmar que os
+    dois agentes podem compartilhar uma INSTANCIA (nao podem — o principal do gate difere; ver
+    `build_dossier_delegation_dispatcher`).
     """
 
     async def read_patient(self, patient_id: str) -> dict[str, Any]: ...
+
+    async def read_patient_summary(self, patient_id: str) -> dict[str, Any]: ...
 
 
 #: The ONLY non-production `agent_runtime_mode`, and it must be set EXPLICITLY (ADR-0039 Q7 flipped

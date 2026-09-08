@@ -10,12 +10,21 @@ autonomia L3 `triage_and_routing`/`scheduling`/`informational_response` (ADR-000
 | # | Estado | O que acontece | Tools |
 |---|---|---|---|
 | 1 | `saudacao_identificacao` | Mensagem WhatsApp chega; identifica beneficiario (pseudonimo via gateway) e recupera contexto | `mcp-whatsapp.send_message`, `mcp-memory.read_write` |
-| 2 | `coleta_sintomas` | Conversa para entender a demanda; classifica intencao (sintoma / agendamento / informacao / pedido de humano); normaliza sintomas em `sintoma_codigo` + `intensidade` + campo populacional | `mcp-whatsapp.send_message`, `mcp-fhir.read_patient_summary` |
+| 2 | `coleta_sintomas` | Conversa para entender a demanda; classifica intencao (sintoma / agendamento / informacao / pedido de humano); normaliza sintomas em `sintoma_codigo` + `intensidade` + campo populacional | `mcp-whatsapp.send_message` |
 | 3 | `avaliacao_red_flag` | **TODA conversa com sintoma passa aqui, sempre.** Avalia a tabela populacional: `triage_redflag_adult` \| `triage_redflag_pediatric` (<12 anos) \| `triage_redflag_gestante` \| `triage_redflag_mental_health`. O LLM nunca decide red flag — a DMN decide (ADR-0012) | `mcp-dmn.evaluate` |
-| 4 | `roteamento` | Sem red flag: orienta proximo passo administrativo (rede, especialidade, elegibilidade informativa) | `mcp-dmn.evaluate`, `mcp-fhir.read_patient_summary` |
+| 4 | `roteamento` | Sem red flag: orienta proximo passo administrativo (rede, especialidade, elegibilidade informativa) | `mcp-dmn.evaluate` |
 | 5 | `agendamento` | Agenda/encaminha conforme L3 `scheduling` | (Phase 0: orientacao; tool de agenda em fase posterior) |
 | 6 | `encerramento` | Resume, registra memoria episodica, NPS hook | `mcp-memory.read_write`, `mcp-whatsapp.send_message` |
 | E | `escalado` | Conversa suspensa aguardando humano; Helena so retoma com `agents.events.process_completed` (`resultado=devolvido_agente`) | `mcp-cibseven.start_process` |
+
+> **Helena NAO le FHIR.** Os estados 2 e 4 listavam `mcp-fhir.read_patient_summary`; a coluna
+> foi corrigida pelo WP FHIR-TOOL-SURFACE-PARITY (NEW-09/GAP-TRIAGE-5). Nenhum no de
+> `src/maezo/agents/helena/graph.py` tem campo `_fhir`, helena esta ausente de
+> `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT` (unico lugar que preenche `deps["fhir"]`) e
+> `spec/agents/helena/agent.yaml` deixou de declarar `mcp-fhir.read_patient_summary` e
+> `mcp-fhir.search_coverage`. O unico `mcp-fhir.*` que resta no yaml dela e
+> `mcp-fhir.read_coverage`, PIN DE CATALOGO sem call site e sem seam (OWNER-GATED — ver a nota do
+> proprio yaml). Reintroduzir qualquer id aqui exige antes o no que o exerca.
 
 ## Gatilhos de escalonamento -> SP-OP-ESCALATION-001
 
@@ -27,7 +36,8 @@ Qualquer gatilho abaixo move a jornada para `escalado` IMEDIATAMENTE (business k
 | DMN `triage_redflag_*` retorna `red_flag=true` | `red_flag_clinico` (ou `risco_psicossocial` se tabela mental_health) | P1 -> `grave`; P2 -> `moderada` | estado 3 |
 | Intencao classificada como pergunta clinica (diagnostico/conduta/medicacao) | `intencao_clinica` | `moderada` | qualquer estado (L0 hard `clinical_decision` — Helena NUNCA responde clinica) |
 | Beneficiario pede humano (ou frustracao detectada 2x) | `solicitacao_humano` | `leve` | qualquer estado |
-| Falha tecnica (tool indisponivel, loop, PEP recusa inesperada) | `falha_tecnica` | `leve` | runtime |
+| Falha do classificador (excecao, JSON/schema invalido, roteamento PHI recusado) | `falha_tecnica` | `null` (ausencia declarada, nunca `leve` fabricado) | contrato SP-OP-ESCALATION-001, secao HEL-04 |
+| DMN indisponivel com sintoma classificado | `falha_tecnica` | derivada da intensidade validada, conforme a secao HEL-04 do contrato SP-OP-ESCALATION-001 | estado 3 |
 | Mencao a suicidio/autolesao/violencia em QUALQUER texto | `risco_psicossocial` | `grave` | classificador sempre-ativo, mesmo fora do estado 3 |
 
 Payload completo do start: contrato em `docs/processes/contracts/SP-OP-ESCALATION-001.md`

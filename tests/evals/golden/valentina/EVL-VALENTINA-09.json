@@ -1,0 +1,48 @@
+{
+  "id": "EVL-VALENTINA-09",
+  "agent": "valentina",
+  "class": "EU",
+  "tier": [
+    "A"
+  ],
+  "description": "VAL-06: consent active+verified, but criterio_alta_aparente=true (APPARENT discharge criterion) -- an INFORMATIVE signal that takes precedence over stratification: assess() never even evaluates programa_routing on this path, routing straight to human (coordenacao-clinica) to decide, NEVER an automatic discharge (Valentina NEVER desliga). Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for valentina's declared `signal: criterio_alta_aparente` trigger, which had only unit-test coverage before this case. Synthetic data only.",
+  "input": {
+    "state": {
+      "task": "stratify",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "programa_id": "PROG-DIABETES-TIPO2",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-VALENTINA-09",
+      "ciclo": "2026-Q3",
+      "gatilho": "indicacao_clinica",
+      "consent_scope": "programa_cuidado",
+      "consentimento_ativo": true,
+      "consent_checked": true,
+      "consent_revoked": false,
+      "risco_estratificado": "baixo",
+      "elegibilidade_criterios_atendidos": true,
+      "criterio_alta_aparente": true
+    }
+  },
+  "recorded_llm": [
+    "Criterio de alta aparente identificado; encaminhado para a coordenacao clinica decidir, nunca um desligamento automatico."
+  ],
+  "dmn_fixture": {
+    "programa_sla": {
+      "sla_decisao": "2d",
+      "sla_alerta": "1d"
+    }
+  },
+  "expect": {
+    "fields": {
+      "consent_status": "ativo",
+      "route": "human_review",
+      "motivo_humano": "criterio_alta_aparente",
+      "desfecho": "analise_humana_clinica"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "signal:criterio_alta_aparente"
+  ]
+}

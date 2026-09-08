@@ -1,0 +1,56 @@
+{
+  "id": "EVL-MARINA-10",
+  "agent": "marina",
+  "class": "EU",
+  "tier": [
+    "A"
+  ],
+  "description": "RAF-14 (Marina): RECURSO flow with recurso_admissibility resolving PENDENTE_DOCUMENTACAO -- the BPMN's non-admissible branch terminates BEFORE recurso_eligibility ever runs, routed to the analista-recurso-glosa human to confirm the documentation, NEVER an automatic deferral. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for marina's declared `dmn: recurso_admissibility=PENDENTE_DOCUMENTACAO` trigger, which had zero golden coverage before this case (EVL-MARINA-02/04 only exercise the SEGUE_ANALISE value). Synthetic data only.",
+  "input": {
+    "state": {
+      "flow": "recurso",
+      "tenant_id": "amh",
+      "canal": "portal_tiss",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-MARINA-10",
+      "prestador_id": "PREST-TESTE-001",
+      "numero_guia_tiss": "GUIA-EVL-MARINA-10",
+      "glosa_id": "GLOSA-EVL-MARINA-10",
+      "glosa_type": "administrativa",
+      "glosa_reason_code": "GC-05",
+      "valor_glosado_brl": 500.0,
+      "codigo_procedimento_tuss": "40304361",
+      "cid10": "Z00.0",
+      "documentos_recurso_refs": [],
+      "data_ciencia_alegada_prestador": "2026-05-01",
+      "data_recebimento_recurso_iso": "2026-05-15",
+      "glosa_existe": true,
+      "dentro_prazo_recurso": true,
+      "documentacao_recurso_completa": false
+    }
+  },
+  "recorded_llm": [
+    "Documentacao do recurso incompleta; encaminhado para o analista confirmar antes de qualquer analise de merito."
+  ],
+  "dmn_fixture": {
+    "recurso_admissibility": {
+      "roteamento": "PENDENTE_DOCUMENTACAO"
+    },
+    "recurso_sla": {
+      "sla_analise": "7d",
+      "sla_alerta": "3d"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "motivo_humano": "documentacao_pendente",
+      "grupo_humano": "analista-recurso-glosa",
+      "admissibilidade_recurso": "PENDENTE_DOCUMENTACAO",
+      "desfecho": "recurso_humano"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "dmn:recurso_admissibility=PENDENTE_DOCUMENTACAO"
+  ]
+}

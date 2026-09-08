@@ -182,6 +182,37 @@ Campos obrigatorios por decisao adversa (validacao de formulario/listener da Use
 
 > O event gateway de notificacao previa **substitui/INVERTE** o `Boundary_LicenseTimeout`(P30D)→`Task_ExpireRequest` do reference: a expiracao do prazo roteia para a User Task humana, nunca para um terminal adverso automatico. **Nunca** ha auto-descredenciamento/auto-expiracao por timeout.
 
+## Desfecho de agente: vocabulario e regra de derivacao (CAR-01)
+
+O `desfecho` e um campo do **estado do agente carolina**, nunca uma variavel de processo (a secao
+seguinte, `Desfecho de agente: falha de start (CC-01)`, explica por que, no caso dela, ele nao
+poderia ser outra coisa). Quem consome o estado do agente — o handler A2A, um golden de eval, uma
+regra de alerta, o contador `maezo_agent_desfecho_total` (CC-09) — precisa dos literais exatos e
+estaveis, e eles sao estes:
+
+| Desfecho | Quem escreve | Significado |
+|---|---|---|
+| `credenciamento_clerical` | `assess`, ramo `cred_admissibility=CLERICAL_CREDENCIAR` | unica saida automatica, e favoravel: credenciamento de prestador novo com documentacao completa, licenca valida e dentro dos criterios. NUNCA um efeito adverso |
+| `documentacao_pendente` | `assess`, ramo `cred_admissibility=PENDENTE_DOCUMENTACAO` | documentacao incompleta -> humano. NUNCA uma negativa |
+| `analise_credenciamento` | `assess`, ramo `cred_route=ANALISE_CREDENCIAMENTO` | a gestao de rede decide APROVAR/NEGAR na `UT_AnaliseCredenciamento` |
+| `analise_descredenciamento` | `assess`, ramo `cred_route=ANALISE_DESCREDENCIAMENTO` **e** o catch-all `ANALISE_HUMANA` | co-review juridico-rede na `UT_AnaliseDescredenciamento`, apos cure-window RN 567 — o ramo conservador dos dois (`GW_Natureza`, GAP-CRED-4/6) |
+| `analise_humana` | `assess`, ramos de DMN indisponivel; e o guard de contexto ausente de `receive` | fail-safe: sem tabela ou sem identificadores minimos, o caso vai ao humano |
+| `erro_inicio_processo` | `notify_start_failure` (secao abaixo) | o start do processo foi TENTADO e o engine recusou |
+
+**REGRA DE DERIVACAO (CAR-01, auditoria de frota 05/09/2026).** O `desfecho` e propriedade do
+**ramo DMN que disparou**, gravado pelo no que DECIDE o encaminhamento (`assess`, via
+`_route_human`, que o exige como argumento obrigatorio) — **nunca** derivado de `direcao`.
+`direcao` e o pedido do CHAMADOR e um eixo ORTOGONAL ao ramo: `indicio_irregularidade_sinalizado=
+true` num pedido de `direcao=credenciamento` cai, pelas proprias tabelas (`r_indicio_segue` +
+`r_indicio_descred`, ambas a primeira regra da sua tabela), no ramo de descredenciamento; e uma
+`direcao` fora da allowlist deste contrato cai no catch-all, que tambem segue esse ramo. Ate
+05/09/2026 `human_review` completava um `desfecho` ausente a partir de `direcao`, e nesses dois
+casos o MESMO caso lia `motivo_encaminhamento=analise_descredenciamento` +
+`grupo_destino=juridico-rede` (do ramo) e `desfecho=analise_credenciamento` (da direcao). Nenhum
+efeito adverso nascia disso — o invariante L1 nunca dependeu do `desfecho` — mas quem lia o
+desfecho lia o ramo errado. Goldens de regressao: `EVL-CAROLINA-07` (ambiguidade/catch-all) e
+`EVL-CAROLINA-08` (indicio de irregularidade, inteiramente dentro do contrato).
+
 ## Desfecho de agente: falha de start (CC-01)
 
 | Desfecho | Onde vive | Quem escreve | Significado |

@@ -339,6 +339,104 @@ async def test_receive_pagto_without_any_key_identifier_routes_human_review() ->
     assert result["motivo_humano"] == "analise_humana"
 
 
+async def test_receive_pagto_without_valor_routes_pendencia_dados_never_zero() -> None:
+    """AND-07 (Agent Fleet Audit): `receive` required only ordem_pagamento_id OR lote+prestador
+    for the pagto_dossier flow -- never valor_pagamento_cents -- so a case with an order but no
+    value fell through to `_contract_variables`' `int(state.get("valor_pagamento_cents", 0))`
+    and started the instance with a fabricated `valor=0` (`dentro_teto_l2` mitigates auto-release
+    of it, but the engine history still records a value the case never actually carried)."""
+    state = _pagto_state()
+    del state["valor_pagamento_cents"]  # caller never supplied a value at all
+    result = await _graph().receive(state)
+    assert result["route"] == "human_review"
+    assert result["motivo_humano"] == "pendencia_dados"
+    assert result["business_key"] == ""  # never a malformed/fabricated payment key
+    assert "valor_pagamento_cents" in result["error"]
+
+
+async def test_receive_pagto_with_zero_valor_routes_pendencia_dados() -> None:
+    """Same guard, explicit-zero shape: a caller-planted 0 is exactly as untrustworthy as an
+    absent value -- neither is a real payment amount."""
+    result = await _graph().receive(_pagto_state(valor_pagamento_cents=0))
+    assert result["route"] == "human_review"
+    assert result["motivo_humano"] == "pendencia_dados"
+    assert result["business_key"] == ""
+
+
+async def test_full_turn_pagto_without_valor_never_starts_process() -> None:
+    """The fail-safe fires BEFORE any DMN evaluation or process start -- no engine instance is
+    ever created for a case with no payment value (mirrors the existing sem-chave full-turn
+    coverage below)."""
+    cibseven = FakeCibSevenTransport()
+    state = _pagto_state()
+    del state["valor_pagamento_cents"]
+    graph = _graph(cibseven=cibseven)
+    compiled = graph.compile_graph().compile()
+
+    result = await compiled.ainvoke(state)
+
+    assert result["route"] == "human_review"
+    assert result["process_started"] is False
+
+
+async def test_receive_pagto_string_valor_is_coerced_once_and_accepted() -> None:
+    """§Delta-F2 (CONTRACT-DRIFT): the guard used to validate the RAW state value while
+    `_contract_variables` embarked the `int()`-coerced one -- a numeric STRING (a legacy/worker
+    shape) was accepted at `receive` (raw `"85000" <= 0` never raised) but then regressed into
+    an unhandled `TypeError` deeper in the guard's own comparison once coercion was added
+    naively. Coercing ONCE, before the guard, closes it: the string is accepted and the coerced
+    INTEGER (never the raw string) is the one that reaches the engine."""
+    dmn = FakeDmnTransport()
+    _register_admissibility(dmn, "SEGUE_ROTEAMENTO")
+    _register_alcada(dmn, "DENTRO_TETO_L2", "clerical-pagamentos")
+    cibseven = _RecordingCibSeven()
+    compiled = _graph(dmn=dmn, cibseven=cibseven).compile_graph().compile()
+
+    result = await compiled.ainvoke(_pagto_state(valor_pagamento_cents="85000"))
+
+    assert result["route"] == "auto_route"
+    assert result["process_started"] is True
+    assert cibseven.started_variables[0]["valor_pagamento_cents"] == 85_000
+
+
+async def test_receive_pagto_subcentavo_float_valor_routes_pendencia_dados() -> None:
+    """§Delta-F2 (CONTRACT-DRIFT): a `0 < x < 1` amount passed the old RAW `<= 0` check (Python
+    lets int/float compare) and then `int(x) == 0` embarked the exact fabricated
+    `valor_pagamento_cents=0` AND-07 exists to prevent -- and the DMN still auto-routed it.
+    Coercing ONCE, before the guard, closes this residual: the truncated-to-zero amount now
+    fails the SAME positivity guard as an absent/explicit-zero value, before any DMN call."""
+    dmn = FakeDmnTransport()
+    _register_admissibility(dmn, "SEGUE_ROTEAMENTO")
+    _register_alcada(dmn, "DENTRO_TETO_L2", "clerical-pagamentos")
+    cibseven = _RecordingCibSeven()
+    compiled = _graph(dmn=dmn, cibseven=cibseven).compile_graph().compile()
+
+    result = await compiled.ainvoke(_pagto_state(valor_pagamento_cents=0.4))
+
+    assert result["route"] == "human_review"
+    assert result["motivo_humano"] == "pendencia_dados"
+    assert result["process_started"] is False
+    assert cibseven.started_variables == []
+
+
+async def test_receive_pagto_infinite_float_valor_routes_pendencia_dados() -> None:
+    """§Delta-F9 (CONTRACT-DRIFT): `int(float('inf'))` does not raise `ValueError`/`TypeError`
+    -- it raises `OverflowError`, a case the coerce-once guard's `except` tuple did not name, so
+    an infinite float still escaped `receive` as an unhandled exception (the exact 'never an
+    exception leaking from the entry node' claim the guard's own comment makes). Catching
+    `OverflowError` too closes it: `float('inf')` now fails the SAME positivity guard as any
+    other non-coercible value, before any DMN call."""
+    cibseven = _RecordingCibSeven()
+    compiled = _graph(cibseven=cibseven).compile_graph().compile()
+
+    result = await compiled.ainvoke(_pagto_state(valor_pagamento_cents=float("inf")))
+
+    assert result["route"] == "human_review"
+    assert result["motivo_humano"] == "pendencia_dados"
+    assert result["process_started"] is False
+    assert cibseven.started_variables == []
+
+
 async def test_receive_population_without_cohort_routes_human_review() -> None:
     result = await _graph().receive(_population_state(cohort_id=""))
     assert result["route"] == "human_review"
@@ -1655,6 +1753,38 @@ def test_contract_variables_never_include_motivo_on_auto_route() -> None:
     variables = graph._contract_variables(_pagto_state(route="auto_route"))
     assert "motivo_encaminhamento" not in variables
     assert "grupo_destino" not in variables
+
+
+def test_contract_variables_ship_decisao_pagamento_as_a_none_guardrail() -> None:
+    """AND-08 (fleet audit ciclo 2): `_contract_variables` never embarked `decisao_pagamento` at
+    all (not even as an explicit `None`) — inconsistent with gustavo's equivalent
+    `decisao_envio`/`decisao_nip` STRUCTURAL GUARDRAIL convention for the same L0 invariant
+    (only a human User Task ever sets the real value). The gated release worker already refuses
+    without a human-set `APROVAR`, so this is audit-trail/convention hardening, not a live
+    bypass — but the key must now be present and explicitly `None`, on BOTH routes."""
+    graph = _graph()
+    for route in ("auto_route", "human_review"):
+        variables = graph._contract_variables(_pagto_state(route=route))
+        assert "decisao_pagamento" in variables
+        assert variables["decisao_pagamento"] is None
+
+
+async def test_l0_guard_pagto_start_ships_decisao_pagamento_as_none_guardrail() -> None:
+    """L0 GUARD, full-graph turn: the started engine instance's variables carry the
+    `decisao_pagamento=None` guardrail explicitly — mirrors gustavo's
+    `test_l0_guard_ans_submit_never_ships_a_signature_or_protocol`."""
+    dmn = FakeDmnTransport()
+    _register_admissibility(dmn, "SEGUE_ROTEAMENTO")
+    _register_alcada(dmn, "DENTRO_TETO_L2", "clerical-pagamentos")
+    cibseven = _RecordingCibSeven()
+    inference = _FakeInference(["dossie sintetico"])
+    compiled = _graph(inference=inference, dmn=dmn, cibseven=cibseven).compile_graph().compile()
+
+    await compiled.ainvoke(_pagto_state())
+
+    variables = cibseven.started_variables[0]
+    assert "decisao_pagamento" in variables
+    assert variables["decisao_pagamento"] is None
 
 
 # ---------------------------------------------------------------------------

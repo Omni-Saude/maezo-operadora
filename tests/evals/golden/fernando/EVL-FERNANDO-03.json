@@ -2,7 +2,9 @@
   "id": "EVL-FERNANDO-03",
   "agent": "fernando",
   "class": "FC",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "An unrecognized intencao token fails closed to escalate ambiguidade at receive() -- never a silent notify. Fernando has no LLM classification step (intencao arrives as a caller-supplied field), so this is the structural analog of Helena's classify-failure fail-closed path. Synthetic data only.",
   "input": {
     "state": {
@@ -35,5 +37,8 @@
       "error": "invalid_intencao"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "signal:ambiguity"
+  ]
 }

@@ -73,9 +73,9 @@ INAD-{tenant_id}-{numero_contrato}
 | `numero_contrato` | string | sim | Numero do contrato (chave de negocio; mesma identidade usada por CANCEL-001) |
 | `matricula_beneficiario` | string | sim | Matricula/pseudo-id do titular (ADR-0006 — Zona Geral usa pseudonimo) |
 | `beneficiario_pseudo_id` | string | sim§ | Pseudonimo do beneficiario (ADR-0006 — nunca CPF/nome); semeada por `FernandoGraph._inadimplencia_variables` no start |
-| `tipo_plano` | string | sim | `individual` \| `familiar` \| `coletivo_empresarial` \| `coletivo_adesao` |
-| `origem_solicitacao` | string | sim | `cobranca` \| `operadora` \| `agente_fernando` \| `juridico` |
-| `canal` | string | sim§ | Canal do encaminhamento (default `whatsapp`); semeada por Fernando no start |
+| `tipo_plano` | string | sim | `individual` \| `familiar` \| `coletivo_empresarial` \| `coletivo_adesao` (dominio FECHADO — ver ¶Dominios fechados abaixo) |
+| `origem_solicitacao` | string | sim§ | `cobranca` \| `operadora` \| `agente_fernando` \| `juridico` — **opcional do lado do chamador**; ausente ⇒ string vazia (nunca um valor fabricado), semeada por Fernando no start (ver ¶Dominios fechados) |
+| `canal` | string | sim§ | `whatsapp` \| `portal` \| `telefone` \| `a2a` (dominio FECHADO — ver ¶Dominios fechados abaixo; default whatsapp na ausencia); semeada por Fernando no start |
 | `motivo_categoria` | string | sim§ | Categoria do motivo de encaminhamento (default `inadimplencia`); semeada por Fernando no start |
 | `resumo_contexto` | string | sim§ | Resumo da narrativa do dossie de Fernando (`dossier.narrativa`; fallback "Encaminhamento automatico (sem narrativa)" quando ausente); semeada por Fernando no start |
 | `competencias_em_aberto` | json | sim | Lista de competencias (`YYYY-MM`) em aberto (FATO; alimenta a contagem) |
@@ -93,6 +93,43 @@ INAD-{tenant_id}-{numero_contrato}
 ‡ **NAO pre-resolvido por worker** (GAP-INAD-8, WP-FATOS-FABRICADOS slice 2): ao contrario de `meses_inadimplencia`/`valor_total_devido_cents`/`dentro_periodo_minimo`/`dentro_janela_purga`, nenhum worker deste processo confirma ou sobrescreve `notificacao_previa_feita`. `operadora.inadimplencia.check_prior_notice` (`dispatch_prior_notice`) retorna `{}`. Ausente ⇒ a `inadimplencia_status` roteia `PENDENTE_NOTIFICACAO` (fail-safe, nunca adverso: o timer daquele ramo converge na User Task humana). A obrigacao regulatoria real (RN 593 / art. 13, par. unico, II da Lei 9.656/98 — **DRAFT/verify**) e aplicada pelo guard humano `comprovacao_notificacao_previa`, e e dela que `handoff_rescisao` DERIVA o valor entregue a SP-OP-CANCEL-001.
 
 § Semeada por `FernandoGraph._inadimplencia_variables` (`src/maezo/agents/fernando/graph.py`) no start do processo — nao e um fato pre-resolvido por worker aritmetico do processo em si (achado do fleet audit: escritas no engine por Fernando, ausentes desta tabela).
+
+### ¶Dominios fechados (`tipo_plano`, `canal`) e ausencia de default fabricado (`origem_solicitacao`)
+
+Achados FER-04/FER-05/FER-10 da auditoria de frota de 2026-09-04, fechados em 2026-09-05.
+
+**`tipo_plano` e `canal` sao dominios FECHADOS e esta tabela e a FONTE deles.** O agente
+(`src/maezo/agents/fernando/graph.py::{_TIPO_PLANO_ALLOW,_CANAL_ALLOW}`) apenas espelha o
+conjunto declarado acima; a cerca
+`tests/unit/agents/test_fernando_input_allowlist_fence.py::test_allowlist_matches_the_contract_declared_domain`
+reprova qualquer divergencia entre as duas pontas — ampliar um dominio em Python sem alterar
+esta tabela fica VERMELHO (uma decisao de dominio e da especificacao, nunca do codigo). Por isso
+a celula de dominio destas duas linhas nao pode conter crases fora dos proprios valores.
+
+* **Valor DECLARADO fora do dominio** ⇒ `FernandoGraph.receive` fail-closa para analise humana
+  (`motivo_humano=ambiguidade`, `motivo_categoria=ambiguity`, `error=invalid_tipo_plano` ou
+  `invalid_canal`) e o valor cru NUNCA e ecoado (token de classe apenas — o valor pode carregar
+  PHI). Como a rota `escalate` ainda executa `start_process`, ha tambem revalidacao do lado da
+  LEITURA: o valor recusado chega as entradas da DMN, ao dossie, aos fatos da mensagem e a estas
+  variaveis de processo como vazio/`None`, nunca literal.
+* **Valor AUSENTE** nao e recusa: `canal` cai no default `whatsapp` declarado nesta tabela e
+  `tipo_plano` viaja vazio (a `inadimplencia_status` tem `r_catchall` conservador ⇒
+  `ANALISE_HUMANA`, nunca adverso). Recusar a ausencia quebraria a aresta A2A viva
+  (`agents/fernando/delegation.py::state_from_envelope`, que so copia chaves nao-vazias do
+  `payload_meta`).
+* **`a2a` faz parte do dominio de `canal`** porque essa mesma aresta A2A o semeia SEMPRE
+  (`tools/workers/inadimplencia.py::make_prepare_dossier_handler` ⇒
+  `delegate_arrears_followup`). Ele e declarado aqui em vez de tolerado por omissao. **Nenhum
+  canal alem de `whatsapp` tem remetente ligado** hoje no agente
+  (`graph.py::_CANAL_COM_ENTREGA`): `portal`/`telefone`/`a2a` nao entregam nada, e e por isso que
+  existem os desfechos `*_canal_sem_entrega` da secao abaixo.
+
+**`origem_solicitacao` (FER-10):** ausente ⇒ a variavel de processo recebe **string vazia**. Ate
+2026-09-05 o agente gravava o literal `agente_fernando` quando o chamador nao declarava nada,
+tornando "o chamador disse Fernando" e "o chamador nao disse nada" indistinguiveis na trilha de
+auditoria. **Residual DIVULGADO, nao fechado:** ao contrario de `tipo_plano`/`canal`, esta
+variavel ainda NAO tem allowlist — um valor fora do dominio declarado acima chega ao engine
+literalmente. Fechar isso e trabalho separado (mesma forma dos dois campos acima).
 
 ## Variaveis de saida (preenchidas pelas User Tasks humanas)
 
@@ -152,15 +189,20 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 
 Beneficiario nao tem canal de entrada proprio para esta jornada — quadro completo em
 `docs/processes/contracts/SP-OP-CANCEL-001.md` "Canal de entrada" (o mesmo achado cobre Lucas e
-Fernando). Resumo especifico deste processo: `prepare_dossier`
-(`operadora.inadimplencia.prepare_dossier`, tabela acima) convoca Fernando por citacao de texto
-("Fernando (general)... instrui, nao decide", §Notas de design) mas o worker shipped
-(`tools/workers/inadimplencia.py:366-390`) NAO chama nenhuma API de `maezo.a2a` — a linha
-"GAP-INAD-6, PR #134" na secao Pendencias abaixo estava FALSA contra o codigo e foi corrigida
-nesta sessao. O lado ALVO da delegacao `arrears.followup` agora EXISTE, real e testado
-(`src/maezo/agents/fernando/delegation.py::make_fernando_handler`) — o lado ORIGEM (a chamada
-efetiva dentro de `prepare_dossier`) continua NAO FEITO: `tools/workers/inadimplencia.py` fica
-fora da superficie editavel do work package que fechou este gap.
+Fernando): nenhuma resposta do beneficiario e roteada de volta a Fernando, so o webhook receptivo
+do WhatsApp (`HelenaDispatcher`) recebe mensagem do beneficiario, e despacha tudo para o grafo de
+Helena, sem contexto de cobranca. Resumo especifico deste processo, RECONFERIDO nesta sessao
+(NF-Δ1 — a versao anterior desta secao ficou FALSA contra o codigo shipped): `prepare_dossier`
+(`operadora.inadimplencia.prepare_dossier`, tabela acima) e' um handler RAW async
+(`tools/workers/inadimplencia.py::make_prepare_dossier_handler`) que CHAMA de fato
+`maezo.agents.fernando.delegation.delegate_arrears_followup` — nao e' mais so citacao de texto no
+docstring. O lado ALVO tambem esta ligado:
+`runtime/agent_runtime/a2a_composition.py::build_dossier_delegation_dispatcher` registra
+`"fernando": fernando_handler` no dict de handlers (R-081, `#344`). Os dois lados da delegacao
+`arrears.followup` estao codigo-a-codigo ligados e testados; o que segue genuinamente aberto NAO
+e essa delegacao (que e' operadora-para-Fernando, iniciada pelo worker) e sim o achado GAP 11.7
+em si: o BENEFICIARIO continua sem canal de entrada proprio ate Fernando — qualquer resposta dele
+no WhatsApp cai no mesmo `HelenaDispatcher`, sem contexto de inadimplencia nenhum.
 
 ## DMN referenciadas
 
@@ -242,6 +284,43 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
   uma reentrega reencontra a instancia viva (`ALREADY_ACTIVE`) em vez de abrir uma segunda.
 
 
+## Desfechos de agente: caminho `notify` (aviso previo / lembrete de regularizacao)
+
+Achados FER-03/FER-04 da auditoria de frota de 2026-09-04, fechados em 2026-09-05. Como
+`erro_inicio_processo` acima, **nenhum destes valores e variavel de processo**: eles vivem no
+estado do agente fernando e no rotulo `desfecho` da metrica `maezo_agent_desfecho_total`
+(CC-09). Sao declarados aqui porque quem consome o estado do agente (o handler A2A, um golden de
+eval, uma regra de alerta, o KPI de `notice_compliance` da RN 593) precisa dos literais exatos.
+
+| Jornada (`status_inadimplencia`) | Envio REALIZADO | Envio NAO realizado | Canal sem entrega |
+|---|---|---|---|
+| `PENDENTE_NOTIFICACAO` (aviso previo) | `notificacao_previa_enviada` | `notificacao_previa_nao_enviada` | `notificacao_previa_canal_sem_entrega` |
+| demais (`AGUARDA_PURGA`, lembrete) | `lembrete_regularizacao_enviado` | `lembrete_regularizacao_nao_enviado` | `lembrete_regularizacao_canal_sem_entrega` |
+
+* **Envio NAO realizado** = o canal TEM remetente ligado (`whatsapp`) mas a mensagem nao saiu:
+  o gateway levantou, ou nao havia destinatario (`to_hash`/`beneficiario_pseudo_id` vazios).
+* **Canal sem entrega** = o canal e legitimo mas nao tem remetente algum neste agente
+  (`portal`/`telefone`/`a2a`) — **ou foi RECUSADO por `_canal`** (valor fora do dominio declarado
+  acima vira string vazia, que tambem nao esta em `_CANAL_COM_ENTREGA`; mesmo comentario em
+  `graph.py::notify`: "canal DENTRO do dominio (ou recusado por `_canal`) mas sem remetente
+  ligado"). Em ambos os casos nada foi tentado, e o desfecho diz isso.
+* Em qualquer dos dois casos `mensagem_enviada = false`, `mensagem.entrega` registra o estado, e
+  a emissao CC-09 leva `enviada=false` **coerente com o rotulo**.
+
+POR QUE EXISTEM (FER-03/FER-04). Ate 2026-09-05 o `desfecho` deste caminho era calculado
+EXCLUSIVAMENTE a partir de `status_inadimplencia`, ignorando o booleano de envio que a propria
+funcao computava duas linhas acima: um envio que falhou, ou um canal sem remetente nenhum,
+produzia o rotulo de SUCESSO. Nao era hipotetico — a aresta A2A viva
+(`agents/fernando/delegation.py::state_from_envelope` fixa `canal="a2a"`) caia exatamente nesse
+caso a cada delegacao `arrears.followup`. O KPI regulatorio de notificacao (RN 593) e a trilha
+ADR-0007 contavam avisos que nunca sairam. A telemetria CC-09 ja emitia `enviada=false` ao lado
+do rotulo mentiroso desde 2026-09-04 — tornou a contradicao observavel, nao a corrigiu.
+
+Fonte dos literais: `src/maezo/agents/fernando/graph.py::{_DESFECHO_NOTIFICACAO_PREVIA,
+_DESFECHO_LEMBRETE}`; vocabulario fechado de telemetria em
+`src/maezo/runtime/turn_telemetry.py::_DESFECHO_VOCAB`; cercas em
+`tests/unit/agents/test_fernando_input_allowlist_fence.py`.
+
 ## Codigos de erro
 
 | Codigo | Onde | Tratamento |
@@ -284,7 +363,7 @@ NAO bloqueia arquitetura nem deploy do engine):**
 - **Dias uteis vs corridos** na janela de purga, notificacao previa e periodo minimo (RN 593)? — regulatório.
 - **RN 593 supersede/consolida RN 412/2016?** (e quaisquer dispositivos da Lei 9.656 art. 13) — regulatório + jurídico.
 - **Confirmacao dos candidate groups** `juridico-contratos`/`gestao-cobranca`/`coordenacao-cobranca` contra a taxonomia organizacional — PO/IdP.
-- **Fernando** (agente de inadimplencia) precisa de SP-OP-INADIMPLENCIA-001 proprio, ou opera como AGJ navegador que so escala para CANCEL-001 (igual Lucas)? Ja RESOLVIDO no sentido operacional (GAP-INAD-6, PR #134: `prepare_dossier` delega `arrears.followup` a Fernando via A2A real); a framing de produto (processo dedicado vs navegador) permanece PO/produto. **CORRECAO (GAP 11.7, re-checado nesta sessao):** essa linha estava FALSA contra o codigo shipped — `tools/workers/inadimplencia.py`'s `prepare_dossier` monta um dicionario localmente e nao chama nenhuma API de `maezo.a2a`; nao ha nenhum `delegate_arrears_followup`/`DelegationDispatcher.delegate` naquele worker. O lado ALVO da delegacao agora EXISTE de fato (`src/maezo/agents/fernando/delegation.py::make_fernando_handler`/`state_from_envelope`, testado, compila o grafo REAL de Fernando) — mas o call site em `prepare_dossier` continua NAO FEITO (fora da superficie editavel do work package que fechou este gap; ver `docs/processes/contracts/SP-OP-CANCEL-001.md` "Canal de entrada" para o quadro completo). Reclassificar como PARCIALMENTE resolvido: alvo pronto, origem pendente.
+- **Fernando** (agente de inadimplencia) precisa de SP-OP-INADIMPLENCIA-001 proprio, ou opera como AGJ navegador que so escala para CANCEL-001 (igual Lucas)? Ja RESOLVIDO no sentido operacional (GAP-INAD-6, PR #134: `prepare_dossier` delega `arrears.followup` a Fernando via A2A real); a framing de produto (processo dedicado vs navegador) permanece PO/produto. **CORRECAO (NF-Δ1, re-checado nesta sessao):** a "CORRECAO (GAP 11.7)" que ficava aqui tinha ela mesma envelhecido mal — dizia que `prepare_dossier` so montava um dicionario local e nao chamava nenhuma API de `maezo.a2a`. Isso nao e' mais verdade (e o codigo que a sustentava ja tinha mudado havia tempo): `tools/workers/inadimplencia.py::make_prepare_dossier_handler` chama de fato `delegate_arrears_followup`, e o lado ALVO esta registrado em `runtime/agent_runtime/a2a_composition.py::build_dossier_delegation_dispatcher` (`"fernando": fernando_handler`, R-081, #344). A linha original do bullet ("GAP-INAD-6, PR #134 ... via A2A real") estava certa; a correcao anterior que a contradizia estava desatualizada. Ver "Canal de entrada" acima para o que segue genuinamente aberto: o beneficiario nao tem canal de entrada proprio ate Fernando, so o webhook de Helena recebe mensagem dele.
 
 ## Notas de design / inversao do reference
 

@@ -575,7 +575,6 @@ _PAGTO_WORKER_TOPICS = [
     "operadora.pagto.release_high_value_payment",
     "operadora.pagto.notify_sla_risk",
     "operadora.pagto.register_payment_refusal",
-    "operadora.pagto.publish_completed",
     "operadora.pagto.prepare_approval_dossier",
 ]
 

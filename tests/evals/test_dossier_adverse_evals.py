@@ -592,6 +592,34 @@ async def test_valentina_llm_failure_on_consented_auto_route_downgrades_to_human
     assert result_state.get("desfecho") == "analise_humana_clinica"
 
 
+# ---------------------------------------------------------------------------
+# EVL-VALENTINA-08/09 (VAL-06, GOLDENS-MISSING) -- the two declared `escalation.triggers` this
+# agent had only unit-test coverage for (never an ADR-0009 promotion-gate golden):
+# `signal: consent_revoked` and `signal: criterio_alta_aparente`.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.eval
+async def test_evl_valentina_08_mutation_check_desfecho_is_non_vacuous() -> None:
+    """Flipping EVL-VALENTINA-08's expected desfecho (interrompido_revogacao -> sem_consentimento)
+    must fail -- proves the revocation-precedence terminal is real, not a rubber stamp of any
+    neutral no-PHI outcome."""
+    case = _valentina_case("EVL-VALENTINA-08")
+    await run_mutation_check(
+        valentina_graph.build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "desfecho", "sem_consentimento"),
+    )
+
+
+@pytest.mark.eval
+async def test_evl_valentina_09_mutation_check_route_is_non_vacuous() -> None:
+    case = _valentina_case("EVL-VALENTINA-09")
+    await run_mutation_check(
+        valentina_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
+    )
+
+
 # ===========================================================================
 # Marina -- SP-OP-CONTAS-001 / SP-OP-RECURSO-001 (glosa triage / recurso). `Route =
 # Literal["auto_route", "human_review"]` -- no accept/deny/desistencia variant exists.
@@ -700,6 +728,71 @@ async def test_evl_marina_03_eval_tier_b_live() -> None:
     assert_no_leak(result_state.get("dossier"), case["leak_canaries"])
 
 
+# ---------------------------------------------------------------------------
+# EVL-MARINA-08..13 (RAF-14, GOLDENS-MISSING) -- the declared `escalation.triggers` this agent
+# had zero golden coverage for (`signal: indicio_fraude`, `signal: reembolso_dossie`,
+# `dmn: recurso_admissibility=PENDENTE_DOCUMENTACAO`, `signal: ambiguity`,
+# `dmn: recurso_admissibility=ANALISE_HUMANA`) plus a RECURSO-chain twin of the already-covered
+# `signal: dmn_unavailable` trigger (EVL-MARINA-07 only proves it for the CONTAS chain, per
+# RAF-14's own root-cause note). All six routes are `human_review` -- flipping to `auto_route` is
+# the uniform, sufficient non-vacuousness mutation for every one of them.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.eval
+async def test_evl_marina_08_mutation_check_route_is_non_vacuous() -> None:
+    case = _marina_case("EVL-MARINA-08")
+    await run_mutation_check(
+        marina_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
+    )
+
+
+@pytest.mark.eval
+async def test_evl_marina_09_mutation_check_route_is_non_vacuous() -> None:
+    """EVL-MARINA-09 is the reembolso flow's ONLY golden -- no auto_route variant exists for it
+    at all (module docstring), so flipping to auto_route proves that structural invariant."""
+    case = _marina_case("EVL-MARINA-09")
+    await run_mutation_check(
+        marina_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
+    )
+
+
+@pytest.mark.eval
+async def test_evl_marina_10_mutation_check_route_is_non_vacuous() -> None:
+    case = _marina_case("EVL-MARINA-10")
+    await run_mutation_check(
+        marina_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
+    )
+
+
+@pytest.mark.eval
+async def test_evl_marina_11_mutation_check_route_is_non_vacuous() -> None:
+    """RECURSO-chain twin of `test_evl_marina_07_mutation_check_route_is_non_vacuous`."""
+    case = _marina_case("EVL-MARINA-11")
+    await run_mutation_check(
+        marina_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
+    )
+
+
+@pytest.mark.eval
+async def test_evl_marina_12_mutation_check_route_is_non_vacuous() -> None:
+    case = _marina_case("EVL-MARINA-12")
+    await run_mutation_check(
+        marina_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
+    )
+
+
+@pytest.mark.eval
+async def test_evl_marina_13_mutation_check_route_is_non_vacuous() -> None:
+    """A DIFFERENT DMN/value than EVL-MARINA-02's `test_evl_marina_02_...` (recurso_eligibility,
+    not recurso_admissibility) -- proves `dmn: recurso_admissibility=ANALISE_HUMANA` behaviorally,
+    not merely by re-pinning the eligibility-level golden."""
+    case = _marina_case("EVL-MARINA-13")
+    await run_mutation_check(
+        marina_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
+    )
+
+
 # ===========================================================================
 # Andre -- SP-OP-PAGTO-001 (payment-approval risk dossier). `Route = Literal["auto_route",
 # "human_review"]` -- no release/authorize/pay variant exists; `decisao_pagamento`/
@@ -806,3 +899,66 @@ async def test_evl_andre_03_hostile_aggregate_never_reaches_state_or_dossier() -
     assert result.state.get("egress_blocked") is True
     assert result.state.get("actuarial_aggregate") == {}
     assert result.state.get("aggregate_dataset_refs") == []
+
+
+# ---------------------------------------------------------------------------
+# EVL-ANDRE-07..11 (AND-06, GOLDENS-MISSING) -- the declared `escalation.triggers` this agent had
+# zero golden coverage for (`signal: ambiguity`, `dmn: pagto_admissibility=ANALISE_HUMANA`,
+# `dmn: pagto_alcada=ANALISE_HUMANA`) plus the two scenario-shaped gaps AND-06 names directly
+# (PENDENTE_DADOS and the entire adequacao_dossier flow, "the only LIVE A2A edge" per the audit).
+# None of these five cases sets `cohort_id`, so `test_andre_eval_tier_a`'s always-injected hostile
+# `_make_andre_population_fake()` is never invoked on any of them (`gather`'s
+# `if cohort_id and self._population is not None` guard) -- no special-casing needed, unlike
+# EVL-ANDRE-05.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.eval
+async def test_evl_andre_07_mutation_check_route_is_non_vacuous() -> None:
+    case = _andre_case("EVL-ANDRE-07")
+    await run_mutation_check(
+        andre_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
+    )
+
+
+@pytest.mark.eval
+async def test_evl_andre_08_mutation_check_motivo_is_non_vacuous() -> None:
+    """Flipping EVL-ANDRE-08's expected motivo_humano (duplicidade_suspeita -> analise_humana)
+    must fail -- proves the DMN-decided duplicity-precedence class token is real, not a rubber
+    stamp of any human_review outcome."""
+    case = _andre_case("EVL-ANDRE-08")
+    await run_mutation_check(
+        andre_graph.build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "motivo_humano", "analise_humana"),
+    )
+
+
+@pytest.mark.eval
+async def test_evl_andre_09_mutation_check_motivo_is_non_vacuous() -> None:
+    case = _andre_case("EVL-ANDRE-09")
+    await run_mutation_check(
+        andre_graph.build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "motivo_humano", "duplicidade_suspeita"),
+    )
+
+
+@pytest.mark.eval
+async def test_evl_andre_10_mutation_check_motivo_is_non_vacuous() -> None:
+    case = _andre_case("EVL-ANDRE-10")
+    await run_mutation_check(
+        andre_graph.build,
+        case,
+        mutation=lambda c: _mutate_expected_field(c, "motivo_humano", "aprovacao_alcada"),
+    )
+
+
+@pytest.mark.eval
+async def test_evl_andre_11_mutation_check_route_is_non_vacuous() -> None:
+    """AND-06: flipping EVL-ANDRE-11's expected route (human_review -> auto_route) must fail --
+    proves the adequacao_dossier flow's 'no auto variant exists' invariant is real."""
+    case = _andre_case("EVL-ANDRE-11")
+    await run_mutation_check(
+        andre_graph.build, case, mutation=lambda c: _mutate_expected_field(c, "route", "auto_route")
+    )

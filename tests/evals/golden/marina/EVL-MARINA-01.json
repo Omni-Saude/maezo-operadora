@@ -2,7 +2,9 @@
   "id": "EVL-MARINA-01",
   "agent": "marina",
   "class": "CE",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "CONTAS flow, clean glosa case: no fraud signal, normalization/classification/triage all resolve neutrally -> glosa_triage=PAGAR -> auto_route. Synthetic data only.",
   "input": {
     "state": {
@@ -19,7 +21,9 @@
       "valor_apresentado_brl": 480.0,
       "tipo_lote": "consulta",
       "linhas_conta_refs": [],
-      "reason_codes_tiss": ["55"],
+      "reason_codes_tiss": [
+        "55"
+      ],
       "divergencia_valor": false,
       "item_conforme_tabela": true,
       "documentacao_anexa": true,
@@ -31,10 +35,19 @@
     "Conta em conformidade com a tabela contratada; sem divergencia de valor — segue para pagamento integral."
   ],
   "dmn_fixture": {
-    "glosa_reason_normalization": { "categoria_normalizada": "documental" },
-    "glosa_classification": { "glosa_type": "administrativa" },
-    "contas_sla": { "sla_analise": "10d", "sla_alerta": "5d" },
-    "glosa_triage": { "roteamento": "PAGAR" }
+    "glosa_reason_normalization": {
+      "categoria_normalizada": "documental"
+    },
+    "glosa_classification": {
+      "glosa_type": "administrativa"
+    },
+    "contas_sla": {
+      "sla_analise": "10d",
+      "sla_alerta": "5d"
+    },
+    "glosa_triage": {
+      "roteamento": "PAGAR"
+    }
   },
   "expect": {
     "fields": {
@@ -43,5 +56,6 @@
       "desfecho": "pagar_integral"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": []
 }

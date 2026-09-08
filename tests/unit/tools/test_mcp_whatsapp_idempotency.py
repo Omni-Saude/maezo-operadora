@@ -16,7 +16,11 @@ import pytest
 
 from maezo.platform.driver_idempotency import DedupRegistryUnavailableError
 from maezo.platform.observability import get_metrics_collector
-from maezo.tools.mcp_whatsapp.server import WhatsAppServer, WhatsAppSettings
+from maezo.tools.mcp_whatsapp.server import (
+    WhatsAppIdempotencyUnsupportedError,
+    WhatsAppServer,
+    WhatsAppSettings,
+)
 from tests.support.dedup_fakes import FakeDedupRegistry
 
 _KEY = "wa:outbound:amh:hk1_deadbeef:1"
@@ -152,17 +156,46 @@ async def test_a_send_without_a_key_is_byte_identical_to_the_pre_dedup_path() ->
 
 
 @pytest.mark.asyncio
-async def test_a_key_without_a_registry_is_announced_never_silently_ignored() -> None:
+async def test_a_key_without_a_registry_is_refused_never_accepted_and_ignored() -> None:
+    """§Delta W4-HYGIENE F2 — this assertion is INVERTED from what it pinned before.
+
+    It used to pin "the message must still be sent — refusing would be worse", which held while
+    the only caller with a key was Helena's live path (whose root always wires the registry).
+    LUC-08 made Lucas's graph supply a key UNCONDITIONALLY, and his root could be built without
+    a DSN: the old branch then answered a request for once-only delivery with a 2xx and no
+    guarantee, i.e. a parameter accepted and ignored. The refusal is now the contract, the log
+    line is still there, and — the half a log line alone never proved — the Cloud API is not
+    reached at all.
+    """
     import structlog
 
     server = WhatsAppServer(settings=_settings())
     client = _mock_httpx_client()
 
-    with patch("httpx.AsyncClient", return_value=client), structlog.testing.capture_logs() as logs:
+    with (
+        patch("httpx.AsyncClient", return_value=client),
+        structlog.testing.capture_logs() as logs,
+        pytest.raises(WhatsAppIdempotencyUnsupportedError),
+    ):
         await server.send_message("5511999999999", "Ola!", idempotency_key=_KEY)
 
-    assert client.post.await_count == 1, "the message must still be sent — refusing would be worse"
-    assert any(entry["event"] == "whatsapp_send_idempotency_key_ignored" for entry in logs)
+    assert client.post.await_count == 0, "the send must not reach the Cloud API unprotected"
+    assert any(entry["event"] == "whatsapp_send_idempotency_key_unsupported" for entry in logs)
+
+
+@pytest.mark.asyncio
+async def test_a_registry_less_server_still_sends_when_no_key_is_supplied() -> None:
+    """The other half of the same §Delta: the refusal is scoped to a caller that ASKED for
+    once-only delivery. Helena's and Fernando's Protocols pass no key, so their unprotected send
+    is untouched — a refusal there would be a regression, not a hardening."""
+    server = WhatsAppServer(settings=_settings())
+    client = _mock_httpx_client()
+
+    with patch("httpx.AsyncClient", return_value=client):
+        result = await server.send_message("5511999999999", "Ola!")
+
+    assert client.post.await_count == 1
+    assert result["messages"][0]["id"] == "wamid.out1"
 
 
 def _seal_failures_total() -> float:

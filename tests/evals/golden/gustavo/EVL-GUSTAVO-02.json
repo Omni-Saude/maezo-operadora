@@ -2,7 +2,9 @@
   "id": "EVL-GUSTAVO-02",
   "agent": "gustavo",
   "class": "CE",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "J1 (ANS-SUBMIT) flow: a clean, complete DIOPS quarterly filing (dataset_complete/schema_valid/lgpd_anonimizado all true, pre-resolved by the operadora.regulatorio.anssubmit worker). ans_submission_admissibility resolves SEGUE_ENVIO -- Gustavo ALWAYS routes to review_submission (a human signs the binding filing; SEGUE_ENVIO only ENABLES the User Task, it never transmits). Flow-selection: fluxo=ans_submit -> review_submission + business key selects SP-OP-ANS-SUBMIT-001 (never SP-OP-NIP-001). Synthetic data only.",
   "input": {
     "state": {
@@ -44,5 +46,6 @@
       "desfecho": "envio_encaminhado_revisao_humana"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": []
 }

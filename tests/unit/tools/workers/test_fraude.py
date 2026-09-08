@@ -40,7 +40,6 @@ from maezo.tools.workers.fraude import (
     gather_evidence,
     intake,
     notify_sla_risk,
-    publish_completed,
     refer_to_legal,
     register_fraud_accusation,
     register_fraude_workers,
@@ -49,7 +48,7 @@ from maezo.tools.workers.fraude import (
     start_contratual,
     start_credenciamento,
 )
-from maezo.tools.workers.harness import AUDIT_AGENT_ID, WorkerHarness
+from maezo.tools.workers.harness import AUDIT_AGENT_ID, FakeWorkerTransport, WorkerHarness
 from tests.support.audit_fakes import FakeStartAuditSink
 
 # ---------------------------------------------------------------
@@ -1050,10 +1049,12 @@ def test_register_fraude_workers_registers_notify_sla_risk() -> None:
     assert "operadora.fraude.notify_sla_risk" in topics
     assert "operadora.fraude.intake" in topics
     assert "operadora.fraude.register_fraud_accusation" in topics
-    # 10 spec-declared operadora.fraude.* topics + the documented orphan publish_completed
-    # (ACCEPT — folds into the generic events.publish task per BPMN, no distinct spec topic).
+    # FAB-PUBLISH-CONTACT: 10 spec-declared `operadora.fraude.*` topics and NOTHING else. The
+    # 11th used to be the orphan `operadora.fraude.publish_completed` (a topic no `serviceTask`
+    # declares), retired with its fabricated `evento_publicado: True` — see
+    # `test_fraude_nao_registra_topico_orfao_publish_completed` below.
     fraude_topics = {t for t in topics if t.startswith("operadora.fraude.")}
-    assert len(fraude_topics) == 11
+    assert len(fraude_topics) == 10
 
 
 # ---------------------------------------------------------------
@@ -1384,15 +1385,94 @@ def test_start_contratual_second_case_after_a_finished_cancel_is_not_swallowed()
 
 
 # ---------------------------------------------------------------
-# publish_completed
+# FAB-PUBLISH-CONTACT (NEW-A2-1 / NEW-05)
 # ---------------------------------------------------------------
 
+_FRAUDE_BPMN = (
+    Path(__file__).resolve().parents[4]
+    / "spec"
+    / "processes"
+    / "bpmn"
+    / "SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn"
+)
+_CAMUNDA_NS = "{http://camunda.org/schema/1.0/bpmn}"
 
-def test_publish_completed_arquivado() -> None:
-    result = publish_completed({"decisao_fraude": "ARQUIVAR"})
-    assert result["desfecho"] == "arquivado_sem_indicio"
+
+def test_fraude_nao_registra_topico_orfao_publish_completed() -> None:
+    """NEW-A2-1: `publish_completed` foi APOSENTADA — funcao E registro.
+
+    Era um `FunctionWorker` num topico (`operadora.fraude.publish_completed`) que NENHUM
+    `serviceTask` do BPMN declara — todo `ST_Publish*` deste processo roteia pelo generico
+    `operadora.events.publish`, servido por `events.py`, o UNICO ponto do repo que publica de
+    verdade e que reporta `event_published` a partir do bool de entrega real do produtor. O corpo
+    da funcao tinha uma unica instrucao (`logger.info`) e mesmo assim devolvia
+    `evento_publicado: True` (o `complete` da harness grava o retorno INTEIRO no escopo do
+    processo, `dict(out_vars)` sem filtro; e a chave estava em `_SAFE_DECISION_BASIS_KEYS`, a
+    allowlist do `decision_basis` do ADR-0007 em `harness.py::build_decision_basis`, que era o que
+    ADICIONALMENTE a levava para a trilha nao-repudiavel — correcao §Delta F4 da redacao anterior,
+    que chamava a lista de "allowlist de escrita de escopo" e assim subestimava a exposicao) mais
+    um `desfecho` recalculado em Python a partir de `decisao_fraude` — segunda
+    fonte de verdade para um vocabulario que o BPMN ja fixa em cada `event_desfecho`, e ERRADA em
+    4 dos 5 terminais (tudo que nao e `ACUSAR_FRAUDE` virava `arquivado_sem_indicio`, inclusive
+    MONITORAR e os tres `encaminhado_*`).
+
+    Mesma decisao de `operadora.lgpd.publish_completed` (LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC,
+    R-103/R-H) e de `operadora.programa.monitor_programa` (PERSP-C5-MONITOR-PROGRAMA): remover, em
+    vez de inventar um `serviceTask` para servir o orfao.
+    """
+    import maezo.tools.workers.fraude as fraude_module
+
+    assert not hasattr(fraude_module, "publish_completed"), (
+        "fraude.publish_completed voltou a existir — era um worker orfao que fabricava "
+        "`evento_publicado: True` sem nenhuma costura de publish"
+    )
+
+    # Transporte FALSO TIPADO (`FakeWorkerTransport`, o double in-memory que a propria
+    # `harness.py` publica) em vez de `None` + supressao: este teste so REGISTRA topicos,
+    # nenhum `fetch_and_lock`/`complete` acontece, e a construcao passa a satisfazer o tipo
+    # `WorkerTransport` sem nenhuma supressao de tipo (reparo §Delta F3).
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="unit-test-fraude-orphan")
+    register_fraude_workers(harness, None, dmn=FakeDmnTransport())
+    assert "operadora.fraude.publish_completed" not in set(harness.registered_topics)
 
 
-def test_publish_completed_acusado() -> None:
-    result = publish_completed({"decisao_fraude": "ACUSAR_FRAUDE"})
-    assert result["desfecho"] == "fraude_confirmada_humano"
+def test_fraude_completion_events_carregam_os_tokens_de_lacuna() -> None:
+    """NEW-05: todo evento `fraude.completed` leva os tokens de lacuna no payload.
+
+    `evidencia_gap`/`dossie_gap` (BEA-09) e `referral_gap` (FAB-REFER-TO-LEGAL) viviam SO no
+    escopo do processo: quem lia o desfecho publicado em `agents.events.fraude.completed` via
+    `desfecho=encaminhado_juridico` sem saber que nenhuma autoridade foi notificada, nem que o
+    dossie nunca foi montado. Os tokens sao vocabulario FECHADO e sem PHI (contrato,
+    "Variaveis de saida"), entao entram no `event_payload_vars` das tasks de publicacao de
+    desfecho. `events.py` so copia a variavel se ela existir no escopo (`if var_name in
+    task.variables`), logo, quando as costuras reais forem ligadas, a chave simplesmente
+    desaparece do payload — ausencia continua significando "ocorreu de verdade".
+
+    `referral_gap` so e exigido em `ST_PublishEncaminhadoJuridico`: e a UNICA task de desfecho a
+    jusante de `ST_ReferToLegal` (`Flow_GWReferral_Juridico` -> `Flow_Legal_Pub`).
+    """
+    tree = ET.parse(_FRAUDE_BPMN)
+    faltando: dict[str, set[str]] = {}
+    vistos: set[str] = set()
+
+    for task in tree.getroot().iter():
+        if not task.tag.endswith("serviceTask"):
+            continue
+        params = {el.get("name"): (el.text or "") for el in task.iter(f"{_CAMUNDA_NS}inputParameter")}
+        if "event_desfecho" not in params:
+            continue
+        task_id = task.get("id") or "<sem id>"
+        vistos.add(task_id)
+        payload_vars = {v.strip() for v in params.get("event_payload_vars", "").split(",")}
+        exigidos = {"evidencia_gap", "dossie_gap"}
+        if task_id == "ST_PublishEncaminhadoJuridico":
+            exigidos = exigidos | {"referral_gap"}
+        if exigidos - payload_vars:
+            faltando[task_id] = exigidos - payload_vars
+
+    assert vistos, "nenhuma task com `event_desfecho` encontrada — o parse quebrou (nao-vacuidade)"
+    assert len(vistos) == 6, f"composicao das tasks de desfecho mudou: {sorted(vistos)}"
+    assert faltando == {}, (
+        "tasks de publicacao de desfecho sem os tokens de lacuna no `event_payload_vars`: "
+        f"{ {k: sorted(v) for k, v in faltando.items()} }"
+    )

@@ -138,3 +138,165 @@ class TestValidateDir:
         report = Report()
         validate_dir(agents_root, tools_root, report)
         assert report.ok, [f.message for f in report.findings]
+
+
+class TestA2AHandlerDisclosure:
+    """WP A2A-YAML-DISCLOSURE (CC-02 residual / NEW-B2 / NEW-B3 / NEW-B4): `a2a.handler_status`
+    is a structured, closed-vocabulary field a validator can enforce the SHAPE of. The deeper
+    cross-check — that the declared value matches the real delegation.py/registration state — is
+    `tests/unit/a2a/test_agent_card_handlers_parity.py`'s job, not this validator's."""
+
+    def test_a2a_absent_entirely_is_not_required_to_disclose(self, tmp_path: Path) -> None:
+        # `VALID_AGENT_YAML` has no `a2a:` key at all — an agent that does not participate in
+        # A2A has nothing to disclose.
+        path = _agent_file(tmp_path, VALID_AGENT_YAML)
+        report = Report()
+        validate_file(path, frozenset({"dmn", "memory"}), report)
+        assert report.ok, [f.message for f in report.findings]
+
+    def test_a2a_block_without_handler_status_fails(self, tmp_path: Path) -> None:
+        content = VALID_AGENT_YAML + (
+            "a2a:\n  accepted_task_types: []\n  queue_ref: agents.tasks.test-agent\n"
+        )
+        path = _agent_file(tmp_path, content)
+        report = Report()
+        validate_file(path, frozenset({"dmn", "memory"}), report)
+        assert not report.ok
+        assert any("handler_status" in f.message for f in report.findings)
+
+    def test_unknown_handler_status_value_fails(self, tmp_path: Path) -> None:
+        content = VALID_AGENT_YAML + (
+            "a2a:\n"
+            "  accepted_task_types: []\n"
+            "  queue_ref: agents.tasks.test-agent\n"
+            "  handler_status: pronto\n"
+        )
+        path = _agent_file(tmp_path, content)
+        report = Report()
+        validate_file(path, frozenset({"dmn", "memory"}), report)
+        assert not report.ok
+        assert any("handler_status" in f.message for f in report.findings)
+
+    def test_ausente_with_handler_symbol_is_a_contradiction(self, tmp_path: Path) -> None:
+        content = VALID_AGENT_YAML + (
+            "a2a:\n"
+            "  accepted_task_types: []\n"
+            "  queue_ref: agents.tasks.test-agent\n"
+            "  handler_status: ausente\n"
+            "  handler_symbol: maezo.agents.rafael.delegation::make_rafael_handler\n"
+        )
+        path = _agent_file(tmp_path, content)
+        report = Report()
+        validate_file(path, frozenset({"dmn", "memory"}), report)
+        assert not report.ok
+        assert any("cannot also name" in f.message for f in report.findings)
+
+    def test_ausente_without_handler_symbol_passes(self, tmp_path: Path) -> None:
+        content = VALID_AGENT_YAML + (
+            "a2a:\n"
+            "  accepted_task_types: []\n"
+            "  queue_ref: agents.tasks.test-agent\n"
+            "  handler_status: ausente\n"
+        )
+        path = _agent_file(tmp_path, content)
+        report = Report()
+        validate_file(path, frozenset({"dmn", "memory"}), report)
+        assert report.ok, [f.message for f in report.findings]
+
+    def test_registrado_without_handler_symbol_fails(self, tmp_path: Path) -> None:
+        content = VALID_AGENT_YAML + (
+            "a2a:\n"
+            "  accepted_task_types: [x]\n"
+            "  queue_ref: agents.tasks.test-agent\n"
+            "  handler_status: registrado\n"
+        )
+        path = _agent_file(tmp_path, content)
+        report = Report()
+        validate_file(path, frozenset({"dmn", "memory"}), report)
+        assert not report.ok
+        assert any("handler_symbol is missing" in f.message for f in report.findings)
+
+    def test_pronto_sem_registro_also_requires_handler_symbol(self, tmp_path: Path) -> None:
+        content = VALID_AGENT_YAML + (
+            "a2a:\n"
+            "  accepted_task_types: [x]\n"
+            "  queue_ref: agents.tasks.test-agent\n"
+            "  handler_status: pronto_sem_registro\n"
+        )
+        path = _agent_file(tmp_path, content)
+        report = Report()
+        validate_file(path, frozenset({"dmn", "memory"}), report)
+        assert not report.ok
+        assert any("handler_symbol is missing" in f.message for f in report.findings)
+
+    def test_handler_symbol_must_name_this_agent(self, tmp_path: Path) -> None:
+        # id is "test-agent" but the symbol claims to be rafael's handler.
+        content = VALID_AGENT_YAML + (
+            "a2a:\n"
+            "  accepted_task_types: [x]\n"
+            "  queue_ref: agents.tasks.test-agent\n"
+            "  handler_status: registrado\n"
+            "  handler_symbol: maezo.agents.rafael.delegation::make_rafael_handler\n"
+        )
+        path = _agent_file(tmp_path, content)
+        report = Report()
+        validate_file(path, frozenset({"dmn", "memory"}), report)
+        assert not report.ok
+        assert any("handler_symbol must be" in f.message for f in report.findings)
+
+    def test_handler_symbol_with_wrong_factory_name_fails_the_naming_check(self, tmp_path: Path) -> None:
+        # §Delta A2A-YAML-DISCLOSURE F2: this test is named `..._that_does_not_resolve_fails` in
+        # its pre-repair form, but `make_nonexistent_handler` != the canonical
+        # `make_rafael_handler` it must equal — it never reaches `importlib.import_module` at all,
+        # it trips the EARLIER `expected_symbol` naming check (same branch as
+        # `test_handler_symbol_must_name_this_agent` above, different wrong value). Renamed to say
+        # what it actually checks; `test_handler_symbol_naming_a_module_that_does_not_import_fails`
+        # below is the one that reaches importlib.
+        content = VALID_AGENT_YAML.replace("id: test-agent", "id: rafael") + (
+            "a2a:\n"
+            "  accepted_task_types: [x]\n"
+            "  queue_ref: agents.tasks.rafael\n"
+            "  handler_status: registrado\n"
+            "  handler_symbol: maezo.agents.rafael.delegation::make_nonexistent_handler\n"
+        )
+        path = _agent_file(tmp_path, content, agent_id="rafael")
+        report = Report()
+        validate_file(path, frozenset({"dmn", "memory"}), report)
+        assert not report.ok
+        assert any("handler_symbol must be" in f.message for f in report.findings)
+
+    def test_handler_symbol_naming_a_module_that_does_not_import_fails(self, tmp_path: Path) -> None:
+        # §Delta A2A-YAML-DISCLOSURE F2: the ONLY way to reach the `importlib.import_module` tail
+        # of `_validate_a2a_handler_disclosure` is a symbol that is ALREADY canonical (so it
+        # passes the `expected_symbol` naming check above) but whose module genuinely does not
+        # exist — an agent id with no `agents/<id>/delegation.py` at all. "novato" is not a real
+        # agent (`spec/agents/` has no such directory), so
+        # `maezo.agents.novato.delegation::make_novato_handler` is canonical-shaped for id=novato
+        # yet unimportable.
+        content = VALID_AGENT_YAML.replace("id: test-agent", "id: novato") + (
+            "a2a:\n"
+            "  accepted_task_types: [x]\n"
+            "  queue_ref: agents.tasks.novato\n"
+            "  handler_status: registrado\n"
+            "  handler_symbol: maezo.agents.novato.delegation::make_novato_handler\n"
+        )
+        path = _agent_file(tmp_path, content, agent_id="novato")
+        report = Report()
+        validate_file(path, frozenset({"dmn", "memory"}), report)
+        assert not report.ok
+        assert any("names a module that does not import" in f.message for f in report.findings), [
+            f.message for f in report.findings
+        ]
+
+    def test_handler_symbol_that_resolves_passes(self, tmp_path: Path) -> None:
+        content = VALID_AGENT_YAML.replace("id: test-agent", "id: rafael") + (
+            "a2a:\n"
+            "  accepted_task_types: [authorization.analyze]\n"
+            "  queue_ref: agents.tasks.rafael\n"
+            "  handler_status: registrado\n"
+            "  handler_symbol: maezo.agents.rafael.delegation::make_rafael_handler\n"
+        )
+        path = _agent_file(tmp_path, content, agent_id="rafael")
+        report = Report()
+        validate_file(path, frozenset({"dmn", "memory"}), report)
+        assert report.ok, [f.message for f in report.findings]

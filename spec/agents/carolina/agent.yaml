@@ -12,7 +12,7 @@ security_zone: phi                            # ADR-0006 — Carolina e convocad
 graph: graph.py:build
 prompt_versions:                              # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
-  dossier: dossier-v1                         # dossie de (des)credenciamento (CRED)
+  dossier: dossier-v2                         # dossie de (des)credenciamento (CRED)
 model:
   task_default: { tier: fast }                # gather/assess/montagem do dossie
   reasoning:    { tier: frontier }            # casos ambiguos / descredenciamento hospitalar / dossie complexo
@@ -60,8 +60,17 @@ memory:
   semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
 # A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Carolina e ALVO de delegacao:
 # SP-OP-CRED-001 convoca via `operadora.cred.prepare_dossier` (delegacao `credentialing.analyze`).
-# `accepted_task_types` declara o contrato de delegacao (metadata; o handler A2A inbound e
-# DEFERIDO para W-R2/R9 — NAO autorado aqui). Espelha o padrao AUTH->Rafael / CONTAS->Marina.
+# `accepted_task_types` declara o contrato de delegacao, e o handler A2A inbound correspondente
+# esta AUTORADO e LIGADO neste build. CORRIGIDO (CAR-03, auditoria de frota 05/09/2026): o texto
+# anterior aqui dizia que o handler inbound estava adiado para uma onda futura e nao autorado
+# neste repo — a mesma negacao que CC-04 ja corrigira no docstring de `agents/carolina/graph.py`;
+# a mentira vivia em DOIS arquivos e so' uma copia tinha sido consertada. Lado ALVO:
+# `agents/carolina/delegation.py::make_carolina_handler`; lado ORIGEM: `delegate_cred_dossier`,
+# chamado por `tools/workers/credenciamento.py`; registro vivo no composition root do dossie
+# (`runtime/agent_runtime/a2a_composition.py`, `handlers={"carolina": carolina_handler, ...}`).
+# O padrao AUTH->Rafael tambem esta registrado. CONTAS->Marina NAO esta: `make_marina_handler`
+# existe em `agents/marina/delegation.py`, mas nenhum composition root o registra (gating do dono,
+# por desenho) — esta definicao portanto NAO espelha esse par.
 a2a:
   capabilities:
     - credentialing_analysis                  # instrui a analise de (des)credenciamento e monta o dossie
@@ -70,3 +79,5 @@ a2a:
   accepted_task_types:
     - credentialing.analyze                   # SP-OP-CRED-001 delega a analise de (des)credenciamento
   queue_ref: agents.tasks.carolina
+  handler_status: registrado   # handler REGISTRADO no composition root (a2a_composition.py)
+  handler_symbol: maezo.agents.carolina.delegation::make_carolina_handler

@@ -71,7 +71,7 @@ class _FakeSummaryReader:
         self._fail = fail
         self.calls: list[str] = []
 
-    async def read_patient(self, patient_id: str) -> dict[str, Any]:
+    async def read_patient_summary(self, patient_id: str) -> dict[str, Any]:
         self.calls.append(patient_id)
         if self._fail:
             raise RuntimeError("HAPI FHIR unreachable")
@@ -531,6 +531,7 @@ async def test_assess_credenciamento_analise_routes_human_review_gestao_rede_no_
     assert result["motivo_humano"] == "analise_credenciamento"
     assert result["grupo_humano"] == "gestao-rede"
     assert result["roteamento_natureza"] == "ANALISE_CREDENCIAMENTO"
+    assert result["desfecho"] == "analise_credenciamento"  # CAR-01: do ramo, nao da `direcao`
     called_tables = {table for table, _ in dmn.calls}
     assert called_tables == {"cred_admissibility", "cred_route", "cred_sla"}  # no prior_notice
 
@@ -638,8 +639,96 @@ async def test_assess_cred_route_catchall_routes_coreview_with_prior_notice() ->
     # never conditioned on `direcao` — matches the BPMN's GW_Natureza fix (GAP-CRED-4/6).
     assert result["motivo_humano"] == "analise_descredenciamento"
     assert result["grupo_humano"] == "juridico-rede"
+    # CAR-01: o desfecho e' decidido AQUI, pelo ramo que disparou — nunca deixado em branco para
+    # um fallback a jusante deduzir da `direcao` (que aqui e' `credenciamento`, o ramo OPOSTO).
+    assert result["desfecho"] == "analise_descredenciamento"
     called_tables = {table for table, _ in dmn.calls}
     assert "cred_prior_notice" in called_tables
+
+
+# ---------------------------------------------------------------------------
+# CAR-01 — `desfecho` segue o RAMO DMN que disparou, nunca a `direcao` do chamador
+#
+# Turno REAL e completo (receive -> gather -> assess -> human_review -> start_process ->
+# finalize), nao o no isolado: o defeito so' aparecia no fim, quando `human_review` completava um
+# `desfecho` ausente com um fallback chaveado em `direcao` — um eixo ORTOGONAL ao ramo que a DMN
+# escolheu. O mesmo caso passava a afirmar os DOIS ramos em campos diferentes
+# (`motivo_humano`/`grupo_humano` de um lado, `desfecho` do outro), e era o `desfecho` incoerente
+# que chegava ao contador `maezo_agent_desfecho_total` (CC-09) e ao estado que o handler A2A
+# devolve. Nenhum efeito adverso nasce daqui (L1 continua intacto): o dano e' de LEITURA.
+# ---------------------------------------------------------------------------
+
+
+async def test_full_turn_indicio_irregularidade_desfecho_segue_o_ramo_dmn_nao_a_direcao() -> None:
+    """A manifestacao INTEIRAMENTE dentro do contrato: `direcao=credenciamento` (valida) com
+    `indicio_irregularidade_sinalizado=true`. As tabelas deployadas mandam este caso ao ramo de
+    co-review (r_indicio_segue -> SEGUE_ANALISE, depois r_indicio_descred ->
+    ANALISE_DESCREDENCIAMENTO, ambas a PRIMEIRA regra da sua tabela, hitPolicy FIRST), entao o
+    desfecho tem de ser `analise_descredenciamento`. Pre-fix era `analise_credenciamento`, lido da
+    `direcao`."""
+    dmn = FakeDmnTransport()
+    _register_admissibility(dmn, "SEGUE_ANALISE")  # r_indicio_segue derruba o bypass clerical
+    _register_route(dmn, "ANALISE_DESCREDENCIAMENTO")  # r_indicio_descred, independe da direcao
+    _register_sla(dmn)
+    _register_prior_notice(dmn)
+    graph = _graph(inference=_FakeInference(["dossie sintetico"]), dmn=dmn).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(
+        _base_state(direcao="credenciamento", indicio_irregularidade_sinalizado=True)
+    )
+
+    assert result["roteamento_natureza"] == "ANALISE_DESCREDENCIAMENTO"
+    assert result["motivo_humano"] == "analise_descredenciamento"
+    assert result["grupo_humano"] == "juridico-rede"
+    assert result["desfecho"] == "analise_descredenciamento"
+    # O invariante que da' nome ao defeito: o desfecho NUNCA contradiz o motivo do encaminhamento.
+    assert result["desfecho"] == result["motivo_humano"]
+
+
+async def test_full_turn_cred_route_catchall_desfecho_segue_o_ramo_dmn_nao_a_direcao() -> None:
+    """O catch-all `ANALISE_HUMANA` (divergencia #2: SEMPRE o ramo de co-review, nunca condicionado
+    a `direcao`) com uma `direcao` fora da allowlist do contrato — exatamente o input que faz as
+    duas tabelas cairem no proprio catch-all. O desfecho segue o ramo (co-review), nao a direcao
+    ambigua."""
+    dmn = FakeDmnTransport()
+    _register_admissibility(dmn, "ANALISE_HUMANA")
+    _register_route(dmn, "ANALISE_HUMANA")
+    _register_sla(dmn)
+    _register_prior_notice(dmn)
+    graph = _graph(inference=_FakeInference(["dossie sintetico"]), dmn=dmn).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(_base_state(direcao="renovacao"))
+
+    assert result["roteamento_natureza"] == "ANALISE_HUMANA"
+    assert result["motivo_humano"] == "analise_descredenciamento"
+    assert result["grupo_humano"] == "juridico-rede"
+    assert result["desfecho"] == "analise_descredenciamento"
+    assert result["desfecho"] == result["motivo_humano"]
+
+
+async def test_full_turn_analise_credenciamento_desfecho_segue_o_ramo_dmn_nao_a_direcao() -> None:
+    """Imagem espelhada: o ramo ANALISE_CREDENCIAMENTO alcancado por um pacote cuja `direcao` diz
+    `descredenciamento`. Pre-fix o desfecho vinha da direcao (`analise_descredenciamento`) e
+    contradizia o `motivo_humano`/`grupo_humano` do ramo (`analise_credenciamento`/`gestao-rede`).
+    A combinacao e' inalcancavel pelas tabelas de hoje (r_descred precede r_cred), e e' por isso
+    que ela esta' aqui: o desfecho passa a ser propriedade do RAMO, e nao mais uma deducao que
+    depende de qual regra a tabela deployada tem primeiro."""
+    dmn = FakeDmnTransport()
+    _register_admissibility(dmn, "SEGUE_ANALISE")
+    _register_route(dmn, "ANALISE_CREDENCIAMENTO")
+    _register_sla(dmn)
+    graph = _graph(inference=_FakeInference(["dossie sintetico"]), dmn=dmn).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(_base_state(direcao="descredenciamento"))
+
+    assert result["roteamento_natureza"] == "ANALISE_CREDENCIAMENTO"
+    assert result["motivo_humano"] == "analise_credenciamento"
+    assert result["grupo_humano"] == "gestao-rede"
+    assert result["desfecho"] == "analise_credenciamento"
+    assert result["desfecho"] == result["motivo_humano"]
 
 
 # ---------------------------------------------------------------------------

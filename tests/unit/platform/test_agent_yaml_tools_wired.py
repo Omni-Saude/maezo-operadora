@@ -55,20 +55,20 @@ it is a contract skeleton, not a shipped agent):
      still named in `_ACTION_NOT_TOOL_SHAPED` so the exclusion is itself a checked, closed list
      rather than "everything else silently passes."
 
-WHAT THIS FENCE DELIBERATELY DOES NOT ASSERT (adjacent findings seen, NOT this WP's scope):
-  - `beatriz` declares `mcp-fhir.read_patient` but her graph calls the injected
-    `PatientSummaryReader.read_patient_summary` instead (already disclosed,
-    `agents/beatriz/graph.py:82`); `carolina` declares `mcp-fhir.read_patient_summary` but reuses
-    rafael's generic `FhirServerReader.read_patient` (already disclosed,
-    `agents/carolina/graph.py:107-109`). Both are pre-existing NAME-SHAPE drift between the
-    declared id and the wired method, not "no node calls anything" — they are recorded in
-    `_DECLARED_NOT_WIRED_TOOLS` so this fence does not misreport them as dead, but fixing the
-    name mismatch itself is out of CC-05's charter (HEL-01/RAF-03/GUS-02/LUC-01/BEA-03 only name
-    the `mcp-cibseven.*` and `mcp-memory.read_write` ids).
-  - `helena` also declares `mcp-fhir.read_patient_summary`/`read_coverage`/`search_coverage`,
-    none of which any node calls (GAP-TRIAGE-5, already disclosed at `graph.py:64-66`). Also
-    recorded, also out of CC-05's charter (that finding is HEL-01's FHIR sibling, tracked
-    separately by GAP-TRIAGE-5, not by HEL-01/RAF-03/GUS-02).
+WHAT THIS FENCE STILL DELIBERATELY DOES NOT ASSERT. This probe is a SUBSTRING sweep over the
+agent's whole source text (docstrings included), so it can answer "is this id exercised
+anywhere?" but NOT "is the id the node calls the id the yaml declares?" — a name drift shows up
+here as a plain "declared and unwired" pair, indistinguishable from a dead declaration. That
+second question is now asked, by AST over real `Call` nodes and cross-checked against
+`gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`, in
+`tests/unit/gateway/test_fhir_tool_surface_parity.py` (WP FHIR-TOOL-SURFACE-PARITY). The two
+fences are complementary: that one covers only the `mcp-fhir.*` family, this one covers every
+family; neither replaces the other.
+
+The FHIR entries this file used to carry (`beatriz`/`carolina` name drift; helena's three dead
+declarations) are gone because the underlying findings were closed, not because the exception
+list was relaxed — `test_declared_not_wired_tools_inventory_has_no_stale_entries` is what would
+have failed had they merely been deleted.
 """
 
 from __future__ import annotations
@@ -146,24 +146,15 @@ _DECLARED_NOT_WIRED_TOOLS: Final[dict[tuple[str, str], str]] = {
         "OWNER-GATED: unico agent.yaml que ainda declara o id, exigido por "
         "test_every_catalogued_tool_id_is_declared_by_some_agent; sem no vivo (CC-05/GUS-02)"
     ),
-    # Pre-existing declared-id vs wired-method NAME-SHAPE drift (disclosed in each graph's own
-    # docstring long before this WP) — adjacent to, but out of, CC-05's charter.
-    ("beatriz", "mcp-fhir.read_patient"): (
-        "grafo chama PatientSummaryReader.read_patient_summary "
-        "(shape drift disclosed graph.py:82); fora do escopo BEA-03"
-    ),
-    ("carolina", "mcp-fhir.read_patient_summary"): (
-        "grafo reusa FhirServerReader.read_patient "
-        "(shape drift disclosed graph.py:107-109); fora do escopo CC-05"
-    ),
-    ("helena", "mcp-fhir.read_patient_summary"): (
-        "nao wireado (GAP-TRIAGE-5, disclosed graph.py:64-66); fora do escopo HEL-01"
-    ),
+    # A deriva de NOME entre id declarado e metodo wireado (beatriz/carolina) e as duas
+    # declaracoes FHIR mortas de helena FORAM FECHADAS pelo WP FHIR-TOOL-SURFACE-PARITY
+    # (NEW-04/NEW-09/BEA-13) — por isso nao ha mais entradas aqui: carolina e beatriz passaram a
+    # chamar exatamente o id que declaram, e helena deixou de declarar o que nao chama. O unico
+    # residuo FHIR e o de helena logo abaixo, que e um PIN DE CATALOGO e nao uma deriva.
     ("helena", "mcp-fhir.read_coverage"): (
-        "nao wireado (GAP-TRIAGE-5, disclosed graph.py:64-66); fora do escopo HEL-01"
-    ),
-    ("helena", "mcp-fhir.search_coverage"): (
-        "nao wireado (GAP-TRIAGE-5, disclosed graph.py:64-66); fora do escopo HEL-01"
+        "OWNER-GATED: unico agent.yaml que ainda declara o id, exigido por "
+        "test_every_catalogued_tool_id_is_declared_by_some_agent (tirar do catalogo exigiria "
+        "editar action-approvals.yaml, CODEOWNED); sem no vivo (NEW-09/GAP-TRIAGE-5)"
     ),
 }
 

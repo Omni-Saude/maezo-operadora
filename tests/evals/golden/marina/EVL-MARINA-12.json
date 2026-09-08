@@ -1,0 +1,33 @@
+{
+  "id": "EVL-MARINA-12",
+  "agent": "marina",
+  "class": "EU",
+  "tier": [
+    "A"
+  ],
+  "description": "RAF-14 (Marina): CONTAS flow missing its minimum business-key context (no numero_lote_tiss/numero_guia_tiss) -- receive()'s guard fails closed to route=human_review/motivo_humano=outro (auditoria-contas), before any DMN ever runs. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for marina's declared `signal: ambiguity` trigger, which had zero golden coverage before this case (marina's MotivoHumano type has no dedicated 'ambiguidade' token; 'outro' is the sole manifestation of this fail-safe). Synthetic data only.",
+  "input": {
+    "state": {
+      "flow": "contas",
+      "tenant_id": "amh",
+      "canal": "portal_tiss"
+    }
+  },
+  "recorded_llm": [
+    "Contexto minimo de negocio ausente; conta encaminhada para revisao da auditoria de contas por seguranca."
+  ],
+  "dmn_fixture": {},
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "motivo_humano": "outro",
+      "grupo_humano": "auditoria-contas",
+      "desfecho": "triagem_humana",
+      "error": "contexto de runtime ausente (tenant/chave de negocio)"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "signal:ambiguity"
+  ]
+}

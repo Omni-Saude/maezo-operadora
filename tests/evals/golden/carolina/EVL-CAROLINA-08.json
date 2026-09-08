@@ -1,0 +1,62 @@
+{
+  "id": "EVL-CAROLINA-08",
+  "agent": "carolina",
+  "class": "GC",
+  "tier": ["A"],
+  "description": "CAR-01 + CAR-05 (gatilho `signal: indicio_irregularidade` do agent.yaml, sem golden ate aqui). Pacote de credenciamento PERFEITO (licenca valida, documentacao completa, dentro dos criterios) porem com `indicio_irregularidade_sinalizado=true`. A precedencia vive nas TABELAS, nunca num `if` em Python (divergencia #1 do docstring / ADR-0012): r_indicio_segue e' a PRIMEIRA regra de `cred_admissibility` e derruba o bypass CLERICAL_CREDENCIAR (=SEGUE_ANALISE), e r_indicio_descred e' a PRIMEIRA de `cred_route` (=ANALISE_DESCREDENCIAMENTO, independente de `direcao`) -> co-review juridico-rede com `cred_prior_notice` consultada, NUNCA uma auto-acusacao de fraude (fraud_accusation L0 hard). SEGUNDA manifestacao VIVA de CAR-01, esta INTEIRAMENTE dentro do contrato (`direcao=credenciamento` e' valida): `desfecho` tem de seguir o ramo DMN (analise_descredenciamento) -- antes da correcao lia analise_credenciamento, derivado da `direcao`. Fixtures CONDICIONAIS espelhando as tabelas deployadas. Dados sinteticos apenas.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "canal": "portal",
+      "prestador_id": "PROV-CRED-EVAL-08",
+      "direcao": "credenciamento",
+      "tipo_prestador": "clinica",
+      "origem_solicitacao": "prestador",
+      "motivo_informado": "Solicitacao de credenciamento com sinalizacao de indicio de irregularidade pela auditoria de rede",
+      "data_solicitacao_iso": "2026-07-23",
+      "documentos_refs": [],
+      "licenca_valida": true,
+      "documentacao_completa": true,
+      "dentro_criterios_rede": true,
+      "tem_beneficiarios_vinculados": false,
+      "indicio_irregularidade_sinalizado": true
+    }
+  },
+  "recorded_llm": [
+    "Indicio de irregularidade sinalizado; caso encaminhado ao juridico de rede para co-review, que decide o encaminhamento. Nenhuma acusacao de fraude e nenhum credenciamento automatico."
+  ],
+  "dmn_fixture": {
+    "cred_admissibility": {
+      "__rules__": [
+        { "when": { "indicio_irregularidade_sinalizado": true }, "then": { "roteamento": "SEGUE_ANALISE", "motivo": "r_indicio_segue" } },
+        { "when": { "direcao": "descredenciamento" }, "then": { "roteamento": "SEGUE_ANALISE", "motivo": "r_descred_segue" } },
+        { "when": { "direcao": "credenciamento", "documentacao_completa": false }, "then": { "roteamento": "PENDENTE_DOCUMENTACAO", "motivo": "r_cred_doc_pendente" } },
+        { "when": { "direcao": "credenciamento", "documentacao_completa": true, "licenca_valida": true, "dentro_criterios_rede": true }, "then": { "roteamento": "CLERICAL_CREDENCIAR", "motivo": "r_cred_clerical" } },
+        { "when": { "direcao": "credenciamento", "documentacao_completa": true }, "then": { "roteamento": "ANALISE_HUMANA", "motivo": "r_cred_humano" } },
+        { "then": { "roteamento": "ANALISE_HUMANA", "motivo": "r_catchall" } }
+      ]
+    },
+    "cred_route": {
+      "__rules__": [
+        { "when": { "indicio_irregularidade_sinalizado": true }, "then": { "roteamento": "ANALISE_DESCREDENCIAMENTO", "motivo": "r_indicio_descred" } },
+        { "when": { "direcao": "descredenciamento" }, "then": { "roteamento": "ANALISE_DESCREDENCIAMENTO", "motivo": "r_descred" } },
+        { "when": { "direcao": "credenciamento" }, "then": { "roteamento": "ANALISE_CREDENCIAMENTO", "motivo": "r_cred" } },
+        { "then": { "roteamento": "ANALISE_HUMANA", "motivo": "r_catchall" } }
+      ]
+    },
+    "cred_sla": { "sla_analise": "P20D", "sla_alerta": "P12D", "fonte_regulatoria": "RN 566/567" },
+    "cred_prior_notice": { "exige_notificacao_previa": true, "exige_substituto_equivalente": false, "prazo_notificacao": "P30D", "fonte_regulatoria": "RN 567" }
+  },
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "admissibilidade": "SEGUE_ANALISE",
+      "roteamento_natureza": "ANALISE_DESCREDENCIAMENTO",
+      "motivo_humano": "analise_descredenciamento",
+      "grupo_humano": "juridico-rede",
+      "desfecho": "analise_descredenciamento",
+      "exige_notificacao_previa": true
+    }
+  },
+  "leak_canaries": []
+}

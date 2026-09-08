@@ -325,6 +325,34 @@ def _nondeterministic_calls(tree: ast.AST) -> set[str]:
 # fixed vocabulary value on an unrelated variable (`desfecho`), never read by this AST detector,
 # which only ever matches a `return {...}` dict-literal KEY. Fixed IN THE SAME COMMIT as this
 # widening, so `_FABRICATED_FACT_BASELINE` stays EMPTY.
+#
+# FAB-PUBLISH-CONTACT (NEW-A2-1/NEW-A2-2) widens the set with `evento_publicado` and
+# `contato_realizado` — the two shapes the fence was still blind to, in the two directions the
+# family can take:
+#   - `evento_publicado` (2 sites: `fraude.publish_completed`, `pagto.publish_completed`) claimed a
+#     domain-event PUBLISH from a body whose only statement was `logger.info`, in modules that have
+#     ZERO `kafka.publish(` call sites (`register_fraude_workers` does `del kafka  # unused`). The
+#     honest sibling is next door and predates it: `events.py` returns `event_published` from the
+#     producer's REAL delivery bool and adds `event_publish_best_effort_failure` on a swallowed
+#     failure. Neither site was reachable by the engine either — `operadora.{fraude,pagto}.
+#     publish_completed` are ORPHAN CODE TOPICS carried by ZERO BPMN service tasks (every
+#     `ST_Publish*` routes through the generic `operadora.events.publish`), so both functions and
+#     both registrations were RETIRED, mirroring `operadora.lgpd.publish_completed`
+#     (LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC, R-103/R-H) and `operadora.programa.monitor_programa`
+#     (PERSP-C5-MONITOR-PROGRAMA). Retiring them removes the only two sites, so widening here has
+#     zero collateral hits and the baseline stays EMPTY.
+#   - `contato_realizado` (1 site: `programa.proactive_contact`) claimed a CONTACT with the
+#     beneficiary. `ST_ProactiveContact` IS a real BPMN task, but no contact channel is wired to
+#     it: the raw handler publishes an OBSERVABILITY notification onto
+#     `operadora.notifications.internal` (`_PROACTIVE_CONTACT_NOTIFICATION_TYPE`), which reaches no
+#     beneficiary, and on the `kafka is None` path it returned the claim having done nothing at
+#     all. So this one is a REAL lacuna and takes the `GAP_*` class-token treatment
+#     (`programa.GAP_CONTATO_BENEFICIARIO_NAO_LIGADO` -> `{"contato_gap": ...}`), not `{}`.
+# The `published: True` sibling family (`{ans_submit,cancel,contas,nip,recurso,reembolso}.
+# publish_completed`/`publish`, 6 further sites of the identical shape found by the AST census this
+# WP ran over `src/maezo/tools/workers/*.py`) is deliberately NOT added here: fencing it without
+# fixing it would need six grandfathered baseline entries, i.e. an entry that reads like coverage
+# while nothing changed. Reported as an adjacency, not free-ridden on this slice.
 _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
     {
         "notificacao_previa_feita",
@@ -336,6 +364,8 @@ _FABRICATED_FACT_KEYS: frozenset[str] = frozenset(
         "referral_executado",
         "caso_registrado",
         "enrollment_realizado",
+        "evento_publicado",
+        "contato_realizado",
     }
 )
 

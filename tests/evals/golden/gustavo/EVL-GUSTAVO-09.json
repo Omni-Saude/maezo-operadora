@@ -1,0 +1,52 @@
+{
+  "id": "EVL-GUSTAVO-09",
+  "agent": "gustavo",
+  "class": "EU",
+  "tier": [
+    "A"
+  ],
+  "description": "GUS-04: J1 (ANS-SUBMIT) filing whose dataset is incomplete (dataset_complete=false) -- ans_submission_admissibility resolves REVISAO_HUMANA -- Gustavo routes to review_submission with motivo_humano=pendencia_envio, NEVER an automatic transmission. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for gustavo's declared `dmn: ans_submission_admissibility=REVISAO_HUMANA` trigger, which had zero golden coverage before this case (every prior J1 golden only exercised SEGUE_ENVIO or the ans_calendar-down fail-safe) -- discovered while re-deriving GUS-04's own literal trigger list against the code (not named in the original triage). Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "fluxo": "ans_submit",
+      "canal": "calendario",
+      "report_type": "DIOPS_TRIMESTRAL",
+      "competencia": "2026-Q3",
+      "periodicidade": "trimestral",
+      "origem_envio": "calendario",
+      "dataset_complete": false,
+      "schema_valid": true,
+      "lgpd_anonimizado": true,
+      "dataset_ref": "s3://synthetic/dataset-eval-09"
+    }
+  },
+  "recorded_llm": [
+    "Envio DIOPS trimestral com dataset incompleto; encaminhado para revisao humana antes de qualquer assinatura."
+  ],
+  "dmn_fixture": {
+    "ans_calendar": {
+      "due_date": "DRAFT_DUE_DATE",
+      "sla_alerta": "DRAFT_ALERTA",
+      "periodicidade": "trimestral",
+      "fonte_regulatoria": "DIOPS - trimestral: DRAFT/verify"
+    },
+    "ans_submission_admissibility": {
+      "roteamento": "REVISAO_HUMANA",
+      "motivo": "dataset incompleto"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "review_submission",
+      "motivo_humano": "pendencia_envio",
+      "admissibilidade_envio": "REVISAO_HUMANA",
+      "process_key": "SP-OP-ANS-SUBMIT-001",
+      "desfecho": "envio_encaminhado_revisao_humana"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "dmn:ans_submission_admissibility=REVISAO_HUMANA"
+  ]
+}

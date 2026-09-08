@@ -67,6 +67,62 @@ class FhirAuthError(RuntimeError):
     """Credencial FHIR configurada mas indisponivel. NUNCA degrada para anonimo."""
 
 
+class FhirResponseError(RuntimeError):
+    """O servidor FHIR respondeu, mas o CORPO nao e' um recurso legivel (NEW-12, §Delta-F1).
+
+    POR QUE ESTA CLASSE EXISTE, E POR QUE E' `RuntimeError`
+    --------------------------------------------------------
+    `raise_for_status()` cobre 4xx/5xx, mas nao cobre o caso mais desagradavel: um **200 com
+    corpo que nao e' JSON** — um proxy/WAF respondendo pelo backend, um payload truncado, um
+    `base_url` apontando para um endpoint que nao e' FHIR. Ai' quem levanta e' o `json` da
+    stdlib, com `json.JSONDecodeError`, que e' subclasse de `ValueError`.
+
+    `ValueError` esta DELIBERADAMENTE FORA de
+    `maezo.runtime.dependency_failures.EXTERNAL_DEPENDENCY_FAILURES` (e' a classe de bug mais
+    comum que um duplo de teste pode levantar), entao um corpo ilegivel chegaria aos nos de
+    agente como se fosse um ERRO DE PROGRAMACAO e DERRUBARIA o turno — quando a verdade e' o
+    oposto: o fornecedor mandou lixo. O conserto pertence a ESTA camada, que possui o contrato
+    do corpo, e nao a clausula `except` de dez grafos: aqui a falha vira um tipo DECLARADO da
+    familia `RuntimeError`, que os nos ja' absorvem como "indisponivel", enquanto um bug de
+    verdade (`TypeError`/`AttributeError`/`KeyError`) continua propagando intacto.
+
+    NUNCA carrega o CORPO na mensagem: um recurso FHIR e' PHI por definicao (ADR-0006). So'
+    tokens limitados — tipo de recurso, status HTTP, `content-type`, e o NOME da classe da
+    falha de parse.
+    """
+
+
+def _corpo_de_recurso(response: httpx.Response, *, recurso: str) -> dict[str, Any]:
+    """Decodifica o corpo de UMA resposta FHIR, ou levanta :class:`FhirResponseError`.
+
+    Duas recusas, ambas pelo MESMO motivo (o fornecedor nao entregou um recurso):
+
+    1. o corpo nao e' JSON — `json.JSONDecodeError`, ou qualquer outra falha da familia
+       `ValueError` que o cliente possa levantar sobre entrada externa;
+    2. o corpo e' JSON valido mas NAO e' um objeto (uma lista, um numero, `null`). A anotacao
+       `dict[str, Any]` dos dois metodos abaixo nao e' verificada em runtime, entao sem esta
+       checagem uma lista atravessaria ate' `bundle.get("entry", [])` no adaptador
+       (`agents/rafael/adapters.py`) e viraria um `AttributeError`: um bug de programacao
+       APARENTE, de causa externa — a mesma confusao que o §Delta-F1 fecha.
+    """
+    try:
+        corpo: Any = response.json()
+    except ValueError as exc:
+        raise FhirResponseError(
+            f"corpo ilegivel do servidor FHIR para {recurso}: {type(exc).__name__} "
+            f"(HTTP {response.status_code}, content-type "
+            f"{response.headers.get('content-type', '<ausente>')!r}). "
+            "Tratado como indisponibilidade do fornecedor, nao como bug local."
+        ) from exc
+    if not isinstance(corpo, dict):
+        raise FhirResponseError(
+            f"corpo do servidor FHIR para {recurso} nao e' um objeto JSON "
+            f"(veio {type(corpo).__name__}, HTTP {response.status_code}). "
+            "Um recurso/Bundle FHIR e' sempre um objeto."
+        )
+    return corpo
+
+
 class _Autenticador:
     """Token M2M do Cognito, buscado sob demanda e reaproveitado ate perto de expirar.
 
@@ -131,9 +187,27 @@ class _Autenticador:
                 "vira 'cobertura indisponivel' no dossie, que e' silencioso."
             ) from exc
 
+        # MESMA FAMILIA DO §Delta-F1, um andar acima: o corpo do Cognito tambem e' EXTERNO.
+        # `corpo["access_token"]` cru levanta `KeyError` e `float(corpo["expires_in"])` levanta
+        # `ValueError` sobre um 200 malformado — as duas classes que os nos de agente tratam
+        # como BUG e propagam, derrubando o turno. A resposta correta ja' existe neste modulo e
+        # e' a mesma de sempre: `FhirAuthError`, fail-closed, sem cabecalho anonimo.
+        if not isinstance(corpo, dict) or not corpo.get("access_token"):
+            raise FhirAuthError(
+                "Cognito respondeu 200 sem `access_token` utilizavel "
+                f"(corpo do tipo {type(corpo).__name__}). Recusando chamada FHIR sem credencial."
+            )
         self._token = str(corpo["access_token"])
         # `expires_in` e' segundos; a margem sai daqui, nao do consumidor.
-        self._expira_em = time.monotonic() + float(corpo.get("expires_in", 3600)) - self.MARGEM_S
+        try:
+            validade_s = float(corpo.get("expires_in", 3600))
+        except (TypeError, ValueError) as exc:
+            raise FhirAuthError(
+                "Cognito devolveu `expires_in` nao numerico "
+                f"({type(corpo.get('expires_in')).__name__}). Recusando chamada FHIR com um "
+                "token de validade desconhecida."
+            ) from exc
+        self._expira_em = time.monotonic() + validade_s - self.MARGEM_S
         logger.info(
             "fhir_token_obtido",
             client_id=self._s.client_id,
@@ -214,6 +288,10 @@ class FhirServer:
 
         Raises:
             httpx.HTTPStatusError: If the HAPI FHIR server returns an error.
+            FhirAuthError: If credentials are configured and no usable token can be obtained.
+            FhirResponseError: If the server answers 2xx with a body that is not a FHIR
+                resource object (§Delta-F1) — a `RuntimeError`, i.e. an external dependency
+                failure a node may degrade on, never a programming error.
         """
         url = f"{self._settings.base_url}/{resource_type}/{resource_id}"
 
@@ -223,7 +301,7 @@ class FhirServer:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=cabecalhos)
             response.raise_for_status()
-            data: dict[str, Any] = response.json()
+            data: dict[str, Any] = _corpo_de_recurso(response, recurso=resource_type)
 
         return data
 
@@ -245,6 +323,10 @@ class FhirServer:
 
         Raises:
             httpx.HTTPStatusError: If the HAPI FHIR server returns an error.
+            FhirAuthError: If credentials are configured and no usable token can be obtained.
+            FhirResponseError: If the server answers 2xx with a body that is not a FHIR Bundle
+                object (§Delta-F1) — a `RuntimeError`, i.e. an external dependency failure a
+                node may degrade on, never a programming error.
         """
         url = f"{self._settings.base_url}/{resource_type}"
 
@@ -254,6 +336,6 @@ class FhirServer:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, params=params or {}, headers=cabecalhos)
             response.raise_for_status()
-            data: dict[str, Any] = response.json()
+            data: dict[str, Any] = _corpo_de_recurso(response, recurso=f"{resource_type} (Bundle)")
 
         return data

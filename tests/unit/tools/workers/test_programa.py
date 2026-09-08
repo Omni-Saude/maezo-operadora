@@ -3,9 +3,13 @@
 TDD London School: tests verify the consent chokepoint and clinical discharge guard.
 """
 
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
 import pytest
 import structlog.testing
 
+from maezo.tools.workers import programa as programa_module
 from maezo.tools.workers.harness import (
     ExternalTask,
     FakeKafkaPublisher,
@@ -545,9 +549,33 @@ def test_stop_processing() -> None:
 # ---------------------------------------------------------------
 
 
-def test_proactive_contact_happy_path() -> None:
+def test_proactive_contact_declara_a_lacuna_de_canal_em_vez_de_afirmar_contato() -> None:
+    """NEW-A2-2: `contato_realizado=True` era fato fabricado — NENHUM canal e contatado.
+
+    `ST_ProactiveContact` E uma task real do BPMN (topico declarado), mas nada neste repo fala com
+    o beneficiario a partir dela: o handler raw publica uma notificacao de OBSERVABILIDADE em
+    `operadora.notifications.internal` (`programa.proactive_contact`), que nao chega a pessoa
+    alguma; e no caminho `kafka is None` a funcao afirmava o contato sem ter feito nada. Os
+    remetentes reais da classe de acao `comunicacao_beneficiario`
+    (`spec/policies/autonomy/action-approvals.yaml`) sao as superficies WhatsApp dos agentes,
+    nunca este worker.
+
+    Portanto ha lacuna REAL a declarar (ao contrario de `fraude.intake`, cujo registro acontece de
+    fato noutro lugar e por isso devolve `{}`): o retorno passa a ser exatamente
+    `{"contato_gap": <token de classe>}`, mesma forma e mesma disciplina de
+    `evidencia_gap`/`dossie_gap`/`referral_gap` (BEA-09/FAB-REFER-TO-LEGAL) e de
+    `enrollment_gap` (ENROLL-BENEFICIARIO-SEM-EFEITO-REAL) neste mesmo modulo.
+    """
+    token = getattr(programa_module, "GAP_CONTATO_BENEFICIARIO_NAO_LIGADO", None)
+    assert token == "contato_beneficiario_nao_ligado", (
+        "o token de classe da lacuna de canal precisa existir no modulo (vocabulario FECHADO, "
+        "sem PHI, declarado no contrato)"
+    )
+
     result = proactive_contact(_consented_variables())
-    assert result["contato_realizado"] is True
+
+    assert result == {"contato_gap": token}
+    assert "contato_realizado" not in result
 
 
 def test_proactive_contact_never_sets_desfecho() -> None:
@@ -724,7 +752,7 @@ async def test_make_proactive_contact_handler_publishes_notification() -> None:
         },
     )
     result = await handler(task)
-    assert result["contato_realizado"] is True
+    assert result == {"contato_gap": "contato_beneficiario_nao_ligado"}
     assert len(kafka.published) == 1
     topic, payload, key = kafka.published[0]
     assert topic == "operadora.notifications.internal"
@@ -739,7 +767,9 @@ async def test_make_proactive_contact_handler_publishes_notification() -> None:
 async def test_make_proactive_contact_handler_no_producer_still_completes() -> None:
     handler = make_proactive_contact_handler(None)
     result = await handler(_task(variables={"consentimento_ativo": True, "consent_checked": True}))
-    assert result["contato_realizado"] is True
+    # `kafka is None` era o caminho mais desonesto dos dois: afirmava o contato sem sequer a
+    # notificacao de observabilidade ter saido.
+    assert result == {"contato_gap": "contato_beneficiario_nao_ligado"}
 
 
 async def test_make_proactive_contact_handler_no_consent_reclassifies_to_value_error() -> None:
@@ -842,3 +872,86 @@ def test_register_programa_workers_accepts_kafka_none() -> None:
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_programa_workers(harness)
     assert len(harness.registered_topics) == 7
+
+
+# ---------------------------------------------------------------
+# REPARO §Delta F1/F2 (FAB-PUBLISH-CONTACT) — o evento de desfecho de SP-OP-PROGRAMA-001
+# passa a carregar os tokens de lacuna, como ja acontecia em SP-OP-FRAUDE-001 (NEW-05).
+# ---------------------------------------------------------------
+
+
+_PROGRAMA_BPMN = (
+    Path(__file__).resolve().parents[4]
+    / "spec"
+    / "processes"
+    / "bpmn"
+    / "SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn"
+)
+_CAMUNDA_NS = "{http://camunda.org/schema/1.0/bpmn}"
+
+
+def test_programa_completion_event_carrega_os_tokens_de_lacuna() -> None:
+    """§Delta F1/F2: `agents.events.programa.completed` leva `contato_gap` e `enrollment_gap`.
+
+    Irmao exato de `test_fraude.py::test_fraude_completion_events_carregam_os_tokens_de_lacuna`
+    (NEW-05), que a WP aplicou as SEIS tasks de desfecho de SP-OP-FRAUDE-001 e NAO a esta. Os dois
+    tokens viviam SO no escopo da instancia: quem consumia `programa.completed` lia
+    `desfecho=enrollment_realizado` sem sinal algum de que ninguem foi contatado
+    (`contato_gap`, NEW-A2-2) e de que nenhum plano de cuidado foi montado (`enrollment_gap`,
+    ENROLL-BENEFICIARIO-SEM-EFEITO-REAL) — verbatim o defeito que o mesmo commit corrigiu para
+    fraude.
+
+    Escopo: `ST_BuildCarePlan` e `ST_ProactiveContact` vivem em `SUB_Cuidado`, e o UNICO
+    predecessor de `ST_PublishCompleted` e `SUB_Cuidado` (grafo do proprio BPMN, checado abaixo) —
+    o subprocesso completa normalmente PARA esta task, entao a variavel esta em escopo quando ela
+    inicia.
+
+    Composicao continua sendo do BPMN (`event_payload_vars`), nunca do worker (C3), e `events.py`
+    so copia a variavel `if var_name in task.variables` — ao ligar o canal real de contato / a
+    delegacao `care.enroll`, a chave some do payload sozinha e "ausencia = ocorreu de verdade"
+    segue valendo.
+    """
+    tree = ET.parse(_PROGRAMA_BPMN)
+    root = tree.getroot()
+
+    alvo = None
+    for task in root.iter():
+        if not task.tag.endswith("serviceTask"):
+            continue
+        if task.get("id") != "ST_PublishCompleted":
+            continue
+        alvo = task
+        break
+
+    assert alvo is not None, (
+        "ST_PublishCompleted nao existe mais em SP-OP-PROGRAMA-001 — o parse quebrou ou a task "
+        "de publicacao de desfecho foi renomeada (nao-vacuidade)"
+    )
+
+    params = {el.get("name"): (el.text or "") for el in alvo.iter(f"{_CAMUNDA_NS}inputParameter")}
+    assert params.get("event_topic") == "agents.events.programa.completed", (
+        f"ST_PublishCompleted deixou de publicar o topico de desfecho: {params.get('event_topic')!r}"
+    )
+    assert "event_desfecho" in params, (
+        "ST_PublishCompleted perdeu o `event_desfecho` — este teste pina a task de DESFECHO"
+    )
+
+    payload_vars = {v.strip() for v in params.get("event_payload_vars", "").split(",") if v.strip()}
+    assert payload_vars, "event_payload_vars vazio — o parse quebrou (nao-vacuidade)"
+
+    faltando = {"contato_gap", "enrollment_gap"} - payload_vars
+    assert faltando == set(), (
+        "o evento `agents.events.programa.completed` nao carrega os tokens de lacuna "
+        f"{sorted(faltando)} — quem consome o desfecho volta a ler `enrollment_realizado` sem "
+        "saber que ninguem foi contatado nem que plano algum foi montado"
+    )
+
+    # O unico predecessor de ST_PublishCompleted e o subprocesso que hospeda os dois emissores:
+    # e por isso que as variaveis estao em escopo aqui (e nao por suposicao).
+    bpmn_ns = "{http://www.omg.org/spec/BPMN/20100524/MODEL}"
+    preds = [
+        flow.get("sourceRef")
+        for flow in root.iter(f"{bpmn_ns}sequenceFlow")
+        if flow.get("targetRef") == "ST_PublishCompleted"
+    ]
+    assert preds == ["SUB_Cuidado"], f"predecessores de ST_PublishCompleted mudaram: {preds}"
