@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "COMPLETION-RUNNER-NOQA-REPAIR",
+  "base": "516902641c03208c2d2838b2b1d44749dd460cae",
+  "commit_funcional": "0552d971",
+  "status": "REPARADO-NAO-APROVADO",
+  "autor": "runner_noqa_repair",
+  "verificador_pendente": "engine_runner_assurance",
+  "arquivos": [
+    "REPORT.md",
+    "argv.txt",
+    "stdout.txt",
+    "stderr.txt",
+    "fontes.txt",
+    "clean.txt",
+    "digests.sha256"
+  ],
+  "permissoes": {
+    "diretorio": "0700",
+    "arquivos": "0600"
+  },
+  "observacao_digest": "digests.sha256 cobre todos os demais arquivos do manifesto e nao inclui a si proprio"
+}

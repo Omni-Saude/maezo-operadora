@@ -1,0 +1,13 @@
+Momento: depois do commit funcional 0552d971 e antes dos metadados/ledger.
+Comando: git status --short --branch
+Saida:
+## completion/runner-noqa-repair
+
+Comando de recolhimento: busca em ps por pytest/runner desta worktree e teste do
+owner lock global.
+Saida:
+PASS: nenhum processo pytest/runner desta worktree permanece ativo
+PASS: nenhum owner lock global pendente
+
+O fechamento limpo depois do commit de metadados e verificado externamente pelo
+orquestrador/verificador; este arquivo nao se autoatualiza depois do commit.

@@ -1,0 +1,4 @@
+As chamadas aceitas foram capturadas pelo executor em stream combinado e nao
+emitiram stderr separado. A interrupcao exploratoria tambem foi preservada no
+stream combinado de stdout.txt, com rc 2 e marcador KeyboardInterrupt; ela nao e
+contada como GREEN.

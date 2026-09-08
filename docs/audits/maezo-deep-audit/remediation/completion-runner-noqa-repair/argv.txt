@@ -1,0 +1,62 @@
+# Ambiente bloqueado
+uv sync --locked --python 3.12.13 --extra dev --exclude-newer 2026-08-05T00:00:00Z
+
+# RED focal na base 516902641c03208c2d2838b2b1d44749dd460cae
+env -u VIRTUAL_ENV .venv/bin/python -m pytest tests/unit/ci/test_noqa_hygiene.py::TestRealTreeHasNoInertNoqa::test_no_tracked_python_file_carries_an_inert_noqa -q -p no:cacheprovider
+
+# GREEN focal no delta
+env -u VIRTUAL_ENV .venv/bin/python -m pytest tests/unit/ci/test_noqa_hygiene.py::TestRealTreeHasNoInertNoqa::test_no_tracked_python_file_carries_an_inert_noqa -q -p no:cacheprovider
+
+# GREEN aceito do modulo focal
+env -u VIRTUAL_ENV .venv/bin/python -m pytest tests/unit/ci/test_noqa_hygiene.py -q -p no:cacheprovider
+
+# Estaticos do delta
+.venv/bin/ruff check scripts/dev/run_engine_integration.py tests/unit/ci/test_noqa_hygiene.py
+.venv/bin/ruff format --check scripts/dev/run_engine_integration.py tests/unit/ci/test_noqa_hygiene.py
+env -u VIRTUAL_ENV .venv/bin/python -m py_compile scripts/dev/run_engine_integration.py
+if rg -n '#\s*noqa\s*:\s*S310' scripts/dev/run_engine_integration.py; then exit 1; else printf 'PASS: nenhuma referencia noqa:S310 no runner\n'; fi
+shasum -a 256 scripts/ci/pytest_execution_evidence.py
+git diff --check 516902641c03208c2d2838b2b1d44749dd460cae..HEAD
+
+# Equivalencia AST/bytecode e source pins
+env -u VIRTUAL_ENV .venv/bin/python - <<'PY'
+import ast
+import hashlib
+import marshal
+import subprocess
+from pathlib import Path
+
+path = Path('scripts/dev/run_engine_integration.py')
+base = subprocess.run(
+    ['git', 'show', '516902641c03208c2d2838b2b1d44749dd460cae:scripts/dev/run_engine_integration.py'],
+    check=True,
+    capture_output=True,
+).stdout
+current = path.read_bytes()
+base_text = base.decode('utf-8')
+current_text = current.decode('utf-8')
+def ast_digest(text: str) -> str:
+    return hashlib.sha256(ast.dump(ast.parse(text), annotate_fields=True, include_attributes=True).encode()).hexdigest()
+def bytecode_digest(text: str) -> str:
+    return hashlib.sha256(marshal.dumps(compile(text, str(path), 'exec'))).hexdigest()
+print(f'base_source_sha256={hashlib.sha256(base).hexdigest()}')
+print(f'current_source_sha256={hashlib.sha256(current).hexdigest()}')
+print(f'base_lines={len(base_text.splitlines())}')
+print(f'current_lines={len(current_text.splitlines())}')
+print(f'base_ast_sha256={ast_digest(base_text)}')
+print(f'current_ast_sha256={ast_digest(current_text)}')
+print(f'base_bytecode_sha256={bytecode_digest(base_text)}')
+print(f'current_bytecode_sha256={bytecode_digest(current_text)}')
+assert len(base_text.splitlines()) == len(current_text.splitlines()) == 2046
+assert ast_digest(base_text) == ast_digest(current_text)
+assert bytecode_digest(base_text) == bytecode_digest(current_text)
+print('PASS: AST completo, bytecode compilado e contagem de linhas sao equivalentes')
+PY
+
+# Corrida exploratoria interrompida; INCOMPLETA, nao e GREEN
+env -u VIRTUAL_ENV .venv/bin/python -m pytest tests/unit/ci/test_noqa_hygiene.py tests/unit/dev/test_engine_integration_runner.py tests/unit/dev/test_engine_runner_security_delta.py -q -p no:cacheprovider
+
+# Recolhimento posterior
+matches="$(ps -axo pid=,ppid=,pgid=,command= | awk '/runner-noqa-repair\/\.venv\/bin\/python -m pytest|runner-noqa-repair\/scripts\/dev\/run_engine_integration\.py/ && $0 !~ /awk/ {print}')"
+test -z "$matches"
+test ! -e /Users/familia/code/maezo-operadora/engine.lock
