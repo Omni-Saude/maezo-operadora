@@ -254,3 +254,19 @@ container-to-container traffic always uses `5432` regardless.
   `docs/runbooks/devops-stack.md` §5's metric-catalog table). Locally: Grafana at
   `http://localhost:3000`, Prometheus at `http://localhost:9090`
   (`make dev-observability` = `docker compose --profile core --profile observability up -d`).
+
+
+O contexto de publicação também inclui o sufixo privado dos IDs parametrizados originais,
+com suas representações literais, repr/JSON e escapes Unicode/controle usados pelo pytest.
+Valores conhecidos de propriedades sensíveis e desses IDs são removidos das narrativas
+XML e dos campos `reports.skip_reason`, `reports.wasxfail`, `cases.skip_reason` e erros
+antes da publicação. A validação usa os inputs originais; fingerprints, identidades opacas,
+fases, outcomes, contagens e rc permanecem autoritativos. Propriedades públicas e testemunhas
+assertionais não sensíveis continuam disponíveis. A fronteira não classifica valores
+arbitrários sem contexto nem transforma um skip/xfail não verificado em PASS.
+Coleta e execução gravam primeiro seus JSONs em `.ARTEFATO.pytest-*` (0700/0600),
+junto da custódia local do console; nenhum JSON nominalmente público é staging bruto.
+A publicação é atômica sobre conteúdo já projetado. XML ausente/parcial ou falha de
+contexto/projeção remove os destinos de execução/XML e publica somente erro seguro com
+rc não verde. Falhas de I/O e interrupções mantêm diagnósticos privados e não reutilizam
+artefatos stale; a custódia local deve ser excluída dos uploads.

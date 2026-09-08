@@ -9,6 +9,7 @@ com o manifesto fixado e grava um relatório de validação legível por máquin
 from __future__ import annotations
 
 import argparse
+import codecs
 import hashlib
 import json
 import os
@@ -17,7 +18,7 @@ import sys
 import tempfile
 import traceback
 import xml.etree.ElementTree as ET
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -81,7 +82,7 @@ def _remove_stale(*paths: Path) -> None:
 
 
 @contextmanager
-def _private_pytest_output(anchor: Path) -> Iterator[None]:
+def _private_pytest_output(anchor: Path) -> Iterator[Path]:
     """Retém saída Python e FD (incluindo filhos) fora das superfícies públicas.
 
     Cada invocação tem custódia própria; nenhum texto arbitrário é reconstruído
@@ -103,7 +104,7 @@ def _private_pytest_output(anchor: Path) -> Iterator[None]:
         stack.enter_context(redirect_stdout(stream))
         stack.enter_context(redirect_stderr(stream))
         try:
-            yield
+            yield directory
         except BaseException:
             traceback.print_exc(file=stream)
             raise
@@ -122,19 +123,35 @@ def _safe_exception(context: str, exc: BaseException) -> str:
     return f"{context}: {type(exc).__name__} sha256={digest}"
 
 
-def _publish_sanitized_junit(private_path: Path, public_path: Path) -> None:
-    """Projeta identidades do XML já validado e publica conteúdo seguro."""
-    tree = ET.parse(private_path)
+def _publication_context(source: Path) -> Callable[[str], str]:
+    """Propaga somente valores privados conhecidos; o XML original é autoridade."""
+    tree = ET.parse(source)
     secrets: set[str] = set()
+
+    def remember(value: str) -> None:
+        if value:
+            secrets.update((value, repr(value)[1:-1], json.dumps(value)[1:-1]))
+
     for prop in tree.iter("property"):
-        name, value = prop.get("name", ""), prop.get("value", "")
-        # Reutiliza a semântica de chave do núcleo sem inferi-la da folha.
+        name = prop.get("name", "")
         context = f'{json.dumps(name)}: "pytest-property-value"'
         if redact(context) == f'{json.dumps(name)}: "<redacted>"':
-            if value:
-                secrets.update((value, repr(value)[1:-1], json.dumps(value)[1:-1]))
-            prop.set("value", "<redacted>")
-    # Alternativas são somente literais conhecidos no XML, nunca padrões de segredo.
+            remember(prop.get("value", ""))
+    for case in tree.iter("testcase"):
+        for key in ("classname", "name"):
+            _, marker, parameter = case.get(key, "").partition("[")
+            if marker:
+                parameter = parameter.removesuffix("]")
+                remember(parameter)
+                # Pytest escapa IDs Unicode/controle; decodifica escapes individuais
+                # sem reinterpretar caracteres Unicode que já chegaram literais.
+                remember(
+                    re.sub(
+                        r"\\(?:x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|[\\abfnrtv])",
+                        lambda match: codecs.decode(match[0], "unicode_escape"),
+                        parameter,
+                    )
+                )
     literals = (
         re.compile("|".join(re.escape(value) for value in sorted(secrets, key=len, reverse=True)))
         if secrets
@@ -145,6 +162,41 @@ def _publish_sanitized_junit(private_path: Path, public_path: Path) -> None:
         safe = literals.sub(lambda _: "<redacted>", value) if literals else value
         return redact(safe)
 
+    return diagnostic
+
+
+def _project_narratives(payload: Any, diagnostic: Callable[[str], str], *, narrative: bool = False) -> Any:
+    """Preserva autoridade estrutural/identidades; projeta folhas narrativas."""
+    if isinstance(payload, dict):
+        return {
+            key: _project_narratives(
+                value,
+                diagnostic,
+                narrative=key
+                in {
+                    "skip_reason",
+                    "wasxfail",
+                    "errors",
+                    "collection_error",
+                    "reason",
+                },
+            )
+            for key, value in payload.items()
+        }
+    if isinstance(payload, list):
+        return [_project_narratives(value, diagnostic, narrative=narrative) for value in payload]
+    return diagnostic(payload) if narrative and isinstance(payload, str) else payload
+
+
+def _publish_sanitized_junit(private_path: Path, public_path: Path) -> None:
+    """Projeta identidades do XML já validado e publica conteúdo seguro."""
+    tree = ET.parse(private_path)
+    diagnostic = _publication_context(private_path)
+    for prop in tree.iter("property"):
+        name = prop.get("name", "")
+        context = f'{json.dumps(name)}: "pytest-property-value"'
+        if redact(context) == f'{json.dumps(name)}: "<redacted>"':
+            prop.set("value", "<redacted>")
     for element in tree.getroot().iter():
         if element.tag == "testcase":
             identity = public_junit_identity(
@@ -183,8 +235,10 @@ def collect(output: Path, root: Path, raw_pytest_args: Sequence[str]) -> int:
     _remove_stale(output)
     args = _pytest_args(raw_pytest_args)
     try:
-        with _private_pytest_output(output):
-            plugin = EvidencePlugin(output=output, root=root)
+        with _private_pytest_output(output) as private:
+            raw_evidence = private / "collection.json"
+            raw_evidence.touch(mode=0o600)
+            plugin = EvidencePlugin(output=raw_evidence, root=root)
             pytest_rc = int(pytest.main([*args, "--collect-only"], plugins=[plugin]))
     except BaseException as exc:
         _remove_stale(output)
@@ -197,7 +251,7 @@ def collect(output: Path, root: Path, raw_pytest_args: Sequence[str]) -> int:
         )
         return pytest_rc
     try:
-        evidence = _read_json(output)
+        evidence = _read_json(raw_evidence)
         items = evidence["collection"]
         nodeids = [item["nodeid"] for item in items]
         if (
@@ -212,6 +266,12 @@ def collect(output: Path, root: Path, raw_pytest_args: Sequence[str]) -> int:
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         _remove_stale(output)
         print(f"[live-pytest] FAIL coleta: {_safe_exception('manifesto invalido', exc)}", file=sys.stderr)
+        return 3
+    try:
+        _write_json(output, evidence)
+    except OSError as exc:
+        _remove_stale(output)
+        print(f"[live-pytest] FAIL coleta: {_safe_exception('publicacao recusada', exc)}", file=sys.stderr)
         return 3
     _print_collection(items)
     print(f"[live-pytest] coleta fixada: {len(nodeids)} casos em {output}")
@@ -257,14 +317,16 @@ def run(
     pytest_rc = 3
     validation_completed = False
     try:
-        with _private_pytest_output(evidence_path):
+        with _private_pytest_output(evidence_path) as private:
             # O produtor não deve criar o XML cru com a umask pública do job.
             private_junit_path.parent.mkdir(parents=True, exist_ok=True)
             fd = os.open(private_junit_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             os.close(fd)
-            plugin = EvidencePlugin(output=evidence_path, root=root)
+            raw_evidence = private / "execution.json"
+            raw_evidence.touch(mode=0o600)
+            plugin = EvidencePlugin(output=raw_evidence, root=root)
             pytest_rc = int(pytest.main([*args, f"--junitxml={private_junit_path}"], plugins=[plugin]))
-        evidence = _read_json(evidence_path)
+        evidence = _read_json(raw_evidence)
         report = validate_execution(private_junit_path, evidence, expected_items, pytest_rc)
         validation_completed = True
     except BaseException as exc:
@@ -275,11 +337,19 @@ def run(
     try:
         if validation_completed:
             try:
+                diagnostic = _publication_context(private_junit_path)
+                safe_evidence = _project_narratives(evidence, diagnostic)
+                report = _project_narratives(report, diagnostic)
                 _publish_sanitized_junit(private_junit_path, junit_path)
-            except (OSError, ET.ParseError, ValueError) as exc:
-                report.setdefault("errors", []).append(_safe_exception("publicacao JUnit recusada", exc))
-                report["return_code"] = pytest_rc or 3
-                junit_path.unlink(missing_ok=True)
+                _write_json(evidence_path, safe_evidence)
+            except BaseException as exc:
+                # A projeção pode falhar antes de substituir o relatório original.
+                # Nenhuma narrativa desse original pode chegar ao fallback público.
+                report = {
+                    "return_code": pytest_rc or 3,
+                    "errors": [_safe_exception("publicacao recusada", exc)],
+                }
+                _remove_stale(junit_path, evidence_path)
     finally:
         private_junit_path.unlink(missing_ok=True)
         publishing_path.unlink(missing_ok=True)
