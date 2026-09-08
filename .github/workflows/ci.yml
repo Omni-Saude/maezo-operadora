@@ -923,16 +923,7 @@ jobs:
         if: always() && steps.guard.outputs.run == 'true'
         run: docker compose --profile core --profile simulator down -v
 
-  # ── T2.3 (B9 CI surgery, guard-step pattern): no golden datasets exist yet under
-  # tests/evals/ (no agent code has landed that needs eval gating). Previously this
-  # whole job was permanently disabled via `if: false`, an invisible skip with no
-  # runtime signal. Now: the existing dorny/paths-filter gate (only run when
-  # agent-touching paths change) is preserved as-is, and a second guard step checks
-  # for real, collectable eval-marked tests. If agent paths changed but there is
-  # nothing to collect yet, a LOUD visible skip fires instead of silently no-op'ing.
-  # Unblock condition: T3.2 (V2-COMPLETION-PLAN) lands golden datasets under
-  # tests/evals/. The moment that happens this lane auto-activates — no workflow
-  # edit needed.
+  # ADR-0009: deterministic replay remains the keyless, merge-blocking PR gate.
   evals:
     name: evals (agent-touching paths)
     runs-on: ubuntu-latest
@@ -957,6 +948,10 @@ jobs:
               - 'src/maezo/runtime/**'
               - 'src/maezo/gateway/**'
               - 'tests/evals/**'
+              - 'tests/unit/evals/**'
+              - '.github/workflows/ci.yml'
+              - 'scripts/ci/run_live_pytest.py'
+              - 'scripts/ci/pytest_execution_evidence.py'
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         if: steps.agent_changes.outputs.agents == 'true'
@@ -975,76 +970,18 @@ jobs:
         if: steps.agent_changes.outputs.agents == 'true'
         run: uv sync --locked --extra dev
 
-      # Three-bucket guard (see the `integration` job for the verification-cycle-1
-      # fail-open this replaces): 0 -> run; 4/5 -> visible skip; else -> job FAILS
-      # (broken collection must never masquerade as "no golden datasets yet").
-      - name: Check for collectable eval golden datasets
-        id: guard
+      - name: Collect nonzero Tier-A evals
         if: steps.agent_changes.outputs.agents == 'true'
-        run: |
-          set +e
-          uv run pytest tests/evals --collect-only -q -m eval
-          code=$?
-          set -e
-          echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
-          case "${code}" in
-            0)
-              echo "collect exit ${code}: eval tests collected — running the real gate"
-              echo "run=true" >> "$GITHUB_OUTPUT"
-              ;;
-            4|5)
-              echo "collect exit ${code}: no golden datasets yet (4 = dir missing, 5 = nothing collected) — visible skip"
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "::error::COLLECTION BROKEN — tests/evals exists but cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no golden datasets yet' — failing the job."
-              exit 1
-              ;;
-          esac
+        run: uv run pytest tests/evals --collect-only -q -m "eval and not llm_live"
 
-      - name: EVALS LANE SKIPPED (visible)
-        if: steps.agent_changes.outputs.agents == 'true' && steps.guard.outputs.run == 'false'
-        run: |
-          echo "::notice::EVALS LANE SKIPPED — no golden datasets yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }}); unblocks at T3.2 (V2-COMPLETION-PLAN)"
-          {
-            echo "## evals (agent-touching paths): SKIPPED"
-            echo ""
-            echo "Agent-touching paths changed, but no collectable eval-marked tests exist under"
-            echo "\`tests/evals/\` yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }})."
-            echo "This lane auto-activates the moment T3.2 (V2-COMPLETION-PLAN) lands golden"
-            echo "datasets there — no workflow edit needed."
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Run keyless Tier-A eval gate
+        if: steps.agent_changes.outputs.agents == 'true'
+        run: uv run pytest tests/evals -q -m "eval and not llm_live"
 
-      - name: Run eval gate
-        if: steps.agent_changes.outputs.agents == 'true' && steps.guard.outputs.run == 'true'
-        run: make evals
-        env:
-          LLM_GENERAL_API_KEY: ${{ secrets.LLM_GENERAL_API_KEY }}
-
-      - name: Upload eval results
-        if: always() && steps.agent_changes.outputs.agents == 'true' && steps.guard.outputs.run == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: eval-results-${{ github.sha }}
-          path: .pytest_cache/
-          retention-days: 30
-
-  # ---------------------------------------------------------------------------
-  # Nightly eval job — full eval suite against HEAD of main.
-  # Runs at 03:00 BRT (06:00 UTC) to catch silent prompt/model drift.
-  # Triggers on: schedule only (not on PRs to avoid API key usage in forks).
-  # ---------------------------------------------------------------------------
-  # ── T2.3 (B9 CI surgery, guard-step pattern): same real blocker as `evals` — no
-  # golden datasets exist yet under tests/evals/. Previously disabled via `if: false`
-  # (invisible). Also fixes a latent bug: the comment above always claimed this job
-  # "Triggers on: schedule only (not on PRs to avoid API key usage in forks)", but
-  # there was no `if:` enforcing that — only the blanket `if: false` masked it. Now
-  # both are real: the job is schedule-gated at the job level, and a guard step
-  # decides whether there is anything to run. Unblock condition: T3.2
-  # (V2-COMPLETION-PLAN) lands golden datasets under tests/evals/. This lane
-  # auto-activates the moment that happens — no workflow edit needed.
+  # Anthropic live evaluations are schedule-only: no credential is available to PR code.
+  # This named secret is an explicit provider contract, not an alias for LLM_GENERAL_API_KEY.
   evals-nightly:
-    name: evals-nightly (full suite)
+    name: evals-nightly (replay + required live)
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule'
     steps:
@@ -1064,55 +1001,50 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --extra dev
 
-      # Three-bucket guard (see the `integration` job for the verification-cycle-1
-      # fail-open this replaces): 0 -> run; 4/5 -> visible skip; else -> job FAILS.
-      - name: Check for collectable eval golden datasets
-        id: guard
-        run: |
-          set +e
-          uv run pytest tests/evals --collect-only -q -m eval
-          code=$?
-          set -e
-          echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
-          case "${code}" in
-            0)
-              echo "collect exit ${code}: eval tests collected — running the full nightly suite"
-              echo "run=true" >> "$GITHUB_OUTPUT"
-              ;;
-            4|5)
-              echo "collect exit ${code}: no golden datasets yet (4 = dir missing, 5 = nothing collected) — visible skip"
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "::error::COLLECTION BROKEN — tests/evals exists but cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no golden datasets yet' — failing the job."
-              exit 1
-              ;;
-          esac
+      - name: Collect nonzero Tier-A evals
+        run: uv run pytest tests/evals --collect-only -q -m "eval and not llm_live"
 
-      - name: EVALS-NIGHTLY LANE SKIPPED (visible)
-        if: steps.guard.outputs.run == 'false'
+      - name: Run keyless Tier-A eval gate
+        run: uv run pytest tests/evals -q -m "eval and not llm_live"
+
+      - name: Require and run Anthropic live evals
+        id: live
+        env:
+          MAEZO_ANTHROPIC_API_KEY: ${{ secrets.MAEZO_ANTHROPIC_API_KEY }}
         run: |
-          echo "::notice::EVALS-NIGHTLY LANE SKIPPED — no golden datasets yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }}); unblocks at T3.2 (V2-COMPLETION-PLAN)"
+          if [ -z "${MAEZO_ANTHROPIC_API_KEY//[[:space:]]/}" ]; then
+            echo "::error::LIVE EVAL UNAVAILABLE — configure the Anthropic-only secret MAEZO_ANTHROPIC_API_KEY. No live evaluation was verified."
+            exit 1
+          fi
+          uv run python scripts/ci/run_live_pytest.py collect \
+            --output eval-results/live-collection.json \
+            -- tests/evals -q -m "eval and llm_live" --require-live-evals
+          uv run python scripts/ci/run_live_pytest.py run \
+            --expected eval-results/live-collection.json \
+            --evidence eval-results/live-execution.json \
+            --junit eval-results/live-junit.xml \
+            --validation eval-results/live-validation.json \
+            -- tests/evals -q -m "eval and llm_live" --require-live-evals
+
+      - name: Report live evaluation outcome
+        if: always()
+        env:
+          LIVE_OUTCOME: ${{ steps.live.outcome }}
+        run: |
           {
-            echo "## evals-nightly (full suite): SKIPPED"
-            echo ""
-            echo "No collectable eval-marked tests exist under \`tests/evals/\` yet (pytest"
-            echo "--collect-only exit ${{ steps.guard.outputs.collect_code }}). This lane"
-            echo "auto-activates the moment T3.2 (V2-COMPLETION-PLAN) lands golden datasets"
-            echo "there — no workflow edit needed."
+            echo "## Anthropic live evaluations"
+            echo "Step outcome: ${LIVE_OUTCOME}. Success requires nonzero executed cases with no skips."
+            echo "Missing credentials, collection failures and interrupted runs are not verified evaluations."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Full nightly eval run
-        if: steps.guard.outputs.run == 'true'
-        run: make evals
-        env:
-          LLM_GENERAL_API_KEY: ${{ secrets.LLM_GENERAL_API_KEY }}
-          NIGHTLY_EVAL: "1"
-
-      - name: Upload nightly eval results
-        if: always() && steps.guard.outputs.run == 'true'
+      - name: Upload public live evaluation evidence
+        if: always() && steps.live.outcome != 'skipped'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: nightly-eval-results-${{ github.sha }}
-          path: .pytest_cache/
+          path: |
+            eval-results/live-collection.json
+            eval-results/live-execution.json
+            eval-results/live-junit.xml
+            eval-results/live-validation.json
           retention-days: 30

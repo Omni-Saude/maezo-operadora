@@ -347,10 +347,14 @@ def load_golden(agent: str, *, root: Path | None = None) -> list[dict[str, Any]]
 
 
 # ---------------------------------------------------------------------------
-# Tier B (live-LLM) skip gate — mirrors tests/unit/runtime/test_inference_live.py exactly.
+# Tier B (live-LLM) skip gate — same credential names as the runtime liveness test.
 # ---------------------------------------------------------------------------
 
-_HAS_LLM_KEY = bool(os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
+# Preserve runtime precedence: a nonempty primary (even whitespace) shadows the fallback.
+# Whitespace cannot authorize live execution; strict nightly reports it as unavailable.
+_HAS_LLM_KEY = bool(
+    (os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+)
 
 #: Apply to any Tier-B (live) eval test/parametrize case. Reuses the existing `llm_live` marker
 #: (`pyproject.toml`) rather than registering a new one — Tier B is "the same live-Anthropic-call
@@ -377,3 +381,64 @@ __all__ = [
     "live_key_skip",
     "load_golden",
 ]
+
+
+# ADR-0009: opt-in strict live evidence; ordinary keyless replay/local skips stay unchanged.
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--require-live-evals",
+        action="store_true",
+        default=False,
+        help="Require configured Anthropic, nonzero live collection and every body passed.",
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    if config.getoption("--require-live-evals"):
+        config.pluginmanager.register(_RequiredLiveEvals(), "maezo-live-evals")
+
+
+class _RequiredLiveEvals:
+    def __init__(self) -> None:
+        self.collected: set[str] = set()
+        self.passed: set[str] = set()
+        self.nonpass = False
+
+    def pytest_sessionstart(self, session: pytest.Session) -> None:
+        if not _HAS_LLM_KEY:
+            raise pytest.UsageError(
+                "LIVE EVAL UNAVAILABLE: missing or whitespace effective Anthropic credential. "
+                "Set MAEZO_ANTHROPIC_API_KEY (nightly secret contract) or local "
+                "ANTHROPIC_API_KEY; a nonempty primary shadows the fallback."
+            )
+        # Construction only, no request; the live bodies use this same explicit setting.
+        # Credential resolution and SDK construction remain inside runtime.inference.
+        from maezo.runtime.inference import InferenceProvider, InferenceSettings
+
+        self.provider = InferenceProvider(settings=InferenceSettings(provider="anthropic"))
+
+    def pytest_collection_finish(self, session: pytest.Session) -> None:
+        self.collected = {item.nodeid for item in session.items}
+        if not self.collected or any(
+            item.get_closest_marker("eval") is None or item.get_closest_marker("llm_live") is None
+            for item in session.items
+        ):
+            raise pytest.UsageError("LIVE EVAL INVALID: require nonzero eval and llm_live selection")
+
+    def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
+        if report.failed or report.skipped or hasattr(report, "wasxfail"):
+            self.nonpass = True
+        if report.when == "call" and report.passed and not hasattr(report, "wasxfail"):
+            self.passed.add(report.nodeid)
+
+    def pytest_sessionfinish(self, session: pytest.Session, exitstatus: int) -> None:
+        if session.config.option.collectonly:
+            return
+        if exitstatus == 0 and (not self.collected or self.nonpass or self.passed != self.collected):
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+    def pytest_terminal_summary(self, terminalreporter: Any) -> None:
+        terminalreporter.write_line(
+            f"LIVE EVAL: collected={len(self.collected)} passed={len(self.passed)}; "
+            "collection-only is not live execution evidence"
+        )

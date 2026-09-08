@@ -19,8 +19,8 @@ one" / "how does CI consume this" mechanics.
 | Provider | `ReplayInferenceProvider` — scripted `recorded_llm` responses, no network, no key | the real `anthropic` provider (`InferenceProvider(settings=InferenceSettings(provider="anthropic"))`) |
 | Marker | `@pytest.mark.eval` | `@pytest.mark.eval` + `@pytest.mark.llm_live` + `@live_key_skip` |
 | Pass criterion | exact route / structured-field match / canary-absent (RT/SF/ABS) | threshold score >= `live.threshold` against the Tier-A baseline (TH) |
-| Runs when | always, keyless, no network — the `evals (agent-touching paths)` CI job (runs on every agent-touching PR; **not a required check in the `main-protection` ruleset today** — owner action pending to make it required) | only when `MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY` is set — nightly-only in CI, non-blocking; **loudly skips** otherwise |
-| Cost/flakiness | zero (pure Python, deterministic) | one short LLM call per case; never gates a PR |
+| Runs when | always, keyless, no network — the `evals (agent-touching paths)` CI job (runs on every agent-touching PR; **not a required check in the `main-protection` ruleset today** — owner action pending to make it required) | nightly-only in CI, outside the PR gate; strict mode **fails as unavailable** without a nonblank Anthropic key; ordinary local runs retain loud skips |
+| Cost/flakiness | zero (pure Python, deterministic) | live calls may incur cost; see the dossier refusal limitation below; never gates a PR |
 
 A single golden JSON case can carry both tiers (`"tier": ["A", "B"]`) — Tier A always runs
 (deterministic replay is the source of truth for routing/structured-field correctness); Tier B,
@@ -31,9 +31,9 @@ already caught by Tier A, which runs in CI via the `evals (agent-touching paths)
 required/merge-blocking check in the `main-protection` ruleset today — owner action pending to
 make it required).
 
-**Never put a live-LLM assertion on Tier A's always-run path.** Tier B is nightly-only and
-non-blocking by construction (loud `skipif`, not a marker-based deselect) — a keyless/fork PR run
-always sees Tier B skip, never fail.
+**Never put a live-LLM assertion on Tier A's always-run path.** Tier B is nightly-only in CI and outside the PR gate.
+The PR job deselects live cases; ordinary local keyless runs retain loud `skipif`.
+The strict nightly lane fails when the credential or execution evidence is unavailable.
 
 ## Directory layout (exact — B1/B2/B3 mirror this)
 
@@ -235,44 +235,55 @@ There is nothing extra to "record" to add Tier B to a case: set `"tier": ["A", "
 `"live"` block naming which fields to compare and the pass threshold, then add a
 `test_<agent>_eval_tier_b_live` parametrized case mirroring `test_helena_eval_tier_b_live`.
 
-To exercise it locally against a real key (never commit one):
+To exercise it locally, inject an Anthropic key into the process environment through a
+secure secret manager (`MAEZO_ANTHROPIC_API_KEY`, or the local fallback
+`ANTHROPIC_API_KEY`), then run:
 
-```
-MAEZO_ANTHROPIC_API_KEY=sk-ant-... uv run pytest tests/evals -m "eval and llm_live" -v
-```
-
-Without a key, every Tier-B case SKIPS loudly (`live_key_skip`, mirrors
-`tests/unit/runtime/test_inference_live.py`) — this is intentional, not a bug: Tier B requires a
-reviewed `ci.yml` wiring change to ever run in CI (the pipeline currently passes
-`LLM_GENERAL_API_KEY` to the eval gate step, but `maezo.runtime.inference` reads
-`MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY` and defaults to the `noop` provider — see the T3.2
-design doc §1.2/§4-R2). That wiring edit is explicitly its own, separately-reviewed change, not
-bundled into any golden-dataset PR.
-
-## How CI consumes this (no workflow edit needed)
-
-`.github/workflows/ci.yml`'s `evals` (PR, agent-touching paths only) and `evals-nightly`
-(`schedule` only) jobs both run the same three-bucket guard before anything else:
-
-```
-uv run pytest tests/evals --collect-only -q -m eval
-  0        -> run=true   -> `make evals` (== `uv run pytest tests/evals -q -m eval`)
-  4|5      -> run=false  -> LOUD visible skip (4 = tests/evals/ missing, 5 = nothing collected)
-  else(2)  -> job FAILS  ("COLLECTION BROKEN" — an import error must never masquerade as
-                           "no datasets yet")
+```sh
+uv run pytest tests/evals -m "eval and llm_live" --require-live-evals -v
 ```
 
-Landing this wave's `EVL-HELENA-01` (a real, collectable, `@pytest.mark.eval` test under
-`tests/evals/`) is what flips that guard from "4 = dir missing" to "0 = run the real gate" — no
-`ci.yml` edit is required. `make evals`'s local-dev `|| [ $? -eq 5 ]` fallback (tolerating "not
-collected yet") is now moot for this file (it always collects >= 1 case) but stays harmless for
-any brand-new agent's `golden/<agent>/` directory that doesn't exist yet.
+`--require-live-evals` requires a nonblank effective key, constructs the real Anthropic
+provider without sending a request at startup, requires nonzero collection of tests marked
+both `eval` and `llm_live`, and rejects skipped/xfail bodies or incomplete execution.
+The actual classifier bodies explicitly construct `InferenceSettings(provider="anthropic")`;
+the runtime's generic `noop` default is not used by these live bodies.
 
-Both CI jobs pass `LLM_GENERAL_API_KEY` as an env var today — as noted above, that does **not**
-currently reach `maezo.runtime.inference` (it reads `MAEZO_ANTHROPIC_API_KEY`/
-`ANTHROPIC_API_KEY`), so Tier B skips loudly in CI until the separate, reviewed wiring change
-lands. Tier A is completely unaffected by that gap: it injects its own provider and needs no key,
-ever.
+Precedence follows runtime: a nonempty `MAEZO_ANTHROPIC_API_KEY` shadows
+`ANTHROPIC_API_KEY`. A whitespace-only primary is invalid even with a valid fallback;
+it does not silently switch credentials. An absent or empty primary permits the local fallback.
+Without the strict option, ordinary keyless runs retain the explicit Tier-B skip guard.
+Collection-only proves discovery and configuration, never a successful live call.
+
+## How CI consumes this
+
+The `evals` job keeps the agent-path filter and runs only `eval and not llm_live`.
+It receives no LLM secret, including on trusted PRs. Collection failures and zero collected
+cases fail; deterministic replay remains the merge-blocking PR gate.
+
+`evals-nightly` runs only for `github.event_name == 'schedule'`, independently of the
+agent-path filter. It runs replay first, then the live subset with `--require-live-evals`.
+Only that live step receives `secrets.MAEZO_ANTHROPIC_API_KEY` under the same environment name.
+This is an explicit **Anthropic-only secret contract**. No identity is assumed for the old
+generic `LLM_GENERAL_API_KEY`, which is no longer injected into either eval job.
+Provisioning that named secret remains an operator prerequisite; this change does not establish
+that it exists or that authentication succeeds. Missing/blank credentials fail the nightly
+step with `LIVE EVAL UNAVAILABLE`, rather than producing a qualified-as-success eval job.
+Nightly has no PR trigger, so its failures do not replace or weaken the keyless PR gate.
+
+The existing generic `scripts/ci/run_live_pytest.py` fixes the nonzero live collection and
+validates the execution against it, including source hashes, JUnit, and body execution.
+Public logs expose counts and failures; only its public collection/execution/JUnit/validation
+projections are uploaded. Raw captures stay in private custody and `.pytest_cache/` is not
+uploaded. No engine runner, schema, or authentication protocol is changed.
+This validates credential/configuration, collection and test-body execution, **not proof of a
+successful LLM response in each body**. Six current dossier variants (Carolina, Beatriz,
+Gustavo, Rafael, Valentina, Marina) can catch PHI-zone refusal and assert canary absence on an
+empty/minimal dossier. Their `llm_live` marker alone does not prove a network completion;
+fixing that vacuity requires a separate evaluation-body change preserving ADR-0006. The five
+Helena classifier cases are the current direct classification path. Live-call evidence and
+those six body-level fences remain pending; enabling this credential interface does not
+resolve them.
 
 ## Clarity/legibility checks (gap 10.3, WP-EVALS)
 
