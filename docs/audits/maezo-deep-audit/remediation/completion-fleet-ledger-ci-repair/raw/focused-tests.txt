@@ -1,0 +1,9 @@
+collected_utc=2026-09-08T20:09:00Z
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-ci-repair
+argv=uv run pytest tests/unit/ci/test_check_evidence_ledger_hashes.py tests/unit/ci/test_check_evidence_ledger_supersession.py tests/unit/ci/test_generate_release_floor.py -q -p no:cacheprovider
+revision=3009bbe5490e28b89b606dc6e656d6b2b3ad98d8
+
+........................................................................ [ 51%]
+...................................................................      [100%]
+139 passed in 47.92s
+rc=0

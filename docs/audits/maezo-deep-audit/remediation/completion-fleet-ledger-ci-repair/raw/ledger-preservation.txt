@@ -1,0 +1,21 @@
+collected_utc=2026-09-08T20:12:05Z
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-ci-repair
+base=7b34cf44ae9e531092f92994a8347fbe0116784c
+revision=3009bbe5490e28b89b606dc6e656d6b2b3ad98d8
+argv=python3 checker-is_table_row/literal-prefix/hash/line proof plus git diff --numstat
+rc=0
+
+base_physical_lines=588
+base_parsed_table_rows_including_header_and_separator=479
+base_parsed_data_rows=477
+base_bytes=1618623
+base_sha256=b5e659d64a277b776d413dbb378a219305084cd24b5132f9d266e77acd5720cb
+current_physical_lines=603
+current_bytes=1623016
+current_sha256=23bee9636421beaf5e240a128533d8cbf611bf4ab6d68611b0a7742722c766bf
+literal_prefix=true
+appended_bytes=4393
+git_numstat=15	0	docs/evidence-ledger.md
+
+Interpretation: every byte of the frozen 588-line ledger is the literal prefix of the candidate;
+the candidate appends three 8-cell data rows and twelve lines of v1 convention prose.
