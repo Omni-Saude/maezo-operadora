@@ -372,6 +372,32 @@ def _uv_python(checkout: Path, *args: str) -> list[str]:
 
 
 EVIDENCE_RELATIVE = "scripts/ci/pytest_execution_evidence.py"
+# Selecao fechada do protocolo MUI-01. A autoridade de fonte e o catalogo
+# autenticado do nucleo, conferido por discovery; estes nomes nao ampliam skips.
+MUTATIONS = {
+    "tests/integration/chaos/test_crash_between_seams.py::"
+    "test_b1a_mutation_check_chain_insert_outside_lock_turns_suite_red": "b1a",
+    "tests/integration/chaos/test_crash_between_seams.py::"
+    "test_b1b_posture_mutation_check_restart_on_missing_instance_turns_suite_red": "b1b_posture",
+    "tests/integration/chaos/test_crash_between_seams.py::"
+    "test_b1b_mutation_check_effect_before_emit_turns_suite_red": "b1b",
+    "tests/integration/chaos/test_sink_down_failclosed.py::"
+    "test_c1_down_mutation_check_fail_open_swallow_turns_suite_red": "c1_down",
+    "tests/integration/processes/test_t33_a1_cancel_handoff_redelivery_idempotency.py::"
+    "test_a1_mutation_check_broken_idempotency_creates_a_second_instance": "a1_a2",
+    "tests/integration/processes/test_t33_a2_agent_start_idempotency_matrix.py::"
+    "test_a2_mutation_check_broken_idempotency_creates_a_second_instance": "a1_a2",
+}
+
+
+def _mutation_selection(nodeid: str) -> tuple[str, str, str]:
+    if nodeid not in MUTATIONS:
+        raise RunnerError("selecao de mutacao fora do catalogo fechado")
+    test_file = nodeid.split("::", 1)[0]
+    suite = "chaos" if test_file.startswith("tests/integration/chaos/") else "core"
+    return suite, test_file, MUTATIONS[nodeid]
+
+
 _PYTEST_BOOTSTRAP = """
 import hashlib, pathlib, sys, types, pytest
 path = pathlib.Path(sys.argv[1])
@@ -413,13 +439,25 @@ def _evidence_validator(checkout: Path) -> Any:
     return _evidence_api(checkout).validate_execution
 
 
-def _pytest_command(checkout: Path, *args: str, evidence_path: Path | None = None) -> list[str]:
+def _pytest_command(
+    checkout: Path,
+    *args: str,
+    evidence_path: Path | None = None,
+    mutation_nodeid: str | None = None,
+) -> list[str]:
     checkout = checkout.resolve()
+    bootstrap = _PYTEST_BOOTSTRAP
+    if mutation_nodeid is not None:
+        _, _, mutation = _mutation_selection(mutation_nodeid)
+        if evidence_path is None or not args or args[0] != mutation_nodeid:
+            raise RunnerError("mutacao exige evidencia e selecao exata")
+        # Literal de catalogo, nunca texto livre/env herdado; antes de qualquer import pytest.
+        bootstrap = f"import os\nos.environ['MAEZO_CHAOS_MUTATE'] = {mutation!r}\n" + bootstrap
     if evidence_path is None:
         entry = ["-m", "pytest"]
     else:
         path, _, digest = _evidence_source(checkout)
-        entry = ["-c", _PYTEST_BOOTSTRAP, str(path), digest, str(checkout), str(evidence_path)]
+        entry = ["-c", bootstrap, str(path), digest, str(checkout), str(evidence_path)]
     return _uv_python(
         checkout,
         *entry,
@@ -571,7 +609,9 @@ def _assert_execution_source(checkout: Path) -> None:
             raise RunnerError("fonte de execução mudou após materialização do SHA")
 
 
-def _collect(checkout: Path, args: list[str], log_path: Path) -> set[str]:
+def _collect(
+    checkout: Path, args: list[str], log_path: Path, *, mutation_nodeid: str | None = None
+) -> set[str]:
     _assert_execution_source(checkout)
     private = Path(tempfile.mkdtemp(prefix="maezo-private-collection-")).resolve()
     raw_evidence = private / "execution.json"
@@ -580,7 +620,14 @@ def _collect(checkout: Path, args: list[str], log_path: Path) -> set[str]:
     payload: dict[str, Any] = {}
     try:
         result = _run(
-            _pytest_command(checkout, *args, "--collect-only", "-q", evidence_path=raw_evidence),
+            _pytest_command(
+                checkout,
+                *args,
+                "--collect-only",
+                "-q",
+                evidence_path=raw_evidence,
+                mutation_nodeid=mutation_nodeid,
+            ),
             cwd=checkout,
             timeout=180,
             log_path=log_path,
@@ -605,6 +652,40 @@ def _collect(checkout: Path, args: list[str], log_path: Path) -> set[str]:
         raise RunnerError("coleta duplicada, interrompida ou schema divergente")
     _collected_items[log_path] = payload["collection"]
     return set(nodeids)
+
+
+def _collect_mutation(
+    checkout: Path, nodeid: str, inactive_items: list[dict[str, Any]], results_dir: Path
+) -> list[dict[str, Any]]:
+    _, _, mutation = _mutation_selection(nodeid)
+    candidates = [item for item in inactive_items if item.get("nodeid") == nodeid]
+    if len(candidates) != 1:
+        raise RunnerError("companion nao aparece exatamente uma vez no manifest")
+    inactive = candidates[0]
+    declaration = inactive.get("inactive_companion")
+    if (
+        not declaration
+        or declaration.get("mutation") != mutation
+        or declaration.get("obligation") != "separate_opt_in_RED_required"
+        or inactive.get("xfail") is not None
+    ):
+        raise RunnerError("companion sem declaracao canonica autenticada")
+    log = results_dir / "collect-mutation.log"
+    nodeids = _collect(checkout, [nodeid], log, mutation_nodeid=nodeid)
+    active = _collected_items[log]
+    if nodeids != {nodeid} or active != [{**inactive, "inactive_companion": None}]:
+        raise RunnerError("coleta ativa diverge da identidade/fonte/guarda canonica")
+    _json_write(
+        results_dir / "mutation-selection.json",
+        {
+            "nodeid": nodeid,
+            "mutation": mutation,
+            "inactive_declaration": declaration,
+            "active_items": active,
+            "oracle_review_required": True,
+        },
+    )
+    return active
 
 
 def _dependency_evidence(checkout: Path, nodeids: set[str], pattern: re.Pattern[str]) -> list[str]:
@@ -1280,13 +1361,19 @@ def _run_pytest(
     results_dir: Path,
     expected_count: int,
     expected_items: list[dict[str, Any]] | None = None,
+    *,
+    mutation_nodeid: str | None = None,
 ) -> dict[str, Any]:
     markers = {
         "chaos": "integration and chaos",
         "core": "integration and not chaos",
         "db-unit": "integration",
     }
-    selection = [test_file, "-m", markers[suite]]
+    if mutation_nodeid is not None:
+        selected_suite, selected_file, _ = _mutation_selection(mutation_nodeid)
+        if (suite, test_file, expected_count) != (selected_suite, selected_file, 1) or expected_items is None:
+            raise RunnerError("execucao de mutacao exige manifest seletivo autenticado")
+    selection = [mutation_nodeid or test_file, "-m", markers[suite]]
     results_dir.mkdir(parents=True, exist_ok=True)
     if expected_items is None:
         _collect(checkout, selection, results_dir / "collect-selected.log")
@@ -1306,6 +1393,7 @@ def _run_pytest(
         "--durations=40",
         f"--junitxml={raw_xml}",
         evidence_path=raw_evidence,
+        mutation_nodeid=mutation_nodeid,
     )
     evidence_api = _evidence_api(checkout)
     try:
@@ -1313,7 +1401,11 @@ def _run_pytest(
         _assert_execution_source(checkout)
         evidence = json.loads(raw_evidence.read_text()) if raw_evidence.exists() else {}
         # Valida identidades completas antes de projetar artefatos seguros.
-        validation = evidence_api.validate_execution(raw_xml, evidence, expected_items, result.returncode)
+        try:
+            validation = evidence_api.validate_execution(raw_xml, evidence, expected_items, result.returncode)
+        except Exception as exc:
+            # Nao publicar str(exc): pode conter valores privados de um report malformado.
+            raise RunnerError(f"validador de execucao falhou fechado: {type(exc).__name__}") from None
     finally:
         with _cleanup_signal_mask():
             try:
@@ -1336,7 +1428,17 @@ def _run_pytest(
         "junit_xml": junit.as_posix(),
         "pytest_log": (results_dir / "pytest.log").as_posix(),
         "execution_evidence": evidence_path.as_posix(),
+        "pytest_return_code": result.returncode,
     }
+    if mutation_nodeid is not None:
+        payload.update(
+            mutation_nodeid=mutation_nodeid,
+            mutation=MUTATIONS[mutation_nodeid],
+            oracle_review_required=True,
+            positive_validator_return_code=validation["return_code"],
+            # Nem PASS do mutante nem falha de infraestrutura constituem prova RED.
+            return_code=result.returncode or 1,
+        )
     _json_write(results_dir / "suite-results.json", payload)
     return payload
 
@@ -1399,7 +1501,17 @@ def run_suite(args: argparse.Namespace) -> int:
                 "arquivo/grupo não aparece exatamente uma vez no manifest: "
                 f"suite={args.suite}, file={test_file}"
             )
-        manifest_entry = manifest_matches[0]
+        manifest_entry = dict(manifest_matches[0])
+        mutation_nodeid = getattr(args, "mutation_nodeid", None)
+        if mutation_nodeid is not None:
+            selected_suite, selected_file, _ = _mutation_selection(mutation_nodeid)
+            if (args.suite, test_file) != (selected_suite, selected_file):
+                raise RunnerError("suite/arquivo diverge da selecao de mutacao")
+            manifest_entry["items"] = _collect_mutation(
+                checkout, mutation_nodeid, manifest_entry["items"], results_dir
+            )
+            manifest_entry["expected_count"] = 1
+            state.update(mutation_nodeid=mutation_nodeid, mutation=MUTATIONS[mutation_nodeid])
         expected_count = int(manifest_entry["expected_count"])
         if expected_count <= 0:
             raise RunnerError(f"arquivo {test_file} não coletou testes na suíte {args.suite}")
@@ -1437,8 +1549,10 @@ def run_suite(args: argparse.Namespace) -> int:
             results_dir,
             expected_count,
             manifest_entry["items"],
+            **({"mutation_nodeid": mutation_nodeid} if mutation_nodeid is not None else {}),
         )
         return_code = int(suite_result["return_code"])
+        state["pytest_return_code"] = suite_result.get("pytest_return_code", return_code)
         state["state"] = "pytest_complete" if return_code == 0 else "pytest_failed"
     except (KeyboardInterrupt, RunnerInterrupted):
         return_code = 130
@@ -1477,7 +1591,7 @@ def run_suite(args: argparse.Namespace) -> int:
                         state.update(
                             state="teardown",
                             return_code=return_code or 1,
-                            pytest_return_code=return_code,
+                            pytest_return_code=state.get("pytest_return_code", return_code),
                             teardown_started_at=_now(),
                         )
                         _json_write(results_dir / "run-state.json", state)
@@ -1542,6 +1656,21 @@ def run_suite(args: argparse.Namespace) -> int:
             state.update(return_code=return_code, services=services, finished_at=_now())
             _json_write(results_dir / "run-state.json", state)
     return return_code
+
+
+def run_mutation(args: argparse.Namespace) -> int:
+    suite, test_file, _ = _mutation_selection(args.nodeid)
+    return run_suite(
+        argparse.Namespace(
+            checkout=args.checkout,
+            sha=args.sha,
+            results_dir=args.results_dir,
+            lock_timeout=args.lock_timeout,
+            suite=suite,
+            test_file=test_file,
+            mutation_nodeid=args.nodeid,
+        )
+    )
 
 
 def lock_probe(args: argparse.Namespace) -> int:
@@ -1649,6 +1778,16 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--results-dir", required=True)
     run_parser.add_argument("--lock-timeout", type=float, default=0.0)
     run_parser.set_defaults(func=run_suite)
+
+    mutation_parser = subparsers.add_parser(
+        "run-mutation", help="obtem evidencia negativa de um companion em stack nova"
+    )
+    mutation_parser.add_argument("--checkout", required=True)
+    mutation_parser.add_argument("--sha", required=True)
+    mutation_parser.add_argument("--nodeid", choices=tuple(MUTATIONS), required=True)
+    mutation_parser.add_argument("--results-dir", required=True)
+    mutation_parser.add_argument("--lock-timeout", type=float, default=0.0)
+    mutation_parser.set_defaults(func=run_mutation)
 
     probe = subparsers.add_parser("lock-probe", help=argparse.SUPPRESS)
     probe.add_argument("--lock-dir", required=True)
