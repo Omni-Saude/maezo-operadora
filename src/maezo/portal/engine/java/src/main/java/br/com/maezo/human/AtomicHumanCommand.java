@@ -130,7 +130,7 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
                   persistReceipt(db, c, verified.digest(), java.time.Instant.now().getEpochSecond());
               // Last local blocking SQL has returned. The tenant lock still fences
               // state changes, but only a fresh clock can fence elapsed validity.
-              requireCurrent(verified, principal, evidence);
+              // Mutant: omit final check after blocking receipt INSERT.
               committing
                   .getTransactionContext()
                   .addTransactionListener(
