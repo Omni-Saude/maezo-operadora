@@ -1793,6 +1793,7 @@ def rest_gate_fixture(
     drift_at: str | None = None,
     drift_field: str = "head",
     selected_pr: int = 244,
+    codeowners: str | None = None,
     changed: list[dict[str, Any]] | None = None,
     fail_at: str | None = None,
 ) -> list[str]:
@@ -1824,7 +1825,11 @@ def rest_gate_fixture(
         if path == prefix + f"pulls/{selected_pr}":
             return 200, json.loads(json.dumps(live))
         if path == prefix + f"contents/.github/CODEOWNERS?ref={BASE_SHA}":
-            owners = TEAM_ONLY_CODEOWNERS if drift_at == "memberships" else BASE_CODEOWNERS
+            owners = (
+                codeowners
+                if codeowners is not None
+                else (TEAM_ONLY_CODEOWNERS if drift_at == "memberships" else BASE_CODEOWNERS)
+            )
             return 200, {"encoding": "base64", "content": base64.b64encode(owners.encode()).decode()}
         if path == prefix + "branches/main":
             return 200, {"commit": {"sha": tip}}
@@ -2057,3 +2062,88 @@ def test_rest_review_repository_name_matches_case_insensitive_github_identity(
     reviews = api.reviews(244)
     assert len(reviews) == 1
     assert reviews[0].commit_id == HEAD_SHA
+
+
+# EIR-HEAD-01: an ineligible approval has no authority to erase a prior objection.
+
+
+@pytest.mark.parametrize("commit_id", ["a" * 40, None, "invalid"])
+@pytest.mark.parametrize("noise", [None, "COMMENTED", "PENDING"])
+def test_rest_ineligible_approval_preserves_owner_objection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    commit_id: str | None,
+    noise: str | None,
+) -> None:
+    reviews = [
+        review_payload(state="CHANGES_REQUESTED", commit_id="a" * 40),
+        review_payload(
+            id=2,
+            user={"login": OWNER_USER.upper()},
+            commit_id=commit_id,
+            submitted_at="2026-08-13T11:00:00Z",
+        ),
+        review_payload(id=3, user={"login": OTHER_OWNER}, submitted_at="2026-08-13T12:00:00Z"),
+    ]
+    if noise is not None:
+        reviews.append(
+            review_payload(
+                id=4,
+                state=noise,
+                submitted_at=None if noise == "PENDING" else "2026-08-13T13:00:00Z",
+            )
+        )
+    calls = rest_gate_fixture(
+        monkeypatch,
+        reviews=list(reversed(reviews)),
+        codeowners=f"/spec/policies/autonomy/ @{OWNER_USER} @{OTHER_OWNER}\n",
+    )
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1
+    out = capsys.readouterr().out
+    assert "has requested changes" in out
+    assert f"SATISFIED by @{OTHER_OWNER}" in out  # unrelated coverage really was qualified
+    assert calls.count("repos/Omni-Saude/maezo-operadora/pulls/244") == 2
+    assert calls.count("repos/Omni-Saude/maezo-operadora/branches/main") == 2
+
+
+@pytest.mark.parametrize("release", ["APPROVED", "DISMISSED"])
+@pytest.mark.parametrize("later_stale", [False, True])
+def test_same_owner_current_approval_or_dismissal_clears_objection(
+    release: str,
+    later_stale: bool,
+) -> None:
+    reviews = [
+        Review(OWNER_USER, "CHANGES_REQUESTED", "2026-08-13T10:00:00Z", 1, "a" * 40),
+        Review(
+            OWNER_USER.upper(),
+            release,
+            "2026-08-13T11:00:00Z",
+            2,
+            HEAD_SHA if release == "APPROVED" else None,
+        ),
+        approval(OTHER_OWNER),
+    ]
+    if later_stale:
+        reviews.append(approval(OWNER_USER, when="2026-08-13T12:00:00Z", review_id=3, commit_id="a" * 40))
+    decision = run(
+        codeowners=f"/owned/ @{OWNER_USER} @{OTHER_OWNER}\n",
+        changed=("owned/a",),
+        reviews=tuple(reversed(reviews)),
+    )
+    assert decision.ok, decision.render()
+
+
+@pytest.mark.parametrize("later_state", ["APPROVED", "CHANGES_REQUESTED"])
+def test_objection_order_uses_review_id_when_timestamps_tie(later_state: str) -> None:
+    earlier_state = "CHANGES_REQUESTED" if later_state == "APPROVED" else "APPROVED"
+    decision = run(
+        codeowners=f"/owned/ @{OWNER_USER} @{OTHER_OWNER}\n",
+        changed=("owned/a",),
+        reviews=(
+            Review(OWNER_USER.upper(), later_state, "2026-08-13T10:00:00Z", 2, HEAD_SHA),
+            Review(OWNER_USER, earlier_state, "2026-08-13T10:00:00Z", 1, HEAD_SHA),
+            approval(OTHER_OWNER),
+        ),
+    )
+    assert decision.ok == (later_state == "APPROVED"), decision.render()

@@ -146,8 +146,9 @@ DESIGN DECISION 2 — CHANGES_REQUESTED FROM AN OWNER OF A TOUCHED OWNED PATH �
 --------------------------------------------------------------------------------
 ADOPTED (the brief asked for a ruling; this is it, with the reasoning, not a coin flip).
 
-A reviewer's latest standing review being CHANGES_REQUESTED reddens this check even when a different
-qualified owner has approved. Three reasons:
+An unresolved CHANGES_REQUESTED reddens this check even when a different qualified owner has
+approved. Only that reviewer approving the current head or an explicit dismissal clears it.
+Three reasons:
 
   1. It AGREES WITH GITHUB. GitHub's own required-review semantics block merge while any review
      requests changes; another reviewer's approval does not clear it — only the requester approving,
@@ -611,6 +612,28 @@ def standing_reviews(reviews: Iterable[Review]) -> dict[str, Review]:
     return {login: review for login, review in latest.items() if review.state.upper() != "DISMISSED"}
 
 
+def unresolved_objections(reviews: Iterable[Review], head_sha: str) -> dict[str, Review]:
+    """Keep objections until the same principal approves this head or is explicitly dismissed.
+
+    This state is separate from latest-standing positive coverage: an ineligible later approval
+    must neither erase an objection nor revive an earlier approval (Design Decisions 2 and 4).
+    Comments and pending reviews have no effect, including when their timestamps are absent.
+    """
+    objections: dict[str, Review] = {}
+    for review in sorted(
+        (r for r in reviews if r.state.upper() in _STANDING_STATES), key=lambda r: r.sort_key()
+    ):
+        login = review.login.lower()
+        state = review.state.upper()
+        if state == "CHANGES_REQUESTED":
+            objections[login] = review
+        elif state == "DISMISSED" or (
+            state == "APPROVED" and _is_full_sha(review.commit_id) and review.commit_id == head_sha
+        ):
+            objections.pop(login, None)
+    return objections
+
+
 # ---------------------------------------------------------------------------------------------
 # Pure core: the decision
 # ---------------------------------------------------------------------------------------------
@@ -888,9 +911,7 @@ def decide(
 
     # ---- Decision 2: a CHANGES_REQUESTED from an owner of a touched owned path blocks. ----
     blockers: list[str] = []
-    for _login, review in sorted(standing.items()):
-        if review.state.upper() != "CHANGES_REQUESTED":
-            continue
+    for _login, review in sorted(unresolved_objections(reviews, head_sha).items()):
         for path, rule in owned:
             verdict = _reviewer_satisfies(rule.owners, review.login, membership)
             if verdict.satisfied:
@@ -909,7 +930,7 @@ def decide(
         detail.extend(f"    - {b}" for b in blockers)
         detail.append("")
         detail.append("  What unblocks this check:")
-        detail.append("    - the objecting owner submits an APPROVED review, OR someone with write")
+        detail.append("    - the objecting owner approves the current PR head, OR someone with write")
         detail.append("      access dismisses their review (both leave an audit trail).")
         return Decision(
             ok=False,
