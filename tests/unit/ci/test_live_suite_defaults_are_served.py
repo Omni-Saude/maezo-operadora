@@ -68,6 +68,11 @@ _KAFKA_RESOLVER_NAME: Final[str] = "_kafka_bootstrap_servers"
 #: exactly the bug `test_live_dispatch_wiring.py` was listed here as until this fix (see
 #: `_iter_live_suites`'s docstring for why that module was never in scope to begin with).
 _NAME_ONLY: Final[dict[str, str]] = {
+    "tests/unit/a2a/test_a2a_edge_live_pg_fixture.py": (
+        "four pure unit fences for the companion A2A live-engine fixture: they inspect composition "
+        "and replace the engine resolver/client in-process, with no Postgres, broker, engine, "
+        "network access, or integration marker; only the filename matches the live-suite glob."
+    ),
     "tests/unit/runtime/test_inference_live.py": (
         "live Anthropic API call (T1.7), `pytestmark = pytest.mark.llm_live`; its coordinate is an "
         "API KEY, not a repo-served port, and it skips loudly via `skipif` when no key is set — "
