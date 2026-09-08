@@ -123,6 +123,13 @@ inside the transaction. Losing timers, reassignment or other task clients must f
 the CIB optimistic revision check. D7 must separately deny alternate REST writes to
 human authority and decision variables before cutover.
 
+Every human-table mutation is executed by that same MyBatis SqlSession as prepared
+PostgreSQL DML with `RETURNING 1` and `affectData=true` (`dirtySelect`). This marks
+the real session dirty even when no CIB task changes, so engine commit/rollback
+reaches JDBC. It also executes immediately under CIB's BATCH executor, preserving
+row counts and the final freshness check after SQL. A raw JDBC-only mutation would
+be invisible to MyBatis transaction control and could persist during connection close.
+
 The tenant lock stabilizes published authority, evidence and revocation state;
 it does not stop wall-clock validity from expiring during a database wait. New
 commands therefore recheck signed envelope/key, principal and evidence deadlines

@@ -3,15 +3,19 @@ package br.com.maezo.human;
 import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.util.*;
+import org.apache.ibatis.exceptions.PersistenceException;
+import org.apache.ibatis.session.SqlSession;
 import org.cibseven.bpm.engine.impl.interceptor.CommandContext;
 
 /** ADR0049 D5: exclusively the CIB MyBatis connection, no DataSource.getConnection(). */
 final class EngineStore {
   final Connection connection;
   final String tenant;
+  private final SqlSession session;
 
   EngineStore(CommandContext context, String tenant) {
-    connection = context.getDbSqlSession().getSqlSession().getConnection();
+    session = context.getDbSqlSession().getSqlSession();
+    connection = session.getConnection();
     this.tenant = tenant;
     try {
       if (connection.getAutoCommit()
@@ -45,10 +49,12 @@ final class EngineStore {
   }
 
   int update(String sql, Object... args) {
-    try (PreparedStatement ps = connection.prepareStatement(sql)) {
-      for (int i = 0; i < args.length; i++) ps.setObject(i + 1, args[i]);
-      return ps.executeUpdate();
-    } catch (SQLException ex) {
+    try {
+      // The dirty-select mapping makes MyBatis own commit/rollback even when this
+      // transaction has no CIB task/entity mutation. RETURNING executes immediately
+      // under BATCH too, preserving row counts and the final freshness boundary.
+      return session.<Integer>selectList(EnlistedWrites.ID, new EnlistedWrites.Write(sql, args.clone())).size();
+    } catch (PersistenceException ex) {
       throw unavailable();
     }
   }

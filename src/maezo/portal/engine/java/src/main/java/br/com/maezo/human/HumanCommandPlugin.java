@@ -34,6 +34,11 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
   }
 
   @Override
+  public void postInit(ProcessEngineConfigurationImpl configuration) {
+    EnlistedWrites.install(configuration.getSqlSessionFactory().getConfiguration());
+  }
+
+  @Override
   public void postProcessEngineBuild(ProcessEngine engine) {
     configuration
         .getCommandExecutorTxRequired()
