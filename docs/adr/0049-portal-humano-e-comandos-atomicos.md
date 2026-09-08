@@ -352,12 +352,16 @@ não um TTL inventado neste ADR.
 ### D7 — Impedir bypass e migrar todos os callers (plano §4, REST/ingressos)
 
 Proteger REST do engine é requisito de produção, não só esconder botões. Após cutover verificado,
-credenciais de agente não podem claim/release/complete/delegate/resolve User Tasks, mudar seus
-identity links ou gravar decisões/proveniência humanas por outro endpoint. Permissões e transporte
-também precisam impedir bypass por process/execution variables, correlation com campos humanos,
-startInstructions/modification/restart ou APIs administrativas. Não bloquear indiscriminadamente
+credenciais de agente não podem claim/release/complete/delegate/resolve User Tasks, trocar assignee,
+mudar seus identity links ou gravar decisões/proveniência humanas por outro endpoint. Permissões
+e transporte também precisam impedir bypass por variáveis de task/execution/process-instance,
+correlation com campos humanos, startInstructions/modification/restart, deployment de definições
+ou APIs administrativas. Deployment usa identidade operacional separada e artefatos pinados,
+sem conceder ao agente capacidade de substituir guards/BPMN. Não bloquear indiscriminadamente
 os starts/correlations externos legítimos: migrar cada caller para operação tipada, escopo e
-campos autorizados, sem acesso à autoridade humana.
+campos autorizados, sem acesso à autoridade humana. Workers external-task autorizados conservam
+fetch/lock/complete/failure/BPMN-error do seu contrato; a permissão para external tasks não inclui
+complete de User Task ou escrita alternativa de decisão/proveniência humana.
 
 Inventário de propagação inclui factory/seams CIB, transport de starts/correlation, worker
 external-task transport, bootstrap/deploy do engine, bridges/daemons, scripts/evidência e clientes
@@ -404,7 +408,7 @@ implementação posterior; não inventário de código já existente.
 | 2a — Identidade humana | Astra segurança; futuro `src/maezo/portal/api` e `src/maezo/gateway/human`; partição em `gateway/credential_vault.py` | OIDC PKCE, sessão/CSRF, vínculo subject/provider, HumanPrincipal e factory de transporte humano; não herdar credential de agente |
 | 2b — Comando engine | Astra transações; futuro `src/maezo/portal/engine`, imagem `deploy/cibseven/`, bootstrap em `platform/engine_bootstrap` | Envelope assinado/JCS, checks de revisão, transação/receipt, permissions REST; depende de catálogo e identidade |
 | 2c — Audit/recovery | Astra auditoria/DB; extensão de `gateway/audit_postgres.py`, futuras migrações em `platform/migrations/versions` e outbox/relay humano | Enlistment tenant TX com chain lock preservado; intent/outbox antes de dispatch; receipt/reconciliação após commit; crash tests |
-| 2d — Callers/isolamento | Astra segurança/integração; `gateway/seams/cibseven.py`, `tools/mcp_cibseven/transport.py`, `tools/workers/harness.py`, `platform/deploy/engine_deploy.py`, bridges e credenciais de daemons | Matriz de cada operação REST/caller; starts, fetch/lock, complete externo, correlation e deploy legítimos preservados; toda mutação humana fora do gateway recusada |
+| 2d — Callers/isolamento | Astra segurança/integração; `gateway/seams/cibseven.py`, `tools/mcp_cibseven/transport.py`, `tools/workers/harness.py`, `platform/deploy/engine_deploy.py`, bridges e credenciais de daemons | Matriz REST/caller inclui complete/claim/assignee, task/execution/process-instance variables, modification/restart e deployment; starts, fetch/lock/complete externo, correlation e deploy legítimos preservados sob identidades/escopos próprios; toda mutação humana de principal agente recusada |
 | 3 — Workspace de colaboradores | Sol frontend; futuro `src/maezo/portal/web` | Filas, claim/release e caso, atualização 10s, freshness/falhas, interação acessível; depende de 2a–2d |
 | 4 — Verticais iniciais | Astra semântica + Sol frontend/API | AUTH, ESCALATION e PAGTO, incluindo assunção pela coordenação; browser→receipt→engine real, sem completar via proxy |
 | 5 — Cobertura restante | Especialistas por contrato SP-OP + Sol | Todas as 15 famílias e 43 formas positivas/negativas; sem reduzir conjunto por possuir poucos formData |
