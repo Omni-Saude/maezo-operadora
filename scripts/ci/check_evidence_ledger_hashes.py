@@ -88,14 +88,19 @@ verification is opt-in per row (design fact 2) instead of retroactive.
 
 Scope (design fact 1, enforced structurally, not just by convention)
 ------------------------------------------------------------------------
-This gate verifies ONLY rows ADDED in the range `<base>..HEAD` of `docs/evidence-ledger.md` — i.e.
-rows a PR is introducing right now, where "current HEAD" and "the commit the row cites" are (or
-should be) the same tree. It NEVER re-verifies a row that already existed at `<base>`, because that
-row's cited commit is (by definition) further back than `<base>` and its file may have legitimately
-drifted since (design fact 1) — re-running the recipe against today's HEAD would produce exactly
-the "stale by design" false failure the ledger header already warns about. `--all` (local use only,
-never wired into CI) lifts this scope restriction and verifies every declared-path row in the
-CURRENT ledger regardless of when it was added — useful for a spot audit, never for merge-gating.
+This gate verifies rows ADDED in the range `<base>..HEAD` of `docs/evidence-ledger.md`. A plain row
+is checked at candidate HEAD. A v1 append-only successor additionally pins an older exact row,
+source commit, test blob, and lock blob: the old claim runs from that ancestral Git archive and the
+successor runs at HEAD. Thus a pre-base target is re-verified only when a new successor explicitly
+and cryptographically links it; it is never run against moving HEAD. `--all` lifts range selection
+but preserves the same historical/current routing.
+
+Current-HEAD recipes retain the gate's established pytest invocation and caller environment,
+including explicitly authorized live-stack coordinates and installed evidence plugins. Historical
+execution alone receives a minimal environment with no inherited credentials, `PYTEST_ADDOPTS`,
+or plugin autoload. It fences every executed Python source file (tests/helpers as well as `maezo`)
+inside its owned archive or the locked interpreter and refuses a source lock different from the
+candidate lock.
 
 Fail-closed contract
 ---------------------
@@ -138,13 +143,19 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
+import ipaddress
+import json
 import os
 import re
 import subprocess
 import sys
+import tarfile
+import tempfile
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlparse
 
 # scripts/ci/<file> -> parents[2] == repo root.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -216,6 +227,49 @@ _DATE_CELL_RE = re.compile(r"^\|\s*[^|]+?\s*\|\s*(\d{4}-\d{2}-\d{2})\s*\|")
 # text, not this convention, and must not be silently swept in.
 _DECLARED_HASH_RE = re.compile(r"sha256:([0-9a-fA-F]{64})\s+\((tests/[A-Za-z0-9_./-]+\.py)\)")
 
+# Append-only supersession convention.  A successor row remains an ordinary declared row (and is
+# therefore re-run at HEAD), while this marker binds the older row to the exact historical Git
+# tree where its own hash was true.  Fixed field order and a closed grammar are deliberate: an
+# unknown/missing field must fail instead of being silently ignored.
+_SUPERSESSION_HINT = "[ledger-supersedes:"
+_SUPERSESSION_RE = re.compile(
+    r"\[ledger-supersedes:v1;target=([^;\]\n]+);"
+    r"source_commit=([0-9a-f]{40});"
+    r"source_row_sha256=([0-9a-f]{64});"
+    r"source_test_sha256=([0-9a-f]{64});"
+    r"source_lock_sha256=([0-9a-f]{64})\]"
+)
+
+
+@dataclass(frozen=True)
+class SupersessionClaim:
+    target_task_id: str
+    source_commit: str
+    source_row_sha256: str
+    source_test_sha256: str
+    source_lock_sha256: str
+
+
+class SupersessionError(RuntimeError):
+    """A malformed, ambiguous, or unverifiable append-only supersession claim."""
+
+
+def parse_supersession_claim(line: str) -> SupersessionClaim | None:
+    """Parse the closed v1 marker, rejecting partial/duplicate/unknown metadata fail-closed."""
+    if _SUPERSESSION_HINT not in line:
+        return None
+    matches = list(_SUPERSESSION_RE.finditer(line))
+    if len(matches) != 1 or line.count(_SUPERSESSION_HINT) != 1:
+        raise SupersessionError(
+            "malformed ledger-supersedes marker (expected exactly one closed v1 marker with "
+            "target, source_commit, source_row_sha256, source_test_sha256, source_lock_sha256)"
+        )
+    match = matches[0]
+    target = match.group(1).strip()
+    if not target or target != match.group(1):
+        raise SupersessionError("ledger-supersedes target must be non-empty and have no edge whitespace")
+    return SupersessionClaim(target, *match.groups()[1:])
+
 
 @dataclass(frozen=True)
 class DeclaredRow:
@@ -231,6 +285,10 @@ class DeclaredRow:
     # a `DeclaredRow` without a date (every test in this file predating the recipe-version dual
     # check) keep compiling unchanged.
     row_date: str | None = None
+    # Exact row bytes are needed only for append-only provenance. compare=False preserves the
+    # public value semantics used by the pre-existing parser tests and hand-built rows.
+    raw_line: str = field(default="", compare=False, repr=False)
+    supersession: SupersessionClaim | None = field(default=None, compare=False)
 
 
 def is_table_row(line: str) -> bool:
@@ -252,6 +310,7 @@ def parse_row_line(line: str) -> DeclaredRow | None:
     hash_match = _DECLARED_HASH_RE.search(line)
     if hash_match is None:
         return None
+    supersession = parse_supersession_claim(line)
     return DeclaredRow(
         task_id=task_match.group(1).strip(),
         declared_hash=hash_match.group(1).lower(),
@@ -260,6 +319,8 @@ def parse_row_line(line: str) -> DeclaredRow | None:
         # docstring) — `extract_row_date` never consults CONVENTION_START_DATE or any other
         # "today" state, it just reads the second cell.
         row_date=extract_row_date(line),
+        raw_line=line,
+        supersession=supersession,
     )
 
 
@@ -376,6 +437,24 @@ def run_git(args: Sequence[str], repo_root: Path) -> str:
     return proc.stdout
 
 
+def run_git_bytes(args: Sequence[str], repo_root: Path) -> bytes:
+    """Binary sibling of ``run_git`` for blobs/archive payloads whose bytes are evidence."""
+    try:
+        proc = subprocess.run(
+            ["git", *args],
+            cwd=repo_root,
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            timeout=_GIT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise GitError(f"git {' '.join(args)} timed out after {_GIT_TIMEOUT_SECONDS}s") from exc
+    if proc.returncode != 0:
+        detail = proc.stderr.decode("utf-8", errors="replace").strip()
+        raise GitError(f"git {' '.join(args)} failed (exit {proc.returncode}): {detail}")
+    return proc.stdout
+
+
 def resolve_effective_base(repo_root: Path, base_arg: str | None) -> str:
     """The range's lower bound is ALWAYS a merge-base — of `base_arg` (or `origin/main` when not
     given) with HEAD — so `--base <pr-base-sha>` (what CI passes) and the bare default behave
@@ -389,6 +468,202 @@ def resolve_effective_base(repo_root: Path, base_arg: str | None) -> str:
 def get_ledger_diff_added_lines(repo_root: Path, effective_base: str, ledger_rel_path: str) -> list[str]:
     diff_text = run_git(["diff", effective_base, "HEAD", "--", ledger_rel_path], repo_root)
     return parse_diff_added_lines(diff_text)
+
+
+# ---------------------------------------------------------------------------
+# Append-only supersession provenance
+# ---------------------------------------------------------------------------
+
+
+def _sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def row_sha256(row: DeclaredRow) -> str:
+    """Digest the exact UTF-8 Markdown row, excluding its line terminator."""
+    return _sha256_bytes(row.raw_line.encode("utf-8"))
+
+
+@dataclass(frozen=True)
+class SupersessionEdge:
+    successor: DeclaredRow
+    target: DeclaredRow
+    claim: SupersessionClaim
+
+
+@dataclass(frozen=True)
+class SupersessionPlan:
+    by_target_row_sha256: Mapping[str, SupersessionEdge]
+    by_successor_row_sha256: Mapping[str, SupersessionEdge]
+
+
+def assert_acyclic_supersession_links(links: Mapping[str, str]) -> None:
+    """Reject a successor->target digest graph containing a cycle (pure mutation fence seam)."""
+    for start in links:
+        seen: set[str] = set()
+        cursor = start
+        while cursor in links:
+            if cursor in seen:
+                raise SupersessionError("cycle in ledger supersession graph")
+            seen.add(cursor)
+            cursor = links[cursor]
+
+
+def _validate_ledger_rel_path(ledger_rel_path: str) -> None:
+    path = Path(ledger_rel_path)
+    if path.is_absolute() or ".." in path.parts or not path.parts:
+        raise SupersessionError(f"unsafe ledger path {ledger_rel_path!r}")
+
+
+def _source_blob(repo_root: Path, commit: str, path: str) -> bytes:
+    try:
+        return run_git_bytes(["show", f"{commit}:{path}"], repo_root)
+    except GitError as exc:
+        raise SupersessionError(str(exc)) from exc
+
+
+def _assert_ancestor(repo_root: Path, ancestor: str) -> None:
+    try:
+        proc = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", ancestor, "HEAD"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=_GIT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SupersessionError(f"git ancestor check timed out for {ancestor}") from exc
+    if proc.returncode == 1:
+        raise SupersessionError(f"source_commit {ancestor} is not an ancestor of HEAD")
+    if proc.returncode != 0:
+        raise SupersessionError(
+            f"git ancestor check failed for {ancestor} (exit {proc.returncode}): {proc.stderr.strip()}"
+        )
+
+
+def build_supersession_plan(
+    repo_root: Path, ledger_text: str, ledger_rel_path: str = DEFAULT_LEDGER_PATH
+) -> SupersessionPlan:
+    """Validate every v1 edge against Git and return exact-row keyed execution routing.
+
+    Existing unrelated duplicate task IDs are tolerated.  A linked target resolves by BOTH its
+    exact task ID and its exact row digest, so ambiguity cannot be hidden behind a historical ID
+    collision.
+    """
+    _validate_ledger_rel_path(ledger_rel_path)
+    try:
+        selection = select_rows(ledger_text.splitlines())
+    except SupersessionError:
+        raise
+    rows = selection.declared
+    by_target: dict[str, SupersessionEdge] = {}
+    by_successor: dict[str, SupersessionEdge] = {}
+
+    # A malformed marker on a non-declared row must not fall through the legacy path.
+    for line in ledger_text.splitlines():
+        if is_table_row(line) and _SUPERSESSION_HINT in line:
+            parse_supersession_claim(line)
+
+    claim_rows = [row for row in rows if row.supersession is not None]
+    if not claim_rows:
+        return SupersessionPlan({}, {})
+
+    current_lock_path = repo_root / "uv.lock"
+    if not current_lock_path.is_file():
+        raise SupersessionError("current uv.lock is missing; historical dependency provenance is unbound")
+    current_lock = current_lock_path.read_bytes()
+    head_lock = _source_blob(repo_root, "HEAD", "uv.lock")
+    if current_lock != head_lock:
+        raise SupersessionError("working-tree uv.lock differs from HEAD; refusing historical execution")
+
+    for successor in claim_rows:
+        claim = successor.supersession
+        if claim is None:
+            continue
+        successor_digest = row_sha256(successor)
+        if successor_digest in by_successor:
+            raise SupersessionError(f"duplicate successor row for {successor.task_id} ({successor_digest})")
+        targets = [
+            row
+            for row in rows
+            if row.task_id == claim.target_task_id and row_sha256(row) == claim.source_row_sha256
+        ]
+        if len(targets) != 1:
+            raise SupersessionError(
+                f"{successor.task_id}: target {claim.target_task_id!r} with row digest "
+                f"{claim.source_row_sha256} resolves to {len(targets)} rows (expected exactly 1)"
+            )
+        target = targets[0]
+        target_digest = row_sha256(target)
+        if target_digest == successor_digest:
+            raise SupersessionError(f"{successor.task_id}: supersession cannot target itself")
+        if target_digest in by_target:
+            prior = by_target[target_digest]
+            raise SupersessionError(
+                f"target {target.task_id} already has successor {prior.successor.task_id}; "
+                f"duplicate successor {successor.task_id} is forbidden"
+            )
+
+        try:
+            resolved = run_git(
+                ["rev-parse", "--verify", f"{claim.source_commit}^{{commit}}"], repo_root
+            ).strip()
+        except GitError as exc:
+            raise SupersessionError(str(exc)) from exc
+        if resolved != claim.source_commit:
+            raise SupersessionError(
+                f"{successor.task_id}: source_commit must be the exact full commit id; "
+                f"declared {claim.source_commit}, resolved {resolved}"
+            )
+        _assert_ancestor(repo_root, claim.source_commit)
+
+        source_ledger_bytes = _source_blob(repo_root, claim.source_commit, ledger_rel_path)
+        try:
+            source_ledger = source_ledger_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise SupersessionError(
+                f"{successor.task_id}: historical ledger is not UTF-8 at {claim.source_commit}"
+            ) from exc
+        source_matches = [
+            line
+            for line in source_ledger.splitlines()
+            if line == target.raw_line and _sha256_bytes(line.encode("utf-8")) == claim.source_row_sha256
+        ]
+        if len(source_matches) != 1:
+            raise SupersessionError(
+                f"{successor.task_id}: source_commit does not contain exactly one byte-identical "
+                f"target row {claim.target_task_id}"
+            )
+
+        if not is_safe_test_path(target.test_path):
+            raise SupersessionError(
+                f"{successor.task_id}: historical target path {target.test_path!r} is unsafe"
+            )
+        source_test = _source_blob(repo_root, claim.source_commit, target.test_path)
+        if _sha256_bytes(source_test) != claim.source_test_sha256:
+            raise SupersessionError(
+                f"{successor.task_id}: historical test blob digest mismatch for {target.test_path}"
+            )
+        source_lock = _source_blob(repo_root, claim.source_commit, "uv.lock")
+        if _sha256_bytes(source_lock) != claim.source_lock_sha256:
+            raise SupersessionError(f"{successor.task_id}: historical uv.lock digest mismatch")
+        if source_lock != current_lock:
+            raise SupersessionError(
+                f"{successor.task_id}: historical uv.lock differs from HEAD; the current locked "
+                "environment cannot truthfully execute that historical tree"
+            )
+
+        edge = SupersessionEdge(successor, target, claim)
+        by_target[target_digest] = edge
+        by_successor[successor_digest] = edge
+
+    # Edges point successor -> target.  Chaining is supported; cycles are not.
+    assert_acyclic_supersession_links(
+        {successor_digest: row_sha256(edge.target) for successor_digest, edge in by_successor.items()}
+    )
+
+    return SupersessionPlan(by_target, by_successor)
 
 
 # ---------------------------------------------------------------------------
@@ -471,6 +746,73 @@ class RecipeOutcome:
 
 _RECIPE_TIMEOUT_SECONDS = 300
 
+_SAFE_ENV_KEYS = ("PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "TZ", "SYSTEMROOT")
+_LIVE_COORDINATE_ENV_KEYS = (
+    "CIBSEVEN_BASE_URL",
+    "ENGINE_REST_URL",
+    "KAFKA_BOOTSTRAP_SERVERS",
+    "MAEZO_PG_HOST_PORT",
+    "MAEZO_TEST_DATABASE_URL",
+)
+
+
+def _is_loopback_host(host: str | None) -> bool:
+    if host is None:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_safe_historical_live_coordinate(key: str, value: str) -> bool:
+    """Allow archived code to reach only an explicitly selected local/isolated lane."""
+    if key == "MAEZO_PG_HOST_PORT":
+        return value.isascii() and value.isdigit() and 0 < int(value) <= 65535
+    if key == "KAFKA_BOOTSTRAP_SERVERS":
+        endpoints = [item.strip() for item in value.split(",")]
+        return bool(endpoints) and all(
+            endpoint and _is_loopback_host(urlparse("//" + endpoint).hostname) for endpoint in endpoints
+        )
+    if key in {"CIBSEVEN_BASE_URL", "ENGINE_REST_URL", "MAEZO_TEST_DATABASE_URL"}:
+        return _is_loopback_host(urlparse(value).hostname)
+    return False
+
+
+def recipe_environment(
+    *, python_path: str | None = None, live_coordinates: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """Minimal historical environment: no credentials or ambient pytest selection/plugins.
+
+    `live_coordinates` is populated only after the caller explicitly asserted `--allow-live`.
+    Its closed keys preserve the integration lane's chosen endpoints without passing unrelated
+    process credentials or selectors through to archived code.
+    """
+    env = {key: os.environ[key] for key in _SAFE_ENV_KEYS if key in os.environ}
+    env.update(
+        {
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONHASHSEED": "0",
+            "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+        }
+    )
+    if python_path is not None:
+        env["PYTHONPATH"] = python_path
+    if live_coordinates is not None:
+        for key in _LIVE_COORDINATE_ENV_KEYS:
+            if key not in live_coordinates:
+                continue
+            value = live_coordinates[key]
+            if not _is_safe_historical_live_coordinate(key, value):
+                raise ValueError(
+                    f"refusing non-loopback historical live coordinate {key}; "
+                    "archived recipes may target only an explicitly isolated local lane"
+                )
+            env[key] = value
+    return env
+
 
 @dataclass(frozen=True)
 class PytestCapture:
@@ -494,7 +836,16 @@ def capture_pytest_recipe(repo_root: Path, test_path: str, python_exe: str) -> P
     kept separate so the SAME capture can be interpreted under more than one node-id regex."""
     try:
         proc = subprocess.run(
-            [python_exe, "-m", "pytest", test_path, "-v", "--tb=no", "-p", "no:cacheprovider"],
+            [
+                python_exe,
+                "-m",
+                "pytest",
+                test_path,
+                "-v",
+                "--tb=no",
+                "-p",
+                "no:cacheprovider",
+            ],
             cwd=repo_root,
             capture_output=True,
             text=True,
@@ -553,6 +904,219 @@ def run_recipe(
     recipe-version dual-check and are fine with the default (fixed) node-id regex."""
     capture = capture_pytest_recipe(repo_root, test_path, python_exe)
     return recipe_outcome_from_capture(capture, test_path, node_id_regex=node_id_regex)
+
+
+_SOURCE_GUARD_PLUGIN = r'''"""Ephemeral guard for historical ledger recipe execution."""
+from __future__ import annotations
+
+import importlib
+import json
+import os
+import sys
+import sysconfig
+from pathlib import Path
+
+_ROOT = Path(os.environ["LEDGER_ARCHIVE_ROOT"]).resolve()
+_GUARD_ROOT = Path(os.environ["LEDGER_SOURCE_GUARD_ROOT"]).resolve()
+_MARKER = Path(os.environ["LEDGER_SOURCE_GUARD_MARKER"])
+_TRUSTED = {
+    Path(value).resolve()
+    for value in sysconfig.get_paths().values()
+    if value
+}
+_SEEN = set()
+
+
+def _is_relative_to_any(path, roots):
+    return any(path.is_relative_to(root) for root in roots)
+
+
+def _record(raw):
+    if not raw or raw.startswith("<"):
+        return
+    path = Path(raw).resolve()
+    if path.suffix in {".py", ".pyc", ".pyo"}:
+        _SEEN.add(path)
+
+
+def _audit(event, args):
+    if event == "exec" and args:
+        _record(getattr(args[0], "co_filename", None))
+
+
+sys.addaudithook(_audit)
+
+
+def _module_paths():
+    paths = set(_SEEN)
+    for _name, module in sorted(sys.modules.items()):
+        raw = getattr(module, "__file__", None)
+        if raw:
+            _record(raw)
+    paths.update(_SEEN)
+    return sorted(paths)
+
+
+def _escaped(paths):
+    allowed = {*_TRUSTED, _ROOT, _GUARD_ROOT}
+    return [path for path in paths if not _is_relative_to_any(path, allowed)]
+
+
+def _archived(paths):
+    return [path for path in paths if path.is_relative_to(_ROOT)]
+
+
+def _write_marker(paths):
+    _MARKER.write_text(
+        json.dumps(
+            {
+                "archived": [str(path) for path in _archived(paths)],
+                "escaped": [str(path) for path in _escaped(paths)],
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
+def pytest_sessionstart(session):
+    importlib.import_module("maezo")
+    paths = _module_paths()
+    escaped = _escaped(paths)
+    if escaped:
+        raise RuntimeError("historical source import escaped archive: " + ", ".join(map(str, escaped)))
+
+
+def pytest_sessionfinish(session, exitstatus):
+    paths = _module_paths()
+    escaped = _escaped(paths)
+    _write_marker(paths)
+    if escaped:
+        raise RuntimeError("historical source import escaped archive: " + ", ".join(map(str, escaped)))
+'''
+
+
+def _capture_historical_recipe(
+    repo_root: Path, edge: SupersessionEdge, python_exe: str, *, allow_live: bool
+) -> PytestCapture:
+    """Execute pytest from an archived source commit, with source-import provenance fenced."""
+    try:
+        archive_bytes = run_git_bytes(["archive", "--format=tar", edge.claim.source_commit], repo_root)
+    except GitError as exc:
+        return PytestCapture(False, None, None, str(exc))
+    with tempfile.TemporaryDirectory(prefix="maezo-ledger-history-") as tmp:
+        temp_root = Path(tmp)
+        archive_root = temp_root / "tree"
+        guard_root = temp_root / "guard"
+        archive_root.mkdir()
+        guard_root.mkdir()
+        try:
+            with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:") as archive:
+                archive.extractall(archive_root, filter="data")
+        except (tarfile.TarError, OSError) as exc:
+            return PytestCapture(False, None, None, f"could not extract historical Git archive: {exc}")
+
+        extracted_test = archive_root / edge.target.test_path
+        extracted_lock = archive_root / "uv.lock"
+        if (
+            not extracted_test.is_file()
+            or _sha256_bytes(extracted_test.read_bytes()) != edge.claim.source_test_sha256
+        ):
+            return PytestCapture(False, None, None, "extracted historical test does not match its bound blob")
+        if (
+            not extracted_lock.is_file()
+            or _sha256_bytes(extracted_lock.read_bytes()) != edge.claim.source_lock_sha256
+        ):
+            return PytestCapture(
+                False, None, None, "extracted historical uv.lock does not match its bound blob"
+            )
+
+        (guard_root / "ledger_source_guard.py").write_text(_SOURCE_GUARD_PLUGIN, encoding="utf-8")
+        marker = temp_root / "source-paths.txt"
+        try:
+            env = recipe_environment(
+                python_path=os.pathsep.join((str(guard_root), str(archive_root / "src"), str(archive_root))),
+                live_coordinates=os.environ if allow_live else None,
+            )
+        except ValueError as exc:
+            return PytestCapture(False, None, None, str(exc))
+        env["LEDGER_ARCHIVE_ROOT"] = str(archive_root)
+        env["LEDGER_SOURCE_GUARD_ROOT"] = str(guard_root)
+        env["LEDGER_SOURCE_GUARD_MARKER"] = str(marker)
+        try:
+            proc = subprocess.run(
+                [
+                    python_exe,
+                    "-P",
+                    "-m",
+                    "pytest",
+                    edge.target.test_path,
+                    "-v",
+                    "--tb=no",
+                    "-p",
+                    "no:cacheprovider",
+                    "-p",
+                    "pytest_asyncio.plugin",
+                    "-p",
+                    "ledger_source_guard",
+                ],
+                cwd=archive_root,
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                timeout=_RECIPE_TIMEOUT_SECONDS,
+                env=env,
+            )
+        except subprocess.TimeoutExpired:
+            return PytestCapture(
+                False,
+                None,
+                None,
+                f"TIMEOUT after {_RECIPE_TIMEOUT_SECONDS}s running historical pytest "
+                f"{edge.target.test_path} at {edge.claim.source_commit}",
+            )
+        combined = proc.stdout + proc.stderr
+        if proc.returncode not in (0, 1):
+            return PytestCapture(
+                False,
+                combined,
+                proc.returncode,
+                f"historical pytest exited {proc.returncode} for {edge.target.test_path}; tail:\n"
+                + "\n".join(combined.splitlines()[-10:]),
+            )
+        if not marker.is_file():
+            return PytestCapture(
+                False, combined, proc.returncode, "historical source guard did not attest imports"
+            )
+        try:
+            attestation = json.loads(marker.read_text(encoding="utf-8"))
+            imported_paths = [Path(raw) for raw in attestation["archived"]]
+            escaped_paths = [Path(raw) for raw in attestation["escaped"]]
+        except (json.JSONDecodeError, KeyError, TypeError, OSError) as exc:
+            return PytestCapture(
+                False, combined, proc.returncode, f"historical source guard marker is malformed: {exc}"
+            )
+        expected_test = extracted_test.resolve()
+        if expected_test not in imported_paths:
+            return PytestCapture(
+                False,
+                combined,
+                proc.returncode,
+                "historical source guard did not attest execution of the bound archived test",
+            )
+        if escaped_paths:
+            return PytestCapture(
+                False,
+                combined,
+                proc.returncode,
+                "historical source import escaped archived tree: " + ", ".join(map(str, escaped_paths)),
+            )
+        return PytestCapture(
+            True,
+            combined,
+            proc.returncode,
+            f"{len(imported_paths)} archived Python source files attested",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -615,7 +1179,12 @@ class RowVerification:
 
 
 def verify_row(
-    repo_root: Path, row: DeclaredRow, python_exe: str, *, allow_live: bool = False
+    repo_root: Path,
+    row: DeclaredRow,
+    python_exe: str,
+    *,
+    allow_live: bool = False,
+    allow_legacy_recipe: bool = True,
 ) -> RowVerification:
     if not is_safe_test_path(row.test_path):
         return RowVerification(
@@ -662,7 +1231,7 @@ def verify_row(
     # the SAME already-captured pytest run (no second subprocess), before concluding a real
     # mismatch. This is never offered to a row dated on/after the cutoff: a future row must
     # reproduce under the fixed recipe alone, or fixing the bug accomplishes nothing.
-    if row.row_date is not None and row.row_date < LEGACY_NODE_ID_RECIPE_CUTOFF_DATE:
+    if allow_legacy_recipe and row.row_date is not None and row.row_date < LEGACY_NODE_ID_RECIPE_CUTOFF_DATE:
         legacy_outcome = recipe_outcome_from_capture(
             capture, row.test_path, node_id_regex=_RESULT_LINE_RE_LEGACY
         )
@@ -693,6 +1262,65 @@ def verify_row(
         f"{row.test_path} after the hash was taken — append a disclosure row noting the "
         "recompute (PR1-LEDGER-HASH-STALE-BY-DESIGN), never silently edit an already-merged "
         "row.",
+    )
+
+
+def verify_historical_row(
+    repo_root: Path,
+    edge: SupersessionEdge,
+    python_exe: str,
+    *,
+    allow_live: bool = False,
+) -> RowVerification:
+    """Re-run a superseded target in its bound archive; never fall back to candidate HEAD."""
+    row = edge.target
+    if is_live_test_path(row.test_path) and not allow_live:
+        return RowVerification(
+            row,
+            False,
+            f"{row.task_id}: historical declared path {row.test_path} is under "
+            f"{_LIVE_TEST_PATH_PREFIX}; HARNESS-LEDGER-HASH-AMBIENT-STACK applies equally to "
+            "archived tests. Re-run with --allow-live only while holding the engine mutex.",
+        )
+    capture = _capture_historical_recipe(repo_root, edge, python_exe, allow_live=allow_live)
+    outcome = recipe_outcome_from_capture(capture, row.test_path, node_id_regex=_RESULT_LINE_RE)
+    if not outcome.ok:
+        return RowVerification(
+            row,
+            False,
+            f"{row.task_id}: historical recipe execution failed at {edge.claim.source_commit}: "
+            f"{outcome.detail}",
+        )
+    declared_full = f"sha256:{row.declared_hash}"
+    assert outcome.computed_hash is not None
+    if outcome.computed_hash.lower() == declared_full.lower():
+        return RowVerification(
+            row,
+            True,
+            f"{row.task_id}: historical claim verified at exact source_commit "
+            f"{edge.claim.source_commit} ({row.test_path}, {outcome.result_line_count} result lines; "
+            f"{capture.detail}).",
+        )
+    if row.row_date is not None and row.row_date < LEGACY_NODE_ID_RECIPE_CUTOFF_DATE:
+        legacy = recipe_outcome_from_capture(capture, row.test_path, node_id_regex=_RESULT_LINE_RE_LEGACY)
+        if (
+            legacy.ok
+            and legacy.computed_hash is not None
+            and legacy.computed_hash.lower() == declared_full.lower()
+        ):
+            return RowVerification(
+                row,
+                True,
+                f"{row.task_id}: historical claim verified at exact source_commit "
+                f"{edge.claim.source_commit} via recipe_version=legacy "
+                f"({row.test_path}, {legacy.result_line_count} result lines; {capture.detail}).",
+            )
+    return RowVerification(
+        row,
+        False,
+        f"{row.task_id}: historical hash mismatch at exact source_commit "
+        f"{edge.claim.source_commit} for {row.test_path} — declared {declared_full}, recomputed "
+        f"{outcome.computed_hash}; refusing any HEAD fallback.",
     )
 
 
@@ -761,8 +1389,18 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
         print(f"{prefix} ERROR: could not read ledger {args.ledger_path}: {exc}", file=sys.stderr)
         return 1
 
+    try:
+        supersession_plan = build_supersession_plan(root, ledger_text, args.ledger_path)
+    except (OSError, SupersessionError) as exc:
+        print(f"{prefix} ERROR: invalid ledger supersession provenance: {exc}", file=sys.stderr)
+        return 1
+
     if args.all:
-        selection = select_rows(ledger_text.splitlines())
+        try:
+            selection = select_rows(ledger_text.splitlines())
+        except SupersessionError as exc:
+            print(f"{prefix} ERROR: {exc}", file=sys.stderr)
+            return 1
         scope_desc = f"every declared row in {args.ledger_path} (--all)"
     else:
         try:
@@ -771,7 +1409,11 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
         except GitError as exc:
             print(f"{prefix} ERROR: {exc}", file=sys.stderr)
             return 1
-        selection = select_rows(added_lines)
+        try:
+            selection = select_rows(added_lines)
+        except SupersessionError as exc:
+            print(f"{prefix} ERROR: {exc}", file=sys.stderr)
+            return 1
         scope_desc = f"rows added in {effective_base}..HEAD of {args.ledger_path}"
 
     # Legacy rows are listed with their reason (shape or date) EVERY time, not just when nothing
@@ -793,17 +1435,57 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
         return 0
 
     effective_allow_live = resolve_allow_live(args.allow_live, os.environ)
-    results = [
-        verify_row(root, row, args.python, allow_live=effective_allow_live) for row in selection.declared
-    ]
+    results: list[RowVerification] = []
+    historical_scheduled: set[str] = set()
+    for row in selection.declared:
+        digest = row_sha256(row)
+        successor_edge = supersession_plan.by_successor_row_sha256.get(digest)
+        target_edge = supersession_plan.by_target_row_sha256.get(digest)
+
+        # A newly appended successor must prove the older row even when that older row was already
+        # present at the PR base and would not otherwise be selected by the diff.
+        if successor_edge is not None:
+            target_digest = row_sha256(successor_edge.target)
+            if target_digest not in historical_scheduled:
+                results.append(
+                    verify_historical_row(root, successor_edge, args.python, allow_live=effective_allow_live)
+                )
+                historical_scheduled.add(target_digest)
+
+        # A stale imported target is verified only in its pinned source tree.  Its successor is a
+        # separate current-HEAD assertion, never an exemption or a silent replacement.
+        if target_edge is not None:
+            if digest not in historical_scheduled:
+                results.append(
+                    verify_historical_row(root, target_edge, args.python, allow_live=effective_allow_live)
+                )
+                historical_scheduled.add(digest)
+            continue
+
+        results.append(
+            verify_row(
+                root,
+                row,
+                args.python,
+                allow_live=effective_allow_live,
+                # Successor rows are go-forward claims and never receive the pre-fix recipe.
+                allow_legacy_recipe=successor_edge is None,
+            )
+        )
     for result in results:
         status = "OK" if result.ok else "MISMATCH"
         print(f"{prefix} {status}: {result.message}")
 
     failures = [r for r in results if not r.ok]
     verified_ok = len(results) - len(failures)
+    declared_count = len(selection.declared)
+    proof_note = f"; {len(results)} total current/historical proofs" if len(results) != declared_count else ""
+    proof_label = (
+        "declared rows verified" if len(results) == declared_count else "declared-row proofs verified"
+    )
     print(
-        f"{prefix} SUMMARY: {verified_ok}/{len(results)} declared rows verified, "
+        f"{prefix} SUMMARY: {verified_ok}/{len(results)} {proof_label}"
+        f" ({declared_count} selected rows{proof_note}), "
         f"{len(selection.legacy)} legacy rows skipped — {scope_desc}."
     )
     return 1 if failures else 0
