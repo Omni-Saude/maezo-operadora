@@ -129,6 +129,13 @@ def test_missing_junit_is_not_a_pass(tmp_path: Path) -> None:
 def test_companion_requires_canonical_guard_and_red_is_a_separate_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # PEC-V1: o antigo auto-registro pela forma da fixture era o bypass. Agora
+    # o bootstrap de teste autoriza explicitamente UMA declaração fechada; o
+    # exemplo original sem essa autoridade é recusado no módulo de reparo.
+    from tests.unit.dev.test_pytest_execution_evidence_repair import (
+        execute_registered_companion as execute,
+    )
+
     mutation_file = tmp_path / "tests/integration/chaos/mutations.py"
     mutation_file.parent.mkdir(parents=True)
     mutation_file.write_text(
