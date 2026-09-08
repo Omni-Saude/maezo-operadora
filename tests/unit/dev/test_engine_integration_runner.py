@@ -42,30 +42,44 @@ def _events(path: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in path.read_text().splitlines() if line]
 
 
+def _pid_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
 def test_lock_contention_never_grants_cleanup_and_owner_releases_on_interrupt(tmp_path: Path) -> None:
     lock_dir = tmp_path / "engine.lock"
-    release_file = tmp_path / "release-owner"
     owner_events = tmp_path / "owner.jsonl"
     contender_events = tmp_path / "contender.jsonl"
+    child_pid_file = tmp_path / "child.pid"
+    child_log = tmp_path / "child.log"
     owner = subprocess.Popen(
         [
             sys.executable,
             str(RUNNER),
-            "lock-probe",
+            "child-probe",
             "--lock-dir",
             str(lock_dir),
             "--events",
             str(owner_events),
-            "--wait-for",
-            str(release_file),
+            "--child-pid-file",
+            str(child_pid_file),
+            "--child-log",
+            str(child_log),
             "--timeout",
-            "0",
+            "60",
         ],
         cwd=REPO_ROOT,
         text=True,
     )
     try:
         _wait_for(lock_dir / "owner.json")
+        _wait_for(child_pid_file)
+        _wait_for(child_log)
+        child_pid = int(child_pid_file.read_text())
         original_owner = (lock_dir / "owner.json").read_bytes()
 
         contender = _run(
@@ -84,12 +98,15 @@ def test_lock_contention_never_grants_cleanup_and_owner_releases_on_interrupt(tm
         assert (lock_dir / "owner.json").read_bytes() == original_owner
         assert [event["event"] for event in _events(contender_events)] == ["lock_busy"]
 
-        owner.send_signal(signal.SIGINT)
+        owner.send_signal(signal.SIGTERM)
         assert owner.wait(timeout=10) == 130
+        assert not _pid_exists(child_pid)
+        assert "child-started" in child_log.read_text()
         assert not lock_dir.exists()
         owner_event_names = [event["event"] for event in _events(owner_events)]
         assert owner_event_names == [
             "lock_acquired",
+            "child_started",
             "interrupted",
             "cleanup_permitted",
             "lock_released",
@@ -99,6 +116,40 @@ def test_lock_contention_never_grants_cleanup_and_owner_releases_on_interrupt(tm
             owner.kill()
             owner.wait(timeout=5)
         shutil.rmtree(lock_dir, ignore_errors=True)
+
+
+def test_child_timeout_preserves_partial_log_reaps_process_and_releases_lock(tmp_path: Path) -> None:
+    lock_dir = tmp_path / "engine.lock"
+    events_file = tmp_path / "events.jsonl"
+    child_pid_file = tmp_path / "child.pid"
+    child_log = tmp_path / "child.log"
+
+    result = _run(
+        "child-probe",
+        "--lock-dir",
+        str(lock_dir),
+        "--events",
+        str(events_file),
+        "--child-pid-file",
+        str(child_pid_file),
+        "--child-log",
+        str(child_log),
+        "--timeout",
+        "0.2",
+    )
+
+    child_pid = int(child_pid_file.read_text())
+    assert result.returncode == 124
+    assert not _pid_exists(child_pid)
+    assert "child-started" in child_log.read_text()
+    assert not lock_dir.exists()
+    assert [event["event"] for event in _events(events_file)] == [
+        "lock_acquired",
+        "child_started",
+        "child_timeout",
+        "cleanup_permitted",
+        "lock_released",
+    ]
 
 
 def test_lock_owner_releases_after_successful_real_subprocess(tmp_path: Path) -> None:
