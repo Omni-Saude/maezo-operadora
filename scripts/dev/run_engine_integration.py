@@ -714,6 +714,19 @@ def _junit_counts(path: Path) -> dict[str, int]:
     }
 
 
+def verified_result_code(
+    pytest_return_code: int,
+    *,
+    actual_count: int,
+    expected_count: int,
+    test_file: str,
+) -> tuple[int, str | None]:
+    if actual_count == expected_count and expected_count > 0:
+        return pytest_return_code, None
+    error = f"JUnit executou {actual_count} casos; manifest esperava {expected_count} para {test_file}"
+    return pytest_return_code or 1, error
+
+
 def _run_pytest(
     checkout: Path,
     suite: str,
@@ -745,14 +758,12 @@ def _run_pytest(
     result = _run(command, cwd=checkout, env=env, timeout=7200, log_path=results_dir / "pytest.log")
     output = result.stdout + result.stderr
     junit_counts = _junit_counts(junit)
-    result_code = result.returncode
-    collection_error = None
-    if junit_counts["tests"] != expected_count:
-        collection_error = (
-            f"JUnit executou {junit_counts['tests']} casos; manifest esperava "
-            f"{expected_count} para {test_file}"
-        )
-        result_code = result_code or 1
+    result_code, collection_error = verified_result_code(
+        result.returncode,
+        actual_count=junit_counts["tests"],
+        expected_count=expected_count,
+        test_file=test_file,
+    )
     payload = {
         "finished_at": _now(),
         "suite": suite,

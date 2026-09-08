@@ -17,7 +17,7 @@ projeto Compose novo, derivado de arquivos rastreados no próprio checkout alvo.
   examine `engine.lock/owner.json`, o processo indicado e os recursos do projeto antes de uma
   decisão humana de recuperação.
 
-Portas publicadas pelo override rastreado:
+Portas publicadas pelo override rastreado, todas vinculadas somente a `127.0.0.1`:
 
 | Serviço | Host | Container/uso |
 |---|---:|---|
