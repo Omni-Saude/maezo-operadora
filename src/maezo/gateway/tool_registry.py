@@ -115,6 +115,7 @@ from maezo.gateway.effect_pep import (
     AgentCapabilities,
     DecisionContext,
 )
+from maezo.gateway.engine_start import EngineStartAuthorizer
 from maezo.gateway.seams import (
     EFFECT_SEAM_KEYS,
     GatedCibSevenTransport,
@@ -489,6 +490,31 @@ def build_cibseven_seam(
     from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 
     return gate_cibseven(CibSevenHttpTransport(base_url, **kwargs), seam)
+
+
+def bind_cibseven_start_preflight(
+    *,
+    inner: Any,
+    seam: SeamContext,
+    authorizer: EngineStartAuthorizer | None,
+) -> GatedCibSevenTransport:
+    """D7-A mandatory preflight composition, independent of B/C credential rollout.
+
+    Unlike the explicit legacy factory above, this always exposes the pre-claim port;
+    unavailable authority refuses before audit/claim. It does NOT secure the inner HTTP
+    transport, pin its definition route, or authorize direct reads. B/C must bind those ports
+    before production use. No runtime root opts in during A; focused tests exercise this exact
+    factory in the existing typed start boundary, including denied/recovered dedup.
+    """
+    from maezo.gateway.engine_start import PreflightCibSevenTransport, PreflightHistoryCibSevenTransport
+    from maezo.tools.mcp_cibseven.transport import HistoryQueryingTransport
+
+    cls = (
+        PreflightHistoryCibSevenTransport
+        if isinstance(inner, HistoryQueryingTransport)
+        else PreflightCibSevenTransport
+    )
+    return cls(inner, seam=seam, authorizer=authorizer)
 
 
 def build_inference_seam(*, seam: SeamContext, inner: Any = None) -> GatedInferenceProvider:
