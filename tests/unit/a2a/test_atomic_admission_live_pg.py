@@ -396,3 +396,249 @@ async def test_two_real_processes_share_one_requested_intent(database):
             if child.returncode is None:
                 child.kill()
                 await child.wait()
+
+
+def _upgrade_to(dsn, tenant, revision):
+    """Run real Alembic at an explicit revision; no stamp or synthesized DDL."""
+    import argparse
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+
+    root = Path(__file__).resolve().parents[3]
+    cfg = Config(str(root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(root / "src/maezo/platform/migrations"))
+    cfg.set_main_option("sqlalchemy.url", dsn.replace("postgresql://", "postgresql+asyncpg://", 1))
+    cfg.cmd_opts = argparse.Namespace(x=[f"tenant={tenant}"])
+    command.upgrade(cfg, revision)
+
+
+async def _durable_snapshot(conn, *, marker=False):
+    result = {}
+    for table in ("a2a_idempotency", "audit_chain", "audit_emit_dedup", "a2a_fact_outbox"):
+        rows = [dict(row) for row in await conn.fetch(f'SELECT * FROM "{table}"')]
+        for row in rows:
+            if marker and table == "a2a_idempotency":
+                assert row.pop("requested_enqueued_at") is None
+        result[table] = sorted(rows, key=repr)
+    return result
+
+
+@pytest.mark.parametrize("has_requested", [False, True])
+async def test_populated_0010_upgrade_preserves_all_rows_bytes_chain_and_valid_replay(has_requested):
+    import json
+    from dataclasses import replace
+
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    from maezo.a2a.facts import DelegationFactKind, build_fact
+    from maezo.gateway.audit import AuditRecord
+
+    from .test_envelope_signing import _signer, _verifier
+
+    dsn, tenant = _default_test_dsn(), "az" + uuid.uuid4().hex[:16]
+    await asyncio.to_thread(_upgrade_to, dsn, tenant, "0010")
+    conn = await asyncpg.connect(dsn)
+    await conn.execute(f'SET search_path TO "{tenant}"')
+    audit, outbox = PostgresAuditSink(dsn, tenant), PostgresFactOutbox(dsn=dsn, tenant=tenant)
+    envelopes = [replace(envelope_for(tenant), task_id=f"legacy-{state}") for state in ("processing", "done")]
+    original_bytes = {}
+    calls = []
+
+    async def handler(envelope):
+        calls.append(envelope.task_id)
+        return HandlerOutput(output_ref="fhir://Task/new-result")
+
+    try:
+        assert await conn.fetchval(f'SELECT version_num FROM "{tenant}_alembic_version"') == "0010"
+        assert not await conn.fetchval(
+            "SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=$1 "
+            "AND table_name='a2a_idempotency' AND column_name='requested_enqueued_at')",
+            tenant,
+        )
+        for envelope in envelopes:
+            await conn.fetchval(CLAIM_SQL, envelope.task_id, tenant, "unknown", "unknown", "unknown")
+            await audit.emit_once(
+                AuditRecord(
+                    agent_id="rafael",
+                    tenant_id=tenant,
+                    agent_version="1.0.0",
+                    action="migration-sentinel",
+                    decision="ALLOW",
+                    details={"task": envelope.task_id},
+                ),
+                dedup_key="sentinel:" + envelope.task_id,
+            )
+            # At least one exact BYTEA row exists even when requested is missing.
+            kinds = [DelegationFactKind.COMPLETED]
+            if has_requested:
+                kinds.append(DelegationFactKind.REQUESTED)
+            for kind in kinds:
+                fact = build_fact(
+                    kind,
+                    task_id=envelope.task_id,
+                    task_type=envelope.task_type,
+                    tenant=tenant,
+                    origin=envelope.origin,
+                    target=envelope.target,
+                    delegation_chain=envelope.delegation_chain,
+                )
+                value = fact.to_value()
+                await outbox.enqueue(fact.topic, value, key=tenant.encode())
+                original_bytes[(envelope.task_id, kind.value)] = value
+        await conn.execute(
+            "UPDATE a2a_idempotency SET status='done', result=$1::jsonb, completed_at=now() "
+            "WHERE task_id='legacy-done'",
+            json.dumps(
+                dict(
+                    success=True,
+                    output_ref="fhir://Task/old-result",
+                    rejection_reason=None,
+                    detail="preserve old result",
+                    meta={"sentinel": [1, "é"]},
+                )
+            ),
+        )
+        before = await _durable_snapshot(conn)
+        chain_before = await verify_chain(dsn, tenant)
+        assert chain_before.valid and chain_before.total_records == 2
+        await asyncio.to_thread(_upgrade_to, dsn, tenant, "0011")
+        assert await conn.fetchval(f'SELECT version_num FROM "{tenant}_alembic_version"') == "0011"
+        assert await _durable_snapshot(conn, marker=True) == before
+        assert (await verify_chain(dsn, tenant)).valid
+        cfg = Config("alembic.ini")
+        script = ScriptDirectory.from_config(cfg)
+        assert script.get_revision("0011").down_revision == "0010"
+        assert len(script.get_heads()) == 1
+        assert "0011" in {revision.revision for revision in script.walk_revisions()}
+        async with dispatcher_for(dsn, tenant, handler) as (dispatcher, _):
+            dispatcher._envelope_verifier = _verifier()
+            for envelope in envelopes:
+                result = await dispatcher.delegate(_signer(tenant=tenant).sign(envelope))
+                assert result.success
+                if envelope.task_id == "legacy-done":
+                    assert result.idempotent_replay and result.output_ref == "fhir://Task/old-result"
+        assert calls == ["legacy-processing"]
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM a2a_idempotency WHERE requested_enqueued_at IS NOT NULL"
+            )
+            == 2
+        )
+        requested = await conn.fetch("SELECT payload FROM a2a_fact_outbox WHERE topic=$1", TOPIC_REQUESTED)
+        assert {json.loads(bytes(row["payload"]))["task_id"] for row in requested} == {
+            env.task_id for env in envelopes
+        }
+        assert len(requested) == 2
+        for row in await conn.fetch("SELECT payload FROM a2a_fact_outbox"):
+            payload = json.loads(bytes(row["payload"]))
+            key = (payload["task_id"], payload["kind"])
+            if key in original_bytes:
+                assert bytes(row["payload"]) == original_bytes[key]
+        assert (await verify_chain(dsn, tenant)).valid
+    finally:
+        await audit.aclose()
+        await outbox.aclose()
+        await conn.execute(f'DROP SCHEMA "{tenant}" CASCADE')
+        await conn.close()
+
+
+async def _die_after_claim_worker(tenant):
+    import os
+
+    from maezo.a2a.transaction import AtomicSession
+
+    original = AtomicSession.claim
+
+    async def die_after_actual_claim(self, task_id):
+        fresh, row = await original(self, task_id)
+        assert fresh and row["status"] == "processing"
+        assert await self.conn.fetchval("SELECT count(*) FROM a2a_idempotency") == 1
+        assert await self.conn.fetchval("SELECT count(*) FROM a2a_fact_outbox") == 0
+        os._exit(73)
+
+    AtomicSession.claim = die_after_actual_claim
+
+    async def handler(envelope):
+        raise AssertionError("pre-enqueue crash reached handler")
+
+    async with dispatcher_for(_default_test_dsn(), tenant, handler) as (dispatcher, _):
+        await dispatcher.delegate(envelope_for(tenant))
+    raise AssertionError("crash boundary not reached")
+
+
+async def test_process_death_after_actual_claim_before_enqueue_rolls_back_then_replays(database):
+    import sys
+
+    dsn, tenant, conn = database
+    child = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        "import asyncio,sys; from tests.unit.a2a.test_atomic_admission_live_pg "
+        "import _die_after_claim_worker; asyncio.run(_die_after_claim_worker(sys.argv[1]))",
+        tenant,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        output = await asyncio.wait_for(child.communicate(), 30)
+        assert child.returncode == 73, output
+    finally:
+        if child.returncode is None:
+            child.kill()
+            await child.wait()
+    assert await counts(conn) == (0, 0, 0, 0)
+
+    async def handler(envelope):
+        assert await counts(conn) == (1, 1, 1, 1)
+        return HandlerOutput(output_ref="fhir://Task/recovered")
+
+    async with dispatcher_for(dsn, tenant, handler) as (dispatcher, _):
+        assert (await dispatcher.delegate(envelope_for(tenant))).success
+        assert (await dispatcher.delegate(envelope_for(tenant))).idempotent_replay
+    assert await counts(conn) == (1, 2, 2, 2)
+    assert (await verify_chain(dsn, tenant)).valid
+
+
+@pytest.mark.parametrize("fault", ["lost_ack", "cancel_before_commit"])
+async def test_finalization_commit_uncertainty_or_cancellation_has_atomic_readback(database, fault):
+    dsn, tenant, conn = database
+    calls = 0
+
+    async def handler(envelope):
+        nonlocal calls
+        calls += 1
+        return HandlerOutput(output_ref="fhir://Task/terminal")
+
+    async with dispatcher_for(dsn, tenant, handler) as (dispatcher, _):
+        original = dispatcher._transactions.transaction
+        entries = 0
+
+        @asynccontextmanager
+        async def terminal_fault(tenant):
+            nonlocal entries
+            entries += 1
+            async with original(tenant) as session:
+                yield session
+                if entries == 2 and fault == "cancel_before_commit":
+                    raise asyncio.CancelledError("synthetic terminal cancellation")
+            if entries == 2 and fault == "lost_ack":
+                raise ConnectionError("synthetic terminal lost commit ack")
+
+        dispatcher._transactions.transaction = terminal_fault
+        expected = ConnectionError if fault == "lost_ack" else asyncio.CancelledError
+        with pytest.raises(expected, match="synthetic terminal"):
+            await dispatcher.delegate(envelope_for(tenant))
+    committed = fault == "lost_ack"
+    assert await counts(conn) == ((1, 2, 2, 2) if committed else (1, 1, 1, 1))
+    assert await conn.fetchval("SELECT status FROM a2a_idempotency") == (
+        "done" if committed else "processing"
+    )
+    async with dispatcher_for(dsn, tenant, handler) as (dispatcher, _):
+        result = await dispatcher.delegate(envelope_for(tenant))
+        assert result.success and result.idempotent_replay is committed
+    assert calls == (1 if committed else 2)
+    assert await counts(conn) == (1, 2, 2, 2)
+    assert (await verify_chain(dsn, tenant)).valid

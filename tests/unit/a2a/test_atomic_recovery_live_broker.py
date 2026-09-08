@@ -201,3 +201,194 @@ async def test_real_connection_outage_keeps_pending_intent_then_broker_recovery(
     finally:
         await good.stop()
         await outbox.aclose()
+
+
+async def _relay_schedule_worker(role, tenant):
+    """Two actual relay processes; only the fault/barrier schedule is controlled."""
+    outbox = PostgresFactOutbox(dsn=_default_test_dsn(), tenant=tenant)
+    publisher = AioKafkaFactPublisher(bootstrap_servers=broker_address())
+    await publisher.start()
+
+    def signal(event, **fields):
+        print("SCHEDULE:" + json.dumps(dict(event=event, pid=os.getpid(), **fields)), flush=True)
+
+    async def command(expected):
+        received = await asyncio.to_thread(sys.stdin.readline)
+        assert received.strip() == expected, received
+
+    try:
+        if role == "a":
+
+            class PrefixFailure:
+                sends = 0
+
+                async def send(self, *args, **kwargs):
+                    self.sends += 1
+                    if self.sends == 2:
+                        signal("prefix-acked", first_task=self.first_task)
+                        await command("fail")
+                        raise ConnectionError("synthetic second-send failure")
+                    await publisher.send(*args, **kwargs)
+                    self.first_task = json.loads(args[1])["task_id"]
+
+            first = await drain_once(
+                outbox, PrefixFailure(), claimed_by="relay-a", batch_size=3, claim_ttl_s=60
+            )
+            signal(
+                "prefix-failed",
+                report=[first.claimed, first.delivered, first.sealed, first.released],
+                error=first.publish_error,
+            )
+            await command("claim-remainder")
+            original_mark = outbox.mark_delivered
+
+            async def pause_before_mark(ids, *, claimed_by):
+                signal("remainder-acked", ids=list(ids))
+                await command("mark-stale")
+                return await original_mark(ids, claimed_by=claimed_by)
+
+            outbox.mark_delivered = pause_before_mark
+            second = await drain_once(outbox, publisher, claimed_by="relay-a", batch_size=2, claim_ttl_s=0.2)
+            signal("stale-refused", delivered=second.delivered, sealed=second.sealed)
+            await command("exit")
+        else:
+            first = await drain_once(outbox, publisher, claimed_by="relay-b", batch_size=2, claim_ttl_s=60)
+            signal("later-delivered", claimed=first.claimed, sealed=first.sealed)
+            await command("takeover")
+            second = await drain_once(outbox, publisher, claimed_by="relay-b", batch_size=2, claim_ttl_s=60)
+            signal("taken-over", claimed=second.claimed, sealed=second.sealed)
+            await command("exit")
+    finally:
+        await publisher.stop()
+        await outbox.aclose()
+
+
+async def test_two_live_relays_multirow_prefix_failure_out_of_order_takeover(database, consumer):
+    from maezo.a2a.facts import DelegationFactKind, build_fact
+
+    dsn, tenant, conn = database
+    outbox = PostgresFactOutbox(dsn=dsn, tenant=tenant)
+    children = []
+    transcript = []
+
+    async def spawn(role):
+        child = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            "import asyncio,sys; from tests.unit.a2a.test_atomic_recovery_live_broker "
+            "import _relay_schedule_worker; asyncio.run(_relay_schedule_worker(sys.argv[1], sys.argv[2]))",
+            role,
+            tenant,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        children.append(child)
+        return child
+
+    async def event(child, expected):
+        async def read():
+            while True:
+                line = await child.stdout.readline()
+                assert line, (expected, transcript, await child.stderr.read())
+                transcript.append(line.decode())
+                if line.startswith(b"SCHEDULE:"):
+                    value = json.loads(line[len(b"SCHEDULE:") :])
+                    assert value["event"] == expected, value
+                    return value
+
+        return await asyncio.wait_for(read(), 30)
+
+    async def send(child, text):
+        child.stdin.write((text + "\n").encode())
+        await child.stdin.drain()
+
+    try:
+        for index in range(5):
+            envelope = envelope_for(tenant)
+            fact = build_fact(
+                DelegationFactKind.REQUESTED,
+                task_id=f"schedule-{index}",
+                tenant=tenant,
+                task_type=envelope.task_type,
+                origin=envelope.origin,
+                target=envelope.target,
+                delegation_chain=envelope.delegation_chain,
+            )
+            await outbox.enqueue(fact.topic, fact.to_value(), key=tenant.encode())
+        original = [
+            dict(row) for row in await conn.fetch("SELECT * FROM a2a_fact_outbox ORDER BY created_at,id")
+        ]
+        a = await spawn("a")
+        prefix = await event(a, "prefix-acked")
+        claimed_a = await conn.fetch("SELECT id FROM a2a_fact_outbox WHERE claimed_by='relay-a' ORDER BY id")
+        assert {row["id"] for row in claimed_a} == {row["id"] for row in original[:3]}
+        b = await spawn("b")
+        later = await event(b, "later-delivered")
+        assert prefix["pid"] != later["pid"]
+        assert a.returncode is None and b.returncode is None
+        assert (later["claimed"], later["sealed"]) == (2, 2)
+        # Later rows are durably sealed while earlier claimed rows remain unsealed.
+        sealed_ids = await conn.fetch("SELECT id FROM a2a_fact_outbox WHERE status='delivered'")
+        assert {row["id"] for row in sealed_ids} == {row["id"] for row in original[3:]}
+        await send(a, "fail")
+        failed = await event(a, "prefix-failed")
+        assert failed["report"] == [3, 1, 1, 2]
+        assert failed["error"] == "broker_publish_failed"
+        assert await conn.fetchval("SELECT count(*) FROM a2a_fact_outbox WHERE status='pending'") == 2
+        await send(a, "claim-remainder")
+        acked = await event(a, "remainder-acked")
+        remainder_ids = {
+            row["id"]
+            for row in original[:3]
+            if json.loads(bytes(row["payload"]))["task_id"] != prefix["first_task"]
+        }
+        assert set(acked["ids"]) == remainder_ids
+
+        # Natural expiry observed in PostgreSQL, no forced lease rewrite.
+        async def expired():
+            while (  # noqa: ASYNC110 -- expiry is a database clock predicate, not an event
+                await conn.fetchval(
+                    "SELECT count(*) FROM a2a_fact_outbox WHERE claimed_by='relay-a' "
+                    "AND status='claimed' AND claim_expires_at<=now()"
+                )
+                != 2
+            ):
+                await asyncio.sleep(0.02)
+
+        await asyncio.wait_for(expired(), 5)
+        await send(b, "takeover")
+        takeover = await event(b, "taken-over")
+        assert (takeover["claimed"], takeover["sealed"]) == (2, 2)
+        assert a.returncode is None and b.returncode is None
+        await send(a, "mark-stale")
+        stale = await event(a, "stale-refused")
+        assert (stale["delivered"], stale["sealed"]) == (2, 0)
+        rows = await conn.fetch("SELECT * FROM a2a_fact_outbox ORDER BY created_at,id")
+        assert len(rows) == 5 and all(row["status"] == "delivered" for row in rows)
+        expected = {row["dedup_key"]: bytes(row["payload"]) for row in original}
+        assert {row["dedup_key"]: bytes(row["payload"]) for row in rows} == expected
+        assert {row["id"]: row["attempts"] for row in rows} == {
+            row["id"]: (3 if row["id"] in remainder_ids else 1) for row in original
+        }
+        messages = await receive(consumer, tenant, 7)
+        observed = {}
+        for message in messages:
+            payload = json.loads(message.value)
+            key = f"{tenant}:a2a:delegate:{payload['task_id']}:{payload['kind']}"
+            assert message.value == expected[key] and message.key == tenant.encode()
+            observed[key] = observed.get(key, 0) + 1
+        assert set(observed) == set(expected)
+        assert sorted(observed.values()) == [1, 1, 1, 2, 2]
+        # This asserts this controlled schedule's deliveries, never global FIFO or
+        # exactly-once transport/effects for deployed consumers.
+        for child in children:
+            await send(child, "exit")
+        outputs = await asyncio.wait_for(asyncio.gather(*(child.communicate() for child in children)), 20)
+        assert [child.returncode for child in children] == [0, 0], outputs
+    finally:
+        for child in children:
+            if child.returncode is None:
+                child.kill()
+                await child.wait()
+        await outbox.aclose()
