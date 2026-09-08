@@ -167,6 +167,9 @@ def create_app(
         redoc_url=None,
         openapi_url=f"{_PREFIX}/openapi.json",
         lifespan=lifespan,
+        # TLS offload leaves an HTTP scope: slash redirects would forward code/state
+        # to plaintext. Reject noncanonical paths; never infer authority from proxy headers.
+        redirect_slashes=False,
     )
     app.state.human_session_resolver = resolver
 

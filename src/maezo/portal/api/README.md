@@ -57,14 +57,24 @@ e-mail, nome, header ou body cria membership. Login não é prova ratificada de 
 
 - `GET /api/v1/portal/auth/login?return_to=/portal`: inicia state/nonce/verifier criptograficamente
   aleatórios, PKCE S256 e cookie de browser binding; return_to só admite `/`, `/portal`, `/portal/`.
-- `GET /api/v1/portal/auth/callback`: consome atomicamente state + browser binding antes da troca.
-  Código é reservado por digest, único no tenant, antes de I/O. Timeout/erro queima a transação;
-  não existe retry cego que atribui resultado incerto a login válido. O novo cookie rotaciona a
-  sessão anterior na mesma transação do store e redireciona para path limpo fixo.
+- `GET /api/v1/portal/auth/callback`: após validar query, cookies e formato das credenciais,
+  consome atomicamente state + browser binding antes da troca. Código é reservado por digest,
+  único no tenant, antes de I/O. Timeout/erro após esse consumo queima a transação; não existe
+  retry cego que atribui resultado incerto a login válido. Rejeições anteriores ao consumo não
+  queimam a transação: por exemplo, `error=access_denied` do IdP é recusado com 401 pela query
+  restrita a state/code. A transação permanece pendente até consumo ou expiração; um callback
+  posterior válido ainda pode concluí-la, exigindo o mesmo binding, PKCE e nonce. O novo cookie
+  rotaciona a sessão anterior na mesma transação do store e redireciona para path limpo fixo.
 - `GET /api/v1/portal/session`: retorna somente versão, principal opaco, público, roles, expiração
   e CSRF. Tokens, issuer/sub, grupos clínicos, vínculos e dados de beneficiário ficam no servidor.
 - `POST /api/v1/portal/auth/logout`: exige cookie de sessão, Origin exato e `X-CSRF-Token` da sessão.
   Revoga sessão local no banco e remove cookies. Não afirma revogação global do login SSO Cognito.
+
+O BFF não normaliza barras por redirecionamento. Rotas não canônicas, inclusive login, callback
+e logout com barra final, retornam 404 sem Location e sem consumir transação. Assim o roteador
+não reenvia code/state a uma URL HTTP derivada da conexão interna após terminação TLS. O login
+canônico continua redirecionando ao Cognito HTTPS configurado; o callback válido retorna somente
+o path relativo permitido. Cabeçalhos Forwarded/X-Forwarded não determinam essas URLs.
 
 Cookies `__Host-` são Secure/HttpOnly/SameSite=Lax, Path=/ e sem Domain; sessão é referência
 aleatória de 256 bits, armazenada apenas como SHA-256. ID/access/refresh tokens não chegam ao
