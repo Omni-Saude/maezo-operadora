@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
+from datetime import UTC, datetime, timedelta
 
 import asyncpg
 import pytest
@@ -65,10 +66,11 @@ async def database():
         yield dsn, tenant, conn
 
 
-def envelope_for(tenant):
+def envelope_for(tenant, *, deadline=None):
     from dataclasses import replace
 
-    return replace(_envelope(), tenant=tenant)
+    valid_deadline = deadline or datetime.now(UTC) + timedelta(hours=1)
+    return replace(_envelope(), tenant=tenant, deadline=valid_deadline)
 
 
 @asynccontextmanager
@@ -269,7 +271,8 @@ async def test_invalid_card_rejection_has_no_requested(database):
 @pytest.mark.parametrize("kind", ["unsigned", "tampered", "expired"])
 async def test_signature_rejection_precedes_any_claim_or_audit(database, kind):
     from dataclasses import replace
-    from datetime import UTC, datetime, timedelta
+
+    from maezo.a2a import RejectionReason
 
     from .test_envelope_signing import _signer, _verifier
 
@@ -278,14 +281,25 @@ async def test_signature_rejection_precedes_any_claim_or_audit(database, kind):
     async def handler(envelope):
         raise AssertionError("unverified envelope reached handler")
 
-    envelope = envelope_for(tenant)
+    now = datetime.now(UTC)
+    envelope = envelope_for(tenant, deadline=now + timedelta(hours=1))
     if kind == "tampered":
-        envelope = replace(_signer(tenant=tenant).sign(envelope), task_id="retagged")
+        signed = _signer(tenant=tenant).sign(envelope, now=now)
+        assert _verifier().verify(signed, now=now)
+        envelope = replace(signed, task_id="retagged")
     elif kind == "expired":
-        envelope = _signer(tenant=tenant).sign(envelope, now=datetime.now(UTC) - timedelta(days=30))
+        signed_at = now - timedelta(days=30)
+        signed = _signer(tenant=tenant).sign(
+            envelope_for(tenant, deadline=signed_at + timedelta(hours=1)),
+            now=signed_at,
+        )
+        assert _verifier().verify(signed, now=signed_at)
+        envelope = signed
     async with dispatcher_for(dsn, tenant, handler) as (dispatcher, _):
         dispatcher._envelope_verifier = _verifier()
-        assert not (await dispatcher.delegate(envelope)).success
+        result = await dispatcher.delegate(envelope)
+        assert not result.success
+        assert result.rejection_reason is RejectionReason.SIGNATURE_INVALID
     assert await counts(conn) == (0, 0, 0, 0)
 
 
