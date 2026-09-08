@@ -121,6 +121,7 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
     // Keep CIB's optimistic revision fence and its single normal deferred flush.
     // A manual flush replays retained metric/history inserts at CommandContext.close.
     if (!c.operation().equals("decision")) context.getDbEntityManager().forceUpdate(task);
+    context.getDbEntityManager().flush();
     context
         .getTransactionContext()
         .addTransactionListener(
