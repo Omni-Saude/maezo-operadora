@@ -1,0 +1,68 @@
+utc_start=2026-09-08T20:19:13.672057+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-verify
+
+argv=["git", "rev-parse", "HEAD", "HEAD^{tree}"]
+ac775f8dd86418402bc42bae1eb11756fe90c038
+4090bc7449f1b10dfda2c3397aa2cef5077fa0e0
+
+rc=0
+
+argv=["git", "diff", "--stat", "7b34cf44ae9e531092f92994a8347fbe0116784c", "HEAD"]
+ .../completion-fleet-ledger-ci-repair/MANIFEST.md  |  27 +
+ .../completion-fleet-ledger-ci-repair/REPORT.md    |  78 +++
+ .../raw/focused-tests.txt                          |   9 +
+ .../raw/ledger-gate.txt                            |  27 +
+ .../raw/ledger-preservation.txt                    |  21 +
+ .../raw/static-checks.txt                          |  19 +
+ docs/evidence-ledger.md                            |  15 +
+ scripts/ci/check_evidence_ledger_hashes.py         | 718 ++++++++++++++++++++-
+ scripts/ci/generate_release_floor.py               |   8 +-
+ .../ci/test_check_evidence_ledger_supersession.py  | 393 +++++++++++
+ 10 files changed, 1294 insertions(+), 21 deletions(-)
+
+rc=0
+
+argv=["git", "diff", "--name-only", "3009bbe5490e28b89b606dc6e656d6b2b3ad98d8", "HEAD"]
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-ci-repair/MANIFEST.md
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-ci-repair/REPORT.md
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-ci-repair/raw/focused-tests.txt
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-ci-repair/raw/ledger-gate.txt
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-ci-repair/raw/ledger-preservation.txt
+docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-ci-repair/raw/static-checks.txt
+
+rc=0
+
+argv=[".venv/bin/ruff", "check", "scripts/ci/check_evidence_ledger_hashes.py", "scripts/ci/generate_release_floor.py", "tests/unit/ci/test_check_evidence_ledger_supersession.py"]
+All checks passed!
+
+rc=0
+
+argv=[".venv/bin/ruff", "format", "--check", "scripts/ci/check_evidence_ledger_hashes.py", "scripts/ci/generate_release_floor.py", "tests/unit/ci/test_check_evidence_ledger_supersession.py"]
+3 files already formatted
+
+rc=0
+
+argv=[".venv/bin/mypy", "--strict", "scripts/ci/check_evidence_ledger_hashes.py", "scripts/ci/generate_release_floor.py"]
+Success: no issues found in 2 source files
+
+rc=0
+
+{"baseline_bytes": 1618623, "baseline_physical_lines": 588, "baseline_sha256": "b5e659d64a277b776d413dbb378a219305084cd24b5132f9d266e77acd5720cb", "literal_prefix": true, "added_lines": 15, "candidate_ledger_sha256": "23bee9636421beaf5e240a128533d8cbf611bf4ab6d68611b0a7742722c766bf"}
+
+{"author_artifact": "raw/ledger-gate.txt", "matches_manifest": true, "sha256": "2aa2dd2af3b07d76009acb377acd4e084b9993a02a61097a2de014dc30de9d3b"}
+
+{"author_artifact": "raw/focused-tests.txt", "matches_manifest": true, "sha256": "d5b44d1c8ddcb4ef4068f6967934e9692201e6c8a02a0b69b1e4dc448f2ab93a"}
+
+{"author_artifact": "raw/static-checks.txt", "matches_manifest": true, "sha256": "f363adcee000774b7f02ff2be5f69dc69bfc79bc1eb9e941a51bddac58f22901"}
+
+{"author_artifact": "raw/ledger-preservation.txt", "matches_manifest": true, "sha256": "5e13b73bee8623f7eeaec69f3e2d872775cc9296a564d8b0e6f9390edeccd236"}
+
+{"author_artifact": "scripts/ci/check_evidence_ledger_hashes.py", "matches_manifest": true, "sha256": "7f8428e54c23f1c0a8984909dd61f3011c213d013c4f1d88ac0274654a0cbf50"}
+
+{"author_artifact": "scripts/ci/generate_release_floor.py", "matches_manifest": true, "sha256": "c6ff686d85a5c133e097600854fb105e915dff2b163e6327cacdbd4965f5520b"}
+
+{"author_artifact": "tests/unit/ci/test_check_evidence_ledger_supersession.py", "matches_manifest": true, "sha256": "4204f8f7d0304fbc094cbd4981422fd3b56ba2fa203fd35f46e3e3e922652277"}
+
+{"author_artifact": "docs/evidence-ledger.md", "matches_manifest": true, "sha256": "23bee9636421beaf5e240a128533d8cbf611bf4ab6d68611b0a7742722c766bf"}
+
+utc_end=2026-09-08T20:19:16.845850+00:00

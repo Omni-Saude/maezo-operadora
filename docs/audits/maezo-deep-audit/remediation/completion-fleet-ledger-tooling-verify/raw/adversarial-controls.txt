@@ -1,0 +1,13 @@
+utc_start=2026-09-08T20:18:47.711116+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-verify
+argv=[".venv/bin/python", "/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-verify/docs/audits/maezo-deep-audit/remediation/completion-fleet-ledger-tooling-verify/raw/adversarial-controls.py"]
+revision=ac775f8dd86418402bc42bae1eb11756fe90c038
+{"control": "missing_declaration", "gate_rc": 0, "output": "[check-evidence-ledger-hashes] SKIP (legacy): CURRENT-CLAIM \u2014 no declared-path Test-hash form\n[check-evidence-ledger-hashes] PASS: 0 rows verified, 1 legacy rows skipped \u2014 rows added in becf6f8749c05bde334d69852082c18170b69ea2..HEAD of docs/evidence-ledger.md (legacy task IDs: CURRENT-CLAIM).\n"}
+{"control": "predated_successor", "gate_rc": 0, "output": "[check-evidence-ledger-hashes] SKIP (legacy): CURRENT-CLAIM \u2014 Date cell 2000-01-01 precedes CONVENTION_START_DATE 2026-09-04 (Test-hash cell matches the declared-path shape by coincidence, not by opt-in)\n[check-evidence-ledger-hashes] PASS: 0 rows verified, 1 legacy rows skipped \u2014 rows added in 4db80176d4a709e434876a168132f362afb980a5..HEAD of docs/evidence-ledger.md (legacy task IDs: CURRENT-CLAIM).\n"}
+{"control": "unrelated_lock_update", "gate_rc": 1, "output": "[check-evidence-ledger-hashes] ERROR: invalid ledger supersession provenance: CURRENT-CLAIM: historical uv.lock differs from HEAD; the current locked environment cannot truthfully execute that historical tree\n"}
+{"control": "non_python_suffix_escape", "gate_rc": 0, "output": "[check-evidence-ledger-hashes] OK: OLD-CLAIM: historical claim verified at exact source_commit cbdc442637efcfa4c7c7213aa7485951b6cc672f (tests/test_claim.py, 1 result lines; 2 archived Python source files attested).\n[check-evidence-ledger-hashes] OK: CURRENT-CLAIM: verified sha256:ccc71b8b1ae82a137e27d1491b902cd1fcd434b857c59b91a66736fa899568b8 (tests/test_claim.py, 2 result lines).\n[check-evidence-ledger-hashes] SUMMARY: 2/2 declared-row proofs verified (1 selected rows; 2 total current/historical proofs), 0 legacy rows skipped \u2014 rows added in cbdc442637efcfa4c7c7213aa7485951b6cc672f..HEAD of docs/evidence-ledger.md.\n"}
+{"control": "dsn_query_host_override_without_network", "gate_accepts": true, "libpq_resolved_host": "db.example.invalid"}
+{"control": "real_subprocess_deadline", "counts": {}, "elapsed_s": 0.204, "passed": null, "raw": "TIMEOUT after 0.2s running pytest tests/ -q: Command '['/var/folders/03/1rdbcdk105qf0m9zctqqlhtr0000gn/T/floor-verifier-r4usn3pa/sleeping-python', '-m', 'pytest', 'tests/', '-q']' timed out after 0.2 seconds", "returncode": -1, "violations": 2}
+
+rc=0
+utc_end=2026-09-08T20:18:52.664297+00:00

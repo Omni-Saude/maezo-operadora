@@ -1,0 +1,10 @@
+utc_start=2026-09-08T20:16:16.639111+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-verify
+argv=[".venv/bin/python", "-m", "pytest", "tests/unit/ci/test_check_evidence_ledger_hashes.py", "tests/unit/ci/test_check_evidence_ledger_supersession.py", "tests/unit/ci/test_generate_release_floor.py", "-q", "-p", "no:cacheprovider"]
+revision=ac775f8dd86418402bc42bae1eb11756fe90c038
+........................................................................ [ 51%]
+...................................................................      [100%]
+139 passed in 49.65s
+
+rc=0
+utc_end=2026-09-08T20:17:10.313592+00:00

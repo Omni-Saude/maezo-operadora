@@ -1,0 +1,8 @@
+utc=2026-09-08T20:20:11.508504+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-tooling-verify
+argv=[".venv/bin/python", "scripts/ci/check_ledger_row_cell_count.py", "--base", "3125fea992e607836a6adccbfb8593a1cc062a46"]
+[check-ledger-row-cell-count] PASS: 19 row(s) checked, all 8-cell — rows added in 3125fea992e607836a6adccbfb8593a1cc062a46..HEAD of docs/evidence-ledger.md.
+
+rc=0
+baseline_parsed_table_rows=479
+baseline_data_rows=477
