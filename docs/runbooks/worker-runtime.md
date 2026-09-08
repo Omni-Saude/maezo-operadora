@@ -171,10 +171,15 @@ O alvo `make test-integration` continua limitado a `tests/integration/`. A lane 
 coleta globalmente `tests -m "integration and not chaos"`, porque também existem suítes live-PG
 e live-CIB sob `tests/unit/`; a lane `chaos` executa separadamente `-m chaos`. A união das duas
 lanes cobre o conjunto global `-m integration`, sem interseção. A lane unitária usa
-`-m "not integration"`. A execução normal publica JUnit e a lista coletada, exige a mesma contagem
-nos dois artefatos, mostra motivos de skip/xfail e reprova qualquer skip ordinário. Somente os
-companions que declaram `MAEZO_CHAOS_MUTATE` continuam skips explícitos quando sua mutação não foi
-ativada; strict-xfails continuam visíveis e qualquer XPASS estrito mantém o pytest vermelho.
+`-m "not integration"`. Antes de subir serviços, cada lane live grava um manifesto JSON da coleção
+com node ID, identidade JUnit, hash da fonte, política de xfail e eventual companion derivado da
+guarda canônica `mutation_active`. A execução grava outro JSON com as fases setup/call/teardown e
+prova de entrada no corpo, além do JUnit e do relatório de validação. Os quatro artefatos precisam
+concordar exatamente; caso ausente/substituído/duplicado, fonte alterada, relatório parcial, skip
+ordinário, xfail sem fase call e qualquer XPASS falham fechado. Strict-xfails só são aceitos quando
+o corpo entrou e falhou como esperado. Os seis companions canônicos continuam skips explícitos
+quando a mutação opt-in não foi ativada e ficam declarados como obrigação de RED separado; texto
+livre contendo `MAEZO_CHAOS_MUTATE` não cria um companion.
 
 **The `down -v` consideration between integration runs.** Per `docs/design/T3.3-chaos-resilience.md`
 (§1.3), CI's `integration` job (`.github/workflows/ci.yml`) does: `docker compose --profile core

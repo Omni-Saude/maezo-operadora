@@ -542,9 +542,10 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         run: |
           set +e
-          uv run pytest tests --collect-only -q -m "integration and not chaos" \
-            | tee integration-collection.txt
-          code=${PIPESTATUS[0]}
+          uv run python scripts/ci/run_live_pytest.py collect \
+            --output integration-collection.json -- \
+            tests -q -m "integration and not chaos"
+          code=$?
           set -e
           echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
           case "${code}" in
@@ -614,7 +615,7 @@ jobs:
             || { echo "ERROR: Kafka did not become ready within 90s"; exit 1; }
           echo "All services healthy."
 
-      # Direct pytest instead of `make test-integration` — the global collection root is
+      # O wrapper usa pytest.main diretamente em vez de `make test-integration`: a coleção global é
       # load-bearing: integration-marked live-PG/DMN modules also live under tests/unit/, where
       # the unit lane now excludes them. `-m "integration and not chaos"` keeps
       # tests/integration/chaos/ (marked BOTH
@@ -623,14 +624,18 @@ jobs:
       # wall-clock of the slowest 40 — the evidence the next optimization round needs; this lane
       # averages ~11 s/test with zero per-test visibility today); `-rs` (prints every skip's
       # reason, so a self-skipping live suite — no KAFKA_BOOTSTRAP_SERVERS / MAEZO_TEST_DATABASE_URL
-      # in this job's env — shows up in the log as text, not as a silent `s`).
+      # in this job's env — shows up in the log as text, not as a silent `s`). O manifesto da
+      # coleta é a autoridade: identidade JUnit, hash da fonte, fases e entrada no corpo precisam
+      # coincidir na execução. Um xfail sem call, XPASS ou skip rotulado livremente falha fechado.
       - name: Integration tests
         if: steps.guard.outputs.run == 'true'
         run: |
-          uv run python -m pytest tests -q -m "integration and not chaos" --durations=40 -ra \
-            --junitxml=integration-junit.xml
-          uv run python scripts/ci/check_live_junit.py integration-junit.xml \
-            --collection integration-collection.txt
+          uv run python scripts/ci/run_live_pytest.py run \
+            --expected integration-collection.json \
+            --evidence integration-execution.json \
+            --junit integration-junit.xml \
+            --validation integration-validation.json -- \
+            tests -q -m "integration and not chaos" --durations=40 -ra
 
       - name: Upload integration test results
         if: always() && steps.gate.outputs.run == 'true'
@@ -639,8 +644,10 @@ jobs:
           name: integration-test-results-${{ github.sha }}
           path: |
             .pytest_cache/
-            integration-collection.txt
+            integration-collection.json
+            integration-execution.json
             integration-junit.xml
+            integration-validation.json
           retention-days: 7
 
       - name: Collect stack logs on failure
@@ -715,9 +722,10 @@ jobs:
         id: guard
         run: |
           set +e
-          uv run pytest tests/integration/chaos --collect-only -q -m chaos \
-            | tee chaos-collection.txt
-          code=${PIPESTATUS[0]}
+          uv run python scripts/ci/run_live_pytest.py collect \
+            --output chaos-collection.json -- \
+            tests/integration/chaos -q -m chaos
+          code=$?
           set -e
           echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
           case "${code}" in
@@ -760,9 +768,12 @@ jobs:
       - name: Chaos tests (seam-level fault injection)
         if: steps.guard.outputs.run == 'true'
         run: |
-          uv run pytest tests/integration/chaos -q -m chaos -ra --junitxml=chaos-junit.xml
-          uv run python scripts/ci/check_live_junit.py chaos-junit.xml \
-            --collection chaos-collection.txt
+          uv run python scripts/ci/run_live_pytest.py run \
+            --expected chaos-collection.json \
+            --evidence chaos-execution.json \
+            --junit chaos-junit.xml \
+            --validation chaos-validation.json -- \
+            tests/integration/chaos -q -m chaos -ra
 
       - name: Upload chaos test results
         if: always() && steps.guard.outputs.run == 'true'
@@ -771,8 +782,10 @@ jobs:
           name: chaos-test-results-${{ github.sha }}
           path: |
             .pytest_cache/
-            chaos-collection.txt
+            chaos-collection.json
+            chaos-execution.json
             chaos-junit.xml
+            chaos-validation.json
           retention-days: 7
 
       - name: Collect Postgres logs on failure
