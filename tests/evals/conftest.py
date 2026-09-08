@@ -365,12 +365,24 @@ live_key_skip = pytest.mark.skipif(
 
 
 _LIVE_OBSERVER = pytest.StashKey[LiveEvalInference]()
+_LIVE_BODY = pytest.StashKey[Any]()
+
+
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_runtest_call(item):
+    # Only the actual pytest call phase owns this lease, never fixture setup.
+    from tests.evals._live import live_eval_body
+
+    with live_eval_body(item) as body:
+        item.stash[_LIVE_BODY] = body
+        yield
 
 
 @pytest.fixture
 def live_inference(request):
     """One observer per body; teardown checks survive graph Exception fallbacks."""
     live = build_live_inference()
+    live.bind_to_node(request.node)
     request.node.stash[_LIVE_OBSERVER] = live
     try:
         yield live
@@ -411,6 +423,22 @@ class _RequiredLiveEvals:
         self.collected: set[str] = set()
         self.passed: set[str] = set()
         self.nonpass = False
+        self.metadata_refused = False
+        self.observers: list[LiveEvalInference] = []
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_fixture_setup(self, fixturedef, request):
+        # These standard APIs bypass TestReport.user_properties. Refuse before
+        # their factory creates a JUnit writer; never rewrite testcase identities.
+        if fixturedef.argname not in {"record_property", "record_testsuite_property", "record_xml_attribute"}:
+            return None
+
+        def refuse_metadata(*args, **kwargs):
+            self.metadata_refused = True
+            raise LiveEvalError("LIVE EVAL INVALID: public metadata is forbidden")
+
+        fixturedef.cached_result = (refuse_metadata, fixturedef.cache_key(request), None)
+        return refuse_metadata
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:
         try:
@@ -422,15 +450,24 @@ class _RequiredLiveEvals:
     def pytest_runtest_makereport(self, item, call):
         outcome = yield
         report = outcome.get_result()
-        if report.when == "call" and report.passed:
+        if report.when in {"call", "teardown"} and report.passed:
             live = item.stash.get(_LIVE_OBSERVER, None)
             try:
                 if type(live) is not LiveEvalInference or item.funcargs.get("live_inference") is not live:
                     raise LiveEvalError("LIVE EVAL FAILED: body has no completion observer")
                 live.verify()
+                if live not in self.observers:
+                    self.observers.append(live)
+                body = item.stash.get(_LIVE_BODY, None)
+                if body is None or body.invalid:
+                    raise LiveEvalError("LIVE EVAL INVALID: body phase violation")
             except LiveEvalError as exc:
                 report.outcome = "failed"
                 report.longrepr = str(exc)
+
+        if self.metadata_refused:
+            report.outcome = "failed"
+            report.longrepr = "LIVE EVAL INVALID: public metadata is forbidden"
 
         # The generic runner redacts recognized sensitive values. PHI evals have
         # a stricter contract: no arbitrary assertion/narrative text is public.
@@ -462,6 +499,13 @@ class _RequiredLiveEvals:
     def pytest_sessionfinish(self, session: pytest.Session, exitstatus: int) -> None:
         if session.config.option.collectonly:
             return
+        for live in self.observers:
+            try:
+                live.verify()
+            except LiveEvalError:
+                self.nonpass = True
+        if self.metadata_refused:
+            self.nonpass = True
         if exitstatus == 0 and (not self.collected or self.nonpass or self.passed != self.collected):
             session.exitstatus = pytest.ExitCode.TESTS_FAILED
 

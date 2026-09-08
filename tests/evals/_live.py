@@ -8,7 +8,8 @@ Only counters survive a call. Content, headers and raw exceptions are never rece
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, cast
@@ -59,8 +60,31 @@ def live_configuration_absent() -> bool:
 
 
 @dataclass
+class _Body:
+    node: object
+    active: bool = True
+    invalid: bool = False
+
+
+_BODY: ContextVar[_Body | None] = ContextVar("maezo_live_eval_body", default=None)
+
+
+@contextmanager
+def live_eval_body(node: object) -> Iterator[_Body]:
+    """Pytest call-phase scope; mutable lease revokes copied task/thread contexts."""
+    body = _Body(node)
+    token = _BODY.set(body)
+    try:
+        yield body
+    finally:
+        body.active = False
+        _BODY.reset(token)
+
+
+@dataclass
 class _Call:
     owner: object
+    body: _Body | None = None
     wire_successes: int = 0
     active: bool = True
 
@@ -87,6 +111,7 @@ class LiveEvalInference:
         self.completions = 0
         self.failures = 0
         self._closed = False
+        self._node: object | None = None
         if type(provider) is not InferenceProvider:
             raise LiveEvalError("LIVE EVAL INVALID: real inference facade required")
         impl = provider._impl
@@ -118,13 +143,38 @@ class LiveEvalInference:
         self._observed_send = self._send
         self._session.send = self._observed_send
 
+    def bind_to_node(self, node: object) -> None:
+        if self._node is not None:
+            self.failures += 1
+            raise LiveEvalError("LIVE EVAL INVALID: observer already bound")
+        self._node = node
+
+    def _body_is_active(self, body: _Body | None) -> bool:
+        return body is not None and body.active and body.node is self._node and _BODY.get() is body
+
+    def _invalid_phase(self) -> None:
+        self.failures += 1
+        body = _BODY.get()
+        if body is not None:
+            body.invalid = True
+
     def _send(self, request: Any) -> Any:
         call = _CALL.get()
-        if self._closed or call is None or call.owner is not self or not call.active:
+        if (
+            self._closed
+            or call is None
+            or call.owner is not self
+            or not call.active
+            or not self._body_is_active(call.body)
+        ):
+            self._invalid_phase()
             raise LiveEvalError("LIVE EVAL INVALID: foreign or inactive HTTP call")
         # Never inspect headers/body or retain the response. Only the HTTP status
         # of the installed original send is needed, before facade validation.
         response = self._original_send(request)
+        if not self._body_is_active(call.body) or not call.active:
+            self._invalid_phase()
+            raise LiveEvalError("LIVE EVAL INVALID: foreign or inactive HTTP call")
         if (
             _type_is(response, "botocore.awsrequest", "AWSResponse")
             and type(response.status_code) is int
@@ -143,11 +193,12 @@ class LiveEvalInference:
 
     async def generate(self, prompt: str, *, phi: bool = False, **kwargs: Any) -> str:
         self.attempts += 1
-        call = _Call(self)
+        call = _Call(self, _BODY.get())
         token = _CALL.set(call)
         try:
             if (
                 self._closed
+                or not self._body_is_active(call.body)
                 or phi is not True
                 or self._provider._impl is not self._impl
                 or self._impl._transport is not self._transport
@@ -157,12 +208,17 @@ class LiveEvalInference:
             ):
                 raise LiveEvalError("LIVE EVAL INVALID: changed provider or call zone")
             result = await self._provider.generate(prompt, phi=phi, **kwargs)
-            if call.wire_successes != 1 or not isinstance(result, str) or not result.strip():
+            if (
+                not self._body_is_active(call.body)
+                or call.wire_successes != 1
+                or not isinstance(result, str)
+                or not result.strip()
+            ):
                 raise LiveEvalError("LIVE EVAL INVALID: successful nonempty wire completion required")
             self.completions += 1
             return result
         except Exception:
-            self.failures += 1
+            self._invalid_phase()
             raise LiveEvalError("LIVE EVAL FAILED: completion unavailable") from None
         finally:
             call.active = False

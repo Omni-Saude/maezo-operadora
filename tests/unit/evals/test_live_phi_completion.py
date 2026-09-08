@@ -33,9 +33,15 @@ def isolated(monkeypatch):
 
 
 @pytest.fixture
-def live():
+def live(request):
     observer = _live.build_live_inference()
-    yield observer
+    # Explicit UNIT body lease: these tests call the helper outside eval pytest hooks.
+    observer.bind_to_node(request.node)
+    assert _live._BODY.get() is None
+    with _live.live_eval_body(request.node) as body:
+        yield observer
+        assert body.active and body.node is request.node
+    assert not body.active and _live._BODY.get() is None
     observer.close()
 
 
@@ -171,8 +177,11 @@ async def test_foreign_instance_wire_receipt_does_not_count(monkeypatch, live):
     other = _live.build_live_inference()
     try:
         install_unit_wire(monkeypatch, other)
-        await other.generate("synthetic", phi=True)
-        other.verify()
+        node = object()
+        other.bind_to_node(node)
+        with _live.live_eval_body(node):
+            await other.generate("synthetic", phi=True)
+            other.verify()
         with pytest.raises(_live.LiveEvalError):
             live.verify()
         token = _live._CALL.set(_live._Call(other))
@@ -244,10 +253,14 @@ async def test_concurrent_instances_keep_call_contexts_separate(monkeypatch, liv
     try:
         install_unit_wire(monkeypatch, live)
         install_unit_wire(monkeypatch, other)
-        await asyncio.gather(
-            live.generate("synthetic first", phi=True),
-            other.generate("synthetic second", phi=True),
-        )
+        node = object()
+        other.bind_to_node(node)
+
+        async def other_body():
+            with _live.live_eval_body(node):
+                return await other.generate("synthetic second", phi=True)
+
+        await asyncio.gather(live.generate("synthetic first", phi=True), other_body())
         live.verify()
         other.verify()
     finally:
