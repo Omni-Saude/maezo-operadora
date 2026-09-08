@@ -1478,7 +1478,6 @@ def child_probe(args: argparse.Namespace) -> int:
     _process_owner = lock
     _append_event(events, "child_started")
     return_code = 1
-    cleanup_confirmed = True
     child_code = (
         "import os,pathlib,sys,time; "
         "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); "
@@ -1499,15 +1498,20 @@ def child_probe(args: argparse.Namespace) -> int:
         return_code = 130
         lock.update("interrupted", return_code=return_code)
         _append_event(events, "interrupted", return_code=return_code)
-    except ProcessGroupCleanupError as exc:
-        cleanup_confirmed = False
-        lock.update("subprocess_cleanup_unconfirmed", error=str(exc))
+    except (RunnerError, OSError) as exc:
+        lock.update("subprocess_cleanup_unconfirmed", error=_redact_text(str(exc)))
         _append_event(events, "subprocess_cleanup_unconfirmed")
     finally:
-        if lock.owns() and cleanup_confirmed and not _pending_groups:
-            _append_event(events, "cleanup_permitted")
-            if lock.release():
-                _append_event(events, "lock_released")
+        if lock.owns():
+            if _pending_groups or lock.owner.get("subprocess_quiescent") is False:
+                return_code = 1
+                lock.update("subprocess_cleanup_unconfirmed", return_code=return_code)
+            else:
+                _append_event(events, "cleanup_permitted")
+                if lock.release():
+                    _append_event(events, "lock_released")
+                else:
+                    return_code = 1
     return return_code
 
 

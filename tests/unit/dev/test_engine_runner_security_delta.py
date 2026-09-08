@@ -100,6 +100,10 @@ def test_failed_quiescence_is_durable_across_error_and_signal(tmp_path: Path, mo
             while _alive(child_pid) and time.monotonic() < deadline:
                 time.sleep(0.02)
             assert not _alive(child_pid)
+            owner_path = tmp_path / "engine.lock/owner.json"
+            if owner_path.exists():
+                owner_path.unlink()
+                owner_path.parent.rmdir()
 
 
 def _git(path: Path, *args: str) -> str:
