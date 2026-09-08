@@ -1,0 +1,28 @@
+utc_start=2026-09-08T20:58:06.253526+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-boundary-repair
+argv=["/Users/familia/code/maezo-completion-wt/fleet-ledger-boundary-repair/.venv/bin/python", "scripts/ci/check_evidence_ledger_hashes.py", "--base", "3125fea992e607836a6adccbfb8593a1cc062a46"]
+revision=c97631d9865b87842c014037b3ac6a5c7025d26c
+[check-evidence-ledger-hashes] OK: FAB-PUBLISH-CONTACT / NEW-A2-1 / NEW-A2-2 / NEW-05 / NEW-06: verified sha256:6016cb67470a736844a17e41c854fef4a4af9586988b3f9ca337d7f0a07fd0ea (tests/unit/tools/workers/test_worker_handler_purity.py, 9 result lines).
+[check-evidence-ledger-hashes] OK: FHIR-TOOL-SURFACE-PARITY / NEW-04 / VAL-02 / BEA-13 / RAF-03 / NEW-09: verified sha256:a65cd642e76bbd14dd8043a914352f1a728cdd16ee72611bd277ee5fec146d67 (tests/unit/gateway/test_fhir_tool_surface_parity.py, 58 result lines).
+[check-evidence-ledger-hashes] OK: CAROLINA-CATCHALL / CAR-01 / CAR-03 / CAR-05: verified sha256:b35cf4ba1e909f2bb0e2006890c3fc1c3b55606d8736d6dd8c5bd150ad3b892f (tests/unit/agents/test_carolina_desfecho_fence.py, 4 result lines).
+[check-evidence-ledger-hashes] OK: HELENA-INPUT-BOUNDARY / HEL-06 / HEL-03 / HEL-04 / HEL-07: verified sha256:8f45975cda6d736841e761fb5cc044a49c0b0c806db6dbca2122ec862818dd93 (tests/unit/agents/test_untrusted_input_boundary_fence.py, 28 result lines).
+[check-evidence-ledger-hashes] OK: DOSSIER-BROAD-EXCEPT: verified sha256:65bd9502e48f4bff8d4c01807d917007341626b6eb25eef19e54ca90fc446a87 (tests/unit/runtime/test_broad_except_allowlist.py, 16 result lines).
+[check-evidence-ledger-hashes] OK: FENCE-PINS / BEA-06 / CC-04 / NEW-13 / REG-05 / REG-06 / REG-07 / CC-01: verified sha256:57af83f92e46c1e2dea0957cfc56c506f61c5e7c29702394396a23b5aacdafc3 (tests/unit/agents/test_graph_docstrings_a2a_fidelity.py, 22 result lines).
+[check-evidence-ledger-hashes] OK: A2A-YAML-DISCLOSURE: verified sha256:977164d1a53df87ae650deb792c9976a7da5c06593924dfa3f32a030689d8b2b (tests/unit/a2a/test_agent_card_handlers_parity.py, 58 result lines).
+[check-evidence-ledger-hashes] OK: FERNANDO-INPUT-DESFECHO: verified sha256:80f4ddedb9e4824f8ae2e76b387a969ac9f784819cc6b486fda6ca1036dcd238 (tests/unit/agents/test_fernando_input_allowlist_fence.py, 9 result lines).
+[check-evidence-ledger-hashes] OK: GOLDENS-MISSING: verified sha256:ed5a3061449a247b4dcf1993272c51651ec3c1a88dbec16acac146bcc6dd8aa9 (tests/evals/test_trigger_coverage.py, 13 result lines).
+[check-evidence-ledger-hashes] OK: CONTRACT-DRIFT: verified sha256:59700e1a66206b20c6d37a844a22b702a93cefb084979afa0852b1a99425c134 (tests/unit/agents/test_contract_variable_parity_generic.py, 18 result lines).
+[check-evidence-ledger-hashes] OK: NONE-GUARDRAIL: verified sha256:b732ce0686cf94294fe418a81a5a00384d231fad47df82c6ffd1541e1f7e9df9 (tests/unit/runtime/test_guards.py, 37 result lines).
+[check-evidence-ledger-hashes] OK: EVAL-HARNESS-SENDER: historical claim verified at exact source_commit 7db9e0b42dfe8e63c8214c63cbf3ece61c1406d9 (tests/evals/test_harness_sender_leak.py, 7 result lines; 51 archived Python source files attested).
+[check-evidence-ledger-hashes] OK: PROTOCOL-FAKE-FENCES / NEW-12 / NEW-C1-2 / REG-04: verified sha256:758880d94217fe23b29c940035495709a487edd08d7699081b6c6b5aa8037009 (tests/unit/runtime/test_inference_fakes_match_protocol.py, 27 result lines).
+[check-evidence-ledger-hashes] OK: W4-HYGIENE / LUC-08 / NEW-15: verified sha256:da0381fc5cae538e2354666a19926af646870669163bf4c9b5d06f765276cc78 (tests/unit/agents/test_lucas.py, 49 result lines).
+[check-evidence-ledger-hashes] OK: COMPLETION-FLEET-SEMANTIC-INTEGRATION: verified sha256:7fe5dedae01a5bd31a387298143dbda77471ca46b39984da26c8e91944a841ce (tests/evals/test_harness_sender_leak.py, 11 result lines).
+[check-evidence-ledger-hashes] OK: COMPLETION-FLEET-ESCALATION-BROKER-PROOF: verified sha256:95db8ba0b73a43d42ef8ae59fe88a99f2d7e88485d4e13588be8ad17298f6eb6 (tests/unit/integration_support/test_helena_broker_proof.py, 22 result lines).
+[check-evidence-ledger-hashes] OK: ESC-TOLERANT-LOG-RAW-VALUE: historical claim verified at exact source_commit 8f0e5f4720b1ea7885fefdda13cbbe4079601532 (tests/unit/tools/workers/test_escalation_notify_team.py, 49 result lines; 33 archived Python source files attested).
+[check-evidence-ledger-hashes] OK: ESC-TOLERANT-LOG-RAW-VALUE-CURRENT-7B34: verified sha256:f5f527334aacf94a2ede4a74606e5a415be874369d2e9df942408c53a1dcbcbd (tests/unit/tools/workers/test_escalation_notify_team.py, 75 result lines).
+[check-evidence-ledger-hashes] OK: EVAL-HARNESS-SENDER-CURRENT-7B34: verified sha256:7fe5dedae01a5bd31a387298143dbda77471ca46b39984da26c8e91944a841ce (tests/evals/test_harness_sender_leak.py, 11 result lines).
+[check-evidence-ledger-hashes] OK: FLEET-LEDGER-SUPERSESSION-PROVENANCE / FLC-01 / FLC-02: historical claim verified at exact source_commit 3009bbe5490e28b89b606dc6e656d6b2b3ad98d8 (tests/unit/ci/test_check_evidence_ledger_supersession.py, 22 result lines; 11 archived Python source files attested).
+[check-evidence-ledger-hashes] OK: FLEET-LEDGER-BOUNDARY-REPAIR / FLTV-01 / FLTV-02 / FLTV-03 / FLTV-04: verified sha256:0cf6b113432cdbd276475b1dee21b9f1b491f84333b04b1a12a2534adbe46e89 (tests/unit/ci/test_check_evidence_ledger_supersession.py, 45 result lines).
+[check-evidence-ledger-hashes] SUMMARY: 21/21 declared-row proofs verified (20 selected rows; 21 total current/historical proofs), 0 legacy rows skipped — rows added in 3125fea992e607836a6adccbfb8593a1cc062a46..HEAD of docs/evidence-ledger.md.
+rc=0
+utc_end=2026-09-08T20:59:41.198093+00:00
