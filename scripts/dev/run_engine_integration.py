@@ -1142,7 +1142,7 @@ def _local_opener(url: str) -> urllib.request.OpenerDirector:
 
 def _http_json(url: str, *, timeout: float = 10) -> Any:
     try:
-        with _local_opener(url).open(url, timeout=timeout) as response:  # noqa: S310 - URL local fixa
+        with _local_opener(url).open(url, timeout=timeout) as response:  # URL local fixa
             if response.status // 100 != 2:
                 raise RunnerError(f"HTTP {response.status} em {url}")
             return json.loads(response.read())
@@ -1152,7 +1152,7 @@ def _http_json(url: str, *, timeout: float = 10) -> Any:
 
 def _http_ready(url: str) -> bool:
     try:
-        with _local_opener(url).open(url, timeout=5) as response:  # noqa: S310 - URL local fixa
+        with _local_opener(url).open(url, timeout=5) as response:  # URL local fixa
             return int(response.status) // 100 == 2
     except (urllib.error.URLError, TimeoutError):
         return False
