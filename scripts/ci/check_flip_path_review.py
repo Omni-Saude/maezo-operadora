@@ -194,12 +194,27 @@ orchestrator can flip the semantics from the workflow without touching this logi
 Tested by `test_two_owners_covering_disjoint_paths_is_green_by_default` and
 `test_two_owners_covering_disjoint_paths_is_red_under_single_reviewer_mode`.
 
+DESIGN DECISION 4 — APPROVALS BELONG TO THE EXACT CURRENT HEAD
+------------------------------------------------------------
+A push invalidates affected approval evidence even if GitHub does not dismiss stale reviews.
+`reviews.commit_id` is retained without coercion and must be a full SHA equal to the live PR head.
+There is no text-mention fallback or opt-out. Standing reviews are reduced BEFORE head eligibility:
+a later stale approval cannot resurrect an earlier approval, and an old CHANGES_REQUESTED still
+blocks until its owner approves the current head or the objection is explicitly dismissed.
+
+The selected PR is read once via REST to pin its recorded base, base ref, head and author together.
+A same-PR event must agree with that snapshot; a lone --pr override selects that PR's entire live
+context. After all diff/review/membership reads, the PR tuple and the current base tip are read again.
+Any drift or unreadable recheck is RED before a verdict is emitted. This is a bounded read/check,
+not an atomic merge lock: server-side merge protection and a current-head check remain necessary.
+No GitHub reviews, statuses, comments or governance settings are written by this script.
+
 QUALIFIED REVIEWER — the fail-closed hierarchy
 ----------------------------------------------
 For a review to count toward a path P:
   a. it is the reviewer's LATEST standing review (COMMENTED and PENDING never change a reviewer's
      approval state, so they are ignored; a DISMISSED review clears that reviewer entirely);
-  b. its state is APPROVED;
+  b. its state is APPROVED and its full `commit_id` equals the current PR head SHA;
   c. `reviewer.login != pull_request.user.login` — a self-approval NEVER qualifies, at any tier;
   d. the reviewer satisfies P's ownership:
        - P owned by explicit USERS  → reviewer login ∈ that user list (case-insensitive, as GitHub
@@ -267,7 +282,9 @@ gate that silently judged the WRONG PR (see the note below):
 
 `--repo` and `--pr` remain plain OVERRIDES on top of rules 1 and 3 when supplied alone (repo
 override for the payload's `repository.full_name`, PR-number override for `pull_request.number`).
-Only the pair, with no explicit `--event-path`, selects direct mode.
+Only the pair, with no explicit `--event-path`, bypasses reading an event. All modes fetch the
+selected PR's complete live REST context; an override never combines another PR's reviews with the
+event's base, head or author.
 
 WHY RULE 2 IS SPELLED OUT. `--event-path` used to carry `default=os.environ.get("GITHUB_EVENT_PATH")`
 and `main` tested it first, so an exported `$GITHUB_EVENT_PATH` unconditionally outranked
@@ -332,7 +349,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 GATE_NAME = "flip-path-review-gate"
 
@@ -560,6 +577,7 @@ class Review:
     state: str
     submitted_at: str
     review_id: int
+    commit_id: str | None = None
 
     def sort_key(self) -> tuple[datetime, int]:
         """Chronological, tie-broken by the monotonically increasing review id."""
@@ -571,6 +589,11 @@ class Review:
                 f"{self.submitted_at!r} ({exc}) — cannot order reviews, fail-closed."
             ) from exc
         return (when, self.review_id)
+
+
+def _is_full_sha(value: object) -> TypeGuard[str]:
+    """No coercion, abbreviations or surrounding text can stand in for a Git commit."""
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{40}", value) is not None
 
 
 def standing_reviews(reviews: Iterable[Review]) -> dict[str, Review]:
@@ -738,6 +761,7 @@ def decide(
     changed_paths: Sequence[str],
     reviews: Sequence[Review],
     author_login: str,
+    head_sha: str,
     membership: MembershipResolver,
     require_single_reviewer_covers_all: bool = False,
     pr_label: str = "PR",
@@ -746,6 +770,8 @@ def decide(
     """The whole contract, as a pure function. Never raises for ordinary input; RED instead.
 
     `codeowners_text` MUST come from the PR's BASE commit — see Decision 1 in the module docstring.
+    `head_sha` is mandatory and MUST be the selected PR's current full head SHA. A review
+    approves only this SHA, even when the server leaves stale approvals standing.
     `touched_paths_source` is a purely-cosmetic provenance string for the rendered report (e.g. which
     two shas a compare was run between) — it plays no role in the decision itself, so direct callers
     (tests) may omit it. `changed_paths` itself MUST already be merge-base relative, never relative to
@@ -773,6 +799,7 @@ def decide(
         f"  CODEOWNERS source: {codeowners_source} ({len(rules)} rule(s))",
         f"  touched-paths source: {touched_paths_source}",
         f"  {pr_label} author: @{author_login}",
+        f"  reviewed head required: {head_sha}",
         f"  changed paths: {len(set(changed_paths))}   owned: {len(owned)}",
     ]
 
@@ -780,6 +807,13 @@ def decide(
         return Decision(
             ok=True,
             headline="no CODEOWNERS-owned path touched — owner review is not required for this PR",
+            detail_lines=header,
+        )
+
+    if not _is_full_sha(head_sha):
+        return Decision(
+            ok=False,
+            headline="current PR head is not a full commit SHA — fail-closed",
             detail_lines=header,
         )
 
@@ -799,6 +833,12 @@ def decide(
                 continue
             if login == author_login.lower():
                 rejections.append(f"@{review.login}: APPROVED but IS THE PR AUTHOR — self-approval")
+                continue
+            if not _is_full_sha(review.commit_id) or review.commit_id != head_sha:
+                rejections.append(
+                    f"@{review.login}: APPROVED but commit_id is missing, malformed or differs "
+                    f"from current PR head {head_sha} — fresh owner approval required"
+                )
                 continue
             verdict = _reviewer_satisfies(rule.owners, review.login, membership)
             opaque = opaque or verdict.opaque
@@ -881,6 +921,7 @@ def decide(
     if unsatisfied:
         detail.append("")
         detail.append("  What unblocks this check:")
+        detail.append(f"    - approvals must review the current PR head {head_sha}; re-review after a push.")
         for outcome in unsatisfied:
             detail.append(f"    - {outcome.path} needs ONE of:")
             detail.extend(_unblock_hint(outcome.rule, author_login, outcome.opaque))
@@ -997,8 +1038,7 @@ class GitHubAPI:
         return base64.b64decode(payload["content"]).decode("utf-8")
 
     def pull_request(self, pr_number: int) -> EventContext:
-        """Fetch the PR's base sha/ref + head sha + author directly, for the no-event-payload (local
-        dry-run) mode.
+        """Fetch the PR's base sha/ref + head sha + author as one live snapshot.
 
         Must supply everything `load_event_context` would from a real Actions payload, including
         `base.ref` and `head.sha`: the direct-mode context feeds the same merge-base-relative
@@ -1015,7 +1055,16 @@ class GitHubAPI:
         base_ref = base.get("ref") if isinstance(base, dict) else None
         head_sha = head.get("sha") if isinstance(head, dict) else None
         author = user.get("login") if isinstance(user, dict) else None
-        if not base_sha or not base_ref or not head_sha or not author:
+        if (
+            not _is_full_sha(base_sha)
+            or not _is_full_sha(head_sha)
+            or not isinstance(base_ref, str)
+            or not base_ref
+            or not isinstance(author, str)
+            or not author
+            or type(payload.get("number")) is not int
+            or payload["number"] != pr_number
+        ):
             raise GateError(
                 f"pulls/{pr_number} has no readable base.sha / base.ref / head.sha / user.login — "
                 "fail-closed."
@@ -1046,7 +1095,7 @@ class GitHubAPI:
             )
         commit = payload.get("commit")
         sha = commit.get("sha") if isinstance(commit, dict) else None
-        if not isinstance(sha, str) or not sha:
+        if not _is_full_sha(sha):
             raise GateError(f"branches/{ref} has no readable commit.sha — fail-closed.")
         return sha
 
@@ -1257,18 +1306,29 @@ class GitHubAPI:
                 raise GateError(f"review {entry.get('id')!r} has no readable user.login/state — fail-closed.")
             if state.upper() not in _STANDING_STATES:
                 continue  # COMMENTED / PENDING: never a standing approval decision
+            review_url = entry.get("pull_request_url")
+            expected_url = f"{self._api_root}/repos/{self.repo}/pulls/{pr_number}"
+            if not isinstance(review_url, str) or review_url.casefold() != expected_url.casefold():
+                raise GateError(
+                    f"review {entry.get('id')!r} does not identify pulls/{pr_number} — fail-closed."
+                )
             submitted = entry.get("submitted_at")
             if not isinstance(submitted, str):
                 raise GateError(
                     f"review {entry.get('id')!r} by @{login} is {state} with no submitted_at — "
                     "reviews cannot be ordered, fail-closed."
                 )
+            review_id = entry.get("id")
+            if type(review_id) is not int or review_id <= 0:
+                raise GateError("review has no positive integer id — cannot order reviews, fail-closed.")
             out.append(
                 Review(
                     login=login,
                     state=state.upper(),
                     submitted_at=submitted.replace("Z", "+00:00"),
-                    review_id=int(entry.get("id") or 0),
+                    review_id=review_id,
+                    # Never stringify a missing/bool/object value into approval evidence.
+                    commit_id=entry.get("commit_id") if isinstance(entry.get("commit_id"), str) else None,
                 )
             )
         return out
@@ -1462,31 +1522,39 @@ def main(argv: Sequence[str] | None = None) -> int:
         # outrank the caller.
         ambient_event_path = os.environ.get("GITHUB_EVENT_PATH")
 
+        event_context: EventContext | None = None
         if args.event_path:
             # (1) The caller named a payload explicitly. It governs.
-            context = load_event_context(Path(args.event_path), args.repo)
-            pr_number = args.pr or context.pr_number
-            api = GitHubAPI(repo=context.repo, token=token)
+            event_context = load_event_context(Path(args.event_path), args.repo)
+            pr_number = args.pr if args.pr is not None else event_context.pr_number
+            api = GitHubAPI(repo=event_context.repo, token=token)
         elif args.repo and args.pr is not None:
             # (2) INJECTED CONTEXT BEATS AMBIENT ENVIRONMENT. The caller named a specific PR, so an
             # exported $GITHUB_EVENT_PATH must not redirect this run to a different one. No event
             # payload is read at all: the PR's base sha and author are fetched directly. Same
             # evaluation, same fail-closed rules — only the context source differs.
             api = GitHubAPI(repo=args.repo, token=token)
-            context = api.pull_request(args.pr)
             pr_number = args.pr
         elif ambient_event_path:
             # (3) The real workflow path, and the only one it uses: the workflow invokes this script
             # with no arguments and lets Actions supply the payload.
-            context = load_event_context(Path(ambient_event_path), args.repo)
-            pr_number = args.pr or context.pr_number
-            api = GitHubAPI(repo=context.repo, token=token)
+            event_context = load_event_context(Path(ambient_event_path), args.repo)
+            pr_number = args.pr if args.pr is not None else event_context.pr_number
+            api = GitHubAPI(repo=event_context.repo, token=token)
         else:
             # (4) Nothing usable.
             raise GateError(
                 "no --event-path / $GITHUB_EVENT_PATH, and no --repo + --pr to fall back on — "
                 "the gate cannot identify the PR it is judging. Fail-closed."
             )
+
+        if pr_number <= 0:
+            raise GateError("PR number must be positive — fail-closed.")
+        context = api.pull_request(pr_number)
+        # An event belongs to its original snapshot. A caller selecting another PR must use that
+        # PR's complete live context, never combine its reviews with the event's files or author.
+        if event_context is not None and pr_number == event_context.pr_number and context != event_context:
+            raise GateError("event context no longer matches the live PR snapshot — rerun, fail-closed.")
 
         source, codeowners_text = resolve_codeowners(api.file_at, context.base_sha)
 
@@ -1513,10 +1581,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             touched_paths_source=touched_paths_source,
             reviews=api.reviews(pr_number),
             author_login=context.author_login,
+            head_sha=context.head_sha,
             membership=api.membership,
             require_single_reviewer_covers_all=args.require_single_reviewer_covers_all,
             pr_label=f"PR #{pr_number}",
         )
+        # Revalidate after ALL reads, including membership resolution inside decide. Never emit a
+        # verdict assembled from old rules/diff and a new PR head or moved comparison base.
+        final_context = api.pull_request(pr_number)
+        final_base_tip = api.branch_tip(context.base_ref)
+        if final_context != context or final_base_tip != current_base_tip:
+            raise GateError("PR head/base context changed during review evaluation — rerun, fail-closed.")
     except GateError as exc:
         _emit(f"[{GATE_NAME}] RED — {exc}")
         return 1
