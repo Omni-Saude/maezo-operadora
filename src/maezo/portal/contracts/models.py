@@ -31,6 +31,8 @@ The deliberately narrow executable form set is:
 * REEMBOLSO ``UT_RevisaoAuditorMedico`` -> ``reembolso_auditor``.
 * CANCEL ``UT_AnaliseRescisao`` and ``UT_CoordenacaoCancelamento`` ->
   ``cancel_decisao``.
+* INADIMPLENCIA ``UT_AnaliseInadimplencia`` and ``UT_CoordenacaoCobranca`` ->
+  ``inad_decisao``.
 
 PAGTO admissibility is based on explicit BPMN task documentation and the plan, while the SP-OP
 output table does not enumerate ``decisao_admissibilidade`` and the BPMN has no ``formData``.  Its
@@ -58,6 +60,12 @@ review and neither User Task has ``formData``.  The browser may submit only the 
 decision and conditional basis fields.  Actor identity, effect facts, and ``tipo_solicitacao`` are
 trusted runtime context; the future gateway and existing BPMN/worker guards must enforce the
 requested-versus-unilateral route before any effect.
+
+The INADIMPLENCIA decision binding also remains DRAFT/verify. A rescission referral only
+hands the case to CANCEL; it does not rescind a contract. ``data_efeito_iso`` is human-supplied
+text from the contract output table, not proof of a valid regulatory date. The separately listed
+``decisao_coordenacao`` has no consumption in the current task/BPMN decision route and remains an
+unbound coordination-control obligation. This DTO does not silently give it decision authority.
 """
 
 from __future__ import annotations
@@ -114,6 +122,7 @@ FormKey = Literal[
     "reembolso_decisao",
     "reembolso_auditor",
     "cancel_decisao",
+    "inad_decisao",
 ]
 FormSourceStatus = Literal["BPMN_FORMDATA", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"]
 TaskAction = Literal["claim", "release", "decision"]
@@ -147,6 +156,9 @@ AllowedInput = Literal[
     "justificativa",
     "fundamentacao_contratual",
     "decisao_cancelamento",
+    "decisao_inadimplencia",
+    "comprovacao_periodo_minimo",
+    "data_efeito_iso",
     "referencia_regulatoria",
     "comprovacao_notificacao_previa",
 ]
@@ -587,6 +599,37 @@ class CancelDecisionInputs(_FrozenContract):
         return self
 
 
+class InadDecisionInputs(_FrozenContract):
+    """Human decision fields shared by both INAD tasks (contract outputs, BPMN task docs).
+
+    ADR-0049 D2/D3 keeps identities and process facts outside browser authority. Conditional
+    basis follows SP-OP-INADIMPLENCIA-001: suspension and neutral rescission handoff require all
+    four basis fields. Evidence strings do not authenticate their contents or establish delivery,
+    elapsed periods, current cross-process state or authority to perform an adverse effect.
+    """
+
+    kind: Literal["inad_decisao"]
+    decisao_inadimplencia: Literal["SUSPENDER", "ENCAMINHAR_RESCISAO", "MANTER", "SOLICITAR_INFO"]
+    fundamentacao_contratual: RequiredText | None = None
+    referencia_regulatoria: RequiredText | None = None
+    comprovacao_notificacao_previa: RequiredText | None = None
+    comprovacao_periodo_minimo: RequiredText | None = None
+    data_efeito_iso: RequiredText | None = None
+
+    @model_validator(mode="after")
+    def _conditional_basis_is_complete(self) -> Self:
+        if self.decisao_inadimplencia in {"SUSPENDER", "ENCAMINHAR_RESCISAO"}:
+            for field, value in (
+                ("fundamentacao_contratual", self.fundamentacao_contratual),
+                ("referencia_regulatoria", self.referencia_regulatoria),
+                ("comprovacao_notificacao_previa", self.comprovacao_notificacao_previa),
+                ("comprovacao_periodo_minimo", self.comprovacao_periodo_minimo),
+            ):
+                if value is None or not value.strip():
+                    raise ValueError(f"{self.decisao_inadimplencia} requires {field}")
+        return self
+
+
 DecisionInputs = Annotated[
     AuthDecisionInputs
     | AuthJuntaInputs
@@ -600,7 +643,8 @@ DecisionInputs = Annotated[
     | ReembolsoPendingInputs
     | ReembolsoDecisionInputs
     | ReembolsoAuditorInputs
-    | CancelDecisionInputs,
+    | CancelDecisionInputs
+    | InadDecisionInputs,
     Field(discriminator="kind"),
 ]
 
@@ -661,6 +705,14 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     ),
     ("SP-OP-CANCEL-001", "UT_CoordenacaoCancelamento"): (
         "cancel_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-INADIMPLENCIA-001", "UT_AnaliseInadimplencia"): (
+        "inad_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-INADIMPLENCIA-001", "UT_CoordenacaoCobranca"): (
+        "inad_decisao",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
 }
@@ -740,6 +792,14 @@ _INPUTS_BY_FORM: dict[FormKey, tuple[AllowedInput, ...]] = {
         "fundamentacao_contratual",
         "referencia_regulatoria",
         "comprovacao_notificacao_previa",
+    ),
+    "inad_decisao": (
+        "decisao_inadimplencia",
+        "fundamentacao_contratual",
+        "referencia_regulatoria",
+        "comprovacao_notificacao_previa",
+        "comprovacao_periodo_minimo",
+        "data_efeito_iso",
     ),
 }
 
