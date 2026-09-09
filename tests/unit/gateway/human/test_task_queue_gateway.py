@@ -750,3 +750,30 @@ async def test_real_resolver_last_membership_io_does_not_hide_identity_deadline(
     monkeypatch.setattr(store, "get_membership", final_lookup)
     with pytest.raises(ReadRefusalError, match="session_unavailable"):
         await (detail(g) if mode == "detail" else page(g))
+
+
+@pytest.mark.parametrize("provider", ["task", "authority"])
+@pytest.mark.parametrize(
+    "code", ["resource_unavailable", "refresh_required", "read_dependency_unavailable", "invalid_request"]
+)
+async def test_explicit_native_read_outcome_survives_only_additive_taxonomy(monkeypatch, provider, code):
+    from maezo.gateway.human.errors import GatewayRefusalError
+
+    g = await harness(monkeypatch)
+
+    async def refused(*args, **kwargs):
+        raise ReadRefusalError(code)
+
+    target = g._ports.task if provider == "task" else g._ports.authority
+    method = "read_task" if provider == "task" else "current_authority"
+    monkeypatch.setattr(target, method, refused)
+    detail_code = "read_dependency_unavailable" if code == "invalid_request" else code
+    queue_code = "refresh_required" if detail_code == "resource_unavailable" else detail_code
+    with pytest.raises(ReadRefusalError, match="^" + queue_code + "$"):
+        await page(g)
+    with pytest.raises(ReadRefusalError, match="^" + detail_code + "$"):
+        await detail(g)
+    # Existing read and command path keep their original conservative source taxonomy.
+    legacy = "task_unavailable" if provider == "task" else "authority_unavailable"
+    with pytest.raises(GatewayRefusalError, match="^" + legacy + "$"):
+        await g.read_task(session_secret=SECRET, task_id="task-1")

@@ -7,7 +7,7 @@ qualify their current authority and invalidate cursors across every bound revisi
 from abc import ABC, abstractmethod
 from typing import Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, TypeAdapter, model_validator
 
 from maezo.portal.contracts.models import HumanPrincipal, OpaqueRef, Revision, Sha256Digest, TaskSnapshot
 from maezo.portal.contracts.queues import (
@@ -25,8 +25,8 @@ from .models import AuthoritativeTask, CurrentTaskAuthority, Scope
 
 class ReadRefusalError(Exception):
     def __init__(self, code: ReadErrorCode) -> None:
-        self.code = code
-        super().__init__(code)
+        self.code = TypeAdapter(ReadErrorCode).validate_python(code)
+        super().__init__(self.code)
 
 
 class CatalogTrustAnchor(ClosedRead):

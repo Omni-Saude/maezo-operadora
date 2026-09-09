@@ -181,7 +181,7 @@ class HumanGateway:
             raise GatewayRefusalError("authentication_unavailable") from None
 
     async def _authorized(
-        self, resolved: ResolvedHumanSession, task_id: str
+        self, resolved: ResolvedHumanSession, task_id: str, *, _read_taxonomy: bool = False
     ) -> tuple[AuthoritativeTask, CurrentTaskAuthority]:
         try:
             task = AuthoritativeTask.model_validate(await self._ports.task.read_task(task_id))
@@ -199,6 +199,10 @@ class HumanGateway:
                 "${" in group or "#{" in group for group in snap.eligible_candidate_groups
             ):
                 raise ValueError("unresolved group")
+        except ReadRefusalError:
+            if _read_taxonomy:
+                raise
+            raise GatewayRefusalError("task_unavailable") from None
         except Exception:
             raise GatewayRefusalError("task_unavailable") from None
         principal = resolved.principal
@@ -230,6 +234,10 @@ class HumanGateway:
                 or not set(task.required_consent_scopes).issubset(authority.consent_scopes)
             ):
                 raise ValueError("authority not current")
+        except ReadRefusalError:
+            if _read_taxonomy:
+                raise
+            raise GatewayRefusalError("authority_unavailable") from None
         except Exception:
             raise GatewayRefusalError("authority_unavailable") from None
         return task, authority
@@ -299,7 +307,13 @@ class HumanGateway:
         self, resolved: ResolvedHumanSession, task_id: str, *, queue: bool
     ) -> tuple[AuthoritativeTask, CurrentTaskAuthority]:
         try:
-            return await self._authorized(resolved, task_id)
+            return await self._authorized(resolved, task_id, _read_taxonomy=True)
+        except ReadRefusalError as exc:
+            if exc.code == "resource_unavailable":
+                raise ReadRefusalError("refresh_required" if queue else "resource_unavailable") from None
+            if exc.code in ("refresh_required", "read_dependency_unavailable"):
+                raise
+            raise ReadRefusalError("read_dependency_unavailable") from None
         except GatewayRefusalError as exc:
             if exc.code == "operation_forbidden":
                 raise ReadRefusalError("refresh_required" if queue else "resource_unavailable") from None

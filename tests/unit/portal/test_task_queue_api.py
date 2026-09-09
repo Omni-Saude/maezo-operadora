@@ -207,3 +207,15 @@ async def test_expired_discovery_is_not_empty(monkeypatch):
     async with c:
         response = await c.get(PREFIX + "?queue=team")
     assert_safe(response, 503, "read_dependency_unavailable")
+
+
+async def test_unknown_error_code_cannot_escape_closed_error_envelope(monkeypatch):
+    c, g, _ = await client(monkeypatch)
+
+    async def invalid(*args, **kwargs):
+        raise ReadRefusalError("PRIVATE-unknown-code")
+
+    monkeypatch.setattr(g._query, "discover", invalid)
+    async with c:
+        response = await c.get(PREFIX + "?queue=team")
+    assert_safe(response, 503, "read_dependency_unavailable")
