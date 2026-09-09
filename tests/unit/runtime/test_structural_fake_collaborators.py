@@ -238,6 +238,30 @@ monkeypatch.setattr(wire, "HTTPConnection", Specimen)
 
 
 @pytest.mark.parametrize(
+    ("target", "value"),
+    [
+        ("(pytest.MonkeyPatch, unused)", "(Recorder, None)"),
+        ("[pytest.MonkeyPatch, unused]", "[Recorder, None]"),
+        ("(pytest.MonkeyPatch, *unused)", "(Recorder,)"),
+        ('pytest.__dict__["MonkeyPatch"]', "Recorder"),
+    ],
+)
+def test_nested_constructor_member_target_does_not_preserve_identity(target, value):
+    source = f"""import http.client as wire
+import pytest
+class Specimen:
+    def close(self): pass
+class Recorder:
+    def setattr(self, target, attribute, replacement): return replacement
+{target} = {value}
+monkeypatch = pytest.MonkeyPatch()
+monkeypatch.setattr(wire, "HTTPConnection", Specimen)
+"""
+    findings = fence._achados_estruturais_em_fonte(source, "arbitrary.py")
+    assert any("DmnTransport.close" in finding for finding in findings)
+
+
+@pytest.mark.parametrize(
     "decorator",
     [
         "override_receiver",
@@ -253,6 +277,47 @@ class Recorder:
     def setattr(self, target, attribute, replacement): return replacement
 {decorator} = pytest.mark.parametrize("monkeypatch", [Recorder()])
 @{decorator}
+def test_install(monkeypatch):
+    monkeypatch.setattr(wire, "HTTPConnection", Specimen)
+"""
+    findings = fence._achados_estruturais_em_fonte(source, "arbitrary.py")
+    assert any("DmnTransport.close" in finding for finding in findings)
+
+
+@pytest.mark.parametrize(
+    "decorator",
+    [
+        "pytest.mark.parametrize(parameter_names, [Recorder()])",
+        "pytest.mark.parametrize(resolve_names(), [Recorder()])",
+        'pytest.mark.parametrize(["other", parameter_names], [(1, Recorder())])',
+    ],
+)
+def test_unresolved_parametrize_names_do_not_prove_builtin_fixture(decorator):
+    source = f"""import http.client as wire
+import pytest
+class Specimen:
+    def close(self): pass
+class Recorder:
+    def setattr(self, target, attribute, replacement): return replacement
+parameter_names = "monkeypatch"
+def resolve_names(): return parameter_names
+@{decorator}
+def test_install(monkeypatch):
+    monkeypatch.setattr(wire, "HTTPConnection", Specimen)
+"""
+    findings = fence._achados_estruturais_em_fonte(source, "arbitrary.py")
+    assert any("DmnTransport.close" in finding for finding in findings)
+
+
+def test_unresolved_module_parametrize_names_do_not_prove_builtin_fixture():
+    source = """import http.client as wire
+import pytest
+class Specimen:
+    def close(self): pass
+class Recorder:
+    def setattr(self, target, attribute, replacement): return replacement
+parameter_names = "monkeypatch"
+pytestmark = pytest.mark.parametrize(parameter_names, [Recorder()])
 def test_install(monkeypatch):
     monkeypatch.setattr(wire, "HTTPConnection", Specimen)
 """

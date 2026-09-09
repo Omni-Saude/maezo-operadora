@@ -967,6 +967,7 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
     externos: dict[ast.ClassDef, set[str]] = {}
     marcador_monkeypatch = "pytest.MonkeyPatch.fixture"
     atributos_sombreados: set[str] = set()
+    prefixos_sombreados: set[str] = set()
 
     def nomes_vinculados(no: ast.expr) -> set[str]:
         if isinstance(no, ast.Name):
@@ -984,7 +985,15 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
             parent = resolve(no.value, scope)
             if isinstance(parent, str):
                 member = parent + "." + no.attr
-                return None if member in atributos_sombreados else member
+                return (
+                    None
+                    if member in atributos_sombreados
+                    or any(
+                        member == prefixo or member.startswith(prefixo + ".")
+                        for prefixo in prefixos_sombreados
+                    )
+                    else member
+                )
         if isinstance(no, ast.Call) and resolve(no.func, scope) == "pytest.MonkeyPatch":
             return marcador_monkeypatch
         return None
@@ -1070,9 +1079,11 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
         )
         if isinstance(nomes, ast.Constant) and isinstance(nomes.value, str):
             return "monkeypatch" in {parte.strip() for parte in nomes.value.split(",")}
-        return isinstance(nomes, (ast.List, ast.Tuple)) and any(
-            isinstance(item, ast.Constant) and item.value == "monkeypatch" for item in nomes.elts
-        )
+        if isinstance(nomes, (ast.List, ast.Tuple)) and all(
+            isinstance(item, ast.Constant) and isinstance(item.value, str) for item in nomes.elts
+        ):
+            return any(item.value == "monkeypatch" for item in nomes.elts)
+        return True
 
     def decorador_preserva_monkeypatch(decorador: ast.expr) -> bool:
         if isinstance(decorador, ast.Attribute):
@@ -1212,6 +1223,18 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
         externos.setdefault(classe, set()).update(metodos)
 
     def invalida_atributo(no: ast.expr, scope: dict[str, str | ast.ClassDef]) -> None:
+        if isinstance(no, ast.Starred):
+            invalida_atributo(no.value, scope)
+            return
+        if isinstance(no, (ast.Tuple, ast.List)):
+            for item in no.elts:
+                invalida_atributo(item, scope)
+            return
+        if isinstance(no, ast.Subscript):
+            container = resolve(no.value, scope)
+            if isinstance(container, str):
+                prefixos_sombreados.add(container.partition(".")[0])
+            return
         if not isinstance(no, ast.Attribute):
             return
         parent = resolve(no.value, scope)
@@ -1280,11 +1303,13 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
             for nome in nomes_vinculados(no.target):
                 scope.pop(nome, None)
         if isinstance(no, (ast.For, ast.AsyncFor, ast.comprehension)):
+            invalida_atributo(no.target, scope)
             for nome in nomes_vinculados(no.target):
                 scope.pop(nome, None)
         if isinstance(no, ast.With | ast.AsyncWith):
             for item in no.items:
                 if item.optional_vars is not None:
+                    invalida_atributo(item.optional_vars, scope)
                     for nome in nomes_vinculados(item.optional_vars):
                         scope.pop(nome, None)
         if isinstance(no, ast.ExceptHandler) and no.name:
