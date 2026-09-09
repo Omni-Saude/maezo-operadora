@@ -37,10 +37,14 @@ fence closes the half that lives in `tests/`.
 
 from __future__ import annotations
 
+import ast
 import importlib
+import json
 import os
 import re
+import subprocess
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Final
@@ -59,6 +63,32 @@ _COMPOSE: Final[Path] = _REPO_ROOT / "docker-compose.yml"
 #: explicitly_excluded` instead of quietly escaping the fence.
 _PG_RESOLVER_NAMES: Final[tuple[str, ...]] = ("_default_test_dsn", "_pg_dsn", "_audit_dsn", "_dsn")
 _KAFKA_RESOLVER_NAME: Final[str] = "_kafka_bootstrap_servers"
+
+
+@dataclass(frozen=True)
+class ExplicitFixtureContract:
+    """A live suite whose coordinates come only from a private, ROOT-provided fixture."""
+
+    loader_module: str
+    loader_name: str
+    environment_variable: str
+    manifest_name: str
+    schema: str
+    database_host: str
+    database_port: int
+
+
+_EXPLICIT_FIXTURES: Final[dict[str, ExplicitFixtureContract]] = {
+    "tests/integration/gateway/test_human_relay_live_cib.py": ExplicitFixtureContract(
+        loader_module="tests.support.human_relay_live",
+        loader_name="RelayConfig",
+        environment_variable="MAEZO_HUMAN_RELAY_PRIVATE_DIR",
+        manifest_name="relay-fixture.json",
+        schema="human-relay-fixture.v1",
+        database_host="127.0.0.1",
+        database_port=15433,
+    )
+}
 
 #: Modules whose filename matches the live-suite glob but which need no infrastructure at all.
 #: Each entry is a claim this file's own tests re-check (they must define NO resolver) AND a claim
@@ -128,6 +158,62 @@ def _resolver(module: ModuleType, names: tuple[str, ...]) -> tuple[str, Callable
     return found[0], fn
 
 
+def _explicit_fixture_loader(contract: ExplicitFixtureContract) -> type:
+    module = importlib.import_module(contract.loader_module)
+    loader = getattr(module, contract.loader_name)
+    assert isinstance(loader, type), f"{contract.loader_module}.{contract.loader_name} is not a class"
+    return loader
+
+
+def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract) -> bool:
+    """Prove the category names the fixture the live pytest fixture actually loads.
+
+    Importing a loader into the module is insufficient: it must be called from a function decorated
+    as a pytest fixture. This prevents an unused resolver-shaped symbol from satisfying the fence.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    imports_loader = any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == contract.loader_module
+        and any(alias.name == contract.loader_name and alias.asname is None for alias in node.names)
+        for node in tree.body
+    )
+    integration_marked = any(
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Attribute)
+        and isinstance(node.value.value, ast.Name)
+        and node.value.value.id == "pytest"
+        and node.value.attr == "mark"
+        and node.attr == "integration"
+        for node in ast.walk(tree)
+    )
+    if not imports_loader or not integration_marked:
+        return False
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        is_fixture = any(
+            isinstance(decorator, ast.Attribute)
+            and isinstance(decorator.value, ast.Name)
+            and decorator.value.id == "pytest"
+            and decorator.attr == "fixture"
+            for decorator in node.decorator_list
+        )
+        calls_loader = any(
+            isinstance(candidate, ast.Call)
+            and isinstance(candidate.func, ast.Attribute)
+            and isinstance(candidate.func.value, ast.Name)
+            and candidate.func.value.id == contract.loader_name
+            and candidate.func.attr == "load"
+            and not candidate.args
+            and not candidate.keywords
+            for candidate in ast.walk(node)
+        )
+        if is_fixture and calls_loader:
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # What the repo actually serves, read from docker-compose.yml (never hardcoded)
 # ---------------------------------------------------------------------------
@@ -192,14 +278,27 @@ def _expected_default_dsn() -> str:
 
 def test_every_live_suite_exposes_a_resolver_or_is_explicitly_excluded() -> None:
     """No live suite may be outside this fence by accident. A module either resolves a Postgres
-    DSN, or a Kafka bootstrap, or appears in `_NAME_ONLY` with a written reason — and a module in
-    `_NAME_ONLY` must genuinely define no resolver, so the exclusion cannot rot into a loophole."""
+    DSN, resolves a Kafka bootstrap, loads a verified explicit fixture, or appears in `_NAME_ONLY`
+    with a written reason. Explicit fixtures are infrastructure-bearing, not exclusions."""
     unclassified: list[str] = []
     for path in _iter_live_suites():
         rel = str(path.relative_to(_REPO_ROOT))
         module = _import(path)
         has_pg = _resolver(module, _PG_RESOLVER_NAMES) is not None
         has_kafka = _resolver(module, (_KAFKA_RESOLVER_NAME,)) is not None
+        explicit = _EXPLICIT_FIXTURES.get(rel)
+        assert not (explicit and rel in _NAME_ONLY), (
+            f"{rel} cannot be both an infrastructure-bearing explicit fixture and NAME_ONLY"
+        )
+        if explicit:
+            assert not has_pg and not has_kafka, (
+                f"{rel} has an explicit private fixture and a shared resolver; keep one real path"
+            )
+            assert getattr(module, explicit.loader_name, None) is _explicit_fixture_loader(explicit)
+            assert _suite_loads_explicit_fixture(path, explicit), (
+                f"{rel} no longer calls {explicit.loader_name}.load() from a pytest fixture"
+            )
+            continue
         if rel in _NAME_ONLY:
             assert not has_pg and not has_kafka, (
                 f"{rel} is listed in _NAME_ONLY as needing no infrastructure, but it defines an "
@@ -210,8 +309,9 @@ def test_every_live_suite_exposes_a_resolver_or_is_explicitly_excluded() -> None
             unclassified.append(rel)
     assert not unclassified, (
         "these live suites expose no resolver this fence recognises, so their default coordinate "
-        f"is unchecked — name it one of {_PG_RESOLVER_NAMES} / {_KAFKA_RESOLVER_NAME}, or add it "
-        "to _NAME_ONLY with a reason:\n  " + "\n  ".join(unclassified)
+        f"is unchecked — name it one of {_PG_RESOLVER_NAMES} / {_KAFKA_RESOLVER_NAME}, register a "
+        "verified explicit fixture, or add a genuinely infrastructure-free suite to _NAME_ONLY "
+        "with a reason:\n  " + "\n  ".join(unclassified)
     )
 
 
@@ -363,6 +463,38 @@ def test_name_only_entries_are_actually_discovered() -> None:
     )
 
 
+def test_explicit_fixture_entries_are_discovered_and_actually_loaded() -> None:
+    """An explicit-fixture category is executable classification, never a name-only pardon."""
+    discovered = {str(path.relative_to(_REPO_ROOT)): path for path in _iter_live_suites()}
+    dead = sorted(set(_EXPLICIT_FIXTURES) - set(discovered))
+    assert not dead, "explicit fixture entries outside live-suite discovery:\n  " + "\n  ".join(dead)
+    assert not set(_EXPLICIT_FIXTURES).intersection(_NAME_ONLY)
+    for rel, contract in _EXPLICIT_FIXTURES.items():
+        path = discovered[rel]
+        module = _import(path)
+        assert getattr(module, contract.loader_name, None) is _explicit_fixture_loader(contract)
+        assert _suite_loads_explicit_fixture(path, contract)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "",
+        "def helper():\n    return RelayConfig.load()\n",
+        "@pytest.fixture\ndef live():\n    return object()\n",
+    ],
+)
+def test_explicit_fixture_category_rejects_an_unused_loader(tmp_path: Path, body: str) -> None:
+    candidate = tmp_path / "test_unused_live_fixture.py"
+    candidate.write_text(
+        "import pytest\n"
+        "from tests.support.human_relay_live import RelayConfig\n"
+        "pytestmark = pytest.mark.integration\n" + body,
+        encoding="utf-8",
+    )
+    assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
 def test_the_expected_coordinates_come_from_compose_not_from_this_file() -> None:
     """Non-vacuity for the comparison itself: the expected DSN/bootstrap this fence checks against
     must be READ from `docker-compose.yml`, so changing the compose port changes what is enforced.
@@ -398,6 +530,135 @@ def test_module_import_does_not_open_a_connection() -> None:
     with mock.patch.dict(os.environ, env, clear=True):
         for path in _iter_live_suites():
             _import(path)
+
+
+def _relay_contract() -> ExplicitFixtureContract:
+    return _EXPLICIT_FIXTURES["tests/integration/gateway/test_human_relay_live_cib.py"]
+
+
+def _write_private(path: Path, value: object) -> None:
+    text = value if isinstance(value, str) else json.dumps(value)
+    path.write_text(text, encoding="utf-8")
+    path.chmod(0o600)
+
+
+def _write_valid_relay_fixture(directory: Path) -> dict[str, dict[str, Any]]:
+    directory.mkdir()
+    directory.chmod(0o700)
+    source_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=_REPO_ROOT, text=True).strip()
+    tenant = "relay_" + "a" * 24
+    password_file = directory / "postgres-password"
+    data: dict[str, Any] = {
+        "schema": "human-relay-fixture.v1",
+        "synthetic_opt_in": True,
+        "tenant": tenant,
+        "source_sha": source_sha,
+        "rest_url": "http://127.0.0.1:18080/engine-rest",
+        "human_url": "https://127.0.0.1:18443",
+        "database": {
+            "host": "127.0.0.1",
+            "port": 15433,
+            "user": "maezo",
+            "database": "maezo",
+            "password_file": str(password_file),
+        },
+    }
+    trust: dict[str, Any] = {"enable_synthetic_fixture": True, "tenant": tenant}
+    public: dict[str, Any] = {"relay_synthetic": True, "source_sha": source_sha}
+    _write_private(directory / "relay-fixture.json", data)
+    _write_private(directory / "trust.json", trust)
+    _write_private(directory / "public-receipt.json", public)
+    _write_private(password_file, "test-password")
+    return {"data": data, "trust": trust, "public": public}
+
+
+def test_explicit_relay_fixture_has_no_missing_configuration_fallback() -> None:
+    contract = _relay_contract()
+    loader = _explicit_fixture_loader(contract)
+    with (
+        mock.patch.dict(os.environ, {}, clear=True),
+        pytest.raises(AssertionError, match="no skip/default"),
+    ):
+        loader.load()
+
+
+def test_explicit_relay_fixture_binds_private_manifest_source_and_coordinates(tmp_path: Path) -> None:
+    contract = _relay_contract()
+    directory = tmp_path / "relay-private"
+    values = _write_valid_relay_fixture(directory)
+    with mock.patch.dict(os.environ, {contract.environment_variable: str(directory)}, clear=True):
+        config = _explicit_fixture_loader(contract).load()
+    assert config.directory == directory
+    assert config.data["schema"] == contract.schema
+    assert config.data["source_sha"] == values["public"]["source_sha"]
+    assert config.data["database"]["host"] == contract.database_host
+    assert config.data["database"]["port"] == contract.database_port
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["directory", "relay-fixture.json", "trust.json", "public-receipt.json", "postgres-password"],
+)
+def test_explicit_relay_fixture_refuses_nonprivate_inputs(tmp_path: Path, filename: str) -> None:
+    contract = _relay_contract()
+    directory = tmp_path / "relay-private"
+    _write_valid_relay_fixture(directory)
+    (directory if filename == "directory" else directory / filename).chmod(
+        0o755 if filename == "directory" else 0o644
+    )
+    with (
+        mock.patch.dict(os.environ, {contract.environment_variable: str(directory)}, clear=True),
+        pytest.raises(AssertionError),
+    ):
+        _explicit_fixture_loader(contract).load()
+
+
+@pytest.mark.parametrize("malformation", ["missing_manifest", "invalid_json"])
+def test_explicit_relay_fixture_refuses_malformed_configuration(tmp_path: Path, malformation: str) -> None:
+    contract = _relay_contract()
+    directory = tmp_path / "relay-private"
+    _write_valid_relay_fixture(directory)
+    manifest = directory / contract.manifest_name
+    if malformation == "missing_manifest":
+        manifest.unlink()
+    else:
+        _write_private(manifest, "{")
+    expected = FileNotFoundError if malformation == "missing_manifest" else json.JSONDecodeError
+    with (
+        mock.patch.dict(os.environ, {contract.environment_variable: str(directory)}, clear=True),
+        pytest.raises(expected),
+    ):
+        _explicit_fixture_loader(contract).load()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["source", "public_source", "database_host", "database_port", "rest_url", "human_url"],
+)
+def test_explicit_relay_fixture_refuses_source_or_coordinate_mismatch(tmp_path: Path, mutation: str) -> None:
+    contract = _relay_contract()
+    directory = tmp_path / "relay-private"
+    values = _write_valid_relay_fixture(directory)
+    data, public = values["data"], values["public"]
+    if mutation == "source":
+        data["source_sha"] = "0" * 40
+    elif mutation == "public_source":
+        public["source_sha"] = "0" * 40
+    elif mutation == "database_host":
+        data["database"]["host"] = "database.example.invalid"
+    elif mutation == "database_port":
+        data["database"]["port"] = 5433
+    elif mutation == "rest_url":
+        data["rest_url"] = "http://cib.example.invalid:18080/engine-rest"
+    else:
+        data["human_url"] = "http://127.0.0.1:18443"
+    _write_private(directory / "relay-fixture.json", data)
+    _write_private(directory / "public-receipt.json", public)
+    with (
+        mock.patch.dict(os.environ, {contract.environment_variable: str(directory)}, clear=True),
+        pytest.raises(AssertionError),
+    ):
+        _explicit_fixture_loader(contract).load()
 
 
 @pytest.mark.parametrize("relative_path", sorted(_NAME_ONLY))
