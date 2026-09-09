@@ -394,23 +394,15 @@ def source_config(config, schema):
 
 
 @pytest.mark.asyncio
-async def test_actual_human_source_and_correlation_propagate(config, monkeypatch):
-    config = source_config(config, CONSENT_REVOKED)
-    calls = wire(monkeypatch, config, [result(config, EngineOperation.CORRELATE, {"correlated": 2})])
-    transport = factory(config, engine_source_ref="actual-completed-human-task")
-    await transport.correlate_message(
-        CONSENT_REVOKED.message,
-        "",
-        {"consent_event_ref": "actual-receipt"},
-        correlation_keys={"tenant_id": "synthetic", "beneficiario_pseudo_id": "pseudo"},
-        all_matching=True,
-    )
-    assert [r.method for r in calls] == ["GET", "POST"]
-    body = json.loads(calls[-1].content)
-    assert body["source_ref"] == "actual-completed-human-task"
-    assert body["variables"] == {"consent_event_ref": "actual-receipt"}
-    assert body["correlation"] == {"tenant_id": "synthetic", "beneficiario_pseudo_id": "pseudo"}
-    assert body["all_matching"] is True
+@pytest.mark.parametrize("source_ref", ["", "actual-completed-human-task", "actual-locked-external-task"])
+@pytest.mark.parametrize("schema", [CONSENT_REVOKED, CONTAS_PAGTO_START])
+async def test_source_profiles_require_authentic_acquisition_adapter(config, monkeypatch, source_ref, schema):
+    config = source_config(config, schema)
+    calls = wire(monkeypatch, config)
+    with pytest.raises(EngineCapabilityError) as exc:
+        factory(config, engine_source_ref=source_ref)
+    assert exc.value.code is EngineRefusalCode.EVIDENCE_UNAVAILABLE
+    assert calls == []
 
 
 def test_required_external_source_is_never_invented(config):
@@ -425,11 +417,9 @@ def test_required_external_source_is_never_invented(config):
     with pytest.raises(EngineCapabilityError) as exc:
         client.project(request)
     assert exc.value.code is EngineRefusalCode.EVIDENCE_UNAVAILABLE
-    _, encoded = client.project(request, source_ref="actual-locked-external-task")
-    body = json.loads(encoded)
-    assert body["source_ref"] == "actual-locked-external-task"
-    assert body["variables"]["valor_pagamento_cents"] == 37
-    assert type(body["variables"]["valor_pagamento_cents"]) is int
+    with pytest.raises(EngineCapabilityError) as exc:
+        client.project(request, source_ref="actual-locked-external-task")
+    assert exc.value.code is EngineRefusalCode.EVIDENCE_UNAVAILABLE
 
 
 @pytest.mark.asyncio
@@ -487,7 +477,7 @@ async def test_malformed_start_response_never_reports_success(config, monkeypatc
 async def test_missing_source_ref_refuses_correlation_without_http(config, monkeypatch):
     config = source_config(config, CONSENT_REVOKED)
     calls = wire(monkeypatch, config)
-    with pytest.raises(CibSevenStartAuthorizationError) as exc:
+    with pytest.raises(EngineCapabilityError) as exc:
         await factory(config).correlate_message(
             CONSENT_REVOKED.message,
             "",
@@ -510,36 +500,22 @@ def test_factory_cannot_cross_seam_tenant(config):
 
 
 @pytest.mark.asyncio
-async def test_payment_completed_dedup_never_reissues_start(config, monkeypatch):
+async def test_source_payment_refuses_before_claim_audit_or_dedup(config, monkeypatch):
+    # The previous bare-pointer positive is preserved in baseline evidence. Source
+    # migration awaits authentic native/D binding, before business dedup can run.
     config = source_config(config, CONTAS_PAGTO_START)
-    start = config.profiles[0]
-    config = replace(
-        config,
-        profiles=(start,)
-        + tuple(
-            replace(start, schema=start_read_schema(start.schema, op))
-            for op in (EngineOperation.READ_ACTIVE, EngineOperation.READ_HISTORY)
-        ),
-    )
-    history = result(
-        config,
-        EngineOperation.READ_HISTORY,
-        [dict(id="paid-instance", definition_id="definition-7", state="COMPLETED")],
-    )
-    calls = wire(monkeypatch, config, [result(config, EngineOperation.READ_ACTIVE, []), history])
+    calls = wire(monkeypatch, config)
     sink = FakeStartAuditSink(already_audited=True)
-    outcome = await start_process_idempotent(
-        factory(config, engine_source_ref="actual-source-task"),
-        process_key=CONTAS_PAGTO_START.process_key,
-        business_key="synthetic-payment",
-        variables=variables(CONTAS_PAGTO_START),
-        audit_sink=sink,
-        provenance=AgentDecisionProvenance("operadora-worker", "synthetic-v1", "synthetic", {}),
-    )
-    assert outcome.start_outcome is StartOutcome.ALREADY_COMPLETED
-    assert outcome.instance_id == "paid-instance"
-    assert [r.method for r in calls] == ["GET", "GET", "POST", "GET", "POST"]
-    assert all(json.loads(r.content)["operation"] != "start" for r in calls if r.method == "POST")
+    with pytest.raises(EngineCapabilityError):
+        await start_process_idempotent(
+            factory(config, engine_source_ref="actual-source-task"),
+            process_key=CONTAS_PAGTO_START.process_key,
+            business_key="synthetic-payment",
+            variables=variables(CONTAS_PAGTO_START),
+            audit_sink=sink,
+            provenance=AgentDecisionProvenance("operadora-worker", "synthetic-v1", "synthetic", {}),
+        )
+    assert calls == []
 
 
 @pytest.mark.parametrize("variant", ["expired", "server_only", "wrong_san", "mismatched_key"])
@@ -642,7 +618,6 @@ async def invoke_typed_operation(config, operation, *, direct):
     "operation",
     [
         EngineOperation.START,
-        EngineOperation.CORRELATE,
         EngineOperation.READ_ACTIVE,
         EngineOperation.READ_HISTORY,
     ],
@@ -835,10 +810,9 @@ async def test_current_identity_change_refuses_after_factory_construction(config
 
 
 @pytest.mark.asyncio
-async def test_ambiguous_correlation_attempts_operation_exactly_once(config, monkeypatch):
+async def test_source_correlation_cannot_submit_with_bare_pointer(config, monkeypatch):
     config = source_config(config, CONSENT_REVOKED)
     calls = wire(monkeypatch, config, [httpx.ReadTimeout("reply lost after possible mutation")])
-    with pytest.raises(CibSevenStartAuthorizationError):
+    with pytest.raises(EngineCapabilityError):
         await invoke_typed_operation(config, EngineOperation.CORRELATE, direct=False)
-    assert [r.method for r in calls] == ["GET", "POST"]
-    assert json.loads(calls[-1].content)["operation"] == "correlate"
+    assert calls == []

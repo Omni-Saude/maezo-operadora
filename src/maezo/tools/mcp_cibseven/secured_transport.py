@@ -1,7 +1,7 @@
 """Exact-process D7-C adapter for the existing audited/idempotent start entrypoint.
 
-A source-bound adapter is scoped to one actual handoff task. Construct it with that task's
-reference while its lock is live; it does not derive or fabricate engine/human evidence.
+The adapter borrows the client's local lifetime. Bare source pointers are refused until
+the separately reviewed authenticated/native acquisition adapters are implemented.
 Read status has no registered variable projection in B v1 and is explicitly unavailable.
 """
 
@@ -32,11 +32,10 @@ class SecuredCibSevenTransport:
     """No native transport inheritance, credentials or raw-route fallback."""
 
     def __init__(self, client: EngineOperationsClient, *, process_key: str, source_ref: str = "") -> None:
-        self._client = client
+        if type(source_ref) is not str or source_ref:
+            raise EngineCapabilityError(EngineRefusalCode.EVIDENCE_UNAVAILABLE)
+        self._client = client.borrow(process_key)
         self._process_key = process_key
-        self._source_ref = source_ref
-        if not any(p.target.process_key == process_key for p in client.config.profiles):
-            raise EngineCapabilityError(EngineRefusalCode.PROFILE_UNAVAILABLE)
 
     def _request(
         self,
@@ -59,8 +58,8 @@ class SecuredCibSevenTransport:
         )
 
     def _source(self, request: EngineRequest) -> str:
-        profile = self._client.profile(request.operation, request.process_key, request.message)
-        return self._source_ref if profile.schema.source_process_key else ""
+        self._client.profile(request.operation, request.process_key, request.message)
+        return ""
 
     async def authorize_start(
         self,

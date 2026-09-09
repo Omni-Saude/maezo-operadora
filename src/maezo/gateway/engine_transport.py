@@ -7,12 +7,13 @@ No client-created EngineAuthority, raw REST fallback, or automatic retries of mu
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import math
 import re
 import ssl
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,15 @@ from maezo.gateway.engine_contracts import (
     FieldOrigin,
     canonical_json,
     parse_json,
+)
+from maezo.gateway.engine_lifetime import (
+    CallerSelection,
+    LifetimeBorrower,
+    LocalLifetimeOwner,
+    ProfileSelectionKey,
+    Submission,
+    SubmissionSnapshot,
+    _Opaque,
 )
 
 _SUPPORTED = frozenset(
@@ -166,33 +176,97 @@ class EngineTLSConfig:
             raise EngineTransportUnavailableError() from None
 
 
-class EngineOperationsClient:
+class EngineOperationsClient(_Opaque):
     """Only the two fixed workload routes. Each request uses a freshly validated TLS identity."""
 
     def __init__(self, config: EngineTLSConfig) -> None:
-        config.context()
-        self.config = config
-        self._closed = False
+        if type(config) is not EngineTLSConfig:
+            raise EngineTransportUnavailableError()
+        self._config = copy.deepcopy(config)
+        self._config.context()
+        document = asdict(self._config)
+        for name in ("ca_file", "certificate_file", "private_key_file"):
+            document[name] = str(document[name])
+        # Profile documents are the original v1 canonical codec, including schema,
+        # identity, target and source target; no local ID changes those bytes.
+        document["profiles"] = [p.document() for p in self._config.profiles]
+        document["identity"] = self._config.profiles[0].document()["identity"]
+        config_digest = hashlib.sha256(canonical_json(document)).hexdigest()
+        selection = CallerSelection(
+            canonical_json(document["identity"]),
+            config_digest,
+            tuple(
+                ProfileSelectionKey(canonical_json(p.document()), p.digest, config_digest)
+                for p in self._config.profiles
+            ),
+        )
+        self._lifetime = LocalLifetimeOwner(selection)
+        self._direct = self._lifetime.borrow(tuple(p.digest for p in self._config.profiles))
+
+    @property
+    def config(self) -> EngineTLSConfig:
+        """Independent snapshot: neither input nor returned nested objects are shared."""
+        return copy.deepcopy(self._config)
+
+    @property
+    def selection(self) -> CallerSelection:
+        return self._lifetime.selection
+
+    @property
+    def submissions(self) -> tuple[SubmissionSnapshot, ...]:
+        return self._lifetime.submissions
+
+    def borrow(self, process_key: str) -> EngineOperationBorrower:
+        self._direct.check()
+        profiles = tuple(p for p in self._config.profiles if p.target.process_key == process_key)
+        if not profiles:
+            raise EngineCapabilityError(EngineRefusalCode.PROFILE_UNAVAILABLE)
+        admitted = tuple(
+            p.digest
+            for p in profiles
+            if p.schema.operation in _SUPPORTED
+            and not p.schema.source_process_key
+            and p.source_target is None
+        )
+        if not admitted:
+            raise EngineCapabilityError(EngineRefusalCode.EVIDENCE_UNAVAILABLE)
+        return EngineOperationBorrower(self, self._lifetime.borrow(admitted), process_key)
 
     def profile(
         self, operation: EngineOperation, process_key: str, message: str = ""
     ) -> EngineCapabilityProfile:
+        self._direct.check()
+        return self._profile(operation, process_key, message)
+
+    def _profile(
+        self, operation: EngineOperation, process_key: str, message: str = ""
+    ) -> EngineCapabilityProfile:
         if operation not in _SUPPORTED:
             raise EngineCapabilityError(EngineRefusalCode.OPERATION_DENIED)
-        for profile in self.config.profiles:
+        for profile in self._config.profiles:
             if (
                 profile.schema.operation is operation
                 and profile.target.process_key == process_key
                 and profile.target.message == message
             ):
-                return profile
+                if profile.schema.source_process_key or profile.source_target is not None:
+                    raise EngineCapabilityError(EngineRefusalCode.EVIDENCE_UNAVAILABLE)
+                return copy.deepcopy(profile)
         raise EngineCapabilityError(EngineRefusalCode.PROFILE_UNAVAILABLE)
 
     def project(
         self, request: EngineRequest, *, source_ref: str = ""
     ) -> tuple[EngineCapabilityProfile, bytes]:
+        self._direct.check()
+        return self._project(request, source_ref=source_ref)
+
+    def _project(
+        self, request: EngineRequest, *, source_ref: str = ""
+    ) -> tuple[EngineCapabilityProfile, bytes]:
+        if type(request) is not EngineRequest:
+            raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
         request.__post_init__()
-        profile = self.profile(request.operation, request.process_key, request.message)
+        profile = self._profile(request.operation, request.process_key, request.message)
         schema = profile.schema
         variables, correlation = parse_json(request.variables_json), parse_json(request.correlation_json)
         schema.validate(variables)
@@ -222,11 +296,10 @@ class EngineOperationsClient:
                 raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
             if key == "tenant_id" and value != profile.identity.tenant:
                 raise EngineCapabilityError(EngineRefusalCode.IDENTITY_MISMATCH)
-        # A source reference is a pointer only. B resolves current lock / committed human receipt.
-        if type(source_ref) is not str or bool(source_ref) != bool(schema.source_process_key):
+        # A bare pointer cannot provide the reviewed native acquisition lifetime.
+        # Source-required calls await authentic D/native adapters in later stages.
+        if type(source_ref) is not str or source_ref:
             raise EngineCapabilityError(EngineRefusalCode.EVIDENCE_UNAVAILABLE)
-        if source_ref:
-            EngineRequest(EngineOperation.READ_HISTORY, request.process_key, source_ref, b"{}")
         return profile, canonical_json(
             dict(
                 protocol="maezo.engine-operation.v1",
@@ -247,17 +320,15 @@ class EngineOperationsClient:
         )
 
     async def _exchange(self, method: str, route: str, body: bytes | None = None) -> dict[str, Any]:
-        if self._closed:
-            raise EngineTransportUnavailableError()
         try:
-            context = self.config.context()
+            context = self._config.context()
             async with (
                 httpx.AsyncClient(
-                    verify=context, trust_env=False, follow_redirects=False, timeout=self.config.timeout
+                    verify=context, trust_env=False, follow_redirects=False, timeout=self._config.timeout
                 ) as client,
                 client.stream(
                     method,
-                    self.config.endpoint + route,
+                    self._config.endpoint + route,
                     content=body,
                     headers={"Content-Type": "application/json", "Accept": "application/json"},
                 ) as response,
@@ -273,10 +344,11 @@ class EngineOperationsClient:
                     if len(raw) > _LIMIT:
                         raise EngineTransportUnavailableError()
                 status = response.status_code
-            self.config.validate()
+            self._config.validate()
             data = parse_json(bytes(raw))
         except EngineCapabilityError:
-            raise
+            # Invalid/unreadable response bytes are not a native refusal receipt.
+            raise EngineTransportUnavailableError() from None
         except Exception:
             raise EngineTransportUnavailableError() from None
         if status == 200:
@@ -295,28 +367,78 @@ class EngineOperationsClient:
         raise EngineTransportUnavailableError()
 
     async def readiness(self) -> None:
+        await self._direct.run_async(self._readiness)
+
+    async def _readiness(self) -> None:
         data = await self._exchange("GET", "/maezo/v1/readiness")
         capabilities = data.get("capabilities")
         if (
             set(data) != {"protocol", "ready", "policy_digest", "capabilities"}
             or data["protocol"] != "maezo.engine-readiness.v1"
             or data["ready"] is not True
-            or data["policy_digest"] != self.config.policy_digest
+            or data["policy_digest"] != self._config.policy_digest
             or type(capabilities) is not list
             or any(type(item) is not str for item in capabilities)
             or len(capabilities) != len(set(capabilities))
-            or set(capabilities) != {p.digest for p in self.config.profiles}
+            or set(capabilities) != {p.digest for p in self._config.profiles}
         ):
             raise EngineTransportUnavailableError()
 
     async def execute(self, request: EngineRequest, *, source_ref: str = "") -> Any:
-        profile, body = self.project(request, source_ref=source_ref)
-        # Validate locally before wire, then check current configured B policy/grants on
-        # every operation. Start authorization also checks before durable claim/audit.
-        # B v1 uses two requests: this is NOT atomic GET/POST policy binding; B retains
-        # its independent transaction-time authorization and source checks.
-        await self.readiness()
-        data = await self._exchange("POST", "/maezo/v1/operations", body)
+        return await self._execute(self._direct, request, source_ref=source_ref)
+
+    async def _execute(
+        self, borrower: LifetimeBorrower, request: EngineRequest, *, source_ref: str = ""
+    ) -> Any:
+        self._lifetime._check(borrower)
+        borrower.check(selection=self.selection)
+        if type(request) is not EngineRequest:
+            raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
+        frozen = copy.deepcopy(request)
+        profile, body = self._project(frozen, source_ref=source_ref)
+        borrower.check(profile.digest)
+        submission = self._lifetime.reserve(
+            borrower, profile.digest, frozen.operation.value, hashlib.sha256(body).hexdigest()
+        )
+        try:
+            return await borrower.run_async(
+                lambda: self._perform(borrower, submission, frozen, profile, body)
+            )
+        except BaseException:
+            # Cancellation may race a known terminal acknowledgement. Transition
+            # that exact record only; never erase it or retry the mutation.
+            submission.ambiguous()
+            raise
+
+    async def _perform(
+        self,
+        borrower: LifetimeBorrower,
+        submission: Submission,
+        request: EngineRequest,
+        profile: EngineCapabilityProfile,
+        body: bytes,
+    ) -> Any:
+        try:
+            # GET/POST is not atomic policy binding; native B retains its existing
+            # independent transaction-time checks. No local selector replaces them.
+            await self._readiness()
+            borrower.check(profile.digest)
+            submission.submitted()
+            data = await self._exchange("POST", "/maezo/v1/operations", body)
+            value = self._result(request, profile, data)
+        except EngineTransportUnavailableError:
+            submission.ambiguous()
+            raise
+        except EngineCapabilityError:
+            submission.refused()
+            raise
+        except BaseException:
+            submission.ambiguous()
+            raise
+        submission.acknowledged(hashlib.sha256(canonical_json({"result": value})).hexdigest())
+        return value
+
+    def _result(self, request: EngineRequest, profile: EngineCapabilityProfile, data: dict[str, Any]) -> Any:
         if (
             set(data) != {"protocol", "capability_digest", "result"}
             or data["protocol"] != "maezo.engine-result.v1"
@@ -366,5 +488,46 @@ class EngineOperationsClient:
                 seen.add(row["id"])
         return result
 
-    async def close(self) -> None:
-        self._closed = True
+    async def close(self, timeout: float | None = None) -> bool:  # noqa: ASYNC109 - drain, not cancellation
+        return await self._lifetime.close(timeout)
+
+
+class EngineOperationBorrower(_Opaque):
+    """Exact-process local borrower; owns no client, TLS credentials or native grant."""
+
+    __slots__ = ("_client", "_borrower", "_process_key")
+
+    def __init__(self, client: EngineOperationsClient, borrower: LifetimeBorrower, process_key: str) -> None:
+        client._lifetime._check(borrower)
+        self._client = client
+        self._borrower = borrower
+        self._process_key = process_key
+
+    def profile(
+        self, operation: EngineOperation, process_key: str, message: str = ""
+    ) -> EngineCapabilityProfile:
+        self._client._lifetime._check(self._borrower)
+        self._borrower.check(selection=self._client.selection)
+        if process_key != self._process_key:
+            raise EngineCapabilityError(EngineRefusalCode.RESOURCE_MISMATCH)
+        profile = self._client._profile(operation, process_key, message)
+        self._borrower.check(profile.digest)
+        return profile
+
+    def project(
+        self, request: EngineRequest, *, source_ref: str = ""
+    ) -> tuple[EngineCapabilityProfile, bytes]:
+        self.profile(request.operation, request.process_key, request.message)
+        return self._client._project(request, source_ref=source_ref)
+
+    async def readiness(self) -> None:
+        self._client._lifetime._check(self._borrower)
+        self._borrower.check(selection=self._client.selection)
+        await self._borrower.run_async(self._client._readiness)
+
+    async def execute(self, request: EngineRequest, *, source_ref: str = "") -> Any:
+        self.profile(request.operation, request.process_key, request.message)
+        return await self._client._execute(self._borrower, request, source_ref=source_ref)
+
+    async def close(self, timeout: float | None = None) -> bool:  # noqa: ASYNC109 - drain, not cancellation
+        return await self._borrower.close(timeout)
