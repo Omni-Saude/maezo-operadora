@@ -90,6 +90,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import asyncpg  # type: ignore[import-untyped]
+import httpx
 import pytest
 
 from maezo.gateway.audit_postgres import PostgresAuditSink, normalize_dsn, schema_for_tenant
@@ -122,6 +123,73 @@ from tests.integration.conftest import _apply_migrations, _pg_reachable
 pytestmark = pytest.mark.integration
 
 _CONNECT_TIMEOUT_S = 5.0
+
+
+async def _assert_native_fraude_effect(
+    client: httpx.AsyncClient,
+    tenant_id: str,
+    prestador: str,
+    lote: str,
+    *,
+    expected_id: str | None = None,
+    absent: bool = False,
+) -> str | None:
+    """Read the native engine independently of the bridge's returned start result."""
+    business_key = f"FRAUDE-{tenant_id}-{prestador}"
+    live = await client.get("/process-instance", params={"businessKey": business_key})
+    live.raise_for_status()
+    history = await client.get(
+        "/history/process-instance", params={"processInstanceBusinessKey": business_key}
+    )
+    history.raise_for_status()
+    active, recorded = live.json(), history.json()
+    if absent:
+        assert active == [] and recorded == [], "dormant event created an engine instance"
+        return None
+    assert len(active) == len(recorded) == 1, "one native FRAUDE instance must exist"
+    instance_id = active[0]["id"]
+    assert recorded[0]["id"] == instance_id
+    assert active[0]["businessKey"] == recorded[0]["businessKey"] == business_key
+    assert recorded[0]["processDefinitionKey"] == "SP-OP-FRAUDE-001"
+    assert recorded[0]["endTime"] is None
+    if expected_id is not None:
+        assert instance_id == expected_id, "bridge ID differs from native engine ID"
+    definition = await client.get(f"/process-definition/{active[0]['definitionId']}")
+    definition.raise_for_status()
+    assert definition.json()["key"] == "SP-OP-FRAUDE-001"
+    variables_response = await client.get(f"/process-instance/{instance_id}/variables")
+    variables_response.raise_for_status()
+    variables = variables_response.json()
+    for name, expected in {
+        "tenant_id": tenant_id,
+        "prestador_id": prestador,
+        "numero_lote_tiss": lote,
+        "origem_encaminhamento": "contas",
+    }.items():
+        assert variables[name]["value"] == expected
+    # Starting this downstream investigation must not perform a human decision.
+    tasks = await client.get("/external-task", params={"processInstanceId": instance_id})
+    tasks.raise_for_status()
+    assert [task["topicName"] for task in tasks.json()] == ["operadora.fraude.intake"]
+    return str(instance_id)
+
+
+async def _delete_owned_fraude_instance(client: httpx.AsyncClient, tenant_id: str, prestador: str) -> None:
+    """Delete only this test's random business key after confirming tenant ownership."""
+    business_key = f"FRAUDE-{tenant_id}-{prestador}"
+    response = await client.get("/process-instance", params={"businessKey": business_key})
+    response.raise_for_status()
+    for instance in response.json():
+        assert instance["businessKey"] == business_key
+        variables = await client.get(f"/process-instance/{instance['id']}/variables")
+        variables.raise_for_status()
+        assert variables.json()["tenant_id"]["value"] == tenant_id
+        definition = await client.get(f"/process-definition/{instance['definitionId']}")
+        definition.raise_for_status()
+        assert definition.json()["key"] == "SP-OP-FRAUDE-001"
+        removed = await client.delete(f"/process-instance/{instance['id']}")
+        assert removed.status_code == 204
+
 
 #: Total bound for `_await_topic_ready`'s pre-flight poll — mirrors
 #: `test_notifications_bridge_live_kafka.py::_READINESS_TIMEOUT_S`, kept entirely SEPARATE from
@@ -528,6 +596,7 @@ async def test_producer_publish_mirrors_contas_completed_onto_notifications_topi
 async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_does_not(
     kafka_bootstrap_servers: str,
     pg_tenant_schema: tuple[str, str],
+    engine_client: httpx.AsyncClient,
 ) -> None:
     """Publish TWO REAL `agents.events.contas.completed` events through the producer — both in
     shapes `SP-OP-CONTAS-001` itself publishes — consume both via the REAL
@@ -599,6 +668,9 @@ async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_doe
             "the CONTAS→FRAUDE predicate keys off the routing fact, never off anchor presence"
         )
 
+        assert await _fetch_start_process_rows(dsn, tenant_id) == []
+        await _assert_native_fraude_effect(engine_client, tenant_id, prestador, lote, absent=True)
+
         # Armed: the REAL `ST_PublishEncaminhadaFraude` payload — its three `event_payload_vars`
         # verbatim, nothing synthetic added (the `prestador_id` anchor the predicate needs IS what
         # that task publishes; see `notification_bridge.py`'s own "ARMED (commit 9cc8aaa)" note).
@@ -624,6 +696,9 @@ async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_doe
         # what makes the two paths converge instead of double-starting.
         expected_bk = f"FRAUDE-{tenant_id}-{prestador}"
         assert triggered[0].variables["business_key"] == expected_bk
+        await _assert_native_fraude_effect(
+            engine_client, tenant_id, prestador, lote, expected_id=triggered[0].process_instance_id
+        )
 
         rows = await _fetch_start_process_rows(dsn, tenant_id)
         assert len(rows) == 1, "only the ARMED handoff may durably audit a start"
@@ -634,6 +709,7 @@ async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_doe
         await consumer.stop()
         await audit_sink.aclose()
         await transport.close()
+        await _delete_owned_fraude_instance(engine_client, tenant_id, prestador)
 
 
 # ---------------------------------------------------------------------------
@@ -690,6 +766,7 @@ async def test_producer_failure_kafka_down_does_not_block_source_process() -> No
 async def test_redelivered_message_is_idempotent_one_audit_row_same_instance(
     kafka_bootstrap_servers: str,
     pg_tenant_schema: tuple[str, str],
+    engine_client: httpx.AsyncClient,
 ) -> None:
     """Publish the SAME armed event ONCE, but consume+dispatch it TWICE (simulating a redelivery
     — e.g. a consumer crash before offset-commit) through the SAME bridge/fenced-starter/audit
@@ -748,6 +825,9 @@ async def test_redelivered_message_is_idempotent_one_audit_row_same_instance(
         assert first_triggered[0].process_instance_id == second_triggered[0].process_instance_id
         assert first_triggered[0].target_process == "SP-OP-FRAUDE-001"
         assert first_triggered[0].variables["business_key"] == f"FRAUDE-{tenant_id}-{prestador}"
+        await _assert_native_fraude_effect(
+            engine_client, tenant_id, prestador, lote, expected_id=first_triggered[0].process_instance_id
+        )
 
         rows = await _fetch_start_process_rows(dsn, tenant_id)
         assert len(rows) == 1, "a redelivered handoff must not write a second audit-chain row"
@@ -757,6 +837,7 @@ async def test_redelivered_message_is_idempotent_one_audit_row_same_instance(
         await consumer.stop()
         await audit_sink.aclose()
         await transport.close()
+        await _delete_owned_fraude_instance(engine_client, tenant_id, prestador)
 
 
 # ---------------------------------------------------------------------------
@@ -960,6 +1041,7 @@ async def test_same_entity_events_land_on_the_same_partition(
 async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_continues(
     kafka_bootstrap_servers: str,
     pg_tenant_schema: tuple[str, str],
+    engine_client: httpx.AsyncClient,
 ) -> None:
     """THE DLQ, END TO END, ON REAL INFRASTRUCTURE. Publish a MALFORMED record (no `type`) and a
     well-formed armed one onto `NOTIFICATIONS_TOPIC`; drive the REAL `AioKafkaBridgeConsumer`
@@ -1067,6 +1149,7 @@ async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_contin
             "a poison message must no longer block every message behind it (head-of-line blocking)"
         )
         assert start_rows[0]["action"] == "start_process:SP-OP-FRAUDE-001"
+        await _assert_native_fraude_effect(engine_client, tenant_id, prestador, lote)
     finally:
         await seed.stop()
         await dlq.publisher.stop()
@@ -1074,6 +1157,7 @@ async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_contin
         await consumer.stop()
         await audit_sink.aclose()
         await transport.close()
+        await _delete_owned_fraude_instance(engine_client, tenant_id, prestador)
 
 
 class _SingleMessageConsumer:
