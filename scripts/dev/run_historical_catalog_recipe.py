@@ -5,6 +5,8 @@ The original babe producer/catalogue and its receipts are immutable. This new
 orchestrator selects D7 explicitly, invokes the literal producer's capture seam,
 and binds both identities in a separate envelope. No result hash/count is assumed.
 New catalogue members require reviewed source changes, never record/CLI options.
+The legacy capture/readback path remains literal and cannot execute D7 async tests.
+Use capture-async/readback-async for the separately pinned explicit async successor.
 """
 
 from __future__ import annotations
@@ -26,6 +28,8 @@ ROOT = Path(__file__).resolve().parents[2]
 LOADER = "scripts/dev/historical_tool_sources.py"
 LOADER_SHA256 = "0c9f10f5b2a7a8e5a290ca43fb204bddfdc090462d3a02b318fe6e5297ab7c25"
 ENTRYPOINT = "scripts/dev/run_historical_catalog_recipe.py"
+ASYNC_PRODUCER = "scripts/dev/historical_async_recipe.py"
+ASYNC_SHA256 = "241e0c9a9f636abe50f6765f148d0668c78ea3f26ab90f91725368434f83d4af"
 
 
 class CatalogueRefusedError(ValueError):
@@ -238,9 +242,85 @@ def capture_catalogued(repo: Path, out: Path, proof_id: str) -> dict[str, Any]:
     return validate_receipt(repo, out, proof_id)
 
 
+def load_async_producer() -> ModuleType:
+    """New recipe is pinned separately; original capsule is never modified."""
+    path = ROOT / ASYNC_PRODUCER
+    payload = regular_source(path)
+    if digest(payload) != ASYNC_SHA256:
+        raise CatalogueRefusedError("async producer pin mismatch")
+    spec = importlib.util.spec_from_file_location("successor_explicit_async_producer", path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    exec(compile(payload, str(path), "exec"), module.__dict__)
+    return module
+
+
+def async_observations(producer: ModuleType, entry: SourceEntry) -> dict[str, str]:
+    return {**observations(producer, entry), "explicit-async-producer": ASYNC_SHA256}
+
+
+def async_envelope(producer: ModuleType, entry: SourceEntry, out: Path) -> dict[str, Any]:
+    module = load_async_producer()
+    return {
+        **envelope(producer, entry, out),
+        "schema": "maezo-historical-unit-successor-async-capture/v1",
+        "inner_producer": {"path": ASYNC_PRODUCER, "sha256": ASYNC_SHA256},
+        "inner_schema": module.SCHEMA,
+        "recipe": module.RECIPE,
+        "observations": async_observations(producer, entry),
+    }
+
+
+def validate_async_receipt(repo: Path, out: Path, proof_id: str) -> dict[str, Any]:
+    """Validate the actual explicit async producer, never normalize it to babe/v1."""
+    producer = load_producer(repo)
+    module = load_async_producer()
+    entry = select(proof_id)
+    preflight(producer, repo, entry)
+    packet = producer.Packet(out)
+    inner = producer.Packet(out / "capture")
+    expected = {"successor.json", "manifest.json"} | {"capture/" + name for name in inner.files}
+    if set(packet.files) != expected or set(packet.entries) != expected | {"capture", "capture/guard"}:
+        raise CatalogueRefusedError("async successor packet has unexpected members")
+    if not producer.same(producer.load(out / "successor.json"), async_envelope(producer, entry, out)):
+        raise CatalogueRefusedError("async successor identity/capture binding mismatch")
+    if not producer.same(producer.load(out / "manifest.json"), packet.hashes(exclude="manifest.json")):
+        raise CatalogueRefusedError("async successor manifest mismatch")
+    receipt: dict[str, Any] = module.validate_receipt(
+        producer, out / "capture", repo, entry.identity(), async_observations(producer, entry)
+    )
+    return receipt
+
+
+def capture_async_catalogued(repo: Path, out: Path, proof_id: str) -> dict[str, Any]:
+    producer = load_producer(repo)
+    module = load_async_producer()
+    entry = select(proof_id)
+    preflight(producer, repo, entry)
+    with producer._directory(out.parent) as parent:
+        os.mkdir(out.name, mode=0o700, dir_fd=parent)
+    module.capture_source(
+        producer,
+        repo,
+        entry.source,
+        entry.test,
+        out / "capture",
+        entry.proof_id,
+        entry.task,
+        entry.date,
+        async_observations(producer, entry),
+    )
+    producer.write(out / "successor.json", producer.encode(async_envelope(producer, entry, out)))
+    producer.write(out / "manifest.json", producer.encode(producer.Packet(out).hashes()))
+    return validate_async_receipt(repo, out, proof_id)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("preflight", "capture", "readback"))
+    parser.add_argument(
+        "mode",
+        choices=("preflight", "capture", "readback", "preflight-async", "capture-async", "readback-async"),
+    )
     parser.add_argument("proof", choices=[entry.proof_id for entry in SOURCE_CATALOG_V1])
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--output", type=Path)
@@ -252,13 +332,20 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
-    if args.mode == "preflight":
+    if args.mode in {"preflight", "preflight-async"}:
+        if args.mode == "preflight-async":
+            load_async_producer()
         preflight(load_producer(repo), repo, select(args.proof))
         print(json.dumps(catalogue(select(args.proof)), sort_keys=True))
         return 0
     if args.output is None:
         parser.error("--output required for capture/readback")
-    operation = capture_catalogued if args.mode == "capture" else validate_receipt
+    operation = {
+        "capture": capture_catalogued,
+        "readback": validate_receipt,
+        "capture-async": capture_async_catalogued,
+        "readback-async": validate_async_receipt,
+    }[args.mode]
     receipt = operation(repo, args.output.absolute(), args.proof)
     print(json.dumps({"scope": "observation-only", "coverage": receipt["coverage"]}, sort_keys=True))
     return 0
