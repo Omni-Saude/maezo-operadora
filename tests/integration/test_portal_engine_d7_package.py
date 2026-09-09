@@ -877,14 +877,181 @@ def test_known_leaf_metadata_mismatch_has_exact_refusal_and_restoration(field: s
         wait_ready()
 
 
+def record_response(evidence: Path, label: str, response: httpx.Response) -> None:
+    """Keep actual wire outcomes in the owned private fixture, separate by fault phase."""
+    (evidence / (label + ".body")).write_bytes(response.content)
+    (evidence / (label + ".json")).write_text(
+        json.dumps(
+            {
+                "method": response.request.method,
+                "path": response.request.url.path,
+                "status": response.status_code,
+                "headers": dict(response.headers),
+                "body_bytes": len(response.content),
+                "body_sha256": hashlib.sha256(response.content).hexdigest(),
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+
+def assert_start_effect(request: dict, instance_id: str | None) -> None:
+    """Observe the exact pending business key in native runtime AND committed history."""
+
+    async def observe():
+        db = await database()
+        try:
+            definition = json.loads((fixture() / "definitions.json").read_text())[request["process_key"]]
+            expected = [] if instance_id is None else [instance_id]
+            for table in ("act_ru_execution", "act_hi_procinst"):
+                rows = await db.fetch(
+                    f"SELECT id_, proc_def_id_, tenant_id_ FROM {table} WHERE business_key_=$1",
+                    request["resource_ref"],
+                )
+                assert sorted(row["id_"] for row in rows) == expected
+                for row in rows:
+                    assert row["proc_def_id_"] == definition["id"]
+                    assert row["tenant_id_"] == request["variables"]["tenant_id"]
+            if instance_id is not None:
+                assert (
+                    await db.fetchval(
+                        "SELECT count(*) FROM act_ru_ext_task "
+                        "WHERE proc_inst_id_=$1 AND proc_def_id_=$2 AND tenant_id_=$3 "
+                        "AND topic_name_='operadora.escalation.notify_team'",
+                        instance_id,
+                        definition["id"],
+                        definition["tenantId"],
+                    )
+                    == 1
+                )
+        finally:
+            await db.close()
+
+    asyncio.run(observe())
+
+
+def assert_started_response(response: httpx.Response, request: dict) -> str:
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    body = response.json()
+    assert body["capability_digest"] == request["capability_digest"]
+    instance_id = body["result"]["id"]
+    assert isinstance(instance_id, str) and instance_id
+    assert_start_effect(request, instance_id)
+    return instance_id
+
+
+def captured_docker(evidence: Path, label: str, argv: list[str]) -> bytes:
+    """ROOT's reviewed image wrapper must authorize these child Docker reads too."""
+    result = subprocess.run(argv, capture_output=True, timeout=10, check=False)
+    (evidence / (label + ".argv.json")).write_text(json.dumps(argv) + "\n")
+    (evidence / (label + ".stdout")).write_bytes(result.stdout)
+    (evidence / (label + ".stderr")).write_bytes(result.stderr)
+    (evidence / (label + ".exit")).write_text(str(result.returncode) + "\n")
+    assert result.returncode == 0, "container observation failed; cannot infer startup refusal"
+    return result.stdout + result.stderr if argv[1] == "logs" else result.stdout
+
+
+def owned_engine_context(evidence: Path, label: str) -> dict:
+    root = fixture()
+    project = os.environ.get("MAEZO_D7_COMPOSE_PROJECT", "")
+    assert re.fullmatch(r"d7-[a-z0-9-]{8,64}", project)
+    container = (
+        captured_docker(
+            evidence,
+            label + "-ps",
+            [
+                "docker",
+                "compose",
+                "-p",
+                project,
+                "-f",
+                str(root / "secured-compose.json"),
+                "ps",
+                "-q",
+                "engine",
+            ],
+        )
+        .decode()
+        .strip()
+    )
+    assert re.fullmatch(r"[0-9a-f]{64}", container), "exact single running engine required"
+    # Deliberately excludes Config.Env and mounts: no private credentials in inspection.
+    template = (
+        '{"id":{{json .Id}},"image":{{json .Image}},"started_at":{{json .State.StartedAt}},'
+        '"running":{{json .State.Running}},"restart_count":{{json .RestartCount}},'
+        '"project":{{json (index .Config.Labels "com.docker.compose.project")}},'
+        '"service":{{json (index .Config.Labels "com.docker.compose.service")}}}'
+    )
+    current = json.loads(
+        captured_docker(evidence, label + "-inspect", ["docker", "inspect", "--format", template, container])
+    )
+    assert current["id"] == container and current["project"] == project and current["service"] == "engine"
+    assert current["image"] == json.loads((root / "d7-fixture.json").read_text())["secured_image"]
+    assert current["running"] is True and current["restart_count"] == 0
+    assert re.fullmatch(r"20[0-9]{2}-[0-9TZ:.+-]+", current["started_at"])
+    return current
+
+
+def failed_engine_rest_context(logs: bytes) -> bool:
+    """Exact pinned Tomcat context failure; a generic exception line is insufficient."""
+    text = logs.decode("utf-8", errors="strict")
+    return all(
+        marker in text
+        for marker in (
+            "Exception starting filter [maezo-boundary]",
+            "br.com.maezo.workload.Refused: engine_profile_unavailable",
+            "StandardContext.startInternal Context [/engine-rest] startup failed due to previous errors",
+            'Starting ProtocolHandler ["https-jsse-nio-8443"]',
+        )
+    )
+
+
+def assert_failed_context_response(response: httpx.Response, logs: bytes) -> None:
+    assert failed_engine_rest_context(logs), "current restarted /engine-rest context must have failed"
+    # This is unavailable deployment evidence, never native authorization credit.
+    # Unexpected 503, 405, timeout/reset or other outcomes fail for explicit diagnosis.
+    assert response.status_code == 404
+    assert response.headers["content-type"].split(";", 1)[0] == "text/html"
+    assert "<title>HTTP Status 404 – Not Found</title>" in response.text
+
+
 @pytest.mark.parametrize("dependency", ["ca-mount", "tenant", "environment"])
 def test_missing_dependency_or_inconsistent_identity_prevents_startup(dependency: str) -> None:
     readiness()
-    before = snapshot()
     root = fixture()
+    evidence = root / ("startup-" + dependency + "-" + uuid4().hex)
+    evidence.mkdir(mode=0o700)
     original = json.loads((root / "boundary.json").read_text())
     changed = copy.deepcopy(original)
     saved_compose = (root / "secured-compose.json").read_bytes()
+    pending = operation_request()
+    pending_wire = json.dumps(pending, separators=(",", ":"), allow_nan=False).encode()
+    positive = {**pending, "resource_ref": "d7-http-" + uuid4().hex}
+    assert_start_effect(pending, None)
+    assert_start_effect(positive, None)
+    with client() as connection:
+        ready = connection.get("/engine-rest/maezo/v1/readiness")
+        record_response(evidence, "before-readiness", ready)
+        assert ready.status_code == 200 and ready.json()["ready"] is True and ready.json()["capabilities"]
+        response = connection.post("/engine-rest/maezo/v1/operations", json=positive)
+        record_response(evidence, "before-operation", response)
+        assert_started_response(response, positive)
+    readiness()
+    before = snapshot()
+    baseline_context = owned_engine_context(evidence, "before")
+    (evidence / "pending.json").write_text(
+        json.dumps(
+            {
+                "wire_sha256": hashlib.sha256(pending_wire).hexdigest(),
+                "peer_certificate_sha256": hashlib.sha256((root / "agent.crt").read_bytes()).hexdigest(),
+                "snapshot": before,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
     if dependency == "ca-mount":
         compose = json.loads(saved_compose)
         compose["services"]["engine"]["volumes"] = [
@@ -895,34 +1062,129 @@ def test_missing_dependency_or_inconsistent_identity_prevents_startup(dependency
         changed[dependency] = "foreign-tenant" if dependency == "tenant" else "foreign-environment"
     try:
         restart_owned_engine(changed)
-        project = os.environ["MAEZO_D7_COMPOSE_PROJECT"]
-        argv = [
-            "docker",
-            "compose",
-            "-p",
-            project,
-            "-f",
-            str(root / "secured-compose.json"),
-            "logs",
-            "--no-color",
-            "engine",
-        ]
+        fault_context = owned_engine_context(evidence, "fault")
+        assert fault_context["id"] != baseline_context["id"]
+        assert fault_context["started_at"] > baseline_context["started_at"]
+        argv = ["docker", "logs", "--timestamps", "--since", fault_context["started_at"], fault_context["id"]]
         deadline = time.monotonic() + 90
-        attributable = False
-        while time.monotonic() < deadline and not attributable:
-            result = subprocess.run(argv, capture_output=True, timeout=10, check=False)
-            assert result.returncode == 0
-            attributable = b"engine_profile_unavailable" in result.stdout
-            if not attributable:
+        logs = b""
+        attempt = 0
+        while time.monotonic() < deadline and not failed_engine_rest_context(logs):
+            logs = captured_docker(evidence, f"fault-logs-{attempt:03d}", argv)
+            attempt += 1
+            if not failed_engine_rest_context(logs):
                 time.sleep(0.25)
-        assert attributable, "startup must fail at the actual boundary dependency; no missing-route inference"
+        assert failed_engine_rest_context(logs), "no exact current /engine-rest deployment failure"
+        with client() as connection:
+            response = connection.get("/engine-rest/maezo/v1/readiness")
+            record_response(evidence, "fault-readiness", response)
+            assert_failed_context_response(response, logs)
+            response = connection.post(
+                "/engine-rest/maezo/v1/operations",
+                content=pending_wire,
+                headers={"Content-Type": "application/json"},
+            )
+            record_response(evidence, "fault-operation", response)
+            assert_failed_context_response(response, logs)
+        assert owned_engine_context(evidence, "fault-after-https") == fault_context
         assert snapshot() == before
+        assert_start_effect(pending, None)
+        (evidence / "fault-snapshot.json").write_text(json.dumps(snapshot(), indent=2) + "\n")
         with pytest.raises(ConnectionRefusedError), socket.create_connection(("127.0.0.1", 18080), timeout=3):
             pytest.fail("failed secured startup cannot reopen plaintext")
     finally:
         (root / "secured-compose.json").write_bytes(saved_compose)
         restart_owned_engine(original)
         wait_ready()
+    readiness()
+    restored_context = owned_engine_context(evidence, "restored")
+    assert restored_context["id"] != fault_context["id"]
+    assert restored_context["started_at"] > fault_context["started_at"]
+    assert snapshot() == before
+    assert_start_effect(pending, None)
+    with client() as connection:
+        ready = connection.get("/engine-rest/maezo/v1/readiness")
+        record_response(evidence, "restored-readiness", ready)
+        assert ready.status_code == 200 and ready.json()["ready"] is True and ready.json()["capabilities"]
+        response = connection.post(
+            "/engine-rest/maezo/v1/operations",
+            content=pending_wire,
+            headers={"Content-Type": "application/json"},
+        )
+        record_response(evidence, "restored-operation", response)
+        assert_started_response(response, pending)
+    assert snapshot() != before
+    (evidence / "restored-snapshot.json").write_text(json.dumps(snapshot(), indent=2) + "\n")
+    readiness()
+
+
+def operation_wire_boundary(request: dict) -> tuple[bytes, bytes]:
+    """D7 Json.LIMIT, separate from signed-human JCS limits; pad only JSON whitespace."""
+    limit = 1_048_576
+    encoded = json.dumps(request, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    assert len(encoded) <= limit
+    within = encoded + b" " * (limit - len(encoded))
+    oversized = within + b" "
+    assert len(within) == limit and len(oversized) == limit + 1
+    assert json.loads(within) == json.loads(oversized) == request
+    return within, oversized
+
+
+def test_valid_operation_at_actual_byte_limit_executes_and_one_byte_over_has_no_effect() -> None:
+    readiness()
+    evidence = fixture() / ("body-limit-" + uuid4().hex)
+    evidence.mkdir(mode=0o700)
+    pending = operation_request()
+    assert_start_effect(pending, None)
+    within, oversized = operation_wire_boundary(pending)
+    (evidence / "wire-pair.json").write_text(
+        json.dumps(
+            {
+                "within": {"bytes": len(within), "sha256": hashlib.sha256(within).hexdigest()},
+                "oversized": {"bytes": len(oversized), "sha256": hashlib.sha256(oversized).hexdigest()},
+                "only_difference": "one additional trailing ASCII space",
+                "peer_certificate_sha256": hashlib.sha256((fixture() / "agent.crt").read_bytes()).hexdigest(),
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    # Independent, same-capability operation first proves the live identity/route.
+    positive = {**pending, "resource_ref": "d7-http-" + uuid4().hex}
+    assert_start_effect(positive, None)
+    with client() as connection:
+        response = connection.post("/engine-rest/maezo/v1/operations", json=positive)
+        record_response(evidence, "before-operation", response)
+        assert_started_response(response, positive)
+        readiness()
+        before = snapshot()
+        (evidence / "before-snapshot.json").write_text(json.dumps(before, indent=2) + "\n")
+        response = connection.post(
+            "/engine-rest/maezo/v1/operations",
+            content=oversized,
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.request.headers["Content-Length"] == str(1_048_577)
+        assert "transfer-encoding" not in response.request.headers
+        record_response(evidence, "oversized-operation", response)
+        denied(response, "engine_invalid_body", 400)
+        assert snapshot() == before
+        assert_start_effect(pending, None)
+        (evidence / "fault-snapshot.json").write_text(json.dumps(snapshot(), indent=2) + "\n")
+        readiness()
+        # Exact same operation/identity; removing one trailing byte is the only change.
+        response = connection.post(
+            "/engine-rest/maezo/v1/operations",
+            content=within,
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.request.headers["Content-Length"] == str(1_048_576)
+        assert "transfer-encoding" not in response.request.headers
+        record_response(evidence, "within-limit-operation", response)
+        assert_started_response(response, pending)
+        assert snapshot() != before
+        (evidence / "after-snapshot.json").write_text(json.dumps(snapshot(), indent=2) + "\n")
+    readiness()
 
 
 @pytest.mark.parametrize(

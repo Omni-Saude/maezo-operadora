@@ -87,8 +87,38 @@ recreate **only the explicit owned engine**. They retain private argv/streams fo
 recreation. Policy corruption uses truncate/write/fsync on the actual mounted inode.
 Rotation tests an established old connection during digest loss, then exact old-leaf
 403/new-leaf readiness after digest-bound restart; a dead TCP connection alone earns no
-revocation credit. Startup tests require the actual safe boundary exception and restored
-nonempty readiness, independently of native-route refusal coverage.
+revocation credit. Startup tests first execute a same-capability start and verify its native runtime,
+history and external task. They retain a separate valid operation unchanged through the
+fault and recovery. Each fault must create a new exact owned container ID and StartedAt,
+with the pinned image, matching project/service labels, running state and zero restarts.
+Timestamped logs from that ID since StartedAt must identify `maezo-boundary` filter failure,
+`br.com.maezo.workload.Refused: engine_profile_unavailable`, and failed `/engine-rest`
+context startup, plus the pinned JSSE8443 connector startup before any HTTPS probe.
+While the fault remains installed, the same verified mTLS agent requests
+both the previously live readiness path and the pending operation path.
+
+The expected context-initialization failure outcome is exactly HTTP404, `text/html`,
+with the pinned Tomcat `HTTP Status 404 – Not Found` title for **both** paths, bound to
+those current-context logs and unchanged container identity. This certifies unavailable
+deployment only. It earns no native authorization credit and does not relax any raw-route
+403 assertion. A 503, 405, timeout, reset, missing context attribution or different body
+fails for diagnosis; do not accept a broad fallback status set. This outcome remains a
+strict source expectation until ROOT executes it on the real image. After restoration,
+readiness and the exact pending bytes/identity must succeed with new committed runtime,
+history and external task effects; the faulted nonempty snapshot and plaintext refusal
+remain required. Private `startup-<dependency>-<uuid>` evidence separates pre-fault,
+faulted and restored responses, logs, container identity and snapshot hashes.
+
+The byte-limit case sends a valid operation envelope with trailing JSON whitespace:
+exactly 1,048,576 bytes and exactly 1,048,577 bytes, differing only by one final ASCII
+space. A prior same-capability start establishes live authority; the oversized pending
+request must receive exact 400 `engine_invalid_body`, no-store and leave the nonempty
+native/D5/D6 snapshot and pending business key unchanged. The exact 1 MiB version then
+must create its native runtime/history/external-task effect. Both requests explicitly
+check Content-Length and absence of Transfer-Encoding; this test claims **Content-Length
+boundary enforcement only**, not streamed/chunked enforcement. Readiness surrounds the
+fault and successful causal controls. Actual wire lengths/hashes, responses and snapshots
+are retained privately in `body-limit-<uuid>`. Signed human command limits remain separate.
 
 The canonical runner's lease encloses execution, generated-artifact archival, cleanup and
 source disposal. Archive `src/maezo/portal/engine/java/target` (JUnit, classes, JAR digests)
@@ -96,6 +126,17 @@ and remove only this run's generated target/cache files before authenticated cle
 Dispose the leased source before releasing its lease. **Do not reuse the private
 `run_portal_java_pg_v4` driver**: it pins old runner `02810` and releases before checkout
 cleanup. ROOT must use the current runner's source lifetime contract.
+
+The native PG wrapper qualification does **not** cover these image tests. All source
+examples above must run inside ROOT's separately reviewed secured-image wrapper, which
+must authorize every child Docker invocation against the canonical lease, fixed local
+Docker context and exact owned project/container. The added startup observations use
+`compose -p <project> -f <secured-compose> ps -q engine`, limited-field `docker inspect
+--format ... <id>`, and `docker logs --timestamps --since <StartedAt> <id>`; existing
+engine recreation and admin-app presence inspection remain required. The test checks
+identity after HTTPS so stale logs, reused containers and concurrent recreation fail.
+Archive the private phase evidence under ROOT's custody without publishing credentials
+or synthetic signed commands. Do not launch the snippets as an unleased standalone lane.
 
 ## Requirement-to-case map
 
@@ -115,7 +156,8 @@ cleanup. ROOT must use the current runner's source lifetime contract.
 | 6 rotation/metadata/startup | Named lifecycle cases above plus `test_actual_mounted_policy_corruption_denies_and_same_identity_recovers`; SPKI/SAN/issuer and tenant/environment mismatches. No host-unlink-only assertion. |
 | 6 restart/lost response | Actual D6 pending release POST commits, observer drops the received real response, actual secured engine restarts, pending relay performs GET-only receipt reconciliation; same receipt bytes, one effect/receipt, committed tenant audit/outbox. |
 | 7 human source negatives | `priorHumanEvidenceRequiresActualTaskDecisionProvenance`: missing decision, claim/release-only, wrong task/definition/assignee, copied actor without historical task update, wrong source case. Genuine D5 synthetic receipts are copied only as explicitly hostile negative DB inputs. No forged receipt is a successful control. |
-| strict body | Existing malformed body cases plus `test_malformed_json_fails_with_exact_body_error`: duplicate keys, array, UTF-8, surrogate, overflow, infinity, depth/size; exact 400 `engine_invalid_body`. |
+| strict body | All existing malformed cases remain byte exact. Their old `size` label is a historical 131,081-byte invalid-schema case, not size-guard credit. `test_valid_operation_at_actual_byte_limit_executes_and_one_byte_over_has_no_effect` adds valid 1 MiB / 1 MiB+1 wire bodies, exact 400/no-store for oversized, unchanged nonempty snapshot, and native runtime/history/external-task causal success at the limit. Malformed-envelope rejection alone does not attribute an individual parser guard. |
+| D7B-ACCEPT-02 startup HTTPS | `test_missing_dependency_or_inconsistent_identity_prevents_startup[ca-mount/tenant/environment]`: pre-fault start, authenticated faulted readiness and pending POST, exact failed-context HTTP404 bound to current container/StartedAt/native context logs, unchanged snapshot/plaintext refusal, then restored same-pending native effect. |
 
 The source exposes strict regressions that may reveal product defects: native permission
 checks currently appear to run before blocking SQL, while COMMITTING checks policy and
