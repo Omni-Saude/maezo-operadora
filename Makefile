@@ -3,6 +3,7 @@
         verify-amh-contract-pin \
         check-alert-runbook-urls \
         check-plans-counts \
+        check-doc-symbol-citations \
         xfail-census-check xfail-census-write \
         deviation-expiry-check \
         check-lifecycle-expected-fail-expiry \
@@ -79,6 +80,15 @@ check-plans-counts: ## AF-06: contagens declaradas em PLANS.md (ADRs numerados /
 	# divergir; zero alegacoes encontradas -> PASSA mas sempre imprime a contagem explicita (nunca
 	# verde silencioso).
 	uv run python scripts/ci/check_plans_counts.py
+
+check-doc-symbol-citations: ## R-089: path::symbol / ImportFrom quotado / path:line em docs/adr/*.md vinculam-se a arvore rastreada
+	# Paths qualificados nao caem para basenames; modulos Python vinculam exatamente a .py ou
+	# package __init__.py; ImportFrom usa AST (parenteses/multilinha/aliases); nomes Python respeitam
+	# escopo lexico e IDs BPMN/DMN vem de XML parseado. `path:line` sempre verifica a existencia do
+	# arquivo, inclusive com anchor; o numero continua informativo. Elipses e docs locais ignorados
+	# aparecem em contagens/razoes separadas. Corpus vazio/sem citacao elegivel falha. As 7 excecoes
+	# exatas (1 tool-wiring + 4 inbound + 2 cross-repo) continuam finitas e auto-verificadas.
+	uv run python scripts/ci/check_doc_symbol_citations.py
 
 check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_instance fora do allowlist da fence (ADR-0007/T-C2)
 	# AST-scan repo-wide de src/maezo: `start_process_idempotent` (mcp_cibseven/transport.py:1052)

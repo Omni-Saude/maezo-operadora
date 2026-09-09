@@ -136,6 +136,16 @@ jobs:
       - name: PLANS.md ADR-count reconciliation gate (AF-06)
         run: make check-plans-counts
 
+      # R-089 (gap ADR-0026-0028-STALE-ANSCRON, OWNER-DECISIONS-REGISTER, 2026-09-06): docs/adr/*.md
+      # `path::symbol`, quoted ImportFrom and `path:line` citations bind to the tracked tree.
+      # Qualified paths/modules keep their namespace; Python bindings respect lexical scope;
+      # BPMN/DMN names are parsed XML IDs; anchors never suppress file existence. Abbreviated
+      # ellipses and intentionally local ignored docs are reported separately, and empty/unchecked
+      # scans fail. The exact 7 self-audited disclosures remain 1 tool-wiring + 4 inbound +
+      # 2 cross-repo. No Git history is required (covered by the shallow-clone focal test).
+      - name: ADR doc-symbol-citation gate (R-089)
+        run: make check-doc-symbol-citations
+
       # F2 (r5/tooling-fences REVISE round): neither ledger range-scoped gate was wired into ANY CI
       # job before this — both existed only as local `make` targets a human or agent had to
       # remember to type. Wired here (not into `evidence-ledger.yml`'s `evidence-ledger-check` job,
