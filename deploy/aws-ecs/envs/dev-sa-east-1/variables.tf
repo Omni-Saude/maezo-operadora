@@ -214,7 +214,7 @@ variable "webhook_receiver_image_tag" {
     forem promovidos para a mesma tag, esta variavel pode voltar a apontar para `image_tag`.
   EOT
   type        = string
-  default     = "7e820194" # filas camelCase + fiacao PHI da Helena (09/09/2026), digest sha256:66b7b15d…
+  default     = "31b81c34" # grupos canonicos com hifen + admissao regional PHI (09/09/2026)
 }
 
 variable "webhook_receiver_desired_count" {
@@ -274,7 +274,12 @@ variable "engine_image_tag" {
     O motivo completo esta' no proprio Dockerfile.
   EOT
   type        = string
-  default     = "sem-showcase-executor-global"
+  default     = "sem-showcase-executor-global-grupos-hifen"
+  # `-grupos-hifen` (09/09/2026): acrescenta `groupResourceWhitelistPattern` =
+  # `[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*` ao bpm-platform.xml (deploy/cibseven/configure-group-whitelist.sh).
+  # Sem isso NENHUM dos ~40 candidateGroups canonicos dos contratos (`medico-auditor`,
+  # `plantao-clinico`, ...) podia existir no motor — a lista branca da base e` [a-zA-Z0-9]+ — e toda
+  # User Task apontava para fila vazia. Decisao do dono: admitir hifen no motor, nao renomear.
 }
 
 variable "cibseven_desired_count" {
