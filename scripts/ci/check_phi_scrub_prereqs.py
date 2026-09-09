@@ -528,7 +528,7 @@ def _failure(message: str) -> Finding:
 def _canonical_mode(raw: Any) -> str | None:
     # Runtime's canonical parser also handles the YAML 1.1 bare-off -> False spelling.
     sys.path.insert(0, str(REPO_ROOT / "src"))
-    from maezo.platform.privacy.phi_key_policy import _parse_mode  # noqa: PLC0415
+    from maezo.platform.privacy.phi_key_policy import _parse_mode
 
     parsed = _parse_mode(raw)
     return parsed.value if parsed is not None else None
@@ -609,7 +609,7 @@ def run_gate(manifest_path: Path) -> list[Finding]:
     if state_error:
         return [_failure(state_error)]
     sys.path.insert(0, str(REPO_ROOT / "src"))
-    from maezo.platform.privacy.phi_key_policy import load_phi_key_policy  # noqa: PLC0415
+    from maezo.platform.privacy.phi_key_policy import load_phi_key_policy
 
     # Read the immutable bytes we validated, not a second mutable read of the caller path.
     with tempfile.TemporaryDirectory(prefix="phi-scrub-validated-") as tmp:
@@ -650,7 +650,7 @@ def main(argv: list[str] | None = None) -> int:
     # Strict build validation precedes the unchanged canonical runtime resolution.
     try:
         findings = run_gate(manifest_path)
-    except Exception as exc:  # noqa: BLE001 - an unimportable loader is itself a fail-closed finding
+    except Exception as exc:  # An unimportable loader is itself a fail-closed finding.
         print(f"[phi-scrub-prereqs] FAIL: não consegui avaliar o manifesto ({exc})", file=sys.stderr)
         return 1
 
