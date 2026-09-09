@@ -10,7 +10,7 @@
 
 resource "aws_ssoadmin_permission_set" "agent_engineer" {
   name        = "MaezoAgentEngineer"
-  description = "Engenharia de agentes maezo: invocar/gerir Bedrock, medir custo, reiniciar agente. Sem dado de paciente, sem IAM."
+  description = "Engenharia de agentes maezo: invocar/gerir Bedrock, medir custo, reiniciar agente. Sem dado de paciente; PassRole somente para diagnostico sem secrets."
 
   instance_arn     = local.instance_arn
   session_duration = var.session_duration
@@ -268,6 +268,12 @@ data "aws_iam_policy_document" "agent_engineer" {
     resources = [
       "arn:${local.partition}:logs:${var.aws_region}:${local.conta}:log-group:/ecs/${var.cluster_name}/agent-*",
       "arn:${local.partition}:logs:${var.aws_region}:${local.conta}:log-group:/ecs/${var.cluster_name}/agent-*:*",
+      # 09/09: receptor e ponte sao onde a Helena de fato EXECUTA — sem estes, o engenheiro de
+      # agentes veria o daemon `agent-helena` (que nao executa turno) e nao o turno.
+      "arn:${local.partition}:logs:${var.aws_region}:${local.conta}:log-group:/ecs/${var.cluster_name}/webhook-receiver",
+      "arn:${local.partition}:logs:${var.aws_region}:${local.conta}:log-group:/ecs/${var.cluster_name}/webhook-receiver:*",
+      "arn:${local.partition}:logs:${var.aws_region}:${local.conta}:log-group:/ecs/${var.cluster_name}/notifications-bridge",
+      "arn:${local.partition}:logs:${var.aws_region}:${local.conta}:log-group:/ecs/${var.cluster_name}/notifications-bridge:*",
     ]
   }
 
@@ -320,6 +326,185 @@ data "aws_iam_policy_document" "agent_engineer" {
     resources = ["*"]
   }
 
+  # -------------------------------------------------------------------------
+  # Diagnostico VPC delimitado — ADR-0006/0007/0049, sucessor PR357 F1-F4
+  # -------------------------------------------------------------------------
+  # Uma unica familia tem entrypoint fixo DNS/TCP, sem payload, task role ou secrets.
+  # RunTask nao autoriza por ARN de cluster: a fronteira e' ecs:cluster. Exec segue
+  # explicitamente negado; a identidade humana nao recebe canais SSM.
+  # O operador envia MaezoPurpose=diagnostics e MaezoOwner=<STS UserId> em --tags.
+  # &{aws:userid} e' expandido pelo IAM, nao pelo Terraform. O UserId inclui a role
+  # e o nome da sessao federada; outra identidade nao pode escolher o dono da task.
+  statement {
+    sid       = "ExecutarDiagnosticoVpc"
+    actions   = ["ecs:RunTask"]
+    resources = ["arn:${local.partition}:ecs:${var.aws_region}:${local.conta}:task-definition/${var.cluster_name}-diagnostics:*"]
+    condition {
+      test     = "ArnEquals"
+      variable = "ecs:cluster"
+      values   = ["arn:${local.partition}:ecs:${var.aws_region}:${local.conta}:cluster/${var.cluster_name}"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "ecs:enable-execute-command"
+      values   = ["false"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/MaezoPurpose"
+      values   = ["diagnostics"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/MaezoOwner"
+      values   = ["&{aws:userid}"]
+    }
+    condition {
+      test     = "ForAllValues:StringEquals"
+      variable = "aws:TagKeys"
+      values   = ["MaezoPurpose", "MaezoOwner"]
+    }
+  }
+
+  # Tag-on-create exige autorizacao adicional. ecs:CreateAction e' contexto AWS,
+  # nao um parametro que TagResource direto consiga fornecer. Nao permite marcar
+  # Kafka/engine como diagnostico, nem alterar o dono depois de criar a task.
+  statement {
+    sid       = "MarcarSomenteNovoDiagnostico"
+    actions   = ["ecs:TagResource"]
+    resources = ["arn:${local.partition}:ecs:${var.aws_region}:${local.conta}:task/${var.cluster_name}/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "ecs:CreateAction"
+      values   = ["RunTask"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/MaezoPurpose"
+      values   = ["diagnostics"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/MaezoOwner"
+      values   = ["&{aws:userid}"]
+    }
+    condition {
+      test     = "ForAllValues:StringEquals"
+      variable = "aws:TagKeys"
+      values   = ["MaezoPurpose", "MaezoOwner"]
+    }
+  }
+
+  statement {
+    sid       = "EncerrarSomenteDiagnosticoProprio"
+    actions   = ["ecs:StopTask"]
+    resources = ["arn:${local.partition}:ecs:${var.aws_region}:${local.conta}:task/${var.cluster_name}/*"]
+    condition {
+      test     = "ArnEquals"
+      variable = "ecs:cluster"
+      values   = ["arn:${local.partition}:ecs:${var.aws_region}:${local.conta}:cluster/${var.cluster_name}"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/MaezoPurpose"
+      values   = ["diagnostics"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/MaezoOwner"
+      values   = ["&{aws:userid}"]
+    }
+  }
+
+  statement {
+    sid       = "PassarSomenteExecutionRoleDeDiagnostico"
+    actions   = ["iam:PassRole"]
+    resources = ["arn:${local.partition}:iam::${local.conta}:role/${var.cluster_name}-diagnostics-execution"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "LerResultadoDeDiagnostico"
+    actions   = ["logs:GetLogEvents", "logs:FilterLogEvents", "logs:DescribeLogStreams"]
+    resources = ["arn:${local.partition}:logs:${var.aws_region}:${local.conta}:log-group:/ecs/${var.cluster_name}/diagnostics:*"]
+  }
+
+  # iam:* permanece explicitamente negado. A chave iam:PassedToService so' existe
+  # na autorizacao PassRole: ausente em CreateRole/PutRolePolicy/AttachRolePolicy,
+  # etc., StringNotEqualsIfExists faz o Deny aplicar. A excecao ECS ainda depende
+  # do Allow na role EXATA e do segundo Deny, que fecha todas as outras roles.
+  statement {
+    sid       = "NegarIamExcetoPassRoleParaEcs"
+    effect    = "Deny"
+    actions   = ["iam:*"]
+    resources = ["*"]
+    condition {
+      test     = "StringNotEqualsIfExists"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+  statement {
+    sid           = "NegarPassRoleForaDoDiagnostico"
+    effect        = "Deny"
+    actions       = ["iam:PassRole"]
+    not_resources = ["arn:${local.partition}:iam::${local.conta}:role/${var.cluster_name}-diagnostics-execution"]
+  }
+  statement {
+    sid           = "NegarRunTaskForaDoDiagnostico"
+    effect        = "Deny"
+    actions       = ["ecs:RunTask"]
+    not_resources = ["arn:${local.partition}:ecs:${var.aws_region}:${local.conta}:task-definition/${var.cluster_name}-diagnostics:*"]
+  }
+  statement {
+    sid       = "NegarDiagnosticoForaDoCluster"
+    effect    = "Deny"
+    actions   = ["ecs:RunTask", "ecs:StopTask"]
+    resources = ["*"]
+    condition {
+      test     = "ArnNotEquals"
+      variable = "ecs:cluster"
+      values   = ["arn:${local.partition}:ecs:${var.aws_region}:${local.conta}:cluster/${var.cluster_name}"]
+    }
+  }
+  statement {
+    sid       = "NegarStopDeWorkload"
+    effect    = "Deny"
+    actions   = ["ecs:StopTask"]
+    resources = ["*"]
+    condition {
+      test     = "StringNotEquals"
+      variable = "aws:ResourceTag/MaezoPurpose"
+      values   = ["diagnostics"]
+    }
+  }
+  statement {
+    sid       = "NegarStopDeOutroDono"
+    effect    = "Deny"
+    actions   = ["ecs:StopTask"]
+    resources = ["*"]
+    condition {
+      test     = "StringNotEquals"
+      variable = "aws:ResourceTag/MaezoOwner"
+      values   = ["&{aws:userid}"]
+    }
+  }
+  statement {
+    sid       = "NegarRemarcacaoDeTasksExistentes"
+    effect    = "Deny"
+    actions   = ["ecs:TagResource"]
+    resources = ["*"]
+    condition {
+      test     = "StringNotEqualsIfExists"
+      variable = "ecs:CreateAction"
+      values   = ["RunTask"]
+    }
+  }
+
   statement {
     sid = "OperarServicesDosAgentes"
 
@@ -331,15 +516,9 @@ data "aws_iam_policy_document" "agent_engineer" {
     # `agent-*` apenas: reiniciar o proprio agente depois de mudar prompt ou tier e' a
     # tarefa. O engine, o worker, o canal e o tunel nao entram.
     #
-    # RESIDUAL MEDIDO, E A RAZAO PELA QUAL ISTO E' ACEITAVEL: `ecs:UpdateService` nao tem
-    # chave de condicao para `taskDefinition`, entao quem pode reiniciar tambem pode
-    # apontar `agent-rafael` para OUTRA task definition do cluster. Isso NAO e' escalada
-    # de privilegio: todas as task definitions deste cluster usam a mesma task role
-    # (`maezo-operadora-dev-task`, medido), portanto nao existe task definition aqui que
-    # conceda permissao que o agente ja nao tenha. O dano possivel e' operacional
-    # (subir o container errado num ambiente de dev) e reversivel por `terraform apply`,
-    # que reconcilia o service. `ecs:RegisterTaskDefinition` continua NEGADO — criar
-    # task definition nova, com outra role, seria escalada de verdade.
+    # A permissao preexistente e' preservada, mas roles iguais NAO provam secrets
+    # iguais: bootstrap-db injeta o segredo mestre. PassRole nas roles de workload
+    # continua explicitamente negado; este pacote nao qualifica deploy de services.
     resources = ["arn:${local.partition}:ecs:${var.aws_region}:${local.conta}:service/${var.cluster_name}/agent-*"]
   }
 
@@ -369,13 +548,15 @@ data "aws_iam_policy_document" "agent_engineer" {
       "secretsmanager:GetSecretValue",
       "secretsmanager:PutSecretValue",
       # Quem pode escrever politica pode se conceder qualquer coisa.
-      "iam:*",
+      # IAM permanece no Deny especifico acima, com a unica excecao PassRole.
       "sso:*",
       "sso-directory:*",
       "identitystore:*",
       "organizations:*",
       # Deploy: task definition nova e' o caminho para rodar container com outra role.
       "ecs:RegisterTaskDefinition",
+      "ecs:UntagResource",
+      "ssm:StartSession",
       "ecs:ExecuteCommand",
       # Ligar log de invocacao captura narrativa clinica — decisao de DPO (§1 item 6 do
       # plano), nao tarefa de engenharia.
