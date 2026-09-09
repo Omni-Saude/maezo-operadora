@@ -32,13 +32,17 @@ DATE = "2026-09-08"
 PROOF = "D6migrationa92"
 ORIGINAL_MANIFEST = "0fc37de9a53bc846cfe94a5a390c30f328c8e1926912373df63bf7a59cd5b9b6"
 ORIGINAL_QUIET = "a169f8aacf5d636a86287e684812d1454901d2d078ddf1946b471de7171f2e8f"
-_path = ROOT / "scripts/dev/run_historical_unit_recipe.py"
-_data = _path.read_bytes()
-if hashlib.sha256(_data).hexdigest() != HELPER_PIN:
+# The companion's reviewed helper is immutable, including its original runner
+# and checker. Its inert source capsule is NOT the owned execution checkout.
+_tool_spec = importlib.util.spec_from_file_location(
+    "historical_tool_sources", ROOT / "scripts/dev/historical_tool_sources.py"
+)
+_tool_sources = importlib.util.module_from_spec(_tool_spec)
+_tool_spec.loader.exec_module(_tool_sources)
+_tool_capsule = _tool_sources.ToolSourceCapsule(ROOT)
+h = _tool_capsule.load("scripts/dev/run_historical_unit_recipe.py", "migration_capture_helper")
+if hashlib.sha256(Path(h.__file__).read_bytes()).hexdigest() != HELPER_PIN:
     raise ValueError("approved historical capture helper changed")
-_spec = importlib.util.spec_from_file_location("migration_capture_helper", _path)
-h = importlib.util.module_from_spec(_spec)
-exec(compile(_data, str(_path), "exec"), h.__dict__)
 r = h.runner
 
 # Exact canonical core policy: integration/conftest's autouse fixture requires

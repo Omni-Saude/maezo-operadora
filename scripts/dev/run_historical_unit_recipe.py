@@ -312,39 +312,16 @@ def keys(value: Any, expected: dict[str, type]) -> None:
         raise CaptureRefusedError("wrong receipt scalar type")
 
 
-def module(relative: str, name: str):
-    path = ROOT / relative
-    data = path.read_bytes()
-    if digest(data) != PINS[relative]:
-        # Explicit integration: keep the original producer's checker bytes and pin.
-        # New ledger grammar may coexist, but cannot change this recipe dependency.
-        if relative != "scripts/ci/check_evidence_ledger_hashes.py":
-            raise CaptureRefusedError("reviewed tooling source changed")
-        result = subprocess.run(
-            ["git", "--no-replace-objects", "show", "7189bcb0b3532a48401bf86f376cf37e876adabf:" + relative],
-            cwd=ROOT,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            timeout=30,
-            env={
-                "PATH": os.defpath,
-                "GIT_CONFIG_NOSYSTEM": "1",
-                "GIT_CONFIG_GLOBAL": os.devnull,
-                "GIT_NO_REPLACE_OBJECTS": "1",
-            },
-        )
-        if result.returncode != 0 or digest(result.stdout) != PINS[relative]:
-            raise CaptureRefusedError("original pinned checker source unavailable")
-        data = result.stdout
-    spec = importlib.util.spec_from_file_location(name, path)
-    result = importlib.util.module_from_spec(spec)
-    sys.modules[name] = result
-    exec(compile(data, str(path), "exec"), result.__dict__)
-    return result
-
-
-runner = module("scripts/dev/run_engine_integration.py", "historical_capture_runner")
-checker = module("scripts/ci/check_evidence_ledger_hashes.py", "historical_capture_checker")
+# Load reviewed historical bytes from their own truthful source paths. Current
+# canonical tooling may evolve without rewriting historical receipt dependencies.
+_tool_spec = importlib.util.spec_from_file_location(
+    "historical_tool_sources", ROOT / "scripts/dev/historical_tool_sources.py"
+)
+_tool_sources = importlib.util.module_from_spec(_tool_spec)
+_tool_spec.loader.exec_module(_tool_sources)
+_tool_capsule = _tool_sources.ToolSourceCapsule(ROOT)
+runner = _tool_capsule.load("scripts/dev/run_engine_integration.py", "historical_capture_runner")
+checker = _tool_capsule.load("scripts/ci/check_evidence_ledger_hashes.py", "historical_capture_checker")
 
 
 def environment() -> dict[str, str]:
