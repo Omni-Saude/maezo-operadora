@@ -14,6 +14,46 @@ from tests.unit.gateway.human.test_durable_projection import wire
 from maezo.gateway.human.projection import ProjectionError, verify_engine_receipt
 from maezo.gateway.human.transport import EngineUnavailableError, MTLSHumanEngineTransport
 
+_COV_CORE_KEYS = (
+    "COV_CORE_SOURCE",
+    "COV_CORE_CONFIG",
+    "COV_CORE_DATAFILE",
+    "COV_CORE_BRANCH",
+    "COV_CORE_CONTEXT",
+)
+
+
+def _pytest_cov_owns_current_trace(controller, current) -> bool:
+    collector = getattr(controller.cov, "_collector", None)
+    tracers = getattr(collector, "tracers", ())
+    return current is None or any(
+        current is tracer or getattr(current, "__self__", None) is tracer for tracer in tracers
+    )
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _diagnostic_trace_lifecycle(request):
+    """Pause only pytest-cov's own hook before diagnostics fixtures and child startup."""
+    inherited_cov = {key: os.environ[key] for key in _COV_CORE_KEYS if key in os.environ}
+    plugin = request.config.pluginmanager.getplugin("_cov")
+    controller = getattr(plugin, "cov_controller", None)
+    if controller is None or not controller.started:
+        yield inherited_cov
+        return
+
+    current = sys.gettrace()
+    if not _pytest_cov_owns_current_trace(controller, current):
+        # Leave an arbitrary hook untouched; BoundaryDiagnostics must refuse it.
+        yield inherited_cov
+        return
+
+    controller.pause()
+    try:
+        yield inherited_cov
+    finally:
+        assert sys.gettrace() is None, "diagnostic test leaked a trace hook; refusing to replace it"
+        controller.resume()
+
 
 @pytest.fixture
 def diagnostics(tmp_path):
@@ -140,7 +180,9 @@ def test_serialized_packet_excludes_config_keys_and_exception_strings(diagnostic
     assert json.loads(value)["requests"] == diagnostics.requests
 
 
-def test_new_child_installs_same_observer_and_records_real_verifier_branch(tmp_path):
+def test_new_child_installs_same_observer_and_records_real_verifier_branch(
+    tmp_path, _diagnostic_trace_lifecycle
+):
     script = """
 import json, os, sys
 from pathlib import Path
@@ -159,6 +201,18 @@ finally:
     diag._ACTIVE.reset(token)
     d.save()
 """
+    inherited_cov = _diagnostic_trace_lifecycle
+    if inherited_cov:
+        instrumented = subprocess.run(
+            [sys.executable, "-c", script, str(tmp_path / "instrumented")],
+            capture_output=True,
+            env={**os.environ, **inherited_cov},
+            check=False,
+        )
+        assert instrumented.returncode != 0
+        assert b"disposable diagnostic refuses to replace another Python trace hook" in instrumented.stderr
+
+    assert not set(_COV_CORE_KEYS).intersection(os.environ)
     child = subprocess.run([sys.executable, "-c", script, str(tmp_path)], capture_output=True, check=True)
     assert child.stdout == child.stderr == b""
     value = json.loads((tmp_path / "boundary-diagnostics.json").read_text())

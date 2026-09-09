@@ -122,6 +122,8 @@ async def test_ordinary_program_event_unchanged():
 
 def test_shipped_human_fields_are_blank():
     data = yaml.safe_load(policy.CANONICAL_PATH.read_bytes())
+    assert data["policy_id"] == "maezo.population-egress.v1"
+    assert data["status"] == "DRAFT"
     assert data["k_min"] is None and data["allowed_metrics"] is None
     assert data["ratificacao"] == dict(ratificado=False, revisor=None, ratificado_em=None, evidence_ref=None)
     with pytest.raises(policy.PopulationPolicyUnavailableError):
