@@ -14,11 +14,14 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import signal
+import tempfile
 import tomllib
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER_PIN = "25a412499cd64ae663de1358e488480cb6b6a5c0e772583ccc0bece45380877c"
@@ -194,6 +197,150 @@ def require_owner(lock) -> None:
         raise h.CaptureRefusedError("lease ownership/quiescence not proven")
 
 
+def _prepare_owned_checkout(
+    repo: Path, sha: str, out: Path, env: dict[str, str], scratch: Path, checkout: Path
+) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+    """Exact pinned helper preparation operations, without its unconditional generator finalizer."""
+    h.successful(
+        h.capture(
+            [
+                "git",
+                "--no-replace-objects",
+                "clone",
+                "--shared",
+                "--no-checkout",
+                "--quiet",
+                "--",
+                str(repo),
+                str(checkout),
+            ],
+            scratch,
+            env,
+            out,
+            "clone",
+            120,
+        )
+    )
+    h.successful(
+        h.capture(
+            [
+                "git",
+                "--no-replace-objects",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "checkout",
+                "--quiet",
+                "--detach",
+                sha,
+            ],
+            checkout,
+            env,
+            out,
+            "checkout",
+            120,
+        )
+    )
+    if h.git(checkout, "rev-parse", "HEAD").strip().decode() != sha:
+        raise h.CaptureRefusedError("checkout SHA mismatch")
+    before = h.tracked(checkout, sha)
+    for required in ("uv.lock", "pyproject.toml", ".python-version"):
+        if required not in before:
+            raise h.CaptureRefusedError("missing locked configuration")
+    config = tomllib.loads((checkout / "pyproject.toml").read_text())
+    pytest_config = config.get("tool", {}).get("pytest", {}).get("ini_options", {})
+    if pytest_config.get("addopts") or pytest_config.get("pythonpath", []) not in ([], ["."]):
+        raise h.CaptureRefusedError("source pytest selectors/path injection refused")
+    if any((checkout / name).exists() for name in ("pytest.ini", "setup.cfg", "tox.ini", "uv.toml")):
+        raise h.CaptureRefusedError("alternative tool configuration refused")
+    h.write(out / "source-before.json", h.encode(before))
+    uv = Path(shutil.which("uv", path=env["PATH"])).resolve()  # type: ignore[arg-type]  # pinned preparation parity
+    uv_version = h.capture([str(uv), "--version"], checkout, env, out, "uv-version", 20)
+    h.successful(uv_version)
+    command = r._uv_python(checkout, "-c", "import sys; print(sys.prefix)")
+    command[0] = str(uv)
+    command.insert(2, "--offline")
+    prep = h.capture(command, checkout, env, out, "prepare", 180)
+    h.successful(prep)
+    if h.tracked(checkout, sha) != before:
+        raise h.CaptureRefusedError("source changed during preparation")
+    return (
+        checkout,
+        before,
+        {
+            "uv_path": str(uv),
+            "uv_sha256": h.runtime_digest("uv", str(uv)),
+            "uv_version": h.read(out / uv_version["stdout"], root=out).decode().strip(),
+            "prepare": prep,
+        },
+    )
+
+
+class OwnedExecutionCheckout:
+    """A lease-bound source whose deletion requires explicit successful cleanup.
+
+    There is deliberately no generator/destructor cleanup: stack refusal, GC and
+    process unwind retain the actual source on disk. Preparation uses the same
+    pinned helper primitives and argv; the standalone helper remains unchanged.
+    """
+
+    def __init__(self, repo: Path, sha: str, out: Path, env: dict[str, str], lock: Any) -> None:
+        self.repo, self.sha, self.out, self.env, self.lock = repo, sha, out, env, lock
+        self.scratch: Path | None = None
+        self.checkout: Path | None = None
+        self.cleanup_authorized = False
+
+    def __enter__(self) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+        if self.scratch is not None:
+            raise h.CaptureRefusedError("owned source already prepared")
+        require_owner(self.lock)
+        h.ancestry(self.repo, self.sha)
+        self.scratch = Path(tempfile.mkdtemp(prefix="maezo-historical-proof-")).resolve()
+        self.checkout = self.scratch / "checkout"
+        h.write(
+            self.out / "owned-source-lifetime.json",
+            h.encode(
+                {
+                    "scratch": str(self.scratch),
+                    "checkout": str(self.checkout),
+                    "lock": str(self.lock.path),
+                    "token_sha256": h.digest(self.lock.token.encode()),
+                    "cleanup_authorized_at_preparation": False,
+                }
+            ),
+        )
+        return _prepare_owned_checkout(self.repo, self.sha, self.out, self.env, self.scratch, self.checkout)
+
+    def authorize_cleanup(self, lock: Any) -> None:
+        if lock is not self.lock:
+            raise h.CaptureRefusedError("different source lease")
+        require_owner(self.lock)
+        self.cleanup_authorized = True
+
+    def __exit__(self, *args: object) -> None:
+        if self.scratch is None:
+            return
+        removed = False
+        try:
+            if self.cleanup_authorized:
+                require_owner(self.lock)
+                if self.checkout in r._source_digests:
+                    r._assert_execution_source(self.checkout)
+                require_owner(self.lock)
+                shutil.rmtree(self.scratch)
+                removed = True
+        finally:
+            h.write(
+                self.out / "checkout-cleanup.json",
+                h.encode(
+                    {
+                        "path": str(self.scratch),
+                        "removed": removed,
+                        "pending_pgids": sorted(r._pending_groups),
+                    }
+                ),
+            )
+
+
 class Journal:
     def __init__(self, out: Path, lock):
         self.out, self.lock = out, lock
@@ -233,6 +380,9 @@ class Services:
 
     def command(self, argv: list[str], prefix: str) -> bytes:
         require_owner(self.lock)
+        if argv[:4] == ["docker", "--context", r.DOCKER_CONTEXT, "compose"]:
+            r._assert_execution_source(self.checkout)
+            require_owner(self.lock)
         label = f"{prefix}-{self.counter:03}"
         self.counter += 1
         self.last_label = label
@@ -435,6 +585,10 @@ def finish_owned(
     }
     require_owner(lock)
     if touched:
+        if not source_safe or checkout is None:
+            raise h.CaptureRefusedError("cleanup Compose source was never authenticated")
+        r._assert_execution_source(checkout)
+        require_owner(lock)
         journal.event("teardown")
         current = services.inventory("before-teardown")
         services.containers(current, complete=False)
@@ -450,6 +604,8 @@ def finish_owned(
                     journal.out / "schema-cleanup-query-unresolved.json",
                     h.encode({"error_type": type(exc).__name__}),
                 )
+        require_owner(lock)
+        r._assert_execution_source(checkout)
         require_owner(lock)
         r._compose(
             checkout,
@@ -467,6 +623,8 @@ def finish_owned(
         journal.event("resources_removed")
     require_owner(lock)
     if source_context is not None:
+        if isinstance(source_context, OwnedExecutionCheckout):
+            source_context.authorize_cleanup(lock)
         source_context.__exit__(None, None, None)
         if checkout is not None and checkout.exists():
             raise h.CaptureRefusedError("owned source cleanup not proven")
@@ -536,7 +694,7 @@ def capture_migration(repo: Path, out: Path, observations: dict) -> dict:
     try:
         with lease(out, repo) as (lock, journal):
             try:
-                source_context = h.execution_checkout(repo, SOURCE_SHA, out, h.environment())
+                source_context = OwnedExecutionCheckout(repo, SOURCE_SHA, out, h.environment(), lock)
                 checkout, sources, preparation = source_context.__enter__()
                 claim = source_claim(checkout, sources)
                 # Same canonical source registration, after the reviewed helper has

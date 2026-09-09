@@ -6,7 +6,6 @@ import importlib.util
 import os
 import subprocess
 import sys
-from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -164,8 +163,10 @@ def test_owned_cleanup_order_and_failure_retains_no_success(owned, tmp_path, mon
         }
         assert not lock.path.exists()
         assert calls == [
+            "source_verified",
             "before-teardown",
             "identity_checked",
+            "source_verified",
             "down",
             "after-teardown",
             "source_verified",
@@ -185,7 +186,7 @@ def test_busy_real_fixture_lock_prevents_preparation(tmp_path, monkeypatch):
     assert blocker.acquire(0)
     monkeypatch.setattr(r, "LOCK_DIR", lock_path)
     called = []
-    monkeypatch.setattr(h, "execution_checkout", lambda *a: called.append(a))
+    monkeypatch.setattr(m.OwnedExecutionCheckout, "__enter__", lambda *a: called.append(a))
     try:
         with pytest.raises(h.CaptureRefusedError, match="lease busy"):
             m.capture_migration(tmp_path, tmp_path / "out", {})
@@ -198,13 +199,11 @@ def test_lock_precedes_preparation_and_failure_releases(tmp_path, monkeypatch):
     lock_path = tmp_path / "fixture.lock"
     monkeypatch.setattr(r, "LOCK_DIR", lock_path)
 
-    @contextmanager
     def refuse(*args):
         assert r._process_owner.owns() and lock_path.exists()
         raise h.CaptureRefusedError("offline preparation refused")
-        yield
 
-    monkeypatch.setattr(h, "execution_checkout", refuse)
+    monkeypatch.setattr(m.OwnedExecutionCheckout, "__enter__", refuse)
     with pytest.raises(h.CaptureRefusedError, match="preparation refused"):
         m.capture_migration(tmp_path, tmp_path / "out", {})
     assert not lock_path.exists()
@@ -527,3 +526,309 @@ def test_actual_pg_identity_requires_exact_runtime(field, value):
     data[field] = value
     with pytest.raises(h.CaptureRefusedError):
         m.check_pg_runtime(data)
+
+
+@pytest.fixture
+def lifetime_source(owned, tmp_path):
+    """Actual tiny Git + locked offline uv; no historical source or service runs."""
+    import gc
+    import shutil
+
+    lock, journal, out = owned
+    repo = tmp_path / "lifetime-git"
+    (repo / "scripts/dev").mkdir(parents=True)
+    (repo / "src/maezo").mkdir(parents=True)
+    (repo / "src/maezo/__init__.py").write_text("VALUE=7\n")
+    (repo / "docker-compose.yml").write_text("services: {}\nvolumes:\n  pgdata: {}\n")
+    (repo / "scripts/dev/docker-compose.engine-integration.yml").write_text("services: {}\n")
+    (repo / ".python-version").write_text("3.12\n")
+    (repo / ".gitignore").write_text("__pycache__/\n.venv/\n")
+    (repo / "pyproject.toml").write_text(
+        '[project]\nname="lifetime-fixture"\nversion="0.0.0"\nrequires-python=">=3.12,<3.13"\n'
+        "[project.optional-dependencies]\ndev=[]\n[tool.uv]\npackage=false\n"
+    )
+
+    def command(*argv):
+        return subprocess.check_output(argv, cwd=repo, env=h.environment()).decode().strip()
+
+    command("uv", "lock", "--offline", "--no-config")
+    command("git", "init", "-q")
+    command("git", "add", ".")
+    command(
+        "git",
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "lifetime fixture",
+    )
+    sha = command("git", "rev-parse", "HEAD")
+    context = m.OwnedExecutionCheckout(repo, sha, out, h.environment(), lock)
+    checkout, sources, _ = context.__enter__()
+    r._source_digests[checkout] = (sha, {p: v["sha256"] for p, v in sources.items()})
+    contexts = [context]
+    del context
+    try:
+        yield checkout, lock, journal, out, contexts, repo, sha
+    finally:
+        contexts.clear()
+        gc.collect()
+        r._source_digests.pop(checkout, None)
+        shutil.rmtree(checkout.parent, ignore_errors=True)
+
+
+class LifetimeServiceFixture:
+    """Offline inventory only; real canonical Compose/source operations are exercised."""
+
+    env = {}
+    ready = False
+    container_labels = []
+
+    def inventory(self, phase):
+        return {"container": [], "volume": [], "network": []}
+
+    def containers(self, inventory, complete):
+        return []
+
+
+@pytest.mark.parametrize("mode", ["success", "drift", "lost-lease", "down-failure"])
+def test_real_source_cleanup_survives_reference_release(lifetime_source, monkeypatch, mode):
+    import gc
+    import weakref
+
+    checkout, lock, journal, out, contexts, _, _ = lifetime_source
+    reference = weakref.ref(contexts[0])
+    effects = []
+    real_checked = r._checked
+
+    def transport(command, **kwargs):
+        if command[0] != "docker":
+            return real_checked(command, **kwargs)
+        effects.append(command)
+        if mode == "down-failure":
+            raise r.RunnerError("offline Docker down failed")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(r, "_checked", transport)
+    if mode == "drift":
+        (checkout / "docker-compose.yml").write_text(
+            "services: {}\nvolumes:\n  pgdata:\n    name: foreign-fixture-volume\n"
+        )
+    if mode == "lost-lease":
+        lock.owner_path.write_bytes(h.encode(dict(lock.owner, token="different-fixture-owner")))
+    if mode == "success":
+        original_release = lock.release
+
+        def release():
+            assert not checkout.exists()
+            assert checkout not in r._source_digests
+            return original_release()
+
+        monkeypatch.setattr(lock, "release", release)
+        result = m.finish_owned(
+            lock, journal, checkout, LifetimeServiceFixture(), True, contexts[0], source_safe=True
+        )
+        assert result["source_removed"] and result["lease_released"]
+        assert len(effects) == 1
+    else:
+        with pytest.raises((h.CaptureRefusedError, r.RunnerError)):
+            m.finish_owned(
+                lock, journal, checkout, LifetimeServiceFixture(), True, contexts[0], source_safe=True
+            )
+        contexts.clear()
+        gc.collect()
+        assert reference() is None
+        assert checkout.exists() and lock.path.exists()
+        assert checkout in r._source_digests
+        assert not (out / "receipt.json").exists()
+        assert len(effects) == (1 if mode == "down-failure" else 0)
+    h.write(
+        out / "lifetime-observation.json",
+        h.encode(
+            {
+                "mode": mode,
+                "source_retained": checkout.exists(),
+                "lease_retained": lock.path.exists(),
+                "compose_dispatch_count": len(effects),
+            }
+        ),
+    )
+
+
+def test_actual_drift_refuses_schema_query_before_transport(lifetime_source, monkeypatch):
+    checkout, lock, _, out, _, _, _ = lifetime_source
+    service = m.Services(checkout, out, lock)
+    (checkout / "scripts/dev/docker-compose.engine-integration.yml").write_text("services: {} # drift\n")
+    effects = []
+
+    def forbidden(*args, **kwargs):
+        effects.append(args)
+        raise AssertionError("Docker transport must not be called")
+
+    monkeypatch.setattr(h, "capture", forbidden)
+    with pytest.raises(r.RunnerError):
+        service.schemas("cleanup")
+    assert not effects and checkout.exists() and lock.owns()
+
+
+def test_adapter_unwind_without_cleanup_permission_keeps_source(lifetime_source):
+    checkout, lock, _, out, contexts, _, _ = lifetime_source
+    contexts[0].__exit__(RuntimeError, RuntimeError("unwind"), None)
+    assert checkout.exists() and lock.owns()
+    assert h.load(out / "checkout-cleanup.json")["removed"] is False
+
+
+def test_adapter_preparation_ast_matches_original_pinned_helper():
+    """Prove the extracted preparation statements retain the original helper semantics."""
+    import ast
+    import copy
+
+    old = ast.parse((ROOT / "scripts/dev/run_historical_unit_recipe.py").read_text())
+    old_function = next(
+        n for n in old.body if isinstance(n, ast.FunctionDef) and n.name == "execution_checkout"
+    )
+    old_body = next(n for n in old_function.body if isinstance(n, ast.Try)).body
+    new = ast.parse((ROOT / "scripts/dev/run_historical_migration_recipe.py").read_text())
+    new_function = next(
+        n for n in new.body if isinstance(n, ast.FunctionDef) and n.name == "_prepare_owned_checkout"
+    )
+
+    class Normalize(ast.NodeTransformer):
+        def visit_Attribute(self, node):
+            node = self.generic_visit(node)
+            if isinstance(node.value, ast.Name) and node.value.id == "h":
+                return ast.Name(id=node.attr, ctx=node.ctx)
+            return node
+
+        def visit_Name(self, node):
+            if node.id == "r":
+                node.id = "runner"
+            return node
+
+        def visit_Expr(self, node):
+            if isinstance(node.value, ast.Yield):
+                return ast.Return(value=node.value.value)
+            return self.generic_visit(node)
+
+    def canonical(body):
+        return ast.dump(
+            Normalize().visit(ast.Module(body=copy.deepcopy(body), type_ignores=[])), include_attributes=False
+        )
+
+    assert canonical(old_body) == canonical(new_function.body[1:])
+
+
+@pytest.mark.parametrize("mode", ["lost-lease", "down-failure"])
+def test_source_survives_actual_child_process_unwind(lifetime_source, mode):
+    """The adapter object and interpreter both disappear; recovery source still exists."""
+    import shutil
+
+    _, _, _, out, _, repo, sha = lifetime_source
+    child_out = out / ("child-" + mode)
+    child_out.mkdir(mode=0o700)
+    script = r"""
+import gc, importlib.util, json, os, sys
+from pathlib import Path
+os.umask(0o077)
+path,repo,sha,out,mode=sys.argv[1:]
+spec=importlib.util.spec_from_file_location('child_lifetime',path)
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);h,r=m.h,m.r
+out=Path(out);repo=Path(repo)
+lock=r.EngineLock.create(out/'fixture.lock',checkout=str(repo),sha=sha,suite='offline-child')
+assert lock.acquire(0);r._process_owner=lock
+ctx=m.OwnedExecutionCheckout(repo,sha,out,h.environment(),lock)
+checkout,sources,_=ctx.__enter__()
+r._source_digests[checkout]=(sha,{p:v['sha256'] for p,v in sources.items()})
+if mode=='lost-lease':
+    lock.owner_path.write_bytes(h.encode(dict(lock.owner,token='other-child-fixture-owner')))
+class Services:
+    ready=False;env={};container_labels=[]
+    def inventory(self,*a):return {'container':[],'volume':[],'network':[]}
+    def containers(self,*a,**kw):return []
+real=r._checked
+calls=[]
+def transport(command,**kwargs):
+    if command[0]!='docker':return real(command,**kwargs)
+    calls.append(command)
+    raise r.RunnerError('offline down failure')
+r._checked=transport
+try:
+    m.finish_owned(lock,m.Journal(out,lock),checkout,Services(),True,ctx,source_safe=True)
+except (h.CaptureRefusedError,r.RunnerError):pass
+else:raise AssertionError('cleanup should refuse')
+del ctx;gc.collect()
+h.write(out/'process-observation.json',h.encode({'source':str(checkout),'source_retained':checkout.exists(),'lock_retained':lock.path.exists(),'dispatches':len(calls)}))
+raise SystemExit(17)
+"""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            script,
+            str(ROOT / "scripts/dev/run_historical_migration_recipe.py"),
+            str(repo),
+            sha,
+            str(child_out),
+            mode,
+        ],
+        capture_output=True,
+        timeout=30,
+        env={k: v for k, v in h.environment().items() if not k.startswith(("PYTHON", "PYTEST_", "UV_"))},
+    )
+    h.write(child_out / "supervisor.stdout", result.stdout)
+    h.write(child_out / "supervisor.stderr", result.stderr)
+    h.write(child_out / "supervisor.json", h.encode({"returncode": result.returncode}))
+    assert result.returncode == 17, result.stderr.decode()
+    observation = h.load(child_out / "process-observation.json")
+    source = Path(observation["source"])
+    try:
+        assert observation["source_retained"] and observation["lock_retained"]
+        assert source.exists() and (child_out / "fixture.lock").exists()
+        assert observation["dispatches"] == (1 if mode == "down-failure" else 0)
+    finally:
+        # Only the offline child's expressly-created fixture state is disposed here.
+        shutil.rmtree(source.parent)
+        shutil.rmtree(child_out / "fixture.lock")
+
+
+def test_capture_uses_retaining_adapter_after_actual_preparation(lifetime_source, monkeypatch):
+    """Actual capture entry refuses before any source claim or service execution is accepted."""
+    import gc
+    import shutil
+
+    _, parent_lock, _, out, _, repo, sha = lifetime_source
+    target = out / "capture-refusal"
+    lock_path = out / "capture-fixture.lock"
+    monkeypatch.setattr(m, "SOURCE_SHA", sha)
+    monkeypatch.setattr(r, "LOCK_DIR", lock_path)
+    observed = []
+
+    def refusal(checkout, sources):
+        observed.append(checkout)
+        assert sources and r._process_owner.owns()
+        lock_path.joinpath("owner.json").write_bytes(
+            h.encode(dict(r._process_owner.owner, token="other-capture-fixture-owner"))
+        )
+        raise h.CaptureRefusedError("offline source review refusal")
+
+    monkeypatch.setattr(m, "source_claim", refusal)
+    try:
+        with pytest.raises(h.CaptureRefusedError, match="offline source review refusal"):
+            m.capture_migration(repo, target, {})
+        gc.collect()
+        assert len(observed) == 1 and observed[0].exists()
+        assert lock_path.exists() and not (target / "receipt.json").exists()
+        assert h.load(target / "cleanup-unresolved.json")["lease_owned"] is False
+        h.write(
+            target / "capture-lifetime-observation.json",
+            h.encode({"source_retained": observed[0].exists(), "lease_retained": lock_path.exists()}),
+        )
+    finally:
+        r._process_owner = parent_lock
+        for checkout in observed:
+            shutil.rmtree(checkout.parent, ignore_errors=True)
+        if lock_path.exists():
+            shutil.rmtree(lock_path)
