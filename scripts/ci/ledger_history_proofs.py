@@ -284,6 +284,8 @@ class CompleteCorrection:
     schema: str = "maezo-ledger-correction-result/v1"
     matching_algorithm: str = "none"
     archive_validation: str = "literal-producer-local-runtime"
+    archive_review_report_sha256: str = ""
+    archive_review_manifest_sha256: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -457,6 +459,12 @@ def prove_relation(
         },
     )
     result = replace(result, archive_validation=archive_validation)
+    if archive_validation == "ARCHIVED_PRODUCER_IDENTITY_BOUND":
+        result = replace(
+            result,
+            archive_review_report_sha256=ledger_archived_catalog.REVIEW_REPORT_SHA256,
+            archive_review_manifest_sha256=ledger_archived_catalog.REVIEW_MANIFEST_SHA256,
+        )
     if valid_history:
         result = replace(
             result,

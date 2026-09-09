@@ -157,6 +157,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 from urllib.parse import ParseResult, parse_qsl, urlparse
 
 # scripts/ci/<file> -> parents[2] == repo root.
@@ -1605,7 +1606,8 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
     except (OSError, SupersessionError) as exc:
         print(f"{prefix} ERROR: {exc}", file=sys.stderr)
         return 1
-    correction_results = ()
+    correction_results: tuple[Any, ...] = ()
+    unresolved_count = 0
     accepted_endpoint_hashes: set[str] = set()
     if invalid_results:
         operational = importlib.import_module("scripts.ci.ledger_history_proofs")
@@ -1624,12 +1626,17 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
                 if args.proof_output is None
                 else f"{prefix} UNRESOLVED: see proof-output for attempted captures; no overall acceptance."
             )
-            return 1
+            if args.proof_output is None:
+                return 1
+        unresolved_count = len(unresolved)
+        # Every selected operational endpoint belongs to its own lane. Ordinary
+        # disjoint rows still execute and retain their failures even on refusal.
         accepted_endpoint_hashes = {
             digest
             for result in correction_results
             for digest in (result.target_row_sha256, result.correction_row_sha256)
         }
+        correction_results = tuple(result for result in correction_results if result.status != "UNRESOLVED")
 
     # Legacy rows are listed with their reason (shape or date) EVERY time, not just when nothing
     # is declared — a row skipped for the mzo-040-style date-coincidence reason must be visible
@@ -1637,7 +1644,7 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
     for legacy_row in selection.legacy:
         print(f"{prefix} SKIP (legacy): {legacy_row.task_id} — {legacy_row.reason}")
 
-    if not selection.declared and not correction_results:
+    if not selection.declared and not correction_results and not unresolved_count:
         legacy_note = (
             f" (legacy task IDs: {', '.join(r.task_id for r in selection.legacy)})"
             if selection.legacy
@@ -1705,7 +1712,7 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
         f" ({declared_count} selected rows{proof_note}), "
         f"{len(selection.legacy)} legacy rows skipped — {scope_desc}."
     )
-    if correction_results:
+    if correction_results or unresolved_count:
         current_ordinary = sum(
             result.ok and row_sha256(result.row) not in historical_scheduled for result in results
         )
@@ -1718,18 +1725,19 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
         valid_history_count = len(correction_results) - invalid_count
         disposition = (
             "UNRESOLVED"
-            if failures
+            if failures or unresolved_count
             else ("ACCEPTED_WITH_INVALID_HISTORY" if invalid_count else "ACCEPTED_WITH_VERIFIED_HISTORY")
         )
         print(
             f"{prefix} {disposition}: {current_ordinary + len(correction_results)} current verified, "
             f"{historical_ordinary + valid_history_count} historical verified, "
             f"{invalid_count} invalidated declarations, "
-            f"{len(correction_results)} corrected relations, {len(failures)} unresolved/errors; "
+            f"{len(correction_results)} corrected relations, "
+            f"{len(failures) + unresolved_count} unresolved/errors; "
             f"{len(selection.declared)} selected physical occurrences; "
             f"{len(results) + 2 * len(correction_results)} executions."
         )
-    return 1 if failures else 0
+    return 1 if failures or unresolved_count else 0
 
 
 if __name__ == "__main__":

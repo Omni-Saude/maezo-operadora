@@ -586,7 +586,29 @@ def test_exact_test_bodies_and_ledger_history_unchanged() -> None:
         ).stdout
         current = (root / path).read_bytes()
         if path == "docs/evidence-ledger.md":
-            assert current.startswith(original)
+            # Qualified union inserts one independently pinned R009 chunk between
+            # the common prefix C and the exact ordered original suffix S.
+            assert (
+                invalid.digest(original) == "82e07720cf16a1c42fa54a9d89363f08466174c2a4ecb578f76287a14126ac8b"
+            )
+
+            def frozen(commit: str, relative: str = path) -> bytes:
+                return subprocess.run(
+                    ["git", "show", commit + ":" + relative], cwd=root, capture_output=True, check=True
+                ).stdout
+
+            common = frozen("f6346447233c7b640dd40d5a248c83c0372e4177")
+            r009 = frozen("6f79ae51fd5390dc07df4cf094b49d3a49f25c17")
+            assert len(common) == 1631512
+            assert (
+                invalid.digest(common) == "d96ee8f5fa97a5c13a06359895671e1434fda97df133ba06bed8b79f8245c3b0"
+            )
+            assert invalid.digest(r009) == "bdbd9ef7ae19150ee0e01a487f9aeae6a5d7589b1a4efd027420ec32bf6b2272"
+            assert original.startswith(common) and r009.startswith(common)
+            original_suffix = original[len(common) :]
+            inserted = r009[len(common) :]
+            assert len(original_suffix) == 51941 and len(original_suffix.splitlines()) == 27
+            assert len(inserted) == 6793
             qualified = subprocess.run(
                 ["git", "show", "5b70a6e9890c71a2f6a6851c89531eb8c89fd4c1:" + path],
                 cwd=root,
@@ -597,6 +619,9 @@ def test_exact_test_bodies_and_ledger_history_unchanged() -> None:
                 invalid.digest(qualified)
                 == "11055f392b6a622a4a5623e7af8c00f6478645bd1f503f42b8ac6a73a0e23218"
             )
+            assert qualified.startswith(common + inserted + original_suffix)
+            assert qualified.count(original_suffix) == 1
+            assert len(qualified[len(common + inserted + original_suffix) :]) == 2652
             assert current.startswith(qualified)
         else:
             assert current == original

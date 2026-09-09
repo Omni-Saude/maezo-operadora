@@ -637,3 +637,70 @@ def test_ci_retains_failed_gate_output_and_private_directory(tmp_path: Path) -> 
     repeated = subprocess.run(["bash", "-c", gate["run"]], env=env, capture_output=True)
     assert repeated.returncode != 0
     assert (output / "checker.rc").read_text() == "23\n"
+
+
+@pytest.mark.parametrize("historical", [VALID_FIXTURE], indirect=True)
+@pytest.mark.parametrize("section,key", [("target", "test_path"), ("current", "path")])
+def test_v3_same_path_predicates_precede_archive_and_execution(
+    candidate: Any, section: str, key: str
+) -> None:
+    _, _, plan_fn, record, publish, tmp = candidate
+    record[section][key] = "tests/unit/unrelated.py"
+    publish()
+    with pytest.raises(static.InvalidDeclarationError, match="IC_R1"):
+        plan_fn()
+    assert not (tmp / "fresh-historical").exists()
+
+
+@pytest.mark.parametrize("historical", [VALID_FIXTURE], indirect=True)
+@pytest.mark.parametrize("change", ["proof_id", "extra", "schema", "boolean_count"])
+def test_v3_closed_record_rejects_unknown_authority(candidate: Any, change: str) -> None:
+    _, _, _, record, _, _ = candidate
+    if change == "proof_id":
+        record["proof_id"] = "D6unit136d"
+    elif change == "extra":
+        record["runtime_override"] = "/chosen/by/record"
+    elif change == "schema":
+        record["schema"] = "maezo-ledger-invalid-declaration/v1"
+    else:
+        record["current"]["result_count"] = True
+    with pytest.raises(static.InvalidDeclarationError):
+        static.parse_record(json.dumps(record).encode(), kind="verified-history")
+
+
+@pytest.mark.parametrize("historical", [VALID_FIXTURE], indirect=True)
+def test_v3_v1_cross_chain_is_rejected_by_real_global_plan(candidate: Any) -> None:
+    repo, _, plan_fn, _, _, _ = candidate
+    plan = plan_fn()
+    current = plan.relations[0].correction
+    annotation = (
+        f"[ledger-supersedes:v1;target={current.task_id};source_commit={plan.candidate};"
+        f"source_row_sha256={checker.row_sha256(current)};"
+        f"source_test_sha256={static.digest((repo / TEST).read_bytes())};"
+        f"source_lock_sha256={static.digest((repo / 'uv.lock').read_bytes())}]"
+    )
+    path = repo / "docs/evidence-ledger.md"
+    path.write_text(path.read_text() + row("V1-CHAIN", current.declared_hash, annotation) + "\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "invalid cross-version chain")
+    with pytest.raises(static.InvalidDeclarationError, match="IC_GRAPH_COLLISION"):
+        plan_fn()
+
+
+def test_unresolved_relation_preserves_disjoint_actual_failure(
+    candidate: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo, reviewed, _, _, _, tmp = candidate
+    unrelated = "tests/unit/test_unrelated_failure.py"
+    write(repo, unrelated, b"def test_unrelated(): assert False\n")
+    ledger = repo / "docs/evidence-ledger.md"
+    ledger.write_text(ledger.read_text() + row("UNRELATED", "0" * 64).replace(TEST, unrelated) + "\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "unrelated failure alongside pending relation")
+    out = tmp / "mixed"
+    out.mkdir(mode=0o700)
+    assert checker.main(["--base", reviewed.source, "--proof-output", str(out)], repo_root=repo) == 1
+    output = capsys.readouterr().out
+    assert "UNRELATED" in output and "FAIL:" in output
+    assert "2 unresolved/errors" in output
+    assert "ACCEPTED_WITH" not in output
