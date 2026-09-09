@@ -3,23 +3,26 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.metadata
 import json
 import os
+import shutil
 import signal
 import stat
 import subprocess
 import sys
-import sysconfig
 import time
+import types
 import uuid
 from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from scripts.ci import check_evidence_ledger_hashes as legacy
+
+if TYPE_CHECKING:
+    from scripts.ci.ledger_current_relations import RelationScope, Requirement
 
 SCHEMA = "maezo-ledger-current-execution/v1"
 OBSERVATION_SCHEMA = "maezo-ledger-current-observation/v1"
@@ -144,21 +147,207 @@ def file_identity(path: Path) -> list[int]:
     return [metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns, metadata.st_mode]
 
 
-def runtime_inventory() -> dict[str, str]:
-    """Bind installed source/bytecode/metadata as well as the selected interpreter."""
-    roots = {Path(sysconfig.get_path(name)) for name in ("stdlib", "purelib", "platlib")}
+# Finite locally selected tools. No caller environment, executable or capsule input.
+_UV = Path(shutil.which("uv") or "/missing-uv").resolve()
+_RUNTIME_PROBE = r"""
+import hashlib, importlib.metadata, json, pathlib, sys, sysconfig
+files = {}
+for root in sorted({pathlib.Path(sysconfig.get_path(n)) for n in ('stdlib','purelib','platlib')}):
+    for path in sorted(root.rglob('*')):
+        if path.is_file():
+            path = path.resolve()
+            files[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+for path in (pathlib.Path(sys.executable).resolve(), pathlib.Path(sys.prefix) / 'pyvenv.cfg'):
+    files[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+stats = {}
+for name in files:
+    s = pathlib.Path(name).stat()
+    stats[name] = [s.st_ino,s.st_size,s.st_mtime_ns,s.st_ctime_ns,s.st_mode]
+distributions = sorted(({'name': d.metadata['Name'], 'version':d.version,
+    'location':str(pathlib.Path(d.locate_file('')).resolve()), 'direct_url':d.read_text('direct_url.json')}
+    for d in importlib.metadata.distributions()), key=lambda d: d['name'])
+identity = dict(executable=str(pathlib.Path(sys.executable).resolve()), version=sys.version,
+    prefix=sys.prefix, base_prefix=sys.base_prefix, pytest_version=importlib.metadata.version('pytest'))
+print(json.dumps(dict(files=files, stats=stats, distributions=distributions,
+    identity=identity),sort_keys=True))
+"""
+
+
+def _policy_value(value: Any) -> Any:
+    """Compare loaded policy code/defaults/constants against the committed module."""
+    if isinstance(value, types.CodeType):
+        return [
+            value.co_filename,
+            value.co_name,
+            value.co_qualname,
+            value.co_code.hex(),
+            value.co_exceptiontable.hex(),
+            value.co_linetable.hex(),
+            value.co_firstlineno,
+            value.co_posonlyargcount,
+            value.co_names,
+            value.co_varnames,
+            value.co_freevars,
+            value.co_cellvars,
+            value.co_flags,
+            value.co_argcount,
+            value.co_kwonlyargcount,
+            [_policy_value(item) for item in value.co_consts],
+        ]
+    if isinstance(value, types.FunctionType):
+        return [
+            _policy_value(value.__code__),
+            _policy_value(value.__defaults__),
+            _policy_value(value.__kwdefaults__),
+        ]
+    if isinstance(value, (staticmethod, classmethod)):
+        return _policy_value(value.__func__)
+    if isinstance(value, property):
+        return [_policy_value(value.fget), _policy_value(value.fset)]
+    if isinstance(value, dict):
+        return sorted((str(key), _policy_value(item)) for key, item in value.items())
+    if isinstance(value, (tuple, list)):
+        return [_policy_value(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        return sorted((_policy_value(item) for item in value), key=repr)
+    if value is None or isinstance(value, (str, int, float, bool, bytes)):
+        return repr(value)
+    return str(type(value)) + ":" + getattr(value, "__qualname__", str(value))
+
+
+def _module_policy(module: types.ModuleType) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for name, value in vars(module).items():
+        if name.startswith("__"):
+            continue
+        if getattr(value, "__module__", None) == module.__name__:
+            if isinstance(value, type):
+                result[name] = {
+                    key: _policy_value(item)
+                    for key, item in vars(value).items()
+                    if isinstance(item, (types.FunctionType, staticmethod, classmethod, property))
+                }
+            elif isinstance(value, types.FunctionType):
+                result[name] = _policy_value(value)
+        elif name.isupper():
+            result[name] = _policy_value(value)
+    return result
+
+
+def _g2_policy() -> dict[str, Any]:
+    # Use the actual helper selected by the actual classifier, never a same-name path.
+    from scripts.ci import pytest_metadata_admission
+
+    for module in (legacy, pytest_metadata_admission):
+        filename = module.__file__
+        if not isinstance(filename, str):
+            raise ValueError("G2_LOADED_POLICY_DRIFT")
+        path = Path(filename).resolve()
+        if path != Path(__file__).resolve().with_name(module.__name__.rsplit(".", 1)[1] + ".py"):
+            raise ValueError("G2_LOADED_POLICY_DRIFT")
+        payload = git(path.parents[2], "show", "HEAD:scripts/ci/" + path.name)
+        if regular_bytes(path) != payload:
+            raise ValueError("G2_LOADED_POLICY_DRIFT")
+        trusted = types.ModuleType(module.__name__)
+        trusted.__file__ = str(path)
+        for value in vars(module).values():
+            members = (
+                vars(value).values()
+                if isinstance(value, type) and value.__module__ == module.__name__
+                else (value,)
+            )
+            for member in members:
+                if isinstance(member, (staticmethod, classmethod)):
+                    member = member.__func__
+                if (
+                    isinstance(member, types.FunctionType)
+                    and member.__module__ == module.__name__
+                    and member.__code__.co_filename == str(path)
+                    and member.__globals__ is not vars(module)
+                ):
+                    raise ValueError("G2_LOADED_POLICY_DRIFT")
+        exec(compile(payload, str(path), "exec", dont_inherit=True), vars(trusted))
+        if _module_policy(module) != _module_policy(trusted):
+            raise ValueError("G2_LOADED_POLICY_DRIFT")
+    if legacy._metadata_module() is not pytest_metadata_admission:
+        raise ValueError("G2_LOADED_POLICY_DRIFT")
+    return {
+        module.__name__: digest(canonical(_module_policy(module)))
+        for module in (legacy, pytest_metadata_admission)
+    }
+
+
+def _tool_provenance() -> dict[str, Any]:
+    policy_root = Path(__file__).resolve().parents[2]
+    names = (
+        "ledger_current_execution.py",
+        "ledger_current_observer.py",
+        "check_evidence_ledger_current.py",
+        "check_evidence_ledger_hashes.py",
+        "pytest_metadata_admission.py",
+        "ledger_current_relations.py",
+        "ledger_invalid_declarations.py",
+        "ledger_history_proofs.py",
+    )
     files: dict[str, str] = {}
-    for root in sorted(roots):
-        for path in sorted(root.rglob("*")):
-            if path.is_file():
-                resolved = path.resolve()
-                files[str(resolved)] = digest(resolved.read_bytes())
-    executable = Path(sys.executable).resolve()
-    files[str(executable)] = digest(executable.read_bytes())
-    config = Path(sys.prefix) / "pyvenv.cfg"
-    if config.is_file():
-        files[str(config.resolve())] = digest(config.read_bytes())
-    return files
+    for name in names:
+        relative = "scripts/ci/" + name
+        path = policy_root / relative
+        payload = regular_bytes(path)
+        if payload != git(policy_root, "show", "HEAD:" + relative):
+            raise ValueError("TOOL_SOURCE_NOT_COMMITTED")
+        files[str(path)] = digest(payload)
+    return {
+        "commit": git(policy_root, "rev-parse", "HEAD").decode().strip(),
+        "tree": git(policy_root, "rev-parse", "HEAD^{tree}").decode().strip(),
+        "files": files,
+        "stats": {path: file_identity(Path(path)) for path in files},
+        "loaded_g2": _g2_policy(),
+    }
+
+
+def _admission_state(admission: Any) -> dict[str, Any]:
+    """The full result of the real classifier, including its absence rechecks."""
+    return {
+        "status": admission.status,
+        "reason": admission.reason,
+        "source_sha256": admission.source_sha256,
+        "dependencies": [list(pair) for pair in admission.dependencies],
+    }
+
+
+def _runtime_probe(python: Path, root: Path, environment: dict[str, str]) -> dict[str, Any]:
+    result = subprocess.run(
+        [str(python), "-I", "-B", "-c", _RUNTIME_PROBE],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        check=True,
+        timeout=60,
+    )
+    value: dict[str, Any] = strict_json(result.stdout)
+    return value
+
+
+def _launcher_identity(python: Path) -> dict[str, Any]:
+    """Attest the launcher without executing potentially replaced runtime code."""
+    resolved = python.resolve(strict=True)
+    metadata = python.lstat()
+    return {
+        "path": str(python),
+        "resolved": str(resolved),
+        "link": os.readlink(python) if stat.S_ISLNK(metadata.st_mode) else None,
+        "entry": [
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        ],
+        "sha256": digest(regular_bytes(resolved)),
+        "stat": file_identity(resolved),
+    }
 
 
 @dataclass(frozen=True)
@@ -212,10 +401,11 @@ def validate_observation(
     if not isinstance(runtime, dict) or set(runtime) != _RUNTIME_KEYS:
         errors.append("RUNTIME_SCHEMA")
     elif (
-        runtime["executable"] != str(Path(sys.executable).resolve())
-        or runtime["version"] != sys.version
-        or runtime["prefix"] != sys.prefix
-        or runtime["base_prefix"] != sys.base_prefix
+        runtime["executable"]
+        != binding.get("runtime_identity", {}).get("executable", str(Path(sys.executable).resolve()))
+        or runtime["version"] != binding.get("runtime_identity", {}).get("version", sys.version)
+        or runtime["prefix"] != binding.get("runtime_identity", {}).get("prefix", sys.prefix)
+        or runtime["base_prefix"] != binding.get("runtime_identity", {}).get("base_prefix", sys.base_prefix)
         or runtime["pytest_version"] != binding["pytest_version"]
         or runtime["initial_environment"] != binding["environment"]
         or runtime["final_environment"] != binding["environment"]
@@ -278,7 +468,15 @@ def validate_observation(
 class CurrentRunner:
     """Own each fresh run and consume its handle once; reports are never proof inputs."""
 
-    def __init__(self, root: Path, output: Path, *, allow_live: bool = False, timeout: float = 60) -> None:
+    def __init__(
+        self,
+        root: Path,
+        output: Path,
+        *,
+        base: str | None = None,
+        allow_live: bool = False,
+        timeout: float = 60,
+    ) -> None:
         self.root = root.resolve()
         self.output = output.resolve()
         self.allow_live = allow_live
@@ -286,6 +484,154 @@ class CurrentRunner:
             raise ValueError("INVALID_RUN_BOUNDARY")
         self.timeout = timeout
         self._issued: dict[str, CurrentExecutionVerdict] = {}
+        self._executed: set[str] = set()
+        self.base = base
+        self._scope: RelationScope | None = None
+        self._runtime: dict[str, Any] | None = None
+        self._preparation: dict[str, Any] | None = None
+
+    def _requirement(self, occurrence: Occurrence) -> Requirement:
+        from scripts.ci import ledger_current_relations as relations
+
+        base = self.base or git(self.root, "rev-parse", "HEAD").decode().strip()
+        planned = relations.plan_current_relations(self.root, base)
+        if self._scope is not None and planned != self._scope:
+            raise ValueError("CURRENT_EXPECTATION_STALE")
+        self._scope = planned
+        for requirement in planned.requirements:
+            if requirement.occurrence.identity == occurrence.identity:
+                return requirement
+        # Compatibility for direct, unselected ordinary occurrences. Relations
+        # may only execute when included in the authoritative planned scope.
+        ordinary = next((row for row in planned.rows if row.identity == occurrence.identity), None)
+        if (
+            self.base is not None
+            or ordinary is None
+            or any(
+                ordinary.identity in {edge.claim.target.identity, edge.successor.identity}
+                for edge in planned.relations
+            )
+        ):
+            raise ValueError("CURRENT_OCCURRENCE_NOT_SCHEDULED")
+        return relations.Requirement(
+            ordinary,
+            relations.CurrentExpectation(
+                ordinary,
+                planned.candidate,
+                digest(regular_bytes(self.root / ordinary.test_path)),
+                ordinary.declared_hash,
+                relations._eligibility(ordinary),
+            ),
+            (),
+        )
+
+    def _prepare_runtime(self, packet: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+        from scripts.ci.ledger_history_proofs import validate_locked_inventory
+
+        if self._runtime is None:
+            runtime_root = packet / "runtime"
+            runtime_root.mkdir(mode=0o700)
+            home = runtime_root / "home"
+            home.mkdir(mode=0o700)
+            environment = minimal_environment(Path.home())
+            environment["UV_PROJECT_ENVIRONMENT"] = str(runtime_root / ".venv")
+            # UV's cache contains only installation artifacts; credentials are not inherited.
+            uv_hash = digest(regular_bytes(_UV))
+            uv_stat = file_identity(_UV)
+            command = [
+                str(_UV),
+                "sync",
+                "--offline",
+                "--frozen",
+                "--no-config",
+                "--extra",
+                "dev",
+                "--no-install-project",
+                "--python",
+                str(Path(sys.executable).resolve()),
+                "--project",
+                str(self.root),
+            ]
+            started = datetime.now(UTC).isoformat()
+            with (
+                (packet / "prepare.stdout").open("xb") as stdout,
+                (packet / "prepare.stderr").open("xb") as stderr,
+            ):
+                result = subprocess.run(
+                    command,
+                    cwd=self.root,
+                    env=environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout,
+                    stderr=stderr,
+                    timeout=180,
+                )
+            preparation = dict(
+                command=command,
+                environment=environment,
+                started=started,
+                ended=datetime.now(UTC).isoformat(),
+                returncode=result.returncode,
+                uv_path=str(_UV),
+                uv_sha256=uv_hash,
+                uv_stat=uv_stat,
+                lock_sha256=digest(regular_bytes(self.root / "uv.lock")),
+                config_sha256=digest(regular_bytes(self.root / "pyproject.toml")),
+                streams={
+                    str(packet / name): digest(regular_bytes(packet / name))
+                    for name in ("prepare.stdout", "prepare.stderr")
+                },
+            )
+            (packet / "preparation.json").write_bytes(canonical(preparation))
+            if (
+                result.returncode != 0
+                or digest(regular_bytes(_UV)) != uv_hash
+                or file_identity(_UV) != uv_stat
+            ):
+                raise ValueError("LOCKED_RUNTIME_PREPARATION_REFUSED")
+            python = runtime_root / ".venv/bin/python"
+            launcher = _launcher_identity(python)
+            if launcher["resolved"] != str(Path(sys.executable).resolve()):
+                raise ValueError("LOCKED_RUNTIME_LAUNCHER_IDENTITY")
+            inventory = _runtime_probe(python, self.root, minimal_environment(home))
+            if _launcher_identity(python) != launcher:
+                raise ValueError("LOCKED_RUNTIME_LAUNCHER_DRIFT")
+            validate_locked_inventory(regular_bytes(self.root / "uv.lock"), inventory)
+            identity = inventory["identity"]
+            if (
+                identity["prefix"] != str(runtime_root / ".venv")
+                or identity["executable"] != str(Path(sys.executable).resolve())
+                or identity["version"] != sys.version
+                or any(
+                    not Path(item["location"]).is_relative_to(runtime_root / ".venv") or item["direct_url"]
+                    for item in inventory["distributions"]
+                )
+            ):
+                raise ValueError("LOCKED_RUNTIME_IDENTITY")
+            self._runtime = dict(python=str(python), home=str(home), inventory=inventory, launcher=launcher)
+            self._preparation = preparation
+        assert self._preparation is not None
+        if not self._runtime_stable():
+            raise ValueError("LOCKED_RUNTIME_DRIFT")
+        return self._runtime, self._preparation
+
+    def _runtime_stable(self) -> bool:
+        if self._runtime is None or self._preparation is None:
+            return False
+        prepared = self._preparation
+        return (
+            digest(regular_bytes(_UV)) == prepared["uv_sha256"]
+            and file_identity(_UV) == prepared["uv_stat"]
+            and digest(regular_bytes(self.root / "uv.lock")) == prepared["lock_sha256"]
+            and digest(regular_bytes(self.root / "pyproject.toml")) == prepared["config_sha256"]
+            and all(digest(regular_bytes(Path(path))) == sha for path, sha in prepared["streams"].items())
+            and _launcher_identity(Path(self._runtime["python"])) == self._runtime["launcher"]
+            and _runtime_probe(
+                Path(self._runtime["python"]), self.root, minimal_environment(Path(self._runtime["home"]))
+            )
+            == self._runtime["inventory"]
+            and _launcher_identity(Path(self._runtime["python"])) == self._runtime["launcher"]
+        )
 
     def run(self, occurrence: Occurrence) -> CurrentExecutionVerdict:
         row = occurrence.row
@@ -307,12 +653,22 @@ class CurrentRunner:
             classifier = getattr(legacy, "classify_test_admission", None)
             if classifier is None:
                 raise ValueError("G2_ADMISSION_UNAVAILABLE")
-            admission = classifier(self.root, row.test_path)
+            provenance = _tool_provenance()
+            requirement = self._requirement(occurrence)
+            expectation = requirement.current
+            admission = classifier(self.root, expectation.authoritative_row.test_path)
+            admission_state = _admission_state(admission)
             if admission.status not in {"OFFLINE", "LIVE"}:
                 raise ValueError("G2_ADMISSION_UNKNOWN")
-            if admission.status == "LIVE" and not self.allow_live:
-                raise ValueError("G2_LIVE_ASSERTION_REQUIRED")
+            if admission.status == "LIVE":
+                if not self.allow_live:
+                    raise ValueError("G2_LIVE_ASSERTION_REQUIRED")
+                raise ValueError("LIVE_OWNER_CONTEXT_NOT_IMPLEMENTED")
             before = source_inventory(self.root)
+            if expectation.candidate.source_sha256 != digest(
+                canonical(before)
+            ) or expectation.test_source_sha256 != before["files"].get(row.test_path):
+                raise ValueError("CURRENT_EXPECTATION_SOURCE_DRIFT")
             if before["files"].get(row.test_path) != admission.source_sha256:
                 raise ValueError("G2_ADMISSION_SOURCE_DRIFT")
             dependencies = dict(admission.dependencies)
@@ -323,23 +679,23 @@ class CurrentRunner:
             if "uv.lock" not in before["files"] or "pyproject.toml" not in before["files"]:
                 raise ValueError("SOURCE_CONFIG_LOCK_REQUIRED")
             tool = Path(__file__).with_name("ledger_current_observer.py").resolve()
-            tools = {
-                str(path.resolve()): digest(regular_bytes(path))
-                for path in (
-                    Path(__file__),
-                    tool,
-                    Path(__file__).with_name("check_evidence_ledger_current.py"),
-                    Path(legacy.__file__),
-                )
-            }
-            runtime = runtime_inventory()
-            runtime_stats = {path: file_identity(Path(path)) for path in runtime}
+            tools = provenance["files"]
+            prepared_runtime, preparation = self._prepare_runtime(packet)
+            runtime = prepared_runtime["inventory"]["files"]
+            runtime_stats = prepared_runtime["inventory"]["stats"]
+            if source_inventory(self.root) != before or _tool_provenance() != provenance:
+                raise ValueError("PRELAUNCH_SOURCE_TOOL_DRIFT")
+            if _admission_state(classifier(self.root, row.test_path)) != admission_state:
+                raise ValueError("PRELAUNCH_ADMISSION_DRIFT")
+            if _launcher_identity(Path(prepared_runtime["python"])) != prepared_runtime["launcher"]:
+                raise ValueError("PRELAUNCH_RUNTIME_LAUNCHER_DRIFT")
             allowed = {str(self.root / path): sha for path, sha in before["files"].items()}
             allowed.update(runtime)
             allowed[str(tool)] = digest(regular_bytes(tool))
             home = packet / "home"
             home.mkdir(mode=0o700)
             environment = minimal_environment(home)
+            environment["PATH"] = str(Path(prepared_runtime["python"]).parent) + ":/usr/bin:/bin"
             pytest_argv = [
                 row.test_path,
                 "-v",
@@ -365,26 +721,29 @@ class CurrentRunner:
             }
             request_path = packet / "request.json"
             request_path.write_bytes(canonical(request))
-            command = [sys.executable, "-I", "-B", str(tool), str(request_path)]
+            command = [prepared_runtime["python"], "-I", "-B", str(tool), str(request_path)]
             binding = {
                 **request,
                 "occurrence": occurrence.identity,
                 "row": asdict(row),
+                "original": asdict(requirement.occurrence),
+                "current_expectation": asdict(expectation),
+                "required_relations": list(requirement.required_relations),
+                "base": self._scope.base if self._scope else None,
+                "tool_provenance": provenance,
+                "runtime_identity": prepared_runtime["inventory"]["identity"],
+                "runtime_launcher": prepared_runtime["launcher"],
+                "runtime_preparation": preparation,
                 "source": before,
                 "runtime_files": runtime,
                 "runtime_stats": runtime_stats,
                 "environment": environment,
-                "admission": {
-                    "status": admission.status,
-                    "reason": admission.reason,
-                    "source_sha256": admission.source_sha256,
-                    "dependencies": list(admission.dependencies),
-                },
+                "admission": admission_state,
                 "command": command,
                 "allowed_sources": allowed,
             }
             binding["tool_files"] = tools
-            binding["pytest_version"] = importlib.metadata.version("pytest")
+            binding["pytest_version"] = prepared_runtime["inventory"]["identity"]["pytest_version"]
             (packet / "binding.json").write_bytes(canonical(binding))
             status = "FAILED"
             with (packet / "stdout").open("wb") as stdout, (packet / "stderr").open("wb") as stderr:
@@ -397,6 +756,7 @@ class CurrentRunner:
                     stderr=stderr,
                     start_new_session=True,
                 )
+                self._executed.add(run_id)
                 deadline = time.monotonic() + self.timeout
                 try:
                     while process.poll() is None:
@@ -428,29 +788,33 @@ class CurrentRunner:
                 recipe_hash = legacy.compute_recipe_hash(lines)
             recipe_version = "fixed"
             if (
-                recipe_hash != "sha256:" + row.declared_hash
-                and row.row_date is not None
-                and row.row_date < legacy.LEGACY_NODE_ID_RECIPE_CUTOFF_DATE
+                recipe_hash != "sha256:" + expectation.recipe_sha256
+                and expectation.recipe_eligibility == "FIXED_OR_LEGACY"
             ):
                 legacy_lines = legacy.extract_result_lines(
                     raw.decode("utf-8", errors="replace"), node_id_regex=legacy._RESULT_LINE_RE_LEGACY
                 )
-                if legacy_lines and legacy.compute_recipe_hash(legacy_lines) == "sha256:" + row.declared_hash:
+                if (
+                    legacy_lines
+                    and legacy.compute_recipe_hash(legacy_lines) == "sha256:" + expectation.recipe_sha256
+                ):
                     recipe_hash = legacy.compute_recipe_hash(legacy_lines)
                     recipe_version = "legacy"
             binding["recipe_version"] = recipe_version
             # Version is derived from the same raw capture, not an input policy flag.
             (packet / "binding.json").write_bytes(canonical(binding))
-            if recipe_hash != "sha256:" + row.declared_hash:
+            if recipe_hash != "sha256:" + expectation.recipe_sha256:
                 reasons.append("MATHEMATICAL_HASH_MISMATCH")
             if source_inventory(self.root) != before:
                 reasons.append("SOURCE_DRIFT")
             if (
-                runtime_inventory() != runtime
-                or {path: file_identity(Path(path)) for path in runtime} != runtime_stats
-                or any(digest(regular_bytes(Path(path))) != sha for path, sha in tools.items())
+                not self._runtime_stable()
+                or _tool_provenance() != provenance
+                or self._requirement(occurrence) != requirement
             ):
                 reasons.append("RUNTIME_TOOL_DRIFT")
+            if _admission_state(legacy.classify_test_admission(self.root, row.test_path)) != admission_state:
+                reasons.append("G2_ADMISSION_DRIFT")
             observation = strict_json(regular_bytes(packet / "observation.json"))
             reasons.extend(validate_observation(observation, binding, returncode))
             expected_lines = [f"{item['nodeid']} PASSED" for item in observation.get("selected", [])]
@@ -458,10 +822,20 @@ class CurrentRunner:
                 reasons.append("RESULT_COLLECTION_MISMATCH")
             if not reasons:
                 status = "ACCEPTED"
-        except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as exc:
+        except (
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+            legacy.SupersessionError,
+            subprocess.SubprocessError,
+        ) as exc:
             code = str(exc)
             reasons.append(
-                code if isinstance(exc, ValueError) and code.isupper() else "EXECUTION_OR_ARTIFACT_ERROR"
+                code
+                if isinstance(exc, (ValueError, legacy.SupersessionError)) and code.isupper()
+                else "EXECUTION_OR_ARTIFACT_ERROR"
             )
         artifacts = {path.name: digest(path.read_bytes()) for path in packet.iterdir() if path.is_file()}
         receipt = {
@@ -474,6 +848,9 @@ class CurrentRunner:
             "end": datetime.now(UTC).isoformat(),
             "returncode": returncode,
             "recipe_hash": recipe_hash,
+            "binding_sha256": digest(canonical(binding)) if binding else None,
+            "current_expectation": binding.get("current_expectation"),
+            "original": binding.get("original"),
             "artifacts": artifacts,
         }
         receipt_bytes = canonical(receipt)
@@ -503,15 +880,24 @@ class CurrentRunner:
             binding = strict_json(regular_bytes(packet / "binding.json"))
             stable = (
                 source_inventory(self.root) == binding["source"]
-                and runtime_inventory() == binding["runtime_files"]
-                and {path: file_identity(Path(path)) for path in binding["runtime_files"]}
-                == binding["runtime_stats"]
-                and all(
-                    digest(regular_bytes(Path(path))) == sha for path, sha in binding["tool_files"].items()
-                )
+                and self._runtime_stable()
+                and _tool_provenance() == binding["tool_provenance"]
+                and _admission_state(legacy.classify_test_admission(self.root, occurrence.row.test_path))
+                == binding["admission"]
+                and asdict(self._requirement(occurrence).current) == binding["current_expectation"]
+                and asdict(self._requirement(occurrence).occurrence) == binding["original"]
+                and digest(canonical(binding)) == receipt["binding_sha256"]
             )
             return stable and all(
                 digest(regular_bytes(packet / name)) == sha for name, sha in receipt["artifacts"].items()
             )
-        except (OSError, ValueError, KeyError, TypeError):
+        except (
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+            legacy.SupersessionError,
+            subprocess.SubprocessError,
+        ):
             return False

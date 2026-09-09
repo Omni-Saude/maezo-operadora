@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from scripts.ci import check_evidence_ledger_hashes as legacy
-from scripts.ci import ledger_invalid_declarations as history
 from scripts.ci.ledger_current_execution import (
     CurrentRunner,
     Occurrence,
@@ -51,52 +50,74 @@ def selected_occurrences(root: Path, base: str) -> tuple[Occurrence, ...]:
 
 
 def run_integrated(root: Path, base: str, output: Path, *, allow_live: bool = False) -> dict[str, Any]:
-    """Observe ordinary current rows; leave uncomposed history obligations explicit."""
+    """Schedule exact physical current obligations; operational history is unresolved."""
+    from scripts.ci.ledger_current_relations import plan_current_relations
+
+    root = root.resolve()
     before = source_inventory(root)
     base = git(root, "rev-parse", "--verify", "--end-of-options", base + "^{commit}").decode().strip()
-    text = regular_bytes(root / legacy.DEFAULT_LEDGER_PATH).decode()
-    supersession = legacy.build_supersession_plan(root, text)
-    operational = history.build_plan(root, text, supersession, legacy.DEFAULT_LEDGER_PATH)
-    occurrences = selected_occurrences(root, base)
-    required = set(supersession.by_target_row_sha256) | set(supersession.by_successor_row_sha256)
-    for relation in operational.relations:
-        required.add(legacy.row_sha256(relation.target))
-        required.add(legacy.row_sha256(relation.correction))
-    runner = CurrentRunner(root, output, allow_live=allow_live)
+    scope = plan_current_relations(root, base)
+    runner = CurrentRunner(root, output, base=base, allow_live=allow_live)
     rows: list[dict[str, Any]] = []
-    for occurrence in occurrences:
-        record: dict[str, Any] = {
-            "occurrence": occurrence.identity,
-            "line": occurrence.line,
-            "row_sha256": legacy.row_sha256(occurrence.row),
-            "task": occurrence.row.task_id,
-            "path": occurrence.row.test_path,
-        }
-        if legacy.row_sha256(occurrence.row) in required:
-            record.update(status="UNRESOLVED", history="REQUIRED_NOT_COMPOSED", current="NOT_RUN")
-        else:
-            verdict = runner.run(occurrence)
-            accepted = runner.consume(verdict, occurrence)
-            record.update(
-                status="ACCEPTED" if accepted else verdict.status,
-                history="NOT_REQUIRED",
-                current=asdict(verdict),
-            )
-            if verdict.status == "ACCEPTED" and not accepted:
-                record["status"] = "UNRESOLVED"
-        rows.append(record)
-    stable = source_inventory(root) == before
+    executed: list[str] = []
+    for requirement in scope.requirements:
+        physical = requirement.occurrence
+        occurrence = Occurrence(physical.line, physical.raw_line)
+        verdict = runner.run(occurrence)
+        consumed = runner.consume(verdict, occurrence)
+        if verdict.run_id in runner._executed:
+            executed.append(physical.identity)
+        history_required = bool(requirement.required_relations)
+        rows.append(
+            {
+                "occurrence": physical.identity,
+                "line": physical.line,
+                "row_sha256": physical.row_sha256,
+                "task": physical.task_id,
+                "path": physical.test_path,
+                "original": asdict(physical),
+                "current_expectation": asdict(requirement.current),
+                "required_relations": list(requirement.required_relations),
+                "history": "REQUIRED_NOT_COMPOSED" if history_required else "NOT_REQUIRED",
+                "current": asdict(verdict),
+                "current_consumed": consumed,
+                "status": "UNRESOLVED"
+                if history_required or (verdict.status == "ACCEPTED" and not consumed)
+                else verdict.status,
+            }
+        )
+    stable = source_inventory(root) == before and plan_current_relations(root, base) == scope
+    current_accepted = bool(rows) and stable and all(row["current_consumed"] for row in rows)
     return {
         "schema": SCHEMA,
         "candidate": before["commit"],
         "tree": before["tree"],
         "base": base,
-        "selected_count": len(occurrences),
+        "selected_count": len(scope.selected),
+        "selected_occurrence_identities": list(scope.selected),
+        "required_occurrence_identities": [req.occurrence.identity for req in scope.requirements],
+        "required_relation_identities": list(scope.required_relations),
+        "executed_occurrence_identities": executed,
+        "execution_count": len(executed),
+        "attempt_count": len(rows),
+        "relations": [
+            {
+                "identity": edge.identity,
+                "kind": edge.claim.kind,
+                "claim": asdict(edge.claim),
+                "historical_claim_verified": edge.claim.historical_claim_verified,
+                "status": "UNRESOLVED",
+                "reason": "ACTUAL_HISTORY_ADAPTER_NOT_IMPLEMENTED",
+            }
+            for edge in scope.relations
+            if edge.identity in scope.required_relations
+        ],
         "rows": rows,
         "source_stable": stable,
-        "status": "ACCEPTED"
-        if rows and stable and all(row["status"] == "ACCEPTED" for row in rows)
-        else "UNRESOLVED",
+        "current_status": "ACCEPTED" if current_accepted else "UNRESOLVED",
+        "scope": "EXPLICIT_BASE_RELATION_CLOSURE",
+        "global_acceptance": False,
+        "status": "ACCEPTED" if current_accepted and not scope.required_relations else "UNRESOLVED",
     }
 
 
