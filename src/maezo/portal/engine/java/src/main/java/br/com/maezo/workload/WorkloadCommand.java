@@ -28,12 +28,13 @@ final class WorkloadCommand implements Command<java.util.function.Supplier<byte[
     this.plugin=plugin;this.peer=peer;this.cap=cap;this.request=request;
   }
   @Override public java.util.function.Supplier<byte[]> execute(CommandContext ctx) {
-    WorkloadPlugin.GUARDED.set(true);
+    boolean guarded=WorkloadPlugin.GUARDED.get();WorkloadPlugin.GUARDED.set(true);
     try {
       context=ctx;engine=plugin.engine();policy=plugin.policy();plugin.authenticated(peer);
       if(!ctx.isAuthorizationCheckEnabled() || !ctx.isTenantCheckEnabled())throw Refused.denied();
       connection=ctx.getDbSqlSession().getSqlSession().getConnection();
-      try {if(connection.getAutoCommit() || !"PostgreSQL".equals(connection.getMetaData().getDatabaseProductName()))throw Refused.unavailable();}
+      try {if(connection.getAutoCommit() || !"PostgreSQL".equals(connection.getMetaData().getDatabaseProductName())
+          || connection.getTransactionIsolation()!=Connection.TRANSACTION_READ_COMMITTED)throw Refused.unavailable();}
       catch(SQLException e){throw Refused.unavailable();}
       Map<String,Object> variables=cap.validate(request);
       plugin.authorizeCapability(peer,cap);
@@ -54,13 +55,14 @@ final class WorkloadCommand implements Command<java.util.function.Supplier<byte[
       current();
       ctx.getTransactionContext().addTransactionListener(TransactionState.COMMITTING,ignored->current());
       return encoded;
-    } finally {WorkloadPlugin.GUARDED.remove();}
+    } finally {if(guarded)WorkloadPlugin.GUARDED.set(true);else WorkloadPlugin.GUARDED.remove();}
   }
   private void current() {
     plugin.authenticated(peer);
     if(!context.isAuthorizationCheckEnabled() || !context.isTenantCheckEnabled())throw Refused.denied();
     long now=System.currentTimeMillis();
     for(long deadline:lockDeadlines)if(deadline<=now)throw Refused.resource();
+    plugin.reauthorizeCapability(context,peer,cap);
   }
   static ProcessDefinition definition(ProcessEngine engine,Map<String,Object> target,String tenant) {
     var d=engine.getRepositoryService().createProcessDefinitionQuery().processDefinitionId(Json.token(target,"definition_id")).tenantIdIn(tenant).singleResult();
@@ -132,6 +134,7 @@ final class WorkloadCommand implements Command<java.util.function.Supplier<byte[
   private ExternalTask locked(String id,Map<String,Object> target,String worker) {
     // Native commands use optimistic revisions too; this enlisted row lock serializes lock ownership checks.
     if(!exists("SELECT ID_ FROM ACT_RU_EXT_TASK WHERE ID_=? AND TENANT_ID_=? FOR UPDATE",id,policy.tenant))throw Refused.resource();
+    current();
     var task=engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(id).tenantIdIn(policy.tenant).singleResult();
     if(task==null || task.isSuspended() || !target.get("definition_id").equals(task.getProcessDefinitionId())
         || !target.get("topic").equals(task.getTopicName()) || !worker.equals(task.getWorkerId()) || task.getLockExpirationTime()==null)throw Refused.resource();
@@ -194,17 +197,27 @@ final class WorkloadCommand implements Command<java.util.function.Supplier<byte[
           String taskDefinition=Json.token(binding,"human_task_definition");
           var tasks=engine.getHistoryService().createHistoricTaskInstanceQuery().processInstanceId(process).tenantIdIn(policy.tenant)
               .taskDefinitionKey(taskDefinition).finished().orderByHistoricTaskInstanceEndTime().desc().listPage(0,1);
-          if(tasks.size()!=1 || !hasReceipt(tasks.get(0)))throw Refused.resource();
+          if(tasks.size()!=1 || !humanSource(tasks.get(0),cap.sourceTarget,policy.tenant,process,taskDefinition)
+              || !hasReceipt(tasks.get(0)))throw Refused.resource();
           // A copied actor/value is not provenance. Require the actual completed task's recorded variable update.
           if(!"@business_key".equals(variable)) {
             var updates=engine.getHistoryService().createHistoricDetailQuery().taskId(tasks.get(0).getId()).tenantIdIn(policy.tenant)
                 .variableUpdates().disableCustomObjectDeserialization().disableBinaryFetching().listPage(0,limit()+1);
             if(updates.size()>limit() || updates.stream().filter(d->d instanceof HistoricVariableUpdate)
-                .map(d->(HistoricVariableUpdate)d).noneMatch(u->variable.equals(u.getVariableName()) && Objects.equals(value(u.getTypedValue()),supplied)))throw Refused.resource();
+                .map(d->(HistoricVariableUpdate)d).noneMatch(u->humanUpdate(u,tasks.get(0))
+                    && variable.equals(u.getVariableName()) && Objects.equals(value(u.getTypedValue()),supplied)))throw Refused.resource();
           }
         }
       }
     }
+  }
+  static boolean humanSource(HistoricTaskInstance task,Map<String,Object> target,String tenant,String process,String taskDefinition) {
+    return task!=null && target.get("definition_id").equals(task.getProcessDefinitionId())
+        && tenant.equals(task.getTenantId()) && process.equals(task.getProcessInstanceId()) && taskDefinition.equals(task.getTaskDefinitionKey());
+  }
+  static boolean humanUpdate(HistoricVariableUpdate update,HistoricTaskInstance task) {
+    return task.getId().equals(update.getTaskId()) && task.getProcessDefinitionId().equals(update.getProcessDefinitionId())
+        && task.getTenantId().equals(update.getTenantId()) && task.getProcessInstanceId().equals(update.getProcessInstanceId());
   }
   private boolean hasReceipt(HistoricTaskInstance task) {
     if(task.getEndTime()==null || (task.getDeleteReason()!=null && !"completed".equals(task.getDeleteReason())))return false;

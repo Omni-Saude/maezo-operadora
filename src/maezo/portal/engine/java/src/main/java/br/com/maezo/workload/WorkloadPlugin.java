@@ -67,7 +67,10 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
     }
     long deadline=System.nanoTime()+java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(poll);
     while(true) {
-      byte[] result=configuration.getCommandExecutorTxRequired().execute(new WorkloadCommand(this,peer,cap,request)).get();
+      byte[] result;
+      try {result=configuration.getCommandExecutorTxRequired().execute(new WorkloadCommand(this,peer,cap,request)).get();}
+      // A native permission can change between checks. The executor has rolled back before this boundary returns.
+      catch(AuthorizationException e) {throw Refused.unavailable();}
       if(poll==0 || !Json.list(Json.parse(result).get("result")).isEmpty() || System.nanoTime()>=deadline)return result;
       policy.current(peer);
       java.util.concurrent.locks.LockSupport.parkNanos(Math.min(java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(100),Math.max(1,deadline-System.nanoTime())));
@@ -78,22 +81,40 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
     authenticated(peer);
     // Readiness exercises each exact definition and required native grants. An empty profile is unavailable.
     if(peer.capabilities().isEmpty())throw Refused.unavailable();
-    GUARDED.set(true);
+    boolean guarded=GUARDED.get();GUARDED.set(true);
     try {
       for(Capability cap:peer.capabilities())authorizeCapability(peer,cap);
       policy.current(peer);
       return Json.bytes(Map.of("protocol","maezo.engine-readiness.v1","ready",true,"policy_digest",policy.digest,
           "capabilities",peer.capabilities().stream().map(c->c.digest).toList()));
-    } finally {GUARDED.remove();}
+    } finally {if(guarded)GUARDED.set(true);else GUARDED.remove();}
   }
   /** Query authorization filters must never turn missing grants into an authoritative empty result. */
   void authorizeCapability(BoundaryPolicy.Peer peer,Capability cap) {
     WorkloadCommand.definition(engine,cap.target,policy.tenant);
+    if(!cap.sourceTarget.isEmpty())WorkloadCommand.definition(engine,cap.sourceTarget,policy.tenant);
+    authorizeGrants(cap,(permission,resource,id)->requireGrant(peer,permission,resource,id));
+  }
+  /** Recheck native authority without entering the service/interceptor chain during COMMITTING. */
+  void reauthorizeCapability(CommandContext context,BoundaryPolicy.Peer peer,Capability cap) {
+    if(context!=org.cibseven.bpm.engine.impl.context.Context.getCommandContext()
+        || !context.isAuthorizationCheckEnabled() || !context.isTenantCheckEnabled())throw Refused.denied();
+    // CIB 2.1 delegates boolean grant queries to MyBatis. Clear only query results, not enlisted entities/writes.
+    context.getDbSqlSession().getSqlSession().clearCache();
+    authorizeGrants(cap,(permission,resource,id)->{
+      // Its revoke-discovery flag is also cached per manager. A fresh native manager uses this SAME context/session.
+      var authority=new org.cibseven.bpm.engine.impl.persistence.entity.AuthorizationManager();
+      if(authority.isPermissionDisabled(permission)
+          || !authority.isAuthorized(peer.engineUser(),List.of(),permission,resource,id))throw Refused.unavailable();
+    });
+  }
+  @FunctionalInterface private interface GrantCheck {void require(Permission permission,Resource resource,String id);}
+  private static void authorizeGrants(Capability cap,GrantCheck grants) {
     List<Permission> permissions=new ArrayList<>(List.of(Permissions.READ));
     switch(Json.token(cap.schema,"operation")) {
       case "start":
         permissions.add(Permissions.CREATE_INSTANCE);
-        requireGrant(peer,Permissions.CREATE,Resources.PROCESS_INSTANCE,"*");break;
+        grants.require(Permissions.CREATE,Resources.PROCESS_INSTANCE,"*");break;
       case "fetch_lock", "external_complete", "external_failure", "external_bpmn_error", "external_unlock", "external_extend_lock", "correlate":
         permissions.add(Permissions.READ_INSTANCE);permissions.add(Permissions.UPDATE_INSTANCE);break;
       case "read_active": permissions.add(Permissions.READ_INSTANCE);break;
@@ -101,16 +122,15 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
       default: throw Refused.unavailable();
     }
     String key=Json.token(cap.target,"process_key");
-    for(Permission permission:permissions)requireGrant(peer,permission,Resources.PROCESS_DEFINITION,key);
+    for(Permission permission:permissions)grants.require(permission,Resources.PROCESS_DEFINITION,key);
     if(!cap.sourceTarget.isEmpty()) {
-      WorkloadCommand.definition(engine,cap.sourceTarget,policy.tenant);
       String source=Json.token(cap.sourceTarget,"process_key");
-      requireGrant(peer,Permissions.READ,Resources.PROCESS_DEFINITION,source);
-      if("locked_external".equals(cap.sourceKind))requireGrant(peer,Permissions.READ_INSTANCE,Resources.PROCESS_DEFINITION,source);
+      grants.require(Permissions.READ,Resources.PROCESS_DEFINITION,source);
+      if("locked_external".equals(cap.sourceKind))grants.require(Permissions.READ_INSTANCE,Resources.PROCESS_DEFINITION,source);
       boolean history="completed_human".equals(cap.sourceKind)
           || cap.attestations.stream().map(Json::object).anyMatch(a->"@business_key".equals(a.get("source_variable")))
           || Json.list(cap.schema.get("fields")).stream().map(Json::object).anyMatch(f->"prior_human_evidence".equals(f.get("origin")));
-      if(history)requireGrant(peer,Permissions.READ_HISTORY,Resources.PROCESS_DEFINITION,source);
+      if(history)grants.require(Permissions.READ_HISTORY,Resources.PROCESS_DEFINITION,source);
     }
   }
   private void requireGrant(BoundaryPolicy.Peer peer,Permission permission,Resource resource,String id) {
