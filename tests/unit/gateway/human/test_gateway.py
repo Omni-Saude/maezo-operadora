@@ -28,16 +28,16 @@ from maezo.portal.api.store import LocalTestIdentityStore
 from maezo.portal.contracts.models import SubjectBinding, TaskDecision, TaskSnapshot
 
 pytestmark = pytest.mark.asyncio
-NOW = datetime.now(UTC)
 SECRET = "s" * 43
 CSRF = "c" * 43
 SCOPE = Scope(tenant="test-tenant", environment="test", workload_ref="human-gateway")
 
 
-def snapshot(**changes):
+def snapshot(*, fixture_at: datetime | None = None, **changes):
+    fixture_at = fixture_at or datetime.now(UTC)
     data = dict(
         schema_version=1,
-        snapshot_at=NOW,
+        snapshot_at=fixture_at,
         task_id="task-1",
         process_definition_key="SP-OP-AUTH-001",
         process_definition_version=1,
@@ -114,9 +114,11 @@ class Authorization(AuthorityProjection):
 
 
 class Admission(DurableAdmission):
-    def __init__(self):
+    def __init__(self, committed_at):
         self.scope = SCOPE
         self.calls = []
+        self.receipts = []
+        self.committed_at = committed_at
         self.fail = False
         self.wrong = False
 
@@ -124,7 +126,7 @@ class Admission(DurableAdmission):
         self.calls.append(command)
         if self.fail:
             raise RuntimeError("PRIVATE audit details")
-        return PendingAdmission(
+        receipt = PendingAdmission(
             schema_version=1,
             tenant="wrong" if self.wrong else SCOPE.tenant,
             task_id=command.snapshot.task_id,
@@ -134,11 +136,14 @@ class Admission(DurableAdmission):
             audit_intent_ref="intent-1",
             outbox_ref="outbox-1",
             transaction_ref="tx-1",
-            committed_at=NOW,
+            committed_at=self.committed_at,
         )
+        self.receipts.append(receipt)
+        return receipt
 
 
-async def setup(snap=None, member=None, **task_changes):
+async def setup(snap=None, member=None, *, fixture_at=None, **task_changes):
+    fixture_at = fixture_at or (snap.snapshot_at if snap else datetime.now(UTC))
     store = LocalTestIdentityStore("test-tenant")
     m = member or membership()
     store.memberships[(m.issuer, m.subject)] = m
@@ -151,18 +156,18 @@ async def setup(snap=None, member=None, **task_changes):
             subject=m.subject,
             principal_ref=m.principal_ref,
             membership_revision=m.revision,
-            authenticated_at=NOW,
-            expires_at=NOW + timedelta(hours=1),
+            authenticated_at=fixture_at,
+            expires_at=fixture_at + timedelta(hours=1),
         ),
         None,
     )
     resolver = HumanSessionResolver(config(), store)
     data = dict(
         tenant=SCOPE.tenant,
-        snapshot=snap or snapshot(),
+        snapshot=snap or snapshot(fixture_at=fixture_at),
         active=True,
         authority_revision=7,
-        valid_until=NOW + timedelta(minutes=5),
+        valid_until=fixture_at + timedelta(minutes=5),
         required_roles=("staff",),
         required_subject_bindings=(),
         required_consent_scopes=(),
@@ -197,11 +202,11 @@ async def setup(snap=None, member=None, **task_changes):
         read_permitted=True,
         permitted_operations=("claim", "release", "decision"),
         consent_scopes=(),
-        valid_until=NOW + timedelta(minutes=5),
+        valid_until=fixture_at + timedelta(minutes=5),
     )
     transport = Transport(task)
     authority = Authorization(authorization)
-    admission = Admission()
+    admission = Admission(fixture_at)
     partition = HumanCommandCredentialPartition(SCOPE)
     partition.install(DedicatedHumanCredential(scope=SCOPE, key_id="human-key", purpose="human-command"))
     gateway = HumanGateway(
@@ -230,8 +235,27 @@ async def test_claim_reads_live_authority_and_returns_only_adapter_acknowledgeme
 
 
 async def test_snapshot_scoped_and_dated():
-    g, *_ = await setup()
-    assert await g.read_task(session_secret=SECRET, task_id="task-1") == snapshot(allowed_actions=("claim",))
+    g, _, transport, _, _ = await setup()
+    expected = transport.task.snapshot.model_copy(update={"allowed_actions": ("claim",)})
+    assert await g.read_task(session_secret=SECRET, task_id="task-1") == expected
+
+
+async def test_fixture_clock_is_sampled_after_a_six_minute_collection_delay():
+    fixture_at = datetime.now(UTC)
+    collected_at = fixture_at - timedelta(minutes=6)
+    g, store, transport, authority, admission = await setup(fixture_at=fixture_at)
+
+    session = await store.get_session(digest(SECRET), fixture_at)
+    assert fixture_at - collected_at > timedelta(minutes=5)
+    assert session is not None
+    assert session.authenticated_at == fixture_at
+    assert session.expires_at == fixture_at + timedelta(hours=1)
+    assert transport.task.snapshot.snapshot_at == fixture_at
+    assert transport.task.valid_until == fixture_at + timedelta(minutes=5)
+    assert authority.authority.valid_until == fixture_at + timedelta(minutes=5)
+
+    await submit(g)
+    assert admission.receipts[0].committed_at == fixture_at
 
 
 @pytest.mark.parametrize(
@@ -239,14 +263,17 @@ async def test_snapshot_scoped_and_dated():
     [
         ("tenant", "other"),
         ("active", False),
-        ("valid_until", NOW - timedelta(seconds=1)),
+        ("valid_until", -timedelta(seconds=1)),
         ("required_roles", ("admin",)),
         ("required_subject_bindings", (SubjectBinding(kind="beneficiary", resource_ref="other"),)),
         ("required_consent_scopes", ("clinical-review",)),
     ],
 )
 async def test_task_authority_failures(field, value):
-    g, _, _, _, a = await setup(**{field: value})
+    fixture_at = datetime.now(UTC)
+    if field == "valid_until":
+        value = fixture_at + value
+    g, _, _, _, a = await setup(fixture_at=fixture_at, **{field: value})
     with pytest.raises(GatewayRefusalError):
         await submit(g)
     assert not a.calls
@@ -303,11 +330,14 @@ async def test_stale_and_rebound_command(field, value):
         ("evidence_revision", 99),
         ("evidence_digest", "f" * 64),
         ("permitted_operations", ()),
-        ("valid_until", NOW - timedelta(seconds=1)),
+        ("valid_until", -timedelta(seconds=1)),
     ],
 )
 async def test_authoritative_projection_is_bound(field, value):
-    g, _, _, p, a = await setup()
+    fixture_at = datetime.now(UTC)
+    if field == "valid_until":
+        value = fixture_at + value
+    g, _, _, p, a = await setup(fixture_at=fixture_at)
     p.authority = p.authority.model_copy(update={field: value})
     with pytest.raises(GatewayRefusalError):
         await submit(g)
@@ -488,7 +518,7 @@ async def test_role_and_group_cannot_be_combined_from_different_memberships():
 async def test_missing_ineligible_unresolved_groups(groups):
     g, _, t, _, a = await setup()
     t.task = t.task.model_copy(
-        update={"snapshot": snapshot().model_copy(update={"eligible_candidate_groups": groups})}
+        update={"snapshot": t.task.snapshot.model_copy(update={"eligible_candidate_groups": groups})}
     )
     with pytest.raises(GatewayRefusalError):
         await submit(g)
@@ -578,11 +608,14 @@ async def test_credential_missing_or_changed_scope_fails_closed():
         ("command_id", "other"),
         ("principal_ref", "other"),
         ("workload_ref", "other"),
-        ("committed_at", NOW + timedelta(days=1)),
+        ("committed_at", timedelta(days=1)),
     ],
 )
 async def test_acknowledgement_identity_is_exact(field, value):
-    g, _, _, _, a = await setup()
+    fixture_at = datetime.now(UTC)
+    if field == "committed_at":
+        value = fixture_at + value
+    g, _, _, _, a = await setup(fixture_at=fixture_at)
     original = a.admit
 
     async def altered(command):
@@ -727,7 +760,7 @@ async def test_six_current_bindings_stay_closed_pending_contract_projection(
 async def test_unknown_form_cannot_be_activated_by_trusted_shape_alone():
     g, _, t, _, a = await setup()
     t.task = t.task.model_copy(
-        update={"snapshot": snapshot().model_copy(update={"task_definition_key": "UT_Unknown"})}
+        update={"snapshot": t.task.snapshot.model_copy(update={"task_definition_key": "UT_Unknown"})}
     )
     with pytest.raises(GatewayRefusalError):
         await submit(g)

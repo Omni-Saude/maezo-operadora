@@ -22,6 +22,15 @@ source = base.source
 positive = base.positive
 
 
+def write_private(path: Path, data: bytes) -> None:
+    path.write_bytes(data)
+    path.chmod(0o600)
+
+
+def write_private_text(path: Path, data: str) -> None:
+    write_private(path, data.encode())
+
+
 def copy_packet(positive, tmp_path):
     packet, receipt = positive
     out = tmp_path / "copy"
@@ -36,7 +45,7 @@ def seal(out):
         for p in out.rglob("*")
         if p.is_file() and p.name != "manifest.json"
     }
-    (out / "manifest.json").write_bytes(h.encode(files))
+    write_private(out / "manifest.json", h.encode(files))
 
 
 def validate(out, source):
@@ -73,7 +82,7 @@ def test_resealed_nested_copy_types(positive, source, tmp_path, path, value):
     for component in path[:-1]:
         target = target[component]
     target[path[-1]] = value
-    (out / "receipt.json").write_bytes(h.encode(receipt))
+    write_private(out / "receipt.json", h.encode(receipt))
     seal(out)
     with pytest.raises(h.CaptureRefusedError, match="assertions|selector|cleanup"):
         validate(out, source)
@@ -94,16 +103,16 @@ def test_resealed_guard_artifact_binding(positive, source, tmp_path, case):
     if case == "missing":
         guard.unlink()
     elif case == "replaced":
-        guard.write_text("# replaced preserved guard artifact\n")
+        write_private_text(guard, "# replaced preserved guard artifact\n")
     elif case == "extra-plugin":
-        (guard.parent / "conftest.py").write_text("# not generated\n")
+        write_private_text(guard.parent / "conftest.py", "# not generated\n")
     elif case == "extra-cache":
         (guard.parent / "__pycache__").mkdir(mode=0o700)
-        (guard.parent / "__pycache__/ledger_source_guard.pyc").write_bytes(b"extra")
+        write_private(guard.parent / "__pycache__/ledger_source_guard.pyc", b"extra")
     else:
         receipt = h.load(out / "receipt.json")
         receipt["source"]["tooling"]["guard"] = "f" * 64
-        (out / "receipt.json").write_bytes(h.encode(receipt))
+        write_private(out / "receipt.json", h.encode(receipt))
     seal(out)
     with pytest.raises(h.CaptureRefusedError, match="guard artifact|source receipt"):
         validate(out, source)
@@ -123,7 +132,7 @@ def test_resealed_guard_artifact_binding(positive, source, tmp_path, case):
 def test_symlink_sentinel_refused_before_any_read(positive, source, tmp_path, monkeypatch, file):
     out, _ = copy_packet(positive, tmp_path)
     sentinel = tmp_path / "owned-sentinel"
-    sentinel.write_bytes((out / file).read_bytes())
+    write_private(sentinel, (out / file).read_bytes())
     (out / file).unlink()
     (out / file).symlink_to(sentinel)
     reads = []
@@ -153,7 +162,7 @@ def test_load_metadata_refusal_before_content(tmp_path, monkeypatch, case):
         monkeypatch.chdir(tmp_path)
         sock.bind(path.name)
     else:
-        path.write_bytes(b"{}")
+        write_private(path, b"{}")
         if case == "hardlink":
             os.link(path, tmp_path / "linked")
         elif case == "public-file":
@@ -194,7 +203,7 @@ def test_real_fifo_finishes_without_timeout(tmp_path):
 def test_symlink_parent_refused_before_read(tmp_path, monkeypatch, at_root):
     real = tmp_path / "real"
     real.mkdir(mode=0o700)
-    (real / "data.json").write_bytes(b"{}")
+    write_private(real / "data.json", b"{}")
     alias = tmp_path / "alias"
     alias.symlink_to(real, target_is_directory=True)
     reads = []
@@ -216,7 +225,7 @@ def test_packet_budgets_before_read(tmp_path, monkeypatch, budget):
     else:
         monkeypatch.setattr(h, "MAX_TOTAL_BYTES", 5)
     for i in range(3):
-        (tmp_path / f"{i}.json").write_bytes(b"{}")
+        write_private(tmp_path / f"{i}.json", b"{}")
     reads = []
     monkeypatch.setattr(os, "read", lambda *args: reads.append(args))
     with pytest.raises(h.CaptureRefusedError, match="budget|too many"):
@@ -227,10 +236,10 @@ def test_packet_budgets_before_read(tmp_path, monkeypatch, budget):
 @pytest.mark.parametrize("replacement", ["regular", "symlink", "fifo"])
 def test_stat_open_leaf_race_refuses_before_read(tmp_path, monkeypatch, replacement):
     path = tmp_path / "data.json"
-    path.write_bytes(b"{}")
+    write_private(path, b"{}")
     packet = h.Packet(tmp_path)
     sentinel = tmp_path / "sentinel"
-    sentinel.write_bytes(b"[]")
+    write_private(sentinel, b"[]")
     # The root snapshot was taken before sentinel creation; rebuild before the race.
     packet = h.Packet(tmp_path)
     original_open = os.open
@@ -243,7 +252,7 @@ def test_stat_open_leaf_race_refuses_before_read(tmp_path, monkeypatch, replacem
             raced = True
             path.unlink()
             if replacement == "regular":
-                path.write_bytes(b"[]")
+                write_private(path, b"[]")
             elif replacement == "symlink":
                 path.symlink_to(sentinel)
             else:
@@ -260,7 +269,7 @@ def test_stat_open_leaf_race_refuses_before_read(tmp_path, monkeypatch, replacem
 def test_parent_stat_open_race(tmp_path, monkeypatch):
     directory = tmp_path / "inner"
     directory.mkdir(mode=0o700)
-    (directory / "data").write_bytes(b"safe")
+    write_private(directory / "data", b"safe")
     outside = tmp_path / "other"
     outside.mkdir(mode=0o700)
     original_open = os.open
@@ -285,7 +294,7 @@ def test_parent_stat_open_race(tmp_path, monkeypatch):
 @pytest.mark.parametrize("growth", [False, True])
 def test_after_open_file_mutation_is_refused(tmp_path, monkeypatch, growth):
     path = tmp_path / "data.json"
-    path.write_bytes(b"{}")
+    write_private(path, b"{}")
     original_read = os.read
     mutated = False
     requested = []
@@ -295,7 +304,7 @@ def test_after_open_file_mutation_is_refused(tmp_path, monkeypatch, growth):
         requested.append(length)
         if not mutated:
             mutated = True
-            path.write_bytes(b"x" * 100 if growth else b"[]")
+            write_private(path, b"x" * 100 if growth else b"[]")
         return original_read(fd, length)
 
     monkeypatch.setattr(os, "read", mutate_on_read)
@@ -307,7 +316,7 @@ def test_after_open_file_mutation_is_refused(tmp_path, monkeypatch, growth):
 @pytest.mark.parametrize("kind", ["python", "uv"])
 def test_receipt_cannot_choose_external_identity(tmp_path, monkeypatch, kind):
     outside = tmp_path / "owned-runtime-sentinel"
-    outside.write_bytes(b"do not read")
+    write_private(outside, b"do not read")
     opened = []
     monkeypatch.setattr(os, "open", lambda *args, **kwargs: opened.append(args))
     with pytest.raises(h.CaptureRefusedError, match="untrusted runtime"):
@@ -337,12 +346,12 @@ def test_live_guard_mutation_emits_no_receipt(source, tmp_path, monkeypatch, whe
 
     def changed_capture(argv, cwd, env, out, label, *args, **kwargs):
         if label == "pytest" and when == "before":
-            (out / "guard/ledger_source_guard.py").write_text("# changed before spawn\n")
+            write_private_text(out / "guard/ledger_source_guard.py", "# changed before spawn\n")
         result = real_capture(argv, cwd, env, out, label, *args, **kwargs)
         if label == "pytest":
             recipe_entered.append(result["rc"])
             if when == "after":
-                (out / "guard/ledger_source_guard.py").write_text("# changed after execution\n")
+                write_private_text(out / "guard/ledger_source_guard.py", "# changed after execution\n")
         return result
 
     monkeypatch.setattr(h, "capture", changed_capture)
@@ -371,6 +380,21 @@ def test_json_exponent_nonfinite_refused(tmp_path):
         h.load(tmp_path / "data.json")
 
 
+@pytest.mark.parametrize("fixture_umask", [0o022, 0o077])
+def test_private_fixture_mode_is_umask_independent_and_public_control_refuses(tmp_path, fixture_umask):
+    path = tmp_path / "data.json"
+    previous = os.umask(fixture_umask)
+    try:
+        write_private(path, b"{}")
+        assert path.stat().st_mode & 0o777 == 0o600
+        assert h.load(path) == {}
+        path.chmod(0o644)
+        with pytest.raises(h.CaptureRefusedError, match="nonprivate"):
+            h.load(path)
+    finally:
+        os.umask(previous)
+
+
 def test_oversized_stream_refuses_before_receipt_read(positive, source, tmp_path, monkeypatch):
     out, _ = copy_packet(positive, tmp_path)
     with (out / "pytest.stdout").open("ab") as stream:
@@ -387,7 +411,7 @@ def test_nested_parent_replacement_during_read(tmp_path, monkeypatch):
     outer.mkdir(mode=0o700)
     inner = outer / "inner"
     inner.mkdir(mode=0o700)
-    (inner / "data.json").write_bytes(b"{}")
+    write_private(inner / "data.json", b"{}")
     packet = h.Packet(tmp_path)
     original_read = os.read
     raced = False
@@ -399,7 +423,7 @@ def test_nested_parent_replacement_during_read(tmp_path, monkeypatch):
             raced = True
             inner.rename(outer / "preserved-inner")
             inner.mkdir(mode=0o700)
-            (inner / "data.json").write_bytes(b"[]")
+            write_private(inner / "data.json", b"[]")
         return data
 
     monkeypatch.setattr(os, "read", replace_parent)
