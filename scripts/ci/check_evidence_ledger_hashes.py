@@ -149,6 +149,7 @@ import ipaddress
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tarfile
@@ -1292,6 +1293,193 @@ def is_live_test_path(path: str) -> bool:
     return path.startswith(_LIVE_TEST_PATH_PREFIX)
 
 
+def _read_admission_source(repo_root: Path, path: str) -> bytes:
+    """Read a regular source through non-symlink components, without importing it."""
+    descriptor = os.open(repo_root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        parts = path.split("/")
+        for part in parts[:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        leaf = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=descriptor)
+        with os.fdopen(leaf, "rb") as source:
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                raise ValueError("admission source is not a regular file")
+            return source.read()
+    finally:
+        os.close(descriptor)
+
+
+def _metadata_module() -> ModuleType:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    return importlib.import_module("scripts.ci.pytest_metadata_admission")
+
+
+def _offline_source_refusal(source: bytes) -> str | None:
+    """Compatibility entry: absent source context never resolves an imported mark."""
+    result: str | None = _metadata_module().source_refusal(source)
+    return result
+
+
+def classify_test_admission(
+    repo_root: Path,
+    test_path: str,
+    source_commit: str | None = None,
+    *,
+    expected_source_sha256: str | None = None,
+) -> Any:
+    """Return closed metadata status plus exact source/lock/config dependency hashes.
+
+    No test import, collection, or recipe occurs. Historical resolution never uses
+    current files; a historical root must match its explicitly expected SHA256.
+    This result grants neither actual test success nor live execution permission.
+    """
+    import tomllib
+
+    metadata = _metadata_module()
+    observed: dict[str, bytes] = {}
+    absent: set[str] = set()
+    source_hash: str | None = None
+
+    def result(status: str, reason: str) -> Any:
+        return metadata.TestAdmission(
+            status,
+            reason,
+            source_hash,
+            tuple(sorted((path, _sha256_bytes(data)) for path, data in observed.items())),
+        )
+
+    if not is_safe_test_path(test_path):
+        return result("UNKNOWN", "unsafe admission test path")
+    live_reason = "integration subtree" if is_live_test_path(test_path) else ""
+    if source_commit is not None and (
+        expected_source_sha256 is None or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None
+    ):
+        return result("UNKNOWN", "historical admission requires exact commit and expected source SHA256")
+
+    def read(path: str) -> bytes:
+        parts = path.split("/")
+        if any(part in {"", ".", ".."} for part in parts) or path.startswith("/"):
+            raise ValueError("unsafe metadata dependency path")
+        if source_commit is None:
+            data = _read_admission_source(repo_root, path)
+        else:
+            entry = run_git_bytes(["ls-tree", source_commit, "--", path], repo_root)
+            if not entry:
+                raise FileNotFoundError(path)
+            if not entry.startswith((b"100644 blob ", b"100755 blob ")):
+                raise ValueError("historical metadata dependency is not a regular Git blob")
+            data = _source_blob(repo_root, source_commit, path)
+        if path in observed and observed[path] != data:
+            raise ValueError("metadata source drift: " + path)
+        observed[path] = data
+        return data
+
+    def optional(path: str) -> bytes | None:
+        try:
+            return read(path)
+        except FileNotFoundError:
+            absent.add(path)
+            return None
+
+    try:
+        source = read(test_path)
+        source_hash = _sha256_bytes(source)
+        if expected_source_sha256 is not None and source_hash != expected_source_sha256:
+            return result("UNKNOWN", "admission source differs from expected test hash")
+        classifier = metadata.Classifier(read)
+
+        def inspect(data: bytes, path: str, *, collected: bool) -> None:
+            nonlocal live_reason
+            try:
+                classifier.module_metadata(classifier.parse(data, path), collected=collected)
+            except metadata.LiveMetadataError as exc:
+                live_reason = str(exc)
+
+        inspect(source, test_path, collected=True)
+        optional("uv.lock")
+        configuration = optional("pyproject.toml")
+        if configuration is not None:
+            options = (
+                tomllib.loads(configuration.decode()).get("tool", {}).get("pytest", {}).get("ini_options", {})
+            )
+            if any(
+                key in options
+                for key in (
+                    "addopts",
+                    "required_plugins",
+                    "python_files",
+                    "python_classes",
+                    "python_functions",
+                )
+            ):
+                raise ValueError("unresolved pytest collection configuration")
+            pythonpath = options.get("pythonpath", ["."])
+            if (
+                not isinstance(pythonpath, list)
+                or not all(value in {".", "src"} for value in pythonpath)
+                or len(set(pythonpath)) != len(pythonpath)
+            ):
+                raise ValueError("unresolved pytest import path configuration")
+        for name in ("pytest.ini", ".pytest.ini", "tox.ini", "setup.cfg"):
+            data = optional(name)
+            if data is not None and (
+                name.endswith("pytest.ini") or b"[pytest]" in data or b"[tool:pytest]" in data
+            ):
+                raise ValueError("unresolved alternate pytest configuration")
+        parts = test_path.split("/")[:-1]
+        for count in range(len(parts) + 1):
+            prefix = "/".join(parts[:count])
+            for leaf in ("conftest.py", "__init__.py"):
+                path = prefix + "/" + leaf if prefix else leaf
+                data = optional(path)
+                if data is not None:
+                    inspect(data, path, collected=False)
+        # Revalidate this read-set, including newly appearing optional config.
+        # The execution consumer additionally binds its complete source inventory.
+        for path in tuple(observed):
+            read(path)
+        for path in absent:
+            if optional(path) is not None:
+                raise ValueError("metadata dependency appeared during classification")
+    except metadata.LiveMetadataError as exc:
+        return result("LIVE", str(exc))
+    except (
+        metadata.UnresolvedMetadataError,
+        GitError,
+        SupersessionError,
+        OSError,
+        ValueError,
+        SyntaxError,
+        UnicodeError,
+        RecursionError,
+        TypeError,
+        AttributeError,
+    ) as exc:
+        return result("UNKNOWN", str(exc))
+    return (
+        result("LIVE", live_reason)
+        if live_reason
+        else result("OFFLINE", "statically resolved pytest metadata")
+    )
+
+
+def _source_admission_message(source: bytes, *, allow_live: bool) -> str | None:
+    refusal = _offline_source_refusal(source)
+    if refusal is None or allow_live:
+        return None
+    return _admission_refusal_message(refusal)
+
+
+def _admission_refusal_message(refusal: str) -> str:
+    return (
+        f"{refusal}; refusing before test import/capture (HARNESS-LEDGER-HASH-AMBIENT-STACK). "
+        "Re-run with --allow-live only while personally holding the engine mutex and controlling the stack."
+    )
+
+
 # Truthy values accepted for the `LEDGER_HASH_ALLOW_LIVE` env-var fallback to `--allow-live` (see
 # `resolve_allow_live`) — deliberately small and explicit, not "any non-empty string", so a stray
 # exported-but-empty or accidentally-"0"/"false" var never silently grants the assertion.
@@ -1350,6 +1538,20 @@ def verify_row(
         return RowVerification(
             row, False, f"{row.task_id}: declared test file {row.test_path} does not exist at HEAD."
         )
+    try:
+        source = _read_admission_source(repo_root, row.test_path)
+    except (OSError, ValueError) as exc:
+        return RowVerification(row, False, f"{row.task_id}: unsafe admission source: {exc}")
+    admission = classify_test_admission(
+        repo_root, row.test_path, expected_source_sha256=_sha256_bytes(source)
+    )
+    refusal = (
+        None
+        if admission.status == "OFFLINE" or (admission.status == "LIVE" and allow_live)
+        else _admission_refusal_message(admission.reason)
+    )
+    if refusal is not None:
+        return RowVerification(row, False, f"{row.task_id}: {row.test_path}: {refusal}")
     capture = capture_pytest_recipe(repo_root, row.test_path, python_exe)
     outcome = recipe_outcome_from_capture(capture, row.test_path, node_id_regex=_RESULT_LINE_RE)
     if not outcome.ok:
@@ -1414,6 +1616,8 @@ def verify_historical_row(
 ) -> RowVerification:
     """Re-run a superseded target in its bound archive; never fall back to candidate HEAD."""
     row = edge.target
+    if not is_safe_test_path(row.test_path):
+        return RowVerification(row, False, f"{row.task_id}: unsafe historical test path; refusing execution")
     if is_live_test_path(row.test_path) and not allow_live:
         return RowVerification(
             row,
@@ -1422,6 +1626,28 @@ def verify_historical_row(
             f"{_LIVE_TEST_PATH_PREFIX}; HARNESS-LEDGER-HASH-AMBIENT-STACK applies equally to "
             "archived tests. Re-run with --allow-live only while holding the engine mutex.",
         )
+    try:
+        metadata = run_git_bytes(["ls-tree", edge.claim.source_commit, "--", row.test_path], repo_root)
+        if not metadata.startswith((b"100644 blob ", b"100755 blob ")):
+            raise SupersessionError("historical admission source is not a regular Git blob")
+        source = _source_blob(repo_root, edge.claim.source_commit, row.test_path)
+        if _sha256_bytes(source) != edge.claim.source_test_sha256:
+            raise SupersessionError("historical admission source differs from bound test hash")
+    except (GitError, SupersessionError) as exc:
+        return RowVerification(row, False, f"{row.task_id}: {exc}")
+    admission = classify_test_admission(
+        repo_root,
+        row.test_path,
+        edge.claim.source_commit,
+        expected_source_sha256=edge.claim.source_test_sha256,
+    )
+    refusal = (
+        None
+        if admission.status == "OFFLINE" or (admission.status == "LIVE" and allow_live)
+        else _admission_refusal_message(admission.reason)
+    )
+    if refusal is not None:
+        return RowVerification(row, False, f"{row.task_id}: historical {row.test_path}: {refusal}")
     current_lock_path = repo_root / "uv.lock"
     if not current_lock_path.is_file():
         return RowVerification(
