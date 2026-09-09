@@ -1,6 +1,6 @@
 """Compatibility exports for the gateway-owned human authentication port (ADR-0049 D4)."""
 
-from maezo.gateway.human.oidc import (
+from maezo.gateway.oidc import (
     AuthenticationError,
     CognitoAuthenticator,
     HumanAuthenticator,

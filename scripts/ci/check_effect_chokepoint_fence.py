@@ -352,12 +352,12 @@ _HTTPX_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
         "MTLSHumanEngineTransport._request",
     ): "httpx.AsyncClient(verify=self._tls, timeout=self._timeout, trust_env=False, follow_redirects=False)",
     (
-        "gateway/human/identity_composition.py",
+        "gateway/portal_identity.py",
         "build_human_identity_adapters",
     ): "httpx.AsyncClient(verify=True, trust_env=False, follow_redirects=False, timeout=10.0)",
 }
 _SECRET_SCOPED_SEAM: Final[tuple[str, str]] = (
-    "gateway/human/identity_composition.py",
+    "gateway/portal_identity.py",
     "build_human_identity_adapters",
 )
 

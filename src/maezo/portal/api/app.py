@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from maezo.gateway.human.identity_composition import build_human_identity_adapters
+from maezo.gateway.portal_identity import build_human_identity_adapters
 from maezo.portal.api.auth import AuthenticationError
 from maezo.portal.api.config import PortalSettings
 from maezo.portal.api.records import SessionDTO

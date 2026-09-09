@@ -7,8 +7,8 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 from tests.unit.portal.test_human_session import config
 
-from maezo.gateway.human import identity_composition as composition
-from maezo.gateway.human.oidc import AuthenticationError, CognitoAuthenticator
+from maezo.gateway import portal_identity as composition
+from maezo.gateway.oidc import AuthenticationError, CognitoAuthenticator
 from maezo.portal.api.app import create_app
 from maezo.portal.api.postgres import PostgresIdentityStore
 from maezo.portal.api.store import LocalTestIdentityStore

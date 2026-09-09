@@ -7,7 +7,7 @@ from scripts.ci.check_effect_chokepoint_fence import scan_tree
 
 ROOT = Path(__file__).resolve().parents[3]
 MTLS = "gateway/human/transport.py"
-OIDC = "gateway/human/identity_composition.py"
+OIDC = "gateway/portal_identity.py"
 CALL = "httpx.AsyncClient(verify=True, trust_env=False, follow_redirects=False, timeout=10.0)"
 
 
