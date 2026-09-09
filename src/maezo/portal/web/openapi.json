@@ -1,0 +1,124 @@
+{
+  "components": {
+    "schemas": {
+      "SessionDTO": {
+        "additionalProperties": false,
+        "description": "Minimal browser projection, never a principal accepted back as authority.",
+        "properties": {
+          "audience": {
+            "enum": [
+              "staff",
+              "beneficiary",
+              "provider"
+            ],
+            "title": "Audience",
+            "type": "string"
+          },
+          "csrf_token": {
+            "title": "Csrf Token",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "principal_ref": {
+            "title": "Principal Ref",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "principal_ref",
+          "audience",
+          "roles",
+          "expires_at",
+          "csrf_token"
+        ],
+        "title": "SessionDTO",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Portal Maezo",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/portal/auth/callback": {
+      "get": {
+        "operationId": "callback_api_v1_portal_auth_callback_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Callback"
+      }
+    },
+    "/api/v1/portal/auth/login": {
+      "get": {
+        "operationId": "login_api_v1_portal_auth_login_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Login"
+      }
+    },
+    "/api/v1/portal/auth/logout": {
+      "post": {
+        "operationId": "logout_api_v1_portal_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout"
+      }
+    },
+    "/api/v1/portal/session": {
+      "get": {
+        "operationId": "session_api_v1_portal_session_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Session"
+      }
+    }
+  }
+}
