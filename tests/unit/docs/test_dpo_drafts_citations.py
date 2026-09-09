@@ -95,10 +95,6 @@ _PATH_RE = re.compile(
 #: RED when one lands and the draft's "não construído / arquivo ainda não criado" prose becomes a
 #: lie.
 _DELIBERATELY_ABSENT: dict[str, str] = {
-    "scripts/ci/check_phi_scrub_prereqs.py": (
-        "R-009's CI fence — declared as a mandatory companion PR, NOT built in this batch "
-        "(scripts/ci/ is CODEOWNED)"
-    ),
     "spec/policies/retention/retention-matrix.yaml": (
         "the NAME the ratified matrix would take; creating it is the encarregado's act (AF-07)"
     ),

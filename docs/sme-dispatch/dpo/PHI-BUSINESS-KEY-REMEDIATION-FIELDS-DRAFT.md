@@ -139,13 +139,17 @@ Este PR **não pode ser mergeado** sem as duas:
 | 1 | `phi/hmac-key` (`PHI_HMAC_KEY`) provisionado — M-24 / **D6-04**, HUMAN-GATED | **não provisionado** | Cada composition root reporta **NOT READY no boot**: `setup_observability` constrói o pseudonimizador via `Pseudonymizer.from_settings`, que levanta `PseudonymizerKeyMissingError` sem chave; `bootstrap_observability` captura e deixa a readiness vermelha. Segunda superfície independente: `key_scrubber.egress_message_key`, chamada pelo handler de `operadora.events.publish`, levanta na escada de retry/incidente do harness |
 | 2 | **Janela de drenagem** dos tópicos CANCEL/INAD agendada | **não agendada** | `scrub_only` item (3) **muda o particionamento Kafka** dessas duas famílias (`CANCEL-{tenant}-{id}` → `CANCEL-hk1_{hmac}`). A ordenação por chave continua garantida (HMAC determinístico), mas mensagens em voo publicadas antes e depois da virada podem cair em partições diferentes |
 
-**A cerca de CI que R-009 pede NÃO foi construída neste rascunho.** O que a decisão aprovada pede
-é um `scripts/ci/check_phi_scrub_prereqs.py` que fique **vermelho** se
-`spec/policies/privacy/phi-business-key-remediation.yaml` sair de `DRAFT` sem (1) e (2). Motivos
-de não estar aqui: `scripts/ci/` é CODEOWNED e a cerca não integrava este lote de rascunhos.
-**Ela é PR acompanhante obrigatório** — sem ela, as duas pré-condições continuam prosa no
-`acao_seguinte`, e prosa não bloqueia merge. Molde a seguir:
-`scripts/ci/check_deviation_expiry.py`.
+**A cerca de CI que R-009 pede foi construída** (R-009, PR acompanhante): `scripts/ci/
+check_phi_scrub_prereqs.py`, moldado em `scripts/ci/check_deviation_expiry.py`, fica **vermelho**
+se `spec/policies/privacy/phi-business-key-remediation.yaml` sair de `DRAFT` com
+`modo: scrub_only`/`pseudo_keys` sem (1) e (2) — lidas do bloco `pre_requisitos_scrub_only` do
+próprio manifesto, cada item com `atendido: true` E evidência registrada. `status: DRAFT` sempre
+passa. Cabeada em `Makefile` (`check-phi-scrub-prereqs`, ao lado de `check-ledger-hashes`) e em
+`.github/workflows/ci.yml` (`validate-artifacts`). Ela lê o manifesto pelo MESMO loader do
+runtime (`phi_key_policy.load_phi_key_policy`) e nunca escreve `status`/`ratificacao.*` — não
+substitui a assinatura, só impede que (1) e (2) continuem prosa não vinculante no
+`acao_seguinte`. Hoje ambas seguem `atendido: false` no manifesto, então a cerca continua
+vermelha para qualquer tentativa de sair de `DRAFT` sem preenchê-las de verdade.
 
 ---
 
@@ -189,7 +193,9 @@ técnica**:
 - [ ] Posição da operação/ANS sobre a busca por matrícula colhida e anexada
 - [ ] `PHI_HMAC_KEY` provisionado (M-24 / D6-04)
 - [ ] Janela de drenagem CANCEL/INAD agendada, com data
-- [ ] `scripts/ci/check_phi_scrub_prereqs.py` no MESMO PR (R-009)
+- [ ] `pre_requisitos_scrub_only` do manifesto com os dois itens `atendido: true` e evidência real
+      preenchida — `scripts/ci/check_phi_scrub_prereqs.py` (R-009, já landed) reprova o merge
+      enquanto um dos dois continuar `false`
 - [ ] Os 4 campos preenchidos com nome real e data real — nunca por agente
 - [ ] `modo` escolhido conscientemente (`scrub_only` recomendado; `pseudo_keys` **bloqueado**)
 
