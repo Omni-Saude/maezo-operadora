@@ -901,3 +901,390 @@ class CurrentRunner:
             subprocess.SubprocessError,
         ):
             return False
+
+
+_HISTORY_ACCEPTED = frozenset(
+    {"VALID_HISTORICAL_EQUALITY", "CORRECTED_WITH_INVALID_HISTORY", "VERIFIED_HISTORY_OWN_LOCK"}
+)
+
+
+def _history_policy() -> dict[str, Any]:
+    """Attest actual loaded adapter dependencies, including capsule wrapper closures."""
+    from scripts.ci import ledger_archived_catalog, ledger_history_proofs, ledger_invalid_declarations
+
+    modules = (ledger_history_proofs, ledger_invalid_declarations, ledger_archived_catalog)
+    result = {}
+    for module in modules:
+        path = Path(__file__).resolve().with_name(module.__name__.rsplit(".", 1)[1] + ".py")
+        if module.__file__ != str(path):
+            raise ValueError("HISTORY_LOADED_POLICY_DRIFT")
+        payload = git(path.parents[2], "show", "HEAD:scripts/ci/" + path.name)
+        if regular_bytes(path) != payload:
+            raise ValueError("HISTORY_LOADED_POLICY_DRIFT")
+        trusted = types.ModuleType(module.__name__)
+        trusted.__file__ = str(path)
+        exec(compile(payload, str(path), "exec", dont_inherit=True), vars(trusted))
+        actual, expected = _module_policy(module), _module_policy(trusted)
+        for name, value in vars(module).items():
+            if isinstance(value, types.FunctionType) and value.__module__ == module.__name__:
+                original = value
+                reference = getattr(trusted, name, None)
+                # contextmanager wrappers carry the selected implementation in a closure.
+                while hasattr(original, "__wrapped__"):
+                    if not isinstance(reference, types.FunctionType) or not hasattr(reference, "__wrapped__"):
+                        raise ValueError("HISTORY_LOADED_POLICY_DRIFT")
+                    actual[name + ":closure"] = [
+                        _policy_value(c.cell_contents) for c in original.__closure__ or ()
+                    ]
+                    expected[name + ":closure"] = [
+                        _policy_value(c.cell_contents) for c in reference.__closure__ or ()
+                    ]
+                    original, reference = original.__wrapped__, reference.__wrapped__
+                if original.__globals__ is not vars(module):
+                    raise ValueError("HISTORY_LOADED_POLICY_DRIFT")
+                actual[name + ":unwrapped"] = _policy_value(original)
+                expected[name + ":unwrapped"] = _policy_value(reference)
+        if actual != expected:
+            raise ValueError("HISTORY_LOADED_POLICY_DRIFT")
+        result[module.__name__] = dict(
+            sha256=digest(payload), policy=digest(canonical(actual)), stat=file_identity(path)
+        )
+    if (
+        ledger_history_proofs.checker is not legacy
+        or ledger_history_proofs.static is not ledger_invalid_declarations
+    ):
+        raise ValueError("HISTORY_LOADED_POLICY_DRIFT")
+    return result
+
+
+@dataclass(frozen=True)
+class HistoryVerdict:
+    schema: str
+    relation: str
+    run_id: str
+    status: str
+    historical_claim_verified: bool | None
+    historical_test_status: str
+    reasons: tuple[str, ...]
+    execution_count: int | None
+    packet: str
+    receipt_sha256: str
+
+
+class HistoryRunner:
+    """Finite real adapters. Only a locally issued, freshly bound object is consumable."""
+
+    def __init__(self, root: Path, output: Path, *, base: str) -> None:
+        from scripts.ci.ledger_current_relations import plan_current_relations
+
+        self.root = root.resolve()
+        self.output = output.resolve()
+        if self.output.is_relative_to(self.root):
+            raise ValueError("INVALID_HISTORY_BOUNDARY")
+        self.base = (
+            git(self.root, "rev-parse", "--verify", "--end-of-options", base + "^{commit}").decode().strip()
+        )
+        self._scope = plan_current_relations(self.root, self.base)
+        self._issued: dict[str, tuple[HistoryVerdict, dict[str, Any]]] = {}
+        self._runtime = CurrentRunner(self.root, self.output, base=self.base)
+
+    def _edge(self, identity: str) -> Any:
+        from scripts.ci.ledger_current_relations import plan_current_relations
+
+        if plan_current_relations(self.root, self.base) != self._scope:
+            raise ValueError("HISTORY_SCOPE_DRIFT")
+        selected = [
+            edge
+            for edge in self._scope.relations
+            if edge.identity == identity and identity in self._scope.required_relations
+        ]
+        if len(selected) != 1:
+            raise ValueError("HISTORY_EDGE_NOT_SCHEDULED")
+        return selected[0]
+
+    def _admission(self, edge: Any) -> dict[str, Any]:
+        admission = legacy.classify_test_admission(
+            self.root,
+            edge.claim.target.test_path,
+            edge.claim.source_commit,
+            expected_source_sha256=edge.claim.source_test_sha256,
+        )
+        if admission.status != "OFFLINE":
+            raise ValueError("HISTORY_ADMISSION_" + admission.status)
+        return _admission_state(admission)
+
+    def _custody(self, edge: Any) -> dict[str, Any]:
+        return dict(
+            source=source_inventory(self.root),
+            edge=asdict(self._edge(edge.identity)),
+            tools=_tool_provenance(),
+            history_policy=_history_policy(),
+            admission=self._admission(edge),
+        )
+
+    def _v1(self, edge: Any, packet: Path) -> dict[str, Any]:
+        ledger = regular_bytes(self.root / legacy.DEFAULT_LEDGER_PATH).decode()
+        plan = legacy.build_supersession_plan(self.root, ledger)
+        actual = plan.by_target_row_sha256[edge.claim.target.row_sha256]
+        if (
+            actual.target.raw_line != edge.claim.target.raw_line
+            or actual.successor.raw_line != edge.successor.raw_line
+            or actual.claim.source_commit != edge.claim.source_commit
+        ):
+            raise ValueError("HISTORY_LEGACY_EDGE_DRIFT")
+        if git(self.root, "show", edge.claim.source_commit + ":uv.lock") != regular_bytes(
+            self.root / "uv.lock"
+        ):
+            raise ValueError("HISTORY_V1_LOCK_MISMATCH")
+        runtime, _ = self._runtime._prepare_runtime(packet)
+        before = self._custody(edge)
+        env = minimal_environment(Path(runtime["home"]))
+        env["PATH"] = str(Path(runtime["python"]).parent) + ":/usr/bin:/bin"
+        saved = dict(os.environ)
+        try:
+            os.environ.clear()
+            os.environ.update(env)
+            verification = legacy.verify_historical_row(
+                self.root, actual, runtime["python"], allow_live=False
+            )
+            (packet / "verification.json").write_bytes(canonical(asdict(verification)))
+            # The immutable verifier deliberately exposes no raw capture. A second
+            # real capture retains the test outcome without changing its API or math.
+            capture = legacy._capture_historical_recipe(
+                self.root, actual, runtime["python"], allow_live=False
+            )
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+        (packet / "historical.stdout").write_text(capture.combined_output or "")
+        (packet / "capture.json").write_bytes(canonical(asdict(capture)))
+        (packet / "invocation.json").write_bytes(
+            canonical(
+                dict(
+                    environment=env,
+                    python=runtime["python"],
+                    verifier="verify_historical_row",
+                    retained_capture="_capture_historical_recipe",
+                    allow_live=False,
+                )
+            )
+        )
+        if self._custody(edge) != before or not self._runtime._runtime_stable():
+            raise ValueError("HISTORY_V1_POSTRUN_DRIFT")
+        outcome = legacy.recipe_outcome_from_capture(capture, actual.target.test_path)
+        matching = "fixed"
+        equal = outcome.ok and outcome.computed_hash == "sha256:" + actual.target.declared_hash
+        if (
+            not equal
+            and actual.target.row_date
+            and actual.target.row_date < legacy.LEGACY_NODE_ID_RECIPE_CUTOFF_DATE
+        ):
+            outcome = legacy.recipe_outcome_from_capture(
+                capture, actual.target.test_path, node_id_regex=legacy._RESULT_LINE_RE_LEGACY
+            )
+            equal = outcome.ok and outcome.computed_hash == "sha256:" + actual.target.declared_hash
+            matching = "legacy-date-eligible"
+        lines = legacy.extract_result_lines(capture.combined_output or "")
+        historical_status = (
+            "FAILED"
+            if any(line.endswith(" FAILED") for line in lines)
+            else "PASSED"
+            if lines and capture.returncode == 0
+            else "INCOMPLETE"
+        )
+        return dict(
+            status="VALID_HISTORICAL_EQUALITY" if verification.ok and equal else "FAILED",
+            historical_claim_verified=bool(verification.ok and equal),
+            historical_test_status=historical_status,
+            reasons=[]
+            if verification.ok and equal
+            else ["HISTORICAL_VERIFICATION_FAILED", verification.message],
+            execution_count=2,
+            verification=asdict(verification),
+            outcome=asdict(outcome),
+            matching_algorithm=matching,
+            original_declaration=actual.target.declared_hash,
+        )
+
+    def _operational(self, edge: Any, packet: Path) -> dict[str, Any]:
+        from scripts.ci import ledger_history_proofs as proof
+        from scripts.ci import ledger_invalid_declarations as static
+
+        ledger = regular_bytes(self.root / legacy.DEFAULT_LEDGER_PATH).decode()
+        plan = static.build_plan(self.root, ledger, legacy.build_supersession_plan(self.root, ledger))
+        selected = static.selected_unresolved(
+            self.root,
+            plan,
+            [
+                Occurrence(edge.claim.target.line, edge.claim.target.raw_line).row,
+                Occurrence(edge.successor.line, edge.successor.raw_line).row,
+            ],
+            self.base,
+        )
+        pending = tuple(
+            item
+            for item in selected
+            if (item.target_row_sha256, item.correction_row_sha256)
+            == (edge.claim.target.row_sha256, edge.successor.row_sha256)
+        )
+        if len(pending) != 1:
+            raise ValueError("HISTORY_OPERATIONAL_EDGE_MISSING")
+        out = packet / "producer"
+        out.mkdir(mode=0o700)
+        results = proof.execute_selected(self.root, plan, pending, out)
+        if len(results) != 1:
+            raise ValueError("HISTORY_OPERATIONAL_PARTIAL_RESULT")
+        result = results[0]
+        payload = result.to_dict()
+        (packet / "operational.json").write_bytes(canonical(payload))
+        if not isinstance(result, proof.CompleteCorrection):
+            return dict(
+                status="REFUSED"
+                if result.reason.startswith("IC_OPERATIONAL_PROOF_REFUSED")
+                else "UNRESOLVED",
+                historical_claim_verified=False
+                if edge.claim.kind == "V2_INVALID_SOURCE_DECLARATION"
+                else None,
+                historical_test_status="UNRESOLVED",
+                reasons=[result.reason],
+                execution_count=result.recorded_fresh_attempts,
+            )
+        directory = out / edge.successor.row_sha256
+        if (
+            result.candidate != self._scope.candidate.commit
+            or result.tree != self._scope.candidate.tree
+            or result.target_row_sha256 != edge.claim.target.row_sha256
+            or result.correction_row_sha256 != edge.successor.row_sha256
+            or strict_json(regular_bytes(directory / "result.json")) != payload
+        ):
+            raise ValueError("HISTORY_OPERATIONAL_RESULT_BINDING")
+        # Authenticated producer output is retained in full; physical current
+        # obligations are still executed independently by CurrentRunner.
+        raw = regular_bytes(directory / "fresh-historical/pytest.stdout") + regular_bytes(
+            directory / "fresh-historical/pytest.stderr"
+        )
+        lines = legacy.extract_result_lines(raw.decode())
+        valid = edge.claim.kind == "V3_VERIFIED_OWN_LOCK"
+        if (
+            result.historical_claim_verified is not valid
+            or result.status != ("VERIFIED_HISTORY_RELATION" if valid else "CORRECTED_WITH_INVALID_HISTORY")
+            or result.historical_status
+            != ("VERIFIED_HISTORY_OWN_LOCK" if valid else "INVALID_HISTORICAL_DECLARATION")
+            or not lines
+        ):
+            raise ValueError("HISTORY_OPERATIONAL_DISCRIMINANT")
+        return dict(
+            status="VERIFIED_HISTORY_OWN_LOCK" if valid else "CORRECTED_WITH_INVALID_HISTORY",
+            historical_claim_verified=valid,
+            historical_test_status="FAILED" if any(line.endswith(" FAILED") for line in lines) else "PASSED",
+            reasons=[],
+            execution_count=2,
+        )
+
+    def _artifacts(self, packet: Path) -> dict[str, str]:
+        result = {}
+        for root, directories, files in os.walk(packet, followlinks=False):
+            current = Path(root)
+            if current == packet:
+                directories[:] = [name for name in directories if name != "runtime"]
+            for name in directories:
+                if (current / name).is_symlink():
+                    raise ValueError("HISTORY_PACKET_SYMLINK")
+            for name in files:
+                path = current / name
+                if path == packet / "receipt.json":
+                    continue
+                result[str(path.relative_to(packet))] = digest(regular_bytes(path))
+        return result
+
+    def run(self, identity: str) -> HistoryVerdict:
+        run_id = uuid.uuid4().hex
+        packet = self.output / run_id
+        packet.mkdir(parents=True, mode=0o700)
+        before: dict[str, Any] = {}
+        data: dict[str, Any] = dict(
+            status="REFUSED",
+            historical_claim_verified=None,
+            historical_test_status="UNRESOLVED",
+            reasons=[],
+            execution_count=0,
+        )
+        started = datetime.now(UTC).isoformat()
+        try:
+            edge = self._edge(identity)
+            before = self._custody(edge)
+            (packet / "binding.json").write_bytes(canonical(before))
+            data = (
+                self._v1(edge, packet)
+                if edge.claim.kind == "V1_RECIPE_EQUALITY"
+                else self._operational(edge, packet)
+            )
+            if self._custody(edge) != before:
+                raise ValueError("HISTORY_POSTRUN_CUSTODY_DRIFT")
+        except (
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+            RuntimeError,
+            subprocess.SubprocessError,
+        ) as exc:
+            data.update(
+                status="REFUSED", historical_claim_verified=None, reasons=[str(exc)], execution_count=None
+            )
+        receipt = dict(
+            schema="maezo-ledger-history-execution/v1",
+            relation=identity,
+            run_id=run_id,
+            started=started,
+            ended=datetime.now(UTC).isoformat(),
+            result=data,
+            artifacts=self._artifacts(packet),
+        )
+        raw = canonical(receipt)
+        (packet / "receipt.json").write_bytes(raw)
+        verdict = HistoryVerdict(
+            receipt["schema"],
+            identity,
+            run_id,
+            data["status"],
+            data["historical_claim_verified"],
+            data["historical_test_status"],
+            tuple(data["reasons"]),
+            data["execution_count"],
+            str(packet),
+            digest(raw),
+        )
+        self._issued[run_id] = (verdict, before)
+        return verdict
+
+    def consume(self, verdict: HistoryVerdict, identity: str) -> bool:
+        issued = self._issued.pop(verdict.run_id, None)
+        if (
+            issued is None
+            or issued[0] is not verdict
+            or verdict.relation != identity
+            or verdict.status not in _HISTORY_ACCEPTED
+        ):
+            return False
+        try:
+            packet = Path(verdict.packet)
+            raw = regular_bytes(packet / "receipt.json")
+            edge = self._edge(identity)
+            return (
+                digest(raw) == verdict.receipt_sha256
+                and self._custody(edge) == issued[1]
+                and strict_json(raw)["artifacts"] == self._artifacts(packet)
+                and (edge.claim.kind != "V1_RECIPE_EQUALITY" or self._runtime._runtime_stable())
+            )
+        except (
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+            RuntimeError,
+            subprocess.SubprocessError,
+        ):
+            return False
