@@ -127,7 +127,7 @@ def test_actual_loaded_policy_swap_refuses_preimport(
 ) -> None:
     root, base, old, _ = tiny
     if fault == "helper":
-        monkeypatch.setattr(metadata.MetadataClassifier, "module_metadata", lambda *a, **k: None)
+        monkeypatch.setattr(metadata.Classifier, "module_metadata", lambda *a, **k: None)
     elif fault == "classifier":
         monkeypatch.setattr(
             legacy,
@@ -211,3 +211,106 @@ def test_no_caller_expected_hash_or_dataclass_plan(tiny: Any, tmp_path: Path) ->
         current.CurrentRunner(
             root, tmp_path / "proof", base=base, plan=relations.plan_current_relations(root, base)
         )
+
+
+@pytest.mark.parametrize("fault", ["unknown", "live", "asserted_live"])
+def test_actual_metadata_refusal_has_zero_executions(tiny: Any, tmp_path: Path, fault: str) -> None:
+    root, base, _, _ = tiny
+    source = (
+        "import pytest\npytestmark = pytest.mark.integration\n"
+        'def test_case(): raise AssertionError("must not run")\n'
+    )
+    if fault == "unknown":
+        source = (
+            'import pytest\npytestmark = getattr(pytest.mark, "integration")\n'
+            'def test_case(): raise AssertionError("must not run")\n'
+        )
+    (root / TEST).write_text(source)
+    commit(root)
+    result = consumer.run_integrated(root, base, tmp_path / "proof", allow_live=fault == "asserted_live")
+    assert result["status"] == "UNRESOLVED"
+    assert result["attempt_count"] == 1
+    assert result["execution_count"] == 0
+    verdict = result["rows"][0]["current"]
+    assert verdict["status"] == "REFUSED"
+    assert not (Path(verdict["packet"]) / "request.json").exists()
+
+
+@pytest.mark.parametrize("fault", ["helper", "runtime", "config", "expectation"])
+def test_actual_consumption_checks_fresh_policy_runtime_and_binding(
+    tiny: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    root, base, old, _ = tiny
+    runner = current.CurrentRunner(root, tmp_path / "proof", base=base)
+    occurrence = current.Occurrence(2, old)
+    verdict = runner.run(occurrence)
+    assert verdict.status == "ACCEPTED", verdict
+    packet = Path(verdict.packet)
+    if fault == "helper":
+        monkeypatch.setattr(metadata, "_PLAIN_DECORATORS", {"forged"})
+    elif fault == "runtime":
+        binding = json.loads((packet / "binding.json").read_text())
+        runtime = Path(binding["runtime_identity"]["prefix"])
+        with (runtime / "pyvenv.cfg").open("a") as stream:
+            stream.write("# modified runtime\n")
+    elif fault == "config":
+        with (root / "pyproject.toml").open("a") as stream:
+            stream.write("# modified config\n")
+    else:
+        binding = json.loads((packet / "binding.json").read_text())
+        binding["current_expectation"]["recipe_sha256"] = "f" * 64
+        (packet / "binding.json").write_bytes(current.canonical(binding))
+    assert not runner.consume(verdict, occurrence)
+    assert not runner.consume(verdict, occurrence)
+
+
+def test_actual_target_only_closes_successor(tiny: Any, tmp_path: Path) -> None:
+    root, _, old, new = v1(tiny)
+    ledger = root / "docs/evidence-ledger.md"
+    ledger.write_text("# Tiny source\n" + new + "\n")
+    base = commit(root)
+    ledger.write_text("# Tiny source\n" + new + "\n" + old + "\n")
+    commit(root)
+    result = consumer.run_integrated(root, base, tmp_path / "proof")
+    assert result["selected_count"] == 1
+    assert result["selected_occurrence_identities"] == [f"3:{current.digest(old.encode())}"]
+    assert result["execution_count"] == 2
+    assert result["status"] == "UNRESOLVED"
+
+
+@pytest.mark.parametrize("fault", ["malformed", "ambiguous", "orphan", "unsupported", "cross_path"])
+def test_actual_bad_relations_never_launch(tiny: Any, tmp_path: Path, fault: str) -> None:
+    root, base, old, new = v1(tiny)
+    if fault == "malformed":
+        new = new.replace("source_commit=", "source_commit=INVALID")
+    elif fault == "ambiguous":
+        old += "\n" + old
+    elif fault == "orphan":
+        new = new.replace("target=OLD;", "target=MISSING;")
+    elif fault == "unsupported":
+        new = new.replace("ledger-supersedes:v1;", "ledger-supersedes:v99;")
+    else:
+        alternate = "tests/unit/test_alternate.py"
+        (root / alternate).write_text("def test_new(): assert True\n")
+        new = new.replace(TEST, alternate)
+    (root / "docs/evidence-ledger.md").write_text("# Tiny source\n" + old + "\n" + new + "\n")
+    commit(root)
+    with pytest.raises((ValueError, legacy.SupersessionError)):
+        consumer.run_integrated(root, base, tmp_path / "proof")
+    assert not (tmp_path / "proof").exists()
+
+
+def test_actual_stale_inprocess_candidate_cannot_reuse_runtime(tiny: Any, tmp_path: Path) -> None:
+    root, base, old, _ = tiny
+    runner = current.CurrentRunner(root, tmp_path / "proof", base=base)
+    occurrence = current.Occurrence(2, old)
+    passed = runner.run(occurrence)
+    assert passed.status == "ACCEPTED", passed
+    assert runner.consume(passed, occurrence)
+    with (root / TEST).open("a") as stream:
+        stream.write("# new candidate\n")
+    commit(root)
+    stale = runner.run(occurrence)
+    assert stale.status == "REFUSED"
+    assert "CURRENT_EXPECTATION_STALE" in stale.reasons
+    assert not (Path(stale.packet) / "request.json").exists()

@@ -251,9 +251,27 @@ def _g2_policy() -> dict[str, Any]:
 
     for module in (legacy, pytest_metadata_admission):
         path = Path(module.__file__).resolve()
+        if path != Path(__file__).resolve().with_name(module.__name__.rsplit(".", 1)[1] + ".py"):
+            raise ValueError("G2_LOADED_POLICY_DRIFT")
         payload = regular_bytes(path)
         trusted = types.ModuleType(module.__name__)
         trusted.__file__ = str(path)
+        for value in vars(module).values():
+            members = (
+                vars(value).values()
+                if isinstance(value, type) and value.__module__ == module.__name__
+                else (value,)
+            )
+            for member in members:
+                if isinstance(member, (staticmethod, classmethod)):
+                    member = member.__func__
+                if (
+                    isinstance(member, types.FunctionType)
+                    and member.__module__ == module.__name__
+                    and member.__code__.co_filename == str(path)
+                    and member.__globals__ is not vars(module)
+                ):
+                    raise ValueError("G2_LOADED_POLICY_DRIFT")
         exec(compile(payload, str(path), "exec", dont_inherit=True), vars(trusted))
         if _module_policy(module) != _module_policy(trusted):
             raise ValueError("G2_LOADED_POLICY_DRIFT")
@@ -441,6 +459,7 @@ class CurrentRunner:
             raise ValueError("INVALID_RUN_BOUNDARY")
         self.timeout = timeout
         self._issued: dict[str, CurrentExecutionVerdict] = {}
+        self._executed: set[str] = set()
         self.base = base
         self._scope: RelationScope | None = None
         self._runtime: dict[str, Any] | None = None
@@ -601,9 +620,15 @@ class CurrentRunner:
             admission = classifier(self.root, expectation.authoritative_row.test_path)
             if admission.status not in {"OFFLINE", "LIVE"}:
                 raise ValueError("G2_ADMISSION_UNKNOWN")
-            if admission.status == "LIVE" and not self.allow_live:
-                raise ValueError("G2_LIVE_ASSERTION_REQUIRED")
+            if admission.status == "LIVE":
+                if not self.allow_live:
+                    raise ValueError("G2_LIVE_ASSERTION_REQUIRED")
+                raise ValueError("LIVE_OWNER_CONTEXT_NOT_IMPLEMENTED")
             before = source_inventory(self.root)
+            if expectation.candidate.source_sha256 != digest(
+                canonical(before)
+            ) or expectation.test_source_sha256 != before["files"].get(row.test_path):
+                raise ValueError("CURRENT_EXPECTATION_SOURCE_DRIFT")
             if before["files"].get(row.test_path) != admission.source_sha256:
                 raise ValueError("G2_ADMISSION_SOURCE_DRIFT")
             dependencies = dict(admission.dependencies)
@@ -690,6 +715,7 @@ class CurrentRunner:
                     stderr=stderr,
                     start_new_session=True,
                 )
+                self._executed.add(run_id)
                 deadline = time.monotonic() + self.timeout
                 try:
                     while process.poll() is None:
@@ -810,5 +836,5 @@ class CurrentRunner:
             return stable and all(
                 digest(regular_bytes(packet / name)) == sha for name, sha in receipt["artifacts"].items()
             )
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError):
             return False

@@ -65,7 +65,8 @@ def run_integrated(root: Path, base: str, output: Path, *, allow_live: bool = Fa
         occurrence = Occurrence(physical.line, physical.raw_line)
         verdict = runner.run(occurrence)
         consumed = runner.consume(verdict, occurrence)
-        executed.append(physical.identity)
+        if verdict.run_id in runner._executed:
+            executed.append(physical.identity)
         history_required = bool(requirement.required_relations)
         rows.append(
             {
@@ -98,6 +99,7 @@ def run_integrated(root: Path, base: str, output: Path, *, allow_live: bool = Fa
         "required_relation_identities": list(scope.required_relations),
         "executed_occurrence_identities": executed,
         "execution_count": len(executed),
+        "attempt_count": len(rows),
         "relations": [
             {
                 "identity": edge.identity,
