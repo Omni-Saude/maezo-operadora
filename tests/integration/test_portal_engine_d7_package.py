@@ -784,6 +784,39 @@ def _readiness_milliseconds(started_at: float) -> int:
     return max(0, int(round((time.monotonic() - started_at) * 1000)))
 
 
+def _readiness_connection_trace(started_at: float) -> tuple[dict, object]:
+    """Observe six pinned httpcore events only; never inspect trace info."""
+    trace = {"events": [], "overflow": False, "unavailable": False}
+    names = {
+        f"connection.{stage}.{outcome}": (stage, outcome)
+        for stage in ("connect_tcp", "start_tls")
+        for outcome in ("started", "complete", "failed")
+    }
+
+    def observe(name: str, info: object) -> None:
+        del info
+        if type(name) is not str or name not in names:
+            return
+        if len(trace["events"]) >= 8:
+            trace["overflow"] = True
+            return
+        try:
+            elapsed = _readiness_milliseconds(started_at)
+            stage, outcome = names[name]
+            event = {
+                "stage": stage,
+                "outcome": outcome,
+                "elapsed_ms": min(elapsed, 86_400_000),
+            }
+            if elapsed > 86_400_000:
+                event["elapsed_ms_saturated"] = True
+            trace["events"].append(event)
+        except Exception:
+            trace["unavailable"] = True
+
+    return trace, observe
+
+
 def wait_ready(purpose: str = "agent") -> None:
     started_at = time.monotonic()
     deadline = started_at + 90
@@ -802,6 +835,8 @@ def wait_ready(purpose: str = "agent") -> None:
         return True
 
     def append_attempt(item: dict) -> None:
+        if connection_trace["events"] or connection_trace["overflow"] or connection_trace["unavailable"]:
+            item["connection_trace"] = connection_trace
         # v1 elapsed extension: exact rounded milliseconds through one day;
         # beyond this representation cap, explicitly mark a saturated value.
         # This is diagnostic only and never extends the 90-second deadline.
@@ -817,12 +852,17 @@ def wait_ready(purpose: str = "agent") -> None:
     record()
     while time.monotonic() < deadline:
         request_started_ms = _readiness_milliseconds(started_at)
+        connection_trace, observe_connection = _readiness_connection_trace(started_at)
         try:
             with client(purpose) as connection:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
-                response = connection.get("/engine-rest/maezo/v1/readiness", timeout=min(15, remaining))
+                response = connection.get(
+                    "/engine-rest/maezo/v1/readiness",
+                    timeout=min(15, remaining),
+                    extensions={"trace": observe_connection},
+                )
             status = response.status_code
             assert type(status) is int and 100 <= status <= 599, "invalid readiness HTTP status"
             append_attempt(
