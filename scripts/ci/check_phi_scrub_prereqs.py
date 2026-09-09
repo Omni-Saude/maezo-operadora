@@ -3,67 +3,24 @@
 (R-009, owner decision on gap D7-01 — OWNER-DECISIONS-REGISTER row R-009,
 `Bold-Decision Review v2 CEO 2026-09-04`).
 
-Purpose
--------
-`spec/policies/privacy/phi-business-key-remediation.yaml` frames — but does not itself enforce —
-two prerequisites of the `scrub_only` remediation mode (inherited by `pseudo_keys`, which is
-`scrub_only` PLUS more): the manifest's own `pre_requisitos_scrub_only` block says so in prose,
-and prose does not block a merge. The owner's ratified answer to R-009 is explicit: "converter as
-duas pre-condicoes de prosa em cerca de CI no MESMO PR" — turn the two prose prerequisites into a
-red CI gate before any PR can take the manifest out of `DRAFT` with an unmet one. This script is
-that gate.
+Build-time contract (R009-EIR01--06, docs/plan.md Wave 3)
+-------------------------------------------------------
+Validate readable UTF-8 YAML mappings with unique string keys at every depth before
+resolving governance. DRAFT permits known staged modes, no ratification or a fully inert
+ratification block, and a boolean template marker. RATIFICADO requires complete runtime
+ratification and no true template marker. Unknown/malformed/partial states fail CI even
+when the unchanged runtime safely stays OFF. Valid ratified OFF passes.
 
-THE TWO TRACKED PREREQUISITES (code-frozen, see `TRACKED_PREREQUISITE_IDS` below):
+Canonical effective scrub_only/pseudo_keys requires both frozen prerequisite IDs, exact
+boolean flags, a concrete nonsecret receipt-reference URI and an aware positive drain
+interval in UTC. A reference-only gate does not fetch receipts or secrets, prove overlay
+coverage, verify a signature, prove current provisioning, or prove queues were drained.
+Required external receipt contents and actual overlay bindings are documented in the
+manifest prerequisite block. Never put key values in the manifest. CLI diagnostics omit
+receipt values. Additional pseudo_keys prerequisites are outside this two-item gate.
 
-  1. ``phi_hmac_key_provisionado`` — the real `PHI_HMAC_KEY` secret VALUE is provisioned (not
-     merely wired) in the real overlays. Unmet today: the env-var/secret-reference wiring exists
-     in `deploy/helm/maezo-tenant/templates/deployment-{agent-runtime,worker-daemon,
-     webhook-receiver}.yaml` and `deploy/aws-ecs/envs/dev-sa-east-1/service-{agents,worker}.tf`,
-     but `deploy/helm/maezo-tenant/templates/externalsecret.yaml:170` itself records populating
-     the real key as a manual, still-open step. Without it, a ratified `scrub_only` makes every
-     composition root report NOT READY at boot (`src/maezo/platform/observability.py
-     ::_build_key_scrubber` raises `PseudonymizerKeyMissingError`, caught by
-     `bootstrap_observability`).
-
-  2. ``janela_drenagem_cancel_inad`` — a scheduled drain window for the CANCEL/INAD Kafka topics,
-     because `scrub_only` changes the Kafka MESSAGE KEY (hence the partition) for those two
-     families.
-
-Both prerequisites are read from the manifest's own `pre_requisitos_scrub_only` block — never
-recomputed from the codebase by this script — so ratifying the mode is still a DATA act (fill in
-`evidencia_provisionamento` / `janela_drenagem.inicio+fim` and flip `atendido: true`), exactly the
-posture `phi_key_policy.py`'s docstring already commits to for the manifest as a whole.
-
-Fail-closed contract
----------------------
-- `status: DRAFT` (or any other non-fully-ratified state — partial `ratificacao`, unknown `modo`,
-  `unratified: true`, duplicate top-level key, ...) -> PASS, exit 0. Nothing is in force; there is
-  nothing to gate. Delegated to `maezo.platform.privacy.phi_key_policy.load_phi_key_policy` — the
-  SAME loader the runtime uses to resolve `modo` — so this gate can never disagree with the
-  runtime about whether the manifest is actually ratified.
-- Fully ratified with `modo: off` -> PASS, exit 0. The owner explicitly chose to stay off; no
-  scrub-only prerequisite applies.
-- Fully ratified with `modo: scrub_only` or `modo: pseudo_keys` -> the `pre_requisitos_scrub_only`
-  block is READ and EVERY tracked item must be present, `atendido: true` (an exact Python `bool`,
-  never a truthy string), AND carry non-blank required evidence:
-    * `phi_hmac_key_provisionado`  requires non-blank `evidencia_provisionamento`.
-    * `janela_drenagem_cancel_inad` requires non-blank `janela_drenagem.inicio` AND
-      `janela_drenagem.fim`.
-  Any miss -> FAIL, printing every unmet prerequisite (never just the first).
-- The block is ABSENT, not a list, missing a tracked id, carries an unknown extra id, or any item
-  has a malformed shape (missing key, `atendido` not a bool, `janela_drenagem` not a mapping when
-  present, ...) -> FAIL. A block that cannot be read cleanly must never read as "satisfied".
-
-This is a MERGE gate, not a signature: it never writes `status`/`ratificacao.*`, and passing it
-does not ratify anything — see the manifest's own `floor_note` (R-009 dossier) and
-`docs/evidence-ledger.md` row `R-009`.
-
-Non-vacuity
------------
-`self_check()` drives `evaluate()` over synthetic manifests (in-memory dicts, never touching the
-shipped file) and asserts it can FAIL every one of the four ways above AND PASS both the DRAFT and
-the all-met-RATIFICADO cases, before any real measurement is trusted — same posture as
-`check_deviation_expiry.py`/`generate_release_floor.py`.
+No ratification field is written. Real key provisioning and operational drain execution
+remain operator acts. ADR-0006/0035 and DL-0043/0044/0045 remain unchanged.
 
 Usage
 -----
@@ -74,11 +31,16 @@ Usage
 from __future__ import annotations
 
 import argparse
+import copy
+import re
 import sys
 import tempfile
+from collections.abc import Hashable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -120,6 +82,52 @@ def _is_nonblank_str(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _valid_provisioning_reference(value: Any) -> bool:
+    """Nonsecret evidence://store/receipt or HTTPS receipt pointer; never dereferenced here."""
+    if not isinstance(value, str) or not 16 <= len(value) <= 2048:
+        return False
+    # Restrict to unambiguous ASCII URI tokens; reject percent encoding, userinfo and metadata.
+    if not re.fullmatch(r"[A-Za-z0-9:/._-]+", value):
+        return False
+    parts = urlsplit(value)
+    if parts.scheme not in {"evidence", "https"} or not parts.netloc or not parts.path:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?", parts.netloc):
+        return False
+    segments = parts.path[1:].split("/")
+    if any(not segment or segment in {".", ".."} for segment in segments):
+        return False
+    if len(segments[-1]) < 8 or "..." in value:
+        return False
+    tokens = re.split(r"[^a-z0-9]+", value.lower())
+    return not set(tokens).intersection(
+        {"todo", "pendente", "pending", "placeholder", "changeme", "tbd", "null", "none", "example"}
+    )
+
+
+def _utc_instant(value: Any) -> datetime | None:
+    """Require explicit ISO-8601 seconds and zone; never infer a timezone or duration."""
+    if not isinstance(value, str) or not re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})", value
+    ):
+        return None
+    try:
+        instant = datetime.fromisoformat(value)
+        if instant.utcoffset() is None:
+            return None
+        # fromisoformat normalizes out-of-range offset minutes, so validate their syntax too.
+        if value[-1] != "Z" and (int(value[-5:-3]) > 23 or int(value[-2:]) > 59):
+            return None
+        return instant.astimezone(UTC)
+    except (ValueError, OverflowError):
+        return None
+
+
+def _valid_drain_interval(start: Any, end: Any) -> bool:
+    start_utc, end_utc = _utc_instant(start), _utc_instant(end)
+    return start_utc is not None and end_utc is not None and end_utc > start_utc
+
+
 def _evaluate_item(item: dict[str, Any], prereq_id: str) -> Finding:
     """Evaluate one already-located `pre_requisitos_scrub_only` list entry. Never raises.
 
@@ -154,16 +162,20 @@ def _evaluate_item(item: dict[str, Any], prereq_id: str) -> Finding:
                     f"{item.get('efeito_se_ratificado_sem_isto', '(ausente)')}"
                 ),
             )
-        if not _is_nonblank_str(evidencia):
+        if not _valid_provisioning_reference(evidencia):
             return Finding(
                 level=LEVEL_FAIL,
                 prereq_id=prereq_id,
                 headline=(
-                    "`atendido: true` mas `evidencia_provisionamento` está vazio — "
+                    "`atendido: true` mas `evidencia_provisionamento` não é referência válida — "
                     "satisfeito sem prova não conta"
                 ),
             )
-        return Finding(level=LEVEL_OK, prereq_id=prereq_id, headline=f"provisionado — {evidencia}")
+        return Finding(
+            level=LEVEL_OK,
+            prereq_id=prereq_id,
+            headline="referência registrada; provisionamento real não verificado",
+        )
 
     if prereq_id == "janela_drenagem_cancel_inad":
         janela = item.get("janela_drenagem")
@@ -185,14 +197,11 @@ def _evaluate_item(item: dict[str, Any], prereq_id: str) -> Finding:
                     f"{item.get('efeito_se_ratificado_sem_isto', '(ausente)')}"
                 ),
             )
-        if not (_is_nonblank_str(inicio) and _is_nonblank_str(fim)):
+        if not _valid_drain_interval(inicio, fim):
             return Finding(
                 level=LEVEL_FAIL,
                 prereq_id=prereq_id,
-                headline=(
-                    "`atendido: true` mas `janela_drenagem.inicio`/`fim` não estão ambos "
-                    f"preenchidos (inicio={inicio!r}, fim={fim!r})"
-                ),
+                headline=("`janela_drenagem` exige instantes com timezone e fim posterior ao início em UTC"),
             )
         return Finding(level=LEVEL_OK, prereq_id=prereq_id, headline=f"janela registrada: {inicio} -> {fim}")
 
@@ -213,20 +222,11 @@ def evaluate(data: dict[str, Any]) -> list[Finding]:
         data: the manifest's top-level YAML mapping (`yaml.safe_load` output). No I/O, no
             environment — every finding is derived from this dict alone.
     """
-    modo = data.get("modo")
-    # `modo: "off"` (quoted, the shipped form) and the YAML-1.1 bare-`off` -> `False` trap both
-    # mean OFF; neither needs the prerequisites block. Anything else that ISN'T exactly
-    # "scrub_only"/"pseudo_keys" is some other unresolved state that `phi_key_policy.py` already
-    # demotes to OFF at the loader level — callers of `evaluate` only reach here after confirming
-    # ratification, so by the time this runs `modo` is one of the three known tokens.
-    if modo not in ("scrub_only", "pseudo_keys"):
-        return [
-            Finding(
-                level=LEVEL_OK,
-                prereq_id="(manifesto)",
-                headline=f"modo={modo!r} — nenhum pré-requisito de scrub_only se aplica",
-            )
-        ]
+    modo = _canonical_mode(data.get("modo"))
+    if modo is None:
+        return [_failure("modo inválido")]
+    if modo == "off":
+        return [Finding(LEVEL_OK, "(manifesto)", "modo efetivo off")]
 
     block = data.get(_BLOCK_KEY)
     if not isinstance(block, list):
@@ -317,6 +317,11 @@ def exit_code_for(findings: list[Finding]) -> int:
 
 SELF_CHECK_SCENARIOS: tuple[tuple[str, str], ...] = (
     ("draft", LEVEL_OK),
+    ("normalized_active_missing", LEVEL_FAIL),
+    ("partial_promotion", LEVEL_FAIL),
+    ("placeholder_reference", LEVEL_FAIL),
+    ("zero_utc_window", LEVEL_FAIL),
+    ("malformed_draft", LEVEL_FAIL),
     ("ratificado_modo_off", LEVEL_OK),
     ("ratificado_scrub_only_tudo_atendido", LEVEL_OK),
     ("ratificado_scrub_only_hmac_nao_atendido", LEVEL_FAIL),
@@ -338,7 +343,7 @@ _RATIFICACAO_COMPLETA: dict[str, Any] = {
 _MET_HMAC_ITEM: dict[str, Any] = {
     "id": "phi_hmac_key_provisionado",
     "atendido": True,
-    "evidencia_provisionamento": "AWS Secrets Manager arn:...:phi-hmac-key populado 2026-09-06, verificado por dpo-ratifier",
+    "evidencia_provisionamento": "evidence://synthetic-fixture/deployment-check-20260906",
 }
 _MET_JANELA_ITEM: dict[str, Any] = {
     "id": "janela_drenagem_cancel_inad",
@@ -418,6 +423,26 @@ def build_self_check_cases() -> tuple[tuple[str, dict[str, Any]], ...]:
             _BLOCK_KEY: [_UNMET_HMAC_ITEM, _MET_JANELA_ITEM],
         },
     }
+    complete = manifests["ratificado_scrub_only_tudo_atendido"]
+    normalized = copy.deepcopy(complete)
+    normalized["modo"] = " SCRUB_ONLY "
+    del normalized[_BLOCK_KEY]
+    partial = copy.deepcopy(complete)
+    partial["ratificacao"]["ratificado"] = False
+    placeholder = copy.deepcopy(complete)
+    placeholder[_BLOCK_KEY][0]["evidencia_provisionamento"] = "TODO"
+    zero = copy.deepcopy(complete)
+    zero[_BLOCK_KEY][1]["janela_drenagem"] = {
+        "inicio": "2026-10-01T01:00:00-03:00",
+        "fim": "2026-10-01T04:00:00Z",
+    }
+    manifests.update(
+        normalized_active_missing=normalized,
+        partial_promotion=partial,
+        placeholder_reference=placeholder,
+        zero_utc_window=zero,
+        malformed_draft={"status": "DRAFT", "modo": "unknown"},
+    )
     declared = [name for name, _ in SELF_CHECK_SCENARIOS]
     if sorted(manifests) != sorted(declared):
         raise RuntimeError(
@@ -445,8 +470,21 @@ def self_check() -> list[str]:
             expected = expected_by_name[name]
             if actual != expected:
                 problems.append(
-                    f"self-check '{name}': esperava {expected}, veio {actual} ({[f.render() for f in findings]})"
+                    f"self-check '{name}': esperava {expected}, veio {actual} "
+                    f"({[f.render() for f in findings]})"
                 )
+        for name, payload in (
+            ("missing", None),
+            ("invalid_utf8", b"\xff"),
+            ("non_mapping", b"[]"),
+            ("malformed_yaml", b"status: ["),
+            ("nested_duplicate", b"status: DRAFT\nmodo: off\nextra: {atendido: false, atendido: true}\n"),
+        ):
+            tmp_path = Path(tmp_dir) / f"{name}.yaml"
+            if payload is not None:
+                tmp_path.write_bytes(payload)
+            if exit_code_for(run_gate(tmp_path)) != 1:
+                problems.append(f"self-check '{name}': expected ingestion failure")
     return problems
 
 
@@ -455,53 +493,135 @@ def self_check() -> list[str]:
 # ---------------------------------------------------------------------------------------------
 
 
+class _UniqueMappingLoader(yaml.SafeLoader):
+    """Reject duplicate/non-string keys, including nested mappings and merge overrides."""
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Hashable, Any]:
+        self.flatten_mapping(node)
+        result: dict[Hashable, Any] = {}
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if not isinstance(key, str) or key in result:
+                raise yaml.constructor.ConstructorError(
+                    None, None, "invalid or duplicate mapping key", node.start_mark
+                )
+            result[key] = self.construct_object(value_node, deep=deep)
+        return result
+
+
 def _load_manifest(manifest_path: Path) -> tuple[dict[str, Any] | None, str | None]:
-    """Read + parse the manifest. Returns (data, None) or (None, error message). Never raises."""
-    if not manifest_path.is_file():
-        return None, f"no readable manifest file at {manifest_path}"
+    """Strict build-time ingestion; errors are bounded and do not echo manifest contents."""
     try:
         raw_text = manifest_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        return None, f"could not read {manifest_path}: {exc}"
-    try:
-        data = yaml.safe_load(raw_text)
-    except yaml.YAMLError as exc:
-        return None, f"malformed YAML in {manifest_path}: {exc}"
+        data = yaml.load(raw_text, Loader=_UniqueMappingLoader)
+    except (OSError, UnicodeError, yaml.YAMLError, RecursionError, ValueError):
+        return None, "manifesto ilegível ou YAML UTF-8 inválido/duplicado"
     if not isinstance(data, dict):
-        return None, f"{manifest_path}: root must be a mapping"
+        return None, "raiz deve ser mapeamento"
     return data, None
 
 
-def run_gate(manifest_path: Path) -> list[Finding]:
-    """The full pipeline `main()` runs against a real path: load -> ratification check -> evaluate.
+def _failure(message: str) -> Finding:
+    return Finding(LEVEL_FAIL, "(manifesto)", message)
 
-    Factored out so `self_check()` drives the EXACT SAME code path `main()` does (including the
-    canonical `load_phi_key_policy` ratification gate), never a re-derived shortcut that could
-    drift from what production actually checks. Never raises.
-    """
+
+def _canonical_mode(raw: Any) -> str | None:
+    # Runtime's canonical parser also handles the YAML 1.1 bare-off -> False spelling.
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    from maezo.platform.privacy.phi_key_policy import _parse_mode  # noqa: PLC0415
+
+    parsed = _parse_mode(raw)
+    return parsed.value if parsed is not None else None
+
+
+def _validate_state(data: dict[str, Any]) -> str | None:
+    """Build schema, deliberately stricter than runtime OFF-on-invalid recovery."""
+    status = data.get("status")
+    if not isinstance(status, str) or status.strip().upper() not in {"DRAFT", "RATIFICADO"}:
+        return "status inválido"
+    if _canonical_mode(data.get("modo")) is None:
+        return "modo inválido"
+    if "version" in data and (type(data["version"]) is not int or data["version"] != 1):
+        return "version inválida"
+    if "unratified" in data and type(data["unratified"]) is not bool:
+        return "unratified deve ser booleano"
+    rat = data.get("ratificacao")
+    if status.strip().upper() == "DRAFT":
+        if "ratificacao" not in data:
+            return None
+        if not isinstance(rat, dict) or rat.get("ratificado") is not False:
+            return "DRAFT com ratificação parcial/contraditória"
+        if any(field not in rat or rat[field] is not None for field in ("revisor", "ratificado_em")):
+            return "DRAFT exige assinaturas nulas"
+        return None
+    if data.get("unratified") is True:
+        return "RATIFICADO contradiz unratified"
+    if not isinstance(rat, dict) or rat.get("ratificado") is not True:
+        return "RATIFICADO exige ratificação completa"
+    if any(not _is_nonblank_str(rat.get(field)) for field in ("revisor", "ratificado_em")):
+        return "RATIFICADO exige revisor e data"
+    return None
+
+
+def _validate_inert_block(data: dict[str, Any]) -> list[Finding]:
+    """Absent block is inert; a present block must be well formed even when inactive."""
+    if _BLOCK_KEY not in data:
+        return []
+    block = data[_BLOCK_KEY]
+    if not isinstance(block, list):
+        return [_failure("bloco de pré-requisitos inválido")]
+    seen: set[str] = set()
+    for item in block:
+        if not isinstance(item, dict):
+            return [_failure("entrada de pré-requisito inválida")]
+        ident = item.get("id")
+        if not isinstance(ident, str) or ident not in TRACKED_PREREQUISITE_IDS or ident in seen:
+            return [_failure("id de pré-requisito inválido/duplicado")]
+        seen.add(ident)
+        if type(item.get("atendido")) is not bool:
+            return [_failure("atendido deve ser booleano")]
+        if item["atendido"]:
+            finding = _evaluate_item(item, ident)
+            if finding.level == LEVEL_FAIL:
+                return [finding]
+        elif ident == "phi_hmac_key_provisionado":
+            value = item.get("evidencia_provisionamento")
+            if value not in (None, "") and not _valid_provisioning_reference(value):
+                return [_failure("referência de pré-requisito inválida")]
+        else:
+            window = item.get("janela_drenagem")
+            if not isinstance(window, dict) or set(window) != {"inicio", "fim"}:
+                return [_failure("janela de pré-requisito inválida")]
+            start, end = window["inicio"], window["fim"]
+            if (start is not None or end is not None) and not _valid_drain_interval(start, end):
+                return [_failure("intervalo de pré-requisito inválido")]
+    if seen != set(TRACKED_PREREQUISITE_IDS):
+        return [_failure("bloco de pré-requisitos incompleto")]
+    return []
+
+
+def run_gate(manifest_path: Path) -> list[Finding]:
+    """Strict artifact validation -> canonical runtime state -> prerequisite evaluation."""
+    data, error = _load_manifest(manifest_path)
+    if error is not None or data is None:
+        return [_failure(error or "manifesto inválido")]
+    state_error = _validate_state(data)
+    if state_error:
+        return [_failure(state_error)]
     sys.path.insert(0, str(REPO_ROOT / "src"))
     from maezo.platform.privacy.phi_key_policy import load_phi_key_policy  # noqa: PLC0415
 
-    policy = load_phi_key_policy(manifest_path)
-    if not policy.ratificado:
-        return [
-            Finding(
-                level=LEVEL_OK,
-                prereq_id="(manifesto)",
-                headline=f"manifesto não está ratificado (declarado={policy.declarado.value}); nada em vigor",
-            )
-        ]
-
-    data, error = _load_manifest(manifest_path)
-    if error is not None or data is None:
-        return [
-            Finding(
-                level=LEVEL_FAIL,
-                prereq_id="(manifesto)",
-                headline=f"manifesto ratificado mas ilegível para a cerca ({error})",
-            )
-        ]
-    return evaluate(data)
+    # Read the immutable bytes we validated, not a second mutable read of the caller path.
+    with tempfile.TemporaryDirectory(prefix="phi-scrub-validated-") as tmp:
+        validated_path = Path(tmp) / "manifest.yaml"
+        validated_path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+        policy = load_phi_key_policy(validated_path)
+    if data["status"].strip().upper() == "RATIFICADO" and not policy.ratificado:
+        return [_failure("ratificação recusada pelo carregador canônico")]
+    if not policy.scrubbing_enabled:
+        errors = _validate_inert_block(data)
+        return errors or [Finding(LEVEL_OK, "(manifesto)", "manifesto válido e inerte; modo efetivo off")]
+    return evaluate({**data, "modo": policy.modo.value})
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -527,10 +647,7 @@ def main(argv: list[str] | None = None) -> int:
     if not manifest_path.is_absolute():
         manifest_path = REPO_ROOT / manifest_path
 
-    # Ratification is resolved through the SAME loader the runtime uses — never re-derived here —
-    # so this gate can never disagree with `phi_key_policy.py` about whether the manifest is
-    # actually in force. `sys.path` is shimmed exactly like `check_deviation_expiry.py` does, so
-    # this script has no import-time dependency on the package being installed as a wheel.
+    # Strict build validation precedes the unchanged canonical runtime resolution.
     try:
         findings = run_gate(manifest_path)
     except Exception as exc:  # noqa: BLE001 - an unimportable loader is itself a fail-closed finding

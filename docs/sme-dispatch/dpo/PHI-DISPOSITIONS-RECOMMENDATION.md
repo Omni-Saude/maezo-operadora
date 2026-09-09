@@ -263,13 +263,16 @@ as seis restantes para a rodada seguinte.
 2. **Posição da operação/ANS** sobre a busca por matrícula no Cockpit (§3.3). O registro de
    decisões (R-008) exige que a operação seja ouvida **antes** do PR de ratificação.
 3. **Cerca de CI dos pré-requisitos de `scrub_only`** (R-009): `scripts/ci/check_phi_scrub_prereqs.py`
-   reprova qualquer PR que deixe o arquivo sair de `DRAFT` (com `modo: scrub_only`/`pseudo_keys`)
-   sem `phi/hmac-key` provisionado e sem a janela de drenagem CANCEL/INAD registrada. **Construída**
-   (Makefile `check-phi-scrub-prereqs`, wired em `.github/workflows/ci.yml`/`validate-artifacts`;
-   `pre_requisitos_scrub_only` no próprio manifesto). A cerca só LÊ o arquivo — nunca escreve
-   `status`/`ratificacao.*`; as duas pré-condições continuam pendentes de dado real (item 4 abaixo
-   + a janela de drenagem), o que a mantém vermelha caso o PR de ratificação tente sair de `DRAFT`
-   sem elas.
+   está construída e reparada contra R009-EIR01–06 (Makefile `check-phi-scrub-prereqs`,
+   `.github/workflows/ci.yml`/`validate-artifacts`). Reprova arquivo inválido, duplicações,
+   promoção parcial e modos ativos normalizados sem os dois itens atendidos. DRAFT bem formado
+   e RATIFICADO/off deliberado passam. O contrato de `pre_requisitos_scrub_only` exige referência
+   não secreta concreta ao recibo de provisionamento dos overlays e intervalo com timezone,
+   fim posterior ao início em UTC. O CI valida **apenas a referência**, sem consultar cofre,
+   verificar conteúdo/cobertura do recibo ou comprovar existência do segredo; requer revisão
+   externa e verificação live antes da ativação. Agendamento não prova drenagem executada.
+   A cerca nunca escreve `status`/`ratificacao.*` e não aprova requisitos adicionais de
+   `pseudo_keys`; ambos os itens continuam `atendido: false` e dependem de atos reais.
 4. **Provisionamento de `PHI_HMAC_KEY`** (M-24 / D6-04). Sem ele, um `scrub_only` ratificado faz
    cada composition root reportar **NOT READY no boot** — `bootstrap_observability` captura o
    `PseudonymizerKeyMissingError` e deixa a readiness vermelha

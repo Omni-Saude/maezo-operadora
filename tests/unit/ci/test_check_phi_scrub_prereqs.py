@@ -1,31 +1,4 @@
-"""Behavioural proofs for the `scrub_only`/`pseudo_keys` prerequisite gate (R-009, gap D7-01).
-
-The claim under test is narrow and total: **`spec/policies/privacy/phi-business-key-remediation
-.yaml` cannot leave `status: DRAFT` with `modo: scrub_only`/`pseudo_keys` ratified while either of
-the two tracked prerequisites (`phi_hmac_key_provisionado`, `janela_drenagem_cancel_inad`) is
-`atendido: false` or missing evidence, without turning this gate red.** Everything here is one of
-its faces:
-
-  (a) GREEN TODAY against the real shipped manifest (it is `DRAFT`) — wiring this gate into
-      `validate-artifacts` does not break the tree the day it lands;
-  (b) GREEN while `status: DRAFT`, regardless of what `modo`/the prerequisite block declare —
-      nothing is in force, so there is nothing to gate (mirrors `phi_key_policy.py`'s own
-      "a draft manifest declaring pseudo_keys resolves to off" rule);
-  (c) RED when `status: RATIFICADO` + `modo: scrub_only` (or `pseudo_keys`, which INHERITS the
-      scrub_only prerequisites) and either tracked prerequisite is `atendido: false`, or
-      `atendido: true` without its required evidence;
-  (d) GREEN when `status: RATIFICADO` + `modo: scrub_only`/`pseudo_keys` and BOTH tracked
-      prerequisites are `atendido: true` with evidence;
-  (e) RED on a malformed `pre_requisitos_scrub_only` block: absent, not a list, missing a tracked
-      id, an unknown extra id, a non-bool `atendido`, or a non-mapping `janela_drenagem`;
-  (f) GREEN when `status: RATIFICADO` + `modo: off` — the owner explicitly chose to stay off, so
-      no scrub-only prerequisite applies;
-  (g) the gate never disagrees with `phi_key_policy.load_phi_key_policy` about whether the
-      manifest is ratified (delegated, not re-derived).
-
-Sibling of `tests/unit/ci/test_check_deviation_expiry.py`: same posture of asserting the gate
-against the REAL tree AND against synthetic fixtures.
-"""
+"""R009 build validation, runtime canonical mode, and reference-only prerequisite proofs."""
 
 from __future__ import annotations
 
@@ -60,7 +33,7 @@ _RATIFICACAO_COMPLETA: dict[str, Any] = {
 _MET_HMAC_ITEM: dict[str, Any] = {
     "id": "phi_hmac_key_provisionado",
     "atendido": True,
-    "evidencia_provisionamento": "arn:aws:secretsmanager:sa-east-1:...:phi-hmac-key populado 2026-09-06",
+    "evidencia_provisionamento": "evidence://synthetic-fixture/deployment-check-20260906",
 }
 _MET_JANELA_ITEM: dict[str, Any] = {
     "id": "janela_drenagem_cancel_inad",
@@ -140,12 +113,9 @@ def test_the_shipped_manifest_is_draft_with_the_new_block_present_but_unmet() ->
     [
         pytest.param(None, id="block-absent"),
         pytest.param([_UNMET_HMAC_ITEM, _UNMET_JANELA_ITEM], id="block-present-both-unmet"),
-        pytest.param([{"id": "phi_hmac_key_provisionado", "atendido": "not-a-bool"}], id="block-malformed"),
     ],
 )
-def test_draft_always_passes_regardless_of_the_block(
-    tmp_path: Path, block: list[dict[str, Any]] | None
-) -> None:
+def test_draft_passes_only_with_well_formed_block(tmp_path: Path, block: list[dict[str, Any]] | None) -> None:
     manifest: dict[str, Any] = {"status": "DRAFT", "modo": "scrub_only"}
     if block is not None:
         manifest[gate._BLOCK_KEY] = block
@@ -271,32 +241,21 @@ def test_duplicate_id_in_block_fails(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------------------------
-# (g) a missing/corrupt manifest FILE resolves like DRAFT — never a silent "satisfied"
-# ---------------------------------------------------------------------------------------------
-#
-# Distinguish this from the `pre_requisitos_scrub_only` BLOCK being absent while the manifest IS
-# ratified+scrub_only (`test_ratified_scrub_only_with_absent_block_fails` above, which correctly
-# FAILS). A missing/unparsable manifest FILE is delegated to `load_phi_key_policy` — the same
-# loader the runtime imports — which resolves it to `OFF`/not-ratified (never raises). That is the
-# right verdict here too: the runtime's actual behaviour under a missing/corrupt file is ALSO
-# inert (byte-identical to `off`), so a gate that failed the build here would be reporting a risk
-# that does not exist in production, and would disagree with the loader it explicitly delegates
-# to. What must never happen is the OPPOSITE failure mode — reading a broken file as "prerequisite
-# satisfied" — and that is what these two assert against.
+# (g) Missing or malformed manifests fail build validation, even though runtime stays OFF.
 
 
-def test_missing_manifest_file_resolves_to_not_ratified_not_satisfied(tmp_path: Path) -> None:
+def test_missing_manifest_file_fails_build(tmp_path: Path) -> None:
     findings = gate.run_gate(tmp_path / "does-not-exist.yaml")
-    assert all(f.level == gate.LEVEL_OK for f in findings)
-    assert gate.main(["--manifest", str(tmp_path / "does-not-exist.yaml")]) == 0
+    assert all(f.level == gate.LEVEL_FAIL for f in findings)
+    assert gate.main(["--manifest", str(tmp_path / "does-not-exist.yaml")]) == 1
 
 
-def test_malformed_yaml_resolves_to_not_ratified_not_satisfied(tmp_path: Path) -> None:
+def test_malformed_yaml_fails_build(tmp_path: Path) -> None:
     path = tmp_path / "phi-business-key-remediation.yaml"
     path.write_text("status: RATIFICADO\nmodo: [unterminated\n", encoding="utf-8")
     findings = gate.run_gate(path)
-    assert all(f.level == gate.LEVEL_OK for f in findings)
-    assert gate.main(["--manifest", str(path)]) == 0
+    assert all(f.level == gate.LEVEL_FAIL for f in findings)
+    assert gate.main(["--manifest", str(path)]) == 1
 
 
 # ---------------------------------------------------------------------------------------------

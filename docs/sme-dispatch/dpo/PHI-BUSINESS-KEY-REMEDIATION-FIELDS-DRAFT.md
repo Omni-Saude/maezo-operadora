@@ -139,17 +139,26 @@ Este PR **não pode ser mergeado** sem as duas:
 | 1 | `phi/hmac-key` (`PHI_HMAC_KEY`) provisionado — M-24 / **D6-04**, HUMAN-GATED | **não provisionado** | Cada composition root reporta **NOT READY no boot**: `setup_observability` constrói o pseudonimizador via `Pseudonymizer.from_settings`, que levanta `PseudonymizerKeyMissingError` sem chave; `bootstrap_observability` captura e deixa a readiness vermelha. Segunda superfície independente: `key_scrubber.egress_message_key`, chamada pelo handler de `operadora.events.publish`, levanta na escada de retry/incidente do harness |
 | 2 | **Janela de drenagem** dos tópicos CANCEL/INAD agendada | **não agendada** | `scrub_only` item (3) **muda o particionamento Kafka** dessas duas famílias (`CANCEL-{tenant}-{id}` → `CANCEL-hk1_{hmac}`). A ordenação por chave continua garantida (HMAC determinístico), mas mensagens em voo publicadas antes e depois da virada podem cair em partições diferentes |
 
-**A cerca de CI que R-009 pede foi construída** (R-009, PR acompanhante): `scripts/ci/
-check_phi_scrub_prereqs.py`, moldado em `scripts/ci/check_deviation_expiry.py`, fica **vermelho**
-se `spec/policies/privacy/phi-business-key-remediation.yaml` sair de `DRAFT` com
-`modo: scrub_only`/`pseudo_keys` sem (1) e (2) — lidas do bloco `pre_requisitos_scrub_only` do
-próprio manifesto, cada item com `atendido: true` E evidência registrada. `status: DRAFT` sempre
-passa. Cabeada em `Makefile` (`check-phi-scrub-prereqs`, ao lado de `check-ledger-hashes`) e em
-`.github/workflows/ci.yml` (`validate-artifacts`). Ela lê o manifesto pelo MESMO loader do
-runtime (`phi_key_policy.load_phi_key_policy`) e nunca escreve `status`/`ratificacao.*` — não
-substitui a assinatura, só impede que (1) e (2) continuem prosa não vinculante no
-`acao_seguinte`. Hoje ambas seguem `atendido: false` no manifesto, então a cerca continua
-vermelha para qualquer tentativa de sair de `DRAFT` sem preenchê-las de verdade.
+**A cerca de CI de R-009 está construída e reparada contra R009-EIR01–06** em
+`scripts/ci/check_phi_scrub_prereqs.py`, `Makefile` (`check-phi-scrub-prereqs`) e
+`.github/workflows/ci.yml` (`validate-artifacts`). Antes de consultar o loader canônico,
+reprova arquivo ausente/ilegível, UTF-8/YAML inválido, chaves duplicadas em qualquer nível,
+modo desconhecido e promoção parcial. Só DRAFT bem formado e RATIFICADO/off deliberado
+passam inertes; modos ativos normalizados exigem os dois itens atendidos.
+
+`evidencia_provisionamento` é uma referência não secreta a recibo externo, com sintaxe
+estrita definida no bloco `pre_requisitos_scrub_only` do manifesto. O recibo deve cobrir os
+overlays Helm/ECS aplicáveis, operador, instante, referências/versionamento e resultados;
+o CI **não busca nem verifica o conteúdo do recibo ou a existência atual do segredo**.
+Passar com uma referência não comprova provisionamento. A revisão do recibo e a verificação
+live continuam atos externos. Nunca inserir o valor de `PHI_HMAC_KEY` no manifesto.
+
+A janela exige strings ISO-8601 com timezone e fim posterior ao início em UTC, sem duração
+mínima inventada. Agendamento não comprova drenagem executada; um cutover concluído requer
+evidência operacional separada. A cerca nunca escreve `status`/`ratificacao.*`; ambas as
+pré-condições permanecem `atendido: false`, assinaturas nulas e modo efetivo `off`.
+Ela não aprova os requisitos adicionais de `pseudo_keys`. Configurações escolhidas fora do
+arquivo validado em CI dependem da fronteira operacional de deployment.
 
 ---
 

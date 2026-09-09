@@ -159,7 +159,7 @@ escopo:
 # `validate-artifacts` de `.github/workflows/ci.yml`): a cerca reprova qualquer PR que deixe
 # `status: RATIFICADO` com `modo: scrub_only` OU `modo: pseudo_keys` (que HERDA os pre-requisitos
 # de scrub_only, ver nota no bloco `modo` acima) sem os dois itens abaixo `atendido: true` E com
-# a evidencia exigida preenchida. Enquanto `status: DRAFT` a cerca passa (nada esta em vigor). A
+# a evidencia exigida preenchida. Apenas DRAFT bem formado passa; parcial/malformado reprova. A
 # cerca NAO substitui a assinatura: ela so LE este bloco, nunca escreve `status`/`ratificacao.*`.
 #
 # RE-VERIFICADO 2026-09-06 (R-009, drift do paragrafo do bloco `modo` acima). Aquele paragrafo diz
@@ -171,6 +171,34 @@ escopo:
 # `::_build_key_scrubber` documenta "GAP CLOSED (AF-13, 2026-09-03)"). O que falta HOJE nao e mais
 # a chamada: e o PROVISIONAMENTO REAL do segredo — o item `phi_hmac_key_provisionado` abaixo.
 # ---------------------------------------------------------------------------------------------
+# CONTRATO DE VALIDACAO DE BUILD (R009-EIR01--06; nao e nova ratificacao):
+# - UTF-8/YAML mapping legivel, sem chaves duplicadas em qualquer nivel; modo conhecido,
+#   normalizado pelo parser canonico do runtime (inclusive " SCRUB_ONLY " e bare off).
+# - DRAFT: ratificacao ausente ou {ratificado: false, revisor: null, ratificado_em: null};
+#   qualquer modo conhecido fica inerte; unratified ausente/booleano. Bloco presente deve
+#   ter ambos IDs, booleans exatos, referencias/intervalos validos quando preenchidos.
+# - RATIFICADO: flag true + revisor/data strings nao vazias; unratified ausente/false.
+#   Modo off deliberado passa; scrub_only/pseudo_keys exigem os dois itens atendidos.
+#   Status desconhecido, modo desconhecido e promocao parcial sempre reprovam o build.
+# - evidencia_provisionamento: URI NAO SECRETA evidence://<repositorio>/<id-recibo>
+#   ou https://<host>/<caminho-recibo>, ASCII, autoridade concreta, ultimo segmento >=8
+#   caracteres; sem credenciais, query, fragment, percent-encoding, segmentos vazios/./..,
+#   reticencias ou tokens TODO/PENDENTE/PENDING/placeholder/changeme/TBD/null/none/example.
+#   O recibo externo deve identificar operador, instante de verificacao, ambiente/tenant,
+#   backend + referencia/version do segredo (NUNCA o valor), e resultado de verificacao
+#   para os overlays de destino: Helm ExternalSecret phi-hmac-key -> maezo-phi-hmac,
+#   chave phi-hmac-key -> PHI_HMAC_KEY nos deployments agent-runtime, worker-daemon e
+#   webhook-receiver; ECS dev-sa-east-1 secret maezo/${local.env}/phi-hmac-key, campo key
+#   -> PHI_HMAC_KEY em service-agents.tf e service-worker.tf. O recibo deve justificar
+#   explicitamente quais overlays se aplicam ao rollout e cobrir todos os selecionados.
+#   O CI valida SOMENTE a sintaxe da referencia; NAO busca o recibo/cofre, NAO verifica
+#   seu conteudo, cobertura, assinatura ou existencia atual do segredo. A revisao do recibo
+#   e a verificacao live pelo operador continuam obrigacoes externas antes de ativacao.
+#   Nenhuma referencia sintetica de teste e evidencia operacional de provisionamento.
+# - janela_drenagem.inicio/fim: strings ISO-8601 com segundos, timezone Z ou +/-HH:MM;
+#   fim estritamente posterior ao inicio normalizado em UTC, sem duracao minima inventada.
+#   Agendamento NAO prova drenagem executada: concluir cutover exige evidencia operacional
+#   separada de filas/particoes drenadas. Nenhuma janela e agendada por este reparo.
 pre_requisitos_scrub_only:
   - id: phi_hmac_key_provisionado
     atendido: false
