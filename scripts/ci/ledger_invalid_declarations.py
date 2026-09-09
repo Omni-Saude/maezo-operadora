@@ -36,6 +36,7 @@ MAX_JSON_DEPTH = 12
 MAX_JSON_ITEMS = 4096
 MAX_GIT_ENTRIES = 25_000
 EVIDENCE_ROOT = "docs/evidence-corrections/"
+HISTORY_ROOT = "docs/evidence-history/"
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 # Conservative finite test/runtime dependency policy (ICV2-R1). Additions and
@@ -148,7 +149,7 @@ def validate_marker_row(line: str) -> None:
     """Hints on orphan/legacy/malformed rows cannot evade global planning."""
     if v1._SUPERSESSION_HINT not in line:
         return
-    marker = v1.parse_invalid_declaration_marker(line)
+    marker = v1.parse_operational_marker(line)
     if marker is None:
         v1.parse_supersession_claim(line)
     row = v1.parse_row_line(line)
@@ -218,6 +219,7 @@ class Record:
     target: Target
     historical: HistoricalInputs
     current: Current
+    kind: str = "invalid-declaration"
 
 
 def target_record(value: Any) -> Target:
@@ -234,23 +236,26 @@ def target_record(value: Any) -> Target:
     return Target(**data)
 
 
-def parse_record(data: bytes) -> Record:
+def parse_record(data: bytes, *, kind: str = "invalid-declaration") -> Record:
+    valid_history = kind == "verified-history"
     obj = closed(
         bounded_json(data),
         {
             "schema": str,
-            "reason": str,
+            "proof_id" if valid_history else "reason": str,
             "target": dict,
             "historical_evidence": dict,
             "current": dict,
         },
     )
-    if obj["schema"] != "maezo-ledger-invalid-declaration/v1":
+    if obj["schema"] != (
+        "maezo-ledger-verified-history/v1" if valid_history else "maezo-ledger-invalid-declaration/v1"
+    ):
         fail("IC_SCHEMA_VERSION")
-    if obj["reason"] != "declared-test-source-sha256":
+    if obj.get("proof_id") != "PFV8821" if valid_history else obj["reason"] != "declared-test-source-sha256":
         fail("IC_REASON")
     target = target_record(obj["target"])
-    evidence_dir = f"{EVIDENCE_ROOT}evidence/{target.row_sha256}/"
+    evidence_dir = f"{HISTORY_ROOT if valid_history else EVIDENCE_ROOT}evidence/{target.row_sha256}/"
 
     def artifact(value: Any) -> Artifact:
         ref = closed(value, {"path": str, "sha256": str})
@@ -325,7 +330,7 @@ def parse_record(data: bytes) -> Record:
         fail("IC_CURRENT_SCHEMA")
     prior = target_record(cur["prior_correction"][0]) if cur["prior_correction"] else None
     cur["prior_correction"] = prior
-    return Record(target, historical, Current(**cur))
+    return Record(target, historical, Current(**cur), kind)
 
 
 class FrozenGit:
@@ -571,7 +576,7 @@ def build_plan(
     rows = v1.select_rows(ledger.splitlines()).declared
     corrections = [row for row in rows if row.invalid_declaration is not None]
     # No v2 operational files may become orphaned when a marker is removed.
-    if not corrections and not (root / "docs/evidence-corrections").exists():
+    if not corrections and not any((root / path).exists() for path in (EVIDENCE_ROOT, HISTORY_ROOT)):
         return Plan("", "", ())
     if ledger_path != v1.DEFAULT_LEDGER_PATH or len(corrections) > MAX_RELATIONS:
         fail("IC_PLAN_SCOPE")
@@ -588,7 +593,7 @@ def build_plan(
         data = git.current(marker.record_path, limit=MAX_JSON_BYTES)
         if digest(data) != marker.record_sha256:
             fail("IC_RECORD_HASH")
-        record = parse_record(data)
+        record = parse_record(data, kind=marker.kind)
         target = exact_row(rows, record.target)
         source_row(git, record.target, target)
         # IC-R1's ordered checks precede evidence, cache lookup and all executions.
@@ -613,7 +618,10 @@ def build_plan(
             raise InvalidDeclarationError("IC_R1_TARGET_PATH_UNAVAILABLE") from exc
         if digest(git.blob(record.target.source_commit, target.test_path)) != record.target.test_sha256:
             fail("IC_SOURCE_TEST")
-        if record.target.declared_recipe_sha256 != record.target.test_sha256:
+        if (
+            record.kind == "invalid-declaration"
+            and record.target.declared_recipe_sha256 != record.target.test_sha256
+        ):
             fail("IC_REASON_INAPPLICABLE")
         if digest(git.blob(record.target.source_commit, "uv.lock")) != record.target.lock_sha256:
             fail("IC_SOURCE_LOCK")
@@ -621,8 +629,7 @@ def build_plan(
             correction.task_id != record.current.task_id
             or correction.row_date != record.current.date
             or correction.declared_hash != record.current.declared_recipe_sha256
-            or v1.invalid_declaration_template_sha256(correction.raw_line)
-            != record.current.row_template_sha256
+            or v1.operational_template_sha256(correction.raw_line) != record.current.row_template_sha256
         ):
             fail("IC_CURRENT_BINDING")
         if sum(row.task_id == correction.task_id for row in rows) != 1:
@@ -675,9 +682,16 @@ def build_plan(
             legacy = v1.extract_result_lines(output, node_id_regex=v1._RESULT_LINE_RE_LEGACY)
             if legacy:
                 recipes.append(v1.compute_recipe_hash(legacy))
-        if "sha256:" + relation.target.declared_hash in recipes:
-            fail("IC_REASON_INAPPLICABLE")
-    operational_paths = {path for path in git.inventory(git.candidate) if path.startswith(EVIDENCE_ROOT)}
+        equality = "sha256:" + relation.target.declared_hash in recipes
+        if equality != (relation.record.kind == "verified-history"):
+            fail(
+                "VH_HISTORICAL_EQUALITY"
+                if relation.record.kind == "verified-history"
+                else "IC_REASON_INAPPLICABLE"
+            )
+    operational_paths = {
+        path for path in git.inventory(git.candidate) if path.startswith((EVIDENCE_ROOT, HISTORY_ROOT))
+    }
     if operational_paths != referenced:
         fail("IC_ORPHAN_EVIDENCE")
     git.unchanged()
@@ -733,7 +747,10 @@ def selected_unresolved(
             continue
         reason = "IC_REPLAY_ADAPTER_UNREVIEWED"
         lock = git.current("uv.lock")
-        if digest(lock) != relation.record.target.lock_sha256:
+        if (
+            relation.record.kind == "invalid-declaration"
+            and digest(lock) != relation.record.target.lock_sha256
+        ):
             reason = "IC_LOCK_MISMATCH"
         if v1.is_live_test_path(relation.target.test_path):
             reason = "IC_ROOT_LIVE_OWNERSHIP_REQUIRED"

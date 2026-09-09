@@ -10,10 +10,13 @@ from __future__ import annotations
 import ast
 import importlib.util
 import os
+import re
 import tempfile
+import tomllib
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal
@@ -51,6 +54,8 @@ class ReviewedHistory:
     recipe_sha256: str
     result_count: int
     lock_sha256: str
+    current_lock_sha256: str = ""
+    prefix_commit: str = "5b70a6e9890c71a2f6a6851c89531eb8c89fd4c1"
 
     def identity(self) -> tuple[str, str, str, str, str]:
         return (self.proof_id, self.source, self.test, self.task, self.date)
@@ -69,6 +74,23 @@ INVALID_CATALOG: tuple[ReviewedHistory, ...] = (
         "2ca01f8fa81b7eb502c768d1c1543c9045a3a9c459c38fb45c14665e99245d1a",
         "e010ef3ae703c67ada7a9fc3ec75a220e4c57682633ba092bf0a2fd367872f6a",
         30,
+        "c3be627ffa9ec3e7448343dbcfda4e7734077a4a8d87a392f222026a2acd7272",
+    ),
+)
+
+
+VALID_CATALOG: tuple[ReviewedHistory, ...] = (
+    ReviewedHistory(
+        "PFV8821",
+        "8821f675b369db5de20b0c846d007015ec40fd1e",
+        "tests/unit/platform/test_migration_0010_webhook_wamid_dedup.py",
+        "DRIVER-IDEMPOTENCY-ORPHAN-TABLE",
+        "2026-09-04",
+        "6532d00f17c6e66ccd206d720ee35024b85b13e14c9a7f1e991535a514e71965",
+        "6abed75319a208ecd785b50340b886ea648134720ac9c252997946a1326e2295",
+        "87d98f6a6e748cc50149cfdee46dd1c874c6beb91e98e53196a945247e2cd306",
+        19,
+        "b2204cb37affc44306a05c3c2b24af2241bb6b3aaede74dbde4bbd46e86ef94f",
         "c3be627ffa9ec3e7448343dbcfda4e7734077a4a8d87a392f222026a2acd7272",
     ),
 )
@@ -112,7 +134,8 @@ def recipe_closure(data: bytes) -> dict[str, str]:
 @contextmanager
 def producer_capsule(repository: Path) -> Iterator[ModuleType]:
     """Load the immutable approved producer and dependencies without rewriting pins."""
-    git = static.FrozenGit(repository)
+    git = static.FrozenGit(Path(__file__).resolve().parents[2])
+    candidate_git = static.FrozenGit(repository)
     with tempfile.TemporaryDirectory(prefix="maezo-ledger-producer-") as temp:
         root = Path(temp)
         for relative, (commit, expected) in TOOL_SOURCES.items():
@@ -126,9 +149,9 @@ def producer_capsule(repository: Path) -> Iterator[ModuleType]:
             path.chmod(0o600)
         original = (root / "scripts/ci/check_evidence_ledger_hashes.py").read_bytes()
         current_path = repository / "scripts/ci/check_evidence_ledger_hashes.py"
-        if recipe_closure(git.current(current_path.relative_to(repository).as_posix())) != recipe_closure(
-            original
-        ):
+        if recipe_closure(
+            candidate_git.current(current_path.relative_to(repository).as_posix())
+        ) != recipe_closure(original):
             static.fail("IC_CURRENT_RECIPE_CLOSURE")
         path = root / "scripts/dev/run_historical_unit_recipe.py"
         spec = importlib.util.spec_from_file_location("ledger_original_producer", path)
@@ -180,6 +203,23 @@ def materialize(directory: Path, members: Mapping[str, bytes]) -> None:
             output.write(payload)
 
 
+def validate_locked_inventory(lock_bytes: bytes, inventory: dict[str, Any]) -> None:
+    """Every actually resolved distribution must belong to the immutable source lock."""
+    lock = tomllib.loads(lock_bytes.decode("utf-8"))
+    packages = lock.get("package", [])
+    if not packages:
+        static.fail("IC_LOCK_PACKAGES")
+    allowed = {(re.sub(r"[-_.]+", "-", item["name"].lower()), item["version"]) for item in packages}
+    seen: set[str] = set()
+    for distribution in inventory["distributions"]:
+        name = re.sub(r"[-_.]+", "-", distribution["name"].lower())
+        if name in seen or (name, distribution["version"]) not in allowed:
+            static.fail("IC_RESOLVED_DISTRIBUTION_LOCK")
+        seen.add(name)
+    if "pytest" not in seen:
+        static.fail("IC_PYTEST_DISTRIBUTION_MISSING")
+
+
 def recompute(
     producer: ModuleType,
     packet: Path,
@@ -188,6 +228,9 @@ def recompute(
     observations: dict[str, str],
 ) -> dict[str, Any]:
     receipt: dict[str, Any] = producer.validate_receipt(packet, repo, identity, observations)
+    validate_locked_inventory(
+        producer.git(repo, "show", identity[1] + ":uv.lock"), receipt["environment"]["inventory"]
+    )
     raw = producer.read(packet / "pytest.stdout", root=packet).decode("utf-8")
     raw += producer.read(packet / "pytest.stderr", root=packet).decode("utf-8")
     lines = checker.extract_result_lines(raw)
@@ -196,6 +239,18 @@ def recompute(
     if len(lines) != receipt["coverage"]["selected_count"]:
         static.fail("IC_CURRENT_RECIPE_COUNT")
     return receipt
+
+
+def require_fresh(receipt: dict[str, Any], since: datetime, until: datetime, prior: dict[str, Any]) -> None:
+    started = datetime.fromisoformat(receipt["execution"]["started_at"])
+    finished = datetime.fromisoformat(receipt["execution"]["finished_at"])
+    if (
+        started.tzinfo is None
+        or finished.tzinfo is None
+        or not since <= started <= finished <= until
+        or receipt["environment"]["checkout"] == prior["environment"]["checkout"]
+    ):
+        static.fail("IC_FRESH_EXECUTION_REQUIRED")
 
 
 @dataclass(frozen=True)
@@ -210,11 +265,13 @@ class CompleteCorrection:
     producer_sources: dict[str, tuple[str, str]]
     validator_sha256: str
     checker_sha256: str
-    historical_claim_verified: Literal[False] = False
-    historical_status: Literal["INVALID_HISTORICAL_DECLARATION"] = "INVALID_HISTORICAL_DECLARATION"
+    historical_claim_verified: bool = False
+    historical_status: str = "INVALID_HISTORICAL_DECLARATION"
     current_status: Literal["CORRECTION_CURRENT_VERIFIED"] = "CORRECTION_CURRENT_VERIFIED"
-    status: Literal["CORRECTED_WITH_INVALID_HISTORY"] = "CORRECTED_WITH_INVALID_HISTORY"
-    schema: Literal["maezo-ledger-correction-result/v1"] = "maezo-ledger-correction-result/v1"
+    status: str = "CORRECTED_WITH_INVALID_HISTORY"
+    schema: str = "maezo-ledger-correction-result/v1"
+    matching_algorithm: str = "none"
+    archive_validation: str = "literal-producer-local-runtime"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -240,6 +297,11 @@ def prove_relation(
     if verified_plan != plan or relation not in verified_plan.relations:
         static.fail("IC_PRE_EXECUTION_PLAN_DRIFT")
     target = relation.record.target
+    valid_history = relation.record.kind == "verified-history"
+    git.ancestor(reviewed.prefix_commit)
+    prefix = git.blob(reviewed.prefix_commit, checker.DEFAULT_LEDGER_PATH, limit=static.MAX_LEDGER_BYTES)
+    if not ledger_before.encode().startswith(prefix):
+        static.fail("IC_QUALIFIED_LEDGER_PREFIX")
     if (target.source_commit, target.test_path, target.task_id, relation.target.row_date) != (
         reviewed.source,
         reviewed.test,
@@ -248,7 +310,8 @@ def prove_relation(
     ):
         static.fail("IC_REVIEWED_SOURCE_IDENTITY")
     if (
-        static.digest(git.current("uv.lock")) != target.lock_sha256
+        static.digest(git.current("uv.lock"))
+        != (reviewed.current_lock_sha256 if valid_history else target.lock_sha256)
         or target.lock_sha256 != reviewed.lock_sha256
     ):
         static.fail("IC_LOCK_MISMATCH")
@@ -262,7 +325,17 @@ def prove_relation(
     materialize(archived, members)
     # Exact receipt bytes are authenticated by the independently reviewed catalog pin.
     observations = producer.load(archived / "receipt.json")["scope"]["original_observations"]
-    old = recompute(producer, archived, repo, reviewed.identity(), observations)
+    archive_validation = "literal-producer-local-runtime"
+    if reviewed.proof_id in {"D6unit136d", "PFV8821"}:
+        from scripts.ci import ledger_archived_catalog
+
+        old = ledger_archived_catalog.validate_archived_catalog_receipt(
+            producer, archived, repo, reviewed.identity()
+        )
+        validate_locked_inventory(git.blob(reviewed.source, "uv.lock"), old["environment"]["inventory"])
+        archive_validation = "ARCHIVED_PRODUCER_IDENTITY_BOUND"
+    else:
+        old = recompute(producer, archived, repo, reviewed.identity(), observations)
     if (
         old["source"]["row_sha256"] != target.row_sha256
         or old["source"]["declaration"] != target.declared_recipe_sha256
@@ -280,6 +353,7 @@ def prove_relation(
         static.fail("IC_RECORD_EXPECTATION")
     # These are required NEW executions, never substituted by the archived receipt.
     historical_dir = out / "fresh-historical"
+    historical_started = datetime.now(UTC)
     producer.capture_source(
         repo,
         reviewed.source,
@@ -291,6 +365,7 @@ def prove_relation(
         observations,
     )
     historical = recompute(producer, historical_dir, repo, reviewed.identity(), observations)
+    require_fresh(historical, historical_started, datetime.now(UTC), old)
     if (
         historical["coverage"]["recipe_sha256"] != "sha256:" + reviewed.recipe_sha256
         or historical["coverage"]["selected_count"] != reviewed.result_count
@@ -305,10 +380,11 @@ def prove_relation(
         legacy = checker.extract_result_lines(raw, node_id_regex=checker._RESULT_LINE_RE_LEGACY)
         if legacy:
             eligible.append(checker.compute_recipe_hash(legacy))
-    if (
-        "sha256:" + target.declared_recipe_sha256 in eligible
-        or target.declared_recipe_sha256 != historical["source"]["test_sha256"]
-    ):
+    equality = "sha256:" + target.declared_recipe_sha256 in eligible
+    if valid_history:
+        if not equality:
+            static.fail("VH_FRESH_HISTORY_EQUALITY")
+    elif equality or target.declared_recipe_sha256 != historical["source"]["test_sha256"]:
         static.fail("IC_REASON_INAPPLICABLE")
     git.unchanged()
     current_dir = out / "fresh-current"
@@ -319,10 +395,12 @@ def prove_relation(
         relation.correction.task_id,
         relation.correction.row_date or "",
     )
+    current_started = datetime.now(UTC)
     producer.capture_source(
         repo, identity[1], identity[2], current_dir, identity[0], identity[3], identity[4], observations
     )
     current = recompute(producer, current_dir, repo, identity, observations)
+    require_fresh(current, current_started, datetime.now(UTC), historical)
     if (
         current["coverage"]["recipe_sha256"] != "sha256:" + relation.correction.declared_hash
         or current["coverage"]["selected_count"] != relation.record.current.result_count
@@ -357,6 +435,18 @@ def prove_relation(
         if "scripts/ci/check_evidence_ledger_hashes.py" in git.inventory(git.candidate)
         else static.digest(Path(checker.__file__).read_bytes()),
     )
+    result = replace(result, archive_validation=archive_validation)
+    if valid_history:
+        result = replace(
+            result,
+            historical_claim_verified=True,
+            historical_status="VERIFIED_HISTORY_OWN_LOCK",
+            status="VERIFIED_HISTORY_RELATION",
+            schema="maezo-ledger-verified-history-result/v1",
+            matching_algorithm="fixed"
+            if "sha256:" + target.declared_recipe_sha256 == eligible[0]
+            else "legacy-date-eligible",
+        )
     producer.write(out / "result.json", producer.encode(result.to_dict()))
     return result
 
@@ -374,7 +464,7 @@ def execute_selected(
         reviewed = next(
             (
                 item
-                for item in INVALID_CATALOG
+                for item in (VALID_CATALOG if relation.record.kind == "verified-history" else INVALID_CATALOG)
                 if (item.source, item.test, item.task, item.date)
                 == (
                     relation.record.target.source_commit,

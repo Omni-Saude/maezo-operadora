@@ -584,5 +584,19 @@ def test_exact_test_bodies_and_ledger_history_unchanged() -> None:
             capture_output=True,
             check=True,
         ).stdout
-        assert (root / path).read_bytes() == original
-    assert len((root / "docs/evidence-ledger.md").read_bytes()) == 1_683_453
+        current = (root / path).read_bytes()
+        if path == "docs/evidence-ledger.md":
+            assert current.startswith(original)
+            qualified = subprocess.run(
+                ["git", "show", "5b70a6e9890c71a2f6a6851c89531eb8c89fd4c1:" + path],
+                cwd=root,
+                capture_output=True,
+                check=True,
+            ).stdout
+            assert (
+                invalid.digest(qualified)
+                == "11055f392b6a622a4a5623e7af8c00f6478645bd1f503f42b8ac6a73a0e23218"
+            )
+            assert current.startswith(qualified)
+        else:
+            assert current == original

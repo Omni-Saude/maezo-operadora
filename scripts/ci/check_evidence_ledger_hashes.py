@@ -279,6 +279,7 @@ class InvalidDeclarationMarker:
 
     record_path: str
     record_sha256: str
+    kind: str = "invalid-declaration"
 
 
 _INVALID_MARKER_RE = re.compile(
@@ -307,6 +308,33 @@ def invalid_declaration_template_sha256(line: str) -> str:
     if parse_invalid_declaration_marker(line) is None:
         raise SupersessionError("IC_MARKER: missing v2 marker")
     return hashlib.sha256(_INVALID_MARKER_RE.sub(INVALID_ROW_TEMPLATE_TOKEN, line).encode()).hexdigest()
+
+
+_HISTORY_MARKER_RE = re.compile(
+    r"\[ledger-supersedes:v3;kind=verified-history;"
+    r"record=(docs/evidence-history/([0-9a-f]{64})\.json);"
+    r"record_sha256=([0-9a-f]{64})\]"
+)
+HISTORY_ROW_TEMPLATE_TOKEN = "{{ledger-verified-history-record}}"
+
+
+def parse_operational_marker(line: str) -> InvalidDeclarationMarker | None:
+    if "[ledger-supersedes:v3" not in line:
+        return parse_invalid_declaration_marker(line)
+    matches = list(_HISTORY_MARKER_RE.finditer(line))
+    if len(matches) != 1 or line.count(_SUPERSESSION_HINT) != 1:
+        raise SupersessionError("VH_MARKER: expected exactly one closed v3 verified-history marker")
+    match = matches[0]
+    if match.group(2) != match.group(3) or HISTORY_ROW_TEMPLATE_TOKEN in line:
+        raise SupersessionError("VH_MARKER: content address or template token")
+    return InvalidDeclarationMarker(match.group(1), match.group(3), "verified-history")
+
+
+def operational_template_sha256(line: str) -> str:
+    marker = parse_operational_marker(line)
+    if marker is None or marker.kind == "invalid-declaration":
+        return invalid_declaration_template_sha256(line)
+    return hashlib.sha256(_HISTORY_MARKER_RE.sub(HISTORY_ROW_TEMPLATE_TOKEN, line).encode()).hexdigest()
 
 
 def _invalid_declaration_module() -> ModuleType:
@@ -357,7 +385,7 @@ def parse_row_line(line: str) -> DeclaredRow | None:
     hash_match = _DECLARED_HASH_RE.search(line)
     if hash_match is None:
         return None
-    invalid_declaration = parse_invalid_declaration_marker(line)
+    invalid_declaration = parse_operational_marker(line)
     supersession = None if invalid_declaration else parse_supersession_claim(line)
     return DeclaredRow(
         task_id=task_match.group(1).strip(),
@@ -615,7 +643,7 @@ def build_supersession_plan(
     # A malformed marker on a non-declared row must not fall through the legacy path.
     for line in ledger_lines:
         if is_table_row(line) and _SUPERSESSION_HINT in line:
-            if parse_invalid_declaration_marker(line) is not None:
+            if parse_operational_marker(line) is not None:
                 continue
             parse_supersession_claim(line)
             successor = parse_row_line(line)
@@ -1594,7 +1622,7 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
                 f"{len(selection.declared)} selected physical occurrences; "
                 "0 executions."
                 if args.proof_output is None
-                else f"{prefix} UNRESOLVED: partial execution artifacts retained; no overall acceptance."
+                else f"{prefix} UNRESOLVED: see proof-output for attempted captures; no overall acceptance."
             )
             return 1
         accepted_endpoint_hashes = {
@@ -1684,10 +1712,19 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
         historical_ordinary = sum(
             result.ok and row_sha256(result.row) in historical_scheduled for result in results
         )
-        disposition = "UNRESOLVED" if failures else "ACCEPTED_WITH_INVALID_HISTORY"
+        invalid_count = sum(
+            result.status == "CORRECTED_WITH_INVALID_HISTORY" for result in correction_results
+        )
+        valid_history_count = len(correction_results) - invalid_count
+        disposition = (
+            "UNRESOLVED"
+            if failures
+            else ("ACCEPTED_WITH_INVALID_HISTORY" if invalid_count else "ACCEPTED_WITH_VERIFIED_HISTORY")
+        )
         print(
             f"{prefix} {disposition}: {current_ordinary + len(correction_results)} current verified, "
-            f"{historical_ordinary} historical verified, {len(correction_results)} invalidated declarations, "
+            f"{historical_ordinary + valid_history_count} historical verified, "
+            f"{invalid_count} invalidated declarations, "
             f"{len(correction_results)} corrected relations, {len(failures)} unresolved/errors; "
             f"{len(selection.declared)} selected physical occurrences; "
             f"{len(results) + 2 * len(correction_results)} executions."

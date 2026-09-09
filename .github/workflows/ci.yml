@@ -155,7 +155,30 @@ jobs:
       # stack, no mutex) — the escape hatch is to OMIT the parenthesised path on that row, which
       # falls back to LEGACY for this gate (see docs/evidence-ledger.md's convention paragraph).
       - name: Evidence-ledger Test-hash recompute gate (LEDGER-HASH-RECOMPUTE-CHECK)
-        run: make check-ledger-hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          proof_output="$RUNNER_TEMP/ledger-operational-proofs"
+          mkdir -m 700 "$proof_output"
+          printf '%s\n' 'uv run python scripts/ci/check_evidence_ledger_hashes.py --ledger-path docs/evidence-ledger.md --proof-output "$RUNNER_TEMP/ledger-operational-proofs"' > "$proof_output/invocation.txt"
+          set +e
+          uv run python scripts/ci/check_evidence_ledger_hashes.py --ledger-path docs/evidence-ledger.md --proof-output "$proof_output" > "$proof_output/checker.stdout" 2> "$proof_output/checker.stderr"
+          proof_rc=$?
+          set -e
+          printf '%s\n' "$proof_rc" > "$proof_output/checker.rc"
+          cat "$proof_output/checker.stdout"
+          cat "$proof_output/checker.stderr" >&2
+          exit "$proof_rc"
+
+      - name: Retain operational ledger proofs and refusal diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ledger-operational-proofs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ledger-operational-proofs/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Evidence-ledger row cell-count gate (LEDGER-ROW-CELL-COUNT)
         run: make check-ledger-row-cell-count
