@@ -66,6 +66,7 @@ import structlog
 # concrete-typed only under TYPE_CHECKING) — so a consumer of the read/transport primitives pays
 # no new heavyweight cost.
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
+from maezo.gateway.engine_contracts import EngineCapabilityError, EngineRefusalCode, parse_json
 from maezo.tools.workers.engine_var_types import camunda_int_type
 from maezo.tools.workers.phi_vars import redact_free_text_vars, redact_phi_vars
 
@@ -81,6 +82,14 @@ logger = structlog.get_logger(__name__)
 
 class CibSevenError(RuntimeError):
     """Engine unreachable or non-2xx — TRANSIENT (mirrors `DmnEvaluationError`'s classification)."""
+
+
+class CibSevenStartAuthorizationError(CibSevenError):
+    """D7 refusal, distinguishable from transient I/O; never reports a missing instance."""
+
+    def __init__(self, code: EngineRefusalCode) -> None:
+        self.code = code
+        super().__init__(code.value)
 
 
 class ProcessNotFoundError(CibSevenError):
@@ -213,6 +222,25 @@ class CibSevenTransport(Protocol):
     async def get_process_status(self, business_key: str) -> ProcessStatus: ...
 
     async def close(self) -> None: ...
+
+
+@runtime_checkable
+class StartAuthorizingTransport(Protocol):
+    """D7-A optional migration port; implemented by an explicitly bound gateway profile.
+
+    Absence means legacy/unmigrated, never D7-ready. Secure composition always implements this
+    port and refuses missing profile/identity before any start audit intent or dedup claim.
+    Separate from CibSevenTransport to preserve existing capability/override contracts.
+    """
+
+    async def authorize_process_start(
+        self,
+        *,
+        process_key: str,
+        business_key: str,
+        variables: dict[str, Any],
+        provenance: AgentDecisionProvenance,
+    ) -> bytes: ...
 
 
 @runtime_checkable
@@ -1545,6 +1573,22 @@ async def start_process_idempotent(
     #     is never read again in this function, so there is structurally no path on which raw
     #     free text reaches either the durable claim or the engine.
     variables = redact_start_variables(variables)
+
+    # D7-A local preflight precedes EVERY durable write, including NON_STRICT audit intent.
+    # Raw legacy transports remain explicitly unmigrated; this does not activate cutover.
+    if isinstance(transport, StartAuthorizingTransport):
+        try:
+            authorized_variables_json = await transport.authorize_process_start(
+                process_key=process_key,
+                business_key=business_key,
+                variables=variables,
+                provenance=provenance,
+            )
+            # Only this detached projection of the authorized immutable snapshot survives into
+            # audit/claim/read/effect. Neither the caller nor the resolver retains a dict alias.
+            variables = parse_json(authorized_variables_json)
+        except EngineCapabilityError as exc:
+            raise CibSevenStartAuthorizationError(exc.code) from None
 
     posture = start_dedup_posture(process_key)
     gated = posture is not StartDedupPosture.NON_STRICT
