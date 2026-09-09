@@ -295,3 +295,17 @@ def test_symlink_observation_path_is_refused_without_touching_target(poll):
     with pytest.raises(pytest.fail.Exception, match="readiness observation recording failed"):
         package.wait_ready()
     assert outside.read_text() == "preserve"
+
+
+@pytest.mark.parametrize("duration", [90.01, 86_400, 86_400.001])
+def test_elapsed_overrun_is_exact_or_explicitly_saturated_without_success(poll, duration):
+    poll.replies = [ready()]
+    poll.durations = [duration]
+    with pytest.raises(pytest.fail.Exception, match="readiness did not recover"):
+        package.wait_ready()
+    report = observation(poll)
+    item = report["attempt_tail"][-1]
+    assert report["completion"] == "deadline_exhausted"
+    assert item["ended_ms"] == min(round(duration * 1000), 86_400_000)
+    assert item.get("ended_ms_saturated") is (True if duration > 86_400 else None)
+    assert poll.sleeps == [] and len(poll.requests) == 1

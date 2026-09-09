@@ -802,6 +802,12 @@ def wait_ready(purpose: str = "agent") -> None:
         return True
 
     def append_attempt(item: dict) -> None:
+        # v1 elapsed extension: exact rounded milliseconds through one day;
+        # beyond this representation cap, explicitly mark a saturated value.
+        # This is diagnostic only and never extends the 90-second deadline.
+        if item["ended_ms"] > 86_400_000:
+            item["ended_ms"] = 86_400_000
+            item["ended_ms_saturated"] = True
         observation["attempt_count"] += 1
         item["index"] = observation["attempt_count"]
         observation["attempt_tail"].append(item)
