@@ -9,6 +9,7 @@ HEAD so a future citation regression is caught by CI, not just by this file's ow
 from __future__ import annotations
 
 import ast
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -476,11 +477,75 @@ def test_exact_suffix_and_explicit_basename_path_forms_resolve(tmp_path: Path) -
     assert gate.resolve_path_candidates("src/maezo/wrong/widget.py", ["src/maezo/right/widget.py"]) == []
 
 
+@pytest.mark.parametrize(
+    "citation",
+    ["`src/maezo/widget.py::kept`", "`src/maezo/widget.py:1`"],
+)
+def test_explicit_repository_root_never_resolves_to_an_archived_suffix(tmp_path: Path, citation: str) -> None:
+    root = _make_custom_fixture_repo(
+        tmp_path,
+        adr_body=citation,
+        files={"archive/src/maezo/widget.py": "def kept():\n    pass\n"},
+    )
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert not result.ok, result.render()
+    assert any("file not found" in failure for failure in result.failures)
+
+
+def test_non_rooted_suffix_abbreviation_remains_deliberately_supported(tmp_path: Path) -> None:
+    root = _make_custom_fixture_repo(
+        tmp_path,
+        adr_body="`gateway/widget.py::kept`",
+        files={"src/maezo/gateway/widget.py": "def kept():\n    pass\n"},
+    )
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert result.ok, result.render()
+
+
 def test_package_init_is_a_valid_exact_module_binding(tmp_path: Path) -> None:
     root = _make_custom_fixture_repo(
         tmp_path,
         adr_body="`from maezo.widget import kept`",
         files={"src/maezo/widget/__init__.py": "def kept():\n    pass\n"},
+    )
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert result.ok, result.render()
+
+
+def test_same_name_package_takes_precedence_over_module_file(tmp_path: Path) -> None:
+    root = _make_custom_fixture_repo(
+        tmp_path,
+        adr_body="`from maezo.widget import gone`",
+        files={
+            "src/maezo/__init__.py": "",
+            "src/maezo/widget.py": "gone = 1\n",
+            "src/maezo/widget/__init__.py": "kept = 1\n",
+        },
+    )
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.path.insert(0, 'src'); from maezo.widget import gone",
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode != 0
+    assert "ImportError" in proc.stderr
+
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert not result.ok, result.render()
+    assert any("gone" in failure and "name not found" in failure for failure in result.failures)
+
+
+def test_module_file_is_selected_when_same_name_package_is_absent(tmp_path: Path) -> None:
+    root = _make_custom_fixture_repo(
+        tmp_path,
+        adr_body="`from maezo.widget import kept`",
+        files={"src/maezo/widget.py": "kept = 1\n"},
     )
     result = gate.run_gate(root, root / "docs" / "adr")
     assert result.ok, result.render()
@@ -575,6 +640,99 @@ def test_original_dead_check_calendar_import_fails_in_plain_and_multiline_forms(
         files={"src/maezo/widget.py": "def trigger_submissions():\n    pass\n"},
     )
     result = gate.run_gate(root, root / "docs" / "adr")
+    assert not result.ok, result.render()
+    assert any("check_calendar" in failure and "name not found" in failure for failure in result.failures)
+
+
+@pytest.mark.parametrize("fence", ["~~~", "````", "   ```"])
+def test_standard_markdown_fences_cannot_hide_a_dead_import(tmp_path: Path, fence: str) -> None:
+    root = _make_custom_fixture_repo(
+        tmp_path,
+        adr_body=(f"{fence}python\nfrom maezo.widget import gone\n{fence}\n`src/maezo/widget.py::kept`"),
+        files={"src/maezo/widget.py": "def kept():\n    pass\n"},
+    )
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert not result.ok, result.render()
+    assert any("gone" in failure and "name not found" in failure for failure in result.failures)
+
+
+@pytest.mark.parametrize("fence", ["~~~", "````", "   ```"])
+def test_standard_markdown_fences_keep_valid_imports_checked(tmp_path: Path, fence: str) -> None:
+    root = _make_custom_fixture_repo(
+        tmp_path,
+        adr_body=f"{fence}python\nfrom maezo.widget import kept\n{fence}\n",
+        files={"src/maezo/widget.py": "def kept():\n    pass\n"},
+    )
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert result.ok, result.render()
+
+
+@pytest.mark.parametrize(
+    "adr_body",
+    [
+        "````python\n```\nfrom maezo.widget import gone\n````\n",
+        "~~~python\n```\nfrom maezo.widget import gone\n~~~~\n",
+        "```python\nfrom maezo.widget import gone\n",
+        "`````from maezo.widget import gone`````",
+    ],
+)
+def test_fence_delimiters_and_code_spans_follow_the_documented_finite_grammar(
+    tmp_path: Path, adr_body: str
+) -> None:
+    root = _make_custom_fixture_repo(
+        tmp_path,
+        adr_body=adr_body + "\n`src/maezo/widget.py::kept`",
+        files={"src/maezo/widget.py": "def kept():\n    pass\n"},
+    )
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert not result.ok, result.render()
+    assert any("gone" in failure and "name not found" in failure for failure in result.failures)
+
+
+@pytest.mark.parametrize(
+    "adr_body",
+    [
+        "    from maezo.widget import kept\n",
+        "> ~~~python\n> from maezo.widget import kept\n> ~~~\n",
+    ],
+)
+def test_unsupported_markdown_code_forms_with_imports_fail_explicitly(tmp_path: Path, adr_body: str) -> None:
+    root = _make_custom_fixture_repo(
+        tmp_path,
+        adr_body=adr_body + "\n`src/maezo/widget.py::kept`",
+        files={"src/maezo/widget.py": "def kept():\n    pass\n"},
+    )
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert not result.ok, result.render()
+    assert any("unsupported Markdown" in failure for failure in result.failures)
+
+
+def test_indentation_inside_a_supported_root_fence_is_not_refused(tmp_path: Path) -> None:
+    root = _make_custom_fixture_repo(
+        tmp_path,
+        adr_body="```python\n    from maezo.widget import kept\n```\n",
+        files={"src/maezo/widget.py": "def kept():\n    pass\n"},
+    )
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert result.ok, result.render()
+
+
+@pytest.mark.parametrize("fence", ["~~~", "````", "   ```"])
+def test_real_adr_corpus_standard_fences_cannot_hide_original_dead_import(tmp_path: Path, fence: str) -> None:
+    adr_dir = tmp_path / "adr"
+    shutil.copytree(_REPO_ROOT / "docs" / "adr", adr_dir)
+    adr = adr_dir / "0026-worker-standardization.md"
+    original = adr.read_text(encoding="utf-8")
+    live = "`from maezo.tools.workers.ans_cron import trigger_submissions`"
+    replacement = (
+        f"\n{fence}python\n"
+        "from maezo.tools.workers.ans_cron import check_calendar, trigger_submissions\n"
+        f"{fence}\n"
+    )
+    assert original.count(live) == 1
+    adr.write_text(original.replace(live, replacement), encoding="utf-8")
+
+    result = gate.run_gate(_REPO_ROOT, adr_dir)
     assert not result.ok, result.render()
     assert any("check_calendar" in failure and "name not found" in failure for failure in result.failures)
 
@@ -705,6 +863,19 @@ def test_ignored_source_prefix_cannot_hide_a_deleted_tracked_file(tmp_path: Path
     assert result.ignored == []
 
 
+def test_bare_tracked_file_deleted_only_from_worktree_fails(tmp_path: Path) -> None:
+    root = _make_custom_fixture_repo(
+        tmp_path,
+        adr_body="`src/maezo/widget.py:1`",
+        files={"src/maezo/widget.py": "kept = 1\n"},
+    )
+    (root / "src" / "maezo" / "widget.py").unlink()
+
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert not result.ok, result.render()
+    assert any("missing from worktree" in failure for failure in result.failures)
+
+
 def test_empty_or_exclusion_only_corpus_never_passes(tmp_path: Path) -> None:
     empty = tmp_path / "empty"
     (empty / "docs" / "adr").mkdir(parents=True)
@@ -751,6 +922,21 @@ def test_disclosure_breakdown_and_bounded_historical_exclusions_are_exact() -> N
         "test_autonomy.py",
     }
     assert len(gate._HISTORICAL_LINE_EXCLUSIONS) == 3
+
+
+@pytest.mark.parametrize("removed_index", range(3))
+def test_each_exact_historical_exclusion_is_load_bearing(
+    monkeypatch: pytest.MonkeyPatch, removed_index: int
+) -> None:
+    frozen = gate._HISTORICAL_LINE_EXCLUSIONS
+    monkeypatch.setattr(
+        gate,
+        "_HISTORICAL_LINE_EXCLUSIONS",
+        tuple(entry for index, entry in enumerate(frozen) if index != removed_index),
+    )
+    result = gate.run_gate(_REPO_ROOT, _REPO_ROOT / "docs" / "adr")
+    assert not result.ok, "removing any exact historical exclusion must expose its missing path"
+    assert any(frozen[removed_index].citation_repr in failure for failure in result.failures)
 
 
 def test_real_corpus_reports_nonvacuity_and_all_boundary_counts() -> None:

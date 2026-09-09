@@ -28,9 +28,11 @@ inbound delivery, or grant portal/runtime closure credit.
 
   1. **Symbol citations** — `path/to/file.py::Symbol` or `path/to/file.py::Class.method`, the
      convention already used by ~40 existing citations across `docs/adr/*.md` (e.g. ADR-0029,
-     ADR-0042, ADR-0044). Repository-relative paths bind exactly; abbreviated paths bind by their
-     supplied suffix; slash-free names explicitly bind by basename. A qualified miss never falls
-     back to another directory's basename. Python names are collected statically from their real
+     ADR-0042, ADR-0044). Paths beginning with a canonical repository root (`src/`, `spec/`,
+     `tests/`, `config/`, `deploy/`, `docs/`, `scripts/` or `.github/`) bind exactly. Other
+     slash-bearing paths are explicit package/tree abbreviations and bind by their supplied suffix;
+     slash-free names explicitly bind by basename. A rooted miss never falls back to an archived,
+     vendored or otherwise prefixed copy. Python names are collected statically from their real
      lexical namespace: module bindings and qualified class members, never function locals. BPMN
      and DMN symbols bind only to parsed XML `id` declarations, never comments or references.
   2. **Quoted Python import statements** — a backtick- or code-fence-quoted
@@ -38,8 +40,11 @@ inbound delivery, or grant portal/runtime closure credit.
      not a `::` citation, but the same underlying claim — "these names exist in this module"). The
      dotted module binds exactly via the `maezo.` package convention (`maezo.x.y` ->
      `src/maezo/x/y.py` or `src/maezo/x/y/__init__.py`); FAILS if the module does not resolve, or if
-     any imported name is not a module binding. The quoted statement is parsed with `ast`, including
-     parentheses, multiline lists and aliases. Unsupported/unparseable cited forms fail explicitly.
+     any imported name is not a module binding. If both a same-name module file and package exist,
+     the package wins, matching Python's import selection. The quoted statement is parsed with
+     `ast`, including parentheses, multiline lists and aliases. CommonMark root fences using at
+     least three matching backticks or tildes and up to three leading spaces are supported, as are
+     arbitrary-length backtick code spans. Unsupported/unparseable cited forms fail explicitly.
   3. **Bare line citations, file existence only** (reparo F4/VER-ADR-BATCH, 2026-09-06) —
      `path/to/file.py:116` or `:116-120`. A bare line citation cannot be proven wrong without
      knowing what the line USED to say — only that the FILE still exists, which line-drift alone
@@ -107,9 +112,15 @@ _SYMBOL_CITATION_RE = re.compile(
 #: does not try to parse Python; ``ast.parse`` owns that job below.
 _IMPORT_START_RE = re.compile(r"\bfrom\s+maezo(?:\.[A-Za-z_][A-Za-z0-9_]*)+\s+import\b")
 
-_FENCED_CODE_RE = re.compile(r"(?ms)^```[^\n]*\n(?P<code>.*?)^```[ \t]*$")
+_FENCE_OPEN_RE = re.compile(r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*)$")
 
-_INLINE_CODE_RE = re.compile(r"(?s)(?<!`)(?P<ticks>`{1,2})(?!`)(?P<code>.*?)(?<!`)(?P=ticks)(?!`)")
+_INDENTED_IMPORT_RE = re.compile(
+    r"(?m)^(?: {4,}|\t)(?P<statement>from\s+maezo(?:\.[A-Za-z_][A-Za-z0-9_]*)+\s+import\b[^\r\n]*)"
+)
+
+_CONTAINER_TILDE_FENCE_RE = re.compile(
+    r"^(?P<prefix> {0,3}(?:> ?|(?:[-+*]|\d+[.)]) +))(?P<fence>~{3,})(?P<info>[^\r\n]*)$"
+)
 
 #: Bare `path.py:NNN` / `path.py:NNN-MMM` — NOT immediately preceded by another `:` (which would
 #: make it the second half of a `::Symbol` citation instead).
@@ -168,24 +179,164 @@ def extract_symbol_citations(doc_name: str, text: str) -> list[SymbolCitation]:
 
 
 def _quoted_code_regions(text: str) -> list[_CodeRegion]:
-    """Return Markdown code regions without interpreting prose as Python.
+    """Return supported CommonMark code regions without interpreting prose as Python.
 
-    Fenced regions are extracted first and masked before inline spans are found, preventing the
-    backticks that delimit a fence from creating duplicate inline regions.
+    Root fenced blocks accept either delimiter, any delimiter length of at least three and zero to
+    three leading spaces. A closing fence must use the same character and at least the opener's
+    length. An unclosed fence extends to EOF, as CommonMark specifies. Fenced regions are masked
+    before arbitrary-length backtick code spans are collected, preventing delimiters or examples
+    inside a block from being interpreted twice.
+
+    Container-nested fences (for example inside a block quote or list) are deliberately outside
+    this finite checker grammar. Such an example must be rewritten as a root fence or inline code;
+    the checker does not claim to parse general Markdown container structure.
     """
     regions: list[_CodeRegion] = []
     fenced_spans: list[tuple[int, int]] = []
-    for match in _FENCED_CODE_RE.finditer(text):
-        regions.append(_CodeRegion(match.group("code"), match.start("code")))
-        fenced_spans.append(match.span())
+    lines = text.splitlines(keepends=True)
+    offsets: list[int] = []
+    offset = 0
+    for line in lines:
+        offsets.append(offset)
+        offset += len(line)
+
+    index = 0
+    while index < len(lines):
+        line_without_ending = lines[index].rstrip("\r\n")
+        opening = _FENCE_OPEN_RE.fullmatch(line_without_ending)
+        if opening is None or (opening.group("fence").startswith("`") and "`" in opening.group("info")):
+            index += 1
+            continue
+
+        fence = opening.group("fence")
+        fence_char = fence[0]
+        minimum_close_length = len(fence)
+        code_start = offsets[index] + len(lines[index])
+        close_index: int | None = None
+        for candidate_index in range(index + 1, len(lines)):
+            candidate = lines[candidate_index].rstrip("\r\n")
+            close = re.fullmatch(r" {0,3}(?P<fence>`{3,}|~{3,})[ \t]*", candidate)
+            if close is None:
+                continue
+            closing_fence = close.group("fence")
+            if closing_fence[0] == fence_char and len(closing_fence) >= minimum_close_length:
+                close_index = candidate_index
+                break
+
+        if close_index is None:
+            regions.append(_CodeRegion(text[code_start:], code_start))
+            fenced_spans.append((offsets[index], len(text)))
+            break
+
+        code_end = offsets[close_index]
+        regions.append(_CodeRegion(text[code_start:code_end], code_start))
+        fence_end = offsets[close_index] + len(lines[close_index])
+        fenced_spans.append((offsets[index], fence_end))
+        index = close_index + 1
 
     masked = list(text)
     for start, end in fenced_spans:
         masked[start:end] = " " * (end - start)
     masked_text = "".join(masked)
-    for match in _INLINE_CODE_RE.finditer(masked_text):
-        regions.append(_CodeRegion(text[match.start("code") : match.end("code")], match.start("code")))
+
+    # CommonMark code spans use a matching backtick run of any length. Runs of a different length
+    # may occur inside the span and do not close it.
+    cursor = 0
+    while cursor < len(masked_text):
+        opening = re.search(r"`+", masked_text[cursor:])
+        if opening is None:
+            break
+        opening_start = cursor + opening.start()
+        opening_end = cursor + opening.end()
+        tick_count = opening_end - opening_start
+        closing = re.compile(rf"(?<!`)`{{{tick_count}}}(?!`)").search(masked_text, opening_end)
+        if closing is None:
+            cursor = opening_end
+            continue
+        regions.append(_CodeRegion(text[opening_end : closing.start()], opening_end))
+        cursor = closing.end()
     return sorted(regions, key=lambda region: region.offset)
+
+
+def _unsupported_markdown_import_issues(doc_name: str, text: str) -> list[ImportIssue]:
+    """Refuse import examples in Markdown code forms outside the finite supported grammar.
+
+    Four-space/tab indented code blocks and container-nested tilde fences require contextual
+    CommonMark container parsing, which this CI gate intentionally does not approximate. Detecting
+    a Maezo import in either form is therefore a blocking, actionable error instead of an omission.
+    Backtick container forms are still found by the matching-run code-span collector.
+    """
+    issues: list[ImportIssue] = []
+    seen_offsets: set[int] = set()
+    supported_regions = _quoted_code_regions(text)
+
+    def in_supported_region(offset: int) -> bool:
+        return any(region.offset <= offset < region.offset + len(region.text) for region in supported_regions)
+
+    for match in _INDENTED_IMPORT_RE.finditer(text):
+        offset = match.start("statement")
+        if in_supported_region(offset):
+            continue
+        seen_offsets.add(offset)
+        issues.append(
+            ImportIssue(
+                doc=doc_name,
+                doc_line=_line_number(text, offset),
+                statement=" ".join(match.group("statement").split()),
+                reason=(
+                    "unsupported Markdown indented-code import; use inline code or a root fence "
+                    "with at most three leading spaces"
+                ),
+            )
+        )
+
+    lines = text.splitlines(keepends=True)
+    offsets: list[int] = []
+    offset = 0
+    for line in lines:
+        offsets.append(offset)
+        offset += len(line)
+
+    for index, line in enumerate(lines):
+        opening = _CONTAINER_TILDE_FENCE_RE.fullmatch(line.rstrip("\r\n"))
+        if opening is None:
+            continue
+        if in_supported_region(offsets[index]):
+            continue
+        fence_length = len(opening.group("fence"))
+        end_index = len(lines)
+        for candidate_index in range(index + 1, len(lines)):
+            candidate = lines[candidate_index].rstrip("\r\n")
+            close = re.fullmatch(
+                rf".*?(?P<fence>~{{{fence_length},}})[ \t]*",
+                candidate,
+            )
+            if close is not None:
+                end_index = candidate_index
+                break
+        body_start = offsets[index] + len(lines[index])
+        body_end = offsets[end_index] if end_index < len(lines) else len(text)
+        body = text[body_start:body_end]
+        for import_match in _IMPORT_START_RE.finditer(body):
+            absolute_offset = body_start + import_match.start()
+            if absolute_offset in seen_offsets:
+                continue
+            seen_offsets.add(absolute_offset)
+            statement_end = text.find("\n", absolute_offset)
+            if statement_end < 0:
+                statement_end = len(text)
+            issues.append(
+                ImportIssue(
+                    doc=doc_name,
+                    doc_line=_line_number(text, absolute_offset),
+                    statement=" ".join(text[absolute_offset:statement_end].split()),
+                    reason=(
+                        "unsupported Markdown container-nested tilde fence; use inline code or a "
+                        "root fence with at most three leading spaces"
+                    ),
+                )
+            )
+    return issues
 
 
 def _import_statement_end(code: str, start_match: re.Match[str]) -> int:
@@ -233,7 +384,7 @@ def inspect_import_citations(
     abbreviation exclusion used by ADR-0026's prose summary.
     """
     citations: list[ImportCitation] = []
-    issues: list[ImportIssue] = []
+    issues = _unsupported_markdown_import_issues(doc_name, text)
     exclusions: list[CitationExclusion] = []
 
     for region in _quoted_code_regions(text):
@@ -383,6 +534,14 @@ def is_intentionally_local_ignored_path(repo_root: Path, path: str, tracked: lis
 # Tree resolution
 # ---------------------------------------------------------------------------
 
+# These names are stable repository-root identities in this project. A citation that supplies one
+# cannot be satisfied by a suffix copy under ``archive/``, ``vendor/`` or another prefix. Other
+# slash-bearing forms remain the documented finite abbreviation grammar for package/tree paths
+# such as ``gateway/pep.py`` and ``tools/workers/ans_cron.py``.
+_EXACT_REPOSITORY_PATH_ROOTS = frozenset(
+    {".github", "config", "deploy", "docs", "scripts", "spec", "src", "tests"}
+)
+
 
 def tracked_files(repo_root: Path) -> list[str]:
     """`git ls-files` — works unchanged in a shallow clone (no history needed)."""
@@ -393,8 +552,8 @@ def tracked_files(repo_root: Path) -> list[str]:
 def resolve_path_candidates(cited: str, tracked: list[str]) -> list[str]:
     """Resolve one of three explicit path forms without discarding a supplied namespace.
 
-    * a repository-relative path is exact when present;
-    * a path with a slash may be an abbreviated suffix (``gateway/pep.py``);
+    * a path beginning with a canonical repository root is always exact;
+    * another path with a slash may be an abbreviated suffix (``gateway/pep.py``);
     * a string with no slash is explicitly a basename citation (``pep.py``).
 
     A qualified miss such as ``src/maezo/wrong/widget.py`` never falls back to a different
@@ -403,6 +562,8 @@ def resolve_path_candidates(cited: str, tracked: list[str]) -> list[str]:
     """
     if cited in tracked:
         return [cited]
+    if cited.split("/", 1)[0] in _EXACT_REPOSITORY_PATH_ROOTS:
+        return []
     if "/" in cited:
         return [tracked_path for tracked_path in tracked if tracked_path.endswith("/" + cited)]
     return [tracked_path for tracked_path in tracked if Path(tracked_path).name == cited]
@@ -415,9 +576,13 @@ def module_to_path(module: str) -> str:
 
 
 def module_path_candidates(module: str, tracked: list[str]) -> list[str]:
-    """Bind an absolute Python module to its exact module file or package ``__init__.py``."""
+    """Bind an absolute module to Python's selected file, with package precedence."""
     base = "src/" + module.replace(".", "/")
-    return [candidate for candidate in (base + ".py", base + "/__init__.py") if candidate in tracked]
+    package = base + "/__init__.py"
+    module_file = base + ".py"
+    if package in tracked:
+        return [package]
+    return [module_file] if module_file in tracked else []
 
 
 def _target_names(target: ast.expr) -> set[str]:
@@ -844,8 +1009,16 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
                     f"{doc_name}:{doc_line}: `{cited_path}` — abbreviated path contains literal `...`"
                 )
                 continue
-            if resolve_path_candidates(cited_path, tracked):
+            candidates = resolve_path_candidates(cited_path, tracked)
+            if any((repo_root / candidate).is_file() for candidate in candidates):
                 eligible_count += 1
+                continue
+            if candidates:
+                eligible_count += 1
+                failures.append(
+                    f"{doc_name}:{doc_line}: `{cited_path}` — tracked target missing from worktree "
+                    f"(tried {candidates}; bare line citation, file-existence only)"
+                )
                 continue
             if is_intentionally_local_ignored_path(repo_root, cited_path, tracked):
                 ignored.append(
@@ -929,6 +1102,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description=(
             "R-089: docs/adr/*.md `path::symbol`, quoted ImportFrom, and bare `path:line` "
             "citations bind to the tracked tree; line numbers remain informational."
+        ),
+        epilog=(
+            "Canonical rooted paths bind exactly. Quoted imports support inline backtick spans "
+            "and root CommonMark fences (backtick or tilde, matching length, 0-3 leading spaces); "
+            "unsupported indented/container forms containing Maezo imports fail explicitly."
         ),
     )
     parser.add_argument(
