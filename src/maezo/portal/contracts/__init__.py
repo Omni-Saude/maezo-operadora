@@ -8,6 +8,7 @@ closed, reconciled contract.
 from maezo.portal.contracts.models import (
     AuthDecisionInputs,
     AuthJuntaInputs,
+    CancelDecisionInputs,
     Centavos,
     ContasCoordinationInputs,
     ContasDecisionInputs,
@@ -31,6 +32,7 @@ from maezo.portal.contracts.models import (
 __all__ = [
     "AuthDecisionInputs",
     "AuthJuntaInputs",
+    "CancelDecisionInputs",
     "Centavos",
     "ContasCoordinationInputs",
     "ContasDecisionInputs",

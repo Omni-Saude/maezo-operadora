@@ -29,6 +29,8 @@ The deliberately narrow executable form set is:
 * REEMBOLSO ``UT_AnaliseReembolso`` and ``UT_CoordenacaoReembolso`` ->
   ``reembolso_decisao``;
 * REEMBOLSO ``UT_RevisaoAuditorMedico`` -> ``reembolso_auditor``.
+* CANCEL ``UT_AnaliseRescisao`` and ``UT_CoordenacaoCancelamento`` ->
+  ``cancel_decisao``.
 
 PAGTO admissibility is based on explicit BPMN task documentation and the plan, while the SP-OP
 output table does not enumerate ``decisao_admissibilidade`` and the BPMN has no ``formData``.  Its
@@ -50,6 +52,12 @@ route that value.  It remains available only in those two draft-bound forms.  Ap
 the browser boundary as a canonical decimal integer string; comparison with the trusted requested
 amount and conversion to the engine integer belong to the future gateway.  Actor identities,
 calculated values, requested values, and clinical-routing facts are never browser authority here.
+
+The two CANCEL bindings remain DRAFT/verify because the process contract itself requires human
+review and neither User Task has ``formData``.  The browser may submit only the documented human
+decision and conditional basis fields.  Actor identity, effect facts, and ``tipo_solicitacao`` are
+trusted runtime context; the future gateway and existing BPMN/worker guards must enforce the
+requested-versus-unilateral route before any effect.
 """
 
 from __future__ import annotations
@@ -105,6 +113,7 @@ FormKey = Literal[
     "reembolso_pendencia",
     "reembolso_decisao",
     "reembolso_auditor",
+    "cancel_decisao",
 ]
 FormSourceStatus = Literal["BPMN_FORMDATA", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"]
 TaskAction = Literal["claim", "release", "decision"]
@@ -137,6 +146,9 @@ AllowedInput = Literal[
     "valor_reembolso_aprovado_cents",
     "justificativa",
     "fundamentacao_contratual",
+    "decisao_cancelamento",
+    "referencia_regulatoria",
+    "comprovacao_notificacao_previa",
 ]
 
 
@@ -533,6 +545,48 @@ class ReembolsoAuditorInputs(_ReembolsoDecisionFields):
         return self
 
 
+class CancelDecisionInputs(_FrozenContract):
+    """Human CANCEL decision shared by analysis and SLA coordination.
+
+    SP-OP-CANCEL-001 lines 75-83 and BPMN lines 260-276/318-320 define the five
+    outcomes and conditional basis fields. ``responsavel_id`` is injected from the trusted
+    human task context. ``tipo_solicitacao`` is likewise trusted process context: this DTO cannot
+    establish whether ``MANTER`` means a denied member request or a maintained contract, nor may it
+    authorize ``EFETIVAR_PEDIDO``. The gateway and BPMN/worker guards must enforce that route.
+    """
+
+    kind: Literal["cancel_decisao"]
+    decisao_cancelamento: Literal[
+        "RESCINDIR",
+        "MANTER",
+        "SUSPENDER",
+        "EFETIVAR_PEDIDO",
+        "SOLICITAR_INFO",
+    ]
+    fundamentacao_contratual: RequiredText | None = None
+    referencia_regulatoria: RequiredText | None = None
+    comprovacao_notificacao_previa: RequiredText | None = None
+
+    @model_validator(mode="after")
+    def _conditional_basis_is_complete(self) -> Self:
+        required_fields: tuple[tuple[str, str | None], ...]
+        if self.decisao_cancelamento in {"RESCINDIR", "SUSPENDER"}:
+            required_fields = (
+                ("fundamentacao_contratual", self.fundamentacao_contratual),
+                ("referencia_regulatoria", self.referencia_regulatoria),
+                ("comprovacao_notificacao_previa", self.comprovacao_notificacao_previa),
+            )
+        elif self.decisao_cancelamento == "MANTER":
+            required_fields = (("fundamentacao_contratual", self.fundamentacao_contratual),)
+        else:
+            required_fields = ()
+
+        for field, value in required_fields:
+            if value is None or not value.strip():
+                raise ValueError(f"{self.decisao_cancelamento} requires {field}")
+        return self
+
+
 DecisionInputs = Annotated[
     AuthDecisionInputs
     | AuthJuntaInputs
@@ -545,7 +599,8 @@ DecisionInputs = Annotated[
     | RecursoAuditorInputs
     | ReembolsoPendingInputs
     | ReembolsoDecisionInputs
-    | ReembolsoAuditorInputs,
+    | ReembolsoAuditorInputs
+    | CancelDecisionInputs,
     Field(discriminator="kind"),
 ]
 
@@ -598,6 +653,14 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     ),
     ("SP-OP-REEMBOLSO-001", "UT_RevisaoAuditorMedico"): (
         "reembolso_auditor",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-CANCEL-001", "UT_AnaliseRescisao"): (
+        "cancel_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-CANCEL-001", "UT_CoordenacaoCancelamento"): (
+        "cancel_decisao",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
 }
@@ -671,6 +734,12 @@ _INPUTS_BY_FORM: dict[FormKey, tuple[AllowedInput, ...]] = {
         "fundamentacao_contratual",
         "cid10_referencia",
         "parecer_auditor",
+    ),
+    "cancel_decisao": (
+        "decisao_cancelamento",
+        "fundamentacao_contratual",
+        "referencia_regulatoria",
+        "comprovacao_notificacao_previa",
     ),
 }
 
