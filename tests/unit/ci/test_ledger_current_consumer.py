@@ -570,3 +570,90 @@ def test_history_loaded_authority_refuses_before_execution(
     assert not runner.consume(verdict, identity)
     assert calls == []
     assert not (Path(verdict.packet) / "runtime").exists()
+
+
+@pytest.mark.parametrize(
+    "historical_metadata", ["getattr(pytest.mark, 'integration')", "pytest.mark.integration"]
+)
+def test_actual_history_unknown_or_live_refuses_preimport(
+    history_tiny: Any, tmp_path: Path, historical_metadata: str
+) -> None:
+    root, base, old, _ = history_tiny
+    sentinel = tmp_path / "historical-imported"
+    (root / TEST).write_text(
+        f"from pathlib import Path\nPath({str(sentinel)!r}).write_text('imported')\n"
+        f"import pytest\npytestmark = {historical_metadata}\ndef test_case(): assert True\n"
+    )
+    source = commit(root)
+    root, base, _, _ = v1((root, base, old, source))
+    result = consumer.run_integrated(root, base, tmp_path / "refused-history", allow_live=True)
+    assert result["current_status"] == "ACCEPTED"
+    assert result["status"] == "UNRESOLVED"
+    edge = result["relations"][0]
+    assert edge["status"] == "REFUSED"
+    assert not (Path(edge["packet"]) / "runtime").exists()
+    assert not sentinel.exists()
+
+
+def test_actual_later_current_cannot_mutate_consumed_history(history_tiny: Any, tmp_path: Path) -> None:
+    root, base, _, _ = v1(history_tiny)
+    output = tmp_path / "late-mutation"
+    (root / TEST).write_text(
+        "from pathlib import Path\ndef test_new():\n"
+        f"    for artifact in Path({str(output / 'history')!r}).glob('*/historical.stdout'):\n"
+        "        artifact.write_text('later current changed historical evidence')\n"
+    )
+    commit(root)
+    result = consumer.run_integrated(root, base, output)
+    assert result["current_status"] == "ACCEPTED"
+    assert result["relations"][0]["status"] == "VALID_HISTORICAL_EQUALITY"
+    assert result["relations"][0]["consumed"] is False
+    assert result["status"] == "UNRESOLVED"
+
+
+def test_actual_history_chain_closes_every_edge_and_physical_endpoint(
+    history_tiny: Any, tmp_path: Path
+) -> None:
+    root, base, old, middle = v1(history_tiny)
+    middle_source = current.git(root, "rev-parse", "HEAD").decode().strip()
+    marker = (
+        f"[ledger-supersedes:v1;target=NEW;source_commit={middle_source};"
+        f"source_row_sha256={current.digest(middle.encode())};"
+        f"source_test_sha256={current.digest((root / TEST).read_bytes())};"
+        f"source_lock_sha256={current.digest((root / 'uv.lock').read_bytes())}]"
+    )
+    terminal = row("TERMINAL", recipe("test_terminal"), marker)
+    (root / TEST).write_text("def test_terminal(): assert True\n")
+    with (root / "docs/evidence-ledger.md").open("a") as stream:
+        stream.write(terminal + "\n")
+    commit(root)
+    result = consumer.run_integrated(root, middle_source, tmp_path / "chain")
+    assert result["status"] == "ACCEPTED"
+    assert result["selected_count"] == 1
+    assert result["attempt_count"] == result["execution_count"] == 3
+    assert result["history_attempt_count"] == 2
+    assert result["history_execution_count"] == 4
+    assert len({item["run_id"] for item in result["relations"]}) == 2
+    assert [item["original"]["raw_line"] for item in result["rows"]] == [old, middle, terminal]
+    assert all(
+        item["current_expectation"]["authoritative_row"]["raw_line"] == terminal for item in result["rows"]
+    )
+
+
+def test_identical_bytecode_with_foreign_globals_cannot_mint_history(
+    history_tiny: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import types
+
+    root, base, _, _ = v1(history_tiny)
+    runner = current.HistoryRunner(root, tmp_path / "forged-globals", base=base)
+    identity = relations.plan_current_relations(root, base).required_relations[0]
+    actual = current.HistoryRunner._v1
+    replacement = types.FunctionType(
+        actual.__code__, dict(actual.__globals__), actual.__name__, actual.__defaults__
+    )
+    monkeypatch.setattr(current.HistoryRunner, "_v1", replacement)
+    verdict = runner.run(identity)
+    assert verdict.status == "REFUSED"
+    assert "HISTORY_LOADED_GLOBALS_DRIFT" in verdict.reasons
+    assert not (Path(verdict.packet) / "runtime").exists()

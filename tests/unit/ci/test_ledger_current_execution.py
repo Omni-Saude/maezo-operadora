@@ -373,7 +373,7 @@ def test_valid_history_obligations_cannot_be_replaced_by_current_pass(
     assert len(result["rows"]) == 2
     assert result["current_status"] == "ACCEPTED"
     assert len({row["current"]["run_id"] for row in result["rows"]}) == 2
-    assert all(row["history"] == "REQUIRED_NOT_COMPOSED" for row in result["rows"])
+    assert all(row["history"] == "UNRESOLVED" for row in result["rows"])
 
 
 @pytest.mark.parametrize("returncode", [1, 2, 3, 4, 5, None, False])
@@ -475,9 +475,55 @@ def test_actual_operational_failed_fresh_history_retains_failure(
     monkeypatch.setattr(proof, "INVALID_CATALOG", (reviewed,))
     packet = tmp_path / "failed-history"
     packet.mkdir(mode=0o700)
-    with pytest.raises(ValueError):
-        runner._operational(edge, packet)
+    data = runner._operational(edge, packet)
+    assert data["status"] == "FAILED"
+    assert data["historical_claim_verified"] is False
+    assert data["execution_count"] == 1
     command = packet / "producer" / edge.successor.row_sha256 / "fresh-historical/pytest.command.json"
     assert json.loads(command.read_text())["rc"] == 1
     assert not command.parent.parent.joinpath("fresh-current").exists()
     assert not (packet / "operational.json").exists()
+
+
+@pytest.fixture(scope="module")
+def async_history_producer() -> Any:
+    from tests.unit.ci import test_ledger_d7_async_consumer as fixtures
+
+    yield from fixtures.adapter.__wrapped__()
+
+
+@pytest.fixture(scope="module")
+def async_adapter_history(tmp_path_factory: pytest.TempPathFactory, async_history_producer: Any) -> Any:
+    from tests.unit.ci import test_ledger_d7_async_consumer as fixtures
+
+    return fixtures.history.__wrapped__(tmp_path_factory, async_history_producer)
+
+
+def test_actual_finite_async_operational_adapter_fixture_scope(
+    tmp_path: Path, async_adapter_history: Any, async_history_producer: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts.ci import ledger_current_relations as relations
+
+    from tests.unit.ci import test_ledger_d7_async_consumer as fixtures
+
+    candidate = fixtures.candidate.__wrapped__(
+        tmp_path, async_adapter_history, async_history_producer, monkeypatch
+    )
+    root, reviewed = candidate[:2]
+    runner = current.HistoryRunner(root, tmp_path / "async-adapter", base=reviewed.source)
+    edge = relations.plan_current_relations(root, reviewed.source).relations[0]
+    packet = tmp_path / "synthetic-async-operational"
+    packet.mkdir(mode=0o700)
+    data = runner._operational(edge, packet)
+    assert data["status"] == "CORRECTED_WITH_INVALID_HISTORY"
+    assert data["historical_claim_verified"] is False
+    assert data["execution_count"] == 2
+    assert (packet / "producer-before.json").read_bytes() == (packet / "producer-after.json").read_bytes()
+    result = json.loads((packet / "operational.json").read_text())
+    assert result["archive_validation"] == "D7_ASYNC_ARCHIVED_PRODUCER_IDENTITY_BOUND"
+    assert result["historical"]["coverage"]["selected_count"] == 1
+    assert result["current"]["coverage"]["selected_count"] == 2
+    # Synthetic archive/catalogue fixtures still cannot mint production handles.
+    refused = runner.run(edge.identity)
+    assert refused.status == "REFUSED"
+    assert not runner.consume(refused, edge.identity)

@@ -16,6 +16,7 @@ import uuid
 from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -908,6 +909,27 @@ _HISTORY_ACCEPTED = frozenset(
 )
 
 
+def _history_function_bindings(module: types.ModuleType, path: Path) -> None:
+    """Same bytecode with substituted globals is not the loaded trusted helper."""
+    pending = list(vars(module).values())
+    seen: set[int] = set()
+    while pending:
+        value = pending.pop()
+        if id(value) in seen:
+            continue
+        seen.add(id(value))
+        if isinstance(value, type) and value.__module__ == module.__name__:
+            pending.extend(vars(value).values())
+        elif isinstance(value, (staticmethod, classmethod)):
+            pending.append(value.__func__)
+        elif isinstance(value, property):
+            pending.extend((value.fget, value.fset))
+        elif isinstance(value, types.FunctionType) and value.__module__ == module.__name__:
+            if value.__code__.co_filename == str(path) and value.__globals__ is not vars(module):
+                raise ValueError("HISTORY_LOADED_GLOBALS_DRIFT")
+            pending.extend(cell.cell_contents for cell in value.__closure__ or ())
+
+
 def _history_policy() -> dict[str, Any]:
     """Attest actual loaded adapter dependencies, including capsule wrapper closures."""
     from scripts.ci import (
@@ -932,6 +954,7 @@ def _history_policy() -> dict[str, Any]:
         payload = git(path.parents[2], "show", "HEAD:scripts/ci/" + path.name)
         if regular_bytes(path) != payload:
             raise ValueError("HISTORY_LOADED_POLICY_DRIFT")
+        _history_function_bindings(module, path)
         trusted = types.ModuleType(module.__name__)
         trusted.__file__ = str(path)
         exec(compile(payload, str(path), "exec", dont_inherit=True), vars(trusted))
@@ -1002,6 +1025,18 @@ def _producer_identity(producer: types.ModuleType) -> dict[str, Any]:
         relative = next((name for name in pins if path.as_posix().endswith("/" + name)), None)
         if relative is None or digest(regular_bytes(path)) != pins[relative]:
             raise ValueError("HISTORY_PRODUCER_SOURCE_DRIFT")
+        original = getattr(module, "original_producer", module)
+        _history_function_bindings(original, path)
+        if original is not module:
+            for name in ("capture_source", "validate_receipt"):
+                selected = getattr(module, name)
+                if (
+                    not isinstance(selected, partial)
+                    or selected.func is not getattr(module.async_recipe, name)
+                    or selected.args != (original,)
+                    or selected.keywords
+                ):
+                    raise ValueError("HISTORY_ASYNC_PRODUCER_BINDING")
         result[module.__name__ + ":" + str(path)] = dict(
             sha256=pins[relative],
             stat=file_identity(path),
@@ -1222,13 +1257,28 @@ class HistoryRunner:
             (packet / "producer-before.json").write_bytes(canonical(identity))
             producer.Packet(out)
             directory.mkdir(mode=0o700)
+            failure = None
             try:
                 result = proof.prove_relation(self.root, plan, relation, producer, directory, reviewed[0])
+            except (OSError, ValueError, RuntimeError) as exc:
+                attempts = proof.recorded_attempts(producer, directory, relation.target.test_path)
+                failure = dict(
+                    status="FAILED" if attempts else "REFUSED",
+                    historical_claim_verified=False
+                    if edge.claim.kind == "V2_INVALID_SOURCE_DECLARATION"
+                    else None,
+                    historical_test_status="UNRESOLVED",
+                    reasons=["HISTORY_OPERATIONAL_VERIFICATION_FAILED", str(exc)],
+                    execution_count=attempts,
+                )
+                (packet / "operational-failure.json").write_bytes(canonical(failure))
             finally:
                 after = _producer_identity(producer)
                 (packet / "producer-after.json").write_bytes(canonical(after))
                 if after != identity:
                     raise ValueError("HISTORY_PRODUCER_POSTRUN_DRIFT")
+            if failure is not None:
+                return failure
         payload = result.to_dict()
         (packet / "operational.json").write_bytes(canonical(payload))
         if not isinstance(result, proof.CompleteCorrection):
@@ -1249,7 +1299,7 @@ class HistoryRunner:
             or result.tree != self._scope.candidate.tree
             or result.target_row_sha256 != edge.claim.target.row_sha256
             or result.correction_row_sha256 != edge.successor.row_sha256
-            or strict_json(regular_bytes(directory / "result.json")) != payload
+            or strict_json(regular_bytes(directory / "result.json")) != strict_json(canonical(payload))
         ):
             raise ValueError("HISTORY_OPERATIONAL_RESULT_BINDING")
         # Authenticated producer output is retained in full; physical current
@@ -1304,6 +1354,7 @@ class HistoryRunner:
             execution_count=0,
         )
         started = datetime.now(UTC).isoformat()
+        edge = None
         try:
             edge = self._edge(identity)
             before = self._custody(edge)
@@ -1325,7 +1376,12 @@ class HistoryRunner:
             subprocess.SubprocessError,
         ) as exc:
             data.update(
-                status="REFUSED", historical_claim_verified=None, reasons=[str(exc)], execution_count=None
+                status="REFUSED",
+                historical_claim_verified=False
+                if edge is not None and edge.claim.kind == "V2_INVALID_SOURCE_DECLARATION"
+                else None,
+                reasons=[str(exc)],
+                execution_count=None,
             )
         receipt: dict[str, Any] = dict(
             schema="maezo-ledger-history-execution/v1",
