@@ -226,3 +226,13 @@ def test_loader_itself_cannot_be_substituted_before_ancestry(tmp_path, kind, mut
         error in result.stderr
         for error in ("loader pin mismatch", "FileNotFoundError", "OSError", "nonregular")
     )
+
+
+def test_read_access_time_does_not_count_as_source_mutation(repository):
+    import os
+
+    capsule = s.ToolSourceCapsule(repository)
+    relative = "scripts/dev/run_engine_integration.py"
+    path = capsule.root / relative
+    os.utime(path, ns=(1, path.stat().st_mtime_ns))
+    assert hashlib.sha256(capsule._read(relative)).hexdigest() == s.TOOL_SOURCES[relative][1]

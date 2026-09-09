@@ -121,7 +121,21 @@ class ToolSourceCapsule:
                 with os.fdopen(os.dup(source), "rb") as stream:
                     data = stream.read(MAX_SOURCE_BYTES + 1)
                 after = os.stat(Path(relative).name, dir_fd=fd, follow_symlinks=False)
-                if os.fstat(source) != info or after != info:
+                # Reading may update atime; identity/content metadata must not.
+                if any(
+                    getattr(current, field) != getattr(info, field)
+                    for current in (os.fstat(source), after)
+                    for field in (
+                        "st_dev",
+                        "st_ino",
+                        "st_mode",
+                        "st_uid",
+                        "st_nlink",
+                        "st_size",
+                        "st_mtime_ns",
+                        "st_ctime_ns",
+                    )
+                ):
                     raise ToolSourceRefusedError("tooling capsule source changed during read")
             finally:
                 os.close(source)
