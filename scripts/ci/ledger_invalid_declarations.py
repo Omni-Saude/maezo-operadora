@@ -661,7 +661,10 @@ def build_plan(
             referenced.add(ref.path)
         # A capture manifest extends committed custody, never grants authenticity.
         receipt_data = bounded_json(payloads[hist.receipt.path])
-        if receipt_data.get("schema") == "maezo-historical-recipe-proof/v1":
+        if (
+            operational.d7_reviewed(relation) is not None
+            or receipt_data.get("schema") == "maezo-historical-recipe-proof/v1"
+        ):
             members = operational.archive_members(git, relation)
             directory = hist.receipt.path.rsplit("/", 1)[0]
             paths = {directory + "/" + name for name in members}

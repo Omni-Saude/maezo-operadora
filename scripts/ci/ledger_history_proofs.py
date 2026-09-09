@@ -15,8 +15,9 @@ import tempfile
 import tomllib
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal
@@ -97,6 +98,107 @@ VALID_CATALOG: tuple[ReviewedHistory, ...] = (
 )
 
 
+# Separately qualified explicit-async successor. The original two catalogues,
+# their receipt schemas, and their own-lock rules are unchanged.
+D7_CATALOG: tuple[ReviewedHistory, ...] = (
+    ReviewedHistory(
+        "D7unit802",
+        "80206e29ab4bb4f71556b6f119ba9dd777370fe0",
+        "tests/unit/gateway/test_engine_capability_contracts.py",
+        "PLAN-PORTAL-D7-A-CAPABILITY-CONTRACTS",
+        "2026-09-08",
+        "4a8d780b958cf653d61e226f1ab0aa6cfeec4fe863545f8b8ce617a402c96e36",
+        "ddee1f4089012b7605b822b10e8ed0adf94607c84ba59971483e4780f7c0c933",
+        "1b40d6d8f30ead07b089417e02b0ff08a52fb3c3e9ad6540a7dad5fb5ec68b75",
+        159,
+        "c3be627ffa9ec3e7448343dbcfda4e7734077a4a8d87a392f222026a2acd7272",
+        prefix_commit="315af58a496eac608a32ad66eca18783ed209d50",
+        report_sha256="cb967991a03fe053fce982c75e917ec7697a3fde1aba688bd4a54204f8783f93",
+    ),
+)
+D7_SOURCE_COMMIT = "63f1f1ca33e3887a545fc85ec27673feb44210d0"
+D7_SOURCE_TREE = "1ccc563fef4fdd102d968ee7c4ba49a7f3447579"
+D7_TOOL_SOURCES = {
+    "scripts/dev/historical_async_recipe.py": (
+        "241e0c9a9f636abe50f6765f148d0668c78ea3f26ab90f91725368434f83d4af"
+    ),
+    "scripts/dev/run_historical_catalog_recipe.py": (
+        "a814ab8dacce1e6e5541af01e601aaa183d6e6917da014145a46d47ab54c9be4"
+    ),
+    "scripts/dev/historical_tool_sources.py": (
+        "0c9f10f5b2a7a8e5a290ca43fb204bddfdc090462d3a02b318fe6e5297ab7c25"
+    ),
+}
+
+
+def d7_reviewed(relation: static.Relation) -> ReviewedHistory | None:
+    if relation.record.kind != "invalid-declaration":
+        return None
+    return next(
+        (
+            item
+            for item in D7_CATALOG
+            if (
+                relation.record.target.source_commit,
+                relation.target.test_path,
+                relation.target.task_id,
+                relation.target.row_date,
+            )
+            == (item.source, item.test, item.task, item.date)
+        ),
+        None,
+    )
+
+
+@contextmanager
+def async_producer_capsule(repository: Path) -> Iterator[ModuleType]:
+    """Candidate-owned exact 63f1 bytes, composed with the original pinned capsule.
+
+    The reviewed branch is not asserted to be an ancestor of an integrated
+    cherry-pick. Its byte identities are verified against BOTH running policy and
+    the committed candidate before import; provenance retains its separate SHA.
+    """
+    policy = static.FrozenGit(Path(__file__).resolve().parents[2])
+    candidate = static.FrozenGit(repository)
+    payloads = {}
+    for relative, expected in D7_TOOL_SOURCES.items():
+        data = candidate.current(relative)
+        if data != policy.current(relative) or static.digest(data) != expected:
+            static.fail("D7_CURRENT_PRODUCER_SOURCE_BINDING")
+        payloads[relative] = data
+    with (
+        producer_capsule(repository) as original,
+        tempfile.TemporaryDirectory(prefix="maezo-d7-tools-") as tmp,
+    ):
+        root = Path(tmp)
+        for relative, payload in payloads.items():
+            dest = root / relative
+            dest.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            dest.write_bytes(payload)
+            dest.chmod(0o600)
+        modules = []
+        for relative in (
+            "scripts/dev/historical_async_recipe.py",
+            "scripts/dev/run_historical_catalog_recipe.py",
+        ):
+            path = root / relative
+            spec = importlib.util.spec_from_file_location("ledger_d7_" + path.stem, path)
+            if spec is None or spec.loader is None:
+                static.fail("D7_PRODUCER_LOAD")
+            module = importlib.util.module_from_spec(spec)
+            exec(compile(payloads[relative], str(path), "exec"), module.__dict__)
+            modules.append(module)
+        recipe, catalog = modules
+        adapter = ModuleType("ledger_finite_d7_execution")
+        adapter.__dict__.update(original.__dict__)
+        adapter.original_producer = original
+        adapter.async_recipe = recipe
+        adapter.async_catalogue = catalog
+        adapter.capture_source = partial(recipe.capture_source, original)
+        adapter.validate_receipt = partial(recipe.validate_receipt, original)
+        yield adapter
+
+
 def recipe_closure(data: bytes) -> dict[str, str]:
     """Exact transitive module binding ASTs used by the frozen recipe and guard."""
     definitions: dict[str, ast.AST] = {}
@@ -175,6 +277,10 @@ def producer_capsule(repository: Path) -> Iterator[ModuleType]:
 
 def archive_members(git: static.FrozenGit, relation: static.Relation) -> dict[str, bytes]:
     """Traverse a pinned capture manifest using the reviewed current fd/Git reader."""
+    if d7_reviewed(relation) is not None:
+        from scripts.ci import ledger_archived_catalog
+
+        return ledger_archived_catalog.d7_archive_members(git, relation)
     receipt = relation.record.historical.receipt
     directory = receipt.path.rsplit("/", 1)[0]
     manifest_path = directory + "/manifest.json"
@@ -287,6 +393,7 @@ class CompleteCorrection:
     archive_validation: str = "literal-producer-local-runtime"
     archive_review_report_sha256: str = ""
     archive_review_manifest_sha256: str = ""
+    successor_provenance: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -339,15 +446,26 @@ def prove_relation(
     members = archive_members(git, relation)
     if (
         static.digest(members["manifest.json"]) != reviewed.manifest_sha256
-        or static.digest(members["receipt.json"]) != reviewed.receipt_sha256
+        or static.digest(members["successor.json" if reviewed in D7_CATALOG else "receipt.json"])
+        != reviewed.receipt_sha256
     ):
         static.fail("IC_REVIEWED_ARCHIVE_CUSTODY")
+    is_async = reviewed in D7_CATALOG
     archived = out / "archived"
     materialize(archived, members)
     # Exact receipt bytes are authenticated by the independently reviewed catalog pin.
-    observations = producer.load(archived / "receipt.json")["scope"]["original_observations"]
+    inner_archive = archived / "capture" if is_async else archived
+    observations = producer.load(inner_archive / "receipt.json")["scope"]["original_observations"]
     archive_validation = "literal-producer-local-runtime"
-    if reviewed.proof_id in {"D6unit136d", "PFV8821"}:
+    if is_async:
+        from scripts.ci import ledger_archived_catalog
+
+        old = ledger_archived_catalog.validate_d7_archived_receipt(
+            producer, archived, repo, reviewed.identity()
+        )
+        validate_locked_inventory(git.blob(reviewed.source, "uv.lock"), old["environment"]["inventory"])
+        archive_validation = "D7_ASYNC_ARCHIVED_PRODUCER_IDENTITY_BOUND"
+    elif reviewed.proof_id in {"D6unit136d", "PFV8821"}:
         from scripts.ci import ledger_archived_catalog
 
         old = ledger_archived_catalog.validate_archived_catalog_receipt(
@@ -451,7 +569,10 @@ def prove_relation(
                 ("current", current_dir),
             )
         },
-        TOOL_SOURCES,
+        {
+            **TOOL_SOURCES,
+            **({path: (git.candidate, pin) for path, pin in D7_TOOL_SOURCES.items()} if is_async else {}),
+        },
         static.digest(Path(__file__).read_bytes()),
         static.digest(git.current("scripts/ci/check_evidence_ledger_hashes.py"))
         if "scripts/ci/check_evidence_ledger_hashes.py" in git.inventory(git.candidate)
@@ -471,6 +592,19 @@ def prove_relation(
             result,
             archive_review_report_sha256=ledger_archived_catalog.REVIEW_REPORT_SHA256,
             archive_review_manifest_sha256=ledger_archived_catalog.REVIEW_MANIFEST_SHA256,
+        )
+    if is_async:
+        result = replace(
+            result,
+            archive_review_report_sha256=ledger_archived_catalog.D7_REVIEW_FILES["actual-REPORT.md"],
+            archive_review_manifest_sha256=ledger_archived_catalog.D7_REVIEW_FILES["actual-MANIFEST.json"],
+            successor_provenance={
+                "reviewed_source_commit": D7_SOURCE_COMMIT,
+                "reviewed_source_tree": D7_SOURCE_TREE,
+                "candidate_tool_sources": D7_TOOL_SOURCES,
+                "review_closure": ledger_archived_catalog.D7_REVIEW_FILES,
+                "recipe": producer.async_recipe.RECIPE,
+            },
         )
     if valid_history:
         result = replace(
@@ -521,6 +655,7 @@ def recorded_attempts(producer: ModuleType, directory: Path, test_path: str) -> 
                     "no:cacheprovider",
                     "-p",
                     "ledger_source_guard",
+                    *(["-p", "pytest_asyncio.plugin"] if hasattr(producer, "async_recipe") else []),
                 ]
             ):
                 return None
@@ -543,7 +678,11 @@ def execute_selected(
         reviewed = next(
             (
                 item
-                for item in (VALID_CATALOG if relation.record.kind == "verified-history" else INVALID_CATALOG)
+                for item in (
+                    VALID_CATALOG
+                    if relation.record.kind == "verified-history"
+                    else INVALID_CATALOG + D7_CATALOG
+                )
                 if (item.source, item.test, item.task, item.date)
                 == (
                     relation.record.target.source_commit,
@@ -560,7 +699,8 @@ def execute_selected(
         directory = output_root / pending.correction_row_sha256
         producer = None
         try:
-            with producer_capsule(repo) as producer:
+            capsule = async_producer_capsule if reviewed in D7_CATALOG else producer_capsule
+            with capsule(repo) as producer:
                 producer.Packet(output_root)
                 directory.mkdir(mode=0o700)
                 results.append(prove_relation(repo, plan, relation, producer, directory, reviewed))
