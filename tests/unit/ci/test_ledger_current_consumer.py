@@ -112,24 +112,31 @@ def test_actual_identical_physical_rows_are_separate(tiny: Any, tmp_path: Path) 
     assert len({item["current"]["run_id"] for item in result["rows"]}) == 2
 
 
-def test_actual_named_python_uses_prepared_runtime(tiny: Any, tmp_path: Path) -> None:
+@pytest.mark.parametrize("write_bytecode", [False, True])
+def test_actual_named_python_uses_prepared_runtime(tiny: Any, tmp_path: Path, write_bytecode: bool) -> None:
     root, base, old, _ = tiny
+    command = ["python", "-I", *([] if write_bytecode else ["-B"]), "-c", "import sys; print(sys.prefix)"]
     (root / TEST).write_text(
         "import sys, subprocess\ndef test_case():\n"
         "    prefix = subprocess.check_output(\n"
-        "        ['python', '-I', '-c', 'import sys; print(sys.prefix)'], text=True).strip()\n"
+        f"        {command!r}, text=True).strip()\n"
         "    assert prefix == sys.prefix\n"
     )
     commit(root)
     runner = current.CurrentRunner(root, tmp_path / "proof", base=base)
     occurrence = current.Occurrence(2, old)
     verdict = runner.run(occurrence)
-    assert verdict.status == "ACCEPTED", verdict
     binding = json.loads((Path(verdict.packet) / "binding.json").read_text())
     assert binding["environment"]["PATH"].split(":")[0] == str(
         Path(binding["runtime_identity"]["prefix"]) / "bin"
     )
-    assert runner.consume(verdict, occurrence)
+    if write_bytecode:
+        assert verdict.status == "FAILED", verdict
+        assert "RUNTIME_TOOL_DRIFT" in verdict.reasons
+        assert not runner.consume(verdict, occurrence)
+    else:
+        assert verdict.status == "ACCEPTED", verdict
+        assert runner.consume(verdict, occurrence)
 
 
 def test_actual_failed_old_recipe_never_becomes_passing_history(tiny: Any, tmp_path: Path) -> None:
