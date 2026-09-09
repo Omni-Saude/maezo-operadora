@@ -65,3 +65,9 @@ a1b044b37c6551ab0de4c1b8315a5d95ea26245b:docs/gates/G1-gate-review.md:generic-ap
 # fingerprint cobre APENAS o commit imutavel que o introduziu. Mesma condicao de remocao da
 # entrada acima.
 d3c5ac141e0f43587bf6278579e43afe05bb9aa3:.gitleaksignore:generic-api-key:46
+# Security run 34338638279: identical synthetic HumanCommand form identifiers in
+# immutable offline unit-fixture commits reachable through published branches.
+# These are form-selection data, not credentials. Exact commit:file:rule:line
+# fingerprints preserve scanning of every other occurrence and all default rules.
+92f98281696b31a0151d8ba0d48bdabe2d80a8be:tests/unit/gateway/human/test_receipt_recording_metadata.py:generic-api-key:42
+1dd1afe304d62f8d4dd78304272ec64294112e70:tests/unit/portal/test_engine_profile.py:generic-api-key:42
