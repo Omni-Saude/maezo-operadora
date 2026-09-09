@@ -11,9 +11,23 @@ path (no `idempotency=` store injected) plus its integration with a FAKE durable
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
 
-from maezo.a2a import AgentCard, Budget, DelegationEnvelope, DelegationResult, RejectionReason, StoredResult
+import pytest
+
+from maezo.a2a import (
+    AgentCard,
+    Budget,
+    DelegationEnvelope,
+    DelegationResult,
+    HandlerOutput,
+    RejectionReason,
+    StoredResult,
+)
 from maezo.a2a.dispatcher import AgentHandler, DelegationDispatcher, FactProducer
+from maezo.a2a.facts import TOPIC_COMPLETED, TOPIC_REQUESTED
 from maezo.a2a.idempotency import IdempotencyStore
 from maezo.a2a.registry import A2ARegistry
 from maezo.tools.workers.harness import FakeAuditSink
@@ -154,3 +168,175 @@ async def test_durable_store_persists_rejection_as_terminal() -> None:
     assert second.success is False
     assert second.rejection_reason is RejectionReason.TASK_TYPE_NOT_ACCEPTED
     assert handler.call_count == 0
+
+
+class _AtomicRetryTransactions:
+    """Offline dispatcher seam only; real PG atomicity is covered by the live PG suites.
+
+    Unlike the orphan False sentinel, an existing claim never implies a requested fact.
+    This double records the enlisted admission/marker ordering and rolls back failed admission.
+    """
+
+    def __init__(self, *, claimed: bool = False, fail_send: bool = False) -> None:
+        self.claimed = claimed
+        self.marked = False
+        self.fail_send = fail_send
+        self.topics: list[str] = []
+        self.events: list[str] = []
+
+    @asynccontextmanager
+    async def transaction(self, tenant: str) -> AsyncIterator[_AtomicRetryTransactions]:
+        assert tenant == "amh"
+        before = self.claimed, self.marked, list(self.topics)
+        self.events.append("begin")
+        try:
+            yield self
+        except BaseException:
+            self.claimed, self.marked, self.topics = before
+            self.events.append("rollback")
+            raise
+        else:
+            self.events.append("commit")
+
+    async def claim(self, task_id: str) -> tuple[bool, dict[str, Any]]:
+        fresh = not self.claimed
+        self.claimed = True
+        self.events.append("claim")
+        return fresh, {"status": "processing", "result": None, "requested_enqueued_at": self.marked or None}
+
+    async def requested_exists(self, task_id: str, row: Any) -> bool:
+        return self.marked
+
+    async def mark_requested(self, task_id: str) -> None:
+        assert TOPIC_REQUESTED in self.topics, "marker cannot precede observed enqueue"
+        self.events.append("mark")
+        self.marked = True
+
+    async def emit_once(self, record: Any, *, dedup_key: str) -> str:
+        self.events.append("audit")
+        return "unit-audit-hash"
+
+    async def send(self, topic: str, value: bytes, *, key: bytes | None = None) -> None:
+        if self.fail_send:
+            self.fail_send = False
+            raise RuntimeError("enqueue unavailable")
+        self.events.append("enqueue")
+        self.topics.append(topic)
+
+    async def poll(self, task_id: str) -> None:
+        return None
+
+
+@pytest.mark.parametrize("preexisting_claim", [False, True])
+async def test_durable_redelivery_of_unsealed_row_does_not_reemit_requested(
+    preexisting_claim: bool,
+) -> None:
+    """Original requested-once/retry obligation, on the stronger atomic admission path.
+
+    A pre-existing row WITHOUT a marker still enqueues requested; two handler failures
+    retain exactly one observed requested. No claim of actual database persistence here.
+    """
+    calls = 0
+
+    async def _failing_handler(envelope: DelegationEnvelope) -> HandlerOutput:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("engine unavailable")
+
+    transactions = _AtomicRetryTransactions(claimed=preexisting_claim)
+    dispatcher, _, _ = build_test_dispatcher(
+        cards=[make_card("rafael")], handlers={"rafael": _failing_handler}
+    )
+    dispatcher._transactions = transactions  # type: ignore[assignment]
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="engine unavailable"):
+            await dispatcher.delegate(_envelope("dur-retry-1"))
+    assert calls == 2
+    assert transactions.topics == [TOPIC_REQUESTED]
+    assert transactions.marked
+    assert transactions.events[:6] == ["begin", "claim", "audit", "enqueue", "mark", "commit"]
+
+
+async def test_atomic_failed_enqueue_rolls_back_and_retries_before_handler() -> None:
+    calls = 0
+
+    async def failing_handler(envelope: DelegationEnvelope) -> HandlerOutput:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("handler retry")
+
+    transactions = _AtomicRetryTransactions(fail_send=True)
+    dispatcher, _, _ = build_test_dispatcher(
+        cards=[make_card("rafael")], handlers={"rafael": failing_handler}
+    )
+    dispatcher._transactions = transactions  # type: ignore[assignment]
+    with pytest.raises(RuntimeError, match="enqueue unavailable"):
+        await dispatcher.delegate(_envelope("atomic-enqueue-retry"))
+    assert not transactions.claimed and not transactions.marked
+    assert transactions.topics == []
+    assert transactions.events[-1] == "rollback"
+    assert calls == 0
+    with pytest.raises(RuntimeError, match="handler retry"):
+        await dispatcher.delegate(_envelope("atomic-enqueue-retry"))
+    assert calls == 1
+    assert transactions.marked
+    assert transactions.topics == [TOPIC_REQUESTED]
+
+
+class _ProducerFailingFirstSend(RecordingProducer):
+    """Produtor cujo PRIMEIRO `send` falha (broker/outbox indisponivel) e os seguintes passam.
+
+    Modela a falha real do caminho de producao: `PostgresOutboxFactProducer.send` faz um `INSERT`
+    na outbox transacional e a falha PROPAGA por decisao explicita de `a2a/outbox.py`."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.failed_once = False
+
+    async def send(self, topic: str, value: bytes, *, key: bytes | None = None) -> None:
+        if not self.failed_once:
+            self.failed_once = True
+            raise RuntimeError("outbox indisponivel (falha da PRIMEIRA emissao)")
+        await super().send(topic, value, key=key)
+
+
+async def test_inmemory_failed_requested_emit_is_reemitted_on_redelivery() -> None:
+    """A2A-RETRY-REEMITS-REQUESTED-FACT (caminho em memoria): se a EMISSAO do `requested` falha, a
+    reentrega REEMITE — o fato nao se perde.
+
+    A supressao da reemissao (o guard `skip_requested_fact`) so pode se apoiar num fato OBSERVADO.
+    `_delegate_inflight` marca `entry.requested_emitted` pelo callback `on_requested_emitted`, que
+    `_execute` chama DEPOIS de `_emit(REQUESTED)` retornar. Se a marca fosse escrita antes de
+    `_execute` (como numa versao anterior desta correcao), uma emissao falha viraria PERDA
+    PERMANENTE: a reentrega veria a marca `True`, pularia a emissao para sempre e publicaria um
+    `completed` sem nenhum `requested` antes — uma duplicata o consumidor deduplica, uma perda nao.
+
+    Mutacao que leva este teste a RED: em `_delegate_inflight`, voltar a marcar
+    `entry.requested_emitted = True` ANTES da chamada a `_execute` (em vez de pelo callback)."""
+    calls = 0
+
+    async def _handler(envelope: DelegationEnvelope) -> HandlerOutput:
+        nonlocal calls
+        calls += 1
+        return HandlerOutput(output_ref="fhir://Task/ok")
+
+    producer = _ProducerFailingFirstSend()
+    dispatcher, _, _ = build_test_dispatcher(
+        cards=[make_card("rafael")], handlers={"rafael": _handler}, producer=producer
+    )
+
+    with pytest.raises(RuntimeError):
+        await dispatcher.delegate(_envelope("mem-emit-falha-1"))
+    assert producer.topics() == [], (
+        f"a emissao falhou; nada deveria ter sido publicado ({producer.topics()!r})"
+    )
+    assert calls == 0, "a emissao do `requested` precede o handler: ele nao deveria ter rodado"
+
+    result = await dispatcher.delegate(_envelope("mem-emit-falha-1"))  # reentrega do MESMO task_id
+
+    assert result.success, "a reentrega apos falha de emissao deveria executar normalmente"
+    assert calls == 1, "a reentrega nao executou o handler"
+    assert producer.topics() == [TOPIC_REQUESTED, TOPIC_COMPLETED], (
+        f"o fato `requested` foi PERDIDO: a reentrega publicou {producer.topics()!r} "
+        f"— um `completed` sem `requested` antes quebra a trilha de auditoria A2A"
+    )

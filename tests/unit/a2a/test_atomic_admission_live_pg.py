@@ -500,8 +500,7 @@ async def test_populated_0010_upgrade_preserves_all_rows_bytes_chain_and_valid_r
         outbox = PostgresFactOutbox(dsn=dsn, tenant=tenant)
         cleanup.push_async_callback(outbox.aclose)
         envelopes = [
-            replace(envelope_for(tenant), task_id=f"legacy-{state}")
-            for state in ("processing", "done")
+            replace(envelope_for(tenant), task_id=f"legacy-{state}") for state in ("processing", "done")
         ]
         original_rows = {}
         calls = []
@@ -590,9 +589,7 @@ async def test_populated_0010_upgrade_preserves_all_rows_bytes_chain_and_valid_r
         assert {row_id: final_bytes_by_id[row_id] for row_id in original_rows} == original_rows
 
         additional = [
-            json.loads(bytes(row["payload"]))
-            for row in final_rows
-            if int(row["id"]) not in original_rows
+            json.loads(bytes(row["payload"])) for row in final_rows if int(row["id"]) not in original_rows
         ]
         completed = [payload for payload in additional if payload["kind"] == "completed"]
         assert len(completed) == 1
