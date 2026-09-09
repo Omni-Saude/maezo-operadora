@@ -33,10 +33,15 @@ written to a *different decomposition* than the ratified BPMN: only 1 of the cod
 `lgpd.py:407-416` already acknowledges this drift as pre-existing (from T1.1), out of scope for T1.2.
 
 - **Aligned topics:** 1 (`operadora.lgpd.verify_identity`).
+  *(Atualização 2026-09-06: são **5** — R-B `request_additional_proof`, R-F `send_response`,
+  R-G `notify_sla_risk` e R-181 `execute_request` foram construídos/conformados desde então.)*
 - **BPMN/contract topics with NO worker:** 5 (`request_additional_proof`, `compile_data_package`,
   `execute_request`, `send_response`, `notify_sla_risk`).
+  *(Atualização 2026-09-06: sobra **1** — `compile_data_package`, R-C, DPO/SME-gated.)*
 - **Orphan code topics not in BPMN/contract:** 5 (`assess_request`, `execute_export`,
   `execute_rectification`, `execute_erasure`, `publish_completed`).
+  *(Atualização 2026-09-06: sobra **ZERO** — O1/R-E em T2.8, O5/R-H em `abb9d60`, O2-O4/R-181
+  em 2026-09-06.)*
 - **Shared / deliberately-unregistered:** 1 (`operadora.events.publish` — generic publisher, present
   in the BPMN on 5 tasks, intentionally NOT registered per any single process per ADR-0026 §2b;
   `lgpd.py:425` explicitly declares no seam. **Not a defect.**).
@@ -53,14 +58,14 @@ Legend: ✓ present · ✗ absent · ► BPMN task id.
 | T1 | `operadora.lgpd.verify_identity` | ✓ ►`ST_VerificarIdentidade` (`bpmn:86`) | `ValidateIdentityWorker` · `verify_identity` (`:48`) | ✓ (`:29`) | **ALIGNED** |
 | T2 | `operadora.lgpd.request_additional_proof` | ✓ ►`ST_PedirProvaAdicional` (`bpmn:134`) | ✗ no worker | — | **MISSING WORKER** |
 | T3 | `operadora.lgpd.compile_data_package` | ✓ ►`ST_CompilarPacote` (`bpmn:182`) | ✗ no worker | — | **MISSING WORKER** |
-| T4 | `operadora.lgpd.execute_request` | ✓ ►`ST_ExecutarRequisicao` (`bpmn:271`) | ✗ (code splits into 3, see O2-O4) | — | **NAME + DECOMPOSITION MISMATCH** |
+| T4 | `operadora.lgpd.execute_request` | ✓ ►`ST_ExecutarRequisicao` (`bpmn:271`) | ✓ `ExecuteRequestWorker` (R-181) | ✓ | **ALIGNED — FECHADA 2026-09-06** (R-181 / decisão do dono; só a TOPOLOGIA, a habilitação da execução real segue DPO-gated) |
 | T5 | `operadora.lgpd.send_response` | ✓ ►`ST_EnviarResposta` (`bpmn:278`) | ✗ no worker | — | **MISSING WORKER** |
 | T6 | `operadora.lgpd.notify_sla_risk` | ✓ ►`ST_NotificarRiscoSla` (`bpmn:217`) + ►`ST_NotificarJuridicoBreach` (`bpmn:325`) | ✗ no worker | — | **MISSING WORKER** |
 | T7 | `operadora.events.publish` (generic) | ✓ 5 service tasks (`bpmn:64,110,156,287,315`) | ✗ (shared/out-of-scope, ADR-0026 §2b; `lgpd.py:425`) | — | **SHARED — not a defect** |
 | O1 | ✗ (routing is a DMN) | ✗ (routing = ►`BRT_RotearDsr` DMN `lgpd_dsr_routing`, `bpmn:172`) | `AssessRequestWorker` · `assess_request` (`:112`) | ✓ (`:99`) | **ORPHAN CODE TOPIC** |
-| O2 | ✗ | ✗ | `ExecuteExportWorker` · `execute_export` (`:175`) | ✓ (`:241`) | **ORPHAN CODE TOPIC** |
-| O3 | ✗ | ✗ | `ExecuteRectificationWorker` · `execute_rectification` (`:235`) | ✓ (`:284`) | **ORPHAN CODE TOPIC** |
-| O4 | ✗ | ✗ | `ExecuteErasureWorker` · `execute_erasure` (`:292`) | ✓ (`:157`) | **ORPHAN CODE TOPIC** |
+| O2 | ✗ | ✗ | ~~`ExecuteExportWorker` · `execute_export` (`:175`)~~ **COLAPSADO** em `ExecuteRequestWorker` (T4) | ~~✓~~ asserts migrados | **ORPHAN CODE TOPIC — FECHADA 2026-09-06** (R-181, decisão do dono; ver R-D) |
+| O3 | ✗ | ✗ | ~~`ExecuteRectificationWorker` · `execute_rectification` (`:235`)~~ **COLAPSADO** em `ExecuteRequestWorker` (T4) | ~~✓~~ asserts migrados | **ORPHAN CODE TOPIC — FECHADA 2026-09-06** (R-181, decisão do dono; ver R-D) |
+| O4 | ✗ | ✗ | ~~`ExecuteErasureWorker` · `execute_erasure` (`:292`)~~ **COLAPSADO** em `ExecuteRequestWorker` (T4) | ~~✓~~ asserts migrados | **ORPHAN CODE TOPIC — FECHADA 2026-09-06** (R-181, decisão do dono; ver R-D) |
 | O5 | ✗ (BPMN publishes via T7) | ✗ | ~~`PublishCompletedWorker` · `publish_completed` (`:380`)~~ **RETIRADO** | ~~✓ (`:312`)~~ **3 testes removidos com o worker** | **ORPHAN CODE TOPIC — FECHADA 2026-09-04** (R-H aplicado; gap `LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC`, decisão do dono R-103) |
 
 **Message + domain events (all three sources aligned — no divergence):**
@@ -94,7 +99,37 @@ branches by `roteamento_dsr.fluxo`, and its documentation (`bpmn:183`) says it m
 Note: this compile step SUBSUMES the "compile a package" behaviour the code currently misplaces in
 `ExecuteExportWorker` (O2, which compiles *after* approval — a model mismatch; see R-E).
 
-### R-D · `execute_request` (T4 vs O2/O3/O4) — FIX CODE · **DPO/SME SIGN-OFF (L0)**
+### R-D · `execute_request` (T4 vs O2/O3/O4) — FIX CODE · **DPO/SME SIGN-OFF (L0)** — **METADE DE TOPOLOGIA APLICADA 2026-09-06**
+
+> **APLICADO — SÓ A TOPOLOGIA** (decisão do dono **R-181**, `UNLOCK-LEDGER.yaml`, classe A:
+> "Colapsar os três `Execute*Worker` num único worker no tópico modelado
+> `operadora.lgpd.execute_request` ... mantendo cada caminho de execução fail-closed; o DPO
+> ratifica depois apenas QUANDO a execução real é habilitada, não a topologia").
+>
+> O que pousou: `ExecuteExportWorker`/`ExecuteRectificationWorker`/`ExecuteErasureWorker` foram
+> APAGADOS e substituídos por `ExecuteRequestWorker` em `operadora.lgpd.execute_request`, que
+> despacha pelo `tipo_requisicao` declarado (contrato + `bpmn:documentation`) e **recusa em todo
+> caminho** com `WorkerFailureError(retries_left=0)`. As três condições que esta seção exige que
+> o colapso preserve estão preservadas e ENDURECIDAS: (a) nenhuma execução sem aprovação humana,
+> (b) nenhuma execução sem `EXECUTAR_E_ENVIAR` explícito, (c) `NEGAR_FUNDAMENTADO` nunca executa
+> — agora todas as três, mais qualquer outra entrada, terminam em incidente.
+>
+> **Rota escolhida entre as duas que esta seção enumera: (ii).** Nenhum `ERR_DSR_ERASURE_*` é
+> levantado — eles seguem DECLARADOS e NÃO-VINCULADOS, e levantá-los reprovaria
+> `scripts/ci/check_bpmn_error_allowlist.py`. A rota (i) — adicionar boundary catches em
+> `ST_ExecutarRequisicao` — é mudança de spec e **continua DPO/SME-gated**.
+>
+> **Descoberta registrada durante a aplicação:** devolver um dict de guard (o que os três workers
+> aposentados faziam) seria FAIL-OPEN no tópico modelado, porque `Flow_Executar_Enviar` não tem
+> `conditionExpression` — qualquer `complete` avança o token para `ST_EnviarResposta` →
+> `event_desfecho=atendida`. Além disso `human_approved`, o sinal dos guards antigos, **não
+> existe no BPMN nem no contrato** (grep = 0 nos dois): nenhuma instância real o semeia. Por isso
+> a recusa é total e a mensagem de todo incidente lidera com o fato invariante (nada implementado)
+> antes de nomear o guard.
+>
+> **NÃO é uma ratificação:** este documento continua `DRAFT` e não pode ser citado como sign-off.
+> R-C segue DPO/SME-gated; a habilitação da execução REAL segue gated no DPO (F-2 + matriz AF-07);
+> nenhum marcador `DRAFT`/`verify` foi removido; nenhum campo de signoff foi tocado.
 The BPMN has ONE generic execute task `operadora.lgpd.execute_request`, reached ONLY on the
 `EXECUTAR_E_ENVIAR` path (`bpmn:270-275,367-369`). The code splits execution into THREE topics
 (`execute_export`/`execute_rectification`/`execute_erasure`). These three carry the L0-hard guards:
@@ -193,7 +228,9 @@ Two test surfaces disagree, and the disagreement *confirms* the code→spec dire
   *(Atualização 2026-09-04: os asserts de `assess_request` já haviam saído com R-E, e os de
   `publish_completed` saíram com R-H — os 3 testes foram REMOVIDOS junto com o worker, não
   reescritos. Restam os asserts de `execute_export/rectification/erasure`, cujo destino é R-D,
-  DPO/SME-gated.)*
+  DPO/SME-gated.)* *(Atualização 2026-09-06: também saíram — R-181 migrou os asserts para
+  `execute_request`, com o mapa old→new no comentário `MAPA DE MIGRACAO` do próprio arquivo de
+  teste. **Nenhum** assert que EXIJA um tópico de código órfão resta.)*
 - **Integration test-spec** (`docs/processes/test-specs/SP-OP-LGPD-DSR-001.md:18,48,56`), which drives
   the **T3.1 donor port** from `Maezo-Healthcare-Plan/tests/integration/`, references the **BPMN/contract**
   topic names: `operadora.lgpd.execute_request` (`:18`), `compile_data_package` (`:48,56`),

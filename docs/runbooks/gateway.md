@@ -88,10 +88,10 @@ If tool is not listed → **DENY** (no audit, returns immediately).
 The gateway loads two layers (paths are settings defaults — `AUTONOMY_CORE_PATH` /
 `AUTONOMY_OVERLAY_PATH` in `src/maezo/runtime/{agent_runtime,worker_runtime}/settings.py`):
 
-- **L0-core:** `src/maezo/policies/autonomy/L0-core.yaml` — platform baseline; changes only via code review
-- **Tenant overlay:** `src/maezo/policies/autonomy/tenants-{tenant}.yaml` (e.g. `tenants-amh.yaml`) — per-tenant refinements
+- **L0-core:** `spec/policies/autonomy/L0-core.yaml` — platform baseline; changes only via code review
+- **Tenant overlay:** `spec/policies/autonomy/tenants-{tenant}.yaml` (e.g. `tenants-amh.yaml`) — per-tenant refinements
 
-(`src/maezo/policies/autonomy/_hard_frozen.yaml` is a third, CI-only artifact: the
+(`spec/policies/autonomy/_hard_frozen.yaml` is a third, CI-only artifact: the
 frozen list of `hard` items that `make validate-artifacts` cross-checks — see §5.)
 
 The overlay **can only elevate restrictions** (L0 → L1 → L2 → L3); cannot lower a hard item.
@@ -288,7 +288,7 @@ HARD_ACTIONS: frozenset[str] = frozenset(
 make validate-artifacts
 ```
 
-**Source file:** `src/maezo/policies/autonomy/_hard_frozen.yaml` documents which actions are hard (frozen) and why (compliance/regulation references). It is the CI-verified frozen list; `pep.HARD_ACTIONS` is the in-image source of truth.
+**Source file:** `spec/policies/autonomy/_hard_frozen.yaml` documents which actions are hard (frozen) and why (compliance/regulation references). It is the CI-verified frozen list; `pep.HARD_ACTIONS` is the in-image source of truth.
 
 ---
 
@@ -299,13 +299,13 @@ make validate-artifacts
 Each tenant can define an autonomy overlay to **refine** L0-core for specific
 actions — elevate restrictions or pin tenant parameters (e.g. value ceilings);
 never lower a hard item. Overlay files live next to the core:
-`src/maezo/policies/autonomy/tenants-{tenant}.yaml` (resolved via
+`spec/policies/autonomy/tenants-{tenant}.yaml` (resolved via
 `AUTONOMY_OVERLAY_PATH`, defaulting to `tenants-<tenant>.yaml` beside the core).
 
 ### Overlay structure (the real AMH overlay)
 
 ```yaml
-# src/maezo/policies/autonomy/tenants-amh.yaml
+# spec/policies/autonomy/tenants-amh.yaml
 version: 1
 tenant: amh
 overrides:
@@ -321,9 +321,9 @@ overrides:
 from maezo.gateway.pep import load_matrix
 
 matrix = load_matrix(
-    "src/maezo/policies/autonomy/L0-core.yaml",
+    "spec/policies/autonomy/L0-core.yaml",
     tenant="amh",
-    overlay_path="src/maezo/policies/autonomy/tenants-amh.yaml",
+    overlay_path="spec/policies/autonomy/tenants-amh.yaml",
 )
 # Merge enforces in code that the overlay never downgrades a `hard`
 # item nor loosens a non-hard one (HARD_ACTIONS cross-check built in).
@@ -375,7 +375,7 @@ done | jq '.decision_basis' | sort | uniq -c | sort -rn
 
 ```bash
 # 1. Identify the commit that changed autonomy policy
-git log --oneline -20 src/maezo/policies/autonomy/
+git log --oneline -20 spec/policies/autonomy/
 
 # 2. Revert (if safe) or apply hotfix
 git revert <commit_hash>

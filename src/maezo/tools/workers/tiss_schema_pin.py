@@ -553,7 +553,7 @@ def load_tiss_schema_pin(path: str | Path | None = None) -> TissSchemaPin:
     if not raw_path:
         try:
             raw_path = _manifest_default_path()
-        except Exception as exc:  # noqa: BLE001 - fail-closed: unresolvable spec/ ratifies nothing
+        except Exception as exc:  # fail-closed: unresolvable spec/ ratifies nothing
             raise _fail(
                 REASON_PATH_UNRESOLVED, f"could not resolve the default manifest path: {exc}"
             ) from exc

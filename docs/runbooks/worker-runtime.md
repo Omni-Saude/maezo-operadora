@@ -159,7 +159,7 @@ make dev-stack                    # = docker compose --profile core up -d
 # Wait for health (all four have healthchecks; CIB Seven is the slow one — JVM cold start):
 docker compose ps                 # watch for "healthy" on all core services
 
-# Run the integration suite against the live engine:
+# Run the historical path-scoped target against the live engine:
 make test-integration             # = uv run pytest tests/integration -q -m integration
 
 # Tear down. Two forms, NOT equivalent:
@@ -167,10 +167,49 @@ docker compose --profile core down       # stops containers, KEEPS named volumes
 docker compose --profile core down -v    # stops containers AND destroys volumes
 ```
 
+O alvo `make test-integration` continua limitado a `tests/integration/`. A lane CI é mais ampla:
+coleta globalmente `tests -m "integration and not chaos"`, porque também existem suítes live-PG
+e live-CIB sob `tests/unit/`; a lane `chaos` executa separadamente `-m chaos`. A união das duas
+lanes cobre o conjunto global `-m integration`, sem interseção. A lane unitária usa
+`-m "not integration"`. Antes de subir serviços, cada lane live grava um manifesto JSON schema 2
+da coleção com rótulos públicos opacos, fingerprints das identidades completas, hash da fonte,
+política de xfail e eventual companion derivado da guarda canônica `mutation_active`. A execução
+grava outro JSON seguro com as fases setup/call/teardown e prova de entrada no corpo. O JUnit bruto
+fica em staging privado: a validação confronta suas identidades completas com o manifesto
+independente antes de projetar `classname`/`name` e publicar o fingerprint de correlação
+`junit_identity_sha256`. Só então o XML redigido e o relatório de validação podem ser publicados.
+Os quatro artefatos precisam concordar exatamente; caso ausente/substituído/duplicado, fonte
+alterada, relatório parcial, interrupção, skip ordinário, xfail sem fase call e qualquer XPASS
+falham fechado. Artefatos anteriores e temporários privados são removidos antes da execução e não
+podem sustentar um resultado verde. Strict-xfails só são aceitos quando o corpo entrou e falhou
+como esperado. Os seis companions canônicos continuam skips explícitos quando a mutação opt-in
+não foi ativada e ficam declarados como obrigação de RED separado; texto livre contendo
+`MAEZO_CHAOS_MUTATE` não cria um companion. Razões estruturadas são redigidas com o contexto
+completo das chaves, inclusive JSON/repr citado e valores com espaços; parâmetros nunca aparecem
+em claro nos JSONs, nos casos de validação ou no JUnit publicado.
+
+A coleta e a execução capturam stdout/stderr Python e descritores 1/2, incluindo saída de
+subprocessos, antes de entrar no pytest. O console recebe somente contagens, identidades
+projetadas/fingerprints e erros de validação; exceções do wrapper têm tipo e digest, sem texto
+arbitrário. O diagnóstico bruto, incluindo tracebacks, fica em `.ARTEFATO.pytest-*/output.log`
+ao lado do JSON de coleta/execução, com diretório 0700 e arquivo 0600. Esses diretórios são
+custódia local, não artefatos públicos: não os inclua em uploads recursivos. Os quatro uploads
+nomeados continuam sendo a fronteira de publicação; ao encerrar o job, o workspace efêmero
+elimina a custódia local. Falhas e interrupções preservam rc não verde e restauram os streams.
+No JUnit, `property.name` determina a sensibilidade de `property.value`; nomes de elementos
+que não são testcases também são redigidos. A identidade original é validada antes dessa
+projeção, e apenas os atributos de identidade projetados de `testcase` são preservados.
+Valores conhecidos de propriedades sensíveis também são ocultados quando reaparecem no
+traceback/source/assertion do XML (inclusive literais JSON/repr escapados). Essa substituição
+não altera fingerprints nem metadados de contagem/tempo/linha. Se o próprio valor sensível
+for uma testemunha assertional (por exemplo `1`), sua redação impede usar esse trecho para
+classificar um RED; o rc não verde permanece, sem fabricar evidência negativa.
+
 **The `down -v` consideration between integration runs.** Per `docs/design/T3.3-chaos-resilience.md`
 (§1.3), CI's `integration` job (`.github/workflows/ci.yml`) does: `docker compose --profile core
-up -d` (postgres, cibseven 2.1.0, hapi-fhir, kafka) → wait for health → `make test-integration`
-→ `docker compose --profile core down -v`. It always tears down **with** `-v`. CI gets a fresh
+up -d postgres kafka cibseven` → wait for readiness of all three → run the global normal
+integration-marker set → `docker compose --profile core down -v`. It always tears down **with**
+`-v`. CI gets a fresh
 runner every time either way, but a local iteration loop reuses the same Docker host across runs,
 which is where this matters in practice: numerous rows in `docs/evidence-ledger.md` (e.g. "Probe
 engine torn down clean after (`docker compose down -v`)", "docker -p td_sink down -v after")
@@ -215,3 +254,37 @@ container-to-container traffic always uses `5432` regardless.
   `docs/runbooks/devops-stack.md` §5's metric-catalog table). Locally: Grafana at
   `http://localhost:3000`, Prometheus at `http://localhost:9090`
   (`make dev-observability` = `docker compose --profile core --profile observability up -d`).
+
+
+O contexto de publicação também inclui o sufixo privado dos IDs parametrizados originais,
+com suas representações literais, repr/JSON e escapes Unicode/controle usados pelo pytest.
+Valores conhecidos de propriedades sensíveis e desses IDs são removidos das narrativas
+XML e dos campos `reports.skip_reason`, `reports.wasxfail`, `cases.skip_reason` e erros
+antes da publicação. A validação usa os inputs originais; fingerprints, identidades opacas,
+fases, outcomes, contagens e rc permanecem autoritativos. Propriedades públicas e testemunhas
+assertionais não sensíveis continuam disponíveis. A fronteira não classifica valores
+arbitrários sem contexto nem transforma um skip/xfail não verificado em PASS.
+Coleta e execução gravam primeiro seus JSONs em `.ARTEFATO.pytest-*` (0700/0600),
+junto da custódia local do console; nenhum JSON nominalmente público é staging bruto.
+A publicação é atômica sobre conteúdo já projetado. XML ausente/parcial ou falha de
+contexto/projeção remove os destinos de execução/XML e publica somente erro seguro com
+rc não verde. Falhas de I/O e interrupções mantêm diagnósticos privados e não reutilizam
+artefatos stale; a custódia local deve ser excluída dos uploads.
+
+A coleta retém todas as razões livres de `xfail`/companion na projeção pública, desde
+o primeiro manifesto, inclusive quando a propriedade sensível só aparecerá no corpo.
+`reason_sha256`, identidades, fonte e marcadores permanecem intactos. A mesma projeção
+de coleção aparece em `execution.json`; o validador recebe os dois originais completos.
+
+`collection.json` público inclui `private_collection` com o basename da custódia e
+o digest dos bytes originais. No diretório `.collection.json.pytest-*` 0700,
+`collection.json` e `binding.json` 0600 vinculam esses bytes ao root, ao path absoluto
+do manifesto e à instância da coleta. `run --expected` exige os arquivos regulares
+sem symlink, os modos/owner locais, digest, vínculo e projeção integral coincidentes.
+Referência ausente, bytes/projeção alterados ou custódia de outro root/path recusam
+a execução antes do corpo. O manifesto público sozinho não substitui a custódia.
+Uma coleta íntegra pode ser executada novamente; não há regra de uso único.
+Essa ligação fornece integridade e correlação local, não uma assinatura nem proteção
+contra o próprio usuário do sistema operacional que controla ambos os arquivos.
+Falha ao criar o vínculo ou publicar remove manifesto público e temporários, preserva
+o original/log privados e retorna erro seguro. Nova coleta invalida o manifesto anterior.

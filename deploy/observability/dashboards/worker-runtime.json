@@ -142,7 +142,7 @@
       "id": 3,
       "type": "timeseries",
       "title": "Worker error ratio (SLA: 5% — MaezoSLAWorkerErrorRateHigh)",
-      "description": "Mesma expressao de MaezoSLAWorkerErrorRateHigh; espelha o alerta; ver ALERT-RULES-VECTOR-MATCH-MISMATCH (docs/review-queue.md) — divisao sem `sum by` em ambos os lados, label sets divergentes (worker,topic,error_type vs worker,topic), serie provavelmente sempre vazia; bug pre-existente em alert-rules.yml, nao introduzido nem corrigido por este PR.",
+      "description": "Mesma expressao de MaezoSLAWorkerErrorRateHigh; espelha o alerta. ALERT-RULES-VECTOR-MATCH-MISMATCH CORRIGIDO nesta linha: a divisao antiga (sem `sum by` em nenhum lado, label sets divergentes worker,topic,error_type vs worker,topic) produzia vetor sempre vazio; agora ambos os lados agregam `sum by (worker, topic)`, igual ao padrao ja usado por MaezoSLAAgentErrorRateHigh (ALERT-COUNTER-LABELS/R-063).",
       "maezo_mirrors_alert": "MaezoSLAWorkerErrorRateHigh",
       "datasource": {
         "type": "prometheus",
@@ -182,7 +182,7 @@
       },
       "targets": [
         {
-          "expr": "rate(maezo_worker_error_count_total[5m]) / rate(maezo_worker_execution_time_seconds_count[5m])",
+          "expr": "sum by (worker, topic) (rate(maezo_worker_error_count_total[5m])) / sum by (worker, topic) (rate(maezo_worker_execution_time_seconds_count[5m]))",
           "legendFormat": "{{worker}} / {{topic}}",
           "refId": "A",
           "datasource": {

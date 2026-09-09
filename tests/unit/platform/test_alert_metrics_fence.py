@@ -853,8 +853,8 @@ async def test_a_failed_agent_turn_counts_an_agent_error() -> None:
     exploding.add_node("agent", _explode)
     exploding.add_edge("__start__", "agent")
     exploding.add_edge("agent", "__end__")
-    harness._graph = exploding  # noqa: SLF001 — driving the seam directly is the point of the test
-    harness._compiled = None  # noqa: SLF001
+    harness._graph = exploding  # driving the seam directly is the point of the test
+    harness._compiled = None
     assert graph is not None
 
     # `create_graph()` called with no `agent_id` above leaves `Harness._agent_id` None (the
@@ -968,8 +968,8 @@ async def test_a_drained_turn_is_not_an_agent_error() -> None:
     graph.add_node("agent", _hang)
     graph.add_edge("__start__", "agent")
     graph.add_edge("agent", "__end__")
-    harness._graph = graph  # noqa: SLF001 — driving the seam directly is the point of the test
-    harness._compiled = None  # noqa: SLF001
+    harness._graph = graph  # driving the seam directly is the point of the test
+    harness._compiled = None
 
     from maezo.runtime.metrics import AGENT_ERROR_TYPE_OUTRO
 

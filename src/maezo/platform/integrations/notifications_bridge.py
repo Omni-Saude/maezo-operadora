@@ -819,10 +819,10 @@ class BridgeDlqShunt:
         quarantine. The audit chain, not this counter, is the record of what happened.
         """
         try:
-            from maezo.platform.observability import record_bridge_dlq  # noqa: PLC0415 — lazy
+            from maezo.platform.observability import record_bridge_dlq  # lazy
 
             record_bridge_dlq(topic=source_topic, reason=reason_code)
-        except Exception:  # noqa: BLE001 — telemetry is best-effort; the shunt must never fail on it
+        except Exception:  # telemetry is best-effort; the shunt must never fail on it
             logger.debug("notifications_bridge.dlq_metric_failed", reason=reason_code)
 
     async def shunt(self, message: BridgeMessage, error: MalformedBridgeMessageError) -> str:

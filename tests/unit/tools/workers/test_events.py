@@ -666,7 +666,7 @@ async def test_register_events_workers_end_to_end_via_harness_handle() -> None:
         async_response_timeout_ms=100,
     )
     assert len(tasks) == 1
-    await harness._handle(tasks[0])  # noqa: SLF001 — preserved v1 fixture surface (design §16.1)
+    await harness._handle(tasks[0])  # preserved v1 fixture surface (design §16.1)
 
     assert len(kafka.published) == 1
     assert transport.completed

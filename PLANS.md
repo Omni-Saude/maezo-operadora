@@ -3,7 +3,7 @@
 > **⚠️ ESTE DOCUMENTO FOI CORRIGIDO EM 2026-07-19 PARA REFLETIR A VERDADE VERIFICADA.**
 > As marcações originais **"✅ CONCLUÍDO / 15 de 15 / 100%"** eram **auto-certificação NÃO verificada** de agentes anteriores. Quando auditadas (2026-07-16), a plataforma estava em **v0.2.0 alpha-dev** (o LLM levantava `NotImplementedError`, sem entrypoints, com um bypass de aprovação financeira ao vivo). **Aquele "100%" é a lição cautelar, não uma medição.** Os envelopes de milestone (§3) são preservados como *referência do que cada milestone deve entregar* — mas os seus selos "✅ CONCLUÍDO" inline estão **SUPERSEDED**; o status real de cada um está na tabela de reconciliação em **§0**.
 >
-> **O modelo de verdade não é "15 milestones concluídos".** É o modelo **fase/gate (P0–P4 / G0–G4)** com verificação **zero-trust** (todo "done" carrega uma linha de verificador independente + evidência reproduzível). **A fonte de verdade durável e versionada no repositório é:** `docs/evidence-ledger.md` (**tamanho cresce a cada gap fechado — meça com `wc -l docs/evidence-ledger.md` antes de citar, nunca reescreva um número fixo aqui**: esta mesma linha já publicou duas contagens stale em sequência, "211" e depois "229", cada uma tornada errada por um commit posterior antes mesmo do merge — achado do verificador independente, ver `docs/evidence-ledger.md` linhas AF-06/AF-05/PERSP-B5-SHADOW-LINES/PERSP-C5-FRAUDE-METADATA; achado F5/AF-06 2026-09-05, `scripts/ci/check_plans_counts.py` não fenceia este número de propósito — um ledger append-only multi-escritor mudaria de novo antes do próximo commit), `docs/decisions-log.md` (DLs), `docs/adr/` (48 ADRs numerados, 50 arquivos incl. README+template — AF-06, recontado 2026-09-05 via `scripts/ci/check_plans_counts.py`; NUNCA cite um número fixo sem reexecutar o gate primeiro — este mesmo número já ficou stale uma vez, 32→39→48, achado do gap AF-06) e `docs/gates/` (registros de gate). *(O plano detalhado `V2-COMPLETION-PLAN.md` e o prompt de execução do backlog vivem apenas localmente em `docs/prompts/` por decisão do dono — o ledger é a verdade clonável.)*
+> **O modelo de verdade não é "15 milestones concluídos".** É o modelo **fase/gate (P0–P4 / G0–G4)** com verificação **zero-trust** (todo "done" carrega uma linha de verificador independente + evidência reproduzível). **A fonte de verdade durável e versionada no repositório é:** `docs/evidence-ledger.md` (**tamanho cresce a cada gap fechado — meça com `wc -l docs/evidence-ledger.md` antes de citar, nunca reescreva um número fixo aqui**: esta mesma linha já publicou duas contagens stale em sequência, "211" e depois "229", cada uma tornada errada por um commit posterior antes mesmo do merge — achado do verificador independente, ver `docs/evidence-ledger.md` linhas AF-06/AF-05/PERSP-B5-SHADOW-LINES/PERSP-C5-FRAUDE-METADATA; achado F5/AF-06 2026-09-05, `scripts/ci/check_plans_counts.py` não fenceia este número de propósito — um ledger append-only multi-escritor mudaria de novo antes do próximo commit), `docs/decisions-log.md` (DLs), `docs/adr/` (49 ADRs numerados, 51 arquivos incl. README+template — AF-06, recontado 2026-09-08 via `scripts/ci/check_plans_counts.py`; NUNCA cite um número fixo sem reexecutar o gate primeiro — este mesmo número já ficou stale uma vez, 32→39→48, achado do gap AF-06) e `docs/gates/` (registros de gate). *(O plano detalhado `V2-COMPLETION-PLAN.md` e o prompt de execução do backlog vivem apenas localmente em `docs/prompts/` por decisão do dono — o ledger é a verdade clonável.)*
 >
 > **Orquestrador:** Hive-Mind Queen (Opus / Fable 5) · **Repo:** Omni-Saude/maezo-operadora · **main:** `85c9618` (2026-08-07 — PRs #199/#200/#197/#198: cred gateway fact · adequacao fact-preservation + fail-safe · ans_submit NACK/assemble + ADR-0030 · **portão de critérios de aprovação automática**) — *(header 2026-07-19 preservado abaixo; reconciliação em §0.5; execução Tier-2 em §0.5.2)*
 > **Estratégia:** Keep Brain (`docs/`), Rebuild Spine (`src/`) — **em execução, NÃO concluída.**
@@ -36,11 +36,11 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 | Milestone (§3) | Estado REAL | Nota de realidade |
 |---|---|---|
 | M0 Foundation | **✅** | Scaffold/CI/dev-stack reais (G0/G1). Correção: CIB Seven pinado em **2.1.0** (DL-0006), não 2.1.3. |
-| M1 ADR Ratification | **◑** | 48 ADRs (não 24); recontado 2026-09-05 (AF-06) — era "32" desde 2026-07, ficou stale conforme a árvore cresceu (ADR-0030/0031 adicionados 2026-07; até ADR-0048 em 2026-09-05). Ainda há ADRs "Proposed". Contínuo. |
+| M1 ADR Ratification | **◑** | 49 ADRs (não 24); recontado 2026-09-08 (AF-06) — era "32" desde 2026-07, ficou stale conforme a árvore cresceu (ADR-0030/0031 adicionados 2026-07; até ADR-0049 em 2026-09-08). Ainda há ADRs "Proposed". Contínuo. |
 | M2 BPMN/DMN Regeneration | **◑** | BPMN/DMN existem + `validate-artifacts` verde; **MAS contratos ainda DRAFT — o gap<5% e a validação por SME NÃO foram feitos** (G2-bloqueado). |
 | M3 Core Runtime | **✅** | G1 fechado; runtime spine verified-complete. |
 | M4 Gateway & Security | **◑** | Cadeia de auditoria real e wired **nesta sessão** (T1.10 wave). PEP/pseudonymizer/vault/custody existem com lacunas — ex.: o gate de identidade LGPD estava **fail-OPEN** (corrigindo #113). |
-| M5 Agent Framework + MCP + A2A | **◑→✅** | 10 grafos de agente reais (B6 fechado). **A2A dispatcher + card-signing COMPLETO (#156, 2026-07-27).** ToolRegistry implementado desde 2026-08-11 (`gateway/tool_registry.py`, classe `ToolRegistry`, ≈540 linhas em 2026-09-03 — medir com `wc -l` antes de citar, este número já mudou uma vez nesta mesma branch [534→540, achado do verificador] — D-M3-1; residuo ADR-0022/T2.4 fechado). |
+| M5 Agent Framework + MCP + A2A | **◑→✅** | 10 grafos de agente reais (B6 fechado). **A2A dispatcher + card-signing COMPLETO (#156, 2026-07-27).** ToolRegistry implementado desde 2026-08-11 (`gateway/tool_registry.py`, classe `ToolRegistry`, ≈794 linhas em 2026-09-06 — medir com `wc -l` antes de citar, este número já mudou duas vezes nesta mesma branch [534→540→794, achados do verificador e do AF-06 residual] — D-M3-1; residuo ADR-0022/T2.4 fechado; a partir desta rodada `scripts/ci/check_plans_counts.py` reconcilia esta alegação com tolerância de 10% — AF-06 residual, round-6). |
 | M6 Foundation Processes | **◑** | ESCALATION/AUTH/LGPD com workers; invariante L0 do AUTH provado. LGPD identity fail-open (#113); workers LGPD faltantes (`compile_data_package`/`execute_request`/`send_response`, #55 R-C/R-D/R-F). |
 | M7 Core Compliance | **◑→✅** | Workers existem. Protocolo ANS fabricado removido (#109). **Recurso: `recurso.pended` (#138) + os tópicos de worker (#128) LANDARAM (2026-07-27).** ⚠️ **CORRIGIDO (ADR-0040, PR-3):** o caminho auditor `ACEITAR_GLOSA` (#123) era vocabulário de **recorrente** — SP-OP-RECURSO-001 estava bifacial (a Maezo aparecia como a parte que interpõe o recurso, com a operadora nomeada como "terceiro externo" no próprio artefato). A cadeia foi reconstruída na perspectiva do **pagador**: `ACEITAR_GLOSA` → `INDEFERIR`, `register_desistencia` → `registrar_indeferimento`, e o ramo do recorrente (`submit_appeal`/`track_status`/`reconcile_payment`/loop de acompanhamento) foi **deletado sem shim**. T2.6 ANS XSD/TISS fail-closed (#132). |
 | M8 Advanced Processes | **◑** | Anti-dupla corrigido real (#108); fraude DMN-input endurecido (#111). Lacunas/workers de família restantes. |
@@ -77,7 +77,7 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 
 **Pendências reais (2026-07-27):**
 - **Tier 1 — FEITO:** PR #171 merged; #170 (versão hollow) curado pelo v2; PRs #172–#176 = bumps dependabot (fora de escopo).
-- **Tier 2 — agent-buildable, decision-gated (o PRÓXIMO orquestrador DECIDE + EXECUTA — ver §0.5.1):** (1) auditoria de postura dos 4 callers de swallow restantes em `operadora.notifications.internal` (`lgpd.request_additional_proof`/`send_response`, `recurso.notify_sla_risk`, `ans_submit.notify_regulatorio`) — mesma forma de perda-silenciosa que a Fix A fechou para escalation; (2) durabilidade do handoff one-shot NIP→ANS (outbox/reconciliação — hoje rides best-effort sem retry natural); (3) predicado bridge CONTAS→FRAUDE sem `non_blank(tenant_id)` (assimetria pré-existente); (4) correlation-ids do token-metering (`agent_id`/`tenant_id` = None hoje); (5) delegação A2A real de dossiê além dos stubs DL-0033 (adequacao `prepare_remediation_dossier`, cred `prepare_dossier`); (6) CronJobs de retenção/expurgo (`expurgo-working`/`verify-erasure`) — construir o seam completo fail-closed; (7) `PopulationFeatureClient` (André); (8) ratificação de ADRs Proposed (0025/0026/0028/0029/0030; há conflito de status em ADR-0028 ledger-vs-arquivo); (9) cauda de xfails por família (~102 sites/~39 constantes em origin/main — lista viva: `git grep '_.*_REASON =' tests/integration/processes/`). **Gated-por-valor (construir o seam, deixar o valor humano):** cost-table USD do LLM (#29 — os counts do metering já landaram), retention-matrix (item 6), módulo fhir-sync (Tasy-contract-gated).
+- **Tier 2 — agent-buildable, decision-gated (o PRÓXIMO orquestrador DECIDE + EXECUTA — ver §0.5.1):** (1) auditoria de postura dos 4 callers de swallow restantes em `operadora.notifications.internal` (`lgpd.request_additional_proof`/`send_response`, `recurso.notify_sla_risk`, `ans_submit.notify_regulatorio`) — mesma forma de perda-silenciosa que a Fix A fechou para escalation; (2) durabilidade do handoff one-shot NIP→ANS (outbox/reconciliação — hoje rides best-effort sem retry natural); (3) predicado bridge CONTAS→FRAUDE sem `non_blank(tenant_id)` (assimetria pré-existente); (4) correlation-ids do token-metering (`agent_id`/`tenant_id` = None hoje); (5) delegação A2A real de dossiê além dos stubs DL-0033 (adequacao `prepare_remediation_dossier`, cred `prepare_dossier`); (6) CronJobs de retenção/expurgo — **JÁ EXISTEM** (Helm `deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml`, três jobs `expurgo-working`/`verify-erasure`/`audit-retention`, anotados `maezo.io/expected-fail-until` — R-040/SC-07) e falham POR DESENHO até a matriz de retenção `AF-07` existir (`src/maezo/platform/lifecycle/__init__.py` recusa fail-closed, nenhum comando implementado); implementar o expurgo real é decisão B do dono (`OWNER-DECISIONS-REGISTER` R-106) — só depois de `AF-07`, sem antecipar código sem regra; (7) `PopulationFeatureClient` (André); (8) ratificação de ADRs Proposed (0025/0026/0028/0029/0030; há conflito de status em ADR-0028 ledger-vs-arquivo); (9) cauda de xfails por família (~102 sites/~39 constantes em origin/main — lista viva: `git grep '_.*_REASON =' tests/integration/processes/`). **Gated-por-valor (construir o seam, deixar o valor humano):** cost-table USD do LLM (#29 — os counts do metering já landaram), retention-matrix (item 6), módulo fhir-sync (Tasy-contract-gated).
 - **Tier 3 — teto humano (escalate/track SOMENTE — NÃO forçar):** sign-offs SME (contratos DRAFT→FINAL, médico-auditor→jurídico/DPO/regulatório/finanças/PO); AWS + `terraform apply` + billing; 6 secrets de produção (LLM/Tasy/WABA/**PHI_HMAC_KEY**/card-signing); DPA endpoint PHI-BR; DPO + RIPD + retention-matrix; sign-off DMN clínico + validação de personas (Beatriz↔Valentina) + atestação de segurança clínica; atestação ANS + competências reais; GHAS; **valores de teto D-07** (diretoria); parecer ANVISA SaMD (GAP-C10); emissão de cert T-G (ADR-0033); 3 gatekeepers + go/no-go. Detalhe humano: `docs/Tarefas_Pendentes.md`.
 - **Resolvido nesta janela:** edições BPMN obsoletas descartadas (stash-drop aprovado pelo dono, commit 259e6a42e) → main local sincronizado; higiene de branches remotas/locais executada.
 
@@ -171,6 +171,25 @@ delas falha o CI (`--check`); o texto ao redor permanece prosa normal.
    existe. Declarado em `criterios_nao_cobertos` **dentro do manifesto que o SME obrigatoriamente
    abre para ratificar** e pinado por teste de cerca — senão, ratificar `auth_criteria_contratual`
    abriria aprovação automática para prestador FORA DA REDE sem que critério nenhum dissesse nada.
+
+## 0.5.5 — Decisão do dono: superfície humana do operador (R-031, 2026-09-04) — RESOLVIDA
+
+**Pergunta [M-19 / gap `9.1`]:** a superfície do operador para as jornadas com User Task é o
+**Cockpit do CIB Seven**, e o `testchannel` é declarado **demo sem autenticação própria**?
+
+**Resposta aprovada, citada verbatim (OWNER-DECISIONS-REGISTER R-031, Bold-Decision Review v2 CEO
+2026-09-04, status `APROVADO-APOS-REVISÃO-HUMANA`):** *"Manter o SIM (Cockpit + `testchannel`
+declarado demo sem autenticação própria) e DELETAR a espera em vez de datá-la: a linha de
+`docs/review-queue.md` sai de DRAFT e a nota em `src/maezo/platform/testchannel/README.md` entra
+no MESMO PR que registra esta resposta do registro — sem teto de calendário, porque não sobra
+espera a limitar —, e `antes do 1º operador real` deixa de ser âncora e vira mera nota de
+revisão."*
+
+**Implementado por este registro:** `src/maezo/platform/testchannel/README.md` (novo — nota "demo
+sem autenticação própria") + linha em `docs/review-queue.md` citando esta resposta como o ato de
+sign-off do dono. Desbloqueia `WP-SUPERFICIE-HUMANA` (`9.1`, `11.1`, `9.2`, `9.6`, `10.1`, `10.2`,
+`11.7`) e, indiretamente, `WP-EVALS`. Dependência: `11.1` (mapa de personas de R-032, M-20) — as
+jornadas julgadas por `9.1` vêm de lá; ainda não resolvida por este registro.
 
 ## 0.6 — Programa de compatibilidade AMH (AMH-compat) — registrado 2026-08-05
 
@@ -421,6 +440,52 @@ delegação + idempotência durável p/ A2A não-local.
 - **Q-4 — quatro ações canônicas, SEM aliases:** inferência de zona-split, A2A e leitura
   populacional entram no vocabulário como nomes próprios. Nada de camada de alias PT↔EN
   (`pep.py:12-18`: um mapa de alias é um segundo vocabulário e uma superfície fail-open).
+  **STRINGS FIXADAS (2026-09-06)**, como DADO no bloco `vocabulario_l0_canonico` de
+  `spec/policies/autonomy/action-approvals.yaml` — a Q-4 decidiu NOMEAR; o que faltava eram as
+  strings:
+  - `generate_model_inference` — inferência na Zona Geral (`inference.generate`).
+  - `generate_model_inference_phi` — inferência na Zona PHI/Financeira
+    (`inference.generate_phi`). Duas strings, não uma com dois usos: a zona é o fato que o
+    aprovador precisa ver sem carregar o prompt. O `PhiZoneRoutingError` do provider segue
+    fail-closed INDEPENDENTE deste vocabulário (I-6) — nomear não é o controle.
+  - `delegate_agent_task` — delegação A2A por envelope assinado (`a2a.delegate`).
+  - `read_population_aggregate` — agregados populacionais/atuariais k-anônimos
+    (`population.actuarial_risk`, `population.population_metrics`). Um nome para duas operações é
+    escopo de ação, não alias. Deliberadamente NÃO é `read_phi_data`: agregado k-anônimo não é
+    PHI (ADR-0042).
+  - **NOMEAR NÃO É INSTALAR.** Nenhum destes nomes está em `L0-core.yaml`: toda entrada carrega
+    `instalado_em_l0_core: false` e `ratificacao.ratificado: false`, com accountability em
+    `PENDENTE`. Instalar na matriz é ato HUMANO ADR-0008/0025 COM o cross-check de
+    `_hard_frozen.yaml`; até lá o catálogo mantém `autonomy_action=None` e a camada L-2 do PEP de
+    efeito NEGA com `VOCABULARIO_PENDENTE`. `tests/unit/sec/test_l0_canonical_action_naming.py`
+    prova o piso: nem um manifesto forjado para `RATIFICADO`, com todas as aprovações
+    preenchidas, abre ALLOW para essas operações.
+- **Sequência humana de flips de enforcement C0→C4 — fixada por escrito (2026-09-06). Nenhum
+  passo é ato de agente.** A Q-1 já dizia QUE cada virada é um PR sob CODEOWNERS; isto fixa a
+  ORDEM e os passos. Ordem de degrau, crescente e sem pular: **C0 (leitura interna) → C1
+  (notificação) → C2 (PHI ou modelo) → C3 (mutação de engine) → C4 (adverso / dinheiro /
+  regulatório)**. Qual classe está em qual degrau é dado de código (`RUNG_C0_LEITURA_INTERNA` ..
+  `RUNG_C4_ADVERSO` em `src/maezo/gateway/effect_classes.py`) e NÃO é redigitado aqui — uma
+  segunda cópia só existiria para divergir. Passos, por classe, nesta ordem:
+  1. Os três domínios preenchem CADA UM o seu bloco em `acoes.<classe>.aprovacoes`. Preenchimento
+     parcial é recusado pelo loader — nunca lido como ratificação.
+  2. `status: RATIFICADO` — uma única vez, no primeiro flip de todos.
+  3. `modo: enforcing` — uma única vez, no primeiro flip de todos. É o TETO, não o interruptor.
+  4. `acoes.<classe>.enforcement: enforcing` — **este é o interruptor por classe.**
+  5. Verificar CONTRA TELEMETRIA: o evento tem de virar `action_execution_gateway_enforced` e o
+     campo `mode` tem de ler `enforcing`. Um flip que falhou é, de fora, idêntico a uma sombra
+     saudável — por isso verificar é PASSO, não zelo.
+  6. Soak pela janela acordada; só então o degrau seguinte.
+  7. **Ato terminal, depois do último degrau:** `enforcement_padrao_nao_mapeado: enforcing`,
+     restaurando o XRD-09 do ADR-0037 na letra.
+  Pré-condições que atravessam a sequência e não são dispensáveis por conveniência: sampler +
+  ReviewQueue construídos ANTES de qualquer enforcement (Q-3); benchmarks p99 de PEP e auditoria
+  separados e assinados (Q-9); guarda de single-tenant para o manifesto global (Q-8); nenhum flip
+  de C2 com `consentimento_exigido` enquanto o adapter de consentimento não existir (Q-5); e as
+  duas PRÉ-CONDIÇÕES já registradas dentro de `acoes.consulta_processo` (resíduo pós-claim; e o
+  alcance do enforcement sobre daemons sem registro de capacidade). O detalhe operacional vive em
+  `docs/design/wave1-effect-chokepoint.md` §9.4; o que fica aqui é a ORDEM e a AUTORIDADE — **cada
+  passo é ato humano de Security, jamais de agente e jamais de runtime.**
 - **Q-5 — consentimento NUNCA é declarado implementado até haver adapter completo.** Enquanto só
   existir a porta (`ports/consent.py`), a perna L-4 permanece honestamente não-implementada.
 - **Q-7 — rollback = restart**, com **SLO e teste** que provem a latência de rollback (em vez de

@@ -254,7 +254,7 @@ async def delegate_arrears_followup(
     (`origin_signer_of`), so a future live worker call site signs without any per-worker wiring
     change.
     """
-    from maezo.a2a.dispatcher import origin_signer_of  # noqa: PLC0415 - mirrors carolina/delegation.py
+    from maezo.a2a.dispatcher import origin_signer_of  # mirrors carolina/delegation.py
 
     resolved_signer = signer if signer is not None else origin_signer_of(dispatcher)
     envelope = build_arrears_followup_envelope(
@@ -390,7 +390,7 @@ def make_fernando_handler(
             # its comment for the full rationale and the fence that pins this shape,
             # `tests/unit/platform/test_alert_metrics_fence.py::
             # test_every_graph_invocation_in_src_counts_agent_errors`).
-            from maezo.platform.observability import record_agent_error  # noqa: PLC0415
+            from maezo.platform.observability import record_agent_error
 
             record_agent_error(agent="fernando", error_type=classify_agent_error_type(exc))
             raise

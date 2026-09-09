@@ -19,7 +19,7 @@ one" / "how does CI consume this" mechanics.
 | Provider | `ReplayInferenceProvider` — scripted `recorded_llm` responses, no network, no key | the real `anthropic` provider (`InferenceProvider(settings=InferenceSettings(provider="anthropic"))`) |
 | Marker | `@pytest.mark.eval` | `@pytest.mark.eval` + `@pytest.mark.llm_live` + `@live_key_skip` |
 | Pass criterion | exact route / structured-field match / canary-absent (RT/SF/ABS) | threshold score >= `live.threshold` against the Tier-A baseline (TH) |
-| Runs when | always, keyless, no network — **the PR `evals` lane's merge-blocking gate** | only when `MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY` is set — nightly-only in CI, non-blocking; **loudly skips** otherwise |
+| Runs when | always, keyless, no network — the `evals (agent-touching paths)` CI job (runs on every agent-touching PR; **not a required check in the `main-protection` ruleset today** — owner action pending to make it required) | only when `MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY` is set — nightly-only in CI, non-blocking; **loudly skips** otherwise |
 | Cost/flakiness | zero (pure Python, deterministic) | one short LLM call per case; never gates a PR |
 
 A single golden JSON case can carry both tiers (`"tier": ["A", "B"]`) — Tier A always runs
@@ -27,9 +27,11 @@ A single golden JSON case can carry both tiers (`"tier": ["A", "B"]`) — Tier A
 when a key is present, re-runs the SAME node against the real model and scores it against the
 Tier-A baseline (`recorded_llm[0]`) rather than against a second hand-maintained dataset. This
 means a Tier-B failure is a **prompt/model drift signal**, never a routing-logic bug — those are
-already caught, merge-blocking, by Tier A.
+already caught by Tier A, which runs in CI via the `evals (agent-touching paths)` job (not a
+required/merge-blocking check in the `main-protection` ruleset today — owner action pending to
+make it required).
 
-**Never put a live-LLM assertion on the PR-blocking path.** Tier B is nightly-only and
+**Never put a live-LLM assertion on Tier A's always-run path.** Tier B is nightly-only and
 non-blocking by construction (loud `skipif`, not a marker-based deselect) — a keyless/fork PR run
 always sees Tier B skip, never fail.
 
@@ -51,6 +53,15 @@ tests/evals/
   test_dossier_admin_evals.py      # carolina/beatriz/gustavo (B3)
   test_helena_clarity_evals.py     # helena CLAREZA-* clarity/legibility evals (WP-EVALS, gap 10.3)
   test_helena_journey_evals.py     # helena JOURNEY-* end-to-end journey eval (WP-EVALS, gap 11.5)
+  test_andre_journey_evals.py      # andre JOURNEY-* end-to-end journey eval (WP-EVALS, gap 11.5)
+  test_beatriz_journey_evals.py    # beatriz JOURNEY-* end-to-end journey eval (WP-EVALS, gap 11.5)
+  test_carolina_journey_evals.py   # carolina JOURNEY-* end-to-end journey eval (WP-EVALS, gap 11.5)
+  test_fernando_journey_evals.py   # fernando JOURNEY-* end-to-end journey eval (WP-EVALS, gap 11.5)
+  test_gustavo_journey_evals.py    # gustavo JOURNEY-* end-to-end journey eval (WP-EVALS, gap 11.5)
+  test_lucas_journey_evals.py      # lucas JOURNEY-* end-to-end journey eval (WP-EVALS, gap 11.5)
+  test_marina_journey_evals.py     # marina JOURNEY-* end-to-end journey eval (WP-EVALS, gap 11.5)
+  test_rafael_journey_evals.py     # rafael JOURNEY-* end-to-end journey eval (WP-EVALS, gap 11.5)
+  test_valentina_journey_evals.py  # valentina JOURNEY-* end-to-end journey eval (WP-EVALS, gap 11.5)
   golden/
     helena/EVL-HELENA-01.json ... EVL-HELENA-08.json,
            EVL-HELENA-CLAREZA-01..03.json (gap 10.3), EVL-HELENA-JOURNEY-01.json (gap 11.5)
@@ -324,30 +335,52 @@ unit tests in `tests/unit/evals/test_harness_clarity.py` that exercise `score_cl
 
 ## Journey evals (gap 11.5, WP-EVALS)
 
-`tests/evals/golden/helena/EVL-HELENA-JOURNEY-01.json` + `test_helena_journey_evals.py` close
-`docs/audits/maezo-deep-audit/reports/domain-11-product-fit.md:32` ("os 44 golden evals ...
-sao finos ... nenhum eval de jornada ponta a ponta"). Every pre-existing golden (via
-`test_classifier_evals.py`/`test_dossier_adverse_evals.py`/`test_dossier_admin_evals.py`)
-asserts only a turn's FINAL route/fields (`assert_expect(result.state, case["expect"])`). This
-is a new ASSERTION SHAPE (class `JN`), not a new harness path: it drives the exact same
-`run_case`/`build()` mechanism, but asserts an observable checkpoint at EACH of the three
-stages `docs/processes/journeys/AGJ-HELENA-TRIAGE.md` names for one beneficiary turn —
-**intake** (`saudacao_identificacao` — the turn started with no runtime-context/transport
-error), **triage** (`coleta_sintomas` + `avaliacao_red_flag` — the classify LLM's extraction AND
-the red-flag DMN's decision both reached the state correctly), and **routing/hand-off outcome**
-(`escalado` — `SP-OP-ESCALATION-001` actually started idempotently, its engine-bound variables
-carry the bounded routing tokens, and the beneficiary actually received the WhatsApp handoff
-confirmation).
+`tests/evals/golden/helena/EVL-HELENA-JOURNEY-01.json` + `test_helena_journey_evals.py` closed
+the first half of `docs/audits/maezo-deep-audit/reports/domain-11-product-fit.md:32` ("os 44
+golden evals ... sao finos ... nenhum eval de jornada ponta a ponta") for Helena only (2026-09,
+commit `187c6b1`). The residual half of gap 11.5 (WAVE0-RECON round-5 PARTIAL note) extended the
+SAME pattern to the other nine agents: every agent under `golden/<agent>/` now has exactly one
+`EVL-<AGENT>-JOURNEY-01.json` (class `JN`) + its own dedicated `test_<agent>_journey_evals.py`
+module. Every pre-existing (non-journey) golden (via `test_classifier_evals.py`/
+`test_dossier_adverse_evals.py`/`test_dossier_admin_evals.py`) asserts only a turn's FINAL
+route/fields (`assert_expect(result.state, case["expect"])`). Class `JN` is a new ASSERTION
+SHAPE, not a new harness path: every journey module drives the exact same `run_case`/`build()`
+mechanism as every other eval, but asserts an OBSERVABLE checkpoint at EACH stage of one
+beneficiary/case turn, named explicitly per agent (never a generic "final state" check) —
+derived from that agent's compiled graph nodes/edges (`src/maezo/agents/<agent>/graph.py`),
+`spec/agents/<agent>/agent.yaml`, and the process contract it starts/feeds
+(`docs/processes/contracts/*.md`):
 
-This is possible from ONE `run_case`/`ainvoke` call (not three separate turns) because
-`HelenaGraph`'s compiled `StateGraph` merges every node's return dict into one cumulative state
-with a plain dict-update reducer — `escalate()`'s return never clears the keys `classify()` set,
-so the final state already carries a checkpoint from every stage the turn passed through. A
-golden case names what to check at each stage via an OPTIONAL top-level `"journey"` block
-(`intake.no_error`, `triage.fields`/`triage.dmn_decision_fields`, `handoff.fields`/
-`handoff.business_key`/`handoff.process_key`/`handoff.engine_variables`/
-`handoff.whatsapp_delivered`) — see `EVL-HELENA-JOURNEY-01.json` for the full shape and
-`test_helena_journey_evals.py`'s module docstring for how each block is interpreted.
+| Agent | Stages (module docstring names them precisely) | Hand-off checkpoint |
+|---|---|---|
+| helena | intake -> triage -> hand-off | `SP-OP-ESCALATION-001` start + WhatsApp delivery |
+| andre | intake -> triage -> hand-off | `SP-OP-PAGTO-001` start (`pagto_dossier`/`auto_route`) |
+| beatriz | intake -> gather -> hand-off | delegation envelope (the dossier itself — Beatriz never starts a process; L0 `decisao_fraude`/`bundle_root`/`destino_referral` always `None`) |
+| carolina | intake -> triage -> hand-off | `SP-OP-CRED-001` start (`credenciamento`/`auto_route`) |
+| fernando | intake -> triage -> hand-off | `SP-OP-INADIMPLENCIA-001` start (J3 `escalate`; asserts NO WhatsApp was sent on this branch — `notify` is the only sending node and is unreachable once `escalate` is taken) |
+| gustavo | intake -> triage -> hand-off | `SP-OP-NIP-001` start (J2 `instruct_nip`; `process_key`/`business_key` are already observable at INTAKE — `receive` derives them before any DMN runs) |
+| lucas | intake -> triage -> hand-off | `SP-OP-ESCALATION-001` start + WhatsApp ACK (LUC-05: the ACK fires only AFTER the engine start succeeds) |
+| marina | intake -> triage -> hand-off | `SP-OP-CONTAS-001` start (`contas`/`auto_route`) |
+| rafael | intake -> triage -> hand-off | `SP-OP-AUTH-001` start (`human_auditor` — the only branch RAF-01/RAF-06 proved is honestly reachable from this agent's typed seam; `auto_approve`'s real criteria are not) |
+| valentina | consent -> triage -> hand-off | `SP-OP-PROGRAMA-001` start (`enroll`/`auto_route`, behind the LGPD consent chokepoint) |
+
+Each journey golden is possible from ONE `run_case`/`ainvoke` call (not one call per stage)
+because every agent's compiled `StateGraph` merges each node's return dict into one cumulative
+state with a plain dict-update reducer — a downstream node's return never clears the keys an
+upstream node set, so the FINAL `RunResult.state` already carries a checkpoint from every stage
+the turn passed through; each journey test module's job is to assert against all of them, not
+just the last one. A golden case names what to check at each stage via an OPTIONAL top-level
+`"journey"` block — the exact keys vary slightly by agent shape (a process-starting agent uses
+`handoff.business_key`/`handoff.process_key`/`handoff.engine_variables`, optionally
+`handoff.whatsapp_delivered`/`whatsapp_sent`; Beatriz's delegation-envelope shape uses
+`handoff.dossier_fields` instead of engine variables; Gustavo's `intake.fields` and Valentina's
+`consent.fields` are agent-specific additions) — see each `EVL-<AGENT>-JOURNEY-01.json` for its
+own shape and its `test_<agent>_journey_evals.py` module docstring for how each block is
+interpreted. Every journey eval's non-vacuousness (T3.2 design §7.1) is proven by at least two
+tests: a `run_mutation_check`-style flip of a turn-level `expect.fields` value, AND a dedicated
+mutation of the journey's OWN hand-off-stage expectation (mirroring
+`test_evl_helena_journey_01_mutation_check_handoff_stage_is_non_vacuous`) — proving the
+PER-STAGE checks each module adds are actually exercised, not vacuously green.
 
 ## Markers
 

@@ -7,6 +7,17 @@ autonomy_level: L2
 process_keys:
   - SP-OP-CONTAS-001
   - SP-OP-RECURSO-001
+# MENOR PRIVILEGIO, NAO OMISSAO (gap PERSP-REEMBOLSO-BINDING) — `SP-OP-REEMBOLSO-001` esta
+# DELIBERADAMENTE ausente desta lista. Marina serve esse processo via delegacao A2A
+# (`operadora.reembolso.analyze_request`) de DENTRO de uma instancia JA rodando; o no
+# `start_process` do grafo dela e NO-OP para `reembolso` (`graph.py:33-34`: "Marina never starts a
+# second instance") — ela so monta o dossie e roteia para `analise-reembolso`, nunca inicia. Como
+# `process_keys:` e o unico allowlist que concede autoridade de start ao effect-PEP
+# (`effect_pep.py::AgentCapabilities.allows_process_key`), conceder essa chave sem um consumidor
+# vivo seria autoridade especulativa. Registrado tambem em
+# `docs/processes/contracts/SP-OP-REEMBOLSO-001.md` §Bindings de agente e cercado por
+# `tests/unit/gateway/test_reembolso_sem_binding_de_agente.py` para que a proxima auditoria nao
+# reabra isto como lacuna.
 # `faturamento` e a funcao de COBRANCA do prestador; a operadora tem analise/auditoria de contas.
 # Alinhado ao candidate group que o BPMN ja usa em UT_CoordenacaoContasAssume (ADR-0040).
 reports_to: "coordenacao-contas@amh"

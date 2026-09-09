@@ -44,20 +44,35 @@ go away**: an entry does not add the name to any PHI set, does not change one
 byte of runtime redaction, and does not close the DPO question. It only records
 that the question has been ASKED, in writing, with a recommendation attached.
 
-`DISPOSITIONS` lives inside this module rather than in
-`spec/policies/privacy/*.yaml` for one reason: that directory is CODEOWNED by
-the DPO/security reviewers (`.github/CODEOWNERS:116` —
-`/spec/policies/privacy/ @rodaquino-OMNI @Omni-Saude/security-team
-@lucasreisEvah`), and a table of UNRATIFIED engineering recommendations must not
-be laundered into a DPO-owned policy path by the same commit that writes it.
-(`spec/policies/privacy/phi-business-key-remediation.yaml:48-49` states the same
-fact but names `@rodrigotaquino` / `@Omni-Saude/security`, two handles the
-CODEOWNERS audit header proved do not exist — `.github/CODEOWNERS:8-20`. The
-fact is true by the live line, not by that quote; and CODEOWNERS is advisory
-today, `require_code_owner_review` being count=0.) `docs/review-queue.md`
-carries the migration item: once the DPO ratifies, the table becomes a
-CODEOWNED privacy manifest and this constant is replaced by its loader. That is
-an owner act, not an engineering one.
+`DISPOSITIONS` keeps the QUESTION — the evidence and engineering's
+recommendation — inside this module, and never the answer. The answer has its
+own home since owner decision R-199 (2026-09-04): the CODEOWNED manifest
+`spec/policies/phi/phi-dispositions-migration.yaml`, which ships with every
+`disposicao` and every `ratificacao` field EMPTY and whose directory got its own
+`.github/CODEOWNERS` rule in the same PR (before that rule, `spec/policies/phi/`
+matched none and the manifest would have been "CODEOWNED" on paper only).
+
+The ORDER was inverted on purpose, and this is the whole point of the split. The
+earlier plan — recorded in `docs/review-queue.md` and executed by R-199 — was
+"when the DPO ratifies, MIGRATE this table into a CODEOWNED manifest". That made
+the signature the START of a migration project instead of the end of the work:
+even after signing, a disposition would still have had no effect on any PHI set
+until somebody built the manifest and its loader. So the manifest and the loader
+landed FIRST, empty. What the split buys, stated exactly:
+
+* a table of UNRATIFIED engineering recommendations is still not laundered into
+  a DPO-owned policy path — the recommendation text never moved;
+* `_check_manifest_closure` makes the two sides inseparable: a name disposed here
+  with no signature slot there, or a slot there with no live question here, is a
+  BLOCKING error in either direction;
+* a signature is now a field fill that already produces gate effect (see
+  `_check_manifest_closure`), with no code change and no redeploy.
+
+What has NOT changed: a disposition — signed or not — adds the name to no PHI
+set and changes no byte of runtime redaction. Listing a name stays a code change,
+reviewed as code. CODEOWNERS remains advisory today
+(`require_code_owner_review` is count=0), so the rule REQUESTS the reviewer
+without REQUIRING them; do not read it as "gated by mandatory review".
 
 The PHI-SHAPE heuristic (§ `SHAPE_TOKENS`)
 ------------------------------------------
@@ -188,6 +203,7 @@ from typing import final
 from maezo.gateway.pseudonymizer import PHI_FIELDS
 from maezo.tools.workers.phi_vars import PHI_PROCESS_VARS
 
+from . import policy
 from ._loaders import ParseError, load_xml, load_yaml
 from .result import Report
 
@@ -535,12 +551,14 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                 evidence=(
                     "spec/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn:55 "
                     "(VARIAVEIS DE ENTRADA roll) — free-text detail of a data-subject request; "
-                    "src/maezo/tools/workers/lgpd.py:483 calls it '(free-text PHI)' in a comment "
-                    "and hand-omits it from the request-proof notification payload."
+                    "src/maezo/tools/workers/lgpd.py::make_request_additional_proof_handler "
+                    "calls it '(free-text PHI)' in a comment and hand-omits it from the "
+                    "request-proof notification payload."
                 ),
                 recommendation=(
                     "RECOMMEND adding it to PHI_PROCESS_VARS. The strongest case in this table: "
-                    "the repo's OWN code already names it free-text PHI (lgpd.py:483) and excludes "
+                    "the repo's OWN code already names it free-text PHI "
+                    "(lgpd.py::make_request_additional_proof_handler) and excludes "
                     "it from ONE egress by hand, which means today's protection is a manual "
                     "omission at a single call site instead of the name-anchored control. Any "
                     "other worker that copies process variables into an output dict emits it raw. "
@@ -1297,7 +1315,7 @@ def declared_input_names(text: str) -> list[tuple[str, int]]:
 #: Each one is attested by a line in this repo that uses it about a field the repo
 #: already treats as PHI: "texto livre PHI"
 #: (`SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn:145`), "(free-text
-#: PHI)" (`src/maezo/tools/workers/lgpd.py:483`), "narrativa"
+#: PHI)" (`src/maezo/tools/workers/lgpd.py::make_request_additional_proof_handler`), "narrativa"
 #: (`src/maezo/agents/beatriz/prompts.py:61`).
 FREE_TEXT_MARKERS: tuple[str, ...] = (
     "texto livre",
@@ -1391,10 +1409,21 @@ def sweep_processes_root(root: Path, report: Report) -> Sweep:
 # ---------------------------------------------------------------------------
 
 
-def check_sweep(sweep: Sweep, report: Report) -> None:
-    """Fail closed on an undisposed PHI-shaped name, and on a contradicted annotation."""
+def check_sweep(sweep: Sweep, report: Report, *, manifest_path: Path | None = None) -> None:
+    """Fail closed on an undisposed PHI-shaped name, a contradicted annotation, or a manifest
+    that has drifted from this module's table.
+
+    Args:
+        sweep: the extracted process-variable universe to classify.
+        report: accumulates the blocking findings.
+        manifest_path: the CODEOWNED dispositions manifest. Defaults to the repo checkout's
+            (`default_manifest_path`) — deliberately NOT derived from the swept root, so a
+            unit test sweeping a `tmp_path` tree still checks the real manifest instead of
+            silently finding none.
+    """
     _check_shape_suspects(sweep, report)
     _check_annotations(sweep, report)
+    _check_manifest_closure(report, manifest_path)
 
 
 def _check_shape_suspects(sweep: Sweep, report: Report) -> None:
@@ -1435,10 +1464,84 @@ def _check_annotations(sweep: Sweep, report: Report) -> None:
         )
 
 
-def check_processes_root(root: Path, report: Report) -> Sweep:
+#: Path of the CODEOWNED dispositions manifest, relative to the repo root (owner decision
+#: R-199). The filename is owned by `policy`, which is also what validates the file's schema
+#: under `make validate-artifacts`; naming it in one place keeps the two gates on one artifact.
+MANIFEST_RELPATH = Path("spec") / "policies" / "phi" / policy.PHI_DISPOSITIONS_FILENAME
+
+
+def default_manifest_path() -> Path:
+    """The repo checkout's manifest path, or raise `FileNotFoundError`.
+
+    Walks up from this module looking for `pyproject.toml`, exactly like
+    `cli._find_repo_root`. This module is a BUILD-time fence and never runs inside an
+    installed wheel, so a checkout-anchored path is the honest resolution — and the absence
+    of a checkout is an ERROR, never a silent fallback to "no manifest, nothing to close".
+    """
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / "pyproject.toml").is_file():
+            return candidate / MANIFEST_RELPATH
+    raise FileNotFoundError(
+        f"no repo checkout found above {Path(__file__).resolve()} — cannot locate {MANIFEST_RELPATH}"
+    )
+
+
+def _check_manifest_closure(report: Report, manifest_path: Path | None) -> None:
+    """Bind `DISPOSITIONS` and the CODEOWNED manifest to each other, in BOTH directions.
+
+    Three blocking conditions, and they are the whole reason the manifest could land before
+    the signatures (owner decision R-199):
+
+    1. a name disposed in `DISPOSITIONS` with no line in the manifest — the question exists
+       and there is nowhere to sign it;
+    2. a line in the manifest with no entry in `DISPOSITIONS` — a signature slot for a
+       question nobody is asking any more;
+    3. a line the DPO ratified as `LISTAR_EM_CONJUNTO_PHI` whose name is still in neither
+       `PHI_PROCESS_VARS` nor `PHI_FIELDS`. This is the gate the SIGNATURE turns on: the
+       ratification does not list the name (that stays a code change, reviewed as code) — it
+       makes the build RED until somebody does. `REGISTRAR_NAO_PHI` demands nothing.
+
+    A malformed/missing manifest is one blocking finding, never a skipped check.
+    """
+    path = manifest_path
+    try:
+        if path is None:
+            path = default_manifest_path()
+        manifest = policy.load_phi_dispositions(path)
+    except (policy.PhiDispositionsError, FileNotFoundError) as exc:
+        report.error(path if path is not None else MANIFEST_RELPATH, str(exc))
+        return
+
+    for name in sorted(set(DISPOSITIONS) - manifest.nomes):
+        report.error(
+            path,
+            f"process variable '{name}' has a Disposition in phi_completeness.DISPOSITIONS but "
+            "NO line in the CODEOWNED dispositions manifest — the DPO has nowhere to sign it. "
+            "Add a `disposicoes:` entry with empty `disposicao`/`ratificacao` fields; never "
+            "drop the Disposition to make this pass.",
+        )
+    for name in sorted(manifest.nomes - set(DISPOSITIONS)):
+        report.error(
+            path,
+            f"the dispositions manifest carries a signature slot for '{name}', which has no "
+            "entry in phi_completeness.DISPOSITIONS — a slot for a question nobody asks any "
+            "more. Remove the line, or restore the Disposition it belongs to.",
+        )
+    for name, disposicao in sorted(manifest.ratificadas.items()):
+        if disposicao == policy.PHI_DISPOSICAO_LISTAR and name not in PHI_LISTED_NAMES:
+            report.error(
+                path,
+                f"the DPO ratified '{name}' as {policy.PHI_DISPOSICAO_LISTAR}, but the name is "
+                "in neither PHI_PROCESS_VARS nor PHI_FIELDS. The ratification does not list it "
+                "by itself — listing is a code change, reviewed as code. This stays RED until "
+                "that change lands.",
+            )
+
+
+def check_processes_root(root: Path, report: Report, *, manifest_path: Path | None = None) -> Sweep:
     """Sweep a `spec/processes` tree and apply the fence. Returns the sweep for reporting."""
     sweep = sweep_processes_root(root, report)
-    check_sweep(sweep, report)
+    check_sweep(sweep, report, manifest_path=manifest_path)
     return sweep
 
 

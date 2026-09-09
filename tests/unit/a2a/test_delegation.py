@@ -126,7 +126,7 @@ class TestRoot:
             _root(max_hops=0)
 
     def test_root_requires_timezone_aware_deadline(self) -> None:
-        naive = datetime.now()  # noqa: DTZ005 — deliberately naive, to prove it is rejected
+        naive = datetime.now()  # deliberately naive, to prove it is rejected
         with pytest.raises(DelegationError, match="deadline"):
             _root(deadline=naive)
 

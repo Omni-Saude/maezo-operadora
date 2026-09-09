@@ -69,16 +69,26 @@ independently-verified v2 behavioral gap, not a fixture artifact:
          dsr.grupo_revisor}"`) — the engine evaluates the DMN directly; `AssessRequestWorker` (and
          the `dmn=` seam `register_lgpd_workers` accepts for it) is DEAD CODE from this BPMN's
          perspective, never invoked.
-       - `execute_export`/`execute_rectification`/`execute_erasure` have NO BPMN match: the BPMN's
+       - `execute_export`/`execute_rectification`/`execute_erasure` had NO BPMN match: the BPMN's
          single `ST_ExecutarRequisicao` (topic `operadora.lgpd.execute_request`) is meant to cover
          BOTH retificacao and eliminacao in ONE step ("Executar retificacao/eliminacao aprovada");
-         v2 instead implements THREE separately-topic'd classes that the BPMN never calls.
+         v2 instead implemented THREE separately-topic'd classes that the BPMN never called.
+         COLLAPSED 2026-09-06 (R-181 / owner decision): the three classes are gone and ONE
+         `ExecuteRequestWorker` serves `operadora.lgpd.execute_request`. It is a REAL worker, so
+         its gap stub was dropped below — but it FAILS CLOSED on every path (no export,
+         rectification or erasure is implemented; enablement is DPO-gated, F-2 + AF-07), so any
+         test driving `EXECUTAR_E_ENVIAR` through `ST_ExecutarRequisicao` now hits an engine
+         incident instead of the stub's silent completion. That is the point: completing the task
+         would advance the token over the unconditional `Flow_Executar_Enviar` to "send the
+         response to the titular" and publish `event_desfecho=atendida` for work never done.
        - `publish_completed` had NO BPMN match: every `ST_Publish*` uses the generic `operadora.
          events.publish` topic, so `PublishCompletedWorker` was superseded/dead. RETIRED
          2026-09-04 (R-H / R-103) — the class, its registration and its three unit tests are
          gone; this bullet is kept as the reason, not as a live description.
        - `request_additional_proof`/`compile_data_package`/`execute_request`/`send_response`/
-         `notify_sla_risk` have ZERO registered v2 worker.
+         `notify_sla_risk` had ZERO registered v2 worker at the time of the port. Since then R-B,
+         R-F, R-G and R-181 landed; only `compile_data_package` (#55 R-C, DPO-gated) still has
+         none.
      A test-fixture-only completion stub (`_gap_topic_stub`, mirrors `test_sp_op_reembolso_001.
      py`'s own — same port session) is wired for these 5 unserved BPMN topics SOLELY so the flow
      can progress structurally past `ST_CompilarPacote`/`ST_PedirProvaAdicional`/
@@ -178,6 +188,9 @@ _VERIFY_TOPIC = "operadora.lgpd.verify_identity"
 
 # Finding 2: BPMN-declared topics with ZERO real v2 worker — served by `_gap_topic_stub` (test
 # fixture only, never a src/ change) so the flow can progress structurally past these nodes.
+# `_PROOF_TOPIC` (R-B), `_NOTIFY_SLA_TOPIC` (R-G) and `_EXECUTE_TOPIC` (R-181) have REAL workers
+# today and are no longer stubbed; `_SEND_TOPIC` (R-F) is real but deliberately RE-SHADOWED (see
+# the probe fixture). Only `_COMPILE_TOPIC` (R-C) is still genuinely worker-less.
 _PROOF_TOPIC = "operadora.lgpd.request_additional_proof"
 _COMPILE_TOPIC = "operadora.lgpd.compile_data_package"
 _EXECUTE_TOPIC = "operadora.lgpd.execute_request"
@@ -391,11 +404,14 @@ async def lgpd_probe(
     # BPMN routes through — mirrors escalation's/auth's own register_phase0_workers composition.
     register_events_workers(harness, kafka)
     # Finding 2 — gap-topic stubs (test fixture only, see module docstring + _gap_topic_stub) for the
-    # BPMN topics still served by a stub in this probe: compile_data_package (#55 R-C) and
-    # execute_request (#55 R-D) have no real worker yet; send_response (#55 R-F) is re-shadowed to
-    # keep the DPO-gated happy paths xfailed (governance gate) per the note above.
+    # BPMN topics still served by a stub in this probe: compile_data_package (#55 R-C) has no real
+    # worker yet; send_response (#55 R-F) is re-shadowed to keep the DPO-gated happy paths xfailed
+    # (governance gate) per the note above.
+    # R-181: `execute_request`'s stub is DROPPED — `register_lgpd_workers` now serves that topic
+    # with the real `ExecuteRequestWorker`, exactly as R-B's and R-G's stubs were dropped when
+    # their real workers landed. Keeping the stub would RE-SHADOW the very worker this collapse
+    # built and let the suite keep asserting a completion the real worker refuses to make.
     harness.register(_COMPILE_TOPIC, _gap_topic_stub)
-    harness.register(_EXECUTE_TOPIC, _gap_topic_stub)
     harness.register(_SEND_TOPIC, _gap_topic_stub)
     probe = LgpdEngineProbe(
         engine=engine,
@@ -528,7 +544,18 @@ async def test_happy_path_correcao_executa_e_envia(
     lgpd_probe: LgpdEngineProbe,
     start_lgpd: Callable[..., Any],
 ) -> None:
-    """correcao; revisor dpo EXECUTAR_E_ENVIAR => execute_request ANTES de send_response; completed."""
+    """correcao; revisor dpo EXECUTAR_E_ENVIAR => execute_request ANTES de send_response; completed.
+
+    R-181 (2026-09-06): este teste continua strict-xfail, mas agora por DUAS razoes, nao uma. A
+    original (a do `reason` compartilhado) segue valida: `send_response` esta re-sombreado pelo
+    gap stub. A segunda e nova e MAIS FORTE: `ST_ExecutarRequisicao` passou a ter worker REAL
+    (`ExecuteRequestWorker`) e ele RECUSA em todo caminho — nenhuma retificacao real esta
+    implementada —, entao a instancia levanta incidente e nunca alcanca `End_RequisicaoConcluida`.
+    Este e o UNICO teste desta suite que atravessa `ST_ExecutarRequisicao` (os outros dois
+    happy-path xfails usam APROVAR_ENVIO/NEGAR_FUNDAMENTADO, que vao direto a `ST_EnviarResposta`).
+    Quando o DPO habilitar a execucao real (F-2 + AF-07), ESTE teste e o que deve ser reescrito
+    primeiro — nao basta virar o xfail.
+    """
     inst = await start_lgpd(
         titular_pseudo_id=_unique_titular("PSEUDO-TESTE-002"),
         tipo_requisicao="correcao",

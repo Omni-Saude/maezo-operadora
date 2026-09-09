@@ -37,8 +37,8 @@ async def _run(dsn: str, tenant: str, count: int, label: str) -> None:
                 details={"batch": label, "index": i},
             )
             record_hash = await sink.emit(record)
-            print(f"COMMITTED {i} {record_hash}", flush=True)  # noqa: T201 — IPC protocol, not logging
-        print(f"DONE {count}", flush=True)  # noqa: T201
+            print(f"COMMITTED {i} {record_hash}", flush=True)  # IPC protocol, not logging
+        print(f"DONE {count}", flush=True)
     finally:
         await sink.aclose()
 
@@ -53,8 +53,8 @@ def main() -> int:
 
     try:
         asyncio.run(_run(args.dsn, args.tenant, args.count, args.label))
-    except Exception as exc:  # noqa: BLE001 — report to parent via stdout protocol, then exit non-zero
-        print(f"ERROR {exc}", flush=True)  # noqa: T201
+    except Exception as exc:  # report to parent via stdout protocol, then exit non-zero
+        print(f"ERROR {exc}", flush=True)
         return 1
     return 0
 

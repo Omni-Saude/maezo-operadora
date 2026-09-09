@@ -262,23 +262,17 @@ _require_reasons(INFRA_OWNED_DECLARED, label="INFRA_OWNED_DECLARED")
 #: `MAEZO_TENANT` (no differently-spelled reader exists to rename toward — see the module
 #: docstring). Each reason names the tracked `docs/review-queue.md` follow-up gap; fixing these
 #: would be speculative, not a rename, so they are deliberately deferred rather than "fixed" here.
-DEFERRED_UNRECONCILED_DECLARED: dict[str, str] = {
-    "ENVIRONMENT": (
-        "Declared via `agents[].env`'s free-form operator passthrough "
-        "(deploy/helm/maezo-tenant/values-amh.yaml, rendered by "
-        "`{{- range $k, $v := $agent.env }}` in deployment-agent-runtime.yaml) — an open-ended "
-        "extension point, not a fixed chart contract; today's value (`ENVIRONMENT: prod`) has no "
-        "reader anywhere in `src/`, spelled the same or differently. NOT a DU-02-class rename bug. "
-        "Follow-up gap `HELM-ENV-PASSTHROUGH-UNREAD` (docs/review-queue.md)."
-    ),
-    "AUDIT_DIR": (
-        "Declared for `notifications-bridge` (deployment-bridge.yaml) as a filesystem audit "
-        "directory, but `NotificationsBridgeSettings` (src/maezo/platform/integrations/"
-        "notifications_bridge.py) has no field for it and the bridge's real audit trail is "
-        "`PostgresAuditSink`, not a filesystem path — a vestigial declared name with no reader to "
-        "rename toward. Follow-up gap `HELM-ENV-AUDIT-DIR-DEAD` (docs/review-queue.md)."
-    ),
-}
+#:
+#: EMPTY as of HELM-ENV-AUDIT-DIR-DEAD / HELM-ENV-PASSTHROUGH-UNREAD (2026-09-06): both former
+#: entries here — `ENVIRONMENT` (agents[].env passthrough, values-amh.yaml/values-staging.yaml) and
+#: `AUDIT_DIR` (notifications-bridge / network-change-bridge / consent-revocation-bridge, all three
+#: `deployment-bridge*.yaml`) — were confirmed to have ZERO readers anywhere in `src/` and were
+#: REMOVED from the chart entirely (not renamed toward a reader — there was none to rename toward),
+#: closing both gaps rather than continuing to defer them. This dict stays declared (not deleted)
+#: so a FUTURE genuinely-unreconcilable-but-not-infra-owned name has somewhere to go without
+#: re-inventing the table; `_require_reasons` and the empty-dict-safe reconciliation logic both
+#: tolerate it being empty.
+DEFERRED_UNRECONCILED_DECLARED: dict[str, str] = {}
 _require_reasons(DEFERRED_UNRECONCILED_DECLARED, label="DEFERRED_UNRECONCILED_DECLARED")
 
 
@@ -770,7 +764,7 @@ def render_chart(
     argv = ["helm", "template", release, chart]
     for vf in value_files:
         argv.extend(["-f", vf])
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell, helm is an explicit CI/dev dependency
+    proc = subprocess.run(  # fixed argv, no shell, helm is an explicit CI/dev dependency
         argv, cwd=repo_root, capture_output=True, text=True, check=False
     )
     if proc.returncode != 0:

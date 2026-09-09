@@ -1,0 +1,72 @@
+{
+  "id": "EVL-VALENTINA-JOURNEY-01",
+  "agent": "valentina",
+  "class": "JN",
+  "tier": ["A"],
+  "description": "End-to-end JOURNEY eval (gap 11.5, WP-EVALS) for Valentina's `enroll` journey -- receive (intake) -> consent_gate (the LGPD chokepoint, invariant A: consent must be ACTIVE and VERIFIED before ANY program-PHI processing) -> gather+assess (triage: programa_routing DMN resolves ELEGIVEL) -> auto_route -> start_process (hand-off: idempotent SP-OP-PROGRAMA-001 start with the contract's engine-bound variables, including the ALWAYS-None clinical-decision L0 guardrails). Consent active+verified for `programa_cuidado`, low risk, eligibility criteria met -> `enrollment_realizado`. Synthetic data only (tenant amh, pseudo beneficiary id).",
+  "input": {
+    "state": {
+      "task": "enroll",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "programa_id": "PROG-DIABETES-TIPO2",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-000000VJ01",
+      "ciclo": "2026-Q3",
+      "gatilho": "indicacao_clinica",
+      "consent_scope": "programa_cuidado",
+      "consentimento_ativo": true,
+      "consent_checked": true,
+      "consent_revoked": false,
+      "risco_estratificado": "baixo",
+      "elegibilidade_criterios_atendidos": true,
+      "criterio_alta_aparente": false
+    }
+  },
+  "recorded_llm": [
+    "Beneficiario com risco baixo e criterios de elegibilidade atendidos; enrollment no programa realizado."
+  ],
+  "dmn_fixture": {
+    "programa_routing": { "elegivel_programa": "ELEGIVEL", "motivo": "criterios de elegibilidade atendidos" },
+    "programa_sla": { "sla_decisao": "5d", "sla_alerta": "2d" }
+  },
+  "expect": {
+    "fields": {
+      "consent_status": "ativo",
+      "route": "auto_route",
+      "desfecho": "enrollment_realizado",
+      "elegivel_programa": "ELEGIVEL"
+    }
+  },
+  "leak_canaries": [],
+  "journey": {
+    "consent": {
+      "fields": {
+        "consent_status": "ativo"
+      }
+    },
+    "triage": {
+      "fields": {
+        "route": "auto_route",
+        "elegivel_programa": "ELEGIVEL"
+      },
+      "dmn_tables_consulted": ["programa_routing", "programa_sla"]
+    },
+    "handoff": {
+      "fields": {
+        "desfecho": "enrollment_realizado",
+        "process_started": true
+      },
+      "business_key": "PROG-amh-PROG-DIABETES-TIPO2-PSEUDO-TESTE-000000VJ01-2026-Q3",
+      "process_key": "SP-OP-PROGRAMA-001",
+      "engine_variables": {
+        "tenant_id": "amh",
+        "programa_id": "PROG-DIABETES-TIPO2",
+        "beneficiario_pseudo_id": "PSEUDO-TESTE-000000VJ01",
+        "consent_status": "ativo",
+        "valentina_route": "auto_route",
+        "elegivel_programa": "ELEGIVEL",
+        "decisao_programa": null
+      }
+    }
+  }
+}

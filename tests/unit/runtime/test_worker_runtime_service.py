@@ -98,7 +98,7 @@ def test_register_default_workers_topics_match_expected_prefixes() -> None:
     topics = set(harness.registered_topics)
     assert "operadora.auth.analyze_request" in topics
     assert "operadora.escalation.notify_team" in topics
-    assert "operadora.lgpd.execute_erasure" in topics
+    assert "operadora.lgpd.execute_request" in topics  # R-181: colapso dos 3 orfaos no modelado
     assert "operadora.adequacao.register_fallback_commitment" in topics
     assert "operadora.ans_cron.trigger_submissions" in topics
     assert "regulatorio.anssubmit.submit" in topics

@@ -1,0 +1,73 @@
+{
+  "id": "EVL-FERNANDO-JOURNEY-01",
+  "agent": "fernando",
+  "class": "JN",
+  "tier": ["A"],
+  "description": "End-to-end JOURNEY eval (gap 11.5, WP-EVALS) for Fernando's J3 `analise_inadimplencia` journey -- receive (intake) -> assess (triage: inadimplencia_status DMN classifies AGUARDA_PURGA, but the EXPLICIT human-analysis request forces escalate regardless, module docstring) -> escalate (assemble dossier) -> start_process (hand-off: idempotent SP-OP-INADIMPLENCIA-001 start with the contract's engine-bound variables, including the ALWAYS-None `decisao_inadimplencia` L0 guardrail). This branch never sends WhatsApp (module docstring: `notify`, the ONLY WhatsApp-sending node, is unreachable once `escalate` is taken -- the escalate route's only outbound channel is the engine hand-off, never a beneficiary message promising an outcome Fernando cannot decide). Synthetic data only (tenant amh, pseudo beneficiary/contract ids).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "intencao": "analise_inadimplencia",
+      "canal": "whatsapp",
+      "numero_contrato": "CONTR-EVL-FJ01",
+      "matricula_beneficiario": "MAT-EVL-FJ01",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-FJ01",
+      "to_hash": "hash-evl-fernando-journey-01",
+      "tipo_plano": "individual",
+      "origem_solicitacao": "cobranca",
+      "competencias_em_aberto": ["2026-04", "2026-05"],
+      "meses_inadimplencia": 2,
+      "valor_total_devido_cents": 30000,
+      "dentro_periodo_minimo": true,
+      "notificacao_previa_feita": true,
+      "dentro_janela_purga": true,
+      "ja_em_rescisao_cancel": false,
+      "documentos_refs": []
+    }
+  },
+  "recorded_llm": [
+    "Beneficiario com 2 meses de inadimplencia solicitou analise humana explicita; dossie encaminhado."
+  ],
+  "dmn_fixture": {
+    "inadimplencia_status": { "roteamento": "AGUARDA_PURGA", "motivo": "dentro do prazo" },
+    "inadimplencia_sla": { "sla_analise": "P10D", "sla_alerta": "P7D", "fonte_regulatoria": "RN 593" }
+  },
+  "expect": {
+    "fields": {
+      "route": "escalate",
+      "motivo_humano": "analise_solicitada",
+      "desfecho": "encaminhado_analise_humana"
+    }
+  },
+  "leak_canaries": [],
+  "journey": {
+    "intake": {
+      "no_error": true
+    },
+    "triage": {
+      "fields": {
+        "route": "escalate",
+        "motivo_humano": "analise_solicitada",
+        "status_inadimplencia": "AGUARDA_PURGA"
+      },
+      "dmn_tables_consulted": ["inadimplencia_status", "inadimplencia_sla"]
+    },
+    "handoff": {
+      "fields": {
+        "desfecho": "encaminhado_analise_humana",
+        "process_started": true
+      },
+      "business_key": "INAD-amh-CONTR-EVL-FJ01",
+      "process_key": "SP-OP-INADIMPLENCIA-001",
+      "engine_variables": {
+        "tenant_id": "amh",
+        "numero_contrato": "CONTR-EVL-FJ01",
+        "meses_inadimplencia": 2,
+        "fernando_route": "escalate",
+        "motivo_encaminhamento": "analise_solicitada",
+        "decisao_inadimplencia": null
+      },
+      "whatsapp_sent": false
+    }
+  }
+}

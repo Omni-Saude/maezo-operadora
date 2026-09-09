@@ -13,6 +13,16 @@
 >
 > **Data do relatório:** 2026-06-14. **Branch de consolidação:** `wave/p3-we`.
 
+> **ADENDO DATADO 2026-09-06 (gap `ADR-PHANTOM-PATH-RESIDUE-NON-ADR`):** a citação de
+> `src/maezo/policies/` na seção D7 (linha "é owned por `@rodaquino-OMNI` (CODEOWNERS)... este é
+> exatamente o estado correto") descreve um diretório que NUNCA existiu no repo
+> (`.github/CODEOWNERS` documenta isso desde 2026-08-13; confirmado hoje por
+> `git ls-files src/maezo/policies` -> vazio). A matriz real sempre viveu em
+> `spec/policies/autonomy/`; o allowlist de processos real é
+> `src/maezo/tools/process_allowlist.py::KNOWN_PROCESS_KEYS` (sem overlay YAML — nunca existiu). O
+> relatório é HISTÓRICO (2026-06-14) e não é reescrito retroativamente; este adendo só registra os
+> caminhos reais para quem consultar o documento hoje.
+
 ---
 
 ## 0. Mapa de PRs (evidência primária)

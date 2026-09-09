@@ -81,6 +81,7 @@ from maezo.gateway.action_execution import evaluate_worker_task
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
 from maezo.tools.workers._audit_ctx import collect_dmn_versions
 from maezo.tools.workers.base import WorkerBase, WorkerRegistry
+from maezo.tools.workers.engine_var_types import camunda_int_type
 from maezo.tools.workers.phi_vars import redact_error_message
 
 logger = structlog.get_logger(__name__)
@@ -90,11 +91,12 @@ logger = structlog.get_logger(__name__)
 # `maezo.runtime.log_phi`), so warnings/errors are never silently lost outside the structlog chain.
 _stdlib_logger = logging.getLogger(__name__)
 
-# Java `int32` (java.lang.Integer) bounds. Integers outside this range are typed as `Long`
-# (int64) when written back to the engine — high-value BRL cents overflow int32 (ADR-0018 part
-# 2; see `_to_camunda_var`).
-_JAVA_INT32_MIN = -(2**31)
-_JAVA_INT32_MAX = 2**31 - 1
+# Integer typing on the engine wire is decided by `engine_var_types.camunda_int_type`: by NAME for
+# the variables declared `Long` unconditionally (owner decision R-173), by magnitude otherwise
+# (Java `int32` bounds, ADR-0018 part 2 — high-value BRL cents overflow int32). The bounds
+# constants live in that leaf module, the single copy in `src/`; see `_to_camunda_var`. (The
+# test-infra mapper `tests/integration/processes/engine_rest.py` keeps its own copy on purpose —
+# it imports nothing from `maezo` by design; it is outside this declaration, not covered by it.)
 
 #: Terminal dispatch outcomes emitted on the `maezo_worker_task_total` / `_duration_seconds`
 #: metrics (design §13). `incident` is additive over v1's {completed, bpmn_error, failed} — it
@@ -366,13 +368,13 @@ def _resolve_app_version(override: str | None = None) -> str:
     if env:
         return env
     try:
-        from importlib.metadata import PackageNotFoundError, version  # noqa: PLC0415
+        from importlib.metadata import PackageNotFoundError, version
 
         try:
             return version("maezo-operadora")
         except PackageNotFoundError:
             return "unknown"
-    except Exception:  # noqa: BLE001 — metadata lookup must never break dispatch; fall back honestly.
+    except Exception:  # metadata lookup must never break dispatch; fall back honestly.
         return "unknown"
 
 
@@ -590,7 +592,7 @@ def extract_refusal_code(exc: BaseException) -> str | None:
 TaskHandler = Callable[["ExternalTask"], Coroutine[Any, Any, Mapping[str, Any] | None]]
 
 
-def _to_camunda_var(value: Any) -> dict[str, Any]:
+def _to_camunda_var(value: Any, *, name: str | None = None) -> dict[str, Any]:
     """Type an output-variable value into the CIB Seven / Camunda variable wire format.
 
     Mirrors the canonical serialization used elsewhere in this codebase (`mcp_cibseven`), with
@@ -601,18 +603,23 @@ def _to_camunda_var(value: Any) -> dict[str, Any]:
 
     **Load-bearing**: money (BRL cents) and dossier round-trips depend on the `Long`/`Json`
     typing below — v1 fixtures assert it; preserved verbatim (design §5/§16.1).
+
+    `name` is the variable NAME the value will be written under. It is what lets
+    `engine_var_types.camunda_int_type` honour the names declared `Long` UNCONDITIONALLY (owner
+    decision R-173) instead of typing them by magnitude; callers that hold no name (a bare value
+    conversion) pass none and get the magnitude rule.
     """
     if isinstance(value, dict) and "value" in value:
         return value
     if isinstance(value, bool):
         return {"value": value, "type": "Boolean"}
     if isinstance(value, int):
-        # Fits Java int32 -> Integer; otherwise -> Long (int64). High-value BRL cents (e.g. a
-        # R$50MM payment = 5,000,000,000 cents) overflow int32 and MUST be Long, or the engine
-        # rejects the complete with "Cannot convert value '<n>' of type 'Integer' to java type
+        # `Long` by NAME for the variables declared int64 unconditionally (R-173); otherwise by
+        # magnitude — fits Java int32 -> Integer, else Long. High-value BRL cents (e.g. a R$50MM
+        # payment = 5,000,000,000 cents) overflow int32 and MUST be Long, or the engine rejects
+        # the complete with "Cannot convert value '<n>' of type 'Integer' to java type
         # java.lang.Integer" (ADR-0018 part 2).
-        fits_int32 = _JAVA_INT32_MIN <= value <= _JAVA_INT32_MAX
-        return {"value": value, "type": "Integer" if fits_int32 else "Long"}
+        return {"value": value, "type": camunda_int_type(name, value)}
     if isinstance(value, float):
         return {"value": value, "type": "Double"}
     if isinstance(value, dict | list):
@@ -812,7 +819,7 @@ class CibSevenWorkerTransport:
                         retries=0,
                         retry_timeout_ms=0,
                     )
-                except Exception:  # noqa: BLE001 — best-effort: reporting the incident must
+                except Exception:  # best-effort: reporting the incident must
                     # never itself crash fetch_and_lock; an unreported task simply stays locked
                     # until it expires and is redelivered (safe fallback, never silently dropped
                     # forever).
@@ -837,7 +844,7 @@ class CibSevenWorkerTransport:
         return tasks
 
     async def complete(self, task_id: str, worker_id: str, variables: dict[str, Any]) -> None:
-        camunda_vars = {k: _to_camunda_var(v) for k, v in variables.items()}
+        camunda_vars = {k: _to_camunda_var(v, name=k) for k, v in variables.items()}
         resp = await self._client.post(
             f"/external-task/{task_id}/complete",
             json={"workerId": worker_id, "variables": camunda_vars},
@@ -880,7 +887,7 @@ class CibSevenWorkerTransport:
             "errorMessage": error_message,
         }
         if variables:
-            payload["variables"] = {k: _to_camunda_var(v) for k, v in variables.items()}
+            payload["variables"] = {k: _to_camunda_var(v, name=k) for k, v in variables.items()}
         resp = await self._client.post(f"/external-task/{task_id}/bpmnError", json=payload)
         resp.raise_for_status()
 
@@ -1136,7 +1143,7 @@ def _emit_worker_task_outcome(
         if outcome not in WORKER_TASK_OUTCOMES:
             logger.debug("worker_task_metric_skipped", outcome=outcome, topic=topic)
             return
-        from maezo.platform.observability import record_worker_task_outcome  # noqa: PLC0415
+        from maezo.platform.observability import record_worker_task_outcome
 
         record_worker_task_outcome(
             tenant=tenant or "unknown",
@@ -1144,7 +1151,7 @@ def _emit_worker_task_outcome(
             outcome=outcome,
             duration_seconds=duration_seconds,
         )
-    except Exception:  # noqa: BLE001 — defensive: a metric error must never break dispatch.
+    except Exception:  # defensive: a metric error must never break dispatch.
         logger.debug("worker_task_metric_emit_failed", topic=topic, outcome=outcome, exc_info=True)
 
 
@@ -1208,7 +1215,7 @@ def _emit_raw_handler_worker_metrics(
     which is a bigger change than the gap it closes.
     """
     try:
-        from maezo.platform.observability import (  # noqa: PLC0415 — lazy, mirrors `_emit_worker_task_outcome`
+        from maezo.platform.observability import (  # lazy, mirrors `_emit_worker_task_outcome`
             record_worker_error,
             record_worker_execution,
         )
@@ -1217,7 +1224,7 @@ def _emit_raw_handler_worker_metrics(
             record_worker_execution(worker_name=worker_name, topic=topic, duration_seconds=duration_seconds)
         else:
             record_worker_error(worker_name=worker_name, topic=topic, error_type=error_type or "UnknownError")
-    except Exception:  # noqa: BLE001 — defensive: a metric error must never break dispatch.
+    except Exception:  # defensive: a metric error must never break dispatch.
         logger.debug("worker_raw_handler_metric_emit_failed", topic=topic, outcome=outcome, exc_info=True)
 
 
@@ -1388,7 +1395,7 @@ class WorkerHarness:
                     )
                 except asyncio.CancelledError:
                     raise
-                except Exception as exc:  # noqa: BLE001 — fail-closed backoff, never a silent []`.
+                except Exception as exc:  # fail-closed backoff, never a silent []`.
                     self._consecutive_fetch_errors += 1
                     self.fetch_errors_total += 1
                     if self._consecutive_fetch_errors >= self._engine_unreachable_after:
@@ -1487,7 +1494,7 @@ class WorkerHarness:
             await self._handle(task)
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001 — last-resort: dispatch must never crash the loop.
+        except Exception:  # last-resort: dispatch must never crash the loop.
             logger.error("worker_handle_task_crashed", task_id=task.task_id, topic=task.topic, exc_info=True)
 
     # -- dispatch -------------------------------------------------------------------------------
@@ -1712,7 +1719,7 @@ class WorkerHarness:
         """
         try:
             return evaluate_worker_task(topic=task.topic, tenant=self._tenant)
-        except Exception:  # noqa: BLE001 — belt-and-suspenders; the gateway is already total.
+        except Exception:  # belt-and-suspenders; the gateway is already total.
             logger.error("action_gateway_evaluate_failed", topic=task.topic, exc_info=True)
             return None
 
@@ -1917,7 +1924,7 @@ class WorkerHarness:
                         task, guard_code=refusal_code, dmn_versions=dict(dmn_versions)
                     )
                 outcome = await self._report_failure(task, exc, retries_override=0)
-            except Exception as exc:  # noqa: BLE001 — classified below; never escapes dispatch.
+            except Exception as exc:  # classified below; never escapes dispatch.
                 error_type = type(exc).__name__
                 _transient_types = (RuntimeError, OSError, TimeoutError, ConnectionError, httpx.HTTPError)
                 transient = isinstance(exc, _transient_types)

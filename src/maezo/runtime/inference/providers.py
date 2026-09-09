@@ -269,7 +269,7 @@ def _emit_llm_token_usage(
 
         # Local import (mirrors tools/workers/harness.py's `_emit_worker_task_outcome`):
         # avoids a hard import-time dependency of this module on the observability stack.
-        from maezo.platform.observability import record_llm_token_usage  # noqa: PLC0415
+        from maezo.platform.observability import record_llm_token_usage
 
         record_llm_token_usage(
             provider=provider,
@@ -277,7 +277,7 @@ def _emit_llm_token_usage(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
-    except Exception:  # noqa: BLE001 — defensive: metering must never break/stall an LLM call.
+    except Exception:  # defensive: metering must never break/stall an LLM call.
         logger.debug("llm_token_usage_emit_failed", provider=provider, exc_info=True)
 
 
@@ -564,7 +564,7 @@ class BedrockInferenceProvider(BaseInferenceProvider):
             raise InferenceProviderError(
                 "bedrock", f"API error ({exc.status_code}): {exc.message}", retryable=retryable
             ) from exc
-        except Exception as exc:  # noqa: BLE001 — no SDK/transport type may leak past this module.
+        except Exception as exc:  # no SDK/transport type may leak past this module.
             # THE CLAUSE THE ANTHROPIC PROVIDER DOES NOT NEED, and the reason this one does:
             # SigV4 signing happens INSIDE the request, in botocore, which raises its own
             # exception hierarchy (`NoCredentialsError`, `ProfileNotFound`, `NoRegionError`, …)

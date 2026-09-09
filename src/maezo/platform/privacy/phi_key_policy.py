@@ -140,7 +140,7 @@ _OFF_POLICY = PhiKeyPolicy(modo=PhiKeyMode.OFF, declarado=PhiKeyMode.OFF, ratifi
 
 def _manifest_default_path() -> str:
     """`<spec>/policies/privacy/phi-business-key-remediation.yaml` via the T0.3 mechanism."""
-    from maezo.agents import resolve_spec_dir  # noqa: PLC0415 — lazy: avoids an import cycle
+    from maezo.agents import resolve_spec_dir  # lazy: avoids an import cycle
 
     return str(resolve_spec_dir() / "policies" / "privacy" / "phi-business-key-remediation.yaml")
 
@@ -309,7 +309,7 @@ def load_phi_key_policy(path: str | Path | None = None) -> PhiKeyPolicy:
     if not raw_path:
         try:
             raw_path = _manifest_default_path()
-        except Exception as exc:  # noqa: BLE001 — an unresolvable spec/ activates nothing
+        except Exception as exc:  # an unresolvable spec/ activates nothing
             return _off("path_unresolved", f"could not resolve the default manifest path: {exc}")
 
     manifest_path = Path(raw_path)

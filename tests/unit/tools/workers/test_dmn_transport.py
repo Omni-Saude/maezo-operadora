@@ -44,7 +44,7 @@ def _client_with_handler(
     not a single client instance.
     """
     transport = CibSevenDmnTransport(base_url=base_url)
-    transport._new_client = lambda: httpx.AsyncClient(  # type: ignore[method-assign] # noqa: SLF001
+    transport._new_client = lambda: httpx.AsyncClient(  # type: ignore[method-assign]
         base_url=base_url.rstrip("/"),
         transport=httpx.MockTransport(handler),
     )

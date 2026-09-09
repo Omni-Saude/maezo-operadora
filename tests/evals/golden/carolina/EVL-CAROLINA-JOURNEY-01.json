@@ -1,0 +1,65 @@
+{
+  "id": "EVL-CAROLINA-JOURNEY-01",
+  "agent": "carolina",
+  "class": "JN",
+  "tier": ["A"],
+  "description": "End-to-end JOURNEY eval (gap 11.5, WP-EVALS) for Carolina's `credenciamento` direction -- receive (intake) -> gather+assess (triage: cred_admissibility -> CLERICAL_CREDENCIAR) -> auto_route -> start_process (hand-off: idempotent SP-OP-CRED-001 start with the contract's engine-bound variables) -> finalize. A new-clinic credentialing request with complete documentation and network-fit criteria resolves CLERICAL_CREDENCIAR -> auto_route (the ONLY automatic outcome that exists -- crediting a NEW provider favors nobody adversely) and Carolina anchors SP-OP-CRED-001 idempotently. Synthetic data only (tenant amh, pseudo provider id).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "canal": "portal",
+      "prestador_id": "PROV-CRED-JOURNEY-01",
+      "direcao": "credenciamento",
+      "tipo_prestador": "clinica",
+      "origem_solicitacao": "prestador",
+      "motivo_informado": "Solicitacao de credenciamento de nova clinica na regiao",
+      "data_solicitacao_iso": "2026-07-20",
+      "documentos_refs": [],
+      "licenca_valida": true,
+      "documentacao_completa": true,
+      "dentro_criterios_rede": true,
+      "indicio_irregularidade_sinalizado": false
+    }
+  },
+  "recorded_llm": [
+    "Documentacao completa e criterios de rede atendidos; credenciamento clerical pronto."
+  ],
+  "dmn_fixture": {
+    "cred_admissibility": { "roteamento": "CLERICAL_CREDENCIAR", "motivo": "documentacao completa e criterios de rede atendidos" }
+  },
+  "expect": {
+    "fields": {
+      "route": "auto_route",
+      "admissibilidade": "CLERICAL_CREDENCIAR",
+      "desfecho": "credenciamento_clerical"
+    }
+  },
+  "leak_canaries": [],
+  "journey": {
+    "intake": {
+      "no_error": true
+    },
+    "triage": {
+      "fields": {
+        "route": "auto_route",
+        "admissibilidade": "CLERICAL_CREDENCIAR"
+      },
+      "dmn_tables_consulted": ["cred_admissibility"]
+    },
+    "handoff": {
+      "fields": {
+        "desfecho": "credenciamento_clerical",
+        "process_started": true
+      },
+      "business_key": "CRED-amh-PROV-CRED-JOURNEY-01",
+      "process_key": "SP-OP-CRED-001",
+      "engine_variables": {
+        "tenant_id": "amh",
+        "prestador_id": "PROV-CRED-JOURNEY-01",
+        "direcao": "credenciamento",
+        "carolina_route": "auto_route",
+        "documentacao_completa": true
+      }
+    }
+  }
+}

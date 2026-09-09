@@ -1,0 +1,69 @@
+{
+  "id": "EVL-ANDRE-JOURNEY-01",
+  "agent": "andre",
+  "class": "JN",
+  "tier": ["A"],
+  "description": "End-to-end JOURNEY eval (gap 11.5, WP-EVALS) for Andre's `pagto_dossier` flow -- receive (intake) -> gather+assess (triage: pagto_admissibility -> pagto_alcada) -> auto_route -> start_process (hand-off: idempotent SP-OP-PAGTO-001 start with the contract's engine-bound variables) -> finalize. A low-value payment (dentro_teto_l2 worker-pre-resolved true) resolves DENTRO_TETO_L2 -> auto_route (clerical L2 dossier ready -- NEVER a release, the clerical worker path handles the actual low-value auto-release) and Andre anchors SP-OP-PAGTO-001 idempotently. The `journey` block below names the observable output asserted at EACH stage (see test_andre_journey_evals.py) -- not only the turn's final route. Synthetic data only (tenant amh, pseudo ordem/prestador ids).",
+  "input": {
+    "state": {
+      "flow": "pagto_dossier",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "ordem_pagamento_id": "ORDEM-EVL-ANDRE-J01",
+      "prestador_id": "PREST-TESTE-J01",
+      "tipo_pagamento": "prestador_rede",
+      "valor_pagamento_cents": 50000,
+      "moeda": "BRL",
+      "competencia": "2026-06",
+      "data_vencimento": "2026-07-10",
+      "conta_origem_ref": "conta-origem-ref-teste-j01",
+      "instrumento_pagamento": "pix",
+      "dados_pagamento_validos": true,
+      "lastro_confirmado": true,
+      "dentro_teto_l2": true,
+      "duplicidade_suspeita": false
+    }
+  },
+  "recorded_llm": [
+    "Pagamento de baixo valor dentro do teto L2; dossie clerical pronto."
+  ],
+  "dmn_fixture": {
+    "pagto_admissibility": { "roteamento": "SEGUE_ROTEAMENTO" },
+    "pagto_alcada": { "faixa_valor": "DENTRO_TETO_L2", "grupo_aprovador": "clerical-pagamentos" }
+  },
+  "expect": {
+    "fields": {
+      "route": "auto_route",
+      "faixa_valor": "DENTRO_TETO_L2",
+      "desfecho": "dossie_pronto_clerical"
+    }
+  },
+  "leak_canaries": [],
+  "journey": {
+    "intake": {
+      "no_error": true
+    },
+    "triage": {
+      "fields": {
+        "route": "auto_route",
+        "faixa_valor": "DENTRO_TETO_L2"
+      },
+      "dmn_tables_consulted": ["pagto_admissibility", "pagto_alcada"]
+    },
+    "handoff": {
+      "fields": {
+        "desfecho": "dossie_pronto_clerical",
+        "process_started": true
+      },
+      "business_key": "PAGTO-amh-ORDEM-EVL-ANDRE-J01",
+      "process_key": "SP-OP-PAGTO-001",
+      "engine_variables": {
+        "tenant_id": "amh",
+        "ordem_pagamento_id": "ORDEM-EVL-ANDRE-J01",
+        "dentro_teto_l2": true,
+        "andre_route": "auto_route",
+        "faixa_valor": "DENTRO_TETO_L2"
+      }
+    }
+  }
+}

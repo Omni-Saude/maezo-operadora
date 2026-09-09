@@ -148,13 +148,13 @@ def _build_key_scrubber() -> Any | None:
     handler hoists the call out of its publish-`try` precisely so the fault is not re-labelled as
     a Kafka publish failure).
     """
-    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # noqa: PLC0415 — lazy
+    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # lazy
 
     policy = phi_key_policy()
     if not policy.scrubbing_enabled:
         return None
 
-    from maezo.platform.privacy.key_scrubber import (  # noqa: PLC0415 — lazy
+    from maezo.platform.privacy.key_scrubber import (  # lazy
         BusinessKeyScrubber,
         egress_pseudonymizer,
     )
@@ -267,24 +267,27 @@ def setup_observability(
     # THE RULE THIS CHAIN OBEYS (WP-COMPOSICAO-V2 review, MAJOR-1): wiring the daemons must not
     # silently change what an operator's `grep` finds. Everything structlog's own default chain
     # provides is provided here too — `merge_contextvars`, `add_log_level`, TTY-aware colours —
-    # and the only deliberate deltas are the ISO-8601/UTC timestamp and the DL-0043 scrubber slot.
+    # with ISO-8601/UTC timestamps, the DL-0043 scrubber slot and always-on error minimization.
     # Concretely: `add_log_level` is what puts the `[error    ]` token on the line that
     # `docs/runbooks/devops-stack.md:318` and the SLA-alert runbook grep for (structlog renders it
     # LOWER-case — `grep -i` — which was already true of the pre-wiring default), and TTY-aware
     # colours are what keep `topic=t` an unbroken substring in a container's log stream.
     log_level = os.environ.get("MAEZO_LOG_LEVEL", "NOTSET").upper()
+    from maezo.gateway.log_scrubber import ErrorLogScrubber
+
     scrubber = _build_key_scrubber()
     processors: list[Any] = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
     ]
     if scrubber is not None:
-        # Scrub LAST before rendering: every earlier processor may still ADD fields to the
-        # event dict, so a scrubber placed before them would miss whatever they contribute.
+        # Keep the policy-gated business-key pass after context/metadata enrichment.
+        # Error minimization below adds only class/code metadata, never a business key.
         processors.append(scrubber)
+    # Always minimize arbitrary errors, independently of the business-key migration policy.
+    # This processor renders class/frames without ever stringifying exception values.
+    processors.append(ErrorLogScrubber())
     colors = _console_colors_enabled()
     processors.append(structlog.dev.ConsoleRenderer(colors=colors))
     structlog.configure(
@@ -427,7 +430,7 @@ def bootstrap_observability(
     """
     try:
         setup_observability(service_name=service_name, otlp_endpoint=otlp_endpoint)
-    except Exception as exc:  # noqa: BLE001 — isolated: a telemetry fault must not CrashLoop a pod.
+    except Exception as exc:  # isolated: a telemetry fault must not CrashLoop a pod.
         status = ObservabilityStatus(
             configured=False,
             service_name=service_name,
@@ -602,7 +605,7 @@ def record_agent_error(*, agent: str, error_type: str) -> None:
                 fallback=resolved_error_type,
             )
         _get_metrics_collector().errors.labels(agent=agent, error_type=resolved_error_type).inc()
-    except Exception:  # noqa: BLE001 — never mask the turn failure this is counting.
+    except Exception:  # never mask the turn failure this is counting.
         logger.debug("agent_error_metric_emit_failed", exc_info=True)
 
 
@@ -649,7 +652,7 @@ def record_a2a_handler_error(*, target: str, error_type: str) -> None:
         _get_metrics_collector().a2a_handler_errors.labels(
             target=target, error_type=resolved_error_type
         ).inc()
-    except Exception:  # noqa: BLE001 — never mask the delegation failure this is counting.
+    except Exception:  # never mask the delegation failure this is counting.
         logger.debug("a2a_handler_error_metric_emit_failed", exc_info=True)
 
 
@@ -1034,7 +1037,7 @@ def turn_conversation_digest(conversation_ref: str) -> str:
     Uses the same `hashlib.sha256` primitive the `Pseudonymizer` is built on
     (gateway/pseudonymizer.py), not a parallel one.
     """
-    import hashlib  # noqa: PLC0415 — keep this module's top-level import surface minimal
+    import hashlib  # keep this module's top-level import surface minimal
 
     digest = hashlib.sha256(conversation_ref.encode("utf-8")).hexdigest()[:32]
     return f"{TURN_CORRELATION_PREFIX}{digest}"
@@ -1072,5 +1075,5 @@ def record_agent_turn(
             produced_message_count=produced,
             conversation_digest=(turn_conversation_digest(conversation_ref) if conversation_ref else None),
         )
-    except Exception:  # noqa: BLE001 — defensive: telemetry must never break a completed turn.
+    except Exception:  # defensive: telemetry must never break a completed turn.
         logger.debug("agent_turn_telemetry_emit_failed", exc_info=True)

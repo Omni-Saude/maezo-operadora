@@ -60,8 +60,6 @@ spec:
                 secretKeyRef:
                   name: maezo-kafka-config
                   key: bootstrap-servers
-            - name: AUDIT_DIR
-              value: "/tmp/maezo-audit"
             {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.consentRevocationBridge.resources | nindent 12 }}

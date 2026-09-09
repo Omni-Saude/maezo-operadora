@@ -402,12 +402,16 @@ class ValidateAutoCriteriaWorker(WorkerBase):
     Shadow output is written AFTER every verdict is computed and is never read back:
     `_CriterionOutcome.ok` is derived without consulting `.sombra` anywhere.
 
-    OBSERVABLE BEHAVIOUR TODAY — stated plainly. With `authorization_approval.max_value_brl: 0`
-    (decision D-07 open) and every clinical table DRAFT/unratified, **all four criteria are
-    false and NOTHING auto-approves: every request routes to human review.** That is the same
-    safe outcome as before this worker existed — but now for four explicit, auditable,
-    per-criterion reasons instead of an unverified seed, and each criterion switches on
-    independently as its source is ratified/populated, with NO code change.
+    OBSERVABLE BEHAVIOUR TODAY — stated plainly. Decision D-07 CLOSED on 2026-08-25:
+    `authorization_approval.max_value_brl` now carries a real, positive ceiling in
+    `tenants-amh.yaml`, so `criterio_financeiro_ok` can legitimately return `True` for a request
+    priced within it (see `auth.py:484-490`). What still keeps **every request routing to human
+    review** is the three remaining criteria — technical/regulatory/contractual read from
+    clinical tables that are DRAFT/unratified, and an unratified source returns `false`
+    regardless of what the table computes. NOTHING auto-approves while they stay that way. That
+    is the same safe outcome as before this worker existed — but
+    now for explicit, auditable, per-criterion reasons instead of an unverified seed, and each
+    criterion switches on independently as its source is ratified/populated, with NO code change.
 
     INVARIANTS.
       1. NEVER auto-denies. This gate chooses auto-approve vs human review; no deny output
@@ -518,7 +522,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                 param=_CEILING_PARAM,
                 value_cents=valor_cents,
             )
-        except Exception as exc:  # noqa: BLE001 - fail-closed: resolver down never auto-approves
+        except Exception as exc:  # fail-closed: resolver down never auto-approves
             self.logger.error("auth_auto_criteria_resolver_failed", tenant_id=tenant, error=str(exc))
             return _CriterionOutcome(ok=False, falhas=(_FIN_RESOLVER_INDISPONIVEL,))
 
@@ -557,7 +561,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                 _DMN_DUT_ROL_COVERAGE,
                 {"codigo_procedimento_tuss": codigo, "categoria_procedimento": categoria},
             )
-        except Exception as exc:  # noqa: BLE001 - fail-closed: unreachable table never approves
+        except Exception as exc:  # fail-closed: unreachable table never approves
             self.logger.error("auth_auto_criteria_dmn_failed", decision=_DMN_DUT_ROL_COVERAGE, error=str(exc))
             return _CriterionOutcome(ok=False, falhas=(_TEC_TABELA_INDISPONIVEL,))
 
@@ -589,7 +593,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                     criteria_row = self._evaluate_dmn(
                         criteria_key, _dut_criteria_inputs(criteria_key, process_vars)
                     )
-                except Exception as exc:  # noqa: BLE001 - fail-closed
+                except Exception as exc:  # fail-closed
                     self.logger.error("auth_auto_criteria_dmn_failed", decision=criteria_key, error=str(exc))
                     return _CriterionOutcome(ok=False, falhas=(_TEC_TABELA_INDISPONIVEL,))
                 atendida = _as_bool(criteria_row.get("dut_atendida"))
@@ -649,7 +653,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                 _DMN_CARENCIA_CHECK,
                 {"tipo_procedimento": tipo, "dias_desde_adesao": dias, "cpt_declarada": cpt},
             )
-        except Exception as exc:  # noqa: BLE001 - fail-closed
+        except Exception as exc:  # fail-closed
             self.logger.error("auth_auto_criteria_dmn_failed", decision=_DMN_CARENCIA_CHECK, error=str(exc))
             return _CriterionOutcome(ok=False, falhas=(_REG_TABELA_INDISPONIVEL,))
 
@@ -695,7 +699,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                 _DMN_CRITERIA_CONTRATUAL,
                 {"tenant_id": tenant, "categoria_procedimento": categoria},
             )
-        except Exception as exc:  # noqa: BLE001 - fail-closed
+        except Exception as exc:  # fail-closed
             self.logger.error(
                 "auth_auto_criteria_dmn_failed", decision=_DMN_CRITERIA_CONTRATUAL, error=str(exc)
             )
@@ -740,7 +744,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
         """
         try:
             return self._evaluate_criteria(process_vars)
-        except Exception as exc:  # noqa: BLE001 - degradation (design §6): fail-safe AND visible
+        except Exception as exc:  # degradation (design §6): fail-safe AND visible
             # Fail-safe, not an incident: an incident stalls a care-authorization request, which
             # is worse for the beneficiary than routing it to a human auditor (mirrors DL-0037's
             # fail-neutral-with-disclosed-gap). Logged at error, metered, and audited.
@@ -772,7 +776,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
         """
         try:
             record_worker_error(type(self).__name__, self.topic, token)
-        except Exception as exc:  # noqa: BLE001 - observability must never break the gate
+        except Exception as exc:  # observability must never break the gate
             self.logger.warning("auth_auto_criteria_metric_failed", error=str(exc))
 
     def _evaluate_criteria(self, process_vars: dict[str, Any]) -> dict[str, Any]:
@@ -1173,13 +1177,14 @@ class IssueAuthorizationWorker(WorkerBase):
     DESFECHO OBSERVAVEL HOJE (governanca pendente, nao mais um gap estrutural): os criterios
     tecnico/regulatorio/contratual leem de tabelas SINTETICAS/DRAFT (portao de RATIFICACAO em
     `spec/processes/dmn/auth-criteria-ratification.yaml` — fonte nao-ratificada devolve `false`
-    independente do que a tabela computou) e o criterio financeiro herda o `max_value_brl: 0` de
-    hoje (estado D-07 em aberto). Logo os quatro criterios sao false e NENHUM pedido auto-aprova
-    — o MESMO desfecho seguro de antes, agora por motivos explicitos e auditaveis
-    (`auto_criteria_falhas`) em vez de uma checagem ausente. Quando o SME ratificar as fontes e o
-    D-07 definir um teto real, a emissao automatica passa a funcionar, ainda limitada pela
-    verificacao de teto no PONTO DE EMISSAO acima (defesa-em-profundidade, inalterada por esta
-    nota).
+    independente do que a tabela computou); o criterio financeiro ja NAO depende disso — a
+    decisao D-07 fechou em 25/08/2026 e `authorization_approval.max_value_brl` carrega hoje um
+    teto real e positivo em `tenants-amh.yaml` (ver `auth.py:484-490`). Logo o que ainda barra o
+    auto-aprova sao os tres criterios nao-ratificados, e NENHUM pedido auto-aprova enquanto eles
+    seguirem DRAFT — o MESMO desfecho seguro de antes, agora por motivos explicitos e auditaveis
+    (`auto_criteria_falhas`) em vez de uma checagem ausente. Quando o SME ratificar as tres fontes
+    restantes, a emissao automatica passa a funcionar, ainda limitada pela verificacao de teto no
+    PONTO DE EMISSAO acima (defesa-em-profundidade, inalterada por esta nota).
     """
 
     def __init__(self, resolver: CeilingResolver | None = None) -> None:
@@ -1213,7 +1218,7 @@ class IssueAuthorizationWorker(WorkerBase):
                 param=_CEILING_PARAM,
                 value_cents=valor_cents,
             )
-        except Exception as exc:  # noqa: BLE001 - fail-closed: resolver indisponivel nunca emite
+        except Exception as exc:  # fail-closed: resolver indisponivel nunca emite
             self.logger.error(
                 "auth_issue_ceiling_resolver_failed",
                 tenant_id=tenant,
