@@ -309,12 +309,8 @@ class Classifier:
             node, ast.Constant | ast.List | ast.Tuple | ast.Dict | ast.Set | ast.Lambda | ast.JoinedStr
         ):
             return
-        if isinstance(node, ast.UnaryOp):
-            self.plain(node.operand, scope)
-            return
-        if isinstance(node, ast.BinOp):
-            self.plain(node.left, scope)
-            self.plain(node.right, scope)
+        if isinstance(node, ast.UnaryOp | ast.BinOp):
+            self.primitive(node, scope)
             return
         if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
             for decorator in node.decorator_list:
@@ -366,6 +362,66 @@ class Classifier:
             self.plain(value, context)
             return
         raise UnresolvedMetadataError("unresolved parameter value: " + ast.unparse(node)[:160])
+
+    def primitive(self, node: ast.AST, scope: Scope) -> str:
+        """Prove an exact builtin result shape, without dispatching any operator.
+
+        A plain class instance or function result can overload arithmetic to return
+        a ParameterSet. Only closed builtin operand shapes justify this shortcut.
+        Container contents remain ordinary row values, not parameter metadata.
+        """
+        if isinstance(node, ast.Constant):
+            return type(node.value).__name__
+        if isinstance(node, ast.List | ast.Tuple | ast.Dict | ast.Set):
+            return type(node).__name__.lower()
+        if isinstance(node, ast.JoinedStr):
+            for formatted in node.values:
+                if isinstance(formatted, ast.FormattedValue):
+                    self.primitive(formatted.value, scope)
+            return "str"
+        if isinstance(node, ast.Name | ast.Attribute):
+            value, context = self.resolve(node, scope, "primitive operator operand")
+            return self.primitive(value, context)
+        if isinstance(node, ast.Call):
+            identity = self.identity(node.func, scope)
+            if identity in {
+                "builtins.bool",
+                "builtins.int",
+                "builtins.float",
+                "builtins.complex",
+                "builtins.list",
+                "builtins.tuple",
+            }:
+                return identity.removeprefix("builtins.")
+            # Retain imported constructor provenance even when its instances
+            # cannot establish a primitive operator result.
+            self.resolve(node.func, scope, "operator constructor")
+        numeric = {"bool", "int", "float", "complex", "number"}
+        if isinstance(node, ast.UnaryOp):
+            if isinstance(node.op, ast.Not):
+                return "bool"  # __bool__ cannot override the result type of `not`.
+            operand = self.primitive(node.operand, scope)
+            if operand in numeric and isinstance(node.op, ast.UAdd | ast.USub | ast.Invert):
+                return "int" if operand in {"bool", "int"} else operand
+        if isinstance(node, ast.BinOp):
+            left = self.primitive(node.left, scope)
+            right = self.primitive(node.right, scope)
+            if left in numeric and right in numeric and not isinstance(node.op, ast.MatMult):
+                if (
+                    left in {"bool", "int"}
+                    and right in {"bool", "int"}
+                    and not isinstance(node.op, ast.Div | ast.Pow)
+                ):
+                    return "int"
+                return "number"
+            if isinstance(node.op, ast.Add) and left == right and left in {"str", "bytes", "list", "tuple"}:
+                return left
+            if isinstance(node.op, ast.Mult):
+                if left in {"str", "bytes", "list", "tuple"} and right in {"bool", "int"}:
+                    return left
+                if right in {"str", "bytes", "list", "tuple"} and left in {"bool", "int"}:
+                    return right
+        raise UnresolvedMetadataError("operator may dispatch user-defined parameter metadata")
 
     def parameters(self, node: ast.AST, scope: Scope) -> None:
         if isinstance(node, ast.List | ast.Tuple | ast.Set):
@@ -467,7 +523,7 @@ class Classifier:
     def decorator(self, node: ast.AST, scope: Scope) -> None:
         target = node.func if isinstance(node, ast.Call) else node
         identity = self.identity(target, scope)
-        if identity in {"pytest.fixture", "pytest.yield_fixture"}:
+        if self.fixture_decorator(node, scope):
             return
         self.marker(node, scope)
         if identity == "pytest.mark.parametrize":
@@ -481,6 +537,70 @@ class Classifier:
             if values is None or any(k.arg is None for k in node.keywords):
                 raise UnresolvedMetadataError("unbound parametrize metadata")
             self.parameters(values, scope)
+
+    def fixture_decorator(self, node: ast.AST, scope: Scope) -> bool:
+        target = node.func if isinstance(node, ast.Call) else node
+        identity = self.identity(target, scope)
+        if identity not in {"pytest.fixture", "pytest.yield_fixture"}:
+            # A named local fixture decorator may bind a configured factory call.
+            if isinstance(node, ast.Name) and node.id in scope.bindings:
+                binding = scope.bindings[node.id]
+                if not binding.imported and isinstance(binding.node, ast.Name | ast.Call):
+                    value, context = self.resolve(node, scope, "fixture decorator")
+                    if isinstance(value, ast.Call):
+                        return self.fixture_decorator(value, context)
+            return False
+        if not isinstance(node, ast.Call):
+            return True
+        # Pinned pytest fixture/yield_fixture accept only fixture_function as a
+        # positional argument; params is keyword-only. None is the factory form.
+        if len(node.args) > 1 or any(
+            not isinstance(arg, ast.Constant) or arg.value is not None for arg in node.args
+        ):
+            raise UnresolvedMetadataError("unresolved positional fixture metadata")
+        options: dict[str, Binding] = {}
+
+        def add(name: str, value: ast.AST, context: Scope) -> None:
+            if name in options or name not in {
+                "fixture_function",
+                "scope",
+                "params",
+                "autouse",
+                "ids",
+                "name",
+            }:
+                raise UnresolvedMetadataError("unresolved or duplicate fixture option")
+            options[name] = Binding(value, context)
+
+        def expand(value: ast.AST, context: Scope) -> None:
+            value, context = self.resolve(value, context, "fixture keyword expansion")
+            if not isinstance(value, ast.Dict):
+                raise UnresolvedMetadataError("unresolved fixture keyword expansion")
+            for key, item in zip(value.keys, value.values, strict=True):
+                if key is None:
+                    expand(item, context)
+                elif isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    add(key.value, item, context)
+                else:
+                    raise UnresolvedMetadataError("dynamic fixture option name")
+
+        for keyword in node.keywords:
+            if keyword.arg is None:
+                expand(keyword.value, scope)
+            else:
+                add(keyword.arg, keyword.value, scope)
+        if "fixture_function" in options:
+            value, context = self.resolve(
+                options["fixture_function"].node, options["fixture_function"].scope, "fixture function"
+            )
+            if node.args or not isinstance(value, ast.Constant) or value.value is not None:
+                raise UnresolvedMetadataError("unresolved fixture function argument")
+        if "params" in options:
+            params = options["params"]
+            value, context = self.resolve(params.node, params.scope, "fixture parameters")
+            if not isinstance(value, ast.Constant) or value.value is not None:
+                self.parameters(value, context)
+        return True
 
     def module_metadata(self, scope: Scope, *, collected: bool = True) -> None:
         # Direct integration always wins, including aliased and inherited sources.
@@ -533,11 +653,7 @@ class Classifier:
                 raise UnresolvedMetadataError("conditional collection metadata")
             if (
                 isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-                and any(
-                    self.identity(d.func if isinstance(d, ast.Call) else d, scope)
-                    in {"pytest.fixture", "pytest.yield_fixture"}
-                    for d in node.decorator_list
-                )
+                and any(self.fixture_decorator(d, scope) for d in node.decorator_list)
                 and any(
                     isinstance(n, ast.Attribute) and n.attr in {"add_marker", "applymarker", "pytestmark"}
                     for statement in node.body

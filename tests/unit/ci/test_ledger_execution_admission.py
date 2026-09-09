@@ -620,3 +620,478 @@ def test_live_admission_binds_config_and_lock(tmp_path: Path) -> None:
     admission = gate.classify_test_admission(tmp_path, path)
     assert admission.status == "LIVE"
     assert {path, "uv.lock", "pyproject.toml"}.issubset(dict(admission.dependencies))
+
+
+def write_admission_fixture(root: Path, files: dict[str, str]) -> str:
+    path = "tests/unit/test_case.py"
+    for name, source in files.items():
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(source)
+    return path
+
+
+@pytest.mark.parametrize("placement", ["test", "conftest", "package", "helper"])
+@pytest.mark.parametrize("metadata", ["CASES", "ALIAS", "expanded", "factory_alias"])
+@pytest.mark.parametrize("kind", ["offline", "live", "unknown"])
+def test_fixture_parameter_authority_closure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, placement: str, metadata: str, kind: str
+) -> None:
+    cases = {
+        "offline": "CASES=[1, 2]\n",
+        "live": "import pytest\nCASES=[pytest.param(1, marks=pytest.mark.integration)]\n",
+        "unknown": "import pytest\nCASES=[pytest.param(1, marks=choose())]\n",
+    }[kind]
+    fixture = "import pytest as p\nfrom reexport import CASES\nALIAS=CASES\n"
+    fixture += {
+        "CASES": "@p.fixture(params=CASES)\n",
+        "ALIAS": "@p.yield_fixture(None, params=ALIAS)\n",
+        "expanded": "OPTIONS={'params': CASES}\n@p.fixture(**OPTIONS)\n",
+        "factory_alias": "decorator=p.fixture(params=CASES)\n@decorator\n",
+    }[metadata]
+    fixture += "def value(request): return request.param\n"
+    path = "tests/unit/test_case.py"
+    files = {
+        path: "def test_case(value): pass\n",
+        "parameters.py": cases,
+        "reexport.py": "from parameters import CASES\n",
+    }
+    destination = {
+        "test": path,
+        "conftest": "conftest.py",
+        "package": "tests/unit/__init__.py",
+        "helper": "helper.py",
+    }[placement]
+    files[destination] = fixture + (files[path] if placement == "test" else "")
+    if placement == "helper":
+        files[path] = (
+            "import pytest\n"
+            "from helper import VALUE\n"
+            "@pytest.mark.parametrize('x', VALUE)\n"
+            "def test_case(x): pass\n"
+        )
+        files[destination] += "VALUE=[1]\n"
+    write_admission_fixture(tmp_path, files)
+    admission = gate.classify_test_admission(tmp_path, path)
+    assert admission.status == {"offline": "OFFLINE", "live": "LIVE", "unknown": "UNKNOWN"}[kind], (
+        admission.reason
+    )
+    for name in {path, destination, "parameters.py", "reexport.py"}:
+        assert dict(admission.dependencies)[name] == hashlib.sha256(files[name].encode()).hexdigest()
+    calls = install_capture(monkeypatch)
+    assert gate.verify_row(tmp_path, row(path), "NEVER_EXECUTED").ok is (kind == "offline")
+    assert calls == ([path] if kind == "offline" else [])
+    calls.clear()
+    assert gate.verify_row(tmp_path, row(path), "NEVER_EXECUTED", allow_live=True).ok is (kind != "unknown")
+    assert calls == ([] if kind == "unknown" else [path])
+
+
+@pytest.mark.parametrize(
+    "decoration",
+    [
+        "@pytest.fixture(params=choose())",
+        "@pytest.fixture(**choose())",
+        "@pytest.fixture(**OPTIONS)",
+        "@pytest.fixture(params=CASES)",
+        "@pytest.fixture(None, 'function', CASES)",
+        "@pytest.fixture(**{'params': [pytest.param(1, **OPTIONS)]})",
+        "@pytest.fixture(**{name: [1]})",
+        "@pytest.fixture(*ARGS, params=[1])",
+        "@pytest.fixture(params=[1], **{'params': [2]})",
+    ],
+)
+def test_unbound_fixture_metadata_refuses_even_live_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, decoration: str
+) -> None:
+    path = write_admission_fixture(
+        tmp_path,
+        {
+            "tests/unit/test_case.py": "import pytest\n"
+            + decoration
+            + "\ndef value(request): return request.param\ndef test_case(value): pass\n"
+        },
+    )
+    calls = install_capture(monkeypatch)
+    admission = gate.classify_test_admission(tmp_path, path)
+    assert admission.status == "UNKNOWN", admission.reason
+    assert not gate.verify_row(tmp_path, row(path), "NEVER_EXECUTED", allow_live=True).ok
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "decoration",
+    [
+        "@pytest.fixture",
+        "@pytest.fixture()",
+        "@pytest.fixture(None, params=None)",
+        "@pytest.yield_fixture(params=[1])",
+        "@pytest.fixture(fixture_function=None, params=[1])",
+        "@pytest.fixture(**{'scope':'module', **{'params':[1]}})",
+    ],
+)
+def test_bound_fixture_factory_forms_retain_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, decoration: str
+) -> None:
+    path = write_admission_fixture(
+        tmp_path,
+        {
+            "tests/unit/test_case.py": "import pytest\n"
+            + decoration
+            + "\ndef value(request): return request.param\ndef test_case(value): pass\n"
+        },
+    )
+    calls = install_capture(monkeypatch)
+    result = gate.verify_row(tmp_path, row(path), "NEVER_EXECUTED")
+    assert result.ok, result.message
+    assert calls == [path]
+
+
+@pytest.mark.parametrize(
+    "expression,method",
+    [
+        ("Value()+0", "__add__"),
+        ("0+Value()", "__radd__"),
+        ("-Value()", "__neg__"),
+        ("+Value()", "__pos__"),
+        ("~Value()", "__invert__"),
+        ("Value()*2", "__mul__"),
+        ("2*Value()", "__rmul__"),
+        ("Value()-0", "__sub__"),
+        ("1/Value()", "__rtruediv__"),
+        ("Value()**2", "__pow__"),
+        ("Value()|0", "__or__"),
+        ("Value()@0", "__matmul__"),
+        ("Value<<1", "__lshift__"),
+    ],
+)
+@pytest.mark.parametrize("imported", [False, True])
+def test_user_operator_dispatch_cannot_acquire_offline_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, expression: str, method: str, imported: bool
+) -> None:
+    declaration = (
+        f"import pytest\n"
+        f"class Value:\n"
+        f"    def {method}(self, *args):\n"
+        f"        return pytest.param(1, marks=pytest.mark.__getattr__('integration'))\n"
+    )
+    source = "import pytest\nfrom helper import Value\n" if imported else declaration
+    source += f"@pytest.mark.parametrize('x', [{expression}])\ndef test_case(x): pass\n"
+    files = {"tests/unit/test_case.py": source}
+    if imported:
+        files["helper.py"] = declaration
+    path = write_admission_fixture(tmp_path, files)
+    admission = gate.classify_test_admission(tmp_path, path)
+    assert admission.status == "UNKNOWN", admission.reason
+    if imported:
+        assert dict(admission.dependencies)["helper.py"] == hashlib.sha256(declaration.encode()).hexdigest()
+    calls = install_capture(monkeypatch)
+    for allow_live in (False, True):
+        assert not gate.verify_row(tmp_path, row(path), "NEVER_EXECUTED", allow_live=allow_live).ok
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "1+2",
+        "1-2",
+        "2*3",
+        "1/2",
+        "7//2",
+        "7%2",
+        "2**-1",
+        "1<<2",
+        "3&1",
+        "-1",
+        "+1.5",
+        "~1",
+        "-(1+2)",
+        "1+2j",
+        "'a'+'b'",
+        "b'a'*2",
+        "2*'a'",
+        "[1]+[2]",
+        "(1,)+(2,)",
+        "[object()]*2",
+        "NAMED+1",
+        "int('2')+1",
+        "not Value()",
+        "(Value()+0,)",
+    ],
+)
+def test_primitive_operator_and_tuple_value_neighbors_stay_offline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, expression: str
+) -> None:
+    source = (
+        "import pytest\n"
+        "from helper import NAMED\n"
+        "class Value:\n"
+        "    def __add__(self, other): return unknown()\n"
+    )
+    source += f"@pytest.mark.parametrize('x', [{expression}])\ndef test_case(x): pass\n"
+    path = write_admission_fixture(tmp_path, {"tests/unit/test_case.py": source, "helper.py": "NAMED=2\n"})
+    admission = gate.classify_test_admission(tmp_path, path)
+    assert admission.status == "OFFLINE", admission.reason
+    calls = install_capture(monkeypatch)
+    assert gate.verify_row(tmp_path, row(path), "NEVER_EXECUTED").ok
+    assert calls == [path]
+
+
+@pytest.mark.parametrize("historical_bad", [False, True])
+@pytest.mark.parametrize("kind", ["fixture", "operator"])
+def test_fixture_operator_historical_dependencies_use_exact_namespace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, historical_bad: bool, kind: str
+) -> None:
+    def git(*args: str) -> str:
+        return subprocess.check_output(["git", *args], cwd=tmp_path, text=True).strip()
+
+    git("init", "-q")
+    git("config", "user.name", "Admission repair")
+    git("config", "user.email", "admission@example.invalid")
+    source = "import pytest\nfrom helper import CASES\n"
+    source += (
+        "@pytest.fixture(params=CASES)\n"
+        "def value(request): return request.param\n"
+        "def test_case(value): pass\n"
+        if kind == "fixture"
+        else "@pytest.mark.parametrize('x', [CASES+0])\ndef test_case(x): pass\n"
+    )
+    good = "CASES=[1]\n" if kind == "fixture" else "CASES=1\n"
+    bad = (
+        "import pytest\nCASES=[pytest.param(1, marks=pytest.mark.integration)]\n"
+        if kind == "fixture"
+        else (
+            "import pytest\n"
+            "class Value:\n"
+            "    def __add__(self, other):\n"
+            "        return pytest.param(1, marks=pytest.mark.__getattr__('integration'))\n"
+            "CASES=Value()\n"
+        )
+    )
+    path = write_admission_fixture(
+        tmp_path,
+        {
+            "tests/unit/test_case.py": source,
+            "helper.py": bad if historical_bad else good,
+            "uv.lock": "locked\n",
+        },
+    )
+    git("add", ".")
+    git("commit", "-qm", "historical metadata")
+    commit = git("rev-parse", "HEAD")
+    (tmp_path / "helper.py").write_text(good if historical_bad else bad)
+    git("add", ".")
+    git("commit", "-qm", "opposite metadata")
+    digest = hashlib.sha256(source.encode()).hexdigest()
+    historical = gate.classify_test_admission(tmp_path, path, commit, expected_source_sha256=digest)
+    current = gate.classify_test_admission(tmp_path, path, expected_source_sha256=digest)
+    bad_status = "LIVE" if kind == "fixture" else "UNKNOWN"
+    assert historical.status == (bad_status if historical_bad else "OFFLINE")
+    assert current.status == ("OFFLINE" if historical_bad else bad_status)
+    assert (
+        dict(historical.dependencies)["helper.py"]
+        == hashlib.sha256((bad if historical_bad else good).encode()).hexdigest()
+    )
+    assert (
+        dict(current.dependencies)["helper.py"]
+        == hashlib.sha256((good if historical_bad else bad).encode()).hexdigest()
+    )
+    calls = []
+
+    def capture(*args: object, **kwargs: object) -> gate.PytestCapture:
+        calls.append("historical")
+        return gate.PytestCapture(True, f"{path}::test_case PASSED\n", 0, "synthetic only")
+
+    monkeypatch.setattr(gate, "_capture_historical_recipe", capture)
+    claim = gate.SupersessionClaim(
+        "ADMISSION", commit, "a" * 64, digest, hashlib.sha256(b"locked\n").hexdigest()
+    )
+    edge = gate.SupersessionEdge(row(path), row(path), claim)
+    assert gate.verify_historical_row(tmp_path, edge, "NEVER_EXECUTED").ok is not historical_bad
+    assert calls == ([] if historical_bad else ["historical"])
+    calls.clear()
+    broken = gate.SupersessionClaim("ADMISSION", commit, "a" * 64, "0" * 64, claim.source_lock_sha256)
+    assert not gate.verify_historical_row(
+        tmp_path, gate.SupersessionEdge(row(path), row(path), broken), "NEVER_EXECUTED", allow_live=True
+    ).ok
+    assert calls == []
+
+
+@pytest.mark.parametrize("kind", ["missing", "changed", "removed"])
+def test_fixture_dependency_failure_then_fresh_recovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    path = write_admission_fixture(
+        tmp_path,
+        {
+            "tests/unit/test_case.py": "import pytest\n"
+            "from helper import CASES\n"
+            "@pytest.fixture(params=CASES)\n"
+            "def value(request): return request.param\n"
+            "def test_case(value): pass\n"
+        },
+    )
+    helper = tmp_path / "helper.py"
+    if kind != "missing":
+        helper.write_text("CASES=[1]\n")
+    original = gate._read_admission_source
+    reads = 0
+
+    def drifting(root: Path, relative: str) -> bytes:
+        nonlocal reads
+        data = original(root, relative)
+        if relative == "helper.py":
+            reads += 1
+            if reads == 1:
+                if kind == "changed":
+                    helper.write_text("CASES=[2]\n")
+                elif kind == "removed":
+                    helper.unlink()
+        return data
+
+    calls = install_capture(monkeypatch)
+    monkeypatch.setattr(gate, "_read_admission_source", drifting)
+    assert not gate.verify_row(tmp_path, row(path), "NEVER_EXECUTED", allow_live=True).ok
+    assert calls == []
+    monkeypatch.setattr(gate, "_read_admission_source", original)
+    helper.write_text("CASES=[1]\n")
+    recovered = gate.classify_test_admission(tmp_path, path)
+    assert recovered.status == "OFFLINE"
+    assert dict(recovered.dependencies)["helper.py"] == hashlib.sha256(helper.read_bytes()).hexdigest()
+    assert gate.verify_row(tmp_path, row(path), "NEVER_EXECUTED").ok
+    assert calls == [path]
+
+
+@pytest.mark.parametrize("expression", ["str(Value())+'a'", "bytes(Value())+b'a'", "f'{Value()}'+ 'a'"])
+def test_string_conversion_subclass_cannot_hide_operator_dispatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, expression: str
+) -> None:
+    source = (
+        "import pytest\n"
+        "class Text(str):\n"
+        "    def __add__(self, other):\n"
+        "        return pytest.param(1, marks=pytest.mark.__getattr__('integration'))\n"
+        "class Raw(bytes):\n"
+        "    def __add__(self, other):\n"
+        "        return pytest.param(1, marks=pytest.mark.__getattr__('integration'))\n"
+        "class Value:\n"
+        "    def __str__(self): return Text('x')\n"
+        "    def __bytes__(self): return Raw(b'x')\n"
+        "    def __format__(self, spec): return Text('x')\n"
+        f"@pytest.mark.parametrize('x', [{expression}])\n"
+        "def test_case(x): pass\n"
+    )
+    path = write_admission_fixture(tmp_path, {"tests/unit/test_case.py": source})
+    calls = install_capture(monkeypatch)
+    assert gate.classify_test_admission(tmp_path, path).status == "UNKNOWN"
+    assert not gate.verify_row(tmp_path, row(path), "NEVER_EXECUTED", allow_live=True).ok
+    assert calls == []
+
+
+@pytest.mark.parametrize("metadata", ["[1]", "[pytest.param(1, marks=choose())]"])
+def test_imported_fixture_option_mapping_keeps_owner_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, metadata: str
+) -> None:
+    files = {
+        "tests/unit/test_case.py": (
+            "import pytest\nfrom reexport import OPTIONS\n"
+            "@pytest.fixture(**OPTIONS)\ndef value(request): return request.param\n"
+            "def test_case(value): pass\n"
+        ),
+        "reexport.py": "from helper import OPTIONS\n",
+        "helper.py": f"import pytest\nOPTIONS={{'params': {metadata}}}\n",
+    }
+    path = write_admission_fixture(tmp_path, files)
+    admission = gate.classify_test_admission(tmp_path, path)
+    assert admission.status == ("OFFLINE" if metadata == "[1]" else "UNKNOWN")
+    for name, source in files.items():
+        assert dict(admission.dependencies)[name] == hashlib.sha256(source.encode()).hexdigest()
+    calls = install_capture(monkeypatch)
+    assert gate.verify_row(tmp_path, row(path), "NEVER_EXECUTED", allow_live=True).ok is (metadata == "[1]")
+    assert calls == ([path] if metadata == "[1]" else [])
+
+
+@pytest.mark.parametrize("failure", ["missing", "changed"])
+def test_historical_fixture_dependency_failure_does_not_use_current_recovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    def git(*args: str) -> str:
+        return subprocess.check_output(["git", *args], cwd=tmp_path, text=True).strip()
+
+    git("init", "-q")
+    git("config", "user.name", "Admission dependency")
+    git("config", "user.email", "admission@example.invalid")
+    source = (
+        "import pytest\nfrom helper import CASES\n@pytest.fixture(params=CASES)\n"
+        "def value(request): return request.param\ndef test_case(value): pass\n"
+    )
+    files = {"tests/unit/test_case.py": source, "uv.lock": "locked\n"}
+    if failure == "changed":
+        files["helper.py"] = "CASES=[1]\n"
+    path = write_admission_fixture(tmp_path, files)
+    git("add", ".")
+    git("commit", "-qm", "historical dependency")
+    commit = git("rev-parse", "HEAD")
+    (tmp_path / "helper.py").write_text("CASES=[1]\n")
+    original = gate._source_blob
+    reads = 0
+
+    def drifting(root: Path, source_commit: str, relative: str) -> bytes:
+        nonlocal reads
+        data = original(root, source_commit, relative)
+        if relative == "helper.py":
+            reads += 1
+            if reads > 1:
+                return b"CASES=[2]\n"
+        return data
+
+    monkeypatch.setattr(gate, "_source_blob", drifting)
+    calls = []
+
+    def capture(*args: object, **kwargs: object) -> gate.PytestCapture:
+        calls.append("historical")
+        return gate.PytestCapture(True, f"{path}::test_case PASSED\n", 0, "synthetic only")
+
+    monkeypatch.setattr(gate, "_capture_historical_recipe", capture)
+    claim = gate.SupersessionClaim(
+        "ADMISSION",
+        commit,
+        "a" * 64,
+        hashlib.sha256(source.encode()).hexdigest(),
+        hashlib.sha256(b"locked\n").hexdigest(),
+    )
+    edge = gate.SupersessionEdge(row(path), row(path), claim)
+    assert not gate.verify_historical_row(tmp_path, edge, "NEVER_EXECUTED", allow_live=True).ok
+    assert calls == []
+    monkeypatch.setattr(gate, "_source_blob", original)
+    if failure == "changed":
+        assert gate.verify_historical_row(tmp_path, edge, "NEVER_EXECUTED").ok
+        assert calls == ["historical"]
+    else:
+        assert gate.classify_test_admission(tmp_path, path).status == "OFFLINE"
+        assert not gate.verify_historical_row(tmp_path, edge, "NEVER_EXECUTED").ok
+        assert calls == []
+
+
+def test_fixture_operator_repair_retains_frozen_public_admission_api() -> None:
+    import dataclasses
+    import inspect
+
+    from scripts.ci.pytest_metadata_admission import TestAdmission
+
+    assert [field.name for field in dataclasses.fields(TestAdmission)] == [
+        "status",
+        "reason",
+        "source_sha256",
+        "dependencies",
+    ]
+    assert TestAdmission.__dataclass_params__.frozen
+    signature = inspect.signature(gate.classify_test_admission)
+    assert list(signature.parameters) == [
+        "repo_root",
+        "test_path",
+        "source_commit",
+        "expected_source_sha256",
+    ]
+    assert signature.parameters["source_commit"].default is None
+    assert signature.parameters["expected_source_sha256"].kind is inspect.Parameter.KEYWORD_ONLY
