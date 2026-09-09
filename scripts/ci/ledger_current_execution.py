@@ -665,6 +665,7 @@ class CurrentRunner:
             home = packet / "home"
             home.mkdir(mode=0o700)
             environment = minimal_environment(home)
+            environment["PATH"] = str(Path(prepared_runtime["python"]).parent) + ":/usr/bin:/bin"
             pytest_argv = [
                 row.test_path,
                 "-v",
