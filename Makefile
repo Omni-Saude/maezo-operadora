@@ -7,6 +7,7 @@
         deviation-expiry-check \
         check-lifecycle-expected-fail-expiry \
         check-ledger-hashes check-ledger-row-cell-count \
+        check-phi-scrub-prereqs \
         release-floor-check release-floor-write \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint \
         check-helm-entrypoints check-chart-env-reconciliation
@@ -183,6 +184,12 @@ check-ledger-row-cell-count: ## LEDGER-ROW-CELL-COUNT: toda linha NOVA de docs/e
 	# `--all` (uso local apenas) verifica toda linha do ledger atual com numero de linha real —
 	# usado para gerar o inventario de review-queue das 30 linhas legadas, nunca para gate de CI.
 	uv run python scripts/ci/check_ledger_row_cell_count.py --ledger-path docs/evidence-ledger.md
+
+check-phi-scrub-prereqs: ## R-009: valida manifesto, promocao e referencias dos pre-requisitos
+	# Build estrito antes do loader canonico; referencia nao prova segredo provisionado.
+	uv run ruff check scripts/ci/check_phi_scrub_prereqs.py
+	uv run ruff format --check scripts/ci/check_phi_scrub_prereqs.py
+	uv run python scripts/ci/check_phi_scrub_prereqs.py
 
 release-floor-check: ## Audit §5 (W-fillers): candidato nao pode ficar ABAIXO do floor de capacidade de release comitado (gate de regressao)
 	# Composto de verdades JA GERADAS (nao um numero novo mantido a mao): total do censo de

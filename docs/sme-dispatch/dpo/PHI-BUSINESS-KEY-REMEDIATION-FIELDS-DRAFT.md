@@ -130,7 +130,7 @@ depois e para outra decisão.
 
 ---
 
-## 4. As DUAS pré-condições de merge (R-009) — e a cerca que ainda não existe
+## 4. As DUAS pré-condições de merge (R-009) — e a cerca de validação construída
 
 Este PR **não pode ser mergeado** sem as duas:
 
@@ -139,13 +139,26 @@ Este PR **não pode ser mergeado** sem as duas:
 | 1 | `phi/hmac-key` (`PHI_HMAC_KEY`) provisionado — M-24 / **D6-04**, HUMAN-GATED | **não provisionado** | Cada composition root reporta **NOT READY no boot**: `setup_observability` constrói o pseudonimizador via `Pseudonymizer.from_settings`, que levanta `PseudonymizerKeyMissingError` sem chave; `bootstrap_observability` captura e deixa a readiness vermelha. Segunda superfície independente: `key_scrubber.egress_message_key`, chamada pelo handler de `operadora.events.publish`, levanta na escada de retry/incidente do harness |
 | 2 | **Janela de drenagem** dos tópicos CANCEL/INAD agendada | **não agendada** | `scrub_only` item (3) **muda o particionamento Kafka** dessas duas famílias (`CANCEL-{tenant}-{id}` → `CANCEL-hk1_{hmac}`). A ordenação por chave continua garantida (HMAC determinístico), mas mensagens em voo publicadas antes e depois da virada podem cair em partições diferentes |
 
-**A cerca de CI que R-009 pede NÃO foi construída neste rascunho.** O que a decisão aprovada pede
-é um `scripts/ci/check_phi_scrub_prereqs.py` que fique **vermelho** se
-`spec/policies/privacy/phi-business-key-remediation.yaml` sair de `DRAFT` sem (1) e (2). Motivos
-de não estar aqui: `scripts/ci/` é CODEOWNED e a cerca não integrava este lote de rascunhos.
-**Ela é PR acompanhante obrigatório** — sem ela, as duas pré-condições continuam prosa no
-`acao_seguinte`, e prosa não bloqueia merge. Molde a seguir:
-`scripts/ci/check_deviation_expiry.py`.
+**A cerca de CI de R-009 está construída e reparada contra R009-EIR01–06** em
+`scripts/ci/check_phi_scrub_prereqs.py`, `Makefile` (`check-phi-scrub-prereqs`) e
+`.github/workflows/ci.yml` (`validate-artifacts`). Antes de consultar o loader canônico,
+reprova arquivo ausente/ilegível, UTF-8/YAML inválido, chaves duplicadas em qualquer nível,
+modo desconhecido e promoção parcial. Só DRAFT bem formado e RATIFICADO/off deliberado
+passam inertes; modos ativos normalizados exigem os dois itens atendidos.
+
+`evidencia_provisionamento` é uma referência não secreta a recibo externo, com sintaxe
+estrita definida no bloco `pre_requisitos_scrub_only` do manifesto. O recibo deve cobrir os
+overlays Helm/ECS aplicáveis, operador, instante, referências/versionamento e resultados;
+o CI **não busca nem verifica o conteúdo do recibo ou a existência atual do segredo**.
+Passar com uma referência não comprova provisionamento. A revisão do recibo e a verificação
+live continuam atos externos. Nunca inserir o valor de `PHI_HMAC_KEY` no manifesto.
+
+A janela exige strings ISO-8601 com timezone e fim posterior ao início em UTC, sem duração
+mínima inventada. Agendamento não comprova drenagem executada; um cutover concluído requer
+evidência operacional separada. A cerca nunca escreve `status`/`ratificacao.*`; ambas as
+pré-condições permanecem `atendido: false`, assinaturas nulas e modo efetivo `off`.
+Ela não aprova os requisitos adicionais de `pseudo_keys`. Configurações escolhidas fora do
+arquivo validado em CI dependem da fronteira operacional de deployment.
 
 ---
 
@@ -189,7 +202,9 @@ técnica**:
 - [ ] Posição da operação/ANS sobre a busca por matrícula colhida e anexada
 - [ ] `PHI_HMAC_KEY` provisionado (M-24 / D6-04)
 - [ ] Janela de drenagem CANCEL/INAD agendada, com data
-- [ ] `scripts/ci/check_phi_scrub_prereqs.py` no MESMO PR (R-009)
+- [ ] `pre_requisitos_scrub_only` do manifesto com os dois itens `atendido: true` e evidência real
+      preenchida — `scripts/ci/check_phi_scrub_prereqs.py` (R-009, já landed) reprova o merge
+      enquanto um dos dois continuar `false`
 - [ ] Os 4 campos preenchidos com nome real e data real — nunca por agente
 - [ ] `modo` escolhido conscientemente (`scrub_only` recomendado; `pseudo_keys` **bloqueado**)
 

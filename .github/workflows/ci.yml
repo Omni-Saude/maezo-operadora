@@ -160,6 +160,18 @@ jobs:
       - name: Evidence-ledger row cell-count gate (LEDGER-ROW-CELL-COUNT)
         run: make check-ledger-row-cell-count
 
+      # R-009 / D7-01: strict build validation before canonical runtime policy resolution.
+      # Missing/malformed manifests and partial promotion fail; only well-formed DRAFT
+      # is accepted as inert. Deliberate fully ratified OFF remains valid.
+      # Effective scrub_only/pseudo_keys requires both tracked prerequisites to be true,
+      # a valid nonsecret receipt reference, and a strictly positive timezone-aware
+      # drain interval in UTC. Reference syntax does not verify actual provisioning,
+      # receipt contents/coverage, or completed drain. No ratification field is written.
+      # Fenced by tests/unit/ci/test_check_phi_scrub_prereqs.py and
+      # tests/unit/ci/test_phi_scrub_prereqs_contract.py.
+      - name: PHI scrub_only/pseudo_keys prerequisite gate (R-009 / D7-01)
+        run: make check-phi-scrub-prereqs
+
       # T3.4 F1: repo-wide AST gate — a direct `transport.start_process_instance(...)` call (or a
       # hand-rolled raw REST start-path literal) anywhere outside the pinned 2-file transport
       # allowlist bypasses the `start_process_idempotent` fence (ADR-0007/T-C2 emit-before-effect
