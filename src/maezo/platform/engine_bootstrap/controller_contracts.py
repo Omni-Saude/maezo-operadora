@@ -4147,6 +4147,9 @@ def _shape(rule: dict[str, Any], value: Any) -> None:
             _need(len({canonical_json(x) for x in value}) == len(value))
     elif kind == "string":
         _need(type(value) is str)
+        # W1 applies to every typed identifier/text, including ARN resources
+        # whose structural pattern does not exclude non-whitespace controls.
+        _need(not any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F for char in value))
         size = len(value.encode("utf-8"))
         _need(rule["minLength"] <= size <= rule["maxLength"])
         _need(not rule.get("pattern") or re.fullmatch(rule["pattern"], value) is not None)

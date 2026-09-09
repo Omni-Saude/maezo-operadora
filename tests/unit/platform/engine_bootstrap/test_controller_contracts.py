@@ -388,6 +388,82 @@ def test_depth_size_array_and_unicode_boundaries() -> None:
         c.decode_json(data + b" ")
 
 
+@pytest.mark.parametrize("codepoint", (*range(0x20), *range(0x7F, 0xA0)), ids=lambda cp: f"U+{cp:04X}")
+def test_w1_all_control_codepoints_refuse_every_typed_identifier_route(codepoint: int) -> None:
+    """W1's 65 forbidden values are not equivalent to Python whitespace."""
+    control = chr(codepoint)
+    binding = task_binding()
+    binding["arn"] = f"arn:aws:ecs:sa-east-1:123456789012:task-definition/owned{control}:7"
+    nested = core()
+    nested["task_definition_revision"] = binding
+    # Use the independent JSON encoder so rejection must occur on the public
+    # parser/constructor route, not while preparing the test's input bytes.
+    attempts = (
+        lambda: c.parse("Arn", raw(TASK + control)),
+        lambda: c.TaskDefinitionBinding(**binding),
+        lambda: c.parse("TaskDefinitionBinding", raw(binding)),
+        lambda: c.GenerationCore(**nested),
+        lambda: c.parse("GenerationCore", raw(nested)),
+        *(lambda name=name: c.parse(name, raw("owned" + control)) for name in ("Id", "EmptyOrId", "Text")),
+    )
+    for attempt in attempts:
+        with pytest.raises(c.ContractError) as exc:
+            attempt()
+        assert str(exc.value) == "INVALID_BODY" and exc.value.args == ("INVALID_BODY",)
+        assert c.parse("Arn", raw(TASK)) == TASK  # A refusal leaves no mutable residue.
+
+
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("Id", "owned!"),
+        ("Id", "owned~"),
+        ("Id", "owned\u00a1"),
+        ("Id", "owned\u00e9"),
+        ("Id", "ownede\u0301"),
+        ("Text", "ordinary text"),
+        ("Text", "neighbor\u00a0"),
+        ("Text", "neighbor\u00a1"),
+        ("Arn", TASK),
+        ("Arn", TASK + "~"),
+        ("Arn", TASK + "\u00a1"),
+        ("Arn", TASK + "\U0001f600"),
+    ],
+)
+def test_w1_valid_unicode_identifiers_and_text_preserve_codepoints(name: str, value: str) -> None:
+    parsed_value = c.parse(name, raw(value))
+    assert parsed_value == value
+    assert c.canonical_json(parsed_value) == raw(value)
+    assert c.parse("Id", raw("ownede\u0301")) != c.parse("Id", raw("owned\u00e9"))
+
+
+def test_w1_valid_nested_arn_roundtrip_and_copy_after_refusal() -> None:
+    invalid = task_binding()
+    invalid["arn"] = invalid["arn"].replace("engine", "engine\x80")
+    with pytest.raises(c.ContractError, match="^INVALID_BODY$"):
+        c.TaskDefinitionBinding(**invalid)
+    value = core()
+    record = c.GenerationCore(**value)
+    assert record.task_definition_revision.arn.endswith("/engine:7")
+    assert record.canonical_bytes() == raw(value)
+    assert c.parse_record(c.GenerationCore, raw(value)) == record
+    value["task_definition_revision"]["network_binding"]["subnet_ids"].append("later-mutation")
+    assert "later-mutation" not in record.task_definition_revision.network_binding.subnet_ids
+    assert record.unestablished_obligations == c.DEFERRED_OBLIGATIONS
+
+
+@pytest.mark.parametrize("suffix", [" ", "\u00a0", "\u2000", "*", "\ud800", "\udfff"])
+def test_w1_existing_whitespace_wildcard_and_surrogate_refusals_remain(suffix: str) -> None:
+    for name, value in (("Id", "owned" + suffix), ("Arn", TASK + suffix)):
+        encoded = json.dumps(value, ensure_ascii=True, separators=(",", ":")).encode()
+        with pytest.raises(c.ContractError, match="^INVALID_BODY$"):
+            c.parse(name, encoded)
+    binding = task_binding()
+    binding["arn"] = binding["arn"].replace("engine", "engine" + suffix)
+    with pytest.raises(c.ContractError, match="^INVALID_BODY$"):
+        c.TaskDefinitionBinding(**binding)
+
+
 @pytest.mark.parametrize("name,size", [("Challenge", 32), ("PublicKey", 32), ("Signature", 64)])
 def test_canonical_base64_bounds_and_tail_bits(name: str, size: int) -> None:
     canonical = b64(bytes(size))
