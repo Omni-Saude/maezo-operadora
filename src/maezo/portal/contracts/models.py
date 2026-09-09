@@ -3,8 +3,8 @@
 Sources:
 
 * ADR-0049 D2-D6 (accepted engineering direction; technical specification DRAFT/verify);
-* SP-OP-AUTH-001, SP-OP-ESCALATION-001, SP-OP-PAGTO-001 and SP-OP-CONTAS-001 at the
-  catalog's pinned R6 revision;
+* SP-OP-AUTH-001, SP-OP-ESCALATION-001, SP-OP-PAGTO-001, SP-OP-CONTAS-001 and
+  SP-OP-RECURSO-001 at the catalog's pinned R6 revision;
 * the frozen preparatory portal catalog (43 tasks in 15 families).
 
 These DTOs validate shape.  They do not authenticate a human, establish tenant membership,
@@ -20,7 +20,11 @@ The deliberately narrow executable form set is:
 * ESCALATION ``UT_TratarEscalonamento`` and ``UT_SupervisorAssume`` -> ``escalation``;
 * PAGTO ``UT_AnaliseAdmissibilidade`` -> ``pagto_admissibilidade``;
 * CONTAS ``UT_AnalistaContas`` -> ``contas_decisao``;
-* CONTAS ``UT_CoordenacaoContasAssume`` -> ``contas_coordenacao``.
+* CONTAS ``UT_CoordenacaoContasAssume`` -> ``contas_coordenacao``;
+* RECURSO ``UT_AnaliseRecursoAnalista`` -> ``recurso_decisao``;
+* RECURSO ``UT_CoordenacaoRecursoAssume`` and ``UT_EscalonamentoPrazo`` ->
+  ``recurso_coordenacao``;
+* RECURSO ``UT_RevisaoAuditorMedico`` -> ``recurso_auditor``.
 
 PAGTO admissibility is based on explicit BPMN task documentation and the plan, while the SP-OP
 output table does not enumerate ``decisao_admissibilidade`` and the BPMN has no ``formData``.  Its
@@ -30,6 +34,11 @@ The two CONTAS bindings are likewise DRAFT/verify: their contract and BPMN task 
 enumerate the human fields, but the BPMN has no ``formData`` and the source tree has no deployment
 version catalog.  The local binding validates task/form shape; it does not authenticate a supplied
 positive ``process_definition_version`` or make either form runtime-usable.
+
+The four RECURSO bindings have the same DRAFT/verify limitation.  Their DTOs preserve the payer
+vocabulary from ADR-0040 and deliberately exclude actor identities and engine BRL variables.  The
+future trusted gateway must inject the actor and perform the reviewed centavo-to-engine conversion;
+these source contracts do neither and do not authorize an adverse effect.
 """
 
 from __future__ import annotations
@@ -79,6 +88,9 @@ FormKey = Literal[
     "pagto_admissibilidade",
     "contas_decisao",
     "contas_coordenacao",
+    "recurso_decisao",
+    "recurso_coordenacao",
+    "recurso_auditor",
 ]
 FormSourceStatus = Literal["BPMN_FORMDATA", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"]
 TaskAction = Literal["claim", "release", "decision"]
@@ -98,6 +110,14 @@ AllowedInput = Literal[
     "valor_liberado_centavos",
     "justificativa_devolucao",
     "decisao_coordenacao",
+    "decisao_recurso",
+    "fundamentacao_indeferimento",
+    "valor_glosa_mantido_centavos",
+    "valor_deferido_centavos",
+    "referencia_contratual",
+    "desfecho_humano",
+    "decisao_auditor_recurso",
+    "parecer_auditor",
 ]
 
 
@@ -337,13 +357,92 @@ class ContasCoordinationInputs(_ContasDecisionFields):
     decisao_coordenacao: Literal["assumir_analise", "prorrogar_prazo", "seguir_analise"]
 
 
+class _RecursoDecisionFields(_FrozenContract):
+    """Contract fields shared by payer-side RECURSO decisions.
+
+    Conditional fields come from SP-OP-RECURSO-001 lines 98-104 and the analyst/auditor task
+    documentation at BPMN lines 316-325 and 448-454.  Positive deferred centavos also preserve the
+    contract's fail-closed handoff condition at line 308; this DTO does not execute that handoff.
+
+    SP-OP-RECURSO-001 names BRL engine variables.  ADR-0049 D3 instead requires canonical
+    integer-centavo strings at the browser boundary.  The original glosa amount stays trusted
+    evidence, so the browser cannot submit it to make the permanent partial-sum guard true.
+    """
+
+    fundamentacao_indeferimento: RequiredText | None = None
+    valor_glosa_mantido_centavos: Centavos | None = None
+    valor_deferido_centavos: Centavos | None = None
+    referencia_contratual: RequiredText | None = None
+
+    def _validate_recurso_outcome(self, decision: str) -> None:
+        if decision in {"INDEFERIR", "DEFERIR_PARCIAL"}:
+            for field, value in (
+                ("fundamentacao_indeferimento", self.fundamentacao_indeferimento),
+                ("referencia_contratual", self.referencia_contratual),
+            ):
+                if value is None or not value.strip():
+                    raise ValueError(f"{decision} requires {field}")
+            if self.valor_glosa_mantido_centavos is None or self.valor_glosa_mantido_centavos.as_int() <= 0:
+                raise ValueError(f"{decision} requires positive valor_glosa_mantido_centavos")
+
+        if decision in {"DEFERIR", "DEFERIR_PARCIAL"} and (
+            self.valor_deferido_centavos is None or self.valor_deferido_centavos.as_int() <= 0
+        ):
+            raise ValueError(f"{decision} requires positive valor_deferido_centavos")
+
+
+class RecursoDecisionInputs(_RecursoDecisionFields):
+    """Primary analyst decision (BPMN lines 313-329); the gateway injects actor identity."""
+
+    kind: Literal["recurso_decisao"]
+    decisao_recurso: Literal["DEFERIR", "DEFERIR_PARCIAL", "INDEFERIR", "SOLICITAR_INFO", "ESCALAR_AUDITOR"]
+
+    @model_validator(mode="after")
+    def _contractual_fields_are_complete(self) -> Self:
+        self._validate_recurso_outcome(self.decisao_recurso)
+        return self
+
+
+class RecursoCoordinationInputs(_RecursoDecisionFields):
+    """SLA/teto decision, including BPMN lines 370-372/424-426 human inadmissibility."""
+
+    kind: Literal["recurso_coordenacao"]
+    decisao_recurso: Literal["DEFERIR", "DEFERIR_PARCIAL", "INDEFERIR", "SOLICITAR_INFO", "ESCALAR_AUDITOR"]
+    desfecho_humano: Literal["inadmissivel"] | None = None
+
+    @model_validator(mode="after")
+    def _contractual_fields_are_complete(self) -> Self:
+        self._validate_recurso_outcome(self.decisao_recurso)
+        if self.desfecho_humano is not None and self.decisao_recurso != "INDEFERIR":
+            raise ValueError("desfecho_humano=inadmissivel requires decisao_recurso=INDEFERIR")
+        return self
+
+
+class RecursoAuditorInputs(_RecursoDecisionFields):
+    """Auditor merit form (BPMN lines 445-458); no clinical fact or actor identity is inferred."""
+
+    kind: Literal["recurso_auditor"]
+    decisao_auditor_recurso: Literal["DEFERIR", "DEFERIR_PARCIAL", "INDEFERIR"]
+    parecer_auditor: RequiredText
+
+    @model_validator(mode="after")
+    def _contractual_fields_are_complete(self) -> Self:
+        if not self.parecer_auditor.strip():
+            raise ValueError("parecer_auditor must not be blank")
+        self._validate_recurso_outcome(self.decisao_auditor_recurso)
+        return self
+
+
 DecisionInputs = Annotated[
     AuthDecisionInputs
     | AuthJuntaInputs
     | EscalationDecisionInputs
     | PagtoAdmissibilityInputs
     | ContasDecisionInputs
-    | ContasCoordinationInputs,
+    | ContasCoordinationInputs
+    | RecursoDecisionInputs
+    | RecursoCoordinationInputs
+    | RecursoAuditorInputs,
     Field(discriminator="kind"),
 ]
 
@@ -364,6 +463,22 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     ),
     ("SP-OP-CONTAS-001", "UT_CoordenacaoContasAssume"): (
         "contas_coordenacao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-RECURSO-001", "UT_AnaliseRecursoAnalista"): (
+        "recurso_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-RECURSO-001", "UT_CoordenacaoRecursoAssume"): (
+        "recurso_coordenacao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-RECURSO-001", "UT_EscalonamentoPrazo"): (
+        "recurso_coordenacao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-RECURSO-001", "UT_RevisaoAuditorMedico"): (
+        "recurso_auditor",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
 }
@@ -399,6 +514,29 @@ _INPUTS_BY_FORM: dict[FormKey, tuple[AllowedInput, ...]] = {
         "valor_liberado_centavos",
         "justificativa_devolucao",
         "decisao_coordenacao",
+    ),
+    "recurso_decisao": (
+        "decisao_recurso",
+        "fundamentacao_indeferimento",
+        "valor_glosa_mantido_centavos",
+        "valor_deferido_centavos",
+        "referencia_contratual",
+    ),
+    "recurso_coordenacao": (
+        "decisao_recurso",
+        "fundamentacao_indeferimento",
+        "valor_glosa_mantido_centavos",
+        "valor_deferido_centavos",
+        "referencia_contratual",
+        "desfecho_humano",
+    ),
+    "recurso_auditor": (
+        "decisao_auditor_recurso",
+        "parecer_auditor",
+        "fundamentacao_indeferimento",
+        "valor_glosa_mantido_centavos",
+        "valor_deferido_centavos",
+        "referencia_contratual",
     ),
 }
 
