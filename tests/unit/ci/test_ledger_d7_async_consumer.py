@@ -514,8 +514,16 @@ def test_resealed_inner_cannot_evade_semantic_validation(
 def test_archive_portability_does_not_mutate_native_runtime_refusal(
     candidate: Any, adapter: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    repo, reviewed, _, _, _, _, prefix, _ = candidate
-    packet = repo / prefix
+    repo, reviewed, _, _, _, tmp, prefix, _ = candidate
+    packet = tmp / "portable-archive"
+    proof.materialize(
+        packet,
+        {
+            path.relative_to(repo / prefix).as_posix(): path.read_bytes()
+            for path in (repo / prefix).rglob("*")
+            if path.is_file()
+        },
+    )
     literal = adapter.original_producer
 
     def refused(*args: Any) -> str:
