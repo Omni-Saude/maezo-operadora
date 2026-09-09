@@ -198,6 +198,25 @@ variable "image_tag" {
   default     = "bootstrap"
 }
 
+variable "webhook_receiver_image_tag" {
+  description = <<-EOT
+    Tag da imagem do RECEPTOR de webhook — separada de `image_tag` de proposito. O receptor
+    mudou 1.593 linhas entre a imagem que os agentes rodam (`40dc6d4`, 27/08) e a `main` de
+    09/09 (dedup por wamid, ack-then-queue, pseudonimizacao do wamid). Subir o receptor com a
+    imagem velha testaria codigo que ja nao existe; subir TODOS os servicos com a nova seria um
+    deploy de 400 commits de carona numa entrega que so' pede um servico. Quando os agentes
+    forem promovidos para a mesma tag, esta variavel pode voltar a apontar para `image_tag`.
+  EOT
+  type        = string
+  default     = "f713f997" # main de 09/09/2026, digest sha256:cbb27be8…
+}
+
+variable "webhook_receiver_desired_count" {
+  description = "Replicas do receptor de webhook WhatsApp. 1 para exercitar a Helena com mensagem simulada; 0 para tirar do ar."
+  type        = number
+  default     = 1
+}
+
 variable "log_retention_days" {
   description = "Retencao dos log groups. 30 dias em dev; auditoria de verdade nao mora em CloudWatch (ADR de retencao de 5 anos)."
   type        = number
@@ -235,9 +254,15 @@ variable "engine_image_tag" {
     Tag da imagem PROPRIA do engine (`amh/cibseven-maezo`), construida a partir de
     `deploy/cibseven/Dockerfile`. Sem o showcase de demonstracao e, portanto, sem o
     usuario `demo` que a imagem oficial recria a cada boot.
+
+    `sem-showcase-executor-global` (09/09/2026): alem do acima, `jobExecutorDeploymentAware`
+    = false. A tag anterior (`sem-showcase`) rodou de 18/08 a 09/09 com o executor de jobs
+    restrito a deployments registrados em memoria — conjunto que ficava vazio apos cada
+    reinicio — e por isso NENHUM relogio disparou nesse periodo (97 vencidos em 09/09).
+    O motivo completo esta' no proprio Dockerfile.
   EOT
   type        = string
-  default     = "sem-showcase"
+  default     = "sem-showcase-executor-global"
 }
 
 variable "cibseven_desired_count" {

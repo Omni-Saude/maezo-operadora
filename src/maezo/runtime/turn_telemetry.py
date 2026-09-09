@@ -163,6 +163,11 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
             # indistinguivel de qualquer outro desvio — que e' justamente o que este achado
             # existe para tornar visivel (`agents/helena/graph.py::DESFECHO_RESPOSTA_VAZIA`).
             "resposta_vazia_nao_enviada",
+            # COLETA (passo 4, 09/09/2026): o turno terminou numa PERGUNTA ao beneficiario — nem
+            # resolvido nem escalado. Token proprio para nao inflar `resolvido_automatico` com
+            # perguntas. Literal duplicado de `agents/helena/graph.py::DESFECHO_PERGUNTA_COLETA`
+            # (este modulo nao importa grafos); `test_helena_coleta.py` impede a divergencia.
+            "pergunta_coleta",
         }
     ),
     "lucas": frozenset(
