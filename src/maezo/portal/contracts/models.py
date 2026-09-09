@@ -3,7 +3,8 @@
 Sources:
 
 * ADR-0049 D2-D6 (accepted engineering direction; technical specification DRAFT/verify);
-* SP-OP-AUTH-001, SP-OP-ESCALATION-001 and SP-OP-PAGTO-001 at the catalog's pinned R6 revision;
+* SP-OP-AUTH-001, SP-OP-ESCALATION-001, SP-OP-PAGTO-001 and SP-OP-CONTAS-001 at the
+  catalog's pinned R6 revision;
 * the frozen preparatory portal catalog (43 tasks in 15 families).
 
 These DTOs validate shape.  They do not authenticate a human, establish tenant membership,
@@ -17,11 +18,18 @@ The deliberately narrow executable form set is:
 * AUTH ``UT_AnaliseMedicoAuditor`` and ``UT_CoordenacaoAssume`` -> ``auth_decisao``;
 * AUTH ``UT_RegistrarParecerJunta`` -> ``auth_junta``;
 * ESCALATION ``UT_TratarEscalonamento`` and ``UT_SupervisorAssume`` -> ``escalation``;
-* PAGTO ``UT_AnaliseAdmissibilidade`` -> ``pagto_admissibilidade``.
+* PAGTO ``UT_AnaliseAdmissibilidade`` -> ``pagto_admissibilidade``;
+* CONTAS ``UT_AnalistaContas`` -> ``contas_decisao``;
+* CONTAS ``UT_CoordenacaoContasAssume`` -> ``contas_coordenacao``.
 
 PAGTO admissibility is based on explicit BPMN task documentation and the plan, while the SP-OP
 output table does not enumerate ``decisao_admissibilidade`` and the BPMN has no ``formData``.  Its
 ``form_source_status`` therefore remains DRAFT/verify.  No generic variables map exists.
+
+The two CONTAS bindings are likewise DRAFT/verify: their contract and BPMN task documentation
+enumerate the human fields, but the BPMN has no ``formData`` and the source tree has no deployment
+version catalog.  The local binding validates task/form shape; it does not authenticate a supplied
+positive ``process_definition_version`` or make either form runtime-usable.
 """
 
 from __future__ import annotations
@@ -64,7 +72,14 @@ CanonicalCentavos = Annotated[
     StringConstraints(strict=True, pattern=r"^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$"),
 ]
 
-FormKey = Literal["auth_decisao", "auth_junta", "escalation", "pagto_admissibilidade"]
+FormKey = Literal[
+    "auth_decisao",
+    "auth_junta",
+    "escalation",
+    "pagto_admissibilidade",
+    "contas_decisao",
+    "contas_coordenacao",
+]
 FormSourceStatus = Literal["BPMN_FORMDATA", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"]
 TaskAction = Literal["claim", "release", "decision"]
 AllowedInput = Literal[
@@ -76,6 +91,13 @@ AllowedInput = Literal[
     "notas_resolucao",
     "decisao_admissibilidade",
     "justificativa_recusa",
+    "decisao_contas",
+    "justificativa_glosa",
+    "codigo_glosa_tiss",
+    "valor_glosado_centavos",
+    "valor_liberado_centavos",
+    "justificativa_devolucao",
+    "decisao_coordenacao",
 ]
 
 
@@ -263,8 +285,65 @@ class PagtoAdmissibilityEvidence(_FrozenContract):
     duplicidade_suspeita: StrictBool
 
 
+class _ContasDecisionFields(_FrozenContract):
+    """Fields shared by the two human CONTAS decision points.
+
+    The SP-OP/BPMN engine variables are BRL doubles, while ADR-0049 D3 requires browser/API money
+    to cross as canonical integer-centavo strings. These DTOs stop at that trusted boundary; they
+    do not implement or authorize the still-unreviewed conversion into engine variables.
+    """
+
+    decisao_contas: Literal["PAGAR", "GLOSAR", "PAGAR_PARCIAL", "DEVOLVER", "ENCAMINHAR_FRAUDE"]
+    justificativa_glosa: RequiredText | None = None
+    codigo_glosa_tiss: RequiredText | None = None
+    valor_glosado_centavos: Centavos | None = None
+    valor_liberado_centavos: Centavos | None = None
+    justificativa_devolucao: RequiredText | None = None
+
+    @model_validator(mode="after")
+    def _contractual_fields_are_complete(self) -> Self:
+        if self.decisao_contas in {"GLOSAR", "PAGAR_PARCIAL"}:
+            for field, value in (
+                ("justificativa_glosa", self.justificativa_glosa),
+                ("codigo_glosa_tiss", self.codigo_glosa_tiss),
+            ):
+                if value is None or not value.strip():
+                    raise ValueError(f"{self.decisao_contas} requires {field}")
+            if self.valor_glosado_centavos is None or self.valor_glosado_centavos.as_int() <= 0:
+                raise ValueError(f"{self.decisao_contas} requires positive valor_glosado_centavos")
+
+        if self.decisao_contas in {"PAGAR", "PAGAR_PARCIAL"} and (
+            self.valor_liberado_centavos is None or self.valor_liberado_centavos.as_int() <= 0
+        ):
+            raise ValueError(f"{self.decisao_contas} requires positive valor_liberado_centavos")
+
+        if self.decisao_contas == "DEVOLVER" and (
+            self.justificativa_devolucao is None or not self.justificativa_devolucao.strip()
+        ):
+            raise ValueError("DEVOLVER requires justificativa_devolucao")
+        return self
+
+
+class ContasDecisionInputs(_ContasDecisionFields):
+    """CONTAS analyst form; actor identity is injected from the authoritative session."""
+
+    kind: Literal["contas_decisao"]
+
+
+class ContasCoordinationInputs(_ContasDecisionFields):
+    """CONTAS SLA takeover with the same human decision plus its coordination disposition."""
+
+    kind: Literal["contas_coordenacao"]
+    decisao_coordenacao: Literal["assumir_analise", "prorrogar_prazo", "seguir_analise"]
+
+
 DecisionInputs = Annotated[
-    AuthDecisionInputs | AuthJuntaInputs | EscalationDecisionInputs | PagtoAdmissibilityInputs,
+    AuthDecisionInputs
+    | AuthJuntaInputs
+    | EscalationDecisionInputs
+    | PagtoAdmissibilityInputs
+    | ContasDecisionInputs
+    | ContasCoordinationInputs,
     Field(discriminator="kind"),
 ]
 
@@ -277,6 +356,14 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     ("SP-OP-ESCALATION-001", "UT_SupervisorAssume"): ("escalation", "BPMN_FORMDATA"),
     ("SP-OP-PAGTO-001", "UT_AnaliseAdmissibilidade"): (
         "pagto_admissibilidade",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-CONTAS-001", "UT_AnalistaContas"): (
+        "contas_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-CONTAS-001", "UT_CoordenacaoContasAssume"): (
+        "contas_coordenacao",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
 }
@@ -296,6 +383,23 @@ _INPUTS_BY_FORM: dict[FormKey, tuple[AllowedInput, ...]] = {
     ),
     "escalation": ("resultado", "notas_resolucao"),
     "pagto_admissibilidade": ("decisao_admissibilidade", "justificativa_recusa"),
+    "contas_decisao": (
+        "decisao_contas",
+        "justificativa_glosa",
+        "codigo_glosa_tiss",
+        "valor_glosado_centavos",
+        "valor_liberado_centavos",
+        "justificativa_devolucao",
+    ),
+    "contas_coordenacao": (
+        "decisao_contas",
+        "justificativa_glosa",
+        "codigo_glosa_tiss",
+        "valor_glosado_centavos",
+        "valor_liberado_centavos",
+        "justificativa_devolucao",
+        "decisao_coordenacao",
+    ),
 }
 
 
