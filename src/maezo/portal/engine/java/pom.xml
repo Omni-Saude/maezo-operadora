@@ -4,13 +4,17 @@
   <dependencies>
     <dependency><groupId>org.cibseven.bpm</groupId><artifactId>cibseven-engine</artifactId><version>2.1.0</version><scope>provided</scope></dependency>
     <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><version>6.0.0</version><scope>provided</scope></dependency>
+    <dependency><groupId>org.cibseven.bpm</groupId><artifactId>cibseven-engine-rest-core-jakarta</artifactId><version>2.1.0</version><scope>provided</scope><exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions></dependency>
     <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><version>2.18.3</version></dependency>
     <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.11.4</version><scope>test</scope></dependency>
     <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><version>42.7.5</version><scope>test</scope></dependency>
   </dependencies>
   <build><plugins>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-resources-plugin</artifactId><version>3.3.1</version></plugin>
-    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-jar-plugin</artifactId><version>3.4.2</version></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-jar-plugin</artifactId><version>3.4.2</version><executions>
+      <execution><id>default-jar</id><configuration><excludes><exclude>br/com/maezo/workload/CertificateAuthenticationProvider.class</exclude></excludes></configuration></execution>
+      <execution><id>native-rest-spi</id><phase>package</phase><goals><goal>jar</goal></goals><configuration><classifier>rest-spi</classifier><includes><include>br/com/maezo/workload/CertificateAuthenticationProvider.class</include></includes></configuration></execution>
+    </executions></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.2</version><configuration><excludes><exclude>**/*EngineIT.java</exclude></excludes><failIfNoTests>true</failIfNoTests></configuration></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-shade-plugin</artifactId><version>3.6.0</version><executions><execution><phase>package</phase><goals><goal>shade</goal></goals><configuration><createDependencyReducedPom>false</createDependencyReducedPom><relocations><relocation><pattern>com.fasterxml.jackson.core</pattern><shadedPattern>br.com.maezo.human.internal.jackson</shadedPattern></relocation></relocations></configuration></execution></executions></plugin>
