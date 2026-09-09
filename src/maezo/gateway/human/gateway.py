@@ -6,12 +6,23 @@ They are refused intact before admission; no fields are dropped, scrubbed or rem
 """
 
 import secrets
+from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import TypeVar
 
 from pydantic import TypeAdapter
 
 from maezo.portal.api.session import HumanSessionResolver, ResolvedHumanSession
 from maezo.portal.contracts.models import OpaqueRef, Revision, TaskDecision, TaskSnapshot
+from maezo.portal.contracts.queues import (
+    PublicTaskSnapshot,
+    QueueFreshness,
+    TaskQueueItem,
+    TaskQueuePage,
+    TaskQueueRequest,
+    TaskReadResponse,
+    utc,
+)
 
 from .credentials import HumanCommandCredentialPartition
 from .errors import GatewayRefusalError
@@ -24,7 +35,22 @@ from .models import (
     Scope,
 )
 from .ports import BoundHumanPorts
+from .queue import (
+    CandidateWindow,
+    CatalogExpectation,
+    CatalogExpectationSource,
+    CatalogTrustAnchor,
+    CursorCustody,
+    CursorGrant,
+    HumanTaskQuery,
+    QueueBinding,
+    ReadRefusalError,
+    TaskDisclosureGrant,
+    TaskDisclosureSource,
+)
 from .receipt import BoundReceiptPorts, CurrentReceiptAuthority, PublicReceipt, ReceiptIdentity
+
+_ReadResult = TypeVar("_ReadResult")
 
 _PINS = (
     "task_id",
@@ -55,11 +81,21 @@ class HumanGateway:
         ports: BoundHumanPorts,
         credentials: HumanCommandCredentialPartition,
         receipt_ports: BoundReceiptPorts | None = None,
+        query: HumanTaskQuery | None = None,
+        catalog_anchor: CatalogTrustAnchor | None = None,
+        catalog_source: CatalogExpectationSource | None = None,
+        cursor_custody: CursorCustody | None = None,
+        disclosure_source: TaskDisclosureSource | None = None,
     ) -> None:
         self._scope = Scope.model_validate(scope)
         self._resolver = resolver
         self._ports = ports
         self._credentials = credentials
+        self._query = query
+        self._catalog_anchor = catalog_anchor
+        self._catalog_source = catalog_source
+        self._cursor_custody = cursor_custody
+        self._disclosure_source = disclosure_source
         self._receipt_ports = receipt_ports
         self._check_scope()
 
@@ -225,6 +261,307 @@ class HumanGateway:
         return TaskSnapshot.model_validate(
             task.snapshot.model_copy(update={"allowed_actions": tuple(actions)})
         )
+
+    async def _read_session(self, secret: str) -> ResolvedHumanSession:
+        # Additive read taxonomy; the original command/read entry points are unchanged.
+        try:
+            self._check_scope()
+            result = await self._resolver.resolve(secret)
+            if (
+                result.principal.tenant != self._scope.tenant
+                or result.principal.principal_ref == self._scope.workload_ref
+            ):
+                raise ValueError("identity scope")
+            self._identity_deadlines((result,), datetime.now(UTC))
+        except Exception:
+            raise ReadRefusalError("session_unavailable") from None
+        if result.membership.audience != "staff":
+            raise ReadRefusalError("employee_access_required")
+        return result
+
+    @staticmethod
+    def _identity_deadlines(
+        sessions: tuple[ResolvedHumanSession, ...], now: datetime
+    ) -> tuple[datetime, ...]:
+        try:
+            deadlines = tuple(
+                utc(value)
+                for session in sessions
+                for value in (session.record.expires_at, session.membership.reviewed_until)
+            )
+            if any(value <= now for value in deadlines):
+                raise ValueError("identity expired")
+            return deadlines
+        except Exception:
+            raise ReadRefusalError("session_unavailable") from None
+
+    async def _read_authorized(
+        self, resolved: ResolvedHumanSession, task_id: str, *, queue: bool
+    ) -> tuple[AuthoritativeTask, CurrentTaskAuthority]:
+        try:
+            return await self._authorized(resolved, task_id)
+        except GatewayRefusalError as exc:
+            if exc.code == "operation_forbidden":
+                raise ReadRefusalError("refresh_required" if queue else "resource_unavailable") from None
+            # The original source errors conflate denial, absence and uncertainty.
+            raise ReadRefusalError("read_dependency_unavailable") from None
+
+    async def _catalog(self) -> CatalogExpectation:
+        if self._catalog_source is None or self._catalog_anchor is None:
+            raise ReadRefusalError("read_dependency_unavailable")
+        try:
+            expected = CatalogExpectation.model_validate(
+                await self._catalog_source.current_catalog(anchor=self._catalog_anchor)
+            )
+            if expected.anchor != self._catalog_anchor or expected.anchor.scope != self._scope:
+                raise ValueError("catalog provenance")
+            self._catalog_alive(expected, datetime.now(UTC))
+            return expected
+        except Exception:
+            raise ReadRefusalError("read_dependency_unavailable") from None
+
+    @staticmethod
+    def _catalog_alive(expected: CatalogExpectation, now: datetime) -> None:
+        if not expected.source_observed_at <= now < expected.valid_until:
+            raise ReadRefusalError("read_dependency_unavailable")
+
+    @staticmethod
+    def _same_catalog(first: CatalogExpectation, second: CatalogExpectation) -> None:
+        if first.anchor != second.anchor:
+            raise ReadRefusalError("read_dependency_unavailable")
+        if first.catalog_revision != second.catalog_revision:
+            raise ReadRefusalError("refresh_required")
+        if (
+            first.catalog_digest != second.catalog_digest
+            or second.source_observed_at < first.source_observed_at
+        ):
+            raise ReadRefusalError("read_dependency_unavailable")
+
+    def _binding(
+        self, session: ResolvedHumanSession, request: TaskQueueRequest, catalog: CatalogExpectation
+    ) -> QueueBinding:
+        return QueueBinding(
+            scope=self._scope,
+            principal=session.principal,
+            queue=request.queue,
+            limit=request.limit,
+            catalog_revision=catalog.catalog_revision,
+            catalog_ref=catalog.anchor.catalog_ref,
+            publisher_ref=catalog.anchor.publisher_ref,
+            catalog_digest=catalog.catalog_digest,
+        )
+
+    @staticmethod
+    def _window_binding(actual: QueueBinding, expected: QueueBinding) -> None:
+        if (
+            actual.scope != expected.scope
+            or actual.catalog_ref != expected.catalog_ref
+            or actual.publisher_ref != expected.publisher_ref
+        ):
+            raise ReadRefusalError("read_dependency_unavailable")
+        if actual.catalog_revision != expected.catalog_revision:
+            raise ReadRefusalError("refresh_required")
+        if actual.catalog_digest != expected.catalog_digest:
+            raise ReadRefusalError("read_dependency_unavailable")
+        if actual != expected:
+            raise ReadRefusalError("refresh_required")
+
+    def _read_guard(
+        self,
+        *,
+        sessions: tuple[ResolvedHumanSession, ...],
+        rows: tuple[tuple[AuthoritativeTask, CurrentTaskAuthority], ...],
+        catalogs: tuple[CatalogExpectation, ...] = (),
+        window: CandidateWindow | None = None,
+        cursors: tuple[CursorGrant, ...] = (),
+        disclosure: TaskDisclosureGrant | None = None,
+    ) -> tuple[datetime, datetime]:
+        now = datetime.now(UTC)
+        deadlines = list(self._identity_deadlines(sessions, now))
+        for expected in catalogs:
+            self._catalog_alive(expected, now)
+            deadlines.append(expected.valid_until)
+        if window is not None:
+            if not window.source_observed_at <= now < window.valid_until:
+                raise ReadRefusalError("read_dependency_unavailable")
+            deadlines.append(window.valid_until)
+        for task, authority in rows:
+            if task.snapshot.snapshot_at > now or min(task.valid_until, authority.valid_until) <= now:
+                raise ReadRefusalError("read_dependency_unavailable")
+            deadlines.extend((task.valid_until, authority.valid_until))
+        for cursor in cursors:
+            if cursor.valid_until <= now:
+                raise ReadRefusalError("refresh_required")
+            deadlines.append(cursor.valid_until)
+        if disclosure is not None:
+            if disclosure.valid_until <= now:
+                raise ReadRefusalError("read_dependency_unavailable")
+            deadlines.append(disclosure.valid_until)
+        return now, min(deadlines)
+
+    async def list_tasks(
+        self,
+        *,
+        session_secret: str,
+        request: TaskQueueRequest,
+        render: Callable[[TaskQueuePage], _ReadResult],
+    ) -> _ReadResult:
+        """Q1 bounded live read. Render synchronously, then guard before HTTP handoff.
+
+        The renderer must construct the complete response bytes/HTTP response without I/O.
+        Callers must immediately return it; a delayed cache handoff is not authorized.
+        """
+        try:
+            request = TaskQueueRequest.model_validate(request)
+        except Exception:
+            raise ReadRefusalError("invalid_request") from None
+        first = await self._read_session(session_secret)
+        try:
+            if (
+                self._query is None
+                or self._cursor_custody is None
+                or self._query.scope != self._scope
+                or self._cursor_custody.scope != self._scope
+            ):
+                raise ReadRefusalError("read_dependency_unavailable")
+            e0 = await self._catalog()
+            binding = self._binding(first, request, e0)
+            cursors: tuple[CursorGrant, ...] = ()
+            if request.cursor is not None:
+                incoming = CursorGrant.model_validate(
+                    await self._cursor_custody.resolve(request.cursor, binding=binding)
+                )
+                if incoming.binding != binding or incoming.cursor != request.cursor:
+                    raise ReadRefusalError("refresh_required")
+                if incoming.valid_until <= datetime.now(UTC):
+                    raise ReadRefusalError("refresh_required")
+                cursors = (incoming,)
+            window = CandidateWindow.model_validate(
+                await self._query.discover(first.principal, request, expected_catalog=e0)
+            )
+            self._window_binding(window.binding, binding)
+            if cursors and any(task_id <= cursors[0].after_task_id for task_id in window.task_ids):
+                raise ReadRefusalError("refresh_required")
+            candidates = []
+            for task_id in window.task_ids:
+                row = await self._read_authorized(first, task_id, queue=True)
+                if request.queue == "mine" and row[0].snapshot.assignee_ref != first.principal.principal_ref:
+                    raise ReadRefusalError("refresh_required")
+                candidates.append(row)
+            rows = tuple(candidates)
+            e1 = await self._catalog()
+            self._same_catalog(e0, e1)
+            final = await self._read_session(session_secret)  # LAST dependency I/O.
+            if final.principal != first.principal:
+                raise ReadRefusalError("refresh_required")
+            observed_at, valid_until = self._read_guard(
+                sessions=(first, final), rows=rows, catalogs=(e0, e1), window=window, cursors=cursors
+            )
+            next_cursor = None
+            if window.next_cursor is not None:
+                outgoing = CursorGrant.model_validate(
+                    self._cursor_custody.finalize(
+                        window.next_cursor,
+                        binding=binding,
+                        after_task_id=window.task_ids[request.limit - 1],
+                        valid_until=valid_until,
+                    )
+                )
+                if (
+                    outgoing.binding != binding
+                    or outgoing.after_task_id != window.task_ids[request.limit - 1]
+                    or outgoing.valid_until != valid_until
+                ):
+                    raise ReadRefusalError("read_dependency_unavailable")
+                cursors += (outgoing,)
+                next_cursor = outgoing.cursor
+            items = tuple(
+                TaskQueueItem(
+                    task_id=task.snapshot.task_id,
+                    process_definition_key=task.snapshot.process_definition_key,
+                    task_definition_key=task.snapshot.task_definition_key,
+                    task_revision=str(task.snapshot.task_revision),
+                    ownership=(
+                        "unassigned"
+                        if task.snapshot.assignee_ref is None
+                        else "self"
+                        if task.snapshot.assignee_ref == first.principal.principal_ref
+                        else "other"
+                    ),
+                    engine_due_at=task.snapshot.engine_due_at,
+                    snapshot_at=task.snapshot.snapshot_at,
+                )
+                for task, _ in rows[: request.limit]
+            )
+            page = TaskQueuePage(
+                queue=request.queue,
+                items=items,
+                next_cursor=next_cursor,
+                freshness=QueueFreshness(
+                    observed_at=observed_at,
+                    source_observed_at=window.source_observed_at,
+                    valid_until=valid_until,
+                ),
+            )
+            result = render(page)
+            self._read_guard(
+                sessions=(first, final), rows=rows, catalogs=(e0, e1), window=window, cursors=cursors
+            )  # Includes first row AND lookahead after serialization.
+            return result
+        except ReadRefusalError:
+            raise
+        except Exception:
+            raise ReadRefusalError("read_dependency_unavailable") from None
+
+    async def read_task_envelope(
+        self,
+        *,
+        session_secret: str,
+        task_id: str,
+        render: Callable[[TaskReadResponse], _ReadResult],
+    ) -> _ReadResult:
+        try:
+            task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
+        except Exception:
+            raise ReadRefusalError("invalid_request") from None
+        first = await self._read_session(session_secret)
+        try:
+            task, authority = await self._read_authorized(first, task_id, queue=False)
+            if self._disclosure_source is None or self._disclosure_source.scope != self._scope:
+                raise ReadRefusalError("read_dependency_unavailable")
+            disclosure = TaskDisclosureGrant.model_validate(
+                await self._disclosure_source.classify(first.principal, task, authority)
+            )
+            if (
+                disclosure.scope != self._scope
+                or disclosure.principal != first.principal
+                or disclosure.snapshot != task.snapshot
+                or disclosure.authority_revision != task.authority_revision
+            ):
+                raise ReadRefusalError("read_dependency_unavailable")
+            final = await self._read_session(session_secret)  # LAST dependency I/O.
+            if final.principal != first.principal:
+                raise ReadRefusalError("refresh_required")
+            observed_at, valid_until = self._read_guard(
+                sessions=(first, final),
+                rows=((task, authority),),
+                disclosure=disclosure,
+            )
+            response = TaskReadResponse(
+                task=PublicTaskSnapshot.from_snapshot(task.snapshot),
+                freshness=QueueFreshness(
+                    observed_at=observed_at,
+                    source_observed_at=task.snapshot.snapshot_at,
+                    valid_until=valid_until,
+                ),
+            )
+            result = render(response)
+            self._read_guard(sessions=(first, final), rows=((task, authority),), disclosure=disclosure)
+            return result
+        except ReadRefusalError:
+            raise
+        except Exception:
+            raise ReadRefusalError("read_dependency_unavailable") from None
 
     @staticmethod
     def _expectations(
