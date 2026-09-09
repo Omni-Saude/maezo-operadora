@@ -130,7 +130,7 @@ depois e para outra decisão.
 
 ---
 
-## 4. As DUAS pré-condições de merge (R-009) — e a cerca que ainda não existe
+## 4. As DUAS pré-condições de merge (R-009) — e a cerca de validação construída
 
 Este PR **não pode ser mergeado** sem as duas:
 
