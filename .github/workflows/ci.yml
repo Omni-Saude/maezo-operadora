@@ -136,6 +136,23 @@ jobs:
       - name: PLANS.md ADR-count reconciliation gate (AF-06)
         run: make check-plans-counts
 
+      # R-089 (gap ADR-0026-0028-STALE-ANSCRON, OWNER-DECISIONS-REGISTER, 2026-09-06): docs/adr/*.md
+      # `path::symbol` citations and quoted `from maezo.x import ...` examples must resolve against
+      # the tree (file exists + symbol/name resolves via AST) — original non-vacuity case: 0026:72
+      # cited `check_calendar`, removed once ADR-0028 §7's own gate fired (fixed in-loco by reparo
+      # F2, 2026-09-06). Bare `path:line` citations are hard-checked for FILE EXISTENCE only since
+      # reparo F4 (2026-09-06) — the line number stays informational (a line can move without the
+      # fact it cites changing); two structural rules (not allowlist) exclude an elided `...`
+      # placeholder in prose and any path under a gitignored directory, neither of which a
+      # `git ls-files`-only gate could verify either way. A small, dated, self-auditing allowlist
+      # (`_DISCLOSED_ROT` in the script, 7 entries) covers known, disclosed rot — never silent, and
+      # it fails loudly the day an entry stops reproducing, keyed since reparo F3 by the exact
+      # (doc, citation) pair that fired (not just the doc name, which let two entries on one doc
+      # mask each other). Uses `git ls-files` only, so it needs no history (proven against a
+      # shallow clone by tests/unit/ci/test_check_doc_symbol_citations.py).
+      - name: ADR doc-symbol-citation gate (R-089)
+        run: make check-doc-symbol-citations
+
       # F2 (r5/tooling-fences REVISE round): neither ledger range-scoped gate was wired into ANY CI
       # job before this — both existed only as local `make` targets a human or agent had to
       # remember to type. Wired here (not into `evidence-ledger.yml`'s `evidence-ledger-check` job,

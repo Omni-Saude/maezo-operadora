@@ -3,6 +3,7 @@
         verify-amh-contract-pin \
         check-alert-runbook-urls \
         check-plans-counts \
+        check-doc-symbol-citations \
         xfail-census-check xfail-census-write \
         deviation-expiry-check \
         check-lifecycle-expected-fail-expiry \
@@ -79,6 +80,25 @@ check-plans-counts: ## AF-06: contagens declaradas em PLANS.md (ADRs numerados /
 	# divergir; zero alegacoes encontradas -> PASSA mas sempre imprime a contagem explicita (nunca
 	# verde silencioso).
 	uv run python scripts/ci/check_plans_counts.py
+
+check-doc-symbol-citations: ## R-089: citacoes path::symbol / import quotado / path:line em docs/adr/*.md resolvem contra a arvore (gap ADR-0026-0028-STALE-ANSCRON)
+	# Escaneia docs/adr/*.md por tres formas de citacao MACHINE-CHECKABLE: `path.py::Symbol`
+	# (convencao ja usada em ~40 citacoes existentes), um `from maezo.x import a, b` quotado em
+	# exemplo de codigo, e (reparo F4/VER-ADR-BATCH, 2026-09-06) um `path:line` NU — este ultimo
+	# so na EXISTENCIA do arquivo (o numero da linha continua informativo, nunca checado — uma
+	# linha pode mover sem que o fato citado mude). Falha se o arquivo ou o simbolo/nome nao
+	# resolve na arvore (via `git ls-files` + AST) — nao vacuo: o caso original que motivou o gate
+	# era `docs/adr/0026-*.md:72` citando `check_calendar`, removida de ans_cron.py (corrigida
+	# in-loco pelo reparo F2; hoje o gate segue nao-vacuo pelas 7 entradas de `_DISCLOSED_ROT`
+	# abaixo, cada uma re-checada a cada rodada). Duas REGRAS estruturais (nao allowlist) excluem
+	# `path:line` que nao podem ser verificados por motivo alheio a rot: um path contendo `...`
+	# literal (elisao em prosa) e um path sob diretorio gitignored (nunca rastreavel via `git
+	# ls-files`). Um allowlist pequeno e datado (`_DISCLOSED_ROT`, no proprio script) cobre rot ja
+	# conhecida e divulgada (nunca silenciosa) e e auto-verificado: uma entrada que passa a
+	# resolver falha o gate ate ser removida (nunca fica esquecida mascarando uma regressao
+	# futura), chaveado pelo par (doc, citation_repr) que efetivamente disparou, nao so pelo nome
+	# do doc (reparo F3 — duas entradas no mesmo doc nao se mascaram mais).
+	uv run python scripts/ci/check_doc_symbol_citations.py
 
 check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_instance fora do allowlist da fence (ADR-0007/T-C2)
 	# AST-scan repo-wide de src/maezo: `start_process_idempotent` (mcp_cibseven/transport.py:1052)

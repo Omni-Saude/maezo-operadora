@@ -62,7 +62,9 @@ _MARKERS = ("amended-by", "superseded-by", "obsolete-section")
 #: The base commit whose bytes the seven `Accepted` ADRs must still carry.
 _BASE_COMMIT = "71dd4da"
 
-#: gap id -> ADR filename. The seven ADRs this work package reconciled — WITHOUT editing them.
+#: gap id -> ADR filename. The seven ADRs this work package reconciled — WITHOUT editing them,
+#: plus an eighth (`ADR-0025-PEP-GREP-ARTIFACT`, R-088, 2026-09-06 — ADR-0041 §8) added by the SAME
+#: no-in-place-edit discipline (see `_BASELINE_SHA256`'s note for why its pin is dated differently).
 _RECONCILED_ADRS: dict[str, str] = {
     "AF-02": "0024-durable-idempotency-resume-inbound-drivers.md",
     "AF-03": "0005-hitl-architectural-guarantee.md",
@@ -71,9 +73,14 @@ _RECONCILED_ADRS: dict[str, str] = {
     "AF-15": "0015-a2a-delegation-runtime.md",
     "AF-17": "0006-phi-two-zones.md",
     "AF-18": "0012-dmn-deterministic-tool.md",
+    "ADR-0025-PEP-GREP-ARTIFACT": "0025-pep-policy-unification.md",
 }
 
-#: sha256 of each of the seven files at `71dd4da` — see direction 2 in the module docstring.
+#: sha256 of each of the seven files at `71dd4da`, plus the eighth (0025) at its own state as of
+#: R-088 (2026-09-06) — a LATER pin date than the other seven's `71dd4da` because 0025 was not part
+#: of the original 71dd4da-pinned batch; ADR-0041 §8 amends it starting from THIS byte state, and any
+#: legitimate future edit to 0025 must regenerate only this one entry. See direction 2 in the module
+#: docstring for the regeneration recipe (same recipe, any base commit).
 _BASELINE_SHA256: dict[str, str] = {
     "0005-hitl-architectural-guarantee.md": (
         "a1f61a0e602307b63df91aac59a9b9dd8edcb28405e4007b9a930ac12830b0d3"
@@ -86,6 +93,7 @@ _BASELINE_SHA256: dict[str, str] = {
         "ca0690ed63f1ca9eed1124a8d63249b6e41483df0b0b54a90fbead5e6c49f961"
     ),
     "0032-adr0015-status-correction.md": ("a0737c13b4e329fffe40d0ae62636fec3e0a3e6a7bb5672d5731c431e84b608f"),
+    "0025-pep-policy-unification.md": ("5293d352987b9cbb902a3f8d0a7a07cf70abc18b9ccea8c32803960e24fd4181"),
 }
 
 #: (ADR filename, the ORIGINAL claim's own text, the line ADR-0041 cites for it).
@@ -118,6 +126,12 @@ _CITED_CLAIMS: tuple[tuple[str, str, int], ...] = (
     ),
     ("0032-adr0015-status-correction.md", "`dispatcher.py`, and `facts.py` do not.", 88),
     ("0032-adr0015-status-correction.md", "BLOCKED-ON the dispatcher port (P3 backlog)", 104),
+    (
+        "0025-pep-policy-unification.md",
+        "Root cause: v2's PEP is never on the request path (`PEP.evaluate` has no runtime "
+        "callers; `build_pep()`",
+        8,
+    ),
 )
 
 
