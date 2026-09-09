@@ -270,6 +270,23 @@ def test_intermittent_recording_failure_persists_failed_completion(poll, monkeyp
     assert observation(poll)["completion"] == "recording_failed"
 
 
+def test_final_ready_record_cannot_cross_global_deadline(poll, monkeypatch):
+    poll.replies = [ready()]
+    poll.durations = [89.5]
+    actual_write = package._write_readiness_observation
+
+    def slow_final_write(value):
+        if value["completion"] == "ready":
+            poll.now += 1
+        actual_write(value)
+
+    monkeypatch.setattr(package, "_write_readiness_observation", slow_final_write)
+    with pytest.raises(pytest.fail.Exception, match="readiness did not recover"):
+        package.wait_ready()
+    assert poll.now == 90.5
+    assert observation(poll)["completion"] == "deadline_exhausted"
+
+
 def test_symlink_observation_path_is_refused_without_touching_target(poll):
     outside = poll.root.parent / "outside"
     outside.write_text("preserve")

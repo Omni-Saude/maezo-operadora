@@ -839,6 +839,10 @@ def wait_ready(purpose: str = "agent") -> None:
                 if recording_failed or not record("ready"):
                     record("recording_failed")
                     pytest.fail("readiness observation recording failed")
+                if time.monotonic() >= deadline:
+                    if not record("deadline_exhausted"):
+                        record("recording_failed")
+                    break
                 return
         except (
             httpx.ConnectError,
