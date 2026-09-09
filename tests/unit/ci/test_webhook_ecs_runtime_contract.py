@@ -33,7 +33,7 @@ def test_ecs_receiver_supplies_sender_settings(monkeypatch: pytest.MonkeyPatch) 
     }
     for name, field in mappings.items():
         monkeypatch.setenv(name, "offline-fixture-" + field)
-    settings = WhatsAppSettings(_env_file=None)
+    settings = WhatsAppSettings()
     assert settings.phone_number_id == "offline-fixture-phone_number_id"
     assert settings.whatsapp_token == "offline-fixture-waba_token"
 
