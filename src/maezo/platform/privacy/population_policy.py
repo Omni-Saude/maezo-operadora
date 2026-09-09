@@ -55,17 +55,33 @@ class PopulationPolicy:
 
     def validate(self, aggregate: Any) -> None:
         """Validate the existing CohortAggregate contract before serving any result."""
+        # Local import avoids making the canonical manifest loader import an agent graph.
+        # A provider-controlled method/duck type cannot certify its own returned shape.
+        from maezo.agents.andre.graph import CohortAggregate
+
+        if (
+            type(aggregate) is not CohortAggregate
+            or type(getattr(aggregate, "cohort_id", None)) is not str
+            or type(getattr(aggregate, "dataset_ref", None)) is not str
+            or type(getattr(aggregate, "metrics", None)) is not dict
+            or any(type(name) is not str for name in aggregate.metrics)
+            or type(getattr(aggregate, "suppressed", None)) is not tuple
+            or any(type(name) is not str for name in aggregate.suppressed)
+            or type(getattr(aggregate, "cohort_size", None)) is not int
+            or type(getattr(aggregate, "k_anonymity", None)) is not int
+        ):
+            raise PopulationPolicyUnavailableError("population_result_shape_refused")
         if (
             self.policy_id != POLICY_ID
-            or type(aggregate.cohort_size) is not int
-            or type(aggregate.k_anonymity) is not int
             or aggregate.k_anonymity < self.k_min
             or aggregate.cohort_size < aggregate.k_anonymity
-            or not isinstance(aggregate.metrics, dict)
             or not set(aggregate.metrics) <= self.allowed_metrics
             or not set(aggregate.suppressed) <= self.allowed_metrics
-            or aggregate.has_resolvable_phi()
-            or any(type(v) not in (int, float) or not math.isfinite(v) for v in aggregate.metrics.values())
+            or any(
+                type(v) not in (int, float) or (type(v) is float and not math.isfinite(v))
+                for v in aggregate.metrics.values()
+            )
+            or CohortAggregate.has_resolvable_phi(aggregate)
         ):
             raise PopulationPolicyUnavailableError("population_result_refused")
 

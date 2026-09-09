@@ -63,6 +63,9 @@ def task(variables):
         business_key="PROG-tenant-program-pseudo-cycle",
         worker_id="unit",
         variables=variables,
+        # All this helper's publications use the completed activity contract.
+        process_definition_key="SP-OP-PROGRAMA-001",
+        activity_id="ST_PublishCompleted",
     )
 
 

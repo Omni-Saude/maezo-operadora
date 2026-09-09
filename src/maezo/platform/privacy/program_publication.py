@@ -12,6 +12,19 @@ from collections.abc import Mapping
 from typing import Any
 
 from maezo.platform.privacy.population_policy import PopulationPolicyUnavailableError
+from maezo.tools.process_allowlist import KNOWN_PROCESS_KEYS
+
+# Source identity comes from fetchAndLock metadata, not from outgoing event inputs.
+# ANS-CRON is a valid publisher although intentionally not agent-startable.
+_PUBLICATION_PROCESS_KEYS = KNOWN_PROCESS_KEYS | {"SP-OP-ANS-CRON-001"}
+PROGRAM_PROCESS_KEY = "SP-OP-PROGRAMA-001"
+PROGRAM_ACTIVITY_TOPICS = {
+    "ST_PublishReceived": "agents.events.programa.received",
+    "ST_PublishConsentBlocked": "agents.events.programa.consent_blocked",
+    "ST_PublishSlaBreached": "agents.events.programa.sla_breached",
+    "ST_PublishProcessingStopped": "agents.events.programa.processing_stopped",
+    "ST_PublishCompleted": "agents.events.programa.completed",
+}
 
 _BASE = frozenset({"tenant_id", "programa_id", "beneficiario_pseudo_id", "ciclo"})
 _META = frozenset({"_business_key", "_process_instance_id", "_worker_topic"})
@@ -36,6 +49,44 @@ PROGRAM_NOTIFICATION_FIELDS = {
     "programa.proactive_contact": (_BASE - {"ciclo"}) | {"type"},
     "programa.notify_sla_risk": (_BASE - {"ciclo"}) | {"type"},
 }
+
+
+def validate_program_publication_source(
+    process_definition_key: str | None,
+    activity_id: str | None,
+    worker_topic: str,
+    topic: str,
+    payload: Mapping[str, Any],
+) -> None:
+    """Bind generic publication to the fetched engine source before partition/transport.
+
+    This is an engine transport trust boundary, not authentication of caller-created
+    Python objects. All generic tasks require known source metadata. Program activities
+    have exactly the five BPMN destinations; other families keep their payload behavior
+    but cannot impersonate program destinations. Direct program notification builders
+    own their separate explicit contracts and do not use the generic task interface.
+    """
+    if (
+        type(process_definition_key) is not str
+        or process_definition_key not in _PUBLICATION_PROCESS_KEYS
+        or type(activity_id) is not str
+        or not activity_id.strip()
+        or worker_topic != "operadora.events.publish"
+    ):
+        raise PopulationPolicyUnavailableError("publication_source_unavailable")
+    if process_definition_key == PROGRAM_PROCESS_KEY:
+        expected = PROGRAM_ACTIVITY_TOPICS.get(activity_id)
+        if expected is None or topic != expected:
+            raise PopulationPolicyUnavailableError("program_publication_source_mismatch")
+    elif (
+        topic == "agents.events.programa"
+        or topic.startswith("agents.events.programa.")
+        or (
+            topic == "operadora.notifications.internal"
+            and (payload.get("type") == "programa" or str(payload.get("type", "")).startswith("programa."))
+        )
+    ):
+        raise PopulationPolicyUnavailableError("program_publication_source_mismatch")
 
 
 def validate_program_publication(topic: str, payload: Mapping[str, Any]) -> None:

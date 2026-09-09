@@ -492,6 +492,10 @@ class ExternalTask:
     worker_id: str
     variables: dict[str, Any] = field(default_factory=dict)
     retries: int | None = None
+    # CIB Seven LockedExternalTaskDto top-level engine metadata. Never reconstruct
+    # from businessKey or variables: publication uses this immutable source identity.
+    process_definition_key: str | None = None
+    activity_id: str | None = None
 
 
 class TopicSubscription(NamedTuple):
@@ -847,6 +851,8 @@ class CibSevenWorkerTransport:
                     worker_id=item.get("workerId", worker_id),
                     variables=variables,
                     retries=item.get("retries"),
+                    process_definition_key=item.get("processDefinitionKey"),
+                    activity_id=item.get("activityId"),
                 )
             )
         return tasks
