@@ -2,7 +2,9 @@
   "id": "EVL-ANDRE-06",
   "agent": "andre",
   "class": "FC",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "CC-08: `pagto_admissibility` is UNAVAILABLE (decision_key omitted). `assess`'s admissibility step reads `admis.get(\"error\")` and routes human IMMEDIATELY (`_route_human(\"dmn_indisponivel\", dmn_refs, _GRUPO_CONSERVADOR)`) -- route=human_review, grupo_humano=comite-financeiro (the conservative catch-all, never the alcada-matched group), desfecho=dossie_aprovacao_humana (`_human_desfecho`'s default) -- `pagto_alcada`/`pagto_sla` are never even called on this branch, NEVER an automatic release. Same payment as EVL-ANDRE-01 (well above the L2 ceiling); the only difference is the transport that fails. Synthetic data only. NOTE: EVL-ANDRE-04/05 are used by CC-01/AND-02 respectively -- this golden intentionally numbers past both.",
   "input": {
     "state": {
@@ -36,5 +38,8 @@
       "desfecho": "dossie_aprovacao_humana"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "signal:dmn_unavailable"
+  ]
 }

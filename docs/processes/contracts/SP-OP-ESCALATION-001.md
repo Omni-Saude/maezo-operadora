@@ -24,9 +24,44 @@ idempotente, sem duplicar escalonamento).
 | `beneficiario_pseudo_id` | string | sim | Pseudonimo (Zona Geral, ADR-0006 — NUNCA CPF/nome) |
 | `canal` | string | sim | `whatsapp` \| `portal` \| `telefone` |
 | `motivo_categoria` | string | sim | `red_flag_clinico` \| `risco_psicossocial` \| `intencao_clinica` \| `solicitacao_humano` \| `falha_tecnica` \| `outro` |
-| `severidade` | string | sim | `grave` \| `moderada` \| `leve` (red flag P1 => `grave`, P2 => `moderada`) |
+| `severidade` | string | sim, EXCETO quando `motivo_categoria = falha_tecnica` (secao logo abaixo: `null` declarado) | `grave` \| `moderada` \| `leve` (red flag P1 => `grave`, P2 => `moderada`) |
 | `resumo_contexto` | string | sim | Handoff escrito pelo agente, pseudonimizado |
 | `dmn_decision_ref` | string | nao | Tabela/regra DMN que disparou (ex.: `triage_redflag_adult#r1`) |
+
+### `severidade` quando `motivo_categoria = falha_tecnica` (HEL-04, 2026-09-05)
+
+A parentese acima (`red flag P1 => grave, P2 => moderada`) descreve o gatilho de red flag, o
+unico em que existe veredito de DMN. No gatilho **`falha_tecnica`** nao ha veredito nenhum — e' o
+proprio motor de decisao que faltou — e ate 2026-09-05 o agente emitia `leve` literal nos dois
+ramos, inclusive sobre um sintoma ja classificado como `grave`. A regra agora e:
+
+| Situacao | `severidade` | Por que |
+|---|---|---|
+| DMN indisponivel COM sintoma classificado | derivada da `intensidade` ja validada: `leve` so' quando a `intensidade` e' explicitamente `leve`; qualquer outro valor (`grave`, `moderada`, `desconhecida`, ausente) => `moderada` | ha' sinal para calibrar, e uma intensidade nao apurada nao e' a mais branda. **Teto em `moderada`**: `grave` fica reservado ao red flag P1, que so' a DMN emite |
+| Falha do classificador (excecao, JSON invalido, schema invalido, roteamento PHI recusado) | ausente (`null`) | nao houve extracao alguma de onde derivar. Uma severidade desconhecida nunca e' anunciada como `leve` — mesma decisao ja vigente para o escalonamento sem contexto de runtime (HELENA-SEVERIDADE-DEFAULT). **CORRECAO (§Delta-3, regressao P-12, 2026-09-06):** a linha obrigatoria anterior contradizia o `null` declarado nesta secao. O reparo Fleet `6af016b1` aceita ausencia/vazio somente em `falha_tecnica` (`escalation.py::_exigir_severidade`). Os testes historicos `test_malformed_classifier_json_escalates_falha_tecnica` e `test_classifier_llm_exception_escalates_falha_tecnica` registraram `no user task ever appeared`; esse relato nao prova falha dos dois canais de producao: a fixture daquele corte omitia a allowlist BPMN e usava `kafka=None`. Os topicos sao distintos (`notify_team` e `notify_supervisor`), embora compartilhem a checagem. Com produtor disponivel, a notificacao pode ser publicada; sem produtor o status e `teams_notification_skipped_no_producer`, que significa progresso sem entrega. A escalacao deve chegar a `UT_TratarEscalonamento`; a revisao integrada exige tarefa exata, `null` presente, roteamento r6, grupo humano e status de publicacao verificados no motor. Legitimidade da excecao: a DMN `escalation_routing` (hitPolicy FIRST) roteia esse motivo pela regra **`r6`**, cuja coluna `severidade` e' o coringa `-` (qualquer valor, `null` inclusive) -> `P3` / `atendimento-humano` / `PT4H` / `PT24H`; a severidade NUNCA foi entrada de roteamento neste motivo, entao aceitar `null` nao enfraquece decisao nenhuma. Limites da excecao, os dois fail-closed: um valor PRESENTE fora de `{grave, moderada, leve}` continua recusando (aqui como em qualquer motivo — ausencia e' a verdade declarada, corrupcao nao e'), e nenhum outro `motivo_categoria` (nem um ausente) aceita ausencia. O que continua nao existindo e' o rotulo fabricado `leve` |
+
+`event_payload_vars` de `ST_PublishRequested` (BPMN `:66`) e dos dois publicadores de breach
+(`:188`, `:243`) inclui `severidade`. O publicador generico
+(`workers/events.py::make_publish_event_handler`) copia a variavel exatamente como o motor a
+entrega e so' quando ela chega (`if var_name in task.variables`): com `null` o payload carrega
+`"severidade": null`, e se o motor a omitir a chave simplesmente nao aparece — em nenhum dos dois
+casos um leitor recebe um `leve` fabricado, e nao ha' default em lugar nenhum do caminho. Nenhum
+consumidor le esse campo: `grep -rn severidade src/maezo/tools/workers/events.py
+src/maezo/platform` devolve apenas prosa de docstring/comentario e a constante de PRODUCAO
+`notification_bridge.SLA_ALERT_SEVERIDADE` (o alerta de risco de SLA, que escreve `moderada` com
+`motivo_categoria=outro` e nada le de volta).
+
+### Fronteira de conteudo nao confiavel no caminho do agente (HEL-06/HEL-03, 2026-09-05)
+
+O texto que o beneficiario digita e' conteudo de terceiro e chega aos prompts do agente dentro de
+um bloco `<<<NAO_CONFIAVEL message_body ... NAO_CONFIAVEL message_body>>>`
+(`maezo.runtime.prompt_format.render_untrusted_block`), com preambulo fixo, delimitador
+nao-falsificavel e tamanho maximo. Isso **reduz** a chance de uma injecao funcionar; o que
+**tira dela o poder de roteamento** e' a precondicao deterministica da rota informativa
+(`agents/helena/graph.py::_inform_recusado`): um `sintoma_codigo` reportado — venha de que
+`intent` vier — nunca termina em resposta automatica sem veredito de DMN (`red_flag` explicito
+`false` e `conduta` fora de `ESCALATE*`). Nenhuma tabela DMN mudou: as quatro
+`triage_redflag_*` ja emitem `red_flag` em toda regra, catch-all inclusive.
 
 ## Variaveis de saida (preenchidas pela User Task)
 

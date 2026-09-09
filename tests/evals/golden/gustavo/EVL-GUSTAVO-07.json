@@ -1,0 +1,54 @@
+{
+  "id": "EVL-GUSTAVO-07",
+  "agent": "gustavo",
+  "class": "EU",
+  "tier": [
+    "A"
+  ],
+  "description": "GUS-04: J2 (NIP) case whose nip_classification resolves normally (ASSISTENCIAL_OUTRO) but nip_routing returns a value OUTSIDE the closed allowlist (ELABORAR_RESPOSTA | PENDENTE_INFO | REVISAO_JURIDICA) -- a DMN-contract violation that fails closed to motivo_humano=ambiguidade, NEVER passed through as an implicit auto-response. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for gustavo's declared `signal: ambiguity` trigger, which had zero golden coverage before this case (per GUS-04's own root-cause: 'no nip_routing/nip_classification out-of-allowlist scenario exists at all'). Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "fluxo": "nip",
+      "canal": "portal_beneficiario",
+      "numero_nip_ans": "NIP-EVL-GUSTAVO-07",
+      "classificacao_nip": "outro",
+      "tema_nip": "cobertura",
+      "contesta_negativa": false,
+      "documentacao_suficiente": true,
+      "data_recebimento_nip_iso": "2026-06-01"
+    }
+  },
+  "recorded_llm": [
+    "Roteamento do NIP fora da tabela reconhecida; encaminhado para revisao juridica conservadora, nunca uma resposta automatica."
+  ],
+  "dmn_fixture": {
+    "nip_classification": {
+      "classificacao": "ASSISTENCIAL_OUTRO",
+      "grupo_revisor": "regulatorio-ans",
+      "prazo_dias": 10
+    },
+    "nip_sla": {
+      "prazo_resposta_iso": "P10D",
+      "prazo_resposta_absoluto_iso": "2026-06-11",
+      "sla_alerta_iso": "P7D",
+      "sla_alerta_absoluto_iso": "2026-06-08"
+    },
+    "nip_routing": {
+      "roteamento": "ROTEAMENTO_DESCONHECIDO"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "instruct_nip",
+      "motivo_humano": "ambiguidade",
+      "classificacao": "ASSISTENCIAL_OUTRO",
+      "process_key": "SP-OP-NIP-001",
+      "desfecho": "nip_encaminhada_instrucao_humana"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "signal:ambiguity"
+  ]
+}

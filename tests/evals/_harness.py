@@ -33,6 +33,23 @@ know in advance which cases will need it. This is the README's second documented
 "nobody but B0 edits `_harness.py`". No existing eval's behavior changes: a case without
 `__rules__` in its `dmn_fixture` falls through `RuleAwareFakeDmnTransport.evaluate` to
 `FakeDmnTransport.evaluate`'s identical static-row path.
+
+EVAL-HARNESS-SENDER (2026-09-05, NEW-07 `EVAL-ABS-CHECK-BLIND-TO-SENDER-OUTPUT`) is this
+README's FOURTH documented exception, and is purely ADDITIVE (like WP-EVALS'/CC-01's/CC-08's,
+unlike RAF-06's): `RunResult` gains a `whatsapp` field, `run_case` gains one new default
+(`config["whatsapp"]` now defaults to a fresh `FakeWhatsAppSender()` before `extra_config` is
+merged in, so every case gets a recording sender even when its `build_fn` never reads that key
+— seven of ten agents don't), and `assert_no_leak` gains one new keyword-only parameter,
+`sender`, defaulting to `None`. No existing call to `assert_no_leak` (every one of them
+positional, two-argument, today) changes behavior; `run_mutation_check`'s own single internal
+call is extended to pass `sender=result.whatsapp` so every existing
+`*_mutation_check_leak_is_non_vacuous` test gains sender-output coverage for free without
+editing those files. THE WHY: `assert_no_leak(result.state, ...)` — the shape every existing ABS
+check uses — is structurally blind to any text a graph only ever hands to an outbound sender
+(`WhatsAppSender.send`) without also copying into the state dict it returns; `src/maezo/agents/
+lucas/graph.py::LucasGraph.send_escalation_ack` is exactly such a call site (its LLM-drafted
+`ack_text` is sent, never returned). See `tests/evals/test_harness_sender_leak.py` for the
+non-vacuousness proof (reuses `EVL-LUCAS-02` read-only) and this README's own section below.
 """
 
 from __future__ import annotations
@@ -49,6 +66,7 @@ from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
 from .conftest import (
+    FakeWhatsAppSender,
     ReplayExhaustedError,
     ReplayInferenceProvider,
     ReplayUnconsumedResponsesError,
@@ -97,6 +115,15 @@ class RunResult:
     live there, not in the returned state), mirroring how
     `tests/unit/agents/test_helena.py::test_cpf_bearing_field_value_never_reaches_engine_variables`
     inspects a recording CibSeven double directly.
+
+    `whatsapp` (EVAL-HARNESS-SENDER, NEW-07) is the recording `WhatsAppSender` double `run_case`
+    wired into this turn's `config["whatsapp"]` — the default `FakeWhatsAppSender()` unless a
+    caller's `extra_config` overrode it. It is ALWAYS present (populated for every agent, not
+    only the three that actually declare a `whatsapp` seam), because a graph that never sends
+    anything just leaves `whatsapp.sent == []` — harmless to inspect, never a false positive.
+    Pass it to `assert_no_leak(..., sender=result.whatsapp)` to fold every `(to_hash, text)`
+    pair actually sent into the ABS scan, closing the exact gap `send_escalation_ack`'s
+    LLM-drafted, never-returned `ack_text` exposed (see `test_harness_sender_leak.py`).
     """
 
     state: dict[str, Any]
@@ -104,6 +131,7 @@ class RunResult:
     dmn: FakeDmnTransport
     cibseven: FakeCibSevenTransport
     audit_sink: FakeStartAuditSink
+    whatsapp: FakeWhatsAppSender | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -318,8 +346,12 @@ async def run_case(
     the SAME contract `AgentLoader`/the harness use in production, so an eval exercises the real
     build path, not a bespoke test-only wiring. `extra_config` supplies whatever additional
     keyword `build_fn` needs beyond the four seams every graph shares (`inference`/`dmn`/
-    `cibseven`/`audit_sink`) — e.g. `{"whatsapp": FakeWhatsAppSender()}` for the classifier-family
-    agents (helena/fernando/lucas).
+    `cibseven`/`audit_sink`) — e.g. an OVERRIDING `{"whatsapp": FakeWhatsAppSender(fail=True)}`
+    for a caller that wants a specific sender double; `config["whatsapp"]` already defaults to a
+    fresh `FakeWhatsAppSender()` below (EVAL-HARNESS-SENDER, NEW-07) for every case, so the
+    classifier-family agents (helena/fernando/lucas — the only `build_fn`s that actually read
+    this key) never need to pass it just to get one. Whichever double ends up in `config` is
+    exposed back on the returned `RunResult.whatsapp`.
 
     UN-SWALLOWABLE REPLAY-EXHAUSTION CONTRACT (EVAL-REPLAY-EXHAUSTION-SWALLOWED): production agent
     graphs legitimately wrap their LLM calls in `except Exception` fail-safe fallbacks, which would
@@ -343,6 +375,12 @@ async def run_case(
         "dmn": dmn,
         "cibseven": cibseven,
         "audit_sink": audit_sink,
+        # EVAL-HARNESS-SENDER (NEW-07): a recording sender wired by default into EVERY case, not
+        # only the classifier-family ones whose `build_fn` reads this key — the other seven
+        # agents' `build(config)` ignore it (`cfg.get("whatsapp")` is never called), so it is a
+        # harmless, unused key for them. `extra_config` below still wins when a caller supplies
+        # its own `whatsapp` double (e.g. `FakeWhatsAppSender(fail=True)`).
+        "whatsapp": FakeWhatsAppSender(),
     }
     if extra_config:
         config.update(extra_config)
@@ -375,6 +413,7 @@ async def run_case(
         dmn=dmn,
         cibseven=cibseven,
         audit_sink=audit_sink,
+        whatsapp=config.get("whatsapp"),
     )
 
 
@@ -402,17 +441,28 @@ def assert_expect(state: Mapping[str, Any], expect: Mapping[str, Any]) -> None:
         )
 
 
-def assert_no_leak(blob: Any, canaries: Sequence[str]) -> None:
-    """ABS: assert none of `canaries` appear anywhere in `blob`'s serialized form.
+def assert_no_leak(blob: Any, canaries: Sequence[str], *, sender: FakeWhatsAppSender | None = None) -> None:
+    """ABS: assert none of `canaries` appear anywhere in `blob`'s serialized form, NOR (when
+    `sender` is given) in any text actually sent through it this turn.
 
     `blob` is typically a `RunResult.state` dict, but any JSON-serializable value works (e.g. a
     dossier agent's recorded CibSeven variables, `RunResult.cibseven.get_process_status(...)`'s
     result) — mirrors `tests/unit/agents/test_rafael_input_hardening.py`'s
     `_SLA_SENTINEL not in blob` pattern, generalized to a list of synthetic-PHI canaries.
+
+    `sender` (EVAL-HARNESS-SENDER, NEW-07 `EVAL-ABS-CHECK-BLIND-TO-SENDER-OUTPUT`) closes a
+    structural blind spot: `blob=result.state` alone never sees text a graph handed only to an
+    outbound `WhatsAppSender` without also copying it into the state dict it returns —
+    `src/maezo/agents/lucas/graph.py::LucasGraph.send_escalation_ack` is exactly such a call
+    site (its LLM-drafted `ack_text` is sent via `self._whatsapp.send(...)` but never returned).
+    Pass `sender=result.whatsapp` (present on every `RunResult`, default or overridden) to fold
+    every `(to_hash, text)` pair it actually sent into the SAME serialized scan. Keyword-only and
+    defaulting to `None` — every pre-existing two-positional-argument call site is unaffected.
     """
     if not canaries:
         return
-    serialized = json.dumps(blob, ensure_ascii=False, default=str)
+    payload: Any = blob if sender is None else {"blob": blob, "sent": list(sender.sent)}
+    serialized = json.dumps(payload, ensure_ascii=False, default=str)
     for canary in canaries:
         assert canary not in serialized, f"ABS violation: leak canary {canary!r} found in emitted output"
 
@@ -771,12 +821,17 @@ async def run_mutation_check(
     `expect`/`leak_canaries` do NOT raise. Swallows the expected internal `AssertionError` from
     the (correctly failing) mutated check and returns normally — that's the passing case for
     THIS function (the eval is proven non-vacuous).
+
+    The internal `assert_no_leak` call passes `sender=result.whatsapp` (EVAL-HARNESS-SENDER,
+    NEW-07): every existing `run_mutation_check(..., mutation=lambda c: mutate_plant_canary(c,
+    ...))` call site across every family file gains sender-output coverage for free — for an
+    agent that never sends anything, `result.whatsapp.sent` stays `[]` and this is a no-op.
     """
     mutated = mutation(case)
     result = await run_case(build_fn, mutated, extra_config=extra_config)
     try:
         assert_expect(result.state, mutated.get("expect") or {})
-        assert_no_leak(result.state, mutated.get("leak_canaries") or [])
+        assert_no_leak(result.state, mutated.get("leak_canaries") or [], sender=result.whatsapp)
     except AssertionError:
         return  # expected: the corrupted golden failed its own assertion -> eval is non-vacuous
     raise AssertionError(

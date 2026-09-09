@@ -24,6 +24,8 @@ import yaml
 
 from maezo.agents.beatriz.graph import (
     _CALLER_INPUT_FIELDS,
+    _SUMMARY_ALLOWED_KEYS,
+    _SUMMARY_PROJECTION,
     ERROR_CONTEXTO_RUNTIME_AUSENTE,
     NOTE_FHIR_READER_NAO_CONFIGURADO,
     NOTE_NARRATIVA_INDISPONIVEL,
@@ -202,7 +204,11 @@ def test_beatriz_agent_yaml_matches_fraude_domain() -> None:
     assert data["escalation"]["process"] == "SP-OP-FRAUDE-001"
     # Allowlist TIGHT (action-real): FHIR read + memory ONLY — no cibseven/dmn tool, matching
     # this graph's deliberate refusal of those transports (`build`'s docstring).
-    assert data["tools"] == ["mcp-fhir.read_patient", "mcp-memory.read_write"]
+    # O id FHIR e `read_patient_summary` desde o WP FHIR-TOOL-SURFACE-PARITY (BEA-13): e o metodo
+    # que `gather` REALMENTE chama (`PatientSummaryReader.read_patient_summary`) e, portanto, o
+    # `tool_id` que o L1 do PEP compara com esta lista. Com o id anterior
+    # (`mcp-fhir.read_patient`) a leitura da propria Beatriz era negada com `TOOL_NAO_DECLARADA`.
+    assert data["tools"] == ["mcp-fhir.read_patient_summary", "mcp-memory.read_write"]
 
 
 def test_beatriz_agent_yaml_pins_zero_auto_accusation_kpis() -> None:
@@ -424,6 +430,23 @@ _NOTE_RESUMO_RECUSADO = "resumo_fhir_recusado"
 
 #: The closed projection allowlist, restated as a literal for the same reason.
 _SUMMARY_KEYS = {"resourceType", "id"}
+
+
+def test_summary_projection_allowlist_is_pinned_by_membership() -> None:
+    """BEA-06 hardening. `test_gather_projects_summary_to_the_closed_allowlist` below only
+    asserts `set(result["summary_facts"]) <= _SUMMARY_KEYS`, a check that fires ONLY for keys
+    present in one fake reader's payload — a WIDENED `_SUMMARY_PROJECTION` (e.g. a new free-text
+    key such as `narrativa`) is invisible to it as long as no test payload happens to carry that
+    key (proven live during assurance: adding `"narrativa": lambda value, ref: isinstance(value,
+    str)` to `_SUMMARY_PROJECTION` leaves the FULL unit lane green while a CPF-bearing value
+    flows through to the dossier). This pins the allowlist by MEMBERSHIP instead of by
+    payload-dependent subset, and also wires `_SUMMARY_ALLOWED_KEYS` into an executable check
+    (REG-05: previously referenced only in docstring prose — zero executable references) so the
+    two constants cannot silently drift apart either.
+    """
+    assert set(_SUMMARY_PROJECTION) == _SUMMARY_KEYS
+    assert frozenset(_SUMMARY_KEYS) == _SUMMARY_ALLOWED_KEYS
+    assert frozenset(_SUMMARY_PROJECTION) == _SUMMARY_ALLOWED_KEYS
 
 
 class _ShapeShiftingReader:
@@ -743,20 +766,39 @@ async def test_instruct_score_is_consumed_never_recomputed() -> None:
     assert result["dossier"]["fatos"]["n_evidencia"] == 2
 
 
-async def test_instruct_missing_score_defaults_zero_never_derived_from_evidence() -> None:
+async def test_instruct_missing_score_becomes_lacuna_never_a_silent_zero() -> None:
+    """BEA-04 (fleet audit ciclo 2): an ABSENT `score_indicadores` used to collapse to `0`,
+    a value indistinguishable from a genuine "zero indicators" routing fact. It must now surface
+    as `None` + a visible class-token lacuna in the sealed dossier a human investigator reads."""
     state = _gathered_state(
         evidencia_normalizada=[{"ref": f"evd://n/{i}"} for i in range(5)],
     )
     del state["score_indicadores"]  # type: ignore[misc]
     result = await _graph().instruct_investigation(state)
-    assert result["dossier"]["score_indicadores"] == 0  # absent -> 0, never len(evidencia)*10
+    assert result["dossier"]["score_indicadores"] is None  # absent -> None, never a masking 0
+    assert "score_indicadores_ausente" in result["dossier"]["lacunas"]
+    assert "score_indicadores_ausente" in result["dossier"]["fatos"]["lacunas"]
 
 
-async def test_instruct_non_int_score_collapses_to_zero() -> None:
+async def test_instruct_non_int_score_becomes_lacuna_never_a_silent_zero() -> None:
+    """BEA-04: a corrupted (non-int) `score_indicadores` used to collapse to `0` with NO trace
+    in the dossier — the exact defect the audit's own probe reproduced. It must now surface as
+    `None` + `score_indicadores_invalido`, never len(evidencia)*10, never a masking 0."""
     result = await _graph().instruct_investigation(
         _gathered_state(score_indicadores="99; DROP TABLE")  # type: ignore[typeddict-item]
     )
-    assert result["dossier"]["score_indicadores"] == 0
+    assert result["dossier"]["score_indicadores"] is None
+    assert "score_indicadores_invalido" in result["dossier"]["lacunas"]
+    assert "score_indicadores_invalido" in result["dossier"]["fatos"]["lacunas"]
+
+
+async def test_instruct_bool_score_is_rejected_never_treated_as_zero_or_one() -> None:
+    """`bool` is an `int` subclass in Python — `require_number` must reject it explicitly, or a
+    planted `score_indicadores=False`/`True` would silently read as a genuine 0/1 score."""
+    hostile = cast(BeatrizState, {**_gathered_state(), "score_indicadores": False})
+    result = await _graph().instruct_investigation(hostile)
+    assert result["dossier"]["score_indicadores"] is None
+    assert "score_indicadores_invalido" in result["dossier"]["lacunas"]
 
 
 async def test_instruct_indicadores_and_intensidade_are_passthrough_facts() -> None:

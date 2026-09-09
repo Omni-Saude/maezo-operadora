@@ -327,8 +327,8 @@ def state_from_envelope(envelope: DelegationEnvelope) -> ValentinaState:
 
     Enforces her input boundary (`graph._CALLER_INPUT_FIELDS`) by ALLOWLIST-BY-CONSTRUCTION: an
     unknown/output-only `payload_meta` key is silently DROPPED (never read, never copied). The
-    `unknown` check below is a structural, currently-unreachable regression guard, identical to
-    Carolina's.
+    `unknown` check below is a structural regression guard, identical to Carolina's (REG-06:
+    exercised for real by a monkeypatch test, not `# pragma: no cover`).
 
     Fails closed on a missing identity: her business key is
     `PROG-{tenant}-{programa}-{benef}-{ciclo}` and `receive` refuses without all three — which
@@ -359,7 +359,7 @@ def state_from_envelope(envelope: DelegationEnvelope) -> ValentinaState:
             raw[key] = _as_bool(meta[key])
 
     unknown = sorted(k for k in raw if k not in _CALLER_INPUT_FIELDS)
-    if unknown:  # pragma: no cover - structural guard; raw is built from the allowlists above.
+    if unknown:  # REG-06: exercised for real, see test_valentina_delegation.py's monkeypatch fence.
         raise ValueError(
             f"state_from_envelope produced non-input keys for Valentina: {unknown} — only "
             "graph._CALLER_INPUT_FIELDS may be seeded by a delegation seam"

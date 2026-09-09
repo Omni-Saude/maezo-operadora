@@ -2,7 +2,9 @@
   "id": "EVL-BEATRIZ-01",
   "agent": "beatriz",
   "class": "CE",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "Clear fraud indicators (multiple pre-resolved worker indicators, PRIORITARIA intensity) arrive already scored by the upstream operadora.fraude.score_indicators worker. Beatriz's single substantive node (instruct_investigation) assembles the investigation dossier from these facts -- it never accuses, never decides, never recomputes the score. Synthetic data only (tenant amh, synthetic case/entity ids).",
   "input": {
     "state": {
@@ -16,11 +18,24 @@
       "encaminhado_por_id": "analista-eval-01",
       "competencia": "2026-06",
       "evidencia_refs": [
-        {"ref": "evd://tiss/lote-eval-01", "hash": "h-eval-01a", "origem": "tiss"},
-        {"ref": "evd://cdc/item-eval-01", "hash": "h-eval-01b", "origem": "cdc", "tipo": "conta"}
+        {
+          "ref": "evd://tiss/lote-eval-01",
+          "hash": "h-eval-01a",
+          "origem": "tiss"
+        },
+        {
+          "ref": "evd://cdc/item-eval-01",
+          "hash": "h-eval-01b",
+          "origem": "cdc",
+          "tipo": "conta"
+        }
       ],
       "feature_snapshot_ref": "snap://prov-eval-01/2026-06",
-      "indicadores_presentes": ["upcoding_ceiling", "peer_deviation", "billing_frequency_outlier"],
+      "indicadores_presentes": [
+        "upcoding_ceiling",
+        "peer_deviation",
+        "billing_frequency_outlier"
+      ],
       "score_indicadores": 82,
       "intensidade_investigacao": "PRIORITARIA",
       "indicio_fraude_sinalizado": true
@@ -34,5 +49,8 @@
       "desfecho": "dossie_instruido"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "signal:indicador_presente"
+  ]
 }

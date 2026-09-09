@@ -91,6 +91,33 @@ class TestProcessKeyFence:
         assert not report.ok
         assert any("SP-OP-FANTASMA-001" in f.message for f in report.findings)
 
+    def test_escalation_secondary_process_is_fenced_too(self, tmp_path: Path) -> None:
+        """GUS-06 (Agent Fleet Audit): `escalation.secondary_process` (lucas's own convention for
+        a two-process agent, `escalation.secondary_process: SP-OP-CANCEL-001`) is the SAME kind
+        of process-key reference as `escalation.process` — a phantom key here must fail exactly
+        as loudly, not slip through unvalidated forever."""
+        agent_dir = tmp_path / "esc-agent-2"
+        agent_dir.mkdir(parents=True)
+        path = agent_dir / "agent.yaml"
+        path.write_text(
+            _BASE_YAML.format(keys="  - SP-OP-AUTH-001")
+            + "escalation:\n  process: SP-OP-AUTH-001\n  secondary_process: SP-OP-FANTASMA-001\n"
+        )
+        report = _validate(path)
+        assert not report.ok
+        assert any("SP-OP-FANTASMA-001" in f.message for f in report.findings)
+
+    def test_valid_escalation_secondary_process_passes(self, tmp_path: Path) -> None:
+        agent_dir = tmp_path / "esc-agent-3"
+        agent_dir.mkdir(parents=True)
+        path = agent_dir / "agent.yaml"
+        path.write_text(
+            _BASE_YAML.format(keys="  - SP-OP-AUTH-001")
+            + "escalation:\n  process: SP-OP-AUTH-001\n  secondary_process: SP-OP-CANCEL-001\n"
+        )
+        report = _validate(path)
+        assert report.ok, [f.message for f in report.findings]
+
 
 class TestTemplateStaysSkipped:
     def test_validate_dir_still_skips_the_template_directory(self, tmp_path: Path) -> None:

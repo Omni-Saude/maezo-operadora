@@ -1177,26 +1177,45 @@ def start_contratual(
 
 
 # ---------------------------------------------------------------
-# publish_completed — publishing completion event
+# publish_completed — APOSENTADA (FAB-PUBLISH-CONTACT / NEW-A2-1)
+#
+# Havia aqui um `publish_completed(variables)` registrado como `FunctionWorker` no topico
+# `operadora.fraude.publish_completed`. Foi REMOVIDO — funcao e registro — por tres motivos que se
+# somam, e nao por um so:
+#
+#  1. ORFAO. Nenhum `serviceTask` de SP-OP-FRAUDE-001 (nem de qualquer outro BPMN em
+#     `spec/processes/bpmn/**`) declara esse `camunda:topic`. Todo `ST_Publish*` deste processo
+#     roteia pelo generico `operadora.events.publish`. Um topico que nenhum `serviceTask` declara
+#     nunca recebe external task: a funcao era codigo morto do ponto de vista do engine.
+#  2. FATO FABRICADO. O corpo tinha uma unica instrucao (`logger.info`) e mesmo assim devolvia
+#     `evento_publicado: True`. CORRECAO §Delta F4 da redacao anterior desta nota (ela chamava
+#     `_SAFE_DECISION_BASIS_KEYS` de "allowlist de escrita de escopo da harness", o que esta
+#     errado e SUBESTIMA a exposicao): o `complete` da harness grava o retorno INTEIRO no escopo
+#     do processo (`dict(out_vars) if out_vars else {}`, sem filtro nenhum), entao a afirmacao
+#     entrava na instancia INDEPENDENTEMENTE de qualquer allowlist;
+#     `_SAFE_DECISION_BASIS_KEYS` (`harness.py::build_decision_basis`) e a allowlist do
+#     `decision_basis` do ADR-0007 — e o fato de a chave estar LA e o que ADICIONALMENTE levava o
+#     publish que nunca ocorreu para a trilha NAO-REPUDIAVEL de uma investigacao de fraude. Este
+#     modulo nao tem UM call site de `kafka.publish(` (`register_fraude_workers` faz
+#     `del kafka  # unused`). Quem publica de verdade e `events.py`, e ele reporta
+#     `event_published` a partir do bool de entrega REAL do produtor (mais
+#     `event_publish_best_effort_failure` quando a falha e engolida).
+#  3. SEGUNDA FONTE DE VERDADE, E ERRADA. O `desfecho` era recalculado em Python a partir de
+#     `decisao_fraude`, enquanto o BPMN ja fixa o vocabulario como literal `event_desfecho` em
+#     cada uma das SEIS tasks de publicacao de desfecho. A copia em Python conhecia dois valores e
+#     mapeava TUDO que nao fosse `ACUSAR_FRAUDE` para `arquivado_sem_indicio` — errado para 4 dos
+#     5 terminais (`monitorar`, `encaminhado_credenciamento`, `encaminhado_contratual`,
+#     `encaminhado_juridico`). Decisao de negocio pertence ao BPMN/DMN, nao ao worker (C3).
+#
+# POR QUE NAO UM TOKEN `GAP_*` (a diferenca deliberada para `refer_to_legal`/`gather_evidence`).
+# Nao ha lacuna a declarar: o evento de desfecho E publicado, por `ST_Publish*` ->
+# `operadora.events.publish` -> `events.py`. Emitir um `publish_gap` afirmaria uma lacuna
+# INEXISTENTE — o mesmo defeito de honestidade na direcao oposta, como ja registrado na docstring
+# de `intake` (FAB-INTAKE-CASO-REGISTRADO). Remover e o mesmo tratamento dado a
+# `operadora.lgpd.publish_completed` (LGPD-PUBLISH-COMPLETED-ORPHAN-TOPIC, decisao do dono R-103,
+# remedio R-H) e a `operadora.programa.monitor_programa` (PERSP-C5-MONITOR-PROGRAMA); registro da
+# decisao em `docs/processes/catalog.md`, nao so nesta mensagem de commit.
 # ---------------------------------------------------------------
-
-
-def publish_completed(variables: dict[str, Any]) -> dict[str, Any]:
-    """Publish domain event for case completion."""
-    desfecho = "arquivado_sem_indicio"
-    if variables.get("decisao_fraude") == DECISAO_ACUSAR_FRAUDE:
-        desfecho = "fraude_confirmada_humano"
-
-    logger.info(
-        "fraude_publish_completed",
-        numero_caso=variables.get("numero_caso"),
-        desfecho=desfecho,
-    )
-
-    return {
-        "evento_publicado": True,
-        "desfecho": desfecho,
-    }
 
 
 # ---------------------------------------------------------------
@@ -1218,13 +1237,13 @@ class FraudeError(Exception):
 #
 # Topic mapping vs spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn
 # (excl. shared/out-of-scope `operadora.events.publish`) — all 10 spec-declared
-# `operadora.fraude.*` topics now have an EXACT 1:1 name match with their
-# implementing function (t2.5-p2b-round2 added `notify_sla_risk`, closing the
-# prior gap). publish_completed has no distinct spec topic (folds into the
-# generic events.publish task per BPMN) — registered under a function-derived
-# topic for registry completeness (documented orphan, ACCEPT — see
+# `operadora.fraude.*` topics have an EXACT 1:1 name match with their implementing
+# function (t2.5-p2b-round2 added `notify_sla_risk`, closing the prior gap), and
+# NOTHING ELSE is registered: FAB-PUBLISH-CONTACT retired the 11th topic,
+# `operadora.fraude.publish_completed` (see the block above `FraudeError` for why).
+# Both directions are pinned — no missing worker AND no orphan — by
 # tests/integration/processes/test_sp_op_fraude_001.py::
-# test_bpmn_fraude_topics_vs_registered_workers).
+# test_bpmn_fraude_topics_vs_registered_workers.
 # ---------------------------------------------------------------
 
 
@@ -1274,4 +1293,3 @@ def register_fraude_workers(
             functools.partial(start_contratual, engine=engine, audit_sink=audit_sink),
         )
     )
-    harness.register_worker(FunctionWorker("operadora.fraude.publish_completed", publish_completed))

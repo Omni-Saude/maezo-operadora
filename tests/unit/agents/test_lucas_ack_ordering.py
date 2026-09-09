@@ -48,18 +48,27 @@ class _FakeInference:
 
 
 class _FakeDmn:
+    # P-17 (PROTOCOL-FAKE-FENCES, REG-04): parametros renomeados para os do Protocol real
+    # `tools/workers/dmn_transport.py::DmnTransport.evaluate` -- so' o NOME mudou (chamadas
+    # reais sao posicionais), nenhum comportamento.
     async def evaluate(
-        self, table: str, dmn_input: dict[str, Any]
+        self, decision_key: str, variables: dict[str, Any], *, tenant: str | None = None
     ) -> tuple[list[dict[str, Any]], DmnVersion]:
         return ([{"roteamento": "ATENDIMENTO_HUMANO"}], DmnVersion("t", "id1", 1, "d1"))
 
 
 class _RecordingWhatsApp:
-    def __init__(self) -> None:
-        self.sent: list[tuple[str, str]] = []
+    """LUC-08: `send` now requires `idempotency_key` (`graph.WhatsAppSender`'s real shape) —
+    recorded as the tuple's third element. Parameter also renamed `to` -> `to_hash` to match the
+    real Protocol's own parameter name (this fake predates that convention)."""
 
-    async def send(self, to: str, text: str) -> dict[str, Any]:
-        self.sent.append((to, text))
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, str]] = []
+
+    # P-17 (REG-04): `to` -> `to_hash`, o nome do Protocol real
+    # `agents/lucas/graph.py::WhatsAppSender.send` (chamadas reais sao posicionais).
+    async def send(self, to_hash: str, text: str, *, idempotency_key: str) -> dict[str, Any]:
+        self.sent.append((to_hash, text, idempotency_key))
         return {"ok": True}
 
 

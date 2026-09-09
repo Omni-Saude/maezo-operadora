@@ -71,10 +71,21 @@ class _RecordingWhatsApp:
         self.sent: list[tuple[str, str]] = []
         self._fail = fail
 
-    async def send(self, to: str, text: str) -> dict[str, Any]:
+    # P-17 (PROTOCOL-FAKE-FENCES, REG-04): `to` -> `to_hash`, o nome do Protocol real
+    # `WhatsAppSender.send` (chamadas reais sao posicionais, nenhum comportamento muda).
+    # Trem train-b (LUC-08 x P-17): este falso e COMPARTILHADO por helena/fernando/lucas
+    # (o grafo vem de `importlib.import_module(f"maezo.agents.{agent_id}.graph")`), e depois
+    # de LUC-08 os tres Protocols DIVERGEM: so lucas declara `*, idempotency_key: str` (sem
+    # default). Nenhuma assinatura EXPLICITA satisfaz os tres — medido: com o kwonly exigido a
+    # cerca aponta "keyword-only extra" contra helena/fernando; com default, aponta tambem
+    # "Protocol nao tem default, falso tem" contra lucas. `**_kwargs` e a saida que a PROPRIA
+    # cerca declara (`if not tem_varkw_fake:` em `_ofensas_de_assinatura`): um falso que aceita
+    # qualquer keyword nao pode quebrar chamador nenhum. Nada foi enfraquecido nem alargado nos
+    # Protocols de helena/fernando.
+    async def send(self, to_hash: str, text: str, **_kwargs: Any) -> dict[str, Any]:
         if self._fail:
             raise RuntimeError("whatsapp indisponivel (probe CC-09)")
-        self.sent.append((to, text))
+        self.sent.append((to_hash, text))
         return {"ok": True}
 
 
@@ -380,9 +391,10 @@ async def test_fernando_start_process_success_emits_one_desfecho(monkeypatch: py
 
 
 async def test_helena_respond_inform_emits_resolvido_automatico(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Caminho `inform` (sem escalacao): `HelenaState.desfecho` e' campo morto (nunca escrito por
-    nenhum no de Helena) — o `desfecho` do label e' DERIVADO de `escalation_started`/
-    `response_kind`, nao lido de `state["desfecho"]`."""
+    """Caminho `inform` (sem escalacao): `HelenaState.desfecho` NAO e' mais campo morto (NEW-10,
+    §Delta-F3) — `respond` GRAVA o mesmo valor em `saida["desfecho"]` neste ramo tambem — mas o
+    `desfecho` do LABEL de telemetria continua DERIVADO de `escalation_started`/`response_kind`,
+    nunca LIDO de volta de `state["desfecho"]`."""
     from maezo.agents.helena.graph import HelenaGraph
 
     calls = _spy(monkeypatch)

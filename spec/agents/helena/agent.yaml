@@ -21,16 +21,29 @@ security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
 prompt_versions:                      # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
-  classify: classify-v1
-  response: response-v1
+  classify: classify-v2
+  response: response-v2
 model:
   task_default: { tier: fast }        # triagem/classificacao
   reasoning:    { tier: frontier }    # casos ambiguos
 tools:                               # ids EXATOS registrados pelos mcp_* servers
   - mcp-dmn.evaluate                  # triage_redflag_*, elegibilidade informativa
-  - mcp-fhir.read_patient_summary     # Patient (leitura) — acao read_phi_data (L3)
-  - mcp-fhir.read_coverage            # Coverage por id (leitura) — acao read_phi_data (L3); GAP-TRIAGE-5
-  - mcp-fhir.search_coverage          # Coverage por paciente (leitura) — acao read_phi_data (L3); GAP-TRIAGE-5
+  # mcp-fhir.read_patient_summary e mcp-fhir.search_coverage REMOVIDOS (NEW-09/GAP-TRIAGE-5, WP
+  # FHIR-TOOL-SURFACE-PARITY): nenhum no deste grafo le FHIR (`graph.py` nao tem campo `_fhir`,
+  # helena esta ausente de `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`), entao os dois ids
+  # eram concessao de autonomia + superficie de ataque sem contrapartida. Os dois continuam
+  # catalogados e declarados por quem realmente os exerce (read_patient_summary: carolina/marina/
+  # valentina/beatriz; search_coverage: rafael). Reintroduzir SO junto com o no que os usar.
+  - mcp-fhir.read_coverage            # Coverage por id (leitura) — NENHUM no o exerce.
+                                      # MANTIDO por OWNER-GATE, nao por uso: helena e o UNICO
+                                      # agent.yaml que declara este id, e
+                                      # test_every_catalogued_tool_id_is_declared_by_some_agent
+                                      # exige que todo id de effect_classes.CATALOGUED_TOOL_IDS
+                                      # seja declarado por >=1 agente. Tirar o id do catalogo
+                                      # exigiria editar spec/policies/autonomy/action-approvals.
+                                      # yaml (round-trip EXATO com OPERATIONS — fence §8.5 item
+                                      # 3), arquivo CODEOWNED. Mesma especie da excecao de
+                                      # gustavo em mcp-cibseven.*.
   - mcp-cibseven.start_process        # somente SP-OP-ESCALATION-001 (start idempotente)
   - mcp-whatsapp.send_message         # alias registrado de send_text (efeito L3)
   - mcp-memory.read_write             # working/episodic/semantic (ADR-0002) — alias registrado;
@@ -42,7 +55,28 @@ autonomy_policy: ../../policies/autonomy
 autonomy_actions:                     # acoes REAIS da matriz L0-core exercidas por esta jornada
   - query_decision_engine             # DMN de triagem (mcp-dmn.evaluate) — L3
   - start_compliance_process          # SP-OP-ESCALATION-001 (mcp-cibseven.start_process) — L2
-  - read_phi_data                     # leitura FHIR Patient/Coverage (mcp-fhir.*) — L3
+  # read_phi_data REMOVIDO (NEW-09, WP FHIR-TOOL-SURFACE-PARITY): nenhum no de helena le FHIR
+  # (`graph.py` nao tem campo `_fhir`), entao declarar a acao seria afirmar uma capacidade que a
+  # jornada nao exerce. ISTO E HIGIENE DE SPEC, NAO UMA SEGUNDA CAMADA DE ENFORCEMENT: o L2 do
+  # PEP (`gateway/effect_pep.py::_l2_autonomy` -> `gateway/pep.py::PEP.evaluate`) decide sobre a
+  # matriz de `spec/policies/autonomy/L0-core.yaml` + overlay do tenant, que e AGNOSTICA DE
+  # AGENTE (o docstring de `PEP.evaluate` diz que o contexto do agente e "used only for audit
+  # logging; it does not influence the decision"), e `grep -rn "\.autonomy_actions" src/ scripts/`
+  # -> 0 hits: nenhum codigo de producao le este campo. Reintroduzir a acao aqui NAO deixa
+  # nenhuma cerca vermelha hoje (contrafactual medido) e remove-la nao acrescenta negacao alguma:
+  # com a acao ja removida, `decide_effect(principal='helena', operation='fhir.read_coverage')`
+  # atravessa L1..L4 devolvendo None (o L2 loga `pep_allow action=read_phi_data`) e so nega no
+  # L5. O motivo real do L2, quando ele nega, e `AUTONOMIA_NEGADA` — e nao e ele que dispara aqui.
+  # O QUE DE FATO SEGURA a leitura do `mcp-fhir.read_coverage` pinado acima sao duas coisas
+  # verificaveis: (1) L5 `MANIFESTO_NAO_RATIFICADO` — `action-approvals.yaml` esta `status:
+  # DRAFT`, negacao UNIVERSAL e owner-gated, nao especifica de helena, e e exatamente o gate que
+  # a ratificacao um dia levanta; e (2) a AUSENCIA de helena em
+  # `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`, unico lugar que preenche `deps["fhir"]` —
+  # ou seja, nenhuma raiz de composicao lhe constroi seam e a leitura NAO EXISTE. Apenas (2) e
+  # pinado por teste: `tests/unit/gateway/test_fhir_tool_surface_parity.py::
+  # {test_gated_seam_is_only_built_for_an_agent_that_actually_reads,
+  # test_pinned_declaration_never_coexists_with_a_built_seam}` ficam VERMELHAS no dia em que
+  # alguem acrescentar a chave de helena ao mapa.
   - send_beneficiary_message          # resposta WhatsApp (mcp-whatsapp.send_message) — L3
   - read_write_memory                 # memoria episodica/semantica (mcp-memory.read_write) — L3;
                                        # excecao disclosed (fence §8.5 item 2), sem no vivo hoje
@@ -76,3 +110,4 @@ a2a:
     - whatsapp_triage
   accepted_task_types: []      # Helena nao e alvo de delegacao no Phase 1
   queue_ref: agents.tasks.helena
+  handler_status: ausente   # `agents/helena/delegation.py` so ORIGINA (nao tem make_helena_handler inbound)

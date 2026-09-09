@@ -324,10 +324,14 @@ async def test_start_failure_error_field_never_carries_the_exception_text(
 class _VazandoDmn:
     """A avaliacao da DMN falha com uma mensagem que ecoa a variavel submetida (400 payload echo)."""
 
+    # P-17 (REG-04), trem train-b: parametros renomeados para os do Protocol real
+    # `tools/workers/dmn_transport.py::DmnTransport.evaluate` (`decision_key`/`variables`) — so' o
+    # NOME muda, as chamadas reais sao posicionais e nenhum comportamento e' afetado. Este falso
+    # nasceu no WP EXC-ERROR-FIELD (trem A), que a cerca P-17 ainda nao alcancava.
     async def evaluate(
-        self, table: str, dmn_input: dict[str, Any], *, tenant: str | None = None
+        self, decision_key: str, variables: dict[str, Any], *, tenant: str | None = None
     ) -> tuple[list[dict[str, Any]], DmnVersion]:
-        raise DmnEvaluationError(f"engine 400: payload echo [CPF {_CPF_SINTETICO}] for `{table}`")
+        raise DmnEvaluationError(f"engine 400: payload echo [CPF {_CPF_SINTETICO}] for `{decision_key}`")
 
 
 def _extra_de(agent_id: str) -> dict[str, Any]:

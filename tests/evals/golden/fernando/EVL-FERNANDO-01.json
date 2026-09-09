@@ -2,7 +2,9 @@
   "id": "EVL-FERNANDO-01",
   "agent": "fernando",
   "class": "CE",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "Routine overdue-invoice notice (J1 notificacao_previa) -> DMN inadimplencia_status says PENDENTE_NOTIFICACAO -> Fernando drafts + sends the regularization reminder, never a suspension/rescission communication. Synthetic data only.",
   "input": {
     "state": {
@@ -15,7 +17,9 @@
       "to_hash": "hash-evl-fernando-01",
       "tipo_plano": "individual",
       "origem_solicitacao": "cobranca",
-      "competencias_em_aberto": ["2026-05"],
+      "competencias_em_aberto": [
+        "2026-05"
+      ],
       "meses_inadimplencia": 1,
       "valor_total_devido_cents": 15000,
       "dentro_periodo_minimo": true,
@@ -29,7 +33,10 @@
     "Identificamos uma pendencia de pagamento em seu contrato. Regularize dentro do prazo para evitar a purga da inadimplencia."
   ],
   "dmn_fixture": {
-    "inadimplencia_status": {"roteamento": "PENDENTE_NOTIFICACAO", "motivo": "aviso previo pendente"},
+    "inadimplencia_status": {
+      "roteamento": "PENDENTE_NOTIFICACAO",
+      "motivo": "aviso previo pendente"
+    },
     "inadimplencia_purga": {
       "prazo_purga": "P10D",
       "prazo_notificacao_previa": "P50D",
@@ -43,5 +50,6 @@
       "status_inadimplencia": "PENDENTE_NOTIFICACAO"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": []
 }

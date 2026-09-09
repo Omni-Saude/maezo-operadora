@@ -37,15 +37,16 @@ O PADRAO (uma definicao, adotada por todos os 10 grafos — nunca 10 copias)
    pode derrubar um turno que ja terminou (mesma postura de `record_agent_turn`/
    `notify_start_failure`).
 
-NOTA HELENA (campo morto pre-existente, DISCLOSED, nao corrigido aqui)
+NOTA HELENA (campo morto FECHADO — NEW-10, §Delta-F3)
 -----------------------------------------------------------------------
 `HelenaState.desfecho` existe no TypedDict (`graph.py:245`) e e' inicializado como `""`
-(`graph.py:299`), mas NENHUM no de `helena/graph.py` jamais escreve nele — o sinal real de
-desfecho de Helena vive em `response_kind`/`escalation_started`/`escalation_motivo`. CC-09 NAO
-resssuscita o campo morto (fora do escopo: seria uma mudanca de forma de estado, nao de
-telemetria) — em vez disso, o call site em `helena/graph.py::respond` PASSA um `desfecho`
-derivado explicitamente via override, computado so' para esta chamada, sem tocar o `dict` que o
-no devolve.
+(`graph.py:299`). Ate 2026-09-05 NENHUM no de `helena/graph.py` escrevia nele fora do ramo de
+falha de start; desde entao `respond` GRAVA o mesmo valor em `saida["desfecho"]` em AMBOS os
+ramos (sucesso E falha) — deixou de ser campo morto. O LABEL da telemetria continua DERIVADO
+aqui, via override de `escalation_started`/`response_kind`/`escalation_motivo` — os sinais reais
+desta agente — e NUNCA lido de volta de `state.get("desfecho")`: o valor deste modulo e o valor
+gravado no estado sao a MESMA computacao feita uma vez, nunca uma leitura do outro (ver
+`helena/graph.py::respond` para a narracao completa e a razao de nao ler de volta).
 
 DISCIPLINA C3 (telemetria nao decide nada)
 --------------------------------------------
@@ -122,10 +123,22 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
             _DESFECHO_ERRO_INICIO_PROCESSO,
         }
     ),
+    # FERNANDO: os seis rotulos do caminho `notify` sao DUAS jornadas x TRES estados de entrega
+    # (auditoria de frota 2026-09-04, FER-03/FER-04). Ate essa data so' existiam os dois de
+    # SUCESSO, e `notify` os emitia mesmo quando o envio falhava ou o canal nao tinha remetente
+    # nenhum — o `enviada=False` que este mesmo modulo ja carregava ao lado tornava a contradicao
+    # visivel sem corrigi-la. Fonte dos literais: `agents/fernando/graph.py::
+    # {_DESFECHO_NOTIFICACAO_PREVIA,_DESFECHO_LEMBRETE}` (cerca:
+    # `tests/unit/agents/test_fernando_input_allowlist_fence.py::
+    # test_notify_desfecho_tables_are_declared_in_the_closed_vocabulary`).
     "fernando": frozenset(
         {
             "notificacao_previa_enviada",
+            "notificacao_previa_nao_enviada",
+            "notificacao_previa_canal_sem_entrega",
             "lembrete_regularizacao_enviado",
+            "lembrete_regularizacao_nao_enviado",
+            "lembrete_regularizacao_canal_sem_entrega",
             "encaminhado_analise_humana",
             _DESFECHO_ERRO_INICIO_PROCESSO,
         }
@@ -137,13 +150,37 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
             _DESFECHO_ERRO_INICIO_PROCESSO,
         }
     ),
-    # HELENA: `HelenaState.desfecho` e' campo morto (ver docstring do modulo) — o call site em
-    # `respond` passa um `desfecho` DERIVADO via override, um destes tres tokens.
-    "helena": frozenset({"resolvido_automatico", "escalado_humano", _DESFECHO_ERRO_INICIO_PROCESSO}),
+    # HELENA: `HelenaState.desfecho` NAO e' mais campo morto (ver NOTA HELENA no docstring do
+    # modulo, §Delta-F3) — `respond` GRAVA o mesmo `desfecho` DERIVADO via override, um destes
+    # quatro tokens, tanto no label da telemetria quanto de volta no `dict` que o no devolve.
+    "helena": frozenset(
+        {
+            "resolvido_automatico",
+            "escalado_humano",
+            _DESFECHO_ERRO_INICIO_PROCESSO,
+            # HEL-07: o rascunho de resposta voltou VAZIO e Helena NAO enviou nada. Precisa de
+            # token proprio: sem ele o valor cairia na normalizacao `"outro"` e o turno ficaria
+            # indistinguivel de qualquer outro desvio — que e' justamente o que este achado
+            # existe para tornar visivel (`agents/helena/graph.py::DESFECHO_RESPOSTA_VAZIA`).
+            "resposta_vazia_nao_enviada",
+        }
+    ),
     "lucas": frozenset(
         {
             "resposta_informativa_enviada",
             "lembrete_enviado",
+            # §Delta W4-HYGIENE F1b: o envio informativo foi SUPRIMIDO pelo guard duravel de
+            # idempotencia (LUC-08) — nao houve entrega neste turno, entao ele nao pode ser
+            # contado sob um token terminado em "enviada". Declarado aqui, e nao normalizado
+            # para `outro`, porque a taxa de supressao e' justamente o sinal que um operador
+            # precisa ver. Literal duplicado de `agents/lucas/graph.py::
+            # DESFECHO_ENVIO_SUPRIMIDO_DUPLICATA` (nunca importado — este modulo nao importa
+            # grafos); o teste `test_lucas.py::
+            # test_o_desfecho_de_envio_suprimido_esta_no_vocabulario_de_telemetria` e' o que
+            # impede as duas copias de divergirem. Deliberadamente FORA do numerador de
+            # `maezo_lucas_resolution_rate` (`deploy/observability/alert-rules.yml`): uma
+            # supressao nao e' uma resolucao.
+            "envio_suprimido_duplicata",
             "escalado_humano",
             _DESFECHO_ERRO_INICIO_PROCESSO,
         }
@@ -169,6 +206,10 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
     "valentina": frozenset(
         {
             "sem_consentimento",
+            # VAL-05 (fleet audit ciclo 2): distinct from a genuine no-consent verdict — reached
+            # only via `receive`'s missing-context guard (inability to VERIFY consent, never a
+            # verdict). Without this entry the label would silently normalize to "outro".
+            "falha_verificacao_consentimento",
             "interrompido_revogacao",
             "analise_humana_clinica",
             "enrollment_realizado",
@@ -269,9 +310,13 @@ def emit_turn_desfecho(
     NORMALIZACAO. Cada valor extraido passa por `_normalize` contra o vocabulario fechado do
     agente antes de alcancar `observability.record_agent_desfecho` — ver o docstring do modulo.
 
-    FAIL-SAFE. Nunca levanta: um defeito aqui (um `KeyError`, um `agent_id` sem vocabulario
-    registrado tentando `.labels()` com um valor inesperado) NAO pode derrubar um turno que ja
-    terminou. Mesma postura de `observability.record_agent_turn`/`notify_start_failure`.
+    FAIL-SAFE, MAS SO' CONTRA A FALHA DE METRICA (REG-03). Uma falha do registro Prometheus
+    (`.labels()` com nomes/quantidade errados, serie duplicada — sempre `ValueError`) NAO derruba
+    um turno que ja terminou: e' capturada e registrada em WARNING com o token de classe. Um BUG
+    deste modulo, porem, PROPAGA — `AttributeError` de um `state` que nao e' `Mapping`,
+    `TypeError` de uma assinatura derivada, `KeyError` de um contrato de estado violado. A postura
+    anterior (`except Exception:` + `logger.debug`) nao distinguia os dois e podia deixar o
+    contador `maezo_agent_desfecho_total` parar de emitir na frota inteira sem sinal nenhum.
     """
     try:
         raw_desfecho = state.get("desfecho") if desfecho is _UNSET else desfecho
@@ -300,5 +345,22 @@ def emit_turn_desfecho(
             start_failed=start_failed,
             flow=flow,
         )
-    except Exception:  # defensive: telemetry must never break a completed turn (BLE not in ruff select).
-        logger.debug("agent_desfecho_telemetry_emit_failed", agent_id=agent_id, exc_info=True)
+    except ValueError as exc:
+        # REG-03 (audit 2026-09-04). Antes: `except Exception:` + `logger.debug(...)`. Duas coisas
+        # erradas numa linha so'. (a) LARGURA — o corpo do `try` le `state` por `.get` e chama
+        # `_normalize`/`record_agent_desfecho`; um `AttributeError` de um chamador que passou algo
+        # que nao e' `Mapping`, ou um `TypeError` de uma assinatura derivada, sao BUGS deste
+        # modulo, e eram absorvidos exatamente como uma falha de metrica (reproduzido LIVE na base
+        # 87b51a8: `emit_turn_desfecho(objeto_sem_get, agent_id="carolina")` retornou em silencio).
+        # A falha EXTERNA real e' uma so': o `prometheus_client` levanta `ValueError` para uso
+        # indevido do registro (`.labels()` com nomes/quantidade errados, serie duplicada).
+        # (b) NIVEL — em DEBUG (que nenhum ambiente liga por padrao) o contador CC-09 podia parar
+        # de emitir NA FROTA INTEIRA sem sinal operacional nenhum, que e' precisamente o KPI
+        # inaferivel que CC-09 foi aberto para fechar. WARNING, com o token de CLASSE (nunca o
+        # texto do erro, que pode ecoar um label).
+        logger.warning(
+            "agent_desfecho_telemetry_emit_failed",
+            agent_id=agent_id,
+            erro=type(exc).__name__,
+            exc_info=True,
+        )

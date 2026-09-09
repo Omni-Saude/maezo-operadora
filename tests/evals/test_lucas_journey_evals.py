@@ -70,7 +70,7 @@ async def test_lucas_journey_eval_intake_triage_handoff(case: dict[str, Any]) ->
     journey = case["journey"]
 
     assert_expect(result.state, case["expect"])
-    assert_no_leak(result.state, case.get("leak_canaries") or [])
+    assert_no_leak(result.state, case.get("leak_canaries") or [], sender=result.whatsapp)
 
     # --- Stage 1: intake (`receive`) ----------------------------------------------------------
     intake = journey["intake"]

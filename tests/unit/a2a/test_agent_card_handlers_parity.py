@@ -27,6 +27,22 @@ WHAT THIS FENCE ASSERTS, and what it deliberately does not:
 It does NOT assert that any edge is LIVE: no origin worker calls any of these builders today, and
 this fence would stay green if none ever did. Liveness is the origin call site's question, and
 that call site is owner-gated.
+
+WP A2A-YAML-DISCLOSURE (CC-02 residual / NEW-B2 / NEW-B3 / NEW-B4) adds two more assertions this
+docstring's original four did not cover:
+  5. `spec/agents/<id>/agent.yaml`'s `a2a.handler_status` (closed vocabulary: `registrado` /
+     `pronto_sem_registro` / `ausente`) must equal the TRUTH derived from (a) whether
+     `agents/<id>/delegation.py` exists and exposes a callable `make_<id>_handler`, and (b)
+     whether `<id>` is a key of a `handlers={...}` registration in the composition root. This is
+     the fence CC-02's prose disclosures could not be: the yaml comments that used to deny,
+     omit, or duplicate this fact are now checked against the same ground truth a validator
+     enforces the SHAPE of (`maezo.platform.validation.agent_def`).
+  6. `_registered_agents()` itself is now fail-CLOSED rather than silently partial: it accepts
+     only the two statically-resolvable `handlers=` shapes this file actually uses today (a dict
+     literal with string-constant keys, and a `dict(...)` call built from keyword arguments or a
+     single dict-literal argument) and RAISES on anything else — a `**` spread, a dict
+     comprehension, or a bare name reference used to under-report silently before, which is the
+     dangerous direction for a security-relevant registration record.
 """
 
 from __future__ import annotations
@@ -141,21 +157,72 @@ def _string_constants(value: ast.expr | None) -> set[str]:
     return {e.value for e in elements if isinstance(e, ast.Constant) and isinstance(e.value, str)}
 
 
-def _registered_agents() -> frozenset[str]:
-    """Agent ids appearing as keys of a `handlers={...}` keyword in the composition root."""
-    tree = ast.parse(_COMPOSITION_ROOT.read_text(encoding="utf-8"))
+def _handler_keys_from_literal(value: ast.expr) -> frozenset[str]:
+    """String keys of a STATICALLY-RESOLVABLE `handlers=` value — fail CLOSED on anything else
+    (WP A2A-YAML-DISCLOSURE, NEW-B4: the original version silently dropped a `**` spread key
+    instead of raising, which under-reports a live registration — the dangerous direction for a
+    security-relevant parity fact).
+
+    Accepts exactly the two shapes this composition root uses today: a dict literal with
+    string-constant keys (`{"x": handler}`), and a `dict(...)` call built from keyword arguments
+    (`dict(x=handler)`) or a single dict-literal positional argument (`dict({"x": handler})`). A
+    `**` spread, a dict comprehension, a bare name reference to a dict assembled elsewhere, or any
+    non-string-constant key is NOT resolvable from this file alone and raises `AssertionError`
+    rather than guessing.
+    """
+    if isinstance(value, ast.Dict):
+        keys: set[str] = set()
+        for key in value.keys:
+            if key is None:
+                raise AssertionError(
+                    "handlers={...} contains a `**` spread entry — not a statically-resolvable "
+                    'literal; use a plain {"agent": handler, ...} dict literal'
+                )
+            if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+                raise AssertionError(
+                    f"handlers={{...}} has a non-string-constant key ({ast.dump(key)}) — not a "
+                    "statically-resolvable literal"
+                )
+            keys.add(key.value)
+        return frozenset(keys)
+    if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id == "dict":
+        keys = set()
+        if value.args:
+            if len(value.args) == 1 and isinstance(value.args[0], ast.Dict):
+                keys |= _handler_keys_from_literal(value.args[0])
+            else:
+                raise AssertionError(
+                    "dict(...) with positional argument(s) other than a single dict literal is "
+                    "not a statically-resolvable literal"
+                )
+        for keyword in value.keywords:
+            if keyword.arg is None:
+                raise AssertionError(
+                    "dict(...) contains a `**` spread keyword argument — not a statically-resolvable literal"
+                )
+            keys.add(keyword.arg)
+        return frozenset(keys)
+    raise AssertionError(
+        f"handlers=... is a {type(value).__name__}, not a dict literal or a dict(...) call — not "
+        "a statically-resolvable literal (a name reference, comprehension, or function call "
+        "cannot be proven correct by reading this file alone; use a literal, or resolve it "
+        "explicitly here)"
+    )
+
+
+def _registered_agents(source: str | None = None) -> frozenset[str]:
+    """Agent ids appearing as keys of a `handlers={...}` keyword anywhere in `source` (defaults
+    to the real composition root's file contents)."""
+    text = source if source is not None else _COMPOSITION_ROOT.read_text(encoding="utf-8")
+    tree = ast.parse(text)
     registered: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         for keyword in node.keywords:
-            if keyword.arg != "handlers" or not isinstance(keyword.value, ast.Dict):
+            if keyword.arg != "handlers":
                 continue
-            registered |= {
-                key.value
-                for key in keyword.value.keys
-                if isinstance(key, ast.Constant) and isinstance(key.value, str)
-            }
+            registered |= _handler_keys_from_literal(keyword.value)
     return frozenset(registered)
 
 
@@ -293,3 +360,148 @@ def test_the_handlers_not_registered_in_the_composition_root_are_the_documented_
         f"not the documented {sorted(_UNREGISTERED_HANDLERS)}. Update this record together with "
         "the composition-root change (gap FERNANDO-DELEGATION-CALL-SITE, owner decision)."
     )
+
+
+# =================================================================================================
+# 5 — `a2a.handler_status`/`a2a.handler_symbol`: the structured field must equal the truth
+# (WP A2A-YAML-DISCLOSURE, CC-02 residual / NEW-B2 / NEW-B3 / NEW-B4)
+# =================================================================================================
+
+_HANDLER_STATUS_VALUES: Final[frozenset[str]] = frozenset({"registrado", "pronto_sem_registro", "ausente"})
+
+
+def _agent_ids() -> frozenset[str]:
+    """Every non-template agent id under `spec/agents/` (directory name == its `id:`)."""
+    return frozenset(p.parent.name for p in _SPEC_AGENTS.glob("*/agent.yaml") if p.parent.name != "_template")
+
+
+def _declared_handler_disclosure() -> dict[str, tuple[Any, Any]]:
+    """agent id -> `(a2a.handler_status, a2a.handler_symbol)` exactly as the yaml declares them
+    (no defaulting — an absent key comes back `None`, which is itself a fact this fence checks)."""
+    declared: dict[str, tuple[Any, Any]] = {}
+    for agent_id in _agent_ids():
+        definition: Any = yaml.safe_load((_SPEC_AGENTS / agent_id / "agent.yaml").read_text(encoding="utf-8"))
+        a2a = (definition or {}).get("a2a") or {}
+        declared[agent_id] = (a2a.get("handler_status"), a2a.get("handler_symbol"))
+    return declared
+
+
+def _handler_module_and_factory(agent_id: str) -> tuple[Any, Any] | None:
+    """`(module, make_<id>_handler)` iff BOTH the module imports and the factory is callable."""
+    module_name = f"maezo.agents.{agent_id}.delegation"
+    if importlib.util.find_spec(module_name) is None:
+        return None
+    module = importlib.import_module(module_name)
+    factory = getattr(module, f"make_{agent_id}_handler", None)
+    if not callable(factory):
+        return None
+    return module, factory
+
+
+def _expected_handler_status(agent_id: str) -> str:
+    """The TRUTH: `ausente` (no importable `make_<id>_handler`), else `registrado` (agent_id is a
+    `handlers={...}` key in the composition root) or `pronto_sem_registro` (it is not)."""
+    if _handler_module_and_factory(agent_id) is None:
+        return "ausente"
+    return "registrado" if agent_id in _registered_agents() else "pronto_sem_registro"
+
+
+def test_every_real_agent_declares_a_handler_status() -> None:
+    """Non-vacuity anchor + closed-vocabulary check, over ALL 10 real agents (not just the 8 that
+    declare `accepted_task_types`) — `helena`/`lucas` must disclose `ausente` too, since a missing
+    field is indistinguishable from an agent nobody ever finished disclosing."""
+    declared = _declared_handler_disclosure()
+    assert set(declared) == _agent_ids(), (
+        f"expected every real agent to declare a2a.handler_status, got {sorted(declared)} vs "
+        f"agent ids {sorted(_agent_ids())} — the spec walk stopped seeing yaml files"
+    )
+    for agent_id, (status, _symbol) in sorted(declared.items()):
+        assert status in _HANDLER_STATUS_VALUES, (
+            f"spec/agents/{agent_id}/agent.yaml a2a.handler_status={status!r} is not one of "
+            f"{sorted(_HANDLER_STATUS_VALUES)} (CC-02: the field must be a closed vocabulary)"
+        )
+
+
+@pytest.mark.parametrize("agent_id", sorted(_agent_ids()))
+def test_declared_handler_status_matches_the_delegation_and_registration_truth(agent_id: str) -> None:
+    """The core CC-02 fix: prose used to deny (andre/carolina), omit (marina/gustavo), or claim
+    (beatriz's yaml said the wiring was deferred while a handler already existed) this fact. The
+    structured field must equal what `agents/<id>/delegation.py` and `a2a_composition.py` actually
+    say, not what the yaml's author believed when they wrote the comment."""
+    declared_status, _symbol = _declared_handler_disclosure()[agent_id]
+    expected = _expected_handler_status(agent_id)
+    assert declared_status == expected, (
+        f"spec/agents/{agent_id}/agent.yaml declares a2a.handler_status={declared_status!r} but "
+        f"the real state (agents/{agent_id}/delegation.py existence + make_{agent_id}_handler + "
+        f"a2a_composition.py registration) is {expected!r}"
+    )
+
+
+@pytest.mark.parametrize("agent_id", sorted(_agent_ids()))
+def test_declared_handler_symbol_matches_when_a_handler_exists(agent_id: str) -> None:
+    """The companion fact: when a handler exists, the yaml must name the EXACT symbol (not just
+    disclose that one exists); when none exists, no symbol may be named (a symbol on an `ausente`
+    entry is the same claim-and-deny contradiction this fence exists to close)."""
+    _status, symbol = _declared_handler_disclosure()[agent_id]
+    resolved = _handler_module_and_factory(agent_id)
+    if resolved is None:
+        assert symbol is None, (
+            f"spec/agents/{agent_id}/agent.yaml declares a2a.handler_symbol={symbol!r} but has no "
+            f"importable, callable make_{agent_id}_handler"
+        )
+        return
+    expected_symbol = f"maezo.agents.{agent_id}.delegation::make_{agent_id}_handler"
+    assert symbol == expected_symbol, (
+        f"spec/agents/{agent_id}/agent.yaml a2a.handler_symbol should be {expected_symbol!r}, got {symbol!r}"
+    )
+
+
+# =================================================================================================
+# 6 — `_registered_agents()` must fail CLOSED on anything it cannot statically resolve
+# =================================================================================================
+
+
+def test_registered_agents_reads_the_real_composition_root_non_vacuously() -> None:
+    """A hardened parser that stopped matching the real file would pass every test below
+    vacuously — anchor it against the known-live registrations."""
+    assert _registered_agents() >= {"rafael", "carolina", "andre", "fernando"}
+
+
+def test_registered_agents_accepts_a_dict_call_with_keyword_arguments() -> None:
+    source = "build(handlers=dict(x=handler, y=handler2))\n"
+    assert _registered_agents(source=source) == frozenset({"x", "y"})
+
+
+def test_registered_agents_accepts_a_dict_call_with_a_single_dict_literal_argument() -> None:
+    source = 'build(handlers=dict({"x": handler}))\n'
+    assert _registered_agents(source=source) == frozenset({"x"})
+
+
+def test_registered_agents_fails_closed_on_a_double_star_spread_in_a_dict_literal() -> None:
+    source = 'build(handlers={**base, "x": handler})\n'
+    with pytest.raises(AssertionError, match="literal"):
+        _registered_agents(source=source)
+
+
+def test_registered_agents_fails_closed_on_a_double_star_spread_in_a_dict_call() -> None:
+    source = "build(handlers=dict(**base))\n"
+    with pytest.raises(AssertionError, match="literal"):
+        _registered_agents(source=source)
+
+
+def test_registered_agents_fails_closed_on_a_dict_comprehension() -> None:
+    source = "build(handlers={k: v for k, v in pairs})\n"
+    with pytest.raises(AssertionError, match="literal"):
+        _registered_agents(source=source)
+
+
+def test_registered_agents_fails_closed_on_a_bare_name_reference() -> None:
+    source = "build(handlers=SOME_PREBUILT_DICT)\n"
+    with pytest.raises(AssertionError, match="literal"):
+        _registered_agents(source=source)
+
+
+def test_registered_agents_fails_closed_on_a_non_string_constant_key() -> None:
+    source = "build(handlers={AGENT_ID: handler})\n"
+    with pytest.raises(AssertionError, match="literal"):
+        _registered_agents(source=source)

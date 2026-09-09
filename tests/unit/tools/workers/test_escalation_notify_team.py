@@ -35,7 +35,7 @@ from maezo.tools.workers.escalation import (
 )
 from maezo.tools.workers.harness import ExternalTask, FakeKafkaPublisher, WorkerBpmnError
 from maezo.tools.workers.phi_vars import REDACTED_DIGITS, REDACTED_EMAIL, REDACTED_PHONE
-from tests.support.dmn_first_hit import DMN_DIR, REPO_ROOT, read_live_table
+from tests.support.dmn_first_hit import DMN_DIR, REPO_ROOT, evaluate, read_live_table
 
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
 _ERR_ESC_NOTIFY_FAILED = "ERR_ESC_NOTIFY_FAILED"
@@ -672,6 +672,244 @@ def test_contract_domains_match_the_artifacts() -> None:
     assert prioridade_contrato == prioridades_dmn  # contract's DMN-reference table agrees w/ DMN
     assert grupo_contrato == grupos_dmn  # idem
     assert motivo_contrato == mod._MOTIVOS_CONTRATUAIS
+
+
+# ---------------------------------------------------------------------------
+# severidade `null` em `motivo_categoria=falha_tecnica` — a EXCECAO que o contrato declara
+# (§Delta-3 HELENA-INPUT-BOUNDARY, regressao P-12)
+#
+# A regressao: HEL-04 fez a escalacao de falha do classificador carregar `severidade=None` (o valor
+# honesto — nao houve extracao de onde derivar), mas `_exigir_severidade` recusava fail-closed nos
+# DOIS canais de notificacao (`notify_team` e `ST_NotificarFallback`, que compartilham topico e
+# checagem), de modo que `ERR_ESC_NOTIFY_FAILED` era levantado em ambos e NENHUM humano via um caso
+# que o classificador nao conseguiu ler. As duas suites de engine
+# (`tests/integration/agents/test_helena_escalation.py::{test_malformed_classifier_json_escalates_
+# falha_tecnica, test_classifier_llm_exception_escalates_falha_tecnica}`) falharam com "no user task
+# ever appeared" no motor isolado do trem B.
+#
+# A raiz era INCONSISTENCIA DE CONTRATO, nao de codigo: a linha 27 de
+# `docs/processes/contracts/SP-OP-ESCALATION-001.md` dizia `severidade ... obrigatoria: sim` enquanto
+# a propria secao HEL-04 do mesmo contrato declarava `null` para esse motivo — e o worker
+# implementava a linha 27. A DMN `escalation_routing` (hitPolicy FIRST, CODEOWNED, NAO tocada) ja'
+# concorda com a secao: a regra `r6` casa `motivo_categoria="falha_tecnica"` com a coluna
+# `severidade` em `-` (qualquer valor, `null` inclusive), entao o roteamento nunca dependeu dela.
+# ---------------------------------------------------------------------------
+
+_MOTIVOS_QUE_EXIGEM_SEVERIDADE: tuple[str, ...] = (
+    "red_flag_clinico",
+    "risco_psicossocial",
+    "intencao_clinica",
+    "solicitacao_humano",
+    "outro",
+)
+
+
+def _falha_tecnica_vars(**overrides: Any) -> dict[str, Any]:
+    """O que o motor entrega a `ST_NotificarTime` numa escalacao de falha do classificador: o
+    `motivo_categoria=falha_tecnica` do contrato, SEM `severidade` (a variavel de processo existe e
+    e' `null` — `_from_camunda_var` devolve `None`), e os `camunda:inputParameter`s vindos da regra
+    `r6` da DMN (`P3` / `atendimento-humano` / `PT4H` / `PT24H`)."""
+    variables = _team_vars(
+        motivo_categoria="falha_tecnica",
+        grupo_atendimento="atendimento-humano",
+        prioridade="P3",
+        sla_ack="PT4H",
+        sla_resolucao="PT24H",
+    )
+    # A remocao vem ANTES dos overrides: um caso que QUER injetar uma `severidade` (presente e fora
+    # do dominio, por exemplo) nao pode te-la apagada em seguida.
+    variables.pop("severidade", None)
+    variables.update(overrides)
+    return variables
+
+
+@pytest.mark.parametrize("ausente", [None, "", "   ", "\t"])
+async def test_notify_team_falha_tecnica_sem_severidade_notifica_com_null(ausente: Any) -> None:
+    """A EXCECAO do contrato, no canal primario: com `motivo_categoria=falha_tecnica` uma
+    `severidade` ausente/vazia e' ACEITA e viaja como `null` — a notificacao SAI (o time roteado
+    pela `r6` e' paginado) e o `leve` fabricado continua nao existindo. Sem isto, o unico caminho
+    que existe para entregar a um humano um caso que a maquina nao conseguiu ler morria antes de
+    `UT_TratarEscalonamento`."""
+    kafka = FakeKafkaPublisher()
+    variables = _falha_tecnica_vars()
+    if ausente is not None:
+        variables["severidade"] = ausente
+
+    result = await make_notify_team_handler(kafka)(_task(variables=variables))
+
+    assert result["status"] == "teams_notified"
+    assert result["severidade"] is None
+    assert result["grupo_atendimento"] == "atendimento-humano"
+    assert result["prioridade"] == "P3"
+    assert result["motivo_categoria"] == "falha_tecnica"
+    assert len(kafka.published) == 1
+    _topico, payload, _chave = kafka.published[0]
+    assert payload["severidade"] is None
+    assert payload["severidade"] != "leve"
+    assert payload["grupo_atendimento"] == "atendimento-humano"
+
+
+@pytest.mark.parametrize("ausente", [None, "", "   "])
+async def test_notify_supervisor_falha_tecnica_sem_severidade_notifica_com_null(ausente: Any) -> None:
+    """A mesma excecao no canal de fallback. `ST_NotificarFallback` publica no MESMO topico
+    (`operadora.escalation.notify_supervisor`) e usava a MESMA checagem, entao antes deste conserto
+    os dois canais recusavam o mesmo caso — era por isso que "nenhuma notificacao e' publicada"
+    valia para ambos."""
+    kafka = FakeKafkaPublisher()
+    variables = _falha_tecnica_vars()
+    variables.pop("sla_ack", None)
+    variables.pop("sla_resolucao", None)
+    variables["motivo_fallback"] = "notificacao_primaria_falhou"
+    if ausente is not None:
+        variables["severidade"] = ausente
+
+    result = await make_notify_supervisor_handler(kafka)(
+        _task(topic="operadora.escalation.notify_supervisor", variables=variables)
+    )
+
+    assert result["status"] == "supervisor_notified"
+    assert result["severidade"] is None
+    assert result["alert_to"] == "supervisao-atendimento"
+    assert len(kafka.published) == 1
+    assert kafka.published[0][1]["severidade"] is None
+    assert kafka.published[0][1]["severidade"] != "leve"
+
+
+@pytest.mark.parametrize("motivo", _MOTIVOS_QUE_EXIGEM_SEVERIDADE)
+async def test_notify_team_severidade_ausente_so_e_aceita_em_falha_tecnica(motivo: str) -> None:
+    """NAO-VACUIDADE da excecao: ela e' de UM motivo so'. Os outros cinco do vocabulario contratual
+    continuam recusando fail-closed uma severidade ausente — em nenhum deles a ausencia e' a verdade
+    declarada do contrato, e uma severidade clinica desconhecida nunca vira `leve`."""
+    kafka = FakeKafkaPublisher()
+    variables = _falha_tecnica_vars(motivo_categoria=motivo)
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        await make_notify_team_handler(kafka)(_task(variables=variables))
+    assert excinfo.value.error_code == _ERR_ESC_NOTIFY_FAILED
+    assert "severidade" in str(excinfo.value)
+    assert kafka.published == []
+
+
+async def test_notify_team_severidade_ausente_com_motivo_ausente_ainda_recusa() -> None:
+    """`motivo_categoria` e' OPCIONAL nas tarefas de notificacao. Ausente, nao ha' motivo declarado
+    que autorize a excecao — recusa, nunca "assume falha_tecnica"."""
+    kafka = FakeKafkaPublisher()
+    variables = _falha_tecnica_vars()
+    del variables["motivo_categoria"]
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        await make_notify_team_handler(kafka)(_task(variables=variables))
+    assert excinfo.value.error_code == _ERR_ESC_NOTIFY_FAILED
+    assert kafka.published == []
+
+
+@pytest.mark.parametrize("motivo", _MOTIVOS_QUE_EXIGEM_SEVERIDADE)
+async def test_notify_supervisor_severidade_ausente_so_e_aceita_em_falha_tecnica(motivo: str) -> None:
+    """Idem no canal de fallback/supervisao."""
+    kafka = FakeKafkaPublisher()
+    variables = _falha_tecnica_vars(motivo_categoria=motivo)
+    variables["motivo"] = "sla_ack_breached"
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        await make_notify_supervisor_handler(kafka)(
+            _task(topic="operadora.escalation.notify_supervisor", variables=variables)
+        )
+    assert excinfo.value.error_code == _ERR_ESC_NOTIFY_FAILED
+    assert kafka.published == []
+
+
+@pytest.mark.parametrize("bruta", ["critica", "GRAVE", "high", 3, "leve "])
+async def test_notify_team_falha_tecnica_com_severidade_presente_fora_do_dominio_ainda_recusa(
+    bruta: Any,
+) -> None:
+    """A excecao cobre AUSENCIA, nunca CORRUPCAO. Um valor PRESENTE fora de
+    `{grave, moderada, leve}` continua fail-closed mesmo em `falha_tecnica`: ausencia e' a verdade
+    declarada do contrato, um valor que o motor nao poderia ter produzido nao e'. (`"leve "` entra
+    aqui porque `.strip()` o normaliza para o `leve` do dominio — e' o unico da lista que PASSA no
+    dominio; ver o teste de dominio logo abaixo.)"""
+    kafka = FakeKafkaPublisher()
+    variables = _falha_tecnica_vars(severidade=bruta)
+    if bruta == "leve ":
+        result = await make_notify_team_handler(kafka)(_task(variables=variables))
+        assert result["severidade"] == "leve"  # valor EXPLICITO do produtor, nao fabricado aqui
+        return
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        await make_notify_team_handler(kafka)(_task(variables=variables))
+    assert excinfo.value.error_code == _ERR_ESC_NOTIFY_FAILED
+    assert kafka.published == []
+
+
+async def test_notify_team_falha_tecnica_sem_severidade_com_kafka_none_completa() -> None:
+    """Sem produtor a tarefa ainda TEM de completar (senao o fluxo trava antes do HITL) — e agora
+    completa com `severidade=None` em vez de recusar. E' exatamente esta a diferenca que a sonda de
+    integracao (`register_escalation_workers(harness)`, `kafka=None`) exercita."""
+    result = await make_notify_team_handler(None)(_task(variables=_falha_tecnica_vars()))
+    assert result["status"] == "teams_notification_skipped_no_producer"
+    assert result["severidade"] is None
+    assert result["grupo_atendimento"] == "atendimento-humano"
+
+
+def test_a_excecao_de_severidade_e_exatamente_a_que_o_contrato_declara() -> None:
+    r"""A excecao do worker e' DERIVADA do contrato, nunca digitada a mao aqui (mesma disciplina de
+    `test_contract_domains_match_the_artifacts`): o motivo isento sai do TITULO da secao
+    `### \`severidade\` quando \`motivo_categoria = <motivo>\``, e a celula "Obrigatoria" da linha
+    `severidade` da tabela de variaveis de entrada tem de NOMEAR essa excecao — enquanto ela dizia
+    so' `sim`, o contrato se contradizia e o worker implementava a metade errada."""
+    from maezo.tools.workers import escalation as mod
+
+    contract_text = _CONTRACT_PATH.read_text(encoding="utf-8")
+
+    titulos = re.findall(
+        r"^### `severidade` quando `motivo_categoria = ([a-z_]+)`", contract_text, flags=re.MULTILINE
+    )
+    assert len(titulos) == 1, f"esperava exatamente uma secao de excecao, achei {titulos!r}"
+    motivo_isento = titulos[0]
+    assert motivo_isento in mod._MOTIVOS_CONTRATUAIS
+
+    linhas = [linha for linha in contract_text.splitlines() if linha.startswith("| `severidade` | string |")]
+    assert len(linhas) == 1, f"esperava uma linha de variavel `severidade`, achei {len(linhas)}"
+    obrigatoria = linhas[0].split("|")[3].strip()
+    assert motivo_isento in obrigatoria, (
+        "a celula Obrigatoria da linha `severidade` nao nomeia a excecao declarada na secao "
+        f"§severidade quando motivo_categoria = {motivo_isento}: {obrigatoria!r}"
+    )
+
+    # O worker declara o MESMO motivo (getattr, nao acesso direto: sem a constante o teste falha por
+    # ASSERCAO, nunca por AttributeError).
+    assert getattr(mod, "_MOTIVO_SEM_SEVERIDADE", None) == motivo_isento
+
+    # A secao declara `null` para a falha do classificador — nunca um rotulo fabricado.
+    secao = contract_text.split(f"### `severidade` quando `motivo_categoria = {motivo_isento}`", 1)[1]
+    secao = secao.split("\n### ", 1)[0]
+    assert "`null`" in secao
+    assert "UT_TratarEscalonamento" in secao
+
+
+def test_a_dmn_roteia_falha_tecnica_com_severidade_nula_pela_regra_r6() -> None:
+    """A JUSTIFICATIVA da excecao, lida da DMN viva (CODEOWNED, NAO tocada): com
+    `motivo_categoria=falha_tecnica` e `severidade=None`, a `escalation_routing` (FIRST) casa `r6`,
+    cuja coluna `severidade` e' o coringa `-`. O roteamento — grupo, prioridade e SLAs — nunca
+    dependeu da severidade nesse motivo, e e' por isso que aceitar `null` NAO enfraquece decisao
+    nenhuma. Se um dia a `r6` passar a exigir um literal, este teste fica vermelho antes de a
+    excecao do worker virar mentira."""
+    from maezo.tools.workers import escalation as mod
+
+    # O motivo isento sai do CONTRATO (o teste acima ja' o amarra ao do worker); aqui ele e' literal
+    # de proposito, para esta prova nao morrer por AttributeError em vez de por assercao.
+    table = read_live_table(DMN_DIR / "escalation_routing.dmn")
+    veredito = evaluate(table, {"motivo_categoria": "falha_tecnica", "severidade": None})
+    assert getattr(mod, "_MOTIVO_SEM_SEVERIDADE", None) == "falha_tecnica"
+    assert veredito.regra == "r6"
+    assert veredito.saidas["prioridade"] == "P3"
+    assert veredito.saidas["grupo_atendimento"] == "atendimento-humano"
+    assert veredito.saidas["grupo_atendimento"] in mod._GRUPOS_ATENDIMENTO_DMN
+
+    severidade_idx = table.input_names.index("severidade")
+    regra_r6 = next(regra for regra in table.rules if regra.rule_id == "r6")
+    assert regra_r6.inputs[severidade_idx] == "-", (
+        "a excecao do worker so' e' segura enquanto a `r6` casar qualquer severidade"
+    )
+
+    # Nao-vacuidade: um motivo que EXIGE severidade nao cai na r6 com o mesmo `None`.
+    outro = evaluate(table, {"motivo_categoria": "red_flag_clinico", "severidade": None})
+    assert outro.regra == "r3"
 
 
 # ---------------------------------------------------------------------------

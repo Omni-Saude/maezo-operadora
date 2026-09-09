@@ -319,7 +319,9 @@ The syncer skips DELETE operations (`op=d`). In production, Tasy deletions are r
 
 ### No subscription model for agent queries
 
-FHIR Sync is one-way (Tasy → HAPI). Agents query HAPI via the read-only `mcp-fhir.read_patient_summary` tool. There is no publish-subscribe link (no event stream for agent notification on patient updates). Helena checks FHIR on each message; staleness is acceptable in Phase 0.
+FHIR Sync is one-way (Tasy → HAPI). Agents query HAPI only through the gated read-only FHIR seam (`gateway/seams/fhir.py::GatedFhirReader`), with the `mcp-fhir.*` id each agent's own `agent.yaml` declares. There is no publish-subscribe link (no event stream for agent notification on patient updates); staleness is acceptable in Phase 0.
+
+Helena does **not** query FHIR — a claim this section carried until WP FHIR-TOOL-SURFACE-PARITY (NEW-09/GAP-TRIAGE-5). No node of `src/maezo/agents/helena/graph.py` holds a FHIR reader, helena is absent from `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT` (the only place that fills `deps["fhir"]`), and her `agent.yaml` no longer declares `mcp-fhir.read_patient_summary`/`mcp-fhir.search_coverage`. The single `mcp-fhir.*` id left in it, `mcp-fhir.read_coverage`, is an owner-gated catalogue pin with no call site and no seam. Staleness of a Patient/Coverage record therefore cannot surface in a Helena conversation; the agents this section is about are the ones listed in `_FHIR_ADAPTER_BY_AGENT`.
 
 ---
 

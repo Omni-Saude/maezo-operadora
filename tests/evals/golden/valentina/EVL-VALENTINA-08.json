@@ -1,0 +1,38 @@
+{
+  "id": "EVL-VALENTINA-08",
+  "agent": "valentina",
+  "class": "GC",
+  "tier": [
+    "A"
+  ],
+  "description": "VAL-06: consent REVOKED (consent_revoked=true) takes precedence over everything, including an otherwise-active consent -- consent_gate computes consent_status=revogado and routes to the `stopped` terminal (LGPD art. 8 SS5 / art. 18 SS2 fail-safe, NOT adverse): ZERO FHIR gather, ZERO DMN evaluation, ZERO process start, mirroring the engine's own interrupting revocation boundary event. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for valentina's declared `signal: consent_revoked` trigger, which had only unit-test coverage before this case (never an ADR-0009 promotion-gate golden, per VAL-06's own root-cause). Synthetic data only.",
+  "input": {
+    "state": {
+      "task": "stratify",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "programa_id": "PROG-DIABETES-TIPO2",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-VALENTINA-08",
+      "ciclo": "2026-Q3",
+      "gatilho": "indicacao_clinica",
+      "consent_scope": "programa_cuidado",
+      "consentimento_ativo": true,
+      "consent_checked": true,
+      "consent_revoked": true
+    }
+  },
+  "recorded_llm": [],
+  "dmn_fixture": {},
+  "expect": {
+    "fields": {
+      "consent_status": "revogado",
+      "desfecho": "interrompido_revogacao",
+      "process_started": false,
+      "gathered": false
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "signal:consent_revoked"
+  ]
+}

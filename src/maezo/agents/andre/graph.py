@@ -202,6 +202,7 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
+from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import dmn_unavailable_error
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_fatos_para_prompt
@@ -819,7 +820,53 @@ class AndreGraph:
                     **self._route_human("analise_humana", {}, _GRUPO_CONSERVADOR),
                     "error": "pagamento sem ordem_pagamento_id nem lote+prestador (sem chave)",
                 }
-            return {**sanitized, "business_key": _business_key(state)}
+            # AND-07: um valor ausente NUNCA vira 0 silencioso — `_contract_variables` embarcava
+            # `int(state.get("valor_pagamento_cents", 0))`, e sem esta guarda uma ordem sem valor
+            # abria a instancia com um `valor_pagamento_cents=0` fabricado (o `dentro_teto_l2`
+            # pre-resolvido pelo worker mitiga o pior desfecho de roteamento, mas a trilha de
+            # auditoria do engine registrava um valor que o caso nunca teve). Reusa o motivo
+            # `pendencia_dados` + `_GRUPO_ADMISSIBILIDADE` ja usados para `PENDENTE_DADOS` da DMN
+            # (linha ~989) — mesma categoria de "faltam dados", nao uma nova regra de negocio; a
+            # positividade estrita agora tambem esta declarada no contrato (SP-OP-PAGTO-001
+            # §Variaveis de entrada, `valor_pagamento_cents`) — §Delta-F1.
+            # `valor_informado` (nao `valor_pagamento_cents`): presenca/positividade, nunca teto
+            # (o `test_l0_guard_graph_never_computes_the_ceiling_fact` AST fence proibe qualquer
+            # `ast.Compare` citando `valor_pagamento_cents`/`dentro_teto_l2` neste modulo — este e
+            # um check de dado ausente, nao aritmetica de alcada; o comparando e `None`/`0`, nunca
+            # um teto monetario).
+            # §Delta-F2: coerce UMA UNICA VEZ aqui (nunca a raw state value) e reusa o mesmo
+            # inteiro coagido tanto na guarda quanto no valor devolvido ao estado — antes, a
+            # guarda validava o valor cru enquanto `_contract_variables` embarcava um segundo
+            # `int(...)` proprio; isso regredia uma string numerica ("85000") em um `TypeError`
+            # nao tratado (toda guarda irma neste metodo usa `is_blank`, que nunca levanta) e
+            # deixava passar um float sub-centavo (`0 < x < 1`), que sobrevivia ao `<= 0` cru e
+            # depois virava `int(x) == 0` — o exato zero fabricado que esta guarda existe para
+            # prevenir. `None`/string nao-numerica/objeto nao coercivel viram `0` (fail-safe:
+            # cai na mesma guarda de positividade, nunca uma excecao vazando do no de entrada).
+            # §Delta-F9: `int(float('inf'))` nao levanta `ValueError`/`TypeError` -- levanta
+            # `OverflowError` (caso separado, verificado pelo verificador com um probe adicional)
+            # -- tambem capturado aqui pelo MESMO motivo fail-safe. (`int()` trunca um float
+            # fracionario, ex. `85000.7` -> `85000`; comportamento pre-existente do `int()`,
+            # fora do escopo desta guarda -- nao e' uma excecao, entao nao precisa de captura.)
+            valor_bruto: Any = state.get("valor_pagamento_cents")
+            try:
+                valor_informado = int(valor_bruto)
+            except (TypeError, ValueError, OverflowError):
+                valor_informado = 0
+            if valor_informado <= 0:
+                return {
+                    **sanitized,
+                    **self._route_human("pendencia_dados", {}, _GRUPO_ADMISSIBILIDADE),
+                    "error": "pagamento sem valor_pagamento_cents (sem valor)",
+                }
+            return {
+                **sanitized,
+                "business_key": _business_key(state),
+                # O MESMO inteiro coagido/validado aqui e o que segue para
+                # `_contract_variables`/a DMN de alcada — nunca uma segunda coercao da raw
+                # state value (§Delta-F2).
+                "valor_pagamento_cents": valor_informado,
+            }
         # Unrecognized flow — fail-neutral: conservative human review, never treated as payment.
         return {
             **sanitized,
@@ -862,7 +909,9 @@ class AndreGraph:
                     actuarial = scrubbed
                     if agg.dataset_ref:
                         refs.append(agg.dataset_ref)
-            except Exception:  # best-effort enrichment, never fatal.
+            except PROGRAMMING_ERRORS:
+                raise
+            except EXTERNAL_DEPENDENCY_FAILURES:  # best-effort enrichment, never fatal.
                 notes.append("risco atuarial agregado indisponivel (cliente de populacao falhou)")
             if flow == "population_analytics":
                 try:
@@ -874,7 +923,9 @@ class AndreGraph:
                         population = pscrubbed
                         if pagg.dataset_ref:
                             refs.append(pagg.dataset_ref)
-                except Exception:  # best-effort enrichment, never fatal.
+                except PROGRAMMING_ERRORS:
+                    raise
+                except EXTERNAL_DEPENDENCY_FAILURES:  # best-effort enrichment, never fatal.
                     notes.append("metricas populacionais indisponiveis (cliente de populacao falhou)")
         elif cohort_id:
             notes.append(
@@ -896,7 +947,9 @@ class AndreGraph:
                 if summary_ref:
                     try:
                         await self._fhir.read_patient(summary_ref)
-                    except Exception:  # best-effort enrichment, never fatal.
+                    except PROGRAMMING_ERRORS:
+                        raise
+                    except EXTERNAL_DEPENDENCY_FAILURES:  # best-effort enrichment, never fatal.
                         notes.append("resumo FHIR indisponivel (leitura best-effort falhou)")
 
         return {
@@ -1306,6 +1359,15 @@ class AndreGraph:
             # value `None`/`""` until a node sets them — the default must still apply then.
             "faixa_valor": str(state.get("faixa_valor") or ""),
             "grupo_aprovador": str(state.get("grupo_aprovador") or ""),
+            # AND-08 (fleet audit ciclo 2) STRUCTURAL GUARDRAIL (L0 hard): only the human
+            # UT_AprovacaoAlcada/UT_AprovacaoComite User Task fills this — mirrors gustavo's
+            # `decisao_envio`/`decisao_nip` explicit `None` guardrails (`gustavo/graph.py::
+            # _contract_variables`). Andre NEVER decides; the gated worker
+            # `operadora.pagto.release_high_value_payment` already refuses to release without a
+            # human-set `decisao_pagamento==APROVAR` regardless of what ships here, but leaving
+            # the key absent-by-omission made the L0 invariant implicit instead of explicit — an
+            # inconsistency with the sibling flows this convention exists in.
+            "decisao_pagamento": None,
         }
         if state.get("numero_lote_tiss"):
             variables["numero_lote_tiss"] = state["numero_lote_tiss"]
@@ -1355,7 +1417,9 @@ class AndreGraph:
                 # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
                 task_kind="reasoning",
             )
-        except Exception:  # LLM failure never blocks the human/auto route.
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:  # LLM failure never blocks the human/auto route.
             narrativa = ""
 
         return {

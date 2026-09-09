@@ -2,8 +2,10 @@
   "id": "EVL-HELENA-13",
   "agent": "helena",
   "class": "FC",
-  "tier": ["A"],
-  "description": "CC-08: the PHI-zone routing fail-closed path (I-6), not the DMN-down path. `inference.phi_capable=false` makes EVERY `generate(phi=True, ...)` call this turn raise `PhiZoneRoutingError` (`_harness._phi_capable_for`, additive harness extension). `_classify_llm`'s `except Exception` catches it -> classify failure -> escalate falha_tecnica (module docstring: 'a non-PHI-capable provider raises PhiZoneRoutingError -- this graph does NOT catch that error specially: in `_classify_llm` it is a classify failure -> escalate falha_tecnica'). `_resumo_contexto`/`_respond_llm` then hit the SAME error and degrade to their own documented safe canned text -- neither path ever silently downgrades to a general-zone provider nor to an `inform` outcome. `recorded_llm` is empty: no `generate()` call ever successfully returns a scripted response (every call raises before popping). Synthetic data only.",
+  "tier": [
+    "A"
+  ],
+  "description": "CC-08: the PHI-zone routing fail-closed path (I-6), not the DMN-down path. `inference.phi_capable=false` makes EVERY `generate(phi=True, ...)` call this turn raise `PhiZoneRoutingError` (`_harness._phi_capable_for`, additive harness extension). `_classify_llm`'s `except Exception` catches it -> classify failure -> escalate falha_tecnica (module docstring: 'a non-PHI-capable provider raises PhiZoneRoutingError -- this graph does NOT catch that error specially: in `_classify_llm` it is a classify failure -> escalate falha_tecnica'). `_resumo_contexto`/`_respond_llm` then hit the SAME error and degrade to their own documented safe canned text -- neither path ever silently downgrades to a general-zone provider nor to an `inform` outcome. `recorded_llm` is empty: no `generate()` call ever successfully returns a scripted response (every call raises before popping). Synthetic data only. REGOLDEN HEL-04 (2026-09-05): `escalation_severidade` was 'leve'. On this path there is no extraction at all (the classify call itself raised), so the severity is genuinely UNKNOWN and is now `null` -- never a fabricated mildest label. Same principle as HELENA-SEVERIDADE-DEFAULT (already on main) for the other no-classification path: the worker boundary (`escalation.py::_exigir_severidade`) refuses a missing severidade fail-closed, so no notification is published on either channel and the case still reaches the mandatory HITL through the modeled BE_NotifFallbackFailed -> UT_TratarEscalonamento edge.",
   "input": {
     "state": {
       "tenant_id": "amh",
@@ -22,7 +24,7 @@
     "next_kind": "escalate",
     "fields": {
       "escalation_motivo": "falha_tecnica",
-      "escalation_severidade": "leve",
+      "escalation_severidade": null,
       "response_text": "Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."
     }
   },

@@ -16,7 +16,7 @@ pointers + hashes — never raw PHI) and ASSEMBLES the investigation dossier fro
 `fraude_indicadores`/`fraude_routing` are engine-native `businessRuleTask`s downstream in the
 SAME BPMN). The LLM REASONS over the observed facts/indicators to organize the case — it NEVER
 decides. This graph evaluates NO DMN and starts NO process: per the R1-audited
-`spec/agents/beatriz/agent.yaml` (tools allowlist TIGHT — `mcp-fhir.read_patient` +
+`spec/agents/beatriz/agent.yaml` (tools allowlist TIGHT — `mcp-fhir.read_patient_summary` +
 `mcp-memory.read_write` ONLY; `mcp-cibseven.start_process`/`mcp-dmn.evaluate` deliberately NOT
 declared), the ENGINE drives SP-OP-FRAUDE-001 and convokes Beatriz — she never starts it and
 never re-evaluates the scoring chain (the donor's `len(evidencia)*10` heuristic was defect B10,
@@ -51,7 +51,7 @@ CPF/CNPJ/nome/CNS). BOTH corpora `gather` produces are CLOSED PROJECTIONS, never
     stripped before the dossier (defense in depth; the hard barrier for THIS corpus remains the
     `seal_custody_bundle` worker's `ERR_PHI_IN_CUSTODY` guard).
   - FHIR SUMMARY (`_normalize_summary`): the `PatientSummaryReader` seam is a GENERIC Protocol
-    over v2's FHIR server, NOT the donor's PEP-gated `mcp-fhir.read_patient` ToolInvoker (see
+    over v2's FHIR server, NOT the donor's PEP-gated `mcp-fhir.read_patient_summary` ToolInvoker (see
     the labeled boundary below), so its payload is controlled by a server UPSTREAM of this
     graph — it is untrusted input, exactly like `evidencia_refs`. It is refused WHOLE when any
     key (case-insensitively, RECURSIVELY through nested dicts/lists) is in `_PHI_KEYS`, and
@@ -96,9 +96,18 @@ investigator by design (`fraude_routing`'s output domain is exactly `{INVESTIGAC
 
 LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale as
 `agents/rafael/graph.py`'s/`agents/marina/graph.py`'s module docstrings):
-- `gather` uses a thin `PatientSummaryReader` Protocol over v2's generic FHIR server — NOT the
-  donor's PEP-gated `mcp-fhir.read_patient` ToolInvoker (v2 has no ToolRegistry/PEP gateway
-  wiring for agent tool calls yet, T2.4 gap). Best-effort: FHIR absence/failure degrades to a
+- `gather` uses a thin `PatientSummaryReader` Protocol over v2's generic FHIR server. CORRECTED
+  (WP FHIR-TOOL-SURFACE-PARITY): the T2.4 "no ToolRegistry/PEP gateway wiring for agent tool
+  calls yet" claim is FALSE fleet-wide — `gateway/seams/fhir.py::GatedFhirReader` gates every
+  agent named in `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`. What is true FOR BEATRIZ is
+  narrower and is stated in `_INVOKED_WITHOUT_GATED_SEAM` below/in the parity fence: she is
+  absent from that map, so no composition root builds her an `fhir` seam at all and this branch
+  never runs in production (it lives in `NOTE_FHIR_READER_NAO_CONFIGURADO`). Wiring her would
+  LIGHT UP a PHI read that does not happen today — an owner decision, not an implementation
+  follow-up. Her `agent.yaml` now declares `mcp-fhir.read_patient_summary`, the id this node
+  actually calls (it declared `mcp-fhir.read_patient`, so the PEP's L1 would have denied her own
+  read with `TOOL_NAO_DECLARADA` — the same species as carolina's NEW-04, masked only by
+  `leitura_phi_clinica`'s shadow enforcement). Best-effort: FHIR absence/failure degrades to a
   dossier gap note, never a fabricated fact, never a blocked instruction.
 - No episodic memory write (`mcp-memory.read_write`, ADR-0002) in `finalize` — same rationale
   as Helena's/Rafael's/Marina's graphs: `MemoryServer.store_episodic` still refuses fail-closed.
@@ -121,7 +130,9 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale a
   already-assembled case state, as the unit tests do. (The `ToolRegistry`/PEP-gateway claim two
   paragraphs above remains true for Beatriz specifically: she is absent from
   `gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT`, so no composition root ever builds her an
-  `fhir` seam at all, gated or not.)
+  `fhir` seam at all, gated or not — now also pinned by
+  `tests/unit/gateway/test_fhir_tool_surface_parity.py::_INVOKED_WITHOUT_GATED_SEAM`, which fails
+  loudly the day the map gains her key without this note being updated.)
 - Unanchorable case (missing `tenant_id`/`numero_caso`): this build bails WITHOUT assembling a
   dossier (`dossier` stays `{}`, `desfecho="instrucao_incompleta"`) — a disclosed divergence
   from the donor, which assembled a best-effort dossier anyway. Rationale: without the
@@ -138,6 +149,8 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
+from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
+from maezo.runtime.guards import require_number
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_fatos_para_prompt
 from maezo.runtime.turn_telemetry import emit_turn_desfecho
@@ -169,6 +182,10 @@ NOTE_RESUMO_FHIR_RECUSADO = "resumo_fhir_recusado"
 NOTE_SEM_EVIDENCIA_NO_INTAKE = "sem_evidencia_no_intake"
 NOTE_NARRATIVA_INDISPONIVEL = "narrativa_indisponivel"
 NOTE_EVIDENCIA_RECUSADA_PREFIX = "evidencia_recusada"
+#: BEA-04 (fleet audit ciclo 2): tokens que `_score_consumed` anexa via `maezo.runtime.guards.require_number`
+#: quando `score_indicadores` chega ausente/do tipo errado -- nunca mais um `0` que se passa por score real.
+NOTE_SCORE_AUSENTE = "score_indicadores_ausente"
+NOTE_SCORE_INVALIDO = "score_indicadores_invalido"
 
 # Closed projection allowlist for a normalized evidence pointer (no-PHI-in-custody,
 # ADR-0006/0020): whatever else an inbound item carries is STRIPPED, never forwarded.
@@ -431,18 +448,22 @@ def _normalize_summary(facts: Any, summary_ref: str) -> tuple[dict[str, Any], li
     return projected, []
 
 
-def _score_consumed(state: BeatrizState) -> int:
+def _score_consumed(state: BeatrizState) -> tuple[int | None, str | None]:
     """The pre-resolved worker score, CONSUMED defensively — never derived, never recomputed.
 
-    Anything but a genuine int (bool excluded — a bool is an int subclass) collapses to 0. No
-    code path in this module performs arithmetic over the evidence to produce a score (the
-    donor's `len(evidencia)*10` heuristic was defect B10, deleted in T2.7 — see module
-    docstring).
+    BEA-04 (fleet audit ciclo 2): anything but a genuine int (bool excluded — a bool is an int
+    subclass) used to collapse silently to `0`, a value indistinguishable from a real "zero
+    indicators" fact in the sealed dossier a human investigator reads. It now REJECTS to `None`
+    via `maezo.runtime.guards.require_number`, returning the class-token lacuna
+    (`NOTE_SCORE_AUSENTE`/`NOTE_SCORE_INVALIDO`) the caller must fold into `lacunas` — a
+    corrupted/missing worker score becomes a visible data-quality signal, never a routing fact
+    that reads as "investigacao de baixo indicio". No code path in this module performs
+    arithmetic over the evidence to produce a score (the donor's `len(evidencia)*10` heuristic
+    was defect B10, deleted in T2.7 — see module docstring).
     """
-    value = state.get("score_indicadores")
-    if isinstance(value, bool) or not isinstance(value, int):
-        return 0
-    return value
+    notes: list[str] = []
+    score = require_number(state.get("score_indicadores"), field="score_indicadores", notes=notes)
+    return score, (notes[0] if notes else None)
 
 
 #: Fatos BOOLEANOS deste fluxo, com o nome que o humano de destino reconhece (CC-11).
@@ -521,7 +542,9 @@ class BeatrizGraph:
             if summary_ref:
                 try:
                     raw_summary: Any = await self._fhir.read_patient_summary(summary_ref)
-                except Exception:  # best-effort enrichment; class token only.
+                except PROGRAMMING_ERRORS:
+                    raise
+                except EXTERNAL_DEPENDENCY_FAILURES:  # best-effort enrichment; class token only.
                     notes.append(NOTE_RESUMO_FHIR_INDISPONIVEL)
                 else:
                     # BEA-06: the reader's payload is UPSTREAM-CONTROLLED and NEVER lands in
@@ -591,6 +614,9 @@ class BeatrizGraph:
         instruction: the dossier degrades to an empty narrative + a bounded lacuna token."""
         facts = self._facts(state)
         lacunas = list(state.get("gather_notes") or [])
+        score_indicadores, score_lacuna = _score_consumed(state)
+        if score_lacuna:
+            lacunas.append(score_lacuna)
 
         prompt = f"{dossier_prompt()}\n\n{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS)}"
         try:
@@ -602,7 +628,9 @@ class BeatrizGraph:
                 # ADR-0009 §2 / CC-12: dossie lido pelo humano antes de decidir -> reasoning.
                 task_kind="reasoning",
             )
-        except Exception:  # LLM failure never blocks the human-bound instruction.
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:  # LLM failure never blocks the human-bound instruction.
             narrativa = ""
             lacunas.append(NOTE_NARRATIVA_INDISPONIVEL)
 
@@ -622,7 +650,7 @@ class BeatrizGraph:
             "feature_snapshot_ref": state.get("feature_snapshot_ref"),
             # Indicators OBSERVED (assembly/routing fact — NEVER a verdict).
             "indicadores_observados": list(state.get("indicadores_presentes") or []),
-            "score_indicadores": _score_consumed(state),
+            "score_indicadores": score_indicadores,
             "intensidade_investigacao": state.get("intensidade_investigacao"),
             "indicio_fraude_sinalizado": bool(state.get("indicio_fraude_sinalizado", False)),
             "narrativa": narrativa,
@@ -639,7 +667,15 @@ class BeatrizGraph:
     @staticmethod
     def _facts(state: BeatrizState) -> dict[str, Any]:
         """Deterministic fact sheet (pseudonymized identifiers + pre-resolved worker facts +
-        counts). `n_evidencia` counts the VALIDATED pointers — it is a count, never a score."""
+        counts). `n_evidencia` counts the VALIDATED pointers — it is a count, never a score.
+
+        BEA-04: a rejected `score_indicadores` folds its class-token lacuna into THIS sheet's
+        own `lacunas` — the LLM prompt this feeds (`render_fatos_para_prompt`) must show the
+        gap, not a silent `0` indistinguishable from a genuine low-indicator case."""
+        score_indicadores, score_lacuna = _score_consumed(state)
+        lacunas = list(state.get("gather_notes") or [])
+        if score_lacuna:
+            lacunas.append(score_lacuna)
         return {
             "numero_caso": state.get("numero_caso"),
             "tenant_id": state.get("tenant_id"),
@@ -652,12 +688,12 @@ class BeatrizGraph:
             "competencia": state.get("competencia"),
             "n_evidencia": len(state.get("evidencia_normalizada") or []),
             "indicadores_presentes": list(state.get("indicadores_presentes") or []),
-            "score_indicadores": _score_consumed(state),
+            "score_indicadores": score_indicadores,
             "intensidade_investigacao": state.get("intensidade_investigacao"),
             "indicio_fraude_sinalizado": bool(state.get("indicio_fraude_sinalizado", False)),
             "feature_snapshot_ref": state.get("feature_snapshot_ref"),
             "resumo_fhir": state.get("summary_facts") or {},
-            "lacunas": list(state.get("gather_notes") or []),
+            "lacunas": lacunas,
         }
 
     # -- Graph assembly -----------------------------------------------------------------------

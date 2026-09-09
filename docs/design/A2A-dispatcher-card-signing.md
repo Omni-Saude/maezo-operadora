@@ -448,3 +448,33 @@ so it never touched the port-5642/5643 ambiguity at all).
 > `MAEZO_TEST_A2A_EDGE_DATABASE_URL` ainda vencendo. O isolamento continua vindo do schema
 > `a2aw3<hex>` por execução, não do número da porta. Medido no stack isolado: `7 passed` contra
 > 5433. Cerca de regressão: `tests/unit/ci/test_live_suite_defaults_are_served.py`.
+
+> **EMENDA 2026-09-05 (WP A2A-YAML-DISCLOSURE, CC-02 residual / NEW-B2 / NEW-B3 / NEW-B4).** O
+> estado do handler A2A inbound de cada agente vivia SÓ em prosa acima do bloco `a2a:` de cada
+> `agent.yaml` — e essa prosa apodrecia: `andre`/`carolina` negavam um handler REGISTRADO e vivo,
+> `beatriz` negava um handler que já existia (só não registrado), `marina`/`gustavo` não
+> divulgavam nada, e nenhum gate lia comentário. `spec/agents/*/agent.yaml` ganha um campo
+> ESTRUTURADO, `a2a.handler_status`, vocabulário fechado `registrado | pronto_sem_registro |
+> ausente`, mais `a2a.handler_symbol: maezo.agents.<id>.delegation::make_<id>_handler` quando um
+> handler é divulgado. `maezo.platform.validation.agent_def::_validate_a2a_handler_disclosure`
+> exige a FORMA (vocabulário fechado, símbolo presente sse um handler é divulgado, símbolo nomeia
+> o PRÓPRIO agente e resolve via `importlib`) — a mesma divisão de trabalho que este módulo já
+> faz entre "a chave tem contrato" (validador) e "o DMN realmente alcança" (o PEP em runtime). A
+> verificação mais profunda — que o valor divulgado bate com `agents/<id>/delegation.py` E com o
+> registro real em `a2a_composition.py` — é `tests/unit/a2a/test_agent_card_handlers_parity.py`
+> (`test_declared_handler_status_matches_the_delegation_and_registration_truth`,
+> `test_declared_handler_symbol_matches_when_a_handler_exists`), que também deixou de aceitar
+> silenciosamente qualquer `handlers={...}` que não seja um dict-literal ou `dict(...)` estático —
+> um `**` spread, uma dict-comprehension ou uma referência de nome agora fazem
+> `_registered_agents()` levantar `AssertionError` em vez de sub-relatar o registro (NEW-B4).
+> `carolina` manteve a prosa que a WP CAROLINA-CATCHALL já havia corrigido de forma independente;
+> `rafael`/`valentina`/`helena`/`lucas` já eram truthful e só ganharam o campo.
+>
+> **CORREÇÃO (§Delta A2A-YAML-DISCLOSURE, F1).** A frase acima estava ERRADA sobre `fernando`: sua
+> prosa negava DOIS fatos já ao vivo desde `35b5d7e5`/#344 (owner decision R-081) — o registro do
+> handler em `a2a_composition.py` e a chamada do lado origem em
+> `tools/workers/inadimplencia.py::make_prepare_dossier_handler` — três linhas acima do próprio
+> `handler_status: registrado`. Nenhuma cerca pega essa espécie porque nenhuma lê texto de
+> comentário (`_declared_handler_disclosure` só lê o campo estruturado via `yaml.safe_load`); a
+> falsidade só apareceu por verificação independente contra a árvore. `spec/agents/fernando/
+> agent.yaml` foi reescrito nesta §Delta para que as duas frases batam com o código.

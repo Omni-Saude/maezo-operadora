@@ -80,8 +80,14 @@ class _FakeInference:
 
 
 class _FakeDmn:
+    # P-17 (PROTOCOL-FAKE-FENCES, REG-04): parametros renomeados para os do Protocol real
+    # `tools/workers/dmn_transport.py::DmnTransport.evaluate` (`decision_key`, `variables`, kwonly
+    # `tenant`) -- so' o NOME mudou (chamadas reais sao posicionais, `self._dmn.evaluate(table,
+    # dmn_input)` em cada `graph.py`), nenhum comportamento. Sem esta correcao, uma chamada futura
+    # por keyword (`.evaluate(decision_key=..., variables=...)`) levantaria `TypeError` contra
+    # este falso, exatamente a especie do defeito `f1bc87f`/CC-12.
     async def evaluate(
-        self, table: str, dmn_input: dict[str, Any]
+        self, decision_key: str, variables: dict[str, Any], *, tenant: str | None = None
     ) -> tuple[list[dict[str, Any]], DmnVersion]:
         return (
             [
@@ -99,8 +105,19 @@ class _RecordingWhatsApp:
     def __init__(self) -> None:
         self.sent: list[tuple[str, str]] = []
 
-    async def send(self, to: str, text: str) -> dict[str, Any]:
-        self.sent.append((to, text))
+    # P-17 (REG-04): `to` -> `to_hash`, o nome do Protocol real
+    # `agents/helena/graph.py::WhatsAppSender.send` (chamadas reais sao posicionais).
+    # Trem train-b (LUC-08 x P-17): este falso e COMPARTILHADO por helena/fernando/lucas
+    # (o grafo vem de `importlib.import_module(f"maezo.agents.{agent_id}.graph")`), e depois
+    # de LUC-08 os tres Protocols DIVERGEM: so lucas declara `*, idempotency_key: str` (sem
+    # default). Nenhuma assinatura EXPLICITA satisfaz os tres — medido: com o kwonly exigido a
+    # cerca aponta "keyword-only extra" contra helena/fernando; com default, aponta tambem
+    # "Protocol nao tem default, falso tem" contra lucas. `**_kwargs` e a saida que a PROPRIA
+    # cerca declara (`if not tem_varkw_fake:` em `_ofensas_de_assinatura`): um falso que aceita
+    # qualquer keyword nao pode quebrar chamador nenhum. Nada foi enfraquecido nem alargado nos
+    # Protocols de helena/fernando.
+    async def send(self, to_hash: str, text: str, **_kwargs: Any) -> dict[str, Any]:
+        self.sent.append((to_hash, text))
         return {"ok": True}
 
 

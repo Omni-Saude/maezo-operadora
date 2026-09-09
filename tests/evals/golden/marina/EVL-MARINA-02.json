@@ -2,7 +2,9 @@
   "id": "EVL-MARINA-02",
   "agent": "marina",
   "class": "EU",
-  "tier": ["A"],
+  "tier": [
+    "A"
+  ],
   "description": "RECURSO flow: admissibility clears (SEGUE_ANALISE) but recurso_eligibility itself resolves ANALISE_HUMANA (ambiguous merit) -> human_review, motivo_humano=recurso_analise_humana. NEVER a recurso indeferimento (false_denial invariant) -- the indeferimento is born solely in UT_AnaliseRecursoAnalista.",
   "input": {
     "state": {
@@ -30,9 +32,17 @@
     "Merito do recurso ambiguo; encaminhado para analise humana especializada antes de qualquer decisao de deferimento ou indeferimento."
   ],
   "dmn_fixture": {
-    "recurso_admissibility": { "roteamento": "SEGUE_ANALISE" },
-    "recurso_sla": { "sla_analise": "7d", "sla_alerta": "3d" },
-    "recurso_eligibility": { "roteamento": "ANALISE_HUMANA", "grupo_revisor": "analista-recurso-glosa" }
+    "recurso_admissibility": {
+      "roteamento": "SEGUE_ANALISE"
+    },
+    "recurso_sla": {
+      "sla_analise": "7d",
+      "sla_alerta": "3d"
+    },
+    "recurso_eligibility": {
+      "roteamento": "ANALISE_HUMANA",
+      "grupo_revisor": "analista-recurso-glosa"
+    }
   },
   "expect": {
     "fields": {
@@ -43,5 +53,8 @@
       "elegibilidade_recurso": "ANALISE_HUMANA"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "dmn:recurso_eligibility=ANALISE_HUMANA"
+  ]
 }

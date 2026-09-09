@@ -182,6 +182,31 @@ def test_state_from_envelope_accepts_matricula_only_no_numero_contrato() -> None
     assert "numero_contrato" not in state
 
 
+def test_state_from_envelope_raises_if_a_meta_key_ever_escapes_the_input_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REG-06: the `unknown` guard at the end of `state_from_envelope` is a REAL, fail-closed
+    check, not a `# pragma: no cover` promise — proven by making it fire for real instead of
+    trusting the docstring's "structural, currently-unreachable" claim. `_STRING_META_KEYS` is
+    monkeypatched to add a name outside `graph._CALLER_INPUT_FIELDS`, the same name is planted in
+    `payload_meta` (the only way `raw` ever gains a key), and the guard is asserted to raise
+    instead of silently widening the state.
+    """
+    import maezo.agents.fernando.delegation as delegation_module
+
+    bogus_key = "reg06_mutation_probe_unknown_key"
+    assert bogus_key not in _CALLER_INPUT_FIELDS
+    monkeypatch.setattr(
+        delegation_module, "_STRING_META_KEYS", (*delegation_module._STRING_META_KEYS, bogus_key)
+    )
+    envelope = _envelope()
+    planted = {**dict(envelope.payload_meta), bogus_key: "valor-fora-do-limite"}
+    object.__setattr__(envelope, "payload_meta", planted)
+
+    with pytest.raises(ValueError, match="non-input keys for Fernando"):
+        state_from_envelope(envelope)
+
+
 # --- make_fernando_handler ------------------------------------------------------------------------
 
 
@@ -191,7 +216,12 @@ async def test_handler_notify_route_returns_process_reference_and_bounded_meta()
 
     assert output.output_ref == "process://INAD-amh-CTR-EDGE-1"
     assert output.meta["route"] == "notify"
-    assert output.meta["desfecho"] == "lembrete_regularizacao_enviado"
+    # FER-03/FER-04 (auditoria de frota 2026-09-04): esta aresta e' EXATAMENTE onde o rotulo
+    # mentia em producao. `state_from_envelope` fixa `canal="a2a"`, que nao tem remetente
+    # ligado, entao NENHUMA mensagem sai — e ate a correcao o turno respondia
+    # `lembrete_regularizacao_enviado` mesmo assim (com `mensagem_enviada=False` ao lado).
+    # O rotulo honesto e' o do canal sem entrega.
+    assert output.meta["desfecho"] == "lembrete_regularizacao_canal_sem_entrega"
     # `notify` never starts SP-OP-INADIMPLENCIA-001 (graph topology, `start_process`'s own
     # docstring) — this is the CORRECT desfecho for the a2a-delegated purge-window follow-up.
     assert output.meta["process_started"] == "False"

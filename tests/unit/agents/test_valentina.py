@@ -499,7 +499,10 @@ async def test_ambiguous_revocation_signal_still_stops() -> None:
 async def test_missing_runtime_context_fail_closes_through_no_consent() -> None:
     """`receive`'s guard: without the contract identifiers there is no business key AND no way
     to verify consent for a concrete titular — inability to decide consent = NO consent
-    (neutral terminal, zero PHI/DMN/process; never `{}`, never adverse)."""
+    (neutral terminal, zero PHI/DMN/process; never `{}`, never adverse).
+
+    VAL-05: the DESFECHO itself (not just the side-channel `error` field) must distinguish this
+    inability-to-verify case from a genuine no-consent verdict."""
     dmn = FakeDmnTransport()
     compiled = (
         _graph(dmn=dmn, cibseven=_AssertingCibSeven(), fhir=_AssertingPatientSummaryReader())
@@ -510,11 +513,46 @@ async def test_missing_runtime_context_fail_closes_through_no_consent() -> None:
     result = await compiled.ainvoke(_consented_state(tenant_id=""))
 
     assert result["consent_status"] == "ausente"
-    assert result["desfecho"] == "sem_consentimento"
+    assert result["desfecho"] == "falha_verificacao_consentimento"  # VAL-05: distinct token
     assert result["error"] == "contexto_de_runtime_ausente"  # bounded class token, internal-only
     assert result["process_started"] is False
     assert result["business_key"] == ""
     assert dmn.calls == []
+
+
+async def test_genuine_no_consent_and_missing_context_yield_distinct_desfechos() -> None:
+    """VAL-05 (fleet audit ciclo 2): the audit's own proof was two goldens (EVL-VALENTINA-01/02)
+    whose ONLY differentiator was the side-channel `error` field, both reporting the identical
+    `desfecho="sem_consentimento"`. A genuine no-consent VERDICT (identifiers present, consent
+    facts absent/false) and an inability-to-VERIFY consent (identifiers missing, `receive`'s own
+    guard) must now report DIFFERENT primary outcomes, even though both remain the SAME neutral
+    terminal (zero PHI/DMN/process) — `desfecho` is contract §payload.desfecho, the field a
+    downstream/audit consumer of the primary outcome actually reads."""
+    dmn = FakeDmnTransport()
+    compiled = (
+        _graph(dmn=dmn, cibseven=_AssertingCibSeven(), fhir=_AssertingPatientSummaryReader())
+        .compile_graph()
+        .compile()
+    )
+
+    genuine = await compiled.ainvoke(_consented_state(consentimento_ativo=False))
+    unverifiable = await compiled.ainvoke(_consented_state(tenant_id=""))
+
+    assert genuine["desfecho"] == "sem_consentimento"
+    assert unverifiable["desfecho"] == "falha_verificacao_consentimento"
+    assert genuine["desfecho"] != unverifiable["desfecho"]
+    # Both remain the SAME neutral invariant — only the label changes (C3: no new decision).
+    assert genuine["consent_status"] == unverifiable["consent_status"] == "ausente"
+    assert genuine["process_started"] is unverifiable["process_started"] is False
+
+
+def test_falha_verificacao_consentimento_is_in_the_closed_telemetry_vocabulary() -> None:
+    """Without this the label would silently normalize to `"outro"` at the Prometheus boundary
+    (`runtime.turn_telemetry._DESFECHO_VOCAB`), losing the VAL-05 distinction for observability
+    even though the state field itself is correct."""
+    from maezo.runtime.turn_telemetry import _DESFECHO_VOCAB
+
+    assert "falha_verificacao_consentimento" in _DESFECHO_VOCAB["valentina"]
 
 
 # --- (C) Adverse decision is ALWAYS human ------------------------------------------------------
@@ -822,7 +860,10 @@ async def test_human_shortcut_never_carries_planted_facts_into_dossier() -> None
 
 async def test_missing_context_with_full_plant_never_touches_engine() -> None:
     """Missing runtime context + a fully planted output set: neutral no-consent terminal, no
-    engine transport touch, no DMN, planted business_key wiped, no sentinel anywhere."""
+    engine transport touch, no DMN, planted business_key wiped, no sentinel anywhere.
+
+    VAL-05: the missing-context path emits the distinct `falha_verificacao_consentimento`
+    desfecho (never the forged/genuine-no-consent literal), even under a full plant attempt."""
     dmn = FakeDmnTransport()
     compiled = (
         _graph(dmn=dmn, cibseven=_AssertingCibSeven(), fhir=_AssertingPatientSummaryReader())
@@ -833,7 +874,7 @@ async def test_missing_context_with_full_plant_never_touches_engine() -> None:
     result = await compiled.ainvoke(_consented_state(tenant_id="", **_planted_outputs()))
 
     assert result["consent_status"] == "ausente"
-    assert result["desfecho"] == "sem_consentimento"
+    assert result["desfecho"] == "falha_verificacao_consentimento"  # VAL-05: distinct token
     assert result["process_started"] is False
     assert result["business_key"] == ""  # planted key reset; nothing re-derived without context
     assert dmn.calls == []
@@ -925,6 +966,22 @@ async def test_start_process_is_idempotent_by_business_key() -> None:
     assert result["process_started"] is True
     assert result["process_ref"]["instance_id"] == "pre-existing"
     assert result["process_ref"]["already_existed"] is True
+
+
+async def test_start_process_provenance_decision_basis_carries_the_real_programa_id() -> None:
+    """VAL-04 (Agent Fleet Audit): `decision_basis["programa"]` read `state.get("programa")`, a
+    key `ValentinaState` never defines (the real field is `programa_id`) -- the provenance's
+    `programa` identifier was always the empty string, for every instance ever started."""
+    dmn = FakeDmnTransport()
+    _register_routing(dmn)
+    _register_sla(dmn)
+    sink = FakeStartAuditSink()
+    compiled = _graph(dmn=dmn, audit_sink=sink).compile_graph().compile()
+
+    await compiled.ainvoke(_consented_state(programa_id="cronicos-p1"))
+
+    assert sink.records, "start_process never emitted an audit record"
+    assert sink.records[0].details["programa"] == "cronicos-p1"
 
 
 async def test_start_process_failure_records_error_and_keeps_route() -> None:

@@ -841,9 +841,15 @@ async def test_escalate_never_fabricates_leve_when_severidade_absent() -> None:
     is `receive`'s missing-runtime-context escalate (`_base_state` here has no
     `escalation_severidade` key at all, exactly like that path leaves it after the neutral-output
     reset). A severity that was never determined is UNKNOWN, never the mildest `leve` — this must
-    ride through as `None` verbatim into the engine payload, never be fabricated, so the
-    ALREADY-fixed worker boundary (`escalation.py::_exigir_severidade`) is the one that fails
-    closed on it (refuse -> supervisor fallback -> mandatory HITL), not a silent Helena default."""
+    ride through as `None` verbatim into the engine payload, never fabricated by Helena.
+
+    §Delta-3 (regressao P-12) — CORRECAO: this docstring used to end "so the ALREADY-fixed worker
+    boundary (`escalation.py::_exigir_severidade`) is the one that fails closed on it (refuse ->
+    supervisor fallback -> mandatory HITL)". The live engine proved that refusal did NOT reach the
+    HITL. This state carries `escalation_motivo="falha_tecnica"` (derived from `error`) — the one
+    motivo the contract declares `null` for — so the worker now ACCEPTS the `None` and the
+    notification goes out. What this test pins is unchanged, and is Helena's half alone: `None`
+    leaves this graph verbatim, never a fabricated `leve`."""
     recording: list[dict[str, Any]] = []
 
     class _RecordingCibSeven(FakeCibSevenTransport):
@@ -972,8 +978,22 @@ async def test_respond_sends_via_whatsapp_using_hash_not_raw_number() -> None:
 
     result = await graph.respond(_base_state(response_text="oi, tudo bem?"))
 
-    assert result == {}
+    # NEW-10: `desfecho` e' agora gravado no estado tambem no ramo de sucesso (o mesmo valor
+    # rotulado na telemetria CC-09) -- antes deste WP `HelenaState.desfecho` era campo morto
+    # em qualquer turno que nao falhasse ao iniciar o processo.
+    assert result == {"desfecho": "resolvido_automatico"}
     assert sender.sent == [("deadbeef", "oi, tudo bem?")]
+
+
+async def test_respond_records_escalado_humano_desfecho_when_escalation_started() -> None:
+    """NEW-10: o mesmo campo, agora wired no OUTRO ramo de sucesso -- quando a escalacao
+    realmente abriu, `desfecho` reflete `escalado_humano`, nunca a string vazia."""
+    sender = _FakeWhatsAppSender()
+    graph = _graph(inference=_FakeInference([]), whatsapp=sender)
+
+    result = await graph.respond(_base_state(response_text="oi", escalation_started=True))
+
+    assert result["desfecho"] == "escalado_humano"
 
 
 async def test_respond_surfaces_transport_failure_never_swallows_silently() -> None:

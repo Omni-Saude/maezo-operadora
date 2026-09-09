@@ -2,7 +2,10 @@
   "id": "EVL-BEATRIZ-03",
   "agent": "beatriz",
   "class": "PL",
-  "tier": ["A", "B"],
+  "tier": [
+    "A",
+    "B"
+  ],
   "description": "Case with synthetic identifiers, including one deliberately hostile evidence pointer carrying a raw-PHI key (`cpf`) with the repo's canonical synthetic CPF canary '123.456.789-09' -- `gather`'s `_normalize_evidence` refuses this item WHOLESALE (evidencia_recusada:1), so the canary never reaches `evidencia_normalizada`/the dossier. Asserts the emitted dossier never carries the canary. The ABS check is scoped to the emitted `dossier` object (the custody-bound corpus `seal_custody_bundle` will seal), not the raw graph state, because the raw `evidencia_refs` caller-input echoes back into LangGraph's merged state regardless of the graph's own PHI-stripping logic (a whole-state scan would trivially 'fail' on any planted input value, which is not the property under test -- see test_dossier_admin_evals.py module docstring). The mutation check additionally proves the ABS assertion has teeth by injecting the canary into the LLM's own narrative output.",
   "input": {
     "state": {
@@ -16,11 +19,21 @@
       "encaminhado_por_id": "analista-eval-03",
       "competencia": "2026-06",
       "evidencia_refs": [
-        {"ref": "evd://tiss/lote-eval-03", "hash": "h-eval-03a", "origem": "tiss"},
-        {"ref": "evd://contaminado/eval-03", "hash": "h-eval-03b", "cpf": "123.456.789-09"}
+        {
+          "ref": "evd://tiss/lote-eval-03",
+          "hash": "h-eval-03a",
+          "origem": "tiss"
+        },
+        {
+          "ref": "evd://contaminado/eval-03",
+          "hash": "h-eval-03b",
+          "cpf": "123.456.789-09"
+        }
       ],
       "feature_snapshot_ref": "snap://prov-eval-03/2026-06",
-      "indicadores_presentes": ["peer_deviation"],
+      "indicadores_presentes": [
+        "peer_deviation"
+      ],
       "score_indicadores": 40,
       "intensidade_investigacao": "APROFUNDADA",
       "indicio_fraude_sinalizado": false
@@ -34,7 +47,12 @@
       "desfecho": "dossie_instruido"
     }
   },
-  "leak_canaries": ["123.456.789-09"],
+  "leak_canaries": [
+    "123.456.789-09"
+  ],
+  "triggers": [
+    "signal:evidencia_indisponivel"
+  ],
   "live": {
     "assert": "no_leak",
     "match": [],

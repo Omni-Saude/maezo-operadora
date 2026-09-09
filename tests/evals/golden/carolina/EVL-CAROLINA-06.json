@@ -1,0 +1,61 @@
+{
+  "id": "EVL-CAROLINA-06",
+  "agent": "carolina",
+  "class": "EU",
+  "tier": ["A"],
+  "description": "CAR-05 (gatilhos `cred_admissibility=ANALISE_HUMANA` + `cred_route=ANALISE_CREDENCIAMENTO` do agent.yaml, ambos sem golden ate aqui). Pedido de credenciamento com documentacao completa mas licenca aparentemente irregular: `cred_admissibility` resolve ANALISE_HUMANA (r_cred_humano -- NUNCA uma negativa por licenca; L1) e `cred_route` resolve ANALISE_CREDENCIAMENTO (r_cred) -> human_review na gestao-rede, desfecho=analise_credenciamento, e `cred_prior_notice` NAO e' consultada (BPMN Flow_GWNat_Credenciamento; divergencia #3 do docstring). Fixtures CONDICIONAIS espelhando as regras das tabelas deployadas (`spec/processes/dmn/cred_{admissibility,route}.dmn`, hitPolicy FIRST) em vez de uma linha estatica: a pergunta e' 'a tabela PODE dizer isso a partir do que o grafo de fato lhe manda?'. Dados sinteticos apenas.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "canal": "portal",
+      "prestador_id": "PROV-CRED-EVAL-06",
+      "direcao": "credenciamento",
+      "tipo_prestador": "clinica",
+      "origem_solicitacao": "prestador",
+      "motivo_informado": "Solicitacao de credenciamento de clinica com registro profissional em verificacao",
+      "data_solicitacao_iso": "2026-07-21",
+      "documentos_refs": [],
+      "licenca_valida": false,
+      "documentacao_completa": true,
+      "dentro_criterios_rede": true,
+      "indicio_irregularidade_sinalizado": false
+    }
+  },
+  "recorded_llm": [
+    "Licenca do prestador aparentemente irregular; caso encaminhado a gestao de rede para analise de credenciamento, que decide aprovar ou negar. Nenhuma negativa automatica."
+  ],
+  "dmn_fixture": {
+    "cred_admissibility": {
+      "__rules__": [
+        { "when": { "indicio_irregularidade_sinalizado": true }, "then": { "roteamento": "SEGUE_ANALISE", "motivo": "r_indicio_segue" } },
+        { "when": { "direcao": "descredenciamento" }, "then": { "roteamento": "SEGUE_ANALISE", "motivo": "r_descred_segue" } },
+        { "when": { "direcao": "credenciamento", "documentacao_completa": false }, "then": { "roteamento": "PENDENTE_DOCUMENTACAO", "motivo": "r_cred_doc_pendente" } },
+        { "when": { "direcao": "credenciamento", "documentacao_completa": true, "licenca_valida": true, "dentro_criterios_rede": true }, "then": { "roteamento": "CLERICAL_CREDENCIAR", "motivo": "r_cred_clerical" } },
+        { "when": { "direcao": "credenciamento", "documentacao_completa": true }, "then": { "roteamento": "ANALISE_HUMANA", "motivo": "r_cred_humano" } },
+        { "then": { "roteamento": "ANALISE_HUMANA", "motivo": "r_catchall" } }
+      ]
+    },
+    "cred_route": {
+      "__rules__": [
+        { "when": { "indicio_irregularidade_sinalizado": true }, "then": { "roteamento": "ANALISE_DESCREDENCIAMENTO", "motivo": "r_indicio_descred" } },
+        { "when": { "direcao": "descredenciamento" }, "then": { "roteamento": "ANALISE_DESCREDENCIAMENTO", "motivo": "r_descred" } },
+        { "when": { "direcao": "credenciamento" }, "then": { "roteamento": "ANALISE_CREDENCIAMENTO", "motivo": "r_cred" } },
+        { "then": { "roteamento": "ANALISE_HUMANA", "motivo": "r_catchall" } }
+      ]
+    },
+    "cred_sla": { "sla_analise": "P20D", "sla_alerta": "P12D", "fonte_regulatoria": "RN 566/567" }
+  },
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "admissibilidade": "ANALISE_HUMANA",
+      "roteamento_natureza": "ANALISE_CREDENCIAMENTO",
+      "motivo_humano": "analise_credenciamento",
+      "grupo_humano": "gestao-rede",
+      "desfecho": "analise_credenciamento",
+      "exige_notificacao_previa": false,
+      "prazo_notificacao": ""
+    }
+  },
+  "leak_canaries": []
+}

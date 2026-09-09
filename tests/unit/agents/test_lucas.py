@@ -18,19 +18,22 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 import yaml
 
 from maezo.agents.lucas.graph import (
     AdmissibilidadeCobranca,
+    Intencao,
     LucasGraph,
     LucasState,
     MotivoCategoria,
+    MotivoHumano,
     RoteamentoEscalacao,
     Route,
     _business_key,
+    _motivo_categoria,
     build,
 )
 from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
@@ -81,14 +84,18 @@ class _RaisingInference:
 
 
 class _FakeWhatsAppSender:
+    """LUC-08: `send` now REQUIRES `idempotency_key` (`graph.WhatsAppSender`'s real shape) —
+    recorded as the third element of each `sent` tuple so existing assertions can be extended
+    without losing their original (to_hash, text) coverage."""
+
     def __init__(self, *, fail: bool = False) -> None:
-        self.sent: list[tuple[str, str]] = []
+        self.sent: list[tuple[str, str, str]] = []
         self._fail = fail
 
-    async def send(self, to_hash: str, text: str) -> dict[str, Any]:
+    async def send(self, to_hash: str, text: str, *, idempotency_key: str) -> dict[str, Any]:
         if self._fail:
             raise RuntimeError("transport down")
-        self.sent.append((to_hash, text))
+        self.sent.append((to_hash, text, idempotency_key))
         return {"ok": True}
 
 
@@ -301,7 +308,12 @@ async def test_j1_full_turn_sends_whatsapp_never_starts_process() -> None:
     assert result["route"] == "respond_member"
     assert result["mensagem_enviada"] is True
     assert result["desfecho"] == "resposta_informativa_enviada"
-    assert sender.sent == [("deadbeef", "Aqui esta a 2a via do seu boleto.")]
+    assert [(to_hash, text) for to_hash, text, _key in sender.sent] == [
+        ("deadbeef", "Aqui esta a 2a via do seu boleto.")
+    ]
+    # §Delta W4-HYGIENE F1: conversation + node + TURN. The turn component is a digest, so the
+    # assertion pins the stable prefix and, separately, that a per-turn component exists at all.
+    assert sender.sent[0][2].startswith("ESC-amh-wa:amh:deadbeef:respond_member:")
     assert result["process_started"] is False
 
 
@@ -443,8 +455,11 @@ async def test_j3_full_turn_starts_process_and_sends_ack_never_the_adverse_text(
     assert result["route"] == "escalate_human"
     assert result["process_started"] is True
     assert result["business_key"] == "ESC-amh-wa:amh:deadbeef"
-    assert sender.sent == [("deadbeef", "Um atendente humano vai continuar.")]
-    for _to_hash, text in sender.sent:
+    assert [(to_hash, text) for to_hash, text, _key in sender.sent] == [
+        ("deadbeef", "Um atendente humano vai continuar.")
+    ]
+    assert sender.sent[0][2].startswith("ESC-amh-wa:amh:deadbeef:send_escalation_ack:")
+    for _to_hash, text, _idempotency_key in sender.sent:
         assert "suspens" not in text.lower()
         assert "cancelad" not in text.lower()
         assert "negad" not in text.lower()
@@ -609,6 +624,35 @@ def test_motivo_categoria_never_clinical() -> None:
     allowed = set(MotivoCategoria.__args__)  # type: ignore[attr-defined]
     assert allowed == {"outro", "solicitacao_humano", "falha_tecnica"}
     assert allowed.isdisjoint({"red_flag_clinico", "risco_psicossocial", "intencao_clinica"})
+
+
+def test_solicitacao_humano_is_disclosed_as_unreachable_pending_ratification() -> None:
+    """LUC-04 (Agent Fleet Audit, DEAD-FIELD-OR-LITERAL): `solicitacao_humano` is a REAL,
+    live value of the shared SP-OP-ESCALATION-001 `motivo_categoria` domain (helena emits it for
+    exactly this case, `helena/graph.py:709`) -- but no code path in Lucas can ever produce it: a
+    beneficiary explicitly asking for a human has no `Intencao` slot to land in, so `_motivo_
+    categoria` never returns it. Wiring a real path needs a new `Intencao` value the DMN's
+    `motivo`/`intencao` inputs would have to recognize -- `lucas_escalation_routing.dmn` is a
+    DRAFT table (needs the same owner ratification LUC-03 already names) -- so this is a
+    disclosed, OWNER-GATED gap, not a silently-broken one. This test pins BOTH halves of that
+    disclosure: the type-fidelity kept the value in `MotivoCategoria` (RIGHT, since helena's
+    fleet-wide domain needs it), and the source comment says WHY it is unreachable HERE and
+    names LUC-04 -- so this cannot silently regress into an undisclosed dead value again."""
+    assert "falar_com_humano" not in set(get_args(Intencao))
+    for motivo in get_args(MotivoHumano):
+        assert _motivo_categoria(motivo) != "solicitacao_humano", (
+            f"_motivo_categoria({motivo!r}) now reaches solicitacao_humano -- update this test "
+            "(no longer unreachable) and the LUC-04 disclosure comment above MotivoCategoria."
+        )
+    import inspect
+
+    import maezo.agents.lucas.graph as lucas_graph
+
+    source = inspect.getsource(lucas_graph)
+    marker = source.index("MotivoCategoria = Literal")
+    comment_block = source[max(0, marker - 1200) : marker]
+    assert "LUC-04" in comment_block, "the MotivoCategoria comment must cite LUC-04"
+    assert "OWNER-GATED" in comment_block or "ratifica" in comment_block.lower()
 
 
 async def test_conciliation_facts_passed_through_unchanged_never_recomputed() -> None:
@@ -894,3 +938,200 @@ async def test_dossier_narrativa_identifiers_never_reach_the_engine_variables() 
     # Structured facts survive untouched (the boleto number is a long digit run BY CONSTRUCTION).
     assert recording[0]["dossie_lucas"]["fatos"]["numero_boleto"] == "34191790010104351004791020"
     assert recording[0]["dossie_lucas"]["decisao_cancelamento"] is None
+
+
+# ---------------------------------------------------------------------------
+# LUC-08 — outbound idempotency key (gap `IDEMPOTENCY-KEY-MISSING`)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingWhatsAppWithKey:
+    """Dedicated fake for the LUC-08 tests below — kept separate from `_FakeWhatsAppSender`
+    (whose signature/assertions are updated together with the `graph.py` fix itself) so these
+    tests pin ONLY the new `idempotency_key` behaviour, never anything about the send path this
+    task did not touch."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, str]] = []
+
+    async def send(self, to_hash: str, text: str, *, idempotency_key: str) -> dict[str, Any]:
+        self.sent.append((to_hash, text, idempotency_key))
+        return {"ok": True}
+
+
+class _SuppressingWhatsApp:
+    """Fake sender that answers EXACTLY what `WhatsAppServer.send_message` answers when the
+    durable guard suppressed the send: a well-formed dict saying `suppressed_duplicate`, and
+    deliberately NOT a fabricated Cloud API response with an invented `messages[].id`.
+
+    §Delta W4-HYGIENE F1b. Without this double the callers' honesty is untestable — the old code
+    derived "sent" from the ABSENCE of an exception, and a suppressed send raises nothing.
+    """
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, str]] = []
+
+    async def send(self, to_hash: str, text: str, *, idempotency_key: str) -> dict[str, Any]:
+        self.sent.append((to_hash, text, idempotency_key))
+        return {"suppressed_duplicate": True, "idempotency_key": idempotency_key}
+
+
+async def test_replayed_respond_member_turn_uses_the_same_idempotency_key_each_time() -> None:
+    """LUC-08: an engine re-delivery of the SAME turn must claim the SAME key on the durable
+    store, never a fresh one — a fresh key per attempt would never dedupe anything. The key is
+    derived ONLY from `business_key` (stable — `tenant_id`/`conversation_id`), the node name and
+    the turn's own CALLER INPUT (`_turn_fingerprint`), never from anything that changes across a
+    replay (no timestamp, no random id)."""
+    dmn = FakeDmnTransport()
+    dmn.register("lucas_billing_admissibility", [{"roteamento": "RESPONDER"}])
+    sender = _RecordingWhatsAppWithKey()
+    state = _base_state(tipo_solicitacao="2a_via")
+
+    for _ in range(2):
+        compiled = (
+            _graph(dmn=dmn, cibseven=FakeCibSevenTransport(), whatsapp=sender, inference=_FakeInference())
+            .compile_graph()
+            .compile()
+        )
+        await compiled.ainvoke(state)
+
+    assert len(sender.sent) == 2, "both replays must have actually sent through the fake"
+    first_key = sender.sent[0][2]
+    second_key = sender.sent[1][2]
+    assert first_key == second_key
+    assert first_key.startswith("ESC-amh-wa:amh:deadbeef:respond_member:")
+
+
+async def test_replayed_escalation_ack_turn_uses_the_same_idempotency_key_each_time() -> None:
+    """Same property as above, for `send_escalation_ack` — the OTHER outbound call site LUC-08
+    closes. Node name differs (`send_escalation_ack`, not `respond_member`), so a beneficiary
+    with BOTH an informational reminder and an escalation in flight never has one send's key
+    collide with — and wrongly suppress — the other."""
+    dmn = FakeDmnTransport()
+    dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
+    sender = _RecordingWhatsAppWithKey()
+    state = _base_state(intencao="inadimplencia")
+
+    for _ in range(2):
+        compiled = (
+            _graph(dmn=dmn, cibseven=FakeCibSevenTransport(), whatsapp=sender, inference=_FakeInference())
+            .compile_graph()
+            .compile()
+        )
+        await compiled.ainvoke(state)
+
+    assert len(sender.sent) == 2, "both replays must have actually sent the ack through the fake"
+    first_key = sender.sent[0][2]
+    second_key = sender.sent[1][2]
+    assert first_key == second_key
+    assert first_key.startswith("ESC-amh-wa:amh:deadbeef:send_escalation_ack:")
+
+
+# ---------------------------------------------------------------------------
+# §Delta W4-HYGIENE F1 — the key must be per TURN, and a suppressed send is not a delivery
+# ---------------------------------------------------------------------------
+
+
+async def _run_turn(sender: Any, state: LucasState, dmn: FakeDmnTransport) -> dict[str, Any]:
+    compiled = (
+        _graph(dmn=dmn, cibseven=FakeCibSevenTransport(), whatsapp=sender, inference=_FakeInference())
+        .compile_graph()
+        .compile()
+    )
+    return dict(await compiled.ainvoke(state))
+
+
+def _respond_member_dmn() -> FakeDmnTransport:
+    dmn = FakeDmnTransport()
+    dmn.register("lucas_billing_admissibility", [{"roteamento": "RESPONDER"}])
+    return dmn
+
+
+def _escalation_dmn() -> FakeDmnTransport:
+    dmn = FakeDmnTransport()
+    dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
+    return dmn
+
+
+async def test_two_different_respond_member_turns_in_one_conversation_get_different_keys() -> None:
+    """§Delta F1 — the half the shipped LUC-08 tests never probed, and it was FALSE.
+
+    `business_key` is `ESC-{tenant}-{conversation_id}`, which `receive` re-derives on EVERY turn,
+    so `f"{business_key}:{node}"` is CONSTANT across a conversation. Two genuinely different
+    informational messages to the same beneficiary inside the store's 24h TTL would claim ONE
+    key: the second never reaches the Cloud API. The key must carry a per-TURN component.
+    """
+    sender = _RecordingWhatsAppWithKey()
+    dmn = _respond_member_dmn()
+
+    await _run_turn(sender, _base_state(tipo_solicitacao="2a_via", numero_boleto="111"), dmn)
+    await _run_turn(sender, _base_state(tipo_solicitacao="vencimento", numero_boleto="222"), dmn)
+
+    assert len(sender.sent) == 2, "both turns must have reached the sender"
+    first_key, second_key = sender.sent[0][2], sender.sent[1][2]
+    assert first_key != second_key, (
+        "two DIFFERENT turns of the same conversation claimed the SAME key — the second "
+        "message would be suppressed as a duplicate of a message it has nothing to do with"
+    )
+    # Same conversation and same node: only the per-turn component may differ.
+    assert (
+        first_key.rsplit(":", 1)[0]
+        == second_key.rsplit(":", 1)[0]
+        == ("ESC-amh-wa:amh:deadbeef:respond_member")
+    )
+
+
+async def test_two_separate_escalations_in_one_conversation_get_different_keys() -> None:
+    """Same property for the ACK leg. `SP-OP-ESCALATION-001`'s key is classified NON_STRICT by
+    `tools/mcp_cibseven/transport.py` precisely because "a conversation legitimately escalates
+    again after an earlier escalation closed" — so the second escalation's ACK must not be
+    suppressed as a duplicate of the first's."""
+    sender = _RecordingWhatsAppWithKey()
+    dmn = _escalation_dmn()
+
+    await _run_turn(sender, _base_state(intencao="inadimplencia", ciclos_sem_conciliacao=2), dmn)
+    await _run_turn(sender, _base_state(intencao="inadimplencia", ciclos_sem_conciliacao=5), dmn)
+
+    assert len(sender.sent) == 2
+    assert sender.sent[0][2] != sender.sent[1][2]
+
+
+async def test_a_suppressed_respond_member_send_is_never_reported_as_sent() -> None:
+    """§Delta F1b — the FAB half. `send_message` answers `{"suppressed_duplicate": True}` and
+    raises NOTHING, so the old `enviada = True` after a bare `await` claimed a delivery that did
+    not happen. `mensagem_enviada` must be False and the desfecho must not end in "enviada"."""
+    sender = _SuppressingWhatsApp()
+
+    final = await _run_turn(sender, _base_state(tipo_solicitacao="2a_via"), _respond_member_dmn())
+
+    assert len(sender.sent) == 1, "the send was attempted (the guard suppressed it, not the graph)"
+    assert final["mensagem_enviada"] is False
+    assert final["desfecho"] == "envio_suprimido_duplicata"
+    assert not final["desfecho"].endswith("enviada"), "a suppressed send is not a delivery"
+    assert "suppressed" in final["mensagem"]["envio_nota"]
+
+
+async def test_a_suppressed_escalation_ack_leaves_ack_pending_true() -> None:
+    """Same fix on the OTHER call site. `ack_pending` is `send_escalation_ack`'s own honest
+    record of "we promised nothing to anyone yet" — a suppressed ACK proves the key was already
+    claimed, NOT that the Cloud API accepted this turn's message, so the conservative marker
+    stays raised exactly as it does on the failure path two lines above it."""
+    sender = _SuppressingWhatsApp()
+
+    final = await _run_turn(sender, _base_state(intencao="inadimplencia"), _escalation_dmn())
+
+    assert final["process_started"] is True, "the escalation itself really happened"
+    assert len(sender.sent) == 1
+    assert final["mensagem_enviada"] is False
+    assert final["ack_pending"] is True
+
+
+def test_o_desfecho_de_envio_suprimido_esta_no_vocabulario_de_telemetria() -> None:
+    """The token is duplicated as a LITERAL in `runtime/turn_telemetry.py` (that module must
+    never import a graph). This is the test that stops the two copies from drifting: a token
+    missing from the vocab is silently normalized to `outro`, and the suppression rate — the one
+    signal an operator gets for this failure mode — would vanish into the fallback bucket."""
+    from maezo.agents.lucas.graph import DESFECHO_ENVIO_SUPRIMIDO_DUPLICATA
+    from maezo.runtime import turn_telemetry
+
+    assert DESFECHO_ENVIO_SUPRIMIDO_DUPLICATA in turn_telemetry._DESFECHO_VOCAB["lucas"]

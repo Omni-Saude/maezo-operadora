@@ -1,0 +1,26 @@
+utc_start=2026-09-08T20:51:54.177081+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-boundary-repair
+argv=[".venv/bin/python", "scripts/ci/check_evidence_ledger_hashes.py", "--base", "3125fea992e607836a6adccbfb8593a1cc062a46", "--python", ".venv/bin/python"]
+revision=4ae3ce29c77275c109b8cb1aabf41e18b8851764
+Traceback (most recent call last):
+  File "/Users/familia/code/maezo-completion-wt/fleet-ledger-boundary-repair/scripts/ci/check_evidence_ledger_hashes.py", line 1581, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/Users/familia/code/maezo-completion-wt/fleet-ledger-boundary-repair/scripts/ci/check_evidence_ledger_hashes.py", line 1546, in main
+    verify_historical_row(root, target_edge, args.python, allow_live=effective_allow_live)
+  File "/Users/familia/code/maezo-completion-wt/fleet-ledger-boundary-repair/scripts/ci/check_evidence_ledger_hashes.py", line 1371, in verify_historical_row
+    capture = _capture_historical_recipe(repo_root, edge, python_exe, allow_live=allow_live)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/familia/code/maezo-completion-wt/fleet-ledger-boundary-repair/scripts/ci/check_evidence_ledger_hashes.py", line 1105, in _capture_historical_recipe
+    proc = subprocess.run(
+           ^^^^^^^^^^^^^^^
+  File "/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: '.venv/bin/python'
+rc=1
+utc_end=2026-09-08T20:52:07.151039+00:00

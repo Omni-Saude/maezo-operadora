@@ -1,0 +1,46 @@
+utc_start=2026-09-08T20:52:22.055092+00:00
+cwd=/Users/familia/code/maezo-completion-wt/fleet-ledger-boundary-repair
+argv=["/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12", "scripts/ci/check_evidence_ledger_hashes.py", "--base", "3125fea992e607836a6adccbfb8593a1cc062a46"]
+revision=4ae3ce29c77275c109b8cb1aabf41e18b8851764
+[check-evidence-ledger-hashes] MISMATCH: FAB-PUBLISH-CONTACT / NEW-A2-1 / NEW-A2-2 / NEW-05 / NEW-06: recipe execution failed for tests/unit/tools/workers/test_worker_handler_purity.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/tools/workers/test_worker_handler_purity.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: FHIR-TOOL-SURFACE-PARITY / NEW-04 / VAL-02 / BEA-13 / RAF-03 / NEW-09: recipe execution failed for tests/unit/gateway/test_fhir_tool_surface_parity.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/gateway/test_fhir_tool_surface_parity.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: CAROLINA-CATCHALL / CAR-01 / CAR-03 / CAR-05: recipe execution failed for tests/unit/agents/test_carolina_desfecho_fence.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/agents/test_carolina_desfecho_fence.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: HELENA-INPUT-BOUNDARY / HEL-06 / HEL-03 / HEL-04 / HEL-07: recipe execution failed for tests/unit/agents/test_untrusted_input_boundary_fence.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/agents/test_untrusted_input_boundary_fence.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: DOSSIER-BROAD-EXCEPT: recipe execution failed for tests/unit/runtime/test_broad_except_allowlist.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/runtime/test_broad_except_allowlist.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: FENCE-PINS / BEA-06 / CC-04 / NEW-13 / REG-05 / REG-06 / REG-07 / CC-01: recipe execution failed for tests/unit/agents/test_graph_docstrings_a2a_fidelity.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/agents/test_graph_docstrings_a2a_fidelity.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: A2A-YAML-DISCLOSURE: recipe execution failed for tests/unit/a2a/test_agent_card_handlers_parity.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/a2a/test_agent_card_handlers_parity.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: FERNANDO-INPUT-DESFECHO: recipe execution failed for tests/unit/agents/test_fernando_input_allowlist_fence.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/agents/test_fernando_input_allowlist_fence.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: GOLDENS-MISSING: recipe execution failed for tests/evals/test_trigger_coverage.py: pytest produced 0 PASSED/FAILED result lines for tests/evals/test_trigger_coverage.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: CONTRACT-DRIFT: recipe execution failed for tests/unit/agents/test_contract_variable_parity_generic.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/agents/test_contract_variable_parity_generic.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: NONE-GUARDRAIL: recipe execution failed for tests/unit/runtime/test_guards.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/runtime/test_guards.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: EVAL-HARNESS-SENDER: historical recipe execution failed at 7db9e0b42dfe8e63c8214c63cbf3ece61c1406d9: historical source guard did not attest imports
+[check-evidence-ledger-hashes] MISMATCH: PROTOCOL-FAKE-FENCES / NEW-12 / NEW-C1-2 / REG-04: recipe execution failed for tests/unit/runtime/test_inference_fakes_match_protocol.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/runtime/test_inference_fakes_match_protocol.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: W4-HYGIENE / LUC-08 / NEW-15: recipe execution failed for tests/unit/agents/test_lucas.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/agents/test_lucas.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: COMPLETION-FLEET-SEMANTIC-INTEGRATION: recipe execution failed for tests/evals/test_harness_sender_leak.py: pytest produced 0 PASSED/FAILED result lines for tests/evals/test_harness_sender_leak.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: COMPLETION-FLEET-ESCALATION-BROKER-PROOF: recipe execution failed for tests/unit/integration_support/test_helena_broker_proof.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/integration_support/test_helena_broker_proof.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: ESC-TOLERANT-LOG-RAW-VALUE: historical recipe execution failed at 8f0e5f4720b1ea7885fefdda13cbbe4079601532: historical source guard did not attest imports
+[check-evidence-ledger-hashes] MISMATCH: ESC-TOLERANT-LOG-RAW-VALUE-CURRENT-7B34: recipe execution failed for tests/unit/tools/workers/test_escalation_notify_team.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/tools/workers/test_escalation_notify_team.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: EVAL-HARNESS-SENDER-CURRENT-7B34: recipe execution failed for tests/evals/test_harness_sender_leak.py: pytest produced 0 PASSED/FAILED result lines for tests/evals/test_harness_sender_leak.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] MISMATCH: FLEET-LEDGER-SUPERSESSION-PROVENANCE / FLC-01 / FLC-02: historical recipe execution failed at 3009bbe5490e28b89b606dc6e656d6b2b3ad98d8: historical source guard did not attest imports
+[check-evidence-ledger-hashes] MISMATCH: FLEET-LEDGER-BOUNDARY-REPAIR / FLTV-01 / FLTV-02 / FLTV-03 / FLTV-04: recipe execution failed for tests/unit/ci/test_check_evidence_ledger_supersession.py: pytest produced 0 PASSED/FAILED result lines for tests/unit/ci/test_check_evidence_ledger_supersession.py (exit=1); tail:
+/Users/familia/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/bin/python3.12: No module named pytest
+[check-evidence-ledger-hashes] SUMMARY: 0/21 declared-row proofs verified (20 selected rows; 21 total current/historical proofs), 0 legacy rows skipped — rows added in 3125fea992e607836a6adccbfb8593a1cc062a46..HEAD of docs/evidence-ledger.md.
+rc=1
+utc_end=2026-09-08T20:52:24.214099+00:00

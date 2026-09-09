@@ -71,7 +71,7 @@ pagamento**, risco financeiro direto).
 | `numero_guia_tiss` | string | nao | Guia TISS de origem. Semeada por `contas.handoff_pagamento` (echo do lote) e por `recurso.handoff_pagamento` (ancora da glosa revertida, junto com `glosa_id`); PAGTO nunca a le/decide a partir dela — e identidade/rastreabilidade (ADR-0040) |
 | `prestador_id` | string | sim | Prestador/credor beneficiario do pagamento (pseudonimizado; nunca dados bancarios crus em Zona Geral — ADR-0006) |
 | `tipo_pagamento` | string | sim | `prestador_rede` \| `reembolso_beneficiario` \| `prestador_livre_escolha` \| `glosa_revertida` \| `ajuste_conciliacao` |
-| `valor_pagamento_cents` | integer | sim | Valor a liberar, em **centavos** de BRL (inteiro — **NUNCA `number`**). Dinheiro = inteiro-centavos OU `double`; **`number` e proibido** (ADR-0018 parte 2) |
+| `valor_pagamento_cents` | integer | sim | Valor a liberar, em **centavos** de BRL (inteiro — **NUNCA `number`**). Dinheiro = inteiro-centavos OU `double`; **`number` e proibido** (ADR-0018 parte 2). Dominio: **inteiro estritamente positivo** (`> 0`); ausente ou `<= 0` (incl. coagido para `0`) NUNCA vira liberacao — roteia para a mesma categoria de admissibilidade `PENDENTE_DADOS`/`pendencia_dados` que a DMN `pagto_admissibility` ja declara para "Dados de pagamento invalidos/incompletos" (`spec/processes/dmn/pagto_admissibility.dmn`), aguardando correcao humana antes de qualquer avaliacao de alcada (§Delta-F1) |
 | `moeda` | string | sim | `BRL` (fixo nesta fase; campo explicito para futura multi-moeda) |
 | `competencia` | string | sim | Competencia do pagamento (`YYYY-MM`) |
 | `data_vencimento` | date | sim | Vencimento da obrigacao (ancora dos prazos). Chega a Andre via `payload_meta` do envelope A2A (`operadora.pagto.prepare_approval_dossier` → `analytics.actuarial`/`analytics.population`), peer de `competencia`/`conta_origem_ref` no mesmo payload; Andre a semeia em `_contract_variables` ao iniciar/verificar a instancia (idempotente — GAP-PAGTO-7) |
@@ -125,6 +125,7 @@ delas e uma decisao de preco/liberacao — so proveniencia, dossie instrutivo e 
 | `grupo_destino` | string | nao | Presente so quando `andre_route=human_review`; grupo humano sugerido por Andre (espelha `grupo_aprovador` da DMN `pagto_alcada`; catch-all conservador `comite-financeiro`) |
 | `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra) das DMN que Andre consultou (`pagto_admissibility`/`pagto_alcada`/`pagto_sla`) — cadeia de decisao (ADR-0007/ADR-0012) |
 | `aggregate_dataset_refs` | json (list[string]) | nao | Ponteiros opacos k-anon dos datasets agregados usados no dossie de Andre — NUNCA PHI resolvivel (egress chokepoint, ADR-0006/ADR-0019) |
+| `decisao_pagamento` | string | nao | Guardrail estrutural L0 (fleet audit ciclo 2, AND-08) — semeado SEMPRE `None` por `Andre._contract_variables` no start do processo; SO a User Task humana (`UT_AprovacaoAlcada`/`UT_AprovacaoComite`) preenche o valor real. Distinto da linha `dossie_andre` acima: aquela documenta o campo HOMONIMO dentro do JSON aninhado do dossie (existente desde #84); esta e' a variavel de PROCESSO de nivel superior que `_contract_variables` passou a emitir explicitamente nesta leva (GAP-PAGTO-7 continuado) |
 
 ## Topicos
 
