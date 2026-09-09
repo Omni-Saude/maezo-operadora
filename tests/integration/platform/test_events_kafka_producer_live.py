@@ -1339,9 +1339,9 @@ async def test_deployed_ans_timer_reaches_source_guard_and_real_kafka(
             "_process_instance_id",
             "_worker_topic",
         }
-        # Native timer starts have no caller-assigned business key. Bind publisher
-        # provenance to the same engine task already checked above.
-        assert fact["_business_key"] is None
+        # Native timer starts have no caller-assigned business key; the worker
+        # transport normalizes native null to an empty string (harness.py).
+        assert fact["_business_key"] == ""
         assert fact["_process_instance_id"] == instance_id
         assert fact["_worker_topic"] == "operadora.events.publish"
         assert fact["type"] == "ans.cron_due"
@@ -1371,6 +1371,7 @@ async def test_deployed_ans_timer_reaches_source_guard_and_real_kafka(
         history = await engine_client.get(f"/history/process-instance/{instance_id}")
         history.raise_for_status()
         assert history.json()["processDefinitionId"] == definition_id
+        assert history.json()["businessKey"] is None
         assert history.json()["state"] == "COMPLETED"
         activities = await engine_client.get(
             "/history/activity-instance", params={"processInstanceId": instance_id, "finished": "true"}
