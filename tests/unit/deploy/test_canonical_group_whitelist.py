@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shlex
 import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -154,8 +155,11 @@ def test_image_installs_only_group_specific_admission_and_preserves_existing_con
     ):
         assert re.fullmatch(pattern, name) is None, name
     dockerfile = (ROOT / "deploy/cibseven/Dockerfile").read_text()
-    assert "COPY deploy/cibseven/configure-group-whitelist.sh /tmp/configure-group-whitelist.sh" in dockerfile
-    assert "RUN sh /tmp/configure-group-whitelist.sh /camunda/conf/bpm-platform.xml" in dockerfile
+    assert (
+        "COPY deploy/cibseven/configure-group-whitelist.sh /camunda/configure-group-whitelist.sh"
+        in dockerfile
+    )
+    assert "RUN sh /camunda/configure-group-whitelist.sh /camunda/conf/bpm-platform.xml" in dockerfile
     assert "FROM cibseven/cibseven:2.1.0" in dockerfile
 
 
@@ -370,7 +374,10 @@ def test_reapplication_refuses_without_changing_first_success(tmp_path: Path) ->
 
 def test_repository_root_copy_and_narrow_ignore_exception_are_retained() -> None:
     dockerfile = (ROOT / "deploy/cibseven/Dockerfile").read_text()
-    assert "COPY deploy/cibseven/configure-group-whitelist.sh /tmp/configure-group-whitelist.sh" in dockerfile
+    assert (
+        "COPY deploy/cibseven/configure-group-whitelist.sh /camunda/configure-group-whitelist.sh"
+        in dockerfile
+    )
     assert "Build with deploy/cibseven as the context" not in dockerfile
     ignore = (ROOT / ".dockerignore").read_text().splitlines()
     assert "deploy/" in ignore
@@ -380,3 +387,76 @@ def test_repository_root_copy_and_narrow_ignore_exception_are_retained() -> None
     ]
     assert {".env", ".env.*", "*.env"}.issubset(ignore)
     assert not (ROOT / "deploy/cibseven/Dockerfile.dockerignore").exists()
+
+
+def _run_build_whitelist_step(
+    directory: Path, original: bytes
+) -> tuple[subprocess.CompletedProcess[bytes], Path, Path]:
+    """Execute the actual RUN body with only its /camunda fixture root remapped.
+
+    This tests shell chaining and files, not image USER/ownership or an engine.
+    The transform is the exact-one active-property gate; grep line counts would
+    incorrectly count XML comments preserved by that transform.
+    """
+    dockerfile = (ROOT / "deploy/cibseven/Dockerfile").read_text()
+    logical_lines = re.sub(r"\\\n\s*", " ", dockerfile).splitlines()
+    steps = [
+        line.removeprefix("RUN ")
+        for line in logical_lines
+        if line.startswith("RUN sh /camunda/configure-group-whitelist.sh ")
+    ]
+    assert steps == [
+        "sh /camunda/configure-group-whitelist.sh /camunda/conf/bpm-platform.xml  "
+        "&& rm /camunda/configure-group-whitelist.sh  "
+        '&& echo "OK: groupResourceWhitelistPattern presente uma vez"'
+    ]
+    (directory / "conf").mkdir(parents=True)
+    script = directory / "configure-group-whitelist.sh"
+    script.write_bytes(SCRIPT.read_bytes())
+    script.chmod(0o444)
+    descriptor = directory / "conf/bpm-platform.xml"
+    descriptor.write_bytes(original)
+    command = steps[0].replace("/camunda/", shlex.quote(str(directory)) + "/")
+    result = subprocess.run(["sh", "-c", command], capture_output=True, check=False)
+    return result, descriptor, script
+
+
+@pytest.mark.parametrize("comment", [b"", COMMENT])
+def test_complete_build_run_publishes_exactly_one_active_property_and_cleans_script(
+    tmp_path: Path, comment: bytes
+) -> None:
+    original = VENDOR.replace(b"    <properties>", comment + b"\n    <properties>", 1)
+    result, descriptor, script = _run_build_whitelist_step(tmp_path / "camunda", original)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == b"OK: groupResourceWhitelistPattern presente uma vez\n"
+    assert not result.stderr
+    assert not script.exists()
+    output = descriptor.read_bytes()
+    assert output.replace(b"      " + GROUP_PROPERTY + b"\n", b"", 1) == original
+    properties = ET.fromstring(output).findall("./{*}process-engine/{*}properties/{*}property")
+    active_groups = [p for p in properties if p.get("name") == "groupResourceWhitelistPattern"]
+    assert len(active_groups) == 1
+    assert active_groups[0].text == "[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*"
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        VENDOR.replace(b"    <properties>", b"    <properties></properties>\n    <properties>", 1),
+        VENDOR.replace(b"    <properties>", b"    <other>", 1).replace(
+            b"    </properties>", b"    </other>", 1
+        ),
+        VENDOR.replace(b' name="default"', b' name="other"'),
+        VENDOR.replace(b"    <properties>", b"    <properties>" + GROUP_PROPERTY, 1),
+    ],
+    ids=["duplicate", "missing", "invalid-engine", "existing-policy"],
+)
+def test_complete_build_run_refusal_prevents_cleanup_and_success_echo(tmp_path: Path, invalid: bytes) -> None:
+    control, _, control_script = _run_build_whitelist_step(tmp_path / "control", VENDOR)
+    assert control.returncode == 0 and not control_script.exists()
+    result, descriptor, script = _run_build_whitelist_step(tmp_path / "invalid", invalid)
+    assert result.returncode != 0
+    assert result.stderr == b"Refusing unexpected CIB Seven descriptor/group whitelist\n"
+    assert not result.stdout
+    assert descriptor.read_bytes() == invalid
+    assert script.exists()  # && stops before rm and the success echo.
