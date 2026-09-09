@@ -199,6 +199,35 @@ def _parametrization_may_override(node: ast.expr, fixture_name: str) -> bool:
     return names is None or fixture_name in names
 
 
+def _is_qualified_pytest_mark(node: ast.expr) -> bool:
+    return (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Attribute)
+        and isinstance(node.value.value, ast.Name)
+        and node.value.value.id == "pytest"
+        and node.value.attr == "mark"
+    )
+
+
+def _supported_test_decorator(node: ast.expr, fixture_name: str) -> bool:
+    target = node.func if isinstance(node, ast.Call) else node
+    if not _is_qualified_pytest_mark(target):
+        return False
+    if target.attr != "parametrize":
+        return True
+    return isinstance(node, ast.Call) and not _parametrization_may_override(node, fixture_name)
+
+
+def _supported_module_mark(node: ast.expr, fixture_name: str) -> bool:
+    if _is_pytest_mark(node, "integration") or _is_pytest_mark(node, "asyncio"):
+        return True
+    return (
+        isinstance(node, ast.Call)
+        and _is_pytest_mark(node.func, "parametrize")
+        and not _parametrization_may_override(node, fixture_name)
+    )
+
+
 def _is_call(node: ast.expr, owner: str, method: str) -> bool:
     return (
         isinstance(node, ast.Call)
@@ -347,30 +376,17 @@ def _module_scope_bindings(tree: ast.Module) -> dict[str, list[ast.stmt]]:
 
 
 def _fixture_registration_name(node: ast.AsyncFunctionDef) -> str | None:
-    for decorator in node.decorator_list:
-        if (
-            isinstance(decorator, ast.Attribute)
-            and isinstance(decorator.value, ast.Name)
-            and decorator.value.id == "pytest"
-            and decorator.attr == "fixture"
-        ):
-            return node.name
-        if (
-            isinstance(decorator, ast.Call)
-            and isinstance(decorator.func, ast.Attribute)
-            and isinstance(decorator.func.value, ast.Name)
-            and decorator.func.value.id == "pytest"
-            and decorator.func.attr == "fixture"
-        ):
-            explicit_names = [
-                keyword.value.value
-                for keyword in decorator.keywords
-                if keyword.arg == "name"
-                and isinstance(keyword.value, ast.Constant)
-                and isinstance(keyword.value.value, str)
-            ]
-            return explicit_names[0] if len(explicit_names) == 1 else None
-    return None
+    if len(node.decorator_list) != 1:
+        return None
+    decorator = node.decorator_list[0]
+    return (
+        node.name
+        if isinstance(decorator, ast.Attribute)
+        and isinstance(decorator.value, ast.Name)
+        and decorator.value.id == "pytest"
+        and decorator.attr == "fixture"
+        else None
+    )
 
 
 def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract) -> bool:
@@ -390,6 +406,9 @@ def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract)
             and node.targets[0].id == "pytestmark"
         )
         for node in tree.body
+    )
+    supported_imports = not any(
+        isinstance(node, ast.ImportFrom) and node.module == "pytest" for node in tree.body
     )
     protected_names_are_not_assigned = not any(
         isinstance(node, ast.Name)
@@ -426,11 +445,17 @@ def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract)
             else isinstance(node.target, ast.Name) and node.target.id == "pytestmark"
         )
     ]
-    module_mark_overrides_live = any(
-        _parametrization_may_override(candidate, "live")
+    module_marks = [
+        candidate
         for value in pytestmark_values
         for candidate in (value.elts if isinstance(value, (ast.List, ast.Tuple)) else [value])
-        if isinstance(candidate, ast.Call) and _is_pytest_mark(candidate.func, "parametrize")
+    ]
+    supported_module_marks = bool(module_marks) and all(
+        _supported_module_mark(candidate, "live") for candidate in module_marks
+    )
+    required_module_marks = all(
+        any(_is_pytest_mark(candidate, name) for candidate in module_marks)
+        for name in ("integration", "asyncio")
     )
     integration_marked = len(pytestmark_values) == 1 and (
         _is_pytest_mark(pytestmark_values[0], "integration")
@@ -451,12 +476,7 @@ def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract)
     ]
     tests_request_live = bool(test_functions) and all(
         any(argument.arg == "live" for argument in [*node.args.posonlyargs, *node.args.args])
-        and not any(
-            isinstance(decorator, ast.Call)
-            and _is_pytest_mark(decorator.func, "parametrize")
-            and _parametrization_may_override(decorator, "live")
-            for decorator in node.decorator_list
-        )
+        and all(_supported_test_decorator(decorator, "live") for decorator in node.decorator_list)
         and not any(
             isinstance(candidate, ast.Name)
             and isinstance(candidate.ctx, ast.Store)
@@ -470,9 +490,11 @@ def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract)
         not imports_fixture
         or not imports_pytest
         or not supported_top_level
+        or not supported_imports
         or not protected_names_are_not_assigned
         or not integration_marked
-        or module_mark_overrides_live
+        or not supported_module_marks
+        or not required_module_marks
         or len(fixture_definitions) != 1
         or bindings.get("live") != fixture_definitions
         or not tests_request_live
@@ -979,6 +1001,69 @@ def test_actual_relay_suite_keeps_other_name_parametrization(tmp_path: Path) -> 
         1,
     )
     candidate = tmp_path / "test_other_parameter.py"
+    candidate.write_text(source, encoding="utf-8")
+    assert _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+@pytest.mark.parametrize("boundary", ["imported_mark", "fixture_wrapper", "test_wrapper", "module_wrapper"])
+def test_actual_relay_suite_rejects_unknown_fixture_selection_decorators(
+    tmp_path: Path, boundary: str
+) -> None:
+    source = (_REPO_ROOT / "tests/integration/gateway/test_human_relay_live_cib.py").read_text(
+        encoding="utf-8"
+    )
+    first_test = next(
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name.startswith("test_")
+    )
+    mutations = {
+        "imported_mark": lambda value: value.replace(
+            "import pytest", "import pytest\nfrom pytest import mark", 1
+        ).replace(
+            f"async def {first_test.name}(",
+            f'@mark.parametrize("live", [object()])\nasync def {first_test.name}(',
+            1,
+        ),
+        "fixture_wrapper": lambda value: value.replace(
+            "@pytest.fixture\nasync def live(request):",
+            "def wrapper(function):\n    return function\n\n"
+            "@wrapper\n@pytest.fixture\nasync def live(request):",
+            1,
+        ),
+        "test_wrapper": lambda value: value.replace(
+            f"async def {first_test.name}(",
+            f"def wrapper(function):\n    return function\n\n@wrapper\nasync def {first_test.name}(",
+            1,
+        ),
+        "module_wrapper": lambda value: value.replace(
+            "pytestmark = [pytest.mark.integration, pytest.mark.asyncio]",
+            "def wrapper(function):\n    return function\n\n"
+            "pytestmark = [pytest.mark.integration, pytest.mark.asyncio, wrapper]",
+            1,
+        ),
+    }
+    candidate = tmp_path / f"test_{boundary}.py"
+    candidate.write_text(mutations[boundary](source), encoding="utf-8")
+    assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+def test_canonical_module_parametrization_of_other_name_is_supported(tmp_path: Path) -> None:
+    source = (
+        _relay_suite_source(_CANONICAL_RELAY_FIXTURE_BODY)
+        .replace(
+            "pytestmark = [pytest.mark.integration, pytest.mark.asyncio]",
+            "pytestmark = [pytest.mark.integration, pytest.mark.asyncio, "
+            'pytest.mark.parametrize("fault", ["x"])]',
+            1,
+        )
+        .replace(
+            "async def test_uses_live(live):\n    pass",
+            "async def test_uses_live(live, fault):\n    assert fault",
+            1,
+        )
+    )
+    candidate = tmp_path / "test_module_other_parameter.py"
     candidate.write_text(source, encoding="utf-8")
     assert _suite_loads_explicit_fixture(candidate, _relay_contract())
 
