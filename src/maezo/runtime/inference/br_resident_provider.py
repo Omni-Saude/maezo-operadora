@@ -455,6 +455,9 @@ class BrResidentInferenceProvider(BaseInferenceProvider):
             completion_chars=len(response.completion),
             cached_prefix_tokens=response.usage.cached_prefix_tokens,
             served_region=response.served_region,
+            region_evidence_source=response.region_evidence_source,
+            endpoint_evidence_source=response.endpoint_evidence_source,
+            retention_evidence_source=response.retention_evidence_source,
             agent_id=agent_id,
             tenant_id=tenant_id,
         )

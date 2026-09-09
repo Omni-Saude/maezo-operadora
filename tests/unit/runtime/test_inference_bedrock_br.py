@@ -1,11 +1,7 @@
-"""Transporte BR-regional sobre Bedrock: o que ele OBSERVA e o que ele RECUSA.
+"""Bedrock regional: admissao ANTES do envio e proveniencia explicita.
 
-O valor deste transporte está em não afirmar nada que não tenha visto. `served_region` e
-`endpoint_url` saem do cliente boto3 REAL; se divergirem do esperado, o transporte devolve o
-valor divergente para que `BrResidentInferenceProvider._validate_response` recuse — em vez de
-normalizar a divergência e deixar PHI passar.
-
-Estes testes travam exatamente isso, com um cliente falso: nenhum deles fala com a AWS.
+Clientes controlados locais, sem AWS. Regiao elegivel deriva do contrato de
+roteamento do recurso regional; client.meta nao observa execucao do fornecedor.
 """
 
 from __future__ import annotations
@@ -64,8 +60,8 @@ def _pedido(*, modelo: str = MODELO, endpoint: str = ENDPOINT, com_dpa: bool = T
 def test_o_endpoint_do_bedrock_esta_na_allowlist() -> None:
     """Sem isto o provedor recusaria na construção, antes de qualquer chamada.
 
-    A região está no PRÓPRIO nome do host, o que faz o allowlist ser uma verificação de
-    residência e não uma concessão: outra região não casa.
+    A admissao lexical nao e prova de execucao regional do fornecedor; outra
+    regiao nao casa, e o transporte ainda exige igualdade do endpoint completo.
     """
     assert br_endpoint_denial_reasons(ENDPOINT) == ()
     assert br_endpoint_denial_reasons("https://bedrock-runtime.us-east-1.amazonaws.com") != ()
@@ -81,39 +77,38 @@ async def test_recusa_perfil_global_antes_de_transmitir() -> None:
     with pytest.raises(BrRegionalTransportUnavailableError) as exc:
         await transporte.send(_pedido(modelo="global.anthropic.claude-opus-5"))
 
-    assert "global." in str(exc.value)
+    assert "not_direct_regional_foundation_model" in str(exc.value)
     assert cliente.chamadas == [], "transmitiu PHI para um perfil que roteia fora da região"
 
 
 @pytest.mark.asyncio
-async def test_regiao_servida_e_observada_nao_declarada() -> None:
+async def test_regiao_elegivel_tem_proveniencia_contratual_explicita() -> None:
     cliente = _ClienteFalso(regiao="sa-east-1")
     r = await BedrockBrRegionalTransport(client=cliente).send(_pedido())
     assert r.served_region == BR_REGIONAL_ATTESTED_REGION
+    assert r.region_evidence_source == "regional_direct_model_contract"
+    assert r.endpoint_evidence_source == "sdk_resolved_endpoint"
     assert r.synthetic is False
     assert r.usage.input_tokens == 130
     assert r.usage.output_tokens == 150
 
 
 @pytest.mark.asyncio
-async def test_cliente_em_outra_regiao_devolve_a_regiao_real() -> None:
-    """O ponto central: NÃO afirmamos São Paulo quando o cliente está noutro lugar.
-
-    O provedor então recusa com "attested served_region=..." e descarta a completion.
-    """
+async def test_cliente_em_outra_regiao_recusa_antes_do_envio() -> None:
     cliente = _ClienteFalso(regiao="us-east-1")
-    r = await BedrockBrRegionalTransport(client=cliente).send(_pedido())
-    assert r.served_region == "us-east-1"
-    assert r.served_region != BR_REGIONAL_ATTESTED_REGION
+    with pytest.raises(BrRegionalTransportUnavailableError) as exc:
+        await BedrockBrRegionalTransport(client=cliente).send(_pedido())
+    assert cliente.chamadas == []
+    assert exc.value.committed is False
 
 
 @pytest.mark.asyncio
-async def test_endpoint_divergente_devolve_o_resolvido_e_nao_o_discado() -> None:
-    """Divergência de host tem de VIRAR recusa, não ser normalizada."""
+async def test_endpoint_divergente_recusa_antes_do_envio() -> None:
     cliente = _ClienteFalso(endpoint="https://bedrock-runtime.us-east-1.amazonaws.com")
-    r = await BedrockBrRegionalTransport(client=cliente).send(_pedido())
-    assert r.endpoint_url == "https://bedrock-runtime.us-east-1.amazonaws.com"
-    assert br_endpoint_denial_reasons(r.endpoint_url) != ()
+    with pytest.raises(BrRegionalTransportUnavailableError) as exc:
+        await BedrockBrRegionalTransport(client=cliente).send(_pedido())
+    assert cliente.chamadas == []
+    assert exc.value.committed is False
 
 
 @pytest.mark.asyncio
@@ -126,10 +121,13 @@ async def test_as_confirmacoes_vem_do_operador_ter_nomeado_o_contrato() -> None:
     com = await BedrockBrRegionalTransport(client=_ClienteFalso()).send(_pedido(com_dpa=True))
     assert com.zero_retention_acknowledged is True
     assert com.training_prohibited_acknowledged is True
+    assert com.retention_evidence_source == "operator_contract_reference"
 
-    sem = await BedrockBrRegionalTransport(client=_ClienteFalso()).send(_pedido(com_dpa=False))
-    assert sem.zero_retention_acknowledged is False
-    assert sem.training_prohibited_acknowledged is False
+    cliente = _ClienteFalso()
+    with pytest.raises(BrRegionalTransportUnavailableError) as exc:
+        await BedrockBrRegionalTransport(client=cliente).send(_pedido(com_dpa=False))
+    assert cliente.chamadas == []
+    assert exc.value.committed is False
 
 
 @pytest.mark.asyncio
