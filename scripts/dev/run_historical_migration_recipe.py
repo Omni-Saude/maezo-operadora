@@ -103,6 +103,10 @@ SCHEMA_QUERY = (
     "AND pid<>pg_backend_pid() AND backend_type='client backend' AND application_name "
     "NOT IN ('psql','PostgreSQL JDBC Driver')))::text"
 )
+PG_RUNTIME_QUERY = (
+    "SELECT json_build_object('database',current_database(),'server_version_num',"
+    "current_setting('server_version_num')::int,'server_port',current_setting('port')::int)::text"
+)
 INSPECT = (
     '{"id":{{json .Id}},"image_id":{{json .Image}},"image":{{json .Config.Image}},'
     '"project":{{json (index .Config.Labels "com.docker.compose.project")}},'
@@ -321,6 +325,44 @@ class Services:
         h.write(self.out / f"schemas-{phase}.json", h.encode(value))
         return value
 
+    def pg_runtime(self) -> dict:
+        data = self.command(
+            r._compose_base(self.checkout)
+            + [
+                "exec",
+                "-T",
+                "postgres",
+                "psql",
+                "-X",
+                "-A",
+                "-t",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-U",
+                "maezo",
+                "-d",
+                "maezo",
+                "-c",
+                PG_RUNTIME_QUERY,
+            ],
+            "schema",
+        )
+        value = json.loads(data)
+        check_pg_runtime(value)
+        h.write(self.out / "pg-runtime.binding.json", h.encode({"label": self.last_label}))
+        h.write(self.out / "pg-runtime.json", h.encode(value))
+        return value
+
+
+def check_pg_runtime(value: dict) -> None:
+    h.keys(value, {"database": str, "server_version_num": int, "server_port": int})
+    if (
+        value["database"] != "maezo"
+        or value["server_port"] != 5432
+        or not 160000 <= value["server_version_num"] < 170000
+    ):
+        raise h.CaptureRefusedError("actual PostgreSQL runtime differs from declared service")
+
 
 def check_container(data: dict, checkout: Path, identity: str, *, running_required: bool = True) -> None:
     h.keys(
@@ -522,6 +564,7 @@ def capture_migration(repo: Path, out: Path, observations: dict) -> dict:
                     out / "containers-started.binding.json", h.encode({"labels": services.container_labels})
                 )
                 h.write(out / "containers-started.json", h.encode(containers))
+                services.pg_runtime()
                 services.ready = True
                 journal.event("services_ready")
                 r._deploy_and_verify(checkout, services.env, out)
@@ -722,6 +765,34 @@ def validate_service_captures(out: Path, checkout: Path, commands: dict) -> None
             h.load(out / f"schemas-{phase}.json"), data
         ):
             raise h.CaptureRefusedError("schema/client proof differs from raw capture")
+    binding = h.load(out / "pg-runtime.binding.json")
+    h.keys(binding, {"label": str})
+    pg_runtime = json.loads(
+        output(
+            binding["label"],
+            r._compose_base(checkout)
+            + [
+                "exec",
+                "-T",
+                "postgres",
+                "psql",
+                "-X",
+                "-A",
+                "-t",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-U",
+                "maezo",
+                "-d",
+                "maezo",
+                "-c",
+                PG_RUNTIME_QUERY,
+            ],
+        )
+    )
+    check_pg_runtime(pg_runtime)
+    if not h.same(h.load(out / "pg-runtime.json"), pg_runtime):
+        raise h.CaptureRefusedError("PostgreSQL runtime copy differs from raw capture")
     expected_labels = {
         label for label in commands if re.fullmatch(r"(?:resources|container|schema)-[0-9]{3}", label)
     }

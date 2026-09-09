@@ -275,6 +275,8 @@ def service_packet(tmp_path, monkeypatch):
             data = ("\n".join(current[argv[3]]) + ("\n" if current[argv[3]] else "")).encode()
         elif prefix == "container":
             data = h.encode(next(x for x in records if x["id"].startswith(argv[-1])))
+        elif argv[-1] == m.PG_RUNTIME_QUERY:
+            data = h.encode({"database": "maezo", "server_version_num": 160009, "server_port": 5432})
         else:
             data = h.encode({"schemas": [], "active_clients": 0})
         h.write(out / f"{label}.stdout", data)
@@ -311,6 +313,7 @@ def service_packet(tmp_path, monkeypatch):
         h.write(out / f"containers-{phase}.binding.json", h.encode({"labels": service.container_labels}))
         if phase == "started":
             h.write(out / "containers-started.json", h.encode(got))
+    service.pg_runtime()
     for phase in ("before", "after", "cleanup"):
         service.schemas(phase)
     current.update(container=[], volume=[], network=[])
@@ -512,3 +515,15 @@ def test_real_owned_child_quiescence_before_release(owned, failure):
     assert not r._pending_groups and not r._group_exists(command["pgid"])
     assert (out / "owned-child.stdout").stat().st_size <= 128
     assert lock.release()
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("server_port", True), ("server_port", 5433), ("server_version_num", 150012), ("database", "borrowed")],
+)
+def test_actual_pg_identity_requires_exact_runtime(field, value):
+    data = {"database": "maezo", "server_version_num": 160009, "server_port": 5432}
+    m.check_pg_runtime(data)
+    data[field] = value
+    with pytest.raises(h.CaptureRefusedError):
+        m.check_pg_runtime(data)
