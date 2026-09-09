@@ -35,6 +35,10 @@ The deliberately narrow executable form set is:
   ``inad_decisao``.
 * PROGRAMA ``UT_DecisaoClinica`` and ``UT_CoordenacaoDecisao`` -> ``programa_decisao``.
 * CRED analysis and network-coordination tasks -> ``cred_descred`` or ``cred_cred``.
+* ADEQUACAO fallback and coordination tasks -> ``adequacao_decisao`` or
+  ``adequacao_coordenacao``;
+* NIP draft, legal-review and coordination tasks -> ``nip_minuta`` or ``nip_decisao``;
+* LGPD-DSR ``UT_RevisaoDpo`` -> ``lgpd_decisao``.
 
 PAGTO admissibility is based on explicit BPMN task documentation and the plan, while the SP-OP
 output table does not enumerate ``decisao_admissibilidade`` and the BPMN has no ``formData``.  Its
@@ -74,6 +78,12 @@ closed forms. Actor identity, provider/network facts, regulatory timers and deri
 flags remain trusted runtime context. The contract-listed ``decisao_coordenacao`` and documented
 ``encaminhar_fraude`` currently have no BPMN gateway or worker consumer, so neither is silently
 made browser-writable here.
+
+The ADEQUACAO, NIP and LGPD-DSR bindings below are also DRAFT/verify prose-derived shapes. They
+exclude actor, tenant, tier, routing, timer and read-only process facts. NIP response text can
+contain regulated case content; accepting its closed field does not authorize browser storage,
+analytics, logging or General-Zone egress. The gateway must derive human/DPO identity and enforce
+the existing engine/worker refusal boundaries before any effect.
 """
 
 from __future__ import annotations
@@ -134,6 +144,11 @@ FormKey = Literal[
     "programa_decisao",
     "cred_descred",
     "cred_cred",
+    "adequacao_decisao",
+    "adequacao_coordenacao",
+    "nip_minuta",
+    "nip_decisao",
+    "lgpd_decisao",
 ]
 FormSourceStatus = Literal["BPMN_FORMDATA", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"]
 TaskAction = Literal["claim", "release", "decision"]
@@ -178,6 +193,16 @@ AllowedInput = Literal[
     "decisao_cred",
     "fundamentacao",
     "plano_substituicao",
+    "decisao_remediacao",
+    "tipo_fallback",
+    "justificativa_fallback",
+    "estimativa_custo_cents",
+    "texto_resposta_nip",
+    "decisao_nip",
+    "fundamentacao_regulatoria",
+    "referencia_negativa_original",
+    "decisao_dsr",
+    "fundamentacao_legal",
 ]
 
 
@@ -745,6 +770,184 @@ class CredCredentialingInputs(_FrozenContract):
         return self
 
 
+class AdequacaoDecisionInputs(_FrozenContract):
+    """Human remediation choice at ADEQUACAO ``UT_DecisaoFallback``.
+
+    A financial fallback commitment is the only adverse effect in this mostly-L3 process. The
+    browser supplies the documented choice and conditional basis; authenticated ``responsavel_id``
+    and all network, routing and timer facts remain trusted context. The centavo estimate stays an
+    exact decimal integer string until a future gateway performs the reviewed engine conversion.
+    """
+
+    kind: Literal["adequacao_decisao"]
+    decisao_remediacao: Literal[
+        "MONITORAR_OK",
+        "ENCAMINHAR_CRED",
+        "COMPROMISSO_FALLBACK",
+        "SOLICITAR_INFO",
+    ]
+    tipo_fallback: (
+        Literal[
+            "livre_escolha",
+            "reembolso_garantido",
+            "contratacao_ad_hoc",
+        ]
+        | None
+    ) = None
+    justificativa_fallback: RequiredText | None = None
+    referencia_regulatoria: RequiredText | None = None
+    estimativa_custo_cents: CanonicalCentavos | None = None
+
+    @model_validator(mode="after")
+    def _fallback_commitment_has_complete_basis(self) -> Self:
+        if self.decisao_remediacao == "COMPROMISSO_FALLBACK":
+            for field, value in (
+                ("tipo_fallback", self.tipo_fallback),
+                ("justificativa_fallback", self.justificativa_fallback),
+                ("referencia_regulatoria", self.referencia_regulatoria),
+            ):
+                if value is None or not value.strip():
+                    raise ValueError(f"COMPROMISSO_FALLBACK requires {field}")
+        return self
+
+
+class AdequacaoCoordinationInputs(_FrozenContract):
+    """SLA coordination control plus an optional assumed ADEQUACAO remediation decision.
+
+    The current coordination gateway consumes ``decisao_coordenacao``. Only ``assumir_decisao``
+    carries a remediation decision onward; extending the deadline or resuming dossier analysis
+    carries no browser-authored remediation fields.
+    """
+
+    kind: Literal["adequacao_coordenacao"]
+    decisao_coordenacao: Literal["assumir_decisao", "prorrogar_prazo", "seguir_analise"]
+    decisao_remediacao: (
+        Literal[
+            "MONITORAR_OK",
+            "ENCAMINHAR_CRED",
+            "COMPROMISSO_FALLBACK",
+            "SOLICITAR_INFO",
+        ]
+        | None
+    ) = None
+    tipo_fallback: (
+        Literal[
+            "livre_escolha",
+            "reembolso_garantido",
+            "contratacao_ad_hoc",
+        ]
+        | None
+    ) = None
+    justificativa_fallback: RequiredText | None = None
+    referencia_regulatoria: RequiredText | None = None
+    estimativa_custo_cents: CanonicalCentavos | None = None
+
+    @model_validator(mode="after")
+    def _coordination_route_has_exact_fields(self) -> Self:
+        remediation_fields = (
+            ("decisao_remediacao", self.decisao_remediacao),
+            ("tipo_fallback", self.tipo_fallback),
+            ("justificativa_fallback", self.justificativa_fallback),
+            ("referencia_regulatoria", self.referencia_regulatoria),
+            ("estimativa_custo_cents", self.estimativa_custo_cents),
+        )
+        if self.decisao_coordenacao != "assumir_decisao":
+            for field, value in remediation_fields:
+                if value is not None:
+                    raise ValueError(f"{self.decisao_coordenacao} does not accept {field}")
+            return self
+
+        if self.decisao_remediacao is None:
+            raise ValueError("assumir_decisao requires decisao_remediacao")
+        if self.decisao_remediacao == "COMPROMISSO_FALLBACK":
+            for field, value in remediation_fields[1:4]:
+                if value is None or not value.strip():
+                    raise ValueError(f"COMPROMISSO_FALLBACK requires {field}")
+        return self
+
+
+class NipDraftInputs(_FrozenContract):
+    """Human-authored NIP draft before mandatory legal review.
+
+    ``UT_ElaborarRespostaNip`` documents preliminary ``decisao_nip`` options, but its current
+    ``GW_Minuta`` has no conditional consumer and always routes to legal review. Only the consumed
+    human-authored draft field is bound here; this DTO cannot make a final NIP decision.
+    """
+
+    kind: Literal["nip_minuta"]
+    texto_resposta_nip: RequiredText
+
+    @field_validator("texto_resposta_nip")
+    @classmethod
+    def _draft_is_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("texto_resposta_nip must not be blank")
+        return value
+
+
+class NipDecisionInputs(_FrozenContract):
+    """Final human NIP response shared by legal review and SLA coordination.
+
+    Maintaining the original denial is L0 hard and requires both documented basis fields. Response
+    text is human-authored and required for the three outcomes submitted to ANS; requesting more
+    information does not submit a final response. ``revisor_id`` comes from the authenticated
+    assignment; construction alone neither proves authorship nor authorizes transmission to ANS.
+    """
+
+    kind: Literal["nip_decisao"]
+    decisao_nip: Literal[
+        "MANTER_NEGATIVA",
+        "CONCEDER",
+        "RESPONDER_NAO_ASSISTENCIAL",
+        "SOLICITAR_INFO",
+    ]
+    fundamentacao_regulatoria: RequiredText | None = None
+    referencia_negativa_original: RequiredText | None = None
+    texto_resposta_nip: RequiredText | None = None
+
+    @field_validator("texto_resposta_nip")
+    @classmethod
+    def _optional_response_is_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("texto_resposta_nip must not be blank when supplied")
+        return value
+
+    @model_validator(mode="after")
+    def _response_has_text_and_adverse_basis(self) -> Self:
+        if self.decisao_nip != "SOLICITAR_INFO" and (
+            self.texto_resposta_nip is None or not self.texto_resposta_nip.strip()
+        ):
+            raise ValueError(f"{self.decisao_nip} requires texto_resposta_nip")
+        if self.decisao_nip == "MANTER_NEGATIVA":
+            for field, value in (
+                ("fundamentacao_regulatoria", self.fundamentacao_regulatoria),
+                ("referencia_negativa_original", self.referencia_negativa_original),
+            ):
+                if value is None or not value.strip():
+                    raise ValueError(f"MANTER_NEGATIVA requires {field}")
+        return self
+
+
+class LgpdDsrDecisionInputs(_FrozenContract):
+    """Human DPO/privacy review decision for the LGPD data-subject request.
+
+    This closed DRAFT shape preserves the engine's explicit fail-closed outcomes. It cannot prove
+    DPO identity, legal sufficiency, record scope, data minimization, approval or execution.
+    """
+
+    kind: Literal["lgpd_decisao"]
+    decisao_dsr: Literal["APROVAR_ENVIO", "EXECUTAR_E_ENVIAR", "NEGAR_FUNDAMENTADO"]
+    fundamentacao_legal: RequiredText | None = None
+
+    @model_validator(mode="after")
+    def _legal_denial_has_basis(self) -> Self:
+        if self.decisao_dsr == "NEGAR_FUNDAMENTADO" and (
+            self.fundamentacao_legal is None or not self.fundamentacao_legal.strip()
+        ):
+            raise ValueError("NEGAR_FUNDAMENTADO requires fundamentacao_legal")
+        return self
+
+
 DecisionInputs = Annotated[
     AuthDecisionInputs
     | AuthJuntaInputs
@@ -762,7 +965,12 @@ DecisionInputs = Annotated[
     | InadDecisionInputs
     | ProgramaDecisionInputs
     | CredDecredentialingInputs
-    | CredCredentialingInputs,
+    | CredCredentialingInputs
+    | AdequacaoDecisionInputs
+    | AdequacaoCoordinationInputs
+    | NipDraftInputs
+    | NipDecisionInputs
+    | LgpdDsrDecisionInputs,
     Field(discriminator="kind"),
 ]
 
@@ -855,6 +1063,30 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     ),
     ("SP-OP-CRED-001", "UT_CoordenacaoRedeCred"): (
         "cred_cred",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-ADEQUACAO-001", "UT_DecisaoFallback"): (
+        "adequacao_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-ADEQUACAO-001", "UT_CoordenacaoRede"): (
+        "adequacao_coordenacao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-NIP-001", "UT_ElaborarRespostaNip"): (
+        "nip_minuta",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-NIP-001", "UT_CoordenacaoNip"): (
+        "nip_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-NIP-001", "UT_RevisaoJuridicaNip"): (
+        "nip_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-LGPD-DSR-001", "UT_RevisaoDpo"): (
+        "lgpd_decisao",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
 }
@@ -962,6 +1194,29 @@ _INPUTS_BY_FORM: dict[FormKey, tuple[AllowedInput, ...]] = {
         "referencia_regulatoria",
         "data_efeito_iso",
     ),
+    "adequacao_decisao": (
+        "decisao_remediacao",
+        "tipo_fallback",
+        "justificativa_fallback",
+        "referencia_regulatoria",
+        "estimativa_custo_cents",
+    ),
+    "adequacao_coordenacao": (
+        "decisao_coordenacao",
+        "decisao_remediacao",
+        "tipo_fallback",
+        "justificativa_fallback",
+        "referencia_regulatoria",
+        "estimativa_custo_cents",
+    ),
+    "nip_minuta": ("texto_resposta_nip",),
+    "nip_decisao": (
+        "decisao_nip",
+        "fundamentacao_regulatoria",
+        "referencia_negativa_original",
+        "texto_resposta_nip",
+    ),
+    "lgpd_decisao": ("decisao_dsr", "fundamentacao_legal"),
 }
 
 

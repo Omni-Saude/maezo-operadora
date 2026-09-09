@@ -6,6 +6,8 @@ closed, reconciled contract.
 """
 
 from maezo.portal.contracts.models import (
+    AdequacaoCoordinationInputs,
+    AdequacaoDecisionInputs,
     AuthDecisionInputs,
     AuthJuntaInputs,
     CancelDecisionInputs,
@@ -18,7 +20,10 @@ from maezo.portal.contracts.models import (
     HumanCommandReceipt,
     HumanPrincipal,
     InadDecisionInputs,
+    LgpdDsrDecisionInputs,
     MembershipBinding,
+    NipDecisionInputs,
+    NipDraftInputs,
     PagtoAdmissibilityEvidence,
     PagtoAdmissibilityInputs,
     ProgramaDecisionInputs,
@@ -34,6 +39,8 @@ from maezo.portal.contracts.models import (
 )
 
 __all__ = [
+    "AdequacaoCoordinationInputs",
+    "AdequacaoDecisionInputs",
     "AuthDecisionInputs",
     "AuthJuntaInputs",
     "CancelDecisionInputs",
@@ -46,7 +53,10 @@ __all__ = [
     "HumanCommandReceipt",
     "HumanPrincipal",
     "InadDecisionInputs",
+    "LgpdDsrDecisionInputs",
     "MembershipBinding",
+    "NipDecisionInputs",
+    "NipDraftInputs",
     "PagtoAdmissibilityEvidence",
     "PagtoAdmissibilityInputs",
     "ProgramaDecisionInputs",
