@@ -966,6 +966,7 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
     bases: dict[ast.ClassDef, set[str]] = {}
     externos: dict[ast.ClassDef, set[str]] = {}
     marcador_monkeypatch = "pytest.MonkeyPatch.fixture"
+    atributos_sombreados: set[str] = set()
 
     def nomes_vinculados(no: ast.expr) -> set[str]:
         if isinstance(no, ast.Name):
@@ -982,7 +983,8 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
         if isinstance(no, ast.Attribute):
             parent = resolve(no.value, scope)
             if isinstance(parent, str):
-                return parent + "." + no.attr
+                member = parent + "." + no.attr
+                return None if member in atributos_sombreados else member
         if isinstance(no, ast.Call) and resolve(no.func, scope) == "pytest.MonkeyPatch":
             return marcador_monkeypatch
         return None
@@ -1072,8 +1074,27 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
             isinstance(item, ast.Constant) and item.value == "monkeypatch" for item in nomes.elts
         )
 
-    def parametriza_monkeypatch(no: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-        return any(chamada_parametriza_monkeypatch(decorador) for decorador in no.decorator_list)
+    def decorador_preserva_monkeypatch(decorador: ast.expr) -> bool:
+        if isinstance(decorador, ast.Attribute):
+            return (
+                isinstance(decorador.value, ast.Attribute)
+                and isinstance(decorador.value.value, ast.Name)
+                and decorador.value.value.id == "pytest"
+                and decorador.value.attr == "mark"
+                and decorador.attr != "parametrize"
+            )
+        if isinstance(decorador, ast.Call):
+            if chamada_parametriza_monkeypatch(decorador):
+                return False
+            if isinstance(decorador.func, ast.Attribute) and decorador.func.attr == "parametrize":
+                return (
+                    isinstance(decorador.func.value, ast.Attribute)
+                    and isinstance(decorador.func.value.value, ast.Name)
+                    and decorador.func.value.value.id == "pytest"
+                    and decorador.func.value.attr == "mark"
+                )
+            return decorador_preserva_monkeypatch(decorador.func)
+        return False
 
     parametriza_monkeypatch_no_modulo = any(
         isinstance(no, ast.Assign)
@@ -1089,7 +1110,7 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
             and not monkeypatch_sombreado_no_modulo
             and not parametriza_monkeypatch_no_modulo
             and no.name.startswith("test_")
-            and not parametriza_monkeypatch(no)
+            and all(decorador_preserva_monkeypatch(decorador) for decorador in no.decorator_list)
             else set()
         )
         for no in funcoes.values()
@@ -1190,6 +1211,13 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
     def marca(classe: ast.ClassDef, metodos: set[str]) -> None:
         externos.setdefault(classe, set()).update(metodos)
 
+    def invalida_atributo(no: ast.expr, scope: dict[str, str | ast.ClassDef]) -> None:
+        if not isinstance(no, ast.Attribute):
+            return
+        parent = resolve(no.value, scope)
+        if isinstance(parent, str):
+            atributos_sombreados.add(parent + "." + no.attr)
+
     def visita(no: ast.AST, scope: dict[str, str | ast.ClassDef]) -> None:
         if isinstance(no, ast.Import):
             for alias in no.names:
@@ -1235,17 +1263,20 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
         if isinstance(no, ast.Assign):
             value = resolve(no.value, scope)
             for target in no.targets:
+                invalida_atributo(target, scope)
                 for nome in nomes_vinculados(target):
                     scope.pop(nome, None)
                 if isinstance(target, ast.Name) and value is not None:
                     scope[target.id] = value
         if isinstance(no, ast.AnnAssign) and no.value is not None:
             value = resolve(no.value, scope)
+            invalida_atributo(no.target, scope)
             for nome in nomes_vinculados(no.target):
                 scope.pop(nome, None)
             if isinstance(no.target, ast.Name) and value is not None:
                 scope[no.target.id] = value
         if isinstance(no, (ast.AugAssign, ast.NamedExpr)):
+            invalida_atributo(no.target, scope)
             for nome in nomes_vinculados(no.target):
                 scope.pop(nome, None)
         if isinstance(no, (ast.For, ast.AsyncFor, ast.comprehension)):
@@ -1260,17 +1291,35 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
             scope.pop(no.name, None)
         if isinstance(no, ast.Delete):
             for target in no.targets:
+                invalida_atributo(target, scope)
                 for nome in nomes_vinculados(target):
                     scope.pop(nome, None)
         if isinstance(no, ast.Call):
+            if (
+                isinstance(no.func, ast.Name)
+                and no.func.id == "setattr"
+                and len(no.args) >= 2
+                and isinstance(no.args[1], ast.Constant)
+                and isinstance(no.args[1].value, str)
+            ):
+                parent = resolve(no.args[0], scope)
+                if isinstance(parent, str):
+                    atributos_sombreados.add(parent + "." + no.args[1].value)
             # API monkeypatch.setattr(module, "HTTPConnection", replacement_class).
             if isinstance(no.func, ast.Attribute) and no.func.attr == "setattr" and len(no.args) >= 3:
                 target, attribute, replacement = no.args[:3]
                 classe = resolve(replacement, scope)
                 receiver = resolve(no.func.value, scope)
+                target_identity = resolve(target, scope)
+                if (
+                    isinstance(target_identity, str)
+                    and isinstance(attribute, ast.Constant)
+                    and isinstance(attribute.value, str)
+                ):
+                    atributos_sombreados.add(target_identity + "." + attribute.value)
                 if (
                     receiver == marcador_monkeypatch
-                    and resolve(target, scope) == "http.client"
+                    and target_identity == "http.client"
                     and isinstance(attribute, ast.Constant)
                     and attribute.value == "HTTPConnection"
                     and isinstance(classe, ast.ClassDef)

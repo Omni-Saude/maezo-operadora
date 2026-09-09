@@ -215,6 +215,52 @@ class Recorder:
 
 
 @pytest.mark.parametrize(
+    "mutation",
+    [
+        "pytest.MonkeyPatch = Recorder",
+        "pytest_alias = pytest\npytest_alias.MonkeyPatch = Recorder",
+        'setattr(pytest, "MonkeyPatch", Recorder)',
+    ],
+)
+def test_replaced_pytest_monkeypatch_constructor_does_not_prove_receiver(mutation):
+    source = f"""import http.client as wire
+import pytest
+class Specimen:
+    def close(self): pass
+class Recorder:
+    def setattr(self, target, attribute, replacement): return replacement
+{mutation}
+monkeypatch = pytest.MonkeyPatch()
+monkeypatch.setattr(wire, "HTTPConnection", Specimen)
+"""
+    findings = fence._achados_estruturais_em_fonte(source, "arbitrary.py")
+    assert any("DmnTransport.close" in finding for finding in findings)
+
+
+@pytest.mark.parametrize(
+    "decorator",
+    [
+        "override_receiver",
+        "another_name",
+    ],
+)
+def test_aliased_or_unknown_decorator_does_not_prove_builtin_fixture(decorator):
+    source = f"""import http.client as wire
+import pytest
+class Specimen:
+    def close(self): pass
+class Recorder:
+    def setattr(self, target, attribute, replacement): return replacement
+{decorator} = pytest.mark.parametrize("monkeypatch", [Recorder()])
+@{decorator}
+def test_install(monkeypatch):
+    monkeypatch.setattr(wire, "HTTPConnection", Specimen)
+"""
+    findings = fence._achados_estruturais_em_fonte(source, "arbitrary.py")
+    assert any("DmnTransport.close" in finding for finding in findings)
+
+
+@pytest.mark.parametrize(
     "replacement",
     [
         "Recorder().setattr",
