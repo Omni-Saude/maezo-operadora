@@ -91,7 +91,11 @@ def prepare(
     evidence_root: Path,
     output: Path,
     image: str,
+    *,
+    relay_synthetic: bool = False,
 ) -> None:
+    if type(relay_synthetic) is not bool:
+        raise ValueError("relay synthetic opt-in must be explicit boolean")
     if len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
         raise ValueError("full exact source SHA required")
     actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
@@ -104,14 +108,19 @@ def prepare(
     validate_output_roots(checkout, private_root, evidence_root, output)
     old_umask = os.umask(0o077)
     try:
-        _generate_fixture(checkout, sha, original, output, image)
+        _generate_fixture(checkout, sha, original, output, image, relay_synthetic=relay_synthetic)
     finally:
         os.umask(old_umask)
 
 
-def _generate_fixture(checkout: Path, sha: str, original: Path, output: Path, image: str) -> None:
+def _generate_fixture(
+    checkout: Path, sha: str, original: Path, output: Path, image: str, *, relay_synthetic: bool = False
+) -> None:
     output.mkdir(mode=0o700)
     now = datetime.now(UTC)
+    # Separate, explicitly opted-in disposable lane. Production and the original
+    # five package smokes retain the inactive synthetic projector by default.
+    tenant = "relay_" + secrets.token_hex(12) if relay_synthetic else TENANT
 
     def issue(name: str, ca_key=None, ca_cert=None, purpose=None):
         key = ec.generate_private_key(ec.SECP256R1())
@@ -181,12 +190,12 @@ def _generate_fixture(checkout: Path, sha: str, original: Path, output: Path, im
         output / "trust.json",
         {
             "schema": "human-trust.v1",
-            "tenant": TENANT,
+            "tenant": tenant,
             "audience": "package-engine",
             "engine_name": "default",
             "max_lifetime_seconds": "60",
             "keys": keys,
-            "enable_synthetic_fixture": False,
+            "enable_synthetic_fixture": relay_synthetic,
         },
     )
     database_password = secrets.token_hex(24)
@@ -248,7 +257,7 @@ def _generate_fixture(checkout: Path, sha: str, original: Path, output: Path, im
     sql = checkout / "src/maezo/portal/engine/java/src/main/resources/human-schema-postgres.sql"
     (output / "01-human.sql").write_bytes(sql.read_bytes())
     (output / "02-tenant.sql").write_text(
-        "INSERT INTO MZO_HUMAN_TENANT(TENANT_,REV_) VALUES ('package-test',0);\n"
+        f"INSERT INTO MZO_HUMAN_TENANT(TENANT_,REV_) VALUES ('{tenant}',0);\n"
     )
 
     def mount(name: str, target: str) -> dict:
@@ -321,6 +330,7 @@ def _generate_fixture(checkout: Path, sha: str, original: Path, output: Path, im
             "source_sha": sha,
             "created_at": now.isoformat(),
             "fixture_only": True,
+            "relay_synthetic": relay_synthetic,
             "base_server_xml_sha256": hashlib.sha256(original.read_bytes()).hexdigest(),
             "human_sql_sha256": hashlib.sha256(sql.read_bytes()).hexdigest(),
             "client_spki_sha256": {
@@ -336,6 +346,25 @@ def _generate_fixture(checkout: Path, sha: str, original: Path, output: Path, im
             "postgres_image": POSTGRES,
         },
     )
+    if relay_synthetic:
+        dump(
+            output / "relay-fixture.json",
+            {
+                "schema": "human-relay-fixture.v1",
+                "synthetic_opt_in": True,
+                "tenant": tenant,
+                "source_sha": sha,
+                "rest_url": "http://localhost:18080/engine-rest",
+                "human_url": "https://localhost:18443/maezo-human",
+                "database": {
+                    "host": "127.0.0.1",
+                    "port": 15433,
+                    "user": "maezo",
+                    "database": "maezo",
+                    "password_file": str(output / "postgres-password"),
+                },
+            },
+        )
     for path in output.iterdir():
         path.chmod(0o600)
     # PostgreSQL drops to its own UID before reading public schema/bootstrap SQL.
@@ -352,6 +381,9 @@ if __name__ == "__main__":
     parser.add_argument("--evidence-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--image", required=True)
+    parser.add_argument(
+        "--relay-synthetic", action="store_true", help="opt in to disposable nonclinical D6 relay tests"
+    )
     args = parser.parse_args()
     prepare(
         args.checkout,
@@ -361,5 +393,6 @@ if __name__ == "__main__":
         args.evidence_root,
         args.output,
         args.image,
+        relay_synthetic=args.relay_synthetic,
     )
     print("Private disposable fixture prepared; no services started and no tests executed.")
