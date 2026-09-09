@@ -717,6 +717,35 @@ def test_indentation_inside_a_supported_root_fence_is_not_refused(tmp_path: Path
     assert result.ok, result.render()
 
 
+@pytest.mark.parametrize("prefix", ["> ", "> > ", "- > ", "> - ", ">>>", "1. > - ", "   >   2) > "])
+def test_nested_container_import_refusal_stops_at_its_closer(tmp_path: Path, prefix: str) -> None:
+    body = (
+        f"{prefix}~~~python\n{prefix}from maezo.widget import gone\n{prefix}~~~\n"
+        "Ordinary prose mentions from maezo.widget import outside.\n"
+        "`src/maezo/widget.py::kept`\n"
+    )
+    root = _make_custom_fixture_repo(tmp_path, adr_body=body, files={"src/maezo/widget.py": "kept=1\n"})
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert not result.ok, result.render()
+    _citations, issues, _exclusions = gate.inspect_import_citations("0001.md", body)
+    assert len(issues) == 1
+    assert "gone" in issues[0].statement
+    assert "outside" not in issues[0].statement
+    assert "container-nested tilde fence" in issues[0].reason
+
+
+@pytest.mark.parametrize("prefix", ["> ", "> > ", "- > ", "> - "])
+def test_container_without_import_does_not_capture_later_prose(tmp_path: Path, prefix: str) -> None:
+    body = (
+        f"{prefix}~~~text\n{prefix}plain example\n{prefix}~~~\n"
+        "Ordinary prose mentions from maezo.widget import outside.\n"
+        "`src/maezo/widget.py::kept`\n"
+    )
+    root = _make_custom_fixture_repo(tmp_path, adr_body=body, files={"src/maezo/widget.py": "kept=1\n"})
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert result.ok, result.render()
+
+
 @pytest.mark.parametrize("fence", ["~~~", "````", "   ```"])
 def test_real_adr_corpus_standard_fences_cannot_hide_original_dead_import(tmp_path: Path, fence: str) -> None:
     adr_dir = tmp_path / "adr"

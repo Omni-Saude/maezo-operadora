@@ -119,7 +119,7 @@ _INDENTED_IMPORT_RE = re.compile(
 )
 
 _CONTAINER_TILDE_FENCE_RE = re.compile(
-    r"^(?P<prefix> {0,3}(?:> ?|(?:[-+*]|\d+[.)]) +))(?P<fence>~{3,})(?P<info>[^\r\n]*)$"
+    r"^(?P<prefix>(?: {0,3}(?:> ?|(?:[-+*]|\d+[.)]) +))+)(?P<fence>~{3,})(?P<info>[^\r\n]*)$"
 )
 
 #: Bare `path.py:NNN` / `path.py:NNN-MMM` — NOT immediately preceded by another `:` (which would
@@ -297,7 +297,10 @@ def _unsupported_markdown_import_issues(doc_name: str, text: str) -> list[Import
         offsets.append(offset)
         offset += len(line)
 
+    consumed_through = -1
     for index, line in enumerate(lines):
+        if index <= consumed_through:
+            continue
         opening = _CONTAINER_TILDE_FENCE_RE.fullmatch(line.rstrip("\r\n"))
         if opening is None:
             continue
@@ -314,6 +317,9 @@ def _unsupported_markdown_import_issues(doc_name: str, text: str) -> list[Import
             if close is not None:
                 end_index = candidate_index
                 break
+        # A matched closer is part of this block, never the start of another block
+        # that could consume unrelated prose later in the document.
+        consumed_through = end_index
         body_start = offsets[index] + len(lines[index])
         body_end = offsets[end_index] if end_index < len(lines) else len(text)
         body = text[body_start:body_end]
