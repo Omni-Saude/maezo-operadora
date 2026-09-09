@@ -224,6 +224,7 @@ class Classifier:
                 "ssl",
                 "types",
                 "dataclasses",
+                "contextlib",
                 "pydantic",
                 "enum",
                 "httpcore",
@@ -542,14 +543,21 @@ class Classifier:
         target = node.func if isinstance(node, ast.Call) else node
         identity = self.identity(target, scope)
         if identity not in {"pytest.fixture", "pytest.yield_fixture"}:
-            # A named local fixture decorator may bind a configured factory call.
-            if isinstance(node, ast.Name) and node.id in scope.bindings:
-                binding = scope.bindings[node.id]
-                if not binding.imported and isinstance(binding.node, ast.Name | ast.Call):
-                    value, context = self.resolve(node, scope, "fixture decorator")
-                    if isinstance(value, ast.Call):
-                        return self.fixture_decorator(value, context)
-            return False
+            # Marker decorators and these anchored stdlib wrappers do not create
+            # fixtures. Other decorator aliases must resolve in their own source
+            # namespace, including configured factories imported via reexports.
+            if identity.startswith("pytest.mark.") or identity in {
+                "contextlib.contextmanager",
+                "contextlib.asynccontextmanager",
+            }:
+                return False
+            if isinstance(node, ast.Name | ast.Attribute):
+                value, context = self.resolve(node, scope, "fixture decorator")
+                if isinstance(value, ast.Call):
+                    return self.fixture_decorator(value, context)
+                if self.identity(value, context) in {"pytest.fixture", "pytest.yield_fixture"}:
+                    return self.fixture_decorator(value, context)
+            raise UnresolvedMetadataError("unresolved fixture decorator alias")
         if not isinstance(node, ast.Call):
             return True
         # Pinned pytest fixture/yield_fixture accept only fixture_function as a

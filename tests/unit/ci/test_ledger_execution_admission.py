@@ -1095,3 +1095,42 @@ def test_fixture_operator_repair_retains_frozen_public_admission_api() -> None:
     ]
     assert signature.parameters["source_commit"].default is None
     assert signature.parameters["expected_source_sha256"].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+@pytest.mark.parametrize("reexport", [False, True])
+@pytest.mark.parametrize("placement", ["test", "conftest"])
+@pytest.mark.parametrize("kind", ["offline", "live", "unknown", "missing"])
+def test_imported_fixture_decorator_alias_retains_metadata_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reexport: bool, placement: str, kind: str
+) -> None:
+    path = "tests/unit/test_case.py"
+    fixture = "from helper import DECORATOR\n@DECORATOR\ndef value(request): return request.param\n"
+    files = {path: "def test_case(value): pass\n"}
+    destination = path if placement == "test" else "conftest.py"
+    files[destination] = fixture + (files[path] if placement == "test" else "")
+    if kind != "missing":
+        helper = "import pytest\nfrom parameters import CASES\nDECORATOR=pytest.fixture(params=CASES)\n"
+        files["helper.py"] = "from reexport import DECORATOR\n" if reexport else helper
+        if reexport:
+            files["reexport.py"] = helper
+        files["parameters.py"] = {
+            "offline": "CASES=[1]\n",
+            "live": "import pytest\nCASES=[pytest.param(1, marks=pytest.mark.integration)]\n",
+            "unknown": "import pytest\nCASES=[pytest.param(1, marks=choose())]\n",
+        }[kind]
+    write_admission_fixture(tmp_path, files)
+    admission = gate.classify_test_admission(tmp_path, path)
+    assert (
+        admission.status
+        == {"offline": "OFFLINE", "live": "LIVE", "unknown": "UNKNOWN", "missing": "UNKNOWN"}[kind]
+    ), admission.reason
+    for name, source in files.items():
+        assert dict(admission.dependencies)[name] == hashlib.sha256(source.encode()).hexdigest()
+    calls = install_capture(monkeypatch)
+    assert gate.verify_row(tmp_path, row(path), "NEVER_EXECUTED").ok is (kind == "offline")
+    assert calls == ([path] if kind == "offline" else [])
+    calls.clear()
+    assert gate.verify_row(tmp_path, row(path), "NEVER_EXECUTED", allow_live=True).ok is (
+        kind in {"offline", "live"}
+    )
+    assert calls == ([path] if kind in {"offline", "live"} else [])
