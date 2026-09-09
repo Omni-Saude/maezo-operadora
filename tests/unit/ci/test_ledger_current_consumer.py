@@ -660,8 +660,9 @@ def test_identical_bytecode_with_foreign_globals_cannot_mint_history(
 
 
 @pytest.mark.parametrize("kind", ["current", "history"])
+@pytest.mark.parametrize("typed_status", [False, True])
 def test_actual_failed_public_handle_mutation_cannot_grant_acceptance(
-    history_tiny: Any, tmp_path: Path, kind: str
+    history_tiny: Any, tmp_path: Path, kind: str, typed_status: bool
 ) -> None:
     root, base, old, _ = history_tiny
     (root / TEST).write_text("def test_case(): assert False\n")
@@ -678,7 +679,18 @@ def test_actual_failed_public_handle_mutation_cannot_grant_acceptance(
     verdict = runner.run(selected)
     assert verdict.status == "FAILED", verdict
     original = (Path(verdict.packet) / "receipt.json").read_bytes()
-    object.__setattr__(verdict, "status", accepted)
+
+    class StatusAlias(str):
+        def __eq__(self, other: object) -> bool:
+            return other == accepted
+
+        def __ne__(self, other: object) -> bool:
+            return other != accepted
+
+        def __hash__(self) -> int:
+            return hash(accepted)
+
+    object.__setattr__(verdict, "status", StatusAlias("FAILED") if typed_status else accepted)
     assert not runner.consume(verdict, selected)
     object.__setattr__(verdict, "status", "FAILED")
     assert not runner.consume(verdict, selected)
