@@ -89,7 +89,7 @@ def test_actual_v1_terminal_expectation_and_unresolved_history(tiny: Any, tmp_pa
     assert [item["original"]["raw_line"] for item in result["rows"]] == [old, new]
     for item in result["rows"]:
         assert item["current_expectation"]["authoritative_row"]["raw_line"] == new
-        assert item["history"] == "REQUIRED_NOT_COMPOSED"
+        assert item["history"] == "UNRESOLVED"
         binding = json.loads((Path(item["current"]["packet"]) / "binding.json").read_text())
         assert binding["original"]["raw_line"] == item["original"]["raw_line"]
         assert binding["current_expectation"] == item["current_expectation"]
@@ -146,7 +146,7 @@ def test_actual_failed_old_recipe_never_becomes_passing_history(tiny: Any, tmp_p
     assert result["current_status"] == "ACCEPTED"
     assert result["status"] == "UNRESOLVED"
     assert result["rows"][0]["original"]["declared_hash"] == recipe(result="FAILED").removeprefix("sha256:")
-    assert all(edge["status"] == "UNRESOLVED" for edge in result["relations"])
+    assert all(edge["status"] == "FAILED" for edge in result["relations"])
 
 
 @pytest.mark.parametrize("when", ["before_launch", "after_run"])
@@ -445,12 +445,9 @@ def test_actual_unsupported_plan_path_retains_prelaunch_refusal_packet(tiny: Any
 
 @pytest.mark.parametrize("historical_result", ["PASSED", "FAILED"])
 def test_real_v1_history_equality_has_independent_current_credit(
-    tiny: Any, tmp_path: Path, historical_result: str
+    history_tiny: Any, tmp_path: Path, historical_result: str
 ) -> None:
-    root, base, old, _ = tiny
-    (root / "src/maezo").mkdir(parents=True)
-    (root / "src/maezo/__init__.py").write_text("")
-    old_commit = commit(root)
+    root, base, old, old_commit = history_tiny
     root, base, old, _ = v1((root, base, old, old_commit), failed_old=historical_result == "FAILED")
     result = consumer.run_integrated(root, base, tmp_path / "history-proof")
     assert result["current_status"] == "ACCEPTED"
@@ -464,3 +461,112 @@ def test_real_v1_history_equality_has_independent_current_credit(
     assert result["execution_count"] == 2
     assert len({item["current"]["run_id"] for item in result["rows"]}) == 2
     assert result["global_acceptance"] is False
+
+
+@pytest.fixture
+def history_tiny(tiny: Any) -> Any:
+    """Small real locked project; the original current/G1 fixtures stay unchanged."""
+    root, base, old, _ = tiny
+    (root / "pyproject.toml").write_text(
+        '[project]\nname="tiny-history"\nversion="0.0.0"\nrequires-python=">=3.12,<3.13"\n'
+        '[project.optional-dependencies]\ndev=["pytest==9.1.1","pytest-asyncio==1.4.0"]\n'
+        "[tool.uv]\npackage=false\n"
+    )
+    subprocess.run(
+        [str(current._UV), "lock", "--offline", "--no-config"],
+        cwd=root,
+        env=current.minimal_environment(Path.home()),
+        check=True,
+        capture_output=True,
+    )
+    (root / "src/maezo").mkdir(parents=True)
+    (root / "src/maezo/__init__.py").write_text("")
+    return root, base, old, commit(root)
+
+
+def test_real_v1_mismatch_blocks_despite_current_pass(history_tiny: Any, tmp_path: Path) -> None:
+    root, base, old, _ = history_tiny
+    (root / TEST).write_text("def test_case(): assert False\n")
+    source = commit(root)
+    root, base, _, _ = v1((root, base, old, source))
+    result = consumer.run_integrated(root, base, tmp_path / "mismatch")
+    assert result["current_status"] == "ACCEPTED"
+    assert result["status"] == "UNRESOLVED"
+    edge = result["relations"][0]
+    assert edge["status"] == "FAILED"
+    assert edge["historical_test_status"] == "FAILED"
+    assert edge["historical_claim_verified"] is False
+    assert edge["consumed"] is False
+
+
+@pytest.mark.parametrize("fault", ["copy", "swap", "packet", "replay", "source", "policy"])
+def test_real_history_handles_refuse_forgery_drift_and_recover(
+    history_tiny: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    root, base, _, _ = v1(history_tiny)
+    runner = current.HistoryRunner(root, tmp_path / "history", base=base)
+    identity = relations.plan_current_relations(root, base).required_relations[0]
+    verdict = runner.run(identity)
+    assert verdict.status == "VALID_HISTORICAL_EQUALITY", verdict
+    receipt = Path(verdict.packet) / "receipt.json"
+    original = receipt.read_bytes()
+    if fault == "copy":
+        assert not runner.consume(replace(verdict), identity)
+    elif fault == "swap":
+        assert not runner.consume(verdict, "different-physical-edge")
+    elif fault == "packet":
+        (Path(verdict.packet) / "historical.stdout").write_text("forged")
+        assert not runner.consume(verdict, identity)
+    elif fault == "replay":
+        assert runner.consume(verdict, identity)
+    elif fault == "source":
+        (root / TEST).write_text("def test_new(): assert False\n")
+        assert not runner.consume(verdict, identity)
+        (root / TEST).write_text("def test_new(): assert True\n")
+    else:
+        with monkeypatch.context() as patch:
+            patch.setattr(legacy, "verify_historical_row", lambda *a, **k: None)
+            assert not runner.consume(verdict, identity)
+    assert not runner.consume(verdict, identity)
+    assert receipt.read_bytes() == original
+    if fault == "packet":
+        recovery = current.HistoryRunner(root, tmp_path / "fresh-recovery", base=base)
+        fresh = recovery.run(identity)
+        assert fresh.status == "VALID_HISTORICAL_EQUALITY", fresh
+        assert recovery.consume(fresh, identity)
+        assert fresh.run_id != verdict.run_id
+        assert (Path(verdict.packet) / "historical.stdout").read_text() == "forged"
+
+
+@pytest.mark.parametrize("fault", ["classifier", "verifier", "capture", "catalog", "capsule", "adapter"])
+def test_history_loaded_authority_refuses_before_execution(
+    history_tiny: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    from scripts.ci import ledger_history_proofs as proof
+
+    root, base, _, _ = v1(history_tiny)
+    runner = current.HistoryRunner(root, tmp_path / "history", base=base)
+    identity = relations.plan_current_relations(root, base).required_relations[0]
+    calls = []
+
+    def forged(*args: Any, **kwargs: Any) -> Any:
+        calls.append("called")
+        return None
+
+    if fault == "classifier":
+        monkeypatch.setattr(legacy, "classify_test_admission", forged)
+    elif fault == "verifier":
+        monkeypatch.setattr(legacy, "verify_historical_row", forged)
+    elif fault == "capture":
+        monkeypatch.setattr(legacy, "_capture_historical_recipe", forged)
+    elif fault == "catalog":
+        monkeypatch.setattr(proof, "VALID_CATALOG", ())
+    elif fault == "capsule":
+        monkeypatch.setattr(proof, "producer_capsule", forged)
+    else:
+        monkeypatch.setattr(current.HistoryRunner, "_v1", forged)
+    verdict = runner.run(identity)
+    assert verdict.status == "REFUSED"
+    assert not runner.consume(verdict, identity)
+    assert calls == []
+    assert not (Path(verdict.packet) / "runtime").exists()

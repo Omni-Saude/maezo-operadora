@@ -389,3 +389,95 @@ def test_observation_schema_rejects_duplicate_keys_and_bad_phase_type(observed_p
     observation, binding = copy.deepcopy(observed_pass)
     observation["reports"][0]["phase"] = []
     assert current.validate_observation(observation, binding, 0)
+
+
+# Reuse the immutable producer's tiny fixture construction. These catalogues are
+# explicitly synthetic representation seams, never production handle authority.
+@pytest.fixture(scope="module")
+def history_producer() -> Any:
+    from scripts.ci import ledger_history_proofs as proof
+
+    with proof.producer_capsule(ROOT) as producer:
+        yield producer
+
+
+@pytest.fixture(scope="module")
+def adapter_historical(
+    tmp_path_factory: pytest.TempPathFactory, history_producer: Any, request: pytest.FixtureRequest
+) -> Any:
+    from tests.unit.ci import test_ledger_operational_history as fixtures
+
+    return fixtures.historical.__wrapped__(tmp_path_factory, history_producer, request)
+
+
+@pytest.fixture
+def adapter_candidate(tmp_path: Path, adapter_historical: Any, history_producer: Any) -> Any:
+    from tests.unit.ci import test_ledger_operational_history as fixtures
+
+    return fixtures.candidate.__wrapped__(tmp_path, adapter_historical, history_producer)
+
+
+@pytest.mark.parametrize(
+    "adapter_historical",
+    [b"from maezo import VALUE\ndef test_old(): assert VALUE == 7\n", {"valid": True}],
+    indirect=True,
+)
+def test_actual_finite_operational_adapter_fixture_scope(
+    adapter_candidate: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts.ci import ledger_current_relations as relations
+    from scripts.ci import ledger_history_proofs as proof
+
+    root, reviewed, _, _, _, _ = adapter_candidate
+    base = reviewed.source
+    runner = current.HistoryRunner(root, tmp_path / "adapter", base=base)
+    edge = relations.plan_current_relations(root, base).relations[0]
+    # The real production catalogue has no synthetic entry: no imports/runs/credit.
+    missing = runner.run(edge.identity)
+    assert missing.status == "UNRESOLVED", missing
+    assert missing.execution_count == 0
+    assert not runner.consume(missing, edge.identity)
+    packet = tmp_path / "synthetic-operational"
+    packet.mkdir(mode=0o700)
+    own_lock = edge.claim.kind == "V3_VERIFIED_OWN_LOCK"
+    monkeypatch.setattr(proof, "VALID_CATALOG" if own_lock else "INVALID_CATALOG", (reviewed,))
+    # Actual unchanged capsule + prove_relation; only the finite catalogue is a
+    # labelled fixture seam. The returned internal data is not an issued handle.
+    data = runner._operational(edge, packet)
+    assert data["status"] == ("VERIFIED_HISTORY_OWN_LOCK" if own_lock else "CORRECTED_WITH_INVALID_HISTORY")
+    assert data["historical_claim_verified"] is own_lock
+    assert data["execution_count"] == 2
+    assert (packet / "producer-before.json").read_bytes() == (packet / "producer-after.json").read_bytes()
+    report = json.loads((packet / "operational.json").read_text())
+    assert report["historical"]["source"]["commit"] == reviewed.source
+    assert report["current"]["source"]["commit"] != reviewed.source
+    assert report["historical"]["environment"]["inventory"] != report["current"]["environment"]["inventory"]
+    refused = runner.run(edge.identity)
+    assert refused.status == "REFUSED"
+    assert "HISTORY_LOADED_POLICY_DRIFT" in refused.reasons
+    assert not runner.consume(refused, edge.identity)
+
+
+@pytest.mark.parametrize(
+    "adapter_historical",
+    [b"import os\ndef test_old(): assert 'fresh-historical' not in os.environ['HISTORICAL_PHASE_RECEIPT']\n"],
+    indirect=True,
+)
+def test_actual_operational_failed_fresh_history_retains_failure(
+    adapter_candidate: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts.ci import ledger_current_relations as relations
+    from scripts.ci import ledger_history_proofs as proof
+
+    root, reviewed, _, _, _, _ = adapter_candidate
+    runner = current.HistoryRunner(root, tmp_path / "adapter", base=reviewed.source)
+    edge = relations.plan_current_relations(root, reviewed.source).relations[0]
+    monkeypatch.setattr(proof, "INVALID_CATALOG", (reviewed,))
+    packet = tmp_path / "failed-history"
+    packet.mkdir(mode=0o700)
+    with pytest.raises(ValueError):
+        runner._operational(edge, packet)
+    command = packet / "producer" / edge.successor.row_sha256 / "fresh-historical/pytest.command.json"
+    assert json.loads(command.read_text())["rc"] == 1
+    assert not command.parent.parent.joinpath("fresh-current").exists()
+    assert not (packet / "operational.json").exists()

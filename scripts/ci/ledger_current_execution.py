@@ -910,9 +910,20 @@ _HISTORY_ACCEPTED = frozenset(
 
 def _history_policy() -> dict[str, Any]:
     """Attest actual loaded adapter dependencies, including capsule wrapper closures."""
-    from scripts.ci import ledger_archived_catalog, ledger_history_proofs, ledger_invalid_declarations
+    from scripts.ci import (
+        check_evidence_ledger_current,
+        ledger_archived_catalog,
+        ledger_history_proofs,
+        ledger_invalid_declarations,
+    )
 
-    modules = (ledger_history_proofs, ledger_invalid_declarations, ledger_archived_catalog)
+    modules = (
+        ledger_history_proofs,
+        ledger_invalid_declarations,
+        ledger_archived_catalog,
+        sys.modules[__name__],
+        check_evidence_ledger_current,
+    )
     result = {}
     for module in modules:
         path = Path(__file__).resolve().with_name(module.__name__.rsplit(".", 1)[1] + ".py")
@@ -971,6 +982,43 @@ class HistoryVerdict:
     receipt_sha256: str
 
 
+def _producer_identity(producer: types.ModuleType) -> dict[str, Any]:
+    """Snapshot actual loaded capsule code and pinned files while it is alive."""
+    from scripts.ci import ledger_history_proofs as proof
+
+    pins = {path: pin for path, (_, pin) in proof.TOOL_SOURCES.items()} | proof.D7_TOOL_SOURCES
+    pending = [producer]
+    seen: set[int] = set()
+    result = {}
+    while pending:
+        module = pending.pop()
+        if id(module) in seen:
+            continue
+        seen.add(id(module))
+        filename = module.__file__
+        if not isinstance(filename, str):
+            raise ValueError("HISTORY_PRODUCER_SOURCE_DRIFT")
+        path = Path(filename).resolve()
+        relative = next((name for name in pins if path.as_posix().endswith("/" + name)), None)
+        if relative is None or digest(regular_bytes(path)) != pins[relative]:
+            raise ValueError("HISTORY_PRODUCER_SOURCE_DRIFT")
+        result[module.__name__ + ":" + str(path)] = dict(
+            sha256=pins[relative],
+            stat=file_identity(path),
+            loaded=digest(canonical(_module_policy(module))),
+            capture=_policy_value(getattr(module, "capture_source", None)),
+            validator=_policy_value(getattr(module, "validate_receipt", None)),
+        )
+        for value in vars(module).values():
+            if (
+                isinstance(value, types.ModuleType)
+                and isinstance(getattr(value, "__file__", None), str)
+                and any(str(value.__file__).endswith("/" + name) for name in pins)
+            ):
+                pending.append(value)
+    return result
+
+
 class HistoryRunner:
     """Finite real adapters. Only a locally issued, freshly bound object is consumable."""
 
@@ -1011,7 +1059,10 @@ class HistoryRunner:
         )
         if admission.status != "OFFLINE":
             raise ValueError("HISTORY_ADMISSION_" + admission.status)
-        return _admission_state(admission)
+        current_admission = legacy.classify_test_admission(self.root, edge.successor.test_path)
+        if current_admission.status != "OFFLINE":
+            raise ValueError("HISTORY_CURRENT_ADMISSION_" + current_admission.status)
+        return dict(historical=_admission_state(admission), current=_admission_state(current_admission))
 
     def _custody(self, edge: Any) -> dict[str, Any]:
         return dict(
@@ -1040,22 +1091,24 @@ class HistoryRunner:
         before = self._custody(edge)
         env = minimal_environment(Path(runtime["home"]))
         env["PATH"] = str(Path(runtime["python"]).parent) + ":/usr/bin:/bin"
-        saved = dict(os.environ)
-        try:
-            os.environ.clear()
-            os.environ.update(env)
-            verification = legacy.verify_historical_row(
-                self.root, actual, runtime["python"], allow_live=False
-            )
-            (packet / "verification.json").write_bytes(canonical(asdict(verification)))
-            # The immutable verifier deliberately exposes no raw capture. A second
-            # real capture retains the test outcome without changing its API or math.
-            capture = legacy._capture_historical_recipe(
-                self.root, actual, runtime["python"], allow_live=False
-            )
-        finally:
-            os.environ.clear()
-            os.environ.update(saved)
+
+        def invoke(function: Any) -> Any:
+            saved = dict(os.environ)
+            try:
+                os.environ.clear()
+                os.environ.update(env)
+                return function(self.root, actual, runtime["python"], allow_live=False)
+            finally:
+                os.environ.clear()
+                os.environ.update(saved)
+
+        verification = invoke(legacy.verify_historical_row)
+        (packet / "verification.json").write_bytes(canonical(asdict(verification)))
+        if self._custody(edge) != before or not self._runtime._runtime_stable():
+            raise ValueError("HISTORY_V1_INTERCAPTURE_DRIFT")
+        # The immutable verifier deliberately exposes no raw capture. A second
+        # real capture retains the test outcome without changing its API or math.
+        capture = invoke(legacy._capture_historical_recipe)
         (packet / "historical.stdout").write_text(capture.combined_output or "")
         (packet / "capture.json").write_bytes(canonical(asdict(capture)))
         (packet / "invocation.json").write_bytes(
@@ -1099,7 +1152,7 @@ class HistoryRunner:
             reasons=[]
             if verification.ok and equal
             else ["HISTORICAL_VERIFICATION_FAILED", verification.message],
-            execution_count=2,
+            execution_count=2 if verification.ok and capture.ok else None,
             verification=asdict(verification),
             outcome=asdict(outcome),
             matching_algorithm=matching,
@@ -1131,10 +1184,51 @@ class HistoryRunner:
             raise ValueError("HISTORY_OPERATIONAL_EDGE_MISSING")
         out = packet / "producer"
         out.mkdir(mode=0o700)
-        results = proof.execute_selected(self.root, plan, pending, out)
-        if len(results) != 1:
-            raise ValueError("HISTORY_OPERATIONAL_PARTIAL_RESULT")
-        result = results[0]
+        relation = next(
+            rel for rel in plan.relations if legacy.row_sha256(rel.correction) == edge.successor.row_sha256
+        )
+        catalog = (
+            proof.VALID_CATALOG
+            if relation.record.kind == "verified-history"
+            else proof.INVALID_CATALOG + proof.D7_CATALOG
+        )
+        reviewed = [
+            item
+            for item in catalog
+            if (item.source, item.test, item.task, item.date)
+            == (
+                relation.record.target.source_commit,
+                relation.target.test_path,
+                relation.target.task_id,
+                relation.target.row_date,
+            )
+        ]
+        if not reviewed or pending[0].reason != "IC_REPLAY_ADAPTER_UNREVIEWED":
+            return dict(
+                status="UNRESOLVED",
+                historical_claim_verified=False
+                if edge.claim.kind == "V2_INVALID_SOURCE_DECLARATION"
+                else None,
+                historical_test_status="UNRESOLVED",
+                reasons=["HISTORY_FINITE_CATALOG_MISSING" if not reviewed else pending[0].reason],
+                execution_count=0,
+            )
+        if len(reviewed) != 1:
+            raise ValueError("HISTORY_CATALOG_AMBIGUOUS")
+        directory = out / edge.successor.row_sha256
+        capsule = proof.async_producer_capsule if reviewed[0] in proof.D7_CATALOG else proof.producer_capsule
+        with capsule(self.root) as producer:
+            identity = _producer_identity(producer)
+            (packet / "producer-before.json").write_bytes(canonical(identity))
+            producer.Packet(out)
+            directory.mkdir(mode=0o700)
+            try:
+                result = proof.prove_relation(self.root, plan, relation, producer, directory, reviewed[0])
+            finally:
+                after = _producer_identity(producer)
+                (packet / "producer-after.json").write_bytes(canonical(after))
+                if after != identity:
+                    raise ValueError("HISTORY_PRODUCER_POSTRUN_DRIFT")
         payload = result.to_dict()
         (packet / "operational.json").write_bytes(canonical(payload))
         if not isinstance(result, proof.CompleteCorrection):
@@ -1233,7 +1327,7 @@ class HistoryRunner:
             data.update(
                 status="REFUSED", historical_claim_verified=None, reasons=[str(exc)], execution_count=None
             )
-        receipt = dict(
+        receipt: dict[str, Any] = dict(
             schema="maezo-ledger-history-execution/v1",
             relation=identity,
             run_id=run_id,

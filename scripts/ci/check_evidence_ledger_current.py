@@ -61,10 +61,12 @@ def run_integrated(root: Path, base: str, output: Path, *, allow_live: bool = Fa
     runner = CurrentRunner(root, output, base=base, allow_live=allow_live)
     history_runner = HistoryRunner(root, output / "history", base=base)
     histories: list[dict[str, Any]] = []
+    history_handles = []
     for edge in scope.relations:
         if edge.identity not in scope.required_relations:
             continue
         history = history_runner.run(edge.identity)
+        history_handles.append(history)
         histories.append(
             {
                 **asdict(history),
@@ -73,17 +75,19 @@ def run_integrated(root: Path, base: str, output: Path, *, allow_live: bool = Fa
                 "claim": asdict(edge.claim),
                 "successor": asdict(edge.successor),
                 "terminal": asdict(edge.terminal),
-                "consumed": history_runner.consume(history, edge.identity),
+                "consumed": False,
             }
         )
     by_relation = {item["identity"]: item for item in histories}
     rows: list[dict[str, Any]] = []
     executed: list[str] = []
+    current_handles = []
     for requirement in scope.requirements:
         physical = requirement.occurrence
         occurrence = Occurrence(physical.line, physical.raw_line)
         verdict = runner.run(occurrence)
-        consumed = runner.consume(verdict, occurrence)
+        current_handles.append((verdict, occurrence))
+        consumed = False
         if verdict.run_id in runner._executed:
             executed.append(physical.identity)
         history_required = bool(requirement.required_relations)
@@ -109,6 +113,21 @@ def run_integrated(root: Path, base: str, output: Path, *, allow_live: bool = Fa
                 if not history_consumed or (verdict.status == "ACCEPTED" and not consumed)
                 else verdict.status,
             }
+        )
+    # No child launches after consumption begins: each check covers all earlier
+    # executions, including a later child attempting to alter an earlier packet.
+    for item, history_handle in zip(histories, history_handles, strict=True):
+        item["consumed"] = history_runner.consume(history_handle, item["identity"])
+    for item, (handle, occurrence) in zip(rows, current_handles, strict=True):
+        item["current_consumed"] = runner.consume(handle, occurrence)
+        history_ok = all(by_relation[identity]["consumed"] for identity in item["required_relations"])
+        item["history"] = (
+            ("VERIFIED" if history_ok else "UNRESOLVED") if item["required_relations"] else "NOT_REQUIRED"
+        )
+        item["status"] = (
+            "UNRESOLVED"
+            if not history_ok or (handle.status == "ACCEPTED" and not item["current_consumed"])
+            else handle.status
         )
     stable = source_inventory(root) == before and plan_current_relations(root, base) == scope
     current_accepted = bool(rows) and stable and all(row["current_consumed"] for row in rows)
