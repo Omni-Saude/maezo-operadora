@@ -162,6 +162,15 @@ async def test_dispatcher_neither_seals_nor_completes_a_failed_start() -> None:
         "a reentrega nao reexecutou o handler — o falso sucesso teria ficado irretentavel por "
         "task_id, que e exatamente o agravante RAF-02"
     )
+    # A2A-RETRY-REEMITS-REQUESTED-FACT: o handler REEXECUTA (retentabilidade preservada acima),
+    # mas o fato `requested` NAO deve ser reemitido para a mesma reentrega — uma unica delegacao
+    # logica gera um unico `requested`, nao um por tentativa. Mutacao: remover o guard de
+    # `_delegate_inflight`/`_execute` (`skip_requested_fact`) -> este assert vai para RED (2
+    # ocorrencias de TOPIC_REQUESTED em vez de 1).
+    assert producer.topics() == [TOPIC_REQUESTED], (
+        f"reentrega do mesmo task_id reemitiu {TOPIC_REQUESTED!r} uma segunda vez "
+        f"(topics={producer.topics()!r}) -- 2 fatos requested para 1 delegacao logica"
+    )
 
 
 async def test_dispatcher_still_completes_a_successful_start() -> None:

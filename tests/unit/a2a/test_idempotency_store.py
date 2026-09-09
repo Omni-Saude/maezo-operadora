@@ -236,6 +236,11 @@ async def test_claim_conflict_with_done_row_returns_stored_result() -> None:
 
 
 async def test_claim_conflict_with_processing_row_polls_then_times_out() -> None:
+    """Legacy API remains None on timeout; a processing row is not evidence of requested.
+
+    The orphan False sentinel is superseded by AtomicSession.requested_exists and the
+    enlisted transaction path. The old exact test bytes remain in recovery evidence.
+    """
     processing_row = {"status": "processing", "result": None}
     conn = _FakeConn(fetchval_result=None, fetchrow_result=processing_row)
     store = _store(conn)
@@ -243,7 +248,7 @@ async def test_claim_conflict_with_processing_row_polls_then_times_out() -> None
     store._poll_interval_s = 0.001  # type: ignore[attr-defined]
     store._poll_max_attempts = 2  # type: ignore[attr-defined]
     result = await store.claim_or_get(tenant="amh", task_id="t1")
-    assert result is None  # best-effort timeout — caller falls back to the normal path
+    assert result is None  # no inferred requested fact from the mere existence of a row
 
 
 async def test_complete_seals_row_with_result_json() -> None:
@@ -411,3 +416,41 @@ async def test_concurrent_claim_across_stores_never_double_persists(pg_dsn: str,
     finally:
         await store_a.aclose()
         await store_b.aclose()
+
+
+@pytest.mark.parametrize("marker, expected", [(None, False), ("observed-enqueue", True)])
+async def test_atomic_requested_uses_marker_not_processing_row(marker: str | None, expected: bool) -> None:
+    """Exercise the real session method; SQL connection is an explicit offline double.
+
+    The orphan claim-before-enqueue gap has a processing row but no requested marker or
+    outbox fact. Only the affirmative marker may suppress re-enqueue.
+    """
+    from types import SimpleNamespace
+
+    from maezo.a2a.transaction import AtomicSession
+
+    class Connection:
+        lookups = 0
+
+        def is_in_transaction(self) -> bool:
+            return True
+
+        async def fetchval(self, sql: str) -> str:
+            assert sql == "SELECT current_schema()"
+            return "tenant_amh"
+
+        async def fetch(self, sql: str, tenant: str, key: str) -> list[Any]:
+            self.lookups += 1
+            assert "FROM a2a_fact_outbox" in sql
+            assert tenant == "amh"
+            assert key
+            return []
+
+    connection = Connection()
+    owner = SimpleNamespace(tenant="amh", outbox=SimpleNamespace(schema="tenant_amh"))
+    session = AtomicSession(owner, connection)
+    result = await session.requested_exists(
+        "unsealed", {"status": "processing", "result": None, "requested_enqueued_at": marker}
+    )
+    assert result is expected
+    assert connection.lookups == (0 if expected else 1)
