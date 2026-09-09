@@ -21,7 +21,7 @@ import org.junit.jupiter.api.io.TempDir;
 /** ROOT-only real CIB 2.1/PostgreSQL command tests. No engine mocks, credential skips or HTTP claims. */
 @Tag("integration") @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class WorkloadEngineIT {
-  @TempDir Path temp;
+  @TempDir static Path temp;
   ProcessEngine engine;WorkloadPlugin plugin;BoundaryPolicy policy;
   String url,user,password,schema,contas,escalation,pagto,sourceContas;
   Map<String,Capability> caps=new HashMap<>();
