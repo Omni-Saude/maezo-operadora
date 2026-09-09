@@ -82,11 +82,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import os
 import time
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import asyncpg  # type: ignore[import-untyped]
@@ -116,13 +119,22 @@ from maezo.platform.notification_bridge import (
 )
 from maezo.platform.topic_registry import TopicRegistry, dlq_topic_for
 from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
-from maezo.tools.workers.events import make_publish_event_handler
-from maezo.tools.workers.harness import ExternalTask
+from maezo.tools.workers.ans_cron import parse_competencia_referencia_iso, register_ans_cron_workers
+from maezo.tools.workers.events import make_publish_event_handler, register_events_workers
+from maezo.tools.workers.harness import (
+    CibSevenWorkerTransport,
+    ExternalTask,
+    TopicSubscription,
+    WorkerHarness,
+)
 from tests.integration.conftest import _apply_migrations, _pg_reachable
 
 pytestmark = pytest.mark.integration
 
 _CONNECT_TIMEOUT_S = 5.0
+_CRON_BPMN = (
+    Path(__file__).resolve().parents[3] / "spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn"
+)
 
 
 async def _assert_native_fraude_effect(
@@ -1203,3 +1215,177 @@ async def _fetch_audit_rows(dsn: str, tenant_id: str, action: str) -> list[Any]:
         )
     finally:
         await conn.close()
+
+
+@pytest.mark.parametrize(
+    ("suffix", "activity_suffix", "report_type", "periodicidade"),
+    [
+        ("RN124SIP", "Rn124Sip", "RN_124_SIP", "mensal"),
+        ("RN209", "Rn209", "RN_209_UTILIZACAO", "mensal"),
+        ("RN388", "Rn388", "RN_388_QUALIDADE", "anual"),
+        ("RN424TISS", "Rn424Tiss", "RN_424_TISS_MONITORAMENTO", "mensal"),
+        ("DIOPS", "Diops", "DIOPS_TRIMESTRAL", "trimestral"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_deployed_ans_timer_reaches_source_guard_and_real_kafka(
+    kafka_bootstrap_servers: str,
+    pg_tenant_schema: tuple[str, str],
+    engine_client: httpx.AsyncClient,
+    suffix: str,
+    activity_suffix: str,
+    report_type: str,
+    periodicidade: str,
+) -> None:
+    """Execute a genuine deployed timer job; prove its publication path, not punctuality.
+
+    SP-OP-ANS-CRON-001 permits timer dispatch only. No agent/manual process start,
+    rewritten timer or synthetic RN_TEST publication supplies this proof. Period
+    conventions remain the existing DRAFT contract, not regulatory ratification.
+    """
+    from aiokafka import AIOKafkaConsumer  # type: ignore[import-untyped]
+
+    dsn, tenant_id = pg_tenant_schema
+    process_key = f"SP-OP-ANS-CRON-001-{suffix}"
+    definition_response = await engine_client.get(f"/process-definition/key/{process_key}")
+    definition_response.raise_for_status()
+    definition = definition_response.json()
+    assert definition["key"] == process_key
+    definition_id = definition["id"]
+    xml_response = await engine_client.get(f"/process-definition/{definition_id}/xml")
+    xml_response.raise_for_status()
+    source_xml = await asyncio.to_thread(_CRON_BPMN.read_bytes)
+    assert (
+        hashlib.sha256(xml_response.json()["bpmn20Xml"].encode()).digest()
+        == hashlib.sha256(source_xml).digest()
+    )
+    start_activity = f"Start_Cron{activity_suffix}"
+    jobs_response = await engine_client.get("/job", params={"activityId": start_activity})
+    jobs_response.raise_for_status()
+    jobs = jobs_response.json()
+    assert len(jobs) == 1, "exactly one canonical pending timer-start job is required"
+    job = jobs[0]
+    assert job["processDefinitionId"] == definition_id
+    assert job["processInstanceId"] is None
+    before_response = await engine_client.get(
+        "/process-instance", params={"processDefinitionId": definition_id}
+    )
+    before_response.raise_for_status()
+    before = {row["id"] for row in before_response.json()}
+
+    await _await_topic_ready(kafka_bootstrap_servers, NOTIFICATIONS_TOPIC)
+    consumer = AIOKafkaConsumer(
+        NOTIFICATIONS_TOPIC,
+        bootstrap_servers=kafka_bootstrap_servers,
+        group_id=f"native-cron-{uuid.uuid4().hex}",
+        auto_offset_reset="latest",
+    )
+    producer = AioKafkaEventsProducer(bootstrap_servers=kafka_bootstrap_servers)
+    transport = CibSevenWorkerTransport(str(engine_client.base_url))
+    audit_sink = PostgresAuditSink(dsn, tenant_id)
+    worker_id = f"native-cron-worker-{uuid.uuid4().hex}"
+    harness = WorkerHarness(
+        transport, worker_id=worker_id, tenant=tenant_id, lock_duration_ms=10_000, audit_sink=audit_sink
+    )
+    register_ans_cron_workers(harness, producer, tenant_id=tenant_id)
+    register_events_workers(harness, producer, tenant_id=tenant_id)
+    instance_id: str | None = None
+    await consumer.start()
+    try:
+        await _await_assigned(consumer)
+        await consumer.seek_to_end()
+        earliest_publication_date = datetime.now(UTC).date()
+        tick = await engine_client.post(f"/job/{job['id']}/execute")
+        assert tick.status_code in (200, 204)
+        after_response = await engine_client.get(
+            "/process-instance", params={"processDefinitionId": definition_id}
+        )
+        after_response.raise_for_status()
+        created = {row["id"] for row in after_response.json()} - before
+        assert len(created) == 1
+        instance_id = created.pop()
+        handled_activities = []
+        for topic, activity in (
+            ("operadora.ans_cron.trigger_submissions", f"ST_ResolverCompetencia{activity_suffix}"),
+            ("operadora.events.publish", f"ST_PublishCronDue{activity_suffix}"),
+        ):
+            tasks = await transport.fetch_and_lock(
+                worker_id,
+                [TopicSubscription(topic, 10_000)],
+                max_tasks=1,
+                async_response_timeout_ms=5_000,
+            )
+            assert len(tasks) == 1
+            task = tasks[0]
+            assert task.process_instance_id == instance_id
+            assert task.process_definition_key == process_key
+            assert task.activity_id == activity
+            handled_activities.append(activity)
+            await harness._handle(task)
+            assert len(await _fetch_audit_rows(dsn, tenant_id, topic)) == 1
+
+        record = await asyncio.wait_for(consumer.__anext__(), timeout=15.0)
+        fact = json.loads(record.value.decode())
+        assert set(fact) == {
+            "type",
+            "tenant_id",
+            "report_type",
+            "periodicidade",
+            "origem_envio",
+            "competencia",
+            "competencia_referencia_iso",
+            "ans_cron_reference_date_iso",
+        }
+        assert fact["type"] == "ans.cron_due"
+        assert fact["tenant_id"] == tenant_id
+        assert fact["report_type"] == report_type
+        assert fact["periodicidade"] == periodicidade
+        assert fact["origem_envio"] == "calendario"
+        anchor = parse_competencia_referencia_iso(fact["competencia_referencia_iso"])
+        assert anchor.utcoffset() is not None
+        if periodicidade == "anual":
+            closed_period = date(anchor.year - 1, 1, 1)
+        elif periodicidade == "trimestral":
+            current_quarter = date(anchor.year, 1 + 3 * ((anchor.month - 1) // 3), 1)
+            closed_quarter_end = current_quarter - timedelta(days=1)
+            closed_period = closed_quarter_end.replace(month=closed_quarter_end.month - 2, day=1)
+        else:
+            closed_period = date(anchor.year, anchor.month, 1) - timedelta(days=1)
+        assert fact["competencia"] == closed_period.strftime("%Y-%m")
+        assert (
+            earliest_publication_date
+            <= date.fromisoformat(fact["ans_cron_reference_date_iso"])
+            <= datetime.now(UTC).date()
+        )
+        # Exactly one record within the observed publication window, not an unbounded claim.
+        extra = await consumer.getmany(timeout_ms=1_000, max_records=10)
+        assert sum(len(records) for records in extra.values()) == 0
+        history = await engine_client.get(f"/history/process-instance/{instance_id}")
+        history.raise_for_status()
+        assert history.json()["processDefinitionId"] == definition_id
+        assert history.json()["state"] == "COMPLETED"
+        activities = await engine_client.get(
+            "/history/activity-instance", params={"processInstanceId": instance_id, "finished": "true"}
+        )
+        activities.raise_for_status()
+        ended = {row["activityId"] for row in activities.json()}
+        assert {start_activity, *handled_activities, f"End_Cron{activity_suffix}"} <= ended
+        native_variables = await engine_client.get(
+            "/history/variable-instance", params={"processInstanceId": instance_id}
+        )
+        native_variables.raise_for_status()
+        values = {row["name"]: row["value"] for row in native_variables.json()}
+        for name in ("report_type", "periodicidade", "competencia", "competencia_referencia_iso"):
+            assert values[name] == fact[name]
+    finally:
+        await producer.close()
+        await consumer.stop()
+        await transport.close()
+        await audit_sink.aclose()
+        if instance_id is not None:
+            remaining = await engine_client.get(f"/process-instance/{instance_id}")
+            if remaining.status_code != 404:
+                remaining.raise_for_status()
+                assert remaining.json()["definitionId"] == definition_id
+                removed = await engine_client.delete(f"/process-instance/{instance_id}")
+                assert removed.status_code == 204
