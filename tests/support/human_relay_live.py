@@ -47,6 +47,10 @@ from maezo.gateway.human.transport import (
 )
 from maezo.portal.contracts.models import HumanPrincipal, MembershipBinding
 from maezo.portal.engine.profile import HumanCommand, SigningContext, canonicalize, strict_loads
+from tests.support.human_relay_diagnostics import (
+    BoundaryDiagnostics,
+    DiagnosticMTLSHumanEngineTransport,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 BPMN = ROOT / "src/maezo/portal/engine/java/src/test/resources/synthetic-human.bpmn"
@@ -73,6 +77,7 @@ class RelayConfig:
     directory: Path
     data: dict = field(repr=False)
     trust: dict = field(repr=False)
+    diagnostics: BoundaryDiagnostics | None = field(default=None, repr=False)
 
     @classmethod
     def load(cls) -> RelayConfig:
@@ -162,13 +167,17 @@ class RelayConfig:
             valid_until=datetime.fromtimestamp(int(self.key["not_after"]), UTC),
             envelope_seconds=30,
         )
-        return MTLSHumanEngineTransport(
+        transport_class = DiagnosticMTLSHumanEngineTransport if self.diagnostics else MTLSHumanEngineTransport
+        result = transport_class(
             scope=scope,
             endpoint=self.data["human_url"],
             identity=self.identity(scope=scope, peer=peer),
             signer=signer,
             timeout_seconds=10,
         )
+        if self.diagnostics:
+            result.diagnostics = self.diagnostics
+        return result
 
     async def pool(self):
         return await asyncpg.create_pool(**self.db_parameters(), min_size=1, max_size=4)
@@ -238,6 +247,7 @@ def relay(store: PostgresHumanOutbox, transport: HumanEngineTransport, *, lease_
 class LiveRelayFixture:
     def __init__(self, config: RelayConfig, artifacts: Path):
         self.config, self.artifacts = config, artifacts
+        config.diagnostics = BoundaryDiagnostics(artifacts, config)
         self.scope = config.scope
         self.principal_ref = "synthetic-human-" + uuid4().hex
         self.subject = "synthetic-subject-" + uuid4().hex
@@ -630,6 +640,8 @@ class LiveRelayFixture:
         return directory
 
     async def close(self) -> None:
+        if self.config.diagnostics:
+            self.config.diagnostics.save()
         for i, observer in enumerate(self.observers):
             directory = self.artifacts / f"transport-{i}"
             directory.mkdir()
@@ -673,6 +685,7 @@ class LiveRelayFixture:
 
 async def child_main(mode: str, directory: Path) -> None:
     config = RelayConfig.load()
+    config.diagnostics = BoundaryDiagnostics(directory, config)
     pool = await config.pool()
     store = PostgresHumanOutbox(scope=config.scope, pool=pool)
     if mode == "persist-then-crash":
@@ -686,6 +699,7 @@ async def child_main(mode: str, directory: Path) -> None:
     try:
         assert await relay(store, observer).run_once()
     finally:
+        config.diagnostics.save()
         observer.save(directory)
         await pool.close()
 
