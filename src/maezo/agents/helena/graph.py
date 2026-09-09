@@ -160,9 +160,11 @@ from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 from .prompts import (
     ALLOWED_SINTOMA_CODIGOS,
     CLASSIFY_PROMPT_VERSION,
+    COLETA_PROMPT_VERSION,
     RESPONSE_PROMPT_VERSION,
     SYSTEM_PROMPT_VERSION,
     classify_prompt,
+    coleta_prompt,
     response_prompt,
 )
 
@@ -172,13 +174,74 @@ logger = structlog.get_logger(__name__)
 
 Intent = Literal["symptom", "scheduling", "information", "human_request", "clinical_question"]
 Population = Literal["adult", "pediatric", "gestante", "mental_health", "none"]
-ResponseKind = Literal["inform", "schedule", "escalate"]
+#: `collect` (COLETA, 09/09/2026): o turno termina numa PERGUNTA ao beneficiario, nao numa
+#: resposta — a mensagem descreveu um sintoma, a tabela de red flag NAO acusou bandeira, e a
+#: tabela de suficiencia (`SUFFICIENCY_DMN_KEY`) disse que faltava um dado para decidir com
+#: honestidade. Nunca substitui um escalonamento: `classify` so' chega a ele DEPOIS de a DMN de
+#: red flag ter dito `false` — uma emergencia nao espera pergunta.
+ResponseKind = Literal["inform", "schedule", "escalate", "collect"]
 #: CC-01: o vocabulario do `response_kind` EMITIDO e um superconjunto do de ROTEAMENTO. Helena
 #: pode responder um `falha_tecnica_start` (a resposta honesta quando a escalacao nao abriu), mas
 #: nunca ROTEIA para ele — `next_kind` continua sendo `ResponseKind`, com os tres destinos que
 #: `_route` sabe mapear. Alargar o tipo de roteamento aqui criaria um valor que nenhuma aresta
 #: conhece; alargar so o de saida nao cria destino nenhum.
-ResponseKindOut = Literal["inform", "schedule", "escalate", "falha_tecnica_start"]
+ResponseKindOut = Literal["inform", "schedule", "escalate", "collect", "falha_tecnica_start"]
+
+# --- COLETA (passo 4 do fluxo de triagem — 09/09/2026) -------------------------------------
+#
+# O DEFEITO QUE ISTO FECHA, medido ao vivo em 09/09/2026 nas quatro tabelas de red flag:
+# "estou com dor de cabeca" -> `sintoma_codigo=None` (nada casa na allowlist), `intensidade`
+# nao dita -> `"desconhecida"` (:796). A regra fail-safe "sintoma nao mapeado" das tabelas exige
+# intensidade GRAVE e nao dispara; o catch-all devolve `red_flag=false`; `_rota_informativa`
+# libera a resposta automatica. Uma hemorragia lida como "sem urgencia" — sem que ninguem
+# tenha decidido isso: a tabela respondeu com confianca sobre dados que nao tinha.
+#
+# A CORRECAO NAO E' NA TABELA DE RED FLAG. `tests/unit/spec/test_triage_redflag_shadow_candidates
+# .py::test_an_explicitly_unknown_intensity_never_raises_a_red_flag` FIXA que `desconhecida`
+# nunca levanta bandeira — decisao deliberada: intensidade que nao foi dita nao e' grave nem
+# leve, e' DESCONHECIDA, e o que se faz com o desconhecido e' PERGUNTAR. Esta e' a peca que
+# pergunta.
+#
+# QUEM DECIDE SE OS DADOS BASTAM E' UMA TABELA (`triage_sufficiency`), nao este codigo — pelo
+# mesmo motivo das tabelas clinicas: escrita pelo negocio, ratificada por medico, versionada.
+# A proposta da tabela esta' em `docs/design/triage-suficiencia-coleta.md` (DRAFT, nao
+# ratificada, NAO implantada). Enquanto ela nao existir no motor, `coleta_enabled=True` falha
+# FECHADO (DMN indisponivel -> `falha_tecnica` -> humano); com `coleta_enabled=False` (default)
+# o grafo e' byte-a-byte o de antes. Nenhum conteudo clinico entra em vigor por este commit.
+#
+# TRES REGRAS que o desenho impoe independentemente do conteudo da tabela:
+#   1. FALHA PARA O LADO SEGURO — so' pergunta quando a red flag ja' disse `false`; nunca
+#      adivinha um codigo; tabela indisponivel escala.
+#   2. TEM FIM — `COLETA_MAX_RODADAS` perguntas; depois disso escala (`MOTIVO_COLETA_ESGOTADA`).
+#      Um beneficiario com dor no peito nao fica num interrogatorio.
+#   3. NAO PERGUNTA O QUE JA' SABE — a tabela recebe o que ESTA' no estado; campo presente nao
+#      vira pergunta.
+SUFFICIENCY_DMN_KEY: str = "triage_sufficiency"
+COLETA_MAX_RODADAS: int = 2
+#: Decisao do documento do diretor (08/09/2026): "se duas rodadas de pergunta nao resolverem,
+#: escalar como pedido de humano". `solicitacao_humano` roteia P3 / atendimento-humano / ack 4h
+#: (`escalation_routing` r5). ALTERNATIVA NAO ADOTADA, registrada para a ratificacao: um sintoma
+#: que nao se conseguiu caracterizar em duas rodadas talvez mereca `intencao_clinica`
+#: (P2 / enfermagem / 30 min). Nao e' decisao de engenharia — e' do medico auditor.
+MOTIVO_COLETA_ESGOTADA: MotivoCategoria = "solicitacao_humano"
+#: Vereditos que a tabela de suficiencia pode emitir. Tudo fora disto e' tratado como falha
+#: tecnica (fail-closed) — uma tabela que devolve um token desconhecido nao e' confiavel.
+COLETA_VEREDITOS_PERGUNTA: frozenset[str] = frozenset(
+    {"PERGUNTAR_INTENSIDADE", "PERGUNTAR_CARACTERIZACAO", "PERGUNTAR_IDADE", "PERGUNTAR_IDADE_GESTACIONAL"}
+)
+COLETA_VEREDITO_SUFICIENTE: str = "SUFICIENTE"
+COLETA_VEREDITO_ESCALAR: str = "ESCALAR"
+
+
+def _rodadas_de_coleta(valor: object) -> int:
+    """Le `coleta_rodadas` sem o idioma `or 0` (cerca NONE-GUARDRAIL): um valor que NAO e' um
+    inteiro nao-negativo nao foi escrito por este grafo — e a leitura fail-closed e' ESGOTADO
+    (`COLETA_MAX_RODADAS`), que so' consegue escalar mais cedo. `bool` e' recusado explicitamente:
+    `True` e' `int` em Python e "uma rodada" nao pode nascer de um flag."""
+    if isinstance(valor, bool) or not isinstance(valor, int) or valor < 0:
+        return COLETA_MAX_RODADAS
+    return min(valor, COLETA_MAX_RODADAS)
+
 
 # Classify-output schema domains (classify-v1's own contract) — the R1 cycle-1 fail-closed
 # validator (`_validate_extraction`) checks membership against these. Kept as explicit
@@ -226,6 +289,25 @@ DESFECHO_RESPOSTA_VAZIA: str = "resposta_vazia_nao_enviada"
 #: sufixo e' o TOKEN DE CLASSE da precondicao violada (`_inform_recusado`), nunca texto de
 #: terceiro — este `error` viaja para `resumo_contexto` e dali para variaveis de processo.
 ERRO_INFORM_RECUSADO: str = "inform recusado"
+#: COLETA: desfecho de um turno que terminou em PERGUNTA. Declarado tambem em
+#: `runtime/turn_telemetry.py` (vocabulario da helena) — o teste de coleta impede a divergencia.
+DESFECHO_PERGUNTA_COLETA: str = "pergunta_coleta"
+#: Perguntas de fallback quando o modelo falha — PERGUNTAS, nunca orientacao.
+_PERGUNTA_FALLBACK: dict[str, str] = {
+    "PERGUNTAR_INTENSIDADE": (
+        "Para eu encaminhar do jeito certo: esse sintoma esta' leve, moderado ou forte agora?"
+    ),
+    "PERGUNTAR_CARACTERIZACAO": (
+        "Entendi. Pode me dizer com mais detalhe o que voce esta' sentindo e desde quando?"
+    ),
+    "PERGUNTAR_IDADE": (
+        "Para eu encaminhar do jeito certo: qual e' a idade da pessoa que esta' com esse sintoma?"
+    ),
+    "PERGUNTAR_IDADE_GESTACIONAL": (
+        "Para eu encaminhar do jeito certo: com quantas semanas de gestacao voce esta'?"
+    ),
+    "default": "Pode me contar um pouco mais sobre o que voce esta' sentindo?",
+}
 
 #: `response_kind` do turno de falha de start. Token de classe fechado, como os demais — o que
 #: permite a um golden/alerta distinguir esta resposta de um handoff de verdade.
@@ -279,6 +361,16 @@ class HelenaState(TypedDict, total=False):
     dmn_table: str
     dmn_decision: dict[str, Any]
     dmn_decision_ref: str
+
+    # COLETA (passo 4). Os tres primeiros sao MEMORIA DE CONVERSA: sobrevivem ao `receive` do
+    # turno seguinte (ver `_HELENA_MEMORIA_DE_CONVERSA`) porque a pergunta feita num turno so'
+    # tem sentido se o turno seguinte souber que a fez.
+    coleta_rodadas: int
+    coleta_pendente: str | None
+    coleta_contexto: str
+    # Estes dois sao do turno corrente, zerados como qualquer saida.
+    coleta_veredito: str | None
+    coleta_pergunta: str | None
 
     # Routing.
     next_kind: ResponseKind
@@ -346,6 +438,14 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "dmn_table": None,
     "dmn_decision": None,
     "dmn_decision_ref": None,
+    # COLETA — os tres de memoria tem default neutro aqui (para a particao de campos e para o
+    # PRIMEIRO turno de uma conversa), mas `receive` os PRESERVA em vez de zerar; ver
+    # `_HELENA_MEMORIA_DE_CONVERSA` logo abaixo.
+    "coleta_rodadas": 0,
+    "coleta_pendente": None,
+    "coleta_contexto": "",
+    "coleta_veredito": None,
+    "coleta_pergunta": None,
     "next_kind": "inform",
     "escalation_motivo": None,
     # HELENA-SEVERIDADE-DEFAULT: `None`, never `"leve"` — a clinical severity that was never
@@ -374,6 +474,24 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
 }
 
 _HELENA_ALL_FIELDS = HELENA_INPUT_FIELDS | frozenset(_HELENA_NEUTRAL_OUTPUTS)
+
+#: MEMORIA DE CONVERSA — a UNICA excecao ao reset de `receive`, e por que ela e' segura.
+#:
+#: O reset existe para que valor plantado por quem chama nao seja lido a jusante. Estes tres
+#: campos so' entram no estado por DUAS vias: o proprio grafo (num turno anterior) ou o
+#: checkpointer que o devolve. O portao de entrada (`gate_inbound_state` / `new_helena_state`)
+#: continua recusando-os vindos de fora — nada muda ali.
+#:
+#: E se, mesmo assim, um valor plantado chegasse? O PIOR que ele consegue e' na direcao segura:
+#: `coleta_rodadas` alto -> escala mais cedo (humano); `coleta_pendente` -> a proxima
+#: classificacao considera que ha' pergunta em aberto; `coleta_contexto` -> texto extra dentro
+#: do bloco NAO CONFIAVEL do prompt, que ja' e' onde a mensagem do beneficiario vive. Nenhum
+#: deles suprime uma red flag, forja um `dmn_decision_ref` ou desvia um escalonamento — os
+#: campos que fazem isso continuam zerados em todo turno.
+_HELENA_MEMORIA_DE_CONVERSA: frozenset[str] = frozenset(
+    {"coleta_rodadas", "coleta_pendente", "coleta_contexto"}
+)
+assert frozenset(_HELENA_NEUTRAL_OUTPUTS) >= _HELENA_MEMORIA_DE_CONVERSA
 if frozenset(HelenaState.__annotations__) != _HELENA_ALL_FIELDS:
     _missing = frozenset(HelenaState.__annotations__) - _HELENA_ALL_FIELDS
     _extra = _HELENA_ALL_FIELDS - frozenset(HelenaState.__annotations__)
@@ -707,10 +825,15 @@ class HelenaGraph:
         audit_sink: AuditStartSink,
         whatsapp: WhatsAppSender,
         agent_version: str = "helena@v0",
+        coleta_enabled: bool = False,
     ) -> None:
         self._llm = inference
         self._dmn = dmn
         self._cibseven = cibseven
+        # COLETA (passo 4): DESLIGADA por default. Ligar exige que `triage_sufficiency` exista no
+        # motor — ratificada pelo medico — senao todo sintoma sem red flag e sem dado suficiente
+        # escala como `falha_tecnica` (fail-closed, nunca resposta automatica).
+        self._coleta_enabled = bool(coleta_enabled)
         # T-C2 fence: required durable ADR-0007 sink for the SP-OP-ESCALATION-001 start
         # (audit-before-effect). This is the LIVE agent execution path (webhook dispatch).
         self._audit_sink = audit_sink
@@ -734,6 +857,14 @@ class HelenaGraph:
         existing fail-closed red-flag logic re-engages instead of being skipped.
         """
         reset: dict[str, Any] = dict(_HELENA_NEUTRAL_OUTPUTS)
+        # Memoria de coleta so' e' preservada com a feature ligada. O helper estrito
+        # recusa bool, negativos e valores malformados como rodadas esgotadas.
+        if self._coleta_enabled:
+            for chave in _HELENA_MEMORIA_DE_CONVERSA:
+                if chave in state:
+                    reset[chave] = state[chave]  # type: ignore[literal-required]
+            if "coleta_rodadas" in state:
+                reset["coleta_rodadas"] = _rodadas_de_coleta(state["coleta_rodadas"])
         if not state.get("conversation_id") or not state.get("tenant_id"):
             reset["next_kind"] = "escalate"
             reset["error"] = "missing runtime context (tenant_id/conversation_id)"
@@ -841,6 +972,15 @@ class HelenaGraph:
                 update["escalation_motivo"] = "risco_psicossocial" if is_mental else "red_flag_clinico"
                 update["escalation_severidade"] = _severidade_from_prioridade(prioridade)
                 return update
+            # COLETA (passo 4): SO' aqui — a red flag ja' disse `false`. Antes desta linha nada
+            # muda: emergencia nunca espera pergunta. A partir dela, "sem bandeira" deixa de
+            # significar "pode responder" e passa a significar "pode responder SE os dados
+            # bastavam" — e quem diz se bastavam e' a tabela de suficiencia, nao o modelo.
+            if self._coleta_enabled:
+                coleta = await self._avaliar_suficiencia(state, update)
+                if coleta is not None:
+                    update.update(coleta)
+                    return update
             return _rota_informativa(update)
 
         if intent == "scheduling":
@@ -848,6 +988,140 @@ class HelenaGraph:
             return update
 
         return _rota_informativa(update)
+
+    # -- COLETA (passo 4) ---------------------------------------------------------------------
+
+    async def _avaliar_suficiencia(self, state: HelenaState, update: dict[str, Any]) -> dict[str, Any] | None:
+        """Consulta `triage_sufficiency` e devolve a ATUALIZACAO de estado que decide o turno —
+        ou `None` quando os dados bastam e o caminho informativo segue como antes.
+
+        A tabela recebe FATOS sobre o que foi apurado (nunca o texto): a intencao, a populacao,
+        se o sintoma casou com um codigo, se a intensidade foi dita, se o campo da populacao esta'
+        presente e quantas perguntas ja' foram feitas. Ela devolve UM veredito. Este metodo nao
+        interpreta clinica: converte o veredito em rota.
+
+        TEM FIM antes de perguntar a tabela: com `coleta_rodadas >= COLETA_MAX_RODADAS` escala,
+        qualquer que fosse o veredito — e' a regra 2 do desenho, e mora no codigo porque nao pode
+        depender de a tabela lembrar-se dela.
+
+        FAIL-CLOSED em tres formas: tabela indisponivel, sem linha casada, ou veredito fora do
+        vocabulario -> `falha_tecnica` -> humano. Nunca "assume suficiente".
+        """
+        rodadas = _rodadas_de_coleta(state.get("coleta_rodadas", 0))
+        if rodadas >= COLETA_MAX_RODADAS:
+            logger.info("helena_coleta_esgotada", rodadas=rodadas, node="classify")
+            return {
+                "coleta_veredito": COLETA_VEREDITO_ESCALAR,
+                "next_kind": "escalate",
+                "escalation_motivo": MOTIVO_COLETA_ESGOTADA,
+                "escalation_severidade": _severidade_de_intensidade(update.get("intensidade")),
+                "coleta_pendente": None,
+            }
+
+        population = str(update.get("population") or "none")
+        campo_populacao = {
+            "adult": update.get("idade_anos") is not None,
+            "pediatric": update.get("idade_meses") is not None,
+            "gestante": update.get("idade_gestacional_semanas") is not None,
+            "mental_health": update.get("risco_imediato") is not None,
+        }.get(population, False)
+        entrada: dict[str, Any] = {
+            "intent": str(update.get("intent") or ""),
+            "population": population,
+            "sintoma_reconhecido": update.get("sintoma_codigo") is not None,
+            "intensidade_informada": str(update.get("intensidade") or "desconhecida") in _VALID_INTENSIDADES
+            and str(update.get("intensidade")) != "desconhecida",
+            "campo_populacao_disponivel": bool(campo_populacao),
+            "rodadas": rodadas,
+        }
+        try:
+            rows, version = await self._dmn.evaluate(SUFFICIENCY_DMN_KEY, entrada)
+            row = first_row(rows, SUFFICIENCY_DMN_KEY, entrada)
+        except (DmnEvaluationError, DmnNoResultError) as exc:
+            return {
+                "coleta_veredito": None,
+                "next_kind": "escalate",
+                "escalation_motivo": "falha_tecnica",
+                "escalation_severidade": _severidade_de_intensidade(update.get("intensidade")),
+                "error": dmn_unavailable_error(SUFFICIENCY_DMN_KEY, exc),
+            }
+        veredito = row.get("veredito")
+        veredito = veredito.get("value") if isinstance(veredito, dict) else veredito
+        veredito = str(veredito or "")
+        ref = f"{SUFFICIENCY_DMN_KEY}#{version.id}"
+        if veredito == COLETA_VEREDITO_SUFICIENTE:
+            logger.info("helena_coleta_suficiente", ref=ref, node="classify")
+            return None
+        if veredito in COLETA_VEREDITOS_PERGUNTA:
+            logger.info(
+                "helena_coleta_pergunta", veredito=veredito, rodada=rodadas + 1, ref=ref, node="classify"
+            )
+            return {
+                "coleta_veredito": veredito,
+                "coleta_pergunta": veredito,
+                "coleta_rodadas": rodadas + 1,
+                "coleta_pendente": veredito,
+                # O texto da mensagem ja' chegou pseudonimizado na borda; guarda-lo aqui e' o que
+                # permite ao turno seguinte classificar "forte" junto com "dor de cabeca".
+                "coleta_contexto": " | ".join(
+                    t for t in (state.get("coleta_contexto") or "", state.get("message_body") or "") if t
+                ),
+                "next_kind": "collect",
+            }
+        if veredito == COLETA_VEREDITO_ESCALAR:
+            return {
+                "coleta_veredito": veredito,
+                "next_kind": "escalate",
+                "escalation_motivo": MOTIVO_COLETA_ESGOTADA,
+                "escalation_severidade": _severidade_de_intensidade(update.get("intensidade")),
+                "coleta_pendente": None,
+            }
+        # Vocabulario desconhecido: a tabela nao e' confiavel para este caso -> humano.
+        logger.warning(
+            "helena_coleta_veredito_desconhecido",
+            classification="fora_do_vocabulario",
+            ref=ref,
+            node="classify",
+        )
+        return {
+            "coleta_veredito": None,
+            "next_kind": "escalate",
+            "escalation_motivo": "falha_tecnica",
+            "escalation_severidade": _severidade_de_intensidade(update.get("intensidade")),
+            "error": f"{SUFFICIENCY_DMN_KEY}: veredito fora do vocabulario",
+        }
+
+    async def collect(self, state: HelenaState) -> dict[str, Any]:
+        """Redige UMA pergunta ao beneficiario sobre o dado que falta (`coleta_pergunta`).
+
+        Nao diagnostica, nao orienta, nao minimiza: pergunta. O prompt e' proprio
+        (`coleta_prompt`, versao `COLETA_PROMPT_VERSION`) para nao mexer no `response_prompt`
+        que os goldens da Helena pinam. Se o modelo falhar, a pergunta generica de fallback
+        continua sendo uma PERGUNTA — o turno nunca vira resposta clinica por acidente.
+        """
+        pergunta = str(state.get("coleta_pergunta") or "")
+        contexto = {
+            "pergunta": pergunta,
+            "rodada": state.get("coleta_rodadas"),
+            "population": state.get("population"),
+        }
+        prompt = (
+            f"{coleta_prompt()}\n\ncontexto={contexto}\n"
+            f"{render_untrusted_block('message_body', state.get('message_body', ''))}"
+        )
+        try:
+            text = await self._llm.generate(
+                prompt,
+                phi=True,
+                agent_id="helena",
+                tenant_id=state.get("tenant_id", ""),
+                task_kind="task_default",
+            )
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            text = _PERGUNTA_FALLBACK.get(pergunta, _PERGUNTA_FALLBACK["default"])
+        return {"response_text": text, "response_kind": "collect"}
 
     async def inform(self, state: HelenaState) -> dict[str, Any]:
         """Administrative response (no clinical guidance, no red flag)."""
@@ -1109,9 +1383,14 @@ class HelenaGraph:
             # bem-sucedido (self-disclosed como campo morto no comentario que citava esta linha).
             # Agora o mesmo valor rotulado na telemetria tambem e' gravado no estado — o campo
             # deixa de ser so-as-vezes-verdadeiro.
-            desfecho = (
-                "escalado_humano" if state.get("escalation_started") is True else "resolvido_automatico"
-            )
+            if state.get("escalation_started") is True:
+                desfecho = "escalado_humano"
+            elif (saida.get("response_kind") or state.get("response_kind")) == "collect":
+                # COLETA: nem resolvido nem escalado — a conversa continua. Rotular como
+                # `resolvido_automatico` inflaria a taxa de resolucao com perguntas.
+                desfecho = DESFECHO_PERGUNTA_COLETA
+            else:
+                desfecho = "resolvido_automatico"
             emit_turn_desfecho(
                 state,
                 agent_id="helena",
@@ -1167,6 +1446,20 @@ class HelenaGraph:
             return "escalate"
         if kind == "schedule":
             return "schedule"
+        if kind == "collect":
+            # Backstop estrutural da coleta: so' pergunta quem tem um veredito de PERGUNTA da
+            # tabela E ainda tem rodada. `next_kind="collect"` sem isso e' estado injustificado
+            # -> humano, mesmo raciocinio do `inform`.
+            rodadas = state.get("coleta_rodadas")
+            if (
+                state.get("coleta_veredito") in COLETA_VEREDITOS_PERGUNTA
+                and type(rodadas) is int
+                and 1 <= rodadas <= COLETA_MAX_RODADAS
+                and not state.get("error")
+            ):
+                return "collect"
+            logger.warning("helena_collect_recusado", node="_route")
+            return "escalate"
         recusa = _inform_recusado(state)
         if recusa is not None:
             logger.warning("helena_inform_recusado", motivo=recusa, node="_route")
@@ -1249,9 +1542,14 @@ class HelenaGraph:
         # (`render_untrusted_block`), no FIM do prompt — o bloco e' a parte variavel por
         # requisicao, e por-lo depois do texto estatico preserva o prefixo cacheavel que
         # `prompt_format` documenta.
-        prompt = (
-            f"{classify_prompt()}\n\n{render_untrusted_block('message_body', state.get('message_body', ''))}"
-        )
+        # COLETA: quando ha' pergunta em aberto, a(s) mensagem(ns) anterior(es) viajam JUNTO com a
+        # atual, no MESMO bloco nao confiavel — "forte" so' significa algo ao lado de "dor de
+        # cabeca". Sem pergunta em aberto o prompt e' byte-a-byte o de antes.
+        corpo = state.get("message_body", "")
+        if self._coleta_enabled and state.get("coleta_pendente") and state.get("coleta_contexto"):
+            anteriores = state.get("coleta_contexto")
+            corpo = f"[mensagens anteriores desta conversa] {anteriores}\n[mensagem atual] {corpo}"
+        prompt = f"{classify_prompt()}\n\n{render_untrusted_block('message_body', corpo)}"
         try:
             raw = await self._llm.generate(
                 prompt,
@@ -1345,6 +1643,7 @@ class HelenaGraph:
         g.add_node("inform", self.inform)
         g.add_node("schedule", self.schedule)
         g.add_node("escalate", self.escalate)
+        g.add_node("collect", self.collect)
         g.add_node("respond", self.respond)
 
         g.add_edge(START, "receive")
@@ -1352,9 +1651,10 @@ class HelenaGraph:
         g.add_conditional_edges(
             "classify",
             self._route,
-            {"inform": "inform", "schedule": "schedule", "escalate": "escalate"},
+            {"inform": "inform", "schedule": "schedule", "escalate": "escalate", "collect": "collect"},
         )
         g.add_edge("inform", "respond")
+        g.add_edge("collect", "respond")
         g.add_edge("schedule", "respond")
         g.add_edge("escalate", "respond")
         g.add_edge("respond", END)
@@ -1399,6 +1699,10 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
             "injected; audit_sink is the T-C2 fence — no escalation start without a durable sink)"
         )
     agent_version = str(cfg.get("agent_version", "helena@v0"))
+    # COLETA: `True` SOMENTE quando a composicao (dispatcher) o disser explicitamente. Nao ha'
+    # leitura de env aqui de proposito — ligar coleta e' decisao de quem monta o runtime, com a
+    # tabela ratificada no motor, nao uma variavel que aparece num container.
+    coleta_enabled = cfg.get("coleta_enabled", False) is True
     return HelenaGraph(
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
@@ -1406,6 +1710,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         audit_sink=cast(AuditStartSink, audit_sink),
         whatsapp=cast(WhatsAppSender, whatsapp),
         agent_version=agent_version,
+        coleta_enabled=coleta_enabled,
     ).compile_graph()
 
 
@@ -1414,4 +1719,5 @@ PROMPT_VERSIONS: dict[str, str] = {
     "system": SYSTEM_PROMPT_VERSION,
     "classify": CLASSIFY_PROMPT_VERSION,
     "response": RESPONSE_PROMPT_VERSION,
+    "coleta": COLETA_PROMPT_VERSION,
 }

@@ -39,6 +39,20 @@ resource "aws_secretsmanager_secret" "engine_admin" {
   tags = merge(local.base_tags, { Name = "maezo-${local.env}-cibseven-admin" })
 }
 
+resource "aws_secretsmanager_secret" "whatsapp_meta" {
+  # Contrato do receptor e do sender no mesmo processo: app_secret/verify_token para
+  # entrada; waba_token/phone_number_id para resposta. Todos os quatro campos devem
+  # existir no JSON antes de iniciar a task. Valores sao populados fora do Terraform.
+  # Segredos sinteticos de entrada permitem testar somente a recepcao assinada;
+  # nao constituem credenciais Meta nem comprovam entrega de uma resposta real.
+  name        = "maezo/${local.env}/whatsapp/meta"
+  description = "Credenciais WhatsApp: app_secret, verify_token, waba_token e phone_number_id. Valores populados fora do Terraform."
+
+  recovery_window_in_days = 7
+
+  tags = merge(local.base_tags, { Name = "maezo-${local.env}-whatsapp-meta" })
+}
+
 # Grant de leitura para a execution role — restrito a estes ARNs.
 data "aws_iam_policy_document" "task_execution_maezo_secrets" {
   statement {
@@ -49,6 +63,7 @@ data "aws_iam_policy_document" "task_execution_maezo_secrets" {
       aws_secretsmanager_secret.a2a_card_signing_key.arn,
       aws_secretsmanager_secret.phi_hmac_key.arn,
       aws_secretsmanager_secret.engine_admin.arn,
+      aws_secretsmanager_secret.whatsapp_meta.arn,
     ]
   }
 }

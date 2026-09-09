@@ -508,7 +508,9 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
     """Guarda de nao-vacuidade da PROPRIA resolucao: se `_sitios_de_prompt` deixasse de encontrar
     as chamadas (renome de `self._llm`, mudanca de forma do prompt), todos os testes acima ficariam
     verdes sem inspecionar nada. Trava a contagem medida na base `87b51a8`: 15 sitios em 11
-    arquivos `graph.py`, dos quais 14 leem ao menos uma chave de entrada."""
+    arquivos `graph.py`, dos quais 14 leem ao menos uma chave de entrada — e, desde 09/09/2026,
+    16/15 com `HelenaGraph.collect` (passo 4 da triagem: a PERGUNTA pelo dado que falta, que le
+    `message_body` e o demarca como os demais sitios da Helena)."""
     total = 0
     com_entrada = 0
     for arquivo in _GRAFOS:
@@ -518,9 +520,9 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
             total += 1
             if lidas & entradas:
                 com_entrada += 1
-    assert (total, com_entrada) == (15, 14), (
+    assert (total, com_entrada) == (16, 15), (
         f"a resolucao AST encontrou {total} sitio(s) de prompt ({com_entrada} com campo de "
-        "entrada), nao os 15/14 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
+        "entrada), nao os 16/15 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
         "este numero JUNTO com o allowlist; se caiu para 0, a resolucao quebrou e as cercas "
         "acima estao vacuas."
     )
