@@ -40,19 +40,13 @@ resource "aws_secretsmanager_secret" "engine_admin" {
 }
 
 resource "aws_secretsmanager_secret" "whatsapp_meta" {
-  # As DUAS credenciais que o receptor de webhook exige no boot (fail-closed, sem default —
-  # `platform/webhooks/whatsapp/settings.py`): `app_secret` valida a assinatura HMAC de cada
-  # POST da Meta; `verify_token` responde ao handshake GET. Chaves do JSON: `app_secret`,
-  # `verify_token`, e opcionalmente `waba_token` (envio) e `phone_number_id`.
-  #
-  # ESTADO EM 09/09/2026: nao ha conta WhatsApp Business nem app na Meta. O valor populado
-  # fora do Terraform e' ALEATORIO, gerado por nos, e serve a UM proposito: permitir que o
-  # receptor suba e receba mensagem SIMULADA assinada com esse mesmo segredo — exercitando a
-  # Helena de ponta a ponta sem depender da Meta. Quando o app real existir, e' `put-secret-value`
-  # com o segredo da Meta, sem mudanca de codigo nem de infra. Ate' la', a URL publica do
-  # receptor NAO deve ser cadastrada na Meta: a assinatura nunca casaria.
+  # Contrato do receptor e do sender no mesmo processo: app_secret/verify_token para
+  # entrada; waba_token/phone_number_id para resposta. Todos os quatro campos devem
+  # existir no JSON antes de iniciar a task. Valores sao populados fora do Terraform.
+  # Segredos sinteticos de entrada permitem testar somente a recepcao assinada;
+  # nao constituem credenciais Meta nem comprovam entrega de uma resposta real.
   name        = "maezo/${local.env}/whatsapp/meta"
-  description = "Credenciais do webhook WhatsApp (app_secret, verify_token). Valor populado fora do Terraform. Ate' existir app na Meta, valor aleatorio proprio para teste simulado."
+  description = "Credenciais WhatsApp: app_secret, verify_token, waba_token e phone_number_id. Valores populados fora do Terraform."
 
   recovery_window_in_days = 7
 

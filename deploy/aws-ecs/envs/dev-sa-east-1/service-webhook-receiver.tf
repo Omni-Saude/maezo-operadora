@@ -102,6 +102,9 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       # As duas que o receptor EXIGE no boot (settings.py: sem default, fail-closed).
       { name = "WHATSAPP_APP_SECRET", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:app_secret::" },
       { name = "WHATSAPP_VERIFY_TOKEN", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:verify_token::" },
+      # O mesmo processo envia a resposta; ambas as configuracoes sao obrigatorias no envio.
+      { name = "WHATSAPP_PHONE_NUMBER_ID", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:phone_number_id::" },
+      { name = "WHATSAPP_TOKEN", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:waba_token::" },
     ])
 
     readonlyRootFilesystem = true
@@ -135,7 +138,8 @@ resource "aws_ecs_service" "webhook_receiver" {
   desired_count   = var.webhook_receiver_desired_count
   launch_type     = "FARGATE"
 
-  enable_execute_command = true
+  # ECS Exec exige escrita no filesystem raiz; preserve o container somente leitura.
+  enable_execute_command = false
 
   network_configuration {
     subnets          = data.aws_subnets.private_app.ids
