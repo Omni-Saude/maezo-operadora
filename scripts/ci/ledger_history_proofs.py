@@ -56,6 +56,7 @@ class ReviewedHistory:
     lock_sha256: str
     current_lock_sha256: str = ""
     prefix_commit: str = "5b70a6e9890c71a2f6a6851c89531eb8c89fd4c1"
+    report_sha256: str = "6ac90678ca814b64109315dfd0fb7622a8cb50b107406ae837e188246aacb18f"
 
     def identity(self) -> tuple[str, str, str, str, str]:
         return (self.proof_id, self.source, self.test, self.task, self.date)
@@ -329,6 +330,12 @@ def prove_relation(
         or target.lock_sha256 != reviewed.lock_sha256
     ):
         static.fail("IC_LOCK_MISMATCH")
+    record_bytes = static.bounded_json(git.current(relation.record_path, limit=static.MAX_JSON_BYTES))
+    report_refs = [
+        ref["artifact"] for ref in record_bytes["historical_evidence"]["originals"] if ref["role"] == "report"
+    ]
+    if len(report_refs) != 1 or report_refs[0]["sha256"] != reviewed.report_sha256:
+        static.fail("IC_REVIEWED_REPORT_CUSTODY")
     members = archive_members(git, relation)
     if (
         static.digest(members["manifest.json"]) != reviewed.manifest_sha256
@@ -480,6 +487,49 @@ def prove_relation(
     return result
 
 
+def recorded_attempts(producer: ModuleType, directory: Path, test_path: str) -> int | None:
+    """Diagnostic capture records only; never successful-proof or truth credit.
+
+    Missing/corrupt partial captures are unknown, not invented zero executions.
+    Failed or timed-out pytest command records count as observed attempts.
+    """
+    count = 0
+    for name in ("fresh-historical", "fresh-current"):
+        stage = directory / name
+        try:
+            stage.lstat()
+        except FileNotFoundError:
+            continue
+        try:
+            packet = producer.Packet(stage)
+            command = static.bounded_json(packet.read("pytest.command.json"))
+            if (
+                type(command.get("argv")) is not list
+                or type(command.get("cwd")) is not str
+                or type(command.get("rc")) is not int
+                or type(command.get("started_at")) is not str
+                or command["argv"]
+                != [
+                    command["cwd"] + "/.venv/bin/python",
+                    "-P",
+                    "-m",
+                    "pytest",
+                    test_path,
+                    "-v",
+                    "--tb=no",
+                    "-p",
+                    "no:cacheprovider",
+                    "-p",
+                    "ledger_source_guard",
+                ]
+            ):
+                return None
+            count += 1
+        except (OSError, ValueError, RuntimeError):
+            return None
+    return count
+
+
 def execute_selected(
     repo: Path, plan: static.Plan, selected: tuple[static.UnresolvedCorrection, ...], output_root: Path | None
 ) -> tuple[CompleteCorrection | static.UnresolvedCorrection, ...]:
@@ -508,6 +558,7 @@ def execute_selected(
             results.append(pending)
             continue
         directory = output_root / pending.correction_row_sha256
+        producer = None
         try:
             with producer_capsule(repo) as producer:
                 producer.Packet(output_root)
@@ -515,12 +566,12 @@ def execute_selected(
                 results.append(prove_relation(repo, plan, relation, producer, directory, reviewed))
         except (OSError, ValueError, RuntimeError) as exc:
             results.append(
-                static.UnresolvedCorrection(
-                    pending.target_row_sha256,
-                    pending.correction_row_sha256,
-                    plan.candidate,
-                    plan.tree,
-                    "IC_OPERATIONAL_PROOF_REFUSED:" + type(exc).__name__,
+                replace(
+                    pending,
+                    reason="IC_OPERATIONAL_PROOF_REFUSED:" + type(exc).__name__,
+                    recorded_fresh_attempts=recorded_attempts(producer, directory, relation.target.test_path)
+                    if producer is not None
+                    else None,
                 )
             )
     return tuple(results)

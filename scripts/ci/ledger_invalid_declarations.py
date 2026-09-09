@@ -706,10 +706,11 @@ class UnresolvedCorrection:
     tree: str
     reason: str
     historical_claim_verified: Literal[False] = False
+    recorded_fresh_attempts: int | None = 0
     status: Literal["UNRESOLVED"] = "UNRESOLVED"
     schema: Literal["maezo-ledger-correction-result/v1"] = "maezo-ledger-correction-result/v1"
 
-    def to_dict(self) -> dict[str, str | bool]:
+    def to_dict(self) -> dict[str, str | bool | int | None]:
         return {name: getattr(self, name) for name in self.__dataclass_fields__}
 
 

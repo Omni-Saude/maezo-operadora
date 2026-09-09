@@ -210,6 +210,7 @@ def candidate(tmp_path: Path, historical: Any, producer: Any) -> Any:
         record["target"]["lock_sha256"],
         current_lock_sha256=static.digest((repo / "uv.lock").read_bytes()) if valid_history else "",
         prefix_commit=source,
+        report_sha256=record["historical_evidence"]["originals"][0]["artifact"]["sha256"],
     )
 
     def plan() -> static.Plan:
@@ -266,6 +267,7 @@ def test_archive_alone_no_output_or_non_catalog_cannot_accept(candidate: Any) ->
     [
         ("manifest_sha256", "f" * 64),
         ("receipt_sha256", "f" * 64),
+        ("report_sha256", "f" * 64),
         ("source", "f" * 40),
         ("test", "tests/unit/unrelated.py"),
         ("lock_sha256", "f" * 64),
@@ -701,6 +703,48 @@ def test_unresolved_relation_preserves_disjoint_actual_failure(
     out.mkdir(mode=0o700)
     assert checker.main(["--base", reviewed.source, "--proof-output", str(out)], repo_root=repo) == 1
     output = capsys.readouterr().out
-    assert "UNRELATED" in output and "FAIL:" in output
+    assert "UNRELATED" in output and "ERROR:" in output
     assert "2 unresolved/errors" in output
     assert "ACCEPTED_WITH" not in output
+
+
+@pytest.mark.parametrize("historical", [OLD, VALID_FIXTURE], indirect=True)
+def test_failed_current_retains_two_recorded_attempts_without_credit(
+    candidate: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, reviewed, plan_fn, record, publish, tmp = candidate
+    write(repo, TEST, b"def test_current(): assert False\n")
+    publish()
+    plan = plan_fn()
+    catalog = "VALID_CATALOG" if record["schema"] == "maezo-ledger-verified-history/v1" else "INVALID_CATALOG"
+    monkeypatch.setattr(proof, catalog, (reviewed,))
+    pending = static.selected_unresolved(repo, plan, [plan.relations[0].correction], None)
+    out = tmp / "failed-attempts"
+    out.mkdir(mode=0o700)
+    results = proof.execute_selected(repo, plan, pending, out)
+    result = results[0]
+    assert isinstance(result, static.UnresolvedCorrection)
+    assert result.recorded_fresh_attempts == 2
+    assert result.historical_claim_verified is False
+    assert result.status == "UNRESOLVED"
+    assert not (out / result.correction_row_sha256 / "result.json").exists()
+
+
+@pytest.mark.parametrize("mutation", ["stale", "same_checkout", "naive"])
+def test_stale_receipts_cannot_be_fresh_execution(historical: Any, mutation: str) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    _, _, _, old, _ = historical
+    candidate_receipt = json.loads(json.dumps(old))
+    now = datetime.now(UTC)
+    candidate_receipt["execution"]["started_at"] = now.isoformat()
+    candidate_receipt["execution"]["finished_at"] = now.isoformat()
+    candidate_receipt["environment"]["checkout"] = "/different/fresh/checkout"
+    if mutation == "stale":
+        candidate_receipt["execution"]["started_at"] = (now - timedelta(days=1)).isoformat()
+    elif mutation == "same_checkout":
+        candidate_receipt["environment"]["checkout"] = old["environment"]["checkout"]
+    else:
+        candidate_receipt["execution"]["started_at"] = now.replace(tzinfo=None).isoformat()
+    with pytest.raises(static.InvalidDeclarationError, match="IC_FRESH_EXECUTION_REQUIRED"):
+        proof.require_fresh(candidate_receipt, now, now + timedelta(seconds=1), old)

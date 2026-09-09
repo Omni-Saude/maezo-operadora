@@ -1608,6 +1608,7 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
         return 1
     correction_results: tuple[Any, ...] = ()
     unresolved_count = 0
+    refused_attempts: int | None = 0
     accepted_endpoint_hashes: set[str] = set()
     if invalid_results:
         operational = importlib.import_module("scripts.ci.ledger_history_proofs")
@@ -1629,6 +1630,11 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
             if args.proof_output is None:
                 return 1
         unresolved_count = len(unresolved)
+        refused_attempts = (
+            None
+            if any(result.recorded_fresh_attempts is None for result in unresolved)
+            else sum(result.recorded_fresh_attempts for result in unresolved)
+        )
         # Every selected operational endpoint belongs to its own lane. Ordinary
         # disjoint rows still execute and retain their failures even on refusal.
         accepted_endpoint_hashes = {
@@ -1728,6 +1734,12 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
             if failures or unresolved_count
             else ("ACCEPTED_WITH_INVALID_HISTORY" if invalid_count else "ACCEPTED_WITH_VERIFIED_HISTORY")
         )
+        execution_note = (
+            f"{len(results) + 2 * len(correction_results)} executions."
+            if not unresolved_count
+            else f"{len(results) + 2 * len(correction_results)} completed-relation/ordinary checks; "
+            f"{'unknown' if refused_attempts is None else refused_attempts} recorded refused pytest attempts."
+        )
         print(
             f"{prefix} {disposition}: {current_ordinary + len(correction_results)} current verified, "
             f"{historical_ordinary + valid_history_count} historical verified, "
@@ -1735,7 +1747,7 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
             f"{len(correction_results)} corrected relations, "
             f"{len(failures) + unresolved_count} unresolved/errors; "
             f"{len(selection.declared)} selected physical occurrences; "
-            f"{len(results) + 2 * len(correction_results)} executions."
+            f"{execution_note}"
         )
     return 1 if failures or unresolved_count else 0
 
