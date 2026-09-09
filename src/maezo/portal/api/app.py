@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import ssl
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -13,13 +12,11 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
-from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from maezo.portal.api.auth import AuthenticationError, CognitoAuthenticator
+from maezo.gateway.human.identity_composition import build_human_identity_adapters
+from maezo.portal.api.auth import AuthenticationError
 from maezo.portal.api.config import PortalSettings
-from maezo.portal.api.postgres import PostgresIdentityStore
 from maezo.portal.api.records import SessionDTO
 from maezo.portal.api.session import HumanSessionResolver, HumanSessionService
 from maezo.portal.api.store import IdentityStore
@@ -127,23 +124,10 @@ def create_app(
         config = settings or PortalSettings()  # type: ignore[call-arg]
     except ValueError:
         raise ValueError("Configuração do portal indisponível.") from None
-    if config.mode == "production" and (store is not None or oidc_client is not None):
-        raise ValueError("production dependency overrides prohibited")
-    if store is None:
-        if config.database_url is None:
-            raise ValueError("identity database required; local test store must be explicit")
-        database_url = make_url(config.database_url.get_secret_value())
-        if database_url.drivername != "postgresql+asyncpg" or not database_url.host:
-            raise ValueError("dedicated PostgreSQL asyncpg connection required")
-        engine = create_async_engine(
-            database_url, hide_parameters=True, echo=False, connect_args={"ssl": ssl.create_default_context()}
-        )
-        store = PostgresIdentityStore(config.tenant, engine)
+    adapters = build_human_identity_adapters(config, store=store, oidc_client=oidc_client)
+    store = adapters.store
     resolver = HumanSessionResolver(config, store)
-    client = oidc_client or httpx.AsyncClient(
-        verify=True, trust_env=False, follow_redirects=False, timeout=10.0
-    )
-    service = HumanSessionService(resolver, CognitoAuthenticator(config, client))
+    service = HumanSessionService(resolver, adapters.authenticator)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

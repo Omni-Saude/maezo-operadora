@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 from maezo.portal.api.auth import (
     AuthenticationError,
-    CognitoAuthenticator,
+    HumanAuthenticator,
     authorization_url,
     digest,
     opaque_secret,
@@ -103,7 +103,7 @@ class HumanSessionResolver:
 
 
 class HumanSessionService:
-    def __init__(self, resolver: HumanSessionResolver, authenticator: CognitoAuthenticator) -> None:
+    def __init__(self, resolver: HumanSessionResolver, authenticator: HumanAuthenticator) -> None:
         self.resolver = resolver
         self.settings = resolver.settings
         self.store = resolver.store
