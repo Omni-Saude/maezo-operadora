@@ -1416,7 +1416,12 @@ def classify_test_admission(
                 )
             ):
                 raise ValueError("unresolved pytest collection configuration")
-            if options.get("pythonpath", ["."]) != ["."]:
+            pythonpath = options.get("pythonpath", ["."])
+            if (
+                not isinstance(pythonpath, list)
+                or not all(value in {".", "src"} for value in pythonpath)
+                or len(set(pythonpath)) != len(pythonpath)
+            ):
                 raise ValueError("unresolved pytest import path configuration")
         for name in ("pytest.ini", ".pytest.ini", "tox.ini", "setup.cfg"):
             data = optional(name)
