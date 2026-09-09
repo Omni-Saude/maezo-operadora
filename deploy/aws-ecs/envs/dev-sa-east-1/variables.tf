@@ -193,9 +193,15 @@ variable "image_tag" {
     Tag da imagem no ECR. NAO use `latest` fora de um bootstrap: o service so troca de imagem
     quando a task definition muda, e `latest` torna impossivel saber o que esta rodando.
     A CD passa o SHA curto do commit.
+
+    09/09/2026 — o default era `bootstrap`, TAG QUE NAO EXISTE NO ECR (medido: 3da4596, ef1ca1d,
+    b249391, 40dc6d4). Um `terraform apply` sem `-var image_tag=...` substituiria as sete task
+    definitions por uma imagem inexistente e o circuit breaker derrubaria o cluster em rollback.
+    O default agora DESCREVE O QUE RODA (`40dc6d4`, desde 27/08): um apply sem variavel vira
+    no-op nos servicos em vez de incidente. Promover imagem continua sendo passar a variavel.
   EOT
   type        = string
-  default     = "bootstrap"
+  default     = "40dc6d4"
 }
 
 variable "webhook_receiver_image_tag" {
@@ -213,6 +219,12 @@ variable "webhook_receiver_image_tag" {
 
 variable "webhook_receiver_desired_count" {
   description = "Replicas do receptor de webhook WhatsApp. 1 para exercitar a Helena com mensagem simulada; 0 para tirar do ar."
+  type        = number
+  default     = 1
+}
+
+variable "bridge_desired_count" {
+  description = "Replicas da ponte de notificacao (consumer do topico interno -> start auditado de processos). 1 para o passo 9 existir; 0 para tirar do ar."
   type        = number
   default     = 1
 }

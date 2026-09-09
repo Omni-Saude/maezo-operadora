@@ -268,6 +268,12 @@ data "aws_iam_policy_document" "agent_engineer" {
     resources = [
       "arn:${local.partition}:logs:${var.aws_region}:${local.conta}:log-group:/ecs/${var.cluster_name}/agent-*",
       "arn:${local.partition}:logs:${var.aws_region}:${local.conta}:log-group:/ecs/${var.cluster_name}/agent-*:*",
+      # 09/09: receptor e ponte sao onde a Helena de fato EXECUTA — sem estes, o engenheiro de
+      # agentes veria o daemon `agent-helena` (que nao executa turno) e nao o turno.
+      "arn:${local.partition}:logs:${var.aws_region}:${local.conta}:log-group:/ecs/${var.cluster_name}/webhook-receiver",
+      "arn:${local.partition}:logs:${var.aws_region}:${local.conta}:log-group:/ecs/${var.cluster_name}/webhook-receiver:*",
+      "arn:${local.partition}:logs:${var.aws_region}:${local.conta}:log-group:/ecs/${var.cluster_name}/notifications-bridge",
+      "arn:${local.partition}:logs:${var.aws_region}:${local.conta}:log-group:/ecs/${var.cluster_name}/notifications-bridge:*",
     ]
   }
 
@@ -318,6 +324,59 @@ data "aws_iam_policy_document" "agent_engineer" {
     # VALOR do secret.
     actions   = ["ecs:DescribeTaskDefinition"]
     resources = ["*"]
+  }
+
+  # -------------------------------------------------------------------------
+  # Caminho de EXECUCAO dentro da VPC (pedido do diretor, 09/09/2026)
+  # -------------------------------------------------------------------------
+  # Ate' aqui quem operava os agentes dependia de alguem colar tela: o motor so' e' alcancavel
+  # de dentro da VPC (Cloud Map `*.maezo-operadora-dev.internal`), atras do Cloudflare Access.
+  # Dois caminhos existem sem abrir porta nenhuma, e este statement concede os dois:
+  #
+  #  1. `ecs:ExecuteCommand` — shell numa task viva, via SSM (sem Cloudflare). LIMITE MEDIDO
+  #     em 09/09: so' funciona em container com root GRAVAVEL; as tasks Python sao
+  #     `readonlyRootFilesystem=true` (decisao de isolamento que nao se afrouxa por isto), entao
+  #     na pratica o Exec alcanca o `cibseven` — que tem `curl` e fala com todos os outros.
+  #  2. `ecs:RunTask` de uma task definition JA' EXISTENTE do cluster, com `command` sobrescrito
+  #     — foi como a bateria de evidencia de 09/09 rodou (script baixado por URL pre-assinada,
+  #     saida no CloudWatch). Exige `iam:PassRole` nas DUAS roles que as task definitions usam;
+  #     sem isso o RunTask e' recusado. RESIDUAL, dito: quem roda uma task com a task role dos
+  #     agentes ve o que os agentes veem (DSN, HMAC de pseudonimizacao) — e' o MESMO alcance que
+  #     `ecs:UpdateService` ja' dava por outro caminho (ver comentario acima), em dev.
+  statement {
+    sid = "ExecutarDentroDaVpc"
+
+    actions = [
+      "ecs:ExecuteCommand",
+      "ecs:RunTask",
+      "ecs:StopTask",
+    ]
+
+    resources = [
+      "arn:${local.partition}:ecs:${var.aws_region}:${local.conta}:cluster/${var.cluster_name}",
+      "arn:${local.partition}:ecs:${var.aws_region}:${local.conta}:task/${var.cluster_name}/*",
+      "arn:${local.partition}:ecs:${var.aws_region}:${local.conta}:task-definition/${var.cluster_name}-*:*",
+    ]
+  }
+
+  statement {
+    sid       = "CanalDoSessionManager"
+    actions   = ["ssmmessages:CreateControlChannel", "ssmmessages:CreateDataChannel", "ssmmessages:OpenControlChannel", "ssmmessages:OpenDataChannel"]
+    resources = ["*"] # a API nao aceita ARN — e' o canal do proprio Exec
+  }
+
+  statement {
+    sid     = "PassarAsRolesDasTasks"
+    actions = ["iam:PassRole"]
+    resources = [
+      "arn:${local.partition}:iam::${local.conta}:role/${var.cluster_name}-task",
+      "arn:${local.partition}:iam::${local.conta}:role/${var.cluster_name}-task-execution",
+    ]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
   }
 
   statement {
