@@ -14,11 +14,13 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import re
 import selectors
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -53,6 +55,10 @@ CATALOG = {
     ),
 }
 MAX_BYTES = 8 * 1024 * 1024
+MAX_FILES = 256
+MAX_ENTRIES = 512
+MAX_TOTAL_BYTES = 64 * 1024 * 1024
+RUNTIME_LIMIT = 128 * 1024 * 1024
 
 
 class CaptureRefusedError(ValueError):
@@ -67,18 +73,205 @@ def encode(value: Any) -> bytes:
     return (json.dumps(value, sort_keys=True, indent=2, ensure_ascii=True) + "\n").encode()
 
 
+def _identity(info: os.stat_result) -> tuple:
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_uid,
+        info.st_nlink,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
+
+
+def _private(info: os.stat_result, directory: bool) -> None:
+    expected = 0o700 if directory else 0o600
+    regular = stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)
+    if (
+        not regular
+        or stat.S_IMODE(info.st_mode) != expected
+        or info.st_uid != os.getuid()
+        or (not directory and info.st_nlink != 1)
+    ):
+        raise CaptureRefusedError("nonregular or nonprivate evidence")
+
+
+@contextmanager
+def _directory(path: Path):
+    """Open each ancestor without following a symlink, including the packet root."""
+    path = path.absolute()
+    if ".." in path.parts:
+        raise CaptureRefusedError("evidence path traversal")
+    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in path.parts[1:]:
+            try:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            except OSError as exc:
+                raise CaptureRefusedError("unsafe evidence directory") from exc
+            os.close(fd)
+            fd = child
+        _private(os.fstat(fd), True)
+        yield fd
+    finally:
+        os.close(fd)
+
+
+class Packet:
+    """Finite metadata preflight before any packet content read; fd-bound reads.
+
+    Ancestors need not be private, but must be real directories. Everything below
+    the owned root is private. Concurrent same-UID mutation is refused at the
+    finite before/open/after checks; this is custody validation, not an OS sandbox.
+    """
+
+    def __init__(self, root: Path):
+        self.root = root.absolute()
+        self.entries: dict[str, os.stat_result] = {}
+        self.total = 0
+        self.files: list[str] = []
+        try:
+            with _directory(self.root) as fd:
+                self.root_info = os.fstat(fd)
+                self._scan(fd, "", 0)
+        except OSError as exc:
+            raise CaptureRefusedError("unsafe evidence preflight") from exc
+
+    def _scan(self, fd: int, prefix: str, depth: int) -> None:
+        if depth > 16:
+            raise CaptureRefusedError("deep evidence tree")
+        # scandir is incremental: a huge directory cannot allocate an unbounded list.
+        with os.scandir(fd) as items:
+            for entry in items:
+                if len(self.entries) >= MAX_ENTRIES:
+                    raise CaptureRefusedError("too many evidence entries")
+                name = prefix + entry.name
+                info = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)
+                directory = stat.S_ISDIR(info.st_mode)
+                _private(info, directory)
+                self.entries[name] = info
+                if directory:
+                    child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                    try:
+                        if _identity(os.fstat(child)) != _identity(info):
+                            raise CaptureRefusedError("evidence directory changed")
+                        self._scan(child, name + "/", depth + 1)
+                    finally:
+                        os.close(child)
+                else:
+                    self.files.append(name)
+                    self.total += info.st_size
+                    if info.st_size > MAX_BYTES:
+                        raise CaptureRefusedError("oversized evidence")
+                    if len(self.files) > MAX_FILES or self.total > MAX_TOTAL_BYTES:
+                        raise CaptureRefusedError("evidence packet budget exceeded")
+
+    @contextmanager
+    def _parent(self, root_fd: int, name: str):
+        fd = os.dup(root_fd)
+        prefix = ""
+        try:
+            for part in Path(name).parts[:-1]:
+                prefix += part
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                os.close(fd)
+                fd = child
+                if _identity(os.fstat(fd)) != _identity(self.entries[prefix]):
+                    raise CaptureRefusedError("evidence parent changed")
+                prefix += "/"
+            yield fd
+        finally:
+            os.close(fd)
+
+    def read(self, name: str, limit: int = MAX_BYTES) -> bytes:
+        if type(name) is not str or name not in self.files:
+            raise CaptureRefusedError("uncontained/nonregular evidence path")
+        info = self.entries[name]
+        if type(limit) is not int or not 0 <= limit <= MAX_BYTES or info.st_size > limit:
+            raise CaptureRefusedError("oversized evidence")
+        try:
+            with _directory(self.root) as root_fd:
+                if _identity(os.fstat(root_fd)) != _identity(self.root_info):
+                    raise CaptureRefusedError("evidence root changed")
+                with self._parent(root_fd, name) as parent_fd:
+                    fd = os.open(
+                        Path(name).name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_fd
+                    )
+                    try:
+                        current = os.fstat(fd)
+                        _private(current, False)
+                        if _identity(current) != _identity(info):
+                            raise CaptureRefusedError("evidence changed before read")
+                        chunks = []
+                        size = 0
+                        while size <= limit:
+                            data = os.read(fd, min(65536, limit - size + 1))
+                            if not data:
+                                break
+                            chunks.append(data)
+                            size += len(data)
+                        after = os.stat(Path(name).name, dir_fd=parent_fd, follow_symlinks=False)
+                        if size > limit:
+                            raise CaptureRefusedError("oversized evidence")
+                        if _identity(os.fstat(fd)) != _identity(info) or _identity(after) != _identity(info):
+                            raise CaptureRefusedError("evidence changed during read")
+                    finally:
+                        os.close(fd)
+                # Rewalk every parent after reading: a held directory fd may have
+                # been moved away while a different subtree took its pathname.
+                with self._parent(root_fd, name) as check_parent:
+                    rebound = os.stat(Path(name).name, dir_fd=check_parent, follow_symlinks=False)
+                    if _identity(rebound) != _identity(info):
+                        raise CaptureRefusedError("evidence path changed during read")
+            with _directory(self.root) as check_fd:
+                if _identity(os.fstat(check_fd)) != _identity(self.root_info):
+                    raise CaptureRefusedError("evidence root changed during read")
+            return b"".join(chunks)
+        except OSError as exc:
+            raise CaptureRefusedError("unsafe evidence open") from exc
+
+    def hashes(self, exclude: str | None = None) -> dict[str, str]:
+        return {name: digest(self.read(name)) for name in sorted(self.files) if name != exclude}
+
+
+def read(path: Path, *, root: Path | None = None, limit: int = MAX_BYTES) -> bytes:
+    packet = Packet(root if root is not None else path.parent)
+    try:
+        name = str(path.absolute().relative_to(packet.root))
+    except ValueError as exc:
+        raise CaptureRefusedError("uncontained evidence path") from exc
+    # Preserve the original missing-file API while refusing existing nonregular files.
+    if name not in packet.entries:
+        raise FileNotFoundError(path)
+    return packet.read(name, limit)
+
+
+def create(path: Path) -> int:
+    with _directory(path.parent) as fd:
+        return os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+
+
 def write(path: Path, data: bytes) -> None:
     if len(data) > MAX_BYTES:
         raise CaptureRefusedError("oversized structured evidence")
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "wb") as stream:
+    with os.fdopen(create(path), "wb") as stream:
         stream.write(data)
 
 
-def load(path: Path, limit: int = MAX_BYTES) -> Any:
-    if path.is_symlink() or path.stat().st_size > limit:
-        raise CaptureRefusedError("nonregular or oversized evidence")
+def same(actual: Any, expected: Any) -> bool:
+    """Closed recursive shape and exact scalar types, including bool versus int."""
+    if type(actual) is not type(expected):
+        return False
+    if type(expected) is dict:
+        return actual.keys() == expected.keys() and all(same(actual[k], expected[k]) for k in expected)
+    if type(expected) is list:
+        return len(actual) == len(expected) and all(same(a, b) for a, b in zip(actual, expected, strict=True))
+    return actual == expected
 
+
+def load(path: Path, limit: int = MAX_BYTES, *, root: Path | None = None) -> Any:
     def pairs(items):
         result = {}
         for key, value in items:
@@ -89,7 +282,7 @@ def load(path: Path, limit: int = MAX_BYTES) -> Any:
 
     try:
         value = json.loads(
-            path.read_bytes().decode("utf-8"),
+            read(path, root=root, limit=limit).decode("utf-8"),
             object_pairs_hook=pairs,
             parse_constant=lambda _: (_ for _ in ()).throw(CaptureRefusedError("nonfinite JSON")),
         )
@@ -100,6 +293,8 @@ def load(path: Path, limit: int = MAX_BYTES) -> Any:
             if isinstance(item, dict):
                 for child in item.values():
                     depth(child, n + 1)
+            elif type(item) is float and not math.isfinite(item):
+                raise CaptureRefusedError("nonfinite JSON")
             elif isinstance(item, list):
                 for child in item:
                     depth(child, n + 1)
@@ -161,7 +356,14 @@ def capture(
     """Bound each stream at first write, retain failure bytes and prove owned PG gone."""
     started = runner._now()
     paths = [out / f"{label}.stdout", out / f"{label}.stderr"]
-    files = [os.fdopen(os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") for p in paths]
+    Packet(out)  # Refuse malformed existing artifacts before spawning a process.
+    if type(limit) is not int or not 0 < limit <= MAX_BYTES:
+        raise CaptureRefusedError("invalid stream limit")
+    if type(timeout) not in {int, float} or not math.isfinite(timeout) or not 0 < timeout <= 300:
+        raise CaptureRefusedError("invalid capture timeout")
+    if not re.fullmatch(r"[a-z][a-z0-9-]*", label):
+        raise CaptureRefusedError("invalid capture label")
+    files = [os.fdopen(create(p), "wb") for p in paths]
     status = "completed"
     process = None
     cleanup = False
@@ -169,6 +371,8 @@ def capture(
     with selectors.DefaultSelector() as selector:
         try:
             with runner._cleanup_signal_mask():
+                if label == "pytest":
+                    verify_guard(out)
                 process = subprocess.Popen(
                     argv,
                     cwd=cwd,
@@ -233,16 +437,21 @@ def capture(
                     "pgid": process.pid if process else 0,
                     "stdout": paths[0].name,
                     "stderr": paths[1].name,
-                    "stdout_sha256": digest(paths[0].read_bytes()),
-                    "stderr_sha256": digest(paths[1].read_bytes()),
-                    "combined_sha256": digest(paths[0].read_bytes() + paths[1].read_bytes()),
+                    "stdout_sha256": digest(read(paths[0], root=out)),
+                    "stderr_sha256": digest(read(paths[1], root=out)),
+                    "combined_sha256": digest(read(paths[0], root=out) + read(paths[1], root=out)),
                 }
                 write(out / f"{label}.command.json", encode(result))
     return result
 
 
 def successful(command: dict) -> None:
-    if command["rc"] != 0 or command["status"] != "completed" or not command["quiescent"]:
+    if (
+        type(command.get("rc")) is not int
+        or command["rc"] != 0
+        or command.get("status") != "completed"
+        or command.get("quiescent") is not True
+    ):
         raise CaptureRefusedError("capture did not complete cleanly")
 
 
@@ -325,9 +534,41 @@ print(json.dumps({"distributions": items, "interpreter": {"path": str(p),
 """
 
 
+# These identities come from the executing review tool and PATH, never a receipt.
+# A different historical Python needs an independently selected matching tool runtime.
+RUNTIME_PATHS = {
+    "python": Path(sys.executable).resolve(),
+    "uv": Path(shutil.which("uv") or "/missing-uv").resolve(),
+}
+
+
+def runtime_digest(kind: str, asserted_path: str) -> str:
+    expected = RUNTIME_PATHS[kind]
+    if asserted_path != str(expected):
+        raise CaptureRefusedError("untrusted runtime identity")
+    fd = os.open(expected, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > RUNTIME_LIMIT:
+            raise CaptureRefusedError("invalid runtime identity file")
+        hasher = hashlib.sha256()
+        size = 0
+        while size <= RUNTIME_LIMIT:
+            data = os.read(fd, min(65536, RUNTIME_LIMIT - size + 1))
+            if not data:
+                break
+            size += len(data)
+            hasher.update(data)
+        if size > RUNTIME_LIMIT or _identity(os.fstat(fd)) != _identity(info):
+            raise CaptureRefusedError("runtime identity changed")
+        return hasher.hexdigest()
+    finally:
+        os.close(fd)
+
+
 def inventory(command: dict, out: Path, checkout: Path) -> dict:
     successful(command)
-    value = load(out / command["stdout"])
+    value = load(out / command["stdout"], root=out)
     keys(value, {"distributions": list, "interpreter": dict})
     keys(
         value["interpreter"],
@@ -338,18 +579,16 @@ def inventory(command: dict, out: Path, checkout: Path) -> dict:
     )
     if Path(value["interpreter"]["prefix"]).resolve() != checkout / ".venv":
         raise CaptureRefusedError("borrowed venv")
-    interpreter = Path(value["interpreter"]["path"])
-    if (
-        interpreter.resolve() != interpreter
-        or digest(interpreter.read_bytes()) != value["interpreter"]["sha256"]
-    ):
+    if runtime_digest("python", value["interpreter"]["path"]) != value["interpreter"]["sha256"]:
         raise CaptureRefusedError("interpreter identity changed")
     if value["interpreter"]["prefix"] == value["interpreter"]["base_prefix"]:
         raise CaptureRefusedError("not a venv")
     editable = 0
     for item in value["distributions"]:
-        if set(item) != {"name", "version", "location", "direct_url"} or any(
-            type(item[k]) is not str for k in ("name", "version", "location")
+        if (
+            type(item) is not dict
+            or set(item) != {"name", "version", "location", "direct_url"}
+            or any(type(item[k]) is not str for k in ("name", "version", "location"))
         ):
             raise CaptureRefusedError("bad distribution")
         if not Path(item["location"]).is_relative_to(checkout / ".venv"):
@@ -358,10 +597,34 @@ def inventory(command: dict, out: Path, checkout: Path) -> dict:
         if direct is not None:
             if type(direct) is not dict or type(direct.get("url")) is not str:
                 raise CaptureRefusedError("invalid direct URL metadata")
+            details = set(direct) - {"url"}
+            if details == {"dir_info"}:
+                keys(direct["dir_info"], {"editable": bool})
+            elif details == {"archive_info"}:
+                archive = direct["archive_info"]
+                if type(archive) is not dict or not set(archive) <= {"hash", "hashes"}:
+                    raise CaptureRefusedError("invalid archive metadata")
+                if "hash" in archive and type(archive["hash"]) is not str:
+                    raise CaptureRefusedError("wrong archive hash type")
+                if "hashes" in archive and (
+                    type(archive["hashes"]) is not dict
+                    or any(type(k) is not str or type(v) is not str for k, v in archive["hashes"].items())
+                ):
+                    raise CaptureRefusedError("wrong archive hashes type")
+            elif details == {"vcs_info"}:
+                vcs = direct["vcs_info"]
+                if (
+                    type(vcs) is not dict
+                    or not {"vcs", "commit_id"} <= set(vcs) <= {"vcs", "commit_id", "requested_revision"}
+                    or any(type(v) is not str for v in vcs.values())
+                ):
+                    raise CaptureRefusedError("invalid VCS metadata")
+            else:
+                raise CaptureRefusedError("unknown direct URL fields")
             parsed = urlparse(direct["url"])
             if parsed.scheme == "file":
                 local = Path(unquote(parsed.path)).resolve()
-                if parsed.netloc or local != checkout or direct.get("dir_info") != {"editable": True}:
+                if parsed.netloc or local != checkout or not same(direct.get("dir_info"), {"editable": True}):
                     raise CaptureRefusedError("borrowed local/editable dependency")
                 editable += 1
             elif direct.get("dir_info", {}).get("editable"):
@@ -423,21 +686,29 @@ def pytest_sessionfinish(session, exitstatus):
 )
 
 
+def verify_guard(out: Path) -> None:
+    packet = Packet(out)
+    expected = {"guard/ledger_source_guard.py"}
+    actual = {name for name in packet.entries if name.startswith("guard/")}
+    if actual != expected or packet.read("guard/ledger_source_guard.py") != GUARD.encode():
+        raise CaptureRefusedError("guard artifact set/bytes differ from pinned construction")
+
+
 def validate_run(
     out: Path, checkout: Path, test: str, sources: dict, command: dict, *, check_files: bool = True
 ) -> dict:
     successful(command)
-    raw = (out / command["stdout"]).read_bytes() + (out / command["stderr"]).read_bytes()
+    raw = read(out / command["stdout"], root=out) + read(out / command["stderr"], root=out)
     if digest(raw) != command["combined_sha256"]:
         raise CaptureRefusedError("raw stream changed")
     try:
         lines = checker.extract_result_lines(raw.decode("utf-8"))
     except UnicodeError as exc:
         raise CaptureRefusedError("non UTF-8 recipe") from exc
-    marker = load(out / "phase.json")
-    base = load(out / "guard-base.json")
+    marker = load(out / "phase.json", root=out)
+    base = load(out / "guard-base.json", root=out)
     keys(base, {"archived": list, "escaped": list})
-    if base != {key: marker.get(key) for key in ("archived", "escaped")}:
+    if not same(base, {key: marker.get(key) for key in ("archived", "escaped")}):
         raise CaptureRefusedError("guard receipts differ")
     keys(marker, {"archived": list, "escaped": list, "coverage": dict})
     phase = marker["coverage"]
@@ -454,6 +725,12 @@ def validate_run(
             "exitstatus": int,
         },
     )
+    for name in ("archived", "escaped"):
+        if any(type(value) is not str for value in marker[name]):
+            raise CaptureRefusedError("invalid source trace scalar")
+    for name in ("collected", "selected", "deselected", "collection_errors"):
+        if any(type(value) is not str for value in phase[name]):
+            raise CaptureRefusedError("invalid phase node scalar")
     nodes = phase["selected"]
     if (
         not phase["started"]
@@ -497,6 +774,7 @@ def validate_run(
         ):
             raise CaptureRefusedError("unbound project execution path")
         bindings[relative] = sources[relative]
+    verify_guard(out)
     return {
         "recipe_version": "result-lines-fixed-v1",
         "recipe_sha256": checker.compute_recipe_hash(lines),
@@ -587,8 +865,8 @@ def execution_checkout(repo: Path, sha: str, out: Path, env: dict):
             before,
             {
                 "uv_path": str(uv),
-                "uv_sha256": digest(uv.read_bytes()),
-                "uv_version": (out / uv_version["stdout"]).read_text().strip(),
+                "uv_sha256": runtime_digest("uv", str(uv)),
+                "uv_version": read(out / uv_version["stdout"], root=out).decode().strip(),
                 "prepare": prep,
             },
         )
@@ -616,7 +894,8 @@ def capture_source(
 ) -> dict:
     """Internal entry for tiny reviewed fixtures; CLI is restricted to CATALOG."""
     env = environment()
-    out.mkdir(mode=0o700, exist_ok=False)
+    with _directory(out.parent) as parent_fd:
+        os.mkdir(out.name, mode=0o700, dir_fd=parent_fd)
     old_mask = os.umask(0o077)
     result = None
     try:
@@ -658,13 +937,15 @@ def capture_source(
                 "-p",
                 "ledger_source_guard",
             ]
+            verify_guard(out)
             command = capture(argv, checkout, runtime, out, "pytest")
+            verify_guard(out)
             post = inventory(
                 capture([python, "-I", "-c", INVENTORY], checkout, env, out, "inventory-after"), out, checkout
             )
             after = tracked(checkout, sha)
             write(out / "source-after.json", encode(after))
-            if pre != post or sources != after:
+            if not same(pre, post) or not same(sources, after):
                 raise CaptureRefusedError("inventory/source changed across recipe")
             run = validate_run(out, checkout, test, sources, command)
             result = {
@@ -715,10 +996,9 @@ def capture_source(
         result["cleanup"] = load(out / "checkout-cleanup.json")
         if not result["cleanup"]["removed"]:
             raise CaptureRefusedError("checkout cleanup incomplete")
+        verify_guard(out)
         write(out / "receipt.json", encode(result))
-        manifest = {
-            str(p.relative_to(out)): digest(p.read_bytes()) for p in sorted(out.rglob("*")) if p.is_file()
-        }
+        manifest = Packet(out).hashes()
         write(out / "manifest.json", encode(manifest))
         return result
     except Exception as exc:
@@ -736,6 +1016,8 @@ def validate_receipt(
     The reviewer supplies expected identity/original observations independently and
     freezes this packet's manifest. Self-asserted artifacts cannot certify themselves.
     """
+    packet = Packet(out)  # Entire metadata preflight precedes receipt or stream reads.
+    verify_guard(out)
     proof_id, sha, test, task, date = identity
     receipt = load(out / "receipt.json")
     keys(
@@ -789,7 +1071,7 @@ def validate_receipt(
             raise CaptureRefusedError("nonregular Git source")
         expected_map[raw.decode()] = {"blob": blob, "sha256": digest(git(repo, "cat-file", "blob", blob))}
     before, after = load(out / "source-before.json"), load(out / "source-after.json")
-    if expected_map != before or before != after:
+    if not same(expected_map, before) or not same(before, after):
         raise CaptureRefusedError("tracked source maps differ from Git")
     ledger = git(repo, "show", f"{sha}:docs/evidence-ledger.md")
     rows = [line for line in ledger.decode().splitlines() if line.startswith(f"| {task} | {date} |")]
@@ -814,7 +1096,7 @@ def validate_receipt(
         "config": {k: before[k]["sha256"] for k in ("uv.lock", "pyproject.toml", ".python-version")},
         "tooling": {**PINS, "helper": digest(Path(__file__).read_bytes()), "guard": digest(GUARD.encode())},
     }
-    if source != expected_source:
+    if not same(source, expected_source):
         raise CaptureRefusedError("source receipt assertions differ from Git/tooling")
     e = receipt["environment"]
     keys(e, {"checkout": str, "venv": str, "inventory_sha256": str, "inventory": dict, "preparation": dict})
@@ -822,7 +1104,10 @@ def validate_receipt(
     if e["venv"] != str(checkout / ".venv"):
         raise CaptureRefusedError("wrong venv identity")
     commands = {}
-    for path in out.glob("*.command.json"):
+    for name in sorted(packet.files):
+        if "/" in name or not name.endswith(".command.json"):
+            continue
+        path = out / name
         c = load(path)
         keys(
             c,
@@ -848,10 +1133,10 @@ def validate_receipt(
         for stream in ("stdout", "stderr"):
             if c[stream] != path.name.removesuffix(".command.json") + "." + stream:
                 raise CaptureRefusedError("stream path injection")
-            if digest((out / c[stream]).read_bytes()) != c[stream + "_sha256"]:
+            if digest(read(out / c[stream], root=out)) != c[stream + "_sha256"]:
                 raise CaptureRefusedError("stream hash mismatch")
         if (
-            digest((out / c["stdout"]).read_bytes() + (out / c["stderr"]).read_bytes())
+            digest(read(out / c["stdout"], root=out) + read(out / c["stderr"], root=out))
             != c["combined_sha256"]
         ):
             raise CaptureRefusedError("split capture hash mismatch")
@@ -882,19 +1167,19 @@ def validate_receipt(
     if (
         commands["pytest"]["argv"] != expected_argv
         or commands["pytest"]["cwd"] != str(checkout)
-        or receipt["execution"] != commands["pytest"]
+        or not same(receipt["execution"], commands["pytest"])
     ):
         raise CaptureRefusedError("wrong historical selector/command")
     pre = inventory(commands["inventory-before"], out, checkout)
     post = inventory(commands["inventory-after"], out, checkout)
-    if pre != post or pre != e["inventory"] or digest(encode(pre)) != e["inventory_sha256"]:
+    if not same(pre, post) or not same(pre, e["inventory"]) or digest(encode(pre)) != e["inventory_sha256"]:
         raise CaptureRefusedError("inventory assertions changed")
     prep = e["preparation"]
     keys(prep, {"uv_path": str, "uv_sha256": str, "uv_version": str, "prepare": dict})
     if (
-        prep["prepare"] != commands["prepare"]
-        or prep["uv_sha256"] != digest(Path(prep["uv_path"]).read_bytes())
-        or prep["uv_version"] != (out / "uv-version.stdout").read_text().strip()
+        not same(prep["prepare"], commands["prepare"])
+        or prep["uv_sha256"] != runtime_digest("uv", prep["uv_path"])
+        or prep["uv_version"] != read(out / "uv-version.stdout", root=out).decode().strip()
     ):
         raise CaptureRefusedError("preparation assertions changed")
     if (
@@ -931,7 +1216,7 @@ def validate_receipt(
         ]["cwd"] != str(checkout):
             raise CaptureRefusedError("inventory command differs from reviewed probe")
     run = validate_run(out, checkout, test, before, commands["pytest"], check_files=False)
-    if receipt["coverage"] != run:
+    if not same(receipt["coverage"], run):
         raise CaptureRefusedError("coverage assertions differ from actual phase/streams")
     expected_scope = {
         "original_observations": observations,
@@ -940,29 +1225,21 @@ def validate_receipt(
         "current_proof_disposition": "unresolved",
         "status": "observation-only",
     }
-    if receipt["scope"] != expected_scope:
+    if not same(receipt["scope"], expected_scope):
         raise CaptureRefusedError("scope/claim assertions changed")
     cleanup = load(out / "checkout-cleanup.json")
     keys(cleanup, {"path": str, "removed": bool, "pending_pgids": list})
     if (
-        cleanup != receipt["cleanup"]
+        not same(cleanup, receipt["cleanup"])
         or not cleanup["removed"]
         or cleanup["pending_pgids"]
         or Path(cleanup["path"]) != checkout.parent
         or checkout.exists()
     ):
         raise CaptureRefusedError("cleanup not proven")
-    actual = {
-        str(p.relative_to(out)): digest(p.read_bytes())
-        for p in sorted(out.rglob("*"))
-        if p.is_file() and p.name != "manifest.json"
-    }
-    if load(out / "manifest.json") != actual:
+    if not same(load(out / "manifest.json"), packet.hashes(exclude="manifest.json")):
         raise CaptureRefusedError("manifest mismatch")
-    if out.stat().st_mode & 0o777 != 0o700 or any(
-        p.is_symlink() or p.stat().st_mode & 0o777 != (0o700 if p.is_dir() else 0o600) for p in out.rglob("*")
-    ):
-        raise CaptureRefusedError("raw custody permissions invalid")
+    verify_guard(out)
     return receipt
 
 
@@ -974,20 +1251,18 @@ def main() -> int:
     parser.add_argument("--original-packet", type=Path, required=True)
     args = parser.parse_args()
     sha, test, task, date = CATALOG[args.proof]
-    packet = args.original_packet.resolve()
+    packet = args.original_packet.absolute()
+    original = Packet(packet)
     if (
-        digest((packet / "MANIFEST.json").read_bytes())
+        digest(original.read("MANIFEST.json"))
         != "0fc37de9a53bc846cfe94a5a390c30f328c8e1926912373df63bf7a59cd5b9b6"
     ):
         raise CaptureRefusedError("original observation review packet is not the reviewed version")
-    observation = {"MANIFEST.json": digest((packet / "MANIFEST.json").read_bytes())}
+    observation = {"MANIFEST.json": digest(original.read("MANIFEST.json"))}
     for entry in load(packet / "MANIFEST.json")["entries"]:
-        path = packet / entry["path"]
-        if (
-            not path.resolve().is_relative_to(packet)
-            or path.is_symlink()
-            or digest(path.read_bytes()) != entry["sha256"]
-        ):
+        keys(entry, {"path": str, "bytes": int, "sha256": str})
+        data = original.read(entry["path"])
+        if len(data) != entry["bytes"] or digest(data) != entry["sha256"]:
             raise CaptureRefusedError("original observation packet changed")
         observation[entry["path"]] = entry["sha256"]
 
@@ -996,7 +1271,9 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
-    capture_source(args.repo.resolve(), sha, test, args.output.resolve(), args.proof, task, date, observation)
+    capture_source(
+        args.repo.resolve(), sha, test, args.output.absolute(), args.proof, task, date, observation
+    )
     print("Private historical observation captured; ledger acceptance not performed.")
     return 0
 
