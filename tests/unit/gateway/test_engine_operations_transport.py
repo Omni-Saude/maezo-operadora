@@ -108,9 +108,21 @@ def config(tmp_path):
     )
 
 
-def wire(monkeypatch, config, replies=None):
+def readiness_response(config, **changes):
+    body = dict(
+        protocol="maezo.engine-readiness.v1",
+        ready=True,
+        policy_digest=config.policy_digest,
+        capabilities=[p.digest for p in config.profiles],
+    )
+    body.update(changes)
+    return httpx.Response(200, json=body)
+
+
+def wire(monkeypatch, config, replies=None, *, readiness_replies=None):
     calls = []
     queue = list(replies or [])
+    readiness_queue = list(readiness_replies or [])
     real = httpx.AsyncClient
 
     def handler(request):
@@ -118,21 +130,14 @@ def wire(monkeypatch, config, replies=None):
         assert str(request.url).startswith(config.endpoint + "/maezo/v1/")
         assert not request.url.query
         assert "authorization" not in request.headers
-        if queue:
-            response = queue.pop(0)
+        selected = readiness_queue if request.method == "GET" else queue
+        if selected:
+            response = selected.pop(0)
             if isinstance(response, Exception):
                 raise response
             return response
         if request.method == "GET":
-            return httpx.Response(
-                200,
-                json=dict(
-                    protocol="maezo.engine-readiness.v1",
-                    ready=True,
-                    policy_digest=config.policy_digest,
-                    capabilities=[p.digest for p in config.profiles],
-                ),
-            )
+            return readiness_response(config)
         data = json.loads(request.content)
         result = (
             dict(id="started-1", definition_id="definition-7", tenant="synthetic")
@@ -192,7 +197,7 @@ async def test_actual_factory_audited_start_and_wire_projection(config, monkeypa
     )
     assert started.start_outcome is StartOutcome.STARTED
     assert len(sink.records) == 1
-    assert [r.method for r in calls] == ["GET", "POST", "POST"]
+    assert [r.method for r in calls] == ["GET", "GET", "POST", "GET", "POST"]
     body = json.loads(calls[-1].content)
     assert body["variables"]["tenant_id"] == "synthetic"
     assert body["variables"]["source_agent_version"] == "synthetic-v1"
@@ -265,7 +270,7 @@ async def test_refusal_malformed_redirect_not_absence_or_retry(config, monkeypat
     calls = wire(monkeypatch, config, [response])
     with pytest.raises(CibSevenStartAuthorizationError) as exc:
         await factory(config).find_active_instance("synthetic-business-key")
-    assert len(calls) == 1
+    assert [r.method for r in calls] == ["GET", "POST"]
     assert "secret" not in str(exc.value) and "business-key" not in str(exc.value)
 
 
@@ -350,7 +355,7 @@ async def test_readiness_wrong_policy_stops_before_audit(config, monkeypatch):
     calls = wire(
         monkeypatch,
         config,
-        [
+        readiness_replies=[
             httpx.Response(
                 200,
                 json=dict(
@@ -400,7 +405,8 @@ async def test_actual_human_source_and_correlation_propagate(config, monkeypatch
         correlation_keys={"tenant_id": "synthetic", "beneficiario_pseudo_id": "pseudo"},
         all_matching=True,
     )
-    body = json.loads(calls[0].content)
+    assert [r.method for r in calls] == ["GET", "POST"]
+    body = json.loads(calls[-1].content)
     assert body["source_ref"] == "actual-completed-human-task"
     assert body["variables"] == {"consent_event_ref": "actual-receipt"}
     assert body["correlation"] == {"tenant_id": "synthetic", "beneficiario_pseudo_id": "pseudo"}
@@ -429,20 +435,10 @@ def test_required_external_source_is_never_invented(config):
 @pytest.mark.asyncio
 async def test_lost_start_response_preserves_audit_and_does_not_retry(config, monkeypatch):
     # Readiness and dedup query are authenticated wire responses, then POST is inconclusive.
-    ready = httpx.Response(
-        200,
-        json=dict(
-            protocol="maezo.engine-readiness.v1",
-            ready=True,
-            policy_digest=config.policy_digest,
-            capabilities=[p.digest for p in config.profiles],
-        ),
-    )
     calls = wire(
         monkeypatch,
         config,
         [
-            ready,
             result(config, EngineOperation.READ_ACTIVE, []),
             httpx.ReadTimeout("synthetic provider content must not escape"),
         ],
@@ -459,7 +455,8 @@ async def test_lost_start_response_preserves_audit_and_does_not_retry(config, mo
         )
     assert exc.value.code is EngineRefusalCode.IDENTITY_UNAVAILABLE
     assert len(sink.records) == 1
-    assert len(calls) == 3 and json.loads(calls[-1].content)["operation"] == "start"
+    assert [r.method for r in calls] == ["GET", "GET", "POST", "GET", "POST"]
+    assert json.loads(calls[-1].content)["operation"] == "start"
     assert "provider" not in str(exc.value)
 
 
@@ -483,7 +480,7 @@ async def test_malformed_start_response_never_reports_success(config, monkeypatc
                 EngineOperation.START, HELENA_START.process_key, "synthetic", canonical_json(variables())
             )
         )
-    assert len(calls) == 1
+    assert [r.method for r in calls] == ["GET", "POST"]
 
 
 @pytest.mark.asyncio
@@ -524,21 +521,12 @@ async def test_payment_completed_dedup_never_reissues_start(config, monkeypatch)
             for op in (EngineOperation.READ_ACTIVE, EngineOperation.READ_HISTORY)
         ),
     )
-    ready = httpx.Response(
-        200,
-        json=dict(
-            protocol="maezo.engine-readiness.v1",
-            ready=True,
-            policy_digest=config.policy_digest,
-            capabilities=[p.digest for p in config.profiles],
-        ),
-    )
     history = result(
         config,
         EngineOperation.READ_HISTORY,
         [dict(id="paid-instance", definition_id="definition-7", state="COMPLETED")],
     )
-    calls = wire(monkeypatch, config, [ready, result(config, EngineOperation.READ_ACTIVE, []), history])
+    calls = wire(monkeypatch, config, [result(config, EngineOperation.READ_ACTIVE, []), history])
     sink = FakeStartAuditSink(already_audited=True)
     outcome = await start_process_idempotent(
         factory(config, engine_source_ref="actual-source-task"),
@@ -550,7 +538,7 @@ async def test_payment_completed_dedup_never_reissues_start(config, monkeypatch)
     )
     assert outcome.start_outcome is StartOutcome.ALREADY_COMPLETED
     assert outcome.instance_id == "paid-instance"
-    assert len(calls) == 3
+    assert [r.method for r in calls] == ["GET", "GET", "POST", "GET", "POST"]
     assert all(json.loads(r.content)["operation"] != "start" for r in calls if r.method == "POST")
 
 
@@ -605,3 +593,252 @@ def test_actual_certificate_identity_controls(config, variant):
         )
     with pytest.raises(EngineTransportUnavailableError):
         EngineOperationsClient(config)
+
+
+async def invoke_typed_operation(config, operation, *, direct):
+    """Exercise both public client and actual seam factory, with meaningful valid requests."""
+    if operation is EngineOperation.CORRELATE:
+        request = EngineRequest(
+            operation,
+            CONSENT_REVOKED.process_key,
+            "",
+            canonical_json({"consent_event_ref": "actual-receipt"}),
+            correlation_json=canonical_json({"tenant_id": "synthetic", "beneficiario_pseudo_id": "pseudo"}),
+            all_matching=True,
+            message=CONSENT_REVOKED.message,
+        )
+        source = "actual-completed-human-task"
+    else:
+        request = EngineRequest(
+            operation,
+            HELENA_START.process_key,
+            "synthetic-business-key",
+            canonical_json(variables() if operation is EngineOperation.START else {}),
+        )
+        source = ""
+    if direct:
+        return await EngineOperationsClient(config).execute(request, source_ref=source)
+    transport = factory(config, engine_source_ref=source)
+    if operation is EngineOperation.CORRELATE:
+        return await transport.correlate_message(
+            request.message,
+            request.resource_ref,
+            json.loads(request.variables_json),
+            correlation_keys=json.loads(request.correlation_json),
+            all_matching=True,
+        )
+    if operation is EngineOperation.START:
+        return await transport.start_process_instance(
+            request.process_key, request.resource_ref, json.loads(request.variables_json)
+        )
+    if operation is EngineOperation.READ_ACTIVE:
+        return await transport.find_active_instance(request.resource_ref)
+    return await transport.find_any_instance(request.resource_ref)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("direct", [False, True], ids=["actual-factory", "direct-client"])
+@pytest.mark.parametrize(
+    "operation",
+    [
+        EngineOperation.START,
+        EngineOperation.CORRELATE,
+        EngineOperation.READ_ACTIVE,
+        EngineOperation.READ_HISTORY,
+    ],
+)
+@pytest.mark.parametrize(
+    "readiness",
+    [
+        "matching",
+        "wrong-policy",
+        "missing-policy",
+        "empty-grants",
+        "extra-grants",
+        "duplicate-grants",
+        "not-ready",
+        "unavailable",
+        "missing-body",
+    ],
+)
+async def test_every_operation_checks_current_policy_and_exact_grants(
+    config, monkeypatch, direct, operation, readiness
+):
+    if operation is EngineOperation.CORRELATE:
+        config = source_config(config, CONSENT_REVOKED)
+    body = json.loads(readiness_response(config).content)
+    if readiness == "wrong-policy":
+        body["policy_digest"] = "b" * 64
+    elif readiness == "missing-policy":
+        del body["policy_digest"]
+    elif readiness == "empty-grants":
+        body["capabilities"] = []
+    elif readiness == "extra-grants":
+        body["capabilities"].append("f" * 64)
+    elif readiness == "duplicate-grants":
+        body["capabilities"].append(body["capabilities"][0])
+    elif readiness == "not-ready":
+        body["ready"] = False
+    response = (
+        httpx.ConnectTimeout("private provider detail")
+        if readiness == "unavailable"
+        else httpx.Response(200, json={} if readiness == "missing-body" else body)
+    )
+    value = (
+        {"correlated": 1}
+        if operation is EngineOperation.CORRELATE
+        else {"id": "started", "definition_id": "definition-7", "tenant": "synthetic"}
+        if operation is EngineOperation.START
+        else [{"id": "found", "definition_id": "definition-7", "state": "ACTIVE"}]
+    )
+    calls = wire(monkeypatch, config, [result(config, operation, value)], readiness_replies=[response])
+    if readiness == "matching":
+        received = await invoke_typed_operation(config, operation, direct=direct)
+        assert [r.method for r in calls] == ["GET", "POST"]
+        sent = json.loads(calls[-1].content)
+        assert sent["operation"] == operation.value
+        if direct:
+            assert received == value
+        elif operation in {EngineOperation.START, EngineOperation.READ_ACTIVE, EngineOperation.READ_HISTORY}:
+            assert received.instance_id == ("started" if operation is EngineOperation.START else "found")
+        else:
+            assert sent["source_ref"] == "actual-completed-human-task"
+    else:
+        with pytest.raises((EngineCapabilityError, CibSevenStartAuthorizationError)) as exc:
+            await invoke_typed_operation(config, operation, direct=direct)
+        assert "private" not in str(exc.value)
+        assert [r.method for r in calls] == ["GET"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("direct", [False, True])
+async def test_readiness_is_not_cached_across_calls(config, monkeypatch, direct):
+    calls = wire(
+        monkeypatch,
+        config,
+        readiness_replies=[readiness_response(config), readiness_response(config, policy_digest="b" * 64)],
+    )
+    client = EngineOperationsClient(config) if direct else factory(config)
+
+    async def read():
+        if direct:
+            return await client.execute(
+                EngineRequest(EngineOperation.READ_ACTIVE, HELENA_START.process_key, "synthetic", b"{}")
+            )
+        return await client.find_active_instance("synthetic")
+
+    assert await read() == ([] if direct else None)
+    with pytest.raises((EngineCapabilityError, CibSevenStartAuthorizationError)):
+        await read()
+    assert [r.method for r in calls] == ["GET", "POST", "GET"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["none", "native-load", "transport"])
+async def test_native_loader_uses_private_validated_snapshot_and_disposes_it(config, monkeypatch, failure):
+    # Replacing the configured paths and restoring them at the real loader boundary
+    # must never change its actual cert/key/CA input. This is a recording wire test.
+    pinned_certificate = config.certificate_file.read_bytes()
+    pinned_key = config.private_key_file.read_bytes()
+    key = serialization.load_pem_private_key(pinned_key, password=None)
+    old = x509.load_pem_x509_certificate(pinned_certificate)
+    alternate = (
+        x509.CertificateBuilder()
+        .subject_name(old.subject)
+        .issuer_name(old.issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(old.not_valid_before_utc)
+        .not_valid_after(old.not_valid_after_utc)
+        .add_extension(old.extensions.get_extension_for_class(x509.SubjectAlternativeName).value, False)
+        .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]), False)
+        .sign(key, hashes.SHA256())
+        .public_bytes(serialization.Encoding.PEM)
+    )
+    calls = wire(
+        monkeypatch,
+        config,
+        [httpx.ReadTimeout("private detail")] if failure == "transport" else None,
+    )
+    transport = factory(config)
+    native = ssl.SSLContext.load_cert_chain
+    snapshots = []
+    ca_inputs = []
+    native_ca = ssl.SSLContext.load_verify_locations
+
+    def load_ca(context, cafile=None, capath=None, cadata=None):
+        assert cafile is None and capath is None
+        ca_inputs.append(cadata.encode("ascii"))
+        return native_ca(context, cafile, capath, cadata)
+
+    def swap_at_load(context, certfile, keyfile=None, password=None):
+        cert_path, key_path = Path(certfile), Path(keyfile)
+        snapshots.append((cert_path, key_path, cert_path.parent))
+        config.certificate_file.write_bytes(alternate)
+        config.private_key_file.write_bytes(b"replaced-private-material")
+        try:
+            assert cert_path != config.certificate_file and key_path != config.private_key_file
+            assert cert_path.read_bytes() == pinned_certificate
+            assert key_path.read_bytes() == pinned_key
+            assert cert_path.stat().st_mode & 0o777 == 0o600
+            assert key_path.stat().st_mode & 0o777 == 0o600
+            assert cert_path.parent.stat().st_mode & 0o777 == 0o700
+            native(context, certfile, keyfile, password)
+            if failure == "native-load":
+                raise ssl.SSLError("synthetic native loader failure")
+        finally:
+            config.certificate_file.write_bytes(pinned_certificate)
+            config.private_key_file.write_bytes(pinned_key)
+
+    monkeypatch.setattr(ssl.SSLContext, "load_verify_locations", load_ca)
+    monkeypatch.setattr(ssl.SSLContext, "load_cert_chain", swap_at_load)
+    if failure == "none":
+        assert await transport.find_active_instance("synthetic") is None
+        assert [r.method for r in calls] == ["GET", "POST"]
+    else:
+        with pytest.raises(CibSevenStartAuthorizationError):
+            await transport.find_active_instance("synthetic")
+        assert [r.method for r in calls] == ([] if failure == "native-load" else ["GET", "POST"])
+    assert snapshots and ca_inputs
+    assert all(ca == pinned_certificate for ca in ca_inputs)
+    assert all(not path.exists() for snapshot in snapshots for path in snapshot)
+    assert config.certificate_file.read_bytes() == pinned_certificate
+    assert config.private_key_file.read_bytes() == pinned_key
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["certificate", "key", "expired"])
+async def test_current_identity_change_refuses_after_factory_construction(config, monkeypatch, change):
+    calls = wire(monkeypatch, config)
+    transport = factory(config)
+    if change == "certificate":
+        config.certificate_file.write_bytes(b"rotated certificate")
+    elif change == "key":
+        other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        config.private_key_file.write_bytes(
+            other.private_bytes(
+                serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+            )
+        )
+    else:
+        cert = x509.load_pem_x509_certificate(config.certificate_file.read_bytes())
+
+        class ExpiredClock:
+            @classmethod
+            def now(cls, tz):
+                return cert.not_valid_after_utc
+
+        monkeypatch.setattr("maezo.gateway.engine_transport.datetime", ExpiredClock)
+    with pytest.raises(CibSevenStartAuthorizationError):
+        await transport.find_active_instance("synthetic")
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_correlation_attempts_operation_exactly_once(config, monkeypatch):
+    config = source_config(config, CONSENT_REVOKED)
+    calls = wire(monkeypatch, config, [httpx.ReadTimeout("reply lost after possible mutation")])
+    with pytest.raises(CibSevenStartAuthorizationError):
+        await invoke_typed_operation(config, EngineOperation.CORRELATE, direct=False)
+    assert [r.method for r in calls] == ["GET", "POST"]
+    assert json.loads(calls[-1].content)["operation"] == "correlate"

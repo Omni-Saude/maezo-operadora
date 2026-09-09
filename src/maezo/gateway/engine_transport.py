@@ -11,6 +11,7 @@ import hashlib
 import math
 import re
 import ssl
+import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -78,6 +79,10 @@ class EngineTLSConfig:
     timeout: float = 15.0
 
     def validate(self) -> bytes:
+        return self._validated_material()[0]
+
+    def _validated_material(self) -> tuple[bytes, bytes, bytes]:
+        """Capture once; validate and load only this material, never reopened input paths."""
         try:
             url = urlsplit(self.endpoint)
             if (
@@ -116,7 +121,9 @@ class EngineTLSConfig:
                 if not path.is_absolute() or path.resolve(strict=True) != path or not path.is_file():
                     raise EngineTransportUnavailableError()
             ca = self.ca_file.read_bytes()
-            cert = x509.load_pem_x509_certificate(self.certificate_file.read_bytes())
+            certificate = self.certificate_file.read_bytes()
+            private_key = self.private_key_file.read_bytes()
+            cert = x509.load_pem_x509_certificate(certificate)
             now = datetime.now(UTC)
             sans = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
             eku = cert.extensions.get_extension_for_class(x509.ExtendedKeyUsage).value
@@ -130,17 +137,30 @@ class EngineTLSConfig:
                 or x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH not in eku
             ):
                 raise EngineTransportUnavailableError()
-            return ca
+            return ca, certificate, private_key
         except Exception:
             raise EngineTransportUnavailableError() from None
 
     def context(self) -> ssl.SSLContext:
-        ca = self.validate()
+        ca, certificate, private_key = self._validated_material()
         try:
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             context.minimum_version = ssl.TLSVersion.TLSv1_2
             context.load_verify_locations(cadata=ca.decode("ascii"))
-            context.load_cert_chain(self.certificate_file, self.private_key_file)
+            # Python's native loader requires paths. Use exclusively created 0600 files
+            # in a private 0700 directory, independent of mutable deployment paths. The
+            # native loader still verifies certificate/key matching. Delete both files
+            # before returning the context (also on any failure); never cache key bytes.
+            with (
+                tempfile.TemporaryDirectory(prefix="maezo-engine-tls-") as directory,
+                tempfile.NamedTemporaryFile(dir=directory) as cert_file,
+                tempfile.NamedTemporaryFile(dir=directory) as key_file,
+            ):
+                cert_file.write(certificate)
+                cert_file.flush()
+                key_file.write(private_key)
+                key_file.flush()
+                context.load_cert_chain(cert_file.name, key_file.name)
             return context
         except Exception:
             raise EngineTransportUnavailableError() from None
@@ -291,6 +311,11 @@ class EngineOperationsClient:
 
     async def execute(self, request: EngineRequest, *, source_ref: str = "") -> Any:
         profile, body = self.project(request, source_ref=source_ref)
+        # Validate locally before wire, then check current configured B policy/grants on
+        # every operation. Start authorization also checks before durable claim/audit.
+        # B v1 uses two requests: this is NOT atomic GET/POST policy binding; B retains
+        # its independent transaction-time authorization and source checks.
+        await self.readiness()
         data = await self._exchange("POST", "/maezo/v1/operations", body)
         if (
             set(data) != {"protocol", "capability_digest", "result"}
