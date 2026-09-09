@@ -1477,7 +1477,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--version", action="version", version="ledger-hashes v1 + v2-static/1 (replay unresolved)"
+        "--version",
+        action="version",
+        version="ledger-hashes v1 + v2-operational/1 (bounded reviewed history)",
+    )
+    parser.add_argument(
+        "--proof-output",
+        type=Path,
+        default=None,
+        help="Existing private 0700 output directory for bounded operational correction proofs.",
     )
     parser.add_argument(
         "--base",
@@ -1569,17 +1577,31 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
     except (OSError, SupersessionError) as exc:
         print(f"{prefix} ERROR: {exc}", file=sys.stderr)
         return 1
+    correction_results = ()
+    accepted_endpoint_hashes: set[str] = set()
     if invalid_results:
-        # Operational acceptance is deliberately unavailable until the independent adapter
-        # review establishes fresh replay, environment inventory and source containment.
-        for result in invalid_results:
-            print(f"{prefix} UNRESOLVED: {json.dumps(result.to_dict(), sort_keys=True)}")
-        print(
-            f"{prefix} SUMMARY: 0 current verified, 0 historical verified, 0 invalidated declarations, "
-            f"0 corrected relations, {len(invalid_results)} unresolved relations, "
-            f"{len(selection.declared)} selected physical occurrences; 0 executions."
+        operational = importlib.import_module("scripts.ci.ledger_history_proofs")
+        correction_results = operational.execute_selected(
+            root, invalid_plan, invalid_results, args.proof_output
         )
-        return 1
+        for result in correction_results:
+            print(f"{prefix} {result.status}: {json.dumps(result.to_dict(), sort_keys=True)}")
+        unresolved = [result for result in correction_results if result.status == "UNRESOLVED"]
+        if unresolved:
+            print(
+                f"{prefix} SUMMARY: 0 current verified, 0 historical verified, 0 invalidated declarations, "
+                f"0 corrected relations, {len(unresolved)} unresolved relations, "
+                f"{len(selection.declared)} selected physical occurrences; "
+                "0 executions."
+                if args.proof_output is None
+                else f"{prefix} UNRESOLVED: partial execution artifacts retained; no overall acceptance."
+            )
+            return 1
+        accepted_endpoint_hashes = {
+            digest
+            for result in correction_results
+            for digest in (result.target_row_sha256, result.correction_row_sha256)
+        }
 
     # Legacy rows are listed with their reason (shape or date) EVERY time, not just when nothing
     # is declared — a row skipped for the mzo-040-style date-coincidence reason must be visible
@@ -1587,7 +1609,7 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
     for legacy_row in selection.legacy:
         print(f"{prefix} SKIP (legacy): {legacy_row.task_id} — {legacy_row.reason}")
 
-    if not selection.declared:
+    if not selection.declared and not correction_results:
         legacy_note = (
             f" (legacy task IDs: {', '.join(r.task_id for r in selection.legacy)})"
             if selection.legacy
@@ -1604,6 +1626,8 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
     historical_scheduled: set[str] = set()
     for row in selection.declared:
         digest = row_sha256(row)
+        if digest in accepted_endpoint_hashes:
+            continue
         successor_edge = supersession_plan.by_successor_row_sha256.get(digest)
         target_edge = supersession_plan.by_target_row_sha256.get(digest)
 
@@ -1653,6 +1677,21 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
         f" ({declared_count} selected rows{proof_note}), "
         f"{len(selection.legacy)} legacy rows skipped — {scope_desc}."
     )
+    if correction_results:
+        current_ordinary = sum(
+            result.ok and row_sha256(result.row) not in historical_scheduled for result in results
+        )
+        historical_ordinary = sum(
+            result.ok and row_sha256(result.row) in historical_scheduled for result in results
+        )
+        disposition = "UNRESOLVED" if failures else "ACCEPTED_WITH_INVALID_HISTORY"
+        print(
+            f"{prefix} {disposition}: {current_ordinary + len(correction_results)} current verified, "
+            f"{historical_ordinary} historical verified, {len(correction_results)} invalidated declarations, "
+            f"{len(correction_results)} corrected relations, {len(failures)} unresolved/errors; "
+            f"{len(selection.declared)} selected physical occurrences; "
+            f"{len(results) + 2 * len(correction_results)} executions."
+        )
     return 1 if failures else 0
 
 

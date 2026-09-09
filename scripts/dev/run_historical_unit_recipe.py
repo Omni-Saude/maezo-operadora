@@ -316,7 +316,26 @@ def module(relative: str, name: str):
     path = ROOT / relative
     data = path.read_bytes()
     if digest(data) != PINS[relative]:
-        raise CaptureRefusedError("reviewed tooling source changed")
+        # Explicit integration: keep the original producer's checker bytes and pin.
+        # New ledger grammar may coexist, but cannot change this recipe dependency.
+        if relative != "scripts/ci/check_evidence_ledger_hashes.py":
+            raise CaptureRefusedError("reviewed tooling source changed")
+        result = subprocess.run(
+            ["git", "--no-replace-objects", "show", "7189bcb0b3532a48401bf86f376cf37e876adabf:" + relative],
+            cwd=ROOT,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=30,
+            env={
+                "PATH": os.defpath,
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_NO_REPLACE_OBJECTS": "1",
+            },
+        )
+        if result.returncode != 0 or digest(result.stdout) != PINS[relative]:
+            raise CaptureRefusedError("original pinned checker source unavailable")
+        data = result.stdout
     spec = importlib.util.spec_from_file_location(name, path)
     result = importlib.util.module_from_spec(spec)
     sys.modules[name] = result

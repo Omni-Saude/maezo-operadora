@@ -17,12 +17,13 @@ import stat
 import subprocess
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 from typing import Any, Literal, NoReturn
 
 from scripts.ci import check_evidence_ledger_hashes as v1
+from scripts.ci import ledger_history_proofs as operational
 from scripts.ci.check_ledger_row_cell_count import split_row_cells
 
 MAX_JSON_BYTES = 262_144
@@ -641,7 +642,7 @@ def build_plan(
         [(key, v1.row_sha256(edge.target)) for key, edge in ordinary.by_successor_row_sha256.items()],
     )
     git.unchanged()
-    for relation in relations:
+    for index, relation in enumerate(relations):
         hist = relation.record.historical
         refs = (hist.stdout, hist.stderr, hist.receipt, *hist.originals)
         payloads: dict[str, bytes] = {}
@@ -651,8 +652,16 @@ def build_plan(
                 fail("IC_EVIDENCE_HASH")
             payloads[ref.path] = payload
             referenced.add(ref.path)
-        # Receipt data is bounded and parsed but is NOT trusted as provenance.
-        bounded_json(payloads[hist.receipt.path])
+        # A capture manifest extends committed custody, never grants authenticity.
+        receipt_data = bounded_json(payloads[hist.receipt.path])
+        if receipt_data.get("schema") == "maezo-historical-recipe-proof/v1":
+            members = operational.archive_members(git, relation)
+            directory = hist.receipt.path.rsplit("/", 1)[0]
+            paths = {directory + "/" + name for name in members}
+            referenced.update(paths)
+            relations[index] = replace(
+                relation, evidence_paths=tuple(sorted(set(relation.evidence_paths) | paths))
+            )
         validate_raw_streams(
             payloads[hist.stdout.path],
             payloads[hist.stderr.path],
@@ -668,8 +677,8 @@ def build_plan(
                 recipes.append(v1.compute_recipe_hash(legacy))
         if "sha256:" + relation.target.declared_hash in recipes:
             fail("IC_REASON_INAPPLICABLE")
-    operational = {path for path in git.inventory(git.candidate) if path.startswith(EVIDENCE_ROOT)}
-    if operational != referenced:
+    operational_paths = {path for path in git.inventory(git.candidate) if path.startswith(EVIDENCE_ROOT)}
+    if operational_paths != referenced:
         fail("IC_ORPHAN_EVIDENCE")
     git.unchanged()
     return Plan(git.candidate, git.tree, tuple(relations))
