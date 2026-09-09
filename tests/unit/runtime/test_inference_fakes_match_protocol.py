@@ -965,6 +965,16 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
     bindings: dict[str, str | ast.ClassDef] = {}
     bases: dict[ast.ClassDef, set[str]] = {}
     externos: dict[ast.ClassDef, set[str]] = {}
+    marcador_monkeypatch = "pytest.MonkeyPatch.fixture"
+
+    def nomes_vinculados(no: ast.expr) -> set[str]:
+        if isinstance(no, ast.Name):
+            return {no.id}
+        if isinstance(no, ast.Starred):
+            return nomes_vinculados(no.value)
+        if isinstance(no, (ast.Tuple, ast.List)):
+            return set().union(*(nomes_vinculados(item) for item in no.elts))
+        return set()
 
     def resolve(no: ast.expr, scope: dict[str, str | ast.ClassDef]) -> str | ast.ClassDef | None:
         if isinstance(no, ast.Name):
@@ -973,7 +983,115 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
             parent = resolve(no.value, scope)
             if isinstance(parent, str):
                 return parent + "." + no.attr
+        if isinstance(no, ast.Call) and resolve(no.func, scope) == "pytest.MonkeyPatch":
+            return marcador_monkeypatch
         return None
+
+    funcoes = {no.name: no for no in arvore.body if isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    importa_pytest = any(
+        isinstance(no, ast.Import)
+        and any(
+            alias.name == "pytest" and (alias.asname is None or alias.asname == "pytest")
+            for alias in no.names
+        )
+        for no in arvore.body
+    )
+    parametros_monkeypatch: dict[ast.FunctionDef | ast.AsyncFunctionDef, set[str]] = {
+        no: ({"monkeypatch"} if importa_pytest and no.name.startswith("test_") else set())
+        for no in funcoes.values()
+        if any(argument.arg == "monkeypatch" for argument in [*no.args.posonlyargs, *no.args.args])
+    }
+
+    def chamadas_lexicais(no: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.Call]:
+        chamadas: list[ast.Call] = []
+
+        def visita_filho(item: ast.AST) -> None:
+            if item is not no and isinstance(
+                item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+            ):
+                return
+            if isinstance(item, ast.Call):
+                chamadas.append(item)
+            for filho in ast.iter_child_nodes(item):
+                visita_filho(filho)
+
+        for item in no.body:
+            visita_filho(item)
+        return chamadas
+
+    def parametro_estavel(no: ast.FunctionDef | ast.AsyncFunctionDef, nome: str) -> bool:
+        """A forwarded fixture parameter stops being proof if its function ever rebinds it."""
+        estavel = True
+
+        def visita_filho(item: ast.AST) -> None:
+            nonlocal estavel
+            if not estavel:
+                return
+            if item is not no and isinstance(
+                item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+            ):
+                return
+            alvos: list[ast.expr] = []
+            if isinstance(item, ast.Assign):
+                alvos.extend(item.targets)
+            elif (
+                isinstance(item, ast.AnnAssign)
+                and item.value is not None
+                or isinstance(item, (ast.AugAssign, ast.NamedExpr, ast.For, ast.AsyncFor, ast.comprehension))
+            ):
+                alvos.append(item.target)
+            elif isinstance(item, ast.With | ast.AsyncWith):
+                alvos.extend(value.optional_vars for value in item.items if value.optional_vars is not None)
+            elif isinstance(item, ast.Delete):
+                alvos.extend(item.targets)
+            if any(nome in nomes_vinculados(alvo) for alvo in alvos):
+                estavel = False
+                return
+            if isinstance(item, ast.ExceptHandler) and item.name == nome:
+                estavel = False
+                return
+            if isinstance(item, (ast.Import, ast.ImportFrom)) and any(
+                (alias.asname or alias.name.split(".")[0]) == nome for alias in item.names
+            ):
+                estavel = False
+                return
+            for filho in ast.iter_child_nodes(item):
+                visita_filho(filho)
+
+        for item in no.body:
+            visita_filho(item)
+        return estavel
+
+    mudou = True
+    while mudou:
+        mudou = False
+        for chamadora in funcoes.values():
+            confiaveis = parametros_monkeypatch.get(chamadora, set())
+            if not confiaveis:
+                continue
+            for chamada in chamadas_lexicais(chamadora):
+                if not isinstance(chamada.func, ast.Name) or chamada.func.id not in funcoes:
+                    continue
+                chamada_alvo = funcoes[chamada.func.id]
+                parametros = [*chamada_alvo.args.posonlyargs, *chamada_alvo.args.args]
+                argumentos = {
+                    parametros[indice].arg: argumento
+                    for indice, argumento in enumerate(chamada.args)
+                    if indice < len(parametros)
+                }
+                argumentos.update(
+                    {palavra.arg: palavra.value for palavra in chamada.keywords if palavra.arg is not None}
+                )
+                destino = parametros_monkeypatch.setdefault(chamada_alvo, set())
+                for parametro, argumento in argumentos.items():
+                    if (
+                        isinstance(argumento, ast.Name)
+                        and argumento.id in confiaveis
+                        and parametro_estavel(chamadora, argumento.id)
+                        and parametro not in destino
+                    ):
+                        destino.add(parametro)
+                        mudou = True
 
     def marca(classe: ast.ClassDef, metodos: set[str]) -> None:
         externos.setdefault(classe, set()).update(metodos)
@@ -1013,6 +1131,9 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
             for arg in (no.args.vararg, no.args.kwarg):
                 if arg is not None:
                     local.pop(arg.arg, None)
+            if not isinstance(no, ast.Lambda):
+                for nome in parametros_monkeypatch.get(no, set()):
+                    local[nome] = marcador_monkeypatch
             body = [no.body] if isinstance(no, ast.Lambda) else no.body
             for item in body:
                 visita(item, local)
@@ -1020,17 +1141,48 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
         if isinstance(no, ast.Assign):
             value = resolve(no.value, scope)
             for target in no.targets:
-                if isinstance(target, ast.Name):
-                    scope.pop(target.id, None)
-                    if value is not None:
-                        scope[target.id] = value
+                for nome in nomes_vinculados(target):
+                    scope.pop(nome, None)
+                if isinstance(target, ast.Name) and value is not None:
+                    scope[target.id] = value
+        if isinstance(no, ast.AnnAssign) and no.value is not None:
+            value = resolve(no.value, scope)
+            for nome in nomes_vinculados(no.target):
+                scope.pop(nome, None)
+            if isinstance(no.target, ast.Name) and value is not None:
+                scope[no.target.id] = value
+        if isinstance(no, (ast.AugAssign, ast.NamedExpr)):
+            for nome in nomes_vinculados(no.target):
+                scope.pop(nome, None)
+        if isinstance(no, (ast.For, ast.AsyncFor, ast.comprehension)):
+            for nome in nomes_vinculados(no.target):
+                scope.pop(nome, None)
+        if isinstance(no, ast.With | ast.AsyncWith):
+            for item in no.items:
+                if item.optional_vars is not None:
+                    for nome in nomes_vinculados(item.optional_vars):
+                        scope.pop(nome, None)
+        if isinstance(no, ast.ExceptHandler) and no.name:
+            scope.pop(no.name, None)
+        if isinstance(no, ast.Delete):
+            for target in no.targets:
+                for nome in nomes_vinculados(target):
+                    scope.pop(nome, None)
         if isinstance(no, ast.Call):
             # API monkeypatch.setattr(module, "HTTPConnection", replacement_class).
             if isinstance(no.func, ast.Attribute) and no.func.attr == "setattr" and len(no.args) >= 3:
                 target, attribute, replacement = no.args[:3]
                 classe = resolve(replacement, scope)
+                receiver = resolve(no.func.value, scope)
+                fragmento_de_fixture = (
+                    scope is bindings
+                    and isinstance(no.func.value, ast.Name)
+                    and no.func.value.id == "monkeypatch"
+                    and "monkeypatch" not in scope
+                )
                 if (
-                    resolve(target, scope) == "http.client"
+                    (receiver == marcador_monkeypatch or fragmento_de_fixture)
+                    and resolve(target, scope) == "http.client"
                     and isinstance(attribute, ast.Constant)
                     and attribute.value == "HTTPConnection"
                     and isinstance(classe, ast.ClassDef)
