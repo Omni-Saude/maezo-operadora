@@ -195,3 +195,27 @@ def test_noncanonical_ancestry_metadata_refused(repository, mutation):
         (repository / ".git/shallow").write_text(commit + "\n")
     with pytest.raises(s.ToolSourceRefusedError, match="ancestry"):
         s.ToolSourceCapsule(repository)
+
+
+@pytest.mark.parametrize("kind", ["unit", "migration"])
+@pytest.mark.parametrize("mutation", ["corrupt", "missing", "symlink"])
+def test_loader_itself_cannot_be_substituted_before_ancestry(tmp_path, kind, mutation):
+    scripts = tmp_path / "scripts/dev"
+    scripts.mkdir(parents=True)
+    entrypoint = scripts / f"run_historical_{kind}_recipe.py"
+    entrypoint.write_bytes((ROOT / entrypoint.relative_to(tmp_path)).read_bytes())
+    source = scripts / "historical_tool_sources.py"
+    if mutation == "corrupt":
+        source.write_text("raise RuntimeError('UNREVIEWED_LOADER_EXECUTED')\n")
+    elif mutation == "symlink":
+        source.symlink_to(ROOT / "scripts/dev/historical_tool_sources.py")
+    result = subprocess.run(
+        [sys.executable, "-I", "-S", str(entrypoint), "--help"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode != 0
+    assert "UNREVIEWED_LOADER_EXECUTED" not in result.stderr
+    assert "usage:" not in result.stdout
+    assert any(error in result.stderr for error in ("loader pin mismatch", "FileNotFoundError", "OSError"))

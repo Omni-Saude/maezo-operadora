@@ -34,11 +34,18 @@ ORIGINAL_MANIFEST = "0fc37de9a53bc846cfe94a5a390c30f328c8e1926912373df63bf7a59cd
 ORIGINAL_QUIET = "a169f8aacf5d636a86287e684812d1454901d2d078ddf1946b471de7171f2e8f"
 # The companion's reviewed helper is immutable, including its original runner
 # and checker. Its inert source capsule is NOT the owned execution checkout.
-_tool_spec = importlib.util.spec_from_file_location(
-    "historical_tool_sources", ROOT / "scripts/dev/historical_tool_sources.py"
-)
+_tool_path = ROOT / "scripts/dev/historical_tool_sources.py"
+_tool_fd = os.open(_tool_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+with os.fdopen(_tool_fd, "rb") as _tool_stream:
+    _tool_data = _tool_stream.read(1024 * 1024 + 1)
+# New loader pin; the original helper/runner/checker pins remain untouched.
+if _tool_path.is_symlink() or hashlib.sha256(_tool_data).hexdigest() != (
+    "bc493cabd3ffbd26bb683922998497cd477e5c1d040422366158b72f87f6d612"
+):
+    raise ValueError("historical tool-source loader pin mismatch")
+_tool_spec = importlib.util.spec_from_file_location("historical_tool_sources", _tool_path)
 _tool_sources = importlib.util.module_from_spec(_tool_spec)
-_tool_spec.loader.exec_module(_tool_sources)
+exec(compile(_tool_data, str(_tool_path), "exec"), _tool_sources.__dict__)
 _tool_capsule = _tool_sources.ToolSourceCapsule(ROOT)
 h = _tool_capsule.load("scripts/dev/run_historical_unit_recipe.py", "migration_capture_helper")
 if hashlib.sha256(Path(h.__file__).read_bytes()).hexdigest() != HELPER_PIN:

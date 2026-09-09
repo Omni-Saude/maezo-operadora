@@ -314,11 +314,18 @@ def keys(value: Any, expected: dict[str, type]) -> None:
 
 # Load reviewed historical bytes from their own truthful source paths. Current
 # canonical tooling may evolve without rewriting historical receipt dependencies.
-_tool_spec = importlib.util.spec_from_file_location(
-    "historical_tool_sources", ROOT / "scripts/dev/historical_tool_sources.py"
-)
+_tool_path = ROOT / "scripts/dev/historical_tool_sources.py"
+_tool_fd = os.open(_tool_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+with os.fdopen(_tool_fd, "rb") as _tool_stream:
+    _tool_data = _tool_stream.read(1024 * 1024 + 1)
+# New loader pin; the original helper/runner/checker pins remain untouched.
+if _tool_path.is_symlink() or hashlib.sha256(_tool_data).hexdigest() != (
+    "bc493cabd3ffbd26bb683922998497cd477e5c1d040422366158b72f87f6d612"
+):
+    raise ValueError("historical tool-source loader pin mismatch")
+_tool_spec = importlib.util.spec_from_file_location("historical_tool_sources", _tool_path)
 _tool_sources = importlib.util.module_from_spec(_tool_spec)
-_tool_spec.loader.exec_module(_tool_sources)
+exec(compile(_tool_data, str(_tool_path), "exec"), _tool_sources.__dict__)
 _tool_capsule = _tool_sources.ToolSourceCapsule(ROOT)
 runner = _tool_capsule.load("scripts/dev/run_engine_integration.py", "historical_capture_runner")
 checker = _tool_capsule.load("scripts/ci/check_evidence_ledger_hashes.py", "historical_capture_checker")
