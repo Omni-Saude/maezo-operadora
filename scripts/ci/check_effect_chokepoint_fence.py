@@ -655,6 +655,17 @@ def scan_module(path: Path) -> _ModuleScan:
             ):
                 name = value.attr
             for target in targets:
+                # Bindings are monotonic: rebinding or ambiguous lexical ownership must
+                # never erase a known HTTP module. Iterate to resolve finite alias chains,
+                # including constructor aliases derived from those module aliases.
+                if (
+                    isinstance(target, ast.Name)
+                    and isinstance(value, ast.Name)
+                    and value.id in httpx_modules
+                    and target.id not in httpx_modules
+                ):
+                    httpx_modules.add(target.id)
+                    changed = True
                 if isinstance(target, ast.Name) and name and target.id not in imported_from_httpx:
                     imported_from_httpx[target.id] = name
                     changed = True
@@ -723,7 +734,23 @@ def scan_module(path: Path) -> _ModuleScan:
                         scan.env_reads.append((read_name, node.lineno))
 
         elif isinstance(node, ast.Attribute) and node.attr == "get_secret_value":
-            scan.secret_reads.append((node.lineno, scope_of(node), ast.dump(node)))
+            # PFSU-01-D2: a bound getter is itself a credential capability. Only the
+            # immediate extraction feeding the reviewed make_url assignment may pass;
+            # capturing, returning or forwarding the accessor cannot borrow that seam.
+            call = parents.get(id(node))
+            consumer = parents.get(id(call))
+            statement = parents.get(id(consumer))
+            shape = "unapproved accessor context"
+            if (
+                isinstance(call, ast.Call)
+                and call.func is node
+                and isinstance(consumer, ast.Call)
+                and consumer.args == [call]
+                and isinstance(statement, ast.Assign)
+                and statement.value is consumer
+            ):
+                shape = ast.dump(statement)
+            scan.secret_reads.append((node.lineno, scope_of(node), shape))
 
         elif isinstance(node, ast.Subscript):
             # os.environ["NAME"] / os.environ[ALIAS]
@@ -930,7 +957,10 @@ def scan_tree(src_dir: Path) -> GateResult:
             if (
                 (rel, scope) == _SECRET_SCOPED_SEAM
                 and len(result.secret_reads) == 1
-                and shape == ast.dump(ast.parse("config.database_url.get_secret_value", mode="eval").body)
+                and shape
+                == ast.dump(
+                    ast.parse("database_url = make_url(config.database_url.get_secret_value())").body[0]
+                )
             ):
                 counters["8.3_secret_scoped_seam_sanctioned"] += 1
             else:
