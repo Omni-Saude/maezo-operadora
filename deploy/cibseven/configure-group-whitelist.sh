@@ -17,7 +17,7 @@ awk -v pattern='[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*' '
         inside = 1
     }
     { print }
-    # So' o PRIMEIRO <properties> do engine: o descriptor tem mais dois dentro dos blocos LDAP
+    # Somente o PRIMEIRO <properties> do engine: o descriptor tem mais dois dentro dos blocos LDAP
     # COMENTADOS (awk nao le comentario XML), e inserir em todos fazia inserted=3 -> recusa.
     # Medido em 09/09/2026 contra o bpm-platform.xml de cibseven/cibseven:2.1.0.
     inside && !inserted && /^[[:space:]]*<properties>[[:space:]]*$/ {
