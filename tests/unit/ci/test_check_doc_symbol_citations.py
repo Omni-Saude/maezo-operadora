@@ -746,6 +746,63 @@ def test_container_without_import_does_not_capture_later_prose(tmp_path: Path, p
     assert result.ok, result.render()
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "> from maezo.widget import gone # ~~~\n",
+        "> # comment ending with ~~~\n> from maezo.widget import gone\n",
+    ],
+)
+def test_container_body_text_ending_in_tildes_is_not_a_closer(tmp_path: Path, body: str) -> None:
+    adr_body = "> ~~~python\n" + body + "> ~~~\n`src/maezo/widget.py::kept`"
+    root = _make_custom_fixture_repo(
+        tmp_path,
+        adr_body=adr_body,
+        files={"src/maezo/widget.py": "kept = 1\n"},
+    )
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert not result.ok, result.render()
+    assert any("gone" in failure and "container-nested tilde fence" in failure for failure in result.failures)
+
+
+@pytest.mark.parametrize(
+    ("opening", "closing"),
+    [
+        ("> ~~~python", "> ~~~~"),
+        ("- > ~~~python", "  > ~~~~"),
+    ],
+)
+def test_container_closer_accepts_longer_delimiters_and_list_continuation_indentation(
+    tmp_path: Path, opening: str, closing: str
+) -> None:
+    adr_body = (
+        f"{opening}\nplain body ending with ~~~ text\n{closing}\n"
+        "Ordinary prose mentions from maezo.widget import outside.\n"
+        "`src/maezo/widget.py::kept`"
+    )
+    root = _make_custom_fixture_repo(
+        tmp_path,
+        adr_body=adr_body,
+        files={"src/maezo/widget.py": "kept = 1\n"},
+    )
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert result.ok, result.render()
+
+
+def test_different_list_marker_delimiter_line_does_not_close_container(tmp_path: Path) -> None:
+    adr_body = (
+        "- > ~~~python\n1. > ~~~~\n- > from maezo.widget import gone\n- > ~~~\n`src/maezo/widget.py::kept`"
+    )
+    root = _make_custom_fixture_repo(
+        tmp_path,
+        adr_body=adr_body,
+        files={"src/maezo/widget.py": "kept = 1\n"},
+    )
+    result = gate.run_gate(root, root / "docs" / "adr")
+    assert not result.ok, result.render()
+    assert any("gone" in failure for failure in result.failures)
+
+
 @pytest.mark.parametrize("fence", ["~~~", "````", "   ```"])
 def test_real_adr_corpus_standard_fences_cannot_hide_original_dead_import(tmp_path: Path, fence: str) -> None:
     adr_dir = tmp_path / "adr"

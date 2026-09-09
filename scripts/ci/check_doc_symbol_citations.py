@@ -122,6 +122,12 @@ _CONTAINER_TILDE_FENCE_RE = re.compile(
     r"^(?P<prefix>(?: {0,3}(?:> ?|(?:[-+*]|\d+[.)]) +))+)(?P<fence>~{3,})(?P<info>[^\r\n]*)$"
 )
 
+_CONTAINER_TILDE_CLOSE_RE = re.compile(r"^(?P<prefix>.*?)(?P<fence>~{3,})[ \t]*$")
+
+_CONTAINER_CLOSE_PREFIX_RE = re.compile(r"(?:(?: *> ?| *(?:[-+*]|\d+[.)]) +)+ *)| +")
+
+_CONTAINER_LIST_MARKER_RE = re.compile(r"(?:[-+*]|\d+[.)])(?= +)")
+
 #: Bare `path.py:NNN` / `path.py:NNN-MMM` — NOT immediately preceded by another `:` (which would
 #: make it the second half of a `::Symbol` citation instead).
 _LINE_CITATION_RE = re.compile(
@@ -297,6 +303,27 @@ def _unsupported_markdown_import_issues(doc_name: str, text: str) -> list[Import
         offsets.append(offset)
         offset += len(line)
 
+    def is_compatible_closer(candidate: str, opening_prefix: str, minimum_length: int) -> bool:
+        """Accept only container-prefix + delimiter + whitespace closing lines.
+
+        A list marker may become continuation indentation on later lines, while the surrounding
+        block-quote depth stays fixed. This is the finite container grammar supported by this
+        refusal boundary; arbitrary code or comment text before trailing tildes is body content.
+        """
+        close = _CONTAINER_TILDE_CLOSE_RE.fullmatch(candidate)
+        if close is None or len(close.group("fence")) < minimum_length:
+            return False
+        closing_prefix = close.group("prefix")
+        if _CONTAINER_CLOSE_PREFIX_RE.fullmatch(closing_prefix) is None:
+            return False
+        if closing_prefix.count(">") != opening_prefix.count(">"):
+            return False
+        opening_lists = len(_CONTAINER_LIST_MARKER_RE.findall(opening_prefix))
+        closing_lists = len(_CONTAINER_LIST_MARKER_RE.findall(closing_prefix))
+        if closing_lists == 0:
+            return True
+        return closing_lists == opening_lists and closing_prefix == opening_prefix
+
     consumed_through = -1
     for index, line in enumerate(lines):
         if index <= consumed_through:
@@ -310,11 +337,7 @@ def _unsupported_markdown_import_issues(doc_name: str, text: str) -> list[Import
         end_index = len(lines)
         for candidate_index in range(index + 1, len(lines)):
             candidate = lines[candidate_index].rstrip("\r\n")
-            close = re.fullmatch(
-                rf".*?(?P<fence>~{{{fence_length},}})[ \t]*",
-                candidate,
-            )
-            if close is not None:
+            if is_compatible_closer(candidate, opening.group("prefix"), fence_length):
                 end_index = candidate_index
                 break
         # A matched closer is part of this block, never the start of another block
