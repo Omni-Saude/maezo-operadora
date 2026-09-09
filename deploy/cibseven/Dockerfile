@@ -79,7 +79,7 @@ RUN grep -q '<property name="jobExecutorDeploymentAware">false</property>' /camu
 # Preserve the 27 static candidate groups and four ESCALATION identities (ADR-0049).
 # Only groupResourceWhitelistPattern changes; user/tenant/general admission and
 # authorization remain inherited. Actual engine admission still requires live proof.
-# Build with deploy/cibseven as the context.
+# Build from the repository root (docker build -f deploy/cibseven/Dockerfile .).
 # O contexto do build e' a RAIZ do repo (`docker build -f deploy/cibseven/Dockerfile .`, tanto no
 # CodeBuild quanto local) — o caminho do COPY e' relativo a ela, nao a este arquivo. Medido em
 # 09/09/2026: `COPY configure-group-whitelist.sh` falhou com "not found" na AWS e local. O CI nao
