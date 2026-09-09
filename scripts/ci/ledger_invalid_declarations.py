@@ -37,6 +37,32 @@ MAX_GIT_ENTRIES = 25_000
 EVIDENCE_ROOT = "docs/evidence-corrections/"
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
+# Conservative finite test/runtime dependency policy (ICV2-R1). Additions and
+# deletions are dependencies too; no per-relation configuration map exists yet.
+CONFIG_FILES = frozenset(
+    {
+        ".python-version",
+        "pyproject.toml",
+        "uv.lock",
+        "uv.toml",
+        "pytest.ini",
+        ".pytest.ini",
+        "tox.ini",
+        "setup.cfg",
+        "setup.py",
+        "conftest.py",
+        "requirements.txt",
+        "requirements-dev.txt",
+        "Pipfile",
+        "Pipfile.lock",
+        "poetry.lock",
+        ".env",
+        ".env.example",
+        "alembic.ini",
+        "Makefile",
+    }
+)
+SOURCE_PREFIXES = ("src/", "tests/", "spec/", "scripts/", "config/")
 PATH = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./-]*\Z")
 
 
@@ -402,20 +428,69 @@ class FrozenGit:
 
     def current(self, path: str, *, limit: int = MAX_BLOB_BYTES) -> bytes:
         expected = self.blob(self.candidate, path, limit=limit)
-        cursor = self.root
-        for part in path.split("/"):
-            cursor /= part
-            if cursor.is_symlink():
-                fail("IC_WORKTREE_SYMLINK")
+        # Keep every directory open: a later pathname lookup must never redirect
+        # the read. O_NONBLOCK ensures a substituted FIFO cannot hang at open.
+        descriptors: list[int] = []
+        bindings: list[tuple[int, str, os.stat_result]] = []
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
         try:
-            info = cursor.stat()
+            parent = os.open(self.root, flags | os.O_DIRECTORY)
+            descriptors.append(parent)
+            root_info = os.fstat(parent)
+            for part in path.split("/")[:-1]:
+                child = os.open(part, flags | os.O_DIRECTORY, dir_fd=parent)
+                descriptors.append(child)
+                bindings.append((parent, part, os.fstat(child)))
+                parent = child
+            leaf = path.split("/")[-1]
+            fd = os.open(leaf, flags, dir_fd=parent)
+            descriptors.append(fd)
+            info = os.fstat(fd)
             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > limit:
                 fail("IC_WORKTREE_REGULAR")
-            if cursor.resolve().is_relative_to(self.root) is False or cursor.read_bytes() != expected:
+            bindings.append((parent, leaf, info))
+            self._current_bindings(root_info, bindings)
+            data = bytearray()
+            while True:
+                chunk = os.read(fd, min(65536, limit - len(data) + 1))
+                if not chunk:
+                    break
+                data.extend(chunk)
+                if len(data) > limit:
+                    fail("IC_WORKTREE_SIZE")
+            after = os.fstat(fd)
+            if self._file_identity(info) != self._file_identity(after) or data != expected:
                 fail("IC_WORKTREE_DRIFT")
+            self._current_bindings(root_info, bindings)
         except OSError as exc:
             raise InvalidDeclarationError("IC_WORKTREE_MISSING") from exc
+        finally:
+            for fd in reversed(descriptors):
+                os.close(fd)
         return expected
+
+    @staticmethod
+    def _file_identity(info: os.stat_result) -> tuple[int, ...]:
+        # atime can legitimately change on read; ctime/mtime and inode cannot.
+        return (
+            info.st_dev,
+            info.st_ino,
+            info.st_mode,
+            info.st_nlink,
+            info.st_size,
+            info.st_mtime_ns,
+            info.st_ctime_ns,
+        )
+
+    def _current_bindings(
+        self, root_info: os.stat_result, bindings: Sequence[tuple[int, str, os.stat_result]]
+    ) -> None:
+        if self._file_identity(os.stat(self.root, follow_symlinks=False)) != self._file_identity(root_info):
+            fail("IC_WORKTREE_DRIFT")
+        for parent, name, expected in bindings:
+            actual = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            if self._file_identity(actual) != self._file_identity(expected):
+                fail("IC_WORKTREE_DRIFT")
 
     def unchanged(self) -> None:
         if self.git("rev-parse", "HEAD").decode().strip() != self.candidate:
@@ -522,7 +597,7 @@ def build_plan(
             fail("IC_R1_CURRENT_PATH_MISMATCH")
         if record.current.prior_correction is not None:
             prior = exact_row(rows, record.current.prior_correction)
-            if prior.test_path != target.test_path:
+            if not record.current.prior_correction.test_path == prior.test_path == target.test_path:
                 fail("IC_R1_CITED_ROW_PATH_MISMATCH")
             source_row(git, record.current.prior_correction, prior)
             for path, bound in (
@@ -642,7 +717,9 @@ def selected_unresolved(
             "scripts/ci/ledger_invalid_declarations.py",
         }
         # Any project/config source delta invalidates a previous current proof identity.
-        source_changed = any(path.startswith(("src/", "tests/", "spec/", "scripts/")) for path in changed)
+        source_changed = bool(CONFIG_FILES & changed) or any(
+            path.startswith(SOURCE_PREFIXES) for path in changed
+        )
         if not ({target_sha, correction_sha} & selected_hashes or dependencies & changed or source_changed):
             continue
         reason = "IC_REPLAY_ADAPTER_UNREVIEWED"
