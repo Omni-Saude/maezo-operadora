@@ -1,110 +1,140 @@
-# ROOT acceptance: secured opt-in package
+# ROOT acceptance: real-resource D7-B repair
 
-All commands below are **planned ROOT execution**, not author PASS results. ROOT owns
-Docker/engine serialization and must retain actual stdout/stderr/exit code, exact image
-digest, source SHA, test identities and teardown. No daemon/service was operated by the
-author. Use a new clean exact candidate checkout after the independent author review.
+This is an executable acceptance package, **not a live PASS**. The author operates no
+Docker/engine/PostgreSQL services. ROOT serializes service execution under the canonical
+`f99e19ea48a04f0a74b03d3e12edea253be0bee4` source lease. Use a clean frozen candidate,
+retain argv/stdout/stderr/exit/JUnit and exact source/image hashes, and stop on the first
+unexpected failure. Do not accept 404/405 or boot/collection as authorization evidence.
 
-1. Run Java17 `mvn -o -B -f src/maezo/portal/engine/java/pom.xml package`, the 37 existing
-   D5 real PostgreSQL tests, and `-Dtest=WorkloadEngineIT test` in the same Maven package
-   with explicit isolated `MAEZO_HUMAN_IT_JDBC_URL`, `MAEZO_HUMAN_IT_DB_USER`,
-   `MAEZO_HUMAN_IT_DB_PASSWORD`. Java tests consume environment credentials without
-   printing them. WorkloadEngineIT creates/deletes only its uniquely owned schema.
-   Its three tests are actual engine/command tests, not Tomcat/mTLS tests.
+The original three WorkloadEngineIT methods remain, with additional genuine D5 receipt
+and history preconditions. The original 37 D5 Java tests, original five image assertions,
+Dockerfile.human, D5/D6 product code and A schemas remain unchanged. ROOT separately runs
+the original three/37 image baseline on `a71a14e1` as diagnostic history; its 37-case
+result cannot certify this expanded matrix.
 
-2. Build `deploy/cibseven/Dockerfile.secured` and record the resulting immutable image
-   digest. Inspect its final common JAR (no REST SPI API or provider adapter class), the
-   one-class REST SPI classifier in WEB-INF/lib, native/global/human/camunda descriptors,
-   plugin classes, resource registry and Java17 ABI. Inspect Tomcat startup with the
-   actual mounted configuration. No image existence or compilation claim substitutes
-   for this boot. The global descriptor is a deterministic patch of the extracted actual
-   Tomcat 10.1.47 file; camunda's legacy descriptor is retained at
-   `/camunda/camunda-web.legacy.xml`, while only a closed servlet is deployed there.
+## Prepare the exact disposable fixture
 
-3. In a canonical mode-0700 private directory outside the checkout/evidence tree, run:
+The following shell variables are explicit ROOT inputs: `CANDIDATE` is the clean source
+checkout leased by the canonical runner; `PRIVATE_ROOT` is the existing canonical 0700
+private root outside source and public evidence; `EVIDENCE_ROOT` is an existing public
+evidence directory; `PINNED_FILES` is the qualified extracted `/camunda` directory from
+image `9f0ba266…`; `FIXTURE` is a **new direct child** of `PRIVATE_ROOT`; `D7_PROJECT` is a
+unique owned name matching `d7-[a-z0-9-]{8,64}`. Never echo secret files. All commands
+execute from `CANDIDATE`, with the repository's locked Python environment.
 
-   ```sh
-   PYTHONPATH=src python deploy/cibseven/secured/prepare_fixture.py prepare \
-     --checkout <clean-absolute-checkout> --sha <full-candidate-SHA> \
-     --base-files <actual-pinned-inspection>/files/camunda \
-     --private-root <private-root> --evidence-root <root-evidence-dir> \
-     --output <private-root>/<new-fixture-name> \
-     --bootstrap-image sha256:9f0ba266d1c3f5712da455560883340451bb59c30bae0d10abc4f2d5f0116c5b \
-     --secured-image <actual-new-immutable-image-digest>
-   ```
+```sh
+export JAVA_HOME=/Users/familia/.cache/maezo-portal-jakarta-abi-repair-tooling/jdk-17.0.17+10/Contents/Home
+MAVEN=/Users/familia/.cache/maezo-portal-jakarta-abi-repair-tooling/apache-maven-3.9.9/bin/mvn
+"$MAVEN" -o -B -f src/maezo/portal/engine/java/pom.xml package
+docker build -f deploy/cibseven/Dockerfile.secured -t "$D7_PROJECT" .
+SECURED_IMAGE=$(docker image inspect --format '{{.Id}}' "$D7_PROJECT")
+PYTHONPATH=src:. python deploy/cibseven/secured/prepare_fixture.py prepare \
+  --checkout "$CANDIDATE" --sha "$(git rev-parse HEAD)" \
+  --base-files "$PINNED_FILES" --private-root "$PRIVATE_ROOT" \
+  --evidence-root "$EVIDENCE_ROOT" --output "$FIXTURE" \
+  --bootstrap-image sha256:9f0ba266d1c3f5712da455560883340451bb59c30bae0d10abc4f2d5f0116c5b \
+  --secured-image "$SECURED_IMAGE"
+docker compose -p "$D7_PROJECT" -f "$FIXTURE/bootstrap-compose.json" up -d postgres engine
+PYTHONPATH=src:. python deploy/cibseven/secured/prepare_fixture.py seed --fixture "$FIXTURE"
+docker compose -p "$D7_PROJECT" -f "$FIXTURE/bootstrap-compose.json" stop engine
+docker compose -p "$D7_PROJECT" -f "$FIXTURE/secured-compose.json" up -d --no-deps --force-recreate engine
+```
 
-   This command generates disposable fixture keys/certificates, reissues the existing
-   synthetic D5 client certs with the **same SPKI** and exact URI SAN/key usage, preserves
-   D5 signing-purpose separation, and writes a bootstrap Compose plus unbound policy.
-   No private key/certificate provider value belongs in evidence or Git. The `seed` step
-   below is a fixture-only control; it does not implement D's production bootstrap.
+Wait for actual bootstrap readiness before `seed`. Seed additionally requires the exact
+D5 malformed-command 400 `INVALID_COMMAND` control before any seeding. The bootstrap pin
+is the qualified `maezo-human-local:maezo-human-pkg-5b70a6e9-9e7469` image, confirmed by
+ROOT; it is not the vendor base image `20a2135b…`. Do not silently substitute it.
 
-4. Under one explicit unique Compose project and ROOT's engine lock, start the generated
-   `bootstrap-compose.json` postgres and engine. This is the pre-existing isolated legacy
-   image used **only** to deploy fixture models and exact grants before secure restart.
-   Its ports are loopback-only 18080/18443/15433. Wait for its actual readiness, then run:
+Seed binds exact native definition IDs/versions, a locked external task and three
+separate lifecycle instances. It reuses `LiveRelayFixture` and the existing real D6
+migrations to issue a genuine signed D5 claim, commit its actual tenant audit/outbox and
+receipt, and persist one legitimate pending release. It seeds an active human task,
+global/local/binary variables and identity links through real bootstrap APIs. Nonsecret
+IDs are in private `definitions.json`/`resources.json`; keys, config and signed synthetic
+commands stay private. No runtime administrator endpoint or production bootstrap is added.
+The real target models are explicitly synthetic; no canonical business/clinical outcome
+is inferred. Do not recreate PostgreSQL during secure cutover.
 
-   ```sh
-   PYTHONPATH=src python deploy/cibseven/secured/prepare_fixture.py seed \
-     --fixture <absolute-private-fixture>
-   ```
+## Execute the native transaction and image lanes
 
-   The separate seed command operates that loopback fixture, deploys two explicitly
-   synthetic BPMN models using A's exact keys/topics, captures exact definition IDs and
-   versions, grants the finite native permissions and binds real A profile digests.
-   It refuses to seed an already-bound fixture. It prints no response bodies/credentials.
-   Synthetic models prove the boundary/lifecycle; they do not prove canonical business
-   semantics, DMN outcomes or real clinical form activation.
+For the Java lane, ROOT supplies `MAEZO_HUMAN_IT_JDBC_URL`, `MAEZO_HUMAN_IT_DB_USER` and
+`MAEZO_HUMAN_IT_DB_PASSWORD` securely. Each WorkloadEngineIT run creates one unique
+`d7_it_<uuid>` schema and drops only that schema in `@AfterAll`. It installs the actual
+D5 and D7 plugins into the same CIB 2.1 engine and the same JDBC transactions. The narrow
+`D7HumanFixture` adapter reuses the unchanged D5 test helpers, without reflection or mocks.
 
-5. Stop the **owned bootstrap engine only**, preserving its PostgreSQL container/data.
-   Recreate only engine from `secured-compose.json` under the **same project**. The
-   secured Compose exposes only 18443, uses exactly one HTTPS clientAuth-required
-   connector, disables autoDeploy and mounts all policy dependencies read-only. Capture
-   startup and prove native authenticated capability readiness, not `/version` alone.
-   Do not recreate PostgreSQL during this transition: bindings depend on its exact IDs.
+```sh
+"$MAVEN" -o -B -f src/maezo/portal/engine/java/pom.xml -Dtest=WorkloadEngineIT test
+export MAEZO_D7_PACKAGE_FIXTURE="$FIXTURE"
+export MAEZO_D7_COMPOSE_PROJECT="$D7_PROJECT"
+PYTHONPATH=src:. python -m pytest -x -q tests/integration/test_portal_engine_d7_package.py \
+  --junitxml="$EVIDENCE_ROOT/d7-real-resource.xml"
+```
 
-6. Run:
+The HTTP matrix requires all seeded resources and nonempty native runtime/history/detail/
+variable/task/identity-link/receipt and actual tenant `audit_chain`, `human_command_outbox`,
+`human_command_delivery`. Snapshot comparisons retain only scoped counts and SHA-256.
+One raw target can be shared only while every prior denial's no-effect assertion passes;
+`-x` prevents continuing after an unexpected mutation. Lifecycle tests use separate native
+instances. The sole pending D6 release is consumed only by the final lost-response case;
+rerunning that case requires a **new fixture**, not editing its identity or history.
 
-   ```sh
-   MAEZO_D7_PACKAGE_FIXTURE=<absolute-private-fixture> PYTHONPATH=src \
-     python -m pytest -q tests/integration/test_portal_engine_d7_package.py
-   ```
+`test_real_certificate_overlap_digest_restart_and_old_leaf_revocation`,
+`test_known_leaf_metadata_mismatch_has_exact_refusal_and_restoration`,
+`test_missing_dependency_or_inconsistent_identity_prevents_startup` and
+`test_actual_human_commit_lost_response_then_secured_engine_restart_reconciles_same_pending_identity`
+recreate **only the explicit owned engine**. They retain private argv/streams for each
+recreation. Policy corruption uses truncate/write/fsync on the actual mounted inode.
+Rotation tests an established old connection during digest loss, then exact old-leaf
+403/new-leaf readiness after digest-bound restart; a dead TCP connection alone earns no
+revocation credit. Startup tests require the actual safe boundary exception and restored
+nonempty readiness, independently of native-route refusal coverage.
 
-   The 37 collected cases use real HTTP/TLS and read-only PostgreSQL snapshots of native
-   task/execution/external-task/variable/bytearray/deployment/definition/receipt/op-log
-   rows. Snapshots retain only counts/hashes. All refused mutations must leave them
-   unchanged. The missing-cert test reuses the independently repaired typed native JSSE
-   oracle. Secure plaintext coverage requires connection refusal with the TLS capability
-   control passing; it does **not** pretend to execute the old HTTP 403 assertion.
+The canonical runner's lease encloses execution, generated-artifact archival, cleanup and
+source disposal. Archive `src/maezo/portal/engine/java/target` (JUnit, classes, JAR digests)
+and remove only this run's generated target/cache files before authenticated cleanup.
+Dispose the leased source before releasing its lease. **Do not reuse the private
+`run_portal_java_pg_v4` driver**: it pins old runner `02810` and releases before checkout
+cleanup. ROOT must use the current runner's source lifetime contract.
 
-7. Keep the existing five `test_portal_engine_package.py` assertions literally unchanged
-   and run them against their original `Dockerfile.human`/two-connector fixture as a
-   **separate preservation suite**. The two-connector fixture is not accepted by secured
-   startup. Do not modify its assertion to hide that intentional package distinction.
+## Requirement-to-case map
 
-## Additional real controls needed before any cutover
+| Mandate | Executable case identity / witness |
+|---|---|
+| 1–3 real resources, all aliases/verbs | `test_raw_aliases_and_mutations_leave_engine_and_receipts_unchanged`: 41 native paths × 3 aliases × 8 methods. IDs are resolved from seeded metadata and independently read from native PG before each attack; exact 403 `engine_operation_denied`, no-store, unchanged nonempty snapshots. HEAD has protocol-required empty body paired with the same path's attributed GET refusal. |
+| 2 UI/noncanonical routes | `test_closed_ui_and_noncanonical_paths_have_explicit_boundary_oracle`: 5 paths × 8 methods, exact boundary code. Manager/host-manager absent apps are not claimed as native policy enforcement. |
+| 2 positive causal effects | `test_scoped_start_read_and_worker_lifecycle_have_native_causal_effects`, original start test, `scopedStartAndHistoryAreReal`, `externalLifecycleAndHumanMutationRefusal`, `explicitBpmnErrorOnlyWithinReviewedTopic`; actual scoped start/read, committed external ownership/variables/history/human task. |
+| 4 all native grants | `everyNativeGrantGatesReadinessAndSamePendingOperation`: CREATE, READ, READ_INSTANCE, READ_HISTORY, UPDATE_INSTANCE removed/restored individually; same request and identity, readiness and execution require exact 503 `engine_profile_unavailable` (READ removal instead produces 403 `engine_resource_mismatch` because native authorization filters the bound definition lookup first), never unauthorized empty history. Original READ_HISTORY removal retained. |
+| 4 native contexts | `actualNativeCommandFencesAndBackgroundContext`: actual TX_REQUIRED and REQUIRES_NEW executors; known workload cannot enter unguarded native command; unauthenticated native background context reaches the actual CommandContext. `typedRequestWithMissingNativeAuthenticationIsRefused`; HTTP missing certificate uses the unchanged typed JSSE oracle. |
+| 5 actual blocked row | `authorityChangesWhileActualExternalRowIsBlockedRollback`: observed PG row lock, expired/changed owner, policy corruption/removal, native UPDATE_INSTANCE revocation; unrelated rows/receipts/history unchanged and same pending identity resumes after restoration. |
+| 5 last native SQL/COMMITTING | `afterNativeFlushWaitAuthorityIsRecheckedAtCommitting`: actual native user-task INSERT trigger blocks, then policy or native grant is revoked; full rollback required. `realSourceAuthorityCannotExpireAfterLastTargetSql`: actual enlisted source lock and target INSERT, source expiry/policy loss/READ_HISTORY revocation, with a reachable automatic synthetic source control. |
+| 5 D5 enlisted receipt | `policyLossDuringActualD5EnlistedReceiptRollsBackHumanEffect`: actual D5 signed release and enlisted receipt INSERT blocks; mounted policy removed/corrupted; task/history/receipt rollback and exact same command recovery. |
+| 5 competing ownership | `competingNativeOwnershipActionAndTypedCompleteAreSerialized`: native complete/unlock/extend/actual timer job versus typed completion. `optimisticFetchReturnsOnlyActuallyCommittedOwnership`: two real competing fetches, exactly one committed ownership advertised and read back. |
+| 5 target mismatches | `resourceAndIdentityMismatchesHavePositiveControlAndNoEffect`: real wrong task/process/topic/worker/tenant/version, precise resource or policy code and native positive control. |
+| 6 mTLS/purpose | `test_invalid_client_chain_requires_typed_tls_or_exact_application_refusal`, `test_known_ca_unknown_or_wrong_san_leaf_is_attributed_denial`, `test_certificate_purpose_cannot_borrow_agent_capability`, `test_nonhuman_peers_cannot_enter_human_native_boundary`, `test_forwarded_identity_never_borrows_capability`; missing/unknown-CA/unknown-leaf/expired/no-EKU, fixed safe TLS reasons or exact attributed application error. |
+| 6 rotation/metadata/startup | Named lifecycle cases above plus `test_actual_mounted_policy_corruption_denies_and_same_identity_recovers`; SPKI/SAN/issuer and tenant/environment mismatches. No host-unlink-only assertion. |
+| 6 restart/lost response | Actual D6 pending release POST commits, observer drops the received real response, actual secured engine restarts, pending relay performs GET-only receipt reconciliation; same receipt bytes, one effect/receipt, committed tenant audit/outbox. |
+| 7 human source negatives | `priorHumanEvidenceRequiresActualTaskDecisionProvenance`: missing decision, claim/release-only, wrong task/definition/assignee, copied actor without historical task update, wrong source case. Genuine D5 synthetic receipts are copied only as explicitly hostile negative DB inputs. No forged receipt is a successful control. |
+| strict body | Existing malformed body cases plus `test_malformed_json_fails_with_exact_body_error`: duplicate keys, array, UTF-8, surrogate, overflow, infinity, depth/size; exact 400 `engine_invalid_body`. |
 
-The executable suites are a starting acceptance surface; the following all remain
-required real ROOT cases, independently reviewed, including relevant C/D/E caller tests.
-None is a source-level or mocked integration PASS:
+The source exposes strict regressions that may reveal product defects: native permission
+checks currently appear to run before blocking SQL, while COMMITTING checks policy and
+lock deadlines; historical source-task definition consistency also needs the actual
+negative test. A failed real oracle must produce a separately scoped product repair.
+Do not weaken the assertion, replace the target with an absent ID, or treat 503 as success.
 
-| Area | Required real case / invariant |
-| --- | --- |
-| Target/lock | Wrong tenant, process definition/version, topic, task ID and worker ID; foreign lock owner, expired lease, concurrent complete/unlock/extend/timer; current check after the last blocking SQL and at COMMITTING; all rows/receipts unchanged on refusal |
-| Grants | Remove native CREATE/READ/READ_HISTORY/UPDATE_INSTANCE individually; readiness and operation deny; restore exact grant and resume pending identity; no absence result for unauthorized history |
-| Human | Command, authority and receipt mTLS purposes separate; worker/agent/observer/bridge/bootstrap/deployment certs cannot borrow a human envelope; malformed/replayed/conflicting receipts preserve D5/D6 enlisted SQL, optimistic revision, authority and outbox semantics |
-| Route methods | GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS/TRACE on each reachable native alias, native engine-name aliases, identity verification/enumeration, camunda/Tasklist/Cockpit/Admin, manager/host-manager, request/include/forward/error/async dispatch |
-| Body | Duplicate keys at all nested objects, top-level array, invalid UTF-8/surrogate/overflow/NaN/depth/size, content-type variants, multipart/form/binary/valueInfo/Java object/local variables/startInstructions/restart/modification; no fallback into RESTEasy mutations |
-| Rotation | Actual old/new cert overlap under one exact identity/capability set; restart with new policy digest; remove old leaf, prove old established TLS sessions and new connections fail; only correct new cert resumes |
-| Mount loss | Truncate/change the actual bound policy file in place and show readiness/effect refusal; restore identical bytes and prove same pending identity can retry. For missing file/CA/provider/plugin/auth/listener tests recreate only owned engine with missing mount or altered descriptor: fail startup/readiness, no HTTP fallback. A removed host path alone may not remove an already-bound container inode |
-| Restart/lost reply | Restart actual secured image with intact policy/SQL and pending external tasks; preserve exact worker ownership and dedup identity. Drop a response after effect and reconcile against engine state / D5 receipt / D6 outbox, never manufacture success or automatically create a duplicate start |
-| Source proof | PAGTO handoffs and consent correlation must match current exact source definition and source variables, completed source human task + **decision** receipt (claim/release receipt insufficient), and the actual historical variable update. Test forged actor IDs and wrong source case; require unchanged engine/tenant audit on refusal |
-| Canonical flows | Real scoped start/correlation/DMN and all required worker topics under reviewed A extensions; current 47 rows have no DMN schema and only two external topics. Do not grant unknown rows or fabricate completed source human receipts to count a positive |
-| C/D/E | Every CALLS propagation site and all 157 legacy human fixture dispositions; source lock identity before durable start claim, auth outage/recovery, native version authority, one-shot bootstrap and artifact deployment restrictions |
-| Audit | In the actual D6 tenant database, compare `audit_chain`, `human_command_outbox`, `human_command_delivery` and engine receipts around each refusal/race/retry. The simple B image fixture does not create fake tenant audit tables and does not claim this separate proof |
+## Preservation and remaining whole-goal work
 
-Finally run exact integrated-SHA CI, independent bypass assurance, D5/D6/image preservation
-and the separately reviewed operational migration. Current six real form bindings and the
-production portal factory remain closed. Existing Tasklist/Cockpit history is preserved;
-the deployed human UI is not changed by authoring this opt-in package. A rollback to an
-anonymous engine is not a valid secured operational rollback.
+ROOT must separately execute the unchanged original five image tests against their original
+two-connector Dockerfile.human fixture, the original 37 D5 real tests, and the existing D6
+lane under its original qualified fixtures. The secured image has only HTTPS, so its
+plaintext case requires connection refusal plus valid TLS capability controls; it does
+not replace the old image's exact HTTP403 check.
+
+Canonical PAGTO/consent **positive human activation** is still separately required: D5
+only activates its synthetic human form. This package's automatic synthetic source start
+and hostile receipt attempts do not certify a financial, clinical or consent decision.
+C typed callers, D production bootstrap, E all 157 legacy fixture dispositions, reviewed
+missing A schemas (DMN/READ_STATUS/other topics), 43 portal forms/PHI/UI, integration review,
+actual integrated-SHA CI and operational cutover remain required. No DPO/TISS/clinical/
+fraud/production ratification is created by this fixture.

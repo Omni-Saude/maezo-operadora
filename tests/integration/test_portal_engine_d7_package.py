@@ -7,12 +7,17 @@ The database snapshot is read-only and emits hashes, never engine rows or creden
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import json
 import os
+import re
 import socket
 import ssl
+import subprocess
+import time
 from pathlib import Path
+from uuid import uuid4
 
 import asyncpg
 import httpx
@@ -59,31 +64,119 @@ def readiness() -> None:
     assert body["policy_digest"] == hashlib.sha256((fixture() / "boundary.json").read_bytes()).hexdigest()
 
 
-async def database_snapshot() -> dict[str, tuple[int, str]]:
+def resources() -> dict:
+    value = json.loads((fixture() / "resources.json").read_text())
+    tenant = json.loads((fixture() / "d7-fixture.json").read_text())["tenant"]
+    assert value["human"]["tenantId"] == value["external"]["tenantId"] == tenant
+    assert value["human_definition"]["tenantId"] == tenant
+    assert value["human"]["processDefinitionId"] == value["human_definition"]["id"]
+    assert value["tenant_schema"] == tenant and value["decision_receipt_fabricated"] is False
+    return value
+
+
+async def database():
     root = fixture()
-    connection = await asyncpg.connect(
+    return await asyncpg.connect(
         host="127.0.0.1",
         port=15433,
         database="maezo",
         user="maezo",
         password=(root / "postgres-password").read_text(),
     )
+
+
+async def assert_bound_resources() -> None:
+    refs = resources()
+    tenant = refs["tenant_schema"]
+    connection = await database()
+    try:
+        definitions = json.loads((fixture() / "definitions.json").read_text())
+        definitions["MZO-HUMAN-SYNTHETIC"] = refs["human_definition"]
+        for key, definition in definitions.items():
+            row = await connection.fetchrow(
+                "SELECT key_, version_, tenant_id_, deployment_id_ FROM act_re_procdef WHERE id_=$1",
+                definition["id"],
+            )
+            assert row is not None
+            assert (row["key_"], row["version_"], row["tenant_id_"]) == (key, definition["version"], tenant)
+            assert row["deployment_id_"] == definition["deploymentId"]
+        for table, identifier, definition in (
+            ("act_ru_task", refs["human"]["id"], refs["human_definition"]["id"]),
+            ("act_ru_execution", refs["human_instance"], refs["human_definition"]["id"]),
+            ("act_ru_ext_task", refs["external"]["id"], refs["external"]["processDefinitionId"]),
+        ):
+            row = await connection.fetchrow(
+                f"SELECT proc_def_id_, tenant_id_ FROM {table} WHERE id_=$1", identifier
+            )
+            assert row is not None, "attack target must exist before policy refusal can receive credit"
+            assert (row["proc_def_id_"], row["tenant_id_"]) == (definition, tenant)
+        assert (
+            await connection.fetchval(
+                "SELECT count(*) FROM mzo_human_receipt WHERE tenant_=$1 AND command_=$2",
+                tenant,
+                refs["receipt_command_id"],
+            )
+            == 1
+        )
+        assert (
+            await connection.fetchval(
+                "SELECT count(*) FROM act_ru_identitylink WHERE task_id_=$1", refs["human"]["id"]
+            )
+            > 0
+        )
+        assert (
+            await connection.fetchval(
+                "SELECT count(*) FROM act_ru_variable WHERE task_id_=$1", refs["human"]["id"]
+            )
+            > 0
+        )
+        assert (
+            await connection.fetchval(
+                "SELECT count(*) FROM act_hi_detail WHERE task_id_=$1", refs["human"]["id"]
+            )
+            > 0
+        )
+    finally:
+        await connection.close()
+
+
+async def database_snapshot() -> dict[str, tuple[int, str]]:
+    refs = resources()
+    tenant = refs["tenant_schema"]
+    assert re.fullmatch(r"relay_[0-9a-f]{24}", tenant)
+    connection = await database()
     result = {}
     try:
         async with connection.transaction(readonly=True, isolation="repeatable_read"):
-            for table in (
-                "act_ru_task",
-                "act_ru_execution",
-                "act_ru_ext_task",
-                "act_ru_variable",
-                "act_ge_bytearray",
-                "act_re_deployment",
-                "act_re_procdef",
-                "mzo_human_receipt",
-                "act_hi_op_log",
-            ):
-                # Table names are the fixed code-owned list above, never environment/request data.
-                rows = await connection.fetch(f"SELECT to_jsonb(t)::text AS row FROM {table} t LIMIT 20001")
+            tables = {
+                name: "tenant_id_=$1"
+                for name in (
+                    "act_ru_task",
+                    "act_ru_execution",
+                    "act_ru_ext_task",
+                    "act_ru_variable",
+                    "act_ge_bytearray",
+                    "act_re_deployment",
+                    "act_re_procdef",
+                    "act_hi_op_log",
+                    "act_hi_procinst",
+                    "act_hi_taskinst",
+                    "act_hi_varinst",
+                    "act_hi_detail",
+                )
+            }
+            tables["act_ru_identitylink"] = "task_id_ IN (SELECT id_ FROM act_ru_task WHERE tenant_id_=$1)"
+            tables["act_hi_identitylink"] = "tenant_id_=$1"
+            tables["mzo_human_receipt"] = "tenant_=$1"
+            # Real production migrations and a real D6 claim/receipt populate these;
+            # absence is a failed precondition, never an empty successful snapshot.
+            for table in ("audit_chain", "human_command_outbox", "human_command_delivery"):
+                tables[f'"{tenant}".{table}'] = "true"
+            for table, predicate in tables.items():
+                args = [tenant] if "$1" in predicate else []
+                rows = await connection.fetch(
+                    f"SELECT to_jsonb(t)::text AS row FROM {table} t WHERE {predicate} LIMIT 20001", *args
+                )
                 assert len(rows) <= 20000, "fixture snapshot bound exceeded"
                 digest = hashlib.sha256()
                 for row in sorted(row["row"] for row in rows):
@@ -91,13 +184,44 @@ async def database_snapshot() -> dict[str, tuple[int, str]]:
                     digest.update(len(raw).to_bytes(8, "big"))
                     digest.update(raw)
                 result[table] = (len(rows), digest.hexdigest())
+            for table in (
+                "act_ru_task",
+                "act_ru_execution",
+                "act_ru_ext_task",
+                "act_ru_variable",
+                "act_hi_varinst",
+                "act_hi_detail",
+                "mzo_human_receipt",
+            ):
+                assert result[table][0] > 0, "nonempty native/history/receipt witness required"
+            for table in ("audit_chain", "human_command_outbox", "human_command_delivery"):
+                assert result[f'"{tenant}".{table}'][0] > 0, "nonempty actual D6 witness required"
     finally:
         await connection.close()
     return result
 
 
 def snapshot() -> dict[str, tuple[int, str]]:
+    asyncio.run(assert_bound_resources())
     return asyncio.run(database_snapshot())
+
+
+def denied(response: httpx.Response, code: str = "engine_operation_denied", status: int = 403) -> None:
+    assert response.status_code == status
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {"error": code}
+
+
+def bind_path(path: str) -> str:
+    refs = resources()
+    return path.format(
+        task=refs["human"]["id"],
+        execution=refs["human_execution"],
+        instance=refs["human_instance"],
+        external=refs["external"]["id"],
+        definition=refs["human_definition"]["id"],
+        deployment=refs["human_definition"]["deploymentId"],
+    )
 
 
 def operation_request() -> dict:
@@ -110,7 +234,7 @@ def operation_request() -> dict:
         "capability_digest": capability["digest"],
         "operation": "start",
         "process_key": "SP-OP-ESCALATION-001",
-        "resource_ref": "d7-http-isolated-start",
+        "resource_ref": "d7-http-" + uuid4().hex,
         "variables": {
             "tenant_id": identity["tenant"],
             "source_agent_id": "helena",
@@ -145,40 +269,103 @@ def test_authenticated_readiness_and_scoped_start_on_actual_image() -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        "/engine-rest/task/fixture/complete",
-        "/engine-rest/task/fixture/claim",
-        "/engine-rest/task/fixture/assignee",
-        "/engine-rest/task/fixture/variables",
-        "/engine-rest/task/fixture/localVariables/x/data",
-        "/engine-rest/process-instance/fixture/variables",
-        "/engine-rest/execution/fixture/localVariables",
-        "/engine-rest/process-instance/fixture/modification",
+        "/engine-rest/task/{task}/complete",
+        "/engine-rest/task/{task}/claim",
+        "/engine-rest/task/{task}/assignee",
+        "/engine-rest/task/{task}/delegate",
+        "/engine-rest/task/{task}/resolve",
+        "/engine-rest/task/{task}/identity-links",
+        "/engine-rest/task/{task}/identity-links/groups/synthetic-reviewers/type/candidate",
+        "/engine-rest/task/{task}/variables",
+        "/engine-rest/task/{task}/variables/fixture_value",
+        "/engine-rest/task/{task}/variables/fixture_value/data",
+        "/engine-rest/task/{task}/localVariables",
+        "/engine-rest/task/{task}/localVariables/fixture_local",
+        "/engine-rest/task/{task}/localVariables/fixture_binary/data",
+        "/engine-rest/execution/{execution}/variables",
+        "/engine-rest/execution/{execution}/variables/fixture_value",
+        "/engine-rest/execution/{execution}/localVariables",
+        "/engine-rest/execution/{execution}/localVariables/fixture_local",
+        "/engine-rest/execution/{execution}/signal",
+        "/engine-rest/process-instance/{instance}/variables",
+        "/engine-rest/process-instance/{instance}/variables/fixture_value",
+        "/engine-rest/process-instance/{instance}/modification",
+        "/engine-rest/process-instance/{instance}/suspended",
+        "/engine-rest/process-definition/{definition}/restart",
+        "/engine-rest/process-definition/{definition}/start",
         "/engine-rest/process-instance/restart",
-        "/engine-rest/external-task/fixture/complete",
+        "/engine-rest/external-task/{external}/complete",
+        "/engine-rest/external-task/{external}/failure",
+        "/engine-rest/external-task/{external}/bpmnError",
+        "/engine-rest/external-task/{external}/unlock",
+        "/engine-rest/external-task/{external}/extendLock",
+        "/engine-rest/external-task/{external}/lock",
+        "/engine-rest/external-task/{external}/retries",
+        "/engine-rest/external-task/{external}/priority",
         "/engine-rest/external-task/fetchAndLock",
-        "/engine-rest/message",
         "/engine-rest/deployment/create",
+        "/engine-rest/deployment/{deployment}",
+        "/engine-rest/message",
         "/engine-rest/identity/verify",
-        "/engine-rest/engine/default/identity/verify",
-        "/engine-rest/engine/default/task/fixture/complete",
-        "/camunda/api/engine/engine/default/task/fixture/complete",
-        "/camunda/api/tasklist/tasks/fixture/complete",
-        "/camunda/api/cockpit/plugin/base/default/process-instance/fixture",
+        "/engine-rest/user",
+        "/engine-rest/group",
+        "/engine-rest/authorization",
+    ],
+)
+@pytest.mark.parametrize("alias", ["native", "engine-name", "camunda-engine"])
+@pytest.mark.parametrize("method", ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE"])
+def test_raw_aliases_and_mutations_leave_engine_and_receipts_unchanged(
+    path: str, alias: str, method: str
+) -> None:
+    readiness()
+    before = snapshot()
+    path = bind_path(path)
+    if alias == "engine-name":
+        path = path.replace("/engine-rest/", "/engine-rest/engine/default/", 1)
+    elif alias == "camunda-engine":
+        path = path.replace("/engine-rest/", "/camunda/api/engine/engine/default/", 1)
+    with client("worker") as connection:
+        response = connection.request(
+            method,
+            path,
+            content=b'{"variables":{"forbidden":{"value":true}}}',
+            headers={"Content-Type": "application/json"},
+        )
+        if method == "HEAD":
+            # RFC HEAD intentionally suppresses response bodies. Prove the same route's
+            # boundary code with GET, then require HEAD's exact status and safe headers.
+            denied(connection.get(path))
+            assert response.status_code == 403 and response.content == b""
+            assert response.headers["cache-control"] == "no-store"
+        else:
+            assert response.status_code == 403
+            assert response.json() == {"error": "engine_operation_denied"}
+            assert response.headers["cache-control"] == "no-store"
+    assert snapshot() == before
+    readiness()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/camunda/api/tasklist/tasks/{task}/complete",
+        "/camunda/api/cockpit/plugin/base/default/process-instance/{instance}",
         "/camunda/api/admin/setup/default/user/create",
         "/engine-rest/maezo/%76%31/operations",
         "/engine-rest/maezo/v1/operations;anything",
     ],
 )
-def test_raw_aliases_and_mutations_leave_engine_and_receipts_unchanged(path: str) -> None:
+@pytest.mark.parametrize("method", ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE"])
+def test_closed_ui_and_noncanonical_paths_have_explicit_boundary_oracle(path: str, method: str) -> None:
     readiness()
     before = snapshot()
     with client("worker") as connection:
-        response = connection.post(
-            path,
-            content=b'{"variables":{"forbidden":{"value":true}}}',
-            headers={"Content-Type": "application/json"},
-        )
-    assert response.status_code in (400, 401, 403, 404, 405)
+        response = connection.request(method, bind_path(path), json={})
+        if method == "HEAD":
+            denied(connection.get(bind_path(path)))
+            assert response.status_code == 403 and response.content == b""
+        else:
+            denied(response)
     assert snapshot() == before
     readiness()
 
@@ -191,8 +378,9 @@ def test_certificate_purpose_cannot_borrow_agent_capability(purpose: str) -> Non
     before = snapshot()
     with client(purpose) as connection:
         response = connection.post("/engine-rest/maezo/v1/operations", json=operation_request())
-    assert response.status_code in (401, 403)
+    denied(response)
     assert snapshot() == before
+    readiness()
 
 
 @pytest.mark.parametrize(
@@ -212,8 +400,9 @@ def test_strict_body_refusal_is_before_mutation(body: bytes, content_type: str) 
         response = connection.post(
             "/engine-rest/maezo/v1/operations", content=body, headers={"Content-Type": content_type}
         )
-    assert response.status_code in (400, 403)
+    denied(response, "engine_invalid_body", 400)
     assert snapshot() == before
+    readiness()
 
 
 def test_missing_client_certificate_has_attributable_native_tls_alert() -> None:
@@ -235,3 +424,578 @@ def test_secured_image_has_no_plaintext_listener() -> None:
     with pytest.raises(ConnectionRefusedError), socket.create_connection(("127.0.0.1", 18080), timeout=3):
         pytest.fail("the isolated secured image must not expose an HTTP connector")
     assert snapshot() == before
+    readiness()
+
+
+def typed_request(schema_id: str, resource: str) -> dict:
+    policy = json.loads((fixture() / "boundary.json").read_text())
+    binding = next(
+        c
+        for p in policy["peers"]
+        for c in p["capabilities"]
+        if c["document"]["schema"]["schema_id"] == schema_id
+    )
+    doc = binding["document"]
+    schema = doc["schema"]
+    defaults = {"String": "synthetic", "Boolean": False, "Double": 1.0, "Integer": 1, "Json": []}
+    values = {
+        f["name"]: json.loads(f["fixed_json"]) if f["fixed_json"] is not None else defaults[f["kind"]]
+        for f in schema["fields"]
+        if f["required"]
+    }
+    request = operation_request()
+    request.update({k: schema[k] for k in ("operation", "process_key", "topic", "message", "all_matching")})
+    request.update(
+        capability_digest=binding["digest"],
+        variables=values,
+        resource_ref=resource,
+        worker_id=doc["worker_id"],
+        error_code=next(iter(schema["error_codes"]), ""),
+    )
+    request["parameters"] = {
+        "fetch_lock": {"maxTasks": 1, "lockDuration": 60000, "asyncResponseTimeout": 1, "variables": []},
+        "external_extend_lock": {"newDuration": 60000},
+        "external_failure": {"retries": 1, "retryTimeout": 0, "errorCategory": "worker_failure"},
+    }.get(schema["operation"], {})
+    return request
+
+
+def operation(connection: httpx.Client, request: dict) -> object:
+    response = connection.post("/engine-rest/maezo/v1/operations", json=request)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["capability_digest"] == request["capability_digest"]
+    assert response.headers["cache-control"] == "no-store"
+    return body["result"]
+
+
+def test_scoped_start_read_and_worker_lifecycle_have_native_causal_effects() -> None:
+    readiness()
+    start = operation_request()
+    with client() as connection:
+        result = operation(connection, start)
+        for suffix in ("read_active", "read_history"):
+            request = typed_request("helena.escalation.start.v1." + suffix, start["resource_ref"])
+            assert [r["id"] for r in operation(connection, request)] == [result["id"]]
+    base = "contas.calculate_impact.complete.v1"
+    with client("worker") as connection:
+        fetched = operation(connection, typed_request(base + ".fetch_lock", "d7-fetch"))
+        assert len(fetched) == 1
+        target = fetched[0]
+        assert target["definition_id"] == resources()["external"]["processDefinitionId"]
+        assert target["worker_id"] == "fixture-worker"
+
+        async def observe():
+            db = await database()
+            try:
+                return dict(await db.fetchrow("SELECT * FROM act_ru_ext_task WHERE id_=$1", target["id"]))
+            finally:
+                await db.close()
+
+        assert asyncio.run(observe())["worker_id_"] == "fixture-worker"
+        for suffix in ("external_extend_lock", "external_failure", "external_unlock"):
+            assert operation(connection, typed_request(base + "." + suffix, target["id"])) == {
+                "applied": True
+            }
+            observed = asyncio.run(observe())
+            if suffix == "external_extend_lock":
+                assert observed["lock_exp_time_"].timestamp() * 1000 >= target["lock_expires_at"]
+            else:
+                if suffix == "external_failure":
+                    assert observed["retries_"] == 1
+                assert (
+                    observed["lock_exp_time_"] is None
+                    or observed["lock_exp_time_"].timestamp() <= time.time()
+                )
+                acquired = operation(connection, typed_request(base + ".fetch_lock", "d7-reacquire"))
+                # Other pending tasks can be returned: consume the returned real identity,
+                # never assume fetching a named task or complete a stale ID.
+                assert len(acquired) == 1
+                target = acquired[0]
+        complete = typed_request(base, target["id"])
+        assert operation(connection, complete) == {"applied": True}
+
+        async def committed():
+            db = await database()
+            try:
+                assert (
+                    await db.fetchval("SELECT count(*) FROM act_ru_ext_task WHERE id_=$1", target["id"]) == 0
+                )
+                assert (
+                    await db.fetchval(
+                        "SELECT count(*) FROM act_ru_task WHERE proc_inst_id_=$1 AND task_def_key_='human'",
+                        target["process_instance_id"],
+                    )
+                    == 1
+                )
+                for key in complete["variables"]:
+                    assert (
+                        await db.fetchval(
+                            "SELECT count(*) FROM act_hi_varinst WHERE proc_inst_id_=$1 AND name_=$2",
+                            target["process_instance_id"],
+                            key,
+                        )
+                        == 1
+                    )
+            finally:
+                await db.close()
+
+        asyncio.run(committed())
+    readiness()
+
+
+@pytest.mark.parametrize("purpose", ["agent", "worker", "observer", "bridge", "bootstrap", "deployment"])
+@pytest.mark.parametrize(
+    "path",
+    ["/maezo-human/v1/commands", "/maezo-human/v1/authority", "/maezo-human/v1/receipts/{task}/pending"],
+)
+def test_nonhuman_peers_cannot_enter_human_native_boundary(purpose: str, path: str) -> None:
+    readiness()
+    before = snapshot()
+    with client(purpose) as connection:
+        denied(connection.request("GET" if "/receipts/" in path else "POST", bind_path(path), json={}))
+    assert snapshot() == before
+    readiness()
+
+
+@pytest.mark.parametrize(
+    "header,value",
+    [
+        ("X-Forwarded-Proto", "https"),
+        ("X-Forwarded-Client-Cert", "forged"),
+        ("X-Forwarded-User", "d7-agent"),
+        ("Authorization", "Bearer synthetic-forgery"),
+        ("X-Maezo-Tenant", "foreign-tenant"),
+        ("X-Maezo-Environment", "production"),
+    ],
+)
+def test_forwarded_identity_never_borrows_capability(header: str, value: str) -> None:
+    readiness()
+    before = snapshot()
+    with client("worker") as connection:
+        denied(
+            connection.post(
+                "/engine-rest/maezo/v1/operations", json=operation_request(), headers={header: value}
+            )
+        )
+    assert snapshot() == before
+    readiness()
+
+
+@pytest.mark.parametrize("certificate", ["unknown-leaf", "wrong-san"])
+def test_known_ca_unknown_or_wrong_san_leaf_is_attributed_denial(certificate: str) -> None:
+    readiness()
+    before = snapshot()
+    with client(certificate) as connection:
+        denied(connection.post("/engine-rest/maezo/v1/operations", json=operation_request()))
+    assert snapshot() == before
+    readiness()
+
+
+@pytest.mark.parametrize("certificate", ["untrusted-client", "expired", "no-eku"])
+def test_invalid_client_chain_requires_typed_tls_or_exact_application_refusal(certificate: str) -> None:
+    readiness()
+    before = snapshot()
+    context = ssl.create_default_context(cafile=fixture() / "ca.crt")
+    context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_3
+    context.load_cert_chain(fixture() / f"{certificate}.crt", fixture() / f"{certificate}.key")
+    try:
+        with (
+            socket.create_connection(("127.0.0.1", 18443), timeout=5) as raw,
+            context.wrap_socket(raw, server_hostname="localhost") as tls,
+        ):
+            tls.sendall(
+                b"POST /engine-rest/maezo/v1/operations HTTP/1.1\r\nHost: localhost\r\n"
+                b"Content-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}"
+            )
+            response = b""
+            while chunk := tls.recv(4096):
+                response += chunk
+            # Missing EKU can be accepted by JSSE and rejected by our certificate gate.
+            assert certificate == "no-eku"
+            assert response.startswith(b"HTTP/1.1 403 ")
+            assert b'{"error":"engine_operation_denied"}' in response
+    except ssl.SSLError as failure:
+        allowed = {
+            "TLSV1_ALERT_UNKNOWN_CA",
+            "SSLV3_ALERT_CERTIFICATE_UNKNOWN",
+            "SSLV3_ALERT_BAD_CERTIFICATE",
+            "SSLV3_ALERT_CERTIFICATE_EXPIRED",
+            "SSLV3_ALERT_UNSUPPORTED_CERTIFICATE",
+        }
+        assert failure.reason in allowed, (
+            "network/reset/server-auth failures never establish client rejection"
+        )
+    assert snapshot() == before
+    readiness()
+
+
+def rewrite_in_place(path: Path, raw: bytes) -> None:
+    inode = path.stat().st_ino
+    with path.open("r+b") as stream:
+        stream.seek(0)
+        stream.write(raw)
+        stream.truncate()
+        stream.flush()
+        os.fsync(stream.fileno())
+    assert path.stat().st_ino == inode, "mounted-file corruption must preserve the bound inode"
+
+
+def test_actual_mounted_policy_corruption_denies_and_same_identity_recovers() -> None:
+    readiness()
+    before = snapshot()
+    path = fixture() / "boundary.json"
+    saved = path.read_bytes()
+    pending = operation_request()
+    with client() as established:
+        assert established.get("/engine-rest/maezo/v1/readiness").status_code == 200
+        try:
+            rewrite_in_place(path, b"{}")
+            for connection in (established, client()):
+                try:
+                    denied(
+                        connection.get("/engine-rest/maezo/v1/readiness"), "engine_profile_unavailable", 503
+                    )
+                    denied(
+                        connection.post("/engine-rest/maezo/v1/operations", json=pending),
+                        "engine_profile_unavailable",
+                        503,
+                    )
+                finally:
+                    if connection is not established:
+                        connection.close()
+            assert snapshot() == before
+        finally:
+            rewrite_in_place(path, saved)
+        readiness()
+        assert operation(established, pending)["id"]
+
+
+def restart_owned_engine(document: dict) -> None:
+    """Executed only by ROOT's explicit serial lifecycle lane; never during collection."""
+    project = os.environ.get("MAEZO_D7_COMPOSE_PROJECT", "")
+    assert re.fullmatch(r"d7-[a-z0-9-]{8,64}", project), "explicit ROOT-owned d7 project required"
+    root = fixture()
+    rewrite_in_place(root / "boundary.json", (json.dumps(document, indent=2) + "\n").encode())
+    compose_path = root / "secured-compose.json"
+    compose = json.loads(compose_path.read_text())
+    compose["services"]["engine"]["environment"]["MAEZO_ENGINE_BOUNDARY_SHA256"] = hashlib.sha256(
+        (root / "boundary.json").read_bytes()
+    ).hexdigest()
+    assert compose["services"]["engine"]["ports"] == ["127.0.0.1:18443:8443"]
+    assert (
+        compose["services"]["engine"]["image"]
+        == json.loads((root / "d7-fixture.json").read_text())["secured_image"]
+    )
+    compose_path.write_text(json.dumps(compose, indent=2) + "\n")
+    argv = [
+        "docker",
+        "compose",
+        "-p",
+        project,
+        "-f",
+        str(compose_path),
+        "up",
+        "-d",
+        "--no-deps",
+        "--force-recreate",
+        "engine",
+    ]
+    process = subprocess.run(argv, capture_output=True, timeout=90, check=False)
+    evidence = root / ("restart-" + uuid4().hex)
+    evidence.mkdir(mode=0o700)
+    (evidence / "argv.json").write_text(json.dumps(argv))
+    (evidence / "stdout").write_bytes(process.stdout)
+    (evidence / "stderr").write_bytes(process.stderr)
+    (evidence / "exit").write_text(str(process.returncode))
+    assert process.returncode == 0, "owned engine recreation failed; see private lifecycle streams"
+
+
+def wait_ready(purpose: str = "agent") -> None:
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        try:
+            with client(purpose) as connection:
+                response = connection.get("/engine-rest/maezo/v1/readiness")
+            if response.status_code == 200:
+                assert response.json()["ready"] and response.json()["capabilities"]
+                return
+        except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError):
+            pass
+        time.sleep(0.25)
+    pytest.fail("actual authenticated capability readiness did not recover")
+
+
+def test_real_certificate_overlap_digest_restart_and_old_leaf_revocation() -> None:
+    readiness()
+    before = snapshot()
+    original = json.loads((fixture() / "boundary.json").read_text())
+    overlap = copy.deepcopy(original)
+    old = next(p for p in overlap["peers"] if p["engine_user"] == "d7-agent")
+    new = copy.deepcopy(old)
+    new.update(json.loads((fixture() / "certificate-variants.json").read_text())["agent-next"])
+    overlap["peers"].append(new)
+    pending = operation_request()
+    try:
+        restart_owned_engine(overlap)
+        wait_ready()
+        wait_ready("agent-next")
+        revoked = copy.deepcopy(overlap)
+        revoked["peers"] = [
+            p for p in revoked["peers"] if p["certificate_sha256"] != old["certificate_sha256"]
+        ]
+        with client() as established:
+            assert established.get("/engine-rest/maezo/v1/readiness").status_code == 200
+            # Before restarting: old established TLS session must not outlive mounted digest loss.
+            rewrite_in_place(fixture() / "boundary.json", (json.dumps(revoked, indent=2) + "\n").encode())
+            denied(
+                established.post("/engine-rest/maezo/v1/operations", json=pending),
+                "engine_profile_unavailable",
+                503,
+            )
+        restart_owned_engine(revoked)
+        wait_ready("agent-next")
+        with client() as old_connection:
+            denied(old_connection.post("/engine-rest/maezo/v1/operations", json=pending))
+        assert snapshot() == before
+        with client("agent-next") as new_connection:
+            assert operation(new_connection, pending)["id"]
+    finally:
+        restart_owned_engine(original)
+        wait_ready()
+
+
+def test_actual_human_commit_lost_response_then_secured_engine_restart_reconciles_same_pending_identity() -> (
+    None
+):
+    from maezo.gateway.human.outbox import PostgresHumanOutbox
+    from maezo.portal.engine.profile import HumanCommand
+    from tests.support.human_relay_live import ObservedTransport, RelayConfig, relay
+
+    readiness()
+    original = json.loads((fixture() / "boundary.json").read_text())
+    os.environ["MAEZO_HUMAN_RELAY_PRIVATE_DIR"] = str(fixture())
+    config = RelayConfig.load()
+    command = HumanCommand(**json.loads((fixture() / "pending-release.json").read_text()))
+    assert command.command_id == resources()["pending_command_id"]
+
+    async def committed_then_lost():
+        pool = await config.pool()
+        try:
+            store = PostgresHumanOutbox(scope=config.scope, pool=pool)
+            observer = ObservedTransport(config.transport())
+            observer.drop_response = True
+            assert await relay(store, observer).run_once()
+            assert observer.events == [
+                "GET.begin",
+                "GET.missing",
+                "POST.begin",
+                "POST.committed",
+                "response.dropped.after.actual.commit",
+            ]
+            return observer.receipts[0]
+        finally:
+            await pool.close()
+
+    receipt = asyncio.run(committed_then_lost())
+    after_effect = snapshot()
+    restart_owned_engine(original)
+    wait_ready()
+    assert snapshot() == after_effect, (
+        "image restart preserves the actual committed task and pending identity"
+    )
+
+    async def reconcile():
+        db = await database()
+        pool = await config.pool()
+        try:
+            tenant = resources()["tenant_schema"]
+            await db.execute(
+                f'UPDATE "{tenant}".human_command_delivery '
+                "SET next_attempt_at=clock_timestamp()-interval '1 second' WHERE command_id=$1",
+                command.command_id,
+            )
+            observer = ObservedTransport(config.transport())
+            assert await relay(PostgresHumanOutbox(scope=config.scope, pool=pool), observer).run_once()
+            assert observer.events == ["GET.begin", "GET.committed"]
+            assert observer.receipts == [receipt]
+            assert (
+                await db.fetchval(
+                    "SELECT count(*) FROM mzo_human_receipt WHERE tenant_=$1 AND command_=$2",
+                    tenant,
+                    command.command_id,
+                )
+                == 1
+            )
+            assert (
+                await db.fetchval(
+                    f'SELECT status FROM "{tenant}".human_command_delivery WHERE command_id=$1',
+                    command.command_id,
+                )
+                == "committed"
+            )
+        finally:
+            await pool.close()
+            await db.close()
+
+    asyncio.run(reconcile())
+    readiness()
+
+
+@pytest.mark.parametrize("field", ["spki_sha256", "uri_san", "issuer_dn"])
+def test_known_leaf_metadata_mismatch_has_exact_refusal_and_restoration(field: str) -> None:
+    readiness()
+    before = snapshot()
+    original = json.loads((fixture() / "boundary.json").read_text())
+    changed = copy.deepcopy(original)
+    peer = next(p for p in changed["peers"] if p["engine_user"] == "d7-agent")
+    peer[field] = (
+        "0" * 64
+        if field == "spki_sha256"
+        else "CN=Wrong-Issuer"
+        if field == "issuer_dn"
+        else peer[field] + "/wrong"
+    )
+    if field in {"uri_san", "issuer_dn"}:
+        identity_key = "subject" if field == "uri_san" else "issuer"
+        peer["identity"][identity_key] = peer[field]
+        # Identity and capability are pinned consistently; the mismatch under test
+        # is the known actual leaf versus its explicitly wrong deployment metadata.
+        for binding in peer["capabilities"]:
+            binding["document"]["identity"][identity_key] = peer[field]
+            from maezo.gateway.engine_contracts import canonical_json
+
+            binding["digest"] = hashlib.sha256(canonical_json(binding["document"])).hexdigest()
+    try:
+        restart_owned_engine(changed)
+        wait_ready("worker")
+        with client() as connection:
+            denied(connection.post("/engine-rest/maezo/v1/operations", json=operation_request()))
+        assert snapshot() == before
+    finally:
+        restart_owned_engine(original)
+        wait_ready()
+
+
+@pytest.mark.parametrize("dependency", ["ca-mount", "tenant", "environment"])
+def test_missing_dependency_or_inconsistent_identity_prevents_startup(dependency: str) -> None:
+    readiness()
+    before = snapshot()
+    root = fixture()
+    original = json.loads((root / "boundary.json").read_text())
+    changed = copy.deepcopy(original)
+    saved_compose = (root / "secured-compose.json").read_bytes()
+    if dependency == "ca-mount":
+        compose = json.loads(saved_compose)
+        compose["services"]["engine"]["volumes"] = [
+            v for v in compose["services"]["engine"]["volumes"] if v.get("target") != "/run/maezo/ca.crt"
+        ]
+        (root / "secured-compose.json").write_text(json.dumps(compose))
+    else:
+        changed[dependency] = "foreign-tenant" if dependency == "tenant" else "foreign-environment"
+    try:
+        restart_owned_engine(changed)
+        project = os.environ["MAEZO_D7_COMPOSE_PROJECT"]
+        argv = [
+            "docker",
+            "compose",
+            "-p",
+            project,
+            "-f",
+            str(root / "secured-compose.json"),
+            "logs",
+            "--no-color",
+            "engine",
+        ]
+        deadline = time.monotonic() + 90
+        attributable = False
+        while time.monotonic() < deadline and not attributable:
+            result = subprocess.run(argv, capture_output=True, timeout=10, check=False)
+            assert result.returncode == 0
+            attributable = b"engine_profile_unavailable" in result.stdout
+            if not attributable:
+                time.sleep(0.25)
+        assert attributable, "startup must fail at the actual boundary dependency; no missing-route inference"
+        assert snapshot() == before
+        with pytest.raises(ConnectionRefusedError), socket.create_connection(("127.0.0.1", 18080), timeout=3):
+            pytest.fail("failed secured startup cannot reopen plaintext")
+    finally:
+        (root / "secured-compose.json").write_bytes(saved_compose)
+        restart_owned_engine(original)
+        wait_ready()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"[]",
+        b'{"outer":{"k":1,"k":2}}',
+        b'{"x":"\xff"}',
+        b'{"x":"\\ud800"}',
+        b'{"x":1e9999}',
+        b'{"x":Infinity}',
+        b'{"x":' + b"[" * 128 + b"0" + b"]" * 128 + b"}",
+        b'{"x":"' + b"x" * 131073 + b'"}',
+    ],
+    ids=["array", "nested-duplicate", "utf8", "surrogate", "overflow", "infinity", "depth", "size"],
+)
+def test_malformed_json_fails_with_exact_body_error(body: bytes) -> None:
+    readiness()
+    before = snapshot()
+    with client() as connection:
+        denied(
+            connection.post(
+                "/engine-rest/maezo/v1/operations", content=body, headers={"Content-Type": "application/json"}
+            ),
+            "engine_invalid_body",
+            400,
+        )
+    assert snapshot() == before
+    readiness()
+
+
+@pytest.mark.parametrize(
+    "path", ["/manager/html", "/manager/text/serverinfo", "/host-manager/html", "/host-manager/text/list"]
+)
+@pytest.mark.parametrize("method", ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE"])
+def test_container_admin_realm_presence_has_separate_exact_oracle(path: str, method: str) -> None:
+    readiness()
+    before = snapshot()
+    project = os.environ.get("MAEZO_D7_COMPOSE_PROJECT", "")
+    assert re.fullmatch(r"d7-[a-z0-9-]{8,64}", project)
+    app = path.split("/")[1]
+    assert app in {"manager", "host-manager"}
+    # Read actual deployment presence. A missing app earns absence coverage only.
+    command = [
+        "docker",
+        "compose",
+        "-p",
+        project,
+        "-f",
+        str(fixture() / "secured-compose.json"),
+        "exec",
+        "-T",
+        "engine",
+        "sh",
+        "-c",
+        f"test -e /camunda/webapps/{app} -o -e /camunda/webapps/{app}.war",
+    ]
+    presence = subprocess.run(command, capture_output=True, check=False, timeout=10)
+    assert presence.returncode in {0, 1}, "container inventory failure is not app absence"
+    with client("worker") as connection:
+        response = connection.request(method, path)
+        if presence.returncode == 0:
+            if method == "HEAD":
+                denied(connection.get(path))
+                assert response.status_code == 403 and response.content == b""
+            else:
+                denied(response)
+        else:
+            assert response.status_code == 404, "explicit absent-app oracle; no native policy credit"
+            if method == "HEAD":
+                assert response.content == b""
+            else:
+                assert response.headers["content-type"].startswith("text/html")
+                assert b"404" in response.content
+    assert snapshot() == before
+    readiness()

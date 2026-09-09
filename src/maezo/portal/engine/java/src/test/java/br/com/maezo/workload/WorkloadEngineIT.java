@@ -6,6 +6,12 @@ import java.nio.file.*;
 import java.sql.*;
 import java.util.*;
 import java.util.function.Supplier;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.cibseven.bpm.engine.impl.interceptor.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import br.com.maezo.human.D7HumanFixture;
 import org.cibseven.bpm.engine.*;
 import org.cibseven.bpm.engine.authorization.*;
 import org.cibseven.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl;
@@ -17,8 +23,10 @@ import org.junit.jupiter.api.io.TempDir;
 class WorkloadEngineIT {
   @TempDir Path temp;
   ProcessEngine engine;WorkloadPlugin plugin;BoundaryPolicy policy;
-  String url,user,password,schema,contas,escalation;
+  String url,user,password,schema,contas,escalation,pagto,sourceContas;
   Map<String,Capability> caps=new HashMap<>();
+  D7HumanFixture human = new D7HumanFixture();
+  ProcessEngineConfigurationImpl securedConfig;
   static String env(String name) {String value=System.getenv(name);if(value==null||value.isBlank())throw new IllegalStateException("explicit real integration setting missing: "+name);return value;}
   @BeforeAll void setup()throws Exception {
     String admin=env("MAEZO_HUMAN_IT_JDBC_URL");user=env("MAEZO_HUMAN_IT_DB_USER");password=env("MAEZO_HUMAN_IT_DB_PASSWORD");
@@ -27,9 +35,11 @@ class WorkloadEngineIT {
     try(var c=DriverManager.getConnection(admin,user,password);var s=c.createStatement()){s.execute("CREATE SCHEMA "+schema);}
     url=admin+(admin.contains("?")?"&":"?")+"currentSchema="+schema;
     var config=config(false);engine=config.buildProcessEngine();
-    try(var c=DriverManager.getConnection(url,user,password);var s=c.createStatement();var in=getClass().getResourceAsStream("/human-schema-postgres.sql")){s.execute(new String(in.readAllBytes(),StandardCharsets.UTF_8));}
+    try(var c=DriverManager.getConnection(url,user,password);var s=c.createStatement();var in=getClass().getResourceAsStream("/human-schema-postgres.sql")){s.execute(new String(in.readAllBytes(),StandardCharsets.UTF_8));s.execute("INSERT INTO MZO_HUMAN_TENANT VALUES('tenant-test',0)");}
     contas=deploy("SP-OP-CONTAS-001","operadora.contas.calculate_impact",false);
     escalation=deploy("SP-OP-ESCALATION-001","operadora.escalation.notify_team",true);
+    pagto=deploy("SP-OP-PAGTO-001","synthetic-only-pagto",false);
+    sourceContas=deploySourceHuman();
     var manifest=Fixtures.manifest(temp);var original=Json.object(Json.list(manifest.get("peers")).get(0));
     List<Object> peers=new ArrayList<>();
     var agent=new HashMap<>(original);agent.put("capabilities",bindings("helena",List.of("helena.escalation.start.v1","helena.escalation.start.v1.read_active","helena.escalation.start.v1.read_history")));peers.add(agent);
@@ -39,18 +49,38 @@ class WorkloadEngineIT {
     worker.put("identity",id);worker.put("engine_user","fixture-worker");worker.put("capabilities",bindings("worker_runtime",List.of(
         "contas.calculate_impact.complete.v1","contas.calculate_impact.complete.v1.fetch_lock","contas.calculate_impact.complete.v1.external_failure",
         "contas.calculate_impact.complete.v1.external_unlock","contas.calculate_impact.complete.v1.external_extend_lock","escalation.notify_team.bpmn_error.v1",
-        "escalation.notify_team.bpmn_error.v1.fetch_lock")));peers.add(worker);manifest.put("peers",peers);
+        "escalation.notify_team.bpmn_error.v1.fetch_lock","contas.pagto.handoff.v1")));peers.add(worker);manifest.put("peers",peers);
     grant("fixture-helena",Resources.PROCESS_DEFINITION,"SP-OP-ESCALATION-001",Permissions.READ,Permissions.READ_INSTANCE,Permissions.READ_HISTORY,Permissions.CREATE_INSTANCE);
     for(String key:List.of("SP-OP-ESCALATION-001","SP-OP-CONTAS-001"))
       grant("fixture-worker",Resources.PROCESS_DEFINITION,key,Permissions.READ,Permissions.READ_INSTANCE,Permissions.UPDATE_INSTANCE);
     grant("fixture-helena",Resources.PROCESS_INSTANCE,"*",Permissions.CREATE);
-    engine.close();policy=Fixtures.load(temp,manifest);plugin=new WorkloadPlugin(policy);config=config(true);config.setProcessEnginePlugins(List.of(plugin));engine=config.buildProcessEngine();
+    grant("fixture-worker",Resources.PROCESS_INSTANCE,"*",Permissions.CREATE);
+    grant("fixture-worker",Resources.PROCESS_DEFINITION,"SP-OP-PAGTO-001",Permissions.READ,Permissions.CREATE_INSTANCE);
+    // READ_HISTORY applies to actual source-human provenance, not a new schema/grant category.
+    var existing=engine.getAuthorizationService().createAuthorizationQuery().userIdIn("fixture-worker")
+        .resourceType(Resources.PROCESS_DEFINITION).resourceId("SP-OP-CONTAS-001").singleResult();
+    existing.addPermission(Permissions.READ_HISTORY);engine.getAuthorizationService().saveAuthorization(existing);
+    engine.close();policy=Fixtures.load(temp,manifest);plugin=new WorkloadPlugin(policy);config=config(true);config.setProcessEnginePlugins(List.of(human.plugin(),plugin));securedConfig=config;engine=config.buildProcessEngine();
+    human.attach(engine,url,user,password,schema);
+  }
+  @BeforeEach void realReceiptAndNativeHistoryWitness() throws Exception {
+    var task=human.claimed();
+    bootstrap(()->{engine.getTaskService().setVariableLocal(task.getId(),"d7_history_witness","synthetic");return null;});
+    assertTrue(state().get("mzo_human_receipt").startsWith("1:") || receiptCount()>0);
   }
   List<Object> bindings(String workload,List<String> rows) {
     List<Object> result=new ArrayList<>();
     for(String row:rows) {
       var b=Fixtures.binding(row);var doc=Json.object(b.get("document"));var target=new HashMap<>(Json.object(doc.get("target")));
-      target.put("definition_id",target.get("process_key").equals("SP-OP-CONTAS-001")?contas:escalation);doc.put("target",target);b.put("digest",Json.digest(doc));
+      target.put("definition_id",target.get("process_key").equals("SP-OP-CONTAS-001")?contas:target.get("process_key").equals("SP-OP-PAGTO-001")?pagto:escalation);doc.put("target",target);
+      if(row.equals("contas.pagto.handoff.v1")) {
+        doc.put("source_target",Map.of("process_key","SP-OP-CONTAS-001","process_version",2L,"definition_id",sourceContas,"topic","operadora.contas.handoff_pagamento","message",""));
+        b.put("source_kind","locked_external");b.put("source_worker_id","fixture-worker");
+        b.put("attestations",List.of(Map.of("name","fonte_valor","source_variable","fonte_valor","human_task_definition",""),
+            Map.of("name","lastro_origem","source_variable","lastro_origem","human_task_definition",""),
+            Map.of("name","lastro_decisor_id","source_variable","analista_id","human_task_definition","UT_AnalistaContas")));
+      }
+      b.put("digest",Json.digest(doc));
       var cap=new Capability(b);caps.put(row,cap);result.add(b);
     }return result;
   }
@@ -62,10 +92,19 @@ class WorkloadEngineIT {
   }
   String deploy(String key,String topic,boolean error) {
     String boundary=error?"<error id=\"failure\" errorCode=\"ERR_ESC_NOTIFY_FAILED\"/>":"";
-    String handler=error?"<boundaryEvent id=\"failureBoundary\" attachedToRef=\"external\"><errorEventDefinition errorRef=\"failure\"/></boundaryEvent><sequenceFlow id=\"errFlow\" sourceRef=\"failureBoundary\" targetRef=\"human\"/>":"";
+    String timer="<boundaryEvent id=\"d7Timer\" attachedToRef=\"external\"><timerEventDefinition><timeDuration>PT24H</timeDuration></timerEventDefinition></boundaryEvent><sequenceFlow id=\"timerFlow\" sourceRef=\"d7Timer\" targetRef=\"human\"/>";
+    String handler=error?"<boundaryEvent id=\"failureBoundary\" attachedToRef=\"external\"><errorEventDefinition errorRef=\"failure\"/></boundaryEvent><sequenceFlow id=\"errFlow\" sourceRef=\"failureBoundary\" targetRef=\"human\"/>":timer;
     String xml="<?xml version=\"1.0\"?><definitions xmlns=\"http://www.omg.org/spec/BPMN/20100524/MODEL\" xmlns:camunda=\"http://camunda.org/schema/1.0/bpmn\" targetNamespace=\"urn:maezo:isolated-d7-test\">"+boundary+
         "<process id=\""+key+"\" isExecutable=\"true\"><startEvent id=\"start\"/><sequenceFlow id=\"first\" sourceRef=\"start\" targetRef=\"external\"/><serviceTask id=\"external\" camunda:type=\"external\" camunda:topic=\""+topic+"\"/><sequenceFlow id=\"second\" sourceRef=\"external\" targetRef=\"human\"/><userTask id=\"human\"/>"+handler+"</process></definitions>";
     var deployment=engine.getRepositoryService().createDeployment().tenantId("tenant-test").addString("isolated-"+key+".bpmn",xml).deploy();
+    return engine.getRepositoryService().createProcessDefinitionQuery().deploymentId(deployment.getId()).singleResult().getId();
+  }
+  String deploySourceHuman() {
+    String xml="<definitions xmlns=\"http://www.omg.org/spec/BPMN/20100524/MODEL\" xmlns:camunda=\"http://camunda.org/schema/1.0/bpmn\" targetNamespace=\"urn:maezo:isolated-source-negative\">"
+        +"<process id=\"SP-OP-CONTAS-001\" isExecutable=\"true\"><startEvent id=\"start\"/><sequenceFlow id=\"first\" sourceRef=\"start\" targetRef=\"UT_AnalistaContas\"/>"
+        +"<userTask id=\"UT_AnalistaContas\"/><sequenceFlow id=\"next\" sourceRef=\"UT_AnalistaContas\" targetRef=\"handoff\"/>"
+        +"<serviceTask id=\"handoff\" camunda:type=\"external\" camunda:topic=\"operadora.contas.handoff_pagamento\"/></process></definitions>";
+    var deployment=engine.getRepositoryService().createDeployment().tenantId("tenant-test").addString("synthetic-source-negative.bpmn",xml).deploy();
     return engine.getRepositoryService().createProcessDefinitionQuery().deploymentId(deployment.getId()).singleResult().getId();
   }
   void grant(String user,Resource resource,String resourceId,Permission... permissions) {
@@ -125,6 +164,362 @@ class WorkloadEngineIT {
     var request=Fixtures.request(caps.get(row));request.put("resource_ref",Json.object(results.get(0)).get("id"));request.put("error_code","OTHER_ERROR");
     assertThrows(Refused.class,()->call(row,request));request.put("error_code","ERR_ESC_NOTIFY_FAILED");call(row,request);
     assertNotNull(bootstrap(()->engine.getTaskService().createTaskQuery().processInstanceId(id).singleResult()));
+  }
+
+  BoundaryPolicy.Peer peer(String row) {
+    var cap=caps.get(row);
+    return policy.peers.stream().filter(p->p.identity().get("workload").equals(cap.identity.get("workload"))).findFirst().orElseThrow();
+  }
+  <T>T authenticated(String row,Supplier<T> action) {
+    var p=peer(row);engine.getIdentityService().setAuthentication(p.engineUser(),List.of(),List.of(policy.tenant));
+    BoundaryFilter.REQUEST_PEER.set(p);
+    try{return action.get();}finally{engine.getIdentityService().clearAuthentication();BoundaryFilter.REQUEST_PEER.remove();}
+  }
+  void ready(String row) {
+    var result=authenticated(row,()->Json.parse(plugin.readiness(peer(row))));
+    assertEquals(true,result.get("ready"));assertFalse(Json.list(result.get("capabilities")).isEmpty());
+  }
+  Connection connection()throws SQLException {var c=DriverManager.getConnection(url,user,password);assertEquals(schema,c.getSchema());return c;}
+  long receiptCount()throws Exception {
+    try(var c=connection();var s=c.createStatement();var r=s.executeQuery("SELECT count(*) FROM mzo_human_receipt")){assertTrue(r.next());return r.getLong(1);}
+  }
+  Map<String,String> state()throws Exception {
+    var result=new TreeMap<String,String>();
+    try(var c=connection()) {
+      c.setAutoCommit(false);c.setReadOnly(true);c.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
+      for(String table:List.of("act_ru_task","act_ru_execution","act_ru_ext_task","act_ru_variable","act_hi_varinst",
+          "act_hi_detail","act_hi_taskinst","act_hi_procinst","act_ru_identitylink","act_hi_identitylink",
+          "act_ge_bytearray","act_re_deployment","act_re_procdef","act_ru_job","mzo_human_receipt")) {
+        var hash=java.security.MessageDigest.getInstance("SHA-256");long count=0;
+        try(var s=c.createStatement();var rows=s.executeQuery("SELECT to_jsonb(t)::text FROM "+table+" t ORDER BY to_jsonb(t)::text")) {
+          while(rows.next()){byte[] bytes=rows.getString(1).getBytes(StandardCharsets.UTF_8);hash.update(java.nio.ByteBuffer.allocate(4).putInt(bytes.length).array());hash.update(bytes);count++;}
+        }
+        result.put(table,count+":"+HexFormat.of().formatHex(hash.digest()));
+      }
+      c.rollback();
+    }
+    for(String table:List.of("act_ru_task","act_ru_execution","act_ru_variable","act_hi_varinst","act_hi_detail","mzo_human_receipt"))
+      assertFalse(result.get(table).startsWith("0:"),"nonempty actual native/history/receipt precondition "+table);
+    return result;
+  }
+  static void refusal(Throwable failure,String code,int status) {
+    while(!(failure instanceof Refused)&&failure.getCause()!=null)failure=failure.getCause();
+    var denied=assertInstanceOf(Refused.class,failure);assertEquals(code,denied.code);assertEquals(status,denied.status);
+  }
+  String lockedTask(String definition) {
+    String process=bootstrap(()->engine.getRuntimeService().startProcessInstanceById(definition,"d7-"+UUID.randomUUID()).getId());
+    var task=bootstrap(()->engine.getExternalTaskService().createExternalTaskQuery().processInstanceId(process).singleResult());assertNotNull(task);
+    bootstrap(()->{engine.getExternalTaskService().lock(task.getId(),"fixture-worker",60000);return null;});return task.getId();
+  }
+  Map<String,Object> completion(String task) {
+    var request=Fixtures.request(caps.get("contas.calculate_impact.complete.v1"));request.put("resource_ref",task);return request;
+  }
+  @ParameterizedTest @ValueSource(strings={"CREATE","READ","READ_INSTANCE","READ_HISTORY","UPDATE_INSTANCE"})
+  void everyNativeGrantGatesReadinessAndSamePendingOperation(String permissionName)throws Exception {
+    boolean worker=permissionName.equals("UPDATE_INSTANCE");
+    String row=worker?"contas.calculate_impact.complete.v1":"helena.escalation.start.v1";
+    var request=worker?completion(lockedTask(contas)):Fixtures.request(caps.get(row));request.put("resource_ref",worker?request.get("resource_ref"):"grant-"+UUID.randomUUID());
+    if(permissionName.equals("READ_INSTANCE")||permissionName.equals("READ_HISTORY")) {
+      call(row,request);row+="."+(permissionName.equals("READ_HISTORY")?"read_history":"read_active");
+      var read=Fixtures.request(caps.get(row));read.put("resource_ref",request.get("resource_ref"));request=read;
+    }
+    final String selected=row;final var pending=request;ready(row);
+    var resource=permissionName.equals("CREATE")?Resources.PROCESS_INSTANCE:Resources.PROCESS_DEFINITION;
+    String resourceId=permissionName.equals("CREATE")?"*":worker?"SP-OP-CONTAS-001":"SP-OP-ESCALATION-001";
+    var grant=bootstrap(()->engine.getAuthorizationService().createAuthorizationQuery().userIdIn(peer(selected).engineUser()).resourceType(resource).resourceId(resourceId).singleResult());
+    assertNotNull(grant);Permission permission=Permissions.valueOf(permissionName);var original=grant.getPermissions(Permissions.values());
+    var before=state();
+    try {
+      bootstrap(()->{grant.removePermission(permission);engine.getAuthorizationService().saveAuthorization(grant);return null;});
+      // READ is filtered by the native definition query before requireGrant;
+      // the existing bound definition therefore produces the safe resource code.
+      String code=permissionName.equals("READ")?"engine_resource_mismatch":"engine_profile_unavailable";
+      int status=permissionName.equals("READ")?403:503;
+      refusal(assertThrows(Refused.class,()->ready(selected)),code,status);
+      refusal(assertThrows(Refused.class,()->call(selected,pending)),code,status);
+      assertEquals(before,state());
+    } finally {bootstrap(()->{grant.setPermissions(original);engine.getAuthorizationService().saveAuthorization(grant);return null;});}
+    ready(selected);assertNotNull(call(selected,pending).get("result"));
+  }
+  @ParameterizedTest @ValueSource(strings={"TX_REQUIRED","REQUIRES_NEW"})
+  void actualNativeCommandFencesAndBackgroundContext(String mode)throws Exception {
+    var executor=mode.equals("TX_REQUIRED")?securedConfig.getCommandExecutorTxRequired():securedConfig.getCommandExecutorTxRequiresNew();
+    AtomicBoolean reached=new AtomicBoolean();
+    Command<Void> command=context->{assertNotNull(context);reached.set(true);return null;};
+    var before=state();
+    refusal(assertThrows(Refused.class,()->authenticated("helena.escalation.start.v1",()->executor.execute(command))),"engine_operation_denied",403);
+    assertFalse(reached.get());assertEquals(before,state());
+    bootstrap(()->executor.execute(command));assertTrue(reached.get(),"normal native background command must execute in actual context");
+  }
+  void blocked(int pid,String prefix,Future<?> pending)throws Exception {
+    long until=System.nanoTime()+TimeUnit.SECONDS.toNanos(10);boolean observed=false;
+    while(System.nanoTime()<until && !observed && !pending.isDone()) {
+      try(var c=connection();var s=c.prepareStatement("SELECT count(*) FROM pg_stat_activity WHERE ?=ANY(pg_blocking_pids(pid)) AND query ILIKE ?")) {
+        s.setInt(1,pid);s.setString(2,"%"+prefix+"%");try(var rows=s.executeQuery()){rows.next();observed=rows.getLong(1)>0;}
+      }
+      if(!observed)Thread.sleep(10);
+    }
+    assertTrue(observed,"actual expected SQL must be observed waiting on the owned PostgreSQL lock");
+  }
+  int pid(Connection c)throws SQLException {try(var s=c.createStatement();var r=s.executeQuery("SELECT pg_backend_pid()")){r.next();return r.getInt(1);}}
+  @ParameterizedTest @ValueSource(strings={"expired-lock","changed-worker","policy-corrupt","policy-missing","native-grant-revoked"})
+  void authorityChangesWhileActualExternalRowIsBlockedRollback(String fault)throws Exception {
+    String row="contas.calculate_impact.complete.v1",task=lockedTask(contas);var pending=completion(task);ready(row);
+    var baseline=state();byte[] policyBytes=Files.readAllBytes(policy.path);var executor=Executors.newSingleThreadExecutor();
+    var grant=bootstrap(()->engine.getAuthorizationService().createAuthorizationQuery().userIdIn("fixture-worker").resourceType(Resources.PROCESS_DEFINITION).resourceId("SP-OP-CONTAS-001").singleResult());
+    var permissions=grant.getPermissions(Permissions.values());
+    try(var blocker=connection()) {
+      blocker.setAutoCommit(false);int owner=pid(blocker);
+      try(var s=blocker.prepareStatement("SELECT id_ FROM act_ru_ext_task WHERE id_=? FOR UPDATE")){s.setString(1,task);try(var r=s.executeQuery()){assertTrue(r.next());}}
+      Future<?> result=executor.submit(()->call(row,pending));
+      try {
+        blocked(owner,"SELECT ID_ FROM ACT_RU_EXT_TASK",result);
+        if(fault.equals("expired-lock")||fault.equals("changed-worker")) {
+          try(var s=blocker.prepareStatement(fault.equals("expired-lock")?"UPDATE act_ru_ext_task SET lock_exp_time_=clock_timestamp()-interval '1 second' WHERE id_=?":"UPDATE act_ru_ext_task SET worker_id_='foreign-worker' WHERE id_=?")){s.setString(1,task);s.executeUpdate();}
+        } else if(fault.equals("policy-corrupt"))Files.writeString(policy.path,"{}");
+        else if(fault.equals("policy-missing"))Files.delete(policy.path);
+        else bootstrap(()->{grant.removePermission(Permissions.UPDATE_INSTANCE);engine.getAuthorizationService().saveAuthorization(grant);return null;});
+        // Snapshot must include the injected competing state, before releasing the victim.
+        blocker.commit();
+        var failure=assertThrows(ExecutionException.class,()->result.get(10,TimeUnit.SECONDS));
+        refusal(failure, fault.startsWith("policy")||fault.equals("native-grant-revoked")?"engine_profile_unavailable":"engine_resource_mismatch",
+            fault.startsWith("policy")||fault.equals("native-grant-revoked")?503:403);
+        var after=state();
+        if(fault.equals("expired-lock")||fault.equals("changed-worker")){baseline.remove("act_ru_ext_task");after.remove("act_ru_ext_task");}
+        assertEquals(baseline,after,"only the explicitly injected competing ownership state may differ");
+        assertNotNull(bootstrap(()->engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(task).singleResult()));
+        assertEquals(0,bootstrap(()->engine.getTaskService().createTaskQuery().processInstanceId(
+            engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(task).singleResult().getProcessInstanceId()).count()));
+      } finally {blocker.rollback();Files.write(policy.path,policyBytes);result.cancel(true);}
+    } finally {executor.shutdownNow();assertTrue(executor.awaitTermination(10,TimeUnit.SECONDS));bootstrap(()->{grant.setPermissions(permissions);engine.getAuthorizationService().saveAuthorization(grant);engine.getExternalTaskService().unlock(task);engine.getExternalTaskService().lock(task,"fixture-worker",60000);return null;});}
+    ready(row);call(row,pending);assertNull(bootstrap(()->engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(task).singleResult()));
+  }
+  @ParameterizedTest @ValueSource(strings={"policy-corrupt","policy-missing","native-grant-revoked"})
+  void afterNativeFlushWaitAuthorityIsRecheckedAtCommitting(String fault)throws Exception {
+    String row="contas.calculate_impact.complete.v1",task=lockedTask(contas);var pending=completion(task);ready(row);
+    long key=Math.abs(UUID.randomUUID().getMostSignificantBits());byte[] saved=Files.readAllBytes(policy.path);
+    var grant=bootstrap(()->engine.getAuthorizationService().createAuthorizationQuery().userIdIn("fixture-worker").resourceType(Resources.PROCESS_DEFINITION).resourceId("SP-OP-CONTAS-001").singleResult());var permissions=grant.getPermissions(Permissions.values());
+    var pool=Executors.newSingleThreadExecutor();
+    try(var c=connection();var statement=c.createStatement()) {
+      statement.execute("CREATE FUNCTION d7_hold_flush() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock("+key+"); RETURN NEW; END $$");
+      statement.execute("CREATE TRIGGER d7_hold_flush BEFORE INSERT ON act_ru_task FOR EACH ROW EXECUTE FUNCTION d7_hold_flush()");
+    }
+    var before=state();
+    try(var blocker=connection()) {
+      blocker.setAutoCommit(false);int owner=pid(blocker);try(var s=blocker.createStatement()){s.execute("SELECT pg_advisory_xact_lock("+key+")");}
+      Future<?> victim=pool.submit(()->call(row,pending));
+      try {
+        blocked(owner,"insert into ACT_RU_TASK",victim);
+        if(fault.equals("policy-corrupt"))Files.writeString(policy.path,"{}");else if(fault.equals("policy-missing"))Files.delete(policy.path);
+        else bootstrap(()->{grant.removePermission(Permissions.UPDATE_INSTANCE);engine.getAuthorizationService().saveAuthorization(grant);return null;});
+        blocker.commit();
+        refusal(assertThrows(ExecutionException.class,()->victim.get(10,TimeUnit.SECONDS)),"engine_profile_unavailable",503);
+        assertEquals(before,state(),"COMMITTING refusal must roll back native flush and preserve real receipt/history rows");
+      } finally {blocker.rollback();Files.write(policy.path,saved);victim.cancel(true);}
+    } finally {
+      pool.shutdownNow();assertTrue(pool.awaitTermination(10,TimeUnit.SECONDS));
+      try(var c=connection();var s=c.createStatement()){s.execute("DROP TRIGGER d7_hold_flush ON act_ru_task");s.execute("DROP FUNCTION d7_hold_flush()");}
+      bootstrap(()->{grant.setPermissions(permissions);engine.getAuthorizationService().saveAuthorization(grant);return null;});
+    }
+    ready(row);call(row,pending);
+  }
+  @ParameterizedTest @ValueSource(strings={"policy-corrupt","policy-missing"})
+  void policyLossDuringActualD5EnlistedReceiptRollsBackHumanEffect(String fault)throws Exception {
+    var task=human.claimed();var command=human.command(task,"release");
+    var before=state();byte[] saved=Files.readAllBytes(policy.path);long key=Math.abs(UUID.randomUUID().getMostSignificantBits());
+    try(var c=connection();var s=c.createStatement()) {
+      s.execute("CREATE FUNCTION d7_hold_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock("+key+"); RETURN NEW; END $$");
+      s.execute("CREATE TRIGGER d7_hold_receipt AFTER INSERT ON mzo_human_receipt FOR EACH ROW EXECUTE FUNCTION d7_hold_receipt()");
+    }
+    var pool=Executors.newSingleThreadExecutor();
+    try(var blocker=connection()) {
+      blocker.setAutoCommit(false);int owner=pid(blocker);try(var s=blocker.createStatement()){s.execute("SELECT pg_advisory_xact_lock("+key+")");}
+      Future<?> victim=pool.submit(()->{BoundaryFilter.REQUEST_PEER.set(peer("helena.escalation.start.v1"));try{return human.send(command);}finally{BoundaryFilter.REQUEST_PEER.remove();}});
+      try {
+        blocked(owner,"INSERT INTO MZO_HUMAN_RECEIPT",victim);
+        if(fault.equals("policy-corrupt"))Files.writeString(policy.path,"{}");else Files.delete(policy.path);
+        blocker.commit();refusal(assertThrows(ExecutionException.class,()->victim.get(10,TimeUnit.SECONDS)),"engine_profile_unavailable",503);
+        assertEquals(before,state());
+      } finally {blocker.rollback();Files.write(policy.path,saved);victim.cancel(true);}
+    } finally {
+      pool.shutdownNow();assertTrue(pool.awaitTermination(10,TimeUnit.SECONDS));
+      try(var c=connection();var s=c.createStatement()){s.execute("DROP TRIGGER d7_hold_receipt ON mzo_human_receipt");s.execute("DROP FUNCTION d7_hold_receipt()");}
+    }
+    assertNotNull(human.send(command));
+  }
+
+  @Test void optimisticFetchReturnsOnlyActuallyCommittedOwnership()throws Exception {
+    String task=lockedTask(contas);bootstrap(()->{engine.getExternalTaskService().unlock(task);return null;});
+    String row="contas.calculate_impact.complete.v1.fetch_lock";ready(row);
+    var start=new CyclicBarrier(2);var pool=Executors.newFixedThreadPool(2);
+    Callable<List<?>> fetch=()->{start.await(5,TimeUnit.SECONDS);return Json.list(call(row,Fixtures.request(caps.get(row))).get("result"));};
+    try {
+      var first=pool.submit(fetch);var second=pool.submit(fetch);
+      var results=new ArrayList<Object>(first.get(10,TimeUnit.SECONDS));results.addAll(second.get(10,TimeUnit.SECONDS));
+      assertEquals(1,results.size(),"only the winning committed native fetch can advertise ownership");
+      assertEquals(task,Json.object(results.get(0)).get("id"));
+      var nativeTask=bootstrap(()->engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(task).singleResult());
+      assertEquals("fixture-worker",nativeTask.getWorkerId());
+      assertEquals(nativeTask.getLockExpirationTime().getTime(),Json.object(results.get(0)).get("lock_expires_at"));
+      call("contas.calculate_impact.complete.v1",completion(task));
+    } finally {pool.shutdownNow();assertTrue(pool.awaitTermination(10,TimeUnit.SECONDS));}
+  }
+  @ParameterizedTest @ValueSource(strings={"wrong-task","wrong-worker","wrong-topic","wrong-process","wrong-tenant","wrong-definition-version"})
+  void resourceAndIdentityMismatchesHavePositiveControlAndNoEffect(String fault)throws Exception {
+    String task=lockedTask(contas),row="contas.calculate_impact.complete.v1";var request=completion(task);ready(row);
+    byte[] saved=Files.readAllBytes(policy.path);var before=state();
+    try {
+      if(fault.equals("wrong-task"))request.put("resource_ref",lockedTask(escalation));
+      else if(fault.equals("wrong-worker"))request.put("worker_id","foreign-worker");
+      else if(fault.equals("wrong-topic"))request.put("topic","operadora.escalation.notify_team");
+      else if(fault.equals("wrong-process"))request.put("process_key","SP-OP-ESCALATION-001");
+      else if(fault.equals("wrong-tenant")) {
+        before=state();var p=peer(row);engine.getIdentityService().setAuthentication(p.engineUser(),List.of(),List.of("foreign-tenant"));
+        try{refusal(assertThrows(Refused.class,()->plugin.execute(p,request)),"engine_operation_denied",403);}finally{engine.getIdentityService().clearAuthentication();}
+        assertEquals(before,state());return;
+      } else {
+        // Definition version is immutable. Bind the reviewed capability to a real ID
+        // with an intentionally wrong version, then exercise the native lookup.
+        var target=new HashMap<>(caps.get(row).target);target.put("process_version",99L);
+        refusal(assertThrows(Refused.class,()->bootstrap(()->WorkloadCommand.definition(engine,target,policy.tenant))),"engine_resource_mismatch",403);
+        assertEquals(before,state());return;
+      }
+      before=state();
+      refusal(assertThrows(Refused.class,()->call(row,request)),fault.equals("wrong-task")?"engine_resource_mismatch":"engine_operation_denied",403);
+      assertEquals(before,state());
+    } finally {Files.write(policy.path,saved);ready(row);call(row,completion(task));}
+  }
+
+  @ParameterizedTest @ValueSource(strings={"missing-decision","claim-only","release-only","wrong-task","wrong-definition","wrong-assignee","copied-actor-no-history","wrong-source-case"})
+  void priorHumanEvidenceRequiresActualTaskDecisionProvenance(String fault)throws Exception {
+    String row="contas.pagto.handoff.v1";
+    String process=bootstrap(()->engine.getRuntimeService().startProcessInstanceById(sourceContas,"source-"+UUID.randomUUID()).getId());
+    var sourceHuman=bootstrap(()->engine.getTaskService().createTaskQuery().processInstanceId(process).singleResult());assertNotNull(sourceHuman);
+    bootstrap(()->{
+      engine.getTaskService().setAssignee(sourceHuman.getId(),"human-test");
+      engine.getRuntimeService().setVariables(process,Map.of("fonte_valor","liberado","lastro_origem","contas_adjudicacao_humana","analista_id","human-test"));
+      if(!fault.equals("copied-actor-no-history"))engine.getTaskService().setVariableLocal(sourceHuman.getId(),"analista_id","human-test");
+      engine.getTaskService().complete(sourceHuman.getId());return null;
+    });
+    var source=bootstrap(()->engine.getExternalTaskService().createExternalTaskQuery().processInstanceId(process).singleResult());assertNotNull(source);
+    bootstrap(()->{engine.getExternalTaskService().lock(source.getId(),"fixture-worker",60000);return null;});
+    // Genuine signed D5 receipts are obtained from its synthetic form. Adversarial
+    // copies below are explicitly negative database-corruption inputs, NEVER a
+    // positive PAGTO/consent receipt or activation proof.
+    if(!fault.equals("missing-decision")&&!fault.equals("wrong-source-case")) {
+      var genuine=human.claimed();String operation=fault.equals("claim-only")?"claim":fault.equals("release-only")?"release":"decision";
+      Map<String,Object> receipt;
+      if(operation.equals("claim")) {
+        try(var c=connection();var query=c.prepareStatement("SELECT receipt_ FROM mzo_human_receipt WHERE task_=?")) {
+          query.setString(1,genuine.getId());try(var r=query.executeQuery()){assertTrue(r.next());receipt=Json.parse(r.getString(1).getBytes(StandardCharsets.UTF_8));}
+        }
+      } else receipt=Json.parse(human.send(human.command(genuine,operation)));
+      var attack=new HashMap<>(receipt);String forgedTask=fault.equals("wrong-task")?genuine.getId():sourceHuman.getId();
+      attack.put("task_id",forgedTask);attack.put("principal_ref",fault.equals("wrong-assignee")?"foreign-assignee":"human-test");
+      try(var c=connection();var insert=c.prepareStatement("INSERT INTO mzo_human_receipt(tenant_,task_,command_,digest_,principal_,workload_,receipt_) VALUES(?,?,?,?,?,?,?)")) {
+        insert.setString(1,policy.tenant);insert.setString(2,sourceHuman.getId());insert.setString(3,(String)attack.get("command_id"));insert.setString(4,"a".repeat(64));
+        insert.setString(5,(String)attack.get("principal_ref"));insert.setString(6,"gateway-test");insert.setString(7,new String(Json.bytes(attack),StandardCharsets.UTF_8));insert.executeUpdate();
+      }
+      if(fault.equals("wrong-definition"))try(var c=connection();var q=c.prepareStatement("UPDATE act_hi_taskinst SET proc_def_id_=? WHERE id_=?")){q.setString(1,contas);q.setString(2,sourceHuman.getId());q.executeUpdate();}
+    }
+    var request=Fixtures.request(caps.get(row));request.put("resource_ref","negative-pagto-"+UUID.randomUUID());
+    request.put("source_ref",fault.equals("wrong-source-case")?lockedTask(contas):source.getId());
+    var values=new HashMap<>(Json.object(request.get("variables")));values.put("tipo_pagamento","prestador_rede");values.put("moeda","BRL");
+    values.put("fonte_valor","liberado");values.put("lastro_origem","contas_adjudicacao_humana");values.put("lastro_decisor_id","human-test");request.put("variables",values);
+    caps.get(row).validate(request);ready(row);
+    var before=state();
+    refusal(assertThrows(Refused.class,()->call(row,request)),"engine_resource_mismatch",403);
+    assertEquals(before,state());ready(row);
+    assertEquals(0,bootstrap(()->engine.getRuntimeService().createProcessInstanceQuery().processDefinitionId(pagto).count()));
+    // Reachability control is native start of the synthetic target only; never
+    // presented as a source-human positive or a canonical financial decision.
+    assertNotNull(bootstrap(()->engine.getRuntimeService().startProcessInstanceById(pagto,"target-reachability-"+UUID.randomUUID())));
+  }
+
+  @ParameterizedTest @ValueSource(strings={"complete","unlock","extend","timer"})
+  void competingNativeOwnershipActionAndTypedCompleteAreSerialized(String action)throws Exception {
+    String task=lockedTask(contas),row="contas.calculate_impact.complete.v1";var request=completion(task);
+    String process=bootstrap(()->engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(task).singleResult().getProcessInstanceId());
+    var jobs=bootstrap(()->engine.getManagementService().createJobQuery().processInstanceId(process).list());
+    assertEquals(1,jobs.size(),"synthetic native timer must be deployed and reachable before the race");
+    var pool=Executors.newFixedThreadPool(2);
+    try(var blocker=connection()) {
+      blocker.setAutoCommit(false);int owner=pid(blocker);
+      try(var s=blocker.prepareStatement("SELECT id_ FROM act_ru_ext_task WHERE id_=? FOR UPDATE")){s.setString(1,task);try(var r=s.executeQuery()){assertTrue(r.next());}}
+      Future<?> competing=pool.submit(()->bootstrap(()->{
+        switch(action) {
+          case "complete"->engine.getExternalTaskService().complete(task,"fixture-worker");
+          case "unlock"->engine.getExternalTaskService().unlock(task);
+          case "extend"->engine.getExternalTaskService().extendLock(task,"fixture-worker",60000);
+          case "timer"->engine.getManagementService().executeJob(jobs.get(0).getId());
+          default->throw new AssertionError();
+        }return null;
+      }));
+      try {
+        blocked(owner,"ACT_RU_EXT_TASK",competing);
+        Future<?> victim=pool.submit(()->call(row,request));
+        try {
+          blocked(owner,"SELECT ID_ FROM ACT_RU_EXT_TASK",victim);blocker.commit();competing.get(10,TimeUnit.SECONDS);
+          if(action.equals("extend"))assertNotNull(victim.get(10,TimeUnit.SECONDS));
+          else refusal(assertThrows(ExecutionException.class,()->victim.get(10,TimeUnit.SECONDS)),"engine_resource_mismatch",403);
+          if(action.equals("unlock")) {
+            assertNotNull(bootstrap(()->engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(task).singleResult()));
+            bootstrap(()->{engine.getExternalTaskService().lock(task,"fixture-worker",60000);return null;});call(row,request);
+          }
+          assertEquals(1,bootstrap(()->engine.getTaskService().createTaskQuery().processInstanceId(process).count()));
+          assertNull(bootstrap(()->engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(task).singleResult()));
+        } finally {blocker.rollback();victim.cancel(true);}
+      } finally {blocker.rollback();competing.cancel(true);}
+    } finally {pool.shutdownNow();assertTrue(pool.awaitTermination(10,TimeUnit.SECONDS));}
+  }
+
+  Map<String,Object> automaticSourceRequest() {
+    String process=bootstrap(()->engine.getRuntimeService().startProcessInstanceById(sourceContas,"automatic-source-"+UUID.randomUUID()).getId());
+    var humanTask=bootstrap(()->engine.getTaskService().createTaskQuery().processInstanceId(process).singleResult());
+    bootstrap(()->{engine.getRuntimeService().setVariables(process,Map.of("fonte_valor","apresentado","lastro_origem","contas_adjudicacao_automatica","analista_id",""));engine.getTaskService().complete(humanTask.getId());return null;});
+    var source=bootstrap(()->engine.getExternalTaskService().createExternalTaskQuery().processInstanceId(process).singleResult());
+    bootstrap(()->{engine.getExternalTaskService().lock(source.getId(),"fixture-worker",60000);return null;});
+    var request=Fixtures.request(caps.get("contas.pagto.handoff.v1"));var values=new HashMap<>(Json.object(request.get("variables")));
+    values.put("tipo_pagamento","prestador_rede");values.put("moeda","BRL");values.put("fonte_valor","apresentado");values.put("lastro_origem","contas_adjudicacao_automatica");values.put("lastro_decisor_id","");
+    request.put("variables",values);request.put("source_ref",source.getId());request.put("resource_ref","synthetic-pagto-"+UUID.randomUUID());return request;
+  }
+  @ParameterizedTest @ValueSource(strings={"source-expiry","policy-corrupt","native-history-revoked"})
+  void realSourceAuthorityCannotExpireAfterLastTargetSql(String fault)throws Exception {
+    String row="contas.pagto.handoff.v1";var request=automaticSourceRequest();ready(row);
+    // This positive is the reviewed empty-evidence automatic synthetic branch only;
+    // it establishes source-model reachability without fabricating a human decision.
+    var positive=new HashMap<>(request);positive.put("resource_ref","source-control-"+UUID.randomUUID());assertNotNull(call(row,positive).get("result"));
+    long deadline=System.currentTimeMillis()+3000,key=Math.abs(UUID.randomUUID().getMostSignificantBits());
+    if(fault.equals("source-expiry"))try(var c=connection();var s=c.prepareStatement("UPDATE act_ru_ext_task SET lock_exp_time_=? WHERE id_=?")){s.setTimestamp(1,new Timestamp(deadline));s.setString(2,(String)request.get("source_ref"));s.executeUpdate();}
+    var grant=bootstrap(()->engine.getAuthorizationService().createAuthorizationQuery().userIdIn("fixture-worker").resourceType(Resources.PROCESS_DEFINITION).resourceId("SP-OP-CONTAS-001").singleResult());var permissions=grant.getPermissions(Permissions.values());
+    byte[] saved=Files.readAllBytes(policy.path);var before=state();var pool=Executors.newSingleThreadExecutor();
+    try(var c=connection();var s=c.createStatement()) {
+      s.execute("CREATE FUNCTION d7_hold_source_target() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock("+key+"); RETURN NEW; END $$");
+      s.execute("CREATE TRIGGER d7_hold_source_target BEFORE INSERT ON act_ru_ext_task FOR EACH ROW EXECUTE FUNCTION d7_hold_source_target()");
+    }
+    try(var blocker=connection()) {
+      blocker.setAutoCommit(false);int owner=pid(blocker);try(var s=blocker.createStatement()){s.execute("SELECT pg_advisory_xact_lock("+key+")");}
+      Future<?> victim=pool.submit(()->call(row,request));
+      try {
+        blocked(owner,"insert into ACT_RU_EXT_TASK",victim);
+        if(fault.equals("source-expiry")){while(System.currentTimeMillis()<=deadline)Thread.sleep(10);}
+        else if(fault.equals("policy-corrupt"))Files.writeString(policy.path,"{}");
+        else bootstrap(()->{grant.removePermission(Permissions.READ_HISTORY);engine.getAuthorizationService().saveAuthorization(grant);return null;});
+        blocker.commit();refusal(assertThrows(ExecutionException.class,()->victim.get(10,TimeUnit.SECONDS)),fault.equals("source-expiry")?"engine_resource_mismatch":"engine_profile_unavailable",fault.equals("source-expiry")?403:503);
+        assertEquals(before,state());
+      } finally {blocker.rollback();Files.write(policy.path,saved);victim.cancel(true);}
+    } finally {
+      pool.shutdownNow();assertTrue(pool.awaitTermination(10,TimeUnit.SECONDS));
+      try(var c=connection();var s=c.createStatement()){s.execute("DROP TRIGGER d7_hold_source_target ON act_ru_ext_task");s.execute("DROP FUNCTION d7_hold_source_target()");}
+      bootstrap(()->{grant.setPermissions(permissions);engine.getAuthorizationService().saveAuthorization(grant);engine.getExternalTaskService().unlock((String)request.get("source_ref"));engine.getExternalTaskService().lock((String)request.get("source_ref"),"fixture-worker",60000);return null;});
+    }
+    ready(row);call(row,request);
+  }
+  @Test void typedRequestWithMissingNativeAuthenticationIsRefused()throws Exception {
+    String row="helena.escalation.start.v1";var request=Fixtures.request(caps.get(row));var before=state();
+    engine.getIdentityService().clearAuthentication();
+    refusal(assertThrows(Refused.class,()->plugin.execute(peer(row),request)),"engine_operation_denied",403);
+    assertEquals(before,state());ready(row);assertNotNull(call(row,request).get("result"));
   }
   @AfterAll void cleanup()throws Exception {
     if(engine!=null)engine.close();

@@ -8,11 +8,13 @@ ROOT command against the loopback-only legacy bootstrap fixture before secured c
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import importlib.util
 import json
 import os
 import re
+import ssl
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -188,6 +190,60 @@ def prepare(args) -> None:
             "max_poll_millis": 10000,
             "peers": peers,
         }
+        # A second real leaf has the same immutable workload authority; only its key changes.
+        agent = next(p for p in peers if p["engine_user"] == "d7-agent")
+        variants = {}
+        for name in ("agent-next", "unknown-leaf", "wrong-san", "expired", "no-eku"):
+            key = ec.generate_private_key(ec.SECP256R1())
+            builder = (
+                x509.CertificateBuilder()
+                .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "agent")]))
+                .issuer_name(ca.subject)
+                .public_key(key.public_key())
+                .serial_number(x509.random_serial_number())
+                .not_valid_before(
+                    now - timedelta(days=2) if name == "expired" else now - timedelta(seconds=10)
+                )
+                .not_valid_after(now - timedelta(days=1) if name == "expired" else ca.not_valid_after_utc)
+                .add_extension(x509.BasicConstraints(ca=False, path_length=None), True)
+                .add_extension(
+                    x509.KeyUsage(True, False, False, False, False, False, False, False, False), True
+                )
+                .add_extension(
+                    x509.SubjectAlternativeName(
+                        [
+                            x509.UniformResourceIdentifier(
+                                agent["uri_san"] + "-wrong" if name == "wrong-san" else agent["uri_san"]
+                            )
+                        ]
+                    ),
+                    False,
+                )
+            )
+            if name != "no-eku":
+                builder = builder.add_extension(
+                    x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]), True
+                )
+            cert = builder.sign(ca_key, hashes.SHA256())
+            (root / f"{name}.key").write_bytes(
+                key.private_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PrivateFormat.PKCS8,
+                    serialization.NoEncryption(),
+                )
+            )
+            (root / f"{name}.crt").write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+            variants[name] = {
+                "certificate_sha256": hashlib.sha256(
+                    cert.public_bytes(serialization.Encoding.DER)
+                ).hexdigest(),
+                "spki_sha256": hashlib.sha256(
+                    key.public_key().public_bytes(
+                        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
+                    )
+                ).hexdigest(),
+            }
+        dump(root / "certificate-variants.json", variants)
         dump(root / "boundary-template.json", policy)
         dump(
             root / "d7-fixture.json",
@@ -213,6 +269,13 @@ def seed(root: Path) -> None:
     if (root / "boundary.json").exists():
         raise ValueError("seed is one-shot; preserve existing fixture instead of redeploying")
     tenant = metadata["tenant"]
+    context = ssl.create_default_context(cafile=root / "ca.crt")
+    context.load_cert_chain(root / "command.crt", root / "command.key")
+    with httpx.Client(verify=context, trust_env=False, follow_redirects=False, timeout=10) as probe:
+        ready = probe.post("https://localhost:18443/maezo-human/v1/commands", json={})
+        assert ready.status_code == 400 and ready.json() == {"error": "INVALID_COMMAND"}, (
+            "bootstrap must be the qualified original D5 human image; native vendor image is insufficient"
+        )
     # Deliberately local, setup-only existing bootstrap engine. Never used by the secured workload transport.
     with httpx.Client(
         base_url="http://127.0.0.1:18080/engine-rest", trust_env=False, follow_redirects=False, timeout=10
@@ -342,12 +405,48 @@ def seed(root: Path) -> None:
                         "permissions": ["CREATE"],
                     },
                 )
-        # Setup-only CONTAS instance for the approved worker completion row; no production business claim.
-        request(
+        # Separate real resources for refusal and legitimate lifecycle controls. Raw attempts
+        # share an immutable target only while every predecessor's no-effect assertion passed.
+        external_instance = request(
             "POST",
             f"/process-definition/{definitions['SP-OP-CONTAS-001']['id']}/start",
-            json={"businessKey": "d7-isolated-contas", "variables": {}},
+            json={
+                "businessKey": "d7-raw-existing-external",
+                "variables": {"fixture_value": {"value": "synthetic", "type": "String"}},
+            },
         )
+        external = request("GET", "/external-task", params={"processInstanceId": external_instance["id"]})
+        assert len(external) == 1
+        request(
+            "POST",
+            f"/external-task/{external[0]['id']}/lock",
+            json={"workerId": "fixture-worker", "lockDuration": 86400000},
+        )
+        for n in range(3):
+            request(
+                "POST",
+                f"/process-definition/{definitions['SP-OP-CONTAS-001']['id']}/start",
+                json={"businessKey": f"d7-lifecycle-{n}", "variables": {}},
+            )
+        resources = {"external": external[0], "external_instance": external_instance}
+    # Existing D5/D6 fixture performs real migrations, signed claim and receipt, then
+    # leaves a legitimate release pending. No receipt/table is fabricated for D7.
+    resources.update(asyncio.run(seed_relay(root)))
+    with httpx.Client(
+        base_url="http://127.0.0.1:18080/engine-rest", trust_env=False, follow_redirects=False, timeout=10
+    ) as connection:
+        human = resources["human"]
+        for label, path in (
+            ("human", f"/task/{human['id']}"),
+            ("human_definition", f"/process-definition/{human['processDefinitionId']}"),
+            ("external", f"/external-task/{external[0]['id']}"),
+        ):
+            r = connection.get(path)
+            assert r.status_code == 200
+            resources[label] = r.json()
+            assert resources[label]["tenantId"] == tenant
+        assert resources["human_definition"]["key"] == "MZO-HUMAN-SYNTHETIC"
+    dump(root / "resources.json", resources)
     dump(root / "definitions.json", definitions)
     dump(root / "boundary.json", policy)
     compose = json.loads((root / "bootstrap-compose.json").read_text())
@@ -378,6 +477,72 @@ def seed(root: Path) -> None:
         )
     dump(root / "secured-compose.json", compose)
     print("Seeded isolated setup and bound exact policy; stop bootstrap engine before secured restart.")
+
+
+async def seed_relay(root: Path) -> dict:
+    from tests.support.human_relay_live import LiveRelayFixture, RelayConfig, relay
+
+    previous = os.environ.get("MAEZO_HUMAN_RELAY_PRIVATE_DIR")
+    os.environ["MAEZO_HUMAN_RELAY_PRIVATE_DIR"] = str(root)
+    try:
+        config = RelayConfig.load()
+    finally:
+        if previous is None:
+            os.environ.pop("MAEZO_HUMAN_RELAY_PRIVATE_DIR", None)
+        else:
+            os.environ["MAEZO_HUMAN_RELAY_PRIVATE_DIR"] = previous
+    artifacts = root / "synthetic-relay-bootstrap"
+    artifacts.mkdir(mode=0o700)
+    live = LiveRelayFixture(config, artifacts)
+    try:
+        await live.open()
+        claim = await live.command()
+        await live.persist(claim)
+        assert await relay(live.store, live.transport()).run_once()
+        await live.assert_result(claim)
+        assert len(await live.engine_receipts()) == 1
+        # All setup mutations precede the immutable pending command revision.
+        for path in (
+            f"/task/{live.task_id}/variables/fixture_value",
+            f"/task/{live.task_id}/localVariables/fixture_local",
+        ):
+            r = await live.rest.put(path, json={"value": "synthetic", "type": "String"})
+            assert r.status_code == 204
+        r = await live.rest.post(
+            f"/task/{live.task_id}/localVariables/fixture_binary/data",
+            files={"data": ("synthetic.bin", b"nonclinical-fixture", "application/octet-stream")},
+        )
+        assert r.status_code == 204
+        r = await live.rest.post(
+            f"/task/{live.task_id}/identity-links",
+            json={"groupId": "synthetic-reviewers", "type": "candidate"},
+        )
+        assert r.status_code == 204
+        pending = await live.command("release")
+        await live.persist(pending)
+        delivery = await live.delivery(pending)
+        assert delivery["status"] == "pending" and delivery["engine_receipt"] is None
+        assert len(await live.rows("audit_chain")) == 3
+        assert len(await live.engine_receipts()) == 1
+        dump(root / "pending-release.json", json.loads(pending.canonical))
+        return {
+            "human": {"id": live.task_id, "processDefinitionId": live.process_id},
+            "human_instance": live.instance_id,
+            "human_execution": (await live.task())["execution_id_"],
+            "tenant_schema": live.scope.tenant,
+            "decision_receipt_fabricated": False,
+            "receipt_command_id": claim.command_id,
+            "pending_command_id": pending.command_id,
+        }
+    finally:
+        # Keep only this owned disposable fixture's durable rows for secure cutover.
+        # ROOT removes its Compose project/data at final teardown; no schema adoption.
+        if hasattr(live, "rest"):
+            await live.rest.aclose()
+        if hasattr(live, "pool"):
+            await live.pool.close()
+        if hasattr(live, "admin"):
+            await live.admin.close()
 
 
 if __name__ == "__main__":
