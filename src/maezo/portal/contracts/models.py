@@ -123,6 +123,7 @@ FormKey = Literal[
     "reembolso_auditor",
     "cancel_decisao",
     "inad_decisao",
+    "programa_decisao",
 ]
 FormSourceStatus = Literal["BPMN_FORMDATA", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"]
 TaskAction = Literal["claim", "release", "decision"]
@@ -161,6 +162,9 @@ AllowedInput = Literal[
     "data_efeito_iso",
     "referencia_regulatoria",
     "comprovacao_notificacao_previa",
+    "decisao_programa",
+    "motivo_desligamento_clinico",
+    "referencia_clinica",
 ]
 
 
@@ -630,6 +634,42 @@ class InadDecisionInputs(_FrozenContract):
         return self
 
 
+class ProgramaDecisionInputs(_FrozenContract):
+    """Human PROGRAMA decision shared by the clinical and SLA-takeover tasks.
+
+    SP-OP-PROGRAMA-001 lines 105-108 and the two BPMN task descriptions define this narrow
+    browser-writable shape. ``responsavel_clinico_id`` is injected later from trusted human-task
+    context. Consent, eligibility, enrollment gaps, timers, tenant and autonomy tier are likewise
+    authoritative context, never browser claims. Constructing this DRAFT DTO does not authenticate
+    a clinician, establish consent or clinical merit, or execute an engine/clinical decision.
+
+    The contract separately lists ``decisao_coordenacao``, but the current BPMN has no gateway,
+    worker or other decision consumer for it. It remains an explicit unbound obligation instead of
+    becoming an arbitrary browser control in this slice.
+    """
+
+    kind: Literal["programa_decisao"]
+    decisao_programa: Literal[
+        "ENROLL",
+        "MANTER_ACOMPANHAMENTO",
+        "DESLIGAR_CLINICO",
+        "SOLICITAR_INFO",
+    ]
+    motivo_desligamento_clinico: RequiredText | None = None
+    referencia_clinica: RequiredText | None = None
+
+    @model_validator(mode="after")
+    def _clinical_discharge_has_complete_basis(self) -> Self:
+        if self.decisao_programa == "DESLIGAR_CLINICO":
+            for field, value in (
+                ("motivo_desligamento_clinico", self.motivo_desligamento_clinico),
+                ("referencia_clinica", self.referencia_clinica),
+            ):
+                if value is None or not value.strip():
+                    raise ValueError(f"DESLIGAR_CLINICO requires {field}")
+        return self
+
+
 DecisionInputs = Annotated[
     AuthDecisionInputs
     | AuthJuntaInputs
@@ -644,7 +684,8 @@ DecisionInputs = Annotated[
     | ReembolsoDecisionInputs
     | ReembolsoAuditorInputs
     | CancelDecisionInputs
-    | InadDecisionInputs,
+    | InadDecisionInputs
+    | ProgramaDecisionInputs,
     Field(discriminator="kind"),
 ]
 
@@ -713,6 +754,14 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     ),
     ("SP-OP-INADIMPLENCIA-001", "UT_CoordenacaoCobranca"): (
         "inad_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-PROGRAMA-001", "UT_DecisaoClinica"): (
+        "programa_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-PROGRAMA-001", "UT_CoordenacaoDecisao"): (
+        "programa_decisao",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
 }
@@ -800,6 +849,11 @@ _INPUTS_BY_FORM: dict[FormKey, tuple[AllowedInput, ...]] = {
         "comprovacao_notificacao_previa",
         "comprovacao_periodo_minimo",
         "data_efeito_iso",
+    ),
+    "programa_decisao": (
+        "decisao_programa",
+        "motivo_desligamento_clinico",
+        "referencia_clinica",
     ),
 }
 
