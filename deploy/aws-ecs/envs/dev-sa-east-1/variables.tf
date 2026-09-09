@@ -214,7 +214,7 @@ variable "webhook_receiver_image_tag" {
     forem promovidos para a mesma tag, esta variavel pode voltar a apontar para `image_tag`.
   EOT
   type        = string
-  default     = "f713f997" # main de 09/09/2026, digest sha256:cbb27be8…
+  default     = "7e820194" # filas camelCase + fiacao PHI da Helena (09/09/2026), digest sha256:66b7b15d…
 }
 
 variable "webhook_receiver_desired_count" {
