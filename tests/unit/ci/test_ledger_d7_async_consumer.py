@@ -21,8 +21,14 @@ from scripts.ci import ledger_invalid_declarations as static
 
 ROOT = Path(__file__).resolve().parents[3]
 TEST = "tests/unit/test_async.py"
-OLD = b"import asyncio,pytest\n@pytest.mark.asyncio\nasync def test_old():\n await asyncio.sleep(0)\n assert True\n"
-NEW = b"import asyncio,pytest\n@pytest.mark.asyncio\nasync def test_current():\n await asyncio.sleep(0)\n assert True\ndef test_sync(): assert True\n"
+OLD = (
+    b"import asyncio,pytest\n@pytest.mark.asyncio\nasync def test_old():\n"
+    b" await asyncio.sleep(0)\n assert True\n"
+)
+NEW = (
+    b"import asyncio,pytest\n@pytest.mark.asyncio\nasync def test_current():\n"
+    b" await asyncio.sleep(0)\n assert True\ndef test_sync(): assert True\n"
+)
 HEADER = "| Task ID | Date | Author | Verifier | Commit | Evidence | Test hash | Status |\n"
 
 
@@ -42,7 +48,10 @@ def row(task: str, digest: str, evidence: str = "synthetic", path: str = TEST) -
 
 
 def marker(digest: str) -> str:
-    return f"[ledger-supersedes:v2;kind=invalid-declaration;record=docs/evidence-corrections/{digest}.json;record_sha256={digest}]"
+    return (
+        f"[ledger-supersedes:v2;kind=invalid-declaration;record=docs/evidence-corrections/{digest}.json;"
+        f"record_sha256={digest}]"
+    )
 
 
 @pytest.fixture(scope="module")
@@ -424,3 +433,215 @@ def test_current_candidate_producer_pin_refused(candidate: Any, path: str) -> No
         proof.async_producer_capsule(repo),
     ):
         pytest.fail("changed candidate tooling must refuse")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["schema", "producer", "source", "row", "lock", "plugin", "phase", "source-map", "foreign-plugin"],
+)
+def test_resealed_inner_cannot_evade_semantic_validation(
+    candidate: Any, adapter: Any, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    repo, reviewed, _, _, _, tmp, prefix, _ = candidate
+    packet = tmp / "forged-inner"
+    proof.materialize(
+        packet,
+        {
+            path.relative_to(repo / prefix).as_posix(): path.read_bytes()
+            for path in (repo / prefix).rglob("*")
+            if path.is_file()
+        },
+    )
+    receipt = adapter.load(packet / "capture/receipt.json")
+    if mutation == "schema":
+        receipt["schema"] = "maezo-historical-recipe-proof/v1"
+    elif mutation == "producer":
+        receipt["source"]["tooling"]["helper"] = archive.PRODUCER_SHA256
+    elif mutation == "source":
+        receipt["source"]["commit"] = git(repo, "rev-parse", "HEAD")
+    elif mutation == "row":
+        receipt["source"]["row_sha256"] = "a" * 64
+    elif mutation == "lock":
+        receipt["source"]["config"]["uv.lock"] = "b" * 64
+    elif mutation == "plugin":
+        receipt["plugin"]["distribution"]["version"] = "0"
+    elif mutation == "phase":
+        phase = adapter.load(packet / "capture/phase.json")
+        phase["coverage"]["phases"].pop()
+        (packet / "capture/phase.json").write_bytes(adapter.encode(phase))
+    elif mutation == "source-map":
+        before = adapter.load(packet / "capture/source-before.json")
+        before[TEST]["sha256"] = "a" * 64
+        (packet / "capture/source-before.json").write_bytes(adapter.encode(before))
+    else:
+        phase = adapter.load(packet / "capture/phase.json")
+        paths = phase["archived"]
+        paths[:] = [p for p in paths if "pytest_asyncio" not in p]
+        paths.extend(
+            ["/foreign/plugin/pytest_asyncio/__init__.py", "/foreign/plugin/pytest_asyncio/plugin.py"]
+        )
+        (packet / "capture/phase.json").write_bytes(adapter.encode(phase))
+    (packet / "capture/receipt.json").write_bytes(adapter.encode(receipt))
+    # Deliberately re-pin only the synthetic fixture so this test reaches the
+    # downstream semantics, independently of the immutable production hash wall.
+    inner = packet / "capture"
+    (inner / "manifest.json").write_bytes(
+        adapter.encode(adapter.Packet(inner).hashes(exclude="manifest.json"))
+    )
+    pins = {name: static.digest((inner / name).read_bytes()) for name in archive.D7_INNER_PINS}
+    monkeypatch.setattr(archive, "D7_INNER_PINS", pins)
+    envelope = adapter.load(packet / "successor.json")
+    envelope["capture"] = pins
+    (packet / "successor.json").write_bytes(adapter.encode(envelope))
+    (packet / "manifest.json").write_bytes(
+        adapter.encode(adapter.Packet(packet).hashes(exclude="manifest.json"))
+    )
+    monkeypatch.setattr(
+        proof,
+        "D7_CATALOG",
+        (
+            replace(
+                reviewed,
+                manifest_sha256=static.digest((packet / "manifest.json").read_bytes()),
+                receipt_sha256=static.digest((packet / "successor.json").read_bytes()),
+            ),
+        ),
+    )
+    with pytest.raises((ValueError, RuntimeError)):
+        archive.validate_d7_archived_receipt(adapter, packet, repo, reviewed.identity())
+
+
+def test_archive_portability_does_not_mutate_native_runtime_refusal(
+    candidate: Any, adapter: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, reviewed, _, _, _, _, prefix, _ = candidate
+    packet = repo / prefix
+    literal = adapter.original_producer
+
+    def refused(*args: Any) -> str:
+        raise ValueError("foreign runtime sentinel")
+
+    monkeypatch.setattr(literal, "runtime_digest", refused)
+    observations = adapter.load(packet / "capture/receipt.json")["scope"]["original_observations"]
+    with pytest.raises(ValueError, match="foreign runtime sentinel"):
+        adapter.validate_receipt(packet / "capture", repo, reviewed.identity(), observations)
+    result = archive.validate_d7_archived_receipt(adapter, packet, repo, reviewed.identity())
+    assert result["scope"]["status"] == "observation-only"
+    assert result["scope"]["current_proof_disposition"] == "unresolved"
+    assert literal.runtime_digest is refused
+    with pytest.raises(ValueError, match="foreign runtime sentinel"):
+        adapter.validate_receipt(packet / "capture", repo, reviewed.identity(), observations)
+
+
+@pytest.mark.parametrize("stage", ["fresh-historical", "fresh-current"])
+def test_replayed_stale_capture_refused_after_real_execution(
+    candidate: Any, adapter: Any, monkeypatch: pytest.MonkeyPatch, stage: str
+) -> None:
+    repo, _, _, _, _, tmp, _, _ = candidate
+    capture = adapter.capture_source
+
+    def stale(*args: Any) -> Any:
+        result = capture(*args)
+        out = args[3]
+        if out.name == stage:
+            command = adapter.load(out / "pytest.command.json")
+            command["started_at"] = "2000-01-01T00:00:00+00:00"
+            command["finished_at"] = "2000-01-01T00:00:01+00:00"
+            result["execution"] = command
+            (out / "pytest.command.json").write_bytes(adapter.encode(command))
+            (out / "receipt.json").write_bytes(adapter.encode(result))
+            (out / "manifest.json").write_bytes(
+                adapter.encode(adapter.Packet(out).hashes(exclude="manifest.json"))
+            )
+        return result
+
+    monkeypatch.setattr(adapter, "capture_source", stale)
+    with pytest.raises(static.InvalidDeclarationError, match="IC_FRESH_EXECUTION_REQUIRED"):
+        run(candidate, adapter, "stale")
+    assert (tmp / "stale" / stage / "receipt.json").is_file()
+    assert not (tmp / "stale/result.json").exists()
+
+
+@pytest.mark.parametrize("stage", ["fresh-historical", "fresh-current"])
+def test_swapped_source_captures_refused(
+    candidate: Any, adapter: Any, monkeypatch: pytest.MonkeyPatch, stage: str
+) -> None:
+    repo, reviewed, _, _, _, tmp, _, _ = candidate
+    capture = adapter.capture_source
+
+    def swapped(*args: Any) -> Any:
+        values = list(args)
+        if values[3].name == stage:
+            values[1] = git(repo, "rev-parse", "HEAD") if stage == "fresh-historical" else reviewed.source
+        return capture(*values)
+
+    monkeypatch.setattr(adapter, "capture_source", swapped)
+    with pytest.raises((ValueError, RuntimeError)):
+        run(candidate, adapter, "swapped")
+    assert not (tmp / "swapped/result.json").exists()
+
+
+def test_d7_failed_new_history_does_not_use_old_pass(
+    candidate: Any, adapter: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A missing actual invocation is a refusal even though the archive authenticates.
+    _, _, _, _, _, tmp, _, _ = candidate
+
+    def unavailable(*args: Any) -> Any:
+        raise RuntimeError("new historical capture unavailable")
+
+    monkeypatch.setattr(adapter, "capture_source", unavailable)
+    with pytest.raises(RuntimeError, match="new historical capture unavailable"):
+        run(candidate, adapter, "missing-new")
+    assert not (tmp / "missing-new/fresh-current").exists()
+    assert not (tmp / "missing-new/result.json").exists()
+
+
+def test_nested_evidence_diff_is_selected_without_row_delta(candidate: Any) -> None:
+    repo, _, plan_fn, _, _, _, prefix, _ = candidate
+    base = git(repo, "rev-parse", "HEAD")
+    # Unrelated committed non-source documentation does not force execution.
+    write(repo, "docs/unrelated.md", b"only documentation")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "unrelated docs")
+    plan = plan_fn()
+    assert static.selected_unresolved(repo, plan, [], base) == ()
+    # Nested files are transitively relation-owned, not just outer JSON refs.
+    assert prefix + "capture/source-before.json" in plan.relations[0].evidence_paths
+    assert prefix + "capture/phase.json" in plan.relations[0].evidence_paths
+    assert any("review/source-MANIFEST.json" in p for p in plan.relations[0].evidence_paths)
+    # Selecting from before evidence existed forces the relation, with no row list.
+    assert len(static.selected_unresolved(repo, plan, [], candidate[1].source)) == 1
+
+
+@pytest.mark.parametrize(
+    "mutation", ["duplicate-target", "duplicate-current", "orphan-inner", "orphan-review"]
+)
+def test_physical_occurrence_and_complete_evidence_closure(candidate: Any, mutation: str) -> None:
+    repo, _, plan_fn, _, _, _, prefix, _ = candidate
+    if mutation.startswith("duplicate"):
+        path = repo / "docs/evidence-ledger.md"
+        lines = path.read_text().splitlines()
+        path.write_text(path.read_text() + lines[1 if mutation == "duplicate-target" else 2] + "\n")
+    else:
+        write(
+            repo,
+            prefix + ("capture/unlisted.txt" if mutation == "orphan-inner" else "../review/unlisted.txt"),
+            b"orphan",
+        )
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "bad physical closure")
+    with pytest.raises(static.InvalidDeclarationError):
+        plan_fn()
+
+
+def test_collision_cycle_and_valid_history_do_not_expand_d7(candidate: Any) -> None:
+    _, _, _, record, _, _, _, _ = candidate
+    with pytest.raises(checker.SupersessionError):
+        static.assert_disjoint([("a", "b")], [("c", "b")])
+    with pytest.raises(checker.SupersessionError):
+        static.assert_disjoint([("a", "b"), ("b", "a")], [])
+    value = dict(record, schema="maezo-ledger-verified-history/v1", proof_id="D7unit802")
+    value.pop("reason")
+    with pytest.raises(static.InvalidDeclarationError, match="IC_REASON"):
+        static.parse_record(json.dumps(value).encode(), kind="verified-history")

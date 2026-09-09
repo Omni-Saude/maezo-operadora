@@ -130,7 +130,7 @@ D7_INNER_PINS = {
     "manifest.json": "f253d4a951493089496576e48a529f2a35d8bdf932c002983f7c19a101b908d6",
     "receipt.json": "12c1d73c1a87c6dd4ba203f666111214f4546499781f1bf0f63b6e2ae64941a8",
 }
-D7_ARCHIVED_REPOSITORY = "/Users/familia/code/maezo-operadora"
+D7_ARCHIVED_REPOSITORY = "/Users/familia/code/maezo-completion-wt/ledger-d7-async-successor-repair"
 # Finite identity comparisons only, never paths to open or execute.
 D7_PRODUCER_RUNTIMES = dict(PRODUCER_RUNTIMES)
 
