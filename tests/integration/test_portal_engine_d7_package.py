@@ -716,13 +716,20 @@ def wait_ready(purpose: str = "agent") -> None:
     while time.monotonic() < deadline:
         try:
             with client(purpose) as connection:
-                response = connection.get("/engine-rest/maezo/v1/readiness")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                response = connection.get("/engine-rest/maezo/v1/readiness", timeout=min(15, remaining))
+            if time.monotonic() >= deadline:
+                break
             if response.status_code == 200:
                 assert response.json()["ready"] and response.json()["capabilities"]
                 return
-        except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError):
+        except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError, httpx.TimeoutException):
             pass
-        time.sleep(0.25)
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(0.25, remaining))
     pytest.fail("actual authenticated capability readiness did not recover")
 
 
