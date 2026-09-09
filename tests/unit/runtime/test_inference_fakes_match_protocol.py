@@ -950,6 +950,114 @@ def _checa_metodo_ambiguo(
     return achados, ancoradas
 
 
+def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.ClassDef, set[str]]:
+    """Resolve colisões de `close`/`send` por USO da classe, não pelo seu nome ou caminho.
+
+    HTTPConnection substituído por monkeypatch e socket passado diretamente a SyncStream
+    (também via subclasse) são colaboradores externos reais. Imports sozinhos, classes irmãs
+    e coincidência de assinatura não provam essa relação. Resolução estática e lexical de
+    imports/aliases; não importa nem executa o módulo de teste. Outros usos não reconhecidos
+    mantêm o fallback F1/F7. A prova externa só afeta métodos compartilhados, nunca a classe
+    inteira; outra âncora da família ou herança explícita conserva a checagem de drift.
+    """
+    if arvore is None:
+        return {}
+    bindings: dict[str, str | ast.ClassDef] = {}
+    bases: dict[ast.ClassDef, set[str]] = {}
+    externos: dict[ast.ClassDef, set[str]] = {}
+
+    def resolve(no: ast.expr, scope: dict[str, str | ast.ClassDef]) -> str | ast.ClassDef | None:
+        if isinstance(no, ast.Name):
+            return scope.get(no.id)
+        if isinstance(no, ast.Attribute):
+            parent = resolve(no.value, scope)
+            if isinstance(parent, str):
+                return parent + "." + no.attr
+        return None
+
+    def marca(classe: ast.ClassDef, metodos: set[str]) -> None:
+        externos.setdefault(classe, set()).update(metodos)
+
+    def visita(no: ast.AST, scope: dict[str, str | ast.ClassDef]) -> None:
+        if isinstance(no, ast.Import):
+            for alias in no.names:
+                scope[alias.asname or alias.name.split(".")[0]] = (
+                    alias.name if alias.asname else alias.name.split(".")[0]
+                )
+            return
+        if isinstance(no, ast.ImportFrom):
+            if no.module and not no.level:
+                for alias in no.names:
+                    scope[alias.asname or alias.name] = no.module + "." + alias.name
+            return
+        if isinstance(no, ast.ClassDef):
+            ancestors: set[str] = set()
+            for base in no.bases:
+                resolved = resolve(base, scope)
+                if isinstance(resolved, str):
+                    ancestors.add(resolved)
+                elif isinstance(resolved, ast.ClassDef):
+                    ancestors.update(bases.get(resolved, set()))
+            bases[no] = ancestors
+            scope[no.name] = no
+            local = dict(scope)
+            for item in no.body:
+                visita(item, local)
+            return
+        if isinstance(no, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            if not isinstance(no, ast.Lambda):
+                scope.pop(no.name, None)
+            local = dict(scope)
+            for arg in [*no.args.posonlyargs, *no.args.args, *no.args.kwonlyargs]:
+                local.pop(arg.arg, None)
+            for arg in (no.args.vararg, no.args.kwarg):
+                if arg is not None:
+                    local.pop(arg.arg, None)
+            body = [no.body] if isinstance(no, ast.Lambda) else no.body
+            for item in body:
+                visita(item, local)
+            return
+        if isinstance(no, ast.Assign):
+            value = resolve(no.value, scope)
+            for target in no.targets:
+                if isinstance(target, ast.Name):
+                    scope.pop(target.id, None)
+                    if value is not None:
+                        scope[target.id] = value
+        if isinstance(no, ast.Call):
+            # API monkeypatch.setattr(module, "HTTPConnection", replacement_class).
+            if isinstance(no.func, ast.Attribute) and no.func.attr == "setattr" and len(no.args) >= 3:
+                target, attribute, replacement = no.args[:3]
+                classe = resolve(replacement, scope)
+                if (
+                    resolve(target, scope) == "http.client"
+                    and isinstance(attribute, ast.Constant)
+                    and attribute.value == "HTTPConnection"
+                    and isinstance(classe, ast.ClassDef)
+                ):
+                    marca(classe, {"close"})
+            stream = resolve(no.func, scope)
+            stream_bases = bases.get(stream, set()) if isinstance(stream, ast.ClassDef) else {stream}
+            if "httpcore._backends.sync.SyncStream" in stream_bases and no.args:
+                socket = no.args[0]
+                classe = resolve(socket.func, scope) if isinstance(socket, ast.Call) else None
+                if isinstance(classe, ast.ClassDef):
+                    marca(classe, {"send", "close"})
+        for child in ast.iter_child_nodes(no):
+            visita(child, scope)
+
+    visita(arvore, bindings)
+    for classe, metodos in externos.items():
+        proprios = _metodos_proprios_ast(classe)
+        for familia in _FAMILIAS:
+            metodos_familia = familia.metodos()
+            identidade = familia.membro.__module__ + "." + familia.membro.__name__
+            outras_ancoras = set(proprios) & (set(metodos_familia) - {"close", "send"})
+            if identidade in bases.get(classe, set()) or outras_ancoras:
+                metodos.difference_update(metodos_familia)
+    return externos
+
+
 def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
     achados: list[str] = []
     unicos = _nomes_unicos()
@@ -958,6 +1066,7 @@ def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
     arvore = _arvore_de_fonte(fonte)
     modulos_arquivo = _modulos_importados_ast(arvore)
     agentes_arquivo = _agentes_mencionados_ast(arvore, modulos_arquivo)
+    metodos_externos = _metodos_de_colaborador_externo(arvore)
 
     for classe in _classes_da_arvore(arvore):
         metodos_classe = _metodos_proprios_ast(classe)
@@ -965,6 +1074,8 @@ def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
         achados_da_classe: list[str] = []
 
         for nome_metodo, no in metodos_classe.items():
+            if nome_metodo in metodos_externos.get(classe, set()):
+                continue  # uso concreto identifica outro colaborador, não esta família
             if nome_metodo == _NOME_COM_DISCRIMINADOR_PROPRIO:
                 continue  # coberto pelas secoes (A)/(B) acima (marcador `phi`)
             if nome_metodo in _NOMES_SOMENTE_SECUNDARIOS:
