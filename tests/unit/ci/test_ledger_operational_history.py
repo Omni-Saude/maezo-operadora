@@ -703,7 +703,7 @@ def test_unresolved_relation_preserves_disjoint_actual_failure(
     out.mkdir(mode=0o700)
     assert checker.main(["--base", reviewed.source, "--proof-output", str(out)], repo_root=repo) == 1
     output = capsys.readouterr().out
-    assert "UNRELATED" in output and "ERROR:" in output
+    assert "UNRELATED" in output and "MISMATCH:" in output
     assert "2 unresolved/errors" in output
     assert "ACCEPTED_WITH" not in output
 
